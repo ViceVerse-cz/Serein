@@ -8,6 +8,8 @@
 //! * Linux: GStreamer's `decodebin` pulling bytes from the same stream through `appsrc`.
 use std::io::{Read, Seek};
 
+/// Audited, shared FFmpeg native ABI for encoding, decoding and GPU identity.
+pub mod ffmpeg;
 mod picture;
 pub use picture::{Color, Layout, Matrix, Picture, pack_plane};
 

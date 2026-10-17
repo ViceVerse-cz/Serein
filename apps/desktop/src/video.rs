@@ -14,7 +14,7 @@ struct Update {
 	state: VideoState,
 	position: f64,
 	duration: f64,
-	frame: Option<platform::video::Picture>,
+	frame: Option<DisplayFrame>,
 }
 struct Session {
 	cancelled: Arc<AtomicBool>,
@@ -42,6 +42,7 @@ struct Request {
 	session: Arc<Session>,
 	url: Option<url::Url>,
 	size: usize,
+	adapter: Option<model::VideoAdapter>,
 }
 /// One idle-stage poster: decode a single first frame, never playback.
 struct PosterJob {
@@ -59,6 +60,7 @@ struct PosterDone {
 }
 #[derive(Default)]
 pub struct Video {
+	adapter: Option<model::VideoAdapter>,
 	session: Option<Arc<Session>>,
 	requests: Option<tokio::sync::watch::Sender<Option<Request>>>,
 	poster_jobs: Option<std::sync::mpsc::Sender<PosterJob>>,
@@ -75,6 +77,18 @@ pub struct Video {
 /// In-flight poster ceiling; excess requests retry while still visible.
 const POSTER_JOBS_MAX: usize = 32;
 impl Video {
+	pub fn for_adapter(adapter: model::VideoAdapter) -> Self {
+		Self {
+			adapter: Some(adapter),
+			session: None,
+			requests: None,
+			poster_jobs: None,
+			poster_results: Default::default(),
+			poster_pending: Default::default(),
+			poster_cancelled: Default::default(),
+			texture: Default::default(),
+		}
+	}
 	pub fn stop(&mut self) {
 		if let Some(session) = self.session.take() {
 			session.cancelled.store(true, Ordering::Release);
@@ -119,11 +133,23 @@ impl Video {
 			player.duration = update.duration;
 			let frame = update.frame.take();
 			drop(update);
-			if let Some(picture) = frame
+			if let Some(frame) = frame
 				&& player.active.is_some()
-				&& let Some(texture) = self.texture.upload(ctx, "inline-video", picture.borrow())
 			{
-				player.show_frame(texture);
+				match frame {
+					DisplayFrame::Native(picture) => {
+						if let Some(texture) =
+							self.texture.upload(ctx, "inline-video", picture.borrow())
+						{
+							player.show_frame(texture);
+						}
+					}
+					DisplayFrame::Picture(frame) => {
+						let view = media_view(frame, player.media.as_ref());
+						self.texture = Default::default();
+						player.show_media(view);
+					}
+				}
 			}
 		}
 	}
@@ -220,6 +246,7 @@ impl Video {
 			session: session.clone(),
 			url,
 			size: attachment.size as usize,
+			adapter: self.adapter,
 		}));
 		self.session = Some(session);
 		Ok(())
@@ -429,7 +456,6 @@ fn play(
 	runtime: &tokio::runtime::Handle,
 	ctx: &eframe::egui::Context,
 ) -> Result<(), &'static str> {
-	use platform::video::Decoder;
 	let session = &request.session;
 	let source = source::source(
 		request.url.clone(),
@@ -437,7 +463,8 @@ fn play(
 		session.cancelled.clone(),
 		runtime.clone(),
 	)?;
-	let result = Decoder::open(source).and_then(|decoder| play_decoded(decoder, session, ctx));
+	let result = AttachmentDecoder::open(source, request.adapter)
+		.and_then(|decoder| play_decoded(decoder, session, ctx));
 	#[cfg(target_os = "macos")]
 	let result = match result {
 		Err(error) if fallback::eligible(error) && !session.cancelled.load(Ordering::Acquire) => {
@@ -477,11 +504,12 @@ fn play(
 }
 
 fn play_decoded(
-	mut decoder: platform::video::Decoder,
+	decoder: impl Into<AttachmentDecoder>,
 	session: &Session,
 	ctx: &eframe::egui::Context,
 ) -> Result<(), &'static str> {
-	use platform::video::Sample;
+	let mut decoder = decoder.into();
+	use platform::video::ffmpeg::Sample;
 	use std::{
 		collections::VecDeque,
 		task::Poll::{Pending, Ready},
@@ -530,6 +558,13 @@ fn play_decoded(
 		loop {
 			if session.cancelled.load(Ordering::Acquire) {
 				return Ok(());
+			}
+			if decoder.take_restart() {
+				// The shared decoder rewound both tracks after hardware rejected its
+				// first picture. Retire queued audio before restarting the same seek.
+				drop(output);
+				seeking = true;
+				continue 'seek;
 			}
 			let seek = session.seek.swap(u64::MAX, Ordering::AcqRel);
 			if seek != u64::MAX {
@@ -660,8 +695,7 @@ fn play_decoded(
 					_ => return Err("Unexpected video audio track"),
 				}
 			}
-			// Two frames ahead (<=6 MiB as 1080p NV12, 16 MiB as RGBA), plus one bounded
-			// audio packet and one second of PCM.
+			// Two byte-accounted pictures ahead, plus one bounded audio packet and one second of PCM.
 			if !video_ended && frames.len() < 2 {
 				let read_started = Instant::now();
 				let sample = decoder.poll_video()?;
@@ -670,9 +704,18 @@ fn play_decoded(
 					Ready(Some(Sample::Video { pts, picture })) => {
 						if pts >= target - 0.01 {
 							seek_preview = None;
-							frames.push_back((pts, picture));
+							frames.push_back((pts, DisplayFrame::Native(picture)));
 						} else {
-							seek_preview = Some((target, picture));
+							seek_preview = Some((target, DisplayFrame::Native(picture)));
+						}
+					}
+					Ready(Some(Sample::Picture { pts, frame })) => {
+						let frame = DisplayFrame::Picture(Arc::new(frame));
+						if pts >= target - 0.01 {
+							seek_preview = None;
+							frames.push_back((pts, frame));
+						} else {
+							seek_preview = Some((target, frame));
 						}
 					}
 					Ready(None) => {
@@ -747,6 +790,7 @@ mod tests {
 			session: session.clone(),
 			url: None,
 			size: 120000,
+			adapter: None,
 		};
 		let handle = runtime.handle().clone();
 		let thread =
@@ -809,6 +853,697 @@ mod tests {
 			assert_eq!(session.update.lock().unwrap().state, VideoState::Ended);
 			assert!(session.update.lock().unwrap().position > 2.8);
 		}
+	}
+}
+
+enum DisplayFrame {
+	Native(platform::video::Picture),
+	Picture(Arc<platform::video::ffmpeg::Frame>),
+}
+enum AttachmentDecoder {
+	Ffmpeg(platform::video::ffmpeg::File),
+	Native(Box<platform::video::Decoder>),
+}
+impl From<platform::video::Decoder> for AttachmentDecoder {
+	fn from(value: platform::video::Decoder) -> Self {
+		Self::Native(Box::new(value))
+	}
+}
+impl AttachmentDecoder {
+	fn take_restart(&mut self) -> bool {
+		match self {
+			Self::Ffmpeg(d) => d.take_restart(),
+			Self::Native(_) => false,
+		}
+	}
+	fn open(
+		source: Box<dyn platform::video::ReadSeek>,
+		adapter: Option<model::VideoAdapter>,
+	) -> Result<Self, &'static str> {
+		match platform::video::ffmpeg::File::open(source, adapter) {
+			Ok(decoder) => Ok(Self::Ffmpeg(decoder)),
+			Err((mut source, error)) if error == platform::video::UNSUPPORTED => {
+				source
+					.seek(std::io::SeekFrom::Start(0))
+					.map_err(|_| platform::video::INVALID)?;
+				platform::video::Decoder::open(source).map(Self::from)
+			}
+			Err((_, error)) => Err(error),
+		}
+	}
+	fn info(&self) -> platform::video::Info {
+		match self {
+			Self::Ffmpeg(d) => d.info(),
+			Self::Native(d) => d.info(),
+		}
+	}
+	fn seek(&mut self, seconds: f64) -> Result<(), &'static str> {
+		match self {
+			Self::Ffmpeg(d) => d.seek(seconds),
+			Self::Native(d) => d.seek(seconds),
+		}
+	}
+	fn poll_video(
+		&mut self,
+	) -> Result<std::task::Poll<Option<platform::video::ffmpeg::Sample>>, &'static str> {
+		match self {
+			Self::Ffmpeg(d) => d.poll_video(),
+			Self::Native(d) => d
+				.poll_video()
+				.map(|poll| poll.map(|sample| sample.map(Into::into))),
+		}
+	}
+	fn poll_audio(
+		&mut self,
+	) -> Result<std::task::Poll<Option<platform::video::ffmpeg::Sample>>, &'static str> {
+		match self {
+			Self::Ffmpeg(d) => d.poll_audio(),
+			Self::Native(d) => d
+				.poll_audio()
+				.map(|poll| poll.map(|sample| sample.map(Into::into))),
+		}
+	}
+}
+
+pub(super) fn media_view(
+	frame: Arc<platform::video::ffmpeg::Frame>,
+	previous: Option<&ui::MediaView>,
+) -> ui::MediaView {
+	let picture = frame.picture();
+	let (width, height) = if matches!(picture.rotation, 90 | 270) {
+		(picture.height, picture.width)
+	} else {
+		(picture.width, picture.height)
+	};
+	let gpu = previous
+		.and_then(|view| {
+			view.resource
+				.clone()
+				.downcast::<Mutex<Option<MediaGpu>>>()
+				.ok()
+		})
+		.unwrap_or_else(|| Arc::new(Mutex::new(None)));
+	let resource = gpu.clone();
+	let failure = previous
+		.map(|view| view.failure.clone())
+		.unwrap_or_default();
+	let renderer = MediaPaint {
+		frame,
+		gpu,
+		failure: failure.clone(),
+	};
+	ui::MediaView {
+		size: eframe::egui::vec2(width as f32, height as f32),
+		resource,
+		failure,
+		callback: Arc::new(move |rect| {
+			eframe::egui_wgpu::Callback::new_paint_callback(rect, renderer.clone())
+		}),
+	}
+}
+#[derive(Clone)]
+struct MediaPaint {
+	frame: Arc<platform::video::ffmpeg::Frame>,
+	gpu: Arc<Mutex<Option<MediaGpu>>>,
+	failure: Arc<Mutex<Option<&'static str>>>,
+}
+struct MediaGpu {
+	device: eframe::wgpu::Device,
+	output: eframe::wgpu::TextureFormat,
+	samples: u32,
+	depth_format: Option<eframe::wgpu::TextureFormat>,
+	pipeline: eframe::wgpu::RenderPipeline,
+	group: eframe::wgpu::BindGroup,
+	uniform: eframe::wgpu::Buffer,
+	luma: eframe::wgpu::Texture,
+	chroma: eframe::wgpu::Texture,
+	uploaded: std::sync::Weak<platform::video::ffmpeg::Frame>,
+	shape: (u32, u32, u32),
+	_memory: platform::video::ffmpeg::MemoryLease,
+}
+// Arc wraps the per-view bounded resources; closing the view releases both its
+// picture and GPU handles. Resources are recreated when the render device changes.
+impl eframe::egui_wgpu::CallbackTrait for MediaPaint {
+	fn prepare(
+		&self,
+		device: &eframe::wgpu::Device,
+		queue: &eframe::wgpu::Queue,
+		_: &eframe::egui_wgpu::ScreenDescriptor,
+		_: &mut eframe::wgpu::CommandEncoder,
+		resources: &mut eframe::egui_wgpu::CallbackResources,
+	) -> Vec<eframe::wgpu::CommandBuffer> {
+		let output = resources
+			.get::<eframe::egui_wgpu::MediaOutput>()
+			.copied()
+			.unwrap_or_else(|| {
+				eframe::egui_wgpu::MediaOutput::sdr(eframe::wgpu::TextureFormat::Bgra8Unorm)
+			});
+		let Ok(mut slot) = self.gpu.lock() else {
+			return Vec::new();
+		};
+		if slot.as_ref().is_none_or(|gpu| {
+			gpu.device != *device
+				|| gpu.output != output.format
+				|| gpu.samples != output.samples
+				|| gpu.depth_format != output.depth_format
+				|| gpu.shape
+					!= (
+						self.frame.picture().width,
+						self.frame.picture().height,
+						self.frame.picture().format,
+					)
+		}) {
+			match MediaGpu::new(device, &self.frame, output) {
+				Ok(gpu) => {
+					*slot = Some(gpu);
+					if let Ok(mut failure) = self.failure.lock() {
+						*failure = None;
+					}
+				}
+				Err(error) => {
+					*slot = None;
+					if let Ok(mut failure) = self.failure.lock() {
+						*failure = Some(error);
+					}
+				}
+			}
+		}
+		if let Some(gpu) = slot.as_mut() {
+			gpu.upload(queue, &self.frame);
+			gpu.color(queue, self.frame.picture(), output);
+		}
+		Vec::new()
+	}
+	fn paint(
+		&self,
+		_: eframe::egui::PaintCallbackInfo,
+		pass: &mut eframe::wgpu::RenderPass<'static>,
+		_: &eframe::egui_wgpu::CallbackResources,
+	) {
+		if let Ok(slot) = self.gpu.lock()
+			&& let Some(gpu) = slot.as_ref()
+		{
+			pass.set_pipeline(&gpu.pipeline);
+			pass.set_bind_group(0, &gpu.group, &[]);
+			pass.draw(0..3, 0..1);
+		}
+	}
+}
+impl MediaGpu {
+	fn new(
+		device: &eframe::wgpu::Device,
+		frame: &platform::video::ffmpeg::Frame,
+		presentation: eframe::egui_wgpu::MediaOutput,
+	) -> Result<Self, &'static str> {
+		use eframe::wgpu as w;
+		let p = frame.picture();
+		let output = presentation.format;
+		let limit = device.limits().max_texture_dimension_2d;
+		if p.width > limit || p.height > limit {
+			return Err("This GPU cannot display this video resolution");
+		}
+		let mut memory = platform::video::ffmpeg::MemoryLease::default();
+		memory.resize(p.bytes)?;
+		let texture = |width, height, format| {
+			device.create_texture(&w::TextureDescriptor {
+				label: Some("media plane"),
+				size: w::Extent3d {
+					width,
+					height,
+					depth_or_array_layers: 1,
+				},
+				mip_level_count: 1,
+				sample_count: 1,
+				dimension: w::TextureDimension::D2,
+				format,
+				usage: w::TextureUsages::TEXTURE_BINDING | w::TextureUsages::COPY_DST,
+				view_formats: &[],
+			})
+		};
+		let luma = texture(
+			p.width,
+			p.height,
+			if p.hdr() {
+				w::TextureFormat::R16Uint
+			} else {
+				w::TextureFormat::Rgba8Uint
+			},
+		);
+		let chroma = texture(
+			if p.hdr() { p.width.div_ceil(2) } else { 1 },
+			if p.hdr() { p.height.div_ceil(2) } else { 1 },
+			w::TextureFormat::Rg16Uint,
+		);
+		let entries: Vec<_> = (0..2)
+			.map(|binding| w::BindGroupLayoutEntry {
+				binding,
+				visibility: w::ShaderStages::FRAGMENT,
+				ty: w::BindingType::Texture {
+					sample_type: w::TextureSampleType::Uint,
+					view_dimension: w::TextureViewDimension::D2,
+					multisampled: false,
+				},
+				count: None,
+			})
+			.chain(std::iter::once(w::BindGroupLayoutEntry {
+				binding: 2,
+				visibility: w::ShaderStages::FRAGMENT,
+				ty: w::BindingType::Buffer {
+					ty: w::BufferBindingType::Uniform,
+					has_dynamic_offset: false,
+					min_binding_size: std::num::NonZeroU64::new(48),
+				},
+				count: None,
+			}))
+			.collect();
+		let layout = device.create_bind_group_layout(&w::BindGroupLayoutDescriptor {
+			label: Some("media layout"),
+			entries: &entries,
+		});
+		let uniform = device.create_buffer(&w::BufferDescriptor {
+			label: Some("media color"),
+			size: 48,
+			usage: w::BufferUsages::UNIFORM | w::BufferUsages::COPY_DST,
+			mapped_at_creation: false,
+		});
+		let group = device.create_bind_group(&w::BindGroupDescriptor {
+			label: Some("media planes"),
+			layout: &layout,
+			entries: &[
+				w::BindGroupEntry {
+					binding: 0,
+					resource: w::BindingResource::TextureView(
+						&luma.create_view(&Default::default()),
+					),
+				},
+				w::BindGroupEntry {
+					binding: 1,
+					resource: w::BindingResource::TextureView(
+						&chroma.create_view(&Default::default()),
+					),
+				},
+				w::BindGroupEntry {
+					binding: 2,
+					resource: uniform.as_entire_binding(),
+				},
+			],
+		});
+		let shader = device.create_shader_module(w::ShaderModuleDescriptor {
+			label: Some("HDR video color"),
+			source: w::ShaderSource::Wgsl(include_str!("video/media.wgsl").into()),
+		});
+		let pipeline_layout = device.create_pipeline_layout(&w::PipelineLayoutDescriptor {
+			label: Some("media pipeline layout"),
+			bind_group_layouts: &[Some(&layout)],
+			immediate_size: 0,
+		});
+		let pipeline = device.create_render_pipeline(&w::RenderPipelineDescriptor {
+			label: Some("HDR video"),
+			layout: Some(&pipeline_layout),
+			vertex: w::VertexState {
+				module: &shader,
+				entry_point: Some("vertex"),
+				buffers: &[],
+				compilation_options: Default::default(),
+			},
+			fragment: Some(w::FragmentState {
+				module: &shader,
+				entry_point: Some("fragment"),
+				targets: &[Some(w::ColorTargetState {
+					format: output,
+					blend: None,
+					write_mask: w::ColorWrites::ALL,
+				})],
+				compilation_options: Default::default(),
+			}),
+			primitive: Default::default(),
+			depth_stencil: presentation
+				.depth_format
+				.map(|format| w::DepthStencilState {
+					format,
+					depth_write_enabled: Some(false),
+					depth_compare: Some(w::CompareFunction::Always),
+					stencil: Default::default(),
+					bias: Default::default(),
+				}),
+			multisample: w::MultisampleState {
+				count: presentation.samples,
+				..Default::default()
+			},
+			multiview_mask: None,
+			cache: None,
+		});
+		Ok(Self {
+			device: device.clone(),
+			output,
+			samples: presentation.samples,
+			depth_format: presentation.depth_format,
+			pipeline,
+			group,
+			uniform,
+			luma,
+			chroma,
+			shape: (p.width, p.height, p.format),
+			uploaded: std::sync::Weak::new(),
+			_memory: memory,
+		})
+	}
+	fn color(
+		&self,
+		queue: &eframe::wgpu::Queue,
+		p: platform::video::ffmpeg::Picture,
+		output: eframe::egui_wgpu::MediaOutput,
+	) {
+		let words = [
+			(if output.format == eframe::wgpu::TextureFormat::Rgba16Float {
+				output.linear_unit_nits
+			} else {
+				203.0
+			})
+			.to_bits(),
+			p.peak_nits.to_bits(),
+			output.headroom.to_bits(),
+			if output.format == eframe::wgpu::TextureFormat::Rgba16Float {
+				1
+			} else if output.format.is_srgb() {
+				2
+			} else {
+				0
+			},
+			p.transfer,
+			p.primaries,
+			p.matrix,
+			p.full_range | (p.chroma_location << 8),
+			output.ui_white_scale.to_bits(),
+			p.height,
+			p.rotation,
+			p.format,
+		];
+		let bytes: Vec<u8> = words.iter().flat_map(|value| value.to_le_bytes()).collect();
+		queue.write_buffer(&self.uniform, 0, &bytes);
+	}
+	fn upload(&mut self, queue: &eframe::wgpu::Queue, frame: &Arc<platform::video::ffmpeg::Frame>) {
+		if std::sync::Weak::ptr_eq(&self.uploaded, &Arc::downgrade(frame)) {
+			return;
+		}
+		use eframe::wgpu as w;
+		let (y, stride, uv) = frame.planes();
+		let write = |texture: &w::Texture, bytes: &[u8], stride: usize| {
+			queue.write_texture(
+				w::TexelCopyTextureInfo {
+					texture,
+					mip_level: 0,
+					origin: w::Origin3d::ZERO,
+					aspect: w::TextureAspect::All,
+				},
+				bytes,
+				w::TexelCopyBufferLayout {
+					offset: 0,
+					bytes_per_row: Some(stride as u32),
+					rows_per_image: Some(texture.height()),
+				},
+				texture.size(),
+			);
+		};
+		write(&self.luma, y, stride);
+		if let Some((bytes, stride)) = uv {
+			write(&self.chroma, bytes, stride);
+		}
+		self.uploaded = Arc::downgrade(frame);
+	}
+}
+
+#[cfg(test)]
+mod render_tests {
+	use super::*;
+	use eframe::{egui_wgpu::MediaOutput, wgpu as w};
+	use platform::video::ffmpeg::{Frame, Picture, hlg_nits, pq_nits, sdr_rgb};
+
+	fn render(
+		device: &w::Device,
+		queue: &w::Queue,
+		frame: Arc<Frame>,
+		output: MediaOutput,
+		width: u32,
+		height: u32,
+	) -> Vec<u8> {
+		let mut gpu = MediaGpu::new(device, &frame, output).unwrap();
+		gpu.upload(queue, &frame);
+		gpu.color(queue, frame.picture(), output);
+		let bpp = if output.format == w::TextureFormat::Rgba16Float {
+			8
+		} else {
+			4
+		};
+		let stride = (width * bpp).next_multiple_of(256);
+		let target = device.create_texture(&w::TextureDescriptor {
+			label: Some("offline media target"),
+			size: w::Extent3d {
+				width,
+				height,
+				depth_or_array_layers: 1,
+			},
+			mip_level_count: 1,
+			sample_count: 1,
+			dimension: w::TextureDimension::D2,
+			format: output.format,
+			usage: w::TextureUsages::RENDER_ATTACHMENT | w::TextureUsages::COPY_SRC,
+			view_formats: &[],
+		});
+		let buffer = device.create_buffer(&w::BufferDescriptor {
+			label: Some("offline media readback"),
+			size: u64::from(stride * height),
+			usage: w::BufferUsages::COPY_DST | w::BufferUsages::MAP_READ,
+			mapped_at_creation: false,
+		});
+		let view = target.create_view(&Default::default());
+		let mut encoder = device.create_command_encoder(&Default::default());
+		{
+			let mut pass = encoder.begin_render_pass(&w::RenderPassDescriptor {
+				label: Some("offline media"),
+				color_attachments: &[Some(w::RenderPassColorAttachment {
+					view: &view,
+					depth_slice: None,
+					resolve_target: None,
+					ops: w::Operations {
+						load: w::LoadOp::Clear(w::Color::BLACK),
+						store: w::StoreOp::Store,
+					},
+				})],
+				depth_stencil_attachment: None,
+				timestamp_writes: None,
+				occlusion_query_set: None,
+				multiview_mask: None,
+			});
+			pass.set_pipeline(&gpu.pipeline);
+			pass.set_bind_group(0, &gpu.group, &[]);
+			pass.draw(0..3, 0..1);
+		}
+		encoder.copy_texture_to_buffer(
+			w::TexelCopyTextureInfo {
+				texture: &target,
+				mip_level: 0,
+				origin: w::Origin3d::ZERO,
+				aspect: w::TextureAspect::All,
+			},
+			w::TexelCopyBufferInfo {
+				buffer: &buffer,
+				layout: w::TexelCopyBufferLayout {
+					offset: 0,
+					bytes_per_row: Some(stride),
+					rows_per_image: Some(height),
+				},
+			},
+			target.size(),
+		);
+		queue.submit([encoder.finish()]);
+		let (send, receive) = std::sync::mpsc::sync_channel(1);
+		buffer.slice(..).map_async(w::MapMode::Read, move |result| {
+			let _ = send.send(result);
+		});
+		device.poll(w::PollType::wait_indefinitely()).unwrap();
+		receive
+			.recv_timeout(std::time::Duration::from_secs(10))
+			.unwrap()
+			.unwrap();
+		let mapped = buffer.slice(..).get_mapped_range().unwrap();
+		let result = mapped
+			.chunks_exact(stride as usize)
+			.flat_map(|row| row[..(width * bpp) as usize].iter().copied())
+			.collect();
+		drop(mapped);
+		buffer.unmap();
+		result
+	}
+
+	#[tokio::test]
+	#[ignore = "offline render adapter required; no display, capture, audio or Discord access"]
+	async fn media_shader_preserves_sdr_rotation_and_pq_hlg_highlights() {
+		let instance = w::Instance::new(w::InstanceDescriptor::new_without_display_handle());
+		let adapter = instance
+			.request_adapter(&w::RequestAdapterOptions {
+				force_fallback_adapter: true,
+				..Default::default()
+			})
+			.await
+			.expect("offline fallback render adapter");
+		let (device, queue) = adapter
+			.request_device(&w::DeviceDescriptor::default())
+			.await
+			.unwrap();
+		let sdr = MediaOutput::sdr(w::TextureFormat::Rgba8Unorm);
+		let frame = Arc::new(
+			Frame::new(
+				Picture::sdr(2, 2),
+				vec![
+					0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255,
+				],
+			)
+			.unwrap(),
+		);
+		let pixels = render(&device, &queue, frame, sdr, 4, 2);
+		assert_eq!(
+			[pixels[0], pixels[4], pixels[8], pixels[12]],
+			[0, 64, 191, 255]
+		);
+		let frame = Arc::new(
+			Frame::new(
+				Picture {
+					rotation: 90,
+					..Picture::sdr(2, 2)
+				},
+				vec![
+					255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+				],
+			)
+			.unwrap(),
+		);
+		assert_eq!(
+			render(&device, &queue, frame, sdr, 2, 2),
+			vec![
+				0, 0, 255, 255, 255, 0, 0, 255, 255, 255, 255, 255, 0, 255, 0, 255
+			]
+		);
+		for transfer in [16, 18] {
+			let encoded: [f32; 4] = if transfer == 16 {
+				[0.0, 0.5080784, 0.7518271, 1.0]
+			} else {
+				[0.0, 0.5, 0.75, 1.0]
+			};
+			let mut bytes = Vec::new();
+			for _ in 0..2 {
+				for code in encoded {
+					bytes.extend_from_slice(
+						&(((64.0 + 876.0 * code).round() as u16) << 6).to_le_bytes(),
+					);
+				}
+			}
+			bytes.extend((0..4).flat_map(|_| (512u16 << 6).to_le_bytes()));
+			let frame = Arc::new(
+				Frame::new(
+					Picture {
+						format: 1,
+						transfer,
+						primaries: 9,
+						matrix: 9,
+						depth: 10,
+						peak_nits: 1000.0,
+						bytes: bytes.len(),
+						..Picture::sdr(4, 2)
+					},
+					bytes,
+				)
+				.unwrap(),
+			);
+			let pixels = render(&device, &queue, frame.clone(), sdr, 4, 2);
+			for (i, code) in encoded.into_iter().enumerate() {
+				let code = ((64.0 + 876.0 * code).round() - 64.0) / 876.0;
+				let nits = if transfer == 16 {
+					[pq_nits(code); 3]
+				} else {
+					hlg_nits([code; 3], 1000.0)
+				};
+				let expected = sdr_rgb(nits, 9, 1000.0, 203.0);
+				for channel in 0..3 {
+					assert!(
+						(i16::from(pixels[i * 4 + channel]) - i16::from(expected[channel])).abs()
+							<= 2
+					);
+				}
+			}
+			let hdr = MediaOutput {
+				format: w::TextureFormat::Rgba16Float,
+				headroom: 64.0,
+				..sdr
+			};
+			let pixels = render(&device, &queue, frame.clone(), hdr, 4, 2);
+			let high = platform::video::ffmpeg::half([pixels[3 * 8], pixels[3 * 8 + 1]]);
+			assert!(
+				high > 4.0,
+				"HDR highlights must survive above SDR white: {high}"
+			);
+			let weak = Arc::downgrade(&frame);
+			drop(frame);
+			assert!(weak.upgrade().is_none());
+		}
+		// An odd crop uses the luma geometry for chroma interpolation. Rounding
+		// the texture size up must not stretch its final sample across the crop.
+		let bytes: Vec<_> = (0..9)
+			.flat_map(|_| (512u16 << 6).to_le_bytes())
+			.chain(
+				[128u16, 512, 896, 512, 896, 512, 128, 512]
+					.into_iter()
+					.flat_map(|value| (value << 6).to_le_bytes()),
+			)
+			.collect();
+		let hdr = MediaOutput {
+			format: w::TextureFormat::Rgba16Float,
+			headroom: 64.0,
+			..sdr
+		};
+		for (chroma_location, u) in [
+			(0, 320.0),
+			(1, 320.0),
+			(2, 416.0),
+			(3, 128.0),
+			(4, 320.0),
+			(5, 512.0),
+			(6, 512.0),
+		] {
+			let frame = Arc::new(
+				Frame::new(
+					Picture {
+						format: 1,
+						transfer: 16,
+						primaries: 1,
+						matrix: 1,
+						depth: 10,
+						peak_nits: 1000.0,
+						bytes: bytes.len(),
+						chroma_location,
+						..Picture::sdr(3, 3)
+					},
+					bytes.clone(),
+				)
+				.unwrap(),
+			);
+			let pixels = render(&device, &queue, frame, hdr, 3, 3);
+			let blue = platform::video::ffmpeg::half([pixels[68], pixels[69]]);
+			let expected =
+				pq_nits((512.0 - 64.0) / 876.0 + 2.0 * (1.0 - 0.0722) * (u - 512.0) / 896.0)
+					/ 203.0;
+			assert!(
+				(blue - expected).abs() < 0.005,
+				"odd crop chroma {chroma_location}: {blue} vs {expected}"
+			);
+		}
+		// Recreating the render device recreates media resources without retaining frames.
+		let (next_device, next_queue) = adapter
+			.request_device(&w::DeviceDescriptor::default())
+			.await
+			.unwrap();
+		let frame = Arc::new(Frame::new(Picture::sdr(2, 2), vec![128; 16]).unwrap());
+		assert_eq!(render(&next_device, &next_queue, frame, sdr, 2, 2)[0], 128);
 	}
 }
 

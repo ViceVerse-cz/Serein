@@ -34,6 +34,7 @@
                     name = "serein-dev";
 
                     inputsFrom = [config.packages.serein];
+                    FFMPEG_DIR = config.packages.serein.FFMPEG_DIR;
                 };
             };
         };

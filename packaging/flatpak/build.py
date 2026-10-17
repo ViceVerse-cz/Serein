@@ -37,7 +37,8 @@ def prepare(destination):
     sysroot = Path(output("rustup", "run", pin, "rustc", "--print", "sysroot"))
     version = output(str(sysroot / "bin/rustc"), "--version").split()[1]
     manifest = json.loads((ROOT / "packaging/flatpak/cz.viceverse.serein.json").read_text())
-    if version != pin or f"= {pin}" not in manifest["modules"][0]["build-commands"][0]:
+    app = next(module for module in manifest["modules"] if module["name"] == "serein")
+    if version != pin or f"= {pin}" not in app["build-commands"][0]:
         raise ValueError("Flatpak manifest and installed Rust must match rust-toolchain.toml")
     destination.mkdir(parents=True, exist_ok=False)
     source = destination / "source"

@@ -26,6 +26,27 @@ const AUDIO_CHANNELS: usize = 2;
 const WAIT: gst::ClockTime = gst::ClockTime::from_seconds(20);
 const SEEK_FAILED: &str = "This video cannot seek to that position.";
 
+/// A constructor can fail after native streaming has started, before Decoder owns cleanup.
+pub(super) struct PipelineGuard(Option<gst::Pipeline>);
+
+impl PipelineGuard {
+	pub(super) fn new(pipeline: &gst::Pipeline) -> Self {
+		Self(Some(pipeline.clone()))
+	}
+
+	pub(super) fn release(mut self) {
+		self.0.take();
+	}
+}
+
+impl Drop for PipelineGuard {
+	fn drop(&mut self) {
+		if let Some(pipeline) = self.0.take() {
+			let _ = pipeline.set_state(gst::State::Null);
+		}
+	}
+}
+
 /// Bytes shared with the `appsrc` callbacks, which run on GStreamer's streaming threads.
 struct Shared {
 	source: Mutex<Box<dyn ReadSeek>>,
@@ -49,17 +70,6 @@ pub struct Decoder {
 impl Drop for Decoder {
 	fn drop(&mut self) {
 		let _ = self.pipeline.set_state(gst::State::Null);
-	}
-}
-
-/// Stops a pipeline that `open` started but could not hand to a [`Decoder`]. Its streaming
-/// threads would otherwise block on full queues forever, holding every buffered frame.
-struct StopOnError(Option<gst::Pipeline>);
-impl Drop for StopOnError {
-	fn drop(&mut self) {
-		if let Some(pipeline) = self.0.take() {
-			let _ = pipeline.set_state(gst::State::Null);
-		}
 	}
 }
 
@@ -96,7 +106,7 @@ impl Decoder {
 			failed: AtomicBool::new(false),
 		});
 		let pipeline = gst::Pipeline::new();
-		let mut started = StopOnError(Some(pipeline.clone()));
+		let guard = PipelineGuard::new(&pipeline);
 		let appsrc = gst_app::AppSrc::builder().build();
 		appsrc.set_stream_type(gst_app::AppStreamType::RandomAccess);
 		appsrc.set_format(gst::Format::Bytes);
@@ -223,9 +233,7 @@ impl Decoder {
 		pipeline
 			.set_state(gst::State::Playing)
 			.map_err(|_| UNSUPPORTED)?;
-		// From here the decoder's own `Drop` stops the pipeline.
-		started.0 = None;
-		Ok(Self {
+		let decoder = Self {
 			pipeline,
 			video,
 			audio: has_audio.then_some(audio),
@@ -240,7 +248,9 @@ impl Decoder {
 			video_done: false,
 			audio_done: !has_audio,
 			last_video_pts: f64::NEG_INFINITY,
-		})
+		};
+		guard.release();
+		Ok(decoder)
 	}
 
 	pub fn info(&self) -> Info {
@@ -599,6 +609,73 @@ mod tests {
 	use super::*;
 	use std::io::{Read, Seek};
 	const FIXTURE: &[u8] = include_bytes!("../../../../apps/desktop/tests/fixtures/video.mov");
+
+	struct OwnedSource {
+		bytes: std::io::Cursor<&'static [u8]>,
+		dropped: Arc<AtomicBool>,
+		read: usize,
+		fail_after_header: bool,
+	}
+
+	impl std::io::Read for OwnedSource {
+		fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+			if self.fail_after_header && self.read >= 8 {
+				return Err(std::io::Error::other("synthetic source failure"));
+			}
+			let count = std::io::Read::read(&mut self.bytes, buffer)?;
+			self.read += count;
+			Ok(count)
+		}
+	}
+
+	impl std::io::Seek for OwnedSource {
+		fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+			std::io::Seek::seek(&mut self.bytes, position)
+		}
+	}
+
+	impl Drop for OwnedSource {
+		fn drop(&mut self) {
+			self.dropped.store(true, Ordering::Release);
+		}
+	}
+
+	fn owned_source(dropped: &Arc<AtomicBool>, fail_after_header: bool) -> Box<dyn ReadSeek> {
+		Box::new(OwnedSource {
+			bytes: std::io::Cursor::new(FIXTURE),
+			dropped: dropped.clone(),
+			read: 0,
+			fail_after_header,
+		})
+	}
+
+	#[test]
+	fn attachment_pipeline_and_source_retire_on_drop() {
+		let dropped = Arc::new(AtomicBool::new(false));
+		let decoder = Decoder::open(owned_source(&dropped, false)).unwrap();
+		let pipeline = decoder.pipeline.downgrade();
+		drop(decoder);
+		assert_eq!(
+			(
+				pipeline.upgrade().is_none(),
+				dropped.load(Ordering::Acquire)
+			),
+			(true, true),
+			"dropping playback must release its native pipeline and anonymous source"
+		);
+	}
+
+	#[test]
+	fn attachment_source_retires_after_constructor_failure() {
+		let dropped = Arc::new(AtomicBool::new(false));
+		// The initial container header passes. The first native appsrc read then fails
+		// after Paused has started, exercising teardown before Decoder owns the pipeline.
+		assert!(Decoder::open(owned_source(&dropped, true)).is_err());
+		assert!(
+			dropped.load(Ordering::Acquire),
+			"a failed native open must release the anonymous source before returning"
+		);
+	}
 
 	fn wait_for_sample(
 		decoder: &mut Decoder,

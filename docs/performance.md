@@ -1,7 +1,7 @@
 # Performance findings
 
 Recent synthetic/offline measurements are workload-specific. They do not establish live Discord
-performance, universal device results or application-wide memory bounds. The raw PR screenshot,
+performance, universal device results or application-wide memory bounds. The older upstream PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
 ## Server folder mark-as-read — October 15, 2026 (PR #672)
@@ -212,6 +212,10 @@ openh264 I420, Windows live NV12) and one render pass converts them on the GPU. 
 Native samples used the synthetic `--demo-video-playing` fixture replaced by a generated
 clip for the run only, release builds with LTO off, 5–6 s warm-up, then 10 s of process CPU
 time and peak RSS, alternating builds three times.
+
+These measurements cover the parent project's native decoder path. Shared FFmpeg
+decoding retains SDR RGBA or HDR P010 with explicit color metadata; that path is
+outside these measurements.
 
 | Workload | Before | After | Delta |
 | --- | ---: | ---: | ---: |
@@ -728,6 +732,397 @@ the new measurements and executable hash. NSIS remains unavailable; this is an
 unsigned directory and ZIP. Final serial workspace checking reached 1,158
 passes, eight recorded baseline UI failures and 23 ignored tests. Formatting,
 strict workspace Clippy and the independent policy check passed.
+
+## Source-resolution regression checks — October 12, 2026
+
+Baseline `574a8d2` and the source/aspect-ratio implementation use pinned Rust
+1.98.1, the committed lockfile and separate release target directories. One warmup
+per binary precedes five alternating measured runs of the 100,000-event synthetic
+reducer. The release replay executables are byte-for-byte identical (SHA-256
+`0d6060167876cc35dba30a368e3c36504420c869f42d8f3a4faa6d66c6491035`): screen
+settings are outside this reducer workload.
+
+| Metric / method | Baseline | Source implementation | Interpretation |
+| --- | ---: | ---: | --- |
+| Release replay median, five alternating pairs | 161.129 ms | 158.551 ms | Overlapping ranges; no performance claim |
+| Retained timeline estimate / records | 331,992–332,477 B / 500 | 331,992–332,477 B / 500 | Unchanged reducer limits |
+
+The 120-second offline lifecycle soak completes 1,326 passes, 42,432 channel
+visits, 25,459,200 live inserts and six logout cycles in 120.072 seconds. It does
+not measure media throughput, process/GPU memory or live Discord compatibility.
+
+Source dimensions retain the existing 33,177,600-pixel and raw-byte envelope in
+either orientation. Encoder bitrates interpolate between the existing preset
+pixel-count/rate points and retain the 50 Mbit/s cap. Preset tests cover common
+landscape, ultrawide, square, portrait and custom ratios; pending selection and
+resize tests exercise synthetic RTP/DAVE transport.
+
+Current native UI/display sampling is unavailable in this cloud session: no
+native display session or window-capture tool. macOS now captures physical native
+pixels before shared scaling, so default-preset capture CPU and memory need native
+comparison; bounded worst-case allocation is unchanged. Current application and
+clean/cached package size checks belong to the CI run for the delivered head.
+Earlier package measurements above retain their historical revision labels.
+
+## CodeRabbit audio review follow-up — October 12, 2026
+
+Baseline `a65238d` and the review fixes use separately compiled native helpers
+with `cc -O2`, the same private FFmpeg prefix and Linux host. Each helper feeds
+5,000 stereo planar-float frames, 1,024 samples at 48 kHz, through the actual
+attachment resampling boundary. One warmup precedes five alternating pairs.
+These wall-clock samples include process startup and concurrent Rust build load;
+their overlapping ranges do not establish a throughput regression or improvement.
+
+| Metric / method | Baseline | Review fixes | Interpretation |
+| --- | ---: | ---: | --- |
+| Native helper median, five pairs | 11.364 ms | 12.396 ms | +1.031 ms; overlapping ranges |
+| Native helper range | 9.067–19.189 ms | 11.642–13.683 ms | Startup/scheduler noise included |
+| Native helper executable | 34,432 B | 34,816 B | +384 B; not an application/package measurement |
+
+The workload checks stable-format PCM timing. Separate native regressions cover
+stereo-to-mono, planar-to-packed, same-count channel-layout changes, rate changes,
+invalid metadata, output guards and reset cleanup. Resampler configuration is
+recreated only when input layout, sample format or rate changes. These helpers exclude demuxing,
+decoding, audio devices, GUI and live Discord. Current native display sampling
+is unavailable here; application and clean/cached package checks run in CI for
+the delivered revision. Previous package measurements retain their original heads.
+
+## Upstream media integration checks — October 13, 2026
+
+The merge candidate combines video head `aa8a09a` with parent `61337f3` using
+Rust 1.98.1 and the committed lockfile. Workspace formatting, strict Clippy,
+tests, the minimal application build and policy pass. Exact 6144×2560 and PQ/HLG
+RTP/DAVE regressions, native/HDR resource switching, the offscreen production
+media shader and workspace/fuzz license checks pass. Native GPU/display and
+Discord interoperability checks remain separate owner-controlled work.
+
+The preserved `5b8ae38` release replay has unchanged reducer source through
+`aa8a09a`; its compiler, profile and rustflags fingerprints match the merge
+build. One warmup precedes five alternating pairs on the same Linux cloud host.
+Scheduling noise remains; this synthetic reducer excludes media, UI and RSS.
+The host is Linux 6.18.44/x86_64, Xeon Platinum 8573C, with a 16 GiB memory
+limit. Offline delivery uses a Debian trixie container limited to four CPUs and
+14 GiB; release settings retain fat LTO, one codegen unit and line-table debug
+information. No native display session was available.
+
+| Metric / method | Pre-sync replay | Merge candidate | Delta |
+| --- | ---: | ---: | ---: |
+| 100,000-event median, five pairs | 104.499 ms | 119.017 ms | +14.517 ms / +13.9% |
+| Run range | 99.541–109.792 ms | 111.264–131.862 ms | Slower in all five pairs |
+| Retained estimate, 500 messages | 331,992–332,477 B | 393,492–393,977 B | +61,500 B; not RSS |
+
+The cause is not isolated by these measurements. The 120-second lifecycle soak
+passes 1,923 cycles, 61,536 channel visits, 36,921,600 inserts and eight logout
+cycles in 120.029 seconds, retaining bounded active/dormant histories. Navigation
+and the 20,001-channel workload also pass.
+
+Normal `cargo xtask package --format dir` builds the standard release without
+demo/developer features and stages into an empty destination. Verification found
+an omitted notification-sound provenance file; the allowlist was corrected and
+the complete command rerun from an empty destination with caches. No payload was
+manually repaired. The executable remained byte-identical across these runs.
+
+| Linux package metric | Verified candidate | Method |
+| --- | ---: | --- |
+| Release executable | 87,856,520 B | Compiled, staged and installed hashes match |
+| Installed payload | 132,622,544 B / 266 files | Sum of installed regular-file lengths |
+| Compressed directory | 86,126,968 B | Python tarfile, gzip level 9 |
+
+Executable SHA-256 is `eb703b348cdc54a9db0d616e340aa88eabe7309a80d81520c266faa17b712fd3`.
+All six private libraries, corresponding-source files and notices match their
+staging inputs; ELF runtime paths are relative and exclude the development FFmpeg
+prefix. There is no matching `aa8a09a` package baseline, so no package delta is
+claimed. Native distro package/runtime closure, Windows/macOS packages, display
+transitions, playback throughput and settled process/GPU memory require CI or
+native hardware; directory staging alone does not establish them.
+
+## HDR capture/SPS review fixes — October 13, 2026
+
+The `c47036c` baseline package was verified by executable hash before source
+edits and preserved separately. The changed package measures the reviewed source
+committed with this entry; the PR records its exact revision. Both use Rust
+1.98.1, the committed lockfile and the same Linux 6.18.44/x86_64 cloud host
+(Xeon Platinum 8573C, 16 GiB host limit), with a Debian trixie build container
+limited to four CPUs and 14 GiB. Standard release includes voice and excludes
+demo/developer features: fat LTO, one codegen unit, line-table debug information
+and symbol stripping.
+
+`cargo xtask package --format dir` starts with an empty output directory after
+rebuilding xtask. Compiled, staged and installed executable hashes match; all
+six private libraries, corresponding-source files and notices match their
+staging inputs. ELF runtime paths are relative and omit the development FFmpeg
+prefix. There is no manual staging repair. One package per source revision is
+measured by file lengths; warmup is not applicable. Both compressed directories
+use Python tarfile with gzip level 9.
+
+| Linux package metric / method | Baseline `c47036c` | Review fixes | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 87,856,520 B | 87,856,648 B | +128 B |
+| Installed payload | 132,622,544 B | 132,622,672 B | +128 B |
+| Compressed directory | 86,126,968 B | 86,126,955 B | -13 B |
+| Installed regular files | 266 | 266 | +0 |
+
+Changed executable SHA-256: `83e7f472230cab8fd369e83d42e9d69cc12fd6afaf453638428ecde381c9cac5`.
+
+Workspace checking passes formatting, strict Clippy, 1,420 tests (31 ignored),
+the minimal application build and policy. Login-handoff, cached-xtask workspace,
+application/fuzz license checks and packaging fixtures pass. The actual Linux
+capture pipeline retains P010/BT.2020/PQ through cropping and HDR→SDR→HDR
+transitions. Its crop element requires planar 10-bit input, adding format
+conversion work; no throughput or CPU improvement is claimed.
+
+The fresh 120-second offline soak completes 1,488 passes, 47,616 channel visits,
+28,569,600 inserts and six logout cycles in 120.043 seconds. This core workload
+excludes capture, decoding, GUI and process/GPU memory. The historical +13.9%
+reducer slowdown above retains its original revisions and unisolated cause;
+it is not a fresh measurement of these media fixes.
+
+Native display/window capture and suitable devices are unavailable here, so
+media throughput, CPU and peak/settled process/GPU memory remain unmeasured.
+Directory staging does not establish native application launch, full distro
+runtime closure, physical HDR behavior or Discord interoperability. Current-head
+Windows/macOS/Linux application/package CI and owner-controlled hardware checks
+are reported separately in the PR. The retained settings screenshot pair is
+historical evidence from `b1e3474`, predating the current control placement and
+Source/8K additions.
+
+## Current nightly comparison — October 13, 2026
+
+This comparison supersedes the older baselines in the PR description. Its
+baseline is the latest published upstream nightly,
+[`v1.0.0-nightly.20261010.57`](https://github.com/ViceVerse-cz/Serein/releases/tag/v1.0.0-nightly.20261010.57),
+source `cc0987e2d4505bdfb780045327bb14c3b0c0928e`; the changed source is
+`4ad106c2348d5280a4cdf2ba840c2872aca14675`. These are matching local Linux
+source rebuilds, using each revision's committed lockfile, Rust 1.98.1 and
+standard voice-inclusive release without demo/developer features. Both profiles
+use fat LTO, one codegen unit, line-table debug information and symbol stripping.
+The Linux 6.18.44/x86_64 host is a Xeon Platinum 8573C with a 16 GiB limit;
+the Debian trixie build/measurement container has four CPUs and a 14 GiB limit.
+Separate worktrees and Cargo targets prevent reuse of workspace artifacts. The
+existing PR package was hash-verified before reuse. These measurements compare
+source rebuilds, not the published release's distribution archives.
+
+| Metric / method | Nightly `cc0987e` | PR `4ad106c` | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 87,185,832 B | 87,856,648 B | +670,816 B / +0.8% |
+| Installed payload | 91,717,776 B | 132,622,672 B | +40,904,896 B / +44.6% |
+| Compressed directory, gzip 9 | 53,094,741 B | 86,126,955 B | +33,032,214 B / +62.2% |
+| Installed regular files | 228 | 266 | +38 |
+| 100,000-event replay median, five pairs | 111.294 ms | 117.525 ms | +6.231 ms / +5.6% |
+| Retained estimate, 500 messages | 331,992–332,477 B | 393,492–393,977 B | +61,500 B; not RSS |
+
+Both packages use normal `cargo xtask package --format dir` from an empty
+output directory. Compiled, staged and installed executable hashes match. File
+lengths measure executable and installed payload sizes; Python tarfile with gzip
+level 9 and the same archive basename measures both compressed directories.
+There is one package per source revision and no warmup for file-size counters.
+Most of the payload increase comes from bundled media libraries and their
+corresponding-source archives. Nightly executable SHA-256:
+`888ce8ddb9180be739f307b09c059aabd21923b0f39a5476ffb520de3e63d2c2`;
+PR executable SHA-256:
+`83e7f472230cab8fd369e83d42e9d69cc12fd6afaf453638428ecde381c9cac5`.
+
+The release replay program is identical at both revisions. One warmup per
+binary precedes five alternating pairs on the same host after compilation has
+finished. Each sample processes 100,000 synthetic events and retains 500
+messages. The nightly runs span 107.809–196.299 ms; PR runs span
+111.828–147.282 ms. The PR is slower in four of five pairs, but the ranges
+overlap and include scheduling noise. The measured median slowdown is not
+attributed to a particular feature.
+
+The comparison includes upstream changes made after the nightly, as well as
+the retained video work; it does not isolate individual features. Replay
+measures the core reducer, not media throughput, UI latency or process RSS.
+Native media CPU/throughput, peak/settled process/GPU memory and physical HDR/
+Discord interoperability remain unmeasured here. Older comparison sections
+retain their original revisions and are historical evidence.
+
+## Native Windows/macOS nightly comparison — October 13, 2026
+
+Native CI source rebuilds compare the same published nightly
+[`v1.0.0-nightly.20261010.57`](https://github.com/ViceVerse-cz/Serein/releases/tag/v1.0.0-nightly.20261010.57),
+`cc0987e2d4505bdfb780045327bb14c3b0c0928e`, against PR source
+`8a1ab4a2014c6660c86f8009407f396c36571480`. The latter differs from the
+Linux measurement's `4ad106c` only in this performance document. These are
+matching source rebuilds, not byte-identical copies of the published signed
+release archives. Each OS uses its own hosted runner for both sides, with
+separate clean checkouts and fresh Cargo targets, Rust 1.98.1 and each source's
+committed lockfile. Standard release includes voice and excludes demo/developer
+features; both profiles use fat LTO, one codegen unit, line-table debug
+information and symbol stripping. No desktop, owner account, microphone or
+live capture session is launched.
+
+### Windows X64
+
+Environment: Microsoft Windows Server 2025 Datacenter build 26100; AMD EPYC 7763 64-Core Processor; 16.0 GiB RAM, 4 logical CPUs. Runner image `win25-vs2026` / `20260925.250.1`.
+
+| Metric / method | Nightly `cc0987e` | PR `8a1ab4a` | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 86,203,392 B | 87,188,992 B | +985,600 B / +1.1% |
+| Installed payload | 90,394,509 B | 137,153,849 B | +46,759,340 B / +51.7% |
+| Compressed distribution ZIP | 50,912,221 B | 83,622,631 B | +32,710,410 B / +64.2% |
+| Unsigned NSIS installer | 42,992,192 B | 73,600,334 B | +30,608,142 B / +71.2% |
+| Installed regular files | 216 | 248 | +32 |
+| 100,000-event replay median, five pairs | 105.887 ms | 117.777 ms | +11.890 ms / +11.2% |
+| Retained estimate, 500 messages | 331,992–332,477 B | 393,492–393,977 B | +61,500 B; not RSS |
+
+Replay ranges: nightly 104.890–107.109 ms; PR 116.095–119.153 ms. Ranges do not overlap in this sample; the cause of the measured difference is not isolated.
+
+[Native comparison job](https://github.com/MCShotty/Serein/actions/runs/38408007242/job/115332603702) preserves the exact JSON results. Packaged executable SHA-256: nightly `feb9c6a7c4e2267d868dad376e30beb0f6628d4545775927c74d28cf1196f097`; PR `c99607af30ba96b2f2eb26fa28d66fe9818ff0d3bdca0a6aa47ba2eeefc7e3f8`.
+
+Measured replay samples in pair order (ms): nightly `104.890, 105.887, 106.635, 105.681, 107.109`; PR `118.033, 117.411, 119.153, 116.095, 117.777`.
+
+### macOS ARM64
+
+Environment: macOS 26.6.2 build 25G83; Apple M1 (Virtual); 7.0 GiB RAM, 3 logical CPUs. Runner image `macos26` / `20260907.0351.1`.
+
+| Metric / method | Nightly `cc0987e` | PR `8a1ab4a` | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 68,638,560 B | 69,091,776 B | +453,216 B / +0.7% |
+| Installed payload | 74,603,532 B | 95,585,421 B | +20,981,889 B / +28.1% |
+| Compressed distribution ZIP | 48,052,367 B | 64,506,402 B | +16,454,035 B / +34.2% |
+| Installed regular files | 223 | 248 | +25 |
+| 100,000-event replay median, five pairs | 63.177 ms | 70.793 ms | +7.616 ms / +12.1% |
+| Retained estimate, 500 messages | 331,992–332,477 B | 393,492–393,977 B | +61,500 B; not RSS |
+
+Replay ranges: nightly 62.051–66.883 ms; PR 66.162–83.932 ms. Ranges overlap; scheduling noise prevents attributing the median difference to a feature.
+
+[Native comparison job](https://github.com/MCShotty/Serein/actions/runs/38406359420/job/115327118696) preserves the exact JSON results. Packaged executable SHA-256: nightly `667a0fb5493ebdd349aa62cc74675658fcb29828dda639ce2d4df84e55268fb5`; PR `715c06bb6aff0df6307caf97fd565809dd4a7a73563f484753c5c501b4e858bd`.
+
+Measured replay samples in pair order (ms): nightly `63.067, 64.794, 62.051, 66.883, 63.177`; PR `66.162, 67.295, 83.932, 82.592, 70.793`.
+
+The [measurement helper](https://github.com/MCShotty/Serein/blob/6bad96ebcf66faf8c010a25b15368d98c6d181a9/scripts/measure-native-nightly.py) records the source revisions, build profile, environment, hashes and every replay sample.
+
+Both sides run normal `cargo xtask package` after rebuilding xtask and start
+with empty package output. Windows compiled/staged executable hashes match;
+normal macOS packaging ad-hoc signs the staged copy, so its hash is recorded
+separately and the bundle passes `codesign --verify --strict`. Windows ZIPs
+use PowerShell/.NET Optimal compression; macOS ZIPs use
+`ditto -c -k --sequesterRsrc`, matching each platform's release archive method.
+Every archive passes a CRC check. One package per source is measured by file
+lengths; size counters have no warmup. Windows installers are unsigned, and
+macOS bundles are not Developer ID signed or notarized.
+
+The identical release replay program receives one warmup per binary and five
+alternating pairs after all compilation and compression finish. It measures
+100,000 synthetic reducer events, not media throughput, UI latency or process
+RSS. These comparisons include post-nightly upstream changes alongside the
+video work and do not isolate individual features. Native encoding/playback
+FPS, media CPU use, peak/settled process/GPU memory and physical HDR/Discord
+interoperability remain unmeasured. Earlier Windows measurements above retain
+their historical revision labels and are not reused as current results.
+
+## Video encoding evidence for #567
+
+The [compact evidence record](pr-evidence/video-encoding/README.md) retains
+matched synthetic native captures, narrow/light camera and screen layouts, and
+[unchanged historical samples](https://github.com/MCShotty/Serein/blob/918a4abe391a9e1619ba678af2b3f204f594cf6e/docs/pr-evidence/video-encoding/measurements.json).
+Older helpers, logs and detailed build records remain in the
+[immutable archive](https://github.com/MCShotty/Serein/tree/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence).
+The archive commit identifies storage; each record retains its measured revision,
+working-tree source hashes, environment, method and limitations. None of these
+historical results validates the latest extracted PR head.
+
+### Windows release package — October 8, 2026
+
+Matched voice-inclusive releases compare `1b3e4a7b` with `eefa0fe5`, using Rust
+1.98.1 on Windows 11 build 26200, Ryzen 7 7800X3D and 32 GiB RAM, without demo.
+Installed size sums every file in `dist`; ZIPs use .NET's Optimal compression.
+
+| Metric | Baseline | FFmpeg integration | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 86,008,832 B | 86,554,112 B | +545,280 B |
+| Installed package | 90,199,948 B | 124,070,028 B | +33,870,080 B |
+| Complete ZIP | 50,001,798 B | 78,054,030 B | +28,052,232 B |
+
+The historical package reused a stale xtask that omitted FFmpeg staging. Its
+output was repaired by replaying `packaging/ffmpeg/bundle.py`; all 241
+non-executable files then matched their expected staging sources, including
+DLLs, corresponding source, recipes and notices. The complete archive passed
+integrity checks. **No clean end-to-end package rerun is claimed.** These are
+portable directory/ZIP sizes, not NSIS installer sizes. The
+[original method](https://github.com/MCShotty/Serein/blob/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/performance.md#windows-ffmpeg-integration-package---october-8-2026)
+retains the exact executable identity and checks.
+
+### Linux synthetic component and UI results — October 5–9, 2026
+
+These are separate additions and workloads, not one whole-PR comparison.
+Original record names in the consolidated JSON identify the source of each row.
+
+| Historical workload | Baseline | After | Interpretation |
+| --- | ---: | ---: | --- |
+| Software FFmpeg camera, 300 frames | 993.070 ms | 1,024.365 ms | Five measured alternating pairs; overlapping ranges |
+| Driver detection, fresh processes | 262.167 ms | 265.354 ms | Five measured pairs; no GPU drivers available |
+| 8K controls, sampled peak/settled helper RSS | 162,140,160 B | 163,909,632 B | One helper pair, +1,769,472 B; no encoding/capture |
+| Split-option setup, 60,000 contexts | 1,301.148 ms | 1,371.227 ms | Five measured pairs; codecs/drivers never opened |
+
+The camera fixture warms 30 frames before timing 300 deterministic 640×480 RGB
+frames; one process warmup precedes five measured pairs. Driver detection uses
+one warmup and five alternating processes against real detector/native code;
+all nine NVENC/AMF/QSV codec paths are unavailable on the recorded host. The 8K
+helper warms six seconds, receives 100 wheel events and records fifteen
+one-second CPU/RSS samples. Split setup uses matched optimized diagnostic
+FFmpeg builds that differ from the standard distribution recipe. Full OS,
+CPU/RAM, renderer, compiler, source identities, commands, samples and noise
+limits are retained in the linked records and stage methods.
+
+These workloads do not establish general speed/quality improvements. Helper
+sizes are not package sizes; sampled RSS is not a memory ceiling. Physical
+8K/60 fps, frame/startup p95, GPU memory, active hardware throughput and fresh
+whole-app/package comparisons remain unmeasured in these historical records.
+Current implementation checks are recorded below separately from these measurements.
+
+### Shared ultrawide/HDR media — October 11, 2026
+
+The baseline is `c4bc650`, with its unchanged normal FFmpeg recipe in a detached
+worktree. The new shared-media recipe is built with NVENC, AMF and QSV enabled,
+H.264/HEVC/AV1 decoding and dav1d 1.5.1. Each revision uses its own Cargo release
+directory, pinned Rust 1.98.1 and the standard voice-inclusive, no-development-data
+package command. No historical executable or manually repaired staging tree is
+used for this comparison.
+
+`cargo xtask check` passes in an offline Linux container using the build host's
+native libraries, CA certificates and a private temporary directory. The container
+avoids the managed sandbox's nonstandard root-directory ownership, which the
+unchanged IPC permission test correctly rejects. Formatting, strict Clippy,
+workspace tests and policy checks pass. Login-handoff and the six license-policy
+fixtures pass. Locked application/fuzz license graphs, native query/preset/packet
+fixtures, source-patch reproduction and packaging fixtures were checked separately.
+
+The actual media shader passes offscreen software-Vulkan tests for SDR, PQ/HLG
+highlights, rotation, odd-crop chroma, resource cleanup and device recreation.
+The exact 6144×2560 picture is decoded through synthetic RTP/DAVE at 60 fps
+timestamp cadence. Four HEVC/AV1 PQ/HLG transport fixtures and HDR attachment
+audio/seek/cancellation fixtures pass. These establish picture/color/lifecycle
+behavior, not sustained 60 fps throughput or live Discord compatibility.
+
+Fresh measurements compare `c4bc650` with `53cd786` on Linux x86-64, Intel Xeon
+Platinum 8573C, with a four-CPU quota and 16 GiB memory limit. Each uses its own
+release target directory. The baseline normal `cargo xtask package --format dir`
+completed from empty output without a staging repair: executable 87,744,200 bytes,
+installed tree 125,169,707 bytes, and canonical sorted `gzip -n -6` distribution
+82,836,259 bytes. Both include voice and corresponding-source/license material.
+
+| Synthetic release replay | Baseline | Shared media | Method |
+| --- | ---: | ---: | --- |
+| 100,000-event median | 97.741 ms | 96.144 ms | One warmup, five alternating pairs after builds settled |
+| Observed elapsed range | 80.842–113.114 ms | 88.715–106.501 ms | Overlapping samples; no improvement claimed |
+| Retained timeline | 331,992–332,477 bytes / 500 records | Same | Reducer accounting, not RSS |
+
+The replay executables have identical `.text` hashes; earlier samples taken
+during compilation were noisy and are excluded from this comparison. The new
+120-second lifecycle soak completes 2,145 passes / 68,640 channel visits and
+41,184,000 inserts within the shipping row/byte limits, with nine logout cycles.
+It uses no network, storage, renderer or audio devices and does not measure media
+throughput or process memory.
+
+Clean and cached current-package measurements and native CI results are reported
+in [#567's Performance and Verification sections](https://github.com/ViceVerse-cz/Serein/pull/567).
+CPU, frame-delivery rate and peak/settled memory during physical HDR playback remain
+unmeasured here. Native window capture and a suitable HDR display are unavailable
+in this environment. The owner has agreed to test the current CI Windows installer
+with the 6144×2560 stream and HDR/SDR display transitions. Outgoing HDR captures
+currently tone-map to SDR until receiver 10-bit compatibility is established.
 
 ## Post rename review repair (2026-10-14, PR #655)
 

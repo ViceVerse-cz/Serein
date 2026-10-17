@@ -3,9 +3,35 @@
 #![allow(dead_code)]
 #[path = "../src/stream_playout.rs"]
 mod stream_playout;
+#[path = "../src/video.rs"]
+pub(crate) mod video;
 #[path = "../src/video_receive.rs"]
 pub(crate) mod video_receive;
+#[path = "../src/video_sps.rs"]
+pub(crate) mod video_sps;
 type Frame = [f32; 960];
+
+// This example embeds the transport internals without exposing its test helper
+// from the shipping library.
+impl video_receive::Receivers {
+	pub(crate) fn push(
+		&mut self,
+		ssrc: u32,
+		sequence: u16,
+		timestamp: u32,
+		marker: bool,
+		payload: &[u8],
+	) -> Option<(u64, Vec<u8>)> {
+		self.push_codec(
+			ssrc,
+			sequence,
+			timestamp,
+			marker,
+			payload,
+			model::voice_settings::VideoCodec::H264,
+		)
+	}
+}
 
 pub(crate) fn main() {
 	for fps in [15, 30, 60] {

@@ -9,10 +9,7 @@ mod stream_feedback;
 mod stream_playback;
 #[path = "../src/test_mls.rs"]
 mod test_mls;
-#[path = "../src/video.rs"]
-mod video;
-#[path = "../src/video_sps.rs"]
-mod video_sps;
+use stream_playback::{video, video_sps};
 type Frame = [f32; 960];
 
 fn main() {

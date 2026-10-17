@@ -52,6 +52,7 @@ pub struct VideoUi {
 	texture: Option<egui::load::SizedTexture>,
 	/// CPU fallback texture behind [`VideoUi::accept_frame`].
 	managed: Option<egui::TextureHandle>,
+	pub media: Option<MediaView>,
 	/// Staging pixels for the current frame. The renderer drops its reference after the
 	/// upload, so the same allocation is refilled each frame instead of reallocating up to
 	/// 8 MB per frame (1080p at 60 fps churned ~500 MB/s through the allocator).
@@ -89,6 +90,7 @@ impl Default for VideoUi {
 			seen: false,
 			volume: 1.0,
 			texture: None,
+			media: None,
 			managed: None,
 			frame: None,
 			shade: None,
@@ -108,6 +110,7 @@ impl VideoUi {
 		self.exit_fullscreen();
 		self.active = None;
 		self.texture = None;
+		self.media = None;
 		self.managed = None;
 		self.frame = None;
 		self.state = VideoState::Idle;
@@ -173,12 +176,13 @@ impl VideoUi {
 		height: usize,
 		rgba: &[u8],
 	) -> bool {
+		self.media = None;
 		if self.active.is_none()
 			|| width == 0
 			|| height == 0
-			|| width > 1920
-			|| height > 1920
-			|| width * height > 1920 * 1080
+			|| width > 7680
+			|| height > 7680
+			|| width * height > 7680 * 4320
 			|| rgba.len() != width * height * 4
 		{
 			return false;
@@ -216,7 +220,21 @@ impl VideoUi {
 		if self.active.is_none() {
 			return false;
 		}
+		self.media = None;
+		self.managed = None;
+		self.frame = None;
 		self.texture = Some(texture);
+		true
+	}
+	/// Switch to the HDR-capable media renderer without retaining an obsolete SDR frame.
+	pub fn show_media(&mut self, media: MediaView) -> bool {
+		if self.active.is_none() {
+			return false;
+		}
+		self.texture = None;
+		self.managed = None;
+		self.frame = None;
+		self.media = Some(media);
 		true
 	}
 	fn toggle(&mut self, message: &Message, attachment: &Attachment, state: VideoState) {
@@ -230,6 +248,7 @@ impl VideoUi {
 			_ => {
 				self.active = Some((message.channel, message.id, attachment.clone()));
 				self.texture = None;
+				self.media = None;
 				self.managed = None;
 				self.frame = None;
 				self.state = VideoState::Loading;
@@ -372,7 +391,7 @@ impl VideoUi {
 		});
 		let painter = ui.painter().with_clip_rect(stage);
 		painter.rect_filled(stage, CORNER, egui::Color32::BLACK);
-		if self.texture.as_ref().filter(|_| active).is_none() {
+		if !active || (self.texture.is_none() && self.media.is_none()) {
 			if let Some((poster, _)) = self.posters.get(&attachment.id) {
 				let size = poster.size_vec2();
 				if size.x > 0.0 && size.y > 0.0 {
@@ -400,7 +419,13 @@ impl VideoUi {
 				self.poster_queue.push(attachment.clone());
 			}
 		}
-		if let Some(texture) = self.texture.filter(|_| active) {
+		if let Some(media) = self.media.as_ref().filter(|_| active) {
+			let scale = (stage.width() / media.size.x).min(stage.height() / media.size.y);
+			media.paint(
+				ui,
+				egui::Rect::from_center_size(stage.center(), media.size * scale),
+			);
+		} else if let Some(texture) = self.texture.filter(|_| active) {
 			let size = texture.size;
 			let scale = (stage.width() / size.x).min(stage.height() / size.y);
 			let image_rect = egui::Rect::from_center_size(stage.center(), size * scale);
@@ -874,6 +899,46 @@ fn timestamp(seconds: f64) -> String {
 mod tests {
 	use super::*;
 	#[test]
+	fn switching_native_and_hdr_frames_releases_the_previous_display_resources() {
+		let ctx = egui::Context::default();
+		let mut video = VideoUi::default();
+		let message = test_support::message(1, Id(2));
+		let attachment = Attachment {
+			id: Id(3),
+			filename: "clip.mp4".into(),
+			description: None,
+			content_type: Some("video/mp4".into()),
+			size: 128,
+			media: Default::default(),
+			spoiler: false,
+			duration_ms: None,
+			waveform: Vec::new(),
+		};
+		video.active = Some((message.channel, message.id, attachment));
+		assert!(video.accept_frame(&ctx, 1, 1, &[0, 0, 0, 255]));
+		assert!(video.managed.is_some() && video.frame.is_some());
+		let resource: std::sync::Arc<dyn std::any::Any + Send + Sync> = std::sync::Arc::new(());
+		let retired = std::sync::Arc::downgrade(&resource);
+		assert!(video.show_media(MediaView {
+			size: egui::vec2(1.0, 1.0),
+			resource,
+			failure: Default::default(),
+			callback: std::sync::Arc::new(|rect| egui::PaintCallback {
+				rect,
+				callback: std::sync::Arc::new(())
+			}),
+		}));
+		assert!(video.texture.is_none() && video.managed.is_none() && video.frame.is_none());
+		assert!(retired.upgrade().is_some());
+		let native = egui::load::SizedTexture::new(egui::TextureId::User(1), egui::vec2(1.0, 1.0));
+		assert!(video.show_frame(native));
+		assert!(video.media.is_none());
+		assert!(retired.upgrade().is_none());
+		video.stop();
+		assert!(!video.show_frame(native));
+		assert!(video.texture.is_none());
+	}
+	#[test]
 	fn video_controls_are_explicit_bounded_and_keyboard_operable() {
 		let mut message = test_support::message(1, Id(2));
 		let attachment = Attachment {
@@ -1066,6 +1131,33 @@ mod tests {
 		show(&mut video);
 		assert!(video.command.is_none());
 		assert_eq!(video.posters.len(), 1);
+		// Cached posters must yield to active SDR textures and high-precision media.
+		assert!(video.accept_poster(&ctx, Id(4), 1, 1, &[0, 0, 0, 255]));
+		video.poster_queue.clear();
+		video.active = Some((message.channel, message.id, attachment.clone()));
+		video.state = VideoState::Playing;
+		let painted = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+		let callback_painted = painted.clone();
+		video.media = Some(MediaView {
+			size: egui::vec2(2.0, 1.0),
+			resource: std::sync::Arc::new(()),
+			failure: Default::default(),
+			callback: std::sync::Arc::new(move |rect| {
+				callback_painted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+				egui::PaintCallback {
+					rect,
+					callback: std::sync::Arc::new(()),
+				}
+			}),
+		});
+		show(&mut video);
+		assert!(painted.load(std::sync::atomic::Ordering::Relaxed) > 0);
+		assert_eq!(video.poster_order, VecDeque::from([Id(3), Id(4)]));
+		assert!(video.poster_queue.is_empty());
+		assert!(video.accept_frame(&ctx, 1, 1, &[0, 0, 0, 255]));
+		show(&mut video);
+		assert_eq!(video.poster_order, VecDeque::from([Id(3), Id(4)]));
+		assert!(video.poster_queue.is_empty());
 		// Budget eviction drops the oldest texture and its retry guard together.
 		let big = vec![7; 1920 * 1080 * 4];
 		assert!(video.accept_poster(&ctx, Id(4), 1920, 1080, &big));
@@ -1076,5 +1168,43 @@ mod tests {
 		assert!(!video.posters.contains_key(&Id(4)));
 		assert!(!video.poster_seen.contains(&Id(3)));
 		assert!(video.poster_bytes <= POSTER_BUDGET);
+	}
+}
+
+/// A high precision video view supplied by the desktop renderer. UI code never
+/// reads media planes or performs color conversion.
+#[derive(Clone)]
+pub struct MediaView {
+	pub size: egui::Vec2,
+	/// Renderer-owned per-player cache, reused across frames and dropped with the view.
+	pub resource: std::sync::Arc<dyn std::any::Any + Send + Sync>,
+	pub failure: std::sync::Arc<std::sync::Mutex<Option<&'static str>>>,
+	pub callback: std::sync::Arc<dyn Fn(egui::Rect) -> egui::PaintCallback + Send + Sync>,
+}
+impl MediaView {
+	pub fn paint(&self, ui: &egui::Ui, rect: egui::Rect) {
+		ui.painter()
+			.with_clip_rect(rect)
+			.add(egui::Shape::Callback((self.callback)(rect)));
+		if let Ok(failure) = self.failure.lock()
+			&& let Some(error) = *failure
+		{
+			let painter = ui.painter().with_clip_rect(rect);
+			let text = painter.layout(
+				error.into(),
+				egui::FontId::proportional(13.0),
+				egui::Color32::WHITE,
+				(rect.width() - 24.0).max(1.0),
+			);
+			painter.galley(
+				rect.center() - text.size() / 2.0,
+				text,
+				egui::Color32::WHITE,
+			);
+		}
+		// Also revisit presentation capabilities while paused, without polling
+		// capture devices or changing the user's playback state.
+		ui.ctx()
+			.request_repaint_after(std::time::Duration::from_secs(1));
 	}
 }

@@ -28,12 +28,13 @@ openh264 = "=0.9.8"
 image = { version = "=0.25.10", default-features = false }
 
 [dev-dependencies]
+flate2.workspace = true
 sha3 = { version = "=0.10.9", default-features = false }
 openmls_rust_crypto = "=0.5.1"
 openmls_basic_credential = "=0.5.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-screencapturekit = { version = "=10.0.3", default-features = false, features = ["macos_14_0"] }
+screencapturekit = { version = "=10.0.3", default-features = false, features = ["macos_15_2"] }
 objc2 = "=0.6.4"
 block2 = "=0.6.2"
 objc2-av-foundation = { version = "=0.3.2", default-features = false, features = ["std", "AVCaptureDevice", "AVCaptureInput", "AVCaptureOutputBase", "AVCaptureSession", "AVCaptureSessionPreset", "AVCaptureVideoDataOutput", "AVMediaFormat", "AVVideoSettings", "block2", "dispatch2", "objc2-core-media"] }

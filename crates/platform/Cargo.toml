@@ -74,3 +74,8 @@ keyring.workspace = true
 
 [dev-dependencies]
 futures-util.workspace = true
+flate2.workspace = true
+
+[build-dependencies]
+cc = "=1.4.6"
+pkg-config = "=0.3.34"

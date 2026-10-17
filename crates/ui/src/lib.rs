@@ -11,7 +11,7 @@ mod forwarding;
 mod role_names;
 pub use audio::{AudioCommand, AudioState, AudioUi};
 mod video;
-pub use video::{VideoCommand, VideoState, VideoUi};
+pub use video::{MediaView, VideoCommand, VideoState, VideoUi};
 mod attachments;
 pub mod external_upload;
 pub use attachments::DownloadUi;
@@ -421,6 +421,8 @@ pub struct MessagingUi {
 	pub voice_remote_video: Vec<(Id, egui::load::SizedTexture)>,
 	/// Latest picture of the screen share this device chose to watch; desktop-owned texture.
 	pub voice_stream_view: Option<egui::load::SizedTexture>,
+	pub voice_stream_hdr: Option<MediaView>,
+	pub voice_remote_hdr: Vec<(Id, MediaView)>,
 	pub voice_stream_status: &'static str,
 	/// Session-only stream playback level; unset is 100%. Mute preserves the level.
 	voice_stream_volume: Option<u16>,
@@ -460,6 +462,17 @@ pub struct MessagingUi {
 	pub voice_muted: bool,
 	pub voice_deafened: bool,
 	pub voice_processing: model::voice_settings::VoiceProcessing,
+	pub video_settings: model::voice_settings::VideoSettings,
+	/// Session-local driver reports; the host queries outside the render thread.
+	pub video_capabilities: Option<model::voice_settings::DriverCapabilities>,
+	pub video_capabilities_loading: bool,
+	pub video_capabilities_refresh: bool,
+	/// Explicit synthetic encode results, kept separate from driver codec support.
+	pub video_encoder_tests: Option<model::voice_settings::VideoCapabilities>,
+	pub video_encoder_tests_loading: bool,
+	pub video_encoder_tests_request: Option<model::voice_settings::VideoCodec>,
+	/// Codec of the active or last test, independent of changes to the selected codec.
+	pub video_encoder_tests_codec: Option<model::voice_settings::VideoCodec>,
 	pub voice_preview_requested: bool,
 	pub voice_preview_level: Option<f32>,
 	pub voice_preview_status: &'static str,

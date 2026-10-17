@@ -60,6 +60,7 @@ mod tray_window;
 mod updater;
 mod uploads;
 mod video;
+mod video_capabilities;
 mod voice;
 mod watch;
 use client_core::{
@@ -74,6 +75,9 @@ use zeroize::Zeroizing;
 /// Run explicit offline checks before native startup, or launch the configured desktop client.
 fn main() -> eframe::Result {
 	platform::memory::tune_allocator();
+	if let Some(status) = video_capabilities::probe_command() {
+		std::process::exit(status);
+	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-pr565")
@@ -1766,6 +1770,11 @@ impl Desktop {
 			messaging.gpu_adapter = gpu::describe(&render_state.adapter.get_info());
 			gpu_video::install(render_state);
 		}
+		let video_adapter = cc
+			.wgpu_render_state
+			.as_ref()
+			.map(|render_state| gpu::video_adapter(&render_state.adapter))
+			.unwrap_or_default();
 		let startup = startup::Startup::new(&cc.egui_ctx, &runtime, &mut messaging, demo);
 		// `--demo-update`: a pending release without any network check. The system title bar
 		// comes with it, since that is when the sidebar prompt stands in for the title strip.
@@ -2279,7 +2288,7 @@ impl Desktop {
 			pointer: pointer::Pointer::default(),
 			downloads: downloads::Downloads::default(),
 			audio: audio::Audio::default(),
-			video: video::Video::default(),
+			video: video::Video::for_adapter(video_adapter),
 			_demo_textures: demo_textures,
 			demo_video_autoplay: if std::env::args().any(|arg| arg == "--demo-video-paused") {
 				Some(true)
@@ -2323,7 +2332,7 @@ impl Desktop {
 			avatar_cleanup: None,
 			avatar_start_failed: false,
 			avatar_clear_account: None,
-			voice: voice::Voice::default(),
+			voice: voice::Voice::for_adapter(video_adapter),
 			runtime,
 			store,
 			cache,
@@ -3326,7 +3335,9 @@ impl Desktop {
 				..
 			} = control
 			{
-				let result = self.voice.begin(&self.state, *ring);
+				let result =
+					self.voice
+						.begin_with_video(&self.state, *ring, self.messaging.video_settings);
 				if let Err(message) = result {
 					self.state.apply_voice(client_core::voice::Event::Failed {
 						channel: *channel,

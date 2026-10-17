@@ -201,3 +201,6 @@ opt-level = 3
 
 [profile.dev.package.sonora-agc2]
 opt-level = 3
+
+[patch."https://github.com/emilk/egui"]
+egui-wgpu = { path = "vendor/egui-wgpu" }

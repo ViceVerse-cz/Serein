@@ -642,7 +642,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|embeds|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|general|chat|language|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light] [--compact] [--transparency=0..100]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|embeds|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|voice|general|chat|language|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log|screen-share] [--video-backend=stable|experimental] [--video-codec=h264|h265|av1] [--camera-resolution=480p|720p|1080p|1440p|4k|8k] [--camera-fps=15|30|60] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light] [--compact] [--transparency=0..100]".into());
 	}
 	let smoke = args.iter().any(|arg| arg == "--smoke");
 	let interactive = args.iter().any(|arg| arg == "--interactive");
@@ -672,7 +672,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "post-intro"
 			| "account"
 			| "appearance"
-			| "storage"
+			| "voice" | "storage"
 			| "general"
 			| "chat" | "language"
 			| "keybinds"
@@ -691,8 +691,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "forum-gallery"
 			| "forum-settings"
 			| "friends"
+			| "screen-share"
 	) {
-		return Err("Page must be profile, markdown, embeds, channel-links, channel-link-replies, profile-card, collectibles, member-tags, dm-tags, account, appearance, storage, general, chat, language, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
+		return Err("Page must be profile, markdown, embeds, channel-links, channel-link-replies, profile-card, collectibles, member-tags, dm-tags, account, appearance, storage, voice, general, chat, language, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations, server-audit-log or screen-share".into());
 	}
 	let slash_command = value("--command=").unwrap_or("help").to_owned();
 	if !matches!(slash_command.as_str(), "help" | "weather") {
@@ -773,6 +774,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				slash_demo::preview()
 			} else if page == "friends" {
 				test_support::friends_demo_state()
+			} else if page == "screen-share" {
+				test_support::call_demo_state()
 			} else {
 				test_support::demo_state()
 			};
@@ -953,6 +956,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			} else if page == "forum-gallery" {
 				messaging.preview_forum(model::Id(26), &[], None);
 				messaging.preview_forum_layout(model::forum::Layout::Gallery);
+			} else if page == "screen-share" {
+				messaging.preview_screen_share(&state);
 			} else if page == "forum-settings" {
 				messaging.preview_channel_settings(model::Id(26), state.generation);
 			} else if page == "forum-post" {
@@ -1162,6 +1167,64 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					});
 				}
 			} else {
+				if page == "voice" {
+					use model::voice_settings::{
+						VideoBackend, VideoCodec, VideoFrameRate, VideoResolution,
+					};
+					if let Some(backend) = args
+						.iter()
+						.find_map(|arg| arg.strip_prefix("--video-backend="))
+					{
+						messaging.video_settings.backend = match backend {
+							"stable" => VideoBackend::Stable,
+							"experimental" => VideoBackend::Experimental,
+							_ => return Err("Video backend must be stable or experimental".into()),
+						};
+					}
+					if let Some(codec) = args
+						.iter()
+						.find_map(|arg| arg.strip_prefix("--video-codec="))
+					{
+						messaging.video_settings.codec = match codec {
+							"h264" => VideoCodec::H264,
+							"h265" => VideoCodec::H265,
+							"av1" => VideoCodec::Av1,
+							_ => return Err("Video codec must be h264, h265 or av1".into()),
+						};
+					}
+					if let Some(resolution) = args
+						.iter()
+						.find_map(|arg| arg.strip_prefix("--camera-resolution="))
+					{
+						messaging.video_settings.camera_resolution =
+							match resolution {
+								"480p" => VideoResolution::P480,
+								"720p" => VideoResolution::P720,
+								"1080p" => VideoResolution::P1080,
+								"1440p" => VideoResolution::P1440,
+								"4k" => VideoResolution::P2160,
+								"8k" => VideoResolution::P4320,
+								_ => return Err(
+									"Camera resolution must be 480p, 720p, 1080p, 1440p, 4k or 8k"
+										.into(),
+								),
+							};
+					}
+					if let Some(fps) = args
+						.iter()
+						.find_map(|arg| arg.strip_prefix("--camera-fps="))
+					{
+						messaging.video_settings.camera_frame_rate = match fps {
+							"15" => VideoFrameRate::Fps15,
+							"30" => VideoFrameRate::Fps30,
+							"60" => VideoFrameRate::Fps60,
+							_ => return Err("Camera frame rate must be 15, 30 or 60".into()),
+						};
+					}
+					if !messaging.video_settings.is_valid() {
+						return Err("Stable supports H.264 only".into());
+					}
+				}
 				messaging.preview_settings(
 					if page == "extensions" && args.iter().any(|arg| arg == "--themes") {
 						"themes"

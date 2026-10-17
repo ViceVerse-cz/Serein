@@ -1552,6 +1552,7 @@ dependencies = [
  "cpal",
  "davey",
  "dispatch2",
+ "flate2",
  "futures-util",
  "getrandom 0.4.3",
  "gstreamer",
@@ -1815,7 +1816,6 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -5225,8 +5225,10 @@ name = "platform"
 version = "0.1.0"
 dependencies = [
  "ashpd",
+ "cc",
  "client-core",
  "dirs",
+ "flate2",
  "futures-lite",
  "futures-util",
  "getrandom 0.4.3",
@@ -5249,6 +5251,7 @@ dependencies = [
  "objc2-core-video",
  "objc2-foundation 0.3.2",
  "objc2-video-toolbox",
+ "pkg-config",
  "rfd",
  "serde_json",
  "symphonia",
@@ -6360,6 +6363,7 @@ name = "serein"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "ash",
  "client-core",
  "cpal",
  "discord-api",
@@ -6378,6 +6382,7 @@ dependencies = [
  "log",
  "md4",
  "model",
+ "objc2-metal 0.3.2",
  "opus2",
  "platform",
  "png",

@@ -12,6 +12,7 @@ on:
       - "apps/**"
       - "vendor/**"
       - "packaging/**"
+      - "scripts/build-ffmpeg.py"
       - "assets/**"
       - "LICENSE*"
       - "THIRD_PARTY_NOTICES.md"

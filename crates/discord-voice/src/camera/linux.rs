@@ -1,8 +1,11 @@
 //! Native V4L2 single-plane streaming; no capture helper process or recording.
 #![allow(unsafe_code)]
 
-use super::{DeviceList, FRAME_INTERVAL, HEIGHT, Shared, WIDTH, format};
+use super::{DeviceList, Shared, format};
+#[cfg(test)]
+use super::{HEIGHT, WIDTH};
 use image::{ImageDecoder, codecs::jpeg::JpegDecoder};
+use model::voice_settings::{VideoFrameRate, VideoResolution};
 use std::{
 	fs::{File, OpenOptions},
 	io::{self, Cursor},
@@ -14,7 +17,7 @@ use std::{
 	time::{Duration, Instant},
 };
 
-const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
+const MAX_FRAME_BYTES: usize = format::MAX_RAW_BYTES;
 const MAX_BUFFERS: u32 = 4;
 const CAPTURE: u32 = 1;
 const MMAP: u32 = 1;
@@ -169,17 +172,17 @@ impl Drop for Capture {
 }
 
 fn validate_format(pixels: Pixels) -> Result<Pixels, &'static str> {
-	if format::rank(
-		pixels.width as usize,
-		pixels.height as usize,
-		f64::from(format::FPS),
-	)
-	.is_none()
+	let budget = format::raw_budget(pixels.width as usize, pixels.height as usize)
+		.ok_or("Camera does not support bounded progressive capture up to 8K")?;
+	if pixels.width == 0
+		|| pixels.height == 0
+		|| pixels.width as usize > format::MAX_CAPTURE_WIDTH
+		|| pixels.height as usize > format::MAX_CAPTURE_HEIGHT
 		|| pixels.field != 1
 		|| pixels.size == 0
-		|| pixels.size as usize > MAX_FRAME_BYTES
+		|| pixels.size as usize > budget
 	{
-		return Err("Camera does not support bounded progressive capture up to 1280×720");
+		return Err("Camera does not support bounded progressive capture up to 8K");
 	}
 	match pixels.format {
 		MJPEG => {}
@@ -193,6 +196,15 @@ fn validate_format(pixels: Pixels) -> Result<Pixels, &'static str> {
 		_ => return Err("Camera requires an unsupported pixel format; use a YUYV or MJPEG camera"),
 	}
 	Ok(pixels)
+}
+
+fn validate_mapping_length(pixels: Pixels, length: usize) -> Result<(), &'static str> {
+	let budget = format::raw_budget(pixels.width as usize, pixels.height as usize)
+		.ok_or("Camera native buffer dimensions exceed bounds")?;
+	if pixels.size == 0 || length < pixels.size as usize || length > budget {
+		return Err("Camera native buffer exceeds its negotiated geometry budget");
+	}
+	Ok(())
 }
 
 fn capabilities(file: &File) -> Result<Capability, &'static str> {
@@ -210,13 +222,14 @@ fn capabilities(file: &File) -> Result<Capability, &'static str> {
 }
 
 /// Ask the driver for its closest rate; read its effective interval on fixed-rate devices.
-fn configure_interval(file: &File) -> Result<Option<f64>, &'static str> {
+fn configure_interval(file: &File, target_fps: u32) -> Result<Option<f64>, &'static str> {
+	format::frame_interval(target_fps).ok_or("Invalid camera frame rate")?;
 	let mut timing = StreamParameters {
 		kind: CAPTURE,
 		capability: 0,
 		mode: 0,
 		numerator: 1,
-		denominator: format::FPS,
+		denominator: target_fps,
 		rest: [0; 46],
 	};
 	if let Err(error) = control(file, 22, &mut timing) {
@@ -236,7 +249,7 @@ fn effective_fps(numerator: u32, denominator: u32) -> Option<f64> {
 	(numerator != 0 && denominator != 0).then(|| f64::from(denominator) / f64::from(numerator))
 }
 
-fn configure(file: File) -> Result<Capture, &'static str> {
+fn configure(file: File, output: (usize, usize), target_fps: u32) -> Result<Capture, &'static str> {
 	capabilities(&file)?;
 	let mut choices = Vec::with_capacity(2);
 	for format in [YUYV, MJPEG] {
@@ -245,8 +258,8 @@ fn configure(file: File) -> Result<Capture, &'static str> {
 			data: FormatData { raw: [0; 200] },
 		};
 		request.data.pixels = Pixels {
-			width: WIDTH as u32,
-			height: HEIGHT as u32,
+			width: output.0 as u32,
+			height: output.1 as u32,
 			format,
 			field: 1,
 			colorspace: 1,
@@ -257,13 +270,15 @@ fn configure(file: File) -> Result<Capture, &'static str> {
 		}
 		// SAFETY: CAPTURE selects the pixels member, including driver adjustments.
 		if let Ok(pixels) = validate_format(unsafe { request.data.pixels }) {
-			let Ok(fps) = configure_interval(&file) else {
+			let Ok(fps) = configure_interval(&file, target_fps) else {
 				continue;
 			};
-			if let Some(mut rank) = format::rank(
+			if let Some(mut rank) = format::rank_for_output_at_rate(
 				pixels.width as usize,
 				pixels.height as usize,
-				fps.unwrap_or(f64::from(format::FPS)),
+				fps.unwrap_or(f64::from(target_fps)),
+				output,
+				target_fps,
 			) {
 				// Drivers without interval metadata rank after measured rates at the same size.
 				if fps.is_none() {
@@ -274,14 +289,24 @@ fn configure(file: File) -> Result<Capture, &'static str> {
 		}
 	}
 	choices.sort_by_key(|(rank, _)| *rank);
-	let mut negotiated = Err("Camera does not support YUYV or MJPEG capture up to 1280×720");
+	let mut negotiated =
+		Err("Camera does not support the selected resolution with YUYV or MJPEG capture");
 	for (_, mut request) in choices {
 		if control(&file, 5, &mut request).is_ok() {
 			// SAFETY: CAPTURE selects the pixels member, including driver adjustments.
-			negotiated = validate_format(unsafe { request.data.pixels });
+			negotiated = validate_format(unsafe { request.data.pixels }).and_then(|pixels| {
+				format::rank_for_output(
+					pixels.width as usize,
+					pixels.height as usize,
+					f64::from(format::FPS),
+					output,
+				)
+				.ok_or("Camera does not support the selected resolution")?;
+				Ok(pixels)
+			});
 			if negotiated.is_ok() {
 				// S_FMT may reset timing. A rejected rate invalidates only this candidate.
-				if let Err(error) = configure_interval(&file) {
+				if let Err(error) = configure_interval(&file, target_fps) {
 					negotiated = Err(error);
 					continue;
 				}
@@ -311,9 +336,7 @@ fn configure(file: File) -> Result<Capture, &'static str> {
 		let mut buffer = Buffer::new(index);
 		control(&capture.file, 9, &mut buffer).map_err(|_| "Camera buffer could not be queried")?;
 		let length = buffer.length as usize;
-		if length < pixels.size as usize || length > MAX_FRAME_BYTES {
-			return Err("Camera native buffer exceeds its 4 MiB limit");
-		}
+		validate_mapping_length(pixels, length)?;
 		// SAFETY: Driver-provided offset from QUERYBUF, validated bounded length,
 		// live file. The mapping is released by its unique owner on every exit.
 		let address = unsafe {
@@ -401,7 +424,12 @@ fn selected_index(device: &str) -> Option<u32> {
 	(index < 64 && device == format!("/dev/video{index}")).then_some(index)
 }
 
-fn open(shared: &Shared, selected: Option<&str>) -> Result<Option<Capture>, &'static str> {
+fn open(
+	shared: &Shared,
+	selected: Option<&str>,
+	output: (usize, usize),
+	target_fps: u32,
+) -> Result<Option<Capture>, &'static str> {
 	let range = match selected {
 		Some(device) => {
 			let index = selected_index(device).ok_or("Invalid camera device selection")?;
@@ -414,7 +442,9 @@ fn open(shared: &Shared, selected: Option<&str>) -> Result<Option<Capture>, &'st
 		if shared.stopped.load(Ordering::Acquire) {
 			return Ok(None);
 		}
-		match device_file(&format!("/dev/video{index}")).and_then(configure) {
+		match device_file(&format!("/dev/video{index}"))
+			.and_then(|file| configure(file, output, target_fps))
+		{
 			Ok(capture) => return Ok(Some(capture)),
 			Err(reason) if error != DENIED => error = reason,
 			Err(_) => {}
@@ -426,13 +456,19 @@ fn open(shared: &Shared, selected: Option<&str>) -> Result<Option<Capture>, &'st
 pub(super) fn run(
 	shared: &Shared,
 	device: Option<&str>,
+	resolution: VideoResolution,
+	frame_rate: VideoFrameRate,
 	emit: &mut dyn FnMut(Vec<u8>) -> Result<(), &'static str>,
 ) -> Result<(), &'static str> {
-	let Some(capture) = open(shared, device)? else {
+	let (width, height) = resolution.camera_dimensions();
+	let output = (width as usize, height as usize);
+	let target_fps = frame_rate.fps();
+	let mut cadence =
+		format::Cadence::new(target_fps, Instant::now()).ok_or("Invalid camera frame rate")?;
+	let Some(capture) = open(shared, device, output, target_fps)? else {
 		return Ok(());
 	};
 	let mut last_frame = Instant::now();
-	let mut last_emitted = Instant::now() - FRAME_INTERVAL;
 	while !shared.stopped.load(Ordering::Acquire) {
 		if last_frame.elapsed() >= Duration::from_secs(5) {
 			return Err("Camera stopped delivering frames; check the device and try again");
@@ -474,11 +510,11 @@ pub(super) fn run(
 		if used == 0 || used > mapping.length || used > capture.pixels.size as usize {
 			return Err("Camera frame exceeds its native buffer bounds");
 		}
-		let rgb = if buffer.flags & 0x40 == 0 && last_emitted.elapsed() >= FRAME_INTERVAL {
+		let rgb = if buffer.flags & 0x40 == 0 && cadence.accept(Instant::now()) {
 			// SAFETY: DQBUF gives exclusive userspace access until QBUF. Length
 			// was checked against the retained mapping; decoding finishes first.
 			let bytes = unsafe { std::slice::from_raw_parts(mapping.address.cast::<u8>(), used) };
-			Some(decode(bytes, capture.pixels)?)
+			Some(decode_for_output(bytes, capture.pixels, output)?)
 		} else {
 			None
 		};
@@ -487,7 +523,6 @@ pub(super) fn run(
 		if let Some(rgb) = rgb {
 			last_frame = Instant::now();
 			if !shared.stopped.load(Ordering::Acquire) {
-				last_emitted = Instant::now();
 				emit(rgb)?;
 			}
 		}
@@ -495,8 +530,24 @@ pub(super) fn run(
 	Ok(())
 }
 
+#[cfg(test)]
 fn decode(bytes: &[u8], pixels: Pixels) -> Result<Vec<u8>, &'static str> {
+	decode_for_output(bytes, pixels, (WIDTH, HEIGHT))
+}
+
+fn decode_for_output(
+	bytes: &[u8],
+	pixels: Pixels,
+	output: (usize, usize),
+) -> Result<Vec<u8>, &'static str> {
 	validate_format(pixels)?;
+	format::rank_for_output(
+		pixels.width as usize,
+		pixels.height as usize,
+		f64::from(format::FPS),
+		output,
+	)
+	.ok_or("Camera does not support the selected resolution")?;
 	let (width, height) = (pixels.width as usize, pixels.height as usize);
 	if bytes.is_empty() || bytes.len() > MAX_FRAME_BYTES || bytes.len() > pixels.size as usize {
 		return Err("Camera frame exceeds bounds");
@@ -512,7 +563,7 @@ fn decode(bytes: &[u8], pixels: Pixels) -> Result<Vec<u8>, &'static str> {
 		let mut limits = image::Limits::default();
 		limits.max_image_width = Some(pixels.width);
 		limits.max_image_height = Some(pixels.height);
-		limits.max_alloc = Some(MAX_FRAME_BYTES as u64);
+		limits.max_alloc = format::raw_budget(width, height).map(|bytes| bytes as u64);
 		decoder
 			.set_limits(limits)
 			.map_err(|_| "Camera JPEG exceeds decode bounds")?;
@@ -520,7 +571,7 @@ fn decode(bytes: &[u8], pixels: Pixels) -> Result<Vec<u8>, &'static str> {
 		decoder
 			.read_image(&mut rgb)
 			.map_err(|_| "Camera JPEG could not be decoded")?;
-		return fit_rgb(rgb, pixels);
+		return fit_rgb_for_output(rgb, pixels, output);
 	}
 	let stride = pixels.stride as usize;
 	if bytes.len() < stride * (height - 1) + width * 2 {
@@ -555,24 +606,42 @@ fn decode(bytes: &[u8], pixels: Pixels) -> Result<Vec<u8>, &'static str> {
 			}
 		}
 	}
-	fit_rgb(rgb, pixels)
+	fit_rgb_for_output(rgb, pixels, output)
 }
 
+#[cfg(test)]
 fn fit_rgb(rgb: Vec<u8>, pixels: Pixels) -> Result<Vec<u8>, &'static str> {
-	if pixels.width == WIDTH as u32 && pixels.height == HEIGHT as u32 {
+	fit_rgb_for_output(rgb, pixels, (WIDTH, HEIGHT))
+}
+
+fn fit_rgb_for_output(
+	rgb: Vec<u8>,
+	pixels: Pixels,
+	output: (usize, usize),
+) -> Result<Vec<u8>, &'static str> {
+	validate_format(pixels)?;
+	format::rank_for_output(
+		pixels.width as usize,
+		pixels.height as usize,
+		f64::from(format::FPS),
+		output,
+	)
+	.ok_or("Camera does not support the selected resolution")?;
+	let (width, height) = (output.0 as u32, output.1 as u32);
+	if pixels.width == width && pixels.height == height {
 		return Ok(rgb);
 	}
 	let source = image::RgbImage::from_raw(pixels.width, pixels.height, rgb)
 		.ok_or("Camera RGB dimensions are invalid")?;
 	let fitted = image::DynamicImage::ImageRgb8(source)
-		.thumbnail(WIDTH as u32, HEIGHT as u32)
+		.thumbnail(width, height)
 		.into_rgb8();
-	let mut output = image::RgbImage::new(WIDTH as u32, HEIGHT as u32);
+	let mut output = image::RgbImage::new(width, height);
 	image::imageops::replace(
 		&mut output,
 		&fitted,
-		i64::from((WIDTH as u32 - fitted.width()) / 2),
-		i64::from((HEIGHT as u32 - fitted.height()) / 2),
+		i64::from((width - fitted.width()) / 2),
+		i64::from((height - fitted.height()) / 2),
 	);
 	Ok(output.into_raw())
 }
@@ -602,9 +671,13 @@ mod tests {
 		let shared = Shared::default();
 		shared.stopped.store(true, Ordering::Release);
 		assert!(
-			run(&shared, None, &mut |_| panic!(
-				"Canceled camera emitted a frame"
-			))
+			run(
+				&shared,
+				None,
+				VideoResolution::P480,
+				VideoFrameRate::Fps15,
+				&mut |_| panic!("Canceled camera emitted a frame")
+			)
 			.is_ok()
 		);
 	}
@@ -648,7 +721,7 @@ mod tests {
 			height: HEIGHT as u32,
 			format: MJPEG,
 			field: 1,
-			size: MAX_FRAME_BYTES as u32,
+			size: ((WIDTH * 4 + format::MAX_STRIDE_PADDING) * HEIGHT) as u32,
 			..Pixels::default()
 		};
 		let mut bytes = Vec::new();
@@ -680,7 +753,7 @@ mod tests {
 			height: 720,
 			format: MJPEG,
 			field: 1,
-			size: MAX_FRAME_BYTES as u32,
+			size: ((1280 * 4 + format::MAX_STRIDE_PADDING) * 720) as u32,
 			..Pixels::default()
 		};
 		assert!(validate_format(pixels).is_ok());
@@ -691,6 +764,76 @@ mod tests {
 		assert_eq!(
 			&rgb[(HEIGHT / 2) * WIDTH * 3..(HEIGHT / 2 + 1) * WIDTH * 3],
 			vec![255; WIDTH * 3]
+		);
+	}
+
+	#[test]
+	fn selected_camera_size_survives_conversion_without_upscaling() {
+		let pixels = Pixels {
+			width: 1280,
+			height: 720,
+			format: YUYV,
+			field: 1,
+			stride: 1280 * 2,
+			size: 1280 * 720 * 2,
+			..Pixels::default()
+		};
+		let bytes = vec![128; pixels.size as usize];
+		let rgb = decode_for_output(&bytes, pixels, (1280, 720)).unwrap();
+		assert_eq!(rgb.len(), 1280 * 720 * 3);
+		assert!(decode_for_output(&bytes, pixels, (1920, 1080)).is_err());
+		assert!(decode_for_output(&bytes, pixels, (7680, 4320)).is_err());
+		let oversized = Pixels {
+			width: 7681,
+			..pixels
+		};
+		assert!(validate_format(oversized).is_err());
+	}
+
+	#[test]
+	fn small_camera_formats_and_mappings_cannot_claim_the_8k_budget() {
+		let pixels = Pixels {
+			width: 640,
+			height: 480,
+			format: YUYV,
+			field: 1,
+			stride: 640 * 2,
+			size: 640 * 480 * 2,
+			..Pixels::default()
+		};
+		let budget = format::raw_budget(640, 480).unwrap();
+		assert!(validate_format(pixels).is_ok());
+		assert!(validate_mapping_length(pixels, pixels.size as usize).is_ok());
+		assert!(validate_mapping_length(pixels, budget).is_ok());
+		assert!(validate_mapping_length(pixels, budget + 1).is_err());
+		assert!(validate_mapping_length(pixels, MAX_FRAME_BYTES).is_err());
+		assert!(validate_mapping_length(pixels, pixels.size as usize - 1).is_err());
+		assert!(
+			validate_format(Pixels {
+				size: budget as u32 + 1,
+				..pixels
+			})
+			.is_err()
+		);
+		assert!(
+			validate_format(Pixels {
+				size: MAX_FRAME_BYTES as u32,
+				..pixels
+			})
+			.is_err()
+		);
+		let padded = Pixels {
+			stride: 640 * 2 + format::MAX_STRIDE_PADDING as u32,
+			size: (640 * 2 + format::MAX_STRIDE_PADDING as u32) * 480,
+			..pixels
+		};
+		assert!(validate_format(padded).is_ok());
+		assert!(
+			validate_format(Pixels {
+				stride: padded.stride + 1,
+				..padded
+			})
+			.is_err()
 		);
 	}
 

@@ -5,7 +5,7 @@ use super::{
 	MAX_FRAME_HEIGHT, MAX_FRAME_WIDTH, MAX_RAW_BYTES, MAX_SOURCE_HEIGHT, MAX_SOURCE_WIDTH,
 	MAX_SOURCES, bounded_name,
 };
-use crate::screen::{RawFrame, Settings, Source, SourceId};
+use crate::screen::{RawFrame, RequestSettings, Source, SourceId};
 use screencapturekit::{
 	cm::{CMSampleBufferExt, CMSampleBufferSCExt},
 	content_sharing_picker::{
@@ -35,6 +35,7 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		return Ok(vec![Source {
 			id: SourceId::SystemPicker,
 			name: "Choose with the macOS system picker".into(),
+			dimensions: None,
 		}]);
 	}
 	initialize();
@@ -49,12 +50,28 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		else {
 			continue;
 		};
-		if width == 0 || height == 0 || width > MAX_SOURCE_WIDTH || height > MAX_SOURCE_HEIGHT {
+		if !crate::screen::valid_dimensions(width, height)
+			|| width > MAX_SOURCE_WIDTH
+			|| height > MAX_SOURCE_HEIGHT
+		{
 			continue;
 		}
 		sources.push(Source {
 			id: SourceId::Display(u64::from(display.display_id)),
 			name: format!("Display {}", display.display_id),
+			dimensions: content
+				.displays()
+				.into_iter()
+				.find(|native| native.display_id() == display.display_id)
+				.and_then(|native| {
+					physical_dimensions(
+						&SCContentFilter::create()
+							.with_display(&native)
+							.with_excluding_windows(&[])
+							.build(),
+					)
+					.ok()
+				}),
 		});
 		if sources.len() == MAX_SOURCES {
 			return Ok(sources);
@@ -85,6 +102,7 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		sources.push(Source {
 			id: SourceId::Window(u64::from(window.window_id)),
 			name: bounded_name(name),
+			dimensions: None,
 		});
 		if sources.len() == MAX_SOURCES {
 			break;
@@ -155,7 +173,7 @@ fn choose_with_system_picker(
 	let picked = result?;
 	let (width, height) = picked.pixel_size();
 	let (points_width, points_height) = picked.size();
-	if width == 0
+	if !crate::screen::valid_dimensions(width, height)
 		|| height == 0
 		|| width > MAX_SOURCE_WIDTH
 		|| height > MAX_SOURCE_HEIGHT
@@ -170,12 +188,15 @@ fn choose_with_system_picker(
 	Ok(picked.filter())
 }
 
+#[derive(Clone)]
 struct Handler {
 	frames: SyncSender<RawFrame>,
+	format: crate::screen::RawFormat,
 	stop: Arc<AtomicBool>,
 }
 
 /// System audio as interleaved 48 kHz stereo `f32`, bounded per buffer and never stored.
+#[derive(Clone)]
 struct AudioHandler {
 	audio: tokio::sync::mpsc::Sender<crate::screen::AudioChunk>,
 	stop: Arc<AtomicBool>,
@@ -272,11 +293,20 @@ impl SCStreamOutputTrait for Handler {
 			return;
 		};
 		let (buffer_width, buffer_height) = (guard.width(), guard.height());
+		let expected = if matches!(self.format, crate::screen::RawFormat::LinearRgba16 { .. }) {
+			PixelFormat::RGhA
+		} else {
+			PixelFormat::BGRA
+		};
+		if PixelFormat::from(guard.pixel_format()) != expected {
+			self.stop.store(true, Ordering::Release);
+			return;
+		}
 		// ScreenCaptureKit draws a window of another shape into the corner of the configured
 		// picture; keep only that content so the encoder letterboxes it centered.
 		let (left, top, width, height) =
 			content_pixels(sample.content_rect(), buffer_width, buffer_height);
-		let Some(row_bytes) = width.checked_mul(4) else {
+		let Some(row_bytes) = width.checked_mul(self.format.bytes()) else {
 			self.stop.store(true, Ordering::Release);
 			return;
 		};
@@ -289,11 +319,11 @@ impl SCStreamOutputTrait for Handler {
 			self.stop.store(true, Ordering::Release);
 			return;
 		};
-		if width == 0
-			|| height == 0
+		if !crate::screen::valid_dimensions(width as u32, height as u32)
+			|| !crate::screen::valid_dimensions(buffer_width as u32, buffer_height as u32)
 			|| buffer_width > MAX_FRAME_WIDTH as usize
 			|| buffer_height > MAX_FRAME_HEIGHT as usize
-			|| stride < buffer_width * 4
+			|| stride < buffer_width * self.format.bytes()
 			|| source_len > MAX_RAW_BYTES
 			|| data_len > MAX_RAW_BYTES
 		{
@@ -317,13 +347,14 @@ impl SCStreamOutputTrait for Handler {
 			.skip(top)
 			.take(height)
 		{
-			data.extend_from_slice(&row[left * 4..][..row_bytes]);
+			data.extend_from_slice(&row[left * self.format.bytes()..][..row_bytes]);
 		}
 		let (Ok(width), Ok(height)) = (u32::try_from(width), u32::try_from(height)) else {
 			self.stop.store(true, Ordering::Release);
 			return;
 		};
 		let _ = self.frames.try_send(RawFrame {
+			format: self.format,
 			width,
 			height,
 			stride: row_bytes,
@@ -350,7 +381,7 @@ fn content_pixels(
 		rect.size.width,
 		rect.size.height,
 	);
-	if width == 0
+	if !crate::screen::valid_dimensions(width as u32, height as u32)
 		|| height == 0
 		|| ![x, y, w, h].iter().all(|value| value.is_finite())
 		|| x < 0.0
@@ -371,11 +402,17 @@ fn content_pixels(
 	)
 }
 
-struct Delegate(Arc<AtomicBool>);
+struct Delegate {
+	stop: Arc<AtomicBool>,
+	// Starting, active, failed. A rejected HDR start must not cancel the SDR retry.
+	state: Arc<std::sync::atomic::AtomicU8>,
+}
 
 impl SCStreamDelegateTrait for Delegate {
 	fn did_stop_with_error(&self, _error: screencapturekit::error::SCError) {
-		self.0.store(true, Ordering::Release);
+		if self.state.swap(2, Ordering::AcqRel) == 1 {
+			self.stop.store(true, Ordering::Release);
+		}
 	}
 }
 
@@ -388,14 +425,80 @@ impl Drop for PickerSession {
 	}
 }
 
+fn physical_dimensions(filter: &SCContentFilter) -> Result<(u32, u32), &'static str> {
+	let info = screencapturekit::shareable_content::SCShareableContentInfo::for_filter(filter)
+		.ok_or("Selected screen geometry is unavailable")?;
+	let size = info.content_rect().size;
+	let scale = f64::from(info.point_pixel_scale());
+	let (width, height) = (size.width * scale, size.height * scale);
+	if !width.is_finite()
+		|| !height.is_finite()
+		|| width < 1.0
+		|| height < 1.0
+		|| width > f64::from(MAX_SOURCE_WIDTH)
+		|| height > f64::from(MAX_SOURCE_HEIGHT)
+	{
+		return Err("Selected screen or window is unavailable or too large");
+	}
+	let dimensions = (width.round() as u32, height.round() as u32);
+	if !crate::screen::valid_dimensions(dimensions.0, dimensions.1) {
+		return Err("Selected screen or window exceeds the 8K limit");
+	}
+	Ok(dimensions)
+}
+
 pub(crate) struct Capture {
+	next_geometry: std::time::Instant,
 	stream: SCStream,
+	filter: SCContentFilter,
+	config: SCStreamConfiguration,
+	handler: Handler,
+	audio_handler: Option<AudioHandler>,
 	_system_picker: PickerSession,
 }
 
 impl Capture {
+	pub(crate) fn refresh_dimensions(&mut self) -> Result<(), &'static str> {
+		if std::time::Instant::now() < self.next_geometry {
+			return Ok(());
+		}
+		self.next_geometry = std::time::Instant::now() + std::time::Duration::from_secs(1);
+		// Refresh information for the approved filter, without enumerating other
+		// sources or requiring a separate screen-recording permission grant.
+		// Selected content can be temporarily unavailable; retain the approved
+		// configuration and retry at the next interval rather than ending the share.
+		let Ok((width, height)) = physical_dimensions(&self.filter) else {
+			return Ok(());
+		};
+		if self.config.width() != width || self.config.height() != height {
+			self.config.set_width(width).set_height(height);
+			self.stream
+				.update_configuration(&self.config)
+				.map_err(|_| "Could not resize screen capture")?;
+		}
+		Ok(())
+	}
+
+	pub(crate) fn request_frame(
+		&mut self,
+		frames: &std::sync::mpsc::Receiver<RawFrame>,
+	) -> Result<(), &'static str> {
+		self.stream
+			.stop_capture()
+			.map_err(|_| "Screen capture could not be refreshed")?;
+		while frames.try_recv().is_ok() {}
+		// Recreate the stream without reopening the picker or changing its approved source.
+		self.stream = Self::start_stream(
+			&self.filter,
+			&self.config,
+			&self.handler,
+			self.audio_handler.as_ref(),
+		)?;
+		Ok(())
+	}
+
 	pub(crate) fn start(
-		settings: Settings,
+		settings: RequestSettings,
 		frames: SyncSender<RawFrame>,
 		audio: Option<tokio::sync::mpsc::Sender<crate::screen::AudioChunk>>,
 		stop: Arc<AtomicBool>,
@@ -404,12 +507,7 @@ impl Capture {
 		teardown: Arc<AtomicBool>,
 	) -> Result<Self, &'static str> {
 		initialize();
-		if settings.width == 0
-			|| settings.height == 0
-			|| settings.width > MAX_FRAME_WIDTH
-			|| settings.height > MAX_FRAME_HEIGHT
-			|| settings.fps == 0
-		{
+		if !settings.valid() {
 			return Err("Invalid screen capture settings");
 		}
 		// Own the picker before selection so every later error/cancellation deactivates it.
@@ -457,10 +555,33 @@ impl Capture {
 			#[allow(unreachable_patterns)] // Portal may be absent from platform-scoped models.
 			_ => return Err("The desktop screen picker is available only on Linux"),
 		};
-		let mut config = SCStreamConfiguration::new()
-			.with_width(settings.width)
-			.with_height(settings.height)
-			.with_pixel_format(PixelFormat::BGRA)
+		let (native_width, native_height) = physical_dimensions(&filter)?;
+		let luminance = filter
+			.included_displays()
+			.first()
+			.and_then(|display| {
+				platform::video::ffmpeg::capture_luminance(u64::from(display.display_id()), false)
+			})
+			.or_else(|| {
+				filter.included_windows().first().and_then(|window| {
+					platform::video::ffmpeg::capture_luminance(u64::from(window.window_id()), true)
+				})
+			});
+		let hdr = luminance.is_some();
+		let base = if hdr {
+			screencapturekit::stream::configuration::SCStreamConfiguration::from_preset(screencapturekit::stream::configuration::SCStreamConfigurationPreset::CaptureHDRStreamCanonicalDisplay)
+            .with_color_space_name("kCGColorSpaceExtendedLinearSRGB")
+		} else {
+			SCStreamConfiguration::new()
+		};
+		let mut config = base
+			.with_width(native_width)
+			.with_height(native_height)
+			.with_pixel_format(if hdr {
+				PixelFormat::RGhA
+			} else {
+				PixelFormat::BGRA
+			})
 			.with_preserves_aspect_ratio(true)
 			.with_scales_to_fit(true)
 			.with_shows_cursor(settings.cursor)
@@ -477,47 +598,99 @@ impl Capture {
 		if !config.preserves_aspect_ratio() {
 			return Err("Screen sharing requires macOS 14 or newer");
 		}
-		if stop.load(Ordering::Acquire) {
+		let mut handler = Handler {
+			format: if hdr {
+				{
+					let light = luminance.ok_or("HDR capture metadata is unavailable")?;
+					crate::screen::RawFormat::LinearRgba16 {
+						unit_nits: light.unit_nits,
+						white_nits: light.white_nits,
+						peak_nits: light.peak_nits,
+					}
+				}
+			} else {
+				crate::screen::RawFormat::Bgra8
+			},
+			frames,
+			stop: stop.clone(),
+		};
+		let audio_handler = audio.map(|audio| AudioHandler {
+			audio,
+			stop,
+			ready,
+			audio_epoch,
+		});
+		let stream = match Self::start_stream(&filter, &config, &handler, audio_handler.as_ref()) {
+			Ok(stream) => stream,
+			Err(_) if hdr && !handler.stop.load(Ordering::Acquire) => {
+				// Keep the picker-approved filter and audio configuration on the SDR retry.
+				config
+					.set_capture_dynamic_range(
+						screencapturekit::stream::configuration::SCCaptureDynamicRange::SDR,
+					)
+					.set_pixel_format(PixelFormat::BGRA)
+					.set_color_space_name("kCGColorSpaceSRGB");
+				handler.format = crate::screen::RawFormat::Bgra8;
+				Self::start_stream(&filter, &config, &handler, audio_handler.as_ref())?
+			}
+			Err(error) => return Err(error),
+		};
+		Ok(Self {
+			next_geometry: std::time::Instant::now(),
+			stream,
+			filter,
+			config,
+			handler,
+			audio_handler,
+			_system_picker: system_picker,
+		})
+	}
+
+	fn start_stream(
+		filter: &SCContentFilter,
+		config: &SCStreamConfiguration,
+		handler: &Handler,
+		audio_handler: Option<&AudioHandler>,
+	) -> Result<SCStream, &'static str> {
+		if handler.stop.load(Ordering::Acquire) {
 			return Err("Screen sharing cancelled");
 		}
-		let mut stream = SCStream::new_with_delegate(&filter, &config, Delegate(stop.clone()));
+		let state = Arc::new(std::sync::atomic::AtomicU8::new(0));
+		let mut stream = SCStream::new_with_delegate(
+			filter,
+			config,
+			Delegate {
+				stop: handler.stop.clone(),
+				state: state.clone(),
+			},
+		);
 		if stream
-			.add_output_handler(
-				Handler {
-					frames,
-					stop: stop.clone(),
-				},
-				SCStreamOutputType::Screen,
-			)
+			.add_output_handler(handler.clone(), SCStreamOutputType::Screen)
 			.is_none()
 		{
 			return Err("Screen capture frame callback could not be registered");
 		}
-		if let Some(audio) = audio
+		if let Some(audio_handler) = audio_handler
 			&& stream
-				.add_output_handler(
-					AudioHandler {
-						audio,
-						stop: stop.clone(),
-						ready,
-						audio_epoch,
-					},
-					SCStreamOutputType::Audio,
-				)
+				.add_output_handler(audio_handler.clone(), SCStreamOutputType::Audio)
 				.is_none()
 		{
 			return Err("System audio callback could not be registered");
 		}
-		if stop.load(Ordering::Acquire) {
+		if handler.stop.load(Ordering::Acquire) {
 			return Err("Screen sharing cancelled");
 		}
 		stream
 			.start_capture()
 			.map_err(|_| "Screen capture could not be started")?;
-		Ok(Self {
-			stream,
-			_system_picker: system_picker,
-		})
+		if state
+			.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+			.is_err()
+		{
+			let _ = stream.stop_capture();
+			return Err("Screen capture could not be started");
+		}
+		Ok(stream)
 	}
 }
 

@@ -2,7 +2,7 @@ use super::{
 	MAX_FRAME_HEIGHT, MAX_FRAME_WIDTH, MAX_RAW_BYTES, MAX_SOURCE_HEIGHT, MAX_SOURCE_WIDTH,
 	MAX_SOURCES, bounded_name,
 };
-use crate::screen::{AudioChunk, RawFrame, Settings as CaptureSettings, Source, SourceId};
+use crate::screen::{AudioChunk, RawFrame, RequestSettings as CaptureSettings, Source, SourceId};
 use std::sync::{
 	Arc,
 	atomic::{AtomicBool, AtomicU64, Ordering},
@@ -35,10 +35,14 @@ fn window_id(window: &Window) -> u64 {
 pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 	let mut sources = Vec::with_capacity(MAX_SOURCES);
 	for monitor in Monitor::enumerate().map_err(|_| "Displays could not be enumerated")? {
+		// EnumDisplaySettings reports physical mode pixels, independent of DPI scaling.
 		let (Ok(width), Ok(height)) = (monitor.width(), monitor.height()) else {
 			continue;
 		};
-		if width == 0 || height == 0 || width > MAX_SOURCE_WIDTH || height > MAX_SOURCE_HEIGHT {
+		if !crate::screen::valid_dimensions(width, height)
+			|| width > MAX_SOURCE_WIDTH
+			|| height > MAX_SOURCE_HEIGHT
+		{
 			continue;
 		}
 		let name = monitor
@@ -48,6 +52,7 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		sources.push(Source {
 			id: SourceId::Display(monitor_id(&monitor)),
 			name: bounded_name(name),
+			dimensions: Some((width, height)),
 		});
 		if sources.len() == MAX_SOURCES {
 			return Ok(sources);
@@ -75,6 +80,7 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		sources.push(Source {
 			id: SourceId::Window(window_id(&window)),
 			name: bounded_name(title),
+			dimensions: None,
 		});
 		if sources.len() == MAX_SOURCES {
 			break;
@@ -90,6 +96,9 @@ struct Flags {
 	pending: Arc<AtomicBool>,
 	next_frame: Instant,
 	interval: Duration,
+	luminance: Option<platform::video::ffmpeg::CaptureLuminance>,
+	source: SourceId,
+	next_color: Instant,
 }
 
 struct Handler(Flags);
@@ -119,7 +128,40 @@ impl GraphicsCaptureApiHandler for Handler {
 		}
 		self.0.next_frame = (self.0.next_frame + self.0.interval).max(now + self.0.interval / 2);
 		let (width, height) = (frame.width(), frame.height());
-		let Some(row_bytes) = (width as usize).checked_mul(4) else {
+		let format = match frame.color_format() {
+			ColorFormat::Rgba16F => {
+				if now >= self.0.next_color {
+					self.0.luminance = match self.0.source {
+						SourceId::Display(id) => {
+							platform::video::ffmpeg::capture_luminance(id, false)
+						}
+						SourceId::Window(id) => {
+							platform::video::ffmpeg::capture_luminance(id, true)
+						}
+						_ => None,
+					};
+					self.0.next_color = now + Duration::from_secs(1);
+				}
+				// WGC retains the half-float surface when HDR is disabled or the
+				// window moves to an SDR display. scRGB still uses 80 nits per unit.
+				let light = self
+					.0
+					.luminance
+					.unwrap_or(platform::video::ffmpeg::CaptureLuminance {
+						unit_nits: 80,
+						white_nits: 80,
+						peak_nits: 80,
+					});
+				crate::screen::RawFormat::LinearRgba16 {
+					unit_nits: light.unit_nits,
+					white_nits: light.white_nits,
+					peak_nits: light.peak_nits,
+				}
+			}
+			ColorFormat::Bgra8 => crate::screen::RawFormat::Bgra8,
+			_ => return Err("Unsupported capture color format"),
+		};
+		let Some(row_bytes) = (width as usize).checked_mul(format.bytes()) else {
 			self.0.stop.store(true, Ordering::Release);
 			control.stop();
 			return Err("Captured frame dimensions are invalid");
@@ -129,7 +171,7 @@ impl GraphicsCaptureApiHandler for Handler {
 			control.stop();
 			return Err("Captured frame dimensions are invalid");
 		};
-		if width == 0
+		if !crate::screen::valid_dimensions(width, height)
 			|| height == 0
 			|| width > MAX_FRAME_WIDTH
 			|| height > MAX_FRAME_HEIGHT
@@ -137,7 +179,7 @@ impl GraphicsCaptureApiHandler for Handler {
 		{
 			self.0.stop.store(true, Ordering::Release);
 			control.stop();
-			return Err("Captured frame exceeds the 4K limit");
+			return Err("Captured frame exceeds the 8K limit");
 		}
 		let mut buffer = frame.buffer().map_err(|_| {
 			self.0.stop.store(true, Ordering::Release);
@@ -150,7 +192,7 @@ impl GraphicsCaptureApiHandler for Handler {
 		};
 		if stride < row_bytes || source_len > MAX_RAW_BYTES {
 			self.0.stop.store(true, Ordering::Release);
-			return Err("Captured frame stride exceeds the 4K limit");
+			return Err("Captured frame stride exceeds the 8K limit");
 		}
 		let source = buffer.as_raw_buffer();
 		if source.len() < source_len {
@@ -165,6 +207,7 @@ impl GraphicsCaptureApiHandler for Handler {
 			.0
 			.frames
 			.try_send(RawFrame {
+				format,
 				width,
 				height,
 				stride: row_bytes,
@@ -186,9 +229,35 @@ impl GraphicsCaptureApiHandler for Handler {
 pub(crate) struct Capture {
 	control: Option<CaptureControl<Handler, &'static str>>,
 	audio: Option<audio::Audio>,
+	settings: CaptureSettings,
+	frames: SyncSender<RawFrame>,
+	stop: Arc<AtomicBool>,
+	pending: Arc<AtomicBool>,
 }
 
 impl Capture {
+	pub(crate) fn request_frame(
+		&mut self,
+		frames: &std::sync::mpsc::Receiver<RawFrame>,
+	) -> Result<(), &'static str> {
+		if let Some(control) = self.control.take() {
+			control
+				.stop()
+				.map_err(|_| "Screen capture could not be refreshed")?;
+		}
+		while frames.try_recv().is_ok() {}
+		self.pending.store(false, Ordering::Release);
+		let mut capture = Self::start_video(
+			self.settings,
+			self.frames.clone(),
+			self.stop.clone(),
+			self.pending.clone(),
+		)?;
+		capture.audio = self.audio.take();
+		*self = capture;
+		Ok(())
+	}
+
 	pub(crate) fn start(
 		settings: CaptureSettings,
 		frames: SyncSender<RawFrame>,
@@ -198,15 +267,23 @@ impl Capture {
 		audio_epoch: Arc<AtomicU64>,
 		pending: Arc<AtomicBool>,
 	) -> Result<Self, &'static str> {
-		if settings.width == 0
-			|| settings.height == 0
-			|| settings.width > MAX_FRAME_WIDTH
-			|| settings.height > MAX_FRAME_HEIGHT
-			|| settings.fps == 0
-		{
+		if !settings.valid() {
 			return Err("Invalid screen capture settings");
 		}
-		let mut capture = match settings.source {
+		let mut capture = Self::start_video(settings, frames, stop.clone(), pending)?;
+		if let Some(send) = audio {
+			capture.audio = Some(audio::Audio::start(send, stop, ready, audio_epoch)?);
+		}
+		Ok(capture)
+	}
+
+	fn start_video(
+		settings: CaptureSettings,
+		frames: SyncSender<RawFrame>,
+		stop: Arc<AtomicBool>,
+		pending: Arc<AtomicBool>,
+	) -> Result<Self, &'static str> {
+		match settings.source {
 			SourceId::Display(id) => {
 				let monitor = Monitor::enumerate()
 					.map_err(|_| "Displays could not be enumerated")?
@@ -224,12 +301,8 @@ impl Capture {
 				start_item(settings, window, frames, stop.clone(), pending)
 			}
 			#[allow(unreachable_patterns)] // Portal may be absent from platform-scoped models.
-			_ => return Err("The desktop screen picker is available only on Linux"),
-		}?;
-		if let Some(send) = audio {
-			capture.audio = Some(audio::Audio::start(send, stop, ready, audio_epoch)?);
+			_ => Err("The desktop screen picker is available only on Linux"),
 		}
-		Ok(capture)
 	}
 
 	pub(crate) fn failed(&self) -> bool {
@@ -238,7 +311,7 @@ impl Capture {
 }
 
 trait NativeSource:
-	TryInto<windows_capture::settings::GraphicsCaptureItemType> + Send + 'static
+	TryInto<windows_capture::settings::GraphicsCaptureItemType> + Clone + Send + 'static
 {
 	fn dimensions(&self) -> Option<(u32, u32)>;
 }
@@ -276,17 +349,25 @@ where
 		return Err("Selected source dimensions are unavailable");
 	};
 	if width == 0 || height == 0 || width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT {
-		return Err("Selected source exceeds the 4K capture limit");
+		return Err("Selected source exceeds the 8K capture limit");
 	}
+	let luminance = match settings.source {
+		SourceId::Display(id) => platform::video::ffmpeg::capture_luminance(id, false),
+		SourceId::Window(id) => platform::video::ffmpeg::capture_luminance(id, true),
+		_ => None,
+	};
 	let flags = Flags {
-		frames,
-		stop,
-		pending,
+		frames: frames.clone(),
+		stop: stop.clone(),
+		pending: pending.clone(),
 		next_frame: Instant::now(),
 		interval: Duration::from_secs_f64(1.0 / f64::from(settings.fps)),
+		luminance,
+		source: settings.source,
+		next_color: Instant::now() + Duration::from_secs(1),
 	};
 	let native = Settings::new(
-		item,
+		item.clone(),
 		if settings.cursor {
 			CursorCaptureSettings::Default
 		} else {
@@ -301,14 +382,40 @@ where
 		SecondaryWindowSettings::Default,
 		MinimumUpdateIntervalSettings::Default,
 		DirtyRegionSettings::Default,
-		ColorFormat::Bgra8,
-		flags,
+		if luminance.is_some() {
+			ColorFormat::Rgba16F
+		} else {
+			ColorFormat::Bgra8
+		},
+		flags.clone(),
 	);
-	let control =
-		Handler::start_free_threaded(native).map_err(|_| "Screen capture could not be started")?;
+	let control = Handler::start_free_threaded(native)
+		.or_else(|_| {
+			// Older capture devices may not accept a half-float surface. Retain
+			// their existing SDR path, using the same approved source and handlers.
+			Handler::start_free_threaded(Settings::new(
+				item,
+				if settings.cursor {
+					CursorCaptureSettings::Default
+				} else {
+					CursorCaptureSettings::WithoutCursor
+				},
+				DrawBorderSettings::Default,
+				SecondaryWindowSettings::Default,
+				MinimumUpdateIntervalSettings::Default,
+				DirtyRegionSettings::Default,
+				ColorFormat::Bgra8,
+				flags,
+			))
+		})
+		.map_err(|_| "Screen capture could not be started")?;
 	Ok(Capture {
 		control: Some(control),
 		audio: None,
+		settings,
+		frames,
+		stop,
+		pending,
 	})
 }
 
