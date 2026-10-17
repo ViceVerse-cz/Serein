@@ -20,28 +20,21 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 	let mut state: TouchpadState = ctx.data(|d| d.get_temp(key)).unwrap_or_default();
 
 	let has_high_res_event = ctx.input(|input| {
-		let wheel_events = input
-			.raw
-			.events
-			.iter()
-			.filter(|event| matches!(event, egui::Event::MouseWheel { .. }))
-			.count();
-		wheel_events > 1
-			|| input.raw.events.iter().any(|event| match event {
-				egui::Event::MouseWheel {
-					unit,
-					delta,
-					source,
-					..
-				} => {
-					*source == egui::MouseWheelSource::Trackpad
-						|| *source == egui::MouseWheelSource::Momentum
-						|| *unit == egui::MouseWheelUnit::Point
-						|| delta.x.fract().abs() > 0.0001
-						|| delta.y.fract().abs() > 0.0001
-				}
-				_ => false,
-			})
+		input.raw.events.iter().any(|event| match event {
+			egui::Event::MouseWheel {
+				unit,
+				delta,
+				source,
+				..
+			} => {
+				*source == egui::MouseWheelSource::Trackpad
+					|| *source == egui::MouseWheelSource::Momentum
+					|| *unit == egui::MouseWheelUnit::Point
+					|| delta.x.fract().abs() > 0.0001
+					|| delta.y.fract().abs() > 0.0001
+			}
+			_ => false,
+		})
 	});
 
 	if has_high_res_event {
@@ -58,14 +51,21 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 			if has_any_wheel {
 				state.last_active = Some(time);
 			}
-		} else {
-			state.last_active = None;
-			state.accumulator = egui::Vec2::ZERO;
 		}
 	}
 
+	let is_scrolling = ctx.input(|i| i.is_scrolling());
 	let touchpad_active = state.last_active.is_some_and(|last| time - last < 0.35)
 		|| state.accumulator.length() > 0.5;
+	let queue_draining = state.last_active.is_some_and(|last| {
+		time - last >= 0.35 && is_scrolling
+	});
+
+	if state.last_active.is_some() && !touchpad_active && !queue_draining {
+		state.last_active = None;
+		state.accumulator = egui::Vec2::ZERO;
+		ctx.data_mut(|d| d.remove_temp::<TouchpadState>(key));
+	}
 
 	if ctx.input(|i| i.pointer.any_pressed()) {
 		state.accumulator = egui::Vec2::ZERO;
@@ -87,6 +87,10 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 			state.accumulator.x = 0.0;
 		}
 		state.accumulator += incoming;
+		let max_backlog = (page_height * 2.0).clamp(1200.0, 2400.0);
+		if state.accumulator.length() > max_backlog {
+			state.accumulator = state.accumulator.normalized() * max_backlog;
+		}
 
 		let dt_clamped = dt.clamp(1.0 / 240.0, 0.05);
 		let step = if !preferences.smooth_scrolling {
@@ -94,15 +98,18 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 			state.accumulator = egui::Vec2::ZERO;
 			d
 		} else {
-			let frame_ratio = dt_clamped / (1.0 / 60.0);
-			let max_step = (page_height * 0.25).clamp(120.0, 180.0) * frame_ratio;
 			let len = state.accumulator.length();
-			if len <= max_step {
+			// For small or slow touchpad scrolls, deliver 100% immediately for crisp 1:1 tactile feel.
+			if len <= 120.0 {
 				let d = state.accumulator;
 				state.accumulator = egui::Vec2::ZERO;
 				d
 			} else {
-				let d = state.accumulator.normalized() * max_step;
+				let frame_ratio = (dt_clamped / (1.0 / 60.0)).clamp(0.5, 1.5);
+				let max_step = (page_height * 0.25).clamp(120.0, 160.0) * frame_ratio;
+				let decay = 1.0 - (-dt_clamped / 0.05).exp();
+				let step_len = (len * decay).max(120.0).min(max_step).min(len);
+				let d = state.accumulator.normalized() * step_len;
 				state.accumulator -= d;
 				d
 			}
@@ -113,6 +120,8 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 		}
 
 		step
+	} else if queue_draining {
+		ctx.input(|input| instant_wheel_delta(&input.raw.events, options, page_height))
 	} else {
 		state.accumulator = egui::Vec2::ZERO;
 		if preferences.smooth_scrolling {
@@ -122,7 +131,9 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 		}
 	};
 
-	ctx.data_mut(|d| d.insert_temp(key, state));
+	if touchpad_active || queue_draining {
+		ctx.data_mut(|d| d.insert_temp(key, state));
+	}
 
 	ctx.input_mut(|input| {
 		input.smooth_scroll_delta = delta * (f32::from(preferences.scroll_speed_percent) / 100.0);
@@ -479,6 +490,47 @@ mod tests {
 		})
 		.drop_without_applying_deltas();
 		assert_eq!(delta.y, 120.0);
+	}
+
+	#[test]
+	fn multiple_notched_mouse_wheel_events_in_one_frame_preserve_smooth_scrolling() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let raw = egui::RawInput {
+			time: Some(0.1),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, 1.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				},
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, 1.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				},
+			],
+			..Default::default()
+		};
+		let mut delta = egui::Vec2::ZERO;
+		ctx.run_ui(raw, |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		// Two integer 1.0 line notches delivered together must preserve smooth scrolling
+		// (~76px, well under the 240px instant delta that would occur if misclassified as touchpad).
+		assert!(delta.y > 40.0 && delta.y < 120.0);
+		let key = egui::Id::unique(TOUCHPAD_STATE_KEY);
+		assert!(ctx.data(|d| d.get_temp::<TouchpadState>(key)).is_none());
 	}
 
 	#[test]
