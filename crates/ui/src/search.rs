@@ -1507,6 +1507,7 @@ impl SearchUi {
 					ui,
 					&preview.attachments,
 					attachment,
+					crate::attachments::Floor::Fit,
 					avatars,
 					download,
 					&mut self.opening,

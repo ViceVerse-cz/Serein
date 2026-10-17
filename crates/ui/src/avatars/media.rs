@@ -1099,11 +1099,20 @@ impl Avatars {
 		)
 	}
 
+	pub(crate) fn decoded_longest_side(&mut self, media: &model::EmbedMedia) -> Option<u32> {
+		self.largest_held(media)
+			.map(|[width, height]| width.max(height))
+	}
+
 	/// Service dimensions when present, otherwise the largest decoded rendition.
 	pub(crate) fn media_dimensions(&mut self, media: &model::EmbedMedia) -> Option<[u32; 2]> {
 		if media.width > 0 && media.height > 0 {
 			return Some([media.width.min(16384), media.height.min(16384)]);
 		}
+		self.largest_held(media)
+	}
+
+	fn largest_held(&mut self, media: &model::EmbedMedia) -> Option<[u32; 2]> {
 		let (raw, _) = pick(media, self.animate_gifs)?;
 		let source = self.media.source(raw)?;
 		self.media

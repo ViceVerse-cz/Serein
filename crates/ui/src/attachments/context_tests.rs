@@ -57,6 +57,7 @@ fn select_media_menu(
 							ui,
 							&message.attachments,
 							attachment.id,
+							Floor::Fit,
 							&mut images,
 							&mut download,
 							&mut opening,

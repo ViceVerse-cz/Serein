@@ -223,6 +223,12 @@ struct SubmittedEdit {
 	content: String,
 }
 
+struct ProfileImage {
+	generation: u64,
+	attachment: model::Attachment,
+	floor: attachments::Floor,
+}
+
 #[derive(Default)]
 pub struct MessagingUi {
 	poll_creator: polls::Creator,
@@ -291,7 +297,7 @@ pub struct MessagingUi {
 	edit_closed_channel: Option<Id>,
 	avatars: avatars::Avatars,
 	profile: profiles::ProfileSession,
-	profile_image: Option<(u64, model::Attachment)>,
+	profile_image: Option<ProfileImage>,
 	user_action: Option<user_menu::Action>,
 	pending_mention: Option<Id>,
 	contact_editor: contact_editor::ContactEditor,
@@ -5327,15 +5333,19 @@ impl MessagingUi {
 				anchor,
 				&mut self.profile,
 			) {
-				Some(profiles::Action::Avatar(media)) => {
+				Some(profiles::Action::Avatar {
+					media,
+					points,
+					grid,
+				}) => {
 					let ext = media
 						.url
 						.as_deref()
 						.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
 						.unwrap_or("png");
-					self.profile_image = Some((
-						state.generation,
-						model::Attachment {
+					self.profile_image = Some(ProfileImage {
+						generation: state.generation,
+						attachment: model::Attachment {
 							id: Id(0),
 							filename: format!("avatar.{ext}"),
 							description: Some(format!("{}’s profile picture", user.name)),
@@ -5346,7 +5356,11 @@ impl MessagingUi {
 							duration_ms: None,
 							waveform: Vec::new(),
 						},
-					));
+						floor: attachments::Floor::Thumbnail(attachments::Thumbnail {
+							longest_side_points: points,
+							grid,
+						}),
+					});
 					self.profile.close();
 				}
 				Some(profiles::Action::Banner(media)) => {
@@ -5355,9 +5369,9 @@ impl MessagingUi {
 						.as_deref()
 						.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
 						.unwrap_or("png");
-					self.profile_image = Some((
-						state.generation,
-						model::Attachment {
+					self.profile_image = Some(ProfileImage {
+						generation: state.generation,
+						attachment: model::Attachment {
 							id: Id(0),
 							filename: format!("banner.{ext}"),
 							description: Some(format!("{}’s banner", user.name)),
@@ -5368,7 +5382,8 @@ impl MessagingUi {
 							duration_ms: None,
 							waveform: Vec::new(),
 						},
-					));
+						floor: attachments::Floor::Fit,
+					});
 					self.profile.close();
 				}
 				Some(profiles::Action::AddFriend(id)) => {
@@ -5438,12 +5453,13 @@ impl MessagingUi {
 			self.profile_link = None;
 		}
 
-		if let Some((generation, image)) = &self.profile_image
-			&& (*generation != state.generation
+		if let Some(image) = &self.profile_image
+			&& (image.generation != state.generation
 				|| attachments::viewer(
 					ui,
-					std::slice::from_ref(image),
-					image.id,
+					std::slice::from_ref(&image.attachment),
+					image.attachment.id,
+					image.floor,
 					&mut self.avatars,
 					&mut self.timeline.download,
 					&mut self.timeline.opening,
@@ -9982,7 +9998,7 @@ pub fn debug_pr565(mut state: State, mut user: model::User) {
 		.profile_image
 		.as_ref()
 		.expect("full avatar opens image")
-		.1;
+		.attachment;
 	assert!(image.media.url.as_ref().unwrap().contains("size=2048"));
 	view.profile_image = None;
 	user.webhook = true;

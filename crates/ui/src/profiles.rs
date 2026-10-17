@@ -239,7 +239,11 @@ pub enum Action {
 	Profile(User),
 	/// Open a mutual server picked from the card.
 	Server(Id),
-	Avatar(model::EmbedMedia),
+	Avatar {
+		media: model::EmbedMedia,
+		points: f32,
+		grid: crate::attachments::PixelGrid,
+	},
 	Banner(model::EmbedMedia),
 	/// Shared user action picked from the card's overflow menu.
 	Menu(crate::user_menu::Action),
@@ -3233,6 +3237,7 @@ pub fn show_with_session(
 			if response.clicked() && !pointer_on_presence && !image_avatar {
 				expand = true;
 			} else if response.clicked() && !pointer_on_presence {
+				const AVATAR_VIEW_EDGE: u32 = 2048;
 				let mut url = data.map_or(user, |data| &data.user).avatar_url();
 				if let Some(data) = data
 					&& let Some(member) = data.guild.as_ref()
@@ -3247,12 +3252,22 @@ pub fn show_with_session(
 						member.guild, data.user.id
 					);
 				}
-				action = Some(Action::Avatar(model::EmbedMedia {
-					url: Some(url.replace("size=128", "size=2048")),
-					width: 2048,
-					height: 2048,
-					..Default::default()
-				}));
+				let grid = if url.contains("size=128") {
+					url = url.replace("size=128", &format!("size={AVATAR_VIEW_EDGE}"));
+					crate::attachments::PixelGrid::Declared
+				} else {
+					crate::attachments::PixelGrid::Decoded
+				};
+				action = Some(Action::Avatar {
+					media: model::EmbedMedia {
+						url: Some(url),
+						width: AVATAR_VIEW_EDGE,
+						height: AVATAR_VIEW_EDGE,
+						..Default::default()
+					},
+					points: avatar_size,
+					grid,
+				});
 			}
 		});
 		if let Some(status) = status {

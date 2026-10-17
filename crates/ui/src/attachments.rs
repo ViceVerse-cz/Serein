@@ -844,15 +844,185 @@ fn quality_pill(ui: &egui::Ui, stage: Rect, quality: Quality) {
 	}
 }
 
-/// Zoom applied when clicking fitted media in the viewer.
 const VIEWER_CLICK_ZOOM: f32 = 2.0;
+const VIEWER_MAX_ZOOM: f32 = 8.0;
+const VIEWER_POINT_LIMIT: f32 = 4096.0;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Floor {
+	Fit,
+	Thumbnail(Thumbnail),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Thumbnail {
+	pub longest_side_points: f32,
+	pub grid: PixelGrid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PixelGrid {
+	Declared,
+	Decoded,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stop {
+	Rest,
+	Fit,
+	Pixels,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Zoom {
+	At(Stop),
+	Free(f32),
+}
+
+fn viewer_ceiling(longest: f32, one_to_one: Option<f32>, include_one_to_one: bool) -> f32 {
+	let limit = VIEWER_POINT_LIMIT / longest;
+	let capped = limit.clamp(1.0, VIEWER_MAX_ZOOM);
+	match one_to_one {
+		Some(scale) if include_one_to_one => capped.max(scale).clamp(1.0, limit.max(1.0)),
+		_ => capped,
+	}
+}
+
+struct Framing {
+	fitted: egui::Vec2,
+	rest: f32,
+	pixels: Option<f32>,
+	ceiling: f32,
+	pixels_on_click: bool,
+}
+
+impl Framing {
+	fn new(
+		stage: egui::Vec2,
+		dimensions: Option<[u32; 2]>,
+		declared: bool,
+		pixel_edge: Option<f32>,
+		floor: Floor,
+		pixels_per_point: f32,
+	) -> Self {
+		let original = dimensions.map_or(egui::vec2(320.0, 180.0), |[width, height]| {
+			egui::vec2(width as f32, height as f32)
+		});
+		let cap = if declared && matches!(floor, Floor::Fit) {
+			1.0
+		} else {
+			f32::INFINITY
+		};
+		let fitted = (original * (stage.x / original.x).min(stage.y / original.y).min(cap))
+			.max(egui::vec2(1.0, 1.0));
+		let longest = fitted.max_elem();
+		let rest = match floor {
+			Floor::Fit => 1.0,
+			Floor::Thumbnail(thumb) => {
+				let points = if thumb.longest_side_points.is_finite() {
+					thumb.longest_side_points.max(1.0)
+				} else {
+					1.0
+				};
+				(points / longest).min(1.0)
+			}
+		};
+		let floor_scale = rest.min(1.0);
+		let edge = match floor {
+			Floor::Thumbnail(Thumbnail {
+				grid: PixelGrid::Declared,
+				..
+			}) if declared => dimensions.map(|[width, height]| width.max(height) as f32),
+			Floor::Thumbnail(Thumbnail {
+				grid: PixelGrid::Decoded,
+				..
+			}) => pixel_edge,
+			Floor::Fit | Floor::Thumbnail(_) => None,
+		};
+		let raw = edge
+			.filter(|side| {
+				pixels_per_point.is_finite()
+					&& pixels_per_point >= 1e-3
+					&& side.is_finite()
+					&& *side > 0.0
+			})
+			.map(|side| side / pixels_per_point / longest);
+		let ceiling = viewer_ceiling(longest, raw, matches!(floor, Floor::Thumbnail(_)));
+		let pixels = raw.filter(|raw| {
+			*raw >= floor_scale && *raw <= ceiling && (*raw - 1.0).abs() * longest >= 1.0
+		});
+		Self {
+			fitted,
+			rest,
+			pixels,
+			ceiling,
+			pixels_on_click: matches!(floor, Floor::Thumbnail(_)),
+		}
+	}
+
+	fn scale(&self, zoom: Zoom) -> f32 {
+		let floor_scale = self.rest.min(1.0);
+		let value = match zoom {
+			Zoom::At(Stop::Rest) => self.rest,
+			Zoom::At(Stop::Fit) => 1.0,
+			Zoom::At(Stop::Pixels) => self.pixels.unwrap_or(1.0),
+			Zoom::Free(value) => value,
+		};
+		if value.is_finite() {
+			value.clamp(floor_scale, self.ceiling)
+		} else {
+			floor_scale
+		}
+	}
+
+	fn size(&self, zoom: Zoom) -> egui::Vec2 {
+		self.fitted * self.scale(zoom)
+	}
+
+	fn scroll(&self, zoom: Zoom, factor: f32) -> Zoom {
+		if factor == 1.0 || !factor.is_finite() {
+			return zoom;
+		}
+		let floor_scale = self.rest.min(1.0);
+		let next = (self.scale(zoom) * factor).clamp(floor_scale, self.ceiling);
+		if next <= floor_scale {
+			if self.rest < 1.0 {
+				Zoom::At(Stop::Rest)
+			} else {
+				Zoom::At(Stop::Fit)
+			}
+		} else {
+			Zoom::Free(next)
+		}
+	}
+
+	fn click(&self, zoom: Zoom) -> Zoom {
+		match zoom {
+			Zoom::At(Stop::Fit) if self.pixels_on_click && self.pixels.is_some() => {
+				Zoom::At(Stop::Pixels)
+			}
+			Zoom::At(Stop::Fit) => Zoom::Free(VIEWER_CLICK_ZOOM.min(self.ceiling)),
+			Zoom::At(Stop::Rest | Stop::Pixels) | Zoom::Free(_) => Zoom::At(Stop::Fit),
+		}
+	}
+}
+
+fn anchor(pan: egui::Vec2, offset: egui::Vec2, from: f32, to: f32) -> egui::Vec2 {
+	if from == 0.0 || !from.is_finite() {
+		pan
+	} else {
+		offset - (offset - pan) * (to / from)
+	}
+}
 
 /// Full-window media viewer. Returns the attachment to keep showing, or `None` once closed by
 /// the close control, Escape, or a click anywhere outside the image and its controls.
+#[allow(clippy::too_many_arguments)]
 pub fn viewer(
 	ui: &mut egui::Ui,
 	attachments: &[Attachment],
 	current: Id,
+	floor: Floor,
 	images: &mut Avatars,
 	download: &mut DownloadUi,
 	opening: &mut Option<String>,
@@ -877,11 +1047,14 @@ pub fn viewer(
 	let count = gallery.len();
 	let zoom_id = egui::Id::unique("attachment-viewer-zoom");
 	let (previous, mut zoom, mut pan) = ui.ctx().data_mut(|data| {
-		data.get_temp::<(Id, f32, egui::Vec2)>(zoom_id)
-			.unwrap_or((current, 1.0, egui::Vec2::ZERO))
+		data.get_temp::<(Id, Zoom, egui::Vec2)>(zoom_id).unwrap_or((
+			current,
+			Zoom::At(Stop::Fit),
+			egui::Vec2::ZERO,
+		))
 	});
 	if previous != current {
-		zoom = 1.0;
+		zoom = Zoom::At(Stop::Fit);
 		pan = egui::Vec2::ZERO;
 	}
 	let size = ui.ctx().content_rect().size().max(egui::vec2(1.0, 1.0));
@@ -910,23 +1083,27 @@ pub fn viewer(
 			} else {
 				Rect::from_center_size(full.center(), egui::vec2(1.0, 1.0))
 			};
-			// Image, centered on the stage, sized from bounded metadata.
 			let dimensions = images.media_dimensions(&attachment.media);
-			let original = dimensions.map_or(egui::vec2(320.0, 180.0), |[width, height]| {
-				egui::vec2(width as f32, height as f32)
-			});
-			let scale = (stage.width() / original.x)
-				.min(stage.height() / original.y)
-				.min(
-					if attachment.media.width > 0 && attachment.media.height > 0 {
-						1.0
-					} else {
-						f32::INFINITY
-					},
-				);
-			let fitted = (original * scale).max(egui::vec2(1.0, 1.0));
-			let image_rect = Rect::from_center_size(stage.center(), fitted);
-			let max_zoom = (4096.0 / fitted.max_elem()).clamp(1.0, 8.0);
+			let declared = attachment.media.width > 0 && attachment.media.height > 0;
+			let pixel_edge = if let Floor::Thumbnail(Thumbnail {
+				grid: PixelGrid::Decoded,
+				..
+			}) = floor
+			{
+				images
+					.decoded_longest_side(&attachment.media)
+					.map(|edge| edge as f32)
+			} else {
+				None
+			};
+			let framing = Framing::new(
+				stage.size(),
+				dimensions,
+				declared,
+				pixel_edge,
+				floor,
+				ui.ctx().pixels_per_point(),
+			);
 			if let Some(pointer) = ui.input(|i| i.pointer.hover_pos())
 				&& stage.contains(pointer)
 			{
@@ -935,13 +1112,18 @@ pub fn viewer(
 					i.smooth_scroll_delta = egui::Vec2::ZERO;
 					factor
 				});
-				let next = (zoom * factor).clamp(1.0, max_zoom);
-				pan = (pointer - stage.center()) - (pointer - stage.center() - pan) * (next / zoom);
-				zoom = next;
+				if factor != 1.0 {
+					let from = framing.scale(zoom);
+					zoom = framing.scroll(zoom, factor);
+					pan = anchor(pan, pointer - stage.center(), from, framing.scale(zoom));
+				}
 			}
-			let limit = ((fitted * zoom - stage.size()) * 0.5).max(egui::Vec2::ZERO);
+			let drawn = framing.size(zoom);
+			let limit = ((drawn - stage.size()) * 0.5).max(egui::Vec2::ZERO);
 			pan = pan.clamp(-limit, limit);
-			let zoomed = Rect::from_center_size(stage.center() + pan, fitted * zoom);
+			let zoomed = Rect::from_center_size(stage.center() + pan, drawn);
+			let pannable = drawn.x > stage.width() + 0.5 || drawn.y > stage.height() + 0.5;
+			let show_hint = !pannable;
 			let quality = {
 				// Zoomed geometry must not enlarge and recenter the modal or its controls.
 				let mut image_ui = ui.new_child(egui::UiBuilder::new().max_rect(zoomed).layout(
@@ -949,18 +1131,20 @@ pub fn viewer(
 				));
 				let ui = &mut image_ui;
 				ui.set_clip_rect(stage.intersect(ui.clip_rect()));
-				let shown =
-					images.show_media(ui, &attachment.media, fitted * zoom, demo, Surface::Viewer);
+				let shown = images.show_media(ui, &attachment.media, drawn, demo, Surface::Viewer);
 				let image = shown.response;
+				let next_scale = framing.scale(framing.click(zoom));
+				let cursor = if pannable {
+					egui::CursorIcon::Grab
+				} else if next_scale < framing.scale(zoom) {
+					egui::CursorIcon::ZoomOut
+				} else {
+					egui::CursorIcon::ZoomIn
+				};
 				let mut response = ui
 					.interact(image.rect, image.id.with("media"), Sense::click_and_drag())
-					.on_hover_cursor(if zoom > 1.0 {
-						egui::CursorIcon::Grab
-					} else {
-						egui::CursorIcon::ZoomIn
-					});
-				// Zoomed in, the description tooltip would cover the detail being inspected.
-				if zoom <= 1.0 {
+					.on_hover_cursor(cursor);
+				if show_hint {
 					response = response
 						.on_hover_text(crate::i18n::translate(
 							"attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset",
@@ -976,21 +1160,16 @@ pub fn viewer(
 					pan = (pan + response.drag_delta()).clamp(-limit, limit);
 				}
 				if response.double_clicked() {
-					zoom = 1.0;
+					zoom = Zoom::At(Stop::Fit);
 					pan = egui::Vec2::ZERO;
 				} else if response.clicked_by(egui::PointerButton::Primary) {
-					// A click toggles between fit and 2x, keeping the clicked point under the pointer.
-					let next = if zoom > 1.0 {
-						1.0
-					} else {
-						VIEWER_CLICK_ZOOM.min(max_zoom)
-					};
+					let from = framing.scale(zoom);
+					let next = framing.click(zoom);
 					if let Some(pointer) = response.interact_pointer_pos() {
-						let offset = pointer - stage.center();
-						pan = offset - (offset - pan) * (next / zoom);
+						pan = anchor(pan, pointer - stage.center(), from, framing.scale(next));
 					}
 					zoom = next;
-					let limit = ((fitted * zoom - stage.size()) * 0.5).max(egui::Vec2::ZERO);
+					let limit = ((framing.size(zoom) - stage.size()) * 0.5).max(egui::Vec2::ZERO);
 					pan = pan.clamp(-limit, limit);
 				}
 				// Zero-ID images are local viewer metadata, not service attachments.
@@ -1075,14 +1254,12 @@ pub fn viewer(
 					);
 				}
 			}
-			// Caption: file name, size and dimensions, plus the browser link. Zoomed media fills the
-			// stage, so the caption would sit on top of it; keep it only for an active download.
-			let show_caption = zoom <= 1.0 || download.active;
-			let caption_width = image_rect.width().max(360.0).min(stage.width());
+			let show_caption = show_hint || download.active;
+			let caption_width = zoomed.width().max(360.0).min(stage.width());
 			let caption = Rect::from_min_size(
 				egui::pos2(
-					image_rect.left().min(stage.right() - caption_width),
-					(image_rect.bottom() + 8.0).min(stage.bottom()),
+					zoomed.left().min(stage.right() - caption_width),
+					(zoomed.bottom() + 8.0).min(stage.bottom()),
 				),
 				egui::vec2(caption_width, 44.0),
 			);
@@ -1222,7 +1399,7 @@ pub fn viewer(
 		if result == Some(attachment.id) {
 			data.insert_temp(zoom_id, (current, zoom, pan));
 		} else {
-			data.remove::<(Id, f32, egui::Vec2)>(zoom_id);
+			data.remove::<(Id, Zoom, egui::Vec2)>(zoom_id);
 		}
 	});
 	result
@@ -1541,6 +1718,7 @@ mod tests {
 						ui,
 						&attachments,
 						current,
+						Floor::Fit,
 						&mut images,
 						&mut download,
 						&mut opening,

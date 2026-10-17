@@ -4680,6 +4680,7 @@ impl TimelineView {
 					ui,
 					std::slice::from_ref(image),
 					image.id,
+					crate::attachments::Floor::Fit,
 					avatars,
 					&mut self.download,
 					&mut self.opening,
@@ -4729,6 +4730,7 @@ impl TimelineView {
 						&m.attachments
 					},
 					attachment_id,
+					crate::attachments::Floor::Fit,
 					avatars,
 					&mut self.download,
 					&mut self.opening,
