@@ -352,8 +352,21 @@ cancelled portal request. X11 capture and live delivery remain unverified.
 Optional Linux stream audio uses native `libpulse` per-application monitoring on
 PulseAudio or PipeWire's PulseAudio server. Source builds need the libpulse development
 package (`libpulse-dev`, `pulseaudio-libs-devel`, `libpulse-devel` or Arch's `libpulse`).
+Native PipeWire application outputs, including applications using PipeWire's JACK
+compatibility, additionally use installed `pw-dump` and GStreamer's `pipewiresrc`,
+`audioconvert` and `audioresample` elements. This native audio path requires GStreamer
+1.24+ for the appsink byte limit; older runtimes keep the existing Pulse path.
+`pw-dump` is provided by `pipewire-bin`
+on Ubuntu/Debian, `pipewire-utils` on Fedora and `pipewire` on Arch. Nothing is
+installed automatically. Direct ALSA or a separate JACK server is outside this
+PipeWire graph and remains unsupported. Native graph discovery is optional;
+failure keeps Pulse application sharing available and increments the opt-in
+`ScreenAudio` diagnostic `native_graph_failed` counter. No whole-speaker capture
+is substituted.
 The existing Flatpak PulseAudio socket permission covers this access; the ScreenCast
-portal's PipeWire remote grants video only. Windows uses native process loopback on
+portal's PipeWire remote grants video only. Native audio-node access additionally
+requires the runtime's PipeWire socket/tool/plugin; this change grants no new
+Flatpak permissions. Windows uses native process loopback on
 build 20348+ (Windows 11 / Server 2022), with a visible audio error on older systems.
 Both exclude Serein's playback and capture other applications even when sharing one
 window. There is no whole-output fallback. Hardware exclusion and receiving sound in

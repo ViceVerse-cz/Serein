@@ -194,6 +194,8 @@ pub(crate) enum Capture {
 	Ready,
 	/// Attachments dropped because they failed or never connected.
 	Dropped,
+	/// Native PipeWire discovery/attachment failed (helper, plugin, server or budget).
+	NativeUnavailable,
 }
 
 #[derive(Clone, Copy)]
@@ -207,7 +209,7 @@ struct Report {
 	signal: [u64; SIGNAL_SLOTS],
 	/// Application-audio capture (Linux): inputs allowed, captures started, applications
 	/// excluded after a failure, and mixed 20 ms chunks handed to the stream.
-	capture: [u64; 6],
+	capture: [u64; 7],
 	// Each stage: calls, total elapsed microseconds, maximum elapsed microseconds.
 	stages: [[u64; 3]; 11],
 	wakes: u64,
@@ -267,7 +269,7 @@ impl Metrics {
 				window_ms: 0,
 				video: [0; VIDEO_SLOTS],
 				signal: [0; SIGNAL_SLOTS],
-				capture: [0; 6],
+				capture: [0; 7],
 				stages: [[0; 3]; 11],
 				wakes: 0,
 				resets: 0,
@@ -406,7 +408,7 @@ impl Metrics {
 		self.report.queued_audio = 0;
 		self.report.video = [0; VIDEO_SLOTS];
 		self.report.signal = [0; SIGNAL_SLOTS];
-		self.report.capture = [0; 6];
+		self.report.capture = [0; 7];
 	}
 }
 
@@ -512,9 +514,17 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 		));
 	}
 	if matches!(report.scope, Scope::ScreenAudio) {
-		let [inputs, started, excluded, chunks, ready, dropped] = report.capture;
+		let [
+			inputs,
+			started,
+			excluded,
+			chunks,
+			ready,
+			dropped,
+			native_unavailable,
+		] = report.capture;
 		line.push_str(&format!(
-			" capture_read={:?} capture_queue={:?} capture_restart={:?} app_inputs={inputs} app_captures={started} app_excluded={excluded} app_chunks={chunks} app_ready={ready} app_dropped={dropped}",
+			" capture_read={:?} capture_queue={:?} capture_restart={:?} app_inputs={inputs} app_captures={started} app_excluded={excluded} app_chunks={chunks} app_ready={ready} app_dropped={dropped} native_graph_failed={native_unavailable}",
 			report.stages[8], report.stages[9], report.stages[10],
 		));
 	}

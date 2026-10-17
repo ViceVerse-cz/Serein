@@ -529,6 +529,26 @@ audio access, including Flatpak's PulseAudio socket permission. A separate bound
 handles discovery, capture and mixing outside video encoding and rendering. No applications
 are moved between outputs and no virtual device is installed.
 
+Native PipeWire playback and JACK application outputs are additionally discovered
+with the installed `pw-dump` tool and monitored by the existing GStreamer PipeWire
+plugin (GStreamer 1.24+ for bounded appsink bytes). This covers application nodes
+that the Pulse server does not list. Known
+process identity is required; Pulse-backed nodes, microphones, hardware sinks,
+unknown identities and Serein remain excluded. Immutable object serials select each
+application without retargeting a recycled node ID. Graph enumeration has a two-second
+child deadline, 128 MiB helper address-space limit and 1 MiB JSON limit; the combined
+capture limit remains 32 applications. Failed native discovery/attachment increments
+the opt-in `native_graph_failed` diagnostic, while existing Pulse sharing continues.
+Direct ALSA and separate JACK servers remain outside this graph. See
+[platform prerequisites](platform-support.md#linux-screen-sharing).
+
+The ignored Linux test `synthetic_pipeline_mixes_stereo_and_discards_an_old_capture_generation`
+uses GStreamer's tone source only. Graph parser tests exercise client identity,
+JACK playback ports, source/self exclusion and byte/item rejection without a native
+server or audio device. These checks do not establish Ardour/Tauon capture or live
+Discord sound; the affected application/backend and current native monitor path
+still require owner-operated verification.
+
 Windows uses native process loopback with `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`,
 excluding Serein and its child processes across outputs. This requires Windows build 20348+
 (Windows 11 or Windows Server 2022; ordinary Windows 10 22H2 is older). Unsupported systems
