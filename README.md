@@ -1,7 +1,7 @@
 # Serein
 
 <p align="center">
-  <a href="https://github.com/ViceVerse-cz/rustcord">
+  <a href="https://github.com/ViceVerse-cz/Serein">
     <img src="docs/preview.png" alt="Serein Native Discord Client" width="900" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);" />
   </a>
 </p>
@@ -382,7 +382,7 @@ cargo xtask package
 Serein is engineered as a clean multi-crate Cargo workspace, isolating UI rendering from networking, persistence, and service protocols:
 
 ```
-rustcord/
+serein/
 ├── apps/
 │   └── desktop/          # Application entrypoint, CLI flags, window lifecycle
 ├── crates/
