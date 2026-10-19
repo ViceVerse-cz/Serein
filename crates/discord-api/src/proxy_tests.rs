@@ -24,6 +24,82 @@ fn api(receiver: watch::Receiver<Option<ApiProxy>>) -> DiscordApi {
 }
 
 #[tokio::test]
+async fn paused_route_rechecks_stop_before_dispatch() {
+	let origin = TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let (route, receive) = watch::channel(None);
+	let mut api = api(receive);
+	api.base = format!("http://{}", origin.local_addr().unwrap());
+	let pending = api.request(Method::POST, "/synthetic", None);
+	tokio::pin!(pending);
+	assert!(
+		timeout(Duration::from_millis(25), &mut pending)
+			.await
+			.is_err()
+	);
+	assert!(
+		api.proxy.try_lock().is_err(),
+		"request is awaiting its route"
+	);
+	api.stop();
+	route.send_replace(Some(ApiProxy::Direct));
+	assert_eq!(
+		timeout(Duration::from_secs(1), pending).await.unwrap(),
+		Err(Failure::Expired)
+	);
+	assert!(
+		timeout(Duration::from_millis(25), origin.accept())
+			.await
+			.is_err()
+	);
+}
+
+#[tokio::test]
+async fn paused_route_obeys_cooldown_added_before_unpause() {
+	let origin = TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let (route, receive) = watch::channel(None);
+	let mut api = api(receive);
+	api.base = format!("http://{}", origin.local_addr().unwrap());
+	let pending = api.request(Method::POST, "/synthetic", None);
+	tokio::pin!(pending);
+	assert!(
+		timeout(Duration::from_millis(25), &mut pending)
+			.await
+			.is_err()
+	);
+	assert!(
+		api.proxy.try_lock().is_err(),
+		"request is awaiting its route"
+	);
+	let deadline = Instant::now() + Duration::from_millis(100);
+	*api.cooldown.lock().await = deadline;
+	route.send_replace(Some(ApiProxy::Direct));
+	let server = tokio::spawn(async move {
+		let (mut stream, _) = origin.accept().await.unwrap();
+		assert!(
+			Instant::now() >= deadline,
+			"unpause must not bypass cooldown"
+		);
+		assert!(
+			headers(&mut stream)
+				.await
+				.starts_with("POST /synthetic HTTP/1.1\r\n")
+		);
+		stream
+			.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+			.await
+			.unwrap();
+	});
+	assert_eq!(
+		timeout(Duration::from_secs(1), pending)
+			.await
+			.unwrap()
+			.unwrap(),
+		b"{}"
+	);
+	server.await.unwrap();
+}
+
+#[tokio::test]
 async fn waits_for_configuration_then_routes_future_requests_and_rejects_invalid_changes() {
 	let proxy = TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let (route, receive) = watch::channel(None);

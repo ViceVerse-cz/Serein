@@ -1,7 +1,9 @@
 //! Native component controls; transport authorization and validation stay in client-core.
 use crate::{
 	avatars::{Avatars, Surface},
-	design, dialog, markdown,
+	design, dialog,
+	extensions_ui::TextInputStates,
+	markdown,
 };
 use client_core::{Command, State};
 use model::{Component, Id, Message};
@@ -26,12 +28,19 @@ pub(crate) struct Components {
 	pub(crate) search: crate::member_search::Search,
 	pub(crate) remote_search: bool,
 	select: Option<(egui::Id, Vec<String>)>,
-	modal: Option<(u64, Id, Vec<Component>)>,
+	modal: Option<ModalDraft>,
 	formatted: markdown::FormatCache,
 	pub(crate) file_request: Option<String>,
 	files: Vec<(String, Vec<(usize, String)>)>,
 	// True while rendering a section accessory, so media draws as a compact thumbnail.
 	accessory: bool,
+}
+
+struct ModalDraft {
+	generation: u64,
+	id: Id,
+	components: Vec<Component>,
+	inputs: TextInputStates,
 }
 
 impl Components {
@@ -44,7 +53,7 @@ impl Components {
 		self.remote_search = false;
 	}
 	pub(crate) fn modal_id(&self) -> Option<Id> {
-		self.modal.as_ref().map(|(_, id, _)| *id)
+		self.modal.as_ref().map(|modal| modal.id)
 	}
 	pub(crate) fn set_files(&mut self, custom_id: &str, files: Vec<(usize, String)>) {
 		if self.modal.is_none()
@@ -367,6 +376,7 @@ impl Components {
 							&mut self.search.text,
 							&mut self.remote_search,
 							avatars,
+							None,
 						);
 						let valid = values.len() >= usize::from(c.min_values.unwrap_or(1))
 							&& values.len() <= usize::from(c.max_values.unwrap_or(1));
@@ -536,7 +546,7 @@ impl Components {
 		if self
 			.modal
 			.as_ref()
-			.is_none_or(|(generation, id, _)| *generation != state.generation || *id != modal.id)
+			.is_none_or(|draft| draft.generation != state.generation || draft.id != modal.id)
 		{
 			let mut components = modal.components.clone();
 			initialize(&mut components);
@@ -544,11 +554,21 @@ impl Components {
 			self.text_revealed.clear();
 			self.search = Default::default();
 			self.remote_search = false;
-			self.modal = Some((state.generation, modal.id, components));
+			self.modal = Some(ModalDraft {
+				generation: state.generation,
+				id: modal.id,
+				components,
+				// Each component renders at most one field or selector query editor.
+				inputs: TextInputStates::new(
+					egui::Id::unique(("application-modal-inputs", state.generation, modal.id)),
+					model::MAX_COMPONENTS,
+				),
+			});
 		}
 		let mut submit = false;
 		let busy = state.interactions.busy();
-		let components = &mut self.modal.as_mut().expect("modal initialized").2;
+		let draft = self.modal.as_mut().expect("modal initialized");
+		let components = &mut draft.components;
 		let response = dialog::Dialog::new(
 			("application-modal", state.generation, modal.id),
 			&modal.title,
@@ -576,6 +596,7 @@ impl Components {
 										opening,
 										&mut self.formatted,
 										&mut self.text_revealed,
+										&mut draft.inputs,
 									);
 								});
 							}
@@ -677,6 +698,7 @@ fn select(
 	query: &mut String,
 	remote_search: &mut bool,
 	avatars: &mut Avatars,
+	mut inputs: Option<&mut TextInputStates>,
 ) -> bool {
 	let mut changed = false;
 	let colors = design::palette(ui);
@@ -716,6 +738,9 @@ fn select(
 		.collect::<Vec<_>>()
 		.join(", ");
 	let width = ui.available_width().min(400.0);
+	let query_id = inputs
+		.as_ref()
+		.map(|inputs| inputs.id(("selection-query", ui.scope_id().value())));
 	egui::ComboBox::from_id_salt("selection")
 		.width(width)
 		.height(360.0)
@@ -743,17 +768,21 @@ fn select(
 				*remote_search = false;
 				ui.close();
 			}
-			if (c.kind != 3 || c.options.len() > 10)
-				&& ui
-					.add(
-						egui::TextEdit::singleline(query)
-							.align(egui::Align2::LEFT_CENTER)
-							.hint_text(crate::i18n::translate("components-select-search-options"))
-							.char_limit(64),
-					)
-					.changed()
-			{
-				*remote_search = matches!(c.kind, 5 | 7);
+			if c.kind != 3 || c.options.len() > 10 {
+				let mut edit = egui::TextEdit::singleline(query)
+					.align(egui::Align2::LEFT_CENTER)
+					.hint_text(crate::i18n::translate("components-select-search-options"))
+					.char_limit(64);
+				if let Some(id) = query_id {
+					edit = edit.id(id);
+				}
+				let response = ui.add(edit);
+				if let Some(inputs) = inputs.as_mut() {
+					inputs.track(&response);
+				}
+				if response.changed() {
+					*remote_search = matches!(c.kind, 5 | 7);
+				}
 			}
 			let filter = if c.kind == 3 && c.options.len() <= 10 {
 				String::new()
@@ -903,6 +932,7 @@ fn field(
 	opening: &mut Option<String>,
 	formatted: &mut markdown::FormatCache,
 	revealed: &mut std::collections::BTreeMap<u64, u32>,
+	inputs: &mut TextInputStates,
 ) -> bool {
 	let mut valid = true;
 	ui.push_id((c.id, c.custom_id.clone()), |ui| {
@@ -928,6 +958,7 @@ fn field(
 							opening,
 							formatted,
 							revealed,
+							inputs,
 						);
 					});
 				}
@@ -944,6 +975,7 @@ fn field(
 						opening,
 						formatted,
 						revealed,
+						inputs,
 					);
 				}
 			}
@@ -954,13 +986,15 @@ fn field(
 				} else {
 					egui::TextEdit::singleline(value).align(egui::Align2::LEFT_CENTER)
 				};
-				ui.add(
-					edit.char_limit(usize::from(c.max_length.unwrap_or(4000)).min(4000))
+				let response = ui.add(
+					edit.id(inputs.id(("field", ui.scope_id().value())))
+						.char_limit(usize::from(c.max_length.unwrap_or(4000)).min(4000))
 						.font(egui::FontId::proportional(15.0))
 						.margin(egui::vec2(12.0, 10.0))
 						.hint_text(c.placeholder.as_deref().unwrap_or_default())
 						.desired_width(f32::INFINITY),
 				);
+				inputs.track(&response);
 				let length = value.chars().count();
 				valid = (!c.required && length == 0)
 					|| (length >= usize::from(c.min_length.unwrap_or(u16::from(c.required)))
@@ -977,6 +1011,7 @@ fn field(
 					query,
 					remote_search,
 					avatars,
+					Some(inputs),
 				);
 				valid = (!c.required && values.is_empty())
 					|| (values.len() >= usize::from(c.min_values.unwrap_or(1))
@@ -1242,6 +1277,211 @@ fn resolve_media<'a>(url: &'a str, message: &'a Message) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	fn modal_frame(
+		ctx: &egui::Context,
+		components: &mut Components,
+		state: &mut State,
+		events: Vec<egui::Event>,
+	) {
+		modal_frame_output(ctx, components, state, events).drop_without_applying_deltas();
+	}
+
+	fn modal_frame_output(
+		ctx: &egui::Context,
+		components: &mut Components,
+		state: &mut State,
+		events: Vec<egui::Event>,
+	) -> egui::FullOutput {
+		ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(900.0, 700.0),
+				)),
+				events,
+				focused: true,
+				..Default::default()
+			},
+			|_| {
+				components.dialogs(ctx, state, &mut vec![], &mut Avatars::default(), &mut None);
+			},
+		)
+	}
+
+	fn modal_key(key: egui::Key) -> egui::Event {
+		egui::Event::Key {
+			key,
+			physical_key: None,
+			pressed: true,
+			repeat: false,
+			modifiers: egui::Modifiers::NONE,
+		}
+	}
+
+	fn focus_modal_input(
+		ctx: &egui::Context,
+		components: &mut Components,
+		state: &mut State,
+	) -> egui::Id {
+		for _ in 0..12 {
+			modal_frame(ctx, components, state, vec![modal_key(egui::Key::Tab)]);
+			if let Some(id) = ctx.memory(|memory| memory.focused())
+				&& egui::text_edit::TextEditState::load(ctx, id).is_some()
+			{
+				modal_frame(ctx, components, state, vec![]);
+				return id;
+			}
+		}
+		panic!("Application modal text field never received keyboard focus");
+	}
+
+	fn application_modal(id: u64, field: Component) -> client_core::interactions::Modal {
+		client_core::interactions::Modal {
+			id: Id(id),
+			application_id: Id(20),
+			custom_id: "synthetic-form".into(),
+			title: "Offline application form".into(),
+			components: vec![field],
+		}
+	}
+
+	#[test]
+	fn closed_application_modals_release_text_input_states() {
+		let ctx = egui::Context::default();
+		let mut components = Components::default();
+		let mut state = State::default();
+		for modal in 1..=10 {
+			state.interactions.modal = Some(application_modal(
+				modal,
+				Component {
+					kind: 4,
+					custom_id: Some("input".into()),
+					label: Some("Form input".into()),
+					value: Some("private form value".into()),
+					..Default::default()
+				},
+			));
+			modal_frame(&ctx, &mut components, &mut state, vec![]);
+			let input = focus_modal_input(&ctx, &mut components, &mut state);
+			modal_frame(
+				&ctx,
+				&mut components,
+				&mut state,
+				vec![modal_key(egui::Key::Escape)],
+			);
+			assert!(state.interactions.modal.is_none());
+			assert!(egui::text_edit::TextEditState::load(&ctx, input).is_none());
+			assert_eq!(
+				ctx.data(|data| data.count::<egui::text_edit::TextEditState>()),
+				0
+			);
+		}
+	}
+
+	#[test]
+	fn retired_application_modals_release_field_and_selector_query_states() {
+		fn selector_position(shape: &egui::Shape) -> Option<egui::Pos2> {
+			match shape {
+				egui::Shape::Text(run) if run.galley.job.text == "Synthetic selector" => {
+					Some(run.pos + run.galley.size() / 2.0)
+				}
+				egui::Shape::Vec(shapes) => shapes.iter().find_map(selector_position),
+				_ => None,
+			}
+		}
+		for (selector, discard) in [false, true].into_iter().flat_map(|selector| {
+			["close", "replace", "generation", "dismiss", "drop"].map(|discard| (selector, discard))
+		}) {
+			let ctx = egui::Context::default();
+			let mut components = Components::default();
+			let mut state = State::default();
+			let field = Component {
+				kind: if selector { 5 } else { 4 },
+				custom_id: Some("input".into()),
+				label: Some("Form input".into()),
+				placeholder: Some("Synthetic selector".into()),
+				value: (!selector).then(|| "private form value".into()),
+				..Default::default()
+			};
+			state.interactions.modal = Some(application_modal(1, field));
+			modal_frame(&ctx, &mut components, &mut state, vec![]);
+			if selector {
+				let output = modal_frame_output(&ctx, &mut components, &mut state, vec![]);
+				let position = output
+					.shapes
+					.iter()
+					.find_map(|clipped| selector_position(&clipped.shape))
+					.expect("Modal selector was not painted");
+				output.drop_without_applying_deltas();
+				modal_frame(
+					&ctx,
+					&mut components,
+					&mut state,
+					vec![
+						egui::Event::PointerMoved(position),
+						egui::Event::PointerButton {
+							pos: position,
+							button: egui::PointerButton::Primary,
+							pressed: true,
+							modifiers: egui::Modifiers::NONE,
+						},
+						egui::Event::PointerButton {
+							pos: position,
+							button: egui::PointerButton::Primary,
+							pressed: false,
+							modifiers: egui::Modifiers::NONE,
+						},
+					],
+				);
+			}
+			let input = focus_modal_input(&ctx, &mut components, &mut state);
+			modal_frame(
+				&ctx,
+				&mut components,
+				&mut state,
+				vec![egui::Event::Text("private input".into())],
+			);
+			if discard == "drop" {
+				drop(components);
+			} else {
+				match discard {
+					"close" => {
+						// The first Escape may close the selector popup before its parent modal.
+						for _ in 0..2 {
+							if state.interactions.modal.is_some() {
+								modal_frame(
+									&ctx,
+									&mut components,
+									&mut state,
+									vec![modal_key(egui::Key::Escape)],
+								);
+							}
+						}
+						assert!(state.interactions.modal.is_none());
+					}
+					"replace" => {
+						state.interactions.modal = Some(application_modal(2, Component::default()));
+					}
+					"generation" => state.generation += 1,
+					"dismiss" => state.interactions.modal = None,
+					_ => unreachable!(),
+				}
+				modal_frame(&ctx, &mut components, &mut state, vec![]);
+			}
+			assert!(
+				egui::text_edit::TextEditState::load(&ctx, input).is_none(),
+				"{discard} retained old input state (selector: {selector})"
+			);
+			assert_ne!(ctx.memory(|memory| memory.focused()), Some(input));
+			if discard != "generation" {
+				assert_eq!(
+					ctx.data(|data| data.count::<egui::text_edit::TextEditState>()),
+					0
+				);
+			}
+		}
+	}
 
 	#[test]
 	fn modal_defaults_survive_nested_labels_without_replacing_explicit_values() {

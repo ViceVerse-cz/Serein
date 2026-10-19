@@ -12,6 +12,10 @@ development-data = ["local-store/development-data", "platform/development-data"]
 developer-session = []
 demo = ["dep:test-support", "ui/demo"]
 
+[target.'cfg(unix)'.dependencies]
+# Nonblocking descriptor admission rejects FIFOs without stalling extension imports.
+libc = "=0.2.189"
+
 [dependencies]
 extensions.workspace = true
 serde.workspace = true

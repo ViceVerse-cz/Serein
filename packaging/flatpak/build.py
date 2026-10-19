@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import platform
 import shutil
@@ -14,7 +15,13 @@ DEFAULT_REPO_URL = "https://viceverse-cz.github.io/Serein/flatpak/repo"
 
 
 def output(*args, cwd=ROOT):
-    return subprocess.check_output(args, cwd=cwd, text=True).strip()
+    return subprocess.check_output(args, cwd=cwd, text=True, env=clean_git_environment()).strip()
+
+
+def clean_git_environment():
+    # A hook or caller can export repository/index overrides. Keep every other
+    # build setting, but make Git operate on the selected cwd (including vendor).
+    return {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
 
 
 def generate_flatpakref(repo_url=DEFAULT_REPO_URL):
@@ -43,7 +50,8 @@ def prepare(destination):
     source = destination / "source"
     source.mkdir()
     # Copy tracked working-tree inputs only: never private untracked files or target/.
-    entries = subprocess.check_output(["git", "ls-files", "--stage", "-z"], cwd=ROOT).decode().split("\0")
+    entries = subprocess.check_output(["git", "ls-files", "--stage", "-z"], cwd=ROOT,
+                                      env=clean_git_environment()).decode().split("\0")
     paths = set()
     for entry in filter(None, entries):
         metadata, name = entry.split("\t", 1)

@@ -1005,6 +1005,7 @@ struct Desktop {
 	cache: Option<cache::Cache>,
 	cache_pending: usize,
 	cache_clears: cache::HistoryClears,
+	cache_forgets: cache::AccountForgets,
 	cache_error: bool,
 	cache_status: &'static str,
 	appearance: egui::ThemePreference,
@@ -1046,8 +1047,8 @@ struct Desktop {
 	current_login: Option<Arc<SessionSecret>>,
 	/// The plaintext fallback choice last handed to the credential worker.
 	plaintext_login: bool,
-	/// Active/per-account fallback saves waiting for bounded credential-queue capacity.
-	plaintext_save_pending: [bool; 2],
+	/// One keyed-then-launch fallback save waiting for bounded credential-queue capacity.
+	plaintext_save_pending: bool,
 	account_presences: std::collections::BTreeMap<model::Id, model::OwnPresence>,
 	presence_load_pending: bool,
 	deferred_connect: Option<(SessionSecret, bool)>,
@@ -2344,6 +2345,7 @@ impl Desktop {
 			cache,
 			cache_pending,
 			cache_clears: Default::default(),
+			cache_forgets: Default::default(),
 			cache_error: false,
 			cache_status: "Loading local appearance…",
 			appearance: egui::ThemePreference::System,
@@ -2379,7 +2381,7 @@ impl Desktop {
 			pending_account_save: None,
 			current_login: None,
 			plaintext_login,
-			plaintext_save_pending: [false; 2],
+			plaintext_save_pending: false,
 			account_presences: std::collections::BTreeMap::new(),
 			presence_load_pending,
 			deferred_connect: None,
@@ -2458,7 +2460,7 @@ impl Desktop {
 	/// its other writes, and saves a login that failed earlier for want of a keyring.
 	fn sync_plaintext_login(&mut self) {
 		let enabled = self.messaging.plaintext_login;
-		let (Some(store), Some(directory)) = (&self.store, plaintext_login_dir()) else {
+		let (Some(store), Some(directory)) = (&mut self.store, plaintext_login_dir()) else {
 			return;
 		};
 		if enabled != self.plaintext_login {
@@ -2471,7 +2473,7 @@ impl Desktop {
 				return; // Retried after the worker wakes the UI.
 			}
 			self.plaintext_login = enabled;
-			self.plaintext_save_pending = [enabled; 2];
+			self.plaintext_save_pending = enabled;
 		}
 		if !enabled || self.state.auth != AuthState::Authenticated {
 			return;
@@ -2479,30 +2481,12 @@ impl Desktop {
 		let Some(secret) = self.current_login.clone() else {
 			return;
 		};
-		if self.plaintext_save_pending[0]
-			&& store
-				.send
-				.try_send((
-					self.state.generation,
-					credentials::Request::NONE,
-					credentials::Operation::Save(secret.clone()),
-				))
-				.is_ok()
-		{
-			self.plaintext_save_pending[0] = false;
-		}
-		if self.plaintext_save_pending[1]
+		if self.plaintext_save_pending
 			&& let Some(account) = self.state.user.as_ref().map(|user| user.id)
-			&& store
-				.send
-				.try_send((
-					self.state.generation,
-					credentials::Request::NONE,
-					credentials::Operation::SaveAccount(account, secret),
-				))
-				.is_ok()
+			&& store.save_account(self.state.generation, account, secret, true)
 		{
-			self.plaintext_save_pending[1] = false;
+			// Keep keyed and launch saves in one ordered command, including fallback saves.
+			self.plaintext_save_pending = false;
 		}
 	}
 
@@ -2520,9 +2504,13 @@ impl Desktop {
 		self.messaging.custom_font.busy = false;
 		match result {
 			Ok(font) => {
-				ui::fonts::apply_custom(ctx, font.as_ref());
-				self.messaging.custom_font.name = font.as_ref().map(|font| font.name.clone());
-				self.messaging.custom_font.status = "";
+				if ui::fonts::apply_custom(ctx, font.as_ref()) {
+					self.messaging.custom_font.name = font.as_ref().map(|font| font.name.clone());
+					self.messaging.custom_font.status = "";
+				} else {
+					self.messaging.custom_font.status =
+						"Could not apply the font. Restart Serein and try again.";
+				}
 			}
 			Err(error) => self.messaging.custom_font.status = error,
 		}
@@ -4519,12 +4507,17 @@ impl Desktop {
 					self.roster_pending = false;
 					// Pruning is already committed, so clean up regardless of the re-read.
 					for account in pruned {
-						if let Some(store) = &self.store {
-							let _ = store.send.try_send((
-								self.state.generation,
-								credentials::Request::NONE,
-								credentials::Operation::ForgetAccount(*account),
-							));
+						let known_accounts = self.state.user.iter().map(|user| user.id).chain(
+							roster
+								.as_ref()
+								.unwrap_or(&self.messaging.accounts)
+								.iter()
+								.map(|saved| saved.id),
+						);
+						if !self.store.as_mut().is_some_and(|store| {
+							store.forget_account(self.state.generation, *account, known_accounts)
+						}) {
+							self.credential_status = "Could not queue pruned account login removal; its OS credential may remain";
 						}
 						self.queue_cache_for(*account, cache::Operation::Forget);
 					}
@@ -4666,8 +4659,11 @@ impl Desktop {
 		}
 		for (generation, outcome) in results {
 			if generation != self.state.generation
+				&& !matches!(&outcome, credentials::Outcome::AccountForgotten(account, _) | credentials::Outcome::Forgotten(Some(account), _)
+					if credentials::account_removal_applies(generation, self.state.generation,
+						*account, self.state.user.as_ref().map(|user| user.id)))
 				&& !matches!(
-					outcome,
+					&outcome,
 					credentials::Outcome::PlaintextSet(..) | credentials::Outcome::Reconciled(..)
 				) {
 				continue;
@@ -4701,7 +4697,7 @@ impl Desktop {
 						}
 					}
 				}
-				credentials::Outcome::AccountSaved(account, result) => {
+				credentials::Outcome::AccountSaved(account, result, launch) => {
 					if result.is_ok() {
 						self.queue_cache_for(
 							model::Id(0),
@@ -4714,34 +4710,33 @@ impl Desktop {
 						self.credential_status =
 							"Could not save this account for the switcher; sign in again to retry";
 					}
-				}
-				credentials::Outcome::Saved(Ok(saved)) => {
-					self.credential_status = match saved {
-						platform::Saved::CredentialStore => {
-							"Login saved in the OS credential store"
+					match launch {
+						Some(Ok(saved)) => {
+							self.credential_status = match saved {
+								platform::Saved::CredentialStore => {
+									"Login saved in the OS credential store"
+								}
+								platform::Saved::Plaintext => {
+									"Login saved in plaintext because no OS keyring is available"
+								}
+							};
 						}
-						platform::Saved::Plaintext => {
-							"Login saved in plaintext because no OS keyring is available"
+						Some(Err(_)) => {
+							self.credential_status =
+								"Account login saved, but automatic sign-in could not be updated"
 						}
+						None if result == Err(platform::CredentialError::NoStore) => {
+							self.messaging.toasts.push(
+								ui::design::Level::Warning,
+								"No OS keyring found, so you will need to sign in again next launch. Settings › Storage can save it in plaintext instead.",
+							);
+						}
+						None => {}
 					}
 				}
-				credentials::Outcome::Saved(Err(platform::CredentialError::NoStore)) => {
-					self.messaging.toasts.push(
-						ui::design::Level::Warning,
-						"No OS keyring found, so you will need to sign in again next launch. Settings › Storage can save it in plaintext instead.",
-					);
-				}
-				credentials::Outcome::Saved(Err(_)) => {
-					self.credential_status =
-						"Could not save login; this session will not restore automatically"
-				}
-				credentials::Outcome::AccountForgotten(result) => {
-					if result.is_err_and(|error| error != platform::CredentialError::NoStore) {
-						self.messaging.toasts.push(
-							ui::design::Level::Error,
-							"Could not remove that account's saved login from the OS credential store",
-						);
-					}
+
+				credentials::Outcome::AccountForgotten(account, result) => {
+					self.account_forgotten(generation, account, result, false);
 				}
 				credentials::Outcome::Reconciled(result) => {
 					if result.is_err() {
@@ -4761,7 +4756,7 @@ impl Desktop {
 						self.credential_status = "Plaintext saved logins deleted";
 					}
 				}
-				credentials::Outcome::Forgotten(result) => {
+				credentials::Outcome::Forgotten(account, result) => {
 					self.forgetting = false;
 					self.credential_status = match result {
 						Ok(()) => "Saved login removed",
@@ -4771,6 +4766,9 @@ impl Desktop {
 							"Could not remove the Serein saved login in your OS credential manager"
 						}
 					};
+					if let Some(account) = account {
+						self.account_forgotten(generation, account, result, true);
+					}
 				}
 			}
 		}
@@ -4985,22 +4983,11 @@ impl Desktop {
 				{
 					self.messaging.channel_preferences_reload = true;
 				}
-				if let Some(store) = &self.store {
+				if let Some(store) = &mut self.store {
 					// The active entry restores on launch; the per-account entry backs the switcher.
 					let mut queued = true;
 					// A token the owner just supplied replaces whatever was stored before.
-					let fresh_token = self.pending_save.is_some();
-					if let Some(secret) = self.pending_save.take() {
-						self.current_login = Some(secret.clone());
-						queued &= store
-							.send
-							.try_send((
-								self.state.generation,
-								credentials::Request::NONE,
-								credentials::Operation::Save(secret),
-							))
-							.is_ok();
-					}
+					let fresh_token = self.pending_save.take().is_some();
 					// Writing an existing entry is an access-controlled keychain operation on
 					// macOS, so only write when the roster says none exists or the token is new.
 					if let Some(secret) = self.pending_account_save.take()
@@ -5012,14 +4999,8 @@ impl Desktop {
 								.iter()
 								.any(|saved| saved.id == account && saved.has_token))
 					{
-						queued &= store
-							.send
-							.try_send((
-								self.state.generation,
-								credentials::Request::NONE,
-								credentials::Operation::SaveAccount(account, secret),
-							))
-							.is_ok();
+						queued &=
+							store.save_account(self.state.generation, account, secret, fresh_token);
 					}
 					if !queued {
 						self.credential_status = "Could not queue saved login; session only";
@@ -5112,7 +5093,7 @@ impl Desktop {
 				let _ = store.send.try_send((
 					self.state.generation,
 					credentials::Request::NONE,
-					credentials::Operation::Forget,
+					credentials::Operation::Forget(None),
 				));
 			}
 		}
@@ -5131,6 +5112,8 @@ impl Desktop {
 				};
 			}
 		}
+		// Process READY first so a new session can supersede its own old deletion.
+		self.retry_account_forgets();
 		// Network and store workers request repaint only when their outcomes change.
 		if let Some(connection) = &self.connection {
 			connection.set_typing_channel(self.state.typing_scope());
@@ -5819,11 +5802,12 @@ impl eframe::App for Desktop {
 				|| self.state.server_admin.pending
 				|| self.uploads.has_unsent()
 				|| self.messaging.external_upload.has_unsent()
-				|| self.forgetting
+				|| self.credential_cleanup_pending()
 				|| self.messaging.startup_busy
 				|| self.avatar_cleanup.is_some()
 				|| self.cache_pending > 0
 				|| self.cache_clears.pending()
+				|| self.cache_forgets.pending()
 				|| (!self.fixture_only && self.app_settings.state.needs_attention())
 				|| (!self.fixture_only && self.reading.needs_attention())
 				|| (!self.fixture_only && self.game_activity.needs_attention())
@@ -6520,7 +6504,7 @@ impl eframe::App for Desktop {
 			if self.messaging.extensions.theme_editor_dirty() {
 				notes.push("Unsaved theme changes will be discarded.");
 			}
-			if self.forgetting {
+			if self.credential_cleanup_pending() {
 				notes.push("Wait for saved-login removal to finish.");
 			}
 			if self.extensions.cleanup_pending() {
@@ -6529,6 +6513,11 @@ impl eframe::App for Desktop {
 			if self.cache_clears.pending() {
 				notes.push(
 					"Cached history cleanup is pending; closing now may leave deleted messages on disk.",
+				);
+			}
+			if self.cache_forgets.pending() {
+				notes.push(
+					"Local account data removal is waiting for storage; closing now may leave account data on disk.",
 				);
 			}
 			if !self.fixture_only && self.app_settings.state.needs_attention() {
@@ -6559,7 +6548,7 @@ impl eframe::App for Desktop {
 			.danger()
 			.confirm_label("Discard and Continue")
 			.cancel_label("Keep Working")
-			.enabled(!self.forgetting);
+			.enabled(!self.credential_cleanup_pending());
 			if !notes.is_empty() {
 				confirm = confirm.note(ui::dialog::Level::Warning, notes.join("\n"));
 			}

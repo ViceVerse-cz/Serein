@@ -105,7 +105,7 @@ pub fn normalize(name: &str) -> Option<String> {
 		.replace('\\', "/")
 		.trim_matches('/')
 		.to_owned();
-	(!name.is_empty()).then_some(name)
+	(!name.is_empty() && name.len() <= MAX_EXECUTABLE).then_some(name)
 }
 
 /// A readable default title for a newly added executable: its file name without extension.
@@ -137,6 +137,29 @@ pub fn sanitize(games: &mut Vec<RegisteredGame>) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn normalized_unicode_paths_obey_byte_limits_and_remain_valid() {
+		// U+0130 expands from two UTF-8 bytes to three when lowercased.
+		for input in ["İ".repeat(86), "İ".repeat(128)] {
+			assert!(input.len() <= MAX_EXECUTABLE);
+			assert!(normalize(&input).is_none());
+		}
+		let executable = normalize(&"İ".repeat(85)).unwrap();
+		assert_eq!(executable.len(), 255);
+		assert_eq!(normalize(&executable).as_ref(), Some(&executable));
+		let game = RegisteredGame {
+			executable,
+			name: "Synthetic Unicode game".into(),
+			application: None,
+			hidden: false,
+			last_played: None,
+		};
+		assert!(game.valid());
+		let mut games = vec![game];
+		sanitize(&mut games);
+		assert_eq!(games.len(), 1);
+	}
 
 	#[test]
 	fn names_and_entries_are_bounded() {

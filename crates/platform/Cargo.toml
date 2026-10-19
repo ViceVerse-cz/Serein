@@ -12,7 +12,7 @@ development-data = []
 client-core.workspace = true
 model.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["process"] }
 notify-rust = { version = "=4.18.0", features = ["preview-macos-un"] }
 winit.workspace = true
 global-hotkey.workspace = true

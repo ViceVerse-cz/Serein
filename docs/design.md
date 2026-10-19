@@ -71,6 +71,17 @@ binning on. Dark mode remaps coverage with `FontColorTransferFunction::Gamma(0.5
 mode leaves the transfer function off. Inter faces set `FontTweak.hinting` to `Some(false)`.
 The bundled faces remain upstream's hinted TrueType builds. See `assets/README.md`.
 
+## Responsive controls
+
+Settings headings and descriptions wrap within a reserved Close column. Segmented choices
+fit their track at narrow widths, with elided labels available on hover. Add Friend keeps
+its navigation fixed while the form scrolls in short windows.
+
+The conversation header collapses its closed search field to a keyboard-accessible icon
+in narrow panes. Reply/edit context reserves the action buttons first and elides long names
+or status text; hover reveals the full context. Message actions stay inside the timeline
+viewport when the start of a tall message scrolls away, without changing its cached height.
+
 ## Layout
 
 - 36px title strip (`base`): hidden native title bar on macOS with traffic lights inline, centred

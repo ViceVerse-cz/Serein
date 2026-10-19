@@ -1292,8 +1292,30 @@ fn count_directories(path: &Path) -> Result<usize, String> {
 	Ok(count)
 }
 
-fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
-	let file = File::open(path).map_err(|_| "Cannot read extension file")?;
+fn open_regular_file(path: &Path) -> Result<File, String> {
+	// Reject special files before opening. Nonblocking Unix open also prevents a
+	// concurrent replacement with a FIFO from trapping the sole extension worker.
+	if !fs::metadata(path)
+		.map_err(|_| "Cannot inspect extension file")?
+		.is_file()
+	{
+		return Err("Extension package must be a regular file".into());
+	}
+	open_checked_file(path)
+}
+
+fn open_checked_file(path: &Path) -> Result<File, String> {
+	let mut options = OpenOptions::new();
+	options.read(true);
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::OpenOptionsExt;
+		options.custom_flags(libc::O_NONBLOCK);
+	}
+	let file = options
+		.open(path)
+		.map_err(|_| "Cannot read extension file")?;
+	// Check the opened descriptor as well: path metadata can change before open.
 	if !file
 		.metadata()
 		.map_err(|_| "Cannot inspect extension file")?
@@ -1301,6 +1323,11 @@ fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
 	{
 		return Err("Extension package must be a regular file".into());
 	}
+	Ok(file)
+}
+
+fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
+	let file = open_regular_file(path)?;
 	let mut bytes = Vec::new();
 	file.take(limit as u64 + 1)
 		.read_to_end(&mut bytes)
@@ -1701,6 +1728,66 @@ mod tests {
 			generation: Arc::new(AtomicU64::new(0)),
 			wake_cancel: Arc::new(tokio::sync::Notify::new()),
 		}
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn special_file_import_cannot_block_cleanup() {
+		const CHILD: &str = "SEREIN_EXTENSION_SPECIAL_FILE_CHILD";
+		if let Some(path) = std::env::var_os(CHILD) {
+			let path = Path::new(&path);
+			assert!(read_bounded(path, MAX_PACKAGE).is_err());
+			// Exercise descriptor rejection without the precheck, covering a path
+			// swapped to a FIFO between metadata and open.
+			assert!(open_checked_file(path).is_err());
+			return;
+		}
+		let profile = Profile::new();
+		let fifo = profile.0.join("blocked.serein-extension");
+		assert!(
+			std::process::Command::new("mkfifo")
+				.arg(&fifo)
+				.status()
+				.unwrap()
+				.success()
+		);
+		let link = profile.0.join("linked.serein-extension");
+		std::os::unix::fs::symlink(&fifo, &link).unwrap();
+		for path in [&fifo, &link] {
+			let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+				.args([
+					"--exact",
+					"extensions::tests::special_file_import_cannot_block_cleanup",
+				])
+				.env(CHILD, path)
+				.stdout(std::process::Stdio::piped())
+				.stderr(std::process::Stdio::piped())
+				.spawn()
+				.unwrap();
+			let deadline = std::time::Instant::now() + Duration::from_secs(5);
+			loop {
+				if child.try_wait().unwrap().is_some() {
+					break;
+				}
+				if std::time::Instant::now() >= deadline {
+					child.kill().unwrap();
+					child.wait().unwrap();
+					panic!("Special-file import blocked the extension worker");
+				}
+				std::thread::sleep(Duration::from_millis(10));
+			}
+			let output = child.wait_with_output().unwrap();
+			assert!(output.status.success(), "{output:?}");
+			assert!(
+				String::from_utf8(output.stdout)
+					.unwrap()
+					.contains("running 1 test")
+			);
+		}
+		let regular = profile.0.join("regular.serein-extension");
+		fs::write(&regular, b"synthetic").unwrap();
+		assert_eq!(read_bounded(&regular, 9).unwrap(), b"synthetic");
+		assert!(read_bounded(&regular, 8).is_err());
 	}
 
 	fn theme(id: &str) -> Package {

@@ -17,6 +17,7 @@ struct NotificationHandle {
 #[derive(Clone)]
 struct Activation {
 	send: SyncSender<(u64, model::Id)>,
+	current: Arc<AtomicU64>,
 	generation: u64,
 	channel: Option<model::Id>,
 	wake: Arc<dyn Fn() + Send + Sync>,
@@ -24,6 +25,9 @@ struct Activation {
 }
 impl Activation {
 	fn clicked(&self) {
+		if self.generation & 1 == 0 || self.current.load(Ordering::Acquire) != self.generation {
+			return;
+		}
 		if let Some(channel) = self.channel
 			&& self.send.try_send((self.generation, channel)).is_ok()
 		{
@@ -365,6 +369,7 @@ fn worker(
 		close(&mut outstanding);
 		let activation = Activation {
 			send: activated.clone(),
+			current: current.clone(),
 			generation,
 			channel: command.channel,
 			wake: Arc::clone(&wake),
@@ -556,6 +561,7 @@ pub fn debug_activation_check(channel: model::Id) -> model::Id {
 	notifications.generation.store(1, Ordering::Release);
 	let click = Activation {
 		send: notifications.activation_send.clone(),
+		current: notifications.generation.clone(),
 		generation: 1,
 		channel: Some(channel),
 		wake: Arc::clone(&notifications.wake),
@@ -578,6 +584,51 @@ pub fn debug_activation_check(channel: model::Id) -> model::Id {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn stale_activation_does_not_restore_or_fill_current_queue() {
+		let wakes = Arc::new(AtomicU64::new(0));
+		let restores = Arc::new(AtomicU64::new(0));
+		let mut notifications = Notifications::new(
+			{
+				let wakes = wakes.clone();
+				move || {
+					wakes.fetch_add(1, Ordering::Relaxed);
+				}
+			},
+			{
+				let restores = restores.clone();
+				move || {
+					restores.fetch_add(1, Ordering::Relaxed);
+				}
+			},
+		);
+		notifications.generation.store(1, Ordering::Release);
+		let click = Activation {
+			send: notifications.activation_send.clone(),
+			current: notifications.generation.clone(),
+			generation: 1,
+			channel: Some(model::Id(7)),
+			wake: notifications.wake.clone(),
+			restore: notifications.restore.clone(),
+		};
+		click.clicked();
+		assert_eq!(notifications.take_activation(), Some(model::Id(7)));
+		assert_eq!(restores.load(Ordering::Relaxed), 1);
+		assert_eq!(wakes.load(Ordering::Relaxed), 1);
+		notifications.dismiss();
+		for _ in 0..QUEUE_ITEMS + 1 {
+			click.clicked();
+		}
+		assert_eq!(restores.load(Ordering::Relaxed), 1);
+		assert_eq!(wakes.load(Ordering::Relaxed), 1);
+		assert!(notifications.activated.try_recv().is_err());
+		notifications.clear();
+		click.clicked();
+		assert_eq!(restores.load(Ordering::Relaxed), 1);
+		assert!(notifications.activated.try_recv().is_err());
+	}
+
 	#[cfg(target_os = "windows")]
 	#[test]
 	fn missing_windows_settings_entry_allows_delivery_but_denials_do_not() {

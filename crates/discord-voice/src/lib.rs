@@ -24,9 +24,17 @@ pub use video_receive::{RemoteFrame, VideoSink};
 pub mod camera_video;
 
 pub type Frame = [f32; 960];
+/// Microphone PCM retains the privacy generation under which its callback began.
+#[derive(Clone, Copy, Debug)]
+pub struct CapturedFrame {
+	pub generation: u64,
+	pub pcm: Frame,
+}
 #[derive(Clone, Copy)]
 pub struct Controls {
 	pub muted: bool,
+	/// Current Audio::capture_generation(); rejects PCM queued before a privacy transition.
+	pub capture_generation: u64,
 	/// Local indicator threshold; independent of received participants.
 	pub activity_threshold_db: i16,
 	/// Zero means off; a new value invalidates frames from the previous camera instance.
@@ -41,6 +49,7 @@ impl Default for Controls {
 	fn default() -> Self {
 		Self {
 			muted: false,
+			capture_generation: 0,
 			activity_threshold_db: -45,
 			camera: 0,
 			deafened: false,
