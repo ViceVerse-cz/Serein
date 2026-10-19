@@ -21,6 +21,10 @@ case "$ID:${VERSION_ID:-rolling}" in
       gstreamer1-plugins-base-devel
     ;;
   opensuse-tumbleweed:*)
+    # The rolling container can be newer than its repository mirror. Align the
+    # disposable builder with the refreshed snapshot, including required downgrades.
+    zypper --non-interactive refresh
+    zypper --non-interactive dist-upgrade --allow-downgrade --no-recommends
     zypper --non-interactive install --no-recommends gcc gcc-c++ make cmake \
       pkg-config curl ca-certificates git tar gzip xz python3 coreutils shadow file \
       rpm-build cpio desktop-file-utils gtk4-devel 'pkgconfig(webkitgtk-6.0)' \

@@ -1,0 +1,64 @@
+{
+  "environment": {
+    "os": "Windows 11 Home 10.0.26200",
+    "cpu": "AMD Ryzen 7 7800X3D",
+    "visible_ram_bytes": 33410678784,
+    "rust": "1.98.1",
+    "package_command": "cargo xtask package",
+    "package_features": "--no-default-features, voice included",
+    "workload": "100000 synthetic reducer events, one warmup and five direct release runs",
+    "scope": "original PR head versus repair including main cf5452cd"
+  },
+  "before": {
+    "label": "before",
+    "revision": "08a9ae01ce5f95c5e35b6c3b839f2ef552c38845",
+    "executable_bytes": 86960640,
+    "executable_sha256": "3fe42d8f744bf43440fe101cec46f77f8149acfa71fb6a326fd190f978f3d9c1",
+    "installed_bytes": 91153929,
+    "installed_files": 216,
+    "zip_bytes": 50180156,
+    "zip_method": "Python zipfile ZIP_DEFLATED, level 9, sorted installed file paths",
+    "replay_ms": [
+      73.1705,
+      73.3185,
+      73.1567,
+      76.5154,
+      69.0651
+    ],
+    "replay_median_ms": 73.1705,
+    "replay_outputs": [
+      "Synthetic reducer replay: 100000 events in 73.1705ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 73.3185ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 73.1567ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 76.5154ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 69.0651ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+    ]
+  },
+  "after": {
+    "label": "after",
+    "revision": "d4b27dd3a5ccbd90547c6d3eaf16062276eb232e",
+    "executable_bytes": 87321088,
+    "executable_sha256": "bb9c09cc9ac58182552d1185bb7cdbe570d5d08f2dddcf7980780ba0a7a2cf3f",
+    "installed_bytes": 91514377,
+    "installed_files": 216,
+    "zip_bytes": 50312732,
+    "zip_method": "Python zipfile ZIP_DEFLATED, level 9, sorted installed file paths",
+    "replay_ms": [
+      71.3841,
+      66.9713,
+      68.7076,
+      67.3186,
+      69.2343
+    ],
+    "replay_median_ms": 68.7076,
+    "replay_outputs": [
+      "Synthetic reducer replay: 100000 events in 71.3841ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 66.9713ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 68.7076ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 67.3186ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 69.2343ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+    ]
+  },
+  "navigation_before": "Synthetic navigation: 10000 selections across three 50-message conversations; immediate previews 10000/10000; revalidation requests 0; select median 300ns, p95 300ns. Measures core selection only, not native display latency, RSS or Discord compatibility.\nNavigation retained: 2 dormant windows; 150 active plus dormant rows; 328148 estimated retained bytes (not RSS).\nSynthetic hover navigation: 12 first visits rested on for the dwell then clicked: 12/12 opened without waiting, 12 history requests (a click-only first visit sends 1 each); a 28-row sweep without clicks sent 12 preloads (cap 12/min). Synthetic responses arrive before the click; excludes network latency and Discord compatibility.\nHover navigation retained: 8 dormant windows; 983809 estimated retained bytes (not RSS).\n",
+  "navigation_after": "Synthetic navigation: 10000 selections across three 50-message conversations; immediate previews 10000/10000; revalidation requests 0; select median 300ns, p95 300ns. Measures core selection only, not native display latency, RSS or Discord compatibility.\nNavigation retained: 2 dormant windows; 150 active plus dormant rows; 328148 estimated retained bytes (not RSS).\nSynthetic hover navigation: 12 first visits rested on for the dwell then clicked: 12/12 opened without waiting, 12 history requests (a click-only first visit sends 1 each); a 28-row sweep without clicks sent 12 preloads (cap 12/min). Synthetic responses arrive before the click; excludes network latency and Discord compatibility.\nHover navigation retained: 8 dormant windows; 983809 estimated retained bytes (not RSS).\n"
+}

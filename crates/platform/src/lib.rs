@@ -7,8 +7,10 @@ pub mod compositor;
 pub mod game_activity;
 pub mod heic;
 pub mod hotkeys;
+mod login_keyring;
 pub mod memory;
 pub mod notifications;
+pub mod plaintext_login;
 pub mod pointer;
 pub mod processes;
 pub mod proxy_credentials;
@@ -146,32 +148,103 @@ mod flatpak_locale_tests {
 	}
 }
 
+/// Where a saved login ended up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Saved {
+	CredentialStore,
+	/// The owner opted into the plaintext fallback and no credential store accepted it.
+	Plaintext,
+}
 /// The entry restored on launch. Switching accounts rewrites it from the per-account entry.
 pub fn load_session() -> Result<Option<SessionSecret>, CredentialError> {
-	load_entry(ACCOUNT)
+	load_login(ACCOUNT)
 }
-pub fn save_session(secret: &SessionSecret) -> Result<(), CredentialError> {
-	save_entry(ACCOUNT, secret)
+pub fn save_session(secret: &SessionSecret) -> Result<Saved, CredentialError> {
+	save_login(ACCOUNT, secret)
 }
 pub fn forget_session() -> Result<(), CredentialError> {
-	forget_entry(ACCOUNT)
+	forget_login(ACCOUNT)
 }
 /// One entry per remembered account, so the switcher never keeps a second copy in memory.
 fn account_entry(account: model::Id) -> String {
 	format!("{ACCOUNT}.{account}")
 }
 pub fn load_account_session(account: model::Id) -> Result<Option<SessionSecret>, CredentialError> {
-	load_entry(&account_entry(account))
+	load_login(&account_entry(account))
 }
 pub fn save_account_session(
 	account: model::Id,
 	secret: &SessionSecret,
-) -> Result<(), CredentialError> {
-	save_entry(&account_entry(account), secret)
+) -> Result<Saved, CredentialError> {
+	save_login(&account_entry(account), secret)
 }
 pub fn forget_account_session(account: model::Id) -> Result<(), CredentialError> {
-	forget_entry(&account_entry(account))
+	forget_login(&account_entry(account))
 }
+/// A fallback file is authoritative until a confirmed OS save removes it. A marker
+/// remains after deletion to prevent an older (or late) keyring write restoring it.
+fn load_login(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
+	let (directory, enabled) = plaintext_login::configuration();
+	if let Some(directory) = directory {
+		if enabled && let Some(secret) = plaintext_login::load(&directory, name)? {
+			return Ok(Some(secret));
+		}
+		if plaintext_login::keyring_stale(&directory, name)? {
+			return Ok(None);
+		}
+	}
+	login_keyring::load(name)
+}
+fn save_login(name: &str, secret: &SessionSecret) -> Result<Saved, CredentialError> {
+	let (directory, enabled) = plaintext_login::configuration();
+	// Refresh any existing fallback before native IO: a cleanup error must never leave
+	// an older plaintext token authoritative after a successful keyring write.
+	if enabled
+		&& let Some(directory) = directory.as_ref()
+		&& plaintext_login::keyring_stale(directory, name)?
+	{
+		plaintext_login::save(directory, name, secret)?;
+	}
+	match login_keyring::save(name, secret) {
+		Ok(()) => {
+			if let Some(directory) = directory {
+				plaintext_login::keyring_current(&directory, name)?;
+			}
+			Ok(Saved::CredentialStore)
+		}
+		Err(error) => {
+			if enabled && let Some(directory) = directory {
+				plaintext_login::save(&directory, name, secret)?;
+				Ok(Saved::Plaintext)
+			} else {
+				Err(error)
+			}
+		}
+	}
+}
+fn forget_login(name: &str) -> Result<(), CredentialError> {
+	let (directory, _) = plaintext_login::configuration();
+	// Fence even a late default-backend save before attempting native deletion. An
+	// unavailable/full native queue must never resurrect a logged-out launch entry.
+	let local = directory.as_ref().map_or(Ok(()), |directory| {
+		plaintext_login::mark_stale(directory, name)?;
+		plaintext_login::forget(directory, name)
+	});
+	let stored = login_keyring::forget(name);
+	local?;
+	// Forgotten roster slots can be released when no OS store exists. The launch
+	// marker stays until confirmed deletion, preventing wrong-account restoration.
+	if (stored.is_ok() || (stored == Err(CredentialError::NoStore) && name != ACCOUNT))
+		&& let Some(directory) = directory
+	{
+		plaintext_login::keyring_current(&directory, name)?;
+	}
+	match stored {
+		Err(CredentialError::NoStore) => Ok(()),
+		stored => stored,
+	}
+}
+
 fn entry(name: &str) -> Result<keyring_core::Entry, CredentialError> {
 	credential_store()?;
 	keyring_core::Entry::new(SERVICE, name).map_err(|error| match error {

@@ -299,15 +299,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arbitrary"
-version = "1.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
-dependencies = [
- "derive_arbitrary",
-]
-
-[[package]]
 name = "arboard"
 version = "3.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1419,17 +1410,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 
 [[package]]
-name = "derive_arbitrary"
-version = "1.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e567bd82dcff979e4b03460c307b3cdc9e96fde3d73bed1496d2bc75d9dd62a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "derive_more"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1726,7 +1706,7 @@ dependencies = [
 [[package]]
 name = "ecolor"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "bytemuck",
  "emath",
@@ -1760,7 +1740,7 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1796,7 +1776,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "accesskit",
  "ahash",
@@ -1815,7 +1795,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1834,7 +1814,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "accesskit_winit",
  "arboard",
@@ -1858,7 +1838,7 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1871,7 +1851,7 @@ dependencies = [
 [[package]]
 name = "egui_system_fonts"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "epaint",
  "fontique",
@@ -1912,7 +1892,7 @@ dependencies = [
 [[package]]
 name = "emath"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "bytemuck",
 ]
@@ -1958,7 +1938,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1983,7 +1963,7 @@ dependencies = [
 [[package]]
 name = "epaint_default_fonts"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 
 [[package]]
 name = "equivalent"
@@ -4098,6 +4078,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
+name = "nix"
+version = "0.31.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+dependencies = [
+ "bitflags 2.13.2",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
+
+[[package]]
 name = "nnnoiseless"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4912,7 +4904,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.45.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5253,6 +5245,7 @@ dependencies = [
  "serde_json",
  "symphonia",
  "tauri-winrt-notification",
+ "tempfile",
  "tokio",
  "url",
  "wayland-backend",
@@ -6011,9 +6004,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "once_cell",
@@ -6092,9 +6085,9 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "ruzstd"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a252f5e20f038fe7b4ea53e073e65398d652c864cc162fc77c56c2f13717b888"
+checksum = "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5"
 
 [[package]]
 name = "safe_arch"
@@ -6367,6 +6360,7 @@ dependencies = [
  "discord-protocol",
  "discord-voice",
  "eframe",
+ "egui-winit",
  "extensions",
  "find-msvc-tools",
  "fontique",
@@ -6852,13 +6846,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7edef6a96b696d4e0cab5ee9ebb7ca155ed95f30a6b45bbb8b97d2727f02424"
 dependencies = [
  "lazy_static",
+ "symphonia-bundle-flac",
  "symphonia-bundle-mp3",
  "symphonia-codec-aac",
+ "symphonia-codec-alac",
  "symphonia-codec-pcm",
  "symphonia-codec-vorbis",
  "symphonia-core",
+ "symphonia-format-isomp4",
  "symphonia-format-ogg",
  "symphonia-format-riff",
+ "symphonia-metadata",
+]
+
+[[package]]
+name = "symphonia-bundle-flac"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6405d5c34ff6f8f7ca08a4101efe66d21e180f7322ef9359900a0e55698a7892"
+dependencies = [
+ "log",
+ "symphonia-common",
+ "symphonia-core",
  "symphonia-metadata",
 ]
 
@@ -6880,6 +6889,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5bf8e39552d34a3c4c98333370e62f48c92456d2e814f273b5c3ad7c4a5f45c"
 dependencies = [
  "lazy_static",
+ "log",
+ "symphonia-common",
+ "symphonia-core",
+]
+
+[[package]]
+name = "symphonia-codec-alac"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "920a78f96f3cf62932d0c497959c0cc2100ef36b03c7ca1417b260f432a482d8"
+dependencies = [
  "log",
  "symphonia-common",
  "symphonia-core",
@@ -6929,6 +6949,18 @@ dependencies = [
  "log",
  "num-complex",
  "smallvec",
+]
+
+[[package]]
+name = "symphonia-format-isomp4"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e681a70e1870d34e02abf1dbc51e4267c3f1827801474e8870be8c689fc4dc3"
+dependencies = [
+ "log",
+ "symphonia-common",
+ "symphonia-core",
+ "symphonia-metadata",
 ]
 
 [[package]]
@@ -7560,6 +7592,12 @@ checksum = "cb30dbbd9036155e74adad6812e9898d03ec374946234fbcebd5dfc7b9187b90"
 dependencies = [
  "rustc-hash 2.1.3",
 ]
+
+[[package]]
+name = "typed-path"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e28f89b80c87b8fb0cf04ab448d5dd0dd0ade2f8891bae878de66a75a28600e"
 
 [[package]]
 name = "typenum"
@@ -9436,15 +9474,16 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "4.6.1"
+version = "9.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "caa8cd6af31c3b31c6631b8f483848b91589021b28fffe50adada48d4f4d2ed1"
+checksum = "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e"
 dependencies = [
- "arbitrary",
  "crc32fast",
  "flate2",
  "indexmap",
  "memchr",
+ "nix",
+ "typed-path",
 ]
 
 [[package]]

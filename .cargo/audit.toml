@@ -5,4 +5,12 @@ ignore = [
     # workspace has no direct dependency on it and no path to update it independently.
     # Re-check when the egui pin moves.
     "RUSTSEC-2026-0192",
+    # Informational unmaintained notices, not vulnerability exceptions. The pinned
+    # zbus 5.19.0 still requires these crates; Linux portals, Secret Service,
+    # notifications, tray and AccessKit share that dependency tree. The standalone crates
+    # moved into zbus 6; replacing our direct dependency alone leaves upstream users
+    # on zbus 5. Re-evaluate together when that dependency stack migrates.
+    "RUSTSEC-2026-0370", # zvariant
+    "RUSTSEC-2026-0371", # zbus_names
+    "RUSTSEC-2026-0372", # zvariant_derive
 ]

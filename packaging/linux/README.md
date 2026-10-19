@@ -71,7 +71,11 @@ Arch packaging also accepts derivatives such as CachyOS and EndeavourOS when the
 dependency versions; this does not guarantee compatibility with other Arch derivatives.
 
 `install-build-deps.sh` installs build dependencies as root on the explicitly
-supported CI distributions. It is intended for fresh build containers. Normal
+supported CI distributions. It is intended for fresh build containers. On openSUSE
+Tumbleweed it refreshes repository metadata and runs `zypper dist-upgrade` with
+explicit downgrade permission before installing dependencies, so the rolling
+container and repository packages use consistent versions. This can downgrade
+packages in the disposable builder when its image is ahead of the mirror. Normal
 packaging runs without root and never installs or starts Serein. RPM uses
 `rpmbuild` dependency generation; Arch derives native library package dependencies
 from the host package database and uses `makepkg`. Both inspect package metadata,

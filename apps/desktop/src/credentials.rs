@@ -2,6 +2,7 @@
 use client_core::auth::SessionSecret;
 use eframe::egui;
 use platform::CredentialError;
+use std::path::PathBuf;
 use std::sync::{
 	Arc,
 	mpsc::{self, Receiver, SyncSender},
@@ -18,15 +19,23 @@ pub enum Operation {
 	LoadAccount(model::Id),
 	SaveAccount(model::Id, Arc<SessionSecret>),
 	ForgetAccount(model::Id),
+	/// Turns the owner's plaintext fallback on, or off while deleting every file it wrote.
+	SetPlaintext {
+		directory: PathBuf,
+		enabled: bool,
+	},
+	RetainAccounts(Vec<model::Id>, Option<model::Id>),
 }
 pub enum Outcome {
 	Loaded(Result<Option<SessionSecret>, CredentialError>),
-	Saved(Result<(), CredentialError>),
+	Saved(Result<platform::Saved, CredentialError>),
 	/// A per-account entry, so the roster can record that the entry now exists.
-	AccountSaved(model::Id, Result<(), CredentialError>),
+	AccountSaved(model::Id, Result<platform::Saved, CredentialError>),
 	Forgotten(Result<(), CredentialError>),
 	/// A per-account entry; never touches the launch-restore status or `forgetting`.
 	AccountForgotten(Result<(), CredentialError>),
+	PlaintextSet(bool, Result<(), CredentialError>),
+	Reconciled(Result<(), CredentialError>),
 }
 /// Identifies one queued credential operation. Writes and deletions use `Request::NONE`,
 /// which never matches a read in flight.
@@ -43,12 +52,29 @@ pub struct Store {
 	/// generation alone cannot once a switch reuses the session it just started.
 	loading: Option<(u64, Request, Instant)>,
 	next_request: u64,
+	/// Latest bounded roster snapshot awaiting credential-queue capacity.
+	retain_accounts: Option<Vec<model::Id>>,
 }
 impl Store {
 	pub fn start(ctx: egui::Context) -> Self {
 		let (send, commands) = mpsc::sync_channel::<(u64, Request, Operation)>(4);
 		let (events, receive) = mpsc::sync_channel(4);
 		std::thread::spawn(move || {
+			let (directory, enabled) = platform::plaintext_login::configuration();
+			if let Some(directory) = directory {
+				let result = if enabled {
+					platform::plaintext_login::cleanup_temporary(&directory)
+				} else {
+					platform::plaintext_login::forget_all(&directory)
+				};
+				if result.is_err() {
+					let _ = events.send((0, Request::NONE, Outcome::PlaintextSet(enabled, result)));
+					ctx.request_repaint();
+				}
+			}
+			// Saved entries remain protected until a later committed roster acknowledges
+			// them. A delayed older snapshot must not erase an incoming account's token.
+			let mut unacknowledged = std::collections::BTreeSet::new();
 			while let Ok((generation, request, operation)) = commands.recv() {
 				let outcome = match operation {
 					Operation::Load => Outcome::Loaded(platform::load_session()),
@@ -57,12 +83,40 @@ impl Store {
 					Operation::LoadAccount(account) => {
 						Outcome::Loaded(platform::load_account_session(account))
 					}
-					Operation::SaveAccount(account, secret) => Outcome::AccountSaved(
-						account,
-						platform::save_account_session(account, &secret),
-					),
+					Operation::SaveAccount(account, secret) => {
+						let result =
+							if unacknowledged.len() >= 10 && !unacknowledged.contains(&account) {
+								Err(CredentialError::Unavailable)
+							} else {
+								platform::save_account_session(account, &secret)
+							};
+						if result.is_ok() {
+							unacknowledged.insert(account);
+						}
+						Outcome::AccountSaved(account, result)
+					}
 					Operation::ForgetAccount(account) => {
+						unacknowledged.remove(&account);
 						Outcome::AccountForgotten(platform::forget_account_session(account))
+					}
+					Operation::RetainAccounts(accounts, active) => {
+						let accounts = cleanup_accounts(accounts, active, &mut unacknowledged);
+						let (directory, _) = platform::plaintext_login::configuration();
+						Outcome::Reconciled(directory.map_or(Ok(()), |directory| {
+							platform::plaintext_login::retain_accounts(&directory, &accounts)
+						}))
+					}
+					Operation::SetPlaintext { directory, enabled } => {
+						if enabled {
+							platform::plaintext_login::configure(Some(directory), true);
+							Outcome::PlaintextSet(true, Ok(()))
+						} else {
+							platform::plaintext_login::configure(Some(directory.clone()), false);
+							Outcome::PlaintextSet(
+								false,
+								platform::plaintext_login::forget_all(&directory),
+							)
+						}
 					}
 				};
 				if events.send((generation, request, outcome)).is_err() {
@@ -76,7 +130,12 @@ impl Store {
 			receive,
 			loading: None,
 			next_request: 0,
+			retain_accounts: None,
 		}
+	}
+	pub fn retain_accounts(&mut self, mut accounts: Vec<model::Id>) {
+		accounts.truncate(8);
+		self.retain_accounts = Some(accounts);
 	}
 	pub fn load(&mut self, generation: u64, now: Instant) -> bool {
 		self.begin_load(generation, Operation::Load, now)
@@ -109,7 +168,20 @@ impl Store {
 		self.loading
 			.map(|(_, _, deadline)| deadline.saturating_duration_since(now))
 	}
-	pub fn poll(&mut self, now: Instant) -> Option<(u64, Outcome)> {
+	pub fn poll(&mut self, now: Instant, active: Option<model::Id>) -> Option<(u64, Outcome)> {
+		// Refresh protection when the operation is actually admitted: READY can change
+		// the active account while an older roster snapshot waits behind a full queue.
+		if let Some(accounts) = &self.retain_accounts {
+			match self.send.try_send((
+				0,
+				Request::NONE,
+				Operation::RetainAccounts(accounts.clone(), active),
+			)) {
+				Ok(()) | Err(mpsc::TrySendError::Disconnected(_)) => self.retain_accounts = None,
+				Err(mpsc::TrySendError::Full(_)) => {}
+			}
+		}
+
 		if let Some((generation, _, deadline)) = self.loading
 			&& now >= deadline
 		{
@@ -147,17 +219,37 @@ impl Store {
 	}
 }
 
+/// Only the committed roster acknowledges a new saved account. Being active is
+/// temporary protection and must not acknowledge a cache mutation still in flight.
+fn cleanup_accounts(
+	mut committed: Vec<model::Id>,
+	active: Option<model::Id>,
+	unacknowledged: &mut std::collections::BTreeSet<model::Id>,
+) -> Vec<model::Id> {
+	unacknowledged.retain(|id| !committed.contains(id));
+	if let Some(active) = active
+		&& !committed.contains(&active)
+	{
+		committed.push(active);
+	}
+	committed.extend(
+		unacknowledged
+			.iter()
+			.copied()
+			.filter(|id| Some(*id) != active),
+	);
+	committed
+}
+
 pub fn loaded_status(result: &Result<Option<SessionSecret>, CredentialError>) -> &'static str {
 	match result {
 		Ok(Some(_)) => "Saved login found; connecting to Discord",
 		Ok(None) => "No saved login found. Sign in with Discord to save one.",
 		Err(CredentialError::Invalid) => "Saved login is invalid. Sign in with Discord again.",
 		Err(CredentialError::NoStore) => {
-			"No OS keyring found; sign in each launch. Install GNOME Keyring or KWallet to stay signed in."
+			"No OS keyring found; sign in each launch. Install GNOME Keyring or KWallet, or allow plaintext saved login in Settings › Storage."
 		}
-		Err(CredentialError::Unavailable) => {
-			"Saved login unavailable; sign in with Discord. No plaintext fallback."
-		}
+		Err(CredentialError::Unavailable) => "Saved login unavailable; sign in with Discord.",
 		Err(CredentialError::TimedOut) => {
 			"Saved-login check timed out. Sign in with Discord; the credential store did not respond."
 		}
@@ -176,23 +268,24 @@ mod tests {
 			receive,
 			loading: None,
 			next_request: 0,
+			retain_accounts: None,
 		};
 		let request =
 			|commands: &Receiver<(u64, Request, Operation)>| commands.try_recv().unwrap().1;
 		let now = Instant::now();
 		assert!(store.load(1, now));
 		let first = request(&commands);
-		assert!(store.poll(now).is_none());
+		assert!(store.poll(now, None).is_none());
 		assert_eq!(store.remaining(now), Some(LOAD_TIMEOUT));
 		assert!(events.send((1, first, Outcome::Loaded(Ok(None)))).is_ok());
-		let (_, Outcome::Loaded(result)) = store.poll(now).unwrap() else {
+		let (_, Outcome::Loaded(result)) = store.poll(now, None).unwrap() else {
 			panic!()
 		};
 		assert!(loaded_status(&result).contains("No saved login"));
 		assert!(store.remaining(now).is_none());
 		assert!(store.load(2, now));
 		let timed_out = request(&commands);
-		let (_, Outcome::Loaded(result)) = store.poll(now + LOAD_TIMEOUT).unwrap() else {
+		let (_, Outcome::Loaded(result)) = store.poll(now + LOAD_TIMEOUT, None).unwrap() else {
 			panic!()
 		};
 		assert_eq!(result.err(), Some(CredentialError::TimedOut));
@@ -202,7 +295,7 @@ mod tests {
 				.send((2, timed_out, Outcome::Loaded(Ok(Some(synthetic())))))
 				.is_ok()
 		);
-		assert!(store.poll(now + LOAD_TIMEOUT).is_none());
+		assert!(store.poll(now + LOAD_TIMEOUT, None).is_none());
 		// A read that timed out cannot answer the read that replaced it, even when a switch
 		// reuses the same session: the token belongs to whichever account was asked for first.
 		assert!(store.load(2, now));
@@ -213,7 +306,7 @@ mod tests {
 				.send((2, timed_out, Outcome::Loaded(Ok(Some(synthetic())))))
 				.is_ok()
 		);
-		assert!(store.poll(now).is_none());
+		assert!(store.poll(now, None).is_none());
 		assert_eq!(store.remaining(now), Some(LOAD_TIMEOUT));
 		assert!(
 			events
@@ -221,7 +314,7 @@ mod tests {
 				.is_ok()
 		);
 		assert!(matches!(
-			store.poll(now),
+			store.poll(now, None),
 			Some((2, Outcome::Loaded(Ok(Some(_)))))
 		));
 		assert!(store.load(3, now));
@@ -232,14 +325,64 @@ mod tests {
 				.send((3, cancelled, Outcome::Loaded(Ok(Some(synthetic())))))
 				.is_ok()
 		);
-		assert!(store.poll(now).is_none());
+		assert!(store.poll(now, None).is_none());
 		assert!(loaded_status(&Ok(Some(synthetic()))).contains("found"));
 		assert!(loaded_status(&Err(CredentialError::Invalid)).contains("invalid"));
 		assert!(store.load(4, now));
 		drop(events);
 		assert!(matches!(
-			store.poll(now),
+			store.poll(now, None),
 			Some((4, Outcome::Loaded(Err(CredentialError::Unavailable))))
 		));
+	}
+	#[test]
+	fn credential_roster_cleanup_retries_and_protects_the_new_ready_account() {
+		let (send, commands) = mpsc::sync_channel(1);
+		let (_events, receive) = mpsc::sync_channel(1);
+		let mut store = Store {
+			send,
+			receive,
+			loading: None,
+			next_request: 0,
+			retain_accounts: None,
+		};
+		assert!(
+			store
+				.send
+				.try_send((0, Request::NONE, Operation::Forget))
+				.is_ok()
+		);
+		store.retain_accounts((1..=8).map(model::Id).collect());
+		assert!(store.poll(Instant::now(), None).is_none());
+		assert!(store.retain_accounts.is_some());
+		commands.try_recv().unwrap();
+		// READY for a ninth account happened after the snapshot, while admission was full.
+		assert!(store.poll(Instant::now(), Some(model::Id(9))).is_none());
+		let (_, _, Operation::RetainAccounts(retained, active)) = commands.try_recv().unwrap()
+		else {
+			panic!()
+		};
+		assert_eq!(retained.len(), 8);
+		assert_eq!(active, Some(model::Id(9)));
+		assert!(store.retain_accounts.is_none());
+	}
+	#[test]
+	fn credential_cleanup_keeps_new_saves_until_committed_roster_acknowledgement() {
+		let mut unacknowledged = std::collections::BTreeSet::from([model::Id(2)]);
+		let old_roster = vec![model::Id(1)];
+		assert!(
+			cleanup_accounts(old_roster.clone(), Some(model::Id(2)), &mut unacknowledged)
+				.contains(&model::Id(2))
+		);
+		// Switching again does not turn an old snapshot into an acknowledgement of B.
+		assert!(
+			cleanup_accounts(old_roster.clone(), Some(model::Id(3)), &mut unacknowledged)
+				.contains(&model::Id(2))
+		);
+		assert!(unacknowledged.contains(&model::Id(2)));
+		cleanup_accounts(vec![model::Id(1), model::Id(2)], None, &mut unacknowledged);
+		assert!(unacknowledged.is_empty());
+		// Only a later committed roster that prunes B can remove it now.
+		assert!(!cleanup_accounts(old_roster, None, &mut unacknowledged).contains(&model::Id(2)));
 	}
 }

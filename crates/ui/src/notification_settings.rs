@@ -90,6 +90,7 @@ mod tests {
 				("Screen Share Started", Sound::ScreenShareOn),
 				("Call Joined", Sound::UserJoin),
 				("User Left Call", Sound::UserLeave),
+				("Viewer Joined Stream", Sound::ViewerJoin),
 			] {
 				let point = labels
 					.iter()
@@ -282,6 +283,11 @@ impl MessagingUi {
 					"User Left Call",
 					&mut self.notification_options.user_leave,
 					Sound::UserLeave,
+				),
+				(
+					"Viewer Joined Stream",
+					&mut self.notification_options.viewer_join,
+					Sound::ViewerJoin,
 				),
 			];
 			for (index, (label, value, sound)) in sounds.into_iter().enumerate() {

@@ -40,10 +40,10 @@ time = { workspace = true, features = ["local-offset"] }
 sha2 = "=0.10.9"
 md4 = "=0.10.2"
 semver = "=1.0.28"
-zip = { version = "=4.6.1", default-features = false, features = ["deflate-flate2"] }
+zip = { version = "=9.0.5", default-features = false, features = ["deflate-flate2"] }
 cpal = { version = "=0.18.2", default-features = false }
 rtrb = "=0.4.0"
-symphonia = { version = "=0.6.1", default-features = false, features = ["mp3", "pcm", "wav", "ogg", "vorbis"] }
+symphonia = { version = "=0.6.1", default-features = false, features = ["mp3", "pcm", "wav", "ogg", "vorbis", "isomp4", "aac", "alac", "flac"] }
 opus2 = { version = "=0.4.0", default-features = false, features = ["backend-libopus", "static", "bundled"] }
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 png = "=0.18.1"
@@ -63,6 +63,10 @@ winit = { workspace = true, features = ["wayland-csd-adwaita"] }
 arboard = { version = "=3.6.1", features = ["wayland-data-control"] }
 # Media playback sizes PulseAudio buffers itself; voice already selects this host.
 cpal = { version = "=0.18.2", default-features = false, features = ["pulseaudio"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Already built for eframe; maximizes the hidden startup window without flashing it.
+egui-winit.workspace = true
 
 [build-dependencies]
 find-msvc-tools = "=0.1.12"

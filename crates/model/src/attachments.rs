@@ -18,8 +18,24 @@ pub struct Attachment {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub waveform: Vec<u8>,
 }
+/// Audio-only extensions. They win over a `video/*` MIME type, which Discord can report for
+/// MP4-family audio such as `.m4a`.
+const AUDIO_EXTENSIONS: [&str; 7] = ["mp3", "wav", "ogg", "opus", "m4a", "aac", "flac"];
+
 impl Attachment {
+	fn audio_extension(&self) -> bool {
+		self.filename
+			.rsplit_once('.')
+			.is_some_and(|(_, extension)| {
+				AUDIO_EXTENSIONS
+					.iter()
+					.any(|kind| extension.eq_ignore_ascii_case(kind))
+			})
+	}
 	pub fn is_video(&self) -> bool {
+		if self.audio_extension() {
+			return false;
+		}
 		// Metadata selects the player; the native decoder validates the container and codec.
 		self.filename
 			.rsplit_once('.')
@@ -41,26 +57,29 @@ impl Attachment {
 	}
 	pub fn is_audio(&self) -> bool {
 		// Metadata only selects the preview; playback validates the actual bytes.
-		self.filename
-			.rsplit_once('.')
-			.is_some_and(|(_, extension)| {
-				["mp3", "wav", "ogg", "opus"]
-					.iter()
-					.any(|kind| extension.eq_ignore_ascii_case(kind))
-			}) || self.content_type.as_deref().is_some_and(|kind| {
-			let kind = kind.split(';').next().unwrap_or(kind).trim();
-			[
-				"audio/mpeg",
-				"audio/mp3",
-				"audio/wav",
-				"audio/x-wav",
-				"audio/wave",
-				"audio/ogg",
-				"audio/opus",
-			]
-			.iter()
-			.any(|supported| kind.eq_ignore_ascii_case(supported))
-		})
+		self.audio_extension()
+			|| self.content_type.as_deref().is_some_and(|kind| {
+				let kind = kind.split(';').next().unwrap_or(kind).trim();
+				[
+					"audio/mpeg",
+					"audio/mp3",
+					"audio/wav",
+					"audio/x-wav",
+					"audio/wave",
+					"audio/ogg",
+					"audio/opus",
+					"audio/mp4",
+					"audio/m4a",
+					"audio/x-m4a",
+					"audio/aac",
+					"audio/x-aac",
+					"audio/aacp",
+					"audio/flac",
+					"audio/x-flac",
+				]
+				.iter()
+				.any(|supported| kind.eq_ignore_ascii_case(supported))
+			})
 	}
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
@@ -174,7 +193,15 @@ mod audio_tests {
 				media: EmbedMedia::default(),
 				spoiler: false,
 			};
-			for filename in ["TRACK.MP3", "track.WaV", "voice-message.ogg", "track.opus"] {
+			for filename in [
+				"TRACK.MP3",
+				"track.WaV",
+				"voice-message.ogg",
+				"track.opus",
+				"Memo.M4A",
+				"track.aac",
+				"track.flac",
+			] {
 				file.filename = filename.into();
 				for kind in [
 					None,
@@ -183,10 +210,15 @@ mod audio_tests {
 					Some("text/plain"),
 					Some("audio/ogg"),
 					Some("image/jpeg"),
+					Some("video/mp4"),
 				] {
 					file.content_type = kind.map(str::to_owned);
 					assert!(file.is_audio(), "{filename}: {kind:?}");
 					assert!(!file.is_image());
+					assert!(
+						!file.is_video(),
+						"audio extensions win: {filename}: {kind:?}"
+					);
 				}
 			}
 			file.filename = "attachment".into();
@@ -196,6 +228,10 @@ mod audio_tests {
 				"Audio/Wav; codec=pcm",
 				"audio/x-wav",
 				"audio/wave",
+				"audio/mp4",
+				"audio/x-m4a",
+				"audio/aac",
+				"audio/x-flac",
 			] {
 				file.content_type = Some(kind.into());
 				assert!(file.is_audio());

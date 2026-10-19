@@ -7,6 +7,7 @@ use serde::{
 };
 use std::fmt;
 
+#[derive(Clone)]
 pub struct PresenceUpdate {
 	pub guild: Option<Id>,
 	pub user: Id,
@@ -26,6 +27,10 @@ pub struct Friends<'a>(
 pub struct MergedPresences {
 	#[serde(default)]
 	pub friends: Option<Box<serde_json::value::RawValue>>,
+	/// One presence list per shared guild, index-aligned with `guilds`. Unofficial; the only
+	/// bootstrap presence Discord sends for DM recipients who are not friends.
+	#[serde(default)]
+	pub guilds: Option<Box<serde_json::value::RawValue>>,
 }
 
 #[derive(Deserialize)]

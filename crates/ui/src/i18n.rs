@@ -370,6 +370,29 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn forum_attachment_counts_select_singular_and_plural_labels() {
+		for (language, singular, plural) in [
+			(Language::English, "attached file", "attached files"),
+			(Language::German, "angehängte Datei", "angehängte Dateien"),
+			(Language::Spanish, "archivo adjunto", "archivos adjuntos"),
+			(Language::French, "fichier joint", "fichiers joints"),
+			(Language::Italian, "file allegato", "file allegati"),
+			(
+				Language::PortugueseBrazil,
+				"arquivo anexado",
+				"arquivos anexados",
+			),
+		] {
+			for (count, label) in [(1, singular), (2, plural), (10, plural)] {
+				let actual =
+					language.text_with_count("forum-composer-attached-files", Some(count), &[]);
+				let actual = actual.replace(['\u{2068}', '\u{2069}'], "");
+				assert_eq!(actual, format!("{count} {label}"), "{language:?}");
+			}
+		}
+	}
+
+	#[test]
 	fn negotiates_supported_languages_and_falls_back_to_english() {
 		assert_eq!(language_from_tag("cs-CZ"), Language::Czech);
 		assert_eq!(language_from_tag("cs_CZ"), Language::Czech);

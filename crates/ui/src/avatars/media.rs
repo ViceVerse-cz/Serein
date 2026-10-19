@@ -222,26 +222,28 @@ pub(crate) enum Surface {
 	Inline,
 	Banner,
 	Viewer,
+	/// A covering picker tile; its caller paints the loading and failed placeholders.
+	Tile,
 }
 
 impl Surface {
 	fn lane(self) -> Lane {
 		match self {
 			Self::Viewer => Lane::Viewer,
-			Self::Inline | Self::Banner => Lane::Inline,
+			Self::Inline | Self::Banner | Self::Tile => Lane::Inline,
 		}
 	}
 	fn point_limit(self) -> f32 {
 		match self {
 			Self::Viewer => 4096.0,
-			Self::Inline | Self::Banner => 512.0,
+			Self::Inline | Self::Banner | Self::Tile => 512.0,
 		}
 	}
 	fn allows_upscale(self) -> bool {
 		matches!(self, Self::Viewer)
 	}
 	fn covers(self) -> bool {
-		matches!(self, Self::Banner)
+		matches!(self, Self::Banner | Self::Tile)
 	}
 }
 
@@ -276,6 +278,7 @@ enum Learned {
 enum Attempt {
 	Pending,
 	Failed(Instant),
+	Rejected,
 }
 
 enum Pixels {
@@ -441,6 +444,7 @@ fn choose(slot: &Slot, motion: Motion, size: Size, now: Instant) -> Choice {
 		.map(|(index, _)| index);
 	let (failed, request) = match slot.attempt(motion, size) {
 		Some(Attempt::Pending) => (false, false),
+		Some(Attempt::Rejected) => (true, false),
 		Some(Attempt::Failed(at)) if now.saturating_duration_since(at) < RETRY => (true, false),
 		_ => (false, true),
 	};
@@ -504,12 +508,23 @@ impl MediaLibrary {
 		now: Instant,
 	) -> (Rendition, Choice) {
 		let slot = self.slot(source);
-		let motion = if may_animate && slot.learned == Learned::Unknown {
+		// Temporary failures show a still during backoff, then retry this rendition.
+		let animation_failed = matches!(
+			slot.attempt(Motion::Animated, size),
+			Some(Attempt::Failed(at)) if now.saturating_duration_since(at) < RETRY
+		);
+		let motion = if may_animate && slot.learned == Learned::Unknown && !animation_failed {
 			Motion::Animated
 		} else {
 			Motion::Still
 		};
-		let choice = choose(slot, motion, size, now);
+		let mut choice = choose(slot, motion, size, now);
+		if motion == Motion::Animated && choice.base.is_none() {
+			choice.base = choose(slot, Motion::Still, size, now).base;
+			if choice.base.is_some() {
+				choice.quality = Quality::Upgrading;
+			}
+		}
 		(
 			Rendition {
 				source: source.clone(),
@@ -550,6 +565,8 @@ impl MediaLibrary {
 	pub(super) fn set_animation(&mut self, enabled: bool) {
 		for slot in self.slots.values_mut() {
 			slot.learned = Learned::Unknown;
+			slot.attempts
+				.retain(|(.., attempt)| !matches!(attempt, Attempt::Rejected));
 			if !enabled {
 				slot.held.retain(|held| held.motion == Motion::Still);
 				slot.attempts
@@ -588,6 +605,9 @@ impl MediaLibrary {
 				// Retrying cannot help a clip this decoder rejects, and it is not cached on disk.
 				slot.learned = Learned::Unplayable;
 				slot.forget(motion, size);
+			} else if is_motion_video(source.as_str()) {
+				// A rejected clip still must not download and start a decoder on every backoff.
+				slot.record(motion, size, Attempt::Rejected);
 			} else {
 				slot.record(motion, size, Attempt::Failed(Instant::now()));
 			}
@@ -657,13 +677,13 @@ impl MediaLibrary {
 			return;
 		};
 		let video = is_motion_video(source.as_str());
-		if frames.len() < 2 && video {
-			slot.learned = Learned::Unplayable;
-			slot.held.remove(index);
-			return;
-		}
 		if frames.len() < 2 {
-			slot.learned = Learned::Still;
+			// A clip that cannot play whole still shows its opening frame where nothing else can.
+			slot.learned = if video {
+				Learned::Unplayable
+			} else {
+				Learned::Still
+			};
 			if slot.index(Motion::Still, size).is_some() {
 				slot.held.remove(index);
 			} else {
@@ -940,6 +960,29 @@ mod retention_tests {
 	}
 
 	#[test]
+	fn a_gif_whose_animation_fails_falls_back_to_its_still() {
+		let ctx = egui::Context::default();
+		let mut library = MediaLibrary::default();
+		let source = library
+			.source("https://cdn.discordapp.com/attachments/1/2/large.gif?ex=1&is=2&hm=3")
+			.unwrap();
+		let size = Size::Exact {
+			width: 435,
+			height: 350,
+		};
+		let (animated, choice) = library.want(&source, true, size, Lane::Inline, Instant::now());
+		assert_eq!(animated.motion, Motion::Animated);
+		assert!(choice.request);
+		library
+			.slot(&source)
+			.record(Motion::Animated, size, Attempt::Pending);
+		assert!(library.accept_still(&ctx, animated, None));
+		let (still, choice) = library.want(&source, true, size, Lane::Inline, Instant::now());
+		assert_eq!(still.motion, Motion::Still);
+		assert!(choice.request, "The still is requested right away");
+	}
+
+	#[test]
 	fn offscreen_still_expires_and_can_be_requested_again() {
 		let ctx = egui::Context::default();
 		let mut library = MediaLibrary::default();
@@ -1025,14 +1068,22 @@ mod retention_tests {
 
 impl Avatars {
 	/// Synchronized favorite whose media is a clip or a Discord-hosted file: it plays like a
-	/// gifv embed, covering its picker tile.
+	/// gifv embed, covering its picker tile. False while nothing is painted yet.
 	pub(crate) fn paint_gif_media(
 		&mut self,
 		ui: &mut egui::Ui,
 		gif: &model::Gif,
 		rect: egui::Rect,
 		demo: bool,
-	) {
+	) -> bool {
+		if model::valid_discord_media_url(&gif.preview)
+			&& let Ok(url) = url::Url::parse(&gif.preview)
+			&& url.path().starts_with("/attachments/")
+			&& !url.query_pairs().any(|(key, _)| key == "hm")
+		{
+			// Synced attachment favorites lost their signature; requests cannot refresh it.
+			return false;
+		}
 		// Synced favorites without dimensions carry a 1×1 layout placeholder, not a size.
 		let native = (gif.width > 1 || gif.height > 1).then_some([gif.width, gif.height]);
 		let [width, height] = native.unwrap_or_default();
@@ -1042,7 +1093,15 @@ impl Avatars {
 			height,
 			..Default::default()
 		};
-		self.paint_media(ui, &media, rect, native, demo, Surface::Banner);
+		!matches!(
+			self.paint_media(ui, &media, rect, native, demo, Surface::Tile),
+			Quality::Placeholder { .. }
+		)
+	}
+
+	pub(crate) fn decoded_longest_side(&mut self, media: &model::EmbedMedia) -> Option<u32> {
+		self.largest_held(media)
+			.map(|[width, height]| width.max(height))
 	}
 
 	/// Service dimensions when present, otherwise the largest decoded rendition.
@@ -1050,6 +1109,10 @@ impl Avatars {
 		if media.width > 0 && media.height > 0 {
 			return Some([media.width.min(16384), media.height.min(16384)]);
 		}
+		self.largest_held(media)
+	}
+
+	fn largest_held(&mut self, media: &model::EmbedMedia) -> Option<[u32; 2]> {
 		let (raw, _) = pick(media, self.animate_gifs)?;
 		let source = self.media.source(raw)?;
 		self.media
@@ -1131,7 +1194,9 @@ impl Avatars {
 		let Some((source, may_animate)) = pick(media, self.animate_gifs)
 			.and_then(|(raw, may_animate)| Some((self.media.source(raw)?, may_animate)))
 		else {
-			self.paint_stand_in(ui, media, rect, radius, cover, demo, false);
+			if surface != Surface::Tile {
+				self.paint_stand_in(ui, media, rect, radius, cover, demo, false);
+			}
 			return Quality::Placeholder { failed: true };
 		};
 		let now = Instant::now();
@@ -1211,6 +1276,7 @@ impl Avatars {
 				cover,
 				Color32::WHITE,
 			)),
+			None if surface == Surface::Tile => None,
 			None => {
 				let failed = choice.quality == Quality::Placeholder { failed: true };
 				match self.paint_stand_in(ui, media, rect, radius, cover, demo, failed) {

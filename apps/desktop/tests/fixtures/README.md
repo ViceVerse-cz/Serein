@@ -9,6 +9,18 @@ ffmpeg -f lavfi -i 'sine=frequency=440:sample_rate=24000:duration=0.2' -ac 1 -c:
 ```
 
 
+`audio-tone.m4a` (AAC-LC, movie index after the audio), `audio-tone-alac.m4a` (ALAC,
+index first) and `audio-tone.flac` are the same kind of original 0.2-second 440 Hz tone, each
+tagged with the synthetic title `Synthetic` so tests can prove metadata never reaches the
+demuxer. Same license; generated with:
+
+```sh
+ffmpeg -f lavfi -i 'sine=frequency=440:sample_rate=24000:duration=0.2' -ac 1 -c:a aac -b:a 48k -map_metadata -1 -metadata title=Synthetic audio-tone.m4a
+ffmpeg -f lavfi -i 'sine=frequency=440:sample_rate=24000:duration=0.2' -ac 1 -c:a alac -map_metadata -1 -metadata title=Synthetic -movflags +faststart audio-tone-alac.m4a
+ffmpeg -f lavfi -i 'sine=frequency=440:sample_rate=24000:duration=0.2' -ac 1 -c:a flac -map_metadata -1 -metadata title=Synthetic audio-tone.flac
+```
+
+
 `video.mov` is an original three-second 320x180/24fps animated test pattern with
 440 Hz mono AAC audio. It uses the same MIT OR Apache-2.0 license as Serein,
 contains no account media, and is included only in tests/demo builds. Reproduce:

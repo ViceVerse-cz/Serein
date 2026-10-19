@@ -38,6 +38,27 @@ pub struct Envelope<'a> {
 	#[serde(default, borrow)]
 	merged_presences: Option<&'a RawValue>,
 }
+impl<'a> Envelope<'a> {
+	/// Each guild's initial `presences`. For a normal account these include non-offline users
+	/// with an open DM, the only bootstrap presence for DM recipients who are not friends
+	/// (unofficial). A malformed guild entry is skipped; presence entries are decoded at use.
+	pub fn guild_presences(&self) -> Vec<&'a RawValue> {
+		#[derive(Deserialize)]
+		struct Presences<'a> {
+			#[serde(default, borrow)]
+			presences: Option<&'a RawValue>,
+		}
+		serde_json::from_str::<Vec<&'a RawValue>>(self.guilds.get())
+			.unwrap_or_default()
+			.into_iter()
+			.filter_map(|guild| {
+				serde_json::from_str::<Presences<'a>>(guild.get())
+					.ok()?
+					.presences
+			})
+			.collect()
+	}
+}
 pub(crate) fn empty_array() -> &'static RawValue {
 	serde_json::from_str("[]").expect("constant JSON array")
 }
@@ -226,10 +247,25 @@ fn checked_merged_presences(
 	struct Merged<'a> {
 		#[serde(default, borrow)]
 		friends: Option<&'a RawValue>,
+		#[serde(default, borrow)]
+		guilds: Option<&'a RawValue>,
 	}
 	optional::<Merged<'_>>(raw, warning).map(|merged| presence::MergedPresences {
 		friends: checked_presences(merged.friends, warning),
+		guilds: checked_guild_presences(merged.guilds, warning),
 	})
+}
+
+/// Guild presence lists are only a fallback, so a malformed entry is skipped at use rather
+/// than discarding the rest; the outer shape must still be a list of lists.
+fn checked_guild_presences(raw: Option<&RawValue>, warning: &mut bool) -> Option<Box<RawValue>> {
+	let raw = raw?;
+	if serde_json::from_str::<Vec<Vec<&RawValue>>>(raw.get()).is_ok() {
+		Some(raw.to_owned())
+	} else {
+		*warning = true;
+		None
+	}
 }
 
 fn optional<'a, T: Deserialize<'a>>(raw: Option<&'a RawValue>, warning: &mut bool) -> Option<T> {
@@ -412,6 +448,29 @@ mod tests {
 		json!({"user":{"id":"9","username":"Synthetic"},"session_id":"synthetic","resume_gateway_url":"wss://gateway.discord.gg/","guilds":[{"id":"1","owner_id":"9","name":"Synthetic","roles":[],"channels":[{"id":"2","type":0,"name":"general","permission_overwrites":[]}]}]})
 	}
 
+	#[test]
+	fn guild_presences_are_borrowed_per_guild_and_tolerate_missing_lists() {
+		let mut payload = fixture();
+		payload["guilds"][0]["presences"] = json!([{"user":{"id":"31"},"status":"idle"}]);
+		let guilds = payload["guilds"].as_array_mut().unwrap();
+		guilds.push(json!({"id":"2"}));
+		// One malformed guild entry must not discard the other guilds' lists.
+		guilds.insert(0, json!("not a guild"));
+		guilds.push(json!(7));
+		let bytes = serde_json::to_vec(&payload).unwrap();
+		let presences = decode(&bytes).unwrap().guild_presences();
+		assert_eq!(presences.len(), 1);
+		let update = crate::presence::decode(
+			serde_json::from_str::<Vec<&RawValue>>(presences[0].get()).unwrap()[0]
+				.get()
+				.as_bytes(),
+		)
+		.unwrap();
+		assert_eq!(update.user, model::Id(31));
+		payload["guilds"] = json!({"not":"a list"});
+		let bytes = serde_json::to_vec(&payload).unwrap();
+		assert!(decode(&bytes).is_err() || decode(&bytes).unwrap().guild_presences().is_empty());
+	}
 	#[test]
 	fn guild_notification_defaults_survive_flat_nested_and_patch_payloads() {
 		for (flat, nested, expected) in [

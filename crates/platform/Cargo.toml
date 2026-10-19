@@ -20,6 +20,7 @@ keyring-core.workspace = true
 url.workspace = true
 zeroize.workspace = true
 getrandom.workspace = true
+tempfile = "=3.27.0"
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal", "wayland"] }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 

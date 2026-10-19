@@ -16,6 +16,8 @@ pub struct Device {
 	pub screen_share_on: bool,
 	pub user_join: bool,
 	pub user_leave: bool,
+	/// Someone started watching this device's own screen share.
+	pub viewer_join: bool,
 	pub volume: u8,
 }
 impl Default for Device {
@@ -35,6 +37,7 @@ impl Default for Device {
 			screen_share_on: true,
 			user_join: true,
 			user_leave: true,
+			viewer_join: true,
 			volume: 75,
 		}
 	}
@@ -53,6 +56,7 @@ pub enum Sound {
 	ScreenShareOn,
 	UserJoin,
 	UserLeave,
+	ViewerJoin,
 }
 impl Device {
 	pub fn allows(self, sound: Sound) -> bool {
@@ -71,6 +75,7 @@ impl Device {
 				Sound::ScreenShareOn => self.screen_share_on,
 				Sound::UserJoin => self.user_join,
 				Sound::UserLeave => self.user_leave,
+				Sound::ViewerJoin => self.viewer_join,
 			}
 	}
 }
@@ -111,6 +116,11 @@ mod tests {
 		assert!(settings.allows(Sound::CameraOn));
 		assert!(!settings.allows(Sound::ScreenShareOn));
 		settings.screen_share_on = true;
+		assert!(settings.allows(Sound::ViewerJoin));
+		settings.viewer_join = false;
+		assert!(!settings.allows(Sound::ViewerJoin));
+		assert!(settings.allows(Sound::ScreenShareOn));
+		settings.viewer_join = true;
 		settings.mute = false;
 		assert!(!settings.allows(Sound::Mute));
 		assert!(settings.allows(Sound::Unmute));
@@ -134,6 +144,7 @@ mod tests {
 			Sound::ScreenShareOn,
 			Sound::UserJoin,
 			Sound::UserLeave,
+			Sound::ViewerJoin,
 		] {
 			assert!(!settings.allows(sound));
 		}

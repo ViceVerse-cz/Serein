@@ -147,6 +147,7 @@ impl Watch {
 				self.ended = Some(reason.unwrap_or("The stream ended"));
 			}
 			screen::Event::Failed(message) => self.ended = Some(message),
+			screen::Event::Viewers(_) => {}
 		}
 	}
 	pub fn poll(

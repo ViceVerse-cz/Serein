@@ -167,6 +167,12 @@ impl ResumeState {
 		Ok(())
 	}
 }
+/// How long a recovery heartbeat may wait for its acknowledgement before the socket is replaced.
+#[cfg(not(test))]
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Short in tests, so the silent-socket case does not spend its deadline waiting.
+#[cfg(test)]
+const PROBE_TIMEOUT: Duration = Duration::from_millis(500);
 #[derive(Default)]
 struct Heartbeat {
 	awaiting_since: Option<Instant>,
@@ -1301,8 +1307,10 @@ async fn run_recoverable(
 		timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 		let mut ready_at: Option<Instant> = None;
 		let ready_deadline = Instant::now() + Duration::from_secs(30);
+		let mut probe_deadline: Option<Instant> = None;
 		let mut active_members: Option<ActiveMembers> = None;
 		let mut direct_presence = presence::Pending::default();
+		let mut shared_presence = presence::Pending::shared();
 		let mut sent_members = false;
 		let mut members_deadline: Option<Instant> = None;
 		let mut subscriptions_open = true;
@@ -1409,6 +1417,18 @@ async fn run_recoverable(
 						skip_backoff = true;
 						break;
 					}
+					// A network change can leave a ready socket silently dead until the next two
+					// heartbeats. Confirm it now with a heartbeat; a healthy socket acknowledges it.
+					if probe_deadline.is_none() {
+						let packet = serde_json::json!({"op":1,"d":state.sequence}).to_string();
+						if !matches!(timeout(Duration::from_secs(5), socket.send(Frame::Text(packet.into()))).await, Ok(Ok(()))) { skip_backoff = true; break; }
+						heartbeat.sent(Instant::now());
+						probe_deadline = Some(Instant::now() + PROBE_TIMEOUT);
+					}
+				}
+				_ = tokio::time::sleep_until(probe_deadline.unwrap_or(ready_deadline)), if probe_deadline.is_some() => {
+					skip_backoff = true;
+					break;
 				}
 				changed = own_presence.changed(), if presence_open => {
 					presence_open = changed.is_ok();
@@ -1430,8 +1450,9 @@ async fn run_recoverable(
 					if let Some(packet) = outgoing_activity.packet(Instant::now())
 						&& !matches!(timeout(Duration::from_secs(5), socket.send(packet)).await, Ok(Ok(()))) { break; }
 				}
-				_=tokio::time::sleep_until(direct_presence.deadline.unwrap_or(ready_deadline)), if direct_presence.deadline.is_some() && ready_at.is_some() => {
+				_=tokio::time::sleep_until(direct_presence.deadline.into_iter().chain(shared_presence.deadline).min().unwrap_or(ready_deadline)), if (direct_presence.deadline.is_some() || shared_presence.deadline.is_some()) && ready_at.is_some() => {
 					if let Some(event)=direct_presence.take() { emit(event)?; }
+					if let Some(event)=shared_presence.take() { emit(event)?; }
 				}
 				command=voice_controls.recv(), if voice_open && ready_at.is_some() => {
 					let Some(command)=command else {voice_open=false;continue;};
@@ -1580,7 +1601,7 @@ async fn run_recoverable(
 							{ continue; }
 							if let Some(sequence) = packet.s { state.sequence = Some(sequence); }
 							match packet.op {
-								11 => heartbeat.ack(),
+								11 => { heartbeat.ack(); probe_deadline = None; }
 								1 => {
 									let packet = serde_json::json!({"op":1,"d":state.sequence}).to_string();
 									if !matches!(timeout(Duration::from_secs(5), socket.send(Frame::Text(packet.into()))).await, Ok(Ok(()))) { break; }
@@ -1597,11 +1618,13 @@ async fn run_recoverable(
 								0 => match packet.t.as_deref().unwrap_or("") {
 									"READY" => {
 										direct_presence=presence::Pending::default();
+										shared_presence=presence::Pending::shared();
 										active_members=None;members_deadline=None;sent_members = !subscriptions_open;
 										let envelope = ready::decode(packet.d.get().as_bytes()).map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid READY identity or relationships"), ready::diagnose(packet.d.get().as_bytes())))?;
 										if envelope.user.bot { return Err(Failure::InvalidCredential); }
 										let permissions = envelope.permissions().map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid permission metadata"), ready::diagnose(packet.d.get().as_bytes())))?;
 										let gates = envelope.onboarding();
+										let guild_presences = envelope.guild_presences();
 										let (mut ready, mut warnings) = envelope.navigation().map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid READY guild or channel metadata"), ready::diagnose(packet.d.get().as_bytes())))?;
 										owner_id=Some(ready.user.id);
 										if ready.user.username.is_empty() || ready.user.username.len() > 128 || ready.user.username.chars().any(char::is_control) || ready.session_id.is_empty() || ready.session_id.chars().any(char::is_control) {
@@ -1646,6 +1669,10 @@ async fn run_recoverable(
 										let (read_entries,read_version,partial)=ready.read_state.take().map_or((None,None,false),|snapshot|(Some(snapshot.entries.into_iter().filter(|e|e.kind==0).map(|e|(e.id,e.last_message_id,e.mention_count)).collect()),snapshot.version,snapshot.partial));
 										if guilds.len() + channels.len() > MAX_NAV { return Err(Failure::CapacityAt("Account navigation exceeds 131,072 entries; connection stopped")); }
 										direct_presence.bootstrap_users=friends.as_ref().into_iter().flatten().map(|(u,_)|u.id).chain(channels.iter().filter(|c|c.guild.is_none() && matches!(c.kind,1|3)).flat_map(|c|c.recipients.iter().map(|u|u.id))).take(client_core::presence::MAX_DIRECT_PRESENCES).collect();
+										// DM recipients who are not friends are reported only through shared guilds.
+										shared_presence.bootstrap_users=channels.iter().filter(|c|c.guild.is_none() && matches!(c.kind,1|3)).flat_map(|c|c.recipients.iter().map(|u|u.id)).filter(|id|!friends.as_ref().into_iter().flatten().any(|(u,_)|u.id==*id)).take(client_core::presence::MAX_DIRECT_PRESENCES).collect();
+										for (user,_) in friends.iter().flatten() { shared_presence.set_friend(user.id,true); }
+										for user in channels.iter().filter(|c|c.guild.is_none() && matches!(c.kind,1|3)).flat_map(|c|&c.recipients) { shared_presence.add_recipient(user.id); }
 										calls.allowed=channels.iter().filter(|c|(c.guild.is_none() && channel_events::private_call(c.kind,c.recipients.len())) || (c.guild.is_some() && c.kind==2)).map(|c|(c.id,c.guild)).collect();
 										if was_ready { emit(Event::Resync)?; }
 										emit(Event::Interaction(client_core::interactions::Event::Session(state.session.clone().ok_or(Failure::Protocol)?)))?;
@@ -1679,6 +1706,9 @@ async fn run_recoverable(
 										if let Some(friends) = ready.merged_presences.as_ref().and_then(|m| m.friends.as_deref()).or(ready.presences.as_deref()) {
 											direct_presence.friends(friends, Instant::now(), &emit)?;
 										}
+										// After Startup, like the direct bootstrap: a full batch flushed earlier would be dropped.
+										for presences in guild_presences { shared_presence.friends(presences, Instant::now(), &emit)?; }
+										if let Some(guilds) = ready.merged_presences.as_ref().and_then(|m| m.guilds.as_deref()) { shared_presence.guilds(guilds, Instant::now(), &emit)?; }
 										if !participants.is_empty() { emit(Event::Voice(client_core::voice::Event::Snapshot { partial: false, guild: None, participants }))?; }
 										state.failures = 0;
 										ready_at = Some(Instant::now());
@@ -1692,7 +1722,11 @@ async fn run_recoverable(
 										if let Some(friends) = extra.merged_presences.as_ref().and_then(|m| m.friends.as_deref()).or(extra.presences.as_deref()) {
 											direct_presence.friends(friends, Instant::now(), &emit)?;
 										}
+										if let Some(guilds) = extra.merged_presences.as_ref().and_then(|m| m.guilds.as_deref()) {
+											shared_presence.guilds(guilds, Instant::now(), &emit)?;
+										}
 										direct_presence.bootstrap_users.clear();
+										shared_presence.bootstrap_users.clear();
 										if let Some(owner)=owner_id {
 											let updates=permissions::supplemental(packet.d.get().as_bytes(),owner).map_err(|_|Failure::Protocol)?;
 											if !updates.is_empty() {emit(Event::Permissions(client_core::permissions::Event::Members(updates)))?;}
@@ -1714,7 +1748,7 @@ async fn run_recoverable(
 										calls.users.clear();
 									}
 									"RESUMED" => { emit(Event::Interaction(client_core::interactions::Event::Session(state.session.clone().ok_or(Failure::Protocol)?)))?; emit(Event::Resumed)?; state.failures = 0; ready_at = Some(Instant::now()); },
-									"CALL_CREATE" | "CALL_UPDATE" | "CALL_DELETE" | "CHANNEL_INFO" | "VOICE_CHANNEL_START_TIME_UPDATE" | "VOICE_STATE_UPDATE" | "VOICE_SERVER_UPDATE" | "STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_DELETE" => calls.dispatch(packet.t.as_deref().unwrap_or(""),packet.d.get().as_bytes(),owner_id,&emit)?,
+									"CALL_CREATE" | "CALL_UPDATE" | "CALL_DELETE" | "CHANNEL_INFO" | "VOICE_CHANNEL_START_TIME_UPDATE" | "VOICE_STATE_UPDATE" | "VOICE_SERVER_UPDATE" | "STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_UPDATE" | "STREAM_DELETE" => calls.dispatch(packet.t.as_deref().unwrap_or(""),packet.d.get().as_bytes(),owner_id,&emit)?,
 									"THREAD_MEMBER_LIST_UPDATE" => {
 										if let Some(active) = &mut active_members {
 											match active.thread_update(packet.d.get().as_bytes()) {
@@ -1760,7 +1794,10 @@ async fn run_recoverable(
 									"PRESENCE_UPDATE" => {
 										if let Ok(update)=discord_protocol::presence::decode(packet.d.get().as_bytes()) {
 											if update.guild.is_none() { direct_presence.push(update,Instant::now()); }
-											else if let Some(active)=&mut active_members && active.synced { active.presence(update,Instant::now()); }
+											else {
+												shared_presence.push(update.clone(),Instant::now());
+												if let Some(active)=&mut active_members && active.synced { active.presence(update,Instant::now()); }
+											}
 										}
 									}
 									"TYPING_START" => {
@@ -1769,7 +1806,7 @@ async fn run_recoverable(
 											emit(Event::Typing(client_core::typing::Signal { channel:typing.channel_id,user:typing.user_id,timestamp:typing.timestamp }))?;
 										}
 									}
-									"CHANNEL_RECIPIENT_ADD" => {let d:RecipientAdded=decode(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;emit(Event::RecipientAdded {channel:d.channel_id,user:d.user.into_model()})?;}
+									"CHANNEL_RECIPIENT_ADD" => {let d:RecipientAdded=decode(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;shared_presence.add_recipient(d.user.id);emit(Event::RecipientAdded {channel:d.channel_id,user:d.user.into_model()})?;}
 									"CHANNEL_RECIPIENT_REMOVE" => {let d:RecipientRemoved=decode(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;if owner_id==Some(d.user.id) {calls.allowed.remove(&d.channel_id);}emit(Event::RecipientRemoved {channel:d.channel_id,user:d.user.id})?;}
 									"USER_NOTE_UPDATE" => {
 										#[derive(serde::Deserialize)]
@@ -1781,6 +1818,7 @@ async fn run_recoverable(
 										let relationship: discord_protocol::relationships::Relationship = decode(packet.d.get().as_bytes()).map_err(|_| Failure::ProtocolAt("Unsupported relationship update"))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Relationship { user: relationship.id, blocked: packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && relationship.kind == 2 }))?;
 										let friend = packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && relationship.kind == 1;
+										shared_presence.set_friend(relationship.id, friend);
 										let profile = relationship.user.map(discord_protocol::relationships::friend).transpose().map_err(|_| Failure::ProtocolAt("Invalid friend metadata"))?;
 										let ignored = (packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && (relationship.kind == 2 || relationship.user_ignored)).then_some(relationship.user_ignored && relationship.kind != 2);
 										let incoming = (packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && matches!(relationship.kind,3|4)).then_some(relationship.kind==3);
@@ -1858,7 +1896,10 @@ async fn run_recoverable(
 										let permissions=owner_id.map(|owner|channel_events::permission_metadata(packet.d.get().as_bytes(),owner)).transpose()?.flatten();
 										let (event, request, spam)=channel_events::create(packet.d.get().as_bytes(),&mut inbox)?;
 										match &event {
-											Event::ChannelCreated(c) => channel_events::admit_call(c,&known_guilds,&mut calls),
+											Event::ChannelCreated(c) => {
+												channel_events::admit_call(c,&known_guilds,&mut calls);
+												if c.guild.is_none() && matches!(c.kind,1|3) { for user in &c.recipients { shared_presence.add_recipient(user.id); } }
+											}
 											Event::Unavailable(id) => calls.invalidate(*id),
 											_=>{}
 										}

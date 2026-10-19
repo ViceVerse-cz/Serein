@@ -17,6 +17,9 @@ const VISIBLE_ROWS: f32 = 8.5;
 
 #[derive(Default)]
 pub struct Menu {
+	catalog_revision: u64,
+	game_status: client_core::game_mentions::Status,
+	pub retry_games: bool,
 	channel: Option<Id>,
 	generation: u64,
 	range: Range<usize>,
@@ -37,11 +40,14 @@ pub struct Pick {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 enum Kind {
 	User,
+	Game,
 	Channel,
 	Emoji,
 }
 #[derive(Clone, PartialEq, Eq)]
 enum Candidate {
+	GameSearch,
+	Game(model::GameMention),
 	Role {
 		id: Id,
 		name: String,
@@ -78,6 +84,8 @@ impl Candidate {
 	#[cfg(test)]
 	fn id(&self) -> Id {
 		match self {
+			Candidate::Game(game) => game.id,
+			Candidate::GameSearch => Id(0),
 			Candidate::User { user, .. } => user.id,
 			Candidate::Role { id, .. }
 			| Candidate::Channel { id, .. }
@@ -87,6 +95,8 @@ impl Candidate {
 	}
 	fn token(&self) -> String {
 		match self {
+			Candidate::GameSearch => "@game ".into(),
+			Candidate::Game(game) => format!("<@${}> ", game.id),
 			Candidate::Role { id, .. } => format!("<@&{id}> "),
 			Candidate::User { user, .. } => user_mention_token(user.id),
 			Candidate::Mass { name } => format!("@{name} "),
@@ -295,6 +305,9 @@ pub fn presentation_fingerprint(state: &State, message: &model::Message) -> u64 
 	let content = &message.content[..message
 		.content
 		.floor_char_boundary(crate::markdown::MAX_INPUT)];
+	if content.contains("<@$") {
+		state.game_mentions.revision.hash(&mut hasher);
+	}
 	// Reuse the metadata revision: types, parents, guilds and resolved names can all
 	// change pill geometry. Message traffic is filtered out; no Markdown parse is needed.
 	if content.contains("<#") || content.contains("/channels/") {
@@ -341,12 +354,18 @@ fn query(draft: &str, cursor: usize) -> Option<(Range<usize>, &str, Kind)> {
 			.next_back()
 			.is_none_or(|c| c.is_whitespace() || matches!(c, '(' | '[' | '{'))
 	})?;
-	let kind = match prefix.as_bytes()[start] {
+	let mut kind = match prefix.as_bytes()[start] {
 		b'#' => Kind::Channel,
 		b':' => Kind::Emoji,
 		_ => Kind::User,
 	};
-	let query = &prefix[start + 1..];
+	let mut query = &prefix[start + 1..];
+	if kind == Kind::User
+		&& let Some(game) = query.strip_prefix("game ")
+	{
+		kind = Kind::Game;
+		query = game;
+	}
 	if query.chars().count() > 64 {
 		return None;
 	}
@@ -361,9 +380,9 @@ fn query(draft: &str, cursor: usize) -> Option<(Range<usize>, &str, Kind)> {
 				return None;
 			}
 		}
-		Kind::User | Kind::Channel => {
+		Kind::User | Kind::Channel | Kind::Game => {
 			if query.chars().any(|c| {
-				(c.is_whitespace() && !(kind == Kind::Channel && c == ' '))
+				(c.is_whitespace() && !(matches!(kind, Kind::Channel | Kind::Game) && c == ' '))
 					|| matches!(c, '<' | '>' | '@' | '`')
 					|| (kind == Kind::Channel && c == '#')
 			}) {
@@ -432,8 +451,21 @@ fn push_emoji(out: &mut Vec<Ranked>, key: (u8, u8, u64), candidate: impl FnOnce(
 	}
 }
 impl Menu {
+	/// Whether [`Self::keys`] accepts Tab, so the composer must keep it from focus navigation.
+	pub fn claims_tab(&self) -> bool {
+		!self.dismissed
+			&& (!self.candidates.is_empty()
+				|| (self.kind == Some(Kind::Game)
+					&& self.game_status == client_core::game_mentions::Status::Unavailable))
+	}
+	pub fn needs_games(&self) -> bool {
+		self.kind == Some(Kind::Game) && !self.dismissed
+	}
 	pub fn pointer_interacting(&self, ctx: &egui::Context, channel: Id) -> bool {
-		if self.channel != Some(channel) || self.dismissed || self.candidates.is_empty() {
+		if self.channel != Some(channel)
+			|| self.dismissed
+			|| (self.candidates.is_empty() && self.kind != Some(Kind::Game))
+		{
 			return false;
 		}
 		let layer = egui::LayerId::new(
@@ -471,6 +503,19 @@ impl Menu {
 			};
 			return;
 		};
+		if kind == Kind::Game
+			&& self.kind == Some(kind)
+			&& self.channel == Some(channel)
+			&& self.generation == state.generation
+			&& self.range == range
+			&& self.query == query
+			&& self.catalog_revision == state.game_mentions.revision
+			&& self.game_status == state.game_mentions.status
+		{
+			return;
+		}
+		self.catalog_revision = state.game_mentions.revision;
+		self.game_status = state.game_mentions.status;
 		if self.channel != Some(channel)
 			|| self.generation != state.generation
 			|| self.range != range
@@ -493,6 +538,17 @@ impl Menu {
 			.find(|c| c.id == channel)
 			.and_then(|c| c.guild);
 		let mut ranked: Vec<Ranked> = match kind {
+			Kind::Game => {
+				let mut out = Vec::with_capacity(EMOJI_LIMIT);
+				for game in state.game_mentions.games() {
+					if let Some(rank) = rank(&query, &game.name, Id(0)) {
+						push_emoji(&mut out, (rank, 0, game.id.0), || {
+							Candidate::Game(game.clone())
+						});
+					}
+				}
+				out
+			}
 			Kind::User => {
 				let recency = recent_user_ranks(state, channel, users);
 				let mut ranked = users
@@ -544,6 +600,12 @@ impl Menu {
 							ranked.push(((rank, 0, 0), Candidate::Mass { name }));
 						}
 					}
+				}
+				if !query.is_empty() && "game".starts_with(&query) {
+					ranked.push((
+						(0, if query == "game" { 0 } else { 2 }, 0),
+						Candidate::GameSearch,
+					));
 				}
 				ranked
 			}
@@ -625,7 +687,7 @@ impl Menu {
 			));
 		}
 		ranked.sort_by_key(|(r, _)| *r);
-		let limit = if kind == Kind::Emoji {
+		let limit = if matches!(kind, Kind::Emoji | Kind::Game) {
 			EMOJI_LIMIT
 		} else {
 			SHORT_LIMIT
@@ -644,7 +706,23 @@ impl Menu {
 		})
 	}
 	pub fn keys(&mut self, ctx: &egui::Context) -> Option<Pick> {
-		if self.dismissed || self.candidates.is_empty() {
+		if self.dismissed {
+			return None;
+		}
+		if self.candidates.is_empty() {
+			if self.kind == Some(Kind::Game) {
+				ctx.input_mut(|i| {
+					if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+						self.dismissed = true;
+					}
+					if self.game_status == client_core::game_mentions::Status::Unavailable
+						&& (i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+							|| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab))
+					{
+						self.retry_games = true;
+					}
+				});
+			}
 			return None;
 		}
 		ctx.input_mut(|input| {
@@ -676,21 +754,26 @@ impl Menu {
 		avatars: &mut Avatars,
 		demo: bool,
 	) -> Option<Pick> {
-		if self.dismissed || self.candidates.is_empty() {
+		if self.dismissed || (self.candidates.is_empty() && self.kind != Some(Kind::Game)) {
 			return None;
 		}
 		let colors = crate::design::palette(ui);
 		let bounds = ui.ctx().content_rect().shrink(8.0);
 		let width = anchor.width().min(bounds.width());
-		let rows = (self.candidates.len() as f32).min(VISIBLE_ROWS);
 		const HEADER: f32 = 34.0;
 		const PADDING: f32 = 8.0;
+		let rows = (self.candidates.len().max(1) as f32)
+			.min(VISIBLE_ROWS)
+			.min(((bounds.height() - HEADER - PADDING) / ROW).max(1.0));
 		let height = (HEADER + rows * ROW + PADDING).min(bounds.height());
 		let x = anchor
 			.left()
 			.clamp(bounds.left(), (bounds.right() - width).max(bounds.left()));
 		let y = (anchor.top() - 8.0 - height).max(bounds.top());
 		let header = match self.kind {
+			Some(Kind::Game) => {
+				crate::i18n::translate_args("game-mentions-header", &[("query", &self.query)])
+			}
 			Some(Kind::Channel) => "TEXT CHANNELS".to_owned(),
 			Some(Kind::Emoji) => format!("EMOJI MATCHING :{}", self.query),
 			_ => "MENTIONS".to_owned(),
@@ -724,20 +807,29 @@ impl Menu {
 							egui::Layout::left_to_right(egui::Align::Center),
 							|ui| {
 								ui.add_space(12.0);
-								ui.label(crate::design::eyebrow(ui, header, colors.muted));
-								ui.with_layout(
-									egui::Layout::right_to_left(egui::Align::Center),
-									|ui| {
-										ui.add_space(12.0);
-										ui.label(
-											egui::RichText::new(crate::i18n::translate(
-												"mentions-show-choose-tab-enter-insert-esc",
-											))
-											.size(11.0)
-											.color(colors.muted),
-										);
-									},
+								ui.add(
+									egui::Label::new(crate::design::eyebrow(
+										ui,
+										header,
+										colors.muted,
+									))
+									.truncate(),
 								);
+								if self.kind != Some(Kind::Game) {
+									ui.with_layout(
+										egui::Layout::right_to_left(egui::Align::Center),
+										|ui| {
+											ui.add_space(12.0);
+											ui.label(
+												egui::RichText::new(crate::i18n::translate(
+													"mentions-show-choose-tab-enter-insert-esc",
+												))
+												.size(11.0)
+												.color(colors.muted),
+											);
+										},
+									);
+								}
 							},
 						);
 						egui::ScrollArea::vertical()
@@ -746,6 +838,32 @@ impl Menu {
 							.auto_shrink([false, false])
 							.show(ui, |ui| {
 								ui.set_width(width - 2.0);
+								if self.candidates.is_empty() {
+									ui.horizontal_wrapped(|ui| {
+										ui.add_space(12.0);
+										let key = match self.game_status {
+											client_core::game_mentions::Status::Idle
+											| client_core::game_mentions::Status::Loading => "game-mentions-loading",
+											client_core::game_mentions::Status::Unavailable => {
+												"game-mentions-unavailable"
+											}
+											client_core::game_mentions::Status::Ready => {
+												"game-mentions-empty"
+											}
+										};
+										ui.label(crate::i18n::translate(key));
+										if self.game_status
+											== client_core::game_mentions::Status::Unavailable
+											&& ui
+												.button(crate::i18n::translate(
+													"game-mentions-retry",
+												))
+												.clicked()
+										{
+											self.retry_games = true;
+										}
+									});
+								}
 								for (index, candidate) in self.candidates.iter().enumerate() {
 									let response = row(
 										ui,
@@ -805,6 +923,20 @@ fn row(
 		_ => None,
 	};
 	let primary = match candidate {
+		Candidate::GameSearch => {
+			crate::icons::paint(
+				ui.painter(),
+				crate::icons::Icon::GameController,
+				icon.shrink(2.0),
+				colors.muted,
+			);
+			"@game".into()
+		}
+		Candidate::Game(game) => {
+			let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
+			avatars.show_icon(&mut child, Some(game.icon_key()), 24.0, demo, &game.name);
+			game.name.clone()
+		}
 		Candidate::User { user, name } => {
 			let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
 			avatars.show(&mut child, user, 24.0, demo);
@@ -903,6 +1035,8 @@ fn row(
 			true,
 			selected,
 			match candidate {
+				Candidate::GameSearch => "@game, search games".into(),
+				Candidate::Game(game) => format!("{}, game", game.name),
 				Candidate::User { name, .. } => name.clone(),
 				Candidate::Mass { name } => format!("@{name}"),
 				Candidate::Role { name, .. } => format!("@{name}, role"),
@@ -919,6 +1053,156 @@ fn row(
 mod tests {
 	use super::*;
 	use model::Channel;
+
+	#[test]
+	fn game_empty_search_keeps_editor_keys_unless_retrying() {
+		use client_core::game_mentions::Status;
+		for status in [
+			Status::Idle,
+			Status::Loading,
+			Status::Ready,
+			Status::Unavailable,
+		] {
+			for key in [egui::Key::Enter, egui::Key::Tab, egui::Key::Escape] {
+				let mut menu = Menu {
+					kind: Some(Kind::Game),
+					game_status: status,
+					..Default::default()
+				};
+				let ctx = egui::Context::default();
+				let output = ctx.run_ui(
+					egui::RawInput {
+						events: vec![egui::Event::Key {
+							key,
+							physical_key: None,
+							pressed: true,
+							repeat: false,
+							modifiers: egui::Modifiers::NONE,
+						}],
+						..Default::default()
+					},
+					|_| {
+						assert!(menu.keys(&ctx).is_none());
+						let retry = key != egui::Key::Escape && status == Status::Unavailable;
+						assert_eq!(menu.retry_games, retry);
+						assert_eq!(menu.dismissed, key == egui::Key::Escape);
+						assert_eq!(
+							ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key)),
+							key != egui::Key::Escape && !retry
+						);
+					},
+				);
+				output.drop_without_applying_deltas();
+			}
+		}
+	}
+
+	#[test]
+	fn game_pointer_selection_uses_the_composer_without_sending() {
+		let mut state = test_support::demo_state();
+		debug_pointer_check(&mut state, Id(20));
+	}
+
+	#[test]
+	fn game_search_bounds_large_catalog_and_reuses_results() {
+		let mut state = test_support::demo_state();
+		state.game_mentions.finish(Ok((1..=24_000)
+			.map(|id| model::GameMention {
+				id: Id(id),
+				name: format!("Many Game {id}"),
+				icon: None,
+			})
+			.collect()));
+		let mut menu = Menu::default();
+		menu.refresh(&state, Id(20), "@game many", Some(10), &[]);
+		assert_eq!(menu.candidates.len(), EMOJI_LIMIT);
+		let candidates = menu.candidates.as_ptr();
+		menu.refresh(&state, Id(20), "@game many", Some(10), &[]);
+		assert_eq!(candidates, menu.candidates.as_ptr());
+	}
+
+	#[test]
+	fn game_search_inserts_a_wire_token_and_keeps_other_draft_text() {
+		let mut state = test_support::demo_state();
+		state.game_mentions.finish(Ok(vec![
+			model::GameMention {
+				id: Id(42),
+				name: "Deadlock".into(),
+				icon: None,
+			},
+			model::GameMention {
+				id: Id(43),
+				name: "Red Dead Redemption 2".into(),
+				icon: None,
+			},
+		]));
+		let mut menu = Menu::default();
+		let channel = Id(20);
+		let mut draft = "Play @game".to_owned();
+		menu.refresh(&state, channel, &draft, Some(draft.chars().count()), &[]);
+		assert!(matches!(menu.candidates[0], Candidate::GameSearch));
+		let cursor = insert(&mut draft, menu.pick(0).unwrap(), false).unwrap();
+		assert_eq!(draft, "Play @game ");
+		menu.refresh(&state, channel, &draft, Some(cursor), &[]);
+		assert!(menu.needs_games());
+		assert_eq!(menu.member_query(), "");
+		draft = "Play @game dea tonight".into();
+		menu.refresh(&state, channel, &draft, Some("Play @game dea".len()), &[]);
+		assert_eq!(menu.candidates[0].id(), Id(42));
+		insert(&mut draft, menu.pick(0).unwrap(), false).unwrap();
+		assert_eq!(draft, "Play <@$42>  tonight");
+		assert!(model::mentioned_role_ids(&draft).is_empty());
+	}
+
+	#[test]
+	fn game_queries_allow_spaces_and_unicode_but_stay_bounded() {
+		assert!(matches!(
+			query("@game Dead Space", 16),
+			Some((_, "Dead Space", Kind::Game))
+		));
+		assert!(matches!(
+			query("hi @game 界", 10),
+			Some((_, "界", Kind::Game))
+		));
+		for draft in ["mail@game dea", "@game bad\nname", "@game <@42>"] {
+			assert!(query(draft, draft.chars().count()).is_none());
+		}
+		let long = format!("@game {}", "x".repeat(65));
+		assert!(query(&long, long.len()).is_none());
+	}
+
+	#[test]
+	fn game_keyboard_selection_and_catalog_arrival_refresh_the_picker() {
+		let mut state = test_support::demo_state();
+		let mut menu = Menu::default();
+		menu.refresh(&state, Id(20), "@game dea", Some(9), &[]);
+		assert!(menu.candidates.is_empty());
+		state.game_mentions.finish(Ok(vec![model::GameMention {
+			id: Id(42),
+			name: "Deadlock".into(),
+			icon: None,
+		}]));
+		menu.refresh(&state, Id(20), "@game dea", Some(9), &[]);
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				events: vec![egui::Event::Key {
+					key: egui::Key::Enter,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui::Modifiers::NONE,
+				}],
+				..Default::default()
+			},
+			|_| {
+				let pick = menu.keys(&ctx).unwrap();
+				assert_eq!(pick.candidate.token(), "<@$42> ");
+				assert!(!ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)));
+			},
+		);
+		output.drop_without_applying_deltas();
+	}
 
 	#[test]
 	fn pill_fingerprints_follow_navigation_metadata_without_message_churn() {
@@ -1676,7 +1960,12 @@ pub(crate) fn debug_member_search_check(state: &State, channel: Id) {
 
 #[cfg(debug_assertions)]
 pub(crate) fn debug_pointer_check(state: &mut State, channel: Id) {
-	for draft in ["@You", ":he", "#"] {
+	state.game_mentions.finish(Ok(vec![model::GameMention {
+		id: Id(42),
+		name: "Deadlock".into(),
+		icon: None,
+	}]));
+	for draft in ["@You", ":he", "#", "@game", "@game dea"] {
 		let ctx = egui::Context::default();
 		crate::design::apply(&ctx);
 		let mut view = crate::MessagingUi::default();

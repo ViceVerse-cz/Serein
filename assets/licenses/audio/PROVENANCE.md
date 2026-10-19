@@ -1,7 +1,7 @@
 # Attachment audio dependency provenance
 
 Collected September 11–12, 2026 from the exact crates.io archives resolved in Cargo.lock.
-All desktop packages include this directory at `licenses/audio`. The ten unmodified
+All desktop packages include this directory at `licenses/audio`. The thirteen unmodified
 Symphonia 0.6.1 source archives in `source/` provide corresponding MPL-2.0 source to
 recipients; extract with `tar -xf <archive>.crate`. They retain their original licenses,
 copyrights and source notices. Serein does not modify or relicense those components.
@@ -21,6 +21,11 @@ SHA-256 checksums match Cargo.lock:
 | symphonia-common-0.6.1.crate | 2acc3fcc18ec9b8cdd48614e259c4cf0d27b71d41e5d9b120b42c5adab12d7c4 |
 | symphonia-codec-vorbis-0.6.1.crate | 73d90b4fcf796137cc683c538282804ff9629f8ad9dbfd881fcbba331ac4e986 |
 | symphonia-format-ogg-0.6.1.crate | 0b5495e7f7e3c7035328d82b6d6e377eef289bb0c4105bdeb557fc93a833f994 |
+| symphonia-format-isomp4-0.6.1.crate | 0e681a70e1870d34e02abf1dbc51e4267c3f1827801474e8870be8c689fc4dc3 |
+| symphonia-codec-alac-0.6.1.crate | 920a78f96f3cf62932d0c497959c0cc2100ef36b03c7ca1417b260f432a482d8 |
+| symphonia-bundle-flac-0.6.1.crate | 6405d5c34ff6f8f7ca08a4101efe66d21e180f7322ef9359900a0e55698a7892 |
+
+The MP4, ALAC and FLAC archives were added October 17, 2026 for M4A/AAC/FLAC attachment playback.
 
 Standalone texts are copied unchanged from registry source: Symphonia 0.6.1 `LICENSE`
 (MPL-2.0); CPAL 0.18.2 `LICENSE` (Apache-2.0); extended 0.1.0 `LICENSE.txt` (MIT);

@@ -31,22 +31,20 @@ pub(super) fn name(
 		text.size().x + 8.0 + if verified { 10.0 } else { 0.0 } + ui.spacing().item_spacing.x
 	});
 	let width = (ui.available_width() - reserve - trailing).max(0.0);
+	// A Nitro name style, when switched on, replaces the role colour like Discord's.
 	let response = ui
 		.scope(|ui| {
 			ui.set_max_width(width);
-			ui.add(
-				egui::Label::new(crate::role_names::galley(
-					ui,
-					name,
-					egui::FontId::new(size, design::medium_family(ui.ctx())),
-					color.1,
-					color.2,
-					color.0,
-					width,
-				))
-				.truncate()
-				.selectable(false)
-				.sense(sense),
+			crate::name_styles::label(
+				ui,
+				crate::name_styles::style(user),
+				name,
+				egui::FontId::new(size, design::medium_family(ui.ctx())),
+				color.1,
+				color.2,
+				color.0,
+				sense,
+				false,
 			)
 		})
 		.inner;

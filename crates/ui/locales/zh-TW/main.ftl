@@ -808,6 +808,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = 視訊預覽 · 會�
 embeds-text-text-display-limited = 文字顯示受限
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = 點擊以了解更多
 # Context: show
 emoji-details-show-a-custom-emoji = 自訂表情符號。
 # Context: show
@@ -3022,6 +3024,8 @@ server-menu-header-server-menu = 伺服器選單
 server-menu-leave-item-leave-server = 離開伺服器
 # Context: read_item
 server-menu-read-item-mark-as-read = 標為已讀
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = 全部標為已讀
 # Context: settings_item
 server-menu-settings-item-server-settings = 伺服器設定
 # Context: show
@@ -3685,6 +3689,8 @@ slash-commands-footer-refresh-application-commands = 重新整理應用指令
 
 ## crates/ui/src/stickers.rs
 # Context: message
+stickers-message-from-an-unavailable-server = 此貼圖來自僅限邀請或無法使用的伺服器。
+# Context: message
 stickers-message-loading-sticker-details = 貼圖詳細資料載入中…
 # Context: message
 stickers-message-retry-sticker-details = 重試貼圖詳細資料
@@ -4291,6 +4297,10 @@ voice-voice-card-section-disconnect = 中斷連線
 # Context: voice_card_section
 voice-voice-card-section-dismiss-call = 關閉通話
 # Context: voice_card_section
+voice-voice-card-section-reconnect-attempt = { $reason } · 第 { $attempt } 次嘗試，共 { $total } 次
+# Context: voice_card_section
+voice-voice-card-section-reconnecting = 正在重新連線…
+# Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = 麥克風無法使用 · 仍連線中。請在音訊設定改選其他輸入。
 # Context: voice_channel_button
 voice-voice-channel-button-connected = ，已連線
@@ -4744,6 +4754,8 @@ settings-chat-box = 聊天框
 settings-convert-emoticons = 自動把訊息中的顏文字轉成表情符號
 
 settings-convert-emoticons-description = 傳送或編輯訊息時，把 :) 這類獨立顏文字轉成 🙂。程式碼與連結不變。
+settings-preload-on-hover = 懸停時預先載入
+settings-preload-on-hover-description = 指標停留在對話、個人資料或 GIF 選擇器上時預先載入，開啟時即刻顯示。使用與開啟相同的請求，每類每分鐘最多 12 次。
 
 profiles-board = 看板
 profiles-board-unavailable = 這個個人檔案的看板無法使用。
@@ -4916,3 +4928,100 @@ composer-placeholder = 訊息
 composer-placeholder-channel = 傳送訊息至 #{ $channel }
 # Context: composer_placeholder
 composer-placeholder-direct = 傳送訊息給 @{ $name }
+
+# Context: timeline_dm_intro
+timeline-dm-intro = 這是你與 { $name } 的私訊紀錄的開頭。
+
+# Context: timeline_channel_intro
+timeline-channel-intro-title = 歡迎來到 #{ $channel }！
+# Context: timeline_channel_intro
+timeline-channel-intro-start = 這是 #{ $channel } 頻道的開頭。
+# Context: text_menu
+text-menu-cut = 剪下
+text-menu-copy = 複製
+text-menu-paste = 貼上
+text-menu-select-all = 全選
+# Context: media_box
+forum-composer-attached-files = 已附加 { $count } 個檔案
+forum-composer-remove-file = 移除 { $file }
+post-menu-post-action-failed = 貼文操作失敗
+post-menu-thread-action-failed = 討論串操作失敗
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = 普通
+# Context: badges
+badges-rarity-rare = 稀有
+# Context: badges
+badges-rarity-epic = 史詩
+# Context: badges
+badges-rarity-mythic = 神話
+# Context: badges
+badges-always-visible = 一律顯示在你的個人資料中
+# Context: badges
+badges-click-show = 點擊顯示
+# Context: badges
+badges-click-hide = 點擊隱藏
+# Context: badges
+badges-customize-title = 自訂你的徽章
+# Context: badges
+badges-customize-hint = 拖曳以重新排序，並隱藏不想讓他人看到的徽章。
+# Context: badges
+badges-none = 尚無可顯示的徽章。
+# Context: badges
+badges-reset = 重設
+# Context: badges
+badges-saving = 正在儲存…
+# Context: badges
+badges-save = 儲存
+# Context: badges
+badges-view = 查看徽章
+# Context: badges
+badges-your = 你的徽章
+# Context: badges
+badges-user = { $name } 的徽章
+# Context: badges
+badges-browse = 瀏覽你的徽章，探索可以解鎖的新徽章。
+# Context: badges
+badges-available = 可解鎖
+# Context: badges
+badges-customize-button = 自訂你的徽章
+# Context: badges
+badges-close = 關閉
+# Context: badges
+badges-locked = 尚未解鎖
+# Context: badges
+badges-date-unlocked = 解鎖日期
+# Context: badges
+badges-rarity = 稀有度
+# Context: badges
+badges-max-level = 你已達到此徽章的最高等級。
+# Context: badges
+badges-next-level = 下一級：{ $tier }
+# Context: badges
+badges-all-levels = 查看所有等級
+# Context: badges
+badges-hide-levels = 隱藏等級
+# Context: badges
+badges-manage = 管理徽章
+page-language-time = 語言與時間
+description-language-time = 顯示語言和時間格式。
+time-format-group = 時間格式
+time-format-auto = 自動
+time-format-12-hour = 12 小時制
+time-format-24-hour = 24 小時制
+profiles-status-edit = 編輯狀態
+profiles-status-clear = 清除狀態
+send-throttled-title = 哇，太辣了
+send-throttled-body = 你傳送訊息太快了！
+send-throttled-dismiss = 關閉提示
+profiles-private-profile = 私人個人資料
+profiles-private-notice = { $name } 的個人資料為私人，部分資訊已隱藏。加為好友即可查看更多。
+settings-cosmetics-name-styles = 名稱樣式
+settings-cosmetics-name-styles-description = Nitro 顯示名稱的字型、顏色與特效。
+search-overlays-message-contains = 訊息包含
+search-overlays-no-matching-content-types = 沒有符合的內容類型
+search-overlays-history = 歷史紀錄
+search-overlays-clear-history = 清除搜尋紀錄
+main-sign-in-rate-limited-detail = Discord 正在限制此次登入。請稍候再試。過早重試可能會延長等待時間。

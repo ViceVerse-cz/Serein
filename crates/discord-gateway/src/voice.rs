@@ -307,10 +307,16 @@ impl Calls {
 				..
 			} => {
 				let guild = *self.allowed.get(&channel).ok_or(Failure::Protocol)?;
-				if self.active.is_some() || self.departing.is_some() {
+				// A rejoin replaces this channel's dropped media session in place, so Discord
+				// sends fresh voice credentials without the call ever leaving the channel.
+				if self.active.is_some_and(|(active, _)| active != channel)
+					|| self.departing.is_some()
+				{
 					return Err(Failure::Protocol);
 				}
 				self.active = Some((channel, request));
+				self.stream = None;
+				self.watch = None;
 				self.active_guild = guild;
 				self.active_session = None;
 				self.negotiation_server = None;
@@ -798,6 +804,12 @@ impl Calls {
 					emit,
 				)?;
 			}
+			"STREAM_UPDATE" => {
+				// Only the count drives the viewer cue; a malformed refresh is ignored.
+				if let Ok(update) = decode::<stream::Update>(data) {
+					self.emit_stream(screen::Event::Viewers(update.viewers), emit)?;
+				}
+			}
 			"STREAM_DELETE" => {
 				let Ok(deleted) = decode::<stream::Deleted>(data) else {
 					return self.emit_stream(
@@ -948,7 +960,7 @@ impl Calls {
 		emit: &impl Fn(Event) -> Result<(), Failure>,
 	) -> Result<(), Failure> {
 		match kind {
-			"STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_DELETE" => {
+			"STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_UPDATE" | "STREAM_DELETE" => {
 				self.stream_dispatch(kind, data, emit)?;
 			}
 			"CALL_CREATE" | "CALL_UPDATE" | "CALL_DELETE" => {
@@ -1186,6 +1198,7 @@ mod tests {
 				primary_guild: None,
 				avatar_decoration_data: None,
 				collectibles: None,
+				display_name_styles: None,
 				clan: None,
 				id: Id(id),
 				username: name.into(),
@@ -2490,6 +2503,30 @@ mod tests {
 				..
 			})
 		));
+		for key in ["guild:10:20:2", "guild:10:20:1"] {
+			calls
+				.dispatch(
+					"STREAM_UPDATE",
+					format!(r#"{{"stream_key":"{key}","viewer_ids":["4","5"],"paused":false}}"#)
+						.as_bytes(),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+		}
+		assert!(matches!(
+			events.lock().unwrap().remove(3),
+			Event::Voice(voice::Event::Stream {
+				stream_request: 8,
+				event: screen::Event::Viewers(2),
+				..
+			})
+		));
+		assert_eq!(
+			events.lock().unwrap().len(),
+			3,
+			"other streams' viewers are ignored"
+		);
 
 		let Frame::Text(delete) = calls
 			.stream_packet(

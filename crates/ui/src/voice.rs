@@ -443,6 +443,8 @@ impl MessagingUi {
 			ui.painter()
 				.rect_filled(row, 8, crate::design::row_highlight(ui, colors.hover, 1.0));
 		}
+		let (unread, count) = crate::notifications::row_activity(state, channel, viewable);
+		let unread_while_connected = unread && connected;
 		let text_color = channel_marks::tint(
 			&colors,
 			access,
@@ -456,6 +458,16 @@ impl MessagingUi {
 				Emphasis::Idle
 			},
 		);
+		if unread_while_connected && !selected && !access.muted() {
+			ui.painter().rect_filled(
+				egui::Rect::from_center_size(
+					egui::pos2(row.left() - 6.0, row.center().y),
+					egui::vec2(4.0, 8.0),
+				),
+				2,
+				colors.text_strong,
+			);
+		}
 		let glyph = egui::Rect::from_center_size(
 			row.left_center() + egui::vec2(18.0, 0.0),
 			egui::Vec2::splat(20.0),
@@ -470,15 +482,19 @@ impl MessagingUi {
 		channel_marks::paint(ui.painter(), access, row, glyph, text_color);
 		let marks = channel_marks::trailing(access);
 		let elapsed_width = if elapsed.is_some() { 64.0 } else { 0.0 };
+		let badge_width = if count > 0 { 34.0 } else { 0.0 };
 		let name = ui.painter().layout(
 			channel.name.clone(),
 			egui::FontId::new(15.0, design::medium_family(ui.ctx())),
 			text_color,
-			(row.width() - 40.0 - elapsed_width - marks).max(10.0),
+			(row.width() - 40.0 - elapsed_width - badge_width - marks).max(10.0),
 		);
 		let name_rect = egui::Rect::from_min_size(
 			egui::pos2(row.left() + 34.0, row.center().y - name.size().y * 0.5),
-			egui::vec2(row.width() - 40.0 - elapsed_width - marks, name.size().y),
+			egui::vec2(
+				row.width() - 40.0 - elapsed_width - badge_width - marks,
+				name.size().y,
+			),
 		);
 		ui.painter()
 			.with_clip_rect(name_rect)
@@ -492,6 +508,20 @@ impl MessagingUi {
 				text_color,
 			);
 		}
+		if count > 0 {
+			crate::notifications::badge(
+				ui,
+				row.right_center() - egui::vec2(20.0 + marks + elapsed_width, 0.0),
+				count,
+				if selected {
+					colors.selected
+				} else if hovered {
+					colors.hover
+				} else {
+					colors.sidebar
+				},
+			);
+		}
 		if elapsed.is_some() && ui.is_rect_visible(response.rect) {
 			ui.ctx()
 				.request_repaint_after(std::time::Duration::from_secs(1));
@@ -502,7 +532,7 @@ impl MessagingUi {
 				viewable,
 				selected,
 				format!(
-					"{} {}{}{}",
+					"{} {}{}{}{}; {} {}",
 					channel.name,
 					crate::i18n::translate("voice-voice-channel-button-voice-channel"),
 					channel_marks::label(access),
@@ -510,7 +540,14 @@ impl MessagingUi {
 						crate::i18n::translate("voice-voice-channel-button-connected")
 					} else {
 						String::new()
-					}
+					},
+					if unread_while_connected {
+						crate::i18n::translate("categories-channel-list-unread")
+					} else {
+						String::new()
+					},
+					count,
+					crate::i18n::translate("categories-channel-list-notifications")
 				),
 			)
 		});
@@ -3885,9 +3922,13 @@ impl MessagingUi {
 		let colors = design::palette(ui);
 		let phase = call.phase;
 		let channel_id = call.channel;
+		let guild_id = call.guild;
 		let camera = call.camera;
 		let connected = matches!(phase, Phase::Connected | Phase::Waiting);
 		let error = call.error;
+		let reconnecting = call.reconnecting;
+		let reconnecting_title =
+			reconnecting.map(|_| crate::i18n::translate("voice-voice-card-section-reconnecting"));
 		let channel = state
 			.channel(call.channel)
 			.map_or("Direct message", |c| c.name.as_str())
@@ -3906,6 +3947,8 @@ impl MessagingUi {
 			"Call failed"
 		} else if connected {
 			"Voice Connected"
+		} else if let Some(title) = &reconnecting_title {
+			title.as_str()
 		} else {
 			"Connecting…"
 		};
@@ -3978,18 +4021,46 @@ impl MessagingUi {
 									.truncate()
 									.selectable(false),
 								);
-								ui.add(
-									egui::Label::new(
-										RichText::new(detail).size(12.0).color(colors.muted),
-									)
-									.truncate()
-									.selectable(false),
+								let response = ui.add(
+								    egui::Label::new(
+        								RichText::new(detail).size(12.0).color(colors.muted),
+    								)
+  									.truncate()
+   									.selectable(false)
+   									.sense(egui::Sense::click()),
 								);
+
+								if response.clicked() {
+    								self.guild = guild_id;
+
+    								if state.selected != Some(channel_id)
+        								&& let Some(command) = state.select(channel_id)
+    								{
+        								commands.push(command);
+    								}
+
+    									self.navigation_channel = Some(channel_id);
+								}
+								
+								response
+   									.on_hover_cursor(egui::CursorIcon::PointingHand)
+    								.on_hover_text("Switch to this voice channel");
 							});
 						});
 					});
 				});
 				call_failure(ui, error, colors.text_strong);
+				if let Some((attempt, reason)) = reconnecting {
+					ui.add(
+						egui::Label::new(
+							RichText::new(reconnect_detail(reason, attempt))
+								.size(12.0)
+								.color(colors.muted),
+						)
+						.wrap()
+						.selectable(true),
+					);
+				}
 				let controls = self.controls_enabled(state);
 				let can_camera = self.voice_camera_available
 					&& state.can_camera(channel_id)
@@ -4415,6 +4486,22 @@ fn speaking_avatar(ui: &egui::Ui, avatar: &egui::Response, name: &str) {
 	let label = format!("{name} · Speaking");
 	// Callers own the avatar's tooltip; a second one here would stack under it.
 	avatar.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &label));
+}
+
+/// Why media dropped and how far the automatic rejoin is; transport advice to rejoin by
+/// hand does not apply while the client is already doing it.
+fn reconnect_detail(reason: &str, attempt: u8) -> String {
+	crate::i18n::translate_args(
+		"voice-voice-card-section-reconnect-attempt",
+		&[
+			("reason", reason.trim_end_matches("; rejoin the call")),
+			("attempt", &attempt.to_string()),
+			(
+				"total",
+				&client_core::voice::MAX_REJOIN_ATTEMPTS.to_string(),
+			),
+		],
+	)
 }
 
 fn call_failure(ui: &mut egui::Ui, error: Option<&str>, color: egui::Color32) {

@@ -367,6 +367,7 @@ mod tests {
 			server_deafened: false,
 			request: 1,
 			phase: Phase::Connected,
+			reconnecting: None,
 			muted: false,
 			deafened: false,
 			participants: vec![],

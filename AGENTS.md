@@ -7,7 +7,9 @@ backend, web wrapper, or separate voice service.
 
 - Voice ships in every build. Keep media processing outside UI rendering and audio callbacks.
 - Bound local caches, payloads and queues by bytes and item count.
-- Store saved tokens only in the OS credential store; redact active secrets in memory.
+- Prefer the OS credential store for saved tokens. Allow plaintext login files only with the
+  owner's explicit Storage setting; keep files private, bounded and removable. Redact active
+  secrets in memory.
 - Authentication and user-solved invite verification may use only the temporary webviews and
   handoff limits described in the relevant auth docs.
 - No credential extraction, challenge bypass, telemetry, unbounded logs, backend or account system.

@@ -67,6 +67,8 @@ pub enum Event {
 		reason: Option<&'static str>,
 	},
 	Failed(&'static str),
+	/// Discord's latest viewer count for this device's own stream (unofficial `STREAM_UPDATE`).
+	Viewers(u16),
 }
 impl Event {
 	pub(crate) fn bytes(&self) -> usize {

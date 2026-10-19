@@ -15,29 +15,54 @@ assert(['nightly', 'production'].includes(channel), 'Choose nightly or productio
 const planPath = 'target/release-plan.json';
 const plan = mode === 'publish' ? JSON.parse(readFileSync(planPath, 'utf8')) : null;
 if (plan) assert.equal(channel, plan.channel, 'Release channel changed');
+const tapRepo = 'ViceVerse-cz/homebrew-serein';
 const caskPath = 'Casks/serein.rb';
+const tapToken = process.env.HOMEBREW_TAP_TOKEN;
+if (plan) assert(tapToken, 'HOMEBREW_TAP_TOKEN is required to publish the Homebrew cask');
 
-function updateCask() {
+function checkTapAccess() {
+  const push = execFileSync('gh', ['api', `repos/${tapRepo}`, '--jq', '.permissions.push'], {
+    encoding: 'utf8', env: { ...process.env, GH_TOKEN: tapToken },
+  }).trim();
+  assert.equal(push, 'true', `HOMEBREW_TAP_TOKEN cannot push to ${tapRepo}`);
+}
+
+// A rerun after a failed cask update must not try to publish the release a second time.
+function releaseExists() {
+  try {
+    execFileSync('gh', ['release', 'view', plan.gitTag], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+const resumed = plan !== null && releaseExists();
+if (plan && !resumed) checkTapAccess();
+
+// The cask lives in its own tap repository so users do not clone this one. The tap file is the
+// single source of truth; releases only rewrite its version and checksum.
+function publishCask() {
   const asset = `release-assets/serein-${plan.gitTag}-macOS-ARM64.zip`;
   const checksum = createHash('sha256').update(readFileSync(asset)).digest('hex');
-  const source = readFileSync(caskPath, 'utf8');
+  const gh = args => execFileSync('gh', args, {
+    encoding: 'utf8', env: { ...process.env, GH_TOKEN: tapToken },
+  });
+  const endpoint = `repos/${tapRepo}/contents/${caskPath}`;
+  const current = JSON.parse(gh(['api', `${endpoint}?ref=main`]));
+  const source = Buffer.from(current.content, 'base64').toString('utf8');
   assert.match(source, /^  version "[^"]+"$/m, 'Cannot locate Homebrew cask version');
   assert.match(source, /^  sha256 "[0-9a-f]{64}"$/m, 'Cannot locate Homebrew cask checksum');
-  writeFileSync(caskPath, source
+  const updated = source
     .replace(/(^  version ")[^"]+("$)/m, `$1${plan.version}$2`)
-    .replace(/(^  sha256 ")[^"]+("$)/m, `$1${checksum}$2`));
+    .replace(/(^  sha256 ")[^"]+("$)/m, `$1${checksum}$2`);
+  if (updated === source) return;
+  gh([
+    'api', endpoint, '--method', 'PUT',
+    '--field', `message=chore(release): update cask for ${plan.version}`,
+    '--field', `content=${Buffer.from(updated).toString('base64')}`,
+    '--field', `sha=${current.sha}`, '--field', 'branch=main',
+  ]);
 }
-
-function commitNightlyCask() {
-  const sha = execFileSync('git', ['rev-parse', `HEAD:${caskPath}`], { encoding: 'utf8' }).trim();
-  execFileSync('gh', [
-    'api', `repos/${process.env.GH_REPO}/contents/${caskPath}`, '--method', 'PUT',
-    '--field', `message=chore(release): update Homebrew cask for ${plan.version} [skip ci]`,
-    '--field', `content=${readFileSync(caskPath).toString('base64')}`,
-    '--field', `sha=${sha}`, '--field', 'branch=main',
-  ], { stdio: 'inherit' });
-}
-if (plan) updateCask();
 const conventional = { preset: 'conventionalcommits' };
 const plugins = [
   [require.resolve('@semantic-release/commit-analyzer'), conventional],
@@ -46,7 +71,7 @@ const plugins = [
 if (plan && channel === 'production') {
   plugins.push(
     [require.resolve('@semantic-release/git'), {
-      assets: ['Cargo.toml', 'Cargo.lock', 'fuzz/Cargo.lock', 'packaging/macos/Info.plist', caskPath],
+      assets: ['Cargo.toml', 'Cargo.lock', 'fuzz/Cargo.lock', 'packaging/macos/Info.plist'],
       message: 'chore(release): ${nextRelease.version} [skip ci]',
     }],
     [require.resolve('@semantic-release/github'), {
@@ -59,7 +84,7 @@ if (plan && channel === 'production') {
   );
 }
 // Nightly assets are published from the immutable plan commit; no branch mutation needs semantic-release.
-const result = mode === 'publish' && channel === 'nightly'
+const result = mode === 'publish' && (channel === 'nightly' || resumed)
   ? { nextRelease: { version: plan.stableVersion, gitHead: plan.gitHead } }
   : await semanticRelease({
     branches: ['main'],
@@ -91,15 +116,17 @@ if (mode === 'plan') {
   assert(result, 'No release published; branch or tags changed after planning');
   if (channel === 'nightly') {
     // Nightlies do not create stable tags or version commits that consume production changes.
-    writeFileSync('target/release-notes.md', plan.notes);
-    const assets = readdirSync('release-assets')
-      .map(name => `release-assets/${name}`);
-    execFileSync('gh', ['release', 'create', plan.gitTag, ...assets,
-      '--target', plan.gitHead, '--title', `Serein ${plan.version}`,
-      '--notes-file', 'target/release-notes.md', '--prerelease', '--latest=false', '--draft'],
-    { stdio: 'inherit' });
+    if (!resumed) {
+      writeFileSync('target/release-notes.md', plan.notes);
+      const assets = readdirSync('release-assets')
+        .map(name => `release-assets/${name}`);
+      execFileSync('gh', ['release', 'create', plan.gitTag, ...assets,
+        '--target', plan.gitHead, '--title', `Serein ${plan.version}`,
+        '--notes-file', 'target/release-notes.md', '--prerelease', '--latest=false', '--draft'],
+      { stdio: 'inherit' });
+    }
     execFileSync('gh', ['release', 'edit', plan.gitTag, '--draft=false', '--prerelease', '--latest=false'],
     { stdio: 'inherit' });
-    commitNightlyCask();
   }
+  publishCask();
 }

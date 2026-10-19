@@ -29,6 +29,7 @@ pub struct Timeline {
 	deleted: BTreeSet<Id>,
 	loading: bool,
 	retain_older: bool,
+	older_evicted: bool,
 	replace: bool,
 	preserve_deleted_messages: bool,
 }
@@ -85,6 +86,7 @@ impl Timeline {
 				let item = if self.retain_older {
 					self.messages.pop_last()
 				} else {
+					self.older_evicted = true;
 					self.messages.pop_first()
 				};
 				if let Some((_, Some(old))) = item {
@@ -145,6 +147,14 @@ impl Timeline {
 	/// Reading positions, including ID-only placeholders for previously loaded messages.
 	pub fn row_ids(&self) -> impl DoubleEndedIterator<Item = Id> {
 		self.messages.keys().copied()
+	}
+	/// Capacity eviction removed rows that an exhausted history page had covered.
+	pub fn older_evicted(&self) -> bool {
+		self.older_evicted
+	}
+	/// A short history page establishes the start again; subsequent eviction invalidates it.
+	pub fn mark_start_loaded(&mut self) {
+		self.older_evicted = false;
 	}
 	pub fn row_count(&self) -> usize {
 		self.messages.len()
@@ -268,6 +278,7 @@ impl Timeline {
 			let item = if older || self.retain_older {
 				self.messages.pop_last()
 			} else {
+				self.older_evicted = true;
 				self.messages.pop_first()
 			};
 			if let Some((_, Some(old))) = item {

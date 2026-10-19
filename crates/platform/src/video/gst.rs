@@ -64,7 +64,18 @@ impl Drop for StopOnError {
 }
 
 impl Decoder {
-	pub fn open(mut source: Box<dyn ReadSeek>) -> Result<Self, &'static str> {
+	pub fn open(source: Box<dyn ReadSeek>) -> Result<Self, &'static str> {
+		Self::open_until(
+			source,
+			std::time::Instant::now() + std::time::Duration::from_secs(WAIT.seconds()),
+		)
+	}
+
+	/// Bounds startup readiness by the caller's decode deadline; failure stops the pipeline.
+	pub fn open_until(
+		mut source: Box<dyn ReadSeek>,
+		deadline: std::time::Instant,
+	) -> Result<Self, &'static str> {
 		let length = source.seek(SeekFrom::End(0)).map_err(|_| INVALID)?;
 		source.seek(SeekFrom::Start(0)).map_err(|_| INVALID)?;
 		let mut header = [0_u8; 8];
@@ -187,11 +198,16 @@ impl Decoder {
 		pipeline
 			.set_state(gst::State::Paused)
 			.map_err(|_| UNSUPPORTED)?;
-		wait_ready(&pipeline, &shared)?;
+		wait_ready(&pipeline, &shared, deadline)?;
 		if !has_video.load(Ordering::Acquire) {
 			return Err(UNSUPPORTED);
 		}
-		let preroll = video.pull_preroll().map_err(|_| INVALID)?;
+		let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+		let preroll = video
+			.try_pull_preroll(gst::ClockTime::from_nseconds(
+				remaining.as_nanos().min(u64::MAX as u128) as u64,
+			))
+			.ok_or(INVALID)?;
 		let (width, height) = frame_dimensions(&preroll)?;
 		let duration = pipeline
 			.query_duration::<gst::ClockTime>()
@@ -247,7 +263,12 @@ impl Decoder {
 		self.pipeline
 			.seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE, position)
 			.map_err(|_| SEEK_FAILED)?;
-		wait_ready(&self.pipeline, &self.shared).map_err(|_| SEEK_FAILED)?;
+		wait_ready(
+			&self.pipeline,
+			&self.shared,
+			std::time::Instant::now() + std::time::Duration::from_secs(WAIT.seconds()),
+		)
+		.map_err(|_| SEEK_FAILED)?;
 		self.video_done = false;
 		self.audio_done = self.audio.is_none();
 		self.last_video_pts = f64::NEG_INFINITY;
@@ -412,15 +433,19 @@ fn feed(src: &gst_app::AppSrc, shared: &Shared, hint: u32) {
 }
 
 /// Block until the pipeline finished its pending (pre-roll or seek) state change.
-fn wait_ready(pipeline: &gst::Pipeline, shared: &Shared) -> Result<(), &'static str> {
+fn wait_ready(
+	pipeline: &gst::Pipeline,
+	shared: &Shared,
+	deadline: std::time::Instant,
+) -> Result<(), &'static str> {
 	let bus = pipeline.bus().ok_or(INVALID)?;
-	let started = std::time::Instant::now();
 	loop {
-		if shared.failed.load(Ordering::Acquire) {
+		let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+		if remaining.is_zero() || shared.failed.load(Ordering::Acquire) {
 			return Err(INVALID);
 		}
 		let Some(message) = bus.timed_pop_filtered(
-			gst::ClockTime::from_mseconds(250),
+			gst::ClockTime::from_nseconds(remaining.as_nanos().min(250_000_000) as u64),
 			&[
 				gst::MessageType::AsyncDone,
 				gst::MessageType::Error,
@@ -428,9 +453,6 @@ fn wait_ready(pipeline: &gst::Pipeline, shared: &Shared) -> Result<(), &'static 
 				gst::MessageType::Element,
 			],
 		) else {
-			if started.elapsed().as_secs() > WAIT.seconds() {
-				return Err(INVALID);
-			}
 			continue;
 		};
 		match message.view() {

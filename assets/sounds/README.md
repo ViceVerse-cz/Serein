@@ -20,8 +20,9 @@ from the source sample rate; no re-encoding, metadata stripping or trimming is a
 | `screen-share-on.mp3` | [stream_started](https://discord.com/assets/abe52a3c92953edb.mp3) | `b5cb29d5d5cc0e8e22fa014bac4a1c2d601f6890ae6db1c18d4b6310283a3271` |
 | `user-join.mp3` | [user_join](https://discord.com/assets/b135ff6c8e091b43.mp3) | `d30746caf3e4675ae0d822d51461a9ad24832afa1e20179c3c2fc7b50b911a26` |
 | `user-leave.mp3` | [user_leave](https://discord.com/assets/7b9a183742515fc2.mp3) | `9fd71c2d8112c82a7fb316602bb1645bc65f5edfa260110bbaae80090fbe9df0` |
+| `viewer-join.mp3` | [stream_user_joined](https://discord.com/assets/3d2af2764581bb2e.mp3), downloaded October 19, 2026 | `3b51208e7559fc5b16a297cd8d882648fa7534adf706dfbd529c39266d132213` |
 
-The twelve files total 595,870 bytes; each distinct cue is bundled independently. No network fetch or user-file access occurs during playback.
+The thirteen files total 663,407 bytes; each distinct cue is bundled independently. No network fetch or user-file access occurs during playback.
 Incoming and outgoing rings repeat every six and three seconds respectively,
 leaving enough time for each complete clip before its next playback.
 

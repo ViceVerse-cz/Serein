@@ -32,6 +32,9 @@ pub struct GifDto {
 	#[serde(default)]
 	title: String,
 	url: String,
+	/// The requested `media_format` rendition (unofficial; the picker asks for `tinygif`).
+	#[serde(default)]
+	src: Option<String>,
 	#[serde(default)]
 	gif_src: Option<String>,
 	#[serde(default)]
@@ -88,14 +91,18 @@ fn into_gifs(gifs: Vec<GifDto>) -> Vec<Gif> {
 		if !model::valid_gif_url(&gif.url) {
 			continue;
 		}
-		// KLIPY's `preview` GIF is often several megabytes; its `gif_src` WebP is the same
-		// clip at a fraction of the size, so the picker shows that instead.
+		// KLIPY's `preview` GIF is often several megabytes. The requested small rendition is
+		// made for tiles; otherwise the `gif_src` WebP is the same clip at a fraction of the size.
+		let tiny = gif
+			.src
+			.filter(|src| model::valid_gif_preview(src))
+			.filter(|src| src.ends_with(".gif") || src.ends_with(".webp"));
 		let webp = gif
 			.gif_src
 			.as_ref()
 			.filter(|src| src.ends_with(".webp") && model::valid_gif_preview(src))
 			.cloned();
-		let Some(preview) = webp.or(gif.preview) else {
+		let Some(preview) = tiny.or(webp).or(gif.preview) else {
 			continue;
 		};
 		let gif = Gif {
@@ -264,5 +271,20 @@ mod tests {
 		assert_eq!(page.gifs.len(), 1);
 		assert_eq!(page.gifs[0].id, "sample");
 		assert_eq!(page.categories.len(), 2);
+	}
+
+	#[test]
+	fn tiles_prefer_the_requested_small_rendition_over_the_full_clip() {
+		let reply = r#"[{"id":"t","url":"https://klipy.com/gifs/t","src":"https://static.klipy.com/s/t-tiny.gif","gif_src":"https://static.klipy.com/s/t.webp","width":320,"height":240,"preview":"https://static.klipy.com/s/t.gif"},{"id":"v","url":"https://klipy.com/gifs/v","src":"https://static.klipy.com/s/v.mp4","gif_src":"https://static.klipy.com/s/v.webp","width":320,"height":240}]"#;
+		let page = crate::decode::<SearchReply>(reply.as_bytes())
+			.unwrap()
+			.into_page()
+			.unwrap();
+		assert_eq!(
+			page.gifs[0].preview,
+			"https://static.klipy.com/s/t-tiny.gif"
+		);
+		// A clip is not a tile image; the WebP stays the preview.
+		assert_eq!(page.gifs[1].preview, "https://static.klipy.com/s/v.webp");
 	}
 }

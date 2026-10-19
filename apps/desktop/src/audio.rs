@@ -57,6 +57,8 @@ struct Gate {
 	failed: AtomicBool,
 	buffering: AtomicBool,
 	sample_rate: AtomicU32,
+	/// Downloaded ranges of the current clip, reused when a seek replays it from the start.
+	downloads: std::sync::Mutex<source::Downloads>,
 }
 impl Default for Gate {
 	fn default() -> Self {
@@ -69,12 +71,18 @@ impl Default for Gate {
 			failed: AtomicBool::new(false),
 			buffering: AtomicBool::new(true),
 			sample_rate: AtomicU32::new(0),
+			downloads: Default::default(),
 		}
 	}
 }
 impl Gate {
 	fn current(&self, generation: u64) -> bool {
 		self.generation.load(Ordering::Acquire) == generation
+	}
+	fn clear_downloads(&self) {
+		if let Ok(mut downloads) = self.downloads.lock() {
+			*downloads = source::Downloads::default();
+		}
 	}
 }
 #[derive(Clone)]
@@ -154,6 +162,7 @@ impl Audio {
 			});
 		}
 		let generation = self.gate.generation.fetch_add(1, Ordering::AcqRel) + 1;
+		self.gate.clear_downloads();
 		self.gate.paused.store(false, Ordering::Release);
 		self.gate.seek_millis.store(NO_SEEK, Ordering::Release);
 		self.gate.sample_rate.store(0, Ordering::Release);
@@ -234,6 +243,7 @@ impl Audio {
 			return;
 		}
 		self.gate.generation.fetch_add(1, Ordering::AcqRel);
+		self.gate.clear_downloads();
 		if let Some(worker) = &self.worker {
 			worker.requests.send_replace(None);
 			worker.wake.notify_one();

@@ -407,7 +407,11 @@ impl PostMenu {
 			{
 				self.feedback = None;
 			} else if !state.channel_action_pending() {
-				let title = format!("{} action", noun(state, id));
+				let title = noun_action(
+					noun(state, id),
+					"post-menu-post-action-failed",
+					"post-menu-thread-action-failed",
+				);
 				let result = dialog::Dialog::new("post-action-error", &title)
 					.width(380.0)
 					.show(ctx, |d| {
@@ -580,7 +584,7 @@ fn noun(state: &State, channel: Id) -> &'static str {
 }
 
 fn noun_action(noun: &str, post: &str, thread: &str) -> String {
-	crate::i18n::translate_if_key(if noun == "post-menu-noun-action-post" {
+	crate::i18n::translate_if_key(if noun == "post-menu-noun-post" {
 		post
 	} else {
 		thread

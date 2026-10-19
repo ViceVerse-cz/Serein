@@ -57,6 +57,8 @@ fn is_animated_key(key: &str) -> bool {
 fn encoded_limit(key: &str) -> usize {
 	if let Some(cosmetic) = Cosmetic::parse(key) {
 		cosmetic.budget().encoded
+	} else if key.starts_with("badge-art:") {
+		badge_art_budget().encoded
 	} else if let Some(rendition) = Rendition::parse(key) {
 		media_encoded(&rendition)
 	} else if is_animated_key(key) {
@@ -78,13 +80,15 @@ fn media_encoded(rendition: &Rendition) -> usize {
 	};
 	match rendition.motion {
 		Motion::Animated => MAX_ANIMATED_ENCODED,
+		Motion::Still if ui::is_motion_video(rendition.source.as_str()) => MAX_ANIMATED_ENCODED,
 		Motion::Still => {
 			(width as usize * height as usize * 3).clamp(MAX_ENCODED, MAX_MEDIA_ENCODED)
 		}
 	}
 }
 fn decode_edge(key: &str) -> u32 {
-	if key.starts_with("anim:")
+	// Animated emoji fall through to the still emoji edge, which keeps their frames small.
+	if (key.starts_with("anim:") && !key.starts_with("anim:emoji-"))
 		|| key.starts_with("embed:")
 		|| key.starts_with("gif:")
 		|| key.starts_with("spotify-")
@@ -92,6 +96,8 @@ fn decode_edge(key: &str) -> u32 {
 		|| key.starts_with("member-banner-")
 	{
 		ui::EMBED_EDGE
+	} else if key.starts_with("badge-art:") {
+		256
 	} else {
 		128
 	}
@@ -262,9 +268,23 @@ impl Cosmetic {
 	}
 }
 
+/// Badge catalog art is often a large PNG; it is decoded within bounds and scaled down.
+fn badge_art_budget() -> Budget {
+	Budget {
+		fit: 256,
+		encoded: 4 * 1024 * 1024,
+		canvas: 4096,
+		alloc: 64 * 1024 * 1024,
+		frames: None,
+	}
+}
+
 fn budget(key: &str) -> Budget {
 	if let Some(cosmetic) = Cosmetic::parse(key) {
 		return cosmetic.budget();
+	}
+	if key.starts_with("badge-art:") {
+		return badge_art_budget();
 	}
 	let Some(rendition) = Rendition::parse(key) else {
 		let edge = decode_edge(key);
@@ -684,7 +704,10 @@ fn cdn_url(key: &str) -> Option<String> {
 	}
 	if let Some(id) = key.strip_prefix("app-icon-") {
 		let id: Id = id.parse().ok()?;
-		return Some(format!("https://discord.com/api/v10/applications/{id}/rpc"));
+		return Some(format!(
+			"{}/applications/{id}/rpc",
+			discord_api::api_v10_base()
+		));
 	}
 	if let Some(value) = key.strip_prefix("activity-") {
 		let (application, asset) = value.split_once('-')?;
@@ -699,6 +722,11 @@ fn cdn_url(key: &str) -> Option<String> {
 		return Some(format!(
 			"https://cdn.discordapp.com/emojis/{id}.png?size=64"
 		));
+	}
+	// Animated custom emoji; GIF is a documented custom emoji format in the CDN reference.
+	if let Some(id) = key.strip_prefix("anim:emoji-") {
+		let id: Id = id.parse().ok()?;
+		return (id.0 != 0).then(|| format!("https://cdn.discordapp.com/emojis/{id}.gif?size=64"));
 	}
 	if let Some(value) = key.strip_prefix("banner-") {
 		let (id, hash) = value.split_once('-')?;
@@ -743,10 +771,14 @@ fn cdn_url(key: &str) -> Option<String> {
 	if let Some(source) = key.strip_prefix("gif:") {
 		return model::valid_gif_preview(source).then(|| source.to_owned());
 	}
-	// Profile badge and server-tag artwork hashes arrive only inside a requested profile.
-	if let Some(hash) = key.strip_prefix("badge-") {
-		return model::valid_avatar_hash(hash)
-			.then(|| format!("https://cdn.discordapp.com/badge-icons/{hash}.png?size=64"));
+	// Catalog artwork arrives as full Discord CDN addresses inside a requested badge catalog.
+	if let Some(url) = key.strip_prefix("badge-art:") {
+		return model::badges::valid_badge_url(url).then(|| url.to_owned());
+	}
+	// Profile badge and server-tag artwork names arrive only inside a requested profile.
+	if let Some(icon) = key.strip_prefix("badge-") {
+		return model::valid_badge_icon(icon)
+			.then(|| format!("https://cdn.discordapp.com/badge-icons/{icon}.png?size=64"));
 	}
 	if let Some(value) = key.strip_prefix("clan-") {
 		let (guild, hash) = value.split_once('-')?;
@@ -814,6 +846,11 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 		{
 			(proxy_base(source).map(String::from), None)
 		}
+		// Provider media cannot go through Discord's proxy; a clip's still is its first frame.
+		Motion::Still if proxy_base(source).is_none() => (
+			motion_video_source(source).or(provider.then(|| source.to_owned())),
+			None,
+		),
 		Motion::Still => (
 			proxy_url(source, size, ProxyFormat::LosslessWebp),
 			proxy_base(source).and_then(|mut original| {
@@ -1069,6 +1106,7 @@ fn disk_key(key: &str) -> Option<String> {
 		|| key.starts_with("gif:")
 		|| key.starts_with("game:")
 		|| key.starts_with("nameplate-")
+		|| key.starts_with("badge-art:")
 	{
 		Some(format!("embed-{:x}", Sha256::digest(url.as_bytes())))
 	} else {
@@ -1089,9 +1127,10 @@ fn partition(key: &str) -> model::CachePartition {
 		"decoration-",
 		"nameplate-",
 	];
-	// Hover-only nameplate animations are large and rarely replayed.
+	// Hover-only nameplate animations and badge catalog art are large and rarely replayed.
 	if ARTWORK.iter().any(|prefix| key.starts_with(prefix))
 		&& !key.starts_with("nameplate-anim-")
+		&& !key.starts_with("badge-art:")
 		&& !key.starts_with("emoji-unicode-")
 	{
 		model::CachePartition::Artwork
@@ -1202,7 +1241,8 @@ async fn run(
 				.redirect(reqwest::redirect::Policy::none())
 				.timeout(Duration::from_secs(15))
 				.connect_timeout(Duration::from_secs(5))
-				.pool_max_idle_per_host(1)
+				// Keep one warm connection per concurrent job so bursts skip new TLS handshakes.
+				.pool_max_idle_per_host(JOBS)
 				.build()
 				.ok()
 		})
@@ -1254,27 +1294,17 @@ async fn run(
 				continue;
 			};
 			let persistent = disk_key(&key).is_some();
-			let disk = &mut disks[partition(&key) as usize];
-			let mut error = (persistent && disk.is_none()).then_some(CACHE_ERROR);
-			let cached = disk.as_mut().and_then(|disk| {
-				if !persistent {
-					return None;
-				}
-				match disk.read(&key) {
-					Ok(bytes) => bytes,
-					Err(_) => {
-						error = Some(CACHE_ERROR);
-						None
-					}
-				}
-			});
+			let disk = &disks[partition(&key) as usize];
+			let error = (persistent && disk.is_none()).then_some(CACHE_ERROR);
+			// The job reads its cached copy, so a large stored clip never stalls dispatch.
+			let cache = disk.as_ref().filter(|_| persistent).map(Disk::reader);
 			let generation = cleared[partition(&key) as usize];
 			let job = load(Job {
 				budget: budget(&key),
 				key,
 				url: primary,
 				fallback,
-				cached,
+				cache,
 				error,
 				client: client.clone(),
 				cooldown,
@@ -1433,7 +1463,7 @@ struct Job {
 	url: String,
 	fallback: Option<String>,
 	budget: Budget,
-	cached: Option<Vec<u8>>,
+	cache: Option<DiskReader>,
 	error: Option<&'static str>,
 	client: Option<reqwest::Client>,
 	cooldown: Instant,
@@ -1456,20 +1486,35 @@ async fn load(job: Job) -> Loaded {
 		url,
 		fallback,
 		budget,
-		cached,
-		error,
+		cache,
+		mut error,
 		client,
 		cooldown,
 		early,
 	} = job;
+	let cached = match cache {
+		Some(cache) => {
+			let name = key.clone();
+			match tokio::task::spawn_blocking(move || cache.read(&name)).await {
+				Ok(Ok(bytes)) => bytes,
+				_ => {
+					error = Some(CACHE_ERROR);
+					None
+				}
+			}
+		}
+		None => None,
+	};
 	let animated = budget.frames.is_some();
 	let mut until = cooldown;
 	let mut early = animated.then_some(early);
 	let mut stale = None;
 	if let Some(bytes) = cached {
+		let clip = is_isobmff(&bytes);
 		let (image, frames, _) = decode_blocking(&key, bytes, false, budget, early.clone()).await;
 		// A single stored frame is fetched again: a static rendition may share its cache name.
-		if image.is_some() && (!animated || frames.len() >= 2) {
+		// A cached clip is already the full source; fetching it again cannot improve decoding.
+		if image.is_some() && (!animated || frames.len() >= 2 || clip) {
 			return Loaded {
 				key,
 				fetched: None,
@@ -1552,7 +1597,12 @@ async fn decode_blocking(
 		let Some(frame_budget) = budget.frames else {
 			return (decode(&bytes, &budget), Vec::new(), Some(bytes));
 		};
+		let preview = std::sync::Mutex::new(None);
 		let post = |image: &egui::ColorImage| {
+			// Keep the opening frame if decoding the rest fails, without opening the clip again.
+			if is_isobmff(&bytes) {
+				*preview.lock().expect("preview decode owns its mutex") = Some(image.clone());
+			}
 			if let Some(results) = &early {
 				results.preview(AvatarResult {
 					key: key.clone(),
@@ -1576,7 +1626,15 @@ async fn decode_blocking(
 		let image = frames
 			.first()
 			.map(|(_, image)| image.as_ref().clone())
-			.or_else(|| decode(&bytes, &budget));
+			.or_else(|| preview.into_inner().ok().flatten())
+			.or_else(|| {
+				// A failed clip already tried to produce its first frame within the decode deadline.
+				if is_isobmff(&bytes) {
+					None
+				} else {
+					decode(&bytes, &budget)
+				}
+			});
 		(image, frames, Some(bytes))
 	})
 	.await
@@ -1683,6 +1741,15 @@ fn decode(bytes: &[u8], budget: &Budget) -> Option<egui::ColorImage> {
 			image.as_raw(),
 		));
 	}
+	if is_isobmff(bytes) {
+		return std::thread::scope(|scope| {
+			scope
+				.spawn(|| first_video_frame(bytes, budget.fit))
+				.join()
+				.ok()
+				.flatten()
+		});
+	}
 	// Provider previews can be GIF/JPEG/WebP; decode only the first frame, within limits.
 	let mut reader = image::ImageReader::new(Cursor::new(bytes))
 		.with_guessed_format()
@@ -1749,6 +1816,50 @@ fn resize_to(image: image::RgbaImage, fit: u32) -> image::RgbaImage {
 		.into_rgba8()
 }
 
+/// The opening picture of a clip: the still for provider video Discord cannot proxy, and for a
+/// clip too long to decode whole.
+fn first_video_frame(bytes: &[u8], fit: u32) -> Option<egui::ColorImage> {
+	let started = Instant::now();
+	let bytes: Arc<[u8]> = bytes.into();
+	let mut decoder = open_preview_decoder(bytes, started)?;
+	while started.elapsed() < Duration::from_secs(3) {
+		match decoder.poll_video() {
+			Ok(std::task::Poll::Pending) => {
+				let _ = decoder.poll_audio();
+				std::thread::sleep(Duration::from_millis(2));
+			}
+			Ok(std::task::Poll::Ready(Some(platform::video::Sample::Video {
+				picture, ..
+			}))) => {
+				let (width, height, rgba) = picture.to_rgba()?;
+				let pixels = (width as usize).checked_mul(height as usize)?;
+				if width == 0 || height == 0 || rgba.len() != pixels.checked_mul(4)? {
+					return None;
+				}
+				let image = resize_to(image::RgbaImage::from_raw(width, height, rgba)?, fit);
+				return Some(egui::ColorImage::from_rgba_unmultiplied(
+					[image.width() as usize, image.height() as usize],
+					image.as_raw(),
+				));
+			}
+			Ok(std::task::Poll::Ready(Some(_))) => {}
+			Ok(std::task::Poll::Ready(None)) | Err(_) => return None,
+		}
+	}
+	None
+}
+
+fn open_preview_decoder(bytes: Arc<[u8]>, started: Instant) -> Option<platform::video::Decoder> {
+	let source = Box::new(Cursor::new(bytes));
+	#[cfg(target_os = "linux")]
+	let decoder = platform::video::Decoder::open_until(source, started + Duration::from_secs(3));
+	#[cfg(not(target_os = "linux"))]
+	let decoder = platform::video::Decoder::open(source);
+	decoder
+		.ok()
+		.filter(|_| started.elapsed() < Duration::from_secs(3))
+}
+
 fn decode_motion_video(
 	bytes: &[u8],
 	budget: &FrameBudget,
@@ -1761,8 +1872,7 @@ fn decode_motion_video(
 	// One owned copy for the decoder's 'static stream, shared by every shrink pass.
 	let bytes: Arc<[u8]> = bytes.into();
 	'decode: loop {
-		let mut decoder =
-			platform::video::Decoder::open(Box::new(Cursor::new(bytes.clone()))).ok()?;
+		let mut decoder = open_preview_decoder(bytes.clone(), started)?;
 		let duration = decoder.info().duration;
 		let mut frames: Vec<(f64, Arc<egui::ColorImage>)> = Vec::new();
 		let mut total = 0usize;
@@ -1982,6 +2092,40 @@ fn animation_frames(bytes: &[u8]) -> Option<image::Frames<'_>> {
 	})
 }
 
+/// What a job needs to read one cached file off the worker loop; the loop keeps the accounting.
+struct DiskReader {
+	root: PathBuf,
+	retention: Duration,
+}
+impl DiskReader {
+	fn read(&self, key: &str) -> io::Result<Option<Vec<u8>>> {
+		let name = disk_key(key).ok_or(io::ErrorKind::InvalidInput)?;
+		let path = self.root.join(format!("{name}.png"));
+		let file = match OpenOptions::new().read(true).write(true).open(&path) {
+			Ok(file) => file,
+			Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+			Err(error) => return Err(error),
+		};
+		let metadata = file.metadata()?;
+		if metadata.len() > encoded_limit(key) as u64
+			|| SystemTime::now()
+				.duration_since(metadata.modified()?)
+				.unwrap_or_default()
+				>= self.retention
+		{
+			return Ok(None);
+		}
+		let mut bytes = Vec::with_capacity(metadata.len() as usize);
+		(&file)
+			.take(encoded_limit(key) as u64 + 1)
+			.read_to_end(&mut bytes)?;
+		if bytes.len() > encoded_limit(key) {
+			return Ok(None);
+		}
+		file.set_modified(SystemTime::now())?;
+		Ok(Some(bytes))
+	}
+}
 struct Disk {
 	root: PathBuf,
 	bytes: u64,
@@ -2044,32 +2188,11 @@ impl Disk {
 		self.files = 0;
 		Ok(())
 	}
-	fn read(&mut self, key: &str) -> io::Result<Option<Vec<u8>>> {
-		let name = disk_key(key).ok_or(io::ErrorKind::InvalidInput)?;
-		let path = self.root.join(format!("{name}.png"));
-		let file = match OpenOptions::new().read(true).write(true).open(&path) {
-			Ok(file) => file,
-			Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-			Err(error) => return Err(error),
-		};
-		let metadata = file.metadata()?;
-		if metadata.len() > encoded_limit(key) as u64
-			|| SystemTime::now()
-				.duration_since(metadata.modified()?)
-				.unwrap_or_default()
-				>= self.retention
-		{
-			return Ok(None);
+	fn reader(&self) -> DiskReader {
+		DiskReader {
+			root: self.root.clone(),
+			retention: self.retention,
 		}
-		let mut bytes = Vec::with_capacity(metadata.len() as usize);
-		(&file)
-			.take(encoded_limit(key) as u64 + 1)
-			.read_to_end(&mut bytes)?;
-		if bytes.len() > encoded_limit(key) {
-			return Ok(None);
-		}
-		file.set_modified(SystemTime::now())?;
-		Ok(Some(bytes))
 	}
 	fn write(&mut self, key: &str, bytes: &[u8]) -> io::Result<()> {
 		if cdn_url(key).is_none() || bytes.len() > encoded_limit(key) {
@@ -2787,6 +2910,21 @@ mod tests {
 			] {
 				assert!(super::cdn_url(key).is_none());
 			}
+			assert_eq!(
+				super::cdn_url("anim:emoji-9001").as_deref(),
+				Some("https://cdn.discordapp.com/emojis/9001.gif?size=64")
+			);
+			assert!(super::is_animated_key("anim:emoji-9001"));
+			assert_eq!(super::decode_edge("anim:emoji-9001"), 128);
+			assert!(super::budget("anim:emoji-9001").frames.is_some());
+			for key in [
+				"anim:emoji-0",
+				"anim:emoji-../9001",
+				"anim:emoji-9001?size=8192",
+				"anim:emoji-https://example.com/x.gif",
+			] {
+				assert!(super::cdn_url(key).is_none(), "{key}");
+			}
 		}
 
 		{
@@ -3037,6 +3175,14 @@ mod tests {
 		assert!(!is_animated_key(&format!("effect-still-c-{hash}")));
 		assert!(!is_animated_key("frame-30-31"));
 		assert!(budget(&format!("effect-c-{hash}")).frames.is_some());
+		// Large catalog PNGs are decoded and scaled, not rejected by the icon canvas.
+		let art = budget("badge-art:https://cdn.discordapp.com/assets/content/a.png");
+		assert!(art.canvas >= 2048 && art.fit == 256 && art.frames.is_none());
+		// They use the media partition and lane, not the small-artwork budget.
+		assert_eq!(
+			partition("badge-art:https://cdn.discordapp.com/assets/content/a.png"),
+			model::CachePartition::Media
+		);
 		assert_eq!(budget("frame-30-31").fit, ui::FRAME_EDGE);
 		// Folder names are hashed before they reach the disk cache.
 		assert!(
@@ -3269,13 +3415,17 @@ mod tests {
 		}));
 		drop(disk);
 		let mut disk = Disk::open(account_a.clone()).unwrap();
-		assert_eq!(disk.read("default-0").unwrap().unwrap(), bytes);
-		assert_eq!(disk.read(embed_key).unwrap().unwrap(), bytes);
-		assert_eq!(disk.read("embed:sticker-7-3").unwrap().unwrap(), bytes);
-		assert_eq!(disk.read("app-icon-7").unwrap().unwrap(), bytes);
+		assert_eq!(disk.reader().read("default-0").unwrap().unwrap(), bytes);
+		assert_eq!(disk.reader().read(embed_key).unwrap().unwrap(), bytes);
+		assert_eq!(
+			disk.reader().read("embed:sticker-7-3").unwrap().unwrap(),
+			bytes
+		);
+		assert_eq!(disk.reader().read("app-icon-7").unwrap().unwrap(), bytes);
 		assert!(
 			Disk::open(account_b.clone())
 				.unwrap()
+				.reader()
 				.read("default-0")
 				.unwrap()
 				.is_none()
@@ -3296,7 +3446,7 @@ mod tests {
 			.set_modified(SystemTime::now() - RETENTION - Duration::from_secs(1))
 			.unwrap();
 		disk.prune(0, 0).unwrap();
-		assert!(disk.read("default-0").unwrap().is_none());
+		assert!(disk.reader().read("default-0").unwrap().is_none());
 		fs::remove_file(account_a.join(format!("{}.png", disk_key(embed_key).unwrap()))).unwrap();
 		fs::remove_file(account_a.join(format!("{}.png", disk_key("embed:sticker-7-3").unwrap())))
 			.unwrap();
@@ -3575,4 +3725,22 @@ pub(crate) fn debug_profile_resolution_check() {
 	println!(
 		"Profile avatar/banner renditions request source resolution; attachment signatures preserved."
 	);
+}
+
+#[test]
+fn provider_clip_stills_fetch_the_clip_and_unknown_hosts_stay_unfetched() {
+	let still = |source: &str| {
+		media_urls(&Rendition::parse(&format!("media:is:320x240:{source}")).unwrap())
+			.map(|urls| (urls.primary, urls.fallback))
+	};
+	for source in [
+		"https://static.klipy.com/ii/synthetic/a1.mp4",
+		"https://media.tenor.com/synthetic/clip.mp4",
+		"https://static.klipy.com/ii/synthetic/a1.webp",
+	] {
+		assert_eq!(still(source), Some((source.to_owned(), None)));
+	}
+	assert!(still("https://example.com/clip.mp4").is_none());
+	assert!(is_isobmff(b"\0\0\0\x18ftypmp42"));
+	assert!(decode(b"\0\0\0\x18ftypmp42 not a clip", &budget("gif:x")).is_none());
 }

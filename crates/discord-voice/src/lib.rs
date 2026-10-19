@@ -21,7 +21,7 @@ mod video_receive;
 mod video_sps;
 pub use crypto::Identity;
 pub use effects::{Effects, MAX_CLIP_SAMPLES};
-pub use transport::{run, run_stream, run_with_identity, watch_stream};
+pub use transport::{DISCONNECTED_BY_DISCORD, run, run_stream, run_with_identity, watch_stream};
 pub use video_receive::{RemoteFrame, VideoSink};
 pub mod camera_video;
 

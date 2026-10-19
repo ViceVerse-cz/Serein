@@ -808,6 +808,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = 视频预览 · 会�
 embeds-text-text-display-limited = 文字显示受限
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = 点击了解更多
 # Context: show
 emoji-details-show-a-custom-emoji = 自定义表情符号。
 # Context: show
@@ -3022,6 +3024,8 @@ server-menu-header-server-menu = 服务器菜单
 server-menu-leave-item-leave-server = 离开服务器
 # Context: read_item
 server-menu-read-item-mark-as-read = 标为已读
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = 全部标为已读
 # Context: settings_item
 server-menu-settings-item-server-settings = 服务器设置
 # Context: show
@@ -3685,6 +3689,8 @@ slash-commands-footer-refresh-application-commands = 刷新应用命令
 
 ## crates/ui/src/stickers.rs
 # Context: message
+stickers-message-from-an-unavailable-server = 此贴纸来自仅限邀请或不可用的服务器。
+# Context: message
 stickers-message-loading-sticker-details = 贴纸详细信息加载中…
 # Context: message
 stickers-message-retry-sticker-details = 重试贴纸详细信息
@@ -4291,6 +4297,10 @@ voice-voice-card-section-disconnect = 断开连接
 # Context: voice_card_section
 voice-voice-card-section-dismiss-call = 关闭通话
 # Context: voice_card_section
+voice-voice-card-section-reconnect-attempt = { $reason } · 第 { $attempt } 次尝试，共 { $total } 次
+# Context: voice_card_section
+voice-voice-card-section-reconnecting = 正在重新连接…
+# Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = 麦克风不可用 · 仍保持连接。请在音频设置改选其他输入。
 # Context: voice_channel_button
 voice-voice-channel-button-connected = ，已连接
@@ -4744,6 +4754,8 @@ settings-chat-box = 聊天框
 settings-convert-emoticons = 自动把消息中的颜文字转成表情符号
 
 settings-convert-emoticons-description = 发送或编辑消息时，把 :) 这类独立颜文字转成 🙂。代码和链接不变。
+settings-preload-on-hover = 悬停时预加载
+settings-preload-on-hover-description = 指针停留在对话、个人资料或 GIF 选择器上时预先加载，打开时即刻显示。使用与打开相同的请求，每类每分钟最多 12 次。
 
 profiles-board = 看板
 profiles-board-unavailable = 这个个人资料的看板无法使用。
@@ -4916,3 +4928,100 @@ composer-placeholder = 消息
 composer-placeholder-channel = 给 #{ $channel } 发消息
 # Context: composer_placeholder
 composer-placeholder-direct = 给 @{ $name } 发消息
+
+# Context: timeline_dm_intro
+timeline-dm-intro = 这是你与 { $name } 的私信记录的开头。
+
+# Context: timeline_channel_intro
+timeline-channel-intro-title = 欢迎来到 #{ $channel }！
+# Context: timeline_channel_intro
+timeline-channel-intro-start = 这是 #{ $channel } 频道的开头。
+# Context: text_menu
+text-menu-cut = 剪切
+text-menu-copy = 复制
+text-menu-paste = 粘贴
+text-menu-select-all = 全选
+# Context: media_box
+forum-composer-attached-files = 已附加 { $count } 个文件
+forum-composer-remove-file = 移除 { $file }
+post-menu-post-action-failed = 贴文操作失败
+post-menu-thread-action-failed = 帖子操作失败
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = 普通
+# Context: badges
+badges-rarity-rare = 稀有
+# Context: badges
+badges-rarity-epic = 史诗
+# Context: badges
+badges-rarity-mythic = 神话
+# Context: badges
+badges-always-visible = 始终显示在你的个人资料中
+# Context: badges
+badges-click-show = 点击显示
+# Context: badges
+badges-click-hide = 点击隐藏
+# Context: badges
+badges-customize-title = 自定义你的徽章
+# Context: badges
+badges-customize-hint = 拖动以重新排序，并隐藏不想让他人看到的徽章。
+# Context: badges
+badges-none = 暂无可显示的徽章。
+# Context: badges
+badges-reset = 重置
+# Context: badges
+badges-saving = 正在保存…
+# Context: badges
+badges-save = 保存
+# Context: badges
+badges-view = 查看徽章
+# Context: badges
+badges-your = 你的徽章
+# Context: badges
+badges-user = { $name } 的徽章
+# Context: badges
+badges-browse = 浏览你的徽章，发现可以解锁的新徽章。
+# Context: badges
+badges-available = 可解锁
+# Context: badges
+badges-customize-button = 自定义你的徽章
+# Context: badges
+badges-close = 关闭
+# Context: badges
+badges-locked = 尚未解锁
+# Context: badges
+badges-date-unlocked = 解锁日期
+# Context: badges
+badges-rarity = 稀有度
+# Context: badges
+badges-max-level = 你已达到此徽章的最高等级。
+# Context: badges
+badges-next-level = 下一级：{ $tier }
+# Context: badges
+badges-all-levels = 查看所有等级
+# Context: badges
+badges-hide-levels = 隐藏等级
+# Context: badges
+badges-manage = 管理徽章
+page-language-time = 语言与时间
+description-language-time = 显示语言和时间格式。
+time-format-group = 时间格式
+time-format-auto = 自动
+time-format-12-hour = 12 小时制
+time-format-24-hour = 24 小时制
+profiles-status-edit = 编辑状态
+profiles-status-clear = 清除状态
+send-throttled-title = 哇，太辣了
+send-throttled-body = 你发送消息太快了！
+send-throttled-dismiss = 关闭提示
+profiles-private-profile = 私密资料
+profiles-private-notice = { $name } 的个人资料是私密的，部分信息已隐藏。添加为好友即可查看更多。
+settings-cosmetics-name-styles = 名称样式
+settings-cosmetics-name-styles-description = Nitro 显示名称的字体、颜色和特效。
+search-overlays-message-contains = 消息包含
+search-overlays-no-matching-content-types = 没有匹配的内容类型
+search-overlays-history = 历史记录
+search-overlays-clear-history = 清除搜索历史
+main-sign-in-rate-limited-detail = Discord 正在限制此次登录。请稍候再试。过早重试可能会延长等待时间。

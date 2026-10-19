@@ -603,7 +603,10 @@ pub(super) fn unpack(
 		let mut entry = archive
 			.by_index(index)
 			.map_err(|_| "Cannot read an update archive entry.".to_owned())?;
-		let path = safe_path(entry.name())?;
+		let name = entry
+			.name()
+			.map_err(|_| "The update archive has an invalid filename.".to_owned())?;
+		let path = safe_path(&name)?;
 		if entry.encrypted()
 			|| entry.is_symlink()
 			|| entry
@@ -1015,7 +1018,7 @@ if ($remaining.Count -eq 0) {
 }
 "#;
 
-#[cfg(feature = "demo")]
+#[cfg(any(test, feature = "demo"))]
 pub(super) fn debug_check() -> Result<(), String> {
 	let mut header = [0; 20];
 	header[..7].copy_from_slice(b"\x7fELF\x02\x01\x01");
@@ -1133,4 +1136,12 @@ pub(super) fn debug_check() -> Result<(), String> {
 		}
 	}
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn guarded_zip_reader_and_archive_limits() {
+		super::debug_check().unwrap();
+	}
 }

@@ -1,7 +1,7 @@
 # Linux AppImage
 
 Download `serein-<version>-Linux-X64.AppImage` from
-[Releases](https://github.com/ViceVerse-cz/rustcord/releases), keep it in a writable
+[Releases](https://github.com/ViceVerse-cz/Serein/releases), keep it in a writable
 directory, and make it executable:
 
 ```sh

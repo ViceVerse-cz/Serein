@@ -18,6 +18,7 @@ struct Inline {
 	image: Option<Image<'static>>,
 	asset: Option<model::ImageShare>,
 	icon: Option<crate::icons::Icon>,
+	game_icon: Option<String>,
 }
 
 #[derive(Default)]
@@ -28,6 +29,7 @@ pub(crate) struct Layout {
 }
 
 impl Layout {
+	#[cfg(any(test, debug_assertions))]
 	#[allow(clippy::too_many_arguments)]
 	pub fn galley(
 		&mut self,
@@ -41,9 +43,37 @@ impl Layout {
 		avatars: &mut Avatars,
 		demo: bool,
 	) -> Arc<egui::Galley> {
+		self.galley_games(
+			ui,
+			text,
+			width,
+			users,
+			roles,
+			channels,
+			&Default::default(),
+			mass_mentions,
+			avatars,
+			demo,
+		)
+	}
+	#[allow(clippy::too_many_arguments)]
+	pub fn galley_games(
+		&mut self,
+		ui: &egui::Ui,
+		text: &str,
+		width: f32,
+		users: &[User],
+		roles: &[model::permissions::Role],
+		channels: &[model::Channel],
+		games: &client_core::game_mentions::Catalog,
+		mass_mentions: bool,
+		avatars: &mut Avatars,
+		demo: bool,
+	) -> Arc<egui::Galley> {
 		self.demo = demo;
 		let mut key = DefaultHasher::new();
 		text.hash(&mut key);
+		games.revision.hash(&mut key);
 		width.to_bits().hash(&mut key);
 		crate::fonts::revision(ui.ctx()).hash(&mut key);
 		ui.ctx().pixels_per_point().to_bits().hash(&mut key);
@@ -109,8 +139,24 @@ impl Layout {
 			let mut image = None;
 			let mut asset = None;
 			let mut icon = None;
+			let mut game_icon = None;
 			let mut artwork = false;
-			let length = if let Some((id, len)) = model::user_mention_prefix(tail) {
+			let length = if let Some((id, len)) = model::game_mention_prefix(tail) {
+				label = Some((games.label(id), colors.mention_text));
+				background = colors.mention_bg;
+				icon = Some(crate::icons::Icon::GameController);
+				game_icon = games.find(id).map(model::GameMention::icon_key);
+				len
+			} else if tail.starts_with("@game ")
+				&& text[..byte]
+					.chars()
+					.next_back()
+					.is_none_or(|c| c.is_whitespace() || matches!(c, '(' | '[' | '{'))
+			{
+				label = Some(("@game".into(), colors.text));
+				background = colors.selected;
+				5
+			} else if let Some((id, len)) = model::user_mention_prefix(tail) {
 				let name = users
 					.iter()
 					.find(|u| u.id == id)
@@ -195,6 +241,7 @@ impl Layout {
 					image,
 					asset,
 					icon,
+					game_icon,
 				});
 				projected += 1;
 			} else {
@@ -281,15 +328,25 @@ impl Layout {
 				painter.rect_filled(rect, 3, inline.background);
 				let offset = if let Some(icon) = inline.icon {
 					let size = emoji::inline_size(ui);
-					crate::icons::paint(
-						&painter,
-						icon,
-						egui::Rect::from_center_size(
+					if let Some(key) = &inline.game_icon {
+						let icon_rect = egui::Rect::from_center_size(
 							egui::pos2(rect.left() + 3.0 + size / 2.0, rect.center().y),
-							egui::Vec2::splat(size * 0.65),
-						),
-						crate::design::palette(ui).mention_text,
-					);
+							egui::Vec2::splat(size),
+						);
+						let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon_rect));
+						child.set_clip_rect(clip);
+						avatars.show_icon(&mut child, Some(key.clone()), size, self.demo, "Game");
+					} else {
+						crate::icons::paint(
+							&painter,
+							icon,
+							egui::Rect::from_center_size(
+								egui::pos2(rect.left() + 3.0 + size / 2.0, rect.center().y),
+								egui::Vec2::splat(size * 0.65),
+							),
+							crate::design::palette(ui).mention_text,
+						);
+					}
 					size
 				} else {
 					0.0
@@ -388,6 +445,59 @@ impl Layout {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn game_chips_preserve_wire_characters_and_refresh_when_catalog_arrives() {
+		let ctx = egui::Context::default();
+		let mut layout = super::Layout::default();
+		let mut avatars = super::Avatars::default();
+		let mut games = client_core::game_mentions::Catalog::default();
+		let text = "Play <@$42> @game dea";
+		for loaded in [false, true] {
+			if loaded {
+				games.finish(Ok(vec![model::GameMention {
+					id: model::Id(42),
+					name: "Deadlock".into(),
+					icon: None,
+				}]));
+			}
+			for width in [80.0, 400.0] {
+				let output = ctx.run_ui(Default::default(), |ui| {
+					let galley = layout.galley_games(
+						ui,
+						text,
+						width,
+						&[],
+						&[],
+						&[],
+						&games,
+						false,
+						&mut avatars,
+						true,
+					);
+					assert_eq!(galley.job.text, text);
+					assert_eq!(
+						galley
+							.rows
+							.iter()
+							.map(|row| row.glyphs.len() + usize::from(row.ends_with_newline))
+							.sum::<usize>(),
+						text.chars().count()
+					);
+					assert_eq!(layout.inlines.len(), 2);
+					assert_eq!(
+						layout.inlines[0].label.as_ref().unwrap().job.text,
+						if loaded {
+							"Deadlock"
+						} else {
+							"Unknown game (42)"
+						}
+					);
+					assert_eq!(layout.inlines[1].label.as_ref().unwrap().job.text, "@game");
+				});
+				output.drop_without_applying_deltas();
+			}
+		}
+	}
 	use super::*;
 
 	#[test]

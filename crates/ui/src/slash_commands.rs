@@ -250,6 +250,13 @@ impl Menu {
 	pub fn visible(&self) -> bool {
 		self.enabled && !self.dismissed && (self.query.is_some() || self.active.is_some())
 	}
+	/// Whether [`Self::keys`] accepts Tab, so the composer must keep it from focus navigation.
+	pub fn claims_tab(&self, ctx: &egui::Context) -> bool {
+		self.visible()
+			&& self.active.is_none()
+			&& !self.items.is_empty()
+			&& !egui::Popup::is_any_open(ctx)
+	}
 	pub fn keys(&mut self, ctx: &egui::Context) -> Option<Pick> {
 		if !self.visible() || egui::Popup::is_any_open(ctx) {
 			return None;

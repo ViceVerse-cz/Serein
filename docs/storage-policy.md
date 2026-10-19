@@ -1,5 +1,46 @@
 # Local storage policy and audit
 
+## Per-conversation reply and attachment staging (October 16, 2026)
+
+Leaving a conversation keeps its unsent reply target and staged files in session RAM for
+the next visit. Parked reply targets are message IDs only, at most 64, keyed by session
+generation and channel; one is restored only while the conversation still accepts messages
+and its target is not known to be deleted. Parked attachments keep at most 8 conversations
+and 64 MiB of in-memory pasted bytes and thumbnails together; chosen files hold only their
+inspected metadata. The oldest conversation's files are removed first, and a selection
+larger than the whole budget is removed when leaving, each with an error notice. Files
+return only to the generation and channel they were staged in. Disconnect, a session
+change, logout or lost channel access drops them. Selections still loading and uploads in
+flight are still cancelled by navigation. Nothing here is written to disk.
+
+## Game mention catalog (October 14, 2026)
+
+Game search retains a process-local catalog capped at 65,536 entries and 16 MiB of
+estimated container/name/icon allocations. The public list download is capped at 24 MiB,
+with one in-flight request and one result slot. JSON decoding runs off the UI and async
+workers. Names are limited to 128 bytes; icon hashes and IDs are validated. Search keeps
+at most 256 results and only paints visible popup rows. Unchanged game queries reuse
+their results rather than rescan the catalog each frame. There is no new catalog file or
+database schema. Icons use the existing bounded artwork worker/cache, and message drafts
+retain the original application-reference text through existing draft storage.
+
+## GIF preview recovery (October 13, 2026)
+
+Failed GIF animation downloads show a still during the existing five-second backoff,
+then retry the same rendition. Failure at one size does not suppress other sizes.
+Clip still downloads use the existing 16-MiB encoded clip limit. Failed clip stills
+settle without repeated downloads until their slot is evicted or the animation setting
+changes; temporary clip download failures share this behavior. Unsigned attachment
+favorites keep their picker placeholder without a request. Cached clips that provide
+an opening frame are not downloaded again merely because full animation decoding failed.
+Video animation decoding retains one temporary opening-frame copy for fallback instead
+of reopening the decoder when the remaining clip fails. This copy is bounded by the
+requested output edge and released with the decode job. Linux GIF preview startup and
+preroll waits share the three-second decode deadline; timeout stops the pipeline through
+the existing cleanup guard. Synchronous codec calls, conversion and teardown can exceed
+that deadline, so it is not a hard wall-clock limit. Shared decode permits remain held
+until the actual worker finishes. No detached decoder or new persistent data is added.
+
 ## Image cache settings and shared artwork (October 12, 2026)
 
 Each account's image disk cache now has two partitions. Media stays in
@@ -24,8 +65,9 @@ can clear either one without stopping image loading. The existing Clear cache st
 both partitions with history. Logout still removes the whole account directory.
 
 Settings › Appearance › Profile cosmetics turns on avatar decorations, nameplates, profile
-effects and profile frames for this device. All four are opt-in and off by default. Hidden
-cosmetics are not drawn and their artwork is not requested. Hidden effects and frames also
+effects, profile frames and Nitro name styles for this device. All five are opt-in and off by
+default. Hidden cosmetics are not drawn and their artwork is not requested. Name styles need
+no download: their fonts are bundled, and a font is parsed only when a styled name first uses it. Hidden effects and frames also
 skip the optional catalog read for new profile loads. Turning them on drops the RAM profile
 cache so details reload. Both preferences live in the bounded `app_preferences` row; older
 rows load with every cosmetic hidden and the historical budgets.
@@ -119,6 +161,9 @@ This includes Lottie, still, animation and native thumbnail decoding; it does
 not change download concurrency, decoder byte budgets or the result queue.
 Encoded input, completed results, UI textures and driver memory remain additional.
 Eight slots are an admission ceiling, not a whole-process RAM limit.
+Each load reads its own cached file on a blocking thread, so a large stored clip no longer
+holds up dispatch; the worker loop still owns writes, pruning, clears and size accounting. The
+download client keeps up to eight idle connections per host, one per concurrent load.
 
 Screen watching keeps one reused copy of the latest native picture (NV12/I420,
 at most 3,110,400 bytes at 1080p). The UI uploads it to the GPU under the slot lock, so
@@ -607,8 +652,10 @@ Retry saving is deliberate. Closing with pending/failed writes prompts before di
 In-app preview edits are not saved; a write already requested outside preview still completes.
 The standalone --demo does not start the SQLite worker. Narrow People overlays remain
 session-local. Normal window geometry is device-local in the bounded app_preferences singleton:
-two logical size integers (1..=16,384) and an optional physical position pair
-(-131,072..=131,072). It survives account logout and introduces no new file or table.
+two logical size integers (1..=16,384), an optional physical position pair
+(-131,072..=131,072) and a maximized boolean. While maximized, the normal size and position are
+kept so un-maximizing after a restart returns to them. It survives account logout and introduces
+no new file or table.
 Notification opt-in, hidden-channel visibility, primary RGB color, audio devices (up to 1,024 bytes each),
 input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings and the global-keybind
 switch (enabled by default) are saved in the device-wide `app_preferences`
@@ -622,11 +669,16 @@ is bounded to 0–3 and sensitivity to −80..=0 dBFS or disabled. Active proces
 replace one fixed-size watch snapshot. Existing eight-frame PCM queue limits are unchanged;
 processing has no downloaded model, recording, or persistent audio data.
 
-Recently visited conversations now keep at most two dormant RAM timelines in the current
-account session, moved rather than cloned. Only readable Fresh ordinary text windows are parked;
-search-target ranges and transient archived threads are excluded. Promotion rechecks identity
-and read permission. Ordinary selection shows a Loading preview and requests a fresh recent
-service page. An exact message-link hit in an eligible resident window instead scrolls locally,
+Recently visited conversations now keep at most eight dormant RAM timelines in the current
+account session, moved rather than cloned; the shared row/byte budget below usually evicts sooner.
+Only readable Fresh ordinary text windows are parked; search-target ranges and transient archived
+threads are excluded. Promotion rechecks identity and read permission. A window parked less than
+five minutes ago, while the gateway is connected, whose newest message equals the channel's latest
+known message reopens as Fresh without a service request: any live message, edit or reaction for
+that channel would already have evicted it, and deletions apply to it in place. Trusting it relies
+on the gateway delivering every such event for the channel (unverified for very large servers); the
+five-minute age cap bounds that. Any other selection shows a Loading preview and requests a fresh
+recent service page. An exact message-link hit in an eligible resident window instead scrolls locally,
 without starting recent-history or saved-cursor REST. An offline miss is checked before promotion.
 This is a preview cache, not saved historical scroll position. It avoids a SQLite read on a hit.
 Unknown/deleted-only row handling retains the same guards as the active window.
@@ -640,8 +692,47 @@ without touching drafts or pending sends. Incoming mutations evict the affected 
 permission/identity changes prune it, and session replacement/resync/logout removes all dormant
 history. One fixed-size, session-only `(channel, request, target)` tuple tracks an exact history
 navigation independently of the UI's consumed scroll cue; it is not a message/metadata cache.
+A timeline retains one boolean for oldest-row capacity eviction. A completed short history page
+resets it; subsequent row or byte eviction restores older-page access even on a trusted reopen.
 Clear cached history removes dormant RAM and disk history while preserving the active
 displayed conversation. No new disk data, database schema, worker or service request is added.
+
+Resting the pointer on a conversation row, a rail DM or a server icon for 120 ms, or pressing it,
+requests that conversation's recent page early (a server icon uses the channel its click opens).
+It is the same bounded 50-message request a click sends, on its own connection slot so it never
+cancels the open conversation's reads. A preload never waits: it takes a REST permit only while
+three of the four are free and fails at once during the shared cooldown, so clicks keep two permits;
+a click that adopted such a preload sends its own request instead.
+At most one preload is in flight and at most twelve are sent per minute; a target is not requested
+again for five minutes unless its latest message changes, and failure, eviction of its preloaded
+window or connection replacement forgets the attempt. A click on the
+target while its page is less than 30 seconds old adopts that request instead of sending another, unless a live
+change to the channel arrived meanwhile; then the click sends its own request and the preloaded
+page is discarded. Otherwise the page is kept as one dormant window under the same eight-window,
+row and byte budget above, again only if no live change arrived while it was in flight. Preloaded
+windows take at most three of the eight slots and are evicted before conversations the user opened.
+One stays current while the channel's latest known message is unchanged, also when that message
+was deleted and the page ends earlier. The open conversation, forums, archived
+threads, unreadable channels, channels without messages, an already current dormant window, the
+offline fixture and a pending conversation load are never preloaded. No disk data is written.
+
+Resting on a person for 300 ms, or pressing them, requests the profile their card would open,
+with the same server context and query, under the same one-in-flight and twelve-per-minute limits
+(counted separately from conversations). An unopened result goes into the existing 32-entry,
+1 MiB, 15-minute profile cache; a card opened while it is in flight adopts the request. Profiles
+already cached or open, webhooks, and the offline fixture are skipped. Resting on the GIF button
+of a closed picker requests its home page (served from the existing ten-minute page cache when
+fresh) and the favorites sync once, and asks the image worker for the favorite preview, the first
+trending preview and the first eight category previews under the worker's existing bounds. These
+previews are loaded but not played until the picker shows them.
+GIF home hover reads retain at most twelve timestamps and send at most twelve requests per
+minute, including failed/cleared-view retries. Cache hits consume no slot; explicit clicks and
+retries keep their normal behavior. Timestamp allocation is included in the GIF byte estimate.
+Connection replacement, READY, disconnect and resync discard conversation/profile flight and
+adoption markers while preserving the minute caps and request counters. Adopted profile results
+may finish an open card, but invalidated results cannot refill the profile cache. The desktop
+retains at most four speculative tasks; a full pool rejects new work with a correlated error
+instead of silently aborting a read already adopted by a click.
 
 Loaded messages deleted by the service leave only their ID as a session-local reading row.
 Author, body, attachment and embed metadata are dropped from the timeline and its formatted /
@@ -679,10 +770,10 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 
 | Data | Location / bound | Removal |
 |---|---|---|
-| Discord token | OS credential store, service `cz.viceverse.serein`; packaged builds use account `discord-session` for the session restored on launch and `discord-session.<account id>` for each remembered account, while default source builds use the corresponding `discord-session.development` names; at most 2048 bytes each. A per-account entry is written once, when the roster records none, and rewritten only for a token the owner just supplied: on macOS every access to an existing entry is governed by that item's keychain ACL | Explicit logout / Forget saved login removes both entries for that build profile's account; forgetting or pruning a saved account removes its per-account entry; invalid-token expiry also requests deletion |
+| Discord token | OS credential store by default, service `cz.viceverse.serein`; packaged builds use account `discord-session` for the session restored on launch and `discord-session.<account id>` for each remembered account, while default source builds use the corresponding `discord-session.development` names; at most 2048 bytes each. A per-account entry is written once, when the roster records none, and rewritten only for a token the owner just supplied: on macOS every access to an existing entry is governed by that item's keychain ACL | Explicit logout / Forget saved login removes both entries for that build profile's account; forgetting or pruning a saved account removes its per-account entry; invalid-token expiry also requests deletion. The explicit plaintext fallback below shares these removal paths |
 | Remembered accounts (switcher) | `accounts` table in `client.sqlite3`: at most 8 rows of account ID, username, display name (64 bytes each), avatar hash, last-use timestamp and a flag recording whether the credential store holds that account's entry; no token | Logging out of, or forgetting, that account; the least recently used row is pruned past 8, taking its token and cached data with it |
 | History and drafts | `SEREIN_DATA_DIR/client.sqlite3` when an absolute override is set; otherwise `dirs::data_local_dir()/serein-development/client.sqlite3` for default source builds and `dirs::data_local_dir()/serein/client.sqlite3` for packaged builds | Clear cached history also clears service images and keeps drafts; logout clears the authenticated account’s history and drafts |
-| Messages | 500 per window, at most 20 stored channel windows globally, 48 MiB estimated text/metadata; SQLite main database capped at 64 MiB | Oldest touched channel evicted transactionally |
+| Messages | 500 per window, at most 20 stored channel windows globally, 48 MiB estimated text/metadata; SQLite main database capped at 64 MiB. A window that reaches its channel's first message also stores that message ID, so the channel introduction can show with the cached window | Oldest touched channel evicted transactionally, with its first-message ID |
 | Avatar, server-icon, profile-banner and message-preview PNGs | Account subdirectory beneath the selected application-data root's `avatars`; media defaults to 1 GiB / 4096 files per account (owner presets 256 MiB–4 GiB), shared artwork (emoji, badges, server tags and icons, role icons, decorations, nameplates) to 128 MiB / 4096 files in `artwork/` (presets 64–512 MiB), 90 days since last use by default (presets 7–365), at most 2 MiB per preview (512 KiB for icons/avatars) | Clear cache, per-partition clear in Settings › Storage, or account logout; versioned avatar/icon/banner keys and hashed media-source keys separate changed images |
 | Selected profile metadata | One session-memory record, at most 64 KiB; profile response body at most 256 KiB | Closing/changing the profile, session reset or logout; no SQLite profile table |
 | Explicit attachment downloads | User-selected destination, 1 byte through 100 MiB per original file; one active dialog/transfer; randomized sibling partial while writing | Cancel/error removes the partial when possible; completed downloads remain user-owned outside cache cleanup |
@@ -695,11 +786,46 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | Voice credentials, DAVE identities/keys and PCM/Opus audio | Session memory only; one call, bounded media queues; no recording or audio cache | Hangup, failure, logout and application teardown; no forensic-erasure claim |
 | Audio devices, input profile/custom processing, push-to-talk and gain | Device-wide `app_preferences` SQLite singleton, bounded to 16 KiB; device names ≤1,024 bytes each | Retained across restart/logout; demo changes remain in memory |
 | Automatic emoticon conversion | Boolean in the existing device-wide `app_preferences` singleton; defaults off, including older saved preferences | Retained across restart/logout; converts standalone emoticons on message send/edit; demo changes remain in memory |
+| Preload on hover | Boolean in the existing device-wide `app_preferences` singleton; defaults on, including older saved preferences | Retained across restart/logout; off stops conversation, profile and GIF picker preloads; demo never preloads conversations or profiles |
 | Authentication page | Wry incognito on Windows/macOS; ephemeral WebKit6 NetworkSession on Linux, destroyed on token handoff/cancel/timeout | Platform engine teardown; OS artifacts not promised erased |
 
-Typical packaged-build database directories: macOS `~/Library/Application Support/serein`, Windows `%LOCALAPPDATA%/serein`, Linux `$XDG_DATA_HOME/serein` or `~/.local/share/serein`; default source builds use the sibling `serein-development` directory. An absolute `SEREIN_DATA_DIR` selects the root for SQLite, image caches, extensions and detectable-game metadata; an empty or relative override disables those stores instead of falling back to production data. `cargo xtask package` disables the development feature, so distributed executables use the packaged-build directory and credential namespace. Newly created Unix data directories are private (0700); existing override permissions are preserved. Database contents are **not encrypted by Serein**. OS token protection does not encrypt history, backups or drafts, and the override does not relocate credentials from the OS store.
+Typical packaged-build database directories: macOS `~/Library/Application Support/serein`, Windows `%LOCALAPPDATA%/serein`, Linux `$XDG_DATA_HOME/serein` or `~/.local/share/serein`; default source builds use the sibling `serein-development` directory. An absolute `SEREIN_DATA_DIR` selects the root for SQLite, image caches, extensions and detectable-game metadata; an empty or relative override disables those stores instead of falling back to production data. `cargo xtask package` disables the development feature, so distributed executables use the packaged-build directory and credential namespace. Newly created Unix data directories are private (0700); existing override permissions are preserved. Database contents are **not encrypted by Serein**. OS token protection does not encrypt history, backups or drafts, and the override does not relocate OS credential entries. Opted-in plaintext login files use the selected data root.
 
-The app writes no background log, analytics, crash upload, saved password, MFA ticket, or plaintext credential file. A separate credential-free CDN downloader loads visible avatars, server icons, profile banners and validated service-proxied message images. Build outputs, this documentation, synthetic test databases and package files are development artifacts.
+The app writes no background log, analytics, crash upload, saved password or MFA ticket. Plaintext login files require the explicit opt-in described below. A separate credential-free CDN downloader loads visible avatars, server icons, profile banners and validated service-proxied message images. Build outputs, this documentation, synthetic test databases and package files are development artifacts.
+
+Settings › Storage offers **Save login in plaintext without a keyring**, disabled for
+new and migrated preferences. With explicit consent, failed or timed-out OS saves
+fall back to `<data dir>/plaintext-login/<entry>`. The token is unencrypted and can
+be read by software running as the same user, administrators and backups. Unix
+storage requires a nonsymlink 0700 directory and 0600 regular files; Windows uses
+the user data directory's inherited ACL. Files are published through exclusively
+created temporary files and atomic replacement. There are at most ten secret files
+(one launch entry, eight accounts and one incoming account before roster pruning),
+2,048 token bytes each, plus at most 64 empty authority markers. Directory scans admit
+at most 75 files, including interrupted temporary writes;
+new saves fail visibly at the limit. Startup and Forget remove interrupted writes.
+A plaintext file is authoritative over an older OS entry. A successful subsequent
+OS save removes the plaintext copy. Empty `.stale-<entry>` markers contain no token
+and prevent stale or late OS writes from restoring an account after plaintext
+removal; markers clear after confirmed OS replacement/deletion. A coalesced committed-roster
+snapshot removes orphaned per-account secrets and markers, retaining at most eight
+remembered IDs plus the current account. Up to ten newly saved account IDs remain
+protected until a later committed roster acknowledges them, so a delayed older
+snapshot cannot erase a new saved login. Forgotten per-account slots can also clear
+when no OS store exists. Disabling removes secret
+files immediately in worker order, retains these bounded markers, and retries
+failed cleanup on the next startup. Forget also removes plaintext while disabled.
+Deletion is not forensic erasure. Proxy credentials remain OS-store-only.
+
+Login credential IO uses one worker for local operations and one native keyring
+worker, with at most one active and one queued native request. Each native request
+has a five-second wait budget; an unresponsive provider can retain those bounded
+requests and their zeroizing secrets until it returns or the process exits. Late
+results cannot replace a newer authoritative plaintext entry. Expired queued native requests are skipped. Forget writes an empty authority marker
+even when plaintext fallback is disabled, before attempting native deletion. The current login
+shares the connection's secret allocation until session teardown so enabling or
+re-enabling fallback can save it without another authentication. Demo never opens
+these stores. These are synthetic implementation checks, not live keyring evidence.
 
 SQLite work is serialized on a worker. Normal startup opens the database to load appearance and reading/layout preferences before authentication; `--demo` does not open the account database or credential store. Extension catalog refresh, previews and selected package installs may download public GitHub content; extension files use a separate bounded temporary demo profile. Schema version 8 adds the bounded reading/layout singleton while preserving author metadata, embeds/suppression, attachments, mentioned users and unsupported-content presence bits; older history and drafts remain readable. Embed and attachment JSON are each capped at 256 KiB per message; mentioned users are capped at 100 entries and 128 KiB JSON. All three contribute to eviction accounting. Signed original/preview URLs and mention names/avatar hashes may be retained in unencrypted cached message metadata. Draft save status is visible; a full queue or disk failure is reported and must not be described as saved. An interrupted send may leave a saved draft for content Discord already accepted: recovered text never automatically sends. Normal close waits for queued store work if necessary; logout orders one transactional account deletion after earlier writes. Deletion is not a forensic erasure guarantee.
 
@@ -790,7 +916,7 @@ disconnect or session reset; member lookups are temporary. Disconnected states a
 admitted for voice do not consume the actual roster's count budget. The 4 MiB wire bound and
 the actual roster's 4,096-entry / 1 MiB bounds are unchanged; no new disk storage is introduced.
 
-Image attachment metadata remains bounded by 10 attachments / 64 KiB retained metadata and 256 KiB JSON per message, including original/proxy signed URLs. It counts toward existing window, pending-patch and database budgets. Decoded pixels reuse the shared media worker/cache; spoiler attachments are not requested before explicit reveal. Profile metadata (bio, pronouns, badges, connections and mutual-server summaries) stays in the single bounded RAM view. Profile and server-specific banner/avatar pixels may remain in the shared account image cache after closing the profile; cache clear/logout removes them under the same policy. Equipped cosmetics (decoration, nameplate, effect and frame details) are display-only RAM values that are never written to SQLite. Decoration and still-nameplate artwork use the shared-artwork partition; effect layers, frame layers and animated nameplates use the media partition. Cosmetics hidden in Settings are not requested. Profile effect and frame catalog details are kept in a session-only cache of at most 64 SKUs.
+Image attachment metadata remains bounded by 10 attachments / 64 KiB retained metadata and 256 KiB JSON per message, including original/proxy signed URLs. It counts toward existing window, pending-patch and database budgets. Decoded pixels reuse the shared media worker/cache; spoiler attachments are not requested before explicit reveal. Profile metadata (bio, pronouns, badges, connections and mutual-server summaries) stays in the single bounded RAM view. Profile and server-specific banner/avatar pixels may remain in the shared account image cache after closing the profile; cache clear/logout removes them under the same policy. Equipped cosmetics (decoration, nameplate, name style, effect and frame details) are display-only RAM values that are never written to SQLite. Decoration and still-nameplate artwork use the shared-artwork partition; effect layers, frame layers and animated nameplates use the media partition. Cosmetics hidden in Settings are not requested. Profile effect and frame catalog details are kept in a session-only cache of at most 64 SKUs. A viewed profile's badge catalog (at most 40 badges and 48 KiB) stays in the same bounded RAM profile view and cache and is never persisted; badge settings are written only to Discord on an explicit Save.
 
 Explicit Download creates an original attachment file only at the user-selected location. Suggested filenames are sanitized; downloads never reinterpret message filenames as destination paths, follow redirects, or send credentials to the CDN. Existing regular files are replaced only after native Save confirmation and a complete, flushed transfer. A new destination is published without overwriting a file created meanwhile. The one worker closes/removes its sibling partial on cancellation or failure; cleanup failures are visible. Forced termination or a filesystem error can leave a `.serein-*.partial` sibling, and macOS, Linux and Windows publish new files with exclusive native moves so hard-link support is not required. Normal close waits for the active worker; a cancelled native dialog must still be dismissed. Downloads are explicit user files, not account cache entries, and survive logout/cache clearing. Limits and transfer bounds are strictly enforced.
 
