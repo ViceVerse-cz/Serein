@@ -153,7 +153,7 @@ def package(root, application_version):
             f"Package: serein\nVersion: {version}\nArchitecture: {architecture}\n"
             "Section: net\nPriority: optional\n"
             "Maintainer: Serein contributors <noreply@github.com>\n"
-            "Homepage: https://github.com/ViceVerse-cz/rustcord\n"
+            "Homepage: https://github.com/ViceVerse-cz/Serein\n"
             f"Installed-Size: {installed_kib}\nDepends: {depends}\n"
             "Recommends: gnome-keyring, xdg-desktop-portal-gnome | xdg-desktop-portal-kde | xdg-desktop-portal-wlr, "
             "gstreamer1.0-plugins-bad, gstreamer1.0-gl, gstreamer1.0-libav\n"
