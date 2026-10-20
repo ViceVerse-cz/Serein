@@ -5465,10 +5465,12 @@ impl eframe::App for Desktop {
 		if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Q)) {
 			self.tray_window.quit(ctx);
 		}
+		let window_visible = self.window.is_visible();
 		self.tray_window.logic(
 			ctx,
 			self.background_available(),
-			self.window.is_visible().is_some(),
+			window_visible.is_some(),
+			window_visible,
 		);
 		// The hide command lands after this frame, so the flag leads reported visibility.
 		// Occlusion can occur during macOS fullscreen transitions; it is not a request
