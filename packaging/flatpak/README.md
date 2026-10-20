@@ -1,13 +1,13 @@
 # Flatpak
 
 Build on native Linux with Python 3.11+, Git, rustup and the repository's pinned
-Rust 1.98.1 toolchain installed. GNOME SDK/Platform 49 supplies GTK4/WebKit6 and
+Rust 1.98.1 toolchain installed. GNOME SDK/Platform 51 supplies GTK4/WebKit6 and
 native media/build libraries. The toolchain is copied into build-only sources;
 no moving Rust SDK extension or compiler is shipped in the application.
 
 ```sh
 flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak install --user --noninteractive --no-related flathub org.gnome.Sdk//49 org.gnome.Platform//49
+flatpak install --user --noninteractive --no-related flathub org.gnome.Sdk//51 org.gnome.Platform//51
 python3 packaging/flatpak/build.py target/flatpak-build
 ```
 
@@ -134,7 +134,7 @@ and `--filesystem=xdg-run/discord-ipc-0`. The loopback WebSocket transport needs
 
 References: [Flatpak sandbox permissions](https://docs.flatpak.org/en/latest/sandbox-permissions.html),
 [Cargo vendoring](https://doc.rust-lang.org/cargo/commands/cargo-vendor.html),
-[GNOME 49 developer platform](https://release.gnome.org/49/developers/).
+[GNOME 51 developer platform](https://release.gnome.org/51/developers/).
 
 Preparation regression check (no network, compiler build, installation or login):
 `python3 -m unittest discover -s packaging/flatpak -p 'test_*.py'`.

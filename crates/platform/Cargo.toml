@@ -38,7 +38,7 @@ zbus = { version = "=5.19.0", default-features = false, features = ["tokio", "bl
 zbus-secret-service-keyring-store = { version = "=1.0.1", features = ["crypto-rust"] }
 ashpd = { version = "=0.13.13", default-features = false, features = ["tokio", "global_shortcuts", "settings"] }
 futures-util.workspace = true
-gtk4 = { version = "=0.11.4", features = ["v4_10"] }
+gtk4 = { version = "=0.11.5", features = ["v4_10"] }
 webkit6 = "=0.6.1"
 
 [lints.rust]

@@ -20,9 +20,15 @@ fn lifetime(level: design::Level) -> f64 {
 }
 /// Trailing fade, counted inside the lifetime.
 const FADE: f64 = 0.45;
+/// Entry fade and slide; a handful of frames, then the toast is a still image again.
+const APPEAR: f64 = 0.18;
+const SLIDE: f32 = 10.0;
 /// Older notices are dropped past this. A stack of toasts is just a status line again.
 const MAX: usize = 3;
-const WIDTH: f32 = 360.0;
+const WIDTH: f32 = 380.0;
+/// Severity rail along the leading edge.
+const RAIL: f32 = 3.0;
+const RADIUS: u8 = 12;
 const GAP: f32 = 8.0;
 
 struct Toast {
@@ -32,6 +38,8 @@ struct Toast {
 	/// Deadline, set on the first frame this toast is actually drawn so one pushed while
 	/// another view is up does not expire unseen.
 	deadline: Option<f64>,
+	/// First frame drawn, for the entry animation.
+	shown: Option<f64>,
 }
 
 #[derive(Default)]
@@ -58,6 +66,7 @@ impl Toasts {
 			level,
 			text,
 			deadline: None,
+			shown: None,
 		});
 		self.next_id += 1;
 		if self.items.len() > MAX {
@@ -74,46 +83,69 @@ impl Toasts {
 		let colors = design::palette_for(ctx);
 		let shadow = ctx.style_of(ctx.theme()).visuals.window_shadow;
 		let mut offset = top;
+		let mut appearing = false;
 		for toast in &mut self.items {
 			let deadline = *toast.deadline.get_or_insert(now + lifetime(toast.level));
 			let remaining = deadline - now;
 			if remaining <= 0.0 {
 				continue;
 			}
+			let appear = ((now - *toast.shown.get_or_insert(now)) / APPEAR).clamp(0.0, 1.0);
+			appearing |= appear < 1.0;
+			// Ease out: quick start, soft landing.
+			let appear = 1.0 - (1.0 - appear as f32).powi(3);
 			let (tint, icon) = match toast.level {
-				design::Level::Info => (colors.accent, icons::Icon::Help),
+				design::Level::Info => (colors.accent, icons::Icon::Bell),
 				design::Level::Success => (colors.positive, icons::Icon::Check),
 				design::Level::Warning => (colors.warning, icons::Icon::ShieldWarning),
 				design::Level::Error => (colors.danger, icons::Icon::ShieldWarning),
 			};
+			let fill = colors.raised.to_opaque();
 			let mut dismissed = false;
 			let response = egui::Area::new(egui::Id::unique(("toast", toast.id)))
-				.anchor(Align2::CENTER_TOP, egui::vec2(0.0, offset))
+				.anchor(
+					Align2::CENTER_TOP,
+					egui::vec2(0.0, offset - SLIDE * (1.0 - appear)),
+				)
 				.order(egui::Order::Foreground)
 				.show(ctx, |ui| {
-					ui.set_opacity((remaining / FADE).clamp(0.0, 1.0) as f32);
-					egui::Frame::new()
-						.fill(colors.raised.to_opaque())
-						.stroke(Stroke::new(1.0, tint.gamma_multiply(0.55)))
-						.corner_radius(10)
+					ui.set_opacity((remaining / FADE).clamp(0.0, 1.0) as f32 * appear);
+					let frame = egui::Frame::new()
+						// A faint wash of the severity colour over the raised surface.
+						.fill(egui::Color32::from(egui::lerp(
+							egui::Rgba::from(fill)..=egui::Rgba::from(tint.to_opaque()),
+							0.07,
+						)))
+						.stroke(Stroke::new(1.0, colors.border))
+						.corner_radius(RADIUS)
 						.shadow(shadow)
-						.inner_margin(egui::Margin::symmetric(12, 8))
+						.inner_margin(egui::Margin {
+							left: 14 + RAIL as i8,
+							right: 8,
+							top: 10,
+							bottom: 10,
+						})
 						.show(ui, |ui| {
 							ui.set_width(WIDTH);
-							ui.horizontal_top(|ui| {
-								ui.spacing_mut().item_spacing.x = 9.0;
-								let (rect, _) = ui.allocate_exact_size(
-									egui::Vec2::splat(16.0),
+							ui.horizontal(|ui| {
+								ui.spacing_mut().item_spacing.x = 10.0;
+								let (badge, _) = ui.allocate_exact_size(
+									egui::Vec2::splat(26.0),
 									egui::Sense::hover(),
 								);
-								icons::paint(ui.painter(), icon, rect, tint);
+								ui.painter().circle_filled(
+									badge.center(),
+									13.0,
+									tint.gamma_multiply(0.2),
+								);
+								icons::paint(ui.painter(), icon, badge.shrink(6.0), tint);
 								ui.with_layout(
 									egui::Layout::right_to_left(egui::Align::Center),
 									|ui| {
 										dismissed |= icons::button(
 											ui,
 											icons::Icon::Close,
-											22.0,
+											20.0,
 											&crate::i18n::translate("toasts-show-dismiss"),
 										)
 										.clicked();
@@ -123,8 +155,8 @@ impl Toasts {
 												ui.add(
 													egui::Label::new(
 														RichText::new(&toast.text)
-															.size(13.0)
-															.color(colors.text),
+															.size(13.5)
+															.color(colors.text_strong),
 													)
 													.wrap(),
 												);
@@ -134,6 +166,17 @@ impl Toasts {
 								);
 							});
 						});
+					let rect = frame.response.rect;
+					ui.painter().rect_filled(
+						egui::Rect::from_min_size(rect.min, egui::vec2(RAIL, rect.height())),
+						egui::CornerRadius {
+							nw: RADIUS,
+							sw: RADIUS,
+							ne: 0,
+							se: 0,
+						},
+						tint,
+					);
 				})
 				.response;
 			offset += response.rect.height() + GAP;
@@ -155,7 +198,7 @@ impl Toasts {
 			.filter_map(|toast| toast.deadline)
 			.map(|deadline| deadline - FADE - now)
 			.fold(f64::INFINITY, f64::min);
-		if fade_in <= 0.0 {
+		if appearing || fade_in <= 0.0 {
 			ctx.request_repaint();
 		} else if fade_in.is_finite() {
 			ctx.request_repaint_after(std::time::Duration::from_secs_f64(fade_in));

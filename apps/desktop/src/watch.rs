@@ -73,11 +73,9 @@ pub(super) struct Watch {
 	pending: Option<Pending>,
 	live: Option<Live>,
 	/// The streamer stopped or Discord failed the view; the state choice is cleared next poll.
-	ended: Option<&'static str>,
+	ended: Option<(ui::design::Level, &'static str)>,
 	sequence: u64,
 	status: &'static str,
-	/// Why the last view stopped; shown as a stage notice until the next request or hang-up.
-	notice: &'static str,
 	/// GPU texture behind `ui.voice_stream_view`.
 	texture: crate::gpu_video::VideoTexture,
 }
@@ -138,15 +136,23 @@ impl Watch {
 						// A null endpoint means Discord is still allocating the stream server.
 						(_, None) => pending.server = None,
 						(None, Some(_)) => {
-							self.ended = Some("Discord omitted the stream connection token");
+							self.ended = Some((
+								ui::design::Level::Warning,
+								"Discord omitted the stream connection token",
+							));
 						}
 					}
 				}
 			}
 			screen::Event::Deleted { reason } => {
-				self.ended = Some(reason.unwrap_or("The stream ended"));
+				self.ended = Some((
+					ui::design::Level::Info,
+					reason.unwrap_or("The stream ended"),
+				));
 			}
-			screen::Event::Failed(message) => self.ended = Some(message),
+			screen::Event::Failed(message) => {
+				self.ended = Some((ui::design::Level::Warning, message));
+			}
 			screen::Event::Viewers(_) => {}
 		}
 	}
@@ -190,14 +196,12 @@ impl Watch {
 				}));
 			}
 		}
-		if state.voice.active.is_none() {
-			self.notice = "";
-		}
-		if let Some(message) = self.ended.take() {
+		if let Some((level, message)) = self.ended.take() {
 			let context = self.context();
 			self.stop();
 			self.status = message;
-			self.notice = message;
+			// Said once; the stage keeps no line for a view that already ended.
+			ui.toasts.push(level, message);
 			state.stop_watching();
 			ui.voice_stream_view = None;
 			self.texture = Default::default();
@@ -249,7 +253,6 @@ impl Watch {
 				started: Instant::now(),
 			});
 			self.status = "Requesting the stream…";
-			self.notice = "";
 			command = Some(Command::Voice(voice::Command::WatchStream {
 				channel,
 				request,
@@ -259,7 +262,10 @@ impl Watch {
 		}
 		if let Some(pending) = &self.pending {
 			if pending.started.elapsed() >= SIGNAL_TIMEOUT {
-				self.ended = Some("Discord did not provide the stream connection; try again");
+				self.ended = Some((
+					ui::design::Level::Warning,
+					"Discord did not provide the stream connection; try again",
+				));
 				ctx.request_repaint();
 			} else {
 				ctx.request_repaint_after(SIGNAL_TIMEOUT.saturating_sub(pending.started.elapsed()));
@@ -272,17 +278,19 @@ impl Watch {
 		{
 			let pending = self.pending.take().expect("complete stream negotiation");
 			if let Err(error) = self.start(runtime, pending, ctx) {
-				self.ended = Some(error);
+				self.ended = Some((ui::design::Level::Warning, error));
 			}
 		}
 		if let Some(live) = &mut self.live {
 			match *live.events.borrow_and_update() {
 				Some(Notice::Status(status)) => self.status = status,
-				Some(Notice::Failed(error)) => self.ended = Some(error),
+				Some(Notice::Failed(error)) => {
+					self.ended = Some((ui::design::Level::Warning, error));
+				}
 				None => {}
 			}
 			if live.task.is_finished() && self.ended.is_none() {
-				self.ended = Some("The stream connection ended");
+				self.ended = Some((ui::design::Level::Warning, "The stream connection ended"));
 			}
 			// Uploading copies the planes into GPU staging, so it runs under the slot lock
 			// and the decoder keeps refilling the same allocation.
@@ -298,11 +306,7 @@ impl Watch {
 			ui.voice_stream_view = None;
 			self.texture = Default::default();
 		}
-		ui.voice_stream_status = if wanted.is_some() {
-			self.status
-		} else {
-			self.notice
-		};
+		ui.voice_stream_status = if wanted.is_some() { self.status } else { "" };
 		command
 	}
 	fn start(
@@ -421,7 +425,6 @@ mod tests {
 				ended: None,
 				sequence: 0,
 				status: "",
-				notice: "",
 				texture: Default::default(),
 			};
 			for phase in [

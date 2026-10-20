@@ -28,10 +28,16 @@ pub const SUPPORTED: bool = cfg!(any(
 	target_os = "windows",
 	target_os = "linux"
 ));
+/// Consecutive empty hardware outputs (two seconds at 15 fps) before falling back to
+/// openh264, so a hardware encoder that accepts pictures but never returns them cannot
+/// leave the call without video.
+const HARDWARE_STALL: u8 = 30;
 const FRAME_INTERVAL: Duration = Duration::from_nanos(1_000_000_000 / format::FPS as u64);
 // Includes asynchronous teardown: rapid toggles cannot accumulate camera workers.
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
+/// One captured picture. `h264` is empty when the encoder held or dropped this picture;
+/// the local preview still shows `rgb`, but nothing is sent.
 pub struct Frame {
 	pub rgb: Vec<u8>,
 	pub h264: Vec<u8>,
@@ -167,6 +173,8 @@ struct CameraEncoder {
 	hardware: Option<crate::video_encode::hardware::Encoder>,
 	#[cfg(target_os = "linux")]
 	hardware: Option<encode_linux::Encoder>,
+	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	empty_run: u8,
 }
 
 impl CameraEncoder {
@@ -204,11 +212,13 @@ impl CameraEncoder {
 			yuv: YUVBuffer::new(WIDTH, HEIGHT),
 			#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 			hardware,
+			#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+			empty_run: 0,
 		})
 	}
 
 	/// Encodes one 640×480 packed RGB picture, keeping the frame's pixels for local preview.
-	fn encode(&mut self, rgb: Vec<u8>) -> Result<Option<Frame>, &'static str> {
+	fn encode(&mut self, rgb: Vec<u8>) -> Result<Frame, &'static str> {
 		if rgb.len() != WIDTH * HEIGHT * 3 {
 			return Err("Camera did not provide a bounded 640×480 RGB frame");
 		}
@@ -221,16 +231,17 @@ impl CameraEncoder {
 					if h264.len() > MAX_ENCODED_BYTES {
 						return Err("Camera encoded frame exceeded its 128 KiB limit");
 					}
-					return Ok(Some(Frame { rgb, h264 }));
+					self.empty_run = 0;
+					return Ok(Frame { rgb, h264 });
 				}
 				// The encoder is still holding this picture; the next one returns it.
-				Ok(None) => return Ok(None),
-				Err(_) => {
-					self.hardware = None;
-					self.diagnostics.set(None);
-					self.software = Some(encoder()?);
-					self.diagnostics.set(Some(false));
+				Ok(None) if self.note_empty() => {
+					return Ok(Frame {
+						rgb,
+						h264: Vec::new(),
+					});
 				}
+				_ => self.use_software()?,
 			}
 		}
 		#[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -247,18 +258,21 @@ impl CameraEncoder {
 				hardware.encode(self.yuv.y(), self.yuv.u(), self.yuv.v(), true)
 			};
 			match encoded {
-				Ok((h264, _)) => {
+				Ok((h264, _)) if !h264.is_empty() => {
 					if h264.len() > MAX_ENCODED_BYTES {
 						return Err("Camera encoded frame exceeded its 128 KiB limit");
 					}
-					return Ok((!h264.is_empty()).then_some(Frame { rgb, h264 }));
+					self.empty_run = 0;
+					return Ok(Frame { rgb, h264 });
 				}
-				Err(_) => {
-					self.hardware = None;
-					self.diagnostics.set(None);
-					self.software = Some(encoder()?);
-					self.diagnostics.set(Some(false));
+				// Dropped to hold the rate; a run of these means the encoder is stuck.
+				Ok(_) if self.note_empty() => {
+					return Ok(Frame {
+						rgb,
+						h264: Vec::new(),
+					});
 				}
+				_ => self.use_software()?,
 			}
 		}
 		let software = self
@@ -266,6 +280,23 @@ impl CameraEncoder {
 			.as_mut()
 			.ok_or("Camera H264 encoder could not start")?;
 		encode_rgb(software, &mut self.yuv, rgb)
+	}
+
+	/// Counts one empty hardware output; false once the run says the encoder is stuck.
+	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	fn note_empty(&mut self) -> bool {
+		self.empty_run = self.empty_run.saturating_add(1);
+		self.empty_run < HARDWARE_STALL
+	}
+
+	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	fn use_software(&mut self) -> Result<(), &'static str> {
+		self.hardware = None;
+		self.empty_run = 0;
+		self.diagnostics.set(None);
+		self.software = Some(encoder()?);
+		self.diagnostics.set(Some(false));
+		Ok(())
 	}
 }
 
@@ -286,7 +317,7 @@ fn encode_rgb(
 	encoder: &mut Encoder,
 	yuv: &mut YUVBuffer,
 	rgb: Vec<u8>,
-) -> Result<Option<Frame>, &'static str> {
+) -> Result<Frame, &'static str> {
 	if rgb.len() != WIDTH * HEIGHT * 3 {
 		return Err("Camera did not provide a bounded 640×480 RGB frame");
 	}
@@ -302,8 +333,10 @@ fn encode_rgb(
 	{
 		return Err("Camera encoded frame exceeded its 128 KiB limit");
 	}
-	let h264 = bits.to_vec();
-	Ok((!h264.is_empty()).then_some(Frame { rgb, h264 }))
+	Ok(Frame {
+		h264: bits.to_vec(),
+		rgb,
+	})
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -315,10 +348,11 @@ fn run(
 ) -> Result<(), &'static str> {
 	let mut encoder = CameraEncoder::new()?;
 	let mut emit = |rgb| {
-		if !shared.stopped.load(Ordering::Acquire)
-			&& let Some(frame) = encoder.encode(rgb)?
-			&& !shared.stopped.load(Ordering::Acquire)
-		{
+		if shared.stopped.load(Ordering::Acquire) {
+			return Ok(());
+		}
+		let frame = encoder.encode(rgb)?;
+		if !shared.stopped.load(Ordering::Acquire) {
 			on_frame(frame);
 			shared.active.store(true, Ordering::Release);
 			wake();
@@ -513,6 +547,9 @@ mod macos {
 		queue: DispatchRetained<DispatchQueue>,
 	}
 
+	/// Largest native mode accepted when a camera offers nothing at or below 1280×720.
+	const FALLBACK: (usize, usize) = (3840, 2160);
+
 	fn configure(device: &AVCaptureDevice) -> Result<(), &'static str> {
 		// SAFETY: Formats/ranges come from this device. Only this worker changes it,
 		// while locked, before capture starts. Endpoint durations stay exact.
@@ -525,10 +562,18 @@ mod macos {
 					let Some(fps) = format::nearest_fps(min, max) else {
 						continue;
 					};
-					let Some(rank) = format::rank(size.width as usize, size.height as usize, fps)
+					let (width, height) = (size.width as usize, size.height as usize);
+					// Prefer modes within the usual ceiling; cameras that only offer larger
+					// ones still work, since AVFoundation scales to 640×480 before delivery.
+					let Some(rank) =
+						format::rank_with_ceiling(width, height, fps, FALLBACK.0, FALLBACK.1)
 					else {
 						continue;
 					};
+					let rank = (
+						width > format::MAX_WIDTH || height > format::MAX_HEIGHT,
+						rank,
+					);
 					let duration = if fps == min {
 						range.maxFrameDuration()
 					} else if fps == max {
@@ -542,7 +587,7 @@ mod macos {
 				}
 			}
 			let (_, native, duration) =
-				selected.ok_or("Camera does not offer a capture mode at or below 1280×720")?;
+				selected.ok_or("Camera does not offer a capture mode at or below 4K")?;
 			device
 				.lockForConfiguration()
 				.map_err(|_| "Camera configuration is unavailable")?;
@@ -681,9 +726,7 @@ mod macos {
 			{
 				rgb.copy_from_slice(&[bgra[2], bgra[1], bgra[0]]);
 			}
-			let Some(frame) = encoder.encode(rgb)? else {
-				continue;
-			};
+			let frame = encoder.encode(rgb)?;
 			if shared.stopped.load(Ordering::Acquire) {
 				break;
 			}
@@ -725,10 +768,9 @@ mod tests {
 			assert!(encode_rgb(&mut encoder, &mut yuv, vec![0; length]).is_err());
 		}
 		for value in [0, 127, 255] {
-			let frame = encode_rgb(&mut encoder, &mut yuv, vec![value; WIDTH * HEIGHT * 3])
-				.unwrap()
-				.unwrap();
-			assert!(frame.h264.len() <= MAX_ENCODED_BYTES);
+			let frame =
+				encode_rgb(&mut encoder, &mut yuv, vec![value; WIDTH * HEIGHT * 3]).unwrap();
+			assert!(!frame.h264.is_empty() && frame.h264.len() <= MAX_ENCODED_BYTES);
 			let mut decoder = openh264::decoder::Decoder::new().unwrap();
 			let decoded = decoder.decode(&frame.h264).unwrap().unwrap();
 			assert_eq!(decoded.dimensions(), (WIDTH, HEIGHT));
@@ -767,9 +809,10 @@ mod tests {
 				{
 					*pixel = [(index % 251) as u8, value, (index % 97) as u8];
 				}
-				let Some(frame) = encoder.encode(rgb).unwrap() else {
+				let frame = encoder.encode(rgb).unwrap();
+				if frame.h264.is_empty() {
 					continue;
-				};
+				}
 				assert_eq!(frame.rgb.len(), WIDTH * HEIGHT * 3);
 				assert!(frame.h264.len() <= MAX_ENCODED_BYTES);
 				// The sender drops to the latest frame, so each picture must stand alone.

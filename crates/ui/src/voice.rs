@@ -1798,17 +1798,10 @@ impl MessagingUi {
 			{
 				notices.push((error.into(), true));
 			}
-			if self.screen.context == Some((state.generation, channel, call.request)) {
-				let status = self.screen.capture_status.unwrap_or(self.screen.status);
-				if !status.is_empty() {
-					notices.push((status.into(), false));
-				}
-			}
+			// Screen-share and stream outcomes arrive as toasts; progress lives in the
+			// tiles and control tooltips, so the stage carries no status line for them.
 			if !self.voice_camera_status.is_empty() {
 				notices.push((self.voice_camera_status.into(), false));
-			}
-			if call.watching.is_none() && !self.voice_stream_status.is_empty() {
-				notices.push((self.voice_stream_status.into(), false));
 			}
 			if call.server_deafened {
 				notices.push(("Deafened by the server".into(), false));
@@ -2666,7 +2659,11 @@ impl MessagingUi {
 						} else {
 							(crate::icons::Icon::Video, "Preview camera")
 						};
-						if design::primary_icon_button(ui, icon, label).clicked() {
+						let mut response = design::primary_icon_button(ui, icon, label);
+						if !self.camera_test_blocked.is_empty() {
+							response = response.on_disabled_hover_text(self.camera_test_blocked);
+						}
+						if response.clicked() {
 							self.camera_test_requested = !self.camera_test_requested;
 							self.camera_test_status = "";
 						}

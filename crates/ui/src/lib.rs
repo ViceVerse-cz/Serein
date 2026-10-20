@@ -425,6 +425,8 @@ pub struct MessagingUi {
 	pub camera_test_requested: bool,
 	pub camera_test_available: bool,
 	pub camera_test_status: &'static str,
+	/// Why the settings preview button is disabled, shown on hover. Empty when it is not.
+	pub camera_test_blocked: &'static str,
 	pub camera_test_texture: Option<egui::TextureHandle>,
 	/// Decoded remote cameras by user; the desktop owns, bounds and replaces the textures.
 	pub voice_remote_video: Vec<(Id, egui::load::SizedTexture)>,

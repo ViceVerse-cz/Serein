@@ -198,7 +198,7 @@ fn check_window() {
 		});
 	}
 	state.cancel_quit();
-	for can_hide in [true, false] {
+	for can_hide in [false, true] {
 		let output = ctx.run_logic(&close, |ctx| {
 			state.logic(ctx, true, can_hide);
 			assert!(!ctx.input(|i| i.viewport().close_requested()));
@@ -212,7 +212,15 @@ fn check_window() {
 		}));
 		assert_eq!(state.hidden, can_hide);
 	}
+	// Nobody can close the hidden window, so this close is the session ending: exit, unconfirmed.
+	let output = ctx.run_logic(&close, |ctx| state.logic(ctx, true, true));
+	let cmds = &output.viewport_commands[&ViewportId::ROOT];
+	assert!(cmds.contains(&Cmd::CancelClose) && cmds.contains(&Cmd::Visible(true)));
+	assert!(state.system_close() && !state.hidden);
+	state.cancel_quit();
+	assert!(!state.system_close());
 	let _ = ctx.run_logic(&close, |ctx| state.logic(ctx, true, true));
+	assert!(state.hidden);
 	let output = ctx.run_logic(&egui::RawInput::default(), |ctx| {
 		state.logic(ctx, false, true)
 	});
@@ -238,6 +246,6 @@ fn check_window() {
 	let _ = ctx.run_logic(&close, |ctx| state.logic(ctx, true, true));
 	assert!(state.hidden);
 	println!(
-		"PASS: close/hide, Wayland minimize fallback, host loss, deferred Quit and cancelled Quit."
+		"PASS: close/hide, Wayland minimize fallback, hidden-window session close, host loss, deferred Quit and cancelled Quit."
 	);
 }

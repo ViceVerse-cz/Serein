@@ -1423,12 +1423,14 @@ impl Voice {
 	}
 
 	fn poll_camera_test(&mut self, state: &State, ui: &mut ui::MessagingUi, ctx: &egui::Context) {
-		ui.camera_test_available = !state.demo
-			&& ui.voice_available
-			&& discord_voice::camera::SUPPORTED
-			&& state.voice.active.is_none()
-			&& self.pending.is_none()
-			&& self.live.is_none();
+		let in_call = state.voice.active.is_some() || self.pending.is_some() || self.live.is_some();
+		ui.camera_test_available =
+			!state.demo && ui.voice_available && discord_voice::camera::SUPPORTED && !in_call;
+		ui.camera_test_blocked = if in_call {
+			"The preview is off during a call. Turn on your camera in the call to see it here."
+		} else {
+			""
+		};
 		if !ui.camera_test_available || !ui.voice_settings_open() {
 			ui.camera_test_requested = false;
 			ui.camera_test_status = "";
@@ -1436,10 +1438,15 @@ impl Voice {
 		if let Some(preview) = &self.camera_test {
 			if preview.device != ui.voice_camera_device {
 				ui.camera_test_requested = false;
-				ui.camera_test_status = "Camera changed. Click Preview camera to use it.";
+				ui.camera_test_status = "";
+				ui.toasts.push(
+					ui::design::Level::Info,
+					"Camera changed. Click Preview camera to use it.",
+				);
 			} else if let Some(error) = preview.camera.error() {
 				ui.camera_test_requested = false;
-				ui.camera_test_status = error;
+				ui.camera_test_status = "";
+				ui.toasts.push(ui::design::Level::Error, error);
 			}
 		}
 		if !ui.camera_test_requested {
@@ -1475,7 +1482,8 @@ impl Voice {
 				}
 				Err(error) => {
 					ui.camera_test_requested = false;
-					ui.camera_test_status = error;
+					ui.camera_test_status = "";
+					ui.toasts.push(ui::design::Level::Error, error);
 					return;
 				}
 			}
@@ -1564,8 +1572,11 @@ impl Voice {
 		if requested && self.camera.is_some() && self.camera_device != ui.voice_camera_device {
 			self.stop_camera();
 			ui.voice_camera_preview = None;
-			ui.voice_camera_status =
-				"Camera device changed. Turn on the camera to use the selected device.";
+			ui.voice_camera_status = "";
+			ui.toasts.push(
+				ui::design::Level::Info,
+				"Camera device changed. Turn on the camera to use the selected device.",
+			);
 			return state.set_call_camera(false);
 		}
 		let preview_allowed = camera_preview_allowed(state);
@@ -1574,15 +1585,22 @@ impl Voice {
 			self.stop_camera();
 			ui.voice_camera_preview = None;
 			if requested {
-				ui.voice_camera_status =
-					error.unwrap_or("Camera stopped; reconnect securely before turning it on");
+				ui.voice_camera_status = "";
+				ui.toasts.push(
+					ui::design::Level::Error,
+					error.unwrap_or("Camera stopped; reconnect securely before turning it on"),
+				);
 				return state.set_call_camera(false);
 			}
 			return None;
 		}
 		if self.camera_preview.is_none() {
 			if self.camera.is_some() {
-				ui.voice_camera_status = "Camera is still closing; try again shortly";
+				ui.voice_camera_status = "";
+				ui.toasts.push(
+					ui::design::Level::Warning,
+					"Camera is still closing; try again shortly",
+				);
 				return state.set_call_camera(false);
 			}
 			let live = self.live.as_ref()?;
@@ -1594,15 +1612,15 @@ impl Voice {
 			let start = live.camera_clock;
 			let wake = ctx.clone();
 			let on_frame = std::sync::Arc::new(move |frame: discord_voice::camera::Frame| {
+				// Held or dropped pictures carry no H264 but still refresh the local preview.
 				let data = frame.h264;
-				if data.len() > discord_voice::camera_video::MAX_FRAME_BYTES {
-					return;
+				if (1..=discord_voice::camera_video::MAX_FRAME_BYTES).contains(&data.len()) {
+					let _ = send.try_send(discord_voice::camera_video::Frame {
+						generation,
+						timestamp: (start.elapsed().as_micros() * 90 / 1000) as u32,
+						data,
+					});
 				}
-				let _ = send.try_send(discord_voice::camera_video::Frame {
-					generation,
-					timestamp: (start.elapsed().as_micros() * 90 / 1000) as u32,
-					data,
-				});
 				if let Ok(mut slot) = preview.try_lock()
 					&& store_camera_frame(&mut slot, &frame.rgb)
 				{
@@ -1624,7 +1642,8 @@ impl Voice {
 						.send_modify(|controls| controls.camera = generation);
 				}
 				Err(error) => {
-					ui.voice_camera_status = error;
+					ui.voice_camera_status = "";
+					ui.toasts.push(ui::design::Level::Error, error);
 					return state.set_call_camera(false);
 				}
 			}
@@ -1646,7 +1665,8 @@ impl Voice {
 					ctx.request_repaint();
 				}
 			}
-			ui.voice_camera_status = "Camera on · local preview";
+			// The local tile is the confirmation; no lingering status line.
+			ui.voice_camera_status = "";
 		}
 		None
 	}

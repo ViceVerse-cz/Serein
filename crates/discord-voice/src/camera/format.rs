@@ -11,6 +11,7 @@ pub(super) fn nearest_fps(min: f64, max: f64) -> Option<f64> {
 }
 
 /// Resolution first, then frame rate, then smaller input on ties.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(super) fn rank(width: usize, height: usize, fps: f64) -> Option<(usize, u64, usize)> {
 	rank_with_ceiling(width, height, fps, MAX_WIDTH, MAX_HEIGHT)
 }
