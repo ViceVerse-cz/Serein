@@ -2363,7 +2363,7 @@ impl MessagingUi {
 				design::switch(
 					ui,
 					"Disable Incoming Video",
-					Some("Stops receiving video streams from other participants to save CPU and bandwidth"),
+					Some("Skips decoding and displaying incoming video to save CPU and GPU resources; video still uses bandwidth"),
 					&mut self.disable_incoming_video,
 				);
 				design::switch(
