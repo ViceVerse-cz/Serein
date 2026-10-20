@@ -4924,4 +4924,16 @@ voice-voice-popup-content-disable-local-previews-description = Přeskočí vykre
 # Context: voice_popup_content
 voice-voice-popup-content-disable-incoming-video = Vypnout příchozí video
 # Context: voice_popup_content
-voice-voice-popup-content-disable-incoming-video-description = Zastaví přijímání a dekódování video streamů od ostatních účastníků pro úsporu procesoru a sítě.
+voice-voice-popup-content-disable-incoming-video-description = Přeskočí dekódování a vykreslování příchozích video streamů pro úsporu procesoru a grafické karty.
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = Sdílíte obrazovku · Náhled je vypnutý
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = Sdílíte obrazovku
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = Vaše obrazovka · náhled je vypnutý
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = Vaše obrazovka · místní náhled

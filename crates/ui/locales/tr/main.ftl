@@ -4821,4 +4821,16 @@ voice-voice-popup-content-disable-local-previews-description = CPU ve GPU kaynak
 # Context: voice_popup_content
 voice-voice-popup-content-disable-incoming-video = Gelen videoyu devre dışı bırak
 # Context: voice_popup_content
-voice-voice-popup-content-disable-incoming-video-description = CPU ve bant genişliğinden tasarruf etmek için diğer katılımcılardan gelen video akışlarını almayı ve kodunu çözmeyi durdurur.
+voice-voice-popup-content-disable-incoming-video-description = CPU ve GPU kaynaklarından tasarruf etmek için gelen video akışlarının kodunu çözmeyi ve oluşturmayı atlar.
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = Ekranınız paylaşılıyor · Önizleme devre dışı
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = Ekranınız paylaşılıyor
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = Ekranınız · önizleme devre dışı
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = Ekranınız · yerel önizleme

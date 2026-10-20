@@ -4838,4 +4838,16 @@ voice-voice-popup-content-disable-local-previews-description = Пропуска�
 # Context: voice_popup_content
 voice-voice-popup-content-disable-incoming-video = Отключить входящее видео
 # Context: voice_popup_content
-voice-voice-popup-content-disable-incoming-video-description = Останавливает прием и декодирование видеопотоков от других участников для экономии ресурсов процессора и трафика.
+voice-voice-popup-content-disable-incoming-video-description = Пропускает декодирование и рендеринг входящих видеопотоков для экономии ресурсов процессора и видеокарты.
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = Демонстрация экрана · Предпросмотр отключен
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = Демонстрация экрана
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = Ваш экран · предпросмотр отключен
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = Ваш экран · локальный предпросмотр

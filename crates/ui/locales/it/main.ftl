@@ -4835,4 +4835,16 @@ voice-voice-popup-content-disable-local-previews-description = Salta il renderin
 # Context: voice_popup_content
 voice-voice-popup-content-disable-incoming-video = Disattiva video in arrivo
 # Context: voice_popup_content
-voice-voice-popup-content-disable-incoming-video-description = Interrompe la ricezione e la decodifica dei flussi video di altri partecipanti per risparmiare CPU e larghezza di banda.
+voice-voice-popup-content-disable-incoming-video-description = Salta la decodifica e il rendering dei flussi video in arrivo per risparmiare risorse CPU e GPU.
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = Condivisione dello schermo · Anteprima disattivata
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = Condivisione dello schermo
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = Il tuo schermo · anteprima disattivata
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = Il tuo schermo · anteprima locale

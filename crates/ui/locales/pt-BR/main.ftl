@@ -4835,4 +4835,16 @@ voice-voice-popup-content-disable-local-previews-description = Ignora a renderiz
 # Context: voice_popup_content
 voice-voice-popup-content-disable-incoming-video = Desativar vídeo de entrada
 # Context: voice_popup_content
-voice-voice-popup-content-disable-incoming-video-description = Interrompe o recebimento e a decodificação de transmissões de vídeo de outros participantes para economizar CPU e largura de banda.
+voice-voice-popup-content-disable-incoming-video-description = Ignora a decodificação e a renderização de transmissões de vídeo de entrada para economizar recursos de CPU e GPU.
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = Compartilhando sua tela · Pré-visualização desativada
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = Compartilhando sua tela
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = Sua tela · pré-visualização desativada
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = Sua tela · pré-visualização local

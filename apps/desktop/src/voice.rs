@@ -347,6 +347,7 @@ pub struct Voice {
 	camera_device: Option<String>,
 	camera_generation: u64,
 	camera_preview: Option<std::sync::Arc<std::sync::Mutex<CameraPicture>>>,
+	camera_preview_enabled: Arc<std::sync::atomic::AtomicBool>,
 	pending: Option<Pending>,
 	live: Option<Live>,
 	retiring: Option<mpsc::Receiver<()>>,
@@ -1534,6 +1535,8 @@ impl Voice {
 			let send = live.camera_frames.clone();
 			let receive = std::sync::Arc::new(std::sync::Mutex::new(None));
 			let preview = receive.clone();
+			let preview_enabled = self.camera_preview_enabled.clone();
+			preview_enabled.store(!ui.disable_local_previews, std::sync::atomic::Ordering::Release);
 			let start = live.camera_clock;
 			let wake = ctx.clone();
 			let on_frame = std::sync::Arc::new(move |frame: discord_voice::camera::Frame| {
@@ -1546,7 +1549,8 @@ impl Voice {
 						data,
 					});
 				}
-				if let Ok(mut slot) = preview.try_lock()
+				if preview_enabled.load(std::sync::atomic::Ordering::Acquire)
+					&& let Ok(mut slot) = preview.try_lock()
 					&& store_camera_frame(&mut slot, &frame.rgb)
 				{
 					wake.request_repaint();
@@ -1578,6 +1582,8 @@ impl Voice {
 				}
 			}
 		}
+		self.camera_preview_enabled
+			.store(!ui.disable_local_previews, std::sync::atomic::Ordering::Release);
 		if ui.disable_local_previews {
 			ui.voice_camera_preview = None;
 			ui.voice_camera_status = "";
