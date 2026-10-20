@@ -799,7 +799,6 @@ mod tests {
 			done: None,
 			#[cfg(target_os = "linux")]
 			status: Arc::new(Mutex::new("")),
-			#[cfg(target_os = "linux")]
 			preview_visible: Arc::new(AtomicBool::new(true)),
 		};
 		assert!(worker.take_preview().is_some());
