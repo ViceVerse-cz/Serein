@@ -3937,7 +3937,7 @@ impl MessagingUi {
 
     									self.navigation_channel = Some(channel_id);
 								}
-								
+
 								response
    									.on_hover_cursor(egui::CursorIcon::PointingHand)
     								.on_hover_text("Switch to this voice channel");

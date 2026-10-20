@@ -5,6 +5,8 @@ pub struct State {
 	pub hidden: bool,
 	exiting: bool,
 	close_after_show: bool,
+	/// The close came from the system (a session logout), so it must not stop at exit checks.
+	system_close: bool,
 	/// Compositor IPC for Wayland sessions where winit cannot hide (Hyprland, KWin).
 	compositor: Option<platform::compositor::Hider>,
 }
@@ -15,6 +17,7 @@ impl Default for State {
 			hidden: false,
 			exiting: false,
 			close_after_show: false,
+			system_close: false,
 			compositor: platform::compositor::Hider::detect(),
 		}
 	}
@@ -68,6 +71,10 @@ impl State {
 	pub fn cancel_quit(&mut self) {
 		self.exiting = false;
 		self.close_after_show = false;
+		self.system_close = false;
+	}
+	pub fn system_close(&self) -> bool {
+		self.system_close
 	}
 	pub fn logic(&mut self, ctx: &egui::Context, tray_available: bool, can_hide: bool) {
 		let was_hidden = self.hidden;
@@ -83,7 +90,8 @@ impl State {
 		if !close {
 			return;
 		}
-		if tray_available && !self.exiting {
+		let unseen = was_hidden || visible == Some(false);
+		if tray_available && !self.exiting && !unseen {
 			// Native Wayland cannot hide surfaces through winit, Hyprland ignores minimization
 			// and KWin keeps minimized windows in the taskbar, so their IPC hides the window
 			// instead. Elsewhere never label a possibly visible window hidden; the compositor
@@ -100,9 +108,12 @@ impl State {
 				});
 			}
 		} else {
+			// Nobody can close a window they cannot see: a hidden window's close comes from the
+			// session ending (Plasma closes every window at logout), so exit instead of blocking it.
+			self.system_close |= !self.exiting && unseen;
 			// Registration can finish while the existing exit dialog is open.
 			self.exiting = true;
-			if was_hidden || visible == Some(false) || self.close_after_show {
+			if unseen || self.close_after_show {
 				self.close_after_show = true;
 				self.show(ctx);
 			} else {

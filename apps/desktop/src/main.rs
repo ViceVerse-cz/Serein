@@ -5460,6 +5460,11 @@ impl eframe::App for Desktop {
 		}
 		#[cfg(target_os = "macos")]
 		self.app_menu(ctx);
+		// Like Discord, Ctrl+Q exits even when closing the window only hides it to the tray.
+		#[cfg(not(target_os = "macos"))]
+		if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Q)) {
+			self.tray_window.quit(ctx);
+		}
 		self.tray_window.logic(
 			ctx,
 			self.background_available(),
@@ -5806,6 +5811,7 @@ impl eframe::App for Desktop {
 		self.messaging.voice_available = true;
 		if close_requested
 			&& !self.close_approved
+			&& !self.tray_window.system_close()
 			&& ((self.state.demo && self.state.has_unsent())
 				|| self
 					.state

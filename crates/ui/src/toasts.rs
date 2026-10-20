@@ -8,7 +8,7 @@
 //! Colours, icons and severities come from [`crate::design`], so a toast and an inline
 //! [`crate::design::notice`] read as the same message in two places.
 use crate::{design, icons};
-use egui::{Align2, RichText, Stroke};
+use egui::{Align2, Stroke};
 
 /// How long a toast rests on screen once drawn. Problems outlast pleasantries.
 fn lifetime(level: design::Level) -> f64 {
@@ -25,10 +25,10 @@ const APPEAR: f64 = 0.18;
 const SLIDE: f32 = 10.0;
 /// Older notices are dropped past this. A stack of toasts is just a status line again.
 const MAX: usize = 3;
-const WIDTH: f32 = 380.0;
-/// Severity rail along the leading edge.
-const RAIL: f32 = 3.0;
-const RADIUS: u8 = 12;
+/// Longest line before the text wraps; shorter notices shrink the card to fit.
+const TEXT_WIDTH: f32 = 340.0;
+const BADGE: f32 = 24.0;
+const RADIUS: u8 = 10;
 const GAP: f32 = 8.0;
 
 struct Toast {
@@ -83,6 +83,8 @@ impl Toasts {
 		let colors = design::palette_for(ctx);
 		let shadow = ctx.style_of(ctx.theme()).visuals.window_shadow;
 		let mut offset = top;
+		// Badge, close button and padding take about 80 points beside the text.
+		let text_width = TEXT_WIDTH.min(ctx.content_rect().width() - 96.0).max(120.0);
 		let mut appearing = false;
 		for toast in &mut self.items {
 			let deadline = *toast.deadline.get_or_insert(now + lifetime(toast.level));
@@ -100,7 +102,6 @@ impl Toasts {
 				design::Level::Warning => (colors.warning, icons::Icon::ShieldWarning),
 				design::Level::Error => (colors.danger, icons::Icon::ShieldWarning),
 			};
-			let fill = colors.raised.to_opaque();
 			let mut dismissed = false;
 			let response = egui::Area::new(egui::Id::unique(("toast", toast.id)))
 				.anchor(
@@ -110,73 +111,49 @@ impl Toasts {
 				.order(egui::Order::Foreground)
 				.show(ctx, |ui| {
 					ui.set_opacity((remaining / FADE).clamp(0.0, 1.0) as f32 * appear);
-					let frame = egui::Frame::new()
-						// A faint wash of the severity colour over the raised surface.
-						.fill(egui::Color32::from(egui::lerp(
-							egui::Rgba::from(fill)..=egui::Rgba::from(tint.to_opaque()),
-							0.07,
-						)))
+					// Severity lives in the badge alone; the card stays the same neutral
+					// surface as every other popover, sized to what it says.
+					egui::Frame::new()
+						.fill(colors.raised.to_opaque())
 						.stroke(Stroke::new(1.0, colors.border))
 						.corner_radius(RADIUS)
 						.shadow(shadow)
 						.inner_margin(egui::Margin {
-							left: 14 + RAIL as i8,
-							right: 8,
-							top: 10,
-							bottom: 10,
+							left: 10,
+							right: 6,
+							top: 8,
+							bottom: 8,
 						})
 						.show(ui, |ui| {
-							ui.set_width(WIDTH);
 							ui.horizontal(|ui| {
 								ui.spacing_mut().item_spacing.x = 10.0;
 								let (badge, _) = ui.allocate_exact_size(
-									egui::Vec2::splat(26.0),
+									egui::Vec2::splat(BADGE),
 									egui::Sense::hover(),
 								);
 								ui.painter().circle_filled(
 									badge.center(),
-									13.0,
-									tint.gamma_multiply(0.2),
+									BADGE / 2.0,
+									tint.gamma_multiply(0.16),
 								);
-								icons::paint(ui.painter(), icon, badge.shrink(6.0), tint);
-								ui.with_layout(
-									egui::Layout::right_to_left(egui::Align::Center),
-									|ui| {
-										dismissed |= icons::button(
-											ui,
-											icons::Icon::Close,
-											20.0,
-											&crate::i18n::translate("toasts-show-dismiss"),
-										)
-										.clicked();
-										ui.with_layout(
-											egui::Layout::left_to_right(egui::Align::Center),
-											|ui| {
-												ui.add(
-													egui::Label::new(
-														RichText::new(&toast.text)
-															.size(13.5)
-															.color(colors.text_strong),
-													)
-													.wrap(),
-												);
-											},
-										);
-									},
+								icons::paint(ui.painter(), icon, badge.shrink(5.5), tint);
+								let text = ui.painter().layout(
+									toast.text.clone(),
+									egui::FontId::proportional(13.5),
+									colors.text_strong,
+									text_width,
 								);
+								ui.add(egui::Label::new(text).selectable(false));
+								ui.spacing_mut().item_spacing.x = 4.0;
+								dismissed |= icons::button(
+									ui,
+									icons::Icon::Close,
+									18.0,
+									&crate::i18n::translate("toasts-show-dismiss"),
+								)
+								.clicked();
 							});
 						});
-					let rect = frame.response.rect;
-					ui.painter().rect_filled(
-						egui::Rect::from_min_size(rect.min, egui::vec2(RAIL, rect.height())),
-						egui::CornerRadius {
-							nw: RADIUS,
-							sw: RADIUS,
-							ne: 0,
-							se: 0,
-						},
-						tint,
-					);
 				})
 				.response;
 			offset += response.rect.height() + GAP;
