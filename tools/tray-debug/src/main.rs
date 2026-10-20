@@ -281,23 +281,27 @@ fn check_window() {
 	assert!(state.hidden);
 
 	// A compositor that ignores the hide must not strand an unclosable window: once the
-	// confirmation budget runs out the close request is raised again, so the desktop's
-	// own exit checks still get to run before the window goes away.
+	// confirmation budget runs out the app closes, through a close request the desktop's
+	// own exit checks still see and can cancel.
 	state.show(&ctx);
 	let _ = ctx.run_logic(&close, |ctx| state.logic(ctx, true, true, Some(true)));
 	let mut closed = false;
 	for _ in 0..10 {
-		let _ = ctx.run_logic(&egui::RawInput::default(), |ctx| {
-			state.logic(ctx, true, true, Some(true));
-			closed = ctx.input(|input| input.viewport().close_requested());
+		let output = ctx.run_logic(&egui::RawInput::default(), |ctx| {
+			state.logic(ctx, true, true, Some(true))
 		});
-		if closed {
+		if output
+			.viewport_commands
+			.get(&ViewportId::ROOT)
+			.is_some_and(|cmds| cmds.contains(&Cmd::Close))
+		{
+			closed = true;
 			break;
 		}
 	}
 	assert!(
 		closed,
-		"an ignored hide re-raises the close instead of stranding the window"
+		"an ignored hide closes instead of stranding the window"
 	);
 	assert!(
 		!state.hidden,
