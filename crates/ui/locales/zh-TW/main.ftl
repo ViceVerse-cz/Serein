@@ -4930,3 +4930,7 @@ main-sign-in-rate-limited-detail = Discord 正在限制此次登入。請稍候�
 voice-voice-popup-content-disable-local-previews = 停用本地預覽
 # Context: voice_popup_content
 voice-voice-popup-content-disable-local-previews-description = 跳過相機和螢幕共用預覽的轉譯，以節省 CPU 和 GPU 資源。
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = 停用傳入視訊
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = 停止接收和解碼其他參與者的視訊串流，以節省 CPU 和頻寬。

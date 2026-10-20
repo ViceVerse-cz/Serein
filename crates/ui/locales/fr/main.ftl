@@ -4831,4 +4831,8 @@ main-sign-in-rate-limited-detail = Discord limite cette connexion. Patientez ava
 # Context: voice_popup_content
 voice-voice-popup-content-disable-local-previews = Désactiver les aperçus locaux
 # Context: voice_popup_content
-voice-voice-popup-content-disable-local-previews-description = Ignore le rendu des aperçus de la caméra et du partage d'écran pour économiser les ressources CPU и GPU.
+voice-voice-popup-content-disable-local-previews-description = Ignore le rendu des aperçus de la caméra et du partage d'écran pour économiser les ressources CPU et GPU.
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = Désactiver la vidéo entrante
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = Arrête la réception et le décodage des flux vidéo des autres participants pour économiser le processeur et la bande passante.

@@ -1188,6 +1188,9 @@ impl MessagingUi {
 	}
 
 	fn remote_texture(&self, user: Id) -> Option<&egui::load::SizedTexture> {
+		if self.disable_incoming_video {
+			return None;
+		}
 		self.voice_remote_video
 			.iter()
 			.find(|(id, _)| *id == user)
@@ -2356,6 +2359,12 @@ impl MessagingUi {
 					"voice-voice-popup-content-disable-local-previews",
 					Some("voice-voice-popup-content-disable-local-previews-description"),
 					&mut self.disable_local_previews,
+				);
+				design::switch(
+					ui,
+					"voice-voice-popup-content-disable-incoming-video",
+					Some("voice-voice-popup-content-disable-incoming-video-description"),
+					&mut self.disable_incoming_video,
 				);
 			} else {
 				ui.label(

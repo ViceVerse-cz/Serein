@@ -4818,3 +4818,7 @@ main-sign-in-rate-limited-detail = Discord bu oturum açmayı sınırlıyor. Tek
 voice-voice-popup-content-disable-local-previews = Yerel önizlemeleri devre dışı bırak
 # Context: voice_popup_content
 voice-voice-popup-content-disable-local-previews-description = CPU ve GPU kaynaklarından tasarruf etmek için kamera ve ekran paylaşımı önizlemelerini oluşturmayı atlar.
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = Gelen videoyu devre dışı bırak
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = CPU ve bant genişliğinden tasarruf etmek için diğer katılımcılardan gelen video akışlarını almayı ve kodunu çözmeyi durdurur.

@@ -4832,3 +4832,7 @@ main-sign-in-rate-limited-detail = Discord sta limitando questo accesso. Attendi
 voice-voice-popup-content-disable-local-previews = Disattiva le anteprime locali
 # Context: voice_popup_content
 voice-voice-popup-content-disable-local-previews-description = Salta il rendering delle anteprime della fotocamera e della condivisione dello schermo per risparmiare risorse CPU e GPU.
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = Disattiva video in arrivo
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = Interrompe la ricezione e la decodifica dei flussi video di altri partecipanti per risparmiare CPU e larghezza di banda.

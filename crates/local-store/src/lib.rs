@@ -82,6 +82,9 @@ pub struct AppPreferences {
 	/// Skip rendering local camera and screen-share previews to save CPU and GPU resources.
 	#[serde(default)]
 	pub disable_local_previews: bool,
+	/// Skip decoding and rendering incoming video streams to save CPU and bandwidth.
+	#[serde(default)]
+	pub disable_incoming_video: bool,
 	/// Profile cosmetics shown on this device; older preferences show all of them.
 	pub cosmetics: model::CosmeticPreferences,
 	/// Disk budgets and retention for downloaded images, from bounded presets.
@@ -125,6 +128,7 @@ impl Default for AppPreferences {
 			user_volumes: Vec::new(),
 			muted_users: Vec::new(),
 			disable_local_previews: false,
+			disable_incoming_video: false,
 			cosmetics: Default::default(),
 			image_cache: Default::default(),
 			time_format: Default::default(),

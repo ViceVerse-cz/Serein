@@ -4832,3 +4832,7 @@ main-sign-in-rate-limited-detail = Discord begrenzt diese Anmeldung. Warte, bevo
 voice-voice-popup-content-disable-local-previews = Lokale Vorschau deaktivieren
 # Context: voice_popup_content
 voice-voice-popup-content-disable-local-previews-description = Überspringt das Rendern von Kamera- und Bildschirmübertragungsvorschauen, um CPU- und GPU-Ressourcen zu sparen.
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = Eingehendes Video deaktivieren
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = Stoppt das Empfangen und Dekodieren von Videostreams anderer Teilnehmer, um CPU und Bandbreite zu sparen.

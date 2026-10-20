@@ -4921,3 +4921,7 @@ main-sign-in-rate-limited-detail = Discord omezuje toto přihlášení. Než to 
 voice-voice-popup-content-disable-local-previews = Vypnout místní náhledy
 # Context: voice_popup_content
 voice-voice-popup-content-disable-local-previews-description = Přeskočí vykreslování náhledů kamery a sdílení obrazovky pro úsporu prostředků CPU a GPU.
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = Vypnout příchozí video
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = Zastaví přijímání a dekódování video streamů od ostatních účastníků pro úsporu procesoru a sítě.

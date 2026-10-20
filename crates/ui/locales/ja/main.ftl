@@ -4815,3 +4815,7 @@ main-sign-in-rate-limited-detail = Discord がこのサインインを制限し�
 voice-voice-popup-content-disable-local-previews = ローカルプレビューを無効化
 # Context: voice_popup_content
 voice-voice-popup-content-disable-local-previews-description = CPUおよびGPUリソースを節約するために、カメラと画面共有のプレビュー描画をスキップします。
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = 受信ビデオを無効化
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = CPUと帯域幅を節約するため、他の参加者からのビデオストリームの受信とデコードを停止します。

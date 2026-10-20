@@ -4834,3 +4834,7 @@ main-sign-in-rate-limited-detail = Discord ogranicza to logowanie. Odczekaj, zan
 voice-voice-popup-content-disable-local-previews = Wyłącz podglądy lokalne
 # Context: voice_popup_content
 voice-voice-popup-content-disable-local-previews-description = Pomija renderowanie podglądów kamery i udostępniania ekranu, aby zaoszczędzić zasoby procesora i karty graficznej.
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = Wyłącz przychodzące wideo
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = Zatrzymuje odbieranie i dekodowanie strumieni wideo od innych uczestników, aby zaoszczędzić procesor i przepustowość.

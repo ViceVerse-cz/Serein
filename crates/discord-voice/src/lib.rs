@@ -36,6 +36,8 @@ pub struct Controls {
 	pub user_volumes: [(u64, u16); 64],
 	/// Watched stream playback percentage, independently muted with zero.
 	pub stream_volume: u16,
+	/// Skip decoding incoming video when enabled; saves CPU and bandwidth.
+	pub disable_incoming_video: bool,
 }
 impl Default for Controls {
 	fn default() -> Self {
@@ -46,6 +48,7 @@ impl Default for Controls {
 			deafened: false,
 			user_volumes: [(0, 100); 64],
 			stream_volume: 100,
+			disable_incoming_video: false,
 		}
 	}
 }

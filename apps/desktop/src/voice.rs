@@ -964,12 +964,14 @@ impl Voice {
 				.effective()
 				.sensitivity_db
 				.unwrap_or(-70);
+			let disable_incoming_video = ui.disable_incoming_video;
 			live.controls.send_if_modified(|control| {
 				if control.muted == muted
 					&& control.deafened == deafened
 					&& control.user_volumes == user_volumes
 					&& control.stream_volume == stream_volume
 					&& control.activity_threshold_db == activity_threshold_db
+					&& control.disable_incoming_video == disable_incoming_video
 				{
 					false
 				} else {
@@ -978,6 +980,7 @@ impl Voice {
 					control.user_volumes = user_volumes;
 					control.stream_volume = stream_volume;
 					control.activity_threshold_db = activity_threshold_db;
+					control.disable_incoming_video = disable_incoming_video;
 					true
 				}
 			});
@@ -1647,6 +1650,7 @@ impl Voice {
 			deafened: false,
 			user_volumes: ui.voice_user_volumes(),
 			stream_volume: ui.voice_stream_volume(),
+			disable_incoming_video: ui.disable_incoming_video,
 		});
 		let remote_video: Arc<std::sync::Mutex<RemotePictures>> =
 			Arc::new(std::sync::Mutex::new(Vec::new()));

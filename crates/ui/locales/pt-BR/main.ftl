@@ -4832,3 +4832,7 @@ main-sign-in-rate-limited-detail = O Discord está limitando este login. Aguarde
 voice-voice-popup-content-disable-local-previews = Desativar pré-visualizações locais
 # Context: voice_popup_content
 voice-voice-popup-content-disable-local-previews-description = Ignora a renderização de pré-visualizações de câmera e compartilhamento de tela para economizar recursos de CPU e GPU.
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = Desativar vídeo de entrada
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = Interrompe o recebimento e a decodificação de transmissões de vídeo de outros participantes para economizar CPU e largura de banda.

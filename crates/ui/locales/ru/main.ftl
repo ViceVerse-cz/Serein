@@ -4835,3 +4835,7 @@ main-sign-in-rate-limited-detail = Discord ограничивает этот в�
 voice-voice-popup-content-disable-local-previews = Отключить локальный предпросмотр
 # Context: voice_popup_content
 voice-voice-popup-content-disable-local-previews-description = Пропускает рендеринг предпросмотра камеры и демонстрации экрана для экономии ресурсов процессора и видеокарты.
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = Отключить входящее видео
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = Останавливает прием и декодирование видеопотоков от других участников для экономии ресурсов процессора и трафика.

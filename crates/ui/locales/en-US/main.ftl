@@ -4926,3 +4926,7 @@ main-sign-in-rate-limited-detail = Discord is rate limiting this sign-in. Wait b
 voice-voice-popup-content-disable-local-previews = Disable local previews
 # Context: voice_popup_content
 voice-voice-popup-content-disable-local-previews-description = Skips drawing camera and screen-share previews to save CPU and GPU resources.
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = Disable incoming video
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = Stops receiving and decoding video streams from other participants to save CPU and bandwidth.
