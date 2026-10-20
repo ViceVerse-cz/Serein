@@ -132,18 +132,29 @@ impl State {
 					self.hide_pending = false;
 					self.hidden = true;
 				}
-				HideOutcome::Failed => {
-					// The compositor ignored the hide, so keeping the close
-					// cancelled would strand a visible window that cannot be
-					// closed. Close for real instead; the exit checks in the
-					// rendered UI still guard unsent work on the new request.
+				// Wayland reports neither visibility nor minimization, so an applied hide
+				// and an ignored one look identical there. Without a positive confirmation
+				// leave the hide unverified rather than closing a window the user asked to
+				// put in the tray.
+				HideOutcome::Pending | HideOutcome::Failed if !can_hide => {
 					self.hide_pending = false;
-					self.exiting = true;
-					ctx.send_viewport_cmd(egui::ViewportCommand::Close);
 				}
 				HideOutcome::Pending => {
 					self.hide_wait += 1;
 					ctx.request_repaint();
+				}
+				HideOutcome::Failed => {
+					// The compositor ignored the hide. Put the close request back instead of
+					// forcing a close, so the desktop's exit checks still run and can warn
+					// about unsent work before the window goes away.
+					self.hide_pending = false;
+					self.exiting = true;
+					ctx.input_mut(|input| {
+						let viewport = input.raw.viewport_id;
+						if let Some(info) = input.raw.viewports.get_mut(&viewport) {
+							info.events.push(egui::ViewportEvent::Close);
+						}
+					});
 				}
 			}
 		}

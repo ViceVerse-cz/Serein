@@ -281,32 +281,49 @@ fn check_window() {
 	assert!(state.hidden);
 
 	// A compositor that ignores the hide must not strand an unclosable window: once the
-	// confirmation budget runs out the close goes through for real.
+	// confirmation budget runs out the close request is raised again, so the desktop's
+	// own exit checks still get to run before the window goes away.
 	state.show(&ctx);
-	let _ = ctx.run_logic(&close, |ctx| state.logic(ctx, true, false, Some(true)));
+	let _ = ctx.run_logic(&close, |ctx| state.logic(ctx, true, true, Some(true)));
 	let mut closed = false;
 	for _ in 0..10 {
-		let output = ctx.run_logic(&egui::RawInput::default(), |ctx| {
-			state.logic(ctx, true, false, Some(true))
+		let _ = ctx.run_logic(&egui::RawInput::default(), |ctx| {
+			state.logic(ctx, true, true, Some(true));
+			closed = ctx.input(|input| input.viewport().close_requested());
 		});
-		if output
-			.viewport_commands
-			.get(&ViewportId::ROOT)
-			.is_some_and(|cmds| cmds.contains(&Cmd::Close))
-		{
-			closed = true;
+		if closed {
 			break;
 		}
 	}
 	assert!(
 		closed,
-		"an ignored hide closes instead of stranding the window"
+		"an ignored hide re-raises the close instead of stranding the window"
 	);
 	assert!(
 		!state.hidden,
 		"a failed hide never claims the window is hidden"
 	);
+
+	// Wayland reports neither visibility nor minimization, so an unconfirmable hide keeps
+	// the previous tray behavior and never closes the app.
+	state.show(&ctx);
+	let _ = ctx.run_logic(&close, |ctx| state.logic(ctx, true, false, None));
+	let mut wayland_closed = false;
+	for _ in 0..10 {
+		let _ = ctx.run_logic(&egui::RawInput::default(), |ctx| {
+			state.logic(ctx, true, false, None);
+			wayland_closed = ctx.input(|input| input.viewport().close_requested());
+		});
+	}
+	assert!(
+		!wayland_closed,
+		"an unobservable Wayland hide never closes the app"
+	);
+	assert!(
+		!state.hidden,
+		"an unobservable hide is not claimed as hidden"
+	);
 	println!(
-		"PASS: close/hide, hide confirmation, ignored-hide fallback, Wayland minimize fallback, hidden-window session close, host loss, deferred Quit and cancelled Quit."
+		"PASS: close/hide, hide confirmation, ignored-hide fallback, unobservable Wayland hide, hidden-window session close, host loss, deferred Quit and cancelled Quit."
 	);
 }
