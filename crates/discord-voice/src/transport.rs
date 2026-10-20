@@ -426,6 +426,7 @@ async fn run_inner(
 			json_send(&mut ws,json!({"op":7,"d":{"server_id":credentials.guild.unwrap_or(credentials.channel).to_string(),"session_id":credentials.session.expose(),"token":credentials.token.expose(),"seq_ack":seq_ack}})).await?;
 		}
 		tokio::select! {
+			biased;
 			changed=controls.changed()=>{
 				if changed.is_err(){return Ok(());}
 				let is_disabled = controls.borrow().disable_incoming_video;
@@ -1209,6 +1210,7 @@ pub(crate) async fn run_stream_inner(
 			}
 		}
 		tokio::select! {
+			biased;
 			changed=async {
 				match disabled.as_mut() {
 					Some(rx) => rx.changed().await,
