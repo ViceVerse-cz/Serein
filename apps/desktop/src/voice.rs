@@ -1557,6 +1557,11 @@ impl Voice {
 				}
 			}
 		}
+		if ui.disable_local_previews {
+			ui.voice_camera_preview = None;
+			ui.voice_camera_status = "Camera on · broadcasting (preview disabled)";
+			return None;
+		}
 		let image = self.camera_preview.as_ref().and_then(|preview| {
 			let mut preview = preview.try_lock().ok()?;
 			let (image, dirty) = preview.as_mut()?;

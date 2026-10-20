@@ -77,6 +77,7 @@ impl Settings {
 			user_volumes: ui.voice_user_volume_overrides(),
 			muted_users: ui.voice_user_mutes().to_vec(),
 			disable_incoming_video: ui.disable_incoming_video,
+			disable_local_previews: ui.disable_local_previews,
 			cosmetics: ui.cosmetics,
 			image_cache: ui.image_cache,
 			time_format: ui.time_format,
@@ -126,6 +127,7 @@ impl Settings {
 		ui.set_voice_user_volume_overrides(&value.user_volumes);
 		ui.set_voice_user_mutes(&value.muted_users);
 		ui.disable_incoming_video = value.disable_incoming_video;
+		ui.disable_local_previews = value.disable_local_previews;
 		ui.cosmetics = value.cosmetics;
 		ui.image_cache = value.image_cache;
 		ui.time_format = value.time_format;

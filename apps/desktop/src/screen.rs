@@ -437,25 +437,31 @@ impl Screen {
 			self.request_stop(error);
 		}
 		if let Some(live) = &self.live {
-			live.worker.set_preview_visible(
-				ui.screen.preview.is_none()
-					|| (state.selected == Some(live.context.channel)
-						&& !ctx.input(|input| input.viewport().minimized.unwrap_or(false))),
-			);
-			if let Some(frame) = live.worker.take_preview() {
-				let image = egui::ColorImage::from_rgba_unmultiplied(
-					[frame.width() as usize, frame.height() as usize],
-					frame.as_raw(),
+			if ui.disable_local_previews {
+				live.worker.set_preview_visible(false);
+				let _ = live.worker.take_preview();
+				ui.screen.preview = None;
+			} else {
+				live.worker.set_preview_visible(
+					ui.screen.preview.is_none()
+						|| (state.selected == Some(live.context.channel)
+							&& !ctx.input(|input| input.viewport().minimized.unwrap_or(false))),
 				);
-				if let Some(texture) = &mut ui.screen.preview {
-					texture.set(image, egui::TextureOptions::LINEAR);
-				} else {
-					ui.screen.preview =
-						Some(ctx.load_texture("local-screen", image, egui::TextureOptions::LINEAR));
-					let cue = model::notification_preferences::Sound::ScreenShareOn;
-					if ui.notification_options.allows(cue) {
-						ui.notification_preview = Some(cue);
-						ctx.request_repaint();
+				if let Some(frame) = live.worker.take_preview() {
+					let image = egui::ColorImage::from_rgba_unmultiplied(
+						[frame.width() as usize, frame.height() as usize],
+						frame.as_raw(),
+					);
+					if let Some(texture) = &mut ui.screen.preview {
+						texture.set(image, egui::TextureOptions::LINEAR);
+					} else {
+						ui.screen.preview =
+							Some(ctx.load_texture("local-screen", image, egui::TextureOptions::LINEAR));
+						let cue = model::notification_preferences::Sound::ScreenShareOn;
+						if ui.notification_options.allows(cue) {
+							ui.notification_preview = Some(cue);
+							ctx.request_repaint();
+						}
 					}
 				}
 			}

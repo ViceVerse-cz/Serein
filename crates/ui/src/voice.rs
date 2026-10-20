@@ -1331,7 +1331,19 @@ impl MessagingUi {
 				);
 				content
 			})
-			.unwrap_or(rect);
+			.unwrap_or_else(|| {
+				ui.painter().rect_filled(rect, 8, TILE_FILL);
+				if rect.height() >= 72.0 {
+					ui.painter().text(
+						rect.center(),
+						egui::Align2::CENTER_CENTER,
+						"Sharing your screen · Preview disabled",
+						egui::FontId::proportional(13.0),
+						STAGE_MUTED,
+					);
+				}
+				rect
+			});
 		if !compact {
 			name_badge(ui, content, "Your screen", None, self.badge_opacity());
 		}
@@ -2353,6 +2365,12 @@ impl MessagingUi {
 					"Disable Incoming Video",
 					Some("Stops receiving video streams from other participants to save CPU and bandwidth"),
 					&mut self.disable_incoming_video,
+				);
+				design::switch(
+					ui,
+					"Disable Local Previews",
+					Some("Hides your camera and screen previews to save GPU and CPU while continuing to broadcast"),
+					&mut self.disable_local_previews,
 				);
 			} else {
 				ui.label(

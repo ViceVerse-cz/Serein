@@ -469,6 +469,8 @@ pub struct MessagingUi {
 	pub voice_deafened: bool,
 	/// Device-local: skip decoding and rendering incoming video streams.
 	pub disable_incoming_video: bool,
+	/// Device-local: skip rendering local camera and screen share previews to save resources.
+	pub disable_local_previews: bool,
 	pub voice_processing: model::voice_settings::VoiceProcessing,
 	pub voice_preview_requested: bool,
 	pub voice_preview_level: Option<f32>,
