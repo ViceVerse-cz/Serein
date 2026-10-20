@@ -38,6 +38,8 @@ pub struct Controls {
 	pub stream_volume: u16,
 	/// Skip decoding incoming video when enabled; saves CPU and bandwidth.
 	pub disable_incoming_video: bool,
+	/// Monotonically incremented whenever video reception or disabled setting transitions.
+	pub video_generation: u64,
 }
 impl Default for Controls {
 	fn default() -> Self {
@@ -49,6 +51,7 @@ impl Default for Controls {
 			user_volumes: [(0, 100); 64],
 			stream_volume: 100,
 			disable_incoming_video: false,
+			video_generation: 0,
 		}
 	}
 }

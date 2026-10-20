@@ -393,6 +393,7 @@ async fn run_inner(
 	let mut last_speakers = [0; 64];
 	let mut speakers_at = Instant::now();
 	let mut was_disabled = controls.borrow().disable_incoming_video;
+	let mut last_video_generation = controls.borrow().video_generation;
 	loop {
 		if let Some(reason) = reconnect.take() {
 			if encryption.is_none() || resume_attempts >= 2 {
@@ -429,12 +430,16 @@ async fn run_inner(
 			biased;
 			changed=controls.changed()=>{
 				if changed.is_err(){return Ok(());}
-				let is_disabled = controls.borrow().disable_incoming_video;
-				if was_disabled && !is_disabled {
+				let (is_disabled, video_generation) = {
+					let control = controls.borrow();
+					(control.disable_incoming_video, control.video_generation)
+				};
+				if (was_disabled && !is_disabled) || (!is_disabled && video_generation != last_video_generation) {
 					receivers.reset_assemblers();
 					receivers.require_all_keyframes();
 				}
 				was_disabled = is_disabled;
+				last_video_generation = video_generation;
 			},
 			_=video_tick.tick(), if !video.is_empty()=>{
 				let generation=controls.borrow().camera;

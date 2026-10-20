@@ -980,6 +980,9 @@ impl Voice {
 					control.user_volumes = user_volumes;
 					control.stream_volume = stream_volume;
 					control.activity_threshold_db = activity_threshold_db;
+					if control.disable_incoming_video != disable_incoming_video {
+						control.video_generation = control.video_generation.wrapping_add(1);
+					}
 					control.disable_incoming_video = disable_incoming_video;
 					true
 				}
