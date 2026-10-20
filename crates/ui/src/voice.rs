@@ -4019,29 +4019,29 @@ impl MessagingUi {
 									.selectable(false),
 								);
 								let response = ui.add(
-								    egui::Label::new(
-        								RichText::new(detail).size(12.0).color(colors.muted),
-    								)
-  									.truncate()
-   									.selectable(false)
-   									.sense(egui::Sense::click()),
+									egui::Label::new(
+										RichText::new(detail).size(12.0).color(colors.muted),
+									)
+									.truncate()
+									.selectable(false)
+									.sense(egui::Sense::click()),
 								);
 
 								if response.clicked() {
-    								self.guild = guild_id;
+									self.guild = guild_id;
 
-    								if state.selected != Some(channel_id)
-        								&& let Some(command) = state.select(channel_id)
-    								{
-        								commands.push(command);
-    								}
+									if state.selected != Some(channel_id)
+										&& let Some(command) = state.select(channel_id)
+									{
+										commands.push(command);
+									}
 
-    									self.navigation_channel = Some(channel_id);
+									self.navigation_channel = Some(channel_id);
 								}
-								
+
 								response
-   									.on_hover_cursor(egui::CursorIcon::PointingHand)
-    								.on_hover_text("Switch to this voice channel");
+									.on_hover_cursor(egui::CursorIcon::PointingHand)
+									.on_hover_text("Switch to this voice channel");
 							});
 						});
 					});
