@@ -4837,4 +4837,16 @@ voice-voice-popup-content-disable-local-previews-description = Pomija renderowan
 # Context: voice_popup_content
 voice-voice-popup-content-disable-incoming-video = Wyłącz przychodzące wideo
 # Context: voice_popup_content
-voice-voice-popup-content-disable-incoming-video-description = Zatrzymuje odbieranie i dekodowanie strumieni wideo od innych uczestników, aby zaoszczędzić procesor i przepustowość.
+voice-voice-popup-content-disable-incoming-video-description = Pomija dekodowanie i renderowanie przychodzących strumieni wideo, aby zaoszczędzić zasoby procesora i karty graficznej.
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = Udostępniasz ekran · Podgląd wyłączony
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = Udostępniasz ekran
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = Twój ekran · podgląd wyłączony
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = Twój ekran · podgląd lokalny

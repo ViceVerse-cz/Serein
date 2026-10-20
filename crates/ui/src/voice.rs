@@ -1247,10 +1247,12 @@ impl MessagingUi {
 		let hint = match tile {
 			Tile::LocalScreen => {
 				self.screen_tile(ui, rect, compact);
-				self.screen.capture_status.unwrap_or(if self.disable_local_previews {
-					"Your screen · preview disabled"
-				} else {
-					"Your screen · local preview"
+				self.screen.capture_status.map(crate::i18n::translate_if_key).unwrap_or_else(|| {
+					crate::i18n::translate(if self.disable_local_previews {
+						"voice-screen-tile-hint-preview-disabled"
+					} else {
+						"voice-screen-tile-hint-local-preview"
+					})
 				})
 			}
 			Tile::Stream(streamer) if has_video => {
@@ -1265,7 +1267,7 @@ impl MessagingUi {
 							ui.close();
 						}
 					});
-				"Screen share you are watching"
+				"Screen share you are watching".to_string()
 			}
 			Tile::Stream(streamer) => {
 				let watch = self.stream_invite_tile(ui, state, rect, channel, *streamer, compact);
@@ -1291,12 +1293,12 @@ impl MessagingUi {
 					response.on_hover_cursor(egui::CursorIcon::PointingHand);
 					return None;
 				}
-				"Join this voice channel before watching"
+				"Join this voice channel before watching".to_string()
 			}
 			Tile::Participant(entry) => {
 				self.participant_tile(ui, state, entry, rect, frameless, compact);
 				self.voice_participant_menu(&response, state, entry);
-				""
+				String::new()
 			}
 		};
 		if has_video {
@@ -1331,15 +1333,15 @@ impl MessagingUi {
 			content
 		} else {
 			ui.painter().rect_filled(rect, 8, TILE_FILL);
-			let text = if self.disable_local_previews {
-				"Sharing your screen · Preview disabled"
+			let text = crate::i18n::translate(if self.disable_local_previews {
+				"voice-screen-tile-sharing-preview-disabled"
 			} else {
-				"Sharing your screen"
-			};
+				"voice-screen-tile-sharing"
+			});
 			ui.painter().text(
 				rect.center(),
 				egui::Align2::CENTER_CENTER,
-				text,
+				&text,
 				egui::FontId::proportional(13.0),
 				egui::Color32::from_gray(160),
 			);

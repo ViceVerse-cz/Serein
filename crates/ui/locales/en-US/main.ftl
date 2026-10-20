@@ -4929,4 +4929,16 @@ voice-voice-popup-content-disable-local-previews-description = Skips drawing cam
 # Context: voice_popup_content
 voice-voice-popup-content-disable-incoming-video = Disable incoming video
 # Context: voice_popup_content
-voice-voice-popup-content-disable-incoming-video-description = Stops receiving and decoding video streams from other participants to save CPU and bandwidth.
+voice-voice-popup-content-disable-incoming-video-description = Skips decoding and rendering incoming video streams to save CPU and GPU resources.
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = Sharing your screen · Preview disabled
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = Sharing your screen
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = Your screen · preview disabled
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = Your screen · local preview

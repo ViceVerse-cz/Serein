@@ -4818,4 +4818,16 @@ voice-voice-popup-content-disable-local-previews-description = CPUおよびGPU�
 # Context: voice_popup_content
 voice-voice-popup-content-disable-incoming-video = 受信ビデオを無効化
 # Context: voice_popup_content
-voice-voice-popup-content-disable-incoming-video-description = CPUと帯域幅を節約するため、他の参加者からのビデオストリームの受信とデコードを停止します。
+voice-voice-popup-content-disable-incoming-video-description = CPUおよびGPUリソースを節約するために、受信ビデオストリームのデコードとレンダリングをスキップします。
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = 画面を共有中 · プレビュー無効
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = 画面を共有中
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = あなたの画面 · プレビュー無効
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = あなたの画面 · ローカルプレビュー

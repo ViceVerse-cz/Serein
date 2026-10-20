@@ -4835,4 +4835,16 @@ voice-voice-popup-content-disable-local-previews-description = Überspringt das 
 # Context: voice_popup_content
 voice-voice-popup-content-disable-incoming-video = Eingehendes Video deaktivieren
 # Context: voice_popup_content
-voice-voice-popup-content-disable-incoming-video-description = Stoppt das Empfangen und Dekodieren von Videostreams anderer Teilnehmer, um CPU und Bandbreite zu sparen.
+voice-voice-popup-content-disable-incoming-video-description = Überspringt das Dekodieren und Rendern eingehender Videostreams, um CPU- und GPU-Ressourcen zu sparen.
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = Du teilst deinen Bildschirm · Vorschau deaktiviert
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = Du teilst deinen Bildschirm
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = Dein Bildschirm · Vorschau deaktiviert
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = Dein Bildschirm · Lokale Vorschau

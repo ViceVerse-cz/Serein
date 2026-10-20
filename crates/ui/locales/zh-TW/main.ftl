@@ -4933,4 +4933,16 @@ voice-voice-popup-content-disable-local-previews-description = 跳過相機和�
 # Context: voice_popup_content
 voice-voice-popup-content-disable-incoming-video = 停用傳入視訊
 # Context: voice_popup_content
-voice-voice-popup-content-disable-incoming-video-description = 停止接收和解碼其他參與者的視訊串流，以節省 CPU 和頻寬。
+voice-voice-popup-content-disable-incoming-video-description = 跳過傳入視訊串流的解碼和轉譯，以節省 CPU 和 GPU 資源。
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = 正在共用螢幕 · 預覽已停用
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = 正在共用螢幕
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = 您的螢幕 · 預覽已停用
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = 您的螢幕 · 本地預覽
