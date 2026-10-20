@@ -1017,6 +1017,7 @@ pub async fn run_stream(
 			Some(video),
 			None,
 			None,
+			None,
 			emit,
 			url,
 			false,
@@ -1031,6 +1032,7 @@ pub async fn watch_stream(
 	identity: Arc<Identity>,
 	sink: VideoSink,
 	audio: Option<SyncSender<Frame>>,
+	disabled: watch::Receiver<bool>,
 	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 ) -> Result<(), &'static str> {
 	let url = endpoint(&credentials.endpoint)?;
@@ -1041,6 +1043,7 @@ pub async fn watch_stream(
 			None,
 			Some(sink),
 			audio,
+			Some(disabled),
 			emit,
 			url,
 			false,
@@ -1049,12 +1052,13 @@ pub async fn watch_stream(
 	.await
 }
 #[allow(clippy::too_many_arguments)] // Media inputs plus the loopback-only test endpoint.
-async fn run_stream_inner(
+pub(crate) async fn run_stream_inner(
 	credentials: VoiceConnection,
 	identity: Arc<Identity>,
 	mut video: Option<crate::screen::Video>,
 	sink: Option<VideoSink>,
 	audio: Option<SyncSender<Frame>>,
+	mut disabled: Option<watch::Receiver<bool>>,
 	emit: impl Fn(Status) -> Result<(), ()>,
 	url: String,
 	local_test: bool,
@@ -1204,6 +1208,17 @@ async fn run_stream_inner(
 			}
 		}
 		tokio::select! {
+			changed=async {
+				match disabled.as_mut() {
+					Some(rx) => rx.changed().await,
+					None => std::future::pending().await,
+				}
+			}=>{
+				if changed.is_err() { return Ok(()); }
+				if !*disabled.as_ref().unwrap().borrow() {
+					receivers.require_all_keyframes();
+				}
+			},
 			_=tokio::time::sleep_until(outgoing.deadline), if !outgoing.is_empty() || history.has_pending()=>{
 				let crypto=encryption.as_mut().ok_or("Missing stream transport key")?;
 				let socket=udp.as_ref().ok_or("Missing stream UDP socket")?;
@@ -1299,7 +1314,7 @@ async fn run_stream_inner(
 					metrics.signal(Signal::SinkWantsSent,1);
 					next_sink_wants=now+if stalled {SINK_WANTS_STALLED_INTERVAL} else {SINK_WANTS_INTERVAL};
 				}
-				if secure && now>=next_pli && let Some(lost)=&lost && let Some(crypto)=encryption.as_mut() && let Some(socket)=&udp {
+				if secure && !disabled.as_ref().is_some_and(|rx| *rx.borrow()) && now>=next_pli && let Some(lost)=&lost && let Some(crypto)=encryption.as_mut() && let Some(socket)=&udp {
 					receivers.absorb(lost);
 					let requests:Vec<u32>=receivers.keyframe_requests().collect();
 					metrics.video(Video::PliSent,requests.len() as u64);
@@ -1379,7 +1394,7 @@ async fn run_stream_inner(
 					continue;
 				}
 				let Some(decoder)=&decoder else {continue;};
-				if rtp.payload_type!=101 {continue;}
+				if rtp.payload_type!=101 || disabled.as_ref().is_some_and(|rx| *rx.borrow()) {continue;}
 				let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else {continue;};
 				if !dave.contains(user) {metrics.video(Video::NotReady,1);continue;}
 				let start=metrics.start();

@@ -55,6 +55,7 @@ struct Pending {
 	rtc: Option<(Id, Id)>,
 	server: Option<(voice::Secret, String)>,
 	started: Instant,
+	disable_video: Option<(watch::Sender<bool>, watch::Receiver<bool>)>,
 }
 #[derive(Clone, Copy)]
 enum Notice {
@@ -66,6 +67,7 @@ struct Live {
 	task: JoinHandle<()>,
 	events: watch::Receiver<Option<Notice>>,
 	frames: Arc<Mutex<Slot>>,
+	disable_video: watch::Sender<bool>,
 }
 
 #[derive(Default)]
@@ -247,6 +249,7 @@ impl Watch {
 				rtc: None,
 				server: None,
 				started: Instant::now(),
+				disable_video: Some(watch::channel(ui.disable_incoming_video)),
 			});
 			self.status = "Requesting the stream…";
 			self.notice = "";
@@ -276,6 +279,14 @@ impl Watch {
 			}
 		}
 		if let Some(live) = &mut self.live {
+			let _ = live.disable_video.send_if_modified(|val| {
+				if *val != ui.disable_incoming_video {
+					*val = ui.disable_incoming_video;
+					true
+				} else {
+					false
+				}
+			});
 			match *live.events.borrow_and_update() {
 				Some(Notice::Status(status)) => self.status = status,
 				Some(Notice::Failed(error)) => self.ended = Some(error),
@@ -286,7 +297,10 @@ impl Watch {
 			}
 			// Uploading copies the planes into GPU staging, so it runs under the slot lock
 			// and the decoder keeps refilling the same allocation.
-			if let Ok(mut slot) = live.frames.try_lock()
+			if ui.disable_incoming_video {
+				ui.voice_stream_view = None;
+				self.status = "Incoming video disabled";
+			} else if let Ok(mut slot) = live.frames.try_lock()
 				&& let Some((picture, fresh)) = slot.as_mut()
 				&& std::mem::take(fresh)
 				&& let Some(texture) = self.texture.upload(ctx, "remote-stream", picture.borrow())
@@ -344,10 +358,11 @@ impl Watch {
 		let wake = ctx.clone();
 		let identity = pending.identity;
 		let audio = pending.audio;
+		let (disable_send, disable_recv) = pending.disable_video.expect("disable_video channel");
 		let task = runtime.spawn(async move {
 			let (status_send, status_wake) = (send.clone(), wake.clone());
 			let result =
-				discord_voice::watch_stream(credentials, identity, sink, audio, move |event| {
+				discord_voice::watch_stream(credentials, identity, sink, audio, disable_recv, move |event| {
 					let status = match event {
 						Status::Connecting => "Connecting to the stream…",
 						Status::Discovering => "Checking the stream network…",
@@ -374,6 +389,7 @@ impl Watch {
 			task,
 			events,
 			frames,
+			disable_video: disable_send,
 		});
 		Ok(())
 	}

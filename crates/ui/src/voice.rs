@@ -1199,7 +1199,7 @@ impl MessagingUi {
 	fn tile_has_video(&self, state: &State, channel: Id, tile: &Tile<'_>) -> bool {
 		match tile {
 			Tile::LocalScreen => self.screen.preview.is_some(),
-			Tile::Stream(streamer) => self.watching(state, channel, *streamer),
+			Tile::Stream(streamer) => !self.disable_incoming_video && self.watching(state, channel, *streamer),
 			Tile::Participant(entry) => {
 				let own = state
 					.user
