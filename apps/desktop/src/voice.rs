@@ -1560,6 +1560,11 @@ impl Voice {
 					self.camera = Some(camera);
 					self.camera_preview = Some(receive);
 					ui.voice_camera_status = "Opening camera…";
+					let cue = model::notification_preferences::Sound::CameraOn;
+					if ui.notification_options.allows(cue) {
+						ui.notification_preview = Some(cue);
+						ctx.request_repaint();
+					}
 					live.controls
 						.send_modify(|controls| controls.camera = generation);
 				}
@@ -1569,6 +1574,11 @@ impl Voice {
 					return state.set_call_camera(false);
 				}
 			}
+		}
+		if ui.disable_local_previews {
+			ui.voice_camera_preview = None;
+			ui.voice_camera_status = "";
+			return None;
 		}
 		let image = self.camera_preview.as_ref().and_then(|preview| {
 			let mut preview = preview.try_lock().ok()?;
@@ -1581,11 +1591,6 @@ impl Voice {
 			} else {
 				ui.voice_camera_preview =
 					Some(ctx.load_texture("local-camera", image, egui::TextureOptions::LINEAR));
-				let cue = model::notification_preferences::Sound::CameraOn;
-				if ui.notification_options.allows(cue) {
-					ui.notification_preview = Some(cue);
-					ctx.request_repaint();
-				}
 			}
 			// The local tile is the confirmation; no lingering status line.
 			ui.voice_camera_status = "";

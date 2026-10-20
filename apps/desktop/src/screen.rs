@@ -89,6 +89,7 @@ pub(super) struct Screen {
 	/// Last viewer count Discord reported for the own stream, and a cue waiting for `poll`.
 	viewers: Option<(Context, u16)>,
 	viewer_cue: bool,
+	share_cue: bool,
 }
 impl Screen {
 	pub fn stop(&mut self) {
@@ -97,6 +98,7 @@ impl Screen {
 		self.closing = None;
 		self.viewers = None;
 		self.viewer_cue = false;
+		self.share_cue = false;
 		// Keep one in-flight OS enumeration tracked until it completes.
 		self.retire_live();
 		self.status = "Screen sharing stopped";
@@ -251,9 +253,14 @@ impl Screen {
 			return None;
 		}
 		ui.screen.supported = discord_voice::screen::supported();
-		let cue = model::notification_preferences::Sound::ViewerJoin;
-		if std::mem::take(&mut self.viewer_cue) && ui.notification_options.allows(cue) {
-			ui.notification_preview = Some(cue);
+		let viewer_cue = model::notification_preferences::Sound::ViewerJoin;
+		if std::mem::take(&mut self.viewer_cue) && ui.notification_options.allows(viewer_cue) {
+			ui.notification_preview = Some(viewer_cue);
+			ctx.request_repaint();
+		}
+		let share_cue = model::notification_preferences::Sound::ScreenShareOn;
+		if std::mem::take(&mut self.share_cue) && ui.notification_options.allows(share_cue) {
+			ui.notification_preview = Some(share_cue);
 			ctx.request_repaint();
 		}
 		if !ui.screen.open && ui.screen.request.is_none() && self.context().is_none() {
@@ -448,25 +455,25 @@ impl Screen {
 			self.fail(error);
 		}
 		if let Some(live) = &self.live {
-			live.worker.set_preview_visible(
-				ui.screen.preview.is_none()
-					|| (state.selected == Some(live.context.channel)
-						&& !ctx.input(|input| input.viewport().minimized.unwrap_or(false))),
-			);
-			if let Some(frame) = live.worker.take_preview() {
-				let image = egui::ColorImage::from_rgba_unmultiplied(
-					[frame.width() as usize, frame.height() as usize],
-					frame.as_raw(),
+			if ui.disable_local_previews {
+				live.worker.set_preview_visible(false);
+				ui.screen.preview = None;
+			} else {
+				live.worker.set_preview_visible(
+					ui.screen.preview.is_none()
+						|| (state.selected == Some(live.context.channel)
+							&& !ctx.input(|input| input.viewport().minimized.unwrap_or(false))),
 				);
-				if let Some(texture) = &mut ui.screen.preview {
-					texture.set(image, egui::TextureOptions::LINEAR);
-				} else {
-					ui.screen.preview =
-						Some(ctx.load_texture("local-screen", image, egui::TextureOptions::LINEAR));
-					let cue = model::notification_preferences::Sound::ScreenShareOn;
-					if ui.notification_options.allows(cue) {
-						ui.notification_preview = Some(cue);
-						ctx.request_repaint();
+				if let Some(frame) = live.worker.take_preview() {
+					let image = egui::ColorImage::from_rgba_unmultiplied(
+						[frame.width() as usize, frame.height() as usize],
+						frame.as_raw(),
+					);
+					if let Some(texture) = &mut ui.screen.preview {
+						texture.set(image, egui::TextureOptions::LINEAR);
+					} else {
+						ui.screen.preview =
+							Some(ctx.load_texture("local-screen", image, egui::TextureOptions::LINEAR));
 					}
 				}
 			}
@@ -566,6 +573,7 @@ impl Screen {
 			task,
 			events,
 		});
+		self.share_cue = true;
 		Ok(())
 	}
 }

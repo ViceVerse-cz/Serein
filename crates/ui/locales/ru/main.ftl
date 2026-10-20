@@ -4830,3 +4830,8 @@ search-overlays-no-matching-content-types = Нет подходящих типо
 search-overlays-history = История
 search-overlays-clear-history = Очистить историю поиска
 main-sign-in-rate-limited-detail = Discord ограничивает этот вход. Подождите, прежде чем пытаться снова. Повторная попытка раньше времени может продлить ожидание.
+
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews = Отключить локальный предпросмотр
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews-description = Пропускает рендеринг предпросмотра камеры и демонстрации экрана для экономии ресурсов процессора и видеокарты.

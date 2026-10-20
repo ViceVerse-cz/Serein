@@ -4813,3 +4813,8 @@ search-overlays-no-matching-content-types = Eşleşen içerik türü yok
 search-overlays-history = Geçmiş
 search-overlays-clear-history = Arama geçmişini temizle
 main-sign-in-rate-limited-detail = Discord bu oturum açmayı sınırlıyor. Tekrar denemeden önce bekle. Daha erken bir deneme bekleme süresini uzatabilir.
+
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews = Yerel önizlemeleri devre dışı bırak
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews-description = CPU ve GPU kaynaklarından tasarruf etmek için kamera ve ekran paylaşımı önizlemelerini oluşturmayı atlar.

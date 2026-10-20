@@ -644,11 +644,7 @@ mod macos {
 			}
 			session.addInput(&input);
 			session.addOutput(&output);
-			if !session.canSetSessionPreset(AVCaptureSessionPresetInputPriority) {
-				return Err("Camera does not support native format selection");
-			}
 			session.beginConfiguration();
-			session.setSessionPreset(AVCaptureSessionPresetInputPriority);
 			let configured = configure(&device);
 			session.commitConfiguration();
 			configured?;

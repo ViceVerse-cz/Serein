@@ -4925,3 +4925,8 @@ search-overlays-no-matching-content-types = 没有匹配的内容类型
 search-overlays-history = 历史记录
 search-overlays-clear-history = 清除搜索历史
 main-sign-in-rate-limited-detail = Discord 正在限制此次登录。请稍候再试。过早重试可能会延长等待时间。
+
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews = 停用本地预览
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews-description = 跳过摄像头和屏幕共享预览的渲染，以节省 CPU 和 GPU 资源。

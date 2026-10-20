@@ -4827,3 +4827,8 @@ search-overlays-no-matching-content-types = Keine passenden Inhaltstypen
 search-overlays-history = Verlauf
 search-overlays-clear-history = Suchverlauf löschen
 main-sign-in-rate-limited-detail = Discord begrenzt diese Anmeldung. Warte, bevor du es erneut versuchst. Ein früherer Versuch kann die Wartezeit verlängern.
+
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews = Lokale Vorschau deaktivieren
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews-description = Überspringt das Rendern von Kamera- und Bildschirmübertragungsvorschauen, um CPU- und GPU-Ressourcen zu sparen.

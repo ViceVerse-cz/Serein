@@ -4827,3 +4827,8 @@ search-overlays-no-matching-content-types = Nenhum tipo de conteúdo corresponde
 search-overlays-history = Histórico
 search-overlays-clear-history = Limpar histórico de pesquisa
 main-sign-in-rate-limited-detail = O Discord está limitando este login. Aguarde antes de tentar novamente. Outra tentativa antes disso pode aumentar a espera.
+
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews = Desativar pré-visualizações locais
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews-description = Ignora a renderização de pré-visualizações de câmera e compartilhamento de tela para economizar recursos de CPU e GPU.

@@ -4921,3 +4921,8 @@ profiles-private-notice = { $name }’s profile is private, so some info is hidd
 settings-cosmetics-name-styles = Name styles
 settings-cosmetics-name-styles-description = Nitro display name fonts, colours and effects.
 main-sign-in-rate-limited-detail = Discord is rate limiting this sign-in. Wait before trying again. Another attempt before that can make the wait longer.
+
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews = Disable local previews
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews-description = Skips drawing camera and screen-share previews to save CPU and GPU resources.
