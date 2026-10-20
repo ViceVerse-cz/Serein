@@ -310,14 +310,18 @@ fn check_window() {
 
 	// Wayland reports neither visibility nor minimization, so an unconfirmable hide keeps
 	// the previous tray behavior and never closes the app.
+	state.cancel_quit();
 	state.show(&ctx);
 	let _ = ctx.run_logic(&close, |ctx| state.logic(ctx, true, false, None));
 	let mut wayland_closed = false;
 	for _ in 0..10 {
-		let _ = ctx.run_logic(&egui::RawInput::default(), |ctx| {
+		let output = ctx.run_logic(&egui::RawInput::default(), |ctx| {
 			state.logic(ctx, true, false, None);
-			wayland_closed = ctx.input(|input| input.viewport().close_requested());
 		});
+		wayland_closed |= output
+			.viewport_commands
+			.get(&ViewportId::ROOT)
+			.is_some_and(|cmds| cmds.contains(&Cmd::Close));
 	}
 	assert!(
 		!wayland_closed,
