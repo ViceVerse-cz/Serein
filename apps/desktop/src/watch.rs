@@ -426,6 +426,7 @@ mod tests {
 		for failed in [false, true] {
 			state.voice.active.as_mut().unwrap().watching = Some(context.streamer);
 			let (_send, events) = watch::channel(None);
+			let (disable_send, _disable_recv) = watch::channel(false);
 			let mut watch = Watch {
 				pending: None,
 				live: Some(Live {
@@ -433,6 +434,7 @@ mod tests {
 					task: runtime.spawn(std::future::pending()),
 					events,
 					frames: Arc::new(Mutex::new(None)),
+					disable_video: disable_send,
 				}),
 				ended: None,
 				sequence: 0,

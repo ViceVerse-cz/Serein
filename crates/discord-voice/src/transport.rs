@@ -430,6 +430,7 @@ async fn run_inner(
 				if changed.is_err(){return Ok(());}
 				let is_disabled = controls.borrow().disable_incoming_video;
 				if was_disabled && !is_disabled {
+					receivers.reset_assemblers();
 					receivers.require_all_keyframes();
 				}
 				was_disabled = is_disabled;
@@ -1216,6 +1217,7 @@ pub(crate) async fn run_stream_inner(
 			}=>{
 				if changed.is_err() { return Ok(()); }
 				if !*disabled.as_ref().unwrap().borrow() {
+					receivers.reset_assemblers();
 					receivers.require_all_keyframes();
 				}
 			},

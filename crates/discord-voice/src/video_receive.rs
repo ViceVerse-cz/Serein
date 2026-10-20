@@ -440,6 +440,13 @@ impl Receivers {
 			self.require_keyframe(self.sources[index].1);
 		}
 	}
+	/// Reset packet assembly for all sources so resuming after a long pause does not reject
+	/// subsequent packets as late/out-of-window.
+	pub fn reset_assemblers(&mut self) {
+		for entry in &mut self.sources {
+			entry.2 = Assembler::default();
+		}
+	}
 	/// Drains the depacketizer counters.
 	pub fn take_stats(&mut self) -> ReceiveStats {
 		std::mem::take(&mut self.stats)
