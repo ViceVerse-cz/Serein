@@ -1187,6 +1187,9 @@ impl MessagingUi {
 	}
 
 	fn remote_texture(&self, user: Id) -> Option<&egui::load::SizedTexture> {
+		if self.disable_incoming_video {
+			return None;
+		}
 		self.voice_remote_video
 			.iter()
 			.find(|(id, _)| *id == user)
@@ -2344,6 +2347,12 @@ impl MessagingUi {
 						"voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak",
 					),
 					&mut self.voice_push_to_talk,
+				);
+				design::switch(
+					ui,
+					"Disable Incoming Video",
+					Some("Stops receiving video streams from other participants to save CPU and bandwidth"),
+					&mut self.disable_incoming_video,
 				);
 			} else {
 				ui.label(

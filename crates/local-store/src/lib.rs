@@ -79,6 +79,9 @@ pub struct AppPreferences {
 	pub user_volumes: Vec<(u64, u16)>,
 	/// Voice participants silenced on this device only, bounded like the volume overrides.
 	pub muted_users: Vec<u64>,
+	/// Device-local opt-in: skip decoding incoming video streams to save CPU and bandwidth.
+	#[serde(default)]
+	pub disable_incoming_video: bool,
 	/// Profile cosmetics shown on this device; older preferences show all of them.
 	pub cosmetics: model::CosmeticPreferences,
 	/// Disk budgets and retention for downloaded images, from bounded presets.
@@ -121,6 +124,7 @@ impl Default for AppPreferences {
 			expanded_folders: Vec::new(),
 			user_volumes: Vec::new(),
 			muted_users: Vec::new(),
+			disable_incoming_video: false,
 			cosmetics: Default::default(),
 			image_cache: Default::default(),
 			time_format: Default::default(),

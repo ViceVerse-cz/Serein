@@ -76,6 +76,7 @@ impl Settings {
 			expanded_folders: ui.expanded_folders.clone(),
 			user_volumes: ui.voice_user_volume_overrides(),
 			muted_users: ui.voice_user_mutes().to_vec(),
+			disable_incoming_video: ui.disable_incoming_video,
 			cosmetics: ui.cosmetics,
 			image_cache: ui.image_cache,
 			time_format: ui.time_format,
@@ -124,6 +125,7 @@ impl Settings {
 		ui.expanded_folders.clone_from(&value.expanded_folders);
 		ui.set_voice_user_volume_overrides(&value.user_volumes);
 		ui.set_voice_user_mutes(&value.muted_users);
+		ui.disable_incoming_video = value.disable_incoming_video;
 		ui.cosmetics = value.cosmetics;
 		ui.image_cache = value.image_cache;
 		ui.time_format = value.time_format;

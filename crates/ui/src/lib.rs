@@ -467,6 +467,8 @@ pub struct MessagingUi {
 	/// Device-local voice intent, retained between calls and restarts.
 	pub voice_muted: bool,
 	pub voice_deafened: bool,
+	/// Device-local: skip decoding and rendering incoming video streams.
+	pub disable_incoming_video: bool,
 	pub voice_processing: model::voice_settings::VoiceProcessing,
 	pub voice_preview_requested: bool,
 	pub voice_preview_level: Option<f32>,

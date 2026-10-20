@@ -392,6 +392,7 @@ async fn run_inner(
 	let mut local_activity = 0;
 	let mut last_speakers = [0; 64];
 	let mut speakers_at = Instant::now();
+	let mut was_disabled = controls.borrow().disable_incoming_video;
 	loop {
 		if let Some(reason) = reconnect.take() {
 			if encryption.is_none() || resume_attempts >= 2 {
@@ -425,7 +426,14 @@ async fn run_inner(
 			json_send(&mut ws,json!({"op":7,"d":{"server_id":credentials.guild.unwrap_or(credentials.channel).to_string(),"session_id":credentials.session.expose(),"token":credentials.token.expose(),"seq_ack":seq_ack}})).await?;
 		}
 		tokio::select! {
-			changed=controls.changed()=>{ if changed.is_err(){return Ok(());} },
+			changed=controls.changed()=>{
+				if changed.is_err(){return Ok(());}
+				let is_disabled = controls.borrow().disable_incoming_video;
+				if was_disabled && !is_disabled {
+					receivers.require_all_keyframes();
+				}
+				was_disabled = is_disabled;
+			},
 			_=video_tick.tick(), if !video.is_empty()=>{
 				let generation=controls.borrow().camera;
 				if !dave.ready || resuming || generation==0 || generation!=video.generation {video.clear();}
@@ -464,7 +472,7 @@ async fn run_inner(
 				}
 				watch.tick(&mut metrics,&mut receivers,decoder.as_ref(),now);
 				// Lost or stalled pictures stay frozen until the sender refreshes; ask twice a second at most.
-				if enabled && now>=next_pli && let Some(lost)=&lost && let Some(crypto)=encryption.as_mut() && let Some(socket)=&udp {
+				if enabled && !controls.borrow().disable_incoming_video && now>=next_pli && let Some(lost)=&lost && let Some(crypto)=encryption.as_mut() && let Some(socket)=&udp {
 					receivers.absorb(lost);
 					let requests:Vec<u32>=receivers.keyframe_requests().collect();
 					metrics.video(Video::PliSent,requests.len() as u64);
@@ -569,7 +577,7 @@ async fn run_inner(
 				if rtp.payload_type==101 {
 					metrics.video(Video::Packets,1);
 					let Some(decoder)=&decoder else{continue;};
-					if !dave.ready {metrics.video(Video::NotReady,1);continue;}
+					if !dave.ready || controls.borrow().disable_incoming_video {continue;}
 					let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else{continue;};
 					if !dave.contains(user) {metrics.video(Video::NotReady,1);continue;}
 					let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else{receivers.require_keyframe(user);metrics.video(Video::DecryptFailed,1);continue;};
