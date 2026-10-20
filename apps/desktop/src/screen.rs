@@ -92,6 +92,7 @@ pub(super) struct Screen {
 	share_cue: bool,
 }
 impl Screen {
+	/// Stops screen capture and releases any active preview or worker resources.
 	pub fn stop(&mut self) {
 		self.pending = None;
 		self.command = None;
@@ -225,6 +226,7 @@ impl Screen {
 		}
 	}
 
+	/// Polls active screen-sharing capture state and synchronizes local preview textures.
 	pub fn poll(
 		&mut self,
 		runtime: &Runtime,
@@ -514,6 +516,7 @@ impl Screen {
 		}
 	}
 
+	/// Starts screen sharing with the configured capture settings.
 	fn start(
 		&mut self,
 		runtime: &Runtime,

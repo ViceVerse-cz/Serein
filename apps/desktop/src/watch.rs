@@ -158,6 +158,7 @@ impl Watch {
 			screen::Event::Viewers(_) => {}
 		}
 	}
+	/// Polls stream watching state, processing status events and texture uploads.
 	pub fn poll(
 		&mut self,
 		runtime: &Runtime,
@@ -323,6 +324,7 @@ impl Watch {
 		ui.voice_stream_status = if wanted.is_some() { self.status } else { "" };
 		command
 	}
+	/// Starts watching an active stream from a voice call participant.
 	fn start(
 		&mut self,
 		runtime: &Runtime,

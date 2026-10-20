@@ -293,6 +293,7 @@ pub async fn run_with_identity(
 	.await
 }
 #[allow(clippy::too_many_arguments)] // Public media inputs plus the loopback-only test endpoint.
+/// Inner async task running the voice gateway signaling and media loop.
 async fn run_inner(
 	credentials: VoiceConnection,
 	capture: Receiver<Frame>,
@@ -1052,6 +1053,7 @@ pub async fn watch_stream(
 	.await
 }
 #[allow(clippy::too_many_arguments)] // Media inputs plus the loopback-only test endpoint.
+/// Inner async task running a watched stream transport connection.
 pub(crate) async fn run_stream_inner(
 	credentials: VoiceConnection,
 	identity: Arc<Identity>,

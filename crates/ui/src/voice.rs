@@ -1187,6 +1187,7 @@ impl MessagingUi {
 		})
 	}
 
+	/// Returns the remote camera texture for the specified user if incoming video is enabled.
 	fn remote_texture(&self, user: Id) -> Option<&egui::load::SizedTexture> {
 		if self.disable_incoming_video {
 			return None;
@@ -1197,6 +1198,7 @@ impl MessagingUi {
 			.map(|(_, texture)| texture)
 	}
 
+	/// Checks whether a stage tile currently has video available to display.
 	fn tile_has_video(&self, state: &State, channel: Id, tile: &Tile<'_>) -> bool {
 		match tile {
 			Tile::LocalScreen => self.screen.preview.is_some() || self.disable_local_previews,
@@ -1220,6 +1222,7 @@ impl MessagingUi {
 
 	/// One stage tile. Returns its focus key when a video tile is clicked to enlarge or restore.
 	#[allow(clippy::too_many_arguments)] // Placement and framing flags of one tile.
+	/// Renders an individual voice stage tile.
 	fn tile(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -1323,6 +1326,7 @@ impl MessagingUi {
 		None
 	}
 
+	/// Renders the screen share tile or placeholder card on the voice stage.
 	fn screen_tile(&self, ui: &mut egui::Ui, rect: egui::Rect, compact: bool) {
 		let content = if let Some(texture) = self.screen.preview.as_ref() {
 			let content = fit_rect(rect, texture.size_vec2());

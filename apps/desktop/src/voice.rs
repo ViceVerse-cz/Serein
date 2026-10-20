@@ -781,6 +781,7 @@ impl Voice {
 			),
 		}
 	}
+	/// Polls the voice system, updating capture, audio devices, and remote participant video.
 	pub fn poll(
 		&mut self,
 		runtime: &Runtime,
@@ -1128,7 +1129,13 @@ impl Voice {
 			}
 			// Uploading is a plane copy into GPU staging, so it runs under the slot lock
 			// instead of cloning each picture out first.
-			if let Ok(mut slot) = live.remote_video.try_lock() {
+			if ui.disable_incoming_video {
+				self.remote_textures.clear();
+				ui.voice_remote_video.clear();
+				if let Ok(mut pictures) = live.remote_video.try_lock() {
+					pictures.clear();
+				}
+			} else if let Ok(mut slot) = live.remote_video.try_lock() {
 				for (user, picture, dirty) in slot.iter_mut() {
 					if !std::mem::take(dirty) {
 						continue;
@@ -1482,6 +1489,7 @@ impl Voice {
 			}
 		}
 	}
+	/// Polls camera capture state and manages local camera texture updates.
 	fn poll_camera(
 		&mut self,
 		state: &mut State,
@@ -1606,6 +1614,7 @@ impl Voice {
 		}
 		None
 	}
+	/// Starts media transport loops for microphone and camera capture.
 	fn start_media(
 		&mut self,
 		runtime: &Runtime,
