@@ -1635,6 +1635,7 @@ impl Voice {
 			stream_volume: ui.voice_stream_volume(),
 			disable_incoming_video: ui.disable_incoming_video,
 			video_generation: 0,
+			video_generation: 0,
 		});
 		let remote_video: Arc<std::sync::Mutex<RemotePictures>> =
 			Arc::new(std::sync::Mutex::new(Vec::new()));
