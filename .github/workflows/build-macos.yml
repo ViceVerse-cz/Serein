@@ -1,0 +1,65 @@
+name: Build macOS DMG
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Setup dependencies
+        run: |
+          brew install cmake pkgconf
+
+      - name: Package application
+        run: |
+          cargo xtask package
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg_root
+          cp -R dist/Serein.app dmg_root/
+          ln -s /Applications dmg_root/Applications
+          hdiutil create -volname "Serein" -srcfolder dmg_root -ov -format UDZO "Serein-macOS.dmg"
+
+      - name: Create ZIP bundle
+        run: |
+          ditto -c -k --sequesterRsrc dist/Serein.app Serein-macOS.zip
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Serein-macOS
+          path: |
+            Serein-macOS.dmg
+            Serein-macOS.zip
+          retention-days: 14
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/build/macos-dmg'
+        with:
+          tag_name: custom-build
+          name: "Serein macOS Build"
+          body: "Automated build of Serein with macOS Camera Native Format Fix, Disable Local Previews, and Disable Incoming Video options."
+          files: |
+            Serein-macOS.dmg
+            Serein-macOS.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
