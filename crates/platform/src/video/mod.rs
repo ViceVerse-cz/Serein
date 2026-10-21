@@ -8,7 +8,10 @@
 //! * Linux: GStreamer's `decodebin` pulling bytes from the same stream through `appsrc`.
 use std::io::{Read, Seek};
 
+mod fit;
 mod picture;
+pub use fit::Viewport;
+pub(crate) use fit::{FramePolicy, OutputSize, check_source};
 pub use picture::{Color, Layout, Matrix, Picture, pack_plane};
 
 #[cfg(target_os = "windows")]
@@ -59,6 +62,7 @@ pub const INVALID: &str = "The video could not be decoded safely.";
 /// A live decoder queue is full; the access unit was dropped but the decoder is healthy.
 pub const BUSY: &str = "The video decoder is falling behind.";
 pub const TOO_LARGE: &str = "Inline playback supports videos up to 1080p.";
+pub const SOURCE_TOO_LARGE: &str = "This video is larger than 8K and cannot play inline.";
 pub const TOO_LONG: &str = "Videos longer than two hours are not supported.";
 /// The system has no decoder for the video track; installing one fixes playback.
 pub const MISSING_HEVC: &str = "This video uses H.265 (HEVC), and no H.265 decoder is installed. Install one for GStreamer (for example gst-libav with a full FFmpeg) to play it here.";

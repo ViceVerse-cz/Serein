@@ -10,7 +10,6 @@ use std::{
 };
 use tokio::runtime::Handle;
 
-const MAX_BYTES: usize = 100 * 1024 * 1024;
 const CHUNK: usize = 256 * 1024;
 const CACHE_CHUNKS: usize = 8;
 const INVALID: &str = "Video download failed or changed; reload the conversation";
@@ -22,8 +21,8 @@ pub(super) fn source(
 	cancelled: Arc<AtomicBool>,
 	runtime: Handle,
 ) -> Result<Box<dyn platform::video::ReadSeek>, &'static str> {
-	if expected == 0 || expected > MAX_BYTES {
-		return Err("Video preview limit: 100 MiB");
+	if expected == 0 {
+		return Err(INVALID);
 	}
 	let (input, len) = if let Some(url) = url {
 		// The caller has validated the service URL; never let URL userinfo add credentials.
@@ -54,7 +53,7 @@ pub(super) fn source(
 		#[cfg(feature = "demo")]
 		{
 			let bytes = include_bytes!("../../tests/fixtures/video.mov");
-			if bytes.is_empty() || bytes.len() > MAX_BYTES {
+			if bytes.is_empty() {
 				return Err(INVALID);
 			}
 			(Input::Demo(bytes), bytes.len())
@@ -452,14 +451,6 @@ mod tests {
 			input.read(&mut bytes).unwrap_err().kind(),
 			io::ErrorKind::ConnectionAborted
 		);
-		assert!(
-			source(
-				Some(url),
-				MAX_BYTES + 1,
-				cancelled,
-				runtime.handle().clone()
-			)
-			.is_err()
-		);
+		assert!(source(Some(url), 0, cancelled, runtime.handle().clone()).is_err());
 	}
 }

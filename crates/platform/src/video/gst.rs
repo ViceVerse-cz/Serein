@@ -3,8 +3,9 @@
 //! unsynchronised `appsink`s hand back NV12/I420 pictures and 48 kHz stereo float PCM on demand.
 //! The same distributions that ship WebKitGTK for the login page also ship these plugins.
 use super::{
-	Color, INVALID, Info, Layout, MAX_BYTES, MAX_SECONDS, MISSING_DECODER, MISSING_HEVC, Matrix,
-	Picture, ReadSeek, Sample, TOO_LONG, UNSUPPORTED, picture::pack_plane,
+	Color, FramePolicy, INVALID, Info, Layout, MAX_BYTES, MAX_SECONDS, MISSING_DECODER,
+	MISSING_HEVC, Matrix, OutputSize, Picture, ReadSeek, Sample, TOO_LONG, UNSUPPORTED, Viewport,
+	check_source, picture::pack_plane,
 };
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -34,11 +35,50 @@ struct Shared {
 	failed: AtomicBool,
 }
 
+struct Fit {
+	filter: gst::Element,
+	state: Mutex<FitState>,
+}
+
+struct FitState {
+	coded: Option<(u32, u32)>,
+	rotation: u32,
+	viewport: Viewport,
+	output: Option<OutputSize>,
+	refused: Option<&'static str>,
+}
+
+impl Fit {
+	fn update(&self, change: impl FnOnce(&mut FitState)) {
+		let Ok(mut state) = self.state.lock() else {
+			return;
+		};
+		change(&mut state);
+		let Some(coded) = state.coded else {
+			return;
+		};
+		let output = OutputSize::fit(coded, state.rotation, state.viewport);
+		if state.output == Some(output) {
+			return;
+		}
+		state.output = Some(output);
+		self.filter.set_property(
+			"caps",
+			gst::Caps::builder("video/x-raw")
+				.field("width", output.width() as i32)
+				.field("height", output.height() as i32)
+				.build(),
+		);
+	}
+}
+
 pub struct Decoder {
 	pipeline: gst::Pipeline,
 	video: gst_app::AppSink,
 	audio: Option<gst_app::AppSink>,
 	shared: Arc<Shared>,
+	fit: Arc<Fit>,
+	policy: FramePolicy,
 	info: Info,
 	video_done: bool,
 	audio_done: bool,
@@ -64,9 +104,10 @@ impl Drop for StopOnError {
 }
 
 impl Decoder {
-	pub fn open(source: Box<dyn ReadSeek>) -> Result<Self, &'static str> {
+	pub fn open(source: Box<dyn ReadSeek>, viewport: Viewport) -> Result<Self, &'static str> {
 		Self::open_until(
 			source,
+			viewport,
 			std::time::Instant::now() + std::time::Duration::from_secs(WAIT.seconds()),
 		)
 	}
@@ -74,6 +115,7 @@ impl Decoder {
 	/// Bounds startup readiness by the caller's decode deadline; failure stops the pipeline.
 	pub fn open_until(
 		mut source: Box<dyn ReadSeek>,
+		viewport: Viewport,
 		deadline: std::time::Instant,
 	) -> Result<Self, &'static str> {
 		let length = source.seek(SeekFrom::End(0)).map_err(|_| INVALID)?;
@@ -144,6 +186,16 @@ impl Decoder {
 		audio.set_max_buffers(32);
 		audio.set_drop(false);
 
+		let fit = Arc::new(Fit {
+			filter: make("capsfilter")?,
+			state: Mutex::new(FitState {
+				coded: None,
+				rotation: 0,
+				viewport,
+				output: None,
+				refused: None,
+			}),
+		});
 		let has_video = Arc::new(AtomicBool::new(false));
 		let has_audio = Arc::new(AtomicBool::new(false));
 		decodebin.connect_pad_added({
@@ -152,6 +204,7 @@ impl Decoder {
 			let pipeline = pipeline.downgrade();
 			let (video, audio) = (video.clone(), audio.clone());
 			let (has_video, has_audio) = (has_video.clone(), has_audio.clone());
+			let fit = fit.clone();
 			move |_, pad| {
 				let Some(pipeline) = pipeline.upgrade() else {
 					return;
@@ -159,31 +212,26 @@ impl Decoder {
 				let Some(caps) = pad.current_caps() else {
 					return;
 				};
-				let Some(name) = caps.structure(0).map(|s| s.name().to_string()) else {
+				let Some(structure) = caps.structure(0) else {
 					return;
 				};
+				let name = structure.name().to_string();
 				let result = if name.starts_with("video/x-raw") {
 					if has_video.swap(true, Ordering::AcqRel) {
 						return;
 					}
-					link_branch(
-						&pipeline,
-						pad,
-						&["queue", "videoflip", "videoconvert"],
-						&[("videoflip", "video-direction", "auto")],
-						video.upcast_ref(),
-					)
+					video_branch(&pipeline, pad, structure, &fit, video.upcast_ref())
 				} else if name.starts_with("audio/x-raw") {
 					if has_audio.swap(true, Ordering::AcqRel) {
 						return;
 					}
-					link_branch(
-						&pipeline,
-						pad,
-						&["queue", "audioconvert", "audioresample"],
-						&[],
-						audio.upcast_ref(),
-					)
+					["queue", "audioconvert", "audioresample"]
+						.into_iter()
+						.map(make)
+						.collect::<Result<Vec<_>, _>>()
+						.and_then(|elements| {
+							link_branch(&pipeline, pad, elements, audio.upcast_ref())
+						})
 				} else {
 					return;
 				};
@@ -198,9 +246,10 @@ impl Decoder {
 		pipeline
 			.set_state(gst::State::Paused)
 			.map_err(|_| UNSUPPORTED)?;
-		wait_ready(&pipeline, &shared, deadline)?;
+		let refused = || fit.state.lock().ok().and_then(|state| state.refused);
+		wait_ready(&pipeline, &shared, deadline).map_err(|error| refused().unwrap_or(error))?;
 		if !has_video.load(Ordering::Acquire) {
-			return Err(UNSUPPORTED);
+			return Err(refused().unwrap_or(UNSUPPORTED));
 		}
 		let remaining = deadline.saturating_duration_since(std::time::Instant::now());
 		let preroll = video
@@ -208,7 +257,19 @@ impl Decoder {
 				remaining.as_nanos().min(u64::MAX as u128) as u64,
 			))
 			.ok_or(INVALID)?;
-		let (width, height) = frame_dimensions(&preroll)?;
+		let (coded, rotation) = {
+			let state = fit.state.lock().map_err(|_| INVALID)?;
+			(state.coded.ok_or(INVALID)?, state.rotation)
+		};
+		let policy = FramePolicy::Attachment {
+			source_height: coded.1,
+		};
+		frame_dimensions(&preroll, policy)?;
+		let (width, height) = if matches!(rotation, 90 | 270) {
+			(coded.1, coded.0)
+		} else {
+			coded
+		};
 		let duration = pipeline
 			.query_duration::<gst::ClockTime>()
 			.map(|d| d.nseconds() as f64 / 1e9)
@@ -230,6 +291,8 @@ impl Decoder {
 			video,
 			audio: has_audio.then_some(audio),
 			shared,
+			fit,
+			policy,
 			info: Info {
 				width,
 				height,
@@ -245,6 +308,11 @@ impl Decoder {
 
 	pub fn info(&self) -> Info {
 		self.info
+	}
+
+	/// Later pictures fit `viewport`; queued pictures keep their old size.
+	pub fn resize(&mut self, viewport: Viewport) {
+		self.fit.update(|state| state.viewport = viewport);
 	}
 
 	pub fn seek(&mut self, seconds: f64) -> Result<(), &'static str> {
@@ -294,7 +362,7 @@ impl Decoder {
 		self.last_video_pts = pts;
 		Ok(Poll::Ready(Some(Sample::Video {
 			pts: self.last_video_pts,
-			picture: picture(&sample)?,
+			picture: picture(&sample, self.policy)?,
 		})))
 	}
 
@@ -363,24 +431,61 @@ fn make(name: &str) -> Result<gst::Element, &'static str> {
 		.map_err(|_| UNSUPPORTED)
 }
 
-/// Create, add and link a branch behind a freshly exposed decodebin pad.
+fn video_branch(
+	pipeline: &gst::Pipeline,
+	pad: &gst::Pad,
+	structure: &gst::StructureRef,
+	fit: &Arc<Fit>,
+	sink: &gst::Element,
+) -> Result<(), &'static str> {
+	let width = structure.get::<i32>("width").map_err(|_| INVALID)?;
+	let height = structure.get::<i32>("height").map_err(|_| INVALID)?;
+	let coded = (
+		u32::try_from(width).map_err(|_| INVALID)?,
+		u32::try_from(height).map_err(|_| INVALID)?,
+	);
+	if let Err(error) = check_source(coded.0, coded.1) {
+		fit.update(|state| state.refused = Some(error));
+		return Err(error);
+	}
+	fit.update(|state| state.coded = Some(coded));
+	pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, {
+		let fit = fit.clone();
+		move |_, info| {
+			if let Some(gst::EventView::Tag(tag)) = info.event().map(|event| event.view())
+				&& let Some(orientation) = tag.tag().get::<gst::tags::ImageOrientation>()
+			{
+				let rotation = match orientation.get() {
+					"rotate-90" | "flip-rotate-90" => 90,
+					"rotate-180" | "flip-rotate-180" => 180,
+					"rotate-270" | "flip-rotate-270" => 270,
+					_ => 0,
+				};
+				fit.update(|state| state.rotation = rotation);
+			}
+			gst::PadProbeReturn::Ok
+		}
+	});
+	let scale = make("videoscale")?;
+	scale.set_property("add-borders", false);
+	let flip = make("videoflip")?;
+	flip.set_property_from_str("video-direction", "auto");
+	let elements = vec![
+		make("queue")?,
+		scale,
+		fit.filter.clone(),
+		flip,
+		make("videoconvert")?,
+	];
+	link_branch(pipeline, pad, elements, sink)
+}
+
 fn link_branch(
 	pipeline: &gst::Pipeline,
 	pad: &gst::Pad,
-	factories: &[&str],
-	properties: &[(&str, &str, &str)],
+	mut elements: Vec<gst::Element>,
 	sink: &gst::Element,
 ) -> Result<(), &'static str> {
-	let mut elements = Vec::with_capacity(factories.len() + 1);
-	for factory in factories {
-		let element = make(factory)?;
-		for (target, name, value) in properties {
-			if target == factory {
-				element.set_property_from_str(name, value);
-			}
-		}
-		elements.push(element);
-	}
 	elements.push(sink.clone());
 	pipeline
 		.add_many(elements.iter())
@@ -499,7 +604,7 @@ fn check_bus(pipeline: &gst::Pipeline) -> Result<(), &'static str> {
 	Ok(())
 }
 
-fn frame_dimensions(sample: &gst::Sample) -> Result<(u32, u32), &'static str> {
+fn frame_dimensions(sample: &gst::Sample, policy: FramePolicy) -> Result<(u32, u32), &'static str> {
 	let caps = sample.caps().ok_or(INVALID)?;
 	let info = gst_video::VideoInfo::from_caps(caps).map_err(|_| INVALID)?;
 	if !matches!(
@@ -508,7 +613,7 @@ fn frame_dimensions(sample: &gst::Sample) -> Result<(u32, u32), &'static str> {
 	) {
 		return Err(INVALID);
 	}
-	super::check_dimensions(info.width(), info.height())?;
+	policy.check(info.width(), info.height())?;
 	Ok((info.width(), info.height()))
 }
 
@@ -521,8 +626,8 @@ pub(super) fn planar_caps() -> gst::Caps {
 }
 
 /// Copies one NV12 or I420 sample into a tightly packed [`Picture`] with its colorimetry.
-pub(super) fn picture(sample: &gst::Sample) -> Result<Picture, &'static str> {
-	let (width, height) = frame_dimensions(sample)?;
+pub(super) fn picture(sample: &gst::Sample, policy: FramePolicy) -> Result<Picture, &'static str> {
+	let (width, height) = frame_dimensions(sample, policy)?;
 	let caps = sample.caps().ok_or(INVALID)?;
 	let info = gst_video::VideoInfo::from_caps(caps).map_err(|_| INVALID)?;
 	let layout = match info.format() {
@@ -542,7 +647,7 @@ pub(super) fn picture(sample: &gst::Sample) -> Result<Picture, &'static str> {
 	};
 	let color = match matrix {
 		Some(matrix) => Color { matrix, full_range },
-		None => Color::untagged(height, full_range),
+		None => policy.untagged(height, full_range),
 	};
 	let len = layout.len(width, height).ok_or(INVALID)?;
 	if len > MAX_BYTES {
@@ -599,6 +704,10 @@ mod tests {
 	use super::*;
 	use std::io::{Read, Seek};
 	const FIXTURE: &[u8] = include_bytes!("../../../../apps/desktop/tests/fixtures/video.mov");
+
+	fn full() -> Viewport {
+		Viewport::from_pixels(8192.0, 8192.0)
+	}
 
 	fn wait_for_sample(
 		decoder: &mut Decoder,
@@ -680,13 +789,13 @@ mod tests {
 		// The source is owned by appsrc callbacks, so it is freed only once the pipeline
 		// has stopped and nothing keeps its elements alive.
 		let (source, dropped) = tracked(Some(FIXTURE.len() as u64 / 3));
-		assert!(Decoder::open(source).is_err());
+		assert!(Decoder::open(source, full()).is_err());
 		assert!(
 			dropped.load(Ordering::Acquire),
 			"failed open leaked its pipeline"
 		);
 		let (source, dropped) = tracked(None);
-		let mut decoder = Decoder::open(source).unwrap();
+		let mut decoder = Decoder::open(source, full()).unwrap();
 		assert!(wait_for_sample(&mut decoder, Decoder::poll_video).is_some());
 		drop(decoder);
 		assert!(
@@ -697,7 +806,7 @@ mod tests {
 
 	#[test]
 	fn native_mov_decodes_audio_video_and_seeks() {
-		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(FIXTURE))).unwrap();
+		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(FIXTURE)), full()).unwrap();
 		let info = decoder.info();
 		assert_eq!(
 			(info.width, info.height, info.sample_rate, info.channels),
@@ -754,10 +863,11 @@ mod tests {
 		assert!((0.9..1.2).contains(&pts), "{pts}");
 		assert!(decoder.seek(f64::NAN).is_err());
 		let silent = include_bytes!("../../../../apps/desktop/tests/fixtures/video-silent.mov");
-		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(silent.as_slice()))).unwrap();
+		let mut decoder =
+			Decoder::open(Box::new(std::io::Cursor::new(silent.as_slice())), full()).unwrap();
 		assert_eq!(decoder.info().sample_rate, 0);
 		assert!(wait_for_sample(&mut decoder, Decoder::poll_audio).is_none());
 		assert!(wait_for_sample(&mut decoder, Decoder::poll_video).is_some());
-		assert!(Decoder::open(Box::new(std::io::Cursor::new(vec![0_u8; 64]))).is_err());
+		assert!(Decoder::open(Box::new(std::io::Cursor::new(vec![0_u8; 64])), full()).is_err());
 	}
 }

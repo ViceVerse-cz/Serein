@@ -61,6 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut decoder = fallback::open(
 		Box::new(std::io::Cursor::new(bytes)),
 		&AtomicBool::new(false),
+		platform::video::Viewport::from_pixels(8192.0, 8192.0),
 	)?;
 	assert!(matches!(
 		decoder.read_video()?,
@@ -71,12 +72,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			"../tests/fixtures/video.mov"
 		))),
 		&AtomicBool::new(false),
+		platform::video::Viewport::from_pixels(8192.0, 8192.0),
 	)?;
 	assert!(matches!(
 		mov.read_video()?,
 		Some(platform::video::Sample::Video { .. })
 	));
-	assert!(fallback::eligible(platform::video::TOO_LARGE));
+	assert!(fallback::eligible(platform::video::SOURCE_TOO_LARGE));
 	assert!(fallback::eligible(platform::video::INVALID));
 	assert!(!fallback::eligible(platform::video::TOO_LONG));
 	// Valid AAC may use a media clock different from the PCM sample rate.
@@ -96,7 +98,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		assert_eq!(delta % 2, 0);
 		bytes[at..at + 4].copy_from_slice(&(delta / 2).to_be_bytes());
 	}
-	let mut native = platform::video::Decoder::open(Box::new(std::io::Cursor::new(bytes)))?;
+	let mut native = platform::video::Decoder::open(
+		Box::new(std::io::Cursor::new(bytes)),
+		platform::video::Viewport::from_pixels(8192.0, 8192.0),
+	)?;
 	let mut packets = 0;
 	while let Some(platform::video::Sample::Audio { pts, frames }) = native.read_audio()? {
 		assert!(pts.is_finite() && !frames.is_empty());

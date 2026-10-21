@@ -503,7 +503,7 @@ fn parse_visual_entry(stsd: &[u8]) -> Result<(VideoCodec, u32, u32), &'static st
 			b"encv" => return Err(UNSUPPORTED),
 			_ => continue,
 		};
-		super::check_dimensions(width, height)?;
+		super::check_source(width, height)?;
 		return Ok((codec, width, height));
 	}
 	Err(UNSUPPORTED)

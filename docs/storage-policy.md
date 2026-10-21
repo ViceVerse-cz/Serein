@@ -1313,11 +1313,17 @@ There is no status history. Demo changes never publish, persist, or call Discord
 Native video decoding is memory-only. One lazy worker handles the latest requested attachment,
 with a replaceable pending request and cancellation fencing. The network source retains
 up to eight 256 KiB ranges (2 MiB, including an in-flight range); responses are checked for exact range/total/body lengths and reject
-redirects and content encoding. Encoded attachment size is capped at 100 MiB.
-The application queues at most two decoded frames (1080p NV12 on macOS and Linux,
-RGBA on Windows), one replaceable display frame, one GPU texture with its planes, one second of stereo float PCM (at most 768,000 bytes), and one decoded
+redirects and content encoding. Playback never holds the file, so the encoded attachment
+size is not a playback limit; Save As, Copy and audio keep their 100 MiB original-file limit.
+Sources up to 8192 pixels per side and 7680×4320 total pixels are admitted. The OS decoder
+scales every picture to the stage it is shown in (physical pixels, contained, never upscaled,
+at most 3840×2160), so frames are NV12 or I420 on every platform and at most 12,441,600
+bytes each. Chat-sized stages stay far smaller; posters decode into a 320-pixel box.
+A stage change applies after it has held for 150 ms. The application queues at most two
+decoded frames, one replaceable display frame, one GPU texture with its planes, one second of stereo float PCM (at most 768,000 bytes), and one decoded
 audio packet plus at most two seconds of timestamp-gap silence. Each native decoded
-sample is rejected above 16 MiB before copying. OS decoder/GPU allocations are additional
+sample is rejected above 16 MiB before copying. The CPU colour fallback refuses a picture
+whose RGBA copy would exceed 16 MiB. OS decoder/GPU allocations are additional
 and are released with the player. No file cache or media URL/byte diagnostics are written.
 
 
@@ -1530,7 +1536,8 @@ No author lookup results are persisted and no complete guild directory is fetche
 
 On macOS, formats rejected by the native decoder can use an installed FFmpeg helper.
 This explicit-playback fallback stages one input (100 MiB maximum) and converted MP4
-in a randomized mode-0700 temporary directory. Conversion has a two-minute deadline,
+in a randomized mode-0700 temporary directory. The conversion scales into the current
+stage, clamped to 1920 pixels per side and 1920×1080 total pixels. Conversion has a two-minute deadline,
 a 100 MiB output acceptance limit and an OS-enforced 128 MiB per-file ceiling.
 Cancellation kills/reaps the helper; normal cleanup unlinks both files before playback,
 while the native decoder retains an open descriptor. Forced termination or filesystem

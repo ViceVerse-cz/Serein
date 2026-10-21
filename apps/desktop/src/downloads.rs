@@ -401,10 +401,15 @@ fn copy_media(
 }
 
 pub(crate) fn original_url(attachment: &Attachment) -> Option<url::Url> {
-	if !model::valid_attachments(std::slice::from_ref(attachment))
-		|| attachment.size == 0
-		|| attachment.size > MAX_BYTES
-	{
+	(attachment.size <= MAX_BYTES)
+		.then(|| cdn_original(attachment))
+		.flatten()
+}
+
+/// Signed CDN original with no transfer-size cap. [`original_url`] is this URL only when
+/// `attachment.size` is within [`MAX_BYTES`].
+pub(crate) fn cdn_original(attachment: &Attachment) -> Option<url::Url> {
+	if !model::valid_attachments(std::slice::from_ref(attachment)) || attachment.size == 0 {
 		return None;
 	}
 	let mut url = url::Url::parse(attachment.media.url.as_deref()?).ok()?;
