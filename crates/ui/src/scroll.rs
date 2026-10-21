@@ -39,27 +39,27 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 
 	if has_high_res_event {
 		state.last_active = Some(time);
-	} else if let Some(last) = state.last_active {
-		if time - last < 0.35 {
-			let has_any_wheel = ctx.input(|input| {
-				input
-					.raw
-					.events
-					.iter()
-					.any(|event| matches!(event, egui::Event::MouseWheel { .. }))
-			});
-			if has_any_wheel {
-				state.last_active = Some(time);
-			}
+	} else if let Some(last) = state.last_active
+		&& time - last < 0.35
+	{
+		let has_any_wheel = ctx.input(|input| {
+			input
+				.raw
+				.events
+				.iter()
+				.any(|event| matches!(event, egui::Event::MouseWheel { .. }))
+		});
+		if has_any_wheel {
+			state.last_active = Some(time);
 		}
 	}
 
 	let is_scrolling = ctx.input(|i| i.is_scrolling());
 	let touchpad_active = state.last_active.is_some_and(|last| time - last < 0.35)
 		|| state.accumulator.length() > 0.5;
-	let queue_draining = state.last_active.is_some_and(|last| {
-		time - last >= 0.35 && is_scrolling
-	});
+	let queue_draining = state
+		.last_active
+		.is_some_and(|last| time - last >= 0.35 && is_scrolling);
 
 	if state.last_active.is_some() && !touchpad_active && !queue_draining {
 		state.last_active = None;
@@ -71,6 +71,7 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 		state.accumulator = egui::Vec2::ZERO;
 	}
 
+	let speed = f32::from(preferences.scroll_speed_percent) / 100.0;
 	let delta = if touchpad_active {
 		let incoming =
 			ctx.input(|input| instant_wheel_delta(&input.raw.events, options, page_height));
@@ -100,15 +101,18 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 		} else {
 			let len = state.accumulator.length();
 			// For small or slow touchpad scrolls, deliver 100% immediately for crisp 1:1 tactile feel.
-			if len <= 120.0 {
+			// Divide the thresholds by the speed factor so the applied delta respects them at every
+			// speed setting, and the per-frame cap still bounds the timeline overscan.
+			let immediate = 120.0 / speed;
+			if len <= immediate {
 				let d = state.accumulator;
 				state.accumulator = egui::Vec2::ZERO;
 				d
 			} else {
 				let frame_ratio = (dt_clamped / (1.0 / 60.0)).clamp(0.5, 1.5);
-				let max_step = (page_height * 0.25).clamp(120.0, 160.0) * frame_ratio;
+				let max_step = (page_height * 0.25).clamp(120.0, 160.0) * frame_ratio / speed;
 				let decay = 1.0 - (-dt_clamped / 0.05).exp();
-				let step_len = (len * decay).max(120.0).min(max_step).min(len);
+				let step_len = (len * decay).max(120.0 / speed).min(max_step).min(len);
 				let d = state.accumulator.normalized() * step_len;
 				state.accumulator -= d;
 				d
@@ -136,7 +140,7 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 	}
 
 	ctx.input_mut(|input| {
-		input.smooth_scroll_delta = delta * (f32::from(preferences.scroll_speed_percent) / 100.0);
+		input.smooth_scroll_delta = delta * speed;
 	});
 }
 
@@ -626,5 +630,41 @@ mod tests {
 		})
 		.drop_without_applying_deltas();
 		assert!(delta2.y >= 140.0 && delta2.y <= 180.0);
+	}
+
+	#[test]
+	fn scroll_speed_percent_does_not_bypass_the_touchpad_frame_cap() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let raw = egui::RawInput {
+			time: Some(0.1),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				delta: egui::vec2(0.0, 10.25),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}],
+			..Default::default()
+		};
+		let preferences = model::ReadingPreferences {
+			scroll_speed_percent: 300,
+			..Default::default()
+		};
+		let mut delta = egui::Vec2::ZERO;
+		ctx.run_ui(raw, |ui| {
+			apply_preferences(ui.ctx(), preferences);
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		assert!(
+			delta.y >= 140.0 && delta.y <= 180.0,
+			"a 300% speed factor must not push one frame past the cap, got {}",
+			delta.y
+		);
 	}
 }
