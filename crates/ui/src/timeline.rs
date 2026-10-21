@@ -131,6 +131,8 @@ pub struct TimelineView {
 	anchor: Option<(Id, f32)>,
 	scroll_offset: f32,
 	following: bool,
+	/// The reader scrolled up from the live edge and has not returned toward it since.
+	left_live_edge: bool,
 	formatted: FormatCache,
 	pending_formatted: FormatCache,
 	// A fingerprint of the revealed content prevents a reload that resets model revisions from
@@ -1996,6 +1998,7 @@ impl TimelineView {
 		self.hold_read_ack = false;
 		self.auto_read_attempt = None;
 		self.following = true;
+		self.left_live_edge = false;
 		self.jump = true;
 		self.anchor = None;
 		self.reveal_scroll = None;
@@ -4384,16 +4387,22 @@ impl TimelineView {
 			}
 		}
 		let was_following = self.following;
-		let timeline_scrolled_up = output.state.clamped_offset().y < before_offset - 0.001
-			|| autoscroll_delta > 0.0;
+		let timeline_scrolled_up =
+			output.state.clamped_offset().y < before_offset - 0.001 || autoscroll_delta > 0.0;
+		// Layout corrections also move the offset up while a jump settles. Only a wheel or
+		// autoscroll gesture that actually moved the timeline counts as leaving the live edge.
+		let user_scrolled_up = user_scroll > 0.0 && timeline_scrolled_up;
+		if user_scrolled_up {
+			self.left_live_edge = true;
+		}
+		if scrolled_toward_bottom {
+			self.left_live_edge = false;
+		}
 		self.following = !self.target_browsing
 			&& (whole_conversation_visible
-				|| (at_bottom
-					&& if was_following {
-						!timeline_scrolled_up
-					} else {
-						scrolled_toward_bottom
-					}));
+				|| (was_following && !user_scrolled_up)
+				|| self.present_scroll.is_some()
+				|| (at_bottom && !self.left_live_edge));
 		if self.following
 			&& self.at_current_latest
 			&& !state.history_targeted
@@ -4633,6 +4642,7 @@ impl TimelineView {
 			let (rect, present) = present_control(ui, area, unread, label.as_deref());
 			self.present_control = Some(rect);
 			if present {
+				self.left_live_edge = false;
 				if browsing_history {
 					self.latest = true;
 				}
