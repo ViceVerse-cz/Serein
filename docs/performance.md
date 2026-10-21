@@ -4,6 +4,29 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Notification signed 24-bit output — October 21, 2026
+
+Compared baseline `825e8cfd` with this PR's notification callback on Arch Linux x86_64,
+AMD Ryzen 9 5900XT, 58 GiB RAM, Rust 1.98.1 and CPAL 0.18.2. A disposable Cargo release
+harness (default release profile) compiled the callback verbatim from each source revision.
+It renders synthetic stereo F32 PCM at 48 kHz and 75% volume: 1,000 owned 4,800-frame cues,
+each delivered in ten 480-frame callbacks. Each run processes 4,800,000 frames; timings
+include cloning the bounded PCM buffers and constructing the callbacks. There is one warmup
+and five measured runs per revision; timestamps are synthetic, with no audio device,
+Discord session or microphone access.
+
+| Callback CPU workload | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Median elapsed, 4,800,000 frames | 3.315 ms | 3.501 ms | +0.186 ms (+5.6%) |
+| Measured range | 3.253–3.734 ms | 3.405–3.670 ms | Overlapping samples |
+
+Compiler processes were active during this small benchmark. These descriptive samples do not
+establish a performance improvement or an application-wide regression. The new positive
+full-scale guard is restricted to the I24 specialization; other formats retain their existing
+conversion. The synthetic I24 test checks volume, channel order, silence, cancellation and
+both full-scale bounds. Actual notification startup latency, native UI memory/CPU, audible
+headset playback and non-Linux hardware were not measured by this workload.
+
 ## Server folder mark-as-read — October 15, 2026 (PR #672)
 
 Compared base `104b1aa5` with folder mark-as-read `2b02b49e`. Standard unsigned Windows x64
