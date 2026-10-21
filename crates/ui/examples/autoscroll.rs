@@ -494,11 +494,11 @@ fn main() {
 	let copy = labels
 		.borrow()
 		.iter()
-		.find(|(text, _)| text == "Copy")
+		.find(|(text, _)| text == "Copy Selected Text")
 		.map(|(_, pos)| *pos);
 	let Some(copy) = copy else {
 		panic!(
-			"right-click must offer Copy, labels={:?}",
+			"right-click must offer Copy Selected Text, labels={:?}",
 			labels
 				.borrow()
 				.iter()

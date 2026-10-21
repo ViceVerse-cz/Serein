@@ -2063,11 +2063,14 @@ impl Formatted {
 					ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
 					if !label.is_empty() {
 						ui.horizontal(|ui| {
-							ui.label(
-								egui::RichText::new(&label)
-									.small()
-									.color(colors.muted)
-									.family(crate::design::semibold_family(ui.ctx())),
+							ui.add(
+								egui::Label::new(
+									egui::RichText::new(&label)
+										.small()
+										.color(colors.muted)
+										.family(crate::design::semibold_family(ui.ctx())),
+								)
+								.selectable(false),
 							);
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),

@@ -125,6 +125,8 @@ pub struct TimelineView {
 	pub(super) consecutive_reflows: u64,
 	width: f32,
 	rows: Vec<(Id, f32)>,
+	/// Message rows that must keep registering a label selection after they scroll away.
+	selection: crate::select::Span<Id>,
 	revision: u64,
 	layout_fingerprint: u64,
 	channel: Option<Id>,
@@ -247,9 +249,9 @@ fn channel_welcome(ui: &mut egui::Ui, channel: &model::Channel, height: f32) {
 				colors.text_strong,
 			);
 			ui.add_space(16.0);
-			ui.add(egui::Label::new(heading));
+			ui.add(egui::Label::new(heading).selectable(false));
 			ui.add_space(8.0);
-			ui.add(egui::Label::new(description));
+			ui.add(egui::Label::new(description).selectable(false));
 		});
 }
 
@@ -614,10 +616,13 @@ fn starter_row(
 								0.0,
 							);
 							let time = timestamp(message.id);
-							ui.label(
-								RichText::new(crate::local_time::header(time))
-									.size(12.0)
-									.color(colors.muted),
+							ui.add(
+								egui::Label::new(
+									RichText::new(crate::local_time::header(time))
+										.size(12.0)
+										.color(colors.muted),
+								)
+								.selectable(false),
 							)
 							.on_hover_text_with(|| crate::local_time::full(time));
 						},
@@ -790,13 +795,16 @@ fn channel_intro(ui: &mut egui::Ui, name: &str, kind: u8, post: bool, width: f32
 				.selectable(false),
 			);
 			if !thread {
-				ui.label(
-					RichText::new(crate::i18n::translate_args(
-						"timeline-channel-intro-start",
-						&[("channel", name)],
-					))
-					.size(15.0)
-					.color(colors.muted),
+				ui.add(
+					egui::Label::new(
+						RichText::new(crate::i18n::translate_args(
+							"timeline-channel-intro-start",
+							&[("channel", name)],
+						))
+						.size(15.0)
+						.color(colors.muted),
+					)
+					.selectable(false),
 				);
 			}
 		});
@@ -841,7 +849,10 @@ fn dm_intro(
 			profile.person_click(ui, &heading, None, user);
 			// The username is shown only when known and when it adds to the heading.
 			if let Some(username) = intro_username(state, user, &name) {
-				ui.label(RichText::new(username).size(20.0).color(colors.text));
+				ui.add(
+					egui::Label::new(RichText::new(username).size(20.0).color(colors.text))
+						.selectable(false),
+				);
 			}
 			let text = crate::i18n::translate_args("timeline-dm-intro", &[("name", name.as_str())]);
 			let mut job = egui::text::LayoutJob::default();
@@ -1098,7 +1109,7 @@ fn divider(ui: &mut egui::Ui, label: String, unread: bool, compact: bool) {
 		let text = ui.painter().layout_no_wrap(label.clone(), font, color);
 		let (rect, response) = ui.allocate_exact_size(
 			egui::vec2((ui.available_width() - 16.0).max(0.0), 20.0),
-			crate::select::band_sense(),
+			egui::Sense::hover(),
 		);
 		response
 			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &label));
@@ -1119,14 +1130,7 @@ fn divider(ui: &mut egui::Ui, label: String, unread: bool, compact: bool) {
 				egui::Stroke::new(1.0, if unread { color } else { colors.border }),
 			);
 		}
-		egui::text_selection::LabelSelectionState::label_text_selection(
-			ui,
-			&response,
-			pos,
-			text,
-			color,
-			egui::Stroke::NONE,
-		);
+		ui.painter().galley(pos, text, color);
 		if response.hovered() {
 			ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
 		}
@@ -1380,13 +1384,17 @@ fn message_actions(
 			);
 			ui.separator();
 		}
-		if crate::select::has_selection(ui.ctx())
-			&& ui
+		if crate::select::has_selection(ui.ctx()) {
+			// The press must not drop the range, or this item vanishes and the release hits
+			// the action that moved into its place.
+			crate::select::keep(ui);
+			if ui
 				.button(crate::i18n::translate("timeline-message-actions-copy"))
 				.clicked()
-		{
-			crate::select::request_copy(ui.ctx());
-			ui.close();
+			{
+				crate::select::request_copy(ui.ctx());
+				ui.close();
+			}
 		}
 		if ui
 			.button(crate::i18n::translate("message-menu-copy"))
@@ -1746,7 +1754,8 @@ fn unread_banner(
 							)
 							.color(text),
 						)
-						.truncate(),
+						.truncate()
+						.selectable(false),
 					);
 				});
 			});
@@ -1853,16 +1862,76 @@ fn show_system(
 			}
 			ui.add_space(8.0);
 			let stamp = ui
-				.label(
-					RichText::new(crate::local_time::header(time))
-						.size(12.0)
-						.color(colors.muted),
+				.add(
+					egui::Label::new(
+						RichText::new(crate::local_time::header(time))
+							.size(12.0)
+							.color(colors.muted),
+					)
+					.selectable(false),
 				)
 				.on_hover_text_with(|| crate::local_time::full(time));
 			surface.exclude(stamp.rect);
 		});
 	}
 }
+
+struct Measured {
+	index: usize,
+	id: Id,
+	key: u64,
+	rect: egui::Rect,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stage {
+	Leading,
+	Visible,
+	Offstage,
+}
+
+/// Pinned rows built in an offstage child at their document positions, ascending.
+struct OffstageRows {
+	ui: egui::Ui,
+	next: usize,
+}
+
+impl OffstageRows {
+	fn new(
+		parent: &mut egui::Ui,
+		top: egui::Pos2,
+		width: f32,
+		height: f32,
+		from: usize,
+		salt: &str,
+	) -> Self {
+		let ui = crate::select::offstage(
+			parent,
+			egui::Rect::from_min_size(top, egui::vec2(width, height.max(1.0))),
+			salt,
+		);
+		Self { ui, next: from }
+	}
+
+	fn row(&mut self, index: usize, rows: &[(Id, f32)]) -> &mut egui::Ui {
+		let gap = rows[self.next..index]
+			.iter()
+			.map(|(_, height)| *height)
+			.sum::<f32>();
+		self.ui.add_space(gap);
+		self.next = index + 1;
+		&mut self.ui
+	}
+
+	fn row_in<'a>(
+		slot: &'a mut Option<Self>,
+		index: usize,
+		rows: &[(Id, f32)],
+	) -> &'a mut egui::Ui {
+		slot.as_mut().unwrap().row(index, rows)
+	}
+}
+
 impl TimelineView {
 	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
 		if self.video.is_fullscreen() {
@@ -2593,7 +2662,13 @@ impl TimelineView {
 		let allow_hover = !session.holding()
 			&& !ui.input(|input| input.is_scrolling())
 			&& ui.ctx().dragged_id().is_none();
+		let selection_edge = std::cell::Cell::new(false);
+		// Positive moves toward older messages, the same sign as a wheel delta.
+		let selection_scroll = std::cell::Cell::new(0.0f32);
 		let output = scroll.show_viewport(ui, |ui, viewport| {
+			// The pass may have closed selection against chrome outside this clip.
+			// Message labels still have to extend the range.
+			ui.style_mut().interaction.multi_widget_text_select = true;
 			ui.spacing_mut().item_spacing.y = 0.0;
 			if welcome && let Some(channel) = state.selected.and_then(|id| state.channel(id)) {
 				channel_welcome(ui, channel, viewport.height() - end_padding);
@@ -2617,6 +2692,9 @@ impl TimelineView {
 			);
 			let content_top = ui.cursor().top();
 			let clip = ui.clip_rect();
+			crate::select::publish_viewport(ui, clip);
+			crate::select::lock_still_drag(ui);
+			let bar = crate::select::scroll_bar_strip(ui, clip);
 			// Measure leading overscan without changing the visible rows or parent bounds.
 			// Its new heights take effect together with anchor restoration next pass.
 			// The scroll content's box is only one viewport tall. A child that starts
@@ -2649,21 +2727,99 @@ impl TimelineView {
 			let reuse_leading = keyboard_focus.is_none()
 				&& retained_toolbar.is_none()
 				&& !egui::Popup::is_any_open(ui.ctx())
-				&& !crate::select::has_selection(ui.ctx())
 				&& !ui.input(|input| input.pointer.any_down() || input.pointer.any_released());
 			let name_hover = self.name_hover.take();
+			let pins = {
+				let rows = &self.rows;
+				self.selection
+					.pins(ui.ctx(), |id| rows.iter().position(|(row, _)| *row == id))
+			};
+			let mut before = None;
+			let mut clipped = None;
+			let mut after = None;
+			let mut past = false;
 			let mut end = first;
-			for index in first..self.rows.len() {
+			// Pinned rows share this walk so egui sees registrations in document order.
+			for index in pins.below(first).chain(first..self.rows.len()) {
 				let row_id = ui.make_persistent_id(self.rows[index].0.0);
-				let ui = if index < anchor {
-					&mut leading
+				let pinned = pins.contains(index);
+				let row_top = ui.cursor().top();
+				let row_height = self.rows[index].1;
+				past |= index >= anchor && row_top > content_top + viewport.max.y + 100.0;
+				// Measurement overscan is outside the clip, so a selection end there
+				// would not register if the row stayed in the parent.
+				let misses_clip = index >= anchor
+					&& (row_top >= clip.max.y || row_top + row_height <= clip.min.y);
+				let stage = if pinned && (index < anchor || past || misses_clip) {
+					Stage::Offstage
+				} else if index < anchor {
+					Stage::Leading
+				} else if !past {
+					Stage::Visible
+				} else if pins.last().is_some_and(|last| last > index) {
+					continue;
 				} else {
-					&mut *ui
-				};
-				if index >= anchor && ui.cursor().top() > content_top + viewport.max.y + 100.0 {
 					break;
+				};
+				if pinned && index < anchor && index >= first {
+					leading.add_space(row_height);
 				}
-				end = index + 1;
+				if index >= first && !past {
+					end = index + 1;
+				}
+				if stage == Stage::Offstage && index < anchor && before.is_none() {
+					let top = origin.y
+						+ self.rows[..index]
+							.iter()
+							.map(|(_, height)| *height)
+							.sum::<f32>();
+					let row_width = ui.available_width();
+					before = Some(OffstageRows::new(
+						ui,
+						egui::pos2(origin.x, top),
+						row_width,
+						total,
+						index,
+						"before",
+					));
+				}
+				if stage == Stage::Offstage && index >= anchor && !past && clipped.is_none() {
+					let row_width = ui.available_width();
+					clipped = Some(OffstageRows::new(
+						ui,
+						egui::pos2(origin.x, row_top),
+						row_width,
+						total,
+						index,
+						"clipped",
+					));
+				}
+				if stage == Stage::Offstage && index >= anchor && !past {
+					ui.add_space(row_height);
+				}
+				if stage == Stage::Offstage && past && after.is_none() {
+					let top = ui.cursor().top();
+					let row_width = ui.available_width();
+					after = Some(OffstageRows::new(
+						ui,
+						egui::pos2(origin.x, top),
+						row_width,
+						total,
+						end,
+						"after",
+					));
+				}
+				let ui = match stage {
+					Stage::Leading => &mut leading,
+					Stage::Visible => &mut *ui,
+					Stage::Offstage if index < anchor => {
+						OffstageRows::row_in(&mut before, index, &self.rows)
+					}
+					Stage::Offstage if !past => {
+						OffstageRows::row_in(&mut clipped, index, &self.rows)
+					}
+					Stage::Offstage => OffstageRows::row_in(&mut after, index, &self.rows),
+				};
 				let id = self.rows[index].0;
 				if id == INTRO
 					&& let Some(intro) = intro.as_ref()
@@ -2679,7 +2835,12 @@ impl TimelineView {
 							}
 						})
 						.response;
-					measurements.push((id, intro_key(intro, state), response.rect.height()));
+					measurements.push(Measured {
+						index,
+						id,
+						key: intro_key(intro, state),
+						rect: response.rect,
+					});
 					continue;
 				}
 				if Some(id) == self.starter_row
@@ -2690,17 +2851,18 @@ impl TimelineView {
 							starter_row(ui, starter, state, avatars, width);
 						})
 						.response;
-					measurements.push((
+					measurements.push(Measured {
+						index,
 						id,
-						row_height_key(
+						key: row_height_key(
 							starter,
 							None,
 							self.unread_boundary,
 							state,
 							state.timeline.is_deleted(id),
 						),
-						response.rect.height(),
-					));
+						rect: response.rect,
+					});
 					continue;
 				}
 				let can_mark_read = state.can_mark_read(id);
@@ -2721,7 +2883,7 @@ impl TimelineView {
 				// ponytail: reuse only settled ordinary text; dynamic media, references,
 				// spoilers and reactions need explicit layout invalidation before caching.
 				if index < anchor
-					&& reuse_leading
+					&& !pinned && reuse_leading
 					&& self.measured_rows.contains(&id)
 					&& message.kind == 0
 					&& !message.unsupported
@@ -2742,12 +2904,17 @@ impl TimelineView {
 						== row_height_key(message, previous, self.unread_boundary, state, deleted)
 				{
 					ui.add_space(height);
-					// Keep one result per row: visible height updates below zip by index.
-					measurements.push((id, key, height));
+					// The row was not laid out. The cached height is the measurement.
+					measurements.push(Measured {
+						index,
+						id,
+						key,
+						rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(0.0, height)),
+					});
 					continue;
 				}
 				#[cfg(test)]
-				if index < anchor {
+				if index < anchor && !pinned {
 					self.leading_rendered += 1;
 				}
 
@@ -2755,7 +2922,13 @@ impl TimelineView {
 					self.compact_messages || grouped(previous, message, self.unread_boundary);
 				let new_day = previous
 					.is_none_or(|previous| timestamp(previous.id).date() != timestamp(id).date());
-				let response = ui.scope_builder(egui::UiBuilder::new().scope_id(row_id), |ui| {
+				let mut row_scope = egui::UiBuilder::new().scope_id(row_id);
+				if pinned {
+					// A pinned row can still be on screen while the selected run has left the clip.
+					row_scope = row_scope
+						.ui_stack_info(egui::UiStackInfo::default().with_tag(crate::select::PIN));
+				}
+				let response = ui.scope_builder(row_scope, |ui| {
 					if new_day {
 						let date = timestamp(id);
 						divider(
@@ -2811,7 +2984,8 @@ impl TimelineView {
 												.family(crate::design::semibold_family(ui.ctx()))
 												.color(colors.text),
 										)
-										.truncate(),
+										.truncate()
+										.selectable(false),
 									);
 									surface.keep(&name);
 									let used = ui.add(
@@ -2822,7 +2996,8 @@ impl TimelineView {
 											.size(13.0)
 											.color(colors.muted),
 										)
-										.truncate(),
+										.truncate()
+										.selectable(false),
 									);
 									surface.keep(&used);
 									let label = if interaction.command.is_empty() {
@@ -2844,7 +3019,8 @@ impl TimelineView {
 														))
 														.color(colors.mention_text),
 												)
-												.truncate(),
+												.truncate()
+												.selectable(false),
 											)
 										})
 										.inner;
@@ -2868,7 +3044,8 @@ impl TimelineView {
 												.italics()
 												.color(colors.muted),
 											)
-											.truncate(),
+											.truncate()
+											.selectable(false),
 										);
 										surface.keep(&deleted);
 									} else {
@@ -3020,6 +3197,7 @@ impl TimelineView {
 														|ui| {
 															egui::Label::new(preview)
 																.truncate()
+																.selectable(false)
 																.sense(egui::Sense::click())
 																.layout_in_ui(ui)
 														},
@@ -3113,10 +3291,15 @@ impl TimelineView {
 										egui::FontId::proportional(12.0),
 										|ui| {
 											let time = ui
-												.label(
-													RichText::new(crate::local_time::clock(time))
+												.add(
+													egui::Label::new(
+														RichText::new(crate::local_time::clock(
+															time,
+														))
 														.size(12.0)
 														.color(colors.muted),
+													)
+													.selectable(false),
 												)
 												.on_hover_text_with(|| {
 													crate::local_time::full(time)
@@ -3252,12 +3435,15 @@ impl TimelineView {
 												surface.keep(&author);
 												let time = timestamp(id);
 												let time = ui
-													.label(
-														RichText::new(crate::local_time::header(
-															time,
-														))
-														.size(12.0)
-														.color(colors.muted),
+													.add(
+														egui::Label::new(
+															RichText::new(
+																crate::local_time::header(time),
+															)
+															.size(12.0)
+															.color(colors.muted),
+														)
+														.selectable(false),
 													)
 													.on_hover_text_with(|| {
 														crate::local_time::full(time)
@@ -3297,13 +3483,16 @@ impl TimelineView {
 										})
 										.show(ui, |ui| {
 											if message.forwarded {
-												ui.label(
-													RichText::new(crate::i18n::translate(
-														"timeline-show-with-scroll-forwarded",
-													))
-													.size(13.0)
-													.italics()
-													.color(colors.muted),
+												ui.add(
+													egui::Label::new(
+														RichText::new(crate::i18n::translate(
+															"timeline-show-with-scroll-forwarded",
+														))
+														.size(13.0)
+														.italics()
+														.color(colors.muted),
+													)
+													.selectable(false),
 												);
 												ui.add_space(4.0);
 											}
@@ -3392,6 +3581,11 @@ impl TimelineView {
 													.response
 													.rect;
 											}
+											// The body is above the card. Register it before the card's labels.
+											if text_line.is_positive() {
+												surface.cover(text_line);
+											}
+											surface.flush(ui);
 											if formatted.limited {
 												ui.label(
 													RichText::new(crate::i18n::translate(
@@ -4222,11 +4416,12 @@ impl TimelineView {
 						);
 					}
 				});
-				measurements.push((
+				measurements.push(Measured {
+					index,
 					id,
-					row_height_key(message, previous, self.unread_boundary, state, deleted),
-					response.response.rect.height(),
-				));
+					key: row_height_key(message, previous, self.unread_boundary, state, deleted),
+					rect: response.response.rect,
+				});
 			}
 			// Names follow the hovered row a pass late; draw that pass even if the pointer stops.
 			if self.name_hover != name_hover {
@@ -4288,13 +4483,50 @@ impl TimelineView {
 			ui.add_space(end_padding);
 			// Visible rows occupy their measured height immediately; leading overscan
 			// still occupies its old height until the next anchored pass.
-			for (index, (_, _, height)) in (first..end).zip(&measurements) {
-				if index >= anchor {
-					self.rows[index].1 = *height;
+			for measured in &measurements {
+				if (anchor..end).contains(&measured.index) {
+					self.rows[measured.index].1 = measured.rect.height();
 				}
 			}
+			let on_screen: Vec<(Id, egui::Rect)> = measurements
+				.iter()
+				.filter(|measured| (anchor..end).contains(&measured.index))
+				.map(|measured| (measured.id, measured.rect))
+				.collect();
+			// After every nested card scroll area has closed. A delta set earlier is
+			// taken by the first of those areas and never reaches the channel.
+			if self.selection.dragging()
+				&& self.selection.pulled()
+				&& let Some(pos) = ui.input(|input| input.pointer.interact_pos())
+				&& !bar.contains(pos)
+			{
+				let band = 36.0;
+				let toward_older = if pos.y < clip.min.y {
+					1.0
+				} else if pos.y > clip.max.y {
+					-1.0
+				} else if clip.contains(pos) && pos.y < clip.min.y + band {
+					(clip.min.y + band - pos.y) / band
+				} else if clip.contains(pos) && pos.y > clip.max.y - band {
+					-((pos.y - (clip.max.y - band)) / band)
+				} else {
+					0.0
+				};
+				if toward_older != 0.0 {
+					let delta = toward_older.clamp(-1.0, 1.0) * 64.0;
+					ui.scroll_with_delta_animation(
+						egui::vec2(0.0, delta),
+						egui::style::ScrollAnimation::none(),
+					);
+					selection_edge.set(true);
+					selection_scroll.set(delta);
+				}
+			}
+			crate::select::follow_pointer_below(ui);
+			self.selection.track(ui.ctx(), clip, &on_screen, bar);
 			viewport.min.y
 		});
+		crate::select::hold(ui, crate::select::scroll_bar_strip(ui, output.inner_rect));
 		self.scroll_offset = output.state.clamped_offset().y;
 		if jumped_to.is_some_and(|target| (self.scroll_offset - target).abs() > 1.0) {
 			self.jump = false;
@@ -4345,15 +4577,17 @@ impl TimelineView {
 			.selected
 			.and_then(|channel| state.channel(channel))
 			.and_then(|channel| channel.last_message);
-		let scrolled_toward_bottom = ui.input(|input| {
-			(scroll_delta < 0.0
-				&& (session.holding()
-					|| input
-						.pointer
-						.hover_pos()
-						.is_some_and(|pos| output.inner_rect.contains(pos))))
-				|| (input.pointer.any_down() && output.state.clamped_offset().y > output.inner)
-		});
+		let selection_scroll = selection_scroll.get();
+		let scrolled_toward_bottom = selection_scroll < 0.0
+			|| ui.input(|input| {
+				(scroll_delta < 0.0
+					&& (session.holding()
+						|| input
+							.pointer
+							.hover_pos()
+							.is_some_and(|pos| output.inner_rect.contains(pos))))
+					|| (input.pointer.any_down() && output.state.clamped_offset().y > output.inner)
+			});
 		// A window that does not fill the view cannot be scrolled, so it fetches newer pages
 		// until it does, like Discord after jumping to an early message.
 		let underfilled = output.content_size.y <= output.inner_rect.height() + 1.0;
@@ -4418,14 +4652,13 @@ impl TimelineView {
 		if let Some(action) = intro_action {
 			self.user_action = Some(action);
 		}
-		for (id, key, height) in measurements {
-			self.measured_rows.insert(id);
-			if self
-				.heights
-				.get(&id)
-				.is_none_or(|(old_key, old)| *old_key != key || (*old - height).abs() > 1.0)
-			{
-				self.heights.insert(id, (key, height));
+		for measured in measurements {
+			let height = measured.rect.height();
+			self.measured_rows.insert(measured.id);
+			if self.heights.get(&measured.id).is_none_or(|(old_key, old)| {
+				*old_key != measured.key || (*old - height).abs() > 1.0
+			}) {
+				self.heights.insert(measured.id, (measured.key, height));
 				reflow = true;
 			}
 		}
@@ -4433,7 +4666,7 @@ impl TimelineView {
 			self.reflow_frames = self.reflow_frames.saturating_add(1);
 			self.consecutive_reflows = self.consecutive_reflows.saturating_add(1);
 			self.revision = u64::MAX;
-			let user_scrolling = scroll_delta != 0.0 || session.holding();
+			let user_scrolling = scroll_delta != 0.0 || session.holding() || selection_edge.get();
 			if was_following && !user_scrolling {
 				self.following = true;
 				self.jump = true;
@@ -4451,13 +4684,14 @@ impl TimelineView {
 		// Explicit upward input requests one page even when a short view cannot scroll.
 		// Idle layout still never drains history merely to fill the viewport.
 		self.load_older = output.state.clamped_offset().y < 160.0
-			&& ui.input(|i| {
-				scroll_delta > 0.0
-					&& (session.holding()
-						|| i.pointer
-							.hover_pos()
-							.is_some_and(|pos| output.inner_rect.contains(pos)))
-			}) && state.can_load_older();
+			&& scroll_delta + selection_scroll > 0.0
+			&& (session.holding()
+				|| selection_scroll > 0.0
+				|| ui.input(|i| {
+					i.pointer
+						.hover_pos()
+						.is_some_and(|pos| output.inner_rect.contains(pos))
+				})) && state.can_load_older();
 		if self.load_older {
 			self.browse_away();
 		}
@@ -5325,6 +5559,535 @@ mod tests {
 		state
 	}
 
+	/// Drag a visible message, then scroll. The copied range must survive both a
+	/// finished selection and a wheel tick while the button is still down.
+	#[test]
+	fn scrolling_keeps_a_message_text_selection() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.older_exhausted = true;
+		for id in 1..=40 {
+			let mut message = text_message(id);
+			message.content = format!("Sentence {id:02} alpha bravo charlie delta");
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		state.channels[0].last_message = Some(Id(40));
+		let mut view = TimelineView::default();
+
+		fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+			match shape {
+				egui::Shape::Text(text) => out.push((
+					text.galley.job.text.clone(),
+					text.galley.rect.translate(text.pos.to_vec2()),
+				)),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						texts(shape, out);
+					}
+				}
+				_ => {}
+			}
+		}
+		let mut frame = |events: Vec<egui::Event>| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					events,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut crate::avatars::Avatars::default(),
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					);
+				},
+			);
+			let copied = output
+				.platform_output
+				.commands
+				.iter()
+				.find_map(|command| match command {
+					egui::OutputCommand::CopyText(text) => Some(text.clone()),
+					_ => None,
+				});
+			let mut labels = vec![];
+			for shape in &output.shapes {
+				texts(&shape.shape, &mut labels);
+			}
+			output.drop_without_applying_deltas();
+			(labels, copied, crate::select::has_selection(&ctx))
+		};
+		let wheel = |delta: f32| {
+			vec![
+				egui::Event::PointerMoved(egui::pos2(400.0, 300.0)),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Point,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+					delta: egui::vec2(0.0, delta),
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		let press = |pos: egui::Pos2, pressed: bool| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		for _ in 0..8 {
+			frame(vec![]);
+		}
+		let (labels, _, _) = frame(vec![]);
+		let sentence = labels.iter().find(|(text, rect)| {
+			text.contains("alpha bravo")
+				&& rect.center().y > 80.0
+				&& rect.center().y < 520.0
+				&& rect.width() > 40.0
+		});
+		let (_, rect) = sentence.cloned().unwrap_or_else(|| {
+			panic!(
+				"no visible sentence: {:?}",
+				labels
+					.iter()
+					.map(|(text, _)| text.as_str())
+					.filter(|text| text.contains("Sentence"))
+					.collect::<Vec<_>>()
+			)
+		});
+		let from = egui::pos2(rect.left() + 4.0, rect.center().y);
+		let to = egui::pos2(rect.right() - 4.0, rect.center().y);
+		frame(press(from, true));
+		frame(vec![egui::Event::PointerMoved(to)]);
+		frame(press(to, false));
+		let (_, copied, selected) = frame(vec![egui::Event::Copy]);
+		let copied = copied.unwrap_or_default();
+		assert!(
+			selected && copied.contains("alpha"),
+			"selection did not start: selected={selected} copied={copied:?}"
+		);
+
+		let (labels, _, selected_after_nudge) = frame(wheel(48.0));
+		let still_visible = labels.iter().any(|(text, rect)| {
+			text.contains("alpha bravo") && rect.top() < 600.0 && rect.bottom() > 0.0
+		});
+		let (_, nudged, _) = frame(vec![egui::Event::Copy]);
+		assert!(
+			selected_after_nudge && nudged.as_deref() == Some(copied.as_str()),
+			"small scroll cleared the selection (visible={still_visible}): {nudged:?}"
+		);
+
+		let mut gone = false;
+		for _ in 0..12 {
+			let (labels, _, selected) = frame(wheel(240.0));
+			gone = !labels.iter().any(|(text, rect)| {
+				text.contains(&copied) && rect.top() < 600.0 && rect.bottom() > 0.0
+			});
+			if gone {
+				let (_, after, _) = frame(vec![egui::Event::Copy]);
+				assert!(
+					selected && after.as_deref() == Some(copied.as_str()),
+					"scrolling the selection offscreen cleared it: {after:?}"
+				);
+				break;
+			}
+		}
+		assert!(gone, "the wheel never moved the selection offscreen");
+
+		let (labels, _, _) = frame(vec![]);
+		let (_, rect) = labels
+			.iter()
+			.find(|(text, rect)| {
+				text.contains("alpha bravo") && rect.center().y > 80.0 && rect.center().y < 520.0
+			})
+			.cloned()
+			.expect("a sentence to drag through a wheel tick");
+		let from = egui::pos2(rect.left() + 4.0, rect.center().y);
+		let to = egui::pos2((rect.left() + rect.right()) / 2.0, rect.center().y);
+		frame(press(from, true));
+		frame(vec![egui::Event::PointerMoved(to)]);
+		let mut scrolling = wheel(180.0);
+		scrolling.insert(0, egui::Event::PointerMoved(to));
+		let (_, _, selected_while_dragging) = frame(scrolling);
+		frame(press(to, false));
+		let (_, dragged, _) = frame(vec![egui::Event::Copy]);
+		assert!(
+			selected_while_dragging && dragged.as_ref().is_some_and(|text| text.contains("alpha")),
+			"wheel during a drag cleared the selection: {dragged:?}"
+		);
+
+		let (labels, _, _) = frame(vec![]);
+		let sentences: Vec<(String, egui::Rect)> = labels
+			.into_iter()
+			.filter(|(text, rect)| {
+				text.contains("alpha bravo")
+					&& rect.center().y > 80.0
+					&& rect.center().y < 520.0
+					&& rect.width() > 40.0
+			})
+			.collect();
+		let (first_text, first_rect) = sentences
+			.first()
+			.cloned()
+			.expect("a sentence to start a two-row drag");
+		let (second_text, second_rect) = sentences
+			.iter()
+			.find(|(text, _)| text != &first_text)
+			.cloned()
+			.expect("a second sentence under the pointer");
+		let from = egui::pos2(first_rect.left() + 4.0, first_rect.center().y);
+		let to = egui::pos2(second_rect.right() - 4.0, second_rect.center().y);
+		let first_id = first_text[9..11].to_owned();
+		let second_id = second_text[9..11].to_owned();
+		frame(press(from, true));
+		frame(vec![egui::Event::PointerMoved(to)]);
+		let (_, held, selected_held) = frame(vec![egui::Event::Copy]);
+		let held = held.unwrap_or_default();
+		assert!(
+			selected_held && held.contains(&first_id) && held.contains(&second_id),
+			"two-row drag did not select both sentences: {held:?}"
+		);
+		let mut left = false;
+		for _ in 0..16 {
+			let (labels, _, _) = frame(vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+				delta: egui::vec2(0.0, -220.0),
+				modifiers: egui::Modifiers::NONE,
+			}]);
+			left = !labels.iter().any(|(text, rect)| {
+				text == &second_text && rect.top() < 600.0 && rect.bottom() > 0.0
+			});
+			if left {
+				break;
+			}
+		}
+		frame(press(to, false));
+		let (_, after, selected_after) = frame(vec![egui::Event::Copy]);
+		assert!(
+			left && selected_after && after.as_deref() == Some(held.as_str()),
+			"a still wheel dropped the rows selected before it: left={left} selected={selected_after} before={held:?} after={after:?}"
+		);
+	}
+
+	/// Premise: registering the end row offstage is enough for every scroll gesture.
+	/// These checks fail if that is false. A wheel that carries the dragged sentence
+	/// off screen, a scrollbar drag, a pointer held at the top edge, and a scroll
+	/// away and back must each keep the same copied text. The scroll-back also
+	/// requires the highlight on that sentence.
+	#[test]
+	fn selection_survives_the_scroll_gestures() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let highlight = std::cell::Cell::new(egui::Color32::TRANSPARENT);
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.older_exhausted = true;
+		for id in 1..=40 {
+			let mut message = text_message(id);
+			message.content = format!("Sentence {id:02} alpha bravo charlie delta");
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		state.channels[0].last_message = Some(Id(40));
+		let mut view = TimelineView::default();
+
+		fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+			match shape {
+				egui::Shape::Text(text) => out.push((
+					text.galley.job.text.clone(),
+					text.galley.rect.translate(text.pos.to_vec2()),
+				)),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						texts(shape, out);
+					}
+				}
+				_ => {}
+			}
+		}
+		fn painted(shape: &egui::Shape, needle: &str, color: egui::Color32) -> bool {
+			match shape {
+				egui::Shape::Text(text) if text.galley.job.text.contains(needle) => {
+					text.galley.rows.iter().any(|row| {
+						row.visuals
+							.mesh
+							.vertices
+							.iter()
+							.any(|vertex| vertex.color == color)
+					})
+				}
+				egui::Shape::Vec(shapes) => {
+					shapes.iter().any(|shape| painted(shape, needle, color))
+				}
+				_ => false,
+			}
+		}
+		let seek: std::cell::Cell<Option<String>> = std::cell::Cell::new(None);
+		let clock = std::cell::Cell::new(0.0_f64);
+		let mut frame = |events: Vec<egui::Event>| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(clock.get()),
+					predicted_dt: 1.0 / 60.0,
+					events,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					highlight.set(ui.visuals().selection.bg_fill);
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut crate::avatars::Avatars::default(),
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					);
+				},
+			);
+			let copied = output
+				.platform_output
+				.commands
+				.iter()
+				.find_map(|command| match command {
+					egui::OutputCommand::CopyText(text) => Some(text.clone()),
+					_ => None,
+				});
+			let mut labels = vec![];
+			for shape in &output.shapes {
+				texts(&shape.shape, &mut labels);
+			}
+			let highlighted = seek.take().is_some_and(|needle| {
+				output
+					.shapes
+					.iter()
+					.any(|shape| painted(&shape.shape, &needle, highlight.get()))
+			});
+			output.drop_without_applying_deltas();
+			clock.set(clock.get() + 1.0 / 60.0);
+			(
+				labels,
+				copied,
+				crate::select::has_selection(&ctx),
+				highlighted,
+				view.scroll_offset,
+			)
+		};
+		let wheel = |delta: f32| {
+			vec![
+				egui::Event::PointerMoved(egui::pos2(400.0, 300.0)),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Point,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+					delta: egui::vec2(0.0, delta),
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		let press = |pos: egui::Pos2, pressed: bool| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		for _ in 0..8 {
+			frame(vec![]);
+		}
+		fn visible(labels: &[(String, egui::Rect)]) -> Option<&(String, egui::Rect)> {
+			labels.iter().find(|(text, rect)| {
+				text.contains("alpha bravo")
+					&& rect.center().y > 80.0
+					&& rect.center().y < 520.0
+					&& rect.width() > 40.0
+			})
+		}
+		fn on_screen(labels: &[(String, egui::Rect)], needle: &str) -> bool {
+			labels.iter().any(|(text, rect)| {
+				text.contains(needle) && rect.top() < 600.0 && rect.bottom() > 0.0
+			})
+		}
+		let (labels, _, _, _, start_offset) = frame(vec![]);
+		let (_, rect) = visible(&labels)
+			.cloned()
+			.expect("a visible sentence at the live edge");
+		let from = egui::pos2(rect.left() + 4.0, rect.center().y);
+		let to = egui::pos2(rect.right() - 4.0, rect.center().y);
+
+		// Holding the pointer at the top edge during a drag should scroll.
+		frame(press(from, true));
+		frame(vec![egui::Event::PointerMoved(to)]);
+		let edge = egui::pos2(from.x, 8.0);
+		frame(vec![egui::Event::PointerMoved(edge)]);
+		let mut offset_after_edge = start_offset;
+		for _ in 0..30 {
+			let (_, _, _, _, offset) = frame(vec![egui::Event::PointerMoved(edge)]);
+			offset_after_edge = offset;
+		}
+		let (_, _, selected_at_edge, _, _) = frame(vec![]);
+		frame(press(edge, false));
+		let (_, edge_copy, _, _, _) = frame(vec![egui::Event::Copy]);
+		let edge_moved = (offset_after_edge - start_offset).abs() > 24.0;
+		// The pointer left the dragged phrase and sat on the top edge, so the range
+		// follows it. What must survive is a selection, not the phrase the pointer left.
+		let edge_kept = edge_moved
+			&& selected_at_edge
+			&& edge_copy.as_ref().is_some_and(|text| !text.is_empty());
+
+		crate::select::clear(&ctx);
+		{
+			let mut previous = f32::NAN;
+			for _ in 0..24 {
+				let (_, _, _, _, offset) = frame(wheel(-240.0));
+				if (offset - previous).abs() < 1.0 {
+					break;
+				}
+				previous = offset;
+			}
+		}
+		let (labels, _, _, _, _) = frame(vec![]);
+		let (_, rect) = visible(&labels)
+			.cloned()
+			.expect("a sentence to keep across a scrollbar drag");
+		let from = egui::pos2(rect.left() + 4.0, rect.center().y);
+		let to = egui::pos2(rect.right() - 4.0, rect.center().y);
+		frame(press(from, true));
+		frame(vec![egui::Event::PointerMoved(to)]);
+		frame(press(to, false));
+		let (_, copied, selected, _, offset_before_bar) = frame(vec![egui::Event::Copy]);
+		let copied = copied.unwrap_or_default();
+		assert!(
+			selected && copied.contains("alpha"),
+			"scrollbar case never selected: {copied:?}"
+		);
+		let bar_top = egui::pos2(894.0, 560.0);
+		for _ in 0..3 {
+			frame(vec![egui::Event::PointerMoved(bar_top)]);
+		}
+		frame(press(bar_top, true));
+		let (_, _, selected_on_press, _, offset_after_bar) =
+			frame(vec![egui::Event::PointerMoved(egui::pos2(894.0, 160.0))]);
+		frame(press(egui::pos2(894.0, 160.0), false));
+		let (_, bar_copy, selected_after_bar, _, _) = frame(vec![egui::Event::Copy]);
+		let bar_moved = (offset_after_bar - offset_before_bar).abs() > 8.0;
+		let bar_kept = bar_moved
+			&& selected_on_press
+			&& selected_after_bar
+			&& bar_copy.as_deref() == Some(copied.as_str());
+
+		crate::select::clear(&ctx);
+		{
+			let mut previous = f32::NAN;
+			for _ in 0..24 {
+				let (_, _, _, _, offset) = frame(wheel(-240.0));
+				if (offset - previous).abs() < 1.0 {
+					break;
+				}
+				previous = offset;
+			}
+		}
+		let (labels, _, _, _, _) = frame(vec![]);
+		let (sentence, rect) = visible(&labels)
+			.cloned()
+			.expect("a sentence to drag off screen");
+		let from = egui::pos2(rect.left() + 4.0, rect.center().y);
+		let to = egui::pos2((rect.left() + rect.right()) / 2.0, rect.center().y);
+		frame(press(from, true));
+		frame(vec![egui::Event::PointerMoved(to)]);
+		let (_, anchor, _, _, _) = frame(vec![egui::Event::Copy]);
+		let anchor = anchor.unwrap_or_default();
+		let mut dragged_off = false;
+		let mut selected_off = false;
+		for _ in 0..48 {
+			// The pointer stays on the phrase. The wheel moves the channel under it.
+			let (labels, _, selected, _, _) = frame(vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+				delta: egui::vec2(0.0, 80.0),
+				modifiers: egui::Modifiers::NONE,
+			}]);
+			selected_off = selected;
+			dragged_off = !on_screen(&labels, &sentence);
+			if dragged_off {
+				break;
+			}
+		}
+		frame(press(to, false));
+		let (_, dragged, selected_after_drag, _, _) = frame(vec![egui::Event::Copy]);
+		let drag_kept = dragged_off
+			&& selected_off
+			&& selected_after_drag
+			&& dragged
+				.as_ref()
+				.is_some_and(|text| text.contains(anchor.as_str()));
+
+		let mut gone = false;
+		for _ in 0..16 {
+			let (labels, _, _, _, _) = frame(wheel(240.0));
+			gone = !on_screen(&labels, &sentence);
+			if gone {
+				break;
+			}
+		}
+		let mut back = false;
+		for _ in 0..16 {
+			let (labels, _, _, _, _) = frame(wheel(-240.0));
+			back = labels.iter().any(|(text, rect)| {
+				text.contains(&sentence) && rect.center().y > 80.0 && rect.center().y < 520.0
+			});
+			if back {
+				break;
+			}
+		}
+		seek.set(Some(anchor.clone()));
+		let (_, restored, selected_back, highlighted, _) = frame(vec![egui::Event::Copy]);
+		let highlight_kept = gone
+			&& back && highlighted
+			&& selected_back
+			&& restored
+				.as_ref()
+				.is_some_and(|text| text.contains(anchor.as_str()));
+
+		assert!(
+			drag_kept && edge_kept && bar_kept && highlight_kept,
+			"start={start_offset} drag_off={drag_kept} (offscreen={dragged_off} selected={selected_off} after={selected_after_drag} anchor={anchor:?} copy={dragged:?}) edge={edge_kept} (moved={edge_moved} from={start_offset} to={offset_after_edge} selected={selected_at_edge} copy={edge_copy:?}) bar={bar_kept} (moved={bar_moved} from={offset_before_bar} to={offset_after_bar} selected_on_press={selected_on_press} copy={bar_copy:?}) highlight={highlight_kept} (gone={gone} back={back} painted={highlighted} copy={restored:?})"
+		);
+	}
+
 	#[test]
 	fn embed_lightbox_reuses_viewer_and_closes_when_source_is_hidden_or_changed() {
 		for reason in [0, 1, 2] {
@@ -6006,6 +6769,1440 @@ mod tests {
 
 		assert!(view.load_newer);
 		assert!(view.target_browsing);
+	}
+
+	#[test]
+	fn selecting_into_an_edge_loads_the_next_page_in_that_direction() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		let mut message = text_message(20);
+		message.content = "Sentence 20 alpha bravo charlie delta".into();
+		state.channels[0].last_message = Some(Id(20));
+		state.timeline.insert(message, false, false).unwrap();
+		assert!(state.can_load_older());
+		let mut view = TimelineView::default();
+		for _ in 0..8 {
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		}
+		let labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		let rect = labels
+			.iter()
+			.find(|(text, _)| text.contains("alpha bravo"))
+			.map(|(_, rect)| *rect)
+			.expect("a sentence to drag toward older messages");
+		let from = egui::pos2(rect.left() + 4.0, rect.center().y);
+		let press = |pos: egui::Pos2, pressed: bool| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		banner_frame(&ctx, &mut view, &mut state, press(from, true), false);
+		let top = egui::pos2(from.x, 8.0);
+		banner_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![egui::Event::PointerMoved(top)],
+			false,
+		);
+		let mut loaded_older = false;
+		for _ in 0..24 {
+			banner_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				vec![egui::Event::PointerMoved(top)],
+				false,
+			);
+			loaded_older |= view.load_older;
+		}
+		assert!(
+			loaded_older,
+			"holding a selection on the top edge did not request older messages (offset={})",
+			view.scroll_offset
+		);
+
+		let mut state = test_support::demo_state();
+		state.timeline.clear();
+		state.selected = Some(Id(20));
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.history_targeted = true;
+		state.history_before = Some(Id(51));
+		state
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(20))
+			.unwrap()
+			.last_message = Some(Id(100));
+		for id in 1..=50 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		state.search_target = Some(Id(50));
+		state.revision += 1;
+		assert!(state.can_load_newer());
+		let mut view = TimelineView::default();
+		for _ in 0..80 {
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+			if view.reveal_scroll.is_none() && view.highlighted.is_some() {
+				break;
+			}
+		}
+		view.following = true;
+		banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		let labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		assert!(
+			!view.load_newer,
+			"sitting on the loaded bottom must not request newer messages"
+		);
+		let rect = labels
+			.iter()
+			.find(|(text, rect)| text.contains("Synthetic text") && rect.center().y > 80.0)
+			.map(|(_, rect)| *rect)
+			.expect("a sentence to drag toward newer messages");
+		let from = egui::pos2(rect.left() + 4.0, rect.center().y);
+		banner_frame(&ctx, &mut view, &mut state, press(from, true), false);
+		let bottom = egui::pos2(from.x, 590.0);
+		banner_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![egui::Event::PointerMoved(bottom)],
+			false,
+		);
+		let mut loaded_newer = false;
+		for _ in 0..48 {
+			banner_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				vec![egui::Event::PointerMoved(bottom)],
+				false,
+			);
+			loaded_newer |= view.load_newer;
+			if loaded_newer {
+				break;
+			}
+		}
+		assert!(
+			loaded_newer,
+			"holding a selection on the bottom edge did not request newer messages (offset={})",
+			view.scroll_offset
+		);
+	}
+
+	#[test]
+	fn right_click_keeps_the_selection_and_offers_copy() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.older_exhausted = true;
+		let mut message = text_message(20);
+		message.content = "Sentence 20 alpha bravo charlie delta".into();
+		state.channels[0].last_message = Some(Id(20));
+		state.timeline.insert(message, false, false).unwrap();
+		let mut view = TimelineView::default();
+		for _ in 0..8 {
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		}
+		let labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		let rect = labels
+			.iter()
+			.find(|(text, _)| text.contains("alpha bravo"))
+			.map(|(_, rect)| *rect)
+			.expect("a sentence to select");
+		let from = egui::pos2(rect.left() + 4.0, rect.center().y);
+		let to = egui::pos2(rect.right() - 4.0, rect.center().y);
+		let press = |pos: egui::Pos2, button: egui::PointerButton, pressed: bool| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		banner_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			press(from, egui::PointerButton::Primary, true),
+			false,
+		);
+		banner_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![egui::Event::PointerMoved(to)],
+			false,
+		);
+		banner_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			press(to, egui::PointerButton::Primary, false),
+			false,
+		);
+		assert!(
+			crate::select::has_selection(&ctx),
+			"the drag never selected text"
+		);
+		banner_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			press(to, egui::PointerButton::Secondary, true),
+			false,
+		);
+		// The menu's first frame is egui's invisible sizing pass. The action paints after that.
+		let labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		let offered = labels.iter().any(|(text, _)| text == "Copy Selected Text");
+		assert!(
+			crate::select::has_selection(&ctx) && offered,
+			"right-click dropped the selection or hid copy: selected={} labels={labels:?}",
+			crate::select::has_selection(&ctx)
+		);
+	}
+
+	#[test]
+	fn dragging_past_the_channel_keeps_scrolling_and_extending_the_selection() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.older_exhausted = true;
+		for id in 1..=40 {
+			let mut message = text_message(id);
+			message.content = format!("Sentence {id:02} alpha bravo charlie delta");
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		state.channels[0].last_message = Some(Id(40));
+		let mut view = TimelineView::default();
+		let clock = std::cell::Cell::new(0.0_f64);
+		let mut frame = |events: Vec<egui::Event>| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(clock.get()),
+					predicted_dt: 1.0 / 60.0,
+					events,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut crate::avatars::Avatars::default(),
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					);
+				},
+			);
+			let copied = output
+				.platform_output
+				.commands
+				.iter()
+				.find_map(|command| match command {
+					egui::OutputCommand::CopyText(text) => Some(text.clone()),
+					_ => None,
+				});
+			let mut labels = vec![];
+			fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+				match shape {
+					egui::Shape::Text(text) => out.push((
+						text.galley.job.text.clone(),
+						text.galley.rect.translate(text.pos.to_vec2()),
+					)),
+					egui::Shape::Vec(shapes) => {
+						for shape in shapes {
+							texts(shape, out);
+						}
+					}
+					_ => {}
+				}
+			}
+			for shape in &output.shapes {
+				texts(&shape.shape, &mut labels);
+			}
+			output.drop_without_applying_deltas();
+			clock.set(clock.get() + 1.0 / 60.0);
+			(labels, copied, view.scroll_offset)
+		};
+		let press = |pos: egui::Pos2, pressed: bool| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		for _ in 0..8 {
+			frame(vec![]);
+		}
+		let (labels, _, start) = frame(vec![]);
+		let visible_ids: Vec<u32> = labels
+			.iter()
+			.filter_map(|(text, _)| {
+				text.split_whitespace()
+					.nth(1)
+					.and_then(|id| id.parse::<u32>().ok())
+			})
+			.collect();
+		let (sentence, rect) = labels
+			.iter()
+			.find(|(text, rect)| {
+				text.contains("alpha bravo") && rect.center().y > 80.0 && rect.center().y < 520.0
+			})
+			.map(|(text, rect)| (text.clone(), *rect))
+			.expect("a sentence at the live edge");
+		let from = egui::pos2(rect.right() - 4.0, rect.center().y);
+		frame(press(from, true));
+		// Above the channel. The pointer has left the content, and the drag is still down.
+		let above = egui::pos2(from.x, -40.0);
+		frame(vec![egui::Event::PointerMoved(above)]);
+		let mut offset = start;
+		for _ in 0..20 {
+			let (_, _, next) = frame(vec![egui::Event::PointerMoved(above)]);
+			offset = next;
+		}
+		frame(press(above, false));
+		let (_, copied, _) = frame(vec![egui::Event::Copy]);
+		let copied = copied.unwrap_or_default();
+		let reached_older = (1..=40)
+			.any(|id| !visible_ids.contains(&id) && copied.contains(&format!("Sentence {id:02}")));
+		assert!(
+			start - offset > 24.0 && reached_older,
+			"dragging above the channel did not keep scrolling the selection (start={start}, offset={offset}, from={sentence:?}, copy={copied:?})"
+		);
+
+		crate::select::clear(&ctx);
+		let mut previous = f32::NAN;
+		for _ in 0..24 {
+			let (_, _, next) = frame(vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, 240.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}]);
+			if (next - previous).abs() < 1.0 && next < start - 80.0 {
+				break;
+			}
+			previous = next;
+		}
+		let (labels, _, away) = frame(vec![]);
+		let (sentence, rect) = labels
+			.iter()
+			.find(|(text, rect)| {
+				text.contains("alpha bravo") && rect.center().y > 80.0 && rect.center().y < 520.0
+			})
+			.map(|(text, rect)| (text.clone(), *rect))
+			.expect("a sentence away from the live edge");
+		let from = egui::pos2(rect.left() + 4.0, rect.center().y);
+		frame(press(from, true));
+		let below = egui::pos2(from.x, 680.0);
+		frame(vec![egui::Event::PointerMoved(below)]);
+		let mut offset = away;
+		for _ in 0..20 {
+			let (_, _, next) = frame(vec![egui::Event::PointerMoved(below)]);
+			offset = next;
+		}
+		frame(press(below, false));
+		let (_, copied, _) = frame(vec![egui::Event::Copy]);
+		let copied = copied.unwrap_or_default();
+		let started = sentence
+			.split_whitespace()
+			.nth(1)
+			.and_then(|id| id.parse::<u32>().ok())
+			.expect("sentence number");
+		let reached_newer =
+			(started + 1..=40).any(|id| copied.contains(&format!("Sentence {id:02}")));
+		assert!(
+			offset - away > 24.0 && reached_newer,
+			"dragging below the channel did not keep scrolling the selection (away={away}, offset={offset}, from={sentence:?}, copy={copied:?})"
+		);
+	}
+
+	/// Dragging up through older messages, then back past the press, has to take
+	/// the text below that press. The moving end starts above the anchor, and a
+	/// pointer below the channel never lands on a label.
+	#[test]
+	fn dragging_back_down_past_the_start_selects_the_text_below_it() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.older_exhausted = true;
+		for id in 1..=40 {
+			let mut message = text_message(id);
+			message.content = format!("Sentence {id:02} alpha bravo charlie delta");
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		state.channels[0].last_message = Some(Id(40));
+		let mut view = TimelineView::default();
+		let clock = std::cell::Cell::new(0.0_f64);
+		let mut frame =
+			|events: Vec<egui::Event>| {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						focused: true,
+						time: Some(clock.get()),
+						predicted_dt: 1.0 / 60.0,
+						events,
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(900.0, 600.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						view.show(
+							ui,
+							&mut state,
+							&mut None,
+							&mut None,
+							(
+								&mut crate::avatars::Avatars::default(),
+								&mut crate::profiles::ProfileSession::default(),
+							),
+							None,
+						);
+					},
+				);
+				let copied =
+					output.platform_output.commands.iter().rev().find_map(
+						|command| match command {
+							egui::OutputCommand::CopyText(text) => Some(text.clone()),
+							_ => None,
+						},
+					);
+				let mut labels = vec![];
+				fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+					match shape {
+						egui::Shape::Text(text) => out.push((
+							text.galley.job.text.clone(),
+							text.galley.rect.translate(text.pos.to_vec2()),
+						)),
+						egui::Shape::Vec(shapes) => {
+							for shape in shapes {
+								texts(shape, out);
+							}
+						}
+						_ => {}
+					}
+				}
+				for shape in &output.shapes {
+					texts(&shape.shape, &mut labels);
+				}
+				output.drop_without_applying_deltas();
+				clock.set(clock.get() + 1.0 / 60.0);
+				(labels, copied, view.scroll_offset)
+			};
+		let press = |pos: egui::Pos2, pressed: bool| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		let sentence_id = |text: &str| {
+			text.split_whitespace()
+				.nth(1)
+				.and_then(|id| id.parse::<u32>().ok())
+		};
+		for _ in 0..8 {
+			frame(vec![]);
+		}
+		let (_, _, live) = frame(vec![]);
+		for _ in 0..16 {
+			let (_, _, next) = frame(vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, 240.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}]);
+			if live - next > 200.0 {
+				break;
+			}
+		}
+		for _ in 0..4 {
+			frame(vec![]);
+		}
+		let (labels, _, _) = frame(vec![]);
+		let mut sentences: Vec<(u32, egui::Rect)> = labels
+			.iter()
+			.filter_map(|(text, rect)| {
+				let id = sentence_id(text)?;
+				if text.contains("alpha bravo")
+					&& rect.center().y > 80.0
+					&& rect.center().y < 520.0
+					&& rect.width() > 40.0
+				{
+					Some((id, *rect))
+				} else {
+					None
+				}
+			})
+			.collect();
+		sentences.sort_by(|(_, left), (_, right)| {
+			left.center()
+				.y
+				.partial_cmp(&right.center().y)
+				.unwrap_or(std::cmp::Ordering::Equal)
+		});
+		sentences.dedup_by_key(|(id, _)| *id);
+		assert!(
+			sentences.len() >= 3,
+			"need a sentence with text above and below it, saw {sentences:?}"
+		);
+		let (anchor_id, anchor_rect) = sentences[sentences.len() / 2];
+		let from = egui::pos2(anchor_rect.left() + 8.0, anchor_rect.center().y);
+		frame(press(from, true));
+		let above = egui::pos2(from.x, -40.0);
+		frame(vec![egui::Event::PointerMoved(above)]);
+		let (_, _, at_press) = frame(vec![egui::Event::PointerMoved(above)]);
+		for _ in 0..12 {
+			frame(vec![egui::Event::PointerMoved(above)]);
+		}
+		let below = egui::pos2(from.x, 680.0);
+		frame(vec![egui::Event::PointerMoved(below)]);
+		let mut offset = at_press;
+		for _ in 0..24 {
+			let (_, _, next) = frame(vec![egui::Event::PointerMoved(below)]);
+			offset = next;
+			if next > at_press + 24.0 {
+				break;
+			}
+		}
+		frame(press(below, false));
+		let (_, copied, _) = frame(vec![egui::Event::Copy]);
+		let copied = copied.unwrap_or_default();
+		let reached_below =
+			(anchor_id + 1..=40).any(|id| copied.contains(&format!("Sentence {id:02}")));
+		let anchor_mark = format!("{anchor_id:02}");
+		assert!(
+			offset > at_press + 24.0
+				&& copied.contains(&anchor_mark)
+				&& reached_below
+				&& !copied.contains("Sentence 01")
+				&& crate::select::has_selection(&ctx),
+			"dragging back past the start left the text below it unselected (press={at_press}, offset={offset}, anchor={anchor_id}, copy={copied:?})"
+		);
+	}
+
+	#[test]
+	fn copy_selected_text_copies_the_whole_range_and_stays_until_the_menu_closes() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.older_exhausted = true;
+		for id in 1..=40 {
+			let mut message = text_message(id);
+			message.content = format!("Sentence {id:02} alpha bravo charlie delta");
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		state.channels[0].last_message = Some(Id(40));
+		let mut view = TimelineView::default();
+		let mut draft = "UNSELECTED DRAFT".to_string();
+		let composer_id = egui::Id::unique("draft-selection");
+		let clock = std::cell::Cell::new(0.0_f64);
+		let mut frame =
+			|events: Vec<egui::Event>| {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						focused: true,
+						time: Some(clock.get()),
+						predicted_dt: 1.0 / 60.0,
+						events,
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(900.0, 600.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						// The composer is focused and has its own selection, and it is
+						// shown before the channel. A copy event reaches it first.
+						let mut edit = egui::text_edit::TextEditState::load(ui.ctx(), composer_id)
+							.unwrap_or_default();
+						edit.cursor
+							.set_char_range(Some(egui::text::CCursorRange::two(
+								egui::text::CCursor::new(0),
+								egui::text::CCursor::new(draft.chars().count()),
+							)));
+						edit.store(ui.ctx(), composer_id);
+						ui.memory_mut(|memory| memory.request_focus(composer_id));
+						egui::Panel::bottom("composer").show(ui, |ui| {
+							ui.add(
+								egui::TextEdit::multiline(&mut draft)
+									.id(composer_id)
+									.desired_rows(1),
+							);
+						});
+						view.show(
+							ui,
+							&mut state,
+							&mut None,
+							&mut None,
+							(
+								&mut crate::avatars::Avatars::default(),
+								&mut crate::profiles::ProfileSession::default(),
+							),
+							None,
+						);
+					},
+				);
+				// The window keeps the last copy command. An earlier one can be the draft.
+				let copied =
+					output.platform_output.commands.iter().rev().find_map(
+						|command| match command {
+							egui::OutputCommand::CopyText(text) => Some(text.clone()),
+							_ => None,
+						},
+					);
+				let mut labels = vec![];
+				fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+					match shape {
+						egui::Shape::Text(text) => out.push((
+							text.galley.job.text.clone(),
+							text.galley.rect.translate(text.pos.to_vec2()),
+						)),
+						egui::Shape::Vec(shapes) => {
+							for shape in shapes {
+								texts(shape, out);
+							}
+						}
+						_ => {}
+					}
+				}
+				for shape in &output.shapes {
+					texts(&shape.shape, &mut labels);
+				}
+				output.drop_without_applying_deltas();
+				clock.set(clock.get() + 1.0 / 60.0);
+				(labels, copied)
+			};
+		for _ in 0..8 {
+			frame(vec![]);
+		}
+		let (labels, _) = frame(vec![]);
+		let mut sentences: Vec<(String, egui::Rect)> = labels
+			.into_iter()
+			.filter(|(text, rect)| {
+				text.contains("alpha bravo") && rect.center().y > 40.0 && rect.width() > 40.0
+			})
+			.collect();
+		assert!(
+			sentences.len() >= 2,
+			"need two sentences, saw {}",
+			sentences.len()
+		);
+		sentences.sort_by(|(_, left), (_, right)| {
+			left.center()
+				.y
+				.partial_cmp(&right.center().y)
+				.unwrap_or(std::cmp::Ordering::Equal)
+		});
+		let (first, first_rect) = sentences.first().cloned().unwrap();
+		let (last, last_rect) = sentences.last().cloned().unwrap();
+		let from = egui::pos2(first_rect.left() + 4.0, first_rect.center().y);
+		let to = egui::pos2(last_rect.right() - 4.0, last_rect.center().y);
+		let press = |pos: egui::Pos2, button: egui::PointerButton, pressed: bool| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		frame(press(from, egui::PointerButton::Primary, true));
+		frame(vec![egui::Event::PointerMoved(to)]);
+		frame(press(to, egui::PointerButton::Primary, false));
+		let (_, expected) = frame(vec![egui::Event::Copy]);
+		let expected = expected.unwrap_or_default();
+		let first_id = first
+			.split_whitespace()
+			.nth(1)
+			.expect("first sentence number");
+		let last_id = last
+			.split_whitespace()
+			.nth(1)
+			.expect("last sentence number");
+		assert!(
+			expected.contains(first_id)
+				&& expected.contains(last_id)
+				&& !expected.contains("UNSELECTED DRAFT"),
+			"Ctrl+C did not copy just the channel highlight: {expected:?}"
+		);
+		frame(press(to, egui::PointerButton::Secondary, true));
+		let (labels, _) = frame(vec![]);
+		let copy_at = labels
+			.iter()
+			.find(|(text, _)| text == "Copy Selected Text")
+			.map(|(_, rect)| rect.center())
+			.expect("Copy Selected Text");
+		let (pressed, _) = frame(press(copy_at, egui::PointerButton::Primary, true));
+		let pressed_open = pressed.iter().any(|(text, _)| text == "Copy message");
+		let pressed_offered = pressed.iter().any(|(text, _)| text == "Copy Selected Text");
+		assert!(
+			!pressed_open || pressed_offered,
+			"Copy Selected Text left the menu while it was still open: {pressed:?}"
+		);
+		let (labels, copied_now) = frame(press(copy_at, egui::PointerButton::Primary, false));
+		let (_, copied_next) = frame(vec![]);
+		let copied = copied_next.unwrap_or_else(|| copied_now.unwrap_or_default());
+		let menu_open = labels.iter().any(|(text, _)| text == "Copy message");
+		let still_offered = labels.iter().any(|(text, _)| text == "Copy Selected Text");
+		assert!(
+			copied == expected,
+			"Copy Selected Text was not the Ctrl+C text: ctrl+c {expected:?}, menu {copied:?}"
+		);
+		assert!(
+			!menu_open || still_offered,
+			"Copy Selected Text left the menu while it was still open after release: {labels:?}"
+		);
+		let (_, still) = frame(vec![egui::Event::Copy]);
+		let still = still.unwrap_or_default();
+		assert!(
+			still == expected,
+			"the first Copy Selected Text dropped the highlight: {still:?}"
+		);
+		frame(press(to, egui::PointerButton::Secondary, true));
+		let (labels, _) = frame(vec![]);
+		let copy_at = labels
+			.iter()
+			.find(|(text, _)| text == "Copy Selected Text")
+			.map(|(_, rect)| rect.center())
+			.expect("Copy Selected Text without scrolling");
+		frame(press(copy_at, egui::PointerButton::Primary, true));
+		let (_, second_now) = frame(press(copy_at, egui::PointerButton::Primary, false));
+		let (_, second_next) = frame(vec![]);
+		let second = second_next.unwrap_or_else(|| second_now.unwrap_or_default());
+		let (_, after) = frame(vec![egui::Event::Copy]);
+		let after = after.unwrap_or_default();
+		assert!(
+			second == expected && after == expected,
+			"the next Copy Selected Text was not the whole highlight: menu {second:?}, after {after:?}, expected {expected:?}"
+		);
+		let shown = |labels: &[(String, egui::Rect)], id: &str| {
+			labels.iter().any(|(text, rect)| {
+				text.contains(id)
+					&& rect.center().y > 0.0
+					&& rect.center().y < 600.0
+					&& rect.width() > 40.0
+			})
+		};
+		let mut left_the_screen = false;
+		for _ in 0..80 {
+			let (labels, _) = frame(vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, 240.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}]);
+			if !shown(&labels, first_id) && !shown(&labels, last_id) {
+				left_the_screen = true;
+				break;
+			}
+		}
+		assert!(left_the_screen, "the highlight never left the screen");
+		for _ in 0..8 {
+			frame(vec![]);
+		}
+		for _ in 0..40 {
+			let (labels, _) = frame(vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, -240.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}]);
+			if shown(&labels, first_id) && shown(&labels, last_id) {
+				break;
+			}
+		}
+		for _ in 0..8 {
+			frame(vec![]);
+		}
+		let (labels, _) = frame(vec![]);
+		assert!(
+			crate::select::has_selection(&ctx),
+			"the highlight was gone after scrolling back, on screen first={} last={}",
+			shown(&labels, first_id),
+			shown(&labels, last_id)
+		);
+		let back = labels.iter().find(|(text, rect)| {
+			text.contains(last_id) && rect.center().y > 40.0 && rect.width() > 40.0
+		});
+		let Some((_, back_rect)) = back else {
+			panic!("the selection did not come back on screen");
+		};
+		let at = egui::pos2(back_rect.right() - 4.0, back_rect.center().y);
+		frame(press(at, egui::PointerButton::Secondary, true));
+		let (labels, _) = frame(vec![]);
+		let copy_at = labels
+			.iter()
+			.find(|(text, _)| text == "Copy Selected Text")
+			.map(|(_, rect)| rect.center())
+			.expect("Copy Selected Text after scrolling away and back");
+		frame(press(copy_at, egui::PointerButton::Primary, true));
+		let (_, later_now) = frame(press(copy_at, egui::PointerButton::Primary, false));
+		let (_, later_next) = frame(vec![]);
+		let later = later_next.unwrap_or_else(|| later_now.unwrap_or_default());
+		let (_, still) = frame(vec![egui::Event::Copy]);
+		let still = still.unwrap_or_default();
+		assert!(
+			later == expected && still == expected,
+			"Copy Selected Text after scrolling copied one piece and dropped the highlight: menu {later:?}, after {still:?}, expected {expected:?}"
+		);
+	}
+
+	/// Channel chrome sits above the messages. A drag that reaches it must keep
+	/// scrolling the history, and the name is not part of the message selection.
+	#[test]
+	fn dragging_up_onto_the_channel_name_scrolls_without_selecting_it() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.older_exhausted = false;
+		for id in 1..=40 {
+			let mut message = text_message(id);
+			message.content = format!("Sentence {id:02} alpha bravo charlie delta");
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		state.channels[0].last_message = Some(Id(40));
+		state.channels[0].name = "General voice and off topic".into();
+		let mut view = TimelineView::default();
+		let clock = std::cell::Cell::new(0.0_f64);
+		let mut frame = |events: Vec<egui::Event>| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(clock.get()),
+					predicted_dt: 1.0 / 60.0,
+					events,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					egui::Panel::top("channel-header")
+						.exact_size(48.0)
+						.show(ui, |ui| {
+							ui.add(
+								egui::Label::new(
+									egui::RichText::new("General voice and off topic")
+										.size(16.0)
+										.strong(),
+								)
+								.truncate(),
+							);
+						});
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut crate::avatars::Avatars::default(),
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					);
+				},
+			);
+			let copied = output
+				.platform_output
+				.commands
+				.iter()
+				.find_map(|command| match command {
+					egui::OutputCommand::CopyText(text) => Some(text.clone()),
+					_ => None,
+				});
+			let mut labels = vec![];
+			fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+				match shape {
+					egui::Shape::Text(text) => out.push((
+						text.galley.job.text.clone(),
+						text.galley.rect.translate(text.pos.to_vec2()),
+					)),
+					egui::Shape::Vec(shapes) => {
+						for shape in shapes {
+							texts(shape, out);
+						}
+					}
+					_ => {}
+				}
+			}
+			for shape in &output.shapes {
+				texts(&shape.shape, &mut labels);
+			}
+			output.drop_without_applying_deltas();
+			clock.set(clock.get() + 1.0 / 60.0);
+			(labels, copied, view.scroll_offset, view.load_older)
+		};
+		let press = |pos: egui::Pos2, pressed: bool| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		for _ in 0..8 {
+			frame(vec![]);
+		}
+		let (labels, _, start, _) = frame(vec![]);
+		let name = labels
+			.iter()
+			.find(|(text, _)| text.contains("General voice"))
+			.map(|(_, rect)| *rect)
+			.expect("channel name");
+		let visible_ids: Vec<u32> = labels
+			.iter()
+			.filter_map(|(text, _)| {
+				text.split_whitespace()
+					.nth(1)
+					.and_then(|id| id.parse::<u32>().ok())
+			})
+			.collect();
+		let (sentence, rect) = labels
+			.iter()
+			.find(|(text, rect)| {
+				text.contains("alpha bravo") && rect.center().y > 80.0 && rect.center().y < 520.0
+			})
+			.map(|(text, rect)| (text.clone(), *rect))
+			.expect("a sentence at the live edge");
+		let from = egui::pos2(rect.right() - 4.0, rect.center().y);
+		frame(press(from, true));
+		// Same column as the message, just above the name's glyphs. That is the
+		// upward-drag case egui uses to swallow the widget over the pointer.
+		let onto_name = egui::pos2(from.x, name.min.y - 2.0);
+		frame(vec![egui::Event::PointerMoved(onto_name)]);
+		let mut offset = start;
+		let mut requested_older = false;
+		for _ in 0..20 {
+			let (_, _, next, older) = frame(vec![egui::Event::PointerMoved(onto_name)]);
+			offset = next;
+			requested_older |= older;
+		}
+		frame(press(onto_name, false));
+		let (_, copied, _, _) = frame(vec![egui::Event::Copy]);
+		let copied = copied.unwrap_or_default();
+		let reached_older = (1..=40)
+			.any(|id| !visible_ids.contains(&id) && copied.contains(&format!("Sentence {id:02}")));
+		assert!(
+			start - offset > 24.0
+				&& requested_older
+				&& reached_older
+				&& !copied.contains("General voice")
+				&& !copied.contains("January")
+				&& !copied.contains("New messages")
+				&& !copied.contains("00:00"),
+			"dragging onto the channel name did not scroll the selection past it (start={start}, offset={offset}, older={requested_older}, from={sentence:?}, name={name:?}, copy={copied:?})"
+		);
+	}
+
+	/// The clipboard is the highlighted characters. Neighbours stay out, including
+	/// after the range leaves the screen and comes back.
+	#[test]
+	fn copy_is_exactly_the_visible_selection_after_scrolling_away() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.older_exhausted = true;
+		for id in 1..=40 {
+			let mut message = text_message(id);
+			message.content = format!("Sentence {id:02} alpha bravo charlie delta");
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		state.channels[0].last_message = Some(Id(40));
+		let mut view = TimelineView::default();
+		let clock = std::cell::Cell::new(0.0_f64);
+		let mut frame = |events: Vec<egui::Event>| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(clock.get()),
+					predicted_dt: 1.0 / 60.0,
+					events,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut crate::avatars::Avatars::default(),
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					);
+				},
+			);
+			let copied = output
+				.platform_output
+				.commands
+				.iter()
+				.find_map(|command| match command {
+					egui::OutputCommand::CopyText(text) => Some(text.clone()),
+					_ => None,
+				});
+			let mut labels = vec![];
+			fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+				match shape {
+					egui::Shape::Text(text) => out.push((
+						text.galley.job.text.clone(),
+						text.galley.rect.translate(text.pos.to_vec2()),
+					)),
+					egui::Shape::Vec(shapes) => {
+						for shape in shapes {
+							texts(shape, out);
+						}
+					}
+					_ => {}
+				}
+			}
+			for shape in &output.shapes {
+				texts(&shape.shape, &mut labels);
+			}
+			output.drop_without_applying_deltas();
+			clock.set(clock.get() + 1.0 / 60.0);
+			(labels, copied)
+		};
+		let press = |pos: egui::Pos2, button: egui::PointerButton, pressed: bool| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		for _ in 0..8 {
+			frame(vec![]);
+		}
+		let (labels, _) = frame(vec![]);
+		let mut sentences: Vec<(String, egui::Rect)> = labels
+			.into_iter()
+			.filter(|(text, rect)| {
+				text.contains("alpha bravo") && rect.center().y > 40.0 && rect.width() > 40.0
+			})
+			.collect();
+		sentences.sort_by(|(_, left), (_, right)| {
+			left.center()
+				.y
+				.partial_cmp(&right.center().y)
+				.unwrap_or(std::cmp::Ordering::Equal)
+		});
+		assert!(
+			sentences.len() >= 6,
+			"need six sentences, saw {}",
+			sentences.len()
+		);
+		let (above, _) = sentences[1].clone();
+		let (first, first_rect) = sentences[2].clone();
+		let (last, last_rect) = sentences[4].clone();
+		let (below, _) = sentences[5].clone();
+		let from = egui::pos2(first_rect.left() + 4.0, first_rect.center().y);
+		let to = egui::pos2(last_rect.right() - 4.0, last_rect.center().y);
+		frame(press(from, egui::PointerButton::Primary, true));
+		frame(vec![egui::Event::PointerMoved(to)]);
+		frame(press(to, egui::PointerButton::Primary, false));
+		let (_, expected) = frame(vec![egui::Event::Copy]);
+		let expected = expected.unwrap_or_default();
+		let id_of = |text: &str| {
+			text.split_whitespace()
+				.nth(1)
+				.expect("sentence number")
+				.to_owned()
+		};
+		let first_id = id_of(&first);
+		let last_id = id_of(&last);
+		let above_id = id_of(&above);
+		let below_id = id_of(&below);
+		assert!(
+			expected.contains(&first_id)
+				&& expected.contains(&last_id)
+				&& !expected.contains(&above_id)
+				&& !expected.contains(&below_id)
+				&& !expected.contains("00:00")
+				&& !expected.contains("January")
+				&& !expected.contains("New messages"),
+			"the drag copied more or less than the highlight: above={above_id} first={first_id} last={last_id} below={below_id} copy={expected:?}"
+		);
+		let mut left_the_screen = false;
+		let mut still_visible = String::new();
+		// Leave the highlight, then come back to it.
+		for _ in 0..80 {
+			let (labels, _) = frame(vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, 240.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}]);
+			still_visible = labels
+				.iter()
+				.filter(|(text, rect)| {
+					text.contains("Sentence")
+						&& rect.center().y > 0.0
+						&& rect.center().y < 600.0
+						&& rect.width() > 40.0
+				})
+				.map(|(text, rect)| {
+					format!(
+						"{}@{:.0}",
+						text.split_whitespace().nth(1).unwrap_or("?"),
+						rect.center().y
+					)
+				})
+				.collect::<Vec<_>>()
+				.join(",");
+			let shown = |id: &str| {
+				labels.iter().any(|(text, rect)| {
+					text.contains(id)
+						&& rect.center().y > 0.0
+						&& rect.center().y < 600.0
+						&& rect.width() > 40.0
+				})
+			};
+			if !shown(&first_id) && !shown(&last_id) {
+				left_the_screen = true;
+				break;
+			}
+		}
+		assert!(
+			left_the_screen,
+			"the highlight never left the screen ({first_id}..={last_id}), still={still_visible}"
+		);
+		for _ in 0..8 {
+			frame(vec![]);
+		}
+		for _ in 0..40 {
+			let (labels, _) = frame(vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, -240.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}]);
+			if labels.iter().any(|(text, _)| text.contains(&first_id))
+				&& labels.iter().any(|(text, _)| text.contains(&last_id))
+			{
+				break;
+			}
+		}
+		for _ in 0..8 {
+			frame(vec![]);
+		}
+		let (labels, _) = frame(vec![]);
+		let back = labels.iter().find(|(text, rect)| {
+			text.contains(&first_id) && rect.center().y > 40.0 && rect.width() > 40.0
+		});
+		let Some((_, back_rect)) = back else {
+			panic!("the selection did not come back on screen: {labels:?}");
+		};
+		frame(press(
+			back_rect.center(),
+			egui::PointerButton::Secondary,
+			true,
+		));
+		let (labels, _) = frame(vec![]);
+		let copy_at = labels
+			.iter()
+			.find(|(text, _)| text == "Copy Selected Text")
+			.map(|(_, rect)| rect.center())
+			.expect("Copy Selected Text after returning");
+		frame(press(copy_at, egui::PointerButton::Primary, true));
+		let (_, copied) = frame(press(copy_at, egui::PointerButton::Primary, false));
+		let copied = copied.unwrap_or_default();
+		assert!(
+			copied == expected,
+			"Copy Selected Text after leaving and returning was not the highlight: expected {expected:?}, got {copied:?}"
+		);
+	}
+
+	/// A link card sits under the message and owns a nested scroll area. Dragging
+	/// past the header or the composer must still move the channel, and the copy
+	/// must read the message before the card under it.
+	#[test]
+	fn dragging_past_chrome_with_an_embed_scrolls_and_copies_in_visual_order() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.older_exhausted = true;
+		for id in 1..=24 {
+			let mut message = text_message(id);
+			message.content = format!("Sentence {id:02} alpha bravo charlie delta");
+			if id == 20 {
+				message.content = "Alpha above the card".into();
+				message.embeds.push(model::Embed {
+					kind: "rich".into(),
+					title: Some("Beta under the card".into()),
+					description: Some("Gamma under the title".into()),
+					..Default::default()
+				});
+			}
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		state.channels[0].last_message = Some(Id(24));
+		let mut view = TimelineView::default();
+		let mut composer = String::new();
+		let clock = std::cell::Cell::new(0.0_f64);
+		let mut frame = |events: Vec<egui::Event>| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(clock.get()),
+					predicted_dt: 1.0 / 60.0,
+					events,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					egui::Panel::top("channel-header")
+						.exact_size(48.0)
+						.show(ui, |ui| {
+							ui.style_mut().interaction.selectable_labels = false;
+							ui.label(
+								egui::RichText::new("General voice and off topic")
+									.size(16.0)
+									.strong(),
+							);
+						});
+					egui::Panel::bottom("composer").show(ui, |ui| {
+						ui.add(
+							egui::TextEdit::multiline(&mut composer)
+								.desired_rows(2)
+								.hint_text("Message"),
+						);
+					});
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut crate::avatars::Avatars::default(),
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					);
+				},
+			);
+			let copied = output
+				.platform_output
+				.commands
+				.iter()
+				.find_map(|command| match command {
+					egui::OutputCommand::CopyText(text) => Some(text.clone()),
+					_ => None,
+				});
+			let mut labels = vec![];
+			fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+				match shape {
+					egui::Shape::Text(text) => out.push((
+						text.galley.job.text.clone(),
+						text.galley.rect.translate(text.pos.to_vec2()),
+					)),
+					egui::Shape::Vec(shapes) => {
+						for shape in shapes {
+							texts(shape, out);
+						}
+					}
+					_ => {}
+				}
+			}
+			for shape in &output.shapes {
+				texts(&shape.shape, &mut labels);
+			}
+			output.drop_without_applying_deltas();
+			clock.set(clock.get() + 1.0 / 60.0);
+			(labels, copied, view.scroll_offset)
+		};
+		let press = |pos: egui::Pos2, pressed: bool| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		for _ in 0..8 {
+			frame(vec![]);
+		}
+		let (labels, _, _) = frame(vec![]);
+		let find = |labels: &[(String, egui::Rect)], needle: &str| {
+			labels.iter().find_map(|(text, rect)| {
+				(text.contains(needle)
+					&& rect.center().y > 48.0
+					&& rect.center().y < 560.0
+					&& rect.width() > 40.0)
+					.then_some(*rect)
+			})
+		};
+		let alpha = find(&labels, "Alpha above").expect("the message above the card");
+		let beta = find(&labels, "Beta under").expect("the card title under that message");
+		assert!(
+			alpha.top() < beta.top(),
+			"the card title should sit under the message, alpha={alpha:?} beta={beta:?}"
+		);
+		let gamma = find(&labels, "Gamma under");
+		let from = gamma
+			.map(|rect| rect.right_bottom())
+			.unwrap_or(beta.right_bottom())
+			+ egui::vec2(-4.0, 4.0);
+		let to = alpha.left_top() + egui::vec2(4.0, -4.0);
+		frame(press(from, true));
+		for step in 1..=8 {
+			let t = step as f32 / 8.0;
+			frame(vec![egui::Event::PointerMoved(from.lerp(to, t))]);
+		}
+		frame(press(to, false));
+		let (_, copied, _) = frame(vec![egui::Event::Copy]);
+		let copied = copied.unwrap_or_default();
+		let message_at = copied.find("Alpha above the card");
+		let card_at = copied.find("Beta under the card");
+		let copy_order = message_at.is_some() && card_at.is_some() && message_at < card_at;
+		let wheel = |delta: f32| {
+			vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, delta),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}]
+		};
+		let on_screen = |labels: &[(String, egui::Rect)], needle: &str| {
+			labels.iter().any(|(text, rect)| {
+				text.contains(needle)
+					&& rect.center().y > 48.0
+					&& rect.center().y < 560.0
+					&& rect.width() > 40.0
+			})
+		};
+		let mut left = false;
+		for _ in 0..40 {
+			let (labels, _, _) = frame(wheel(240.0));
+			if !on_screen(&labels, "Alpha above") && !on_screen(&labels, "Beta under") {
+				left = true;
+				break;
+			}
+		}
+		assert!(left, "the card never left the screen");
+		for _ in 0..40 {
+			let (labels, _, _) = frame(wheel(-240.0));
+			if on_screen(&labels, "Alpha above") && on_screen(&labels, "Beta under") {
+				break;
+			}
+		}
+		let (_, again, _) = frame(vec![egui::Event::Copy]);
+		let again = again.unwrap_or_default();
+		assert!(
+			again == copied,
+			"copy after leaving and returning was not the same highlight: before {copied:?}, after {again:?}"
+		);
+
+		let (labels, _, start) = frame(vec![]);
+		let from = find(&labels, "alpha bravo").expect("a sentence to drag");
+		let origin = egui::pos2(from.right() - 4.0, from.center().y);
+		frame(press(origin, true));
+		let above = egui::pos2(origin.x, 8.0);
+		let mut offset = start;
+		for _ in 0..20 {
+			let (_, _, next) = frame(vec![egui::Event::PointerMoved(above)]);
+			offset = next;
+		}
+		assert!(
+			start - offset > 24.0,
+			"dragging into the header did not scroll toward older messages (start={start}, offset={offset})"
+		);
+		frame(press(above, false));
+		let (_, _, away) = frame(vec![]);
+		let (labels, _, _) = frame(vec![]);
+		let from = find(&labels, "alpha bravo").expect("a sentence away from the live edge");
+		let origin = egui::pos2(from.left() + 4.0, from.center().y);
+		frame(press(origin, true));
+		let below = egui::pos2(origin.x, 590.0);
+		let mut offset = away;
+		for _ in 0..20 {
+			let (_, _, next) = frame(vec![egui::Event::PointerMoved(below)]);
+			offset = next;
+		}
+		assert!(
+			offset - away > 24.0,
+			"dragging into the composer did not scroll toward newer messages (away={away}, offset={offset})"
+		);
+		assert!(
+			copy_order,
+			"copied text reversed the message and the card under it: {copied:?}"
+		);
 	}
 
 	#[test]
@@ -9669,7 +11866,7 @@ mod tests {
 				"Settled hidden text needs no layout"
 			);
 		}
-		// Pointer selection must retain the complete label registration path.
+		// Pointer motion still measures leading rows. A settled selection does not.
 		for pressed in [true, false] {
 			overscan_frame(
 				&ctx,
@@ -9686,10 +11883,12 @@ mod tests {
 			);
 			assert!(view.leading_rendered > 0);
 		}
+		// A press lays the leading rows out. Once the button is up, only the
+		// selection's own rows stay registered, so the rest of the overscan reuses.
 		overscan_frame(&ctx, &mut view, &mut state, &mut avatars, 360.0, vec![]);
 		assert!(
-			view.leading_rendered > 0,
-			"Retained selection or focus still needs registration"
+			crate::select::has_selection(&ctx),
+			"pointer selection remains after release"
 		);
 		ctx.plugin::<egui::text_selection::LabelSelectionState>()
 			.lock()
