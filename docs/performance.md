@@ -27,6 +27,19 @@ conversion. The synthetic I24 test checks volume, channel order, silence, cancel
 both full-scale bounds. Actual notification startup latency, native UI memory/CPU, audible
 headset playback and non-Linux hardware were not measured by this workload.
 
+Both standard unsigned Arch packages were built with `cargo xtask package --format arch`
+(Rust 1.98.1, locked dependencies, release fat LTO, voice included, demo disabled) in separate
+worktrees and target directories. The baseline is `825e8cfd`; the after build contains the
+notification source committed as `3c411f1`. Installed size sums the 245 regular files under
+`usr/`, excluding package metadata. Both package smoke checks passed. Native archives include
+build timestamps/metadata; their compressed-size difference is not a reproducibility claim.
+
+| Package metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,645,128 B | 92,671,880 B | +26,752 B (+0.0289%) |
+| Installed payload (245 files) | 97,343,561 B | 97,370,313 B | +26,752 B (+0.0275%) |
+| Arch .pkg.tar.zst | 54,363,103 B | 54,356,674 B | -6,429 B (-0.0118%) |
+
 ## Server folder mark-as-read — October 15, 2026 (PR #672)
 
 Compared base `104b1aa5` with folder mark-as-read `2b02b49e`. Standard unsigned Windows x64
