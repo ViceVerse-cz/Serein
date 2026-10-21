@@ -348,6 +348,8 @@ pub struct Voice {
 	camera_generation: u64,
 	camera_preview: Option<std::sync::Arc<std::sync::Mutex<CameraPicture>>>,
 	camera_preview_enabled: Arc<std::sync::atomic::AtomicBool>,
+	/// Set by the first delivered frame; the start cue waits for it, not for permission.
+	camera_captured: Option<Arc<std::sync::atomic::AtomicBool>>,
 	pending: Option<Pending>,
 	live: Option<Live>,
 	retiring: Option<mpsc::Receiver<()>>,
@@ -393,6 +395,7 @@ impl Voice {
 			camera.stop();
 		}
 		self.camera_preview = None;
+		self.camera_captured = None;
 		if let Some(live) = &self.live {
 			live.controls.send_if_modified(|controls| {
 				let changed = controls.camera != 0;
@@ -1544,11 +1547,19 @@ impl Voice {
 			let receive = std::sync::Arc::new(std::sync::Mutex::new(None));
 			let preview = receive.clone();
 			let preview_enabled = self.camera_preview_enabled.clone();
-			preview_enabled.store(!ui.disable_local_previews, std::sync::atomic::Ordering::Release);
+			preview_enabled.store(
+				!ui.disable_local_previews,
+				std::sync::atomic::Ordering::Release,
+			);
+			let captured = Arc::new(std::sync::atomic::AtomicBool::new(false));
+			let first_frame = captured.clone();
 			let start = live.camera_clock;
 			let wake = ctx.clone();
 			let on_frame = std::sync::Arc::new(move |frame: discord_voice::camera::Frame| {
 				// Held or dropped pictures carry no H264 but still refresh the local preview.
+				if !first_frame.swap(true, std::sync::atomic::Ordering::AcqRel) {
+					wake.request_repaint();
+				}
 				let data = frame.h264;
 				if (1..=discord_voice::camera_video::MAX_FRAME_BYTES).contains(&data.len()) {
 					let _ = send.try_send(discord_voice::camera_video::Frame {
@@ -1574,12 +1585,8 @@ impl Voice {
 					self.camera_device = ui.voice_camera_device.clone();
 					self.camera = Some(camera);
 					self.camera_preview = Some(receive);
+					self.camera_captured = Some(captured);
 					ui.voice_camera_status = "Opening camera…";
-					let cue = model::notification_preferences::Sound::CameraOn;
-					if ui.notification_options.allows(cue) {
-						ui.notification_preview = Some(cue);
-						ctx.request_repaint();
-					}
 					live.controls
 						.send_modify(|controls| controls.camera = generation);
 				}
@@ -1590,9 +1597,28 @@ impl Voice {
 				}
 			}
 		}
-		self.camera_preview_enabled
-			.store(!ui.disable_local_previews, std::sync::atomic::Ordering::Release);
+		if self
+			.camera_captured
+			.as_ref()
+			.is_some_and(|captured| captured.load(std::sync::atomic::Ordering::Acquire))
+		{
+			self.camera_captured = None;
+			let cue = model::notification_preferences::Sound::CameraOn;
+			if ui.notification_options.allows(cue) {
+				ui.notification_preview = Some(cue);
+				ctx.request_repaint();
+			}
+		}
+		self.camera_preview_enabled.store(
+			!ui.disable_local_previews,
+			std::sync::atomic::Ordering::Release,
+		);
 		if ui.disable_local_previews {
+			if let Some(preview) = &self.camera_preview
+				&& let Ok(mut slot) = preview.try_lock()
+			{
+				*slot = None;
+			}
 			ui.voice_camera_preview = None;
 			ui.voice_camera_status = "";
 			return None;

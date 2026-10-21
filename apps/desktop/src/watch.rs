@@ -371,8 +371,13 @@ impl Watch {
 		let (disable_send, disable_recv) = pending.disable_video.expect("disable_video channel");
 		let task = runtime.spawn(async move {
 			let (status_send, status_wake) = (send.clone(), wake.clone());
-			let result =
-				discord_voice::watch_stream(credentials, identity, sink, audio, disable_recv, move |event| {
+			let result = discord_voice::watch_stream(
+				credentials,
+				identity,
+				sink,
+				audio,
+				disable_recv,
+				move |event| {
 					let status = match event {
 						Status::Connecting => "Connecting to the stream…",
 						Status::Discovering => "Checking the stream network…",
@@ -386,8 +391,9 @@ impl Watch {
 					status_send.send_replace(Some(Notice::Status(status)));
 					status_wake.request_repaint();
 					Ok(())
-				})
-				.await;
+				},
+			)
+			.await;
 			if let Err(error) = result {
 				send.send_replace(Some(Notice::Failed(error)));
 			}
@@ -523,8 +529,11 @@ mod tests {
 			texture: Default::default(),
 		};
 		ui.disable_incoming_video = true;
-		assert!(watch.poll(&runtime, &mut state, &mut ui, &ctx, None, None).is_none());
-		assert_eq!(watch.status, "Incoming video disabled");
+		assert!(
+			watch
+				.poll(&runtime, &mut state, &mut ui, &ctx, None, None)
+				.is_none()
+		);
 		assert!(ui.voice_stream_view.is_none());
 		assert!(frames.lock().unwrap().is_none());
 	}

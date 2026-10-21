@@ -440,6 +440,14 @@ impl Receivers {
 			self.require_keyframe(self.sources[index].1);
 		}
 	}
+	/// Restart reassembly after packets were skipped without being pushed. Their sequence
+	/// numbers may have advanced past the stale-packet window, so cursors start over.
+	pub fn resume(&mut self) {
+		for (_, _, assembler) in &mut self.sources {
+			*assembler = Assembler::default();
+		}
+		self.require_all_keyframes();
+	}
 	/// Drains the depacketizer counters.
 	pub fn take_stats(&mut self) -> ReceiveStats {
 		std::mem::take(&mut self.stats)
@@ -1281,6 +1289,25 @@ mod tests {
 			assert!(receivers.accept(7, true));
 			assert!(receivers.keyframe_requests().next().is_none());
 			assert!(receivers.accept(7, false));
+		}
+
+		{
+			// Skipping video while disabled must not leave the cursor behind the sender.
+			let mut receivers = Receivers::default();
+			receivers.announce(7, 700).unwrap();
+			assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
+			assert!(
+				receivers
+					.push(700, 40_001, 9000, true, &[0x65, 2])
+					.is_none()
+			);
+			receivers.resume();
+			assert_eq!(receivers.keyframe_requests().collect::<Vec<_>>(), vec![700]);
+			assert!(
+				receivers
+					.push(700, 40_002, 9900, true, &[0x65, 3])
+					.is_some()
+			);
 		}
 
 		{

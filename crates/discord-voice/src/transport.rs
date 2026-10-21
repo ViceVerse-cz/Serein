@@ -431,7 +431,7 @@ async fn run_inner(
 				if changed.is_err(){return Ok(());}
 				let is_disabled = controls.borrow().disable_incoming_video;
 				if was_disabled && !is_disabled {
-					receivers.require_all_keyframes();
+					receivers.resume();
 				}
 				was_disabled = is_disabled;
 			},
@@ -578,7 +578,8 @@ async fn run_inner(
 				if rtp.payload_type==101 {
 					metrics.video(Video::Packets,1);
 					let Some(decoder)=&decoder else{continue;};
-					if !dave.ready || controls.borrow().disable_incoming_video {continue;}
+					if !dave.ready {metrics.video(Video::NotReady,1);continue;}
+					if controls.borrow().disable_incoming_video {continue;}
 					let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else{continue;};
 					if !dave.contains(user) {metrics.video(Video::NotReady,1);continue;}
 					let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else{receivers.require_keyframe(user);metrics.video(Video::DecryptFailed,1);continue;};
@@ -1218,7 +1219,7 @@ pub(crate) async fn run_stream_inner(
 			}=>{
 				if changed.is_err() { return Ok(()); }
 				if !*disabled.as_ref().unwrap().borrow() {
-					receivers.require_all_keyframes();
+					receivers.resume();
 				}
 			},
 			_=tokio::time::sleep_until(outgoing.deadline), if !outgoing.is_empty() || history.has_pending()=>{

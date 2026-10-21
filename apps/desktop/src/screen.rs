@@ -261,9 +261,18 @@ impl Screen {
 			ctx.request_repaint();
 		}
 		let share_cue = model::notification_preferences::Sound::ScreenShareOn;
-		if std::mem::take(&mut self.share_cue) && ui.notification_options.allows(share_cue) {
-			ui.notification_preview = Some(share_cue);
-			ctx.request_repaint();
+		// Cue the share once the source delivers, not when a picker may still be cancelled.
+		if self.share_cue
+			&& self
+				.live
+				.as_ref()
+				.is_some_and(|live| live.worker.captured())
+		{
+			self.share_cue = false;
+			if ui.notification_options.allows(share_cue) {
+				ui.notification_preview = Some(share_cue);
+				ctx.request_repaint();
+			}
 		}
 		if !ui.screen.open && ui.screen.request.is_none() && self.context().is_none() {
 			ui.screen.sources.clear();
@@ -459,6 +468,7 @@ impl Screen {
 		if let Some(live) = &self.live {
 			if ui.disable_local_previews {
 				live.worker.set_preview_visible(false);
+				let _ = live.worker.take_preview();
 				ui.screen.preview = None;
 			} else {
 				live.worker.set_preview_visible(
@@ -474,8 +484,11 @@ impl Screen {
 					if let Some(texture) = &mut ui.screen.preview {
 						texture.set(image, egui::TextureOptions::LINEAR);
 					} else {
-						ui.screen.preview =
-							Some(ctx.load_texture("local-screen", image, egui::TextureOptions::LINEAR));
+						ui.screen.preview = Some(ctx.load_texture(
+							"local-screen",
+							image,
+							egui::TextureOptions::LINEAR,
+						));
 					}
 				}
 			}
