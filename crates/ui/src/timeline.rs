@@ -4389,18 +4389,22 @@ impl TimelineView {
 		let was_following = self.following;
 		let timeline_scrolled_up =
 			output.state.clamped_offset().y < before_offset - 0.001 || autoscroll_delta > 0.0;
-		// Layout corrections also move the offset up while a jump settles. Only a wheel or
-		// autoscroll gesture that actually moved the timeline counts as leaving the live edge.
+		let dragged = ui.ctx().dragged_id().is_some();
+		let dragged_up = dragged && timeline_scrolled_up;
+		let dragged_down = dragged && output.state.clamped_offset().y > before_offset + 0.001;
+		// Layout corrections also move the offset up while a jump settles. Only a wheel,
+		// autoscroll or scrollbar drag that actually moved the timeline counts as leaving
+		// the live edge.
 		let user_scrolled_up = user_scroll > 0.0 && timeline_scrolled_up;
-		if user_scrolled_up {
+		if user_scrolled_up || dragged_up {
 			self.left_live_edge = true;
 		}
-		if scrolled_toward_bottom {
+		if scrolled_toward_bottom || dragged_down {
 			self.left_live_edge = false;
 		}
 		self.following = !self.target_browsing
 			&& (whole_conversation_visible
-				|| (was_following && !user_scrolled_up)
+				|| (was_following && !user_scrolled_up && !dragged_up)
 				|| self.present_scroll.is_some()
 				|| (at_bottom && !self.left_live_edge));
 		if self.following
@@ -4454,7 +4458,7 @@ impl TimelineView {
 			self.consecutive_reflows = self.consecutive_reflows.saturating_add(1);
 			self.revision = u64::MAX;
 			let user_scrolling = scroll_delta != 0.0 || session.holding();
-			if was_following && !user_scrolling {
+			if was_following && !user_scrolling && !self.left_live_edge {
 				self.following = true;
 				self.jump = true;
 				// An anchored reader keeps this frame's places. The next frame
@@ -9266,6 +9270,90 @@ mod tests {
 		let off2 = frame(&mut view, 0.02);
 		assert!(!view.following);
 		assert!(off2 < off1);
+	}
+
+	#[test]
+	fn scrollbar_drag_up_from_live_edge_stops_following() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=100 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let mut frame = |view: &mut TimelineView, events: Vec<egui::Event>| {
+			frame_number += 1;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					crate::scroll::apply_preferences(
+						ui.ctx(),
+						model::ReadingPreferences::default(),
+					);
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			output.drop_without_applying_deltas();
+			view.scroll_offset
+		};
+		for _ in 0..8 {
+			frame(&mut view, vec![]);
+		}
+		assert!(view.following);
+		let live_edge = view.scroll_offset;
+		let bar = egui::pos2(895.0, 300.0);
+		frame(
+			&mut view,
+			vec![
+				egui::Event::PointerMoved(bar),
+				egui::Event::PointerButton {
+					pos: bar,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+		);
+		let offset = frame(
+			&mut view,
+			vec![egui::Event::PointerMoved(egui::pos2(895.0, 200.0))],
+		);
+		assert!(
+			!view.following,
+			"an upward scrollbar drag must leave the live edge"
+		);
+		assert!(offset < live_edge);
+		let idle = frame(&mut view, vec![]);
+		assert!(!view.following, "idle frames must not snap back");
+		assert_eq!(idle, offset);
 	}
 
 	#[test]
