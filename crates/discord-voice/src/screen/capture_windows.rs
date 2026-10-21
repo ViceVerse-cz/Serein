@@ -48,6 +48,9 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		sources.push(Source {
 			id: SourceId::Display(monitor_id(&monitor)),
 			name: bounded_name(name),
+			width,
+			height,
+			refresh_hz: monitor.refresh_rate().unwrap_or(0),
 		});
 		if sources.len() == MAX_SOURCES {
 			return Ok(sources);
@@ -75,6 +78,12 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		sources.push(Source {
 			id: SourceId::Window(window_id(&window)),
 			name: bounded_name(title),
+			width,
+			height,
+			refresh_hz: window
+				.monitor()
+				.and_then(|monitor| monitor.refresh_rate().ok())
+				.unwrap_or(0),
 		});
 		if sources.len() == MAX_SOURCES {
 			break;
@@ -285,13 +294,24 @@ where
 		next_frame: Instant::now(),
 		interval: Duration::from_secs_f64(1.0 / f64::from(settings.fps)),
 	};
-	let native = Settings::new(
-		item,
-		if settings.cursor {
+	let cursor =
+		if settings.cursor && GraphicsCaptureApi::is_cursor_settings_supported().unwrap_or(false) {
+			CursorCaptureSettings::WithCursor
+		} else if settings.cursor {
 			CursorCaptureSettings::Default
 		} else {
 			CursorCaptureSettings::WithoutCursor
-		},
+		};
+	// An unset interval lets Windows batch pointer-only updates away from the frame rate.
+	let minimum_update =
+		if GraphicsCaptureApi::is_minimum_update_interval_supported().unwrap_or(false) {
+			MinimumUpdateIntervalSettings::Custom(Duration::from_millis(1))
+		} else {
+			MinimumUpdateIntervalSettings::Default
+		};
+	let native = Settings::new(
+		item,
+		cursor,
 		// Hide the border where supported; older Windows must keep the system default.
 		if GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false) {
 			DrawBorderSettings::WithoutBorder
@@ -299,7 +319,7 @@ where
 			DrawBorderSettings::Default
 		},
 		SecondaryWindowSettings::Default,
-		MinimumUpdateIntervalSettings::Default,
+		minimum_update,
 		DirtyRegionSettings::Default,
 		ColorFormat::Bgra8,
 		flags,

@@ -2242,6 +2242,12 @@ screen-body-include-the-pointer-in-the-shared-video = Fügen Sie den Zeiger in d
 # Context: body
 screen-body-quality = Qualität
 # Context: body
+screen-body-source = Quelle
+# Context: body
+screen-preview-paused-title = Dein Stream läuft noch!
+# Context: body
+screen-preview-paused-body = Wir haben diese Vorschau pausiert, um Ressourcen zu sparen.
+# Context: body
 screen-body-quality-selection-does-not-require-nitro = Qualitätsauswahl erfordert kein Nitro.
 # Context: body
 screen-body-refresh = Aktualisieren
