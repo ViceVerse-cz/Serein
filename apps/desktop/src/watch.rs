@@ -308,6 +308,10 @@ impl Watch {
 			// and the decoder keeps refilling the same allocation.
 			if ui.disable_incoming_video {
 				ui.voice_stream_view = None;
+				self.texture = Default::default();
+				if let Ok(mut slot) = live.frames.try_lock() {
+					*slot = None;
+				}
 				self.status = "Incoming video disabled";
 			} else if let Ok(mut slot) = live.frames.try_lock()
 				&& let Some((picture, fresh)) = slot.as_mut()
@@ -476,6 +480,53 @@ mod tests {
 			));
 			assert!(watch.live.is_none());
 		}
+	}
+
+	#[test]
+	fn watch_disabling_incoming_video_clears_cached_frame_and_view() {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		let mut state = test_support::voice_demo_state();
+		state.demo = false;
+		state.watch_stream(Id(3)).unwrap();
+		let call = state.voice.active.as_ref().unwrap();
+		let context = Context {
+			generation: state.generation,
+			channel: call.channel,
+			request: call.request,
+			stream_request: 2,
+			streamer: Id(3),
+		};
+		let mut ui = ui::MessagingUi::default();
+		let ctx = egui::Context::default();
+		let (_send, events) = watch::channel(None);
+		let (disable_send, _disable_recv) = watch::channel(false);
+		let frames = Arc::new(Mutex::new(None));
+		{
+			let mut slot = frames.lock().unwrap();
+			assert!(store_frame(&mut slot, frame(2, 2, &i420(2, 2, 1))));
+		}
+		let mut watch = Watch {
+			pending: None,
+			live: Some(Live {
+				context,
+				task: runtime.spawn(std::future::pending()),
+				events,
+				frames: frames.clone(),
+				disable_video: disable_send,
+			}),
+			ended: None,
+			sequence: 0,
+			status: "",
+			texture: Default::default(),
+		};
+		ui.disable_incoming_video = true;
+		assert!(watch.poll(&runtime, &mut state, &mut ui, &ctx, None, None).is_none());
+		assert_eq!(watch.status, "Incoming video disabled");
+		assert!(ui.voice_stream_view.is_none());
+		assert!(frames.lock().unwrap().is_none());
 	}
 
 	fn frame(width: u32, height: u32, data: &[u8]) -> discord_voice::RemoteFrame<'_> {
