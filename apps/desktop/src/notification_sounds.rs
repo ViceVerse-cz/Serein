@@ -179,6 +179,7 @@ fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[
 		})
 		.collect())
 }
+/// Opens a bundled notification cue on the system-default output, including native I24 PCM.
 fn open(
 	sound: Sound,
 	volume: u8,
@@ -250,6 +251,7 @@ fn open(
 	stream.play().map_err(|_| ())?;
 	Ok((stream, duration))
 }
+/// Creates the typed stream and reports device errors only for the current request.
 fn output<T: cpal::SizedSample + cpal::FromSample<f32>>(
 	device: &cpal::Device,
 	config: cpal::StreamConfig,
@@ -273,6 +275,7 @@ fn output<T: cpal::SizedSample + cpal::FromSample<f32>>(
 		None,
 	)
 }
+/// Renders bounded PCM with volume, cancellation, I24 limits and playback-drain tracking.
 fn callback<T: cpal::SizedSample + cpal::FromSample<f32>>(
 	config: cpal::StreamConfig,
 	samples: Vec<[f32; 2]>,
@@ -328,6 +331,7 @@ fn callback<T: cpal::SizedSample + cpal::FromSample<f32>>(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	/// Checks I24 channel order, gain, zero-fill, cancellation and both full-scale bounds.
 	#[test]
 	fn signed_24_bit_output_preserves_volume_stereo_and_cancellation() {
 		let generation = Arc::new(AtomicU64::new(1));

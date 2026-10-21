@@ -27,6 +27,11 @@ conversion. The synthetic I24 test checks volume, channel order, silence, cancel
 both full-scale bounds. Actual notification startup latency, native UI memory/CPU, audible
 headset playback and non-Linux hardware were not measured by this workload.
 
+Manual follow-up: the reporter installed the patched Arch package and confirmed that the
+previously failing notification-sound test works correctly on the Logitech G535 headset through
+PipeWire/PulseAudio. This verifies the original hardware reproduction separately from the
+synthetic CPU measurements above; it does not establish behavior on other platforms or devices.
+
 Both standard unsigned Arch packages were built with `cargo xtask package --format arch`
 (Rust 1.98.1, locked dependencies, release fat LTO, voice included, demo disabled) in separate
 worktrees and target directories. The baseline is `825e8cfd`; the after build contains the
