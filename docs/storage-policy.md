@@ -1068,19 +1068,29 @@ payload remains limited to 8 MiB. Reception reports retain
 at most 16 transient source-statistics entries and 384 report-block bytes per one-second
 send. Backpressure retries retain the existing access unit rather than another copy.
 
-Watched-stream audio separately retains at most eight compressed Opus packets (1,275 bytes
-each, exact-sized allocations) and one 5,760-sample mono PCM buffer per source, at most
-16 sources: 531,840 bytes of payload/PCM plus bounded metadata and codec state. At most
-eight packets are decoded per source per 20 ms tick; missing input gets at most three
-concealment operations before stopping. PCM follows 48 kHz RTP timestamps and 100 ms
-initial buffering. Independent normal-call audio mixing and its existing jitter are unchanged.
-The shared stream timing state has at most 32 source clocks and 16 audio references.
-It accepts sender timing only for current known sources, retains no packet contents and
-ignores reports more than 30 seconds old for synchronization. Rekeys clear audio PCM,
-compressed packets, queued video and timing references before another receive iteration.
-An audio buffer restart retires that source's playback anchor and audio reference as
-well as its packets/PCM; unrelated source clocks and video decoder references remain.
-No media files, diagnostic archives, schema changes or persistent queues are added.
+Watched-stream audio retains at most 128 compressed Opus packets (1,275 bytes each,
+exact-sized allocations) and one 5,760-sample mono PCM buffer per source, at most 16
+sources: 2,979,840 bytes of retained payload/PCM plus bounded metadata and codec state.
+One stack scratch buffer of 965 samples bounds rate adjustment; at most nine packets
+are decoded per source per 20 ms tick. Missing input has at most three concealment
+operations before silence/idle recovery. The 60–240 ms adaptive target fits the packet
+budget even at 2.5 ms packetization; a forward media gap over 500 ms restarts the queue.
+Normal participant voice jitter is unchanged.
+
+Timing state has at most 32 source clocks and 16 sender references, with constant-sized
+arrival estimates and shared atomic output clocks. Reports older than 30 seconds are
+ignored for synchronization. A PCM frame carries one optional timestamp/clock reference
+through the existing bounded stream, call and device queues; none adds a new PCM queue.
+Audio-buffer restart, source retirement, rekeys and teardown invalidate old timestamp
+generations. The output callback publishes only numeric timing, never media contents.
+Device-clock estimates expire after two seconds without new playback.
+
+Each decoder correlates at most 16 transient output tags to timestamps; tags expire at
+the existing 150 ms decoder-age budget. The watched UI retains at most eight decoded
+pictures, bounded together with its reusable latest-picture storage by 32 MiB of allocated
+plane capacity. Pressure skips decoded display pictures and leaves codec references intact.
+These transient buffers are cleared with the watched session. No media files, diagnostic
+archives, schema changes or persistent queues are added.
 
 `SEREIN_MEMBER_DIAGNOSTICS=1` enables fixed-label member synchronization diagnostics;
 `SEREIN_GATEWAY_DIAGNOSTICS=1` enables Gateway compatibility diagnostics. Both are off by default.

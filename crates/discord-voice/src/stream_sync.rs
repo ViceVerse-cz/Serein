@@ -1,11 +1,14 @@
 //! Watched-stream timing. Audio is the master; authenticated sender reports relate
 //! independent 48 kHz audio and 90 kHz video RTP epochs without trusting wall-clock time.
-use std::time::{Duration, Instant};
+use crate::presentation::{Clock, Delay, MAX_AHEAD, MAX_LATE, difference, shift};
+use std::{
+	sync::Arc,
+	time::{Duration, Instant},
+};
 
-pub(crate) const BUFFER: Duration = Duration::from_millis(100);
+pub(crate) const BUFFER: Duration = crate::presentation::INITIAL;
 const MAX_TRACKS: usize = super::video_receive::MAX_SOURCES * 2;
 const MAX_REPORT_AGE: Duration = Duration::from_secs(30);
-const MAX_CORRECTION_NS: i128 = 2_000_000;
 
 #[derive(Clone, Copy)]
 pub(crate) struct SenderReport {
@@ -14,6 +17,11 @@ pub(crate) struct SenderReport {
 	pub rtp: u32,
 }
 struct Track {
+	output: Arc<Clock>,
+	delay: Delay,
+	updated: Option<Instant>,
+	correction: f64,
+	target: Duration,
 	user: u64,
 	ssrc: u32,
 	rate: u32,
@@ -40,14 +48,6 @@ pub(crate) struct Sync {
 	references: Vec<Reference>,
 	stats: Stats,
 }
-fn shift(at: Instant, nanos: i128) -> Option<Instant> {
-	let duration = Duration::from_nanos(u64::try_from(nanos.unsigned_abs()).ok()?);
-	if nanos < 0 {
-		at.checked_sub(duration)
-	} else {
-		at.checked_add(duration)
-	}
-}
 fn ticks(delta: i32, rate: u32) -> i128 {
 	i128::from(delta) * 1_000_000_000 / i128::from(rate)
 }
@@ -55,12 +55,10 @@ impl Sync {
 	pub fn take_stats(&mut self) -> Stats {
 		std::mem::take(&mut self.stats)
 	}
-	pub fn has_audio(&self, user: u64) -> bool {
-		self.tracks
-			.iter()
-			.any(|track| track.user == user && track.rate == 48_000)
-	}
 	pub fn clear(&mut self) {
+		for track in &self.tracks {
+			track.output.reset();
+		}
 		self.tracks.clear();
 		self.references.clear();
 	}
@@ -68,12 +66,20 @@ impl Sync {
 	/// Otherwise a future deadline can survive every packet-pressure reset and
 	/// prevent the new buffer from ever reaching its first playable picture/sample.
 	pub fn forget_source(&mut self, ssrc: u32) {
+		for track in self.tracks.iter().filter(|track| track.ssrc == ssrc) {
+			track.output.reset();
+		}
 		self.tracks.retain(|track| track.ssrc != ssrc);
 		self.references.retain(|reference| reference.ssrc != ssrc);
 	}
 	pub fn retain(&mut self, mut keep: impl FnMut(u64, u32, u32) -> bool) {
-		self.tracks
-			.retain(|track| keep(track.user, track.ssrc, track.rate));
+		self.tracks.retain(|track| {
+			let retained = keep(track.user, track.ssrc, track.rate);
+			if !retained {
+				track.output.reset();
+			}
+			retained
+		});
 		self.references.retain(|reference| {
 			self.tracks.iter().any(|track| {
 				track.user == reference.user && track.ssrc == reference.ssrc && track.rate == 48_000
@@ -93,12 +99,24 @@ impl Sync {
 		if let Some(index) = self.tracks.iter().position(|track| track.ssrc == ssrc)
 			&& (self.tracks[index].user != user || self.tracks[index].rate != rate)
 		{
+			self.tracks[index].output.reset();
 			self.tracks.remove(index);
 		}
 		let index = match self.tracks.iter().position(|track| track.ssrc == ssrc) {
 			Some(index) => index,
 			None if self.tracks.len() < MAX_TRACKS => {
+				let output = self
+					.tracks
+					.iter()
+					.find(|track| track.user == user)
+					.map(|track| track.output.clone())
+					.unwrap_or_default();
 				self.tracks.push(Track {
+					output,
+					delay: Delay::default(),
+					updated: None,
+					correction: 0.0,
+					target: BUFFER,
 					user,
 					ssrc,
 					rate,
@@ -110,6 +128,14 @@ impl Sync {
 			None => return now + BUFFER,
 		};
 		let track = &mut self.tracks[index];
+		let elapsed = track
+			.updated
+			.map_or(Duration::ZERO, |at| now.saturating_duration_since(at))
+			.min(Duration::from_millis(100));
+		track.updated = Some(now);
+		if rate == 90_000 {
+			track.delay.observe(timestamp, rate, now);
+		}
 		if let Some((last, deadline)) = track.last
 			&& last == timestamp
 		{
@@ -122,12 +148,12 @@ impl Sync {
 				(delta < 0x8000_0000)
 					.then(|| {
 						shift(deadline, ticks(delta as i32, rate)).and_then(|deadline| {
-							if deadline <= now + Duration::from_millis(500) {
+							if deadline <= now + MAX_AHEAD {
 								Some(deadline)
 							} else if rate == 90_000 && delta <= rate / 2 {
 								// Ordinary arrival jitter at the lookahead ceiling must not
 								// rewind the video clock by 400 ms behind queued pictures.
-								Some(now + Duration::from_millis(500))
+								Some(now + MAX_AHEAD)
 							} else {
 								None
 							}
@@ -135,10 +161,18 @@ impl Sync {
 					})
 					.flatten()
 			})
-			.filter(|deadline| {
-				now.saturating_duration_since(*deadline) <= Duration::from_millis(250)
-			});
+			.filter(|deadline| now.saturating_duration_since(*deadline) <= MAX_LATE);
 		let mut deadline = previous.unwrap_or(now + BUFFER);
+		if rate == 90_000
+			&& !self.references.iter().any(|reference| {
+				reference.user == user
+					&& now.saturating_duration_since(reference.seen) <= MAX_REPORT_AGE
+			}) {
+			let target = track.delay.target();
+			let change = target.as_nanos() as i128 - track.target.as_nanos() as i128;
+			deadline = shift(deadline, change).unwrap_or(deadline);
+			track.target = target;
+		}
 		// Keep audio cadence continuous. Only video slews toward its audio master's
 		// sender-clock mapping; acquiring a report must not skip/repeat PCM frames.
 		if rate == 90_000
@@ -154,28 +188,73 @@ impl Sync {
 			if let Some(desired) = shift(
 				reference.deadline,
 				ntp_delta + ticks(timestamp.wrapping_sub(report.rtp) as i32, rate),
-			) && desired <= now + Duration::from_millis(500)
-				&& now.saturating_duration_since(desired) <= Duration::from_millis(250)
+			) && desired <= now + Duration::from_secs(10)
+				&& now.saturating_duration_since(desired) <= MAX_LATE
 			{
-				let correction = if desired >= deadline {
-					desired.duration_since(deadline).as_nanos() as i128
-				} else {
-					-(deadline.duration_since(desired).as_nanos() as i128)
-				};
+				// Quantization/jitter can put a valid mapping just beyond the hold
+				// horizon. Converge to the nearest supported target instead of ignoring it.
+				let desired = desired.min(now + MAX_AHEAD);
+				let correction = difference(desired, deadline);
+				let alpha = 1.0 - (-elapsed.as_secs_f64() / 0.25).exp();
+				track.correction += (correction as f64 - track.correction) * alpha;
 				self.stats.video_synced += 1;
 				self.stats.offset_ms = self
 					.stats
 					.offset_ms
 					.max((correction.unsigned_abs() / 1_000_000) as u64);
-				deadline = shift(
-					deadline,
-					correction.clamp(-MAX_CORRECTION_NS, MAX_CORRECTION_NS),
-				)
-				.unwrap_or(deadline);
+				if track.correction.abs() > 5_000_000.0
+					&& (track.correction as i128).signum() == correction.signum()
+					&& correction.abs() > 5_000_000
+				{
+					let budget = ((elapsed.as_nanos() * 60 / 1000) as i128)
+						.min(correction.abs() - 5_000_000);
+					deadline = shift(deadline, (track.correction as i128).clamp(-budget, budget))
+						.unwrap_or(deadline);
+				}
 			}
 		}
+		deadline = deadline.min(now + MAX_AHEAD);
 		track.last = Some((timestamp, deadline));
 		deadline
+	}
+	/// Anchor a playable audio block to the producer's actual clock. Its RTP
+	/// position already includes bounded rate correction; extrapolating the original
+	/// nominal anchor forever would accumulate sender/device drift and force resets.
+	pub fn audio_frame(
+		&mut self,
+		user: u64,
+		ssrc: u32,
+		timestamp: u32,
+		now: Instant,
+	) -> Option<crate::Presentation> {
+		let track = self
+			.tracks
+			.iter_mut()
+			.find(|track| track.user == user && track.ssrc == ssrc && track.rate == 48_000)?;
+		track.last = Some((timestamp, now));
+		Some(track.output.stamp(now))
+	}
+	pub fn observe_audio(&mut self, ssrc: u32, timestamp: u32, now: Instant) {
+		if let Some(track) = self
+			.tracks
+			.iter_mut()
+			.find(|track| track.ssrc == ssrc && track.rate == 48_000)
+		{
+			track.output.expect_audio(now);
+			track.delay.observe(timestamp, 48_000, now);
+		}
+	}
+	pub fn target(&self, ssrc: u32) -> Duration {
+		self.tracks
+			.iter()
+			.find(|track| track.ssrc == ssrc)
+			.map_or(BUFFER, |track| track.delay.target())
+	}
+	pub fn presentation(&self, user: u64, at: Instant) -> Option<crate::Presentation> {
+		self.tracks
+			.iter()
+			.find(|track| track.user == user)
+			.map(|track| track.output.stamp(at))
 	}
 	pub fn sender_report(&mut self, report: SenderReport, now: Instant) {
 		let Some(track) = self
@@ -228,46 +307,55 @@ impl Sync {
 	}
 }
 
+impl Drop for Sync {
+	fn drop(&mut self) {
+		self.clear();
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
 	#[test]
-	fn independent_rtp_epochs_converge_to_audio_without_changing_audio_cadence() {
-		let now = Instant::now();
-		let mut sync = Sync::default();
-		let audio = u32::MAX - 480;
-		let video = 800_000;
-		assert_eq!(sync.deadline(7, 70, 48_000, audio, now), now + BUFFER);
-		assert_eq!(
-			sync.deadline(7, 71, 90_000, video, now + Duration::from_millis(60)),
-			now + BUFFER + Duration::from_millis(60)
-		);
-		let ntp = u64::MAX - (1 << 31);
-		sync.sender_report(
-			SenderReport {
-				ssrc: 71,
-				ntp,
-				rtp: video,
-			},
-			now,
-		);
-		sync.sender_report(
-			SenderReport {
-				ssrc: 70,
-				ntp,
-				rtp: audio,
-			},
-			now,
-		);
-		for n in 1..=60 {
-			let at = now + Duration::from_millis(n * 20);
-			assert_eq!(
-				sync.deadline(7, 70, 48_000, audio.wrapping_add(n as u32 * 960), at),
-				at + BUFFER
+	fn independent_rtp_epochs_converge_at_30_and_60_fps_without_changing_audio_cadence() {
+		let start = Instant::now();
+		for fps in [30u32, 60] {
+			let mut sync = Sync::default();
+			let audio = u32::MAX - 480;
+			let video = 800_000;
+			assert_eq!(sync.deadline(7, 70, 48_000, audio, start), start + BUFFER);
+			sync.deadline(7, 71, 90_000, video, start + Duration::from_millis(60));
+			let ntp = u64::MAX - (1 << 31);
+			sync.sender_report(
+				SenderReport {
+					ssrc: 71,
+					ntp,
+					rtp: video,
+				},
+				start,
 			);
-			let due = sync.deadline(7, 71, 90_000, video + n as u32 * 1800, at);
-			if n >= 30 {
-				assert_eq!(due, at + BUFFER);
+			sync.sender_report(
+				SenderReport {
+					ssrc: 70,
+					ntp,
+					rtp: audio,
+				},
+				start,
+			);
+			for n in 1..=fps * 3 {
+				let elapsed = Duration::from_nanos(u64::from(n) * 1_000_000_000 / u64::from(fps));
+				let now = start + elapsed;
+				let audio_due =
+					sync.deadline(7, 70, 48_000, audio.wrapping_add(n * 48_000 / fps), now);
+				// Fractional 30/60 Hz intervals accumulate integer-nanosecond rounding only.
+				assert!(difference(audio_due, now + BUFFER).abs() < 1000);
+				let due = sync.deadline(7, 71, 90_000, video + n * 90_000 / fps, now);
+				if n >= fps * 2 {
+					assert!(
+						difference(due, now + BUFFER).abs() <= 10_000_000,
+						"{fps} fps failed to converge"
+					);
+				}
 			}
 		}
 	}
@@ -311,9 +399,11 @@ mod tests {
 			},
 			now,
 		);
+		let mut unrelated = Sync::default();
+		unrelated.deadline(8, 71, 90_000, 100, now);
 		assert_eq!(
 			sync.deadline(8, 71, 90_000, 1900, now + Duration::from_millis(20)),
-			now + BUFFER + Duration::from_millis(20)
+			unrelated.deadline(8, 71, 90_000, 1900, now + Duration::from_millis(20))
 		);
 		sync.deadline(7, 72, 48_000, 0, now);
 		sync.retain(|_, source, _| source != 70);
@@ -365,7 +455,6 @@ mod tests {
 								keyframe: true,
 							},
 							source: 71,
-							timestamp,
 						},
 						now,
 						Some(due),
@@ -398,7 +487,7 @@ mod tests {
 			}
 			if video.pop(now).unwrap().is_some() {
 				if video_frames >= 50 {
-					assert_eq!(ms, 100 + video_frames * 20);
+					assert!((ms as i64 - (100 + video_frames * 20) as i64).abs() <= 10);
 				}
 				video_frames += 1;
 			}
@@ -464,7 +553,6 @@ mod tests {
 								keyframe: next_video.is_multiple_of(120),
 							},
 							source: 71,
-							timestamp,
 						},
 						now,
 						Some(due),
@@ -512,7 +600,7 @@ mod tests {
 		let start = Instant::now();
 		let mut sync = Sync::default();
 		sync.deadline(7, 71, 90_000, 0, start);
-		sync.deadline(7, 70, 48_000, 0, start + Duration::from_millis(400));
+		sync.deadline(7, 70, 48_000, 0, start + Duration::from_millis(401));
 		for ssrc in [70, 71] {
 			sync.sender_report(
 				SenderReport {
@@ -520,21 +608,67 @@ mod tests {
 					ntp: 100 << 32,
 					rtp: 0,
 				},
-				start + Duration::from_millis(400),
+				start + Duration::from_millis(401),
 			);
 		}
 		let mut previous = start;
-		for n in 1..=201u32 {
+		let mut last_arrival = start;
+		for n in 1..=601u32 {
 			let now = start + Duration::from_nanos(u64::from(n) * 16_666_667)
-				- if n == 201 {
+				- if n == 601 {
 					Duration::from_millis(1)
 				} else {
 					Duration::ZERO
 				};
 			let due = sync.deadline(7, 71, 90_000, n * 1500, now);
 			assert!(due >= previous, "arrival jitter rewound the playback clock");
-			assert!(due <= now + Duration::from_millis(500));
+			assert!(due <= now + MAX_AHEAD);
 			previous = due;
+			last_arrival = now;
+		}
+		assert!(previous.saturating_duration_since(last_arrival) >= Duration::from_millis(490));
+	}
+	#[test]
+	fn an_hour_of_sender_drift_tracks_actual_audio_output_without_clock_resets() {
+		let start = Instant::now();
+		for ppm in [-500i64, 500] {
+			let mut sync = Sync::default();
+			sync.deadline(7, 70, 48_000, 0, start);
+			for n in 0..180_000u64 {
+				let now = start + Duration::from_millis(100 + n * 20);
+				let audio = (n * 960 * (1_000_000 + ppm) as u64 / 1_000_000) as u32;
+				let stamp = sync.audio_frame(7, 70, audio, now).unwrap();
+				stamp.played(now + Duration::from_millis(73));
+				let video = (n * 1800) as u32;
+				if n % 50 == 0 {
+					let ntp = ((100 + n / 50) << 32) | ((n % 50) * (1u64 << 32) / 50);
+					sync.sender_report(
+						SenderReport {
+							ssrc: 70,
+							ntp,
+							rtp: audio,
+						},
+						now,
+					);
+					sync.deadline(7, 71, 90_000, video, now);
+					sync.sender_report(
+						SenderReport {
+							ssrc: 71,
+							ntp,
+							rtp: video,
+						},
+						now,
+					);
+				}
+				let due = sync.deadline(7, 71, 90_000, video, now);
+				if n > 500 {
+					let actual = sync.presentation(7, due).unwrap().deadline(now);
+					assert!(
+						difference(actual, now + Duration::from_millis(73)).abs() <= 10_000_000,
+						"drift={ppm} ppm, tick={n}"
+					);
+				}
+			}
 		}
 	}
 }

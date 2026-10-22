@@ -29,7 +29,7 @@ pub struct H264Decoder {
 	_manager: Option<IMFDXGIDeviceManager>,
 	_device: Option<ID3D11Device>,
 	_runtime: Runtime,
-	sink: Sink,
+	sink: super::TimedLiveSink,
 	pictures: i64,
 	output: Option<OutputFormat>,
 	provides_samples: bool,
@@ -45,6 +45,9 @@ struct OutputFormat {
 
 impl H264Decoder {
 	pub fn new(sink: Sink) -> Result<Self, &'static str> {
+		Self::new_timed(Box::new(move |frame, _| sink(frame)))
+	}
+	pub fn new_timed(sink: super::TimedLiveSink) -> Result<Self, &'static str> {
 		let runtime = Runtime::open()?;
 		// SAFETY: Plain COM/Media Foundation calls on the thread that initialized the runtime;
 		// every out-pointer refers to an initialized local.
@@ -91,6 +94,12 @@ impl H264Decoder {
 
 	/// Queue one Annex-B access unit and deliver every picture the decoder releases.
 	pub fn decode(&mut self, access_unit: &[u8]) -> Result<(), &'static str> {
+		self.decode_timed(access_unit, (self.pictures as u64 + 1) * 33)
+	}
+	pub fn decode_timed(&mut self, access_unit: &[u8], tag: u64) -> Result<(), &'static str> {
+		if tag > i64::MAX as u64 / 1_000_000 {
+			return Err(INVALID);
+		}
 		if access_unit.len() > MAX_ACCESS_UNIT || access_unit.is_empty() {
 			return Err(INVALID);
 		}
@@ -114,7 +123,7 @@ impl H264Decoder {
 			sample.AddBuffer(&buffer).map_err(|_| INVALID)?;
 			self.pictures += 1;
 			sample
-				.SetSampleTime(self.pictures * TICKS_PER_PICTURE)
+				.SetSampleTime(tag as i64 * 10_000)
 				.map_err(|_| INVALID)?;
 			sample
 				.SetSampleDuration(TICKS_PER_PICTURE)
@@ -258,7 +267,11 @@ impl H264Decoder {
 				return Ok(());
 			};
 			let bytes = sample_bytes(&sample)?;
-			(self.sink)(crop_nv12(&bytes, format)?);
+			let tag = unsafe { sample.GetSampleTime() }.map_err(|_| INVALID)?;
+			(self.sink)(
+				crop_nv12(&bytes, format)?,
+				u64::try_from(tag).map_err(|_| INVALID)? / 10_000,
+			);
 		}
 	}
 }

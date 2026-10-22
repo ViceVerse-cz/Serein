@@ -32,6 +32,7 @@ mod reorder;
 /// One decoded remote picture in the decoder's native layout (NV12 or I420 on every
 /// current backend); the renderer converts colour.
 pub struct RemoteFrame<'a> {
+	pub presentation: Option<crate::Presentation>,
 	pub user: u64,
 	pub picture: platform::video::Picture<&'a [u8]>,
 }
@@ -78,6 +79,7 @@ pub(crate) struct DecoderCounters {
 	pub software: AtomicU64,
 	pub queue_ms: AtomicU64,
 	pub stale: AtomicU64,
+	pub decode_us: AtomicU64,
 }
 
 /// A cleartext Annex-B access unit handed to the decoder thread.
@@ -93,6 +95,7 @@ enum Decode {
 		tokio::sync::OwnedSemaphorePermit,
 		Instant,
 		Arc<AtomicBool>,
+		Option<crate::Presentation>,
 	),
 	Wake,
 	#[cfg(test)]
@@ -638,6 +641,13 @@ pub(crate) fn pli(sender: u32, media: u32) -> ([u8; 8], [u8; 4]) {
 /// Queue a frame without blocking the transport. `Ok(false)` means the queue was full and
 /// the frame dropped, so the caller must wait for the next keyframe.
 pub(crate) fn offer(sender: &DecoderQueue, frame: Encoded) -> Result<bool, &'static str> {
+	offer_timed(sender, frame, None)
+}
+pub(crate) fn offer_timed(
+	sender: &DecoderQueue,
+	frame: Encoded,
+	presentation: Option<crate::Presentation>,
+) -> Result<bool, &'static str> {
 	if frame.data.len() > MAX_FRAME_BYTES || frame.data.capacity() > QUEUE_BYTES {
 		return Ok(false);
 	}
@@ -661,10 +671,13 @@ pub(crate) fn offer(sender: &DecoderQueue, frame: Encoded) -> Result<bool, &'sta
 			.or_insert_with(|| Arc::new(AtomicBool::new(true)))
 			.clone()
 	};
-	match sender
-		.send
-		.try_send(Decode::Frame(frame, permit, Instant::now(), active))
-	{
+	match sender.send.try_send(Decode::Frame(
+		frame,
+		permit,
+		Instant::now(),
+		active,
+		presentation,
+	)) {
 		Ok(()) => Ok(true),
 		Err(TrySendError::Full(_)) => Ok(false),
 		Err(TrySendError::Disconnected(_)) => Err("Video decoder stopped"),
@@ -752,11 +765,46 @@ fn mark_broken(user: u64, broken: &mut Vec<u64>, lost: &Lost) {
 
 /// Hardware decoding where the OS offers it; the software decoder is the fallback and the
 /// only option on the other platforms. Hardware pictures reach the sink asynchronously.
+fn record_decode_time(counters: &DecoderCounters, elapsed: std::time::Duration) {
+	let value = elapsed.as_micros().min(100_000) as u64;
+	let _ = counters
+		.decode_us
+		.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
+			Some(value.max(old.saturating_mul(99) / 100))
+		});
+}
+#[derive(Default)]
+struct Timings {
+	active: bool,
+	pending: std::collections::VecDeque<(u64, Instant, Option<crate::Presentation>)>,
+}
+impl Timings {
+	fn insert(&mut self, tag: u64, presentation: Option<crate::Presentation>) -> bool {
+		let now = Instant::now();
+		self.active = true;
+		self.pending
+			.retain(|(_, at, _)| now.saturating_duration_since(*at) < MAX_DECODE_AGE);
+		if self.pending.len() == 16 {
+			return false;
+		}
+		self.pending.push_back((tag, now, presentation));
+		true
+	}
+	fn take(&mut self, tag: u64) -> Option<(Option<crate::Presentation>, std::time::Duration)> {
+		if !self.active {
+			return Some((None, std::time::Duration::ZERO));
+		}
+		let index = self.pending.iter().position(|(id, _, _)| *id == tag)?;
+		let (_, at, stamp) = self.pending.remove(index)?;
+		Some((stamp, at.elapsed()))
+	}
+}
 enum Backend {
 	Hardware(platform::video::live::H264Decoder),
 	Software(openh264::decoder::Decoder),
 }
 impl Backend {
+	#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
 	fn new(
 		prefer_hardware: bool,
 		user: u64,
@@ -764,23 +812,49 @@ impl Backend {
 		counters: &Arc<DecoderCounters>,
 		lifetime: &Arc<AtomicBool>,
 	) -> Option<Self> {
+		Self::new_timed(
+			prefer_hardware,
+			user,
+			sink,
+			counters,
+			lifetime,
+			Arc::default(),
+		)
+	}
+	fn new_timed(
+		prefer_hardware: bool,
+		user: u64,
+		sink: &VideoSink,
+		counters: &Arc<DecoderCounters>,
+		lifetime: &Arc<AtomicBool>,
+		timings: Arc<Mutex<Timings>>,
+	) -> Option<Self> {
 		if prefer_hardware {
 			let sink = sink.clone();
 			let counters = counters.clone();
 			let lifetime = lifetime.clone();
-			let deliver: platform::video::LiveSink = Box::new(move |frame| {
+			let deliver: platform::video::TimedLiveSink = Box::new(move |frame, tag| {
+				let Some((presentation, elapsed)) = timings
+					.lock()
+					.ok()
+					.and_then(|mut timings| timings.take(tag))
+				else {
+					return;
+				};
+				record_decode_time(&counters, elapsed);
 				if lifetime.load(Ordering::Acquire)
 					&& bounded(frame.width as usize, frame.height as usize).is_ok()
 				{
 					counters.sizes.record(frame.width, frame.height);
 					counters.pictures.fetch_add(1, Ordering::Relaxed);
 					sink(RemoteFrame {
+						presentation,
 						user,
 						picture: frame.borrow(),
 					});
 				}
 			});
-			if let Ok(decoder) = platform::video::live::H264Decoder::new(deliver) {
+			if let Ok(decoder) = platform::video::live::H264Decoder::new_timed(deliver) {
 				return Some(Self::Hardware(decoder));
 			}
 		}
@@ -788,19 +862,42 @@ impl Backend {
 	}
 	/// Feed one access unit. Software pictures are returned; hardware ones were already
 	/// delivered to the sink. `scratch` is reused so no frame-sized buffer is zeroed per frame.
+	#[cfg(test)]
 	fn decode(
 		&mut self,
 		data: &[u8],
 		scratch: &mut Vec<u8>,
 	) -> Result<Option<(u32, u32)>, DecodeError> {
-		match self {
-			Self::Hardware(decoder) => decoder.decode(data).map(|()| None).map_err(|error| {
+		if let Self::Hardware(decoder) = self {
+			return decoder.decode(data).map(|()| None).map_err(|error| {
 				if error == platform::video::BUSY {
 					DecodeError::Busy
 				} else {
 					DecodeError::Failed
 				}
-			}),
+			});
+		}
+		self.decode_timed(data, scratch, 0)
+	}
+	fn decode_timed(
+		&mut self,
+		data: &[u8],
+		scratch: &mut Vec<u8>,
+		tag: u64,
+	) -> Result<Option<(u32, u32)>, DecodeError> {
+		match self {
+			Self::Hardware(decoder) => {
+				decoder
+					.decode_timed(data, tag)
+					.map(|()| None)
+					.map_err(|error| {
+						if error == platform::video::BUSY {
+							DecodeError::Busy
+						} else {
+							DecodeError::Failed
+						}
+					})
+			}
 			Self::Software(decoder) => {
 				let decoded = match decoder.decode(data) {
 					Ok(Some(yuv)) => yuv,
@@ -860,6 +957,8 @@ fn decode_loop(
 	prefer_hardware: bool,
 ) {
 	let mut decoders: HashMap<u64, Backend> = HashMap::new();
+	let mut timings: HashMap<u64, Arc<Mutex<Timings>>> = HashMap::new();
+	let mut serial = 0u64;
 	let mut active: HashMap<u64, Arc<AtomicBool>> = HashMap::new();
 	// Users whose hardware decoder rejected the stream fall back to software.
 	let mut software_only: Vec<u64> = Vec::new();
@@ -872,6 +971,7 @@ fn decode_loop(
 			let retained = lifetime.load(Ordering::Acquire);
 			if !retained {
 				decoders.remove(user);
+				timings.remove(user);
 				software_only.retain(|known| known != user);
 				broken.retain(|known| known != user);
 			}
@@ -882,8 +982,10 @@ fn decode_loop(
 			scratch = Vec::new();
 		}
 		decoder_counts(&decoders, &counters);
-		let (frame, _permit, queued, lifetime) = match message {
-			Decode::Frame(frame, permit, queued, lifetime) => (frame, permit, queued, lifetime),
+		let (frame, _permit, queued, lifetime, presentation) = match message {
+			Decode::Frame(frame, permit, queued, lifetime, presentation) => {
+				(frame, permit, queued, lifetime, presentation)
+			}
 			Decode::Wake => continue,
 			#[cfg(test)]
 			Decode::Barrier(done) => {
@@ -916,24 +1018,36 @@ fn decode_loop(
 			if decoders.len() >= MAX_DECODERS {
 				continue;
 			}
-			let Some(decoder) = Backend::new(
+			let timing = Arc::new(Mutex::new(Timings::default()));
+			let Some(decoder) = Backend::new_timed(
 				prefer_hardware && !software_only.contains(&frame.user),
 				frame.user,
 				&sink,
 				&counters,
 				&lifetime,
+				timing.clone(),
 			) else {
 				counters.errors.fetch_add(1, Ordering::Relaxed);
 				continue;
 			};
 			decoders.insert(frame.user, decoder);
+			timings.insert(frame.user, timing);
+		}
+		serial = serial.wrapping_add(1);
+		let timing = timings.get(&frame.user).expect("decoder timing inserted");
+		if !timing
+			.lock()
+			.is_ok_and(|mut timing| timing.insert(serial, presentation))
+		{
+			mark_broken(frame.user, &mut broken, &lost);
+			continue;
 		}
 		let decoder = decoders.get_mut(&frame.user).expect("decoder inserted");
 		let hardware = !matches!(decoder, Backend::Software(_));
 		let Some(result) = decode_when_ready(
 			queued + MAX_DECODE_AGE,
 			&lifetime,
-			|| decoder.decode(&frame.data, &mut scratch),
+			|| decoder.decode_timed(&frame.data, &mut scratch, serial),
 			std::thread::sleep,
 		) else {
 			continue;
@@ -972,7 +1086,17 @@ fn decode_loop(
 		}
 		counters.sizes.record(width, height);
 		counters.pictures.fetch_add(1, Ordering::Relaxed);
+		let (presentation, elapsed) = timing
+			.lock()
+			.ok()
+			.and_then(|mut timing| {
+				let tag = timing.pending.front()?.0;
+				timing.take(tag)
+			})
+			.unwrap_or((None, std::time::Duration::ZERO));
+		record_decode_time(&counters, elapsed);
 		sink(RemoteFrame {
+			presentation,
 			user: frame.user,
 			picture: platform::video::Picture {
 				width,

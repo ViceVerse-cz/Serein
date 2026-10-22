@@ -6,125 +6,104 @@ log and per-run evidence archive has been removed; the summaries below retain th
 
 ## Incoming stream quality, pacing and recovery — October 22, 2026
 
-The stream receiver retains intact access units under brief native backpressure, repairs
-RTP holes across pictures and paces watched video on its source timestamps. No dependency,
-codec, resolution limit, notification audio or UI layout changes. Watched-stream audio
-now retains RTP timestamps and uses matching initial buffering; call audio is unchanged.
-Package comparisons use unchanged upstream `c2842aa` and the isolated streaming branch, pinned Rust 1.98.1 and
-`cargo xtask package --format arch` (voice included, demo disabled) on Linux x86_64.
-The standard package smoke checks validate metadata, dependencies, ownership and payload.
+Watched-stream reception now repairs/reorders bounded RTP gaps, preserves H.264 references
+through brief native backpressure, and retains sender timestamps through audio playback
+and decoded-video presentation. A single timing controller uses authenticated sender reports,
+a bounded adaptive jitter target, measured decoder lead and an audio-device clock estimate.
+No dependencies, codec/resolution presets, notification audio or UI layouts change.
+
+Fresh package comparison: unchanged upstream `c2842aa` versus the streaming branch, pinned
+Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and without demo.
+
 | Package metric | Upstream baseline | Streaming candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 92,650,248 B | 92,712,200 B | +61,952 B (+0.067%) |
-| Installed payload (245 files) | 97,348,681 B | 97,410,633 B | +61,952 B (+0.064%) |
-| Arch archive | 54,376,694 B | 54,422,352 B | +45,658 B (+0.084%) |
+| Executable | 92,650,248 B | 92,745,992 B | +95,744 B (+0.103%) |
+| Installed payload (245 files) | 97,348,681 B | 97,444,425 B | +95,744 B (+0.098%) |
+| Arch archive | 54,376,694 B | 54,442,919 B | +66,225 B (+0.122%) |
 
-Installed bytes sum archive file lengths under `usr/`, excluding package metadata.
-Both packages contain the same 245 installed files and pass the native Arch smoke checks.
-The full gate passes 1,294 tests, strict Clippy, formatting, application and policy checks.
+Installed bytes sum regular archive files under `usr/`, excluding package metadata.
+Both packages contain 245 installed files. The final gate passes 1,299 tests, strict Clippy,
+formatting, application and policy checks; the native Arch package smoke also passes.
 
-An owner follow-up on candidate `4714d41` exposed an A/V scheduling regression. A
-181.104-second 720p/~30 fps session had zero playback resets/drops; a subsequent
-127.278-second 720p/~60 fps session had 55 resets, 880 queued-picture drops and 1,417 gated
-predictions, with a 1,540 ms decoded-picture gap. Neither had reassembly or decoder errors.
-During the failure, audio still decrypted at about 50 packets/s while produced audio
-frames fell to zero. These are private numeric aggregates, not captured audio/video.
+The prior owner-tested candidate `7711bbe` covered two sessions totaling 6,638.153 seconds
+at 1280×720/~60 fps: 397,845 decoded pictures, zero decoder errors/stale submissions, five
+reset events and 48 queued-picture drops. One reset is in the final teardown window.
+There were four incomplete pictures, a longest decoded-picture interval of 2,359 ms,
+and no five-second window with >100 decrypted audio packets but zero produced audio frames.
+The owner reported smooth playback with no major hiccups. Numeric counters cannot establish
+physical lip sync or identify the cause of every isolated pause. This capture predates the
+adaptive/device-clock changes; the new candidate still needs the owner's comparison.
 
-Three scheduling boundaries are corrected: an audio packet-buffer restart also retires
-its old playback anchor/reference; the watched-picture budget is 64 items within the
-unchanged 8 MiB payload limit; and ordinary video arrival jitter at the 500 ms lookahead
-ceiling clamps the clock rather than rewinding it behind queued pictures. Actual backward
-deadline/source discontinuities retain keyframe recovery instead of silently accumulating
-overdue predictions. The separate 16-picture/16-MiB decoder handoff is unchanged.
+The design review reproduced a startup failure: an eight-packet window repeatedly restarts
+before a 100 ms deadline when valid Opus packets are 2.5/5/10 ms long. The corrected 128-packet
+budget covers 320 ms at the minimum packet duration, including the 240 ms maximum adaptive
+target and scheduling headroom. A synthetic regression sends warmed, valid Opus continuously
+for three minutes at each 2.5/5/10/20/40/60 ms duration with sender drift of −500/0/+500 ppm.
+All 18 cases produce all 50 expected audible output frames in the final second. Time is
+synthetic; no sleeps, audio devices or live content are used. Tests also cover initial buffering,
+reordering, timestamp wrap/jumps, bounds, source retirement and PCM clearing.
 
-Synthetic tests reproduce the original permanently silent audio after a forward RTP
-epoch shift and the 60 fps queue overflow under a valid delayed audio master. They now
-pass, alongside a deadline-ordering regression for one millisecond of arrival jitter
-near the lookahead ceiling. The capture does not retain raw RTP timestamps, so it cannot
-identify the wire event that triggered the owner's clock restart. Live confirmation of
-the combined correction is still pending.
+The delay envelope has bounded attack/release and a 60–240 ms target. A filtered occupancy
+controller interpolates at most five extra/fewer input samples per 960-sample output frame.
+This is bounded resampling, not pitch-preserving time stretching. Video synchronization uses
+elapsed time, smoothing and a deadband, with a maximum 60 ms/s correction at both 30 and 60 fps.
+A regression reaches a matching logical audio deadline within 10 ms at both rates. Output callback
+regressions verify that the corresponding stream timestamp survives 44.1 kHz device resampling,
+and stale generations cannot redirect the new clock.
+An hour-long synthetic timeline at ±500 ppm keeps video within 10 ms of matching audio
+output by anchoring playable audio positions to the actual producer clock, avoiding
+accumulation against a nominal sample clock. The Opus matrix also includes repeated
+60 ms delivery bursts followed by stability, verifying target growth and slow reduction. UI tests cover future-picture retention,
+late decoded-picture skipping and the combined allocation limit.
 
-One native before/after run per case uses the same eight-second 1080p/60 H.264 fixture,
-production watched-audio decoder, clock, playback queue and native video worker. The
-baseline is candidate `4714d41`; corrected decoded luma matches all 479 expected FFmpeg
-reference pictures in order (the native parser retains the final input as below).
-The audio-master case delays audio RTP arrival by 400 ms, within the allowed clock horizon.
-The epoch case keeps valid Opus/sequence ordering but advances audio RTP by 200 ms after
-two seconds; its final two input seconds contain 100 expected audible 20 ms audio frames.
+One native functional run per case uses the same eight-second 1920×1080/60 FFmpeg `testsrc2`
+fixture, libx264 veryfast/zerolatency, four threads, 8 Mbps target/max/VBV, AUDs, key interval 120,
+no B frames or scene cuts. The production clock/audio/playback/native decoder runs through
+GStreamer/VA-API on an AMD RX 6900 XT, with a simulated 73 ms audio-device delay. Each decoded
+luma CRC and its correlated presentation tag must match its input in order. The parser retains
+the final access unit; 479 outputs from 480 inputs are expected without EOS.
 
-| Native reproduction | Candidate `4714d41` | Correction |
+| Native case | Previous `7711bbe` correction | Adaptive/device-clock candidate |
 | --- | ---: | ---: |
-| Delayed audio master: native pictures / 480 inputs | 143 | 479 |
-| Same case: gated predictions / queued-picture drops | 285 / 48 | 0 / 0 |
-| Audio RTP epoch shift: native pictures / 480 inputs | 202 | 479 |
-| Same epoch shift: audible audio frames in final two input seconds | 0 / 100 | 100 / 100 |
-| Same epoch shift: gated predictions / queued-picture drops | 226 / 48 | 0 / 0 |
+| Audio arrives 400 ms after video: decoded pictures | 479 | 479 |
+| Same case: playback resets / drops | 0 / 0 | 0 / 0 |
+| Audio RTP advances 200 ms after two seconds: pictures | 479 | 479 |
+| Same case: audible frames in final two input seconds | 100 / 100 | 100 / 100 |
+| Same case: playback resets / drops | 0 / 0 | 0 / 0 |
+| Presentation tag correlated through native decode | Not carried | All 479 per case |
 
-All four runs have zero decoder errors, stale inputs or decoder admission rejection.
-Corrected runs have zero playback resets, with peak queue depths of 31 and eight pictures.
-The baseline stops producing pictures after 2.65/3.64 seconds respectively; its small
-between-picture gap statistic excludes that final stall and is not a success measure.
-This synthetic test establishes scheduling/decoder recovery, not physical speaker/display
-synchronization or the owner's exact triggering packet sequence. No live media was recorded.
+Both new runs have zero decoder errors, stale submissions or admission rejection; peak encoded
+queue depths are 32/20 pictures. The delayed-audio case has a 106.949 ms decoded-picture interval
+when audio joins an already playing video and its output clock is first acquired; the maximum
+after the first second is 19.906 ms. The epoch-shift case's maximum is 18.761 ms. These are single
+functional runs, not isolated timing benchmarks or GUI/physical presentation measurements.
+The new-source clock wait is capped at 200 ms and expires even when output timing is unavailable.
 
-During preparation, a native harness exercised the production packetizer, receiver,
-decoder worker and GStreamer/VA-API path on an AMD RX 6900 XT. The fixture is eight seconds
-of FFmpeg `testsrc2`, 1920×1080/60, libx264 veryfast/zerolatency, four threads, 8 Mbps
-target/max/VBV, AUDs, key interval 120, no scene cuts or B frames. FFmpeg-decoded luma CRCs
-provide the reference. Each row below is one functional before/after run, isolating one
-component; these are not whole-client throughput or actual GUI presentation measurements.
+Earlier component comparisons against the original receiver isolate why packet repair/pacing
+is included. Six-picture bursts delivered 18 → 479 pictures; an empty keepalive caused
+89 → 0 gated predictions and 390 → 479 delivered pictures. A simulated 120 Hz latest-picture
+consumer's upload-gap p95 changed from 91.961 → 34.011 ms at 30 fps and 75.005 → 17.010 ms
+at 60 fps. These are preparation evidence on earlier integration builds; they do not measure
+the current presentation queue, default-client CPU/RSS or physical display timing. The old A/V
+candidate `4714d41` also exposed a 16-picture overflow and a retained audio-anchor starvation
+loop; their synthetic regressions remain covered.
 
-| Workload / result | Before correction | After correction |
-| --- | ---: | ---: |
-| Six access units / 100 ms: delivered pictures, 480 inputs | 18 | 479 |
-| Same burst: stale/native-age rejections | 4 | 0 |
-| One empty keepalive: predictions gated | 89 | 0 |
-| Same keepalive: delivered pictures, 480 inputs | 390 | 479 |
-| Same keepalive: longest decoded-picture gap | 1,500.453 ms | 20.070 ms |
-| 30 fps burst, simulated 120 Hz display: uploads / overwrites | 230 / 9 | 239 / 0 |
-| Same 30 fps burst: upload-gap p95 | 91.961 ms | 34.011 ms |
-| 60 fps burst, simulated 120 Hz display: uploads / overwrites | 341 / 138 | 478 / 1 |
-| Same 60 fps burst: upload-gap p95 | 75.005 ms | 17.010 ms |
+Resource limits: repair 512 sequence positions / 512 KiB per source (16 sources), encoded
+presentation queue 64 pictures / 8 MiB, decoder handoff 16 pictures / 16 MiB, Linux native input
+four units, native decode-age budget 150 ms. Watched audio retains at most 128 compressed
+packets and 5,760 mono PCM samples per source (16 sources; 2,979,840 payload/PCM bytes), plus a
+965-sample stack scratch. Correlation keeps 16 expiring tags per decoder. UI pending/latest
+planes share an eight-pending-picture / 32-MiB allocated-capacity budget. Existing bounded
+PCM channels remain; timestamps add metadata, not another queue. Diagnostics stay opt-in.
 
-Corrected native pictures match reference luma CRCs in order. GStreamer's parser retains
-the final access unit until another arrives; live teardown does not send EOS. The original
-worker/keepalive workloads have no PLI responder, so failure waits for the next periodic
-IDR rather than predicting live Discord FPS. Display-poll rows use an instrumented
-latest-picture latch, not egui/wgpu or physical presentation; the remaining 60 fps overwrite
-and OS/startup timing were not isolated. Earlier integration builds retained an unrelated
-notification-output correction on both sides; that correction and temporary desktop
-frame counters are excluded from this PR. Their results are preparation evidence, not
-a fresh package comparison or a claim about default-build CPU, memory or A/V sync.
-
-An isolated-source native pacing rerun delivers 239/479 reference-identical pictures at
-30/60 fps, with zero decoder errors, stale frames or queue rejection. The simulated 120 Hz
-display receives 239/478 pictures (zero/one overwrite); upload-gap p95 is 34.007/17.012 ms.
-These are again single functional runs, not actual GUI or physical presentation timings.
-
-A completed owner-operated test of the integration build covered 705.143 seconds at
-1280×720/~29.98 fps, with no dimension changes, incomplete pictures, decoder errors,
-playback drops/resets or recovery pauses. Its temporary shutdown counters recorded all
-21,138 decoded pictures uploaded and zero overwrites; uploads are not proof of physical
-display presentation. The receiver filled 193 observed sequence holes, including natural
-reordering, not necessarily 193 lost packets repaired by RTX. No empty padding occurred,
-so this capture does not identify the cause of a previous pause or exercise padding live.
-The final isolated build still needs the owner's comparison after cleanup and the new
-A/V timing path. A deterministic component test offsets video arrival by 40 ms relative
-to audio, uses independent RTP origins and acquires sender reports later. Both real Opus
-audio playout and encoded-video scheduling converge to matching logical deadlines without
-changing audio cadence or dropping queued video. This tests scheduling, not hardware latency.
-
-Resource limits: repair holds at most 512 sequence positions / 512 KiB of encrypted payload
-per source, at most 16 sources; watched-video pacing adds at most 64 encoded pictures /
-8 MiB and 100 ms initial video delay. The existing 16-picture / 16-MiB decoder queue,
-four-unit Linux native queue and 150 ms decoder-age budget remain. Watched audio uses at
-most eight compressed packets plus one 5,760-sample mono PCM buffer per source (16 sources).
-Authenticated sender reports provide an audio master for gradually corrected video deadlines;
-without usable reports, matching initial buffers provide arrival-based pacing only.
-Numeric diagnostics remain off by default,
-with eight queued reports under 8 KiB and the existing 8 MiB process output cap.
-CPU/RSS, end-to-end latency, physical presentation and Windows/macOS behavior were not
-measured; no claim is made for those metrics. Screenshots do not apply to this media path.
+The model follows [RTP sender-clock mapping](https://www.rfc-editor.org/rfc/rfc3550.html#section-5.1),
+[WebRTC's adaptive audio-buffer approach](https://webrtc.googlesource.com/src/+/refs/heads/main/modules/audio_coding/neteq/g3doc/index.md)
+and [separate decode/render scheduling](https://webrtc.googlesource.com/src/+/refs/heads/main/video/frame_decode_timing.cc),
+with smaller local policies. It does not implement all NetEq behavior or claim generic AVPF/CNAME
+conformance. CPAL output timestamps and egui repaint deadlines estimate presentation; actual
+headset/monitor latency and scanout are unmeasured. Whole-client CPU/RSS and Windows/macOS native
+timing behavior are unmeasured; no improvement is claimed for those metrics. Screenshots are not
+applicable because no UI layout changes. No live media was recorded.
 
 ## Server folder mark-as-read — October 15, 2026 (PR #672)
 

@@ -745,30 +745,28 @@ sequence numbers without changing picture timestamps/fragments or breaking refer
 PLIs target the most recently active media source, with an independent 500 ms cooldown
 beginning on each actual request. Existing transport authentication and DAVE gates remain.
 
-Watched video additionally uses a bounded 100 ms buffer to feed the decoder on the source's
-90 kHz RTP clock, smoothing network and repair bursts before the latest-picture display slot.
-Incoming cameras retain immediate decoder scheduling. The decoder worker retries brief
-native backpressure within the existing 150 ms age budget; Linux releases its native
-pipeline and callback on close. No media processing moves into UI or audio callbacks.
-Watched audio retains 48 kHz RTP timestamps and the same 100 ms initial buffer. Audio is
-the master: authenticated RTCP sender reports relate its clock to each same-owner 90 kHz
-video source, and video deadlines adjust by at most 2 ms per picture toward that mapping.
-Audio cadence is not stretched. Without usable reports, each source retains bounded
-arrival-based RTP pacing; exact cross-source alignment is then unverified. Rekeys and
-source retirement clear queued media and timing state. Audio queue restarts establish
-a new local clock anchor instead of retaining a deadline beyond the packet window.
-The video queue holds up to 64 pictures / 8 MiB so accepted A/V delay at 60 fps does
-not itself require keyframe recovery. The 1080p receive limit is unchanged.
+Watched video and audio share one RTP timing controller. Initial buffering is 100 ms;
+arrival estimates adapt its target within 60–240 ms. The audio item budget also supports
+sustained 2.5/5/10 ms Opus packetization. Audio sample-rate correction is bounded; video
+slews toward authenticated same-owner sender-clock mappings at a filtered, time-based
+rate independent of the sender's frame rate. Without usable sender reports, exact
+cross-source synchronization remains unverified. Generic RTCP CNAME/AVPF conformance
+is not claimed by these Discord-specific ownership and feedback rules.
 
-Synthetic protocol, encrypted local-UDP and Linux native decode checks cover these paths.
-An owner-controlled Linux test of the integration build reported smoother playback and
-recorded 705 seconds at 1280×720/~30 fps without resolution changes, incomplete pictures,
-decoder errors or recovery pauses. This is a limited observation, not a guarantee of
-Discord parity, all-network behavior or Windows/macOS interoperability. That capture
-predates timestamp-preserving audio. A later A/V candidate exposed a 60 fps queue/reset
-loop and muted audio despite continuing decrypted input. Offline regressions now cover
-clock/buffer restart, the full A/V hold horizon and deadline ordering; the corrected
-combined path still needs another owner comparison.
+Presentation timestamps survive native decode and the existing audio queues. Device
+callback timestamps provide a smoothed output-clock estimate, and the watched UI queues
+bounded decoded pictures for presentation on that clock. Decode scheduling accounts for
+measured decoder delay. Missing device timing has a bounded startup fallback and expires
+after inactivity. Physical speaker/monitor latency, display scanout and official-client
+parity have not been measured. Incoming cameras, notification audio, encryption and the
+1080p receive limit are unchanged.
+
+Synthetic protocol, encrypted local-UDP, sample-clock and Linux native decode checks cover
+these paths. An owner-operated `7711bbe` test covered about 111 minutes at 720p/~60 fps,
+with no decoder errors or persistent audio starvation and a few isolated recovery pauses.
+That evidence precedes adaptive buffering and presentation-level scheduling; the final
+combined candidate needs another owner comparison. Windows/macOS native timing behavior
+and broad network interoperability remain unverified.
 
 ## Outgoing screen sharing — September 11, 2026
 

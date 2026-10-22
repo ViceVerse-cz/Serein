@@ -321,7 +321,7 @@ async fn exchange(rekey_timeout: bool) {
 				let _ = audio_tx.try_send(AudioChunk { samples, epoch: epoch.load(Ordering::Acquire) });
 				let _ = frames_tx.try_send(EncodedFrame { data: encoded.clone(), timestamp, keyframe: true });
 				timestamp += 1800;
-				while let Ok(frame) = playback_rx.try_recv() { heard |= frame.iter().any(|sample| sample.abs() > 0.01); }
+				while let Ok(frame) = playback_rx.try_recv() { heard |= frame.samples.iter().any(|sample| sample.abs() > 0.01); }
 				if let Ok(frame) = picture_rx.try_recv() { picture = Some(frame); }
 				if heard && picture.is_some() && audio_packets >= 3 { break; }
 			}

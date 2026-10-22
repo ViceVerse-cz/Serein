@@ -31,6 +31,9 @@ impl Drop for H264Decoder {
 
 impl H264Decoder {
 	pub fn new(sink: Sink) -> Result<Self, &'static str> {
+		Self::new_timed(Box::new(move |frame, _| sink(frame)))
+	}
+	pub fn new_timed(sink: super::TimedLiveSink) -> Result<Self, &'static str> {
 		gst::init().map_err(|_| UNSUPPORTED)?;
 		let pipeline = gst::Pipeline::new();
 		let appsrc = gst_app::AppSrc::builder()
@@ -44,7 +47,7 @@ impl H264Decoder {
 		appsrc.set_stream_type(gst_app::AppStreamType::Stream);
 		appsrc.set_format(gst::Format::Time);
 		appsrc.set_is_live(true);
-		appsrc.set_do_timestamp(true);
+		appsrc.set_do_timestamp(false);
 		// Item accounting needs GStreamer 1.20; older installations use the caller's
 		// bounded software fallback rather than accepting an unbounded native queue.
 		if appsrc.find_property("current-level-buffers").is_none() {
@@ -79,7 +82,13 @@ impl H264Decoder {
 						};
 						match picture(&sample) {
 							Ok(frame) => {
-								sink(frame);
+								sink(
+									frame,
+									sample
+										.buffer()
+										.and_then(|buffer| buffer.pts())
+										.map_or(0, |pts| pts.mseconds()),
+								);
 								delivered.fetch_add(1, Ordering::Release);
 								Ok(gst::FlowSuccess::Ok)
 							}
@@ -138,6 +147,12 @@ impl H264Decoder {
 
 	/// Queue one Annex-B access unit. Errors from the pipeline surface on the next call.
 	pub fn decode(&mut self, access_unit: &[u8]) -> Result<(), &'static str> {
+		self.decode_timed(access_unit, (self.pictures + 1) * 33)
+	}
+	pub fn decode_timed(&mut self, access_unit: &[u8], tag: u64) -> Result<(), &'static str> {
+		if tag > i64::MAX as u64 / 1_000_000 {
+			return Err(INVALID);
+		}
 		if access_unit.len() > MAX_ACCESS_UNIT {
 			return Err(INVALID);
 		}
@@ -163,7 +178,9 @@ impl H264Decoder {
 		}
 		self.pictures += 1;
 		let mut buffer = gst::Buffer::from_slice(access_unit.to_vec());
-		buffer.get_mut().ok_or(INVALID)?.set_offset(self.pictures);
+		let metadata = buffer.get_mut().ok_or(INVALID)?;
+		metadata.set_offset(self.pictures);
+		metadata.set_pts(gst::ClockTime::from_mseconds(tag));
 		// Rejections invalidate the reference chain; the caller requests a keyframe.
 		match self.appsrc.push_buffer(buffer) {
 			Ok(_) => Ok(()),

@@ -729,26 +729,39 @@ has no intentional holdback, while a hole has at most 120 ms for repair. Empty p
 packets do not invalidate picture references. Unrecoverable loss requests a keyframe from
 the most recently active media source, at most once per 500 ms per source.
 
-A watched-video buffer starts playback 100 ms later and submits intact pictures on their
-90 kHz source clock, instead of immediately decoding a network burst. It retains at most
-64 pictures / 8 MiB. The item budget accommodates the allowed 500 ms A/V scheduling
-horizon at 60 fps, rather than forcing healthy delayed pictures into keyframe recovery.
-Incoming cameras retain immediate scheduling. Brief native decoder
-backpressure is retried only on the dedicated worker, within the existing 150 ms age
-budget. Severe lateness, queue pressure and decode faults retain keyframe recovery.
+Watched video has one RTP-to-local clock, shared with timestamp-preserving stream
+audio. Playback starts with 100 ms of buffering; arrival variation sets a bounded
+60–240 ms target with fast attack and slow release. Packet and byte limits remain hard
+limits, rather than latency targets. Audio keeps up to 128 compressed packets, enough
+for the maximum target at legal 2.5 ms packetization plus scheduling headroom. Its sample
+cursor corrects sustained occupancy/clock drift by at most five samples per 960-sample
+output frame, using bounded interpolation. Playable audio timestamps anchor to the
+producer clock so sample drift does not accumulate against the original nominal clock;
+normal participant voice mixing is unchanged.
 
-Watched audio preserves 48 kHz RTP timestamps through bounded packet ordering and Opus
-decode, with matching 100 ms initial buffering. Audio provides the playback master clock.
-Valid authenticated sender reports relate its timestamps to same-owner video clocks;
-video adjusts by at most 2 ms per picture without stretching audio or abruptly draining
-the display queue. Zero, reordered, unrelated-source and implausible reports are ignored;
-timing mappings expire after 30 seconds without refresh. Restarting an exhausted or
-pressured audio packet buffer also retires its old playback anchor and sender-clock
-reference; retaining that future anchor could otherwise mute every successive restart.
-Missing reports retain independent
-arrival-based RTP pacing, which cannot guarantee exact lip sync. Normal participant voice
-timing, encryption, DAVE, subscription and 1080p requirements are unchanged. Physical
-audio-device latency and display presentation are not measured by this scheduling logic.
+Authenticated sender reports relate each same-owner 90 kHz video clock to the 48 kHz
+audio master. Video correction uses elapsed time, a filtered error and a deadband, bounded
+to 60 ms per second regardless of frame rate. Missing/expired reports retain independent
+arrival-based pacing; they cannot establish lip sync. Audio restarts retire their old
+anchor/reference and invalidate already queued timestamps; source retirement, rekeys and
+teardown invalidate the corresponding generation too.
+
+Video retains at most 64 encoded pictures / 8 MiB, separately from the decoder queue.
+Its intended presentation timestamp survives native asynchronous decoding via an opaque
+per-picture tag. Decode starts early, with 8–100 ms lead based on measured decoder delay
+and a small scheduling allowance. A new audio source allows at most 200 ms to establish
+output timing, then falls back if playback timing is unavailable. Brief native pressure
+is retried only on the decoder worker within the existing 150 ms age budget. Incoming
+cameras retain immediate scheduling.
+
+Watched PCM retains its presentation timestamp through call mixing and device queues.
+The output callback uses CPAL's playback timestamp and sample position to publish a
+smoothed estimate of when that media reaches output. It uses atomics only; codecs,
+locks and allocation remain outside the callback. The UI holds at most eight decoded
+pictures / 32 MiB and presents on that clock, skipping only decoded pictures when late
+or under pressure, so decoder references remain intact. Device timing expires after two
+seconds without a fresh sample. OS timestamps and UI repaint scheduling are estimates:
+physical headset/monitor delay and exact display scanout are not measured.
 
 For an owner-controlled comparison, watch the same moving stream at the same resolution
 and frame rate for 10–15 minutes, check picture cadence and audio/video alignment, then

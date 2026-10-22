@@ -8,6 +8,7 @@ use stream_playback::diagnostics;
 #[path = "support/stream_feedback.rs"]
 mod stream_feedback;
 mod stream_playback;
+pub use stream_playback::{PlaybackFrame, Presentation};
 #[path = "../src/test_mls.rs"]
 mod test_mls;
 #[path = "../src/video.rs"]

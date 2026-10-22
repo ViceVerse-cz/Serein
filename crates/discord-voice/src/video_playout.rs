@@ -1,34 +1,21 @@
-//! Watched-video input pacing. Decode intact access units on the RTP clock instead of
-//! dumping repaired/network bursts into a latest-picture display slot. No media is saved.
-use crate::video_receive::Encoded;
-use std::{
-	collections::VecDeque,
-	time::{Duration, Instant},
+//! Bounded decode scheduling. RTP clock ownership lives only in stream_sync.
+use crate::{
+	Presentation,
+	presentation::{DECODE_LEAD, MAX_AHEAD, MAX_LATE},
+	video_receive::Encoded,
 };
-
-const BUFFER: Duration = crate::stream_sync::BUFFER;
-const MAX_AHEAD: Duration = Duration::from_millis(500);
-const MAX_LATE: Duration = Duration::from_millis(250);
-// A/V alignment can legitimately hold up to 500 ms: 30 pictures at 60 fps,
-// before packet-repair/scheduling bursts. Keep that within the item budget too;
-// the independent 8 MiB allocated-payload cap still bounds retained media.
+use std::{collections::VecDeque, time::Instant};
 const MAX_FRAMES: usize = 64;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
-
 pub(crate) struct Timed {
 	pub frame: Encoded,
 	pub source: u32,
-	pub timestamp: u32,
-}
-struct Clock {
-	user: u64,
-	source: u32,
-	timestamp: u32,
-	deadline: Instant,
 }
 struct Pending {
 	frame: Encoded,
+	source: u32,
 	deadline: Instant,
+	presentation: Option<Presentation>,
 }
 #[derive(Default)]
 pub(crate) struct Stats {
@@ -39,111 +26,119 @@ pub(crate) struct Stats {
 }
 #[derive(Default)]
 pub(crate) struct Playout {
-	clock: Option<Clock>,
 	queue: VecDeque<Pending>,
 	bytes: usize,
 	stats: Stats,
+	lead: std::time::Duration,
 }
 impl Playout {
-	pub fn push(&mut self, timed: Timed, now: Instant) -> Result<(), u64> {
-		self.push_at(timed, now, None)
+	pub fn set_decode_lead(&mut self, lead: std::time::Duration) {
+		self.lead = lead.clamp(
+			std::time::Duration::from_millis(8),
+			std::time::Duration::from_millis(100),
+		);
 	}
+	#[cfg(test)]
 	pub fn push_at(
 		&mut self,
 		timed: Timed,
 		now: Instant,
-		synced: Option<Instant>,
+		deadline: Option<Instant>,
 	) -> Result<(), u64> {
-		let Timed {
-			frame,
-			source,
-			timestamp,
-		} = timed;
-		let user = frame.user;
-		let target = synced
-			.or_else(|| {
-				self.clock.as_ref().and_then(|clock| {
-					let delta = timestamp.wrapping_sub(clock.timestamp);
-					(clock.user == user && clock.source == source && delta < 0x8000_0000).then(
-						|| {
-							clock.deadline
-								+ Duration::from_nanos(u64::from(delta) * 1_000_000_000 / 90_000)
-						},
-					)
-				})
-			})
-			.filter(|target| {
-				*target <= now + MAX_AHEAD && now.saturating_duration_since(*target) <= MAX_LATE
-			});
-		let deadline = match target {
-			Some(target) => target,
-			None => {
-				// Re-anchoring an empty queue preserves all decoder references. Replacing
-				// queued pictures needs an IDR, since those references would be skipped.
-				if !self.queue.is_empty() && !frame.keyframe {
-					self.clear();
-					return Err(user);
-				}
-				self.clear();
-				now + BUFFER
-			}
-		};
-		if self
-			.queue
-			.back()
-			.is_some_and(|pending| deadline < pending.deadline)
-			|| (!self.queue.is_empty()
-				&& self
-					.clock
-					.as_ref()
-					.is_some_and(|clock| clock.user != user || clock.source != source))
+		self.insert(timed, now, deadline.unwrap_or(now), None)
+	}
+	pub fn push_presented(
+		&mut self,
+		timed: Timed,
+		now: Instant,
+		presentation: Presentation,
+	) -> Result<(), u64> {
+		self.insert(timed, now, presentation.at, Some(presentation))
+	}
+	fn insert(
+		&mut self,
+		timed: Timed,
+		now: Instant,
+		deadline: Instant,
+		presentation: Option<Presentation>,
+	) -> Result<(), u64> {
+		let user = timed.frame.user;
+		let incompatible = self.queue.back().is_some_and(|pending| {
+			deadline < pending.deadline
+				|| pending.frame.user != user
+				|| pending.source != timed.source
+		});
+		if incompatible
+			|| deadline > now + MAX_AHEAD
+			|| now.saturating_duration_since(deadline) > MAX_LATE
 		{
-			// A genuine clock/layer discontinuity cannot put predictions behind a
-			// later deadline and silently invalidate their decoder references.
 			self.clear();
-			if !frame.keyframe {
+			if !timed.frame.keyframe {
 				return Err(user);
 			}
 		}
-		if self.queue.len() >= MAX_FRAMES || frame.data.capacity() > MAX_BYTES - self.bytes {
+		if self.queue.len() >= MAX_FRAMES || timed.frame.data.capacity() > MAX_BYTES - self.bytes {
 			self.clear();
 			return Err(user);
 		}
 		self.stats.late += u64::from(deadline < now);
-		self.clock = Some(Clock {
-			user,
-			source,
-			timestamp,
+		self.bytes += timed.frame.data.capacity();
+		self.queue.push_back(Pending {
+			frame: timed.frame,
+			source: timed.source,
 			deadline,
+			presentation,
 		});
-		self.bytes += frame.data.capacity();
-		self.queue.push_back(Pending { frame, deadline });
 		self.stats.depth = self.stats.depth.max(self.queue.len() as u64);
 		Ok(())
 	}
 	pub fn deadline(&self) -> Option<Instant> {
-		self.queue.front().map(|pending| pending.deadline)
+		let lead = if self.lead.is_zero() {
+			DECODE_LEAD
+		} else {
+			self.lead
+		};
+		self.queue.front().map(|pending| {
+			pending
+				.presentation
+				.as_ref()
+				.map_or(pending.deadline, |stamp| {
+					stamp.decode_deadline(Instant::now(), lead)
+				})
+		})
 	}
-	pub fn pop(&mut self, now: Instant) -> Result<Option<Encoded>, u64> {
-		let Some(pending) = self.queue.front() else {
+	pub fn pop_timed(
+		&mut self,
+		now: Instant,
+	) -> Result<Option<(Encoded, Option<Presentation>)>, u64> {
+		let Some(due) = self.deadline() else {
 			return Ok(None);
 		};
-		if now < pending.deadline {
+		if now < due {
 			return Ok(None);
 		}
-		if now.saturating_duration_since(pending.deadline) > MAX_LATE {
+		let pending = self.queue.front().expect("deadline has a picture");
+		let target = pending
+			.presentation
+			.as_ref()
+			.map_or(pending.deadline, |stamp| stamp.deadline(now));
+		if now.saturating_duration_since(target) > MAX_LATE {
 			let user = pending.frame.user;
 			self.clear();
 			return Err(user);
 		}
-		let pending = self.queue.pop_front().expect("front was ready");
+		let pending = self.queue.pop_front().expect("front is ready");
 		self.bytes -= pending.frame.data.capacity();
-		Ok(Some(pending.frame))
+		Ok(Some((pending.frame, pending.presentation)))
 	}
-	/// Rekeys, teardown and decoder rejection discard queued plaintext immediately.
+	#[cfg(test)]
+	pub fn pop(&mut self, now: Instant) -> Result<Option<Encoded>, u64> {
+		self.pop_timed(now)
+			.map(|frame| frame.map(|(frame, _)| frame))
+	}
 	pub fn clear(&mut self) -> bool {
 		let discarded = !self.queue.is_empty();
-		self.stats.resets += u64::from(self.clock.take().is_some());
+		self.stats.resets += u64::from(discarded);
 		self.stats.dropped += self.queue.len() as u64;
 		self.queue.clear();
 		self.bytes = 0;
@@ -153,130 +148,104 @@ impl Playout {
 		std::mem::take(&mut self.stats)
 	}
 }
-
 #[cfg(test)]
 mod tests {
 	use super::*;
-	fn frame(timestamp: u32) -> Timed {
+	use std::time::Duration;
+	fn frame(_timestamp: u32) -> Timed {
 		Timed {
 			frame: Encoded {
 				user: 7,
 				data: vec![1],
 				keyframe: true,
 			},
-			source: 700,
-			timestamp,
+			source: 70,
 		}
 	}
 	#[test]
-	fn burst_pictures_leave_on_the_source_clock_at_30_and_60_fps() {
-		for step in [1500, 3000] {
-			let now = Instant::now();
-			let mut playout = Playout::default();
-			let first = u32::MAX - step;
-			for n in 0u32..4 {
-				playout
-					.push(frame(first.wrapping_add(n * step)), now)
-					.unwrap();
-			}
-			for n in 0u32..4 {
-				let due = now
-					+ BUFFER + Duration::from_nanos(
-					u64::from(n) * u64::from(step) * 1_000_000_000 / 90_000,
-				);
-				// Nanosecond rounding accumulates by at most 3 ns over these submissions.
-				let actual = playout.deadline().unwrap();
-				assert!(due.saturating_duration_since(actual) <= Duration::from_nanos(3));
-				assert!(
-					playout
-						.pop(actual - Duration::from_nanos(1))
-						.unwrap()
-						.is_none()
-				);
-				assert!(playout.pop(actual).unwrap().is_some());
-			}
-			assert!(playout.deadline().is_none());
-			assert_eq!(playout.take_stats().dropped, 0);
+	fn decode_starts_before_presentation_without_reordering_reference_pictures() {
+		let start = Instant::now();
+		let clock = std::sync::Arc::new(crate::presentation::Clock::default());
+		let mut queue = Playout::default();
+		for n in 0..8 {
+			let at = start + Duration::from_millis(100 + n * 16);
+			queue
+				.push_presented(frame(n as u32 * 1500), start, clock.stamp(at))
+				.unwrap();
+		}
+		for n in 0..8 {
+			let due = start + Duration::from_millis(60 + n * 16);
+			assert_eq!(queue.deadline(), Some(due));
+			assert!(
+				queue
+					.pop_timed(due - Duration::from_nanos(1))
+					.unwrap()
+					.is_none()
+			);
+			let (_, tag) = queue.pop_timed(due).unwrap().unwrap();
+			assert_eq!(tag.unwrap().at, due + DECODE_LEAD);
 		}
 	}
 	#[test]
-	fn late_repairs_can_join_before_their_deadline_without_resetting_the_clock() {
+	fn queued_decode_deadlines_follow_device_playback_feedback() {
 		let now = Instant::now();
-		let mut playout = Playout::default();
-		playout.push(frame(0), now).unwrap();
-		playout
-			.push(frame(3000), now + Duration::from_millis(80))
+		let clock = std::sync::Arc::new(crate::presentation::Clock::default());
+		let mut queue = Playout::default();
+		queue
+			.push_presented(frame(0), now, clock.stamp(now + Duration::from_millis(100)))
 			.unwrap();
-		playout
-			.push(frame(6000), now + Duration::from_millis(80))
-			.unwrap();
-		assert_eq!(playout.deadline(), Some(now + BUFFER));
-		for _ in 0..3 {
-			let due = playout.deadline().unwrap();
-			assert!(playout.pop(due).unwrap().is_some());
-		}
-		let stats = playout.take_stats();
-		assert_eq!((stats.late, stats.resets, stats.dropped), (0, 0, 0));
+		clock.stamp(now).played(now + Duration::from_millis(73));
+		assert_eq!(queue.deadline(), Some(now + Duration::from_millis(133)));
+		assert!(
+			queue
+				.pop_timed(now + Duration::from_millis(132))
+				.unwrap()
+				.is_none()
+		);
+		assert!(
+			queue
+				.pop_timed(now + Duration::from_millis(133))
+				.unwrap()
+				.is_some()
+		);
 	}
+
 	#[test]
-	fn pressure_discontinuity_and_long_stalls_require_reference_recovery() {
+	fn pressure_and_discontinuities_require_reference_chain_recovery() {
 		let now = Instant::now();
 		for large in [false, true] {
-			let mut playout = Playout::default();
-			let limit = if large { 8 } else { MAX_FRAMES };
-			for _ in 0..limit {
-				let mut timed = frame(0);
+			let mut queue = Playout::default();
+			for _ in 0..if large { 8 } else { MAX_FRAMES } {
+				let mut frame = frame(0);
 				if large {
-					timed.frame.data = vec![1; 1024 * 1024];
+					frame.frame.data = vec![0; 1024 * 1024];
 				}
-				playout.push(timed, now).unwrap();
+				queue.push_at(frame, now, Some(now)).unwrap();
 			}
 			let mut extra = frame(0);
 			if large {
-				extra.frame.data = vec![1; 1024 * 1024];
+				extra.frame.data = vec![0; 1024 * 1024];
 			}
-			assert_eq!(playout.push(extra, now), Err(7));
-			assert!(playout.deadline().is_none());
-			assert_eq!(playout.take_stats().dropped, limit as u64);
+			assert_eq!(queue.push_at(extra, now, Some(now)), Err(7));
+			assert!(queue.deadline().is_none());
 		}
-		let mut playout = Playout::default();
-		playout.push(frame(0), now).unwrap();
-		assert!(matches!(
-			playout.pop(now + BUFFER + MAX_LATE + Duration::from_millis(1)),
-			Err(7)
-		));
-		assert!(playout.deadline().is_none());
-		playout.push(frame(0), now).unwrap();
-		let mut changed = frame(1000);
-		changed.source = 800;
-		changed.frame.keyframe = false;
-		assert_eq!(playout.push(changed, now), Err(7));
-		assert!(playout.deadline().is_none());
-		playout.push(frame(0), now).unwrap();
-		let mut backwards = frame(1500);
-		backwards.frame.keyframe = false;
+		let mut queue = Playout::default();
+		queue
+			.push_at(frame(0), now, Some(now + Duration::from_millis(100)))
+			.unwrap();
+		let mut prediction = frame(1500);
+		prediction.frame.keyframe = false;
 		assert_eq!(
-			playout.push_at(backwards, now, Some(now + BUFFER / 2)),
+			queue.push_at(prediction, now, Some(now + Duration::from_millis(80))),
 			Err(7)
 		);
-		assert!(playout.deadline().is_none());
-	}
-	#[test]
-	fn rekeys_clear_plaintext_and_an_idle_clock_can_reanchor_without_dropping_references() {
-		let now = Instant::now();
-		let mut playout = Playout::default();
-		playout.push(frame(0), now).unwrap();
-		assert!(playout.clear());
-		assert_eq!(playout.bytes, 0);
-		assert!(playout.queue.is_empty());
-		playout.push(frame(0), now).unwrap();
-		playout.pop(now + BUFFER).unwrap();
-		let mut changed = frame(1);
-		changed.frame.keyframe = false;
-		playout.push(changed, now + Duration::from_secs(2)).unwrap();
-		assert_eq!(
-			playout.deadline(),
-			Some(now + Duration::from_secs(2) + BUFFER)
+		assert!(queue.deadline().is_none());
+		queue.push_at(frame(0), now, Some(now)).unwrap();
+		assert!(
+			queue
+				.pop(now + MAX_LATE + Duration::from_millis(1))
+				.is_err()
 		);
+		assert!(queue.deadline().is_none());
 	}
 }

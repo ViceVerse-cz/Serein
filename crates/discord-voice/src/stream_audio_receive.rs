@@ -4,13 +4,18 @@ use crate::{Frame, stream_sync::Sync, video_receive::MAX_SOURCES};
 use opus2::{Channels, Decoder};
 use std::time::Instant;
 
-const PACKETS: usize = 8;
+// 320 ms at the shortest legal 2.5 ms packetization: enough for the
+// 240 ms adaptive target plus scheduling/reorder headroom. Bytes remain bounded.
+const PACKETS: usize = 128;
 struct Packet {
 	sequence: u16,
 	timestamp: u32,
 	opus: Box<[u8]>,
 }
 struct Source {
+	started: bool,
+	level_error: f64,
+	presentation: Option<crate::Presentation>,
 	user: u64,
 	ssrc: u32,
 	decoder: Decoder,
@@ -25,6 +30,9 @@ struct Source {
 }
 impl Source {
 	fn clear(&mut self) {
+		self.started = false;
+		self.level_error = 0.0;
+		self.presentation = None;
 		self.packets.clear();
 		self.next = None;
 		self.cursor = None;
@@ -58,7 +66,10 @@ impl Source {
 			if distance >= 32768 {
 				return;
 			}
-			if distance >= PACKETS as u16 {
+			if distance >= PACKETS as u16
+				|| timestamp.wrapping_sub(self.cursor.unwrap_or(timestamp)) < 0x8000_0000
+					&& timestamp.wrapping_sub(self.cursor.unwrap_or(timestamp)) > 24_000
+			{
 				self.clear();
 			}
 		}
@@ -74,10 +85,11 @@ impl Source {
 		if self.cursor.is_none() {
 			self.cursor = Some(timestamp);
 			// Restart the scheduling epoch with the compressed buffer. A retained
-			// future deadline can outlive this queue's entire eight-packet window.
+			// future deadline can outlive this queue's bounded packet window.
 			clock.forget_source(self.ssrc);
 			clock.deadline(self.user, self.ssrc, 48_000, timestamp, now);
 		}
+		clock.observe_audio(self.ssrc, timestamp, now);
 		self.packets.push(Packet {
 			sequence,
 			timestamp,
@@ -86,18 +98,38 @@ impl Source {
 	}
 	fn pop(&mut self, clock: &mut Sync, now: Instant) -> Option<Frame> {
 		let timestamp = self.cursor?;
-		if now < clock.deadline(self.user, self.ssrc, 48_000, timestamp, now) {
+		let deadline = clock.deadline(self.user, self.ssrc, 48_000, timestamp, now);
+		let target = clock.target(self.ssrc);
+		let startup = deadline + target.saturating_sub(crate::presentation::INITIAL);
+		if !self.started && now < startup {
 			return None;
 		}
-		let mut frame = [0.0; 960];
+		self.started = true;
+
+		let buffered = self
+			.packets
+			.iter()
+			.map(|packet| packet.timestamp.wrapping_sub(timestamp) as i32)
+			.max()
+			.unwrap_or(0)
+			.max(0) as f64;
+		let desired = target.as_secs_f64() * 48_000.0;
+		self.level_error += (buffered - desired - self.level_error) * 0.02;
+		let adjustment = if self.level_error.abs() > 480.0 {
+			(self.level_error / 480.0).clamp(-5.0, 5.0) as i32
+		} else {
+			0
+		};
+		let wanted = (960 + adjustment) as usize;
+		let mut frame = [0.0; 965];
 		let mut filled = 0usize;
 		let mut decoded = 0;
-		while filled < frame.len() {
+		while filled < wanted {
 			let cursor = timestamp.wrapping_add(filled as u32);
 			if self.offset == self.length {
-				if decoded == 8 {
+				if decoded == 9 {
 					break;
-				} // At most eight 2.5 ms packets per output tick.
+				} // At most nine 2.5 ms packets per output tick, including rate correction.
 				decoded += 1;
 				let first = self.first();
 				let gap =
@@ -115,7 +147,7 @@ impl Source {
 						.unwrap_or(0);
 					self.offset = 0;
 					if self.length == 0 {
-						filled += count.min(frame.len() - filled);
+						filled += count.min(wanted - filled);
 						continue;
 					}
 				} else {
@@ -142,11 +174,11 @@ impl Source {
 				.wrapping_add(self.offset as u32)
 				.wrapping_sub(cursor) as i32;
 			if delta > 0 {
-				filled += (delta as usize).min(frame.len() - filled);
+				filled += (delta as usize).min(wanted - filled);
 				continue;
 			}
 			self.offset += ((-i64::from(delta)) as usize).min(self.length - self.offset);
-			let count = (self.length - self.offset).min(frame.len() - filled);
+			let count = (self.length - self.offset).min(wanted - filled);
 			frame[filled..filled + count]
 				.copy_from_slice(&self.pcm[self.offset..self.offset + count]);
 			self.offset += count;
@@ -154,11 +186,19 @@ impl Source {
 		}
 		if filled == 0 && self.packets.is_empty() && self.offset == self.length {
 			self.cursor = None;
+			self.started = false;
 			clock.forget_source(self.ssrc);
 			return None;
 		}
-		self.cursor = Some(timestamp.wrapping_add(960));
-		Some(frame)
+		self.cursor = Some(timestamp.wrapping_add(wanted as u32));
+		let output = std::array::from_fn(|i| {
+			let position = i as f32 * wanted as f32 / 960.0;
+			let left = position as usize;
+			let right = (left + 1).min(wanted - 1);
+			frame[left] + (frame[right] - frame[left]) * position.fract()
+		});
+		self.presentation = clock.audio_frame(self.user, self.ssrc, timestamp, now);
+		Some(output)
 	}
 }
 #[derive(Default)]
@@ -189,6 +229,9 @@ impl Audio {
 			return Err("Stream audio source budget exceeded");
 		}
 		self.sources.push(Source {
+			started: false,
+			level_error: 0.0,
+			presentation: None,
 			user,
 			ssrc,
 			decoder: Decoder::new(48_000, Channels::Mono)
@@ -231,12 +274,20 @@ impl Audio {
 			source.push(sequence, timestamp, opus, clock, now);
 		}
 	}
+	#[cfg(test)]
 	pub fn pop(&mut self, clock: &mut Sync, now: Instant) -> Option<Frame> {
+		self.pop_timed(clock, now).map(|frame| frame.samples)
+	}
+	pub fn pop_timed(&mut self, clock: &mut Sync, now: Instant) -> Option<crate::PlaybackFrame> {
 		let mut output = [0.0; 960];
 		let mut heard = false;
+		let mut presentation = None;
 		for source in &mut self.sources {
 			if let Some(frame) = source.pop(clock, now) {
 				heard = true;
+				if presentation.is_none() {
+					presentation = source.presentation.clone();
+				}
 				for (mixed, sample) in output.iter_mut().zip(frame) {
 					if sample.is_finite() {
 						*mixed += sample;
@@ -247,7 +298,10 @@ impl Audio {
 		output
 			.iter_mut()
 			.for_each(|sample| *sample = sample.clamp(-1.0, 1.0));
-		heard.then_some(output)
+		heard.then_some(crate::PlaybackFrame {
+			samples: output,
+			presentation,
+		})
 	}
 }
 
@@ -366,5 +420,71 @@ mod tests {
 			audible >= 40,
 			"audio did not recover after a bounded packet/clock restart: {audible}"
 		);
+	}
+	#[test]
+	fn sustained_short_packets_and_clock_drift_keep_continuous_audio() {
+		for samples in [120usize, 240, 480, 960, 1920, 2880] {
+			for ppm in [-500i64, 0, 500] {
+				let start = Instant::now();
+				let mut audio = Audio::default();
+				let mut sync = Sync::default();
+				audio.announce(7, 70).unwrap();
+				let mut encoder = Encoder::new(48_000, Channels::Mono, Application::Audio).unwrap();
+				let input: Vec<f32> = (0..samples)
+					.map(|n| (n as f32 * 0.05).sin() * 0.2)
+					.collect();
+				let mut bytes = [0; 1275];
+				for _ in 0..10 {
+					encoder.encode_float(&input, &mut bytes).unwrap();
+				}
+				let length = encoder.encode_float(&input, &mut bytes).unwrap();
+				let mut packet = 0u64;
+				let mut audible = 0;
+				let mut peak_target = std::time::Duration::ZERO;
+				// Three minutes of synthetic time: rate mismatch used to empty/fill a fixed queue.
+				for tick in 0..9000u64 {
+					let us = tick * 20_000;
+					let now = start + Duration::from_micros(us);
+					loop {
+						let arrival = packet * samples as u64 * 1_000_000_000_000
+							/ (48_000 * (1_000_000 + ppm) as u64);
+						let burst =
+							if samples == 960 && ppm == 0 && packet < 3000 && packet % 10 == 3 {
+								60_000
+							} else {
+								0
+							};
+						if arrival + burst > us {
+							break;
+						}
+
+						audio.push(
+							70,
+							packet as u16,
+							(packet * samples as u64) as u32,
+							bytes[..length].to_vec(),
+							&mut sync,
+							now,
+						);
+						packet += 1;
+					}
+					peak_target = peak_target.max(sync.target(70));
+					if let Some(frame) = audio.pop(&mut sync, now)
+						&& tick >= 8950 && frame.iter().any(|value| value.abs() > 0.001)
+					{
+						audible += 1;
+					}
+				}
+				assert_eq!(
+					audible, 50,
+					"duration={samples} samples, sender drift={ppm} ppm"
+				);
+				assert!(audio.sources[0].packets.len() <= PACKETS);
+				if samples == 960 && ppm == 0 {
+					assert!(peak_target > crate::presentation::INITIAL);
+					assert!(sync.target(70) < peak_target);
+				}
+			}
+		}
 	}
 }

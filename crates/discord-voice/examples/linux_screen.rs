@@ -165,3 +165,8 @@ fn main() {
 fn main() {
 	eprintln!("This debug check requires Linux with GStreamer.");
 }
+
+#[path = "../src/presentation.rs"]
+mod presentation;
+pub use presentation::{PlaybackFrame, Presentation};
+type Frame = [f32; 960];

@@ -7,6 +7,7 @@ mod crypto;
 mod diagnostics;
 mod jitter;
 mod mixer;
+mod presentation;
 pub mod screen;
 mod stream_audio_receive;
 mod stream_playout;
@@ -26,6 +27,8 @@ pub use crypto::Identity;
 pub use transport::{DISCONNECTED_BY_DISCORD, run, run_stream, run_with_identity, watch_stream};
 pub use video_receive::{RemoteFrame, VideoSink};
 pub mod camera_video;
+
+pub use presentation::{PlaybackFrame, Presentation};
 
 pub type Frame = [f32; 960];
 #[derive(Clone, Copy)]
