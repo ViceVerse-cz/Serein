@@ -758,8 +758,9 @@ callback timestamps provide a smoothed output-clock estimate, and the watched UI
 bounded decoded pictures for presentation on that clock. Decode scheduling accounts for
 measured decoder delay. Missing device timing has a bounded startup fallback and expires
 after inactivity. Physical speaker/monitor latency, display scanout and official-client
-parity have not been measured. Incoming cameras, notification audio, encryption and the
-1080p receive limit are unchanged.
+parity have not been measured. Notification audio and encryption are unchanged. The later UHD reception extension
+raises the shared live decoder bound to 3840×2160; sending presets and inline attachments
+retain their limits.
 
 Synthetic protocol, encrypted local-UDP, sample-clock and Linux native decode checks cover
 these paths. An owner-operated `7711bbe` test covered about 111 minutes at 720p/~60 fps,
@@ -780,9 +781,14 @@ linked in [voice.md](voice.md#incoming-stream-recovery-and-pacing).
 Received codecs are selected per source from advertised RTP payload types, independently
 of the outgoing session `video_codec`. A forward primary codec change retires that source's
 buffered video/decoder state and requires a recovery picture with VPS/SPS/PPS; delayed old
-packets/RTX and session-only updates do not reset unrelated received media. SPS validation retains the 1080p receive bound before native submission.
+packets/RTX and session-only updates do not reset unrelated received media. SPS validation enforces the 3840×2160 live receive bound before native submission.
 Offline encrypted reassembly, malformed packet/bounds and native reference-picture checks
-cover the implementation; live negotiation and quality parity await an owner-operated test.
+cover the implementation. An owner-operated October 23 comparison of the same stream
+confirmed H.265, 1280×718 and approximately 30 fps in both Serein and official Discord;
+reported average bitrates were 1.13/1.11 Mbps respectively. Serein recorded no decoder
+errors/playback drops, and Discord reported no dropped frames. This sequential test does
+not prove identical content, physical timing or behavior on every network. The owner
+reported satisfaction with playback; UHD reception still needs an owner-operated test.
 No bandwidth estimator, new dependency, media cache or video recording is introduced.
 
 ## Outgoing screen sharing — September 11, 2026

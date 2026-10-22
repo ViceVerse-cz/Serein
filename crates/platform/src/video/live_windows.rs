@@ -197,7 +197,7 @@ impl H264Decoder {
 					crop = (x, y, w, h);
 				}
 			}
-			super::check_dimensions(crop.2, crop.3)?;
+			super::check_live_dimensions(crop.2, crop.3)?;
 			if (stride as usize) * (height as usize) * 3 / 2 > MAX_OUTPUT_BYTES {
 				return Err(INVALID);
 			}

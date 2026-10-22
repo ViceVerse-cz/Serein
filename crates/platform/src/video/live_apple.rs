@@ -306,7 +306,7 @@ unsafe extern "C-unwind" fn output_frame(
 		return;
 	}
 	// SAFETY: VideoToolbox keeps the image buffer alive for the duration of the callback.
-	match unsafe { apple::copy_nv12(&*image) } {
+	match unsafe { apple::copy_nv12(&*image, super::check_live_dimensions) } {
 		Ok(picture) if pts.timescale > 0 && pts.value >= 0 => {
 			(output.sink)(picture, (pts.value as u64 * 1000) / pts.timescale as u64)
 		}

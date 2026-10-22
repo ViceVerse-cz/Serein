@@ -39,6 +39,23 @@ pub mod live;
 /// Largest live access unit any backend accepts.
 pub const MAX_ACCESS_UNIT: usize = 2 * 1024 * 1024 + 64 * 1024;
 
+/// Live reception accepts UHD or portrait/ultrawide pictures within the same pixel budget.
+pub const MAX_LIVE_DIMENSION: u32 = 3840;
+pub const MAX_LIVE_PIXELS: u64 = 3840 * 2160;
+
+pub fn check_live_dimensions(width: u32, height: u32) -> Result<(), &'static str> {
+	if width == 0 || height == 0 {
+		return Err(INVALID);
+	}
+	if width > MAX_LIVE_DIMENSION
+		|| height > MAX_LIVE_DIMENSION
+		|| u64::from(width) * u64::from(height) > MAX_LIVE_PIXELS
+	{
+		return Err("Live playback supports videos up to 4K (3840×2160).");
+	}
+	Ok(())
+}
+
 /// One decoded live picture.
 pub type LiveFrame = Picture;
 

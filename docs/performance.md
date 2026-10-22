@@ -18,12 +18,12 @@ Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and wi
 
 | Package metric | Upstream baseline | Streaming candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 92,650,248 B | 92,767,368 B | +117,120 B (+0.126%) |
-| Installed payload (245 files) | 97,348,681 B | 97,465,801 B | +117,120 B (+0.120%) |
-| Arch archive | 54,376,694 B | 54,449,636 B | +72,942 B (+0.134%) |
+| Executable | 92,650,248 B | 92,767,752 B | +117,504 B (+0.127%) |
+| Installed payload (245 files) | 97,348,681 B | 97,466,185 B | +117,504 B (+0.121%) |
+| Arch archive | 54,376,694 B | 54,440,009 B | +63,315 B (+0.116%) |
 
 Installed bytes sum regular archive files under `usr/`, excluding package metadata.
-Both packages contain 245 installed files. The final gate passes 1,308 tests, strict Clippy,
+Both packages contain 245 installed files. The final gate passes 1,309 tests, strict Clippy,
 formatting, application and policy checks; the native Arch package smoke also passes.
 
 ### Linux HEVC reception extension
@@ -60,8 +60,9 @@ aggregation, item/byte bounds, cropped dimensions and parameter-unit boundaries.
 negotiation tests retain H.264 senders and reject unoffered/unknown formats.
 
 The old implementation cannot run an HEVC receive workload, so no codec speed comparison
-is claimed. Native idle CPU/RSS, Windows/macOS HEVC support and live bitrate/quality parity
-are unmeasured. A final owner-operated comparison is required before publication.
+is claimed. Native idle CPU/RSS and Windows/macOS HEVC support are unmeasured. The later owner
+comparison is recorded in the UHD reception section below; it does not establish universal
+perceptual-quality parity.
 
 ### Receive payload routing correction
 
@@ -80,14 +81,71 @@ The encrypted HEVC/RTX regression now traverses actual receive routing and DAVE 
 into the timed playback queue, rather than bypassing protocol admission. Final native
 H.265/H.264 timestamp-phase runs retain all 480/479 expected reference-identical pictures
 and presentation tags with zero errors/resets/drops/rejections and no final audio concealment.
-The rest of the native decoding/timing path is unchanged. Live recovery still needs an
-owner-operated retest; physical FPS/latency and full-client CPU/RSS remain unmeasured.
+The rest of the native decoding/timing path is unchanged. The later owner-operated retest confirmed working reception and satisfactory playback
+(see below); physical FPS/latency and full-client CPU/RSS remain unmeasured.
 
 | Standard Arch package / same pinned toolchain | Before `3352c42` | Routing correction | Delta |
 | --- | ---: | ---: | ---: |
 | Executable | 92,766,344 B | 92,767,368 B | +1,024 B (+0.001%) |
 | Installed payload | 97,464,777 B | 97,465,801 B | +1,024 B (+0.001%) |
 | Arch archive | 54,441,888 B | 54,449,636 B | +7,748 B (+0.014%) |
+
+### UHD live reception — October 23, 2026
+
+The verified preceding `28377fd` package was preserved before editing. The original
+1080p cap dates to the first RGBA receiver (`b0f57be`), without a recorded codec or
+protocol requirement for that resolution. Live dimensions now accept 3840×2160 worth
+of pixels within a 3840-pixel square. HEVC SPS coded surfaces allow bounded 64-pixel
+alignment padding, with a separate visible-pixel check. Native frame copies share the
+live validator; inline attachment playback retains its 1080p bound. No sender preset,
+encoded access-unit limit, packet repair bound, timing rule or dependency changes.
+
+The watched UI retains at most eight pending decoded pictures and 128 MiB including the
+latest picture, allocated on demand. Eight packed UHD YUV pictures plus the latest one
+fit; ordinary 720p/1080p use does not allocate the ceiling. Regression coverage exercises
+UHD YUV presentation/item pressure, RGBA byte pressure, HEVC crop/padding rejection and
+GStreamer sample copying before allocation. These are component bounds, excluding
+native decoder reference pictures, GPU textures and other application allocations.
+
+Eight-second synthetic `testsrc2` workloads pass through production clock, stream audio,
+playout and native GStreamer decoding on Linux. Each includes a temporary +200 ms RTP
+timestamp phase and simulated 73 ms audio output delay:
+
+| Native functional workload | Expected/delivered pictures | Decoder errors / stale / queue resets / drops |
+| --- | ---: | ---: |
+| H.265 2560×1440/60 | 480 / 480 | 0 / 0 / 0 / 0 |
+| H.265 3840×2160/30 | 240 / 240 | 0 / 0 / 0 / 0 |
+| H.265 3840×2160/60, 12 Mbps target | 480 / 480 | 0 / 0 / 0 / 0 |
+| H.264 3840×2160/60, 12 Mbps target | 479 / 479 | 0 / 0 / 0 / 0 |
+
+H.264 retains its last parser picture without EOS. Every delivered luma checksum and
+presentation tag matches its reference. Every case preserves all 100 audible frames
+in the last two input seconds without concealment or admission rejection. The unchanged
+receiver rejects the same 1440p/4K HEVC inputs before native decoding (zero pictures).
+These single functional runs do not measure physical FPS, scanout, lip sync or full-client
+CPU/RSS, and do not guarantee UHD60 throughput on other hardware.
+
+The test harness uses optimized zlib checksums outside the application dependency graph.
+Its previous debug Rust checksum helper alone cost about 14.4 ms per UHD picture and
+caused false overload in 60 fps tests; those instrumented runs are not evidence of a
+product decoder limit. Bitstreams use libx264/libx265 ultrafast, no B frames, AUDs and
+repeated parameter sets; HEVC uses four pool/two frame threads. The UHD60 fixtures have
+a 12 Mbps target/max rate and 12 Mbps VBV buffer.
+
+An owner-controlled sequential comparison of `28377fd` and official Discord on the same
+stream recorded H.265, 1280×718 and approximately 30 fps in both clients, averaging
+1.13/1.11 Mbps respectively. Neither capture recorded video drops; Serein recorded
+zero decoding errors. The owner reported satisfaction. Content changes between captures
+and bitrate accounting differences preclude an exact perceptual-quality claim.
+UHD reception still requires an owner-operated live test; Windows/macOS native behavior
+is not locally verified. Discord's [official screen-share documentation](https://support.discord.com/hc/en-us/articles/360040816151-Go-Live-and-Screen-Share)
+lists desktop streaming up to 4K/60 fps with Nitro.
+
+| Standard Arch package | Before `28377fd` | UHD candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,767,368 B | 92,767,752 B | +384 B (+0.000%) |
+| Installed payload | 97,465,801 B | 97,466,185 B | +384 B (+0.000%) |
+| Arch archive | 54,449,636 B | 54,440,009 B | -9,627 B (-0.018%) |
 
 ### Earlier playback recovery evidence
 

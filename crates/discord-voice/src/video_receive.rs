@@ -1,5 +1,5 @@
 //! Incoming H.264/H.265 video: bounded RTP reassembly per remote SSRC and decoding on a
-//! dedicated thread. Frames stay bounded (1080p RGBA) and no video is ever written to disk.
+//! dedicated thread. Frames stay bounded (4K planar YUV) and no video is ever written to disk.
 //! Discord's video signaling is unofficial; live interoperability is unverified.
 use std::{
 	collections::HashMap,
@@ -23,8 +23,6 @@ pub const MAX_SOURCES: usize = 16;
 /// Decoders kept alive at once; each holds reference pictures for one remote user.
 const MAX_DECODERS: usize = 8;
 const QUEUE_BYTES: usize = 16 * 1024 * 1024;
-const MAX_WIDTH: u32 = 1920;
-const MAX_PIXELS: u64 = 1920 * 1080;
 const START_CODE: [u8; 4] = [0, 0, 0, 1];
 const MAX_DECODE_AGE: Duration = Duration::from_millis(150);
 
@@ -1251,14 +1249,7 @@ fn bounded(width: usize, height: usize) -> Result<(u32, u32), ()> {
 		u32::try_from(width).map_err(|_| ())?,
 		u32::try_from(height).map_err(|_| ())?,
 	);
-	if w == 0
-		|| h == 0
-		|| w > MAX_WIDTH
-		|| h > MAX_WIDTH
-		|| u64::from(w) * u64::from(h) > MAX_PIXELS
-	{
-		return Err(());
-	}
+	platform::video::check_live_dimensions(w, h).map_err(|_| ())?;
 	Ok((w, h))
 }
 
@@ -2044,9 +2035,6 @@ mod tests {
 		assert!(!gated.accept(7, false));
 		assert!(is_keyframe(&[0, 0, 0, 1, 0x67, 1, 0, 0, 1, 0x65, 2]));
 		assert!(!is_keyframe(&[0, 0, 0, 1, 0x41, 9]));
-		assert!(bounded(1920, 1080).is_ok());
-		assert!(bounded(1920, 1081).is_err());
-		assert!(bounded(0, 4).is_err());
 	}
 	#[test]
 	fn software_decoders_reuse_scratch_across_alternating_resolutions() {

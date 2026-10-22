@@ -722,6 +722,17 @@ only for the owner's deliberate test, then disable it after collecting the summa
 
 ### Incoming stream recovery and pacing
 
+Live H.264/H.265 reception accepts up to 4K (3840×2160), including 1440p and portrait/ultrawide
+pictures within the same pixel and per-side bounds. The original 1080p cap was introduced
+with the first RGBA receiver (`b0f57be`); its history identifies a frame-allocation bound,
+not a demonstrated decoder or protocol limit. Live output now uses native planar YUV and
+GPU conversion. Inline attachment playback and sending presets keep their own existing
+limits. Native decoder availability and throughput still depend on the installed hardware
+and plugins; larger received dimensions do not promise 4K60 on every machine.
+The decoded display byte ceiling grows to 128 MiB, allocated on demand, so eight UHD YUV
+pictures plus the latest picture fit. The eight-pending-picture limit, encoded access-unit
+and packet/reorder limits, decoder age budget and A/V clocks are unchanged.
+
 Linux Go Live viewers offer receive-only H.265 ahead of H.264 when GStreamer has
 `h265parse` and a ranked HEVC decoder that can initialize. The bounded pipeline is
 probed on a worker before advertising support; other platforms and stream senders
@@ -734,8 +745,8 @@ HEVC reassembly implements RFC 7798 single NAL, aggregation and fragmentation pa
 for a single layer without DONL, as used by WebRTC. Transport authentication precedes
 packet routing; DAVE authentication precedes NAL inspection and native decoding. Keyframe detection recognizes IRAP types 16–21; a new
 HEVC decoder requires VPS/SPS/PPS with a recovery picture. SPS dimensions and bit depth
-are checked before native submission (8/10-bit 4:2:0, at most the existing 1080p visible
-picture bound with coding-block padding). Incoming codec selection uses each authenticated
+are checked before native submission (8/10-bit 4:2:0, at most 3840×2160 visible pixels within a 3840-pixel square,
+with bounded coding-block padding). Incoming codec selection uses each authenticated
 packet's advertised payload assignment independently per source. The session description's
 `video_codec` is an outgoing selection and does not filter received formats. Forward primary
 packets changing a source's codec discard that source's partial packets, retire its decoder
@@ -743,7 +754,8 @@ and pending video, and require a keyframe. Late packets/RTX from the previous co
 switch it back. Session opcode 14 alone does not discard received video. Audio timing and
 unrelated sources are preserved.
 The existing RTP/RTX repair, byte/item bounds, decoded picture layout and presentation
-tags apply to both codecs. H.264 camera reception and all video encoding remain unchanged.
+tags apply to both codecs. Camera signaling/codec selection and all video encoding remain
+unchanged; incoming cameras share the live decoder dimension bound.
 Numeric `h264_packets`/`h265_packets` and `h264_frames`/`h265_frames` counters distinguish
 transport packets from decrypted access units. `session_h264`/`session_h265` count outgoing
 selection announcements; rejected payloads and source codec changes are counted separately.
@@ -798,7 +810,7 @@ still flush. Output timing includes this additional bridge delay.
 The output callback uses CPAL's playback timestamp and sample position to publish a
 smoothed estimate of when that media reaches output. It uses atomics only; codecs,
 locks and allocation remain outside the callback. The UI holds at most eight decoded
-pictures / 32 MiB and presents on that clock, skipping only decoded pictures when late
+pictures / 128 MiB (including the latest picture) and presents on that clock, skipping only decoded pictures when late
 or under pressure, so decoder references remain intact. Device timing expires after two
 seconds without a fresh sample. OS timestamps and UI repaint scheduling are estimates:
 physical headset/monitor delay and exact display scanout are not measured.

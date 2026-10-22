@@ -12,6 +12,8 @@ use tokio::{runtime::Runtime, sync::watch, task::JoinHandle};
 use zeroize::Zeroizing;
 
 const SIGNAL_TIMEOUT: Duration = Duration::from_secs(30);
+// Eight UHD YUV pictures plus the displayed picture fit without increasing the item bound.
+const DECODED_BUDGET: usize = 128 * 1024 * 1024;
 
 /// Latest stream picture and whether the UI still has to upload it.
 type Slot = Option<(platform::video::Picture, bool)>;
@@ -54,8 +56,7 @@ impl Scheduled {
 			return false;
 		}
 		let length = frame.picture.data.len();
-		const BUDGET: usize = 32 * 1024 * 1024;
-		if length > BUDGET {
+		if length > DECODED_BUDGET {
 			return false;
 		}
 		let old = if self.latest.as_ref().is_some_and(|(_, fresh)| !*fresh) {
@@ -74,7 +75,7 @@ impl Scheduled {
 				.latest
 				.as_ref()
 				.map_or(0, |(picture, _)| picture.data.capacity())
-				> BUDGET
+				> DECODED_BUDGET
 		{
 			let Some((old, _)) = self.pending.pop_front() else {
 				return false;
@@ -616,21 +617,39 @@ mod tests {
 	fn decoded_stream_pictures_wait_for_presentation_and_pressure_skips_only_decoded_frames() {
 		let now = Instant::now();
 		let mut queue = Scheduled::default();
-		let pixels = i420(1920, 1080, 4);
+		let pixels = i420(3840, 2160, 4);
 		for n in 0..16 {
-			let mut picture = frame(1920, 1080, &pixels);
+			let mut picture = frame(3840, 2160, &pixels);
 			picture.presentation = Some(discord_voice::Presentation::new(
 				now + Duration::from_millis(100 + n * 16),
 			));
 			assert!(queue.store(picture));
 		}
 		assert_eq!(queue.pending.len(), 8);
-		assert!(queue.bytes <= 32 * 1024 * 1024);
+		assert!(queue.bytes <= DECODED_BUDGET);
 		assert!(queue.latest.is_none());
 		assert_eq!(queue.advance(now), Some(now + Duration::from_millis(228)));
 		queue.advance(now + Duration::from_millis(260));
 		assert_eq!(queue.pending.len(), 5);
 		assert!(queue.latest.as_ref().unwrap().1);
-		assert!(queue.bytes + queue.latest.as_ref().unwrap().0.data.capacity() <= 32 * 1024 * 1024);
+		assert!(queue.bytes + queue.latest.as_ref().unwrap().0.data.capacity() <= DECODED_BUDGET);
+		drop(queue);
+		// A backend's RGBA fallback reaches the byte bound before the eight-picture bound.
+		let mut queue = Scheduled::default();
+		let pixels = vec![4; 3840 * 2160 * 4];
+		for n in 0..16 {
+			let mut picture = frame(3840, 2160, &pixels);
+			picture.picture.layout = platform::video::Layout::Rgba;
+			picture.presentation = Some(discord_voice::Presentation::new(
+				now + Duration::from_millis(100 + n * 16),
+			));
+			assert!(queue.store(picture));
+		}
+		assert_eq!(queue.pending.len(), 4);
+		assert!(queue.bytes <= DECODED_BUDGET);
+		queue.advance(now + Duration::from_secs(1));
+		assert!(queue.pending.is_empty());
+		assert_eq!(queue.bytes, 0);
+		assert!(queue.latest.as_ref().unwrap().1);
 	}
 }

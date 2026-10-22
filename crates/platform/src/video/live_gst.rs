@@ -245,7 +245,7 @@ fn make(name: &str) -> Result<gst::Element, &'static str> {
 }
 
 fn picture(sample: &gst::Sample) -> Result<Frame, &'static str> {
-	super::gst::picture(sample)
+	super::gst::picture(sample, super::check_live_dimensions)
 }
 
 #[cfg(test)]

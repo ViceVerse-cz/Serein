@@ -49,12 +49,14 @@ fn parse(nal: &[u8]) -> Option<()> {
 	let separate = chroma == 3 && bits.read(1)? != 0;
 	let width = bits.ue()?;
 	let height = bits.ue()?;
-	// Allow coding-block padding around a 1080p visible image, not larger surfaces.
+	// Allow up to one 64-pixel coding-block alignment around the largest visible image.
+	let max_side = platform::video::MAX_LIVE_DIMENSION.div_ceil(64) * 64;
+	let max_pixels = u64::from(max_side) * (2160_u64.div_ceil(64) * 64);
 	if width == 0
 		|| height == 0
-		|| width > 1920
-		|| height > 1920
-		|| u64::from(width) * u64::from(height) > 1920 * 1088
+		|| width > max_side
+		|| height > max_side
+		|| u64::from(width) * u64::from(height) > max_pixels
 	{
 		return None;
 	}
@@ -71,7 +73,7 @@ fn parse(nal: &[u8]) -> Option<()> {
 		visible_width = width.checked_sub(horizontal.checked_mul(unit_x)?)?;
 		visible_height = height.checked_sub(vertical.checked_mul(unit_y)?)?;
 	}
-	platform::video::check_dimensions(visible_width, visible_height).ok()?;
+	platform::video::check_live_dimensions(visible_width, visible_height).ok()?;
 	// Only 8/10-bit 4:2:0 surfaces are supported by the live pipeline.
 	if chroma != 1 || bits.ue()? > 2 || bits.ue()? > 2 {
 		return None;
@@ -161,9 +163,13 @@ mod tests {
 	fn hevc_sps_bounds_reject_oversized_surfaces_and_invalid_crops_before_decode() {
 		assert!(bounded_sps(&sps(1280, 534, 0, 1, 0)));
 		assert!(bounded_sps(&sps(1920, 1088, 4, 1, 2)));
+		assert!(bounded_sps(&sps(2560, 1440, 0, 1, 0)));
+		assert!(bounded_sps(&sps(3840, 2160, 0, 1, 0)));
+		assert!(bounded_sps(&sps(3840, 2176, 8, 1, 2)));
 		for nal in [
-			sps(3840, 2160, 0, 1, 0),
-			sps(1920, 1088, 0, 1, 0),
+			sps(3840, 2176, 0, 1, 0),
+			sps(4096, 2160, 0, 1, 0),
+			sps(3840, 3840, 840, 1, 0),
 			sps(1280, 534, 300, 1, 0),
 			sps(1280, 534, 0, 1, 3),
 			sps(1280, 534, 0, 2, 0),
