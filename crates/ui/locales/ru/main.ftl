@@ -2123,7 +2123,7 @@ profiles-show-edit-profile = Редактировать профиль
 # Context: show
 profiles-show-loading-profile = Загрузка профиля…
 # Context: show
-profiles-show-member-since = АККАУНТ СОЗДАН
+profiles-show-member-since = ЧЛЕН С
 # Context: show
 profiles-show-message = Сообщение
 # Context: show
