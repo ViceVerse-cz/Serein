@@ -729,6 +729,41 @@ Native limits, platform requirements and the owner-operated validation gate are 
 and recording remain unsupported. This section supersedes older camera-exclusion
 statements in the historical voice/screen-sharing notes below.
 
+## Incoming stream quality and recovery — October 22, 2026
+
+Watched streams send authenticated RFC 3550 reception reports once per second, using
+actual sequence/loss/jitter counters and authenticated sender-report clocks. No artificial
+bandwidth estimate, new codec or higher resolution preset is advertised. The Discord
+transport framing and normal-account interoperability remain unofficial.
+
+Incoming video orders authenticated RTP across picture boundaries and requests missing
+original sequences through bounded RFC 4585 Generic NACKs when an RTX pair is announced.
+Ordered packets drain immediately; holes have a 120 ms repair deadline. Late originals
+and restored RTX can complete an earlier picture without discarding intact successors.
+Expiry or resource pressure still requires a keyframe. Empty RTP padding/keepalives consume
+sequence numbers without changing picture timestamps/fragments or breaking references.
+PLIs target the most recently active media source, with an independent 500 ms cooldown
+beginning on each actual request. Existing transport authentication and DAVE gates remain.
+
+Watched video additionally uses a bounded 100 ms buffer to feed the decoder on the source's
+90 kHz RTP clock, smoothing network and repair bursts before the latest-picture display slot.
+Incoming cameras retain immediate decoder scheduling. The decoder worker retries brief
+native backpressure within the existing 150 ms age budget; Linux releases its native
+pipeline and callback on close. No media processing moves into UI or audio callbacks.
+Watched audio retains 48 kHz RTP timestamps and the same 100 ms initial buffer. Audio is
+the master: authenticated RTCP sender reports relate its clock to each same-owner 90 kHz
+video source, and video deadlines adjust by at most 2 ms per picture toward that mapping.
+Audio cadence is not stretched. Without usable reports, each source retains bounded
+arrival-based RTP pacing; exact cross-source alignment is then unverified. Rekeys and
+source retirement clear queued media and timing state. The 1080p receive limit is unchanged.
+
+Synthetic protocol, encrypted local-UDP and Linux native decode checks cover these paths.
+An owner-controlled Linux test of the integration build reported smoother playback and
+recorded 705 seconds at 1280×720/~30 fps without resolution changes, incomplete pictures,
+decoder errors or recovery pauses. This is a limited observation, not a guarantee of
+Discord parity, all-network behavior or Windows/macOS interoperability. That capture
+predates timestamp-preserving audio; the final A/V path needs another owner comparison.
+
 ## Outgoing screen sharing — September 11, 2026
 
 October 3 reliability audit: UDP media sends drop on local socket pressure without
@@ -807,10 +842,9 @@ SSRC, coalescing requests to at most twice per second. Windows/macOS can freshly
 one retained current snapshot on an idle keyframe request, without waiting for screen
 movement. The additional snapshot is bounded to 33,177,600 bytes, normally reduced to
 the chosen output resolution. Ordinary idle time does not encode extra frames. Linux
-already requests periodic PipeWire keepalive frames. Sender RTX repair, receiver NACK
-requests and adaptive bitrate remain unsupported. The viewer accepts announced RTX
-packets and bounded packet reordering within the current picture; native/live video
-quality is not established by these changes.
+already requests periodic PipeWire keepalive frames. Subsequent sender RTX/rate control
+and incoming packet repair are described above; those changes do not establish universal
+native/live video quality.
 
 Watched streams have a session-only 0–200% audio volume and mute control, independent
 of participant voice levels. Audio playout retains at most two queued 20 ms frames

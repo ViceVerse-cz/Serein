@@ -26,6 +26,9 @@ const MAX_PIXELS: u64 = 1920 * 1080;
 const START_CODE: [u8; 4] = [0, 0, 0, 1];
 const MAX_DECODE_AGE: Duration = Duration::from_millis(150);
 
+#[path = "video_reorder.rs"]
+mod reorder;
+
 /// One decoded remote picture in the decoder's native layout (NV12 or I420 on every
 /// current backend); the renderer converts colour.
 pub struct RemoteFrame<'a> {
@@ -68,6 +71,7 @@ impl Drop for DecoderQueue {
 
 #[derive(Default)]
 pub(crate) struct DecoderCounters {
+	pub sizes: crate::diagnostics::VideoSizeCounters,
 	pub pictures: AtomicU64,
 	pub errors: AtomicU64,
 	pub hardware: AtomicU64,
@@ -150,67 +154,28 @@ pub(crate) struct Assembler {
 	started: bool,
 	// Preserve loss across frame resets until Receivers schedules recovery.
 	lost: bool,
-	// Only packets of the current picture; the next timestamp expires missing fragments.
-	pending: Vec<(u16, bool, Vec<u8>)>,
-	pending_bytes: usize,
 }
 impl Assembler {
-	/// Feed one packet; returns a complete access unit when the marker closes an intact frame.
-	pub fn push(
+	fn push(
 		&mut self,
 		sequence: u16,
 		timestamp: u32,
 		marker: bool,
 		payload: &[u8],
 	) -> Option<Vec<u8>> {
-		if let Some(expected) = self.next_sequence {
-			let distance = sequence.wrapping_sub(expected);
-			if distance >= 32768 {
-				return None;
-			} // Duplicate or late retransmission.
-			if distance != 0 && self.started && timestamp == self.timestamp {
-				if self.pending.iter().any(|(seq, _, _)| *seq == sequence) {
-					return None;
-				}
-				if distance < 128
-					&& self.pending.len() < 128
-					&& payload.len() <= 4096
-					&& self.pending_bytes + payload.len() <= 256 * 1024
-				{
-					self.pending_bytes += payload.len();
-					self.pending.push((sequence, marker, payload.to_vec()));
-					return None;
-				}
-				self.pending.clear();
-				self.pending_bytes = 0;
+		// Empty RTP payloads are padding/keepalives, not H.264 access units. They
+		// consume a sequence number but have no picture timestamp or marker semantics.
+		if payload.is_empty() {
+			if self
+				.next_sequence
+				.is_some_and(|expected| expected != sequence)
+			{
+				self.broken = true;
+				self.lost = true;
 			}
+			self.next_sequence = Some(sequence.wrapping_add(1));
+			return None;
 		}
-		if timestamp != self.timestamp {
-			self.pending.clear();
-			self.pending_bytes = 0;
-		}
-		let mut complete = self.push_ordered(sequence, timestamp, marker, payload);
-		while complete.is_none() {
-			let Some(index) = self
-				.pending
-				.iter()
-				.position(|(seq, _, _)| Some(*seq) == self.next_sequence)
-			else {
-				break;
-			};
-			let (seq, marker, payload) = self.pending.swap_remove(index);
-			self.pending_bytes -= payload.len();
-			complete = self.push_ordered(seq, timestamp, marker, &payload);
-		}
-		complete
-	}
-	fn push_ordered(
-		&mut self,
-		sequence: u16,
-		timestamp: u32,
-		marker: bool,
-		payload: &[u8],
-	) -> Option<Vec<u8>> {
 		if self.started && timestamp != self.timestamp {
 			// A new picture started before the previous marker arrived: drop the partial one.
 			self.lost = true;
@@ -321,8 +286,17 @@ impl Assembler {
 
 /// Remote video SSRC ownership and per-source reassembly for one media transport.
 #[derive(Default)]
+struct Source {
+	assembler: Assembler,
+	window: reorder::Window,
+	/// Forward original-sequence progress; duplicates/old RTX must not steal recovery.
+	activity: Option<(u16, Instant)>,
+	last_pli: Option<Instant>,
+}
+
+#[derive(Default)]
 pub(crate) struct Receivers {
-	sources: Vec<(u32, u64, Assembler)>,
+	sources: Vec<(u32, u64, Source)>,
 	rtx: Vec<(u32, u32)>,
 	/// Users whose decoder lost a reference picture; only a keyframe restarts their video.
 	awaiting_keyframe: Vec<u64>,
@@ -335,6 +309,15 @@ pub(crate) struct ReceiveStats {
 	pub unknown_ssrc: u64,
 	pub incomplete: u64,
 	pub complete: u64,
+	pub repaired: u64,
+	pub padding_packets: u64,
+}
+/// One complete encrypted access unit, retaining its source's 90 kHz RTP clock.
+pub(crate) struct Received {
+	pub user: u64,
+	pub source: u32,
+	pub timestamp: u32,
+	pub data: Vec<u8>,
 }
 impl Receivers {
 	/// Bind an announced video SSRC to a user; zero clears that user's sources.
@@ -346,7 +329,7 @@ impl Receivers {
 		if let Some(entry) = self.sources.iter_mut().find(|(s, _, _)| *s == ssrc) {
 			if entry.1 != user {
 				entry.1 = user;
-				entry.2 = Assembler::default();
+				entry.2 = Source::default();
 				self.rtx.retain(|(_, media)| *media != ssrc);
 			}
 			return Ok(());
@@ -354,7 +337,7 @@ impl Receivers {
 		if self.sources.len() >= MAX_SOURCES {
 			return Err("Voice channel announces more video sources than supported");
 		}
-		self.sources.push((ssrc, user, Assembler::default()));
+		self.sources.push((ssrc, user, Source::default()));
 		self.require_keyframe(user);
 		Ok(())
 	}
@@ -416,14 +399,38 @@ impl Receivers {
 			}
 		}
 	}
-	/// One video SSRC per user still waiting for a keyframe, for Picture Loss Indications.
+	/// Recover the source actually receiving media, falling back to announcement order
+	/// before the first packet. Announced but idle simulcast layers need no refresh.
 	pub fn keyframe_requests(&self) -> impl Iterator<Item = u32> + '_ {
 		self.awaiting_keyframe.iter().filter_map(|user| {
 			self.sources
 				.iter()
-				.find(|(_, u, _)| u == user)
+				.filter(|(_, u, _)| u == user)
+				.min_by_key(|(_, _, source)| std::cmp::Reverse(source.activity.map(|(_, at)| at)))
 				.map(|(ssrc, _, _)| *ssrc)
 		})
+	}
+	/// Cooldowns start only when a request is issued, independently per source. Idle
+	/// ticks cannot postpone a fresh loss; retries remain capped at two per second.
+	pub fn take_keyframe_requests(&mut self, now: Instant) -> Vec<u32> {
+		let pending: Vec<_> = self.keyframe_requests().collect();
+		pending
+			.into_iter()
+			.filter(|ssrc| {
+				let Some((_, _, source)) =
+					self.sources.iter_mut().find(|(known, _, _)| known == ssrc)
+				else {
+					return false;
+				};
+				if source.last_pli.is_some_and(|at| {
+					now.saturating_duration_since(at) < Duration::from_millis(500)
+				}) {
+					return false;
+				}
+				source.last_pli = Some(now);
+				true
+			})
+			.collect()
 	}
 	/// Whether any sender still owes this receiver a keyframe.
 	pub fn awaiting(&self) -> bool {
@@ -432,6 +439,15 @@ impl Receivers {
 	/// Whether any video source has been announced for this connection.
 	pub fn has_sources(&self) -> bool {
 		!self.sources.is_empty()
+	}
+	pub fn has_source(&self, ssrc: u32) -> bool {
+		self.sources.iter().any(|(known, _, _)| *known == ssrc)
+	}
+	pub fn owner(&self, ssrc: u32) -> Option<u64> {
+		self.sources
+			.iter()
+			.find(|(known, _, _)| *known == ssrc)
+			.map(|(_, user, _)| *user)
 	}
 	/// Ask every announced sender for a keyframe. Used when video stops without the
 	/// depacketizer seeing loss, which no per-picture signal would ever reveal.
@@ -453,7 +469,8 @@ impl Receivers {
 		}
 		!self.awaiting_keyframe.contains(&user)
 	}
-	/// Returns the owning user and a complete encrypted access unit when one closes.
+	/// Queue RTP and return the first ready access unit. Call `pop` afterwards: filling
+	/// one hole can release several pictures, including later RTP timestamps.
 	pub fn push(
 		&mut self,
 		ssrc: u32,
@@ -462,20 +479,117 @@ impl Receivers {
 		marker: bool,
 		payload: &[u8],
 	) -> Option<(u64, Vec<u8>)> {
-		let Some((_, user, assembler)) = self.sources.iter_mut().find(|(s, _, _)| *s == ssrc)
-		else {
+		self.push_timed(ssrc, sequence, timestamp, marker, payload)
+			.map(|frame| (frame.user, frame.data))
+	}
+	pub fn push_timed(
+		&mut self,
+		ssrc: u32,
+		sequence: u16,
+		timestamp: u32,
+		marker: bool,
+		payload: &[u8],
+	) -> Option<Received> {
+		let Some((_, _, source)) = self.sources.iter_mut().find(|(s, _, _)| *s == ssrc) else {
 			self.stats.unknown_ssrc += 1;
 			return None;
 		};
-		let user = *user;
-		let frame = assembler.push(sequence, timestamp, marker, payload);
-		let lost = std::mem::take(&mut assembler.lost);
-		self.stats.incomplete += u64::from(lost);
-		self.stats.complete += u64::from(frame.is_some());
-		if lost {
-			self.require_keyframe(user);
+		let now = Instant::now();
+		self.stats.padding_packets += u64::from(payload.is_empty());
+		if source.activity.is_none_or(|(last, _)| {
+			let distance = sequence.wrapping_sub(last);
+			distance != 0 && distance < 32768
+		}) {
+			if payload.is_empty() {
+				// Advance the sequence watermark through long padding runs without
+				// making an otherwise idle media source the recovery target.
+				if let Some((last, _)) = &mut source.activity {
+					*last = sequence;
+				}
+			} else {
+				source.activity = Some((sequence, now));
+			}
 		}
-		frame.map(|frame| (user, frame))
+		if source
+			.window
+			.push(sequence, timestamp, marker, payload, now)
+		{
+			source.assembler = Assembler {
+				lost: true,
+				..Assembler::default()
+			};
+		}
+		self.pop_timed_at(now)
+	}
+	/// Also called on transport ticks so a missing packet cannot hold video forever.
+	pub fn pop(&mut self) -> Option<(u64, Vec<u8>)> {
+		self.pop_at(Instant::now())
+	}
+	fn pop_at(&mut self, now: Instant) -> Option<(u64, Vec<u8>)> {
+		self.pop_timed_at(now).map(|frame| (frame.user, frame.data))
+	}
+	pub fn pop_timed(&mut self) -> Option<Received> {
+		self.pop_timed_at(Instant::now())
+	}
+	fn pop_timed_at(&mut self, now: Instant) -> Option<Received> {
+		for index in 0..self.sources.len() {
+			let (ssrc, user, source) = &mut self.sources[index];
+			let ssrc = *ssrc;
+			let user = *user;
+			let mut frame = None;
+			loop {
+				let (packet, expired) = source.window.pop(now);
+				if expired {
+					source.assembler = Assembler {
+						lost: true,
+						..Assembler::default()
+					};
+				}
+				let Some(packet) = packet else {
+					break;
+				};
+				frame = source.assembler.push(
+					packet.sequence,
+					packet.timestamp,
+					packet.marker,
+					&packet.payload,
+				);
+				if frame.is_some() {
+					break;
+				}
+			}
+			let lost = std::mem::take(&mut source.assembler.lost);
+			let timestamp = source.assembler.timestamp;
+			self.stats.repaired += std::mem::take(&mut source.window.repaired);
+			self.stats.incomplete += u64::from(lost);
+			self.stats.complete += u64::from(frame.is_some());
+			if lost {
+				self.require_keyframe(user);
+			}
+			if let Some(frame) = frame {
+				return Some(Received {
+					user,
+					source: ssrc,
+					timestamp,
+					data: frame,
+				});
+			}
+		}
+		None
+	}
+	/// Only request repair for announced RTX pairs. Source removal drops all pending
+	/// packets and feedback; source ownership changes cannot inherit another user's holes.
+	pub fn nacks(&mut self, sender: u32, now: Instant) -> Vec<([u8; 8], Vec<u8>)> {
+		self.sources
+			.iter_mut()
+			.filter_map(|(ssrc, _, source)| {
+				self.rtx
+					.iter()
+					.any(|(_, media)| media == ssrc)
+					.then(|| source.window.nack(sender, *ssrc, now))
+					.flatten()
+			})
+			.collect()
 	}
 }
 
@@ -590,8 +704,37 @@ pub(crate) fn retain_sources(sender: &DecoderQueue, receivers: &Receivers) {
 enum DecodeError {
 	/// The stream or decoder is unusable; the decoder is rebuilt at the next keyframe.
 	Failed,
-	/// The native queue is full; this access unit was dropped but the decoder is healthy.
+	/// The native queue is full; the caller retains this access unit and the decoder is healthy.
 	Busy,
+}
+
+/// Native queues can briefly fill when intact pictures arrive in a network burst. Keep
+/// the reference picture until capacity returns, within its existing decode-age budget.
+/// Only this dedicated decoder worker waits; transport and rendering remain nonblocking.
+fn decode_when_ready<T>(
+	deadline: Instant,
+	lifetime: &AtomicBool,
+	mut decode: impl FnMut() -> Result<T, DecodeError>,
+	mut wait: impl FnMut(Duration),
+) -> Option<Result<T, DecodeError>> {
+	loop {
+		if !lifetime.load(Ordering::Acquire) {
+			return None;
+		}
+		if Instant::now() >= deadline {
+			return Some(Err(DecodeError::Busy));
+		}
+		match decode() {
+			Err(DecodeError::Busy) => {
+				let remaining = deadline.saturating_duration_since(Instant::now());
+				if remaining.is_zero() {
+					return Some(Err(DecodeError::Busy));
+				}
+				wait(remaining.min(Duration::from_millis(1)));
+			}
+			result => return Some(result),
+		}
+	}
 }
 
 /// Skip a user's predictions until a keyframe and report the loss so a PLI gets sent.
@@ -629,6 +772,7 @@ impl Backend {
 				if lifetime.load(Ordering::Acquire)
 					&& bounded(frame.width as usize, frame.height as usize).is_ok()
 				{
+					counters.sizes.record(frame.width, frame.height);
 					counters.pictures.fetch_add(1, Ordering::Relaxed);
 					sink(RemoteFrame {
 						user,
@@ -786,14 +930,22 @@ fn decode_loop(
 		}
 		let decoder = decoders.get_mut(&frame.user).expect("decoder inserted");
 		let hardware = !matches!(decoder, Backend::Software(_));
-		let decoded = match decoder.decode(&frame.data, &mut scratch) {
+		let Some(result) = decode_when_ready(
+			queued + MAX_DECODE_AGE,
+			&lifetime,
+			|| decoder.decode(&frame.data, &mut scratch),
+			std::thread::sleep,
+		) else {
+			continue;
+		};
+		let decoded = match result {
 			Ok(Some(picture)) => picture,
 			Ok(None) => {
 				decoder_counts(&decoders, &counters);
 				continue;
 			}
 			Err(DecodeError::Busy) => {
-				// Backpressure, not a decoder fault: keep the decoder and its hardware path,
+				// The retry budget expired: keep the decoder and its hardware path,
 				// and skip predictions until the requested keyframe arrives.
 				counters.stale.fetch_add(1, Ordering::Relaxed);
 				decoder_counts(&decoders, &counters);
@@ -818,6 +970,7 @@ fn decode_loop(
 		if !lifetime.load(Ordering::Acquire) {
 			continue;
 		}
+		counters.sizes.record(width, height);
 		counters.pictures.fetch_add(1, Ordering::Relaxed);
 		sink(RemoteFrame {
 			user: frame.user,
@@ -869,6 +1022,71 @@ fn bounded(width: usize, height: usize) -> Result<(u32, u32), ()> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn native_backpressure_preserves_predictions_until_capacity_or_cancellation() {
+		let live = AtomicBool::new(true);
+		let mut calls = 0;
+		let value = decode_when_ready(
+			Instant::now() + MAX_DECODE_AGE,
+			&live,
+			|| {
+				calls += 1;
+				if calls < 3 {
+					Err(DecodeError::Busy)
+				} else {
+					Ok(42)
+				}
+			},
+			|_| {},
+		);
+		assert!(matches!(value, Some(Ok(42))));
+		assert_eq!(calls, 3);
+		assert!(matches!(
+			decode_when_ready::<()>(
+				Instant::now(),
+				&live,
+				|| panic!("expired frame submitted"),
+				|_| {}
+			),
+			Some(Err(DecodeError::Busy))
+		));
+		let mut calls = 0;
+		assert!(matches!(
+			decode_when_ready(
+				Instant::now() + MAX_DECODE_AGE,
+				&live,
+				|| {
+					calls += 1;
+					Err::<(), _>(DecodeError::Failed)
+				},
+				|_| {}
+			),
+			Some(Err(DecodeError::Failed))
+		));
+		assert_eq!(calls, 1, "decoder faults are not retried");
+		assert!(
+			decode_when_ready(
+				Instant::now() + MAX_DECODE_AGE,
+				&live,
+				|| {
+					live.store(false, Ordering::Release);
+					Err::<(), _>(DecodeError::Busy)
+				},
+				|_| {}
+			)
+			.is_none()
+		);
+		assert!(
+			decode_when_ready::<()>(
+				Instant::now() + MAX_DECODE_AGE,
+				&live,
+				|| panic!("cancelled decode"),
+				|_| {}
+			)
+			.is_none()
+		);
+	}
 
 	fn decoder_cleanup_queue(capacity: usize) -> (DecoderQueue, Receiver<Decode>) {
 		let (send, receive) = sync_channel(capacity);
@@ -1272,6 +1490,13 @@ mod tests {
 				assert!(receivers.push(700, 3, 2700, true, &[0x41, 2]).is_some());
 			} else {
 				assert!(receivers.push(700, 3, 1800, true, &[0x41, 1]).is_none());
+				// Give RTX a bounded chance before breaking the reference chain.
+				assert!(!receivers.awaiting());
+				assert!(
+					receivers
+						.pop_at(Instant::now() + Duration::from_millis(121))
+						.is_some()
+				);
 			}
 			assert_eq!(receivers.keyframe_requests().collect::<Vec<_>>(), vec![700]);
 			assert!(!receivers.accept(7, false));
@@ -1289,10 +1514,15 @@ mod tests {
 			assert!(receivers.push(999, 1, 900, true, &[0x65, 1]).is_none());
 			assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
 			assert!(receivers.push(700, 3, 1800, true, &[0x41, 1]).is_none());
+			assert!(
+				receivers
+					.pop_at(Instant::now() + Duration::from_millis(121))
+					.is_some()
+			);
 			let stats = receivers.take_stats();
 			assert_eq!(
 				(stats.unknown_ssrc, stats.incomplete, stats.complete),
-				(1, 1, 1)
+				(1, 1, 2)
 			);
 			assert!(receivers.awaiting());
 			let stats = receivers.take_stats();
@@ -1301,6 +1531,202 @@ mod tests {
 				(0, 0, 0)
 			);
 		}
+	}
+	#[test]
+	fn rtx_repairs_an_earlier_picture_and_releases_successors_without_a_keyframe() {
+		let mut receivers = Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		receivers.announce_rtx(700, 701).unwrap();
+		assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
+		assert!(receivers.accept(7, true));
+		assert!(
+			receivers
+				.push(700, 2, 1800, false, &[0x7c, 0x81, 2])
+				.is_none()
+		);
+		assert!(receivers.push(700, 4, 2700, true, &[0x41, 4]).is_none());
+		assert!(!receivers.awaiting());
+		let requests = receivers.nacks(99, Instant::now() + Duration::from_millis(20));
+		assert_eq!(requests.len(), 1);
+		assert_eq!(requests[0].1, [0, 0, 2, 188, 0, 3, 0, 0]);
+		let mut rtx = vec![0, 3, 0x7c, 0x41, 3];
+		let (ssrc, sequence) = receivers.restore_rtx(701, &mut rtx).unwrap();
+		assert_eq!(
+			receivers.push(ssrc, sequence, 1800, true, &rtx),
+			Some((7, vec![0, 0, 0, 1, 0x61, 2, 3]))
+		);
+		assert!(receivers.accept(7, false));
+		assert_eq!(receivers.pop(), Some((7, vec![0, 0, 0, 1, 0x41, 4])));
+		assert!(receivers.accept(7, false));
+		assert!(receivers.pop().is_none());
+		assert!(
+			receivers
+				.nacks(99, Instant::now() + Duration::from_millis(60))
+				.is_empty()
+		);
+		let stats = receivers.take_stats();
+		assert_eq!(
+			(stats.complete, stats.incomplete, stats.repaired),
+			(3, 0, 1)
+		);
+		// Source retirement must cancel feedback and discard withheld media.
+		assert!(receivers.push(700, 6, 3600, true, &[0x41, 6]).is_none());
+		receivers.remove(7);
+		assert!(receivers.pop().is_none());
+		assert!(
+			receivers
+				.nacks(99, Instant::now() + Duration::from_millis(20))
+				.is_empty()
+		);
+	}
+	#[test]
+	fn completed_pictures_retain_their_source_timestamp_after_cross_picture_repair() {
+		let mut receivers = Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		assert!(
+			receivers
+				.push_timed(700, 1, u32::MAX - 2999, false, &[0x7c, 0x85, 1])
+				.is_none()
+		);
+		assert!(receivers.push_timed(700, 3, 0, true, &[0x41, 3]).is_none());
+		let repaired = receivers
+			.push_timed(700, 2, u32::MAX - 2999, true, &[0x7c, 0x45, 2])
+			.unwrap();
+		assert_eq!(
+			(repaired.user, repaired.source, repaired.timestamp),
+			(7, 700, u32::MAX - 2999)
+		);
+		assert_eq!(repaired.data, [0, 0, 0, 1, 0x65, 1, 2]);
+		let next = receivers.pop_timed().unwrap();
+		assert_eq!((next.user, next.source, next.timestamp), (7, 700, 0));
+	}
+	#[test]
+	fn empty_keepalives_between_fragments_preserve_the_picture_and_reference_chain() {
+		let mut receivers = Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		assert!(
+			receivers
+				.push(700, 1, 900, false, &[0x7c, 0x85, 1])
+				.is_none()
+		);
+		// Padding timestamps/markers must not close or replace the unfinished picture.
+		assert!(receivers.push(700, 2, 0, true, &[]).is_none());
+		assert_eq!(
+			receivers.push(700, 3, 900, true, &[0x7c, 0x45, 2]),
+			Some((7, vec![0, 0, 0, 1, 0x65, 1, 2]))
+		);
+		receivers.accept(7, true);
+		assert!(receivers.push(700, 4, 0, false, &[]).is_none());
+		assert!(receivers.push(700, 5, 1800, true, &[0x41, 3]).is_some());
+		assert!(receivers.accept(7, false));
+		let stats = receivers.take_stats();
+		assert_eq!(
+			(stats.incomplete, stats.complete, stats.padding_packets),
+			(0, 2, 2)
+		);
+	}
+	#[test]
+	fn reordered_padding_repairs_a_sequence_hole_but_real_missing_media_still_needs_recovery() {
+		let mut receivers = Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		assert!(receivers.push(700, 65534, 900, true, &[0x65, 1]).is_some());
+		receivers.accept(7, true);
+		assert!(receivers.push(700, 0, 1800, true, &[0x41, 2]).is_none());
+		assert!(receivers.push(700, 65535, 0, true, &[]).is_some());
+		assert!(receivers.accept(7, false));
+		let stats = receivers.take_stats();
+		assert_eq!(
+			(stats.incomplete, stats.repaired, stats.padding_packets),
+			(0, 1, 1)
+		);
+		assert!(receivers.push(700, 2, 2700, true, &[0x41, 3]).is_none());
+		assert!(
+			receivers
+				.pop_at(Instant::now() + Duration::from_millis(121))
+				.is_some()
+		);
+		assert!(!receivers.accept(7, false));
+		assert_eq!(receivers.take_stats().incomplete, 1);
+	}
+	#[test]
+	fn long_padding_runs_do_not_hide_or_invent_media_activity() {
+		let mut receivers = Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		receivers.announce(7, 710).unwrap();
+		assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
+		assert!(receivers.push(710, 1, 900, true, &[0x65, 2]).is_some());
+		for sequence in 2..=32770 {
+			assert!(receivers.push(700, sequence, 0, false, &[]).is_none());
+		}
+		assert_eq!(receivers.keyframe_requests().collect::<Vec<_>>(), [710]);
+		assert!(receivers.push(700, 32771, 1800, true, &[0x65, 3]).is_some());
+		assert_eq!(receivers.keyframe_requests().collect::<Vec<_>>(), [700]);
+		assert_eq!(receivers.take_stats().incomplete, 0);
+	}
+	#[test]
+	fn keyframe_cooldowns_begin_with_real_requests_and_are_independent_per_source() {
+		let now = Instant::now();
+		let mut receivers = Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		assert!(receivers.accept(7, true));
+		for ms in [0, 200, 400] {
+			assert!(
+				receivers
+					.take_keyframe_requests(now + Duration::from_millis(ms))
+					.is_empty()
+			);
+		}
+		receivers.require_keyframe(7);
+		let first = now + Duration::from_millis(490);
+		assert_eq!(receivers.take_keyframe_requests(first), [700]);
+		assert!(
+			receivers
+				.take_keyframe_requests(first + Duration::from_millis(499))
+				.is_empty()
+		);
+		// A second sender's first request does not inherit the first sender's cooldown.
+		receivers.announce(8, 800).unwrap();
+		assert_eq!(
+			receivers.take_keyframe_requests(first + Duration::from_millis(10)),
+			[800]
+		);
+		assert_eq!(
+			receivers.take_keyframe_requests(first + Duration::from_millis(500)),
+			[700]
+		);
+		receivers.accept(7, true);
+		assert_eq!(
+			receivers.take_keyframe_requests(first + Duration::from_millis(510)),
+			[800]
+		);
+		receivers.remove(8);
+		assert!(
+			receivers
+				.take_keyframe_requests(first + Duration::from_secs(1))
+				.is_empty()
+		);
+	}
+	#[test]
+	fn recovery_targets_forward_media_activity_instead_of_idle_layers_or_old_rtx() {
+		let mut receivers = Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		receivers.announce(7, 710).unwrap();
+		assert_eq!(receivers.keyframe_requests().collect::<Vec<_>>(), [700]);
+		assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
+		receivers.accept(7, true);
+		assert!(receivers.push(710, 5, 900, true, &[0x65, 2]).is_some());
+		assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_none()); // Old duplicate.
+		let lost: Lost = Arc::new(Mutex::new(vec![7]));
+		receivers.absorb(&lost);
+		assert!(lost.lock().unwrap().is_empty());
+		assert_eq!(receivers.keyframe_requests().collect::<Vec<_>>(), [710]);
+		let now = Instant::now();
+		assert_eq!(receivers.take_keyframe_requests(now), [710]);
+		// Pruning the active layer also retires its feedback/cooldown state.
+		receivers.retain_user_sources(7, &[700]);
+		assert_eq!(receivers.take_keyframe_requests(now), [700]);
+		receivers.remove(7);
+		assert!(!receivers.awaiting());
 	}
 	#[test]
 	fn receivers_bind_ssrcs_to_users_within_the_source_limit() {

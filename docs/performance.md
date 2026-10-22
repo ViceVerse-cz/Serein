@@ -4,6 +4,84 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Incoming stream quality, pacing and recovery — October 22, 2026
+
+The stream receiver retains intact access units under brief native backpressure, repairs
+RTP holes across pictures and paces watched video on its source timestamps. No dependency,
+codec, resolution limit, notification audio or UI layout changes. Watched-stream audio
+now retains RTP timestamps and uses matching initial buffering; call audio is unchanged.
+Package comparisons use unchanged upstream `c2842aa` and the isolated streaming branch, pinned Rust 1.98.1 and
+`cargo xtask package --format arch` (voice included, demo disabled) on Linux x86_64.
+The standard package smoke checks validate metadata, dependencies, ownership and payload.
+| Package metric | Upstream baseline | Streaming candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,650,248 B | 92,710,664 B | +60,416 B (+0.065%) |
+| Installed payload (245 files) | 97,348,681 B | 97,409,097 B | +60,416 B (+0.062%) |
+| Arch archive | 54,376,694 B | 54,424,215 B | +47,521 B (+0.087%) |
+
+Installed bytes sum archive file lengths under `usr/`, excluding package metadata.
+Both packages contain the same 245 installed files and pass the native Arch smoke checks.
+The full gate passes 1,291 tests, strict Clippy, formatting, application and policy checks.
+
+During preparation, a native harness exercised the production packetizer, receiver,
+decoder worker and GStreamer/VA-API path on an AMD RX 6900 XT. The fixture is eight seconds
+of FFmpeg `testsrc2`, 1920×1080/60, libx264 veryfast/zerolatency, four threads, 8 Mbps
+target/max/VBV, AUDs, key interval 120, no scene cuts or B frames. FFmpeg-decoded luma CRCs
+provide the reference. Each row below is one functional before/after run, isolating one
+component; these are not whole-client throughput or actual GUI presentation measurements.
+
+| Workload / result | Before correction | After correction |
+| --- | ---: | ---: |
+| Six access units / 100 ms: delivered pictures, 480 inputs | 18 | 479 |
+| Same burst: stale/native-age rejections | 4 | 0 |
+| One empty keepalive: predictions gated | 89 | 0 |
+| Same keepalive: delivered pictures, 480 inputs | 390 | 479 |
+| Same keepalive: longest decoded-picture gap | 1,500.453 ms | 20.070 ms |
+| 30 fps burst, simulated 120 Hz display: uploads / overwrites | 230 / 9 | 239 / 0 |
+| Same 30 fps burst: upload-gap p95 | 91.961 ms | 34.011 ms |
+| 60 fps burst, simulated 120 Hz display: uploads / overwrites | 341 / 138 | 478 / 1 |
+| Same 60 fps burst: upload-gap p95 | 75.005 ms | 17.010 ms |
+
+Corrected native pictures match reference luma CRCs in order. GStreamer's parser retains
+the final access unit until another arrives; live teardown does not send EOS. The original
+worker/keepalive workloads have no PLI responder, so failure waits for the next periodic
+IDR rather than predicting live Discord FPS. Display-poll rows use an instrumented
+latest-picture latch, not egui/wgpu or physical presentation; the remaining 60 fps overwrite
+and OS/startup timing were not isolated. Earlier integration builds retained an unrelated
+notification-output correction on both sides; that correction and temporary desktop
+frame counters are excluded from this PR. Their results are preparation evidence, not
+a fresh package comparison or a claim about default-build CPU, memory or A/V sync.
+
+An isolated-source native pacing rerun delivers 239/479 reference-identical pictures at
+30/60 fps, with zero decoder errors, stale frames or queue rejection. The simulated 120 Hz
+display receives 239/478 pictures (zero/one overwrite); upload-gap p95 is 34.007/17.012 ms.
+These are again single functional runs, not actual GUI or physical presentation timings.
+
+A completed owner-operated test of the integration build covered 705.143 seconds at
+1280×720/~29.98 fps, with no dimension changes, incomplete pictures, decoder errors,
+playback drops/resets or recovery pauses. Its temporary shutdown counters recorded all
+21,138 decoded pictures uploaded and zero overwrites; uploads are not proof of physical
+display presentation. The receiver filled 193 observed sequence holes, including natural
+reordering, not necessarily 193 lost packets repaired by RTX. No empty padding occurred,
+so this capture does not identify the cause of a previous pause or exercise padding live.
+The final isolated build still needs the owner's comparison after cleanup and the new
+A/V timing path. A deterministic component test offsets video arrival by 40 ms relative
+to audio, uses independent RTP origins and acquires sender reports later. Both real Opus
+audio playout and encoded-video scheduling converge to matching logical deadlines without
+changing audio cadence or dropping queued video. This tests scheduling, not hardware latency.
+
+Resource limits: repair holds at most 512 sequence positions / 512 KiB of encrypted payload
+per source, at most 16 sources; watched-video pacing adds at most 16 encoded pictures /
+8 MiB and 100 ms initial video delay. The existing 16-picture / 16-MiB decoder queue,
+four-unit Linux native queue and 150 ms decoder-age budget remain. Watched audio uses at
+most eight compressed packets plus one 5,760-sample mono PCM buffer per source (16 sources).
+Authenticated sender reports provide an audio master for gradually corrected video deadlines;
+without usable reports, matching initial buffers provide arrival-based pacing only.
+Numeric diagnostics remain off by default,
+with eight queued reports under 8 KiB and the existing 8 MiB process output cap.
+CPU/RSS, end-to-end latency, physical presentation and Windows/macOS behavior were not
+measured; no claim is made for those metrics. Screenshots do not apply to this media path.
+
 ## Server folder mark-as-read — October 15, 2026 (PR #672)
 
 Compared base `104b1aa5` with folder mark-as-read `2b02b49e`. Standard unsigned Windows x64

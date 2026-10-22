@@ -4,6 +4,7 @@
 
 #[path = "../src/crypto.rs"]
 mod crypto;
+use stream_playback::diagnostics;
 #[path = "support/stream_feedback.rs"]
 mod stream_feedback;
 mod stream_playback;

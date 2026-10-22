@@ -8,7 +8,9 @@ mod diagnostics;
 mod jitter;
 mod mixer;
 pub mod screen;
+mod stream_audio_receive;
 mod stream_playout;
+mod stream_sync;
 mod timer;
 mod transport;
 mod video;
@@ -16,6 +18,8 @@ mod video;
 // same configuration, so the facade is compiled on every supported platform.
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod video_encode;
+mod video_feedback;
+mod video_playout;
 mod video_receive;
 mod video_sps;
 pub use crypto::Identity;

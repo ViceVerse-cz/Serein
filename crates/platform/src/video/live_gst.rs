@@ -93,10 +93,13 @@ impl H264Decoder {
 				.build(),
 		);
 		decodebin.connect_pad_added({
-			let pipeline = pipeline.clone();
+			let pipeline = pipeline.downgrade();
 			let appsink = appsink.clone();
 			let failed = failed.clone();
 			move |_, pad| {
+				let Some(pipeline) = pipeline.upgrade() else {
+					return;
+				};
 				let is_video = pad
 					.current_caps()
 					.and_then(|caps| caps.structure(0).map(|s| s.name().starts_with("video/")))
@@ -247,5 +250,27 @@ mod tests {
 			Err(_) => return, // No GStreamer H.264 plugins on this machine.
 		};
 		assert!(decoder.decode(&vec![0; MAX_ACCESS_UNIT + 1]).is_err());
+	}
+
+	#[test]
+	fn live_receiver_releases_pipeline_and_callback_on_drop() {
+		let owner = Arc::new(());
+		let lifetime = Arc::downgrade(&owner);
+		let Ok(decoder) = H264Decoder::new(Box::new(move |_| {
+			let _ = Arc::strong_count(&owner);
+		})) else {
+			assert!(lifetime.upgrade().is_none());
+			return; // Required native GStreamer plugins are unavailable.
+		};
+		let pipeline = decoder.pipeline.downgrade();
+		drop(decoder);
+		assert!(
+			pipeline.upgrade().is_none(),
+			"native pipeline leaked after close"
+		);
+		assert!(
+			lifetime.upgrade().is_none(),
+			"output callback leaked after close"
+		);
 	}
 }

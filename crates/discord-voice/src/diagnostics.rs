@@ -48,7 +48,7 @@ pub(crate) enum Stage {
 pub(crate) enum Video {
 	/// Video RTP packets (payload 101) accepted by the transport cipher.
 	Packets,
-	/// Retransmission packets (payload 102); currently ignored, so a high count means loss.
+	/// Retransmission packets (payload 102) received before SSRC/sequence restoration.
 	Rtx,
 	/// Packets that failed the transport AEAD.
 	OpenFailed,
@@ -86,8 +86,119 @@ pub(crate) enum Video {
 	DecodeQueueMs,
 	/// Queued frames discarded after exceeding the latency budget.
 	StaleFrames,
+	/// Compressed H.264 bytes in complete, decrypted pictures, before decoder admission.
+	EncodedBytes,
+	/// Authenticated reception reports sent by this watched-stream transport.
+	ReceiverReportsSent,
+	/// Generic NACK datagrams sent to request missing video packets.
+	NacksSent,
+	/// Observed sequence holes filled before their repair deadline.
+	RepairedPackets,
+	/// Watched pictures enqueued after their RTP-clock playback deadline.
+	PlayoutLate,
+	/// Playback clock anchors cleared after discontinuity/security/pressure.
+	PlayoutResets,
+	/// Pictures discarded from the bounded watched-playback queue.
+	PlayoutDrops,
+	/// Maximum watched-playback queue depth during this report.
+	PlayoutDepth,
+	/// Authenticated empty video RTP payloads handled as padding/keepalives.
+	PaddingPackets,
+	/// Accepted watched-audio sender clock reports.
+	AvAudioReports,
+	/// Accepted watched-video sender clock reports.
+	AvVideoReports,
+	/// Video deadlines related to an audio sender clock.
+	AvVideoSynced,
+	/// Maximum pre-correction video scheduling offset, not physical output latency.
+	AvOffsetMs,
 }
-const VIDEO_SLOTS: usize = 20;
+const VIDEO_SLOTS: usize = 33;
+
+/// Opt-in only; media callbacks do no additional atomic work when diagnostics are off.
+pub(crate) fn enabled() -> bool {
+	static ENABLED: OnceLock<bool> = OnceLock::new();
+	*ENABLED.get_or_init(|| std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|v| v == "1"))
+}
+
+/// Dimensions of delivered pictures only. The packed key sorts by pixel count and retains
+/// both dimensions; live pictures have already passed the shared 1920px/1080p bound.
+#[derive(Clone, Copy, Default)]
+struct VideoSizes {
+	last: u64,
+	min: u64,
+	max: u64,
+	changes: u64,
+}
+
+impl VideoSizes {
+	fn merge(&mut self, next: Self) {
+		if next.last != 0 {
+			self.last = next.last;
+		}
+		if next.min != 0 {
+			self.min = if self.min == 0 {
+				next.min
+			} else {
+				self.min.min(next.min)
+			};
+		}
+		self.max = self.max.max(next.max);
+		self.changes = self.changes.saturating_add(next.changes);
+	}
+}
+
+/// Fixed-size decoder-callback counters, drained by its transport without a blocking lock.
+pub(crate) struct VideoSizeCounters {
+	enabled: bool,
+	last: AtomicU64,
+	min: AtomicU64,
+	max: AtomicU64,
+	changes: AtomicU64,
+}
+
+impl Default for VideoSizeCounters {
+	fn default() -> Self {
+		Self {
+			enabled: enabled(),
+			last: AtomicU64::new(0),
+			min: AtomicU64::new(0),
+			max: AtomicU64::new(0),
+			changes: AtomicU64::new(0),
+		}
+	}
+}
+
+impl VideoSizeCounters {
+	pub fn record(&self, width: u32, height: u32) {
+		if !self.enabled {
+			return;
+		}
+		debug_assert!(width > 0 && height > 0 && width <= 1920 && height <= 1920);
+		let key = ((u64::from(width) * u64::from(height)) << 22)
+			| (u64::from(width) << 11)
+			| u64::from(height);
+		let previous = self.last.swap(key, Ordering::Relaxed);
+		if previous != 0 && previous != key {
+			self.changes.fetch_add(1, Ordering::Relaxed);
+		}
+		let _ = self
+			.min
+			.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |min| {
+				Some(if min == 0 { key } else { min.min(key) })
+			});
+		self.max.fetch_max(key, Ordering::Relaxed);
+	}
+
+	fn take(&self) -> VideoSizes {
+		VideoSizes {
+			last: self.last.load(Ordering::Relaxed),
+			min: self.min.swap(0, Ordering::Relaxed),
+			max: self.max.swap(0, Ordering::Relaxed),
+			changes: self.changes.swap(0, Ordering::Relaxed),
+		}
+	}
+}
 
 /// Voice signaling messages, so a handshake that never completes names its own missing step.
 /// Opcodes only; no signaling contents are recorded.
@@ -204,6 +315,7 @@ struct Report {
 	at_ms: u64,
 	window_ms: u64,
 	video: [u64; VIDEO_SLOTS],
+	video_sizes: VideoSizes,
 	signal: [u64; SIGNAL_SLOTS],
 	/// Application-audio capture (Linux): inputs allowed, captures started, applications
 	/// excluded after a failure, and mixed 20 ms chunks handed to the stream.
@@ -239,7 +351,7 @@ impl Metrics {
 	pub fn new(scope: Scope) -> Self {
 		static REPORTER: OnceLock<Option<mpsc::SyncSender<Report>>> = OnceLock::new();
 		let send = REPORTER.get_or_init(|| {
-			if std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_none_or(|v| v != "1") {
+			if !enabled() {
 				return None;
 			}
 			let (send, receive) = mpsc::sync_channel::<Report>(8);
@@ -266,6 +378,7 @@ impl Metrics {
 				at_ms: 0,
 				window_ms: 0,
 				video: [0; VIDEO_SLOTS],
+				video_sizes: VideoSizes::default(),
 				signal: [0; SIGNAL_SLOTS],
 				capture: [0; 6],
 				stages: [[0; 3]; 11],
@@ -287,6 +400,13 @@ impl Metrics {
 	/// Snapshot live decoder counts owned by this transport, never process-wide history.
 	pub fn decoder_counts(&mut self, hardware: u64, software: u64) {
 		self.report.decoder_counts = [hardware, software];
+	}
+
+	/// Aggregate dimensions independently of the decoder's short polling interval.
+	pub fn video_sizes(&mut self, counters: &VideoSizeCounters) {
+		if self.send.is_some() {
+			self.report.video_sizes.merge(counters.take());
+		}
 	}
 
 	pub fn finish(&mut self, stage: Stage, start: Option<Instant>) {
@@ -405,6 +525,7 @@ impl Metrics {
 		self.report.stream_ticks = [0; 8];
 		self.report.queued_audio = 0;
 		self.report.video = [0; VIDEO_SLOTS];
+		self.report.video_sizes = VideoSizes::default();
 		self.report.signal = [0; SIGNAL_SLOTS];
 		self.report.capture = [0; 6];
 	}
@@ -482,9 +603,35 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 			stall_ticks,
 			decode_queue_ms,
 			stale_frames,
+			encoded_bytes,
+			receiver_reports_sent,
+			nacks_sent,
+			repaired_packets,
+			playout_late,
+			playout_resets,
+			playout_drops,
+			playout_depth,
+			padding_packets,
+			av_audio_reports,
+			av_video_reports,
+			av_video_synced,
+			av_offset_ms,
 		] = report.video;
+		let encoded_bps = encoded_bytes
+			.saturating_mul(8000)
+			.checked_div(report.window_ms)
+			.unwrap_or(0);
 		line.push_str(&format!(
-			" video: packets={packets} rtx={rtx} open_failed={open_failed} not_ready={not_ready} unknown_ssrc={unknown_ssrc} incomplete={incomplete} complete={complete} decrypt_failed={decrypt_failed} gated={gated} queue_full={queue_full} keyframes={keyframes} keyframes_without_params={keyframes_without_params} pli_sent={pli_sent} awaiting_ticks={awaiting_ticks} decoder_errors={decoder_errors} pictures={pictures} picture_gap_ms={picture_gap_ms} stall_ticks={stall_ticks} decode_queue_ms={decode_queue_ms} stale_frames={stale_frames}"
+			" video: packets={packets} rtx={rtx} open_failed={open_failed} not_ready={not_ready} unknown_ssrc={unknown_ssrc} incomplete={incomplete} complete={complete} decrypt_failed={decrypt_failed} gated={gated} queue_full={queue_full} keyframes={keyframes} keyframes_without_params={keyframes_without_params} pli_sent={pli_sent} awaiting_ticks={awaiting_ticks} decoder_errors={decoder_errors} pictures={pictures} picture_gap_ms={picture_gap_ms} stall_ticks={stall_ticks} decode_queue_ms={decode_queue_ms} stale_frames={stale_frames} encoded_bytes={encoded_bytes} encoded_bps={encoded_bps} receiver_reports_sent={receiver_reports_sent} nacks_sent={nacks_sent} repaired_packets={repaired_packets} playout_late={playout_late} playout_resets={playout_resets} playout_drops={playout_drops} playout_depth={playout_depth} padding_packets={padding_packets} av_audio_reports={av_audio_reports} av_video_reports={av_video_reports} av_video_synced={av_video_synced} av_offset_ms={av_offset_ms}"
+		));
+	}
+	if report.video_sizes.last != 0 {
+		let unpack = |key: u64| ((key >> 11) & 2047, key & 2047);
+		let (width, height) = unpack(report.video_sizes.last);
+		let (min_width, min_height) = unpack(report.video_sizes.min);
+		let (max_width, max_height) = unpack(report.video_sizes.max);
+		line.push_str(&format!(
+			" video_size: last={width}x{height} min={min_width}x{min_height} max={max_width}x{max_height} changes={}", report.video_sizes.changes
 		));
 	}
 	if report.signal.iter().any(|count| *count != 0) {

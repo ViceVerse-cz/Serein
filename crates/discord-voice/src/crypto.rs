@@ -121,8 +121,17 @@ impl Encryption {
 	/// Parse authenticated RFC 3550 reports, RFC 4585 PLI/NACK, and WebRTC REMB.
 	/// Invalid trailing packets discard all preceding feedback; NACKs are bounded to 128.
 	pub fn feedback(&self, packet: &[u8], video_ssrc: u32) -> Option<Feedback> {
-		if video_ssrc == 0
-			|| !(28..=MAX_PACKET).contains(&packet.len())
+		if video_ssrc == 0 {
+			return None;
+		}
+		let compound = self.open_rtcp(packet)?;
+		Self::parse_feedback(&compound, video_ssrc)
+	}
+
+	/// Authenticate a control datagram with the same protected header as `seal_rtcp`.
+	/// Callers still validate the complete compound RTCP framing before using its contents.
+	pub fn open_rtcp(&self, packet: &[u8]) -> Option<Vec<u8>> {
+		if !(28..=MAX_PACKET).contains(&packet.len())
 			|| packet[0] >> 6 != 2
 			|| !(192..=223).contains(&packet[1])
 		{
@@ -142,7 +151,10 @@ impl Encryption {
 		let mut compound = Vec::with_capacity(8 + body.len());
 		compound.extend_from_slice(&packet[..8]);
 		compound.extend_from_slice(&body);
-		let mut remaining = compound.as_slice();
+		Some(compound)
+	}
+
+	fn parse_feedback(mut remaining: &[u8], video_ssrc: u32) -> Option<Feedback> {
 		let mut feedback = Feedback::default();
 		while !remaining.is_empty() {
 			if remaining.len() < 4 || remaining[0] >> 6 != 2 || !(192..=223).contains(&remaining[1])
@@ -673,6 +685,33 @@ impl Drop for Dave {
 mod tests {
 	use super::*;
 	use openmls::prelude::{OpenMlsProvider, ProtocolVersion};
+	#[test]
+	fn authenticated_padding_only_video_does_not_break_the_following_picture() {
+		let mut cipher = Encryption::new(&[7; 32]);
+		let mut receivers = crate::video_receive::Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
+		receivers.accept(7, true);
+		let mut header = [0xa0, 101, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0];
+		header[8..12].copy_from_slice(&700u32.to_be_bytes());
+		let packet = cipher.seal(&header, &[0, 0, 3]).unwrap();
+		let rtp = cipher.open(&packet).unwrap();
+		assert!(rtp.payload.is_empty());
+		assert!(
+			receivers
+				.push(
+					rtp.ssrc,
+					rtp.sequence,
+					rtp.timestamp,
+					rtp.marker,
+					&rtp.payload
+				)
+				.is_none()
+		);
+		assert!(receivers.push(700, 3, 1800, true, &[0x41, 2]).is_some());
+		assert!(receivers.accept(7, false));
+		assert_eq!(receivers.take_stats().incomplete, 0);
+	}
 	#[test]
 	fn proposals_before_local_group_are_ignored_without_weakening_later_validation() {
 		let server = crate::test_mls::Delivery::new();

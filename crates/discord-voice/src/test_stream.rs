@@ -261,13 +261,22 @@ async fn exchange(rekey_timeout: bool) {
 	// keyframe requests. Echo native pong packets before verifying media below.
 	let mut ping = [0; MAX_PACKET + 1];
 	let mut ping_sequence = 0u32;
+	let mut reception_reports = 0;
 	timeout(Duration::from_secs(8), async {
 		while ping_sequence < 2 {
 			tokio::select! {
 				result = view_udp.recv_from(&mut ping) => {
 					let (length, address) = result.unwrap();
 					assert_eq!(address, view_addr);
-					if length != 8 { continue; } // Authenticated RTCP is separate.
+					if length != 8 {
+						let control=Encryption::new(&[7;32]).open_rtcp(&ping[..length]).expect("Authenticated viewer control");
+						if control[1]==201 {
+							reception_reports+=1;
+							assert_eq!(&control[..4], &[0x80,201,0,1]);
+							assert_eq!(&control[4..8], &42u32.to_be_bytes());
+						}
+						continue;
+					}
 					assert_eq!(&ping[..4], &[0x13, 0x37, 0xca, 0xfe]);
 					ping_sequence += 1;
 					assert_eq!(&ping[4..8], &ping_sequence.to_le_bytes());
@@ -281,6 +290,10 @@ async fn exchange(rekey_timeout: bool) {
 	})
 	.await
 	.expect("Idle viewer stopped maintaining UDP");
+	assert!(
+		reception_reports > 0,
+		"viewer sent no authenticated reception reports"
+	);
 	let mut encoder = openh264::encoder::Encoder::with_api_config(
 		openh264::OpenH264API::from_source(),
 		openh264::encoder::EncoderConfig::new(),

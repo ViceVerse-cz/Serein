@@ -720,6 +720,37 @@ participant IDs, credentials or signaling contents. The existing eight-report qu
 8,192-report / 8-MiB process-lifetime limits still apply. Enable it on both endpoints
 only for the owner's deliberate test, then disable it after collecting the summaries.
 
+### Incoming stream recovery and pacing
+
+Watched streams send authenticated RTCP reception reports every second and preserve
+source RTP timestamps through reassembly. Incoming video can repair missing packets
+across picture boundaries through announced RTX pairs and Generic NACKs; ordered input
+has no intentional holdback, while a hole has at most 120 ms for repair. Empty padding
+packets do not invalidate picture references. Unrecoverable loss requests a keyframe from
+the most recently active media source, at most once per 500 ms per source.
+
+A watched-video buffer starts playback 100 ms later and submits intact pictures on their
+90 kHz source clock, instead of immediately decoding a network burst. It retains at most
+16 pictures / 8 MiB. Incoming cameras retain immediate scheduling. Brief native decoder
+backpressure is retried only on the dedicated worker, within the existing 150 ms age
+budget. Severe lateness, queue pressure and decode faults retain keyframe recovery.
+
+Watched audio preserves 48 kHz RTP timestamps through bounded packet ordering and Opus
+decode, with matching 100 ms initial buffering. Audio provides the playback master clock.
+Valid authenticated sender reports relate its timestamps to same-owner video clocks;
+video adjusts by at most 2 ms per picture without stretching audio or abruptly draining
+the display queue. Zero, reordered, unrelated-source and implausible reports are ignored;
+timing mappings expire after 30 seconds without refresh. Missing reports retain independent
+arrival-based RTP pacing, which cannot guarantee exact lip sync. Normal participant voice
+timing, encryption, DAVE, subscription and 1080p requirements are unchanged. Physical
+audio-device latency and display presentation are not measured by this scheduling logic.
+
+For an owner-controlled comparison, watch the same moving stream at the same resolution
+and frame rate for 10–15 minutes, check picture cadence and audio/video alignment, then
+leave and rejoin once to check teardown/recovery. Capture numeric diagnostics only during
+the deliberate test. Synthetic checks and one successful session do not establish behavior
+on every network, device or platform.
+
 ### Remote video diagnostics
 
 Every report line carries `at_ms`, milliseconds since the first reporter started, so
@@ -728,9 +759,28 @@ lines from different scopes can be ordered. `Transport` (call camera video) and
 remote video counter is non-zero. Each counter names one place a picture can be lost
 between the UDP socket and the display, so a frozen viewer is diagnosed from one line:
 
+- `encoded_bytes` / `encoded_bps`: complete, decrypted compressed-video bytes and their
+  average bits/second over `window_ms`, before keyframe gating or decoder admission.
+  These exclude incomplete pictures and transport/retransmission overhead; they are not
+  the sender's configured bitrate or an available-bandwidth estimate.
+- `video_size: last=WxH min=WxH max=WxH changes=N`: delivered decoded dimensions, ranges
+  by pixel count and transitions. Camera scopes aggregate senders; snapshots are approximate
+  at report boundaries. No pixels, participant IDs or encoded payloads are recorded.
 - `packets` / `rtx`: accepted video RTP packets (including restored retransmissions),
   and received retransmission packets (payload 102). Announced RTX sources can repair
-  gaps in the current picture; Serein does not yet send NACK requests.
+  gaps across pictures through bounded Generic NACKs.
+- `nacks_sent` / `repaired_packets`: NACK datagrams and observed sequence holes filled
+  before expiry. Filled holes include natural reordering, not only retransmitted losses.
+- `padding_packets`: authenticated empty video RTP payloads handled without picture loss.
+- `playout_late` / `playout_resets` / `playout_drops` / `playout_depth`: late enqueue events,
+  playback-clock resets, discarded queued pictures and maximum queue depth. Late inputs
+  alone do not imply a dropped or visibly skipped frame.
+- `receiver_reports_sent`: authenticated RTCP reception reports sent while watching.
+- `av_audio_reports` / `av_video_reports` / `av_video_synced`: accepted sender timing reports
+  and video deadlines mapped to an audio clock. Zero mapped deadlines means the receiver
+  has not confirmed a usable cross-media clock and is using fallback pacing.
+- `av_offset_ms`: maximum video scheduling difference before gradual correction in the
+  reporting window; this is not measured physical speaker/display lip-sync error.
 - `open_failed`: packets of any payload rejected by the transport AEAD.
 - `not_ready`: video packets received before the DAVE session was ready or from a
   user outside the group; expected briefly after joining or an epoch change.

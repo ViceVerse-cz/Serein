@@ -130,8 +130,9 @@ Each Linux live H.264 decoder now admits at most four queued compressed access
 units and 8,650,752 payload bytes in its native appsrc. Its existing nonblocking
 `max-bytes` setting only signaled pressure and did not enforce rejection. One
 producer checks native queue levels before copying the next access unit; native
-consumption can only lower them. Rejection resets decoding through the existing
-keyframe recovery path rather than silently losing a reference picture. Older
+consumption can only lower them. Brief rejection is retried by the dedicated decoder
+worker within the existing 150 ms picture-age budget; expiry retains keyframe recovery
+rather than silently losing a reference picture. Older
 GStreamer runtimes without item accounting (before 1.20) use the software fallback.
 The outer 16-picture / 16-MiB decode handoff, at most eight active decoders,
 current worker input, consumed native buffers, codec surfaces and decoded pictures
@@ -1038,7 +1039,9 @@ Schema 7 adds one checked integer `message_kind` (0..255) per cached message, wi
 ### Opt-in synchronization and compatibility diagnostics
 
 Voice performance diagnostics (`SEREIN_VOICE_DIAGNOSTICS=1`) are also off by default.
-They retain at most eight fixed-size numeric reports in a worker queue (under 2 KiB),
+They include aggregate compressed-video byte counts, decoded dimensions/transitions,
+repair/feedback counts and playback-queue outcomes. They retain at most eight fixed-size
+numeric reports in a worker queue (under 8 KiB),
 plus one report per producer and one being written. One background writer formats
 reports and caps attempted stderr output at 8,192 reports AND 8 MiB per process,
 across calls (about eleven hours of three concurrent five-second reporters). Queue overflow drops diagnostics without delaying media. A blocked
@@ -1046,6 +1049,34 @@ stderr can stall only that single diagnostic writer. No files, identifiers, devi
 names, payloads, audio, keys or telemetry are produced. Explicit shell redirection
 is owner-managed; unrelated output and appended runs are outside these limits.
 See [voice CPU diagnostics](voice.md#investigating-high-cpu-during-a-call) for usage.
+
+Incoming-video repair retains at most 512 sequence positions and 512 KiB of encrypted RTP
+payload per announced source (16 sources, at most 8 MiB plus bounded tree metadata).
+Holes expire after 120 ms during receive processing or 20 ms transport ticks. Generic
+NACK feedback requests at most 64 missing numbers per source per 20 ms, at most three
+attempts per hole and 288 encrypted wire bytes per datagram. Source retirement or owner
+replacement discards pending packets, requests, media-activity and actual-PLI clocks.
+Empty padding packets use the same sequence window and retain no media payload.
+
+Watched-video pacing holds at most 16 decrypted encoded pictures and 8 MiB of allocated
+payload capacity, plus one source-clock anchor and bounded deque metadata. This is separate
+from the existing 16-picture/16-MiB decoder handoff and native decoder queue. Initial video
+buffering is 100 ms; severe stalls, pressure or incompatible clock changes trigger bounded
+keyframe recovery. Rekeys and teardown clear queued plaintext. Reception reports retain
+at most 16 transient source-statistics entries and 384 report-block bytes per one-second
+send. Backpressure retries retain the existing access unit rather than another copy.
+
+Watched-stream audio separately retains at most eight compressed Opus packets (1,275 bytes
+each, exact-sized allocations) and one 5,760-sample mono PCM buffer per source, at most
+16 sources: 531,840 bytes of payload/PCM plus bounded metadata and codec state. At most
+eight packets are decoded per source per 20 ms tick; missing input gets at most three
+concealment operations before stopping. PCM follows 48 kHz RTP timestamps and 100 ms
+initial buffering. Independent normal-call audio mixing and its existing jitter are unchanged.
+The shared stream timing state has at most 32 source clocks and 16 audio references.
+It accepts sender timing only for current known sources, retains no packet contents and
+ignores reports more than 30 seconds old for synchronization. Rekeys clear audio PCM,
+compressed packets, queued video and timing references before another receive iteration.
+No media files, diagnostic archives, schema changes or persistent queues are added.
 
 `SEREIN_MEMBER_DIAGNOSTICS=1` enables fixed-label member synchronization diagnostics;
 `SEREIN_GATEWAY_DIAGNOSTICS=1` enables Gateway compatibility diagnostics. Both are off by default.
