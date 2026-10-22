@@ -23,9 +23,6 @@ impl Codec {
 			Self::H265 => 103,
 		}
 	}
-	pub fn rtx(self) -> u8 {
-		self.payload() + 1
-	}
 	pub fn available_h265() -> bool {
 		#[cfg(target_os = "linux")]
 		return platform::video::live::H264Decoder::new_h265_timed(Box::new(|_, _| {})).is_ok();

@@ -777,8 +777,10 @@ Windows/macOS viewers, camera sessions and stream encoders still use H.264. HEVC
 existing authenticated RTX repair and DAVE decryption. Negotiation/session updates are
 unofficial, following the public native receiver and discord.py-self implementations
 linked in [voice.md](voice.md#incoming-stream-recovery-and-pacing).
-Codec changes retire buffered video/decoder state and require a recovery picture with
-VPS/SPS/PPS. SPS validation retains the 1080p receive bound before native submission.
+Received codecs are selected per source from advertised RTP payload types, independently
+of the outgoing session `video_codec`. A forward primary codec change retires that source's
+buffered video/decoder state and requires a recovery picture with VPS/SPS/PPS; delayed old
+packets/RTX and session-only updates do not reset unrelated received media. SPS validation retains the 1080p receive bound before native submission.
 Offline encrypted reassembly, malformed packet/bounds and native reference-picture checks
 cover the implementation; live negotiation and quality parity await an owner-operated test.
 No bandwidth estimator, new dependency, media cache or video recording is introduced.

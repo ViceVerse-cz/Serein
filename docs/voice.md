@@ -731,16 +731,23 @@ and [session signaling implementation](https://github.com/dolfies/discord.py-sel
 these remain unofficial interoperability behavior, requiring an owner-operated live test.
 
 HEVC reassembly implements RFC 7798 single NAL, aggregation and fragmentation packets
-for a single layer without DONL, as used by WebRTC. DAVE authentication precedes codec
-inspection and native decoding. Keyframe detection recognizes IRAP types 16–21; a new
+for a single layer without DONL, as used by WebRTC. Transport authentication precedes
+packet routing; DAVE authentication precedes NAL inspection and native decoding. Keyframe detection recognizes IRAP types 16–21; a new
 HEVC decoder requires VPS/SPS/PPS with a recovery picture. SPS dimensions and bit depth
 are checked before native submission (8/10-bit 4:2:0, at most the existing 1080p visible
-picture bound with coding-block padding). A codec update discards buffered packets and
-video, retires decoder lifetimes and waits for a new keyframe. Audio timing is preserved.
+picture bound with coding-block padding). Incoming codec selection uses each authenticated
+packet's advertised payload assignment independently per source. The session description's
+`video_codec` is an outgoing selection and does not filter received formats. Forward primary
+packets changing a source's codec discard that source's partial packets, retire its decoder
+and pending video, and require a keyframe. Late packets/RTX from the previous codec cannot
+switch it back. Session opcode 14 alone does not discard received video. Audio timing and
+unrelated sources are preserved.
 The existing RTP/RTX repair, byte/item bounds, decoded picture layout and presentation
 tags apply to both codecs. H.264 camera reception and all video encoding remain unchanged.
-Numeric `h264_frames`/`h265_frames` counters identify decrypted access units; they contain
-no media or source identifiers. This adds no receiver bandwidth estimator or bitrate promise.
+Numeric `h264_packets`/`h265_packets` and `h264_frames`/`h265_frames` counters distinguish
+transport packets from decrypted access units. `session_h264`/`session_h265` count outgoing
+selection announcements; rejected payloads and source codec changes are counted separately.
+No media or source identifiers are logged. This adds no receiver bandwidth estimator or bitrate promise.
 
 Watched streams send authenticated RTCP reception reports every second and preserve
 source RTP timestamps through reassembly. Incoming video can repair missing packets

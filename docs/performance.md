@@ -18,12 +18,12 @@ Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and wi
 
 | Package metric | Upstream baseline | Streaming candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 92,650,248 B | 92,766,344 B | +116,096 B (+0.125%) |
-| Installed payload (245 files) | 97,348,681 B | 97,464,777 B | +116,096 B (+0.119%) |
-| Arch archive | 54,376,694 B | 54,441,888 B | +65,194 B (+0.120%) |
+| Executable | 92,650,248 B | 92,767,368 B | +117,120 B (+0.126%) |
+| Installed payload (245 files) | 97,348,681 B | 97,465,801 B | +117,120 B (+0.120%) |
+| Arch archive | 54,376,694 B | 54,449,636 B | +72,942 B (+0.134%) |
 
 Installed bytes sum regular archive files under `usr/`, excluding package metadata.
-Both packages contain 245 installed files. The final gate passes 1,307 tests, strict Clippy,
+Both packages contain 245 installed files. The final gate passes 1,308 tests, strict Clippy,
 formatting, application and policy checks; the native Arch package smoke also passes.
 
 ### Linux HEVC reception extension
@@ -36,9 +36,9 @@ No new dependency, media cache or audio-processing change is introduced.
 
 | Standard Arch package / same pinned toolchain | Before `ca4b5ed` | HEVC candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 92,751,880 B | 92,766,344 B | +14,464 B (+0.016%) |
-| Installed payload | 97,450,313 B | 97,464,777 B | +14,464 B (+0.015%) |
-| Arch archive | 54,448,309 B | 54,441,888 B | -6,421 B (-0.012%) |
+| Executable | 92,751,880 B | 92,767,368 B | +15,488 B (+0.017%) |
+| Installed payload | 97,450,313 B | 97,465,801 B | +15,488 B (+0.016%) |
+| Arch archive | 54,448,309 B | 54,449,636 B | +1,327 B (+0.002%) |
 
 Offline native checks use an eight-second 1280×534/60 FFmpeg `testsrc2` fixture,
 libx265 ultrafast, 4.1 Mbps, four pool threads/two frame threads, 8-bit 4:2:0,
@@ -62,6 +62,32 @@ negotiation tests retain H.264 senders and reject unoffered/unknown formats.
 The old implementation cannot run an HEVC receive workload, so no codec speed comparison
 is claimed. Native idle CPU/RSS, Windows/macOS HEVC support and live bitrate/quality parity
 are unmeasured. A final owner-operated comparison is required before publication.
+
+### Receive payload routing correction
+
+The preceding `3352c42` candidate incorrectly used the outgoing session selection as
+an incoming payload filter. Its preserved 75.096-second owner capture has zero admitted
+video packets/pictures and 3,587,520 decoded audio samples without concealment. That
+capture did not count discarded packet types, so it alone does not identify the wire
+codec. The corrected receiver maps authenticated advertised payload types independently
+per source and carries the codec through reassembly, DAVE, prediction gating and playback.
+Session announcements do not retire received media. Forward source codec changes retire
+only affected buffered media; old primary/RTX packets and empty padding cannot switch it back.
+
+A synthetic regression receives interleaved H.265/H.264 sources under an H.264 session
+selection, preserving unrelated partial pictures and rejecting stale/unoffered formats.
+The encrypted HEVC/RTX regression now traverses actual receive routing and DAVE decryption
+into the timed playback queue, rather than bypassing protocol admission. Final native
+H.265/H.264 timestamp-phase runs retain all 480/479 expected reference-identical pictures
+and presentation tags with zero errors/resets/drops/rejections and no final audio concealment.
+The rest of the native decoding/timing path is unchanged. Live recovery still needs an
+owner-operated retest; physical FPS/latency and full-client CPU/RSS remain unmeasured.
+
+| Standard Arch package / same pinned toolchain | Before `3352c42` | Routing correction | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,766,344 B | 92,767,368 B | +1,024 B (+0.001%) |
+| Installed payload | 97,464,777 B | 97,465,801 B | +1,024 B (+0.001%) |
+| Arch archive | 54,441,888 B | 54,449,636 B | +7,748 B (+0.014%) |
 
 ### Earlier playback recovery evidence
 

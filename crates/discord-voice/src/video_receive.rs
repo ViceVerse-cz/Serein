@@ -323,6 +323,7 @@ impl Assembler {
 /// Remote video SSRC ownership and per-source reassembly for one media transport.
 #[derive(Default)]
 struct Source {
+	codec: Option<Codec>,
 	assembler: Assembler,
 	window: reorder::Window,
 	/// Forward original-sequence progress; duplicates/old RTX must not steal recovery.
@@ -332,7 +333,6 @@ struct Source {
 
 #[derive(Default)]
 pub(crate) struct Receivers {
-	pub codec: Codec,
 	sources: Vec<(u32, u64, Source)>,
 	rtx: Vec<(u32, u32)>,
 	/// Users whose decoder lost a reference picture; only a keyframe restarts their video.
@@ -351,21 +351,48 @@ pub(crate) struct ReceiveStats {
 }
 /// One complete encrypted access unit, retaining its source's 90 kHz RTP clock.
 pub(crate) struct Received {
+	pub codec: Codec,
 	pub user: u64,
 	pub source: u32,
 	pub timestamp: u32,
 	pub data: Vec<u8>,
 }
 impl Receivers {
-	/// Session descriptions precede media; a codec change invalidates buffered packets.
-	pub fn set_codec(&mut self, codec: Codec) {
-		if self.codec != codec {
-			self.codec = codec;
-			for (_, _, source) in &mut self.sources {
-				*source = Source::default();
-			}
-			self.require_all_keyframes();
+	/// Incoming codec is identified by an authenticated, advertised RTP payload type,
+	/// independently per source. Session video_codec describes our outgoing selection.
+	/// Old primary packets and RTX from a retired codec cannot reset the current epoch.
+	pub fn select_codec(
+		&mut self,
+		ssrc: u32,
+		sequence: u16,
+		codec: Codec,
+		rtx: bool,
+	) -> Result<Option<u64>, ()> {
+		let Some((_, user, source)) = self.sources.iter_mut().find(|(s, _, _)| *s == ssrc) else {
+			self.stats.unknown_ssrc += 1;
+			return Err(());
+		};
+		if source.codec == Some(codec) {
+			return Ok(None);
 		}
+		if source.codec.is_none() {
+			source.codec = Some(codec);
+			return Ok(None);
+		}
+		if rtx
+			|| source.activity.is_some_and(|(last, _)| {
+				let distance = sequence.wrapping_sub(last);
+				distance == 0 || distance >= 32768
+			}) {
+			return Err(());
+		}
+		let user = *user;
+		*source = Source {
+			codec: Some(codec),
+			..Source::default()
+		};
+		self.require_keyframe(user);
+		Ok(Some(user))
 	}
 	/// Bind an announced video SSRC to a user; zero clears that user's sources.
 	pub fn announce(&mut self, user: u64, ssrc: u32) -> Result<(), &'static str> {
@@ -541,6 +568,11 @@ impl Receivers {
 			self.stats.unknown_ssrc += 1;
 			return None;
 		};
+		if !payload.is_empty() && source.codec.is_none() {
+			// Cameras and the legacy helpers accept only H.264. Stream packets select
+			// their advertised codec explicitly before entering this common queue.
+			source.codec = Some(Codec::H264);
+		}
 		let now = Instant::now();
 		self.stats.padding_packets += u64::from(payload.is_empty());
 		if source.activity.is_none_or(|(last, _)| {
@@ -595,7 +627,7 @@ impl Receivers {
 				let Some(packet) = packet else {
 					break;
 				};
-				source.assembler.codec = self.codec;
+				source.assembler.codec = source.codec.unwrap_or_default();
 				frame = source.assembler.push(
 					packet.sequence,
 					packet.timestamp,
@@ -608,6 +640,7 @@ impl Receivers {
 			}
 			let lost = std::mem::take(&mut source.assembler.lost);
 			let timestamp = source.assembler.timestamp;
+			let codec = source.codec.unwrap_or_default();
 			self.stats.repaired += std::mem::take(&mut source.window.repaired);
 			self.stats.incomplete += u64::from(lost);
 			self.stats.complete += u64::from(frame.is_some());
@@ -616,6 +649,7 @@ impl Receivers {
 			}
 			if let Some(frame) = frame {
 				return Some(Received {
+					codec,
 					user,
 					source: ssrc,
 					timestamp,
@@ -1694,142 +1728,6 @@ mod tests {
 		}
 		assert!(huge.push(sequence, 1, true, &chunk).is_none());
 	}
-	#[test]
-	fn hevc_encrypted_fragments_survive_transport_rtx_and_keyframe_recovery() {
-		use crate::{
-			crypto::{Dave, Encryption},
-			test_mls::Delivery,
-		};
-		let delivery = Delivery::new();
-		let mut alice = Dave::new(1, Some(2), 3).unwrap();
-		let mut bob = Dave::new(2, Some(1), 3).unwrap();
-		alice
-			.session
-			.set_external_sender(&delivery.external)
-			.unwrap();
-		bob.session.set_external_sender(&delivery.external).unwrap();
-		let (commit, welcome) = delivery.add(&mut alice, &bob.key_package().unwrap());
-		let mut committed = vec![0, 5];
-		committed.extend(commit);
-		let mut welcomed = vec![0, 5];
-		welcomed.extend(welcome);
-		alice.group_changed(29, &committed).unwrap();
-		bob.group_changed(30, &welcomed).unwrap();
-		alice.execute(5).unwrap();
-		bob.execute(5).unwrap();
-		let mut original = Vec::new();
-		for kind in [32, 33, 34, 19] {
-			original.extend([0, 0, 0, 1, kind << 1, 1]);
-			original.extend(std::iter::repeat_n(7, if kind == 19 { 1024 } else { 8 }));
-		}
-		let encrypted = alice
-			.session
-			.encrypt(davey::MediaType::VIDEO, davey::Codec::H265, &original)
-			.unwrap()
-			.into_owned();
-		let mut starts: Vec<_> = encrypted
-			.windows(4)
-			.enumerate()
-			.filter_map(|(i, b)| (b == START_CODE).then_some(i))
-			.collect();
-		starts.push(encrypted.len());
-		assert_eq!(starts.len(), 5);
-		let nals: Vec<_> = starts
-			.windows(2)
-			.map(|p| &encrypted[p[0] + 4..p[1]])
-			.collect();
-		let mut ap = vec![48 << 1, 1];
-		for nal in &nals[..3] {
-			ap.extend((nal.len() as u16).to_be_bytes());
-			ap.extend_from_slice(nal);
-		}
-		let mut packets = vec![ap];
-		let chunks: Vec<_> = nals[3][2..].chunks(117).collect();
-		for (i, chunk) in chunks.iter().enumerate() {
-			let mut fu = vec![
-				49 << 1,
-				1,
-				19 | if i == 0 {
-					0x80
-				} else if i + 1 == chunks.len() {
-					0x40
-				} else {
-					0
-				},
-			];
-			fu.extend_from_slice(chunk);
-			packets.push(fu);
-		}
-		let mut receivers = Receivers::default();
-		receivers.set_codec(Codec::H265);
-		receivers.announce(1, 700).unwrap();
-		receivers.announce_rtx(700, 701).unwrap();
-		let mut sender = Encryption::new(&[7; 32]);
-		let receiver = Encryption::new(&[7; 32]);
-		let mut packet = |kind: u8, sequence: u16, ssrc: u32, marker: bool, payload: &[u8]| {
-			let mut header = [0u8; 12];
-			header[0] = 0x80;
-			header[1] = kind | if marker { 0x80 } else { 0 };
-			header[2..4].copy_from_slice(&sequence.to_be_bytes());
-			header[4..8].copy_from_slice(&900u32.to_be_bytes());
-			header[8..].copy_from_slice(&ssrc.to_be_bytes());
-			receiver
-				.open(&sender.seal(&header, payload).unwrap())
-				.unwrap()
-		};
-		// Withhold one middle fragment, then restore it using the advertised HEVC RTX type.
-		for (i, payload) in packets.iter().enumerate().filter(|(i, _)| *i != 3) {
-			let rtp = packet(103, i as u16, 700, i + 1 == packets.len(), payload);
-			assert!(
-				receivers
-					.push(
-						rtp.ssrc,
-						rtp.sequence,
-						rtp.timestamp,
-						rtp.marker,
-						&rtp.payload
-					)
-					.is_none()
-			);
-		}
-		assert!(
-			!receivers
-				.nacks(99, Instant::now() + Duration::from_millis(20))
-				.is_empty()
-		);
-		let mut repair = 3u16.to_be_bytes().to_vec();
-		repair.extend_from_slice(&packets[3]);
-		let mut rtp = packet(104, 99, 701, false, &repair);
-		let (ssrc, seq) = receivers.restore_rtx(rtp.ssrc, &mut rtp.payload).unwrap();
-		let (_, restored) = receivers
-			.push(ssrc, seq, rtp.timestamp, false, &rtp.payload)
-			.unwrap();
-		assert_eq!(restored, encrypted);
-		let plaintext = bob
-			.session
-			.decrypt(1, davey::MediaType::VIDEO, &restored)
-			.unwrap();
-		assert_eq!(plaintext, original);
-		assert!(Codec::H265.is_keyframe(&plaintext) && Codec::H265.has_parameter_sets(&plaintext));
-		assert!(receivers.accept(1, true));
-		assert!(receivers.accept(1, false));
-		let stats = receivers.take_stats();
-		assert_eq!(
-			(stats.complete, stats.incomplete, stats.repaired),
-			(1, 0, 1)
-		);
-		// Switching codecs discards a partially buffered picture and gates predictions.
-		assert!(
-			receivers
-				.push(700, packets.len() as u16, 1800, false, &[98, 1, 0x81, 7])
-				.is_none()
-		);
-		receivers.set_codec(Codec::H264);
-		assert!(receivers.pop().is_none());
-		assert!(!receivers.accept(1, false));
-		assert!(receivers.push(700, 50, 2700, true, &[0x65, 7]).is_some());
-	}
-
 	#[test]
 	fn hevc_reassembly_rejects_invalid_fragment_headers_aggregation_and_pressure() {
 		for malformed in [

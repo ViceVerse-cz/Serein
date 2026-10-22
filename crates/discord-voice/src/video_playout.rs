@@ -37,6 +37,16 @@ pub(crate) struct Playout {
 	lead: std::time::Duration,
 }
 impl Playout {
+	/// A codec change retires only the affected viewer's pending pictures.
+	pub fn remove(&mut self, user: u64) {
+		if self
+			.queue
+			.front()
+			.is_some_and(|pending| pending.frame.user == user)
+		{
+			self.clear();
+		}
+	}
 	pub fn set_decode_lead(&mut self, lead: std::time::Duration) {
 		self.lead = lead.clamp(
 			std::time::Duration::from_millis(8),
@@ -260,6 +270,14 @@ mod tests {
 				.pop(now + MAX_LATE + Duration::from_millis(1))
 				.is_err()
 		);
+		assert!(queue.deadline().is_none());
+		queue.push_at(frame(0), now, Some(now)).unwrap();
+		queue.remove(8);
+		assert!(
+			queue.deadline().is_some(),
+			"another source's codec change preserves this queue"
+		);
+		queue.remove(7);
 		assert!(queue.deadline().is_none());
 	}
 }

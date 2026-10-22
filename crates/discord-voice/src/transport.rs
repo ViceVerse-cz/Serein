@@ -189,6 +189,53 @@ fn stream_codec(data: &Value, hevc: bool) -> Option<Codec> {
 	let codec = Codec::from_name(data["video_codec"].as_str()?)?;
 	(codec == Codec::H264 || hevc).then_some(codec)
 }
+/// Route authenticated video using our advertised receive payload assignments, not
+/// the session's outgoing codec. Return a user only when that source changed format.
+pub(super) fn stream_video_packet(
+	receivers: &mut Receivers,
+	metrics: &mut crate::diagnostics::Metrics,
+	hevc: bool,
+	mut rtp: crate::crypto::Rtp,
+) -> Option<(crate::crypto::Rtp, Option<u64>)> {
+	let (codec, rtx) = match rtp.payload_type {
+		101 => (Codec::H264, false),
+		102 => (Codec::H264, true),
+		103 if hevc => (Codec::H265, false),
+		104 if hevc => (Codec::H265, true),
+		_ => {
+			metrics.video(Video::PayloadRejected, 1);
+			return None;
+		}
+	};
+	if rtx {
+		metrics.video(Video::Rtx, 1);
+		let (media, sequence) = receivers.restore_rtx(rtp.ssrc, &mut rtp.payload)?;
+		rtp.ssrc = media;
+		rtp.sequence = sequence;
+		rtp.payload_type = codec.payload();
+	}
+	metrics.video(Video::Packets, 1);
+	metrics.video(
+		if codec == Codec::H265 {
+			Video::H265Packets
+		} else {
+			Video::H264Packets
+		},
+		1,
+	);
+	// Padding advances sequence ordering without selecting a format or retiring video.
+	let changed = if rtp.payload.is_empty() {
+		None
+	} else {
+		receivers
+			.select_codec(rtp.ssrc, rtp.sequence, codec, rtx)
+			.ok()?
+	};
+	if changed.is_some() {
+		metrics.video(Video::CodecSwitches, 1);
+	}
+	Some((rtp, changed))
+}
 /// Bind every video SSRC of a client announcement (opcode 12) to its user; zero clears them.
 pub(super) fn announce_video(
 	receivers: &mut Receivers,
@@ -924,6 +971,7 @@ fn decrypt_video(
 	dave: &mut Dave,
 	metrics: &mut crate::diagnostics::Metrics,
 	user: u64,
+	codec: Codec,
 	frame: Vec<u8>,
 ) -> Option<Encoded> {
 	if !dave.contains(user) {
@@ -937,7 +985,6 @@ fn decrypt_video(
 		return None;
 	};
 	metrics.video(Video::EncodedBytes, data.len() as u64);
-	let codec = receivers.codec;
 	metrics.video(
 		if codec == Codec::H265 {
 			Video::H265Frames
@@ -976,7 +1023,7 @@ fn receive_video(
 	mut first: Option<(u64, Vec<u8>)>,
 ) -> Result<(), &'static str> {
 	while let Some((user, frame)) = first.take().or_else(|| receivers.pop()) {
-		let Some(frame) = decrypt_video(receivers, dave, metrics, user, frame) else {
+		let Some(frame) = decrypt_video(receivers, dave, metrics, user, Codec::H264, frame) else {
 			continue;
 		};
 		if !offer(decoder, frame)? {
@@ -996,8 +1043,14 @@ fn receive_stream_video(
 	mut first: Option<crate::video_receive::Received>,
 ) {
 	while let Some(received) = first.take().or_else(|| receivers.pop_timed()) {
-		let Some(frame) = decrypt_video(receivers, dave, metrics, received.user, received.data)
-		else {
+		let Some(frame) = decrypt_video(
+			receivers,
+			dave,
+			metrics,
+			received.user,
+			received.codec,
+			received.data,
+		) else {
 			continue;
 		};
 		let timed = crate::video_playout::Timed {
@@ -1577,14 +1630,8 @@ async fn run_stream_inner(
 					for report in receive_reports.sender_reports(&control,now) {sync.sender_report(report,now);}
 					continue;
 				}
-				let Some(mut rtp)=crypto.open(&packet[..length]) else {metrics.video(Video::OpenFailed,1);continue;};
-				let codec=receivers.codec;
-				if rtp.payload_type==codec.rtx() {metrics.video(Video::Rtx,1);let Some((media,sequence))=receivers.restore_rtx(rtp.ssrc,&mut rtp.payload) else{continue;};rtp.ssrc=media;rtp.sequence=sequence;rtp.payload_type=codec.payload();}
-				if rtp.payload_type==codec.payload() {metrics.video(Video::Packets,1);}
-				if video.is_none() && rtp.payload_type==codec.payload() && receivers.has_source(rtp.ssrc) {
-					receive_reports.receive(rtp.ssrc,rtp.sequence,rtp.timestamp,Instant::now().into_std());
-				}
-				if !dave.ready {if rtp.payload_type==codec.payload() {metrics.video(Video::NotReady,1);}continue;}
+				let Some(rtp)=crypto.open(&packet[..length]) else {metrics.video(Video::OpenFailed,1);continue;};
+				if !dave.ready {if rtp.payload_type!=120 {metrics.video(Video::NotReady,1);}continue;}
 				if rtp.payload_type==120 {
 					if audio.is_none() {continue;}
 					let Some(user)=mixer.user(rtp.ssrc) else {continue;};
@@ -1596,7 +1643,9 @@ async fn run_stream_inner(
 					continue;
 				}
 				if decoder.is_none() {continue;}
-				if rtp.payload_type!=codec.payload() {continue;}
+				let Some((rtp,changed))=stream_video_packet(&mut receivers,&mut metrics,hevc,rtp) else{continue;};
+				if let Some(user)=changed {playout.remove(user);if let Some(decoder)=decoder.as_ref(){remove_decoder(decoder,user);}}
+				if video.is_none() && receivers.has_source(rtp.ssrc) {receive_reports.receive(rtp.ssrc,rtp.sequence,rtp.timestamp,Instant::now().into_std());}
 				let first=receivers.push_timed(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload);
 				receive_stream_video(&mut receivers,&mut playout,&mut sync,&mut dave,&mut metrics,first);
 			},
@@ -1637,7 +1686,7 @@ async fn run_stream_inner(
 								if encryption.is_some()||udp.is_none()||discovering{return Err("Unexpected stream session description");}
 								let codec=stream_codec(data,hevc).ok_or("Discord selected an unavailable stream codec")?;
 								if data["mode"].as_str()!=Some(MODE)||data["dave_protocol_version"].as_u64()!=Some(1){return Err("Discord did not negotiate encrypted stream media");}
-								receivers.set_codec(codec);
+								metrics.video(if codec==Codec::H265 {Video::SessionH265}else{Video::SessionH264},1);
 								let values=data["secret_key"].take();let values=values.as_array().ok_or("Missing stream transport key")?;if values.len()!=32{return Err("Invalid stream transport key");}
 								let mut key=Zeroizing::new([0;32]);for(out,value)in key.iter_mut().zip(values){*out=value.as_u64().and_then(|value|u8::try_from(value).ok()).ok_or("Invalid stream transport key")?;}
 								encryption=Some(Encryption::new(&key));secured_at=Some(Instant::now());send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;metrics.signal(Signal::KeyPackageSent,1);emit(Status::TransportReady).map_err(|_|"Stream interface closed")?;emit(Status::Securing).map_err(|_|"Stream interface closed")?;
@@ -1646,11 +1695,7 @@ async fn run_stream_inner(
 								if encryption.is_none() {return Err("Stream codec update preceded session description");}
 								if data.get("video_codec").is_some() {
 									let codec=stream_codec(data,hevc).ok_or("Discord selected an unavailable stream codec")?;
-									if codec!=receivers.codec {
-										receivers.set_codec(codec);playout.clear();
-										if let Some(decoder)=decoder.as_ref(){retain_sources(decoder,&Receivers::default());}
-										next_sink_wants=Instant::now();
-									}
+									metrics.video(if codec==Codec::H265 {Video::SessionH265}else{Video::SessionH264},1);
 								}
 							},
 							11=>{let ids=data["user_ids"].as_array().ok_or("Missing stream participants")?;if ids.len()>crate::crypto::MAX_PARTICIPANTS{return Err("Too many stream participants");}let ids=ids.iter().map(|value|value.as_str().and_then(|value|value.parse().ok()).filter(|id|*id!=0).ok_or("Malformed stream participant")).collect::<Result<Vec<_>,_>>()?;let was_ready=dave.ready;if dave.connect(&ids)?{if was_ready{dave.ready=true;}else{deadline=Some(Instant::now()+Duration::from_secs(90));announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);}}},
@@ -1717,6 +1762,325 @@ mod tests {
 			assert_eq!(stream_codec(&json!({"video_codec":"AV1"}), offered), None);
 			assert_eq!(stream_codec(&json!({"sdp":"H265"}), offered), None);
 		}
+	}
+
+	#[test]
+	fn incoming_hevc_uses_its_payload_independently_of_h264_session_selection_and_other_sources() {
+		assert_eq!(
+			stream_codec(&json!({"video_codec":"H264"}), true),
+			Some(Codec::H264)
+		);
+		let mut receivers = Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		receivers.announce_rtx(700, 701).unwrap();
+		receivers.announce(8, 800).unwrap();
+		let mut metrics =
+			crate::diagnostics::Metrics::new(crate::diagnostics::Scope::StreamReceive);
+		let packet = |payload_type, ssrc, sequence, marker, payload: &[u8]| crate::crypto::Rtp {
+			payload_type,
+			ssrc,
+			sequence,
+			marker,
+			timestamp: 900,
+			payload: payload.to_vec(),
+		};
+		let mut push = |receivers: &mut Receivers, rtp, hevc| {
+			stream_video_packet(receivers, &mut metrics, hevc, rtp).map(|(rtp, changed)| {
+				let frame = receivers.push_timed(
+					rtp.ssrc,
+					rtp.sequence,
+					rtp.timestamp,
+					rtp.marker,
+					&rtp.payload,
+				);
+				(changed, frame)
+			})
+		};
+		// Another source's partial H264 picture must survive HEVC traffic and switches.
+		assert!(
+			push(
+				&mut receivers,
+				packet(101, 800, 10, false, &[124, 0x85, 1]),
+				true
+			)
+			.unwrap()
+			.1
+			.is_none()
+		);
+		let (changed, frame) = push(
+			&mut receivers,
+			packet(103, 700, 100, true, &[38, 1, 7]),
+			true,
+		)
+		.unwrap();
+		let frame = frame.unwrap();
+		assert_eq!(
+			(changed, frame.codec, frame.user, frame.data),
+			(None, Codec::H265, 7, vec![0, 0, 0, 1, 38, 1, 7])
+		);
+		let frame = push(
+			&mut receivers,
+			packet(103, 700, 101, true, &[2, 1, 7]),
+			true,
+		)
+		.unwrap()
+		.1
+		.unwrap();
+		assert_eq!(frame.codec, Codec::H265);
+		let (changed, frame) = push(
+			&mut receivers,
+			packet(101, 700, 102, true, &[0x65, 7]),
+			true,
+		)
+		.unwrap();
+		assert_eq!((changed, frame.unwrap().codec), (Some(7), Codec::H264));
+		let frame = push(
+			&mut receivers,
+			packet(101, 800, 11, true, &[124, 0x45, 2]),
+			true,
+		)
+		.unwrap()
+		.1
+		.unwrap();
+		assert_eq!(
+			(frame.user, frame.codec, frame.data),
+			(8, Codec::H264, vec![0, 0, 0, 1, 0x65, 1, 2])
+		);
+		// Late packets/RTX from the previous codec must not switch the source backwards.
+		assert!(
+			push(
+				&mut receivers,
+				packet(104, 701, 30, true, &[0, 99, 38, 1, 7]),
+				true
+			)
+			.is_none()
+		);
+		assert!(
+			push(
+				&mut receivers,
+				packet(103, 700, 101, true, &[38, 1, 7]),
+				true
+			)
+			.is_none()
+		);
+		assert_eq!(
+			push(
+				&mut receivers,
+				packet(101, 700, 103, true, &[0x41, 7]),
+				true
+			)
+			.unwrap()
+			.1
+			.unwrap()
+			.codec,
+			Codec::H264
+		);
+		// An unoffered codec is rejected before touching source state.
+		assert!(
+			push(
+				&mut receivers,
+				packet(103, 700, 104, true, &[38, 1, 7]),
+				false
+			)
+			.is_none()
+		);
+		assert_eq!(
+			push(
+				&mut receivers,
+				packet(101, 700, 104, true, &[0x41, 7]),
+				true
+			)
+			.unwrap()
+			.1
+			.unwrap()
+			.codec,
+			Codec::H264
+		);
+		// Padding may retain an old payload assignment while advancing sequence numbers.
+		assert!(
+			push(&mut receivers, packet(103, 700, 105, true, &[]), true)
+				.unwrap()
+				.1
+				.is_none()
+		);
+		assert_eq!(
+			push(
+				&mut receivers,
+				packet(101, 700, 106, true, &[0x41, 7]),
+				true
+			)
+			.unwrap()
+			.1
+			.unwrap()
+			.codec,
+			Codec::H264
+		);
+	}
+
+	#[test]
+	fn hevc_receive_routes_encrypted_rtx_pictures_after_h264_session_selection() {
+		use crate::{
+			crypto::{Dave, Encryption},
+			test_mls::Delivery,
+		};
+		assert_eq!(
+			stream_codec(&json!({"video_codec":"H264"}), true),
+			Some(Codec::H264)
+		);
+		let delivery = Delivery::new();
+		let mut alice = Dave::new(1, Some(2), 3).unwrap();
+		let mut bob = Dave::new(2, Some(1), 3).unwrap();
+		alice
+			.session
+			.set_external_sender(&delivery.external)
+			.unwrap();
+		bob.session.set_external_sender(&delivery.external).unwrap();
+		let (commit, welcome) = delivery.add(&mut alice, &bob.key_package().unwrap());
+		let mut committed = vec![0, 5];
+		committed.extend(commit);
+		let mut welcomed = vec![0, 5];
+		welcomed.extend(welcome);
+		alice.group_changed(29, &committed).unwrap();
+		bob.group_changed(30, &welcomed).unwrap();
+		alice.execute(5).unwrap();
+		bob.execute(5).unwrap();
+		let mut original = Vec::new();
+		for kind in [32, 33, 34, 19] {
+			original.extend([0, 0, 0, 1, kind << 1, 1]);
+			original.extend(std::iter::repeat_n(7, if kind == 19 { 1024 } else { 8 }));
+		}
+		let encrypted = alice
+			.session
+			.encrypt(davey::MediaType::VIDEO, davey::Codec::H265, &original)
+			.unwrap()
+			.into_owned();
+		let mut starts: Vec<_> = encrypted
+			.windows(4)
+			.enumerate()
+			.filter_map(|(i, b)| (b == [0, 0, 0, 1]).then_some(i))
+			.collect();
+		starts.push(encrypted.len());
+		assert_eq!(starts.len(), 5);
+		let nals: Vec<_> = starts
+			.windows(2)
+			.map(|p| &encrypted[p[0] + 4..p[1]])
+			.collect();
+		let mut ap = vec![48 << 1, 1];
+		for nal in &nals[..3] {
+			ap.extend((nal.len() as u16).to_be_bytes());
+			ap.extend_from_slice(nal);
+		}
+		let mut packets = vec![ap];
+		let chunks: Vec<_> = nals[3][2..].chunks(117).collect();
+		for (i, chunk) in chunks.iter().enumerate() {
+			let mut fu = vec![
+				49 << 1,
+				1,
+				19 | if i == 0 {
+					0x80
+				} else if i + 1 == chunks.len() {
+					0x40
+				} else {
+					0
+				},
+			];
+			fu.extend_from_slice(chunk);
+			packets.push(fu);
+		}
+		let mut receivers = Receivers::default();
+		receivers.announce(1, 700).unwrap();
+		receivers.announce_rtx(700, 701).unwrap();
+		let mut metrics =
+			crate::diagnostics::Metrics::new(crate::diagnostics::Scope::StreamReceive);
+		let mut sender = Encryption::new(&[7; 32]);
+		let receiver = Encryption::new(&[7; 32]);
+		let mut packet = |kind: u8, sequence: u16, ssrc: u32, marker: bool, payload: &[u8]| {
+			let mut header = [0u8; 12];
+			header[0] = 0x80;
+			header[1] = kind | if marker { 0x80 } else { 0 };
+			header[2..4].copy_from_slice(&sequence.to_be_bytes());
+			header[4..8].copy_from_slice(&900u32.to_be_bytes());
+			header[8..].copy_from_slice(&ssrc.to_be_bytes());
+			receiver
+				.open(&sender.seal(&header, payload).unwrap())
+				.unwrap()
+		};
+		// Withhold one middle fragment, then restore it using the advertised HEVC RTX type.
+		for (i, payload) in packets.iter().enumerate().filter(|(i, _)| *i != 3) {
+			let rtp = packet(103, i as u16, 700, i + 1 == packets.len(), payload);
+			let (rtp, changed) =
+				crate::transport::stream_video_packet(&mut receivers, &mut metrics, true, rtp)
+					.unwrap();
+			assert_eq!(changed, None);
+			assert!(
+				receivers
+					.push(
+						rtp.ssrc,
+						rtp.sequence,
+						rtp.timestamp,
+						rtp.marker,
+						&rtp.payload
+					)
+					.is_none()
+			);
+		}
+		assert!(
+			!receivers
+				.nacks(99, std::time::Instant::now() + Duration::from_millis(20))
+				.is_empty()
+		);
+		let mut repair = 3u16.to_be_bytes().to_vec();
+		repair.extend_from_slice(&packets[3]);
+		let rtp = packet(104, 99, 701, false, &repair);
+		let (rtp, changed) =
+			crate::transport::stream_video_packet(&mut receivers, &mut metrics, true, rtp).unwrap();
+		assert_eq!(changed, None);
+		let (ssrc, seq) = (rtp.ssrc, rtp.sequence);
+		let received = receivers
+			.push_timed(ssrc, seq, rtp.timestamp, false, &rtp.payload)
+			.unwrap();
+		assert_eq!(received.codec, Codec::H265);
+		assert_eq!(received.data, encrypted);
+		let mut playout = crate::video_playout::Playout::default();
+		let mut sync = crate::stream_sync::Sync::default();
+		receive_stream_video(
+			&mut receivers,
+			&mut playout,
+			&mut sync,
+			&mut bob,
+			&mut metrics,
+			Some(received),
+		);
+		let due = playout
+			.deadline()
+			.expect("HEVC picture reached the playback queue");
+		let (frame, presentation) = playout
+			.pop_timed(due + Duration::from_millis(1))
+			.unwrap()
+			.unwrap();
+		assert_eq!(frame.codec, Codec::H265);
+		assert_eq!(frame.data, original);
+		assert!(frame.keyframe && presentation.is_some());
+		assert!(Codec::H265.has_parameter_sets(&frame.data));
+		assert!(receivers.accept(1, false));
+		let stats = receivers.take_stats();
+		assert_eq!(
+			(stats.complete, stats.incomplete, stats.repaired),
+			(1, 0, 1)
+		);
+		// Switching codecs discards a partially buffered picture and gates predictions.
+		assert!(
+			receivers
+				.push(700, packets.len() as u16, 1800, false, &[98, 1, 0x81, 7])
+				.is_none()
+		);
+		assert_eq!(
+			receivers.select_codec(700, 50, Codec::H264, false),
+			Ok(Some(1))
+		);
+		assert!(receivers.pop().is_none());
+		assert!(!receivers.accept(1, false));
+		assert!(receivers.push(700, 50, 2700, true, &[0x65, 7]).is_some());
 	}
 
 	#[tokio::test]
