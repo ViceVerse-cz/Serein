@@ -1,6 +1,7 @@
 //! Device-free Go Live sender/viewer integration; no Discord connection or capture device.
 use super::*;
 use crate::screen::{AudioChunk, EncodedFrame, Settings, SourceId, Video};
+use crate::video_receive::is_keyframe;
 use client_core::voice::Secret;
 use model::Id;
 use std::sync::atomic::AtomicU64;
@@ -55,7 +56,9 @@ async fn connect(
 	let selected: Value = serde_json::from_str(selected.to_text().unwrap()).unwrap();
 	assert_eq!(selected["op"], 1);
 	assert_eq!(selected["d"]["codecs"][0]["payload_type"], 120);
-	assert_eq!(selected["d"]["codecs"][1]["payload_type"], 101);
+	let codecs = selected["d"]["codecs"].as_array().unwrap();
+	let h264 = codecs.iter().find(|codec| codec["name"] == "H264").unwrap();
+	assert_eq!(h264["payload_type"], 101);
 	ws.send(Message::Binary(
 		[&[0, 1, 25], delivery.external.as_slice()].concat().into(),
 	))

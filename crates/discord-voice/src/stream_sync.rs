@@ -415,6 +415,7 @@ mod tests {
 				.push_presented(
 					Timed {
 						frame: Encoded {
+							codec: crate::video_codec::Codec::H264,
 							user: 7,
 							data: vec![1],
 							keyframe: n % 120 == 0,
@@ -575,6 +576,7 @@ mod tests {
 					.push_at(
 						Timed {
 							frame: Encoded {
+								codec: crate::video_codec::Codec::H264,
 								user: 7,
 								data: vec![1],
 								keyframe: true,
@@ -673,6 +675,7 @@ mod tests {
 					.push_at(
 						Timed {
 							frame: Encoded {
+								codec: crate::video_codec::Codec::H264,
 								user: 7,
 								data: vec![1],
 								keyframe: next_video.is_multiple_of(120),

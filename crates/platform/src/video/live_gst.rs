@@ -1,4 +1,4 @@
-//! Linux live H.264 decoding through GStreamer. `decodebin` auto-plugs the highest-ranked
+//! Linux live H.264/H.265 decoding through GStreamer. `decodebin` auto-plugs the highest-ranked
 //! decoder, which is the VA-API or NVDEC plugin when one is installed and `avdec_h264`
 //! otherwise. The caller hands over complete, already decrypted Annex-B access units.
 use super::{BUSY, INVALID, UNSUPPORTED};
@@ -10,6 +10,31 @@ use std::sync::{
 	Arc,
 	atomic::{AtomicBool, AtomicU64, Ordering},
 };
+
+/// Probe decoder capabilities before advertising HEVC. Never advertise a codec just
+/// because its parser exists; decodebin also needs an installed ranked decoder.
+pub fn supports_h265() -> bool {
+	if gst::init().is_err() || gst::ElementFactory::find("h265parse").is_none() {
+		return false;
+	}
+	let caps = gst::Caps::builder("video/x-h265").build();
+	gst::ElementFactory::factories_with_type(
+		gst::ElementFactoryType::DECODER | gst::ElementFactoryType::MEDIA_VIDEO,
+		gst::Rank::MARGINAL,
+	)
+	.iter()
+	.any(|factory| {
+		if !factory.can_sink_any_caps(&caps) {
+			return false;
+		}
+		let Ok(decoder) = factory.create().build() else {
+			return false;
+		};
+		let available = decoder.set_state(gst::State::Ready).is_ok();
+		let _ = decoder.set_state(gst::State::Null);
+		available
+	})
+}
 
 const MAX_QUEUED_UNITS: u64 = 4;
 const MAX_QUEUED_BYTES: u64 = MAX_QUEUED_UNITS * MAX_ACCESS_UNIT as u64;
@@ -34,11 +59,21 @@ impl H264Decoder {
 		Self::new_timed(Box::new(move |frame, _| sink(frame)))
 	}
 	pub fn new_timed(sink: super::TimedLiveSink) -> Result<Self, &'static str> {
+		Self::new_codec(sink, false)
+	}
+	/// Receive-only HEVC uses the same bounded queues, picture layout and timing tags.
+	pub fn new_h265_timed(sink: super::TimedLiveSink) -> Result<Self, &'static str> {
+		if !supports_h265() {
+			return Err(UNSUPPORTED);
+		}
+		Self::new_codec(sink, true)
+	}
+	fn new_codec(sink: super::TimedLiveSink, hevc: bool) -> Result<Self, &'static str> {
 		gst::init().map_err(|_| UNSUPPORTED)?;
 		let pipeline = gst::Pipeline::new();
 		let appsrc = gst_app::AppSrc::builder()
 			.caps(
-				&gst::Caps::builder("video/x-h264")
+				&gst::Caps::builder(if hevc { "video/x-h265" } else { "video/x-h264" })
 					.field("stream-format", "byte-stream")
 					.field("alignment", "au")
 					.build(),
@@ -55,7 +90,7 @@ impl H264Decoder {
 		}
 		appsrc.set_max_bytes(MAX_QUEUED_BYTES);
 		appsrc.set_block(false);
-		let parse = make("h264parse")?;
+		let parse = make(if hevc { "h265parse" } else { "h264parse" })?;
 		let decodebin = make("decodebin")?;
 		pipeline
 			.add_many([appsrc.upcast_ref::<gst::Element>(), &parse, &decodebin])

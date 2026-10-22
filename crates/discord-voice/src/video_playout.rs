@@ -168,6 +168,7 @@ mod tests {
 	fn frame(_timestamp: u32) -> Timed {
 		Timed {
 			frame: Encoded {
+				codec: crate::video_codec::Codec::H264,
 				user: 7,
 				data: vec![1],
 				keyframe: true,

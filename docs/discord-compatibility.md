@@ -768,6 +768,21 @@ That evidence precedes adaptive buffering and presentation-level scheduling; the
 combined candidate needs another owner comparison. Windows/macOS native timing behavior
 and broad network interoperability remain unverified.
 
+### Linux watched-stream HEVC reception — October 22, 2026
+
+Linux viewers can negotiate receive-only H.265 when the installed GStreamer parser,
+HEVC decoder and bounded native pipeline initialize; H.264 remains offered as fallback.
+Windows/macOS viewers, camera sessions and stream encoders still use H.264. HEVC uses
+[RFC 7798](https://www.rfc-editor.org/rfc/rfc7798.html) single-layer/no-DONL packetization,
+existing authenticated RTX repair and DAVE decryption. Negotiation/session updates are
+unofficial, following the public native receiver and discord.py-self implementations
+linked in [voice.md](voice.md#incoming-stream-recovery-and-pacing).
+Codec changes retire buffered video/decoder state and require a recovery picture with
+VPS/SPS/PPS. SPS validation retains the 1080p receive bound before native submission.
+Offline encrypted reassembly, malformed packet/bounds and native reference-picture checks
+cover the implementation; live negotiation and quality parity await an owner-operated test.
+No bandwidth estimator, new dependency, media cache or video recording is introduced.
+
 ## Outgoing screen sharing — September 11, 2026
 
 October 3 reliability audit: UDP media sends drop on local socket pressure without

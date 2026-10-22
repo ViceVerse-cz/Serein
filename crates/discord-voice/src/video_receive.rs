@@ -1,4 +1,4 @@
-//! Incoming H.264 video: RFC 6184 depacketizing per remote SSRC and software decoding on a
+//! Incoming H.264/H.265 video: bounded RTP reassembly per remote SSRC and decoding on a
 //! dedicated thread. Frames stay bounded (1080p RGBA) and no video is ever written to disk.
 //! Discord's video signaling is unofficial; live interoperability is unverified.
 use std::{
@@ -10,6 +10,8 @@ use std::{
 	},
 	time::{Duration, Instant},
 };
+
+use crate::video_codec::Codec;
 
 /// Users whose decoder hit undecodable data; the transport turns these into keyframe requests.
 pub(crate) type Lost = Arc<Mutex<Vec<u64>>>;
@@ -84,6 +86,7 @@ pub(crate) struct DecoderCounters {
 
 /// A cleartext Annex-B access unit handed to the decoder thread.
 pub(crate) struct Encoded {
+	pub codec: Codec,
 	pub user: u64,
 	pub data: Vec<u8>,
 	pub keyframe: bool,
@@ -105,50 +108,18 @@ enum Decode {
 /// True when the cleartext Annex-B access unit carries both an SPS and a PPS, so a freshly
 /// created decoder can start from it.
 pub(crate) fn has_parameter_sets(frame: &[u8]) -> bool {
-	let (mut sps, mut pps) = (false, false);
-	let mut at = 0;
-	while at + 4 <= frame.len() {
-		let size = if frame[at..].starts_with(&[0, 0, 0, 1]) {
-			4
-		} else if frame[at..].starts_with(&[0, 0, 1]) {
-			3
-		} else {
-			at += 1;
-			continue;
-		};
-		match frame.get(at + size).map(|nal| nal & 0x1f) {
-			Some(7) => sps = true,
-			Some(8) => pps = true,
-			_ => {}
-		}
-		at += size;
-	}
-	sps && pps
+	Codec::H264.has_parameter_sets(frame)
 }
 
-/// True when the cleartext Annex-B access unit carries an IDR slice.
 pub(crate) fn is_keyframe(frame: &[u8]) -> bool {
-	let mut at = 0;
-	while at + 4 <= frame.len() {
-		let size = if frame[at..].starts_with(&[0, 0, 0, 1]) {
-			4
-		} else if frame[at..].starts_with(&[0, 0, 1]) {
-			3
-		} else {
-			at += 1;
-			continue;
-		};
-		if frame.get(at + size).is_some_and(|nal| nal & 0x1f == 5) {
-			return true;
-		}
-		at += size;
-	}
-	false
+	Codec::H264.is_keyframe(frame)
 }
 
 /// Reassembles RTP payloads of one SSRC into Annex-B access units (single NAL, STAP-A, FU-A).
 #[derive(Default)]
 pub(crate) struct Assembler {
+	codec: Codec,
+	fragment_header: Option<[u8; 2]>,
 	timestamp: u32,
 	next_sequence: Option<u16>,
 	frame: Vec<u8>,
@@ -216,6 +187,7 @@ impl Assembler {
 			self.frame = Vec::new();
 		}
 		self.fragmenting = false;
+		self.fragment_header = None;
 		self.broken = false;
 	}
 	fn extend(&mut self, parts: &[&[u8]]) -> Result<(), ()> {
@@ -234,6 +206,9 @@ impl Assembler {
 		Ok(())
 	}
 	fn append(&mut self, payload: &[u8]) -> Result<(), ()> {
+		if self.codec == Codec::H265 {
+			return self.append_h265(payload);
+		}
 		let Some(&indicator) = payload.first() else {
 			return Err(());
 		};
@@ -285,6 +260,64 @@ impl Assembler {
 			_ => Err(()),
 		}
 	}
+	/// RFC 7798 single-layer SRST, without DONL (the WebRTC packetization mode).
+	fn append_h265(&mut self, payload: &[u8]) -> Result<(), ()> {
+		let header = payload.get(..2).ok_or(())?;
+		// Reject forbidden bits, layered streams and invalid temporal IDs.
+		if header[0] & 0x81 != 0 || header[1] >> 3 != 0 || header[1] & 7 == 0 {
+			return Err(());
+		}
+		match (header[0] >> 1) & 63 {
+			0..=47 if !self.fragmenting => self.extend(&[&START_CODE, payload]),
+			48 if !self.fragmenting => {
+				let mut at = 2;
+				let mut count = 0;
+				while at < payload.len() {
+					let length = payload.get(at..at + 2).ok_or(())?;
+					let size = usize::from(u16::from_be_bytes([length[0], length[1]]));
+					at += 2;
+					let nal = payload
+						.get(at..at + size)
+						.filter(|nal| nal.len() >= 2)
+						.ok_or(())?;
+					if nal[0] & 0x81 != 0
+						|| nal[1] >> 3 != 0
+						|| nal[1] & 7 == 0 || (nal[0] >> 1) & 63 >= 48
+					{
+						return Err(());
+					}
+					self.extend(&[&START_CODE, nal])?;
+					at += size;
+					count += 1;
+				}
+				(count >= 2).then_some(()).ok_or(())
+			}
+			49 if payload.len() >= 4 => {
+				let fu = payload[2];
+				let start = fu & 0x80 != 0;
+				let end = fu & 0x40 != 0;
+				let nal = [(header[0] & 0x81) | ((fu & 63) << 1), header[1]];
+				if (start && end) || start == self.fragmenting || fu & 63 >= 48 {
+					return Err(());
+				}
+				if start {
+					self.extend(&[&START_CODE, &nal, &payload[3..]])?;
+					self.fragment_header = Some(nal);
+				} else {
+					if self.fragment_header != Some(nal) {
+						return Err(());
+					}
+					self.extend(&[&payload[3..]])?;
+				}
+				self.fragmenting = !end;
+				if end {
+					self.fragment_header = None;
+				}
+				Ok(())
+			}
+			_ => Err(()),
+		}
+	}
 }
 
 /// Remote video SSRC ownership and per-source reassembly for one media transport.
@@ -299,6 +332,7 @@ struct Source {
 
 #[derive(Default)]
 pub(crate) struct Receivers {
+	pub codec: Codec,
 	sources: Vec<(u32, u64, Source)>,
 	rtx: Vec<(u32, u32)>,
 	/// Users whose decoder lost a reference picture; only a keyframe restarts their video.
@@ -323,6 +357,16 @@ pub(crate) struct Received {
 	pub data: Vec<u8>,
 }
 impl Receivers {
+	/// Session descriptions precede media; a codec change invalidates buffered packets.
+	pub fn set_codec(&mut self, codec: Codec) {
+		if self.codec != codec {
+			self.codec = codec;
+			for (_, _, source) in &mut self.sources {
+				*source = Source::default();
+			}
+			self.require_all_keyframes();
+		}
+	}
 	/// Bind an announced video SSRC to a user; zero clears that user's sources.
 	pub fn announce(&mut self, user: u64, ssrc: u32) -> Result<(), &'static str> {
 		if ssrc == 0 {
@@ -551,6 +595,7 @@ impl Receivers {
 				let Some(packet) = packet else {
 					break;
 				};
+				source.assembler.codec = self.codec;
 				frame = source.assembler.push(
 					packet.sequence,
 					packet.timestamp,
@@ -813,6 +858,7 @@ impl Backend {
 		lifetime: &Arc<AtomicBool>,
 	) -> Option<Self> {
 		Self::new_timed(
+			Codec::H264,
 			prefer_hardware,
 			user,
 			sink,
@@ -822,6 +868,7 @@ impl Backend {
 		)
 	}
 	fn new_timed(
+		codec: Codec,
 		prefer_hardware: bool,
 		user: u64,
 		sink: &VideoSink,
@@ -829,7 +876,7 @@ impl Backend {
 		lifetime: &Arc<AtomicBool>,
 		timings: Arc<Mutex<Timings>>,
 	) -> Option<Self> {
-		if prefer_hardware {
+		if prefer_hardware || codec == Codec::H265 {
 			let sink = sink.clone();
 			let counters = counters.clone();
 			let lifetime = lifetime.clone();
@@ -854,6 +901,14 @@ impl Backend {
 					});
 				}
 			});
+			if codec == Codec::H265 {
+				#[cfg(target_os = "linux")]
+				return platform::video::live::H264Decoder::new_h265_timed(deliver)
+					.ok()
+					.map(Self::Hardware);
+				#[cfg(not(target_os = "linux"))]
+				return None;
+			}
 			if let Ok(decoder) = platform::video::live::H264Decoder::new_timed(deliver) {
 				return Some(Self::Hardware(decoder));
 			}
@@ -957,6 +1012,7 @@ fn decode_loop(
 	prefer_hardware: bool,
 ) {
 	let mut decoders: HashMap<u64, Backend> = HashMap::new();
+	let mut codecs: HashMap<u64, Codec> = HashMap::new();
 	let mut timings: HashMap<u64, Arc<Mutex<Timings>>> = HashMap::new();
 	let mut serial = 0u64;
 	let mut active: HashMap<u64, Arc<AtomicBool>> = HashMap::new();
@@ -971,6 +1027,7 @@ fn decode_loop(
 			let retained = lifetime.load(Ordering::Acquire);
 			if !retained {
 				decoders.remove(user);
+				codecs.remove(user);
 				timings.remove(user);
 				software_only.retain(|known| known != user);
 				broken.retain(|known| known != user);
@@ -1009,17 +1066,39 @@ fn decode_loop(
 			mark_broken(frame.user, &mut broken, &lost);
 			continue;
 		}
+		if codecs
+			.get(&frame.user)
+			.is_some_and(|codec| *codec != frame.codec)
+		{
+			decoders.remove(&frame.user);
+			timings.remove(&frame.user);
+			software_only.retain(|user| *user != frame.user);
+			mark_broken(frame.user, &mut broken, &lost);
+		}
 		if frame.keyframe {
 			broken.retain(|user| *user != frame.user);
 		} else if broken.contains(&frame.user) {
 			continue;
 		}
+		if !frame.codec.bounded_parameters(&frame.data) {
+			counters.errors.fetch_add(1, Ordering::Relaxed);
+			decoders.remove(&frame.user);
+			mark_broken(frame.user, &mut broken, &lost);
+			continue;
+		}
 		if !decoders.contains_key(&frame.user) {
+			if frame.codec == Codec::H265
+				&& (!frame.keyframe || !frame.codec.has_parameter_sets(&frame.data))
+			{
+				mark_broken(frame.user, &mut broken, &lost);
+				continue;
+			}
 			if decoders.len() >= MAX_DECODERS {
 				continue;
 			}
 			let timing = Arc::new(Mutex::new(Timings::default()));
 			let Some(decoder) = Backend::new_timed(
+				frame.codec,
 				prefer_hardware && !software_only.contains(&frame.user),
 				frame.user,
 				&sink,
@@ -1031,6 +1110,7 @@ fn decode_loop(
 				continue;
 			};
 			decoders.insert(frame.user, decoder);
+			codecs.insert(frame.user, frame.codec);
 			timings.insert(frame.user, timing);
 		}
 		serial = serial.wrapping_add(1);
@@ -1072,7 +1152,11 @@ fn decode_loop(
 				counters.errors.fetch_add(1, Ordering::Relaxed);
 				decoders.remove(&frame.user);
 				decoder_counts(&decoders, &counters);
-				if hardware && frame.keyframe && !software_only.contains(&frame.user) {
+				if hardware
+					&& frame.codec == Codec::H264
+					&& frame.keyframe
+					&& !software_only.contains(&frame.user)
+				{
 					software_only.push(frame.user);
 				}
 				mark_broken(frame.user, &mut broken, &lost);
@@ -1110,8 +1194,9 @@ fn decode_loop(
 	}
 	// Hardware pictures still in flight must land before the sink goes away.
 	for decoder in decoders.values() {
-		if let Backend::Hardware(decoder) = decoder {
-			decoder.flush();
+		match decoder {
+			Backend::Hardware(decoder) => decoder.flush(),
+			Backend::Software(_) => {}
 		}
 	}
 }
@@ -1119,7 +1204,7 @@ fn decode_loop(
 fn decoder_counts(decoders: &HashMap<u64, Backend>, counters: &DecoderCounters) {
 	let hardware = decoders
 		.values()
-		.filter(|decoder| matches!(decoder, Backend::Hardware(_)))
+		.filter(|decoder| !matches!(decoder, Backend::Software(_)))
 		.count();
 	counters.hardware.store(hardware as u64, Ordering::Relaxed);
 	counters
@@ -1257,6 +1342,7 @@ mod tests {
 				offer(
 					queue,
 					Encoded {
+						codec: crate::video_codec::Codec::H264,
 						user,
 						data: data.to_vec(),
 						keyframe: true
@@ -1282,6 +1368,7 @@ mod tests {
 					offer(
 						&queue,
 						Encoded {
+							codec: crate::video_codec::Codec::H264,
 							user: 7,
 							data: data.clone(),
 							keyframe: true
@@ -1296,6 +1383,7 @@ mod tests {
 					offer(
 						&queue,
 						Encoded {
+							codec: crate::video_codec::Codec::H264,
 							user: 7,
 							data: data.clone(),
 							keyframe: true
@@ -1353,6 +1441,7 @@ mod tests {
 			offer(
 				&queue,
 				Encoded {
+					codec: crate::video_codec::Codec::H264,
 					user: 1,
 					data: data.clone(),
 					keyframe: true
@@ -1367,6 +1456,7 @@ mod tests {
 				offer(
 					&queue,
 					Encoded {
+						codec: crate::video_codec::Codec::H264,
 						user: 7,
 						data: data.clone(),
 						keyframe: true
@@ -1381,6 +1471,7 @@ mod tests {
 			!offer(
 				&queue,
 				Encoded {
+					codec: crate::video_codec::Codec::H264,
 					user: 7,
 					data: data.clone(),
 					keyframe: true
@@ -1393,6 +1484,7 @@ mod tests {
 		while !offer(
 			&queue,
 			Encoded {
+				codec: crate::video_codec::Codec::H264,
 				user: 7,
 				data: data.clone(),
 				keyframe: true,
@@ -1420,6 +1512,7 @@ mod tests {
 			offer(
 				&queue,
 				Encoded {
+					codec: crate::video_codec::Codec::H264,
 					user: 7,
 					data: vec![0],
 					keyframe: true
@@ -1452,6 +1545,7 @@ mod tests {
 			offer(
 				&queue,
 				Encoded {
+					codec: crate::video_codec::Codec::H264,
 					user: 8,
 					data: vec![0],
 					keyframe: true
@@ -1600,6 +1694,180 @@ mod tests {
 		}
 		assert!(huge.push(sequence, 1, true, &chunk).is_none());
 	}
+	#[test]
+	fn hevc_encrypted_fragments_survive_transport_rtx_and_keyframe_recovery() {
+		use crate::{
+			crypto::{Dave, Encryption},
+			test_mls::Delivery,
+		};
+		let delivery = Delivery::new();
+		let mut alice = Dave::new(1, Some(2), 3).unwrap();
+		let mut bob = Dave::new(2, Some(1), 3).unwrap();
+		alice
+			.session
+			.set_external_sender(&delivery.external)
+			.unwrap();
+		bob.session.set_external_sender(&delivery.external).unwrap();
+		let (commit, welcome) = delivery.add(&mut alice, &bob.key_package().unwrap());
+		let mut committed = vec![0, 5];
+		committed.extend(commit);
+		let mut welcomed = vec![0, 5];
+		welcomed.extend(welcome);
+		alice.group_changed(29, &committed).unwrap();
+		bob.group_changed(30, &welcomed).unwrap();
+		alice.execute(5).unwrap();
+		bob.execute(5).unwrap();
+		let mut original = Vec::new();
+		for kind in [32, 33, 34, 19] {
+			original.extend([0, 0, 0, 1, kind << 1, 1]);
+			original.extend(std::iter::repeat_n(7, if kind == 19 { 1024 } else { 8 }));
+		}
+		let encrypted = alice
+			.session
+			.encrypt(davey::MediaType::VIDEO, davey::Codec::H265, &original)
+			.unwrap()
+			.into_owned();
+		let mut starts: Vec<_> = encrypted
+			.windows(4)
+			.enumerate()
+			.filter_map(|(i, b)| (b == START_CODE).then_some(i))
+			.collect();
+		starts.push(encrypted.len());
+		assert_eq!(starts.len(), 5);
+		let nals: Vec<_> = starts
+			.windows(2)
+			.map(|p| &encrypted[p[0] + 4..p[1]])
+			.collect();
+		let mut ap = vec![48 << 1, 1];
+		for nal in &nals[..3] {
+			ap.extend((nal.len() as u16).to_be_bytes());
+			ap.extend_from_slice(nal);
+		}
+		let mut packets = vec![ap];
+		let chunks: Vec<_> = nals[3][2..].chunks(117).collect();
+		for (i, chunk) in chunks.iter().enumerate() {
+			let mut fu = vec![
+				49 << 1,
+				1,
+				19 | if i == 0 {
+					0x80
+				} else if i + 1 == chunks.len() {
+					0x40
+				} else {
+					0
+				},
+			];
+			fu.extend_from_slice(chunk);
+			packets.push(fu);
+		}
+		let mut receivers = Receivers::default();
+		receivers.set_codec(Codec::H265);
+		receivers.announce(1, 700).unwrap();
+		receivers.announce_rtx(700, 701).unwrap();
+		let mut sender = Encryption::new(&[7; 32]);
+		let receiver = Encryption::new(&[7; 32]);
+		let mut packet = |kind: u8, sequence: u16, ssrc: u32, marker: bool, payload: &[u8]| {
+			let mut header = [0u8; 12];
+			header[0] = 0x80;
+			header[1] = kind | if marker { 0x80 } else { 0 };
+			header[2..4].copy_from_slice(&sequence.to_be_bytes());
+			header[4..8].copy_from_slice(&900u32.to_be_bytes());
+			header[8..].copy_from_slice(&ssrc.to_be_bytes());
+			receiver
+				.open(&sender.seal(&header, payload).unwrap())
+				.unwrap()
+		};
+		// Withhold one middle fragment, then restore it using the advertised HEVC RTX type.
+		for (i, payload) in packets.iter().enumerate().filter(|(i, _)| *i != 3) {
+			let rtp = packet(103, i as u16, 700, i + 1 == packets.len(), payload);
+			assert!(
+				receivers
+					.push(
+						rtp.ssrc,
+						rtp.sequence,
+						rtp.timestamp,
+						rtp.marker,
+						&rtp.payload
+					)
+					.is_none()
+			);
+		}
+		assert!(
+			!receivers
+				.nacks(99, Instant::now() + Duration::from_millis(20))
+				.is_empty()
+		);
+		let mut repair = 3u16.to_be_bytes().to_vec();
+		repair.extend_from_slice(&packets[3]);
+		let mut rtp = packet(104, 99, 701, false, &repair);
+		let (ssrc, seq) = receivers.restore_rtx(rtp.ssrc, &mut rtp.payload).unwrap();
+		let (_, restored) = receivers
+			.push(ssrc, seq, rtp.timestamp, false, &rtp.payload)
+			.unwrap();
+		assert_eq!(restored, encrypted);
+		let plaintext = bob
+			.session
+			.decrypt(1, davey::MediaType::VIDEO, &restored)
+			.unwrap();
+		assert_eq!(plaintext, original);
+		assert!(Codec::H265.is_keyframe(&plaintext) && Codec::H265.has_parameter_sets(&plaintext));
+		assert!(receivers.accept(1, true));
+		assert!(receivers.accept(1, false));
+		let stats = receivers.take_stats();
+		assert_eq!(
+			(stats.complete, stats.incomplete, stats.repaired),
+			(1, 0, 1)
+		);
+		// Switching codecs discards a partially buffered picture and gates predictions.
+		assert!(
+			receivers
+				.push(700, packets.len() as u16, 1800, false, &[98, 1, 0x81, 7])
+				.is_none()
+		);
+		receivers.set_codec(Codec::H264);
+		assert!(receivers.pop().is_none());
+		assert!(!receivers.accept(1, false));
+		assert!(receivers.push(700, 50, 2700, true, &[0x65, 7]).is_some());
+	}
+
+	#[test]
+	fn hevc_reassembly_rejects_invalid_fragment_headers_aggregation_and_pressure() {
+		for malformed in [
+			vec![],
+			vec![38],
+			vec![0x80, 1, 7],
+			vec![38, 0, 7],
+			vec![39, 1, 7],
+			vec![96, 1, 0, 3, 38],
+			vec![96, 1, 0, 2, 96, 1, 0, 2, 38, 1],
+			vec![96, 1, 0, 2, 38, 1],
+			vec![98, 1, 0xd3, 7],
+			vec![98, 1, 0x93],
+			vec![100, 1, 7],
+		] {
+			let mut assembler = Assembler {
+				codec: Codec::H265,
+				..Assembler::default()
+			};
+			assert!(assembler.push(1, 900, true, &malformed).is_none());
+		}
+		let mut assembler = Assembler {
+			codec: Codec::H265,
+			..Assembler::default()
+		};
+		assert!(assembler.push(1, 900, false, &[98, 1, 0x93, 7]).is_none());
+		// Continuation type/temporal ID must agree with the starting fragment.
+		assert!(assembler.push(2, 900, true, &[98, 2, 0x53, 7]).is_none());
+		let mut assembler = Assembler {
+			codec: Codec::H265,
+			..Assembler::default()
+		};
+		let mut nal = vec![7; MAX_FRAME_BYTES];
+		nal[..2].copy_from_slice(&[38, 1]);
+		assert!(assembler.push(1, 900, true, &nal).is_none());
+		assert!(assembler.frame.capacity() <= MAX_FRAME_BYTES);
+	}
+
 	#[test]
 	fn packet_loss_requests_a_keyframe_before_accepting_predictions() {
 		for missing_marker in [false, true] {
@@ -2109,6 +2377,7 @@ mod tests {
 			offer(
 				&sender,
 				Encoded {
+					codec: crate::video_codec::Codec::H264,
 					user: 1,
 					data: vec![0, 0, 0, 1, 0x65, 1, 2, 3],
 					keyframe: true,

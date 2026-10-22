@@ -10,20 +10,60 @@ Watched-stream reception now repairs/reorders bounded RTP gaps, preserves H.264 
 through brief native backpressure, and retains sender timestamps through audio playback
 and decoded-video presentation. A single timing controller uses authenticated sender reports,
 a bounded adaptive jitter target, measured decoder lead and an audio-device clock estimate.
-No dependencies, codec/resolution presets, notification audio or UI layouts change.
+No dependencies, resolution presets, notification audio or UI layouts change. The Linux
+receive-only HEVC extension is described below.
 
 Fresh package comparison: unchanged upstream `c2842aa` versus the streaming branch, pinned
 Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and without demo.
 
 | Package metric | Upstream baseline | Streaming candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 92,650,248 B | 92,751,880 B | +101,632 B (+0.110%) |
-| Installed payload (245 files) | 97,348,681 B | 97,450,313 B | +101,632 B (+0.104%) |
-| Arch archive | 54,376,694 B | 54,448,309 B | +71,615 B (+0.132%) |
+| Executable | 92,650,248 B | 92,766,344 B | +116,096 B (+0.125%) |
+| Installed payload (245 files) | 97,348,681 B | 97,464,777 B | +116,096 B (+0.119%) |
+| Arch archive | 54,376,694 B | 54,441,888 B | +65,194 B (+0.120%) |
 
 Installed bytes sum regular archive files under `usr/`, excluding package metadata.
-Both packages contain 245 installed files. The final gate passes 1,302 tests, strict Clippy,
+Both packages contain 245 installed files. The final gate passes 1,307 tests, strict Clippy,
 formatting, application and policy checks; the native Arch package smoke also passes.
+
+### Linux HEVC reception extension
+
+The actual preceding streaming build is `ca4b5ed`, verified by SHA-256 and preserved
+before editing. It negotiates only H.264. The extension offers receive-only H.265 when
+the installed parser/decoder and bounded pipeline initialize, keeps H.264 fallback and
+handles session codec updates. Existing encoded/decoded queue limits and A/V timing apply.
+No new dependency, media cache or audio-processing change is introduced.
+
+| Standard Arch package / same pinned toolchain | Before `ca4b5ed` | HEVC candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,751,880 B | 92,766,344 B | +14,464 B (+0.016%) |
+| Installed payload | 97,450,313 B | 97,464,777 B | +14,464 B (+0.015%) |
+| Arch archive | 54,448,309 B | 54,441,888 B | -6,421 B (-0.012%) |
+
+Offline native checks use an eight-second 1280×534/60 FFmpeg `testsrc2` fixture,
+libx265 ultrafast, 4.1 Mbps, four pool threads/two frame threads, 8-bit 4:2:0,
+AUDs/repeated parameter sets, key interval 60, no B frames or scene cuts. The production
+clock/audio/playback/native decoder runs through GStreamer/VA-API on the same RX 6900 XT,
+with a simulated 73 ms device delay. Four single functional cases cover a temporary
++200 ms video timestamp phase, backwards audio epoch, 500 ms audio loss and 400 ms delayed
+audio startup. Each delivers all 480 pictures with reference-identical luma CRCs and
+correct presentation tags, zero decoder errors/stale/admission rejections, and zero video
+queue resets/drops. The final two input seconds retain all 100 audible frames without
+concealment. Delayed audio acquisition has a 108 ms picture interval during startup.
+These are functional checks, not physical output latency or a live FPS benchmark.
+
+The existing H.264 timestamp-phase fixture still delivers all 479 expected pictures
+(the H.264 parser retains one without EOS), matching reference luma and presentation
+tags. Encrypted HEVC aggregation/fragmentation/RTX tests verify DAVE authentication and
+keyframe recovery; malformed packet/SPS tests cover header disagreement, nested/truncated
+aggregation, item/byte bounds, cropped dimensions and parameter-unit boundaries. Codec
+negotiation tests retain H.264 senders and reject unoffered/unknown formats.
+
+The old implementation cannot run an HEVC receive workload, so no codec speed comparison
+is claimed. Native idle CPU/RSS, Windows/macOS HEVC support and live bitrate/quality parity
+are unmeasured. A final owner-operated comparison is required before publication.
+
+### Earlier playback recovery evidence
 
 The prior owner-tested candidate `7711bbe` covered two sessions totaling 6,638.153 seconds
 at 1280×720/~60 fps: 397,845 decoded pictures, zero decoder errors/stale submissions, five
