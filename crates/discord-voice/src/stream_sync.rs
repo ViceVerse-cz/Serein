@@ -9,6 +9,7 @@ use std::{
 pub(crate) const BUFFER: Duration = crate::presentation::INITIAL;
 const MAX_TRACKS: usize = super::video_receive::MAX_SOURCES * 2;
 const MAX_REPORT_AGE: Duration = Duration::from_secs(30);
+const MAX_PHASE_STEP: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Copy)]
 pub(crate) struct SenderReport {
@@ -41,6 +42,7 @@ pub(crate) struct Stats {
 	pub video_reports: u64,
 	pub video_synced: u64,
 	pub offset_ms: u64,
+	pub timeline_rebases: u64,
 }
 #[derive(Default)]
 pub(crate) struct Sync {
@@ -140,10 +142,10 @@ impl Sync {
 			None => return now + BUFFER,
 		};
 		let track = &mut self.tracks[index];
-		let elapsed = track
+		let arrival_elapsed = track
 			.updated
-			.map_or(Duration::ZERO, |at| now.saturating_duration_since(at))
-			.min(Duration::from_millis(100));
+			.map_or(Duration::ZERO, |at| now.saturating_duration_since(at));
+		let elapsed = arrival_elapsed.min(Duration::from_millis(100));
 		track.updated = Some(now);
 		if rate == 90_000 {
 			track.delay.observe(timestamp, rate, now);
@@ -153,13 +155,31 @@ impl Sync {
 		{
 			return deadline;
 		}
+		let mut rebase = false;
 		let previous = track
 			.last
 			.and_then(|(last, deadline)| {
 				let delta = timestamp.wrapping_sub(last);
-				(delta < 0x8000_0000)
+				(delta < 0x8000_0000 || rate == 90_000)
 					.then(|| {
-						shift(deadline, ticks(delta as i32, rate)).and_then(|deadline| {
+						let advance = if delta >= 0x8000_0000 {
+							rebase = true;
+							arrival_elapsed.as_nanos() as i128
+						} else {
+							ticks(delta as i32, rate)
+						};
+						let advance = if rate == 90_000
+							&& advance > (arrival_elapsed + MAX_PHASE_STEP).as_nanos() as i128
+						{
+							// A capture-clock jump is not a reason to hold valid pictures
+							// for that entire phase step. Sparse frames with matching
+							// arrival/RTP gaps and ordinary repair bursts keep RTP pacing.
+							rebase = true;
+							arrival_elapsed.as_nanos() as i128
+						} else {
+							advance
+						};
+						shift(deadline, advance).and_then(|deadline| {
 							if deadline <= now + MAX_AHEAD {
 								Some(deadline)
 							} else if rate == 90_000 && delta <= rate / 2 {
@@ -235,6 +255,22 @@ impl Sync {
 			}
 		}
 		deadline = deadline.min(now + MAX_AHEAD);
+		if rate == 90_000
+			&& let Some((_, last_due)) = track.last
+			&& deadline < last_due
+		{
+			// Capture timestamps may change phase without losing encoded pictures.
+			// Rewinding the local timeline would discard valid reference frames and
+			// wait for a keyframe. Continue at arrival cadence, then let authenticated
+			// sender-clock correction slew the new epoch into alignment.
+			// Retain at least the arrival interval minus the same 60 ms/s slew budget.
+			deadline = (last_due + elapsed.mul_f64(0.94)).min(now + MAX_AHEAD);
+			rebase = true;
+		}
+		if rebase {
+			track.correction = 0.0;
+			self.stats.timeline_rebases += 1;
+		}
 		track.last = Some((timestamp, deadline));
 		deadline
 	}
@@ -337,6 +373,74 @@ impl Drop for Sync {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn timestamp_phase_changes_preserve_the_queued_reference_chain() {
+		use crate::video_playout::{Playout, Timed};
+		use crate::video_receive::Encoded;
+		let start = Instant::now();
+		let mut sync = Sync::default();
+		let mut queue = Playout::default();
+		sync.deadline(7, 70, 48_000, 0, start);
+		let mut previous = start;
+		let mut rebases = 0;
+		for n in 0..1800u32 {
+			let now = start + Duration::from_micros(u64::from(n) * 16_667);
+			sync.audio_frame(7, 70, n * 800, now);
+			// The encoded sequence remains intact while the capture timestamp briefly
+			// leads by 200 ms, then returns to its original epoch.
+			let timestamp = n * 1500 + if n >= 300 && n % 300 < 20 { 18_000 } else { 0 };
+			let due = sync.deadline(7, 71, 90_000, timestamp, now);
+			assert!(due >= previous, "capture timing rewound queued video");
+			if n != 0 {
+				assert!(
+					due.duration_since(previous) < Duration::from_millis(40),
+					"capture phase change paused the local clock"
+				);
+			}
+			assert!(due <= now + MAX_AHEAD);
+			previous = due;
+			if n % 60 == 0 {
+				for (ssrc, rtp) in [(70, n * 800), (71, n * 1500)] {
+					sync.sender_report(
+						SenderReport {
+							ssrc,
+							rtp,
+							ntp: (100 + u64::from(n / 60)) << 32,
+						},
+						now,
+					);
+				}
+			}
+			queue
+				.push_presented(
+					Timed {
+						frame: Encoded {
+							user: 7,
+							data: vec![1],
+							keyframe: n % 120 == 0,
+						},
+						source: 71,
+					},
+					now,
+					sync.presentation(7, due).unwrap(),
+				)
+				.unwrap();
+			while queue.deadline().is_some_and(|due| due <= now) {
+				queue.pop_timed(now).unwrap();
+			}
+			rebases += sync.take_stats().timeline_rebases;
+		}
+		assert!(rebases > 0);
+		let stats = queue.take_stats();
+		assert_eq!((stats.resets, stats.dropped), (0, 0));
+		// A genuinely sparse source has matching media/arrival gaps, not an epoch jump.
+		let mut sparse = Sync::default();
+		sparse.deadline(7, 71, 90_000, 0, start);
+		let now = start + Duration::from_secs(1);
+		let due = sparse.deadline(7, 71, 90_000, 90_000, now);
+		assert!(due >= now && due <= now + BUFFER);
+		assert_eq!(sparse.take_stats().timeline_rebases, 0);
+	}
 	#[test]
 	fn independent_rtp_epochs_converge_at_30_and_60_fps_without_changing_audio_cadence() {
 		let start = Instant::now();

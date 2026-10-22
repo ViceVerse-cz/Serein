@@ -17,12 +17,12 @@ Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and wi
 
 | Package metric | Upstream baseline | Streaming candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 92,650,248 B | 92,750,088 B | +99,840 B (+0.108%) |
-| Installed payload (245 files) | 97,348,681 B | 97,448,521 B | +99,840 B (+0.103%) |
-| Arch archive | 54,376,694 B | 54,425,449 B | +48,755 B (+0.090%) |
+| Executable | 92,650,248 B | 92,751,880 B | +101,632 B (+0.110%) |
+| Installed payload (245 files) | 97,348,681 B | 97,450,313 B | +101,632 B (+0.104%) |
+| Arch archive | 54,376,694 B | 54,448,309 B | +71,615 B (+0.132%) |
 
 Installed bytes sum regular archive files under `usr/`, excluding package metadata.
-Both packages contain 245 installed files. The final gate passes 1,301 tests, strict Clippy,
+Both packages contain 245 installed files. The final gate passes 1,302 tests, strict Clippy,
 formatting, application and policy checks; the native Arch package smoke also passes.
 
 The prior owner-tested candidate `7711bbe` covered two sessions totaling 6,638.153 seconds
@@ -60,6 +60,24 @@ revision; this does not reproduce or rule out physical-device crackling. The new
 separate decoded/concealed samples, rebufferings, queue span/target, bridge discontinuities
 and the OS device-delay estimate. A further owner comparison remains required.
 
+The next `248c53c` owner capture's initial 34.380-second segment has 10 video queue
+resets / 239 queued-picture drops and a 1,039 ms picture interval, while audio has zero
+concealment or rebufferings; device empty-frame counters stay zero in intervening full
+playback windows. Its longer ongoing segment later
+generated 4,546,560 concealment samples at the frozen evidence cutoff, despite continuing
+valid input. These counters distinguish separate video-timing and audio-cursor failures;
+the old capture did not record the individual reason for every video queue reset.
+
+A temporary +200 ms video timestamp phase followed by a return to the original epoch
+reproduces reference-chain loss. Local scheduling now absorbs that phase step at arrival
+cadence and never rewinds behind queued pictures; authenticated sender-clock correction
+still slews phase gradually. A one-second sparse source gap retains its ordinary RTP timing.
+An independent −200 ms audio epoch reproduced decoding valid packets only to discard their
+PCM and generate concealment. The per-source sequence/timestamp watermark now distinguishes
+an actual backwards sample epoch from packet reordering and restarts buffering promptly.
+The strengthened regression verifies decoded input is not replaced by concealment; the old
+non-silence assertion passed even while generated replacement audio was playing.
+
 The delay envelope has bounded attack/release and a 60–240 ms target. A filtered occupancy
 controller interpolates at most five extra/fewer input samples per 960-sample output frame.
 This is bounded resampling, not pitch-preserving time stretching. Video synchronization uses
@@ -80,7 +98,7 @@ GStreamer/VA-API on an AMD RX 6900 XT, with a simulated 73 ms audio-device delay
 luma CRC and its correlated presentation tag must match its input in order. The parser retains
 the final access unit; 479 outputs from 480 inputs are expected without EOS.
 
-| Native case / metric | `d34f23f` | Corrected candidate |
+| Earlier native case / metric | `d34f23f` | Rebuffering correction `248c53c` |
 | --- | ---: | ---: |
 | 500 ms audio gap: decoded pictures | 479 | 479 |
 | Same case: invalidated presentation tags | 10 | 0 |
@@ -89,7 +107,7 @@ the final access unit; 479 outputs from 480 inputs are expected without EOS.
 | Audio arrives 400 ms after video: decoded pictures | 479 | 479 |
 | Audio RTP advances 200 ms: audible frames in final two seconds | 100 | 100 |
 
-The gap comparison is one new run per revision. The delay/jump baselines come from the
+That gap comparison is one run per revision from the preceding rebuffering correction. The delay/jump baselines come from the
 preceding candidate's recorded runs using the same fixture and method. All corrected cases
 have 479 reference-identical pictures with correlated, current presentation tags, zero decoder
 errors, stale submissions, admission rejection or playback queue resets/drops. Encoded queue
@@ -97,6 +115,31 @@ peaks for gap/delay/jump are 9/32/20 pictures. Delay/jump maximum decoded-pictur
 are 127.533/20.862 ms. Acquiring audio during video still causes a brief timing adjustment.
 These single functional runs are not isolated benchmarks or GUI/physical measurements.
 The new-source clock wait remains capped at 200 ms and expires when output timing is unavailable.
+
+The latest native comparison uses `248c53c` as its baseline, the same fixture/backend,
+and one run per case. Timestamps change while encoded picture order remains intact.
+
+| Timestamp continuity metric | `248c53c` | Corrected candidate |
+| --- | ---: | ---: |
+| Video phase change: decoded pictures | 358 | 479 |
+| Same case: gated predictions | 99 | 0 |
+| Same case: queue resets / drops | 1 / 20 | 0 / 0 |
+| Same case: maximum decoded-picture interval | 2,026.628 ms | 20.687 ms |
+| Backwards audio epoch: generated concealment samples in final two input seconds | 95,040 | 0 |
+| Same audio case: non-silent output frames | 100 | 100 |
+
+Every corrected case (phase/backwards-audio/gap/delayed-audio/forward-audio epoch) has all
+479 reference-identical pictures and correctly correlated, current presentation tags; zero
+decoder errors, stale submissions, queue rejection or playback resets/drops; all 100 expected
+audible frames in the final two input seconds with zero concealment then. Delay/jump picture
+interval maxima are 107.366/18.751 ms in this run; the initial audio-acquisition adjustment
+remains. These are functional measurements, not physical playback guarantees. Independent
+continuous-tone input at ±200 ms audio epoch shifts produces 48,000 real decoded samples
+and zero concealment in the final second; the old negative-epoch path decoded 48,000 but
+also generated 48,000 replacement samples. Four 100-second synthetic clock patterns now
+have zero reference queue resets/drops; the phase case previously had 19 resets / 190 drops.
+New fixed counters distinguish clock rewinds, source switches, expiry, pressure and ahead
+limits in the next owner comparison. No physical smoothness/listening confirmation is claimed.
 
 Earlier component comparisons against the original receiver isolate why packet repair/pacing
 is included. Six-picture bursts delivered 18 → 479 pictures; an empty keepalive caused

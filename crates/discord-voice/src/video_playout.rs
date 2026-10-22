@@ -23,6 +23,11 @@ pub(crate) struct Stats {
 	pub resets: u64,
 	pub dropped: u64,
 	pub depth: u64,
+	pub rewinds: u64,
+	pub source_changes: u64,
+	pub expired: u64,
+	pub pressure: u64,
+	pub ahead: u64,
 }
 #[derive(Default)]
 pub(crate) struct Playout {
@@ -63,21 +68,28 @@ impl Playout {
 		presentation: Option<Presentation>,
 	) -> Result<(), u64> {
 		let user = timed.frame.user;
-		let incompatible = self.queue.back().is_some_and(|pending| {
-			deadline < pending.deadline
-				|| pending.frame.user != user
-				|| pending.source != timed.source
-		});
-		if incompatible
-			|| deadline > now + MAX_AHEAD
-			|| now.saturating_duration_since(deadline) > MAX_LATE
-		{
+		let rewind = self
+			.queue
+			.back()
+			.is_some_and(|pending| deadline < pending.deadline);
+		let source_change = self
+			.queue
+			.back()
+			.is_some_and(|pending| pending.frame.user != user || pending.source != timed.source);
+		let ahead = deadline > now + MAX_AHEAD;
+		let expired = now.saturating_duration_since(deadline) > MAX_LATE;
+		if rewind || source_change || ahead || expired {
+			self.stats.rewinds += u64::from(rewind);
+			self.stats.source_changes += u64::from(source_change);
+			self.stats.ahead += u64::from(ahead);
+			self.stats.expired += u64::from(expired);
 			self.clear();
 			if !timed.frame.keyframe {
 				return Err(user);
 			}
 		}
 		if self.queue.len() >= MAX_FRAMES || timed.frame.data.capacity() > MAX_BYTES - self.bytes {
+			self.stats.pressure += 1;
 			self.clear();
 			return Err(user);
 		}
@@ -123,6 +135,7 @@ impl Playout {
 			.as_ref()
 			.map_or(pending.deadline, |stamp| stamp.deadline(now));
 		if now.saturating_duration_since(target) > MAX_LATE {
+			self.stats.expired += 1;
 			let user = pending.frame.user;
 			self.clear();
 			return Err(user);

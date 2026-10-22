@@ -1440,6 +1440,12 @@ async fn run_stream_inner(
 				metrics.stream_audio([decoded,concealed,errors,rebufferings,up,down,buffer,target,0,0]);
 				let timing=playout.take_stats();
 				let av=sync.take_stats();
+				metrics.video(Video::PlayoutRewinds,timing.rewinds);
+				metrics.video(Video::PlayoutSourceChanges,timing.source_changes);
+				metrics.video(Video::PlayoutExpired,timing.expired);
+				metrics.video(Video::PlayoutPressure,timing.pressure);
+				metrics.video(Video::PlayoutAhead,timing.ahead);
+				metrics.video(Video::AvTimelineRebases,av.timeline_rebases);
 				metrics.video(Video::AvAudioReports,av.audio_reports);
 				metrics.video(Video::AvVideoReports,av.video_reports);
 				metrics.video(Video::AvVideoSynced,av.video_synced);

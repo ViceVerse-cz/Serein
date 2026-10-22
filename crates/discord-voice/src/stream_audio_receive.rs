@@ -24,6 +24,7 @@ struct Source {
 	decoder: Decoder,
 	packets: Vec<Packet>,
 	next: Option<u16>,
+	latest: Option<(u16, u32)>,
 	cursor: Option<u32>,
 	pcm: Box<[f32; 5760]>,
 	pcm_timestamp: u32,
@@ -39,6 +40,7 @@ impl Source {
 		self.presentation = None;
 		self.packets.clear();
 		self.next = None;
+		self.latest = None;
 		self.cursor = None;
 		self.pcm.fill(0.0);
 		self.offset = 0;
@@ -84,6 +86,23 @@ impl Source {
 				.any(|packet| packet.sequence == sequence)
 		{
 			return;
+		}
+		if self.latest.is_some_and(|(last_sequence, last_timestamp)| {
+			let distance = sequence.wrapping_sub(last_sequence);
+			distance != 0
+				&& distance < 32768
+				&& timestamp.wrapping_sub(last_timestamp) >= 0x8000_0000
+		}) {
+			// A new sequence with an older sample epoch is not a reordered packet.
+			// Keeping the old cursor would decode/discard valid PCM and play only PLC
+			// while the rate controller slowly chases that unreachable position.
+			self.clear();
+		}
+		if self
+			.latest
+			.is_none_or(|(last, _)| sequence.wrapping_sub(last) < 32768)
+		{
+			self.latest = Some((sequence, timestamp));
 		}
 		self.next.get_or_insert(sequence);
 		if self.cursor.is_none() {
@@ -265,6 +284,7 @@ impl Audio {
 				.map_err(|_| "Stream audio decoder initialization failed")?,
 			packets: Vec::new(),
 			next: None,
+			latest: None,
 			cursor: None,
 			pcm: Box::new([0.0; 5760]),
 			pcm_timestamp: 0,
@@ -453,38 +473,50 @@ mod tests {
 
 	#[test]
 	fn audio_restarts_after_a_timestamp_jump_instead_of_chasing_an_unreachable_deadline() {
-		let start = Instant::now();
-		let mut audio = Audio::default();
-		let mut sync = Sync::default();
-		audio.announce(7, 70).unwrap();
-		let mut encoder = Encoder::new(48_000, Channels::Mono, Application::Audio).unwrap();
-		let tone: crate::Frame = std::array::from_fn(|i| (i as f32 * 0.05).sin() * 0.2);
-		let mut bytes = [0; 1275];
-		let length = encoder.encode_float(&tone, &mut bytes).unwrap();
-		let mut audible = 0;
-		for n in 0..300u32 {
-			let now = start + Duration::from_millis(u64::from(n) * 20);
-			// Keep valid Opus and sequence ordering, but shift the sender's RTP epoch
-			// forward 200 ms. Packet pressure must restart both buffer and clock.
-			let timestamp = n * 960 + if n >= 100 { 9600 } else { 0 };
-			audio.push(
-				70,
-				n as u16,
-				timestamp,
-				bytes[..length].to_vec(),
-				&mut sync,
-				now,
-			);
-			if let Some(frame) = audio.pop(&mut sync, now)
-				&& n >= 250 && frame.iter().any(|sample| sample.abs() > 0.001)
-			{
-				audible += 1;
+		for shift in [-9600i32, 9600] {
+			let start = Instant::now();
+			let mut audio = Audio::default();
+			let mut sync = Sync::default();
+			audio.announce(7, 70).unwrap();
+			let mut encoder = Encoder::new(48_000, Channels::Mono, Application::Audio).unwrap();
+			let tone: crate::Frame = std::array::from_fn(|i| (i as f32 * 0.05).sin() * 0.2);
+			let mut bytes = [0; 1275];
+			let length = encoder.encode_float(&tone, &mut bytes).unwrap();
+			let mut audible = 0;
+			let mut concealed_tail = 0;
+			for n in 0..300u32 {
+				let now = start + Duration::from_millis(u64::from(n) * 20);
+				// Keep valid Opus and sequence ordering, but shift the sender's RTP epoch
+				// by 200 ms. Backward epochs must not decode valid packets only to discard
+				// them as stale PCM and substitute concealment for tens of seconds.
+				let timestamp = (n * 960).wrapping_add_signed(if n >= 100 { shift } else { 0 });
+				audio.push(
+					70,
+					n as u16,
+					timestamp,
+					bytes[..length].to_vec(),
+					&mut sync,
+					now,
+				);
+				if let Some(frame) = audio.pop(&mut sync, now)
+					&& n >= 250 && frame.iter().any(|sample| sample.abs() > 0.001)
+				{
+					audible += 1;
+				}
+				let stats = audio.take_stats();
+				if n >= 250 {
+					concealed_tail += stats[1];
+				}
 			}
+			assert!(
+				audible >= 40,
+				"audio did not recover after a bounded packet/clock restart: {audible}, shift={shift}"
+			);
+			assert_eq!(
+				concealed_tail, 0,
+				"valid input was replaced by concealment: shift={shift}"
+			);
 		}
-		assert!(
-			audible >= 40,
-			"audio did not recover after a bounded packet/clock restart: {audible}"
-		);
 	}
 	#[test]
 	fn sustained_short_packets_and_clock_drift_keep_continuous_audio() {

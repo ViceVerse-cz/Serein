@@ -737,7 +737,10 @@ for the maximum target at legal 2.5 ms packetization plus scheduling headroom. I
 cursor corrects sustained occupancy/clock drift by at most five samples per 960-sample
 output frame, using bounded interpolation. Playable audio timestamps anchor to the
 producer clock so sample drift does not accumulate against the original nominal clock;
-normal participant voice mixing is unchanged.
+normal participant voice mixing is unchanged. Per-source arrival sequence/sample watermarks
+distinguish reordered packets from a backwards audio epoch: a newer sequence with an older
+sample timestamp restarts the audio buffer, rather than discarding incoming PCM and playing
+concealment while slowly chasing the old cursor. Sequence/timestamp wrap remains supported.
 
 Authenticated sender reports relate each same-owner 90 kHz video clock to the 48 kHz
 audio master. Video correction uses elapsed time, a filtered error and a deadband, bounded
@@ -745,7 +748,12 @@ to 60 ms per second regardless of frame rate. Missing/expired reports retain ind
 arrival-based pacing; they cannot establish lip sync. Audio rebuffering retires its old
 RTP anchor/reference while keeping accepted PCM and queued video valid. Releasing an audio
 reference slews the fallback target rather than rewinding video. Source retirement, rekeys
-and teardown still invalidate the corresponding generation.
+and teardown still invalidate the corresponding generation. Local video scheduling stays
+monotonic across timestamp phase changes. A forward RTP step exceeding its arrival interval
+by more than 100 ms, or a backwards sample epoch, continues the existing local timeline at
+arrival cadence; sender reports then correct phase gradually. Sparse frames with matching
+arrival/media gaps and ordinary packet-repair bursts retain RTP pacing. This is a bounded
+continuity policy, not generic reordered-video-profile conformance.
 
 Video retains at most 64 encoded pictures / 8 MiB, separately from the decoder queue.
 Its intended presentation timestamp survives native asynchronous decoding via an opaque
@@ -798,6 +806,10 @@ between the UDP socket and the display, so a frozen viewer is diagnosed from one
 - `playout_late` / `playout_resets` / `playout_drops` / `playout_depth`: late enqueue events,
   playback-clock resets, discarded queued pictures and maximum queue depth. Late inputs
   alone do not imply a dropped or visibly skipped frame.
+- `playout_rewinds` / `playout_source_changes` / `playout_expired` / `playout_pressure` /
+  `playout_ahead`: specific causes of playback recovery. Counts can overlap when one item
+  violates multiple conditions; source/security changes still require normal recovery.
+- `av_timeline_rebases`: timestamp phase changes absorbed without rewinding local video.
 - `receiver_reports_sent`: authenticated RTCP reception reports sent while watching.
 - `av_audio_reports` / `av_video_reports` / `av_video_synced`: accepted sender timing reports
   and video deadlines mapped to an audio clock. Zero mapped deadlines means the receiver
