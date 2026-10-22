@@ -21,7 +21,7 @@ page-storage = Данные и конфиденциальность
 page-updates = Обновления
 page-extensions = Расширения
 page-themes = Темы
-description-account = Учетная запись Discord используемая на этом устройстве.
+description-account = Учетная запись Discord, используемая на этом устройстве.
 description-profile = Выберите, как вы будете выглядеть в Discord.
 description-general = Запуск, поведение окон и графики на этом устройстве.
 description-appearance = Тема, цвета, оконные эффекты и макет.
@@ -110,7 +110,7 @@ new = Новый
 members-count = Члены
 members-heading = Члены
 no-conversation-selected = Ни один разговор не выбран
-select-conversation = Выберите канал или лчиный чат из списка.
+select-conversation = Выберите канал или личный чат из списка.
 friends-online = Онлайн
 friends-all = Все
 friends-pending = В ожидании
@@ -2007,7 +2007,7 @@ profile-edit-form-leave-blank-to-use-your-username = Оставьте поле �
 # Context: form
 profile-edit-form-new-picture-chosen-save-to-upload-it = Выбрана новая картинка. Сохраните, чтобы загрузить.
 # Context: form
-profile-edit-form-png-jpeg-gif-or-webp-up-to-8-mb-cropped = PNG, JPEG, GIF или WebP до 8 МБ. Формат два к двум.
+profile-edit-form-png-jpeg-gif-or-webp-up-to-8-mb-cropped = PNG, JPEG, GIF или WebP до 8 МБ. Автоматически обрезается к квадрату.
 # Context: form
 profile-edit-form-profile-color = Цвет профиля
 # Context: form
@@ -2097,7 +2097,7 @@ profiles-more-menu-edit-friend-nickname = Изменить псевдоним д
 # Context: more_menu
 profiles-more-menu-mute = Заглушить
 # Context: more_menu
-profiles-more-menu-mute-this-direct-message-s-notifications-until-you-unmute-it = Отключайте уведомления об этом плчиныхсообщении, пока не включите его.
+profiles-more-menu-mute-this-direct-message-s-notifications-until-you-unmute-it = Отключить уведомления об этом личиных сообщении, пока не включите его.
 # Context: more_menu
 profiles-more-menu-no-open-direct-message-with-this-user = Нет открытого личного сообщения с этим пользователем.
 # Context: more_menu
@@ -3492,7 +3492,7 @@ settings-chat-settings-suggest-nitro-emojis-description = Показывать �
 # Context: close_control
 settings-close-control-close-settings-esc = Закрыть настройки (Esc)
 # Context: colour_preset_settings
-settings-colour-preset-settings-colour-preset = Цвета
+settings-colour-preset-settings-colour-preset = Цветовая палитра
 # Context: colour_preset_settings
 # Context: storage_page
 settings-storage-page-clear-cache = Очистить кэш
@@ -4245,7 +4245,7 @@ voice-voice-processing-controls-echo-cancellation = Эхоподавление
 # Context: voice_processing_controls
 voice-voice-processing-controls-hold-your-configured-shortcut-when-you-want-to-speak = Удерживайте настроенный ярлык, когда хотите поговорить.
 # Context: voice_processing_controls
-voice-voice-processing-controls-input-profile = Входной звук
+voice-voice-processing-controls-input-profile = Профиль входа
 # Context: voice_processing_controls
 voice-voice-processing-controls-input-threshold = Порог активации
 # Context: voice_processing_controls
