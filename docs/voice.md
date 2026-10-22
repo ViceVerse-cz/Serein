@@ -731,7 +731,9 @@ the most recently active media source, at most once per 500 ms per source.
 
 A watched-video buffer starts playback 100 ms later and submits intact pictures on their
 90 kHz source clock, instead of immediately decoding a network burst. It retains at most
-16 pictures / 8 MiB. Incoming cameras retain immediate scheduling. Brief native decoder
+64 pictures / 8 MiB. The item budget accommodates the allowed 500 ms A/V scheduling
+horizon at 60 fps, rather than forcing healthy delayed pictures into keyframe recovery.
+Incoming cameras retain immediate scheduling. Brief native decoder
 backpressure is retried only on the dedicated worker, within the existing 150 ms age
 budget. Severe lateness, queue pressure and decode faults retain keyframe recovery.
 
@@ -740,7 +742,10 @@ decode, with matching 100 ms initial buffering. Audio provides the playback mast
 Valid authenticated sender reports relate its timestamps to same-owner video clocks;
 video adjusts by at most 2 ms per picture without stretching audio or abruptly draining
 the display queue. Zero, reordered, unrelated-source and implausible reports are ignored;
-timing mappings expire after 30 seconds without refresh. Missing reports retain independent
+timing mappings expire after 30 seconds without refresh. Restarting an exhausted or
+pressured audio packet buffer also retires its old playback anchor and sender-clock
+reference; retaining that future anchor could otherwise mute every successive restart.
+Missing reports retain independent
 arrival-based RTP pacing, which cannot guarantee exact lip sync. Normal participant voice
 timing, encryption, DAVE, subscription and 1080p requirements are unchanged. Physical
 audio-device latency and display presentation are not measured by this scheduling logic.

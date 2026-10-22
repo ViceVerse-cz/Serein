@@ -15,13 +15,57 @@ Package comparisons use unchanged upstream `c2842aa` and the isolated streaming 
 The standard package smoke checks validate metadata, dependencies, ownership and payload.
 | Package metric | Upstream baseline | Streaming candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 92,650,248 B | 92,710,664 B | +60,416 B (+0.065%) |
-| Installed payload (245 files) | 97,348,681 B | 97,409,097 B | +60,416 B (+0.062%) |
-| Arch archive | 54,376,694 B | 54,424,215 B | +47,521 B (+0.087%) |
+| Executable | 92,650,248 B | 92,712,200 B | +61,952 B (+0.067%) |
+| Installed payload (245 files) | 97,348,681 B | 97,410,633 B | +61,952 B (+0.064%) |
+| Arch archive | 54,376,694 B | 54,422,352 B | +45,658 B (+0.084%) |
 
 Installed bytes sum archive file lengths under `usr/`, excluding package metadata.
 Both packages contain the same 245 installed files and pass the native Arch smoke checks.
-The full gate passes 1,291 tests, strict Clippy, formatting, application and policy checks.
+The full gate passes 1,294 tests, strict Clippy, formatting, application and policy checks.
+
+An owner follow-up on candidate `4714d41` exposed an A/V scheduling regression. A
+181.104-second 720p/~30 fps session had zero playback resets/drops; a subsequent
+127.278-second 720p/~60 fps session had 55 resets, 880 queued-picture drops and 1,417 gated
+predictions, with a 1,540 ms decoded-picture gap. Neither had reassembly or decoder errors.
+During the failure, audio still decrypted at about 50 packets/s while produced audio
+frames fell to zero. These are private numeric aggregates, not captured audio/video.
+
+Three scheduling boundaries are corrected: an audio packet-buffer restart also retires
+its old playback anchor/reference; the watched-picture budget is 64 items within the
+unchanged 8 MiB payload limit; and ordinary video arrival jitter at the 500 ms lookahead
+ceiling clamps the clock rather than rewinding it behind queued pictures. Actual backward
+deadline/source discontinuities retain keyframe recovery instead of silently accumulating
+overdue predictions. The separate 16-picture/16-MiB decoder handoff is unchanged.
+
+Synthetic tests reproduce the original permanently silent audio after a forward RTP
+epoch shift and the 60 fps queue overflow under a valid delayed audio master. They now
+pass, alongside a deadline-ordering regression for one millisecond of arrival jitter
+near the lookahead ceiling. The capture does not retain raw RTP timestamps, so it cannot
+identify the wire event that triggered the owner's clock restart. Live confirmation of
+the combined correction is still pending.
+
+One native before/after run per case uses the same eight-second 1080p/60 H.264 fixture,
+production watched-audio decoder, clock, playback queue and native video worker. The
+baseline is candidate `4714d41`; corrected decoded luma matches all 479 expected FFmpeg
+reference pictures in order (the native parser retains the final input as below).
+The audio-master case delays audio RTP arrival by 400 ms, within the allowed clock horizon.
+The epoch case keeps valid Opus/sequence ordering but advances audio RTP by 200 ms after
+two seconds; its final two input seconds contain 100 expected audible 20 ms audio frames.
+
+| Native reproduction | Candidate `4714d41` | Correction |
+| --- | ---: | ---: |
+| Delayed audio master: native pictures / 480 inputs | 143 | 479 |
+| Same case: gated predictions / queued-picture drops | 285 / 48 | 0 / 0 |
+| Audio RTP epoch shift: native pictures / 480 inputs | 202 | 479 |
+| Same epoch shift: audible audio frames in final two input seconds | 0 / 100 | 100 / 100 |
+| Same epoch shift: gated predictions / queued-picture drops | 226 / 48 | 0 / 0 |
+
+All four runs have zero decoder errors, stale inputs or decoder admission rejection.
+Corrected runs have zero playback resets, with peak queue depths of 31 and eight pictures.
+The baseline stops producing pictures after 2.65/3.64 seconds respectively; its small
+between-picture gap statistic excludes that final stall and is not a success measure.
+This synthetic test establishes scheduling/decoder recovery, not physical speaker/display
+synchronization or the owner's exact triggering packet sequence. No live media was recorded.
 
 During preparation, a native harness exercised the production packetizer, receiver,
 decoder worker and GStreamer/VA-API path on an AMD RX 6900 XT. The fixture is eight seconds
@@ -71,7 +115,7 @@ audio playout and encoded-video scheduling converge to matching logical deadline
 changing audio cadence or dropping queued video. This tests scheduling, not hardware latency.
 
 Resource limits: repair holds at most 512 sequence positions / 512 KiB of encrypted payload
-per source, at most 16 sources; watched-video pacing adds at most 16 encoded pictures /
+per source, at most 16 sources; watched-video pacing adds at most 64 encoded pictures /
 8 MiB and 100 ms initial video delay. The existing 16-picture / 16-MiB decoder queue,
 four-unit Linux native queue and 150 ms decoder-age budget remain. Watched audio uses at
 most eight compressed packets plus one 5,760-sample mono PCM buffer per source (16 sources).

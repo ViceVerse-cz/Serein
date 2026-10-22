@@ -64,6 +64,13 @@ impl Sync {
 		self.tracks.clear();
 		self.references.clear();
 	}
+	/// A restarted audio buffer must establish a fresh local playback anchor too.
+	/// Otherwise a future deadline can survive every packet-pressure reset and
+	/// prevent the new buffer from ever reaching its first playable picture/sample.
+	pub fn forget_source(&mut self, ssrc: u32) {
+		self.tracks.retain(|track| track.ssrc != ssrc);
+		self.references.retain(|reference| reference.ssrc != ssrc);
+	}
 	pub fn retain(&mut self, mut keep: impl FnMut(u64, u32, u32) -> bool) {
 		self.tracks
 			.retain(|track| keep(track.user, track.ssrc, track.rate));
@@ -113,12 +120,23 @@ impl Sync {
 			.and_then(|(last, deadline)| {
 				let delta = timestamp.wrapping_sub(last);
 				(delta < 0x8000_0000)
-					.then(|| shift(deadline, ticks(delta as i32, rate)))
+					.then(|| {
+						shift(deadline, ticks(delta as i32, rate)).and_then(|deadline| {
+							if deadline <= now + Duration::from_millis(500) {
+								Some(deadline)
+							} else if rate == 90_000 && delta <= rate / 2 {
+								// Ordinary arrival jitter at the lookahead ceiling must not
+								// rewind the video clock by 400 ms behind queued pictures.
+								Some(now + Duration::from_millis(500))
+							} else {
+								None
+							}
+						})
+					})
 					.flatten()
 			})
 			.filter(|deadline| {
-				*deadline <= now + Duration::from_millis(500)
-					&& now.saturating_duration_since(*deadline) <= Duration::from_millis(250)
+				now.saturating_duration_since(*deadline) <= Duration::from_millis(250)
 			});
 		let mut deadline = previous.unwrap_or(now + BUFFER);
 		// Keep audio cadence continuous. Only video slews toward its audio master's
@@ -388,5 +406,135 @@ mod tests {
 		assert!(audio_frames >= 100);
 		assert_eq!(video_frames, 100);
 		assert_eq!(video.take_stats().dropped, 0);
+	}
+
+	#[test]
+	fn delayed_audio_master_does_not_force_sixty_fps_video_into_keyframe_recovery() {
+		use crate::{
+			stream_audio_receive::Audio,
+			video_playout::{Playout, Timed},
+			video_receive::Encoded,
+		};
+		use opus2::{Application, Channels, Encoder};
+		let start = Instant::now();
+		let mut sync = Sync::default();
+		let mut audio = Audio::default();
+		audio.announce(7, 70).unwrap();
+		let mut video = Playout::default();
+		let mut encoder = Encoder::new(48_000, Channels::Mono, Application::Audio).unwrap();
+		let mut bytes = [0; 1275];
+		let length = encoder.encode_float(&[0.1; 960], &mut bytes).unwrap();
+		let opus = bytes[..length].to_vec();
+		let mut next_video = 0u32;
+		let mut decoded = 0u32;
+		let mut audio_frames = 0u64;
+		for ms in 0..11_000u64 {
+			let now = start + Duration::from_millis(ms);
+			// Model independently delayed audio RTP; receiver buffering stays 100 ms.
+			if (400..10_400).contains(&ms) && (ms - 400) % 20 == 0 {
+				let captured = (ms - 400) as u32;
+				audio.push(
+					70,
+					(captured / 20) as u16,
+					captured * 48,
+					opus.clone(),
+					&mut sync,
+					now,
+				);
+			}
+			// A repair releases 120 ms of complete pictures together, in media order.
+			while next_video < 600 {
+				let captured = u64::from(next_video) * 1000 / 60;
+				let arrival = if (6000..6120).contains(&captured) {
+					6120
+				} else {
+					captured
+				};
+				if arrival > ms {
+					break;
+				}
+				let timestamp = next_video * 1500;
+				let due = sync.deadline(7, 71, 90_000, timestamp, now);
+				video
+					.push_at(
+						Timed {
+							frame: Encoded {
+								user: 7,
+								data: vec![1],
+								keyframe: next_video.is_multiple_of(120),
+							},
+							source: 71,
+							timestamp,
+						},
+						now,
+						Some(due),
+					)
+					.expect("valid A/V alignment exhausted the picture queue");
+				next_video += 1;
+			}
+			if ms != 0 && ms % 1000 == 0 {
+				let ntp = (ms / 1000 + 100) << 32;
+				sync.sender_report(
+					SenderReport {
+						ssrc: 70,
+						ntp,
+						rtp: ms as u32 * 48,
+					},
+					now,
+				);
+				sync.sender_report(
+					SenderReport {
+						ssrc: 71,
+						ntp,
+						rtp: ms as u32 * 90,
+					},
+					now,
+				);
+			}
+			if ms % 20 == 0 && audio.pop(&mut sync, now).is_some() {
+				if audio_frames < 500 {
+					assert_eq!(ms, 500 + audio_frames * 20);
+				}
+				audio_frames += 1;
+			}
+			while video.pop(now).unwrap().is_some() {
+				decoded += 1;
+			}
+		}
+		assert_eq!(decoded, 600);
+		assert!(audio_frames >= 500);
+		let stats = video.take_stats();
+		assert_eq!((stats.resets, stats.dropped), (0, 0));
+	}
+
+	#[test]
+	fn lookahead_ceiling_jitter_does_not_rewind_video_behind_queued_pictures() {
+		let start = Instant::now();
+		let mut sync = Sync::default();
+		sync.deadline(7, 71, 90_000, 0, start);
+		sync.deadline(7, 70, 48_000, 0, start + Duration::from_millis(400));
+		for ssrc in [70, 71] {
+			sync.sender_report(
+				SenderReport {
+					ssrc,
+					ntp: 100 << 32,
+					rtp: 0,
+				},
+				start + Duration::from_millis(400),
+			);
+		}
+		let mut previous = start;
+		for n in 1..=201u32 {
+			let now = start + Duration::from_nanos(u64::from(n) * 16_666_667)
+				- if n == 201 {
+					Duration::from_millis(1)
+				} else {
+					Duration::ZERO
+				};
+			let due = sync.deadline(7, 71, 90_000, n * 1500, now);
+			assert!(due >= previous, "arrival jitter rewound the playback clock");
+			assert!(due <= now + Duration::from_millis(500));
+			previous = due;
+		}
 	}
 }

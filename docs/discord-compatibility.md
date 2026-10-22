@@ -755,14 +755,20 @@ the master: authenticated RTCP sender reports relate its clock to each same-owne
 video source, and video deadlines adjust by at most 2 ms per picture toward that mapping.
 Audio cadence is not stretched. Without usable reports, each source retains bounded
 arrival-based RTP pacing; exact cross-source alignment is then unverified. Rekeys and
-source retirement clear queued media and timing state. The 1080p receive limit is unchanged.
+source retirement clear queued media and timing state. Audio queue restarts establish
+a new local clock anchor instead of retaining a deadline beyond the packet window.
+The video queue holds up to 64 pictures / 8 MiB so accepted A/V delay at 60 fps does
+not itself require keyframe recovery. The 1080p receive limit is unchanged.
 
 Synthetic protocol, encrypted local-UDP and Linux native decode checks cover these paths.
 An owner-controlled Linux test of the integration build reported smoother playback and
 recorded 705 seconds at 1280×720/~30 fps without resolution changes, incomplete pictures,
 decoder errors or recovery pauses. This is a limited observation, not a guarantee of
 Discord parity, all-network behavior or Windows/macOS interoperability. That capture
-predates timestamp-preserving audio; the final A/V path needs another owner comparison.
+predates timestamp-preserving audio. A later A/V candidate exposed a 60 fps queue/reset
+loop and muted audio despite continuing decrypted input. Offline regressions now cover
+clock/buffer restart, the full A/V hold horizon and deadline ordering; the corrected
+combined path still needs another owner comparison.
 
 ## Outgoing screen sharing — September 11, 2026
 

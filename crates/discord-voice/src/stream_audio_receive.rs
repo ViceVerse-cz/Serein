@@ -73,6 +73,9 @@ impl Source {
 		self.next.get_or_insert(sequence);
 		if self.cursor.is_none() {
 			self.cursor = Some(timestamp);
+			// Restart the scheduling epoch with the compressed buffer. A retained
+			// future deadline can outlive this queue's entire eight-packet window.
+			clock.forget_source(self.ssrc);
 			clock.deadline(self.user, self.ssrc, 48_000, timestamp, now);
 		}
 		self.packets.push(Packet {
@@ -151,6 +154,7 @@ impl Source {
 		}
 		if filled == 0 && self.packets.is_empty() && self.offset == self.length {
 			self.cursor = None;
+			clock.forget_source(self.ssrc);
 			return None;
 		}
 		self.cursor = Some(timestamp.wrapping_add(960));
@@ -326,5 +330,41 @@ mod tests {
 		audio.announce(99, 1).unwrap();
 		assert_eq!(audio.user(1), Some(99));
 		assert!(audio.sources.last().unwrap().packets.is_empty());
+	}
+
+	#[test]
+	fn audio_restarts_after_a_timestamp_jump_instead_of_chasing_an_unreachable_deadline() {
+		let start = Instant::now();
+		let mut audio = Audio::default();
+		let mut sync = Sync::default();
+		audio.announce(7, 70).unwrap();
+		let mut encoder = Encoder::new(48_000, Channels::Mono, Application::Audio).unwrap();
+		let tone: crate::Frame = std::array::from_fn(|i| (i as f32 * 0.05).sin() * 0.2);
+		let mut bytes = [0; 1275];
+		let length = encoder.encode_float(&tone, &mut bytes).unwrap();
+		let mut audible = 0;
+		for n in 0..300u32 {
+			let now = start + Duration::from_millis(u64::from(n) * 20);
+			// Keep valid Opus and sequence ordering, but shift the sender's RTP epoch
+			// forward 200 ms. Packet pressure must restart both buffer and clock.
+			let timestamp = n * 960 + if n >= 100 { 9600 } else { 0 };
+			audio.push(
+				70,
+				n as u16,
+				timestamp,
+				bytes[..length].to_vec(),
+				&mut sync,
+				now,
+			);
+			if let Some(frame) = audio.pop(&mut sync, now)
+				&& n >= 250 && frame.iter().any(|sample| sample.abs() > 0.001)
+			{
+				audible += 1;
+			}
+		}
+		assert!(
+			audible >= 40,
+			"audio did not recover after a bounded packet/clock restart: {audible}"
+		);
 	}
 }

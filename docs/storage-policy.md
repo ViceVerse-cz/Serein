@@ -1058,11 +1058,13 @@ attempts per hole and 288 encrypted wire bytes per datagram. Source retirement o
 replacement discards pending packets, requests, media-activity and actual-PLI clocks.
 Empty padding packets use the same sequence window and retain no media payload.
 
-Watched-video pacing holds at most 16 decrypted encoded pictures and 8 MiB of allocated
+Watched-video pacing holds at most 64 decrypted encoded pictures and 8 MiB of allocated
 payload capacity, plus one source-clock anchor and bounded deque metadata. This is separate
 from the existing 16-picture/16-MiB decoder handoff and native decoder queue. Initial video
 buffering is 100 ms; severe stalls, pressure or incompatible clock changes trigger bounded
-keyframe recovery. Rekeys and teardown clear queued plaintext. Reception reports retain
+keyframe recovery. Rekeys and teardown clear queued plaintext. The 64-item budget covers
+the existing 500 ms A/V hold horizon at 60 fps, with burst headroom; retained encoded
+payload remains limited to 8 MiB. Reception reports retain
 at most 16 transient source-statistics entries and 384 report-block bytes per one-second
 send. Backpressure retries retain the existing access unit rather than another copy.
 
@@ -1076,6 +1078,8 @@ The shared stream timing state has at most 32 source clocks and 16 audio referen
 It accepts sender timing only for current known sources, retains no packet contents and
 ignores reports more than 30 seconds old for synchronization. Rekeys clear audio PCM,
 compressed packets, queued video and timing references before another receive iteration.
+An audio buffer restart retires that source's playback anchor and audio reference as
+well as its packets/PCM; unrelated source clocks and video decoder references remain.
 No media files, diagnostic archives, schema changes or persistent queues are added.
 
 `SEREIN_MEMBER_DIAGNOSTICS=1` enables fixed-label member synchronization diagnostics;

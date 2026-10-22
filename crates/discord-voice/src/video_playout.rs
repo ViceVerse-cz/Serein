@@ -9,7 +9,10 @@ use std::{
 const BUFFER: Duration = crate::stream_sync::BUFFER;
 const MAX_AHEAD: Duration = Duration::from_millis(500);
 const MAX_LATE: Duration = Duration::from_millis(250);
-const MAX_FRAMES: usize = 16;
+// A/V alignment can legitimately hold up to 500 ms: 30 pictures at 60 fps,
+// before packet-repair/scheduling bursts. Keep that within the item budget too;
+// the independent 8 MiB allocated-payload cap still bounds retained media.
+const MAX_FRAMES: usize = 64;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 
 pub(crate) struct Timed {
@@ -85,6 +88,23 @@ impl Playout {
 				now + BUFFER
 			}
 		};
+		if self
+			.queue
+			.back()
+			.is_some_and(|pending| deadline < pending.deadline)
+			|| (!self.queue.is_empty()
+				&& self
+					.clock
+					.as_ref()
+					.is_some_and(|clock| clock.user != user || clock.source != source))
+		{
+			// A genuine clock/layer discontinuity cannot put predictions behind a
+			// later deadline and silently invalidate their decoder references.
+			self.clear();
+			if !frame.keyframe {
+				return Err(user);
+			}
+		}
 		if self.queue.len() >= MAX_FRAMES || frame.data.capacity() > MAX_BYTES - self.bytes {
 			self.clear();
 			return Err(user);
@@ -204,14 +224,14 @@ mod tests {
 		for large in [false, true] {
 			let mut playout = Playout::default();
 			let limit = if large { 8 } else { MAX_FRAMES };
-			for n in 0..limit {
-				let mut timed = frame(n as u32 * 1500);
+			for _ in 0..limit {
+				let mut timed = frame(0);
 				if large {
 					timed.frame.data = vec![1; 1024 * 1024];
 				}
 				playout.push(timed, now).unwrap();
 			}
-			let mut extra = frame(limit as u32 * 1500);
+			let mut extra = frame(0);
 			if large {
 				extra.frame.data = vec![1; 1024 * 1024];
 			}
@@ -231,6 +251,14 @@ mod tests {
 		changed.source = 800;
 		changed.frame.keyframe = false;
 		assert_eq!(playout.push(changed, now), Err(7));
+		assert!(playout.deadline().is_none());
+		playout.push(frame(0), now).unwrap();
+		let mut backwards = frame(1500);
+		backwards.frame.keyframe = false;
+		assert_eq!(
+			playout.push_at(backwards, now, Some(now + BUFFER / 2)),
+			Err(7)
+		);
 		assert!(playout.deadline().is_none());
 	}
 	#[test]
