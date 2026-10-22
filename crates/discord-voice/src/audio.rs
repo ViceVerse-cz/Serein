@@ -73,6 +73,8 @@ pub struct Gate {
 	echo_reset: AtomicBool,
 	preview_level: AtomicU16,
 	processing_ready: AtomicBool,
+	diagnostics: bool,
+	output_gaps: [AtomicU64; 2],
 }
 impl Default for Gate {
 	fn default() -> Self {
@@ -95,6 +97,8 @@ impl Default for Gate {
 			echo_reset: AtomicBool::new(false),
 			preview_level: AtomicU16::new(0),
 			processing_ready: AtomicBool::new(true),
+			diagnostics: crate::diagnostics::enabled(),
+			output_gaps: std::array::from_fn(|_| AtomicU64::new(0)),
 		}
 	}
 }
@@ -420,6 +424,14 @@ impl Audio {
 						if worker_gate.playback() {
 							drops += u64::from(active.output.push(frame).is_err());
 						}
+					}
+					if worker_gate.diagnostics {
+						metrics.device_playback(
+							worker_gate
+								.output_gaps
+								.each_ref()
+								.map(|value| value.swap(0, Ordering::Relaxed)),
+						);
 					}
 					metrics.poll(reset, drops, false, noise_frames);
 					std::thread::park_timeout(Duration::from_millis(5));
@@ -986,6 +998,7 @@ impl Capture {
 }
 struct Playback {
 	media_generation: u64,
+	gaps: [u64; 2],
 	input: rtrb::Consumer<crate::PlaybackFrame>,
 	reference: Capture,
 	frame: Frame,
@@ -1034,6 +1047,13 @@ impl Playback {
 				self.reference.sample(sample);
 			}
 		}
+		if gate.diagnostics {
+			for (counter, value) in gate.output_gaps.iter().zip(std::mem::take(&mut self.gaps)) {
+				if value != 0 {
+					counter.fetch_add(value, Ordering::Relaxed);
+				}
+			}
+		}
 		if std::mem::take(&mut self.reference.overrun) {
 			gate.echo_reset.store(true, Ordering::Release);
 		}
@@ -1045,6 +1065,7 @@ impl Playback {
 	) -> Self {
 		Self {
 			media_generation: 0,
+			gaps: [0; 2],
 			input,
 			reference: Capture::new(rate, reference),
 			frame: [0.0; 960],
@@ -1074,6 +1095,7 @@ impl Playback {
 			self.frame = [0.0; 960];
 			for _ in 0..8 {
 				let Ok(frame) = self.input.pop() else {
+					self.gaps[0] += 1;
 					break;
 				};
 				if frame
@@ -1081,6 +1103,7 @@ impl Playback {
 					.as_ref()
 					.is_some_and(|tag| !tag.is_current())
 				{
+					self.gaps[1] += 1;
 					continue;
 				}
 				if let (Some(tag), Some(at)) = (frame.presentation, at) {

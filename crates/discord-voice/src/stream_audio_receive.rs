@@ -12,7 +12,10 @@ struct Packet {
 	timestamp: u32,
 	opus: Box<[u8]>,
 }
+// Per-window numeric aggregates: decoded/concealed samples, decode failures,
+// rebufferings, faster/slower input samples, maximum buffered/target milliseconds.
 struct Source {
+	stats: [u64; 8],
 	started: bool,
 	level_error: f64,
 	presentation: Option<crate::Presentation>,
@@ -30,6 +33,7 @@ struct Source {
 }
 impl Source {
 	fn clear(&mut self) {
+		self.stats[3] += u64::from(self.cursor.is_some());
 		self.started = false;
 		self.level_error = 0.0;
 		self.presentation = None;
@@ -86,7 +90,7 @@ impl Source {
 			self.cursor = Some(timestamp);
 			// Restart the scheduling epoch with the compressed buffer. A retained
 			// future deadline can outlive this queue's bounded packet window.
-			clock.forget_source(self.ssrc);
+			clock.restart_audio(self.ssrc);
 			clock.deadline(self.user, self.ssrc, 48_000, timestamp, now);
 		}
 		clock.observe_audio(self.ssrc, timestamp, now);
@@ -113,6 +117,8 @@ impl Source {
 			.max()
 			.unwrap_or(0)
 			.max(0) as f64;
+		self.stats[6] = self.stats[6].max((buffered / 48.0) as u64);
+		self.stats[7] = self.stats[7].max(target.as_millis() as u64);
 		let desired = target.as_secs_f64() * 48_000.0;
 		self.level_error += (buffered - desired - self.level_error) * 0.02;
 		let adjustment = if self.level_error.abs() > 480.0 {
@@ -120,6 +126,8 @@ impl Source {
 		} else {
 			0
 		};
+		self.stats[4] += adjustment.max(0) as u64;
+		self.stats[5] += (-adjustment).max(0) as u64;
 		let wanted = (960 + adjustment) as usize;
 		let mut frame = [0.0; 965];
 		let mut filled = 0usize;
@@ -144,7 +152,9 @@ impl Source {
 					self.length = self
 						.decoder
 						.decode_float(&[], &mut self.pcm[..count], false)
+						.inspect_err(|_| self.stats[2] += 1)
 						.unwrap_or(0);
+					self.stats[1] += self.length as u64;
 					self.offset = 0;
 					if self.length == 0 {
 						filled += count.min(wanted - filled);
@@ -161,7 +171,9 @@ impl Source {
 					self.length = self
 						.decoder
 						.decode_float(&packet.opus, self.pcm.as_mut(), false)
+						.inspect_err(|_| self.stats[2] += 1)
 						.unwrap_or(0);
+					self.stats[0] += self.length as u64;
 					self.offset = 0;
 					self.missing = 0;
 					if self.length == 0 {
@@ -185,9 +197,10 @@ impl Source {
 			filled += count;
 		}
 		if filled == 0 && self.packets.is_empty() && self.offset == self.length {
+			self.stats[3] += 1;
 			self.cursor = None;
 			self.started = false;
-			clock.forget_source(self.ssrc);
+			clock.restart_audio(self.ssrc);
 			return None;
 		}
 		self.cursor = Some(timestamp.wrapping_add(wanted as u32));
@@ -206,6 +219,19 @@ pub(crate) struct Audio {
 	sources: Vec<Source>,
 }
 impl Audio {
+	pub fn take_stats(&mut self) -> [u64; 8] {
+		let mut output = [0; 8];
+		for source in &mut self.sources {
+			for (index, value) in std::mem::take(&mut source.stats).into_iter().enumerate() {
+				if index >= 6 {
+					output[index] = output[index].max(value);
+				} else {
+					output[index] += value;
+				}
+			}
+		}
+		output
+	}
 	pub fn announce(&mut self, user: u64, ssrc: u32) -> Result<(), &'static str> {
 		if ssrc == 0 {
 			return Ok(());
@@ -229,6 +255,7 @@ impl Audio {
 			return Err("Stream audio source budget exceeded");
 		}
 		self.sources.push(Source {
+			stats: [0; 8],
 			started: false,
 			level_error: 0.0,
 			presentation: None,
@@ -310,6 +337,44 @@ mod tests {
 	use super::*;
 	use opus2::{Application, Encoder};
 	use std::time::Duration;
+	#[test]
+	fn audio_rebuffering_keeps_video_and_queued_pcm_current_until_the_session_changes() {
+		let start = Instant::now();
+		let mut sync = Sync::default();
+		let due = sync.deadline(7, 71, 90_000, 0, start);
+		let video = sync.presentation(7, due).unwrap();
+		let mut audio = Audio::default();
+		audio.announce(7, 70).unwrap();
+		audio.push(70, 0, 0, vec![0xf8, 0xff, 0xfe], &mut sync, start);
+		assert!(video.is_current(), "audio joining invalidated queued video");
+		let mut queued = None;
+		for n in 5..20 {
+			if let Some(frame) = audio.pop_timed(&mut sync, start + Duration::from_millis(n * 20)) {
+				queued = frame.presentation;
+			}
+		}
+		assert!(audio.sources[0].cursor.is_none());
+		assert!(
+			video.is_current(),
+			"an audio underrun invalidated queued video"
+		);
+		assert!(
+			queued.as_ref().unwrap().is_current(),
+			"rebuffering discarded playable PCM"
+		);
+		audio.push(
+			70,
+			1,
+			48_000,
+			vec![0xf8, 0xff, 0xfe],
+			&mut sync,
+			start + Duration::from_secs(1),
+		);
+		assert!(video.is_current());
+		sync.clear();
+		assert!(!video.is_current());
+		assert!(!queued.unwrap().is_current());
+	}
 	#[test]
 	fn reordered_variable_duration_audio_keeps_sample_timestamps_across_wrap() {
 		let now = Instant::now();

@@ -742,9 +742,10 @@ normal participant voice mixing is unchanged.
 Authenticated sender reports relate each same-owner 90 kHz video clock to the 48 kHz
 audio master. Video correction uses elapsed time, a filtered error and a deadband, bounded
 to 60 ms per second regardless of frame rate. Missing/expired reports retain independent
-arrival-based pacing; they cannot establish lip sync. Audio restarts retire their old
-anchor/reference and invalidate already queued timestamps; source retirement, rekeys and
-teardown invalidate the corresponding generation too.
+arrival-based pacing; they cannot establish lip sync. Audio rebuffering retires its old
+RTP anchor/reference while keeping accepted PCM and queued video valid. Releasing an audio
+reference slews the fallback target rather than rewinding video. Source retirement, rekeys
+and teardown still invalidate the corresponding generation.
 
 Video retains at most 64 encoded pictures / 8 MiB, separately from the decoder queue.
 Its intended presentation timestamp survives native asynchronous decoding via an opaque
@@ -755,6 +756,10 @@ is retried only on the decoder worker within the existing 150 ms age budget. Inc
 cameras retain immediate scheduling.
 
 Watched PCM retains its presentation timestamp through call mixing and device queues.
+The bridge between independently scheduled stream/call ticks retains at most eight frames
+and starts with three queued frames (40 ms of scheduling headroom). This absorbs short
+bursts without cutting whole audio frames; stalls of at least 80 ms and playback gates
+still flush. Output timing includes this additional bridge delay.
 The output callback uses CPAL's playback timestamp and sample position to publish a
 smoothed estimate of when that media reaches output. It uses atomics only; codecs,
 locks and allocation remain outside the callback. The UI holds at most eight decoded
@@ -799,6 +804,16 @@ between the UDP socket and the display, so a frozen viewer is diagnosed from one
   has not confirmed a usable cross-media clock and is using fallback pacing.
 - `av_offset_ms`: maximum video scheduling difference before gradual correction in the
   reporting window; this is not measured physical speaker/display lip-sync error.
+- `av_device_offset_ms`: maximum positive logical-to-device timing estimate, including
+  bridge/device queues and the OS playback estimate; separate from sender-clock correction.
+- `stream_audio`: decoded/concealed sample totals, audio decode errors and rebufferings,
+  faster/slower rate-correction sample counts, maximum queued RTP span/target in milliseconds,
+  and bridge drops/underruns. Producer values are in `StreamReceive`; bridge values are in
+  `Transport`. They aggregate sources and do not measure physical output continuity.
+- `device_empty_frames` / `device_stale_frames` in `Audio`: 20 ms input frames replaced
+  by silence because the device ring was empty, and frames rejected after source/security
+  generation changes. Empty frames are expected during silence; compare against active
+  stream production/bridge counters before treating them as underruns.
 - `open_failed`: packets of any payload rejected by the transport AEAD.
 - `not_ready`: video packets received before the DAVE session was ready or from a
   user outside the group; expected briefly after joining or an epoch change.

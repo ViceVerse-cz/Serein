@@ -112,8 +112,10 @@ pub(crate) enum Video {
 	AvVideoSynced,
 	/// Maximum pre-correction video scheduling offset, not physical output latency.
 	AvOffsetMs,
+	/// Maximum device/bridge delay estimate, separately from sender-clock correction.
+	AvDeviceOffsetMs,
 }
-const VIDEO_SLOTS: usize = 33;
+const VIDEO_SLOTS: usize = 34;
 
 /// Opt-in only; media callbacks do no additional atomic work when diagnostics are off.
 pub(crate) fn enabled() -> bool {
@@ -316,6 +318,8 @@ struct Report {
 	window_ms: u64,
 	video: [u64; VIDEO_SLOTS],
 	video_sizes: VideoSizes,
+	stream_audio: [u64; 10],
+	device_playback: [u64; 2],
 	signal: [u64; SIGNAL_SLOTS],
 	/// Application-audio capture (Linux): inputs allowed, captures started, applications
 	/// excluded after a failure, and mixed 20 ms chunks handed to the stream.
@@ -379,6 +383,8 @@ impl Metrics {
 				window_ms: 0,
 				video: [0; VIDEO_SLOTS],
 				video_sizes: VideoSizes::default(),
+				stream_audio: [0; 10],
+				device_playback: [0; 2],
 				signal: [0; SIGNAL_SLOTS],
 				capture: [0; 6],
 				stages: [[0; 3]; 11],
@@ -390,6 +396,30 @@ impl Metrics {
 				stream_ticks: [0; 8],
 				queued_audio: 0,
 			},
+		}
+	}
+
+	pub fn device_playback(&mut self, values: [u64; 2]) {
+		if self.send.is_none() {
+			return;
+		}
+		for (slot, value) in self.report.device_playback.iter_mut().zip(values) {
+			*slot = slot.saturating_add(value);
+		}
+	}
+
+	/// Fixed aggregates only: no PCM, source identities or raw RTP timestamps.
+	pub fn stream_audio(&mut self, values: [u64; 10]) {
+		if self.send.is_none() {
+			return;
+		}
+		for (index, value) in values.into_iter().enumerate() {
+			let slot = &mut self.report.stream_audio[index];
+			*slot = if (6..8).contains(&index) {
+				(*slot).max(value)
+			} else {
+				slot.saturating_add(value)
+			};
 		}
 	}
 
@@ -526,6 +556,8 @@ impl Metrics {
 		self.report.queued_audio = 0;
 		self.report.video = [0; VIDEO_SLOTS];
 		self.report.video_sizes = VideoSizes::default();
+		self.report.stream_audio = [0; 10];
+		self.report.device_playback = [0; 2];
 		self.report.signal = [0; SIGNAL_SLOTS];
 		self.report.capture = [0; 6];
 	}
@@ -616,14 +648,36 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 			av_video_reports,
 			av_video_synced,
 			av_offset_ms,
+			av_device_offset_ms,
 		] = report.video;
 		let encoded_bps = encoded_bytes
 			.saturating_mul(8000)
 			.checked_div(report.window_ms)
 			.unwrap_or(0);
 		line.push_str(&format!(
-			" video: packets={packets} rtx={rtx} open_failed={open_failed} not_ready={not_ready} unknown_ssrc={unknown_ssrc} incomplete={incomplete} complete={complete} decrypt_failed={decrypt_failed} gated={gated} queue_full={queue_full} keyframes={keyframes} keyframes_without_params={keyframes_without_params} pli_sent={pli_sent} awaiting_ticks={awaiting_ticks} decoder_errors={decoder_errors} pictures={pictures} picture_gap_ms={picture_gap_ms} stall_ticks={stall_ticks} decode_queue_ms={decode_queue_ms} stale_frames={stale_frames} encoded_bytes={encoded_bytes} encoded_bps={encoded_bps} receiver_reports_sent={receiver_reports_sent} nacks_sent={nacks_sent} repaired_packets={repaired_packets} playout_late={playout_late} playout_resets={playout_resets} playout_drops={playout_drops} playout_depth={playout_depth} padding_packets={padding_packets} av_audio_reports={av_audio_reports} av_video_reports={av_video_reports} av_video_synced={av_video_synced} av_offset_ms={av_offset_ms}"
+			" video: packets={packets} rtx={rtx} open_failed={open_failed} not_ready={not_ready} unknown_ssrc={unknown_ssrc} incomplete={incomplete} complete={complete} decrypt_failed={decrypt_failed} gated={gated} queue_full={queue_full} keyframes={keyframes} keyframes_without_params={keyframes_without_params} pli_sent={pli_sent} awaiting_ticks={awaiting_ticks} decoder_errors={decoder_errors} pictures={pictures} picture_gap_ms={picture_gap_ms} stall_ticks={stall_ticks} decode_queue_ms={decode_queue_ms} stale_frames={stale_frames} encoded_bytes={encoded_bytes} encoded_bps={encoded_bps} receiver_reports_sent={receiver_reports_sent} nacks_sent={nacks_sent} repaired_packets={repaired_packets} playout_late={playout_late} playout_resets={playout_resets} playout_drops={playout_drops} playout_depth={playout_depth} padding_packets={padding_packets} av_audio_reports={av_audio_reports} av_video_reports={av_video_reports} av_video_synced={av_video_synced} av_offset_ms={av_offset_ms} av_device_offset_ms={av_device_offset_ms}"
 		));
+	}
+	if report.device_playback.iter().any(|value| *value != 0) {
+		let [empty_frames, stale_frames] = report.device_playback;
+		line.push_str(&format!(
+			" device_playback: device_empty_frames={empty_frames} device_stale_frames={stale_frames}"
+		));
+	}
+	if report.stream_audio.iter().any(|value| *value != 0) {
+		let [
+			decoded_samples,
+			concealed_samples,
+			decode_errors,
+			rebufferings,
+			rate_up_samples,
+			rate_down_samples,
+			buffer_ms,
+			target_ms,
+			bridge_drops,
+			bridge_underruns,
+		] = report.stream_audio;
+		line.push_str(&format!(" stream_audio: decoded_samples={decoded_samples} concealed_samples={concealed_samples} audio_decode_errors={decode_errors} audio_rebufferings={rebufferings} rate_up_samples={rate_up_samples} rate_down_samples={rate_down_samples} audio_buffer_ms={buffer_ms} audio_target_ms={target_ms} bridge_drops={bridge_drops} bridge_underruns={bridge_underruns}"));
 	}
 	if report.video_sizes.last != 0 {
 		let unpack = |key: u64| ((key >> 11) & 2047, key & 2047);

@@ -851,10 +851,12 @@ and incoming packet repair are described above; those changes do not establish u
 native/live video quality.
 
 Watched streams have a session-only 0–200% audio volume and mute control, independent
-of participant voice levels. Audio playout retains at most two queued 20 ms frames
-and clears delayed mixer output after a stall. Decoder input is bounded to 16 pictures
-and 16 MiB, with a 150 ms age limit and keyframe recovery. These bounds reduce backlog;
-they do not implement sender-clock audio/video synchronization or establish live sync.
+of participant voice levels. The stream/call audio bridge retains at most eight 20 ms
+frames and starts with 40 ms of scheduling headroom; stalls still clear delayed output.
+Decoder input is bounded to 16 pictures and 16 MiB, with a 150 ms age limit and keyframe
+recovery. The October 22 receiver also uses authenticated sender reports and an OS device-time
+estimate for A/V scheduling, with bounds described in `voice.md`. This does not establish
+physical lip-sync accuracy or universal official-client quality parity.
 
 September 27 preview update: hovering a currently streaming guild participant requests
 Discord's still preview and shows it in a compact 16:9 popover with a Watch Stream action.

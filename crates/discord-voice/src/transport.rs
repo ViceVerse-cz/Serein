@@ -551,6 +551,8 @@ async fn run_inner(
 						   if let Some(frame)=frame {drops = u64::from(playback.try_send(crate::PlaybackFrame{samples:frame,presentation}).is_err());}
 						   if !heard && remote_audio {heard=true;emit(Status::RemoteAudio).map_err(|_|"Call interface closed")?;}
 					   } else {mixer.clear();if let Some(aux)=&stream_audio {let _=stream_playout.next(aux,0,false,false);}}
+					   let [bridge_drops,bridge_underruns]=stream_playout.take_stats();
+					   metrics.stream_audio([0,0,0,0,0,0,0,0,bridge_drops,bridge_underruns]);
 					   metrics.poll(false, drops, stalled, 0);
 					   if now >= speakers_at {
 						   let mut users=[0;64];
@@ -1418,6 +1420,9 @@ async fn run_stream_inner(
 					if secure {
 						let start=metrics.start();
 						if let Some(frame)=mixer.pop_timed(&mut sync,now.into_std()) {
+							if let Some(stamp)=&frame.presentation {
+								metrics.video_max(Video::AvDeviceOffsetMs,stamp.deadline(now.into_std()).saturating_duration_since(stamp.at).as_millis() as u64);
+							}
 							let dropped=audio.try_send(frame).is_err();
 							metrics.finish(crate::diagnostics::Stage::Mix,start);
 							metrics.poll(false,u64::from(dropped),false,0);
@@ -1431,6 +1436,8 @@ async fn run_stream_inner(
 				if secure && decoder.is_some() {
 					receive_stream_video(&mut receivers,&mut playout,&mut sync,&mut dave,&mut metrics,None);
 				} else if playout.clear() { receivers.require_all_keyframes(); }
+				let [decoded,concealed,errors,rebufferings,up,down,buffer,target]=mixer.take_stats();
+				metrics.stream_audio([decoded,concealed,errors,rebufferings,up,down,buffer,target,0,0]);
 				let timing=playout.take_stats();
 				let av=sync.take_stats();
 				metrics.video(Video::AvAudioReports,av.audio_reports);

@@ -65,11 +65,23 @@ impl Sync {
 	/// A restarted audio buffer must establish a fresh local playback anchor too.
 	/// Otherwise a future deadline can survive every packet-pressure reset and
 	/// prevent the new buffer from ever reaching its first playable picture/sample.
-	pub fn forget_source(&mut self, ssrc: u32) {
-		for track in self.tracks.iter().filter(|track| track.ssrc == ssrc) {
-			track.output.reset();
+	pub fn restart_audio(&mut self, ssrc: u32) {
+		if let Some(track) = self
+			.tracks
+			.iter_mut()
+			.find(|track| track.ssrc == ssrc && track.rate == 48_000)
+		{
+			track.last = None;
+			track.report = None;
+			track.delay = Delay::default();
+			track.updated = None;
+			track.correction = 0.0;
+			track.target = BUFFER;
 		}
-		self.tracks.retain(|track| track.ssrc != ssrc);
+		// Buffer starvation is not a session/owner change. Already accepted PCM
+		// (including normal call voices mixed with it) and queued video remain valid.
+		// Retiring the RTP anchor is sufficient to start buffering again; clear/retain
+		// still invalidate the shared generation for security and source changes.
 		self.references.retain(|reference| reference.ssrc != ssrc);
 	}
 	pub fn retain(&mut self, mut keep: impl FnMut(u64, u32, u32) -> bool) {
@@ -163,15 +175,24 @@ impl Sync {
 			})
 			.filter(|deadline| now.saturating_duration_since(*deadline) <= MAX_LATE);
 		let mut deadline = previous.unwrap_or(now + BUFFER);
-		if rate == 90_000
-			&& !self.references.iter().any(|reference| {
+		if rate == 90_000 {
+			let referenced = self.references.iter().any(|reference| {
 				reference.user == user
 					&& now.saturating_duration_since(reference.seen) <= MAX_REPORT_AGE
-			}) {
+			});
 			let target = track.delay.target();
-			let change = target.as_nanos() as i128 - track.target.as_nanos() as i128;
-			deadline = shift(deadline, change).unwrap_or(deadline);
-			track.target = target;
+			if referenced {
+				track.target = target;
+			} else {
+				// Releasing the audio reference must not suddenly apply the entire
+				// accumulated fallback-target change and rewind queued video.
+				let budget = (elapsed.as_nanos() * 60 / 1000) as i128;
+				let change = (target.as_nanos() as i128 - track.target.as_nanos() as i128)
+					.clamp(-budget, budget);
+				deadline = shift(deadline, change).unwrap_or(deadline);
+				track.target =
+					Duration::from_nanos((track.target.as_nanos() as i128 + change) as u64);
+			}
 		}
 		// Keep audio cadence continuous. Only video slews toward its audio master's
 		// sender-clock mapping; acquiring a report must not skip/repeat PCM frames.

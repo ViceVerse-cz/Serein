@@ -17,12 +17,12 @@ Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and wi
 
 | Package metric | Upstream baseline | Streaming candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 92,650,248 B | 92,745,992 B | +95,744 B (+0.103%) |
-| Installed payload (245 files) | 97,348,681 B | 97,444,425 B | +95,744 B (+0.098%) |
-| Arch archive | 54,376,694 B | 54,442,919 B | +66,225 B (+0.122%) |
+| Executable | 92,650,248 B | 92,750,088 B | +99,840 B (+0.108%) |
+| Installed payload (245 files) | 97,348,681 B | 97,448,521 B | +99,840 B (+0.103%) |
+| Arch archive | 54,376,694 B | 54,425,449 B | +48,755 B (+0.090%) |
 
 Installed bytes sum regular archive files under `usr/`, excluding package metadata.
-Both packages contain 245 installed files. The final gate passes 1,299 tests, strict Clippy,
+Both packages contain 245 installed files. The final gate passes 1,301 tests, strict Clippy,
 formatting, application and policy checks; the native Arch package smoke also passes.
 
 The prior owner-tested candidate `7711bbe` covered two sessions totaling 6,638.153 seconds
@@ -42,6 +42,23 @@ for three minutes at each 2.5/5/10/20/40/60 ms duration with sender drift of −
 All 18 cases produce all 50 expected audible output frames in the final second. Time is
 synthetic; no sleeps, audio devices or live content are used. Tests also cover initial buffering,
 reordering, timestamp wrap/jumps, bounds, source retirement and PCM clearing.
+
+The `d34f23f` owner comparison exposed crackling and recovery pauses. Its 249.930-second
+numeric capture contained 11 playout resets and 172 queued-picture drops, with a longest
+picture interval of 1,439 ms. No device/parent transport drops or 80 ms stalls were reported;
+video queue depth grew to 43. These counters do not identify every source of the crackling.
+
+Two additional offline regressions reproduce a 40 ms scheduling burst interrupting the
+stream/call PCM bridge, and audio starvation invalidating the shared video/queued-PCM
+generation. The bridge now buffers 40 ms of scheduling headroom with an eight-frame cap;
+audio rebuffering resets its RTP anchor without invalidating accepted media. Source/security
+changes still invalidate it. A 60-tick synthetic burst workload had six sample-order gaps
+before and zero after (53 versus 58 output frames, with the new initial two-tick hold).
+Five 300-second synthetic tone cases (ordered/bursty arrivals, packet loss with 1,000 ppm
+drift, and variable poll timing) show no >0.05 adjacent-sample jumps after warmup on either
+revision; this does not reproduce or rule out physical-device crackling. The new counters
+separate decoded/concealed samples, rebufferings, queue span/target, bridge discontinuities
+and the OS device-delay estimate. A further owner comparison remains required.
 
 The delay envelope has bounded attack/release and a 60–240 ms target. A filtered occupancy
 controller interpolates at most five extra/fewer input samples per 960-sample output frame.
@@ -63,21 +80,23 @@ GStreamer/VA-API on an AMD RX 6900 XT, with a simulated 73 ms audio-device delay
 luma CRC and its correlated presentation tag must match its input in order. The parser retains
 the final access unit; 479 outputs from 480 inputs are expected without EOS.
 
-| Native case | Previous `7711bbe` correction | Adaptive/device-clock candidate |
+| Native case / metric | `d34f23f` | Corrected candidate |
 | --- | ---: | ---: |
+| 500 ms audio gap: decoded pictures | 479 | 479 |
+| Same case: invalidated presentation tags | 10 | 0 |
+| Same case: maximum decoded-picture interval | 110.933 ms | 25.875 ms |
+| Same case: playback resets / drops | 0 / 0 | 0 / 0 |
 | Audio arrives 400 ms after video: decoded pictures | 479 | 479 |
-| Same case: playback resets / drops | 0 / 0 | 0 / 0 |
-| Audio RTP advances 200 ms after two seconds: pictures | 479 | 479 |
-| Same case: audible frames in final two input seconds | 100 / 100 | 100 / 100 |
-| Same case: playback resets / drops | 0 / 0 | 0 / 0 |
-| Presentation tag correlated through native decode | Not carried | All 479 per case |
+| Audio RTP advances 200 ms: audible frames in final two seconds | 100 | 100 |
 
-Both new runs have zero decoder errors, stale submissions or admission rejection; peak encoded
-queue depths are 32/20 pictures. The delayed-audio case has a 106.949 ms decoded-picture interval
-when audio joins an already playing video and its output clock is first acquired; the maximum
-after the first second is 19.906 ms. The epoch-shift case's maximum is 18.761 ms. These are single
-functional runs, not isolated timing benchmarks or GUI/physical presentation measurements.
-The new-source clock wait is capped at 200 ms and expires even when output timing is unavailable.
+The gap comparison is one new run per revision. The delay/jump baselines come from the
+preceding candidate's recorded runs using the same fixture and method. All corrected cases
+have 479 reference-identical pictures with correlated, current presentation tags, zero decoder
+errors, stale submissions, admission rejection or playback queue resets/drops. Encoded queue
+peaks for gap/delay/jump are 9/32/20 pictures. Delay/jump maximum decoded-picture intervals
+are 127.533/20.862 ms. Acquiring audio during video still causes a brief timing adjustment.
+These single functional runs are not isolated benchmarks or GUI/physical measurements.
+The new-source clock wait remains capped at 200 ms and expires when output timing is unavailable.
 
 Earlier component comparisons against the original receiver isolate why packet repair/pacing
 is included. Six-picture bursts delivered 18 → 479 pictures; an empty keepalive caused
@@ -94,7 +113,9 @@ four units, native decode-age budget 150 ms. Watched audio retains at most 128 c
 packets and 5,760 mono PCM samples per source (16 sources; 2,979,840 payload/PCM bytes), plus a
 965-sample stack scratch. Correlation keeps 16 expiring tags per decoder. UI pending/latest
 planes share an eight-pending-picture / 32-MiB allocated-capacity budget. Existing bounded
-PCM channels remain; timestamps add metadata, not another queue. Diagnostics stay opt-in.
+PCM channels remain; the stream/call bridge pending cap increases from two to eight frames
+(7,680 to 30,720 sample bytes, excluding metadata), with 40 ms startup headroom. Timestamps
+add metadata, not another queue. Diagnostics stay opt-in and retain only bounded numeric aggregates.
 
 The model follows [RTP sender-clock mapping](https://www.rfc-editor.org/rfc/rfc3550.html#section-5.1),
 [WebRTC's adaptive audio-buffer approach](https://webrtc.googlesource.com/src/+/refs/heads/main/modules/audio_coding/neteq/g3doc/index.md)
