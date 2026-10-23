@@ -179,6 +179,7 @@ fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[
 		})
 		.collect())
 }
+/// Opens a bundled notification cue on the system-default output, including native I24 PCM.
 fn open(
 	sound: Sound,
 	volume: u8,
@@ -187,9 +188,10 @@ fn open(
 	status: Arc<AtomicU8>,
 	finished: Arc<AtomicBool>,
 ) -> Result<(cpal::Stream, Duration), ()> {
-	let device = cpal::default_host().default_output_device().ok_or(())?;
+	let host = cpal::default_host();
+	let device = host.default_output_device().ok_or(())?;
 	let supported = device.default_output_config().map_err(|_| ())?;
-	let config = supported.config();
+	let config = crate::audio::playback_config(host.id(), supported.config());
 	if !(8000..=192000).contains(&config.sample_rate) || !(1..=8).contains(&config.channels) {
 		return Err(());
 	}
@@ -208,6 +210,15 @@ fn open(
 			finished,
 		),
 		cpal::SampleFormat::I16 => output::<i16>(
+			&device,
+			config,
+			samples,
+			volume,
+			(generation, request),
+			status,
+			finished,
+		),
+		cpal::SampleFormat::I24 => output::<cpal::I24>(
 			&device,
 			config,
 			samples,
@@ -240,6 +251,7 @@ fn open(
 	stream.play().map_err(|_| ())?;
 	Ok((stream, duration))
 }
+/// Creates the typed stream and reports device errors only for the current request.
 fn output<T: cpal::SizedSample + cpal::FromSample<f32>>(
 	device: &cpal::Device,
 	config: cpal::StreamConfig,
@@ -263,6 +275,7 @@ fn output<T: cpal::SizedSample + cpal::FromSample<f32>>(
 		None,
 	)
 }
+/// Renders bounded PCM with volume, cancellation, I24 limits and playback-drain tracking.
 fn callback<T: cpal::SizedSample + cpal::FromSample<f32>>(
 	config: cpal::StreamConfig,
 	samples: Vec<[f32; 2]>,
@@ -274,6 +287,15 @@ fn callback<T: cpal::SizedSample + cpal::FromSample<f32>>(
 	let mut position = 0;
 	let mut end = None;
 	let gain = (f32::from(volume) / 100.0).clamp(0.0, 1.0);
+	// Integer PCM conversion requires [-1, 1); +1 overflows CPAL's signed 24-bit type.
+	let convert = move |sample: f32| {
+		let sample = sample * gain;
+		T::from_sample(if T::FORMAT == cpal::SampleFormat::I24 {
+			sample.min(1.0 - f32::EPSILON)
+		} else {
+			sample
+		})
+	};
 	move |data: &mut [T], info| {
 		data.fill(T::from_sample(0.0));
 		if generation.load(Ordering::Acquire) != request {
@@ -289,10 +311,10 @@ fn callback<T: cpal::SizedSample + cpal::FromSample<f32>>(
 				break;
 			};
 			if frame.len() == 1 {
-				frame[0] = T::from_sample((sample[0] + sample[1]) * 0.5 * gain);
+				frame[0] = convert((sample[0] + sample[1]) * 0.5);
 			} else {
 				for (target, value) in frame.iter_mut().zip(sample) {
-					*target = T::from_sample(*value * gain);
+					*target = convert(*value);
 				}
 			}
 			position += 1;
@@ -309,6 +331,53 @@ fn callback<T: cpal::SizedSample + cpal::FromSample<f32>>(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	/// Checks I24 channel order, gain, zero-fill, cancellation and both full-scale bounds.
+	#[test]
+	fn signed_24_bit_output_preserves_volume_stereo_and_cancellation() {
+		let generation = Arc::new(AtomicU64::new(1));
+		let mut render = callback::<cpal::I24>(
+			cpal::StreamConfig {
+				channels: 2,
+				sample_rate: 48000,
+				buffer_size: cpal::BufferSize::Default,
+			},
+			vec![[-1.0, 0.5], [1.0, -0.5]],
+			50,
+			generation.clone(),
+			1,
+			Arc::new(AtomicBool::new(false)),
+		);
+		let info = cpal::OutputCallbackInfo::new(cpal::OutputStreamTimestamp {
+			callback: cpal::StreamInstant::from_millis(0),
+			playback: cpal::StreamInstant::from_millis(0),
+		});
+		let mut data = [cpal::I24::new(1).unwrap(); 6];
+		render(&mut data, &info);
+		assert_eq!(
+			data.map(cpal::I24::inner),
+			[-4194304, 2097152, 4194304, -2097152, 0, 0]
+		);
+		generation.store(2, Ordering::Release);
+		data.fill(cpal::I24::new(1).unwrap());
+		render(&mut data, &info);
+		assert_eq!(data.map(cpal::I24::inner), [0; 6]);
+
+		let mut full_volume = callback::<cpal::I24>(
+			cpal::StreamConfig {
+				channels: 2,
+				sample_rate: 48000,
+				buffer_size: cpal::BufferSize::Default,
+			},
+			vec![[-1.0, 1.0]],
+			100,
+			generation,
+			2,
+			Arc::new(AtomicBool::new(false)),
+		);
+		full_volume(&mut data, &info);
+		assert_eq!(data.map(cpal::I24::inner), [-8388608, 8388607, 0, 0, 0, 0]);
+	}
+
 	#[test]
 	fn callback_drains_delayed_output_and_cancellation_is_request_local() {
 		let config = cpal::StreamConfig {
