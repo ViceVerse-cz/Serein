@@ -774,6 +774,31 @@ That evidence precedes adaptive buffering and presentation-level scheduling; the
 combined candidate needs another owner comparison. Windows/macOS native timing behavior
 and broad network interoperability remain unverified.
 
+### Watched-stream transport feedback — October 23, 2026
+
+A subsequent owner-operated test on `80905441` used a different stream from the earlier
+1440p AV1 comparison: both clients received HEVC 1280×534 at about 59.8 decoded fps.
+Serein's 100.133-second post-startup payload sample averaged 1.299 Mbps (0.662–1.449),
+while eight official-client post-startup reports spanning 70.234 seconds averaged
+3.841 Mbps (2.601–4.151). Neither reported dropped video. Serein recorded timing jitter
+and four audio rebuffer events; Discord audio interruptions were not assessed. Sequential
+scenes and accounting differ, so the reported ~2.96× gap does not prove its cause.
+Neither sample exercises AV1.
+
+Quality-100 subscription requests were already sent. The receiver previously discarded
+transport sequence extensions and produced no transport-wide arrival feedback. It now
+reports authenticated native extension-5 arrivals using WebRTC RTPFB/FMT=15, including
+network probes without delivering probe payloads to media decoders. This follows an
+unofficial native extension mapping; extension presence is required. The feedback is
+bounded by timestamp count/age, datagram size and cadence, and adds no bandwidth estimate,
+REMB or dependency. Numeric counters separate authenticated video/probe datagrams from
+complete decrypted payload and count feedback activity. Wire regressions cover sequence
+wrap, loss, duplicate/reordered arrivals, signed deltas, idle restart, age/count limits,
+malformed extension metadata and transport authentication. The existing synthetic
+stream exchange also verifies an authenticated UDP probe produces encrypted timing
+feedback without entering media decoding/reception reports. Live rate improvement is
+unverified until the owner's next test; see [voice details](voice.md).
+
 ### Linux watched-stream AV1 reception — October 23, 2026
 
 An owner-controlled sequential 1440p comparison of `d2fccf65` found HEVC at 1.23 Mbps

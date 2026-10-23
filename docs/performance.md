@@ -18,12 +18,12 @@ Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and wi
 
 | Package metric | Upstream baseline | Streaming candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 92,650,248 B | 92,785,288 B | +135,040 B (+0.146%) |
-| Installed payload (245 files) | 97,348,681 B | 97,483,721 B | +135,040 B (+0.139%) |
-| Arch archive | 54,376,694 B | 54,465,029 B | +88,335 B (+0.162%) |
+| Executable | 92,650,248 B | 92,801,160 B | +150,912 B (+0.163%) |
+| Installed payload (245 files) | 97,348,681 B | 97,499,593 B | +150,912 B (+0.155%) |
+| Arch archive | 54,376,694 B | 54,472,967 B | +96,273 B (+0.177%) |
 
 Installed bytes sum regular archive files under `usr/`, excluding package metadata.
-Both packages contain 245 installed files. The final gate passes 1,315 tests, strict Clippy,
+Both packages contain 245 installed files. The final gate passes 1,317 tests, strict Clippy,
 formatting, application and policy checks; the native Arch package smoke also passes.
 
 ### Linux HEVC reception extension
@@ -244,6 +244,35 @@ AV1 bitrate and improvement to the owner's moving stream await an owner-operated
 | Executable | 92,775,816 B | 92,785,288 B | +9,472 B (+0.010%) |
 | Installed payload | 97,474,249 B | 97,483,721 B | +9,472 B (+0.010%) |
 | Arch archive | 54,463,210 B | 54,465,029 B | +1,819 B (+0.003%) |
+
+### Watched-stream transport feedback — October 23, 2026
+
+The verified `80905441` package is the baseline. The owner-controlled different-stream
+HEVC 1280×534 comparison records 1.299 Mbps of Serein complete decrypted payload over
+100.133 seconds, versus official Discord's mean reported 3.841 Mbps across eight
+post-startup reports spanning 70.234 seconds. Both decode about 59.8 fps without video
+drops. Serein records four audio rebufferings and scheduling jitter. Different scenes
+and accounting prevent treating the ~2.96× ratio as causal bandwidth evidence.
+
+The receiver adds transport-wide arrival acknowledgements, not a receiver bandwidth
+estimator. History is a single on-demand 2,048-entry deque of optional 64-bit timestamps
+(maximum 32 KiB), with one-second reporting age and bounded restart/overflow retirement.
+Per report, scratch holds at most 256 one-byte symbols, 512 delta bytes and a 608-byte
+output allocation. Actual encrypted datagrams are at most 628 bytes, at most two per
+100 ms: a hard 12,560-byte/s datagram ceiling excluding IP/UDP headers. Ordinary reports
+are smaller; no feedback is emitted without an authenticated transport sequence.
+Only the watched-stream transport uses this path; decoding, presentation queues, sender
+presets and dependencies are unchanged. Synthetic wire tests cover complete known arrival
+patterns, signed reordering, missing statuses, wrap, duplicate rejection and all bounds.
+These verify protocol behavior, not SFU acceptance, bitrate uplift or full-client CPU/RSS.
+New numeric transport/probe byte counters allow the next live comparison to distinguish
+wire traffic from complete decrypted media. Owner testing remains required.
+
+| Standard Arch package | Before `80905441` | Transport feedback | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,785,288 B | 92,801,160 B | +15,872 B (+0.017%) |
+| Installed payload | 97,483,721 B | 97,499,593 B | +15,872 B (+0.016%) |
+| Arch archive | 54,465,029 B | 54,472,967 B | +7,938 B (+0.015%) |
 
 ### Earlier playback recovery evidence
 

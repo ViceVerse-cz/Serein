@@ -786,6 +786,30 @@ transport packets from decrypted access units. `session_h264`/`session_h265` cou
 selection announcements; rejected payloads and source codec changes are counted separately.
 No media or source identifiers are logged. This adds no receiver bandwidth estimator or bitrate promise.
 
+Watched streams also acknowledge observed transport-wide sequence numbers using
+WebRTC RTPFB/FMT=15 arrival feedback. The native one-byte RTP extension-5 mapping is
+[unofficial](https://github.com/discord-userdoccers/discord-userdoccers/blob/master/pages/topics/voice-connections.mdx#native-rtp-header-extensions);
+only the authenticated `0xBEDE` profile with one unambiguous two-byte value enables
+feedback. Missing, malformed or unknown extension formats do not invent a sequence.
+The [transport-wide feedback format](https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01)
+reports actual arrival times in 250 µs units, including signed deltas for reordering,
+sequence gaps and wrap. The sender/SFU retains congestion-control decisions; Serein
+generates neither REMB nor a claimed available bitrate.
+
+This viewer-only feedback runs after secure readiness/announcement, across authenticated
+media, RTX and payload-96 probes on the same RTC transport. Probes never enter DAVE or
+media decoders. History holds at most 2,048 optional timestamps (32 KiB), for at most
+one second before reporting; large sequence jumps/idle restarts retire old history.
+At most two reports of 256 statuses are sent every 100 ms. Each encrypted datagram
+is at most 628 bytes, below the 1,200-byte transport target. Already reported late
+packets are ignored; later RTX carries its own transport sequence. No packet payload,
+source ID or sequence value is logged. `twcc_received/sent/reported/missing/discarded`
+count extensions, reports, received/missing statuses and discarded history slots.
+`video_rtp_bytes/bps` counts authenticated video datagrams including headers, encryption,
+padding and RTX, before source routing; `probe_packets/bytes` counts probes separately.
+These complement complete decrypted `encoded_bytes/bps`, not physical/display quality.
+Live feedback acceptance and the effect on received bitrate require owner testing.
+
 Watched streams send authenticated RTCP reception reports every second and preserve
 source RTP timestamps through reassembly. Incoming video can repair missing packets
 across picture boundaries through announced RTX pairs and Generic NACKs; ordered input

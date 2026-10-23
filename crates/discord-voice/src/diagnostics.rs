@@ -140,8 +140,16 @@ pub(crate) enum Video {
 	Av1Frames,
 	Av1Packets,
 	SessionAv1,
+	RtpBytes,
+	ProbePackets,
+	ProbeBytes,
+	TwccReceived,
+	TwccSent,
+	TwccReported,
+	TwccMissing,
+	TwccDiscarded,
 }
-const VIDEO_SLOTS: usize = 55;
+const VIDEO_SLOTS: usize = 63;
 
 /// Opt-in only; media callbacks do no additional atomic work when diagnostics are off.
 pub(crate) fn enabled() -> bool {
@@ -699,11 +707,24 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 			av1_frames,
 			av1_packets,
 			session_av1,
+			video_rtp_bytes,
+			probe_packets,
+			probe_bytes,
+			twcc_received,
+			twcc_sent,
+			twcc_reported,
+			twcc_missing,
+			twcc_discarded,
 		] = report.video;
 		let encoded_bps = encoded_bytes
 			.saturating_mul(8000)
 			.checked_div(report.window_ms)
 			.unwrap_or(0);
+		let video_rtp_bps = video_rtp_bytes
+			.saturating_mul(8000)
+			.checked_div(report.window_ms)
+			.unwrap_or(0);
+		line.push_str(&format!(" receive_transport: video_rtp_bytes={video_rtp_bytes} video_rtp_bps={video_rtp_bps} probe_packets={probe_packets} probe_bytes={probe_bytes} twcc_received={twcc_received} twcc_sent={twcc_sent} twcc_reported={twcc_reported} twcc_missing={twcc_missing} twcc_discarded={twcc_discarded}"));
 		line.push_str(&format!(
 			" av1_frames={av1_frames} av1_packets={av1_packets} session_av1={session_av1} repair: repair_expired={repair_expired} repair_late={repair_late} repair_response_ms={repair_response_ms} repair_budget_ms={repair_budget_ms}"
 		));

@@ -1273,6 +1273,9 @@ async fn run_stream_inner(
 	let mut sync = crate::stream_sync::Sync::default();
 	let mut next_sink_wants = Instant::now();
 	let mut next_receive_report = Instant::now();
+	let mut next_transport_feedback = Instant::now();
+	let mut transport_feedback =
+		crate::transport_feedback::TransportFeedback::new(Instant::now().into_std());
 	let mut receive_reports = crate::video_feedback::ReceiveReports::new(Instant::now().into_std());
 	let mut watch = VideoWatch::new();
 	let mut receive_tick = Instant::now();
@@ -1579,6 +1582,20 @@ async fn run_stream_inner(
 					metrics.video(Video::ReceiverReportsSent,1);
 					next_receive_report=now+Duration::from_secs(1);
 				}
+				if secure && announced && video.is_none() && now>=next_transport_feedback {
+					let crypto=encryption.as_mut().ok_or("Missing stream transport key")?;
+					let socket=udp.as_ref().ok_or("Missing stream UDP socket")?;
+					// Bound feedback rate, datagram size and work per media-loop tick.
+					for _ in 0..2 {
+						let Some(report)=transport_feedback.report(audio_ssrc,now.into_std()) else {break;};
+						udp_failures.send(socket,&crypto.seal_rtcp(&report.header,&report.body)?,"Stream transport feedback failed")?;
+						metrics.video(Video::TwccSent,1);
+						metrics.video(Video::TwccReported,report.received);
+						metrics.video(Video::TwccMissing,report.missing);
+					}
+					metrics.video(Video::TwccDiscarded,transport_feedback.take_discarded());
+					next_transport_feedback=now+Duration::from_millis(100);
+				}
 				if secure && let Some(lost)=&lost && let Some(crypto)=encryption.as_mut() && let Some(socket)=&udp {
 					receivers.absorb(lost);
 					let requests=receivers.take_keyframe_requests(now.into_std());
@@ -1623,6 +1640,7 @@ async fn run_stream_inner(
 			},
 			result=async {match &udp {Some(socket)=>socket.recv(&mut packet).await,_=>std::future::pending().await}}=>{
 				let length=match result {Ok(length)=>length,Err(error) if transient_receive(&error)=>continue,Err(_)=>return Err("Stream UDP receive failed")};
+				let received_at=Instant::now().into_std();
 				if discovering {
 					let (address,port)=discovery(&packet[..length],audio_ssrc)?;
 					json_send(&mut ws,json!({"op":1,"d":{"protocol":"udp","data":{"address":address.to_string(),"port":port,"mode":MODE},"codecs":stream_codecs(video.is_some(),decoder.is_some(),hevc,av1)}})).await?;
@@ -1650,6 +1668,19 @@ async fn run_stream_inner(
 				}
 				let Some(rtp)=crypto.open(&packet[..length]) else {metrics.video(Video::OpenFailed,1);continue;};
 				if !dave.ready {if rtp.payload_type!=120 {metrics.video(Video::NotReady,1);}continue;}
+				if video.is_none() && announced && !dave.transitioning() {
+					if let Some(sequence)=rtp.transport_sequence {
+						transport_feedback.receive(sequence,received_at);
+						metrics.video(Video::TwccReceived,1);
+					}
+					if rtp.payload_type==96 {
+						metrics.video(Video::ProbePackets,1);
+						metrics.video(Video::ProbeBytes,length as u64);
+					} else if rtp.payload_type!=120 {
+						metrics.video(Video::RtpBytes,length as u64);
+					}
+				}
+				if rtp.payload_type==96 {continue;} // Authenticated network probes never reach media decoding.
 				if rtp.payload_type==120 {
 					if audio.is_none() {continue;}
 					let Some(user)=mixer.user(rtp.ssrc) else {continue;};
@@ -1823,6 +1854,7 @@ mod tests {
 			sequence,
 			marker,
 			timestamp: 900,
+			transport_sequence: None,
 			payload: payload.to_vec(),
 		};
 		let mut push = |receivers: &mut Receivers, rtp, hevc| {

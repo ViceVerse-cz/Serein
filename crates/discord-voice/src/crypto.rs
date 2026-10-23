@@ -44,6 +44,8 @@ pub struct Rtp {
 	pub timestamp: u32,
 	pub marker: bool,
 	pub payload_type: u8,
+	/// Discord's unofficial extension 5, only after transport authentication.
+	pub transport_sequence: Option<u16>,
 	pub payload: Vec<u8>,
 }
 /// Feedback for our video SSRC, returned only after the whole compound packet validates.
@@ -263,8 +265,10 @@ impl Encryption {
 		if packet.len() < 32
 			|| packet.len() > MAX_PACKET
 			|| packet[0] >> 6 != 2
-			|| !matches!(packet[1] & 0x7f, 120 | 101 | 102 | 103 | 104 | 105 | 106)
-		{
+			|| !matches!(
+				packet[1] & 0x7f,
+				96 | 120 | 101 | 102 | 103 | 104 | 105 | 106
+			) {
 			return None;
 		}
 		let csrc_end = 12 + usize::from(packet[0] & 15) * 4;
@@ -285,12 +289,16 @@ impl Encryption {
 				},
 			)
 			.ok()?;
+		let mut transport_sequence = None;
 		if extended {
 			let extension_len = usize::from(u16::from_be_bytes(
 				packet[csrc_end + 2..csrc_end + 4].try_into().ok()?,
 			)) * 4;
 			if extension_len > frame.len() {
 				return None;
+			}
+			if packet[csrc_end..csrc_end + 2] == [0xbe, 0xde] {
+				transport_sequence = Self::transport_sequence(&frame[..extension_len]);
 			}
 			frame.drain(..extension_len);
 		}
@@ -307,8 +315,32 @@ impl Encryption {
 			timestamp: u32::from_be_bytes(packet[4..8].try_into().ok()?),
 			marker: packet[1] & 0x80 != 0,
 			payload_type: packet[1] & 0x7f,
+			transport_sequence,
 			payload: frame,
 		})
+	}
+	fn transport_sequence(mut extensions: &[u8]) -> Option<u16> {
+		let mut sequence = None;
+		while let Some((&header, rest)) = extensions.split_first() {
+			extensions = rest;
+			let id = header >> 4;
+			if id == 0 {
+				continue;
+			}
+			if id == 15 {
+				break;
+			}
+			let length = usize::from(header & 15) + 1;
+			let value = extensions.get(..length)?;
+			extensions = &extensions[length..];
+			if id == 5 {
+				if length != 2 || sequence.is_some() {
+					return None;
+				}
+				sequence = Some(u16::from_be_bytes(value.try_into().ok()?));
+			}
+		}
+		sequence
 	}
 }
 
@@ -920,7 +952,7 @@ mod tests {
 		let opened = crypto.open(&sealed).unwrap();
 		assert!(opened.marker && opened.payload_type == 101 && opened.timestamp == 1);
 		let mut other = header;
-		other[1] = 96;
+		other[1] = 97;
 		let sealed = crypto.seal(&other, b"x").unwrap();
 		assert!(crypto.open(&sealed).is_none());
 		for i in 0..packet.len() {
@@ -952,6 +984,35 @@ mod tests {
 		assert_eq!(
 			crypto.open(&extension_packet).unwrap().payload,
 			vec![9, 8, 7]
+		);
+		// Extension metadata is authenticated just like the payload. Only complete,
+		// unambiguous one-byte extension 5 may drive transport-wide feedback.
+		let mut probe_header = header.to_vec();
+		probe_header[0] = 0xb0;
+		probe_header[1] = 96;
+		probe_header.extend([0xbe, 0xde, 0, 1]);
+		let probe = crypto
+			.seal_packet(&probe_header, &[0x51, 0xff, 0xfe, 0, 0, 0, 3])
+			.unwrap();
+		let opened = crypto.open(&probe).unwrap();
+		assert_eq!(opened.transport_sequence, Some(65534));
+		assert!(opened.payload.is_empty());
+		for i in 0..probe.len() {
+			let mut changed = probe.clone();
+			changed[i] ^= 1;
+			assert!(crypto.open(&changed).is_none());
+		}
+		for extension in [
+			&[0x51, 1][..],
+			&[0x50, 1],
+			&[0x51, 0, 1, 0x51, 0, 2],
+			&[0x51, 0, 1, 0x2f],
+		] {
+			assert_eq!(Encryption::transport_sequence(extension), None);
+		}
+		assert_eq!(
+			Encryption::transport_sequence(&[0, 0x51, 0, 7, 0xf0]),
+			Some(7)
 		);
 		crypto.counter = u32::MAX;
 		assert!(crypto.seal(&header, b"x").is_err());

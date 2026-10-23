@@ -240,6 +240,34 @@ async fn exchange(rekey_timeout: bool) {
 	assert!(
 		matches!(message(&mut view_ws).await, Message::Pong(data) if data.as_ref() == b"mapped")
 	);
+	// An SFU probe has authenticated transport timing, but no valid DAVE media.
+	// Exercise the actual UDP -> extension -> feedback path without admitting it
+	// to media reconstruction or the primary source's reception report.
+	let probe_header = [0x90, 96, 0, 1, 0, 0, 0, 0, 0, 0, 0, 51, 0xbe, 0xde, 0, 1];
+	let probe = {
+		use chacha20poly1305::{
+			KeyInit, XChaCha20Poly1305, XNonce,
+			aead::{Aead, Payload},
+		};
+		let nonce = [0x74; 24];
+		let mut wire = probe_header.to_vec();
+		let mut actual_nonce = [0; 24];
+		actual_nonce[..4].copy_from_slice(&nonce[..4]);
+		wire.extend(
+			XChaCha20Poly1305::new((&[7; 32]).into())
+				.encrypt(
+					XNonce::from_slice(&actual_nonce),
+					Payload {
+						msg: &[0x51, 0xff, 0xfe, 0, 0xde, 0xad],
+						aad: &probe_header,
+					},
+				)
+				.unwrap(),
+		);
+		wire.extend_from_slice(&nonce[..4]);
+		wire
+	};
+	view_udp.send_to(&probe, view_addr).await.unwrap();
 	// Sender-only sessions must keep receiving authenticated RTCP feedback after
 	// discovery. An unrelated media SSRC must not force our encoder's keyframe.
 	assert!(ready.load(Ordering::Acquire));
@@ -265,8 +293,9 @@ async fn exchange(rekey_timeout: bool) {
 	let mut ping = [0; MAX_PACKET + 1];
 	let mut ping_sequence = 0u32;
 	let mut reception_reports = 0;
+	let mut transport_reports = 0;
 	timeout(Duration::from_secs(8), async {
-		while ping_sequence < 2 {
+		while ping_sequence < 2 || transport_reports == 0 {
 			tokio::select! {
 				result = view_udp.recv_from(&mut ping) => {
 					let (length, address) = result.unwrap();
@@ -277,6 +306,13 @@ async fn exchange(rekey_timeout: bool) {
 							reception_reports+=1;
 							assert_eq!(&control[..4], &[0x80,201,0,1]);
 							assert_eq!(&control[4..8], &42u32.to_be_bytes());
+						}
+						if control[..2]==[0x8f,205] {
+							transport_reports+=1;
+							assert_eq!(&control[4..8], &42u32.to_be_bytes());
+							assert_eq!(&control[8..16], &[0,0,0,0,0xff,0xfe,0,1]);
+							assert_eq!(&control[20..22], &[0xd0,0]);
+							assert!(length<=1200);
 						}
 						continue;
 					}
