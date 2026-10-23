@@ -115,8 +115,17 @@ pub(super) fn source(
 		})
 }
 
+/// A complete, already bounded download behind the same metadata limits as streamed media.
+pub(super) fn memory(bytes: Vec<u8>) -> Result<Box<dyn MediaSource>, &'static str> {
+	if bytes.is_empty() {
+		return Err(INVALID);
+	}
+	Sanitized::new(Raw::memory(bytes))
+		.map(|source| Box::new(source) as Box<dyn MediaSource>)
+		.map_err(|_| INVALID)
+}
+
 enum Input {
-	#[cfg(any(test, feature = "demo"))]
 	Memory(Vec<u8>),
 	Http {
 		client: reqwest::Client,
@@ -232,7 +241,6 @@ fn invalid() -> io::Error {
 	io::Error::new(io::ErrorKind::InvalidData, INVALID)
 }
 impl Raw {
-	#[cfg(any(test, feature = "demo"))]
 	fn memory(bytes: Vec<u8>) -> Self {
 		Self {
 			len: bytes.len(),
@@ -257,7 +265,6 @@ impl Read for Raw {
 			return Ok(0);
 		}
 		match &mut self.input {
-			#[cfg(any(test, feature = "demo"))]
 			Input::Memory(bytes) => {
 				output[..count].copy_from_slice(&bytes[self.position..self.position + count])
 			}
