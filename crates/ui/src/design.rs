@@ -917,6 +917,10 @@ fn opaque_surfaces(mut palette: Palette) -> Palette {
 	] {
 		*surface = backdrop.blend(*surface);
 	}
+	// Composite translucent borders too, so their antialiased edges keep the surface tint.
+	if palette.border.a() > 0 {
+		palette.border = palette.raised.blend(palette.border);
+	}
 	palette
 }
 /// Paint the gradient backdrop behind every panel; a no-op for opaque variants.

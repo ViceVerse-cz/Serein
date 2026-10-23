@@ -4425,7 +4425,7 @@ fn pill<R>(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui) -> R) 
 	ui.painter().rect_stroke(
 		rect,
 		12,
-		egui::Stroke::new(1.0, egui::Color32::from_white_alpha(18)),
+		egui::Stroke::new(1.0, PILL_FILL.blend(egui::Color32::from_white_alpha(18))),
 		egui::StrokeKind::Inside,
 	);
 	let mut inner = ui.new_child(
