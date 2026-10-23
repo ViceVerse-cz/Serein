@@ -29,6 +29,9 @@ mod portal_linux;
 mod video;
 // The shared screen module reaches the platform encoders' keyframe check through this path.
 #[cfg(target_os = "linux")]
+#[path = "../src/video_av1.rs"]
+mod video_av1;
+#[cfg(target_os = "linux")]
 #[path = "../src/video_codec.rs"]
 mod video_codec;
 #[cfg(target_os = "linux")]

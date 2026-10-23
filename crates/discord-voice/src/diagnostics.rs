@@ -137,8 +137,11 @@ pub(crate) enum Video {
 	RepairResponseMs,
 	/// Maximum current per-source repair allowance, in milliseconds.
 	RepairBudgetMs,
+	Av1Frames,
+	Av1Packets,
+	SessionAv1,
 }
-const VIDEO_SLOTS: usize = 52;
+const VIDEO_SLOTS: usize = 55;
 
 /// Opt-in only; media callbacks do no additional atomic work when diagnostics are off.
 pub(crate) fn enabled() -> bool {
@@ -693,13 +696,16 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 			repair_late,
 			repair_response_ms,
 			repair_budget_ms,
+			av1_frames,
+			av1_packets,
+			session_av1,
 		] = report.video;
 		let encoded_bps = encoded_bytes
 			.saturating_mul(8000)
 			.checked_div(report.window_ms)
 			.unwrap_or(0);
 		line.push_str(&format!(
-			" repair: repair_expired={repair_expired} repair_late={repair_late} repair_response_ms={repair_response_ms} repair_budget_ms={repair_budget_ms}"
+			" av1_frames={av1_frames} av1_packets={av1_packets} session_av1={session_av1} repair: repair_expired={repair_expired} repair_late={repair_late} repair_response_ms={repair_response_ms} repair_budget_ms={repair_budget_ms}"
 		));
 		line.push_str(&format!(
 			" video: packets={packets} rtx={rtx} open_failed={open_failed} not_ready={not_ready} unknown_ssrc={unknown_ssrc} incomplete={incomplete} complete={complete} decrypt_failed={decrypt_failed} gated={gated} queue_full={queue_full} keyframes={keyframes} keyframes_without_params={keyframes_without_params} pli_sent={pli_sent} awaiting_ticks={awaiting_ticks} decoder_errors={decoder_errors} pictures={pictures} picture_gap_ms={picture_gap_ms} stall_ticks={stall_ticks} decode_queue_ms={decode_queue_ms} stale_frames={stale_frames} encoded_bytes={encoded_bytes} encoded_bps={encoded_bps} receiver_reports_sent={receiver_reports_sent} nacks_sent={nacks_sent} repaired_packets={repaired_packets} playout_late={playout_late} playout_resets={playout_resets} playout_drops={playout_drops} playout_depth={playout_depth} padding_packets={padding_packets} av_audio_reports={av_audio_reports} av_video_reports={av_video_reports} av_video_synced={av_video_synced} av_offset_ms={av_offset_ms} av_device_offset_ms={av_device_offset_ms} playout_rewinds={playout_rewinds} playout_source_changes={playout_source_changes} playout_expired={playout_expired} playout_pressure={playout_pressure} playout_ahead={playout_ahead} av_timeline_rebases={av_timeline_rebases} h264_frames={h264_frames} h265_frames={h265_frames} h264_packets={h264_packets} h265_packets={h265_packets} payload_rejected={payload_rejected} codec_switches={codec_switches} session_h264={session_h264} session_h265={session_h265}"

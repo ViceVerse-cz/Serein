@@ -774,6 +774,29 @@ That evidence precedes adaptive buffering and presentation-level scheduling; the
 combined candidate needs another owner comparison. Windows/macOS native timing behavior
 and broad network interoperability remain unverified.
 
+### Linux watched-stream AV1 reception — October 23, 2026
+
+An owner-controlled sequential 1440p comparison of `d2fccf65` found HEVC at 1.23 Mbps
+and 59.5 decoded fps in Serein, versus Discord's reported `AV1X` at 4.59 Mbps and 60 fps.
+Both received 2560×1440 and neither reported playback drops. Samples differ in content
+and bitrate accounting; they establish different received encodes, not the reason for
+the allocation. Serein previously offered no AV1 support.
+
+Capable Linux viewers now offer receive-only `AV1` before HEVC/H.264. `AV1X` is accepted
+as a session-name alias. Each source still routes authenticated advertised RTP independently
+of outgoing session selection; AV1 uses this client's 105/106 primary/RTX assignments.
+The [AOM RTP v1.0.0 format](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html)
+handles bounded aggregation/fragmentation, exact DAVE framing and post-authentication
+sequence/surface validation. Native normalization supports the installed GStreamer parser
+and decoder. Main-profile, single spatial-layer 8/10-bit 4:2:0 reception is supported;
+unsupported capabilities retain HEVC/H.264 fallback. Windows/macOS and sending remain H.264.
+The source/codec-change, repair, DAVE and queue gates described above still apply.
+Tests cover encrypted AV1 RTX through actual routing, DAVE and timed playout, malformed
+length/header/fragment states and allocation bounds. A synthetic Linux 1440p60 native
+workload delivers all 480 reference-identical pictures and presentation tags with no
+errors/drops. Live AV1 reception, higher delivered bitrate and quality parity remain
+unverified until the owner's next test; no fixed bandwidth claim or estimator is added.
+
 ### Linux watched-stream HEVC reception — October 22, 2026
 
 Linux viewers can negotiate receive-only H.265 when the installed GStreamer parser,

@@ -1,10 +1,11 @@
 //! Go Live codec selection. Payload numbers are our advertised assignments, not
-//! fixed Discord constants. H.265 is receive-only and currently available on Linux.
+//! fixed Discord constants. H.265 and AV1 are receive-only on capable Linux systems.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Codec {
 	#[default]
 	H264,
 	H265,
+	Av1,
 }
 
 impl Codec {
@@ -13,6 +14,8 @@ impl Codec {
 			Some(Self::H264)
 		} else if name.eq_ignore_ascii_case("H265") {
 			Some(Self::H265)
+		} else if name.eq_ignore_ascii_case("AV1") || name.eq_ignore_ascii_case("AV1X") {
+			Some(Self::Av1)
 		} else {
 			None
 		}
@@ -21,6 +24,7 @@ impl Codec {
 		match self {
 			Self::H264 => 101,
 			Self::H265 => 103,
+			Self::Av1 => 105,
 		}
 	}
 	pub fn available_h265() -> bool {
@@ -29,14 +33,27 @@ impl Codec {
 		#[cfg(not(target_os = "linux"))]
 		false
 	}
+	pub fn available_av1() -> bool {
+		#[cfg(target_os = "linux")]
+		return platform::video::live::H264Decoder::new_av1_timed(Box::new(|_, _| {})).is_ok();
+		#[cfg(not(target_os = "linux"))]
+		false
+	}
 	pub fn is_keyframe(self, frame: &[u8]) -> bool {
+		if self == Self::Av1 {
+			return crate::video_av1::inspect(frame).is_some_and(|info| info.keyframe);
+		}
 		self.nals(frame).any(|nal| match self {
 			Self::H264 => nal[0] & 31 == 5,
 			// BLA/IDR and CRA pictures are independently decodable recovery points.
 			Self::H265 => (16..=21).contains(&((nal[0] >> 1) & 63)),
+			Self::Av1 => false,
 		})
 	}
 	pub fn has_parameter_sets(self, frame: &[u8]) -> bool {
+		if self == Self::Av1 {
+			return crate::video_av1::inspect(frame).is_some_and(|info| info.sequence);
+		}
 		let mut found = 0u8;
 		for nal in self.nals(frame) {
 			match (self, nal[0]) {
@@ -54,6 +71,9 @@ impl Codec {
 		found == if self == Self::H265 { 7 } else { 3 }
 	}
 	pub fn bounded_parameters(self, frame: &[u8]) -> bool {
+		if self == Self::Av1 {
+			return crate::video_av1::inspect(frame).is_some();
+		}
 		self != Self::H265
 			|| self
 				.nals(frame)

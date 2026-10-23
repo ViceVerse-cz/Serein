@@ -7,6 +7,8 @@ pub(crate) mod diagnostics;
 mod presentation;
 #[path = "../src/stream_playout.rs"]
 mod stream_playout;
+#[path = "../src/video_av1.rs"]
+pub(crate) mod video_av1;
 #[path = "../src/video_codec.rs"]
 pub(crate) mod video_codec;
 #[path = "../src/video_hevc.rs"]

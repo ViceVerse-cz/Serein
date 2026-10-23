@@ -18,12 +18,12 @@ Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and wi
 
 | Package metric | Upstream baseline | Streaming candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 92,650,248 B | 92,775,816 B | +125,568 B (+0.136%) |
-| Installed payload (245 files) | 97,348,681 B | 97,474,249 B | +125,568 B (+0.129%) |
-| Arch archive | 54,376,694 B | 54,463,210 B | +86,516 B (+0.159%) |
+| Executable | 92,650,248 B | 92,785,288 B | +135,040 B (+0.146%) |
+| Installed payload (245 files) | 97,348,681 B | 97,483,721 B | +135,040 B (+0.139%) |
+| Arch archive | 54,376,694 B | 54,465,029 B | +88,335 B (+0.162%) |
 
 Installed bytes sum regular archive files under `usr/`, excluding package metadata.
-Both packages contain 245 installed files. The final gate passes 1,312 tests, strict Clippy,
+Both packages contain 245 installed files. The final gate passes 1,315 tests, strict Clippy,
 formatting, application and policy checks; the native Arch package smoke also passes.
 
 ### Linux HEVC reception extension
@@ -202,6 +202,48 @@ unchanged repair queue bound before delayed repair; both revisions retain that h
 | Executable | 92,767,752 B | 92,775,816 B | +8,064 B (+0.009%) |
 | Installed payload | 97,466,185 B | 97,474,249 B | +8,064 B (+0.008%) |
 | Arch archive | 54,440,009 B | 54,463,210 B | +23,201 B (+0.043%) |
+
+### Receive-only AV1 — October 23, 2026
+
+The verified `d2fccf65` package is the baseline. Its owner-operated 120.212-second
+sample receives HEVC at 2560×1440, 59.49 decoded fps and 1.234 Mbps of complete decrypted
+video payload, with zero incomplete/gated frames, decoder errors or playback drops.
+The same owner then opens the stream in official Discord: 13 post-startup reports span
+120.389 seconds, report `AV1X` at 2560×1440, 59.99 decoded fps and mean 4.594 Mbps
+(range 4.327–4.979 Mbps), with zero reported drops. Sequential motion/content and
+accounting differ; the ratio is not a codec-efficiency benchmark or proof of why the
+service selected those rates. The preceding Serein build cannot negotiate/depacketize AV1.
+
+Linux receive-only AV1 now takes priority over HEVC/H.264 after installed native capability
+probing. No dependency or sender-preset change is introduced. The pipeline uses existing
+GStreamer AV1 parsing and ranked decoding, the same planar output and presentation tags.
+After DAVE authentication, Main-profile sequence/surface bounds are enforced before native
+submission; explicit plaintext OBU sizes are restored for the native parser. RTP has a
+64-element packet / 256-OBU frame ceiling. Reassembly's frame and fragment buffers are
+each bounded to 2 MiB + 64 KiB, with large fragment capacity released at frame reset;
+normalization temporarily holds one extra bounded AU on the decoder worker. Existing
+encoded playout/decoder/display caps, adaptive repair and audio clocks are retained.
+
+An eight-second synthetic 2560×1440/60 SVT-AV1 low-delay CBR fixture targets 4.5 Mbps,
+with four logical encoding processors, preset 12 (mapped by SVT 4.2.0 to preset 11),
+key interval 60, 8-bit 4:2:0. Its native Linux GStreamer workload includes a temporary
++200 ms RTP timestamp phase and simulated 73 ms audio-device delay. All 480 pictures
+match reference luma and presentation tags, with zero decoder errors, stale/admission
+rejections, playout resets/drops and final concealment. All 100 audible frames in the
+final two input seconds survive. This native workload bypasses RTP/DAVE; the extended
+encrypted protocol regression covers aggregation/fragmentation/RTX through DAVE and
+playout. Bounds tests cover malformed OBU lengths/counts, forbidden/spatial headers,
+fragment continuity and truncated/oversized/unsupported sequence headers.
+
+These are functional checks, not physical FPS, latency or perceptual-quality measurements.
+AV1 UHD/native Windows/macOS behavior and full-client CPU/RSS are unmeasured. Delivered
+AV1 bitrate and improvement to the owner's moving stream await an owner-operated retest.
+
+| Standard Arch package | Before `d2fccf65` | AV1 reception | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,775,816 B | 92,785,288 B | +9,472 B (+0.010%) |
+| Installed payload | 97,474,249 B | 97,483,721 B | +9,472 B (+0.010%) |
+| Arch archive | 54,463,210 B | 54,465,029 B | +1,819 B (+0.003%) |
 
 ### Earlier playback recovery evidence
 

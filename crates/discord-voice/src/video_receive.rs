@@ -118,6 +118,7 @@ pub(crate) fn is_keyframe(frame: &[u8]) -> bool {
 pub(crate) struct Assembler {
 	codec: Codec,
 	fragment_header: Option<[u8; 2]>,
+	av1: crate::video_av1::Fragments,
 	timestamp: u32,
 	next_sequence: Option<u16>,
 	frame: Vec<u8>,
@@ -165,7 +166,7 @@ impl Assembler {
 			self.broken = true;
 		}
 		self.next_sequence = Some(sequence.wrapping_add(1));
-		if !self.broken && self.append(payload).is_err() {
+		if !self.broken && self.append(payload, marker).is_err() {
 			self.broken = true;
 		}
 		self.lost |= self.broken;
@@ -186,6 +187,7 @@ impl Assembler {
 		}
 		self.fragmenting = false;
 		self.fragment_header = None;
+		self.av1.clear();
 		self.broken = false;
 	}
 	fn extend(&mut self, parts: &[&[u8]]) -> Result<(), ()> {
@@ -203,7 +205,12 @@ impl Assembler {
 		}
 		Ok(())
 	}
-	fn append(&mut self, payload: &[u8]) -> Result<(), ()> {
+	fn append(&mut self, payload: &[u8], marker: bool) -> Result<(), ()> {
+		if self.codec == Codec::Av1 {
+			self.av1.append(payload, marker, &mut self.frame)?;
+			self.fragmenting = self.av1.pending();
+			return Ok(());
+		}
 		if self.codec == Codec::H265 {
 			return self.append_h265(payload);
 		}
@@ -920,7 +927,7 @@ impl Backend {
 		lifetime: &Arc<AtomicBool>,
 		timings: Arc<Mutex<Timings>>,
 	) -> Option<Self> {
-		if prefer_hardware || codec == Codec::H265 {
+		if prefer_hardware || codec != Codec::H264 {
 			let sink = sink.clone();
 			let counters = counters.clone();
 			let lifetime = lifetime.clone();
@@ -945,11 +952,15 @@ impl Backend {
 					});
 				}
 			});
-			if codec == Codec::H265 {
+			if codec != Codec::H264 {
 				#[cfg(target_os = "linux")]
-				return platform::video::live::H264Decoder::new_h265_timed(deliver)
-					.ok()
-					.map(Self::Hardware);
+				return (if codec == Codec::Av1 {
+					platform::video::live::H264Decoder::new_av1_timed(deliver)
+				} else {
+					platform::video::live::H264Decoder::new_h265_timed(deliver)
+				})
+				.ok()
+				.map(Self::Hardware);
 				#[cfg(not(target_os = "linux"))]
 				return None;
 			}
@@ -1083,7 +1094,7 @@ fn decode_loop(
 			scratch = Vec::new();
 		}
 		decoder_counts(&decoders, &counters);
-		let (frame, _permit, queued, lifetime, presentation) = match message {
+		let (mut frame, _permit, queued, lifetime, presentation) = match message {
 			Decode::Frame(frame, permit, queued, lifetime, presentation) => {
 				(frame, permit, queued, lifetime, presentation)
 			}
@@ -1130,8 +1141,17 @@ fn decode_loop(
 			mark_broken(frame.user, &mut broken, &lost);
 			continue;
 		}
+		if frame.codec == Codec::Av1 {
+			let Some(data) = crate::video_av1::normalize(&frame.data) else {
+				counters.errors.fetch_add(1, Ordering::Relaxed);
+				decoders.remove(&frame.user);
+				mark_broken(frame.user, &mut broken, &lost);
+				continue;
+			};
+			frame.data = data;
+		}
 		if !decoders.contains_key(&frame.user) {
-			if frame.codec == Codec::H265
+			if frame.codec != Codec::H264
 				&& (!frame.keyframe || !frame.codec.has_parameter_sets(&frame.data))
 			{
 				mark_broken(frame.user, &mut broken, &lost);

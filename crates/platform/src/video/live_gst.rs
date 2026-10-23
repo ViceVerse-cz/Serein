@@ -1,6 +1,6 @@
-//! Linux live H.264/H.265 decoding through GStreamer. `decodebin` auto-plugs the highest-ranked
+//! Linux live H.264/H.265/AV1 decoding through GStreamer. `decodebin` auto-plugs the highest-ranked
 //! decoder, which is the VA-API or NVDEC plugin when one is installed and `avdec_h264`
-//! otherwise. The caller hands over complete, already decrypted Annex-B access units.
+//! otherwise. Callers supply complete decrypted Annex-B or AV1 OBU temporal units.
 use super::{BUSY, INVALID, UNSUPPORTED};
 pub use super::{LiveFrame as Frame, LiveSink as Sink, MAX_ACCESS_UNIT};
 use gstreamer as gst;
@@ -11,13 +11,16 @@ use std::sync::{
 	atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
-/// Probe decoder capabilities before advertising HEVC. Never advertise a codec just
+/// Probe decoder capabilities before advertising HEVC or AV1. Never advertise a codec just
 /// because its parser exists; decodebin also needs an installed ranked decoder.
 pub fn supports_h265() -> bool {
-	if gst::init().is_err() || gst::ElementFactory::find("h265parse").is_none() {
+	supports_codec("h265parse", "video/x-h265")
+}
+fn supports_codec(parser: &str, media: &str) -> bool {
+	if gst::init().is_err() || gst::ElementFactory::find(parser).is_none() {
 		return false;
 	}
-	let caps = gst::Caps::builder("video/x-h265").build();
+	let caps = gst::Caps::builder(media).build();
 	gst::ElementFactory::factories_with_type(
 		gst::ElementFactoryType::DECODER | gst::ElementFactoryType::MEDIA_VIDEO,
 		gst::Rank::MARGINAL,
@@ -59,23 +62,35 @@ impl H264Decoder {
 		Self::new_timed(Box::new(move |frame, _| sink(frame)))
 	}
 	pub fn new_timed(sink: super::TimedLiveSink) -> Result<Self, &'static str> {
-		Self::new_codec(sink, false)
+		Self::new_codec(sink, "video/x-h264", "h264parse", "byte-stream", "au")
 	}
 	/// Receive-only HEVC uses the same bounded queues, picture layout and timing tags.
 	pub fn new_h265_timed(sink: super::TimedLiveSink) -> Result<Self, &'static str> {
 		if !supports_h265() {
 			return Err(UNSUPPORTED);
 		}
-		Self::new_codec(sink, true)
+		Self::new_codec(sink, "video/x-h265", "h265parse", "byte-stream", "au")
 	}
-	fn new_codec(sink: super::TimedLiveSink, hevc: bool) -> Result<Self, &'static str> {
+	pub fn new_av1_timed(sink: super::TimedLiveSink) -> Result<Self, &'static str> {
+		if !supports_codec("av1parse", "video/x-av1") {
+			return Err(UNSUPPORTED);
+		}
+		Self::new_codec(sink, "video/x-av1", "av1parse", "obu-stream", "tu")
+	}
+	fn new_codec(
+		sink: super::TimedLiveSink,
+		media: &str,
+		parser: &str,
+		format: &str,
+		alignment: &str,
+	) -> Result<Self, &'static str> {
 		gst::init().map_err(|_| UNSUPPORTED)?;
 		let pipeline = gst::Pipeline::new();
 		let appsrc = gst_app::AppSrc::builder()
 			.caps(
-				&gst::Caps::builder(if hevc { "video/x-h265" } else { "video/x-h264" })
-					.field("stream-format", "byte-stream")
-					.field("alignment", "au")
+				&gst::Caps::builder(media)
+					.field("stream-format", format)
+					.field("alignment", alignment)
 					.build(),
 			)
 			.build();
@@ -90,7 +105,7 @@ impl H264Decoder {
 		}
 		appsrc.set_max_bytes(MAX_QUEUED_BYTES);
 		appsrc.set_block(false);
-		let parse = make(if hevc { "h265parse" } else { "h264parse" })?;
+		let parse = make(parser)?;
 		let decodebin = make("decodebin")?;
 		pipeline
 			.add_many([appsrc.upcast_ref::<gst::Element>(), &parse, &decodebin])
@@ -180,7 +195,7 @@ impl H264Decoder {
 		})
 	}
 
-	/// Queue one Annex-B access unit. Errors from the pipeline surface on the next call.
+	/// Queue one complete access unit. Errors surface on the next pipeline call.
 	pub fn decode(&mut self, access_unit: &[u8]) -> Result<(), &'static str> {
 		self.decode_timed(access_unit, (self.pictures + 1) * 33)
 	}

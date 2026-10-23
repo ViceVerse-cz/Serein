@@ -15,6 +15,7 @@ mod stream_sync;
 mod timer;
 mod transport;
 mod video;
+mod video_av1;
 mod video_codec;
 // Linux has no shared hardware encoder, but the camera's GStreamer encoder still takes the
 // same configuration, so the facade is compiled on every supported platform.

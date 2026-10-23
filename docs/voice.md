@@ -722,6 +722,31 @@ only for the owner's deliberate test, then disable it after collecting the summa
 
 ### Incoming stream recovery and pacing
 
+Linux Go Live viewers additionally offer receive-only AV1 ahead of HEVC/H.264 after the
+installed GStreamer `av1parse`, ranked decoder and bounded pipeline initialize. Sending
+and cameras remain H.264; other platforms do not advertise AV1. Signaling uses `AV1`
+(accepting the `AV1X` session alias), with advertised payloads 105/106 for video/RTX;
+existing H.264 101/102 and HEVC 103/104 assignments are preserved. These assignments
+belong to our offer, not fixed Discord protocol constants. Discord interoperability
+remains unofficial and AV1 live quality awaits an owner-operated test.
+
+AV1 follows the [AOM RTP format v1.0.0](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html):
+aggregation and fragmentation retain the final size-less OBU needed by DAVE. After DAVE
+authentication, Main-profile sequence headers are checked for 8/10-bit non-monochrome
+4:2:0 and the shared UHD surface bound before native submission. Single spatial-layer
+streams are accepted; temporal IDs are retained. New decoders require an inline sequence
+header and a shown keyframe. Plaintext OBUs receive explicit lengths for GStreamer's
+[OBU stream parser](https://gstreamer.freedesktop.org/documentation/videoparsersbad/av1parse.html).
+Neither RTP nor codec syntax can bypass transport/DAVE or keyframe gates. AU size,
+packet repair, playback queues and presentation tags retain their existing bounds.
+Each RTP packet has at most 64 OBU elements and each frame at most 256 OBUs. Reassembly
+uses two buffers, each capped at the 2 MiB + 64 KiB AU bound; fragment capacity above
+256 KiB is released at frame reset. Decoder normalization temporarily retains at most
+one additional bounded AU on the worker. No new dependency, recording or bandwidth
+estimate is introduced. Codec preference does not promise a particular delivered bitrate.
+Numeric `av1_packets`, `av1_frames` and `session_av1` distinguish admitted packets,
+decrypted frames and outgoing session-selection announcements, as for HEVC/H.264.
+
 Live H.264/H.265 reception accepts up to 4K (3840×2160), including 1440p and portrait/ultrawide
 pictures within the same pixel and per-side bounds. The original 1080p cap was introduced
 with the first RGBA receiver (`b0f57be`); its history identifies a frame-allocation bound,
