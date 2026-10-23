@@ -314,6 +314,7 @@ fn gradient(stops: [u32; 2], border: u32) -> Palette {
 	p.backdrop = Some([rgb(stops[0]), rgb(stops[1])]);
 	p
 }
+/// Resolve a built-in preset with the current accent, before extension overrides or surface blending.
 pub fn builtin_colors(dark: bool, variant: Variant) -> Palette {
 	let palette = match variant {
 		Variant::Standard if dark => dark_common(

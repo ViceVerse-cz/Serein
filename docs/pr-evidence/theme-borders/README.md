@@ -3,8 +3,8 @@
 Baseline: `c2842aa7` (clean `main`, matching `origin/main`). Both demo binaries were built
 with Rust 1.98.1, `--locked -p serein --features demo`, including voice.
 
-These are native X11 window captures of synthetic `--demo` content on Arch Linux,
-AMD Radeon RX 6900 XT / RADV Vulkan, with `WINIT_X11_SCALE_FACTOR=0.93`, 100% egui zoom
+These are native X11 window captures of synthetic `--demo` content on Linux,
+using Vulkan, with `WINIT_X11_SCALE_FACTOR=0.93`, 100% egui zoom
 and a 1120 × 800 client area. This exercises 0.93 physical pixels per UI point, also
 reachable with 62% zoom and a native DPI factor of 1.5. No account, network, microphone
 or capture session was used.
