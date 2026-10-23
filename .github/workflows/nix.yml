@@ -45,6 +45,13 @@ jobs:
         with:
           use-flakehub: false
 
+      - name: Use optional public Cachix cache
+        if: vars.CACHIX_CACHE_NAME != ''
+        uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
+        with:
+          name: ${{ vars.CACHIX_CACHE_NAME }}
+          skipPush: true
+
       - name: Build
         run: nix build --print-build-logs --show-trace .#serein
       - name: Verify installed binary
@@ -78,3 +85,15 @@ jobs:
         run: |
           test -x result/Applications/Serein.app/Contents/MacOS/serein
           plutil -lint result/Applications/Serein.app/Contents/Info.plist
+      - name: Cache verified main build
+        if: vars.CACHIX_CACHE_NAME != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          CACHIX_CACHE_NAME: ${{ vars.CACHIX_CACHE_NAME }}
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$CACHIX_AUTH_TOKEN" ]; then
+            echo "Cachix write token is not configured; leaving the cache read-only."
+            exit 0
+          fi
+          cachix push "$CACHIX_CACHE_NAME" result
