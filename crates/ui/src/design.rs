@@ -298,7 +298,8 @@ fn dark_common(
 		surface: sidebar,
 	}
 }
-fn gradient(stops: [u32; 2]) -> Palette {
+/// Gradient preset with an opaque border, like the flat presets, for stable fractional-scale edges.
+fn gradient(stops: [u32; 2], border: u32) -> Palette {
 	let mut p = dark_common(
 		Color32::from_black_alpha(140),
 		Color32::from_black_alpha(90),
@@ -306,7 +307,7 @@ fn gradient(stops: [u32; 2]) -> Palette {
 		Color32::from_black_alpha(120),
 		Color32::from_white_alpha(18),
 		Color32::from_white_alpha(34),
-		Color32::from_white_alpha(28),
+		rgb(border),
 	);
 	p.text = rgb(0xe6eaf2);
 	p.muted = rgb(0xafb6c4);
@@ -365,10 +366,10 @@ pub fn builtin_colors(dark: bool, variant: Variant) -> Palette {
 			rgb(0x3d4456),
 			rgb(0x3a4152),
 		),
-		Variant::Nightfall => gradient([0x35519f, 0x1b1440]),
-		Variant::Ember => gradient([0x8c2340, 0x140609]),
-		Variant::Verdant => gradient([0x2b6350, 0x081a15]),
-		Variant::Afterglow => gradient([0xd9663c, 0x35205e]),
+		Variant::Nightfall => gradient([0x35519f, 0x1b1440], 0x2f3451),
+		Variant::Ember => gradient([0x8c2340, 0x140609], 0x41262e),
+		Variant::Verdant => gradient([0x2b6350, 0x081a15], 0x283934),
+		Variant::Afterglow => gradient([0xd9663c, 0x35205e], 0x5b3b40),
 	};
 	customize(palette, primary_color())
 }
@@ -901,6 +902,7 @@ pub(crate) fn control_colors(dark: bool, variant: Variant) -> Palette {
 pub fn window_palette(ui: &egui::Ui) -> Palette {
 	colors(ui.visuals().dark_mode, variant())
 }
+/// Composite surface fills while preserving theme tokens for each consumer's own background.
 fn opaque_surfaces(mut palette: Palette) -> Palette {
 	let backdrop = palette
 		.backdrop
@@ -916,10 +918,6 @@ fn opaque_surfaces(mut palette: Palette) -> Palette {
 		&mut palette.surface,
 	] {
 		*surface = backdrop.blend(*surface);
-	}
-	// Composite translucent borders too, so their antialiased edges keep the surface tint.
-	if palette.border.a() > 0 {
-		palette.border = palette.raised.blend(palette.border);
 	}
 	palette
 }
@@ -1776,6 +1774,25 @@ fn contrast(a: Color32, b: Color32) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn compositing_surfaces_preserves_custom_border_alpha() {
+		let authored = extensions::ThemePalette {
+			colors: [
+				("base".into(), "#0c3658".into()),
+				("raised".into(), "#762438".into()),
+				("border".into(), "#ffffff60".into()),
+			]
+			.into(),
+			..Default::default()
+		};
+		let themed = recolor(
+			builtin_colors(true, Variant::Ember),
+			extension_palette(&authored).unwrap(),
+		);
+		let border = themed.border;
+		assert_eq!(opaque_surfaces(themed).border, border);
+	}
+
 	#[test]
 	fn opaque_presets_keep_readable_text_and_keys_round_trip() {
 		for variant in Variant::ALL {
