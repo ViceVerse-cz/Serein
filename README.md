@@ -329,9 +329,11 @@ For optimized local builds, use the `local` profile:
 cargo run --locked --profile local --features demo -- --demo
 ```
 
-It enables incremental compilation and 32 code-generation units, with LTO disabled so
-LLVM optimization and code generation can run across multiple units. Some compiler
-and linker stages remain serial. Cargo selects the job count from available CPUs;
+It enables incremental compilation and 32 code-generation units. `lto = false` disables
+cross-crate LTO while retaining thin local LTO within each crate; see [Cargo's LTO
+settings](https://doc.rust-lang.org/cargo/reference/profiles.html#lto). LLVM optimization
+and code generation can run across multiple units. Some compiler and linker stages
+remain serial. Cargo selects the job count from available CPUs;
 use `-j N` to limit concurrent work on memory-constrained machines. The first build
 creates a separate cache under `target/local`; later builds
 reuse it. Ordinary debug builds remain available with the commands above.

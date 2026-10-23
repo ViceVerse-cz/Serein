@@ -6,8 +6,9 @@ log and per-run evidence archive has been removed; the summaries below retain th
 
 ## Optimized local build profile — October 23, 2026
 
-The `local` profile inherits release optimization but disables LTO, uses 32 code-generation
-units and enables incremental compilation. The production release profile and packaging
+The `local` profile inherits release optimization but disables cross-crate LTO, retaining
+thin local LTO within each crate. It uses 32 code-generation units and enables incremental
+compilation. The production release profile and packaging
 commands are unchanged. This is an opt-in build/run profile, not a shipping configuration.
 
 One cold-profile build used source base `c2842aa7`, Rust 1.98.1, locked dependencies, the
