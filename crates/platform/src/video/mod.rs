@@ -106,6 +106,20 @@ pub fn check_dimensions(width: u32, height: u32) -> Result<(), &'static str> {
 	Ok(())
 }
 
+/// The largest size within [`check_dimensions`] with `width × height`'s aspect, in even pixels
+/// for 4:2:0 chroma. Larger videos are scaled down to it rather than refused.
+pub fn fit_dimensions(width: u32, height: u32) -> (u32, u32) {
+	if width == 0 || height == 0 || check_dimensions(width, height).is_ok() {
+		return (width, height);
+	}
+	let (w, h) = (f64::from(width), f64::from(height));
+	let scale = (1920.0 / w)
+		.min(1920.0 / h)
+		.min((1920.0 * 1080.0 / (w * h)).sqrt());
+	let even = |value: f64| ((value * scale) as u32 & !1).max(2);
+	(even(w), even(h))
+}
+
 /// Rotate a packed RGBA frame clockwise by a quarter-turn multiple; returns the new dimensions.
 pub(crate) fn rotate_rgba(
 	rgba: &[u8],
@@ -144,6 +158,28 @@ mod tests {
 	use super::*;
 	#[test]
 	fn rotation_and_bounds() {
+		for (width, height) in [
+			(3840, 2160),
+			(2560, 1440),
+			(1080, 2400),
+			(4096, 4096),
+			(7680, 100),
+		] {
+			let (w, h) = fit_dimensions(width, height);
+			assert!(
+				check_dimensions(w, h).is_ok(),
+				"{width}x{height} -> {w}x{h}"
+			);
+			assert!(w % 2 == 0 && h % 2 == 0);
+			let aspect = f64::from(width) / f64::from(height);
+			// Even rounding moves an edge by at most two pixels.
+			assert!(
+				(f64::from(w) / aspect - f64::from(h)).abs() <= 2.0,
+				"{w}x{h}"
+			);
+		}
+		assert_eq!(fit_dimensions(3840, 2160), (1920, 1080));
+		assert_eq!(fit_dimensions(1280, 720), (1280, 720));
 		assert!(check_dimensions(1920, 1080).is_ok());
 		assert!(check_dimensions(1921, 1).is_err());
 		assert!(check_dimensions(1920, 1920).is_err());
