@@ -4,6 +4,37 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Optimized local build profile — October 23, 2026
+
+The `local` profile inherits release optimization but disables LTO, uses 32 code-generation
+units and enables incremental compilation. The production release profile and packaging
+commands are unchanged. This is an opt-in build/run profile, not a shipping configuration.
+
+One cold-profile build used source base `c2842aa7`, Rust 1.98.1, locked dependencies, the
+default development-data feature plus `demo`, and voice included. The Arch Linux x86_64
+guest reported an AMD Ryzen 9 5900XT and 20 available logical CPUs, with 60 GiB RAM but
+about 7 GiB available when validation began. Cargo was limited to six jobs for memory
+headroom; the profile itself does not limit job count. Downloaded dependencies were
+already cached; `target/local` did not exist before the run.
+
+```sh
+cargo build --locked --profile local -p serein --features demo -j 6
+```
+
+| Local build metric | Observed value | Method |
+| --- | ---: | --- |
+| Cold-profile wall time | 330.61 s | Python monotonic clock around Cargo, one run |
+| Aggregate child CPU time | 1,832.54 s | `getrusage(RUSAGE_CHILDREN)`, user + system |
+| Average build CPU utilization | 5.54 cores | Aggregate CPU time / wall time |
+| Peak main-compiler CPU utilization | 5.94 cores | `/proc` CPU-time deltas, 21 two-second samples |
+| Maximum individual child RSS | 2,616,364 KiB | `getrusage`; not aggregate build memory |
+
+The final application compiler used multiple cores as well as the dependency build.
+This is a single descriptive run, not a controlled release-versus-local comparison or
+a guarantee for another machine. No application runtime improvement is claimed. The
+demo-enabled optimized build reports an existing unused `components_demo::check` helper
+warning. The normal debug profile remains available for development assertions.
+
 ## Server folder mark-as-read — October 15, 2026 (PR #672)
 
 Compared base `104b1aa5` with folder mark-as-read `2b02b49e`. Standard unsigned Windows x64
