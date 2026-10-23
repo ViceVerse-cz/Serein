@@ -55,6 +55,7 @@ struct Pending {
 	rtc: Option<(Id, Id)>,
 	server: Option<(voice::Secret, String)>,
 	started: Instant,
+	disable_video: Option<(watch::Sender<bool>, watch::Receiver<bool>)>,
 }
 #[derive(Clone, Copy)]
 enum Notice {
@@ -66,6 +67,7 @@ struct Live {
 	task: JoinHandle<()>,
 	events: watch::Receiver<Option<Notice>>,
 	frames: Arc<Mutex<Slot>>,
+	disable_video: watch::Sender<bool>,
 }
 
 #[derive(Default)]
@@ -156,6 +158,7 @@ impl Watch {
 			screen::Event::Viewers(_) => {}
 		}
 	}
+	/// Polls stream watching state, processing status events and texture uploads.
 	pub fn poll(
 		&mut self,
 		runtime: &Runtime,
@@ -251,6 +254,7 @@ impl Watch {
 				rtc: None,
 				server: None,
 				started: Instant::now(),
+				disable_video: Some(watch::channel(ui.disable_incoming_video)),
 			});
 			self.status = "Requesting the stream…";
 			command = Some(Command::Voice(voice::Command::WatchStream {
@@ -282,6 +286,14 @@ impl Watch {
 			}
 		}
 		if let Some(live) = &mut self.live {
+			let _ = live.disable_video.send_if_modified(|val| {
+				if *val != ui.disable_incoming_video {
+					*val = ui.disable_incoming_video;
+					true
+				} else {
+					false
+				}
+			});
 			match *live.events.borrow_and_update() {
 				Some(Notice::Status(status)) => self.status = status,
 				Some(Notice::Failed(error)) => {
@@ -294,7 +306,14 @@ impl Watch {
 			}
 			// Uploading copies the planes into GPU staging, so it runs under the slot lock
 			// and the decoder keeps refilling the same allocation.
-			if let Ok(mut slot) = live.frames.try_lock()
+			if ui.disable_incoming_video {
+				ui.voice_stream_view = None;
+				self.texture = Default::default();
+				if let Ok(mut slot) = live.frames.try_lock() {
+					*slot = None;
+				}
+				self.status = "Incoming video disabled";
+			} else if let Ok(mut slot) = live.frames.try_lock()
 				&& let Some((picture, fresh)) = slot.as_mut()
 				&& std::mem::take(fresh)
 				&& let Some(texture) = self.texture.upload(ctx, "remote-stream", picture.borrow())
@@ -309,6 +328,7 @@ impl Watch {
 		ui.voice_stream_status = if wanted.is_some() { self.status } else { "" };
 		command
 	}
+	/// Starts watching an active stream from a voice call participant.
 	fn start(
 		&mut self,
 		runtime: &Runtime,
@@ -348,10 +368,16 @@ impl Watch {
 		let wake = ctx.clone();
 		let identity = pending.identity;
 		let audio = pending.audio;
+		let (disable_send, disable_recv) = pending.disable_video.expect("disable_video channel");
 		let task = runtime.spawn(async move {
 			let (status_send, status_wake) = (send.clone(), wake.clone());
-			let result =
-				discord_voice::watch_stream(credentials, identity, sink, audio, move |event| {
+			let result = discord_voice::watch_stream(
+				credentials,
+				identity,
+				sink,
+				audio,
+				disable_recv,
+				move |event| {
 					let status = match event {
 						Status::Connecting => "Connecting to the stream…",
 						Status::Discovering => "Checking the stream network…",
@@ -365,8 +391,9 @@ impl Watch {
 					status_send.send_replace(Some(Notice::Status(status)));
 					status_wake.request_repaint();
 					Ok(())
-				})
-				.await;
+				},
+			)
+			.await;
 			if let Err(error) = result {
 				send.send_replace(Some(Notice::Failed(error)));
 			}
@@ -378,6 +405,7 @@ impl Watch {
 			task,
 			events,
 			frames,
+			disable_video: disable_send,
 		});
 		Ok(())
 	}
@@ -414,6 +442,7 @@ mod tests {
 		for failed in [false, true] {
 			state.voice.active.as_mut().unwrap().watching = Some(context.streamer);
 			let (_send, events) = watch::channel(None);
+			let (disable_send, _disable_recv) = watch::channel(false);
 			let mut watch = Watch {
 				pending: None,
 				live: Some(Live {
@@ -421,6 +450,7 @@ mod tests {
 					task: runtime.spawn(std::future::pending()),
 					events,
 					frames: Arc::new(Mutex::new(None)),
+					disable_video: disable_send,
 				}),
 				ended: None,
 				sequence: 0,
@@ -456,6 +486,56 @@ mod tests {
 			));
 			assert!(watch.live.is_none());
 		}
+	}
+
+	#[test]
+	fn watch_disabling_incoming_video_clears_cached_frame_and_view() {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		let mut state = test_support::voice_demo_state();
+		state.demo = false;
+		state.watch_stream(Id(3)).unwrap();
+		let call = state.voice.active.as_ref().unwrap();
+		let context = Context {
+			generation: state.generation,
+			channel: call.channel,
+			request: call.request,
+			stream_request: 2,
+			streamer: Id(3),
+		};
+		let mut ui = ui::MessagingUi::default();
+		let ctx = egui::Context::default();
+		let (_send, events) = watch::channel(None);
+		let (disable_send, _disable_recv) = watch::channel(false);
+		let frames = Arc::new(Mutex::new(None));
+		{
+			let mut slot = frames.lock().unwrap();
+			assert!(store_frame(&mut slot, frame(2, 2, &i420(2, 2, 1))));
+		}
+		let mut watch = Watch {
+			pending: None,
+			live: Some(Live {
+				context,
+				task: runtime.spawn(std::future::pending()),
+				events,
+				frames: frames.clone(),
+				disable_video: disable_send,
+			}),
+			ended: None,
+			sequence: 0,
+			status: "",
+			texture: Default::default(),
+		};
+		ui.disable_incoming_video = true;
+		assert!(
+			watch
+				.poll(&runtime, &mut state, &mut ui, &ctx, None, None)
+				.is_none()
+		);
+		assert!(ui.voice_stream_view.is_none());
+		assert!(frames.lock().unwrap().is_none());
 	}
 
 	fn frame(width: u32, height: u32, data: &[u8]) -> discord_voice::RemoteFrame<'_> {

@@ -4916,3 +4916,24 @@ search-overlays-no-matching-content-types = Žádné odpovídající typy obsahu
 search-overlays-history = Historie
 search-overlays-clear-history = Vymazat historii hledání
 main-sign-in-rate-limited-detail = Discord omezuje toto přihlášení. Než to zkusíte znovu, počkejte. Dřívější pokus může čekání prodloužit.
+
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews = Vypnout místní náhledy
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews-description = Přeskočí vykreslování náhledů kamery a sdílení obrazovky pro úsporu prostředků CPU a GPU.
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = Vypnout příchozí video
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = Přeskočí dekódování a vykreslování příchozích video streamů pro úsporu procesoru a grafické karty.
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = Sdílíte obrazovku · Náhled je vypnutý
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = Sdílíte obrazovku
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = Vaše obrazovka · náhled je vypnutý
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = Vaše obrazovka · místní náhled

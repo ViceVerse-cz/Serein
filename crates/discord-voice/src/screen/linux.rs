@@ -89,6 +89,7 @@ pub(super) fn run(
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
 	status: Arc<Mutex<&'static str>>,
 	preview_visible: Arc<AtomicBool>,
+	captured: Arc<AtomicBool>,
 	wake: &impl Fn(),
 ) -> Result<(), &'static str> {
 	let direct = settings.source == SourceId::X11Desktop && x11_session();
@@ -247,6 +248,9 @@ pub(super) fn run(
 						}
 					}
 					if let Some(sample) = pipeline.preview.try_pull_sample(gst::ClockTime::ZERO) {
+						if !captured.swap(true, Ordering::AcqRel) {
+							wake();
+						}
 						let image = preview_frame(&capture::raw(&sample)?)?;
 						if let Ok(mut slot) = preview.try_lock() {
 							*slot = Some(image);
@@ -272,7 +276,13 @@ pub(super) fn run(
 						waiting_keyframe = true;
 						first_frame = None;
 						keyframe.store(true, Ordering::Release);
-						let _ = pipeline.frames.try_pull_sample(gst::ClockTime::ZERO);
+						if pipeline
+							.frames
+							.try_pull_sample(gst::ClockTime::ZERO)
+							.is_some() && !captured.swap(true, Ordering::AcqRel)
+						{
+							wake();
+						}
 					} else {
 						let started = first_frame.get_or_insert_with(Instant::now);
 						// While the transport is behind, leave the picture in the appsink rather
@@ -287,6 +297,9 @@ pub(super) fn run(
 								pipeline.frames.try_pull_sample(gst::ClockTime::ZERO)
 						{
 							pulled = true;
+							if !captured.swap(true, Ordering::AcqRel) {
+								wake();
+							}
 							let pull = metrics.start();
 							metrics.finish(crate::diagnostics::Stage::Receive, pull);
 							let (data, is_keyframe) = if mode == Mode::Software {

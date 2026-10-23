@@ -53,7 +53,8 @@ impl MessagingUi {
 						StageFocus::LocalScreen => {
 							self.screen.context
 								== Some((state.generation, call.channel, call.request))
-								&& self.screen.busy && self.screen.preview.is_some()
+								&& self.screen.busy
+								&& (self.screen.preview.is_some() || self.disable_local_previews)
 						}
 						StageFocus::Stream(user) => call.watching == Some(*user),
 						StageFocus::Participant(_) => false,
@@ -1022,7 +1023,7 @@ impl MessagingUi {
 		if call.is_some_and(|call| {
 			self.screen.context == Some((state.generation, channel, call.request))
 				&& self.screen.busy
-				&& self.screen.preview.is_some()
+				&& (self.screen.preview.is_some() || self.disable_local_previews)
 		}) {
 			tiles.push(Tile::LocalScreen);
 		}
@@ -1186,16 +1187,21 @@ impl MessagingUi {
 		})
 	}
 
+	/// Returns the remote camera texture for the specified user if incoming video is enabled.
 	fn remote_texture(&self, user: Id) -> Option<&egui::load::SizedTexture> {
+		if self.disable_incoming_video {
+			return None;
+		}
 		self.voice_remote_video
 			.iter()
 			.find(|(id, _)| *id == user)
 			.map(|(_, texture)| texture)
 	}
 
+	/// Checks whether a stage tile currently has video available to display.
 	fn tile_has_video(&self, state: &State, channel: Id, tile: &Tile<'_>) -> bool {
 		match tile {
-			Tile::LocalScreen => self.screen.preview.is_some(),
+			Tile::LocalScreen => self.screen.preview.is_some() || self.disable_local_previews,
 			Tile::Stream(streamer) => self.watching(state, channel, *streamer),
 			Tile::Participant(entry) => {
 				let own = state
@@ -1203,7 +1209,7 @@ impl MessagingUi {
 					.as_ref()
 					.is_some_and(|user| user.id == entry.participant.user);
 				if own {
-					self.voice_camera_preview.is_some()
+					(self.voice_camera_preview.is_some() || self.disable_local_previews)
 						&& state.voice.active.as_ref().is_some_and(|call| {
 							call.channel == channel && call.camera && call.phase != Phase::Failed
 						})
@@ -1216,6 +1222,7 @@ impl MessagingUi {
 
 	/// One stage tile. Returns its focus key when a video tile is clicked to enlarge or restore.
 	#[allow(clippy::too_many_arguments)] // Placement and framing flags of one tile.
+	/// Renders an individual voice stage tile.
 	fn tile(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -1243,9 +1250,13 @@ impl MessagingUi {
 		let hint = match tile {
 			Tile::LocalScreen => {
 				self.screen_tile(ui, rect, compact);
-				self.screen
-					.capture_status
-					.unwrap_or("Your screen · local preview")
+				self.screen.capture_status.map(crate::i18n::translate_if_key).unwrap_or_else(|| {
+					crate::i18n::translate(if self.disable_local_previews {
+						"voice-screen-tile-hint-preview-disabled"
+					} else {
+						"voice-screen-tile-hint-local-preview"
+					})
+				})
 			}
 			Tile::Stream(streamer) if has_video => {
 				self.stream_tile(ui, state, rect, channel, *streamer, false);
@@ -1259,7 +1270,7 @@ impl MessagingUi {
 							ui.close();
 						}
 					});
-				"Screen share you are watching"
+				"Screen share you are watching".to_string()
 			}
 			Tile::Stream(streamer) => {
 				let watch = self.stream_invite_tile(ui, state, rect, channel, *streamer, compact);
@@ -1285,12 +1296,12 @@ impl MessagingUi {
 					response.on_hover_cursor(egui::CursorIcon::PointingHand);
 					return None;
 				}
-				"Join this voice channel before watching"
+				"Join this voice channel before watching".to_string()
 			}
 			Tile::Participant(entry) => {
 				self.participant_tile(ui, state, entry, rect, frameless, compact);
 				self.voice_participant_menu(&response, state, entry);
-				""
+				String::new()
 			}
 		};
 		if has_video {
@@ -1315,20 +1326,31 @@ impl MessagingUi {
 		None
 	}
 
+	/// Renders the screen share tile or placeholder card on the voice stage.
 	fn screen_tile(&self, ui: &mut egui::Ui, rect: egui::Rect, compact: bool) {
-		let content = self
-			.screen
-			.preview
-			.as_ref()
-			.map(|texture| {
-				let content = fit_rect(rect, texture.size_vec2());
-				ui.put(
-					content,
-					egui::Image::from_texture((texture.id(), content.size())).corner_radius(8),
-				);
-				content
-			})
-			.unwrap_or(rect);
+		let content = if let Some(texture) = self.screen.preview.as_ref() {
+			let content = fit_rect(rect, texture.size_vec2());
+			ui.put(
+				content,
+				egui::Image::from_texture((texture.id(), content.size())).corner_radius(8),
+			);
+			content
+		} else {
+			ui.painter().rect_filled(rect, 8, TILE_FILL);
+			let text = crate::i18n::translate(if self.disable_local_previews {
+				"voice-screen-tile-sharing-preview-disabled"
+			} else {
+				"voice-screen-tile-sharing"
+			});
+			ui.painter().text(
+				rect.center(),
+				egui::Align2::CENTER_CENTER,
+				&text,
+				egui::FontId::proportional(13.0),
+				egui::Color32::from_gray(160),
+			);
+			rect
+		};
 		if !compact {
 			name_badge(ui, content, "Your screen", None, self.badge_opacity());
 		}
@@ -2337,6 +2359,18 @@ impl MessagingUi {
 						"voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak",
 					),
 					&mut self.voice_push_to_talk,
+				);
+				design::switch(
+					ui,
+					"voice-voice-popup-content-disable-local-previews",
+					Some("voice-voice-popup-content-disable-local-previews-description"),
+					&mut self.disable_local_previews,
+				);
+				design::switch(
+					ui,
+					"voice-voice-popup-content-disable-incoming-video",
+					Some("voice-voice-popup-content-disable-incoming-video-description"),
+					&mut self.disable_incoming_video,
 				);
 			} else {
 				ui.label(

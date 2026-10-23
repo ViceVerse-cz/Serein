@@ -4810,3 +4810,24 @@ search-overlays-no-matching-content-types = 一致するコンテンツの種類
 search-overlays-history = 履歴
 search-overlays-clear-history = 検索履歴を消去
 main-sign-in-rate-limited-detail = Discord がこのサインインを制限しています。しばらく待ってから再試行してください。早すぎる再試行は待ち時間を延ばすことがあります。
+
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews = ローカルプレビューを無効化
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews-description = CPUおよびGPUリソースを節約するために、カメラと画面共有のプレビュー描画をスキップします。
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = 受信ビデオを無効化
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = CPUおよびGPUリソースを節約するために、受信ビデオストリームのデコードとレンダリングをスキップします。
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = 画面を共有中 · プレビュー無効
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = 画面を共有中
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = あなたの画面 · プレビュー無効
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = あなたの画面 · ローカルプレビュー

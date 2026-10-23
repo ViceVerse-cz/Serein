@@ -4813,3 +4813,24 @@ search-overlays-no-matching-content-types = Eşleşen içerik türü yok
 search-overlays-history = Geçmiş
 search-overlays-clear-history = Arama geçmişini temizle
 main-sign-in-rate-limited-detail = Discord bu oturum açmayı sınırlıyor. Tekrar denemeden önce bekle. Daha erken bir deneme bekleme süresini uzatabilir.
+
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews = Yerel önizlemeleri devre dışı bırak
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews-description = CPU ve GPU kaynaklarından tasarruf etmek için kamera ve ekran paylaşımı önizlemelerini oluşturmayı atlar.
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = Gelen videoyu devre dışı bırak
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = CPU ve GPU kaynaklarından tasarruf etmek için gelen video akışlarının kodunu çözmeyi ve oluşturmayı atlar.
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = Ekranınız paylaşılıyor · Önizleme devre dışı
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = Ekranınız paylaşılıyor
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = Ekranınız · önizleme devre dışı
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = Ekranınız · yerel önizleme

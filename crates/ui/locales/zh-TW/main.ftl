@@ -4925,3 +4925,24 @@ search-overlays-no-matching-content-types = 沒有符合的內容類型
 search-overlays-history = 歷史紀錄
 search-overlays-clear-history = 清除搜尋紀錄
 main-sign-in-rate-limited-detail = Discord 正在限制此次登入。請稍候再試。過早重試可能會延長等待時間。
+
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews = 停用本地預覽
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews-description = 跳過相機和螢幕共用預覽的轉譯，以節省 CPU 和 GPU 資源。
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = 停用傳入視訊
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = 跳過傳入視訊串流的解碼和轉譯，以節省 CPU 和 GPU 資源。
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = 正在共用螢幕 · 預覽已停用
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = 正在共用螢幕
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = 您的螢幕 · 預覽已停用
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = 您的螢幕 · 本地預覽

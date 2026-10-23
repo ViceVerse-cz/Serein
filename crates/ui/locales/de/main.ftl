@@ -4827,3 +4827,24 @@ search-overlays-no-matching-content-types = Keine passenden Inhaltstypen
 search-overlays-history = Verlauf
 search-overlays-clear-history = Suchverlauf löschen
 main-sign-in-rate-limited-detail = Discord begrenzt diese Anmeldung. Warte, bevor du es erneut versuchst. Ein früherer Versuch kann die Wartezeit verlängern.
+
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews = Lokale Vorschau deaktivieren
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews-description = Überspringt das Rendern von Kamera- und Bildschirmübertragungsvorschauen, um CPU- und GPU-Ressourcen zu sparen.
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = Eingehendes Video deaktivieren
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = Überspringt das Dekodieren und Rendern eingehender Videostreams, um CPU- und GPU-Ressourcen zu sparen.
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = Du teilst deinen Bildschirm · Vorschau deaktiviert
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = Du teilst deinen Bildschirm
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = Dein Bildschirm · Vorschau deaktiviert
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = Dein Bildschirm · Lokale Vorschau

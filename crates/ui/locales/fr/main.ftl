@@ -4827,3 +4827,24 @@ search-overlays-no-matching-content-types = Aucun type de contenu correspondant
 search-overlays-history = Historique
 search-overlays-clear-history = Effacer l'historique de recherche
 main-sign-in-rate-limited-detail = Discord limite cette connexion. Patientez avant de réessayer. Une nouvelle tentative trop tôt peut prolonger l'attente.
+
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews = Désactiver les aperçus locaux
+# Context: voice_popup_content
+voice-voice-popup-content-disable-local-previews-description = Ignore le rendu des aperçus de la caméra et du partage d'écran pour économiser les ressources CPU et GPU.
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video = Désactiver la vidéo entrante
+# Context: voice_popup_content
+voice-voice-popup-content-disable-incoming-video-description = Ignore le décodage et le rendu des flux vidéo entrants pour économiser les ressources CPU et GPU.
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing-preview-disabled = Partage de votre écran · Aperçu désactivé
+
+# Context: voice_screen_tile
+voice-screen-tile-sharing = Partage de votre écran
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-preview-disabled = Votre écran · aperçu désactivé
+
+# Context: voice_screen_tile
+voice-screen-tile-hint-local-preview = Votre écran · aperçu local

@@ -347,6 +347,9 @@ pub struct Voice {
 	camera_device: Option<String>,
 	camera_generation: u64,
 	camera_preview: Option<std::sync::Arc<std::sync::Mutex<CameraPicture>>>,
+	camera_preview_enabled: Arc<std::sync::atomic::AtomicBool>,
+	/// Set by the first delivered frame; the start cue waits for it, not for permission.
+	camera_captured: Option<Arc<std::sync::atomic::AtomicBool>>,
 	pending: Option<Pending>,
 	live: Option<Live>,
 	retiring: Option<mpsc::Receiver<()>>,
@@ -392,6 +395,7 @@ impl Voice {
 			camera.stop();
 		}
 		self.camera_preview = None;
+		self.camera_captured = None;
 		if let Some(live) = &self.live {
 			live.controls.send_if_modified(|controls| {
 				let changed = controls.camera != 0;
@@ -780,6 +784,7 @@ impl Voice {
 			),
 		}
 	}
+	/// Polls the voice system, updating capture, audio devices, and remote participant video.
 	pub fn poll(
 		&mut self,
 		runtime: &Runtime,
@@ -964,12 +969,14 @@ impl Voice {
 				.effective()
 				.sensitivity_db
 				.unwrap_or(-70);
+			let disable_incoming_video = ui.disable_incoming_video;
 			live.controls.send_if_modified(|control| {
 				if control.muted == muted
 					&& control.deafened == deafened
 					&& control.user_volumes == user_volumes
 					&& control.stream_volume == stream_volume
 					&& control.activity_threshold_db == activity_threshold_db
+					&& control.disable_incoming_video == disable_incoming_video
 				{
 					false
 				} else {
@@ -978,6 +985,7 @@ impl Voice {
 					control.user_volumes = user_volumes;
 					control.stream_volume = stream_volume;
 					control.activity_threshold_db = activity_threshold_db;
+					control.disable_incoming_video = disable_incoming_video;
 					true
 				}
 			});
@@ -1124,7 +1132,13 @@ impl Voice {
 			}
 			// Uploading is a plane copy into GPU staging, so it runs under the slot lock
 			// instead of cloning each picture out first.
-			if let Ok(mut slot) = live.remote_video.try_lock() {
+			if ui.disable_incoming_video {
+				self.remote_textures.clear();
+				ui.voice_remote_video.clear();
+				if let Ok(mut pictures) = live.remote_video.try_lock() {
+					pictures.clear();
+				}
+			} else if let Ok(mut slot) = live.remote_video.try_lock() {
 				for (user, picture, dirty) in slot.iter_mut() {
 					if !std::mem::take(dirty) {
 						continue;
@@ -1478,6 +1492,7 @@ impl Voice {
 			}
 		}
 	}
+	/// Polls camera capture state and manages local camera texture updates.
 	fn poll_camera(
 		&mut self,
 		state: &mut State,
@@ -1531,10 +1546,20 @@ impl Voice {
 			let send = live.camera_frames.clone();
 			let receive = std::sync::Arc::new(std::sync::Mutex::new(None));
 			let preview = receive.clone();
+			let preview_enabled = self.camera_preview_enabled.clone();
+			preview_enabled.store(
+				!ui.disable_local_previews,
+				std::sync::atomic::Ordering::Release,
+			);
+			let captured = Arc::new(std::sync::atomic::AtomicBool::new(false));
+			let first_frame = captured.clone();
 			let start = live.camera_clock;
 			let wake = ctx.clone();
 			let on_frame = std::sync::Arc::new(move |frame: discord_voice::camera::Frame| {
 				// Held or dropped pictures carry no H264 but still refresh the local preview.
+				if !first_frame.swap(true, std::sync::atomic::Ordering::AcqRel) {
+					wake.request_repaint();
+				}
 				let data = frame.h264;
 				if (1..=discord_voice::camera_video::MAX_FRAME_BYTES).contains(&data.len()) {
 					let _ = send.try_send(discord_voice::camera_video::Frame {
@@ -1543,7 +1568,8 @@ impl Voice {
 						data,
 					});
 				}
-				if let Ok(mut slot) = preview.try_lock()
+				if preview_enabled.load(std::sync::atomic::Ordering::Acquire)
+					&& let Ok(mut slot) = preview.try_lock()
 					&& store_camera_frame(&mut slot, &frame.rgb)
 				{
 					wake.request_repaint();
@@ -1559,6 +1585,7 @@ impl Voice {
 					self.camera_device = ui.voice_camera_device.clone();
 					self.camera = Some(camera);
 					self.camera_preview = Some(receive);
+					self.camera_captured = Some(captured);
 					ui.voice_camera_status = "Opening camera…";
 					live.controls
 						.send_modify(|controls| controls.camera = generation);
@@ -1569,6 +1596,32 @@ impl Voice {
 					return state.set_call_camera(false);
 				}
 			}
+		}
+		if self
+			.camera_captured
+			.as_ref()
+			.is_some_and(|captured| captured.load(std::sync::atomic::Ordering::Acquire))
+		{
+			self.camera_captured = None;
+			let cue = model::notification_preferences::Sound::CameraOn;
+			if ui.notification_options.allows(cue) {
+				ui.notification_preview = Some(cue);
+				ctx.request_repaint();
+			}
+		}
+		self.camera_preview_enabled.store(
+			!ui.disable_local_previews,
+			std::sync::atomic::Ordering::Release,
+		);
+		if ui.disable_local_previews {
+			if let Some(preview) = &self.camera_preview
+				&& let Ok(mut slot) = preview.try_lock()
+			{
+				*slot = None;
+			}
+			ui.voice_camera_preview = None;
+			ui.voice_camera_status = "";
+			return None;
 		}
 		let image = self.camera_preview.as_ref().and_then(|preview| {
 			let mut preview = preview.try_lock().ok()?;
@@ -1581,17 +1634,13 @@ impl Voice {
 			} else {
 				ui.voice_camera_preview =
 					Some(ctx.load_texture("local-camera", image, egui::TextureOptions::LINEAR));
-				let cue = model::notification_preferences::Sound::CameraOn;
-				if ui.notification_options.allows(cue) {
-					ui.notification_preview = Some(cue);
-					ctx.request_repaint();
-				}
 			}
 			// The local tile is the confirmation; no lingering status line.
 			ui.voice_camera_status = "";
 		}
 		None
 	}
+	/// Starts media transport loops for microphone and camera capture.
 	fn start_media(
 		&mut self,
 		runtime: &Runtime,
@@ -1642,6 +1691,7 @@ impl Voice {
 			deafened: false,
 			user_volumes: ui.voice_user_volumes(),
 			stream_volume: ui.voice_stream_volume(),
+			disable_incoming_video: ui.disable_incoming_video,
 		});
 		let remote_video: Arc<std::sync::Mutex<RemotePictures>> =
 			Arc::new(std::sync::Mutex::new(Vec::new()));
