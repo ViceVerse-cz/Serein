@@ -942,6 +942,14 @@ impl MessagingUi {
 									let avatar = self
 										.avatars
 										.show_group(&mut inner, channel, 32.0, state.demo);
+									if state.direct_typing(channel.id, std::time::Instant::now()) {
+										crate::profiles::typing_badge(
+											&mut inner,
+											avatar.rect,
+											None,
+											colors.sidebar,
+										);
+									}
 									self.group_menu.context(
 										&avatar,
 										state,
@@ -965,6 +973,16 @@ impl MessagingUi {
 									let status =
 										crate::profiles::shown_status(state, user.id, status);
 									if channel.kind == 1
+										&& state
+											.direct_typing(channel.id, std::time::Instant::now())
+									{
+										crate::profiles::typing_badge(
+											&mut inner,
+											avatar.rect,
+											status,
+											colors.sidebar,
+										);
+									} else if channel.kind == 1
 										&& let Some(status) = status
 									{
 										crate::profiles::presence_badge(

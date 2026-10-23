@@ -1,5 +1,16 @@
 # Local storage policy and audit
 
+## Typing indicators (October 23, 2026)
+
+Typing stays in session RAM: eight selected-channel typists, sixteen direct-conversation
+typist/deadline records, and sixteen recent outgoing channel/timestamp pairs. The fixed
+`Typing` struct has a 1.5-KiB test budget. Navigation retains direct-conversation records
+and outgoing throttles; session, access and failure changes clear them. A full outgoing
+store suppresses new channels until a timestamp expires rather than evicting a live throttle.
+The transport coalesces eight channel/user pairs per two seconds into an eight-slot lossy
+inbox. Outgoing indicators share the bounded command writer, carry a fixed revision and
+enqueue timestamp, and expire in that queue after two seconds. None of this is persisted.
+
 ## Per-conversation reply and attachment staging (October 16, 2026)
 
 Leaving a conversation keeps its unsent reply target and staged files in session RAM for

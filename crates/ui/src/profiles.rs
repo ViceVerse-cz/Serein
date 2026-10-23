@@ -1102,6 +1102,38 @@ pub(crate) fn presence_badge(
 		.on_hover_text(presence_label(status));
 }
 
+/// Discord's typing badge: the status disc stretched leftward into a pill of the status
+/// colour holding three dots that pulse in turn. A group has no status, so `None` is grey.
+pub(crate) fn typing_badge(ui: &mut egui::Ui, rect: Rect, status: Option<&str>, ring: Color32) {
+	let (radius, ring_width, center) = presence_badge_metrics(rect);
+	let pill = Rect::from_min_max(
+		pos2(center.x + radius - radius * 4.4, center.y - radius),
+		pos2(center.x + radius, center.y + radius),
+	);
+	let painter = ui.painter();
+	painter.rect_filled(pill.expand(ring_width), radius + ring_width, ring);
+	painter.rect_filled(pill, radius, presence_color(status.unwrap_or("offline")));
+	let time = ui.input(|input| input.time);
+	for dot in 0..3 {
+		// Each dot brightens a third of a 1.2 s cycle after the previous one.
+		let phase = (time / 1.2 - f64::from(dot) / 3.0).rem_euclid(1.0);
+		let pulse = (1.0 - (phase * std::f64::consts::TAU).cos()) as f32 / 2.0;
+		painter.circle_filled(
+			pos2(
+				pill.center().x + (dot as f32 - 1.0) * radius * 1.15,
+				pill.center().y,
+			),
+			radius * 0.34,
+			Color32::WHITE.gamma_multiply(0.45 + 0.55 * pulse),
+		);
+	}
+	// Animates only while someone is typing; indicators expire within ten seconds.
+	ui.ctx()
+		.request_repaint_after(std::time::Duration::from_millis(50));
+	ui.allocate_rect(pill.expand(ring_width), egui::Sense::hover())
+		.on_hover_text(crate::i18n::translate("typing-badge-typing"));
+}
+
 /// Discord's status glyphs, each set in a surface-coloured `ring` around a `radius` disc: a
 /// green disc online, a yellow crescent idle, a red disc with a bar for Do Not Disturb, a
 /// grey ring offline or invisible, and a green phone for someone online from a phone.

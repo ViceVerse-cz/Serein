@@ -100,6 +100,33 @@ impl Drop for AbortTask {
 		self.0.abort();
 	}
 }
+/// Typing and message writes share one fence, including attachment sends. Pending typing
+/// is superseded by another indicator or a send; an in-flight request finishes before a send.
+#[derive(Default)]
+struct WriteOrder {
+	typing_revision: AtomicU64,
+	in_flight: tokio::sync::Mutex<()>,
+}
+impl WriteOrder {
+	fn invalidate_typing(&self) -> u64 {
+		self.typing_revision
+			.fetch_add(1, Ordering::Relaxed)
+			.wrapping_add(1)
+	}
+	async fn begin(
+		&self,
+		typing: Option<(u64, Instant)>,
+	) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+		let guard = self.in_flight.lock().await;
+		if typing.is_some_and(|(revision, queued)| {
+			revision != self.typing_revision.load(Ordering::Relaxed)
+				|| queued.elapsed() >= Duration::from_secs(2)
+		}) {
+			return None;
+		}
+		Some(guard)
+	}
+}
 fn reject_prefetch_at_capacity(tasks: &mut Vec<AbortTask>, command: &Command) -> Option<Event> {
 	tasks.retain(|task| !task.0.is_finished());
 	if tasks.len() < PREFETCHES {
@@ -183,6 +210,8 @@ impl Connection {
 		let typing_channel = Arc::new(AtomicU64::new(0));
 		let active_typing = typing_channel.clone();
 		let typing_gate = Mutex::new(TypingGate::default());
+		let dm_channels = Arc::new(Mutex::new(BTreeMap::new()));
+		let typing_channels = dm_channels.clone();
 		let reconnect = Arc::new(tokio::sync::Notify::new());
 		let gateway_reconnect = reconnect.clone();
 		let status_changed = Arc::new(tokio::sync::Notify::new());
@@ -192,7 +221,8 @@ impl Connection {
                 if let Event::AccountSettings { status: true, .. } = &event { status_changed.notify_one(); }
                 if let Event::Typing(signal) = &event {
                     let active = active_typing.load(Ordering::Relaxed);
-                    if !typing_gate.lock().is_ok_and(|mut gate| gate.accept(*signal, active, Instant::now())) { return Ok(()); }
+                    let direct = typing_channels.lock().is_ok_and(|channels| channels.contains_key(&signal.channel));
+                    if !typing_gate.lock().is_ok_and(|mut gate| gate.accept(*signal, active, direct, Instant::now())) { return Ok(()); }
                 }
                 emit_event(&send, &typing_send, Envelope {generation,event}, &ctx)
             };
@@ -227,7 +257,6 @@ impl Connection {
 				let _sharing_task=AbortTask(tokio::spawn(run_activity_sharing(api.clone(),share_receive.clone(),sharing_requests,sharing_report,finished.clone(),wake.clone())));
 				let _activity_task=AbortTask(tokio::spawn(crate::game_activity::run((share_receive,custom_receive,crate::game_activity::Registered{games:registered_receive,current:running_send}),activity_send,game_report,invite_send,wake.clone(),user.clone(),api.clone())));
 				let _spotify_task=AbortTask(tokio::spawn(crate::spotify::run(api.clone(),user.id,presence_receive.clone(),spotify_send,wake.clone())));
-                let dm_channels=Arc::new(Mutex::new(BTreeMap::new()));
                 let (recipient_scope,mut recipient_scope_changed)=watch::channel(0u64);
                 let recipient_call=Arc::new(Mutex::new(RecipientCalls::default()));
                 let gateway_recipient_call=recipient_call.clone();
@@ -281,12 +310,15 @@ impl Connection {
                     gateway_api.stop();let _=terminal_send.send(Some(error));gateway_wake.request_repaint();
                 }));
                 // Keep hangup/mute controls responsive while an HTTP message write is awaiting Discord.
-                let (write_send,mut write_receive)=mpsc::channel(COMMAND_SLOTS);
+                let (write_send,mut write_receive)=mpsc::channel::<(Command,Option<(u64,Instant)>)>(COMMAND_SLOTS);
+                let write_order=Arc::new(WriteOrder::default());
+                let writer_order=write_order.clone();
                 let write_api=api.clone();let write_emit=emit.clone();let write_finished=finished.clone();let write_wake=wake.clone();
                 let mut writes=AbortTask(tokio::spawn(async move {
-                    while let Some(command)=write_receive.recv().await {
+                    while let Some((command,typing))=write_receive.recv().await {
+                        let Some(_order)=writer_order.begin(typing).await else {continue;};
                         let event=write_api.execute_write(command,|nonce|{let _=write_emit(Event::SendThrottled{nonce:nonce.to_owned()});write_wake.request_repaint();}).await;
-                        let failure=match &event {Event::Interaction(client_core::interactions::Event::Submitted{result:Err(f),..})=>Some(*f),Event::MessagingPermissions{result:Err(f),..}=>Some(*f),Event::ChannelAction(client_core::channel_actions::Event::Finished{result:Err(f),..})=>Some(*f),Event::ServerAdmin(client_core::server_admin::Event{result:Err(f),..})=>Some(*f),Event::ServerSettings(client_core::server_settings::Event{result:Err(f),..})=>Some(*f),Event::Onboarding(client_core::onboarding::Event::Loaded{result:Err(f),..}|client_core::onboarding::Event::Submitted{result:Err(f),..})=>Some(*f),Event::Failure(f)=>Some(*f),Event::ProfileEdited{result:Err(f),..} if *f != Failure::Capacity =>Some(*f),Event::Edited{result:Err(f),..}|Event::Pinned{result:Err(f),..}=>Some(*f),Event::GuildFolders(Err(f))=>Some(*f),Event::JoinInvite{result:Err(f),..}|Event::GuildCreated{result:Err(f),..}=>Some(*f),Event::SendResult{result:Err(f),..}=>Some(*f),Event::UserAction(client_core::user_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::UserAction(client_core::user_actions::Event::DmOpened{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::InviteSent{result:Err(f),..})=>Some(*f),Event::GroupAction(client_core::group_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::Reactions(client_core::reactions::Event::Written{result:Err(f),..})=>Some(*f),Event::ReadState(client_core::read_state::Event::Result{result:Err(f),..})=>Some(*f),_=>None};
+                        let failure=match &event {Event::TypingSent(Err(f)) if f.ends_session() && *f!=Failure::Capacity=>Some(*f),Event::Interaction(client_core::interactions::Event::Submitted{result:Err(f),..})=>Some(*f),Event::MessagingPermissions{result:Err(f),..}=>Some(*f),Event::ChannelAction(client_core::channel_actions::Event::Finished{result:Err(f),..})=>Some(*f),Event::ServerAdmin(client_core::server_admin::Event{result:Err(f),..})=>Some(*f),Event::ServerSettings(client_core::server_settings::Event{result:Err(f),..})=>Some(*f),Event::Onboarding(client_core::onboarding::Event::Loaded{result:Err(f),..}|client_core::onboarding::Event::Submitted{result:Err(f),..})=>Some(*f),Event::Failure(f)=>Some(*f),Event::ProfileEdited{result:Err(f),..} if *f != Failure::Capacity =>Some(*f),Event::Edited{result:Err(f),..}|Event::Pinned{result:Err(f),..}=>Some(*f),Event::GuildFolders(Err(f))=>Some(*f),Event::JoinInvite{result:Err(f),..}|Event::GuildCreated{result:Err(f),..}=>Some(*f),Event::SendResult{result:Err(f),..}=>Some(*f),Event::UserAction(client_core::user_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::UserAction(client_core::user_actions::Event::DmOpened{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::InviteSent{result:Err(f),..})=>Some(*f),Event::GroupAction(client_core::group_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::Reactions(client_core::reactions::Event::Written{result:Err(f),..})=>Some(*f),Event::ReadState(client_core::read_state::Event::Result{result:Err(f),..})=>Some(*f),_=>None};
                         let error=write_emit(event).err().or(failure.filter(|f|f.ends_session()));
                         if let Some(error)=error {write_api.stop();let _=write_finished.send(Some(error));write_wake.request_repaint();break;}
                     }
@@ -353,8 +385,11 @@ impl Connection {
                                 continue;
                             }
                             upload_cancel=Some(request.cancel.clone());
+                            write_order.invalidate_typing();
+                            let upload_order=write_order.clone();
                             let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
                             upload=Some(AbortTask(tokio::spawn(async move {
+                                let _order=upload_order.begin(None).await;
                                 let mut updates=request.progress.subscribe();
                                 let operation=api.upload_messages(request.command,request.source,request.progress,request.cancel.subscribe());
                                 tokio::pin!(operation);
@@ -377,6 +412,12 @@ impl Connection {
                             let Some(command)=command else {break;};
                             if matches!(command,Command::CancelSearch) {drop(search.take());continue;}
                             if matches!(command,Command::CancelGifs) {drop(gifs.take());continue;}
+                            if matches!(command,Command::Typing{..}) {
+                                let revision=write_order.invalidate_typing();
+                                // Optional signals never terminate the connection when the write queue is full.
+                                let _=write_send.try_send((command,Some((revision,Instant::now()))));
+                                continue;
+                            }
                             if matches!(command,Command::GifFavorites{..}) {
                                 drop(gif_favorites.take());
                                 let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
@@ -684,7 +725,8 @@ impl Connection {
                                     history_wake.request_repaint();
                                 })));
                             } else {
-                                write_send.try_send(command).map_err(|_|Failure::Capacity)?;
+                                if matches!(command,Command::Send{..}) {write_order.invalidate_typing();}
+                                write_send.try_send((command,None)).map_err(|_|Failure::Capacity)?;
                             }
                         }
                     }
@@ -1017,23 +1059,24 @@ fn emit_event(
 	Ok(())
 }
 
-/// At most eight typing wakeups per two seconds in the selected conversation.
+/// At most eight typing wakeups per two seconds across the selected channel and known DMs.
 #[derive(Default)]
 struct TypingGate {
-	channel: u64,
-	users: [Option<(model::Id, Instant)>; 8],
+	users: [Option<(model::Id, model::Id, Instant)>; 8],
 }
 impl TypingGate {
-	fn accept(&mut self, signal: client_core::typing::Signal, active: u64, now: Instant) -> bool {
-		if active == 0 || signal.channel.0 != active || signal.user.0 == 0 {
+	fn accept(
+		&mut self,
+		signal: client_core::typing::Signal,
+		active: u64,
+		direct: bool,
+		now: Instant,
+	) -> bool {
+		if signal.channel.0 == 0 || (signal.channel.0 != active && !direct) || signal.user.0 == 0 {
 			return false;
 		}
-		if self.channel != active {
-			self.channel = active;
-			self.users.fill(None);
-		}
 		for slot in &mut self.users {
-			if slot.is_some_and(|(_, time)| {
+			if slot.is_some_and(|(_, _, time)| {
 				now.saturating_duration_since(time) >= Duration::from_secs(2)
 			}) {
 				*slot = None;
@@ -1043,14 +1086,14 @@ impl TypingGate {
 			.users
 			.iter()
 			.flatten()
-			.any(|(user, _)| *user == signal.user)
+			.any(|(channel, user, _)| *channel == signal.channel && *user == signal.user)
 		{
 			return false;
 		}
 		let Some(slot) = self.users.iter_mut().find(|slot| slot.is_none()) else {
 			return false;
 		};
-		*slot = Some((signal.user, now));
+		*slot = Some((signal.channel, signal.user, now));
 		true
 	}
 }
@@ -2650,15 +2693,15 @@ mod tests {
 			user: Id(1),
 			timestamp: 1,
 		};
-		assert!(!gate.accept(signal, 0, now));
-		assert!(!gate.accept(signal, 11, now));
+		assert!(!gate.accept(signal, 0, false, now));
+		assert!(!gate.accept(signal, 11, false, now));
 		for user in 1..=8 {
 			let signal = Signal {
 				user: Id(user),
 				..signal
 			};
-			assert!(gate.accept(signal, 10, now));
-			assert!(!gate.accept(signal, 10, now));
+			assert!(gate.accept(signal, 10, false, now));
+			assert!(!gate.accept(signal, 10, false, now));
 		}
 		for user in 9..=1_000 {
 			assert!(!gate.accept(
@@ -2667,20 +2710,148 @@ mod tests {
 					..signal
 				},
 				10,
+				false,
 				now
 			));
 		}
-		assert!(!gate.accept(signal, 10, now + Duration::from_millis(1_999)));
-		assert!(gate.accept(signal, 10, now + Duration::from_secs(2)));
+		assert!(!gate.accept(signal, 10, false, now + Duration::from_millis(1_999)));
+		assert!(gate.accept(signal, 10, false, now + Duration::from_secs(2)));
 		assert!(gate.accept(
 			Signal {
 				channel: Id(11),
 				..signal
 			},
 			11,
-			now
+			false,
+			now + Duration::from_secs(2)
 		));
-		assert!(!gate.accept(signal, 11, now));
+		assert!(!gate.accept(signal, 11, false, now));
+	}
+
+	#[test]
+	fn unselected_direct_typing_reaches_state_through_the_transport_gate() {
+		use client_core::{Envelope, Event, State, auth::AuthState, typing::Signal};
+		use model::{Channel, Freshness, Id, User};
+		let owner = User {
+			id: Id(1),
+			name: "Owner".into(),
+			avatar: None,
+			discriminator: 0,
+			kind: Default::default(),
+			webhook: false,
+			primary_guild: None,
+			cosmetics: None,
+		};
+		let mut state = State {
+			user: Some(owner.clone()),
+			auth: AuthState::Authenticated,
+			gateway_connected: true,
+			selected: Some(Id(10)),
+			freshness: Freshness::Fresh,
+			channels: [1, 3]
+				.into_iter()
+				.enumerate()
+				.map(|(index, kind)| Channel {
+					id: Id(11 + index as u64),
+					guild: None,
+					parent_id: None,
+					position: 0,
+					name: "Synthetic DM".into(),
+					kind,
+					recipients: vec![owner.clone()],
+					icon: None,
+					member_list_id: None,
+					tags: None,
+					message_count: None,
+					last_message: None,
+				})
+				.collect(),
+			..State::default()
+		};
+		let channels: std::collections::BTreeMap<_, _> = state
+			.channels
+			.iter()
+			.filter(|channel| super::private_call(channel))
+			.map(|channel| (channel.id, super::recipient_ids(channel)))
+			.collect();
+		let ctx = egui::Context::default();
+		let (reliable, events) = super::reliable_events(ctx.clone());
+		let (send, mut receive) = tokio::sync::mpsc::channel(8);
+		let mut gate = super::TypingGate::default();
+		let now = Instant::now();
+		let timestamp = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap()
+			.as_secs();
+		for channel in [Id(11), Id(12), Id(99)] {
+			let signal = Signal {
+				channel,
+				user: Id(2),
+				timestamp,
+			};
+			if gate.accept(signal, 10, channels.contains_key(&channel), now) {
+				super::emit_event(
+					&reliable,
+					&send,
+					Envelope {
+						generation: state.generation,
+						event: Event::Typing(signal),
+					},
+					&ctx,
+				)
+				.unwrap();
+			}
+		}
+		assert_eq!(
+			receive.len(),
+			2,
+			"unknown channels stay outside the transport"
+		);
+		assert!(
+			events.receive.is_empty(),
+			"typing cannot consume reliable slots"
+		);
+		while let Ok(event) = receive.try_recv() {
+			state.apply(event);
+		}
+		for channel in [Id(11), Id(12)] {
+			assert!(state.direct_typing(channel, now));
+			// The header reads this retained state after navigation clears selected typists.
+			state.select(channel).unwrap();
+			assert!(state.direct_typing(channel, now));
+			assert!(!state.direct_typing(channel, now + Duration::from_secs(11)));
+		}
+	}
+
+	#[tokio::test]
+	async fn message_writes_wait_for_started_typing_and_discard_pending_indicators() {
+		let order = super::WriteOrder::default();
+		let revision = order.invalidate_typing();
+		let typing = order.begin(Some((revision, Instant::now()))).await.unwrap();
+		// A message invalidates queued indicators, but waits for the started HTTP request.
+		order.invalidate_typing();
+		assert!(
+			tokio::time::timeout(Duration::from_millis(1), order.begin(None))
+				.await
+				.is_err()
+		);
+		drop(typing);
+		let message = order.begin(None).await.unwrap();
+		drop(message);
+		assert!(
+			order
+				.begin(Some((revision, Instant::now())))
+				.await
+				.is_none()
+		);
+		let latest = order.invalidate_typing();
+		assert!(
+			order
+				.begin(Some((latest, Instant::now() - Duration::from_secs(2))))
+				.await
+				.is_none()
+		);
+		assert!(order.begin(Some((latest, Instant::now()))).await.is_some());
 	}
 	use super::*;
 	#[test]

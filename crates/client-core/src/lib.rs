@@ -219,6 +219,10 @@ pub enum Command {
 		guild: Id,
 		request: u64,
 	},
+	/// Documented Trigger Typing Indicator for this account; see `State::prepare_typing`.
+	Typing {
+		channel: Id,
+	},
 	/// Latest message per unread channel, at most `MAX_BULK_ACK`.
 	MarkAllRead {
 		request: u64,
@@ -504,6 +508,8 @@ pub enum Event {
 		result: Result<Box<model::InvitePreview>, auth::Failure>,
 	},
 	Typing(typing::Signal),
+	/// Result of this account's own typing indicator; carries nothing to display.
+	TypingSent(Result<(), auth::Failure>),
 	PostCreated {
 		parent: Id,
 		request: u64,
@@ -2651,6 +2657,9 @@ impl State {
 			}
 			return;
 		}
+		if matches!(envelope.event, Event::TypingSent(_)) {
+			return;
+		}
 		if let Event::DirectPresence(updates) = &envelope.event {
 			if envelope.event.bytes() <= MAX_MEMBER_PRESENCE_BYTES {
 				self.apply_direct_presence(updates);
@@ -2683,7 +2692,7 @@ impl State {
 		}
 		// Ephemeral names must not outlive navigation identity/permission replacement.
 		if access_changed {
-			self.typing.clear();
+			self.typing.clear_all();
 		}
 		let previous_access = access_changed.then(|| self.permission_access()).flatten();
 		let previous_member_list = (access_changed && self.members.is_some()).then(|| {
@@ -3368,7 +3377,8 @@ impl State {
 			}
 			Event::MemberPresence { .. }
 			| Event::DirectPresence(_)
-			| Event::SharedGuildPresence(_) => {
+			| Event::SharedGuildPresence(_)
+			| Event::TypingSent(_) => {
 				unreachable!("presence handled before timeline revision")
 			}
 			Event::MemberSearch { request, result } => {
@@ -4197,7 +4207,7 @@ impl State {
 		}
 	}
 	fn fail(&mut self, failure: auth::Failure) {
-		self.typing.clear();
+		self.typing.clear_all();
 		self.status = failure.label();
 		match failure {
 			auth::Failure::Expired => self.auth = auth::AuthState::Expired,

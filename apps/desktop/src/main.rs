@@ -3222,6 +3222,10 @@ impl Desktop {
 	}
 	/// Dispatches one queued command to the demo or live transport.
 	fn command(&mut self, command: Command) {
+		// The offline preview has no one to tell.
+		if matches!(command, Command::Typing { .. }) && (self.state.demo || self.fixture_only) {
+			return;
+		}
 		if !self.state.gateway_connected
 			&& self.state.auth == AuthState::Authenticated
 			&& matches!(command, Command::Send { .. })
