@@ -415,6 +415,15 @@ radii, plus an optional embedded PNG/JPEG background with per-mode opacity and f
 Settings > Themes > Create theme provides a native editor and portable export.
 See the complete [theme API](theme-api.md) for fields, bounds and inheritance.
 
+External theme tools can provide a live override by atomically replacing
+`extensions/live-theme.serein-extension` under Serein's application data directory. Serein
+checks this local file twice per second and applies each valid theme package without importing it
+or restarting. The live package replaces the selected theme while it exists; enabled appearance
+plugins still apply above it, and the in-app editor preview temporarily takes precedence. An
+invalid or incomplete replacement leaves the last valid live theme active and reports the error in
+Themes. Removing the file restores the selected theme. See [Storage policy](storage-policy.md#live-theme-override)
+for platform paths and resource limits.
+
 Plugins can request the `appearance` capability to return an `appearance` object
 using that same theme schema. Creators can build native appearance settings panels
 with dropdowns and sliders. Activation and separately granted event actions
