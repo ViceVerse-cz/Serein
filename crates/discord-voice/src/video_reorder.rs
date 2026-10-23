@@ -1,6 +1,6 @@
-//! Bounded RTP ordering before H.264 reassembly. Only encrypted payloads are retained.
+//! Bounded RTP ordering before video reassembly. Only encrypted payloads are retained.
 use std::{
-	collections::BTreeMap,
+	collections::{BTreeMap, VecDeque},
 	time::{Duration, Instant},
 };
 
@@ -8,6 +8,9 @@ const MAX_PACKETS: u64 = 512;
 const MAX_BYTES: usize = 512 * 1024;
 const MAX_PAYLOAD: usize = 4096;
 const REPAIR_AGE: Duration = Duration::from_millis(120);
+const MAX_REPAIR_AGE: Duration = Duration::from_millis(400);
+const REPAIR_HEADROOM: Duration = Duration::from_millis(40);
+const HISTORY_AGE: Duration = Duration::from_secs(1);
 const REORDER_GRACE: Duration = Duration::from_millis(10);
 const RETRY: Duration = Duration::from_millis(40);
 const FEEDBACK_INTERVAL: Duration = Duration::from_millis(20);
@@ -22,6 +25,7 @@ pub(super) struct Packet {
 
 struct Missing {
 	since: Instant,
+	first_sent: Option<Instant>,
 	last_sent: Option<Instant>,
 	attempts: u8,
 }
@@ -31,12 +35,39 @@ pub(super) struct Window {
 	next: Option<u64>,
 	packets: BTreeMap<u64, Packet>,
 	missing: BTreeMap<u64, Missing>,
+	// Metadata only, so late authenticated repairs can inform subsequent holes without
+	// resurrecting discarded pictures. Both item count and lifetime are bounded.
+	expired: VecDeque<(u64, Missing)>,
+	repair_age: Option<Duration>,
 	bytes: usize,
 	next_feedback: Option<Instant>,
 	pub repaired: u64,
+	pub expired_packets: u64,
+	pub late_packets: u64,
+	pub response_ms: u64,
 }
 
 impl Window {
+	pub fn budget_ms(&self) -> u64 {
+		self.repair_age.unwrap_or(REPAIR_AGE).as_millis() as u64
+	}
+	fn prune_history(&mut self, now: Instant) {
+		self.expired
+			.retain(|(_, missing)| now.saturating_duration_since(missing.since) < HISTORY_AGE);
+	}
+	fn observe_repair(&mut self, missing: &Missing, now: Instant) {
+		let Some(requested) = missing.first_sent else {
+			return;
+		};
+		// This is an observed response to a requested hole, not a proven network RTT:
+		// natural reordering and retransmission retries can also fill that hole.
+		self.response_ms = self
+			.response_ms
+			.max(now.saturating_duration_since(requested).as_millis() as u64);
+		let budget = (now.saturating_duration_since(missing.since) + REPAIR_HEADROOM)
+			.clamp(REPAIR_AGE, MAX_REPAIR_AGE);
+		self.repair_age = Some(self.repair_age.unwrap_or(REPAIR_AGE).max(budget));
+	}
 	/// Returns true when a resource/discontinuity bound forces reference-chain recovery.
 	pub fn push(
 		&mut self,
@@ -46,20 +77,27 @@ impl Window {
 		payload: &[u8],
 		now: Instant,
 	) -> bool {
+		self.prune_history(now);
 		let next = *self.next.get_or_insert(u64::from(sequence));
 		let distance = sequence.wrapping_sub(next as u16);
 		if distance >= 32768 {
+			let behind = u64::from((next as u16).wrapping_sub(sequence));
+			if let Some(old) = next.checked_sub(behind)
+				&& let Some(index) = self.expired.iter().position(|(known, _)| *known == old)
+			{
+				let (_, missing) = self.expired.remove(index).expect("known expired hole");
+				self.late_packets += 1;
+				self.observe_repair(&missing, now);
+			}
 			return false;
 		} // Old or duplicate, including expired RTX.
 		let extended = next + u64::from(distance);
 		if self.packets.contains_key(&extended) {
 			return false;
 		}
-		if self
-			.missing
-			.get(&extended)
-			.is_some_and(|missing| now.saturating_duration_since(missing.since) >= REPAIR_AGE)
-		{
+		if self.missing.get(&extended).is_some_and(|missing| {
+			now.saturating_duration_since(missing.since) >= self.repair_age.unwrap_or(REPAIR_AGE)
+		}) {
 			return false;
 		}
 		let reset = u64::from(distance) >= MAX_PACKETS
@@ -68,6 +106,7 @@ impl Window {
 		if reset {
 			self.packets.clear();
 			self.missing.clear();
+			self.expired.clear();
 			self.bytes = 0;
 			self.next = Some(extended);
 			self.next_feedback = None;
@@ -80,13 +119,15 @@ impl Window {
 			if !self.packets.contains_key(&missing) {
 				self.missing.entry(missing).or_insert(Missing {
 					since: now,
+					first_sent: None,
 					last_sent: None,
 					attempts: 0,
 				});
 			}
 		}
-		if self.missing.remove(&extended).is_some() {
+		if let Some(missing) = self.missing.remove(&extended) {
 			self.repaired += 1;
+			self.observe_repair(&missing, now);
 		}
 		self.bytes += payload.len();
 		self.packets.insert(
@@ -101,18 +142,19 @@ impl Window {
 		reset
 	}
 
-	/// Ordered packets have no added delay. A gap gets at most 120 ms to be repaired,
-	/// across picture boundaries, and expires on transport ticks even without new RTP.
+	/// Ordered packets have no added delay. Holes start with 120 ms and learn from
+	/// requested repairs up to 400 ms. Expiry advances even without new RTP.
 	pub fn pop(&mut self, now: Instant) -> (Option<Packet>, bool) {
+		self.prune_history(now);
 		let Some(mut next) = self.next else {
 			return (None, false);
 		};
 		let mut lost = false;
 		if !self.packets.contains_key(&next) {
-			let expired = self
-				.missing
-				.get(&next)
-				.is_some_and(|missing| now.saturating_duration_since(missing.since) >= REPAIR_AGE);
+			let expired = self.missing.get(&next).is_some_and(|missing| {
+				now.saturating_duration_since(missing.since)
+					>= self.repair_age.unwrap_or(REPAIR_AGE)
+			});
 			if !expired {
 				return (None, false);
 			}
@@ -120,7 +162,18 @@ impl Window {
 				return (None, false);
 			};
 			next = first;
-			self.missing.retain(|sequence, _| *sequence >= next);
+			while self
+				.missing
+				.first_key_value()
+				.is_some_and(|(sequence, _)| *sequence < next)
+			{
+				let hole = self.missing.pop_first().expect("expired hole exists");
+				self.expired_packets += 1;
+				if self.expired.len() == MAX_PACKETS as usize {
+					self.expired.pop_front();
+				}
+				self.expired.push_back(hole);
+			}
 			lost = true;
 		}
 		let packet = self.packets.remove(&next).expect("ordered packet exists");
@@ -139,7 +192,7 @@ impl Window {
 		for (&sequence, missing) in &mut self.missing {
 			let age = now.saturating_duration_since(missing.since);
 			if age < REORDER_GRACE
-				|| age >= REPAIR_AGE
+				|| age >= self.repair_age.unwrap_or(REPAIR_AGE)
 				|| missing.attempts >= 3
 				|| missing
 					.last_sent
@@ -148,6 +201,7 @@ impl Window {
 				continue;
 			}
 			requests.push(sequence as u16);
+			missing.first_sent.get_or_insert(now);
 			missing.last_sent = Some(now);
 			missing.attempts += 1;
 			if requests.len() == MAX_REQUESTS {
@@ -185,6 +239,75 @@ impl Window {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn late_requested_repair_teaches_subsequent_holes_without_replaying_old_pictures() {
+		let start = Instant::now();
+		let at = |ms| start + Duration::from_millis(ms);
+		let mut window = Window::default();
+		window.push(65534, 1, true, &[1], at(0));
+		window.pop(at(0));
+		window.push(0, 3, true, &[3], at(10));
+		assert!(window.nack(7, 9, at(20)).is_some());
+		assert!(window.pop(at(130)).1);
+		assert_eq!(window.expired_packets, 1);
+		window.push(65535, 2, true, &[2], at(190));
+		assert!(window.pop(at(190)).0.is_none());
+		assert_eq!(
+			(window.late_packets, window.response_ms, window.budget_ms()),
+			(1, 170, 220)
+		);
+		window.push(65535, 2, true, &[2], at(191)); // Duplicate late RTX cannot train twice.
+		assert_eq!(window.late_packets, 1);
+		window.push(1, 4, true, &[4], at(200));
+		assert_eq!(window.pop(at(200)).0.unwrap().sequence, 1); // Intact packets never wait.
+		window.push(3, 6, true, &[6], at(210));
+		assert!(window.nack(7, 9, at(230)).is_some());
+		assert!(window.pop(at(350)).0.is_none());
+		window.push(2, 5, true, &[5], at(390));
+		for sequence in [2, 3] {
+			let (packet, lost) = window.pop(at(390));
+			assert_eq!(packet.unwrap().sequence, sequence);
+			assert!(!lost);
+		}
+		assert_eq!(window.repaired, 1);
+	}
+	#[test]
+	fn repair_learning_requires_a_request_and_retains_bounded_expiring_metadata() {
+		let start = Instant::now();
+		let at = |ms| start + Duration::from_millis(ms);
+		let mut window = Window::default();
+		window.push(1, 1, true, &[1], at(0));
+		window.pop(at(0));
+		window.push(3, 3, true, &[3], at(0));
+		window.pop(at(120));
+		window.push(2, 2, true, &[2], at(500)); // No NACK was sent for this hole.
+		assert_eq!(window.budget_ms(), 120);
+		window.push(5, 5, true, &[5], at(500));
+		window.nack(7, 9, at(520)).unwrap();
+		window.pop(at(620));
+		window.push(4, 4, true, &[4], at(1100));
+		assert_eq!((window.response_ms, window.budget_ms()), (580, 400));
+		// Even an observed longer response cannot make unrecoverable holes wait forever.
+		for n in 0..3u16 {
+			let now = at(1200 + u64::from(n) * 401);
+			let first = 6 + n * 511;
+			window.push(first + 510, 6, true, &[6], now);
+			window.nack(7, 9, now + REORDER_GRACE).unwrap();
+			assert!(
+				window
+					.pop(now + MAX_REPAIR_AGE - Duration::from_millis(1))
+					.0
+					.is_none()
+			);
+			assert!(window.pop(now + MAX_REPAIR_AGE).1);
+			assert!(window.expired.len() <= MAX_PACKETS as usize);
+			assert_eq!(window.bytes, 0);
+		}
+		window.pop(at(4000));
+		assert!(window.expired.is_empty());
+		window.push(10, 1, true, &[1], at(4000));
+		assert_eq!(window.budget_ms(), 400);
+	}
 	#[test]
 	fn ordering_crosses_timestamps_and_sequence_wrap_without_delaying_intact_packets() {
 		let now = Instant::now();

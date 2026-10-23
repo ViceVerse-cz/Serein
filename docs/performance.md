@@ -18,12 +18,12 @@ Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and wi
 
 | Package metric | Upstream baseline | Streaming candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 92,650,248 B | 92,767,752 B | +117,504 B (+0.127%) |
-| Installed payload (245 files) | 97,348,681 B | 97,466,185 B | +117,504 B (+0.121%) |
-| Arch archive | 54,376,694 B | 54,440,009 B | +63,315 B (+0.116%) |
+| Executable | 92,650,248 B | 92,775,816 B | +125,568 B (+0.136%) |
+| Installed payload (245 files) | 97,348,681 B | 97,474,249 B | +125,568 B (+0.129%) |
+| Arch archive | 54,376,694 B | 54,463,210 B | +86,516 B (+0.159%) |
 
 Installed bytes sum regular archive files under `usr/`, excluding package metadata.
-Both packages contain 245 installed files. The final gate passes 1,309 tests, strict Clippy,
+Both packages contain 245 installed files. The final gate passes 1,312 tests, strict Clippy,
 formatting, application and policy checks; the native Arch package smoke also passes.
 
 ### Linux HEVC reception extension
@@ -146,6 +146,62 @@ lists desktop streaming up to 4K/60 fps with Nitro.
 | Executable | 92,767,368 B | 92,767,752 B | +384 B (+0.000%) |
 | Installed payload | 97,465,801 B | 97,466,185 B | +384 B (+0.000%) |
 | Arch archive | 54,449,636 B | 54,440,009 B | -9,627 B (-0.018%) |
+
+### Adaptive packet-repair allowance — October 23, 2026
+
+An owner-operated test of `06401c1` recorded 277 incomplete-frame events, 2,953 gated
+predictions and 1,047 RTX packets, but only 29 holes repaired in 246.895 seconds.
+Decoder errors, stale frames, decoder queue-full events and playout-pressure drops were
+zero. The owner reported the same stream played smoothly in official Discord. These
+counters expose repeated recovery but do not establish whether RTX was late or duplicated:
+the preceding build did not measure first-NACK-to-hole-fill time. Its UHD dimension
+diagnostic also truncated widths above 2047; the corrected packing retains 12 bits per axis.
+
+The fixed 120 ms repair cutoff could discard every response on a slower path without
+learning from it. Requested hole fills now increase the source's repair allowance to the
+observed hole age plus 40 ms, capped at 400 ms. Intact ordered packets still have no
+intentional holdback. At most 512 fixed-size expired-hole metadata records per source
+survive for one second, without retaining media. Retired/changed sources discard that
+history; late fills never resurrect discarded pictures. Packet/byte caps and three NACK
+attempts remain unchanged. Numeric expired/late/response/budget aggregates let the next
+owner test confirm or reject delayed repair as the explanation for this live failure.
+
+A deterministic, no-sleep ordering workload compares preserved `06401c1` with this
+change: 600 one-packet pictures at 60 Hz, a missing non-key packet every 30 pictures,
+usable keyframes every 60 pictures, and delivery of the missing packet at the configured
+delay after its first NACK. The harness models reference gating from ordered loss events;
+it does not run DAVE, native decoding, rendering or audio and is not a live FPS benchmark.
+
+| First-NACK response delay | Prior / adaptive delivered pictures | Prior / adaptive loss events | Prior / adaptive gated predictions |
+| --- | ---: | ---: | ---: |
+| 40 ms | 600 / 600 | 0 / 0 | 0 / 0 |
+| 180 ms | 150 / 555 | 20 / 1 | 430 / 44 |
+| 450 ms (beyond cap) | 150 / 150 | 20 / 20 | 430 / 430 |
+
+The first late loss still needs normal keyframe recovery before later holes benefit.
+Unrecoverable holes may now wait longer, within the 400 ms limit. Regressions cover
+sequence wrap, late duplicates, learning only from requested holes, metadata lifetime/count
+and hard expiry. Full-client quality and physical latency still need an owner-operated retest.
+
+An eight-second HEVC 3840×2160/60, 12 Mbps native functional comparison adds packet
+fragmentation/reassembly to the earlier clock/audio/playout/GStreamer harness. One middle
+packet is withheld from each non-key picture numbered 30 modulo 60, then restored 180 ms
+after its first NACK. This bypasses transport/DAVE encryption (covered separately by the
+protocol regressions) and simulates 73 ms of audio-device delay. Before/adaptive results:
+8/1 incomplete-frame events, 0/7 repaired packets, 232/29 gated predictions and 240/450
+delivered pictures out of 480 inputs. Every delivered picture matches its reference luma
+and presentation tag. Both runs have zero decoder errors, stale/admission rejections,
+playout resets/drops and final audio concealment, with all 100 audible frames in the last
+two input seconds. The initial loss still produces a roughly half-second callback gap;
+the adaptive run avoids repeating that loss on subsequent repairs. Callback timing is
+not physical display timing. A separate approximately 44 Mbps 1440p fixture exceeds the
+unchanged repair queue bound before delayed repair; both revisions retain that hard limit.
+
+| Standard Arch package | Before `06401c1` | Adaptive repair | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,767,752 B | 92,775,816 B | +8,064 B (+0.009%) |
+| Installed payload | 97,466,185 B | 97,474,249 B | +8,064 B (+0.008%) |
+| Arch archive | 54,440,009 B | 54,463,210 B | +23,201 B (+0.043%) |
 
 ### Earlier playback recovery evidence
 

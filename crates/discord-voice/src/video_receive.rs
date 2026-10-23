@@ -346,6 +346,10 @@ pub(crate) struct ReceiveStats {
 	pub complete: u64,
 	pub repaired: u64,
 	pub padding_packets: u64,
+	pub repair_expired: u64,
+	pub repair_late: u64,
+	pub repair_response_ms: u64,
+	pub repair_budget_ms: u64,
 }
 /// One complete encrypted access unit, retaining its source's 90 kHz RTP clock.
 pub(crate) struct Received {
@@ -640,6 +644,14 @@ impl Receivers {
 			let timestamp = source.assembler.timestamp;
 			let codec = source.codec.unwrap_or_default();
 			self.stats.repaired += std::mem::take(&mut source.window.repaired);
+			self.stats.repair_expired += std::mem::take(&mut source.window.expired_packets);
+			self.stats.repair_late += std::mem::take(&mut source.window.late_packets);
+			self.stats.repair_response_ms = self
+				.stats
+				.repair_response_ms
+				.max(std::mem::take(&mut source.window.response_ms));
+			self.stats.repair_budget_ms =
+				self.stats.repair_budget_ms.max(source.window.budget_ms());
 			self.stats.incomplete += u64::from(lost);
 			self.stats.complete += u64::from(frame.is_some());
 			if lost {

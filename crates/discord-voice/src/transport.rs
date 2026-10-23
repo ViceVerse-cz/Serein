@@ -1108,6 +1108,10 @@ impl VideoWatch {
 		metrics.video(Video::Incomplete, stats.incomplete);
 		metrics.video(Video::Complete, stats.complete);
 		metrics.video(Video::RepairedPackets, stats.repaired);
+		metrics.video(Video::RepairExpired, stats.repair_expired);
+		metrics.video(Video::RepairLate, stats.repair_late);
+		metrics.video_max(Video::RepairResponseMs, stats.repair_response_ms);
+		metrics.video_max(Video::RepairBudgetMs, stats.repair_budget_ms);
 		metrics.video(Video::PaddingPackets, stats.padding_packets);
 		metrics.video(Video::AwaitingTicks, u64::from(receivers.awaiting()));
 		let Some(decoder) = decoder else { return false };

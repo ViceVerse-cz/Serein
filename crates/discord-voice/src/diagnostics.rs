@@ -129,8 +129,16 @@ pub(crate) enum Video {
 	CodecSwitches,
 	SessionH264,
 	SessionH265,
+	/// Sequence holes abandoned after the adaptive repair deadline.
+	RepairExpired,
+	/// Known expired holes filled later; each hole is counted at most once.
+	RepairLate,
+	/// Maximum first-NACK-to-hole-fill interval; not a proven network RTT.
+	RepairResponseMs,
+	/// Maximum current per-source repair allowance, in milliseconds.
+	RepairBudgetMs,
 }
-const VIDEO_SLOTS: usize = 48;
+const VIDEO_SLOTS: usize = 52;
 
 /// Opt-in only; media callbacks do no additional atomic work when diagnostics are off.
 pub(crate) fn enabled() -> bool {
@@ -139,7 +147,7 @@ pub(crate) fn enabled() -> bool {
 }
 
 /// Dimensions of delivered pictures only. The packed key sorts by pixel count and retains
-/// both dimensions; live pictures have already passed the shared 1920px/1080p bound.
+/// both dimensions; live pictures have already passed the shared UHD bound.
 #[derive(Clone, Copy, Default)]
 struct VideoSizes {
 	last: u64,
@@ -149,6 +157,9 @@ struct VideoSizes {
 }
 
 impl VideoSizes {
+	fn dimensions(key: u64) -> (u64, u64) {
+		((key >> 12) & 4095, key & 4095)
+	}
 	fn merge(&mut self, next: Self) {
 		if next.last != 0 {
 			self.last = next.last;
@@ -191,9 +202,9 @@ impl VideoSizeCounters {
 		if !self.enabled {
 			return;
 		}
-		debug_assert!(width > 0 && height > 0 && width <= 1920 && height <= 1920);
-		let key = ((u64::from(width) * u64::from(height)) << 22)
-			| (u64::from(width) << 11)
+		debug_assert!(width > 0 && height > 0 && width <= 3840 && height <= 3840);
+		let key = ((u64::from(width) * u64::from(height)) << 24)
+			| (u64::from(width) << 12)
 			| u64::from(height);
 		let previous = self.last.swap(key, Ordering::Relaxed);
 		if previous != 0 && previous != key {
@@ -678,11 +689,18 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 			codec_switches,
 			session_h264,
 			session_h265,
+			repair_expired,
+			repair_late,
+			repair_response_ms,
+			repair_budget_ms,
 		] = report.video;
 		let encoded_bps = encoded_bytes
 			.saturating_mul(8000)
 			.checked_div(report.window_ms)
 			.unwrap_or(0);
+		line.push_str(&format!(
+			" repair: repair_expired={repair_expired} repair_late={repair_late} repair_response_ms={repair_response_ms} repair_budget_ms={repair_budget_ms}"
+		));
 		line.push_str(&format!(
 			" video: packets={packets} rtx={rtx} open_failed={open_failed} not_ready={not_ready} unknown_ssrc={unknown_ssrc} incomplete={incomplete} complete={complete} decrypt_failed={decrypt_failed} gated={gated} queue_full={queue_full} keyframes={keyframes} keyframes_without_params={keyframes_without_params} pli_sent={pli_sent} awaiting_ticks={awaiting_ticks} decoder_errors={decoder_errors} pictures={pictures} picture_gap_ms={picture_gap_ms} stall_ticks={stall_ticks} decode_queue_ms={decode_queue_ms} stale_frames={stale_frames} encoded_bytes={encoded_bytes} encoded_bps={encoded_bps} receiver_reports_sent={receiver_reports_sent} nacks_sent={nacks_sent} repaired_packets={repaired_packets} playout_late={playout_late} playout_resets={playout_resets} playout_drops={playout_drops} playout_depth={playout_depth} padding_packets={padding_packets} av_audio_reports={av_audio_reports} av_video_reports={av_video_reports} av_video_synced={av_video_synced} av_offset_ms={av_offset_ms} av_device_offset_ms={av_device_offset_ms} playout_rewinds={playout_rewinds} playout_source_changes={playout_source_changes} playout_expired={playout_expired} playout_pressure={playout_pressure} playout_ahead={playout_ahead} av_timeline_rebases={av_timeline_rebases} h264_frames={h264_frames} h265_frames={h265_frames} h264_packets={h264_packets} h265_packets={h265_packets} payload_rejected={payload_rejected} codec_switches={codec_switches} session_h264={session_h264} session_h265={session_h265}"
 		));
@@ -709,10 +727,9 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 		line.push_str(&format!(" stream_audio: decoded_samples={decoded_samples} concealed_samples={concealed_samples} audio_decode_errors={decode_errors} audio_rebufferings={rebufferings} rate_up_samples={rate_up_samples} rate_down_samples={rate_down_samples} audio_buffer_ms={buffer_ms} audio_target_ms={target_ms} bridge_drops={bridge_drops} bridge_underruns={bridge_underruns}"));
 	}
 	if report.video_sizes.last != 0 {
-		let unpack = |key: u64| ((key >> 11) & 2047, key & 2047);
-		let (width, height) = unpack(report.video_sizes.last);
-		let (min_width, min_height) = unpack(report.video_sizes.min);
-		let (max_width, max_height) = unpack(report.video_sizes.max);
+		let (width, height) = VideoSizes::dimensions(report.video_sizes.last);
+		let (min_width, min_height) = VideoSizes::dimensions(report.video_sizes.min);
+		let (max_width, max_height) = VideoSizes::dimensions(report.video_sizes.max);
 		line.push_str(&format!(
 			" video_size: last={width}x{height} min={min_width}x{min_height} max={max_width}x{max_height} changes={}", report.video_sizes.changes
 		));
@@ -755,4 +772,27 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 	// Charge attempted bytes even on a partial write. Failure never affects the call.
 	*bytes -= line.len();
 	writer.write_all(line.as_bytes()).is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	#[test]
+	fn uhd_dimensions_survive_packing_and_pixel_count_range_selection() {
+		let sizes = VideoSizeCounters {
+			enabled: true,
+			..VideoSizeCounters::default()
+		};
+		for (width, height) in [(2560, 1440), (3840, 2160), (1920, 1080), (2160, 3840)] {
+			sizes.record(width, height);
+			assert_eq!(
+				VideoSizes::dimensions(sizes.last.load(Ordering::Relaxed)),
+				(u64::from(width), u64::from(height))
+			);
+		}
+		let range = sizes.take();
+		assert_eq!(VideoSizes::dimensions(range.min), (1920, 1080));
+		assert_eq!(VideoSizes::dimensions(range.max), (3840, 2160));
+		assert_eq!(VideoSizes::dimensions(range.last), (2160, 3840));
+	}
 }

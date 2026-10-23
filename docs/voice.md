@@ -764,7 +764,11 @@ No media or source identifiers are logged. This adds no receiver bandwidth estim
 Watched streams send authenticated RTCP reception reports every second and preserve
 source RTP timestamps through reassembly. Incoming video can repair missing packets
 across picture boundaries through announced RTX pairs and Generic NACKs; ordered input
-has no intentional holdback, while a hole has at most 120 ms for repair. Empty padding
+has no intentional holdback. A hole initially allows 120 ms for repair. Requested hole
+fills, including late responses, increase that source's allowance to the observed hole
+age plus 40 ms, capped at 400 ms until the source is retired. At most 512 expired-hole
+metadata records per source survive for one second; discarded media is never replayed.
+Packet/byte bounds and three NACK attempts remain hard limits. Empty padding
 packets do not invalidate picture references. Unrecoverable loss requests a keyframe from
 the most recently active media source, at most once per 500 ms per source.
 
@@ -837,10 +841,16 @@ between the UDP socket and the display, so a frozen viewer is diagnosed from one
   by pixel count and transitions. Camera scopes aggregate senders; snapshots are approximate
   at report boundaries. No pixels, participant IDs or encoded payloads are recorded.
 - `packets` / `rtx`: accepted video RTP packets (including restored retransmissions),
-  and received retransmission packets (payload 102). Announced RTX sources can repair
+  and received retransmission packets (payload 102/104). Announced RTX sources can repair
   gaps across pictures through bounded Generic NACKs.
 - `nacks_sent` / `repaired_packets`: NACK datagrams and observed sequence holes filled
   before expiry. Filled holes include natural reordering, not only retransmitted losses.
+- `repair_expired` / `repair_late`: sequence holes abandoned at the repair deadline and
+  known expired holes subsequently filled. Each late hole counts once, within the bounded
+  one-second metadata history. These count packets, while `incomplete` counts depacketizer events.
+- `repair_response_ms` / `repair_budget_ms`: maximum first-NACK-to-hole-fill interval
+  and current per-source repair allowance. Responses include natural reordering and retries;
+  the measured interval is not a proven network RTT. Only requested holes train the allowance.
 - `padding_packets`: authenticated empty video RTP payloads handled without picture loss.
 - `playout_late` / `playout_resets` / `playout_drops` / `playout_depth`: late enqueue events,
   playback-clock resets, discarded queued pictures and maximum queue depth. Late inputs

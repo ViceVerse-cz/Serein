@@ -738,8 +738,13 @@ transport framing and normal-account interoperability remain unofficial.
 
 Incoming video orders authenticated RTP across picture boundaries and requests missing
 original sequences through bounded RFC 4585 Generic NACKs when an RTX pair is announced.
-Ordered packets drain immediately; holes have a 120 ms repair deadline. Late originals
-and restored RTX can complete an earlier picture without discarding intact successors.
+Ordered packets drain immediately; holes initially have a 120 ms repair deadline. Requested
+hole fills increase that source's allowance to their observed hole age plus 40 ms, capped
+at 400 ms. A bounded one-second history of at most 512 expired-hole metadata records lets
+late responses teach subsequent holes, without replaying discarded media. The allowance
+resets when its source is retired. Response timing includes reordering/retries and is not
+a proven network RTT. Late originals and restored RTX arriving within the allowance can
+complete an earlier picture without discarding intact successors.
 Expiry or resource pressure still requires a keyframe. Empty RTP padding/keepalives consume
 sequence numbers without changing picture timestamps/fragments or breaking references.
 PLIs target the most recently active media source, with an independent 500 ms cooldown
