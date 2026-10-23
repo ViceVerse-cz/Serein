@@ -4,20 +4,22 @@ Baseline: `c2842aa7` (clean `main`, matching `origin/main`). Both demo binaries 
 with Rust 1.98.1, `--locked -p serein --features demo`, including voice.
 
 These are native X11 window captures of synthetic `--demo` content on Arch Linux,
-AMD Radeon RX 6900 XT / RADV Vulkan, with `WINIT_X11_SCALE_FACTOR=1` and a 1120 × 800
-client area. No account, network, microphone or capture session was used.
+AMD Radeon RX 6900 XT / RADV Vulkan, with `WINIT_X11_SCALE_FACTOR=0.93`, 100% egui zoom
+and a 1120 × 800 client area. This exercises 0.93 physical pixels per UI point, also
+reachable with 62% zoom and a native DPI factor of 1.5. No account, network, microphone
+or capture session was used.
 
 - `before.png` / `after.png`: `--demo --demo-theme=ember --demo-settings=appearance`,
-  with Appearance → Layout → Zoom entered as **62%**. Settings cards, the font selector,
+  at the effective scale above. The baseline reproduces the bright bottom/right edges;
+  the changed build keeps the borders softly tinted. Settings cards, the font selector,
   preset swatches and the blue selection rings were inspected.
 - `before-stream.png` / `after-stream.png`: native captures cropped to the call controls
-  in `--demo --demo-call-stream --demo-focus`, at **70%** zoom, with the stream hovered.
-  The synthetic stream's placement differs slightly between captures; the control sizes
-  and zoom match.
+  in `--demo --demo-call-stream --demo-focus`, at the same effective scale, with the
+  stream hovered.
 
-The changed light appearance was also inspected at 100% zoom. The user's exact bright-edge
-artifact was not reproduced on this renderer; the comparison demonstrates the surface-tinted
-border treatment, not verification of that specific GPU artifact. No performance improvement
-is claimed. The change composites colors when resolving the palette and building call controls;
-it adds no dependencies, geometry, textures or extra draw calls. Release performance and a
-baseline package-size comparison were not measured for this cosmetic change.
+Additional checks used `WINIT_X11_SCALE_FACTOR=1`: Appearance with the zoom value entered
+as exactly 62%, call controls at 70%, and the changed light appearance at 100%. Those
+integer-native-scale checks did not reproduce the harsh edge. No performance improvement
+is claimed. The change composites colors when resolving the palette and building call
+controls; it adds no dependencies, geometry, textures or extra draw calls. Release
+performance and a baseline package-size comparison were not measured for this cosmetic change.
