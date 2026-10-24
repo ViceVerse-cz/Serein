@@ -1041,10 +1041,11 @@ Schema 7 adds one checked integer `message_kind` (0..255) per cached message, wi
 Voice performance diagnostics (`SEREIN_VOICE_DIAGNOSTICS=1`) are also off by default.
 They include aggregate compressed-video byte counts, decoded dimensions/transitions,
 repair/feedback counts and playback-queue outcomes. They retain at most eight fixed-size
-numeric reports in a worker queue (under 8 KiB),
+numeric reports in a worker queue,
 plus one report per producer and one being written. One background writer formats
 reports and caps attempted stderr output at 8,192 reports AND 8 MiB per process,
-across calls (about eleven hours of three concurrent five-second reporters). Queue overflow drops diagnostics without delaying media. A blocked
+across calls; the byte cap can end output before the report cap. Queue overflow drops
+diagnostics without delaying media. A blocked
 stderr can stall only that single diagnostic writer. No files, identifiers, device
 names, payloads, audio, keys or telemetry are produced. Explicit shell redirection
 is owner-managed; unrelated output and appended runs are outside these limits.
@@ -1052,7 +1053,10 @@ See [voice CPU diagnostics](voice.md#investigating-high-cpu-during-a-call) for u
 
 Incoming-video repair retains at most 512 sequence positions and 512 KiB of encrypted RTP
 payload per announced source (16 sources, at most 8 MiB plus bounded tree metadata).
-Holes expire after 120 ms during receive processing or 20 ms transport ticks. Generic
+Holes initially expire after 120 ms during receive processing or 20 ms transport ticks.
+Observed requested repairs can increase that deadline to 400 ms. At most 512 expired-hole
+metadata entries per source survive for one second to inform later deadlines; no discarded
+payload is replayed. Generic
 NACK feedback requests at most 64 missing numbers per source per 20 ms, at most three
 attempts per hole and 288 encrypted wire bytes per datagram. Source retirement or owner
 replacement discards pending packets, requests, media-activity and actual-PLI clocks.
@@ -1087,10 +1091,18 @@ Device-clock estimates expire after two seconds without new playback.
 
 Each decoder correlates at most 16 transient output tags to timestamps; tags expire at
 the existing 150 ms decoder-age budget. The watched UI retains at most eight decoded
-pictures, bounded together with its reusable latest-picture storage by 32 MiB of allocated
+pictures, bounded together with its reusable latest-picture storage by 128 MiB of allocated
 plane capacity. Pressure skips decoded display pictures and leaves codec references intact.
 These transient buffers are cleared with the watched session. No media files, diagnostic
 archives, schema changes or persistent queues are added.
+
+AV1 reassembly retains a frame buffer and fragment buffer, each bounded to 2 MiB + 64 KiB;
+large fragment capacity is released at frame reset. Native normalization temporarily holds
+one extra bounded AU on the decoder worker, including the restored two-byte delimiter.
+Each packet/frame admits at most 64/256 OBU elements. Transport-wide timing feedback has
+one on-demand 2,048-entry timestamp deque (32 KiB), one-second reporting age, at most two
+256-status reports per 100 ms and at most 628 encrypted bytes per report. It retains no
+media, identities or advertised bandwidth estimate.
 
 `SEREIN_MEMBER_DIAGNOSTICS=1` enables fixed-label member synchronization diagnostics;
 `SEREIN_GATEWAY_DIAGNOSTICS=1` enables Gateway compatibility diagnostics. Both are off by default.

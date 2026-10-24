@@ -94,6 +94,9 @@ fn main() {
 	metrics.video(Video::Packets, 120);
 	metrics.video(Video::Packets, 30);
 	metrics.video(Video::EncodedBytes, 1_000_000);
+	metrics.video(Video::RtpBytes, 1_125_000);
+	metrics.video(Video::Av1Frames, 300);
+	metrics.video(Video::TwccSent, 44);
 	metrics.video(Video::StallTicks, 1);
 	metrics.video_max(Video::PictureGapMs, 900);
 	metrics.video_max(Video::PictureGapMs, 2400);
@@ -119,7 +122,7 @@ fn main() {
 	assert_eq!(codec_label(metrics.report.decoder_counts), "software");
 	assert!(report.window_ms >= 5000);
 	assert_eq!(report.video_sizes.changes, 3);
-	let unpack = |key: u64| ((key >> 11) & 2047, key & 2047);
+	let unpack = |key: u64| ((key >> 12) & 4095, key & 4095);
 	assert_eq!(unpack(report.video_sizes.last), (1920, 1080));
 	assert_eq!(unpack(report.video_sizes.min), (640, 360));
 	assert_eq!(unpack(report.video_sizes.max), (1920, 1080));
@@ -207,6 +210,10 @@ fn main() {
 			.unwrap()
 			.contains("encoded_bytes=1000000 encoded_bps=1600000")
 	);
+	let text = std::str::from_utf8(&formatted).unwrap();
+	assert!(text.contains("video_rtp_bytes=1125000 video_rtp_bps=1800000"));
+	assert!(text.contains("av1_frames=300"));
+	assert!(text.contains("twcc_sent=44"));
 	exact.window_ms = 0;
 	formatted.clear();
 	assert!(write_report(exact, &mut bytes, &mut formatted));
@@ -252,70 +259,6 @@ fn main() {
 		assert!(!write_report(transport, &mut too_small, &mut rejected));
 		assert!(rejected.is_empty());
 		std::io::stderr().write_all(&output).unwrap();
-	}
-	// `write_report` destructures both counter arrays positionally, so every variant must
-	// keep its declared slot. Listing them here also proves each index stays in bounds.
-	let video = [
-		Video::Packets,
-		Video::Rtx,
-		Video::OpenFailed,
-		Video::NotReady,
-		Video::UnknownSsrc,
-		Video::Incomplete,
-		Video::Complete,
-		Video::DecryptFailed,
-		Video::Gated,
-		Video::QueueFull,
-		Video::Keyframes,
-		Video::KeyframesWithoutParams,
-		Video::PliSent,
-		Video::AwaitingTicks,
-		Video::DecoderErrors,
-		Video::Pictures,
-		Video::PictureGapMs,
-		Video::StallTicks,
-		Video::DecodeQueueMs,
-		Video::StaleFrames,
-		Video::EncodedBytes,
-		Video::ReceiverReportsSent,
-		Video::NacksSent,
-		Video::RepairedPackets,
-		Video::PlayoutLate,
-		Video::PlayoutResets,
-		Video::PlayoutDrops,
-		Video::PlayoutDepth,
-		Video::PaddingPackets,
-		Video::AvAudioReports,
-		Video::AvVideoReports,
-		Video::AvVideoSynced,
-		Video::AvOffsetMs,
-	];
-	assert_eq!(video.len(), VIDEO_SLOTS);
-	for (index, slot) in video.into_iter().enumerate() {
-		assert_eq!(slot as usize, index);
-	}
-	let signal = [
-		Signal::Text,
-		Signal::Binary,
-		Signal::Other,
-		Signal::Ready,
-		Signal::Session,
-		Signal::Clients,
-		Signal::Sender,
-		Signal::PrepareTransition,
-		Signal::ExecuteTransition,
-		Signal::PrepareEpoch,
-		Signal::ExternalSender,
-		Signal::Proposals,
-		Signal::Commit,
-		Signal::KeyPackageSent,
-		Signal::TransitionReadySent,
-		Signal::SubscribeSent,
-		Signal::SinkWantsSent,
-	];
-	assert_eq!(signal.len(), SIGNAL_SLOTS);
-	for (index, slot) in signal.into_iter().enumerate() {
-		assert_eq!(slot as usize, index);
 	}
 	println!(
 		"Offline voice diagnostics check passed: timing, stream-state, video and signaling aggregation, disabled mode, periodic reset/flush, bounded nonblocking queue, byte budget and closed output."

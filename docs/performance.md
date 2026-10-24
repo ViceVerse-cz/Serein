@@ -137,8 +137,8 @@ stream recorded H.265, 1280×718 and approximately 30 fps in both clients, avera
 1.13/1.11 Mbps respectively. Neither capture recorded video drops; Serein recorded
 zero decoding errors. The owner reported satisfaction. Content changes between captures
 and bitrate accounting differences preclude an exact perceptual-quality claim.
-UHD reception still requires an owner-operated live test; Windows/macOS native behavior
-is not locally verified. Discord's [official screen-share documentation](https://support.discord.com/hc/en-us/articles/360040816151-Go-Live-and-Screen-Share)
+Reception supports up to 4K60, but live 4K60 validation remains pending.
+Windows/macOS native behavior is not locally verified. Discord's [official screen-share documentation](https://support.discord.com/hc/en-us/articles/360040816151-Go-Live-and-Screen-Share)
 lists desktop streaming up to 4K/60 fps with Nitro.
 
 | Standard Arch package | Before `28377fd` | UHD candidate | Delta |
@@ -236,8 +236,8 @@ playout. Bounds tests cover malformed OBU lengths/counts, forbidden/spatial head
 fragment continuity and truncated/oversized/unsupported sequence headers.
 
 These are functional checks, not physical FPS, latency or perceptual-quality measurements.
-AV1 UHD/native Windows/macOS behavior and full-client CPU/RSS are unmeasured. Delivered
-AV1 bitrate and improvement to the owner's moving stream await an owner-operated retest.
+Instrumented AV1 UHD/native Windows/macOS behavior and full-client CPU/RSS are unmeasured.
+The subsequent successful Linux 1440p60 capture is recorded below; live 4K60 testing remains pending.
 
 | Standard Arch package | Before `d2fccf65` | AV1 reception | Delta |
 | --- | ---: | ---: | ---: |
@@ -295,8 +295,8 @@ to require native TU delimiters and preserve existing leading delimiters.
 Native normalization adds only two bytes when needed, within the existing AU bound.
 Parameter/keyframe admission inspects authenticated wire OBUs before native framing is
 added. No dependency, codec negotiation, queue limit or feedback change is introduced.
-These are synthetic functional measurements; owner-operated smooth playback and full
-client CPU/RSS remain unverified. The prior delimiter-retaining fixture did not exercise
+These are synthetic functional measurements; the subsequent owner playback evidence
+is recorded below. Full-client CPU/RSS remains unmeasured. The prior delimiter-retaining fixture did not exercise
 this boundary and must not be treated as evidence that RTP-shaped AV1 had worked.
 The final native replay runs after Cargo checks; a retained concurrent run hit startup
 queue-age expiry and is excluded from this functional before/after comparison.
@@ -306,6 +306,23 @@ queue-age expiry and is excluded from this functional before/after comparison.
 | Executable | 92,801,160 B | 92,801,416 B | +256 B (+0.000%) |
 | Installed payload | 97,499,593 B | 97,499,849 B | +256 B (+0.000%) |
 | Arch archive | 54,472,967 B | 54,475,582 B | +2,615 B (+0.005%) |
+
+### Final owner playback evidence — October 24, 2026
+
+Runtime candidate `aa261706` receives AV1 2560×1440. The reviewed post-startup
+696.615-second interval delivers 41,800 pictures at 60.004 fps, with mean complete
+video payload 7.892 Mbps (five-second range 3.722–8.385 Mbps) and authenticated video
+RTP datagrams 8.249 Mbps. Decoder errors, stale frames, queue/playout drops/resets,
+incomplete/DAVE-decrypt failures, audio concealment and rebufferings are all zero.
+Six packets are repaired without expiry; 6,231 transport feedback reports are sent,
+with zero missing-status or discarded-history counts in the interval. An earlier
+80.133-second steady sample is also clean; startup records one audio rebuffer.
+
+Smooth playback is confirmed for this Linux 1440p60 test. Reception supports up to
+4K60, but live 4K60 validation remains pending. These results do not prove a causal
+bitrate improvement, identical content/perceptual quality versus official Discord, physical 60 Hz presentation,
+scanout/latency or full-client CPU/RSS. The numeric evidence is kept private and only
+aggregate results are recorded in the repository.
 
 ### Earlier playback recovery evidence
 

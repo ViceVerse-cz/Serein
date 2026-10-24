@@ -358,12 +358,14 @@ restart to apply this change. Compare speaking, muted and noise-suppression-on/o
 the cause; UI frame diagnostics help identify excessive rendering separately.
 
 Logging is off by default. Fixed numeric reports go through an eight-slot queue to a
-separate writer; media workers never wait for stderr. Output stops after 128 reports
-or 64 KiB per process, shared by all calls, so restart for another capture. A full queue
+separate writer; media workers never wait for stderr. Output stops after 8,192 reports
+or 8 MiB per process, shared by all calls, so restart for another capture. A full queue
 drops summaries. No IDs, device names, endpoints, keys, audio or signaling payloads
 are logged; upstream cryptographic tracing remains disabled. No files are created by
 Serein. Shell redirection is owner-managed and may include unrelated framework logs.
 The device-free check is `cargo run --locked -p discord-voice --example voice_diagnostics`.
+On Linux, build with workspace feature unification (`cargo build --locked --workspace --examples`),
+then run `target/debug/examples/voice_diagnostics`; the package alone lacks winit platform features.
 Instrumentation alone does not establish the cause of a reported CPU spike or a speedup.
 
 ## Acoustic echo cancellation
@@ -728,7 +730,8 @@ and cameras remain H.264; other platforms do not advertise AV1. Signaling uses `
 (accepting the `AV1X` session alias), with advertised payloads 105/106 for video/RTX;
 existing H.264 101/102 and HEVC 103/104 assignments are preserved. These assignments
 belong to our offer, not fixed Discord protocol constants. Discord interoperability
-remains unofficial and AV1 live quality awaits an owner-operated test.
+remains unofficial. The October 24 owner test confirms sustained AV1 1440p60
+playback. Reception supports up to 4K60; live 4K60 testing remains pending.
 
 AV1 follows the [AOM RTP format v1.0.0](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html):
 aggregation and fragmentation retain the final size-less OBU needed by DAVE. After DAVE
@@ -812,7 +815,8 @@ count extensions, reports, received/missing statuses and discarded history slots
 `video_rtp_bytes/bps` counts authenticated video datagrams including headers, encryption,
 padding and RTX, before source routing; `probe_packets/bytes` counts probes separately.
 These complement complete decrypted `encoded_bytes/bps`, not physical/display quality.
-Live feedback acceptance and the effect on received bitrate require owner testing.
+The owner test records active feedback and sustained playback; feedback acceptance and
+its causal effect on received bitrate have not been isolated.
 
 Watched streams send authenticated RTCP reception reports every second and preserve
 source RTP timestamps through reassembly. Incoming video can repair missing packets
@@ -878,6 +882,21 @@ leave and rejoin once to check teardown/recovery. Capture numeric diagnostics on
 the deliberate test. Synthetic checks and one successful session do not establish behavior
 on every network, device or platform.
 
+### Owner playback validation — October 24, 2026
+
+The final runtime candidate `aa261706` was watched by the owner at AV1 2560×1440/60.
+A reviewed 696.615-second interval delivered 41,800 pictures (60.004 fps), averaging
+7.892 Mbps of complete decrypted video payload and 8.249 Mbps of authenticated video
+RTP datagrams. It recorded no decoder errors, stale/queue/playout drops or resets,
+incomplete/DAVE-decrypt failures, audio concealment or rebufferings. Six packet repairs
+completed without expiry, and transport-wide timing reports remained active. An earlier
+80.133-second steady interval was also clean; startup had one audio rebuffer. The owner
+reports smooth playback after the temporal-delimiter fix.
+
+Reception supports up to 4K60, but live 4K60 validation remains pending. The measured
+Linux evidence covers 1440p60. Same-stream official-client parity,
+physical A/V latency and general Windows/macOS behavior are not established by these tests.
+
 ### Remote video diagnostics
 
 Every report line carries `at_ms`, milliseconds since the first reporter started, so
@@ -894,7 +913,7 @@ between the UDP socket and the display, so a frozen viewer is diagnosed from one
   by pixel count and transitions. Camera scopes aggregate senders; snapshots are approximate
   at report boundaries. No pixels, participant IDs or encoded payloads are recorded.
 - `packets` / `rtx`: accepted video RTP packets (including restored retransmissions),
-  and received retransmission packets (payload 102/104). Announced RTX sources can repair
+  and received retransmission packets (payload 102/104/106). Announced RTX sources can repair
   gaps across pictures through bounded Generic NACKs.
 - `nacks_sent` / `repaired_packets`: NACK datagrams and observed sequence holes filled
   before expiry. Filled holes include natural reordering, not only retransmitted losses.

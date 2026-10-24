@@ -774,6 +774,22 @@ That evidence precedes adaptive buffering and presentation-level scheduling; the
 combined candidate needs another owner comparison. Windows/macOS native timing behavior
 and broad network interoperability remain unverified.
 
+### Final owner playback evidence — October 24, 2026
+
+On final runtime candidate `aa261706`, an owner-operated Linux AV1 2560×1440 test
+sustains 60.004 decoded fps over a reviewed 696.615-second interval (41,800 pictures).
+Complete decrypted payload averages 7.892 Mbps; authenticated video datagrams average
+8.249 Mbps. There are no decoder errors, stale/queue/playout drops/resets, incomplete
+pictures, DAVE-decrypt failures or audio concealment/rebufferings in that interval.
+Six packets are repaired without expiry; timing feedback is active. An earlier 80.133-second
+steady sample is also clean, with one audio rebuffer during startup. Smooth playback
+is confirmed for this Linux 1440p60 test.
+
+Reception supports up to 4K60, but live 4K60 validation remains pending. Same-stream
+official-client quality/bitrate parity and physical presentation latency remain unmeasured. The earlier provisional failures and pending
+statements below describe preceding candidates; this evidence supersedes their 1440p60
+AV1 playback gate, without claiming universal codec/platform compatibility.
+
 ### AV1 native temporal-unit recovery — October 24, 2026
 
 Owner-operated attempts on `ca1dd7f9` receive AV1 2560×1440, with complete decrypted
@@ -790,7 +806,7 @@ empty leading delimiter without duplicating an existing one. This leaves RTP/DAV
 keyframe checks, codecs and queue bounds intact. The corrected fixture delivers all 480
 pictures with matching reference luma and tags, no decoder errors, stale/admission/playout drops
 or final audio concealment. The original test did not cover this RTP-to-native boundary;
-live smooth AV1 playback still requires the owner's retest.
+the subsequent successful owner retest is recorded above.
 
 ### Watched-stream transport feedback — October 23, 2026
 
@@ -815,7 +831,8 @@ wrap, loss, duplicate/reordered arrivals, signed deltas, idle restart, age/count
 malformed extension metadata and transport authentication. The existing synthetic
 stream exchange also verifies an authenticated UDP probe produces encrypted timing
 feedback without entering media decoding/reception reports. Live rate improvement is
-unverified until the owner's next test; see [voice details](voice.md).
+not isolated causally; the final owner test observes active feedback and sustained
+AV1 playback, as recorded above. See [voice details](voice.md).
 
 ### Linux watched-stream AV1 reception — October 23, 2026
 
@@ -837,8 +854,9 @@ The source/codec-change, repair, DAVE and queue gates described above still appl
 Tests cover encrypted AV1 RTX through actual routing, DAVE and timed playout, malformed
 length/header/fragment states and allocation bounds. A synthetic Linux 1440p60 native
 workload delivers all 480 reference-identical pictures and presentation tags with no
-errors/drops. Live AV1 reception, higher delivered bitrate and quality parity remain
-unverified until the owner's next test; no fixed bandwidth claim or estimator is added.
+errors/drops. The final owner test above verifies live AV1 1440p60 reception/playback;
+quality parity and a causal bitrate uplift remain unverified. No fixed bandwidth claim
+or estimator is added.
 
 ### Linux watched-stream HEVC reception — October 22, 2026
 
@@ -859,7 +877,7 @@ confirmed H.265, 1280×718 and approximately 30 fps in both Serein and official 
 reported average bitrates were 1.13/1.11 Mbps respectively. Serein recorded no decoder
 errors/playback drops, and Discord reported no dropped frames. This sequential test does
 not prove identical content, physical timing or behavior on every network. The owner
-reported satisfaction with playback; UHD reception still needs an owner-operated test.
+reported satisfaction with playback; live 4K60 validation remains pending.
 No bandwidth estimator, new dependency, media cache or video recording is introduced.
 
 ## Outgoing screen sharing — September 11, 2026
