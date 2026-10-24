@@ -52,6 +52,8 @@ pub struct AppPreferences {
 	pub preload_on_hover: bool,
 	/// Hide the in-app title strip. macOS and Windows then show the system title bar.
 	pub hide_title_bar: bool,
+	/// Keep the home list's message requests section collapsed after a restart.
+	pub message_requests_collapsed: bool,
 	pub hide_window_decorations: bool,
 	pub primary_color: Option<[u8; 3]>,
 	pub transparency_blur: bool,
@@ -102,6 +104,7 @@ impl Default for AppPreferences {
 			convert_emoticons: false,
 			preload_on_hover: true,
 			hide_title_bar: false,
+			message_requests_collapsed: false,
 			hide_window_decorations: false,
 			primary_color: None,
 			transparency_blur: false,
@@ -2133,6 +2136,30 @@ mod tests {
 		std::fs::remove_dir_all(root).unwrap();
 	}
 
+	#[test]
+	fn collapsed_message_requests_defaults_open_and_persists_across_reopens() {
+		let legacy: AppPreferences = serde_json::from_str("{}").unwrap();
+		assert!(!legacy.message_requests_collapsed);
+		let root =
+			std::env::temp_dir().join(format!("serein-message-requests-{}", std::process::id()));
+		std::fs::create_dir(&root).unwrap();
+		let path = root.join("preferences.sqlite3");
+		for collapsed in [true, false] {
+			{
+				let store = LocalStore::open(&path).unwrap();
+				let mut preferences = store.app_preferences().unwrap();
+				assert_eq!(preferences.message_requests_collapsed, !collapsed);
+				preferences.message_requests_collapsed = collapsed;
+				store.save_app_preferences(&preferences).unwrap();
+			}
+			let store = LocalStore::open(&path).unwrap();
+			assert_eq!(
+				store.app_preferences().unwrap().message_requests_collapsed,
+				collapsed
+			);
+		}
+		std::fs::remove_dir_all(root).unwrap();
+	}
 	#[test]
 	fn app_preferences_round_trip_and_reject_invalid_replacement() {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();

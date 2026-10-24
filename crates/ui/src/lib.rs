@@ -303,8 +303,8 @@ pub struct MessagingUi {
 	profile_formatted: markdown::FormatCache,
 	pub reading_preferences: model::ReadingPreferences,
 	pub show_hidden_channels: bool,
-	/// Folds the home list's message requests away; session-local like hover state.
-	message_requests_collapsed: bool,
+	/// Folds the home list's message requests away; the device preference restores it.
+	pub message_requests_collapsed: bool,
 	/// Custom emoji that need Nitro stay out of `:` suggestions and are locked in pickers.
 	pub hide_nitro_emojis: bool,
 	/// Profile cosmetics shown on this device; hidden ones are not downloaded.

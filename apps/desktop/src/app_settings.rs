@@ -56,6 +56,7 @@ impl Settings {
 			convert_emoticons: ui.convert_emoticons,
 			preload_on_hover: ui.preload_on_hover,
 			hide_title_bar: ui.hide_title_bar,
+			message_requests_collapsed: ui.message_requests_collapsed,
 			hide_window_decorations: ui.hide_window_decorations,
 			gpu_preference: ui.gpu_preference,
 			primary_color: ui.primary_color,
@@ -104,6 +105,7 @@ impl Settings {
 		ui.convert_emoticons = value.convert_emoticons;
 		ui.preload_on_hover = value.preload_on_hover;
 		ui.hide_title_bar = value.hide_title_bar;
+		ui.message_requests_collapsed = value.message_requests_collapsed;
 		ui.hide_window_decorations = value.hide_window_decorations;
 		ui.gpu_preference = value.gpu_preference;
 		ui.primary_color = value.primary_color;
@@ -416,6 +418,25 @@ mod tests {
 		assert!(ui.notification_options.current_channel);
 		assert!(!settings.state.touched);
 		assert!(!settings.state.dirty);
+	}
+
+	#[test]
+	fn collapsed_message_requests_restore_and_track_user_changes() {
+		let mut settings = Settings {
+			loaded: true,
+			..Default::default()
+		};
+		settings.current.message_requests_collapsed = true;
+		let mut ui = ui::MessagingUi::default();
+		settings.apply(&mut ui);
+		assert!(ui.message_requests_collapsed);
+		settings.observe(&ui);
+		assert!(!settings.state.dirty);
+
+		ui.message_requests_collapsed = false;
+		settings.observe(&ui);
+		assert!(!settings.current.message_requests_collapsed);
+		assert!(settings.state.dirty);
 	}
 
 	#[test]
