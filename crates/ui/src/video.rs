@@ -11,6 +11,11 @@ const POSTER_MAX: usize = 128;
 /// Remembered undecodable posters; past this the failures are forgotten and may retry.
 const POSTER_SEEN_MAX: usize = 1024;
 
+type PosterMask = (
+	std::sync::Arc<egui::ColorImage>,
+	Option<(u8, egui::TextureHandle)>,
+);
+
 /// Reinterprets decoded RGBA as texels without a per-pixel pass. Every backend emits
 /// opaque frames, where premultiplied and straight alpha are the same bytes; a per-pixel
 /// `from_rgba_unmultiplied` cost a full core at 1080p30 in debug builds.
@@ -42,6 +47,10 @@ pub enum VideoCommand {
 }
 pub struct VideoUi {
 	pub active: Option<(Id, Id, Attachment)>,
+	/// Chat-media masking supplied by an enabled media-privacy plugin.
+	pub(crate) media_privacy: Option<extensions::MediaPrivacy>,
+	/// Video explicitly revealed by a click while hover reveal is disabled.
+	privacy_revealed: Option<Id>,
 	pub state: VideoState,
 	pub position: f64,
 	pub duration: f64,
@@ -61,6 +70,8 @@ pub struct VideoUi {
 	/// Decoded first frames by attachment id, painted on idle stages instead of
 	/// black. Byte-bounded below; Discord ships no video placeholders to reuse.
 	pub(crate) posters: HashMap<Id, (egui::TextureHandle, usize)>,
+	/// Coarse poster copies and their blur masks, keyed by attachment id.
+	poster_masks: HashMap<Id, PosterMask>,
 	/// Oldest-first poster insertion order for budget eviction.
 	poster_order: VecDeque<Id>,
 	/// Live poster bytes against [`POSTER_BUDGET`].
@@ -82,6 +93,8 @@ impl Default for VideoUi {
 	fn default() -> Self {
 		Self {
 			active: None,
+			media_privacy: None,
+			privacy_revealed: None,
 			state: VideoState::Idle,
 			position: 0.0,
 			duration: 0.0,
@@ -93,6 +106,7 @@ impl Default for VideoUi {
 			frame: None,
 			shade: None,
 			posters: HashMap::new(),
+			poster_masks: HashMap::new(),
 			poster_order: VecDeque::new(),
 			poster_bytes: 0,
 			poster_seen: HashSet::new(),
@@ -106,6 +120,7 @@ impl Default for VideoUi {
 impl VideoUi {
 	pub fn stop(&mut self) {
 		self.exit_fullscreen();
+		self.privacy_revealed = None;
 		self.active = None;
 		self.texture = None;
 		self.managed = None;
@@ -290,6 +305,13 @@ impl VideoUi {
 			source_size: egui::vec2(width as f32, height as f32),
 			pixels: video_pixels(rgba).to_vec(),
 		};
+		self.poster_masks.insert(
+			id,
+			(
+				std::sync::Arc::new(crate::avatars::media::resize_box(&image, 128)),
+				None,
+			),
+		);
 		self.posters.insert(
 			id,
 			(
@@ -309,6 +331,26 @@ impl VideoUi {
 			self.poster_order.retain(|queued| queued != id);
 			self.poster_seen.remove(id);
 		}
+		self.poster_masks.remove(id);
+	}
+	/// Builds or reuses the coarse blur texture used while a poster is masked.
+	fn poster_mask_texture(
+		&mut self,
+		ctx: &egui::Context,
+		id: Id,
+		strength: u8,
+	) -> Option<egui::TextureHandle> {
+		let (source, cached) = self.poster_masks.get_mut(&id)?;
+		if let Some((build, texture)) = cached
+			&& *build == strength
+		{
+			return Some(texture.clone());
+		}
+		let image =
+			crate::avatars::media::blur_box(source, crate::avatars::media::blur_radius(strength));
+		let texture = ctx.load_texture("video-poster-mask", image, egui::TextureOptions::LINEAR);
+		*cached = Some((strength, texture.clone()));
+		Some(texture)
 	}
 	/// Marks one cached poster as recently used so repeat views keep it.
 	fn touch_poster(&mut self, id: &Id) {
@@ -408,9 +450,60 @@ impl VideoUi {
 				.corner_radius(CORNER)
 				.paint_at(ui, image_rect);
 		}
+		let privacy = self.media_privacy.filter(|config| config.enabled);
 		let hovered = response.hovered() || ui.rect_contains_pointer(stage);
+		// With hover reveal disabled, clicking the stage is the explicit way in.
+		if privacy.is_some_and(|config| !config.reveal_on_hover)
+			&& ui.input(|input| input.pointer.primary_clicked())
+			&& ui.rect_contains_pointer(stage)
+		{
+			self.privacy_revealed = Some(attachment.id);
+		}
+		let clicked = self.privacy_revealed == Some(attachment.id);
+		let reveal_requested = privacy.is_some_and(|config| {
+			if config.reveal_on_hover {
+				hovered
+			} else {
+				clicked
+			}
+		});
+		let masked = privacy.is_some() && !reveal_requested;
+		if let Some(config) = privacy {
+			let reveal = ui.ctx().animate_bool_with_time(
+				ui.make_persistent_id(("video-privacy", attachment.id)),
+				reveal_requested,
+				0.18,
+			);
+			let visibility = 1.0 - reveal;
+			if visibility > 0.001 {
+				let alpha = config.opacity.min(100) as f32 / 100.0 * visibility;
+				let mask = match config.style {
+					extensions::MediaPrivacyStyle::Blur => {
+						self.poster_mask_texture(ui.ctx(), attachment.id, config.strength)
+					}
+					extensions::MediaPrivacyStyle::Solid => None,
+				};
+				match (config.style, mask) {
+					(extensions::MediaPrivacyStyle::Blur, Some(mask)) => {
+						egui::Image::new(egui::load::SizedTexture::new(mask.id(), stage.size()))
+							.tint(egui::Color32::WHITE.gamma_multiply(alpha))
+							.corner_radius(CORNER)
+							.paint_at(ui, stage);
+					}
+					_ => {
+						let [r, g, b] = config.color;
+						ui.painter().rect_filled(
+							stage,
+							CORNER,
+							egui::Color32::from_rgba_unmultiplied(r, g, b, (alpha * 255.0) as u8),
+						);
+					}
+				}
+			}
+		}
 		let show_controls = active
 			&& state != VideoState::Idle
+			&& !masked
 			&& (hovered || state != VideoState::Playing || self.controls_focused);
 		// The controls are painted over the stage. Keep playback interaction out of both
 		// overlay bands so a control click cannot also become a play/pause click.

@@ -49,6 +49,15 @@ See [Custom RPC](custom-rpc/README.md) for setup and builds. Requires the previe
 rich-presence SDK from Serein PR #465. Install through the shared catalog or import
 the package locally. Older clients without this capability cannot install it.
 
+## Media privacy (preview)
+
+[Media privacy](media-privacy/README.md) adds a toggle beside the composer's emoji and
+GIF triggers and masks images, GIFs and inline videos in chat. Settings cover hover
+reveal, blur strength, mask opacity and blur/black/grey/white/custom solid effects.
+Serein embeds this package as a starter, so it appears in Settings > Extensions without
+importing a file; enabling it once still requires the normal capability consent. The host
+keeps the configuration device-wide and never sends media bytes to the plugin.
+
 ## API Proxy (preview)
 
 See [API Proxy](api-proxy/README.md) for the native REST-only proxy editor.

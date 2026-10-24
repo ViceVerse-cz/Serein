@@ -337,6 +337,8 @@ pub struct MessagingUi {
 	pub time_format: model::TimeFormat,
 	/// Saved logins may fall back to plain files when no OS keyring works.
 	pub plaintext_login: bool,
+	/// Chat-media masking supplied by an installed media-privacy plugin.
+	pub media_privacy: model::MediaPrivacyPreferences,
 	/// Latest disk use of the media and shared-artwork caches, once measured.
 	pub image_cache_usage: Option<[model::CacheUsage; 2]>,
 	/// An image cache partition the owner asked to empty; the desktop consumes it.
@@ -3529,6 +3531,14 @@ impl MessagingUi {
                                     .show(ui, state, channel, &mut self.avatars, commands)
                             })
                             .inner;
+                        // Right-to-left tray: this lands left of the GIF trigger.
+                        if let Some(response) = self
+                            .extensions
+                            .composer_media_toggle(ui, self.media_privacy.enabled, state)
+                            && response.clicked()
+                        {
+                            self.media_privacy.enabled = !self.media_privacy.enabled;
+                        }
                         // A chosen GIF is its own message; the typed draft stays untouched.
                         if self.emoji_picker.is_open() {
                             self.reaction_picker.dismiss(state, commands);
@@ -4114,7 +4124,28 @@ impl MessagingUi {
 		}
 	}
 
+	fn sync_media_privacy(&mut self) {
+		let plugin_active = self.extensions.media_privacy_active();
+		let config = plugin_active.then_some(extensions::MediaPrivacy {
+			enabled: self.media_privacy.enabled,
+			reveal_on_hover: self.media_privacy.reveal_on_hover,
+			style: match self.media_privacy.style {
+				model::MediaPrivacyStyle::Blur => extensions::MediaPrivacyStyle::Blur,
+				model::MediaPrivacyStyle::Solid => extensions::MediaPrivacyStyle::Solid,
+			},
+			strength: self.media_privacy.strength,
+			opacity: self.media_privacy.opacity,
+			color: self.media_privacy.color,
+		});
+		// Panels need the full saved state; only enabled plugins paint masks.
+		self.extensions.media_privacy = config;
+		let painting = config.filter(|config| config.enabled);
+		self.avatars.media_privacy = painting;
+		self.timeline.video.media_privacy = painting;
+	}
+
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		self.sync_media_privacy();
 		self.avatars.cosmetics = self.cosmetics;
 		name_styles::set_enabled(self.cosmetics.name_styles);
 		let cosmetics_refresh = state.set_profile_cosmetics(self.cosmetics);

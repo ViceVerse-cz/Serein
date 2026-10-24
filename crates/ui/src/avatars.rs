@@ -55,6 +55,8 @@ struct AvatarKey {
 #[derive(Default)]
 pub(crate) struct Avatars {
 	pub animate_gifs: bool,
+	/// Chat-media masking supplied by an enabled media-privacy plugin.
+	pub media_privacy: Option<extensions::MediaPrivacy>,
 	/// Hidden cosmetics are neither painted nor requested.
 	pub cosmetics: model::CosmeticPreferences,
 	avatar_animation: bool,

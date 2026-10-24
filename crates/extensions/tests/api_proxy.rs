@@ -17,6 +17,7 @@ fn manifest() -> Manifest {
 			id: "apply".into(),
 			label: "Apply".into(),
 			surface: Surface::Panel,
+			icon: None,
 		}],
 	}
 }
