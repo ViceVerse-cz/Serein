@@ -684,6 +684,7 @@ impl State {
 			mention_count,
 		}
 	}
+	/// Advance the observed latest message ID for a channel and record read-state activity.
 	pub fn observe_last_message(&mut self, channel: Id, message: Id) {
 		if let Some(index) = self.channel_index(channel) {
 			let channel = &mut self.channels[index];
@@ -1488,6 +1489,61 @@ mod navigation_tests {
 			},
 		);
 	}
+	/// Verify SendResult reconciles own read state without briefly showing the DM channel as unread.
+	#[test]
+	fn send_result_reconciles_own_read_state_without_flashing_unread_directs() {
+		let mut state = state(Some(Id(500)));
+		assert_eq!(state.unread_directs(None), Vec::<Id>::new());
+		assert_eq!(state.channel_unread(&state.channels[0]), Some(false));
+
+		let Command::Send { nonce, .. } = state.prepare_send().unwrap() else {
+			panic!("expected send command");
+		};
+		let mut sent = message(501);
+		sent.author = state.user.clone().unwrap();
+		sent.channel = Id(1);
+		sent.nonce = Some(nonce.clone());
+
+		apply(
+			&mut state,
+			CoreEvent::SendResult {
+				nonce,
+				result: Ok(sent.clone()),
+			},
+		);
+
+		assert_eq!(
+			state.channel_unread(&state.channels[0]),
+			Some(false),
+			"own sent message in SendResult must not mark channel unread"
+		);
+		assert_eq!(
+			state.unread_directs(None),
+			Vec::<Id>::new(),
+			"own sent message in SendResult must not place DM on unread direct rail"
+		);
+
+		apply(&mut state, CoreEvent::Message(sent));
+		assert_eq!(state.channel_unread(&state.channels[0]), Some(false));
+		assert_eq!(state.unread_directs(None), Vec::<Id>::new());
+
+		let mut incoming = message(502);
+		incoming.author = model::User {
+			primary_guild: None,
+			cosmetics: None,
+			id: Id(999),
+			name: "Recipient".into(),
+			avatar: None,
+			webhook: false,
+			kind: Default::default(),
+			discriminator: 0,
+		};
+		incoming.channel = Id(1);
+		apply(&mut state, CoreEvent::Message(incoming));
+		assert_eq!(state.channel_unread(&state.channels[0]), Some(true));
+		assert_eq!(state.unread_directs(None), vec![Id(1)]);
+	}
+
 	#[test]
 	fn historical_sends_confirm_without_splicing_a_live_tail_in_either_order() {
 		{
