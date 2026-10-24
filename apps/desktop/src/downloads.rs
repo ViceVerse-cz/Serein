@@ -514,6 +514,13 @@ impl Drop for Partial<'_> {
 		}
 	}
 }
+/// Stream an attachment or embedded image to a destination file with size guards and atomic commit.
+///
+/// Validates response status, `identity` encoding, and bounds (`MAX_BYTES` for attachments,
+/// `MAX_EMBED_BYTES` PNG for embedded images). When present, a valid response `Content-Length`
+/// supersedes metadata size; otherwise metadata size is used. Chunks are streamed through a
+/// temporary `.partial` sibling file and committed atomically once the exact expected byte
+/// count is verified.
 #[allow(clippy::too_many_arguments)]
 async fn download(
 	client: &reqwest::Client,
@@ -1066,6 +1073,7 @@ mod tests {
 		}
 	}
 
+	/// Verify explicit download admission guards, transfer limits, cancellation cleanup, and atomic destination commit.
 	#[tokio::test]
 	async fn explicit_download_stream_limits_cancel_and_atomic_replacement() {
 		let mut image = attachment();
@@ -1282,6 +1290,7 @@ mod tests {
 		fs::remove_dir_all(root).unwrap();
 	}
 
+	/// Verify that attachment downloads succeed when response `Content-Length` differs from metadata size within `MAX_BYTES`.
 	#[tokio::test]
 	async fn attachment_download_accepts_cdn_content_length_differing_from_metadata_size() {
 		let root = std::env::temp_dir().join(format!(
@@ -1322,6 +1331,7 @@ mod tests {
 		let _ = fs::remove_dir_all(&root);
 	}
 
+	/// Verify chunked transfer fallback to metadata size, zero-length rejection, and `MAX_BYTES` enforcement.
 	#[tokio::test]
 	async fn attachment_download_validates_content_length_bounds_and_fallback() {
 		let root = std::env::temp_dir().join(format!(
