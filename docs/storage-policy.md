@@ -660,8 +660,10 @@ Notification opt-in, hidden-channel visibility, primary RGB color, audio devices
 input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings and the global-keybind
 switch (enabled by default) are saved in the device-wide `app_preferences`
 SQLite singleton (16 KiB maximum), using the existing background worker. The Linux
-hide-window-decorations boolean is stored in this same record and defaults to false. These survive
-restart/logout; demo controls never read or write them. Save failures remain visible.
+hide-window-decorations boolean is stored in this same record and defaults to false. The home
+list's collapsed message requests section is another boolean in this record; closing it persists
+until the owner reopens it. These survive restart/logout; demo controls never read or write them.
+Save failures remain visible.
 The optional voice profile preserves older records: an absent profile migrates the legacy
 suppression boolean to Custom with RNNoise/Off, AEC on, and no AGC/sensitivity gate.
 The selected profile and retained Custom settings are saved together; suppression strength
@@ -787,6 +789,7 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | Audio devices, input profile/custom processing, push-to-talk and gain | Device-wide `app_preferences` SQLite singleton, bounded to 16 KiB; device names ≤1,024 bytes each | Retained across restart/logout; demo changes remain in memory |
 | Automatic emoticon conversion | Boolean in the existing device-wide `app_preferences` singleton; defaults off, including older saved preferences | Retained across restart/logout; converts standalone emoticons on message send/edit; demo changes remain in memory |
 | Preload on hover | Boolean in the existing device-wide `app_preferences` singleton; defaults on, including older saved preferences | Retained across restart/logout; off stops conversation, profile and GIF picker preloads; demo never preloads conversations or profiles |
+| Collapsed message requests | Boolean in the existing device-wide `app_preferences` singleton; defaults open, including older saved preferences | Retained across restart/logout; only the home list section folds, pending requests remain accessible from its header |
 | Authentication page | Wry incognito on Windows/macOS; ephemeral WebKit6 NetworkSession on Linux, destroyed on token handoff/cancel/timeout | Platform engine teardown; OS artifacts not promised erased |
 
 Typical packaged-build database directories: macOS `~/Library/Application Support/serein`, Windows `%LOCALAPPDATA%/serein`, Linux `$XDG_DATA_HOME/serein` or `~/.local/share/serein`; default source builds use the sibling `serein-development` directory. An absolute `SEREIN_DATA_DIR` selects the root for SQLite, image caches, extensions and detectable-game metadata; an empty or relative override disables those stores instead of falling back to production data. `cargo xtask package` disables the development feature, so distributed executables use the packaged-build directory and credential namespace. Newly created Unix data directories are private (0700); existing override permissions are preserved. Database contents are **not encrypted by Serein**. OS token protection does not encrypt history, backups or drafts, and the override does not relocate OS credential entries. Opted-in plaintext login files use the selected data root.
