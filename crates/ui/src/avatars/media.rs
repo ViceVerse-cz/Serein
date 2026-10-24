@@ -96,7 +96,8 @@ pub(crate) fn blur_box(image: &ColorImage, radius: u32) -> ColorImage {
 
 fn average(sum: [u32; 4], count: usize) -> Color32 {
 	let count = count.max(1) as u32;
-	Color32::from_rgba_unmultiplied(
+	// Inputs came from `Color32::to_array`, which is already premultiplied.
+	Color32::from_rgba_premultiplied(
 		(sum[0] / count) as u8,
 		(sum[1] / count) as u8,
 		(sum[2] / count) as u8,
@@ -133,7 +134,7 @@ pub(crate) fn resize_box(image: &ColorImage, edge: u32) -> ColorImage {
 					count += 1;
 				}
 			}
-			pixels.push(Color32::from_rgba_unmultiplied(
+			pixels.push(Color32::from_rgba_premultiplied(
 				(sum[0] / count) as u8,
 				(sum[1] / count) as u8,
 				(sum[2] / count) as u8,
@@ -445,7 +446,11 @@ impl Held {
 			Pixels::Still(still) => still.byte_size(),
 			Pixels::Playing { still, animation } => still.byte_size() + animation.bytes,
 		};
-		pixels + self.mask.as_ref().map_or(0, |(_, mask)| mask.byte_size())
+		let source = self
+			.mask_source
+			.as_ref()
+			.map_or(0, |source| source.pixels.len() * 4);
+		pixels + source + self.mask.as_ref().map_or(0, |(_, mask)| mask.byte_size())
 	}
 	fn mask_texture(&mut self, ctx: &egui::Context, strength: u8) -> Option<TextureHandle> {
 		if let Some((cached, texture)) = &self.mask
@@ -675,11 +680,17 @@ impl MediaLibrary {
 		ctx: &egui::Context,
 		strength: u8,
 	) -> Option<TextureHandle> {
-		self.slots
-			.get_mut(source)?
-			.held
-			.get_mut(index)?
-			.mask_texture(ctx, strength)
+		let (texture, pool, motion, size) = {
+			let held = self.slots.get_mut(source)?.held.get_mut(index)?;
+			(
+				held.mask_texture(ctx, strength)?,
+				held.pool(),
+				held.motion,
+				held.size,
+			)
+		};
+		self.evict(pool, (source, motion, size));
+		Some(texture)
 	}
 
 	fn texture(
@@ -726,6 +737,7 @@ impl MediaLibrary {
 		ctx: &egui::Context,
 		rendition: Rendition,
 		image: Option<ColorImage>,
+		mask: bool,
 	) -> bool {
 		let Rendition {
 			source,
@@ -762,7 +774,7 @@ impl MediaLibrary {
 		if motion == Motion::Still {
 			slot.forget(motion, size);
 		}
-		let mask_source = Arc::new(resize_box(&image, MASK_SOURCE_EDGE));
+		let mask_source = mask.then(|| Arc::new(resize_box(&image, MASK_SOURCE_EDGE)));
 		let texture = ctx.load_texture("service-image", image, egui::TextureOptions::LINEAR);
 		self.clock += 1;
 		let used = self.clock;
@@ -772,7 +784,7 @@ impl MediaLibrary {
 				match &mut held.pixels {
 					Pixels::Still(still) | Pixels::Playing { still, .. } => *still = texture,
 				}
-				held.mask_source = Some(mask_source);
+				held.mask_source = mask_source;
 				held.mask = None;
 				held.used = used;
 				held.painted = Instant::now();
@@ -794,7 +806,7 @@ impl MediaLibrary {
 					size,
 					lane,
 					pixels: Pixels::Still(texture),
-					mask_source: Some(mask_source),
+					mask_source,
 					mask: None,
 					arrived: Instant::now(),
 					painted: Instant::now(),
@@ -1005,7 +1017,7 @@ impl MediaLibrary {
 		}
 		self.slot(&rendition.source)
 			.record(rendition.motion, rendition.size, Attempt::Pending);
-		self.accept_still(ctx, rendition.clone(), Some(image));
+		self.accept_still(ctx, rendition.clone(), Some(image), false);
 	}
 }
 
@@ -1128,7 +1140,8 @@ mod retention_tests {
 		assert!(library.accept_still(
 			ctx,
 			rendition.clone(),
-			Some(ColorImage::filled([512, 288], Color32::WHITE))
+			Some(ColorImage::filled([512, 288], Color32::WHITE)),
+			false,
 		));
 		rendition
 	}
@@ -1150,7 +1163,7 @@ mod retention_tests {
 		library
 			.slot(&source)
 			.record(Motion::Animated, size, Attempt::Pending);
-		assert!(library.accept_still(&ctx, animated, None));
+		assert!(library.accept_still(&ctx, animated, None, false));
 		let (still, choice) = library.want(&source, true, size, Lane::Inline, Instant::now());
 		assert_eq!(still.motion, Motion::Still);
 		assert!(choice.request, "The still is requested right away");
@@ -1501,6 +1514,13 @@ impl Avatars {
 				};
 				match (config.style, mask) {
 					(extensions::MediaPrivacyStyle::Blur, Some(mask)) => {
+						// The blur keeps source alpha; an opaque backdrop prevents
+						// transparent PNG/GIF pixels from leaving sharp content visible.
+						ui.painter().rect_filled(
+							painted,
+							radius,
+							crate::design::palette(ui).canvas.gamma_multiply(alpha),
+						);
 						paint_texture(
 							ui,
 							&mask,
