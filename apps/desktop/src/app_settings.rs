@@ -422,8 +422,10 @@ mod tests {
 
 	#[test]
 	fn collapsed_message_requests_restore_and_track_user_changes() {
-		let mut settings = Settings::default();
-		settings.loaded = true;
+		let mut settings = Settings {
+			loaded: true,
+			..Default::default()
+		};
 		settings.current.message_requests_collapsed = true;
 		let mut ui = ui::MessagingUi::default();
 		settings.apply(&mut ui);
