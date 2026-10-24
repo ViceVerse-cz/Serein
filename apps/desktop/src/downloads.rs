@@ -1321,4 +1321,123 @@ mod tests {
 		}
 		let _ = fs::remove_dir_all(&root);
 	}
+
+	#[tokio::test]
+	async fn attachment_download_validates_content_length_bounds_and_fallback() {
+		let root = std::env::temp_dir().join(format!(
+			"serein-download-test-bounds-{}",
+			std::process::id()
+		));
+		fs::create_dir_all(&root).unwrap();
+		let destination = root.join("bounds.bin");
+		let client = reqwest::Client::builder()
+			.no_proxy()
+			.redirect(reqwest::redirect::Policy::none())
+			.timeout(Duration::from_secs(5))
+			.build()
+			.unwrap();
+		let cancelled = AtomicBool::new(false);
+		let wake = Notify::new();
+		let content: Vec<u8> = (0..=255).cycle().take(16 * 1024).collect();
+
+		// 1. Missing Content-Length header (chunked transfer) falls back to metadata size.
+		// When received bytes match metadata size, download succeeds.
+		let (url, task) = endpoint(content.clone(), true, false).await;
+		download(
+			&client,
+			url,
+			&destination,
+			content.len() as u64,
+			true,
+			&cancelled,
+			&wake,
+			&|_| {},
+		)
+		.await
+		.expect("download succeeds when chunked body matches metadata size fallback");
+		task.await.unwrap();
+		assert_eq!(fs::read(&destination).unwrap(), content);
+
+		// If chunked body does not match metadata size, transfer fails and cleans up.
+		fs::remove_file(&destination).unwrap();
+		let (url, task) = endpoint(content.clone(), true, false).await;
+		assert_eq!(
+			download(
+				&client,
+				url,
+				&destination,
+				content.len() as u64 + 1024,
+				true,
+				&cancelled,
+				&wake,
+				&|_| {},
+			)
+			.await,
+			Err("Attachment transfer incomplete")
+		);
+		task.await.unwrap();
+		assert!(!destination.exists());
+		assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+
+		// 2. Zero-byte Content-Length is rejected without creating or committing partial files.
+		let (url, task) = endpoint(Vec::new(), false, false).await;
+		assert_eq!(
+			download(
+				&client,
+				url,
+				&destination,
+				1024,
+				true,
+				&cancelled,
+				&wake,
+				&|_| {},
+			)
+			.await,
+			Err("Attachment must be nonempty and at most 100 MiB")
+		);
+		task.await.unwrap();
+		assert!(!destination.exists());
+		assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+
+		// 3. Content-Length exceeding MAX_BYTES is rejected before writing chunks to disk.
+		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let url = url::Url::parse(&format!(
+			"http://{}/oversized",
+			listener.local_addr().unwrap()
+		))
+		.unwrap();
+		let server = tokio::spawn(async move {
+			let (mut socket, _) = listener.accept().await.unwrap();
+			let mut request = [0u8; 8192];
+			let _ = socket.read(&mut request).await.unwrap();
+			let _ = socket
+				.write_all(
+					format!(
+						"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+						MAX_BYTES + 1
+					)
+					.as_bytes(),
+				)
+				.await;
+		});
+		assert_eq!(
+			download(
+				&client,
+				url,
+				&destination,
+				1024,
+				true,
+				&cancelled,
+				&wake,
+				&|_| {},
+			)
+			.await,
+			Err("Attachment must be nonempty and at most 100 MiB")
+		);
+		server.await.unwrap();
+		assert!(!destination.exists());
+		assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+
+		let _ = fs::remove_dir_all(&root);
+	}
 }
