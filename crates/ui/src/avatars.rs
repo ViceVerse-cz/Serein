@@ -394,7 +394,9 @@ impl Avatars {
 	pub fn accept(&mut self, ctx: &egui::Context, key: String, image: Option<ColorImage>) {
 		if key.starts_with("media:") {
 			if let Some(rendition) = media::Rendition::parse(&key)
-				&& self.media.accept_still(ctx, rendition, image)
+				&& self
+					.media
+					.accept_still(ctx, rendition, image, self.media_privacy.is_some())
 			{
 				self.revision += 1;
 			}

@@ -1078,7 +1078,6 @@ impl ExtensionUi {
 			let invocation = Invocation {
 				action,
 				composer: context.draft.clone(),
-				media_privacy: self.media_privacy,
 				..Default::default()
 			};
 			self.queue(
@@ -1512,13 +1511,26 @@ impl ExtensionUi {
 			self.queue(ui.ctx(), ExtensionRequest::Disable { id });
 		}
 		if let Some((id, action)) = invoke {
+			// The field is only valid for a panel action from a plugin that
+			// declared `media_privacy`; other plugins reject unknown context.
+			let media_privacy = self
+				.entries
+				.iter()
+				.find(|entry| entry.manifest.id == id)
+				.filter(|entry| {
+					entry
+						.manifest
+						.capabilities
+						.contains(&Capability::MediaPrivacy)
+				})
+				.and(self.media_privacy);
 			self.queue(
 				ui.ctx(),
 				ExtensionRequest::Invoke {
 					id,
 					invocation: Invocation {
 						action,
-						media_privacy: self.media_privacy,
+						media_privacy,
 						..Default::default()
 					},
 					context: ExtensionContext::panel(state),
