@@ -1,6 +1,4 @@
-use serein_extension_sdk::{
-	Element, Invocation, MediaPrivacy, MediaPrivacyStyle, Output,
-};
+use serein_extension_sdk::{Element, Invocation, MediaPrivacy, MediaPrivacyStyle, Output};
 
 const STYLES: [&str; 5] = ["Blur", "Black", "Gray", "White", "Custom"];
 
