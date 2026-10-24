@@ -2011,6 +2011,7 @@ impl TimelineView {
 			TargetReveal::Center
 		});
 	}
+	/// Render the message timeline using a default scroll session (test helper).
 	#[cfg(test)]
 	pub fn show(
 		&mut self,
@@ -2036,6 +2037,7 @@ impl TimelineView {
 		);
 	}
 
+	/// Render the message timeline within the active scroll session.
 	#[allow(clippy::too_many_arguments)]
 	pub fn show_with_scroll(
 		&mut self,
@@ -3411,6 +3413,26 @@ impl TimelineView {
 													media = true;
 												}
 											} else {
+												if !message.extra_content.components_v2 {
+													let previous_view = self.viewing;
+													crate::attachments::show(
+														ui,
+														message,
+														avatars,
+														&mut self.viewing,
+														&mut self.opening,
+														&mut self.download,
+														&mut self.audio,
+														&mut self.video,
+														state.demo,
+														&mut surface,
+														crate::design::MessageCardSurface::Conversation,
+													);
+													if self.viewing != previous_view {
+														self.component_viewing = None;
+														self.embed_viewing = None;
+													}
+												}
 												let invite_top = ui.cursor().top();
 												crate::invites::show(
 													ui,
@@ -3461,26 +3483,6 @@ impl TimelineView {
 														ui.min_rect().bottom(),
 													),
 												));
-												if !message.extra_content.components_v2 {
-													let previous_view = self.viewing;
-													crate::attachments::show(
-														ui,
-														message,
-														avatars,
-														&mut self.viewing,
-														&mut self.opening,
-														&mut self.download,
-														&mut self.audio,
-														&mut self.video,
-														state.demo,
-														&mut surface,
-														crate::design::MessageCardSurface::Conversation,
-													);
-													if self.viewing != previous_view {
-														self.component_viewing = None;
-														self.embed_viewing = None;
-													}
-												}
 											}
 											if before != (text, media) {
 												if text == 0 && !media {
@@ -5296,6 +5298,55 @@ mod tests {
 				);
 			}
 		}
+	}
+
+	/// Verify message attachments render above rich embeds and link previews.
+	#[test]
+	fn attachments_render_above_embeds_and_link_previews() {
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		let id = ((1_788_998_580_000u64 - 1_420_070_400_000) << 22) | 1;
+		let mut message = text_message(id);
+		message.content = "Message with attachment and embed".into();
+		message.attachments.push(model::Attachment {
+			id: Id(10),
+			filename: "synthetic-upload.txt".into(),
+			description: None,
+			content_type: Some("text/plain".into()),
+			size: 128,
+			media: model::EmbedMedia::default(),
+			spoiler: false,
+			duration_ms: None,
+			waveform: vec![],
+		});
+		message.embeds.push(model::Embed {
+			kind: "rich".into(),
+			title: Some("Synthetic link preview card".into()),
+			description: Some("Card description text".into()),
+			..Default::default()
+		});
+		state.channels[0].last_message = Some(Id(id));
+		state.timeline.insert(message, false, false).unwrap();
+		let ctx = egui::Context::default();
+		let mut view = TimelineView::default();
+		let labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		let attachment_rect = labels
+			.iter()
+			.find(|(text, _)| text == "synthetic-upload.txt")
+			.expect("attachment filename rendered")
+			.1;
+		let embed_rect = labels
+			.iter()
+			.find(|(text, _)| text == "Synthetic link preview card")
+			.expect("embed title rendered")
+			.1;
+		assert!(
+			attachment_rect.max.y <= embed_rect.min.y,
+			"attachment (bottom: {}) must render above embed card (top: {})",
+			attachment_rect.max.y,
+			embed_rect.min.y
+		);
 	}
 
 	/// Channel switches keep cached video posters while stopping playback.

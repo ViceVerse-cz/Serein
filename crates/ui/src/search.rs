@@ -1494,6 +1494,7 @@ impl SearchUi {
 		});
 		requested
 	}
+	/// Draw active attachment viewer overlay when an attachment is selected for inspection.
 	fn viewer(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -1560,6 +1561,7 @@ impl SearchUi {
 			preview.content.clone_from(&hit.excerpt);
 		}
 	}
+	/// Render an individual search hit card with excerpt, author, attachments, and embeds.
 	#[allow(clippy::too_many_arguments)]
 	fn result_card(
 		&mut self,
@@ -1724,21 +1726,6 @@ impl SearchUi {
 									.color(colors.muted),
 								);
 							} else {
-								if !preview.embeds.is_empty()
-									&& let Some(gif) = crate::embeds::show(
-										ui,
-										preview,
-										&mut self.formats,
-										avatars,
-										&mut self.opening,
-										media.download,
-										profile,
-										state,
-										crate::design::MessageCardSurface::Opaque,
-										false,
-									) {
-									media.download.gif_favorite_request = Some(gif);
-								}
 								if !preview.attachments.is_empty() {
 									crate::attachments::show(
 										ui,
@@ -1753,6 +1740,21 @@ impl SearchUi {
 										&mut surface,
 										crate::design::MessageCardSurface::Opaque,
 									);
+								}
+								if !preview.embeds.is_empty()
+									&& let Some(gif) = crate::embeds::show(
+										ui,
+										preview,
+										&mut self.formats,
+										avatars,
+										&mut self.opening,
+										media.download,
+										profile,
+										state,
+										crate::design::MessageCardSurface::Opaque,
+										false,
+									) {
+									media.download.gif_favorite_request = Some(gif);
 								}
 							}
 						}
