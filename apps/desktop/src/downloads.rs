@@ -576,15 +576,14 @@ async fn download(
 			.and_then(|value| value.parse::<u64>().ok())
 			.filter(|length| (1..=MAX_EMBED_BYTES).contains(length))
 			.ok_or("Embedded image needs a nonempty Content-Length of at most 16 MiB")?
+	} else if let Some(length) = response.content_length() {
+		if length == 0 || length > MAX_BYTES {
+			return Err("Attachment must be nonempty and at most 100 MiB");
+		}
+		length
 	} else {
 		expected
 	};
-	if response
-		.content_length()
-		.is_some_and(|length| length != expected)
-	{
-		return Err("Attachment size changed; reload the conversation");
-	}
 	let mut response = response;
 	let cleanup_failed = AtomicBool::new(false);
 	let mut partial = Partial::create(destination, &cleanup_failed)?;
@@ -1281,5 +1280,45 @@ mod tests {
 		assert!(cleanup_failed.load(Ordering::Acquire));
 		fs::remove_dir(&partial_path).unwrap();
 		fs::remove_dir_all(root).unwrap();
+	}
+
+	#[tokio::test]
+	async fn attachment_download_accepts_cdn_content_length_differing_from_metadata_size() {
+		let root = std::env::temp_dir().join(format!(
+			"serein-download-test-mismatch-{}",
+			std::process::id()
+		));
+		fs::create_dir_all(&root).unwrap();
+		let destination = root.join("mismatch.bin");
+		let client = reqwest::Client::builder()
+			.no_proxy()
+			.redirect(reqwest::redirect::Policy::none())
+			.timeout(Duration::from_secs(5))
+			.build()
+			.unwrap();
+		let cancelled = AtomicBool::new(false);
+		let wake = Notify::new();
+		let content: Vec<u8> = (0..=255).cycle().take(32 * 1024).collect();
+		// When Discord CDN returns a Content-Length that differs from the message
+		// metadata size (e.g. EXIF stripped, recompressed, or client metadata drift),
+		// download succeeds as long as Content-Length is within MAX_BYTES.
+		for metadata_size in [content.len() as u64 + 1024, content.len() as u64 - 1024] {
+			let (url, task) = endpoint(content.clone(), false, false).await;
+			download(
+				&client,
+				url,
+				&destination,
+				metadata_size,
+				true,
+				&cancelled,
+				&wake,
+				&|_| {},
+			)
+			.await
+			.expect("download accepts CDN Content-Length within MAX_BYTES");
+			task.await.unwrap();
+			assert_eq!(fs::read(&destination).unwrap(), content);
+		}
+		let _ = fs::remove_dir_all(&root);
 	}
 }
