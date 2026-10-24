@@ -1724,21 +1724,6 @@ impl SearchUi {
 									.color(colors.muted),
 								);
 							} else {
-								if !preview.embeds.is_empty()
-									&& let Some(gif) = crate::embeds::show(
-										ui,
-										preview,
-										&mut self.formats,
-										avatars,
-										&mut self.opening,
-										media.download,
-										profile,
-										state,
-										crate::design::MessageCardSurface::Opaque,
-										false,
-									) {
-									media.download.gif_favorite_request = Some(gif);
-								}
 								if !preview.attachments.is_empty() {
 									crate::attachments::show(
 										ui,
@@ -1753,6 +1738,21 @@ impl SearchUi {
 										&mut surface,
 										crate::design::MessageCardSurface::Opaque,
 									);
+								}
+								if !preview.embeds.is_empty()
+									&& let Some(gif) = crate::embeds::show(
+										ui,
+										preview,
+										&mut self.formats,
+										avatars,
+										&mut self.opening,
+										media.download,
+										profile,
+										state,
+										crate::design::MessageCardSurface::Opaque,
+										false,
+									) {
+									media.download.gif_favorite_request = Some(gif);
 								}
 							}
 						}
