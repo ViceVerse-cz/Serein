@@ -349,6 +349,7 @@ impl ChannelMenu {
 		});
 	}
 
+	/// Render channel context menu modals, dialogs, and submission handlers.
 	pub fn show(
 		&mut self,
 		ctx: &egui::Context,
@@ -436,21 +437,23 @@ impl ChannelMenu {
 			return;
 		};
 		// Saved settings stay open, as in Discord: the saved values become the new baseline.
-		if dialog.kind == Kind::Edit
-			&& dialog.submitted
-			&& state.channel_action_succeeded(dialog.channel)
-		{
-			dialog.submitted = false;
-			state.clear_channel_action_result(dialog.channel);
-			if let Some(details) = state.channel_details(dialog.channel) {
-				dialog.before = details.clone();
-			} else if let Some(command) = state.request_channel_action(dialog.channel, Action::Load)
-			{
-				// The service echo retired the cached snapshot; fetch the saved one again.
-				commands.push(command);
-				dialog.loaded = false;
-			} else {
-				dialog.before.clone_from(&dialog.draft);
+		if dialog.kind == Kind::Edit && dialog.submitted {
+			if state.channel_action_succeeded(dialog.channel) {
+				dialog.submitted = false;
+				state.clear_channel_action_result(dialog.channel);
+				if let Some(details) = state.channel_details(dialog.channel) {
+					dialog.before = details.clone();
+				} else if let Some(command) =
+					state.request_channel_action(dialog.channel, Action::Load)
+				{
+					// The service echo retired the cached snapshot; fetch the saved one again.
+					commands.push(command);
+					dialog.loaded = false;
+				} else {
+					dialog.before.clone_from(&dialog.draft);
+				}
+			} else if !state.channel_action_pending() {
+				dialog.submitted = false;
 			}
 		}
 		if active != Some(dialog.guild)
@@ -2029,6 +2032,92 @@ mod tests {
 			assert_eq!(after.name, before.name);
 			assert!(h.commands.is_empty());
 		}
+	}
+
+	/// Verify clicking inside the Add Role or Member search input retains the open popup.
+	#[test]
+	fn channel_permissions_add_target_popup_search_click_retains_open_popup() {
+		use client_core::channel_actions::{Event as ChannelEvent, Outcome};
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let mut state = test_support::chat_demo_state();
+		// Channel 20 is in guild 10
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == Id(20))
+			.unwrap()
+			.kind = 2; // Voice channel
+		let mut permissions = test_support::permission_snapshot(&state);
+		for guild in &mut permissions.guilds {
+			guild.owner = state.user.as_ref().map(|u| u.id);
+		}
+		state.permissions.replace(permissions).unwrap();
+		let mut h = Harness {
+			state,
+			menu: ChannelMenu::default(),
+			prefs: Default::default(),
+			commands: vec![],
+			copied: vec![],
+			width: 1120.0,
+		};
+		let (row, _) = h.frame(&ctx, vec![]);
+		h.click(&ctx, row.rect.center(), PointerButton::Secondary);
+		let (_, text) = h.frame(&ctx, vec![]);
+		let edit_label = text.iter().find(|(s, _)| s == "Edit Channel").unwrap().1;
+		h.click(&ctx, edit_label.center(), PointerButton::Primary);
+
+		let Command::ChannelAction {
+			guild,
+			channel,
+			request,
+			action: Action::Load,
+		} = h.commands.pop().unwrap()
+		else {
+			panic!("open must load fresh settings");
+		};
+		h.state.apply(client_core::Envelope {
+			generation: h.state.generation,
+			event: client_core::Event::ChannelAction(ChannelEvent::Finished {
+				guild,
+				channel,
+				request,
+				result: Ok(Outcome::Details(Edit {
+					name: "voice".into(),
+					..Default::default()
+				})),
+			}),
+		});
+
+		let (_, text) = h.frame(&ctx, vec![]);
+		let perm_tab = text.iter().find(|(s, _)| s == "Permissions").unwrap().1;
+		h.click(&ctx, perm_tab.center(), PointerButton::Primary);
+
+		let (_, text) = h.frame(&ctx, vec![]);
+		let add_button = text
+			.iter()
+			.find(|(s, _)| {
+				s == &crate::i18n::translate("channel-permissions-targets-add-role-or-member")
+			})
+			.unwrap()
+			.1;
+		h.click(&ctx, add_button.center(), PointerButton::Primary);
+
+		let (_, text) = h.frame(&ctx, vec![]);
+		let search_hint =
+			crate::i18n::translate("channel-permissions-targets-search-roles-or-loaded-members");
+		let search_entry = text.iter().find(|(s, _)| s == &search_hint);
+		assert!(search_entry.is_some(), "popup must open with search field");
+		let search_rect = search_entry.unwrap().1;
+
+		// Click inside the search text field
+		h.click(&ctx, search_rect.center(), PointerButton::Primary);
+
+		let (_, text_after_click) = h.frame(&ctx, vec![]);
+		assert!(
+			text_after_click.iter().any(|(s, _)| s == &search_hint),
+			"clicking inside search field must not dismiss the Add Role or Member popup"
+		);
 	}
 
 	#[test]
