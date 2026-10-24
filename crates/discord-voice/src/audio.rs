@@ -615,7 +615,10 @@ impl Streams {
 		let host = cpal::default_host();
 		let output = choose(&host, settings.output.as_deref(), false)?;
 		let output_id = output.id().ok().map(|id| id.to_string());
-		let output_config = config(&output, false)?;
+		let output_config = platform::audio::output_config(
+			&output,
+			platform::audio::OutputConfigPreference::Voice,
+		)?;
 		let stream_config = output_config.config();
 		#[cfg(target_os = "linux")]
 		let stream_config = {
@@ -718,7 +721,7 @@ fn open_input_stream(
 	permission_macos::authorize(gate, revision)?;
 	let input = choose(host, settings.input.as_deref(), true)?;
 	let input_id = input.id().ok().map(|id| id.to_string());
-	let input_config = config(&input, true)?;
+	let input_config = input_config(&input)?;
 	let stream_config = input_config.config();
 	#[cfg(target_os = "linux")]
 	let stream_config = {
@@ -770,25 +773,12 @@ fn choose(host: &cpal::Host, id: Option<&str>, input: bool) -> Result<cpal::Devi
 	}
 	.ok_or("No default audio device is available")
 }
-fn config(device: &cpal::Device, input: bool) -> Result<cpal::SupportedStreamConfig, &'static str> {
-	let supported: Vec<_> = if input {
-		device
-			.supported_input_configs()
-			.map_err(|_| "Microphone formats are unavailable")?
-			.take(64)
-			.collect()
-	} else if cfg!(target_os = "windows") {
-		// WASAPI advertises converted formats too; enumeration order can pick
-		// 16-bit PCM that a driver rejects. Use its native shared-mode mix format
-		// below and let Playback handle conversion from our 48 kHz frames.
-		Vec::new()
-	} else {
-		device
-			.supported_output_configs()
-			.map_err(|_| "Speaker formats are unavailable")?
-			.take(64)
-			.collect()
-	};
+fn input_config(device: &cpal::Device) -> Result<cpal::SupportedStreamConfig, &'static str> {
+	let supported: Vec<_> = device
+		.supported_input_configs()
+		.map_err(|_| "Microphone formats are unavailable")?
+		.take(64)
+		.collect();
 	if let Some(config) = supported
 		.into_iter()
 		.filter(|c| c.channels() > 0 && c.channels() <= 8)
@@ -798,12 +788,9 @@ fn config(device: &cpal::Device, input: bool) -> Result<cpal::SupportedStreamCon
 	{
 		return Ok(config);
 	}
-	let config = if input {
-		device.default_input_config()
-	} else {
-		device.default_output_config()
-	}
-	.map_err(|_| "Default audio format is unavailable")?;
+	let config = device
+		.default_input_config()
+		.map_err(|_| "Default audio format is unavailable")?;
 	if config.channels() == 0
 		|| config.channels() > 8
 		|| !(8_000..=192_000).contains(&config.sample_rate())

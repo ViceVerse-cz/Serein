@@ -188,11 +188,12 @@ fn open(
 	finished: Arc<AtomicBool>,
 ) -> Result<(cpal::Stream, Duration), ()> {
 	let device = cpal::default_host().default_output_device().ok_or(())?;
-	let supported = device.default_output_config().map_err(|_| ())?;
+	let supported = platform::audio::output_config(
+		&device,
+		platform::audio::OutputConfigPreference::Notification,
+	)
+	.map_err(|_| ())?;
 	let config = supported.config();
-	if !(8000..=192000).contains(&config.sample_rate) || !(1..=8).contains(&config.channels) {
-		return Err(());
-	}
 	let samples = samples(sound, config.sample_rate, &|| {
 		generation.load(Ordering::Acquire) == request
 	})?;

@@ -1,6 +1,7 @@
 //! Credential persistence and temporary owner-operated login/verification surfaces.
 #[cfg(target_os = "macos")]
 pub mod app_menu;
+pub mod audio;
 pub mod badge;
 pub mod captcha;
 pub mod compositor;
