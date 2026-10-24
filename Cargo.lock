@@ -5218,6 +5218,7 @@ version = "0.1.0"
 dependencies = [
  "ashpd",
  "client-core",
+ "cpal",
  "dirs",
  "futures-lite",
  "futures-util",

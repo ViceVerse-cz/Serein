@@ -4,6 +4,46 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Shared output-format selection — October 24, 2026
+
+Fresh baseline `38e46b8f5ec694002ef515fbc2d8dc69297e4f5f` and changed source were built
+with Rust 1.98.1 and locked dependencies on Arch Linux x86_64 (Ryzen 9 5900XT,
+20 visible logical CPUs, 61,634,584 KiB total RAM). Standard release packages include
+voice and disable default/development-data and demo features. The baseline package and
+an initial selector sample were captured before edits; the table uses final probes run
+serially after checks, with no concurrent Rust build. Package outputs were kept separate.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,650,248 B | 92,648,840 B | -1,408 B (-0.0015%) |
+| Installed native payload | 97,348,681 B | 97,347,273 B | -1,408 B (-0.0014%) |
+| Arch distribution archive | 54,365,367 B | 54,366,835 B | +1,468 B (+0.0027%) |
+| Notification, usable default, median ns/selection | 0.984 | 1.645 | +0.660 ns |
+| Notification, I24 default / 64 ranges, median ns/selection | 0.837 (rejects) | 86.922 (selects) | +86.085 ns; recovery added |
+| Voice, 64 ranges, median ns/selection | 75.227 | 89.032 | +13.805 ns (+18.35%) |
+
+Each installed payload contains 245 files. Default
+`cargo xtask package` builds the release executable, then fails because `dpkg` is absent.
+`cargo xtask package --format arch` passes native package inspection at both revisions;
+the existing `libz.so` dependency warning occurs in both. Sizes sum regular installed files
+under `usr/` and measure the entire `.pkg.tar.zst` archive, including metadata/timestamps.
+
+The offscreen probe uses the actual selector source with synthetic device queries, compiled
+with `rustc -O -C lto=thin` and CPAL from the locked release build. Each workload has one
+warmup plus five runs of 1,000,000 selections. The I24 fixture changes from 0 / 1,000,000
+successful selections to 1,000,000 / 1,000,000; the extra scan produces a usable stereo F32
+48 kHz selection. Voice's small absolute setup-cost increase is recorded above. The trivial
+default paths approach timer/optimizer limits; no runtime performance improvement is claimed.
+
+Selection visits at most 64 advertised ranges and accepts only F32/I16/I32/U16, 1–8 channels
+and 8–192 kHz. Native OS queries, stream startup, audio callbacks, audible latency, CPU/RSS
+and UI timings are unmeasured. Windows policy is simulated on Linux; native WASAPI/macOS
+and physical I24 playback remain unvalidated. The license checker is unavailable because
+`cargo-deny 0.20.2` is missing; no dependency versions or notices change. No historical
+platform evidence is reused, and no live Discord, calls, microphone or credentials are used.
+[Method and reproduction](pr-evidence/shared-output-format-selection/README.md),
+[raw samples, package hashes and source identities](pr-evidence/shared-output-format-selection/measurements.json).
+
 ## Server folder mark-as-read — October 15, 2026 (PR #672)
 
 Compared base `104b1aa5` with folder mark-as-read `2b02b49e`. Standard unsigned Windows x64
