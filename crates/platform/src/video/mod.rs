@@ -39,11 +39,30 @@ pub mod live;
 /// Largest live access unit any backend accepts.
 pub const MAX_ACCESS_UNIT: usize = 2 * 1024 * 1024 + 64 * 1024;
 
+/// Live reception accepts UHD or portrait/ultrawide pictures within the same pixel budget.
+pub const MAX_LIVE_DIMENSION: u32 = 3840;
+pub const MAX_LIVE_PIXELS: u64 = 3840 * 2160;
+
+pub fn check_live_dimensions(width: u32, height: u32) -> Result<(), &'static str> {
+	if width == 0 || height == 0 {
+		return Err(INVALID);
+	}
+	if width > MAX_LIVE_DIMENSION
+		|| height > MAX_LIVE_DIMENSION
+		|| u64::from(width) * u64::from(height) > MAX_LIVE_PIXELS
+	{
+		return Err("Live playback supports videos up to 4K (3840×2160).");
+	}
+	Ok(())
+}
+
 /// One decoded live picture.
 pub type LiveFrame = Picture;
 
 /// Receives live pictures from the decoder's own thread, in decode order.
 pub type LiveSink = Box<dyn Fn(LiveFrame) + Send + Sync>;
+/// Preserves the caller's opaque millisecond tag through asynchronous decoding.
+pub type TimedLiveSink = Box<dyn Fn(LiveFrame, u64) + Send + Sync>;
 
 #[cfg(target_os = "linux")]
 mod gst;
@@ -56,7 +75,7 @@ pub const MAX_SECONDS: f64 = 2.0 * 60.0 * 60.0;
 pub const MAX_BYTES: usize = 16 * 1024 * 1024;
 pub const UNSUPPORTED: &str = "This video format or codec is not supported on this system.";
 pub const INVALID: &str = "The video could not be decoded safely.";
-/// A live decoder queue is full; the access unit was dropped but the decoder is healthy.
+/// A live decoder queue is full; the access unit was not accepted but the decoder is healthy.
 pub const BUSY: &str = "The video decoder is falling behind.";
 pub const TOO_LARGE: &str = "Inline playback supports videos up to 1080p.";
 pub const TOO_LONG: &str = "Videos longer than two hours are not supported.";

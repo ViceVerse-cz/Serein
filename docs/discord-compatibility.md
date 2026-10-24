@@ -729,6 +729,157 @@ Native limits, platform requirements and the owner-operated validation gate are 
 and recording remain unsupported. This section supersedes older camera-exclusion
 statements in the historical voice/screen-sharing notes below.
 
+## Incoming stream quality and recovery — October 22, 2026
+
+Watched streams send authenticated RFC 3550 reception reports once per second, using
+actual sequence/loss/jitter counters and authenticated sender-report clocks. No artificial
+bandwidth estimate, new codec or higher resolution preset is advertised. The Discord
+transport framing and normal-account interoperability remain unofficial.
+
+Incoming video orders authenticated RTP across picture boundaries and requests missing
+original sequences through bounded RFC 4585 Generic NACKs when an RTX pair is announced.
+Ordered packets drain immediately; holes initially have a 120 ms repair deadline. Requested
+hole fills increase that source's allowance to their observed hole age plus 40 ms, capped
+at 400 ms. A bounded one-second history of at most 512 expired-hole metadata records lets
+late responses teach subsequent holes, without replaying discarded media. The allowance
+resets when its source is retired. Response timing includes reordering/retries and is not
+a proven network RTT. Late originals and restored RTX arriving within the allowance can
+complete an earlier picture without discarding intact successors.
+Expiry or resource pressure still requires a keyframe. Empty RTP padding/keepalives consume
+sequence numbers without changing picture timestamps/fragments or breaking references.
+PLIs target the most recently active media source, with an independent 500 ms cooldown
+beginning on each actual request. Existing transport authentication and DAVE gates remain.
+
+Watched video and audio share one RTP timing controller. Initial buffering is 100 ms;
+arrival estimates adapt its target within 60–240 ms. The audio item budget also supports
+sustained 2.5/5/10 ms Opus packetization. Audio sample-rate correction is bounded; video
+slews toward authenticated same-owner sender-clock mappings at a filtered, time-based
+rate independent of the sender's frame rate. Without usable sender reports, exact
+cross-source synchronization remains unverified. Generic RTCP CNAME/AVPF conformance
+is not claimed by these Discord-specific ownership and feedback rules.
+
+Presentation timestamps survive native decode and the existing audio queues. Device
+callback timestamps provide a smoothed output-clock estimate, and the watched UI queues
+bounded decoded pictures for presentation on that clock. Decode scheduling accounts for
+measured decoder delay. Missing device timing has a bounded startup fallback and expires
+after inactivity. Physical speaker/monitor latency, display scanout and official-client
+parity have not been measured. Notification audio and encryption are unchanged. The later UHD reception extension
+raises the shared live decoder bound to 3840×2160; sending presets and inline attachments
+retain their limits.
+
+Synthetic protocol, encrypted local-UDP, sample-clock and Linux native decode checks cover
+these paths. An owner-operated `fb093bc` test covered about 111 minutes at 720p/~60 fps,
+with no decoder errors or persistent audio starvation and a few isolated recovery pauses.
+That evidence precedes adaptive buffering and presentation-level scheduling; the final
+combined candidate needs another owner comparison. Windows/macOS native timing behavior
+and broad network interoperability remain unverified.
+
+### Final owner playback evidence — October 24, 2026
+
+On final runtime candidate `e935dc7b`, an owner-operated Linux AV1 2560×1440 test
+sustains 60.004 decoded fps over a reviewed 696.615-second interval (41,800 pictures).
+Complete decrypted payload averages 7.892 Mbps; authenticated video datagrams average
+8.249 Mbps. There are no decoder errors, stale/queue/playout drops/resets, incomplete
+pictures, DAVE-decrypt failures or audio concealment/rebufferings in that interval.
+Six packets are repaired without expiry; timing feedback is active. An earlier 80.133-second
+steady sample is also clean, with one audio rebuffer during startup. Smooth playback
+is confirmed for this Linux 1440p60 test.
+
+Reception supports up to 4K60, but live 4K60 validation remains pending. Same-stream
+official-client quality/bitrate parity and physical presentation latency remain unmeasured. The earlier provisional failures and pending
+statements below describe preceding candidates; this evidence supersedes their 1440p60
+AV1 playback gate, without claiming universal codec/platform compatibility.
+
+### AV1 native temporal-unit recovery — October 24, 2026
+
+Owner-operated attempts on `bc9b2682` receive AV1 2560×1440, with complete decrypted
+video reaching roughly 7.5 Mbps and authenticated timing feedback active. Audio keeps
+playing without concealment, but each attempt delivers one decoded picture, then none.
+No incomplete video or DAVE-decrypt failures are recorded. Recovery requests gate most
+following predictions; the continued packet flow is not a working playback result.
+
+The earlier synthetic AV1 IVF fixture retained temporal delimiter OBUs. Removing all
+480 delimiters reproduces exactly one native output picture from 480 inputs, with zero
+reported decoder errors. AV1 RTP normally removes these delimiters, while the native
+GStreamer TU-aligned OBU stream requires them. Post-DAVE normalization now restores one
+empty leading delimiter without duplicating an existing one. This leaves RTP/DAVE bytes,
+keyframe checks, codecs and queue bounds intact. The corrected fixture delivers all 480
+pictures with matching reference luma and tags, no decoder errors, stale/admission/playout drops
+or final audio concealment. The original test did not cover this RTP-to-native boundary;
+the subsequent successful owner retest is recorded above.
+
+### Watched-stream transport feedback — October 23, 2026
+
+A subsequent owner-operated test on `fcf6fe62` used a different stream from the earlier
+1440p AV1 comparison: both clients received HEVC 1280×534 at about 59.8 decoded fps.
+Serein's 100.133-second post-startup payload sample averaged 1.299 Mbps (0.662–1.449),
+while eight official-client post-startup reports spanning 70.234 seconds averaged
+3.841 Mbps (2.601–4.151). Neither reported dropped video. Serein recorded timing jitter
+and four audio rebuffer events; Discord audio interruptions were not assessed. Sequential
+scenes and accounting differ, so the reported ~2.96× gap does not prove its cause.
+Neither sample exercises AV1.
+
+Quality-100 subscription requests were already sent. The receiver previously discarded
+transport sequence extensions and produced no transport-wide arrival feedback. It now
+reports authenticated native extension-5 arrivals using WebRTC RTPFB/FMT=15, including
+network probes without delivering probe payloads to media decoders. This follows an
+unofficial native extension mapping; extension presence is required. The feedback is
+bounded by timestamp count/age, datagram size and cadence, and adds no bandwidth estimate,
+REMB or dependency. Numeric counters separate authenticated video/probe datagrams from
+complete decrypted payload and count feedback activity. Wire regressions cover sequence
+wrap, loss, duplicate/reordered arrivals, signed deltas, idle restart, age/count limits,
+malformed extension metadata and transport authentication. The existing synthetic
+stream exchange also verifies an authenticated UDP probe produces encrypted timing
+feedback without entering media decoding/reception reports. Live rate improvement is
+not isolated causally; the final owner test observes active feedback and sustained
+AV1 playback, as recorded above. See [voice details](voice.md).
+
+### Linux watched-stream AV1 reception — October 23, 2026
+
+An owner-controlled sequential 1440p comparison of `8f79435b` found HEVC at 1.23 Mbps
+and 59.5 decoded fps in Serein, versus Discord's reported `AV1X` at 4.59 Mbps and 60 fps.
+Both received 2560×1440 and neither reported playback drops. Samples differ in content
+and bitrate accounting; they establish different received encodes, not the reason for
+the allocation. Serein previously offered no AV1 support.
+
+Capable Linux viewers now offer receive-only `AV1` before HEVC/H.264. `AV1X` is accepted
+as a session-name alias. Each source still routes authenticated advertised RTP independently
+of outgoing session selection; AV1 uses this client's 105/106 primary/RTX assignments.
+The [AOM RTP v1.0.0 format](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html)
+handles bounded aggregation/fragmentation, exact DAVE framing and post-authentication
+sequence/surface validation. Native normalization supports the installed GStreamer parser
+and decoder. Main-profile, single spatial-layer 8/10-bit 4:2:0 reception is supported;
+unsupported capabilities retain HEVC/H.264 fallback. Windows/macOS and sending remain H.264.
+The source/codec-change, repair, DAVE and queue gates described above still apply.
+Tests cover encrypted AV1 RTX through actual routing, DAVE and timed playout, malformed
+length/header/fragment states and allocation bounds. A synthetic Linux 1440p60 native
+workload delivers all 480 reference-identical pictures and presentation tags with no
+errors/drops. The final owner test above verifies live AV1 1440p60 reception/playback;
+quality parity and a causal bitrate uplift remain unverified. No fixed bandwidth claim
+or estimator is added.
+
+### Linux watched-stream HEVC reception — October 22, 2026
+
+Linux viewers can negotiate receive-only H.265 when the installed GStreamer parser,
+HEVC decoder and bounded native pipeline initialize; H.264 remains offered as fallback.
+Windows/macOS viewers, camera sessions and stream encoders still use H.264. HEVC uses
+[RFC 7798](https://www.rfc-editor.org/rfc/rfc7798.html) single-layer/no-DONL packetization,
+existing authenticated RTX repair and DAVE decryption. Negotiation/session updates are
+unofficial, following the public native receiver and discord.py-self implementations
+linked in [voice.md](voice.md#incoming-stream-recovery-and-pacing).
+Received codecs are selected per source from advertised RTP payload types, independently
+of the outgoing session `video_codec`. A forward primary codec change retires that source's
+buffered video/decoder state and requires a recovery picture with VPS/SPS/PPS; delayed old
+packets/RTX and session-only updates do not reset unrelated received media. SPS validation enforces the 3840×2160 live receive bound before native submission.
+Offline encrypted reassembly, malformed packet/bounds and native reference-picture checks
+cover the implementation. An owner-operated October 23 comparison of the same stream
+confirmed H.265, 1280×718 and approximately 30 fps in both Serein and official Discord;
+reported average bitrates were 1.13/1.11 Mbps respectively. Serein recorded no decoder
+errors/playback drops, and Discord reported no dropped frames. This sequential test does
+not prove identical content, physical timing or behavior on every network. The owner
+reported satisfaction with playback; live 4K60 validation remains pending.
+No bandwidth estimator, new dependency, media cache or video recording is introduced.
+
 ## Outgoing screen sharing — September 11, 2026
 
 October 3 reliability audit: UDP media sends drop on local socket pressure without
@@ -807,16 +958,17 @@ SSRC, coalescing requests to at most twice per second. Windows/macOS can freshly
 one retained current snapshot on an idle keyframe request, without waiting for screen
 movement. The additional snapshot is bounded to 33,177,600 bytes, normally reduced to
 the chosen output resolution. Ordinary idle time does not encode extra frames. Linux
-already requests periodic PipeWire keepalive frames. Sender RTX repair, receiver NACK
-requests and adaptive bitrate remain unsupported. The viewer accepts announced RTX
-packets and bounded packet reordering within the current picture; native/live video
-quality is not established by these changes.
+already requests periodic PipeWire keepalive frames. Subsequent sender RTX/rate control
+and incoming packet repair are described above; those changes do not establish universal
+native/live video quality.
 
 Watched streams have a session-only 0–200% audio volume and mute control, independent
-of participant voice levels. Audio playout retains at most two queued 20 ms frames
-and clears delayed mixer output after a stall. Decoder input is bounded to 16 pictures
-and 16 MiB, with a 150 ms age limit and keyframe recovery. These bounds reduce backlog;
-they do not implement sender-clock audio/video synchronization or establish live sync.
+of participant voice levels. The stream/call audio bridge retains at most eight 20 ms
+frames and starts with 40 ms of scheduling headroom; stalls still clear delayed output.
+Decoder input is bounded to 16 pictures and 16 MiB, with a 150 ms age limit and keyframe
+recovery. The October 22 receiver also uses authenticated sender reports and an OS device-time
+estimate for A/V scheduling, with bounds described in `voice.md`. This does not establish
+physical lip-sync accuracy or universal official-client quality parity.
 
 September 27 preview update: hovering a currently streaming guild participant requests
 Discord's still preview and shows it in a compact 16:9 popover with a Watch Stream action.

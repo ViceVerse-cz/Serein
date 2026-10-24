@@ -73,6 +73,8 @@ pub struct Gate {
 	echo_reset: AtomicBool,
 	preview_level: AtomicU16,
 	processing_ready: AtomicBool,
+	diagnostics: bool,
+	output_gaps: [AtomicU64; 2],
 }
 impl Default for Gate {
 	fn default() -> Self {
@@ -95,6 +97,8 @@ impl Default for Gate {
 			echo_reset: AtomicBool::new(false),
 			preview_level: AtomicU16::new(0),
 			processing_ready: AtomicBool::new(true),
+			diagnostics: crate::diagnostics::enabled(),
+			output_gaps: std::array::from_fn(|_| AtomicU64::new(0)),
 		}
 	}
 }
@@ -159,7 +163,7 @@ impl Audio {
 	pub fn start(
 		settings: Devices,
 		capture: mpsc::SyncSender<Frame>,
-		playback: mpsc::Receiver<Frame>,
+		playback: mpsc::Receiver<crate::PlaybackFrame>,
 		emit: impl Fn(Result<(), &'static str>) + Send + 'static,
 	) -> Result<Self, &'static str> {
 		Self::start_inner(settings, capture, playback, emit, false)
@@ -182,7 +186,7 @@ impl Audio {
 	fn start_inner(
 		settings: Devices,
 		capture: mpsc::SyncSender<Frame>,
-		playback: mpsc::Receiver<Frame>,
+		playback: mpsc::Receiver<crate::PlaybackFrame>,
 		emit: impl Fn(Result<(), &'static str>) + Send + 'static,
 		preview: bool,
 	) -> Result<Self, &'static str> {
@@ -406,7 +410,7 @@ impl Audio {
 									.input_gate
 									.apply(&mut frame, processing.sensitivity_db);
 								if preview {
-									drops += u64::from(active.output.push(frame).is_err());
+									drops += u64::from(active.output.push(frame.into()).is_err());
 								} else if audible {
 									drops += u64::from(capture.try_send(frame).is_err());
 								}
@@ -420,6 +424,14 @@ impl Audio {
 						if worker_gate.playback() {
 							drops += u64::from(active.output.push(frame).is_err());
 						}
+					}
+					if worker_gate.diagnostics {
+						metrics.device_playback(
+							worker_gate
+								.output_gaps
+								.each_ref()
+								.map(|value| value.swap(0, Ordering::Relaxed)),
+						);
 					}
 					metrics.poll(reset, drops, false, noise_frames);
 					std::thread::park_timeout(Duration::from_millis(5));
@@ -549,7 +561,7 @@ struct Streams {
 	_input: Option<cpal::Stream>,
 	_output: cpal::Stream,
 	input: rtrb::Consumer<Frame>,
-	output: rtrb::Producer<Frame>,
+	output: rtrb::Producer<crate::PlaybackFrame>,
 	reference: rtrb::Consumer<Frame>,
 	/// Devices actually opened, so a changed system default can be followed.
 	output_id: Option<String>,
@@ -876,8 +888,13 @@ where
 	device
 		.build_output_stream(
 			*config,
-			move |data: &mut [T], _| {
-				output.render(data, channels, &gate);
+			move |data: &mut [T], info| {
+				let timestamp = info.timestamp();
+				let latency = timestamp
+					.playback
+					.duration_since(timestamp.callback)
+					.min(Duration::from_secs(1));
+				output.render_at(data, channels, &gate, Instant::now() + latency);
 			},
 			move |error| {
 				if is_fatal_error(&error) {
@@ -981,7 +998,8 @@ impl Capture {
 }
 struct Playback {
 	media_generation: u64,
-	input: rtrb::Consumer<Frame>,
+	gaps: [u64; 2],
+	input: rtrb::Consumer<crate::PlaybackFrame>,
 	reference: Capture,
 	frame: Frame,
 	index: usize,
@@ -989,13 +1007,24 @@ struct Playback {
 	next: f32,
 	phase: f64,
 	step: f64,
+	rate: u32,
 }
 impl Playback {
+	#[cfg(test)]
 	fn render<T: cpal::SizedSample + cpal::FromSample<f32>>(
 		&mut self,
 		data: &mut [T],
 		channels: usize,
 		gate: &Gate,
+	) {
+		self.render_at(data, channels, gate, Instant::now());
+	}
+	fn render_at<T: cpal::SizedSample + cpal::FromSample<f32>>(
+		&mut self,
+		data: &mut [T],
+		channels: usize,
+		gate: &Gate,
+		at: Instant,
 	) {
 		let generation = gate.playback_generation.load(Ordering::Acquire);
 		if generation != self.media_generation {
@@ -1010,20 +1039,33 @@ impl Playback {
 			}
 		} else {
 			let gain = f32::from(gate.output_gain.load(Ordering::Relaxed)) / 100.0;
-			for frame in data.chunks_mut(channels) {
-				let sample = amplify(self.sample(), gain);
+			for (n, frame) in data.chunks_mut(channels).enumerate() {
+				let at = at + Duration::from_secs_f64(n as f64 / f64::from(self.rate));
+				let sample = amplify(self.sample_at(Some(at)), gain);
 				frame.fill(T::from_sample(sample));
 				// Reference actual output, including gain, underrun silence and resampling.
 				self.reference.sample(sample);
+			}
+		}
+		if gate.diagnostics {
+			for (counter, value) in gate.output_gaps.iter().zip(std::mem::take(&mut self.gaps)) {
+				if value != 0 {
+					counter.fetch_add(value, Ordering::Relaxed);
+				}
 			}
 		}
 		if std::mem::take(&mut self.reference.overrun) {
 			gate.echo_reset.store(true, Ordering::Release);
 		}
 	}
-	fn new(rate: u32, input: rtrb::Consumer<Frame>, reference: rtrb::Producer<Frame>) -> Self {
+	fn new(
+		rate: u32,
+		input: rtrb::Consumer<crate::PlaybackFrame>,
+		reference: rtrb::Producer<Frame>,
+	) -> Self {
 		Self {
 			media_generation: 0,
+			gaps: [0; 2],
 			input,
 			reference: Capture::new(rate, reference),
 			frame: [0.0; 960],
@@ -1032,6 +1074,7 @@ impl Playback {
 			next: 0.0,
 			phase: 1.0,
 			step: 48_000.0 / f64::from(rate),
+			rate,
 		}
 	}
 	fn reset(&mut self) {
@@ -1047,9 +1090,29 @@ impl Playback {
 		self.next = 0.0;
 		self.phase = 1.0;
 	}
-	fn pull(&mut self) -> f32 {
+	fn pull(&mut self, at: Option<Instant>) -> f32 {
 		if self.index == 960 {
-			self.frame = self.input.pop().unwrap_or([0.0; 960]);
+			self.frame = [0.0; 960];
+			for _ in 0..8 {
+				let Ok(frame) = self.input.pop() else {
+					self.gaps[0] += 1;
+					break;
+				};
+				if !frame.mixed
+					&& frame
+						.presentation
+						.as_ref()
+						.is_some_and(|tag| !tag.is_current())
+				{
+					self.gaps[1] += 1;
+					continue;
+				}
+				if let (Some(tag), Some(at)) = (frame.presentation, at) {
+					tag.played(at);
+				}
+				self.frame = frame.samples;
+				break;
+			}
 			self.index = 0;
 		}
 		let value = self.frame[self.index];
@@ -1060,10 +1123,14 @@ impl Playback {
 			0.0
 		}
 	}
+	#[cfg(test)]
 	fn sample(&mut self) -> f32 {
+		self.sample_at(None)
+	}
+	fn sample_at(&mut self, at: Option<Instant>) -> f32 {
 		while self.phase >= 1.0 {
 			self.previous = self.next;
-			self.next = self.pull();
+			self.next = self.pull(at);
 			self.phase -= 1.0;
 		}
 		let value = self.previous + (self.next - self.previous) * self.phase as f32;
@@ -1336,7 +1403,7 @@ mod tests {
 					expected
 				);
 				let (mut send, receive) = rtrb::RingBuffer::new(8);
-				send.push([sample; 960]).unwrap();
+				send.push([sample; 960].into()).unwrap();
 				let mut playback = Playback::new(48_000, receive, rtrb::RingBuffer::new(8).0);
 				let mut rendered = [0.0_f32; 1920];
 				playback.render(&mut rendered, 2, &audio.gate);
@@ -1350,7 +1417,7 @@ mod tests {
 			capture.process(&[invalid; 961], 1, &audio.gate);
 			assert_eq!(receive.pop().unwrap(), [0.0; 960]);
 			let (mut send, receive) = rtrb::RingBuffer::new(8);
-			send.push([invalid; 960]).unwrap();
+			send.push([invalid; 960].into()).unwrap();
 			let mut playback = Playback::new(48_000, receive, rtrb::RingBuffer::new(8).0);
 			let mut rendered = [1.0_f32; 960];
 			playback.render(&mut rendered, 1, &audio.gate);
@@ -1366,7 +1433,7 @@ mod tests {
 		let (mut playback_send, playback_receive) = rtrb::RingBuffer::new(8);
 		let mut playback = Playback::new(48_000, playback_receive, rtrb::RingBuffer::new(8).0);
 		let mut rendered = [1.0_f32; 2];
-		playback_send.push([0.25; 960]).unwrap();
+		playback_send.push([0.25; 960].into()).unwrap();
 		capture.process(&[0.25; 961], 1, &audio.gate);
 		playback.render(&mut rendered, 1, &audio.gate);
 		assert!(captured.pop().is_err());
@@ -1382,7 +1449,7 @@ mod tests {
 
 		// The same callback state observes new controls; no stream needs recreation.
 		playback.reset();
-		playback_send.push([0.25; 960]).unwrap();
+		playback_send.push([0.25; 960].into()).unwrap();
 		playback.render(&mut rendered, 1, &audio.gate);
 		assert_eq!(rendered, [0.0, 0.25]);
 		audio.set_gain(200, 0);
@@ -1404,7 +1471,7 @@ mod tests {
 		// Muting the microphone never drops what you are hearing.
 		assert_eq!(rendered, [0.5; 2]);
 		audio.set_controls(false, true);
-		playback_send.push([0.75; 960]).unwrap();
+		playback_send.push([0.75; 960].into()).unwrap();
 		capture.process(&[0.75; 961], 1, &audio.gate);
 		playback.render(&mut rendered, 1, &audio.gate);
 		assert!(captured.pop().is_err());
@@ -1417,7 +1484,7 @@ mod tests {
 		assert_eq!(rendered, [0.0; 2]);
 		audio.gate.stopped.store(true, Ordering::Release);
 		capture.process(&[0.75; 961], 1, &audio.gate);
-		playback_send.push([0.75; 960]).unwrap();
+		playback_send.push([0.75; 960].into()).unwrap();
 		playback.render(&mut rendered, 1, &audio.gate);
 		assert!(captured.pop().is_err());
 		assert_eq!(rendered, [0.0; 2]);
@@ -1450,9 +1517,9 @@ mod tests {
 		}
 		let (mut send, receive) = rtrb::RingBuffer::new(8);
 		for _ in 0..8 {
-			send.push([0.5; 960]).unwrap();
+			send.push([0.5; 960].into()).unwrap();
 		}
-		assert!(send.push([0.5; 960]).is_err());
+		assert!(send.push([0.5; 960].into()).is_err());
 		let mut playback = Playback::new(44_100, receive, rtrb::RingBuffer::new(8).0);
 		for _ in 0..7000 {
 			assert!(playback.sample().is_finite());
@@ -1512,5 +1579,79 @@ mod tests {
 				assert!(is_fatal_error(&cpal::Error::from(fatal)));
 			}
 		}
+	}
+	#[test]
+	fn stream_retirement_preserves_queued_call_speech_and_rejects_unmixed_pcm() {
+		let clock = Arc::new(crate::presentation::Clock::default());
+		let now = Instant::now();
+		let stream = || crate::PlaybackFrame {
+			samples: [0.3; 960],
+			presentation: Some(clock.stamp(now)),
+			mixed: false,
+		};
+		let (mut send, receive) = rtrb::RingBuffer::new(8);
+		let mixed = crate::PlaybackFrame::mix(Some([0.2; 960]), Some(stream())).unwrap();
+		let stale = stream();
+		send.push(mixed).unwrap();
+		clock.reset();
+		// An already stale stream must not contaminate a new call frame either.
+		let call = crate::PlaybackFrame::mix(Some([0.2; 960]), Some(stale.clone())).unwrap();
+		assert!(call.samples.iter().all(|sample| *sample == 0.2));
+		assert!(call.presentation.is_none());
+		send.push(stale).unwrap();
+		send.push(call).unwrap();
+		let mut playback = Playback::new(48_000, receive, rtrb::RingBuffer::new(8).0);
+		for _ in 0..960 {
+			assert_eq!(playback.pull(Some(now)), 0.5);
+		}
+		for _ in 0..960 {
+			assert_eq!(playback.pull(Some(now)), 0.2);
+		}
+		assert_eq!(playback.gaps, [0, 1]);
+		// Invalidated timing metadata cannot move the new stream's output clock.
+		assert_eq!(clock.stamp(now).deadline(now), now);
+	}
+	#[test]
+	fn resampled_output_reports_device_time_for_the_matching_stream_frame() {
+		let audio = audio_without_devices();
+		audio.set_ready(true);
+		assert!(
+			audio
+				.gate
+				.acknowledge(audio.gate.revision.load(Ordering::Acquire))
+		);
+		let clock = Arc::new(crate::presentation::Clock::default());
+		let now = Instant::now();
+		let (mut send, receive) = rtrb::RingBuffer::new(8);
+		send.push(crate::PlaybackFrame {
+			mixed: false,
+			samples: [0.2; 960],
+			presentation: Some(clock.stamp(now)),
+		})
+		.unwrap();
+		let mut playback = Playback::new(44_100, receive, rtrb::RingBuffer::new(8).0);
+		let mut output = [0.0f32; 1764];
+		playback.render_at(&mut output, 2, &audio.gate, now + Duration::from_millis(73));
+		assert!(output.iter().any(|sample| *sample > 0.1));
+		assert_eq!(
+			clock
+				.stamp(now + Duration::from_millis(20))
+				.deadline(now + Duration::from_millis(74)),
+			now + Duration::from_millis(93)
+		);
+		clock.reset();
+		send.push(crate::PlaybackFrame {
+			mixed: false,
+			samples: [0.8; 960],
+			presentation: Some(clock.stamp(now)),
+		})
+		.unwrap();
+		clock.reset();
+		playback.render_at(&mut output, 2, &audio.gate, now + Duration::from_millis(93));
+		assert!(output[4..].iter().all(|sample| *sample == 0.0));
+		assert_eq!(
+			clock.stamp(now).deadline(now + Duration::from_millis(94)),
+			now
+		);
 	}
 }
