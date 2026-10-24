@@ -349,6 +349,7 @@ impl ChannelMenu {
 		});
 	}
 
+	/// Render channel context menu modals, dialogs, and submission handlers.
 	pub fn show(
 		&mut self,
 		ctx: &egui::Context,
@@ -2033,6 +2034,7 @@ mod tests {
 		}
 	}
 
+	/// Verify clicking inside the Add Role or Member search input retains the open popup.
 	#[test]
 	fn channel_permissions_add_target_popup_search_click_retains_open_popup() {
 		use client_core::channel_actions::{Event as ChannelEvent, Outcome};

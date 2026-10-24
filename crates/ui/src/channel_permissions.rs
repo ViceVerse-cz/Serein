@@ -11,6 +11,7 @@ pub(super) struct PermissionsUi {
 }
 
 impl PermissionsUi {
+	/// Render the channel permissions editor tabs and overwrite table.
 	pub fn show(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -76,6 +77,7 @@ impl PermissionsUi {
 		});
 	}
 
+	/// Render the role and member target list with add-target popup menu.
 	fn targets(
 		&mut self,
 		ui: &mut egui::Ui,

@@ -399,6 +399,7 @@ impl State {
 				.is_some_and(|c| c.guild == source.guild && self.can_manage_channel(*id))
 		})
 	}
+	/// Check if the current user has authority to edit specific permission bits on a channel.
 	pub fn can_edit_channel_permission(&self, channel: Id, bits: u128) -> bool {
 		if !self.can_manage_channel_permissions(channel) {
 			return false;
@@ -1883,6 +1884,7 @@ mod tests {
 		assert!(!state.notification_allowed(Id(3)));
 	}
 
+	/// Verify voice channel permission overwrite editing accounts for channel-level VIEW_CHANNEL access.
 	#[test]
 	fn voice_channel_permission_overwrites_rely_on_channel_access_for_view_channel() {
 		use model::permissions as p;
