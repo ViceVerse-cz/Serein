@@ -105,6 +105,7 @@ enum Decode {
 
 /// True when the cleartext Annex-B access unit carries both an SPS and a PPS, so a freshly
 /// created decoder can start from it.
+#[cfg(any(test, target_os = "linux"))]
 pub(crate) fn has_parameter_sets(frame: &[u8]) -> bool {
 	Codec::H264.has_parameter_sets(frame)
 }
@@ -900,7 +901,7 @@ enum Backend {
 	Software(openh264::decoder::Decoder),
 }
 impl Backend {
-	#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
+	#[cfg(all(test, target_os = "macos"))]
 	fn new(
 		prefer_hardware: bool,
 		user: u64,
