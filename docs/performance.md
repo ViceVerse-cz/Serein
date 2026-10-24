@@ -28,13 +28,13 @@ formatting, application and policy checks; the native Arch package smoke also pa
 
 ### Linux HEVC reception extension
 
-The actual preceding streaming build is `ca4b5ed`, verified by SHA-256 and preserved
+The actual preceding streaming build is `e9dae84`, verified by SHA-256 and preserved
 before editing. It negotiates only H.264. The extension offers receive-only H.265 when
 the installed parser/decoder and bounded pipeline initialize, keeps H.264 fallback and
 handles session codec updates. Existing encoded/decoded queue limits and A/V timing apply.
 No new dependency, media cache or audio-processing change is introduced.
 
-| Standard Arch package / same pinned toolchain | Before `ca4b5ed` | HEVC candidate | Delta |
+| Standard Arch package / same pinned toolchain | Before `e9dae84` | HEVC candidate | Delta |
 | --- | ---: | ---: | ---: |
 | Executable | 92,751,880 B | 92,767,368 B | +15,488 B (+0.017%) |
 | Installed payload | 97,450,313 B | 97,465,801 B | +15,488 B (+0.016%) |
@@ -66,7 +66,7 @@ perceptual-quality parity.
 
 ### Receive payload routing correction
 
-The preceding `3352c42` candidate incorrectly used the outgoing session selection as
+The preceding `169bfdc` candidate incorrectly used the outgoing session selection as
 an incoming payload filter. Its preserved 75.096-second owner capture has zero admitted
 video packets/pictures and 3,587,520 decoded audio samples without concealment. That
 capture did not count discarded packet types, so it alone does not identify the wire
@@ -84,7 +84,7 @@ and presentation tags with zero errors/resets/drops/rejections and no final audi
 The rest of the native decoding/timing path is unchanged. The later owner-operated retest confirmed working reception and satisfactory playback
 (see below); physical FPS/latency and full-client CPU/RSS remain unmeasured.
 
-| Standard Arch package / same pinned toolchain | Before `3352c42` | Routing correction | Delta |
+| Standard Arch package / same pinned toolchain | Before `169bfdc` | Routing correction | Delta |
 | --- | ---: | ---: | ---: |
 | Executable | 92,766,344 B | 92,767,368 B | +1,024 B (+0.001%) |
 | Installed payload | 97,464,777 B | 97,465,801 B | +1,024 B (+0.001%) |
@@ -92,7 +92,7 @@ The rest of the native decoding/timing path is unchanged. The later owner-operat
 
 ### UHD live reception — October 23, 2026
 
-The verified preceding `28377fd` package was preserved before editing. The original
+The verified preceding `ac345cc` package was preserved before editing. The original
 1080p cap dates to the first RGBA receiver (`b0f57be`), without a recorded codec or
 protocol requirement for that resolution. Live dimensions now accept 3840×2160 worth
 of pixels within a 3840-pixel square. HEVC SPS coded surfaces allow bounded 64-pixel
@@ -132,7 +132,7 @@ product decoder limit. Bitstreams use libx264/libx265 ultrafast, no B frames, AU
 repeated parameter sets; HEVC uses four pool/two frame threads. The UHD60 fixtures have
 a 12 Mbps target/max rate and 12 Mbps VBV buffer.
 
-An owner-controlled sequential comparison of `28377fd` and official Discord on the same
+An owner-controlled sequential comparison of `ac345cc` and official Discord on the same
 stream recorded H.265, 1280×718 and approximately 30 fps in both clients, averaging
 1.13/1.11 Mbps respectively. Neither capture recorded video drops; Serein recorded
 zero decoding errors. The owner reported satisfaction. Content changes between captures
@@ -141,7 +141,7 @@ Reception supports up to 4K60, but live 4K60 validation remains pending.
 Windows/macOS native behavior is not locally verified. Discord's [official screen-share documentation](https://support.discord.com/hc/en-us/articles/360040816151-Go-Live-and-Screen-Share)
 lists desktop streaming up to 4K/60 fps with Nitro.
 
-| Standard Arch package | Before `28377fd` | UHD candidate | Delta |
+| Standard Arch package | Before `ac345cc` | UHD candidate | Delta |
 | --- | ---: | ---: | ---: |
 | Executable | 92,767,368 B | 92,767,752 B | +384 B (+0.000%) |
 | Installed payload | 97,465,801 B | 97,466,185 B | +384 B (+0.000%) |
@@ -149,7 +149,7 @@ lists desktop streaming up to 4K/60 fps with Nitro.
 
 ### Adaptive packet-repair allowance — October 23, 2026
 
-An owner-operated test of `06401c1` recorded 277 incomplete-frame events, 2,953 gated
+An owner-operated test of `ffd6063` recorded 277 incomplete-frame events, 2,953 gated
 predictions and 1,047 RTX packets, but only 29 holes repaired in 246.895 seconds.
 Decoder errors, stale frames, decoder queue-full events and playout-pressure drops were
 zero. The owner reported the same stream played smoothly in official Discord. These
@@ -166,7 +166,7 @@ history; late fills never resurrect discarded pictures. Packet/byte caps and thr
 attempts remain unchanged. Numeric expired/late/response/budget aggregates let the next
 owner test confirm or reject delayed repair as the explanation for this live failure.
 
-A deterministic, no-sleep ordering workload compares preserved `06401c1` with this
+A deterministic, no-sleep ordering workload compares preserved `ffd6063` with this
 change: 600 one-packet pictures at 60 Hz, a missing non-key packet every 30 pictures,
 usable keyframes every 60 pictures, and delivery of the missing packet at the configured
 delay after its first NACK. The harness models reference gating from ordered loss events;
@@ -197,7 +197,7 @@ the adaptive run avoids repeating that loss on subsequent repairs. Callback timi
 not physical display timing. A separate approximately 44 Mbps 1440p fixture exceeds the
 unchanged repair queue bound before delayed repair; both revisions retain that hard limit.
 
-| Standard Arch package | Before `06401c1` | Adaptive repair | Delta |
+| Standard Arch package | Before `ffd6063` | Adaptive repair | Delta |
 | --- | ---: | ---: | ---: |
 | Executable | 92,767,752 B | 92,775,816 B | +8,064 B (+0.009%) |
 | Installed payload | 97,466,185 B | 97,474,249 B | +8,064 B (+0.008%) |
@@ -205,7 +205,7 @@ unchanged repair queue bound before delayed repair; both revisions retain that h
 
 ### Receive-only AV1 — October 23, 2026
 
-The verified `d2fccf65` package is the baseline. Its owner-operated 120.212-second
+The verified `8f79435b` package is the baseline. Its owner-operated 120.212-second
 sample receives HEVC at 2560×1440, 59.49 decoded fps and 1.234 Mbps of complete decrypted
 video payload, with zero incomplete/gated frames, decoder errors or playback drops.
 The same owner then opens the stream in official Discord: 13 post-startup reports span
@@ -239,7 +239,7 @@ These are functional checks, not physical FPS, latency or perceptual-quality mea
 Instrumented AV1 UHD/native Windows/macOS behavior and full-client CPU/RSS are unmeasured.
 The subsequent successful Linux 1440p60 capture is recorded below; live 4K60 testing remains pending.
 
-| Standard Arch package | Before `d2fccf65` | AV1 reception | Delta |
+| Standard Arch package | Before `8f79435b` | AV1 reception | Delta |
 | --- | ---: | ---: | ---: |
 | Executable | 92,775,816 B | 92,785,288 B | +9,472 B (+0.010%) |
 | Installed payload | 97,474,249 B | 97,483,721 B | +9,472 B (+0.010%) |
@@ -247,7 +247,7 @@ The subsequent successful Linux 1440p60 capture is recorded below; live 4K60 tes
 
 ### Watched-stream transport feedback — October 23, 2026
 
-The verified `80905441` package is the baseline. The owner-controlled different-stream
+The verified `fcf6fe62` package is the baseline. The owner-controlled different-stream
 HEVC 1280×534 comparison records 1.299 Mbps of Serein complete decrypted payload over
 100.133 seconds, versus official Discord's mean reported 3.841 Mbps across eight
 post-startup reports spanning 70.234 seconds. Both decode about 59.8 fps without video
@@ -268,7 +268,7 @@ These verify protocol behavior, not SFU acceptance, bitrate uplift or full-clien
 New numeric transport/probe byte counters allow the next live comparison to distinguish
 wire traffic from complete decrypted media. Owner testing remains required.
 
-| Standard Arch package | Before `80905441` | Transport feedback | Delta |
+| Standard Arch package | Before `fcf6fe62` | Transport feedback | Delta |
 | --- | ---: | ---: | ---: |
 | Executable | 92,785,288 B | 92,801,160 B | +15,872 B (+0.017%) |
 | Installed payload | 97,483,721 B | 97,499,593 B | +15,872 B (+0.016%) |
@@ -276,7 +276,7 @@ wire traffic from complete decrypted media. Owner testing remains required.
 
 ### AV1 temporal delimiter repair — October 24, 2026
 
-The verified `ca1dd7f9` package is the baseline. The owner's AV1 2560×1440 attempt
+The verified `bc9b2682` package is the baseline. The owner's AV1 2560×1440 attempt
 receives complete video payload up to roughly 7.5 Mbps, with transport-wide arrival
 feedback active, but displays only one picture per attempt. Incoming audio continues
 without concealment. This is evidence of received packets, not successful AV1 playback.
@@ -301,7 +301,7 @@ this boundary and must not be treated as evidence that RTP-shaped AV1 had worked
 The final native replay runs after Cargo checks; a retained concurrent run hit startup
 queue-age expiry and is excluded from this functional before/after comparison.
 
-| Standard Arch package | Before `ca1dd7f9` | AV1 temporal framing | Delta |
+| Standard Arch package | Before `bc9b2682` | AV1 temporal framing | Delta |
 | --- | ---: | ---: | ---: |
 | Executable | 92,801,160 B | 92,801,416 B | +256 B (+0.000%) |
 | Installed payload | 97,499,593 B | 97,499,849 B | +256 B (+0.000%) |
@@ -309,7 +309,7 @@ queue-age expiry and is excluded from this functional before/after comparison.
 
 ### Final owner playback evidence — October 24, 2026
 
-Runtime candidate `aa261706` receives AV1 2560×1440. The reviewed post-startup
+Runtime candidate `e935dc7b` receives AV1 2560×1440. The reviewed post-startup
 696.615-second interval delivers 41,800 pictures at 60.004 fps, with mean complete
 video payload 7.892 Mbps (five-second range 3.722–8.385 Mbps) and authenticated video
 RTP datagrams 8.249 Mbps. Decoder errors, stale frames, queue/playout drops/resets,
@@ -326,7 +326,7 @@ aggregate results are recorded in the repository.
 
 ### Earlier playback recovery evidence
 
-The prior owner-tested candidate `7711bbe` covered two sessions totaling 6,638.153 seconds
+The prior owner-tested candidate `fb093bc` covered two sessions totaling 6,638.153 seconds
 at 1280×720/~60 fps: 397,845 decoded pictures, zero decoder errors/stale submissions, five
 reset events and 48 queued-picture drops. One reset is in the final teardown window.
 There were four incomplete pictures, a longest decoded-picture interval of 2,359 ms,
@@ -344,7 +344,7 @@ All 18 cases produce all 50 expected audible output frames in the final second. 
 synthetic; no sleeps, audio devices or live content are used. Tests also cover initial buffering,
 reordering, timestamp wrap/jumps, bounds, source retirement and PCM clearing.
 
-The `d34f23f` owner comparison exposed crackling and recovery pauses. Its 249.930-second
+The `0fcf859` owner comparison exposed crackling and recovery pauses. Its 249.930-second
 numeric capture contained 11 playout resets and 172 queued-picture drops, with a longest
 picture interval of 1,439 ms. No device/parent transport drops or 80 ms stalls were reported;
 video queue depth grew to 43. These counters do not identify every source of the crackling.
@@ -361,7 +361,7 @@ revision; this does not reproduce or rule out physical-device crackling. The new
 separate decoded/concealed samples, rebufferings, queue span/target, bridge discontinuities
 and the OS device-delay estimate. A further owner comparison remains required.
 
-The next `248c53c` owner capture's initial 34.380-second segment has 10 video queue
+The next `44a1fbc` owner capture's initial 34.380-second segment has 10 video queue
 resets / 239 queued-picture drops and a 1,039 ms picture interval, while audio has zero
 concealment or rebufferings; device empty-frame counters stay zero in intervening full
 playback windows. Its longer ongoing segment later
@@ -399,7 +399,7 @@ GStreamer/VA-API on an AMD RX 6900 XT, with a simulated 73 ms audio-device delay
 luma CRC and its correlated presentation tag must match its input in order. The parser retains
 the final access unit; 479 outputs from 480 inputs are expected without EOS.
 
-| Earlier native case / metric | `d34f23f` | Rebuffering correction `248c53c` |
+| Earlier native case / metric | `0fcf859` | Rebuffering correction `44a1fbc` |
 | --- | ---: | ---: |
 | 500 ms audio gap: decoded pictures | 479 | 479 |
 | Same case: invalidated presentation tags | 10 | 0 |
@@ -417,10 +417,10 @@ are 127.533/20.862 ms. Acquiring audio during video still causes a brief timing 
 These single functional runs are not isolated benchmarks or GUI/physical measurements.
 The new-source clock wait remains capped at 200 ms and expires when output timing is unavailable.
 
-The latest native comparison uses `248c53c` as its baseline, the same fixture/backend,
+The latest native comparison uses `44a1fbc` as its baseline, the same fixture/backend,
 and one run per case. Timestamps change while encoded picture order remains intact.
 
-| Timestamp continuity metric | `248c53c` | Corrected candidate |
+| Timestamp continuity metric | `44a1fbc` | Corrected candidate |
 | --- | ---: | ---: |
 | Video phase change: decoded pictures | 358 | 479 |
 | Same case: gated predictions | 99 | 0 |
@@ -448,7 +448,7 @@ is included. Six-picture bursts delivered 18 → 479 pictures; an empty keepaliv
 consumer's upload-gap p95 changed from 91.961 → 34.011 ms at 30 fps and 75.005 → 17.010 ms
 at 60 fps. These are preparation evidence on earlier integration builds; they do not measure
 the current presentation queue, default-client CPU/RSS or physical display timing. The old A/V
-candidate `4714d41` also exposed a 16-picture overflow and a retained audio-anchor starvation
+candidate `0dabf19` also exposed a 16-picture overflow and a retained audio-anchor starvation
 loop; their synthetic regressions remain covered.
 
 Resource limits: repair 512 sequence positions / 512 KiB per source (16 sources), encoded

@@ -884,7 +884,7 @@ on every network, device or platform.
 
 ### Owner playback validation — October 24, 2026
 
-The final runtime candidate `aa261706` was watched by the owner at AV1 2560×1440/60.
+The final runtime candidate `e935dc7b` was watched by the owner at AV1 2560×1440/60.
 A reviewed 696.615-second interval delivered 41,800 pictures (60.004 fps), averaging
 7.892 Mbps of complete decrypted video payload and 8.249 Mbps of authenticated video
 RTP datagrams. It recorded no decoder errors, stale/queue/playout drops or resets,

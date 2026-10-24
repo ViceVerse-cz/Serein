@@ -768,7 +768,7 @@ raises the shared live decoder bound to 3840×2160; sending presets and inline a
 retain their limits.
 
 Synthetic protocol, encrypted local-UDP, sample-clock and Linux native decode checks cover
-these paths. An owner-operated `7711bbe` test covered about 111 minutes at 720p/~60 fps,
+these paths. An owner-operated `fb093bc` test covered about 111 minutes at 720p/~60 fps,
 with no decoder errors or persistent audio starvation and a few isolated recovery pauses.
 That evidence precedes adaptive buffering and presentation-level scheduling; the final
 combined candidate needs another owner comparison. Windows/macOS native timing behavior
@@ -776,7 +776,7 @@ and broad network interoperability remain unverified.
 
 ### Final owner playback evidence — October 24, 2026
 
-On final runtime candidate `aa261706`, an owner-operated Linux AV1 2560×1440 test
+On final runtime candidate `e935dc7b`, an owner-operated Linux AV1 2560×1440 test
 sustains 60.004 decoded fps over a reviewed 696.615-second interval (41,800 pictures).
 Complete decrypted payload averages 7.892 Mbps; authenticated video datagrams average
 8.249 Mbps. There are no decoder errors, stale/queue/playout drops/resets, incomplete
@@ -792,7 +792,7 @@ AV1 playback gate, without claiming universal codec/platform compatibility.
 
 ### AV1 native temporal-unit recovery — October 24, 2026
 
-Owner-operated attempts on `ca1dd7f9` receive AV1 2560×1440, with complete decrypted
+Owner-operated attempts on `bc9b2682` receive AV1 2560×1440, with complete decrypted
 video reaching roughly 7.5 Mbps and authenticated timing feedback active. Audio keeps
 playing without concealment, but each attempt delivers one decoded picture, then none.
 No incomplete video or DAVE-decrypt failures are recorded. Recovery requests gate most
@@ -810,7 +810,7 @@ the subsequent successful owner retest is recorded above.
 
 ### Watched-stream transport feedback — October 23, 2026
 
-A subsequent owner-operated test on `80905441` used a different stream from the earlier
+A subsequent owner-operated test on `fcf6fe62` used a different stream from the earlier
 1440p AV1 comparison: both clients received HEVC 1280×534 at about 59.8 decoded fps.
 Serein's 100.133-second post-startup payload sample averaged 1.299 Mbps (0.662–1.449),
 while eight official-client post-startup reports spanning 70.234 seconds averaged
@@ -836,7 +836,7 @@ AV1 playback, as recorded above. See [voice details](voice.md).
 
 ### Linux watched-stream AV1 reception — October 23, 2026
 
-An owner-controlled sequential 1440p comparison of `d2fccf65` found HEVC at 1.23 Mbps
+An owner-controlled sequential 1440p comparison of `8f79435b` found HEVC at 1.23 Mbps
 and 59.5 decoded fps in Serein, versus Discord's reported `AV1X` at 4.59 Mbps and 60 fps.
 Both received 2560×1440 and neither reported playback drops. Samples differ in content
 and bitrate accounting; they establish different received encodes, not the reason for
