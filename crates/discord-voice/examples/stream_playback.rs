@@ -41,19 +41,24 @@ pub(crate) fn main() {
 	}
 	assert_eq!(
 		audio.next(&receive, 50, true, false).unwrap().samples,
-		[0.35; 960]
+		[0.05; 960]
 	);
 	assert_eq!(
 		audio.next(&receive, 200, true, false).unwrap().samples,
-		[1.0; 960]
+		[0.4; 960]
 	);
+	for _ in 0..6 {
+		assert!(audio.next(&receive, 100, true, false).is_some());
+	}
 	assert!(audio.next(&receive, 100, true, false).is_none());
 	for (volume, enabled, stalled) in [(0, true, false), (100, false, false), (100, true, true)] {
 		send.try_send([0.5; 960].into()).unwrap();
 		assert!(audio.next(&receive, volume, enabled, stalled).is_none());
 		assert!(audio.next(&receive, 100, true, false).is_none());
 	}
-	send.try_send([f32::NAN; 960].into()).unwrap();
+	for _ in 0..3 {
+		send.try_send([f32::NAN; 960].into()).unwrap();
+	}
 	assert_eq!(
 		audio.next(&receive, 100, true, false).unwrap().samples,
 		[0.0; 960]

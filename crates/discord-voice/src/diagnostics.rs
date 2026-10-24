@@ -149,7 +149,7 @@ pub(crate) enum Video {
 	TwccMissing,
 	TwccDiscarded,
 }
-const VIDEO_SLOTS: usize = 63;
+const VIDEO_SLOTS: usize = Video::TwccDiscarded as usize + 1;
 
 /// Opt-in only; media callbacks do no additional atomic work when diagnostics are off.
 pub(crate) fn enabled() -> bool {

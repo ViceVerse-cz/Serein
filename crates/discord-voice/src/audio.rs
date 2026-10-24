@@ -1098,10 +1098,11 @@ impl Playback {
 					self.gaps[0] += 1;
 					break;
 				};
-				if frame
-					.presentation
-					.as_ref()
-					.is_some_and(|tag| !tag.is_current())
+				if !frame.mixed
+					&& frame
+						.presentation
+						.as_ref()
+						.is_some_and(|tag| !tag.is_current())
 				{
 					self.gaps[1] += 1;
 					continue;
@@ -1580,6 +1581,37 @@ mod tests {
 		}
 	}
 	#[test]
+	fn stream_retirement_preserves_queued_call_speech_and_rejects_unmixed_pcm() {
+		let clock = Arc::new(crate::presentation::Clock::default());
+		let now = Instant::now();
+		let stream = || crate::PlaybackFrame {
+			samples: [0.3; 960],
+			presentation: Some(clock.stamp(now)),
+			mixed: false,
+		};
+		let (mut send, receive) = rtrb::RingBuffer::new(8);
+		let mixed = crate::PlaybackFrame::mix(Some([0.2; 960]), Some(stream())).unwrap();
+		let stale = stream();
+		send.push(mixed).unwrap();
+		clock.reset();
+		// An already stale stream must not contaminate a new call frame either.
+		let call = crate::PlaybackFrame::mix(Some([0.2; 960]), Some(stale.clone())).unwrap();
+		assert!(call.samples.iter().all(|sample| *sample == 0.2));
+		assert!(call.presentation.is_none());
+		send.push(stale).unwrap();
+		send.push(call).unwrap();
+		let mut playback = Playback::new(48_000, receive, rtrb::RingBuffer::new(8).0);
+		for _ in 0..960 {
+			assert_eq!(playback.pull(Some(now)), 0.5);
+		}
+		for _ in 0..960 {
+			assert_eq!(playback.pull(Some(now)), 0.2);
+		}
+		assert_eq!(playback.gaps, [0, 1]);
+		// Invalidated timing metadata cannot move the new stream's output clock.
+		assert_eq!(clock.stamp(now).deadline(now), now);
+	}
+	#[test]
 	fn resampled_output_reports_device_time_for_the_matching_stream_frame() {
 		let audio = audio_without_devices();
 		audio.set_ready(true);
@@ -1592,6 +1624,7 @@ mod tests {
 		let now = Instant::now();
 		let (mut send, receive) = rtrb::RingBuffer::new(8);
 		send.push(crate::PlaybackFrame {
+			mixed: false,
 			samples: [0.2; 960],
 			presentation: Some(clock.stamp(now)),
 		})
@@ -1608,6 +1641,7 @@ mod tests {
 		);
 		clock.reset();
 		send.push(crate::PlaybackFrame {
+			mixed: false,
 			samples: [0.8; 960],
 			presentation: Some(clock.stamp(now)),
 		})

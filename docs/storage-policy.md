@@ -1085,13 +1085,17 @@ Timing state has at most 32 source clocks and 16 sender references, with constan
 arrival estimates and shared atomic output clocks. Reports older than 30 seconds are
 ignored for synchronization. A PCM frame carries one optional timestamp/clock reference
 through the existing bounded stream, call and device queues; none adds a new PCM queue.
-Audio-buffer restart, source retirement, rekeys and teardown invalidate old timestamp
-generations. The output callback publishes only numeric timing, never media contents.
+Source retirement, rekeys and teardown invalidate old timestamp generations. Audio-buffer
+restart preserves already accepted PCM/video. Stale stream PCM is rejected before call
+mixing; mixed participant speech survives later stream timestamp invalidation. The output
+callback publishes only numeric timing, never media contents.
 Device-clock estimates expire after two seconds without new playback.
 
-Each decoder correlates at most 16 transient output tags to timestamps; tags expire at
-the existing 150 ms decoder-age budget. The watched UI retains at most eight decoded
-pictures, bounded together with its reusable latest-picture storage by 128 MiB of allocated
+Each decoder correlates at most 16 transient output tags to timestamps, evicting the oldest
+at capacity. The 150 ms age budget applies to queued submissions and backpressure retries,
+not tags awaiting delayed native output. Unknown tags are discarded and counted as stale.
+The watched UI retains at most eight decoded pictures, bounded together with its reusable
+latest-picture storage by 128 MiB of allocated
 plane capacity. Pressure skips decoded display pictures and leaves codec references intact.
 These transient buffers are cleared with the watched session. No media files, diagnostic
 archives, schema changes or persistent queues are added.

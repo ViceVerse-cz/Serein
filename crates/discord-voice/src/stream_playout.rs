@@ -36,6 +36,13 @@ impl Playout {
 			self.started = false;
 			return None;
 		}
+		// A queued stream may have been stopped, switched or rekeyed since arrival.
+		self.pending.retain(|frame| {
+			frame
+				.presentation
+				.as_ref()
+				.is_none_or(crate::Presentation::is_current)
+		});
 		if !self.started && self.pending.len() < 3 {
 			return None;
 		}
@@ -60,6 +67,33 @@ impl Playout {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn retired_stream_frames_do_not_delay_or_mix_with_the_replacement() {
+		let clock = std::sync::Arc::new(crate::presentation::Clock::default());
+		let (send, receive) = std::sync::mpsc::sync_channel(8);
+		let mut playout = Playout::default();
+		for _ in 0..3 {
+			send.send(PlaybackFrame {
+				samples: [0.8; 960],
+				presentation: Some(clock.stamp(std::time::Instant::now())),
+				mixed: false,
+			})
+			.unwrap();
+		}
+		assert_eq!(
+			playout.next(&receive, 100, true, false).unwrap().samples[0],
+			0.8
+		);
+		clock.reset();
+		assert!(playout.next(&receive, 100, true, false).is_none());
+		for _ in 0..3 {
+			send.send([0.2; 960].into()).unwrap();
+		}
+		assert_eq!(
+			playout.next(&receive, 100, true, false).unwrap().samples[0],
+			0.2
+		);
+	}
 	#[test]
 	fn scheduler_bursts_preserve_sample_order_and_a_continuous_output_cadence() {
 		let (send, receive) = std::sync::mpsc::sync_channel(8);

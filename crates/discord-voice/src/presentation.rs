@@ -132,12 +132,39 @@ impl Presentation {
 pub struct PlaybackFrame {
 	pub samples: crate::Frame,
 	pub presentation: Option<Presentation>,
+	// Stream invalidation must not discard participant speech already mixed in.
+	pub(crate) mixed: bool,
+}
+impl PlaybackFrame {
+	pub(crate) fn mix(call: Option<crate::Frame>, stream: Option<Self>) -> Option<Self> {
+		let stream = stream.filter(|frame| {
+			frame
+				.presentation
+				.as_ref()
+				.is_none_or(Presentation::is_current)
+		});
+		match (call, stream) {
+			(Some(mut samples), Some(stream)) => {
+				for (out, sample) in samples.iter_mut().zip(stream.samples) {
+					*out = (*out + sample).clamp(-1.0, 1.0);
+				}
+				Some(Self {
+					samples,
+					presentation: stream.presentation,
+					mixed: true,
+				})
+			}
+			(Some(samples), None) => Some(samples.into()),
+			(None, stream) => stream,
+		}
+	}
 }
 impl From<crate::Frame> for PlaybackFrame {
 	fn from(samples: crate::Frame) -> Self {
 		Self {
 			samples,
 			presentation: None,
+			mixed: false,
 		}
 	}
 }

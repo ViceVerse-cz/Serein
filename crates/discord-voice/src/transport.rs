@@ -612,18 +612,11 @@ async fn run_inner(
 					   if enabled && !control.deafened {
 						   if stalled {mixer.clear();}
 						   let start = metrics.start();
-						   let (mut frame,remote_audio)=mixer.pop_with_volumes(&control.user_volumes);
-		let mut presentation=None;
-						   // Keep the auxiliary stream close to live even if this clock misses a tick.
-						   if let Some(aux)=&stream_audio && let Some(extra)=stream_playout.next(aux,control.stream_volume,true,stalled) {
-							   presentation=extra.presentation;
-		match &mut frame {
-								   Some(mixed)=>for (out,sample) in mixed.iter_mut().zip(extra.samples.iter()) {*out=(*out+sample).clamp(-1.0,1.0);},
-								   None=>frame=Some(extra.samples),
-							   }
-						   }
+						   let (frame,remote_audio)=mixer.pop_with_volumes(&control.user_volumes);
+		let extra=stream_audio.as_ref().and_then(|aux|stream_playout.next(aux,control.stream_volume,true,stalled));
+		let frame=crate::PlaybackFrame::mix(frame,extra);
 						   metrics.finish(crate::diagnostics::Stage::Mix, start);
-						   if let Some(frame)=frame {drops = u64::from(playback.try_send(crate::PlaybackFrame{samples:frame,presentation}).is_err());}
+						   if let Some(frame)=frame {drops = u64::from(playback.try_send(frame).is_err());}
 						   if !heard && remote_audio {heard=true;emit(Status::RemoteAudio).map_err(|_|"Call interface closed")?;}
 					   } else {mixer.clear();if let Some(aux)=&stream_audio {let _=stream_playout.next(aux,0,false,false);}}
 					   let [bridge_drops,bridge_underruns]=stream_playout.take_stats();

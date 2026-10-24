@@ -80,7 +80,7 @@ impl Codec {
 				.filter(|nal| (nal[0] >> 1) & 63 == 33)
 				.all(crate::video_hevc::bounded_sps)
 	}
-	fn nals(self, frame: &[u8]) -> impl Iterator<Item = &[u8]> {
+	pub(crate) fn nals(self, frame: &[u8]) -> impl Iterator<Item = &[u8]> {
 		let mut at = 0;
 		std::iter::from_fn(move || {
 			while let Some((start, size)) = start_code(frame, at) {

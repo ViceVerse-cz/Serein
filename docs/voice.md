@@ -861,9 +861,13 @@ per-picture tag. Decode starts early, with 8–100 ms lead based on measured dec
 and a small scheduling allowance. A new audio source allows at most 200 ms to establish
 output timing, then falls back if playback timing is unavailable. Brief native pressure
 is retried only on the decoder worker within the existing 150 ms age budget. Incoming
-cameras retain immediate scheduling.
+cameras retain immediate scheduling. Correlation retains at most 16 tags per decoder; sparse
+input does not age out a tag while its native picture waits for the next input. An output
+with an evicted/unknown tag is counted as stale and discarded.
 
 Watched PCM retains its presentation timestamp through call mixing and device queues.
+Stale stream PCM is rejected before mixing. Retiring a stream after mixing cannot discard
+participant speech already queued for output; stale stream-only frames are still discarded.
 The bridge between independently scheduled stream/call ticks retains at most eight frames
 and starts with three queued frames (40 ms of scheduling headroom). This absorbs short
 bursts without cutting whole audio frames; stalls of at least 80 ms and playback gates

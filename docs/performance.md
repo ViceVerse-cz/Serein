@@ -18,12 +18,12 @@ Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and wi
 
 | Package metric | Upstream baseline | Streaming candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 92,650,248 B | 92,801,416 B | +151,168 B (+0.163%) |
-| Installed payload (245 files) | 97,348,681 B | 97,499,849 B | +151,168 B (+0.155%) |
-| Arch archive | 54,376,694 B | 54,475,582 B | +98,888 B (+0.182%) |
+| Executable | 92,650,248 B | 92,802,184 B | +151,936 B (+0.164%) |
+| Installed payload (245 files) | 97,348,681 B | 97,500,617 B | +151,936 B (+0.156%) |
+| Arch archive | 54,376,694 B | 54,477,570 B | +100,876 B (+0.186%) |
 
 Installed bytes sum regular archive files under `usr/`, excluding package metadata.
-Both packages contain 245 installed files. The final gate passes 1,317 tests, strict Clippy,
+Both packages contain 245 installed files. The final gate passes 1,321 tests, strict Clippy,
 formatting, application and policy checks; the native Arch package smoke also passes.
 
 ### Linux HEVC reception extension
@@ -324,6 +324,32 @@ bitrate improvement, identical content/perceptual quality versus official Discor
 scanout/latency or full-client CPU/RSS. The numeric evidence is kept private and only
 aggregate results are recorded in the repository.
 
+### Review validation — October 25, 2026
+
+Four focused regressions cover call speech queued across stream retirement, rejection of
+retired PCM in the stream bridge, standalone H.264 parameter updates between pictures,
+and delayed native output across sparse inputs and tag pressure. Timing correlation keeps
+at most 16 entries; unknown/evicted native tags are dropped with a stale counter rather
+than admitted as untimed pictures. Parameter-only software inputs no longer enter the
+picture timestamp FIFO. Already mixed call speech survives stream timestamp invalidation;
+stream-only stale audio still drops, and call playback/security gates remain effective.
+
+The full workspace gate passes 1,321 tests plus strict Clippy, formatting, production and
+policy checks. The offline playback example also passes. Serial before/after runs of the
+same eight-second RTP-shaped AV1 1440p60 fixture (baseline `e935dc7b`, review candidate)
+retain all 480 identical luma checksums and presentation tags, with no decoder errors,
+stale/queue/playout drops or resets, and all 100 audible frames in the final two input
+seconds without concealment. These functional runs include a temporary +200 ms video
+phase and simulated 73 ms output delay. They do not measure physical display/audio latency
+or establish a speed improvement. The existing owner live results above predate these
+review changes; no further live validation is claimed here.
+
+| Standard Arch package | Before review (`e935dc7b`) | Review candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,801,416 B | 92,802,184 B | +768 B (+0.001%) |
+| Installed payload | 97,499,849 B | 97,500,617 B | +768 B (+0.001%) |
+| Arch archive | 54,475,582 B | 54,477,570 B | +1,988 B (+0.004%) |
+
 ### Earlier playback recovery evidence
 
 The prior owner-tested candidate `fb093bc` covered two sessions totaling 6,638.153 seconds
@@ -455,8 +481,9 @@ Resource limits: repair 512 sequence positions / 512 KiB per source (16 sources)
 presentation queue 64 pictures / 8 MiB, decoder handoff 16 pictures / 16 MiB, Linux native input
 four units, native decode-age budget 150 ms. Watched audio retains at most 128 compressed
 packets and 5,760 mono PCM samples per source (16 sources; 2,979,840 payload/PCM bytes), plus a
-965-sample stack scratch. Correlation keeps 16 expiring tags per decoder. UI pending/latest
-planes share an eight-pending-picture / 32-MiB allocated-capacity budget. Existing bounded
+965-sample stack scratch. Correlation keeps at most 16 tags per decoder until output or
+replacement. UI pending/latest planes share an eight-pending-picture / 128-MiB
+allocated-capacity budget. Existing bounded
 PCM channels remain; the stream/call bridge pending cap increases from two to eight frames
 (7,680 to 30,720 sample bytes, excluding metadata), with 40 ms startup headroom. Timestamps
 add metadata, not another queue. Diagnostics stay opt-in and retain only bounded numeric aggregates.

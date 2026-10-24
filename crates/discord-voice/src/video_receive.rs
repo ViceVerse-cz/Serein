@@ -876,16 +876,15 @@ struct Timings {
 	pending: std::collections::VecDeque<(u64, Instant, Option<crate::Presentation>)>,
 }
 impl Timings {
-	fn insert(&mut self, tag: u64, presentation: Option<crate::Presentation>) -> bool {
+	fn insert(&mut self, tag: u64, presentation: Option<crate::Presentation>) {
 		let now = Instant::now();
 		self.active = true;
-		self.pending
-			.retain(|(_, at, _)| now.saturating_duration_since(*at) < MAX_DECODE_AGE);
+		// Native decoders may hold a picture until the next input, even on a sparse
+		// screen share. Submission age is not the lifetime of its correlation tag.
 		if self.pending.len() == 16 {
-			return false;
+			self.pending.pop_front();
 		}
 		self.pending.push_back((tag, now, presentation));
-		true
 	}
 	fn take(&mut self, tag: u64) -> Option<(Option<crate::Presentation>, std::time::Duration)> {
 		if !self.active {
@@ -938,6 +937,7 @@ impl Backend {
 					.ok()
 					.and_then(|mut timings| timings.take(tag))
 				else {
+					counters.stale.fetch_add(1, Ordering::Relaxed);
 					return;
 				};
 				record_decode_time(&counters, elapsed);
@@ -1182,15 +1182,23 @@ fn decode_loop(
 		}
 		serial = serial.wrapping_add(1);
 		let timing = timings.get(&frame.user).expect("decoder timing inserted");
-		if !timing
-			.lock()
-			.is_ok_and(|mut timing| timing.insert(serial, presentation))
+		let decoder = decoders.get_mut(&frame.user).expect("decoder inserted");
+		let hardware = !matches!(decoder, Backend::Software(_));
+		// Parameter-only inputs produce no software picture. Keep them out of the
+		// picture FIFO while retaining entries for slices buffered by the decoder.
+		let picture_input = hardware
+			|| Codec::H264
+				.nals(&frame.data)
+				.any(|nal| matches!(nal[0] & 31, 1..=5));
+		if picture_input
+			&& !timing
+				.lock()
+				.map(|mut timing| timing.insert(serial, presentation))
+				.is_ok()
 		{
 			mark_broken(frame.user, &mut broken, &lost);
 			continue;
 		}
-		let decoder = decoders.get_mut(&frame.user).expect("decoder inserted");
-		let hardware = !matches!(decoder, Backend::Software(_));
 		let Some(result) = decode_when_ready(
 			queued + MAX_DECODE_AGE,
 			&lifetime,
@@ -1291,6 +1299,104 @@ fn bounded(width: usize, height: usize) -> Result<(u32, u32), ()> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn sparse_native_output_keeps_its_tag_and_pressure_remains_bounded() {
+		let mut timings = Timings::default();
+		let now = Instant::now();
+		let stamp = crate::Presentation::new(now);
+		timings.insert(1, Some(stamp));
+		// Simulate a decoder holding a picture until the next sparse input, without
+		// sleeping or treating the test runner's speed as a performance assertion.
+		timings.pending.front_mut().unwrap().1 = now - Duration::from_secs(1);
+		timings.insert(
+			2,
+			Some(crate::Presentation::new(now + Duration::from_secs(1))),
+		);
+		assert_eq!(timings.take(1).unwrap().0.unwrap().at, now);
+		for tag in 3..=18 {
+			timings.insert(tag, None);
+		}
+		assert_eq!(timings.pending.len(), 16);
+		assert!(
+			timings.take(2).is_none(),
+			"evicted outputs must not become untimed pictures"
+		);
+		assert!(timings.take(18).is_some());
+		assert!(
+			timings.take(18).is_none(),
+			"duplicate output must not be delivered"
+		);
+	}
+
+	#[test]
+	fn software_parameter_updates_do_not_shift_later_picture_timestamps() {
+		use openh264::{
+			OpenH264API,
+			encoder::{Encoder, EncoderConfig},
+			formats::YUVBuffer,
+		};
+		let mut encoder =
+			Encoder::with_api_config(OpenH264API::from_source(), EncoderConfig::new()).unwrap();
+		let image = YUVBuffer::new(32, 32);
+		let first = encoder.encode(&image).unwrap().to_vec();
+		let parameters: Vec<_> = Codec::H264
+			.nals(&first)
+			.filter(|nal| matches!(nal[0] & 31, 7 | 8))
+			.flat_map(|nal| START_CODE.iter().chain(nal).copied())
+			.collect();
+		assert!(!parameters.is_empty());
+		let inputs = [
+			first,
+			parameters,
+			encoder.encode(&image).unwrap().to_vec(),
+			encoder.encode(&image).unwrap().to_vec(),
+		];
+		let (queue, receive) = decoder_cleanup_queue(4);
+		let seen = Arc::new(Mutex::new(Vec::new()));
+		let output = seen.clone();
+		let counters = queue.counters.clone();
+		let worker = std::thread::spawn(move || {
+			decode_loop(
+				receive,
+				Arc::new(move |frame| output.lock().unwrap().push(frame.presentation.unwrap().at)),
+				Arc::default(),
+				counters,
+				false,
+			)
+		});
+		let now = Instant::now();
+		for (index, data) in inputs.into_iter().enumerate() {
+			assert!(
+				offer_timed(
+					&queue,
+					Encoded {
+						codec: Codec::H264,
+						user: 7,
+						keyframe: index == 0,
+						data
+					},
+					Some(crate::Presentation::new(
+						now + Duration::from_millis(index as u64 * 20)
+					))
+				)
+				.unwrap()
+			);
+			decoder_cleanup_sync(&queue);
+		}
+		assert_eq!(
+			*seen.lock().unwrap(),
+			[
+				now,
+				now + Duration::from_millis(40),
+				now + Duration::from_millis(60)
+			]
+		);
+		assert_eq!(queue.counters.errors.load(Ordering::Relaxed), 0);
+		assert_eq!(queue.counters.stale.load(Ordering::Relaxed), 0);
+		drop(queue);
+		worker.join().unwrap();
+	}
 
 	#[test]
 	fn native_backpressure_preserves_predictions_until_capacity_or_cancellation() {
