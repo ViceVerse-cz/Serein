@@ -1494,6 +1494,7 @@ impl SearchUi {
 		});
 		requested
 	}
+	/// Draw active attachment viewer overlay when an attachment is selected for inspection.
 	fn viewer(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -1560,6 +1561,7 @@ impl SearchUi {
 			preview.content.clone_from(&hit.excerpt);
 		}
 	}
+	/// Render an individual search hit card with excerpt, author, attachments, and embeds.
 	#[allow(clippy::too_many_arguments)]
 	fn result_card(
 		&mut self,

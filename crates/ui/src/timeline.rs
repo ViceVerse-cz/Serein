@@ -2011,6 +2011,7 @@ impl TimelineView {
 			TargetReveal::Center
 		});
 	}
+	/// Render the message timeline using a default scroll session (test helper).
 	#[cfg(test)]
 	pub fn show(
 		&mut self,
@@ -2036,6 +2037,7 @@ impl TimelineView {
 		);
 	}
 
+	/// Render the message timeline within the active scroll session.
 	#[allow(clippy::too_many_arguments)]
 	pub fn show_with_scroll(
 		&mut self,
@@ -5298,6 +5300,7 @@ mod tests {
 		}
 	}
 
+	/// Verify message attachments render above rich embeds and link previews.
 	#[test]
 	fn attachments_render_above_embeds_and_link_previews() {
 		let mut state = loading_unread_channel(false);
