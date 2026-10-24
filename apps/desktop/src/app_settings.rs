@@ -80,6 +80,7 @@ impl Settings {
 			image_cache: ui.image_cache,
 			time_format: ui.time_format,
 			plaintext_login: ui.plaintext_login,
+			media_privacy: ui.media_privacy,
 		};
 		if value != self.current {
 			self.state.touched = true;
@@ -128,6 +129,7 @@ impl Settings {
 		ui.image_cache = value.image_cache;
 		ui.time_format = value.time_format;
 		ui.plaintext_login = value.plaintext_login;
+		ui.media_privacy = value.media_privacy;
 		ui::local_time::set_format(ui.time_format, ui.language);
 	}
 }

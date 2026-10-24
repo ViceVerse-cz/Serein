@@ -55,6 +55,8 @@ struct AvatarKey {
 #[derive(Default)]
 pub(crate) struct Avatars {
 	pub animate_gifs: bool,
+	/// Chat-media masking supplied by an enabled media-privacy plugin.
+	pub media_privacy: Option<extensions::MediaPrivacy>,
 	/// Hidden cosmetics are neither painted nor requested.
 	pub cosmetics: model::CosmeticPreferences,
 	avatar_animation: bool,
@@ -392,7 +394,9 @@ impl Avatars {
 	pub fn accept(&mut self, ctx: &egui::Context, key: String, image: Option<ColorImage>) {
 		if key.starts_with("media:") {
 			if let Some(rendition) = media::Rendition::parse(&key)
-				&& self.media.accept_still(ctx, rendition, image)
+				&& self
+					.media
+					.accept_still(ctx, rendition, image, self.media_privacy.is_some())
 			{
 				self.revision += 1;
 			}

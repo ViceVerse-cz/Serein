@@ -16,6 +16,7 @@ fn plugin(wasm: &str) -> Package {
 				id: "run".into(),
 				label: "Run".into(),
 				surface: Surface::Composer,
+				icon: None,
 			}],
 		},
 		theme: None,
@@ -210,6 +211,7 @@ fn rejects_panel_complexity_duplicate_ids_and_unknown_actions() {
 		id: "panel".into(),
 		label: "Panel".into(),
 		surface: Surface::Panel,
+		icon: None,
 	});
 	for panel in [
 		vec![Element::Text { text: "x".into() }; MAX_PANEL_ELEMENTS + 1],
@@ -419,6 +421,62 @@ fn rgb_cycle_package_executes_through_the_real_abi() {
 	assert!(!output.appearance.unwrap().dark.colors.contains_key("base"));
 }
 
+#[test]
+fn media_privacy_package_round_trips_panel_settings_through_the_real_abi() {
+	let package = parse_package(include_bytes!(
+		"../../../extensions/plugins/packages/media-privacy.serein-extension"
+	))
+	.unwrap();
+	assert!(package.manifest.actions.iter().any(|action| {
+		action.surface == Surface::ComposerToggle && action.icon.as_deref() == Some("eye-slash")
+	}));
+	let current = MediaPrivacy {
+		enabled: true,
+		reveal_on_hover: false,
+		..Default::default()
+	};
+	let opened = invoke(
+		&package,
+		&Invocation {
+			action: "settings".into(),
+			media_privacy: Some(current),
+			..Default::default()
+		},
+	)
+	.unwrap();
+	assert_eq!(opened.media_privacy, Some(current));
+	assert!(!opened.panel.is_empty());
+	let saved = invoke(
+		&package,
+		&Invocation {
+			action: "settings".into(),
+			media_privacy: Some(current),
+			values: [
+				("enabled".into(), "false".into()),
+				("reveal".into(), "true".into()),
+				("style".into(), "Gray".into()),
+				("strength".into(), "80".into()),
+				("opacity".into(), "70".into()),
+				("color".into(), "#102030".into()),
+			]
+			.into(),
+			..Default::default()
+		},
+	)
+	.unwrap();
+	assert_eq!(
+		saved.media_privacy,
+		Some(MediaPrivacy {
+			enabled: false,
+			reveal_on_hover: true,
+			style: MediaPrivacyStyle::Solid,
+			strength: 80,
+			opacity: 70,
+			color: [128, 128, 128],
+		})
+	);
+}
+
 fn message_event() -> MessageEvent {
 	MessageEvent {
 		kind: MessageEventKind::Create,
@@ -510,6 +568,7 @@ fn message_events_require_a_unique_granted_surface_without_other_context() {
 		id: "second".into(),
 		label: "Second".into(),
 		surface: Surface::MessageEvent,
+		icon: None,
 	});
 	assert!(matches!(package.manifest.validate(), Err(Error::Invalid)));
 	package.manifest.actions.pop();

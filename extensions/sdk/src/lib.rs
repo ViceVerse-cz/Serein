@@ -55,6 +55,9 @@ pub struct Invocation {
 	pub storage: Option<String>,
 	#[serde(default)]
 	pub values: BTreeMap<String, String>,
+	/// Current media privacy configuration, sent to `panel` actions.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub media_privacy: Option<MediaPrivacy>,
 }
 
 /// Opt-in scheduled appearance context, preserving the original `Invocation` API.
@@ -131,6 +134,44 @@ pub struct Output {
 	pub replacement: Option<String>,
 	pub panel: Vec<Element>,
 	pub storage: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub media_privacy: Option<MediaPrivacy>,
+}
+
+/// Chat media presentation controlled by a `media_privacy` plugin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaPrivacy {
+	pub enabled: bool,
+	pub reveal_on_hover: bool,
+	pub style: MediaPrivacyStyle,
+	/// Blur radius for `blur`, or mask opacity for `solid`, from 0 to 100.
+	pub strength: u8,
+	/// Opacity of the mask, from 0 to 100.
+	pub opacity: u8,
+	/// RGB tint used by `solid`.
+	pub color: [u8; 3],
+}
+
+impl Default for MediaPrivacy {
+	fn default() -> Self {
+		Self {
+			enabled: true,
+			reveal_on_hover: true,
+			style: MediaPrivacyStyle::Blur,
+			strength: 55,
+			opacity: 100,
+			color: [0, 0, 0],
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaPrivacyStyle {
+	#[default]
+	Blur,
+	Solid,
 }
 
 fn is_false(value: &bool) -> bool {

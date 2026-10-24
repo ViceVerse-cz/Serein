@@ -117,6 +117,10 @@ pub struct Starter {
 
 pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 	let packages: &[(&'static [u8], &'static str)] = &[
+		(
+			include_bytes!("../../../extensions/plugins/packages/media-privacy.serein-extension"),
+			"Mask images, GIFs and videos in chat until you hover. Toggle beside GIF; configure the effect in its settings.",
+		),
 		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!(
@@ -193,13 +197,17 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 #[cfg(feature = "demo")]
 pub fn demo_check_examples() -> Result<bool, String> {
 	let starters = starters()?;
-	if starters.len() != 10
+	if starters.len() != 11
 		|| starters
 			.iter()
 			.filter(|entry| entry.theme.is_some())
 			.count() != 9
+		|| starters
+			.iter()
+			.filter(|entry| entry.theme.is_none())
+			.count() != 2
 	{
-		return Err("Expected one starter plugin and nine themes".into());
+		return Err("Expected two starter plugins and nine themes".into());
 	}
 	let gate = Gate {
 		epoch: 0,
@@ -1766,6 +1774,7 @@ mod tests {
 			id: "settings".into(),
 			label: "Settings".into(),
 			surface: Surface::Panel,
+			icon: None,
 		}];
 		let installed = enable(
 			&root,
