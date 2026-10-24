@@ -3870,6 +3870,7 @@ impl State {
 							{
 								self.remember_sticker(sticker);
 							}
+							self.observe_notification(&m);
 							self.observe_last_message(m.channel, m.id);
 						}
 						let accepted_reference = correlated && self.accepts_reply_source(&m);
