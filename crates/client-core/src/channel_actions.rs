@@ -412,29 +412,37 @@ impl State {
 		let Some(user) = self.user.as_ref().map(|u| u.id) else {
 			return false;
 		};
-		// Discord permits guild/parent bits, or any bit when the actor has an
-		// applicable MANAGE_ROLES channel overwrite. Existing unknown bits stay intact.
-		let elevated = self
+		let channel_overwrites = self
 			.permissions
 			.channels
 			.get(&channel)
-			.and_then(|c| c.overwrites.as_ref())
-			.is_some_and(|rows| {
-				rows.iter().any(|row| {
-					row.allow & MANAGE_ROLES != 0
-						&& match row.kind {
-							0 => {
-								row.id == guild.id
-									|| guild
-										.member
-										.as_ref()
-										.is_some_and(|m| m.roles.contains(&row.id))
-							}
-							1 => row.id == user,
-							_ => false,
-						}
-				})
+			.filter(|c| c.guild == guild.id)
+			.and_then(|c| c.overwrites.as_deref())
+			.or_else(|| {
+				self.channel_actions
+					.details
+					.as_ref()
+					.filter(|(id, _)| *id == channel)
+					.map(|(_, edit)| edit.overwrites.as_slice())
 			});
+		// Discord permits guild/parent bits, or any bit when the actor has an
+		// applicable MANAGE_ROLES channel overwrite. Existing unknown bits stay intact.
+		let elevated = channel_overwrites.is_some_and(|rows| {
+			rows.iter().any(|row| {
+				row.allow & MANAGE_ROLES != 0
+					&& match row.kind {
+						0 => {
+							row.id == guild.id
+								|| guild
+									.member
+									.as_ref()
+									.is_some_and(|m| m.roles.contains(&row.id))
+						}
+						1 => row.id == user,
+						_ => false,
+					}
+			})
+		});
 		if elevated {
 			return true;
 		}
@@ -456,6 +464,12 @@ impl State {
 				model::permissions::effective(guild, user, Some(overwrites), now)
 		{
 			available |= parent_bits;
+		}
+		if let Some(overwrites) = channel_overwrites
+			&& let Some(channel_bits) =
+				model::permissions::effective(guild, user, Some(overwrites), now)
+		{
+			available |= channel_bits;
 		}
 		available & bits == bits
 	}
@@ -1867,5 +1881,93 @@ mod tests {
 			.unwrap();
 		assert_eq!(state.guild_channel_muted(Id(3)), Some(true));
 		assert!(!state.notification_allowed(Id(3)));
+	}
+
+	#[test]
+	fn voice_channel_permission_overwrites_rely_on_channel_access_for_view_channel() {
+		use model::permissions as p;
+		let mut state = state();
+		state.channels[0].kind = 2;
+		let guild = state.permissions.guilds.get_mut(&Id(2)).unwrap();
+		guild.owner = Some(Id(99));
+		guild.roles = Some(vec![
+			p::Role {
+				id: Id(2),
+				bits: 0,
+				name: "everyone".into(),
+				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
+				position: 0,
+				hoist: false,
+			},
+			p::Role {
+				id: Id(10),
+				bits: p::MANAGE_CHANNELS | p::MANAGE_ROLES,
+				name: "Manager".into(),
+				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
+				position: 1,
+				hoist: false,
+			},
+		]);
+		guild.member = Some(p::Member {
+			roles: vec![Id(10)],
+			timeout_until: None,
+		});
+		let before = Edit {
+			name: "Private VC".into(),
+			overwrites: vec![
+				p::Overwrite {
+					id: Id(2),
+					kind: 0,
+					allow: 0,
+					deny: p::VIEW_CHANNEL,
+				},
+				p::Overwrite {
+					id: Id(10),
+					kind: 0,
+					allow: p::VIEW_CHANNEL | p::CONNECT,
+					deny: 0,
+				},
+			],
+			..Edit::default()
+		};
+		state.apply(crate::Envelope {
+			generation: state.generation,
+			event: crate::Event::Permissions(crate::permissions::Event::Channel {
+				channel: Id(3),
+				guild: Some(Id(2)),
+				overwrites: model::Patch::Value(before.overwrites.clone()),
+			}),
+		});
+		let load = state.request_channel_action(Id(3), Action::Load).unwrap();
+		finish(&mut state, load, Ok(Outcome::Details(before.clone())));
+
+		assert!(
+			state.can_edit_channel_permission(Id(3), p::VIEW_CHANNEL),
+			"user with channel-level VIEW_CHANNEL access must be able to edit VIEW_CHANNEL"
+		);
+
+		let mut after = before.clone();
+		after.overwrites.push(p::Overwrite {
+			id: Id(50),
+			kind: 1,
+			allow: p::VIEW_CHANNEL,
+			deny: 0,
+		});
+		assert!(
+			state
+				.request_channel_action(
+					Id(3),
+					Action::Edit {
+						before: before.clone(),
+						after
+					}
+				)
+				.is_some(),
+			"saving VIEW_CHANNEL overwrite on private voice channel must succeed"
+		);
 	}
 }
