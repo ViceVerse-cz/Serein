@@ -684,6 +684,7 @@ impl State {
 			mention_count,
 		}
 	}
+	/// Advance the observed latest message ID for a channel and record read-state activity.
 	pub fn observe_last_message(&mut self, channel: Id, message: Id) {
 		if let Some(index) = self.channel_index(channel) {
 			let channel = &mut self.channels[index];
@@ -1488,6 +1489,7 @@ mod navigation_tests {
 			},
 		);
 	}
+	/// Verify SendResult reconciles own read state without briefly showing the DM channel as unread.
 	#[test]
 	fn send_result_reconciles_own_read_state_without_flashing_unread_directs() {
 		let mut state = state(Some(Id(500)));

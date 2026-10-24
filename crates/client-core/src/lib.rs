@@ -2541,9 +2541,11 @@ impl State {
 		self.status = "Work queue full; action was not sent";
 		self.freshness = Freshness::Stale;
 	}
+	/// Apply an incoming event envelope to update local state and reconciliation caches.
 	pub fn apply(&mut self, envelope: Envelope) {
 		self.apply_with_permissions(envelope, None);
 	}
+	/// Apply an event envelope with optional precalculated permission caches.
 	fn apply_with_permissions(
 		&mut self,
 		envelope: Envelope,
