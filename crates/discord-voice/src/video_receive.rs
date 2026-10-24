@@ -1141,6 +1141,14 @@ fn decode_loop(
 			mark_broken(frame.user, &mut broken, &lost);
 			continue;
 		}
+		// Inspect authenticated wire OBUs before native normalization adds framing.
+		if !decoders.contains_key(&frame.user)
+			&& frame.codec != Codec::H264
+			&& (!frame.keyframe || !frame.codec.has_parameter_sets(&frame.data))
+		{
+			mark_broken(frame.user, &mut broken, &lost);
+			continue;
+		}
 		if frame.codec == Codec::Av1 {
 			let Some(data) = crate::video_av1::normalize(&frame.data) else {
 				counters.errors.fetch_add(1, Ordering::Relaxed);
@@ -1151,12 +1159,6 @@ fn decode_loop(
 			frame.data = data;
 		}
 		if !decoders.contains_key(&frame.user) {
-			if frame.codec != Codec::H264
-				&& (!frame.keyframe || !frame.codec.has_parameter_sets(&frame.data))
-			{
-				mark_broken(frame.user, &mut broken, &lost);
-				continue;
-			}
 			if decoders.len() >= MAX_DECODERS {
 				continue;
 			}

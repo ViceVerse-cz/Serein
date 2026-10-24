@@ -774,6 +774,24 @@ That evidence precedes adaptive buffering and presentation-level scheduling; the
 combined candidate needs another owner comparison. Windows/macOS native timing behavior
 and broad network interoperability remain unverified.
 
+### AV1 native temporal-unit recovery — October 24, 2026
+
+Owner-operated attempts on `ca1dd7f9` receive AV1 2560×1440, with complete decrypted
+video reaching roughly 7.5 Mbps and authenticated timing feedback active. Audio keeps
+playing without concealment, but each attempt delivers one decoded picture, then none.
+No incomplete video or DAVE-decrypt failures are recorded. Recovery requests gate most
+following predictions; the continued packet flow is not a working playback result.
+
+The earlier synthetic AV1 IVF fixture retained temporal delimiter OBUs. Removing all
+480 delimiters reproduces exactly one native output picture from 480 inputs, with zero
+reported decoder errors. AV1 RTP normally removes these delimiters, while the native
+GStreamer TU-aligned OBU stream requires them. Post-DAVE normalization now restores one
+empty leading delimiter without duplicating an existing one. This leaves RTP/DAVE bytes,
+keyframe checks, codecs and queue bounds intact. The corrected fixture delivers all 480
+pictures with matching reference luma and tags, no decoder errors, stale/admission/playout drops
+or final audio concealment. The original test did not cover this RTP-to-native boundary;
+live smooth AV1 playback still requires the owner's retest.
+
 ### Watched-stream transport feedback — October 23, 2026
 
 A subsequent owner-operated test on `80905441` used a different stream from the earlier

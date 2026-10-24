@@ -737,6 +737,10 @@ authentication, Main-profile sequence headers are checked for 8/10-bit non-monoc
 streams are accepted; temporal IDs are retained. New decoders require an inline sequence
 header and a shown keyframe. Plaintext OBUs receive explicit lengths for GStreamer's
 [OBU stream parser](https://gstreamer.freedesktop.org/documentation/videoparsersbad/av1parse.html).
+TU-aligned native buffers additionally start with an empty temporal delimiter OBU.
+RTP senders normally omit that OBU; it is restored only after DAVE authentication,
+without changing authenticated wire framing or duplicating an existing leading delimiter.
+The two-byte delimiter remains inside the existing AU byte bound.
 Neither RTP nor codec syntax can bypass transport/DAVE or keyframe gates. AU size,
 packet repair, playback queues and presentation tags retain their existing bounds.
 Each RTP packet has at most 64 OBU elements and each frame at most 256 OBUs. Reassembly

@@ -180,9 +180,13 @@ pub(super) fn inspect(data: &[u8]) -> Option<Info> {
 	})?;
 	Some(info)
 }
-/// GStreamer's obu-stream needs explicit sizes, including on the final plaintext OBU.
+/// GStreamer's TU-aligned obu-stream needs a temporal delimiter, omitted by RTP,
+/// and explicit sizes, including on the final plaintext OBU. Normalize after DAVE.
 pub(super) fn normalize(mut data: &[u8]) -> Option<Vec<u8>> {
 	let mut result = Vec::new();
+	if (data.first()? >> 3) & 15 != 2 {
+		result.extend_from_slice(&[0x12, 0]); // Empty, explicitly sized temporal delimiter.
+	}
 	while !data.is_empty() {
 		let h = header(data)?;
 		let (len, n) = if data[0] & 2 != 0 {
@@ -333,8 +337,10 @@ mod tests {
 		assert!(inspect(&frame).unwrap().keyframe);
 		assert_eq!(
 			normalize(&frame).unwrap(),
-			[0x2a, 1, 0x55, 0x32, 3, 0x10, 0xaa, 0xbb]
+			[0x12, 0, 0x2a, 1, 0x55, 0x32, 3, 0x10, 0xaa, 0xbb]
 		);
+		let native = normalize(&frame).unwrap();
+		assert_eq!(normalize(&native).unwrap(), native); // Preserve existing TU delimiters.
 		for payload in [
 			&[0x90, 0x30, 7][..], // Continuation without a fragment.
 			&[0x50, 0x30, 7],     // Marker on an unfinished fragment.

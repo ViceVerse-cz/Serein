@@ -18,9 +18,9 @@ Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and wi
 
 | Package metric | Upstream baseline | Streaming candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 92,650,248 B | 92,801,160 B | +150,912 B (+0.163%) |
-| Installed payload (245 files) | 97,348,681 B | 97,499,593 B | +150,912 B (+0.155%) |
-| Arch archive | 54,376,694 B | 54,472,967 B | +96,273 B (+0.177%) |
+| Executable | 92,650,248 B | 92,801,416 B | +151,168 B (+0.163%) |
+| Installed payload (245 files) | 97,348,681 B | 97,499,849 B | +151,168 B (+0.155%) |
+| Arch archive | 54,376,694 B | 54,475,582 B | +98,888 B (+0.182%) |
 
 Installed bytes sum regular archive files under `usr/`, excluding package metadata.
 Both packages contain 245 installed files. The final gate passes 1,317 tests, strict Clippy,
@@ -273,6 +273,39 @@ wire traffic from complete decrypted media. Owner testing remains required.
 | Executable | 92,785,288 B | 92,801,160 B | +15,872 B (+0.017%) |
 | Installed payload | 97,483,721 B | 97,499,593 B | +15,872 B (+0.016%) |
 | Arch archive | 54,465,029 B | 54,472,967 B | +7,938 B (+0.015%) |
+
+### AV1 temporal delimiter repair — October 24, 2026
+
+The verified `ca1dd7f9` package is the baseline. The owner's AV1 2560×1440 attempt
+receives complete video payload up to roughly 7.5 Mbps, with transport-wide arrival
+feedback active, but displays only one picture per attempt. Incoming audio continues
+without concealment. This is evidence of received packets, not successful AV1 playback.
+
+The earlier eight-second 1440p60 SVT-AV1 IVF workload included 480 temporal delimiter
+OBUs that RTP normally omits. Removing those delimiters while preserving every other
+OBU/pixel and IVF timestamp reproduces one native picture from 480 inputs. Restoring
+one empty leading delimiter during post-DAVE native normalization recovers all 480
+reference-luma-identical pictures and matching presentation tags, with zero decoder
+errors, stale/admission/playout drops or final concealment. The workload retains the
++200 ms video timestamp phase and simulated 73 ms audio-device delay, and all 100
+audible frames in the final two input seconds. It bypasses RTP/DAVE; existing encrypted
+wire tests separately cover their framing. The regression extends the OBU framing test
+to require native TU delimiters and preserve existing leading delimiters.
+
+Native normalization adds only two bytes when needed, within the existing AU bound.
+Parameter/keyframe admission inspects authenticated wire OBUs before native framing is
+added. No dependency, codec negotiation, queue limit or feedback change is introduced.
+These are synthetic functional measurements; owner-operated smooth playback and full
+client CPU/RSS remain unverified. The prior delimiter-retaining fixture did not exercise
+this boundary and must not be treated as evidence that RTP-shaped AV1 had worked.
+The final native replay runs after Cargo checks; a retained concurrent run hit startup
+queue-age expiry and is excluded from this functional before/after comparison.
+
+| Standard Arch package | Before `ca1dd7f9` | AV1 temporal framing | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,801,160 B | 92,801,416 B | +256 B (+0.000%) |
+| Installed payload | 97,499,593 B | 97,499,849 B | +256 B (+0.000%) |
+| Arch archive | 54,472,967 B | 54,475,582 B | +2,615 B (+0.005%) |
 
 ### Earlier playback recovery evidence
 
