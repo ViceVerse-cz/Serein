@@ -262,5 +262,4 @@ fn benchmark<Crypto: HpkeDefaultPrng + 'static>() {
 
 fn main() {
 	benchmark::<HpkeRustCrypto>();
-	benchmark::<HpkeRustCrypto>();
 }

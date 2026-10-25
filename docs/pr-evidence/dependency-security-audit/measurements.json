@@ -12,7 +12,8 @@
       "codegen-units": 1,
       "strip": "symbols",
       "debug": "line-tables-only"
-    }
+    },
+    "followup_package_command": "python3 packaging/linux/package.py dist 0.1.0 --format arch"
   },
   "method": {
     "samples_per_revision": 1,
@@ -20,7 +21,7 @@
     "distribution": "Native makepkg .pkg.tar.zst, default zstd -c -z -q -",
     "noise": "Build timestamps and compression; file sizes do not establish runtime performance",
     "baseline": "Fresh original-main package built and preserved during this task",
-    "after": "Final migration plus notices and corresponding-source staging fix"
+    "after": "Review follow-up: repackaged the corrected manual benchmark source with the unchanged executable already built and verified in this task; application source and lockfile unchanged"
   },
   "baseline": {
     "revision": "38e46b8f5ec694002ef515fbc2d8dc69297e4f5f",
@@ -43,27 +44,29 @@
   "after": {
     "branch": "fix/dependency-security-audit",
     "openmls_revision": "be248d4b1306d87a641ce24ed0ffcab2b27967f6",
-    "label": "final",
+    "label": "review-followup",
     "executable": {
       "bytes": 93145480,
       "sha256": "db0b88b2d92f34e676206aa7516665707bf535cdfdeb763ac41ab5a07097c77f"
     },
-    "installed_bytes": 97957005,
+    "installed_bytes": 97956973,
     "installed_files": 265,
     "distribution": {
-      "bytes": 54622585,
-      "sha256": "6832f53b329ec217b6857d5637b2381fda31ec2d63b50c84c94145382197449d"
+      "bytes": 54622578,
+      "sha256": "225b65da2971b82199ad3ba0880beddfffc92780356ae370f8fc5b5ad742166f"
     },
     "lockfile": {
       "bytes": 233029,
       "sha256": "b546d22487b08bc3850838fa69e02e6ea64b1bc1bb0f733d3e50eed48178da04"
-    }
+    },
+    "runtime_source_revision": "aed82ac48f9e8bd3bee3e08ea59756842a184c34"
   },
   "checks": {
     "arch_package_and_payload_smoke": "passed both revisions",
     "packaging_regressions": "final dir and arch passed, including source inclusion/stale-file exclusion",
     "packaged_hpke_source": "20 files byte-identical to reviewed native component files",
-    "provider_archives": "both 0.8.0 archives byte-identical to verified locked sources"
+    "provider_archives": "both 0.8.0 archives byte-identical to verified locked sources",
+    "source_refresh": "passed: obsolete root/nested HPKE source removed on repeated staging, neighboring component preserved"
   },
   "unmeasured": [
     "CPU",

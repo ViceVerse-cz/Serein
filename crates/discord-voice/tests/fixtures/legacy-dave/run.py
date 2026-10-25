@@ -1,14 +1,17 @@
 """Build two offline DAVE peers and check cross-version join and media encryption.
 Requires cached dependencies and the pinned Rust toolchain. Never uses Discord/audio devices.
 """
+from contextlib import suppress
 import hashlib
 import io
 import json
 from pathlib import Path
+from queue import Empty, Queue
 import shutil
 import subprocess
 import tarfile
 import tempfile
+from threading import Thread
 import tomllib
 
 BASE = '38e46b8f5ec694002ef515fbc2d8dc69297e4f5f'
@@ -45,20 +48,39 @@ def build(directory, legacy):
     (directory / 'Cargo.toml').write_text(manifest)
     (directory / 'Cargo.lock').write_bytes(lock)
     target = ROOT / 'target/dave-interop' / ('legacy' if legacy else 'current')
-    subprocess.run(['cargo', 'build', '--offline', '--manifest-path', str(directory / 'Cargo.toml'), '--target-dir', str(target), '--jobs', '2'], check=True)
+    subprocess.run(['cargo', 'build', '--offline', '--manifest-path', str(directory / 'Cargo.toml'), '--target-dir', str(target), '--jobs', '2'], check=True, timeout=1800)
     return target / 'debug/dave-interop-peer'
 
 
 class Peer:
-    def __init__(self, binary):
-        self.process = subprocess.Popen([str(binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    def __init__(self, command, name, reply_timeout=30):
+        self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        self.name = name
+        self.reply_timeout = reply_timeout
+        self.aborted = False
 
     def request(self, op, **data):
         line = json.dumps({'op': op, **data}) + '\n'
         assert len(line.encode()) <= LIMIT
-        self.process.stdin.write(line)
-        self.process.stdin.flush()
-        reply = self.process.stdout.readline(LIMIT + 1)
+        result = Queue(maxsize=1)
+
+        def communicate():
+            try:
+                self.process.stdin.write(line)
+                self.process.stdin.flush()
+                result.put((self.process.stdout.readline(LIMIT + 1), None))
+            except Exception as error:
+                result.put((None, error))
+
+        # Include writes in the deadline: a stuck peer can stop reading its pipe too.
+        worker = Thread(target=communicate, daemon=True)
+        worker.start()
+        try:
+            reply, error = result.get(timeout=self.reply_timeout)
+        except Empty:
+            raise TimeoutError(f'{self.name} peer timed out during {op} after {self.reply_timeout}s') from None
+        if error is not None:
+            raise error
         assert reply.endswith('\n') and len(reply.encode()) <= LIMIT, 'Missing/bounded peer response'
         return json.loads(reply)
 
@@ -67,18 +89,34 @@ class Peer:
         assert 'error' not in reply, (op, reply)
         return reply
 
+    def stop(self):
+        self.aborted = True
+        if self.process.poll() is None:
+            try:
+                self.process.kill()
+            except ProcessLookupError:
+                pass
+
     def close(self):
-        self.process.stdin.close()
+        if not self.aborted:
+            with suppress(BrokenPipeError):
+                self.process.stdin.close()
         try:
-            assert self.process.wait(timeout=10) == 0
+            status = self.process.wait(timeout=10)
+            if not self.aborted:
+                assert status == 0, f'{self.name} peer exited with status {status}'
         except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait()
+            self.stop()
+            self.process.wait(timeout=10)
             raise
+        finally:
+            with suppress(BrokenPipeError):
+                self.process.stdin.close()
+            self.process.stdout.close()
 
 
 def exchange(legacy, current, legacy_creator):
-    old, new = Peer(legacy), Peer(current)
+    old, new = Peer([str(legacy)], "legacy"), Peer([str(current)], "current")
     try:
         creator, joiner = (old, new) if legacy_creator else (new, old)
         external = old.ok('external')['bytes']
@@ -105,9 +143,16 @@ def exchange(legacy, current, legacy_creator):
             if not expected.exists():
                 expected.write_bytes(bytes([26, *package]))
         return {'creator': 'legacy' if legacy_creator else 'current', 'join': True, 'own_commit': True, 'bidirectional_media': True, 'tamper_rejected': True, 'replay_rejected': True, 'matching_privacy_code': True}
+    except BaseException:
+        # Stop both before waiting/closing pipes, including a worker blocked on I/O.
+        old.stop()
+        new.stop()
+        raise
     finally:
-        old.close()
-        new.close()
+        try:
+            old.close()
+        finally:
+            new.close()
 
 
 if __name__ == '__main__':

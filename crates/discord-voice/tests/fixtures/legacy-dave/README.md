@@ -9,7 +9,11 @@ python3 crates/discord-voice/tests/fixtures/legacy-dave/run.py
 ```
 
 The peers use synthetic identities, a local delivery signer and JSON pipes capped
-at 64 KiB per request/response. No network, account, audio device or private data is
+at 64 KiB per request/response. Each operation has a 30-second I/O deadline; a
+timeout names the peer/operation and stops both children before cleanup. Each
+offline Cargo build is capped at 30 minutes. Run
+`python3 crates/discord-voice/tests/fixtures/legacy-dave/test_run.py` for the
+stalled-peer cleanup regression. No network, account, audio device or private data is
 used. Both creator/joiner roles must join, merge the creator's own commit, agree on
 the epoch/privacy code, exchange encrypted synthetic Opus bytes in both directions,
 and reject altered/replayed packets. This is wire-compatibility evidence, not a

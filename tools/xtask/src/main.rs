@@ -169,6 +169,34 @@ fn fuzz() -> Result<(), String> {
 	}
 	result
 }
+fn stage_hpke_source(
+	source: &std::path::Path,
+	destination: &std::path::Path,
+) -> Result<(), String> {
+	match std::fs::remove_dir_all(destination) {
+		Ok(()) => {}
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+		Err(error) => return Err(error.to_string()),
+	}
+	std::fs::create_dir_all(destination).map_err(|e| e.to_string())?;
+	for file in [
+		"Cargo.toml",
+		"Cargo.toml.orig",
+		".cargo_vcs_info.json",
+		"LICENSE-MPL-2.0.txt",
+		"SEREIN-PATCH.md",
+		"Readme.md",
+		"SECURITY.md",
+		"CHANGELOG.md",
+	] {
+		std::fs::copy(source.join(file), destination.join(file)).map_err(|e| e.to_string())?;
+	}
+	for directory in ["src", "benches"] {
+		copy_directory(&source.join(directory), &destination.join(directory))?;
+	}
+	Ok(())
+}
+
 fn copy_directory(source: &std::path::Path, destination: &std::path::Path) -> Result<(), String> {
 	std::fs::create_dir_all(destination).map_err(|e| e.to_string())?;
 	for entry in std::fs::read_dir(source).map_err(|e| e.to_string())? {
@@ -325,30 +353,10 @@ fn package() -> Result<(), String> {
 		}
 	}
 	// Ship the modified MPL component's corresponding source with every native package.
-	let hpke_source = resources.join("source/hpke-rs");
-	std::fs::create_dir_all(&hpke_source).map_err(|e| e.to_string())?;
-	for file in [
-		"Cargo.toml",
-		"Cargo.toml.orig",
-		".cargo_vcs_info.json",
-		"LICENSE-MPL-2.0.txt",
-		"SEREIN-PATCH.md",
-		"Readme.md",
-		"SECURITY.md",
-		"CHANGELOG.md",
-	] {
-		std::fs::copy(
-			PathBuf::from("vendor/hpke-rs").join(file),
-			hpke_source.join(file),
-		)
-		.map_err(|e| e.to_string())?;
-	}
-	for directory in ["src", "benches"] {
-		copy_directory(
-			&PathBuf::from("vendor/hpke-rs").join(directory),
-			&hpke_source.join(directory),
-		)?;
-	}
+	stage_hpke_source(
+		std::path::Path::new("vendor/hpke-rs"),
+		&resources.join("source/hpke-rs"),
+	)?;
 	std::fs::create_dir_all(resources.join("licenses")).map_err(|e| e.to_string())?;
 	std::fs::copy(
 		"assets/sounds/README.md",
@@ -532,5 +540,33 @@ fn main() -> ExitCode {
 			eprintln!("{error}");
 			ExitCode::FAILURE
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn repeated_hpke_staging_removes_obsolete_files_and_preserves_neighbors() {
+		use std::fs;
+		let root = std::env::temp_dir().join(format!("serein-hpke-staging-{}", std::process::id()));
+		// Never reuse or remove a pre-existing directory.
+		fs::create_dir(&root).unwrap();
+		let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/hpke-rs");
+		let destination = root.join("source/hpke-rs");
+		fs::create_dir_all(root.join("source/neighbor")).unwrap();
+		fs::write(root.join("source/neighbor/keep.txt"), b"other component").unwrap();
+		super::stage_hpke_source(&source, &destination).unwrap();
+		fs::write(destination.join("obsolete.rs"), b"stale source").unwrap();
+		fs::write(destination.join("src/obsolete.rs"), b"stale nested source").unwrap();
+		super::stage_hpke_source(&source, &destination).unwrap();
+		let stale = destination.join("obsolete.rs").exists()
+			|| destination.join("src/obsolete.rs").exists();
+		let adapter = fs::read(destination.join("src/serein_sha3.rs")).unwrap();
+		let expected = fs::read(source.join("src/serein_sha3.rs")).unwrap();
+		let neighbor = fs::read(root.join("source/neighbor/keep.txt")).unwrap();
+		fs::remove_dir_all(&root).unwrap();
+		assert!(!stale);
+		assert_eq!(adapter, expected);
+		assert_eq!(neighbor, b"other component");
 	}
 }
