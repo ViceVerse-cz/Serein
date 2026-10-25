@@ -165,6 +165,26 @@ fn oversized_text(limit: u64) -> String {
 	)
 }
 
+fn shift_clicked(ui: &egui::Ui, response: &egui::Response) -> bool {
+	if !response.clicked() {
+		return false;
+	}
+	ui.input(|input| {
+		input.events.iter().any(|event| {
+			matches!(
+				event,
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed: false,
+					modifiers,
+					..
+				} if modifiers.shift && response.rect.contains(*pos)
+			)
+		})
+	})
+}
+
 fn thread_member_rows<'a>(
 	state: &'a State,
 	list: &'a model::MemberList,
@@ -1836,12 +1856,22 @@ impl MessagingUi {
 									&mut self.profile,
 									&mut self.user_action,
 								);
-								self.profile.person_click(
-									ui,
-									&response,
-									Some(&avatar),
-									&member.user,
-								);
+								let mention = (shift_clicked(ui, &response)
+									|| shift_clicked(ui, &avatar))
+									&& state.can_compose(list.channel);
+								if mention {
+									// Discord parity: Shift+click a person to put their mention in the
+									// open composer instead of opening their profile.
+									self.pending_mention = Some(member.user.id);
+									ui.ctx().request_repaint();
+								} else {
+									self.profile.person_click(
+										ui,
+										&response,
+										Some(&avatar),
+										&member.user,
+									);
+								}
 							});
 						}
 						None => {
@@ -8268,6 +8298,126 @@ mod composer_tests {
 			"Offscreen members must not upload textures"
 		);
 		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn shift_clicking_a_member_queues_a_mention_instead_of_opening_the_profile() {
+		fn text_point(shape: &egui::Shape, wanted: &str) -> Option<egui::Pos2> {
+			match shape {
+				egui::Shape::Text(text) if text.galley.job.text == wanted => {
+					Some(text.galley.rect.translate(text.pos.to_vec2()).center())
+				}
+				egui::Shape::Vec(shapes) => {
+					shapes.iter().find_map(|shape| text_point(shape, wanted))
+				}
+				_ => None,
+			}
+		}
+
+		let mut state = State {
+			demo: true,
+			selected: Some(Id(1)),
+			user: Some(model::User {
+				id: Id(1),
+				name: "You".into(),
+				avatar: None,
+				webhook: false,
+				kind: Default::default(),
+				discriminator: 0,
+				primary_guild: None,
+				cosmetics: None,
+			}),
+			channels: vec![model::Channel {
+				last_message: None,
+				id: Id(1),
+				guild: None,
+				parent_id: None,
+				position: 0,
+				name: "Synthetic".into(),
+				kind: 1,
+				recipients: Vec::new(),
+				member_list_id: None,
+				tags: None,
+				message_count: None,
+				icon: None,
+			}],
+			members: Some(model::MemberList {
+				channel: Id(1),
+				guild: None,
+				request: 1,
+				total: 2,
+				lazy: false,
+				groups: vec![],
+				ranges: vec![],
+				freshness: Freshness::Fresh,
+				start: 0,
+				slots: [2, 3]
+					.into_iter()
+					.map(|id| {
+						Some(model::MemberSlot::Person(model::Member {
+							user: model::User {
+								id: Id(id),
+								name: format!("Synthetic {id}"),
+								avatar: None,
+								webhook: false,
+								kind: Default::default(),
+								discriminator: 0,
+								primary_guild: None,
+								cosmetics: None,
+							},
+							nick: None,
+							roles: vec![],
+							status: Some("online".into()),
+							custom_status: None,
+							activities: vec![],
+							clients: model::ClientPlatforms::default(),
+						}))
+					})
+					.collect(),
+			}),
+			..Default::default()
+		};
+		let mut messaging = MessagingUi::default();
+		let context = egui::Context::default();
+		crate::design::apply(&context);
+		let mut commands = Vec::new();
+		let mut frame = |messaging: &mut MessagingUi, state: &mut State, events| {
+			let output = context.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(320.0, 500.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| messaging.member_rows(ui, state, &mut commands),
+			);
+			let point = output
+				.shapes
+				.iter()
+				.find_map(|shape| text_point(&shape.shape, "Synthetic 2"));
+			output.drop_without_applying_deltas();
+			point
+		};
+		let text = frame(&mut messaging, &mut state, vec![]).expect("member row");
+		let point = egui::pos2(310.0, text.y);
+		let click = |pressed| {
+			vec![
+				egui::Event::PointerMoved(point),
+				egui::Event::ModifiersChanged(egui::Modifiers::SHIFT),
+				egui::Event::PointerButton {
+					pos: point,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::SHIFT,
+				},
+			]
+		};
+		frame(&mut messaging, &mut state, click(true));
+		frame(&mut messaging, &mut state, click(false));
+		assert_eq!(messaging.pending_mention, Some(Id(2)));
+		assert!(messaging.profile.open_user().is_none());
 	}
 
 	#[test]
