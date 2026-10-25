@@ -50,3 +50,54 @@ insert into another draft.
 A concurrent writer restoring identical metadata remains outside observable file
 change detection. The dialog offers explicit Copy/Add actions and never sends a
 Discord message automatically. Cancellation can leave remote bytes without a link.
+
+## Dependency audit refresh — October 25, 2026
+
+Against RustSec database `21d909e4c8bd4e14c7aea58bf980c881a0053ab1`, upstream
+`38e46b8f5ec694002ef515fbc2d8dc69297e4f5f` reports five vulnerabilities and two
+denied warnings with cargo-audit 0.22.2. The final lockfile includes these
+targeted patch updates (ctutils is shared with the coordinated crypto migration
+below):
+
+| Dependency | Before → after | Finding |
+| --- | --- | --- |
+| ctutils | 0.4.2 → 0.4.5 | [RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385.html) |
+| rustls-webpki | 0.103.15 → 0.103.16 | [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382.html) |
+| webpki-root-certs | 1.0.9 → 1.0.10 | [RUSTSEC-2026-0383](https://rustsec.org/advisories/RUSTSEC-2026-0383.html) |
+| webpki-roots | 1.0.9 → 1.0.10 | [RUSTSEC-2026-0381](https://rustsec.org/advisories/RUSTSEC-2026-0381.html) |
+| tokio | 1.53.1 → 1.53.3 | [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386.html), unsound I/O registration warning |
+| clipboard-win | 5.4.1 → 5.4.2 | Yanked Windows transitive dependency through arboard |
+
+The remaining crypto-bigint 0.5.5 finding,
+[RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html), is
+fixed in >=0.7.6. Updating a single parent leaves affected paths through Davey
+signing, OpenMLS credentials and the HPKE RustCrypto provider. The coordinated
+migration selects crypto-bigint **0.7.7** through P-256/P-384/K-256 0.14,
+elliptic-curve 0.14.2 and HPKE 0.8.0. It pins the OpenMLS workspace to
+[`be248d4b1306d87a641ce24ed0ffcab2b27967f6`](https://github.com/openmls/openmls/tree/be248d4b1306d87a641ce24ed0ffcab2b27967f6),
+an unreleased snapshot with the migrated crypto providers. Its package version
+numbers do not identify the similarly numbered registry releases. The existing
+Davey and HPKE native forks carry the narrowly required API/selection adaptations;
+see their `SEREIN-PATCH.md` files. The pin is a maintenance and supply-chain
+tradeoff pending compatible releases, not a claim of independent review of all
+upstream cryptography.
+
+Re-auditing the final lockfile against the **same database revision** reports
+**zero vulnerabilities and zero denied warnings**. The existing maintenance
+exceptions remain unchanged; no new audit ignore is added and `--deny warnings`
+stays enabled. MPL exceptions are renewed only to the exact HPKE 0.8.0 component
+versions, with corresponding source archives and notices; license categories and
+checking rules are unchanged. Native staging now includes the modified HPKE
+source that the prior packaging path omitted, and Linux retains it through the
+installation allowlist. Packaging regressions check exact modified source bytes
+and exclusion of stale files. The unused Libcrux backend remains omitted from the
+native HPKE fork, avoiding its unmaintained tooling dependency in the audited
+all-target lockfile.
+
+Synthetic MLS transition tests and [old/new offline peers](../crates/discord-voice/tests/fixtures/legacy-dave/README.md)
+exercise both creator/joiner roles, encrypted packets in both directions, matching
+epochs/privacy codes and tamper/replay rejection. The public legacy key-package
+fixture is also consumed by an ordinary regression test. They establish local
+compatibility evidence for this migration, not constant-time behavior, an
+independent cryptographic audit or live Discord interoperability. No live Discord,
+credentials, calls or microphone are used.

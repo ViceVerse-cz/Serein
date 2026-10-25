@@ -324,6 +324,31 @@ fn package() -> Result<(), String> {
 			return Err("macOS app icon compilation failed".into());
 		}
 	}
+	// Ship the modified MPL component's corresponding source with every native package.
+	let hpke_source = resources.join("source/hpke-rs");
+	std::fs::create_dir_all(&hpke_source).map_err(|e| e.to_string())?;
+	for file in [
+		"Cargo.toml",
+		"Cargo.toml.orig",
+		".cargo_vcs_info.json",
+		"LICENSE-MPL-2.0.txt",
+		"SEREIN-PATCH.md",
+		"Readme.md",
+		"SECURITY.md",
+		"CHANGELOG.md",
+	] {
+		std::fs::copy(
+			PathBuf::from("vendor/hpke-rs").join(file),
+			hpke_source.join(file),
+		)
+		.map_err(|e| e.to_string())?;
+	}
+	for directory in ["src", "benches"] {
+		copy_directory(
+			&PathBuf::from("vendor/hpke-rs").join(directory),
+			&hpke_source.join(directory),
+		)?;
+	}
 	std::fs::create_dir_all(resources.join("licenses")).map_err(|e| e.to_string())?;
 	std::fs::copy(
 		"assets/sounds/README.md",

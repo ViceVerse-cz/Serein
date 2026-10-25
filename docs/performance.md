@@ -793,3 +793,45 @@ Protection adds temporary passes only for candidate URLs containing `_`, `*`, `~
 or `&`; other messages use an early return. Source remains capped at 8 KiB, each
 pass at 512 events (exhaustion falls back to bounded literal text), and stored
 links at 16. No dependency or retained cache is added.
+
+## Dependency security migration — October 25, 2026
+
+Fresh Arch Linux x86_64 packages compare upstream
+`38e46b8f5ec694002ef515fbc2d8dc69297e4f5f` with the targeted security updates and
+coordinated crypto migration in [the audit refresh](threat-model.md). Both use
+Rust 1.98.1, the unchanged release profile (fat LTO, one codegen unit, stripped
+symbols), and `cargo xtask package --format arch` with voice included and
+`--no-default-features` (no demo/developer features). The original-main baseline
+was built and preserved during this task; no historical measurements were reused.
+
+One artifact set was measured per revision. Installed bytes sum regular files
+staged by `python3 packaging/linux/package.py dist 0.1.0 --format dir`.
+Distribution bytes measure the native `.pkg.tar.zst` made by makepkg with its
+default `zstd -c -z -q -` compressor. Both Arch smoke checks passed metadata,
+dependency versions, payload contents, permissions, ownership and absence of scripts.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,650,248 B | 93,145,480 B | +495,232 B (+0.5345%) |
+| Installed tree (245 → 265 files) | 97,348,681 B | 97,957,005 B | +608,324 B (+0.6249%) |
+| Arch distribution | 54,365,363 B | 54,622,585 B | +257,222 B (+0.4731%) |
+
+The installed delta includes the migrated crypto stack, updated notices/source
+archives and 20 newly staged corresponding HPKE source files. The prior packaging
+path omitted this modified MPL source despite its notice; staging and Linux's
+installation allowlist now include it. Directory/Arch regression checks verify
+source bytes and stale-file exclusion, and the final artifact's 20 source files
+and both exact provider archives were checked byte-for-byte. Windows/macOS use
+the common native resource staging, but their native artifacts remain unverified.
+
+Archive metadata includes build timestamps; compressed deltas are not runtime
+performance claims. Application queue/cache limits and DAVE protocol/ciphersuite
+settings remain unchanged. CPU, RSS, latency and cryptographic timing were not
+measured. No live Discord, microphone or calls were used. Default Debian packaging
+and its Debian-specific regression checks cannot run here without `dpkg`.
+
+Raw artifact hashes, lockfile hashes, flags and methods are in
+[measurements.json](pr-evidence/dependency-security-audit/measurements.json).
+The measured lockfile SHA-256 values are
+`be0e03e337ce18f87707fb4277de1754cbe556e78f43a97b754f294e68fa6e24` (baseline) and
+`b546d22487b08bc3850838fa69e02e6ea64b1bc1bb0f733d3e50eed48178da04` (after).

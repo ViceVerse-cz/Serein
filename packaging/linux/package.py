@@ -65,6 +65,12 @@ def stage_payload(root, stage, prefix="usr"):
         copy(root / "licenses" / name, doc / "licenses" / name)
     for name in ["files", "notifications", "login", "audio", "voice", "dependencies"]:
         copy(root / "licenses" / name, doc / "licenses" / name, Path("assets/licenses") / name)
+    # Match xtask's corresponding-source payload; omit upstream CI/build artifacts.
+    for name in ["Cargo.toml", "Cargo.toml.orig", ".cargo_vcs_info.json",
+                 "LICENSE-MPL-2.0.txt", "SEREIN-PATCH.md", "Readme.md",
+                 "SECURITY.md", "CHANGELOG.md", "src", "benches"]:
+        copy(root / "source/hpke-rs" / name, doc / "source/hpke-rs" / name,
+             Path("vendor/hpke-rs") / name)
     for path in [stage, *stage.rglob("*")]:
         path.chmod(0o755 if path.is_dir() or path == stage / prefix / "bin/serein" else 0o644)
 

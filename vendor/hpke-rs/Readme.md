@@ -49,10 +49,9 @@ From the RFC:
 This crate does not implement the cryptographic primitives itself.
 Instead it expects an implementation of the [HpkeCrypto] trait.
 
-This Serein vendor patch retains only the RustCrypto backend declaration; see
-[SEREIN-PATCH.md](SEREIN-PATCH.md). Upstream also offers a libcrux backend.
-
-- [RustCrypto backend]: a backend using well established crypto implementations
+This Serein native fork retains the [RustCrypto backend]. The unused optional
+Libcrux backend is omitted; see [SEREIN-PATCH.md](SEREIN-PATCH.md) for the exact
+release provenance and local changes.
 
 [github-actions-badge]: https://img.shields.io/github/actions/workflow/status/franziskuskiefer/hpke-rs/rust.yml?label=build%20%26%20tests&logo=github&style=for-the-badge&branch=main
 [github-actions-link]: https://github.com/franziskuskiefer/hpke-rs/actions/workflows/rust.yml?query=branch%3Amain
@@ -60,9 +59,9 @@ This Serein vendor patch retains only the RustCrypto backend declaration; see
 [crate-link]: https://crates.io/crates/hpke-rs
 [docs-badge]: https://img.shields.io/badge/docs-rs-blue.svg?style=for-the-badge
 [docs-link]: https://docs.rs/hpke-rs
-[libcrux]: https://github.com/cryspen/libcrux
+[libcrux]: https://github.com/celabshq/libcrux
 [hpke (RFC 9180)]: https://www.rfc-editor.org/rfc/rfc9180.html
 [hpkecrypto]: https://docs.rs/hpke-rs-crypto
 [rustc-image]: https://img.shields.io/badge/rustc-1.56+-blue.svg?style=for-the-badge
-[libcrux backend]: https://github.com/cryspen/hpke-rs/tree/main/libcrux_provider
-[rustcrypto backend]: https://github.com/cryspen/hpke-rs/tree/main/rust_crypto_provider
+[libcrux backend]: https://github.com/celabshq/libcrux/tree/main/crates/protocols/hpke/libcrux_provider
+[rustcrypto backend]: https://github.com/celabshq/libcrux/tree/main/crates/protocols/hpke/rust_crypto_provider

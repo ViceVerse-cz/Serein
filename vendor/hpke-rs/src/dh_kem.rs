@@ -2,7 +2,11 @@
 
 use alloc::{string::ToString, vec::Vec};
 
-use hpke_rs_crypto::{HpkeCrypto, error::Error, types::KemAlgorithm};
+use hpke_rs_crypto::{
+	error::Error,
+	types::{KdfAlgorithm, KemAlgorithm, TwoStageKdfAlgorithm},
+	HpkeCrypto,
+};
 
 use crate::util::*;
 use crate::{
@@ -10,15 +14,23 @@ use crate::{
 	kem::*,
 };
 
+/// The two-stage KDF for a DH-based KEM. DH KEMs always pair with an HKDF KDF,
+/// so the conversion is infallible in practice.
+#[inline]
+fn dh_kdf(alg: KemAlgorithm) -> Result<TwoStageKdfAlgorithm, Error> {
+	TwoStageKdfAlgorithm::try_from(KdfAlgorithm::from(alg))
+}
+
 fn extract_and_expand<Crypto: HpkeCrypto>(
 	alg: KemAlgorithm,
 	pk: PublicKey,
 	kem_context: &[u8],
 	suite_id: &[u8],
 ) -> Result<Vec<u8>, Error> {
-	let prk = labeled_extract::<Crypto>(alg.into(), &[], suite_id, "eae_prk", &pk)?;
+	let kdf = dh_kdf(alg)?;
+	let prk = labeled_extract::<Crypto>(kdf, &[], suite_id, "eae_prk", &pk)?;
 	labeled_expand::<Crypto>(
-		alg.into(),
+		kdf,
 		&prk,
 		suite_id,
 		"shared_secret",
@@ -55,33 +67,43 @@ pub(super) fn derive_key_pair<Crypto: HpkeCrypto>(
 	suite_id: &[u8],
 	ikm: &[u8],
 ) -> Result<(PublicKey, PrivateKey), Error> {
-	let dkp_prk = labeled_extract::<Crypto>(alg.into(), &[], suite_id, "dkp_prk", ikm)?;
+	let kdf = dh_kdf(alg)?;
+	let dkp_prk = labeled_extract::<Crypto>(kdf, &[], suite_id, "dkp_prk", ikm)?;
 
 	let sk = match alg {
 		KemAlgorithm::DhKem25519 => PrivateKey(labeled_expand::<Crypto>(
-			alg.into(),
+			kdf,
 			&dkp_prk,
 			suite_id,
 			"sk",
 			&[],
 			alg.private_key_len(),
 		)?),
-		KemAlgorithm::DhKemP256 | KemAlgorithm::DhKemK256 => {
+		KemAlgorithm::DhKemP256
+		| KemAlgorithm::DhKemP384
+		| KemAlgorithm::DhKemP521
+		| KemAlgorithm::DhKemK256 => {
+			// RFC 9180 §7.1.3: bitmask is 0x01 for P-521, 0xFF otherwise
+			let bitmask: u8 = match alg {
+				KemAlgorithm::DhKemP521 => 0x01,
+				_ => 0xFF,
+			};
 			let mut ctr = 0u8;
 			// Do rejection sampling trying to find a valid key.
-			// It is expected that there aren't too many iteration and that
+			// It is expected that there aren't too many iterations and that
 			// the loop will always terminate.
 			loop {
 				let candidate = labeled_expand::<Crypto>(
-					alg.into(),
+					kdf,
 					&dkp_prk,
 					suite_id,
 					"candidate",
 					&ctr.to_be_bytes(),
 					alg.private_key_len(),
 				);
-				if let Ok(sk) = &candidate {
-					if let Ok(sk) = Crypto::dh_validate_sk(alg, sk) {
+				if let Ok(mut sk) = candidate {
+					sk[0] &= bitmask;
+					if let Ok(sk) = Crypto::dh_validate_sk(alg, &sk) {
 						break PrivateKey(sk);
 					}
 				}

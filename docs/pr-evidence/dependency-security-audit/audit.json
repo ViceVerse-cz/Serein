@@ -1,0 +1,93 @@
+{
+  "date": "2026-10-25",
+  "base_revision": "38e46b8f5ec694002ef515fbc2d8dc69297e4f5f",
+  "audit_tool": "cargo-audit 0.22.2",
+  "command": "cargo audit --deny warnings --db <frozen-advisory-db> --no-fetch",
+  "advisory_database": "https://github.com/RustSec/advisory-db",
+  "database_revision": "21d909e4c8bd4e14c7aea58bf980c881a0053ab1",
+  "advisory_count": 1352,
+  "settings": {
+    "target_arch": [],
+    "target_os": [],
+    "severity": null,
+    "ignore": [
+      "RUSTSEC-2026-0192",
+      "RUSTSEC-2026-0370",
+      "RUSTSEC-2026-0371",
+      "RUSTSEC-2026-0372"
+    ],
+    "informational_warnings": [
+      "unmaintained",
+      "unsound",
+      "notice"
+    ]
+  },
+  "settings_unchanged": true,
+  "baseline": {
+    "dependency_count": 884,
+    "vulnerabilities": [
+      {
+        "package": "crypto-bigint",
+        "version": "0.5.5",
+        "advisory": "RUSTSEC-2026-0387",
+        "patched": [
+          ">=0.7.6"
+        ]
+      },
+      {
+        "package": "ctutils",
+        "version": "0.4.2",
+        "advisory": "RUSTSEC-2026-0385",
+        "patched": [
+          ">=0.4.4"
+        ]
+      },
+      {
+        "package": "rustls-webpki",
+        "version": "0.103.15",
+        "advisory": "RUSTSEC-2026-0382",
+        "patched": [
+          ">=0.103.16, <0.104.0-alpha.1",
+          ">=0.104.0-alpha.8"
+        ]
+      },
+      {
+        "package": "webpki-root-certs",
+        "version": "1.0.9",
+        "advisory": "RUSTSEC-2026-0383",
+        "patched": [
+          ">=1.0.10"
+        ]
+      },
+      {
+        "package": "webpki-roots",
+        "version": "1.0.9",
+        "advisory": "RUSTSEC-2026-0381",
+        "patched": [
+          ">=1.0.10"
+        ]
+      }
+    ],
+    "denied_warnings": [
+      {
+        "kind": "unsound",
+        "package": "tokio",
+        "version": "1.53.1",
+        "advisory": "RUSTSEC-2026-0386"
+      },
+      {
+        "kind": "yanked",
+        "package": "clipboard-win",
+        "version": "5.4.1",
+        "advisory": null
+      }
+    ]
+  },
+  "after": {
+    "dependency_count": 891,
+    "vulnerabilities": [],
+    "denied_warnings": []
+  },
+  "baseline_lockfile_sha256": "be0e03e337ce18f87707fb4277de1754cbe556e78f43a97b754f294e68fa6e24",
+  "after_lockfile_sha256": "b546d22487b08bc3850838fa69e02e6ea64b1bc1bb0f733d3e50eed48178da04"
+}

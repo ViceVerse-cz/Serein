@@ -1,5 +1,7 @@
+use getrandom::SysRng;
 use p256::ecdsa::SigningKey;
-use rand::rngs::OsRng;
+use p256::elliptic_curve::Generate;
+use rand_core::UnwrapErr;
 
 /// A signing key pair. This is needed if you want to pass your own key pair or store the key pair for later.
 #[derive(Clone, PartialEq, Eq)]
@@ -11,13 +13,13 @@ pub struct SigningKeyPair {
 impl SigningKeyPair {
 	/// Generate a signing key pair.
 	pub fn generate() -> Self {
-		let signing_key = SigningKey::random(&mut OsRng);
+		let signing_key = SigningKey::generate_from_rng(&mut UnwrapErr(SysRng));
 
 		SigningKeyPair {
 			private: signing_key.to_bytes().to_vec(),
 			public: signing_key
 				.verifying_key()
-				.to_encoded_point(false)
+				.to_sec1_point(false)
 				.to_bytes()
 				.to_vec(),
 		}

@@ -6,7 +6,7 @@
 //! ```
 //! use hpke_rs::{*, hpke_types::*};
 //! use hpke_rs_rust_crypto::HpkeRustCrypto;
-//! use hpke_rs_crypto::{HpkeCrypto, RngCore};
+//! use hpke_rs_crypto::{HpkeCrypto, Rng};
 //!
 //! // Set up hpke mode.
 //! let mut hpke = Hpke::<HpkeRustCrypto>::new(Mode::Base, KemAlgorithm::DhKem25519,
@@ -46,7 +46,7 @@
 //! ```
 //! use hpke_rs::{*, hpke_types::*};
 //! use hpke_rs_rust_crypto::HpkeRustCrypto;
-//! use hpke_rs_crypto::{HpkeCrypto, RngCore};
+//! use hpke_rs_crypto::{HpkeCrypto, Rng};
 //!
 //! // Set up hpke mode.
 //! let mut hpke = Hpke::<HpkeRustCrypto>::new(Mode::Base, KemAlgorithm::DhKem25519,
@@ -109,13 +109,14 @@ use alloc::{
 	vec::Vec,
 };
 
-#[cfg(feature = "hpke-test-prng")]
-use hpke_rs_crypto::HpkeTestRng;
+use hpke_rs_crypto::TryRng;
 use hpke_rs_crypto::{
-	HpkeCrypto,
-	types::{AeadAlgorithm, KdfAlgorithm, KemAlgorithm},
+	types::{
+		AeadAlgorithm, KdfAlgorithm, KemAlgorithm, SingleStageKdfAlgorithm, TwoStageKdfAlgorithm,
+	},
+	HpkeCrypto, HpkeDefaultPrng,
 };
-use prelude::kdf::{labeled_expand, labeled_extract};
+use prelude::kdf::{labeled_derive, labeled_expand, labeled_extract, length_prefixed};
 
 /// Re-export of the HPKE types from the [`hpke_rs_crypto`] crate.
 pub use hpke_rs_crypto::types as hpke_types;
@@ -123,9 +124,6 @@ pub use hpke_rs_crypto::types as hpke_types;
 /// Re-export of the RustCrypto crate.
 #[cfg(feature = "rustcrypto")]
 pub use hpke_rs_rust_crypto as rustcrypto;
-
-#[cfg(not(feature = "hpke-test-prng"))]
-use rand_core::TryRngCore;
 
 #[cfg(feature = "serialization")]
 pub(crate) use serde::{Deserialize, Serialize};
@@ -304,7 +302,11 @@ pub struct Context<Crypto: 'static + HpkeCrypto> {
 	nonce: Vec<u8>,
 	exporter_secret: Vec<u8>,
 	sequence_number: u64,
-	hpke: Hpke<Crypto>,
+	kem_id: KemAlgorithm,
+	kdf_id: KdfAlgorithm,
+	aead_id: AeadAlgorithm,
+	#[zeroize(skip)]
+	_crypto: core::marker::PhantomData<Crypto>,
 }
 
 #[cfg(feature = "hazmat")]
@@ -346,12 +348,12 @@ impl<Crypto: HpkeCrypto> Context<Crypto> {
 	///   return ct
 	/// ```
 	pub fn seal(&mut self, aad: &[u8], plain_txt: &[u8]) -> Result<Ciphertext, HpkeError> {
-		if self.hpke.aead_id == AeadAlgorithm::HpkeExport {
+		if self.aead_id == AeadAlgorithm::HpkeExport {
 			return Err(HpkeError::InvalidConfig);
 		}
 
 		let ctxt = Crypto::aead_seal(
-			self.hpke.aead_id,
+			self.aead_id,
 			&self.key,
 			&self.compute_nonce(),
 			aad,
@@ -379,12 +381,12 @@ impl<Crypto: HpkeCrypto> Context<Crypto> {
 	///   return pt
 	/// ```
 	pub fn open(&mut self, aad: &[u8], cipher_txt: &[u8]) -> Result<Plaintext, HpkeError> {
-		if self.hpke.aead_id == AeadAlgorithm::HpkeExport {
+		if self.aead_id == AeadAlgorithm::HpkeExport {
 			return Err(HpkeError::InvalidConfig);
 		}
 
 		let ptxt = Crypto::aead_open(
-			self.hpke.aead_id,
+			self.aead_id,
 			&self.key,
 			&self.compute_nonce(),
 			aad,
@@ -404,15 +406,46 @@ impl<Crypto: HpkeCrypto> Context<Crypto> {
 	///  return LabeledExpand(self.exporter_secret, "sec", exporter_context, L)
 	///```
 	pub fn export(&self, exporter_context: &[u8], length: usize) -> Result<Vec<u8>, HpkeError> {
+		const LABEL: &str = "sec";
+
+		if let Ok(kdf) = SingleStageKdfAlgorithm::try_from(self.kdf_id) {
+			return labeled_derive::<Crypto>(
+				kdf,
+				&self.ciphersuite(),
+				&self.exporter_secret,
+				LABEL,
+				exporter_context,
+				length,
+			)
+			.map_err(|e| HpkeError::CryptoError(format!("Crypto error: {}", e)));
+		}
+
 		labeled_expand::<Crypto>(
-			self.hpke.kdf_id,
+			self.two_stage_kdf()?,
 			&self.exporter_secret,
-			&self.hpke.ciphersuite(),
-			"sec",
+			&self.ciphersuite(),
+			LABEL,
 			exporter_context,
 			length,
 		)
 		.map_err(|e| HpkeError::CryptoError(format!("Crypto error: {}", e)))
+	}
+
+	/// The two-stage KDF for this ciphersuite, or an error if it is single-stage.
+	#[inline]
+	fn two_stage_kdf(&self) -> Result<TwoStageKdfAlgorithm, HpkeError> {
+		TwoStageKdfAlgorithm::try_from(self.kdf_id)
+			.map_err(|_| HpkeError::CryptoError("Unsupported KDF".to_string()))
+	}
+
+	#[inline]
+	fn ciphersuite(&self) -> Vec<u8> {
+		util::concat(&[
+			b"HPKE",
+			&(self.kem_id as u16).to_be_bytes(),
+			&(self.kdf_id as u16).to_be_bytes(),
+			&(self.aead_id as u16).to_be_bytes(),
+		])
 	}
 
 	/// def Context<ROLE>.ComputeNonce(seq):
@@ -431,7 +464,7 @@ impl<Crypto: HpkeCrypto> Context<Crypto> {
 	///     self.seq += 1
 	fn increment_seq(&mut self) -> Result<(), HpkeError> {
 		if u128::from(self.sequence_number)
-			>= ((1u128 << (8 * Crypto::aead_nonce_length(self.hpke.aead_id))) - 1)
+			>= ((1u128 << (8 * Crypto::aead_nonce_length(self.aead_id))) - 1)
 		{
 			// The limit is 0xffffffffffffffffffffffff for all currently implemented
 			// ciphersuites.
@@ -459,17 +492,29 @@ pub struct Hpke<Crypto: 'static + HpkeCrypto> {
 	kem_id: KemAlgorithm,
 	kdf_id: KdfAlgorithm,
 	aead_id: AeadAlgorithm,
+	// `HpkeCrypto::HpkePrng` is no longer required to implement `Zeroize` (most Rng types
+	// don't), so this field is skipped here; a provider's PRNG is responsible for zeroizing
+	// its own sensitive state, if any (e.g. via its own `Drop` impl).
+	#[zeroize(skip)]
 	prng: Crypto::HpkePrng,
 }
 
-impl<Crypto: 'static + HpkeCrypto> Clone for Hpke<Crypto> {
+/// Cloning gives the clone a fresh default PRNG ([`HpkeDefaultPrng::try_prng`], i.e. newly seeded
+/// from the system), never a copy of this instance's PRNG state: two copies of a PRNG would
+/// produce identical randomness, and thus identical ephemeral keys. This also holds if this
+/// instance was built with [`Hpke::new_with_rng`]; the caller's PRNG is not carried over.
+///
+/// # Panics
+///
+/// Panics if the default PRNG can't be constructed (e.g. the system RNG fails).
+impl<Crypto: 'static + HpkeDefaultPrng> Clone for Hpke<Crypto> {
 	fn clone(&self) -> Self {
 		Self {
 			mode: self.mode,
 			kem_id: self.kem_id,
 			kdf_id: self.kdf_id,
 			aead_id: self.aead_id,
-			prng: Crypto::prng(),
+			prng: Crypto::try_prng().expect("failed to construct the default PRNG"),
 		}
 	}
 }
@@ -487,20 +532,89 @@ impl<Crypto: HpkeCrypto> core::fmt::Display for Hpke<Crypto> {
 	}
 }
 
-impl<Crypto: HpkeCrypto> Hpke<Crypto> {
-	/// Set up the configuration for HPKE.
+impl<Crypto: HpkeDefaultPrng> Hpke<Crypto> {
+	/// Set up the configuration for HPKE using the provider's default PRNG.
+	///
+	/// # Panics
+	///
+	/// Panics if the default PRNG can't be constructed (e.g. the system RNG fails). Use
+	/// [`Hpke::try_new`] to get a `Result` instead, or [`Hpke::new_with_rng`] to supply a PRNG
+	/// explicitly.
 	pub fn new(
 		mode: Mode,
 		kem_id: KemAlgorithm,
 		kdf_id: KdfAlgorithm,
 		aead_id: AeadAlgorithm,
 	) -> Self {
+		Self::try_new(mode, kem_id, kdf_id, aead_id).expect("failed to construct the default PRNG")
+	}
+
+	/// Like [`Hpke::new`], but returns an error instead of panicking when the default PRNG
+	/// can't be constructed.
+	pub fn try_new(
+		mode: Mode,
+		kem_id: KemAlgorithm,
+		kdf_id: KdfAlgorithm,
+		aead_id: AeadAlgorithm,
+	) -> Result<Self, HpkeError> {
+		Ok(Self {
+			mode,
+			kem_id,
+			kdf_id,
+			aead_id,
+			prng: Crypto::try_prng()?,
+		})
+	}
+}
+
+impl<Crypto: HpkeCrypto> Hpke<Crypto> {
+	/// Set up the configuration for HPKE with a caller-provided PRNG.
+	///
+	/// This is like [`Hpke::new`] but stores the given PRNG instead of
+	/// constructing one via [`HpkeDefaultPrng::try_prng`]. Use this to bring your own
+	/// randomness source — any type implementing `TryCryptoRng` — instead of a provider's
+	/// default, or on platforms without a system RNG (e.g. wasm), where the caller has to
+	/// construct the provider PRNG itself.
+	///
+	/// # Example
+	///
+	/// ```
+	/// use hpke_rs::{*, hpke_types::*};
+	/// use hpke_rs_rust_crypto::HpkeRustCrypto;
+	/// use hpke_rs_crypto::HpkeDefaultPrng;
+	///
+	/// // Set up hpke mode with an explicit PRNG instance.
+	/// let mut hpke = Hpke::<HpkeRustCrypto>::new_with_rng(
+	///     Mode::Base,
+	///     KemAlgorithm::DhKem25519,
+	///     KdfAlgorithm::HkdfSha256,
+	///     AeadAlgorithm::ChaCha20Poly1305,
+	///     HpkeRustCrypto::try_prng().unwrap(),
+	/// );
+	///
+	/// let (sk_r, pk_r) = hpke.generate_key_pair().unwrap().into_keys();
+	/// let info = b"HPKE demo info";
+	/// let aad = b"HPKE demo aad";
+	/// let plaintext = b"HPKE demo plain text";
+	///
+	/// let (enc, ctxt) = hpke.seal(&pk_r, info, aad, plaintext, None, None, None).unwrap();
+	/// let ptxt = hpke.open(&enc, &sk_r, info, aad, &ctxt, None, None, None).unwrap();
+	///
+	/// assert_eq!(ptxt, plaintext);
+	/// ```
+	pub fn new_with_rng(
+		mode: Mode,
+		kem_id: KemAlgorithm,
+		kdf_id: KdfAlgorithm,
+		aead_id: AeadAlgorithm,
+		prng: Crypto::HpkePrng,
+	) -> Self {
 		Self {
 			mode,
 			kem_id,
 			kdf_id,
 			aead_id,
-			prng: Crypto::prng(),
+			prng,
 		}
 	}
 
@@ -538,7 +652,7 @@ impl<Crypto: HpkeCrypto> Hpke<Crypto> {
 		};
 		Ok((
 			enc,
-			self.clone().key_schedule(
+			self.key_schedule(
 				&zz,
 				info,
 				psk.unwrap_or_default(),
@@ -581,7 +695,7 @@ impl<Crypto: HpkeCrypto> Hpke<Crypto> {
 				kem::auth_decaps::<Crypto>(self.kem_id, enc, &sk_r.value, pk_s)?
 			}
 		};
-		self.clone().key_schedule(
+		self.key_schedule(
 			&zz,
 			info,
 			psk.unwrap_or_default(),
@@ -738,16 +852,23 @@ impl<Crypto: HpkeCrypto> Hpke<Crypto> {
 		])
 	}
 
+	/// The two-stage KDF for this ciphersuite, or an error if it is single-stage.
+	#[inline]
+	fn two_stage_kdf(&self) -> Result<TwoStageKdfAlgorithm, HpkeError> {
+		TwoStageKdfAlgorithm::try_from(self.kdf_id)
+			.map_err(|_| HpkeError::CryptoError("Unsupported KDF".to_string()))
+	}
+
 	#[inline]
 	fn key_schedule_context(
 		&self,
+		kdf: TwoStageKdfAlgorithm,
 		info: &[u8],
 		psk_id: &[u8],
 		suite_id: &[u8],
 	) -> Result<Vec<u8>, HpkeError> {
-		let psk_id_hash =
-			labeled_extract::<Crypto>(self.kdf_id, &[0], suite_id, "psk_id_hash", psk_id)?;
-		let info_hash = labeled_extract::<Crypto>(self.kdf_id, &[0], suite_id, "info_hash", info)?;
+		let psk_id_hash = labeled_extract::<Crypto>(kdf, &[0], suite_id, "psk_id_hash", psk_id)?;
+		let info_hash = labeled_extract::<Crypto>(kdf, &[0], suite_id, "info_hash", info)?;
 		Ok(util::concat(&[
 			&[self.mode as u8],
 			&psk_id_hash,
@@ -766,13 +887,58 @@ impl<Crypto: HpkeCrypto> Hpke<Crypto> {
 	) -> Result<Context<Crypto>, HpkeError> {
 		self.verify_psk_inputs(psk, psk_id)?;
 		let suite_id = self.ciphersuite();
-		let key_schedule_context = self.key_schedule_context(info, psk_id, &suite_id)?;
-		let secret =
-			labeled_extract::<Crypto>(self.kdf_id, shared_secret, &suite_id, "secret", psk)
-				.map_err(|e| HpkeError::CryptoError(format!("Crypto error: {}", e)))?;
+
+		// Single-stage (SHAKE) KDFs use a different key-schedule shape: a single
+		// `LabeledDerive` producing key ‖ base_nonce ‖ exporter_secret, with the
+		// PSK/info length-prefixed. See draft-ietf-hpke-pq.
+		if let Ok(kdf) = SingleStageKdfAlgorithm::try_from(self.kdf_id) {
+			let nk = Crypto::aead_key_length(self.aead_id);
+			let nn = Crypto::aead_nonce_length(self.aead_id);
+			let nh = Crypto::kdf_digest_length(self.kdf_id);
+
+			// Every value below is emitted with a 2-byte length prefix; reject
+			// anything that would not fit rather than silently truncating it.
+			for field in [psk, shared_secret, psk_id, info] {
+				if field.len() > u16::MAX as usize {
+					return Err(HpkeError::InvalidInput);
+				}
+			}
+
+			let secrets = util::concat(&[&length_prefixed(psk), &length_prefixed(shared_secret)]);
+			let context = util::concat(&[
+				&[self.mode as u8],
+				&length_prefixed(psk_id),
+				&length_prefixed(info),
+			]);
+			let secret = labeled_derive::<Crypto>(
+				kdf,
+				&suite_id,
+				&secrets,
+				"secret",
+				&context,
+				nk + nn + nh,
+			)
+			.map_err(|e| HpkeError::CryptoError(format!("Crypto error: {}", e)))?;
+
+			return Ok(Context {
+				key: secret[..nk].to_vec(),
+				nonce: secret[nk..nk + nn].to_vec(),
+				exporter_secret: secret[nk + nn..].to_vec(),
+				sequence_number: 0,
+				kem_id: self.kem_id,
+				kdf_id: self.kdf_id,
+				aead_id: self.aead_id,
+				_crypto: core::marker::PhantomData,
+			});
+		}
+
+		let kdf = self.two_stage_kdf()?;
+		let key_schedule_context = self.key_schedule_context(kdf, info, psk_id, &suite_id)?;
+		let secret = labeled_extract::<Crypto>(kdf, shared_secret, &suite_id, "secret", psk)
+			.map_err(|e| HpkeError::CryptoError(format!("Crypto error: {}", e)))?;
 
 		let key = labeled_expand::<Crypto>(
-			self.kdf_id,
+			kdf,
 			&secret,
 			&suite_id,
 			"key",
@@ -781,7 +947,7 @@ impl<Crypto: HpkeCrypto> Hpke<Crypto> {
 		)
 		.map_err(|e| HpkeError::CryptoError(format!("Crypto error: {}", e)))?;
 		let base_nonce = labeled_expand::<Crypto>(
-			self.kdf_id,
+			kdf,
 			&secret,
 			&suite_id,
 			"base_nonce",
@@ -790,7 +956,7 @@ impl<Crypto: HpkeCrypto> Hpke<Crypto> {
 		)
 		.map_err(|e| HpkeError::CryptoError(format!("Crypto error: {}", e)))?;
 		let exporter_secret = labeled_expand::<Crypto>(
-			self.kdf_id,
+			kdf,
 			&secret,
 			&suite_id,
 			"exp",
@@ -804,7 +970,10 @@ impl<Crypto: HpkeCrypto> Hpke<Crypto> {
 			nonce: base_nonce,
 			exporter_secret,
 			sequence_number: 0,
-			hpke: self.clone(),
+			kem_id: self.kem_id,
+			kdf_id: self.kdf_id,
+			aead_id: self.aead_id,
+			_crypto: core::marker::PhantomData,
 		})
 	}
 
@@ -829,23 +998,14 @@ impl<Crypto: HpkeCrypto> Hpke<Crypto> {
 	}
 
 	#[inline]
-	pub(crate) fn random(&mut self, len: usize) -> Result<Vec<u8>, HpkeError> {
+	pub(crate) fn random(&mut self, len: usize) -> Result<zeroize::Zeroizing<Vec<u8>>, HpkeError> {
 		let prng = &mut self.prng;
-		let mut out = vec![0u8; len];
+		let mut out = zeroize::Zeroizing::new(vec![0u8; len]);
 
-		#[cfg(feature = "hpke-test-prng")]
-		prng.try_fill_test_bytes(&mut out)
-			.map_err(|_| HpkeError::InsufficientRandomness)?;
-		#[cfg(not(feature = "hpke-test-prng"))]
 		prng.try_fill_bytes(&mut out)
 			.map_err(|_| HpkeError::InsufficientRandomness)?;
 
 		Ok(out)
-	}
-
-	/// Get the rng.
-	pub(crate) fn rng(&mut self) -> &mut Crypto::HpkePrng {
-		&mut self.prng
 	}
 }
 
@@ -1029,16 +1189,7 @@ impl tls_codec::Deserialize for &HpkePublicKey {
 pub mod test_util {
 	use alloc::{format, string::String, vec, vec::Vec};
 
-	use crate::HpkeError;
-	use hpke_rs_crypto::{HpkeCrypto, HpkeTestRng};
-
-	impl<Crypto: HpkeCrypto> super::Hpke<Crypto> {
-		/// Set PRNG state for testing.
-		pub fn seed(&mut self, seed: &[u8]) -> Result<(), HpkeError> {
-			self.prng.seed(seed);
-			Ok(())
-		}
-	}
+	use hpke_rs_crypto::HpkeCrypto;
 
 	impl<Crypto: HpkeCrypto> super::Context<Crypto> {
 		/// Get a reference to the key in the context.
@@ -1074,7 +1225,7 @@ pub mod test_util {
 
 	/// Convert a hex string to a byte vector.
 	pub fn hex_to_bytes(hex: &str) -> Vec<u8> {
-		assert!(hex.len() % 2 == 0);
+		assert!(hex.len().is_multiple_of(2));
 		let mut bytes = Vec::new();
 		for i in 0..(hex.len() / 2) {
 			bytes.push(u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap());
@@ -1094,7 +1245,11 @@ pub mod test_util {
 	/// Convert a byte slice into byte slice option.
 	/// Returns `Nonce` if the byte slice is empty and `Some(v)` otherwise.
 	pub fn vec_to_option_slice(v: &[u8]) -> Option<&[u8]> {
-		if v.is_empty() { None } else { Some(v) }
+		if v.is_empty() {
+			None
+		} else {
+			Some(v)
+		}
 	}
 }
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 // Serein modifications to hpke-rs, 2026.
-// Serein security backport: use RustCrypto SHAKE256 instead of the vulnerable
-// libcrux-sha3 dependency pinned by this HPKE release. Same standard XOF output.
+// Serein native dependency selection: use RustCrypto SHAKE256 without libcrux
+// verification tooling in the audited lockfile. Same standard XOF output.
 pub(super) fn shake256<const BYTES: usize>(input: &[u8]) -> [u8; BYTES] {
 	use sha3::digest::{ExtendableOutput, Update, XofReader};
 	let mut hash = sha3::Shake256::default();

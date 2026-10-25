@@ -1,11 +1,48 @@
-# HPKE dependency security backport
+# Native HPKE dependency selection
 
-Source: crates.io hpke-rs 0.6.1, upstream git `f3463e7530771d7f7116635335c25e7d2d11e861` (https://github.com/cryspen/hpke-rs). Original crate archive SHA-256: `b6ad6a58eb3e0ee30be8bfc7a9770ae98adcfa1d9bc820a5847732ce84f70837`.
+Source: crates.io **hpke-rs 0.8.0**, upstream commit
+`42d68bd49b244b09bd02626c6ffa95e54dc64f91`, directory
+`crates/protocols/hpke` in <https://github.com/celabshq/libcrux>.
+Original archive SHA-256:
+`deb74477a6c7f6e8e9c68de06fe928db79b3b8b9e04c900bfb729bf096df7d22`.
+`Cargo.toml.orig` and `.cargo_vcs_info.json` preserve release provenance.
+The release lockfile, registry marker, publish helper and Libcrux-only
+post-quantum benchmark are omitted; workspace Cargo.lock controls resolution.
+Native packages include the manifests, provenance/license documents, `src` and
+`benches`; archival upstream CI configuration is not shipped.
 
-Changes: replace the unconditional `libcrux-sha3 ^0.0.8` dependency with RustCrypto `sha3 =0.10.9`, and route its two fixed-size SHAKE256 calls through the standard RustCrypto XOF API in `src/serein_sha3.rs` (imported by `src/kem.rs`). No HPKE algorithm or wire-format changes. The helper has a runnable 32/64-byte output check against empty, short and 256-byte input vectors generated independently with Python hashlib/OpenSSL SHAKE256.
+The October 25, 2026 migration updates the whole vendored component from 0.6.1
+to 0.8.0, matching the pinned OpenMLS RustCrypto provider's HPKE dependency.
+Its RustCrypto provider 0.8.0 uses curve 0.14/crypto-bigint 0.7 instead of the
+vulnerable 0.5 path. The existing native selection patch is carried forward:
 
-This removes RUSTSEC-2026-0207, RUSTSEC-2026-0208 and RUSTSEC-2026-0212 from the selected voice dependency graph. Upstream HPKE 0.7.0 updates libcrux-sha3 but cannot satisfy OpenMLS's ^0.6 requirement. Backporting just that dependency version conflicts with the old optional libcrux backend's exact hax-lib pin. The existing RustCrypto provider remains in use. The follow-up native dependency patch removes the unused optional `hpke-rs-libcrux` dependency, its feature/re-export, and its dev dependency. Examples, KDF tests and benchmarks now use the retained RustCrypto provider; duplicate libcrux AEAD cases are removed. This removes that backend and its affected transitive packages from Cargo.lock rather than hiding audit findings. Cargo.toml.orig remains unchanged for provenance. This scoped fork no longer exposes upstream's optional `libcrux` feature. No advisory is suppressed or vulnerable package renamed.
+- Replace unconditional `libcrux-sha3 ^0.0.11` with RustCrypto `sha3 =0.10.9`.
+  Route the two fixed-size SHAKE256 calls in `src/kem.rs` through the existing
+  standard XOF adapter in `src/serein_sha3.rs`.
+- Remove unused optional/dev `hpke-rs-libcrux`, its feature/re-export and the
+  Libcrux-only post-quantum feature/benchmark. Otherwise its unused tooling
+  retains the unmaintained proc-macro-error2 path in the all-target lockfile.
+  The native RustCrypto provider, KDF tests, AEAD tests, examples and benchmarks
+  remain; duplicate Libcrux-only cases are removed. The local seed-derivation
+  draft feature remains available without a backend dependency.
 
-Remove this patch when compatible upstream HPKE/OpenMLS releases eliminate the old dependency. Retained upstream source is MPL-2.0; the modified files remain MPL-2.0 and must be offered in source form with binary distributions. Original crate Cargo.lock, publish helper and CI configuration are omitted; workspace Cargo.lock controls resolution. Cargo.toml.orig and .cargo_vcs_info.json retain upstream provenance.
+The fork does not expose the optional `libcrux` or `draft-ietf-hpke-pq` features.
+`Readme.md` documents that selection. No HPKE algorithm or wire-format change is
+made by the local SHAKE adapter. No advisory is suppressed or package renamed to
+hide a finding. Reassess this selection when a compatible upstream release no
+longer retains the unused backend/tooling in the audited graph.
 
-Validation: `cargo test -p discord-voice --lib serein_shake256_security_backport` (compiles the exact vendored adapter via a test-only path module), plus workspace DAVE/MLS group creation and bidirectional encrypted Opus transport. This is not an independent cryptographic audit.
+All retained and modified component source remains **MPL-2.0**. The release
+archive omits a standalone license file; `LICENSE-MPL-2.0.txt` is the unmodified
+canonical Mozilla text, not an invented upstream file. Binary distributions
+include this complete corresponding native component source under
+`source/hpke-rs`, plus the exact upstream MPL RustCrypto-provider/traits archives
+under the dependency license bundle. Distributors must retain notices and offer
+corresponding source including modifications as required by MPL-2.0; license
+text alone is insufficient.
+
+Validation uses the exact vendored adapter's independent 32/64-byte SHAKE output
+vectors, workspace DAVE/MLS transitions and bidirectional encrypted packets,
+plus old/new offline compatibility peers. Synthetic fixtures do not establish
+constant-time behavior, live Discord interoperability or an independent
+cryptographic security assessment.

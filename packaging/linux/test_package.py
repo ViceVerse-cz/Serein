@@ -43,6 +43,14 @@ class NativePackageTest(unittest.TestCase):
             (staged / "debug.log").write_text("synthetic private marker")
             (staged / "docs/stale.log").write_text("synthetic private marker")
             (staged / "previous.deb").write_text("old package")
+            # Check the installed source, including local modifications, without dpkg.
+            payload = root / "source-check"
+            packaging.stage_payload(staged, payload)
+            packaged_source = payload / "usr/share/doc/serein/source/hpke-rs"
+            for file in ["Cargo.toml", "SEREIN-PATCH.md", "src/kem.rs", "src/serein_sha3.rs"]:
+                self.assertEqual((packaged_source / file).read_bytes(),
+                                 (Path("vendor/hpke-rs") / file).read_bytes())
+            self.assertFalse((packaged_source / "stale-nested.log").exists())
             if FORMAT != "deb":
                 packaging.native_package(staged, "0.1.0-test", FORMAT)
                 if FORMAT == "arch":
@@ -83,7 +91,7 @@ class NativePackageTest(unittest.TestCase):
             for excluded in ["debug.log", "stale.log", "stale.deb", "previous.deb", "stale-nested.log"]:
                 self.assertNotIn(excluded, listing)
             self.assertNotIn("usr/share/doc/serein/docs/", listing)
-            self.assertNotIn("source/hpke-rs/", listing)
+            self.assertIn("source/hpke-rs/src/serein_sha3.rs", listing)
             self.assertIn("licenses/dependencies/PROVENANCE.md", listing)
             self.assertIn("licenses/voice/", listing)
             # Preserve valid metadata while making the expected payload disagree.

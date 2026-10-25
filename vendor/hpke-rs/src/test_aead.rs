@@ -1,4 +1,4 @@
-use hpke_rs_crypto::{HpkeCrypto, types::AeadAlgorithm};
+use hpke_rs_crypto::{types::AeadAlgorithm, HpkeCrypto};
 use hpke_rs_rust_crypto::HpkeRustCrypto;
 
 #[test]

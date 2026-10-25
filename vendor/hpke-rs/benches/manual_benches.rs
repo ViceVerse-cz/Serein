@@ -2,9 +2,10 @@ use std::time::{Duration, Instant};
 
 use hpke_rs::{prelude::*, test_util::hex_to_bytes};
 use hpke_rs_crypto::{
-	HpkeCrypto,
 	types::{AeadAlgorithm, KdfAlgorithm, KemAlgorithm},
+	HpkeDefaultPrng,
 };
+use hpke_rs_rust_crypto::HpkeRustCrypto;
 use hpke_rs_rust_crypto::*;
 use rand::Rng;
 
@@ -42,7 +43,7 @@ const AEAD_AAD: usize = 48;
 
 const ITERATIONS: usize = 1;
 
-fn benchmark<Crypto: HpkeCrypto + 'static>() {
+fn benchmark<Crypto: HpkeDefaultPrng + 'static>() {
 	for hpke_mode in MODES {
 		for aead_mode in AEAD_IDS {
 			if Crypto::supports_aead(aead_mode).is_err() {
@@ -67,8 +68,6 @@ fn benchmark<Crypto: HpkeCrypto + 'static>() {
 					);
 					println!("{}", label);
 
-					let kp = hpke.generate_key_pair().unwrap();
-					let enc = kp.public_key().as_slice();
 					let kp_r = hpke.generate_key_pair().unwrap();
 					let sk_rm = kp_r.private_key();
 					let pk_rm = kp_r.public_key();
@@ -116,10 +115,20 @@ fn benchmark<Crypto: HpkeCrypto + 'static>() {
 
 					let start = Instant::now();
 					for _ in 0..ITERATIONS {
-						let hpke = Hpke::<Crypto>::new(hpke_mode, kem_mode, kdf_mode, aead_mode);
+						let mut hpke =
+							Hpke::<Crypto>::new(hpke_mode, kem_mode, kdf_mode, aead_mode);
+						let (encapsulation, _) = hpke
+							.setup_sender(
+								pk_rm,
+								&info,
+								psk.as_ref().map(Vec::as_ref),
+								psk_id.as_ref().map(Vec::as_ref),
+								sk_sm.as_ref(),
+							)
+							.unwrap();
 						let _receiver = hpke
 							.setup_receiver(
-								enc,
+								&encapsulation,
 								sk_rm,
 								&info,
 								psk.as_ref().map(Vec::as_ref),
@@ -252,5 +261,6 @@ fn benchmark<Crypto: HpkeCrypto + 'static>() {
 }
 
 fn main() {
+	benchmark::<HpkeRustCrypto>();
 	benchmark::<HpkeRustCrypto>();
 }

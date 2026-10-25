@@ -34,7 +34,7 @@ This directory covers newly added direct voice libraries and the bundled codec/b
 | hpke-rs-LICENSE-MPL-2.0.txt | [canonical Mozilla text](https://www.mozilla.org/media/MPL/2.0/index.txt) | `3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04` |
 
 Registry package archive checksums from the original Cargo.lock (Davey is now a local
-manifest-only patch; its original archive checksum remains recorded below and in
+manifest/source patch; its original archive checksum remains recorded below and in
 `vendor/davey/SEREIN-PATCH.md`):
 
 - chacha20poly1305 0.10.1: `10cd79432192d1c0f4e1a0fef9527696cc039165d729fb41b3f4f4f354c2dc35`
@@ -45,7 +45,27 @@ manifest-only patch; its original archive checksum remains recorded below and in
 - opus2 0.4.0: `49521e33fbf825d2abc8d696506c278cb8469d0c6cc05d3785bef5c5f7ee957b`
 - rtrb 0.4.0: `9278fb35b3e730abe136e9b395b5b81b96d06b9f5478a50f0c8430a2237b22de`
 
-Vendored hpke-rs 0.6.1 followup: the [release-pinned manifest](https://raw.githubusercontent.com/cryspen/hpke-rs/f3463e7530771d7f7116635335c25e7d2d11e861/Cargo.toml) declares **MPL-2.0**, not MIT/Apache. Neither its registry archive nor the complete pinned Git tree includes a LICENSE/COPYING/NOTICE file. The unmodified canonical Mozilla MPL-2.0 text linked above is therefore supplied in this directory and `vendor/hpke-rs/LICENSE-MPL-2.0.txt`; it is not represented as an upstream repository file. The original source and manifest notices are retained. `vendor/hpke-rs/SEREIN-PATCH.md` identifies the local SHAKE dependency replacement and adapter. Distributors of the modified component must make its corresponding source, including modifications, available as required by MPL-2.0 and tell recipients how to obtain it. This addition does not complete the remaining transitive license review.
+## October 25, 2026 crypto migration
+
+OpenMLS now uses Git revision `be248d4b1306d87a641ce24ed0ffcab2b27967f6`
+(OpenMLS 0.9.0 snapshot, credentials/provider/memory/traits 0.6.0 and
+serialization helpers 0.1.0). The [root MIT license](https://github.com/openmls/openmls/blob/be248d4b1306d87a641ce24ed0ffcab2b27967f6/LICENSE)
+is byte-identical to `openmls-LICENSE.txt` and its SHA-256 above. Earlier release
+URLs/checksums are historical provenance, not the current resolved inventory.
+Davey remains based on 0.1.4 with the documented local API migrations.
+
+Vendored hpke-rs is now **0.8.0**, from upstream
+`42d68bd49b244b09bd02626c6ffa95e54dc64f91`, directory `crates/protocols/hpke`.
+Its [release manifest](https://github.com/celabshq/libcrux/blob/42d68bd49b244b09bd02626c6ffa95e54dc64f91/crates/protocols/hpke/Cargo.toml)
+declares MPL-2.0. The registry archive omits a standalone license text; the
+canonical Mozilla text above remains supplied, not represented as an upstream
+file. `vendor/hpke-rs/SEREIN-PATCH.md` records the archive hash and carried native
+SHAKE/backend selection. The exact unmodified 0.8.0 MPL traits/provider source
+archives are bundled under `assets/licenses/dependencies`; their hashes and
+provenance are recorded there. The modified hpke-rs source is packaged under
+`source/hpke-rs`. Distributors must retain notices and provide corresponding
+source, including modifications, under MPL-2.0. This update does not complete
+the existing transitive redistribution review.
 
 ## RustCrypto SHAKE backport dependencies
 - `keccak-LICENSE-APACHE`: unmodified from crates.io keccak 0.1.6 / `LICENSE-APACHE`; SHA-256 `a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5`.

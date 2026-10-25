@@ -17,7 +17,7 @@ url.workspace = true
 getrandom.workspace = true
 tracing = { version = "0.1", default-features = false, features = ["max_level_off", "release_max_level_off"] }
 davey = { version = "=0.1.4", default-features = false }
-openmls = { version = "=0.8.1", default-features = false }
+openmls = { version = "=0.9.0", default-features = false }
 chacha20poly1305 = { version = "=0.10.1", default-features = false, features = ["alloc"] }
 opus2 = { version = "=0.4.0", default-features = false, features = ["backend-libopus", "static", "bundled"] }
 rtrb = "=0.4.0"
@@ -29,8 +29,8 @@ image = { version = "=0.25.10", default-features = false }
 
 [dev-dependencies]
 sha3 = { version = "=0.10.9", default-features = false }
-openmls_rust_crypto = "=0.5.1"
-openmls_basic_credential = "=0.5.0"
+openmls_rust_crypto = "=0.6.0"
+openmls_basic_credential = "=0.6.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 screencapturekit = { version = "=10.0.3", default-features = false, features = ["macos_14_0"] }

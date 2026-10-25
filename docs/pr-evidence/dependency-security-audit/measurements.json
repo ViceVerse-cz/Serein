@@ -1,0 +1,75 @@
+{
+  "date": "2026-10-25",
+  "environment": {
+    "os": "Arch Linux x86_64",
+    "rust": "1.98.1",
+    "package_command": "cargo xtask package --format arch",
+    "application_build": "cargo build --release --locked -p serein --no-default-features",
+    "voice_included": true,
+    "demo_or_developer_features": false,
+    "release_profile": {
+      "lto": "fat",
+      "codegen-units": 1,
+      "strip": "symbols",
+      "debug": "line-tables-only"
+    }
+  },
+  "method": {
+    "samples_per_revision": 1,
+    "installed_bytes": "Sum of regular files from python3 packaging/linux/package.py dist 0.1.0 --format dir",
+    "distribution": "Native makepkg .pkg.tar.zst, default zstd -c -z -q -",
+    "noise": "Build timestamps and compression; file sizes do not establish runtime performance",
+    "baseline": "Fresh original-main package built and preserved during this task",
+    "after": "Final migration plus notices and corresponding-source staging fix"
+  },
+  "baseline": {
+    "revision": "38e46b8f5ec694002ef515fbc2d8dc69297e4f5f",
+    "label": "baseline",
+    "executable": {
+      "bytes": 92650248,
+      "sha256": "577c75e043bf559d6988b347f90233b7af2100c88869d7b724a2f4af7c386cb3"
+    },
+    "installed_bytes": 97348681,
+    "installed_files": 245,
+    "distribution": {
+      "bytes": 54365363,
+      "sha256": "cb911425dd0892a8fa24600ed9d6f7f02ac2a773973509bcaf81d6f99bf29792"
+    },
+    "lockfile": {
+      "bytes": 230748,
+      "sha256": "be0e03e337ce18f87707fb4277de1754cbe556e78f43a97b754f294e68fa6e24"
+    }
+  },
+  "after": {
+    "branch": "fix/dependency-security-audit",
+    "openmls_revision": "be248d4b1306d87a641ce24ed0ffcab2b27967f6",
+    "label": "final",
+    "executable": {
+      "bytes": 93145480,
+      "sha256": "db0b88b2d92f34e676206aa7516665707bf535cdfdeb763ac41ab5a07097c77f"
+    },
+    "installed_bytes": 97957005,
+    "installed_files": 265,
+    "distribution": {
+      "bytes": 54622585,
+      "sha256": "6832f53b329ec217b6857d5637b2381fda31ec2d63b50c84c94145382197449d"
+    },
+    "lockfile": {
+      "bytes": 233029,
+      "sha256": "b546d22487b08bc3850838fa69e02e6ea64b1bc1bb0f733d3e50eed48178da04"
+    }
+  },
+  "checks": {
+    "arch_package_and_payload_smoke": "passed both revisions",
+    "packaging_regressions": "final dir and arch passed, including source inclusion/stale-file exclusion",
+    "packaged_hpke_source": "20 files byte-identical to reviewed native component files",
+    "provider_archives": "both 0.8.0 archives byte-identical to verified locked sources"
+  },
+  "unmeasured": [
+    "CPU",
+    "RSS",
+    "latency",
+    "cryptographic timing",
+    "Windows/macOS native packages"
+  ]
+}

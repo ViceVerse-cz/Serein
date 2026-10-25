@@ -123,7 +123,7 @@
     },
     {
       "name": "clipboard-win",
-      "version": "5.4.1",
+      "version": "5.4.2",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "files": [
         "assets/licenses/dependencies/clipboard-win-3b27cf2b-LICENSE"
@@ -282,24 +282,24 @@
     },
     {
       "name": "hpke-rs-crypto",
-      "version": "0.6.1",
+      "version": "0.8.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "files": [
         "assets/licenses/voice/hpke-rs-LICENSE-MPL-2.0.txt"
       ],
       "source_archives": [
-        "assets/licenses/dependencies/hpke-rs-crypto-0.6.1.crate"
+        "assets/licenses/dependencies/hpke-rs-crypto-0.8.0.crate"
       ]
     },
     {
       "name": "hpke-rs-rust-crypto",
-      "version": "0.6.1",
+      "version": "0.8.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "files": [
         "assets/licenses/voice/hpke-rs-LICENSE-MPL-2.0.txt"
       ],
       "source_archives": [
-        "assets/licenses/dependencies/hpke-rs-rust-crypto-0.6.1.crate"
+        "assets/licenses/dependencies/hpke-rs-rust-crypto-0.8.0.crate"
       ]
     },
     {
@@ -606,46 +606,55 @@
     },
     {
       "name": "openmls",
-      "version": "0.8.1",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.9.0",
+      "source": "git+https://github.com/openmls/openmls?rev=be248d4b1306d87a641ce24ed0ffcab2b27967f6#be248d4b1306d87a641ce24ed0ffcab2b27967f6",
       "files": [
-        "assets/licenses/dependencies/openmls-47dbedec-LICENSE"
+        "assets/licenses/voice/openmls-LICENSE.txt"
       ],
       "source_archives": []
     },
     {
       "name": "openmls_basic_credential",
-      "version": "0.5.0",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.6.0",
+      "source": "git+https://github.com/openmls/openmls?rev=be248d4b1306d87a641ce24ed0ffcab2b27967f6#be248d4b1306d87a641ce24ed0ffcab2b27967f6",
       "files": [
-        "assets/licenses/dependencies/openmls-6b85f0ed-LICENSE"
+        "assets/licenses/voice/openmls-LICENSE.txt"
       ],
       "source_archives": []
     },
     {
       "name": "openmls_memory_storage",
-      "version": "0.5.0",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.6.0",
+      "source": "git+https://github.com/openmls/openmls?rev=be248d4b1306d87a641ce24ed0ffcab2b27967f6#be248d4b1306d87a641ce24ed0ffcab2b27967f6",
       "files": [
-        "assets/licenses/dependencies/openmls-6b85f0ed-LICENSE"
+        "assets/licenses/voice/openmls-LICENSE.txt"
       ],
       "source_archives": []
     },
     {
       "name": "openmls_rust_crypto",
-      "version": "0.5.1",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.6.0",
+      "source": "git+https://github.com/openmls/openmls?rev=be248d4b1306d87a641ce24ed0ffcab2b27967f6#be248d4b1306d87a641ce24ed0ffcab2b27967f6",
       "files": [
-        "assets/licenses/dependencies/openmls-47dbedec-LICENSE"
+        "assets/licenses/voice/openmls-LICENSE.txt"
+      ],
+      "source_archives": []
+    },
+    {
+      "name": "openmls_serialization_helpers",
+      "version": "0.1.0",
+      "source": "git+https://github.com/openmls/openmls?rev=be248d4b1306d87a641ce24ed0ffcab2b27967f6#be248d4b1306d87a641ce24ed0ffcab2b27967f6",
+      "files": [
+        "assets/licenses/voice/openmls-LICENSE.txt"
       ],
       "source_archives": []
     },
     {
       "name": "openmls_traits",
-      "version": "0.5.0",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.6.0",
+      "source": "git+https://github.com/openmls/openmls?rev=be248d4b1306d87a641ce24ed0ffcab2b27967f6#be248d4b1306d87a641ce24ed0ffcab2b27967f6",
       "files": [
-        "assets/licenses/dependencies/openmls-6b85f0ed-LICENSE"
+        "assets/licenses/voice/openmls-LICENSE.txt"
       ],
       "source_archives": []
     },

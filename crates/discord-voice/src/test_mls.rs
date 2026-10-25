@@ -127,6 +127,24 @@ fn dave_two_parties_encrypt_decrypt_reject_tampering_and_transition_gate() {
 }
 
 #[test]
+fn legacy_key_package_accepts_and_merges_own_pending_commit() {
+	let server = Delivery::new();
+	let mut alice = Dave::new(1, Some(2), 3).unwrap();
+	alice.session.set_external_sender(&server.external).unwrap();
+	// Public synthetic user-2 package from the pre-migration production stack.
+	let package = include_bytes!("../tests/fixtures/legacy-dave/key-package.bin");
+	let (commit, _) = server.add(&mut alice, package);
+	let payload = [5u16.to_be_bytes().as_slice(), commit.as_slice()].concat();
+	assert_eq!(alice.group_changed(29, &payload).unwrap(), 5);
+	assert!(!alice.ready);
+	alice.execute(5).unwrap();
+	assert!(alice.ready);
+	let mut members = alice.session.get_user_ids().unwrap();
+	members.sort_unstable();
+	assert_eq!(members, [1, 2]);
+}
+
+#[test]
 fn welcome_cannot_add_an_unexpected_dm_peer() {
 	let server = Delivery::new();
 	let mut alice = Dave::new(1, Some(2), 3).unwrap();

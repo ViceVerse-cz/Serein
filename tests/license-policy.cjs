@@ -29,8 +29,8 @@ const cases = [
   ['restrictive-and', 'fixture-conjunctive', '1.0.0', 'MIT AND GPL-3.0-only', false],
   ['missing-license', 'fixture-unlicensed', '1.0.0', null, false],
   ['gpl-license', 'fixture-gpl', '1.0.0', 'GPL-3.0-only', false],
-  ['exact-exception', 'hpke-rs', '0.6.1', 'MPL-2.0', true],
-  ['wrong-exception-version', 'hpke-rs', '0.6.2', 'MPL-2.0', false],
+  ['exact-exception', 'hpke-rs', '0.8.0', 'MPL-2.0', true],
+  ['wrong-exception-version', 'hpke-rs', '0.8.1', 'MPL-2.0', false],
 ];
 
 try {

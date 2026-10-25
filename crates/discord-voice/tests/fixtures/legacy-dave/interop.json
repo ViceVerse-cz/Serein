@@ -1,0 +1,29 @@
+{
+  "legacy_source": "38e46b8f5ec694002ef515fbc2d8dc69297e4f5f",
+  "current_openmls_revision": "be248d4b1306d87a641ce24ed0ffcab2b27967f6",
+  "application_lockfile_sha256": "b546d22487b08bc3850838fa69e02e6ea64b1bc1bb0f733d3e50eed48178da04",
+  "peer_source_sha256": "9f4ef01b058c0d21fc98dd25d8b8860a37a9ad825a12b191b58e9b9e9e5819c4",
+  "rust": "1.98.1",
+  "scenarios": [
+    {
+      "creator": "legacy",
+      "join": true,
+      "own_commit": true,
+      "bidirectional_media": true,
+      "tamper_rejected": true,
+      "replay_rejected": true,
+      "matching_privacy_code": true
+    },
+    {
+      "creator": "current",
+      "join": true,
+      "own_commit": true,
+      "bidirectional_media": true,
+      "tamper_rejected": true,
+      "replay_rejected": true,
+      "matching_privacy_code": true
+    }
+  ],
+  "fixture_sha256": "b5efc8786b633ae278ff0e29f8ea03e25d2959222795feb237fdf70ce50b292d",
+  "date": "2026-10-25"
+}
