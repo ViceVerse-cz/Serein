@@ -341,6 +341,27 @@ const RETIRED_LISTS: usize = 8;
 /// Server, computed list identity, and the service identity when it differed.
 type RetiredList = (Id, String, Option<String>);
 
+/// Servers this session sent channel ranges for. Past the bound every server is assumed to
+/// hold some, which costs one extra frame per visit instead of a stuck list.
+#[derive(Default)]
+struct RangedGuilds {
+	guilds: std::collections::BTreeSet<Id>,
+	full: bool,
+}
+impl RangedGuilds {
+	const MAX: usize = 512;
+	fn may_hold(&self, guild: Id) -> bool {
+		self.full || self.guilds.contains(&guild)
+	}
+	fn insert(&mut self, guild: Id) {
+		if self.guilds.len() < Self::MAX {
+			self.guilds.insert(guild);
+		} else if !self.guilds.contains(&guild) {
+			self.full = true;
+		}
+	}
+}
+
 fn validate_member_ranges(ranges: &[[usize; 2]]) -> bool {
 	if !(1..=2).contains(&ranges.len()) {
 		return false;
@@ -364,6 +385,13 @@ fn subscription_span(ranges: &[[usize; 2]]) -> (usize, usize) {
 	(start, end - start + 1)
 }
 
+/// One aligned window just past `ranges`. Asking for it replaces the channel's ranges without an
+/// empty range list, which Discord rejects with close code 4002.
+fn elsewhere(ranges: &[[usize; 2]]) -> [[usize; 2]; 1] {
+	let start = (ranges[ranges.len() - 1][1] / 100 + 1) * 100;
+	[[start, start + 99]]
+}
+
 fn subscription_packet(
 	guild: Id,
 	typing: bool,
@@ -378,6 +406,9 @@ fn subscription_packet(
 	};
 	// Channel ranges are ignored until a prior frame has subscribed the guild.
 	// `typing` is that subscription. It does not send a typing notification.
+	// A non-empty `channels` replaces the guild's ranges; an empty one leaves them in place
+	// (unofficial, from owner traces). Asking again for ranges Discord still holds is no
+	// change, so it sends no new SYNC.
 	let threads: Vec<_> = channel
 		.filter(|_| thread)
 		.map(|(id, _)| id.to_string())
@@ -1180,6 +1211,8 @@ async fn run_recoverable(
 	let mut calls = voice::Calls::default();
 	// Survives RESUME: the service keeps delivering to lists subscribed before the drop.
 	let mut retired_lists: Vec<RetiredList> = Vec::new();
+	// Servers whose channel ranges this session may still hold; also survives RESUME.
+	let mut ranged = RangedGuilds::default();
 	let mut inbox = channel_events::Inbox::default();
 	let mut known_guilds = std::collections::BTreeSet::new();
 	let mut voice_open = true;
@@ -1353,6 +1386,28 @@ async fn run_recoverable(
 							break;
 						}
 					}
+					// Discord may still hold these ranges from an earlier visit, and would then
+					// send no SYNC for a list this client no longer has. Move them away first.
+					if !subscription.thread
+						&& active_members.is_none()
+						&& ranged.may_hold(subscription.guild)
+					{
+						member_diagnostics
+							.record("subscription: moved held ranges before requesting");
+						let away = elsewhere(&subscription.ranges);
+						let away = subscription_packet(
+							subscription.guild,
+							true,
+							Some((subscription.channel, &away)),
+							false,
+						);
+						if !matches!(
+							timeout(Duration::from_secs(5), socket.send(away)).await,
+							Ok(Ok(()))
+						) {
+							break;
+						}
+					}
 					if !matches!(
 						timeout(Duration::from_secs(5), socket.send(ranges)).await,
 						Ok(Ok(()))
@@ -1360,6 +1415,9 @@ async fn run_recoverable(
 						break;
 					}
 					member_diagnostics.record("subscription sent: member ranges");
+					if !subscription.thread {
+						ranged.insert(subscription.guild);
+					}
 					if let Some(active) = &mut active_members {
 						// Channels with the same list identity share the existing SYNC.
 						// A new viewport still has to move the stored span, or the next
@@ -1378,7 +1436,7 @@ async fn run_recoverable(
 							Freshness::Loading
 						};
 						if active.awaiting_sync {
-							members_deadline = Some(Instant::now() + Duration::from_secs(15));
+							members_deadline = Some(Instant::now() + active.retry_delay());
 						}
 						emit(Event::Members(active.snapshot(freshness)))?;
 					} else {
@@ -1555,8 +1613,12 @@ async fn run_recoverable(
 				}
 				_=tokio::time::sleep_until(members_deadline.unwrap_or(ready_deadline)), if members_deadline.is_some() => {
 					member_diagnostics.record("timeout: resetting stalled member subscription");
-					if let Some(active) = &active_members
-						&& !matches!(timeout(Duration::from_secs(5), socket.send(subscription_packet(active.subscription.guild, true, None, active.subscription.thread))).await, Ok(Ok(()))) { break; }
+					// Moving the ranges away makes the request that follows a change Discord answers.
+					if let Some(active) = &active_members {
+						let away = if active.subscription.thread { None } else { Some(elsewhere(&active.subscription.ranges)) };
+						let packet = subscription_packet(active.subscription.guild, true, away.as_ref().map(|away| (active.subscription.channel, away.as_slice())), active.subscription.thread);
+						if !matches!(timeout(Duration::from_secs(5), socket.send(packet)).await, Ok(Ok(()))) { break; }
+					}
 					let delay = active_members.as_mut().map_or(Duration::from_secs(15), |active| {
 						active.awaiting_sync = true;
 						active.retries = active.retries.saturating_add(1);
@@ -1620,6 +1682,8 @@ async fn run_recoverable(
 										direct_presence=presence::Pending::default();
 										shared_presence=presence::Pending::shared();
 										active_members=None;members_deadline=None;sent_members = !subscriptions_open;
+										// A new session holds no channel ranges.
+										ranged = RangedGuilds::default();
 										let envelope = ready::decode(packet.d.get().as_bytes()).map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid READY identity or relationships"), ready::diagnose(packet.d.get().as_bytes())))?;
 										if envelope.user.bot { return Err(Failure::InvalidCredential); }
 										let permissions = envelope.permissions().map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid permission metadata"), ready::diagnose(packet.d.get().as_bytes())))?;
@@ -3666,23 +3730,6 @@ mod member_tests {
 			assert!(!list.update(sync("computed")).unwrap());
 		}
 		{
-			let mut list = ActiveMembers::new(MemberSubscription {
-				thread: false,
-				guild: Id(1),
-				channel: Id(2),
-				request: 3,
-				list_id: "everyone".into(),
-				ranges: vec![[0, 99]],
-			});
-			let delays: Vec<_> = (0..6)
-				.map(|retries| {
-					list.retries = retries;
-					list.retry_delay().as_secs()
-				})
-				.collect();
-			assert_eq!(delays, [15, 30, 60, 120, 120, 120]);
-		}
-		{
 			use tokio::net::TcpListener;
 			use tokio_tungstenite::{
 				accept_async,
@@ -3777,6 +3824,201 @@ mod member_tests {
 	            let ((),result)=tokio::join!(server,client);assert_eq!(result,Err(Failure::Expired));
 	        }).await.unwrap();
 		}
+	}
+
+	/// Connects to a loopback Gateway and returns the socket after READY.
+	async fn synthetic_gateway(
+		listener: tokio::net::TcpListener,
+	) -> tokio_tungstenite::WebSocketStream<tokio::net::TcpStream> {
+		let (stream, _) = listener.accept().await.unwrap();
+		let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+		socket
+			.send(Frame::Text(
+				json!({"op":10,"d":{"heartbeat_interval":120000}})
+					.to_string()
+					.into(),
+			))
+			.await
+			.unwrap();
+		assert!(matches!(socket.next().await, Some(Ok(Frame::Text(_)))));
+		socket.send(Frame::Text(json!({"op":0,"t":"READY","s":1,"d":{"user":{"id":"1","username":"Owner"},"session_id":"synthetic-members","resume_gateway_url":"wss://gateway.discord.gg/","guilds":[],"private_channels":[]}}).to_string().into())).await.unwrap();
+		socket
+	}
+
+	/// Owner report: a large server's list loaded once, but after visiting another server it
+	/// stayed on "Loading people…". The fake service models the unofficial large-server
+	/// behaviour seen in owner traces: a non-empty `channels` replaces the server's ranges, an
+	/// empty one changes nothing, an empty range list is a 4002 close, and SYNC is sent only for
+	/// ranges the server did not already hold.
+	#[tokio::test]
+	async fn returning_to_a_large_server_loads_its_list_again() {
+		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
+		let open = |guild: u64, channel: u64, request: u64| MemberSubscription {
+			thread: false,
+			guild: Id(guild),
+			channel: Id(channel),
+			request,
+			list_id: "everyone".into(),
+			ranges: vec![[0, 99]],
+		};
+		let (selection, receive) = watch::channel(Some(open(1, 10, 1)));
+		let rejected = Arc::new(std::sync::atomic::AtomicBool::new(false));
+		let server = tokio::spawn({
+			let rejected = rejected.clone();
+			async move {
+				let mut socket = synthetic_gateway(listener).await;
+				let mut typing = std::collections::BTreeSet::<String>::new();
+				let mut held = BTreeMap::<String, Vec<serde_json::Value>>::new();
+				let mut sequence = 2;
+				while let Some(Ok(Frame::Text(text))) = socket.next().await {
+					let packet: serde_json::Value = serde_json::from_str(&text).unwrap();
+					if packet["op"] == 1 {
+						let _ = socket
+							.send(Frame::Text(json!({"op":11,"d":null}).to_string().into()))
+							.await;
+						continue;
+					}
+					for (guild, subscription) in packet["d"]["subscriptions"].as_object().unwrap() {
+						let channels = subscription["channels"].as_object().unwrap();
+						if channels.values().any(|ranges| ranges == &json!([])) {
+							rejected.store(true, std::sync::atomic::Ordering::Relaxed);
+							let _ = socket.close(None).await;
+							return;
+						}
+						let was_subscribed = typing.contains(guild);
+						if subscription["typing"] == true {
+							typing.insert(guild.clone());
+						} else {
+							typing.remove(guild);
+						}
+						if !was_subscribed || channels.is_empty() {
+							continue;
+						}
+						let ranges: Vec<_> = channels
+							.values()
+							.flat_map(|ranges| ranges.as_array().unwrap().clone())
+							.collect();
+						let before = held
+							.insert(guild.clone(), ranges.clone())
+							.unwrap_or_default();
+						for range in ranges.iter().filter(|range| !before.contains(range)) {
+							let user = if range != &json!([0, 99]) {
+								"999"
+							} else if guild == "1" {
+								"100"
+							} else {
+								"200"
+							};
+							let _ = socket.send(Frame::Text(json!({"op":0,"t":"GUILD_MEMBER_LIST_UPDATE","s":sequence,"d":{"guild_id":guild,"id":"everyone","member_count":1,"ops":[{"op":"SYNC","range":range,"items":[{"member":{"user":{"id":user,"username":"Synthetic"}}}]}]}}).to_string().into())).await;
+							sequence += 1;
+						}
+					}
+				}
+			}
+		});
+		let (done, finished) = tokio::sync::oneshot::channel();
+		let done = std::cell::Cell::new(Some(done));
+		let client = run_inner(
+			Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
+			"wss://gateway.discord.gg/".into(),
+			receive,
+			mpsc::channel(1).1,
+			None,
+			|event| {
+				if let Event::Members(list) = &event
+					&& list.freshness == Freshness::Fresh
+				{
+					// Another channel sharing the list, another server, then the first channel.
+					match list.request {
+						1 => selection.send(Some(open(1, 11, 2))).unwrap(),
+						2 => selection.send(Some(open(2, 20, 3))).unwrap(),
+						3 => selection.send(Some(open(1, 10, 4))).unwrap(),
+						4 => {
+							assert_eq!(person_snap(list, 0).user.id, Id(100));
+							if let Some(done) = done.take() {
+								let _ = done.send(());
+							}
+						}
+						_ => {}
+					}
+				}
+				Ok(())
+			},
+			Some(&endpoint),
+		);
+		let loaded = tokio::select! {
+			result = client => Err(format!("gateway stopped: {result:?}")),
+			loaded = timeout(Duration::from_secs(5), finished) => loaded.map_err(|_| "the return visit stayed loading".to_owned()),
+		};
+		assert!(
+			!rejected.load(std::sync::atomic::Ordering::Relaxed),
+			"sent an empty range list, which Discord closes with 4002"
+		);
+		loaded.unwrap().unwrap();
+		server.abort();
+	}
+
+	/// A list that never answers must get longer waits between resets, not a reset every
+	/// 15 seconds.
+	#[tokio::test(start_paused = true)]
+	async fn stalled_member_subscription_backs_off_between_resets() {
+		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
+		let (_selection, receive) = watch::channel(Some(MemberSubscription {
+			thread: false,
+			guild: Id(1),
+			channel: Id(2),
+			request: 1,
+			list_id: "everyone".into(),
+			ranges: vec![[0, 99]],
+		}));
+		// The paused clock can run ahead of this task's reads, so it counts frames rather than
+		// timing them; the client's own timers are exact.
+		let server = tokio::spawn(async move {
+			let mut socket = synthetic_gateway(listener).await;
+			let mut requests = 0;
+			while let Some(Ok(Frame::Text(text))) = socket.next().await {
+				let packet: serde_json::Value = serde_json::from_str(&text).unwrap();
+				if packet["op"] == 1 {
+					let _ = socket
+						.send(Frame::Text(json!({"op":11,"d":null}).to_string().into()))
+						.await;
+				} else if packet["d"]["subscriptions"]["1"]["channels"] == json!({"2":[[0,99]]}) {
+					requests += 1;
+				}
+			}
+			requests
+		});
+		let (ready, logged_in) = tokio::sync::oneshot::channel();
+		let ready = std::cell::Cell::new(Some(ready));
+		let client = run_inner(
+			Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
+			"wss://gateway.discord.gg/".into(),
+			receive,
+			mpsc::channel(1).1,
+			None,
+			|event| {
+				if matches!(event, Event::Startup(_))
+					&& let Some(ready) = ready.take()
+				{
+					let _ = ready.send(Instant::now());
+				}
+				Ok(())
+			},
+			Some(&endpoint),
+		);
+		let window = async {
+			let at = logged_in.await.unwrap();
+			tokio::time::sleep_until(at + Duration::from_secs(100)).await;
+		};
+		tokio::select! {
+			result = client => panic!("gateway stopped early: {result:?}"),
+			() = window => {}
+		}
+		// Requested at 0, 15 and 45 seconds; the next waits until 105. Fixed 15-second resets
+		// would have sent seven.
+		assert_eq!(server.await.unwrap(), 3);
 	}
 }
 

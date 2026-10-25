@@ -2602,3 +2602,34 @@ the official notice in place of the withheld details, and omits Member Since and
 matching the official client. Roles, mutuals and the message field stay. The service
 withholds the hidden data itself; Serein never infers privacy from missing fields. No live
 private-profile response has been used as validation.
+
+## Member list on a return visit — October 25, 2026
+
+Owner report: a large server's member list loaded, but after opening another server and then
+returning, it stayed on "Loading people…". Owner traces show that on large servers a
+non-empty `channels` object replaces the server's ranges, while the empty object Serein sent
+when leaving changes nothing. Discord kept the old ranges, the return visit asked for the same
+ones, and no new SYNC came. The stalled-list reset sent the same empty object and could not
+recover either. A channel entry with an empty range list is not a way out: Discord closed the
+connection with 4002 (decode error) when Serein tried it during this investigation.
+
+When Serein opens a list in a server it has already sent ranges for in this session, it now
+first asks for the 100-row window just past its own, then for its real ranges. Discord answers
+both with a SYNC; the extra one falls outside the pane and is skipped. The stalled-list reset
+moves the ranges the same way. The record of such servers survives RESUME, is cleared by
+READY, and is bounded to 512 servers, beyond which every visit moves the ranges first. Resets
+now wait 15, 30, 60, then 120 seconds as described above. Before this, the 15-second wait was
+restarted on every request.
+
+The permission mirror also dropped other members' channel overwrites. The unofficial list
+identity counts every overwrite that allows or denies View Channel, member rows included, so a
+channel with a per-member View Channel overwrite got the wrong list ID. Other members'
+overwrites that touch View Channel are now kept. Only the owner's own member row affects the
+owner's permissions.
+
+A loopback test models the traced behaviour (replacing `channels`, ignoring an empty object,
+closing on an empty range list, sending SYNC only for ranges not already held) and covers a
+channel switch, another server and the return visit. A paused-clock test covers the reset
+spacing, and a synthetic parser test covers the retained overwrites. An owner debug-build
+trace showed each return visit receiving a SYNC and no 4002 close; the model itself remains
+inferred from traces.
