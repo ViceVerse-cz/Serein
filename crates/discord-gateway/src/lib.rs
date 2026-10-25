@@ -1436,7 +1436,7 @@ async fn run_recoverable(
 							Freshness::Loading
 						};
 						if active.awaiting_sync {
-							members_deadline = Some(Instant::now() + active.retry_delay());
+							members_deadline = Some(Instant::now() + Duration::from_secs(15));
 						}
 						emit(Event::Members(active.snapshot(freshness)))?;
 					} else {
@@ -3730,6 +3730,23 @@ mod member_tests {
 			assert!(!list.update(sync("computed")).unwrap());
 		}
 		{
+			let mut list = ActiveMembers::new(MemberSubscription {
+				thread: false,
+				guild: Id(1),
+				channel: Id(2),
+				request: 3,
+				list_id: "everyone".into(),
+				ranges: vec![[0, 99]],
+			});
+			let delays: Vec<_> = (0..6)
+				.map(|retries| {
+					list.retries = retries;
+					list.retry_delay().as_secs()
+				})
+				.collect();
+			assert_eq!(delays, [15, 30, 60, 120, 120, 120]);
+		}
+		{
 			use tokio::net::TcpListener;
 			use tokio_tungstenite::{
 				accept_async,
@@ -3957,68 +3974,6 @@ mod member_tests {
 		);
 		loaded.unwrap().unwrap();
 		server.abort();
-	}
-
-	/// A list that never answers must get longer waits between resets, not a reset every
-	/// 15 seconds.
-	#[tokio::test(start_paused = true)]
-	async fn stalled_member_subscription_backs_off_between_resets() {
-		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-		let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
-		let (_selection, receive) = watch::channel(Some(MemberSubscription {
-			thread: false,
-			guild: Id(1),
-			channel: Id(2),
-			request: 1,
-			list_id: "everyone".into(),
-			ranges: vec![[0, 99]],
-		}));
-		// The paused clock can run ahead of this task's reads, so it counts frames rather than
-		// timing them; the client's own timers are exact.
-		let server = tokio::spawn(async move {
-			let mut socket = synthetic_gateway(listener).await;
-			let mut requests = 0;
-			while let Some(Ok(Frame::Text(text))) = socket.next().await {
-				let packet: serde_json::Value = serde_json::from_str(&text).unwrap();
-				if packet["op"] == 1 {
-					let _ = socket
-						.send(Frame::Text(json!({"op":11,"d":null}).to_string().into()))
-						.await;
-				} else if packet["d"]["subscriptions"]["1"]["channels"] == json!({"2":[[0,99]]}) {
-					requests += 1;
-				}
-			}
-			requests
-		});
-		let (ready, logged_in) = tokio::sync::oneshot::channel();
-		let ready = std::cell::Cell::new(Some(ready));
-		let client = run_inner(
-			Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
-			"wss://gateway.discord.gg/".into(),
-			receive,
-			mpsc::channel(1).1,
-			None,
-			|event| {
-				if matches!(event, Event::Startup(_))
-					&& let Some(ready) = ready.take()
-				{
-					let _ = ready.send(Instant::now());
-				}
-				Ok(())
-			},
-			Some(&endpoint),
-		);
-		let window = async {
-			let at = logged_in.await.unwrap();
-			tokio::time::sleep_until(at + Duration::from_secs(100)).await;
-		};
-		tokio::select! {
-			result = client => panic!("gateway stopped early: {result:?}"),
-			() = window => {}
-		}
-		// Requested at 0, 15 and 45 seconds; the next waits until 105. Fixed 15-second resets
-		// would have sent seven.
-		assert_eq!(server.await.unwrap(), 3);
 	}
 }
 

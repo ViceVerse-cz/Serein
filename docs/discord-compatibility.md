@@ -2611,6 +2611,5 @@ saw no change and never re-sent the list, so it stayed on "Loading people…". S
 asks for a different row window, then the real one, which Discord treats as new and answers.
 Clearing the rows with an empty list is not an option: Discord disconnects with code 4002.
 
-Also fixed: stalled-list retries now back off (15, 30, 60, 120 s) instead of retrying every
-15 seconds. This behaviour is unofficial and inferred from owner traces; a loopback test models
-it, and the owner confirmed the fix in a debug build.
+This behaviour is unofficial and inferred from owner traces; a loopback test models it, and
+the owner confirmed the fix in a debug build.
