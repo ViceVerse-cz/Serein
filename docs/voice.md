@@ -515,6 +515,16 @@ to check synthetic preview, readiness gating and a decodable H.264 keyframe with
 inline parameter sets, without joining a call or capturing a screen or microphone.
 The check fails if the legacy encoder cannot start; it does not silently use software.
 
+Quitting while a screen share or camera is running drops workers that are still closing
+their encoders. Serein waits up to five seconds for them before the process exits,
+because NVIDIA's libnvcuvid exit handler crashes or deadlocks if `exit()` runs during an
+NVENC teardown. A deadlocked client used to keep the single-instance socket, so later
+launches exited silently. The socket is now released when shutdown begins. On an NVIDIA
+GPU with `nvh264enc`, `target/debug/examples/linux_screen --nvenc-exit` quits during a
+synthetic NVENC share after waiting for the teardown. Adding `--no-wait` exits during the
+teardown and reproduces the crash (driver 615.78.08 on an RTX 3070); nothing is captured
+and no call is joined.
+
 System audio defaults off on Linux and Windows. It shares other applications' playback,
 even when sharing one window, and excludes Serein's own audio, including call playback
 and watched streams. Exclusion happens at capture on the sender: a viewer cannot remove

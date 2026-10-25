@@ -102,9 +102,12 @@ impl Camera {
 		}
 		let shared = Arc::new(Shared::default());
 		let worker = shared.clone();
+		let teardown = crate::teardown::Thread::start();
 		if thread::Builder::new()
 			.name("serein-camera".into())
 			.spawn(move || {
+				// Declared first so it is released last, after the camera encoder.
+				let _teardown = teardown;
 				let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
 					#[cfg(target_os = "macos")]
 					{

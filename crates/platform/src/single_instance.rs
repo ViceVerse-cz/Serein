@@ -32,6 +32,8 @@ pub struct Instance {
 	event: Option<win::Event>,
 	#[cfg(target_os = "linux")]
 	listener: Option<std::os::unix::net::UnixListener>,
+	#[cfg(target_os = "linux")]
+	socket: Option<linux::Socket>,
 	#[cfg(target_os = "macos")]
 	reopen: Option<macos::Reopen>,
 }
@@ -47,12 +49,14 @@ pub fn claim() -> Launch {
 		None => Launch::Forwarded,
 	};
 	#[cfg(target_os = "linux")]
-	return match linux::claim() {
-		Some(listener) => Launch::Primary(Instance {
-			listener,
+	return match linux::path().map(|path| linux::claim(&path)) {
+		Some(Some(Some((listener, socket)))) => Launch::Primary(Instance {
+			listener: Some(listener),
+			socket: Some(socket),
 			..Instance::default()
 		}),
-		None => Launch::Forwarded,
+		Some(None) => Launch::Forwarded,
+		Some(Some(None)) | None => Launch::Primary(Instance::default()),
 	};
 	#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 	Launch::Primary(Instance::default())
@@ -94,6 +98,15 @@ impl Instance {
 	/// Whether another launch or a Dock reopen asked to show the window since the last call.
 	pub fn take_show_request(&self) -> bool {
 		self.requested.swap(false, Ordering::AcqRel)
+	}
+
+	/// Gives up the claim when shutdown begins. A shutdown that then hangs, such as a media
+	/// driver's exit handler, would otherwise keep accepting and swallowing later launches.
+	pub fn release(&mut self) {
+		#[cfg(target_os = "linux")]
+		if let Some(socket) = self.socket.take() {
+			socket.remove();
+		}
 	}
 }
 
@@ -169,12 +182,35 @@ mod win {
 mod linux {
 	use std::{
 		io::ErrorKind,
-		os::unix::net::{UnixListener, UnixStream},
-		path::PathBuf,
+		os::unix::{
+			fs::MetadataExt,
+			net::{UnixListener, UnixStream},
+		},
+		path::{Path, PathBuf},
 	};
 
+	/// The socket file this instance bound, identified so a release never removes a newer
+	/// instance's socket at the same path.
+	pub struct Socket {
+		path: PathBuf,
+		inode: (u64, u64),
+	}
+
+	impl Socket {
+		pub fn remove(self) {
+			if inode(&self.path) == Some(self.inode) {
+				let _ = std::fs::remove_file(&self.path);
+			}
+		}
+	}
+
+	fn inode(path: &Path) -> Option<(u64, u64)> {
+		let metadata = std::fs::symlink_metadata(path).ok()?;
+		Some((metadata.dev(), metadata.ino()))
+	}
+
 	/// The per-user runtime directory is private to this user, so only their launches connect.
-	fn path() -> Option<PathBuf> {
+	pub fn path() -> Option<PathBuf> {
 		let directory = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?);
 		directory
 			.is_absolute()
@@ -182,19 +218,22 @@ mod linux {
 	}
 
 	/// `None` when a running instance accepted the connection, which is its show request.
-	pub fn claim() -> Option<Option<UnixListener>> {
-		let Some(path) = path() else {
-			return Some(None);
+	pub fn claim(path: &Path) -> Option<Option<(UnixListener, Socket)>> {
+		let bind = || {
+			let listener = UnixListener::bind(path)?;
+			let inode = inode(path).ok_or(ErrorKind::NotFound)?;
+			let path = path.to_owned();
+			Ok::<_, std::io::Error>((listener, Socket { path, inode }))
 		};
-		match UnixListener::bind(&path) {
-			Ok(listener) => Some(Some(listener)),
+		match bind() {
+			Ok(claim) => Some(Some(claim)),
 			Err(error) if error.kind() == ErrorKind::AddrInUse => {
-				if UnixStream::connect(&path).is_ok() {
+				if UnixStream::connect(path).is_ok() {
 					return None;
 				}
 				// A crashed instance left its socket behind.
-				let _ = std::fs::remove_file(&path);
-				Some(UnixListener::bind(&path).ok())
+				let _ = std::fs::remove_file(path);
+				Some(bind().ok())
 			}
 			Err(_) => Some(None),
 		}
@@ -211,6 +250,33 @@ mod linux {
 					}
 				}
 			});
+	}
+
+	#[cfg(test)]
+	mod tests {
+		use super::*;
+
+		#[test]
+		fn a_released_claim_stops_taking_launches_but_keeps_a_newer_socket() {
+			let mut random = [0_u8; 8];
+			getrandom::fill(&mut random).unwrap();
+			let root =
+				std::env::temp_dir().join(format!("serein-{:x}", u64::from_le_bytes(random)));
+			std::fs::create_dir(&root).unwrap();
+			let path = root.join("instance.sock");
+			// A process stuck in shutdown keeps its listener open without accepting; the
+			// kernel backlog still completes connections, so launches were forwarded to it.
+			let (_stuck, stuck) = claim(&path).unwrap().unwrap();
+			assert!(claim(&path).is_none());
+			stuck.remove();
+			let (_current, current) = claim(&path).unwrap().unwrap();
+			// A claim whose file was replaced must leave the newer instance's socket alone.
+			std::fs::remove_file(&path).unwrap();
+			let (_newer, _) = claim(&path).unwrap().unwrap();
+			current.remove();
+			assert!(claim(&path).is_none());
+			std::fs::remove_dir_all(&root).unwrap();
+		}
 	}
 }
 
