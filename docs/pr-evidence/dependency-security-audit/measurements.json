@@ -44,16 +44,16 @@
   "after": {
     "branch": "fix/dependency-security-audit",
     "openmls_revision": "be248d4b1306d87a641ce24ed0ffcab2b27967f6",
-    "label": "review-followup",
+    "label": "receiver-fix",
     "executable": {
       "bytes": 93145480,
       "sha256": "db0b88b2d92f34e676206aa7516665707bf535cdfdeb763ac41ab5a07097c77f"
     },
-    "installed_bytes": 97956973,
+    "installed_bytes": 97957219,
     "installed_files": 265,
     "distribution": {
-      "bytes": 54622578,
-      "sha256": "225b65da2971b82199ad3ba0880beddfffc92780356ae370f8fc5b5ad742166f"
+      "bytes": 54622532,
+      "sha256": "8b341bd5157605ddb87b2211b02bc6b8957225a5a22afeca4df5f1ed65902670"
     },
     "lockfile": {
       "bytes": 233029,
@@ -66,7 +66,8 @@
     "packaging_regressions": "final dir and arch passed, including source inclusion/stale-file exclusion",
     "packaged_hpke_source": "20 files byte-identical to reviewed native component files",
     "provider_archives": "both 0.8.0 archives byte-identical to verified locked sources",
-    "source_refresh": "passed: obsolete root/nested HPKE source removed on repeated staging, neighboring component preserved"
+    "source_refresh": "passed: obsolete root/nested HPKE source removed on repeated staging, neighboring component preserved",
+    "manual_benchmark_compile": "passed in isolated component copy: cargo check --locked --offline --bench manual_benches --features rustcrypto,hpke-test,hazmat; sender setup is outside the receiver timer"
   },
   "unmeasured": [
     "CPU",

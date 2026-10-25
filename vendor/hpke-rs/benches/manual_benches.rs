@@ -1,3 +1,4 @@
+//! Run with `cargo bench --bench manual_benches --features rustcrypto,hpke-test,hazmat`.
 use std::time::{Duration, Instant};
 
 use hpke_rs::{prelude::*, test_util::hex_to_bytes};
@@ -6,7 +7,6 @@ use hpke_rs_crypto::{
 	HpkeDefaultPrng,
 };
 use hpke_rs_rust_crypto::HpkeRustCrypto;
-use hpke_rs_rust_crypto::*;
 use rand::Rng;
 
 fn duration(d: Duration) -> f64 {
@@ -113,19 +113,19 @@ fn benchmark<Crypto: HpkeDefaultPrng + 'static>() {
 					let time = duration(end.duration_since(start));
 					println!("\tSetup Sender: {:.4}μs", time / (ITERATIONS as f64));
 
+					let (encapsulation, _) = hpke
+						.setup_sender(
+							pk_rm,
+							&info,
+							psk.as_ref().map(Vec::as_ref),
+							psk_id.as_ref().map(Vec::as_ref),
+							sk_sm.as_ref(),
+						)
+						.unwrap();
+
 					let start = Instant::now();
 					for _ in 0..ITERATIONS {
-						let mut hpke =
-							Hpke::<Crypto>::new(hpke_mode, kem_mode, kdf_mode, aead_mode);
-						let (encapsulation, _) = hpke
-							.setup_sender(
-								pk_rm,
-								&info,
-								psk.as_ref().map(Vec::as_ref),
-								psk_id.as_ref().map(Vec::as_ref),
-								sk_sm.as_ref(),
-							)
-							.unwrap();
+						let hpke = Hpke::<Crypto>::new(hpke_mode, kem_mode, kdf_mode, aead_mode);
 						let _receiver = hpke
 							.setup_receiver(
 								&encapsulation,

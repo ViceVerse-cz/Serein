@@ -23,8 +23,11 @@ vulnerable 0.5 path. The existing native selection patch is carried forward:
   Libcrux-only post-quantum feature/benchmark. Otherwise its unused tooling
   retains the unmaintained proc-macro-error2 path in the all-target lockfile.
   The native RustCrypto provider, KDF tests, AEAD tests, examples and benchmarks
-  remain; duplicate Libcrux-only cases are removed. The local seed-derivation
-  draft feature remains available without a backend dependency.
+  remain; duplicate Libcrux-only cases are removed. The manual benchmark runs
+  its provider once and prepares sender encapsulation before receiver timing.
+  Its standalone check enables `rustcrypto,hpke-test,hazmat` for synthetic-key
+  benchmark access. The local seed-derivation draft feature remains available
+  without a backend dependency.
 
 The fork does not expose the optional `libcrux` or `draft-ietf-hpke-pq` features.
 `Readme.md` documents that selection. No HPKE algorithm or wire-format change is

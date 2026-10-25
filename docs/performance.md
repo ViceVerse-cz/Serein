@@ -815,8 +815,8 @@ dependency versions, payload contents, permissions, ownership and absence of scr
 | Metric / method | Baseline | After | Delta |
 | --- | ---: | ---: | ---: |
 | Release executable | 92,650,248 B | 93,145,480 B | +495,232 B (+0.5345%) |
-| Installed tree (245 → 265 files) | 97,348,681 B | 97,956,973 B | +608,292 B (+0.6249%) |
-| Arch distribution | 54,365,363 B | 54,622,578 B | +257,215 B (+0.4731%) |
+| Installed tree (245 → 265 files) | 97,348,681 B | 97,957,219 B | +608,538 B (+0.6251%) |
+| Arch distribution | 54,365,363 B | 54,622,532 B | +257,169 B (+0.4730%) |
 
 The installed delta includes the migrated crypto stack, updated notices/source
 archives and 20 newly staged corresponding HPKE source files. The prior packaging
