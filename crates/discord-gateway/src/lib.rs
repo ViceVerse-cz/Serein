@@ -3975,6 +3975,96 @@ mod member_tests {
 		loaded.unwrap().unwrap();
 		server.abort();
 	}
+
+	/// A list Discord never answered is reset after 15 seconds. The reset must move the ranges
+	/// away before asking again; asking for ranges Discord still holds gets no SYNC.
+	#[tokio::test]
+	async fn stalled_list_reset_moves_ranges_and_loads() {
+		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
+		let (_selection, receive) = watch::channel(Some(MemberSubscription {
+			thread: false,
+			guild: Id(1),
+			channel: Id(2),
+			request: 1,
+			list_id: "everyone".into(),
+			ranges: vec![[0, 99]],
+		}));
+		let (first, requested_once) = tokio::sync::oneshot::channel();
+		let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+		let server = tokio::spawn({
+			let requests = requests.clone();
+			async move {
+				let mut socket = synthetic_gateway(listener).await;
+				let mut first = Some(first);
+				while let Some(Ok(Frame::Text(text))) = socket.next().await {
+					let packet: serde_json::Value = serde_json::from_str(&text).unwrap();
+					if packet["op"] == 1 {
+						let _ = socket
+							.send(Frame::Text(json!({"op":11,"d":null}).to_string().into()))
+							.await;
+						continue;
+					}
+					let channels = &packet["d"]["subscriptions"]["1"]["channels"];
+					if channels == &json!({}) {
+						continue;
+					}
+					// The first request is lost; only a request after the away window is answered.
+					let answer = {
+						let mut requested = requests.lock().unwrap();
+						requested.push(channels["2"].clone());
+						requested.len() >= 3
+							&& requested[requested.len() - 2] == json!([[100, 199]])
+					};
+					if let Some(first) = first.take() {
+						let _ = first.send(());
+					}
+					if answer {
+						let _ = socket.send(Frame::Text(json!({"op":0,"t":"GUILD_MEMBER_LIST_UPDATE","s":2,"d":{"guild_id":"1","id":"everyone","member_count":1,"ops":[{"op":"SYNC","range":[0,99],"items":[{"member":{"user":{"id":"100","username":"Synthetic"}}}]}]}}).to_string().into())).await;
+					}
+				}
+			}
+		});
+		let (done, finished) = tokio::sync::oneshot::channel();
+		let done = std::cell::Cell::new(Some(done));
+		let client = run_inner(
+			Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
+			"wss://gateway.discord.gg/".into(),
+			receive,
+			mpsc::channel(1).1,
+			None,
+			|event| {
+				if let Event::Members(list) = &event
+					&& list.freshness == Freshness::Fresh
+					&& let Some(done) = done.take()
+				{
+					assert_eq!(person_snap(list, 0).user.id, Id(100));
+					let _ = done.send(());
+				}
+				Ok(())
+			},
+			Some(&endpoint),
+		);
+		// Real time until the first request is in; then one manual jump past the reset. A clock
+		// paused from the start lets the client run resets ahead of the socket.
+		let reset = async {
+			requested_once.await.unwrap();
+			tokio::time::pause();
+			tokio::time::advance(Duration::from_secs(16)).await;
+			timeout(Duration::from_secs(10), finished).await
+		};
+		let loaded = tokio::select! {
+			result = client => Err(format!("gateway stopped: {result:?}")),
+			loaded = reset => loaded.map_err(|_| "the reset never loaded the list".to_owned()),
+		};
+		server.abort();
+		loaded.unwrap().unwrap();
+		// The reset sends the away window, then the requested rows again.
+		assert_eq!(
+			requests.lock().unwrap()[..3],
+			[json!([[0, 99]]), json!([[100, 199]]), json!([[0, 99]])]
+		);
+	}
 }
 
 #[cfg(debug_assertions)]
