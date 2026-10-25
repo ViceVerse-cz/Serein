@@ -4051,6 +4051,7 @@ mod member_tests {
 			requested_once.await.unwrap();
 			tokio::time::pause();
 			tokio::time::advance(Duration::from_secs(16)).await;
+			tokio::time::resume();
 			timeout(Duration::from_secs(10), finished).await
 		};
 		let loaded = tokio::select! {
