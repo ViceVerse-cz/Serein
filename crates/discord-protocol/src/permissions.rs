@@ -155,9 +155,8 @@ fn overwrites(rows: Overwrites, user: Id) -> Result<Vec<p::Overwrite>, DecodeErr
 		if row.kind > 1 || !seen.insert((row.kind, row.id)) {
 			return Err(DecodeError);
 		}
-		// Keep every role, including roles not currently assigned to the owner. Other members'
-		// view rows change which member list Discord serves for the channel.
-		if row.kind == 0 || row.id == user || (row.allow.0 | row.deny.0) & p::VIEW_CHANNEL != 0 {
+		// Keep every role, including roles not currently assigned to the owner.
+		if row.kind == 0 || row.id == user {
 			retained.push(p::Overwrite {
 				id: row.id,
 				kind: row.kind,
@@ -712,8 +711,7 @@ mod tests {
 	            "channels":[{"id":"4","type":0,"permission_overwrites":[
 	                {"id":"3","type":0,"allow":"0","deny":"2048"},
 	                {"id":"8","type":1,"allow":"8","deny":"0"},
-	                {"id":"9","type":1,"allow":"32768","deny":"0"},
-	                {"id":"11","type":1,"allow":"0","deny":"1024"}]},
+	                {"id":"9","type":1,"allow":"32768","deny":"0"}]},
 	                {"id":"5","type":0,"flags":131072,"permission_overwrites":[]},
 	                {"id":"6","type":11,"permission_overwrites":[]}]},
 	            {"id":"10"}],"merged_members":[[{"user_id":"9","roles":["2"],"communication_disabled_until":"2026-01-01T00:00:00.1Z"}],[]]}"#, Id(9)).unwrap();
@@ -741,12 +739,7 @@ mod tests {
 					.iter()
 					.map(|o| (o.kind, o.id))
 					.collect::<Vec<_>>(),
-				vec![(0, Id(3)), (1, Id(9)), (1, Id(11))]
-			);
-			// One hidden member makes this a separate list, not the server-wide one.
-			assert_ne!(
-				p::member_list_id(p::VIEW_CHANNEL, overwrites).as_deref(),
-				Some("everyone")
+				vec![(0, Id(3)), (1, Id(9))]
 			);
 			let known_empty = ready(br#"{"guilds":[{"id":"1","roles":[],"members":[{"user_id":"9","roles":[]}],"channels":[{"id":"2","type":0,"permission_overwrites":[]}]}]}"#,Id(9)).unwrap();
 			assert_eq!(known_empty.guilds[0].roles, Some(Vec::new()));
