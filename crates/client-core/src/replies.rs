@@ -107,6 +107,13 @@ impl LinkResolution {
 		self.target = None;
 	}
 
+	/// Follows a newer message link into the same chat without starting another read.
+	fn retarget(&mut self, message: Option<Id>) {
+		if let Some((_, _, _, pending)) = &mut self.target {
+			*pending = message;
+		}
+	}
+
 	/// The thread a pending link waits for, while its read may still settle.
 	pub fn awaiting(&self) -> Option<Id> {
 		self.target
@@ -171,6 +178,14 @@ impl State {
 		if message.is_some_and(|id| id.0 == 0 || id.0.checked_add(1).is_none()) {
 			return Err("This message link is invalid");
 		}
+		// A link click is the user's newest destination. A read already in flight for this
+		// same chat keeps running but follows the latest message; one for anywhere else is
+		// abandoned, so a late answer never overrides the user's own navigation.
+		if self.link_resolution.awaiting() == Some(channel) {
+			self.link_resolution.retarget(message);
+			return Ok(None);
+		}
+		self.link_resolution.clear();
 		if self.channel(channel).is_none() {
 			if message.is_some()
 				&& (self.auth != AuthState::Authenticated || !self.gateway_connected)
@@ -183,10 +198,6 @@ impl State {
 				Some(Ok(())) => {}
 				Some(Err(status)) => return Err(status),
 				None => {
-					// A second click on the same link shares the read already in flight.
-					if self.link_resolution.awaiting() == Some(channel) {
-						return Ok(None);
-					}
 					// Nothing loaded describes the destination. One bounded, documented
 					// channel read may prove it is a thread of this joined server; the link
 					// then opens once that read admits it. Never guess a parent or open a DM.
@@ -846,6 +857,92 @@ mod tests {
 		assert!(state.resolve_pending_link().is_none());
 		assert_eq!(state.status, "This chat is unavailable");
 		assert!(state.link_resolution.awaiting().is_none());
+	}
+
+	#[test]
+	fn chat_links_follow_the_latest_message_into_the_same_unloaded_thread() {
+		use crate::channel_actions::Outcome;
+
+		let mut state = chat_link_state();
+		let thread = Id(999);
+		let Some(Command::ChannelAction { request, .. }) = state
+			.open_chat_link(Some(Id(20)), thread, Some(Id(100)))
+			.unwrap()
+		else {
+			panic!("expected one bounded channel read")
+		};
+		// A second message link into the same unloaded thread shares that read and follows
+		// the newer target instead of the first click.
+		assert!(
+			state
+				.open_chat_link(Some(Id(20)), thread, Some(Id(200)))
+				.unwrap()
+				.is_none()
+		);
+		let mut admitted = state.channels[1].clone();
+		admitted.id = thread;
+		admitted.guild = Some(Id(20));
+		admitted.parent_id = Some(Id(3));
+		admitted.kind = 12;
+		admitted.name = "Synthetic private thread".into();
+		apply(
+			&mut state,
+			Event::ChannelAction(crate::channel_actions::Event::Finished {
+				guild: Id(20),
+				channel: thread,
+				request,
+				result: Ok(Outcome::Channel {
+					channel: Box::new(admitted),
+					permissions: None,
+				}),
+			}),
+		);
+		assert!(
+			matches!(
+				state.resolve_pending_link(),
+				Some(Command::History {
+					channel: id,
+					before: Some(Id(201)),
+					..
+				}) if id == thread
+			),
+			"the latest message link is the one that opens"
+		);
+	}
+
+	#[test]
+	fn a_user_navigation_cancels_a_pending_link_read() {
+		for case in 0..3 {
+			let mut state = chat_link_state();
+			let thread = Id(999);
+			// Back needs Home behind the open conversation before the link is clicked.
+			if case == 1 {
+				state.open_home();
+				state.select(Id(2));
+			}
+			state.open_chat_link(Some(Id(20)), thread, None).unwrap();
+			assert_eq!(state.link_resolution.awaiting(), Some(thread));
+			match case {
+				// A sidebar, guild or search navigation selects another channel.
+				0 => {
+					state.select(Id(2));
+				}
+				// Back lands on Home without selecting a channel of its own.
+				1 => assert!(state.navigate_back().is_some()),
+				// A message link inside the open channel is a destination too.
+				_ => {
+					state
+						.open_chat_link(Some(Id(10)), Id(1), Some(Id(100)))
+						.unwrap();
+				}
+			}
+			assert!(
+				state.link_resolution.awaiting().is_none(),
+				"case {case} must not keep the link"
+			);
+			// A late answer for the abandoned read cannot navigate any more.
+			assert!(state.resolve_pending_link().is_none(), "case {case}");
+		}
 	}
 
 	#[test]
