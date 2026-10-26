@@ -23,7 +23,7 @@ pub(super) struct RailCache {
 	voice_guilds: Box<[Id]>,
 }
 impl RailCache {
-	fn sync(&mut self, state: &State) -> bool {
+	pub(super) fn sync(&mut self, state: &State) -> bool {
 		let call = direct_call(state);
 		let key = (
 			state.generation,
