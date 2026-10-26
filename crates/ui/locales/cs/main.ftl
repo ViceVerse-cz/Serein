@@ -85,6 +85,7 @@ hide-chat = Skrýt chat
 show-chat = Zobrazit chat
 search-conversation = Hledat v této konverzaci
 show-member-list = Zobrazit seznam členů
+show-user-profile = Zobrazit profil uživatele
 pinned-messages = Připnuté zprávy
 threads = Vlákna
 

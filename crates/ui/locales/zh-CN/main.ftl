@@ -85,6 +85,7 @@ hide-chat = 隐藏聊天
 show-chat = 显示聊天
 search-conversation = 搜索这个对话
 show-member-list = 显示成员清单
+show-user-profile = 显示用户资料
 pinned-messages = 置顶的消息
 threads = 帖子
 

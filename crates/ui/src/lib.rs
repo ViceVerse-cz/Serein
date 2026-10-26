@@ -2516,16 +2516,30 @@ impl MessagingUi {
 						}
 					}
 					ui.add_space(4.0);
-					// A one-to-one DM always docks the other person's profile instead.
-					if !one_to_one
-						&& icons::toggle(
-							ui,
-							icons::Icon::People,
-							32.0,
-							show_members,
-							&language.text("show-member-list"),
-						)
-						.clicked()
+					// A one-to-one DM toggles the other person's docked profile instead, which
+					// needs the wide layout.
+					if one_to_one {
+						let shown = *self.members_preference(state);
+						if wide_members
+							&& icons::toggle(
+								ui,
+								icons::Icon::Profile,
+								32.0,
+								shown,
+								&language.text("show-user-profile"),
+							)
+							.clicked()
+						{
+							*self.members_preference(state) = !shown;
+						}
+					} else if icons::toggle(
+						ui,
+						icons::Icon::People,
+						32.0,
+						show_members,
+						&language.text("show-member-list"),
+					)
+					.clicked()
 					{
 						if wide_members {
 							let shown = self.members_preference(state);
@@ -4815,7 +4829,10 @@ impl MessagingUi {
 		} else if state.members.is_some() {
 			commands.push(state.close_members());
 		}
-		if let Some(user) = dm_recipient.filter(|_| wide_members && !search_open) {
+		// Direct messages share one remembered side-panel choice: this profile or a group's members.
+		if let Some(user) =
+			dm_recipient.filter(|_| wide_members && !search_open && *self.members_preference(state))
+		{
 			self.docked_profile(ui, &ctx, state, &mut commands, &user, background.sidebar);
 		}
 		self.reaction_picker.sync(state, state.selected);

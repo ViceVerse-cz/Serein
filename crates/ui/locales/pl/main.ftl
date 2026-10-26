@@ -85,6 +85,7 @@ hide-chat = Ukryj czat
 show-chat = Pokaż czat
 search-conversation = Przeszukaj tę rozmowę
 show-member-list = Pokaż listę członków
+show-user-profile = Pokaż profil użytkownika
 pinned-messages = Przypięte wiadomości
 threads = Wątki
 

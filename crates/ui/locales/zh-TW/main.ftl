@@ -85,6 +85,7 @@ hide-chat = 隱藏聊天
 show-chat = 顯示聊天
 search-conversation = 搜尋這個對話
 show-member-list = 顯示成員清單
+show-user-profile = 顯示使用者個人資料
 pinned-messages = 釘選的訊息
 threads = 討論串
 

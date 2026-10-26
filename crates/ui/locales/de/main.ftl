@@ -85,6 +85,7 @@ hide-chat = Chat ausblenden
 show-chat = Chat anzeigen
 search-conversation = Durchsuchen Sie dieses Gespräch
 show-member-list = Mitgliederliste anzeigen
+show-user-profile = Benutzerprofil anzeigen
 pinned-messages = Angepinnte Nachrichten
 threads = Themen
 

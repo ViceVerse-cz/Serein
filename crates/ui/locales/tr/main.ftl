@@ -85,6 +85,7 @@ hide-chat = Sohbeti gizle
 show-chat = Sohbeti göster
 search-conversation = Bu görüşmeyi arayın
 show-member-list = Üye listesini göster
+show-user-profile = Kullanıcı profilini göster
 pinned-messages = Sabitlenmiş mesajlar
 threads = Konular
 
