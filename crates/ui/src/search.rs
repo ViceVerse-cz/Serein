@@ -638,9 +638,10 @@ impl SearchUi {
 									);
 									if row.clicked() {
 										if matches!(key, "from" | "mentions" | "in" | "has") {
-											let query = format!("{} {key}:", self.query.trim());
+											// The text typed so far becomes the filter's value.
+											let query = filters::insert_filter(&self.query, key);
 											if query.len() <= 1024 && query.chars().count() <= 256 {
-												self.query = query.trim_start().to_owned();
+												self.query = query;
 												self.focus = true;
 											}
 										} else {
@@ -2539,6 +2540,26 @@ mod tests {
 		assert!(query.starts_with("from:") && !oldest, "{query}");
 		// History keeps the ID that was searched, not the name it shows.
 		assert_eq!(view.history[0], query.trim());
+		// Text typed before picking "From a specific user" narrows the list; Enter searches.
+		let typed = filters::label(&filters::users(&state)[1].name)
+			.to_lowercase()
+			.chars()
+			.take(3)
+			.collect::<String>();
+		let expected = filters::users(&state)
+			.into_iter()
+			.find(|user| filters::label(&user.name).to_lowercase().contains(&typed))
+			.map(|user| user.id)
+			.unwrap();
+		view.query = filters::insert_filter(&typed, "from");
+		view.filters_open = true;
+		view.focus = true;
+		frame(&mut view, &mut state, false);
+		let (commands, _) = frame(&mut view, &mut state, true);
+		assert_eq!(
+			searched(&commands).map(|(q, _)| q),
+			Some(format!("from:{expected}"))
+		);
 		// has: — the type list, then an immediate search.
 		view.query = "has:".into();
 		view.filters_open = true;

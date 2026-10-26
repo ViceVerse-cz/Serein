@@ -202,6 +202,28 @@ pub fn without_partial(query: &str) -> &str {
 	}
 }
 
+/// Starts a `key:` filter whose value is the search text typed so far, after any finished
+/// filters, so the suggestions narrow to it and Enter picks the highlighted match.
+pub fn insert_filter(query: &str, key: &str) -> String {
+	let (mut filters, text): (Vec<&str>, Vec<&str>) = without_partial(query)
+		.split_whitespace()
+		.partition(|token| {
+			token.split_once(':').is_some_and(|(key, _)| {
+				matches!(
+					key,
+					"from"
+						| "mentions" | "in"
+						| "has" | "before" | "after"
+						| "before_id" | "after_id"
+						| "author_type" | "pinned"
+				)
+			})
+		});
+	let filter = format!("{key}:{}", label(&text.join(" ")));
+	filters.push(&filter);
+	filters.join(" ")
+}
+
 /// `has:` values in Discord's order. `forward` is sent as the service's `snapshot`.
 pub const HAS: [&str; 9] = [
 	"image", "video", "link", "file", "embed", "sound", "poll", "sticker", "forward",
@@ -959,5 +981,18 @@ mod tests {
 		assert_eq!(super::without_partial("cats has:ima"), "cats");
 		assert_eq!(super::without_partial("cats from:Rob"), "cats");
 		assert_eq!(super::Draft::new("has:image").query, "has:image");
+	}
+
+	/// The text typed before picking a filter becomes that filter's value, after the finished
+	/// filters; an unfinished filter is replaced rather than left to fail the search.
+	#[test]
+	fn a_picked_filter_takes_the_typed_text_as_its_value() {
+		assert_eq!(super::insert_filter("", "from"), "from:");
+		assert_eq!(super::insert_filter("rob", "from"), "from:rob");
+		assert_eq!(
+			super::insert_filter("in:general John Smith", "mentions"),
+			"in:general mentions:John_Smith"
+		);
+		assert_eq!(super::insert_filter("ima has:li", "has"), "has:ima");
 	}
 }
