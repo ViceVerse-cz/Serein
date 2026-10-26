@@ -1467,6 +1467,7 @@ impl State {
 			self.trail.drop_current();
 		}
 		self.selected = None;
+		self.link_resolution.clear();
 		self.history_navigation.clear();
 		self.search_target = None;
 		self.restore_scroll = false;
@@ -1499,6 +1500,7 @@ impl State {
 					self.park_reply();
 					self.application_commands.clear();
 					self.selected = None;
+					self.link_resolution.clear();
 					self.history_navigation.clear();
 					self.search_target = None;
 					self.restore_scroll = false;
