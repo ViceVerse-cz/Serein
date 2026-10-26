@@ -2641,18 +2641,23 @@ A Discord chat link now resolves an unloaded destination with one bounded `GET
 /channels/{id}` read — the route the unresolved-mention path already used — and the thread
 opens when that read lands. The read is available only for a joined server and an authenticated,
 connected session, one at a time through the existing channel-action slot, and the session
-admits only a thread of that guild whose parent channel it has loaded and may view; a second
-click shares the read in flight, the pending link expires after sixty seconds and any
-navigation of the user's own cancels it, so a slow answer cannot take over the window. DMs,
-another server's channels, non-thread answers and threads under an unloaded or hidden parent
-stay unavailable. Nothing joins, unarchives, subscribes or sends; opening remains a read.
+admits only a thread of that guild whose parent channel it has loaded and may view. A link click
+is the user's newest destination: it follows the latest message target while the read for that
+same chat is in flight, and any link to another chat, channel selection, Back/Forward step or
+Home visit cancels the wait, so a slow answer cannot take over the window. The pending link also
+expires after sixty seconds. DMs, another server's channels, non-thread answers and threads under
+an unloaded or hidden parent stay unavailable. Nothing joins, unarchives, subscribes or sends;
+opening remains a read.
 
 The thread card under a starter message follows the service's documented `HAS_THREAD` flag
 when the thread itself is not loaded, since the thread channel shares the starter's ID. It
 shows a generic label rather than inventing a name or activity, and its click performs the
 same single read; the real name and metadata appear once the service answers.
 
-Synthetic tests cover the read request, its admission, the rejected answer, the shared second
-click and the card; no live account was used, so normal-user acceptance of the on-demand
-channel read for a private thread stays unverified.
+Synthetic tests cover the read request, its admission, the rejected answer, the newer message
+target and the cancellation on navigation. On October 26, 2026 the owner confirmed on a local
+release build that both the link and the starter card open this private thread. That is
+observation of one account, not a general normal-user guarantee: the read itself stays
+unofficial, and a later visit shows the generic card again because the admitted thread is one
+transient conversation.
 
