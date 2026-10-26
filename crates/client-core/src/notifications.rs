@@ -293,10 +293,19 @@ impl State {
 		}
 		Ok(())
 	}
+	/// Threads count only while joined and active, and forums only through their new posts;
+	/// retained read history of a left or unjoined thread does not light the server.
 	pub fn lights_guild_rail(&self, channel: &model::Channel) -> bool {
-		channel.kind != 2
-			&& self.channel_unread(channel) == Some(true)
-			&& !self.muted_for_guild_rail(channel)
+		let unread = match channel.kind {
+			2 => false,
+			15 | 16 => self.forum_latest_unseen(channel),
+			10..=12 => {
+				self.post_lights_forum(channel)
+					|| (self.thread_joined(channel) && self.channel_unread(channel) == Some(true))
+			}
+			_ => self.channel_unread(channel) == Some(true),
+		};
+		unread && !self.muted_for_guild_rail(channel)
 	}
 
 	pub fn muted_for_guild_rail(&self, channel: &model::Channel) -> bool {

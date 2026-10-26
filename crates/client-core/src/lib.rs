@@ -320,6 +320,8 @@ pub struct Startup {
 	pub notifications: Option<notifications::Event>,
 	pub session_dnd: Option<bool>,
 	pub warnings: model::account::Warnings,
+	/// Membership and archive metadata of the joined threads among `channels`.
+	pub threads: Vec<model::threads::Change>,
 }
 impl Startup {
 	/// Validate and build the permission mirror on the Gateway worker before enqueueing.
@@ -361,6 +363,7 @@ impl Startup {
 			+ self.guilds.iter().map(Guild::bytes).sum::<usize>()
 			+ self.channels.iter().map(Channel::bytes).sum::<usize>()
 			+ self.read_state.bytes()
+			+ self.threads.capacity() * size_of::<model::threads::Change>()
 			+ self
 				.notifications
 				.as_ref()
@@ -584,6 +587,11 @@ pub enum Event {
 		threads: Vec<Channel>,
 		removed: Vec<Id>,
 	},
+	/// Membership or archive metadata of known threads.
+	ThreadInfo {
+		guild: Id,
+		changes: Vec<model::threads::Change>,
+	},
 	GuildChanged(GuildPatch),
 	GuildEmojis {
 		guild: Id,
@@ -740,6 +748,8 @@ pub struct State {
 	pub archives: Option<archives::View>,
 	pub posting: forum::Posting,
 	pub posts: forum::Posts,
+	/// The forum on screen, for its once-per-visit acknowledgement and card boundary.
+	pub forum_visit: Option<forum::Visit>,
 	pub archived_thread: Option<Id>,
 	pub thread_starter: thread_starter::Starter,
 	pub search: Option<search::SearchView>,
@@ -806,9 +816,9 @@ pub struct State {
 	/// Session-local guild/channel ID pairs, oldest visit first; at most 16 KiB.
 	#[doc(hidden)]
 	pub last_viewed_channels: Vec<(Id, Id)>,
-	/// Session-local opened threads, newest first; at most 1,024 IDs / 8 KiB.
+	/// Membership and archive metadata of known threads; one entry per thread channel.
 	#[doc(hidden)]
-	pub last_viewed_threads: Vec<Id>,
+	pub thread_info: BTreeMap<Id, model::threads::Info>,
 	pub timeline: Timeline,
 	pub preserve_deleted_messages: bool,
 	pub resident: resident::Windows,
@@ -979,6 +989,7 @@ impl Default for State {
 			archives: None,
 			posting: forum::Posting::default(),
 			posts: forum::Posts::default(),
+			forum_visit: None,
 			archived_thread: None,
 			thread_starter: Default::default(),
 			search: None,
@@ -1028,7 +1039,7 @@ impl Default for State {
 			selected: None,
 			last_viewed_dm: None,
 			last_viewed_channels: Vec::new(),
-			last_viewed_threads: Vec::new(),
+			thread_info: BTreeMap::new(),
 			timeline: Timeline::default(),
 			preserve_deleted_messages: false,
 			resident: resident::Windows::default(),
@@ -1326,14 +1337,6 @@ impl State {
 		}
 		let parked_reply = self.swap_parked_reply(channel);
 		self.remember_channel(channel);
-		if self
-			.channel(channel)
-			.is_some_and(|c| matches!(c.kind, 10..=12))
-		{
-			self.last_viewed_threads.retain(|id| *id != channel);
-			self.last_viewed_threads.truncate(1023);
-			self.last_viewed_threads.insert(0, channel);
-		}
 		self.retire_archived_thread(Some(channel));
 		self.typing.clear();
 		let trusted = self.select_resident(channel);
@@ -2580,6 +2583,7 @@ impl State {
 				notifications,
 				session_dnd,
 				mut warnings,
+				threads,
 			} = data;
 			self.apply_with_permissions(
 				Envelope {
@@ -2597,6 +2601,8 @@ impl State {
 				return;
 			}
 			self.set_premium_type(premium_type);
+			self.thread_info.clear();
+			self.apply_thread_changes(None, threads);
 			warnings.read_state |= self.apply_read_state(read_state).is_err();
 			if let Some(settings) = notifications {
 				warnings.notifications |= self.apply_notification_preferences(settings).is_err();
@@ -2992,6 +2998,10 @@ impl State {
 				threads,
 				removed,
 			} => self.apply_threads_sync(guild, parents, threads, removed),
+			Event::ThreadInfo { guild, changes } => {
+				self.apply_thread_changes(Some(guild), changes);
+				Ok(())
+			}
 			Event::Interaction(event) => self.apply_interaction(event),
 			Event::ApplicationCommands {
 				channel,
@@ -4148,7 +4158,7 @@ impl State {
 	}
 	fn remove_channels(&mut self, removed: &BTreeSet<Id>) {
 		self.invalidate_navigation();
-		self.last_viewed_threads.retain(|id| !removed.contains(id));
+		self.thread_info.retain(|id, _| !removed.contains(id));
 		for id in removed {
 			self.resident.remove(*id);
 		}
@@ -4516,6 +4526,9 @@ impl Event {
 					})
 					.sum(),
 				Self::ChannelCreated(channel) | Self::ChannelRestored(channel) => channel.bytes(),
+				Self::ThreadInfo { changes, .. } => {
+					changes.capacity() * size_of::<model::threads::Change>()
+				}
 				Self::ThreadsSync {
 					parents,
 					threads,

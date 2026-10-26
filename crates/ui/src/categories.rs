@@ -7,8 +7,6 @@ use egui::RichText;
 use model::{Channel, Id, Shortcut};
 use std::collections::{BTreeMap, BTreeSet};
 
-const MAX_VISIBLE_THREADS: usize = 4;
-
 /// Voice and stage channels keep a separate position list, drawn below other channels.
 fn voice_lane(kind: u8) -> bool {
 	matches!(kind, 2 | 13)
@@ -55,6 +53,8 @@ struct CacheKey {
 	hide_muted: bool,
 	relationships: u64,
 	requests_collapsed: bool,
+	/// Threads leave the list once their archive window passes, without any event.
+	minute: i64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -215,6 +215,7 @@ impl Cache {
 	}
 }
 
+#[cfg(any(test, feature = "demo"))]
 fn rows<'a>(
 	state: &'a State,
 	scope: Scope,
@@ -222,6 +223,32 @@ fn rows<'a>(
 	collapsed: &BTreeSet<Id>,
 	show_hidden: bool,
 	requests_collapsed: bool,
+) -> Vec<Row<'a>> {
+	rows_at(
+		state,
+		scope,
+		roster,
+		collapsed,
+		show_hidden,
+		requests_collapsed,
+		now_ms(),
+	)
+}
+
+fn now_ms() -> i64 {
+	std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map_or(0, |elapsed| elapsed.as_millis() as i64)
+}
+
+fn rows_at<'a>(
+	state: &'a State,
+	scope: Scope,
+	roster: &Roster<'a>,
+	collapsed: &BTreeSet<Id>,
+	show_hidden: bool,
+	requests_collapsed: bool,
+	now: i64,
 ) -> Vec<Row<'a>> {
 	let guild = scope.guild();
 	let channels = &state.channels;
@@ -231,29 +258,22 @@ fn rows<'a>(
 		.collect();
 	categories.sort_unstable_by_key(|c| (c.position, c.id));
 	let category_ids: BTreeSet<_> = categories.iter().map(|c| c.id).collect();
-	let parents: BTreeMap<_, _> = channels
-		.iter()
-		.filter(|c| guild.is_some() && c.guild == guild && matches!(c.kind, 0 | 5 | 15 | 16))
-		.map(|c| (c.id, c))
-		.collect();
 	let mut groups: BTreeMap<Option<Id>, Vec<&Channel>> = BTreeMap::new();
-	let mut threads: BTreeMap<Id, Vec<&Channel>> = BTreeMap::new();
-	for channel in channels.iter().filter(|c| {
+	let admitted = |c: &Channel| {
 		scope.admits(c, state) && (show_hidden || state.can_view(c.id)) && !roster.lifted(c.id)
-	}) {
-		if matches!(channel.kind, 10..=12) && !state.last_viewed_threads.contains(&channel.id) {
-			continue;
-		}
-		if matches!(channel.kind, 10..=12)
-			&& let Some(parent) = channel.parent_id.and_then(|id| parents.get(&id))
-			&& parent.parent_id != Some(channel.id)
-		{
-			threads.entry(parent.id).or_default().push(channel);
-			continue;
-		}
-		let parent = channel
-			.parent_id
-			.filter(|id| !matches!(channel.kind, 10..=12) && category_ids.contains(id));
+	};
+	// Threads appear only beneath their parents, following Discord's relevance rules.
+	let mut threads = guild.map_or_else(BTreeMap::new, |guild| {
+		state.sidebar_threads(guild, now, false)
+	});
+	for list in threads.values_mut() {
+		list.retain(|c| admitted(c));
+	}
+	for channel in channels
+		.iter()
+		.filter(|c| !matches!(c.kind, 10..=12) && admitted(c))
+	{
+		let parent = channel.parent_id.filter(|id| category_ids.contains(id));
 		groups.entry(parent).or_default().push(channel);
 	}
 	for group in groups.values_mut() {
@@ -262,9 +282,6 @@ fn rows<'a>(
 		} else {
 			group.sort_unstable_by_key(|c| std::cmp::Reverse((state.channel_activity(c), c.id)));
 		}
-	}
-	for group in threads.values_mut() {
-		group.sort_unstable_by_key(|c| state.last_viewed_threads.iter().position(|id| *id == c.id));
 	}
 	let append = |channel: &'a Channel, slot: Slot, hidden: bool, rows: &mut Vec<Row<'a>>| {
 		if hidden {
@@ -276,18 +293,13 @@ fn rows<'a>(
 				.get(&channel.id)
 				.into_iter()
 				.flatten()
-				.take(MAX_VISIBLE_THREADS)
 				.map(|c| Row::Channel(c, slot, true)),
 		);
 	};
 	let count = |channels: &[&Channel]| {
 		channels
 			.iter()
-			.map(|c| {
-				1 + threads
-					.get(&c.id)
-					.map_or(0, |threads| threads.len().min(MAX_VISIBLE_THREADS))
-			})
+			.map(|c| 1 + threads.get(&c.id).map_or(0, Vec::len))
 			.sum::<usize>()
 	};
 	let mut rows = Vec::new();
@@ -463,6 +475,45 @@ fn shelf_row(rows: &[CachedRow], index: usize) -> bool {
 	}
 }
 
+/// Thread rows start after the spine's elbow, aligned under their parent's name.
+const THREAD_INDENT: f32 = 26.0;
+
+/// The tree line from the parent's icon: a rounded elbow into this thread, continuing
+/// down when another thread follows.
+fn paint_thread_spine(ui: &egui::Ui, rect: egui::Rect, continues: bool, color: egui::Color32) {
+	let stroke = egui::Stroke::new(1.5, color.gamma_multiply(0.8));
+	// Parent icons are centred 18 points in; the spine also bridges the row gap above.
+	let x = rect.left() + 18.0;
+	let y = rect.center().y;
+	let radius = 8.0;
+	let top = rect.top() - ui.spacing().item_spacing.y;
+	let painter = ui.painter();
+	painter.line_segment([egui::pos2(x, top), egui::pos2(x, y - radius)], stroke);
+	painter.add(egui::epaint::QuadraticBezierShape::from_points_stroke(
+		[
+			egui::pos2(x, y - radius),
+			egui::pos2(x, y),
+			egui::pos2(x + radius, y),
+		],
+		false,
+		egui::Color32::TRANSPARENT,
+		stroke,
+	));
+	painter.line_segment(
+		[
+			egui::pos2(x + radius, y),
+			egui::pos2(rect.left() + THREAD_INDENT - 2.0, y),
+		],
+		stroke,
+	);
+	if continues {
+		painter.line_segment(
+			[egui::pos2(x, y - radius), egui::pos2(x, rect.bottom())],
+			stroke,
+		);
+	}
+}
+
 fn paint_shelf_rule(ui: &egui::Ui, rect: egui::Rect, rows: &[CachedRow], index: usize) {
 	if rows.get(index + 1).is_none() {
 		return;
@@ -503,6 +554,7 @@ impl MessagingUi {
 			.is_some_and(|guild| state.hides_muted_channels(guild) == Some(true));
 		let scope = Scope::of(self.guild);
 		let shortcuts_available = self.shortcuts_available(state);
+		let now = now_ms();
 		let key = CacheKey {
 			generation: state.generation,
 			revision: state.channel_list_revision(),
@@ -513,6 +565,7 @@ impl MessagingUi {
 			hide_muted,
 			relationships: state.relationship_view(),
 			requests_collapsed: self.message_requests_collapsed,
+			minute: now / 60_000,
 		};
 		if self.channel_cache.key != Some(key) {
 			let categories: BTreeSet<_> = state
@@ -539,13 +592,14 @@ impl MessagingUi {
 				.iter()
 				.copied()
 				.collect();
-			let mut channel_rows = rows(
+			let mut channel_rows = rows_at(
 				state,
 				scope,
 				&roster,
 				&collapsed,
 				self.show_hidden_channels,
 				self.message_requests_collapsed,
+				now,
 			);
 			if hide_muted {
 				channel_rows.retain(|row| {
@@ -851,11 +905,23 @@ impl MessagingUi {
 								});
 							}
 							let hovered = enabled && (response.hovered() || response.has_focus());
+							// Threads hang off a spine below their parent's icon, as in Discord;
+							// their highlight starts where the elbow ends.
+							let highlight = if nested {
+								let next_nested = matches!(
+									self.channel_cache.rows.get(index + 1),
+									Some(CachedRow::Channel(_, _, true))
+								);
+								paint_thread_spine(ui, rect, next_nested, colors.muted);
+								row.with_min_x(row.left() + THREAD_INDENT)
+							} else {
+								row
+							};
 							if active {
-								ui.painter().rect_filled(row, 8, colors.selected);
+								ui.painter().rect_filled(highlight, 8, colors.selected);
 							} else if hovered {
 								ui.painter().rect_filled(
-									row,
+									highlight,
 									8,
 									crate::design::row_highlight(ui, colors.hover, 1.0),
 								);
@@ -924,10 +990,7 @@ impl MessagingUi {
 									0.0
 								} + channel_marks::trailing(access);
 							let content = egui::Rect::from_min_max(
-								egui::pos2(
-									row.left() + 8.0 + if nested { 14.0 } else { 0.0 },
-									row.top(),
-								),
+								egui::pos2(highlight.left() + 8.0, row.top()),
 								egui::pos2(row.right() - 8.0 - trailing, row.bottom()),
 							);
 							let mut inner = ui.new_child(
@@ -999,7 +1062,7 @@ impl MessagingUi {
 								} else {
 									design::avatar(&mut inner, &channel.name, 32.0);
 								}
-							} else {
+							} else if !nested {
 								let icon = match channel.kind {
 									13 => crate::icons::Icon::Speaker,
 									5 => crate::icons::Icon::Megaphone,
@@ -1433,16 +1496,49 @@ pub fn debug_thread_navigation_check(state: &mut State) {
 				.any(|post| post.id == created)
 		);
 		state.select(created);
-		assert_eq!(visible(state)[0], created);
+		assert_eq!(
+			visible(state),
+			[created],
+			"The open post lists even unjoined"
+		);
 		state.select(parent);
 	}
-	assert_eq!(visible(state), [Id(1004), Id(1003), Id(1002), Id(1001)]);
+	assert!(visible(state).is_empty(), "Opening a post does not join it");
+	let now = now_ms();
+	let changes = (1000..1005)
+		.map(|id| model::threads::Change {
+			id: Id(id),
+			member: model::Patch::Value(model::threads::Member {
+				joined: now - 5_000 + id as i64,
+				muted: false,
+				mute_end: None,
+			}),
+			meta: Some(model::threads::Meta {
+				auto_archive_minutes: 60,
+				activity: now,
+				pinned: false,
+			}),
+		})
+		.collect();
+	state.apply(client_core::Envelope {
+		generation: state.generation,
+		event: client_core::Event::ThreadInfo {
+			guild: Id(10),
+			changes,
+		},
+	});
+	let joined = [Id(1004), Id(1003), Id(1002), Id(1001), Id(1000)];
+	assert_eq!(visible(state), joined);
 	state.select(Id(1002));
-	assert_eq!(visible(state), [Id(1002), Id(1004), Id(1003), Id(1001)]);
+	assert_eq!(
+		visible(state),
+		joined,
+		"Selecting a joined post keeps its row"
+	);
 	state.select(Id(1000));
-	assert_eq!(visible(state), [Id(1000), Id(1002), Id(1004), Id(1003)]);
+	assert_eq!(visible(state), joined);
 	println!(
-		"Thread debug check passed: image post dispatch permission, created posts, four opened threads, newest first."
+		"Thread debug check passed: image post dispatch permission, created posts, open and joined threads, newest join first."
 	);
 }
 
@@ -1965,22 +2061,36 @@ mod tests {
 			channel(28, 0, 0, Some(Id(27))),
 		];
 		hierarchy.iter_mut().find(|c| c.id == Id(26)).unwrap().guild = Some(Id(101));
+		// Every thread is joined and pinned, so only the hierarchy decides where it lists;
+		// 9 was joined after 8 and lists first.
+		let thread_info = [9, 8, 11, 13, 20, 21, 22, 23, 24, 25, 27]
+			.into_iter()
+			.map(|id| {
+				let info = model::threads::Info {
+					member: Some(model::threads::Member {
+						joined: i64::from(id == 9),
+						muted: false,
+						mute_end: None,
+					}),
+					meta: Some(model::threads::Meta {
+						auto_archive_minutes: 60,
+						activity: 0,
+						pinned: true,
+					}),
+				};
+				(Id(id), info)
+			})
+			.collect();
 		let hierarchy_state = State {
 			channels: hierarchy.clone(),
-			last_viewed_threads: vec![9, 8, 11, 13, 20, 21, 22, 23, 24, 25, 27]
-				.into_iter()
-				.map(Id)
-				.collect(),
+			thread_info,
 			..State::default()
 		};
+		// Orphaned, cyclic and cross-server threads have no parent row to list beneath.
 		let expanded = tree(&hierarchy_state, BTreeSet::new());
-		assert_eq!(expanded.len(), hierarchy.len() - 1);
-		assert_eq!(
-			ids(expanded),
-			[20, 21, 22, 23, 24, 25, 27, 28, 4, 7, 9, 8, 10, 11, 12, 13]
-		);
+		assert_eq!(ids(expanded), [28, 4, 7, 9, 8, 10, 11, 12, 13]);
 		let collapsed = tree(&hierarchy_state, BTreeSet::from([Id(4)]));
-		assert_eq!(ids(collapsed), [20, 21, 22, 23, 24, 25, 27, 28, 4]);
+		assert_eq!(ids(collapsed), [28, 4]);
 		assert!(!hierarchy[1].supports_text() && !hierarchy[6].supports_text());
 		assert!(hierarchy[2].supports_text());
 		assert_eq!(

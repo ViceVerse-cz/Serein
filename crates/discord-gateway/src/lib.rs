@@ -1749,6 +1749,7 @@ async fn run_recoverable(
 											user: ready.user.into_model(), guilds, channels, permissions,
 											read_state: client_core::read_state::Event::Snapshot {entries:read_entries,version:read_version,partial},
 											notifications, session_dnd: ready.sessions.as_ref().and_then(|s| s.dnd()), warnings,
+											threads: std::mem::take(&mut ready.thread_changes),
 										}.prepare()?)))?;
 										// A new session does not replay settings changed while disconnected.
 										if was_ready { emit(Event::AccountSettings { status: true, folders: true })?; }
@@ -1991,8 +1992,9 @@ async fn run_recoverable(
 										}
 										if let Some(permissions)=permissions {emit(permissions)?;}
 									}
-									"THREAD_CREATE" | "THREAD_UPDATE" | "THREAD_DELETE" | "THREAD_LIST_SYNC" | "THREAD_MEMBERS_UPDATE" => {
-										if let Some(event) = thread_events::decode_event(packet.t.as_deref().unwrap_or(""), packet.d.get().as_bytes(), owner_id)? { emit(event)?; }
+									"THREAD_CREATE" | "THREAD_UPDATE" | "THREAD_DELETE" | "THREAD_LIST_SYNC" | "THREAD_MEMBERS_UPDATE" | "THREAD_MEMBER_UPDATE" => {
+										let (event, info) = thread_events::decode_events(packet.t.as_deref().unwrap_or(""), packet.d.get().as_bytes(), owner_id)?;
+										for event in event.into_iter().chain(info) { emit(event)?; }
 									}
 									"GUILD_STICKERS_UPDATE" => {
 										let update: discord_protocol::stickers::GuildStickersUpdate = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;

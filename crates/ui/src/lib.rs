@@ -5203,6 +5203,9 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
+		if !settings_open && let Some(command) = state.prepare_forum_visit_read() {
+			commands.push(command);
+		}
 		if let Some(channel) = self.timeline.mark_channel_read.take() {
 			self.timeline.mark_read = None;
 			if let Some(command) = state.prepare_mark_channel_read(channel) {

@@ -117,6 +117,13 @@ impl ReadState {
 	pub(crate) fn known(&self) -> bool {
 		self.known
 	}
+	/// The service's acknowledged message for a channel that has a read row.
+	pub(crate) fn row(&self, channel: Id) -> Option<Option<Id>> {
+		self.entries.get(&channel).map(|(id, _)| *id)
+	}
+	pub(crate) fn busy(&self) -> bool {
+		self.pending.is_some()
+	}
 	pub fn status(&self, channel: Id) -> Option<&'static str> {
 		self.status
 			.filter(|(id, _)| *id == channel)
@@ -653,7 +660,7 @@ impl State {
 			}) if *pending_guild == guild && *pending_request == request
 		)
 	}
-	fn mark_read_command(
+	pub(crate) fn mark_read_command(
 		&mut self,
 		channel: Id,
 		message: Id,

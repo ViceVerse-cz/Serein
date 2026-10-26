@@ -40,8 +40,11 @@ impl State {
 	}
 
 	pub(super) fn filter_view_revisions(&mut self, event: &Event) {
+		// A thread message can list the thread beneath its parent, so it refreshes the rows.
 		let guild_message = matches!(event, Event::Message(message)
-			if self.channel(message.channel).is_some_and(|channel| channel.guild.is_some()));
+		if self.channel(message.channel).is_some_and(|channel| {
+			channel.guild.is_some() && !matches!(channel.kind, 10..=12)
+		}));
 		let revisions = &mut self.navigation_index.view_revisions;
 		// These events cannot replace guild catalogs or channel/role labels. Message
 		// arrival still changes unread badges and DM sorting; member lists affect text

@@ -2449,6 +2449,7 @@ mod tests {
 			notifications: None,
 			session_dnd: None,
 			warnings,
+			threads: Vec::new(),
 		}
 	}
 
