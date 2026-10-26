@@ -624,6 +624,10 @@ impl State {
 			return;
 		}
 		if preload::is_preload(request) {
+			self.docked_arrived(
+				request,
+				result.as_ref().is_ok_and(|data| accepts(user, guild, data)),
+			);
 			match self.preload.profiles.arrived(request, result.is_ok()) {
 				preload::Arrival::Adopted(own, fresh)
 					if self
@@ -766,28 +770,38 @@ mod tests {
 	}
 
 	#[test]
-	fn a_failing_docked_profile_is_not_requested_every_frame() {
+	fn docked_profiles_wait_only_after_a_failure() {
+		fn docked(state: &mut State, user: u64, now: Instant) -> Option<u64> {
+			let Some(Command::Prefetch(command)) = state.preload_docked_profile(Id(user), now)
+			else {
+				return None;
+			};
+			let Command::Profile { request, .. } = *command else {
+				panic!()
+			};
+			Some(request)
+		}
 		let now = Instant::now();
 		let mut state = own_state();
-		let Some(Command::Prefetch(command)) = state.preload_docked_profile(Id(2), now) else {
-			panic!()
-		};
-		let Command::Profile { request, .. } = *command else {
-			panic!()
-		};
+		let request = docked(&mut state, 2, now).unwrap();
 		assert!(state.profile_preloading(Id(2), now));
 		state.apply_profile(Id(2), None, request, Err(Failure::Network));
 		assert!(!state.profile_preloading(Id(2), now));
-		// The failure frees the preload slot, but the docked panel waits before asking again.
-		assert!(state.preload_docked_profile(Id(2), now).is_none());
-		assert!(
-			state
-				.preload_docked_profile(Id(2), now + Duration::from_secs(5 * 60))
-				.is_some()
-		);
+		// A failure waits, even after another DM's profile is shown in between.
+		assert!(docked(&mut state, 2, now).is_none());
+		let other = docked(&mut state, 3, now).unwrap();
+		let mut data = own_data("Synthetic friend");
+		data.user.id = Id(3);
+		state.apply_profile(Id(3), None, other, Ok(data));
+		assert!(state.known_profile(Id(3)).is_some());
+		assert!(docked(&mut state, 2, now).is_none());
+		assert!(docked(&mut state, 2, now + Duration::from_secs(5 * 60)).is_some());
+		// A loaded profile that leaves the cache, as after a friendship change, loads again.
+		state.profile_cache.forget(Id(3));
+		assert!(docked(&mut state, 3, now + Duration::from_secs(6 * 60)).is_some());
 		// A new connection asks again at once.
 		state.interrupt_preloads();
-		assert!(state.preload_docked_profile(Id(2), now).is_some());
+		assert!(docked(&mut state, 2, now).is_some());
 	}
 
 	#[test]

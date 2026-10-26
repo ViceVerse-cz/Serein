@@ -4254,8 +4254,9 @@ pub(crate) fn docked(
 	};
 	theme.apply(ui);
 	ui.style_mut().interaction.selectable_labels = false;
-	let (status, _, activities, clients) = presence(state, user.id, None);
+	let (status, custom, activities, clients) = presence(state, user.id, None);
 	let status = shown_status(state, user.id, status);
+	let custom = custom.map(str::trim).filter(|text| !text.is_empty());
 	let own = state.user.as_ref().is_some_and(|own| own.id == user.id);
 	let catalog = data.and_then(|d| d.badge_catalog.as_deref());
 	let mut action = None;
@@ -4436,6 +4437,18 @@ pub(crate) fn docked(
 										});
 								}
 							});
+							if let Some(text) = custom {
+								ui.add_space(4.0);
+								egui::Frame::new()
+									.fill(theme.chip)
+									.corner_radius(RADIUS)
+									.inner_margin(egui::Margin::symmetric(10, 6))
+									.show(ui, |ui| {
+										ui.add(
+											egui::Label::new(RichText::new(text).size(13.0)).wrap(),
+										);
+									});
+							}
 							if let Some(data) = data.filter(|d| {
 								!own && (!d.mutual_guilds.is_empty()
 									|| !d.mutual_friends.is_empty())
