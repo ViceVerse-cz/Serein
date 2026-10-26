@@ -4017,6 +4017,8 @@ user-menu-contents-profile = Perfil
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = Remova esta conversa da sua lista DM. As mensagens são mantidas.
 # Context: contents
+user-menu-contents-roles = Cargos
+# Context: contents
 user-menu-contents-unblock = Desbloquear
 # Context: contents
 user-menu-contents-unmute-conversation = Ativar conversa

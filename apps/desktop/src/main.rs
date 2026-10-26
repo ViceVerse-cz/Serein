@@ -573,7 +573,7 @@ fn main() -> eframe::Result {
 		persistence_path: None,
 		..Default::default()
 	};
-	eframe::run_native(
+	let result = eframe::run_native(
 		"Serein",
 		options,
 		Box::new(move |cc| {
@@ -597,7 +597,13 @@ fn main() -> eframe::Result {
 			}
 			Ok(Box::new(desktop))
 		}),
-	)
+	);
+	// Quitting mid-share drops media workers that are still closing their encoders, and
+	// NVIDIA's exit handlers crash or deadlock if the process exits during that teardown.
+	if !discord_voice::wait_for_media_threads(std::time::Duration::from_secs(5)) {
+		eprintln!("Screen or camera capture was still closing when Serein exited.");
+	}
+	result
 }
 /// Offline updater flow and settings rendering; never opens an account or installs a package.
 #[cfg(feature = "demo")]
@@ -5291,6 +5297,8 @@ impl eframe::App for Desktop {
 		}
 	}
 	fn on_exit(&mut self) {
+		// Later launches start a new client instead of waking this one while it shuts down.
+		self.instance.release();
 		if self.updater.finish_restart().is_err() {
 			eprintln!(
 				"Could not hand off the prepared update. The installed app was not replaced."
@@ -5465,10 +5473,12 @@ impl eframe::App for Desktop {
 		if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Q)) {
 			self.tray_window.quit(ctx);
 		}
+		let window_visible = self.window.is_visible();
 		self.tray_window.logic(
 			ctx,
 			self.background_available(),
-			self.window.is_visible().is_some(),
+			window_visible.is_some(),
+			window_visible,
 		);
 		// The hide command lands after this frame, so the flag leads reported visibility.
 		// Occlusion can occur during macOS fullscreen transitions; it is not a request

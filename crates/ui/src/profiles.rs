@@ -3614,8 +3614,9 @@ pub fn show_with_session(
 								|| !data.mutual_friends.is_empty())
 						}) {
 							ui.add_space(4.0);
-							ui.horizontal(|ui| {
-								ui.spacing_mut().item_spacing.x = 16.0;
+							// Wrap: translated labels (e.g. Czech) can outgrow the fixed card width.
+							ui.horizontal_wrapped(|ui| {
+								ui.spacing_mut().item_spacing = vec2(16.0, 4.0);
 								for (kind, count, icon, one, many) in [
 									(
 										Mutuals::Servers,

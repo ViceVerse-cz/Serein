@@ -4011,6 +4011,8 @@ user-menu-contents-profile = プロフィール
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = この会話を DM リストから削除してください。メッセージは保存されます。
 # Context: contents
+user-menu-contents-roles = ロール
+# Context: contents
 user-menu-contents-unblock = ブロックを解除する
 # Context: contents
 user-menu-contents-unmute-conversation = 会話のミュートを解除する

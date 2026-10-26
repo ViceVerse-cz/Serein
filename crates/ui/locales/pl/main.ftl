@@ -4020,6 +4020,8 @@ user-menu-contents-profile = Profil
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = Usuń tę rozmowę ze swojej listy DM. Wiadomości są przechowywane.
 # Context: contents
+user-menu-contents-roles = Role
+# Context: contents
 user-menu-contents-unblock = Odblokować
 # Context: contents
 user-menu-contents-unmute-conversation = Wyłącz wyciszenie rozmowy

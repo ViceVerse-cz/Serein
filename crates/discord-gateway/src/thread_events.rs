@@ -2,34 +2,53 @@
 use client_core::{Event, auth::Failure};
 use discord_protocol::{
 	ChannelDto, decode,
-	threads::{ThreadMembers, ThreadUpdate},
+	threads::{ThreadMember, ThreadMembers, ThreadUpdate},
 };
 use model::{Id, Patch};
 
+#[cfg(test)]
 pub(super) fn decode_event(
 	kind: &str,
 	bytes: &[u8],
 	owner: Option<Id>,
 ) -> Result<Option<Event>, Failure> {
+	decode_events(kind, bytes, owner).map(|(event, _)| event)
+}
+
+/// A thread dispatch, then the membership or archive metadata it carried for the sidebar.
+pub(super) fn decode_events(
+	kind: &str,
+	bytes: &[u8],
+	owner: Option<Id>,
+) -> Result<(Option<Event>, Option<Event>), Failure> {
 	let protocol = |_| Failure::Protocol;
+	let info = |guild: Id, changes: Vec<model::threads::Change>| {
+		(!changes.is_empty()).then_some(Event::ThreadInfo { guild, changes })
+	};
 	Ok(match kind {
 		"THREAD_CREATE" | "THREAD_DELETE" => {
 			let mut channel: ChannelDto = decode(bytes).map_err(protocol)?;
 			let guild = channel.guild_id.ok_or(Failure::Protocol)?;
 			let hidden = channel.is_obfuscated();
+			let change = (kind == "THREAD_CREATE" && !hidden)
+				.then(|| channel.thread_change())
+				.flatten();
 			// Validate the thread identity/scope even for a visibility removal. This
 			// sanitized temporary is never emitted as an accessible channel.
 			channel.flags &= !(1 << 17);
 			let channel =
 				discord_protocol::threads::into_thread(channel, guild).map_err(protocol)?;
-			Some(if kind == "THREAD_DELETE" || hidden {
-				Event::ThreadRemoved {
-					guild,
-					id: channel.id,
-				}
-			} else {
-				Event::ChannelCreated(channel)
-			})
+			(
+				Some(if kind == "THREAD_DELETE" || hidden {
+					Event::ThreadRemoved {
+						guild,
+						id: channel.id,
+					}
+				} else {
+					Event::ChannelCreated(channel)
+				}),
+				info(guild, change.into_iter().collect()),
+			)
 		}
 		"THREAD_UPDATE" => {
 			let update: ThreadUpdate = decode(bytes).map_err(protocol)?;
@@ -39,44 +58,84 @@ pub(super) fn decode_event(
 			{
 				return Err(Failure::Protocol);
 			}
-			Some(
-				if update.patch.is_obfuscated()
-					|| update.thread_metadata.is_some_and(|m| m.archived)
-				{
-					Event::ThreadRemoved {
+			if update.patch.is_obfuscated()
+				|| update.thread_metadata.as_ref().is_some_and(|m| m.archived)
+			{
+				(
+					Some(Event::ThreadRemoved {
 						guild: update.guild_id,
 						id: update.patch.id,
-					}
-				} else {
-					Event::ThreadChanged {
+					}),
+					None,
+				)
+			} else {
+				// Pins and archive metadata update independently of each other.
+				let pinned = match update.patch.flags {
+					Patch::Value(flags) => Some(model::threads::pinned(flags)),
+					_ => None,
+				};
+				let meta = update
+					.thread_metadata
+					.as_ref()
+					.map(discord_protocol::threads::ThreadMetadata::meta);
+				let change =
+					(meta.is_some() || pinned.is_some()).then_some(model::threads::Change {
+						id: update.patch.id,
+						member: Patch::Absent,
+						meta,
+						pinned,
+					});
+				(
+					Some(Event::ThreadChanged {
 						guild: update.guild_id,
 						patch: update.patch.into_model(),
-					}
-				},
-			)
+					}),
+					info(update.guild_id, change.into_iter().collect()),
+				)
+			}
 		}
 		"THREAD_LIST_SYNC" => {
 			let sync = decode::<discord_protocol::threads::ThreadListSync>(bytes)
 				.map_err(protocol)?
 				.into_model()
 				.map_err(protocol)?;
-			Some(Event::ThreadsSync {
-				guild: sync.guild,
-				parents: sync.parents,
-				threads: sync.threads,
-				removed: sync.removed,
-			})
+			(
+				Some(Event::ThreadsSync {
+					guild: sync.guild,
+					parents: sync.parents,
+					threads: sync.threads,
+					removed: sync.removed,
+				}),
+				info(sync.guild, sync.changes),
+			)
 		}
 		"THREAD_MEMBERS_UPDATE" => {
 			let members: ThreadMembers = decode(bytes).map_err(protocol)?;
-			owner
+			let removed = owner
 				.filter(|id| members.removed_member_ids.contains(id))
 				.map(|_| Event::ThreadRemoved {
 					guild: members.guild_id,
 					id: members.id,
-				})
+				});
+			let joined = owner.and_then(|owner| members.joined(owner));
+			(
+				removed,
+				info(members.guild_id, joined.into_iter().collect()),
+			)
 		}
-		_ => None,
+		// The account's own membership of one thread changed, such as joining it.
+		"THREAD_MEMBER_UPDATE" => {
+			let member: ThreadMember = decode(bytes).map_err(protocol)?;
+			// Only the sidebar reads this event; an incomplete one is ignored, not fatal.
+			let (Some(thread), Some(guild)) = (member.id, member.guild_id) else {
+				return Ok((None, None));
+			};
+			if owner.is_none() || member.user_id != owner {
+				return Ok((None, None));
+			}
+			(None, info(guild, vec![member.change(thread)]))
+		}
+		_ => (None, None),
 	})
 }
 

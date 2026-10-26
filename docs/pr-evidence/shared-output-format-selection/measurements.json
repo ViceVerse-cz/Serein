@@ -1,0 +1,201 @@
+{
+  "date": "2026-10-24",
+  "environment": {
+    "os": "Arch Linux x86_64",
+    "cpu": "AMD Ryzen 9 5900XT 16-Core Processor",
+    "visible_logical_cpus": 20,
+    "mem_total_kib": 61634584,
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "package_build": "cargo xtask package --format arch; release --locked --no-default-features; voice included, demo disabled"
+  },
+  "baseline": {
+    "revision": "38e46b8f5ec694002ef515fbc2d8dc69297e4f5f",
+    "executable_bytes": 92650248,
+    "executable_sha256": "577c75e043bf559d6988b347f90233b7af2100c88869d7b724a2f4af7c386cb3",
+    "installed_bytes": 97348681,
+    "installed_files": 245,
+    "archive_bytes": 54365367
+  },
+  "after": {
+    "executable_bytes": 92648840,
+    "executable_sha256": "2d48e769f0d029c8ae5c054274d0a7656415e9ac3bd07217f59eb8c204bd6b09",
+    "installed_bytes": 97347273,
+    "installed_files": 245,
+    "archive_bytes": 54366835,
+    "git_blobs": {
+      "Cargo.lock": "c904dd1243752a641746a708b62668ece28eb60d",
+      "crates/platform/Cargo.toml": "cd26909d53465dc01f1cce412b437371b769b3a9",
+      "crates/platform/src/lib.rs": "1ac4980212570409bb0af3feb2ac86851132ee71",
+      "crates/platform/src/audio.rs": "53a05f2479674d6e64b7192ed1ab328138c45429",
+      "crates/discord-voice/src/audio.rs": "9f5ca1bb3e72fe5fadefc357e0904f46c024974e",
+      "apps/desktop/src/notification_sounds.rs": "46a1570cb1bc2707abddd94b17b1cb86dc908474"
+    },
+    "selector_runtime_sha256": "d2fd7ae52a8d23dd1afd7f15da548eb8a27cf7c3f5e25fa15683ebc983264894"
+  },
+  "selection_probes": {
+    "baseline": {
+      "revision": "38e46b8f5ec694002ef515fbc2d8dc69297e4f5f",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "warmups": 1,
+      "measured_runs": 5,
+      "selections_per_run": 1000000,
+      "runs": [
+        {
+          "workload": "notification-supported-default",
+          "ns_per_selection": [
+            1.008228,
+            0.984203,
+            0.97247,
+            0.954869,
+            1.012419
+          ],
+          "successes": 1000000
+        },
+        {
+          "workload": "notification-I24-default-64-ranges",
+          "ns_per_selection": [
+            0.775797,
+            0.808762,
+            0.855137,
+            0.838654,
+            0.837257
+          ],
+          "successes": 0
+        },
+        {
+          "workload": "voice-64-ranges",
+          "ns_per_selection": [
+            80.109054,
+            75.227429,
+            80.116876,
+            75.070426,
+            73.509054
+          ],
+          "successes": 1000000
+        }
+      ]
+    },
+    "after": {
+      "revision": "WORKTREE",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "warmups": 1,
+      "measured_runs": 5,
+      "selections_per_run": 1000000,
+      "runs": [
+        {
+          "workload": "notification-supported-default",
+          "ns_per_selection": [
+            1.50494,
+            1.67172,
+            1.730108,
+            1.545727,
+            1.644622
+          ],
+          "successes": 1000000
+        },
+        {
+          "workload": "notification-I24-default-64-ranges",
+          "ns_per_selection": [
+            86.92221,
+            82.870857,
+            89.80861,
+            88.877206,
+            86.040253
+          ],
+          "successes": 1000000
+        },
+        {
+          "workload": "voice-64-ranges",
+          "ns_per_selection": [
+            95.448431,
+            90.02428,
+            89.032254,
+            86.967746,
+            81.306692
+          ],
+          "successes": 1000000
+        }
+      ]
+    }
+  },
+  "pre_edit_baseline_probe": {
+    "revision": "38e46b8f5ec694002ef515fbc2d8dc69297e4f5f",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "warmups": 1,
+    "measured_runs": 5,
+    "selections_per_run": 1000000,
+    "runs": [
+      {
+        "workload": "notification-supported-default",
+        "ns_per_selection": [
+          0.953194,
+          0.989231,
+          1.003758,
+          1.176406,
+          1.025549
+        ],
+        "successes": 1000000
+      },
+      {
+        "workload": "notification-I24-default-64-ranges",
+        "ns_per_selection": [
+          0.854298,
+          0.869942,
+          0.849828,
+          0.777193,
+          0.857092
+        ],
+        "successes": 0
+      },
+      {
+        "workload": "voice-64-ranges",
+        "ns_per_selection": [
+          76.240927,
+          78.553789,
+          79.460887,
+          82.10759,
+          79.552798
+        ],
+        "successes": 1000000
+      }
+    ]
+  },
+  "verification": {
+    "focused_audio_passed": 17,
+    "focused_notification_passed": 2,
+    "workspace_passed": 1269,
+    "workspace_failed": 0,
+    "workspace_ignored": 14,
+    "format": "passed",
+    "clippy": "passed, workspace all targets, warnings denied",
+    "release_features_check": "passed",
+    "policy": "passed",
+    "arch_package_smoke": "passed at both revisions",
+    "default_package": "release build passed; Debian packaging unavailable: dpkg missing, at both revisions",
+    "licenses": "unavailable: cargo-deny 0.20.2 missing"
+  },
+  "limits": {
+    "advertised_ranges": 64,
+    "channels": [
+      1,
+      8
+    ],
+    "sample_rate_hz": [
+      8000,
+      192000
+    ],
+    "formats": [
+      "F32",
+      "I16",
+      "I32",
+      "U16"
+    ]
+  },
+  "limitations": [
+    "Synthetic selector only; native OS queries, stream startup, callbacks, audible latency, CPU/RSS and UI timing not measured.",
+    "Windows native-mix policy simulated on Linux; native WASAPI/macOS and physical I24 output unvalidated.",
+    "No live Discord, calls, microphone or credentials used.",
+    "Archive metadata and host scheduling noise limit tiny comparisons.",
+    "Existing libz.so dependency warning on both Arch packages; native smoke checks passed."
+  ]
+}

@@ -241,6 +241,21 @@ pub struct Palette {
 	/// Alias of `sidebar`, kept for older call sites.
 	pub surface: Color32,
 }
+/// Dark themes' default danger red, tuned for red text and outlines on dark surfaces.
+const DARK_DANGER: Color32 = rgb(0xef5561);
+/// Discord's solid count-badge and LIVE-pill red, deeper so white text stays crisp.
+const BADGE_RED: Color32 = rgb(0xd22d39);
+impl Palette {
+	/// Fill for solid badges and pills carrying white text. A theme's own danger color is
+	/// kept; the dark default text red would read washed out as a fill.
+	pub fn badge_fill(&self) -> Color32 {
+		if self.danger == DARK_DANGER {
+			BADGE_RED
+		} else {
+			self.danger
+		}
+	}
+}
 const fn rgb(value: u32) -> Color32 {
 	Color32::from_rgb((value >> 16) as u8, (value >> 8) as u8, value as u8)
 }
@@ -290,7 +305,7 @@ fn dark_common(
 		accent_text: Color32::WHITE,
 		positive: rgb(0x2fb87a),
 		warning: rgb(0xe8a33d),
-		danger: rgb(0xef5561),
+		danger: DARK_DANGER,
 		mention_bg: MENTION_BG,
 		mention_text: rgb(0xbcd9ff),
 		backdrop: None,
@@ -298,7 +313,8 @@ fn dark_common(
 		surface: sidebar,
 	}
 }
-fn gradient(stops: [u32; 2]) -> Palette {
+/// Gradient preset with an opaque border, like the flat presets, for stable fractional-scale edges.
+fn gradient(stops: [u32; 2], border: u32) -> Palette {
 	let mut p = dark_common(
 		Color32::from_black_alpha(140),
 		Color32::from_black_alpha(90),
@@ -306,13 +322,14 @@ fn gradient(stops: [u32; 2]) -> Palette {
 		Color32::from_black_alpha(120),
 		Color32::from_white_alpha(18),
 		Color32::from_white_alpha(34),
-		Color32::from_white_alpha(28),
+		rgb(border),
 	);
 	p.text = rgb(0xe6eaf2);
 	p.muted = rgb(0xafb6c4);
 	p.backdrop = Some([rgb(stops[0]), rgb(stops[1])]);
 	p
 }
+/// Resolve a built-in preset with the current accent, before extension overrides or surface blending.
 pub fn builtin_colors(dark: bool, variant: Variant) -> Palette {
 	let palette = match variant {
 		Variant::Standard if dark => dark_common(
@@ -365,10 +382,10 @@ pub fn builtin_colors(dark: bool, variant: Variant) -> Palette {
 			rgb(0x3d4456),
 			rgb(0x3a4152),
 		),
-		Variant::Nightfall => gradient([0x35519f, 0x1b1440]),
-		Variant::Ember => gradient([0x8c2340, 0x140609]),
-		Variant::Verdant => gradient([0x2b6350, 0x081a15]),
-		Variant::Afterglow => gradient([0xd9663c, 0x35205e]),
+		Variant::Nightfall => gradient([0x35519f, 0x1b1440], 0x2f3451),
+		Variant::Ember => gradient([0x8c2340, 0x140609], 0x41262e),
+		Variant::Verdant => gradient([0x2b6350, 0x081a15], 0x283934),
+		Variant::Afterglow => gradient([0xd9663c, 0x35205e], 0x5b3b40),
 	};
 	customize(palette, primary_color())
 }
@@ -901,6 +918,7 @@ pub(crate) fn control_colors(dark: bool, variant: Variant) -> Palette {
 pub fn window_palette(ui: &egui::Ui) -> Palette {
 	colors(ui.visuals().dark_mode, variant())
 }
+/// Composite surface fills while preserving theme tokens for each consumer's own background.
 fn opaque_surfaces(mut palette: Palette) -> Palette {
 	let backdrop = palette
 		.backdrop
@@ -1772,6 +1790,41 @@ fn contrast(a: Color32, b: Color32) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn solid_badges_use_discord_red_unless_the_theme_changed_danger() {
+		for variant in Variant::ALL {
+			let dark = builtin_colors(true, variant);
+			assert_eq!(dark.badge_fill(), BADGE_RED, "{variant:?}");
+			// Red text keeps its lighter, readable shade.
+			assert_eq!(dark.danger, DARK_DANGER);
+		}
+		let light = builtin_colors(false, Variant::Standard);
+		assert_eq!(light.badge_fill(), light.danger);
+		let mut custom = builtin_colors(true, Variant::Standard);
+		custom.danger = rgb(0x00ff00);
+		assert_eq!(custom.badge_fill(), custom.danger);
+	}
+
+	#[test]
+	fn compositing_surfaces_preserves_custom_border_alpha() {
+		let authored = extensions::ThemePalette {
+			colors: [
+				("base".into(), "#0c3658".into()),
+				("raised".into(), "#762438".into()),
+				("border".into(), "#ffffff60".into()),
+			]
+			.into(),
+			..Default::default()
+		};
+		let themed = recolor(
+			builtin_colors(true, Variant::Ember),
+			extension_palette(&authored).unwrap(),
+		);
+		let border = themed.border;
+		assert_eq!(opaque_surfaces(themed).border, border);
+	}
+
 	#[test]
 	fn opaque_presets_keep_readable_text_and_keys_round_trip() {
 		for variant in Variant::ALL {

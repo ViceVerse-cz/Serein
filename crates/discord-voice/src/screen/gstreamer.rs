@@ -59,6 +59,8 @@ pub(super) struct Capture {
 }
 impl Drop for Capture {
 	fn drop(&mut self) {
+		// Downward transitions never complete asynchronously: this joins the streaming threads
+		// and closes the encoder session before returning, which the exit wait relies on.
 		let _ = self.pipeline.set_state(gst::State::Null);
 	}
 }

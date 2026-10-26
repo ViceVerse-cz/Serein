@@ -1487,7 +1487,7 @@ impl MessagingUi {
 			(egui::vec2(40.0, 20.0), 11.0, 8.0)
 		};
 		let live = egui::Rect::from_min_size(rect.left_top() + egui::Vec2::splat(margin), pill);
-		ui.painter().rect_filled(live, 4, colors.danger);
+		ui.painter().rect_filled(live, 4, colors.badge_fill());
 		ui.painter().text(
 			live.center(),
 			egui::Align2::CENTER_CENTER,
@@ -1691,7 +1691,7 @@ impl MessagingUi {
 			let badge = avatar.rect.right_bottom() - egui::Vec2::splat(avatar_size * 0.14);
 			ui.painter().circle_filled(badge, radius, STAGE_FILL);
 			ui.painter()
-				.circle_filled(badge, radius - 2.0, colors.danger);
+				.circle_filled(badge, radius - 2.0, colors.badge_fill());
 			crate::icons::paint(
 				ui.painter(),
 				icon,
@@ -1746,7 +1746,7 @@ impl MessagingUi {
 			};
 			let margin = if compact { 5.0 } else { 8.0 };
 			let live = egui::Rect::from_min_size(rect.left_top() + egui::Vec2::splat(margin), pill);
-			ui.painter().rect_filled(live, 4, colors.danger);
+			ui.painter().rect_filled(live, 4, colors.badge_fill());
 			ui.painter().text(
 				live.center(),
 				egui::Align2::CENTER_CENTER,
@@ -4425,7 +4425,7 @@ fn pill<R>(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui) -> R) 
 	ui.painter().rect_stroke(
 		rect,
 		12,
-		egui::Stroke::new(1.0, egui::Color32::from_white_alpha(18)),
+		egui::Stroke::new(1.0, PILL_FILL.blend(egui::Color32::from_white_alpha(18))),
 		egui::StrokeKind::Inside,
 	);
 	let mut inner = ui.new_child(
@@ -4770,7 +4770,7 @@ fn status_icon(ui: &mut egui::Ui, icon: crate::icons::Icon, color: egui::Color32
 fn live_badge(ui: &mut egui::Ui) {
 	let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 16.0), egui::Sense::hover());
 	let colors = design::palette(ui);
-	ui.painter().rect_filled(rect, 4, colors.danger);
+	ui.painter().rect_filled(rect, 4, colors.badge_fill());
 	ui.painter().text(
 		rect.center(),
 		egui::Align2::CENTER_CENTER,

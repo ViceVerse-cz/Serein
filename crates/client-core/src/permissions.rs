@@ -532,7 +532,7 @@ impl State {
 		self.live_member_roles(guild, channel, user)
 			.filter(|roles| !roles.is_empty())
 	}
-	fn live_member_roles(&self, guild: Id, channel: Id, user: Id) -> Option<&[Id]> {
+	pub(crate) fn live_member_roles(&self, guild: Id, channel: Id, user: Id) -> Option<&[Id]> {
 		let member = self
 			.members
 			.as_ref()
@@ -1081,6 +1081,7 @@ mod tests {
 				tertiary_color: None,
 				position: 0,
 				hoist: false,
+				managed: false,
 				id: Id(1),
 				bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY | p::SEND_MESSAGES,
 			}]),

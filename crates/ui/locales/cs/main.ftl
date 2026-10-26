@@ -4035,6 +4035,8 @@ user-menu-contents-profile = Profil
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = Odeberte tuto konverzaci ze seznamu DM. Zprávy se uchovávají.
 # Context: contents
+user-menu-contents-roles = Role
+# Context: contents
 user-menu-contents-unblock = Odblokovat
 # Context: contents
 user-menu-contents-unmute-conversation = Zrušit ztlumení konverzace

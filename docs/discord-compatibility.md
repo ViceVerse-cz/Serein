@@ -2754,3 +2754,14 @@ the official notice in place of the withheld details, and omits Member Since and
 matching the official client. Roles, mutuals and the message field stay. The service
 withholds the hidden data itself; Serein never infers privacy from missing fields. No live
 private-profile response has been used as validation.
+
+## Member list on a return visit — October 25, 2026
+
+On large servers Discord remembers which member-list rows a client asked for, even after the
+pane moves to another server. On a return visit Serein asked for the same rows again; Discord
+saw no change and never re-sent the list, so it stayed on "Loading people…". Serein now first
+asks for a different row window, then the real one, which Discord treats as new and answers.
+Clearing the rows with an empty list is not an option: Discord disconnects with code 4002.
+
+This behaviour is unofficial and inferred from owner traces; a loopback test models it, and
+the owner confirmed the fix in a debug build.

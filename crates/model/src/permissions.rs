@@ -55,6 +55,8 @@ pub struct Role {
 	pub tertiary_color: Option<u32>,
 	pub position: i32,
 	pub hoist: bool,
+	/// Integration-owned roles (bots, boosts, subscriptions) cannot be assigned by hand.
+	pub managed: bool,
 }
 impl Role {
 	pub fn colors(&self) -> crate::server_roles::Colors {
@@ -354,6 +356,7 @@ mod tests {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: Id(1),
 					bits: VIEW_CHANNEL
 						| READ_MESSAGE_HISTORY
@@ -367,6 +370,7 @@ mod tests {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: Id(2),
 					bits: CONNECT,
 				},
@@ -377,6 +381,7 @@ mod tests {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: Id(3),
 					bits: SPEAK | SEND_MESSAGES_IN_THREADS,
 				},
@@ -499,6 +504,7 @@ mod tests {
 						tertiary_color: None,
 						position: 0,
 						hoist: false,
+						managed: false,
 						id: Id(1),
 						bits: 0
 					};
@@ -514,6 +520,7 @@ mod tests {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: Id(2),
 					bits: 0,
 				}]),
@@ -550,6 +557,7 @@ mod tests {
 							tertiary_color: None,
 							position: 0,
 							hoist: false,
+							managed: false,
 							id: Id(id as u64),
 							bits: 0,
 						})

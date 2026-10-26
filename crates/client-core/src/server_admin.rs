@@ -247,6 +247,11 @@ impl State {
 			.find(|member| member.user.id == user)
 	}
 	fn above_admin_member(&self, guild: Id, user: Id) -> bool {
+		self.admin_member(guild, user)
+			.is_some_and(|member| self.outranks_member(guild, user, &member.roles))
+	}
+	/// You own the server, or your highest role outranks the member's (`roles` are theirs).
+	fn outranks_member(&self, guild: Id, user: Id, roles: &[Id]) -> bool {
 		let Some(actor) = self.user.as_ref().map(|user| user.id) else {
 			return false;
 		};
@@ -259,23 +264,20 @@ impl State {
 		if user == actor || user == owner {
 			return false;
 		}
-		let Some(member) = self.admin_member(guild, user) else {
-			return false;
-		};
 		if actor == owner {
 			return true;
 		}
-		let Some(roles) = metadata.roles.as_ref() else {
+		let Some(server_roles) = metadata.roles.as_ref() else {
 			return false;
 		};
 		let Some(own) = metadata.member.as_ref() else {
 			return false;
 		};
 		let highest = |ids: &[Id]| -> Option<&p::Role> {
-			let everyone = roles.iter().find(|role| role.id == guild)?;
+			let everyone = server_roles.iter().find(|role| role.id == guild)?;
 			let mut highest = everyone;
 			for id in ids {
-				let role = roles.iter().find(|role| role.id == *id)?;
+				let role = server_roles.iter().find(|role| role.id == *id)?;
 				if role.cmp_hierarchy(highest).is_gt() {
 					highest = role;
 				}
@@ -283,40 +285,11 @@ impl State {
 			Some(highest)
 		};
 		highest(&own.roles)
-			.zip(highest(&member.roles))
+			.zip(highest(roles))
 			.is_some_and(|(own, target)| own.cmp_hierarchy(target).is_gt())
 	}
-	pub fn can_kick_guild_member(&self, guild: Id, user: Id) -> bool {
-		self.guild_permission(guild, p::KICK_MEMBERS) && self.above_admin_member(guild, user)
-	}
-	pub fn can_edit_guild_nickname(&self, guild: Id, user: Id) -> bool {
-		if self.user.as_ref().is_some_and(|own| own.id == user) {
-			self.guild_permission(guild, p::CHANGE_NICKNAME)
-		} else {
-			self.guild_permission(guild, p::MANAGE_NICKNAMES)
-				&& self.above_admin_member(guild, user)
-		}
-	}
-	pub fn can_edit_member_role(&self, guild: Id, user: Id, role: Id) -> bool {
-		let own = self.user.as_ref().is_some_and(|actor| actor.id == user);
-		if !self.guild_permission(guild, p::MANAGE_ROLES)
-			|| (!own && !self.above_admin_member(guild, user))
-			|| self.admin_member(guild, user).is_none()
-			|| role == guild
-		{
-			return false;
-		}
-		let Some(row) = self
-			.server_admin
-			.members
-			.as_ref()
-			.and_then(|page| page.roles.iter().find(|row| row.role.id == role))
-		else {
-			return false;
-		};
-		if row.managed {
-			return false;
-		}
+	/// You own the server, or one of your roles sits above `role`.
+	fn role_below_own(&self, guild: Id, role: Id) -> bool {
 		let Some(metadata) = self.permissions.guilds.get(&guild) else {
 			return false;
 		};
@@ -343,6 +316,76 @@ impl State {
 				.filter(|role| own.roles.contains(&role.id))
 				.any(|role| role.cmp_hierarchy(current_role).is_gt())
 		})
+	}
+	/// Your own assignments, or a member row in the selected channel's live list or search.
+	fn live_member_role_ids(&self, guild: Id, user: Id) -> Option<&[Id]> {
+		if self.user.as_ref().is_some_and(|own| own.id == user) {
+			return self
+				.permissions
+				.guilds
+				.get(&guild)?
+				.member
+				.as_ref()
+				.map(|own| own.roles.as_slice());
+		}
+		self.live_member_roles(guild, self.selected?, user)
+	}
+	/// Roles you may toggle on a live member, highest first, paired with whether they hold it.
+	pub fn member_menu_roles(&self, guild: Id, user: Id) -> Vec<(&p::Role, bool)> {
+		let own = self.user.as_ref().is_some_and(|actor| actor.id == user);
+		let Some(assigned) = self.live_member_role_ids(guild, user) else {
+			return Vec::new();
+		};
+		if !self.guild_permission(guild, p::MANAGE_ROLES)
+			|| (!own && !self.outranks_member(guild, user, assigned))
+		{
+			return Vec::new();
+		}
+		let mut roles: Vec<_> = self
+			.guild_roles(guild)
+			.unwrap_or_default()
+			.iter()
+			.filter(|role| role.id != guild && !role.managed && self.role_below_own(guild, role.id))
+			.map(|role| (role, assigned.contains(&role.id)))
+			.collect();
+		roles.sort_by(|(a, _), (b, _)| b.cmp_hierarchy(a));
+		roles
+	}
+	pub fn can_kick_guild_member(&self, guild: Id, user: Id) -> bool {
+		self.guild_permission(guild, p::KICK_MEMBERS) && self.above_admin_member(guild, user)
+	}
+	pub fn can_edit_guild_nickname(&self, guild: Id, user: Id) -> bool {
+		if self.user.as_ref().is_some_and(|own| own.id == user) {
+			self.guild_permission(guild, p::CHANGE_NICKNAME)
+		} else {
+			self.guild_permission(guild, p::MANAGE_NICKNAMES)
+				&& self.above_admin_member(guild, user)
+		}
+	}
+	pub fn can_edit_member_role(&self, guild: Id, user: Id, role: Id) -> bool {
+		if self.admin_member(guild, user).is_none() {
+			// Context menus act on live member rows without the settings member page.
+			return self
+				.member_menu_roles(guild, user)
+				.iter()
+				.any(|(row, _)| row.id == role);
+		}
+		let own = self.user.as_ref().is_some_and(|actor| actor.id == user);
+		if !self.guild_permission(guild, p::MANAGE_ROLES)
+			|| (!own && !self.above_admin_member(guild, user))
+			|| role == guild
+		{
+			return false;
+		}
+		let Some(row) = self
+			.server_admin
+			.members
+			.as_ref()
+			.and_then(|page| page.roles.iter().find(|row| row.role.id == role))
+		else {
+			return false;
+		};
+		!row.managed && self.role_below_own(guild, role)
 	}
 	pub fn can_prune_guild(&self, guild: Id) -> bool {
 		if self.server_admin.guild != Some(guild) {
@@ -1021,6 +1064,7 @@ mod invite_tests {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 				}]),
 			},
 		);
@@ -1196,6 +1240,7 @@ mod sticker_tests {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 				}]),
 			},
 		);

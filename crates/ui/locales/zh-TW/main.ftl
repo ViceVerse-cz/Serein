@@ -4049,6 +4049,8 @@ user-menu-contents-profile = 個人檔案
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = 從私訊清單移除這個對話，訊息會保留。
 # Context: contents
+user-menu-contents-roles = 身分組
+# Context: contents
 user-menu-contents-unblock = 解除封鎖
 # Context: contents
 user-menu-contents-unmute-conversation = 解除對話靜音

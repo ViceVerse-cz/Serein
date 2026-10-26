@@ -1619,6 +1619,7 @@ mod tests {
 								tertiary_color: None,
 								position: 1,
 								hoist: false,
+								managed: false,
 							}]),
 							member: None,
 						}],
@@ -1657,6 +1658,7 @@ mod tests {
 						tertiary_color: None,
 						position: 1,
 						hoist: false,
+						managed: false,
 					},
 				}),
 			});

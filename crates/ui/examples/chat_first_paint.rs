@@ -238,6 +238,7 @@ fn main() {
 				tertiary_color: None,
 				position: 1,
 				hoist: false,
+				managed: false,
 				bits: 0,
 			},
 		}),

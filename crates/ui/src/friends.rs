@@ -968,7 +968,7 @@ fn header_tab(
 			),
 			vec2(badge.size().x.max(8.0) + 8.0, 16.0),
 		);
-		painter.rect_filled(pill, 8, colors.danger);
+		painter.rect_filled(pill, 8, colors.badge_fill());
 		painter.galley_with_override_text_color(
 			pill.center() - badge.size() / 2.0,
 			badge,

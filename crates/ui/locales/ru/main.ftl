@@ -2,26 +2,26 @@
 
 language-system = Система
 language-group = Язык
-language-label = Язык дисплея
+language-label = Отображаемый язык
 language-description = Выберите язык Серейн. Контент Discord никогда не переводится.
 section-user = Пользовательские настройки
-section-app = Настройки приложения
+section-app = Приложение
 section-customization = Кастомизация
-page-account = Мой счет
+page-account = Аккаунт
 page-profile = Профиль
-page-general = Общий
-page-appearance = Появление
+page-general = Другое
+page-appearance = Оформление
 page-chat = Чат
-page-messaging-permissions = Разрешения на обмен сообщениями
+page-messaging-permissions = Разрешения чата
 page-notifications = Уведомления
-page-registered-games = Зарегистрированные игры
+page-registered-games = Активность
 page-voice = Голос и видео
 page-keybinds = Сочетания клавиш
 page-storage = Данные и конфиденциальность
 page-updates = Обновления
 page-extensions = Расширения
 page-themes = Темы
-description-account = Учетная запись Discord выполнена на этом устройстве.
+description-account = Учетная запись Discord, используемая на этом устройстве.
 description-profile = Выберите, как вы будете выглядеть в Discord.
 description-general = Запуск, поведение окон и графики на этом устройстве.
 description-appearance = Тема, цвета, оконные эффекты и макет.
@@ -63,22 +63,22 @@ general-windows-tray-description = Если закрыть окно, Серей�
 general-tray-unavailable = Лоток недоступен на этой платформе.
 general-graphics = Графика
 general-render-with = Рендеринг с помощью
-general-gpu-restart = Вступает в силу при следующем запуске Серейн.
-general-gpu-current-prefix = Сейчас рисую с
+general-gpu-restart = Изменение этого параметра вступает в силу после перезапуска.
+general-gpu-current-prefix = Сейчас активна
 gpu-automatic = Автоматический
 gpu-high-performance = Высокая производительность
 gpu-power-saving = Экономия энергии
 gpu-automatic-description = Пусть Серейн выберет графический процессор, который сможет отрисовать это окно.
 gpu-high-performance-description = Используйте дискретную видеокарту, если она доступна.
 gpu-power-saving-description = Используйте встроенную графику для экономии заряда батареи.
-direct-messages = Прямые сообщения
+direct-messages = Личные сообщения
 find-conversation = Найти разговор
 find-conversation-tooltip = Поиск загруженных разговоров (Ctrl/Cmd+K)
 friends = Друзья
 members = Члены
 retry-shortcuts = Повторить сочетания клавиш
 profile-and-status = Профиль и статус
-user-settings = Пользовательские настройки
+user-settings = Учетная запись
 your-account = Ваш аккаунт
 reconnecting = Повторное подключение…
 hide-chat = Скрыть чат
@@ -110,7 +110,7 @@ new = Новый
 members-count = Члены
 members-heading = Члены
 no-conversation-selected = Ни один разговор не выбран
-select-conversation = Выберите канал или прямое сообщение из списка.
+select-conversation = Выберите канал или личный чат из списка.
 friends-online = Онлайн
 friends-all = Все
 friends-pending = В ожидании
@@ -158,7 +158,7 @@ friends-ignored = игнорируется
 friends-blocked = Заблокировано
 friends-presence-unavailable = Присутствие недоступно
 friends-message = Сообщение
-friends-no-open-dm = Нет открытого прямого сообщения с этим другом
+friends-no-open-dm = Нет открытого личного чата с этим другом
 friends-more = Более
 
 # Semantic application strings. Keys stay stable when English copy changes.
@@ -356,13 +356,13 @@ categories-channel-list-unread = , непрочитанный
 # Context: paint_shelf_rule
 categories-paint-shelf-rule-announcement-channel = Канал объявлений
 # Context: paint_shelf_rule
-categories-paint-shelf-rule-direct-message = Прямое сообщение
+categories-paint-shelf-rule-direct-message = Личное сообщение
 # Context: paint_shelf_rule
 categories-paint-shelf-rule-directory-not-implemented = Каталог · не реализован
 # Context: paint_shelf_rule
 categories-paint-shelf-rule-forum-loaded-posts = Форум · загруженные сообщения
 # Context: paint_shelf_rule
-categories-paint-shelf-rule-group-direct-message = Групповое прямое сообщение
+categories-paint-shelf-rule-group-direct-message = Групповые личные сообщения
 # Context: paint_shelf_rule
 categories-paint-shelf-rule-media-loaded-posts = Медиа · загруженные посты
 # Context: paint_shelf_rule
@@ -378,7 +378,7 @@ categories-paint-shelf-rule-unknown-channel-type-not-implemented = Неизве�
 
 ## crates/ui/src/shortcuts.rs
 # Context: key
-channel-list-heading-direct-messages = Прямые сообщения
+channel-list-heading-direct-messages = Личные сообщения
 # Context: key
 channel-list-heading-favorites = Избранное
 # Context: key
@@ -1017,7 +1017,7 @@ extensions-ui-toolbar-open-a-package-file-from-this-computer = Откройте 
 # Context: toolbar
 extensions-ui-toolbar-refresh-catalog = Обновить каталог
 # Context: toolbar
-extensions-ui-toolbar-search-extensions = Расширения поиска
+extensions-ui-toolbar-search-extensions = Поиск расширений
 # Context: toolbar
 extensions-ui-toolbar-search-themes = Поиск тем
 # Context: toolbar
@@ -1319,7 +1319,7 @@ forwarding-show-conversation = Беседа
 # Context: show
 forwarding-show-destinations-selected = направления выбраны
 # Context: show
-forwarding-show-direct-messages = Прямые сообщения
+forwarding-show-direct-messages = Личные сообщения
 # Context: show
 forwarding-show-done = Сделанный
 # Context: show
@@ -1709,7 +1709,7 @@ messaging-permissions-heading-connected-games = Обмен сообщениям�
 # Context: heading
 messaging-permissions-heading-direct-messages = Разрешения на отправку прямых сообщений (DM)
 # Context: heading
-messaging-permissions-heading-friend-requests = Разрешения на запрос друзей
+messaging-permissions-heading-friend-requests = Разрешения на запрос добавления в друзья
 # Context: heading
 messaging-permissions-heading-spam = Спам-фильтры
 # Context: messaging_permissions_settings
@@ -1751,7 +1751,7 @@ messaging-permissions-messaging-permissions-settings-your-account-uses-a-custom-
 # Context: label
 messaging-permissions-tab-connected-games = Связанные игры
 # Context: label
-messaging-permissions-tab-direct-messages = Прямые сообщения
+messaging-permissions-tab-direct-messages = Личные сообщения
 # Context: label
 messaging-permissions-tab-friend-requests = Запросы на добавление в друзья
 # Context: label
@@ -1787,7 +1787,7 @@ notification-settings-notification-settings-voice-video = Голос и виде
 # Context: label
 notification-settings-tab-badges = Значки
 # Context: label
-notification-settings-tab-overview = Обзор
+notification-settings-tab-overview = Общее
 # Context: label
 notification-settings-tab-sounds = Звуки
 
@@ -2007,7 +2007,7 @@ profile-edit-form-leave-blank-to-use-your-username = Оставьте поле �
 # Context: form
 profile-edit-form-new-picture-chosen-save-to-upload-it = Выбрана новая картинка. Сохраните, чтобы загрузить.
 # Context: form
-profile-edit-form-png-jpeg-gif-or-webp-up-to-8-mb-cropped = PNG, JPEG, GIF или WebP до 8 МБ. Обрезал до квадрата.
+profile-edit-form-png-jpeg-gif-or-webp-up-to-8-mb-cropped = PNG, JPEG, GIF или WebP до 8 МБ. Автоматически обрезается к квадрату.
 # Context: form
 profile-edit-form-profile-color = Цвет профиля
 # Context: form
@@ -2015,7 +2015,7 @@ profile-edit-form-profile-picture = Изображение профиля
 # Context: form
 profile-edit-form-remove = Удалять
 # Context: form
-profile-edit-form-tints-your-banner-when-you-have-not-set-a-banner = Тонирует баннер, если вы не установили изображение баннера.
+profile-edit-form-tints-your-banner-when-you-have-not-set-a-banner = Раскрашивает баннер, если вы не установили изображение баннера.
 # Context: form
 profile-edit-form-undo = Отменить
 # Context: form
@@ -2065,7 +2065,7 @@ profiles-activity-verb-competing-in = Соревнуясь в
 # Context: activity_verb
 profiles-activity-verb-listening-to = Слушаю
 # Context: activity_verb
-profiles-activity-verb-playing = Играя
+profiles-activity-verb-playing = Играю в
 # Context: activity_verb
 profiles-activity-verb-streaming = Потоковое вещание
 # Context: activity_verb
@@ -2097,9 +2097,9 @@ profiles-more-menu-edit-friend-nickname = Изменить псевдоним д
 # Context: more_menu
 profiles-more-menu-mute = Заглушить
 # Context: more_menu
-profiles-more-menu-mute-this-direct-message-s-notifications-until-you-unmute-it = Отключайте уведомления об этом прямом сообщении, пока не включите его.
+profiles-more-menu-mute-this-direct-message-s-notifications-until-you-unmute-it = Отключить уведомления об этом личиных сообщении, пока не включите его.
 # Context: more_menu
-profiles-more-menu-no-open-direct-message-with-this-user = Нет открытого прямого сообщения с этим пользователем.
+profiles-more-menu-no-open-direct-message-with-this-user = Нет открытого личного сообщения с этим пользователем.
 # Context: more_menu
 profiles-more-menu-private-nicknames-are-available-for-confirmed-friends = Для подтвержденных друзей доступны частные ники.
 # Context: more_menu
@@ -2115,7 +2115,7 @@ profiles-server-tag-server = сервер
 # Context: server_tag
 profiles-server-tag-server-tag = Тег сервера
 # Context: show
-profiles-show-about-me = ОБО МНЕ
+profiles-show-about-me = О ПОЛЬЗОВАТЕЛЕ
 # Context: show
 profiles-show-copy-webhook-id = Скопировать идентификатор вебхука
 # Context: show
@@ -2405,7 +2405,7 @@ search-pane-pinned-messages = Закрепленные сообщения
 # Context: pane
 search-pane-reload-pins = Перезагрузить закрепленные сообщения
 # Context: pane
-search-pane-search-this-conversation = Искать этот разговор
+search-pane-search-this-conversation = Искать в этом чате
 # Context: pane
 search-pane-searching = Идет поиск…
 # Context: pane
@@ -2426,7 +2426,7 @@ search-pins-content-retry-older-pins = Повторить старые пины
 search-pins-empty-this-channel-doesn-t-have-any-pinned-messages-yet = На этом канале нет
     какие-либо закрепленные сообщения… пока.
 # Context: pins_empty
-search-pins-empty-this-direct-message-doesn-t-have-any-pinned-messages-yet = В этом прямом сообщении нет
+search-pins-empty-this-direct-message-doesn-t-have-any-pinned-messages-yet = В этом личном сообщении нет
     какие-либо закрепленные сообщения… пока.
 # Context: pins_popout
 search-pins-popout-close = Закрыть
@@ -3352,7 +3352,7 @@ settings-account-page-removes-the-saved-login-and-clears-this-account-s-local = 
 # Context: account_page
 settings-account-page-session = Сессия
 # Context: account_page
-settings-account-page-signed-in-with-your-discord-account = Вошли в свою учетную запись Discord
+settings-account-page-signed-in-with-your-discord-account = Ваша учетная запись Discord
 # Context: activity_settings
 settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = Обнаруживайте запущенные игры и попросите Discord поделиться ими как активностью.
 # Context: activity_settings
@@ -3378,9 +3378,9 @@ settings-activity-status-received = Discord получил вашу игру, н
 # Context: activity_settings
 settings-activity-status-listed = Discord показывает вашу игру. Настройки приватности серверов и друзей по-прежнему действуют.
 # Context: activity_settings
-settings-activity-status-hidden = Discord скрывает вашу игру. Проверьте в Discord «Зарегистрированные игры» и «Показ активности».
+settings-activity-status-hidden = Discord скрывает вашу игру. Проверьте в Discord «Активность» и «Показ активности».
 # Context: activity_settings
-settings-activity-status-missing = Discord не показал вашу игру публично. Проверьте там «Зарегистрированные игры» и настройки показа на серверах.
+settings-activity-status-missing = Discord не показал вашу игру публично. Проверьте раздел «Активность» и настройки показа на серверах.
 # Context: activity_settings
 settings-activity-status-sharing-off = Показ активности для всего аккаунта Discord выключен.
 # Context: activity_settings
@@ -3492,10 +3492,10 @@ settings-chat-settings-suggest-nitro-emojis-description = Показывать �
 # Context: close_control
 settings-close-control-close-settings-esc = Закрыть настройки (Esc)
 # Context: colour_preset_settings
-settings-colour-preset-settings-colour-preset = Предустановка цвета
+settings-colour-preset-settings-colour-preset = Цветовая палитра
 # Context: colour_preset_settings
 # Context: storage_page
-settings-storage-page-clear-cache = Очистить кеш
+settings-storage-page-clear-cache = Очистить кэш
 # Context: storage_page
 settings-storage-page-local-storage = Локальное хранилище
 # Context: storage_page
@@ -3627,7 +3627,7 @@ switcher-show-where-would-you-like-to-go = Куда бы вы хотели по�
 # Context: appearance_switch
 theme-editor-appearance-switch-colors-and-opacity-are-saved-separately-for-dark-and-light = Цвета и непрозрачность сохраняются отдельно для темного и светлого вида.
 # Context: appearance_switch
-theme-editor-appearance-switch-dark = Темный
+theme-editor-appearance-switch-dark = Темная
 # Context: appearance_switch
 theme-editor-appearance-switch-editing = Редактирование
 # Context: appearance_switch
@@ -3653,7 +3653,7 @@ theme-editor-cover-card-remove = Удалять
 # Context: cover_card
 theme-editor-cover-card-replace-cover = Замените крышку
 # Context: description
-theme-editor-description-direct-messages-and-channel-navigation = Прямые сообщения и навигация по каналам
+theme-editor-description-direct-messages-and-channel-navigation = Личные сообщения и навигация по каналам
 # Context: description
 theme-editor-description-the-area-around-the-message-box = Область вокруг окна сообщения
 # Context: description
@@ -3787,7 +3787,7 @@ theme-editor-show-use-rrggbb-or-rrggbbaa = Используйте #RRGGBB или
 # Context: show
 theme-editor-show-version = Версия
 # Context: show
-theme-editor-show-window-effects = Оконные эффекты
+theme-editor-show-window-effects = Эффекты окна
 # Context: show
 theme-editor-show-window-gradient = Градиент окна
 # Context: show
@@ -3943,7 +3943,7 @@ updates-update-banner-dismiss-update = Закрыть обновление
 # Context: update_settings
 updates-update-settings-auto-update = Автоматическое обновление
 # Context: update_settings
-updates-update-settings-check-for-updates = Проверьте наличие обновлений
+updates-update-settings-check-for-updates = Проверить наличие обновлений
 # Context: update_settings
 updates-update-settings-copied = Скопировано
 # Context: update_settings
@@ -3969,21 +3969,21 @@ updates-update-settings-in-app-installation-requires-a-macos-or-windows-release-
 # Context: update_settings
 updates-update-settings-issue-diagnostics = Диагностика проблем
 # Context: update_settings
-updates-update-settings-nightly = Ночью
+updates-update-settings-nightly = Nightly
 # Context: update_settings
-updates-update-settings-package-manager-updates = Обновления менеджера пакетов
+updates-update-settings-package-manager-updates = Обновление с помощью пакетного менеджера
 # Context: update_settings
 updates-update-settings-preferences = Предпочтения
 # Context: update_settings
-updates-update-settings-production = Производство
+updates-update-settings-production = Стабильная
 # Context: update_settings
 updates-update-settings-published-stable-releases-switching-channels-never-installs-an-older-ver = Опубликованы стабильные версии. При переключении каналов не устанавливается более старая версия.
 # Context: update_settings
-updates-update-settings-release-channel = Канал выпуска
+updates-update-settings-release-channel = Ветка релизов
 # Context: update_settings
 updates-update-settings-restart-to-update = Перезапустите, чтобы обновить
 # Context: update_settings
-updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein был установлен через ваш дистрибутив. Запустите это в терминале для обновления.
+updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein был установлен через пакетный менеджер. Используйте эту команду для обновления.
 # Context: update_settings
 updates-update-settings-support-diagnostics = Поддержка и диагностика
 # Context: update_log
@@ -4007,7 +4007,7 @@ user-menu-contents-mention = Упомянуть
 # Context: contents
 user-menu-contents-mute-conversation = Без звука разговор
 # Context: contents
-user-menu-contents-mute-this-direct-message-s-notifications-until-you-unmute-it = Отключайте уведомления об этом прямом сообщении, пока не включите его.
+user-menu-contents-mute-this-direct-message-s-notifications-until-you-unmute-it = Отключить уведомления этого чата, пока не включите его.
 # Context: contents
 user-menu-contents-no-open-direct-message-with-this-user = Нет открытого прямого сообщения с этим пользователем.
 # Context: contents
@@ -4020,6 +4020,8 @@ user-menu-contents-private-nicknames-are-available-for-confirmed-friends = Дл�
 user-menu-contents-profile = Профиль
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = Удалите этот разговор из списка личных сообщений. Сообщения сохраняются.
+# Context: contents
+user-menu-contents-roles = Роли
 # Context: contents
 user-menu-contents-unblock = Разблокировать
 # Context: contents
@@ -4223,7 +4225,7 @@ voice-voice-popup-content-microphone-unavailable-a-choose-another-input-you-are-
 # Context: voice_popup_content
 voice-voice-popup-content-noise-suppression = Шумоподавление
 # Context: voice_popup_content
-voice-voice-popup-content-push-to-talk = Нажмите, чтобы поговорить
+voice-voice-popup-content-push-to-talk = Нажмите, чтобы активировать микрофон
 # Context: voice_popup_content
 voice-voice-popup-content-refresh-devices = Обновить устройства
 # Context: voice_popup_content
@@ -4245,9 +4247,9 @@ voice-voice-processing-controls-echo-cancellation = Эхоподавление
 # Context: voice_processing_controls
 voice-voice-processing-controls-hold-your-configured-shortcut-when-you-want-to-speak = Удерживайте настроенный ярлык, когда хотите поговорить.
 # Context: voice_processing_controls
-voice-voice-processing-controls-input-profile = Входной профиль
+voice-voice-processing-controls-input-profile = Профиль входа
 # Context: voice_processing_controls
-voice-voice-processing-controls-input-threshold = Входной порог
+voice-voice-processing-controls-input-threshold = Порог активации
 # Context: voice_processing_controls
 voice-voice-processing-controls-mute-and-deafen-always-take-priority = Заглушение микрофона и звука всегда в приоритете.
 # Context: voice_processing_controls
@@ -4307,7 +4309,7 @@ switcher-kind-server = Сервер
 switcher-kind-group-direct-message = Групповое личное сообщение
 switcher-footer-choose = Выбрать
 switcher-footer-open = Открыть
-settings-appearance-sync-with-system = Синхронизировать с системой
+settings-appearance-sync-with-system = Как в системе
 timeline-channel-welcome-title = Добро пожаловать в #{ $channel }
 timeline-thread-activity-no-replies = Ответов пока нет
 timeline-thread-activity-one-message = 1 сообщение

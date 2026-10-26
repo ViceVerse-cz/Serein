@@ -4011,6 +4011,8 @@ user-menu-contents-profile = Profil
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = Bu konuşmayı DM listenizden kaldırın. Mesajlar saklanıyor.
 # Context: contents
+user-menu-contents-roles = Roller
+# Context: contents
 user-menu-contents-unblock = Engellemeyi kaldır
 # Context: contents
 user-menu-contents-unmute-conversation = Konuşmanın Sesini Aç

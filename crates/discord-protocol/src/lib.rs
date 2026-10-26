@@ -53,6 +53,11 @@ use serde_json::value::RawValue;
 #[derive(Deserialize, Debug, PartialEq, Eq)]
 #[serde(try_from = "String")]
 pub struct Timestamp(i128);
+impl Timestamp {
+	pub fn unix_ms(&self) -> Option<i64> {
+		i64::try_from(self.0 / 1_000_000).ok()
+	}
+}
 impl TryFrom<String> for Timestamp {
 	type Error = &'static str;
 	fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -220,6 +225,11 @@ pub struct ChannelDto {
 	pub default_sort_order: Option<u8>,
 	#[serde(default)]
 	pub default_tag_setting: Option<String>,
+	/// The account's membership, embedded in joined thread objects.
+	#[serde(default, deserialize_with = "threads::lenient")]
+	pub member: Option<threads::ThreadMember>,
+	#[serde(default, deserialize_with = "threads::lenient")]
+	pub thread_metadata: Option<threads::ThreadMetadata>,
 }
 const CHANNEL_FLAG_SPAM: u64 = 1 << 5;
 impl ChannelDto {
@@ -229,6 +239,23 @@ impl ChannelDto {
 
 	fn spam_folder(&self) -> bool {
 		self.is_spam || self.flags & CHANNEL_FLAG_SPAM != 0
+	}
+
+	/// Membership and archive metadata of a thread; `None` for other channels.
+	pub fn thread_change(&self) -> Option<model::threads::Change> {
+		matches!(self.kind, 10..=12).then(|| model::threads::Change {
+			id: self.id,
+			member: self
+				.member
+				.as_ref()
+				.map_or(Patch::Absent, |member| Patch::Value(member.into_model())),
+			meta: self
+				.thread_metadata
+				.as_ref()
+				.map(threads::ThreadMetadata::meta),
+			// A whole thread object always states its flags.
+			pinned: Some(model::threads::pinned(self.flags)),
+		})
 	}
 
 	pub fn pending_message_request(&self) -> bool {
@@ -608,6 +635,9 @@ pub struct Ready {
 	/// Set when decoding or [`Ready::navigation`] dropped malformed or conflicting entries.
 	#[serde(skip)]
 	pub skipped: bool,
+	/// Membership and archive metadata of the threads [`Ready::navigation`] admitted.
+	#[serde(skip)]
+	pub thread_changes: Vec<model::threads::Change>,
 }
 impl Ready {
 	pub fn navigation(&mut self) -> Result<(Vec<Guild>, Vec<Channel>), DecodeError> {
@@ -716,8 +746,12 @@ impl Ready {
 					{
 						continue;
 					}
+					let change = thread.thread_change();
 					match threads::into_thread(thread, g.id) {
-						Ok(thread) => channels.push(thread),
+						Ok(thread) => {
+							channels.push(thread);
+							self.thread_changes.extend(change);
+						}
 						Err(_) => skipped = true,
 					}
 				}

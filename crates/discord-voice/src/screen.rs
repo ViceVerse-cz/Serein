@@ -156,9 +156,12 @@ impl Worker {
 		};
 		let (worker_stop, worker_ready, worker_keyframe) =
 			(stop.clone(), ready.clone(), keyframe.clone());
+		let teardown = crate::teardown::Thread::start();
 		std::thread::Builder::new()
 			.name("screen-encoder".into())
 			.spawn(move || {
+				// Declared first so it is released last, after the pipeline and encoder.
+				let _teardown = teardown;
 				// The MFT event poll and capture pacing sleep 1 ms at a time.
 				let _resolution = crate::timer::Resolution::acquire();
 				let finished_ready = worker_ready.clone();

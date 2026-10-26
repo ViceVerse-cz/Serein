@@ -1565,6 +1565,7 @@ mod tests {
 								tertiary_color: None,
 								position: 0,
 								hoist: false,
+								managed: false,
 								bits: p::VIEW_CHANNEL | p::SEND_MESSAGES | p::MENTION_EVERYONE,
 							}]),
 							member: Some(p::Member {
@@ -2167,6 +2168,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		tertiary_color: None,
 		position: 1,
 		hoist: false,
+		managed: false,
 	});
 	let mut message = state.timeline.iter().next().unwrap().clone();
 	message.channel = channel;

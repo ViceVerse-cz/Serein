@@ -13,7 +13,7 @@ a bounded adaptive jitter target, measured decoder lead and an audio-device cloc
 No dependencies, resolution presets, notification audio or UI layouts change. The Linux
 receive-only HEVC extension is described below.
 
-Fresh package comparison: unchanged upstream `c2842aa` versus the streaming branch, pinned
+October 25 package comparison: unchanged upstream `c2842aa` versus the streaming branch, pinned
 Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and without demo.
 
 | Package metric | Upstream baseline | Streaming candidate | Delta |
@@ -23,8 +23,8 @@ Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and wi
 | Arch archive | 54,376,694 B | 54,477,570 B | +100,876 B (+0.186%) |
 
 Installed bytes sum regular archive files under `usr/`, excluding package metadata.
-Both packages contain 245 installed files. The final gate passes 1,321 tests, strict Clippy,
-formatting, application and policy checks; the native Arch package smoke also passes.
+Both packages contain 245 installed files. The October 25 gate passed 1,321 tests, strict
+Clippy, formatting, application and policy checks; its native Arch package smoke also passed.
 
 ### Linux HEVC reception extension
 
@@ -350,6 +350,32 @@ review changes; no further live validation is claimed here.
 | Installed payload | 97,499,849 B | 97,500,617 B | +768 B (+0.001%) |
 | Arch archive | 54,475,582 B | 54,477,570 B | +1,988 B (+0.004%) |
 
+### Upstream integration — October 27, 2026
+
+The stream branch incorporates upstream `d93a8415`, retaining its media-thread teardown
+and output-format selection alongside stream timing. Formatting and strict Clippy pass.
+The workspace unit run passes 1,338 tests and fails the unchanged
+`categories::tests::collapsed_categories_follow_service_order_selection_and_buttons` at
+`crates/ui/src/categories.rs:2240`; an isolated rerun fails identically. The same assertion
+fails in [upstream Linux CI](https://github.com/ViceVerse-cz/Serein/actions/runs/40329311638/job/121594172966).
+Production, policy and doctest checks pass. The full `cargo xtask check` is therefore not claimed
+as passing for this integrated revision. No sidebar test or implementation is changed here.
+Upstream also has an unchanged [fuzz fixture compilation failure](https://github.com/ViceVerse-cz/Serein/actions/runs/40329311638/job/121594172868)
+(`Role::managed` is missing from its initializer) and the previously reported dependency
+security audit failure. None is suppressed by this integration.
+
+The native Arch package smoke passes. Standard voice-enabled Rust 1.98.1 packages:
+
+| Package metric | Before integration (`5c89c95c`) | Integrated candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,802,184 B | 92,995,848 B | +193,664 B (+0.209%) |
+| Installed payload | 97,500,617 B | 97,694,281 B | +193,664 B (+0.199%) |
+| Arch archive | 54,477,570 B | 54,559,045 B | +81,475 B (+0.150%) |
+
+The integrated package contains 245 installed files. These deltas include all
+upstream changes through `d93a8415` and do not isolate the stream feature. No new physical
+playback or CPU/RSS claim is made.
+
 ### Earlier playback recovery evidence
 
 The prior owner-tested candidate `fb093bc` covered two sessions totaling 6,638.153 seconds
@@ -496,6 +522,46 @@ conformance. CPAL output timestamps and egui repaint deadlines estimate presenta
 headset/monitor latency and scanout are unmeasured. Whole-client CPU/RSS and Windows/macOS native
 timing behavior are unmeasured; no improvement is claimed for those metrics. Screenshots are not
 applicable because no UI layout changes. No live media was recorded.
+
+## Shared output-format selection — October 24, 2026
+
+Fresh baseline `38e46b8f5ec694002ef515fbc2d8dc69297e4f5f` and changed source were built
+with Rust 1.98.1 and locked dependencies on Arch Linux x86_64 (Ryzen 9 5900XT,
+20 visible logical CPUs, 61,634,584 KiB total RAM). Standard release packages include
+voice and disable default/development-data and demo features. The baseline package and
+an initial selector sample were captured before edits; the table uses final probes run
+serially after checks, with no concurrent Rust build. Package outputs were kept separate.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,650,248 B | 92,648,840 B | -1,408 B (-0.0015%) |
+| Installed native payload | 97,348,681 B | 97,347,273 B | -1,408 B (-0.0014%) |
+| Arch distribution archive | 54,365,367 B | 54,366,835 B | +1,468 B (+0.0027%) |
+| Notification, usable default, median ns/selection | 0.984 | 1.645 | +0.660 ns |
+| Notification, I24 default / 64 ranges, median ns/selection | 0.837 (rejects) | 86.922 (selects) | +86.085 ns; recovery added |
+| Voice, 64 ranges, median ns/selection | 75.227 | 89.032 | +13.805 ns (+18.35%) |
+
+Each installed payload contains 245 files. Default
+`cargo xtask package` builds the release executable, then fails because `dpkg` is absent.
+`cargo xtask package --format arch` passes native package inspection at both revisions;
+the existing `libz.so` dependency warning occurs in both. Sizes sum regular installed files
+under `usr/` and measure the entire `.pkg.tar.zst` archive, including metadata/timestamps.
+
+The offscreen probe uses the actual selector source with synthetic device queries, compiled
+with `rustc -O -C lto=thin` and CPAL from the locked release build. Each workload has one
+warmup plus five runs of 1,000,000 selections. The I24 fixture changes from 0 / 1,000,000
+successful selections to 1,000,000 / 1,000,000; the extra scan produces a usable stereo F32
+48 kHz selection. Voice's small absolute setup-cost increase is recorded above. The trivial
+default paths approach timer/optimizer limits; no runtime performance improvement is claimed.
+
+Selection visits at most 64 advertised ranges and accepts only F32/I16/I32/U16, 1–8 channels
+and 8–192 kHz. Native OS queries, stream startup, audio callbacks, audible latency, CPU/RSS
+and UI timings are unmeasured. Windows policy is simulated on Linux; native WASAPI/macOS
+and physical I24 playback remain unvalidated. The license checker is unavailable because
+`cargo-deny 0.20.2` is missing; no dependency versions or notices change. No historical
+platform evidence is reused, and no live Discord, calls, microphone or credentials are used.
+[Method and reproduction](pr-evidence/shared-output-format-selection/README.md),
+[raw samples, package hashes and source identities](pr-evidence/shared-output-format-selection/measurements.json).
 
 ## Server folder mark-as-read — October 15, 2026 (PR #672)
 

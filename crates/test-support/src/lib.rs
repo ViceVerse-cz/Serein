@@ -1012,6 +1012,7 @@ pub fn seed_access_marks(state: &mut State) {
 				tertiary_color: None,
 				position: 1,
 				hoist: false,
+				managed: false,
 			});
 		}
 		if let Some(member) = guild.member.as_mut() {
@@ -1117,6 +1118,7 @@ pub fn chat_demo_state() -> State {
 				tertiary_color: None,
 				position: 1,
 				hoist: false,
+				managed: false,
 			},
 		}),
 	});
@@ -1265,6 +1267,7 @@ pub fn permission_snapshot(state: &State) -> model::permissions::Snapshot {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: guild.id,
 					bits,
 				}]),

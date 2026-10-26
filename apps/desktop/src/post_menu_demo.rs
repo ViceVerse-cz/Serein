@@ -82,7 +82,9 @@ pub fn check_sidebar() {
 		})
 		.unwrap();
 	assert_eq!(sidebar.forum_new_count(parent), 0);
-	assert!(sidebar.post_unread(sidebar.channel(post.id).unwrap()));
+	assert!(!sidebar.forum_unread(parent));
+	// An unopened post the forum boundary already covers is no longer new.
+	assert!(!sidebar.post_unread(sidebar.channel(post.id).unwrap()));
 	sidebar.request_sidebar_forum_posts(None);
 	let Some(Command::ForumPosts { request, .. }) = sidebar.request_sidebar_forum_posts(post.guild)
 	else {
@@ -93,7 +95,7 @@ pub fn check_sidebar() {
 	sidebar.selected = Some(parent);
 	assert!(sidebar.request_sidebar_forum_posts(post.guild).is_none());
 	println!(
-		"Forum sidebar debug check passed: unopened fetch, parent read boundary, independent replies, and no failure retry loop."
+		"Forum sidebar debug check passed: unopened fetch, parent read boundary, and no failure retry loop."
 	);
 }
 
@@ -162,6 +164,16 @@ pub fn check() {
 			)
 		);
 		assert_eq!(alerts.mention_count(post.id), 1);
+		// Without the forum's own read row nothing in it counts as new.
+		alerts
+			.apply_read_state(client_core::read_state::Event::Ack {
+				channel: Id(26),
+				message: Some(Id(1)),
+				manual: true,
+				mention_count: Some(0),
+				version: None,
+			})
+			.unwrap();
 		let new_posts = alerts.forum_new_count(Id(26));
 		assert!(new_posts > 0);
 		alerts
