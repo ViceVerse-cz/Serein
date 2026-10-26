@@ -1415,6 +1415,7 @@ mod tests {
 	#[test]
 	fn collapsed_folder_voice_badge_only_renders_for_own_call() {
 		let mut state = test_support::demo_state();
+		state.voice.active = None;
 		state.guild_folders = Some(Settings {
 			folders: vec![Folder {
 				id: Some(42),
