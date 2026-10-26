@@ -706,16 +706,25 @@ impl State {
 			action,
 		})
 	}
+	/// One bounded channel read for an unloaded thread named in the open conversation.
 	pub fn request_channel_reference(&mut self, guild: Id, channel: Id) -> Option<Command> {
+		if self
+			.selected
+			.and_then(|id| self.channel(id))
+			.and_then(|source| source.guild)
+			!= Some(guild)
+		{
+			return None;
+		}
+		self.request_thread_reference(guild, channel)
+	}
+	/// The same bounded read, admitted for any joined server: a Discord chat link may name a
+	/// thread of another server. The service remains authoritative over the thread's access.
+	pub(crate) fn request_thread_reference(&mut self, guild: Id, channel: Id) -> Option<Command> {
 		if self.channel_action_pending()
 			|| self.channel(channel).is_some()
 			|| self.channel_action_status(channel).is_some()
 			|| self.guild(guild).is_none()
-			|| self
-				.selected
-				.and_then(|id| self.channel(id))
-				.and_then(|source| source.guild)
-				!= Some(guild)
 			|| (!self.demo && (self.auth != AuthState::Authenticated || !self.gateway_connected))
 		{
 			return None;
@@ -958,8 +967,16 @@ impl State {
 				if failure.ends_session() {
 					self.fail(failure);
 				}
-				self.channel_actions.status = Some((channel, failure.label(), false));
-				self.status = failure.label();
+				// A thread read that admitted nothing names a destination this account cannot
+				// open; it is not an ambiguous write.
+				let status = if matches!(action, Action::Reference) && failure == Failure::Ambiguous
+				{
+					"This chat is unavailable"
+				} else {
+					failure.label()
+				};
+				self.channel_actions.status = Some((channel, status, false));
+				self.status = status;
 				return Ok(());
 			}
 			Ok(Outcome::Post {

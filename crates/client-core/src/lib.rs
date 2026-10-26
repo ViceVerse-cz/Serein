@@ -30,7 +30,7 @@ pub mod profile;
 pub mod reactions;
 pub mod read_state;
 mod replies;
-pub use replies::{HistoryNavigation, ParkedReplies, Reply, ReplyDeletions};
+pub use replies::{HistoryNavigation, LinkResolution, ParkedReplies, Reply, ReplyDeletions};
 pub mod group_actions;
 pub mod onboarding;
 pub mod resident;
@@ -767,6 +767,9 @@ pub struct State {
 	/// One exact target awaiting its history page; never a metadata cache.
 	#[doc(hidden)]
 	pub history_navigation: HistoryNavigation,
+	/// A chat link waiting on the one bounded channel read that can admit its thread.
+	#[doc(hidden)]
+	pub link_resolution: LinkResolution,
 	/// Session reading cursors. Missing means the channel has not been opened yet.
 	pub reading: Vec<(Id, ReadingCursor)>,
 	pub reply_deletions: ReplyDeletions,
@@ -1002,6 +1005,7 @@ impl Default for State {
 			restore_scroll: false,
 			history_targeted: false,
 			history_navigation: HistoryNavigation::default(),
+			link_resolution: LinkResolution::default(),
 			reading: Vec::new(),
 			reply_deletions: ReplyDeletions::default(),
 			read_state: read_state::ReadState::default(),
@@ -1326,6 +1330,8 @@ impl State {
 		if self.selected == Some(channel) && self.freshness != Freshness::Unavailable {
 			return Apply::AlreadyHere;
 		}
+		// The user's own navigation wins over a link still waiting for its bounded read.
+		self.link_resolution.clear();
 		if !self.channel(channel).is_some_and(navigable) {
 			return Apply::Rejected("This channel kind is unsupported");
 		}
@@ -1442,6 +1448,7 @@ impl State {
 	/// Open Friends / Home. Does not clear the timeline or emit a command.
 	pub fn open_home(&mut self) {
 		self.park_reply();
+		self.link_resolution.clear();
 		self.last_viewed_dm = None;
 		self.application_commands.clear();
 		self.selected = None;

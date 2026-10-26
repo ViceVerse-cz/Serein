@@ -1,6 +1,7 @@
 use crate::{Command, State, auth::AuthState};
 use model::{Freshness, Id, Message};
 use session_cache::Timeline;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Reply {
@@ -85,6 +86,35 @@ impl HistoryNavigation {
 	}
 }
 
+/// A chat link whose thread one bounded channel read is proving.
+///
+/// The read settles in seconds; a stale link never takes over navigation afterwards, and any
+/// navigation of the user's own cancels it.
+#[derive(Default)]
+pub struct LinkResolution {
+	target: Option<(Instant, Id, Id, Option<Id>)>,
+}
+
+/// A bounded channel read answers in seconds; a later answer must not steal focus.
+const LINK_RESOLUTION: Duration = Duration::from_secs(60);
+
+impl LinkResolution {
+	fn start(&mut self, guild: Id, channel: Id, message: Option<Id>) {
+		self.target = Some((Instant::now(), guild, channel, message));
+	}
+
+	pub(crate) fn clear(&mut self) {
+		self.target = None;
+	}
+
+	/// The thread a pending link waits for, while its read may still settle.
+	pub fn awaiting(&self) -> Option<Id> {
+		self.target
+			.filter(|(at, ..)| at.elapsed() < LINK_RESOLUTION)
+			.map(|(_, _, channel, _)| channel)
+	}
+}
+
 impl State {
 	pub fn reply_target(&self) -> Option<Id> {
 		self.reply.map(Reply::target)
@@ -127,7 +157,8 @@ impl State {
 	/// Only fresh active rows or eligible, previously fresh session-resident rows
 	/// can jump locally. Disconnect makes the active window stale, so it must be
 	/// revalidated online; a dormant resident may still be restored offline.
-	/// Destinations need metadata in navigation or the current safe archive page.
+	/// Destinations need metadata in navigation, the current safe archive page, or — for an
+	/// unloaded thread of a joined server — the one bounded channel read this starts.
 	pub fn open_chat_link(
 		&mut self,
 		guild: Option<Id>,
@@ -148,25 +179,23 @@ impl State {
 				// needing metadata/history must pass session gates before that mutation.
 				return Err("Message links are unavailable while disconnected");
 			}
-			// Only the existing bounded, permission-checked archive page may resolve
-			// metadata absent from navigation. Never guess a parent or open a DM.
-			let view = self.archives.as_ref().ok_or("This chat is unavailable")?;
-			let thread = view
-				.page
-				.as_ref()
-				.and_then(|page| page.threads.iter().find(|thread| thread.id == channel))
-				.ok_or("This chat is unavailable")?;
-			if thread.guild != guild {
-				return Err("This chat does not belong to the linked server");
+			match self.admit_linked_archive_thread(guild, channel) {
+				Some(Ok(())) => {}
+				Some(Err(status)) => return Err(status),
+				None => {
+					// A second click on the same link shares the read already in flight.
+					if self.link_resolution.awaiting() == Some(channel) {
+						return Ok(None);
+					}
+					// Nothing loaded describes the destination. One bounded, documented
+					// channel read may prove it is a thread of this joined server; the link
+					// then opens once that read admits it. Never guess a parent or open a DM.
+					return match self.start_link_resolution(guild, channel, message) {
+						Some(command) => Ok(Some(command)),
+						None => Err("This chat is unavailable"),
+					};
+				}
 			}
-			if !self
-				.channel(view.parent)
-				.is_some_and(|parent| parent.guild == Some(view.guild))
-			{
-				return Err("This chat is unavailable");
-			}
-			self.admit_archived_thread(channel)
-				.ok_or("This chat is unavailable")?;
 		}
 		let target = self.channel(channel).ok_or("This chat is unavailable")?;
 		if target.guild != guild {
@@ -256,6 +285,81 @@ impl State {
 			return Err(self.status);
 		}
 		Ok(self.open_target_window(message))
+	}
+
+	/// Admits a linked thread the open, bounded archive page already carries.
+	///
+	/// `None` means the page does not describe this channel, so the caller may still resolve
+	/// it with one read. Only that permission-checked page may supply metadata without one.
+	fn admit_linked_archive_thread(
+		&mut self,
+		guild: Option<Id>,
+		channel: Id,
+	) -> Option<Result<(), &'static str>> {
+		let view = self.archives.as_ref()?;
+		let thread = view
+			.page
+			.as_ref()?
+			.threads
+			.iter()
+			.find(|thread| thread.id == channel)?;
+		let (thread_guild, parent, view_guild) = (thread.guild, view.parent, view.guild);
+		Some(if thread_guild != guild {
+			Err("This chat does not belong to the linked server")
+		} else if !self
+			.channel(parent)
+			.is_some_and(|parent| parent.guild == Some(view_guild))
+		{
+			Err("This chat is unavailable")
+		} else {
+			self.admit_archived_thread(channel)
+				.ok_or("This chat is unavailable")
+		})
+	}
+
+	/// Starts the one bounded channel read that can prove an unloaded thread of a joined
+	/// server. DMs, unjoined servers and a busy action slot never resolve.
+	fn start_link_resolution(
+		&mut self,
+		guild: Option<Id>,
+		channel: Id,
+		message: Option<Id>,
+	) -> Option<Command> {
+		let guild = guild?;
+		// A click on the link again retries a destination whose earlier read failed.
+		self.clear_channel_action_result(channel);
+		let command = self.request_thread_reference(guild, channel)?;
+		self.link_resolution.start(guild, channel, message);
+		Some(command)
+	}
+
+	/// Completes a chat link whose thread its bounded channel read admitted.
+	///
+	/// Call once per frame: the read settles asynchronously, and the resolved destination then
+	/// opens exactly as if its metadata had been loaded when the link was clicked.
+	pub fn resolve_pending_link(&mut self) -> Option<Command> {
+		let (at, guild, channel, message) = self.link_resolution.target?;
+		if at.elapsed() >= LINK_RESOLUTION {
+			self.link_resolution.clear();
+			return None;
+		}
+		if self.channel(channel).is_none() {
+			// A settled read that admitted nothing reports through the channel-action status;
+			// otherwise the read is still in flight.
+			if self.channel_action_status(channel).is_some() {
+				self.link_resolution.clear();
+				self.clear_channel_action_result(channel);
+			}
+			return None;
+		}
+		self.link_resolution.clear();
+		match self.open_chat_link(Some(guild), channel, message) {
+			Ok(command) => command,
+			Err(status) => {
+				self.status = status;
+				None
+			}
+		}
 	}
 
 	pub(crate) fn deleted_navigation_target(&mut self, channel: Id, target: Id) {
@@ -649,6 +753,102 @@ mod tests {
 	}
 
 	#[test]
+	fn chat_links_admit_an_unloaded_thread_through_one_bounded_read() {
+		use crate::channel_actions::{Action, Outcome};
+
+		let mut state = chat_link_state();
+		let thread = Id(999);
+		let read = state.open_chat_link(Some(Id(20)), thread, None).unwrap();
+		let Some(Command::ChannelAction {
+			guild,
+			channel,
+			request,
+			action,
+		}) = read
+		else {
+			panic!("expected exactly one bounded channel read")
+		};
+		assert_eq!((guild, channel), (Id(20), thread));
+		assert_eq!(action, Action::Reference);
+		assert_eq!(state.link_resolution.awaiting(), Some(thread));
+		assert!(state.channel(thread).is_none());
+		// A second click shares the read already in flight.
+		assert!(
+			state
+				.open_chat_link(Some(Id(20)), thread, None)
+				.unwrap()
+				.is_none()
+		);
+		// Nothing navigates while the read is in flight.
+		assert!(state.resolve_pending_link().is_none());
+		assert_eq!(state.selected, Some(Id(1)));
+		// The service answered: a private thread under a loaded, viewable parent.
+		let mut admitted = state.channels[1].clone();
+		admitted.id = thread;
+		admitted.guild = Some(Id(20));
+		admitted.parent_id = Some(Id(3));
+		admitted.kind = 12;
+		admitted.name = "Synthetic private thread".into();
+		apply(
+			&mut state,
+			Event::ChannelAction(crate::channel_actions::Event::Finished {
+				guild: Id(20),
+				channel: thread,
+				request,
+				result: Ok(Outcome::Channel {
+					channel: Box::new(admitted),
+					permissions: None,
+				}),
+			}),
+		);
+		assert!(state.channel(thread).is_some());
+		// The next frame opens the thread exactly as a loaded destination would.
+		assert!(matches!(
+			state.resolve_pending_link(),
+			Some(Command::History { channel: id, .. }) if id == thread
+		));
+		assert_eq!(state.selected, Some(thread));
+		assert!(state.link_resolution.awaiting().is_none());
+	}
+
+	#[test]
+	fn chat_links_report_a_rejected_thread_read_once() {
+		use crate::channel_actions::Outcome;
+
+		let mut state = chat_link_state();
+		let thread = Id(999);
+		let Some(Command::ChannelAction { request, .. }) =
+			state.open_chat_link(Some(Id(20)), thread, None).unwrap()
+		else {
+			panic!("expected one bounded channel read")
+		};
+		// The service answered with a channel that is not a thread of this parent, so the
+		// session never admits it and the link reports one outcome.
+		let mut rejected = state.channels[1].clone();
+		rejected.parent_id = None;
+		apply(
+			&mut state,
+			Event::ChannelAction(crate::channel_actions::Event::Finished {
+				guild: Id(20),
+				channel: thread,
+				request,
+				result: Ok(Outcome::Channel {
+					channel: Box::new(rejected),
+					permissions: None,
+				}),
+			}),
+		);
+		assert!(state.channel(thread).is_none());
+		assert!(state.resolve_pending_link().is_none());
+		assert_eq!(state.status, "This chat is unavailable");
+		assert_eq!(state.selected, Some(Id(1)));
+		// A settled read is never retried by the frame poll.
+		assert!(state.resolve_pending_link().is_none());
+		assert_eq!(state.status, "This chat is unavailable");
+		assert!(state.link_resolution.awaiting().is_none());
+	}
+
+	#[test]
 	fn chat_links_reject_invalid_unavailable_and_forbidden_targets_before_navigation() {
 		{
 			for blocked in 0..11 {
@@ -658,7 +858,12 @@ mod tests {
 				let mut message = Some(Id(50));
 				match blocked {
 					0 => channel = Id(0),
-					1 => channel = Id(999),
+					// An unknown channel the session could read is a thread candidate; an
+					// unjoined server's channel is never resolved.
+					1 => {
+						guild = Some(Id(30));
+						channel = Id(999);
+					}
 					2 => guild = None,
 					3 => message = Some(Id(0)),
 					4 => message = Some(Id(u64::MAX)),

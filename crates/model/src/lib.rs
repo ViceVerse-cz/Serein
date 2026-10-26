@@ -341,6 +341,9 @@ impl Interaction {
 		size_of::<Self>() + self.user.heap_bytes() + self.command.capacity()
 	}
 }
+/// Message flag: this message started a thread, whose thread channel shares its ID.
+/// [Documented message flags](https://docs.discord.com/developers/resources/message#message-object)
+pub const HAS_THREAD: u64 = 1 << 5;
 #[derive(Clone, PartialEq, Eq)]
 pub struct Message {
 	pub poll: Option<Box<polls::Poll>>,

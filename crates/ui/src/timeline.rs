@@ -495,9 +495,11 @@ pub(crate) fn thread_activity(thread: &model::Channel) -> String {
 	)
 }
 /// Discord-style card under a message that started a thread: name, activity, open affordance.
+/// A thread this session has not loaded yet has no activity line until the read admits it.
 fn thread_card(
 	ui: &mut egui::Ui,
-	thread: &model::Channel,
+	name: &str,
+	activity: Option<&str>,
 	colors: &crate::design::Palette,
 ) -> egui::Response {
 	let width = ui.available_width().min(520.0);
@@ -536,8 +538,8 @@ fn thread_card(
 			colors.link,
 		);
 		let name_width = (text_right - open_width - 12.0 - text_left).max(40.0);
-		let name = egui::WidgetText::from(
-			crate::design::semibold(ui, thread.name.as_str(), 14.5).color(colors.text_strong),
+		let title = egui::WidgetText::from(
+			crate::design::semibold(ui, name, 14.5).color(colors.text_strong),
 		)
 		.into_galley(
 			ui,
@@ -545,31 +547,32 @@ fn thread_card(
 			name_width,
 			egui::FontSelection::Default,
 		);
-		painter.galley(
-			egui::pos2(text_left, rect.top() + 9.0),
-			name,
-			colors.text_strong,
-		);
-		let activity = egui::WidgetText::from(
-			RichText::new(thread_activity(thread))
-				.size(12.5)
-				.color(colors.muted),
-		)
-		.into_galley(
-			ui,
-			Some(egui::TextWrapMode::Truncate),
-			name_width,
-			egui::FontSelection::Default,
-		);
-		painter.galley(
-			egui::pos2(text_left, rect.top() + 30.0),
-			activity,
-			colors.muted,
-		);
+		// Without a loaded thread there is no activity line, so the name sits centered.
+		let title_y = if activity.is_some() {
+			rect.top() + 9.0
+		} else {
+			rect.center().y - title.size().y / 2.0
+		};
+		painter.galley(egui::pos2(text_left, title_y), title, colors.text_strong);
+		if let Some(activity) = activity {
+			let activity =
+				egui::WidgetText::from(RichText::new(activity).size(12.5).color(colors.muted))
+					.into_galley(
+						ui,
+						Some(egui::TextWrapMode::Truncate),
+						name_width,
+						egui::FontSelection::Default,
+					);
+			painter.galley(
+				egui::pos2(text_left, rect.top() + 30.0),
+				activity,
+				colors.muted,
+			);
+		}
 	}
 	response.on_hover_text(crate::i18n::translate_args(
 		"timeline-open-thread",
-		&[("thread", &thread.name)],
+		&[("thread", name)],
 	))
 }
 /// The message a thread hangs off, shown above its replies like Discord's thread view.
@@ -3690,13 +3693,32 @@ impl TimelineView {
 										ui.painter().rect_filled(rail, 2.0, colors.selected);
 									}
 									// A "started a thread" row already links the thread inline.
-									if system.is_none()
-										&& let Some(thread) = state.thread_of(message)
-									{
-										let card = thread_card(ui, thread, &colors);
-										surface.keep(&card);
-										if card.clicked() {
-											self.channel_reference = Some(thread.id);
+									if system.is_none() {
+										if let Some(thread) = state.thread_of(message) {
+											let activity = thread_activity(thread);
+											let card = thread_card(
+												ui,
+												&thread.name,
+												Some(&activity),
+												&colors,
+											);
+											surface.keep(&card);
+											if card.clicked() {
+												self.channel_reference = Some(thread.id);
+											}
+										} else if let Some(thread) = state.unloaded_thread(message)
+										{
+											// The service flagged a thread this session has not
+											// loaded: offer it, and let the click's one bounded
+											// channel read prove its name, activity and access.
+											let label = crate::i18n::translate(
+												"timeline-thread-activity-thread",
+											);
+											let card = thread_card(ui, &label, None, &colors);
+											surface.keep(&card);
+											if card.clicked() {
+												self.channel_reference = Some(thread);
+											}
 										}
 									}
 									let reactions_top = ui.cursor().top();
@@ -4921,6 +4943,15 @@ mod pending_tests;
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// Text actually painted this frame, in painting order.
+	fn painted_labels(shape: &egui::Shape, out: &mut Vec<String>) {
+		match shape {
+			egui::Shape::Text(t) => out.push(t.galley.job.text.clone()),
+			egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| painted_labels(s, out)),
+			_ => {}
+		}
+	}
 
 	#[test]
 	fn short_history_loads_older_only_after_explicit_upward_input() {
@@ -6177,13 +6208,6 @@ mod tests {
 	}
 	#[test]
 	fn thread_starter_renders_above_replies_once_history_is_exhausted() {
-		fn text(shape: &egui::Shape, out: &mut Vec<String>) {
-			match shape {
-				egui::Shape::Text(t) => out.push(t.galley.job.text.clone()),
-				egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| text(s, out)),
-				_ => {}
-			}
-		}
 		let ctx = egui::Context::default();
 		crate::design::apply(&ctx);
 		let mut state = test_support::chat_demo_state();
@@ -6255,7 +6279,7 @@ mod tests {
 				},
 			);
 			for shape in &output.shapes {
-				text(&shape.shape, &mut painted);
+				painted_labels(&shape.shape, &mut painted);
 			}
 			output.drop_without_applying_deltas();
 		}
@@ -6277,6 +6301,84 @@ mod tests {
 				"missing {label}: {painted:?}"
 			);
 		}
+	}
+	#[test]
+	fn an_unloaded_thread_starter_offers_its_thread_card() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = test_support::chat_demo_state();
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		let parent = state
+			.channels
+			.iter()
+			.find(|c| c.id == Id(20))
+			.map(|c| c.id)
+			.expect("fixture text channel");
+		state.select(parent);
+		state.timeline.clear();
+		// The service flags one message as a thread's starter, but the session never loaded
+		// that thread (a private thread the account can view without being a member).
+		let thread = Id(1_700_000_000_000_000_000);
+		assert!(state.channel(thread).is_none());
+		let mut starter = test_support::message(thread.0, parent);
+		starter.flags = model::HAS_THREAD;
+		starter.content = "The private thread starter".into();
+		let ordinary = test_support::message(thread.0 + 1, parent);
+		for message in [starter, ordinary] {
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		state.history_pending = false;
+		state.freshness = model::Freshness::Fresh;
+		state.older_exhausted = true;
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut painted = vec![];
+		for _ in 0..4 {
+			painted.clear();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 1400.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					);
+				},
+			);
+			for shape in &output.shapes {
+				painted_labels(&shape.shape, &mut painted);
+			}
+			output.drop_without_applying_deltas();
+		}
+		assert_eq!(
+			painted
+				.iter()
+				.filter(|text| *text == "View thread ›")
+				.count(),
+			1,
+			"only the flagged starter offers its thread: {painted:?}"
+		);
+		// The thread's name and activity stay unknown until the click's bounded read lands,
+		// so the card carries the generic label instead of an invented one.
+		assert!(
+			painted.iter().any(|text| text == "Thread"),
+			"the unloaded thread card uses the generic label: {painted:?}"
+		);
 	}
 	#[test]
 	fn grouping_respects_dates_replies_unread_and_five_minute_gaps() {
