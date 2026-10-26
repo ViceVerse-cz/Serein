@@ -16,6 +16,8 @@ pub struct GuildMetadata {
 	pub owner_id: Id,
 	pub(crate) roles: List<RoleWire, 512>,
 	pub(crate) features: List<String, 256>,
+	#[serde(default)]
+	pub premium_tier: u8,
 }
 #[derive(Deserialize)]
 pub struct RoleWire {

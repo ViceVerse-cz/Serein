@@ -11,6 +11,7 @@ pub mod gifs;
 pub mod guild_creation;
 pub mod guild_folders;
 pub mod permissions;
+pub mod soundboard;
 pub mod stickers;
 pub use permissions::ChannelAccess;
 #[cfg(test)]
@@ -74,6 +75,7 @@ pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; bulk DM sett
 
 pub enum Command {
 	Polls(polls::Request),
+	Soundboard(soundboard::Request),
 	StickerPacks,
 	Sticker(Id),
 	Interaction(interactions::Request),
@@ -442,6 +444,7 @@ fn prepare_navigation(
 }
 pub enum Event {
 	Polls(polls::Event),
+	Soundboard(soundboard::Event),
 	StickerEntitlement {
 		user: Id,
 		premium_type: Patch<u8>,
@@ -718,6 +721,7 @@ pub struct State {
 	/// The signed-in account's Discord `premium_type`; 0 until READY reports one.
 	pub premium_type: u8,
 	pub stickers: stickers::Stickers,
+	pub soundboard: soundboard::Soundboard,
 	pub interactions: interactions::Interactions,
 	pub application_commands: application_commands::Catalog,
 	pub game_mentions: game_mentions::Catalog,
@@ -959,6 +963,7 @@ impl Default for State {
 		Self {
 			premium_type: 0,
 			stickers: Default::default(),
+			soundboard: Default::default(),
 			interactions: Default::default(),
 			application_commands: Default::default(),
 			messaging_permissions: Default::default(),
@@ -2062,6 +2067,10 @@ impl State {
 			});
 			return;
 		}
+		if let Command::Soundboard(request) = &command {
+			self.soundboard_rejected(request);
+			return;
+		}
 		match &command {
 			Command::ApplicationCommands {
 				channel, request, ..
@@ -2624,6 +2633,7 @@ impl State {
 			}
 			self.interrupt_preloads();
 			self.interrupt_stickers();
+			self.interrupt_soundboard();
 			self.posts.clear_summaries();
 			self.interactions.reset();
 			self.application_commands.clear();
@@ -3000,6 +3010,10 @@ impl State {
 				Ok(())
 			}
 			Event::Polls(event) => self.apply_poll(event),
+			Event::Soundboard(event) => {
+				self.apply_soundboard(event);
+				Ok(())
+			}
 			Event::Reactions(event) => self.apply_reactions(event),
 			Event::InviteChallenge { request, challenge } => {
 				self.apply_invite_challenge(request, *challenge);
@@ -4207,6 +4221,7 @@ impl State {
 		if failure.ends_session() {
 			self.application_commands.clear();
 			self.interrupt_stickers();
+			self.interrupt_soundboard();
 			self.interrupt_gif_favorites();
 			self.invalidate_messaging_permissions(Some(failure));
 			self.interrupt_own_profile();
@@ -4503,6 +4518,7 @@ impl Event {
 				Self::Permissions(event) => event.bytes(),
 				Self::GuildEmojis { emojis, .. } => custom_emoji_bytes(emojis),
 				Self::GuildStickers { stickers, .. } => sticker_bytes(stickers),
+				Self::Soundboard(event) => event.bytes(),
 				Self::StickerPacks(result) => result.as_ref().map_or(0, stickers::pack_bytes),
 				Self::Sticker { result, .. } => result.as_ref().map_or(0, Sticker::heap_bytes),
 				Self::GuildChanged(patch) => [&patch.name, &patch.icon]

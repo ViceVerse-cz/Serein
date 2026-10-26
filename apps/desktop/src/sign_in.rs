@@ -23,6 +23,8 @@ impl Desktop {
 		self.server_icon.cancel();
 		self.emoji_upload.cancel();
 		self.sticker_upload.cancel();
+		self.sound_upload.cancel();
+		self.sound_upload.clear();
 		if let Some(store) = &mut self.store {
 			store.cancel_load();
 		}
@@ -106,6 +108,8 @@ impl Desktop {
 		self.server_icon.cancel();
 		self.emoji_upload.cancel();
 		self.sticker_upload.cancel();
+		self.sound_upload.cancel();
+		self.sound_upload.clear();
 		self.notifications.clear();
 		self.uploads.cancel();
 		self.uploads.forget_parked();
