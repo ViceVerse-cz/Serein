@@ -244,19 +244,30 @@ pub fn demo_check_examples() -> Result<bool, String> {
 			return Err(error);
 		}
 		if manifest.kind == ExtensionKind::Plugin {
-			let ok = match manifest.id.as_str() {
-				"message-delete-protector" => summary.preserve_deleted_messages,
-				_ => false,
-			};
-			if !ok {
-				return Err("Bundled plugin did not activate".into());
+			let activation = manifest
+				.actions
+				.iter()
+				.any(|action| action.surface == Surface::Activation);
+			if activation {
+				let ok = match manifest.id.as_str() {
+					"message-delete-protector" => summary.preserve_deleted_messages,
+					_ => false,
+				};
+				if !ok {
+					return Err("Bundled plugin did not activate".into());
+				}
+				stored.grants.clear();
+				let denied = stored.summary(&gate, None, true);
+				if denied.preserve_deleted_messages
+					|| denied.image_sharing
+					|| denied.error.is_none()
+				{
+					return Err("Plugin activation must require explicit permission".into());
+				}
+			} else if !manifest.capabilities.contains(&Capability::MediaPrivacy) {
+				return Err("Bundled plugin has no activation or supported toggle".into());
 			}
 			activated = true;
-			stored.grants.clear();
-			let denied = stored.summary(&gate, None, true);
-			if denied.preserve_deleted_messages || denied.image_sharing || denied.error.is_none() {
-				return Err("Plugin activation must require explicit permission".into());
-			}
 		} else if summary.preserve_deleted_messages
 			|| summary.image_sharing
 			|| summary.theme.is_none()

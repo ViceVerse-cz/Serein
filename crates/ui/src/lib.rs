@@ -4137,11 +4137,12 @@ impl MessagingUi {
 			opacity: self.media_privacy.opacity,
 			color: self.media_privacy.color,
 		});
-		// Panels need the full saved state; only enabled plugins paint masks.
+		// Panels need the full saved state. The caches also keep their coarse mask
+		// sources while masking is off so re-enabling it does not downgrade to a
+		// solid fallback; the paint paths check `enabled` themselves.
 		self.extensions.media_privacy = config;
-		let painting = config.filter(|config| config.enabled);
-		self.avatars.media_privacy = painting;
-		self.timeline.video.media_privacy = painting;
+		self.avatars.media_privacy = config;
+		self.timeline.video.media_privacy = config;
 	}
 
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
