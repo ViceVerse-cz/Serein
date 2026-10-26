@@ -751,6 +751,8 @@ impl Menu {
 		&mut self,
 		ui: &mut egui::Ui,
 		anchor: egui::Rect,
+		state: &State,
+		channel: Id,
 		avatars: &mut Avatars,
 		demo: bool,
 	) -> Option<Pick> {
@@ -781,6 +783,11 @@ impl Menu {
 		let mut picked = None;
 		let follow = std::mem::take(&mut self.follow);
 		let selected = self.selected;
+		let context = RowContext {
+			state,
+			guild: state.channel(channel).and_then(|channel| channel.guild),
+			demo,
+		};
 		egui::Area::new(egui::Id::unique(("composer-autocomplete", self.channel)))
 			.kind(egui::UiKind::Popup)
 			.order(egui::Order::Foreground)
@@ -870,7 +877,7 @@ impl Menu {
 										candidate,
 										index == selected,
 										avatars,
-										demo,
+										&context,
 										&colors,
 										width - 2.0,
 									);
@@ -888,12 +895,18 @@ impl Menu {
 		picked.and_then(|index| self.pick(index))
 	}
 }
+/// Session data a suggestion row needs: which presence dots it may show, and demo rendering.
+struct RowContext<'a> {
+	state: &'a State,
+	guild: Option<Id>,
+	demo: bool,
+}
 fn row(
 	ui: &mut egui::Ui,
 	candidate: &Candidate,
 	selected: bool,
 	avatars: &mut Avatars,
-	demo: bool,
+	context: &RowContext<'_>,
 	colors: &crate::design::Palette,
 	width: f32,
 ) -> egui::Response {
@@ -934,12 +947,31 @@ fn row(
 		}
 		Candidate::Game(game) => {
 			let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
-			avatars.show_icon(&mut child, Some(game.icon_key()), 24.0, demo, &game.name);
+			avatars.show_icon(
+				&mut child,
+				Some(game.icon_key()),
+				24.0,
+				context.demo,
+				&game.name,
+			);
 			game.name.clone()
 		}
 		Candidate::User { user, name } => {
 			let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
-			avatars.show(&mut child, user, 24.0, demo);
+			let avatar = avatars.show(&mut child, user, 24.0, context.demo);
+			// The dot uses the presence this session actually holds, exactly like the member
+			// and DM rows; a candidate with no known presence stays without one.
+			let (status, _, _, clients) =
+				crate::profiles::presence(context.state, user.id, context.guild);
+			if let Some(status) = crate::profiles::shown_status(context.state, user.id, status) {
+				crate::profiles::presence_badge(
+					&mut child,
+					avatar.rect,
+					status,
+					clients,
+					colors.sidebar,
+				);
+			}
 			name.clone()
 		}
 		Candidate::Mass { .. } | Candidate::Role { .. } => {
@@ -984,7 +1016,7 @@ fn row(
 			(*code).to_owned()
 		}
 		Candidate::Custom { id, name, .. } => {
-			match avatars.custom_image(ui.ctx(), *id, 24.0, demo) {
+			match avatars.custom_image(ui.ctx(), *id, 24.0, context.demo) {
 				Some(image) => image.paint_at(ui, icon),
 				None => {
 					ui.painter().rect_filled(icon, 4, colors.hover);
@@ -2369,4 +2401,114 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		menu.refresh(state, dm.id, "@Role", Some(5), &[]);
 		assert!(menu.candidates.is_empty(), "roles must not leak into DMs");
 	}
+}
+#[test]
+fn user_rows_show_the_status_dot_the_session_knows() {
+	use client_core::auth::AuthState;
+	use model::{Channel, Patch};
+
+	fn user(id: u64, name: &str) -> User {
+		User {
+			id: Id(id),
+			name: name.into(),
+			avatar: None,
+			webhook: false,
+			kind: Default::default(),
+			discriminator: 0,
+			primary_guild: None,
+			cosmetics: None,
+		}
+	}
+	fn count_color(shape: &egui::Shape, color: egui::Color32) -> usize {
+		match shape {
+			egui::Shape::Circle(circle) if circle.fill == color => 1,
+			egui::Shape::Vec(shapes) => shapes.iter().map(|s| count_color(s, color)).sum(),
+			_ => 0,
+		}
+	}
+	let ctx = egui::Context::default();
+	crate::fonts::install(&ctx);
+	crate::design::apply(&ctx);
+	let mut state = client_core::State {
+		user: Some(user(1, "me")),
+		auth: AuthState::Authenticated,
+		gateway_connected: true,
+		channels: vec![Channel {
+			id: Id(2),
+			guild: None,
+			parent_id: None,
+			position: 0,
+			name: "Synthetic DM".into(),
+			kind: 1,
+			recipients: vec![user(9, "friend")],
+			last_message: None,
+			icon: None,
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+		}],
+		..State::default()
+	};
+	state.apply(client_core::Envelope {
+		generation: state.generation,
+		event: client_core::Event::DirectPresence(vec![client_core::presence::Update {
+			user: Id(9),
+			status: Patch::Value("online".into()),
+			custom_status: Patch::Null,
+			activities: Patch::Value(vec![]),
+			clients: Patch::Absent,
+		}]),
+	});
+	let online = crate::profiles::presence_color("online");
+	let mut avatars = Avatars::default();
+	let mut dots = |candidate: Candidate| {
+		avatars = Avatars::default();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(420.0, 80.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				let _ = row(
+					ui,
+					&candidate,
+					false,
+					&mut avatars,
+					&RowContext {
+						state: &state,
+						guild: None,
+						demo: false,
+					},
+					&crate::design::palette(ui),
+					360.0,
+				);
+			},
+		);
+		let count = output
+			.shapes
+			.iter()
+			.map(|shape| count_color(&shape.shape, online))
+			.sum::<usize>();
+		output.drop_without_applying_deltas();
+		count
+	};
+	assert_eq!(
+		dots(Candidate::User {
+			user: user(9, "friend"),
+			name: "friend".into(),
+		}),
+		1,
+		"a known online presence paints one dot"
+	);
+	assert_eq!(
+		dots(Candidate::User {
+			user: user(10, "stranger"),
+			name: "stranger".into(),
+		}),
+		0,
+		"a candidate without a known presence paints none"
+	);
 }
