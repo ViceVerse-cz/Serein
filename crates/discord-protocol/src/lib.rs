@@ -252,7 +252,9 @@ impl ChannelDto {
 			meta: self
 				.thread_metadata
 				.as_ref()
-				.map(|metadata| metadata.meta(self.flags)),
+				.map(threads::ThreadMetadata::meta),
+			// A whole thread object always states its flags.
+			pinned: Some(model::threads::pinned(self.flags)),
 		})
 	}
 

@@ -344,8 +344,8 @@ impl State {
 		if visit.acknowledged || self.read_state.busy() {
 			return None;
 		}
-		visit.acknowledged = true;
 		// A forum's latest message is its newest post; loaded posts may be newer still.
+		// Until one is known, a later frame may still find it in the first page.
 		let latest = self
 			.channels
 			.iter()
@@ -353,6 +353,9 @@ impl State {
 			.map(|post| post.id)
 			.chain(self.channel(forum)?.last_message)
 			.max()?;
+		if let Some(visit) = self.forum_visit.as_mut() {
+			visit.acknowledged = true;
+		}
 		if boundary.flatten().is_some_and(|read| read >= latest) {
 			return None;
 		}
@@ -726,6 +729,73 @@ mod tests {
 		state.channels[3].last_message = Some(Id(500));
 		crate::tests::grant_permissions(&mut state);
 		state
+	}
+
+	#[test]
+	fn forum_visit_acknowledges_once_a_post_is_known_and_keeps_its_card_boundary() {
+		let mut state = state();
+		state
+			.apply_read_state(crate::read_state::Event::Snapshot {
+				entries: Some(vec![(Id(20), Some(Id(1)), 0)]),
+				version: None,
+				partial: false,
+			})
+			.unwrap();
+		let posts = state.channels.split_off(2);
+		state.invalidate_navigation();
+		state.selected = Some(Id(20));
+		assert!(
+			state.prepare_forum_visit_read().is_none(),
+			"nothing to acknowledge before the first page"
+		);
+		state.channels.extend(posts);
+		state.invalidate_navigation();
+		assert!(state.forum_unread(Id(20)));
+		let Some(Command::MarkRead {
+			channel: Id(20),
+			message: Id(22),
+			request,
+			..
+		}) = state.prepare_forum_visit_read()
+		else {
+			panic!("the first page's newest post is acknowledged in the same visit");
+		};
+		state
+			.apply_read_state(crate::read_state::Event::Result {
+				channel: Id(20),
+				message: Id(22),
+				request,
+				result: Ok(()),
+			})
+			.unwrap();
+		assert!(!state.forum_unread(Id(20)));
+		assert!(
+			state.post_unread(state.channel(Id(21)).unwrap()),
+			"cards keep the boundary from before the visit"
+		);
+		assert!(state.prepare_forum_visit_read().is_none());
+		state.selected = Some(Id(10));
+		assert!(state.prepare_forum_visit_read().is_none());
+		assert!(!state.post_unread(state.channel(Id(21)).unwrap()));
+	}
+
+	#[test]
+	fn an_empty_first_forum_page_is_not_refetched_every_frame() {
+		let mut state = state();
+		state.request_forum_posts(Id(20), false).unwrap();
+		let request = state.posts.request;
+		state.apply_forum_posts(
+			Id(20),
+			request,
+			Ok(model::forum::Page {
+				threads: Vec::new(),
+				more: false,
+				previews: Vec::new(),
+			}),
+		);
+		assert!(state.request_forum_posts(Id(20), false).is_none());
+		state.reload_forum_posts(Id(20));
+		assert!(state.request_forum_posts(Id(20), false).is_some());
 	}
 
 	#[test]

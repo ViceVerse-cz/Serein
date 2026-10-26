@@ -293,15 +293,20 @@ impl State {
 		}
 		Ok(())
 	}
-	/// Threads count only while joined and active, and forums only through their new posts;
-	/// retained read history of a left or unjoined thread does not light the server.
-	pub fn lights_guild_rail(&self, channel: &model::Channel) -> bool {
+	/// Threads count only while joined, active and not muted through their membership at
+	/// `now` (Unix milliseconds), and forums only through their new posts; retained read
+	/// history of a left or unjoined thread does not light the server.
+	pub fn lights_guild_rail(&self, channel: &model::Channel, now: i64) -> bool {
 		let unread = match channel.kind {
 			2 => false,
 			15 | 16 => self.forum_latest_unseen(channel),
 			10..=12 => {
 				self.post_lights_forum(channel)
-					|| (self.thread_joined(channel) && self.channel_unread(channel) == Some(true))
+					|| (self.thread_joined(channel)
+						&& !self
+							.thread_member(channel.id)
+							.is_some_and(|member| member.muted_at(now))
+						&& self.channel_unread(channel) == Some(true))
 			}
 			_ => self.channel_unread(channel) == Some(true),
 		};

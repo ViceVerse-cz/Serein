@@ -23,8 +23,6 @@ pub struct Meta {
 	pub auto_archive_minutes: u32,
 	/// Latest non-message activity (`archive_timestamp`) in Unix milliseconds.
 	pub activity: i64,
-	/// Pinned to the top of its forum.
-	pub pinned: bool,
 }
 
 /// One thread's update. Absent membership keeps the known one; `Null` means the account left.
@@ -33,6 +31,8 @@ pub struct Change {
 	pub id: crate::Id,
 	pub member: crate::Patch<Member>,
 	pub meta: Option<Meta>,
+	/// Pinned to the top of its forum; `None` when the update carried no `flags`.
+	pub pinned: Option<bool>,
 }
 
 /// What a thread row needs, as last reported.
@@ -40,6 +40,7 @@ pub struct Change {
 pub struct Info {
 	pub member: Option<Member>,
 	pub meta: Option<Meta>,
+	pub pinned: bool,
 }
 impl Info {
 	pub fn apply(&mut self, change: &Change) {
@@ -51,7 +52,15 @@ impl Info {
 		if change.meta.is_some() {
 			self.meta = change.meta;
 		}
+		if let Some(pinned) = change.pinned {
+			self.pinned = pinned;
+		}
 	}
+}
+
+/// Bit 1 of a thread's `flags` pins it in its forum.
+pub fn pinned(flags: u64) -> bool {
+	flags & (1 << 1) != 0
 }
 
 /// Unix milliseconds encoded in a Discord snowflake.

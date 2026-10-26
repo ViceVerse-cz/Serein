@@ -69,19 +69,22 @@ pub(super) fn decode_events(
 					None,
 				)
 			} else {
-				let flags = match update.patch.flags {
-					Patch::Value(flags) => flags,
-					_ => 0,
+				// Pins and archive metadata update independently of each other.
+				let pinned = match update.patch.flags {
+					Patch::Value(flags) => Some(model::threads::pinned(flags)),
+					_ => None,
 				};
+				let meta = update
+					.thread_metadata
+					.as_ref()
+					.map(discord_protocol::threads::ThreadMetadata::meta);
 				let change =
-					update
-						.thread_metadata
-						.as_ref()
-						.map(|metadata| model::threads::Change {
-							id: update.patch.id,
-							member: Patch::Absent,
-							meta: Some(metadata.meta(flags)),
-						});
+					(meta.is_some() || pinned.is_some()).then_some(model::threads::Change {
+						id: update.patch.id,
+						member: Patch::Absent,
+						meta,
+						pinned,
+					});
 				(
 					Some(Event::ThreadChanged {
 						guild: update.guild_id,
@@ -127,7 +130,7 @@ pub(super) fn decode_events(
 			let (Some(thread), Some(guild)) = (member.id, member.guild_id) else {
 				return Ok((None, None));
 			};
-			if member.user_id.is_some_and(|user| Some(user) != owner) {
+			if owner.is_none() || member.user_id != owner {
 				return Ok((None, None));
 			}
 			(None, info(guild, vec![member.change(thread)]))

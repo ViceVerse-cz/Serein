@@ -73,13 +73,11 @@ pub struct ThreadMetadata {
 	archive_timestamp: Option<i64>,
 }
 impl ThreadMetadata {
-	/// Bit 1 of a thread's `flags` pins it in its forum.
-	pub fn meta(&self, flags: u64) -> model::threads::Meta {
+	pub fn meta(&self) -> model::threads::Meta {
 		model::threads::Meta {
 			// Discord's default window is one day.
 			auto_archive_minutes: self.auto_archive_duration.unwrap_or(1440),
 			activity: self.archive_timestamp.unwrap_or(0),
-			pinned: flags & (1 << 1) != 0,
 		}
 	}
 }
@@ -119,6 +117,7 @@ impl ThreadMember {
 			id: thread,
 			member: model::Patch::Value(self.into_model()),
 			meta: None,
+			pinned: None,
 		}
 	}
 }

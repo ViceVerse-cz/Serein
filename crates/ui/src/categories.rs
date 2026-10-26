@@ -231,7 +231,10 @@ fn rows<'a>(
 		collapsed,
 		show_hidden,
 		requests_collapsed,
-		now_ms(),
+		ThreadRules {
+			now: now_ms(),
+			hide_muted: false,
+		},
 	)
 }
 
@@ -241,6 +244,14 @@ fn now_ms() -> i64 {
 		.map_or(0, |elapsed| elapsed.as_millis() as i64)
 }
 
+/// Inputs to Discord's thread listing that are not part of the session state.
+#[derive(Clone, Copy)]
+struct ThreadRules {
+	/// Unix milliseconds, for archive windows and timed mutes.
+	now: i64,
+	hide_muted: bool,
+}
+
 fn rows_at<'a>(
 	state: &'a State,
 	scope: Scope,
@@ -248,7 +259,7 @@ fn rows_at<'a>(
 	collapsed: &BTreeSet<Id>,
 	show_hidden: bool,
 	requests_collapsed: bool,
-	now: i64,
+	rules: ThreadRules,
 ) -> Vec<Row<'a>> {
 	let guild = scope.guild();
 	let channels = &state.channels;
@@ -264,7 +275,7 @@ fn rows_at<'a>(
 	};
 	// Threads appear only beneath their parents, following Discord's relevance rules.
 	let mut threads = guild.map_or_else(BTreeMap::new, |guild| {
-		state.sidebar_threads(guild, now, false)
+		state.sidebar_threads(guild, rules.now, rules.hide_muted)
 	});
 	for list in threads.values_mut() {
 		list.retain(|c| admitted(c));
@@ -599,11 +610,27 @@ impl MessagingUi {
 				&collapsed,
 				self.show_hidden_channels,
 				self.message_requests_collapsed,
-				now,
+				ThreadRules { now, hide_muted },
 			);
 			if hide_muted {
-				channel_rows.retain(|row| {
-					!matches!(row, Row::Channel(channel, ..) if Some(channel.id) != state.selected && state.guild_channel_muted(channel.id) == Some(true))
+				// Thread rows already follow Discord's mute and mention rules; they leave only
+				// with their parent.
+				let focus = state
+					.selected
+					.and_then(|id| state.channel(id))
+					.map(|selected| match selected.kind {
+						10..=12 => selected.parent_id,
+						_ => Some(selected.id),
+					});
+				let mut parent_kept = true;
+				channel_rows.retain(|row| match row {
+					Row::Channel(_, _, true) => parent_kept,
+					Row::Channel(channel, ..) => {
+						parent_kept = focus == Some(Some(channel.id))
+							|| state.guild_channel_muted(channel.id) != Some(true);
+						parent_kept
+					}
+					_ => true,
 				});
 				let mut index = 0;
 				while index < channel_rows.len() {
@@ -1516,8 +1543,8 @@ pub fn debug_thread_navigation_check(state: &mut State) {
 			meta: Some(model::threads::Meta {
 				auto_archive_minutes: 60,
 				activity: now,
-				pinned: false,
 			}),
+			pinned: Some(false),
 		})
 		.collect();
 	state.apply(client_core::Envelope {
@@ -2075,8 +2102,8 @@ mod tests {
 					meta: Some(model::threads::Meta {
 						auto_archive_minutes: 60,
 						activity: 0,
-						pinned: true,
 					}),
+					pinned: true,
 				};
 				(Id(id), info)
 			})

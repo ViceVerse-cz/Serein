@@ -35,10 +35,13 @@ impl RailCache {
 			return false;
 		}
 		let mut badges = std::collections::BTreeMap::<Id, (bool, u32)>::new();
+		let now = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.map_or(0, |elapsed| elapsed.as_millis() as i64);
 		for channel in state.channels.iter().take(client_core::MAX_NAV) {
 			if let Some(guild) = channel.guild {
 				let entry = badges.entry(guild).or_default();
-				entry.0 |= state.lights_guild_rail(channel);
+				entry.0 |= state.lights_guild_rail(channel, now);
 				entry.1 = entry.1.saturating_add(state.mention_count(channel.id));
 			}
 		}

@@ -219,8 +219,7 @@ impl State {
 					|| self
 						.thread_info
 						.get(&thread.id)
-						.and_then(|info| info.meta)
-						.is_some_and(|meta| meta.pinned)
+						.is_some_and(|info| info.pinned)
 			};
 			let muted = self.guild_channel_muted(thread.id) == Some(true)
 				|| self
