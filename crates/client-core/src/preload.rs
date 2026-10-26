@@ -196,6 +196,8 @@ pub struct Preload {
 	pub(crate) retry: Option<Command>,
 	/// The same for a profile card.
 	pub(crate) profile_retry: Option<Command>,
+	/// The last docked profile requested and when, so a failing one is not retried every frame.
+	docked: Option<(Id, Instant)>,
 }
 
 /// Where a preload's result goes.
@@ -225,6 +227,8 @@ impl State {
 	pub fn interrupt_preloads(&mut self) {
 		self.preload.retry = None;
 		self.preload.profile_retry = None;
+		// A docked profile lost with the old connection is requested again on the new one.
+		self.preload.docked = None;
 		self.preload.conversations.interrupt();
 		self.preload.profiles.interrupt();
 	}
@@ -281,6 +285,35 @@ impl State {
 		Some(Command::Prefetch(Box::new(
 			self.profile_command(user, guild, request),
 		)))
+	}
+	/// The global profile a docked panel shows, requested once without waiting for pointer
+	/// intent. The result fills the profile cache; a failed one is retried only after a while.
+	pub fn preload_docked_profile(&mut self, user: Id, now: Instant) -> Option<Command> {
+		let target = (user, None);
+		if !self.can_preload()
+			|| user.0 == 0
+			|| self.known_profile(user).is_some()
+			|| self.preload.docked.is_some_and(|(known, at)| {
+				known == user && now.saturating_duration_since(at) < ATTEMPT_AGE
+			}) {
+			return None;
+		}
+		// An unrelated hover preload may hold the slot; ask again on a later frame.
+		let request = self.preload.profiles.admit(target, None, now)?;
+		self.preload.docked = Some((user, now));
+		Some(Command::Prefetch(Box::new(
+			self.profile_command(user, None, request),
+		)))
+	}
+	/// Whether a preload of `user`'s global profile is still waiting for its response.
+	pub fn profile_preloading(&self, user: Id, now: Instant) -> bool {
+		self.preload
+			.profiles
+			.in_flight
+			.as_ref()
+			.is_some_and(|flight| {
+				flight.target == (user, None) && now.saturating_duration_since(flight.since) < LOST
+			})
 	}
 	/// How long until a resting pointer becomes intent, so the UI can wake without input.
 	pub fn preload_wake(&self, now: Instant) -> Option<Duration> {

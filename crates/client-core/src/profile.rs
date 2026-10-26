@@ -766,6 +766,31 @@ mod tests {
 	}
 
 	#[test]
+	fn a_failing_docked_profile_is_not_requested_every_frame() {
+		let now = Instant::now();
+		let mut state = own_state();
+		let Some(Command::Prefetch(command)) = state.preload_docked_profile(Id(2), now) else {
+			panic!()
+		};
+		let Command::Profile { request, .. } = *command else {
+			panic!()
+		};
+		assert!(state.profile_preloading(Id(2), now));
+		state.apply_profile(Id(2), None, request, Err(Failure::Network));
+		assert!(!state.profile_preloading(Id(2), now));
+		// The failure frees the preload slot, but the docked panel waits before asking again.
+		assert!(state.preload_docked_profile(Id(2), now).is_none());
+		assert!(
+			state
+				.preload_docked_profile(Id(2), now + Duration::from_secs(5 * 60))
+				.is_some()
+		);
+		// A new connection asks again at once.
+		state.interrupt_preloads();
+		assert!(state.preload_docked_profile(Id(2), now).is_some());
+	}
+
+	#[test]
 	fn a_closed_adopted_profile_cannot_restore_invalidated_cosmetics() {
 		for invalidated in [false, true] {
 			let now = Instant::now();
