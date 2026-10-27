@@ -2205,8 +2205,7 @@ mod tests {
 			view.channel_cache.rows.as_slice(),
 			[CachedRow::Category(_, 1)]
 		));
-		// Forum containers never request history; joined, pinned posts remain selectable
-		// after navigating from the post to its forum.
+		// Forum containers never request history; joined posts remain keyboard-selectable.
 		state.channels = vec![channel(7, 15, 0, None), channel(8, 11, 0, Some(Id(7)))];
 		state.thread_info.insert(
 			Id(8),
@@ -2216,8 +2215,8 @@ mod tests {
 					muted: false,
 					mute_end: None,
 				}),
+				meta: None,
 				pinned: true,
-				..Default::default()
 			},
 		);
 		state.revision += 1;

@@ -69,6 +69,10 @@ impl Gateway {
 			result = self.resume.accept() => (result.unwrap().0, true),
 		};
 		assert_eq!(resumed, resume, "recovery selected the wrong gateway URL");
+		Self::open(stream, op).await
+	}
+
+	async fn open(stream: TcpStream, op: Option<u64>) -> WebSocketStream<TcpStream> {
 		let mut socket = accept_async(stream).await.unwrap();
 		if let Some(op) = op {
 			send(
