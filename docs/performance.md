@@ -381,9 +381,11 @@ playback or CPU/RSS claim is made.
 
 The sidebar keyboard fixture now gives its post joined/pinned state before navigating
 to the forum, so the post remains listed under the current sidebar rules. The fuzz
-role fixture includes `managed`. The recovery socket test waits for an ordered
-heartbeat response after acknowledging its healthy probe, before requesting the
-unanswered probe; it no longer depends on repeated 200 ms polling. These changes
+role fixture includes `managed`. The recovery socket test waits for a heartbeat
+carrying a new dispatch sequence after acknowledging its healthy probe, before
+requesting the unanswered probe. It deliberately queues and drains an older
+heartbeat first, and sends no late acknowledgement that could cancel the next
+probe. It no longer depends on repeated 200 ms polling. These changes
 affect test fixtures only, with no sidebar or gateway runtime behavior change.
 
 `cargo xtask check` passes: 1,349 unit/integration/doctests pass, 14 are ignored,
