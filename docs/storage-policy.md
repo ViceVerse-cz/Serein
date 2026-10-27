@@ -130,8 +130,9 @@ Each Linux live H.264 decoder now admits at most four queued compressed access
 units and 8,650,752 payload bytes in its native appsrc. Its existing nonblocking
 `max-bytes` setting only signaled pressure and did not enforce rejection. One
 producer checks native queue levels before copying the next access unit; native
-consumption can only lower them. Rejection resets decoding through the existing
-keyframe recovery path rather than silently losing a reference picture. Older
+consumption can only lower them. Brief rejection is retried by the dedicated decoder
+worker within the existing 150 ms picture-age budget; expiry retains keyframe recovery
+rather than silently losing a reference picture. Older
 GStreamer runtimes without item accounting (before 1.20) use the software fallback.
 The outer 16-picture / 16-MiB decode handoff, at most eight active decoders,
 current worker input, consumed native buffers, codec surfaces and decoded pictures
@@ -1041,14 +1042,74 @@ Schema 7 adds one checked integer `message_kind` (0..255) per cached message, wi
 ### Opt-in synchronization and compatibility diagnostics
 
 Voice performance diagnostics (`SEREIN_VOICE_DIAGNOSTICS=1`) are also off by default.
-They retain at most eight fixed-size numeric reports in a worker queue (under 2 KiB),
+They include aggregate compressed-video byte counts, decoded dimensions/transitions,
+repair/feedback counts and playback-queue outcomes. They retain at most eight fixed-size
+numeric reports in a worker queue,
 plus one report per producer and one being written. One background writer formats
 reports and caps attempted stderr output at 8,192 reports AND 8 MiB per process,
-across calls (about eleven hours of three concurrent five-second reporters). Queue overflow drops diagnostics without delaying media. A blocked
+across calls; the byte cap can end output before the report cap. Queue overflow drops
+diagnostics without delaying media. A blocked
 stderr can stall only that single diagnostic writer. No files, identifiers, device
 names, payloads, audio, keys or telemetry are produced. Explicit shell redirection
 is owner-managed; unrelated output and appended runs are outside these limits.
 See [voice CPU diagnostics](voice.md#investigating-high-cpu-during-a-call) for usage.
+
+Incoming-video repair retains at most 512 sequence positions and 512 KiB of encrypted RTP
+payload per announced source (16 sources, at most 8 MiB plus bounded tree metadata).
+Holes initially expire after 120 ms during receive processing or 20 ms transport ticks.
+Observed requested repairs can increase that deadline to 400 ms. At most 512 expired-hole
+metadata entries per source survive for one second to inform later deadlines; no discarded
+payload is replayed. Generic
+NACK feedback requests at most 64 missing numbers per source per 20 ms, at most three
+attempts per hole and 288 encrypted wire bytes per datagram. Source retirement or owner
+replacement discards pending packets, requests, media-activity and actual-PLI clocks.
+Empty padding packets use the same sequence window and retain no media payload.
+
+Watched-video pacing holds at most 64 decrypted encoded pictures and 8 MiB of allocated
+payload capacity, plus one source-clock anchor and bounded deque metadata. This is separate
+from the existing 16-picture/16-MiB decoder handoff and native decoder queue. Initial video
+buffering is 100 ms; severe stalls, pressure or incompatible clock changes trigger bounded
+keyframe recovery. Rekeys and teardown clear queued plaintext. The 64-item budget covers
+the existing 500 ms A/V hold horizon at 60 fps, with burst headroom; retained encoded
+payload remains limited to 8 MiB. Reception reports retain
+at most 16 transient source-statistics entries and 384 report-block bytes per one-second
+send. Backpressure retries retain the existing access unit rather than another copy.
+
+Watched-stream audio retains at most 128 compressed Opus packets (1,275 bytes each,
+exact-sized allocations) and one 5,760-sample mono PCM buffer per source, at most 16
+sources: 2,979,840 bytes of retained payload/PCM plus bounded metadata and codec state.
+One stack scratch buffer of 965 samples bounds rate adjustment; at most nine packets
+are decoded per source per 20 ms tick. Missing input has at most three concealment
+operations before silence/idle recovery. The 60–240 ms adaptive target fits the packet
+budget even at 2.5 ms packetization; a forward media gap over 500 ms restarts the queue.
+Normal participant voice jitter is unchanged.
+
+Timing state has at most 32 source clocks and 16 sender references, with constant-sized
+arrival estimates and shared atomic output clocks. Reports older than 30 seconds are
+ignored for synchronization. A PCM frame carries one optional timestamp/clock reference
+through the existing bounded stream, call and device queues; none adds a new PCM queue.
+Source retirement, rekeys and teardown invalidate old timestamp generations. Audio-buffer
+restart preserves already accepted PCM/video. Stale stream PCM is rejected before call
+mixing; mixed participant speech survives later stream timestamp invalidation. The output
+callback publishes only numeric timing, never media contents.
+Device-clock estimates expire after two seconds without new playback.
+
+Each decoder correlates at most 16 transient output tags to timestamps, evicting the oldest
+at capacity. The 150 ms age budget applies to queued submissions and backpressure retries,
+not tags awaiting delayed native output. Unknown tags are discarded and counted as stale.
+The watched UI retains at most eight decoded pictures, bounded together with its reusable
+latest-picture storage by 128 MiB of allocated
+plane capacity. Pressure skips decoded display pictures and leaves codec references intact.
+These transient buffers are cleared with the watched session. No media files, diagnostic
+archives, schema changes or persistent queues are added.
+
+AV1 reassembly retains a frame buffer and fragment buffer, each bounded to 2 MiB + 64 KiB;
+large fragment capacity is released at frame reset. Native normalization temporarily holds
+one extra bounded AU on the decoder worker, including the restored two-byte delimiter.
+Each packet/frame admits at most 64/256 OBU elements. Transport-wide timing feedback has
+one on-demand 2,048-entry timestamp deque (32 KiB), one-second reporting age, at most two
+256-status reports per 100 ms and at most 628 encrypted bytes per report. It retains no
+media, identities or advertised bandwidth estimate.
 
 `SEREIN_MEMBER_DIAGNOSTICS=1` enables fixed-label member synchronization diagnostics;
 `SEREIN_GATEWAY_DIAGNOSTICS=1` enables Gateway compatibility diagnostics. Both are off by default.
