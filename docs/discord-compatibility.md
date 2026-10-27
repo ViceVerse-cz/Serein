@@ -419,10 +419,22 @@ still open the browser, and unrelated links retain existing confirmation behavio
 Known channels can be in another joined server, an existing DM/group DM, a thread
 or a forum post (whose destination is the thread channel, not its parent).
 Guild/channel identity and current view/history permissions are checked first.
-An absent thread can be admitted only from the existing bounded archive page through
-its normal permission and metadata-budget guards. Unloaded archives, unknown channels
-and unsupported channel kinds remain unavailable; navigation does not discover
-arbitrary channels, join servers, open unknown DMs, unarchive threads or join calls.
+An absent thread can be admitted from the existing bounded archive page through its
+normal permission and metadata-budget guards, or by one bounded documented channel read
+of that ID — the same read an unresolved channel mention already makes. That read is
+allowed only inside a joined server, at most one at a time, and admits only a thread whose
+loaded parent this session may view; a second click shares it, the link opens when it
+lands, and it expires after sixty seconds or on any navigation of the user's own. A DM,
+another server's channel or a channel that is not a thread of a viewable parent stays
+unavailable. Unloaded archives, unknown channels and unsupported channel kinds remain
+unavailable; navigation does not discover arbitrary channels, join servers, open unknown
+DMs, unarchive threads or join calls.
+
+A message the service flags as a thread starter whose thread this session has not loaded
+shows the thread card with a generic label instead of the thread's name; clicking it makes
+the same single read, and the thread's name and activity appear once it is admitted. Like an
+archive-opened thread it stays one transient conversation, retired when the user navigates
+elsewhere, so its card returns to the generic label on a later visit.
 
 Fresh loaded messages, including an eligible dormant resident window that holds the
 live target, scroll and highlight locally without recent-history or saved-cursor
@@ -1005,7 +1017,7 @@ discord.com route is an integration assumption, not a new API guarantee. Headles
 construction and explicit confirmation; native launch, browser account selection and destination
 resolution remain owner-unverified. The browser uses its own session and Discord authorization.
 
-Loaded threads (September 10): READY guild thread arrays follow the original [discord.py-self guild parser](https://github.com/dolfies/discord.py-self/blob/master/discord/guild.py); active create/update/delete, scoped sync, archive eviction and owner-removal handling are informed by its [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py). Discord's [Gateway thread events](https://docs.discord.com/developers/events/gateway-events#thread-list-sync) document the guild/parent scope and membership fields. These primary sources establish wire evidence, not normal-account acceptance; no implementation blocks were copied. Active discovery is limited to service-supplied snapshots/events; explicit archive reads are described below, with existing subscriptions unchanged. A visible unresolved channel mention performs one bounded documented channel read and admits only a same-guild thread whose loaded parent remains viewable; resolved names are retained in a bounded session-only cache. Unknown updates do not otherwise hydrate a missing thread. See native navigation scope.
+Loaded threads (September 10): READY guild thread arrays follow the original [discord.py-self guild parser](https://github.com/dolfies/discord.py-self/blob/master/discord/guild.py); active create/update/delete, scoped sync, archive eviction and owner-removal handling are informed by its [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py). Discord's [Gateway thread events](https://docs.discord.com/developers/events/gateway-events#thread-list-sync) document the guild/parent scope and membership fields. These primary sources establish wire evidence, not normal-account acceptance; no implementation blocks were copied. Active discovery is limited to service-supplied snapshots/events; explicit archive reads are described below, with existing subscriptions unchanged. A visible unresolved channel mention, and a Discord chat link to a thread this session never loaded, each perform one bounded documented channel read and admit only a same-guild thread whose loaded parent remains viewable; resolved names are retained in a bounded session-only cache. Unknown updates do not otherwise hydrate a missing thread. See native navigation scope.
 
 Serein is unofficial and not endorsed by Discord. No normal-user live session has been tested. Technical compatibility does not imply approval. Discord forbids normal-account automation outside its OAuth2/bot API and warns of account termination ([policy](https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots)); its [terms](https://discord.com/terms) also apply.
 
@@ -1037,7 +1049,7 @@ Server identity tags (September 19): Discord's documented [User object](https://
 | Upload / preview / save | Normal session + separate credential-free media transfer; [attachment reference](https://docs.discord.com/developers/resources/message#attachment-object) and [normal-user staged upload](https://github.com/dolfies/discord.py-self/blob/2ba64a9a997e151a9c259984e0a179b1fdf4aff4/discord/abc.py#L1551) | Documented attachment metadata; staged upload unofficial; service delivery/conversion live-unverified | Up to ten explicitly selected files totaling 500,000,000 bytes, streamed upload/cancel and message confirmation; Discord enforces the account's lower entitlement limit. Static previews, native viewer, image/video attachment context menus with native clipboard copy, and explicit image/file Save As (1 byte through 100 MiB). Upload limits below; preview/save limits |
 | Conversation search | Normal session; [discord.py-self search flow](https://github.com/dolfies/discord.py-self/blob/master/discord/abc.py), [HTTP routes](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py), [response types](https://github.com/dolfies/discord.py-self/blob/master/discord/types/message.py) checked September 10 | Unofficial and unstable | Search current conversation, numbered result pages, snapshot snippets, history revalidation on Open message; indexing/permission failures are visible. Live-unverified |
 | Pinned messages | Normal session; [Get Channel Pins](https://docs.discord.com/developers/resources/message#get-channel-pins) and [normal-user implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) | Documented route; normal-user acceptance live-unverified | Manual 25-pin pages, Older/Retry, Reload newest and history-validated Open message; pin/unpin mutations unsupported |
-| Threads / forums | Normal session; navigation and archive scope, archive sources below | Wire evidence checked September 10; normal-user behavior live-unverified | READY/thread-event reconciliation, parent/post hierarchy and manual public/private/joined-private archive pages implemented; complete active directory and create/join controls remain incomplete |
+| Threads / forums | Normal session; navigation and archive scope, archive sources below | Wire evidence checked September 10; normal-user behavior live-unverified | READY/thread-event reconciliation, parent/post hierarchy and manual public/private/joined-private archive pages implemented; a chat link or a flagged starter admits one unloaded thread per bounded read; complete active directory and create/join controls remain incomplete |
 | One-to-one DM voice | Normal session + per-call credentials; [Discord voice](https://docs.discord.com/developers/topics/voice-connections), [DAVE](https://daveprotocol.com/), [discord.py-self signaling](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py) | Voice transport/DAVE documented; normal-user DM entry/ringing unofficial; implementation live-unverified | Native Opus/CPAL/DAVE v1 path, call controls and bounded resume implemented; synthetic tests only. Physical audio and official-client two-way call gate blocked; voice included in every build |
 | Logout | Local credential/task disposal; OAuth revocation applies only to OAuth tokens | Local behavior implemented; remote session revocation unverified | Local logout only, does not delete sent messages or claim server token revocation |
 
@@ -2613,3 +2625,39 @@ Clearing the rows with an empty list is not an option: Discord disconnects with 
 
 This behaviour is unofficial and inferred from owner traces; a loopback test models it, and
 the owner confirmed the fix in a debug build.
+
+## Opening an unloaded thread — October 26, 2026
+
+The owner reported a private thread that opens in the official desktop and mobile clients but
+not in Serein: its link did nothing, the thread was missing from the sidebar, and its starter
+message had no thread card. A private thread only reaches a session's navigation when the
+service lists it, which the READY/thread-sync scope the loader implements does not do for a
+thread the account may view through MANAGE_THREADS without being a member of it — inferred
+from that owner report, not an established rule for every normal-user payload. Official
+clients read such a thread on demand; Serein only knew threads the service had already listed
+or an already open archive page carried.
+
+A Discord chat link now resolves an unloaded destination with one bounded `GET
+/channels/{id}` read — the route the unresolved-mention path already used — and the thread
+opens when that read lands. The read is available only for a joined server and an authenticated,
+connected session, one at a time through the existing channel-action slot, and the session
+admits only a thread of that guild whose parent channel it has loaded and may view. A link click
+is the user's newest destination: it follows the latest message target while the read for that
+same chat is in flight, and any link to another chat, channel selection, Back/Forward step or
+Home visit cancels the wait, so a slow answer cannot take over the window. The pending link also
+expires after sixty seconds. DMs, another server's channels, non-thread answers and threads under
+an unloaded or hidden parent stay unavailable. Nothing joins, unarchives, subscribes or sends;
+opening remains a read.
+
+The thread card under a starter message follows the service's documented `HAS_THREAD` flag
+when the thread itself is not loaded, since the thread channel shares the starter's ID. It
+shows a generic label rather than inventing a name or activity, and its click performs the
+same single read; the real name and metadata appear once the service answers.
+
+Synthetic tests cover the read request, its admission, the rejected answer, the newer message
+target and the cancellation on navigation. On October 26, 2026 the owner confirmed on a local
+release build that both the link and the starter card open this private thread. That is
+observation of one account, not a general normal-user guarantee: the read itself stays
+unofficial, and a later visit shows the generic card again because the admitted thread is one
+transient conversation.
+

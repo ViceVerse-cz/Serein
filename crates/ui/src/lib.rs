@@ -4204,6 +4204,8 @@ impl MessagingUi {
 		commands.extend(cosmetics_refresh);
 		// A server joined from an invite opens as soon as the Gateway delivers it.
 		commands.extend(state.navigate_after_join());
+		// A chat link to an unloaded thread opens once its bounded channel read admits it.
+		commands.extend(state.resolve_pending_link());
 		if let Some(action) = self.poll_creator.show(ui.ctx(), state, &mut self.avatars)
 			&& let Some(command) = state.prepare_poll(None, action)
 		{
