@@ -162,6 +162,8 @@ pub struct ExtensionUi {
 	pub busy: bool,
 	pub catalog_refreshing: bool,
 	pub requests: Vec<ExtensionRequest>,
+	/// Current host media-privacy state, supplied to plugin panels.
+	pub media_privacy: Option<extensions::MediaPrivacy>,
 	consent: Option<Consent>,
 	result: Option<ResultPanel>,
 	error: Option<String>,
@@ -176,6 +178,81 @@ pub struct ExtensionUi {
 	gallery_preview: Option<String>,
 }
 impl ExtensionUi {
+	/// Whether an enabled plugin currently asks the host to mask chat media.
+	pub(crate) fn media_privacy_active(&self) -> bool {
+		self.entries.iter().any(|entry| {
+			entry.enabled
+				&& entry
+					.manifest
+					.capabilities
+					.contains(&Capability::MediaPrivacy)
+				&& entry
+					.manifest
+					.actions
+					.iter()
+					.any(|action| action.surface == Surface::ComposerToggle)
+		})
+	}
+	/// Paint the plugin toggle beside the composer's emoji and GIF triggers.
+	pub(crate) fn composer_media_toggle(
+		&mut self,
+		ui: &mut egui::Ui,
+		active: bool,
+		state: &State,
+	) -> Option<egui::Response> {
+		let (plugin, settings, icon, label) = self.entries.iter().find_map(|entry| {
+			entry.enabled.then_some(())?;
+			entry
+				.manifest
+				.capabilities
+				.contains(&Capability::MediaPrivacy)
+				.then_some(())?;
+			let action = entry
+				.manifest
+				.actions
+				.iter()
+				.find(|action| action.surface == Surface::ComposerToggle)?;
+			let settings = entry
+				.manifest
+				.actions
+				.iter()
+				.find(|action| action.surface == Surface::Panel)?;
+			Some((
+				entry.manifest.id.clone(),
+				settings.id.clone(),
+				action.icon.clone(),
+				action.label.clone(),
+			))
+		})?;
+		let icon = match icon.as_deref() {
+			Some("image") => icons::Icon::Image,
+			Some("lock") => icons::Icon::Lock,
+			Some("shield-warning") => icons::Icon::ShieldWarning,
+			_ => icons::Icon::EyeSlash,
+		};
+		let label = if active {
+			format!("{label} (on)")
+		} else {
+			format!("{label} (off)")
+		};
+		let response = icons::toggle(ui, icon, 28.0, active, &label);
+		// Secondary click opens the plugin's settings without changing the toggle.
+		if response.secondary_clicked() {
+			self.queue(
+				ui.ctx(),
+				ExtensionRequest::Invoke {
+					id: plugin,
+					invocation: Invocation {
+						action: settings,
+						media_privacy: self.media_privacy,
+						..Default::default()
+					},
+					context: ExtensionContext::panel(state),
+				},
+			);
+		}
+		Some(response)
+	}
 	pub fn editing_theme(&self) -> bool {
 		self.theme_editor.is_some()
 	}
@@ -1434,12 +1511,26 @@ impl ExtensionUi {
 			self.queue(ui.ctx(), ExtensionRequest::Disable { id });
 		}
 		if let Some((id, action)) = invoke {
+			// The field is only valid for a panel action from a plugin that
+			// declared `media_privacy`; other plugins reject unknown context.
+			let media_privacy = self
+				.entries
+				.iter()
+				.find(|entry| entry.manifest.id == id)
+				.filter(|entry| {
+					entry
+						.manifest
+						.capabilities
+						.contains(&Capability::MediaPrivacy)
+				})
+				.and(self.media_privacy);
 			self.queue(
 				ui.ctx(),
 				ExtensionRequest::Invoke {
 					id,
 					invocation: Invocation {
 						action,
+						media_privacy,
 						..Default::default()
 					},
 					context: ExtensionContext::panel(state),
@@ -2730,6 +2821,7 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::MessageEvents => "Read live message events and text in the active conversation",
 		Capability::SelectedMessage => "Read the message I choose for an action",
 		Capability::Composer => "Read my draft and propose text changes",
+		Capability::MediaPrivacy => "Mask images, GIFs and videos in chat; reveal on hover",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
 		Capability::AppContext => "Read my account and current conversation details",
 		Capability::AccountProfile => "Read my loaded profile, including biography and pronouns",

@@ -1,0 +1,26 @@
+{
+  "api_version": 1,
+  "id": "media-privacy",
+  "name": "Media privacy",
+  "version": "1.0.0",
+  "author": "Serein contributors",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/ViceVerse-cz/Serein",
+  "kind": "plugin",
+  "capabilities": [
+    "media_privacy"
+  ],
+  "actions": [
+    {
+      "id": "toggle",
+      "label": "Blur chat media",
+      "surface": "composer_toggle",
+      "icon": "eye-slash"
+    },
+    {
+      "id": "settings",
+      "label": "Media privacy settings",
+      "surface": "panel"
+    }
+  ]
+}

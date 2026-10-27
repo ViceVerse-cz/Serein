@@ -35,6 +35,8 @@ pub mod server_settings;
 pub use reading_preferences::ReadingPreferences;
 mod cache_preferences;
 pub use cache_preferences::*;
+mod media_privacy;
+pub use media_privacy::*;
 pub mod badges;
 mod cosmetics;
 pub use cosmetics::*;

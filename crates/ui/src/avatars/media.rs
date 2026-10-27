@@ -33,6 +33,122 @@ const DIM: f32 = 48.0;
 // Keep recent scroll-back cheap without retaining a day's inline image textures.
 const IDLE_TEXTURES: Duration = Duration::from_secs(60);
 
+/// Coarse copy kept for mask generation. A real convolution on this raster
+/// smooths away its pixels before the linear upscale, instead of showing them.
+const MASK_SOURCE_EDGE: u32 = 128;
+
+/// Convolution radius at the coarse raster resolution.
+pub(crate) fn blur_radius(strength: u8) -> u32 {
+	(u32::from(strength.min(100)) * 24 / 100).max(1)
+}
+
+/// Separable box blur, once per axis. Two axes are enough for a smooth mask and
+/// keep the one-off cost bounded when a still arrives on the UI thread.
+pub(crate) fn blur_box(image: &ColorImage, radius: u32) -> ColorImage {
+	let (width, height) = (image.size[0], image.size[1]);
+	if radius == 0 || width == 0 || height == 0 {
+		return image.clone();
+	}
+	let radius = radius as isize;
+	let horizontal = {
+		let mut pixels = Vec::with_capacity(image.pixels.len());
+		for y in 0..height {
+			for x in 0..width {
+				let (start, end) = (
+					(x as isize - radius).max(0) as usize,
+					((x as isize + radius) as usize).min(width - 1),
+				);
+				let mut sum = [0_u32; 4];
+				for sx in start..=end {
+					let [r, g, b, a] = image.pixels[y * width + sx].to_array();
+					for (total, channel) in sum.iter_mut().zip([r, g, b, a]) {
+						*total += u32::from(channel);
+					}
+				}
+				pixels.push(average(sum, end - start + 1));
+			}
+		}
+		pixels
+	};
+	let mut pixels = Vec::with_capacity(image.pixels.len());
+	for y in 0..height {
+		let (start, end) = (
+			(y as isize - radius).max(0) as usize,
+			((y as isize + radius) as usize).min(height - 1),
+		);
+		for x in 0..width {
+			let mut sum = [0_u32; 4];
+			for sy in start..=end {
+				let [r, g, b, a] = horizontal[sy * width + x].to_array();
+				for (total, channel) in sum.iter_mut().zip([r, g, b, a]) {
+					*total += u32::from(channel);
+				}
+			}
+			pixels.push(average(sum, end - start + 1));
+		}
+	}
+	ColorImage {
+		size: [width, height],
+		pixels,
+		..Default::default()
+	}
+}
+
+fn average(sum: [u32; 4], count: usize) -> Color32 {
+	let count = count.max(1) as u32;
+	// Inputs came from `Color32::to_array`, which is already premultiplied.
+	Color32::from_rgba_premultiplied(
+		(sum[0] / count) as u8,
+		(sum[1] / count) as u8,
+		(sum[2] / count) as u8,
+		(sum[3] / count) as u8,
+	)
+}
+
+/// Box-filter downscale; cheap at mask resolution and stable for animated source stills.
+pub(crate) fn resize_box(image: &ColorImage, edge: u32) -> ColorImage {
+	let (width, height) = (image.size[0] as u32, image.size[1] as u32);
+	let (target_width, target_height) = fit_edge(width, height, edge.max(1));
+	if (target_width, target_height) == (width, height) {
+		return image.clone();
+	}
+	let mut pixels = Vec::with_capacity(target_width as usize * target_height as usize);
+	for y in 0..target_height {
+		let y0 = y * height / target_height;
+		let y1 = ((y + 1) * height / target_height).max(y0 + 1).min(height);
+		for x in 0..target_width {
+			let x0 = x * width / target_width;
+			let x1 = ((x + 1) * width / target_width).max(x0 + 1).min(width);
+			let mut sum = [0_u32; 4];
+			// Sample at most 4x4 source pixels per output texel: enough for a mask and
+			// bounded even when a 2048px still arrives on the UI thread.
+			let step_x = ((x1 - x0) / 4).max(1);
+			let step_y = ((y1 - y0) / 4).max(1);
+			let mut count = 0;
+			for sy in (y0..y1).step_by(step_y as usize) {
+				for sx in (x0..x1).step_by(step_x as usize) {
+					let [r, g, b, a] = image.pixels[(sy * width + sx) as usize].to_array();
+					for (total, channel) in sum.iter_mut().zip([r, g, b, a]) {
+						*total += u32::from(channel);
+					}
+					count += 1;
+				}
+			}
+			pixels.push(Color32::from_rgba_premultiplied(
+				(sum[0] / count) as u8,
+				(sum[1] / count) as u8,
+				(sum[2] / count) as u8,
+				(sum[3] / count) as u8,
+			));
+		}
+	}
+	ColorImage {
+		size: [target_width as usize, target_height as usize],
+		pixels,
+		..Default::default()
+	}
+}
+
 /// Scale `width`×`height` so the longer side is at most `edge`, never upscaling.
 pub fn fit_edge(width: u32, height: u32, edge: u32) -> (u32, u32) {
 	let longest = u64::from(width.max(height)).max(u64::from(edge));
@@ -311,6 +427,10 @@ struct Held {
 	size: Size,
 	lane: Lane,
 	pixels: Pixels,
+	/// Coarse copy of the still used to build a blur mask without another decode.
+	mask_source: Option<Arc<ColorImage>>,
+	/// Blur mask keyed by the strength that produced it.
+	mask: Option<(u8, TextureHandle)>,
 	arrived: Instant,
 	painted: Instant,
 	used: u64,
@@ -322,10 +442,27 @@ impl Held {
 		matches!(self.pixels, Pixels::Playing { .. })
 	}
 	fn bytes(&self) -> usize {
-		match &self.pixels {
+		let pixels = match &self.pixels {
 			Pixels::Still(still) => still.byte_size(),
 			Pixels::Playing { still, animation } => still.byte_size() + animation.bytes,
+		};
+		let source = self
+			.mask_source
+			.as_ref()
+			.map_or(0, |source| source.pixels.len() * 4);
+		pixels + source + self.mask.as_ref().map_or(0, |(_, mask)| mask.byte_size())
+	}
+	fn mask_texture(&mut self, ctx: &egui::Context, strength: u8) -> Option<TextureHandle> {
+		if let Some((cached, texture)) = &self.mask
+			&& *cached == strength
+		{
+			return Some(texture.clone());
 		}
+		let source = self.mask_source.as_deref()?;
+		let image = blur_box(source, blur_radius(strength));
+		let texture = ctx.load_texture("media-mask", image, egui::TextureOptions::LINEAR);
+		self.mask = Some((strength, texture.clone()));
+		Some(texture)
 	}
 	fn pool(&self) -> Pool {
 		match (self.lane, &self.pixels) {
@@ -536,6 +673,26 @@ impl MediaLibrary {
 		)
 	}
 
+	fn mask_texture(
+		&mut self,
+		source: &Source,
+		index: usize,
+		ctx: &egui::Context,
+		strength: u8,
+	) -> Option<TextureHandle> {
+		let (texture, pool, motion, size) = {
+			let held = self.slots.get_mut(source)?.held.get_mut(index)?;
+			(
+				held.mask_texture(ctx, strength)?,
+				held.pool(),
+				held.motion,
+				held.size,
+			)
+		};
+		self.evict(pool, (source, motion, size));
+		Some(texture)
+	}
+
 	fn texture(
 		&mut self,
 		source: &Source,
@@ -580,6 +737,7 @@ impl MediaLibrary {
 		ctx: &egui::Context,
 		rendition: Rendition,
 		image: Option<ColorImage>,
+		mask: bool,
 	) -> bool {
 		let Rendition {
 			source,
@@ -616,6 +774,7 @@ impl MediaLibrary {
 		if motion == Motion::Still {
 			slot.forget(motion, size);
 		}
+		let mask_source = mask.then(|| Arc::new(resize_box(&image, MASK_SOURCE_EDGE)));
 		let texture = ctx.load_texture("service-image", image, egui::TextureOptions::LINEAR);
 		self.clock += 1;
 		let used = self.clock;
@@ -625,6 +784,8 @@ impl MediaLibrary {
 				match &mut held.pixels {
 					Pixels::Still(still) | Pixels::Playing { still, .. } => *still = texture,
 				}
+				held.mask_source = mask_source;
+				held.mask = None;
 				held.used = used;
 				held.painted = Instant::now();
 				held.pool()
@@ -645,6 +806,8 @@ impl MediaLibrary {
 					size,
 					lane,
 					pixels: Pixels::Still(texture),
+					mask_source,
+					mask: None,
 					arrived: Instant::now(),
 					painted: Instant::now(),
 					used,
@@ -854,7 +1017,7 @@ impl MediaLibrary {
 		}
 		self.slot(&rendition.source)
 			.record(rendition.motion, rendition.size, Attempt::Pending);
-		self.accept_still(ctx, rendition.clone(), Some(image));
+		self.accept_still(ctx, rendition.clone(), Some(image), false);
 	}
 }
 
@@ -884,6 +1047,29 @@ impl MediaLibrary {
 			.map(Held::bytes)
 			.sum()
 	}
+}
+
+#[cfg(test)]
+#[test]
+fn mask_rasters_shrink_with_strength_and_blur_spreads_edges() {
+	assert!(blur_radius(100) > blur_radius(25));
+	assert_eq!(blur_radius(0), 1);
+	let image = ColorImage::filled([64, 32], Color32::WHITE);
+	let sharp = resize_box(&image, 128);
+	assert_eq!(sharp.size, [64, 32]);
+	let soft = resize_box(&image, 16);
+	assert_eq!(soft.size, [16, 8]);
+	assert!(soft.pixels.iter().all(|pixel| *pixel == Color32::WHITE));
+
+	let mut edge = ColorImage::filled([16, 1], Color32::BLACK);
+	for pixel in &mut edge.pixels[8..] {
+		*pixel = Color32::WHITE;
+	}
+	let blurred = blur_box(&edge, 2);
+	assert!(
+		blurred.pixels[7].r() > 0 && blurred.pixels[7].r() < 255,
+		"edge must be softened"
+	);
 }
 
 pub fn is_motion_video(url: &str) -> bool {
@@ -954,7 +1140,8 @@ mod retention_tests {
 		assert!(library.accept_still(
 			ctx,
 			rendition.clone(),
-			Some(ColorImage::filled([512, 288], Color32::WHITE))
+			Some(ColorImage::filled([512, 288], Color32::WHITE)),
+			false,
 		));
 		rendition
 	}
@@ -976,7 +1163,7 @@ mod retention_tests {
 		library
 			.slot(&source)
 			.record(Motion::Animated, size, Attempt::Pending);
-		assert!(library.accept_still(&ctx, animated, None));
+		assert!(library.accept_still(&ctx, animated, None, false));
 		let (still, choice) = library.want(&source, true, size, Lane::Inline, Instant::now());
 		assert_eq!(still.motion, Motion::Still);
 		assert!(choice.request, "The still is requested right away");
@@ -1305,6 +1492,54 @@ impl Avatars {
 				Color32::WHITE.gamma_multiply(*progress),
 			);
 			ui.ctx().request_repaint();
+		}
+		if matches!(surface, Surface::Inline | Surface::Banner)
+			&& let Some(config) = self.media_privacy.filter(|config| config.enabled)
+			&& let Some(painted) = painted
+		{
+			let reveal = ui.ctx().animate_bool_with_time(
+				ui.make_persistent_id(("media-privacy", source.as_str())),
+				config.reveal_on_hover && ui.rect_contains_pointer(rect),
+				0.18,
+			);
+			let visibility = 1.0 - reveal;
+			if visibility > 0.001 {
+				let alpha = config.opacity.min(100) as f32 / 100.0 * visibility;
+				let mask = match config.style {
+					extensions::MediaPrivacyStyle::Blur => choice.base.and_then(|index| {
+						self.media
+							.mask_texture(&source, index, ui.ctx(), config.strength)
+					}),
+					extensions::MediaPrivacyStyle::Solid => None,
+				};
+				match (config.style, mask) {
+					(extensions::MediaPrivacyStyle::Blur, Some(mask)) => {
+						// The blur keeps source alpha; an opaque backdrop prevents
+						// transparent PNG/GIF pixels from leaving sharp content visible.
+						ui.painter().rect_filled(
+							painted,
+							radius,
+							crate::design::palette(ui).canvas.gamma_multiply(alpha),
+						);
+						paint_texture(
+							ui,
+							&mask,
+							painted,
+							radius,
+							cover,
+							Color32::WHITE.gamma_multiply(alpha),
+						);
+					}
+					_ => {
+						let [r, g, b] = config.color;
+						ui.painter().rect_filled(
+							painted,
+							radius,
+							Color32::from_rgba_unmultiplied(r, g, b, (alpha * 255.0) as u8),
+						);
+					}
+				}
+			}
 		}
 		choice.quality
 	}
