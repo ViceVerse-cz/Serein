@@ -9,7 +9,7 @@ use crate::{
 };
 use client_core::voice::VoiceConnection;
 use futures_util::{SinkExt, StreamExt};
-use opus2::{Application, Bitrate, Channels, Encoder};
+use opus2::{Application, Bitrate, Channels, Encoder, SoftClip};
 use serde_json::{Value, json};
 use std::{
 	net::{IpAddr, SocketAddr},
@@ -368,19 +368,53 @@ async fn run_inner(
 	let mut heard = false;
 	let mut speaking = false;
 	let mut silence = 0u8;
-	// Capture is mono; a mono stream halves Opus work and decodes identically on stereo receivers.
-	let mut encoder = Encoder::new(48_000, Channels::Mono, Application::Voip)
+	// Capture stays mono; each mono frame is sent as dual-mono stereo Opus at the
+	// maximum 510 kb/s constant-bitrate Music profile (1,275-byte 20 ms packets,
+	// about 528 kb/s on the wire with RTP/DAVE/transport overhead).
+	let mut encoder = Encoder::new(48_000, Channels::Stereo, Application::Audio)
 		.map_err(|_| "Opus encoder initialization failed")?;
 	encoder
-		.set_bitrate(Bitrate::Bits(64_000))
+		.set_bitrate(Bitrate::Bits(510_000))
 		.map_err(|_| "Opus bitrate configuration failed")?;
+	encoder
+		.set_vbr(false)
+		.map_err(|_| "Opus VBR configuration failed")?;
+	encoder
+		.set_vbr_constraint(false)
+		.map_err(|_| "Opus VBR constraint configuration failed")?;
+	// Capture is 32-bit float; the source carries at least 24 significant bits.
+	encoder
+		.set_lsb_depth(24)
+		.map_err(|_| "Opus LSB depth configuration failed")?;
+	encoder
+		.set_complexity(10)
+		.map_err(|_| "Opus complexity configuration failed")?;
+	encoder
+		.set_signal(opus2::Signal::Music)
+		.map_err(|_| "Opus signal configuration failed")?;
+	encoder
+		.set_force_channels(Some(Channels::Stereo))
+		.map_err(|_| "Opus stereo configuration failed")?;
+	encoder
+		.set_max_bandwidth(opus2::Bandwidth::Fullband)
+		.map_err(|_| "Opus bandwidth configuration failed")?;
+	encoder
+		.set_inband_fec(false)
+		.map_err(|_| "Opus FEC configuration failed")?;
+	encoder
+		.set_packet_loss_perc(0)
+		.map_err(|_| "Opus packet-loss configuration failed")?;
+	encoder
+		.set_dtx(false)
+		.map_err(|_| "Opus DTX configuration failed")?;
 	let mut random = [0; 6];
 	getrandom::fill(&mut random).map_err(|_| "Voice random initialization failed")?;
 	let mut sequence = u16::from_be_bytes([random[0], random[1]]);
 	let mut timestamp = u32::from_be_bytes(random[2..].try_into().unwrap());
 	let mut packet = [0u8; MAX_PACKET + 1];
 	let mut encoded = [0u8; 1275];
-	let mut mono = [0.0f32; 960];
+	let mut stereo = [0.0f32; 1_920];
+	let mut soft_clip = SoftClip::new(Channels::Stereo);
 	let mut tick = tokio::time::interval(Duration::from_millis(20));
 	tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 	let mut signal_window = Instant::now();
@@ -513,8 +547,13 @@ async fn run_inner(
 					let start = metrics.start();
 					let data=if active {
 						let frame=latest.unwrap();
-						for (sample,out) in frame.iter().zip(mono.iter_mut()) {*out=if sample.is_finite(){sample.clamp(-1.0,1.0)}else{0.0};}
-						let length=encoder.encode_float(&mono,&mut encoded).map_err(|_|"Opus encoding failed")?;
+						for (sample, pair) in frame.iter().zip(stereo.as_chunks_mut::<2>().0) {
+							let sample = if sample.is_finite() {sample.clamp(-1.0,1.0)} else {0.0};
+							pair[0] = sample;
+							pair[1] = sample;
+						}
+						soft_clip.apply(&mut stereo);
+						let length=encoder.encode_float(&stereo,&mut encoded).map_err(|_|"Opus encoding failed")?;
 						dave.session.encrypt_opus(&encoded[..length]).map_err(|_|"DAVE audio encryption failed")?.into_owned()
 					} else {silence-=1;davey::OPUS_SILENCE_PACKET.to_vec()};
 					let mut header=[0;12];header[0]=0x80;header[1]=120;header[2..4].copy_from_slice(&sequence.to_be_bytes());header[4..8].copy_from_slice(&timestamp.to_be_bytes());header[8..12].copy_from_slice(&ssrc.to_be_bytes());
