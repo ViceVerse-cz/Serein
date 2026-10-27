@@ -1745,7 +1745,13 @@ impl MessagingUi {
 									&mut self.profile,
 									&mut self.user_action,
 								);
-								if let Some(status) = status {
+								// Members typing in the open channel, as Discord's member list shows.
+								if state
+									.typing_users(std::time::Instant::now())
+									.any(|typist| typist == member.user.id)
+								{
+									profiles::typing_badge(ui, avatar.rect, status, colors.sidebar);
+								} else if let Some(status) = status {
 									profiles::presence_badge(
 										ui,
 										avatar.rect,
@@ -2400,7 +2406,9 @@ impl MessagingUi {
 						}
 						let (status, _, _, clients) = profiles::presence(state, user.id, None);
 						let status = profiles::shown_status(state, user.id, status);
-						if dm && let Some(status) = status {
+						if dm && state.direct_typing(c.id, std::time::Instant::now()) {
+							profiles::typing_badge(ui, avatar.rect, status, colors.sidebar);
+						} else if dm && let Some(status) = status {
 							profiles::presence_badge(
 								ui,
 								avatar.rect,
@@ -3833,6 +3841,13 @@ impl MessagingUi {
                                 self.clear_draft(state, channel);
                             } else {
                                 self.draft_changes.push(channel);
+                                // Tell the conversation, as the official client does.
+                                if edit.changed()
+                                    && let Some(command) =
+                                        state.prepare_typing(channel, std::time::Instant::now())
+                                {
+                                    commands.push(command);
+                                }
                             }
                         }
                         self.mention_lookup.text = self.mention_menu.member_query().to_owned();
@@ -6255,7 +6270,46 @@ mod composer_tests {
 		output.drop_without_applying_deltas();
 		// This helper simulates key taps; raw-input tests explicitly model held keys.
 		ctx.input_mut(|i| i.keys_down.clear());
+		// These tests are about sending; the typing indicator has its own test.
+		commands.retain(|command| !matches!(command, Command::Typing { .. }));
 		commands
+	}
+
+	#[test]
+	fn typing_a_draft_sends_one_typing_indicator_until_it_lapses() {
+		let ctx = egui::Context::default();
+		let mut state = edit_state();
+		state.gateway_connected = true;
+		let channel = state.selected.unwrap();
+		let mut view = MessagingUi::default();
+		ctx.run_ui(Default::default(), |ui| {
+			view.composer(ui, &mut state, channel, &ctx, &mut vec![]);
+			ctx.memory_mut(|m| m.request_focus(ui.make_persistent_id("message-input")));
+		})
+		.drop_without_applying_deltas();
+		let mut typed = |text: &str, state: &mut State| {
+			let mut commands = vec![];
+			ctx.run_ui(
+				egui::RawInput {
+					events: vec![egui::Event::Text(text.into())],
+					..Default::default()
+				},
+				|ui| view.composer(ui, state, channel, &ctx, &mut commands),
+			)
+			.drop_without_applying_deltas();
+			commands
+				.iter()
+				.filter(
+					|command| matches!(command, Command::Typing { channel: at } if *at == channel),
+				)
+				.count()
+		};
+		assert_eq!(typed("h", &mut state), 1);
+		assert_eq!(
+			typed("i", &mut state),
+			0,
+			"throttled while Discord still shows it"
+		);
 	}
 
 	fn edit_key(key: egui::Key) -> egui::Event {
@@ -8935,6 +8989,8 @@ mod composer_tests {
 			)
 			.drop_without_applying_deltas();
 			let sends = !busy && allowed && modifiers == egui::Modifiers::NONE && !repeat;
+			// A newline is typing too; this test counts sends.
+			commands.retain(|command| !matches!(command, Command::Typing { .. }));
 			assert_eq!(commands.len(), usize::from(sends));
 			if modifiers == egui::Modifiers::SHIFT {
 				assert_eq!(state.drafts[&channel], "\n");
