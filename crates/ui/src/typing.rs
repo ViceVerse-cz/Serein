@@ -3,13 +3,16 @@ use client_core::State;
 use model::Id;
 use std::time::Instant;
 
+/// The name this conversation shows for a typist: a loaded guild nickname still wins, and the
+/// identities the channel and its messages already carry are shown under the local friend
+/// nickname, so the indicator names a DM the way its title and message authors do.
 fn name(state: &State, channel: Id, user: Id) -> Option<&str> {
 	state
 		.channels
 		.iter()
 		.find(|entry| entry.id == channel)
 		.and_then(|entry| entry.recipients.iter().find(|entry| entry.id == user))
-		.map(|user| user.name.as_str())
+		.map(|recipient| state.user_display_name(recipient))
 		.or_else(|| {
 			state
 				.members
@@ -26,7 +29,13 @@ fn name(state: &State, channel: Id, user: Id) -> Option<&str> {
 						})
 						.find(|member| member.user.id == user)
 				})
-				.map(|member| member.nick.as_deref().unwrap_or(&member.user.name))
+				.map(|member| {
+					member
+						.nick
+						.as_deref()
+						.filter(|nick| !nick.is_empty())
+						.unwrap_or_else(|| state.user_display_name(&member.user))
+				})
 		})
 		.or_else(|| {
 			state
@@ -35,13 +44,13 @@ fn name(state: &State, channel: Id, user: Id) -> Option<&str> {
 				.filter(|message| message.channel == channel)
 				.find_map(|message| {
 					if message.author.id == user {
-						Some(message.author.name.as_str())
+						Some(state.message_author_name(message))
 					} else {
 						message
 							.mentions
 							.iter()
 							.find(|entry| entry.id == user)
-							.map(|user| user.name.as_str())
+							.map(|user| state.user_display_name(user))
 					}
 				})
 		})
@@ -368,6 +377,57 @@ mod tests {
 		state.selected = Some(Id(10));
 		state.freshness = Freshness::Stale;
 		assert!(label(&state, Id(10), now).is_none());
+	}
+
+	#[test]
+	fn a_local_friend_nickname_names_the_typist() {
+		let now = Instant::now();
+		let wall = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
+		let mut state = state();
+		let friend = state.channels[0].recipients[0].clone();
+		let apply = |state: &mut State, event: client_core::user_actions::Event| {
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::UserAction(event),
+			});
+		};
+		apply(
+			&mut state,
+			client_core::user_actions::Event::Friends(Some(vec![(
+				friend.clone(),
+				"synthetic.friend".into(),
+			)])),
+		);
+		apply(
+			&mut state,
+			client_core::user_actions::Event::Nickname {
+				user: friend.id,
+				text: "Bestie".into(),
+			},
+		);
+		assert_eq!(state.conversation_name(&state.channels[0]), "Bestie");
+		let signal = Signal {
+			channel: Id(10),
+			user: friend.id,
+			timestamp: 1_000,
+		};
+		state.observe_typing_at(signal, wall, now);
+		assert_eq!(
+			label(&state, Id(10), now).as_deref(),
+			Some("Bestie is typing…")
+		);
+		// A cleared nickname falls back to the name the conversation otherwise shows.
+		apply(
+			&mut state,
+			client_core::user_actions::Event::Nickname {
+				user: friend.id,
+				text: String::new(),
+			},
+		);
+		assert_eq!(
+			label(&state, Id(10), now).as_deref(),
+			Some("Alex is typing…")
+		);
 	}
 
 	#[test]
