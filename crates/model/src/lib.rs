@@ -217,13 +217,42 @@ impl SavedAccount {
 			.filter(|display| !display.is_empty())
 			.unwrap_or(&self.name)
 	}
+	/// Roster identity of the account that just signed in. The handle is stored apart from the
+	/// display name: the user this client keeps already carries the display name, so the handle
+	/// comes from the account's own profile and falls back to the user's name until it loads.
+	pub fn identity(user: &User, handle: Option<&str>, display: Option<&str>) -> Self {
+		Self {
+			id: user.id,
+			name: handle
+				.filter(|handle| !handle.is_empty())
+				.unwrap_or(&user.name)
+				.to_owned(),
+			display: display
+				.filter(|display| !display.is_empty())
+				.map(str::to_owned),
+			avatar: user.avatar.clone(),
+			discriminator: user.discriminator,
+			has_token: false,
+		}
+	}
+	/// The handle shown under the display name. An entry recorded before the handle was kept
+	/// carries the display name twice, so it shows no handle until that account signs in again
+	/// and rewrites its entry.
+	pub fn handle(&self) -> Option<&str> {
+		let display = self
+			.display
+			.as_deref()
+			.filter(|display| !display.is_empty());
+		(display != Some(self.name.as_str())).then_some(self.name.as_str())
+	}
 	/// Avatar lookups and name rows reuse the ordinary user widgets.
 	pub fn user(&self) -> User {
 		User {
 			kind: AccountKind::Human,
 			webhook: false,
 			id: self.id,
-			name: self.name.clone(),
+			// Initials fall back to the display name, as for every other avatar.
+			name: self.label().to_owned(),
 			avatar: self.avatar.clone(),
 			discriminator: self.discriminator,
 			primary_guild: None,
@@ -958,6 +987,59 @@ mod presence_tests {
 		);
 		assert!(!ActivityImage::Proxy("external/../secret".into()).valid());
 		assert!(!ActivityImage::Proxy("x".repeat(1025)).valid());
+	}
+}
+
+#[cfg(test)]
+mod roster_identity_tests {
+	use super::*;
+
+	fn user(name: &str) -> User {
+		User {
+			id: Id(2),
+			name: name.into(),
+			avatar: None,
+			webhook: false,
+			kind: AccountKind::Human,
+			discriminator: 0,
+			primary_guild: None,
+			cosmetics: None,
+		}
+	}
+
+	#[test]
+	fn a_roster_entry_keeps_the_handle_apart_from_the_display_name() {
+		// The user this client keeps already carries the display name, so a roster entry built
+		// from it alone showed that name on both switcher lines.
+		let user = user("Display name");
+		let saved = SavedAccount::identity(&user, Some("handle"), Some("Display name"));
+		assert_eq!(
+			(saved.name.as_str(), saved.label()),
+			("handle", "Display name")
+		);
+		assert_eq!(saved.user().name, "Display name");
+		assert!(saved.is_valid());
+		// Until the own profile loads the entry keeps the user's name and no display name.
+		let pending = SavedAccount::identity(&user, None, None);
+		assert_eq!(
+			(pending.name.as_str(), pending.label()),
+			("Display name", "Display name")
+		);
+		assert_eq!(pending.display, None);
+		assert!(pending.is_valid());
+		// An account without a display name still shows its handle on both lines.
+		let plain = SavedAccount::identity(&user, Some("handle"), None);
+		assert_eq!((plain.label(), plain.display.as_deref()), ("handle", None));
+		assert_eq!(plain.handle(), Some("handle"));
+		assert_eq!(saved.handle(), Some("handle"));
+		// A row written before the handle was kept names the account once, never twice.
+		let stale = SavedAccount {
+			name: "Display name".into(),
+			display: Some("Display name".into()),
+			..saved
+		};
+		assert_eq!(stale.handle(), None);
+		assert_eq!(stale.label(), "Display name");
 	}
 }
 

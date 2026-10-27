@@ -394,10 +394,16 @@ impl MessagingUi {
 				.truncate()
 				.selectable(false),
 			);
+			// The handle sits under the display name; the blank line keeps the row height when an
+			// entry does not know it yet, instead of naming the account twice.
 			ui.add(
-				egui::Label::new(RichText::new(&account.name).size(12.0).color(colors.muted))
-					.truncate()
-					.selectable(false),
+				egui::Label::new(
+					RichText::new(account.handle().unwrap_or_default())
+						.size(12.0)
+						.color(colors.muted),
+				)
+				.truncate()
+				.selectable(false),
 			);
 		});
 		// Same affordance as the sign-in screen's saved accounts.
@@ -1089,6 +1095,13 @@ mod tests {
 						has_token: true,
 					},
 					alt_account(),
+					// Recorded before the handle was kept: the display name must not repeat.
+					model::SavedAccount {
+						id: model::Id(424_243),
+						name: "Synthetic Stale".into(),
+						display: Some("Synthetic Stale".into()),
+						..alt_account()
+					},
 				],
 				..Default::default()
 			};
@@ -1102,6 +1115,13 @@ mod tests {
 			assert!(listed("Synthetic Alt"));
 			assert!(listed("synthetic-alt"));
 			assert!(listed("Add an account"));
+			assert_eq!(
+				text.iter()
+					.filter(|(value, _)| value == "Synthetic Stale")
+					.count(),
+				1,
+				"an entry without a known handle must not name the account twice"
+			);
 			// The signed-in account is remembered but never listed as a switch target.
 			assert!(!listed("Signed in already"));
 			click(
