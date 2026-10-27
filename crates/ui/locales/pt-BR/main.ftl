@@ -4732,6 +4732,8 @@ composer-placeholder-direct = Conversar com @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = Este é o começo do seu histórico de mensagens diretas com { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Boas-vindas ao início do grupo { $name }.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = Boas-vindas a #{ $channel }!

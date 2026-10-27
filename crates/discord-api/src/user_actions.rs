@@ -61,10 +61,11 @@ impl DiscordApi {
 			return Err(Failure::Protocol);
 		}
 		let bytes = self
-			.request(
+			.request_limited(
 				Method::POST,
 				"/users/@me/channels",
 				Some(json!({"recipients": people})),
+				64 * 1024,
 			)
 			.await
 			.map_err(|failure| {

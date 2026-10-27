@@ -4833,6 +4833,8 @@ composer-placeholder-direct = 傳送訊息給 @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = 這是你與 { $name } 的私訊紀錄的開頭。
+# Context: timeline_group_intro
+timeline-group-intro = 歡迎來到 { $name } 群組的開端。
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = 歡迎來到 #{ $channel }！
@@ -4934,5 +4936,5 @@ new-message-subtitle = 群組私訊最多可有 10 位成員。
 new-message-search = 搜尋
 new-message-hint = 新增好友以開始私訊或群組。
 new-message-no-people-found = 沒有符合的結果。
-new-message-create = 建立私訊
+new-message-create = 建立訊息
 new-message-cancel = 取消

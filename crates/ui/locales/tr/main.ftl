@@ -4721,6 +4721,8 @@ composer-placeholder-direct = @{ $name } kişisine mesaj gönder
 
 # Context: timeline_dm_intro
 timeline-dm-intro = { $name } ile doğrudan mesaj geçmişinin başlangıcı.
+# Context: timeline_group_intro
+timeline-group-intro = { $name } grubunun başlangıcına hoş geldiniz.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = #{ $channel } kanalına hoş geldin!

@@ -356,9 +356,8 @@ fn rows_at<'a>(
 			);
 		}
 	}
-	if let Some(heading) = scope.remainder_heading()
-		&& !tree.is_empty()
-	{
+	// Home keeps its heading even with no unpinned DMs: it carries the New Message action.
+	if let Some(heading) = scope.remainder_heading() {
 		rows.push(Row::Heading(heading));
 	}
 	rows.extend(tree);
@@ -715,7 +714,13 @@ impl MessagingUi {
 		}
 		let dm_list = self.guild.is_none();
 		let row_height = if dm_list { 44.0 } else { 34.0 };
-		let row_count = self.channel_cache.rows.len().max(usize::from(dm_list));
+		// An empty DM remainder still gets its "no conversations" line under the heading.
+		let empty_dms = dm_list
+			&& matches!(
+				self.channel_cache.rows.last(),
+				None | Some(CachedRow::Heading(Heading::DirectMessages))
+			);
+		let row_count = self.channel_cache.rows.len() + usize::from(empty_dms);
 		let previous_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
 		let mut drop_rows = Vec::new();
@@ -1929,6 +1934,27 @@ mod tests {
 			.as_slice(),
 			[Row::Category(_, 1)]
 		));
+	}
+
+	/// Regression: the DM heading carries New Message, so it stays without unpinned DMs.
+	#[test]
+	fn the_direct_message_heading_stays_when_no_unpinned_dms_remain() {
+		let mut state = test_support::demo_state();
+		state.channels.retain(|c| c.guild.is_some());
+		let heading_last = |state: &State, preferences: &model::ChannelPreferences| {
+			let roster = Roster::build(state, preferences, Scope::Home, false);
+			let output = rows(state, Scope::Home, &roster, &BTreeSet::new(), false, false);
+			matches!(output.last(), Some(Row::Heading(Heading::DirectMessages)))
+		};
+		assert!(heading_last(&state, &Default::default()), "no DMs at all");
+		let mut dm = channel(30, 1, 0, None);
+		dm.guild = None;
+		state.channels.push(dm);
+		let pinned = model::ChannelPreferences {
+			pinned: vec![Id(30)],
+			..Default::default()
+		};
+		assert!(heading_last(&state, &pinned), "every DM is pinned");
 	}
 
 	#[test]

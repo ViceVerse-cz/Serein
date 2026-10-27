@@ -4738,6 +4738,8 @@ composer-placeholder-direct = Написать @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = Это начало истории ваших личных сообщений с { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Добро пожаловать в начало группы { $name }.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = Добро пожаловать в #{ $channel }!

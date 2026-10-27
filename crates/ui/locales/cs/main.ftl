@@ -4824,6 +4824,8 @@ composer-placeholder-direct = Zpráva pro @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = Toto je začátek vaší historie přímých zpráv s uživatelem { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Vítejte na začátku skupiny { $name }.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = Vítejte v #{ $channel }!

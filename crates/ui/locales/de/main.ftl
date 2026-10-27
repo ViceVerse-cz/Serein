@@ -4732,6 +4732,8 @@ composer-placeholder-direct = Nachricht an @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = Das ist der Anfang deines Direktnachrichtenverlaufs mit { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Willkommen am Anfang der Gruppe { $name }.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = Willkommen in #{ $channel }!
@@ -4834,7 +4836,7 @@ main-sign-in-rate-limited-detail = Discord begrenzt diese Anmeldung. Warte, bevo
 new-message-title = Neue Nachricht
 new-message-subtitle = Gruppen-DMs können bis zu 10 Mitglieder haben.
 new-message-search = Suchen
-new-message-hint = Füge Freunde hinzu, um eine Direktnachricht oder eine Gruppe zu starten.
+new-message-hint = Fügen Sie Freunde hinzu, um eine Direktnachricht oder eine Gruppe zu starten.
 new-message-no-people-found = Niemand entspricht dieser Suche.
 new-message-create = Nachricht erstellen
 new-message-cancel = Abbrechen

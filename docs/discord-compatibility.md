@@ -2629,6 +2629,7 @@ recipients cover everyone that was asked for. The created channel is opened the 
 newly opened DM is, and navigation made while the request was in flight wins over it.
 Failures report the service label instead of leaving the picker open.
 
-The `recipients` field is a documented Discord route, but it is live-unverified in this
-environment: loopback tests cover the request shape and response validation, and the owner
-confirmed the button is missing from the current build.
+`POST /users/@me/channels` is a documented route, but sending `recipients` from a normal
+account is an unofficial request shape, inferred from the official client and live-unverified:
+loopback tests cover the request shape and response validation, and the owner's release-build
+pass exercised the picker but not live group creation.

@@ -4833,6 +4833,8 @@ composer-placeholder-direct = 给 @{ $name } 发消息
 
 # Context: timeline_dm_intro
 timeline-dm-intro = 这是你与 { $name } 的私信记录的开头。
+# Context: timeline_group_intro
+timeline-group-intro = 欢迎来到 { $name } 群组的开端。
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = 欢迎来到 #{ $channel }！
@@ -4934,5 +4936,5 @@ new-message-subtitle = 群组私信最多可有 10 位成员。
 new-message-search = 搜索
 new-message-hint = 添加好友以开始私信或群组。
 new-message-no-people-found = 没有匹配的结果。
-new-message-create = 创建私信
+new-message-create = 创建消息
 new-message-cancel = 取消

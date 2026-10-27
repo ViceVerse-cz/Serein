@@ -4735,6 +4735,8 @@ composer-placeholder-direct = Enviar mensaje a @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = Este es el comienzo de tu historial de mensajes directos con { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Te damos la bienvenida al comienzo del grupo { $name }.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = ¡Te damos la bienvenida a #{ $channel }!

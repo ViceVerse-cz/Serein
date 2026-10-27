@@ -68,6 +68,8 @@ impl NewMessageUi {
 			*self = Self::default();
 			return;
 		}
+		// Someone unfriended while the picker is open can no longer be messaged from it.
+		self.selected.retain(|user| state.friend(*user).is_some());
 		let mut create = false;
 		let mut close = false;
 		let pending = state.user_action_pending();
@@ -162,9 +164,14 @@ impl NewMessageUi {
 							.clicked();
 					});
 				});
-		if create && let Some(command) = self.issue(state) {
-			commands.push(command);
-			close = true;
+		if create {
+			if let Some(command) = self.issue(state) {
+				commands.push(command);
+				close = true;
+			} else if self.opened(state) {
+				// The conversation was already loaded, or already on screen.
+				close = true;
+			}
 		}
 		if close || response.close {
 			*self = Self::default();
@@ -177,6 +184,22 @@ impl NewMessageUi {
 			return state.open_user_dm(&friend);
 		}
 		state.create_group_dm(&self.selected)
+	}
+	/// Whether the selected conversation is the one these people would start.
+	fn opened(&self, state: &State) -> bool {
+		let kind = if self.selected.len() == 1 { 1 } else { 3 };
+		state
+			.selected
+			.and_then(|id| state.channel(id))
+			.is_some_and(|channel| {
+				channel.guild.is_none()
+					&& channel.kind == kind
+					&& channel.recipients.len() == self.selected.len()
+					&& self
+						.selected
+						.iter()
+						.all(|user| channel.recipients.iter().any(|entry| entry.id == *user))
+			})
 	}
 }
 
@@ -260,5 +283,25 @@ mod tests {
 			recipients,
 			people.iter().map(|user| user.id).collect::<Vec<_>>()
 		);
+		// Regression: choosing the group already on screen sends nothing but still closes.
+		state.channels.push(model::Channel {
+			last_message: None,
+			id: Id(50),
+			guild: None,
+			parent_id: None,
+			position: 0,
+			name: "Synthetic group".into(),
+			kind: 3,
+			recipients: people.clone(),
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+			icon: None,
+		});
+		state.invalidate_navigation();
+		state.selected = Some(Id(50));
+		assert!(picker.issue(&mut state).is_none() && picker.opened(&state));
+		picker.selected.truncate(1);
+		assert!(!picker.opened(&state), "one person is not this group");
 	}
 }

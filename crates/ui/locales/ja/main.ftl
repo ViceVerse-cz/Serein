@@ -4718,6 +4718,8 @@ composer-placeholder-direct = @{ $name }へメッセージを送信
 
 # Context: timeline_dm_intro
 timeline-dm-intro = { $name } とのダイレクトメッセージ履歴の始まりです。
+# Context: timeline_group_intro
+timeline-group-intro = グループ「{ $name }」の始まりへようこそ。
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = #{ $channel } へようこそ！
