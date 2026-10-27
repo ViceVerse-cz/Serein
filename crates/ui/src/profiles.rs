@@ -1190,6 +1190,26 @@ pub(crate) fn presence(
 			member.activities.as_slice(),
 			member.clients,
 		)
+	} else if let Some(member) = state
+		// The member-list window is one lazy range; a name lookup and the visible-author
+		// lookup each return whole members with their presence. Using those keeps a dot
+		// from appearing and vanishing as that range scrolls.
+		.member_search
+		.iter()
+		.filter(|view| {
+			view.request
+				.as_ref()
+				.is_some_and(|request| Some(request.guild) == guild)
+		})
+		.flat_map(|view| view.rows.iter())
+		.find(|member| member.user.id == user)
+	{
+		(
+			member.status.as_deref(),
+			member.custom_status.as_deref(),
+			member.activities.as_slice(),
+			member.clients,
+		)
 	} else {
 		state.presence_for(user).map_or(
 			(None, None, &[][..], model::ClientPlatforms::default()),
@@ -5217,5 +5237,43 @@ mod tests {
 		};
 		assert_eq!(shown_status(&state, Id(7), None), None);
 		assert_eq!(shown_status(&state, Id(7), Some("idle")), Some("idle"));
+	}
+	#[test]
+	fn a_name_lookup_keeps_presence_after_the_member_window_moves() {
+		let mut state = test_support::chat_demo_state();
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		let channel = state.selected.expect("demo conversation");
+		let guild = state
+			.channel(channel)
+			.and_then(|channel| channel.guild)
+			.expect("server channel");
+		// The lazy member list no longer holds this person: the window scrolled past them.
+		state.members = None;
+		let user = test_support::message(1, channel).author;
+		state.member_search[0] = client_core::member_search::View {
+			request: Some(client_core::member_search::Request {
+				guild,
+				channel,
+				query: user.name.clone(),
+				users: vec![],
+				nonce: 1,
+				slot: 0,
+			}),
+			rows: vec![model::Member {
+				roles: vec![],
+				user: user.clone(),
+				nick: None,
+				status: Some("online".into()),
+				custom_status: None,
+				activities: vec![],
+				clients: model::ClientPlatforms::default(),
+			}],
+			finished: true,
+			error: None,
+		};
+		assert_eq!(presence(&state, user.id, Some(guild)).0, Some("online"));
 	}
 }

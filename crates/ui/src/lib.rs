@@ -3783,7 +3783,7 @@ impl MessagingUi {
                             .filter(|_| mention_enabled);
                         self.mention_menu
                             .refresh(state, channel, draft, mention_cursor, &mention_users);
-                        if let Some(pick) = self.mention_menu.show(ui, composer_anchor, &mut self.avatars, demo)
+                        if let Some(pick) = self.mention_menu.show(ui, composer_anchor, state, channel, &mut self.avatars, demo)
                             && let Some(cursor) = mentions::insert(draft, pick, editing_here)
                         {
                             output
