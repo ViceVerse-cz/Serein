@@ -2205,8 +2205,21 @@ mod tests {
 			view.channel_cache.rows.as_slice(),
 			[CachedRow::Category(_, 1)]
 		));
-		// Forum containers never request history; opened posts remain keyboard-selectable.
+		// Forum containers never request history; joined, pinned posts remain selectable
+		// after navigating from the post to its forum.
 		state.channels = vec![channel(7, 15, 0, None), channel(8, 11, 0, Some(Id(7)))];
+		state.thread_info.insert(
+			Id(8),
+			model::threads::Info {
+				member: Some(model::threads::Member {
+					joined: 0,
+					muted: false,
+					mute_end: None,
+				}),
+				pinned: true,
+				..Default::default()
+			},
+		);
 		state.revision += 1;
 		state.invalidate_navigation();
 		state
@@ -2216,6 +2229,7 @@ mod tests {
 		state.selected = None;
 		state.select(Id(8));
 		assert!(state.select(Id(7)).is_none());
+		assert_eq!(state.selected, Some(Id(7)));
 		let ctx = egui::Context::default();
 		let mut picked = None;
 		// The forum row itself is a destination; the second Tab reaches the loaded post.

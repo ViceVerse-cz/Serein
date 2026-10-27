@@ -222,15 +222,14 @@ async fn recovery_probes_a_ready_socket_and_resumes_only_when_it_is_silent() {
 				(json!(1), json!(41))
 			);
 			send(&mut socket, json!({"op":11,"d":null})).await;
-			// A silently dead socket is replaced by a resume once the probe goes unanswered. A
-			// signal the client sees before that ack joins the outstanding probe, so signal until
-			// a new probe is sent.
-			let probe = loop {
-				gateway.reconnect.notify_one();
-				if let Ok(probe) = timeout(Duration::from_millis(200), packet(&mut socket)).await {
-					break probe;
-				}
-			};
+			// A response to the next ordered frame proves the healthy probe's ack was
+			// consumed before the second recovery signal. Otherwise that signal can join
+			// the first probe, making the test depend on socket/scheduler timing.
+			send(&mut socket, json!({"op":1,"d":null})).await;
+			assert_eq!(packet(&mut socket).await["op"], 1);
+			// A silently dead socket is replaced by a resume once the probe goes unanswered.
+			gateway.reconnect.notify_one();
+			let probe = packet(&mut socket).await;
 			assert_eq!(probe["op"], 1);
 			let next = gateway.socket(true, Some(6)).await;
 			drop(socket);

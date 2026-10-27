@@ -352,8 +352,9 @@ review changes; no further live validation is claimed here.
 
 ### Upstream integration — October 27, 2026
 
-The stream branch incorporates upstream `d93a8415`, retaining its media-thread teardown
-and output-format selection alongside stream timing. Formatting and strict Clippy pass.
+The initial integration (`7f0f326d`) incorporates upstream `d93a8415`, retaining its
+media-thread teardown and output-format selection alongside stream timing. Formatting
+and strict Clippy pass.
 The workspace unit run passes 1,338 tests and fails the unchanged
 `categories::tests::collapsed_categories_follow_service_order_selection_and_buttons` at
 `crates/ui/src/categories.rs:2240`; an isolated rerun fails identically. The same assertion
@@ -375,6 +376,56 @@ The native Arch package smoke passes. Standard voice-enabled Rust 1.98.1 package
 The integrated package contains 245 installed files. These deltas include all
 upstream changes through `d93a8415` and do not isolate the stream feature. No new physical
 playback or CPU/RSS claim is made.
+
+### CI follow-up — October 27, 2026
+
+The sidebar keyboard fixture now gives its post joined/pinned state before navigating
+to the forum, so the post remains listed under the current sidebar rules. The fuzz
+role fixture includes `managed`. The recovery socket test waits for an ordered
+heartbeat response after acknowledging its healthy probe, before requesting the
+unanswered probe; it no longer depends on repeated 200 ms polling. These changes
+affect test fixtures only, with no sidebar or gateway runtime behavior change.
+
+`cargo xtask check` passes: 1,349 unit/integration/doctests pass, 14 are ignored,
+and formatting, strict Clippy, production and policy checks pass. Both pinned-nightly
+fuzz smoke targets pass (193,110 decode inputs and 6,596 state-transition inputs,
+31 seconds each). Declared-license checks for both lockfiles and the six offline
+license-policy fixtures pass. Hosted Windows/macOS validation remains pending for
+this follow-up; Linux test success does not establish a macOS runtime result. The
+recovery probe test also passes 20 consecutive Linux runs with the patched Tokio.
+
+Compatible dependency patches:
+
+| Package | Initial integration | Follow-up |
+| --- | --- | --- |
+| ctutils | 0.4.2 | 0.4.6 |
+| rustls-webpki | 0.103.15 | 0.103.16 |
+| webpki-root-certs / webpki-roots | 1.0.9 | 1.0.10 |
+| Tokio | 1.53.1 | 1.53.3 |
+| clipboard-win | 5.4.1 (yanked) | 5.4.3 |
+
+With cargo-audit 0.22.2 and the same RustSec database revision
+`3279c99911354c400e1d41e47c7d60e39258b147`, the strict audit changes from five
+vulnerabilities/two denied warnings to one vulnerability/no denied warnings. It
+still fails on [RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html)
+in crypto-bigint 0.5.5, used by DAVE's P-256/OpenMLS stack. Released Davey 0.1.5
+and OpenMLS providers still require the affected P-256 dependency line. Resolving
+that finding needs a coordinated crypto migration; this follow-up does not suppress
+it or change the DAVE ciphersuite. No new dependency, license exception or media
+buffer is added. Playback limits and prior live-test limitations remain unchanged.
+
+The standard voice-enabled Rust 1.98.1 Arch package passes its native metadata,
+dependency, payload, ownership and mode smoke checks:
+
+| Package metric | Initial integration (`7f0f326d`) | Follow-up | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,995,848 B | 92,995,592 B | -256 B (-0.0003%) |
+| Installed payload (245 files) | 97,694,281 B | 97,694,025 B | -256 B (-0.0003%) |
+| Arch archive | 54,559,045 B | 54,561,319 B | +2,274 B (+0.0042%) |
+
+One artifact set per revision, unchanged release settings and package contents;
+archive timestamps/compression add noise. These small size differences are not
+evidence of faster playback. CPU/RSS and physical A/V latency are unmeasured.
 
 ### Earlier playback recovery evidence
 
