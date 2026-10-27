@@ -4829,3 +4829,12 @@ search-overlays-no-matching-content-types = Aucun type de contenu correspondant
 search-overlays-history = Historique
 search-overlays-clear-history = Effacer l'historique de recherche
 main-sign-in-rate-limited-detail = Discord limite cette connexion. Patientez avant de réessayer. Une nouvelle tentative trop tôt peut prolonger l'attente.
+
+# New message
+new-message-title = Nouveau message
+new-message-subtitle = Les messages de groupe peuvent compter jusqu'à 10 membres.
+new-message-search = Rechercher
+new-message-hint = Ajoutez des amis pour démarrer un message privé ou un groupe.
+new-message-no-people-found = Personne ne correspond à cette recherche.
+new-message-create = Créer un message
+new-message-cancel = Annuler

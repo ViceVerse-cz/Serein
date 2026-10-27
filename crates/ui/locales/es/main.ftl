@@ -4832,3 +4832,12 @@ search-overlays-no-matching-content-types = No hay tipos de contenido coincident
 search-overlays-history = Historial
 search-overlays-clear-history = Borrar historial de búsqueda
 main-sign-in-rate-limited-detail = Discord está limitando este inicio de sesión. Espera antes de volver a intentarlo. Otro intento antes de tiempo puede alargar la espera.
+
+# New message
+new-message-title = Nuevo mensaje
+new-message-subtitle = Los MD de grupo pueden tener hasta 10 miembros.
+new-message-search = Buscar
+new-message-hint = Añade amigos para iniciar un mensaje directo o un grupo.
+new-message-no-people-found = Nadie coincide con esa búsqueda.
+new-message-create = Crear mensaje
+new-message-cancel = Cancelar

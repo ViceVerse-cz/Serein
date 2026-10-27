@@ -4832,3 +4832,12 @@ search-overlays-no-matching-content-types = Нет подходящих типо
 search-overlays-history = История
 search-overlays-clear-history = Очистить историю поиска
 main-sign-in-rate-limited-detail = Discord ограничивает этот вход. Подождите, прежде чем пытаться снова. Повторная попытка раньше времени может продлить ожидание.
+
+# New message
+new-message-title = Новое сообщение
+new-message-subtitle = В групповых личных сообщениях может быть до 10 участников.
+new-message-search = Поиск
+new-message-hint = Добавьте друзей, чтобы начать личное сообщение или группу.
+new-message-no-people-found = Никто не найден.
+new-message-create = Создать сообщение
+new-message-cancel = Отмена

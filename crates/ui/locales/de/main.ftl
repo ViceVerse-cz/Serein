@@ -4829,3 +4829,12 @@ search-overlays-no-matching-content-types = Keine passenden Inhaltstypen
 search-overlays-history = Verlauf
 search-overlays-clear-history = Suchverlauf löschen
 main-sign-in-rate-limited-detail = Discord begrenzt diese Anmeldung. Warte, bevor du es erneut versuchst. Ein früherer Versuch kann die Wartezeit verlängern.
+
+# New message
+new-message-title = Neue Nachricht
+new-message-subtitle = Gruppen-DMs können bis zu 10 Mitglieder haben.
+new-message-search = Suchen
+new-message-hint = Füge Freunde hinzu, um eine Direktnachricht oder eine Gruppe zu starten.
+new-message-no-people-found = Niemand entspricht dieser Suche.
+new-message-create = Nachricht erstellen
+new-message-cancel = Abbrechen

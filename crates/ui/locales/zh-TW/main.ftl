@@ -4927,3 +4927,12 @@ search-overlays-no-matching-content-types = 沒有符合的內容類型
 search-overlays-history = 歷史紀錄
 search-overlays-clear-history = 清除搜尋紀錄
 main-sign-in-rate-limited-detail = Discord 正在限制此次登入。請稍候再試。過早重試可能會延長等待時間。
+
+# New message
+new-message-title = 新私訊
+new-message-subtitle = 群組私訊最多可有 10 位成員。
+new-message-search = 搜尋
+new-message-hint = 新增好友以開始私訊或群組。
+new-message-no-people-found = 沒有符合的結果。
+new-message-create = 建立私訊
+new-message-cancel = 取消

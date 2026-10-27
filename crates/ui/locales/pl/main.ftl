@@ -4831,3 +4831,12 @@ search-overlays-no-matching-content-types = Brak pasujących typów treści
 search-overlays-history = Historia
 search-overlays-clear-history = Wyczyść historię wyszukiwania
 main-sign-in-rate-limited-detail = Discord ogranicza to logowanie. Odczekaj, zanim spróbujesz ponownie. Wcześniejsza próba może wydłużyć oczekiwanie.
+
+# New message
+new-message-title = Nowa wiadomość
+new-message-subtitle = Wiadomości grupowe mogą mieć do 10 członków.
+new-message-search = Szukaj
+new-message-hint = Dodaj znajomych, aby rozpocząć wiadomość prywatną lub grupę.
+new-message-no-people-found = Nikt nie pasuje do tego wyszukiwania.
+new-message-create = Utwórz wiadomość
+new-message-cancel = Anuluj

@@ -453,19 +453,39 @@ fn category_header(
 	response
 }
 
-fn eyebrow_row(ui: &mut egui::Ui, label: &str, row_height: f32) -> egui::Rect {
+fn eyebrow_row(
+	ui: &mut egui::Ui,
+	label: &str,
+	row_height: f32,
+	trailing: bool,
+) -> (egui::Rect, bool) {
 	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
-	ui.allocate_ui_with_layout(
+	let mut clicked = false;
+	let response = ui.allocate_ui_with_layout(
 		egui::vec2(ui.available_width(), row_height),
 		egui::Layout::left_to_right(egui::Align::Center),
 		|ui| {
+			// The row spans the list even though its contents are a short caption.
+			ui.set_width(ui.available_width());
 			ui.add_space(8.0);
 			ui.add(egui::Label::new(design::eyebrow(ui, label, colors.muted)).selectable(false));
+			if trailing {
+				// Discord's New Message action sits at the right end of the DM list heading.
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					ui.add_space(4.0);
+					clicked = crate::icons::button(
+						ui,
+						crate::icons::Icon::Plus,
+						24.0,
+						&crate::i18n::translate("new-message-title"),
+					)
+					.clicked();
+				});
+			}
 		},
-	)
-	.response
-	.rect
+	);
+	(response.response.rect, clicked)
 }
 
 fn shelf_row(rows: &[CachedRow], index: usize) -> bool {
@@ -716,12 +736,16 @@ impl MessagingUi {
 					};
 					match row {
 						CachedRow::Heading(heading) => {
-							let rect = eyebrow_row(
+							let (rect, new_message) = eyebrow_row(
 								ui,
 								&crate::i18n::translate_if_key(heading.key()),
 								row_height,
+								dm_list && heading == Heading::DirectMessages,
 							);
 							paint_shelf_rule(ui, rect, &self.channel_cache.rows, index);
+							if new_message {
+								self.new_message.open(state);
+							}
 						}
 						CachedRow::Requests(count, collapsed) => {
 							let response = category_header(
@@ -1572,6 +1596,59 @@ pub fn debug_thread_navigation_check(state: &mut State) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn the_direct_message_heading_offers_new_message_at_the_far_right() {
+		const WIDTH: f32 = 320.0;
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let click = |pos: egui::Pos2| {
+			let mut clicked = false;
+			for (moved, pressed) in [(true, false), (false, true), (false, false)] {
+				let mut events = vec![];
+				if moved {
+					events.push(egui::Event::PointerMoved(pos));
+				} else {
+					events.push(egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					});
+				}
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(WIDTH, 44.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| {
+						let (rect, hit) = eyebrow_row(ui, "Direct Messages", 44.0, true);
+						clicked = hit;
+						assert!(
+							(rect.width() - WIDTH).abs() < 1.0,
+							"the heading row spans the list, not its caption: {}",
+							rect.width()
+						);
+					},
+				);
+				output.drop_without_applying_deltas();
+			}
+			clicked
+		};
+		// The button is drawn at the right end of the row, not on top of the caption.
+		assert!(
+			click(egui::pos2(WIDTH - 12.0, 22.0)),
+			"the plus is at the far right"
+		);
+		assert!(
+			!click(egui::pos2(120.0, 22.0)),
+			"the caption itself is not a button"
+		);
+	}
 
 	#[test]
 	fn channel_rows_reuse_guild_messages_and_invalidate_on_navigation_changes() {

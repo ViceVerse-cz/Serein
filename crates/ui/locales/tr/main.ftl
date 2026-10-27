@@ -4815,3 +4815,12 @@ search-overlays-no-matching-content-types = Eşleşen içerik türü yok
 search-overlays-history = Geçmiş
 search-overlays-clear-history = Arama geçmişini temizle
 main-sign-in-rate-limited-detail = Discord bu oturum açmayı sınırlıyor. Tekrar denemeden önce bekle. Daha erken bir deneme bekleme süresini uzatabilir.
+
+# New message
+new-message-title = Yeni Mesaj
+new-message-subtitle = Grup DM'lerinde en fazla 10 üye olabilir.
+new-message-search = Ara
+new-message-hint = Bir doğrudan mesaj veya grup başlatmak için arkadaş ekleyin.
+new-message-no-people-found = Bu aramayla eşleşen kimse yok.
+new-message-create = Mesaj Oluştur
+new-message-cancel = İptal

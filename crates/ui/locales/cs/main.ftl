@@ -4918,3 +4918,12 @@ search-overlays-no-matching-content-types = Žádné odpovídající typy obsahu
 search-overlays-history = Historie
 search-overlays-clear-history = Vymazat historii hledání
 main-sign-in-rate-limited-detail = Discord omezuje toto přihlášení. Než to zkusíte znovu, počkejte. Dřívější pokus může čekání prodloužit.
+
+# New message
+new-message-title = Nová zpráva
+new-message-subtitle = Skupinové DM mohou mít až 10 členů.
+new-message-search = Hledat
+new-message-hint = Přidejte přátele a začněte přímou zprávu nebo skupinu.
+new-message-no-people-found = Nikdo neodpovídá hledání.
+new-message-create = Vytvořit zprávu
+new-message-cancel = Zrušit

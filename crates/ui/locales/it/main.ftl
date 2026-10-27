@@ -4829,3 +4829,12 @@ search-overlays-no-matching-content-types = Nessun tipo di contenuto corrisponde
 search-overlays-history = Cronologia
 search-overlays-clear-history = Cancella cronologia di ricerca
 main-sign-in-rate-limited-detail = Discord sta limitando questo accesso. Attendi prima di riprovare. Un nuovo tentativo troppo presto può allungare l'attesa.
+
+# New message
+new-message-title = Nuovo messaggio
+new-message-subtitle = I messaggi di gruppo possono avere fino a 10 membri.
+new-message-search = Cerca
+new-message-hint = Aggiungi amici per avviare un messaggio diretto o un gruppo.
+new-message-no-people-found = Nessuno corrisponde a questa ricerca.
+new-message-create = Crea messaggio
+new-message-cancel = Annulla

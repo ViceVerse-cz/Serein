@@ -42,6 +42,7 @@ mod extension_admin_actions;
 mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
+mod new_message;
 pub mod proxy_auth;
 mod rich_presence;
 mod theme_editor;
@@ -305,6 +306,7 @@ pub struct MessagingUi {
 	archives: archives::ArchivesUi,
 	archive_parent: Option<Id>,
 	thread_create: thread_create::ThreadCreateUi,
+	new_message: new_message::NewMessageUi,
 	forum: forum::ForumUi,
 	scroll: scroll::Session,
 	side_press: scroll::SidePress,
@@ -4347,6 +4349,9 @@ impl MessagingUi {
 		if let Some(command) = state.select_opened_dm() {
 			commands.push(command);
 		}
+		if let Some(command) = state.select_created_group() {
+			commands.push(command);
+		}
 		self.finish_user_direct(state, direct_origin, &mut commands);
 		self.finish_slash_direct(state);
 		if let Some(target) = self.switcher.show(&ctx, state, &mut self.avatars) {
@@ -5158,6 +5163,8 @@ impl MessagingUi {
 			self.thread_create.open(channel, None, String::new());
 		}
 		self.thread_create.show(&ctx, state, &mut commands);
+		self.new_message
+			.show(&ctx, state, &mut self.avatars, &mut commands);
 		self.screen.show(&ctx, state);
 		if let Some(id) = self.timeline.channel_reference_load.take()
 			&& state.channel(id).is_none()
