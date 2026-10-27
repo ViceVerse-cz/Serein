@@ -276,12 +276,8 @@ impl Desktop {
 			.find(|saved| saved.id == user.id);
 		let account = model::SavedAccount::identity(
 			user,
-			profile
-				.map(|profile| profile.username.as_str())
-				.or_else(|| previous.map(|saved| saved.name.as_str())),
-			profile
-				.and_then(|profile| profile.global_name.as_deref())
-				.or_else(|| previous.and_then(|saved| saved.display.as_deref())),
+			profile.map(|profile| (profile.username.as_str(), profile.global_name.as_deref())),
+			previous,
 		);
 		if !account.is_valid() {
 			return;

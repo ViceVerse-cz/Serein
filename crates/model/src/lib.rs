@@ -219,17 +219,29 @@ impl SavedAccount {
 	}
 	/// Roster identity of the account that just signed in. The handle is stored apart from the
 	/// display name: the user this client keeps already carries the display name, so the handle
-	/// comes from the account's own profile and falls back to the user's name until it loads.
-	pub fn identity(user: &User, handle: Option<&str>, display: Option<&str>) -> Self {
+	/// comes from `own`, the loaded profile's handle and display name. A loaded profile is
+	/// authoritative, including a removed display name; until it loads the entry keeps what
+	/// `previous` knew. An unknown handle is recorded as the display name, so `handle` hides it.
+	pub fn identity(
+		user: &User,
+		own: Option<(&str, Option<&str>)>,
+		previous: Option<&SavedAccount>,
+	) -> Self {
+		let (handle, display) = match own {
+			Some((handle, display)) => (Some(handle), display),
+			None => (
+				previous.map(|saved| saved.name.as_str()),
+				previous.and_then(|saved| saved.display.as_deref()),
+			),
+		};
+		let handle = handle.filter(|handle| !handle.is_empty());
+		let display = display
+			.filter(|display| !display.is_empty())
+			.or(handle.is_none().then_some(user.name.as_str()));
 		Self {
 			id: user.id,
-			name: handle
-				.filter(|handle| !handle.is_empty())
-				.unwrap_or(&user.name)
-				.to_owned(),
-			display: display
-				.filter(|display| !display.is_empty())
-				.map(str::to_owned),
+			name: handle.unwrap_or(&user.name).to_owned(),
+			display: display.map(str::to_owned),
 			avatar: user.avatar.clone(),
 			discriminator: user.discriminator,
 			has_token: false,
@@ -1012,23 +1024,25 @@ mod roster_identity_tests {
 		// The user this client keeps already carries the display name, so a roster entry built
 		// from it alone showed that name on both switcher lines.
 		let user = user("Display name");
-		let saved = SavedAccount::identity(&user, Some("handle"), Some("Display name"));
+		let saved = SavedAccount::identity(&user, Some(("handle", Some("Display name"))), None);
 		assert_eq!(
 			(saved.name.as_str(), saved.label()),
 			("handle", "Display name")
 		);
 		assert_eq!(saved.user().name, "Display name");
 		assert!(saved.is_valid());
-		// Until the own profile loads the entry keeps the user's name and no display name.
+		// Regression: before the own profile loads, the display name is never shown as a handle.
 		let pending = SavedAccount::identity(&user, None, None);
-		assert_eq!(
-			(pending.name.as_str(), pending.label()),
-			("Display name", "Display name")
-		);
-		assert_eq!(pending.display, None);
+		assert_eq!((pending.label(), pending.handle()), ("Display name", None));
 		assert!(pending.is_valid());
-		// An account without a display name still shows its handle on both lines.
-		let plain = SavedAccount::identity(&user, Some("handle"), None);
+		// Until it loads, a known entry keeps its handle and display name.
+		let kept = SavedAccount::identity(&user, None, Some(&saved));
+		assert_eq!(
+			(kept.label(), kept.handle()),
+			("Display name", Some("handle"))
+		);
+		// Regression: a loaded profile without a display name clears the saved one.
+		let plain = SavedAccount::identity(&user, Some(("handle", None)), Some(&saved));
 		assert_eq!((plain.label(), plain.display.as_deref()), ("handle", None));
 		assert_eq!(plain.handle(), Some("handle"));
 		assert_eq!(saved.handle(), Some("handle"));
