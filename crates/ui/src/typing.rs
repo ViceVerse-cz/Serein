@@ -38,20 +38,25 @@ fn name(state: &State, channel: Id, user: Id) -> Option<&str> {
 				})
 		})
 		.or_else(|| {
-			state
-				.timeline
-				.iter()
-				.filter(|message| message.channel == channel)
-				.find_map(|message| {
-					if message.author.id == user {
-						Some(state.message_author_name(message))
-					} else {
+			// A message this person wrote names them the way their author label does, so it wins
+			// over a mention of them, which only carries the display name.
+			let matching = || {
+				state
+					.timeline
+					.iter()
+					.filter(|message| message.channel == channel)
+			};
+			matching()
+				.find(|message| message.author.id == user)
+				.map(|message| state.message_author_name(message))
+				.or_else(|| {
+					matching().find_map(|message| {
 						message
 							.mentions
 							.iter()
 							.find(|entry| entry.id == user)
 							.map(|user| state.user_display_name(user))
-					}
+					})
 				})
 		})
 }
@@ -428,6 +433,66 @@ mod tests {
 			label(&state, Id(10), now).as_deref(),
 			Some("Alex is typing…")
 		);
+	}
+
+	#[test]
+	fn a_message_the_person_wrote_names_them_before_one_that_merely_mentions_them() {
+		let mut state = state();
+		let channel = Id(60);
+		let mut typist = state.channels[0].recipients[0].clone();
+		typist.id = Id(7);
+		typist.name = "Synthetic typist".into();
+		state.channels.push(Channel {
+			id: channel,
+			guild: Some(Id(50)),
+			parent_id: None,
+			kind: 0,
+			position: 0,
+			name: "synthetic-channel".into(),
+			last_message: None,
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+			icon: None,
+			recipients: Vec::new(),
+		});
+		// The typist is a friend with a private nickname; the member window stays unloaded.
+		let apply = |state: &mut State, event: client_core::user_actions::Event| {
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::UserAction(event),
+			});
+		};
+		apply(
+			&mut state,
+			client_core::user_actions::Event::Relationships(Some(vec![])),
+		);
+		apply(
+			&mut state,
+			client_core::user_actions::Event::Friends(Some(vec![(
+				typist.clone(),
+				"synthetic.typist".into(),
+			)])),
+		);
+		apply(
+			&mut state,
+			client_core::user_actions::Event::Nickname {
+				user: typist.id,
+				text: "Private name".into(),
+			},
+		);
+		// An earlier message only mentions them; a later one is theirs and carries a server
+		// nickname, which is what their author label shows.
+		let mut mention = test_support::message(1, channel);
+		mention.author.id = Id(8);
+		mention.mentions = vec![typist.clone()];
+		state.timeline.insert(mention, false, false).unwrap();
+		let mut authored = test_support::message(2, channel);
+		authored.author = typist.clone();
+		authored.author_nick = Some("Server nick".into());
+		state.timeline.insert(authored, false, false).unwrap();
+		assert_eq!(state.user_display_name(&typist), "Private name");
+		assert_eq!(name(&state, channel, typist.id), Some("Server nick"));
 	}
 
 	#[test]
