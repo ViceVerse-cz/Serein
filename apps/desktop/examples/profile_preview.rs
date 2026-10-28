@@ -343,6 +343,7 @@ fn prime_channel_links(state: &mut client_core::State) {
 				tertiary_color: None,
 				position: 1,
 				hoist: false,
+				managed: false,
 			},
 		}),
 	});
@@ -782,7 +783,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			}
 			if page == "embeds" {
 				let channel = state.selected.expect("synthetic embed conversation");
-				let messages = (0..3)
+				let messages: Vec<model::Message> = (0..3)
 					.rev()
 					.map(|variant| {
 						let mut message = test_support::message(600 + variant, channel);
@@ -824,10 +825,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 						message
 					})
 					.collect();
+				// A link that resolves to a hosted clip carries the clip and no poster.
+				let mut clip = test_support::message(604, channel);
+				clip.content = "https://example.org/synthetic/reel/".into();
+				clip.attachments.clear();
+				clip.reactions = Some(vec![]);
+				clip.embeds = vec![model::Embed {
+					kind: "video".into(),
+					url: Some(clip.content.clone()),
+					video: Some(model::EmbedMedia {
+						url: Some("https://example.org/synthetic/reel/clip.mp4".into()),
+						width: 640,
+						height: 1136,
+						..Default::default()
+					}),
+					..Default::default()
+				}];
 				state.timeline.clear();
 				state
 					.timeline
-					.seed_cache(messages)
+					.seed_cache(messages.into_iter().chain(std::iter::once(clip)).collect())
 					.expect("valid synthetic embeds");
 			}
 			if page == "markdown" {

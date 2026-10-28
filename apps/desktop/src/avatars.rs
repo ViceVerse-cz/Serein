@@ -846,6 +846,11 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 		{
 			(proxy_base(source).map(String::from), None)
 		}
+		// Discord's media proxy serves a clip too, and its still is the clip's first
+		// frame rather than a webp of a video the image pipeline cannot read.
+		Motion::Still if path.starts_with("https://images-ext-") && ui::is_motion_video(source) => {
+			(motion_video_source(source), None)
+		}
 		// Provider media cannot go through Discord's proxy; a clip's still is its first frame.
 		Motion::Still if proxy_base(source).is_none() => (
 			motion_video_source(source).or(provider.then(|| source.to_owned())),

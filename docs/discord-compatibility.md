@@ -2633,3 +2633,15 @@ Failures report the service label instead of leaving the picker open.
 account is an unofficial request shape, inferred from the official client and live-unverified:
 loopback tests cover the request shape and response validation, and the owner's release-build
 pass exercised the picker but not live group creation.
+
+## Clip previews on video link cards — October 28, 2026
+
+A link whose page answers with a clip arrives as a video embed that carries the clip and no poster
+image; the reported kkinstagram.com reels are one example, and Discord draws the clip itself there.
+Such a card now paints the clip in its own media area, using the clip's first frame when animation is
+off, instead of showing the video hint on an otherwise empty card. Playback still opens in the browser.
+
+The clip's own host is normally not a source this client fetches. When the payload carries Discord's
+media proxy beside the clip, that proxied URL is the one requested, and the still is decoded from the
+clip instead of asking the image proxy for a webp of a video. Issue #820 supplied screenshots and the
+offline embeds preview, not a live payload, so that link's exact wire shape stays unverified.
