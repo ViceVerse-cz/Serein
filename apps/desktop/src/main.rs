@@ -538,8 +538,10 @@ fn main() -> eframe::Result {
 					instance_descriptor: {
 						let mut descriptor =
 							eframe::wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+						// DX12 alone offers WARP on hardware that predates it and hides the GPU's
+						// OpenGL driver; ranking prefers a real GPU, so both are enumerated.
 						descriptor.backends = eframe::wgpu::Backends::from_env()
-							.unwrap_or(eframe::wgpu::Backends::DX12);
+							.unwrap_or(eframe::wgpu::Backends::DX12 | eframe::wgpu::Backends::GL);
 						// An HWND swapchain is always opaque; only a DirectComposition one carries
 						// alpha to the desktop and its acrylic backdrop. The env override still wins.
 						if transparency_available

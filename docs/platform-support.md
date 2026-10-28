@@ -42,12 +42,13 @@ available (for example, `dx12` or `vulkan`). Affected users confirmed that forci
 DX12 launches successfully; the new default still needs native Windows validation.
 macOS and Linux retain their existing backend defaults.
 
-Adapter selection prefers a real GPU over a software rasterizer whichever backend presents
-it. Windows offers WARP ("Microsoft Basic Render Driver") as its Direct3D adapter on hardware
-that predates DX12, and drawing the client on the CPU that way freezes a machine whose GPU
-still presents through OpenGL; the GPU now wins, and the chosen adapter is still printed to
-stderr. When only a software rasterizer is left, the client logs that fact and names the
-`WGPU_BACKEND=gl` override, which forces the OpenGL driver instead.
+Adapter selection prefers a real GPU over a software rasterizer whichever backend presents it.
+Windows offers WARP ("Microsoft Basic Render Driver") as its Direct3D adapter on hardware that
+predates DX12, and drawing the client on the CPU that way freezes a machine whose GPU still
+presents through OpenGL. Windows therefore enumerates DirectX 12 and OpenGL (Vulkan stays out
+for the reason above), so both candidates exist for that ranking, and the chosen adapter is
+still printed to stderr. When only a software rasterizer is left, the client logs that fact and
+names the `WGPU_BACKEND=gl` override, which forces the OpenGL driver instead.
 
 Windows turns off winit's undecorated drop-shadow hack after the window exists, including
 after title-bar changes. egui-winit enables that hack for custom chrome. While restored it
