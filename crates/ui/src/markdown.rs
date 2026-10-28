@@ -2223,8 +2223,24 @@ impl Formatted {
 		let mut inlines: Vec<Inline> = Vec::new();
 		// Label overwrites the first section's leading space with the wrap indentation.
 		job.append("", 0.0, Self::format(ui, &Style::default()));
+		// A run that ends with blank lines (`\n\n` before the next paragraph) makes egui drop
+		// the row's leading indent: the whole run is then shaped from the row start and stops
+		// wrapping at the remaining width, which paints it over the run before it. Shape the
+		// run without those trailing breaks and replay them as explicit row breaks below.
+		let total: usize = spans.iter().map(|(text, _)| text.len()).sum();
+		let trailing: Vec<char> = spans
+			.iter()
+			.rev()
+			.flat_map(|(text, _)| text.chars().rev())
+			.take_while(|character| *character == '\n')
+			.collect();
+		let kept = total.saturating_sub(trailing.len());
+		let mut written = 0;
 		for (text, style) in spans {
 			let format = Self::format(ui, style);
+			let available = kept.saturating_sub(written).min(text.len());
+			written += available;
+			let text = &text[..available];
 			let mut start = 0;
 			let mut offset = 0;
 			while offset < text.len() {
@@ -2466,6 +2482,10 @@ impl Formatted {
 			}
 		}
 		surface.run(ui, &response, pos, galley, artwork);
+		// The blank line between paragraphs is a row break, exactly as it used to be.
+		for _ in 0..trailing.len() {
+			ui.end_row();
+		}
 		if ui.is_rect_visible(response.rect) {
 			for (index, rect) in &slots {
 				if !ui.is_rect_visible(*rect) {
@@ -5162,5 +5182,127 @@ mod tests {
 		}
 		assert_eq!(cache.entries.len(), 500);
 		assert!(cache.bytes <= 1024 * 1024);
+	}
+
+	#[test]
+	fn a_bold_link_line_in_a_message_body_wraps_without_overlapping() {
+		// A paragraph that ends with a blank line, laid out with the blocks around it: that run
+		// used to lose the row's indent and be painted over the link before it.
+		let state = test_support::demo_state();
+		let channel = state.channels[0].id;
+		let source = crate::mentions::MentionSource {
+			state: &state,
+			channel,
+		};
+		let parsed = Formatted::parse(
+			"# SYNTHETIC HEADING\n**⚠️ READ [THE SYNTHETIC GUIDE](<https://example.com/guide#anchor>) BEFORE ANY OF THE ITEMS BELOW ⚠️**\n\n[First item](https://example.com/first.zip) for sending one thing.\n[Second item](https://example.com/second.zip) for sending another thing.\n[Third item](https://example.com/third.zip) for setting a third thing.\n[Fourth item](https://example.com/fourth.zip) for setting a fourth thing.\n[Fifth item](https://example.com/fifth.zip) for setting a fifth thing.\n\n-# Synthetic footer line.",
+		);
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		for width in (300..=640).step_by(10) {
+			let width = width as f32;
+			let mut images = crate::avatars::Avatars::default();
+			let mut revealed = 0;
+			let mut profile = crate::profiles::ProfileSession::default();
+			let mut opening = None;
+			let mut channel_reference = None;
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(width + 40.0, 800.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					ui.set_max_width(width);
+					let mut surface = crate::select::Surface::new(ui, "body");
+					parsed.show_references(
+						ui,
+						&mut opening,
+						&[],
+						Some(&source),
+						&mut profile,
+						(&state.channels, &mut channel_reference, &state.guilds, &[]),
+						(&mut images, false, &mut revealed),
+						&mut surface,
+						crate::design::MessageCardSurface::Conversation,
+					);
+				},
+			);
+			let mut rects = Vec::new();
+			for shape in &output.shapes {
+				if let egui::Shape::Text(text) = &shape.shape {
+					for row in &text.galley.rows {
+						let rect = row
+							.rect_without_leading_space()
+							.translate(text.pos.to_vec2());
+						if rect.width() > 0.5 && rect.height() > 0.5 {
+							rects.push((rect, text.galley.text()));
+						}
+					}
+				}
+			}
+			for (index, (left, left_text)) in rects.iter().enumerate() {
+				for (right, right_text) in &rects[index + 1..] {
+					let overlap = left.intersect(*right);
+					assert!(
+						overlap.width() <= 1.0 || overlap.height() <= 1.0,
+						"body at {width}px {left_text:?} [{left:?}] overlaps {right_text:?} [{right:?}]"
+					);
+				}
+			}
+			output.textures_delta.clear();
+		}
+	}
+
+	#[test]
+	fn a_wrapped_bold_line_with_a_link_and_emoji_keeps_its_rows_apart() {
+		// Bold text around an angle-bracket link, with emoji at both ends: it has to wrap, and
+		// the wrapped rows must not be painted on top of each other.
+		let parsed = Formatted::parse(
+			"**⚠️ READ [THE SYNTHETIC GUIDE](<https://example.com/guide#anchor>) BEFORE ANY OF THE ITEMS BELOW ⚠️**",
+		);
+		let ctx = egui::Context::default();
+		for width in (200..=640).step_by(10) {
+			let width = width as f32;
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(width + 40.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					ui.set_max_width(width);
+					parsed.show(ui, &mut None);
+				},
+			);
+			let mut rects = Vec::new();
+			for shape in &output.shapes {
+				if let egui::Shape::Text(text) = &shape.shape {
+					for row in &text.galley.rows {
+						// Only the painted part of a row: a leading space offsets the glyphs.
+						let rect = row
+							.rect_without_leading_space()
+							.translate(text.pos.to_vec2());
+						if rect.width() > 0.5 && rect.height() > 0.5 {
+							rects.push((rect, text.galley.text()));
+						}
+					}
+				}
+			}
+			for (index, (left, left_text)) in rects.iter().enumerate() {
+				for (right, right_text) in &rects[index + 1..] {
+					let overlap = left.intersect(*right);
+					assert!(
+						overlap.width() <= 1.0 || overlap.height() <= 1.0,
+						"at {width}px {left_text:?} [{left:?}] overlaps {right_text:?} [{right:?}]"
+					);
+				}
+			}
+			output.textures_delta.clear();
+		}
 	}
 }
