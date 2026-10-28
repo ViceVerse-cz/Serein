@@ -41,6 +41,8 @@ const IDLE_TEXTURES: Duration = Duration::from_secs(60);
 pub const EMBED_EDGE: u32 = 512;
 /// Longest edge for profile frame layers, which span a whole card.
 pub const FRAME_EDGE: u32 = 1024;
+/// Longest edge for profile effect layers (Discord canvas is 450 x 880).
+pub const EFFECT_EDGE: u32 = 1024;
 const REQUESTS: usize = 128;
 const RETRY: Duration = Duration::from_secs(5);
 
@@ -279,11 +281,14 @@ impl Avatars {
 		// Reserve the playback texture too; the shared still stays unchanged for other widgets.
 		let frame_bytes = || frames.iter().map(|(_, image)| image.pixels.len() * 4);
 		let bytes = frame_bytes().sum::<usize>() + frame_bytes().max().unwrap_or(0);
+		let edge = if key.starts_with("effect-") {
+			EFFECT_EDGE as usize
+		} else {
+			EMBED_EDGE as usize
+		};
 		if bytes > ANIMATION_BYTES
 			|| frames.iter().any(|(delay, image)| {
-				*delay < Duration::from_millis(20)
-					|| image.size[0] > EMBED_EDGE as usize
-					|| image.size[1] > EMBED_EDGE as usize
+				*delay < Duration::from_millis(20) || image.size[0] > edge || image.size[1] > edge
 			}) {
 			return;
 		}
@@ -403,11 +408,12 @@ impl Avatars {
 		}
 		let limit = if key.starts_with("frame-") {
 			FRAME_EDGE as usize
+		} else if key.starts_with("effect-") {
+			EFFECT_EDGE as usize
 		} else if key.starts_with("decoration-") || key.starts_with("badge-art:") {
 			256
 		} else if key.starts_with("anim:")
 			|| key.starts_with("nameplate-")
-			|| key.starts_with("effect-")
 			|| key.starts_with("embed:")
 			|| key.starts_with("gif:")
 			|| key.starts_with("spotify-")
@@ -2893,6 +2899,14 @@ mod tests {
 				.sum::<usize>(),
 			TEXTURES * 128 * 128 * 4
 		);
+		avatars.request("effect-c-test".into());
+		avatars.take_requests();
+		avatars.accept(
+			&ctx,
+			"effect-c-test".into(),
+			Some(ColorImage::filled([450, 880], egui::Color32::WHITE)),
+		);
+		assert!(avatars.texture_id("effect-c-test").is_some());
 		avatars.accept(
 			&ctx,
 			"unsolicited".into(),
@@ -2955,5 +2969,29 @@ mod tests {
 		);
 		avatars.request("x".repeat(2055));
 		assert!(avatars.attempts.keys().all(|key| key.len() <= 2054));
+	}
+
+	#[test]
+	fn effect_animation_keeps_full_resolution_frames() {
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		avatars.set_animation(true);
+		avatars.request("effect-c-test".into());
+		avatars.take_requests();
+		avatars.accept(
+			&ctx,
+			"effect-c-test".into(),
+			Some(ColorImage::filled([450, 880], egui::Color32::WHITE)),
+		);
+		let frames: crate::avatars::GifFrames = (0..2)
+			.map(|_| {
+				(
+					std::time::Duration::from_millis(50),
+					std::sync::Arc::new(ColorImage::filled([450, 880], egui::Color32::WHITE)),
+				)
+			})
+			.collect();
+		avatars.accept_animation("effect-c-test".into(), frames);
+		assert!(avatars.animations.contains_key("effect-c-test"));
 	}
 }
