@@ -291,14 +291,16 @@ fn file_card(
 							.layout_in_ui(ui);
 							response.clone().on_hover_text(&attachment.filename);
 							surface.run(ui, &response, pos, galley, Vec::new());
-							ui.add(
-								egui::Label::new(
-									RichText::new(format_size(attachment.size))
-										.size(12.0)
-										.color(colors.muted),
-								)
-								.selectable(false),
-							);
+							if attachment.size > 0 {
+								ui.add(
+									egui::Label::new(
+										RichText::new(format_size(attachment.size))
+											.size(12.0)
+											.color(colors.muted),
+									)
+									.selectable(false),
+								);
+							}
 						});
 					});
 					surface.keep(&download);
@@ -1278,18 +1280,27 @@ pub fn viewer(
 					.truncate()
 					.selectable(false),
 				);
-				let mut meta = format_size(attachment.size);
+				let mut meta = if attachment.size > 0 {
+					Some(format_size(attachment.size))
+				} else {
+					None
+				};
 				if let Some([width, height]) = images.media_dimensions(&attachment.media) {
-					meta = format!("{meta} · {width}×{height}");
+					meta = Some(match meta {
+						Some(meta) => format!("{meta} · {width}×{height}"),
+						None => format!("{width}×{height}"),
+					});
 				}
-				ui.add(
-					egui::Label::new(
-						RichText::new(meta)
-							.size(13.0)
-							.color(Color32::from_gray(170)),
-					)
-					.selectable(false),
-				);
+				if let Some(meta) = meta {
+					ui.add(
+						egui::Label::new(
+							RichText::new(meta)
+								.size(13.0)
+								.color(Color32::from_gray(170)),
+						)
+						.selectable(false),
+					);
+				}
 				if let Some(target) = attachment.media.url.as_deref().and_then(external_url)
 					&& ui
 						.add(
