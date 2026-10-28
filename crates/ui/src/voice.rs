@@ -4768,14 +4768,18 @@ fn status_icon(ui: &mut egui::Ui, icon: crate::icons::Icon, color: egui::Color32
 
 /// Discord's LIVE pill, sized for the channel list row rather than a stage tile.
 fn live_badge(ui: &mut egui::Ui) {
-	let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 16.0), egui::Sense::hover());
+	let text = crate::i18n::translate("voice-live-badge-live");
+	let font_id = egui::FontId::new(9.0, design::medium_family(ui.ctx()));
+	let galley = ui
+		.painter()
+		.layout_no_wrap(text, font_id, egui::Color32::WHITE);
+	let width = (galley.size().x + 8.0).max(32.0);
+	let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 16.0), egui::Sense::hover());
 	let colors = design::palette(ui);
 	ui.painter().rect_filled(rect, 4, colors.badge_fill());
-	ui.painter().text(
-		rect.center(),
-		egui::Align2::CENTER_CENTER,
-		crate::i18n::translate("voice-live-badge-live"),
-		egui::FontId::new(9.0, design::medium_family(ui.ctx())),
+	ui.painter().galley(
+		rect.center() - galley.size() * 0.5,
+		galley,
 		egui::Color32::WHITE,
 	);
 	response.widget_info(|| {
@@ -5985,5 +5989,28 @@ mod tests {
 		);
 		messaging.voice_available = true;
 		assert!(messaging.call_unavailable(&state, Id(1)).is_none());
+	}
+
+	#[test]
+	fn live_badge_expands_to_fit_multilingual_label() {
+		let ctx = egui::Context::default();
+		let text = crate::i18n::translate("voice-live-badge-live");
+		let font_id = egui::FontId::new(9.0, design::medium_family(&ctx));
+		let mut expected_width = 0.0;
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let galley =
+				ui.painter()
+					.layout_no_wrap(text.clone(), font_id.clone(), egui::Color32::WHITE);
+			expected_width = (galley.size().x + 8.0).max(32.0);
+		});
+		output.drop_without_applying_deltas();
+		assert!(expected_width >= 32.0);
+		let mut badge_width = 0.0;
+		let output = ctx.run_ui(Default::default(), |ui| {
+			live_badge(ui);
+			badge_width = ui.min_rect().width();
+		});
+		output.drop_without_applying_deltas();
+		assert_eq!(badge_width, expected_width);
 	}
 }
