@@ -29,6 +29,8 @@ pub const TAG_NAME_LIMIT: usize = 20;
 pub const HIDE_AFTER: [u32; 4] = [60, 1440, 4320, 10080];
 /// Forum channel flag: new posts must carry a tag.
 pub const REQUIRE_TAG: u64 = 1 << 4;
+/// Discord error 160004: a thread already exists for the starter message.
+pub const THREAD_ALREADY_OPENED: &str = "A thread has already been opened on this message";
 
 /// Forum and media channel settings, loaded and saved with the rest of the channel.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -923,10 +925,11 @@ impl State {
 						&& match &action {
 							Action::Create { kind, .. } => c.kind == kind.wire_kind(),
 							Action::CreateCategory { .. } => c.kind == 4,
-							Action::CreateThread { name, .. } => {
+							Action::CreateThread { name, message } => {
 								matches!(c.kind, 10..=12)
 									&& c.parent_id == Some(channel)
-									&& c.name.trim() == name.trim()
+									&& (c.name.trim() == name.trim()
+										|| message.is_some_and(|m| c.id == m))
 							}
 							_ => true,
 						}
@@ -1081,6 +1084,7 @@ impl State {
 						self.can_open_channel_settings(channel)
 					}) && (if creating {
 					self.channel(updated.id).is_none()
+						|| matches!(action, Action::CreateThread { .. })
 				} else {
 					!observed
 				}) {
@@ -2135,6 +2139,38 @@ mod tests {
 				)
 				.is_some(),
 			"saving channel overwrites must succeed when loaded details grant MANAGE_ROLES"
+		);
+	}
+
+	#[test]
+	fn thread_create_matches_existing_starter_message_thread_even_with_divergent_name() {
+		let mut state = state();
+		let mut starter = crate::tests::message(42);
+		starter.channel = Id(3);
+		state.timeline.insert(starter, false, false).unwrap();
+		let action = Action::CreateThread {
+			name: "User Typed Name".into(),
+			message: Some(Id(42)),
+		};
+		let command = state.request_channel_action(Id(3), action).unwrap();
+		let mut existing = state.channels[0].clone();
+		existing.id = Id(42);
+		existing.parent_id = Some(Id(3));
+		existing.kind = 11;
+		existing.name = "Original Name by Other User".into();
+		finish(
+			&mut state,
+			command,
+			Ok(Outcome::Channel {
+				channel: Box::new(existing),
+				permissions: None,
+			}),
+		);
+		assert!(state.channel(Id(42)).is_some());
+		assert!(state.channel_action_succeeded(Id(3)));
+		assert_eq!(
+			state.channel(Id(42)).unwrap().name,
+			"Original Name by Other User"
 		);
 	}
 }
