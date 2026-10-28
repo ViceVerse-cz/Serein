@@ -4393,6 +4393,12 @@ impl Event {
 				Self::UserAction(user_actions::Event::DmOpened { result, .. }) => {
 					result.as_ref().map_or(0, |channel| channel.bytes())
 				}
+				Self::UserAction(user_actions::Event::GroupCreated {
+					recipients, result, ..
+				}) => {
+					recipients.capacity() * size_of::<Id>()
+						+ result.as_ref().map_or(0, |channel| channel.bytes())
+				}
 				Self::UserAction(user_actions::Event::Requests(entries)) => {
 					entries.as_ref().map_or(0, |e| {
 						e.capacity() * size_of::<(User, String, bool)>()

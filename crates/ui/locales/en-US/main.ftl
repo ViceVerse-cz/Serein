@@ -85,6 +85,7 @@ hide-chat = Hide chat
 show-chat = Show chat
 search-conversation = Search this conversation
 show-member-list = Show member list
+show-user-profile = Show user profile
 pinned-messages = Pinned messages
 threads = Threads
 
@@ -4821,6 +4822,8 @@ composer-placeholder-direct = Message @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = This is the beginning of your direct message history with { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Welcome to the beginning of the { $name } group.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = Welcome to #{ $channel }!
@@ -4923,3 +4926,12 @@ profiles-private-notice = { $name }’s profile is private, so some info is hidd
 settings-cosmetics-name-styles = Name styles
 settings-cosmetics-name-styles-description = Nitro display name fonts, colours and effects.
 main-sign-in-rate-limited-detail = Discord is rate limiting this sign-in. Wait before trying again. Another attempt before that can make the wait longer.
+
+# New message
+new-message-title = New Message
+new-message-subtitle = Group DMs can have up to 10 members.
+new-message-search = Search
+new-message-hint = Add friends to start a direct message or a group.
+new-message-no-people-found = No one matches that search.
+new-message-create = Create Message
+new-message-cancel = Cancel

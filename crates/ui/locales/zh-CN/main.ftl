@@ -85,6 +85,7 @@ hide-chat = 隐藏聊天
 show-chat = 显示聊天
 search-conversation = 搜索这个对话
 show-member-list = 显示成员清单
+show-user-profile = 显示用户资料
 pinned-messages = 置顶的消息
 threads = 帖子
 
@@ -4833,6 +4834,8 @@ composer-placeholder-direct = 给 @{ $name } 发消息
 
 # Context: timeline_dm_intro
 timeline-dm-intro = 这是你与 { $name } 的私信记录的开头。
+# Context: timeline_group_intro
+timeline-group-intro = 欢迎来到 { $name } 群组的开端。
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = 欢迎来到 #{ $channel }！
@@ -4927,3 +4930,12 @@ search-overlays-no-matching-content-types = 没有匹配的内容类型
 search-overlays-history = 历史记录
 search-overlays-clear-history = 清除搜索历史
 main-sign-in-rate-limited-detail = Discord 正在限制此次登录。请稍候再试。过早重试可能会延长等待时间。
+
+# New message
+new-message-title = 新私信
+new-message-subtitle = 群组私信最多可有 10 位成员。
+new-message-search = 搜索
+new-message-hint = 添加好友以开始私信或群组。
+new-message-no-people-found = 没有匹配的结果。
+new-message-create = 创建消息
+new-message-cancel = 取消

@@ -85,6 +85,7 @@ hide-chat = チャットを非表示にする
 show-chat = チャットを表示する
 search-conversation = この会話を検索
 show-member-list = メンバーリストを表示
+show-user-profile = ユーザープロフィールを表示
 pinned-messages = 固定メッセージ
 threads = スレッド
 
@@ -4718,6 +4719,8 @@ composer-placeholder-direct = @{ $name }へメッセージを送信
 
 # Context: timeline_dm_intro
 timeline-dm-intro = { $name } とのダイレクトメッセージ履歴の始まりです。
+# Context: timeline_group_intro
+timeline-group-intro = グループ「{ $name }」の始まりへようこそ。
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = #{ $channel } へようこそ！
@@ -4812,3 +4815,12 @@ search-overlays-no-matching-content-types = 一致するコンテンツの種類
 search-overlays-history = 履歴
 search-overlays-clear-history = 検索履歴を消去
 main-sign-in-rate-limited-detail = Discord がこのサインインを制限しています。しばらく待ってから再試行してください。早すぎる再試行は待ち時間を延ばすことがあります。
+
+# New message
+new-message-title = 新規メッセージ
+new-message-subtitle = グループDMには最大10人まで参加できます。
+new-message-search = 検索
+new-message-hint = フレンドを追加して、DMまたはグループを開始します。
+new-message-no-people-found = 一致する相手はいません。
+new-message-create = メッセージを作成
+new-message-cancel = キャンセル

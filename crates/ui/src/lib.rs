@@ -42,6 +42,7 @@ mod extension_admin_actions;
 mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
+mod new_message;
 pub mod proxy_auth;
 mod rich_presence;
 mod theme_editor;
@@ -81,6 +82,14 @@ mod profiles;
 mod slash_builtin;
 mod slash_commands;
 mod stickers;
+/// The other participant of the selected one-to-one DM; group DMs and channels have none.
+fn one_to_one_recipient(state: &State) -> Option<&model::User> {
+	state
+		.selected
+		.and_then(|id| state.channel(id))
+		.filter(|channel| channel.guild.is_none() && channel.kind == 1)
+		.and_then(|channel| channel.recipients.first())
+}
 /// Synthetic global profile used exclusively by the desktop's offline command adapter.
 #[cfg(any(test, feature = "demo"))]
 pub fn synthetic_own_profile(user: &model::User) -> model::UserProfile {
@@ -305,6 +314,7 @@ pub struct MessagingUi {
 	archives: archives::ArchivesUi,
 	archive_parent: Option<Id>,
 	thread_create: thread_create::ThreadCreateUi,
+	new_message: new_message::NewMessageUi,
 	forum: forum::ForumUi,
 	scroll: scroll::Session,
 	side_press: scroll::SidePress,
@@ -2455,6 +2465,7 @@ impl MessagingUi {
 					);
 				}
 				if state.selected.is_some() && !selected_voice {
+					let one_to_one = one_to_one_recipient(state).is_some();
 					if self.search.open && !self.search.pins() {
 						ui.allocate_ui_with_layout(
 							egui::vec2(240.0_f32.min(ui.available_width() * 0.5).max(120.0), 28.0),
@@ -2507,7 +2518,23 @@ impl MessagingUi {
 						}
 					}
 					ui.add_space(4.0);
-					if icons::toggle(
+					// A one-to-one DM toggles the other person's docked profile instead, which
+					// needs the wide layout.
+					if one_to_one {
+						let shown = *self.members_preference(state);
+						if wide_members
+							&& icons::toggle(
+								ui,
+								icons::Icon::Profile,
+								32.0,
+								shown,
+								&language.text("show-user-profile"),
+							)
+							.clicked()
+						{
+							*self.members_preference(state) = !shown;
+						}
+					} else if icons::toggle(
 						ui,
 						icons::Icon::People,
 						32.0,
@@ -4057,6 +4084,163 @@ impl MessagingUi {
 		cleared
 	}
 
+	/// Applies what a profile card or the docked DM profile picked for `user`.
+	fn profile_action(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		user: &model::User,
+		profile_guild: Option<model::Id>,
+		action: profiles::Action,
+	) {
+		match action {
+			profiles::Action::Avatar {
+				media,
+				points,
+				grid,
+			} => {
+				let ext = media
+					.url
+					.as_deref()
+					.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
+					.unwrap_or("png");
+				self.profile_image = Some(ProfileImage {
+					generation: state.generation,
+					attachment: model::Attachment {
+						id: Id(0),
+						filename: format!("avatar.{ext}"),
+						description: Some(format!("{}’s profile picture", user.name)),
+						content_type: Some(format!("image/{ext}")),
+						size: 0,
+						media,
+						spoiler: false,
+						duration_ms: None,
+						waveform: Vec::new(),
+					},
+					floor: attachments::Floor::Thumbnail(attachments::Thumbnail {
+						longest_side_points: points,
+						grid,
+					}),
+				});
+				self.profile.close();
+			}
+			profiles::Action::Banner(media) => {
+				let ext = media
+					.url
+					.as_deref()
+					.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
+					.unwrap_or("png");
+				self.profile_image = Some(ProfileImage {
+					generation: state.generation,
+					attachment: model::Attachment {
+						id: Id(0),
+						filename: format!("banner.{ext}"),
+						description: Some(format!("{}’s banner", user.name)),
+						content_type: Some(format!("image/{ext}")),
+						size: 0,
+						media,
+						spoiler: false,
+						duration_ms: None,
+						waveform: Vec::new(),
+					},
+					floor: attachments::Floor::Fit,
+				});
+				self.profile.close();
+			}
+			profiles::Action::AddFriend(id) => {
+				if let Some(command) = state.add_profile_friend(id) {
+					commands.push(command);
+				}
+			}
+			profiles::Action::AcceptFriend(id) => {
+				if let Some(command) = state.resolve_friend_request(id, true) {
+					commands.push(command);
+				}
+			}
+			profiles::Action::RemoveFriend => {
+				self.friend_removal = Some((state.generation, user.clone()));
+			}
+			profiles::Action::Menu(action) => {
+				// Dispatched with the other user menus on the next frame.
+				self.user_action = Some(action);
+			}
+			profiles::Action::Edit => {
+				self.profile.close();
+				self.preview_settings("profile");
+			}
+			profiles::Action::Profile(next) => {
+				self.profile.navigate(next);
+			}
+			profiles::Action::Server(guild) => {
+				self.profile.close();
+				if state.guild(guild).is_some() && self.server_settings.navigate_away(state) {
+					self.guild = Some(guild);
+					if let Some(command) = state.select_guild(guild) {
+						commands.push(command);
+					}
+				}
+			}
+			profiles::Action::EditStatus => self.open_custom_status_editor(),
+			profiles::Action::ClearStatus => self.clear_custom_status(),
+			profiles::Action::Close => {
+				self.profile.close_unless_armed(ctx);
+			}
+			profiles::Action::SaveBadges(settings) => {
+				if let Some(command) = state.save_badge_settings(settings) {
+					commands.push(command);
+				}
+			}
+			profiles::Action::Retry => {
+				if let Some(command) = state.request_profile(user.id, profile_guild) {
+					commands.push(command);
+				}
+			}
+			profiles::Action::SendMessage { user, content } => {
+				self.open_user_direct(state, user, user_direct::Intent::Send(content), commands);
+			}
+			profiles::Action::Full(tab) => {
+				self.profile
+					.open_full_tab(state.generation, user.clone(), tab);
+			}
+		}
+	}
+
+	/// The other person's profile beside a one-to-one DM, read from the profile cache.
+	fn docked_profile(
+		&mut self,
+		ui: &mut egui::Ui,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		user: &model::User,
+		fill: egui::Color32,
+	) {
+		let now = std::time::Instant::now();
+		if let Some(command) = state.preload_docked_profile(user.id, now) {
+			commands.push(command);
+		}
+		let loading = state.profile_preloading(user.id, now);
+		#[cfg(any(test, feature = "demo"))]
+		let synthetic = state.demo.then(|| profiles::synthetic(user, None));
+		#[cfg(not(any(test, feature = "demo")))]
+		let synthetic: Option<model::UserProfile> = None;
+		let surface = design::section_surface(ui, fill, design::ImageSection::MemberList);
+		let action = egui::Panel::right("dm-profile-pane")
+			.resizable(false)
+			.show_separator_line(!design::has_window_background(ui))
+			.exact_size(profiles::DOCKED_WIDTH)
+			.frame(egui::Frame::new().fill(surface))
+			.show(ui, |ui| {
+				let data = state.known_profile(user.id).or(synthetic.as_ref());
+				profiles::docked(ui, user, data, loading, state, &mut self.avatars, surface)
+			})
+			.inner;
+		if let Some(action) = action {
+			self.profile_action(ctx, state, commands, user, None, action);
+		}
+	}
+
 	/// The server a profile card opens in: the one being administered, else the open channel's.
 	fn profile_guild(&self, state: &State) -> Option<model::Id> {
 		self.server_settings.guild().or_else(|| {
@@ -4347,6 +4531,9 @@ impl MessagingUi {
 		if let Some(command) = state.select_opened_dm() {
 			commands.push(command);
 		}
+		if let Some(command) = state.select_created_group() {
+			commands.push(command);
+		}
 		self.finish_user_direct(state, direct_origin, &mut commands);
 		self.finish_slash_direct(state);
 		if let Some(target) = self.switcher.show(&ctx, state, &mut self.avatars) {
@@ -4544,7 +4731,10 @@ impl MessagingUi {
 		self.search.sync(&ctx, state, &mut commands);
 		let search_open =
 			self.search.results_visible(state) && state.selected.is_some() && !selected_voice;
-		let show_members = !selected_voice
+		// A one-to-one DM docks the other person's profile where a member list would be.
+		let dm_recipient = one_to_one_recipient(state).cloned();
+		let show_members = dm_recipient.is_none()
+			&& !selected_voice
 			&& !search_open
 			&& state.selected.is_some()
 			&& if wide_members {
@@ -4643,6 +4833,12 @@ impl MessagingUi {
 			}
 		} else if state.members.is_some() {
 			commands.push(state.close_members());
+		}
+		// Direct messages share one remembered side-panel choice: this profile or a group's members.
+		if let Some(user) =
+			dm_recipient.filter(|_| wide_members && !search_open && *self.members_preference(state))
+		{
+			self.docked_profile(ui, &ctx, state, &mut commands, &user, background.sidebar);
 		}
 		self.reaction_picker.sync(state, state.selected);
 		egui::CentralPanel::default()
@@ -5158,6 +5354,8 @@ impl MessagingUi {
 			self.thread_create.open(channel, None, String::new());
 		}
 		self.thread_create.show(&ctx, state, &mut commands);
+		self.new_message
+			.show(&ctx, state, &mut self.avatars, &mut commands);
 		self.screen.show(&ctx, state);
 		if let Some(id) = self.timeline.channel_reference_load.take()
 			&& state.channel(id).is_none()
@@ -5372,7 +5570,7 @@ impl MessagingUi {
 				.clone_from(&self.own_presence.custom_status);
 			let anchor = self.profile.anchor_or_place(&ctx, user.id);
 			self.profile.ingest_opener_rect(&ctx);
-			match profiles::show_with_session(
+			if let Some(action) = profiles::show_with_session(
 				ui,
 				&user,
 				state.profile.as_ref(),
@@ -5384,116 +5582,7 @@ impl MessagingUi {
 				anchor,
 				&mut self.profile,
 			) {
-				Some(profiles::Action::Avatar {
-					media,
-					points,
-					grid,
-				}) => {
-					let ext = media
-						.url
-						.as_deref()
-						.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
-						.unwrap_or("png");
-					self.profile_image = Some(ProfileImage {
-						generation: state.generation,
-						attachment: model::Attachment {
-							id: Id(0),
-							filename: format!("avatar.{ext}"),
-							description: Some(format!("{}’s profile picture", user.name)),
-							content_type: Some(format!("image/{ext}")),
-							size: 0,
-							media,
-							spoiler: false,
-							duration_ms: None,
-							waveform: Vec::new(),
-						},
-						floor: attachments::Floor::Thumbnail(attachments::Thumbnail {
-							longest_side_points: points,
-							grid,
-						}),
-					});
-					self.profile.close();
-				}
-				Some(profiles::Action::Banner(media)) => {
-					let ext = media
-						.url
-						.as_deref()
-						.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
-						.unwrap_or("png");
-					self.profile_image = Some(ProfileImage {
-						generation: state.generation,
-						attachment: model::Attachment {
-							id: Id(0),
-							filename: format!("banner.{ext}"),
-							description: Some(format!("{}’s banner", user.name)),
-							content_type: Some(format!("image/{ext}")),
-							size: 0,
-							media,
-							spoiler: false,
-							duration_ms: None,
-							waveform: Vec::new(),
-						},
-						floor: attachments::Floor::Fit,
-					});
-					self.profile.close();
-				}
-				Some(profiles::Action::AddFriend(id)) => {
-					if let Some(command) = state.add_profile_friend(id) {
-						commands.push(command);
-					}
-				}
-				Some(profiles::Action::AcceptFriend(id)) => {
-					if let Some(command) = state.resolve_friend_request(id, true) {
-						commands.push(command);
-					}
-				}
-				Some(profiles::Action::RemoveFriend) => {
-					self.friend_removal = Some((state.generation, user.clone()));
-				}
-				Some(profiles::Action::Menu(action)) => {
-					// Dispatched with the other user menus on the next frame.
-					self.user_action = Some(action);
-				}
-				Some(profiles::Action::Edit) => {
-					self.profile.close();
-					self.preview_settings("profile");
-				}
-				Some(profiles::Action::Profile(next)) => {
-					self.profile.navigate(next);
-				}
-				Some(profiles::Action::Server(guild)) => {
-					self.profile.close();
-					if state.guild(guild).is_some() && self.server_settings.navigate_away(state) {
-						self.guild = Some(guild);
-						if let Some(command) = state.select_guild(guild) {
-							commands.push(command);
-						}
-					}
-				}
-				Some(profiles::Action::EditStatus) => self.open_custom_status_editor(),
-				Some(profiles::Action::ClearStatus) => self.clear_custom_status(),
-				Some(profiles::Action::Close) => {
-					self.profile.close_unless_armed(&ctx);
-				}
-				Some(profiles::Action::SaveBadges(settings)) => {
-					if let Some(command) = state.save_badge_settings(settings) {
-						commands.push(command);
-					}
-				}
-				Some(profiles::Action::Retry) => {
-					if let Some(command) = state.request_profile(user.id, profile_guild) {
-						commands.push(command);
-					}
-				}
-				Some(profiles::Action::SendMessage { user, content }) => {
-					self.open_user_direct(
-						state,
-						user,
-						user_direct::Intent::Send(content),
-						&mut commands,
-					);
-				}
-				None => {}
+				self.profile_action(&ctx, state, &mut commands, &user, profile_guild, action);
 			}
 			if self.drain_profile(state, &mut commands)
 				&& let Some(user) = self.profile.open_user().cloned()

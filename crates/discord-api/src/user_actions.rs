@@ -47,6 +47,54 @@ impl DiscordApi {
 		}
 		Ok(channel)
 	}
+	/// Creates one group DM for two to nine other people; the service adds this account.
+	pub(super) async fn create_group(
+		&self,
+		recipients: &[model::Id],
+	) -> Result<model::Channel, Failure> {
+		let mut people = recipients.to_vec();
+		people.sort_unstable_by_key(|id| id.0);
+		people.dedup();
+		if !(2..=client_core::user_actions::MAX_GROUP_RECIPIENTS).contains(&people.len())
+			|| people.iter().any(|id| id.0 == 0)
+		{
+			return Err(Failure::Protocol);
+		}
+		let bytes = self
+			.request_limited(
+				Method::POST,
+				"/users/@me/channels",
+				Some(json!({"recipients": people})),
+				64 * 1024,
+			)
+			.await
+			.map_err(|failure| {
+				if failure == Failure::Capacity {
+					Failure::Ambiguous
+				} else {
+					failure
+				}
+			})?;
+		let channel: discord_protocol::ChannelDto =
+			discord_protocol::decode(&bytes).map_err(|_| Failure::Ambiguous)?;
+		let channel = channel.into_model();
+		let named = channel
+			.recipients
+			.iter()
+			.all(|entry| people.contains(&entry.id))
+			&& people
+				.iter()
+				.all(|id| channel.recipients.iter().any(|entry| entry.id == *id));
+		if channel.id.0 == 0
+			|| channel.guild.is_some()
+			|| channel.kind != 3
+			|| channel.recipients.len() > client_core::user_actions::MAX_GROUP_RECIPIENTS
+			|| !named || channel.recipients.iter().any(|entry| entry.webhook)
+		{
+			return Err(Failure::Ambiguous);
+		}
+		Ok(channel)
+	}
 	/// Reads one user's private note, treating a missing note as empty.
 	pub(super) async fn user_note(&self, user: model::Id) -> Result<String, Failure> {
 		if user.0 == 0 {
@@ -110,6 +158,7 @@ impl DiscordApi {
 			| Action::Note { user: id, .. }
 			| Action::Nickname { user: id, .. } => id,
 			Action::AddFriend { .. } => unreachable!(),
+			Action::CreateGroup { .. } => unreachable!(),
 			Action::ResolveFriend { user, .. } | Action::ProfileFriend { user, .. } => user,
 			Action::OpenDm(id)
 			| Action::CloseDm(id)
@@ -122,7 +171,9 @@ impl DiscordApi {
 			return Err(Failure::Protocol);
 		}
 		match action {
-			Action::LoadNote(_) | Action::OpenDm(_) => Err(Failure::Protocol),
+			Action::LoadNote(_) | Action::OpenDm(_) | Action::CreateGroup { .. } => {
+				Err(Failure::Protocol)
+			}
 			Action::Note { user, text } | Action::Nickname { user, text } => {
 				let nickname = matches!(action, Action::Nickname { .. });
 				if !client_core::user_actions::valid_personal_text(text, nickname) {
@@ -326,6 +377,90 @@ mod tests {
 			assert_eq!((user, request, result), (Id(2), 7, expected));
 		}
 	}
+	/// Regression: one POST creates a group, with each chosen recipient once and sorted.
+	#[tokio::test]
+	async fn creating_a_group_posts_sorted_recipients_once_and_admits_only_a_group() {
+		for (body, created) in [
+			(
+				r#"{"id":"9","type":3,"name":null,"recipients":[{"id":"2","username":"a"},{"id":"3","username":"b"}]}"#,
+				true,
+			),
+			(
+				r#"{"id":"9","type":1,"recipients":[{"id":"2","username":"a"}]}"#,
+				false,
+			),
+		] {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_GROUP_TOKEN".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let server = async {
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut bytes = Vec::new();
+				let mut body_from = None;
+				while body_from.is_none() {
+					let mut chunk = [0; 1024];
+					let count = socket.read(&mut chunk).await.unwrap();
+					assert!(count > 0 && bytes.len() + count <= 4096);
+					bytes.extend_from_slice(&chunk[..count]);
+					let Some(end) = bytes.windows(4).position(|b| b == b"\r\n\r\n") else {
+						continue;
+					};
+					let head = std::str::from_utf8(&bytes[..end]).unwrap();
+					assert!(head.starts_with("POST /users/@me/channels HTTP/1.1"));
+					let length: usize = head
+						.lines()
+						.find_map(|line| {
+							line.to_ascii_lowercase()
+								.strip_prefix("content-length: ")
+								.map(|value| value.trim().parse().unwrap())
+						})
+						.unwrap();
+					if bytes.len() >= end + 4 + length {
+						body_from = Some((end + 4, length));
+					}
+				}
+				let (from, length) = body_from.unwrap();
+				let sent: serde_json::Value =
+					serde_json::from_slice(&bytes[from..from + length]).unwrap();
+				assert_eq!(sent, json!({"recipients": ["2", "3"]}));
+				socket
+					.write_all(
+						format!(
+							"HTTP/1.1 201 Created\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+							body.len()
+						)
+						.as_bytes(),
+					)
+					.await
+					.unwrap();
+			};
+			let (event, ()) = tokio::join!(
+				api.execute(Command::UserAction {
+					action: Action::CreateGroup {
+						recipients: vec![Id(3), Id(2), Id(2)],
+					},
+					request: 11,
+					captcha: None,
+				}),
+				server
+			);
+			let Event::UserAction(client_core::user_actions::Event::GroupCreated {
+				request,
+				recipients,
+				result,
+			}) = event
+			else {
+				panic!("expected one group result")
+			};
+			// The wire carried the deduplicated list; the event echoes the request it answered.
+			assert_eq!((request, recipients), (11, vec![Id(3), Id(2), Id(2)]));
+			assert_eq!(result.is_ok(), created);
+		}
+	}
+
 	/// Regression: account and friend actions use scoped routes and confirm outcomes.
 	#[tokio::test]
 	async fn account_and_friend_request_actions_use_scoped_routes_and_confirm_remote_outcomes() {
