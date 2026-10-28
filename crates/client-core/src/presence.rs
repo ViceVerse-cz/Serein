@@ -9,6 +9,7 @@ pub const MAX_LOCAL_GAME_ACTIVITY_BYTES: usize = 4 * 1024;
 #[derive(Clone)]
 pub struct Update {
 	pub user: Id,
+	pub avatar: Patch<String>,
 	pub status: Patch<String>,
 	pub custom_status: Patch<String>,
 	pub activities: Patch<Vec<RichActivity>>,
@@ -20,7 +21,8 @@ impl Update {
 			Patch::Value(text) => text.capacity(),
 			_ => 0,
 		};
-		text(&self.status)
+		text(&self.avatar)
+			+ text(&self.status)
 			+ text(&self.custom_status)
 			+ match &self.activities {
 				Patch::Value(activities) => activity_bytes(activities),
@@ -34,6 +36,9 @@ impl Update {
 			newer.activities = Patch::Null;
 			newer.custom_status = Patch::Null;
 			newer.clients = Patch::Null;
+		}
+		if !matches!(newer.avatar, Patch::Absent) {
+			self.avatar = newer.avatar;
 		}
 		if !matches!(newer.status, Patch::Absent) {
 			self.status = newer.status;
@@ -242,6 +247,53 @@ impl State {
 				|| (shared && self.friend_presence_user(update.user))
 			{
 				continue;
+			}
+			match &update.avatar {
+				Patch::Absent => {}
+				Patch::Null => {
+					for channel in &mut self.channels {
+						for recipient in &mut channel.recipients {
+							if recipient.id == update.user && recipient.avatar.is_some() {
+								recipient.avatar = None;
+								membership_changed = true;
+							}
+						}
+					}
+					if let Some(list) = &mut self.members {
+						for slot in list.slots.iter_mut().flatten() {
+							if let model::MemberSlot::Person(member) = slot
+								&& member.user.id == update.user
+								&& member.user.avatar.is_some()
+							{
+								member.user.avatar = None;
+								membership_changed = true;
+							}
+						}
+					}
+				}
+				Patch::Value(avatar) => {
+					for channel in &mut self.channels {
+						for recipient in &mut channel.recipients {
+							if recipient.id == update.user
+								&& recipient.avatar.as_deref() != Some(avatar)
+							{
+								recipient.avatar = Some(avatar.clone());
+								membership_changed = true;
+							}
+						}
+					}
+					if let Some(list) = &mut self.members {
+						for slot in list.slots.iter_mut().flatten() {
+							if let model::MemberSlot::Person(member) = slot
+								&& member.user.id == update.user
+								&& member.user.avatar.as_deref() != Some(avatar)
+							{
+								member.user.avatar = Some(avatar.clone());
+								membership_changed = true;
+							}
+						}
+					}
+				}
 			}
 			let index = self
 				.direct_presences
@@ -1183,12 +1235,47 @@ mod tests {
 	) -> Update {
 		Update {
 			user: Id(user),
+			avatar: Patch::Absent,
 			status,
 			activities,
 			custom_status: Patch::Absent,
 			clients: Patch::Absent,
 		}
 	}
+	#[test]
+	fn direct_presence_updates_recipient_and_member_avatar() {
+		let mut state = direct_state();
+		assert_eq!(state.channels[0].recipients[0].avatar, None);
+		let hash = "0123456789abcdef0123456789abcdef".to_string();
+		apply(
+			&mut state,
+			Event::DirectPresence(vec![Update {
+				user: Id(2),
+				avatar: Patch::Value(hash.clone()),
+				status: Patch::Absent,
+				custom_status: Patch::Absent,
+				activities: Patch::Absent,
+				clients: Patch::Absent,
+			}]),
+		);
+		assert_eq!(
+			state.channels[0].recipients[0].avatar.as_deref(),
+			Some(hash.as_str())
+		);
+		apply(
+			&mut state,
+			Event::DirectPresence(vec![Update {
+				user: Id(2),
+				avatar: Patch::Null,
+				status: Patch::Absent,
+				custom_status: Patch::Absent,
+				activities: Patch::Absent,
+				clients: Patch::Absent,
+			}]),
+		);
+		assert_eq!(state.channels[0].recipients[0].avatar, None);
+	}
+
 	#[test]
 	fn client_platform_patches_preserve_replace_and_clear_offline() {
 		let mut state = direct_state();
@@ -1200,6 +1287,7 @@ mod tests {
 			&mut state,
 			Event::DirectPresence(vec![Update {
 				user: Id(2),
+				avatar: Patch::Absent,
 				status: Patch::Value("online".into()),
 				custom_status: Patch::Absent,
 				activities: Patch::Absent,

@@ -989,6 +989,21 @@ impl ActiveMembers {
 		}
 		let mut changed = false;
 		for row in self.people_mut().filter(|row| row.user.id == update.user) {
+			match &update.avatar {
+				model::Patch::Absent => {}
+				model::Patch::Null => {
+					if row.user.avatar.is_some() {
+						row.user.avatar = None;
+						changed = true;
+					}
+				}
+				model::Patch::Value(avatar) => {
+					if row.user.avatar.as_deref() != Some(avatar) {
+						row.user.avatar = Some(avatar.clone());
+						changed = true;
+					}
+				}
+			}
 			if row.status != resolved.status
 				|| row.custom_status != resolved.custom_status
 				|| row.activities != resolved.activities
@@ -3500,6 +3515,7 @@ mod member_tests {
 			let presence = |guild, user, status| discord_protocol::presence::PresenceUpdate {
 				guild,
 				user,
+				avatar: model::Patch::Absent,
 				status,
 				custom_status: model::Patch::Absent,
 				activities: model::Patch::Absent,
@@ -3614,6 +3630,7 @@ mod member_tests {
 					discord_protocol::presence::PresenceUpdate {
 						guild: Some(Id(1)),
 						user: Id(id),
+						avatar: model::Patch::Absent,
 						status: model::Patch::Value("online".into()),
 						custom_status: model::Patch::Value("\u{1f680}".repeat(128)),
 						activities: model::Patch::Absent,
@@ -3658,6 +3675,7 @@ mod member_tests {
 			let update = |status: &str| discord_protocol::presence::PresenceUpdate {
 				guild: Some(Id(1)),
 				user: Id(3),
+				avatar: model::Patch::Absent,
 				status: model::Patch::Value(status.into()),
 				custom_status: model::Patch::Absent,
 				activities: model::Patch::Absent,
@@ -3682,6 +3700,7 @@ mod member_tests {
 				discord_protocol::presence::PresenceUpdate {
 					guild: Some(Id(1)),
 					user: Id(3),
+					avatar: model::Patch::Absent,
 					status: model::Patch::Null,
 					custom_status: model::Patch::Absent,
 					activities: model::Patch::Absent,
