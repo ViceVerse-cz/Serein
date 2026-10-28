@@ -5186,8 +5186,8 @@ mod tests {
 
 	#[test]
 	fn a_bold_link_line_in_a_message_body_wraps_without_overlapping() {
-		// The same text through the conversation body path, which resolves emoji and references
-		// against the session rather than laying the runs out on their own.
+		// A paragraph that ends with a blank line, laid out with the blocks around it: that run
+		// used to lose the row's indent and be painted over the link before it.
 		let state = test_support::demo_state();
 		let channel = state.channels[0].id;
 		let source = crate::mentions::MentionSource {
@@ -5195,7 +5195,7 @@ mod tests {
 			channel,
 		};
 		let parsed = Formatted::parse(
-			"# FAKENITRO PLUGINS\n**⚠️ READING [THIS GUIDE](<https://yutaplug.github.io/Aliucord/#userpfp-and-bg>) IS NECESSARY IF YOU WANT TO USE USERPFP/BG ⚠️**\n\n[FreeNitroEmojis](https://github.com/nyxiereal/AliucordPlugins/raw/builds/FreeNitroEmojis.zip) for sending emojis as URL.\n[FakeStickers](https://github.com/RhythmLunatic/aliucord-plugins/raw/builds/FakeStickers.zip) for sending stickers as URL.\n[UserPFP](https://github.com/OmegaSunkey/awesomeplugins/raw/builds/UserPFP.zip) for setting a profile picture to UserPFP database.\n[UserBG](https://github.com/OmegaSunkey/awesomeplugins/raw/builds/UserBG.zip) for setting a banner to UserBG database.\n[FakeDecor](https://github.com/yutaplug/yutaplugins/raw/builds/FakeDecor.zip) for setting an avatar decoration to Decor database.\n\n-# Hold this message to install them.",
+			"# SYNTHETIC HEADING\n**⚠️ READ [THE SYNTHETIC GUIDE](<https://example.com/guide#anchor>) BEFORE ANY OF THE ITEMS BELOW ⚠️**\n\n[First item](https://example.com/first.zip) for sending one thing.\n[Second item](https://example.com/second.zip) for sending another thing.\n[Third item](https://example.com/third.zip) for setting a third thing.\n[Fourth item](https://example.com/fourth.zip) for setting a fourth thing.\n[Fifth item](https://example.com/fifth.zip) for setting a fifth thing.\n\n-# Synthetic footer line.",
 		);
 		let ctx = egui::Context::default();
 		crate::design::apply(&ctx);
@@ -5258,10 +5258,10 @@ mod tests {
 
 	#[test]
 	fn a_wrapped_bold_line_with_a_link_and_emoji_keeps_its_rows_apart() {
-		// Reported as overlapping text: bold text around an angle-bracket link, with emoji at
-		// both ends, wraps into rows that were painted on top of each other.
+		// Bold text around an angle-bracket link, with emoji at both ends: it has to wrap, and
+		// the wrapped rows must not be painted on top of each other.
 		let parsed = Formatted::parse(
-			"**⚠️ READING [THIS GUIDE](<https://yutaplug.github.io/Aliucord/#userpfp-and-bg>) IS NECESSARY IF YOU WANT TO USE USERPFP/BG ⚠️**",
+			"**⚠️ READ [THE SYNTHETIC GUIDE](<https://example.com/guide#anchor>) BEFORE ANY OF THE ITEMS BELOW ⚠️**",
 		);
 		let ctx = egui::Context::default();
 		for width in (200..=640).step_by(10) {
