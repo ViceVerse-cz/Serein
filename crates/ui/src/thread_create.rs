@@ -76,7 +76,11 @@ impl ThreadCreateUi {
 				.filter(|c| {
 					c.parent_id == Some(channel)
 						&& matches!(c.kind, 10..=12)
-						&& (c.name.trim() == name || request.message.is_some_and(|m| c.id == m))
+						&& if let Some(m) = request.message {
+							c.id == m
+						} else {
+							c.name.trim() == name
+						}
 				})
 				.map(|c| c.id)
 				.max();

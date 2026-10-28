@@ -1092,10 +1092,12 @@ impl State {
 					if reference {
 						self.remember_channel_reference_name(&updated);
 					}
-					self.apply(crate::Envelope {
-						generation: self.generation,
-						event: crate::Event::ChannelCreated(*updated),
-					});
+					if self.channel(target).is_none() {
+						self.apply(crate::Envelope {
+							generation: self.generation,
+							event: crate::Event::ChannelCreated(*updated),
+						});
+					}
 					if reference {
 						if self.channel(target).is_none() {
 							self.forget_channel_reference_name(target);
@@ -2172,5 +2174,41 @@ mod tests {
 			state.channel(Id(42)).unwrap().name,
 			"Original Name by Other User"
 		);
+	}
+
+	#[test]
+	fn thread_create_outcome_does_not_overwrite_already_loaded_channel_with_stale_data() {
+		let mut state = state();
+		let mut starter = crate::tests::message(42);
+		starter.channel = Id(3);
+		state.timeline.insert(starter, false, false).unwrap();
+		let mut current = state.channels[0].clone();
+		current.id = Id(42);
+		current.parent_id = Some(Id(3));
+		current.kind = 11;
+		current.name = "Renamed via Gateway".into();
+		state.channels.push(current);
+
+		let action = Action::CreateThread {
+			name: "Creation Time Name".into(),
+			message: Some(Id(42)),
+		};
+		let command = state.request_channel_action(Id(3), action).unwrap();
+
+		let mut stale = state.channels[0].clone();
+		stale.id = Id(42);
+		stale.parent_id = Some(Id(3));
+		stale.kind = 11;
+		stale.name = "Stale Creation Time Name".into();
+		finish(
+			&mut state,
+			command,
+			Ok(Outcome::Channel {
+				channel: Box::new(stale),
+				permissions: None,
+			}),
+		);
+		assert_eq!(state.channel(Id(42)).unwrap().name, "Renamed via Gateway");
+		assert!(state.channel_action_succeeded(Id(3)));
 	}
 }
