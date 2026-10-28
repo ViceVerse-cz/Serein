@@ -18,6 +18,13 @@ pub struct UploadRequest {
 }
 
 type Selected = (Source, Option<egui::ColorImage>);
+/// One full-size decode of a staged image: its key, the result channel, and the flag that drops
+/// the result once the viewer closes.
+type Viewing = (
+	u64,
+	mpsc::Receiver<Option<Arc<egui::ColorImage>>>,
+	Arc<AtomicBool>,
+);
 struct Choosing {
 	result: mpsc::Receiver<Result<Option<Vec<Selected>>, &'static str>>,
 	cancelled: Arc<AtomicBool>,
@@ -394,8 +401,9 @@ pub struct Uploads {
 	next_key: u64,
 	/// Thumbnails still decoding for pasted files, by `Chosen::key`; at most `MAX_FILES`.
 	previewing: Vec<(u64, mpsc::Receiver<Option<egui::ColorImage>>)>,
-	/// The one staged image the full-size viewer is waiting for, by `Chosen::key`.
-	view: Option<(u64, mpsc::Receiver<Option<Arc<egui::ColorImage>>>)>,
+	/// The one staged image the full-size viewer is waiting for, by `Chosen::key`, with the
+	/// flag that drops its result once the viewer closes.
+	view: Option<Viewing>,
 	/// Its decoded pixels, or `None` once decoding showed they cannot be produced.
 	view_image: Option<(u64, Option<Arc<egui::ColorImage>>)>,
 	/// Selections still being inspected and decoded; at most `MAX_FILES`. Later selections
@@ -490,30 +498,46 @@ impl Uploads {
 			|| self
 				.view
 				.as_ref()
-				.is_some_and(|(current, _)| *current == key);
+				.is_some_and(|(current, ..)| *current == key);
 		if showing {
 			return;
 		}
+		// A decode that is still running for another file drops its result and stops there.
+		if let Some((_, _, cancelled)) = self.view.take() {
+			cancelled.store(true, Ordering::Release);
+		}
 		let source = chosen.source.clone();
 		let (send, result) = mpsc::sync_channel(1);
+		let cancelled = Arc::new(AtomicBool::new(false));
+		let flag = cancelled.clone();
 		let context = context.clone();
 		runtime.spawn(async move {
-			let image = view(&source).await.map(Arc::new);
-			let _ = send.send(image);
+			// The decode itself is one blocking call and cannot be interrupted, so a closed
+			// viewer at least never waits for, keeps, or starts another one.
+			if flag.load(Ordering::Acquire) {
+				return;
+			}
+			let image = view(&source).await;
+			if flag.load(Ordering::Acquire) {
+				return;
+			}
+			let _ = send.send(image.map(Arc::new));
 			context.request_repaint();
 		});
-		self.view = Some((key, result));
+		self.view = Some((key, result, cancelled));
 		self.view_image = None;
 	}
 	/// Drops the decode of a closed viewer; pixels leave with it.
 	pub fn cancel_view(&mut self) {
-		self.view = None;
+		if let Some((_, _, cancelled)) = self.view.take() {
+			cancelled.store(true, Ordering::Release);
+		}
 		self.view_image = None;
 	}
 	/// Polls the pending decode and reports the pixels for `index` once they are known.
 	pub fn view_image(&mut self, index: usize) -> Option<Option<Arc<egui::ColorImage>>> {
 		let key = self.selected.get(index)?.key;
-		if let Some((current, receiver)) = &self.view
+		if let Some((current, receiver, _)) = &self.view
 			&& *current == key
 			&& let Ok(image) = receiver.try_recv()
 		{
