@@ -107,10 +107,14 @@ pub(super) fn dot_stat(ui: &mut egui::Ui, color: egui::Color32, value: &str, lab
 	let (rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
 	ui.painter().circle_filled(rect.center(), 4.0, color);
 	ui.add_space(-2.0);
-	ui.label(
-		egui::RichText::new(format!("{value} {}", crate::i18n::translate_if_key(label)))
-			.size(13.0)
-			.color(colors.muted),
+	ui.add(
+		egui::Label::new(
+			egui::RichText::new(format!("{value} {}", crate::i18n::translate_if_key(label)))
+				.size(13.0)
+				.color(colors.muted),
+		)
+		.truncate()
+		.selectable(false),
 	);
 }
 pub fn show(
@@ -201,7 +205,6 @@ pub fn show(
 									);
 								}
 
-								// Action first so the text column gets whatever width remains.
 								let label = crate::i18n::translate_if_key(if member {
 									"invites-show-go-to-server"
 								} else if verification {
@@ -213,141 +216,140 @@ pub fn show(
 								} else {
 									"invites-show-join"
 								});
-								ui.with_layout(
-									egui::Layout::right_to_left(egui::Align::Center),
+								let enabled =
+									member || verification || state.can_join_invite(&code);
+								let fill = if verification {
+									colors.accent
+								} else if enabled {
+									colors.positive
+								} else {
+									colors.selected
+								};
+								let text = if enabled {
+									egui::Color32::WHITE
+								} else {
+									colors.muted
+								};
+								let button = egui::Button::new(
+									crate::design::semibold(ui, &label, 14.0).color(text),
+								)
+								.fill(fill)
+								.stroke(egui::Stroke::NONE)
+								.corner_radius(6)
+								.min_size(egui::vec2(72.0, 36.0));
+
+								let font_id =
+									egui::FontId::new(14.0, crate::design::medium_family(ui.ctx()));
+								let galley =
+									ui.painter().layout_no_wrap(label.clone(), font_id, text);
+								let button_width = (galley.size().x + 24.0).max(72.0);
+								let text_width =
+									(ui.available_width() - button_width - 12.0).max(0.0);
+
+								ui.allocate_ui_with_layout(
+									egui::vec2(text_width, 50.0),
+									egui::Layout::top_down(egui::Align::Min),
 									|ui| {
-										let enabled =
-											member || verification || state.can_join_invite(&code);
-										ui.add_enabled_ui(enabled, |ui| {
-											let fill = if verification {
-												colors.accent
-											} else if enabled {
-												colors.positive
-											} else {
-												colors.selected
-											};
-											let text = if enabled {
-												egui::Color32::WHITE
-											} else {
-												colors.muted
-											};
-											let button = egui::Button::new(
-												crate::design::semibold(ui, label, 14.0)
-													.color(text),
+										ui.spacing_mut().item_spacing.y = 4.0;
+										ui.add_space(4.0);
+										let title = embed
+											.and_then(|e| e.title.clone())
+											.unwrap_or_else(|| {
+												crate::i18n::translate_if_key(if failed {
+													"invites-show-invite-expired-or-invalid"
+												} else if demo {
+													"invites-show-server-preview"
+												} else {
+													"invites-show-loading"
+												})
+											});
+										ui.add(
+											egui::Label::new(
+												crate::design::semibold(ui, title, 16.0)
+													.color(colors.text_strong),
 											)
-											.fill(fill)
-											.stroke(egui::Stroke::NONE)
-											.corner_radius(6)
-											.min_size(egui::vec2(72.0, 36.0));
-											if ui.add(button).clicked() {
-												*action = Some(
-													if let Some(preview) =
-														preview.filter(|_| member)
+											.truncate()
+											.selectable(false),
+										);
+										ui.horizontal(|ui| {
+											ui.spacing_mut().item_spacing.x = 6.0;
+											match embed
+												.and_then(|e| e.description.as_deref())
+												.and_then(counts)
+												.filter(|_| join_error.is_none() && !verification)
+											{
+												Some((online, members)) => {
+													dot_stat(
+														ui,
+														colors.positive,
+														online,
+														"server-settings-preview-online",
+													);
+													ui.add_space(6.0);
+													dot_stat(
+														ui,
+														colors.muted,
+														members,
+														"server-settings-preview-members",
+													);
+												}
+												None => {
+													let text = if verification {
+														crate::i18n::translate(
+															"invites-show-verification-required",
+														)
+													} else if let Some(f) = join_error {
+														f.label().to_owned()
+													} else if let Some(d) =
+														embed.and_then(|e| e.description.as_deref())
 													{
-														Action::OpenGuild(preview.guild)
+														d.to_owned()
+													} else if demo {
+														crate::i18n::translate(
+															"invites-show-preview-unavailable-offline",
+														)
+													} else if failed {
+														crate::i18n::translate(
+															"invites-show-this-invite-may-have-expired",
+														)
 													} else {
-														Action::Join(code.clone())
-													},
-												);
+														crate::i18n::translate(
+															"invites-show-fetching-server-details",
+														)
+													};
+													ui.add(
+														egui::Label::new(
+															egui::RichText::new(&text)
+																.size(13.0)
+																.color(if verification {
+																	colors.accent
+																} else if join_error.is_some() {
+																	colors.danger
+																} else {
+																	colors.muted
+																}),
+														)
+														.truncate()
+														.selectable(false),
+													)
+													.on_hover_text(&text);
+												}
 											}
 										});
-										ui.with_layout(
-											egui::Layout::top_down(egui::Align::Min),
-											|ui| {
-												ui.spacing_mut().item_spacing.y = 4.0;
-												ui.add_space(4.0);
-												let title = embed
-													.and_then(|e| e.title.clone())
-													.unwrap_or_else(|| {
-														crate::i18n::translate_if_key(if failed {
-															"invites-show-invite-expired-or-invalid"
-														} else if demo {
-															"invites-show-server-preview"
-														} else {
-															"invites-show-loading"
-														})
-													});
-												ui.add(
-													egui::Label::new(
-														crate::design::semibold(ui, title, 16.0)
-															.color(colors.text_strong),
-													)
-													.truncate()
-													.selectable(false),
-												);
-												ui.horizontal(|ui| {
-													ui.spacing_mut().item_spacing.x = 6.0;
-													match embed
-														.and_then(|e| e.description.as_deref())
-														.and_then(counts)
-														.filter(|_| {
-															join_error.is_none() && !verification
-														}) {
-														Some((online, members)) => {
-															dot_stat(
-																ui,
-																colors.positive,
-																online,
-																"Online",
-															);
-															ui.add_space(6.0);
-															dot_stat(
-																ui,
-																colors.muted,
-																members,
-																"Members",
-															);
-														}
-														None => {
-															let text = if verification {
-																crate::i18n::translate(
-																	"invites-show-verification-required",
-																)
-															} else if let Some(f) = join_error {
-																f.label().to_owned()
-															} else if let Some(d) =
-																embed.and_then(|e| {
-																	e.description.as_deref()
-																}) {
-																d.to_owned()
-															} else if demo {
-																crate::i18n::translate(
-																	"invites-show-preview-unavailable-offline",
-																)
-															} else if failed {
-																crate::i18n::translate(
-																	"invites-show-this-invite-may-have-expired",
-																)
-															} else {
-																crate::i18n::translate(
-																	"invites-show-fetching-server-details",
-																)
-															};
-															ui.add(
-																egui::Label::new(
-																	egui::RichText::new(&text)
-																		.size(13.0)
-																		.color(if verification {
-																			colors.accent
-																		} else if join_error
-																			.is_some()
-																		{
-																			colors.danger
-																		} else {
-																			colors.muted
-																		}),
-																)
-																.truncate()
-																.selectable(false),
-															)
-															.on_hover_text(&text);
-														}
-													}
-												});
-											},
-										);
 									},
 								);
+								ui.add_space(12.0);
+								ui.add_enabled_ui(enabled, |ui| {
+									if ui.add(button).clicked() {
+										*action = Some(
+											if let Some(preview) = preview.filter(|_| member) {
+												Action::OpenGuild(preview.guild)
+											} else {
+												Action::Join(code.clone())
+											},
+										);
+									}
+								});
 							});
 						});
 				},
@@ -358,6 +360,15 @@ pub fn show(
 }
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn dot_stat_uses_localized_labels() {
+		crate::i18n::set_current(crate::i18n::Language::German);
+		let online_label = crate::i18n::translate_if_key("server-settings-preview-online");
+		let members_label = crate::i18n::translate_if_key("server-settings-preview-members");
+		assert_eq!(online_label, "Online");
+		assert_eq!(members_label, "Mitglieder");
+	}
+
 	#[test]
 	fn standalone_invites_accept_codes_without_turning_plain_messages_into_cards() {
 		assert_eq!(
