@@ -3506,6 +3506,9 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein erfasst keine Telemetriedaten und lädt keine Diagnosedaten hoch. Discord speichert dienstseitige Daten gemäß seinen eigenen Richtlinien.
 # Context: storage_page
 settings-storage-page-your-privacy = Ihre Privatsphäre
+settings-storage-page-saved-login = Gespeicherte Anmeldung
+settings-storage-page-plaintext-login = Anmeldung im Klartext ohne Schlüsselbund speichern
+settings-storage-page-plaintext-login-description = Wird nur verwendet, wenn kein Schlüsselbund des Betriebssystems (GNOME Keyring, KWallet, Keychain oder Credential Manager) funktioniert. Das Token wird unverschlüsselt in einer privaten Datei im Serein-Datenordner gespeichert, wo jeder mit Zugriff auf Ihr Benutzerkonto es lesen kann. Durch Deaktivieren werden diese Dateien gelöscht.
 # Context: cosmetic_settings
 settings-cosmetics = Profil-Kosmetik
 # Context: cosmetic_settings
@@ -4558,6 +4561,11 @@ screen-macos-system-picker = Mit der macOS-Systemauswahl wählen
 screen-macos-system-picker-kind = Systemauswahl für Inhalte
 
 member-in-voice = Im Sprachchat
+settings-chat-box = Chatfenster
+settings-convert-emoticons = Emoticons in Nachrichten automatisch in Emojis umwandeln
+settings-convert-emoticons-description = Wandelt eigenständige Emoticons wie :) beim Senden oder Bearbeiten von Nachrichten in 🙂 um. Code und Links bleiben unverändert.
+settings-preload-on-hover = Beim Daraufzeigen vorab laden
+settings-preload-on-hover-description = Lädt eine Unterhaltung, ein Profil oder die GIF-Auswahl, während der Mauszeiger darauf verweilt, sodass sie sich sofort öffnet. Verwendet dieselben Anfragen wie das Öffnen, maximal 12 pro Minute für jede Art.
 
 profiles-board = Board
 profiles-board-unavailable = This profile’s board is unavailable.
