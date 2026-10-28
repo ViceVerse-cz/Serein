@@ -281,9 +281,22 @@ pub fn valid_avatar_hash(hash: &str) -> bool {
 	let hash = hash.strip_prefix("a_").unwrap_or(hash);
 	hash.len() == 32 && hash.bytes().all(|b| b.is_ascii_hexdigit())
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum JoinedTarget {
+	Guild(Id),
+	Channel(Id),
+}
+impl JoinedTarget {
+	pub fn id(&self) -> Id {
+		match self {
+			Self::Guild(id) | Self::Channel(id) => *id,
+		}
+	}
+}
 #[derive(Clone)]
 pub struct InvitePreview {
-	pub guild: Id,
+	pub guild: Option<Id>,
+	pub channel: Option<Id>,
 	pub embed: Embed,
 }
 impl InvitePreview {

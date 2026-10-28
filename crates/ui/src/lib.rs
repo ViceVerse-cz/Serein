@@ -957,7 +957,8 @@ impl MessagingUi {
 			(
 				std::time::Instant::now(),
 				Some(Ok(model::InvitePreview {
-					guild: Id(424242),
+					guild: Some(Id(424242)),
+					channel: None,
 					embed: model::Embed {
 						title: Some("Serein community".into()),
 						..Default::default()
@@ -5203,6 +5204,13 @@ impl MessagingUi {
 									commands.push(command);
 								}
 							}
+							Some(invites::Action::OpenChannel(channel))
+								if state.channel(channel).is_some() =>
+							{
+								if let Some(command) = state.select(channel) {
+									commands.push(command);
+								}
+							}
 							Some(invites::Action::Join(code)) => {
 								if state.invite_join.code == code
 									&& state.invite_challenge().is_some()
@@ -6575,7 +6583,8 @@ mod composer_tests {
 			(
 				std::time::Instant::now(),
 				Some(Ok(model::InvitePreview {
-					guild: Id(100),
+					guild: Some(Id(100)),
+					channel: None,
 					embed: model::Embed {
 						title: Some("Synthetic invited server".into()),
 						..Default::default()
