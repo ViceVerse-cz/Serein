@@ -335,11 +335,9 @@ pub(crate) fn gif_for_media(
 	animated: bool,
 ) -> Option<Gif> {
 	let is_gif = |url: &str| {
-		url.split('?')
-			.next()
-			.unwrap_or(url)
-			.to_ascii_lowercase()
-			.ends_with(".gif")
+		let path = url.split(['?', '#']).next().unwrap_or(url);
+		let lower = path.to_ascii_lowercase();
+		lower.ends_with(".gif") || lower.ends_with(".webp")
 	};
 	if !animated
 		&& !media.url.as_deref().is_some_and(is_gif)
@@ -1409,6 +1407,24 @@ mod tests {
 			assert!(has_media_spoilers(&guarded), "media safety field {field}");
 			assert!(has_spoilers(&guarded), "reply safety field {field}");
 		}
+	}
+
+	#[test]
+	fn gif_for_media_supports_animated_webp_provider_links() {
+		let media = model::EmbedMedia {
+			url: Some(
+				"https://static.klipy.com/ii/71b2873e478b9d8d0482ea3ec777ba7f/f6/40/HtVp9vFM.webp"
+					.into(),
+			),
+			width: 320,
+			height: 200,
+			..Default::default()
+		};
+		let gif = gif_for_media(&media, None, false).expect("animated webp recognized");
+		assert_eq!(
+			gif.url,
+			"https://static.klipy.com/ii/71b2873e478b9d8d0482ea3ec777ba7f/f6/40/HtVp9vFM.webp"
+		);
 	}
 }
 

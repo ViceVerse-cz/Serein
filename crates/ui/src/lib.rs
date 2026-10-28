@@ -9540,6 +9540,19 @@ pub fn debug_gif_favorites_check(mut message: model::Message) -> Vec<model::Gif>
 		assert_eq!(gif.preview, proxy_url.unwrap_or(url));
 		gifs.push(gif);
 	}
+	let webp_media = model::EmbedMedia {
+		url: Some("https://static.klipy.com/ii/synthetic/a1.webp".into()),
+		proxy_url: None,
+		width: 320,
+		height: 200,
+		..Default::default()
+	};
+	let webp_gif = embeds::gif_for_media(&webp_media, None, false)
+		.expect("Animated WebP provider media recognized");
+	assert_eq!(
+		webp_gif.url,
+		"https://static.klipy.com/ii/synthetic/a1.webp"
+	);
 	assert!(
 		embeds::gif_for_media(
 			&model::EmbedMedia {

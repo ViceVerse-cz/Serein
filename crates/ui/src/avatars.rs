@@ -1429,7 +1429,7 @@ impl Avatars {
 		let original = gif
 			.filter(|gif| {
 				self.animate_gifs
-					&& gif.url.ends_with(".gif")
+					&& (gif.url.ends_with(".gif") || gif.url.ends_with(".webp"))
 					&& !model::valid_discord_media_url(&gif.url)
 			})
 			.map(|gif| model::EmbedMedia {
