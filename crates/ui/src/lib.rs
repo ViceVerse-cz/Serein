@@ -418,6 +418,13 @@ pub struct MessagingUi {
 	pub attachment_previews: Vec<Option<std::sync::Arc<egui::ColorImage>>>,
 	/// GPU copies of `attachment_previews`, keyed by the pixel buffer they were uploaded from.
 	attachment_textures: Vec<Option<(usize, egui::TextureHandle)>>,
+	/// Staged file the user opened full size; the app decodes it into `attachment_view_image`.
+	pub attachment_view_open: Option<usize>,
+	pub attachment_view_image: Option<(usize, Option<std::sync::Arc<egui::ColorImage>>)>,
+	/// Conversation the open viewer belongs to, so switching leaves it behind.
+	attachment_view_scope: Option<(u64, Option<Id>)>,
+	/// GPU copy of the full-size decode above.
+	attachment_view_texture: Option<(usize, egui::TextureHandle)>,
 	pub attach_requested: bool,
 	pub host_attachment_requested: Option<usize>,
 	pub attachment_paste_requested: Option<AttachmentPaste>,
@@ -877,6 +884,60 @@ impl MessagingUi {
 					.map(|(_, handle)| handle.clone())
 			})
 			.collect()
+	}
+	/// Full-size look at one staged image; the tray thumbnail shows until the decode lands.
+	fn attachment_viewer(&mut self, ctx: &egui::Context, state: &State) {
+		let scope = (state.generation, state.selected);
+		if self.attachment_view_open.is_some() && self.attachment_view_scope != Some(scope) {
+			// Another conversation staged its own files; this viewer was never about them.
+			self.attachment_view_open = None;
+			self.attachment_view_scope = None;
+		}
+		let Some(index) = self.attachment_view_open else {
+			self.attachment_view_texture = None;
+			return;
+		};
+		let Some((filename, _)) = self.selected_files().get(index).cloned() else {
+			self.attachment_view_open = None;
+			self.attachment_view_scope = None;
+			self.attachment_view_texture = None;
+			return;
+		};
+		let full = self
+			.attachment_view_image
+			.as_ref()
+			.filter(|(current, _)| *current == index)
+			.and_then(|(_, image)| image.clone());
+		let texture = match full {
+			Some(image) => {
+				let key = std::sync::Arc::as_ptr(&image) as usize;
+				if self
+					.attachment_view_texture
+					.as_ref()
+					.is_none_or(|(current, _)| *current != key)
+				{
+					let handle = ctx.load_texture(
+						"attachment-view",
+						egui::ImageData::Color(image),
+						egui::TextureOptions::LINEAR,
+					);
+					self.attachment_view_texture = Some((key, handle));
+				}
+				self.attachment_view_texture
+					.as_ref()
+					.map(|(_, handle)| handle.clone())
+			}
+			None => {
+				self.attachment_view_texture = None;
+				None
+			}
+		};
+		let thumbnail = self.attachment_textures(ctx).get(index).cloned().flatten();
+		if attachments::pending_viewer(ctx, &filename, texture.or(thumbnail).as_ref()) {
+			self.attachment_view_open = None;
+			self.attachment_view_scope = None;
+			self.attachment_view_texture = None;
+		}
 	}
 	/// Moves staged files and thumbnails into the optimistic row for `command`.
 	pub fn stage_pending_upload(&mut self, ctx: &egui::Context, command: &Command) {
@@ -3463,7 +3524,7 @@ impl MessagingUi {
                     egui::pos2(ui.max_rect().right() + 10.0, ui.max_rect().top()),
                 );
                 if !editing_here && (self.attachment.is_some() || self.attachment_loading > 0) {
-                    self.attachment_tray(ui, state.can_send(channel), upload_limit);
+                    self.attachment_tray(ui, state, state.can_send(channel), upload_limit);
                 }
                 // Tall drafts stack the actions in bottom-aligned columns so the text keeps the
                 // width. Last pass's visible draft height decides.
@@ -3957,7 +4018,13 @@ impl MessagingUi {
 		}
 	}
 	/// Selected-file cards above the composer input, in the style of Discord's upload tray.
-	fn attachment_tray(&mut self, ui: &mut egui::Ui, can_host: bool, upload_limit: u64) {
+	fn attachment_tray(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &State,
+		can_host: bool,
+		upload_limit: u64,
+	) {
 		let colors = design::palette(ui);
 		let textures = self.attachment_textures(ui.ctx());
 		ui.add_space(4.0);
@@ -3975,7 +4042,7 @@ impl MessagingUi {
 					for (index, (filename, bytes)) in files.iter().enumerate() {
 						ui.push_id(index, |ui| {
 							ui.vertical(|ui| {
-								if ui
+								match ui
 									.scope(|ui| {
 										attachments::pending_card(
 											ui,
@@ -3987,7 +4054,17 @@ impl MessagingUi {
 									})
 									.inner
 								{
-									self.remove_attachment_index = Some(index);
+									attachments::PendingAction::Remove => {
+										self.remove_attachment_index = Some(index);
+										self.attachment_view_open = None;
+										self.attachment_view_scope = None;
+									}
+									attachments::PendingAction::Preview => {
+										self.attachment_view_open = Some(index);
+										self.attachment_view_scope =
+											Some((state.generation, state.selected));
+									}
+									attachments::PendingAction::None => {}
 								}
 								if *bytes > upload_limit
 									&& ui
@@ -5356,6 +5433,7 @@ impl MessagingUi {
 		self.thread_create.show(&ctx, state, &mut commands);
 		self.new_message
 			.show(&ctx, state, &mut self.avatars, &mut commands);
+		self.attachment_viewer(&ctx, state);
 		self.screen.show(&ctx, state);
 		if let Some(id) = self.timeline.channel_reference_load.take()
 			&& state.channel(id).is_none()

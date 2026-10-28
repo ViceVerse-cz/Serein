@@ -168,18 +168,28 @@ pub fn loading_card(ui: &mut egui::Ui) {
 	);
 }
 
-/// Card for a file that will be uploaded with the next message. Returns `true` when the user
-/// asks to remove it.
+/// What one staged attachment card asks of the composer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PendingAction {
+	None,
+	/// Show the staged image at full size.
+	Preview,
+	/// Drop the file from the message.
+	Remove,
+}
+
+/// Card for a file that will be uploaded with the next message.
 pub fn pending_card(
 	ui: &mut egui::Ui,
 	filename: &str,
 	bytes: u64,
 	preview: Option<&egui::TextureHandle>,
 	removable: bool,
-) -> bool {
+) -> PendingAction {
 	let colors = design::palette(ui);
 	let kind = file_kind(filename, None);
 	let (card, preview_rect) = pending_card_frame(ui);
+	let mut action = PendingAction::None;
 	match preview {
 		Some(texture) => {
 			let size = texture.size_vec2();
@@ -193,6 +203,19 @@ pub fn pending_card(
 					.fit_to_exact_size(fitted.size())
 					.corner_radius(4),
 			);
+			// The official client opens the whole image from its thumbnail in the tray; the pointer
+			// cursor is what says the thumbnail is clickable.
+			let response = ui
+				.interact(
+					preview_rect,
+					ui.scope_id().with("pending-preview"),
+					Sense::click(),
+				)
+				.on_hover_cursor(egui::CursorIcon::PointingHand);
+			response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, filename));
+			if response.clicked() {
+				action = PendingAction::Preview;
+			}
 		}
 		None => {
 			icons::paint(
@@ -236,24 +259,101 @@ pub fn pending_card(
 		Stroke::new(1.0, colors.border),
 		StrokeKind::Inside,
 	);
-	ui.scope_builder(
-		egui::UiBuilder::new().max_rect(pill.shrink(2.0)).layout(
-			egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-		),
-		|ui| {
-			ui.add_enabled_ui(removable, |ui| {
-				icons::button(
-					ui,
-					Icon::Trash,
-					32.0,
-					&crate::i18n::translate("attachments-pending-card-remove-attachment"),
+	let removed = ui
+		.scope_builder(
+			egui::UiBuilder::new().max_rect(pill.shrink(2.0)).layout(
+				egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+			),
+			|ui| {
+				ui.add_enabled_ui(removable, |ui| {
+					icons::button(
+						ui,
+						Icon::Trash,
+						32.0,
+						&crate::i18n::translate("attachments-pending-card-remove-attachment"),
+					)
+					.clicked()
+				})
+				.inner
+			},
+		)
+		.inner;
+	if removed {
+		return PendingAction::Remove;
+	}
+	action
+}
+
+/// Full-size look at one staged image, before it is sent. Returns `true` to close: Escape, the
+/// close control, or a click outside the picture. `image` is the tray thumbnail until the
+/// full-size decode of the file arrives.
+pub fn pending_viewer(
+	ctx: &egui::Context,
+	name: &str,
+	image: Option<&egui::TextureHandle>,
+) -> bool {
+	let size = ctx.content_rect().size().max(egui::vec2(1.0, 1.0));
+	let mut close = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+	let overlap = egui::Modal::new(egui::Id::unique("attachment-pending-viewer"))
+		.backdrop_color(Color32::from_black_alpha(236))
+		.frame(egui::Frame::NONE)
+		.show(ctx, |ui| {
+			ui.set_min_size(size);
+			ui.set_max_size(size);
+			*ui.visuals_mut() = egui::Visuals::dark();
+			ui.visuals_mut().override_text_color = Some(Color32::WHITE);
+			let (full, backdrop) = ui.allocate_exact_size(size, Sense::click());
+			const TOP: f32 = 56.0;
+			let stage = Rect::from_min_max(
+				full.min + egui::vec2(24.0, TOP),
+				full.max - egui::vec2(24.0, 24.0),
+			)
+			.intersect(full);
+			if stage.is_positive()
+				&& let Some(texture) = image
+			{
+				let pixels = texture.size_vec2().max(egui::vec2(1.0, 1.0));
+				let scale = (stage.width() / pixels.x).min(stage.height() / pixels.y);
+				let fitted = Rect::from_center_size(stage.center(), pixels * scale.max(0.01));
+				ui.put(
+					fitted,
+					egui::Image::from_texture(texture).fit_to_exact_size(fitted.size()),
+				);
+				// The picture is not the backdrop: clicking it must not dismiss the viewer.
+				ui.interact(
+					fitted,
+					ui.scope_id().with("attachment-pending-picture"),
+					Sense::click(),
+				);
+			}
+			let bar = Rect::from_min_size(full.min, egui::vec2(full.width(), TOP));
+			ui.put(
+				Rect::from_min_max(
+					bar.min + egui::vec2(24.0, 0.0),
+					egui::pos2(bar.right() - 72.0, bar.bottom()),
+				),
+				egui::Label::new(
+					egui::RichText::new(name)
+						.size(14.0)
+						.color(Color32::from_gray(230)),
 				)
-				.clicked()
-			})
-			.inner
-		},
-	)
-	.inner
+				.truncate()
+				.selectable(false),
+			);
+			let mut close_clicked = false;
+			ui.scope_builder(
+				egui::UiBuilder::new()
+					.max_rect(bar.shrink2(egui::vec2(16.0, 8.0)))
+					.layout(egui::Layout::right_to_left(egui::Align::Center)),
+				|ui| {
+					close_clicked = glass_button(ui, Icon::Close, 40.0, "Close (Esc)").clicked();
+				},
+			);
+			if close_clicked || backdrop.clicked() {
+				close = true;
+			}
+		});
+	close || overlap.should_close()
 }
 
 /// Discord-style row for a received file without an inline preview.
@@ -1442,6 +1542,106 @@ pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn a_staged_image_opens_full_size_from_its_thumbnail_only() {
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let texture = ctx.load_texture(
+			"attachments-pending-test",
+			egui::ColorImage::from_rgba_unmultiplied(
+				[2, 2],
+				&[
+					255, 255, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255,
+				],
+			),
+			egui::TextureOptions::LINEAR,
+		);
+		let press = |thumbnail: bool, pos: egui::Pos2| {
+			let mut action = PendingAction::None;
+			for events in [
+				vec![],
+				vec![
+					egui::Event::PointerMoved(pos),
+					egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed: true,
+						modifiers: egui::Modifiers::NONE,
+					},
+				],
+				vec![egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed: false,
+					modifiers: egui::Modifiers::NONE,
+				}],
+			] {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(188.0, 200.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| {
+						action = pending_card(
+							ui,
+							"synthetic-image.png",
+							512,
+							thumbnail.then_some(&texture),
+							true,
+						);
+					},
+				);
+				output.drop_without_applying_deltas();
+			}
+			action
+		};
+		// The preview area of an image card opens it; the file name below does not.
+		assert_eq!(press(true, egui::pos2(88.0, 62.0)), PendingAction::Preview);
+		assert_eq!(press(true, egui::pos2(88.0, 150.0)), PendingAction::None);
+		// A file without a thumbnail has nothing to open.
+		assert_eq!(press(false, egui::pos2(88.0, 62.0)), PendingAction::None);
+		// Pointing at the thumbnail is what tells the user it can be clicked.
+		let cursor_at = |thumbnail: bool, pos: egui::Pos2| {
+			let mut icon = egui::CursorIcon::Default;
+			for events in [vec![], vec![egui::Event::PointerMoved(pos)]] {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(188.0, 200.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| {
+						pending_card(
+							ui,
+							"synthetic-image.png",
+							512,
+							thumbnail.then_some(&texture),
+							true,
+						);
+					},
+				);
+				icon = output.platform_output.cursor_icon;
+				output.drop_without_applying_deltas();
+			}
+			icon
+		};
+		assert_eq!(
+			cursor_at(true, egui::pos2(88.0, 62.0)),
+			egui::CursorIcon::PointingHand
+		);
+		assert_eq!(
+			cursor_at(true, egui::pos2(88.0, 150.0)),
+			egui::CursorIcon::Default
+		);
+	}
 
 	#[test]
 	fn image_gallery_wraps_without_filenames_and_opens_each_attachment() {
