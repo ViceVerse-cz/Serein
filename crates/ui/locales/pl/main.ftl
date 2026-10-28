@@ -85,6 +85,7 @@ hide-chat = Ukryj czat
 show-chat = Pokaż czat
 search-conversation = Przeszukaj tę rozmowę
 show-member-list = Pokaż listę członków
+show-user-profile = Pokaż profil użytkownika
 pinned-messages = Przypięte wiadomości
 threads = Wątki
 
@@ -4737,6 +4738,8 @@ composer-placeholder-direct = Napisz do @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = To początek Twojej historii wiadomości prywatnych z { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Witamy na początku grupy { $name }.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = Witaj na #{ $channel }!
@@ -4831,3 +4834,12 @@ search-overlays-no-matching-content-types = Brak pasujących typów treści
 search-overlays-history = Historia
 search-overlays-clear-history = Wyczyść historię wyszukiwania
 main-sign-in-rate-limited-detail = Discord ogranicza to logowanie. Odczekaj, zanim spróbujesz ponownie. Wcześniejsza próba może wydłużyć oczekiwanie.
+
+# New message
+new-message-title = Nowa wiadomość
+new-message-subtitle = Wiadomości grupowe mogą mieć do 10 członków.
+new-message-search = Szukaj
+new-message-hint = Dodaj znajomych, aby rozpocząć wiadomość prywatną lub grupę.
+new-message-no-people-found = Nikt nie pasuje do tego wyszukiwania.
+new-message-create = Utwórz wiadomość
+new-message-cancel = Anuluj

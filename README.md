@@ -107,7 +107,7 @@ Use `net-im/serein-bin` in the keyword file and emerge command to install the pr
 
 #### 4. Nix (flake)
 
-Nix installs are updated through Nix, not the in-app updater. On macOS the build produces an unsigned, non-notarized `Serein.app`. See the [Nix package guide](nix/README.md) for the development shell and details.
+Nix installs are updated through Nix, not the in-app updater. On macOS the build produces an unsigned, non-notarized `Serein.app`. See the [Nix package guide](packaging/nix/README.md) for the development shell and details.
 
 The repository flake builds Serein from source for `x86_64-linux` and `aarch64-darwin`:
 
@@ -423,7 +423,7 @@ For full details, review the [Storage Policy](docs/storage-policy.md) and [Threa
 - [Authentication & Login Handoff](docs/authentication.md)
 - [Storage Policy & Cache Retention](docs/storage-policy.md)
 - [Platform Support & Build Requirements](docs/platform-support.md)
-- [Nix Package & Development Shell](nix/README.md)
+- [Nix Package & Development Shell](packaging/nix/README.md)
 - [Voice Architecture & Procedure](docs/voice.md)
 - [Design Tokens & UI Styling](docs/design.md)
 - [Extensions & Plugin Architecture](docs/extensions.md)
