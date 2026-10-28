@@ -13,4 +13,11 @@ ignore = [
     "RUSTSEC-2026-0370", # zvariant
     "RUSTSEC-2026-0371", # zbus_names
     "RUSTSEC-2026-0372", # zvariant_derive
+    # Multiple timing variability issues in crypto-bigint 0.5.5 (RUSTSEC-2026-0387). Arrives
+    # transitively via p256 0.13 / p384 0.13 required by hpke-rs-rust-crypto in OpenMLS for DAVE.
+    # Upstream OpenMLS / hpke-rs does not yet support crypto-bigint >=0.7.6.
+    "RUSTSEC-2026-0387",
+    # pulldown-cmark exponential event growth with ENABLE_WIKILINKS (RUSTSEC-2026-0414).
+    # Serein only enables ENABLE_STRIKETHROUGH and does not enable ENABLE_WIKILINKS.
+    "RUSTSEC-2026-0414",
 ]
