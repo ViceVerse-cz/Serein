@@ -58,6 +58,7 @@ fn ready() -> Event {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 				}]),
 				member: Some(p::Member {
 					roles: vec![],
