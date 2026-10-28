@@ -212,6 +212,7 @@ pub fn pending_card(
 					Sense::click(),
 				)
 				.on_hover_cursor(egui::CursorIcon::PointingHand);
+			response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, filename));
 			if response.clicked() {
 				action = PendingAction::Preview;
 			}
@@ -317,6 +318,12 @@ pub fn pending_viewer(
 				ui.put(
 					fitted,
 					egui::Image::from_texture(texture).fit_to_exact_size(fitted.size()),
+				);
+				// The picture is not the backdrop: clicking it must not dismiss the viewer.
+				ui.interact(
+					fitted,
+					ui.scope_id().with("attachment-pending-picture"),
+					Sense::click(),
 				);
 			}
 			let bar = Rect::from_min_size(full.min, egui::vec2(full.width(), TOP));
