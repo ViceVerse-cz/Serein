@@ -1055,6 +1055,18 @@ mod tests {
 	use model::Channel;
 
 	#[test]
+	fn self_sent_messages_never_mention_viewer() {
+		let state = test_support::demo_state();
+		let viewer = state.user.as_ref().unwrap();
+		let mut message = test_support::message(1, model::Id(20));
+		message.author = viewer.clone();
+		message.mentions = vec![viewer.clone()];
+		message.mention_everyone = true;
+		message.mention_roles = vec![Id(1548470397144666162)];
+		assert!(!crate::timeline::mentions_viewer(&message, &state));
+	}
+
+	#[test]
 	fn game_empty_search_keeps_editor_keys_unless_retrying() {
 		use client_core::game_mentions::Status;
 		for status in [
