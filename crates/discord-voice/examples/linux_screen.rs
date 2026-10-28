@@ -236,7 +236,7 @@ fn main() {
 		audio_linux::check_isolation();
 		stop.store(true, Ordering::Release);
 		drop(pipeline);
-		let mut cancelled = audio_linux::Worker::start(send, stop.clone(), ready.clone(), epoch).unwrap();
+		let mut cancelled = audio_linux::Worker::start(send, stop.clone(), ready.clone(), epoch, None).unwrap();
 		let deadline = Instant::now() + Duration::from_secs(3);
 		loop {
 			if let Some(result) = cancelled.result() { result.unwrap(); break; }
