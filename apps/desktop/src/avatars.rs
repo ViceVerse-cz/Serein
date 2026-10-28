@@ -248,9 +248,10 @@ impl Cosmetic {
 	fn budget(self) -> Budget {
 		let (fit, encoded, frames) = match self {
 			Self::Decoration { .. } => (256, 4 * 1024 * 1024, 16 * 1024 * 1024),
-			Self::Nameplate | Self::EffectStill => (ui::EMBED_EDGE, 8 * 1024 * 1024, 0),
+			Self::Nameplate => (ui::EMBED_EDGE, 8 * 1024 * 1024, 0),
+			Self::EffectStill => (ui::EFFECT_EDGE, 8 * 1024 * 1024, 0),
 			Self::AnimatedNameplate => (ui::EMBED_EDGE, MAX_ANIMATED_ENCODED, 16 * 1024 * 1024),
-			Self::Effect => (ui::EMBED_EDGE, MAX_ANIMATED_ENCODED, 24 * 1024 * 1024),
+			Self::Effect => (ui::EFFECT_EDGE, MAX_ANIMATED_ENCODED, 64 * 1024 * 1024),
 			Self::FrameLayer => (ui::FRAME_EDGE, 8 * 1024 * 1024, 0),
 		};
 		Budget {
@@ -3149,6 +3150,11 @@ mod tests {
 		assert!(!is_animated_key(&format!("effect-still-c-{hash}")));
 		assert!(!is_animated_key("frame-30-31"));
 		assert!(budget(&format!("effect-c-{hash}")).frames.is_some());
+		assert_eq!(budget(&format!("effect-c-{hash}")).fit, ui::EFFECT_EDGE);
+		assert_eq!(
+			budget(&format!("effect-still-c-{hash}")).fit,
+			ui::EFFECT_EDGE
+		);
 		// Large catalog PNGs are decoded and scaled, not rejected by the icon canvas.
 		let art = budget("badge-art:https://cdn.discordapp.com/assets/content/a.png");
 		assert!(art.canvas >= 2048 && art.fit == 256 && art.frames.is_none());

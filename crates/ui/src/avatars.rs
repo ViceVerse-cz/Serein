@@ -41,6 +41,8 @@ const IDLE_TEXTURES: Duration = Duration::from_secs(60);
 pub const EMBED_EDGE: u32 = 512;
 /// Longest edge for profile frame layers, which span a whole card.
 pub const FRAME_EDGE: u32 = 1024;
+/// Longest edge for profile effect layers (Discord canvas is 450 x 880).
+pub const EFFECT_EDGE: u32 = 1024;
 const REQUESTS: usize = 128;
 const RETRY: Duration = Duration::from_secs(5);
 
@@ -403,11 +405,12 @@ impl Avatars {
 		}
 		let limit = if key.starts_with("frame-") {
 			FRAME_EDGE as usize
+		} else if key.starts_with("effect-") {
+			EFFECT_EDGE as usize
 		} else if key.starts_with("decoration-") || key.starts_with("badge-art:") {
 			256
 		} else if key.starts_with("anim:")
 			|| key.starts_with("nameplate-")
-			|| key.starts_with("effect-")
 			|| key.starts_with("embed:")
 			|| key.starts_with("gif:")
 			|| key.starts_with("spotify-")
@@ -2893,6 +2896,14 @@ mod tests {
 				.sum::<usize>(),
 			TEXTURES * 128 * 128 * 4
 		);
+		avatars.request("effect-c-test".into());
+		avatars.take_requests();
+		avatars.accept(
+			&ctx,
+			"effect-c-test".into(),
+			Some(ColorImage::filled([450, 880], egui::Color32::WHITE)),
+		);
+		assert!(avatars.texture_id("effect-c-test").is_some());
 		avatars.accept(
 			&ctx,
 			"unsolicited".into(),
