@@ -3570,6 +3570,15 @@ impl Desktop {
 					result: dm_demo::channel(&self.state, user).map(Box::new),
 				}),
 				Command::UserAction {
+					action: client_core::user_actions::Action::CreateGroup { recipients },
+					request,
+					..
+				} => Event::UserAction(client_core::user_actions::Event::GroupCreated {
+					result: dm_demo::group(&self.state, &recipients, request).map(Box::new),
+					recipients,
+					request,
+				}),
+				Command::UserAction {
 					action: client_core::user_actions::Action::LoadNote(user),
 					request,
 					..

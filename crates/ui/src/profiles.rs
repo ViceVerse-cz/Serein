@@ -253,6 +253,8 @@ pub enum Action {
 	EditStatus,
 	/// The trash can on the account's own status bubble.
 	ClearStatus,
+	/// Open the centred full profile on this tab, as from the docked DM profile.
+	Full(FullTab),
 }
 
 /// Shared Rich Presence card for member profiles and the account preview.
@@ -1409,6 +1411,28 @@ impl Theme {
 			},
 		}
 	}
+	/// Recolors text and widgets for content drawn on this theme.
+	fn apply(&self, ui: &mut egui::Ui) {
+		// egui resolves strong, button and spinner colors from the widget strokes rather
+		// than the override, so a bright theme needs every stroke recolored too.
+		let visuals = ui.visuals_mut();
+		visuals.override_text_color = Some(self.text);
+		visuals.hyperlink_color = self.link;
+		let widgets = &mut visuals.widgets;
+		for widget in [
+			&mut widgets.noninteractive,
+			&mut widgets.inactive,
+			&mut widgets.hovered,
+			&mut widgets.active,
+			&mut widgets.open,
+		] {
+			widget.fg_stroke.color = self.text;
+			widget.bg_stroke = Stroke::NONE;
+		}
+		widgets.inactive.weak_bg_fill = self.chip;
+		widgets.hovered.weak_bg_fill = self.chip_hover;
+		widgets.active.weak_bg_fill = self.chip_hover;
+	}
 	/// White over a bright theme takes dark text, black over a dark one takes light text.
 	fn bright([top, bottom]: [u32; 2]) -> bool {
 		(luma(rgb(top)) + luma(rgb(bottom))) * 0.5 > 0.5
@@ -2231,7 +2255,7 @@ pub(crate) fn debug_activity_panel(state: &State) {
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum FullTab {
+pub enum FullTab {
 	#[default]
 	Board,
 	Activity,
@@ -2514,6 +2538,14 @@ impl ProfileSession {
 	pub fn open_full(&mut self, user: User) {
 		self.command_open(user);
 		self.full = true;
+	}
+
+	/// Opens the full profile of `user` on `tab`.
+	pub fn open_full_tab(&mut self, generation: u64, user: User, tab: FullTab) {
+		let id = user.id;
+		self.open_full(user);
+		self.reconcile_card_input(generation, id);
+		self.full_tab = tab;
 	}
 
 	/// Whether the open card should read its private note now; true once per card.
@@ -3045,27 +3077,7 @@ pub fn show_with_session(
 		// Back frame layers sit behind the card; front layers and the effect cover it.
 		let frame_back = ui.painter().add(egui::Shape::Noop);
 		let background = ui.painter().add(egui::Shape::Noop);
-		{
-			// egui resolves strong, button and spinner colors from the widget strokes rather
-			// than the override, so a bright theme needs every stroke recolored too.
-			let visuals = ui.visuals_mut();
-			visuals.override_text_color = Some(theme.text);
-			visuals.hyperlink_color = theme.link;
-			let widgets = &mut visuals.widgets;
-			for widget in [
-				&mut widgets.noninteractive,
-				&mut widgets.inactive,
-				&mut widgets.hovered,
-				&mut widgets.active,
-				&mut widgets.open,
-			] {
-				widget.fg_stroke.color = theme.text;
-				widget.bg_stroke = Stroke::NONE;
-			}
-			widgets.inactive.weak_bg_fill = theme.chip;
-			widgets.hovered.weak_bg_fill = theme.chip_hover;
-			widgets.active.weak_bg_fill = theme.chip_hover;
-		}
+		theme.apply(ui);
 
 		// Header: banner, overlapping avatar with presence, badge pill.
 		let has_banner = data.as_ref().and_then(|d| d.banner_url()).is_some();
@@ -4202,6 +4214,330 @@ pub fn show_with_session(
 	}
 	crate::markdown::confirm_external_link(ui.ctx(), opening, confirm_links);
 	action
+}
+
+/// Width of the docked DM profile beside the conversation.
+pub(crate) const DOCKED_WIDTH: f32 = 300.0;
+const DOCKED_BANNER: f32 = 120.0;
+
+/// The other person's profile in a one-to-one DM, docked where a server's member list sits.
+/// `data` is their loaded global profile; until it arrives only the known user is shown.
+/// `surface` is the panel fill behind an unthemed profile, used to ring the avatar.
+pub(crate) fn docked(
+	ui: &mut egui::Ui,
+	user: &User,
+	data: Option<&model::UserProfile>,
+	loading: bool,
+	state: &State,
+	avatars: &mut Avatars,
+	surface: Color32,
+) -> Option<Action> {
+	let colors = design::palette(ui);
+	let theme = Theme::new(&colors, data.and_then(|d| d.theme_colors));
+	let panel = ui.max_rect();
+	let ring = if let Some((top, bottom)) = theme.gradient {
+		let mut mesh = egui::Mesh::default();
+		for (corner, color) in [
+			(panel.left_top(), top),
+			(panel.right_top(), top),
+			(panel.left_bottom(), bottom),
+			(panel.right_bottom(), bottom),
+		] {
+			mesh.colored_vertex(corner, color);
+		}
+		mesh.add_triangle(0, 1, 2);
+		mesh.add_triangle(1, 3, 2);
+		ui.painter().add(mesh);
+		top
+	} else {
+		surface
+	};
+	theme.apply(ui);
+	ui.style_mut().interaction.selectable_labels = false;
+	let (status, custom, activities, clients) = presence(state, user.id, None);
+	let status = shown_status(state, user.id, status);
+	let custom = custom.map(str::trim).filter(|text| !text.is_empty());
+	let own = state.user.as_ref().is_some_and(|own| own.id == user.id);
+	let catalog = data.and_then(|d| d.badge_catalog.as_deref());
+	let mut action = None;
+	let mut full = None;
+	ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+		egui::Frame::new().inner_margin(16).show(ui, |ui| {
+			if ui
+				.add_sized(
+					[ui.available_width(), 36.0],
+					egui::Button::new(
+						RichText::new(crate::i18n::translate("profiles-view-full-profile"))
+							.size(14.0),
+					)
+					.corner_radius(RADIUS),
+				)
+				.clicked()
+			{
+				full = Some(FullTab::default());
+			}
+		});
+		ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+			egui::ScrollArea::vertical()
+				.id_salt(("docked-profile", user.id))
+				.auto_shrink([false, false])
+				.show(ui, |ui| {
+					ui.spacing_mut().item_spacing = vec2(8.0, 4.0);
+					let width = ui.available_width();
+					let has_banner = data.and_then(|d| d.banner_url()).is_some();
+					let (banner, banner_response) = ui.allocate_exact_size(
+						vec2(width, DOCKED_BANNER),
+						if has_banner {
+							egui::Sense::click()
+						} else {
+							egui::Sense::hover()
+						},
+					);
+					if let Some(data) = data {
+						avatars.paint_banner(ui, data, banner, CornerRadius::ZERO, state.demo);
+					} else {
+						ui.painter().rect_filled(banner, 0, colors.raised);
+					}
+					let circles = Rect::from_min_size(
+						pos2(
+							banner.right() - PAD - 2.0 * CIRCLE - 8.0,
+							banner.top() + PAD,
+						),
+						vec2(2.0 * CIRCLE + 8.0, CIRCLE),
+					);
+					ui.scope_builder(
+						UiBuilder::new()
+							.max_rect(circles)
+							.layout(egui::Layout::right_to_left(egui::Align::Center)),
+						|ui| {
+							ui.spacing_mut().item_spacing.x = 8.0;
+							let more = header_circle(ui, Icon::More, "profiles-show-more", true);
+							egui::Popup::menu(&more)
+								.id(egui::Id::unique(("docked-profile-more", user.id)))
+								.show(|ui| {
+									let mut expand = false;
+									let dm = state.selected;
+									if let Some(picked) =
+										more_menu(ui, state, user, dm, &mut expand)
+									{
+										action = Some(picked);
+									}
+									if expand {
+										full = Some(FullTab::default());
+									}
+								});
+							if let Some(picked) = friend_button(ui, state, user, true) {
+								action = Some(picked);
+							}
+						},
+					);
+					let avatar = Rect::from_min_size(
+						banner.left_bottom() + vec2(PAD + 4.0, -AVATAR * 0.5 - 6.0),
+						Vec2::splat(AVATAR),
+					);
+					if has_banner
+						&& !ui.input(|i| {
+							i.pointer
+								.interact_pos()
+								.is_some_and(|pos| circles.contains(pos) || avatar.contains(pos))
+						}) && banner_response
+						.on_hover_cursor(egui::CursorIcon::ZoomIn)
+						.clicked() && let Some(url) = data.and_then(|d| d.banner_url())
+					{
+						action = Some(Action::Banner(model::EmbedMedia {
+							url: Some(url),
+							width: 2048,
+							height: 1024,
+							..Default::default()
+						}));
+					}
+					ui.painter()
+						.circle_filled(avatar.center(), AVATAR * 0.5 + AVATAR_RING, ring);
+					ui.scope_builder(UiBuilder::new().max_rect(avatar), |ui| {
+						let response = avatars.with_avatar_animation(true, |avatars| match data {
+							Some(data) => avatars.show_profile_avatar(ui, data, AVATAR, state.demo),
+							None => avatars.show(ui, user, AVATAR, state.demo),
+						});
+						if response
+							.on_hover_cursor(egui::CursorIcon::PointingHand)
+							.on_hover_text(crate::i18n::translate("profiles-view-full-profile"))
+							.clicked()
+						{
+							full = Some(FullTab::default());
+						}
+					});
+					if let Some(status) = status {
+						presence_badge(ui, avatar, status, clients, ring);
+					}
+					ui.add_space((avatar.bottom() + 12.0 - ui.cursor().top()).max(0.0));
+					egui::Frame::new()
+						.inner_margin(egui::Margin::symmetric(16, 0))
+						.show(ui, |ui| {
+							ui.set_width(ui.available_width());
+							let display = data
+								.and_then(|d| {
+									state.friend_nickname(user.id).or(d.global_name.as_deref())
+								})
+								.unwrap_or_else(|| state.user_display_name(user));
+							let display = display.split_whitespace().collect::<Vec<_>>().join(" ");
+							let name = crate::name_styles::label(
+								ui,
+								crate::name_styles::style(data.map_or(user, |d| &d.user)),
+								&display,
+								egui::FontId::new(20.0, design::semibold_family(ui.ctx())),
+								None,
+								ring,
+								theme.text,
+								egui::Sense::click(),
+								true,
+							);
+							if name
+								.on_hover_cursor(egui::CursorIcon::PointingHand)
+								.on_hover_text(crate::i18n::translate("profiles-view-full-profile"))
+								.clicked()
+							{
+								full = Some(FullTab::default());
+							}
+							let shown = data.map_or_else(Vec::new, |d| {
+								model::badges::displayed_badges(&d.badges, catalog)
+							});
+							let clan = data
+								.map(|d| d.clan.as_ref())
+								.unwrap_or(user.primary_guild.as_deref());
+							ui.horizontal_wrapped(|ui| {
+								ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
+								let username = data.map_or_else(
+									|| user.name.clone(),
+									|d| {
+										if d.user.discriminator > 0 {
+											format!("{}#{:04}", d.username, d.user.discriminator)
+										} else {
+											d.username.clone()
+										}
+									},
+								);
+								ui.label(RichText::new(username).size(14.0));
+								if let Some(clan) = clan {
+									clan_chip(ui, &theme, avatars, clan, state.demo);
+								}
+								let icons: Vec<_> =
+									shown.iter().filter(|b| b.icon_key().is_some()).collect();
+								if !icons.is_empty() {
+									egui::Frame::new()
+										.fill(theme.panel)
+										.corner_radius(6)
+										.inner_margin(egui::Margin::symmetric(6, 3))
+										.show(ui, |ui| {
+											ui.spacing_mut().item_spacing.x = 4.0;
+											for badge in icons {
+												crate::badges::badge_icon(
+													ui, avatars, badge, catalog, 20.0, state.demo,
+												);
+											}
+										});
+								}
+							});
+							if let Some(text) = custom {
+								ui.add_space(4.0);
+								egui::Frame::new()
+									.fill(theme.chip)
+									.corner_radius(RADIUS)
+									.inner_margin(egui::Margin::symmetric(10, 6))
+									.show(ui, |ui| {
+										ui.add(
+											egui::Label::new(RichText::new(text).size(13.0)).wrap(),
+										);
+									});
+							}
+							if let Some(data) = data.filter(|d| {
+								!own && (!d.mutual_guilds.is_empty()
+									|| !d.mutual_friends.is_empty())
+							}) {
+								ui.add_space(4.0);
+								ui.horizontal_wrapped(|ui| {
+									ui.spacing_mut().item_spacing = vec2(16.0, 4.0);
+									for (tab, count, icon, one, many) in [
+										(
+											FullTab::Friends,
+											data.mutual_friends.len(),
+											Icon::People,
+											"profiles-show-mutual-friend",
+											"profiles-show-mutual-friends",
+										),
+										(
+											FullTab::Servers,
+											data.mutual_guilds.len(),
+											Icon::Servers,
+											"profiles-show-mutual-server",
+											"profiles-show-mutual-servers",
+										),
+									] {
+										if count == 0 {
+											continue;
+										}
+										let key = if count == 1 { one } else { many };
+										let text =
+											format!("{count} {}", crate::i18n::translate(key));
+										if mutual_link(ui, &theme, icon, text).clicked() {
+											full = Some(tab);
+										}
+									}
+								});
+							}
+							if data.is_none() && loading {
+								ui.add_space(4.0);
+								ui.horizontal(|ui| {
+									ui.spinner();
+									ui.label(
+										RichText::new(crate::i18n::translate(
+											"profiles-show-loading-profile",
+										))
+										.size(13.0)
+										.color(theme.muted),
+									);
+								});
+							}
+							let mut sections = 0;
+							ui.add_space(12.0);
+							if !activities.is_empty() {
+								sections += 1;
+								activity_list(
+									ui,
+									egui::Id::unique(("docked-profile-activity", user.id)),
+									activities,
+									avatars,
+									state.demo,
+									(theme.chip, theme.muted),
+								);
+							}
+							if data.is_none_or(|d| !d.private)
+								&& let Some(date) = creation_date(user.id)
+							{
+								section(
+									ui,
+									&theme,
+									&mut sections,
+									"profiles-show-member-since",
+									true,
+								);
+								ui.label(RichText::new(date).size(15.0));
+							}
+							if let Some(since) = state.friend_since(user.id).and_then(local_date) {
+								section(
+									ui,
+									&theme,
+									&mut sections,
+									"profiles-show-friends-since",
+									true,
+								);
+								ui.label(RichText::new(since).size(15.0));
+							}
+							ui.add_space(16.0);
+						});
+				});
+		});
+	});
+	full.map(Action::Full).or(action)
 }
 
 /// Time since this card's effect became ready to play; it restarts whenever the card reopens.
