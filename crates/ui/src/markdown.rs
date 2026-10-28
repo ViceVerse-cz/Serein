@@ -2618,9 +2618,13 @@ impl Formatted {
 			..Default::default()
 		};
 		let mut remaining: usize = 120;
+		let mut truncated = false;
 		let mut emojis = Vec::new();
 		for (text, style) in &self.spans {
 			if remaining == 0 {
+				if !text.is_empty() {
+					truncated = true;
+				}
 				break;
 			}
 			if text.is_empty() {
@@ -2707,8 +2711,34 @@ impl Formatted {
 					muted.clone(),
 				)
 			};
-			let take: String = display.chars().take(remaining).collect();
-			remaining -= take.chars().count();
+			let display_count = display.chars().count();
+			let (take, truncated_here) = if display_count > remaining {
+				let raw: String = display.chars().take(remaining).collect();
+				let next_is_word = display
+					.chars()
+					.nth(remaining)
+					.is_some_and(|c| !c.is_whitespace());
+				let trimmed = if next_is_word && !raw.ends_with(char::is_whitespace) {
+					if let Some(last_space) = raw.rfind(' ') {
+						if last_space > 0 && raw.len() - last_space < 25 {
+							raw[..last_space].trim_end().to_string()
+						} else {
+							raw
+						}
+					} else {
+						raw
+					}
+				} else {
+					raw.trim_end().to_string()
+				};
+				(trimmed, true)
+			} else {
+				(display, false)
+			};
+			remaining = remaining.saturating_sub(display_count);
+			if truncated_here {
+				truncated = true;
+			}
 			let mut start = 0;
 			if !style.code {
 				for (offset, cluster) in take.grapheme_indices(true) {
@@ -2731,6 +2761,9 @@ impl Formatted {
 				}
 			}
 			job.append(&take[start..], 0.0, format);
+		}
+		if truncated {
+			job.append("…", 0.0, muted);
 		}
 		emojis
 	}
@@ -2884,6 +2917,28 @@ impl Formatted {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn inline_preview_truncates_long_messages_with_ellipsis() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let input = "Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat.";
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+			assert!(!preview.text.ends_with("magn…"));
+			assert!(preview.text.ends_with("dolore…"));
+			assert!(preview.text.chars().count() <= 125);
+		});
+		output.drop_without_applying_deltas();
+	}
+
 	#[test]
 	fn game_mentions_obey_code_escape_and_spoiler_boundaries() {
 		let parsed = super::Formatted::parse("<@$42> `<@$43>` \\<@$44> ||<@$45>|| <@46> <@&47>");
