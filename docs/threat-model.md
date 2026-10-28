@@ -36,8 +36,15 @@ exceptions in `.cargo/audit.toml` cover `ttf-parser` and the standalone `zvarian
 `zvariant_derive` and `zbus_names` crates. The latter were folded into zbus 6; our
 pinned zbus 5 and upstream portal, accessibility, tray and Secret Service dependencies
 still require them. These are maintenance warnings, not ignored vulnerabilities.
-Reassess these exceptions when the upstream dependency stack migrates to zbus 6;
-all vulnerability advisories remain enforced.
+Reassess these exceptions when the upstream dependency stack migrates to zbus 6.
+A scoped vulnerability exception in `.cargo/audit.toml` covers `crypto-bigint` 0.5.5
+(RUSTSEC-2026-0387, timing variability in operations intended to be constant-time). The
+affected code path is DAVE P-256 signing-key generation and MLS key-package validation
+in `crates/discord-voice` (arriving transitively via `openmls` -> `openmls_rust_crypto` ->
+`hpke-rs-rust-crypto` -> `p256 0.13` / `p384 0.13`), where upstream dependencies have not
+yet migrated to `crypto-bigint >=0.7.6`. The voice subsystem owner maintains this acceptance
+until OpenMLS or hpke-rs publishes a compatible patched provider release; all other
+vulnerability advisories remain enforced.
 
 Explicit public attachment hosting adds Catbox as a third-party recipient of one
 user-selected file only after per-file consent. Anyone with its returned link can
