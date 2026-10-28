@@ -260,6 +260,7 @@ impl State {
 						}
 					}
 					if let Some(list) = &mut self.members {
+						let mut avatar_changed = false;
 						for slot in list.slots.iter_mut().flatten() {
 							if let model::MemberSlot::Person(member) = slot
 								&& member.user.id == update.user
@@ -267,7 +268,12 @@ impl State {
 							{
 								member.user.avatar = None;
 								membership_changed = true;
+								avatar_changed = true;
 							}
+						}
+						if avatar_changed && list.lazy {
+							self.member_chunks.merge(list);
+							self.member_chunks.evict(&list.ranges);
 						}
 					}
 				}
@@ -283,6 +289,7 @@ impl State {
 						}
 					}
 					if let Some(list) = &mut self.members {
+						let mut avatar_changed = false;
 						for slot in list.slots.iter_mut().flatten() {
 							if let model::MemberSlot::Person(member) = slot
 								&& member.user.id == update.user
@@ -290,7 +297,12 @@ impl State {
 							{
 								member.user.avatar = Some(avatar.clone());
 								membership_changed = true;
+								avatar_changed = true;
 							}
+						}
+						if avatar_changed && list.lazy {
+							self.member_chunks.merge(list);
+							self.member_chunks.evict(&list.ranges);
 						}
 					}
 				}
@@ -497,7 +509,7 @@ impl State {
 mod tests {
 	use super::*;
 	use crate::{Envelope, Event, auth::AuthState};
-	use model::{Channel, Guild, Member, MemberList, MemberPresence, MemberSlot, User};
+	use model::{Channel, Freshness, Guild, Member, MemberList, MemberPresence, MemberSlot, User};
 
 	fn state() -> State {
 		let user = User {
@@ -530,7 +542,7 @@ mod tests {
 				parent_id: None,
 				position: 0,
 				name: "Synthetic".into(),
-				kind: 0,
+				kind: Default::default(),
 				recipients: vec![],
 				icon: None,
 				member_list_id: Some("everyone".into()),
@@ -614,7 +626,7 @@ mod tests {
 	#[test]
 	fn local_game_activity_is_bounded_coalesced_and_cleared_at_session_boundaries() {
 		let game = RichActivity {
-			kind: 0,
+			kind: Default::default(),
 			name: "osu!".into(),
 			details: Some("Playing a map".into()),
 			state: None,
@@ -1245,6 +1257,35 @@ mod tests {
 	#[test]
 	fn direct_presence_updates_recipient_and_member_avatar() {
 		let mut state = direct_state();
+		state.members = Some(MemberList {
+			guild: Some(Id(10)),
+			channel: Id(1),
+			request: 7,
+			start: 0,
+			slots: vec![Some(MemberSlot::Person(Member {
+				roles: vec![],
+				user: User {
+					id: Id(2),
+					name: "test".into(),
+					avatar: None,
+					discriminator: 0,
+					kind: Default::default(),
+					webhook: false,
+					primary_guild: None,
+					cosmetics: None,
+				},
+				nick: None,
+				status: Some("online".into()),
+				custom_status: None,
+				activities: vec![],
+				clients: ClientPlatforms::default(),
+			}))],
+			total: 1,
+			lazy: true,
+			groups: vec![],
+			ranges: vec![],
+			freshness: Freshness::Fresh,
+		});
 		assert_eq!(state.channels[0].recipients[0].avatar, None);
 		let hash = "0123456789abcdef0123456789abcdef".to_string();
 		apply(
@@ -1262,6 +1303,13 @@ mod tests {
 			state.channels[0].recipients[0].avatar.as_deref(),
 			Some(hash.as_str())
 		);
+		if let Some(model::MemberSlot::Person(m)) =
+			state.members.as_ref().and_then(|l| l.slots[0].as_ref())
+		{
+			assert_eq!(m.user.avatar.as_deref(), Some(hash.as_str()));
+		} else {
+			panic!("expected Person slot");
+		}
 		apply(
 			&mut state,
 			Event::DirectPresence(vec![Update {
@@ -1274,6 +1322,13 @@ mod tests {
 			}]),
 		);
 		assert_eq!(state.channels[0].recipients[0].avatar, None);
+		if let Some(model::MemberSlot::Person(m)) =
+			state.members.as_ref().and_then(|l| l.slots[0].as_ref())
+		{
+			assert_eq!(m.user.avatar, None);
+		} else {
+			panic!("expected Person slot");
+		}
 	}
 
 	#[test]
@@ -1316,7 +1371,7 @@ mod tests {
 	}
 	fn activity() -> RichActivity {
 		RichActivity {
-			kind: 0,
+			kind: Default::default(),
 			name: "Synthetic game".into(),
 			details: Some("In a match".into()),
 			state: None,
