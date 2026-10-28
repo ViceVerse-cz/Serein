@@ -283,7 +283,8 @@ pub fn valid_avatar_hash(hash: &str) -> bool {
 }
 #[derive(Clone)]
 pub struct InvitePreview {
-	pub guild: Id,
+	pub guild: Option<Id>,
+	pub channel: Option<Id>,
 	pub embed: Embed,
 }
 impl InvitePreview {

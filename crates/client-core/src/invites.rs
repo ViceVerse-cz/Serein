@@ -113,7 +113,7 @@ impl State {
 	}
 	pub fn apply_invite(&mut self, code: String, result: Result<model::InvitePreview, Failure>) {
 		let result = result.and_then(|embed| {
-			if embed.guild.0 != 0
+			if (embed.guild.is_some_and(|g| g.0 != 0) || embed.channel.is_some_and(|c| c.0 != 0))
 				&& model::valid_embeds(std::slice::from_ref(&embed.embed))
 				&& embed.bytes() <= 4096
 			{
@@ -151,7 +151,8 @@ mod tests {
 			state.apply_invite(
 				"synthetic".into(),
 				Ok(model::InvitePreview {
-					guild: model::Id(2),
+					guild: Some(model::Id(2)),
+					channel: None,
 					embed: model::Embed::default(),
 				}),
 			);
@@ -176,7 +177,8 @@ mod tests {
 			let event = Event::Invite {
 				code: "synthetic".into(),
 				result: Ok(Box::new(model::InvitePreview {
-					guild: model::Id(2),
+					guild: Some(model::Id(2)),
+					channel: None,
 					embed,
 				})),
 			};
@@ -247,9 +249,17 @@ impl State {
 			&& valid_code(code)
 			&& self.invites.get(code).is_some_and(|(at, value)| {
 				at.elapsed() < Duration::from_secs(300)
-					&& value
-						.as_ref()
-						.is_some_and(|v| v.as_ref().is_ok_and(|p| self.guild(p.guild).is_none()))
+					&& value.as_ref().is_some_and(|v| {
+						v.as_ref().is_ok_and(|p| {
+							if let Some(guild) = p.guild {
+								self.guild(guild).is_none()
+							} else if let Some(channel) = p.channel {
+								self.channel(channel).is_none()
+							} else {
+								false
+							}
+						})
+					})
 			}) && !(self.invite_join.code == code && matches!(self.invite_join.result, Some(Ok(_))))
 	}
 	pub fn join_invite(&mut self, code: String) -> Option<Command> {
@@ -400,7 +410,8 @@ mod join_tests {
 				(
 					Instant::now(),
 					Some(Ok(model::InvitePreview {
-						guild: model::Id(2),
+						guild: Some(model::Id(2)),
+						channel: None,
 						embed: model::Embed::default(),
 					})),
 				),

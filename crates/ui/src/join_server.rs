@@ -586,7 +586,10 @@ impl JoinDialog {
 		let lookup_error = entry
 			.and_then(|(_, value)| value.as_ref())
 			.and_then(|value| value.as_ref().err());
-		let member = preview.is_some_and(|preview| state.guild(preview.guild).is_some());
+		let member = preview.is_some_and(|preview| {
+			preview.guild.is_some_and(|g| state.guild(g).is_some())
+				|| preview.channel.is_some_and(|c| state.channel(c).is_some())
+		});
 		let ready = preview.is_some();
 		let accepted = parsed.as_deref() == Some(state.invite_join.code.as_str())
 			&& matches!(state.invite_join.result, Some(Ok(_)));
@@ -984,7 +987,8 @@ mod tests {
 			state.apply_invite(
 				"synthetic".into(),
 				Ok(model::InvitePreview {
-					guild: model::Id(12),
+					guild: Some(model::Id(12)),
+					channel: None,
 					embed: model::Embed {
 						title: Some("Synthetic server".into()),
 						..Default::default()

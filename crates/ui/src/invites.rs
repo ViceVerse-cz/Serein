@@ -6,6 +6,7 @@ use model::Message;
 pub(crate) enum Action {
 	Join(String),
 	OpenGuild(model::Id),
+	OpenChannel(model::Id),
 }
 fn code(raw: &str) -> Option<String> {
 	let normalized;
@@ -133,7 +134,10 @@ pub fn show(
 			let preview = entry
 				.and_then(|(_, value)| value.as_ref())
 				.and_then(|r| r.as_ref().ok());
-			let member = preview.is_some_and(|p| state.guild(p.guild).is_some());
+			let member = preview.is_some_and(|p| {
+				p.guild.is_some_and(|g| state.guild(g).is_some())
+					|| p.channel.is_some_and(|c| state.channel(c).is_some())
+			});
 			let embed = preview.map(|p| &p.embed);
 			let failed = entry.is_some_and(|(_, v)| matches!(v, Some(Err(_))));
 			if !demo && entry.is_none() && requests.len() < 8 && !requests.contains(&code) {
@@ -244,7 +248,15 @@ pub fn show(
 													if let Some(preview) =
 														preview.filter(|_| member)
 													{
-														Action::OpenGuild(preview.guild)
+														if let Some(guild) = preview.guild {
+															Action::OpenGuild(guild)
+														} else if let Some(channel) =
+															preview.channel
+														{
+															Action::OpenChannel(channel)
+														} else {
+															Action::Join(code.clone())
+														}
 													} else {
 														Action::Join(code.clone())
 													},
