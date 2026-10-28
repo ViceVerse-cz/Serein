@@ -5720,6 +5720,17 @@ impl eframe::App for Desktop {
 			self.messaging.attachment_previews = self.uploads.previews();
 			self.messaging.attachment_files = self.uploads.files();
 		}
+		// One staged image can be looked at full size; its decode runs off the render thread.
+		if let Some(index) = self.messaging.attachment_view_open {
+			self.uploads
+				.request_view(index, self.runtime.handle(), &ctx);
+			if let Some(decoded) = self.uploads.view_image(index) {
+				self.messaging.attachment_view_image = Some((index, decoded));
+			}
+		} else {
+			self.uploads.cancel_view();
+			self.messaging.attachment_view_image = None;
+		}
 		self.messaging
 			.external_upload
 			.progress(self.uploads.public_progress());
