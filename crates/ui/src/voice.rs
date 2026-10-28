@@ -5993,6 +5993,8 @@ mod tests {
 
 	#[test]
 	fn live_badge_expands_to_fit_multilingual_label() {
+		let prev_lang = crate::i18n::current();
+		crate::i18n::set_current(crate::i18n::Language::Spanish);
 		let ctx = egui::Context::default();
 		let text = crate::i18n::translate("voice-live-badge-live");
 		let font_id = egui::FontId::new(9.0, design::medium_family(&ctx));
@@ -6004,7 +6006,7 @@ mod tests {
 			expected_width = (galley.size().x + 8.0).max(32.0);
 		});
 		output.drop_without_applying_deltas();
-		assert!(expected_width >= 32.0);
+		assert!(expected_width > 32.0);
 		let mut badge_width = 0.0;
 		let output = ctx.run_ui(Default::default(), |ui| {
 			live_badge(ui);
@@ -6012,5 +6014,6 @@ mod tests {
 		});
 		output.drop_without_applying_deltas();
 		assert_eq!(badge_width, expected_width);
+		crate::i18n::set_current(prev_lang);
 	}
 }
