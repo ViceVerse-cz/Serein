@@ -238,11 +238,14 @@ pub fn show(
 								.corner_radius(6)
 								.min_size(egui::vec2(72.0, 36.0));
 
-								let font_id =
-									egui::FontId::new(14.0, crate::design::medium_family(ui.ctx()));
+								let font_id = egui::FontId::new(
+									14.0,
+									crate::design::semibold_family(ui.ctx()),
+								);
 								let galley =
 									ui.painter().layout_no_wrap(label.clone(), font_id, text);
-								let button_width = (galley.size().x + 24.0).max(72.0);
+								let button_padding = ui.spacing().button_padding.x * 2.0;
+								let button_width = (galley.size().x + button_padding).max(72.0);
 								let text_width =
 									(ui.available_width() - button_width - 12.0).max(0.0);
 
@@ -362,11 +365,90 @@ pub fn show(
 mod tests {
 	#[test]
 	fn dot_stat_uses_localized_labels() {
+		let prev_lang = crate::i18n::current();
 		crate::i18n::set_current(crate::i18n::Language::German);
 		let online_label = crate::i18n::translate_if_key("server-settings-preview-online");
 		let members_label = crate::i18n::translate_if_key("server-settings-preview-members");
 		assert_eq!(online_label, "Online");
 		assert_eq!(members_label, "Mitglieder");
+
+		let ctx = egui::Context::default();
+		let raw_input = egui::RawInput {
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(600.0, 400.0),
+			)),
+			..Default::default()
+		};
+		fn find_text(shapes: &[egui::epaint::ClippedShape], needle: &str) -> bool {
+			fn check_shape(s: &egui::Shape, needle: &str) -> bool {
+				match s {
+					egui::Shape::Text(t) => t.galley.job.text.contains(needle),
+					egui::Shape::Vec(v) => v.iter().any(|shape| check_shape(shape, needle)),
+					_ => false,
+				}
+			}
+			shapes.iter().any(|s| check_shape(&s.shape, needle))
+		}
+
+		let output = ctx.run_ui(raw_input.clone(), |ui| {
+			super::dot_stat(
+				ui,
+				egui::Color32::WHITE,
+				"340",
+				"server-settings-preview-members",
+			);
+			super::dot_stat(
+				ui,
+				egui::Color32::WHITE,
+				"12",
+				"server-settings-preview-online",
+			);
+		});
+		let found_members = find_text(&output.shapes, "Mitglieder");
+		let found_online = find_text(&output.shapes, "Online");
+		output.drop_without_applying_deltas();
+		assert!(found_members);
+		assert!(found_online);
+
+		let mut state = test_support::demo_state();
+		let code = "synthetic-invite".to_string();
+		state.invites.insert(
+			code.clone(),
+			(
+				std::time::Instant::now(),
+				Some(Ok(model::InvitePreview {
+					guild: model::Id(999),
+					embed: model::Embed {
+						title: Some("Rust Server".into()),
+						description: Some("● 12 online · 340 members".into()),
+						..Default::default()
+					},
+				})),
+			),
+		);
+		let mut message = test_support::message(1, model::Id(2));
+		message.content = format!("https://discord.gg/{code}");
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut requests = Vec::new();
+		let mut action = None;
+		let card_output = ctx.run_ui(raw_input, |ui| {
+			super::show(
+				ui,
+				&message,
+				&state,
+				&mut avatars,
+				&mut requests,
+				&mut action,
+			);
+		});
+		let card_members = find_text(&card_output.shapes, "Mitglieder");
+		let card_online = find_text(&card_output.shapes, "Online");
+		card_output.drop_without_applying_deltas();
+		assert!(card_members);
+		assert!(card_online);
+
+		crate::i18n::set_current(prev_lang);
 	}
 
 	#[test]
