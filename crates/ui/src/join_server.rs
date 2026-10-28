@@ -257,8 +257,14 @@ impl JoinDialog {
 			});
 		});
 		// Like Discord, a successful join lands in the server; the dialog has done its job.
-		let joined = matches!(state.invite_join.result, Some(Ok(guild))
-			if state.selected.and_then(|id| state.channel(id)).is_some_and(|c| c.guild == Some(guild)));
+		let joined = matches!(state.invite_join.result, Some(Ok(target))
+		if match target {
+			model::JoinedTarget::Guild(guild) => state
+				.selected
+				.and_then(|id| state.channel(id))
+				.is_some_and(|c| c.guild == Some(guild)),
+			model::JoinedTarget::Channel(channel) => state.selected == Some(channel),
+		});
 		if close
 			|| response.close
 			|| joined && input_code(&self.input).as_deref() == Some(state.invite_join.code.as_str())
@@ -1023,7 +1029,7 @@ mod tests {
 				generation: state.generation,
 				event: client_core::Event::JoinInvite {
 					request,
-					result: Ok(model::Id(12)),
+					result: Ok(model::JoinedTarget::Guild(model::Id(12))),
 				},
 			});
 			assert!(state.guild(model::Id(12)).is_none());

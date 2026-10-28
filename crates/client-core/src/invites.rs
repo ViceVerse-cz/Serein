@@ -212,11 +212,11 @@ mod tests {
 pub struct Join {
 	pub code: String,
 	pub pending: bool,
-	pub result: Option<Result<model::Id, Failure>>,
+	pub result: Option<Result<model::JoinedTarget, Failure>>,
 	sequence: u64,
 	challenge: Option<(Instant, crate::captcha::Challenge)>,
-	/// The joined server to open once the Gateway delivers it, like Discord does.
-	pub(crate) navigate: Option<(Instant, model::Id)>,
+	/// The joined server or group channel to open once the Gateway delivers it.
+	pub(crate) navigate: Option<(Instant, model::JoinedTarget)>,
 }
 /// Gateway membership normally arrives within seconds; a stale join never steals focus.
 const NAVIGATE_WITHIN: Duration = Duration::from_secs(60);
@@ -224,21 +224,33 @@ impl State {
 	/// Opens a just-joined server once it and a viewable channel are loaded.
 	/// Returns the channel load command, if any; call once per frame.
 	pub fn navigate_after_join(&mut self) -> Option<Command> {
-		let (at, guild) = self.invite_join.navigate?;
+		let (at, target) = self.invite_join.navigate?;
 		if at.elapsed() >= NAVIGATE_WITHIN {
 			self.invite_join.navigate = None;
 			return None;
 		}
-		self.guild(guild)?;
-		let command = self.select_guild(guild);
-		if self
-			.selected
-			.and_then(|id| self.channel(id))
-			.is_some_and(|channel| channel.guild == Some(guild))
-		{
-			self.invite_join.navigate = None;
+		match target {
+			model::JoinedTarget::Guild(guild) => {
+				self.guild(guild)?;
+				let command = self.select_guild(guild);
+				if self
+					.selected
+					.and_then(|id| self.channel(id))
+					.is_some_and(|channel| channel.guild == Some(guild))
+				{
+					self.invite_join.navigate = None;
+				}
+				command
+			}
+			model::JoinedTarget::Channel(channel) => {
+				self.channel(channel)?;
+				let command = self.select(channel);
+				if self.selected == Some(channel) {
+					self.invite_join.navigate = None;
+				}
+				command
+			}
 		}
-		command
 	}
 
 	pub fn can_join_invite(&self, code: &str) -> bool {
@@ -284,7 +296,11 @@ impl State {
 			self.invite_join.result = Some(Err(Failure::Ambiguous));
 		}
 	}
-	pub(crate) fn apply_invite_join(&mut self, request: u64, result: Result<model::Id, Failure>) {
+	pub(crate) fn apply_invite_join(
+		&mut self,
+		request: u64,
+		result: Result<model::JoinedTarget, Failure>,
+	) {
 		if !self.invite_join.pending
 			|| request != self.invite_join.sequence
 			|| self.invite_join.challenge.is_some()
@@ -295,12 +311,15 @@ impl State {
 		self.invite_join.challenge = None;
 		self.invite_join.result = Some(result);
 		self.status = match result {
-			Ok(_) => "Invite accepted · waiting for server access",
+			Ok(model::JoinedTarget::Guild(_)) => "Invite accepted · waiting for server access",
+			Ok(model::JoinedTarget::Channel(_)) => "Invite accepted · opening group conversation",
 			Err(f) => f.label(),
 		};
-		if let Ok(guild) = result {
-			self.watch_onboarding(guild);
-			self.invite_join.navigate = Some((Instant::now(), guild));
+		if let Ok(target) = result {
+			if let model::JoinedTarget::Guild(guild) = target {
+				self.watch_onboarding(guild);
+			}
+			self.invite_join.navigate = Some((Instant::now(), target));
 		}
 		if let Err(f) = result
 			&& f.ends_session()
@@ -422,10 +441,13 @@ mod join_tests {
 				panic!("join command missing")
 			};
 			assert!(state.join_invite("synthetic".into()).is_none());
-			state.apply_invite_join(request.wrapping_add(1), Ok(model::Id(2)));
+			state.apply_invite_join(
+				request.wrapping_add(1),
+				Ok(model::JoinedTarget::Guild(model::Id(2))),
+			);
 			assert!(state.invite_join.pending);
 			state.cancel_invite_join();
-			state.apply_invite_join(request, Ok(model::Id(2)));
+			state.apply_invite_join(request, Ok(model::JoinedTarget::Guild(model::Id(2))));
 			assert_eq!(state.invite_join.result, Some(Err(Failure::Ambiguous)));
 			let command = state.join_invite("synthetic".into()).unwrap();
 			state.command_rejected(command);
@@ -434,7 +456,7 @@ mod join_tests {
 			else {
 				panic!("retry missing")
 			};
-			state.apply_invite_join(request, Ok(model::Id(2)));
+			state.apply_invite_join(request, Ok(model::JoinedTarget::Guild(model::Id(2))));
 			assert!(
 				state.guild(model::Id(2)).is_none(),
 				"HTTP must not grant access"
@@ -457,5 +479,33 @@ mod join_tests {
 			state.logout();
 			assert!(state.invite_join.code.is_empty());
 		}
+	}
+
+	#[test]
+	fn navigate_after_join_selects_group_dm_channel() {
+		let group_id = model::Id(29);
+		let mut state = State {
+			auth: crate::auth::AuthState::Authenticated,
+			gateway_connected: true,
+			channels: vec![model::Channel {
+				id: group_id,
+				guild: None,
+				name: "Synthetic group".into(),
+				kind: 3,
+				recipients: vec![],
+				icon: None,
+				last_message: None,
+				parent_id: None,
+				position: 0,
+				member_list_id: None,
+				tags: None,
+				message_count: None,
+			}],
+			..State::default()
+		};
+		state.invite_join.navigate = Some((Instant::now(), model::JoinedTarget::Channel(group_id)));
+		assert!(state.navigate_after_join().is_some());
+		assert_eq!(state.selected, Some(group_id));
+		assert!(state.invite_join.navigate.is_none());
 	}
 }

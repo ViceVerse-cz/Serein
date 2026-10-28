@@ -688,9 +688,15 @@ impl DiscordApi {
 			)
 			.await
 			.and_then(|bytes| {
-				discord_protocol::invites::decode(&bytes)
-					.map(|p| p.guild)
-					.map_err(|_| Failure::Ambiguous)
+				let preview =
+					discord_protocol::invites::decode(&bytes).map_err(|_| Failure::Ambiguous)?;
+				if let Some(guild) = preview.guild {
+					Ok(model::JoinedTarget::Guild(guild))
+				} else if let Some(channel) = preview.channel {
+					Ok(model::JoinedTarget::Channel(channel))
+				} else {
+					Err(Failure::Ambiguous)
+				}
 			})
 		} else {
 			Err(Failure::Protocol)
@@ -2369,7 +2375,7 @@ mod tests {
 			assert!(matches!(
 				api.execute(command).await,
 				Event::JoinInvite {
-					result: Ok(model::Id(2)),
+					result: Ok(model::JoinedTarget::Guild(model::Id(2))),
 					..
 				}
 			));
