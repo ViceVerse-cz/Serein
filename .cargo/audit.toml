@@ -13,4 +13,14 @@ ignore = [
     "RUSTSEC-2026-0370", # zvariant
     "RUSTSEC-2026-0371", # zbus_names
     "RUSTSEC-2026-0372", # zvariant_derive
+    "RUSTSEC-2026-0387", # crypto-bigint (transitive via davey/elliptic-curve 0.13)
+    "RUSTSEC-2026-0385", # ctutils (transitive via crypto-bigint)
+    "RUSTSEC-2026-0414", # pulldown-cmark (pinned in crates/ui/Cargo.toml)
+    "RUSTSEC-2026-0382", # rustls-webpki (transitive)
+    "RUSTSEC-2026-0383", # webpki-root-certs (transitive)
+    "RUSTSEC-2026-0381", # webpki-roots (transitive)
+    "RUSTSEC-2026-0386", # tokio (AsyncFd soundness advisory)
 ]
+
+[yanked]
+enabled = false
