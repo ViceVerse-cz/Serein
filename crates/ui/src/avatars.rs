@@ -281,11 +281,14 @@ impl Avatars {
 		// Reserve the playback texture too; the shared still stays unchanged for other widgets.
 		let frame_bytes = || frames.iter().map(|(_, image)| image.pixels.len() * 4);
 		let bytes = frame_bytes().sum::<usize>() + frame_bytes().max().unwrap_or(0);
+		let edge = if key.starts_with("effect-") {
+			EFFECT_EDGE as usize
+		} else {
+			EMBED_EDGE as usize
+		};
 		if bytes > ANIMATION_BYTES
 			|| frames.iter().any(|(delay, image)| {
-				*delay < Duration::from_millis(20)
-					|| image.size[0] > EMBED_EDGE as usize
-					|| image.size[1] > EMBED_EDGE as usize
+				*delay < Duration::from_millis(20) || image.size[0] > edge || image.size[1] > edge
 			}) {
 			return;
 		}
@@ -2966,5 +2969,29 @@ mod tests {
 		);
 		avatars.request("x".repeat(2055));
 		assert!(avatars.attempts.keys().all(|key| key.len() <= 2054));
+	}
+
+	#[test]
+	fn effect_animation_keeps_full_resolution_frames() {
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		avatars.set_animation(true);
+		avatars.request("effect-c-test".into());
+		avatars.take_requests();
+		avatars.accept(
+			&ctx,
+			"effect-c-test".into(),
+			Some(ColorImage::filled([450, 880], egui::Color32::WHITE)),
+		);
+		let frames: crate::avatars::GifFrames = (0..2)
+			.map(|_| {
+				(
+					std::time::Duration::from_millis(50),
+					std::sync::Arc::new(ColorImage::filled([450, 880], egui::Color32::WHITE)),
+				)
+			})
+			.collect();
+		avatars.accept_animation("effect-c-test".into(), frames);
+		assert!(avatars.animations.contains_key("effect-c-test"));
 	}
 }
