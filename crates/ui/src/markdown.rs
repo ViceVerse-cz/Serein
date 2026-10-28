@@ -2619,16 +2619,15 @@ impl Formatted {
 		};
 		let mut remaining: usize = 120;
 		let mut truncated = false;
+		let mut next_is_word = false;
 		let mut emojis = Vec::new();
 		for (text, style) in &self.spans {
-			if remaining == 0 {
-				if !text.is_empty() {
-					truncated = true;
-				}
-				break;
-			}
 			if text.is_empty() {
 				continue;
+			}
+			if remaining == 0 {
+				truncated = true;
+				break;
 			}
 			let destination = style
 				.channel
@@ -2712,33 +2711,19 @@ impl Formatted {
 				)
 			};
 			let display_count = display.chars().count();
-			let (take, truncated_here) = if display_count > remaining {
-				let raw: String = display.chars().take(remaining).collect();
-				let next_is_word = display
+			let take = if display_count > remaining {
+				truncated = true;
+				next_is_word = display
 					.chars()
 					.nth(remaining)
 					.is_some_and(|c| !c.is_whitespace());
-				let trimmed = if next_is_word && !raw.ends_with(char::is_whitespace) {
-					if let Some(last_space) = raw.rfind(' ') {
-						if last_space > 0 && raw.len() - last_space < 25 {
-							raw[..last_space].trim_end().to_string()
-						} else {
-							raw
-						}
-					} else {
-						raw
-					}
-				} else {
-					raw.trim_end().to_string()
-				};
-				(trimmed, true)
+				let take: String = display.chars().take(remaining).collect();
+				remaining = 0;
+				take
 			} else {
-				(display, false)
+				remaining -= display_count;
+				display
 			};
-			remaining = remaining.saturating_sub(display_count);
-			if truncated_here {
-				truncated = true;
-			}
 			let mut start = 0;
 			if !style.code {
 				for (offset, cluster) in take.grapheme_indices(true) {
@@ -2763,6 +2748,28 @@ impl Formatted {
 			job.append(&take[start..], 0.0, format);
 		}
 		if truncated {
+			if next_is_word
+				&& !job.text.ends_with(char::is_whitespace)
+				&& let Some(last_ws) = job.text.rfind(char::is_whitespace)
+				&& last_ws > 0
+			{
+				job.text.truncate(last_ws);
+			}
+			let trimmed_len = job.text.trim_end().len();
+			job.text.truncate(trimmed_len);
+			let end = job.text.len();
+			let end_idx = egui::text::ByteIndex(end);
+			job.sections.retain_mut(|section| {
+				if section.byte_range.start >= end_idx {
+					false
+				} else {
+					if section.byte_range.end > end_idx {
+						section.byte_range.end = end_idx;
+					}
+					true
+				}
+			});
+			emojis.retain(|emoji| emoji.at + emoji.len <= end);
 			job.append("…", 0.0, muted);
 		}
 		emojis
@@ -2935,6 +2942,48 @@ mod tests {
 			assert!(!preview.text.ends_with("magn…"));
 			assert!(preview.text.ends_with("dolore…"));
 			assert!(preview.text.chars().count() <= 125);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_cuts_at_word_boundary_across_span_borders() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 116 characters prefix followed by a bold word across the 120 limit
+			let prefix = "a".repeat(115) + " ";
+			let input = format!("{prefix}**dolore magna**");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+			assert!(!preview.text.contains("dolo"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_shows_ellipsis_when_exact_limit_followed_by_spoiler() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a".repeat(120);
+			let input = format!("{prefix}||hidden content||");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
 		});
 		output.drop_without_applying_deltas();
 	}
