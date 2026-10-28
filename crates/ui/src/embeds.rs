@@ -337,12 +337,19 @@ pub(crate) fn gif_for_media(
 	let is_gif = |url: &str| {
 		let path = url.split(['?', '#']).next().unwrap_or(url);
 		let lower = path.to_ascii_lowercase();
-		lower.ends_with(".gif") || lower.ends_with(".webp")
+		lower.ends_with(".gif")
 	};
-	if !animated
-		&& !media.url.as_deref().is_some_and(is_gif)
-		&& !media.proxy_url.as_deref().is_some_and(is_gif)
-	{
+	let is_webp = |url: &str| {
+		let path = url.split(['?', '#']).next().unwrap_or(url);
+		let lower = path.to_ascii_lowercase();
+		lower.ends_with(".webp")
+	};
+	let has_gif =
+		media.url.as_deref().is_some_and(is_gif) || media.proxy_url.as_deref().is_some_and(is_gif);
+	let has_webp = media.url.as_deref().is_some_and(is_webp)
+		|| media.proxy_url.as_deref().is_some_and(is_webp);
+
+	if !has_gif && !(animated && has_webp) && !animated {
 		return None;
 	}
 	let preview = [media.url.as_deref(), media.proxy_url.as_deref()]
@@ -1410,6 +1417,17 @@ mod tests {
 	}
 
 	#[test]
+	fn gif_for_media_ignores_static_webp_attachment() {
+		let media = model::EmbedMedia {
+			url: Some("https://cdn.discordapp.com/attachments/123/456/photo.webp".into()),
+			width: 320,
+			height: 200,
+			..Default::default()
+		};
+		assert!(gif_for_media(&media, None, false).is_none());
+	}
+
+	#[test]
 	fn gif_for_media_supports_animated_webp_provider_links() {
 		let media = model::EmbedMedia {
 			url: Some(
@@ -1420,7 +1438,7 @@ mod tests {
 			height: 200,
 			..Default::default()
 		};
-		let gif = gif_for_media(&media, None, false).expect("animated webp recognized");
+		let gif = gif_for_media(&media, None, true).expect("animated webp recognized");
 		assert_eq!(
 			gif.url,
 			"https://static.klipy.com/ii/71b2873e478b9d8d0482ea3ec777ba7f/f6/40/HtVp9vFM.webp"

@@ -9547,7 +9547,7 @@ pub fn debug_gif_favorites_check(mut message: model::Message) -> Vec<model::Gif>
 		height: 200,
 		..Default::default()
 	};
-	let webp_gif = embeds::gif_for_media(&webp_media, None, false)
+	let webp_gif = embeds::gif_for_media(&webp_media, None, true)
 		.expect("Animated WebP provider media recognized");
 	assert_eq!(
 		webp_gif.url,
