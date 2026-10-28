@@ -158,6 +158,17 @@ fn inline_image(embed: &Embed) -> Option<&model::EmbedMedia> {
 		.flatten()
 }
 
+/// A link that resolves to a hosted clip arrives as a video embed without a poster
+/// image. Discord draws the clip itself there, so the card shows its frames instead of
+/// an empty page; playback still opens in the browser through the card's video line.
+fn clip_media(embed: &Embed) -> Option<&model::EmbedMedia> {
+	let clip = embed.video.as_ref()?;
+	(embed.image.is_none()
+		&& embed.thumbnail.is_none()
+		&& (clip.url.is_some() || clip.proxy_url.is_some()))
+	.then_some(clip)
+}
+
 // Discord link previews carry additional images as same-URL embed entries.
 // Only consume continuations without independent content (or with repeated metadata).
 fn gallery_len(embeds: &[Embed]) -> usize {
@@ -512,6 +523,20 @@ fn image_preview(
 	}
 }
 
+/// The clip of a poster-less video card, drawn where Discord draws its player.
+fn clip_preview(ui: &mut egui::Ui, clip: &model::EmbedMedia, images: &mut Avatars, demo: bool) {
+	images.show_media(
+		ui,
+		clip,
+		egui::vec2(
+			ui.available_width(),
+			crate::avatars::media::MEDIA_MAX_HEIGHT,
+		),
+		demo,
+		Surface::Inline,
+	);
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn show(
 	ui: &mut egui::Ui,
@@ -770,6 +795,8 @@ pub fn show(
 									download,
 									demo,
 								);
+							} else if let Some(clip) = clip_media(embed) {
+								clip_preview(ui, clip, images, demo);
 							}
 							if thumbnail.is_none()
 								&& large.is_none() && let Some(image) = &embed.thumbnail
@@ -912,7 +939,7 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 		let e = &embeds[index];
 		let image_height = if count > 1 {
 			gallery_rect(count, count - 1, 456.0).bottom()
-		} else if e.image.is_some() || large_thumbnail(e).is_some() {
+		} else if e.image.is_some() || large_thumbnail(e).is_some() || clip_media(e).is_some() {
 			200.0
 		} else {
 			0.0
@@ -976,6 +1003,38 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// A link that resolves to a hosted clip carries no poster; the card paints the clip.
+	#[test]
+	fn a_video_card_without_a_poster_shows_its_clip() {
+		let mut embed = Embed {
+			kind: "video".into(),
+			url: Some("https://example.org/reels/synthetic/".into()),
+			video: Some(model::EmbedMedia {
+				url: Some("https://example.org/reels/synthetic/clip.mp4".into()),
+				proxy_url: Some(
+					"https://images-ext-1.discordapp.net/external/synthetic/https/example.org/reels/synthetic/clip.mp4"
+						.into(),
+				),
+				width: 640,
+				height: 1136,
+				..Default::default()
+			}),
+			..Default::default()
+		};
+		let clip = clip_media(&embed).expect("the clip is the card's media");
+		assert_eq!((clip.width, clip.height), (640, 1136));
+		// A card with a picture keeps its poster or bot thumbnail instead.
+		embed.thumbnail = Some(model::EmbedMedia {
+			url: Some("https://example.org/reels/synthetic/poster.png".into()),
+			..Default::default()
+		});
+		assert!(clip_media(&embed).is_none());
+		embed.thumbnail = None;
+		// Nothing to fetch is not a preview area.
+		embed.video = Some(model::EmbedMedia::default());
+		assert!(clip_media(&embed).is_none());
+	}
 
 	#[test]
 	fn source_fallback_requires_a_safe_url_without_an_existing_source_action() {
