@@ -663,14 +663,14 @@ impl JoinDialog {
 											ui,
 											colors.positive,
 											online,
-											"Online",
+											"server-settings-preview-online",
 										);
 										ui.add_space(6.0);
 										crate::invites::dot_stat(
 											ui,
 											colors.muted,
 											members,
-											"Members",
+											"server-settings-preview-members",
 										);
 									});
 								}
