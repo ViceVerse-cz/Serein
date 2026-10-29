@@ -532,6 +532,8 @@ pub struct MessagingUi {
 	pub diagnostics_log_failed: bool,
 	/// The file the log actually appends to, named under the level so a report can be found.
 	pub diagnostics_log_path: Option<String>,
+	/// True when the system refused to open the log folder; the host copied its path instead.
+	pub diagnostics_log_open_failed: bool,
 	/// Set by the page's button; the host opens the folder and clears it.
 	pub open_log_folder_requested: bool,
 	/// Header pin button rect while the pins popout is open.

@@ -2498,7 +2498,7 @@ impl Desktop {
 	/// Applies the owner's diagnostic log choice and opens the log folder when the page asks for
 	/// it. The first frame also reports a start-up install that could not write, so the page
 	/// explains instead of promising a file. Nothing here touches an account or a service.
-	fn sync_diagnostics_log(&mut self) {
+	fn sync_diagnostics_log(&mut self, ctx: &egui::Context) {
 		let level = self.messaging.diagnostics_log;
 		if diagnostics::level() != level || !self.log_verified {
 			self.log_verified = true;
@@ -2506,6 +2506,7 @@ impl Desktop {
 		}
 		if self.messaging.open_log_folder_requested {
 			self.messaging.open_log_folder_requested = false;
+			self.messaging.diagnostics_log_open_failed = false;
 			// A folder repaired outside the app starts working here instead of after a restart.
 			if self.messaging.diagnostics_log_failed {
 				self.apply_diagnostics_log(self.messaging.diagnostics_log);
@@ -2517,12 +2518,30 @@ impl Desktop {
 				let _ = std::fs::create_dir_all(&folder);
 				// A button that appears to do nothing is worse than a logged reason.
 				if let Err(code) = platform::open_folder(&folder) {
+					self.messaging.diagnostics_log_open_failed = true;
+					// The system refused the shell; the path still has to reach the owner.
+					ctx.copy_text(folder.display().to_string());
 					diagnostics::record_fields(
 						diagnostics::Category::App,
 						diagnostics::Level::Warn,
 						"log folder not opened",
 						&[("code", code.into())],
 					);
+					// Whether process creation works at all separates a shell policy from a
+					// security product that blocks this binary from starting anything.
+					match platform::spawn_probe() {
+						Ok(()) => diagnostics::record(
+							diagnostics::Category::App,
+							diagnostics::Level::Warn,
+							"process creation works",
+						),
+						Err(probe) => diagnostics::record_fields(
+							diagnostics::Category::App,
+							diagnostics::Level::Warn,
+							"process creation refused",
+							&[("code", probe.into())],
+						),
+					}
 				}
 			}
 		}
@@ -4743,7 +4762,7 @@ impl Desktop {
 		}
 		self.retry_history_clears();
 		self.sync_plaintext_login();
-		self.sync_diagnostics_log();
+		self.sync_diagnostics_log(ctx);
 		let mut results = Vec::new();
 		if let Some(store) = &mut self.store {
 			for _ in 0..4 {

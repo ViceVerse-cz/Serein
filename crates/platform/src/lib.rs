@@ -49,6 +49,27 @@ const ACCOUNT: &str = "discord-session";
 #[cfg(feature = "development-data")]
 const ACCOUNT: &str = "discord-session.development";
 
+/// Whether this process may start another one at all. A security product that refuses the shell
+/// for an unknown binary usually refuses process creation too, and the difference is what a report
+/// needs; `Err` carries the operating system's code. The probe writes nothing and opens no window.
+pub fn spawn_probe() -> Result<(), i64> {
+	#[cfg(target_os = "windows")]
+	{
+		const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+		use std::os::windows::process::CommandExt;
+		std::process::Command::new("cmd.exe")
+			.args(["/c", "exit"])
+			.creation_flags(CREATE_NO_WINDOW)
+			.status()
+			.map(drop)
+			.map_err(|error| i64::from(error.raw_os_error().unwrap_or(-1)))
+	}
+	#[cfg(not(target_os = "windows"))]
+	{
+		Ok(())
+	}
+}
+
 /// Opens a folder in the owner's file manager. The caller passes a path it already owns, so this
 /// crosses no service or privilege boundary. `Err` carries the platform's failure code, which the
 /// caller records instead of leaving a button that appears to do nothing.
