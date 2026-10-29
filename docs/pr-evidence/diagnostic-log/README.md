@@ -12,7 +12,8 @@ fixture's page allowlist and one missing `managed` field on a synthetic role dif
 the same page could be rendered on both revisions. `after.png` comes from this branch. The
 `--scroll=150` offset shows the whole Support & diagnostics card.
 
-The page is the same on both sides apart from the two log rows: a level menu (shown at its
-default, `Off`) and the copy/open actions. Nothing is seeded: the fixture starts with the
-default preference, so the rows are what a first launch shows. No account, network,
-microphone or capture session was used, and the fixture keeps its changes in the session.
+The page is the same on both sides apart from the added controls: **Save diagnostics** next to
+**Copy**, a level menu (shown at its default, `Off`), and the copy/open actions for the log. Nothing
+is seeded: the fixture starts with the default preference, so the controls are what a first launch
+shows. No account, network, microphone or capture session was used, and the fixture keeps its
+changes in the session.
