@@ -253,7 +253,16 @@ pub fn install(level: Level, directory: PathBuf) -> Result<PathBuf, &'static str
 	}
 	{
 		let mut shared = sink.lock();
-		shared.directory = path.parent().map(Path::to_path_buf).or(Some(directory));
+		// A refused destination is not named: the page must not promise a file that is never
+		// written. Every attempt is still reported by label in the log.
+		shared.directory = if reason.is_some() {
+			None
+		} else {
+			path.parent().map(Path::to_path_buf).or(Some(directory))
+		};
+		// The writer reopens on this change instead of appending to a folder that no longer
+		// matches what Settings shows.
+		shared.destination = shared.destination.wrapping_add(1);
 	}
 	// The level applies either way, so the copyable tail works while the file does not.
 	set_level(level);
@@ -335,13 +344,69 @@ fn prepare(directory: &Path) -> Option<std::io::Error> {
 	if let Err(error) = create_private(directory) {
 		return Some(error);
 	}
+	// A shared temporary folder is a hostile neighbourhood: a link here would redirect every
+	// appended line, and the private permissions below, somewhere else.
+	if shared(directory) {
+		return Some(refused());
+	}
 	let path = directory.join(LOG_FILE);
+	if shared(&path) {
+		return Some(refused());
+	}
 	match OpenOptions::new().create(true).append(true).open(&path) {
 		Ok(file) => drop(file),
 		Err(error) => return Some(error),
 	}
+	if !owned_by_us(directory, &path) {
+		return Some(refused());
+	}
 	private_file(&path);
 	None
+}
+
+/// A path that is a symbolic link (or any other reparse point) rather than a real folder or file.
+fn shared(path: &Path) -> bool {
+	std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
+/// The attempt was refused by this client rather than by the operating system.
+fn refused() -> std::io::Error {
+	std::io::Error::new(
+		std::io::ErrorKind::PermissionDenied,
+		"the log folder is shared with another user",
+	)
+}
+
+/// Whether the folder belongs to the same account as a file this process just created in it. A
+/// probe file is created exclusively, so its owner is this account whatever pre-existed; on a
+/// folder owned by someone else the two differ and the folder is refused.
+fn owned_by_us(directory: &Path, log: &Path) -> bool {
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::MetadataExt;
+		let probe = directory.join(format!(
+			".owner-{}-{}",
+			std::process::id(),
+			std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.map_or(0, |elapsed| elapsed.subsec_nanos())
+		));
+		let created = OpenOptions::new().write(true).create_new(true).open(&probe);
+		let Ok(file) = created else {
+			return false;
+		};
+		let ours = file.metadata().map(|meta| meta.uid()).ok();
+		let folder = std::fs::metadata(directory).map(|meta| meta.uid()).ok();
+		let log_owner = std::fs::metadata(log).map(|meta| meta.uid()).ok();
+		drop(file);
+		let _ = std::fs::remove_file(&probe);
+		ours.is_some() && ours == folder && ours == log_owner
+	}
+	#[cfg(not(unix))]
+	{
+		let _ = (directory, log);
+		true
+	}
 }
 
 /// Applies a level chosen in Settings; it takes effect for the next record.
@@ -424,17 +489,22 @@ fn sink() -> &'static Sink {
 	})
 }
 
-/// The one writer: it parks until lines arrive and is the only thread that opens the file.
+/// The one writer: it parks until lines arrive and is the only thread that opens the file. It
+/// reopens whenever the destination changes, so Settings never names a file the writer ignores.
 fn writer(sink: &'static Sink) {
 	let mut file: Option<FileSink> = None;
+	let mut generation = u64::MAX;
 	loop {
 		let batch = sink.take_batch();
-		if file.is_none() {
-			file = sink
-				.lock()
-				.directory
-				.as_ref()
-				.map(|directory| FileSink::new(directory.join(LOG_FILE)));
+		let (wanted, directory) = {
+			let shared = sink.lock();
+			(shared.destination, shared.directory.clone())
+		};
+		if wanted != generation {
+			generation = wanted;
+			// The run budget survives a reopen: a repaired folder must not buy another 4 MiB.
+			let spent = file.as_ref().map_or(0, FileSink::spent);
+			file = directory.map(|directory| FileSink::new(directory.join(LOG_FILE), spent));
 		}
 		if let Some(file) = &mut file {
 			file.write(&batch);
@@ -451,6 +521,8 @@ struct Shared {
 	/// Lines taken by the writer and not yet on disk, so `flush` can wait for the file too.
 	pending: usize,
 	directory: Option<PathBuf>,
+	/// Bumped by every install, so the writer notices a destination it has not opened yet.
+	destination: u64,
 }
 
 struct Sink {
@@ -470,6 +542,7 @@ impl Sink {
 				ring_bytes: 0,
 				pending: 0,
 				directory: None,
+				destination: 0,
 			}),
 			wake: Condvar::new(),
 		}
@@ -587,14 +660,21 @@ struct FileSink {
 }
 
 impl FileSink {
-	fn new(path: PathBuf) -> Self {
+	fn new(path: PathBuf, run_bytes: u64) -> Self {
+		// The file is opened in append mode, so what earlier runs left counts against its budget.
+		let file_bytes = std::fs::metadata(&path).map_or(0, |meta| meta.len());
 		Self {
 			path,
 			file: None,
-			file_bytes: 0,
-			run_bytes: 0,
+			file_bytes,
+			run_bytes,
 			stopped: false,
 		}
+	}
+
+	/// Bytes this process has written for the whole run, across rotations and reopens.
+	fn spent(&self) -> u64 {
+		self.run_bytes
 	}
 
 	fn write(&mut self, lines: &[String]) -> usize {
@@ -610,8 +690,10 @@ impl FileSink {
 				self.file = None;
 				break;
 			}
-			if self.file_bytes.saturating_add(bytes) > MAX_FILE_BYTES {
-				self.rotate();
+			if self.file_bytes.saturating_add(bytes) > MAX_FILE_BYTES && !self.rotate() {
+				// Another program holds the old file: stop rather than append past the cap.
+				self.stopped = true;
+				break;
 			}
 			if self.handle().is_none() {
 				self.stopped = true;
@@ -648,12 +730,17 @@ impl FileSink {
 		self.file.as_mut()
 	}
 
-	fn rotate(&mut self) {
+	/// Moves the full file aside. Returns whether the file was really replaced, because appending
+	/// to a file another program refused to move would grow past the cap.
+	fn rotate(&mut self) -> bool {
 		self.file = None;
 		let previous = self.path.with_file_name(PREVIOUS_LOG_FILE);
 		let _ = std::fs::remove_file(&previous);
-		let _ = std::fs::rename(&self.path, &previous);
+		if std::fs::rename(&self.path, &previous).is_err() {
+			return false;
+		}
 		self.file_bytes = 0;
+		true
 	}
 }
 
@@ -861,7 +948,7 @@ mod tests {
 	fn the_file_rotates_once_then_stops_at_the_run_budget() {
 		let directory = tempfile::tempdir().unwrap();
 		let path = directory.path().join("logs").join(LOG_FILE);
-		let mut sink = FileSink::new(path.clone());
+		let mut sink = FileSink::new(path.clone(), 0);
 		let chunk = format!("{}\n", "y".repeat(1024));
 		let per_file = MAX_FILE_BYTES as usize / chunk.len() + 4;
 		sink.write(&vec![chunk.clone(); per_file]);
@@ -894,8 +981,50 @@ mod tests {
 		let directory = tempfile::tempdir().unwrap();
 		let blocker = directory.path().join("file");
 		std::fs::write(&blocker, b"not a folder").unwrap();
-		let mut sink = FileSink::new(blocker.join(LOG_FILE));
+		let mut sink = FileSink::new(blocker.join(LOG_FILE), 0);
 		assert_eq!(sink.write(&["line\n".to_owned()]), 0);
 		assert!(sink.stopped);
+	}
+
+	#[test]
+	fn a_file_left_by_an_earlier_run_counts_toward_its_budget() {
+		let directory = tempfile::tempdir().unwrap();
+		let path = directory.path().join(LOG_FILE);
+		// A run that stopped just under the cap leaves the next launch to notice it.
+		std::fs::write(&path, vec![b'x'; MAX_FILE_BYTES as usize - 8]).unwrap();
+		let mut sink = FileSink::new(path.clone(), 0);
+		sink.write(&["a short line\n".to_owned()]);
+		assert!(
+			path.with_file_name(PREVIOUS_LOG_FILE).exists(),
+			"the full file is rotated before anything is appended"
+		);
+		assert!(
+			std::fs::metadata(&path).unwrap().len() <= MAX_FILE_BYTES,
+			"an appended file still honours its own cap across launches"
+		);
+	}
+
+	#[test]
+	fn a_shared_fallback_folder_is_refused_before_anything_is_written() {
+		// A folder another account planted is not a log destination; the check is by owner on
+		// Unix and by link type everywhere, and either way nothing may be appended.
+		let directory = tempfile::tempdir().unwrap();
+		let logs = directory.path().join("logs");
+		std::fs::create_dir_all(&logs).unwrap();
+		#[cfg(unix)]
+		{
+			let planted = directory.path().join("planted");
+			std::fs::create_dir_all(&planted).unwrap();
+			std::os::unix::fs::symlink(&planted, logs.join(LOG_FILE)).unwrap();
+			assert!(prepare(&logs).is_some(), "a linked log file is refused");
+			assert!(
+				!planted.join(LOG_FILE).exists(),
+				"nothing is written through the link"
+			);
+		}
+		#[cfg(not(unix))]
+		{
+			assert!(prepare(&logs).is_none());
+		}
 	}
 }

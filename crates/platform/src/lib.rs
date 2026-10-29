@@ -84,11 +84,15 @@ pub fn open_folder(path: &std::path::Path) -> Result<(), i64> {
 		const OPENER: &str = "open";
 		#[cfg(all(unix, not(target_os = "macos")))]
 		const OPENER: &str = "xdg-open";
-		std::process::Command::new(OPENER)
+		let mut child = std::process::Command::new(OPENER)
 			.arg(path)
 			.spawn()
-			.map(drop)
-			.map_err(|error| i64::from(error.raw_os_error().unwrap_or(-1)))
+			.map_err(|error| i64::from(error.raw_os_error().unwrap_or(-1)))?;
+		// The opener exits on its own; reaping it keeps finished children from piling up.
+		std::thread::spawn(move || {
+			let _ = child.wait();
+		});
+		Ok(())
 	}
 }
 
