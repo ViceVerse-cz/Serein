@@ -118,6 +118,7 @@ pub fn check() {
 				tertiary_color: None,
 				position: 1,
 				hoist: false,
+				managed: false,
 			});
 	}
 	state.permissions.replace(permissions).unwrap();

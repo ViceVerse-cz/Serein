@@ -522,7 +522,15 @@ impl ClientState {
 		})
 	}
 	pub fn can_camera(&self, channel: Id) -> bool {
-		self.can_call(channel) && self.permission(channel, model::permissions::STREAM) == Some(true)
+		self.gateway_connected && self.has_camera_access(channel)
+	}
+	/// Whether an already-established local camera remains permitted to capture media.
+	/// New camera activation must still use `can_camera`, which also requires a live Gateway.
+	pub fn has_camera_access(&self, channel: Id) -> bool {
+		!self.demo
+			&& self.auth == AuthState::Authenticated
+			&& self.has_voice_access(channel)
+			&& self.permission(channel, model::permissions::STREAM) == Some(true)
 	}
 	pub fn start_call(&mut self, channel: Id, ring: bool) -> Option<crate::Command> {
 		self.start_call_with_mute(channel, ring, false, false)

@@ -1775,12 +1775,12 @@ impl Drop for Voice {
 }
 
 // A peer joining/leaving rekeys media without revoking the local camera gesture.
-fn camera_preview_allowed(state: &State) -> bool {
+pub(crate) fn camera_preview_allowed(state: &State) -> bool {
 	state.voice.active.as_ref().is_some_and(|call| {
 		(matches!(call.phase, Phase::Connected | Phase::Waiting)
 			|| (call.connected_at.is_some()
 				&& matches!(call.phase, Phase::Securing | Phase::OpeningAudio)))
-			&& state.can_camera(call.channel)
+			&& state.has_camera_access(call.channel)
 	})
 }
 
@@ -2082,6 +2082,24 @@ mod tests {
 					)
 				);
 			}
+			let channel = state.voice.active.as_ref().unwrap().channel;
+			state.voice.active.as_mut().unwrap().camera = true;
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: Event::Disconnected,
+			});
+			assert!(!state.gateway_connected);
+			assert!(state.voice.active.as_ref().unwrap().camera);
+			assert!(state.has_camera_access(channel));
+			assert!(!state.can_camera(channel));
+			assert!(camera_preview_allowed(&state));
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: Event::Resumed,
+			});
+			assert!(state.gateway_connected);
+			assert!(state.can_camera(channel));
+			assert!(camera_preview_allowed(&state));
 			state.voice.active.as_mut().unwrap().connected_at = None;
 			for phase in [
 				Phase::Connecting,
@@ -2093,8 +2111,26 @@ mod tests {
 				assert!(!camera_preview_allowed(&state));
 			}
 			state.voice.active.as_mut().unwrap().phase = Phase::Waiting;
-			state.gateway_connected = false;
+			state.demo = true;
 			assert!(!camera_preview_allowed(&state));
+			state.demo = false;
+			state.auth = client_core::auth::AuthState::Expired;
+			assert!(!camera_preview_allowed(&state));
+			state.auth = client_core::auth::AuthState::Authenticated;
+			if state.voice.active.as_ref().unwrap().guild.is_some() {
+				let mut revoked_role =
+					state.permissions.guilds[&Id(10)].roles.as_ref().unwrap()[0].clone();
+				revoked_role.bits &= !model::permissions::STREAM;
+				state.apply(client_core::Envelope {
+					generation: state.generation,
+					event: Event::Permissions(client_core::permissions::Event::Role {
+						guild: Id(10),
+						role: revoked_role,
+					}),
+				});
+				assert!(!state.has_camera_access(channel));
+				assert!(!camera_preview_allowed(&state));
+			}
 			state.voice.active = None;
 			assert!(!camera_preview_allowed(&state));
 		}
