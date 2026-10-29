@@ -393,7 +393,13 @@ impl MessagingUi {
 		let mut refresh = false;
 		let mut drop_rows = Vec::new();
 		let mut background: Option<(u64, egui::layers::ShapeIdx, egui::Rect, Color32)> = None;
-		let call_guild = state.voice.active.as_ref().and_then(|call| call.guild);
+		let call_guild = state.voice.active.as_ref().and_then(|call| {
+			if call.phase == client_core::voice::Phase::Failed {
+				None
+			} else {
+				call.guild
+			}
+		});
 		// The latest folder row's openness, and the clipped child `Ui` its servers slide out of.
 		let mut openness = (0, 1.0);
 		let mut reveal: Option<(u64, egui::Ui, f32, f32)> = None;
@@ -1504,6 +1510,20 @@ mod tests {
 		assert!(
 			has_voice_badge,
 			"Collapsed folder must render a voice badge when local user is in call"
+		);
+
+		// When the call phase is Failed, the voice badge must NOT be rendered
+		state.voice.active.as_mut().unwrap().phase = client_core::voice::Phase::Failed;
+		let shapes_with_failed_call = run_render(&mut view, &mut state);
+		let has_voice_badge_failed = shapes_with_failed_call.iter().any(|shape| match &shape.shape {
+			egui::Shape::Circle(circle) => {
+				(circle.radius - 11.0).abs() < 0.1 || (circle.radius - 9.0).abs() < 0.1
+			}
+			_ => false,
+		});
+		assert!(
+			!has_voice_badge_failed,
+			"Collapsed folder must not render a voice badge when call phase is Failed"
 		);
 	}
 }
