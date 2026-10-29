@@ -1536,6 +1536,14 @@ join-server-status-invite-accepted = Invitation acceptée. En attente d'accès a
 join-server-status-offline-preview = Aperçu hors ligne : la connexion aux serveurs est désactivée.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Supprimer
+# Context: custom_section
+keybinds-custom-section-add-binding = Ajouter un raccourci
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Ajoutez des raccourcis supplémentaires pour n'importe quelle action. Chaque combinaison de touche ou de bouton de souris ne peut servir qu'une fois.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Raccourcis personnalisés
 # Context: row
 keybinds-row-global = MONDIAL
 # Context: row

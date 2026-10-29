@@ -5343,7 +5343,7 @@ impl eframe::App for Desktop {
 		let voice_toggles = self.hotkeys.take_toggle_pending()
 			| self
 				.messaging
-				.voice_toggle_pressed(ctx, self.hotkeys.global_toggle_mask());
+				.voice_toggle_pressed(ctx, |action, chord| self.hotkeys.is_global(action, chord));
 		if voice_toggles != 0 && !self.fixture_only {
 			// Toggle from the newest choice; a mute and deafen in one frame apply in order.
 			let mut latest = None;

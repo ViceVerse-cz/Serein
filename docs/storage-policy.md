@@ -657,7 +657,8 @@ two logical size integers (1..=16,384), an optional physical position pair
 kept so un-maximizing after a restart returns to them. It survives account logout and introduces
 no new file or table.
 Notification opt-in, hidden-channel visibility, primary RGB color, audio devices (up to 1,024 bytes each),
-input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings and the global-keybind
+input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings (including up to 32
+extra custom bindings) and the global-keybind
 switch (enabled by default) are saved in the device-wide `app_preferences`
 SQLite singleton (16 KiB maximum), using the existing background worker. The Linux
 hide-window-decorations boolean is stored in this same record and defaults to false. The home
