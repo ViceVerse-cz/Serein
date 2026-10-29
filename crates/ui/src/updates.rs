@@ -571,18 +571,18 @@ impl MessagingUi {
 					&& let Some(path) = &self.diagnostics_log_path
 				{
 					// The file is named where the owner enables the log, so a report can be found
-					// without guessing which of Serein's folders holds it.
-					design::hint(ui, path);
-				}
-				if self.diagnostics_log_open_failed
-					&& let Some(path) = &self.diagnostics_log_path
-				{
-					// The system refused the shell call and the host put this path on the
-					// clipboard; a warning colour marks it without needing new copy.
+					// without guessing which of Serein's folders holds it; a warning colour marks
+					// a folder the system refused to open, whose path the host copied instead.
 					let colors = design::palette(ui);
-					ui.add(egui::Label::new(
-						egui::RichText::new(path).size(12.0).color(colors.warning),
-					));
+					let color = if self.diagnostics_log_open_failed {
+						colors.warning
+					} else {
+						colors.muted
+					};
+					ui.add_space(4.0);
+					ui.add(
+						egui::Label::new(egui::RichText::new(path).size(12.0).color(color)).wrap(),
+					);
 				}
 				design::card_divider(ui);
 				design::row(

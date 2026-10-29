@@ -92,47 +92,118 @@ pub fn open_folder(path: &std::path::Path) -> Result<(), i64> {
 	}
 }
 
-/// Windows asks the shell that is already running instead of starting `explorer.exe`: a fresh one
-/// can fail to initialize its DLLs (0xc0000142) on a machine whose desktop is perfectly healthy.
+/// Windows cannot simply start `explorer.exe` (a fresh one fails to initialize its DLLs,
+/// 0xc0000142) and a security product can refuse the shell call itself (SE_ERR_ACCESSDENIED), so
+/// three independent routes are tried before the caller has to hand the path over.
+#[cfg(target_os = "windows")]
+fn open_with_shell(path: &std::path::Path) -> Result<(), i64> {
+	// The running shell browses the folder through COM; this never starts explorer.exe.
+	if select_in_shell(path).is_ok() {
+		return Ok(());
+	}
+	let executed = execute_shell(path);
+	if executed.is_ok() {
+		return Ok(());
+	}
+	// A trusted command interpreter asks the shell on our behalf.
+	if start_via_cmd(path).is_ok() {
+		return Ok(());
+	}
+	// The first code names the policy that refused us, so it is the one worth reporting.
+	executed
+}
+
+/// Initializes an apartment for the shell calls. A render thread usually has none and the shell
+/// then reports SE_ERR_ACCESSDENIED. An existing different apartment is fine: the thread keeps
+/// whichever apartment it already had, so nothing is uninitialized here.
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
-fn open_with_shell(path: &std::path::Path) -> Result<(), i64> {
-	use std::os::windows::ffi::OsStrExt;
+fn prepare_shell() {
 	use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+	// SAFETY: no memory or handles are passed; the call only sets the thread's apartment.
+	unsafe {
+		let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+	}
+}
+
+/// A NUL-terminated absolute path the shell calls can read, or `None` for an unrepresentable one.
+#[cfg(target_os = "windows")]
+fn wide_path(path: &std::path::Path) -> Option<Vec<u16>> {
+	use std::os::windows::ffi::OsStrExt;
+	let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+	let mut wide: Vec<u16> = absolute.as_os_str().encode_wide().collect();
+	if wide.contains(&0) {
+		return None;
+	}
+	wide.push(0);
+	Some(wide)
+}
+
+/// Asks the running shell to browse the folder: no new process, and the shell that already owns
+/// the desktop is the one that answers.
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn select_in_shell(path: &std::path::Path) -> Result<(), i64> {
+	use windows::Win32::UI::Shell::{ILCreateFromPathW, ILFree, SHOpenFolderAndSelectItems};
+	use windows::core::PCWSTR;
+
+	prepare_shell();
+	let wide = wide_path(path).ok_or(-1)?;
+	// SAFETY: `wide` is NUL-terminated and outlives both calls; the item list comes from the
+	// shell's own allocator and is released with ILFree, and no extra items are passed.
+	unsafe {
+		let list = ILCreateFromPathW(PCWSTR(wide.as_ptr()));
+		if list.is_null() {
+			return Err(-1);
+		}
+		let result = SHOpenFolderAndSelectItems(list, None, 0);
+		ILFree(Some(list));
+		result.map_err(|error| i64::from(error.code().0))
+	}
+}
+
+/// Asks the shell for the folder's default action (what "Open" does in Explorer).
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn execute_shell(path: &std::path::Path) -> Result<(), i64> {
 	use windows::Win32::UI::Shell::ShellExecuteW;
 	use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 	use windows::core::PCWSTR;
 
-	// The shell is an OLE client: a render thread usually has no apartment, and ShellExecute then
-	// reports SE_ERR_ACCESSDENIED (5) instead of opening anything. A different existing apartment
-	// is fine and its RPC_E_CHANGED_MODE is ignored; nothing is uninitialized here because the
-	// thread keeps whichever apartment it already had.
-	unsafe {
-		let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-	}
-
-	let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
-	let mut file: Vec<u16> = absolute.as_os_str().encode_wide().collect();
-	if file.contains(&0) {
-		return Err(-1);
-	}
-	file.push(0);
-	// SAFETY: `file` is NUL-terminated and outlives the call; a null verb asks the shell for the
-	// default action on a folder, the parameters and directory are left to it, and the result is
-	// the documented instance handle (a value above 32) or an error code.
+	prepare_shell();
+	let wide = wide_path(path).ok_or(-1)?;
+	// SAFETY: `wide` is NUL-terminated and outlives the call; a null verb asks for the default
+	// action, parameters and directory stay the shell's, and the result is the documented
+	// instance handle (a value above 32) or an error code.
 	let result = unsafe {
 		ShellExecuteW(
 			None,
 			PCWSTR::null(),
-			PCWSTR(file.as_ptr()),
+			PCWSTR(wide.as_ptr()),
 			PCWSTR::null(),
 			PCWSTR::null(),
 			SW_SHOWNORMAL,
 		)
 	};
-	// The documented success threshold: above 32 is a handle, at or below is an error code.
 	let code = result.0 as isize;
 	if code > 32 { Ok(()) } else { Err(code as i64) }
+}
+
+/// Last resort: `start` runs inside a trusted command interpreter, which the shell is more likely
+/// to accept than this process.
+#[cfg(target_os = "windows")]
+fn start_via_cmd(path: &std::path::Path) -> Result<(), i64> {
+	const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+	use std::os::windows::process::CommandExt;
+	let status = std::process::Command::new("cmd.exe")
+		.args(["/c", "start", "", &path.display().to_string()])
+		.creation_flags(CREATE_NO_WINDOW)
+		.status();
+	match status {
+		Ok(status) if status.success() => Ok(()),
+		Ok(status) => Err(i64::from(status.code().unwrap_or(-1))),
+		Err(error) => Err(i64::from(error.raw_os_error().unwrap_or(-1))),
+	}
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
