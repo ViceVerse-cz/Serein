@@ -203,6 +203,11 @@ pub fn level() -> Level {
 /// The fallback folder used when Serein's own data folder cannot be written.
 const FALLBACK_FOLDER: &str = "serein-logs";
 
+/// The folder a log uses when the app has no writable data folder at all.
+pub fn fallback_directory() -> PathBuf {
+	std::env::temp_dir().join(FALLBACK_FOLDER)
+}
+
 /// Name the folder for the log file and apply `level`. Only an enabled level touches the disk, so
 /// an owner who never turns the log on gets no folder and no file. A data folder that cannot be
 /// written (a read-only profile, a machine policy) falls back to the temporary folder, because a
@@ -215,7 +220,7 @@ pub fn install(level: Level, directory: PathBuf) -> Result<PathBuf, &'static str
 	if level != Level::Off
 		&& let Some(failure) = prepare(&directory)
 	{
-		let fallback = std::env::temp_dir().join(FALLBACK_FOLDER);
+		let fallback = fallback_directory();
 		if prepare(&fallback).is_none() {
 			path = fallback.join(LOG_FILE);
 			moved = true;

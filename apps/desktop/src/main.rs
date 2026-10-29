@@ -2520,12 +2520,14 @@ impl Desktop {
 		}
 	}
 	/// Applies a log level, names the file in the page and reports a folder that cannot be written
-	/// instead of promising one.
+	/// instead of promising one. A machine with no resolvable data folder still gets a log: the
+	/// crate falls back to its own folder in the temporary directory and the page names it.
 	fn apply_diagnostics_log(&mut self, level: diagnostics::Level) {
-		self.messaging.diagnostics_log_failed = match self.log_directory.clone() {
-			Some(directory) => diagnostics::install(level, directory).is_err(),
-			None => level != diagnostics::Level::Off,
-		};
+		let directory = self
+			.log_directory
+			.clone()
+			.unwrap_or_else(diagnostics::fallback_directory);
+		self.messaging.diagnostics_log_failed = diagnostics::install(level, directory).is_err();
 		self.messaging.diagnostics_log_path =
 			diagnostics::path().map(|path| path.display().to_string());
 	}
