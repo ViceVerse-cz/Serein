@@ -1,0 +1,20 @@
+{
+  "baseline": "5aac96fdc6acd858d49c3b0504a905540800a851",
+  "os": {
+    "Caption": "Microsoft Windows 11 Home",
+    "Version": "10.0.26200",
+    "TotalVisibleMemorySize": 33298208
+  },
+  "cpu": {
+    "Name": "13th Gen Intel(R) Core(TM) i5-13400F",
+    "NumberOfLogicalProcessors": 16
+  },
+  "gpu": {
+    "Name": "NVIDIA GeForce RTX 5070",
+    "DriverVersion": "32.0.16.1714"
+  },
+  "rust": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "sourceHash": "B5145E7173EC3788C3D8A75B5790E5FCBD48274DD5698EFF32A5C630CAC9454B",
+  "renderer": "WGPU_BACKEND=dx12",
+  "workload": "1080p RGBA opaque synthetic frame, target 60 fps, 30 seconds; 8s warmup then 20 one-second process samples; component one warmup + five x600 frames; no decoder/audio/network"
+}
