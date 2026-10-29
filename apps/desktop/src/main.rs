@@ -1072,6 +1072,8 @@ struct Desktop {
 	log_directory: Option<std::path::PathBuf>,
 	/// Whether the first frame has reported the start-up install's result to the settings page.
 	log_verified: bool,
+	/// Whether the system refused this process the shell, so the folder button copies instead.
+	log_open_refused: bool,
 	/// Active/per-account fallback saves waiting for bounded credential-queue capacity.
 	plaintext_save_pending: [bool; 2],
 	account_presences: std::collections::BTreeMap<model::Id, model::OwnPresence>,
@@ -2420,6 +2422,7 @@ impl Desktop {
 			plaintext_login,
 			log_directory: local_store::data_dir().ok().map(|root| root.join("logs")),
 			log_verified: false,
+			log_open_refused: false,
 			plaintext_save_pending: [false; 2],
 			account_presences: std::collections::BTreeMap::new(),
 			presence_load_pending,
@@ -2516,8 +2519,14 @@ impl Desktop {
 				.or_else(|| self.log_directory.clone());
 			if let Some(folder) = folder {
 				let _ = std::fs::create_dir_all(&folder);
-				// A button that appears to do nothing is worse than a logged reason.
-				if let Err(code) = platform::open_folder(&folder) {
+				// A button that appears to do nothing is worse than a logged reason. Once the
+				// system has refused the shell for this process, asking again only repeats the
+				// refusal, so the path goes to the clipboard instead.
+				if self.log_open_refused {
+					ctx.copy_text(folder.display().to_string());
+					self.messaging.diagnostics_log_open_failed = true;
+				} else if let Err(code) = platform::open_folder(&folder) {
+					self.log_open_refused = true;
 					self.messaging.diagnostics_log_open_failed = true;
 					// The system refused the shell; the path still has to reach the owner.
 					ctx.copy_text(folder.display().to_string());

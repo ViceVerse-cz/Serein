@@ -93,16 +93,15 @@ pub fn open_folder(path: &std::path::Path) -> Result<(), i64> {
 }
 
 /// Windows cannot simply start `explorer.exe` (a fresh one fails to initialize its DLLs,
-/// 0xc0000142) and a security product can refuse the shell call itself (SE_ERR_ACCESSDENIED), so
-/// three independent routes are tried before the caller has to hand the path over.
+/// 0xc0000142) and a machine policy can refuse this process the shell entirely
+/// (SE_ERR_ACCESSDENIED), so two quiet routes are tried before the caller hands the path over.
+/// `ShellExecuteW` is deliberately absent: on a machine that refuses it, it puts a system dialog
+/// on screen instead of failing quietly.
 #[cfg(target_os = "windows")]
 fn open_with_shell(path: &std::path::Path) -> Result<(), i64> {
 	// The running shell browses the folder through COM; this never starts explorer.exe.
-	if select_in_shell(path).is_ok() {
-		return Ok(());
-	}
-	let executed = execute_shell(path);
-	if executed.is_ok() {
+	let selected = select_in_shell(path);
+	if selected.is_ok() {
 		return Ok(());
 	}
 	// A trusted command interpreter asks the shell on our behalf.
@@ -110,7 +109,7 @@ fn open_with_shell(path: &std::path::Path) -> Result<(), i64> {
 		return Ok(());
 	}
 	// The first code names the policy that refused us, so it is the one worth reporting.
-	executed
+	selected
 }
 
 /// Initializes an apartment for the shell calls. A render thread usually has none and the shell
@@ -160,33 +159,6 @@ fn select_in_shell(path: &std::path::Path) -> Result<(), i64> {
 		ILFree(Some(list));
 		result.map_err(|error| i64::from(error.code().0))
 	}
-}
-
-/// Asks the shell for the folder's default action (what "Open" does in Explorer).
-#[cfg(target_os = "windows")]
-#[allow(unsafe_code)]
-fn execute_shell(path: &std::path::Path) -> Result<(), i64> {
-	use windows::Win32::UI::Shell::ShellExecuteW;
-	use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-	use windows::core::PCWSTR;
-
-	prepare_shell();
-	let wide = wide_path(path).ok_or(-1)?;
-	// SAFETY: `wide` is NUL-terminated and outlives the call; a null verb asks for the default
-	// action, parameters and directory stay the shell's, and the result is the documented
-	// instance handle (a value above 32) or an error code.
-	let result = unsafe {
-		ShellExecuteW(
-			None,
-			PCWSTR::null(),
-			PCWSTR(wide.as_ptr()),
-			PCWSTR::null(),
-			PCWSTR::null(),
-			SW_SHOWNORMAL,
-		)
-	};
-	let code = result.0 as isize;
-	if code > 32 { Ok(()) } else { Err(code as i64) }
 }
 
 /// Last resort: `start` runs inside a trusted command interpreter, which the shell is more likely
