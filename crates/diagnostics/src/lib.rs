@@ -208,31 +208,45 @@ pub fn fallback_directory() -> PathBuf {
 	std::env::temp_dir().join(FALLBACK_FOLDER)
 }
 
+/// The folder that holds the running binary; a sandboxed run often keeps write access there even
+/// when the profile and the temporary folder are refused.
+fn executable_directory() -> Option<PathBuf> {
+	let executable = std::env::current_exe().ok()?;
+	executable.parent().map(Path::to_path_buf)
+}
+
 /// Name the folder for the log file and apply `level`. Only an enabled level touches the disk, so
-/// an owner who never turns the log on gets no folder and no file. A data folder that cannot be
-/// written (a read-only profile, a machine policy) falls back to the temporary folder, because a
-/// report still needs its evidence; the caller can then name the file that ended up in use.
+/// an owner who never turns the log on gets no folder and no file. When the data folder cannot be
+/// written, the temporary folder and then the executable's own folder are tried, because a report
+/// still needs its evidence; the caller can then name the file that ended up in use.
 pub fn install(level: Level, directory: PathBuf) -> Result<PathBuf, &'static str> {
 	let sink = sink();
 	let mut path = directory.join(LOG_FILE);
 	let mut moved = false;
 	let mut reason = None;
-	// Both attempts are reported by number: a fixed label alone cannot tell "denied" from
+	// Every attempt is reported by number: a fixed label alone cannot tell "denied" from
 	// "sharing violation", and the whole point of this log is to answer that without guessing.
-	let mut attempts: Vec<(&'static str, Option<std::io::Error>)> = Vec::with_capacity(2);
+	let mut attempts: Vec<(&'static str, Option<std::io::Error>)> = Vec::with_capacity(3);
 	if level != Level::Off {
 		let primary = prepare(&directory);
-		let failed = primary.is_some();
+		let refused = primary.is_some();
 		attempts.push(("data", primary));
-		if failed {
-			let fallback = fallback_directory();
-			let secondary = prepare(&fallback);
-			let fallback_worked = secondary.is_none();
-			attempts.push(("temporary", secondary));
-			if fallback_worked {
-				path = fallback.join(LOG_FILE);
-				moved = true;
-			} else {
+		if refused {
+			let mut candidates = vec![("temporary", fallback_directory())];
+			if let Some(executable) = executable_directory() {
+				candidates.push(("executable", executable.join(FALLBACK_FOLDER)));
+			}
+			for (label, candidate) in candidates {
+				let error = prepare(&candidate);
+				let worked = error.is_none();
+				attempts.push((label, error));
+				if worked {
+					path = candidate.join(LOG_FILE);
+					moved = true;
+					break;
+				}
+			}
+			if !moved {
 				reason = Some(attempt_failure(&attempts[0].1));
 			}
 		}

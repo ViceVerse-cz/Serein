@@ -1082,7 +1082,12 @@ a folder nor a file. The choice is a device preference in the existing app-prefe
 survives a restart and applies before the window opens.
 
 An enabled log writes `logs/serein.log` inside Serein's data folder, with private permissions on
-Unix. Each line is the machine's local wall clock, the level, a category, a compile-time label and
+Unix. A data folder that refuses the file (a read-only profile, a machine policy, a sandboxed run)
+is replaced by `serein-logs` in the temporary folder, and then by `serein-logs` beside the
+executable; the Settings page names the file that ended up in use, and each refused attempt is
+recorded with its error class and operating-system code. When every folder refuses, the level still
+applies: the copy button returns the lines kept in memory. Each line is the machine's local wall
+clock, the level, a category, a compile-time label and
 up to four fields. Categories are `app`, `session`, `call`, `voice`, `gateway`, `cache` and `media`.
 Every label and text value is a `&'static str` taken from the client's own vocabulary, and every
 other value is a number, so the API has no way to carry an account, channel, message, path, URL or
