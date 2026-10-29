@@ -3,6 +3,7 @@ use client_core::{
 	Command, Event, State,
 	voice::{self, Phase, Secret},
 };
+use diagnostics::{Category, Level, Value};
 use discord_voice::{
 	Controls, Status,
 	audio::{Audio, Devices},
@@ -325,6 +326,12 @@ const REJOIN_DELAYS: [Duration; voice::MAX_REJOIN_ATTEMPTS as usize] = [
 /// A rejoined call must stay connected this long before a new drop starts from attempt one.
 const REJOIN_STABLE: Duration = Duration::from_secs(30);
 
+/// One call-lifecycle line. Every field is a constant or a number, so an attached log needs no
+/// redaction; the owner's log level decides whether the line is kept.
+fn note(level: Level, label: &'static str, fields: &[(&'static str, Value)]) {
+	diagnostics::record_fields(Category::Call, level, label, fields);
+}
+
 struct Rejoin {
 	generation: u64,
 	channel: Id,
@@ -455,6 +462,23 @@ impl Voice {
 			started: Instant::now(),
 			failed_candidate: false,
 		});
+		note(
+			Level::Info,
+			"join requested",
+			&[
+				(
+					"kind",
+					if channel.guild.is_some() {
+						"guild".into()
+					} else if peer.is_some() {
+						"dm".into()
+					} else {
+						"group".into()
+					},
+				),
+				("ring", (ring && channel.guild.is_none()).into()),
+			],
+		);
 		Ok(())
 	}
 	/// Take negotiation secrets before reducing the UI event. Nothing is persisted.
@@ -616,6 +640,7 @@ impl Voice {
 					// candidate until our voice socket authenticates it; never infer actor from order.
 					pending.session = Some(session);
 					pending.negotiation_revision = *negotiation_revision;
+					note(Level::Debug, "session description received", &[]);
 				}
 			}
 			voice::Event::Server {
@@ -635,6 +660,7 @@ impl Voice {
 					return Some("Discord omitted the voice connection token");
 				};
 				pending.server = Some((token, endpoint));
+				note(Level::Info, "voice server received", &[]);
 			}
 			_ => {}
 		}
@@ -649,6 +675,7 @@ impl Voice {
 	pub fn fail(&mut self, state: &mut State, message: &'static str) -> Option<Command> {
 		let call = state.voice.active.as_ref()?;
 		let (channel, request) = (call.channel, call.request);
+		note(Level::Error, "call failed", &[("reason", message.into())]);
 		let command = self.end_control(channel, request);
 		self.leave_cue |= self
 			.live
@@ -670,6 +697,11 @@ impl Voice {
 		let joined = self.live.as_ref().is_some_and(|live| {
 			live.cues.joined && live.generation == state.generation && live.channel == channel
 		});
+		note(
+			Level::Warn,
+			"media failure",
+			&[("reason", message.into()), ("joined", joined.into())],
+		);
 		let previous = self
 			.rejoin
 			.take()
@@ -687,6 +719,17 @@ impl Voice {
 		self.leave_cue |= joined;
 		self.stop();
 		self.gateway_check = true;
+		note(
+			Level::Info,
+			"rejoin scheduled",
+			&[
+				("attempt", attempt.into()),
+				(
+					"delay_ms",
+					(REJOIN_DELAYS[usize::from(attempt) - 1].as_millis() as u64).into(),
+				),
+			],
+		);
 		self.rejoin = Some(Rejoin {
 			generation: state.generation,
 			channel,
@@ -708,6 +751,11 @@ impl Voice {
 		rejoining: bool,
 	) -> Option<Command> {
 		self.rejoin = None;
+		note(
+			Level::Error,
+			"rejoin given up",
+			&[("reason", message.into())],
+		);
 		let (channel, request) = state
 			.voice
 			.active
@@ -772,7 +820,10 @@ impl Voice {
 		}
 		rejoin.at = None;
 		match state.rejoin_call() {
-			Some(command) => Some(command),
+			Some(command) => {
+				note(Level::Info, "rejoin started", &[]);
+				Some(command)
+			}
 			None => self.give_up_rejoin(
 				state,
 				"Voice reconnect is no longer allowed in this channel",
@@ -905,6 +956,19 @@ impl Voice {
 				.and_then(|live| live.negotiation.as_ref())
 		}) {
 			if pending.started.elapsed() >= Duration::from_secs(30) {
+				// #826: this branch reported a timeout as a permission problem, and the wait that
+				// ran out started at the original join, so record both rather than guess.
+				note(
+					Level::Warn,
+					"connection details missing",
+					&[
+						(
+							"wait_ms",
+							(pending.started.elapsed().as_millis() as u64).into(),
+						),
+						("redial", pending.failed_candidate.into()),
+					],
+				);
 				return self.fail_or_rejoin(
                     state,
                     "Discord did not provide voice connection details; check Connect permission and channel capacity",
@@ -929,10 +993,10 @@ impl Voice {
 				ui.voice_ptt_active,
 			) || ui.voice_ptm_active;
 			let input_enabled = state.can_speak(pending.channel);
-			if let Err(error) =
-				self.start_media(runtime, pending, ui, ctx, listen_only, input_enabled)
-			{
-				return self.fail_or_rejoin(state, error);
+			let waited = pending.started.elapsed().as_millis() as u64;
+			match self.start_media(runtime, pending, ui, ctx, listen_only, input_enabled) {
+				Ok(()) => note(Level::Info, "media started", &[("wait_ms", waited.into())]),
+				Err(error) => return self.fail_or_rejoin(state, error),
 			}
 		}
 		if self.pending.is_some() && self.retiring.is_some() {
@@ -1194,6 +1258,7 @@ impl Voice {
 		}
 		// Discord removed this account mid-rejoin; never wait for or retry a replacement.
 		if failure == Some(discord_voice::DISCONNECTED_BY_DISCORD) && self.rejoin.is_some() {
+			note(Level::Error, "removed by the service", &[]);
 			return self.give_up_rejoin(state, discord_voice::DISCONNECTED_BY_DISCORD, true);
 		}
 		if failure.is_some()
