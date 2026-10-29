@@ -1515,12 +1515,15 @@ mod tests {
 		// When the call phase is Failed, the voice badge must NOT be rendered
 		state.voice.active.as_mut().unwrap().phase = client_core::voice::Phase::Failed;
 		let shapes_with_failed_call = run_render(&mut view, &mut state);
-		let has_voice_badge_failed = shapes_with_failed_call.iter().any(|shape| match &shape.shape {
-			egui::Shape::Circle(circle) => {
-				(circle.radius - 11.0).abs() < 0.1 || (circle.radius - 9.0).abs() < 0.1
-			}
-			_ => false,
-		});
+		let has_voice_badge_failed =
+			shapes_with_failed_call
+				.iter()
+				.any(|shape| match &shape.shape {
+					egui::Shape::Circle(circle) => {
+						(circle.radius - 11.0).abs() < 0.1 || (circle.radius - 9.0).abs() < 0.1
+					}
+					_ => false,
+				});
 		assert!(
 			!has_voice_badge_failed,
 			"Collapsed folder must not render a voice badge when call phase is Failed"
