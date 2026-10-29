@@ -50,8 +50,9 @@ const ACCOUNT: &str = "discord-session";
 const ACCOUNT: &str = "discord-session.development";
 
 /// Opens a folder in the owner's file manager. The caller passes a path it already owns, so this
-/// crosses no service or privilege boundary; a missing opener only reports `false`.
-pub fn open_folder(path: &std::path::Path) -> bool {
+/// crosses no service or privilege boundary. `Err` carries the platform's failure code, which the
+/// caller records instead of leaving a button that appears to do nothing.
+pub fn open_folder(path: &std::path::Path) -> Result<(), i64> {
 	#[cfg(target_os = "windows")]
 	{
 		open_with_shell(path)
@@ -62,7 +63,11 @@ pub fn open_folder(path: &std::path::Path) -> bool {
 		const OPENER: &str = "open";
 		#[cfg(all(unix, not(target_os = "macos")))]
 		const OPENER: &str = "xdg-open";
-		std::process::Command::new(OPENER).arg(path).spawn().is_ok()
+		std::process::Command::new(OPENER)
+			.arg(path)
+			.spawn()
+			.map(drop)
+			.map_err(|error| i64::from(error.raw_os_error().unwrap_or(-1)))
 	}
 }
 
@@ -70,7 +75,7 @@ pub fn open_folder(path: &std::path::Path) -> bool {
 /// can fail to initialize its DLLs (0xc0000142) on a machine whose desktop is perfectly healthy.
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
-fn open_with_shell(path: &std::path::Path) -> bool {
+fn open_with_shell(path: &std::path::Path) -> Result<(), i64> {
 	use std::os::windows::ffi::OsStrExt;
 	use windows::Win32::UI::Shell::ShellExecuteW;
 	use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -79,7 +84,7 @@ fn open_with_shell(path: &std::path::Path) -> bool {
 	let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
 	let mut file: Vec<u16> = absolute.as_os_str().encode_wide().collect();
 	if file.contains(&0) {
-		return false;
+		return Err(-1);
 	}
 	file.push(0);
 	// SAFETY: `file` is NUL-terminated and outlives the call, the verb, parameters and show
@@ -95,7 +100,9 @@ fn open_with_shell(path: &std::path::Path) -> bool {
 			SW_SHOWNORMAL,
 		)
 	};
-	result.0 as isize > 32
+	// The documented success threshold: above 32 is a handle, at or below is an error code.
+	let code = result.0 as isize;
+	if code > 32 { Ok(()) } else { Err(code as i64) }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

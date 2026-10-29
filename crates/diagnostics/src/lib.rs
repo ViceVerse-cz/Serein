@@ -217,15 +217,24 @@ pub fn install(level: Level, directory: PathBuf) -> Result<PathBuf, &'static str
 	let mut path = directory.join(LOG_FILE);
 	let mut moved = false;
 	let mut reason = None;
-	if level != Level::Off
-		&& let Some(failure) = prepare(&directory)
-	{
-		let fallback = fallback_directory();
-		if prepare(&fallback).is_none() {
-			path = fallback.join(LOG_FILE);
-			moved = true;
-		} else {
-			reason = Some(failure);
+	// Both attempts are reported by number: a fixed label alone cannot tell "denied" from
+	// "sharing violation", and the whole point of this log is to answer that without guessing.
+	let mut attempts: Vec<(&'static str, Option<std::io::Error>)> = Vec::with_capacity(2);
+	if level != Level::Off {
+		let primary = prepare(&directory);
+		let failed = primary.is_some();
+		attempts.push(("data", primary));
+		if failed {
+			let fallback = fallback_directory();
+			let secondary = prepare(&fallback);
+			let fallback_worked = secondary.is_none();
+			attempts.push(("temporary", secondary));
+			if fallback_worked {
+				path = fallback.join(LOG_FILE);
+				moved = true;
+			} else {
+				reason = Some(attempt_failure(&attempts[0].1));
+			}
 		}
 	}
 	{
@@ -234,6 +243,30 @@ pub fn install(level: Level, directory: PathBuf) -> Result<PathBuf, &'static str
 	}
 	// The level applies either way, so the copyable tail works while the file does not.
 	set_level(level);
+	for (folder, error) in &attempts {
+		let Some(error) = error else {
+			record_fields(
+				Category::App,
+				Level::Info,
+				"log folder ready",
+				&[("folder", (*folder).into())],
+			);
+			continue;
+		};
+		record_fields(
+			Category::App,
+			Level::Warn,
+			"log folder refused",
+			&[
+				("folder", (*folder).into()),
+				("kind", error_kind(error).into()),
+				(
+					"os_error",
+					i64::from(error.raw_os_error().unwrap_or(-1)).into(),
+				),
+			],
+		);
+	}
 	if let Some(reason) = reason {
 		record_fields(
 			Category::App,
@@ -254,20 +287,44 @@ pub fn install(level: Level, directory: PathBuf) -> Result<PathBuf, &'static str
 	Ok(path)
 }
 
+/// The fixed reason a failed attempt reports to the page.
+fn attempt_failure(error: &Option<std::io::Error>) -> &'static str {
+	match error.as_ref().map(|error| error.kind()) {
+		Some(std::io::ErrorKind::NotFound) => "the log folder does not exist",
+		Some(std::io::ErrorKind::PermissionDenied) => "the log folder is not writable",
+		Some(_) => "the log folder could not be created",
+		None => "the log folder could not be created",
+	}
+}
+
+/// A small stable number for the failure class, so a report needs no prose to name it.
+fn error_kind(error: &std::io::Error) -> u64 {
+	match error.kind() {
+		std::io::ErrorKind::NotFound => 1,
+		std::io::ErrorKind::PermissionDenied => 2,
+		std::io::ErrorKind::AlreadyExists => 3,
+		std::io::ErrorKind::InvalidInput => 4,
+		std::io::ErrorKind::UnexpectedEof => 5,
+		std::io::ErrorKind::WriteZero => 6,
+		std::io::ErrorKind::ReadOnlyFilesystem => 7,
+		std::io::ErrorKind::DirectoryNotEmpty => 8,
+		std::io::ErrorKind::StorageFull => 9,
+		std::io::ErrorKind::NotADirectory => 10,
+		std::io::ErrorKind::IsADirectory => 11,
+		_ => 0,
+	}
+}
+
 /// Creates the folder and proves the file can be opened, without keeping it open: the writer owns
-/// the handle. Returns the fixed reason the attempt failed, or `None` when the folder is usable.
-fn prepare(directory: &Path) -> Option<&'static str> {
-	if create_private(directory).is_err() {
-		return Some("the log folder could not be created");
+/// the handle. Returns the operating system's error when the folder is unusable.
+fn prepare(directory: &Path) -> Option<std::io::Error> {
+	if let Err(error) = create_private(directory) {
+		return Some(error);
 	}
 	let path = directory.join(LOG_FILE);
-	if OpenOptions::new()
-		.create(true)
-		.append(true)
-		.open(&path)
-		.is_err()
-	{
-		return Some("the log file could not be created");
+	match OpenOptions::new().create(true).append(true).open(&path) {
+		Ok(file) => drop(file),
+		Err(error) => return Some(error),
 	}
 	private_file(&path);
 	None

@@ -2515,7 +2515,15 @@ impl Desktop {
 				.or_else(|| self.log_directory.clone());
 			if let Some(folder) = folder {
 				let _ = std::fs::create_dir_all(&folder);
-				platform::open_folder(&folder);
+				// A button that appears to do nothing is worse than a logged reason.
+				if let Err(code) = platform::open_folder(&folder) {
+					diagnostics::record_fields(
+						diagnostics::Category::App,
+						diagnostics::Level::Warn,
+						"log folder not opened",
+						&[("code", code.into())],
+					);
+				}
 			}
 		}
 	}
