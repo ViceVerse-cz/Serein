@@ -85,6 +85,7 @@ hide-chat = Nascondi chat
 show-chat = Mostra chat
 search-conversation = Cerca questa conversazione
 show-member-list = Mostra l'elenco dei membri
+show-user-profile = Mostra profilo utente
 pinned-messages = Messaggi fissati
 threads = Discussioni
 
@@ -4732,6 +4733,8 @@ composer-placeholder-direct = Invia un messaggio a @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = Questo è l'inizio della cronologia dei messaggi diretti con { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Benvenuto all'inizio del gruppo { $name }.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = Benvenuto in #{ $channel }!
@@ -4829,3 +4832,12 @@ search-overlays-no-matching-content-types = Nessun tipo di contenuto corrisponde
 search-overlays-history = Cronologia
 search-overlays-clear-history = Cancella cronologia di ricerca
 main-sign-in-rate-limited-detail = Discord sta limitando questo accesso. Attendi prima di riprovare. Un nuovo tentativo troppo presto può allungare l'attesa.
+
+# New message
+new-message-title = Nuovo messaggio
+new-message-subtitle = I messaggi di gruppo possono avere fino a 10 membri.
+new-message-search = Cerca
+new-message-hint = Aggiungi amici per avviare un messaggio diretto o un gruppo.
+new-message-no-people-found = Nessuno corrisponde a questa ricerca.
+new-message-create = Crea messaggio
+new-message-cancel = Annulla

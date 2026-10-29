@@ -2613,3 +2613,23 @@ Clearing the rows with an empty list is not an option: Discord disconnects with 
 
 This behaviour is unofficial and inferred from owner traces; a loopback test models it, and
 the owner confirmed the fix in a debug build.
+
+## New message picker - October 27, 2026
+
+The DM list header carries the official client's "New Message" action: a picker that lists
+friends, searches them by display name or handle, and opens either one direct message or a
+group. One chosen person reuses the existing DM path (`GET` selection when the conversation
+is already loaded, otherwise `POST /users/@me/channels` with `recipient_id`). Two to nine
+people send one `POST /users/@me/channels` with `recipients`; the service adds this
+account as the owner, so ten people is the whole group.
+
+The group request and its answer are bounded like the rest of the account writes: no retry,
+one request at a time, and the response is admitted only when it is a group channel whose
+recipients cover everyone that was asked for. The created channel is opened the same way a
+newly opened DM is, and navigation made while the request was in flight wins over it.
+Failures report the service label instead of leaving the picker open.
+
+`POST /users/@me/channels` is a documented route, but sending `recipients` from a normal
+account is an unofficial request shape, inferred from the official client and live-unverified:
+loopback tests cover the request shape and response validation, and the owner's release-build
+pass exercised the picker but not live group creation.

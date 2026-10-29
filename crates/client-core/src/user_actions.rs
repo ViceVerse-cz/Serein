@@ -10,6 +10,8 @@ pub const MAX_RELATIONSHIPS: usize = 4000;
 pub const MAX_RELATIONSHIP_BYTES: usize = 128 * 1024;
 pub const MAX_FRIEND_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_RESTRICTED_BYTES: usize = 2 * 1024 * 1024;
+/// Group DMs hold ten people: the signed-in account and nine others it invites.
+pub const MAX_GROUP_RECIPIENTS: usize = 9;
 
 fn replace_id_set(
 	dest: &mut BTreeSet<Id>,
@@ -45,17 +47,47 @@ fn replace_id_set(
 #[derive(Clone, PartialEq, Eq)]
 pub enum Action {
 	LoadNote(Id),
-	Note { user: Id, text: String },
-	Nickname { user: Id, text: String },
-	AddFriend { username: String },
-	ResolveFriend { user: Id, accept: bool },
-	ProfileFriend { user: Id, friend: bool },
+	Note {
+		user: Id,
+		text: String,
+	},
+	Nickname {
+		user: Id,
+		text: String,
+	},
+	AddFriend {
+		username: String,
+	},
+	ResolveFriend {
+		user: Id,
+		accept: bool,
+	},
+	ProfileFriend {
+		user: Id,
+		friend: bool,
+	},
 	OpenDm(Id),
+	/// Two to nine other people; the service adds the signed-in account as the owner.
+	CreateGroup {
+		recipients: Vec<Id>,
+	},
 	CloseDm(Id),
-	Block { user: Id, blocked: bool },
-	Ignore { user: Id, ignored: bool },
-	Mute { channel: Id, muted: bool },
-	MessageRequest { channel: Id, accept: bool },
+	Block {
+		user: Id,
+		blocked: bool,
+	},
+	Ignore {
+		user: Id,
+		ignored: bool,
+	},
+	Mute {
+		channel: Id,
+		muted: bool,
+	},
+	MessageRequest {
+		channel: Id,
+		accept: bool,
+	},
 }
 impl std::fmt::Debug for Action {
 	/// Redacted debug output; never prints note, nickname or username text.
@@ -70,6 +102,7 @@ impl Action {
 		match self {
 			Self::LoadNote(_) => "Note loaded",
 			Self::OpenDm(_) => "Direct message was not confirmed; try opening it again",
+			Self::CreateGroup { .. } => "Group message was not confirmed; try creating it again",
 			Self::Note { .. } => "Note saved",
 			Self::Nickname { .. } => "Nickname saved",
 			Self::AddFriend { .. } => "Friend request sent · waiting for service update",
@@ -123,6 +156,11 @@ pub enum Event {
 	DmOpened {
 		user: Id,
 		request: u64,
+		result: Result<Box<model::Channel>, Failure>,
+	},
+	GroupCreated {
+		request: u64,
+		recipients: Vec<Id>,
 		result: Result<Box<model::Channel>, Failure>,
 	},
 	NoteChanged {
@@ -219,6 +257,9 @@ pub struct Actions {
 	// Friendship is required only for the existing friend-only navigation callers.
 	dm_origin: Option<(Option<Id>, u64, bool)>,
 	opened_dm: Option<(Id, Id)>,
+	/// Navigation snapshot and the admitted channel of one group creation.
+	group_origin: Option<(Option<Id>, u64)>,
+	created_group: Option<Id>,
 	status: Option<&'static str>,
 }
 impl Actions {
@@ -793,6 +834,60 @@ impl State {
 			})
 			.map(|channel| channel.id)
 	}
+	/// Opens a direct message with two to nine other friends, the most a group DM holds.
+	pub fn create_group_dm(&mut self, recipients: &[Id]) -> Option<Command> {
+		let mut people: Vec<Id> = Vec::with_capacity(recipients.len());
+		for recipient in recipients {
+			if people.contains(recipient) {
+				continue;
+			}
+			people.push(*recipient);
+		}
+		if !(2..=MAX_GROUP_RECIPIENTS).contains(&people.len())
+			|| people
+				.iter()
+				.any(|user| self.friend(*user).is_none() || !self.dm_target_allowed(*user, true))
+		{
+			self.user_actions.status =
+				Some("Choose between two and nine friends for a group message");
+			self.status = self.user_actions.status.unwrap();
+			return None;
+		}
+		people.sort_unstable_by_key(|user| user.0);
+		if let Some(channel) = self.existing_group(&people) {
+			return self.select(channel);
+		}
+		let command = self.request_user_action(Action::CreateGroup { recipients: people })?;
+		self.user_actions.group_origin = Some((self.selected, self.request));
+		self.user_actions.created_group = None;
+		self.status = "Creating group message…";
+		Some(command)
+	}
+	fn existing_group(&self, people: &[Id]) -> Option<Id> {
+		self.channels
+			.iter()
+			.filter(|channel| channel.guild.is_none() && channel.kind == 3)
+			.filter(|channel| channel.recipients.len() == people.len())
+			.find(|channel| {
+				people
+					.iter()
+					.all(|user| channel.recipients.iter().any(|entry| entry.id == *user))
+			})
+			.map(|channel| channel.id)
+	}
+	/// Consume one admitted group without overriding navigation made during the request.
+	pub fn select_created_group(&mut self) -> Option<Command> {
+		let channel = self.user_actions.created_group.take()?;
+		let (selected, request) = self.user_actions.group_origin.take()?;
+		if (selected, request) != (self.selected, self.request)
+			|| self
+				.channel(channel)
+				.is_none_or(|known| known.guild.is_some() || known.kind != 3)
+		{
+			return None;
+		}
+		self.select(channel)
+	}
 	fn open_dm(&mut self, user: Id, friend_only: bool) -> Option<Command> {
 		if let Some(channel) = self.existing_dm(user) {
 			return self.select(channel);
@@ -896,6 +991,8 @@ impl State {
 		self.cancel_user_note_read();
 		self.user_actions.dm_origin = None;
 		self.user_actions.opened_dm = None;
+		self.user_actions.group_origin = None;
+		self.user_actions.created_group = None;
 		self.user_actions.challenge = None;
 		if let Some((action, _, _)) = self.user_actions.pending.take() {
 			if matches!(action, Action::Block { .. }) {
@@ -997,6 +1094,62 @@ impl State {
 					self.user_actions.opened_dm = Some((id, user));
 					self.user_actions.status = None;
 					self.status = "Direct message opened";
+				}
+			}
+			Event::GroupCreated {
+				request,
+				recipients,
+				result,
+			} => {
+				if !matches!(
+					&self.user_actions.pending,
+					Some((Action::CreateGroup { recipients: sent }, sequence, _))
+						if *sent == recipients && *sequence == request
+				) {
+					return Ok(());
+				}
+				let result = result.and_then(|channel| {
+					let holds_everyone = recipients
+						.iter()
+						.all(|user| channel.recipients.iter().any(|entry| entry.id == *user));
+					if channel.id.0 == 0
+						|| channel.guild.is_some()
+						|| channel.kind != 3
+						|| channel.recipients.is_empty()
+						|| channel.recipients.len() > MAX_GROUP_RECIPIENTS
+						|| !holds_everyone || channel.recipients.iter().any(|entry| entry.webhook)
+						|| channel.bytes() > 64 * 1024
+						|| self
+							.channel(channel.id)
+							.is_some_and(|known| known.guild.is_some() || known.kind != 3)
+					{
+						Err(Failure::Ambiguous)
+					} else {
+						Ok(channel)
+					}
+				});
+				let channel = match result {
+					Ok(channel) => channel,
+					Err(failure) => {
+						return self.apply_user_action(Event::Written {
+							action: Action::CreateGroup { recipients },
+							request,
+							result: Err(failure),
+						});
+					}
+				};
+				self.user_actions.pending = None;
+				let id = channel.id;
+				if self.channel(id).is_none() {
+					self.apply(crate::Envelope {
+						generation: self.generation,
+						event: crate::Event::ChannelCreated(*channel),
+					});
+				}
+				if self.channel(id).is_some() && self.user_actions.group_origin.is_some() {
+					self.user_actions.created_group = Some(id);
+					self.user_actions.status = None;
+					self.status = "Group message opened";
 				}
 			}
 			Event::NoteChanged { user, text } => {
@@ -1492,6 +1645,10 @@ impl State {
 				if matches!(action, Action::OpenDm(_)) {
 					self.user_actions.dm_origin = None;
 				}
+				if matches!(action, Action::CreateGroup { .. }) {
+					self.user_actions.group_origin = None;
+					self.user_actions.created_group = None;
+				}
 				if matches!(action, Action::Block { .. }) {
 					self.user_actions.bump_view();
 				}
@@ -1504,7 +1661,7 @@ impl State {
 				}
 				if !observed {
 					match action {
-						Action::LoadNote(_) | Action::OpenDm(_) => {}
+						Action::LoadNote(_) | Action::OpenDm(_) | Action::CreateGroup { .. } => {}
 						Action::Note { user, ref text } => {
 							if let Some((target, _, observed)) = &mut self.user_actions.note_request
 								&& *target == user
@@ -1745,6 +1902,63 @@ mod tests {
 				result: result.map(Box::new),
 			}),
 		});
+	}
+
+	#[test]
+	fn a_group_request_names_every_friend_once_and_admits_the_created_channel() {
+		let mut state = state();
+		state
+			.apply_user_action(Event::Relationships(Some(vec![])))
+			.unwrap();
+		let people: Vec<model::User> = (0..3)
+			.map(|index| {
+				let mut user = state.channels[0].recipients[0].clone();
+				user.id = Id(10 + index);
+				user.name = format!("Friend {index}");
+				user
+			})
+			.collect();
+		state
+			.apply_user_action(Event::Friends(Some(
+				people
+					.iter()
+					.map(|user| (user.clone(), "synthetic.handle".into()))
+					.collect(),
+			)))
+			.unwrap();
+		// A group needs two people, and everyone has to be a known friend.
+		assert!(state.create_group_dm(&[]).is_none());
+		assert!(state.create_group_dm(&[people[0].id]).is_none());
+		assert!(state.create_group_dm(&[people[0].id, Id(999)]).is_none());
+		// One request carries each chosen friend once, whatever order the picker listed them in.
+		let Some(Command::UserAction {
+			action: Action::CreateGroup { recipients },
+			request,
+			..
+		}) = state.create_group_dm(&[people[2].id, people[0].id, people[2].id])
+		else {
+			panic!("expected one group request");
+		};
+		assert_eq!(recipients, vec![people[0].id, people[2].id]);
+		let mut channel = state.channels[0].clone();
+		channel.id = Id(40);
+		channel.kind = 3;
+		channel.name = "Synthetic group".into();
+		channel.recipients = vec![people[0].clone(), people[2].clone()];
+		state.apply(Envelope {
+			generation: state.generation,
+			event: CoreEvent::UserAction(Event::GroupCreated {
+				request,
+				result: Ok(Box::new(channel.clone())),
+				recipients: recipients.clone(),
+			}),
+		});
+		assert_eq!(state.channel(Id(40)).map(|known| known.kind), Some(3));
+		assert!(state.user_action_pending().eq(&false));
+		// The admitted group is opened once, and only while the reader stayed where they were.
+		assert!(state.select_created_group().is_some());
+		assert_eq!(state.selected, Some(Id(40)));
+		assert!(state.select_created_group().is_none());
 	}
 
 	#[test]

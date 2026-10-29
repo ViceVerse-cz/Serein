@@ -85,6 +85,7 @@ hide-chat = Sohbeti gizle
 show-chat = Sohbeti göster
 search-conversation = Bu görüşmeyi arayın
 show-member-list = Üye listesini göster
+show-user-profile = Kullanıcı profilini göster
 pinned-messages = Sabitlenmiş mesajlar
 threads = Konular
 
@@ -4721,6 +4722,8 @@ composer-placeholder-direct = @{ $name } kişisine mesaj gönder
 
 # Context: timeline_dm_intro
 timeline-dm-intro = { $name } ile doğrudan mesaj geçmişinin başlangıcı.
+# Context: timeline_group_intro
+timeline-group-intro = { $name } grubunun başlangıcına hoş geldiniz.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = #{ $channel } kanalına hoş geldin!
@@ -4815,3 +4818,12 @@ search-overlays-no-matching-content-types = Eşleşen içerik türü yok
 search-overlays-history = Geçmiş
 search-overlays-clear-history = Arama geçmişini temizle
 main-sign-in-rate-limited-detail = Discord bu oturum açmayı sınırlıyor. Tekrar denemeden önce bekle. Daha erken bir deneme bekleme süresini uzatabilir.
+
+# New message
+new-message-title = Yeni Mesaj
+new-message-subtitle = Grup DM'lerinde en fazla 10 üye olabilir.
+new-message-search = Ara
+new-message-hint = Bir doğrudan mesaj veya grup başlatmak için arkadaş ekleyin.
+new-message-no-people-found = Bu aramayla eşleşen kimse yok.
+new-message-create = Mesaj Oluştur
+new-message-cancel = İptal

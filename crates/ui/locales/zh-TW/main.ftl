@@ -85,6 +85,7 @@ hide-chat = 隱藏聊天
 show-chat = 顯示聊天
 search-conversation = 搜尋這個對話
 show-member-list = 顯示成員清單
+show-user-profile = 顯示使用者個人資料
 pinned-messages = 釘選的訊息
 threads = 討論串
 
@@ -4833,6 +4834,8 @@ composer-placeholder-direct = 傳送訊息給 @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = 這是你與 { $name } 的私訊紀錄的開頭。
+# Context: timeline_group_intro
+timeline-group-intro = 歡迎來到 { $name } 群組的開端。
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = 歡迎來到 #{ $channel }！
@@ -4927,3 +4930,12 @@ search-overlays-no-matching-content-types = 沒有符合的內容類型
 search-overlays-history = 歷史紀錄
 search-overlays-clear-history = 清除搜尋紀錄
 main-sign-in-rate-limited-detail = Discord 正在限制此次登入。請稍候再試。過早重試可能會延長等待時間。
+
+# New message
+new-message-title = 新私訊
+new-message-subtitle = 群組私訊最多可有 10 位成員。
+new-message-search = 搜尋
+new-message-hint = 新增好友以開始私訊或群組。
+new-message-no-people-found = 沒有符合的結果。
+new-message-create = 建立訊息
+new-message-cancel = 取消

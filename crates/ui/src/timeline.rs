@@ -673,6 +673,8 @@ const INTRO_ESTIMATE: f32 = 236.0;
 enum Intro {
 	/// The other person in a one-to-one conversation.
 	Direct(model::User),
+	/// A group direct message, looked up when painted.
+	Group(Id),
 	/// A server channel, thread or forum post with messages.
 	Channel { name: String, kind: u8, post: bool },
 }
@@ -710,6 +712,7 @@ fn intro(state: &State, empty: bool) -> Option<Intro> {
 	};
 	match channel.kind {
 		1 => channel.recipients.first().cloned().map(Intro::Direct),
+		3 if channel.guild.is_none() => Some(Intro::Group(channel.id)),
 		// An empty server channel keeps its full-height welcome instead.
 		0 | 5 if channel.guild.is_some() && !empty => Some(named(false)),
 		10..=12 if !empty => {
@@ -740,6 +743,12 @@ fn intro_key(intro: &Intro, state: &State) -> u64 {
 		}
 		Intro::Channel { name, kind, post } => {
 			(name, kind, post).hash(&mut hasher);
+		}
+		Intro::Group(id) => {
+			id.hash(&mut hasher);
+			if let Some(channel) = state.channel(*id) {
+				state.conversation_name(channel).hash(&mut hasher);
+			}
 		}
 	}
 	hasher.finish()
@@ -806,6 +815,57 @@ fn intro_username(state: &State, user: &model::User, heading: &str) -> Option<St
 	crate::profiles::known_username(state, user.id).filter(|username| username != heading)
 }
 
+/// One intro sentence with the conversation's name in bold.
+fn intro_sentence(ui: &mut egui::Ui, key: &str, name: &str) {
+	let colors = crate::design::palette(ui);
+	let text = crate::i18n::translate_args(key, &[("name", name)]);
+	let mut job = egui::text::LayoutJob::default();
+	let plain = egui::TextFormat::simple(egui::FontId::proportional(15.0), colors.text);
+	let bold = egui::TextFormat::simple(
+		egui::FontId::new(15.0, crate::design::semibold_family(ui.ctx())),
+		colors.text_strong,
+	);
+	match text.rfind(name).filter(|_| !name.is_empty()) {
+		Some(at) => {
+			job.append(&text[..at], 0.0, plain.clone());
+			job.append(name, 0.0, bold);
+			job.append(&text[at + name.len()..], 0.0, plain);
+		}
+		None => job.append(&text, 0.0, plain),
+	}
+	ui.add(egui::Label::new(job).wrap().selectable(false));
+}
+
+/// "Welcome to the beginning of the … group" header, as in the official client.
+fn group_intro(
+	ui: &mut egui::Ui,
+	channel: &model::Channel,
+	state: &State,
+	avatars: &mut crate::avatars::Avatars,
+	width: f32,
+) {
+	let colors = crate::design::palette(ui);
+	egui::Frame::NONE
+		.inner_margin(egui::Margin {
+			left: 16,
+			right: 16,
+			top: 16,
+			bottom: 4,
+		})
+		.show(ui, |ui| {
+			ui.set_min_width((width - 32.0).max(1.0));
+			ui.spacing_mut().item_spacing.y = 8.0;
+			avatars.show_group(ui, channel, 80.0, state.demo);
+			let name = state.conversation_name(channel);
+			ui.add(
+				egui::Label::new(crate::design::semibold(ui, name, 30.0).color(colors.text_strong))
+					.wrap()
+					.selectable(false),
+			);
+			intro_sentence(ui, "timeline-group-intro", name);
+		});
+}
+
 /// "This is the beginning of your direct message history" header, as in the official client.
 fn dm_intro(
 	ui: &mut egui::Ui,
@@ -843,23 +903,7 @@ fn dm_intro(
 			if let Some(username) = intro_username(state, user, &name) {
 				ui.label(RichText::new(username).size(20.0).color(colors.text));
 			}
-			let text = crate::i18n::translate_args("timeline-dm-intro", &[("name", name.as_str())]);
-			let mut job = egui::text::LayoutJob::default();
-			let font = egui::FontId::proportional(15.0);
-			let plain = egui::TextFormat::simple(font.clone(), colors.text);
-			let bold = egui::TextFormat::simple(
-				egui::FontId::new(15.0, crate::design::semibold_family(ui.ctx())),
-				colors.text_strong,
-			);
-			match text.rfind(name.as_str()).filter(|_| !name.is_empty()) {
-				Some(at) => {
-					job.append(&text[..at], 0.0, plain.clone());
-					job.append(&name, 0.0, bold);
-					job.append(&text[at + name.len()..], 0.0, plain);
-				}
-				None => job.append(&text, 0.0, plain),
-			}
-			ui.add(egui::Label::new(job).wrap().selectable(false));
+			intro_sentence(ui, "timeline-dm-intro", &name);
 			ui.horizontal_wrapped(|ui| {
 				ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 				if let Some(known) = state.known_profile(user.id)
@@ -2376,7 +2420,10 @@ impl TimelineView {
 				}
 			}
 			return;
-		} else if empty && history_available && !welcome && !matches!(intro, Some(Intro::Direct(_)))
+		} else if empty
+			&& history_available
+			&& !welcome
+			&& !matches!(intro, Some(Intro::Direct(_) | Intro::Group(_)))
 		{
 			ui.label(crate::i18n::translate_if_key(match state.freshness {
 				model::Freshness::Loading => "timeline-show-with-scroll-loading-messages",
@@ -2678,6 +2725,11 @@ impl TimelineView {
 							}
 							Intro::Channel { name, kind, post } => {
 								channel_intro(ui, name, *kind, *post, width);
+							}
+							Intro::Group(id) => {
+								if let Some(channel) = state.channel(*id) {
+									group_intro(ui, channel, state, avatars, width);
+								}
 							}
 						})
 						.response;

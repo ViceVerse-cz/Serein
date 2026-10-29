@@ -936,6 +936,13 @@ impl DiscordApi {
 						result: result.map(Box::new),
 					});
 				}
+				if let client_core::user_actions::Action::CreateGroup { recipients } = action {
+					return Event::UserAction(client_core::user_actions::Event::GroupCreated {
+						request,
+						result: self.create_group(&recipients).await.map(Box::new),
+						recipients,
+					});
+				}
 				if let client_core::user_actions::Action::LoadNote(user) = action {
 					return Event::UserAction(client_core::user_actions::Event::NoteLoaded {
 						user,

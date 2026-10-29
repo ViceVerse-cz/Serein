@@ -85,6 +85,7 @@ hide-chat = Ocultar chat
 show-chat = Mostrar chat
 search-conversation = Buscar esta conversación
 show-member-list = Mostrar lista de miembros
+show-user-profile = Mostrar perfil de usuario
 pinned-messages = Mensajes fijados
 threads = Trapos
 
@@ -4735,6 +4736,8 @@ composer-placeholder-direct = Enviar mensaje a @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = Este es el comienzo de tu historial de mensajes directos con { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Te damos la bienvenida al comienzo del grupo { $name }.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = ¡Te damos la bienvenida a #{ $channel }!
@@ -4832,3 +4835,12 @@ search-overlays-no-matching-content-types = No hay tipos de contenido coincident
 search-overlays-history = Historial
 search-overlays-clear-history = Borrar historial de búsqueda
 main-sign-in-rate-limited-detail = Discord está limitando este inicio de sesión. Espera antes de volver a intentarlo. Otro intento antes de tiempo puede alargar la espera.
+
+# New message
+new-message-title = Nuevo mensaje
+new-message-subtitle = Los MD de grupo pueden tener hasta 10 miembros.
+new-message-search = Buscar
+new-message-hint = Añade amigos para iniciar un mensaje directo o un grupo.
+new-message-no-people-found = Nadie coincide con esa búsqueda.
+new-message-create = Crear mensaje
+new-message-cancel = Cancelar

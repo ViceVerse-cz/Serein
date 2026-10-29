@@ -94,12 +94,12 @@ in
     rustPlatform.buildRustPackage (finalAttrs: {
         pname = "serein";
         # Match `cargo build`: release automation versions Cargo.toml, not this file.
-        version = (lib.importTOML ../Cargo.toml).workspace.package.version;
+        version = (lib.importTOML ../../Cargo.toml).workspace.package.version;
 
         # Keep bundled symbols local so each copy stays consistent.
         env.RUSTFLAGS = lib.optionalString isLinux "-C link-arg=-Wl,--exclude-libs,ALL";
 
-        src = ../.;
+        src = ../../.;
 
         cargoLock = {
             lockFile = "${finalAttrs.src}/Cargo.lock";
