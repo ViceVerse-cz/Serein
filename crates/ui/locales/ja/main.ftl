@@ -1778,6 +1778,10 @@ notification-settings-notification-settings-open = 開ける
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = サウンドのプレビュー
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = プッシュして話す：開始
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = プッシュして話す：終了
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = 着信音、通話デバイス、マイクの処理。
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = 未読メッセージがある場合、アプリのアイコンに赤いバッジが表示されます。

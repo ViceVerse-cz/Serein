@@ -90,6 +90,8 @@ mod tests {
 				("Screen Share Started", Sound::ScreenShareOn),
 				("Call Joined", Sound::UserJoin),
 				("User Left Call", Sound::UserLeave),
+				("Push to Talk Activate", Sound::PttStart),
+				("Push to Talk Deactivate", Sound::PttStop),
 				("Viewer Joined Stream", Sound::ViewerJoin),
 			] {
 				let point = labels
@@ -253,6 +255,16 @@ impl MessagingUi {
 					"Microphone Unmuted",
 					&mut self.notification_options.unmute,
 					Sound::Unmute,
+				),
+				(
+					"notification-settings-notification-settings-push-to-talk-activate",
+					&mut self.notification_options.ptt_start,
+					Sound::PttStart,
+				),
+				(
+					"notification-settings-notification-settings-push-to-talk-deactivate",
+					&mut self.notification_options.ptt_stop,
+					Sound::PttStop,
 				),
 				(
 					"Deafen",

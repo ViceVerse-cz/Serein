@@ -1778,6 +1778,10 @@ notification-settings-notification-settings-open = Открыть
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Предварительный просмотр звука
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Нажмите, чтобы поговорить: включение
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Нажмите, чтобы поговорить: выключение
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Рингтоны, устройства вызова и обработка микрофона.
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = Показывает красный значок на значке приложения, когда у вас есть непрочитанные сообщения.

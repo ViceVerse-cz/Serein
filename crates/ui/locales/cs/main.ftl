@@ -1788,6 +1788,10 @@ notification-settings-notification-settings-open = Otevřít
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Náhled zvuku
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Aktivace push to talk
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Deaktivace push to talk
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Zpracování vyzváněcích tónů, hovorových zařízení a mikrofonu.
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = Když máte nepřečtené zprávy, zobrazí na ikoně aplikace červený odznak.

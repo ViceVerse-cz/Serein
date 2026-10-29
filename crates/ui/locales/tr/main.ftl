@@ -1778,6 +1778,10 @@ notification-settings-notification-settings-open = Aç
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Sesi Önizle
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Konuşmak için bas: başlat
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Konuşmak için bas: bitir
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Zil sesleri, çağrı cihazları ve mikrofon işleme.
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = Okunmamış mesajlarınız olduğunda uygulama simgesinde kırmızı bir rozet gösterir.
