@@ -4014,6 +4014,8 @@ updates-update-settings-restart-to-update = 重启以更新
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein 是以发行版方式安装的。请在终端中执行此命令更新。
 # Context: update_settings
+updates-update-settings-save-diagnostics = 保存诊断信息
+# Context: update_settings
 updates-update-settings-support-diagnostics = 支持与诊断
 # Context: update_settings
 updates-update-settings-copy-recent-lines = 复制最近几行

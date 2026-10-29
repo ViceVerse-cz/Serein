@@ -1074,6 +1074,8 @@ struct Desktop {
 	log_verified: bool,
 	/// Whether the system refused this process the shell, so the folder button copies instead.
 	log_open_refused: bool,
+	/// A diagnostics file being written after the owner picked a destination.
+	diagnostics_save: Option<std::sync::mpsc::Receiver<Option<Result<std::path::PathBuf, ()>>>>,
 	/// Active/per-account fallback saves waiting for bounded credential-queue capacity.
 	plaintext_save_pending: [bool; 2],
 	account_presences: std::collections::BTreeMap<model::Id, model::OwnPresence>,
@@ -2423,6 +2425,7 @@ impl Desktop {
 			log_directory: local_store::data_dir().ok().map(|root| root.join("logs")),
 			log_verified: false,
 			log_open_refused: false,
+			diagnostics_save: None,
 			plaintext_save_pending: [false; 2],
 			account_presences: std::collections::BTreeMap::new(),
 			presence_load_pending,
@@ -2566,6 +2569,101 @@ impl Desktop {
 		self.messaging.diagnostics_log_failed = diagnostics::install(level, directory).is_err();
 		self.messaging.diagnostics_log_path =
 			diagnostics::path().map(|path| path.display().to_string());
+	}
+	/// One text file for a bug report: environment, subsystem statuses and the recent log. Every
+	/// value is a flag, a number, or a status string the interface already shows; account, channel,
+	/// message, path and credential values stay out of it.
+	fn diagnostics_report(&self, ctx: &egui::Context) -> String {
+		use std::fmt::Write;
+		let mut report = String::with_capacity(24 * 1024);
+		report.push_str("# Serein diagnostics\n\n");
+		report.push_str(&self.messaging.diagnostic_info(ctx));
+		report.push('\n');
+		let log_file = diagnostics::path()
+			.map(|path| path.display().to_string())
+			.unwrap_or_else(|| "none".into());
+		let _ = writeln!(report, "\n- **Log level:** {:?}", diagnostics::level());
+		let _ = writeln!(report, "- **Log file:** {log_file}");
+		let _ = writeln!(report, "- **Local cache:** {}", self.cache_status);
+		let _ = writeln!(report, "- **Saved login:** {}", self.credential_status);
+		let _ = writeln!(
+			report,
+			"- **Session:** authenticated={} gateway={}",
+			self.state.auth == AuthState::Authenticated,
+			self.state.gateway_connected
+		);
+		let call = match self.state.voice.active.as_ref() {
+			Some(call) if call.phase == client_core::voice::Phase::Failed => "failed",
+			Some(_) => "active",
+			None => "none",
+		};
+		let _ = writeln!(report, "- **Call:** {call}");
+		let _ = writeln!(
+			report,
+			"- **Voice devices:** {}",
+			self.messaging.voice_device_status
+		);
+		let _ = writeln!(
+			report,
+			"- **Notifications:** {}",
+			self.messaging.notification_status
+		);
+		report.push_str("\n## Recent log\n\n```\n");
+		report.push_str(&diagnostics::recent(400));
+		report.push_str("\n```\n");
+		report
+	}
+	/// Writes that report after the owner picks a destination, and names the file in the page.
+	fn sync_diagnostics_save(&mut self, ctx: &egui::Context) {
+		if std::mem::take(&mut self.messaging.diagnostics_save_requested)
+			&& self.diagnostics_save.is_none()
+		{
+			let report = self.diagnostics_report(ctx);
+			let (send, receive) = std::sync::mpsc::sync_channel(1);
+			let parent = self.window.clone();
+			let wake = ctx.clone();
+			self.runtime.spawn(async move {
+				let destination =
+					platform::save::text_destination(parent, "serein-diagnostics.txt").await;
+				let outcome = match destination {
+					Some(path) => {
+						let written = path.clone();
+						match tokio::task::spawn_blocking(move || std::fs::write(&written, report))
+							.await
+						{
+							Ok(Ok(())) => Some(Ok(path)),
+							_ => Some(Err(())),
+						}
+					}
+					// The owner closed the dialog: nothing to report and nothing to hide.
+					None => None,
+				};
+				let _ = send.send(outcome);
+				wake.request_repaint();
+			});
+			self.diagnostics_save = Some(receive);
+		}
+		if let Some(receiver) = &self.diagnostics_save
+			&& let Ok(outcome) = receiver.try_recv()
+		{
+			match outcome {
+				Some(Ok(path)) => {
+					self.messaging.diagnostics_saved_path = Some(path.display().to_string());
+					diagnostics::record(
+						diagnostics::Category::App,
+						diagnostics::Level::Info,
+						"diagnostics saved",
+					);
+				}
+				Some(Err(())) => diagnostics::record(
+					diagnostics::Category::App,
+					diagnostics::Level::Warn,
+					"diagnostics not saved",
+				),
+				None => {}
+			}
+			self.diagnostics_save = None;
+		}
 	}
 	/// Hands the owner's plaintext saved-login choice to the credential worker, in order with
 	/// its other writes, and saves a login that failed earlier for want of a keyring.
@@ -4772,6 +4870,7 @@ impl Desktop {
 		self.retry_history_clears();
 		self.sync_plaintext_login();
 		self.sync_diagnostics_log(ctx);
+		self.sync_diagnostics_save(ctx);
 		let mut results = Vec::new();
 		if let Some(store) = &mut self.store {
 			for _ in 0..4 {

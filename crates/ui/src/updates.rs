@@ -521,24 +521,54 @@ impl MessagingUi {
 					.updates
 					.copied_diagnostics
 					.is_some_and(|until| ui.input(|i| i.time) < until);
-				if design::row(
-				ui,
-				"updates-update-settings-issue-diagnostics",
-				Some(
-					"updates-update-settings-copy-system-and-client-environment-details-formatted-for-github-issue",
-				),
-				|ui| {
-					design::button(
-						ui,
-						&crate::i18n::translate_if_key(if copied { "updates-update-settings-copied" } else { "updates-update-settings-copy" }),
-						design::ButtonKind::Outline,
-					)
-				},
-			)
-			.clicked()
-			{
-				self.copy_diagnostic_info(ui.ctx());
-			}
+				let mut copying = false;
+				let mut saving = false;
+				design::row(
+					ui,
+					"updates-update-settings-issue-diagnostics",
+					Some(
+						"updates-update-settings-copy-system-and-client-environment-details-formatted-for-github-issue",
+					),
+					|ui| {
+						if design::button(
+							ui,
+							&crate::i18n::translate("updates-update-settings-save-diagnostics"),
+							design::ButtonKind::Outline,
+						)
+						.clicked()
+						{
+							saving = true;
+						}
+						if design::button(
+							ui,
+							&crate::i18n::translate_if_key(if copied {
+								"updates-update-settings-copied"
+							} else {
+								"updates-update-settings-copy"
+							}),
+							design::ButtonKind::Outline,
+						)
+						.clicked()
+						{
+							copying = true;
+						}
+					},
+				);
+				if copying {
+					self.copy_diagnostic_info(ui.ctx());
+				}
+				if saving {
+					self.diagnostics_save_requested = true;
+				}
+				if let Some(path) = &self.diagnostics_saved_path {
+					// The file the owner should attach; naming it is enough, no new copy needed.
+					let colors = design::palette(ui);
+					ui.add_space(4.0);
+					ui.add(
+						egui::Label::new(egui::RichText::new(path).size(12.0).color(colors.muted))
+							.wrap(),
+					);
+				}
 				design::card_divider(ui);
 				let copied_log = self
 					.updates

@@ -3986,6 +3986,8 @@ updates-update-settings-restart-to-update = Перезапустите, чтоб
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein был установлен через пакетный менеджер. Используйте эту команду для обновления.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Сохранить диагностику
+# Context: update_settings
 updates-update-settings-support-diagnostics = Поддержка и диагностика
 # Context: update_settings
 updates-update-settings-copy-recent-lines = Скопировать последние строки

@@ -3982,6 +3982,8 @@ updates-update-settings-restart-to-update = Reinicie para atualizar
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein foi instalado através de sua distribuição. Execute isso em um terminal para atualizar.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Salvar diagnóstico
+# Context: update_settings
 updates-update-settings-support-diagnostics = Suporte e diagnóstico
 # Context: update_settings
 updates-update-settings-copy-recent-lines = Copiar linhas recentes

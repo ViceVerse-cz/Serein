@@ -534,6 +534,10 @@ pub struct MessagingUi {
 	pub diagnostics_log_path: Option<String>,
 	/// True when the system refused to open the log folder; the host copied its path instead.
 	pub diagnostics_log_open_failed: bool,
+	/// Set by the page's save button; the host writes one report file and names it here.
+	pub diagnostics_save_requested: bool,
+	/// The report file the host last wrote, shown under the button so it can be attached.
+	pub diagnostics_saved_path: Option<String>,
 	/// Set by the page's button; the host opens the folder and clears it.
 	pub open_log_folder_requested: bool,
 	/// Header pin button rect while the pins popout is open.

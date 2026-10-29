@@ -4000,6 +4000,8 @@ updates-update-settings-restart-to-update = Pro aktualizaci restartujte
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein byl nainstalován prostřednictvím vaší distribuce. Spusťte to v terminálu pro aktualizaci.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Uložit diagnostiku
+# Context: update_settings
 updates-update-settings-support-diagnostics = Podpora a diagnostika
 # Context: update_settings
 updates-update-settings-copy-recent-lines = Kopírovat poslední řádky

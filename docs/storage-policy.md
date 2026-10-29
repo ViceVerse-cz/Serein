@@ -1109,6 +1109,13 @@ gateway disconnect and resync, and the log level itself. A defect that ends a ca
 therefore readable as a timeline instead of a description. The copy button copies the recent lines
 from memory, so a report does not depend on the file still being open.
 
+**Save diagnostics** writes one text file after a native destination choice: the environment block
+the copy button already produces, subsystem statuses (log level and file, local cache, saved login,
+session and gateway, call state, voice devices, notifications) and the recent log lines. Every value
+is a flag, a number, or a status string the interface shows; account, channel, message, path and
+credential values stay out. The file is written where the owner chooses, and the page names it so it
+can be attached to an issue. Cancelling the dialog changes nothing.
+
 
 ### Existing DM call presence
 
