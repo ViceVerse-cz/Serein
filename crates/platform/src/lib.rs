@@ -77,9 +77,18 @@ pub fn open_folder(path: &std::path::Path) -> Result<(), i64> {
 #[allow(unsafe_code)]
 fn open_with_shell(path: &std::path::Path) -> Result<(), i64> {
 	use std::os::windows::ffi::OsStrExt;
+	use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 	use windows::Win32::UI::Shell::ShellExecuteW;
 	use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-	use windows::core::{PCWSTR, w};
+	use windows::core::PCWSTR;
+
+	// The shell is an OLE client: a render thread usually has no apartment, and ShellExecute then
+	// reports SE_ERR_ACCESSDENIED (5) instead of opening anything. A different existing apartment
+	// is fine and its RPC_E_CHANGED_MODE is ignored; nothing is uninitialized here because the
+	// thread keeps whichever apartment it already had.
+	unsafe {
+		let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+	}
 
 	let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
 	let mut file: Vec<u16> = absolute.as_os_str().encode_wide().collect();
@@ -87,13 +96,13 @@ fn open_with_shell(path: &std::path::Path) -> Result<(), i64> {
 		return Err(-1);
 	}
 	file.push(0);
-	// SAFETY: `file` is NUL-terminated and outlives the call, the verb, parameters and show
-	// command are shell constants, and the result is the documented instance handle (a value
-	// above 32) or an error code. The working directory is left to the shell on purpose.
+	// SAFETY: `file` is NUL-terminated and outlives the call; a null verb asks the shell for the
+	// default action on a folder, the parameters and directory are left to it, and the result is
+	// the documented instance handle (a value above 32) or an error code.
 	let result = unsafe {
 		ShellExecuteW(
 			None,
-			w!("open"),
+			PCWSTR::null(),
 			PCWSTR(file.as_ptr()),
 			PCWSTR::null(),
 			PCWSTR::null(),
