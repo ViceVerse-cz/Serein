@@ -1775,7 +1775,7 @@ impl Drop for Voice {
 }
 
 // A peer joining/leaving rekeys media without revoking the local camera gesture.
-fn camera_preview_allowed(state: &State) -> bool {
+pub(crate) fn camera_preview_allowed(state: &State) -> bool {
 	state.voice.active.as_ref().is_some_and(|call| {
 		(matches!(call.phase, Phase::Connected | Phase::Waiting)
 			|| (call.connected_at.is_some()
