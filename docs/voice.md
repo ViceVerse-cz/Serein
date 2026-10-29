@@ -599,7 +599,9 @@ Permission/device errors appear in the call stage.
 Guild camera use requires STREAM permission. Camera-off, permission loss, call failure,
 leave and logout stop capture. Peer join/leave rekeys preserve an enabled local camera;
 outgoing media remains disabled until DAVE is ready. A transport reconnection stops
-capture and requires another click. Demo mode never requests camera or microphone access.
+capture and requires another click. A resumable disconnect from the main Gateway preserves
+the local camera preview for an established call; new camera activation still requires a
+connected Gateway. Demo mode never requests camera or microphone access.
 
 An explicitly started screen share also shows a separate local tile while alone.
 The worker retains at most one 640×360 RGBA preview (921,600 bytes), updated at
