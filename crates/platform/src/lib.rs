@@ -53,12 +53,49 @@ const ACCOUNT: &str = "discord-session.development";
 /// crosses no service or privilege boundary; a missing opener only reports `false`.
 pub fn open_folder(path: &std::path::Path) -> bool {
 	#[cfg(target_os = "windows")]
-	let mut command = std::process::Command::new("explorer");
-	#[cfg(target_os = "macos")]
-	let mut command = std::process::Command::new("open");
-	#[cfg(all(unix, not(target_os = "macos")))]
-	let mut command = std::process::Command::new("xdg-open");
-	command.arg(path).spawn().is_ok()
+	{
+		open_with_shell(path)
+	}
+	#[cfg(not(target_os = "windows"))]
+	{
+		#[cfg(target_os = "macos")]
+		const OPENER: &str = "open";
+		#[cfg(all(unix, not(target_os = "macos")))]
+		const OPENER: &str = "xdg-open";
+		std::process::Command::new(OPENER).arg(path).spawn().is_ok()
+	}
+}
+
+/// Windows asks the shell that is already running instead of starting `explorer.exe`: a fresh one
+/// can fail to initialize its DLLs (0xc0000142) on a machine whose desktop is perfectly healthy.
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn open_with_shell(path: &std::path::Path) -> bool {
+	use std::os::windows::ffi::OsStrExt;
+	use windows::Win32::UI::Shell::ShellExecuteW;
+	use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+	use windows::core::{PCWSTR, w};
+
+	let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+	let mut file: Vec<u16> = absolute.as_os_str().encode_wide().collect();
+	if file.contains(&0) {
+		return false;
+	}
+	file.push(0);
+	// SAFETY: `file` is NUL-terminated and outlives the call, the verb, parameters and show
+	// command are shell constants, and the result is the documented instance handle (a value
+	// above 32) or an error code. The working directory is left to the shell on purpose.
+	let result = unsafe {
+		ShellExecuteW(
+			None,
+			w!("open"),
+			PCWSTR(file.as_ptr()),
+			PCWSTR::null(),
+			PCWSTR::null(),
+			SW_SHOWNORMAL,
+		)
+	};
+	result.0 as isize > 32
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

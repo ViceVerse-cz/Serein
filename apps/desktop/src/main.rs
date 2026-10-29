@@ -2502,18 +2502,32 @@ impl Desktop {
 		let level = self.messaging.diagnostics_log;
 		if diagnostics::level() != level || !self.log_verified {
 			self.log_verified = true;
-			self.messaging.diagnostics_log_failed = match self.log_directory.clone() {
-				Some(directory) => diagnostics::install(level, directory).is_err(),
-				None => level != diagnostics::Level::Off,
-			};
+			self.apply_diagnostics_log(level);
 		}
 		if self.messaging.open_log_folder_requested {
 			self.messaging.open_log_folder_requested = false;
-			if let Some(directory) = &self.log_directory {
-				let _ = std::fs::create_dir_all(directory);
-				platform::open_folder(directory);
+			// A folder repaired outside the app starts working here instead of after a restart.
+			if self.messaging.diagnostics_log_failed {
+				self.apply_diagnostics_log(self.messaging.diagnostics_log);
+			}
+			let folder = diagnostics::path()
+				.and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+				.or_else(|| self.log_directory.clone());
+			if let Some(folder) = folder {
+				let _ = std::fs::create_dir_all(&folder);
+				platform::open_folder(&folder);
 			}
 		}
+	}
+	/// Applies a log level, names the file in the page and reports a folder that cannot be written
+	/// instead of promising one.
+	fn apply_diagnostics_log(&mut self, level: diagnostics::Level) {
+		self.messaging.diagnostics_log_failed = match self.log_directory.clone() {
+			Some(directory) => diagnostics::install(level, directory).is_err(),
+			None => level != diagnostics::Level::Off,
+		};
+		self.messaging.diagnostics_log_path =
+			diagnostics::path().map(|path| path.display().to_string());
 	}
 	/// Hands the owner's plaintext saved-login choice to the credential worker, in order with
 	/// its other writes, and saves a login that failed earlier for want of a keyring.

@@ -530,6 +530,8 @@ pub struct MessagingUi {
 	pub diagnostics_log: diagnostics::Level,
 	/// True when the log folder could not be written, so the page explains instead of promising.
 	pub diagnostics_log_failed: bool,
+	/// The file the log actually appends to, named under the level so a report can be found.
+	pub diagnostics_log_path: Option<String>,
 	/// Set by the page's button; the host opens the folder and clears it.
 	pub open_log_folder_requested: bool,
 	/// Header pin button rect while the pins popout is open.

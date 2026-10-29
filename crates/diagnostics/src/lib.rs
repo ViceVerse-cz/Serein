@@ -200,36 +200,72 @@ pub fn level() -> Level {
 	Level::from_code(sink().level.load(Ordering::Relaxed))
 }
 
+/// The fallback folder used when Serein's own data folder cannot be written.
+const FALLBACK_FOLDER: &str = "serein-logs";
+
 /// Name the folder for the log file and apply `level`. Only an enabled level touches the disk, so
-/// an owner who never turns the log on gets no folder and no file; a failure is reported to the
-/// caller instead of being hidden, and the copyable tail keeps working either way.
+/// an owner who never turns the log on gets no folder and no file. A data folder that cannot be
+/// written (a read-only profile, a machine policy) falls back to the temporary folder, because a
+/// report still needs its evidence; the caller can then name the file that ended up in use.
 pub fn install(level: Level, directory: PathBuf) -> Result<PathBuf, &'static str> {
 	let sink = sink();
-	let path = directory.join(LOG_FILE);
+	let mut path = directory.join(LOG_FILE);
+	let mut moved = false;
+	let mut reason = None;
+	if level != Level::Off
+		&& let Some(failure) = prepare(&directory)
+	{
+		let fallback = std::env::temp_dir().join(FALLBACK_FOLDER);
+		if prepare(&fallback).is_none() {
+			path = fallback.join(LOG_FILE);
+			moved = true;
+		} else {
+			reason = Some(failure);
+		}
+	}
 	{
 		let mut shared = sink.lock();
-		shared.directory = Some(directory.clone());
+		shared.directory = path.parent().map(Path::to_path_buf).or(Some(directory));
 	}
-	if level != Level::Off {
-		let failed = create_private(&directory).is_err()
-			|| OpenOptions::new()
-				.create(true)
-				.append(true)
-				.open(&path)
-				.is_err();
-		if !failed {
-			private_file(&path);
-		}
-		// The level applies either way, so the copyable tail works while the file does not.
-		set_level(level);
-		return if failed {
-			Err("The log folder could not be written")
-		} else {
-			Ok(path)
-		};
-	}
+	// The level applies either way, so the copyable tail works while the file does not.
 	set_level(level);
+	if let Some(reason) = reason {
+		record_fields(
+			Category::App,
+			Level::Error,
+			"log file unavailable",
+			&[("reason", reason.into())],
+		);
+		return Err(reason);
+	}
+	if moved {
+		record_fields(
+			Category::App,
+			Level::Warn,
+			"log file moved",
+			&[("reason", "the data folder could not be written".into())],
+		);
+	}
 	Ok(path)
+}
+
+/// Creates the folder and proves the file can be opened, without keeping it open: the writer owns
+/// the handle. Returns the fixed reason the attempt failed, or `None` when the folder is usable.
+fn prepare(directory: &Path) -> Option<&'static str> {
+	if create_private(directory).is_err() {
+		return Some("the log folder could not be created");
+	}
+	let path = directory.join(LOG_FILE);
+	if OpenOptions::new()
+		.create(true)
+		.append(true)
+		.open(&path)
+		.is_err()
+	{
+		return Some("the log file could not be created");
+	}
+	private_file(&path);
+	None
 }
 
 /// Applies a level chosen in Settings; it takes effect for the next record.

@@ -567,6 +567,13 @@ impl MessagingUi {
 							});
 					},
 				);
+				if self.diagnostics_log != diagnostics::Level::Off
+					&& let Some(path) = &self.diagnostics_log_path
+				{
+					// The file is named where the owner enables the log, so a report can be found
+					// without guessing which of Serein's folders holds it.
+					design::hint(ui, path);
+				}
 				design::card_divider(ui);
 				design::row(
 					ui,
