@@ -472,6 +472,22 @@ fn main() -> eframe::Result {
 	} else {
 		local_store::LocalStore::open_default().and_then(|store| store.app_preferences())
 	};
+	// The owner's saved log level takes effect before the window, so an early defect leaves a
+	// trace instead of a description that has to be reconstructed afterwards.
+	let log_directory = local_store::data_dir().ok().map(|root| root.join("logs"));
+	if let (Some(directory), Ok(saved)) = (&log_directory, &preferences) {
+		let _ = diagnostics::install(saved.diagnostics_log, directory.clone());
+	}
+	diagnostics::record_fields(
+		diagnostics::Category::App,
+		diagnostics::Level::Info,
+		"started",
+		&[
+			("version", env!("CARGO_PKG_VERSION").into()),
+			("os", std::env::consts::OS.into()),
+			("arch", std::env::consts::ARCH.into()),
+		],
+	);
 	let (gpu_preference, transparency_available, hide_window_decorations, window_geometry) =
 		preferences
 			.as_ref()
@@ -1052,6 +1068,10 @@ struct Desktop {
 	current_login: Option<Arc<SessionSecret>>,
 	/// The plaintext fallback choice last handed to the credential worker.
 	plaintext_login: bool,
+	/// Where the opt-in diagnostic log belongs, resolved once so a Settings change needs no lookup.
+	log_directory: Option<std::path::PathBuf>,
+	/// Whether the first frame has reported the start-up install's result to the settings page.
+	log_verified: bool,
 	/// Active/per-account fallback saves waiting for bounded credential-queue capacity.
 	plaintext_save_pending: [bool; 2],
 	account_presences: std::collections::BTreeMap<model::Id, model::OwnPresence>,
@@ -1087,6 +1107,19 @@ struct Desktop {
 	#[cfg(feature = "demo")]
 	synthetic_id: u64,
 	token_input: Zeroizing<String>,
+}
+/// Records the few session and gateway milestones that explain a reconnect. Payloads, identifiers
+/// and credentials never reach the log: only fixed labels and the event's own kind.
+fn log_session_event(event: &Event) {
+	use diagnostics::{Category, Level};
+	let (category, level, label) = match event {
+		Event::Startup(_) => (Category::Session, Level::Info, "session started"),
+		Event::Ready { .. } => (Category::Session, Level::Info, "session ready"),
+		Event::Disconnected => (Category::Gateway, Level::Warn, "gateway disconnected"),
+		Event::Resync => (Category::Gateway, Level::Warn, "gateway resync"),
+		_ => return,
+	};
+	diagnostics::record(category, level, label);
 }
 /// Check only navigation whose effective access can change with this event.
 fn access_candidates(state: &State, event: &Event) -> Vec<model::Id> {
@@ -2385,6 +2418,8 @@ impl Desktop {
 			pending_account_save: None,
 			current_login: None,
 			plaintext_login,
+			log_directory: local_store::data_dir().ok().map(|root| root.join("logs")),
+			log_verified: false,
 			plaintext_save_pending: [false; 2],
 			account_presences: std::collections::BTreeMap::new(),
 			presence_load_pending,
@@ -2459,6 +2494,26 @@ impl Desktop {
 			}
 		}
 		false
+	}
+	/// Applies the owner's diagnostic log choice and opens the log folder when the page asks for
+	/// it. The first frame also reports a start-up install that could not write, so the page
+	/// explains instead of promising a file. Nothing here touches an account or a service.
+	fn sync_diagnostics_log(&mut self) {
+		let level = self.messaging.diagnostics_log;
+		if diagnostics::level() != level || !self.log_verified {
+			self.log_verified = true;
+			self.messaging.diagnostics_log_failed = match self.log_directory.clone() {
+				Some(directory) => diagnostics::install(level, directory).is_err(),
+				None => level != diagnostics::Level::Off,
+			};
+		}
+		if self.messaging.open_log_folder_requested {
+			self.messaging.open_log_folder_requested = false;
+			if let Some(directory) = &self.log_directory {
+				let _ = std::fs::create_dir_all(directory);
+				platform::open_folder(directory);
+			}
+		}
 	}
 	/// Hands the owner's plaintext saved-login choice to the credential worker, in order with
 	/// its other writes, and saves a login that failed earlier for want of a keyring.
@@ -4664,6 +4719,7 @@ impl Desktop {
 		}
 		self.retry_history_clears();
 		self.sync_plaintext_login();
+		self.sync_diagnostics_log();
 		let mut results = Vec::new();
 		if let Some(store) = &mut self.store {
 			for _ in 0..4 {
@@ -4938,6 +4994,7 @@ impl Desktop {
 			{
 				self.extensions.access_changed(&mut self.messaging);
 			}
+			log_session_event(&event.event);
 			self.state.apply(event);
 			if let Some(message) = takeover_notice {
 				self.messaging
@@ -5083,6 +5140,12 @@ impl Desktop {
 			self.queue_cache(operation);
 		}
 		if let Some(failure) = terminal {
+			diagnostics::record_fields(
+				diagnostics::Category::Session,
+				diagnostics::Level::Error,
+				"session stopped",
+				&[("reason", failure.label().into())],
+			);
 			for (setting, scope) in [
 				("SEREIN_MEMBER_DIAGNOSTICS", "members"),
 				("SEREIN_GATEWAY_DIAGNOSTICS", "gateway"),
@@ -5306,6 +5369,12 @@ impl eframe::App for Desktop {
 		}
 	}
 	fn on_exit(&mut self) {
+		diagnostics::record(
+			diagnostics::Category::App,
+			diagnostics::Level::Info,
+			"exiting",
+		);
+		diagnostics::flush(std::time::Duration::from_millis(500));
 		// Later launches start a new client instead of waking this one while it shuts down.
 		self.instance.release();
 		if self.updater.finish_restart().is_err() {

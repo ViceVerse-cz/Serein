@@ -526,6 +526,12 @@ pub struct MessagingUi {
 	pub build: design::Build,
 	pub updates: updates::Updates,
 	pub updates_save_failed: bool,
+	/// The owner's diagnostic log level; the desktop host applies and persists it.
+	pub diagnostics_log: diagnostics::Level,
+	/// True when the log folder could not be written, so the page explains instead of promising.
+	pub diagnostics_log_failed: bool,
+	/// Set by the page's button; the host opens the folder and clears it.
+	pub open_log_folder_requested: bool,
 	/// Header pin button rect while the pins popout is open.
 	pins_anchor: Option<egui::Rect>,
 	editing: Option<(Id, Id, String)>,

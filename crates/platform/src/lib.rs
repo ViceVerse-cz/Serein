@@ -48,6 +48,19 @@ const SERVICE: &str = "cz.viceverse.serein";
 const ACCOUNT: &str = "discord-session";
 #[cfg(feature = "development-data")]
 const ACCOUNT: &str = "discord-session.development";
+
+/// Opens a folder in the owner's file manager. The caller passes a path it already owns, so this
+/// crosses no service or privilege boundary; a missing opener only reports `false`.
+pub fn open_folder(path: &std::path::Path) -> bool {
+	#[cfg(target_os = "windows")]
+	let mut command = std::process::Command::new("explorer");
+	#[cfg(target_os = "macos")]
+	let mut command = std::process::Command::new("open");
+	#[cfg(all(unix, not(target_os = "macos")))]
+	let mut command = std::process::Command::new("xdg-open");
+	command.arg(path).spawn().is_ok()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CredentialError {
 	/// No OS credential store exists (e.g. Linux without a Secret Service provider).
