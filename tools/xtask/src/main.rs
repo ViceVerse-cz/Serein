@@ -296,12 +296,12 @@ fn copy_webview2_loader(root: &std::path::Path) -> Result<(), String> {
 	Err("WebView2Loader.dll could not be found to bundle into the Windows package".into())
 }
 #[allow(dead_code)]
-fn copy_libstdcxx(root: &std::path::Path) -> Result<(), String> {
-	let target = root.join("libstdc++-6.dll");
+fn copy_mingw_dll(root: &std::path::Path, name: &str) -> Result<(), String> {
+	let target = root.join(name);
 	if target.is_file() {
 		return Ok(());
 	}
-	if let Ok(output) = Command::new("where").arg("libstdc++-6.dll").output()
+	if let Ok(output) = Command::new("where").arg(name).output()
 		&& output.status.success()
 	{
 		for line in String::from_utf8_lossy(&output.stdout).lines() {
@@ -314,12 +314,19 @@ fn copy_libstdcxx(root: &std::path::Path) -> Result<(), String> {
 	}
 	if let Ok(paths) = std::env::var("PATH") {
 		for dir in std::env::split_paths(&paths) {
-			let candidate = dir.join("libstdc++-6.dll");
+			let candidate = dir.join(name);
 			if candidate.is_file() {
 				std::fs::copy(&candidate, &target).map_err(|e| e.to_string())?;
 				return Ok(());
 			}
 		}
+	}
+	Ok(())
+}
+#[allow(dead_code)]
+fn copy_mingw_runtime_dlls(root: &std::path::Path) -> Result<(), String> {
+	for name in ["libstdc++-6.dll", "libgcc_s_seh-1.dll", "libwinpthread-1.dll"] {
+		copy_mingw_dll(root, name)?;
 	}
 	Ok(())
 }
@@ -372,7 +379,7 @@ fn package() -> Result<(), String> {
 		)
 		.map_err(|e| e.to_string())?;
 		copy_webview2_loader(&root)?;
-		copy_libstdcxx(&root)?;
+		copy_mingw_runtime_dlls(&root)?;
 	}
 	let source = std::env::var_os("CARGO_TARGET_DIR")
 		.map_or_else(|| PathBuf::from("target"), PathBuf::from)
