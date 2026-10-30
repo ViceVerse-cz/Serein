@@ -4560,7 +4560,13 @@ impl MessagingUi {
 			}
 		}
 		if self.navigation_channel != state.selected {
-			self.focus_switched_composer = state.selected.is_some();
+			// A retained footer draft keeps focus instead of moving it to the new composer.
+			let profile_keeps_focus = self.profile.open_user().is_some_and(|user| {
+				self.profile
+					.message_draft(state.generation, user.id)
+					.is_some()
+			});
+			self.focus_switched_composer = state.selected.is_some() && !profile_keeps_focus;
 			self.navigation_channel = state.selected;
 			self.guild = state
 				.selected
@@ -8912,6 +8918,7 @@ mod composer_tests {
 			Some("keep this unsent")
 		);
 		assert!(view.draft_changes.contains(&Id(22)));
+		assert!(view.focus_switched_composer);
 		assert!(view.profile.open_user().is_none());
 		assert!(
 			!commands
@@ -8958,10 +8965,63 @@ mod composer_tests {
 			Some("keep this unsent")
 		);
 		assert!(view.profile.open_user().is_some());
+		assert!(!view.focus_switched_composer);
 		assert!(
 			!commands
 				.iter()
 				.any(|command| matches!(command, Command::Send { .. }))
+		);
+	}
+
+	#[test]
+	fn open_chat_conflict_keeps_profile_focus_on_the_next_frame() {
+		let mut state = test_support::demo_state();
+		state.selected = Some(Id(20));
+		state
+			.drafts
+			.insert(Id(22), "existing direct message draft".into());
+		let user = test_support::message(1, Id(22)).author;
+		let mut view = MessagingUi {
+			navigation_channel: state.selected,
+			profile: {
+				let mut profile = profiles::ProfileSession::default();
+				profile.command_open(user.clone());
+				profile.set_message_draft(state.generation, user.id, "keep this unsent");
+				profile
+			},
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		view.profile_action(
+			&ctx,
+			&mut state,
+			&mut vec![],
+			&user,
+			None,
+			profiles::Action::OpenDirect(user.clone()),
+		);
+		assert_eq!(state.selected, Some(Id(22)));
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1120.0, 900.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				view.show(ui, &mut state);
+			},
+		);
+		output.drop_without_applying_deltas();
+		assert!(view.profile.open_user().is_some());
+		assert_eq!(
+			state.drafts.get(&Id(22)).map(String::as_str),
+			Some("existing direct message draft")
+		);
+		assert!(
+			ctx.memory(|memory| memory.focused().is_none()),
+			"the retained profile keeps focus instead of the destination composer"
 		);
 	}
 
