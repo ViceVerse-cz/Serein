@@ -295,6 +295,34 @@ fn copy_webview2_loader(root: &std::path::Path) -> Result<(), String> {
 	}
 	Err("WebView2Loader.dll could not be found to bundle into the Windows package".into())
 }
+#[allow(dead_code)]
+fn copy_libstdcxx(root: &std::path::Path) -> Result<(), String> {
+	let target = root.join("libstdc++-6.dll");
+	if target.is_file() {
+		return Ok(());
+	}
+	if let Ok(output) = Command::new("where").arg("libstdc++-6.dll").output()
+		&& output.status.success()
+	{
+		for line in String::from_utf8_lossy(&output.stdout).lines() {
+			let path = PathBuf::from(line.trim());
+			if path.is_file() {
+				std::fs::copy(&path, &target).map_err(|e| e.to_string())?;
+				return Ok(());
+			}
+		}
+	}
+	if let Ok(paths) = std::env::var("PATH") {
+		for dir in std::env::split_paths(&paths) {
+			let candidate = dir.join("libstdc++-6.dll");
+			if candidate.is_file() {
+				std::fs::copy(&candidate, &target).map_err(|e| e.to_string())?;
+				return Ok(());
+			}
+		}
+	}
+	Ok(())
+}
 fn package() -> Result<(), String> {
 	let options: Vec<String> = std::env::args().skip(2).collect();
 	let format = match options.as_slice() {
@@ -344,6 +372,7 @@ fn package() -> Result<(), String> {
 		)
 		.map_err(|e| e.to_string())?;
 		copy_webview2_loader(&root)?;
+		copy_libstdcxx(&root)?;
 	}
 	let source = std::env::var_os("CARGO_TARGET_DIR")
 		.map_or_else(|| PathBuf::from("target"), PathBuf::from)
