@@ -17,7 +17,7 @@ pub(crate) type Lost = Arc<Mutex<Vec<u64>>>;
 /// Largest reassembled (still DAVE-encrypted) access unit accepted from one remote sender.
 pub const MAX_FRAME_BYTES: usize = 2 * 1024 * 1024 + 64 * 1024;
 /// Remote video senders tracked per transport; Discord forwards at most a few at once.
-pub const MAX_SOURCES: usize = 16;
+pub const MAX_SOURCES: usize = 64;
 /// Decoders kept alive at once; each holds reference pictures for one remote user.
 const MAX_DECODERS: usize = 8;
 const QUEUE_BYTES: usize = 16 * 1024 * 1024;
