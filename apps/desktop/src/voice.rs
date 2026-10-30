@@ -324,6 +324,11 @@ const REJOIN_DELAYS: [Duration; voice::MAX_REJOIN_ATTEMPTS as usize] = [
 ];
 /// A rejoined call must stay connected this long before a new drop starts from attempt one.
 const REJOIN_STABLE: Duration = Duration::from_secs(30);
+/// How long a rejoin waits for Discord to confirm that this account left the channel.
+const REJOIN_DEPARTURE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Shown while a live call has no audio device; the call itself stays connected.
+const AUDIO_UNAVAILABLE: &str =
+	"Audio devices are unavailable; the call stays connected while they come back";
 
 struct Rejoin {
 	generation: u64,
@@ -335,6 +340,10 @@ struct Rejoin {
 	recovered: Option<Instant>,
 	/// The camera was on when media dropped; it comes back with the call.
 	camera: bool,
+	/// Whether this attempt already asked to leave: a join before the departure is a no-op.
+	departed: bool,
+	/// Whether Discord confirmed that departure.
+	departure_confirmed: bool,
 }
 
 #[derive(Default)]
@@ -464,6 +473,18 @@ impl Voice {
 		let Event::Voice(event) = event else {
 			return None;
 		};
+		// A rejoin waits for the departure it asked for: Discord ignores a join for a channel it
+		// still has this account in, so the join goes out only once the departure is confirmed.
+		if let voice::Event::Departed { channel, .. } = event
+			&& let Some(rejoin) = self.rejoin.as_mut()
+			&& rejoin.channel == *channel
+		{
+			// The departure counts even when it confirms an earlier attempt whose backoff is
+			// still running; the next poll then joins instead of leaving again.
+			rejoin.departed = true;
+			rejoin.departure_confirmed = true;
+			rejoin.at = Some(Instant::now());
+		}
 		if let voice::Event::TakenOver { channel, request } = event {
 			let current = self
 				.live
@@ -662,6 +683,25 @@ impl Voice {
 		});
 		Some(command)
 	}
+	/// Fails a call whose join already reached Discord, and leaves the channel with it: a local
+	/// abandonment would leave an account Discord still has in the channel, where the next join is
+	/// a no-op that returns no voice credentials.
+	fn fail_and_leave(&mut self, state: &mut State, message: &'static str) -> Option<Command> {
+		let call = state.voice.active.as_ref()?;
+		let (channel, request) = (call.channel, call.request);
+		self.leave_cue |= self
+			.live
+			.as_ref()
+			.is_some_and(|live| live.cues.joined && live.generation == state.generation);
+		self.rejoin = None;
+		self.stop();
+		state.apply_voice(voice::Event::Failed {
+			channel,
+			request,
+			message,
+		});
+		Some(Command::Voice(voice::Command::Leave { channel, request }))
+	}
 	/// Media for the active call failed. A call this device had joined rejoins automatically
 	/// within the attempt budget; anything else fails as before.
 	pub fn fail_or_rejoin(&mut self, state: &mut State, message: &'static str) -> Option<Command> {
@@ -694,8 +734,10 @@ impl Voice {
 			at: Some(Instant::now() + REJOIN_DELAYS[usize::from(attempt) - 1]),
 			recovered: None,
 			camera: camera || previous.is_some_and(|rejoin| rejoin.camera),
+			departed: false,
+			departure_confirmed: false,
 		});
-		// Discord keeps this account in the channel meanwhile; the next join replaces it.
+		// Discord keeps this account in the channel meanwhile; the next attempt leaves it first.
 		state.reconnect_call(request, attempt, message);
 		None
 	}
@@ -770,6 +812,36 @@ impl Voice {
 			);
 			return None;
 		}
+		// A departure this session already observed counts even when its event arrived during the
+		// backoff, when no attempt was listening for it: the gateway has forgotten the call and a
+		// second leave would send nothing.
+		if !rejoin.departure_confirmed
+			&& state
+				.voice
+				.departed
+				.is_some_and(|(channel, _)| channel == call.channel)
+		{
+			rejoin.departed = true;
+			rejoin.departure_confirmed = true;
+		}
+		// Discord ignores a join for a channel it still has this account in, and no voice
+		// credentials ever arrive, so a rejoin leaves first and joins only once the departure is
+		// confirmed — the same order the official client uses.
+		if !rejoin.departed {
+			rejoin.departed = true;
+			rejoin.at = Some(now + REJOIN_DEPARTURE_TIMEOUT);
+			return Some(Command::Voice(voice::Command::Leave {
+				channel: call.channel,
+				request: call.request,
+			}));
+		}
+		if !rejoin.departure_confirmed {
+			// Silence from the gateway is a failed attempt, not a reason to join blind.
+			return self.fail_or_rejoin(
+				state,
+				"Discord did not confirm leaving the channel before the reconnect",
+			);
+		}
 		rejoin.at = None;
 		match state.rejoin_call() {
 			Some(command) => Some(command),
@@ -794,6 +866,17 @@ impl Voice {
 		}
 		if let Some(command) = self.poll_rejoin(state, ui, ctx) {
 			return Some(command);
+		}
+		// A live call keeps its place while the system has no audio device; the audio worker
+		// retries on its own and clears this when a device returns. Hanging up clears it too.
+		let missing = self
+			.live
+			.as_ref()
+			.is_some_and(|live| live.audio.devices_missing());
+		if missing {
+			ui.voice_device_status = AUDIO_UNAVAILABLE;
+		} else if ui.voice_device_status == AUDIO_UNAVAILABLE {
+			ui.voice_device_status = "";
 		}
 		ui.voice_switch_ready =
 			self.pending.is_none() && self.live.is_none() && self.retiring.is_none();
@@ -907,7 +990,7 @@ impl Voice {
 			if pending.started.elapsed() >= Duration::from_secs(30) {
 				return self.fail_or_rejoin(
                     state,
-                    "Discord did not provide voice connection details; check Connect permission and channel capacity",
+                    "Discord did not answer the voice join within 30 seconds; the account may still be in the channel",
                 );
 			}
 			ctx.request_repaint_after(
@@ -932,7 +1015,11 @@ impl Voice {
 			if let Err(error) =
 				self.start_media(runtime, pending, ui, ctx, listen_only, input_enabled)
 			{
-				return self.fail_or_rejoin(state, error);
+				// Audio that never opened is not a dropped session: the account is in the channel
+				// and no media joined it, so the call fails honestly. The join already reached
+				// Discord, so the channel is left explicitly: a later attempt must be a real join,
+				// not a no-op for a channel this account is still in.
+				return self.fail_and_leave(state, error);
 			}
 		}
 		if self.pending.is_some() && self.retiring.is_some() {
@@ -1069,7 +1156,10 @@ impl Voice {
 					.gate
 					.ready
 					.load(std::sync::atomic::Ordering::Acquire)
-					&& !devices_ready;
+					&& !devices_ready
+					// A call that already had sound keeps its place while its devices come back:
+					// the startup deadline must not turn a sleeping headset into a dropped call.
+					&& !live.audio.opened_once();
 				match device_wait(&mut live.device_deadline, pending, Instant::now()) {
 					Ok(Some(remaining)) => {
 						state.apply_voice(voice::Event::Progress {
@@ -2237,6 +2327,41 @@ mod tests {
 		);
 	}
 	#[test]
+	fn a_departure_that_arrives_during_backoff_still_confirms_the_rejoin() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.start_call(Id(25), false).unwrap();
+		let request = state.voice.active.as_ref().unwrap().request;
+		state.reconnect_call(request, 1, "Voice socket failed; rejoin the call");
+		let mut manager = Voice::default();
+		// The attempt's five seconds ran out before Discord answered, so the next attempt is
+		// already waiting when the confirmation finally arrives.
+		manager.rejoin = Some(Rejoin {
+			generation: state.generation,
+			channel: Id(25),
+			attempt: 2,
+			at: Some(Instant::now() + REJOIN_DELAYS[1]),
+			recovered: None,
+			camera: false,
+			departed: false,
+			departure_confirmed: false,
+		});
+		let mut event = Event::Voice(voice::Event::Departed {
+			channel: Id(25),
+			request,
+		});
+		assert!(manager.observe(&state, &mut event).is_none());
+		let rejoin = manager.rejoin.as_ref().unwrap();
+		assert!(
+			rejoin.departed && rejoin.departure_confirmed,
+			"a late confirmation still counts, so the next attempt joins instead of leaving again"
+		);
+		assert!(
+			rejoin.at.is_some_and(|at| at <= Instant::now()),
+			"the wait is cut short so the join happens on the next frame"
+		);
+	}
+	#[test]
 	fn a_failed_rejoin_leaves_the_channel_and_plays_the_leave_cue() {
 		let mut state = test_support::demo_state();
 		state.demo = false;
@@ -2251,6 +2376,8 @@ mod tests {
 			at: None,
 			recovered: None,
 			camera: false,
+			departed: true,
+			departure_confirmed: true,
 		});
 		assert!(!manager.leave_cue);
 		let command = manager.fail_or_rejoin(&mut state, "Rejoin failed");
@@ -2284,6 +2411,8 @@ mod tests {
 			at: None,
 			recovered: None,
 			camera: false,
+			departed: true,
+			departure_confirmed: true,
 		});
 		assert!(matches!(
 			manager.fail_or_rejoin(&mut state, "Audio devices stopped"),
@@ -2312,6 +2441,8 @@ mod tests {
 			at: Some(Instant::now()),
 			recovered: None,
 			camera: false,
+			departed: true,
+			departure_confirmed: true,
 		});
 		let mut ui = ui::MessagingUi::default();
 		let context = egui::Context::default();
@@ -2383,6 +2514,8 @@ mod tests {
 			at: None,
 			recovered: Some(stable_since),
 			camera: false,
+			departed: true,
+			departure_confirmed: true,
 		});
 		let ui = ui::MessagingUi::default();
 		let context = egui::Context::default();
