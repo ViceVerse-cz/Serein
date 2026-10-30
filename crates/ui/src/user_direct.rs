@@ -348,7 +348,7 @@ impl crate::MessagingUi {
 			&& state.draft_bytes() + draft.capacity() <= client_core::MAX_DRAFT_BYTES;
 		if !can_keep {
 			state.status =
-				"Clear the direct message draft before opening chat; your profile message was kept";
+				"Clear some draft space before opening chat; your profile message was kept";
 			return false;
 		}
 		let Some(draft) = self.profile.take_message_draft(generation, user) else {
