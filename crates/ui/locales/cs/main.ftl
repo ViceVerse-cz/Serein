@@ -4496,6 +4496,7 @@ lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni da
 lib-composer-onboarding-complete = Dokončit uvítání
 profiles-message-placeholder = Zpráva pro @{ $user }
 profiles-message-send = Odeslat zprávu
+profiles-message-open-chat = Otevřít chat
 profiles-message-sending = Otevírání soukromé zprávy…
 user-menu-contents-start-a-call = Zahájit hovor
 verification-show-complete-the-check-to-open-this-conversation = Dokonči ověření a otevři tuto konverzaci.

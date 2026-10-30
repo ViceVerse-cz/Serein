@@ -4456,6 +4456,7 @@ lib-composer-onboarding-incomplete = Schließe den Beitritt ab, um weitere Kanä
 lib-composer-onboarding-complete = Einführung abschließen
 profiles-message-placeholder = Nachricht an @{ $user }
 profiles-message-send = Nachricht senden
+profiles-message-open-chat = Chat öffnen
 profiles-message-sending = Direktnachricht wird geöffnet…
 user-menu-contents-start-a-call = Anruf starten
 verification-show-complete-the-check-to-open-this-conversation = Schließe die Prüfung ab, um diese Unterhaltung zu öffnen.

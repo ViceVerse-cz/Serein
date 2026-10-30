@@ -4502,6 +4502,7 @@ lib-composer-onboarding-incomplete = 完成加入這個伺服器，才能解鎖�
 lib-composer-onboarding-complete = 完成新手引導
 profiles-message-placeholder = 傳送訊息給 @{ $user }
 profiles-message-send = 傳送訊息
+profiles-message-open-chat = 開啟聊天
 profiles-message-sending = 正在開啟私訊…
 user-menu-contents-start-a-call = 開始通話
 verification-show-complete-the-check-to-open-this-conversation = 完成驗證後才能開啟這個對話。
