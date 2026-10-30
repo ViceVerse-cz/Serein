@@ -572,6 +572,8 @@ impl ClientState {
 		let request = self.voice.sequence;
 		self.voice.outgoing = ring.then_some((channel, request, false));
 		self.voice.ring_error = None;
+		// A join puts this account back in the channel; an older departure must not outlive it.
+		self.voice.departed = None;
 		self.voice.active = Some(Call {
 			channel,
 			guild,
@@ -627,6 +629,9 @@ impl ClientState {
 		let muted = call.muted || !self.can_speak(call.channel);
 		self.voice.sequence = self.voice.sequence.wrapping_add(1);
 		let request = self.voice.sequence;
+		// The join puts this account back in the channel, so an earlier departure record must not
+		// let a later rejoin skip the leave that makes its join a real one.
+		self.voice.departed = None;
 		let call = self.voice.active.as_mut()?;
 		call.request = request;
 		call.muted = muted;

@@ -342,6 +342,13 @@ impl Calls {
 			}
 			Command::Leave { channel, request } => {
 				if self.active != Some((channel, request)) {
+					// A repeated leave for a call that is already departing still reaches
+					// Discord: the first acknowledgement may have been lost, and a second opcode 4
+					// with no channel is harmless.
+					if self.departing == Some((channel, request)) {
+						self.departure_deadline = Some(Instant::now() + Duration::from_secs(10));
+						return Ok(Some(self.state_frame(None, self.departing_guild)));
+					}
 					return Ok(None);
 				}
 				self.departing = self.active.take();

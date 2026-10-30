@@ -62,6 +62,8 @@ pub struct Gate {
 	input_retrying: AtomicBool,
 	/// A live call has no usable device; it keeps retrying instead of ending.
 	devices_missing: AtomicBool,
+	/// Whether this call ever opened audio, so the startup deadline stops applying to it.
+	opened: AtomicBool,
 	input_callbacks: AtomicU64,
 	revision: AtomicU64,
 	acknowledged_revision: AtomicU64,
@@ -87,6 +89,7 @@ impl Default for Gate {
 			input_failed_revision: AtomicU64::new(0),
 			input_retrying: AtomicBool::new(false),
 			devices_missing: AtomicBool::new(false),
+			opened: AtomicBool::new(false),
 			input_callbacks: AtomicU64::new(0),
 			revision: AtomicU64::new(1),
 			acknowledged_revision: AtomicU64::new(0),
@@ -281,6 +284,7 @@ impl Audio {
 								streams = Some((revision, value));
 								worker_gate.echo_reset.store(true, Ordering::Release);
 								worker_gate.devices_missing.store(false, Ordering::Release);
+								worker_gate.opened.store(true, Ordering::Release);
 								opened_at = Some(Instant::now());
 								opened_once = true;
 								emit(Ok(()));
@@ -461,6 +465,11 @@ impl Audio {
 	/// itself stays up, so the interface can say audio is temporarily unavailable.
 	pub fn devices_missing(&self) -> bool {
 		self.gate.devices_missing.load(Ordering::Acquire)
+	}
+	/// Whether audio opened at least once for this call. A call that already had sound keeps its
+	/// place while devices come back, so the startup deadline no longer applies to it.
+	pub fn opened_once(&self) -> bool {
+		self.gate.opened.load(Ordering::Acquire)
 	}
 	pub fn shutdown(mut self) -> mpsc::Receiver<()> {
 		self.done.take().expect("audio owns completion")
