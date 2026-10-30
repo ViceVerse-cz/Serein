@@ -217,7 +217,7 @@ pub(super) fn announce_video(
 	Ok(())
 }
 fn discovery(packet: &[u8], ssrc: u32) -> Result<(IpAddr, u16), &'static str> {
-	if packet.len() != 74 || packet[..4] != [0, 2, 0, 70] || packet[4..8] != ssrc.to_be_bytes() {
+	if packet.len() < 74 || packet[..4] != [0, 2, 0, 70] || packet[4..8] != ssrc.to_be_bytes() {
 		return Err("Invalid voice UDP discovery reply");
 	}
 	let end = packet[8..72]
@@ -346,6 +346,7 @@ async fn run_inner(
 	let mut udp_failures = UdpFailures::default();
 	let mut discovering = false;
 	let mut discovery_deadline = Instant::now();
+	let mut next_discovery_probe = Instant::now();
 	let mut ssrc = 0u32;
 	let mut video = crate::camera_video::Sender::default();
 	let mut video_tick = tokio::time::interval(Duration::from_millis(2));
@@ -436,7 +437,14 @@ async fn run_inner(
 			_=tick.tick()=>{
 				let now=Instant::now();
 				if deadline.is_some_and(|d|now>=d) {return Err(negotiation_timeout(heartbeat_ms.is_some(),udp.is_some(),encryption.is_some(),&dave,resuming));}
-				if discovering && now>=discovery_deadline {return Err("Discord voice UDP discovery timed out; check the network firewall");}
+				if discovering {
+					if now>=discovery_deadline {return Err("Discord voice UDP discovery timed out; check the network firewall");}
+					if now>=next_discovery_probe && let Some(socket)=&udp {
+						let mut probe=[0;74];probe[..4].copy_from_slice(&[0,1,0,70]);probe[4..8].copy_from_slice(&ssrc.to_be_bytes());
+						let _ = socket.send(&probe).await;
+						next_discovery_probe=now+Duration::from_millis(300);
+					}
+				}
 				if !discovering && now>=next_udp_ping && let Some(socket)=&udp {
 					udp_keepalive(socket,&mut udp_failures,&mut udp_ping_sequence)?;
 					next_udp_ping=now+Duration::from_secs(5);
@@ -626,7 +634,7 @@ async fn run_inner(
 								let socket=UdpSocket::bind(if address.is_ipv4(){"0.0.0.0:0"}else{"[::]:0"}).await.map_err(|_|"Could not bind voice UDP socket")?;
 								socket.connect(SocketAddr::new(address,port)).await.map_err(|_|"Could not connect voice UDP socket")?;
 								let mut probe=[0;74];probe[..4].copy_from_slice(&[0,1,0,70]);probe[4..8].copy_from_slice(&ssrc.to_be_bytes());socket.send(&probe).await.map_err(|_|"Voice UDP discovery failed")?;
-								udp=Some(socket);discovering=true;discovery_deadline=Instant::now()+Duration::from_secs(8);
+								udp=Some(socket);discovering=true;discovery_deadline=Instant::now()+Duration::from_secs(8);next_discovery_probe=Instant::now()+Duration::from_millis(300);
 								emit(Status::Discovering).map_err(|_|"Call interface closed")?;
 							},
 							4=>{
@@ -1137,6 +1145,7 @@ async fn run_stream_inner(
 	let mut udp_failures = UdpFailures::default();
 	let mut discovering = false;
 	let mut discovery_deadline = Instant::now();
+	let mut next_discovery_probe = Instant::now();
 	let mut audio_ssrc = 0u32;
 	let mut video_ssrc = 0u32;
 	let mut rtx_ssrc = 0u32;
@@ -1220,7 +1229,14 @@ async fn run_stream_inner(
 				let now=Instant::now();
 				history.expire(now);
 				if deadline.is_some_and(|at| now>=at) {return Err(negotiation_timeout(heartbeat_ms.is_some(),udp.is_some(),encryption.is_some(),&dave,false));}
-				if discovering && now>=discovery_deadline {return Err("Discord stream UDP discovery timed out");}
+				if discovering {
+					if now>=discovery_deadline {return Err("Discord stream UDP discovery timed out");}
+					if now>=next_discovery_probe && let Some(socket)=&udp {
+						let mut probe=[0;74];probe[..4].copy_from_slice(&[0,1,0,70]);probe[4..8].copy_from_slice(&audio_ssrc.to_be_bytes());
+						let _ = socket.send(&probe).await;
+						next_discovery_probe=now+Duration::from_millis(300);
+					}
+				}
 				if !discovering && now>=next_udp_ping && let Some(socket)=&udp {
 					udp_keepalive(socket,&mut udp_failures,&mut udp_ping_sequence)?;
 					next_udp_ping=now+Duration::from_secs(5);
@@ -1412,7 +1428,7 @@ async fn run_stream_inner(
 								let socket=UdpSocket::bind(if address.is_ipv4(){"0.0.0.0:0"}else{"[::]:0"}).await.map_err(|_|"Could not bind stream UDP socket")?;
 								socket.connect(SocketAddr::new(address,port)).await.map_err(|_|"Could not connect stream UDP socket")?;
 								let mut probe=[0;74];probe[..4].copy_from_slice(&[0,1,0,70]);probe[4..8].copy_from_slice(&audio_ssrc.to_be_bytes());socket.send(&probe).await.map_err(|_|"Stream UDP discovery failed")?;
-								udp=Some(socket);discovering=true;discovery_deadline=Instant::now()+Duration::from_secs(8);emit(Status::Discovering).map_err(|_|"Stream interface closed")?;
+								udp=Some(socket);discovering=true;discovery_deadline=Instant::now()+Duration::from_secs(8);next_discovery_probe=Instant::now()+Duration::from_millis(300);emit(Status::Discovering).map_err(|_|"Stream interface closed")?;
 							},
 							4=>{
 								if encryption.is_some()||udp.is_none()||discovering{return Err("Unexpected stream session description");}
@@ -1772,6 +1788,9 @@ mod tests {
 		reply[72..].copy_from_slice(&1234u16.to_be_bytes());
 		assert_eq!(discovery(&reply, 42).unwrap().1, 1234);
 		assert!(discovery(&reply, 43).is_err());
+		let mut padded_reply = [0; 82];
+		padded_reply[..74].copy_from_slice(&reply);
+		assert_eq!(discovery(&padded_reply, 42).unwrap().1, 1234);
 		let mut encoder = Encoder::new(48_000, Channels::Stereo, Application::Voip).unwrap();
 		let mut decoder = Decoder::new(48_000, Channels::Mono).unwrap();
 		let input = std::array::from_fn::<_, 1920, _>(|i| ((i / 2) as f32 * 0.06).sin() * 0.2);

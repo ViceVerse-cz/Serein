@@ -130,15 +130,36 @@ impl Encryption {
 		}
 		let mut nonce = [0; 24];
 		nonce[..4].copy_from_slice(&packet[packet.len() - 4..]);
-		let Ok(body) = self.cipher.decrypt(
-			XNonce::from_slice(&nonce),
-			Payload {
-				msg: &packet[8..packet.len() - 4],
-				aad: &packet[..8],
-			},
-		) else {
-			return None;
-		};
+		let mut body = self
+			.cipher
+			.decrypt(
+				XNonce::from_slice(&nonce),
+				Payload {
+					msg: &packet[8..packet.len() - 4],
+					aad: &packet[..8],
+				},
+			)
+			.ok();
+		if body.is_none() {
+			for pad in [8, 4, 12, 16, 2, 6, 10, 14] {
+				if packet.len() >= 28 + pad {
+					let end = packet.len() - pad;
+					let mut pnonce = [0; 24];
+					pnonce[..4].copy_from_slice(&packet[end - 4..end]);
+					if let Ok(decrypted) = self.cipher.decrypt(
+						XNonce::from_slice(&pnonce),
+						Payload {
+							msg: &packet[8..end - 4],
+							aad: &packet[..8],
+						},
+					) {
+						body = Some(decrypted);
+						break;
+					}
+				}
+			}
+		}
+		let body = body?;
 		let mut compound = Vec::with_capacity(8 + body.len());
 		compound.extend_from_slice(&packet[..8]);
 		compound.extend_from_slice(&body);
@@ -272,7 +293,27 @@ impl Encryption {
 					aad: &packet[..header_len],
 				},
 			)
-			.ok()?;
+			.ok();
+		if frame.is_none() {
+			for pad in [8, 4, 12, 16, 2, 6, 10, 14] {
+				if packet.len() >= header_len + 20 + pad {
+					let end = packet.len() - pad;
+					let mut pnonce = [0; 24];
+					pnonce[..4].copy_from_slice(&packet[end - 4..end]);
+					if let Ok(decrypted) = self.cipher.decrypt(
+						XNonce::from_slice(&pnonce),
+						Payload {
+							msg: &packet[header_len..end - 4],
+							aad: &packet[..header_len],
+						},
+					) {
+						frame = Some(decrypted);
+						break;
+					}
+				}
+			}
+		}
+		let mut frame = frame?;
 		if extended {
 			let extension_len = usize::from(u16::from_be_bytes(
 				packet[csrc_end + 2..csrc_end + 4].try_into().ok()?,
@@ -788,6 +829,14 @@ mod tests {
 		let packet = sealed(&mut crypto, &compound);
 		let feedback = crypto.feedback(&packet, 42).unwrap();
 		assert!(feedback.keyframe);
+		for pad_len in [4, 8, 12, 16] {
+			let mut padded = packet.clone();
+			padded.extend(vec![0xbb; pad_len]);
+			let padded_feedback = crypto
+				.feedback(&padded, 42)
+				.expect("padded rtcp feedback decrypts");
+			assert!(padded_feedback.keyframe);
+		}
 		assert_eq!(feedback.nacks, [65535, 0, 1]);
 		assert_eq!(feedback.loss, Some(64));
 		assert_eq!(feedback.bitrate, Some(500));
@@ -875,6 +924,15 @@ mod tests {
 			(9, 1, 120, false)
 		);
 		assert_eq!(opened.payload, b"synthetic encrypted DAVE frame".to_vec());
+		for pad_len in [4, 8, 12, 16] {
+			let mut padded = packet.clone();
+			padded.extend(vec![0xaa; pad_len]);
+			let opened_padded = crypto.open(&padded).expect("padded rtp decrypts");
+			assert_eq!(
+				opened_padded.payload,
+				b"synthetic encrypted DAVE frame".to_vec()
+			);
+		}
 		let mut video = header;
 		video[1] = 101 | 0x80;
 		let sealed = crypto.seal(&video, b"h264").unwrap();
