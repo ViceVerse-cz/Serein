@@ -74,10 +74,10 @@ fn endpoint(raw: &str) -> Result<String, &'static str> {
 	{
 		return Err("Voice endpoint is outside Discord media");
 	}
-	// Normalize Discord voice endpoints to port 443. Discord voice gateways listen on
-	// both port 443 and alternative ports (e.g. 2053, 2083 for large rooms), but port 443
-	// avoids TLS handshake drops on DPI middleboxes and firewalls.
-	Ok(format!("wss://{host}:443/?v=8"))
+	// Preserve the port Discord assigned (e.g. 2053, 2083 for large rooms).
+	// The voice room instance is allocated on this exact port; connecting to a different
+	// port results in close code 4006 (Session is no longer valid).
+	Ok(url.into())
 }
 fn public_ip(ip: IpAddr) -> bool {
 	match ip {
@@ -104,6 +104,15 @@ fn public_ip(ip: IpAddr) -> bool {
 		}
 	}
 }
+fn tls_connector() -> tokio_tungstenite::Connector {
+	let mut root_store = rustls::RootCertStore::empty();
+	root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+	let config = rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS12])
+		.with_root_certificates(root_store)
+		.with_no_client_auth();
+	tokio_tungstenite::Connector::Rustls(std::sync::Arc::new(config))
+}
+
 fn diag_log(msg: &str) {
 	use std::io::Write;
 	if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -343,7 +352,12 @@ async fn run_inner(
 	diag_log(&format!("[DIAG run_inner] connecting to url: {url}"));
 	let (mut ws, _) = match timeout(
 		Duration::from_secs(15),
-		tokio_tungstenite::connect_async_with_config(&url, Some(config), false),
+		tokio_tungstenite::connect_async_tls_with_config(
+			&url,
+			Some(config),
+			false,
+			Some(tls_connector()),
+		),
 	)
 	.await
 	{
@@ -459,7 +473,12 @@ async fn run_inner(
 				.max_write_buffer_size(MAX_SIGNAL * 2);
 			let (replacement, _) = timeout(
 				Duration::from_secs(15),
-				tokio_tungstenite::connect_async_with_config(&url, Some(config), false),
+				tokio_tungstenite::connect_async_tls_with_config(
+					&url,
+					Some(config),
+					false,
+					Some(tls_connector()),
+				),
 			)
 			.await
 			.map_err(|_| "Voice resume timed out; rejoin the call")?
@@ -1277,7 +1296,12 @@ async fn run_stream_inner(
 		.max_write_buffer_size(MAX_SIGNAL * 2);
 	let (mut ws, _) = timeout(
 		Duration::from_secs(15),
-		tokio_tungstenite::connect_async_with_config(&url, Some(config), false),
+		tokio_tungstenite::connect_async_tls_with_config(
+			&url,
+			Some(config),
+			false,
+			Some(tls_connector()),
+		),
 	)
 	.await
 	.map_err(|_| "Stream connection timed out")?
@@ -1974,11 +1998,11 @@ mod tests {
 	fn validated_endpoints_discovery_and_real_opus() {
 		assert_eq!(
 			endpoint("voice-1.discord.media:443").unwrap(),
-			"wss://voice-1.discord.media:443/?v=8"
+			"wss://voice-1.discord.media/?v=8"
 		);
 		assert_eq!(
 			endpoint("c-bru01-67e5a38a.discord.media:2053").unwrap(),
-			"wss://c-bru01-67e5a38a.discord.media:443/?v=8"
+			"wss://c-bru01-67e5a38a.discord.media:2053/?v=8"
 		);
 		for bad in [
 			"127.0.0.1",
