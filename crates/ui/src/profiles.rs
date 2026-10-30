@@ -2532,6 +2532,29 @@ impl ProfileSession {
 		}
 	}
 
+	/// The unsent footer draft typed for `user` in `generation`, if any.
+	pub fn message_draft(&self, generation: u64, user: Id) -> Option<&String> {
+		(self.message_target == Some((generation, user)) && !self.message_draft.trim().is_empty())
+			.then_some(&self.message_draft)
+	}
+
+	/// Takes the footer draft after moving it into the destination composer.
+	pub fn take_message_draft(&mut self, generation: u64, user: Id) -> Option<String> {
+		if self.message_target == Some((generation, user)) && !self.message_draft.trim().is_empty()
+		{
+			self.message_pending = false;
+			Some(std::mem::take(&mut self.message_draft))
+		} else {
+			None
+		}
+	}
+
+	#[cfg(test)]
+	pub(crate) fn set_message_draft(&mut self, generation: u64, user: Id, draft: &str) {
+		self.reconcile_card_input(generation, user);
+		self.message_draft = draft.to_owned();
+	}
+
 	pub fn open_user(&self) -> Option<&User> {
 		self.open.as_ref()
 	}

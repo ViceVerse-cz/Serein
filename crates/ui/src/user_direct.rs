@@ -307,8 +307,8 @@ impl crate::MessagingUi {
 	) {
 		match pending.intent {
 			Intent::Message => {
-				self.profile.close();
-				self.focus_switched_composer = true;
+				self.focus_switched_composer =
+					self.hand_off_footer_draft(state, pending.generation, pending.user.id, channel);
 			}
 			Intent::Call => {
 				if let Some(reason) = self.call_unavailable(state, channel) {
@@ -328,5 +328,36 @@ impl crate::MessagingUi {
 				}
 			}
 		}
+	}
+
+	/// Moves an unsent profile-footer draft into the destination composer. If that composer
+	/// already holds text or the draft budget is full, the card stays open so the text is not lost.
+	fn hand_off_footer_draft(
+		&mut self,
+		state: &mut State,
+		generation: u64,
+		user: Id,
+		channel: Id,
+	) -> bool {
+		let Some(draft) = self.profile.message_draft(generation, user) else {
+			self.profile.close();
+			return true;
+		};
+		let can_keep = state.drafts.get(&channel).is_none_or(String::is_empty)
+			&& (state.drafts.contains_key(&channel) || state.drafts.len() < 64)
+			&& state.draft_bytes() + draft.capacity() <= client_core::MAX_DRAFT_BYTES;
+		if !can_keep {
+			state.status =
+				"Clear the direct message draft before opening chat; your profile message was kept";
+			return false;
+		}
+		let Some(draft) = self.profile.take_message_draft(generation, user) else {
+			self.profile.close();
+			return true;
+		};
+		state.drafts.insert(channel, draft);
+		self.draft_changes.push(channel);
+		self.profile.close();
+		true
 	}
 }

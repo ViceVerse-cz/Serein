@@ -8884,7 +8884,7 @@ mod composer_tests {
 	}
 
 	#[test]
-	fn profile_footer_open_chat_reuses_the_loaded_dm_without_sending() {
+	fn profile_footer_open_chat_hands_its_draft_to_the_loaded_dm() {
 		let mut state = test_support::demo_state();
 		state.selected = Some(Id(20));
 		let user = test_support::message(1, Id(22)).author;
@@ -8892,6 +8892,7 @@ mod composer_tests {
 			profile: {
 				let mut profile = profiles::ProfileSession::default();
 				profile.command_open(user.clone());
+				profile.set_message_draft(state.generation, user.id, "keep this unsent");
 				profile
 			},
 			..Default::default()
@@ -8906,7 +8907,57 @@ mod composer_tests {
 			profiles::Action::OpenDirect(user.clone()),
 		);
 		assert_eq!(state.selected, Some(Id(22)));
+		assert_eq!(
+			state.drafts.get(&Id(22)).map(String::as_str),
+			Some("keep this unsent")
+		);
+		assert!(view.draft_changes.contains(&Id(22)));
 		assert!(view.profile.open_user().is_none());
+		assert!(
+			!commands
+				.iter()
+				.any(|command| matches!(command, Command::Send { .. }))
+		);
+	}
+
+	#[test]
+	fn profile_footer_open_chat_keeps_the_card_when_the_destination_has_text() {
+		let mut state = test_support::demo_state();
+		state.selected = Some(Id(20));
+		state
+			.drafts
+			.insert(Id(22), "existing direct message draft".into());
+		let user = test_support::message(1, Id(22)).author;
+		let mut view = MessagingUi {
+			profile: {
+				let mut profile = profiles::ProfileSession::default();
+				profile.command_open(user.clone());
+				profile.set_message_draft(state.generation, user.id, "keep this unsent");
+				profile
+			},
+			..Default::default()
+		};
+		let mut commands = vec![];
+		view.profile_action(
+			&egui::Context::default(),
+			&mut state,
+			&mut commands,
+			&user,
+			None,
+			profiles::Action::OpenDirect(user.clone()),
+		);
+		assert_eq!(state.selected, Some(Id(22)));
+		assert_eq!(
+			state.drafts.get(&Id(22)).map(String::as_str),
+			Some("existing direct message draft")
+		);
+		assert_eq!(
+			view.profile
+				.message_draft(state.generation, user.id)
+				.map(String::as_str),
+			Some("keep this unsent")
+		);
+		assert!(view.profile.open_user().is_some());
 		assert!(
 			!commands
 				.iter()
