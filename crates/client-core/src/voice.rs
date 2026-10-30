@@ -534,7 +534,16 @@ impl ClientState {
 		muted: bool,
 		deafened: bool,
 	) -> Option<crate::Command> {
-		if !self.can_call(channel) || self.voice.active.is_some() {
+		if !self.can_call(channel) {
+			return None;
+		}
+		// A failed call is not a live one: joining again replaces it instead of being refused.
+		if self
+			.voice
+			.active
+			.as_ref()
+			.is_some_and(|call| call.phase != Phase::Failed)
+		{
 			return None;
 		}
 		let guild = self.channel(channel)?.guild;
@@ -1272,6 +1281,30 @@ mod tests {
 		};
 		crate::tests::grant_permissions(&mut state);
 		state
+	}
+
+	#[test]
+	fn a_failed_call_does_not_block_joining_the_channel_again() {
+		let mut state = stream_preview_state();
+		assert!(state.start_call(Id(20), false).is_some());
+		let request = state.voice.active.as_ref().unwrap().request;
+		// The call fails while Discord still has this account in the channel; its card stays up.
+		state.apply_voice(Event::Failed {
+			channel: Id(20),
+			request,
+			message: "Audio devices are unavailable",
+		});
+		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Failed);
+		// Joining again replaces the failed card instead of being refused, and the old reason
+		// does not follow the new attempt.
+		assert!(
+			state.start_call(Id(20), false).is_some(),
+			"a failed call is replaceable"
+		);
+		let call = state.voice.active.as_ref().unwrap();
+		assert_eq!(call.phase, Phase::Connecting);
+		assert_ne!(call.request, request, "the new attempt has its own request");
+		assert!(call.error.is_none());
 	}
 
 	#[test]
