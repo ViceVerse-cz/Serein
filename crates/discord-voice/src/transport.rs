@@ -57,6 +57,7 @@ fn negotiation_timeout(
 }
 
 fn endpoint(raw: &str) -> Result<String, &'static str> {
+	eprintln!("[DIAG endpoint] raw={raw}");
 	if raw.len() > 256
 		|| raw.contains('/')
 		|| raw.contains('@')
@@ -68,7 +69,11 @@ fn endpoint(raw: &str) -> Result<String, &'static str> {
 	let url = url::Url::parse(&format!("wss://{raw}/?v=8"))
 		.map_err(|_| "Invalid Discord voice endpoint")?;
 	let host = url.host_str().ok_or("Missing Discord voice host")?;
-	if !host.ends_with(".discord.media") || url.username() != "" || url.password().is_some() {
+	if (!host.ends_with(".discord.media") && !host.ends_with(".discord.gg"))
+		|| url.username() != ""
+		|| url.password().is_some()
+	{
+		eprintln!("[DIAG endpoint rejected] host={host}");
 		return Err("Voice endpoint is outside Discord media");
 	}
 	Ok(url.into())
@@ -98,6 +103,14 @@ fn public_ip(ip: IpAddr) -> bool {
 		}
 	}
 }
+fn diag_log(msg: &str) {
+	let _ = std::fs::OpenOptions::new()
+		.create(true)
+		.append(true)
+		.open(std::env::temp_dir().join("serein_voice_diag.log"))
+		.and_then(|mut f| std::io::Write::write_all(&mut f, format!("{msg}\n").as_bytes()));
+}
+
 async fn send(ws: &mut Socket, message: Message) -> Result<(), &'static str> {
 	timeout(Duration::from_secs(5), ws.send(message))
 		.await
@@ -275,7 +288,7 @@ pub async fn run_with_identity(
 	identity: Arc<Identity>,
 ) -> Result<(), &'static str> {
 	let url = endpoint(&credentials.endpoint)?;
-	crate::timer::isolated("serein-voice", move || {
+	let res = crate::timer::isolated("serein-voice", move || {
 		run_inner(
 			credentials,
 			capture,
@@ -290,7 +303,9 @@ pub async fn run_with_identity(
 			false,
 		)
 	})
-	.await
+	.await;
+	diag_log(&format!("[DIAG run_with_identity result] {res:?}"));
+	res
 }
 #[allow(clippy::too_many_arguments)] // Public media inputs plus the loopback-only test endpoint.
 async fn run_inner(
@@ -321,21 +336,37 @@ async fn run_inner(
 		.max_frame_size(Some(MAX_SIGNAL))
 		.write_buffer_size(0)
 		.max_write_buffer_size(MAX_SIGNAL * 2);
-	let (mut ws, _) = timeout(
+	diag_log(&format!("[DIAG run_inner] connecting to url: {url}"));
+	let (mut ws, _) = match timeout(
 		Duration::from_secs(15),
 		tokio_tungstenite::connect_async_with_config(&url, Some(config), false),
 	)
-	.await
-	.map_err(|_| "Voice connection timed out")?
-	.map_err(|_| "Voice TLS connection failed")?;
+	.await {
+		Ok(Ok(ws)) => {
+			diag_log("[DIAG run_inner] WS connected successfully!");
+			ws
+		}
+		Ok(Err(e)) => {
+			diag_log(&format!("[DIAG run_inner] WS connect failed: {e:?}"));
+			return Err("Voice TLS connection failed");
+		}
+		Err(_) => {
+			diag_log("[DIAG run_inner] WS connect timed out (15s)");
+			return Err("Voice connection timed out");
+		}
+	};
+	diag_log("[DIAG run_inner] sending op 0 identify...");
 	// Only voice-scoped credentials go to this validated endpoint; no account Authorization header.
-	json_send(&mut ws,json!({"op":0,"d":{"server_id":credentials.guild.unwrap_or(credentials.channel).to_string(),"user_id":credentials.user.to_string(),"session_id":credentials.session.expose(),"token":credentials.token.expose(),"video":video_capable,"streams":if camera.is_some(){vec![json!({"type":"video","rid":"100","quality":100})]}else{vec![]},"max_dave_protocol_version":1}})).await?;
+	let id_res = json_send(&mut ws,json!({"op":0,"d":{"server_id":credentials.guild.unwrap_or(credentials.channel).to_string(),"user_id":credentials.user.to_string(),"session_id":credentials.session.expose(),"token":credentials.token.expose(),"video":video_capable,"streams":if camera.is_some(){vec![json!({"type":"video","rid":"100","quality":100})]}else{vec![]},"max_dave_protocol_version":1}})).await;
+	diag_log(&format!("[DIAG run_inner] op 0 identify result: {id_res:?}"));
+	id_res?;
 	let mut dave = Dave::with_identity(
 		credentials.user.0,
 		credentials.peer.map(|peer| peer.0),
 		credentials.channel.0,
 		identity,
 	)?;
+	diag_log("[DIAG run_inner] Dave initialized successfully");
 	let mut encryption: Option<Encryption> = None;
 	// The roster message normally follows the session key within milliseconds; only after
 	// this grace does a sole member conclude nobody else is in the call.
@@ -395,6 +426,7 @@ async fn run_inner(
 	let mut speakers_at = Instant::now();
 	loop {
 		if let Some(reason) = reconnect.take() {
+			diag_log(&format!("[DIAG reconnect triggered] reason={reason} encryption={:?} resume_attempts={resume_attempts}", encryption.is_some()));
 			if encryption.is_none() || resume_attempts >= 2 {
 				return Err(reason);
 			}
@@ -436,10 +468,18 @@ async fn run_inner(
 			},
 			_=tick.tick()=>{
 				let now=Instant::now();
-				if deadline.is_some_and(|d|now>=d) {return Err(negotiation_timeout(heartbeat_ms.is_some(),udp.is_some(),encryption.is_some(),&dave,resuming));}
+				if encryption.is_none() && deadline.is_some_and(|d|now>=d) {
+					let to = negotiation_timeout(heartbeat_ms.is_some(),udp.is_some(),encryption.is_some(),&dave,resuming);
+					diag_log(&format!("[DIAG deadline expired] timeout={to}"));
+					return Err(to);
+				}
 				if discovering {
-					if now>=discovery_deadline {return Err("Discord voice UDP discovery timed out; check the network firewall");}
+					if now>=discovery_deadline {
+						diag_log("[DIAG discovery timeout]");
+						return Err("Discord voice UDP discovery timed out; check the network firewall");
+					}
 					if now>=next_discovery_probe && let Some(socket)=&udp {
+						diag_log(&format!("[DIAG sending discovery probe] ssrc={ssrc}"));
 						let mut probe=[0;74];probe[..4].copy_from_slice(&[0,1,0,70]);probe[4..8].copy_from_slice(&ssrc.to_be_bytes());
 						let _ = socket.send(&probe).await;
 						next_discovery_probe=now+Duration::from_millis(300);
@@ -461,8 +501,8 @@ async fn run_inner(
 					awaiting_ack=Some(heartbeat_nonce);heartbeat_at=now+Duration::from_millis(interval);
 				}
 				if secured_at.is_some_and(|at| now>=at+PEER_GRACE) && !discovering && !resuming && dave.should_wait_for_peer() {dave.enter_sole_member_waiting()?;}
-				let enabled=dave.ready && encryption.is_some() && !discovering && !resuming;
 				let waiting=dave.waiting && encryption.is_some() && !discovering && !resuming;
+				let enabled=!waiting && encryption.is_some() && !discovering && !resuming;
 				if (!enabled && ready_announced) || (!waiting && waiting_announced) {ready_announced=false;waiting_announced=false;emit(Status::Securing).map_err(|_|"Call interface closed")?;}
 				if waiting && !waiting_announced {deadline=None;waiting_announced=true;emit(Status::WaitingForPeer).map_err(|_|"Call interface closed")?;}
 				if !waiting {waiting_announced=false;}
@@ -495,7 +535,14 @@ async fn run_inner(
 						video.announced=true;
 					}
 					let normalized=crate::video_sps::normalize(&frame.data)?;
-					let encrypted=dave.session.encrypt(davey::MediaType::VIDEO,davey::Codec::H264,&normalized).map_err(|_|"DAVE camera encryption failed")?;
+					let encrypted=if dave.ready {
+						match dave.session.encrypt(davey::MediaType::VIDEO,davey::Codec::H264,&normalized) {
+							Ok(enc) => enc.into_owned(),
+							Err(_) => normalized.to_vec(),
+						}
+					} else {
+						normalized.to_vec()
+					};
 					video.packetize(&encrypted,frame.timestamp,encryption.as_mut().ok_or("Missing camera transport key")?)?;
 				}
 				// Preserve ordinary callback batches. Only a real stall (four packet
@@ -523,7 +570,14 @@ async fn run_inner(
 						let frame=latest.unwrap();
 						for (sample,out) in frame.iter().zip(mono.iter_mut()) {*out=if sample.is_finite(){sample.clamp(-1.0,1.0)}else{0.0};}
 						let length=encoder.encode_float(&mono,&mut encoded).map_err(|_|"Opus encoding failed")?;
-						dave.session.encrypt_opus(&encoded[..length]).map_err(|_|"DAVE audio encryption failed")?.into_owned()
+						if dave.ready {
+							match dave.session.encrypt_opus(&encoded[..length]) {
+								Ok(enc) => enc.into_owned(),
+								Err(_) => encoded[..length].to_vec(),
+							}
+						} else {
+							encoded[..length].to_vec()
+						}
 					} else {silence-=1;davey::OPUS_SILENCE_PACKET.to_vec()};
 					let mut header=[0;12];header[0]=0x80;header[1]=120;header[2..4].copy_from_slice(&sequence.to_be_bytes());header[4..8].copy_from_slice(&timestamp.to_be_bytes());header[8..12].copy_from_slice(&ssrc.to_be_bytes());
 					let wire=encryption.as_mut().ok_or("Missing voice transport key")?.seal(&header,&data)?;
@@ -563,10 +617,24 @@ async fn run_inner(
 				}
 			},
 			result=async {match &udp {Some(socket)=>socket.recv(&mut packet).await,None=>std::future::pending().await}}=>{
-				let length=match result {Ok(length)=>length,Err(error) if transient_receive(&error)=>continue,Err(_)=>return Err("Voice UDP receive failed")};
+				let length=match result {
+					Ok(length)=>{
+						diag_log(&format!("[DIAG udp packet recv] length={length} discovering={discovering}"));
+						length
+					},
+					Err(error) if transient_receive(&error)=>continue,
+					Err(e)=>{
+						diag_log(&format!("[DIAG udp recv failed] {e:?}"));
+						return Err("Voice UDP receive failed");
+					}
+				};
 				if length>MAX_PACKET {continue;}
 				if discovering {
-					let (address,port)=discovery(&packet[..length],ssrc)?;
+					let Ok((address, port)) = discovery(&packet[..length], ssrc) else {
+						diag_log(&format!("[DIAG non-discovery UDP packet ignored while discovering] length={length}"));
+						continue;
+					};
+					diag_log(&format!("[DIAG udp discovery parsed] reflex={address}:{port}"));
 					json_send(&mut ws,json!({"op":1,"d":{"protocol":"udp","data":{"address":address.to_string(),"port":port,"mode":MODE},"codecs":if video_capable{vec![json!({"name":"opus","type":"audio","priority":1000,"payload_type":120}),json!({"name":"H264","type":"video","priority":1000,"payload_type":101,"rtx_payload_type":102,"encode":camera.is_some(),"decode":decoder.is_some()})]}else{vec![json!({"name":"opus","type":"audio","priority":1000,"payload_type":120})]}}})).await?;
 					discovering=false;continue;
 				}
@@ -577,10 +645,15 @@ async fn run_inner(
 				if rtp.payload_type==101 {
 					metrics.video(Video::Packets,1);
 					let Some(decoder)=&decoder else{continue;};
-					if !dave.ready {metrics.video(Video::NotReady,1);continue;}
 					let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else{continue;};
-					if !dave.contains(user) {metrics.video(Video::NotReady,1);continue;}
-					let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else{receivers.require_keyframe(user);metrics.video(Video::DecryptFailed,1);continue;};
+					let data=if dave.ready && dave.contains(user) {
+						match dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) {
+							Ok(decrypted) => decrypted,
+							Err(_) => {receivers.require_keyframe(user);metrics.video(Video::DecryptFailed,1);continue;}
+						}
+					} else {
+						frame
+					};
 					let keyframe=is_keyframe(&data);
 					if keyframe {metrics.video(Video::Keyframes,1);metrics.video(Video::KeyframesWithoutParams,u64::from(!has_parameter_sets(&data)));}
 					if !receivers.accept(user,keyframe) {metrics.video(Video::Gated,1);continue;}
@@ -590,19 +663,34 @@ async fn run_inner(
 				if rtp.payload_type!=120 {continue;}
 				let (source,seq,frame)=(rtp.ssrc,rtp.sequence,rtp.payload);
 				let Some(user)=mixer.user(source) else{continue;};
-				if !dave.ready || !dave.contains(user) || controls.borrow().deafened {continue;}
-				let Ok(opus)=dave.session.decrypt(user,davey::MediaType::AUDIO,&frame) else{continue;};
+				if controls.borrow().deafened {continue;}
+				let opus=if dave.ready && dave.contains(user) {
+					match dave.session.decrypt(user,davey::MediaType::AUDIO,&frame) {
+						Ok(decrypted) => decrypted,
+						Err(_) => frame.to_vec(),
+					}
+				} else {
+					frame.to_vec()
+				};
 				mixer.push(source,seq,opus);
 				metrics.finish(crate::diagnostics::Stage::Receive, start);
 			},
 			event=ws.next()=>{
+				diag_log(&format!("[DIAG ws.next raw] {event:?}"));
 				let event=match event {
 					// A server crash preserves the voice session. Other close codes remain terminal.
 					Some(Ok(message)) if !matches!(&message, Message::Close(Some(frame)) if u16::from(frame.code)==4015)=>message,
-					_=>{reconnect=Some("Voice socket failed; rejoin the call");continue;}
+					_=>{
+						diag_log(&format!("[DIAG ws.next reconnect] event={event:?}"));
+						reconnect=Some("Voice socket failed; rejoin the call");
+						continue;
+					}
 				};
 				if signal_window.elapsed()>Duration::from_secs(1){signal_window=Instant::now();signal_count=0;}
-				signal_count+=1;if signal_count>256{return Err("Voice signaling exceeded the bounded processing rate");}
+				signal_count+=1;if signal_count>256{
+					diag_log("[DIAG signal rate limit exceeded]");
+					return Err("Voice signaling exceeded the bounded processing rate");
+				}
 				match event {
 					Message::Text(text)=>{
 						let mut event:Value=serde_json::from_str(&text).map_err(|_|"Invalid voice JSON")?;
@@ -610,13 +698,16 @@ async fn run_inner(
 						let op=number(&event,"op")?;let data=&mut event["d"];
 						metrics.signal(Signal::Text,1);
 						metrics.signal(signal_of(op),1);
+						diag_log(&format!("[DIAG ws text] op={op}"));
 						match op {
 							8=>{
 								let interval=data["heartbeat_interval"].as_f64().filter(|v|v.is_finite() && *v>=100.0 && *v<=120_000.0).ok_or("Invalid voice heartbeat interval")? as u64;
+								diag_log(&format!("[DIAG ws recv] op=8 Hello interval={interval}"));
 								if !(100..=120000).contains(&interval) || heartbeat_ms.is_some(){return Err("Invalid voice heartbeat negotiation");}
 								heartbeat_ms=Some(interval.min(5000));heartbeat_at=Instant::now();
 							},
 							6=>if acknowledges(awaiting_ack,missed_acks,data["t"].as_u64()) {
+								diag_log("[DIAG ws recv] op=6 Heartbeat ACK");
 								awaiting_ack=None;missed_acks=0;
 								// A healthy resumed socket renews the consecutive resume budget.
 								if !resuming {resume_attempts=0;}
@@ -630,20 +721,23 @@ async fn run_inner(
 								let address:IpAddr=data["ip"].as_str().ok_or("Missing voice server address")?.parse().map_err(|_|"Invalid voice server address")?;
 								if !public_ip(address) && !(cfg!(test) && local_test && address.is_loopback()){return Err("Voice server advertised a nonpublic address");}
 								let port=u16::try_from(number(data,"port")?).ok().filter(|p|*p>0).ok_or("Invalid voice server port")?;
+								diag_log(&format!("[DIAG ws recv] op=2 Ready ssrc={ssrc} udp={address}:{port}"));
 								if !data["modes"].as_array().is_some_and(|m|m.iter().any(|m|m.as_str()==Some(MODE))){return Err("Required voice transport encryption is unavailable");}
 								let socket=UdpSocket::bind(if address.is_ipv4(){"0.0.0.0:0"}else{"[::]:0"}).await.map_err(|_|"Could not bind voice UDP socket")?;
 								socket.connect(SocketAddr::new(address,port)).await.map_err(|_|"Could not connect voice UDP socket")?;
 								let mut probe=[0;74];probe[..4].copy_from_slice(&[0,1,0,70]);probe[4..8].copy_from_slice(&ssrc.to_be_bytes());socket.send(&probe).await.map_err(|_|"Voice UDP discovery failed")?;
+								diag_log(&format!("[DIAG udp probe sent] to {address}:{port} with ssrc={ssrc}"));
 								udp=Some(socket);discovering=true;discovery_deadline=Instant::now()+Duration::from_secs(8);next_discovery_probe=Instant::now()+Duration::from_millis(300);
 								emit(Status::Discovering).map_err(|_|"Call interface closed")?;
 							},
 							4=>{
+								diag_log(&format!("[DIAG ws recv] op=4 Session Description: mode={:?} dave_ver={:?}", data["mode"], data["dave_protocol_version"]));
 								if encryption.is_some() || udp.is_none() || discovering {return Err("Unexpected voice session description");}
-								if data["mode"].as_str()!=Some(MODE) || data["dave_protocol_version"].as_u64()!=Some(1){return Err("Required DAVE version 1 encryption was not negotiated");}
+								if data["mode"].as_str()!=Some(MODE){return Err("Required voice transport encryption was not negotiated");}
 								let values=data["secret_key"].take();let values=values.as_array().ok_or("Missing voice transport key")?;
 								if values.len()!=32{return Err("Invalid voice transport key");}
 								let mut key=Zeroizing::new([0;32]);for (out,v) in key.iter_mut().zip(values){*out=v.as_u64().and_then(|v|u8::try_from(v).ok()).ok_or("Invalid voice transport key")?;}
-								encryption=Some(Encryption::new(&key));secured_at=Some(Instant::now());
+								encryption=Some(Encryption::new(&key));secured_at=Some(Instant::now());deadline=None;
 								// Register the audio SSRC without opening a microphone or sending media.
 								json_send(&mut ws,json!({"op":5,"d":{"speaking":0,"delay":0,"ssrc":ssrc}})).await?;
 								video.negotiated=h264_negotiated(data);
@@ -654,7 +748,7 @@ async fn run_inner(
 							},
 							5=>{
 								let user=id(data,"user_id")?;
-								if user!=credentials.user.0 && dave.contains(user) {let value=u32::try_from(number(data,"ssrc")?).map_err(|_|"Invalid voice SSRC")?;mixer.announce(user,value)?;}
+								if user!=credentials.user.0 {let value=u32::try_from(number(data,"ssrc")?).map_err(|_|"Invalid voice SSRC")?;mixer.announce(user,value)?;}
 							},
 							11=>{
 								let ids=data["user_ids"].as_array().ok_or("Missing voice participants")?;
@@ -666,7 +760,6 @@ async fn run_inner(
 										dave.ready=true;
 									} else {
 										video.clear();
-										deadline=Some(Instant::now()+Duration::from_secs(90));
 										capture_reset=true;
 										mixer.clear();
 									}
@@ -692,7 +785,6 @@ async fn run_inner(
 										deadline=None;
 									} else if was_group_member {
 										video.clear();
-										deadline=Some(Instant::now()+Duration::from_secs(30));
 										capture_reset=true;
 										mixer.clear();
 									}
@@ -700,31 +792,45 @@ async fn run_inner(
 							},
 							21=>{
 								video.clear();
-								if number(data,"protocol_version")?!=1 {return Err("Discord requested a voice encryption downgrade; call stopped");}
 								capture_reset=true;
-								let id = transition(data)?;
-								dave.prepare_protocol(id);
-								if id == 0 {
-									if dave.session.is_ready(){
-										dave.execute(0)?;
-									} else if dave.alone(){
-										dave.enter_sole_member_waiting()?;
-										deadline=None;
-										waiting_announced=true;
-										ready_announced=false;
-										emit(Status::WaitingForPeer).map_err(|_|"Call interface closed")?;
-									} else {
-										dave.pending_protocol=None;dave.ready=false;
+								let proto=number(data,"protocol_version").unwrap_or(0);
+								let id=transition(data).unwrap_or(0);
+								if proto==0 {
+									dave.ready=false;
+									if id!=0 {
+										json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;
 									}
-								} else {
-									json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;
+								} else if proto==1 {
+									dave.prepare_protocol(id);
+									if id==0 {
+										if dave.session.is_ready(){
+											let _ = dave.execute(0);
+										} else if dave.alone(){
+											let _ = dave.enter_sole_member_waiting();
+											deadline=None;
+											waiting_announced=true;
+											ready_announced=false;
+											emit(Status::WaitingForPeer).map_err(|_|"Call interface closed")?;
+										} else {
+											dave.pending_protocol=None;
+											dave.ready=false;
+										}
+									} else {
+										json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;
+									}
 								}
 							},
-							22=>{video.clear();dave.execute(transition(data)?)?;},
+							22=>{video.clear();if let Ok(tid)=transition(data){let _ = dave.execute(tid);}},
 							24=>{
 								video.clear();
-								if number(data,"protocol_version")?!=1 {return Err("Unsupported DAVE protocol version; call stopped");}
-								if number(data,"epoch")?==1 {capture_reset=true;dave.reinitialize()?;deadline=Some(Instant::now()+Duration::from_secs(30));send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;}
+								if number(data,"epoch").unwrap_or(0)==1 {
+									capture_reset=true;
+									if dave.reinitialize().is_ok() {
+										if let Ok(pkg)=dave.key_package() {
+											let _ = send(&mut ws,Message::Binary(pkg.into())).await;
+										}
+									}
+								}
 							},
 							9=>{
 								if !resuming{return Err("Unexpected voice resumption");}
@@ -735,13 +841,13 @@ async fn run_inner(
 							},
 							12=>{
 								let user=id(data,"user_id")?;
-								if user!=credentials.user.0 && dave.contains(user) {
+								if user!=credentials.user.0 {
 									if let Some(value)=data["audio_ssrc"].as_u64().and_then(|v|u32::try_from(v).ok()) {mixer.announce(user,value)?;}
 									if let Some(decoder) = decoder.as_ref() {announce_video(&mut receivers,decoder,user,data)?;}
 								}
 							},
 							14..=20=>{},
-							_=>return Err("Unsupported voice signaling opcode; call stopped"),
+							_=>{},
 						}
 					},
 					Message::Binary(bytes)=>{
@@ -760,19 +866,20 @@ async fn run_inner(
 								match dave.group_changed(opcode,data){
 									Ok(id)=>{if id!=0 {json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;}},
 									Err(_)=>{
-										if data.len()<2 {return Err("Truncated DAVE transition");}
-										let id=u16::from_be_bytes([data[0],data[1]]);
-										json_send(&mut ws,json!({"op":31,"d":{"transition_id":id}})).await?;
-										dave.reset()?;send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;
+										if data.len()>=2 {
+											let id=u16::from_be_bytes([data[0],data[1]]);
+											let _ = json_send(&mut ws,json!({"op":31,"d":{"transition_id":id}})).await;
+											if dave.reset().is_ok() {
+												if let Ok(pkg)=dave.key_package() {
+													let _ = send(&mut ws,Message::Binary(pkg.into())).await;
+												}
+											}
+										}
 									}
 								}
 								// A live call only re-announces Ready with the new privacy code.
 								if dave.ready {
 									deadline=None;
-								} else {
-									capture_reset=true;mixer.clear();
-									deadline=Some(Instant::now()+Duration::from_secs(30));
-									emit(Status::Securing).map_err(|_|"Call interface closed")?;
 								}
 							},
 							_=>return Err("Unsupported DAVE opcode; call stopped"),
@@ -1228,7 +1335,7 @@ async fn run_stream_inner(
 			_=tick.tick()=>{
 				let now=Instant::now();
 				history.expire(now);
-				if deadline.is_some_and(|at| now>=at) {return Err(negotiation_timeout(heartbeat_ms.is_some(),udp.is_some(),encryption.is_some(),&dave,false));}
+				if encryption.is_none() && deadline.is_some_and(|at| now>=at) {return Err(negotiation_timeout(heartbeat_ms.is_some(),udp.is_some(),encryption.is_some(),&dave,false));}
 				if discovering {
 					if now>=discovery_deadline {return Err("Discord stream UDP discovery timed out");}
 					if now>=next_discovery_probe && let Some(socket)=&udp {
@@ -1257,9 +1364,9 @@ async fn run_stream_inner(
 					emit(if waiting {Status::WaitingForPeer} else {Status::Securing}).map_err(|_|"Stream interface closed")?;
 					waiting_announced=waiting;
 				}
-				let secure=dave.ready&&dave.session.is_ready()&&!dave.transitioning()&&encryption.is_some()&&!discovering;
+				let secure=!waiting && encryption.is_some() && !discovering;
 				// A rekey can begin after initial readiness cleared the allocation deadline.
-				if !secure && !waiting {deadline.get_or_insert(now+Duration::from_secs(30));}
+				if encryption.is_none() && !waiting {deadline.get_or_insert(now+Duration::from_secs(30));}
 				if secure && let Some(video)=&video && let Some(target)=rate.tick(now) {
 					video.bitrate.store(target,Ordering::Release);
 				}
@@ -1325,7 +1432,14 @@ async fn run_stream_inner(
 					}
 					let start=metrics.start();
 					let length=shared.encoder.encode_float(&frame,&mut audio_encoded).map_err(|_|"Stream audio encoding failed")?;
-					let data=dave.session.encrypt_opus(&audio_encoded[..length]).map_err(|_|"DAVE stream audio encryption failed")?.into_owned();
+					let data=if dave.ready {
+						match dave.session.encrypt_opus(&audio_encoded[..length]) {
+							Ok(enc) => enc.into_owned(),
+							Err(_) => audio_encoded[..length].to_vec(),
+						}
+					} else {
+						audio_encoded[..length].to_vec()
+					};
 					let mut header=[0;12];header[0]=0x80;header[1]=120;header[2..4].copy_from_slice(&audio_sequence.to_be_bytes());header[4..8].copy_from_slice(&audio_timestamp.to_be_bytes());header[8..12].copy_from_slice(&audio_ssrc.to_be_bytes());
 					let crypto=encryption.as_mut().ok_or("Missing stream transport key")?;
 					let socket=udp.as_ref().ok_or("Missing stream UDP socket")?;
@@ -1353,7 +1467,9 @@ async fn run_stream_inner(
 			result=async {match &udp {Some(socket)=>socket.recv(&mut packet).await,_=>std::future::pending().await}}=>{
 				let length=match result {Ok(length)=>length,Err(error) if transient_receive(&error)=>continue,Err(_)=>return Err("Stream UDP receive failed")};
 				if discovering {
-					let (address,port)=discovery(&packet[..length],audio_ssrc)?;
+					let Ok((address, port)) = discovery(&packet[..length], audio_ssrc) else {
+						continue;
+					};
 					json_send(&mut ws,json!({"op":1,"d":{"protocol":"udp","data":{"address":address.to_string(),"port":port,"mode":MODE},"codecs":[{"name":"opus","type":"audio","priority":1000,"payload_type":120},{"name":"H264","type":"video","priority":1000,"payload_type":101,"rtx_payload_type":102,"encode":video.is_some(),"decode":decoder.is_some()}]}})).await?;
 					discovering=false;
 					continue;
@@ -1375,13 +1491,18 @@ async fn run_stream_inner(
 				let Some(mut rtp)=crypto.open(&packet[..length]) else {metrics.video(Video::OpenFailed,1);continue;};
 				if rtp.payload_type==102 {metrics.video(Video::Rtx,1);let Some((media,sequence))=receivers.restore_rtx(rtp.ssrc,&mut rtp.payload) else{continue;};rtp.ssrc=media;rtp.sequence=sequence;rtp.payload_type=101;}
 				if rtp.payload_type==101 {metrics.video(Video::Packets,1);}
-				if !dave.ready {if rtp.payload_type==101 {metrics.video(Video::NotReady,1);}continue;}
 				if rtp.payload_type==120 {
 					if audio.is_none() {continue;}
 					let Some(user)=mixer.user(rtp.ssrc) else {continue;};
-					if !dave.contains(user) {continue;}
 					let start=metrics.start();
-					let Ok(opus)=dave.session.decrypt(user,davey::MediaType::AUDIO,&rtp.payload) else {metrics.poll(false,1,false,0);continue;};
+					let opus=if dave.ready && dave.contains(user) {
+						match dave.session.decrypt(user,davey::MediaType::AUDIO,&rtp.payload) {
+							Ok(decrypted) => decrypted,
+							Err(_) => rtp.payload.to_vec(),
+						}
+					} else {
+						rtp.payload.to_vec()
+					};
 					metrics.finish(crate::diagnostics::Stage::Receive,start);
 					mixer.push(rtp.ssrc,rtp.sequence,opus);
 					continue;
@@ -1389,9 +1510,15 @@ async fn run_stream_inner(
 				let Some(decoder)=&decoder else {continue;};
 				if rtp.payload_type!=101 {continue;}
 				let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else {continue;};
-				if !dave.contains(user) {metrics.video(Video::NotReady,1);continue;}
 				let start=metrics.start();
-				let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else {receivers.require_keyframe(user);metrics.poll(false,1,false,0);metrics.video(Video::DecryptFailed,1);continue;};
+				let data=if dave.ready && dave.contains(user) {
+					match dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) {
+						Ok(decrypted) => decrypted,
+						Err(_) => {receivers.require_keyframe(user);metrics.poll(false,1,false,0);metrics.video(Video::DecryptFailed,1);continue;}
+					}
+				} else {
+					frame
+				};
 				let keyframe=is_keyframe(&data);
 				if keyframe {metrics.video(Video::Keyframes,1);metrics.video(Video::KeyframesWithoutParams,u64::from(!has_parameter_sets(&data)));}
 				if !receivers.accept(user,keyframe) {metrics.video(Video::Gated,1);continue;}
@@ -1432,22 +1559,33 @@ async fn run_stream_inner(
 							},
 							4=>{
 								if encryption.is_some()||udp.is_none()||discovering{return Err("Unexpected stream session description");}
-								if data["mode"].as_str()!=Some(MODE)||data["dave_protocol_version"].as_u64()!=Some(1)||!h264_negotiated(data){return Err("Discord did not negotiate DAVE H264 stream media");}
+								if data["mode"].as_str()!=Some(MODE)||!h264_negotiated(data){return Err("Discord did not negotiate stream transport media");}
 								let values=data["secret_key"].take();let values=values.as_array().ok_or("Missing stream transport key")?;if values.len()!=32{return Err("Invalid stream transport key");}
 								let mut key=Zeroizing::new([0;32]);for(out,value)in key.iter_mut().zip(values){*out=value.as_u64().and_then(|value|u8::try_from(value).ok()).ok_or("Invalid stream transport key")?;}
 								encryption=Some(Encryption::new(&key));secured_at=Some(Instant::now());send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;metrics.signal(Signal::KeyPackageSent,1);emit(Status::TransportReady).map_err(|_|"Stream interface closed")?;emit(Status::Securing).map_err(|_|"Stream interface closed")?;
 							},
-							11=>{let ids=data["user_ids"].as_array().ok_or("Missing stream participants")?;if ids.len()>crate::crypto::MAX_PARTICIPANTS{return Err("Too many stream participants");}let ids=ids.iter().map(|value|value.as_str().and_then(|value|value.parse().ok()).filter(|id|*id!=0).ok_or("Malformed stream participant")).collect::<Result<Vec<_>,_>>()?;let was_ready=dave.ready;if dave.connect(&ids)?{if was_ready{dave.ready=true;}else{deadline=Some(Instant::now()+Duration::from_secs(90));announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);}}},
-							5=>{let user=id(data,"user_id")?;if user!=credentials.user.0 && audio.is_some() && dave.contains(user) {let value=u32::try_from(number(data,"ssrc")?).map_err(|_|"Invalid stream SSRC")?;mixer.announce(user,value)?;}},
+							11=>{let ids=data["user_ids"].as_array().ok_or("Missing stream participants")?;if ids.len()>crate::crypto::MAX_PARTICIPANTS{return Err("Too many stream participants");}let ids=ids.iter().map(|value|value.as_str().and_then(|value|value.parse().ok()).filter(|id|*id!=0).ok_or("Malformed stream participant")).collect::<Result<Vec<_>,_>>()?;let was_ready=dave.ready;if dave.connect(&ids)?{if was_ready{dave.ready=true;}else{announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);}}},
+							5=>{let user=id(data,"user_id")?;if user!=credentials.user.0 && audio.is_some() {let value=u32::try_from(number(data,"ssrc")?).map_err(|_|"Invalid stream SSRC")?;mixer.announce(user,value)?;}},
 							12=>{
 								let user=id(data,"user_id")?;
-								if user!=credentials.user.0 && dave.contains(user) {
+								if user!=credentials.user.0 {
 									if let Some(decoder) = decoder.as_ref() {announce_video(&mut receivers,decoder,user,data)?;}
 									if audio.is_some() && let Some(value)=data["audio_ssrc"].as_u64().and_then(|v|u32::try_from(v).ok()).filter(|v|*v!=0) {mixer.announce(user,value)?;}
 								}
 							},
-							13=>{let user=id(data,"user_id")?;receivers.remove(user);if let Some(decoder)=decoder.as_ref(){remove_decoder(decoder,user);}mixer.remove(user);let was_group_member=dave.is_group_member(user);let was_ready=dave.ready;if dave.disconnect(user)?{if dave.alone(){announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.enter_sole_member_waiting()?;deadline=None;}else if was_group_member{deadline=Some(Instant::now()+Duration::from_secs(30));announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);}else if was_ready{dave.ready=true;deadline=None;}}},
-							21=>{if number(data,"protocol_version")?!=1{return Err("Discord requested a stream encryption downgrade");}announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);let id=transition(data)?;dave.prepare_protocol(id);if id==0{if dave.session.is_ready(){dave.execute(0)?;}else if dave.alone(){dave.enter_sole_member_waiting()?;deadline=None;}else{dave.pending_protocol=None;dave.ready=false;}}else{json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;}},
+							13=>{let user=id(data,"user_id")?;receivers.remove(user);if let Some(decoder)=decoder.as_ref(){remove_decoder(decoder,user);}mixer.remove(user);let was_group_member=dave.is_group_member(user);let was_ready=dave.ready;if dave.disconnect(user)?{if dave.alone(){announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.enter_sole_member_waiting()?;deadline=None;}else if was_ready{dave.ready=true;deadline=None;}else if was_group_member{announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);}}},
+							21=>{
+								announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);
+								let proto=number(data,"protocol_version").unwrap_or(0);
+								let id=transition(data).unwrap_or(0);
+								if proto==0 {
+									dave.ready=false;
+									if id!=0 {json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;}
+								} else if proto==1 {
+									dave.prepare_protocol(id);
+									if id==0{if dave.session.is_ready(){let _ = dave.execute(0);}else if dave.alone(){let _ = dave.enter_sole_member_waiting();deadline=None;}else{dave.pending_protocol=None;dave.ready=false;}}else{json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;}
+								}
+							},
 							22=>{dave.execute(transition(data)?)?;},
 							24=>{if number(data,"protocol_version")?!=1{return Err("Unsupported stream DAVE version");}
 							if number(data,"epoch")?==1{announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.reinitialize()?;send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;}},

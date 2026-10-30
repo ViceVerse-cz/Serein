@@ -1050,14 +1050,21 @@ impl Calls {
 			}
 			"VOICE_SERVER_UPDATE" => {
 				let mut server: VoiceServerDto = decode(data).map_err(|_| Failure::Protocol)?;
+				let diag_msg = format!("[DIAG VOICE_SERVER_UPDATE] active={:?} active_guild={:?} server.guild_id={:?} server.channel_id={:?} endpoint={:?}", self.active, self.active_guild, server.guild_id, server.channel_id, server.endpoint);
+				eprintln!("{diag_msg}");
+				let _ = std::fs::OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("serein_voice_diag.log")).and_then(|mut f| std::io::Write::write_all(&mut f, format!("{diag_msg}\n").as_bytes()));
 				let token = Zeroizing::new(std::mem::take(&mut server.token));
 				let Some((channel, request)) = self.active else {
+					eprintln!("[DIAG VOICE_SERVER_UPDATE] dropped: self.active is None");
 					return Ok(());
 				};
 				if server.guild_id != self.active_guild
 					|| self.allowed.get(&channel) != Some(&self.active_guild)
 					|| (self.active_guild.is_none() && server.channel_id != Some(channel))
 				{
+					let diag_drop = format!("[DIAG VOICE_SERVER_UPDATE] dropped: condition failed! server.guild_id={:?} self.active_guild={:?} allowed={:?} server.channel_id={:?}", server.guild_id, self.active_guild, self.allowed.get(&channel), server.channel_id);
+					eprintln!("{diag_drop}");
+					let _ = std::fs::OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("serein_voice_diag.log")).and_then(|mut f| std::io::Write::write_all(&mut f, format!("{diag_drop}\n").as_bytes()));
 					return Ok(());
 				}
 				if server.endpoint.as_ref().is_some_and(|s| s.len() > 512) {
