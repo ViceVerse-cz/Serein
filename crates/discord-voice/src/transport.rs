@@ -647,10 +647,18 @@ async fn run_inner(
 					let Some(decoder)=&decoder else{continue;};
 					let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else{continue;};
 					let is_dave = frame.len() >= 2 && frame.ends_with(&crate::crypto::MARKER_BYTES);
-					let data = if is_dave {
+					let data = if is_dave || dave.session.is_ready() || dave.ready {
 						match dave.session.decrypt(user, davey::MediaType::VIDEO, &frame) {
 							Ok(decrypted) => decrypted,
-							Err(_) => {receivers.require_keyframe(user);metrics.video(Video::DecryptFailed,1);continue;}
+							Err(_) => {
+								if is_dave {
+									receivers.require_keyframe(user);
+									metrics.video(Video::DecryptFailed, 1);
+									continue;
+								} else {
+									frame
+								}
+							}
 						}
 					} else {
 						metrics.video(Video::NotReady, 1);
@@ -1532,10 +1540,20 @@ async fn run_stream_inner(
 				if rtp.payload_type!=101 {continue;}
 				let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else {continue;};
 				let start=metrics.start();
-				let data=if dave.ready && dave.contains(user) {
-					match dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) {
+				let is_dave = frame.len() >= 2 && frame.ends_with(&crate::crypto::MARKER_BYTES);
+				let data = if is_dave || dave.session.is_ready() || dave.ready {
+					match dave.session.decrypt(user, davey::MediaType::VIDEO, &frame) {
 						Ok(decrypted) => decrypted,
-						Err(_) => {receivers.require_keyframe(user);metrics.poll(false,1,false,0);metrics.video(Video::DecryptFailed,1);continue;}
+						Err(_) => {
+							if is_dave {
+								receivers.require_keyframe(user);
+								metrics.poll(false, 1, false, 0);
+								metrics.video(Video::DecryptFailed, 1);
+								continue;
+							} else {
+								frame
+							}
+						}
 					}
 				} else {
 					frame
