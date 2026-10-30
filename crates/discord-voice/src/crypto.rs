@@ -14,6 +14,7 @@ use zeroize::Zeroize;
 pub(crate) const MODE: &str = "aead_xchacha20_poly1305_rtpsize";
 pub(crate) const MAX_PACKET: usize = 4096;
 pub(crate) const MAX_SIGNAL: usize = 64 * 1024;
+pub(crate) const MARKER_BYTES: [u8; 2] = [0xFA, 0xFA];
 pub(crate) use client_core::voice::MAX_PARTICIPANTS;
 
 /// Ephemeral DAVE identity shared by the call and its Go Live streams.

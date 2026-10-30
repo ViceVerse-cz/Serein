@@ -925,10 +925,24 @@ impl Voice {
 		if let Some(p) = self.pending.as_ref() {
 			static LAST_LOG: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 			let now_sec = p.started.elapsed().as_secs();
-			if now_sec != LAST_LOG.swap(now_sec, std::sync::atomic::Ordering::Relaxed) && now_sec % 3 == 0 {
-				let msg = format!("[DIAG pending poll] elapsed={}s session={} rev={} server={}", now_sec, p.session.is_some(), p.negotiation_revision.is_some(), p.server.is_some());
+			if now_sec != LAST_LOG.swap(now_sec, std::sync::atomic::Ordering::Relaxed)
+				&& now_sec % 3 == 0
+			{
+				let msg = format!(
+					"[DIAG pending poll] elapsed={}s session={} rev={} server={}",
+					now_sec,
+					p.session.is_some(),
+					p.negotiation_revision.is_some(),
+					p.server.is_some()
+				);
 				eprintln!("{msg}");
-				let _ = std::fs::OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("serein_voice_diag.log")).and_then(|mut f| std::io::Write::write_all(&mut f, format!("{msg}\n").as_bytes()));
+				let _ = std::fs::OpenOptions::new()
+					.create(true)
+					.append(true)
+					.open(std::env::temp_dir().join("serein_voice_diag.log"))
+					.and_then(|mut f| {
+						std::io::Write::write_all(&mut f, format!("{msg}\n").as_bytes())
+					});
 			}
 		}
 		if self.retiring.is_none()
@@ -940,7 +954,11 @@ impl Voice {
 			}) {
 			let msg = "[DIAG start_media] all credentials present! invoking start_media";
 			eprintln!("{msg}");
-			let _ = std::fs::OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("serein_voice_diag.log")).and_then(|mut f| std::io::Write::write_all(&mut f, format!("{msg}\n").as_bytes()));
+			let _ = std::fs::OpenOptions::new()
+				.create(true)
+				.append(true)
+				.open(std::env::temp_dir().join("serein_voice_diag.log"))
+				.and_then(|mut f| std::io::Write::write_all(&mut f, format!("{msg}\n").as_bytes()));
 			let pending = self.pending.take().expect("pending negotiation");
 			let listen_only = permission_mutes_microphone(
 				state,
@@ -1222,8 +1240,13 @@ impl Voice {
 			return self.give_up_rejoin(state, discord_voice::DISCONNECTED_BY_DISCORD, true);
 		}
 		if let Some(f) = failure {
-			let has_neg = self.live.as_ref().is_some_and(|live| live.negotiation.is_some());
-			diag_log(&format!("[DIAG failure in poll] failure={f} has_neg={has_neg}"));
+			let has_neg = self
+				.live
+				.as_ref()
+				.is_some_and(|live| live.negotiation.is_some());
+			diag_log(&format!(
+				"[DIAG failure in poll] failure={f} has_neg={has_neg}"
+			));
 		}
 		if failure.is_some()
 			&& self
@@ -1761,7 +1784,9 @@ impl Voice {
 				media_identity,
 			)
 			.await;
-			diag_log(&format!("[DIAG run_with_identity task ended] result={result:?}"));
+			diag_log(&format!(
+				"[DIAG run_with_identity task ended] result={result:?}"
+			));
 			if let Err(error) = result {
 				let _ = transport_failure.set(error);
 			}
