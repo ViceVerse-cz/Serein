@@ -4199,6 +4199,9 @@ impl MessagingUi {
 			profiles::Action::SendMessage { user, content } => {
 				self.open_user_direct(state, user, user_direct::Intent::Send(content), commands);
 			}
+			profiles::Action::OpenDirect(user) => {
+				self.open_user_direct(state, user, user_direct::Intent::Message, commands);
+			}
 			profiles::Action::Full(tab) => {
 				self.profile
 					.open_full_tab(state.generation, user.clone(), tab);
@@ -8878,6 +8881,37 @@ mod composer_tests {
 			assert_eq!(state.profile.as_ref().unwrap().guild, guild);
 			output.drop_without_applying_deltas();
 		}
+	}
+
+	#[test]
+	fn profile_footer_open_chat_reuses_the_loaded_dm_without_sending() {
+		let mut state = test_support::demo_state();
+		state.selected = Some(Id(20));
+		let user = test_support::message(1, Id(22)).author;
+		let mut view = MessagingUi {
+			profile: {
+				let mut profile = profiles::ProfileSession::default();
+				profile.command_open(user.clone());
+				profile
+			},
+			..Default::default()
+		};
+		let mut commands = vec![];
+		view.profile_action(
+			&egui::Context::default(),
+			&mut state,
+			&mut commands,
+			&user,
+			None,
+			profiles::Action::OpenDirect(user.clone()),
+		);
+		assert_eq!(state.selected, Some(Id(22)));
+		assert!(view.profile.open_user().is_none());
+		assert!(
+			!commands
+				.iter()
+				.any(|command| matches!(command, Command::Send { .. }))
+		);
 	}
 
 	#[test]

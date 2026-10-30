@@ -4456,6 +4456,7 @@ lib-composer-onboarding-incomplete = Conclua a entrada neste servidor para desbl
 lib-composer-onboarding-complete = Concluir integração
 profiles-message-placeholder = Mensagem para @{ $user }
 profiles-message-send = Enviar mensagem
+profiles-message-open-chat = Abrir chat
 profiles-message-sending = Abrindo mensagem direta…
 user-menu-contents-start-a-call = Iniciar chamada
 verification-show-complete-the-check-to-open-this-conversation = Conclua a verificação para abrir esta conversa.

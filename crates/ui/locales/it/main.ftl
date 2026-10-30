@@ -4456,6 +4456,7 @@ lib-composer-onboarding-incomplete = Completa l'accesso a questo server per sblo
 lib-composer-onboarding-complete = Completa l'accoglienza
 profiles-message-placeholder = Messaggio a @{ $user }
 profiles-message-send = Invia messaggio
+profiles-message-open-chat = Apri chat
 profiles-message-sending = Apertura del messaggio diretto…
 user-menu-contents-start-a-call = Avvia una chiamata
 verification-show-complete-the-check-to-open-this-conversation = Completa la verifica per aprire questa conversazione.

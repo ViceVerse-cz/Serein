@@ -4462,6 +4462,7 @@ lib-composer-onboarding-incomplete = Завершите вступление, ч
 lib-composer-onboarding-complete = Завершить знакомство
 profiles-message-placeholder = Сообщение @{ $user }
 profiles-message-send = Отправить сообщение
+profiles-message-open-chat = Открыть чат
 profiles-message-sending = Открытие личных сообщений…
 user-menu-contents-start-a-call = Начать звонок
 verification-show-complete-the-check-to-open-this-conversation = Пройдите проверку, чтобы открыть этот разговор.

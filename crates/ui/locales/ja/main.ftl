@@ -4442,6 +4442,7 @@ lib-composer-onboarding-incomplete = 参加を完了すると、さらにチャ�
 lib-composer-onboarding-complete = オンボーディングを完了
 profiles-message-placeholder = @{ $user } にメッセージ
 profiles-message-send = メッセージを送信
+profiles-message-open-chat = チャットを開く
 profiles-message-sending = ダイレクトメッセージを開いています…
 user-menu-contents-start-a-call = 通話を開始
 verification-show-complete-the-check-to-open-this-conversation = 確認を完了してこの会話を開いてください。
