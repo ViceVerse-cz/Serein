@@ -45,9 +45,7 @@ impl Audio {
 		};
 		result
 			.recv_timeout(std::time::Duration::from_secs(4))
-			.map_err(
-				|_| "Echo-free system audio could not start; Windows build 20348 or newer is required",
-			)?;
+			.map_err(|_| "System audio capture could not start")?;
 		Ok(audio)
 	}
 
@@ -143,65 +141,85 @@ mod native {
 		result
 	}
 
+	fn activate_client(input: &Samples) -> Result<IAudioClient> {
+		// Echo-free process loopback (Windows 10 build 20348+ and Windows 11).
+		let process_loopback = (|| -> Result<IAudioClient> {
+			let params = Arc::new(activation_params(std::process::id()));
+			let (send, done) = sync_channel(1);
+			let completion: IActivateAudioInterfaceCompletionHandler = Completion {
+				send,
+				_params: params.clone(),
+			}
+			.into();
+			// The blob points into `params`; PROPVARIANT's Rust Drop would call
+			// PropVariantClear and try to free that Arc allocation with CoTaskMemFree.
+			// The completion handler owns `params` for the whole async activation.
+			let variant = ManuallyDrop::new(PROPVARIANT {
+				Anonymous: PROPVARIANT_0 {
+					Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
+						vt: VT_BLOB,
+						Anonymous: PROPVARIANT_0_0_0 {
+							blob: BLOB {
+								cbSize: size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
+								pBlobData: Arc::as_ptr(&params).cast_mut().cast(),
+							},
+						},
+						..Default::default()
+					}),
+				},
+			});
+			let operation = unsafe {
+				ActivateAudioInterfaceAsync(
+					VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+					&IAudioClient::IID,
+					Some(&*variant),
+					&completion,
+				)?
+			};
+			let deadline = Instant::now() + Duration::from_secs(3);
+			loop {
+				if input.stop.load(Ordering::Acquire) || Instant::now() >= deadline {
+					return Err(E_FAIL.into());
+				}
+				if done.recv_timeout(Duration::from_millis(50)).is_ok() {
+					break;
+				}
+			}
+			let mut status = HRESULT(0);
+			let mut activated = None;
+			unsafe { operation.GetActivateResult(&mut status, &mut activated)? };
+			drop(operation);
+			status.ok()?;
+			activated.ok_or(E_FAIL)?.cast()
+		})();
+
+		if let Ok(client) = process_loopback {
+			return Ok(client);
+		}
+		if input.stop.load(Ordering::Acquire) {
+			return Err(E_FAIL.into());
+		}
+		// Fallback: standard WASAPI loopback on the default audio endpoint (Windows 10 / older builds).
+		unsafe {
+			use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
+			let enumerator: IMMDeviceEnumerator =
+				CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+			let device: IMMDevice = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
+			device.Activate(CLSCTX_ALL, None)
+		}
+	}
+
 	fn capture(input: &Samples, started: &mut Option<SyncSender<()>>) -> Result<()> {
 		if input.stop.load(Ordering::Acquire) {
 			return Err(E_FAIL.into());
 		}
-		let params = Arc::new(activation_params(std::process::id()));
-		let (send, done) = sync_channel(1);
-		let completion: IActivateAudioInterfaceCompletionHandler = Completion {
-			send,
-			_params: params.clone(),
-		}
-		.into();
-		// The blob points into `params`; PROPVARIANT's Rust Drop would call
-		// PropVariantClear and try to free that Arc allocation with CoTaskMemFree.
-		// The completion handler owns `params` for the whole async activation.
-		let variant = ManuallyDrop::new(PROPVARIANT {
-			Anonymous: PROPVARIANT_0 {
-				Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
-					vt: VT_BLOB,
-					Anonymous: PROPVARIANT_0_0_0 {
-						blob: BLOB {
-							cbSize: size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
-							pBlobData: Arc::as_ptr(&params).cast_mut().cast(),
-						},
-					},
-					..Default::default()
-				}),
-			},
-		});
-		// The native operation retains the agile completion handler and its immutable blob.
-		let operation = unsafe {
-			ActivateAudioInterfaceAsync(
-				VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
-				&IAudioClient::IID,
-				Some(&*variant),
-				&completion,
-			)?
-		};
-		let deadline = Instant::now() + Duration::from_secs(3);
-		loop {
-			if input.stop.load(Ordering::Acquire) || Instant::now() >= deadline {
-				return Err(E_FAIL.into());
-			}
-			if done.recv_timeout(Duration::from_millis(50)).is_ok() {
-				break;
-			}
-		}
-		let mut status = HRESULT(0);
-		let mut activated = None;
-		// Completion has fired; GetActivateResult returns an owned COM reference.
-		unsafe { operation.GetActivateResult(&mut status, &mut activated)? };
-		drop(operation);
-		status.ok()?;
+		let client = activate_client(input)?;
 		if input.stop.load(Ordering::Acquire) || input.send.is_closed() {
 			return Err(E_FAIL.into());
 		}
 		let event = unsafe { CreateEventW(None, false, false, None)? };
 		// Created before the clients so it stays open until their COM references are released.
 		let event = unsafe { OwnedHandle::from_raw_handle(event.0) };
-		let client: IAudioClient = activated.ok_or(E_FAIL)?.cast()?;
 		let format = WAVEFORMATEX {
 			wFormatTag: 3, // WAVE_FORMAT_IEEE_FLOAT
 			nChannels: 2,
@@ -331,6 +349,46 @@ mod native {
 				process.ProcessLoopbackMode,
 				PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE
 			);
+		}
+
+		#[test]
+		fn test_wasapi_fallback_types() {
+			use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
+			unsafe {
+				let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+				let enumerator: Result<IMMDeviceEnumerator> =
+					CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL);
+				if let Ok(enumerator) = enumerator {
+					let device: Result<IMMDevice> =
+						enumerator.GetDefaultAudioEndpoint(eRender, eConsole);
+					if let Ok(device) = device {
+						let client: Result<IAudioClient> = device.Activate(CLSCTX_ALL, None);
+						if let Ok(client) = client {
+							let format = WAVEFORMATEX {
+								wFormatTag: 3,
+								nChannels: 2,
+								nSamplesPerSec: 48_000,
+								nAvgBytesPerSec: 48_000 * 8,
+								nBlockAlign: 8,
+								wBitsPerSample: 32,
+								cbSize: 0,
+							};
+							let init_res = client.Initialize(
+								AUDCLNT_SHAREMODE_SHARED,
+								AUDCLNT_STREAMFLAGS_LOOPBACK
+									| AUDCLNT_STREAMFLAGS_EVENTCALLBACK
+									| AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+								0,
+								0,
+								&format,
+								None,
+							);
+							assert!(init_res.is_ok());
+						}
+					}
+				}
+				CoUninitialize();
+			}
 		}
 	}
 }

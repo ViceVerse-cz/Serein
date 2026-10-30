@@ -325,7 +325,11 @@ fn copy_mingw_dll(root: &std::path::Path, name: &str) -> Result<(), String> {
 }
 #[allow(dead_code)]
 fn copy_mingw_runtime_dlls(root: &std::path::Path) -> Result<(), String> {
-	for name in ["libstdc++-6.dll", "libgcc_s_seh-1.dll", "libwinpthread-1.dll"] {
+	for name in [
+		"libstdc++-6.dll",
+		"libgcc_s_seh-1.dll",
+		"libwinpthread-1.dll",
+	] {
 		copy_mingw_dll(root, name)?;
 	}
 	Ok(())
