@@ -2065,7 +2065,7 @@ profiles-activity-verb-competing-in = En compétition sur
 # Context: activity_verb
 profiles-activity-verb-listening-to = Écoute
 # Context: activity_verb
-profiles-activity-verb-playing = Joue a
+profiles-activity-verb-playing = Joue à
 # Context: activity_verb
 profiles-activity-verb-streaming = Streame
 # Context: activity_verb
