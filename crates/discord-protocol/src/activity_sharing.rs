@@ -10,10 +10,17 @@ use serde::Deserialize;
 pub use crate::guild_folders::MAX_SETTINGS_RESPONSE;
 const MAX_STATUS_BYTES: usize = 16 * 1024;
 
+/// Seconds the account accepts for `voice_and_video.afk_timeout`; the app offers 1 to 60 minutes.
+pub const IDLE_TIMEOUT_SECS: std::ops::RangeInclusive<u32> = 60..=3600;
+
 pub struct Settings {
 	pub version: u64,
 	pub enabled: bool,
+	/// Account inactivity timeout in seconds. Duplicates and malformed wire fail the read like
+	/// the neighbouring fields; a well-formed value outside `IDLE_TIMEOUT_SECS` is ignored.
+	pub afk_timeout: Option<u32>,
 	status_wire: Vec<u8>,
+	voice_wire: Vec<u8>,
 }
 
 pub fn decode_response(bytes: &[u8]) -> Result<Settings, DecodeError> {
@@ -35,6 +42,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Settings, DecodeError> {
 		.map_err(|_| DecodeError)?;
 	let mut version = None;
 	let mut status = None;
+	let mut voice = None;
 	for field in fields(&wire)? {
 		match field.number {
 			1 => {
@@ -55,6 +63,13 @@ pub fn decode_response(bytes: &[u8]) -> Result<Settings, DecodeError> {
 					}
 				}
 				version = Some(data_version.unwrap_or_default());
+			}
+			5 => {
+				if voice.is_some() {
+					return Err(DecodeError);
+				}
+				// Bounded by MAX_SETTINGS_RESPONSE; a cap here would fail every settings read.
+				voice = Some(field.message()?);
 			}
 			11 => {
 				if status.is_some() {
@@ -95,8 +110,52 @@ pub fn decode_response(bytes: &[u8]) -> Result<Settings, DecodeError> {
 	Ok(Settings {
 		version: version.ok_or(DecodeError)?,
 		enabled: enabled.unwrap_or(true),
+		afk_timeout: afk_timeout(voice.unwrap_or_default())?,
 		status_wire: status.into(),
+		voice_wire: voice.unwrap_or_default().into(),
 	})
+}
+
+fn afk_timeout(voice: &[u8]) -> Result<Option<u32>, DecodeError> {
+	let mut seen = false;
+	let mut timeout = None;
+	for field in fields(voice)? {
+		if field.number == 6 {
+			if seen {
+				return Err(DecodeError);
+			}
+			seen = true;
+			let mut value = None;
+			for field in fields(field.message()?)? {
+				if field.number == 1 {
+					if value.is_some() {
+						return Err(DecodeError);
+					}
+					value = Some(u32::try_from(field.integer()?).map_err(|_| DecodeError)?);
+				}
+			}
+			timeout = value.filter(|value| IDLE_TIMEOUT_SECS.contains(value));
+		}
+	}
+	Ok(timeout)
+}
+
+/// Replace only `voice_and_video.afk_timeout`; other voice settings and unknown fields stay, like
+/// the status patches. The sub-message has no repeated fields, so resending it is idempotent.
+pub fn encode_afk_timeout(current: &Settings, secs: u32) -> Result<String, DecodeError> {
+	if !IDLE_TIMEOUT_SECS.contains(&secs) {
+		return Err(DecodeError);
+	}
+	let mut voice = Vec::new();
+	for field in fields(&current.voice_wire)? {
+		if field.number != 6 {
+			voice.extend_from_slice(field.raw);
+		}
+	}
+	integer_wrapper(6, secs.into(), &mut voice);
+	let mut patch = Vec::new();
+	message(5, &voice, &mut patch);
+	Ok(STANDARD.encode(patch))
 }
 
 /// Replace only this preference; retain status, custom status and unknown status fields.
@@ -350,6 +409,72 @@ mod tests {
 			assert!(decode_response(&response(&invalid)).is_err());
 		}
 		assert!(decode_response(&vec![b' '; MAX_SETTINGS_RESPONSE + 1]).is_err());
+		assert_eq!(current.afk_timeout, None);
+		// voice_and_video with another field (1) plus afk_timeout (6) = 900 s.
+		let mut voice = vec![8, 1];
+		integer_wrapper(6, 900, &mut voice);
+		let mut with_timeout = wire.clone();
+		message(5, &voice, &mut with_timeout);
+		assert_eq!(
+			decode_response(&response(&with_timeout))
+				.unwrap()
+				.afk_timeout,
+			Some(900)
+		);
+		// A large voice_and_video message must not fail the whole settings read.
+		let mut large = Vec::new();
+		message(1, &vec![0; MAX_STATUS_BYTES + 1], &mut large);
+		integer_wrapper(6, 900, &mut large);
+		let mut with_large = vec![10, 0];
+		message(5, &large, &mut with_large);
+		assert_eq!(
+			decode_response(&response(&with_large)).unwrap().afk_timeout,
+			Some(900)
+		);
+		for ignored in [0, 59, 3601] {
+			let mut voice = Vec::new();
+			integer_wrapper(6, ignored, &mut voice);
+			let mut wire = vec![10, 0];
+			message(5, &voice, &mut wire);
+			assert_eq!(decode_response(&response(&wire)).unwrap().afk_timeout, None);
+		}
+		for invalid in [
+			// duplicate voice_and_video, duplicate afk_timeout, duplicate value, over u32,
+			// wrong wire type, truncated wrapper
+			vec![10, 0, 42, 0, 42, 0],
+			vec![10, 0, 42, 8, 50, 2, 8, 60, 50, 2, 8, 60],
+			vec![10, 0, 42, 6, 50, 4, 8, 60, 8, 60],
+			vec![10, 0, 42, 9, 50, 7, 8, 128, 128, 128, 128, 16, 0],
+			vec![10, 0, 42, 2, 48, 60],
+			vec![10, 0, 42, 4, 50, 2, 8, 128],
+		] {
+			assert!(decode_response(&response(&invalid)).is_err());
+		}
+		let current = decode_response(&response(&with_timeout)).unwrap();
+		let patch = STANDARD
+			.decode(encode_afk_timeout(&current, 1800).unwrap())
+			.unwrap();
+		let mut saved = vec![10, 2, 24, 9];
+		saved.extend_from_slice(&patch);
+		message(11, &preserved, &mut saved);
+		let saved = decode_response(&response(&saved)).unwrap();
+		assert_eq!((saved.afk_timeout, saved.enabled), (Some(1800), true));
+		// The other voice_and_video field survives the patch.
+		assert!(
+			fields(&saved.voice_wire)
+				.unwrap()
+				.iter()
+				.any(|field| field.number == 1)
+		);
+		assert_eq!(
+			account_presence(&saved).unwrap().status,
+			model::PresenceStatus::DoNotDisturb
+		);
+		assert_eq!(fields(&patch).unwrap().len(), 1);
+		assert!(
+			encode_afk_timeout(&current, 59).is_err()
+				&& encode_afk_timeout(&current, 3601).is_err()
+		);
 		let mut oversized = vec![10, 0];
 		message(11, &vec![0; MAX_STATUS_BYTES + 1], &mut oversized);
 		assert!(decode_response(&response(&oversized)).is_err());
