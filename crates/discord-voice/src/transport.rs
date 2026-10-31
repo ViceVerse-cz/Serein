@@ -282,6 +282,35 @@ fn discovery(packet: &[u8], ssrc: u32) -> Result<(IpAddr, u16), &'static str> {
 	}
 	Ok((address, port))
 }
+fn stream_discovery(
+	packet: &[u8],
+	audio_ssrc: u32,
+	video_ssrc: u32,
+) -> Result<(IpAddr, u16), &'static str> {
+	if packet.len() < 74 || packet[..4] != [0, 2, 0, 70] {
+		return Err("Invalid stream UDP discovery reply");
+	}
+	let packet_ssrc = u32::from_be_bytes([packet[4], packet[5], packet[6], packet[7]]);
+	if packet_ssrc != 0
+		&& packet_ssrc != audio_ssrc
+		&& (video_ssrc == 0 || packet_ssrc != video_ssrc)
+	{
+		// Tolerant: socket is connected to Discord media server exclusively.
+	}
+	let end = packet[8..72]
+		.iter()
+		.position(|b| *b == 0)
+		.ok_or("Invalid stream discovery address")?;
+	let address = std::str::from_utf8(&packet[8..8 + end])
+		.map_err(|_| "Invalid stream discovery address")?
+		.parse()
+		.map_err(|_| "Invalid stream discovery address")?;
+	let port = u16::from_be_bytes([packet[72], packet[73]]);
+	if port == 0 {
+		return Err("Invalid stream discovery port");
+	}
+	Ok((address, port))
+}
 
 /// Drop the control sender or abort this future to stop the socket, UDP, codecs and ephemeral keys.
 /// PCM queues must contain at most eight 20ms mono48k frames each. No audio device opens here.
@@ -1294,6 +1323,7 @@ async fn run_stream_inner(
 	let mut discovering = false;
 	let mut discovery_deadline = Instant::now();
 	let mut next_discovery_probe = Instant::now();
+	let mut discovery_probe_alt = false;
 	let mut audio_ssrc = 0u32;
 	let mut video_ssrc = 0u32;
 	let mut rtx_ssrc = 0u32;
@@ -1378,7 +1408,13 @@ async fn run_stream_inner(
 				if discovering {
 					if now>=discovery_deadline {return Err("Discord stream UDP discovery timed out");}
 					if now>=next_discovery_probe && let Some(socket)=&udp {
-						let mut probe=[0;74];probe[..4].copy_from_slice(&[0,1,0,70]);probe[4..8].copy_from_slice(&audio_ssrc.to_be_bytes());
+						let probe_ssrc = if discovery_probe_alt && video_ssrc != 0 {
+							video_ssrc
+						} else {
+							audio_ssrc
+						};
+						discovery_probe_alt = !discovery_probe_alt;
+						let mut probe=[0;74];probe[..4].copy_from_slice(&[0,1,0,70]);probe[4..8].copy_from_slice(&probe_ssrc.to_be_bytes());
 						let _ = socket.send(&probe).await;
 						next_discovery_probe=now+Duration::from_millis(300);
 					}
@@ -1510,7 +1546,7 @@ async fn run_stream_inner(
 			result=async {match &udp {Some(socket)=>socket.recv(&mut packet).await,_=>std::future::pending().await}}=>{
 				let length=match result {Ok(length)=>length,Err(error) if transient_receive(&error)=>continue,Err(_)=>return Err("Stream UDP receive failed")};
 				if discovering {
-					let Ok((address, port)) = discovery(&packet[..length], audio_ssrc) else {
+					let Ok((address, port)) = stream_discovery(&packet[..length], audio_ssrc, video_ssrc) else {
 						continue;
 					};
 					json_send(&mut ws,json!({"op":1,"d":{"protocol":"udp","data":{"address":address.to_string(),"port":port,"mode":MODE},"codecs":[{"name":"opus","type":"audio","priority":1000,"payload_type":120},{"name":"H264","type":"video","priority":1000,"payload_type":101,"rtx_payload_type":102,"encode":video.is_some(),"decode":decoder.is_some()}]}})).await?;
@@ -1613,7 +1649,7 @@ async fn run_stream_inner(
 								let socket=UdpSocket::bind(if address.is_ipv4(){"0.0.0.0:0"}else{"[::]:0"}).await.map_err(|_|"Could not bind stream UDP socket")?;
 								socket.connect(SocketAddr::new(address,port)).await.map_err(|_|"Could not connect stream UDP socket")?;
 								let mut probe=[0;74];probe[..4].copy_from_slice(&[0,1,0,70]);probe[4..8].copy_from_slice(&audio_ssrc.to_be_bytes());socket.send(&probe).await.map_err(|_|"Stream UDP discovery failed")?;
-								udp=Some(socket);discovering=true;discovery_deadline=Instant::now()+Duration::from_secs(8);next_discovery_probe=Instant::now()+Duration::from_millis(300);emit(Status::Discovering).map_err(|_|"Stream interface closed")?;
+								udp=Some(socket);discovering=true;discovery_deadline=Instant::now()+Duration::from_secs(15);next_discovery_probe=Instant::now()+Duration::from_millis(300);discovery_probe_alt=true;emit(Status::Discovering).map_err(|_|"Stream interface closed")?;
 							},
 							4=>{
 								if encryption.is_some()||udp.is_none()||discovering{return Err("Unexpected stream session description");}
@@ -2005,6 +2041,9 @@ mod tests {
 		let mut padded_reply = [0; 82];
 		padded_reply[..74].copy_from_slice(&reply);
 		assert_eq!(discovery(&padded_reply, 42).unwrap().1, 1234);
+		assert_eq!(stream_discovery(&reply, 42, 99).unwrap().1, 1234);
+		assert_eq!(stream_discovery(&reply, 99, 42).unwrap().1, 1234);
+		assert_eq!(stream_discovery(&reply, 99, 100).unwrap().1, 1234);
 		let mut encoder = Encoder::new(48_000, Channels::Stereo, Application::Voip).unwrap();
 		let mut decoder = Decoder::new(48_000, Channels::Mono).unwrap();
 		let input = std::array::from_fn::<_, 1920, _>(|i| ((i / 2) as f32 * 0.06).sin() * 0.2);
