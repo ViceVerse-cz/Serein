@@ -516,10 +516,43 @@ impl DiscordApi {
 			if message.is_none() {
 				body["type"] = json!(11);
 			}
-			let bytes = self
+			let response = self
 				.request_limited(Method::POST, &path, Some(body), MAX_CHANNEL_BYTES)
-				.await
-				.map_err(write_failure)?;
+				.await;
+			let bytes = match response {
+				Ok(bytes) => bytes,
+				Err(Failure::ProtocolAt(client_core::channel_actions::THREAD_ALREADY_OPENED))
+					if message.is_some() =>
+				{
+					let thread_id = message.unwrap();
+					let thread_path = format!("/channels/{thread_id}");
+					match self
+						.request_limited(Method::GET, &thread_path, None, MAX_CHANNEL_BYTES)
+						.await
+					{
+						Ok(thread_bytes) => {
+							if let Ok(outcome) =
+								created_thread_result(&thread_bytes, guild, channel)
+								&& match &outcome {
+									Outcome::Channel {
+										channel: recovered, ..
+									} => recovered.id == thread_id,
+									_ => false,
+								} {
+								return Ok(outcome);
+							}
+						}
+						Err(failure @ (Failure::Expired | Failure::RateLimited)) => {
+							return Err(failure);
+						}
+						Err(_) => {}
+					}
+					return Err(Failure::ProtocolAt(
+						client_core::channel_actions::THREAD_ALREADY_OPENED,
+					));
+				}
+				Err(failure) => return Err(write_failure(failure)),
+			};
 			return created_thread_result(&bytes, guild, channel).map_err(write_failure);
 		}
 		let (method, path, body) = match action {
@@ -1281,5 +1314,126 @@ mod tests {
 		}
 		assert!(duplicate_body(&json!({"type":0}), "copy").is_err());
 		assert!(channel_result(&serde_json::to_vec(&json!({"id":"3","guild_id":"2","type":0,"name":"private","permission_overwrites":[{"id":"2","type":0,"allow":"oops","deny":"0"}]})).unwrap(),Id(2),Some(Id(3))).is_err());
+	}
+
+	#[tokio::test]
+	async fn thread_create_recovers_when_thread_already_opened_for_message() {
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_CHANNEL_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let server = async {
+			reply(&listener, "GET /channels/3 HTTP/1.1", 200, source()).await;
+			let error_body = json!({
+				"code": 160004,
+				"message": "A thread has already been opened on this message"
+			});
+			reply(
+				&listener,
+				"POST /channels/3/messages/42/threads HTTP/1.1",
+				400,
+				error_body,
+			)
+			.await;
+			let existing = json!({
+				"id": "42",
+				"guild_id": "2",
+				"parent_id": "3",
+				"type": 11,
+				"name": "Existing Thread"
+			});
+			reply(&listener, "GET /channels/42 HTTP/1.1", 200, existing).await;
+		};
+		let action = Action::CreateThread {
+			name: "My Thread".into(),
+			message: Some(Id(42)),
+		};
+		let (result, ()) = tokio::join!(api.channel_action(Id(2), Id(3), &action), server);
+		let Outcome::Channel { channel, .. } = result.unwrap() else {
+			panic!("expected channel outcome");
+		};
+		assert_eq!(channel.id, Id(42));
+		assert_eq!(channel.name, "Existing Thread");
+	}
+
+	#[tokio::test]
+	async fn thread_create_reports_clear_error_when_recovery_fails() {
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_CHANNEL_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let server = async {
+			reply(&listener, "GET /channels/3 HTTP/1.1", 200, source()).await;
+			let error_body = json!({
+				"code": 160004,
+				"message": "A thread has already been opened on this message"
+			});
+			reply(
+				&listener,
+				"POST /channels/3/messages/42/threads HTTP/1.1",
+				400,
+				error_body,
+			)
+			.await;
+			reply(&listener, "GET /channels/42 HTTP/1.1", 404, json!({})).await;
+		};
+		let action = Action::CreateThread {
+			name: "My Thread".into(),
+			message: Some(Id(42)),
+		};
+		let (result, ()) = tokio::join!(api.channel_action(Id(2), Id(3), &action), server);
+		assert!(matches!(
+			result,
+			Err(Failure::ProtocolAt(
+				client_core::channel_actions::THREAD_ALREADY_OPENED
+			))
+		));
+	}
+
+	#[tokio::test]
+	async fn thread_create_rejects_recovery_outcome_with_mismatched_id() {
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_CHANNEL_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let server = async {
+			reply(&listener, "GET /channels/3 HTTP/1.1", 200, source()).await;
+			let error_body = json!({
+				"code": 160004,
+				"message": "A thread has already been opened on this message"
+			});
+			reply(
+				&listener,
+				"POST /channels/3/messages/42/threads HTTP/1.1",
+				400,
+				error_body,
+			)
+			.await;
+			let mismatched = json!({
+				"id": "999",
+				"guild_id": "2",
+				"parent_id": "3",
+				"type": 11,
+				"name": "Different Thread"
+			});
+			reply(&listener, "GET /channels/42 HTTP/1.1", 200, mismatched).await;
+		};
+		let action = Action::CreateThread {
+			name: "My Thread".into(),
+			message: Some(Id(42)),
+		};
+		let (result, ()) = tokio::join!(api.channel_action(Id(2), Id(3), &action), server);
+		assert!(matches!(
+			result,
+			Err(Failure::ProtocolAt(
+				client_core::channel_actions::THREAD_ALREADY_OPENED
+			))
+		));
 	}
 }
