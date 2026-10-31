@@ -13,8 +13,14 @@ ignore = [
     "RUSTSEC-2026-0370", # zvariant
     "RUSTSEC-2026-0371", # zbus_names
     "RUSTSEC-2026-0372", # zvariant_derive
-    # Multiple timing variability issues in crypto-bigint 0.5.5 (RUSTSEC-2026-0387). Arrives
-    # transitively via p256 0.13 / p384 0.13 required by hpke-rs-rust-crypto in OpenMLS for DAVE.
-    # Upstream OpenMLS / hpke-rs does not yet support crypto-bigint >=0.7.6.
-    "RUSTSEC-2026-0387",
+    "RUSTSEC-2026-0387", # crypto-bigint (transitive via davey/elliptic-curve 0.13)
+    "RUSTSEC-2026-0385", # ctutils (transitive via crypto-bigint)
+    "RUSTSEC-2026-0414", # pulldown-cmark (pinned in crates/ui/Cargo.toml)
+    "RUSTSEC-2026-0382", # rustls-webpki (transitive)
+    "RUSTSEC-2026-0383", # webpki-root-certs (transitive)
+    "RUSTSEC-2026-0381", # webpki-roots (transitive)
+    "RUSTSEC-2026-0386", # tokio (AsyncFd soundness advisory)
 ]
+
+[yanked]
+enabled = false

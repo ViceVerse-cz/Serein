@@ -217,13 +217,54 @@ impl SavedAccount {
 			.filter(|display| !display.is_empty())
 			.unwrap_or(&self.name)
 	}
+	/// Roster identity of the account that just signed in. The handle is stored apart from the
+	/// display name: the user this client keeps already carries the display name, so the handle
+	/// comes from `own`, the loaded profile's handle and display name. A loaded profile is
+	/// authoritative, including a removed display name; until it loads the entry keeps what
+	/// `previous` knew. An unknown handle is recorded as the display name, so `handle` hides it.
+	pub fn identity(
+		user: &User,
+		own: Option<(&str, Option<&str>)>,
+		previous: Option<&SavedAccount>,
+	) -> Self {
+		let (handle, display) = match own {
+			Some((handle, display)) => (Some(handle), display),
+			None => (
+				previous.map(|saved| saved.name.as_str()),
+				previous.and_then(|saved| saved.display.as_deref()),
+			),
+		};
+		let handle = handle.filter(|handle| !handle.is_empty());
+		let display = display
+			.filter(|display| !display.is_empty())
+			.or(handle.is_none().then_some(user.name.as_str()));
+		Self {
+			id: user.id,
+			name: handle.unwrap_or(&user.name).to_owned(),
+			display: display.map(str::to_owned),
+			avatar: user.avatar.clone(),
+			discriminator: user.discriminator,
+			has_token: false,
+		}
+	}
+	/// The handle shown under the display name. An entry recorded before the handle was kept
+	/// carries the display name twice, so it shows no handle until that account signs in again
+	/// and rewrites its entry.
+	pub fn handle(&self) -> Option<&str> {
+		let display = self
+			.display
+			.as_deref()
+			.filter(|display| !display.is_empty());
+		(display != Some(self.name.as_str())).then_some(self.name.as_str())
+	}
 	/// Avatar lookups and name rows reuse the ordinary user widgets.
 	pub fn user(&self) -> User {
 		User {
 			kind: AccountKind::Human,
 			webhook: false,
 			id: self.id,
-			name: self.name.clone(),
+			// Initials fall back to the display name, as for every other avatar.
+			name: self.label().to_owned(),
 			avatar: self.avatar.clone(),
 			discriminator: self.discriminator,
 			primary_guild: None,
@@ -958,6 +999,61 @@ mod presence_tests {
 		);
 		assert!(!ActivityImage::Proxy("external/../secret".into()).valid());
 		assert!(!ActivityImage::Proxy("x".repeat(1025)).valid());
+	}
+}
+
+#[cfg(test)]
+mod roster_identity_tests {
+	use super::*;
+
+	fn user(name: &str) -> User {
+		User {
+			id: Id(2),
+			name: name.into(),
+			avatar: None,
+			webhook: false,
+			kind: AccountKind::Human,
+			discriminator: 0,
+			primary_guild: None,
+			cosmetics: None,
+		}
+	}
+
+	#[test]
+	fn a_roster_entry_keeps_the_handle_apart_from_the_display_name() {
+		// The user this client keeps already carries the display name, so a roster entry built
+		// from it alone showed that name on both switcher lines.
+		let user = user("Display name");
+		let saved = SavedAccount::identity(&user, Some(("handle", Some("Display name"))), None);
+		assert_eq!(
+			(saved.name.as_str(), saved.label()),
+			("handle", "Display name")
+		);
+		assert_eq!(saved.user().name, "Display name");
+		assert!(saved.is_valid());
+		// Regression: before the own profile loads, the display name is never shown as a handle.
+		let pending = SavedAccount::identity(&user, None, None);
+		assert_eq!((pending.label(), pending.handle()), ("Display name", None));
+		assert!(pending.is_valid());
+		// Until it loads, a known entry keeps its handle and display name.
+		let kept = SavedAccount::identity(&user, None, Some(&saved));
+		assert_eq!(
+			(kept.label(), kept.handle()),
+			("Display name", Some("handle"))
+		);
+		// Regression: a loaded profile without a display name clears the saved one.
+		let plain = SavedAccount::identity(&user, Some(("handle", None)), Some(&saved));
+		assert_eq!((plain.label(), plain.display.as_deref()), ("handle", None));
+		assert_eq!(plain.handle(), Some("handle"));
+		assert_eq!(saved.handle(), Some("handle"));
+		// A row written before the handle was kept names the account once, never twice.
+		let stale = SavedAccount {
+			name: "Display name".into(),
+			display: Some("Display name".into()),
+			..saved
+		};
+		assert_eq!(stale.handle(), None);
+		assert_eq!(stale.label(), "Display name");
 	}
 }
 
