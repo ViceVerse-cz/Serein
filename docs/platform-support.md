@@ -207,6 +207,20 @@ tray host restores a hidden window. Normal taskbar/Dock minimizing is unchanged.
 Show restores the window, and Quit follows the existing unsaved-work and download
 checks.
 
+Windows tray activation shows a hidden or already visible window without resetting
+maximization; only an actually minimized window receives native restoration.
+The synthetic native regression covers tray clicks, the Show menu, repeated Show,
+minimized maximized windows and preserved normal geometry. On an interactive
+Windows desktop, run:
+
+```text
+cargo test --locked -p platform --lib tray::native::tests::native_minimize_restore_restart_quit_and_cleanup -- --exact --ignored --test-threads=1
+```
+
+Cross-compilation alone does not verify desktop behavior.
+The user-run Windows x64 synthetic regression reproduced the maximization failure
+before this fix and passed after it. Full-application visual validation remains pending.
+
 Windows voice state changes the icon and tooltip for speaking, muted and deafened
 states. Fixed-size icons are created once and destroyed with the registration;
 failed updates are retried on the next logic tick. Explorer recovery restores the

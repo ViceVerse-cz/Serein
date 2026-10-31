@@ -2055,21 +2055,21 @@ profiles-activity-card-activity-options = Options d'activité
 # Context: activity_card
 profiles-activity-card-copy-activity = Activité de copie
 # Context: activity_card
-profiles-activity-card-listening-to-spotify = Écouter Spotify
+profiles-activity-card-listening-to-spotify = Écoute Spotify
 # Context: activity_row
-profiles-activity-row-show = Montrer
+profiles-activity-row-show = Montre
 # Context: activity_verb
 profiles-activity-verb-activity = Activité
 # Context: activity_verb
-profiles-activity-verb-competing-in = En compétition
+profiles-activity-verb-competing-in = En compétition sur
 # Context: activity_verb
-profiles-activity-verb-listening-to = Écouter
+profiles-activity-verb-listening-to = Écoute
 # Context: activity_verb
-profiles-activity-verb-playing = Jouant
+profiles-activity-verb-playing = Joue à
 # Context: activity_verb
-profiles-activity-verb-streaming = Streaming
+profiles-activity-verb-streaming = Streame
 # Context: activity_verb
-profiles-activity-verb-watching = Regarder
+profiles-activity-verb-watching = Regarde
 # Context: more_menu
 profiles-more-menu-add-friend-nickname = Ajouter un pseudo d'ami
 # Context: more_menu
