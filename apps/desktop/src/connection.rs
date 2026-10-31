@@ -29,6 +29,18 @@ pub struct Connection {
 	pub share_activity: watch::Sender<bool>,
 	pub custom_rich_presence: watch::Sender<Option<extensions::CustomRichPresence>>,
 	pub own_presence: watch::Sender<model::OwnPresence>,
+	/// Idle-after timeout while Go idle when away applies (`None`: off or in a call); a poller
+	/// turns system inactivity into gateway afk.
+	pub auto_idle: watch::Sender<Option<Duration>>,
+	/// The account's idle timeout in seconds (default when unset), sent once it is read at connect.
+	pub idle_timeout: watch::Receiver<Option<u32>>,
+	/// Owner edits of the timeout, written to the account.
+	pub idle_timeout_edits: watch::Sender<Option<u32>>,
+	pub idle_timeout_error: watch::Receiver<Option<&'static str>>,
+	/// Last value known to match the account; `None` until it was read on this connection.
+	pub idle_timeout_synced: Option<u32>,
+	/// Whether system inactivity currently shows this session as Idle.
+	pub afk: watch::Receiver<bool>,
 	/// Local edits only. Seeding from Discord does not publish through this watch.
 	pub presence_edits: watch::Sender<Option<model::OwnPresence>>,
 	/// The status chosen for this connection, once Discord or the local fallback is known.
@@ -90,6 +102,46 @@ pub fn take_confirmation_failure(
 impl Drop for Connection {
 	fn drop(&mut self) {
 		self.task.abort();
+	}
+}
+/// Short enough that locking the screen shows as Idle within about this long.
+const IDLE_POLL: Duration = Duration::from_secs(5);
+/// Publishes whether the system has been idle long enough to show as Idle; ends with the connection.
+async fn run_auto_idle(
+	mut enabled: watch::Receiver<Option<Duration>>,
+	afk: watch::Sender<bool>,
+	wake: egui::Context,
+) {
+	let mut tick = tokio::time::interval(IDLE_POLL);
+	// One query at a time: a stuck OS query must not pile up blocking threads.
+	let mut query: Option<tokio::task::JoinHandle<Option<Duration>>> = None;
+	loop {
+		tokio::select! {
+			_ = tick.tick() => {}
+			changed = enabled.changed() => if changed.is_err() { return; }
+		}
+		let timeout = *enabled.borrow();
+		let idle = if timeout.is_some() {
+			let pending = query
+				.get_or_insert_with(|| tokio::task::spawn_blocking(platform::idle::system_idle));
+			// Turning the setting off still clears afk while a query is stuck.
+			tokio::select! {
+				result = pending => {
+					query = None;
+					result.ok().flatten()
+				}
+				changed = enabled.changed() => if changed.is_err() { return; } else { None }
+			}
+		} else {
+			None
+		};
+		// A locked screen reports `Duration::MAX`, which is away for any timeout.
+		let away = timeout
+			.zip(idle)
+			.is_some_and(|(timeout, idle)| idle >= timeout);
+		if afk.send_if_modified(|current| std::mem::replace(current, away) != away) {
+			wake.request_repaint();
+		}
 	}
 }
 /// Preload tasks kept at once: one per preload kind, plus room for one whose result was lost.
@@ -165,6 +217,12 @@ impl Connection {
 		let (share_activity, share_receive) = watch::channel(false);
 		let (custom_rich_presence, custom_receive) = watch::channel(None);
 		let (own_presence, presence_receive) = watch::channel(model::OwnPresence::default());
+		let (auto_idle, auto_idle_receive) = watch::channel(None);
+		let (idle_timeout_send, idle_timeout) = watch::channel(None);
+		let (idle_timeout_edits, idle_timeout_edit_events) = watch::channel(None);
+		let (idle_timeout_error_send, idle_timeout_error) = watch::channel(None);
+		let (afk, afk_receive) = watch::channel(false);
+		let afk_display = afk_receive.clone();
 		let (presence_edits, presence_edit_events) = watch::channel(None);
 		let (account_presence_send, account_presence) = watch::channel(None);
 		let (presence_error_send, presence_error) = watch::channel(None);
@@ -214,7 +272,13 @@ impl Connection {
 					finished: finished.clone(),
 					wake: wake.clone(),
 				})));
-				let chosen = resolve_account_presence(&api, &presence_send, cached).await;
+				let chosen = resolve_account_presence(&api, &presence_send, cached, &idle_timeout_send).await;
+				let _idle_timeout_task = AbortTask(tokio::spawn(run_idle_timeout_sync(
+					api.clone(),
+					idle_timeout_edit_events,
+					idle_timeout_error_send,
+					wake.clone(),
+				)));
 				if chosen.is_some() {
 					wake.request_repaint();
 				}
@@ -227,6 +291,7 @@ impl Connection {
 				let _sharing_task=AbortTask(tokio::spawn(run_activity_sharing(api.clone(),share_receive.clone(),sharing_requests,sharing_report,finished.clone(),wake.clone())));
 				let _activity_task=AbortTask(tokio::spawn(crate::game_activity::run((share_receive,custom_receive,crate::game_activity::Registered{games:registered_receive,current:running_send}),activity_send,game_report,invite_send,wake.clone(),user.clone(),api.clone())));
 				let _spotify_task=AbortTask(tokio::spawn(crate::spotify::run(api.clone(),user.id,presence_receive.clone(),spotify_send,wake.clone())));
+				let _idle_task=AbortTask(tokio::spawn(run_auto_idle(auto_idle_receive,afk,wake.clone())));
                 let dm_channels=Arc::new(Mutex::new(BTreeMap::new()));
                 let (recipient_scope,mut recipient_scope_changed)=watch::channel(0u64);
                 let recipient_call=Arc::new(Mutex::new(RecipientCalls::default()));
@@ -239,7 +304,7 @@ impl Connection {
                 let gateway_wake=wake.clone();
                 let activity_wake=wake.clone();
                 let mut gateway_task=AbortTask(tokio::spawn(async move {
-                    let error=discord_gateway::run_with_activity_recovery(secret,gateway,member_receive,voice_receive,gateway_reconnect,(activity_receive,presence_receive,member_query_receive,spotify_receive),move |observation| {
+                    let error=discord_gateway::run_with_activity_recovery(secret,gateway,member_receive,voice_receive,gateway_reconnect,(activity_receive,presence_receive,member_query_receive,spotify_receive,afk_receive),move |observation| {
                         if activity_observed.send_if_modified(|current| { if *current == observation { false } else { *current = observation; true } }) { activity_wake.request_repaint(); }
                         Ok(())
                     },|event|{
@@ -702,6 +767,12 @@ impl Connection {
 			confirmation_failure,
 			share_activity,
 			own_presence,
+			auto_idle,
+			idle_timeout,
+			idle_timeout_edits,
+			idle_timeout_error,
+			idle_timeout_synced: None,
+			afk: afk_display,
 			presence_edits,
 			account_presence,
 			presence_error,
@@ -726,12 +797,17 @@ async fn resolve_account_presence(
 	api: &DiscordApi,
 	presence: &watch::Sender<model::OwnPresence>,
 	cached: Option<model::OwnPresence>,
+	idle_timeout: &watch::Sender<Option<u32>>,
 ) -> Option<model::OwnPresence> {
 	let baseline = presence.borrow().clone();
-	let remote = tokio::time::timeout(Duration::from_secs(8), api.account_presence())
+	let remote = tokio::time::timeout(Duration::from_secs(8), api.account_status())
 		.await
 		.ok()
-		.and_then(Result::ok);
+		.and_then(Result::ok)
+		.map(|(presence, timeout)| {
+			idle_timeout.send_replace(Some(timeout.unwrap_or(ui::DEFAULT_IDLE_TIMEOUT_SECS)));
+			presence
+		});
 	let edited = presence.borrow().clone() != baseline;
 	if !edited && (remote.is_some() || cached.is_some()) {
 		let chosen = remote.clone().or(cached.clone()).unwrap_or_default();
@@ -746,6 +822,29 @@ async fn resolve_account_presence(
 	}
 	let current = presence.borrow().clone();
 	(remote.is_some() || cached.is_some() || current != baseline).then_some(current)
+}
+
+/// Writes owner edits of the idle timeout, newest wins. No retry loop: a failure shows a hint
+/// and the next edit or reconnect tries again.
+async fn run_idle_timeout_sync(
+	api: Arc<DiscordApi>,
+	mut edits: watch::Receiver<Option<u32>>,
+	note: watch::Sender<Option<&'static str>>,
+	wake: egui::Context,
+) {
+	while edits.changed().await.is_ok() {
+		let Some(secs) = *edits.borrow_and_update() else {
+			continue;
+		};
+		let hint = api
+			.set_idle_timeout(secs)
+			.await
+			.err()
+			.map(|_| "Could not save the idle timeout to Discord.");
+		if note.send_replace(hint) != hint {
+			wake.request_repaint();
+		}
+	}
 }
 
 struct PresenceSync {

@@ -121,6 +121,25 @@ selects Dark; no preference selects Light. If detection fails entirely, the
 existing Dark fallback remains. Windows/macOS retain winit's system theme events.
 Real Linux desktop/portal rendering is unverified in this macOS repair session.
 
+## Go idle when away
+
+The Notifications setting shows Idle after the account's inactivity timeout
+(default 10 minutes) without system-wide keyboard or mouse input, or right away
+while the computer is locked, so Discord can send notifications to the phone.
+It is not applied during voice calls. Input age comes from `GetLastInputInfo` on
+Windows and CoreGraphics on macOS. On Linux Serein asks GNOME Mutter's
+IdleMonitor, then the Wayland `ext-idle-notify-v1` protocol (KDE Plasma, wlroots
+compositors, COSMIC), then `org.freedesktop.ScreenSaver` (KDE on X11), then X11
+XScreenSaver, which is skipped under Wayland. Wayland compositors with none of
+these stay online, and idle inhibitors such as video playback keep the session
+active. A lock is read from the WTS session state on Windows, the CGSession
+dictionary on macOS, and logind's `LockedHint` (then the ScreenSaver service's
+`GetActive`) on Linux. The check runs every 5 seconds off the UI thread, so locking applies
+within about that long. The timeout is read when Serein connects and saved to
+the account when changed here; edits from another device apply on the next
+connect. Serein also shows your own status as Idle while it applies. macOS and
+Linux behavior is unverified on a live session.
+
 ## Window transparency and blur
 
 Enable Transparency & blur in Appearance and restart to create an alpha-capable
