@@ -76,7 +76,11 @@ impl ThreadCreateUi {
 				.filter(|c| {
 					c.parent_id == Some(channel)
 						&& matches!(c.kind, 10..=12)
-						&& c.name.trim() == name
+						&& if let Some(m) = request.message {
+							c.id == m
+						} else {
+							c.name.trim() == name
+						}
 				})
 				.map(|c| c.id)
 				.max();
@@ -146,5 +150,30 @@ impl ThreadCreateUi {
 		if close || result.close {
 			self.request = None;
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn thread_create_suggested_name_bounds_length_and_cuts_words() {
+		let text = "This is a very long first line of a message that will exceed sixty characters easily when words are counted";
+		let suggested = suggested_name(text);
+		assert!(suggested.len() <= 60);
+		assert_eq!(
+			suggested,
+			"This is a very long first line of a message that will exceed"
+		);
+	}
+
+	#[test]
+	fn thread_create_suggested_name_handles_short_and_empty_text() {
+		assert_eq!(
+			suggested_name("   Hello world!  \nSecond line"),
+			"Hello world!"
+		);
+		assert_eq!(suggested_name(""), "");
 	}
 }
