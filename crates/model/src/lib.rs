@@ -14,7 +14,7 @@ pub mod notification_preferences;
 pub mod onboarding;
 pub mod voice_settings;
 pub use channel_preferences::{ChannelPreferences, PreferenceEdit, Shortcut};
-pub use keybinds::{KeyChord, KeybindAction, Keybinds};
+pub use keybinds::{CustomBinding, KeyChord, KeybindAction, Keybinds};
 pub mod forum;
 pub mod gifs;
 mod graphics;

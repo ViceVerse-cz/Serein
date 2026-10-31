@@ -1536,6 +1536,14 @@ join-server-status-invite-accepted = Einladung angenommen. Warten auf Serverzugr
 join-server-status-offline-preview = Offline-Vorschau – Das Beitreten zu Servern ist deaktiviert.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Entfernen
+# Context: custom_section
+keybinds-custom-section-add-binding = Zuweisung hinzufügen
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Füge zusätzliche Tastenkürzel für beliebige Aktionen hinzu. Jede Tasten- oder Maustastenkombination kann nur einmal verwendet werden.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Eigene Tastenkürzel
 # Context: row
 keybinds-row-global = GLOBAL
 # Context: row

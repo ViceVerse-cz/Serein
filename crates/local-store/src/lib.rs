@@ -2177,12 +2177,53 @@ mod tests {
 			.as_object_mut()
 			.unwrap()
 			.remove("copy_issue_diagnostics");
+		// Files written before custom bindings existed have no `custom` key at all.
+		old_bindings.as_object_mut().unwrap().remove("custom");
 		let restored: model::Keybinds = serde_json::from_value(old_bindings).unwrap();
 		assert!(restored.is_valid());
+		assert!(restored.custom.is_empty());
 		assert_eq!(restored.copy_issue_diagnostics, model::KeyChord::new("", 0));
 		assert_eq!(
 			restored.send_message,
 			model::Keybinds::default().send_message
+		);
+		// An action this build no longer has drops only its own row.
+		let lenient: model::Keybinds = serde_json::from_value(serde_json::json!({
+			"custom": [
+				{"action": "push_to_talk", "chord": {"key": "Y", "modifiers": 0}},
+				{"action": "removed_action", "chord": {"key": "Q", "modifiers": 0}},
+				{"action": "bold", "chord": {"key": "G", "modifiers": 0}},
+			]
+		}))
+		.unwrap();
+		assert_eq!(
+			lenient.custom,
+			vec![
+				model::CustomBinding {
+					action: model::KeybindAction::PushToTalk,
+					chord: model::KeyChord::new("Y", 0),
+				},
+				model::CustomBinding {
+					action: model::KeybindAction::Bold,
+					chord: model::KeyChord::new("G", 0),
+				},
+			]
+		);
+		// The saved file keeps the full action and chord of every extra binding.
+		let saved = AppPreferences {
+			keybinds: model::Keybinds {
+				custom: vec![model::CustomBinding {
+					action: model::KeybindAction::ToggleDeafen,
+					chord: model::KeyChord::new("F9", 0),
+				}],
+				..Default::default()
+			},
+			..Default::default()
+		};
+		store.save_app_preferences(&saved).unwrap();
+		assert_eq!(
+			store.app_preferences().unwrap().keybinds.custom,
+			saved.keybinds.custom
 		);
 		let mut value = AppPreferences {
 			language: Some("cs".into()),

@@ -1552,6 +1552,14 @@ join-server-status-invite-accepted = 邀请已接受。等待访问服务器。
 join-server-status-offline-preview = 离线预览：加入服务器已禁用。
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = 移除
+# Context: custom_section
+keybinds-custom-section-add-binding = 添加绑定
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = 为任意操作添加额外的快捷键。每个按键或鼠标按钮组合只能使用一次。
+# Context: custom_section
+keybinds-custom-section-custom-bindings = 自定义绑定
 # Context: row
 keybinds-row-global = 全局
 # Context: row
