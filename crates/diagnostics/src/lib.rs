@@ -7,7 +7,7 @@
 //! Every buffer is bounded. Ring overflow and queue overflow drop the oldest line rather than the
 //! newest, the writer thread is the only one that touches the disk, and the file rotates once and
 //! then stops instead of growing without end. Logging is off until the owner selects a level in
-//! Settings; nothing is created until the first line is written.
+//! Settings; nothing is created until logging is enabled.
 
 use std::{
 	collections::VecDeque,
@@ -656,7 +656,7 @@ impl Sink {
 		self.wake.notify_all();
 	}
 
-	/// Blocks until at least one line is queued, then hands the writer a bounded batch.
+	/// Blocks until a line or setup request is queued, then hands the writer bounded work.
 	fn take_work(&self) -> (Vec<String>, Option<(u64, Level, PathBuf)>) {
 		let mut shared = self.lock();
 		while shared.queue.is_empty() && shared.install.is_none() {
