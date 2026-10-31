@@ -589,6 +589,11 @@ impl DiscordApi {
 				{
 					return Ok(br#"{"note":""}"#.to_vec());
 				}
+				if error.code == Some(160004) {
+					return Err(Failure::ProtocolAt(
+						client_core::channel_actions::THREAD_ALREADY_OPENED,
+					));
+				}
 				return Err(if status == StatusCode::FORBIDDEN {
 					Failure::Forbidden
 				} else if status.is_server_error() && write {
