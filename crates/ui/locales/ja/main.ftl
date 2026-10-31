@@ -3988,7 +3988,29 @@ updates-update-settings-restart-to-update = 更新するには再起動してく
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein はディストリビューション経由でインストールされました。ターミナルでこれを実行して更新します。
 # Context: update_settings
+updates-update-settings-save-diagnostics = 診断を保存
+# Context: update_settings
 updates-update-settings-support-diagnostics = サポートと診断
+# Context: update_settings
+updates-update-settings-copy-recent-lines = 最近の行をコピー
+# Context: update_settings
+updates-update-settings-diagnostic-log = 診断ログ
+# Context: update_settings
+updates-update-settings-log-errors = エラー
+# Context: update_settings
+updates-update-settings-log-events = エラー、警告、イベント
+# Context: update_settings
+updates-update-settings-log-everything = すべて（詳細）
+# Context: update_settings
+updates-update-settings-log-off = オフ
+# Context: update_settings
+updates-update-settings-log-warnings = エラーと警告
+# Context: update_settings
+updates-update-settings-open-folder = フォルダーを開く
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = ログフォルダーに書き込めませんでした。Serein のデータフォルダーを確認して、もう一度お試しください。
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = タイミング、段階、失敗を 1 つのローカルログファイルに記録します。アカウント、チャンネル、メッセージ、認証情報は書き込まれず、どこにも送信されません。
 # Context: update_log
 updates-update-log = 更新履歴
 # Context: update_settings

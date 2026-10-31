@@ -3994,7 +3994,29 @@ updates-update-settings-restart-to-update = Redémarrer pour mettre à jour
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein a été installé via votre distribution. Exécutez ceci dans un terminal pour mettre à jour.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Enregistrer le diagnostic
+# Context: update_settings
 updates-update-settings-support-diagnostics = Assistance et diagnostic
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Copier les dernières lignes
+# Context: update_settings
+updates-update-settings-diagnostic-log = Journal de diagnostic
+# Context: update_settings
+updates-update-settings-log-errors = Erreurs
+# Context: update_settings
+updates-update-settings-log-events = Erreurs, avertissements et événements
+# Context: update_settings
+updates-update-settings-log-everything = Tout (détaillé)
+# Context: update_settings
+updates-update-settings-log-off = Désactivé
+# Context: update_settings
+updates-update-settings-log-warnings = Erreurs et avertissements
+# Context: update_settings
+updates-update-settings-open-folder = Ouvrir le dossier
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Impossible d’écrire le dossier du journal. Vérifiez le dossier de données de Serein et réessayez.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Durées, étapes et échecs dans un seul fichier journal local. Les données de compte, de salon, de message et les identifiants ne sont jamais écrits, et rien n’est envoyé.
 # Context: update_log
 updates-update-log = Journal des mises à jour
 # Context: update_settings

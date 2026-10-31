@@ -4011,7 +4011,29 @@ updates-update-settings-restart-to-update = Restart to update
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein was installed via your distribution. Run this in a terminal to update.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Save diagnostics
+# Context: update_settings
 updates-update-settings-support-diagnostics = Support & diagnostics
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Copy recent lines
+# Context: update_settings
+updates-update-settings-diagnostic-log = Diagnostic log
+# Context: update_settings
+updates-update-settings-log-errors = Errors
+# Context: update_settings
+updates-update-settings-log-events = Errors, warnings and events
+# Context: update_settings
+updates-update-settings-log-everything = Everything (verbose)
+# Context: update_settings
+updates-update-settings-log-off = Off
+# Context: update_settings
+updates-update-settings-log-warnings = Errors and warnings
+# Context: update_settings
+updates-update-settings-open-folder = Open folder
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = The log folder could not be written. Check Serein's data folder and try again.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Timings, stages and failures in one local log file. Account, channel, message and credential data are never written, and nothing is uploaded.
 # Context: update_log
 updates-update-log = Update log
 # Context: update_settings

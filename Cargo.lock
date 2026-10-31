@@ -1432,6 +1432,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "diagnostics"
+version = "0.1.0"
+dependencies = [
+ "rustix 1.1.5",
+ "serde",
+ "tempfile",
+ "time",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3828,6 +3838,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 name = "local-store"
 version = "0.1.0"
 dependencies = [
+ "diagnostics",
  "dirs",
  "model",
  "rusqlite",
@@ -6356,6 +6367,7 @@ dependencies = [
  "arboard",
  "client-core",
  "cpal",
+ "diagnostics",
  "discord-api",
  "discord-gateway",
  "discord-protocol",
@@ -7623,6 +7635,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "client-core",
+ "diagnostics",
  "egui",
  "extensions",
  "fluent-templates",

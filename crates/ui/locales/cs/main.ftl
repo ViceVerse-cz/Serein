@@ -4012,7 +4012,29 @@ updates-update-settings-restart-to-update = Pro aktualizaci restartujte
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein byl nainstalován prostřednictvím vaší distribuce. Spusťte to v terminálu pro aktualizaci.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Uložit diagnostiku
+# Context: update_settings
 updates-update-settings-support-diagnostics = Podpora a diagnostika
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Kopírovat poslední řádky
+# Context: update_settings
+updates-update-settings-diagnostic-log = Diagnostický protokol
+# Context: update_settings
+updates-update-settings-log-errors = Chyby
+# Context: update_settings
+updates-update-settings-log-events = Chyby, varování a události
+# Context: update_settings
+updates-update-settings-log-everything = Vše (podrobně)
+# Context: update_settings
+updates-update-settings-log-off = Vypnuto
+# Context: update_settings
+updates-update-settings-log-warnings = Chyby a varování
+# Context: update_settings
+updates-update-settings-open-folder = Otevřít složku
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Složku protokolu se nepodařilo zapsat. Zkontrolujte složku dat Serein a zkuste to znovu.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Časy, fáze a selhání v jednom místním souboru protokolu. Údaje o účtu, kanálech, zprávách a přihlašovací údaje se nikdy nezapisují a nic se neodesílá.
 # Context: update_log
 updates-update-log = Historie aktualizací
 # Context: update_settings

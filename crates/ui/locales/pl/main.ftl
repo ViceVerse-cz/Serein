@@ -3997,7 +3997,29 @@ updates-update-settings-restart-to-update = Uruchom ponownie, aby zaktualizować
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein został zainstalowany poprzez twoją dystrybucję. Uruchom to w terminalu, aby zaktualizować.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Zapisz diagnostykę
+# Context: update_settings
 updates-update-settings-support-diagnostics = Wsparcie i diagnostyka
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Kopiuj ostatnie wiersze
+# Context: update_settings
+updates-update-settings-diagnostic-log = Dziennik diagnostyczny
+# Context: update_settings
+updates-update-settings-log-errors = Błędy
+# Context: update_settings
+updates-update-settings-log-events = Błędy, ostrzeżenia i zdarzenia
+# Context: update_settings
+updates-update-settings-log-everything = Wszystko (szczegółowo)
+# Context: update_settings
+updates-update-settings-log-off = Wyłączony
+# Context: update_settings
+updates-update-settings-log-warnings = Błędy i ostrzeżenia
+# Context: update_settings
+updates-update-settings-open-folder = Otwórz folder
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Nie udało się zapisać folderu dziennika. Sprawdź folder danych Serein i spróbuj ponownie.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Czasy, etapy i błędy w jednym lokalnym pliku dziennika. Dane konta, kanałów, wiadomości i poświadczenia nigdy nie są zapisywane, a nic nie jest wysyłane.
 # Context: update_log
 updates-update-log = Dziennik aktualizacji
 # Context: update_settings

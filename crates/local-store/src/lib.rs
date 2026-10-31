@@ -91,6 +91,8 @@ pub struct AppPreferences {
 	pub time_format: model::TimeFormat,
 	/// Owner opt-in: keep saved logins in private plain files when no OS keyring works.
 	pub plaintext_login: bool,
+	/// Owner opt-in diagnostic log; older preferences deserialize with logging off.
+	pub diagnostics_log: diagnostics::Level,
 }
 impl Default for AppPreferences {
 	fn default() -> Self {
@@ -131,6 +133,7 @@ impl Default for AppPreferences {
 			image_cache: Default::default(),
 			time_format: Default::default(),
 			plaintext_login: false,
+			diagnostics_log: diagnostics::Level::Off,
 		}
 	}
 }

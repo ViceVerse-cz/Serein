@@ -3998,7 +3998,29 @@ updates-update-settings-restart-to-update = Перезапустите, чтоб
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein был установлен через пакетный менеджер. Используйте эту команду для обновления.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Сохранить диагностику
+# Context: update_settings
 updates-update-settings-support-diagnostics = Поддержка и диагностика
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Скопировать последние строки
+# Context: update_settings
+updates-update-settings-diagnostic-log = Диагностический журнал
+# Context: update_settings
+updates-update-settings-log-errors = Ошибки
+# Context: update_settings
+updates-update-settings-log-events = Ошибки, предупреждения и события
+# Context: update_settings
+updates-update-settings-log-everything = Всё (подробно)
+# Context: update_settings
+updates-update-settings-log-off = Выключен
+# Context: update_settings
+updates-update-settings-log-warnings = Ошибки и предупреждения
+# Context: update_settings
+updates-update-settings-open-folder = Открыть папку
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Не удалось записать папку журнала. Проверьте папку данных Serein и повторите попытку.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Тайминги, этапы и сбои в одном локальном файле журнала. Данные аккаунта, каналов, сообщений и учётные данные не записываются, и ничего не отправляется.
 # Context: update_log
 updates-update-log = Журнал обновлений
 # Context: update_settings

@@ -3994,7 +3994,29 @@ updates-update-settings-restart-to-update = Zum Aktualisieren neu starten
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein wurde über Ihre Distribution installiert. Führen Sie dies in einem Terminal aus, um es zu aktualisieren.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Diagnose speichern
+# Context: update_settings
 updates-update-settings-support-diagnostics = Support & Diagnose
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Letzte Zeilen kopieren
+# Context: update_settings
+updates-update-settings-diagnostic-log = Diagnoseprotokoll
+# Context: update_settings
+updates-update-settings-log-errors = Fehler
+# Context: update_settings
+updates-update-settings-log-events = Fehler, Warnungen und Ereignisse
+# Context: update_settings
+updates-update-settings-log-everything = Alles (ausführlich)
+# Context: update_settings
+updates-update-settings-log-off = Aus
+# Context: update_settings
+updates-update-settings-log-warnings = Fehler und Warnungen
+# Context: update_settings
+updates-update-settings-open-folder = Ordner öffnen
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Der Protokollordner konnte nicht geschrieben werden. Prüfe Sereins Datenordner und versuche es erneut.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Zeitangaben, Phasen und Fehler in einer lokalen Protokolldatei. Konto-, Kanal-, Nachrichten- und Anmeldedaten werden nie geschrieben, und nichts wird hochgeladen.
 # Context: update_log
 updates-update-log = Update-Verlauf
 # Context: update_settings

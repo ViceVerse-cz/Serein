@@ -3994,7 +3994,29 @@ updates-update-settings-restart-to-update = Riavvia per aggiornare
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein è stato installato tramite la tua distribuzione. Eseguilo in un terminale per aggiornare.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Salva diagnostica
+# Context: update_settings
 updates-update-settings-support-diagnostics = Supporto e diagnostica
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Copia le righe recenti
+# Context: update_settings
+updates-update-settings-diagnostic-log = Registro di diagnostica
+# Context: update_settings
+updates-update-settings-log-errors = Errori
+# Context: update_settings
+updates-update-settings-log-events = Errori, avvisi ed eventi
+# Context: update_settings
+updates-update-settings-log-everything = Tutto (dettagliato)
+# Context: update_settings
+updates-update-settings-log-off = Disattivato
+# Context: update_settings
+updates-update-settings-log-warnings = Errori e avvisi
+# Context: update_settings
+updates-update-settings-open-folder = Apri cartella
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Impossibile scrivere la cartella del registro. Controlla la cartella dati di Serein e riprova.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Tempi, fasi ed errori in un unico file di registro locale. I dati di account, canali, messaggi e le credenziali non vengono mai scritti e nulla viene caricato.
 # Context: update_log
 updates-update-log = Registro aggiornamenti
 # Context: update_settings

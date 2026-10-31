@@ -361,8 +361,10 @@ Logging is off by default. Fixed numeric reports go through an eight-slot queue 
 separate writer; media workers never wait for stderr. Output stops after 128 reports
 or 64 KiB per process, shared by all calls, so restart for another capture. A full queue
 drops summaries. No IDs, device names, endpoints, keys, audio or signaling payloads
-are logged; upstream cryptographic tracing remains disabled. No files are created by
-Serein. Shell redirection is owner-managed and may include unrelated framework logs.
+are logged; upstream cryptographic tracing remains disabled. These reports create no file of their
+own; the separate opt-in diagnostic log in Settings writes a bounded local file and is described in
+[the storage policy](storage-policy.md#opt-in-diagnostic-log). Shell redirection is owner-managed and
+may include unrelated framework logs.
 The device-free check is `cargo run --locked -p discord-voice --example voice_diagnostics`.
 Instrumentation alone does not establish the cause of a reported CPU spike or a speedup.
 

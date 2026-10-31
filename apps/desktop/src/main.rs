@@ -515,6 +515,22 @@ fn main() -> eframe::Result {
 	} else {
 		local_store::LocalStore::open_default().and_then(|store| store.app_preferences())
 	};
+	// The owner's saved log level takes effect before the window, so an early defect leaves a
+	// trace instead of a description that has to be reconstructed afterwards.
+	let log_directory = local_store::data_dir().ok().map(|root| root.join("logs"));
+	if !demo && let (Some(directory), Ok(saved)) = (&log_directory, &preferences) {
+		diagnostics::install(saved.diagnostics_log, directory.clone());
+	}
+	diagnostics::record_fields(
+		diagnostics::Category::App,
+		diagnostics::Level::Info,
+		"started",
+		&[
+			("version", env!("CARGO_PKG_VERSION").into()),
+			("os", std::env::consts::OS.into()),
+			("arch", std::env::consts::ARCH.into()),
+		],
+	);
 	let (gpu_preference, transparency_available, hide_window_decorations, window_geometry) =
 		preferences
 			.as_ref()
@@ -1095,6 +1111,14 @@ struct Desktop {
 	current_login: Option<Arc<SessionSecret>>,
 	/// The plaintext fallback choice last handed to the credential worker.
 	plaintext_login: bool,
+	/// Where the opt-in diagnostic log belongs, resolved once so a Settings change needs no lookup.
+	log_directory: Option<std::path::PathBuf>,
+	/// Whether the first frame has reported the start-up install's result to the settings page.
+	log_verified: bool,
+	/// Whether the system refused this process the shell, so the folder button copies instead.
+	log_open_refused: bool,
+	/// A diagnostics file being written after the owner picked a destination.
+	diagnostics_save: Option<std::sync::mpsc::Receiver<Option<Result<std::path::PathBuf, ()>>>>,
 	/// Active/per-account fallback saves waiting for bounded credential-queue capacity.
 	plaintext_save_pending: [bool; 2],
 	account_presences: std::collections::BTreeMap<model::Id, model::OwnPresence>,
@@ -1130,6 +1154,19 @@ struct Desktop {
 	#[cfg(feature = "demo")]
 	synthetic_id: u64,
 	token_input: Zeroizing<String>,
+}
+/// Records the few session and gateway milestones that explain a reconnect. Payloads, identifiers
+/// and credentials never reach the log: only fixed labels and the event's own kind.
+fn log_session_event(event: &Event) {
+	use diagnostics::{Category, Level};
+	let (category, level, label) = match event {
+		Event::Startup(_) => (Category::Session, Level::Info, "session started"),
+		Event::Ready { .. } => (Category::Session, Level::Info, "session ready"),
+		Event::Disconnected => (Category::Gateway, Level::Warn, "gateway disconnected"),
+		Event::Resync => (Category::Gateway, Level::Warn, "gateway resync"),
+		_ => return,
+	};
+	diagnostics::record(category, level, label);
 }
 /// Check only navigation whose effective access can change with this event.
 fn access_candidates(state: &State, event: &Event) -> Vec<model::Id> {
@@ -2430,6 +2467,10 @@ impl Desktop {
 			pending_account_save: None,
 			current_login: None,
 			plaintext_login,
+			log_directory: local_store::data_dir().ok().map(|root| root.join("logs")),
+			log_verified: false,
+			log_open_refused: false,
+			diagnostics_save: None,
 			plaintext_save_pending: [false; 2],
 			account_presences: std::collections::BTreeMap::new(),
 			presence_load_pending,
@@ -2504,6 +2545,184 @@ impl Desktop {
 			}
 		}
 		false
+	}
+	/// Applies the owner's diagnostic log choice and opens the log folder when the page asks for
+	/// it. The first frame also reports a start-up install that could not write, so the page
+	/// explains instead of promising a file. Nothing here touches an account or a service.
+	fn sync_diagnostics_log(&mut self, ctx: &egui::Context) {
+		if self.fixture_only || self.state.demo {
+			self.messaging.open_log_folder_requested = false;
+			return;
+		}
+		let level = self.messaging.diagnostics_log;
+		if diagnostics::level() != level || !self.log_verified {
+			self.log_verified = true;
+			self.apply_diagnostics_log(level);
+		}
+		if diagnostics::install_status() == diagnostics::InstallStatus::Pending {
+			ctx.request_repaint_after(Duration::from_millis(50));
+			return;
+		}
+		self.messaging.diagnostics_log_failed =
+			diagnostics::install_status() == diagnostics::InstallStatus::Failed;
+		self.messaging.diagnostics_log_path =
+			diagnostics::path().map(|path| path.display().to_string());
+		if self.messaging.open_log_folder_requested {
+			self.messaging.open_log_folder_requested = false;
+			self.messaging.diagnostics_log_open_failed = false;
+			// A folder repaired outside the app starts working here instead of after a restart.
+			if self.messaging.diagnostics_log_failed {
+				self.apply_diagnostics_log(self.messaging.diagnostics_log);
+				ctx.request_repaint_after(Duration::from_millis(50));
+				return;
+			}
+			let folder = diagnostics::path()
+				.and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+				.or_else(|| self.log_directory.clone());
+			if let Some(folder) = folder {
+				// A button that appears to do nothing is worse than a logged reason. Once the
+				// system has refused the shell for this process, asking again only repeats the
+				// refusal, so the path goes to the clipboard instead.
+				if self.log_open_refused {
+					ctx.copy_text(folder.display().to_string());
+					self.messaging.diagnostics_log_open_failed = true;
+				} else if let Err(code) = platform::open_folder(&folder) {
+					self.log_open_refused = true;
+					self.messaging.diagnostics_log_open_failed = true;
+					// The system refused the shell; the path still has to reach the owner.
+					ctx.copy_text(folder.display().to_string());
+					diagnostics::record_fields(
+						diagnostics::Category::App,
+						diagnostics::Level::Warn,
+						"log folder not opened",
+						&[("code", code.into())],
+					);
+					// Whether process creation works at all separates a shell policy from a
+					// security product that blocks this binary from starting anything.
+					match platform::spawn_probe() {
+						Ok(()) => diagnostics::record(
+							diagnostics::Category::App,
+							diagnostics::Level::Warn,
+							"process creation works",
+						),
+						Err(probe) => diagnostics::record_fields(
+							diagnostics::Category::App,
+							diagnostics::Level::Warn,
+							"process creation refused",
+							&[("code", probe.into())],
+						),
+					}
+				}
+			}
+		}
+	}
+	/// Applies a log level, names the file in the page and reports a folder that cannot be written
+	/// instead of promising one. A machine with no resolvable data folder still gets a log: the
+	/// crate falls back to its own folder in the temporary directory and the page names it.
+	fn apply_diagnostics_log(&mut self, level: diagnostics::Level) {
+		let directory = self
+			.log_directory
+			.clone()
+			.unwrap_or_else(diagnostics::fallback_directory);
+		diagnostics::install(level, directory);
+		self.messaging.diagnostics_log_failed = false;
+		self.messaging.diagnostics_log_path =
+			diagnostics::path().map(|path| path.display().to_string());
+	}
+	/// One text file for a bug report: environment, subsystem statuses and the recent log. Every
+	/// value is a flag, a number, or a status string the interface already shows; account, channel,
+	/// message, path and credential values stay out of it.
+	fn diagnostics_report(&self, ctx: &egui::Context) -> String {
+		use std::fmt::Write;
+		let mut report = String::with_capacity(24 * 1024);
+		report.push_str("# Serein diagnostics\n\n");
+		report.push_str(&self.messaging.diagnostic_info(ctx));
+		report.push('\n');
+		let log_file = diagnostics::path()
+			.map(|path| path.display().to_string())
+			.unwrap_or_else(|| "none".into());
+		let _ = writeln!(report, "\n- **Log level:** {:?}", diagnostics::level());
+		let _ = writeln!(report, "- **Log file:** {log_file}");
+		let _ = writeln!(report, "- **Local cache:** {}", self.cache_status);
+		let _ = writeln!(report, "- **Saved login:** {}", self.credential_status);
+		let _ = writeln!(
+			report,
+			"- **Session:** authenticated={} gateway={}",
+			self.state.auth == AuthState::Authenticated,
+			self.state.gateway_connected
+		);
+		let call = match self.state.voice.active.as_ref() {
+			Some(call) if call.phase == client_core::voice::Phase::Failed => "failed",
+			Some(_) => "active",
+			None => "none",
+		};
+		let _ = writeln!(report, "- **Call:** {call}");
+		let _ = writeln!(
+			report,
+			"- **Voice devices:** {}",
+			self.messaging.voice_device_status
+		);
+		let _ = writeln!(
+			report,
+			"- **Notifications:** {}",
+			self.messaging.notification_status
+		);
+		report.push_str("\n## Recent log\n\n```\n");
+		report.push_str(&diagnostics::recent(400));
+		report.push_str("\n```\n");
+		report
+	}
+	/// Writes that report after the owner picks a destination, and names the file in the page.
+	fn sync_diagnostics_save(&mut self, ctx: &egui::Context) {
+		if std::mem::take(&mut self.messaging.diagnostics_save_requested)
+			&& self.diagnostics_save.is_none()
+		{
+			let report = self.diagnostics_report(ctx);
+			let (send, receive) = std::sync::mpsc::sync_channel(1);
+			let parent = self.window.clone();
+			let wake = ctx.clone();
+			self.runtime.spawn(async move {
+				let destination =
+					platform::save::text_destination(parent, "serein-diagnostics.txt").await;
+				let outcome = match destination {
+					Some(path) => {
+						let written = path.clone();
+						match tokio::task::spawn_blocking(move || std::fs::write(&written, report))
+							.await
+						{
+							Ok(Ok(())) => Some(Ok(path)),
+							_ => Some(Err(())),
+						}
+					}
+					// The owner closed the dialog: nothing to report and nothing to hide.
+					None => None,
+				};
+				let _ = send.send(outcome);
+				wake.request_repaint();
+			});
+			self.diagnostics_save = Some(receive);
+		}
+		if let Some(receiver) = &self.diagnostics_save
+			&& let Ok(outcome) = receiver.try_recv()
+		{
+			match outcome {
+				Some(Ok(path)) => {
+					self.messaging.diagnostics_saved_path = Some(path.display().to_string());
+					diagnostics::record(
+						diagnostics::Category::App,
+						diagnostics::Level::Info,
+						"diagnostics saved",
+					);
+				}
+				Some(Err(())) => diagnostics::record(
+					diagnostics::Category::App,
+					diagnostics::Level::Warn,
+					"diagnostics not saved",
+				),
+				None => {}
+			}
+			self.diagnostics_save = None;
+		}
 	}
 	/// Hands the owner's plaintext saved-login choice to the credential worker, in order with
 	/// its other writes, and saves a login that failed earlier for want of a keyring.
@@ -4709,6 +4928,8 @@ impl Desktop {
 		}
 		self.retry_history_clears();
 		self.sync_plaintext_login();
+		self.sync_diagnostics_log(ctx);
+		self.sync_diagnostics_save(ctx);
 		let mut results = Vec::new();
 		if let Some(store) = &mut self.store {
 			for _ in 0..4 {
@@ -4983,6 +5204,7 @@ impl Desktop {
 			{
 				self.extensions.access_changed(&mut self.messaging);
 			}
+			log_session_event(&event.event);
 			self.state.apply(event);
 			if let Some(message) = takeover_notice {
 				self.messaging
@@ -5128,6 +5350,12 @@ impl Desktop {
 			self.queue_cache(operation);
 		}
 		if let Some(failure) = terminal {
+			diagnostics::record_fields(
+				diagnostics::Category::Session,
+				diagnostics::Level::Error,
+				"session stopped",
+				&[("reason", failure.label().into())],
+			);
 			for (setting, scope) in [
 				("SEREIN_MEMBER_DIAGNOSTICS", "members"),
 				("SEREIN_GATEWAY_DIAGNOSTICS", "gateway"),
@@ -5351,6 +5579,12 @@ impl eframe::App for Desktop {
 		}
 	}
 	fn on_exit(&mut self) {
+		diagnostics::record(
+			diagnostics::Category::App,
+			diagnostics::Level::Info,
+			"exiting",
+		);
+		diagnostics::flush(std::time::Duration::from_millis(500));
 		// Later launches start a new client instead of waking this one while it shuts down.
 		self.instance.release();
 		if self.updater.finish_restart().is_err() {

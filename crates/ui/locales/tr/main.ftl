@@ -3988,7 +3988,29 @@ updates-update-settings-restart-to-update = Güncellemek için yeniden başlatı
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein dağıtımınız aracılığıyla kuruldu. Güncellemek için bunu bir terminalde çalıştırın.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Tanılamayı kaydet
+# Context: update_settings
 updates-update-settings-support-diagnostics = Destek ve teşhis
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Son satırları kopyala
+# Context: update_settings
+updates-update-settings-diagnostic-log = Tanılama günlüğü
+# Context: update_settings
+updates-update-settings-log-errors = Hatalar
+# Context: update_settings
+updates-update-settings-log-events = Hatalar, uyarılar ve olaylar
+# Context: update_settings
+updates-update-settings-log-everything = Her şey (ayrıntılı)
+# Context: update_settings
+updates-update-settings-log-off = Kapalı
+# Context: update_settings
+updates-update-settings-log-warnings = Hatalar ve uyarılar
+# Context: update_settings
+updates-update-settings-open-folder = Klasörü aç
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Günlük klasörü yazılamadı. Serein'in veri klasörünü denetleyip yeniden deneyin.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Süreler, aşamalar ve hatalar tek bir yerel günlük dosyasında. Hesap, kanal, mesaj ve kimlik bilgileri asla yazılmaz ve hiçbir şey yüklenmez.
 # Context: update_log
 updates-update-log = Güncelleme günlüğü
 # Context: update_settings

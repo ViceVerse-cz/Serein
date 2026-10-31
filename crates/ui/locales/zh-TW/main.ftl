@@ -4026,7 +4026,29 @@ updates-update-settings-restart-to-update = 重啟以更新
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein 是用發行版安裝的。請在終端機執行此指令更新。
 # Context: update_settings
+updates-update-settings-save-diagnostics = 儲存診斷資訊
+# Context: update_settings
 updates-update-settings-support-diagnostics = 支援與診斷
+# Context: update_settings
+updates-update-settings-copy-recent-lines = 複製最近幾行
+# Context: update_settings
+updates-update-settings-diagnostic-log = 診斷記錄
+# Context: update_settings
+updates-update-settings-log-errors = 錯誤
+# Context: update_settings
+updates-update-settings-log-events = 錯誤、警告與事件
+# Context: update_settings
+updates-update-settings-log-everything = 全部（詳細）
+# Context: update_settings
+updates-update-settings-log-off = 關閉
+# Context: update_settings
+updates-update-settings-log-warnings = 錯誤與警告
+# Context: update_settings
+updates-update-settings-open-folder = 開啟資料夾
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = 無法寫入記錄資料夾。請檢查 Serein 的資料資料夾後再試一次。
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = 將耗時、階段與失敗記錄在單一本機記錄檔中。絕不寫入帳號、頻道、訊息與憑證資料，也不會上傳任何內容。
 # Context: update_log
 updates-update-log = 更新日誌
 # Context: update_settings
