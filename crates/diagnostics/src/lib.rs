@@ -11,7 +11,7 @@
 
 use std::{
 	collections::VecDeque,
-	fs::{File, OpenOptions},
+	fs::File,
 	io::Write,
 	path::{Path, PathBuf},
 	sync::{
@@ -219,8 +219,27 @@ fn executable_directory() -> Option<PathBuf> {
 /// an owner who never turns the log on gets no folder and no file. When the data folder cannot be
 /// written, the temporary folder and then the executable's own folder are tried, because a report
 /// still needs its evidence; the caller can then name the file that ended up in use.
-pub fn install(level: Level, directory: PathBuf) -> Result<PathBuf, &'static str> {
+pub fn install(level: Level, directory: PathBuf) {
 	let sink = sink();
+	sink.configure(level, directory);
+	set_level(level);
+	sink.wake.notify_all();
+}
+
+/// Installation is performed by the single writer, never by a UI frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum InstallStatus {
+	#[default]
+	Ready,
+	Pending,
+	Failed,
+}
+
+pub fn install_status() -> InstallStatus {
+	sink().lock().status
+}
+
+fn prepare_destination(level: Level, directory: PathBuf) -> Result<PathBuf, &'static str> {
 	let mut path = directory.join(LOG_FILE);
 	let mut moved = false;
 	let mut reason = None;
@@ -251,21 +270,6 @@ pub fn install(level: Level, directory: PathBuf) -> Result<PathBuf, &'static str
 			}
 		}
 	}
-	{
-		let mut shared = sink.lock();
-		// A refused destination is not named: the page must not promise a file that is never
-		// written. Every attempt is still reported by label in the log.
-		shared.directory = if reason.is_some() {
-			None
-		} else {
-			path.parent().map(Path::to_path_buf).or(Some(directory))
-		};
-		// The writer reopens on this change instead of appending to a folder that no longer
-		// matches what Settings shows.
-		shared.destination = shared.destination.wrapping_add(1);
-	}
-	// The level applies either way, so the copyable tail works while the file does not.
-	set_level(level);
 	for (folder, error) in &attempts {
 		let Some(error) = error else {
 			record_fields(
@@ -341,71 +345,93 @@ fn error_kind(error: &std::io::Error) -> u64 {
 /// Creates the folder and proves the file can be opened, without keeping it open: the writer owns
 /// the handle. Returns the operating system's error when the folder is unusable.
 fn prepare(directory: &Path) -> Option<std::io::Error> {
-	if let Err(error) = create_private(directory) {
-		return Some(error);
-	}
-	// A shared temporary folder is a hostile neighbourhood: a link here would redirect every
-	// appended line, and the private permissions below, somewhere else.
-	if shared(directory) {
-		return Some(refused());
-	}
-	let path = directory.join(LOG_FILE);
-	if shared(&path) {
-		return Some(refused());
-	}
-	match OpenOptions::new().create(true).append(true).open(&path) {
-		Ok(file) => drop(file),
-		Err(error) => return Some(error),
-	}
-	if !owned_by_us(directory, &path) {
-		return Some(refused());
-	}
-	private_file(&path);
-	None
+	open_log(directory).err()
 }
 
-/// A path that is a symbolic link (or any other reparse point) rather than a real folder or file.
-fn shared(path: &Path) -> bool {
-	std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
-}
-
-/// The attempt was refused by this client rather than by the operating system.
 fn refused() -> std::io::Error {
 	std::io::Error::new(
 		std::io::ErrorKind::PermissionDenied,
-		"the log folder is shared with another user",
+		"unsafe log destination",
 	)
 }
 
-/// Whether the folder belongs to the same account as a file this process just created in it. A
-/// probe file is created exclusively, so its owner is this account whatever pre-existed; on a
-/// folder owned by someone else the two differ and the folder is refused.
-fn owned_by_us(directory: &Path, log: &Path) -> bool {
-	#[cfg(unix)]
-	{
-		use std::os::unix::fs::MetadataExt;
-		let probe = directory.join(format!(
-			".owner-{}-{}",
-			std::process::id(),
-			std::time::SystemTime::now()
-				.duration_since(std::time::UNIX_EPOCH)
-				.map_or(0, |elapsed| elapsed.subsec_nanos())
-		));
-		let created = OpenOptions::new().write(true).create_new(true).open(&probe);
-		let Ok(file) = created else {
-			return false;
-		};
-		let ours = file.metadata().map(|meta| meta.uid()).ok();
-		let folder = std::fs::metadata(directory).map(|meta| meta.uid()).ok();
-		let log_owner = std::fs::metadata(log).map(|meta| meta.uid()).ok();
-		drop(file);
-		let _ = std::fs::remove_file(&probe);
-		ours.is_some() && ours == folder && ours == log_owner
+/// Check ownership and type on the opened descriptors. NOFOLLOW and NONBLOCK prevent a
+/// swapped symlink or FIFO from redirecting a write or blocking startup. Permissions are
+/// applied to the handles, never to a path that could have been replaced.
+#[cfg(unix)]
+fn open_log(directory: &Path) -> std::io::Result<File> {
+	use rustix::fs::{self, FileType, Mode, OFlags};
+	create_private(directory)?;
+	let dir = fs::open(
+		directory,
+		OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+		Mode::empty(),
+	)?;
+	let uid = rustix::process::geteuid().as_raw();
+	if fs::fstat(&dir)?.st_uid != uid {
+		return Err(refused());
 	}
-	#[cfg(not(unix))]
+	fs::fchmod(&dir, Mode::from_raw_mode(0o700))?;
+	let fd = fs::openat(
+		&dir,
+		LOG_FILE,
+		OFlags::CREATE
+			| OFlags::APPEND
+			| OFlags::WRONLY
+			| OFlags::NOFOLLOW
+			| OFlags::NONBLOCK
+			| OFlags::CLOEXEC,
+		Mode::from_raw_mode(0o600),
+	)?;
+	let stat = fs::fstat(&fd)?;
+	if stat.st_uid != uid
+		|| stat.st_nlink != 1
+		|| FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile
 	{
-		let _ = (directory, log);
-		true
+		return Err(refused());
+	}
+	fs::fchmod(&fd, Mode::from_raw_mode(0o600))?;
+	Ok(File::from(fd))
+}
+
+#[cfg(not(unix))]
+fn open_log(directory: &Path) -> std::io::Result<File> {
+	create_private(directory)?;
+	let path = directory.join(LOG_FILE);
+	if shared(directory) || shared(&path) {
+		return Err(refused());
+	}
+	let mut options = std::fs::OpenOptions::new();
+	options.create(true).append(true);
+	#[cfg(windows)]
+	{
+		use std::os::windows::fs::OpenOptionsExt;
+		// FILE_FLAG_OPEN_REPARSE_POINT: inspect the link itself instead of its target.
+		options.custom_flags(0x0020_0000);
+	}
+	let file = options.open(path)?;
+	if !file.metadata()?.is_file() || reparse(&file.metadata()?) {
+		return Err(refused());
+	}
+	Ok(file)
+}
+
+#[cfg(not(unix))]
+fn shared(path: &Path) -> bool {
+	std::fs::symlink_metadata(path)
+		.is_ok_and(|meta| meta.file_type().is_symlink() || reparse(&meta))
+}
+
+#[cfg(not(unix))]
+fn reparse(meta: &std::fs::Metadata) -> bool {
+	#[cfg(windows)]
+	{
+		use std::os::windows::fs::MetadataExt;
+		meta.file_attributes() & 0x400 != 0 // FILE_ATTRIBUTE_REPARSE_POINT, including junctions.
+	}
+	#[cfg(not(windows))]
+	{
+		meta.file_type().is_symlink()
 	}
 }
 
@@ -451,7 +477,10 @@ pub fn flush(timeout: Duration) {
 	let sink = sink();
 	let started = Instant::now();
 	let mut shared = sink.lock();
-	while !(shared.queue.is_empty() && shared.pending == 0) {
+	while !(shared.queue.is_empty()
+		&& shared.pending == 0
+		&& shared.status != InstallStatus::Pending)
+	{
 		let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
 			return;
 		};
@@ -493,21 +522,41 @@ fn sink() -> &'static Sink {
 /// reopens whenever the destination changes, so Settings never names a file the writer ignores.
 fn writer(sink: &'static Sink) {
 	let mut file: Option<FileSink> = None;
-	let mut generation = u64::MAX;
+	let mut spent = 0;
 	loop {
-		let batch = sink.take_batch();
-		let (wanted, directory) = {
-			let shared = sink.lock();
-			(shared.destination, shared.directory.clone())
-		};
-		if wanted != generation {
-			generation = wanted;
-			// The run budget survives a reopen: a repaired folder must not buy another 4 MiB.
-			let spent = file.as_ref().map_or(0, FileSink::spent);
-			file = directory.map(|directory| FileSink::new(directory.join(LOG_FILE), spent));
+		let (batch, install) = sink.take_work();
+		if let Some((generation, level, directory)) = install {
+			spent = file.as_ref().map_or(spent, FileSink::spent);
+			file = None;
+			let result = if level == Level::Off {
+				None
+			} else {
+				Some(prepare_destination(level, directory))
+			};
+			let status = if result.as_ref().is_some_and(Result::is_err) {
+				InstallStatus::Failed
+			} else {
+				InstallStatus::Ready
+			};
+			let directory = result
+				.and_then(Result::ok)
+				.and_then(|path| path.parent().map(Path::to_path_buf));
+			// Even metadata reads stay outside the mutex used by UI producers.
+			let prepared = directory
+				.as_ref()
+				.map(|directory| FileSink::new(directory.join(LOG_FILE), spent));
+			let mut shared = sink.lock();
+			if shared.destination == generation {
+				shared.status = status;
+				shared.directory = directory;
+				file = prepared;
+			}
+			sink.wake.notify_all();
 		}
-		if let Some(file) = &mut file {
-			file.write(&batch);
+		if sink.level.load(Ordering::Relaxed) != Level::Off.code() {
+			if let Some(file) = &mut file {
+				file.write(&batch);
+			}
 		}
 		sink.finished(batch.len());
 	}
@@ -523,6 +572,8 @@ struct Shared {
 	directory: Option<PathBuf>,
 	/// Bumped by every install, so the writer notices a destination it has not opened yet.
 	destination: u64,
+	install: Option<(u64, Level, PathBuf)>,
+	status: InstallStatus,
 }
 
 struct Sink {
@@ -532,6 +583,14 @@ struct Sink {
 }
 
 impl Sink {
+	fn configure(&self, level: Level, directory: PathBuf) {
+		let mut shared = self.lock();
+		shared.destination = shared.destination.wrapping_add(1);
+		shared.install = Some((shared.destination, level, directory));
+		shared.status = InstallStatus::Pending;
+		shared.directory = None;
+	}
+
 	fn new() -> Self {
 		Self {
 			level: AtomicU8::new(Level::Off.code()),
@@ -543,6 +602,8 @@ impl Sink {
 				pending: 0,
 				directory: None,
 				destination: 0,
+				install: None,
+				status: InstallStatus::Ready,
 			}),
 			wake: Condvar::new(),
 		}
@@ -596,9 +657,9 @@ impl Sink {
 	}
 
 	/// Blocks until at least one line is queued, then hands the writer a bounded batch.
-	fn take_batch(&self) -> Vec<String> {
+	fn take_work(&self) -> (Vec<String>, Option<(u64, Level, PathBuf)>) {
 		let mut shared = self.lock();
-		while shared.queue.is_empty() {
+		while shared.queue.is_empty() && shared.install.is_none() {
 			shared = self
 				.wake
 				.wait(shared)
@@ -614,7 +675,7 @@ impl Sink {
 			shared.queue_bytes -= line.len();
 			batch.push(shared.queue.pop_front().expect("front line"));
 		}
-		batch
+		(batch, shared.install.take())
 	}
 
 	fn finished(&self, lines: usize) {
@@ -690,6 +751,10 @@ impl FileSink {
 				self.file = None;
 				break;
 			}
+			if self.handle().is_none() {
+				self.stopped = true;
+				break;
+			}
 			if self.file_bytes.saturating_add(bytes) > MAX_FILE_BYTES && !self.rotate() {
 				// Another program holds the old file: stop rather than append past the cap.
 				self.stopped = true;
@@ -703,13 +768,14 @@ impl FileSink {
 				self.stopped = true;
 				break;
 			};
+			// Reserve even a failed/partial write against the process budget.
+			self.run_bytes = self.run_bytes.saturating_add(bytes);
 			if file.write_all(line.as_bytes()).is_err() {
 				// A full or removed file must not stop the client; the ring stays usable.
 				self.file = None;
 				break;
 			}
 			self.file_bytes = self.file_bytes.saturating_add(bytes);
-			self.run_bytes = self.run_bytes.saturating_add(bytes);
 			written += 1;
 		}
 		written
@@ -718,13 +784,8 @@ impl FileSink {
 	fn handle(&mut self) -> Option<&mut File> {
 		if self.file.is_none() {
 			let directory = self.path.parent()?;
-			create_private(directory).ok()?;
-			let file = OpenOptions::new()
-				.create(true)
-				.append(true)
-				.open(&self.path)
-				.ok()?;
-			private_file(&self.path);
+			let file = open_log(directory).ok()?;
+			self.file_bytes = file.metadata().ok()?.len();
 			self.file = Some(file);
 		}
 		self.file.as_mut()
@@ -757,19 +818,6 @@ fn create_private(directory: &Path) -> std::io::Result<()> {
 	#[cfg(not(unix))]
 	{
 		std::fs::create_dir_all(directory)
-	}
-}
-
-/// The log file stays private to the owner who enabled it.
-fn private_file(path: &Path) {
-	#[cfg(unix)]
-	{
-		use std::os::unix::fs::PermissionsExt;
-		let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-	}
-	#[cfg(not(unix))]
-	{
-		let _ = path;
 	}
 }
 
@@ -938,7 +986,7 @@ mod tests {
 		for index in 0..MAX_QUEUE_LINES {
 			sink.push(format!("{index:0>60}\n"));
 		}
-		let batch = sink.take_batch();
+		let (batch, _) = sink.take_work();
 		assert!(!batch.is_empty());
 		assert!(batch.len() <= MAX_QUEUE_LINES);
 		assert!(batch.iter().map(String::len).sum::<usize>() <= MAX_QUEUE_BYTES);
@@ -1026,5 +1074,59 @@ mod tests {
 		{
 			assert!(prepare(&logs).is_none());
 		}
+	}
+	#[test]
+	fn setup_is_coalesced_without_touching_the_destination() {
+		let directory = tempfile::tempdir().unwrap();
+		let logs = directory.path().join("not-created-by-the-caller");
+		let sink = Sink::new();
+		sink.configure(Level::Info, logs.clone());
+		sink.configure(Level::Off, logs.clone());
+		assert!(!logs.exists());
+		let (batch, request) = sink.take_work();
+		assert!(batch.is_empty());
+		let (_, level, path) = request.unwrap();
+		assert_eq!(level, Level::Off);
+		assert_eq!(path, logs);
+		assert!(sink.lock().install.is_none());
+	}
+
+	#[test]
+	fn a_repaired_destination_can_reopen_without_renewing_the_run_budget() {
+		let directory = tempfile::tempdir().unwrap();
+		let blocker = directory.path().join("logs");
+		std::fs::write(&blocker, b"blocker").unwrap();
+		let path = blocker.join(LOG_FILE);
+		let spent = MAX_RUN_BYTES - 5;
+		let mut broken = FileSink::new(path.clone(), spent);
+		assert_eq!(broken.write(&["abc\n".into()]), 0);
+		std::fs::remove_file(&blocker).unwrap();
+		let mut repaired = FileSink::new(path.clone(), broken.spent());
+		assert_eq!(repaired.write(&["abc\n".into(), "def\n".into()]), 1);
+		assert!(repaired.stopped);
+		assert_eq!(std::fs::read(path).unwrap(), b"abc\n");
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn every_reopen_refuses_symlinks_and_fifos() {
+		use rustix::fs::{CWD, Mode, mkfifoat};
+		let directory = tempfile::tempdir().unwrap();
+		let target = directory.path().join("target");
+		std::fs::write(&target, b"unchanged").unwrap();
+		let logs = directory.path().join("logs");
+		std::fs::create_dir(&logs).unwrap();
+		let path = logs.join(LOG_FILE);
+		std::os::unix::fs::symlink(&target, &path).unwrap();
+		assert!(prepare(&logs).is_some());
+		assert_eq!(
+			FileSink::new(path.clone(), 0).write(&["private\n".into()]),
+			0
+		);
+		assert_eq!(std::fs::read(&target).unwrap(), b"unchanged");
+		std::fs::remove_file(&path).unwrap();
+		mkfifoat(CWD, &path, Mode::from_raw_mode(0o600)).unwrap();
+		assert!(prepare(&logs).is_some());
+		assert_eq!(FileSink::new(path, 0).write(&["private\n".into()]), 0);
 	}
 }

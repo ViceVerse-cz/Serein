@@ -7,9 +7,9 @@ cargo run --locked -p serein --features demo --example profile_preview -- \
   --demo --page=updates --output=after.png --width=1120 --height=760 --scroll=150
 ```
 
-`before.png` was rendered from clean `main` (`1b2f8942`) with the same command; only the
-fixture's page allowlist and one missing `managed` field on a synthetic role differed, so
-the same page could be rendered on both revisions. `after.png` comes from this branch. The
+`before.png` was rendered from `main` (`1b2f8942`) with local fixture-only patches to the
+page allowlist and a missing `managed` field on a synthetic role. The exact patch was not
+retained, so this baseline cannot be reproduced from clean `main` with the command above. `after.png` comes from this branch. The
 `--scroll=150` offset shows the whole Support & diagnostics card.
 
 The page is the same on both sides apart from the added controls: **Save diagnostics** next to

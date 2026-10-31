@@ -475,8 +475,8 @@ fn main() -> eframe::Result {
 	// The owner's saved log level takes effect before the window, so an early defect leaves a
 	// trace instead of a description that has to be reconstructed afterwards.
 	let log_directory = local_store::data_dir().ok().map(|root| root.join("logs"));
-	if let (Some(directory), Ok(saved)) = (&log_directory, &preferences) {
-		let _ = diagnostics::install(saved.diagnostics_log, directory.clone());
+	if !demo && let (Some(directory), Ok(saved)) = (&log_directory, &preferences) {
+		diagnostics::install(saved.diagnostics_log, directory.clone());
 	}
 	diagnostics::record_fields(
 		diagnostics::Category::App,
@@ -2505,23 +2505,36 @@ impl Desktop {
 	/// it. The first frame also reports a start-up install that could not write, so the page
 	/// explains instead of promising a file. Nothing here touches an account or a service.
 	fn sync_diagnostics_log(&mut self, ctx: &egui::Context) {
+		if self.fixture_only || self.state.demo {
+			self.messaging.open_log_folder_requested = false;
+			return;
+		}
 		let level = self.messaging.diagnostics_log;
 		if diagnostics::level() != level || !self.log_verified {
 			self.log_verified = true;
 			self.apply_diagnostics_log(level);
 		}
+		if diagnostics::install_status() == diagnostics::InstallStatus::Pending {
+			ctx.request_repaint_after(Duration::from_millis(50));
+			return;
+		}
+		self.messaging.diagnostics_log_failed =
+			diagnostics::install_status() == diagnostics::InstallStatus::Failed;
+		self.messaging.diagnostics_log_path =
+			diagnostics::path().map(|path| path.display().to_string());
 		if self.messaging.open_log_folder_requested {
 			self.messaging.open_log_folder_requested = false;
 			self.messaging.diagnostics_log_open_failed = false;
 			// A folder repaired outside the app starts working here instead of after a restart.
 			if self.messaging.diagnostics_log_failed {
 				self.apply_diagnostics_log(self.messaging.diagnostics_log);
+				ctx.request_repaint_after(Duration::from_millis(50));
+				return;
 			}
 			let folder = diagnostics::path()
 				.and_then(|path| path.parent().map(std::path::Path::to_path_buf))
 				.or_else(|| self.log_directory.clone());
 			if let Some(folder) = folder {
-				let _ = std::fs::create_dir_all(&folder);
 				// A button that appears to do nothing is worse than a logged reason. Once the
 				// system has refused the shell for this process, asking again only repeats the
 				// refusal, so the path goes to the clipboard instead.
@@ -2566,7 +2579,8 @@ impl Desktop {
 			.log_directory
 			.clone()
 			.unwrap_or_else(diagnostics::fallback_directory);
-		self.messaging.diagnostics_log_failed = diagnostics::install(level, directory).is_err();
+		diagnostics::install(level, directory);
+		self.messaging.diagnostics_log_failed = false;
 		self.messaging.diagnostics_log_path =
 			diagnostics::path().map(|path| path.display().to_string());
 	}

@@ -1190,6 +1190,10 @@ impl MessagingUi {
 			// The switcher roster belongs to the device, not to the account being cleared.
 			accounts: std::mem::take(&mut self.accounts),
 			updates: std::mem::take(&mut self.updates),
+			diagnostics_log: self.diagnostics_log,
+			diagnostics_log_path: self.diagnostics_log_path.take(),
+			diagnostics_log_failed: self.diagnostics_log_failed,
+			diagnostics_log_open_failed: self.diagnostics_log_open_failed,
 			minimize_to_tray: self.minimize_to_tray,
 			tray_available: self.tray_available,
 			tray_status: self.tray_status,
@@ -5726,6 +5730,17 @@ impl MessagingUi {
 mod composer_tests {
 	use super::*;
 	use client_core::MAX_CONTENT;
+
+	#[test]
+	fn clearing_an_account_preserves_the_device_log_preference() {
+		let mut ui = MessagingUi::default();
+		ui.diagnostics_log = diagnostics::Level::Info;
+		ui.diagnostics_log_path = Some("local-log".into());
+		ui.clear();
+		assert_eq!(ui.diagnostics_log, diagnostics::Level::Info);
+		assert_eq!(ui.diagnostics_log_path.as_deref(), Some("local-log"));
+		assert!(!ui.open_log_folder_requested);
+	}
 
 	#[test]
 	fn composer_context_menu_saves_cuts_and_gates_clipboard_requests() {

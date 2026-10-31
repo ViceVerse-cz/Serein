@@ -1079,10 +1079,16 @@ heartbeat sequencing after unsupported dispatches. No live interoperability clai
 Settings › Updates › Support & diagnostics chooses **Off**, **Errors**, **Errors and warnings**,
 **Errors, warnings and events** or **Everything (verbose)**. Off is the default and creates neither
 a folder nor a file. The choice is a device preference in the existing app-preferences record, so it
-survives a restart and applies before the window opens.
+survives sign-out and restart. The level applies immediately; destination preparation runs on
+the single writer thread, including at startup, and Settings shows only its completed result.
+Repeated changes replace one pending setup request; stale completions cannot publish a new path.
+Demo and fixture sessions never install a file or open its folder.
 
 An enabled log writes `logs/serein.log` inside Serein's data folder, with private permissions on
-Unix. A data folder that refuses the file (a read-only profile, a machine policy, a sandboxed run)
+Unix. Every Unix open uses an owner-checked directory descriptor and rejects symlinks, hard-linked
+files and non-regular files (including FIFOs) without blocking. Directory/file permissions
+are set on their descriptors to 0700/0600; failures refuse the destination. Windows rejects
+reparse points, including junctions. A data folder that refuses the file (a read-only profile, a machine policy, a sandboxed run)
 is replaced by `serein-logs` in the temporary folder, and then by `serein-logs` beside the
 executable; the Settings page names the file that ended up in use, and each refused attempt is
 recorded with its error class and operating-system code. When every folder refuses, the level still
