@@ -10,6 +10,25 @@ pub(super) enum Tab {
 	Badges,
 }
 
+impl MessagingUi {
+	/// The account's idle timeout in seconds, or the default until it has been read.
+	pub fn idle_timeout(&self) -> u32 {
+		match self.idle_timeout_secs {
+			0 => crate::DEFAULT_IDLE_TIMEOUT_SECS,
+			secs => secs,
+		}
+	}
+}
+
+/// Whole minutes; an account value between presets rounds to the nearest minute.
+fn idle_label(secs: u32) -> String {
+	crate::i18n::translate_count(
+		"settings-idle-after-minutes",
+		((secs + 30) / 60) as usize,
+		&[],
+	)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -199,6 +218,34 @@ impl MessagingUi {
 			);
 			if !demo && !self.notification_status.is_empty() {
 				design::hint(ui, self.notification_status);
+			}
+			design::card_divider(ui);
+			design::switch(
+				ui,
+				"settings-auto-idle",
+				Some("settings-auto-idle-description"),
+				&mut self.auto_idle,
+			);
+			if self.auto_idle {
+				design::card_divider(ui);
+				let shown = self.idle_timeout();
+				design::row(ui, "settings-idle-after", None, |ui| {
+					egui::ComboBox::from_id_salt("settings-idle-after")
+						.selected_text(idle_label(shown))
+						.width(ui.available_width().min(160.0))
+						.show_ui(ui, |ui| {
+							for minutes in [1, 2, 5, 10, 15, 30, 60] {
+								ui.selectable_value(
+									&mut self.idle_timeout_secs,
+									minutes * 60,
+									idle_label(minutes * 60),
+								);
+							}
+						});
+				});
+				if !self.idle_timeout_status.is_empty() {
+					design::hint(ui, self.idle_timeout_status);
+				}
 			}
 		});
 		self.settings.notifications.heading(ui, Tab::Sounds);
