@@ -1072,6 +1072,7 @@ pub async fn run_with_activity(
 		watch::Receiver<model::OwnPresence>,
 		watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
 		watch::Receiver<Option<discord_protocol::spotify::Activity>>,
+		watch::Receiver<bool>,
 	),
 	observe: impl Fn(ActivityObservation) -> Result<(), Failure> + Sync,
 	emit: impl Fn(Event) -> Result<(), Failure>,
@@ -1086,6 +1087,7 @@ pub async fn run_with_activity(
 			own_presence: activity.1,
 			member_queries: activity.2,
 			spotify: activity.3,
+			afk: activity.4,
 			observe: &observe,
 		}),
 		emit,
@@ -1108,6 +1110,7 @@ pub async fn run_with_activity_recovery(
 		watch::Receiver<model::OwnPresence>,
 		watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
 		watch::Receiver<Option<discord_protocol::spotify::Activity>>,
+		watch::Receiver<bool>,
 	),
 	observe: impl Fn(ActivityObservation) -> Result<(), Failure> + Sync,
 	emit: impl Fn(Event) -> Result<(), Failure>,
@@ -1122,6 +1125,7 @@ pub async fn run_with_activity_recovery(
 			own_presence: activity.1,
 			member_queries: activity.2,
 			spotify: activity.3,
+			afk: activity.4,
 			observe: &observe,
 		}),
 		Some(&reconnect),
@@ -1136,6 +1140,7 @@ struct ActivityInput<'a> {
 	member_queries: watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
 	receiver: watch::Receiver<Option<discord_protocol::rpc::Activity>>,
 	own_presence: watch::Receiver<model::OwnPresence>,
+	afk: watch::Receiver<bool>,
 	observe: &'a (dyn Fn(ActivityObservation) -> Result<(), Failure> + Sync),
 }
 async fn run_inner(
@@ -1175,6 +1180,7 @@ async fn run_recoverable(
 	let activity_enabled = activity.is_some();
 	let mut activity_open = activity_enabled;
 	let mut presence_open = activity_enabled;
+	let mut afk_open = activity_enabled;
 	let mut spotify_open = activity_enabled;
 	let ignore_observation = |_| Ok(());
 	let ActivityInput {
@@ -1182,12 +1188,14 @@ async fn run_recoverable(
 		mut spotify,
 		mut member_queries,
 		mut own_presence,
+		mut afk,
 		observe,
 	} = activity.unwrap_or_else(|| ActivityInput {
 		receiver: watch::channel(None).1,
 		spotify: watch::channel(None).1,
 		member_queries: watch::channel(Default::default()).1,
 		own_presence: watch::channel(model::OwnPresence::default()).1,
+		afk: watch::channel(false).1,
 		observe: &ignore_observation,
 	});
 	let mut last_observation = None;
@@ -1195,6 +1203,7 @@ async fn run_recoverable(
 	outgoing_activity.update(&activity.borrow_and_update())?;
 	outgoing_activity.update_spotify(&spotify.borrow_and_update())?;
 	outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
+	outgoing_activity.update_afk(*afk.borrow_and_update());
 	let mut member_diagnostics = Diagnostics::new(
 		"members",
 		std::env::var_os("SEREIN_MEMBER_DIAGNOSTICS").as_deref() == Some(std::ffi::OsStr::new("1")),
@@ -1308,6 +1317,7 @@ async fn run_recoverable(
 			return Err(Failure::Protocol);
 		}
 		outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
+		outgoing_activity.update_afk(*afk.borrow_and_update());
 		let handshake = if let (Some(session), Some(sequence)) = (&state.session, state.sequence) {
 			serde_json::json!({"op":6,"d":{"token":secret.expose(),"session_id":session.as_str(),"seq":sequence}})
 		} else {
@@ -1492,6 +1502,10 @@ async fn run_recoverable(
 					presence_open = changed.is_ok();
 					outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
 				}
+				changed = afk.changed(), if afk_open => {
+					afk_open = changed.is_ok();
+					outgoing_activity.update_afk(*afk.borrow_and_update());
+				}
 				changed = spotify.changed(), if spotify_open => {
 					spotify_open = changed.is_ok();
 					outgoing_activity.update_spotify(&spotify.borrow_and_update())?;
@@ -1505,6 +1519,7 @@ async fn run_recoverable(
 					outgoing_activity.update_spotify(&spotify.borrow_and_update())?;
 					outgoing_activity.update(&activity.borrow_and_update())?;
 					outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
+					outgoing_activity.update_afk(*afk.borrow_and_update());
 					if let Some(packet) = outgoing_activity.packet(Instant::now())
 						&& !matches!(timeout(Duration::from_secs(5), socket.send(packet)).await, Ok(Ok(()))) { break; }
 				}
@@ -2520,7 +2535,7 @@ mod tests {
 	                let result = run_inner(
 	                    Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
 	                    "wss://gateway.discord.gg/".into(), watch::channel(None).1,
-	                    mpsc::channel(1).1, Some(ActivityInput { spotify: watch::channel(None).1, member_queries: watch::channel(Default::default()).1, receiver, own_presence: presence_receiver, observe: &|value| { observations.send_replace(value); Ok(()) } }), |_| Ok(()), Some(&endpoint),
+	                    mpsc::channel(1).1, Some(ActivityInput { spotify: watch::channel(None).1, member_queries: watch::channel(Default::default()).1, receiver, own_presence: presence_receiver, afk: watch::channel(false).1, observe: &|value| { observations.send_replace(value); Ok(()) } }), |_| Ok(()), Some(&endpoint),
 	                ).await;
 	                finished.send(()).unwrap();
 	                result

@@ -50,6 +50,8 @@ pub struct AppPreferences {
 	pub convert_emoticons: bool,
 	/// Request a conversation's page while the pointer rests on it; older preferences enable it.
 	pub preload_on_hover: bool,
+	/// Show as Idle after 10 minutes of system inactivity; older preferences enable it.
+	pub auto_idle: bool,
 	/// Hide the in-app title strip. macOS and Windows then show the system title bar.
 	pub hide_title_bar: bool,
 	/// Keep the home list's message requests section collapsed after a restart.
@@ -103,6 +105,7 @@ impl Default for AppPreferences {
 			hide_nitro_emojis: false,
 			convert_emoticons: false,
 			preload_on_hover: true,
+			auto_idle: true,
 			hide_title_bar: false,
 			message_requests_collapsed: false,
 			hide_window_decorations: false,
@@ -2254,6 +2257,10 @@ mod tests {
 		assert_eq!(legacy.cosmetics, model::CosmeticPreferences::default());
 		assert_eq!(legacy.image_cache, model::CachePreferences::default());
 		assert_eq!(legacy.time_format, model::TimeFormat::Auto);
+		assert!(
+			legacy.auto_idle,
+			"older preferences enable Go idle when away"
+		);
 		for (key, format) in [
 			("12-hour", model::TimeFormat::TwelveHour),
 			("24-hour", model::TimeFormat::TwentyFourHour),

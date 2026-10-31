@@ -8,6 +8,7 @@ pub mod compositor;
 pub mod game_activity;
 pub mod heic;
 pub mod hotkeys;
+pub mod idle;
 mod login_keyring;
 pub mod memory;
 pub mod notifications;

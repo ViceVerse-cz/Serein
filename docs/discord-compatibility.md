@@ -1605,7 +1605,14 @@ are shared across the session's metadata lookups. Unresolved artwork is
 omitted and application-name lookup failures are visible. These routes and normal-user Gateway
 publication remain unofficial/unstable. The existing [Update Presence](https://docs.discord.com/developers/events/gateway-events#update-presence)
 path waits for READY/RESUMED, coalesces updates and limits attempts (including clears) to one
-per five seconds. The Gateway payload retains the existing online/afk/since behavior.
+per five seconds. After system inactivity, Serein sends `afk: true` with `since` set to when
+it marked the session idle and shows Online as `idle` (DND, Invisible and manual Idle stay as
+chosen; the saved status is unchanged) so Discord can route push notifications to the phone. The
+inactivity timeout is the account's `voice_and_video.afk_timeout` in settings-proto/1 (60 to 3600
+seconds, default 600). It is read with the status, and a change in Settings rewrites only that
+field, keeping the other voice settings like the status patches do. A locked screen counts as
+idle at once and voice calls suppress it. This mirrors the official client and is
+unofficial/unverified.
 
 Offline tests cover native Windows IPC, malformed/oversized frames, handshake/update/clear,
 unsupported subscriptions, shutdown, rich Gateway fields, rate spacing and reconnect.

@@ -53,10 +53,40 @@ impl DiscordApi {
 	}
 
 	pub async fn account_presence(&self) -> Result<model::OwnPresence, Failure> {
+		self.account_status().await.map(|(presence, _)| presence)
+	}
+
+	/// Status plus the inactivity timeout (seconds) from one settings read.
+	pub async fn account_status(&self) -> Result<(model::OwnPresence, Option<u32>), Failure> {
 		let settings = self.read_activity_sharing().await?;
-		activity_sharing::account_presence(&settings).map_err(|_| {
+		let presence = activity_sharing::account_presence(&settings).map_err(|_| {
 			Failure::ProtocolAt("Discord status settings are unavailable or unsupported")
-		})
+		})?;
+		Ok((presence, settings.afk_timeout))
+	}
+
+	/// Writes `voice_and_video.afk_timeout`, the account's Idle-after setting.
+	pub async fn set_idle_timeout(&self, secs: u32) -> Result<(), Failure> {
+		const UNCONFIRMED: Failure =
+			Failure::ProtocolAt("Discord idle timeout was not confirmed; refresh before retrying");
+		let current = self.read_activity_sharing().await?;
+		if current.afk_timeout == Some(secs) {
+			return Ok(());
+		}
+		let patch =
+			activity_sharing::encode_afk_timeout(&current, secs).map_err(|_| Failure::Protocol)?;
+		let bytes = self
+			.request_limited(
+				Method::PATCH,
+				"/users/@me/settings-proto/1",
+				Some(serde_json::json!({"settings":patch,"required_data_version":current.version})),
+				MAX_SETTINGS_RESPONSE,
+			)
+			.await?;
+		match activity_sharing::decode_response(&bytes) {
+			Ok(saved) if saved.afk_timeout == Some(secs) => Ok(()),
+			_ => Err(UNCONFIRMED),
+		}
 	}
 
 	/// Writes the account status Discord restores on the next sign-in. Same value is not patched again.
