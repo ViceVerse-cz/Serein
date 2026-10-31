@@ -11,6 +11,7 @@ use std::fmt;
 pub struct PresenceUpdate {
 	pub guild: Option<Id>,
 	pub user: Id,
+	pub avatar: Patch<String>,
 	pub status: Patch<String>,
 	pub custom_status: Patch<String>,
 	pub activities: Patch<Vec<RichActivity>>,
@@ -287,6 +288,8 @@ impl<'de> Deserialize<'de> for Activities {
 #[derive(Deserialize)]
 struct Identity {
 	id: Id,
+	#[serde(default)]
+	avatar: Patch<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -344,6 +347,16 @@ struct PresenceDto {
 
 pub fn decode(bytes: &[u8]) -> Result<PresenceUpdate, DecodeError> {
 	let presence: PresenceDto = crate::decode(bytes)?;
+	let avatar = match presence
+		.user
+		.as_ref()
+		.map_or(Patch::Absent, |u| u.avatar.clone())
+	{
+		Patch::Value(hash) if model::valid_avatar_hash(&hash) => Patch::Value(hash),
+		Patch::Value(_) => Patch::Absent,
+		Patch::Null => Patch::Null,
+		Patch::Absent => Patch::Absent,
+	};
 	let embedded = presence.user.map(|user| user.id);
 	if embedded.zip(presence.user_id).is_some_and(|(a, b)| a != b) {
 		return Err(DecodeError);
@@ -376,6 +389,7 @@ pub fn decode(bytes: &[u8]) -> Result<PresenceUpdate, DecodeError> {
 	Ok(PresenceUpdate {
 		guild: presence.guild_id,
 		user,
+		avatar,
 		status,
 		custom_status,
 		activities,
@@ -389,6 +403,20 @@ mod tests {
 
 	fn update(activities: &str) -> Result<PresenceUpdate, DecodeError> {
 		decode(format!(r#"{{"user":{{"id":"2"}},"activities":{activities}}}"#).as_bytes())
+	}
+
+	#[test]
+	fn presence_update_decodes_user_avatar() {
+		let wire =
+			br#"{"user":{"id":"2","avatar":"0123456789abcdef0123456789abcdef"},"status":"online"}"#;
+		let update = decode(wire).unwrap();
+		assert_eq!(
+			update.avatar,
+			Patch::Value("0123456789abcdef0123456789abcdef".into())
+		);
+		let null_avatar = br#"{"user":{"id":"2","avatar":null},"status":"online"}"#;
+		let update_null = decode(null_avatar).unwrap();
+		assert_eq!(update_null.avatar, Patch::Null);
 	}
 
 	#[test]
