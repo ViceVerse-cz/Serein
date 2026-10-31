@@ -589,6 +589,11 @@ impl DiscordApi {
 				{
 					return Ok(br#"{"note":""}"#.to_vec());
 				}
+				if error.code == Some(160004) {
+					return Err(Failure::ProtocolAt(
+						client_core::channel_actions::THREAD_ALREADY_OPENED,
+					));
+				}
 				return Err(if status == StatusCode::FORBIDDEN {
 					Failure::Forbidden
 				} else if status.is_server_error() && write {
@@ -934,6 +939,13 @@ impl DiscordApi {
 						user,
 						request,
 						result: result.map(Box::new),
+					});
+				}
+				if let client_core::user_actions::Action::CreateGroup { recipients } = action {
+					return Event::UserAction(client_core::user_actions::Event::GroupCreated {
+						request,
+						result: self.create_group(&recipients).await.map(Box::new),
+						recipients,
 					});
 				}
 				if let client_core::user_actions::Action::LoadNote(user) = action {

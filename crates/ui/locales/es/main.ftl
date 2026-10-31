@@ -85,6 +85,7 @@ hide-chat = Ocultar chat
 show-chat = Mostrar chat
 search-conversation = Buscar esta conversación
 show-member-list = Mostrar lista de miembros
+show-user-profile = Mostrar perfil de usuario
 pinned-messages = Mensajes fijados
 threads = Trapos
 
@@ -1535,6 +1536,14 @@ join-server-status-invite-accepted = Invitación aceptada. Esperando acceso al s
 join-server-status-offline-preview = Vista previa sin conexión: unirse a servidores está deshabilitado.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Quitar
+# Context: custom_section
+keybinds-custom-section-add-binding = Añadir atajo
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Añade atajos extra para cualquier acción. Cada combinación de tecla o botón del ratón solo puede usarse una vez.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Atajos personalizados
 # Context: row
 keybinds-row-global = GLOBAL
 # Context: row
@@ -1775,6 +1784,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Abrir
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Vista previa del sonido
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Empuja para hablar: activar
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Empuja para hablar: desactivar
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Tonos de llamada, dispositivos de llamada y procesamiento de micrófonos.
 # Context: notification_settings
@@ -3981,7 +3994,29 @@ updates-update-settings-restart-to-update = Reiniciar para actualizar
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein se instaló a través de su distribución. Ejecute esto en una terminal para actualizar.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Guardar diagnóstico
+# Context: update_settings
 updates-update-settings-support-diagnostics = Soporte y diagnóstico
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Copiar líneas recientes
+# Context: update_settings
+updates-update-settings-diagnostic-log = Registro de diagnóstico
+# Context: update_settings
+updates-update-settings-log-errors = Errores
+# Context: update_settings
+updates-update-settings-log-events = Errores, advertencias y eventos
+# Context: update_settings
+updates-update-settings-log-everything = Todo (detallado)
+# Context: update_settings
+updates-update-settings-log-off = Desactivado
+# Context: update_settings
+updates-update-settings-log-warnings = Errores y advertencias
+# Context: update_settings
+updates-update-settings-open-folder = Abrir carpeta
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = No se pudo escribir la carpeta del registro. Revisa la carpeta de datos de Serein e inténtalo de nuevo.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Tiempos, etapas y fallos en un único archivo de registro local. Nunca se escriben datos de cuenta, canales, mensajes ni credenciales, y no se sube nada.
 # Context: update_log
 updates-update-log = Registro de actualizaciones
 # Context: update_settings
@@ -4455,6 +4490,7 @@ lib-composer-onboarding-incomplete = Termina de unirte a este servidor para desb
 lib-composer-onboarding-complete = Completar bienvenida
 profiles-message-placeholder = Mensaje a @{ $user }
 profiles-message-send = Enviar mensaje
+profiles-message-open-chat = Abrir chat
 profiles-message-sending = Abriendo mensaje directo…
 user-menu-contents-start-a-call = Iniciar llamada
 verification-show-complete-the-check-to-open-this-conversation = Completa la verificación para abrir esta conversación.
@@ -4735,6 +4771,8 @@ composer-placeholder-direct = Enviar mensaje a @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = Este es el comienzo de tu historial de mensajes directos con { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Te damos la bienvenida al comienzo del grupo { $name }.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = ¡Te damos la bienvenida a #{ $channel }!
@@ -4832,3 +4870,12 @@ search-overlays-no-matching-content-types = No hay tipos de contenido coincident
 search-overlays-history = Historial
 search-overlays-clear-history = Borrar historial de búsqueda
 main-sign-in-rate-limited-detail = Discord está limitando este inicio de sesión. Espera antes de volver a intentarlo. Otro intento antes de tiempo puede alargar la espera.
+
+# New message
+new-message-title = Nuevo mensaje
+new-message-subtitle = Los MD de grupo pueden tener hasta 10 miembros.
+new-message-search = Buscar
+new-message-hint = Añade amigos para iniciar un mensaje directo o un grupo.
+new-message-no-people-found = Nadie coincide con esa búsqueda.
+new-message-create = Crear mensaje
+new-message-cancel = Cancelar

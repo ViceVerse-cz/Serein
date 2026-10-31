@@ -4,6 +4,26 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Push-to-talk notification cues — October 29, 2026
+
+Baseline `1b2f894` and this branch were built with the pinned Rust toolchain and locked
+dependencies on Windows x64 (10.0.26300). Standard release packages use `cargo xtask package`
+(voice included, demo and development-data disabled) with separate output directories.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,304,384 B | 92,312,576 B | +8,192 B (+0.009%) |
+| `dist/` regular-file payload | 96,663,146 B | 96,671,773 B | +8,627 B (+0.009%) |
+| ZIP of `dist/` (`7z a -mx=9`) | 51,902,771 B | 51,908,426 B | +5,655 B (+0.011%) |
+
+The two byte-original MP3 cues add 3,319 B before packaging. Edge detection keeps one bool and
+no cache. The PTT cues play through a second notification worker, so a press or release neither
+cancels nor is cancelled by a message or ring cue. That worker starts lazily on the first PTT
+cue and keeps one capacity-one channel plus its thread until its `Sounds` value is dropped with
+the app; decoded audio is released after each cue. No CPU, RSS or latency measurement is
+claimed, because the offline fixture joins no call and plays no cue. Debug `profile_preview`
+screenshots from both revisions are in [the evidence folder](pr-evidence/ptt-sounds/).
+
 ## Incoming stream quality, pacing and recovery — October 22, 2026
 
 Watched-stream reception now repairs/reorders bounded RTP gaps, preserves H.264 references
@@ -428,6 +448,40 @@ dependency, payload, ownership and mode smoke checks:
 One artifact set per revision, unchanged release settings and package contents;
 archive timestamps/compression add noise. These small size differences are not
 evidence of faster playback. CPU/RSS and physical A/V latency are unmeasured.
+
+### Upstream integration — November 1, 2026
+
+The stream branch incorporates upstream `54512d29`, including audio-device recovery,
+camera recovery, custom keybinds and opt-in local diagnostics. The performance-document
+conflict retains the stream-playback evidence and upstream's push-to-talk measurements; the
+fuzz fixture retains the same assignable role and upstream's explanatory comment.
+
+All 1,398 workspace unit/integration/doctests pass, with 14 ignored. Formatting,
+auth-handoff fixtures, declared-license checks and the six license-policy fixtures pass.
+The full `cargo xtask check` does not pass: unchanged upstream
+`crates/platform/src/hotkeys.rs` fails strict Clippy on its Linux-unused `AtomicBool`
+import, `MOUSE_ID` constant and eight-argument `portal` function. No hotkey implementation
+or lint suppression is changed by this integration.
+
+Upstream now ignores RUSTSEC-2026-0387 and several other advisories and disables yanked
+package checking. This branch inherits that policy unchanged; its compatible dependency
+patches remain. Ignoring the crypto-bigint advisory does not remediate it. Earlier strict
+audit results above describe the earlier policy, not this integrated revision. No new
+owner-operated live stream test or physical latency/CPU/RSS measurement is claimed.
+
+
+The standard voice-enabled Rust 1.98.1 Arch package passes native metadata, dependency,
+payload, ownership and mode checks. Production and policy checks also pass separately.
+
+| Package metric | Previous runtime (`406fbb9c`) | Integrated candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,995,592 B | 93,430,600 B | +435,008 B (+0.468%) |
+| Installed payload | 97,694,025 B | 98,129,053 B | +435,028 B (+0.445%) |
+| Arch archive | 54,561,319 B | 54,751,460 B | +190,141 B (+0.348%) |
+
+The integrated payload contains 245 files. One artifact set per revision, unchanged
+release settings; archive timestamps/compression add noise. These deltas include upstream
+changes through `54512d29` and do not isolate stream-feature cost.
 
 ### Earlier playback recovery evidence
 
@@ -1093,6 +1147,36 @@ allocation limit) instead of up to the 500 MB upload limit plus a second copy.
 Standard no-default-features macOS packages built from both revisions: executable 68,509,584 B in
 both, installed app 74,547,919 B in both, `ditto` ZIP 48,179,547 vs 48,179,867 B (+320 B).
 
+## Camera continuity during Gateway resume (2026-10-29)
+
+Compared clean baseline `d93a8415406f7f36de5dc8b14e12ad0fc7134bb4` with runtime
+source `839b019af0641768c04dc52bf5444607bf91283a` on CachyOS x86_64, using Rust
+1.98.1 and `cargo xtask package --format arch`. Both used the standard voice-enabled
+release build with no default features, fat LTO and one codegen unit. Each source
+revision produced one measured executable and native package; the affected release
+crates were rebuilt after switching source checkouts.
+
+| Metric | Baseline | Fixed | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 92,690,952 | 92,690,952 | 0 |
+| Installed file payload bytes | 97,389,385 | 97,389,385 | 0 |
+| Compressed Arch package bytes | 51,485,300 | 51,485,164 | -136 |
+
+Executable and archive sizes use file lengths. Installed payload is the sum of regular
+`usr/` file sizes in the package, excluding Arch metadata. Both packages passed the
+native metadata, dependency version, payload, mode, ownership and no-script checks.
+Default Debian packaging could not run because this host has no `dpkg`.
+
+The compressed difference is packaging variation; no runtime speedup is claimed.
+Camera/voice CPU, RSS, latency and live Discord behavior remain unmeasured. The change
+adds no retained state, queues, dependencies or media processing. The affected
+lifecycle has no equivalent camera-running baseline during an outage: baseline tears down
+capture, while this change retains it. Comparing idle CPU or RSS at that point would compare
+camera-off with camera-on rather than implementation overhead. A meaningful device/codec
+resume-latency comparison requires controlled physical camera capture, which is not authorized
+in this offline review session. The synthetic replay verifies lifecycle and command admission;
+it does not measure media performance. No runtime performance improvement is claimed.
+
 ## Voice default-device polling — October 7, 2026
 
 An offline probe compared creating a fresh PulseAudio client for every metadata poll with reusing
@@ -1405,3 +1489,31 @@ Protection adds temporary passes only for candidate URLs containing `_`, `*`, `~
 or `&`; other messages use an early return. Source remains capped at 8 KiB, each
 pass at 512 events (exhaustion falls back to bounded literal text), and stored
 links at 16. No dependency or retained cache is added.
+
+
+## Review batch integration (2026-11-01)
+
+Compared baseline `c37a4f3e` (the same source tree as main `5caf787a`) with
+combined source `b9642a03`. The baseline already contains #860, #843 and #859;
+this comparison covers the remaining seven PRs together. It cannot attribute costs
+to one PR. [Source hashes and samples](pr-evidence/review-batch-20261031/measurements.json)
+record Windows 11 x64, pinned Rust 1.98.1 and the host CPU/RAM. Both standard
+`cargo xtask package` builds include voice and disable developer/default features.
+NSIS is unavailable, so these are unsigned portable payloads without an installer.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 92,469,248 | 92,695,552 | +226,304 / +0.245% |
+| Installed payload bytes | 96,828,010 | 97,054,749 | +226,739 / +0.234% |
+| ZIP bytes (Deflate level 9) | 52,875,112 | 52,959,631 | +84,519 / +0.160% |
+| Reducer median, 100000 messages | 72.0211 ms | 71.1823 ms | -0.8388 ms / -1.16% |
+
+The installed file counts are 233 and 233. ZIPs use sorted relative paths
+and Python ZIP_DEFLATED at level 9. PR images and measurement artifacts are not installed.
+
+Reducer binaries were built once with `cargo build --release --locked -p replay-bench`,
+then alternated after builds finished: one warmup and five samples per binary. The
+100000-message workload checks 500 retained records and a bounded estimated timeline.
+It is a general reducer check, not an avatar-burst, input-latency or camera benchmark.
+Background OS load is not controlled; no speed improvement is claimed. Process RSS,
+UI frame latency, physical audio/camera behavior and live Discord remain unmeasured.

@@ -356,9 +356,8 @@ fn rows_at<'a>(
 			);
 		}
 	}
-	if let Some(heading) = scope.remainder_heading()
-		&& !tree.is_empty()
-	{
+	// Home keeps its heading even with no unpinned DMs: it carries the New Message action.
+	if let Some(heading) = scope.remainder_heading() {
 		rows.push(Row::Heading(heading));
 	}
 	rows.extend(tree);
@@ -453,19 +452,39 @@ fn category_header(
 	response
 }
 
-fn eyebrow_row(ui: &mut egui::Ui, label: &str, row_height: f32) -> egui::Rect {
+fn eyebrow_row(
+	ui: &mut egui::Ui,
+	label: &str,
+	row_height: f32,
+	trailing: bool,
+) -> (egui::Rect, bool) {
 	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
-	ui.allocate_ui_with_layout(
+	let mut clicked = false;
+	let response = ui.allocate_ui_with_layout(
 		egui::vec2(ui.available_width(), row_height),
 		egui::Layout::left_to_right(egui::Align::Center),
 		|ui| {
+			// The row spans the list even though its contents are a short caption.
+			ui.set_width(ui.available_width());
 			ui.add_space(8.0);
 			ui.add(egui::Label::new(design::eyebrow(ui, label, colors.muted)).selectable(false));
+			if trailing {
+				// Discord's New Message action sits at the right end of the DM list heading.
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					ui.add_space(4.0);
+					clicked = crate::icons::button(
+						ui,
+						crate::icons::Icon::Plus,
+						24.0,
+						&crate::i18n::translate("new-message-title"),
+					)
+					.clicked();
+				});
+			}
 		},
-	)
-	.response
-	.rect
+	);
+	(response.response.rect, clicked)
 }
 
 fn shelf_row(rows: &[CachedRow], index: usize) -> bool {
@@ -695,7 +714,13 @@ impl MessagingUi {
 		}
 		let dm_list = self.guild.is_none();
 		let row_height = if dm_list { 44.0 } else { 34.0 };
-		let row_count = self.channel_cache.rows.len().max(usize::from(dm_list));
+		// An empty DM remainder still gets its "no conversations" line under the heading.
+		let empty_dms = dm_list
+			&& matches!(
+				self.channel_cache.rows.last(),
+				None | Some(CachedRow::Heading(Heading::DirectMessages))
+			);
+		let row_count = self.channel_cache.rows.len() + usize::from(empty_dms);
 		let previous_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
 		let mut drop_rows = Vec::new();
@@ -716,12 +741,16 @@ impl MessagingUi {
 					};
 					match row {
 						CachedRow::Heading(heading) => {
-							let rect = eyebrow_row(
+							let (rect, new_message) = eyebrow_row(
 								ui,
 								&crate::i18n::translate_if_key(heading.key()),
 								row_height,
+								dm_list && heading == Heading::DirectMessages,
 							);
 							paint_shelf_rule(ui, rect, &self.channel_cache.rows, index);
+							if new_message {
+								self.new_message.open(state);
+							}
 						}
 						CachedRow::Requests(count, collapsed) => {
 							let response = category_header(
@@ -1574,6 +1603,59 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn the_direct_message_heading_offers_new_message_at_the_far_right() {
+		const WIDTH: f32 = 320.0;
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let click = |pos: egui::Pos2| {
+			let mut clicked = false;
+			for (moved, pressed) in [(true, false), (false, true), (false, false)] {
+				let mut events = vec![];
+				if moved {
+					events.push(egui::Event::PointerMoved(pos));
+				} else {
+					events.push(egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					});
+				}
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(WIDTH, 44.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| {
+						let (rect, hit) = eyebrow_row(ui, "Direct Messages", 44.0, true);
+						clicked = hit;
+						assert!(
+							(rect.width() - WIDTH).abs() < 1.0,
+							"the heading row spans the list, not its caption: {}",
+							rect.width()
+						);
+					},
+				);
+				output.drop_without_applying_deltas();
+			}
+			clicked
+		};
+		// The button is drawn at the right end of the row, not on top of the caption.
+		assert!(
+			click(egui::pos2(WIDTH - 12.0, 22.0)),
+			"the plus is at the far right"
+		);
+		assert!(
+			!click(egui::pos2(120.0, 22.0)),
+			"the caption itself is not a button"
+		);
+	}
+
+	#[test]
 	fn channel_rows_reuse_guild_messages_and_invalidate_on_navigation_changes() {
 		let mut state = test_support::demo_state();
 		let selected = state.selected.unwrap();
@@ -1852,6 +1934,27 @@ mod tests {
 			.as_slice(),
 			[Row::Category(_, 1)]
 		));
+	}
+
+	/// Regression: the DM heading carries New Message, so it stays without unpinned DMs.
+	#[test]
+	fn the_direct_message_heading_stays_when_no_unpinned_dms_remain() {
+		let mut state = test_support::demo_state();
+		state.channels.retain(|c| c.guild.is_some());
+		let heading_last = |state: &State, preferences: &model::ChannelPreferences| {
+			let roster = Roster::build(state, preferences, Scope::Home, false);
+			let output = rows(state, Scope::Home, &roster, &BTreeSet::new(), false, false);
+			matches!(output.last(), Some(Row::Heading(Heading::DirectMessages)))
+		};
+		assert!(heading_last(&state, &Default::default()), "no DMs at all");
+		let mut dm = channel(30, 1, 0, None);
+		dm.guild = None;
+		state.channels.push(dm);
+		let pinned = model::ChannelPreferences {
+			pinned: vec![Id(30)],
+			..Default::default()
+		};
+		assert!(heading_last(&state, &pinned), "every DM is pinned");
 	}
 
 	#[test]

@@ -433,6 +433,7 @@ struct ActiveMembers {
 	groups: Vec<(String, u64)>,
 	pending_presence: BTreeMap<Id, model::MemberPresence>,
 	presence_deadline: Option<Instant>,
+	avatar_changed: bool,
 }
 
 /// Offline debug check of the user subscription packet and its bounded snapshot path.
@@ -605,6 +606,7 @@ impl ActiveMembers {
 			groups: vec![],
 			pending_presence: BTreeMap::new(),
 			presence_deadline: None,
+			avatar_changed: false,
 		}
 	}
 	fn list_id(&self) -> &str {
@@ -915,6 +917,7 @@ impl ActiveMembers {
 	fn clear_presence(&mut self) {
 		self.pending_presence.clear();
 		self.presence_deadline = None;
+		self.avatar_changed = false;
 	}
 	fn presence(&mut self, update: discord_protocol::presence::PresenceUpdate, now: Instant) {
 		if !self.synced || update.guild != Some(self.subscription.guild) {
@@ -969,7 +972,9 @@ impl ActiveMembers {
 		if !resolved.valid() {
 			return;
 		}
-		if self.pending_presence.len() == 100 && !self.pending_presence.contains_key(&update.user) {
+		let capped =
+			self.pending_presence.len() == 100 && !self.pending_presence.contains_key(&update.user);
+		if capped && matches!(update.avatar, model::Patch::Absent) {
 			return;
 		}
 		let projected = self
@@ -978,7 +983,18 @@ impl ActiveMembers {
 			.flatten()
 			.map(|slot| match slot {
 				model::MemberSlot::Person(row) if row.user.id == update.user => {
-					client_core::presence::projected_row_bytes(row, &resolved)
+					let avatar_diff = match &update.avatar {
+						model::Patch::Value(avatar) => avatar
+							.capacity()
+							.saturating_sub(row.user.avatar.as_ref().map_or(0, String::capacity)),
+						_ => 0,
+					};
+					let presence_bytes = if capped {
+						row.bytes()
+					} else {
+						client_core::presence::projected_row_bytes(row, &resolved)
+					};
+					presence_bytes + avatar_diff
 				}
 				model::MemberSlot::Person(row) => row.bytes(),
 				model::MemberSlot::Group(id) => id.capacity(),
@@ -988,11 +1004,30 @@ impl ActiveMembers {
 			return;
 		}
 		let mut changed = false;
+		let mut avatar_changed = false;
 		for row in self.people_mut().filter(|row| row.user.id == update.user) {
-			if row.status != resolved.status
-				|| row.custom_status != resolved.custom_status
-				|| row.activities != resolved.activities
-				|| row.clients != resolved.clients
+			match &update.avatar {
+				model::Patch::Absent => {}
+				model::Patch::Null => {
+					if row.user.avatar.is_some() {
+						row.user.avatar = None;
+						changed = true;
+						avatar_changed = true;
+					}
+				}
+				model::Patch::Value(avatar) => {
+					if row.user.avatar.as_deref() != Some(avatar) {
+						row.user.avatar = Some(avatar.clone());
+						changed = true;
+						avatar_changed = true;
+					}
+				}
+			}
+			if !capped
+				&& (row.status != resolved.status
+					|| row.custom_status != resolved.custom_status
+					|| row.activities != resolved.activities
+					|| row.clients != resolved.clients)
 			{
 				row.status = resolved.status.clone();
 				row.custom_status = resolved.custom_status.clone();
@@ -1001,16 +1036,27 @@ impl ActiveMembers {
 				changed = true;
 			}
 		}
+		if avatar_changed {
+			self.avatar_changed = true;
+		}
 		if changed {
 			// <=100 entries within the member-row byte budget. The
 			// deadline belongs to the first change, never to the latest packet.
-			self.pending_presence.insert(update.user, resolved);
+			// Avatar changes travel in the bounded full snapshot even when this map is full.
+			if !capped {
+				self.pending_presence.insert(update.user, resolved);
+			}
 			self.presence_deadline
 				.get_or_insert(now + Duration::from_millis(100));
 		}
 	}
 	fn take_presence(&mut self) -> Option<Event> {
 		self.presence_deadline = None;
+		if self.avatar_changed {
+			self.avatar_changed = false;
+			self.pending_presence.clear();
+			return (self.synced).then(|| Event::Members(self.snapshot(Freshness::Fresh)));
+		}
 		let pending = std::mem::take(&mut self.pending_presence);
 		(self.synced && !pending.is_empty()).then(|| Event::MemberPresence {
 			guild: self.subscription.guild,
@@ -1072,6 +1118,7 @@ pub async fn run_with_activity(
 		watch::Receiver<model::OwnPresence>,
 		watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
 		watch::Receiver<Option<discord_protocol::spotify::Activity>>,
+		watch::Receiver<bool>,
 	),
 	observe: impl Fn(ActivityObservation) -> Result<(), Failure> + Sync,
 	emit: impl Fn(Event) -> Result<(), Failure>,
@@ -1086,6 +1133,7 @@ pub async fn run_with_activity(
 			own_presence: activity.1,
 			member_queries: activity.2,
 			spotify: activity.3,
+			afk: activity.4,
 			observe: &observe,
 		}),
 		emit,
@@ -1108,6 +1156,7 @@ pub async fn run_with_activity_recovery(
 		watch::Receiver<model::OwnPresence>,
 		watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
 		watch::Receiver<Option<discord_protocol::spotify::Activity>>,
+		watch::Receiver<bool>,
 	),
 	observe: impl Fn(ActivityObservation) -> Result<(), Failure> + Sync,
 	emit: impl Fn(Event) -> Result<(), Failure>,
@@ -1122,6 +1171,7 @@ pub async fn run_with_activity_recovery(
 			own_presence: activity.1,
 			member_queries: activity.2,
 			spotify: activity.3,
+			afk: activity.4,
 			observe: &observe,
 		}),
 		Some(&reconnect),
@@ -1136,6 +1186,7 @@ struct ActivityInput<'a> {
 	member_queries: watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
 	receiver: watch::Receiver<Option<discord_protocol::rpc::Activity>>,
 	own_presence: watch::Receiver<model::OwnPresence>,
+	afk: watch::Receiver<bool>,
 	observe: &'a (dyn Fn(ActivityObservation) -> Result<(), Failure> + Sync),
 }
 async fn run_inner(
@@ -1175,6 +1226,7 @@ async fn run_recoverable(
 	let activity_enabled = activity.is_some();
 	let mut activity_open = activity_enabled;
 	let mut presence_open = activity_enabled;
+	let mut afk_open = activity_enabled;
 	let mut spotify_open = activity_enabled;
 	let ignore_observation = |_| Ok(());
 	let ActivityInput {
@@ -1182,12 +1234,14 @@ async fn run_recoverable(
 		mut spotify,
 		mut member_queries,
 		mut own_presence,
+		mut afk,
 		observe,
 	} = activity.unwrap_or_else(|| ActivityInput {
 		receiver: watch::channel(None).1,
 		spotify: watch::channel(None).1,
 		member_queries: watch::channel(Default::default()).1,
 		own_presence: watch::channel(model::OwnPresence::default()).1,
+		afk: watch::channel(false).1,
 		observe: &ignore_observation,
 	});
 	let mut last_observation = None;
@@ -1195,6 +1249,7 @@ async fn run_recoverable(
 	outgoing_activity.update(&activity.borrow_and_update())?;
 	outgoing_activity.update_spotify(&spotify.borrow_and_update())?;
 	outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
+	outgoing_activity.update_afk(*afk.borrow_and_update());
 	let mut member_diagnostics = Diagnostics::new(
 		"members",
 		std::env::var_os("SEREIN_MEMBER_DIAGNOSTICS").as_deref() == Some(std::ffi::OsStr::new("1")),
@@ -1308,6 +1363,7 @@ async fn run_recoverable(
 			return Err(Failure::Protocol);
 		}
 		outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
+		outgoing_activity.update_afk(*afk.borrow_and_update());
 		let handshake = if let (Some(session), Some(sequence)) = (&state.session, state.sequence) {
 			serde_json::json!({"op":6,"d":{"token":secret.expose(),"session_id":session.as_str(),"seq":sequence}})
 		} else {
@@ -1492,6 +1548,10 @@ async fn run_recoverable(
 					presence_open = changed.is_ok();
 					outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
 				}
+				changed = afk.changed(), if afk_open => {
+					afk_open = changed.is_ok();
+					outgoing_activity.update_afk(*afk.borrow_and_update());
+				}
 				changed = spotify.changed(), if spotify_open => {
 					spotify_open = changed.is_ok();
 					outgoing_activity.update_spotify(&spotify.borrow_and_update())?;
@@ -1505,6 +1565,7 @@ async fn run_recoverable(
 					outgoing_activity.update_spotify(&spotify.borrow_and_update())?;
 					outgoing_activity.update(&activity.borrow_and_update())?;
 					outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
+					outgoing_activity.update_afk(*afk.borrow_and_update());
 					if let Some(packet) = outgoing_activity.packet(Instant::now())
 						&& !matches!(timeout(Duration::from_secs(5), socket.send(packet)).await, Ok(Ok(()))) { break; }
 				}
@@ -2520,7 +2581,7 @@ mod tests {
 	                let result = run_inner(
 	                    Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
 	                    "wss://gateway.discord.gg/".into(), watch::channel(None).1,
-	                    mpsc::channel(1).1, Some(ActivityInput { spotify: watch::channel(None).1, member_queries: watch::channel(Default::default()).1, receiver, own_presence: presence_receiver, observe: &|value| { observations.send_replace(value); Ok(()) } }), |_| Ok(()), Some(&endpoint),
+	                    mpsc::channel(1).1, Some(ActivityInput { spotify: watch::channel(None).1, member_queries: watch::channel(Default::default()).1, receiver, own_presence: presence_receiver, afk: watch::channel(false).1, observe: &|value| { observations.send_replace(value); Ok(()) } }), |_| Ok(()), Some(&endpoint),
 	                ).await;
 	                finished.send(()).unwrap();
 	                result
@@ -3230,6 +3291,139 @@ mod member_tests {
 		}
 	}
 	#[test]
+	fn presence_avatar_update_emits_members_snapshot() {
+		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
+			guild: Id(1),
+			channel: Id(2),
+			request: 7,
+			list_id: "everyone".into(),
+			ranges: vec![[0, 99]],
+		});
+		list.update(decode(br#"{"guild_id":"1","id":"everyone","member_count":1,"ops":[{"op":"SYNC","range":[0,99],"items":[{"member":{"user":{"id":"3","username":"Synthetic"},"presence":{"status":"online"}}}]}]}"#).unwrap()).unwrap();
+		let hash = "0123456789abcdef0123456789abcdef".to_string();
+		list.presence(
+			discord_protocol::presence::PresenceUpdate {
+				guild: Some(Id(1)),
+				user: Id(3),
+				avatar: model::Patch::Value(hash.clone()),
+				status: model::Patch::Absent,
+				custom_status: model::Patch::Absent,
+				activities: model::Patch::Absent,
+				clients: model::Patch::Absent,
+			},
+			Instant::now(),
+		);
+		let event = list.take_presence().expect("snapshot emitted");
+		match event {
+			Event::Members(members) => {
+				let row = person_snap(&members, 0);
+				assert_eq!(row.user.avatar.as_deref(), Some(hash.as_str()));
+			}
+			_ => panic!("expected Event::Members"),
+		}
+	}
+
+	#[test]
+	fn avatar_patches_survive_a_full_presence_batch_without_expanding_it() {
+		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
+			guild: Id(1),
+			channel: Id(2),
+			request: 7,
+			list_id: "everyone".into(),
+			ranges: vec![[0, 99], [100, 199]],
+		});
+		let people: Vec<_> = (1000..1200).map(|id| serde_json::json!({"member": {
+			"user": {"id": id.to_string(), "username": "Synthetic", "avatar": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			"presence": {"status": "online"}
+		}})).collect();
+		let wire = serde_json::to_vec(
+			&serde_json::json!({"guild_id":"1", "id":"everyone", "member_count":200,
+			"ops":[{"op":"SYNC", "range":[0,99], "items":people[..100]},
+			{"op":"SYNC", "range":[100,199], "items":people[100..]}]}),
+		)
+		.unwrap();
+		list.update(decode(&wire).unwrap()).unwrap();
+		let now = Instant::now();
+		let update = |user, avatar, status| discord_protocol::presence::PresenceUpdate {
+			guild: Some(Id(1)),
+			user: Id(user),
+			avatar,
+			status,
+			custom_status: model::Patch::Absent,
+			activities: model::Patch::Absent,
+			clients: model::Patch::Absent,
+		};
+		for user in 1000..1100 {
+			list.presence(
+				update(
+					user,
+					model::Patch::Absent,
+					model::Patch::Value("idle".into()),
+				),
+				now,
+			);
+		}
+		assert_eq!(list.pending_presence.len(), 100);
+		let deadline = list.presence_deadline;
+		let hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+		list.presence(
+			update(
+				1100,
+				model::Patch::Value(hash.into()),
+				model::Patch::Value("dnd".into()),
+			),
+			now,
+		);
+		list.presence(update(1101, model::Patch::Null, model::Patch::Absent), now);
+		assert_eq!(list.pending_presence.len(), 100);
+		assert!(!list.pending_presence.contains_key(&Id(1100)));
+		assert_eq!(person(&list, 100).status.as_deref(), Some("online"));
+		assert_eq!(list.presence_deadline, deadline);
+		let Some(Event::Members(snapshot)) = list.take_presence() else {
+			panic!("avatar changes require a full snapshot")
+		};
+		assert_eq!(
+			person_snap(&snapshot, 100).user.avatar.as_deref(),
+			Some(hash)
+		);
+		assert!(person_snap(&snapshot, 101).user.avatar.is_none());
+		assert!(list.pending_presence.is_empty());
+		assert!(list.take_presence().is_none());
+		// A snapshot does not exempt the avatar patch from the retained-row byte budget.
+		for user in 1000..1100 {
+			list.presence(
+				update(
+					user,
+					model::Patch::Absent,
+					model::Patch::Value("dnd".into()),
+				),
+				now,
+			);
+		}
+		let used = list
+			.slots
+			.iter()
+			.flatten()
+			.map(|slot| match slot {
+				model::MemberSlot::Person(row) => row.bytes(),
+				model::MemberSlot::Group(id) => id.capacity(),
+			})
+			.sum::<usize>();
+		person_mut(&mut list, 101)
+			.user
+			.name
+			.reserve_exact(MEMBER_LIST_BYTES - used);
+		list.presence(
+			update(1101, model::Patch::Value(hash.into()), model::Patch::Absent),
+			now,
+		);
+		assert!(person(&list, 101).user.avatar.is_none());
+		assert!(!list.avatar_changed);
+	}
+
+	#[test]
 	fn diagnostics_are_opt_in_byte_bounded_redacted_and_tolerate_closed_output() {
 		let mut output = Vec::new();
 		Diagnostics::new("gateway", false).record_to("disabled", &mut output);
@@ -3500,6 +3694,7 @@ mod member_tests {
 			let presence = |guild, user, status| discord_protocol::presence::PresenceUpdate {
 				guild,
 				user,
+				avatar: model::Patch::Absent,
 				status,
 				custom_status: model::Patch::Absent,
 				activities: model::Patch::Absent,
@@ -3614,6 +3809,7 @@ mod member_tests {
 					discord_protocol::presence::PresenceUpdate {
 						guild: Some(Id(1)),
 						user: Id(id),
+						avatar: model::Patch::Absent,
 						status: model::Patch::Value("online".into()),
 						custom_status: model::Patch::Value("\u{1f680}".repeat(128)),
 						activities: model::Patch::Absent,
@@ -3658,6 +3854,7 @@ mod member_tests {
 			let update = |status: &str| discord_protocol::presence::PresenceUpdate {
 				guild: Some(Id(1)),
 				user: Id(3),
+				avatar: model::Patch::Absent,
 				status: model::Patch::Value(status.into()),
 				custom_status: model::Patch::Absent,
 				activities: model::Patch::Absent,
@@ -3682,6 +3879,7 @@ mod member_tests {
 				discord_protocol::presence::PresenceUpdate {
 					guild: Some(Id(1)),
 					user: Id(3),
+					avatar: model::Patch::Absent,
 					status: model::Patch::Null,
 					custom_status: model::Patch::Absent,
 					activities: model::Patch::Absent,

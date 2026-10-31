@@ -85,6 +85,7 @@ hide-chat = Masquer la discussion
 show-chat = Afficher le chat
 search-conversation = Rechercher cette conversation
 show-member-list = Afficher la liste des membres
+show-user-profile = Afficher le profil utilisateur
 pinned-messages = Messages épinglés
 threads = Sujets
 
@@ -1535,6 +1536,14 @@ join-server-status-invite-accepted = Invitation acceptée. En attente d'accès a
 join-server-status-offline-preview = Aperçu hors ligne : la connexion aux serveurs est désactivée.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Supprimer
+# Context: custom_section
+keybinds-custom-section-add-binding = Ajouter un raccourci
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Ajoutez des raccourcis supplémentaires pour n'importe quelle action. Chaque combinaison de touche ou de bouton de souris ne peut servir qu'une fois.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Raccourcis personnalisés
 # Context: row
 keybinds-row-global = MONDIAL
 # Context: row
@@ -1775,6 +1784,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Ouvrir
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Aperçu du son
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Pousser pour parler : activation
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Pousser pour parler : désactivation
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Sonneries, appareils d'appel et traitement du microphone.
 # Context: notification_settings
@@ -2054,21 +2067,21 @@ profiles-activity-card-activity-options = Options d'activité
 # Context: activity_card
 profiles-activity-card-copy-activity = Activité de copie
 # Context: activity_card
-profiles-activity-card-listening-to-spotify = Écouter Spotify
+profiles-activity-card-listening-to-spotify = Écoute Spotify
 # Context: activity_row
-profiles-activity-row-show = Montrer
+profiles-activity-row-show = Montre
 # Context: activity_verb
 profiles-activity-verb-activity = Activité
 # Context: activity_verb
-profiles-activity-verb-competing-in = En compétition
+profiles-activity-verb-competing-in = En compétition sur
 # Context: activity_verb
-profiles-activity-verb-listening-to = Écouter
+profiles-activity-verb-listening-to = Écoute
 # Context: activity_verb
-profiles-activity-verb-playing = Jouant
+profiles-activity-verb-playing = Joue à
 # Context: activity_verb
-profiles-activity-verb-streaming = Streaming
+profiles-activity-verb-streaming = Streame
 # Context: activity_verb
-profiles-activity-verb-watching = Regarder
+profiles-activity-verb-watching = Regarde
 # Context: more_menu
 profiles-more-menu-add-friend-nickname = Ajouter un pseudo d'ami
 # Context: more_menu
@@ -3981,7 +3994,29 @@ updates-update-settings-restart-to-update = Redémarrer pour mettre à jour
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein a été installé via votre distribution. Exécutez ceci dans un terminal pour mettre à jour.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Enregistrer le diagnostic
+# Context: update_settings
 updates-update-settings-support-diagnostics = Assistance et diagnostic
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Copier les dernières lignes
+# Context: update_settings
+updates-update-settings-diagnostic-log = Journal de diagnostic
+# Context: update_settings
+updates-update-settings-log-errors = Erreurs
+# Context: update_settings
+updates-update-settings-log-events = Erreurs, avertissements et événements
+# Context: update_settings
+updates-update-settings-log-everything = Tout (détaillé)
+# Context: update_settings
+updates-update-settings-log-off = Désactivé
+# Context: update_settings
+updates-update-settings-log-warnings = Erreurs et avertissements
+# Context: update_settings
+updates-update-settings-open-folder = Ouvrir le dossier
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Impossible d’écrire le dossier du journal. Vérifiez le dossier de données de Serein et réessayez.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Durées, étapes et échecs dans un seul fichier journal local. Les données de compte, de salon, de message et les identifiants ne sont jamais écrits, et rien n’est envoyé.
 # Context: update_log
 updates-update-log = Journal des mises à jour
 # Context: update_settings
@@ -4455,6 +4490,7 @@ lib-composer-onboarding-incomplete = Termine de rejoindre ce serveur pour déblo
 lib-composer-onboarding-complete = Terminer l'accueil
 profiles-message-placeholder = Message à @{ $user }
 profiles-message-send = Envoyer le message
+profiles-message-open-chat = Ouvrir la discussion
 profiles-message-sending = Ouverture du message privé…
 user-menu-contents-start-a-call = Démarrer un appel
 verification-show-complete-the-check-to-open-this-conversation = Termine la vérification pour ouvrir cette conversation.
@@ -4732,6 +4768,8 @@ composer-placeholder-direct = Envoyer un message à @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = Ceci est le début de votre historique de messages privés avec { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Bienvenue au début du groupe { $name }.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = Bienvenue dans #{ $channel } !
@@ -4829,3 +4867,12 @@ search-overlays-no-matching-content-types = Aucun type de contenu correspondant
 search-overlays-history = Historique
 search-overlays-clear-history = Effacer l'historique de recherche
 main-sign-in-rate-limited-detail = Discord limite cette connexion. Patientez avant de réessayer. Une nouvelle tentative trop tôt peut prolonger l'attente.
+
+# New message
+new-message-title = Nouveau message
+new-message-subtitle = Les messages de groupe peuvent compter jusqu'à 10 membres.
+new-message-search = Rechercher
+new-message-hint = Ajoutez des amis pour démarrer un message privé ou un groupe.
+new-message-no-people-found = Personne ne correspond à cette recherche.
+new-message-create = Créer un message
+new-message-cancel = Annuler

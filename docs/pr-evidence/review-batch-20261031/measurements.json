@@ -1,0 +1,70 @@
+{
+  "baseline": {
+    "label": "baseline",
+    "commit": "c37a4f3ee5dbc5e4ea24229916326214846d936b",
+    "tree": "479561600a1f21836c41832b0348d936574d0f2c",
+    "exe_bytes": 92469248,
+    "payload_bytes": 96828010,
+    "files": 233,
+    "zip_bytes": 52875112,
+    "exe_sha256": "9ae964643da0c69ad4dd53d092abfb250f65f63b3e0fc5f90419003c8a060ada",
+    "os": "Windows-11-10.0.26200-SP0",
+    "zip_method": "Python ZIP_DEFLATED compresslevel=9; relative paths sorted"
+  },
+  "after": {
+    "label": "final",
+    "commit": "b9642a0377e9f0e5f685ae8370d4108f2c4e73e6",
+    "tree": "42aeafade63013336333e033e5c40ac7c8d97747",
+    "exe_bytes": 92695552,
+    "payload_bytes": 97054749,
+    "files": 233,
+    "zip_bytes": 52959631,
+    "exe_sha256": "3c8e0b8132c2489ca957e134be548ca82f724c9c2823b0b6b22aef5d99e54280",
+    "os": "Windows-11-10.0.26200-SP0",
+    "zip_method": "Python ZIP_DEFLATED compresslevel=9; relative paths sorted"
+  },
+  "replay_baseline": {
+    "label": "baseline",
+    "commit": "c37a4f3ee5dbc5e4ea24229916326214846d936b",
+    "method": "alternating baseline/final binaries after all builds; one warmup and five samples each",
+    "exe_sha256": "2c0e8b47b2052559fa288d03192bc9b5b163b48bf513871b350f642afd2700c3",
+    "warmup": "Synthetic reducer replay: 100000 events in 75.0444ms; retained timeline 401492..401977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+    "samples": [
+      "Synthetic reducer replay: 100000 events in 69.7394ms; retained timeline 401492..401977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 72.0211ms; retained timeline 401492..401977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 73.3205ms; retained timeline 401492..401977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 71.6746ms; retained timeline 401492..401977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 74.028ms; retained timeline 401492..401977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+    ],
+    "median_ms": 72.0211
+  },
+  "replay_after": {
+    "label": "final",
+    "commit": "b9642a0377e9f0e5f685ae8370d4108f2c4e73e6",
+    "method": "alternating baseline/final binaries after all builds; one warmup and five samples each",
+    "exe_sha256": "ef01360f89c200f91a50ac1948bb604de6ce9e66f0166c0d39487957ef586418",
+    "warmup": "Synthetic reducer replay: 100000 events in 70.5704ms; retained timeline 401492..401977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+    "samples": [
+      "Synthetic reducer replay: 100000 events in 70.9679ms; retained timeline 401492..401977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 71.1823ms; retained timeline 401492..401977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 74.4089ms; retained timeline 401492..401977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 69.6182ms; retained timeline 401492..401977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 71.8597ms; retained timeline 401492..401977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+    ],
+    "median_ms": 71.1823
+  },
+  "environment": {
+    "cpu": "AMD Ryzen 7 7800X3D 8-Core Processor           ",
+    "rust": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "os": "Microsoft Windows 11 Home",
+    "ram_bytes": 33410678784
+  },
+  "baseline_main": "5caf787a94a6f6a5d75cf94369b0f4ddf3872715",
+  "baseline_main_tree_equals_package_tree": true,
+  "limitations": [
+    "The baseline already includes #860, #843 and #859; this compares the remaining seven PRs together, not individual PR costs.",
+    "Windows unsigned standard voice-enabled release packages; no installer was produced because makensis is unavailable.",
+    "The default 100000-message synthetic reducer workload does not measure presence bursts, UI frame latency, process RSS, media CPU or live Discord behavior.",
+    "One warmup and five measured runs per binary; paired alternating samples after all builds. Background OS load is not controlled."
+  ]
+}

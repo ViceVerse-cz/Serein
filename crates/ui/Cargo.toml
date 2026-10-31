@@ -9,6 +9,7 @@ default = []
 demo = []
 
 [dependencies]
+diagnostics.workspace = true
 extensions.workspace = true
 egui = { workspace = true, features = ["bytemuck"] }
 bytemuck = "=1.25.2"
