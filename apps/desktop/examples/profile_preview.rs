@@ -247,6 +247,7 @@ fn prime_activities(state: &mut client_core::State) {
 				.into_iter()
 				.map(|user| client_core::presence::Update {
 					user,
+					avatar: model::Patch::Absent,
 					status: model::Patch::Value("online".into()),
 					custom_status: model::Patch::Absent,
 					activities: model::Patch::Value(activities.clone()),
@@ -343,6 +344,7 @@ fn prime_channel_links(state: &mut client_core::State) {
 				tertiary_color: None,
 				position: 1,
 				hoist: false,
+				managed: false,
 			},
 		}),
 	});
