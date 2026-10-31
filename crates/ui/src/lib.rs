@@ -5770,9 +5770,11 @@ mod composer_tests {
 
 	#[test]
 	fn clearing_an_account_preserves_the_device_log_preference() {
-		let mut ui = MessagingUi::default();
-		ui.diagnostics_log = diagnostics::Level::Info;
-		ui.diagnostics_log_path = Some("local-log".into());
+		let mut ui = MessagingUi {
+			diagnostics_log: diagnostics::Level::Info,
+			diagnostics_log_path: Some("local-log".into()),
+			..Default::default()
+		};
 		ui.clear();
 		assert_eq!(ui.diagnostics_log, diagnostics::Level::Info);
 		assert_eq!(ui.diagnostics_log_path.as_deref(), Some("local-log"));
