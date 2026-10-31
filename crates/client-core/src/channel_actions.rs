@@ -1092,7 +1092,9 @@ impl State {
 					if reference {
 						self.remember_channel_reference_name(&updated);
 					}
-					if self.channel(target).is_none() {
+					if !matches!(action, Action::CreateThread { .. })
+						|| self.channel(target).is_none()
+					{
 						self.apply(crate::Envelope {
 							generation: self.generation,
 							event: crate::Event::ChannelCreated(*updated),
@@ -2142,6 +2144,47 @@ mod tests {
 				.is_some(),
 			"saving channel overwrites must succeed when loaded details grant MANAGE_ROLES"
 		);
+	}
+
+	#[test]
+	fn confirmed_channel_edit_updates_an_existing_channel_without_a_gateway_echo() {
+		let mut state = state();
+		let load = state.request_channel_action(Id(3), Action::Load).unwrap();
+		finish(
+			&mut state,
+			load,
+			Ok(Outcome::Details(Edit {
+				name: "general".into(),
+				..Edit::default()
+			})),
+		);
+		let command = state
+			.request_channel_action(
+				Id(3),
+				Action::Edit {
+					before: Edit {
+						name: "general".into(),
+						..Edit::default()
+					},
+					after: Edit {
+						name: "renamed".into(),
+						..Edit::default()
+					},
+				},
+			)
+			.unwrap();
+		let mut updated = state.channels[0].clone();
+		updated.name = "renamed".into();
+		finish(
+			&mut state,
+			command,
+			Ok(Outcome::Channel {
+				channel: Box::new(updated),
+				permissions: None,
+			}),
+		);
+		assert_eq!(state.channel(Id(3)).unwrap().name, "renamed");
+		assert!(state.channel_action_succeeded(Id(3)));
 	}
 
 	#[test]
