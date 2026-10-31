@@ -543,7 +543,13 @@ Default Debian packaging could not run because this host has no `dpkg`.
 
 The compressed difference is packaging variation; no runtime speedup is claimed.
 Camera/voice CPU, RSS, latency and live Discord behavior remain unmeasured. The change
-adds no retained state, queues, dependencies or media processing.
+adds no retained state, queues, dependencies or media processing. The affected
+lifecycle has no equivalent camera-running baseline during an outage: baseline tears down
+capture, while this change retains it. Comparing idle CPU or RSS at that point would compare
+camera-off with camera-on rather than implementation overhead. A meaningful device/codec
+resume-latency comparison requires controlled physical camera capture, which is not authorized
+in this offline review session. The synthetic replay verifies lifecycle and command admission;
+it does not measure media performance. No runtime performance improvement is claimed.
 
 ## Voice default-device polling — October 7, 2026
 

@@ -1525,6 +1525,11 @@ impl Voice {
 				);
 				return state.set_call_camera(false);
 			}
+			// An existing preview can survive a Gateway outage, but a new capture must wait.
+			let call = state.voice.active.as_ref()?;
+			if !state.can_camera(call.channel) {
+				return None;
+			}
 			let live = self.live.as_ref()?;
 			self.camera_generation = self.camera_generation.checked_add(1).unwrap_or(1);
 			let generation = self.camera_generation;
