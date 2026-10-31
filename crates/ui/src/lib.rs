@@ -256,6 +256,8 @@ struct ProfileImage {
 	floor: attachments::Floor,
 }
 
+pub const DEFAULT_IDLE_TIMEOUT_SECS: u32 = 10 * 60;
+
 #[derive(Default)]
 pub struct MessagingUi {
 	poll_creator: polls::Creator,
@@ -515,6 +517,15 @@ pub struct MessagingUi {
 	/// Latest media activity, capped at 64 IDs (512 bytes) by the voice host.
 	pub voice_speaking: Vec<Id>,
 	pub notifications_enabled: bool,
+	/// Show as Idle after the account's idle timeout of system inactivity, or on lock.
+	pub auto_idle: bool,
+	/// Idle timeout in seconds from the account, not saved locally; 0 until read (see
+	/// `idle_timeout`).
+	pub idle_timeout_secs: u32,
+	/// Short hint when the timeout could not be saved to the account; display only.
+	pub idle_timeout_status: &'static str,
+	/// Set while system inactivity shows this session as Idle; display only, never saved.
+	pub auto_idle_active: bool,
 	pub notification_options: model::notification_preferences::Device,
 	pub notification_preview: Option<model::notification_preferences::Sound>,
 	pub notification_sound_status: &'static str,
@@ -2178,7 +2189,7 @@ impl MessagingUi {
 								design::presence_dot(
 									ui,
 									avatar.rect,
-									self.own_presence.status.wire(),
+									self.shown_presence_status().wire(),
 									ring,
 								);
 								anchor =
@@ -2249,7 +2260,7 @@ impl MessagingUi {
 																} else if state.demo {
 																	language.text("offline-preview")
 																} else if state.gateway_connected {
-																	language.text(account_menu::presence_status_key(self.own_presence.status))
+																	language.text(account_menu::presence_status_key(self.shown_presence_status()))
 																} else {
 																	language.text("reconnecting")
 																},
