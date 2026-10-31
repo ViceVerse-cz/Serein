@@ -1777,6 +1777,10 @@ notification-settings-notification-settings-open = Ouvrir
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Aperçu du son
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Pousser pour parler : activation
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Pousser pour parler : désactivation
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Sonneries, appareils d'appel et traitement du microphone.
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = Affiche un badge rouge sur l'icône de l'application lorsque vous avez des messages non lus.

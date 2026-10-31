@@ -4,6 +4,26 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Push-to-talk notification cues — October 29, 2026
+
+Baseline `1b2f894` and this branch were built with the pinned Rust toolchain and locked
+dependencies on Windows x64 (10.0.26300). Standard release packages use `cargo xtask package`
+(voice included, demo and development-data disabled) with separate output directories.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,304,384 B | 92,312,576 B | +8,192 B (+0.009%) |
+| `dist/` regular-file payload | 96,663,146 B | 96,671,773 B | +8,627 B (+0.009%) |
+| ZIP of `dist/` (`7z a -mx=9`) | 51,902,771 B | 51,908,426 B | +5,655 B (+0.011%) |
+
+The two byte-original MP3 cues add 3,319 B before packaging. Edge detection keeps one bool and
+no cache. The PTT cues play through a second notification worker, so a press or release neither
+cancels nor is cancelled by a message or ring cue. That worker starts lazily on the first PTT
+cue and keeps one capacity-one channel plus its thread until its `Sounds` value is dropped with
+the app; decoded audio is released after each cue. No CPU, RSS or latency measurement is
+claimed, because the offline fixture joins no call and plays no cue. Debug `profile_preview`
+screenshots from both revisions are in [the evidence folder](pr-evidence/ptt-sounds/).
+
 ## Shared output-format selection — October 24, 2026
 
 Fresh baseline `38e46b8f5ec694002ef515fbc2d8dc69297e4f5f` and changed source were built

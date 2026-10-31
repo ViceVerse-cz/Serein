@@ -1793,6 +1793,10 @@ notification-settings-notification-settings-open = 開啟
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = 預覽音效
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = 按住說話：開始
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = 按住說話：結束
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = 鈴聲、通話裝置與麥克風處理。
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = 有未讀訊息時，應用程式圖示會顯示紅點徽章。
