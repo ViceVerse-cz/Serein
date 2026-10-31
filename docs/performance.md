@@ -521,6 +521,36 @@ allocation limit) instead of up to the 500 MB upload limit plus a second copy.
 Standard no-default-features macOS packages built from both revisions: executable 68,509,584 B in
 both, installed app 74,547,919 B in both, `ditto` ZIP 48,179,547 vs 48,179,867 B (+320 B).
 
+## Camera continuity during Gateway resume (2026-10-29)
+
+Compared clean baseline `d93a8415406f7f36de5dc8b14e12ad0fc7134bb4` with runtime
+source `839b019af0641768c04dc52bf5444607bf91283a` on CachyOS x86_64, using Rust
+1.98.1 and `cargo xtask package --format arch`. Both used the standard voice-enabled
+release build with no default features, fat LTO and one codegen unit. Each source
+revision produced one measured executable and native package; the affected release
+crates were rebuilt after switching source checkouts.
+
+| Metric | Baseline | Fixed | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 92,690,952 | 92,690,952 | 0 |
+| Installed file payload bytes | 97,389,385 | 97,389,385 | 0 |
+| Compressed Arch package bytes | 51,485,300 | 51,485,164 | -136 |
+
+Executable and archive sizes use file lengths. Installed payload is the sum of regular
+`usr/` file sizes in the package, excluding Arch metadata. Both packages passed the
+native metadata, dependency version, payload, mode, ownership and no-script checks.
+Default Debian packaging could not run because this host has no `dpkg`.
+
+The compressed difference is packaging variation; no runtime speedup is claimed.
+Camera/voice CPU, RSS, latency and live Discord behavior remain unmeasured. The change
+adds no retained state, queues, dependencies or media processing. The affected
+lifecycle has no equivalent camera-running baseline during an outage: baseline tears down
+capture, while this change retains it. Comparing idle CPU or RSS at that point would compare
+camera-off with camera-on rather than implementation overhead. A meaningful device/codec
+resume-latency comparison requires controlled physical camera capture, which is not authorized
+in this offline review session. The synthetic replay verifies lifecycle and command admission;
+it does not measure media performance. No runtime performance improvement is claimed.
+
 ## Voice default-device polling — October 7, 2026
 
 An offline probe compared creating a fresh PulseAudio client for every metadata poll with reusing
