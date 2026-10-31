@@ -137,6 +137,15 @@ impl MessagingUi {
 		self.own_presence.custom_status = presence.custom_status;
 	}
 
+	/// The status to show the owner: Idle while inactivity applies to an Online choice.
+	pub fn shown_presence_status(&self) -> PresenceStatus {
+		if self.auto_idle_active && self.own_presence.status == PresenceStatus::Online {
+			PresenceStatus::Idle
+		} else {
+			self.own_presence.status
+		}
+	}
+
 	pub(super) fn account_menu(
 		&mut self,
 		anchor: &egui::Response,
@@ -250,7 +259,7 @@ impl MessagingUi {
 				ui.painter(),
 				dot,
 				11.5,
-				self.own_presence.status,
+				self.shown_presence_status(),
 				colors.raised,
 			);
 			ui.add_space((avatar.bottom() + 12.0 - ui.cursor().top()).max(0.0));
