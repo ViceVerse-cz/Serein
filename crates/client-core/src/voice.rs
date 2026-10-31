@@ -534,7 +534,16 @@ impl ClientState {
 		muted: bool,
 		deafened: bool,
 	) -> Option<crate::Command> {
-		if !self.can_call(channel) || self.voice.active.is_some() {
+		if !self.can_call(channel) {
+			return None;
+		}
+		// A failed call is not a live one: joining again replaces it instead of being refused.
+		if self
+			.voice
+			.active
+			.as_ref()
+			.is_some_and(|call| call.phase != Phase::Failed)
+		{
 			return None;
 		}
 		let guild = self.channel(channel)?.guild;
@@ -563,6 +572,8 @@ impl ClientState {
 		let request = self.voice.sequence;
 		self.voice.outgoing = ring.then_some((channel, request, false));
 		self.voice.ring_error = None;
+		// A join puts this account back in the channel; an older departure must not outlive it.
+		self.voice.departed = None;
 		self.voice.active = Some(Call {
 			channel,
 			guild,
@@ -618,6 +629,9 @@ impl ClientState {
 		let muted = call.muted || !self.can_speak(call.channel);
 		self.voice.sequence = self.voice.sequence.wrapping_add(1);
 		let request = self.voice.sequence;
+		// The join puts this account back in the channel, so an earlier departure record must not
+		// let a later rejoin skip the leave that makes its join a real one.
+		self.voice.departed = None;
 		let call = self.voice.active.as_mut()?;
 		call.request = request;
 		call.muted = muted;
@@ -1272,6 +1286,30 @@ mod tests {
 		};
 		crate::tests::grant_permissions(&mut state);
 		state
+	}
+
+	#[test]
+	fn a_failed_call_does_not_block_joining_the_channel_again() {
+		let mut state = stream_preview_state();
+		assert!(state.start_call(Id(20), false).is_some());
+		let request = state.voice.active.as_ref().unwrap().request;
+		// The call fails while Discord still has this account in the channel; its card stays up.
+		state.apply_voice(Event::Failed {
+			channel: Id(20),
+			request,
+			message: "Audio devices are unavailable",
+		});
+		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Failed);
+		// Joining again replaces the failed card instead of being refused, and the old reason
+		// does not follow the new attempt.
+		assert!(
+			state.start_call(Id(20), false).is_some(),
+			"a failed call is replaceable"
+		);
+		let call = state.voice.active.as_ref().unwrap();
+		assert_eq!(call.phase, Phase::Connecting);
+		assert_ne!(call.request, request, "the new attempt has its own request");
+		assert!(call.error.is_none());
 	}
 
 	#[test]
