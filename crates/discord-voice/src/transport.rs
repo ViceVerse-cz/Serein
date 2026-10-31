@@ -104,13 +104,46 @@ fn public_ip(ip: IpAddr) -> bool {
 		}
 	}
 }
-fn tls_connector() -> tokio_tungstenite::Connector {
+/// A filtered path can accept TLS 1.2 and drop 1.3, so this is only a retry after a rejected
+/// handshake, never the default stack.
+fn tls12_connector() -> tokio_tungstenite::Connector {
 	let mut root_store = rustls::RootCertStore::empty();
 	root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 	let config = rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS12])
 		.with_root_certificates(root_store)
 		.with_no_client_auth();
 	tokio_tungstenite::Connector::Rustls(std::sync::Arc::new(config))
+}
+
+/// Why a signaling dial failed; call sites keep their own wording.
+enum ConnectFailure {
+	TimedOut,
+	Rejected,
+}
+
+/// Dials voice signaling with the default TLS stack and retries once with TLS 1.2 only.
+async fn connect_socket(url: &str, config: &WebSocketConfig) -> Result<Socket, ConnectFailure> {
+	match dial(url, config, None).await {
+		// A timeout is not a handshake rejection; repeating it would only double the wait.
+		Err(ConnectFailure::TimedOut) => Err(ConnectFailure::TimedOut),
+		Err(ConnectFailure::Rejected) => dial(url, config, Some(tls12_connector())).await,
+		Ok(socket) => Ok(socket),
+	}
+}
+
+async fn dial(
+	url: &str,
+	config: &WebSocketConfig,
+	connector: Option<tokio_tungstenite::Connector>,
+) -> Result<Socket, ConnectFailure> {
+	timeout(
+		Duration::from_secs(15),
+		tokio_tungstenite::connect_async_tls_with_config(url, Some(*config), false, connector),
+	)
+	.await
+	.map_err(|_| ConnectFailure::TimedOut)?
+	.map(|(socket, _)| socket)
+	.map_err(|_| ConnectFailure::Rejected)
 }
 
 async fn send(ws: &mut Socket, message: Message) -> Result<(), &'static str> {
@@ -336,18 +369,12 @@ async fn run_inner(
 		.max_frame_size(Some(MAX_SIGNAL))
 		.write_buffer_size(0)
 		.max_write_buffer_size(MAX_SIGNAL * 2);
-	let (mut ws, _) = timeout(
-		Duration::from_secs(15),
-		tokio_tungstenite::connect_async_tls_with_config(
-			&url,
-			Some(config),
-			false,
-			Some(tls_connector()),
-		),
-	)
-	.await
-	.map_err(|_| "Voice connection timed out")?
-	.map_err(|_| "Voice TLS connection failed")?;
+	let mut ws = connect_socket(&url, &config)
+		.await
+		.map_err(|failure| match failure {
+			ConnectFailure::TimedOut => "Voice connection timed out",
+			ConnectFailure::Rejected => "Voice TLS connection failed",
+		})?;
 	// Only voice-scoped credentials go to this validated endpoint; no account Authorization header.
 	json_send(&mut ws,json!({"op":0,"d":{"server_id":credentials.guild.unwrap_or(credentials.channel).to_string(),"user_id":credentials.user.to_string(),"session_id":credentials.session.expose(),"token":credentials.token.expose(),"video":video_capable,"streams":if camera.is_some(){vec![json!({"type":"video","rid":"100","quality":100})]}else{vec![]},"max_dave_protocol_version":1}})).await?;
 	let mut dave = Dave::with_identity(
@@ -436,18 +463,13 @@ async fn run_inner(
 				.max_frame_size(Some(MAX_SIGNAL))
 				.write_buffer_size(0)
 				.max_write_buffer_size(MAX_SIGNAL * 2);
-			let (replacement, _) = timeout(
-				Duration::from_secs(15),
-				tokio_tungstenite::connect_async_tls_with_config(
-					&url,
-					Some(config),
-					false,
-					Some(tls_connector()),
-				),
-			)
-			.await
-			.map_err(|_| "Voice resume timed out; rejoin the call")?
-			.map_err(|_| "Voice resume failed; rejoin the call")?;
+			let replacement =
+				connect_socket(&url, &config)
+					.await
+					.map_err(|failure| match failure {
+						ConnectFailure::TimedOut => "Voice resume timed out; rejoin the call",
+						ConnectFailure::Rejected => "Voice resume failed; rejoin the call",
+					})?;
 			ws = replacement;
 			json_send(&mut ws,json!({"op":7,"d":{"server_id":credentials.guild.unwrap_or(credentials.channel).to_string(),"session_id":credentials.session.expose(),"token":credentials.token.expose(),"seq_ack":seq_ack}})).await?;
 		}
@@ -633,6 +655,9 @@ async fn run_inner(
 					let Some(decoder)=&decoder else{continue;};
 					let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else{continue;};
 					let is_dave = frame.len() >= 2 && frame.ends_with(&crate::crypto::MARKER_BYTES);
+					// A marked frame stays ciphertext while the channel switches DAVE off; decoding
+					// it would paint noise, so it is dropped until the sender stops marking.
+					if is_dave && !dave_enabled {metrics.video(Video::DecryptFailed,1);continue;}
 					let data = if dave_enabled && (is_dave || dave.session.is_ready() || dave.ready) {
 						match dave.session.decrypt(user, davey::MediaType::VIDEO, &frame) {
 							Ok(decrypted) => decrypted,
@@ -661,6 +686,8 @@ async fn run_inner(
 				let Some(user)=mixer.user(source) else{continue;};
 				if controls.borrow().deafened {continue;}
 				let is_dave = frame.len() >= 2 && frame.ends_with(&crate::crypto::MARKER_BYTES);
+				// See the video path: a marked frame is ciphertext while DAVE is being switched off.
+				if is_dave && !dave_enabled {continue;}
 				let opus = if dave_enabled && is_dave {
 					match dave.session.decrypt(user, davey::MediaType::AUDIO, &frame) {
 						Ok(decrypted) => decrypted,
@@ -1235,18 +1262,12 @@ async fn run_stream_inner(
 		.max_frame_size(Some(MAX_SIGNAL))
 		.write_buffer_size(0)
 		.max_write_buffer_size(MAX_SIGNAL * 2);
-	let (mut ws, _) = timeout(
-		Duration::from_secs(15),
-		tokio_tungstenite::connect_async_tls_with_config(
-			&url,
-			Some(config),
-			false,
-			Some(tls_connector()),
-		),
-	)
-	.await
-	.map_err(|_| "Stream connection timed out")?
-	.map_err(|_| "Stream TLS connection failed")?;
+	let mut ws = connect_socket(&url, &config)
+		.await
+		.map_err(|failure| match failure {
+			ConnectFailure::TimedOut => "Stream connection timed out",
+			ConnectFailure::Rejected => "Stream TLS connection failed",
+		})?;
 	json_send(
 		&mut ws,
 		json!({"op":0,"d":{
@@ -1518,6 +1539,8 @@ async fn run_stream_inner(
 					let Some(user)=mixer.user(rtp.ssrc) else {continue;};
 					let start=metrics.start();
 					let is_dave = rtp.payload.len() >= 2 && rtp.payload.ends_with(&crate::crypto::MARKER_BYTES);
+					// See the call path: never hand ciphertext to the decoder.
+					if is_dave && !dave_enabled {continue;}
 					let opus=if dave_enabled && is_dave {
 						match dave.session.decrypt(user,davey::MediaType::AUDIO,&rtp.payload) {
 							Ok(decrypted) => decrypted,
@@ -1535,6 +1558,8 @@ async fn run_stream_inner(
 				let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else {continue;};
 				let start=metrics.start();
 				let is_dave = frame.len() >= 2 && frame.ends_with(&crate::crypto::MARKER_BYTES);
+				// See the call path: never hand ciphertext to the decoder.
+				if is_dave && !dave_enabled {metrics.video(Video::DecryptFailed,1);continue;}
 				let data = if dave_enabled && (is_dave || dave.session.is_ready() || dave.ready) {
 					match dave.session.decrypt(user, davey::MediaType::VIDEO, &frame) {
 						Ok(decrypted) => decrypted,

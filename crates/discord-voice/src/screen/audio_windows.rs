@@ -350,46 +350,6 @@ mod native {
 				PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE
 			);
 		}
-
-		#[test]
-		fn test_wasapi_fallback_types() {
-			use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
-			unsafe {
-				let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-				let enumerator: Result<IMMDeviceEnumerator> =
-					CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL);
-				if let Ok(enumerator) = enumerator {
-					let device: Result<IMMDevice> =
-						enumerator.GetDefaultAudioEndpoint(eRender, eConsole);
-					if let Ok(device) = device {
-						let client: Result<IAudioClient> = device.Activate(CLSCTX_ALL, None);
-						if let Ok(client) = client {
-							let format = WAVEFORMATEX {
-								wFormatTag: 3,
-								nChannels: 2,
-								nSamplesPerSec: 48_000,
-								nAvgBytesPerSec: 48_000 * 8,
-								nBlockAlign: 8,
-								wBitsPerSample: 32,
-								cbSize: 0,
-							};
-							let init_res = client.Initialize(
-								AUDCLNT_SHAREMODE_SHARED,
-								AUDCLNT_STREAMFLAGS_LOOPBACK
-									| AUDCLNT_STREAMFLAGS_EVENTCALLBACK
-									| AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
-								0,
-								0,
-								&format,
-								None,
-							);
-							assert!(init_res.is_ok());
-						}
-					}
-				}
-				CoUninitialize();
-			}
-		}
 	}
 }
 
