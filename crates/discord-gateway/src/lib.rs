@@ -433,6 +433,7 @@ struct ActiveMembers {
 	groups: Vec<(String, u64)>,
 	pending_presence: BTreeMap<Id, model::MemberPresence>,
 	presence_deadline: Option<Instant>,
+	avatar_changed: bool,
 }
 
 /// Offline debug check of the user subscription packet and its bounded snapshot path.
@@ -605,6 +606,7 @@ impl ActiveMembers {
 			groups: vec![],
 			pending_presence: BTreeMap::new(),
 			presence_deadline: None,
+			avatar_changed: false,
 		}
 	}
 	fn list_id(&self) -> &str {
@@ -915,6 +917,7 @@ impl ActiveMembers {
 	fn clear_presence(&mut self) {
 		self.pending_presence.clear();
 		self.presence_deadline = None;
+		self.avatar_changed = false;
 	}
 	fn presence(&mut self, update: discord_protocol::presence::PresenceUpdate, now: Instant) {
 		if !self.synced || update.guild != Some(self.subscription.guild) {
@@ -978,7 +981,13 @@ impl ActiveMembers {
 			.flatten()
 			.map(|slot| match slot {
 				model::MemberSlot::Person(row) if row.user.id == update.user => {
-					client_core::presence::projected_row_bytes(row, &resolved)
+					let avatar_diff = match &update.avatar {
+						model::Patch::Value(avatar) => avatar
+							.capacity()
+							.saturating_sub(row.user.avatar.as_ref().map_or(0, String::capacity)),
+						_ => 0,
+					};
+					client_core::presence::projected_row_bytes(row, &resolved) + avatar_diff
 				}
 				model::MemberSlot::Person(row) => row.bytes(),
 				model::MemberSlot::Group(id) => id.capacity(),
@@ -988,7 +997,25 @@ impl ActiveMembers {
 			return;
 		}
 		let mut changed = false;
+		let mut avatar_changed = false;
 		for row in self.people_mut().filter(|row| row.user.id == update.user) {
+			match &update.avatar {
+				model::Patch::Absent => {}
+				model::Patch::Null => {
+					if row.user.avatar.is_some() {
+						row.user.avatar = None;
+						changed = true;
+						avatar_changed = true;
+					}
+				}
+				model::Patch::Value(avatar) => {
+					if row.user.avatar.as_deref() != Some(avatar) {
+						row.user.avatar = Some(avatar.clone());
+						changed = true;
+						avatar_changed = true;
+					}
+				}
+			}
 			if row.status != resolved.status
 				|| row.custom_status != resolved.custom_status
 				|| row.activities != resolved.activities
@@ -1001,6 +1028,9 @@ impl ActiveMembers {
 				changed = true;
 			}
 		}
+		if avatar_changed {
+			self.avatar_changed = true;
+		}
 		if changed {
 			// <=100 entries within the member-row byte budget. The
 			// deadline belongs to the first change, never to the latest packet.
@@ -1011,6 +1041,11 @@ impl ActiveMembers {
 	}
 	fn take_presence(&mut self) -> Option<Event> {
 		self.presence_deadline = None;
+		if self.avatar_changed {
+			self.avatar_changed = false;
+			self.pending_presence.clear();
+			return (self.synced).then(|| Event::Members(self.snapshot(Freshness::Fresh)));
+		}
 		let pending = std::mem::take(&mut self.pending_presence);
 		(self.synced && !pending.is_empty()).then(|| Event::MemberPresence {
 			guild: self.subscription.guild,
@@ -3245,6 +3280,40 @@ mod member_tests {
 		}
 	}
 	#[test]
+	fn presence_avatar_update_emits_members_snapshot() {
+		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
+			guild: Id(1),
+			channel: Id(2),
+			request: 7,
+			list_id: "everyone".into(),
+			ranges: vec![[0, 99]],
+		});
+		list.update(decode(br#"{"guild_id":"1","id":"everyone","member_count":1,"ops":[{"op":"SYNC","range":[0,99],"items":[{"member":{"user":{"id":"3","username":"Synthetic"},"presence":{"status":"online"}}}]}]}"#).unwrap()).unwrap();
+		let hash = "0123456789abcdef0123456789abcdef".to_string();
+		list.presence(
+			discord_protocol::presence::PresenceUpdate {
+				guild: Some(Id(1)),
+				user: Id(3),
+				avatar: model::Patch::Value(hash.clone()),
+				status: model::Patch::Absent,
+				custom_status: model::Patch::Absent,
+				activities: model::Patch::Absent,
+				clients: model::Patch::Absent,
+			},
+			Instant::now(),
+		);
+		let event = list.take_presence().expect("snapshot emitted");
+		match event {
+			Event::Members(members) => {
+				let row = person_snap(&members, 0);
+				assert_eq!(row.user.avatar.as_deref(), Some(hash.as_str()));
+			}
+			_ => panic!("expected Event::Members"),
+		}
+	}
+
+	#[test]
 	fn diagnostics_are_opt_in_byte_bounded_redacted_and_tolerate_closed_output() {
 		let mut output = Vec::new();
 		Diagnostics::new("gateway", false).record_to("disabled", &mut output);
@@ -3515,6 +3584,7 @@ mod member_tests {
 			let presence = |guild, user, status| discord_protocol::presence::PresenceUpdate {
 				guild,
 				user,
+				avatar: model::Patch::Absent,
 				status,
 				custom_status: model::Patch::Absent,
 				activities: model::Patch::Absent,
@@ -3629,6 +3699,7 @@ mod member_tests {
 					discord_protocol::presence::PresenceUpdate {
 						guild: Some(Id(1)),
 						user: Id(id),
+						avatar: model::Patch::Absent,
 						status: model::Patch::Value("online".into()),
 						custom_status: model::Patch::Value("\u{1f680}".repeat(128)),
 						activities: model::Patch::Absent,
@@ -3673,6 +3744,7 @@ mod member_tests {
 			let update = |status: &str| discord_protocol::presence::PresenceUpdate {
 				guild: Some(Id(1)),
 				user: Id(3),
+				avatar: model::Patch::Absent,
 				status: model::Patch::Value(status.into()),
 				custom_status: model::Patch::Absent,
 				activities: model::Patch::Absent,
@@ -3697,6 +3769,7 @@ mod member_tests {
 				discord_protocol::presence::PresenceUpdate {
 					guild: Some(Id(1)),
 					user: Id(3),
+					avatar: model::Patch::Absent,
 					status: model::Patch::Null,
 					custom_status: model::Patch::Absent,
 					activities: model::Patch::Absent,
