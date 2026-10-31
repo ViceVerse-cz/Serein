@@ -1785,6 +1785,10 @@ notification-settings-notification-settings-open = Aprire
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Anteprima del suono
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Spingi per parlare: attiva
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Spingi per parlare: disattiva
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Suonerie, dispositivi di chiamata ed elaborazione microfonica.
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = Mostra un badge rosso sull'icona dell'app quando sono presenti messaggi non letti.
@@ -4464,6 +4468,7 @@ lib-composer-onboarding-incomplete = Completa l'accesso a questo server per sblo
 lib-composer-onboarding-complete = Completa l'accoglienza
 profiles-message-placeholder = Messaggio a @{ $user }
 profiles-message-send = Invia messaggio
+profiles-message-open-chat = Apri chat
 profiles-message-sending = Apertura del messaggio diretto…
 user-menu-contents-start-a-call = Avvia una chiamata
 verification-show-complete-the-check-to-open-this-conversation = Completa la verifica per aprire questa conversazione.

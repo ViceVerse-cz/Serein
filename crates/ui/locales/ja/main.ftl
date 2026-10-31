@@ -1786,6 +1786,10 @@ notification-settings-notification-settings-open = 開ける
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = サウンドのプレビュー
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = プッシュして話す：開始
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = プッシュして話す：終了
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = 着信音、通話デバイス、マイクの処理。
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = 未読メッセージがある場合、アプリのアイコンに赤いバッジが表示されます。
@@ -4450,6 +4454,7 @@ lib-composer-onboarding-incomplete = 参加を完了すると、さらにチャ�
 lib-composer-onboarding-complete = オンボーディングを完了
 profiles-message-placeholder = @{ $user } にメッセージ
 profiles-message-send = メッセージを送信
+profiles-message-open-chat = チャットを開く
 profiles-message-sending = ダイレクトメッセージを開いています…
 user-menu-contents-start-a-call = 通話を開始
 verification-show-complete-the-check-to-open-this-conversation = 確認を完了してこの会話を開いてください。

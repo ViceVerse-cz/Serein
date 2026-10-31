@@ -1785,6 +1785,10 @@ notification-settings-notification-settings-open = Otwórz
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Podgląd dźwięku
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Naciśnij, aby porozmawiać: włącz
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Naciśnij, aby porozmawiać: wyłącz
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Dzwonki, urządzenia telefoniczne i przetwarzanie mikrofonu.
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = Pokazuje czerwoną plakietkę na ikonie aplikacji, gdy masz nieprzeczytane wiadomości.
@@ -4469,6 +4473,7 @@ lib-composer-onboarding-incomplete = Dokończ dołączanie do serwera, aby odblo
 lib-composer-onboarding-complete = Dokończ wprowadzenie
 profiles-message-placeholder = Wiadomość do @{ $user }
 profiles-message-send = Wyślij wiadomość
+profiles-message-open-chat = Otwórz czat
 profiles-message-sending = Otwieranie wiadomości prywatnej…
 user-menu-contents-start-a-call = Rozpocznij rozmowę
 verification-show-complete-the-check-to-open-this-conversation = Dokończ weryfikację, aby otworzyć tę rozmowę.

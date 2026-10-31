@@ -1785,6 +1785,10 @@ notification-settings-notification-settings-open = Ouvrir
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Aperçu du son
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Pousser pour parler : activation
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Pousser pour parler : désactivation
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Sonneries, appareils d'appel et traitement du microphone.
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = Affiche un badge rouge sur l'icône de l'application lorsque vous avez des messages non lus.
@@ -4464,6 +4468,7 @@ lib-composer-onboarding-incomplete = Termine de rejoindre ce serveur pour déblo
 lib-composer-onboarding-complete = Terminer l'accueil
 profiles-message-placeholder = Message à @{ $user }
 profiles-message-send = Envoyer le message
+profiles-message-open-chat = Ouvrir la discussion
 profiles-message-sending = Ouverture du message privé…
 user-menu-contents-start-a-call = Démarrer un appel
 verification-show-complete-the-check-to-open-this-conversation = Termine la vérification pour ouvrir cette conversation.

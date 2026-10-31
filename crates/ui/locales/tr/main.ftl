@@ -1786,6 +1786,10 @@ notification-settings-notification-settings-open = Aç
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Sesi Önizle
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Konuşmak için bas: başlat
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Konuşmak için bas: bitir
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Zil sesleri, çağrı cihazları ve mikrofon işleme.
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = Okunmamış mesajlarınız olduğunda uygulama simgesinde kırmızı bir rozet gösterir.
@@ -4450,6 +4454,7 @@ lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için s
 lib-composer-onboarding-complete = Tanıtımı tamamla
 profiles-message-placeholder = @{ $user } kullanıcısına mesaj
 profiles-message-send = Mesaj gönder
+profiles-message-open-chat = Sohbeti aç
 profiles-message-sending = Direkt mesaj açılıyor…
 user-menu-contents-start-a-call = Arama başlat
 verification-show-complete-the-check-to-open-this-conversation = Bu sohbeti açmak için doğrulamayı tamamla.

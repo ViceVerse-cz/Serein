@@ -1801,6 +1801,10 @@ notification-settings-notification-settings-open = 開啟
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = 預覽音效
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = 按住說話：開始
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = 按住說話：結束
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = 鈴聲、通話裝置與麥克風處理。
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = 有未讀訊息時，應用程式圖示會顯示紅點徽章。
@@ -4510,6 +4514,7 @@ lib-composer-onboarding-incomplete = 完成加入這個伺服器，才能解鎖�
 lib-composer-onboarding-complete = 完成新手引導
 profiles-message-placeholder = 傳送訊息給 @{ $user }
 profiles-message-send = 傳送訊息
+profiles-message-open-chat = 開啟聊天
 profiles-message-sending = 正在開啟私訊…
 user-menu-contents-start-a-call = 開始通話
 verification-show-complete-the-check-to-open-this-conversation = 完成驗證後才能開啟這個對話。

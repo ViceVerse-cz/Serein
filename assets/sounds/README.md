@@ -2,7 +2,8 @@
 
 The `discord/` files are byte-original assets downloaded September 21, 2026 from
 Discord's public asset host. Symbolic names were verified in the public
-[app bundle](https://discord.com/assets/web.9a6d63589ff469f3.js).
+[app bundle](https://discord.com/assets/web.ab385e8d0b568060.js); earlier rows were
+verified in the bundle current on their download date.
 They are 44.1 kHz stereo MP3s, each below 128 KiB and six seconds. Playback converts
 from the source sample rate; no re-encoding, metadata stripping or trimming is applied.
 
@@ -21,8 +22,10 @@ from the source sample rate; no re-encoding, metadata stripping or trimming is a
 | `user-join.mp3` | [user_join](https://discord.com/assets/b135ff6c8e091b43.mp3) | `d30746caf3e4675ae0d822d51461a9ad24832afa1e20179c3c2fc7b50b911a26` |
 | `user-leave.mp3` | [user_leave](https://discord.com/assets/7b9a183742515fc2.mp3) | `9fd71c2d8112c82a7fb316602bb1645bc65f5edfa260110bbaae80090fbe9df0` |
 | `viewer-join.mp3` | [stream_user_joined](https://discord.com/assets/3d2af2764581bb2e.mp3), downloaded October 19, 2026 | `3b51208e7559fc5b16a297cd8d882648fa7534adf706dfbd529c39266d132213` |
+| `ptt-start.mp3` | [ptt_start](https://discord.com/assets/f5c8ec31889c5317.mp3), downloaded October 29, 2026 | `9a06714cbc4fffe5c181be5499d08a3de31bcd21bfd0678c1a42764c0db4c99a` |
+| `ptt-stop.mp3` | [ptt_stop](https://discord.com/assets/34b5969be3a063ba.mp3), downloaded October 29, 2026 | `e470a8a450681b6ef92251c974fc295b598445faf1749697765a9b293f50c0e7` |
 
-The thirteen files total 663,407 bytes; each distinct cue is bundled independently. No network fetch or user-file access occurs during playback.
+The fifteen files total 666,726 bytes; each distinct cue is bundled independently. No network fetch or user-file access occurs during playback.
 Incoming and outgoing rings repeat every six and three seconds respectively,
 leaving enough time for each complete clip before its next playback.
 

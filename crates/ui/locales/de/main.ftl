@@ -1785,6 +1785,10 @@ notification-settings-notification-settings-open = Öffnen
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Vorschau des Tons
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Push-to-talk aktivieren
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Push-to-talk deaktivieren
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Klingeltöne, Anrufgeräte und Mikrofonverarbeitung.
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = Zeigt ein rotes Symbol auf dem App-Symbol an, wenn Sie ungelesene Nachrichten haben.
@@ -4464,6 +4468,7 @@ lib-composer-onboarding-incomplete = Schließe den Beitritt ab, um weitere Kanä
 lib-composer-onboarding-complete = Einführung abschließen
 profiles-message-placeholder = Nachricht an @{ $user }
 profiles-message-send = Nachricht senden
+profiles-message-open-chat = Chat öffnen
 profiles-message-sending = Direktnachricht wird geöffnet…
 user-menu-contents-start-a-call = Anruf starten
 verification-show-complete-the-check-to-open-this-conversation = Schließe die Prüfung ab, um diese Unterhaltung zu öffnen.
