@@ -55,6 +55,7 @@ impl Settings {
 			hide_nitro_emojis: ui.hide_nitro_emojis,
 			convert_emoticons: ui.convert_emoticons,
 			preload_on_hover: ui.preload_on_hover,
+			auto_idle: ui.auto_idle,
 			hide_title_bar: ui.hide_title_bar,
 			message_requests_collapsed: ui.message_requests_collapsed,
 			hide_window_decorations: ui.hide_window_decorations,
@@ -105,6 +106,7 @@ impl Settings {
 		ui.hide_nitro_emojis = value.hide_nitro_emojis;
 		ui.convert_emoticons = value.convert_emoticons;
 		ui.preload_on_hover = value.preload_on_hover;
+		ui.auto_idle = value.auto_idle;
 		ui.hide_title_bar = value.hide_title_bar;
 		ui.message_requests_collapsed = value.message_requests_collapsed;
 		ui.hide_window_decorations = value.hide_window_decorations;
@@ -404,6 +406,7 @@ mod tests {
 		ui.transparency = defaults.transparency;
 		ui.blur = defaults.blur;
 		ui.preload_on_hover = defaults.preload_on_hover;
+		ui.auto_idle = defaults.auto_idle;
 		settings.observe(&ui);
 		assert!(
 			!settings.state.touched,
