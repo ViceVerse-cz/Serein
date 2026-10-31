@@ -390,6 +390,7 @@ async fn run_inner(
 	};
 	let mut receivers = Receivers::default();
 	let mut next_pli = Instant::now();
+	let mut next_sink_wants = Instant::now();
 	let mut watch = VideoWatch::new();
 	let mut metrics = crate::diagnostics::Metrics::new(crate::diagnostics::Scope::Transport);
 	emit(Status::Connecting).map_err(|_| "Call interface closed")?;
@@ -555,7 +556,12 @@ async fn run_inner(
 					deadline=None;ready_announced=true;
 					emit(Status::Ready{privacy_code:if dave_enabled {dave.session.voice_privacy_code().unwrap_or_default().into()} else {String::new()}}).map_err(|_|"Call interface closed")?;
 				}
-				watch.tick(&mut metrics,&mut receivers,decoder.as_ref(),now);
+				let stalled = watch.tick(&mut metrics, &mut receivers, decoder.as_ref(), now);
+				if enabled && decoder.is_some() && now >= next_sink_wants {
+					json_send(&mut ws, json!({"op": 15, "d": {"any": 100}})).await?;
+					metrics.signal(Signal::SinkWantsSent, 1);
+					next_sink_wants = now + if stalled { SINK_WANTS_STALLED_INTERVAL } else { SINK_WANTS_INTERVAL };
+				}
 				// Lost or stalled pictures stay frozen until the sender refreshes; ask twice a second at most.
 				if enabled && now>=next_pli && let Some(lost)=&lost && let Some(crypto)=encryption.as_mut() && let Some(socket)=&udp {
 					receivers.absorb(lost);
@@ -914,7 +920,10 @@ async fn run_inner(
 									let _ = dave.connect(&[user]);
 									if was_ready || dave.session.is_ready() { dave.ready = true; }
 									if let Some(value)=data["audio_ssrc"].as_u64().and_then(|v|u32::try_from(v).ok()) {let _ = mixer.announce(user,value);}
-									if let Some(decoder) = decoder.as_ref() {let _ = announce_video(&mut receivers,decoder,user,data);}
+									if let Some(decoder) = decoder.as_ref() {
+										let _ = announce_video(&mut receivers, decoder, user, data);
+										next_sink_wants = Instant::now();
+									}
 								}
 							},
 							18 | 20 => {
@@ -1714,7 +1723,10 @@ async fn run_stream_inner(
 									let was_ready = dave.ready;
 									let _ = dave.connect(&[user]);
 									if was_ready || dave.session.is_ready() { dave.ready = true; }
-									if let Some(decoder) = decoder.as_ref() {let _ = announce_video(&mut receivers,decoder,user,data);}
+									if let Some(decoder) = decoder.as_ref() {
+										let _ = announce_video(&mut receivers, decoder, user, data);
+										next_sink_wants = Instant::now();
+									}
 									if audio.is_some() && let Some(value)=data["audio_ssrc"].as_u64().and_then(|v|u32::try_from(v).ok()).filter(|v|*v!=0) {let _ = mixer.announce(user,value);}
 								}
 							},
@@ -2898,6 +2910,149 @@ mod tests {
 		let res = task.await.unwrap();
 		assert!(res.is_ok());
 		server.await.unwrap();
+	}
+	#[test]
+	fn voice_remote_video_sends_sink_wants_when_ready() {
+		use client_core::voice::Secret;
+		use tokio::net::TcpListener;
+
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		runtime.block_on(async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let address = listener.local_addr().unwrap();
+			let udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+			let udp_addr = udp.local_addr().unwrap();
+			let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+			let (sink_wants_tx, sink_wants_rx) = tokio::sync::oneshot::channel();
+
+			let server = tokio::spawn(async move {
+				let (tcp, _) = listener.accept().await.unwrap();
+				let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+				let handshake: Value =
+					serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+				assert_eq!(handshake["op"], 0);
+
+				ws.send(Message::Text(
+					json!({"op":8,"d":{"heartbeat_interval":5000}}).to_string().into(),
+				))
+				.await
+				.unwrap();
+
+				ws.send(Message::Text(
+					json!({"op":2,"d":{"ssrc":42,"ip":udp_addr.ip().to_string(),"port":udp_addr.port(),"modes":[MODE]}})
+						.to_string()
+						.into(),
+				))
+				.await
+				.unwrap();
+
+				let mut probe = [0u8; 4096];
+				let (n, client) = udp.recv_from(&mut probe).await.unwrap();
+				assert_eq!(n, 74);
+				probe[..4].copy_from_slice(&[0, 2, 0, 70]);
+				probe[8..17].copy_from_slice(b"127.0.0.1");
+				probe[72..74].copy_from_slice(&client.port().to_be_bytes());
+				udp.send_to(&probe[..74], client).await.unwrap();
+
+				loop {
+					let message = ws.next().await.unwrap().unwrap();
+					let event: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+					if event["op"] == 3 {
+						ws.send(Message::Text(
+							json!({"op":6,"d":{"t":event["d"]["t"]}}).to_string().into(),
+						))
+						.await
+						.unwrap();
+						continue;
+					}
+					assert_eq!(event["op"], 1);
+					break;
+				}
+
+				ws.send(Message::Text(
+					json!({"op":4,"d":{"mode":MODE,"secret_key":vec![7;32],"dave_protocol_version":0}})
+						.to_string()
+						.into(),
+				))
+				.await
+				.unwrap();
+
+				ws.send(Message::Text(
+					json!({"op":21,"d":{"protocol_version":0,"transition_id":10}})
+						.to_string()
+						.into(),
+				))
+				.await
+				.unwrap();
+
+				let mut saw_sink_wants = false;
+				let mut sink_wants_tx = Some(sink_wants_tx);
+				while let Some(msg) = ws.next().await {
+					let message = msg.unwrap();
+					if let Ok(text) = message.to_text() {
+						if let Ok(event) = serde_json::from_str::<Value>(text) {
+							if event["op"] == 15 {
+								assert_eq!(event["d"]["any"], 100);
+								saw_sink_wants = true;
+								if let Some(tx) = sink_wants_tx.take() {
+									let _ = tx.send(());
+								}
+								break;
+							}
+						}
+					}
+				}
+				assert!(saw_sink_wants);
+				let _ = ready_rx.await;
+			});
+
+			let credentials = VoiceConnection {
+				channel: model::Id(3),
+				user: model::Id(1),
+				peer: None,
+				guild: Some(model::Id(100)),
+				session: Secret::new("synthetic-session".into()).unwrap(),
+				token: Secret::new("synthetic-token".into()).unwrap(),
+				endpoint: "not-used-in-test".into(),
+				request: 1,
+			};
+			let (_capture_tx, capture) = std::sync::mpsc::sync_channel(8);
+			let (playback, _playback_rx) = std::sync::mpsc::sync_channel(8);
+			let (control_tx, control_rx) = watch::channel(Controls::default());
+			let (status_tx, mut status_rx) = tokio::sync::mpsc::channel(8);
+			let remote_video: VideoSink = Arc::new(|_| {});
+			let task = tokio::spawn(run_inner(
+				credentials,
+				capture,
+				playback,
+				control_rx,
+				None,
+				Some(remote_video),
+				None,
+				move |status| status_tx.try_send(status).map_err(|_| ()),
+				Identity::generate(),
+				format!("ws://{address}"),
+				true,
+			));
+
+			let test = timeout(Duration::from_secs(5), async {
+				while let Some(status) = status_rx.recv().await {
+					if let Status::Ready { .. } = status {
+						break;
+					}
+				}
+				sink_wants_rx.await.unwrap();
+				let _ = ready_tx.send(());
+			});
+			test.await.unwrap();
+			drop(control_tx);
+			let res = task.await.unwrap();
+			assert!(res.is_ok());
+			server.await.unwrap();
+		});
 	}
 }
 
