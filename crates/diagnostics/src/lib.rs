@@ -1129,4 +1129,42 @@ mod tests {
 		assert!(prepare(&logs).is_some());
 		assert_eq!(FileSink::new(path, 0).write(&["private\n".into()]), 0);
 	}
+	#[test]
+	fn the_writer_installs_flushes_and_changes_destination_without_ui_io() {
+		let directory = tempfile::tempdir().unwrap();
+		let disabled = directory.path().join("disabled");
+		install(Level::Off, disabled.clone());
+		flush(Duration::from_secs(2));
+		assert_eq!(install_status(), InstallStatus::Ready);
+		assert!(!disabled.exists());
+		assert!(path().is_none());
+		let first = directory.path().join("first");
+		install(Level::Info, first.clone());
+		record(Category::App, Level::Info, "synthetic first destination");
+		flush(Duration::from_secs(2));
+		assert_eq!(install_status(), InstallStatus::Ready);
+		assert_eq!(path(), Some(first.join(LOG_FILE)));
+		assert!(
+			std::fs::read_to_string(first.join(LOG_FILE))
+				.unwrap()
+				.contains("synthetic first destination")
+		);
+		let second = directory.path().join("second");
+		install(Level::Info, second.clone());
+		record(Category::App, Level::Info, "synthetic second destination");
+		flush(Duration::from_secs(2));
+		assert_eq!(path(), Some(second.join(LOG_FILE)));
+		assert!(
+			std::fs::read_to_string(second.join(LOG_FILE))
+				.unwrap()
+				.contains("synthetic second destination")
+		);
+		assert!(
+			!std::fs::read_to_string(first.join(LOG_FILE))
+				.unwrap()
+				.contains("synthetic second destination")
+		);
+		install(Level::Off, disabled);
+		flush(Duration::from_secs(2));
+	}
 }
