@@ -4442,6 +4442,7 @@ lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için s
 lib-composer-onboarding-complete = Tanıtımı tamamla
 profiles-message-placeholder = @{ $user } kullanıcısına mesaj
 profiles-message-send = Mesaj gönder
+profiles-message-open-chat = Sohbeti aç
 profiles-message-sending = Direkt mesaj açılıyor…
 user-menu-contents-start-a-call = Arama başlat
 verification-show-complete-the-check-to-open-this-conversation = Bu sohbeti açmak için doğrulamayı tamamla.

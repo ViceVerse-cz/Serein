@@ -4493,6 +4493,7 @@ lib-composer-onboarding-incomplete = Finish joining this server to unlock more c
 lib-composer-onboarding-complete = Complete Onboarding
 profiles-message-placeholder = Message @{ $user }
 profiles-message-send = Send message
+profiles-message-open-chat = Open chat
 profiles-message-sending = Opening direct message…
 user-menu-contents-start-a-call = Start a Call
 verification-show-complete-the-check-to-open-this-conversation = Complete the check to open this conversation.
