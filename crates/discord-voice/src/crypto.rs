@@ -439,8 +439,10 @@ impl Dave {
 		if changed {
 			self.participants = next;
 			self.announced = announced;
-			self.ready = false;
-			self.waiting = false;
+			if !self.session.is_ready() {
+				self.ready = false;
+				self.waiting = false;
+			}
 		}
 		Ok(changed)
 	}
@@ -561,9 +563,14 @@ impl Dave {
 				}
 			}
 		}
+		let expected = if self.peer.is_some() {
+			Some(self.participants.as_slice())
+		} else {
+			None
+		};
 		let result = self
 			.session
-			.process_proposals(operation, data, Some(&self.participants))
+			.process_proposals(operation, data, expected)
 			.map_err(|_| "DAVE proposal validation failed")?;
 		if let Some(group) = self.session.group()
 			&& (group.pending_proposals().count() > MAX_PARTICIPANTS * 2
