@@ -1537,6 +1537,14 @@ join-server-status-invite-accepted = Davet kabul edildi. Sunucu erişimi bekleni
 join-server-status-offline-preview = Çevrimdışı önizleme — sunuculara katılma devre dışı bırakıldı.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Kaldır
+# Context: custom_section
+keybinds-custom-section-add-binding = Kısayol ekle
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Her eylem için ek kısayollar ekleyin. Her tuş veya fare düğmesi kombinasyonu yalnızca bir kez kullanılabilir.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Özel kısayollar
 # Context: row
 keybinds-row-global = KÜRESEL
 # Context: row
@@ -1777,6 +1785,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Aç
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Sesi Önizle
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Konuşmak için bas: başlat
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Konuşmak için bas: bitir
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Zil sesleri, çağrı cihazları ve mikrofon işleme.
 # Context: notification_settings
@@ -4464,6 +4476,7 @@ lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için s
 lib-composer-onboarding-complete = Tanıtımı tamamla
 profiles-message-placeholder = @{ $user } kullanıcısına mesaj
 profiles-message-send = Mesaj gönder
+profiles-message-open-chat = Sohbeti aç
 profiles-message-sending = Direkt mesaj açılıyor…
 user-menu-contents-start-a-call = Arama başlat
 verification-show-complete-the-check-to-open-this-conversation = Bu sohbeti açmak için doğrulamayı tamamla.

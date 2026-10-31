@@ -1536,6 +1536,14 @@ join-server-status-invite-accepted = Einladung angenommen. Warten auf Serverzugr
 join-server-status-offline-preview = Offline-Vorschau – Das Beitreten zu Servern ist deaktiviert.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Entfernen
+# Context: custom_section
+keybinds-custom-section-add-binding = Zuweisung hinzufügen
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Füge zusätzliche Tastenkürzel für beliebige Aktionen hinzu. Jede Tasten- oder Maustastenkombination kann nur einmal verwendet werden.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Eigene Tastenkürzel
 # Context: row
 keybinds-row-global = GLOBAL
 # Context: row
@@ -1776,6 +1784,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Öffnen
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Vorschau des Tons
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Push-to-talk aktivieren
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Push-to-talk deaktivieren
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Klingeltöne, Anrufgeräte und Mikrofonverarbeitung.
 # Context: notification_settings
@@ -4478,6 +4490,7 @@ lib-composer-onboarding-incomplete = Schließe den Beitritt ab, um weitere Kanä
 lib-composer-onboarding-complete = Einführung abschließen
 profiles-message-placeholder = Nachricht an @{ $user }
 profiles-message-send = Nachricht senden
+profiles-message-open-chat = Chat öffnen
 profiles-message-sending = Direktnachricht wird geöffnet…
 user-menu-contents-start-a-call = Anruf starten
 verification-show-complete-the-check-to-open-this-conversation = Schließe die Prüfung ab, um diese Unterhaltung zu öffnen.

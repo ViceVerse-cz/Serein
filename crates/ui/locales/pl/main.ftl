@@ -1536,6 +1536,14 @@ join-server-status-invite-accepted = Zaproszenie zaakceptowane. Oczekiwanie na d
 join-server-status-offline-preview = Podgląd offline — dołączanie do serwerów jest wyłączone.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Usuń
+# Context: custom_section
+keybinds-custom-section-add-binding = Dodaj skrót
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Dodaj dodatkowe skróty dla dowolnej akcji. Każdej kombinacji klawisza lub przycisku myszy można użyć tylko raz.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Własne skróty
 # Context: row
 keybinds-row-global = ŚWIATOWY
 # Context: row
@@ -1776,6 +1784,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Otwórz
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Podgląd dźwięku
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Naciśnij, aby porozmawiać: włącz
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Naciśnij, aby porozmawiać: wyłącz
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Dzwonki, urządzenia telefoniczne i przetwarzanie mikrofonu.
 # Context: notification_settings
@@ -4483,6 +4495,7 @@ lib-composer-onboarding-incomplete = Dokończ dołączanie do serwera, aby odblo
 lib-composer-onboarding-complete = Dokończ wprowadzenie
 profiles-message-placeholder = Wiadomość do @{ $user }
 profiles-message-send = Wyślij wiadomość
+profiles-message-open-chat = Otwórz czat
 profiles-message-sending = Otwieranie wiadomości prywatnej…
 user-menu-contents-start-a-call = Rozpocznij rozmowę
 verification-show-complete-the-check-to-open-this-conversation = Dokończ weryfikację, aby otworzyć tę rozmowę.

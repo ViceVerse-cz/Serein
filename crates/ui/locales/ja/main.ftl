@@ -1537,6 +1537,14 @@ join-server-status-invite-accepted = 招待を承認しました。サーバー�
 join-server-status-offline-preview = オフライン プレビュー — サーバーへの参加は無効になっています。
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = 削除
+# Context: custom_section
+keybinds-custom-section-add-binding = ショートカットを追加
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = 任意のアクションに追加のショートカットを割り当てます。キーやマウスボタンの組み合わせは1回しか使えません。
+# Context: custom_section
+keybinds-custom-section-custom-bindings = カスタムショートカット
 # Context: row
 keybinds-row-global = グローバル
 # Context: row
@@ -1777,6 +1785,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = 開ける
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = サウンドのプレビュー
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = プッシュして話す：開始
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = プッシュして話す：終了
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = 着信音、通話デバイス、マイクの処理。
 # Context: notification_settings
@@ -4464,6 +4476,7 @@ lib-composer-onboarding-incomplete = 参加を完了すると、さらにチャ�
 lib-composer-onboarding-complete = オンボーディングを完了
 profiles-message-placeholder = @{ $user } にメッセージ
 profiles-message-send = メッセージを送信
+profiles-message-open-chat = チャットを開く
 profiles-message-sending = ダイレクトメッセージを開いています…
 user-menu-contents-start-a-call = 通話を開始
 verification-show-complete-the-check-to-open-this-conversation = 確認を完了してこの会話を開いてください。

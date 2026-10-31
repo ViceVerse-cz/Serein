@@ -1537,6 +1537,14 @@ join-server-status-invite-accepted = Приглашение принято. Ож
 join-server-status-offline-preview = Офлайн-просмотр — присоединение к серверам отключено.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Удалить
+# Context: custom_section
+keybinds-custom-section-add-binding = Добавить сочетание
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Добавьте дополнительные сочетания для любого действия. Каждую комбинацию клавиши или кнопки мыши можно использовать только один раз.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Свои сочетания
 # Context: row
 keybinds-row-global = ГЛОБАЛЬНЫЙ
 # Context: row
@@ -1777,6 +1785,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Открыть
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Предварительный просмотр звука
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Нажмите, чтобы поговорить: включение
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Нажмите, чтобы поговорить: выключение
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Рингтоны, устройства вызова и обработка микрофона.
 # Context: notification_settings
@@ -4484,6 +4496,7 @@ lib-composer-onboarding-incomplete = Завершите вступление, ч
 lib-composer-onboarding-complete = Завершить знакомство
 profiles-message-placeholder = Сообщение @{ $user }
 profiles-message-send = Отправить сообщение
+profiles-message-open-chat = Открыть чат
 profiles-message-sending = Открытие личных сообщений…
 user-menu-contents-start-a-call = Начать звонок
 verification-show-complete-the-check-to-open-this-conversation = Пройдите проверку, чтобы открыть этот разговор.

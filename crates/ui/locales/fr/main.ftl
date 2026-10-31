@@ -1536,6 +1536,14 @@ join-server-status-invite-accepted = Invitation acceptée. En attente d'accès a
 join-server-status-offline-preview = Aperçu hors ligne : la connexion aux serveurs est désactivée.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Supprimer
+# Context: custom_section
+keybinds-custom-section-add-binding = Ajouter un raccourci
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Ajoutez des raccourcis supplémentaires pour n'importe quelle action. Chaque combinaison de touche ou de bouton de souris ne peut servir qu'une fois.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Raccourcis personnalisés
 # Context: row
 keybinds-row-global = MONDIAL
 # Context: row
@@ -1776,6 +1784,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Ouvrir
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Aperçu du son
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Pousser pour parler : activation
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Pousser pour parler : désactivation
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Sonneries, appareils d'appel et traitement du microphone.
 # Context: notification_settings
@@ -4478,6 +4490,7 @@ lib-composer-onboarding-incomplete = Termine de rejoindre ce serveur pour déblo
 lib-composer-onboarding-complete = Terminer l'accueil
 profiles-message-placeholder = Message à @{ $user }
 profiles-message-send = Envoyer le message
+profiles-message-open-chat = Ouvrir la discussion
 profiles-message-sending = Ouverture du message privé…
 user-menu-contents-start-a-call = Démarrer un appel
 verification-show-complete-the-check-to-open-this-conversation = Termine la vérification pour ouvrir cette conversation.

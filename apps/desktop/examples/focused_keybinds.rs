@@ -49,7 +49,8 @@ fn main() {
 			},
 			|ui| {
 				assert_eq!(
-					view.voice_toggle_pressed(ui.ctx(), hotkeys.global_toggle_mask()),
+					view.voice_toggle_pressed(ui.ctx(), |action, chord| hotkeys
+						.is_global(action, chord)),
 					if focused { 3 } else { 0 }
 				);
 				view.keybinds.push_to_talk.modifiers =
@@ -110,7 +111,7 @@ fn main() {
 				},
 				|ui| {
 					assert_eq!(
-						view.voice_toggle_pressed(ui.ctx(), 0),
+						view.voice_toggle_pressed(ui.ctx(), |_, _| false),
 						u8::from(focused),
 						"{}",
 						key.name()

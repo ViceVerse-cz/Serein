@@ -5,6 +5,8 @@ mod app_settings;
 mod audio;
 mod avatars;
 mod cache;
+#[cfg(all(debug_assertions, feature = "demo"))]
+mod camera_gateway_demo;
 mod captcha;
 #[cfg(feature = "demo")]
 mod channel_demo;
@@ -73,6 +75,46 @@ use zeroize::Zeroizing;
 
 /// Run explicit offline checks before native startup, or launch the configured desktop client.
 fn main() -> eframe::Result {
+	let camera_gateway_check = std::env::args().any(|arg| arg == "--demo-check-camera-gateway");
+	let camera_gateway_capture = std::env::args().any(|arg| {
+		arg == "--demo-camera-gateway-evidence"
+			|| arg.starts_with("--demo-camera-gateway-evidence=")
+	});
+	if camera_gateway_check || camera_gateway_capture {
+		let args: Vec<String> = std::env::args().collect();
+		if !args.iter().any(|arg| arg == "--demo") {
+			eprintln!(
+				"Camera Gateway evidence requires --demo; no application startup was attempted."
+			);
+			std::process::exit(2);
+		}
+		#[cfg(all(debug_assertions, feature = "demo"))]
+		{
+			if camera_gateway_check && camera_gateway_capture {
+				eprintln!("Choose either the offline check or native evidence capture.");
+				std::process::exit(2);
+			}
+			if camera_gateway_check {
+				camera_gateway_demo::check();
+				return Ok(());
+			}
+			let output = args
+				.iter()
+				.find_map(|arg| arg.strip_prefix("--demo-camera-gateway-evidence="))
+				.filter(|path| !path.is_empty())
+				.map(std::path::PathBuf::from)
+				.unwrap_or_else(|| {
+					eprintln!("Evidence output path must not be empty.");
+					std::process::exit(2);
+				});
+			return camera_gateway_demo::capture(output);
+		}
+		#[cfg(not(all(debug_assertions, feature = "demo")))]
+		{
+			eprintln!("Camera Gateway evidence requires a debug build with --features demo.");
+			std::process::exit(2);
+		}
+	}
 	platform::memory::tune_allocator();
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
@@ -312,6 +354,7 @@ fn main() -> eframe::Result {
 					tertiary_color: None,
 					position: 1,
 					hoist: false,
+					managed: false,
 					bits: 0,
 				},
 			}),
@@ -1694,6 +1737,7 @@ impl Desktop {
 							tertiary_color: None,
 							position: 2,
 							hoist: true,
+							managed: false,
 						},
 						model::permissions::Role {
 							id: model::Id(9002),
@@ -1704,6 +1748,7 @@ impl Desktop {
 							tertiary_color: gradient_roles.then_some(16761760),
 							position: 1,
 							hoist: true,
+							managed: false,
 						},
 					]);
 				}
@@ -5614,7 +5659,7 @@ impl eframe::App for Desktop {
 		let voice_toggles = self.hotkeys.take_toggle_pending()
 			| self
 				.messaging
-				.voice_toggle_pressed(ctx, self.hotkeys.global_toggle_mask());
+				.voice_toggle_pressed(ctx, |action, chord| self.hotkeys.is_global(action, chord));
 		if voice_toggles != 0 && !self.fixture_only {
 			// Toggle from the newest choice; a mute and deafen in one frame apply in order.
 			let mut latest = None;
@@ -5828,6 +5873,21 @@ impl eframe::App for Desktop {
 		self.messaging.voice_ptt_active = self.messaging.voice_push_to_talk
 			&& self.state.voice.active.is_some()
 			&& (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down());
+		self.notification_runtime.ptt(
+			self.messaging.voice_push_to_talk,
+			!self.fixture_only
+				&& !self.state.demo
+				&& self.state.auth == AuthState::Authenticated
+				&& self.state.voice.active.as_ref().is_some_and(|call| {
+					matches!(
+						call.phase,
+						client_core::voice::Phase::Connected | client_core::voice::Phase::Waiting
+					)
+				}),
+			self.messaging.voice_ptt_active,
+			self.messaging.notification_options,
+			ctx,
+		);
 		self.messaging.voice_ptm_active = self.state.voice.active.is_some()
 			&& (self.messaging.push_to_mute_down(ctx) || self.hotkeys.push_to_mute_down());
 		if self.state.auth == AuthState::Authenticated || self.state.demo {

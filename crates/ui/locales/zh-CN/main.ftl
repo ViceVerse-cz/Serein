@@ -1552,6 +1552,14 @@ join-server-status-invite-accepted = 邀请已接受。等待访问服务器。
 join-server-status-offline-preview = 离线预览：加入服务器已禁用。
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = 移除
+# Context: custom_section
+keybinds-custom-section-add-binding = 添加绑定
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = 为任意操作添加额外的快捷键。每个按键或鼠标按钮组合只能使用一次。
+# Context: custom_section
+keybinds-custom-section-custom-bindings = 自定义绑定
 # Context: row
 keybinds-row-global = 全局
 # Context: row
@@ -1792,6 +1800,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = 开启
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = 预览音效
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = 按住说话：开始
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = 按住说话：结束
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = 铃声、通话设备与麦克风处理。
 # Context: notification_settings
@@ -4524,6 +4536,7 @@ lib-composer-onboarding-incomplete = 完成加入这个服务器，才能解锁�
 lib-composer-onboarding-complete = 完成新手引导
 profiles-message-placeholder = 发送消息给 @{ $user }
 profiles-message-send = 发送消息
+profiles-message-open-chat = 打开聊天
 profiles-message-sending = 正在打开私信…
 user-menu-contents-start-a-call = 开始通话
 verification-show-complete-the-check-to-open-this-conversation = 完成验证后才能打开这个对话。

@@ -1536,6 +1536,14 @@ join-server-status-invite-accepted = Invitación aceptada. Esperando acceso al s
 join-server-status-offline-preview = Vista previa sin conexión: unirse a servidores está deshabilitado.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Quitar
+# Context: custom_section
+keybinds-custom-section-add-binding = Añadir atajo
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Añade atajos extra para cualquier acción. Cada combinación de tecla o botón del ratón solo puede usarse una vez.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Atajos personalizados
 # Context: row
 keybinds-row-global = GLOBAL
 # Context: row
@@ -1776,6 +1784,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Abrir
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Vista previa del sonido
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Empuja para hablar: activar
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Empuja para hablar: desactivar
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Tonos de llamada, dispositivos de llamada y procesamiento de micrófonos.
 # Context: notification_settings
@@ -4478,6 +4490,7 @@ lib-composer-onboarding-incomplete = Termina de unirte a este servidor para desb
 lib-composer-onboarding-complete = Completar bienvenida
 profiles-message-placeholder = Mensaje a @{ $user }
 profiles-message-send = Enviar mensaje
+profiles-message-open-chat = Abrir chat
 profiles-message-sending = Abriendo mensaje directo…
 user-menu-contents-start-a-call = Iniciar llamada
 verification-show-complete-the-check-to-open-this-conversation = Completa la verificación para abrir esta conversación.

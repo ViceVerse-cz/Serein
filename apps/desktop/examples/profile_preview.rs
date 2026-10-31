@@ -247,6 +247,7 @@ fn prime_activities(state: &mut client_core::State) {
 				.into_iter()
 				.map(|user| client_core::presence::Update {
 					user,
+					avatar: model::Patch::Absent,
 					status: model::Patch::Value("online".into()),
 					custom_status: model::Patch::Absent,
 					activities: model::Patch::Value(activities.clone()),
@@ -644,7 +645,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|embeds|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|updates|general|chat|language|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light] [--toasts] [--compact] [--transparency=0..100]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|embeds|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|updates|general|chat|language|notifications|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--keybinds-custom] [--light] [--toasts] [--compact] [--transparency=0..100]".into());
 	}
 	let smoke = args.iter().any(|arg| arg == "--smoke");
 	let interactive = args.iter().any(|arg| arg == "--interactive");
@@ -678,6 +679,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "updates"
 			| "general"
 			| "chat" | "language"
+			| "notifications"
 			| "keybinds"
 			| "extensions"
 			| "server"
@@ -695,7 +697,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "forum-settings"
 			| "friends"
 	) {
-		return Err("Page must be profile, markdown, embeds, channel-links, channel-link-replies, profile-card, collectibles, member-tags, dm-tags, account, appearance, storage, general, chat, language, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
+		return Err("Page must be profile, markdown, embeds, channel-links, channel-link-replies, profile-card, collectibles, member-tags, dm-tags, account, appearance, storage, general, chat, language, notifications, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
 	}
 	let slash_command = value("--command=").unwrap_or("help").to_owned();
 	if !matches!(slash_command.as_str(), "help" | "weather") {
@@ -1173,6 +1175,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 						&page
 					},
 				);
+				if page == "keybinds" && args.iter().any(|arg| arg == "--keybinds-custom") {
+					// Synthetic rows for the extra-binding card; no saved preference is read.
+					messaging.keybinds.custom = vec![
+						model::CustomBinding {
+							action: model::KeybindAction::PushToTalk,
+							chord: model::KeyChord::new("Y", 0),
+						},
+						model::CustomBinding {
+							action: model::KeybindAction::ToggleMute,
+							chord: model::KeyChord::new("F8", 0),
+						},
+					];
+				}
 				if page == "storage" {
 					// Synthetic measurements; the demo image worker keeps no disk cache.
 					messaging.image_cache_usage = Some([

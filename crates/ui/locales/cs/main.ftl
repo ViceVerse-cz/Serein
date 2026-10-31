@@ -1547,6 +1547,14 @@ join-server-status-invite-accepted = Pozvánka přijata. Čekání na přístup 
 join-server-status-offline-preview = Offline náhled — připojení k serverům je zakázáno.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Odebrat
+# Context: custom_section
+keybinds-custom-section-add-binding = Přidat zkratku
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Přidejte další zkratky pro libovolnou akci. Každou kombinaci klávesy nebo tlačítka myši lze použít jen jednou.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Vlastní zkratky
 # Context: row
 keybinds-row-global = GLOBÁLNÍ
 # Context: row
@@ -1787,6 +1795,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Otevřít
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Náhled zvuku
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Aktivace push to talk
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Deaktivace push to talk
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Zpracování vyzváněcích tónů, hovorových zařízení a mikrofonu.
 # Context: notification_settings
@@ -4518,6 +4530,7 @@ lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni da
 lib-composer-onboarding-complete = Dokončit uvítání
 profiles-message-placeholder = Zpráva pro @{ $user }
 profiles-message-send = Odeslat zprávu
+profiles-message-open-chat = Otevřít chat
 profiles-message-sending = Otevírání soukromé zprávy…
 user-menu-contents-start-a-call = Zahájit hovor
 verification-show-complete-the-check-to-open-this-conversation = Dokonči ověření a otevři tuto konverzaci.

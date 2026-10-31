@@ -1548,6 +1548,14 @@ join-server-status-invite-accepted = Invite accepted. Waiting for server access.
 join-server-status-offline-preview = Offline preview — joining servers is disabled.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Remove
+# Context: custom_section
+keybinds-custom-section-add-binding = Add binding
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Add extra shortcuts for any action. Each key or mouse-button combination can only be used once.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Custom bindings
 # Context: row
 keybinds-row-global = GLOBAL
 # Context: row
@@ -1790,6 +1798,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Open
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Preview Sound
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Push to Talk Activate
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Push to Talk Deactivate
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Ringtones, call devices and microphone processing.
 # Context: notification_settings
@@ -4515,6 +4527,7 @@ lib-composer-onboarding-incomplete = Finish joining this server to unlock more c
 lib-composer-onboarding-complete = Complete Onboarding
 profiles-message-placeholder = Message @{ $user }
 profiles-message-send = Send message
+profiles-message-open-chat = Open chat
 profiles-message-sending = Opening direct message…
 user-menu-contents-start-a-call = Start a Call
 verification-show-complete-the-check-to-open-this-conversation = Complete the check to open this conversation.
