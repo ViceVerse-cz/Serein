@@ -475,9 +475,15 @@ impl Voice {
 		};
 		// A rejoin waits for the departure it asked for: Discord ignores a join for a channel it
 		// still has this account in, so the join goes out only once the departure is confirmed.
-		if let voice::Event::Departed { channel, .. } = event
+		if let voice::Event::Departed { channel, request } = event
 			&& let Some(rejoin) = self.rejoin.as_mut()
+			&& rejoin.generation == state.generation
 			&& rejoin.channel == *channel
+			&& state
+				.voice
+				.active
+				.as_ref()
+				.is_some_and(|call| call.channel == *channel && call.request == *request)
 		{
 			// The departure counts even when it confirms an earlier attempt whose backoff is
 			// still running; the next poll then joins instead of leaving again.
@@ -683,25 +689,6 @@ impl Voice {
 		});
 		Some(command)
 	}
-	/// Fails a call whose join already reached Discord, and leaves the channel with it: a local
-	/// abandonment would leave an account Discord still has in the channel, where the next join is
-	/// a no-op that returns no voice credentials.
-	fn fail_and_leave(&mut self, state: &mut State, message: &'static str) -> Option<Command> {
-		let call = state.voice.active.as_ref()?;
-		let (channel, request) = (call.channel, call.request);
-		self.leave_cue |= self
-			.live
-			.as_ref()
-			.is_some_and(|live| live.cues.joined && live.generation == state.generation);
-		self.rejoin = None;
-		self.stop();
-		state.apply_voice(voice::Event::Failed {
-			channel,
-			request,
-			message,
-		});
-		Some(Command::Voice(voice::Command::Leave { channel, request }))
-	}
 	/// Media for the active call failed. A call this device had joined rejoins automatically
 	/// within the attempt budget; anything else fails as before.
 	pub fn fail_or_rejoin(&mut self, state: &mut State, message: &'static str) -> Option<Command> {
@@ -816,11 +803,9 @@ impl Voice {
 		// backoff, when no attempt was listening for it: the gateway has forgotten the call and a
 		// second leave would send nothing.
 		if !rejoin.departure_confirmed
-			&& state
-				.voice
-				.departed
-				.is_some_and(|(channel, _)| channel == call.channel)
-		{
+			&& state.voice.departed.is_some_and(|(channel, request)| {
+				channel == call.channel && request == call.request
+			}) {
 			rejoin.departed = true;
 			rejoin.departure_confirmed = true;
 		}
@@ -1015,11 +1000,9 @@ impl Voice {
 			if let Err(error) =
 				self.start_media(runtime, pending, ui, ctx, listen_only, input_enabled)
 			{
-				// Audio that never opened is not a dropped session: the account is in the channel
-				// and no media joined it, so the call fails honestly. The join already reached
-				// Discord, so the channel is left explicitly: a later attempt must be a real join,
-				// not a no-op for a channel this account is still in.
-				return self.fail_and_leave(state, error);
+				// Only a rejoin owns a previously established call; an unconfirmed initial
+				// candidate can describe another device and must be abandoned locally.
+				return self.give_up_rejoin(state, error, self.rejoin.is_some());
 			}
 		}
 		if self.pending.is_some() && self.retiring.is_some() {
@@ -2346,6 +2329,12 @@ mod tests {
 			departed: false,
 			departure_confirmed: false,
 		});
+		let mut stale = Event::Voice(voice::Event::Departed {
+			channel: Id(25),
+			request: request + 1,
+		});
+		assert!(manager.observe(&state, &mut stale).is_none());
+		assert!(!manager.rejoin.as_ref().unwrap().departure_confirmed);
 		let mut event = Event::Voice(voice::Event::Departed {
 			channel: Id(25),
 			request,
@@ -2361,6 +2350,37 @@ mod tests {
 			"the wait is cut short so the join happens on the next frame"
 		);
 	}
+	#[test]
+	fn a_stored_departure_for_another_request_does_not_skip_leaving() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.gateway_connected = true;
+		state.start_call(Id(25), false).unwrap();
+		let request = state.voice.active.as_ref().unwrap().request;
+		state.reconnect_call(request, 1, "Synthetic transport loss");
+		state.voice.departed = Some((Id(25), request + 1));
+		let mut manager = Voice::default();
+		manager.rejoin = Some(Rejoin {
+			generation: state.generation,
+			channel: Id(25),
+			attempt: 1,
+			at: Some(Instant::now()),
+			recovered: None,
+			camera: false,
+			departed: false,
+			departure_confirmed: false,
+		});
+		let command = manager.poll_rejoin(
+			&mut state,
+			&ui::MessagingUi::default(),
+			&egui::Context::default(),
+		);
+		assert!(
+			matches!(command, Some(Command::Voice(voice::Command::Leave { channel: Id(25), request: left })) if left == request)
+		);
+		assert!(!manager.rejoin.as_ref().unwrap().departure_confirmed);
+	}
+
 	#[test]
 	fn a_failed_rejoin_leaves_the_channel_and_plays_the_leave_cue() {
 		let mut state = test_support::demo_state();
@@ -3016,7 +3036,7 @@ mod tests {
 		let mut manager = Voice::default();
 		manager.begin(&state, false).unwrap();
 		assert!(
-			matches!(manager.fail(&mut state, "Synthetic startup failure"), Some(Command::Voice(voice::Command::AbandonSession { channel:Id(22), request:r })) if r == request)
+			matches!(manager.give_up_rejoin(&mut state, "Synthetic startup failure", false), Some(Command::Voice(voice::Command::AbandonSession { channel:Id(22), request:r })) if r == request)
 		);
 		assert!(manager.pending.is_none() && manager.live.is_none());
 		assert!(
