@@ -145,7 +145,7 @@ impl Page {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
 			}
 			Self::Notifications => {
-				"notifications desktop system alerts overview sounds badges message ring"
+				"notifications desktop system alerts overview sounds badges message ring idle away afk timeout lock locked phone mobile push"
 			}
 			Self::Activity => {
 				"game activity playing osu status presence sharing registered games added current game detection detected process program executable rename wrong add hide last played"
