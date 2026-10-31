@@ -141,79 +141,98 @@ mod native {
 		result
 	}
 
-	fn activate_client(input: &Samples) -> Result<IAudioClient> {
-		// Echo-free process loopback (Windows 10 build 20348+ and Windows 11).
-		let process_loopback = (|| -> Result<IAudioClient> {
-			let params = Arc::new(activation_params(std::process::id()));
-			let (send, done) = sync_channel(1);
-			let completion: IActivateAudioInterfaceCompletionHandler = Completion {
-				send,
-				_params: params.clone(),
-			}
-			.into();
-			// The blob points into `params`; PROPVARIANT's Rust Drop would call
-			// PropVariantClear and try to free that Arc allocation with CoTaskMemFree.
-			// The completion handler owns `params` for the whole async activation.
-			let variant = ManuallyDrop::new(PROPVARIANT {
-				Anonymous: PROPVARIANT_0 {
-					Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
-						vt: VT_BLOB,
-						Anonymous: PROPVARIANT_0_0_0 {
-							blob: BLOB {
-								cbSize: size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
-								pBlobData: Arc::as_ptr(&params).cast_mut().cast(),
-							},
-						},
-						..Default::default()
-					}),
-				},
-			});
-			let operation = unsafe {
-				ActivateAudioInterfaceAsync(
-					VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
-					&IAudioClient::IID,
-					Some(&*variant),
-					&completion,
-				)?
-			};
-			let deadline = Instant::now() + Duration::from_secs(3);
-			loop {
-				if input.stop.load(Ordering::Acquire) || Instant::now() >= deadline {
-					return Err(E_FAIL.into());
-				}
-				if done.recv_timeout(Duration::from_millis(50)).is_ok() {
-					break;
-				}
-			}
-			let mut status = HRESULT(0);
-			let mut activated = None;
-			unsafe { operation.GetActivateResult(&mut status, &mut activated)? };
-			drop(operation);
-			status.ok()?;
-			activated.ok_or(E_FAIL)?.cast()
-		})();
+	/// Which loopback device to open.
+	#[derive(Clone, Copy)]
+	enum Loopback {
+		/// Echo-free process loopback (Windows 10 build 20348+ and Windows 11).
+		Process,
+		/// Standard WASAPI loopback on the default render endpoint (older Windows 10 builds).
+		Endpoint,
+	}
 
-		if let Ok(client) = process_loopback {
-			return Ok(client);
+	fn activate_client(input: &Samples, loopback: Loopback) -> Result<IAudioClient> {
+		if matches!(loopback, Loopback::Endpoint) {
+			unsafe {
+				use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
+				let enumerator: IMMDeviceEnumerator =
+					CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+				let device: IMMDevice = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
+				return device.Activate(CLSCTX_ALL, None);
+			}
 		}
-		if input.stop.load(Ordering::Acquire) {
-			return Err(E_FAIL.into());
+		let params = Arc::new(activation_params(std::process::id()));
+		let (send, done) = sync_channel(1);
+		let completion: IActivateAudioInterfaceCompletionHandler = Completion {
+			send,
+			_params: params.clone(),
 		}
-		// Fallback: standard WASAPI loopback on the default audio endpoint (Windows 10 / older builds).
-		unsafe {
-			use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
-			let enumerator: IMMDeviceEnumerator =
-				CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
-			let device: IMMDevice = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
-			device.Activate(CLSCTX_ALL, None)
+		.into();
+		// The blob points into `params`; PROPVARIANT's Rust Drop would call
+		// PropVariantClear and try to free that Arc allocation with CoTaskMemFree.
+		// The completion handler owns `params` for the whole async activation.
+		let variant = ManuallyDrop::new(PROPVARIANT {
+			Anonymous: PROPVARIANT_0 {
+				Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
+					vt: VT_BLOB,
+					Anonymous: PROPVARIANT_0_0_0 {
+						blob: BLOB {
+							cbSize: size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
+							pBlobData: Arc::as_ptr(&params).cast_mut().cast(),
+						},
+					},
+					..Default::default()
+				}),
+			},
+		});
+		let operation = unsafe {
+			ActivateAudioInterfaceAsync(
+				VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+				&IAudioClient::IID,
+				Some(&*variant),
+				&completion,
+			)?
+		};
+		let deadline = Instant::now() + Duration::from_secs(3);
+		loop {
+			if input.stop.load(Ordering::Acquire) || Instant::now() >= deadline {
+				return Err(E_FAIL.into());
+			}
+			if done.recv_timeout(Duration::from_millis(50)).is_ok() {
+				break;
+			}
 		}
+		let mut status = HRESULT(0);
+		let mut activated = None;
+		unsafe { operation.GetActivateResult(&mut status, &mut activated)? };
+		drop(operation);
+		status.ok()?;
+		activated.ok_or(E_FAIL)?.cast()
 	}
 
 	fn capture(input: &Samples, started: &mut Option<SyncSender<()>>) -> Result<()> {
 		if input.stop.load(Ordering::Acquire) {
 			return Err(E_FAIL.into());
 		}
-		let client = activate_client(input)?;
+		// A client can activate and still be unusable: process loopback on older Windows
+		// builds reports an engine buffer it cannot capture from. Nothing has been delivered
+		// while `started` is still pending, so the endpoint fallback gets the next attempt.
+		match capture_with(input, started, Loopback::Process) {
+			Err(error) if started.is_some() && !input.stop.load(Ordering::Acquire) => {
+				capture_with(input, started, Loopback::Endpoint).map_err(|_| error)
+			}
+			result => result,
+		}
+	}
+
+	fn capture_with(
+		input: &Samples,
+		started: &mut Option<SyncSender<()>>,
+		loopback: Loopback,
+	) -> Result<()> {
+		if input.stop.load(Ordering::Acquire) {
+			return Err(E_FAIL.into());
+		}
+		let client = activate_client(input, loopback)?;
 		if input.stop.load(Ordering::Acquire) || input.send.is_closed() {
 			return Err(E_FAIL.into());
 		}
@@ -242,9 +261,9 @@ mod native {
 				None,
 			)?;
 		}
-		if unsafe { client.GetBufferSize()? } as usize > MAX_AUDIO_SAMPLES / 2 {
-			return Err(E_FAIL.into());
-		}
+		// The engine buffer size is not trustworthy here: process loopback on Windows 10
+		// reports a value no buffer could hold, while still delivering normal packets. Each
+		// packet is bounded in `packets` instead, so nothing is read past the queue limit.
 		let capture: IAudioCaptureClient = unsafe { client.GetService()? };
 		unsafe { client.SetEventHandle(HANDLE(event.as_raw_handle()))? };
 		if input.stop.load(Ordering::Acquire) || input.send.is_closed() {
