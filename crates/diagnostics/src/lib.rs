@@ -553,10 +553,10 @@ fn writer(sink: &'static Sink) {
 			}
 			sink.wake.notify_all();
 		}
-		if sink.level.load(Ordering::Relaxed) != Level::Off.code() {
-			if let Some(file) = &mut file {
-				file.write(&batch);
-			}
+		if sink.level.load(Ordering::Relaxed) != Level::Off.code()
+			&& let Some(file) = &mut file
+		{
+			file.write(&batch);
 		}
 		sink.finished(batch.len());
 	}
