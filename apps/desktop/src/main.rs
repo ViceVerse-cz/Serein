@@ -5337,6 +5337,43 @@ impl eframe::App for Desktop {
 		);
 		self.messaging.sync_reading_zoom(ctx);
 		self.poll(ctx);
+		// Here, not in `ui`: a connection made while hidden in the tray must still go idle.
+		if let Some(connection) = &mut self.connection {
+			// shortcut: the timeout is read once per connection; a change made on another
+			// device is picked up on the next connect, not live.
+			if connection.idle_timeout.has_changed().unwrap_or(false) {
+				if let Some(secs) = *connection.idle_timeout.borrow_and_update() {
+					connection.idle_timeout_synced = Some(secs);
+					self.messaging.idle_timeout_secs = secs;
+				}
+			} else if let Some(synced) = connection.idle_timeout_synced
+				&& synced != self.messaging.idle_timeout_secs
+			{
+				connection.idle_timeout_synced = Some(self.messaging.idle_timeout_secs);
+				connection
+					.idle_timeout_edits
+					.send_replace(Some(self.messaging.idle_timeout_secs));
+			}
+			self.messaging.idle_timeout_status =
+				connection.idle_timeout_error.borrow().unwrap_or_default();
+			// Not during voice calls (a failed call waiting to be dismissed is not one): the
+			// poller treats `None` as off.
+			let in_call = self
+				.state
+				.voice
+				.active
+				.as_ref()
+				.is_some_and(|call| call.phase != client_core::voice::Phase::Failed);
+			let timeout = (self.messaging.auto_idle && !in_call)
+				.then(|| Duration::from_secs(self.messaging.idle_timeout().into()));
+			connection
+				.auto_idle
+				.send_if_modified(|current| std::mem::replace(current, timeout) != timeout);
+		}
+		self.messaging.auto_idle_active = self
+			.connection
+			.as_ref()
+			.is_some_and(|connection| *connection.afk.borrow());
 		self.sync_fonts(ctx);
 		self.hotkeys.sync(&self.messaging.keybinds, &self.runtime);
 		self.messaging.global_keybind_status = self.hotkeys.status();
