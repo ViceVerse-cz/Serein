@@ -30,8 +30,25 @@ fn configure_memory(backend: wgpu::Backend, descriptor: &mut wgpu::DeviceDescrip
 	}
 }
 
+/// Software rasterizers report themselves as either a CPU device or a well-known adapter name.
+/// Windows falls back to WARP ("Microsoft Basic Render Driver") for DX12 on hardware that
+/// predates it, which draws the whole client on the CPU; the same GPU presents through OpenGL.
+fn software(info: &wgpu::AdapterInfo) -> bool {
+	const NAMES: [&str; 5] = [
+		"microsoft basic render",
+		"llvmpipe",
+		"swiftshader",
+		"software adapter",
+		"software rasterizer",
+	];
+	info.device_type == wgpu::DeviceType::Cpu || {
+		let name = info.name.to_ascii_lowercase();
+		NAMES.iter().any(|known| name.contains(known))
+	}
+}
+
 /// Sort key for an adapter; lower is better.
-fn rank(info: &wgpu::AdapterInfo, prefer_integrated: bool) -> (u8, u8) {
+fn rank(info: &wgpu::AdapterInfo, prefer_integrated: bool) -> (u8, u8, u8) {
 	let device = match info.device_type {
 		wgpu::DeviceType::DiscreteGpu => u8::from(prefer_integrated),
 		wgpu::DeviceType::IntegratedGpu => u8::from(!prefer_integrated),
@@ -41,7 +58,8 @@ fn rank(info: &wgpu::AdapterInfo, prefer_integrated: bool) -> (u8, u8) {
 	};
 	// The GL backend is the compatibility fallback; native APIs present far better.
 	let backend = u8::from(info.backend == wgpu::Backend::Gl);
-	(device, backend)
+	// Only after a real GPU: a software rasterizer is slower however it presents.
+	(u8::from(software(info)), device, backend)
 }
 
 /// Whether the saved preference asks for the integrated GPU.
@@ -88,6 +106,12 @@ pub fn select(
 		});
 	};
 	eprintln!("[Serein] GPU adapter: {}", describe(&adapter.get_info()));
+	let info = adapter.get_info();
+	if software(&info) {
+		eprintln!(
+			"[Serein] GPU adapter is a software rasterizer; set WGPU_BACKEND=gl to try the GPU's OpenGL driver"
+		);
+	}
 	Ok((*adapter).clone())
 }
 
@@ -133,6 +157,48 @@ mod tests {
 
 	fn info(device_type: wgpu::DeviceType, backend: wgpu::Backend) -> wgpu::AdapterInfo {
 		wgpu::AdapterInfo::new(device_type, backend)
+	}
+
+	fn named(
+		name: &str,
+		device_type: wgpu::DeviceType,
+		backend: wgpu::Backend,
+	) -> wgpu::AdapterInfo {
+		let mut info = info(device_type, backend);
+		info.name = name.to_owned();
+		info
+	}
+
+	#[test]
+	fn a_software_rasterizer_never_outranks_the_gpu_it_replaces() {
+		// A machine without DX12 support gets WARP as its only Direct3D adapter, while the same
+		// GPU still presents through OpenGL; drawing on the CPU made the client unusable.
+		let warp = named(
+			"Microsoft Basic Render Driver",
+			wgpu::DeviceType::Other,
+			wgpu::Backend::Dx12,
+		);
+		let opengl = named(
+			"GeForce GTX 550 Ti/PCIe/SSE2",
+			wgpu::DeviceType::Other,
+			wgpu::Backend::Gl,
+		);
+		assert!(software(&warp));
+		assert!(rank(&opengl, false) < rank(&warp, false));
+		assert!(rank(&opengl, true) < rank(&warp, true));
+		// A CPU-typed adapter is software even when its name says nothing.
+		assert!(software(&info(
+			wgpu::DeviceType::Cpu,
+			wgpu::Backend::Vulkan
+		)));
+		// A real native adapter keeps its lead over the GL fallback.
+		let native = named(
+			"Synthetic GPU",
+			wgpu::DeviceType::DiscreteGpu,
+			wgpu::Backend::Vulkan,
+		);
+		assert!(rank(&native, false) < rank(&opengl, false));
+		assert!(!software(&native) && !software(&opengl));
 	}
 
 	#[test]
