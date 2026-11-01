@@ -36,8 +36,18 @@ exceptions in `.cargo/audit.toml` cover `ttf-parser` and the standalone `zvarian
 `zvariant_derive` and `zbus_names` crates. The latter were folded into zbus 6; our
 pinned zbus 5 and upstream portal, accessibility, tray and Secret Service dependencies
 still require them. These are maintenance warnings, not ignored vulnerabilities.
-Reassess these exceptions when the upstream dependency stack migrates to zbus 6;
-all vulnerability advisories remain enforced.
+Reassess these exceptions when the upstream dependency stack migrates to zbus 6.
+The audit configuration ignores `RUSTSEC-2026-0387`, which currently affects `crypto-bigint` 0.5.5
+(timing variability in operations intended to be constant-time). The affected paths are DAVE
+P-256 signing-key generation and MLS key-package validation in `crates/discord-voice`. The DAVE
+path arrives via `davey` -> `p256 0.13` -> `elliptic-curve` -> `crypto-bigint`; the MLS path arrives
+via `openmls` -> `openmls_rust_crypto` -> `hpke-rs-rust-crypto` -> `p256 0.13` / `p384 0.13`. The upstream
+dependencies have not yet migrated to `crypto-bigint >=0.7.6`. The voice subsystem owner maintains
+this acceptance until both paths use compatible patched releases. Additional ignores in `.cargo/audit.toml`
+cover transitive advisories inherited from upstream (RUSTSEC-2026-0385, RUSTSEC-2026-0381, RUSTSEC-2026-0382,
+RUSTSEC-2026-0383, and RUSTSEC-2026-0386) as well as RUSTSEC-2026-0414 affecting directly pinned
+`pulldown-cmark` in `crates/ui/Cargo.toml`, temporarily ignored until dependency updates are fully
+reconciled across the workspace.
 
 Explicit public attachment hosting adds Catbox as a third-party recipient of one
 user-selected file only after per-file consent. Anyone with its returned link can
