@@ -21,8 +21,8 @@ pub const MAX_SOURCES: usize = 64;
 /// Decoders kept alive at once; each holds reference pictures for one remote user.
 const MAX_DECODERS: usize = 8;
 const QUEUE_BYTES: usize = 16 * 1024 * 1024;
-const MAX_WIDTH: u32 = 1920;
-const MAX_PIXELS: u64 = 1920 * 1080;
+const MAX_WIDTH: u32 = 2560;
+const MAX_PIXELS: u64 = 2560 * 1440;
 const START_CODE: [u8; 4] = [0, 0, 0, 1];
 const MAX_DECODE_AGE: Duration = Duration::from_millis(150);
 
@@ -1333,7 +1333,8 @@ mod tests {
 		assert!(is_keyframe(&[0, 0, 0, 1, 0x67, 1, 0, 0, 1, 0x65, 2]));
 		assert!(!is_keyframe(&[0, 0, 0, 1, 0x41, 9]));
 		assert!(bounded(1920, 1080).is_ok());
-		assert!(bounded(1920, 1081).is_err());
+		assert!(bounded(2560, 1440).is_ok());
+		assert!(bounded(2560, 1441).is_err());
 		assert!(bounded(0, 4).is_err());
 	}
 	#[test]

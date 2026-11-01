@@ -549,4 +549,16 @@ mod tests {
 		assert_eq!(picture.data.len(), 1920 * 1080 * 3 / 2);
 		assert!(picture.data.capacity() <= 1920 * 1080 * 3 / 2);
 	}
+
+	#[test]
+	fn watch_accepts_1440p_frame() {
+		let mut slot = None;
+		assert!(store_frame(
+			&mut slot,
+			frame(2560, 1440, &i420(2560, 1440, 0))
+		));
+		let (picture, _) = slot.take().unwrap();
+		assert_eq!(picture.data.len(), 2560 * 1440 * 3 / 2);
+		assert_eq!((picture.width, picture.height), (2560, 1440));
+	}
 }

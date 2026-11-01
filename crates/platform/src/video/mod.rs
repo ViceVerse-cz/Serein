@@ -58,7 +58,7 @@ pub const UNSUPPORTED: &str = "This video format or codec is not supported on th
 pub const INVALID: &str = "The video could not be decoded safely.";
 /// A live decoder queue is full; the access unit was dropped but the decoder is healthy.
 pub const BUSY: &str = "The video decoder is falling behind.";
-pub const TOO_LARGE: &str = "Inline playback supports videos up to 1080p.";
+pub const TOO_LARGE: &str = "Inline playback supports videos up to 1440p.";
 pub const TOO_LONG: &str = "Videos longer than two hours are not supported.";
 /// The system has no decoder for the video track; installing one fixes playback.
 pub const MISSING_HEVC: &str = "This video uses H.265 (HEVC), and no H.265 decoder is installed. Install one for GStreamer (for example gst-libav with a full FFmpeg) to play it here.";
@@ -95,12 +95,12 @@ impl Decoder {
 	}
 }
 
-/// The shared inline-player texture bound: 1080p worth of pixels within a 1920 px square.
+/// The shared inline-player texture bound: 1440p worth of pixels within a 2560 px square.
 pub fn check_dimensions(width: u32, height: u32) -> Result<(), &'static str> {
 	if width == 0 || height == 0 {
 		return Err(INVALID);
 	}
-	if width > 1920 || height > 1920 || u64::from(width) * u64::from(height) > 1920 * 1080 {
+	if width > 2560 || height > 2560 || u64::from(width) * u64::from(height) > 2560 * 1440 {
 		return Err(TOO_LARGE);
 	}
 	Ok(())
@@ -145,8 +145,9 @@ mod tests {
 	#[test]
 	fn rotation_and_bounds() {
 		assert!(check_dimensions(1920, 1080).is_ok());
-		assert!(check_dimensions(1921, 1).is_err());
-		assert!(check_dimensions(1920, 1920).is_err());
+		assert!(check_dimensions(2560, 1440).is_ok());
+		assert!(check_dimensions(2561, 1).is_err());
+		assert!(check_dimensions(2560, 2560).is_err());
 		assert!(check_dimensions(0, 1).is_err());
 		// A 2x1 frame with distinct pixels rotates into a 1x2 column.
 		let frame = [1, 1, 1, 255, 2, 2, 2, 255];

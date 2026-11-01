@@ -634,11 +634,11 @@ fn dimensions(media: &IMFMediaType) -> Result<(u32, u32), &'static str> {
 	let (width, height) = ((size >> 32) as u32, size as u32);
 	if width == 0
 		|| height == 0
-		|| width > 1920
-		|| height > 1920
-		|| u64::from(width) * u64::from(height) > 1920 * 1080
+		|| width > 2560
+		|| height > 2560
+		|| u64::from(width) * u64::from(height) > 2560 * 1440
 	{
-		return Err("Inline playback supports videos up to 1080p.");
+		return Err("Inline playback supports videos up to 1440p.");
 	}
 	Ok((width, height))
 }
