@@ -358,14 +358,16 @@ restart to apply this change. Compare speaking, muted and noise-suppression-on/o
 the cause; UI frame diagnostics help identify excessive rendering separately.
 
 Logging is off by default. Fixed numeric reports go through an eight-slot queue to a
-separate writer; media workers never wait for stderr. Output stops after 128 reports
-or 64 KiB per process, shared by all calls, so restart for another capture. A full queue
+separate writer; media workers never wait for stderr. Output stops after 8,192 reports
+or 8 MiB per process, shared by all calls, so restart for another capture. A full queue
 drops summaries. No IDs, device names, endpoints, keys, audio or signaling payloads
 are logged; upstream cryptographic tracing remains disabled. These reports create no file of their
 own; the separate opt-in diagnostic log in Settings writes a bounded local file and is described in
 [the storage policy](storage-policy.md#opt-in-diagnostic-log). Shell redirection is owner-managed and
 may include unrelated framework logs.
 The device-free check is `cargo run --locked -p discord-voice --example voice_diagnostics`.
+On Linux, build with workspace feature unification (`cargo build --locked --workspace --examples`),
+then run `target/debug/examples/voice_diagnostics`; the package alone lacks winit platform features.
 Instrumentation alone does not establish the cause of a reported CPU spike or a speedup.
 
 ## Acoustic echo cancellation
@@ -734,6 +736,185 @@ participant IDs, credentials or signaling contents. The existing eight-report qu
 8,192-report / 8-MiB process-lifetime limits still apply. Enable it on both endpoints
 only for the owner's deliberate test, then disable it after collecting the summaries.
 
+### Incoming stream recovery and pacing
+
+Linux Go Live viewers additionally offer receive-only AV1 ahead of HEVC/H.264 after the
+installed GStreamer `av1parse`, ranked decoder and bounded pipeline initialize. Sending
+and cameras remain H.264; other platforms do not advertise AV1. Signaling uses `AV1`
+(accepting the `AV1X` session alias), with advertised payloads 105/106 for video/RTX;
+existing H.264 101/102 and HEVC 103/104 assignments are preserved. These assignments
+belong to our offer, not fixed Discord protocol constants. Discord interoperability
+remains unofficial. The October 24 owner test confirms sustained AV1 1440p60
+playback. Reception supports up to 4K60; live 4K60 testing remains pending.
+
+AV1 follows the [AOM RTP format v1.0.0](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html):
+aggregation and fragmentation retain the final size-less OBU needed by DAVE. After DAVE
+authentication, Main-profile sequence headers are checked for 8/10-bit non-monochrome
+4:2:0 and the shared UHD surface bound before native submission. Single spatial-layer
+streams are accepted; temporal IDs are retained. New decoders require an inline sequence
+header and a shown keyframe. Plaintext OBUs receive explicit lengths for GStreamer's
+[OBU stream parser](https://gstreamer.freedesktop.org/documentation/videoparsersbad/av1parse.html).
+TU-aligned native buffers additionally start with an empty temporal delimiter OBU.
+RTP senders normally omit that OBU; it is restored only after DAVE authentication,
+without changing authenticated wire framing or duplicating an existing leading delimiter.
+The two-byte delimiter remains inside the existing AU byte bound.
+Neither RTP nor codec syntax can bypass transport/DAVE or keyframe gates. AU size,
+packet repair, playback queues and presentation tags retain their existing bounds.
+Each RTP packet has at most 64 OBU elements and each frame at most 256 OBUs. Reassembly
+uses two buffers, each capped at the 2 MiB + 64 KiB AU bound; fragment capacity above
+256 KiB is released at frame reset. Decoder normalization temporarily retains at most
+one additional bounded AU on the worker. No new dependency, recording or bandwidth
+estimate is introduced. Codec preference does not promise a particular delivered bitrate.
+Numeric `av1_packets`, `av1_frames` and `session_av1` distinguish admitted packets,
+decrypted frames and outgoing session-selection announcements, as for HEVC/H.264.
+
+Live H.264/H.265 reception accepts up to 4K (3840×2160), including 1440p and portrait/ultrawide
+pictures within the same pixel and per-side bounds. The original 1080p cap was introduced
+with the first RGBA receiver (`b0f57be`); its history identifies a frame-allocation bound,
+not a demonstrated decoder or protocol limit. Live output now uses native planar YUV and
+GPU conversion. Inline attachment playback and sending presets keep their own existing
+limits. Native decoder availability and throughput still depend on the installed hardware
+and plugins; larger received dimensions do not promise 4K60 on every machine.
+The decoded display byte ceiling grows to 128 MiB, allocated on demand, so eight UHD YUV
+pictures plus the latest picture fit. The eight-pending-picture limit, encoded access-unit
+and packet/reorder limits, decoder age budget and A/V clocks are unchanged.
+
+Linux Go Live viewers offer receive-only H.265 ahead of H.264 when GStreamer has
+`h265parse` and a ranked HEVC decoder that can initialize. The bounded pipeline is
+probed on a worker before advertising support; other platforms and stream senders
+retain H.264. Codec selection and opcode 14 updates follow the
+[public native receiver](https://github.com/dolfies/discord-native-voice/blob/master/discord/ext/native_voice/client.py)
+and [session signaling implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py);
+these remain unofficial interoperability behavior, requiring an owner-operated live test.
+
+HEVC reassembly implements RFC 7798 single NAL, aggregation and fragmentation packets
+for a single layer without DONL, as used by WebRTC. Transport authentication precedes
+packet routing; DAVE authentication precedes NAL inspection and native decoding. Keyframe detection recognizes IRAP types 16–21; a new
+HEVC decoder requires VPS/SPS/PPS with a recovery picture. SPS dimensions and bit depth
+are checked before native submission (8/10-bit 4:2:0, at most 3840×2160 visible pixels within a 3840-pixel square,
+with bounded coding-block padding). Incoming codec selection uses each authenticated
+packet's advertised payload assignment independently per source. The session description's
+`video_codec` is an outgoing selection and does not filter received formats. Forward primary
+packets changing a source's codec discard that source's partial packets, retire its decoder
+and pending video, and require a keyframe. Late packets/RTX from the previous codec cannot
+switch it back. Session opcode 14 alone does not discard received video. Audio timing and
+unrelated sources are preserved.
+The existing RTP/RTX repair, byte/item bounds, decoded picture layout and presentation
+tags apply to both codecs. Camera signaling/codec selection and all video encoding remain
+unchanged; incoming cameras share the live decoder dimension bound.
+Numeric `h264_packets`/`h265_packets` and `h264_frames`/`h265_frames` counters distinguish
+transport packets from decrypted access units. `session_h264`/`session_h265` count outgoing
+selection announcements; rejected payloads and source codec changes are counted separately.
+No media or source identifiers are logged. This adds no receiver bandwidth estimator or bitrate promise.
+
+Watched streams also acknowledge observed transport-wide sequence numbers using
+WebRTC RTPFB/FMT=15 arrival feedback. The native one-byte RTP extension-5 mapping is
+[unofficial](https://github.com/discord-userdoccers/discord-userdoccers/blob/master/pages/topics/voice-connections.mdx#native-rtp-header-extensions);
+only the authenticated `0xBEDE` profile with one unambiguous two-byte value enables
+feedback. Missing, malformed or unknown extension formats do not invent a sequence.
+The [transport-wide feedback format](https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01)
+reports actual arrival times in 250 µs units, including signed deltas for reordering,
+sequence gaps and wrap. The sender/SFU retains congestion-control decisions; Serein
+generates neither REMB nor a claimed available bitrate.
+
+This viewer-only feedback runs after secure readiness/announcement, across authenticated
+media, RTX and payload-96 probes on the same RTC transport. Probes never enter DAVE or
+media decoders. History holds at most 2,048 optional timestamps (32 KiB), for at most
+one second before reporting; large sequence jumps/idle restarts retire old history.
+At most two reports of 256 statuses are sent every 100 ms. Each encrypted datagram
+is at most 628 bytes, below the 1,200-byte transport target. Already reported late
+packets are ignored; later RTX carries its own transport sequence. No packet payload,
+source ID or sequence value is logged. `twcc_received/sent/reported/missing/discarded`
+count extensions, reports, received/missing statuses and discarded history slots.
+`video_rtp_bytes/bps` counts authenticated video datagrams including headers, encryption,
+padding and RTX, before source routing; `probe_packets/bytes` counts probes separately.
+These complement complete decrypted `encoded_bytes/bps`, not physical/display quality.
+The owner test records active feedback and sustained playback; feedback acceptance and
+its causal effect on received bitrate have not been isolated.
+
+Watched streams send authenticated RTCP reception reports every second and preserve
+source RTP timestamps through reassembly. Incoming video can repair missing packets
+across picture boundaries through announced RTX pairs and Generic NACKs; ordered input
+has no intentional holdback. A hole initially allows 120 ms for repair. Requested hole
+fills, including late responses, increase that source's allowance to the observed hole
+age plus 40 ms, capped at 400 ms until the source is retired. At most 512 expired-hole
+metadata records per source survive for one second; discarded media is never replayed.
+Packet/byte bounds and three NACK attempts remain hard limits. Empty padding
+packets do not invalidate picture references. Unrecoverable loss requests a keyframe from
+the most recently active media source, at most once per 500 ms per source.
+
+Watched video has one RTP-to-local clock, shared with timestamp-preserving stream
+audio. Playback starts with 100 ms of buffering; arrival variation sets a bounded
+60–240 ms target with fast attack and slow release. Packet and byte limits remain hard
+limits, rather than latency targets. Audio keeps up to 128 compressed packets, enough
+for the maximum target at legal 2.5 ms packetization plus scheduling headroom. Its sample
+cursor corrects sustained occupancy/clock drift by at most five samples per 960-sample
+output frame, using bounded interpolation. Playable audio timestamps anchor to the
+producer clock so sample drift does not accumulate against the original nominal clock;
+normal participant voice mixing is unchanged. Per-source arrival sequence/sample watermarks
+distinguish reordered packets from a backwards audio epoch: a newer sequence with an older
+sample timestamp restarts the audio buffer, rather than discarding incoming PCM and playing
+concealment while slowly chasing the old cursor. Sequence/timestamp wrap remains supported.
+
+Authenticated sender reports relate each same-owner 90 kHz video clock to the 48 kHz
+audio master. Video correction uses elapsed time, a filtered error and a deadband, bounded
+to 60 ms per second regardless of frame rate. Missing/expired reports retain independent
+arrival-based pacing; they cannot establish lip sync. Audio rebuffering retires its old
+RTP anchor/reference while keeping accepted PCM and queued video valid. Releasing an audio
+reference slews the fallback target rather than rewinding video. Source retirement, rekeys
+and teardown still invalidate the corresponding generation. Local video scheduling stays
+monotonic across timestamp phase changes. A forward RTP step exceeding its arrival interval
+by more than 100 ms, or a backwards sample epoch, continues the existing local timeline at
+arrival cadence; sender reports then correct phase gradually. Sparse frames with matching
+arrival/media gaps and ordinary packet-repair bursts retain RTP pacing. This is a bounded
+continuity policy, not generic reordered-video-profile conformance.
+
+Video retains at most 64 encoded pictures / 8 MiB, separately from the decoder queue.
+Its intended presentation timestamp survives native asynchronous decoding via an opaque
+per-picture tag. Decode starts early, with 8–100 ms lead based on measured decoder delay
+and a small scheduling allowance. A new audio source allows at most 200 ms to establish
+output timing, then falls back if playback timing is unavailable. Brief native pressure
+is retried only on the decoder worker within the existing 150 ms age budget. Incoming
+cameras retain immediate scheduling. Correlation retains at most 16 tags per decoder; sparse
+input does not age out a tag while its native picture waits for the next input. An output
+with an evicted/unknown tag is counted as stale and discarded.
+
+Watched PCM retains its presentation timestamp through call mixing and device queues.
+Stale stream PCM is rejected before mixing. Retiring a stream after mixing cannot discard
+participant speech already queued for output; stale stream-only frames are still discarded.
+The bridge between independently scheduled stream/call ticks retains at most eight frames
+and starts with three queued frames (40 ms of scheduling headroom). This absorbs short
+bursts without cutting whole audio frames; stalls of at least 80 ms and playback gates
+still flush. Output timing includes this additional bridge delay.
+The output callback uses CPAL's playback timestamp and sample position to publish a
+smoothed estimate of when that media reaches output. It uses atomics only; codecs,
+locks and allocation remain outside the callback. The UI holds at most eight decoded
+pictures / 128 MiB (including the latest picture) and presents on that clock, skipping only decoded pictures when late
+or under pressure, so decoder references remain intact. Device timing expires after two
+seconds without a fresh sample. OS timestamps and UI repaint scheduling are estimates:
+physical headset/monitor delay and exact display scanout are not measured.
+
+For an owner-controlled comparison, watch the same moving stream at the same resolution
+and frame rate for 10–15 minutes, check picture cadence and audio/video alignment, then
+leave and rejoin once to check teardown/recovery. Capture numeric diagnostics only during
+the deliberate test. Synthetic checks and one successful session do not establish behavior
+on every network, device or platform.
+
+### Owner playback validation — October 24, 2026
+
+The final runtime candidate `e935dc7b` was watched by the owner at AV1 2560×1440/60.
+A reviewed 696.615-second interval delivered 41,800 pictures (60.004 fps), averaging
+7.892 Mbps of complete decrypted video payload and 8.249 Mbps of authenticated video
+RTP datagrams. It recorded no decoder errors, stale/queue/playout drops or resets,
+incomplete/DAVE-decrypt failures, audio concealment or rebufferings. Six packet repairs
+completed without expiry, and transport-wide timing reports remained active. An earlier
+80.133-second steady interval was also clean; startup had one audio rebuffer. The owner
+reports smooth playback after the temporal-delimiter fix.
+
+Reception supports up to 4K60, but live 4K60 validation remains pending. The measured
+Linux evidence covers 1440p60. Same-stream official-client parity,
+physical A/V latency and general Windows/macOS behavior are not established by these tests.
+
 ### Remote video diagnostics
 
 Every report line carries `at_ms`, milliseconds since the first reporter started, so
@@ -742,9 +923,48 @@ lines from different scopes can be ordered. `Transport` (call camera video) and
 remote video counter is non-zero. Each counter names one place a picture can be lost
 between the UDP socket and the display, so a frozen viewer is diagnosed from one line:
 
+- `encoded_bytes` / `encoded_bps`: complete, decrypted compressed-video bytes and their
+  average bits/second over `window_ms`, before keyframe gating or decoder admission.
+  These exclude incomplete pictures and transport/retransmission overhead; they are not
+  the sender's configured bitrate or an available-bandwidth estimate.
+- `video_size: last=WxH min=WxH max=WxH changes=N`: delivered decoded dimensions, ranges
+  by pixel count and transitions. Camera scopes aggregate senders; snapshots are approximate
+  at report boundaries. No pixels, participant IDs or encoded payloads are recorded.
 - `packets` / `rtx`: accepted video RTP packets (including restored retransmissions),
-  and received retransmission packets (payload 102). Announced RTX sources can repair
-  gaps in the current picture; Serein does not yet send NACK requests.
+  and received retransmission packets (payload 102/104/106). Announced RTX sources can repair
+  gaps across pictures through bounded Generic NACKs.
+- `nacks_sent` / `repaired_packets`: NACK datagrams and observed sequence holes filled
+  before expiry. Filled holes include natural reordering, not only retransmitted losses.
+- `repair_expired` / `repair_late`: sequence holes abandoned at the repair deadline and
+  known expired holes subsequently filled. Each late hole counts once, within the bounded
+  one-second metadata history. These count packets, while `incomplete` counts depacketizer events.
+- `repair_response_ms` / `repair_budget_ms`: maximum first-NACK-to-hole-fill interval
+  and current per-source repair allowance. Responses include natural reordering and retries;
+  the measured interval is not a proven network RTT. Only requested holes train the allowance.
+- `padding_packets`: authenticated empty video RTP payloads handled without picture loss.
+- `playout_late` / `playout_resets` / `playout_drops` / `playout_depth`: late enqueue events,
+  playback-clock resets, discarded queued pictures and maximum queue depth. Late inputs
+  alone do not imply a dropped or visibly skipped frame.
+- `playout_rewinds` / `playout_source_changes` / `playout_expired` / `playout_pressure` /
+  `playout_ahead`: specific causes of playback recovery. Counts can overlap when one item
+  violates multiple conditions; source/security changes still require normal recovery.
+- `av_timeline_rebases`: timestamp phase changes absorbed without rewinding local video.
+- `receiver_reports_sent`: authenticated RTCP reception reports sent while watching.
+- `av_audio_reports` / `av_video_reports` / `av_video_synced`: accepted sender timing reports
+  and video deadlines mapped to an audio clock. Zero mapped deadlines means the receiver
+  has not confirmed a usable cross-media clock and is using fallback pacing.
+- `av_offset_ms`: maximum video scheduling difference before gradual correction in the
+  reporting window; this is not measured physical speaker/display lip-sync error.
+- `av_device_offset_ms`: maximum positive logical-to-device timing estimate, including
+  bridge/device queues and the OS playback estimate; separate from sender-clock correction.
+- `stream_audio`: decoded/concealed sample totals, audio decode errors and rebufferings,
+  faster/slower rate-correction sample counts, maximum queued RTP span/target in milliseconds,
+  and bridge drops/underruns. Producer values are in `StreamReceive`; bridge values are in
+  `Transport`. They aggregate sources and do not measure physical output continuity.
+- `device_empty_frames` / `device_stale_frames` in `Audio`: 20 ms input frames replaced
+  by silence because the device ring was empty, and frames rejected after source/security
+  generation changes. Empty frames are expected during silence; compare against active
+  stream production/bridge counters before treating them as underruns.
 - `open_failed`: packets of any payload rejected by the transport AEAD.
 - `not_ready`: video packets received before the DAVE session was ready or from a
   user outside the group; expected briefly after joining or an epoch change.

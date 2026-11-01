@@ -2331,6 +2331,7 @@ mod tests {
 		state.selected = None;
 		state.select(Id(8));
 		assert!(state.select(Id(7)).is_none());
+		assert_eq!(state.selected, Some(Id(7)));
 		let ctx = egui::Context::default();
 		let mut picked = None;
 		// The forum row itself is a destination; the second Tab reaches the loaded post.

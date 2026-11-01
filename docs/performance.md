@@ -24,6 +24,632 @@ the app; decoded audio is released after each cue. No CPU, RSS or latency measur
 claimed, because the offline fixture joins no call and plays no cue. Debug `profile_preview`
 screenshots from both revisions are in [the evidence folder](pr-evidence/ptt-sounds/).
 
+## Incoming stream quality, pacing and recovery — October 22, 2026
+
+Watched-stream reception now repairs/reorders bounded RTP gaps, preserves H.264 references
+through brief native backpressure, and retains sender timestamps through audio playback
+and decoded-video presentation. A single timing controller uses authenticated sender reports,
+a bounded adaptive jitter target, measured decoder lead and an audio-device clock estimate.
+No dependencies, resolution presets, notification audio or UI layouts change. The Linux
+receive-only HEVC extension is described below.
+
+October 25 package comparison: unchanged upstream `c2842aa` versus the streaming branch, pinned
+Rust 1.98.1, Linux x86_64, `cargo xtask package --format arch` with voice and without demo.
+
+| Package metric | Upstream baseline | Streaming candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,650,248 B | 92,802,184 B | +151,936 B (+0.164%) |
+| Installed payload (245 files) | 97,348,681 B | 97,500,617 B | +151,936 B (+0.156%) |
+| Arch archive | 54,376,694 B | 54,477,570 B | +100,876 B (+0.186%) |
+
+Installed bytes sum regular archive files under `usr/`, excluding package metadata.
+Both packages contain 245 installed files. The October 25 gate passed 1,321 tests, strict
+Clippy, formatting, application and policy checks; its native Arch package smoke also passed.
+
+### Linux HEVC reception extension
+
+The actual preceding streaming build is `e9dae84`, verified by SHA-256 and preserved
+before editing. It negotiates only H.264. The extension offers receive-only H.265 when
+the installed parser/decoder and bounded pipeline initialize, keeps H.264 fallback and
+handles session codec updates. Existing encoded/decoded queue limits and A/V timing apply.
+No new dependency, media cache or audio-processing change is introduced.
+
+| Standard Arch package / same pinned toolchain | Before `e9dae84` | HEVC candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,751,880 B | 92,767,368 B | +15,488 B (+0.017%) |
+| Installed payload | 97,450,313 B | 97,465,801 B | +15,488 B (+0.016%) |
+| Arch archive | 54,448,309 B | 54,449,636 B | +1,327 B (+0.002%) |
+
+Offline native checks use an eight-second 1280×534/60 FFmpeg `testsrc2` fixture,
+libx265 ultrafast, 4.1 Mbps, four pool threads/two frame threads, 8-bit 4:2:0,
+AUDs/repeated parameter sets, key interval 60, no B frames or scene cuts. The production
+clock/audio/playback/native decoder runs through GStreamer/VA-API on the same RX 6900 XT,
+with a simulated 73 ms device delay. Four single functional cases cover a temporary
++200 ms video timestamp phase, backwards audio epoch, 500 ms audio loss and 400 ms delayed
+audio startup. Each delivers all 480 pictures with reference-identical luma CRCs and
+correct presentation tags, zero decoder errors/stale/admission rejections, and zero video
+queue resets/drops. The final two input seconds retain all 100 audible frames without
+concealment. Delayed audio acquisition has a 108 ms picture interval during startup.
+These are functional checks, not physical output latency or a live FPS benchmark.
+
+The existing H.264 timestamp-phase fixture still delivers all 479 expected pictures
+(the H.264 parser retains one without EOS), matching reference luma and presentation
+tags. Encrypted HEVC aggregation/fragmentation/RTX tests verify DAVE authentication and
+keyframe recovery; malformed packet/SPS tests cover header disagreement, nested/truncated
+aggregation, item/byte bounds, cropped dimensions and parameter-unit boundaries. Codec
+negotiation tests retain H.264 senders and reject unoffered/unknown formats.
+
+The old implementation cannot run an HEVC receive workload, so no codec speed comparison
+is claimed. Native idle CPU/RSS and Windows/macOS HEVC support are unmeasured. The later owner
+comparison is recorded in the UHD reception section below; it does not establish universal
+perceptual-quality parity.
+
+### Receive payload routing correction
+
+The preceding `169bfdc` candidate incorrectly used the outgoing session selection as
+an incoming payload filter. Its preserved 75.096-second owner capture has zero admitted
+video packets/pictures and 3,587,520 decoded audio samples without concealment. That
+capture did not count discarded packet types, so it alone does not identify the wire
+codec. The corrected receiver maps authenticated advertised payload types independently
+per source and carries the codec through reassembly, DAVE, prediction gating and playback.
+Session announcements do not retire received media. Forward source codec changes retire
+only affected buffered media; old primary/RTX packets and empty padding cannot switch it back.
+
+A synthetic regression receives interleaved H.265/H.264 sources under an H.264 session
+selection, preserving unrelated partial pictures and rejecting stale/unoffered formats.
+The encrypted HEVC/RTX regression now traverses actual receive routing and DAVE decryption
+into the timed playback queue, rather than bypassing protocol admission. Final native
+H.265/H.264 timestamp-phase runs retain all 480/479 expected reference-identical pictures
+and presentation tags with zero errors/resets/drops/rejections and no final audio concealment.
+The rest of the native decoding/timing path is unchanged. The later owner-operated retest confirmed working reception and satisfactory playback
+(see below); physical FPS/latency and full-client CPU/RSS remain unmeasured.
+
+| Standard Arch package / same pinned toolchain | Before `169bfdc` | Routing correction | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,766,344 B | 92,767,368 B | +1,024 B (+0.001%) |
+| Installed payload | 97,464,777 B | 97,465,801 B | +1,024 B (+0.001%) |
+| Arch archive | 54,441,888 B | 54,449,636 B | +7,748 B (+0.014%) |
+
+### UHD live reception — October 23, 2026
+
+The verified preceding `ac345cc` package was preserved before editing. The original
+1080p cap dates to the first RGBA receiver (`b0f57be`), without a recorded codec or
+protocol requirement for that resolution. Live dimensions now accept 3840×2160 worth
+of pixels within a 3840-pixel square. HEVC SPS coded surfaces allow bounded 64-pixel
+alignment padding, with a separate visible-pixel check. Native frame copies share the
+live validator; inline attachment playback retains its 1080p bound. No sender preset,
+encoded access-unit limit, packet repair bound, timing rule or dependency changes.
+
+The watched UI retains at most eight pending decoded pictures and 128 MiB including the
+latest picture, allocated on demand. Eight packed UHD YUV pictures plus the latest one
+fit; ordinary 720p/1080p use does not allocate the ceiling. Regression coverage exercises
+UHD YUV presentation/item pressure, RGBA byte pressure, HEVC crop/padding rejection and
+GStreamer sample copying before allocation. These are component bounds, excluding
+native decoder reference pictures, GPU textures and other application allocations.
+
+Eight-second synthetic `testsrc2` workloads pass through production clock, stream audio,
+playout and native GStreamer decoding on Linux. Each includes a temporary +200 ms RTP
+timestamp phase and simulated 73 ms audio output delay:
+
+| Native functional workload | Expected/delivered pictures | Decoder errors / stale / queue resets / drops |
+| --- | ---: | ---: |
+| H.265 2560×1440/60 | 480 / 480 | 0 / 0 / 0 / 0 |
+| H.265 3840×2160/30 | 240 / 240 | 0 / 0 / 0 / 0 |
+| H.265 3840×2160/60, 12 Mbps target | 480 / 480 | 0 / 0 / 0 / 0 |
+| H.264 3840×2160/60, 12 Mbps target | 479 / 479 | 0 / 0 / 0 / 0 |
+
+H.264 retains its last parser picture without EOS. Every delivered luma checksum and
+presentation tag matches its reference. Every case preserves all 100 audible frames
+in the last two input seconds without concealment or admission rejection. The unchanged
+receiver rejects the same 1440p/4K HEVC inputs before native decoding (zero pictures).
+These single functional runs do not measure physical FPS, scanout, lip sync or full-client
+CPU/RSS, and do not guarantee UHD60 throughput on other hardware.
+
+The test harness uses optimized zlib checksums outside the application dependency graph.
+Its previous debug Rust checksum helper alone cost about 14.4 ms per UHD picture and
+caused false overload in 60 fps tests; those instrumented runs are not evidence of a
+product decoder limit. Bitstreams use libx264/libx265 ultrafast, no B frames, AUDs and
+repeated parameter sets; HEVC uses four pool/two frame threads. The UHD60 fixtures have
+a 12 Mbps target/max rate and 12 Mbps VBV buffer.
+
+An owner-controlled sequential comparison of `ac345cc` and official Discord on the same
+stream recorded H.265, 1280×718 and approximately 30 fps in both clients, averaging
+1.13/1.11 Mbps respectively. Neither capture recorded video drops; Serein recorded
+zero decoding errors. The owner reported satisfaction. Content changes between captures
+and bitrate accounting differences preclude an exact perceptual-quality claim.
+Reception supports up to 4K60, but live 4K60 validation remains pending.
+Windows/macOS native behavior is not locally verified. Discord's [official screen-share documentation](https://support.discord.com/hc/en-us/articles/360040816151-Go-Live-and-Screen-Share)
+lists desktop streaming up to 4K/60 fps with Nitro.
+
+| Standard Arch package | Before `ac345cc` | UHD candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,767,368 B | 92,767,752 B | +384 B (+0.000%) |
+| Installed payload | 97,465,801 B | 97,466,185 B | +384 B (+0.000%) |
+| Arch archive | 54,449,636 B | 54,440,009 B | -9,627 B (-0.018%) |
+
+### Adaptive packet-repair allowance — October 23, 2026
+
+An owner-operated test of `ffd6063` recorded 277 incomplete-frame events, 2,953 gated
+predictions and 1,047 RTX packets, but only 29 holes repaired in 246.895 seconds.
+Decoder errors, stale frames, decoder queue-full events and playout-pressure drops were
+zero. The owner reported the same stream played smoothly in official Discord. These
+counters expose repeated recovery but do not establish whether RTX was late or duplicated:
+the preceding build did not measure first-NACK-to-hole-fill time. Its UHD dimension
+diagnostic also truncated widths above 2047; the corrected packing retains 12 bits per axis.
+
+The fixed 120 ms repair cutoff could discard every response on a slower path without
+learning from it. Requested hole fills now increase the source's repair allowance to the
+observed hole age plus 40 ms, capped at 400 ms. Intact ordered packets still have no
+intentional holdback. At most 512 fixed-size expired-hole metadata records per source
+survive for one second, without retaining media. Retired/changed sources discard that
+history; late fills never resurrect discarded pictures. Packet/byte caps and three NACK
+attempts remain unchanged. Numeric expired/late/response/budget aggregates let the next
+owner test confirm or reject delayed repair as the explanation for this live failure.
+
+A deterministic, no-sleep ordering workload compares preserved `ffd6063` with this
+change: 600 one-packet pictures at 60 Hz, a missing non-key packet every 30 pictures,
+usable keyframes every 60 pictures, and delivery of the missing packet at the configured
+delay after its first NACK. The harness models reference gating from ordered loss events;
+it does not run DAVE, native decoding, rendering or audio and is not a live FPS benchmark.
+
+| First-NACK response delay | Prior / adaptive delivered pictures | Prior / adaptive loss events | Prior / adaptive gated predictions |
+| --- | ---: | ---: | ---: |
+| 40 ms | 600 / 600 | 0 / 0 | 0 / 0 |
+| 180 ms | 150 / 555 | 20 / 1 | 430 / 44 |
+| 450 ms (beyond cap) | 150 / 150 | 20 / 20 | 430 / 430 |
+
+The first late loss still needs normal keyframe recovery before later holes benefit.
+Unrecoverable holes may now wait longer, within the 400 ms limit. Regressions cover
+sequence wrap, late duplicates, learning only from requested holes, metadata lifetime/count
+and hard expiry. Full-client quality and physical latency still need an owner-operated retest.
+
+An eight-second HEVC 3840×2160/60, 12 Mbps native functional comparison adds packet
+fragmentation/reassembly to the earlier clock/audio/playout/GStreamer harness. One middle
+packet is withheld from each non-key picture numbered 30 modulo 60, then restored 180 ms
+after its first NACK. This bypasses transport/DAVE encryption (covered separately by the
+protocol regressions) and simulates 73 ms of audio-device delay. Before/adaptive results:
+8/1 incomplete-frame events, 0/7 repaired packets, 232/29 gated predictions and 240/450
+delivered pictures out of 480 inputs. Every delivered picture matches its reference luma
+and presentation tag. Both runs have zero decoder errors, stale/admission rejections,
+playout resets/drops and final audio concealment, with all 100 audible frames in the last
+two input seconds. The initial loss still produces a roughly half-second callback gap;
+the adaptive run avoids repeating that loss on subsequent repairs. Callback timing is
+not physical display timing. A separate approximately 44 Mbps 1440p fixture exceeds the
+unchanged repair queue bound before delayed repair; both revisions retain that hard limit.
+
+| Standard Arch package | Before `ffd6063` | Adaptive repair | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,767,752 B | 92,775,816 B | +8,064 B (+0.009%) |
+| Installed payload | 97,466,185 B | 97,474,249 B | +8,064 B (+0.008%) |
+| Arch archive | 54,440,009 B | 54,463,210 B | +23,201 B (+0.043%) |
+
+### Receive-only AV1 — October 23, 2026
+
+The verified `8f79435b` package is the baseline. Its owner-operated 120.212-second
+sample receives HEVC at 2560×1440, 59.49 decoded fps and 1.234 Mbps of complete decrypted
+video payload, with zero incomplete/gated frames, decoder errors or playback drops.
+The same owner then opens the stream in official Discord: 13 post-startup reports span
+120.389 seconds, report `AV1X` at 2560×1440, 59.99 decoded fps and mean 4.594 Mbps
+(range 4.327–4.979 Mbps), with zero reported drops. Sequential motion/content and
+accounting differ; the ratio is not a codec-efficiency benchmark or proof of why the
+service selected those rates. The preceding Serein build cannot negotiate/depacketize AV1.
+
+Linux receive-only AV1 now takes priority over HEVC/H.264 after installed native capability
+probing. No dependency or sender-preset change is introduced. The pipeline uses existing
+GStreamer AV1 parsing and ranked decoding, the same planar output and presentation tags.
+After DAVE authentication, Main-profile sequence/surface bounds are enforced before native
+submission; explicit plaintext OBU sizes are restored for the native parser. RTP has a
+64-element packet / 256-OBU frame ceiling. Reassembly's frame and fragment buffers are
+each bounded to 2 MiB + 64 KiB, with large fragment capacity released at frame reset;
+normalization temporarily holds one extra bounded AU on the decoder worker. Existing
+encoded playout/decoder/display caps, adaptive repair and audio clocks are retained.
+
+An eight-second synthetic 2560×1440/60 SVT-AV1 low-delay CBR fixture targets 4.5 Mbps,
+with four logical encoding processors, preset 12 (mapped by SVT 4.2.0 to preset 11),
+key interval 60, 8-bit 4:2:0. Its native Linux GStreamer workload includes a temporary
++200 ms RTP timestamp phase and simulated 73 ms audio-device delay. All 480 pictures
+match reference luma and presentation tags, with zero decoder errors, stale/admission
+rejections, playout resets/drops and final concealment. All 100 audible frames in the
+final two input seconds survive. This native workload bypasses RTP/DAVE; the extended
+encrypted protocol regression covers aggregation/fragmentation/RTX through DAVE and
+playout. Bounds tests cover malformed OBU lengths/counts, forbidden/spatial headers,
+fragment continuity and truncated/oversized/unsupported sequence headers.
+
+These are functional checks, not physical FPS, latency or perceptual-quality measurements.
+Instrumented AV1 UHD/native Windows/macOS behavior and full-client CPU/RSS are unmeasured.
+The subsequent successful Linux 1440p60 capture is recorded below; live 4K60 testing remains pending.
+
+| Standard Arch package | Before `8f79435b` | AV1 reception | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,775,816 B | 92,785,288 B | +9,472 B (+0.010%) |
+| Installed payload | 97,474,249 B | 97,483,721 B | +9,472 B (+0.010%) |
+| Arch archive | 54,463,210 B | 54,465,029 B | +1,819 B (+0.003%) |
+
+### Watched-stream transport feedback — October 23, 2026
+
+The verified `fcf6fe62` package is the baseline. The owner-controlled different-stream
+HEVC 1280×534 comparison records 1.299 Mbps of Serein complete decrypted payload over
+100.133 seconds, versus official Discord's mean reported 3.841 Mbps across eight
+post-startup reports spanning 70.234 seconds. Both decode about 59.8 fps without video
+drops. Serein records four audio rebufferings and scheduling jitter. Different scenes
+and accounting prevent treating the ~2.96× ratio as causal bandwidth evidence.
+
+The receiver adds transport-wide arrival acknowledgements, not a receiver bandwidth
+estimator. History is a single on-demand 2,048-entry deque of optional 64-bit timestamps
+(maximum 32 KiB), with one-second reporting age and bounded restart/overflow retirement.
+Per report, scratch holds at most 256 one-byte symbols, 512 delta bytes and a 608-byte
+output allocation. Actual encrypted datagrams are at most 628 bytes, at most two per
+100 ms: a hard 12,560-byte/s datagram ceiling excluding IP/UDP headers. Ordinary reports
+are smaller; no feedback is emitted without an authenticated transport sequence.
+Only the watched-stream transport uses this path; decoding, presentation queues, sender
+presets and dependencies are unchanged. Synthetic wire tests cover complete known arrival
+patterns, signed reordering, missing statuses, wrap, duplicate rejection and all bounds.
+These verify protocol behavior, not SFU acceptance, bitrate uplift or full-client CPU/RSS.
+New numeric transport/probe byte counters allow the next live comparison to distinguish
+wire traffic from complete decrypted media. Owner testing remains required.
+
+| Standard Arch package | Before `fcf6fe62` | Transport feedback | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,785,288 B | 92,801,160 B | +15,872 B (+0.017%) |
+| Installed payload | 97,483,721 B | 97,499,593 B | +15,872 B (+0.016%) |
+| Arch archive | 54,465,029 B | 54,472,967 B | +7,938 B (+0.015%) |
+
+### AV1 temporal delimiter repair — October 24, 2026
+
+The verified `bc9b2682` package is the baseline. The owner's AV1 2560×1440 attempt
+receives complete video payload up to roughly 7.5 Mbps, with transport-wide arrival
+feedback active, but displays only one picture per attempt. Incoming audio continues
+without concealment. This is evidence of received packets, not successful AV1 playback.
+
+The earlier eight-second 1440p60 SVT-AV1 IVF workload included 480 temporal delimiter
+OBUs that RTP normally omits. Removing those delimiters while preserving every other
+OBU/pixel and IVF timestamp reproduces one native picture from 480 inputs. Restoring
+one empty leading delimiter during post-DAVE native normalization recovers all 480
+reference-luma-identical pictures and matching presentation tags, with zero decoder
+errors, stale/admission/playout drops or final concealment. The workload retains the
++200 ms video timestamp phase and simulated 73 ms audio-device delay, and all 100
+audible frames in the final two input seconds. It bypasses RTP/DAVE; existing encrypted
+wire tests separately cover their framing. The regression extends the OBU framing test
+to require native TU delimiters and preserve existing leading delimiters.
+
+Native normalization adds only two bytes when needed, within the existing AU bound.
+Parameter/keyframe admission inspects authenticated wire OBUs before native framing is
+added. No dependency, codec negotiation, queue limit or feedback change is introduced.
+These are synthetic functional measurements; the subsequent owner playback evidence
+is recorded below. Full-client CPU/RSS remains unmeasured. The prior delimiter-retaining fixture did not exercise
+this boundary and must not be treated as evidence that RTP-shaped AV1 had worked.
+The final native replay runs after Cargo checks; a retained concurrent run hit startup
+queue-age expiry and is excluded from this functional before/after comparison.
+
+| Standard Arch package | Before `bc9b2682` | AV1 temporal framing | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,801,160 B | 92,801,416 B | +256 B (+0.000%) |
+| Installed payload | 97,499,593 B | 97,499,849 B | +256 B (+0.000%) |
+| Arch archive | 54,472,967 B | 54,475,582 B | +2,615 B (+0.005%) |
+
+### Final owner playback evidence — October 24, 2026
+
+Runtime candidate `e935dc7b` receives AV1 2560×1440. The reviewed post-startup
+696.615-second interval delivers 41,800 pictures at 60.004 fps, with mean complete
+video payload 7.892 Mbps (five-second range 3.722–8.385 Mbps) and authenticated video
+RTP datagrams 8.249 Mbps. Decoder errors, stale frames, queue/playout drops/resets,
+incomplete/DAVE-decrypt failures, audio concealment and rebufferings are all zero.
+Six packets are repaired without expiry; 6,231 transport feedback reports are sent,
+with zero missing-status or discarded-history counts in the interval. An earlier
+80.133-second steady sample is also clean; startup records one audio rebuffer.
+
+Smooth playback is confirmed for this Linux 1440p60 test. Reception supports up to
+4K60, but live 4K60 validation remains pending. These results do not prove a causal
+bitrate improvement, identical content/perceptual quality versus official Discord, physical 60 Hz presentation,
+scanout/latency or full-client CPU/RSS. The numeric evidence is kept private and only
+aggregate results are recorded in the repository.
+
+### Review validation — October 25, 2026
+
+Four focused regressions cover call speech queued across stream retirement, rejection of
+retired PCM in the stream bridge, standalone H.264 parameter updates between pictures,
+and delayed native output across sparse inputs and tag pressure. Timing correlation keeps
+at most 16 entries; unknown/evicted native tags are dropped with a stale counter rather
+than admitted as untimed pictures. Parameter-only software inputs no longer enter the
+picture timestamp FIFO. Already mixed call speech survives stream timestamp invalidation;
+stream-only stale audio still drops, and call playback/security gates remain effective.
+
+The full workspace gate passes 1,321 tests plus strict Clippy, formatting, production and
+policy checks. The offline playback example also passes. Serial before/after runs of the
+same eight-second RTP-shaped AV1 1440p60 fixture (baseline `e935dc7b`, review candidate)
+retain all 480 identical luma checksums and presentation tags, with no decoder errors,
+stale/queue/playout drops or resets, and all 100 audible frames in the final two input
+seconds without concealment. These functional runs include a temporary +200 ms video
+phase and simulated 73 ms output delay. They do not measure physical display/audio latency
+or establish a speed improvement. The existing owner live results above predate these
+review changes; no further live validation is claimed here.
+
+| Standard Arch package | Before review (`e935dc7b`) | Review candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,801,416 B | 92,802,184 B | +768 B (+0.001%) |
+| Installed payload | 97,499,849 B | 97,500,617 B | +768 B (+0.001%) |
+| Arch archive | 54,475,582 B | 54,477,570 B | +1,988 B (+0.004%) |
+
+### Upstream integration — October 27, 2026
+
+The initial integration (`7f0f326d`) incorporates upstream `d93a8415`, retaining its
+media-thread teardown and output-format selection alongside stream timing. Formatting
+and strict Clippy pass.
+The workspace unit run passes 1,338 tests and fails the unchanged
+`categories::tests::collapsed_categories_follow_service_order_selection_and_buttons` at
+`crates/ui/src/categories.rs:2240`; an isolated rerun fails identically. The same assertion
+fails in [upstream Linux CI](https://github.com/ViceVerse-cz/Serein/actions/runs/40329311638/job/121594172966).
+Production, policy and doctest checks pass. The full `cargo xtask check` is therefore not claimed
+as passing for this integrated revision. No sidebar test or implementation is changed here.
+Upstream also has an unchanged [fuzz fixture compilation failure](https://github.com/ViceVerse-cz/Serein/actions/runs/40329311638/job/121594172868)
+(`Role::managed` is missing from its initializer) and the previously reported dependency
+security audit failure. None is suppressed by this integration.
+
+The native Arch package smoke passes. Standard voice-enabled Rust 1.98.1 packages:
+
+| Package metric | Before integration (`5c89c95c`) | Integrated candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,802,184 B | 92,995,848 B | +193,664 B (+0.209%) |
+| Installed payload | 97,500,617 B | 97,694,281 B | +193,664 B (+0.199%) |
+| Arch archive | 54,477,570 B | 54,559,045 B | +81,475 B (+0.150%) |
+
+The integrated package contains 245 installed files. These deltas include all
+upstream changes through `d93a8415` and do not isolate the stream feature. No new physical
+playback or CPU/RSS claim is made.
+
+### CI follow-up — October 27, 2026
+
+The sidebar keyboard fixture now gives its post joined/pinned state before navigating
+to the forum, so the post remains listed under the current sidebar rules. The fuzz
+role fixture includes `managed`. The recovery socket test waits for a heartbeat
+carrying a new dispatch sequence after acknowledging its healthy probe, before
+requesting the unanswered probe. It deliberately queues and drains an older
+heartbeat first, and sends no late acknowledgement that could cancel the next
+probe. It no longer depends on repeated 200 ms polling. These changes
+affect test fixtures only, with no sidebar or gateway runtime behavior change.
+
+`cargo xtask check` passes: 1,349 unit/integration/doctests pass, 14 are ignored,
+and formatting, strict Clippy, production and policy checks pass. Both pinned-nightly
+fuzz smoke targets pass (193,110 decode inputs and 6,596 state-transition inputs,
+31 seconds each). Declared-license checks for both lockfiles and the six offline
+license-policy fixtures pass. Hosted Windows/macOS validation remains pending for
+this follow-up; Linux test success does not establish a macOS runtime result. The
+recovery probe test also passes 20 consecutive Linux runs with the patched Tokio.
+
+Compatible dependency patches:
+
+| Package | Initial integration | Follow-up |
+| --- | --- | --- |
+| ctutils | 0.4.2 | 0.4.6 |
+| rustls-webpki | 0.103.15 | 0.103.16 |
+| webpki-root-certs / webpki-roots | 1.0.9 | 1.0.10 |
+| Tokio | 1.53.1 | 1.53.3 |
+| clipboard-win | 5.4.1 (yanked) | 5.4.3 |
+
+With cargo-audit 0.22.2 and the same RustSec database revision
+`3279c99911354c400e1d41e47c7d60e39258b147`, the strict audit changes from five
+vulnerabilities/two denied warnings to one vulnerability/no denied warnings. It
+still fails on [RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html)
+in crypto-bigint 0.5.5, used by DAVE's P-256/OpenMLS stack. Released Davey 0.1.5
+and OpenMLS providers still require the affected P-256 dependency line. Resolving
+that finding needs a coordinated crypto migration; this follow-up does not suppress
+it or change the DAVE ciphersuite. No new dependency, license exception or media
+buffer is added. Playback limits and prior live-test limitations remain unchanged.
+
+The standard voice-enabled Rust 1.98.1 Arch package passes its native metadata,
+dependency, payload, ownership and mode smoke checks:
+
+| Package metric | Initial integration (`7f0f326d`) | Follow-up | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,995,848 B | 92,995,592 B | -256 B (-0.0003%) |
+| Installed payload (245 files) | 97,694,281 B | 97,694,025 B | -256 B (-0.0003%) |
+| Arch archive | 54,559,045 B | 54,561,319 B | +2,274 B (+0.0042%) |
+
+One artifact set per revision, unchanged release settings and package contents;
+archive timestamps/compression add noise. These small size differences are not
+evidence of faster playback. CPU/RSS and physical A/V latency are unmeasured.
+
+### Upstream integration — November 1, 2026
+
+The stream branch incorporates upstream `54512d29`, including audio-device recovery,
+camera recovery, custom keybinds and opt-in local diagnostics. The performance-document
+conflict retains the stream-playback evidence and upstream's push-to-talk measurements; the
+fuzz fixture retains the same assignable role and upstream's explanatory comment.
+
+All 1,398 workspace unit/integration/doctests pass, with 14 ignored. Formatting,
+auth-handoff fixtures, declared-license checks and the six license-policy fixtures pass.
+The full `cargo xtask check` does not pass: unchanged upstream
+`crates/platform/src/hotkeys.rs` fails strict Clippy on its Linux-unused `AtomicBool`
+import, `MOUSE_ID` constant and eight-argument `portal` function. No hotkey implementation
+or lint suppression is changed by this integration.
+
+Upstream now ignores RUSTSEC-2026-0387 and several other advisories and disables yanked
+package checking. This branch inherits that policy unchanged; its compatible dependency
+patches remain. Ignoring the crypto-bigint advisory does not remediate it. Earlier strict
+audit results above describe the earlier policy, not this integrated revision. No new
+owner-operated live stream test or physical latency/CPU/RSS measurement is claimed.
+
+
+The standard voice-enabled Rust 1.98.1 Arch package passes native metadata, dependency,
+payload, ownership and mode checks. Production and policy checks also pass separately.
+
+| Package metric | Previous runtime (`406fbb9c`) | Integrated candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,995,592 B | 93,430,600 B | +435,008 B (+0.468%) |
+| Installed payload | 97,694,025 B | 98,129,053 B | +435,028 B (+0.445%) |
+| Arch archive | 54,561,319 B | 54,751,460 B | +190,141 B (+0.348%) |
+
+The integrated payload contains 245 files. One artifact set per revision, unchanged
+release settings; archive timestamps/compression add noise. These deltas include upstream
+changes through `54512d29` and do not isolate stream-feature cost.
+
+### Upstream integration — November 2, 2026
+
+Upstream `5aa2e486` adds symbol-key shortcuts. It does not replace receive-side
+AV1/HEVC support, adaptive playback clocks, packet repair/feedback or UHD bounds.
+Recent call-device recovery (#858), camera recovery (#844) and local diagnostics
+(#846) are complementary and remain included. All 1,399 workspace tests pass (14
+ignored), as do formatting, production and policy checks. Strict Clippy still fails
+on the three unchanged upstream hotkey findings recorded above. Native Arch package
+smoke checks pass; no new owner-operated live result is claimed.
+
+| Package metric | Previous integration (`d63bb4dd`) | Updated candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 93,430,600 B | 93,433,288 B | +2,688 B (+0.003%) |
+| Installed payload | 98,129,053 B | 98,131,741 B | +2,688 B (+0.003%) |
+| Arch archive | 54,751,460 B | 54,745,380 B | -6,080 B (-0.011%) |
+
+Installed payload: 245 files. One artifact set per revision, same standard
+voice-enabled release settings; archive compression/timestamps add noise. No playback
+speed, CPU/RSS or physical latency change is inferred from these package sizes.
+
+### Earlier playback recovery evidence
+
+The prior owner-tested candidate `fb093bc` covered two sessions totaling 6,638.153 seconds
+at 1280×720/~60 fps: 397,845 decoded pictures, zero decoder errors/stale submissions, five
+reset events and 48 queued-picture drops. One reset is in the final teardown window.
+There were four incomplete pictures, a longest decoded-picture interval of 2,359 ms,
+and no five-second window with >100 decrypted audio packets but zero produced audio frames.
+The owner reported smooth playback with no major hiccups. Numeric counters cannot establish
+physical lip sync or identify the cause of every isolated pause. This capture predates the
+adaptive/device-clock changes; the new candidate still needs the owner's comparison.
+
+The design review reproduced a startup failure: an eight-packet window repeatedly restarts
+before a 100 ms deadline when valid Opus packets are 2.5/5/10 ms long. The corrected 128-packet
+budget covers 320 ms at the minimum packet duration, including the 240 ms maximum adaptive
+target and scheduling headroom. A synthetic regression sends warmed, valid Opus continuously
+for three minutes at each 2.5/5/10/20/40/60 ms duration with sender drift of −500/0/+500 ppm.
+All 18 cases produce all 50 expected audible output frames in the final second. Time is
+synthetic; no sleeps, audio devices or live content are used. Tests also cover initial buffering,
+reordering, timestamp wrap/jumps, bounds, source retirement and PCM clearing.
+
+The `0fcf859` owner comparison exposed crackling and recovery pauses. Its 249.930-second
+numeric capture contained 11 playout resets and 172 queued-picture drops, with a longest
+picture interval of 1,439 ms. No device/parent transport drops or 80 ms stalls were reported;
+video queue depth grew to 43. These counters do not identify every source of the crackling.
+
+Two additional offline regressions reproduce a 40 ms scheduling burst interrupting the
+stream/call PCM bridge, and audio starvation invalidating the shared video/queued-PCM
+generation. The bridge now buffers 40 ms of scheduling headroom with an eight-frame cap;
+audio rebuffering resets its RTP anchor without invalidating accepted media. Source/security
+changes still invalidate it. A 60-tick synthetic burst workload had six sample-order gaps
+before and zero after (53 versus 58 output frames, with the new initial two-tick hold).
+Five 300-second synthetic tone cases (ordered/bursty arrivals, packet loss with 1,000 ppm
+drift, and variable poll timing) show no >0.05 adjacent-sample jumps after warmup on either
+revision; this does not reproduce or rule out physical-device crackling. The new counters
+separate decoded/concealed samples, rebufferings, queue span/target, bridge discontinuities
+and the OS device-delay estimate. A further owner comparison remains required.
+
+The next `44a1fbc` owner capture's initial 34.380-second segment has 10 video queue
+resets / 239 queued-picture drops and a 1,039 ms picture interval, while audio has zero
+concealment or rebufferings; device empty-frame counters stay zero in intervening full
+playback windows. Its longer ongoing segment later
+generated 4,546,560 concealment samples at the frozen evidence cutoff, despite continuing
+valid input. These counters distinguish separate video-timing and audio-cursor failures;
+the old capture did not record the individual reason for every video queue reset.
+
+A temporary +200 ms video timestamp phase followed by a return to the original epoch
+reproduces reference-chain loss. Local scheduling now absorbs that phase step at arrival
+cadence and never rewinds behind queued pictures; authenticated sender-clock correction
+still slews phase gradually. A one-second sparse source gap retains its ordinary RTP timing.
+An independent −200 ms audio epoch reproduced decoding valid packets only to discard their
+PCM and generate concealment. The per-source sequence/timestamp watermark now distinguishes
+an actual backwards sample epoch from packet reordering and restarts buffering promptly.
+The strengthened regression verifies decoded input is not replaced by concealment; the old
+non-silence assertion passed even while generated replacement audio was playing.
+
+The delay envelope has bounded attack/release and a 60–240 ms target. A filtered occupancy
+controller interpolates at most five extra/fewer input samples per 960-sample output frame.
+This is bounded resampling, not pitch-preserving time stretching. Video synchronization uses
+elapsed time, smoothing and a deadband, with a maximum 60 ms/s correction at both 30 and 60 fps.
+A regression reaches a matching logical audio deadline within 10 ms at both rates. Output callback
+regressions verify that the corresponding stream timestamp survives 44.1 kHz device resampling,
+and stale generations cannot redirect the new clock.
+An hour-long synthetic timeline at ±500 ppm keeps video within 10 ms of matching audio
+output by anchoring playable audio positions to the actual producer clock, avoiding
+accumulation against a nominal sample clock. The Opus matrix also includes repeated
+60 ms delivery bursts followed by stability, verifying target growth and slow reduction. UI tests cover future-picture retention,
+late decoded-picture skipping and the combined allocation limit.
+
+One native functional run per case uses the same eight-second 1920×1080/60 FFmpeg `testsrc2`
+fixture, libx264 veryfast/zerolatency, four threads, 8 Mbps target/max/VBV, AUDs, key interval 120,
+no B frames or scene cuts. The production clock/audio/playback/native decoder runs through
+GStreamer/VA-API on an AMD RX 6900 XT, with a simulated 73 ms audio-device delay. Each decoded
+luma CRC and its correlated presentation tag must match its input in order. The parser retains
+the final access unit; 479 outputs from 480 inputs are expected without EOS.
+
+| Earlier native case / metric | `0fcf859` | Rebuffering correction `44a1fbc` |
+| --- | ---: | ---: |
+| 500 ms audio gap: decoded pictures | 479 | 479 |
+| Same case: invalidated presentation tags | 10 | 0 |
+| Same case: maximum decoded-picture interval | 110.933 ms | 25.875 ms |
+| Same case: playback resets / drops | 0 / 0 | 0 / 0 |
+| Audio arrives 400 ms after video: decoded pictures | 479 | 479 |
+| Audio RTP advances 200 ms: audible frames in final two seconds | 100 | 100 |
+
+That gap comparison is one run per revision from the preceding rebuffering correction. The delay/jump baselines come from the
+preceding candidate's recorded runs using the same fixture and method. All corrected cases
+have 479 reference-identical pictures with correlated, current presentation tags, zero decoder
+errors, stale submissions, admission rejection or playback queue resets/drops. Encoded queue
+peaks for gap/delay/jump are 9/32/20 pictures. Delay/jump maximum decoded-picture intervals
+are 127.533/20.862 ms. Acquiring audio during video still causes a brief timing adjustment.
+These single functional runs are not isolated benchmarks or GUI/physical measurements.
+The new-source clock wait remains capped at 200 ms and expires when output timing is unavailable.
+
+The latest native comparison uses `44a1fbc` as its baseline, the same fixture/backend,
+and one run per case. Timestamps change while encoded picture order remains intact.
+
+| Timestamp continuity metric | `44a1fbc` | Corrected candidate |
+| --- | ---: | ---: |
+| Video phase change: decoded pictures | 358 | 479 |
+| Same case: gated predictions | 99 | 0 |
+| Same case: queue resets / drops | 1 / 20 | 0 / 0 |
+| Same case: maximum decoded-picture interval | 2,026.628 ms | 20.687 ms |
+| Backwards audio epoch: generated concealment samples in final two input seconds | 95,040 | 0 |
+| Same audio case: non-silent output frames | 100 | 100 |
+
+Every corrected case (phase/backwards-audio/gap/delayed-audio/forward-audio epoch) has all
+479 reference-identical pictures and correctly correlated, current presentation tags; zero
+decoder errors, stale submissions, queue rejection or playback resets/drops; all 100 expected
+audible frames in the final two input seconds with zero concealment then. Delay/jump picture
+interval maxima are 107.366/18.751 ms in this run; the initial audio-acquisition adjustment
+remains. These are functional measurements, not physical playback guarantees. Independent
+continuous-tone input at ±200 ms audio epoch shifts produces 48,000 real decoded samples
+and zero concealment in the final second; the old negative-epoch path decoded 48,000 but
+also generated 48,000 replacement samples. Four 100-second synthetic clock patterns now
+have zero reference queue resets/drops; the phase case previously had 19 resets / 190 drops.
+New fixed counters distinguish clock rewinds, source switches, expiry, pressure and ahead
+limits in the next owner comparison. No physical smoothness/listening confirmation is claimed.
+
+Earlier component comparisons against the original receiver isolate why packet repair/pacing
+is included. Six-picture bursts delivered 18 → 479 pictures; an empty keepalive caused
+89 → 0 gated predictions and 390 → 479 delivered pictures. A simulated 120 Hz latest-picture
+consumer's upload-gap p95 changed from 91.961 → 34.011 ms at 30 fps and 75.005 → 17.010 ms
+at 60 fps. These are preparation evidence on earlier integration builds; they do not measure
+the current presentation queue, default-client CPU/RSS or physical display timing. The old A/V
+candidate `0dabf19` also exposed a 16-picture overflow and a retained audio-anchor starvation
+loop; their synthetic regressions remain covered.
+
+Resource limits: repair 512 sequence positions / 512 KiB per source (16 sources), encoded
+presentation queue 64 pictures / 8 MiB, decoder handoff 16 pictures / 16 MiB, Linux native input
+four units, native decode-age budget 150 ms. Watched audio retains at most 128 compressed
+packets and 5,760 mono PCM samples per source (16 sources; 2,979,840 payload/PCM bytes), plus a
+965-sample stack scratch. Correlation keeps at most 16 tags per decoder until output or
+replacement. UI pending/latest planes share an eight-pending-picture / 128-MiB
+allocated-capacity budget. Existing bounded
+PCM channels remain; the stream/call bridge pending cap increases from two to eight frames
+(7,680 to 30,720 sample bytes, excluding metadata), with 40 ms startup headroom. Timestamps
+add metadata, not another queue. Diagnostics stay opt-in and retain only bounded numeric aggregates.
+
+The model follows [RTP sender-clock mapping](https://www.rfc-editor.org/rfc/rfc3550.html#section-5.1),
+[WebRTC's adaptive audio-buffer approach](https://webrtc.googlesource.com/src/+/refs/heads/main/modules/audio_coding/neteq/g3doc/index.md)
+and [separate decode/render scheduling](https://webrtc.googlesource.com/src/+/refs/heads/main/video/frame_decode_timing.cc),
+with smaller local policies. It does not implement all NetEq behavior or claim generic AVPF/CNAME
+conformance. CPAL output timestamps and egui repaint deadlines estimate presentation; actual
+headset/monitor latency and scanout are unmeasured. Whole-client CPU/RSS and Windows/macOS native
+timing behavior are unmeasured; no improvement is claimed for those metrics. Screenshots are not
+applicable because no UI layout changes. No live media was recorded.
+
 ## Shared output-format selection — October 24, 2026
 
 Fresh baseline `38e46b8f5ec694002ef515fbc2d8dc69297e4f5f` and changed source were built

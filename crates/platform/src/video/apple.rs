@@ -514,7 +514,7 @@ unsafe extern "C-unwind" fn output_frame(
 		(pts.value as f64 / f64::from(pts.timescale) * f64::from(output.timescale)).round() as i64
 	};
 	// SAFETY: VideoToolbox keeps the image buffer alive for the duration of the callback.
-	match unsafe { copy_nv12(&*image) } {
+	match unsafe { copy_nv12(&*image, super::check_dimensions) } {
 		Ok(mut picture) => {
 			// The renderer applies the track rotation; the planes stay in coded orientation.
 			picture.rotation = output.rotation as u16;
@@ -528,14 +528,17 @@ unsafe extern "C-unwind" fn output_frame(
 }
 
 /// Copy one bi-planar 4:2:0 picture into tightly packed NV12 after checking every bound.
-pub(super) unsafe fn copy_nv12(pixels: &CVImageBuffer) -> Result<Picture, &'static str> {
+pub(super) unsafe fn copy_nv12(
+	pixels: &CVImageBuffer,
+	check_dimensions: fn(u32, u32) -> Result<(), &'static str>,
+) -> Result<Picture, &'static str> {
 	let width = CVPixelBufferGetWidth(pixels);
 	let height = CVPixelBufferGetHeight(pixels);
 	let (w, h) = (
 		u32::try_from(width).map_err(|_| INVALID)?,
 		u32::try_from(height).map_err(|_| INVALID)?,
 	);
-	super::check_dimensions(w, h)?;
+	check_dimensions(w, h)?;
 	let format = CVPixelBufferGetPixelFormatType(pixels);
 	if !NV12_FORMATS.contains(&format) {
 		return Err(INVALID);
