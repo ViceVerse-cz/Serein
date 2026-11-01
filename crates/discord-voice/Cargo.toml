@@ -30,6 +30,7 @@ rustls = { version = "=0.23.46", default-features = false, features = ["std", "t
 webpki-roots = "=0.26.11"
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 sha3 = { version = "=0.10.9", default-features = false }
 openmls_rust_crypto = "=0.5.1"
 openmls_basic_credential = "=0.5.0"

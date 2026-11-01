@@ -17,12 +17,52 @@ pub(crate) const MAX_SIGNAL: usize = 64 * 1024;
 pub(crate) const MARKER_BYTES: [u8; 2] = [0xFA, 0xFA];
 
 pub(crate) fn is_dave_frame(frame: &[u8]) -> bool {
-	const MIN_SUPPLEMENTAL: usize = 11;
+	fn uleb(bytes: &mut &[u8]) -> Option<u32> {
+		let mut value = 0;
+		for shift in (0..35).step_by(7) {
+			let (&byte, rest) = bytes.split_first()?;
+			*bytes = rest;
+			if shift == 28 && byte > 0x0f {
+				return None;
+			}
+			value |= u32::from(byte & 0x7f) << shift;
+			if byte & 0x80 == 0 {
+				return Some(value);
+			}
+		}
+		None
+	}
+	// Eight-byte tag, at least one nonce byte, size byte and two marker bytes.
+	const MIN_SUPPLEMENTAL: usize = 12;
 	if frame.len() < MIN_SUPPLEMENTAL || !frame.ends_with(&MARKER_BYTES) {
 		return false;
 	}
 	let supplemental_size = frame[frame.len() - 3] as usize;
-	supplemental_size >= MIN_SUPPLEMENTAL && frame.len() >= supplemental_size
+	if supplemental_size < MIN_SUPPLEMENTAL || supplemental_size >= frame.len() {
+		return false;
+	}
+	let media_size = frame.len() - supplemental_size;
+	let mut fields = &frame[media_size + 8..frame.len() - 3];
+	if uleb(&mut fields).is_none() {
+		return false;
+	}
+	let mut end = 0;
+	while !fields.is_empty() {
+		let (Some(offset), Some(size)) = (uleb(&mut fields), uleb(&mut fields)) else {
+			return false;
+		};
+		if size == 0 || offset < end {
+			return false;
+		}
+		let Some(next) = offset.checked_add(size) else {
+			return false;
+		};
+		if u64::from(next) > media_size as u64 {
+			return false;
+		}
+		end = next;
+	}
+	true
 }
 pub(crate) use client_core::voice::MAX_PARTICIPANTS;
 
@@ -685,8 +725,7 @@ impl Dave {
 	pub fn transitioning(&self) -> bool {
 		self.pending.is_some() || self.pending_protocol.is_some()
 	}
-	/// Unverified: Discord can prepare protocol version 1 before the MLS group exists.
-	/// Only version 1 is accepted, so a protocol transition never changes the media keys.
+	/// Protocol preparation and MLS commits use independent transition identifiers.
 	pub fn prepare_protocol(&mut self, id: u16) {
 		self.pending_protocol = Some(id);
 	}
@@ -726,6 +765,26 @@ impl Drop for Dave {
 mod tests {
 	use super::*;
 	use openmls::prelude::{OpenMlsProvider, ProtocolVersion};
+	#[test]
+	fn protocol_frame_check_rejects_marker_collisions_and_malformed_footer_fields() {
+		fn frame(fields: &[u8]) -> Vec<u8> {
+			[
+				&[1u8; 4][..],
+				&[0u8; 8],
+				fields,
+				&[(11 + fields.len()) as u8, 0xfa, 0xfa],
+			]
+			.concat()
+		}
+		assert!(is_dave_frame(&frame(&[1])));
+		assert!(!is_dave_frame(&[1, 0xfa, 0xfa]));
+		assert!(!is_dave_frame(&frame(&[0x80]))); // Unterminated nonce.
+		assert!(!is_dave_frame(&frame(&[0xff, 0xff, 0xff, 0xff, 0x10]))); // Overflow.
+		assert!(!is_dave_frame(&frame(&[1, 0]))); // Incomplete range pair.
+		assert!(is_dave_frame(&frame(&[1, 0, 2, 2, 2])));
+		assert!(!is_dave_frame(&frame(&[1, 0, 3, 2, 1]))); // Overlapping ranges.
+		assert!(!is_dave_frame(&frame(&[1, 3, 2]))); // Range reaches into the footer.
+	}
 	#[test]
 	fn proposals_before_local_group_are_ignored_without_weakening_later_validation() {
 		let server = crate::test_mls::Delivery::new();

@@ -45,7 +45,7 @@ impl Audio {
 		};
 		result
 			.recv_timeout(std::time::Duration::from_secs(4))
-			.map_err(|_| "System audio capture could not start")?;
+			.map_err(|_| "Echo-free system audio capture is unavailable; share without audio")?;
 		Ok(audio)
 	}
 
@@ -141,25 +141,7 @@ mod native {
 		result
 	}
 
-	/// Which loopback device to open.
-	#[derive(Clone, Copy)]
-	enum Loopback {
-		/// Echo-free process loopback (Windows 10 build 20348+ and Windows 11).
-		Process,
-		/// Standard WASAPI loopback on the default render endpoint (older Windows 10 builds).
-		Endpoint,
-	}
-
-	fn activate_client(input: &Samples, loopback: Loopback) -> Result<IAudioClient> {
-		if matches!(loopback, Loopback::Endpoint) {
-			unsafe {
-				use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
-				let enumerator: IMMDeviceEnumerator =
-					CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
-				let device: IMMDevice = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
-				return device.Activate(CLSCTX_ALL, None);
-			}
-		}
+	fn activate_client(input: &Samples) -> Result<IAudioClient> {
 		let params = Arc::new(activation_params(std::process::id()));
 		let (send, done) = sync_channel(1);
 		let completion: IActivateAudioInterfaceCompletionHandler = Completion {
@@ -213,26 +195,8 @@ mod native {
 		if input.stop.load(Ordering::Acquire) {
 			return Err(E_FAIL.into());
 		}
-		// A client can activate and still be unusable: process loopback on older Windows
-		// builds reports an engine buffer it cannot capture from. Nothing has been delivered
-		// while `started` is still pending, so the endpoint fallback gets the next attempt.
-		match capture_with(input, started, Loopback::Process) {
-			Err(error) if started.is_some() && !input.stop.load(Ordering::Acquire) => {
-				capture_with(input, started, Loopback::Endpoint).map_err(|_| error)
-			}
-			result => result,
-		}
-	}
-
-	fn capture_with(
-		input: &Samples,
-		started: &mut Option<SyncSender<()>>,
-		loopback: Loopback,
-	) -> Result<()> {
-		if input.stop.load(Ordering::Acquire) {
-			return Err(E_FAIL.into());
-		}
-		let client = activate_client(input, loopback)?;
+		// Endpoint loopback would retransmit Serein's call playback to the other participants.
+		let client = activate_client(input)?;
 		if input.stop.load(Ordering::Acquire) || input.send.is_closed() {
 			return Err(E_FAIL.into());
 		}
