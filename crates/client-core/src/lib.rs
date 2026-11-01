@@ -486,7 +486,7 @@ pub enum Event {
 	Onboarding(onboarding::Event),
 	JoinInvite {
 		request: u64,
-		result: Result<Id, auth::Failure>,
+		result: Result<model::JoinedTarget, auth::Failure>,
 	},
 	GuildJoined(Guild),
 	GuildCreated {
@@ -1290,11 +1290,11 @@ impl State {
 
 	fn cancel_invite_navigation(&mut self, channel: Id) {
 		// Choosing another server's channel while a join is pending cancels its navigation.
-		if let Some((_, guild)) = self.invite_join.navigate
-			&& self
-				.channel(channel)
-				.is_some_and(|c| c.guild != Some(guild))
-		{
+		if let Some((_, target)) = self.invite_join.navigate
+			&& self.channel(channel).is_some_and(|c| match target {
+				model::JoinedTarget::Guild(guild) => c.guild != Some(guild),
+				model::JoinedTarget::Channel(group) => c.id != group,
+			}) {
 			self.invite_join.navigate = None;
 		}
 	}
@@ -1502,10 +1502,18 @@ impl State {
 			match apply {
 				Apply::Opened(command) => {
 					self.commit_nav(back);
+					match place {
+						Place::Channel(channel) => self.cancel_invite_navigation(channel),
+						Place::Home => self.invite_join.navigate = None,
+					}
 					return Some(NavStep { command });
 				}
 				Apply::AlreadyHere => {
 					self.commit_nav(back);
+					match place {
+						Place::Channel(channel) => self.cancel_invite_navigation(channel),
+						Place::Home => self.invite_join.navigate = None,
+					}
 					return Some(NavStep { command: None });
 				}
 				Apply::Rejected(status) => {
@@ -5143,7 +5151,8 @@ mod tests {
 				})
 			));
 			// A joined server opens once delivered; choosing another server cancels that.
-			state.invite_join.navigate = Some((std::time::Instant::now(), Id(2)));
+			state.invite_join.navigate =
+				Some((std::time::Instant::now(), model::JoinedTarget::Guild(Id(2))));
 			assert!(state.navigate_after_join().is_some());
 			assert_eq!(
 				state
@@ -5153,7 +5162,8 @@ mod tests {
 				Some(Id(2))
 			);
 			assert!(state.navigate_after_join().is_none());
-			state.invite_join.navigate = Some((std::time::Instant::now(), Id(2)));
+			state.invite_join.navigate =
+				Some((std::time::Instant::now(), model::JoinedTarget::Guild(Id(2))));
 			state.select(Id(11));
 			assert!(state.navigate_after_join().is_none());
 			assert_eq!(state.selected, Some(Id(11)));
