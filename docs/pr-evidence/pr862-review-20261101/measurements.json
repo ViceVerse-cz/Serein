@@ -1,0 +1,54 @@
+{
+  "baseline": {
+    "label": "baseline",
+    "commit": "120fca952b1723510cd671a2a93f56ea9025e134",
+    "tree": "202cc01daff1832b07651e236aed59efe22d7a1b",
+    "exe_bytes": 92741632,
+    "payload_bytes": 97504725,
+    "files": 235,
+    "zip_bytes": 53138465,
+    "exe_sha256": "851e0a607b735b06c9cc41c5d823c7ba22a14e50616ef459da16e3d261455878",
+    "os": "Windows-11-10.0.26200-SP0",
+    "zip_method": "Python ZIP_DEFLATED compresslevel=9; relative paths sorted"
+  },
+  "after": {
+    "label": "final",
+    "commit": "f89cc67e6acaf1b4a3df2816a8f81b316290bdf6",
+    "tree": "96b12157d88c51285f61ff8899e6aa482ebab46f",
+    "exe_bytes": 92745216,
+    "payload_bytes": 97508309,
+    "files": 235,
+    "zip_bytes": 53139929,
+    "exe_sha256": "415a5a9843dcd0b7973cc763370bb66cba011a9ee609bca4314cf3a42825a612",
+    "os": "Windows-11-10.0.26200-SP0",
+    "zip_method": "Python ZIP_DEFLATED compresslevel=9; relative paths sorted"
+  },
+  "environment": {
+    "rustc": "1.98.1 (48a229cea 2026-09-01)",
+    "cpu": "AMD Ryzen 7 7800X3D 8-Core Processor",
+    "physical_ram_bytes": 33410678784,
+    "package_command": "cargo xtask package",
+    "features": "standard Windows x64 release, voice included, no default/developer features"
+  },
+  "verification": {
+    "cargo_xtask_check": "passed",
+    "voice_tests": {
+      "passed": 71,
+      "failed": 0,
+      "ignored": 2
+    },
+    "release_demo_guard": "both standard binaries exit 2 before normal startup",
+    "native_audio_devices": "not tested",
+    "live_discord": "not tested",
+    "linux_macos_runtime": "not tested",
+    "cargo_xtask_check_source": "f89cc67e6acaf1b4a3df2816a8f81b316290bdf6",
+    "followup": "1e417fc5: both local_voice_dave_ tests pass; voice/diagnostics all-target Clippy passes. 24f941a3: diagnostics Apple test compilation/Clippy passes."
+  },
+  "limitations": [
+    "Comparison covers this maintainer review follow-up, not the original PR against main.",
+    "Unsigned portable packages only; NSIS is unavailable, so no installer binary was generated.",
+    "No media CPU, RSS, frame-latency or physical-device performance comparison was performed.",
+    "Local WSL Rust is 1.93.1, below the repository pin; no local Linux check is claimed.",
+    "Configured audit exceptions and author-reported live sessions are not independent evidence from this pass."
+  ]
+}
