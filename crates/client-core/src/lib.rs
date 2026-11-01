@@ -1502,10 +1502,18 @@ impl State {
 			match apply {
 				Apply::Opened(command) => {
 					self.commit_nav(back);
+					match place {
+						Place::Channel(channel) => self.cancel_invite_navigation(channel),
+						Place::Home => self.invite_join.navigate = None,
+					}
 					return Some(NavStep { command });
 				}
 				Apply::AlreadyHere => {
 					self.commit_nav(back);
+					match place {
+						Place::Channel(channel) => self.cancel_invite_navigation(channel),
+						Place::Home => self.invite_join.navigate = None,
+					}
 					return Some(NavStep { command: None });
 				}
 				Apply::Rejected(status) => {

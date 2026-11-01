@@ -508,4 +508,51 @@ mod join_tests {
 		assert_eq!(state.selected, Some(group_id));
 		assert!(state.invite_join.navigate.is_none());
 	}
+
+	#[test]
+	fn navigate_history_clears_pending_group_dm_target() {
+		let group_id = model::Id(29);
+		let other_id = model::Id(30);
+		let mut state = State {
+			auth: crate::auth::AuthState::Authenticated,
+			gateway_connected: true,
+			channels: vec![
+				model::Channel {
+					id: group_id,
+					guild: None,
+					name: "Synthetic group".into(),
+					kind: 3,
+					recipients: vec![],
+					icon: None,
+					last_message: None,
+					parent_id: None,
+					position: 0,
+					member_list_id: None,
+					tags: None,
+					message_count: None,
+				},
+				model::Channel {
+					id: other_id,
+					guild: None,
+					name: "Other DM".into(),
+					kind: 1,
+					recipients: vec![],
+					icon: None,
+					last_message: None,
+					parent_id: None,
+					position: 0,
+					member_list_id: None,
+					tags: None,
+					message_count: None,
+				},
+			],
+			..State::default()
+		};
+		state.select(other_id);
+		state.open_home();
+		state.invite_join.navigate = Some((Instant::now(), model::JoinedTarget::Channel(group_id)));
+		assert!(state.navigate_back().is_some());
+		assert_eq!(state.selected, Some(other_id));
+		assert!(state.invite_join.navigate.is_none());
+	}
 }

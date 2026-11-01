@@ -248,8 +248,9 @@ pub fn show(
 													if let Some(preview) =
 														preview.filter(|_| member)
 													{
-														if let Some(guild) =
-															preview.guild.filter(|&g| state.guild(g).is_some())
+														if let Some(guild) = preview
+															.guild
+															.filter(|&g| state.guild(g).is_some())
 														{
 															Action::OpenGuild(guild)
 														} else if let Some(channel) = preview
