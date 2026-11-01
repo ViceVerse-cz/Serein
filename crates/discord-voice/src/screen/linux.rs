@@ -118,7 +118,13 @@ pub(super) fn run(
 			}
 			audio = audio_send
 				.map(|send| {
-					audio_linux::Worker::start(send, stop.clone(), ready.clone(), audio_epoch)
+					audio_linux::Worker::start(
+						send,
+						stop.clone(),
+						ready.clone(),
+						audio_epoch,
+						portal.as_ref().map(|portal| portal.node_id),
+					)
 				})
 				.transpose()?;
 			let mut mode_index = 0;
