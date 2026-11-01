@@ -361,6 +361,12 @@ impl Receivers {
 	pub fn remove(&mut self, user: u64) {
 		self.retain_user_sources(user, &[]);
 	}
+	pub fn retain(&mut self, mut keep: impl FnMut(u64) -> bool) {
+		self.sources.retain(|(_, owner, _)| keep(*owner));
+		self.rtx
+			.retain(|(_, media)| self.sources.iter().any(|(ssrc, _, _)| ssrc == media));
+		self.awaiting_keyframe.retain(|u| keep(*u));
+	}
 	/// Reconcile a complete stream announcement without resetting unchanged assemblers.
 	pub fn retain_user_sources(&mut self, user: u64, keep: &[u32]) {
 		self.sources

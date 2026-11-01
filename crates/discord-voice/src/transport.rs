@@ -808,6 +808,11 @@ async fn run_inner(
 									return Err("Unsupported voice DAVE version");
 								} else {
 									dave_enabled = true;
+									receivers.retain(|u| dave.contains(u));
+									mixer.retain(|u| dave.contains(u));
+									if let Some(decoder) = decoder.as_ref() {
+										retain_sources(decoder, &receivers);
+									}
 									send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;
 								}
 								emit(Status::TransportReady).map_err(|_|"Call interface closed")?;
@@ -821,7 +826,7 @@ async fn run_inner(
 										Ok(_) => {
 											if was_ready || dave.session.is_ready() { dave.ready = true; }
 										}
-										Err("Voice channel exceeds the 64 participant limit") if !dave_enabled => {}
+										Err("Voice channel exceeds the 64 participant limit") if !dave_enabled || encryption.is_none() => {}
 										Err(_) => continue,
 									}
 									let value=u32::try_from(number(data,"ssrc")?).map_err(|_|"Invalid voice SSRC")?;
@@ -831,9 +836,14 @@ async fn run_inner(
 							11=>{
 								let ids=data["user_ids"].as_array().ok_or("Missing voice participants")?;
 								let ids=ids.iter().map(|v|v.as_str().and_then(|v|v.parse::<u64>().ok()).or_else(||v.as_u64()).filter(|v|*v!=0).ok_or("Malformed voice participant")).collect::<Result<Vec<_>,_>>()?;
+								let capped_ids = if ids.len() >= crate::crypto::MAX_PARTICIPANTS {
+									&ids[..crate::crypto::MAX_PARTICIPANTS - 1]
+								} else {
+									&ids[..]
+								};
 								if dave_enabled {
 									let was_ready=dave.ready;
-									if dave.connect(&ids)? {
+									if dave.connect(capped_ids)? {
 										if was_ready || dave.session.is_ready() {
 											dave.ready=true;
 										} else {
@@ -875,6 +885,7 @@ async fn run_inner(
 							},
 							21=>{
 								let (Ok(proto), Ok(id)) = (number(data, "protocol_version"), transition(data)) else { continue; };
+								if proto != 0 && proto != 1 { return Err("Discord requested an unsupported DAVE protocol version"); }
 								video.clear();
 								capture_reset=true;
 								if proto==0 {
@@ -944,7 +955,7 @@ async fn run_inner(
 										Ok(_) => {
 											if was_ready || dave.session.is_ready() { dave.ready = true; }
 										}
-										Err("Voice channel exceeds the 64 participant limit") if !dave_enabled => {}
+										Err("Voice channel exceeds the 64 participant limit") if !dave_enabled || encryption.is_none() => {}
 										Err(_) => continue,
 									}
 									if let Some(value)=data["audio_ssrc"].as_u64().and_then(|v|u32::try_from(v).ok()) {let _ = mixer.announce(user,value);}
@@ -1730,6 +1741,11 @@ async fn run_stream_inner(
 									return Err("Unsupported stream DAVE version");
 								} else {
 									dave_enabled = true;
+									receivers.retain(|u| dave.contains(u));
+									mixer.retain(|u| dave.contains(u));
+									if let Some(decoder) = decoder.as_ref() {
+										retain_sources(decoder, &receivers);
+									}
 									send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;
 									metrics.signal(Signal::KeyPackageSent,1);
 								}
@@ -1767,7 +1783,7 @@ async fn run_stream_inner(
 										Ok(_) => {
 											if was_ready || dave.session.is_ready() { dave.ready = true; }
 										}
-										Err("Voice channel exceeds the 64 participant limit") if !dave_enabled => {}
+										Err("Voice channel exceeds the 64 participant limit") if !dave_enabled || encryption.is_none() => {}
 										Err(_) => continue,
 									}
 									if audio.is_some() {
@@ -1789,7 +1805,7 @@ async fn run_stream_inner(
 										Ok(_) => {
 											if was_ready || dave.session.is_ready() { dave.ready = true; }
 										}
-										Err("Voice channel exceeds the 64 participant limit") if !dave_enabled => {}
+										Err("Voice channel exceeds the 64 participant limit") if !dave_enabled || encryption.is_none() => {}
 										Err(_) => continue,
 									}
 									if let Some(decoder) = decoder.as_ref() {
@@ -1802,6 +1818,7 @@ async fn run_stream_inner(
 							13=>{let user=id(data,"user_id")?;receivers.remove(user);if let Some(decoder)=decoder.as_ref(){remove_decoder(decoder,user);}mixer.remove(user);if !dave_enabled {let _ = dave.disconnect(user);} else {let was_group_member=dave.is_group_member(user);let was_ready=dave.ready;if dave.disconnect(user)?{if dave.alone(){announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.enter_sole_member_waiting()?;deadline=None;}else if was_ready{dave.ready=true;deadline=None;}else if was_group_member{announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);}}}},
 							21=>{
 								let (Ok(proto), Ok(id)) = (number(data, "protocol_version"), transition(data)) else { continue; };
+								if proto != 0 && proto != 1 { return Err("Discord requested an unsupported DAVE protocol version"); }
 								announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);
 								if proto==0 {
 									dave.prepare_protocol(id);
@@ -2825,6 +2842,182 @@ mod tests {
 					_ => {}
 				}
 			}
+		});
+		test.await.unwrap();
+		drop(control_tx);
+		let res = task.await.unwrap();
+		assert!(res.is_ok());
+		server.await.unwrap();
+	}
+	#[tokio::test]
+	async fn local_voice_dave_downgrade_transition_disables_dave_and_announces_ready() {
+		use client_core::voice::Secret;
+		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let address = listener.local_addr().unwrap();
+		let udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+		let udp_address = udp.local_addr().unwrap();
+
+		let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
+
+		let server = tokio::spawn(async move {
+			let (stream, _) = listener.accept().await.unwrap();
+			let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+			let _identify = ws.next().await.unwrap().unwrap();
+			ws.send(Message::Text(
+				json!({"op":8,"d":{"heartbeat_interval":5000}})
+					.to_string()
+					.into(),
+			))
+			.await
+			.unwrap();
+			let ready = json!({
+				"op": 2,
+				"d": {
+					"ssrc": 42,
+					"ip": "127.0.0.1",
+					"port": udp_address.port(),
+					"modes": [MODE]
+				}
+			});
+			ws.send(Message::Text(ready.to_string().into()))
+				.await
+				.unwrap();
+
+			loop {
+				let event: Value =
+					serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap())
+						.unwrap();
+				if event["op"] == 3 {
+					ws.send(Message::Text(
+						json!({"op":6,"d":{"t":event["d"]["t"]}}).to_string().into(),
+					))
+					.await
+					.unwrap();
+					continue;
+				}
+				assert_eq!(event["op"], 12);
+				break;
+			}
+
+			let mut probe = [0u8; 4096];
+			let (n, client) = udp.recv_from(&mut probe).await.unwrap();
+			assert_eq!(n, 74);
+			probe[..4].copy_from_slice(&[0, 2, 0, 70]);
+			probe[8..17].copy_from_slice(b"127.0.0.1");
+			probe[72..74].copy_from_slice(&client.port().to_be_bytes());
+			udp.send_to(&probe[..74], client).await.unwrap();
+
+			loop {
+				let message = ws.next().await.unwrap().unwrap();
+				let event: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+				if event["op"] == 3 {
+					ws.send(Message::Text(
+						json!({"op":6,"d":{"t":event["d"]["t"]}}).to_string().into(),
+					))
+					.await
+					.unwrap();
+					continue;
+				}
+				assert_eq!(event["op"], 1);
+				assert_eq!(event["d"]["data"]["mode"], MODE);
+				break;
+			}
+
+			// Server announces Op 4 with dave_protocol_version: 1 (DAVE enabled)
+			ws.send(Message::Text(
+				json!({"op":4,"d":{"mode":MODE,"secret_key":vec![7;32],"dave_protocol_version":1}})
+					.to_string()
+					.into(),
+			))
+			.await
+			.unwrap();
+
+			// Read key package (binary) and Op 5 from client
+			let mut saw_key_pkg = false;
+			let mut saw_op5 = false;
+			while !saw_key_pkg || !saw_op5 {
+				let message = ws.next().await.unwrap().unwrap();
+				match message {
+					Message::Binary(_) => saw_key_pkg = true,
+					Message::Text(text) => {
+						let event: Value = serde_json::from_str(&text).unwrap();
+						if event["op"] == 5 {
+							saw_op5 = true;
+						}
+					}
+					_ => {}
+				}
+			}
+
+			// Server sends Op 21 preparing downgrade to non-DAVE with transition_id: 10
+			ws.send(Message::Text(
+				json!({"op":21,"d":{"protocol_version":0,"transition_id":10}})
+					.to_string()
+					.into(),
+			))
+			.await
+			.unwrap();
+
+			// Client must acknowledge transition with Op 23
+			loop {
+				let message = ws.next().await.unwrap().unwrap();
+				let event: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+				if event["op"] == 23 {
+					assert_eq!(event["d"]["transition_id"], 10);
+					break;
+				}
+			}
+
+			// Server sends Op 22 executing the matching downgrade transition 10
+			ws.send(Message::Text(
+				json!({"op":22,"d":{"transition_id":10}}).to_string().into(),
+			))
+			.await
+			.unwrap();
+
+			let _ = ready_rx.await;
+		});
+
+		let credentials = VoiceConnection {
+			channel: model::Id(3),
+			user: model::Id(1),
+			peer: None,
+			guild: Some(model::Id(100)),
+			session: Secret::new("synthetic-session".into()).unwrap(),
+			token: Secret::new("synthetic-token".into()).unwrap(),
+			endpoint: "not-used-in-test".into(),
+			request: 1,
+		};
+		let (_capture_tx, capture) = std::sync::mpsc::sync_channel(8);
+		let (playback, _playback_rx) = std::sync::mpsc::sync_channel(8);
+		let (control_tx, control_rx) = watch::channel(Controls::default());
+		let (_camera_tx, camera_rx) = std::sync::mpsc::sync_channel(1);
+		let (status_tx, mut status_rx) = tokio::sync::mpsc::channel(8);
+		let task = tokio::spawn(run_inner(
+			credentials,
+			capture,
+			playback,
+			control_rx,
+			Some(camera_rx),
+			None,
+			None,
+			move |status| status_tx.try_send(status).map_err(|_| ()),
+			Identity::generate(),
+			format!("ws://{address}"),
+			true,
+		));
+
+		let test = timeout(Duration::from_secs(5), async {
+			let mut saw_ready = false;
+			while let Some(status) = status_rx.recv().await {
+				if let Status::Ready { privacy_code } = status {
+					assert!(privacy_code.is_empty());
+					saw_ready = true;
+					let _ = ready_tx.send(());
+					break;
+				}
+			}
+			assert!(saw_ready);
 		});
 		test.await.unwrap();
 		drop(control_tx);

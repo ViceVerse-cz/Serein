@@ -52,6 +52,9 @@ impl Mixer {
 	pub fn remove(&mut self, user: u64) {
 		self.speakers.retain(|s| s.user != user);
 	}
+	pub fn retain(&mut self, mut keep: impl FnMut(u64) -> bool) {
+		self.speakers.retain(|s| keep(s.user));
+	}
 	pub fn user(&self, ssrc: u32) -> Option<u64> {
 		self.speakers
 			.iter()
