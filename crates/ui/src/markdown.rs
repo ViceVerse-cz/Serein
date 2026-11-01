@@ -2713,7 +2713,8 @@ impl Formatted {
 				)
 			};
 			let display_count = display.chars().count();
-			let take = if display_count > remaining {
+			let is_overflow = display_count > remaining;
+			let take = if is_overflow {
 				truncated = true;
 				next_is_word = display
 					.chars()
@@ -2748,18 +2749,43 @@ impl Formatted {
 				}
 			}
 			job.append(&take[start..], 0.0, format);
+			if is_overflow {
+				break;
+			}
 		}
 		if truncated {
+			let is_emoji_at = |idx: usize| emojis.iter().any(|e| e.at <= idx && idx < e.at + e.len);
+			let ends_with_ws = job.text.len() > prefix_len
+				&& !is_emoji_at(job.text.len() - 1)
+				&& job.text.ends_with(char::is_whitespace);
 			if next_is_word
-				&& !job.text.ends_with(char::is_whitespace)
+				&& !ends_with_ws
 				&& let Some(last_ws) = job.text[prefix_len..]
-					.rfind(char::is_whitespace)
-					.map(|index| index + prefix_len)
+					.char_indices()
+					.filter(|(idx, ch)| {
+						let abs_idx = prefix_len + idx;
+						ch.is_whitespace() && !is_emoji_at(abs_idx)
+					})
+					.last()
+					.map(|(idx, _)| prefix_len + idx)
 				&& last_ws > prefix_len
 			{
 				job.text.truncate(last_ws);
 			}
-			let trimmed_len = job.text.trim_end().len().max(prefix_len);
+			let mut trimmed_len = job.text.len();
+			while trimmed_len > prefix_len {
+				let last_idx = trimmed_len - 1;
+				if is_emoji_at(last_idx) {
+					break;
+				}
+				if let Some(ch) = job.text[..trimmed_len].chars().next_back() {
+					if ch.is_whitespace() {
+						trimmed_len -= ch.len_utf8();
+						continue;
+					}
+				}
+				break;
+			}
 			job.text.truncate(trimmed_len);
 			let end = job.text.len();
 			let end_idx = egui::text::ByteIndex(end);
@@ -3009,6 +3035,53 @@ mod tests {
 			);
 			assert!(preview.text.starts_with("@author: "));
 			assert!(preview.text.ends_with('…'));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_first_omitted_character_across_later_spans() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 116 chars ("a " * 58) + 10 chars bold ("abcdefghij") + tail
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}**abcdefghij** tail");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				!preview.text.contains("abcd"),
+				"mid-word abcd should be cut back to word boundary"
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_emoji_placeholder_near_limit() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 118 chars ("a " * 59) + "x😀 more" -> emoji fits in 120 limit
+			let prefix = "a ".repeat(59);
+			let input = format!("{prefix}x😀 more");
+			let mut preview = egui::text::LayoutJob::default();
+			let emojis = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert_eq!(emojis.len(), 1, "emoji should be preserved");
 		});
 		output.drop_without_applying_deltas();
 	}
