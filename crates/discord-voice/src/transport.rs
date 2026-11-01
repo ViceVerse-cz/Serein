@@ -804,6 +804,8 @@ async fn run_inner(
 									.unwrap_or(0);
 								if dave_ver == 0 {
 									dave_enabled = false;
+								} else if dave_ver != 1 {
+									return Err("Unsupported voice DAVE version");
 								} else {
 									dave_enabled = true;
 									send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;
@@ -815,8 +817,13 @@ async fn run_inner(
 								let user=id(data,"user_id")?;
 								if user!=credentials.user.0 {
 									let was_ready = dave.ready;
-									if dave.connect(&[user]).is_err() { continue; }
-									if was_ready || dave.session.is_ready() { dave.ready = true; }
+									match dave.connect(&[user]) {
+										Ok(_) => {
+											if was_ready || dave.session.is_ready() { dave.ready = true; }
+										}
+										Err("Voice channel exceeds the 64 participant limit") if !dave_enabled => {}
+										Err(_) => continue,
+									}
 									let value=u32::try_from(number(data,"ssrc")?).map_err(|_|"Invalid voice SSRC")?;
 									let _ = mixer.announce(user,value);
 								}
@@ -839,7 +846,9 @@ async fn run_inner(
 							},
 							13=>{
 								let user=id(data,"user_id")?;mixer.remove(user);receivers.remove(user);if let Some(decoder)=decoder.as_ref(){remove_decoder(decoder,user);}
-								if dave_enabled {
+								if !dave_enabled {
+									let _ = dave.disconnect(user);
+								} else {
 									let was_group_member=dave.is_group_member(user);
 									let was_ready=dave.ready;
 									if dave.disconnect(user)? {
@@ -865,10 +874,9 @@ async fn run_inner(
 								}
 							},
 							21=>{
+								let (Ok(proto), Ok(id)) = (number(data, "protocol_version"), transition(data)) else { continue; };
 								video.clear();
 								capture_reset=true;
-								let proto=number(data,"protocol_version").unwrap_or(0);
-								let id=transition(data).unwrap_or(0);
 								if proto==0 {
 									dave.prepare_protocol(id);
 									if id==0 {
@@ -906,7 +914,8 @@ async fn run_inner(
 								video.clear();
 								let tid = transition(data)?;
 								dave.execute(tid)?;
-								if pending_downgrade.take() == Some(tid) {
+								if pending_downgrade == Some(tid) {
+									pending_downgrade = None;
 									dave_enabled = false;
 									dave.ready = false;
 									ready_announced = false;
@@ -931,8 +940,13 @@ async fn run_inner(
 								let user=id(data,"user_id")?;
 								if user!=credentials.user.0 {
 									let was_ready = dave.ready;
-									if dave.connect(&[user]).is_err() { continue; }
-									if was_ready || dave.session.is_ready() { dave.ready = true; }
+									match dave.connect(&[user]) {
+										Ok(_) => {
+											if was_ready || dave.session.is_ready() { dave.ready = true; }
+										}
+										Err("Voice channel exceeds the 64 participant limit") if !dave_enabled => {}
+										Err(_) => continue,
+									}
 									if let Some(value)=data["audio_ssrc"].as_u64().and_then(|v|u32::try_from(v).ok()) {let _ = mixer.announce(user,value);}
 									if let Some(decoder) = decoder.as_ref() {
 										let _ = announce_video(&mut receivers, decoder, user, data);
@@ -1712,6 +1726,8 @@ async fn run_stream_inner(
 									.unwrap_or(0);
 								if dave_ver == 0 {
 									dave_enabled = false;
+								} else if dave_ver != 1 {
+									return Err("Unsupported stream DAVE version");
 								} else {
 									dave_enabled = true;
 									send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;
@@ -1747,8 +1763,13 @@ async fn run_stream_inner(
 								if let Some(user) = user
 									&& user!=credentials.user.0 {
 									let was_ready = dave.ready;
-									if dave.connect(&[user]).is_err() { continue; }
-									if was_ready || dave.session.is_ready() { dave.ready = true; }
+									match dave.connect(&[user]) {
+										Ok(_) => {
+											if was_ready || dave.session.is_ready() { dave.ready = true; }
+										}
+										Err("Voice channel exceeds the 64 participant limit") if !dave_enabled => {}
+										Err(_) => continue,
+									}
 									if audio.is_some() {
 										let value=u32::try_from(number(data,"ssrc")?).map_err(|_|"Invalid stream SSRC")?;
 										let _ = mixer.announce(user,value);
@@ -1764,8 +1785,13 @@ async fn run_stream_inner(
 								if let Some(user) = user
 									&& user!=credentials.user.0 {
 									let was_ready = dave.ready;
-									if dave.connect(&[user]).is_err() { continue; }
-									if was_ready || dave.session.is_ready() { dave.ready = true; }
+									match dave.connect(&[user]) {
+										Ok(_) => {
+											if was_ready || dave.session.is_ready() { dave.ready = true; }
+										}
+										Err("Voice channel exceeds the 64 participant limit") if !dave_enabled => {}
+										Err(_) => continue,
+									}
 									if let Some(decoder) = decoder.as_ref() {
 										let _ = announce_video(&mut receivers, decoder, user, data);
 										next_sink_wants = Instant::now();
@@ -1773,11 +1799,10 @@ async fn run_stream_inner(
 									if audio.is_some() && let Some(value)=data["audio_ssrc"].as_u64().and_then(|v|u32::try_from(v).ok()).filter(|v|*v!=0) {let _ = mixer.announce(user,value);}
 								}
 							},
-							13=>{let user=id(data,"user_id")?;receivers.remove(user);if let Some(decoder)=decoder.as_ref(){remove_decoder(decoder,user);}mixer.remove(user);if dave_enabled {let was_group_member=dave.is_group_member(user);let was_ready=dave.ready;if dave.disconnect(user)?{if dave.alone(){announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.enter_sole_member_waiting()?;deadline=None;}else if was_ready{dave.ready=true;deadline=None;}else if was_group_member{announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);}}}},
+							13=>{let user=id(data,"user_id")?;receivers.remove(user);if let Some(decoder)=decoder.as_ref(){remove_decoder(decoder,user);}mixer.remove(user);if !dave_enabled {let _ = dave.disconnect(user);} else {let was_group_member=dave.is_group_member(user);let was_ready=dave.ready;if dave.disconnect(user)?{if dave.alone(){announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.enter_sole_member_waiting()?;deadline=None;}else if was_ready{dave.ready=true;deadline=None;}else if was_group_member{announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);}}}},
 							21=>{
+								let (Ok(proto), Ok(id)) = (number(data, "protocol_version"), transition(data)) else { continue; };
 								announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);
-								let proto=number(data,"protocol_version").unwrap_or(0);
-								let id=transition(data).unwrap_or(0);
 								if proto==0 {
 									dave.prepare_protocol(id);
 									if id==0 {
@@ -1798,7 +1823,8 @@ async fn run_stream_inner(
 							22=>{
 								let tid = transition(data)?;
 								dave.execute(tid)?;
-								if pending_downgrade.take() == Some(tid) {
+								if pending_downgrade == Some(tid) {
+									pending_downgrade = None;
 									dave_enabled = false;
 									dave.ready = false;
 								}
