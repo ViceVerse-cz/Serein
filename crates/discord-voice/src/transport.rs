@@ -42,6 +42,8 @@ fn receive_media(
 	passthrough: bool,
 	decrypt: bool,
 ) -> Result<Vec<u8>, ()> {
+	// The DAVE protocol requires authentication for every protocol-matching frame,
+	// even during passthrough; rare plaintext collisions are deliberately dropped.
 	if is_dave_frame(&frame) {
 		if !decrypt {
 			return Err(());
@@ -3029,6 +3031,8 @@ mod tests {
 		let udp_address = udp.local_addr().unwrap();
 
 		let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
+		let (captured_tx, mut captured_rx) = tokio::sync::oneshot::channel::<()>();
+		let (media_done_tx, media_done_rx) = tokio::sync::oneshot::channel::<()>();
 		let (prepared_tx, prepared_rx) = tokio::sync::oneshot::channel::<()>();
 		let (execute_tx, execute_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -3154,6 +3158,64 @@ mod tests {
 			}
 
 			let _ = ready_rx.await;
+			if execute {
+				ws.send(Message::Text(
+					json!({"op":5,"d":{"user_id":"2","ssrc":43}})
+						.to_string()
+						.into(),
+				))
+				.await
+				.unwrap();
+				ws.send(Message::Ping(b"plain-source".to_vec().into()))
+					.await
+					.unwrap();
+				loop {
+					match ws.next().await.unwrap().unwrap() {
+						Message::Pong(data) if data.as_ref() == b"plain-source" => break,
+						Message::Text(text) => {
+							let event: Value = serde_json::from_str(&text).unwrap();
+							if event["op"] == 3 {
+								ws.send(Message::Text(
+									json!({"op":6,"d":{"t":event["d"]["t"]}}).to_string().into(),
+								))
+								.await
+								.unwrap();
+							}
+						}
+						_ => {}
+					}
+				}
+				let mut transport = Encryption::new(&[7; 32]);
+				let mut encoder = Encoder::new(48_000, Channels::Mono, Application::Voip).unwrap();
+				let tone: Frame = std::array::from_fn(|i| (i as f32 * 0.06).sin() * 0.3);
+				let mut opus = [0; 1275];
+				let length = encoder.encode_float(&tone, &mut opus).unwrap();
+				let header = [0x80, 120, 0, 1, 0, 0, 0, 1, 0, 0, 0, 43];
+				let packet = transport.seal(&header, &opus[..length]).unwrap();
+				udp.send_to(&packet, client).await.unwrap();
+				loop {
+					let (length, _) = receive_media(&udp, &mut probe).await;
+					let Some(packet) = transport.open(&probe[..length]) else {
+						continue;
+					};
+					if packet.payload_type != 120 {
+						continue;
+					}
+					assert!(!is_dave_frame(&packet.payload));
+					let mut decoder = Decoder::new(48_000, Channels::Mono).unwrap();
+					let mut decoded = [0.0; 960];
+					assert_eq!(
+						decoder
+							.decode_float(&packet.payload, &mut decoded, false)
+							.unwrap(),
+						960
+					);
+					assert!(decoded.iter().any(|sample| sample.abs() > 0.01));
+					break;
+				}
+				captured_tx.send(()).unwrap();
+				media_done_rx.await.unwrap();
+			}
 		});
 
 		let credentials = VoiceConnection {
@@ -3166,8 +3228,8 @@ mod tests {
 			endpoint: "not-used-in-test".into(),
 			request: 1,
 		};
-		let (_capture_tx, capture) = std::sync::mpsc::sync_channel(8);
-		let (playback, _playback_rx) = std::sync::mpsc::sync_channel(8);
+		let (capture_tx, capture) = std::sync::mpsc::sync_channel(8);
+		let (playback, playback_rx) = std::sync::mpsc::sync_channel(8);
 		let (control_tx, control_rx) = watch::channel(Controls::default());
 		let (_camera_tx, camera_rx) = std::sync::mpsc::sync_channel(1);
 		let (status_tx, mut status_rx) = tokio::sync::mpsc::channel(8);
@@ -3223,6 +3285,33 @@ mod tests {
 				}
 			}
 			assert!(saw_ready);
+			let mut captured = false;
+			let mut heard = false;
+			let mut capture_tick = tokio::time::interval(Duration::from_millis(20));
+			loop {
+				tokio::select! {
+					result = &mut captured_rx, if !captured => { result.unwrap(); captured = true; }
+					status = status_rx.recv() => {
+						if matches!(status.unwrap(), Status::RemoteAudio) { heard = true; }
+					}
+					_ = capture_tick.tick(), if !captured => {
+						let tone: Frame = std::array::from_fn(|i| (i as f32 * 0.06).sin() * 0.3);
+						match capture_tx.try_send(tone) {
+							Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+							Err(error) => panic!("synthetic capture failed: {error}"),
+						}
+					}
+				}
+				if captured && heard {
+					assert!(
+						playback_rx
+							.try_iter()
+							.any(|pcm| pcm.iter().any(|sample| sample.abs() > 0.01))
+					);
+					media_done_tx.send(()).unwrap();
+					break;
+				}
+			}
 		});
 		test.await.unwrap();
 		drop(control_tx);
