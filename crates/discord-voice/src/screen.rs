@@ -116,7 +116,6 @@ pub struct Worker {
 	done: Option<mpsc::Receiver<Result<(), &'static str>>>,
 	#[cfg(target_os = "linux")]
 	status: Arc<Mutex<&'static str>>,
-	#[cfg(target_os = "linux")]
 	preview_visible: Arc<AtomicBool>,
 }
 
@@ -141,9 +140,7 @@ impl Worker {
 		let status = Arc::new(Mutex::new("Choose a screen or window in the system picker"));
 		#[cfg(target_os = "linux")]
 		let worker_status = status.clone();
-		#[cfg(target_os = "linux")]
 		let preview_visible = Arc::new(AtomicBool::new(true));
-		#[cfg(target_os = "linux")]
 		let worker_preview_visible = preview_visible.clone();
 		// A few frames of slack absorbs send jitter without forcing keyframes on every hiccup.
 		let (send, frames) = tokio::sync::mpsc::channel(3);
@@ -191,6 +188,7 @@ impl Worker {
 					audio_send,
 					worker_audio_epoch,
 					worker_preview,
+					worker_preview_visible,
 					&wake,
 				);
 				finished_ready.store(false, Ordering::Release);
@@ -214,7 +212,6 @@ impl Worker {
 				done: Some(done),
 				#[cfg(target_os = "linux")]
 				status,
-				#[cfg(target_os = "linux")]
 				preview_visible,
 			},
 			Video {
@@ -229,9 +226,8 @@ impl Worker {
 		))
 	}
 
-	pub fn set_preview_visible(&self, _visible: bool) {
-		#[cfg(target_os = "linux")]
-		self.preview_visible.store(_visible, Ordering::Release);
+	pub fn set_preview_visible(&self, visible: bool) {
+		self.preview_visible.store(visible, Ordering::Release);
 	}
 
 	pub fn capture_status(&self) -> Option<&'static str> {
@@ -274,6 +270,7 @@ fn encode_loop(
 	audio: Option<tokio::sync::mpsc::Sender<AudioChunk>>,
 	audio_epoch: Arc<AtomicU64>,
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
+	preview_visible: Arc<AtomicBool>,
 	wake: &impl Fn(),
 ) -> Result<(), &'static str> {
 	if stop.load(Ordering::Acquire) || send.is_closed() {
@@ -345,7 +342,7 @@ fn encode_loop(
 		let now = Instant::now();
 		if let Some(frame) = &frame {
 			first_frame_deadline = None;
-			if now >= next_preview {
+			if preview_visible.load(Ordering::Acquire) && now >= next_preview {
 				let image = preview_frame(frame)?;
 				if let Ok(mut slot) = preview.try_lock() {
 					*slot = Some(image);
@@ -703,22 +700,65 @@ fn validate_frame(frame: &RawFrame) -> Result<(usize, usize), &'static str> {
 
 pub(super) fn preview_frame(frame: &RawFrame) -> Result<image::RgbaImage, &'static str> {
 	validate_frame(frame)?;
-	let scale = (640.0 / f64::from(frame.width))
-		.min(360.0 / f64::from(frame.height))
+	let scale = (1280.0 / f64::from(frame.width))
+		.min(720.0 / f64::from(frame.height))
 		.min(1.0);
 	let width = (f64::from(frame.width) * scale).round().max(1.0) as u32;
 	let height = (f64::from(frame.height) * scale).round().max(1.0) as u32;
-	// ponytail: nearest sampling keeps the ten-fps preview cheap; use filtered scaling if needed.
+	if width == frame.width && height == frame.height {
+		let mut img = image::RgbaImage::new(width, height);
+		let row_bytes = (width as usize) * 4;
+		for y in 0..height as usize {
+			let src_row = &frame.data[y * frame.stride..y * frame.stride + row_bytes];
+			let dst_row = &mut img.as_mut()[y * row_bytes..(y + 1) * row_bytes];
+			let (src_chunks, _) = src_row.as_chunks::<4>();
+			let (dst_chunks, _) = dst_row.as_chunks_mut::<4>();
+			for (chunk_in, chunk_out) in src_chunks.iter().zip(dst_chunks.iter_mut()) {
+				chunk_out[0] = chunk_in[2];
+				chunk_out[1] = chunk_in[1];
+				chunk_out[2] = chunk_in[0];
+				chunk_out[3] = 255;
+			}
+		}
+		return Ok(img);
+	}
+	let scale_x = f64::from(frame.width) / f64::from(width);
+	let scale_y = f64::from(frame.height) / f64::from(height);
 	Ok(image::RgbaImage::from_fn(width, height, |x, y| {
-		let source_x = (x * frame.width / width) as usize;
-		let source_y = (y * frame.height / height) as usize;
-		let offset = source_y * frame.stride + source_x * 4;
-		image::Rgba([
-			frame.data[offset + 2],
-			frame.data[offset + 1],
-			frame.data[offset],
-			255,
-		])
+		let gx = (f64::from(x) + 0.5) * scale_x - 0.5;
+		let gy = (f64::from(y) + 0.5) * scale_y - 0.5;
+		let gxi = gx.floor().max(0.0) as usize;
+		let gyi = gy.floor().max(0.0) as usize;
+		let x0 = gxi.min(frame.width as usize - 1);
+		let x1 = (x0 + 1).min(frame.width as usize - 1);
+		let y0 = gyi.min(frame.height as usize - 1);
+		let y1 = (y0 + 1).min(frame.height as usize - 1);
+		let fx = (gx - gxi as f64).clamp(0.0, 1.0) as f32;
+		let fy = (gy - gyi as f64).clamp(0.0, 1.0) as f32;
+		let w00 = (1.0 - fx) * (1.0 - fy);
+		let w10 = fx * (1.0 - fy);
+		let w01 = (1.0 - fx) * fy;
+		let w11 = fx * fy;
+		let off00 = y0 * frame.stride + x0 * 4;
+		let off10 = y0 * frame.stride + x1 * 4;
+		let off01 = y1 * frame.stride + x0 * 4;
+		let off11 = y1 * frame.stride + x1 * 4;
+		let b = (w00 * f32::from(frame.data[off00])
+			+ w10 * f32::from(frame.data[off10])
+			+ w01 * f32::from(frame.data[off01])
+			+ w11 * f32::from(frame.data[off11]))
+		.round() as u8;
+		let g = (w00 * f32::from(frame.data[off00 + 1])
+			+ w10 * f32::from(frame.data[off10 + 1])
+			+ w01 * f32::from(frame.data[off01 + 1])
+			+ w11 * f32::from(frame.data[off11 + 1]))
+		.round() as u8;
+		let r = (w00 * f32::from(frame.data[off00 + 2])
+			+ w10 * f32::from(frame.data[off10 + 2])
+			+ w01 * f32::from(frame.data[off01 + 2])
+			+ w11 * f32::from(frame.data[off11 + 2]))
+		.round() as u8;
+		image::Rgba([r, g, b, 255])
 	}))
 }
 
@@ -809,7 +849,6 @@ mod tests {
 			done: None,
 			#[cfg(target_os = "linux")]
 			status: Arc::new(Mutex::new("")),
-			#[cfg(target_os = "linux")]
 			preview_visible: Arc::new(AtomicBool::new(true)),
 		};
 		assert!(worker.take_preview().is_some());
@@ -823,9 +862,9 @@ mod tests {
 				data: vec![0; width as usize * height as usize * 4],
 			};
 			let preview = preview_frame(&frame).unwrap();
-			assert!(preview.width() > 0 && preview.width() <= 640);
-			assert!(preview.height() > 0 && preview.height() <= 360);
-			assert!(preview.as_raw().len() <= 640 * 360 * 4);
+			assert!(preview.width() > 0 && preview.width() <= 1280);
+			assert!(preview.height() > 0 && preview.height() <= 720);
+			assert!(preview.as_raw().len() <= 1280 * 720 * 4);
 		}
 		assert!(
 			preview_frame(&RawFrame {

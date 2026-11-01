@@ -135,6 +135,7 @@ async fn exchange(rekey_timeout: bool) {
 		run_stream_inner(
 			credentials(1),
 			Identity::generate(),
+			None,
 			Some(video),
 			None,
 			None,
@@ -162,6 +163,7 @@ async fn exchange(rekey_timeout: bool) {
 		run_stream_inner(
 			credentials(2),
 			Identity::generate(),
+			Some(1),
 			None,
 			Some(sink),
 			Some(playback_tx),

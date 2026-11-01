@@ -210,6 +210,7 @@ fn id(data: &Value, key: &str) -> Result<u64, &'static str> {
 	data[key]
 		.as_str()
 		.and_then(|v| v.parse().ok())
+		.or_else(|| data[key].as_u64())
 		.filter(|v| *v != 0)
 		.ok_or("Malformed voice participant")
 }
@@ -813,7 +814,7 @@ async fn run_inner(
 							},
 							11=>{
 								let ids=data["user_ids"].as_array().ok_or("Missing voice participants")?;
-								let ids=ids.iter().map(|v|v.as_str().and_then(|v|v.parse::<u64>().ok()).filter(|v|*v!=0).ok_or("Malformed voice participant")).collect::<Result<Vec<_>,_>>()?;
+								let ids=ids.iter().map(|v|v.as_str().and_then(|v|v.parse::<u64>().ok()).or_else(||v.as_u64()).filter(|v|*v!=0).ok_or("Malformed voice participant")).collect::<Result<Vec<_>,_>>()?;
 								let capped_ids = if ids.len() >= crate::crypto::MAX_PARTICIPANTS {
 									&ids[..crate::crypto::MAX_PARTICIPANTS - 1]
 								} else {
@@ -1210,6 +1211,7 @@ pub async fn run_stream(
 		run_stream_inner(
 			credentials,
 			identity,
+			None,
 			Some(video),
 			None,
 			None,
@@ -1225,15 +1227,18 @@ pub async fn run_stream(
 pub async fn watch_stream(
 	credentials: VoiceConnection,
 	identity: Arc<Identity>,
+	streamer: Option<model::Id>,
 	sink: VideoSink,
 	audio: Option<SyncSender<Frame>>,
 	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 ) -> Result<(), &'static str> {
 	let url = endpoint(&credentials.endpoint)?;
+	let streamer_id = streamer.map(|id| id.0);
 	crate::timer::isolated("serein-watch", move || {
 		run_stream_inner(
 			credentials,
 			identity,
+			streamer_id,
 			None,
 			Some(sink),
 			audio,
@@ -1248,6 +1253,7 @@ pub async fn watch_stream(
 async fn run_stream_inner(
 	credentials: VoiceConnection,
 	identity: Arc<Identity>,
+	streamer: Option<u64>,
 	mut video: Option<crate::screen::Video>,
 	sink: Option<VideoSink>,
 	audio: Option<SyncSender<Frame>>,
@@ -1610,6 +1616,15 @@ async fn run_stream_inner(
 				}
 				let Some(decoder)=&decoder else {continue;};
 				if rtp.payload_type!=101 {continue;}
+				if let Some(streamer_id) = streamer
+					&& !receivers.has_source(rtp.ssrc)
+				{
+					let _ = receivers.announce(streamer_id, rtp.ssrc);
+					if dave_enabled {
+						let _ = dave.connect(&[streamer_id]);
+					}
+					next_pli = Instant::now();
+				}
 				let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else {continue;};
 				let start=metrics.start();
 				let is_dave = frame.len() >= 2 && frame.ends_with(&crate::crypto::MARKER_BYTES);
@@ -1672,7 +1687,7 @@ async fn run_stream_inner(
 							},
 							4=>{
 								if encryption.is_some()||udp.is_none()||discovering{return Err("Unexpected stream session description");}
-								if data["mode"].as_str()!=Some(MODE)||!h264_negotiated(data){return Err("Discord did not negotiate stream transport media");}
+								if data["mode"].as_str()!=Some(MODE)||(video.is_some()&&!h264_negotiated(data)){return Err("Discord did not negotiate stream transport media");}
 								let values=data["secret_key"].take();let values=values.as_array().ok_or("Missing stream transport key")?;if values.len()!=32{return Err("Invalid stream transport key");}
 								let mut key=Zeroizing::new([0;32]);for(out,value)in key.iter_mut().zip(values){*out=value.as_u64().and_then(|value|u8::try_from(value).ok()).ok_or("Invalid stream transport key")?;}
 								encryption=Some(Encryption::new(&key));secured_at=Some(Instant::now());
@@ -1688,7 +1703,7 @@ async fn run_stream_inner(
 							},
 							11=>{
 								let ids=data["user_ids"].as_array().ok_or("Missing stream participants")?;
-								let ids=ids.iter().map(|value|value.as_str().and_then(|value|value.parse().ok()).filter(|id|*id!=0).ok_or("Malformed stream participant")).collect::<Result<Vec<_>,_>>()?;
+								let ids=ids.iter().map(|value|value.as_str().and_then(|value|value.parse().ok()).or_else(||value.as_u64()).filter(|id|*id!=0).ok_or("Malformed stream participant")).collect::<Result<Vec<_>,_>>()?;
 								let capped_ids = if ids.len() >= crate::crypto::MAX_PARTICIPANTS {
 									&ids[..crate::crypto::MAX_PARTICIPANTS - 1]
 								} else {
@@ -1706,8 +1721,9 @@ async fn run_stream_inner(
 								}
 							},
 							5=>{
-								let user=id(data,"user_id")?;
-								if user!=credentials.user.0 {
+								let user=id(data,"user_id").ok().or(streamer);
+								if let Some(user) = user
+									&& user!=credentials.user.0 {
 									let was_ready = dave.ready;
 									let _ = dave.connect(&[user]);
 									if was_ready || dave.session.is_ready() { dave.ready = true; }
@@ -1718,8 +1734,9 @@ async fn run_stream_inner(
 								}
 							},
 							12=>{
-								let user=id(data,"user_id")?;
-								if user!=credentials.user.0 {
+								let user=id(data,"user_id").ok().or(streamer);
+								if let Some(user) = user
+									&& user!=credentials.user.0 {
 									let was_ready = dave.ready;
 									let _ = dave.connect(&[user]);
 									if was_ready || dave.session.is_ready() { dave.ready = true; }
@@ -2992,17 +3009,16 @@ mod tests {
 				let mut sink_wants_tx = Some(sink_wants_tx);
 				while let Some(msg) = ws.next().await {
 					let message = msg.unwrap();
-					if let Ok(text) = message.to_text() {
-						if let Ok(event) = serde_json::from_str::<Value>(text) {
-							if event["op"] == 15 {
-								assert_eq!(event["d"]["any"], 100);
-								saw_sink_wants = true;
-								if let Some(tx) = sink_wants_tx.take() {
-									let _ = tx.send(());
-								}
-								break;
-							}
+					if let Ok(text) = message.to_text()
+						&& let Ok(event) = serde_json::from_str::<Value>(text)
+						&& event["op"] == 15
+					{
+						assert_eq!(event["d"]["any"], 100);
+						saw_sink_wants = true;
+						if let Some(tx) = sink_wants_tx.take() {
+							let _ = tx.send(());
 						}
+						break;
 					}
 				}
 				assert!(saw_sink_wants);
