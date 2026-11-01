@@ -32,12 +32,15 @@ use openh264::{
 };
 use std::sync::{
 	Arc, Mutex,
-	atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
+	atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
 	mpsc,
 };
 
 #[cfg(not(target_os = "linux"))]
 use std::time::{Duration, Instant};
+
+#[cfg(target_os = "windows")]
+use std::sync::atomic::AtomicUsize;
 
 pub const MAX_RAW_BYTES: usize = 3840 * 2160 * 4;
 pub const MAX_ENCODED_BYTES: usize = 2 * 1024 * 1024;

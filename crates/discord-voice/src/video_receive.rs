@@ -433,10 +433,6 @@ impl Receivers {
 	pub fn has_sources(&self) -> bool {
 		!self.sources.is_empty()
 	}
-	/// Whether a specific video SSRC has been announced for this connection.
-	pub fn has_source(&self, ssrc: u32) -> bool {
-		self.sources.iter().any(|(s, _, _)| *s == ssrc)
-	}
 	/// Ask every announced sender for a keyframe. Used when video stops without the
 	/// depacketizer seeing loss, which no per-picture signal would ever reveal.
 	pub fn require_all_keyframes(&mut self) {

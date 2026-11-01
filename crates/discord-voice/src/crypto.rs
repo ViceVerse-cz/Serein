@@ -15,6 +15,15 @@ pub(crate) const MODE: &str = "aead_xchacha20_poly1305_rtpsize";
 pub(crate) const MAX_PACKET: usize = 4096;
 pub(crate) const MAX_SIGNAL: usize = 64 * 1024;
 pub(crate) const MARKER_BYTES: [u8; 2] = [0xFA, 0xFA];
+
+pub(crate) fn is_dave_frame(frame: &[u8]) -> bool {
+	const MIN_SUPPLEMENTAL: usize = 11;
+	if frame.len() < MIN_SUPPLEMENTAL || !frame.ends_with(&MARKER_BYTES) {
+		return false;
+	}
+	let supplemental_size = frame[frame.len() - 3] as usize;
+	supplemental_size >= MIN_SUPPLEMENTAL && frame.len() >= supplemental_size
+}
 pub(crate) use client_core::voice::MAX_PARTICIPANTS;
 
 /// Ephemeral DAVE identity shared by the call and its Go Live streams.
@@ -563,14 +572,9 @@ impl Dave {
 				}
 			}
 		}
-		let expected = if self.peer.is_some() {
-			Some(self.participants.as_slice())
-		} else {
-			None
-		};
 		let result = self
 			.session
-			.process_proposals(operation, data, expected)
+			.process_proposals(operation, data, Some(&self.participants))
 			.map_err(|_| "DAVE proposal validation failed")?;
 		if let Some(group) = self.session.group()
 			&& (group.pending_proposals().count() > MAX_PARTICIPANTS * 2

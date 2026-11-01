@@ -49,14 +49,6 @@ fn end_negotiation(channel: Id, request: u64, established: bool) -> voice::Comma
 
 const DEVICE_OPEN_TIMEOUT: Duration = Duration::from_secs(20);
 
-fn diag_log(msg: &str) {
-	let _ = std::fs::OpenOptions::new()
-		.create(true)
-		.append(true)
-		.open(std::env::temp_dir().join("serein_voice_diag.log"))
-		.and_then(|mut f| std::io::Write::write_all(&mut f, format!("{msg}\n").as_bytes()));
-}
-
 fn device_wait(
 	deadline: &mut Option<Instant>,
 	pending: bool,
@@ -1054,29 +1046,6 @@ impl Voice {
 				Duration::from_secs(30).saturating_sub(pending.started.elapsed()),
 			);
 		}
-		if let Some(p) = self.pending.as_ref() {
-			static LAST_LOG: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-			let now_sec = p.started.elapsed().as_secs();
-			if now_sec != LAST_LOG.swap(now_sec, std::sync::atomic::Ordering::Relaxed)
-				&& now_sec % 3 == 0
-			{
-				let msg = format!(
-					"[DIAG pending poll] elapsed={}s session={} rev={} server={}",
-					now_sec,
-					p.session.is_some(),
-					p.negotiation_revision.is_some(),
-					p.server.is_some()
-				);
-				eprintln!("{msg}");
-				let _ = std::fs::OpenOptions::new()
-					.create(true)
-					.append(true)
-					.open(std::env::temp_dir().join("serein_voice_diag.log"))
-					.and_then(|mut f| {
-						std::io::Write::write_all(&mut f, format!("{msg}\n").as_bytes())
-					});
-			}
-		}
 		if self.retiring.is_none()
 			&& self.pending.as_ref().is_some_and(|p| {
 				!p.failed_candidate
@@ -1084,13 +1053,6 @@ impl Voice {
 					&& p.negotiation_revision.is_some()
 					&& p.server.is_some()
 			}) {
-			let msg = "[DIAG start_media] all credentials present! invoking start_media";
-			eprintln!("{msg}");
-			let _ = std::fs::OpenOptions::new()
-				.create(true)
-				.append(true)
-				.open(std::env::temp_dir().join("serein_voice_diag.log"))
-				.and_then(|mut f| std::io::Write::write_all(&mut f, format!("{msg}\n").as_bytes()));
 			let pending = self.pending.take().expect("pending negotiation");
 			let listen_only = permission_mutes_microphone(
 				state,
@@ -1229,9 +1191,6 @@ impl Voice {
 				}));
 			}
 			failure = live.failure.get().copied();
-			if let Some(f) = failure {
-				diag_log(&format!("[DIAG live.failure read in poll] f={f}"));
-			}
 			let devices_ready = live.audio.is_ready();
 			ui.voice_microphone_unavailable = live.audio.microphone_unavailable();
 			if ui.voice_settings_open() {
@@ -1276,12 +1235,10 @@ impl Voice {
 				});
 			}
 			if live.audio.is_stopped() && failure.is_none() {
-				diag_log("[DIAG poll live.audio is stopped]");
 				failure =
 					Some("Audio devices stopped; check microphone permission and device selection");
 			}
 			if live.task.is_finished() && failure.is_none() {
-				diag_log("[DIAG poll live.task is finished]");
 				failure = Some("Voice connection ended; start a new call explicitly");
 			}
 			// A worker can finish between draining notices and checking its lifecycle.
@@ -1379,15 +1336,6 @@ impl Voice {
 		if failure == Some(discord_voice::DISCONNECTED_BY_DISCORD) && self.rejoin.is_some() {
 			note(Level::Error, "removed by the service", &[]);
 			return self.give_up_rejoin(state, discord_voice::DISCONNECTED_BY_DISCORD, true);
-		}
-		if let Some(f) = failure {
-			let has_neg = self
-				.live
-				.as_ref()
-				.is_some_and(|live| live.negotiation.is_some());
-			diag_log(&format!(
-				"[DIAG failure in poll] failure={f} has_neg={has_neg}"
-			));
 		}
 		if failure.is_some()
 			&& self
@@ -1930,9 +1878,6 @@ impl Voice {
 				media_identity,
 			)
 			.await;
-			diag_log(&format!(
-				"[DIAG run_with_identity task ended] result={result:?}"
-			));
 			if let Err(error) = result {
 				let _ = transport_failure.set(error);
 			}
