@@ -917,6 +917,7 @@ async fn run_inner(
 										json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;
 									}
 								} else if proto==1 {
+									ready_announced=false;
 									pending_downgrade=None;
 									if id==0 {dave_enabled=true;receive_passthrough=false;receive_keys_until=None;}
 									else {receive_keys_until=Some(Instant::now()+Duration::from_secs(30));}
@@ -953,6 +954,7 @@ async fn run_inner(
 									dave.ready = false;
 									ready_announced = false;
 								} else if protocol_change {
+									ready_announced=false;
 									dave_enabled=true;receive_passthrough=false;receive_keys_until=None;
 								}
 							},
@@ -2346,6 +2348,8 @@ mod tests {
 		let udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
 		let port = udp.local_addr().unwrap().port();
 		let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+		let (downgraded_tx, mut downgraded_rx) = tokio::sync::oneshot::channel();
+		let (upgraded_tx, mut upgraded_rx) = tokio::sync::oneshot::channel();
 		let (captured_tx, mut captured_rx) = tokio::sync::oneshot::channel();
 		let (waiting_tx, waiting_rx) = tokio::sync::oneshot::channel();
 		let (heard_tx, heard_rx) = tokio::sync::oneshot::channel();
@@ -2590,6 +2594,40 @@ mod tests {
 			}
 			// Resume only after the client has actually played the initial remote audio.
 			heard_rx.await.unwrap();
+			if !guild {
+				for (version, transition) in [(0, 10), (1, 11)] {
+					ws.send(Message::Text(json!({"op":21,"d":{"protocol_version":version,"transition_id":transition}}).to_string().into())).await.unwrap();
+					loop {
+						let message = ws.next().await.unwrap().unwrap();
+						let Ok(text) = message.to_text() else {
+							continue;
+						};
+						let event: Value = serde_json::from_str(text).unwrap();
+						if event["op"] == 3 {
+							ws.send(Message::Text(
+								json!({"op":6,"d":{"t":event["d"]["t"]}}).to_string().into(),
+							))
+							.await
+							.unwrap();
+						} else if event["op"] == 23 {
+							assert_eq!(event["d"]["transition_id"], transition);
+							break;
+						}
+					}
+					ws.send(Message::Text(
+						json!({"op":22,"d":{"transition_id":transition}})
+							.to_string()
+							.into(),
+					))
+					.await
+					.unwrap();
+					if version == 0 {
+						(&mut downgraded_rx).await.unwrap();
+					} else {
+						(&mut upgraded_rx).await.unwrap();
+					}
+				}
+			}
 			if guild {
 				ws.send(Message::Close(Some(
 					tokio_tungstenite::tungstenite::protocol::CloseFrame {
@@ -2688,6 +2726,10 @@ mod tests {
 			));
 			assert!(matches!(status_rx.recv().await.unwrap(), Status::Securing));
 			let mut ready = 0;
+			let expected_ready = if guild { 2 } else { 3 };
+			let mut privacy_code_before = None;
+			let mut downgraded_tx = Some(downgraded_tx);
+			let mut upgraded_tx = Some(upgraded_tx);
 			let mut heard = false;
 			let mut waiting = false;
 			let mut captured = false;
@@ -2700,9 +2742,19 @@ mod tests {
 			loop {
 				tokio::select! {
 					status = status_rx.recv() => match status.unwrap() {
-						Status::Ready { .. } => {
+						Status::Ready { privacy_code } => {
+							if privacy_code.is_empty() {
+								assert!(!guild);
+								if let Some(tx) = downgraded_tx.take() { tx.send(()).unwrap(); }
+								continue;
+							}
+							if !guild {
+								if let Some(before) = &privacy_code_before { assert_eq!(before, &privacy_code); }
+								else { privacy_code_before = Some(privacy_code); }
+							}
 							ready += 1;
-							if ready == 2 {
+							if !guild && ready == 2 { upgraded_tx.take().unwrap().send(()).unwrap(); }
+							if ready == expected_ready {
 								// Discard first-session playback before allowing the peer's new frame.
 								for _ in 0..8 {
 									if playback_rx.try_recv().is_err() { break; }
@@ -2733,12 +2785,12 @@ mod tests {
 								Err(std::sync::mpsc::TrySendError::Disconnected(_)) => panic!("test capture stopped before peer receipt"),
 							}
 						}
-						if ready == 2 {
+						if ready == expected_ready {
 							resumed_pcm = playback_rx.try_recv().ok();
 						}
 					}
 				}
-				if ready == 2 && heard && captured && let Some(pcm) = resumed_pcm.take() {
+				if ready == expected_ready && heard && captured && let Some(pcm) = resumed_pcm.take() {
 					assert_eq!(waiting, guild);
 					break pcm;
 				}
