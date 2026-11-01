@@ -483,6 +483,26 @@ The integrated payload contains 245 files. One artifact set per revision, unchan
 release settings; archive timestamps/compression add noise. These deltas include upstream
 changes through `54512d29` and do not isolate stream-feature cost.
 
+### Upstream integration — November 2, 2026
+
+Upstream `5aa2e486` adds symbol-key shortcuts. It does not replace receive-side
+AV1/HEVC support, adaptive playback clocks, packet repair/feedback or UHD bounds.
+Recent call-device recovery (#858), camera recovery (#844) and local diagnostics
+(#846) are complementary and remain included. All 1,399 workspace tests pass (14
+ignored), as do formatting, production and policy checks. Strict Clippy still fails
+on the three unchanged upstream hotkey findings recorded above. Native Arch package
+smoke checks pass; no new owner-operated live result is claimed.
+
+| Package metric | Previous integration (`d63bb4dd`) | Updated candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 93,430,600 B | 93,433,288 B | +2,688 B (+0.003%) |
+| Installed payload | 98,129,053 B | 98,131,741 B | +2,688 B (+0.003%) |
+| Arch archive | 54,751,460 B | 54,745,380 B | -6,080 B (-0.011%) |
+
+Installed payload: 245 files. One artifact set per revision, same standard
+voice-enabled release settings; archive compression/timestamps add noise. No playback
+speed, CPU/RSS or physical latency change is inferred from these package sizes.
+
 ### Earlier playback recovery evidence
 
 The prior owner-tested candidate `fb093bc` covered two sessions totaling 6,638.153 seconds

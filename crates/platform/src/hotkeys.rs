@@ -647,6 +647,18 @@ fn portal_trigger(chord: &KeyChord) -> Option<String> {
 		"Equals" => "equal",
 		"Comma" => "comma",
 		"Period" => "period",
+		"OpenBracket" => "bracketleft",
+		"CloseBracket" => "bracketright",
+		"OpenCurlyBracket" => "braceleft",
+		"CloseCurlyBracket" => "braceright",
+		"Backslash" | "IntlBackslash" => "backslash",
+		"Semicolon" => "semicolon",
+		"Colon" => "colon",
+		"Quote" => "apostrophe",
+		"Plus" => "plus",
+		"Pipe" => "bar",
+		"Questionmark" => "question",
+		"Exclamationmark" => "exclam",
 		name if name.len() == 1 && name.as_bytes()[0].is_ascii_uppercase() => {
 			value.push(name.as_bytes()[0].to_ascii_lowercase() as char);
 			return Some(value);
@@ -732,6 +744,15 @@ fn code_name(name: &str) -> Option<&'static str> {
 		"Equals" => Some("Equal"),
 		"Comma" => Some("Comma"),
 		"Period" => Some("Period"),
+		"OpenBracket" | "OpenCurlyBracket" => Some("BracketLeft"),
+		"CloseBracket" | "CloseCurlyBracket" => Some("BracketRight"),
+		"Backslash" | "IntlBackslash" => Some("Backslash"),
+		"Semicolon" | "Colon" => Some("Semicolon"),
+		"Quote" => Some("Quote"),
+		"Plus" => Some("Equal"),
+		"Pipe" => Some("Backslash"),
+		"Questionmark" => Some("Slash"),
+		"Exclamationmark" => Some("Digit1"),
 		"Num0" => Some("Digit0"),
 		"Num1" => Some("Digit1"),
 		"Num2" => Some("Digit2"),
@@ -980,6 +1001,11 @@ mod tests {
 			("Equals", "equal"),
 			("Comma", "comma"),
 			("Period", "period"),
+			("OpenBracket", "bracketleft"),
+			("CloseBracket", "bracketright"),
+			("Backslash", "backslash"),
+			("Semicolon", "semicolon"),
+			("Quote", "apostrophe"),
 			("F12", "F12"),
 			("Tab", "Tab"),
 		] {
@@ -1008,6 +1034,26 @@ mod tests {
 
 	#[test]
 	fn modifier_bindings_have_native_codes_and_plain_keys_stay_focused() {
+		for key in [
+			"OpenBracket",
+			"CloseBracket",
+			"OpenCurlyBracket",
+			"CloseCurlyBracket",
+			"Backslash",
+			"IntlBackslash",
+			"Semicolon",
+			"Colon",
+			"Quote",
+			"Plus",
+			"Pipe",
+			"Questionmark",
+			"Exclamationmark",
+		] {
+			assert!(
+				native_hotkey(&KeyChord::new(key, model::keybinds::PRIMARY)).is_some(),
+				"native hotkey mapping missing for {key}"
+			);
+		}
 		assert!(
 			native_hotkey(&KeyChord::new(
 				"M",
