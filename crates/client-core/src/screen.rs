@@ -38,7 +38,7 @@ impl Settings {
 		!matches!(self.source, SourceId::Display(0) | SourceId::Window(0))
 			&& matches!(
 				(self.width, self.height),
-				(854, 480) | (1280, 720) | (1920, 1080)
+				(854, 480) | (1280, 720) | (1920, 1080) | (2560, 1440)
 			) && matches!(self.fps, 15 | 30 | 60)
 	}
 
@@ -46,6 +46,7 @@ impl Settings {
 		let base = match (self.width, self.height) {
 			(854, 480) => 2_000_000,
 			(1920, 1080) => 8_000_000,
+			(2560, 1440) => 12_000_000,
 			_ => 4_000_000,
 		};
 		(base * if self.fps == 60 { 2 } else { 1 }).min(16_000_000)
@@ -79,5 +80,49 @@ impl Event {
 			}
 			_ => 0,
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn settings_validity_and_bitrate() {
+		for (w, h) in [(854, 480), (1280, 720), (1920, 1080), (2560, 1440)] {
+			let settings = Settings {
+				source: SourceId::Display(1),
+				width: w,
+				height: h,
+				fps: 30,
+				cursor: true,
+				audio: false,
+			};
+			assert!(settings.valid());
+			assert!(settings.bit_rate() >= 2_000_000);
+			assert!(settings.bit_rate() <= 16_000_000);
+		}
+		assert!(
+			!Settings {
+				source: SourceId::Display(0),
+				width: 1920,
+				height: 1080,
+				fps: 30,
+				cursor: true,
+				audio: false,
+			}
+			.valid()
+		);
+		assert!(
+			!Settings {
+				source: SourceId::Display(1),
+				width: 3840,
+				height: 2160,
+				fps: 30,
+				cursor: true,
+				audio: false,
+			}
+			.valid()
+		);
 	}
 }

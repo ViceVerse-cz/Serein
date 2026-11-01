@@ -911,3 +911,18 @@ then alternated after builds finished: one warmup and five samples per binary. T
 It is a general reducer check, not an avatar-burst, input-latency or camera benchmark.
 Background OS load is not controlled; no speed improvement is claimed. Process RSS,
 UI frame latency, physical audio/camera behavior and live Discord remain unmeasured.
+
+## PR #862 review repairs (2026-11-01)
+
+Compared PR head `120fca95` with repaired source `f89cc67e`
+using standard voice-enabled Windows x64 release packages and pinned Rust 1.98.1.
+This comparison covers the maintainer follow-up only.
+
+| Metric | PR head baseline | Repaired source | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 92,741,632 | 92,745,216 | +3,584 / +0.004% |
+| Installed payload bytes | 97,504,725 | 97,508,309 | +3,584 / +0.004% |
+| ZIP bytes, Deflate level 9 | 53,138,465 | 53,139,929 | +1,464 / +0.003% |
+
+Unsigned portable payloads; NSIS is unavailable. No media CPU, RSS, latency or
+physical-device improvement is claimed. See the [methods and verification limits](pr-evidence/pr862-review-20261101/README.md).

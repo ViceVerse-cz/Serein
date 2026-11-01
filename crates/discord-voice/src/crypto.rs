@@ -14,6 +14,56 @@ use zeroize::Zeroize;
 pub(crate) const MODE: &str = "aead_xchacha20_poly1305_rtpsize";
 pub(crate) const MAX_PACKET: usize = 4096;
 pub(crate) const MAX_SIGNAL: usize = 64 * 1024;
+pub(crate) const MARKER_BYTES: [u8; 2] = [0xFA, 0xFA];
+
+pub(crate) fn is_dave_frame(frame: &[u8]) -> bool {
+	fn uleb(bytes: &mut &[u8]) -> Option<u32> {
+		let mut value = 0;
+		for shift in (0..35).step_by(7) {
+			let (&byte, rest) = bytes.split_first()?;
+			*bytes = rest;
+			if shift == 28 && byte > 0x0f {
+				return None;
+			}
+			value |= u32::from(byte & 0x7f) << shift;
+			if byte & 0x80 == 0 {
+				return Some(value);
+			}
+		}
+		None
+	}
+	// Eight-byte tag, at least one nonce byte, size byte and two marker bytes.
+	const MIN_SUPPLEMENTAL: usize = 12;
+	if frame.len() < MIN_SUPPLEMENTAL || !frame.ends_with(&MARKER_BYTES) {
+		return false;
+	}
+	let supplemental_size = frame[frame.len() - 3] as usize;
+	if supplemental_size < MIN_SUPPLEMENTAL || supplemental_size >= frame.len() {
+		return false;
+	}
+	let media_size = frame.len() - supplemental_size;
+	let mut fields = &frame[media_size + 8..frame.len() - 3];
+	if uleb(&mut fields).is_none() {
+		return false;
+	}
+	let mut end = 0;
+	while !fields.is_empty() {
+		let (Some(offset), Some(size)) = (uleb(&mut fields), uleb(&mut fields)) else {
+			return false;
+		};
+		if size == 0 || offset < end {
+			return false;
+		}
+		let Some(next) = offset.checked_add(size) else {
+			return false;
+		};
+		if u64::from(next) > media_size as u64 {
+			return false;
+		}
+		end = next;
+	}
+	true
+}
 pub(crate) use client_core::voice::MAX_PARTICIPANTS;
 
 /// Ephemeral DAVE identity shared by the call and its Go Live streams.
@@ -130,15 +180,36 @@ impl Encryption {
 		}
 		let mut nonce = [0; 24];
 		nonce[..4].copy_from_slice(&packet[packet.len() - 4..]);
-		let Ok(body) = self.cipher.decrypt(
-			XNonce::from_slice(&nonce),
-			Payload {
-				msg: &packet[8..packet.len() - 4],
-				aad: &packet[..8],
-			},
-		) else {
-			return None;
-		};
+		let mut body = self
+			.cipher
+			.decrypt(
+				XNonce::from_slice(&nonce),
+				Payload {
+					msg: &packet[8..packet.len() - 4],
+					aad: &packet[..8],
+				},
+			)
+			.ok();
+		if body.is_none() {
+			for pad in [8, 4, 12, 16, 2, 6, 10, 14] {
+				if packet.len() >= 28 + pad {
+					let end = packet.len() - pad;
+					let mut pnonce = [0; 24];
+					pnonce[..4].copy_from_slice(&packet[end - 4..end]);
+					if let Ok(decrypted) = self.cipher.decrypt(
+						XNonce::from_slice(&pnonce),
+						Payload {
+							msg: &packet[8..end - 4],
+							aad: &packet[..8],
+						},
+					) {
+						body = Some(decrypted);
+						break;
+					}
+				}
+			}
+		}
+		let body = body?;
 		let mut compound = Vec::with_capacity(8 + body.len());
 		compound.extend_from_slice(&packet[..8]);
 		compound.extend_from_slice(&body);
@@ -272,7 +343,27 @@ impl Encryption {
 					aad: &packet[..header_len],
 				},
 			)
-			.ok()?;
+			.ok();
+		if frame.is_none() {
+			for pad in [8, 4, 12, 16, 2, 6, 10, 14] {
+				if packet.len() >= header_len + 20 + pad {
+					let end = packet.len() - pad;
+					let mut pnonce = [0; 24];
+					pnonce[..4].copy_from_slice(&packet[end - 4..end]);
+					if let Ok(decrypted) = self.cipher.decrypt(
+						XNonce::from_slice(&pnonce),
+						Payload {
+							msg: &packet[header_len..end - 4],
+							aad: &packet[..header_len],
+						},
+					) {
+						frame = Some(decrypted);
+						break;
+					}
+				}
+			}
+		}
+		let mut frame = frame?;
 		if extended {
 			let extension_len = usize::from(u16::from_be_bytes(
 				packet[csrc_end + 2..csrc_end + 4].try_into().ok()?,
@@ -397,8 +488,10 @@ impl Dave {
 		if changed {
 			self.participants = next;
 			self.announced = announced;
-			self.ready = false;
-			self.waiting = false;
+			if !self.session.is_ready() {
+				self.ready = false;
+				self.waiting = false;
+			}
 		}
 		Ok(changed)
 	}
@@ -632,8 +725,7 @@ impl Dave {
 	pub fn transitioning(&self) -> bool {
 		self.pending.is_some() || self.pending_protocol.is_some()
 	}
-	/// Unverified: Discord can prepare protocol version 1 before the MLS group exists.
-	/// Only version 1 is accepted, so a protocol transition never changes the media keys.
+	/// Protocol preparation and MLS commits use independent transition identifiers.
 	pub fn prepare_protocol(&mut self, id: u16) {
 		self.pending_protocol = Some(id);
 	}
@@ -673,6 +765,26 @@ impl Drop for Dave {
 mod tests {
 	use super::*;
 	use openmls::prelude::{OpenMlsProvider, ProtocolVersion};
+	#[test]
+	fn protocol_frame_check_rejects_marker_collisions_and_malformed_footer_fields() {
+		fn frame(fields: &[u8]) -> Vec<u8> {
+			[
+				&[1u8; 4][..],
+				&[0u8; 8],
+				fields,
+				&[(11 + fields.len()) as u8, 0xfa, 0xfa],
+			]
+			.concat()
+		}
+		assert!(is_dave_frame(&frame(&[1])));
+		assert!(!is_dave_frame(&[1, 0xfa, 0xfa]));
+		assert!(!is_dave_frame(&frame(&[0x80]))); // Unterminated nonce.
+		assert!(!is_dave_frame(&frame(&[0xff, 0xff, 0xff, 0xff, 0x10]))); // Overflow.
+		assert!(!is_dave_frame(&frame(&[1, 0]))); // Incomplete range pair.
+		assert!(is_dave_frame(&frame(&[1, 0, 2, 2, 2])));
+		assert!(!is_dave_frame(&frame(&[1, 0, 3, 2, 1]))); // Overlapping ranges.
+		assert!(!is_dave_frame(&frame(&[1, 3, 2]))); // Range reaches into the footer.
+	}
 	#[test]
 	fn proposals_before_local_group_are_ignored_without_weakening_later_validation() {
 		let server = crate::test_mls::Delivery::new();
@@ -788,6 +900,14 @@ mod tests {
 		let packet = sealed(&mut crypto, &compound);
 		let feedback = crypto.feedback(&packet, 42).unwrap();
 		assert!(feedback.keyframe);
+		for pad_len in [4, 8, 12, 16] {
+			let mut padded = packet.clone();
+			padded.extend(vec![0xbb; pad_len]);
+			let padded_feedback = crypto
+				.feedback(&padded, 42)
+				.expect("padded rtcp feedback decrypts");
+			assert!(padded_feedback.keyframe);
+		}
 		assert_eq!(feedback.nacks, [65535, 0, 1]);
 		assert_eq!(feedback.loss, Some(64));
 		assert_eq!(feedback.bitrate, Some(500));
@@ -875,6 +995,15 @@ mod tests {
 			(9, 1, 120, false)
 		);
 		assert_eq!(opened.payload, b"synthetic encrypted DAVE frame".to_vec());
+		for pad_len in [4, 8, 12, 16] {
+			let mut padded = packet.clone();
+			padded.extend(vec![0xaa; pad_len]);
+			let opened_padded = crypto.open(&padded).expect("padded rtp decrypts");
+			assert_eq!(
+				opened_padded.payload,
+				b"synthetic encrypted DAVE frame".to_vec()
+			);
+		}
 		let mut video = header;
 		video[1] = 101 | 0x80;
 		let sealed = crypto.seal(&video, b"h264").unwrap();

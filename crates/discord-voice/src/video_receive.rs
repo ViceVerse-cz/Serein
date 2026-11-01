@@ -17,12 +17,12 @@ pub(crate) type Lost = Arc<Mutex<Vec<u64>>>;
 /// Largest reassembled (still DAVE-encrypted) access unit accepted from one remote sender.
 pub const MAX_FRAME_BYTES: usize = 2 * 1024 * 1024 + 64 * 1024;
 /// Remote video senders tracked per transport; Discord forwards at most a few at once.
-pub const MAX_SOURCES: usize = 16;
+pub const MAX_SOURCES: usize = 64;
 /// Decoders kept alive at once; each holds reference pictures for one remote user.
 const MAX_DECODERS: usize = 8;
 const QUEUE_BYTES: usize = 16 * 1024 * 1024;
-const MAX_WIDTH: u32 = 1920;
-const MAX_PIXELS: u64 = 1920 * 1080;
+const MAX_WIDTH: u32 = 2560;
+const MAX_PIXELS: u64 = 2560 * 1440;
 const START_CODE: [u8; 4] = [0, 0, 0, 1];
 const MAX_DECODE_AGE: Duration = Duration::from_millis(150);
 
@@ -360,6 +360,12 @@ impl Receivers {
 	}
 	pub fn remove(&mut self, user: u64) {
 		self.retain_user_sources(user, &[]);
+	}
+	pub fn retain(&mut self, mut keep: impl FnMut(u64) -> bool) {
+		self.sources.retain(|(_, owner, _)| keep(*owner));
+		self.rtx
+			.retain(|(_, media)| self.sources.iter().any(|(ssrc, _, _)| ssrc == media));
+		self.awaiting_keyframe.retain(|u| keep(*u));
 	}
 	/// Reconcile a complete stream announcement without resetting unchanged assemblers.
 	pub fn retain_user_sources(&mut self, user: u64, keep: &[u32]) {
@@ -1329,7 +1335,8 @@ mod tests {
 		assert!(is_keyframe(&[0, 0, 0, 1, 0x67, 1, 0, 0, 1, 0x65, 2]));
 		assert!(!is_keyframe(&[0, 0, 0, 1, 0x41, 9]));
 		assert!(bounded(1920, 1080).is_ok());
-		assert!(bounded(1920, 1081).is_err());
+		assert!(bounded(2560, 1440).is_ok());
+		assert!(bounded(2560, 1441).is_err());
 		assert!(bounded(0, 4).is_err());
 	}
 	#[test]

@@ -268,6 +268,8 @@ Section "Uninstall"
 
   ; Remove installed files
   Delete "$INSTDIR\${APP_EXE}"
+  Delete "$INSTDIR\WebView2Loader.dll"
+  Delete "$INSTDIR\libstdc++-6.dll"
   Delete "$INSTDIR\README.md"
   Delete "$INSTDIR\LICENSE-MIT"
   Delete "$INSTDIR\LICENSE-APACHE"

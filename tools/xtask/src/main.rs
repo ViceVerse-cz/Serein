@@ -234,6 +234,106 @@ fn package_windows(root: &std::path::Path) -> Result<(), String> {
 	}
 	Ok(())
 }
+#[allow(dead_code)]
+fn copy_webview2_loader(root: &std::path::Path) -> Result<(), String> {
+	let target_dir =
+		std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| PathBuf::from("target"), PathBuf::from);
+	let arch = if cfg!(target_arch = "x86_64") {
+		"x64"
+	} else if cfg!(target_arch = "aarch64") {
+		"arm64"
+	} else {
+		"x86"
+	};
+	for profile in ["release", "debug"] {
+		let build_dir = target_dir.join(profile).join("build");
+		if let Ok(entries) = std::fs::read_dir(&build_dir) {
+			for entry in entries.flatten() {
+				if entry
+					.file_name()
+					.to_string_lossy()
+					.starts_with("webview2-com-sys-")
+				{
+					let loader = entry
+						.path()
+						.join("out")
+						.join(arch)
+						.join("WebView2Loader.dll");
+					if loader.is_file() {
+						std::fs::copy(&loader, root.join("WebView2Loader.dll"))
+							.map_err(|e| e.to_string())?;
+						return Ok(());
+					}
+				}
+			}
+		}
+	}
+	if let Ok(cargo_home) = std::env::var("CARGO_HOME")
+		.or_else(|_| std::env::var("USERPROFILE").map(|u| format!(r"{u}\.cargo")))
+	{
+		let registry = PathBuf::from(cargo_home).join("registry").join("src");
+		if let Ok(indexes) = std::fs::read_dir(&registry) {
+			for index in indexes.flatten() {
+				if let Ok(entries) = std::fs::read_dir(index.path()) {
+					for entry in entries.flatten() {
+						if entry
+							.file_name()
+							.to_string_lossy()
+							.starts_with("webview2-com-sys-")
+						{
+							let loader = entry.path().join(arch).join("WebView2Loader.dll");
+							if loader.is_file() {
+								std::fs::copy(&loader, root.join("WebView2Loader.dll"))
+									.map_err(|e| e.to_string())?;
+								return Ok(());
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	Err("WebView2Loader.dll could not be found to bundle into the Windows package".into())
+}
+#[allow(dead_code)]
+fn copy_mingw_dll(root: &std::path::Path, name: &str) -> Result<(), String> {
+	let target = root.join(name);
+	if target.is_file() {
+		return Ok(());
+	}
+	if let Ok(output) = Command::new("where").arg(name).output()
+		&& output.status.success()
+	{
+		for line in String::from_utf8_lossy(&output.stdout).lines() {
+			let path = PathBuf::from(line.trim());
+			if path.is_file() {
+				std::fs::copy(&path, &target).map_err(|e| e.to_string())?;
+				return Ok(());
+			}
+		}
+	}
+	if let Ok(paths) = std::env::var("PATH") {
+		for dir in std::env::split_paths(&paths) {
+			let candidate = dir.join(name);
+			if candidate.is_file() {
+				std::fs::copy(&candidate, &target).map_err(|e| e.to_string())?;
+				return Ok(());
+			}
+		}
+	}
+	Ok(())
+}
+#[allow(dead_code)]
+fn copy_mingw_runtime_dlls(root: &std::path::Path) -> Result<(), String> {
+	for name in [
+		"libstdc++-6.dll",
+		"libgcc_s_seh-1.dll",
+		"libwinpthread-1.dll",
+	] {
+		copy_mingw_dll(root, name)?;
+	}
+	Ok(())
+}
 fn package() -> Result<(), String> {
 	let options: Vec<String> = std::env::args().skip(2).collect();
 	let format = match options.as_slice() {
@@ -282,6 +382,8 @@ fn package() -> Result<(), String> {
 			root.join("install-notifications.ps1"),
 		)
 		.map_err(|e| e.to_string())?;
+		copy_webview2_loader(&root)?;
+		copy_mingw_runtime_dlls(&root)?;
 	}
 	let source = std::env::var_os("CARGO_TARGET_DIR")
 		.map_or_else(|| PathBuf::from("target"), PathBuf::from)

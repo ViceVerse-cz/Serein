@@ -2,7 +2,7 @@
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::HotKey};
 use model::{KeyChord, KeybindAction, Keybinds, keybinds::is_mouse_button};
 #[cfg(target_os = "linux")]
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 const READY: &str = "Global voice keybinds are enabled.";
@@ -17,6 +17,7 @@ const INVALID: &str = "One or more voice bindings cannot be registered globally;
 const MODIFIER_REQUIRED: &str = "Add Ctrl, Alt, Shift, or Command to use a voice binding globally; it still works while Serein is focused.";
 
 /// Mouse poller identities, kept out of the range `global-hotkey` assigns to real hotkeys.
+#[cfg(target_os = "windows")]
 const MOUSE_ID: u32 = 1 << 31;
 
 static NATIVE_INPUTS: Mutex<Vec<Weak<NativeInput>>> = Mutex::new(Vec::new());
@@ -253,8 +254,7 @@ impl Hotkeys {
 						pending,
 						registered.clone(),
 						chords.clone(),
-						ptt_held.clone(),
-						ptm_held.clone(),
+						[ptt_held.clone(), ptm_held.clone()],
 						status.clone(),
 						wake.clone(),
 					)
@@ -459,11 +459,11 @@ async fn portal(
 	pending: Arc<AtomicU8>,
 	registered: Arc<AtomicU8>,
 	chords: Arc<Mutex<Vec<(KeybindAction, KeyChord)>>>,
-	ptt_held: Arc<std::sync::atomic::AtomicU64>,
-	ptm_held: Arc<std::sync::atomic::AtomicU64>,
+	held: [Arc<std::sync::atomic::AtomicU64>; 2],
 	status: Arc<AtomicU8>,
 	wake: Arc<dyn Fn() + Send + Sync>,
 ) -> Result<bool, ashpd::Error> {
+	let [ptt_held, ptm_held] = held;
 	use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut};
 	use futures_util::StreamExt;
 	// One action can own several chords, so group chords that translate to the same trigger.
