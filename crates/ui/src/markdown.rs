@@ -2628,7 +2628,7 @@ impl Formatted {
 			}
 			if remaining == 0 {
 				truncated = true;
-				next_is_word = text.chars().next().is_some_and(|c| !c.is_whitespace());
+				next_is_word = text.chars().next().is_some_and(|c| c.is_alphanumeric());
 				break;
 			}
 			let destination = style
@@ -2712,19 +2712,28 @@ impl Formatted {
 					muted.clone(),
 				)
 			};
-			let display_count = display.chars().count();
-			let is_overflow = display_count > remaining;
+			let mut cut_end = 0;
+			let mut taken_chars = 0;
+			let mut is_overflow = false;
+			for (offset, cluster) in display.grapheme_indices(true) {
+				let cluster_chars = cluster.chars().count();
+				if taken_chars + cluster_chars > remaining {
+					is_overflow = true;
+					break;
+				}
+				taken_chars += cluster_chars;
+				cut_end = offset + cluster.len();
+			}
 			let take = if is_overflow {
 				truncated = true;
-				next_is_word = display
+				next_is_word = display[cut_end..]
 					.chars()
-					.nth(remaining)
-					.is_some_and(|c| !c.is_whitespace());
-				let take: String = display.chars().take(remaining).collect();
+					.next()
+					.is_some_and(|c| c.is_alphanumeric());
 				remaining = 0;
-				take
+				display[..cut_end].to_string()
 			} else {
-				remaining -= display_count;
+				remaining -= taken_chars;
 				display
 			};
 			let mut start = 0;
@@ -2762,11 +2771,10 @@ impl Formatted {
 				&& !ends_with_ws
 				&& let Some(last_ws) = job.text[prefix_len..]
 					.char_indices()
-					.filter(|(idx, ch)| {
+					.rfind(|&(idx, ch)| {
 						let abs_idx = prefix_len + idx;
 						ch.is_whitespace() && !is_emoji_at(abs_idx)
 					})
-					.last()
 					.map(|(idx, _)| prefix_len + idx)
 				&& last_ws > prefix_len
 			{
@@ -2778,11 +2786,11 @@ impl Formatted {
 				if is_emoji_at(last_idx) {
 					break;
 				}
-				if let Some(ch) = job.text[..trimmed_len].chars().next_back() {
-					if ch.is_whitespace() {
-						trimmed_len -= ch.len_utf8();
-						continue;
-					}
+				if let Some(ch) = job.text[..trimmed_len].chars().next_back()
+					&& ch.is_whitespace()
+				{
+					trimmed_len -= ch.len_utf8();
+					continue;
 				}
 				break;
 			}
@@ -3082,6 +3090,161 @@ mod tests {
 			);
 			assert!(preview.text.ends_with("…"));
 			assert_eq!(emojis.len(), 1, "emoji should be preserved");
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_punctuation_after_word_does_not_backtrack() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}word, more");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				preview.text.contains("word…"),
+				"expected preview to retain 'word…' but got {:?}",
+				preview.text
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_joined_emoji_preserves_grapheme_boundary() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// "👩‍💻" is 3 codepoints / 10 bytes.
+			// Case 1: 118 chars + "👩‍💻 more" -> remaining 2; emoji requires 3, must not be split.
+			let prefix1 = "a".repeat(118);
+			let input1 = format!("{prefix1}👩‍💻 more");
+			let mut preview1 = egui::text::LayoutJob::default();
+			let emojis1 = super::Formatted::parse(&input1).append_inline_preview(
+				&mut preview1,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			let text1 = super::Formatted::inline_preview_text(&preview1, &emojis1);
+			assert_eq!(text1, format!("{prefix1}…"));
+
+			// Case 2: 117 chars + "👩‍💻 more" -> remaining 3; emoji fits intact.
+			let prefix2 = "a".repeat(117);
+			let input2 = format!("{prefix2}👩‍💻 more");
+			let mut preview2 = egui::text::LayoutJob::default();
+			let emojis2 = super::Formatted::parse(&input2).append_inline_preview(
+				&mut preview2,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			let text2 = super::Formatted::inline_preview_text(&preview2, &emojis2);
+			assert_eq!(text2, format!("{prefix2}👩‍💻…"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_edge_cases_empty_unicode_punct_and_consecutive_spaces() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 1. Empty preview
+			let mut p_empty = egui::text::LayoutJob::default();
+			let em_empty = super::Formatted::parse("").append_inline_preview(
+				&mut p_empty,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(p_empty.text, "");
+			assert!(em_empty.is_empty());
+
+			// 2. Very short preview
+			let mut p_short = egui::text::LayoutJob::default();
+			let em_short = super::Formatted::parse("hello").append_inline_preview(
+				&mut p_short,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(p_short.text, "hello");
+			assert!(em_short.is_empty());
+
+			// 3. Unicode punctuation (em-dash, ideographic comma) does not backtrack complete word
+			let prefix = "a ".repeat(58);
+			for punct in ["—", "…", "、", "。"] {
+				let input = format!("{prefix}word{punct} more");
+				let mut preview = egui::text::LayoutJob::default();
+				let _ = super::Formatted::parse(&input).append_inline_preview(
+					&mut preview,
+					ui,
+					&[],
+					None,
+					&[],
+					&[],
+				);
+				assert!(preview.text.ends_with("…"));
+				assert!(
+					preview.text.contains("word…"),
+					"expected 'word…' for punct {punct}, got {:?}",
+					preview.text
+				);
+			}
+
+			// 4. Consecutive whitespace is trimmed cleanly before ellipsis
+			let prefix_spaces = "a ".repeat(58);
+			let input_spaces = format!("{prefix_spaces}word   more");
+			let mut preview_spaces = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input_spaces).append_inline_preview(
+				&mut preview_spaces,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview_spaces.text.ends_with("word…"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_word_continuation_backtracks_to_previous_space() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}wordy more");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				!preview.text.contains("word"),
+				"partial word 'word' from 'wordy' must be backtracked"
+			);
 		});
 		output.drop_without_applying_deltas();
 	}
