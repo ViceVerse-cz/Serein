@@ -2618,6 +2618,7 @@ impl Formatted {
 			..Default::default()
 		};
 		let mut remaining: usize = 120;
+		let prefix_len = job.text.len();
 		let mut truncated = false;
 		let mut next_is_word = false;
 		let mut emojis = Vec::new();
@@ -2627,6 +2628,7 @@ impl Formatted {
 			}
 			if remaining == 0 {
 				truncated = true;
+				next_is_word = text.chars().next().is_some_and(|c| !c.is_whitespace());
 				break;
 			}
 			let destination = style
@@ -2750,12 +2752,14 @@ impl Formatted {
 		if truncated {
 			if next_is_word
 				&& !job.text.ends_with(char::is_whitespace)
-				&& let Some(last_ws) = job.text.rfind(char::is_whitespace)
-				&& last_ws > 0
+				&& let Some(last_ws) = job.text[prefix_len..]
+					.rfind(char::is_whitespace)
+					.map(|index| index + prefix_len)
+				&& last_ws > prefix_len
 			{
 				job.text.truncate(last_ws);
 			}
-			let trimmed_len = job.text.trim_end().len();
+			let trimmed_len = job.text.trim_end().len().max(prefix_len);
 			job.text.truncate(trimmed_len);
 			let end = job.text.len();
 			let end_idx = egui::text::ByteIndex(end);
@@ -2983,6 +2987,27 @@ mod tests {
 				&[],
 				&[],
 			);
+			assert!(preview.text.ends_with('…'));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_caller_prefix_when_truncating() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let mut preview = egui::text::LayoutJob::default();
+			preview.append("@author: ", 0.0, Default::default());
+			let long_word = "a".repeat(130);
+			let _ = super::Formatted::parse(&long_word).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.starts_with("@author: "));
 			assert!(preview.text.ends_with('…'));
 		});
 		output.drop_without_applying_deltas();
