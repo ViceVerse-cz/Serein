@@ -1944,6 +1944,26 @@ Gateway data arrives. Failed writes preserve friendship; newer Gateway updates w
 late acknowledgements. Cancellation and account changes discard pending UI confirmations.
 These paths have offline UI/reducer/HTTP coverage, not live-account verification.
 
+### Accepting a stranger's request — October 26, 2026
+
+The owner reported that accepting an incoming request failed with the generic
+"Unsupported service response" while the official clients accepted it. Discord can require one
+extra confirmation for a request it attributes to a stranger: the public
+[discord.py-self relationship implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/relationship.py)
+documents that "friend requests from users Discord ascertains to be strangers require additional
+confirmation to accept" and resends the same `PUT` with `confirm_stranger_request: true` after
+its warning; without it the acceptance is rejected.
+
+Serein sends the plain `PUT .../{id}` with an empty object first, as before, and only after that
+request is rejected (a protocol-level or forbidden answer) resends it once with
+`confirm_stranger_request: true` and reports that second outcome. A relationship `PUT` assigns
+state rather than sending content, and the account owner already chose Accept, so the retry
+carries that same deliberate choice; removes, blocks, notes, nicknames and every other account
+write keep their single attempt. Serein has no warning dialog of its own yet, so the official
+client's stranger prompt has no local equivalent. Synthetic local-HTTP tests cover the first
+rejection, the confirmation body and the second outcome; normal-user acceptance remains
+live-unverified beyond the owner's report.
+
 ### Blocked and ignored users (September 21, 2026)
 
 Friends includes a searchable Blocked & Ignored tab populated from READY relationship

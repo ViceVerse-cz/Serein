@@ -196,25 +196,43 @@ impl DiscordApi {
 			}
 			Action::AddFriend { .. } => unreachable!(),
 			Action::ResolveFriend { user, accept } => {
-				let (method, body) = if *accept {
-					(Method::PUT, Some(json!({})))
-				} else {
-					(Method::DELETE, None)
-				};
 				let path = format!("/users/@me/relationships/{user}");
-				if *accept {
-					self.request_with_captcha(
-						method,
+				if !*accept {
+					return self.request(Method::DELETE, &path, None).await.map(|_| ());
+				}
+				// The challenge slot is reborrowed per attempt so a solved challenge can
+				// resume this same write.
+				let mut challenge = challenge;
+				match self
+					.request_with_captcha(
+						Method::PUT,
 						&path,
-						body,
+						Some(json!({})),
 						crate::MAX_WIRE,
 						captcha,
-						challenge,
+						challenge.as_deref_mut(),
 					)
 					.await
-					.map(|_| ())
-				} else {
-					self.request(method, &path, body).await.map(|_| ())
+				{
+					Ok(_) => Ok(()),
+					// Discord leaves it to the client to confirm a request from someone it
+					// considers a stranger; the account owner already chose Accept, so resend
+					// once with that confirmation, as the official client does after its
+					// warning. A relationship PUT assigns state, so the visible allow/deny
+					// outcome belongs to the account owner's own click.
+					// Reference: discord.py-self `Relationship.accept(confirm_stranger_request)`.
+					Err(Failure::Protocol | Failure::Forbidden) => self
+						.request_with_captcha(
+							Method::PUT,
+							&path,
+							Some(json!({"confirm_stranger_request": true})),
+							crate::MAX_WIRE,
+							captcha,
+							challenge,
+						)
+						.await
+						.map(|_| ()),
+					Err(failure) => Err(failure),
 				}
 			}
 			Action::ProfileFriend { user, friend } => {
@@ -841,6 +859,81 @@ mod tests {
 			Event::UserAction(client_core::user_actions::Event::Written { result: Ok(()), .. })
 		));
 		assert!(!api.stopped());
+		server.await.unwrap();
+	}
+	/// Regression: Discord can require an explicit stranger confirmation to accept a request.
+	#[tokio::test]
+	async fn accepting_a_stranger_request_resends_once_with_the_confirmation() {
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_STRANGER_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let server = tokio::spawn(async move {
+			for attempt in 0..2 {
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut bytes = Vec::new();
+				let mut length = None;
+				while !bytes.windows(4).any(|b| b == b"\r\n\r\n")
+					|| bytes.len() < length.unwrap_or(0)
+				{
+					let mut chunk = [0; 1024];
+					let count = socket.read(&mut chunk).await.unwrap();
+					assert!(count > 0 && bytes.len() + count <= 8192);
+					bytes.extend_from_slice(&chunk[..count]);
+					if let Some(end) = bytes.windows(4).position(|b| b == b"\r\n\r\n") {
+						length = std::str::from_utf8(&bytes[..end])
+							.unwrap()
+							.lines()
+							.find_map(|h| {
+								h.to_ascii_lowercase()
+									.strip_prefix("content-length: ")
+									.map(|n| end + 4 + n.parse::<usize>().unwrap())
+							});
+					}
+				}
+				let end = bytes.windows(4).position(|b| b == b"\r\n\r\n").unwrap();
+				let headers = std::str::from_utf8(&bytes[..end]).unwrap();
+				assert!(headers.starts_with("PUT /users/@me/relationships/2 HTTP/1.1\r\n"));
+				let body: serde_json::Value = serde_json::from_slice(&bytes[end + 4..]).unwrap();
+				let (status, response) = if attempt == 0 {
+					// No captcha fields: the service wants the stranger confirmation.
+					assert_eq!(body, json!({}));
+					(
+						"400 Bad Request",
+						r#"{"code":50035,"message":"Must confirm stranger request"}"#,
+					)
+				} else {
+					assert_eq!(body, json!({"confirm_stranger_request": true}));
+					("204 No Content", "")
+				};
+				socket
+					.write_all(
+						format!(
+							"HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
+							response.len()
+						)
+						.as_bytes(),
+					)
+					.await
+					.unwrap();
+			}
+		});
+		let event = api
+			.execute(Command::UserAction {
+				action: Action::ResolveFriend {
+					user: Id(2),
+					accept: true,
+				},
+				request: 4,
+				captcha: None,
+			})
+			.await;
+		assert!(matches!(
+			event,
+			Event::UserAction(client_core::user_actions::Event::Written { result: Ok(()), .. })
+		));
 		server.await.unwrap();
 	}
 }
