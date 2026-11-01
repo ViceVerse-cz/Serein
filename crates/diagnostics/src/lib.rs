@@ -1110,6 +1110,7 @@ mod tests {
 	#[cfg(unix)]
 	#[test]
 	fn every_reopen_refuses_symlinks_and_fifos() {
+		#[cfg(not(target_vendor = "apple"))]
 		use rustix::fs::{CWD, Mode, mkfifoat};
 		let directory = tempfile::tempdir().unwrap();
 		let target = directory.path().join("target");
@@ -1125,7 +1126,18 @@ mod tests {
 		);
 		assert_eq!(std::fs::read(&target).unwrap(), b"unchanged");
 		std::fs::remove_file(&path).unwrap();
+		#[cfg(not(target_vendor = "apple"))]
 		mkfifoat(CWD, &path, Mode::from_raw_mode(0o600)).unwrap();
+		// rustix does not expose mkfifoat on Apple targets.
+		#[cfg(target_vendor = "apple")]
+		assert!(
+			std::process::Command::new("/usr/bin/mkfifo")
+				.args(["-m", "600"])
+				.arg(&path)
+				.status()
+				.unwrap()
+				.success()
+		);
 		assert!(prepare(&logs).is_some());
 		assert_eq!(FileSink::new(path, 0).write(&["private\n".into()]), 0);
 	}
