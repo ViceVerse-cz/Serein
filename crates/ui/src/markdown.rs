@@ -2596,6 +2596,35 @@ impl Formatted {
 			.find(|(text, _)| !text.is_empty())
 			.is_none_or(|(text, _)| text.ends_with('\n'))
 	}
+	fn clean_custom_emojis(text: &str) -> String {
+		let mut output = String::with_capacity(text.len());
+		let mut offset = 0;
+		while offset < text.len() {
+			if let Some((_, len)) = crate::emoji::custom_prefix(&text[offset..]) {
+				let token = &text[offset..offset + len];
+				let body = token
+					.strip_prefix("<:")
+					.or_else(|| token.strip_prefix("<a:"))
+					.unwrap_or("");
+				if let Some(colon) = body.find(':') {
+					let name = &body[..colon];
+					output.push(':');
+					output.push_str(name);
+					output.push(':');
+					offset += len;
+					continue;
+				}
+			}
+			let chr = text[offset..]
+				.chars()
+				.next()
+				.expect("valid UTF-8 character");
+			output.push(chr);
+			offset += chr.len_utf8();
+		}
+		output
+	}
+
 	pub(crate) fn append_inline_preview(
 		&self,
 		job: &mut LayoutJob,
@@ -2700,12 +2729,16 @@ impl Formatted {
 			} else if style.mass_mention {
 				(text.clone(), pill.clone())
 			} else {
-				(
-					text.chars()
-						.map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c })
-						.collect(),
-					muted.clone(),
-				)
+				let normalized: String = text
+					.chars()
+					.map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c })
+					.collect();
+				let display = if !style.code {
+					Self::clean_custom_emojis(&normalized)
+				} else {
+					normalized
+				};
+				(display, muted.clone())
 			};
 			let take: String = display.chars().take(remaining).collect();
 			remaining -= take.chars().count();
@@ -2884,6 +2917,26 @@ impl Formatted {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn inline_preview_replaces_custom_emojis_with_names() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let input =
+				"Check <:ehappy:1316064437991641259> and <a:party:123456789> and `<:code:111>`";
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(preview.text, "Check :ehappy: and :party: and <:code:111>");
+		});
+		output.drop_without_applying_deltas();
+	}
+
 	#[test]
 	fn game_mentions_obey_code_escape_and_spoiler_boundaries() {
 		let parsed = super::Formatted::parse("<@$42> `<@$43>` \\<@$44> ||<@$45>|| <@46> <@&47>");
