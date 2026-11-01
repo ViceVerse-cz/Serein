@@ -1547,6 +1547,14 @@ join-server-status-invite-accepted = Pozvánka přijata. Čekání na přístup 
 join-server-status-offline-preview = Offline náhled — připojení k serverům je zakázáno.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Odebrat
+# Context: custom_section
+keybinds-custom-section-add-binding = Přidat zkratku
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Přidejte další zkratky pro libovolnou akci. Každou kombinaci klávesy nebo tlačítka myši lze použít jen jednou.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Vlastní zkratky
 # Context: row
 keybinds-row-global = GLOBÁLNÍ
 # Context: row
@@ -1787,6 +1795,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Otevřít
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Náhled zvuku
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Aktivace push to talk
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Deaktivace push to talk
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Zpracování vyzváněcích tónů, hovorových zařízení a mikrofonu.
 # Context: notification_settings
@@ -4000,7 +4012,29 @@ updates-update-settings-restart-to-update = Pro aktualizaci restartujte
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein byl nainstalován prostřednictvím vaší distribuce. Spusťte to v terminálu pro aktualizaci.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Uložit diagnostiku
+# Context: update_settings
 updates-update-settings-support-diagnostics = Podpora a diagnostika
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Kopírovat poslední řádky
+# Context: update_settings
+updates-update-settings-diagnostic-log = Diagnostický protokol
+# Context: update_settings
+updates-update-settings-log-errors = Chyby
+# Context: update_settings
+updates-update-settings-log-events = Chyby, varování a události
+# Context: update_settings
+updates-update-settings-log-everything = Vše (podrobně)
+# Context: update_settings
+updates-update-settings-log-off = Vypnuto
+# Context: update_settings
+updates-update-settings-log-warnings = Chyby a varování
+# Context: update_settings
+updates-update-settings-open-folder = Otevřít složku
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Složku protokolu se nepodařilo zapsat. Zkontrolujte složku dat Serein a zkuste to znovu.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Časy, fáze a selhání v jednom místním souboru protokolu. Údaje o účtu, kanálech, zprávách a přihlašovací údaje se nikdy nezapisují a nic se neodesílá.
 # Context: update_log
 updates-update-log = Historie aktualizací
 # Context: update_settings
@@ -4496,6 +4530,7 @@ lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni da
 lib-composer-onboarding-complete = Dokončit uvítání
 profiles-message-placeholder = Zpráva pro @{ $user }
 profiles-message-send = Odeslat zprávu
+profiles-message-open-chat = Otevřít chat
 profiles-message-sending = Otevírání soukromé zprávy…
 user-menu-contents-start-a-call = Zahájit hovor
 verification-show-complete-the-check-to-open-this-conversation = Dokonči ověření a otevři tuto konverzaci.

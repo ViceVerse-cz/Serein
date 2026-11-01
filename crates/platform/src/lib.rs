@@ -49,6 +49,140 @@ const SERVICE: &str = "cz.viceverse.serein";
 const ACCOUNT: &str = "discord-session";
 #[cfg(feature = "development-data")]
 const ACCOUNT: &str = "discord-session.development";
+
+/// Whether this process may start another one at all. A security product that refuses the shell
+/// for an unknown binary usually refuses process creation too, and the difference is what a report
+/// needs; `Err` carries the operating system's code. The probe writes nothing and opens no window.
+pub fn spawn_probe() -> Result<(), i64> {
+	#[cfg(target_os = "windows")]
+	{
+		const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+		use std::os::windows::process::CommandExt;
+		std::process::Command::new("cmd.exe")
+			.args(["/c", "exit"])
+			.creation_flags(CREATE_NO_WINDOW)
+			.status()
+			.map(drop)
+			.map_err(|error| i64::from(error.raw_os_error().unwrap_or(-1)))
+	}
+	#[cfg(not(target_os = "windows"))]
+	{
+		Ok(())
+	}
+}
+
+/// Opens a folder in the owner's file manager. The caller passes a path it already owns, so this
+/// crosses no service or privilege boundary. `Err` carries the platform's failure code, which the
+/// caller records instead of leaving a button that appears to do nothing.
+pub fn open_folder(path: &std::path::Path) -> Result<(), i64> {
+	#[cfg(target_os = "windows")]
+	{
+		open_with_shell(path)
+	}
+	#[cfg(not(target_os = "windows"))]
+	{
+		#[cfg(target_os = "macos")]
+		const OPENER: &str = "open";
+		#[cfg(all(unix, not(target_os = "macos")))]
+		const OPENER: &str = "xdg-open";
+		let mut child = std::process::Command::new(OPENER)
+			.arg(path)
+			.spawn()
+			.map_err(|error| i64::from(error.raw_os_error().unwrap_or(-1)))?;
+		// The opener exits on its own; reaping it keeps finished children from piling up.
+		std::thread::spawn(move || {
+			let _ = child.wait();
+		});
+		Ok(())
+	}
+}
+
+/// Windows cannot simply start `explorer.exe` (a fresh one fails to initialize its DLLs,
+/// 0xc0000142) and a machine policy can refuse this process the shell entirely
+/// (SE_ERR_ACCESSDENIED), so two quiet routes are tried before the caller hands the path over.
+/// `ShellExecuteW` is deliberately absent: on a machine that refuses it, it puts a system dialog
+/// on screen instead of failing quietly.
+#[cfg(target_os = "windows")]
+fn open_with_shell(path: &std::path::Path) -> Result<(), i64> {
+	// The running shell browses the folder through COM; this never starts explorer.exe.
+	let selected = select_in_shell(path);
+	if selected.is_ok() {
+		return Ok(());
+	}
+	// A trusted command interpreter asks the shell on our behalf.
+	if start_via_cmd(path).is_ok() {
+		return Ok(());
+	}
+	// The first code names the policy that refused us, so it is the one worth reporting.
+	selected
+}
+
+/// Initializes an apartment for the shell calls. A render thread usually has none and the shell
+/// then reports SE_ERR_ACCESSDENIED. An existing different apartment is fine: the thread keeps
+/// whichever apartment it already had, so nothing is uninitialized here.
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn prepare_shell() {
+	use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+	// SAFETY: no memory or handles are passed; the call only sets the thread's apartment.
+	unsafe {
+		let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+	}
+}
+
+/// A NUL-terminated absolute path the shell calls can read, or `None` for an unrepresentable one.
+#[cfg(target_os = "windows")]
+fn wide_path(path: &std::path::Path) -> Option<Vec<u16>> {
+	use std::os::windows::ffi::OsStrExt;
+	let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+	let mut wide: Vec<u16> = absolute.as_os_str().encode_wide().collect();
+	if wide.contains(&0) {
+		return None;
+	}
+	wide.push(0);
+	Some(wide)
+}
+
+/// Asks the running shell to browse the folder: no new process, and the shell that already owns
+/// the desktop is the one that answers.
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn select_in_shell(path: &std::path::Path) -> Result<(), i64> {
+	use windows::Win32::UI::Shell::{ILCreateFromPathW, ILFree, SHOpenFolderAndSelectItems};
+	use windows::core::PCWSTR;
+
+	prepare_shell();
+	let wide = wide_path(path).ok_or(-1)?;
+	// SAFETY: `wide` is NUL-terminated and outlives both calls; the item list comes from the
+	// shell's own allocator and is released with ILFree, and no extra items are passed.
+	unsafe {
+		let list = ILCreateFromPathW(PCWSTR(wide.as_ptr()));
+		if list.is_null() {
+			return Err(-1);
+		}
+		let result = SHOpenFolderAndSelectItems(list, None, 0);
+		ILFree(Some(list));
+		result.map_err(|error| i64::from(error.code().0))
+	}
+}
+
+/// Last resort: `start` runs inside a trusted command interpreter, which the shell is more likely
+/// to accept than this process.
+#[cfg(target_os = "windows")]
+fn start_via_cmd(path: &std::path::Path) -> Result<(), i64> {
+	const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+	use std::os::windows::process::CommandExt;
+	let status = std::process::Command::new("cmd.exe")
+		.args(["/c", "start", "", &path.display().to_string()])
+		.creation_flags(CREATE_NO_WINDOW)
+		.status();
+	match status {
+		Ok(status) if status.success() => Ok(()),
+		Ok(status) => Err(i64::from(status.code().unwrap_or(-1))),
+		Err(error) => Err(i64::from(error.raw_os_error().unwrap_or(-1))),
+	}
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CredentialError {
 	/// No OS credential store exists (e.g. Linux without a Secret Service provider).
