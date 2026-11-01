@@ -1536,6 +1536,14 @@ join-server-status-invite-accepted = Einladung angenommen. Warten auf Serverzugr
 join-server-status-offline-preview = Offline-Vorschau – Das Beitreten zu Servern ist deaktiviert.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Entfernen
+# Context: custom_section
+keybinds-custom-section-add-binding = Zuweisung hinzufügen
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Füge zusätzliche Tastenkürzel für beliebige Aktionen hinzu. Jede Tasten- oder Maustastenkombination kann nur einmal verwendet werden.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Eigene Tastenkürzel
 # Context: row
 keybinds-row-global = GLOBAL
 # Context: row
@@ -1776,6 +1784,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Öffnen
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Vorschau des Tons
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Push-to-talk aktivieren
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Push-to-talk deaktivieren
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Klingeltöne, Anrufgeräte und Mikrofonverarbeitung.
 # Context: notification_settings
@@ -3982,7 +3994,29 @@ updates-update-settings-restart-to-update = Zum Aktualisieren neu starten
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein wurde über Ihre Distribution installiert. Führen Sie dies in einem Terminal aus, um es zu aktualisieren.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Diagnose speichern
+# Context: update_settings
 updates-update-settings-support-diagnostics = Support & Diagnose
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Letzte Zeilen kopieren
+# Context: update_settings
+updates-update-settings-diagnostic-log = Diagnoseprotokoll
+# Context: update_settings
+updates-update-settings-log-errors = Fehler
+# Context: update_settings
+updates-update-settings-log-events = Fehler, Warnungen und Ereignisse
+# Context: update_settings
+updates-update-settings-log-everything = Alles (ausführlich)
+# Context: update_settings
+updates-update-settings-log-off = Aus
+# Context: update_settings
+updates-update-settings-log-warnings = Fehler und Warnungen
+# Context: update_settings
+updates-update-settings-open-folder = Ordner öffnen
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Der Protokollordner konnte nicht geschrieben werden. Prüfe Sereins Datenordner und versuche es erneut.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Zeitangaben, Phasen und Fehler in einer lokalen Protokolldatei. Konto-, Kanal-, Nachrichten- und Anmeldedaten werden nie geschrieben, und nichts wird hochgeladen.
 # Context: update_log
 updates-update-log = Update-Verlauf
 # Context: update_settings
@@ -4456,6 +4490,7 @@ lib-composer-onboarding-incomplete = Schließe den Beitritt ab, um weitere Kanä
 lib-composer-onboarding-complete = Einführung abschließen
 profiles-message-placeholder = Nachricht an @{ $user }
 profiles-message-send = Nachricht senden
+profiles-message-open-chat = Chat öffnen
 profiles-message-sending = Direktnachricht wird geöffnet…
 user-menu-contents-start-a-call = Anruf starten
 verification-show-complete-the-check-to-open-this-conversation = Schließe die Prüfung ab, um diese Unterhaltung zu öffnen.

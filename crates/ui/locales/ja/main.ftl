@@ -1537,6 +1537,14 @@ join-server-status-invite-accepted = 招待を承認しました。サーバー�
 join-server-status-offline-preview = オフライン プレビュー — サーバーへの参加は無効になっています。
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = 削除
+# Context: custom_section
+keybinds-custom-section-add-binding = ショートカットを追加
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = 任意のアクションに追加のショートカットを割り当てます。キーやマウスボタンの組み合わせは1回しか使えません。
+# Context: custom_section
+keybinds-custom-section-custom-bindings = カスタムショートカット
 # Context: row
 keybinds-row-global = グローバル
 # Context: row
@@ -1777,6 +1785,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = 開ける
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = サウンドのプレビュー
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = プッシュして話す：開始
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = プッシュして話す：終了
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = 着信音、通話デバイス、マイクの処理。
 # Context: notification_settings
@@ -3976,7 +3988,29 @@ updates-update-settings-restart-to-update = 更新するには再起動してく
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein はディストリビューション経由でインストールされました。ターミナルでこれを実行して更新します。
 # Context: update_settings
+updates-update-settings-save-diagnostics = 診断を保存
+# Context: update_settings
 updates-update-settings-support-diagnostics = サポートと診断
+# Context: update_settings
+updates-update-settings-copy-recent-lines = 最近の行をコピー
+# Context: update_settings
+updates-update-settings-diagnostic-log = 診断ログ
+# Context: update_settings
+updates-update-settings-log-errors = エラー
+# Context: update_settings
+updates-update-settings-log-events = エラー、警告、イベント
+# Context: update_settings
+updates-update-settings-log-everything = すべて（詳細）
+# Context: update_settings
+updates-update-settings-log-off = オフ
+# Context: update_settings
+updates-update-settings-log-warnings = エラーと警告
+# Context: update_settings
+updates-update-settings-open-folder = フォルダーを開く
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = ログフォルダーに書き込めませんでした。Serein のデータフォルダーを確認して、もう一度お試しください。
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = タイミング、段階、失敗を 1 つのローカルログファイルに記録します。アカウント、チャンネル、メッセージ、認証情報は書き込まれず、どこにも送信されません。
 # Context: update_log
 updates-update-log = 更新履歴
 # Context: update_settings
@@ -4442,6 +4476,7 @@ lib-composer-onboarding-incomplete = 参加を完了すると、さらにチャ�
 lib-composer-onboarding-complete = オンボーディングを完了
 profiles-message-placeholder = @{ $user } にメッセージ
 profiles-message-send = メッセージを送信
+profiles-message-open-chat = チャットを開く
 profiles-message-sending = ダイレクトメッセージを開いています…
 user-menu-contents-start-a-call = 通話を開始
 verification-show-complete-the-check-to-open-this-conversation = 確認を完了してこの会話を開いてください。

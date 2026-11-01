@@ -50,6 +50,8 @@ pub struct AppPreferences {
 	pub convert_emoticons: bool,
 	/// Request a conversation's page while the pointer rests on it; older preferences enable it.
 	pub preload_on_hover: bool,
+	/// Show as Idle after 10 minutes of system inactivity; older preferences enable it.
+	pub auto_idle: bool,
 	/// Hide the in-app title strip. macOS and Windows then show the system title bar.
 	pub hide_title_bar: bool,
 	/// Keep the home list's message requests section collapsed after a restart.
@@ -89,6 +91,8 @@ pub struct AppPreferences {
 	pub time_format: model::TimeFormat,
 	/// Owner opt-in: keep saved logins in private plain files when no OS keyring works.
 	pub plaintext_login: bool,
+	/// Owner opt-in diagnostic log; older preferences deserialize with logging off.
+	pub diagnostics_log: diagnostics::Level,
 }
 impl Default for AppPreferences {
 	fn default() -> Self {
@@ -103,6 +107,7 @@ impl Default for AppPreferences {
 			hide_nitro_emojis: false,
 			convert_emoticons: false,
 			preload_on_hover: true,
+			auto_idle: true,
 			hide_title_bar: false,
 			message_requests_collapsed: false,
 			hide_window_decorations: false,
@@ -128,6 +133,7 @@ impl Default for AppPreferences {
 			image_cache: Default::default(),
 			time_format: Default::default(),
 			plaintext_login: false,
+			diagnostics_log: diagnostics::Level::Off,
 		}
 	}
 }
@@ -2174,12 +2180,53 @@ mod tests {
 			.as_object_mut()
 			.unwrap()
 			.remove("copy_issue_diagnostics");
+		// Files written before custom bindings existed have no `custom` key at all.
+		old_bindings.as_object_mut().unwrap().remove("custom");
 		let restored: model::Keybinds = serde_json::from_value(old_bindings).unwrap();
 		assert!(restored.is_valid());
+		assert!(restored.custom.is_empty());
 		assert_eq!(restored.copy_issue_diagnostics, model::KeyChord::new("", 0));
 		assert_eq!(
 			restored.send_message,
 			model::Keybinds::default().send_message
+		);
+		// An action this build no longer has drops only its own row.
+		let lenient: model::Keybinds = serde_json::from_value(serde_json::json!({
+			"custom": [
+				{"action": "push_to_talk", "chord": {"key": "Y", "modifiers": 0}},
+				{"action": "removed_action", "chord": {"key": "Q", "modifiers": 0}},
+				{"action": "bold", "chord": {"key": "G", "modifiers": 0}},
+			]
+		}))
+		.unwrap();
+		assert_eq!(
+			lenient.custom,
+			vec![
+				model::CustomBinding {
+					action: model::KeybindAction::PushToTalk,
+					chord: model::KeyChord::new("Y", 0),
+				},
+				model::CustomBinding {
+					action: model::KeybindAction::Bold,
+					chord: model::KeyChord::new("G", 0),
+				},
+			]
+		);
+		// The saved file keeps the full action and chord of every extra binding.
+		let saved = AppPreferences {
+			keybinds: model::Keybinds {
+				custom: vec![model::CustomBinding {
+					action: model::KeybindAction::ToggleDeafen,
+					chord: model::KeyChord::new("F9", 0),
+				}],
+				..Default::default()
+			},
+			..Default::default()
+		};
+		store.save_app_preferences(&saved).unwrap();
+		assert_eq!(
+			store.app_preferences().unwrap().keybinds.custom,
+			saved.keybinds.custom
 		);
 		let mut value = AppPreferences {
 			language: Some("cs".into()),
@@ -2254,6 +2301,10 @@ mod tests {
 		assert_eq!(legacy.cosmetics, model::CosmeticPreferences::default());
 		assert_eq!(legacy.image_cache, model::CachePreferences::default());
 		assert_eq!(legacy.time_format, model::TimeFormat::Auto);
+		assert!(
+			legacy.auto_idle,
+			"older preferences enable Go idle when away"
+		);
 		for (key, format) in [
 			("12-hour", model::TimeFormat::TwelveHour),
 			("24-hour", model::TimeFormat::TwentyFourHour),

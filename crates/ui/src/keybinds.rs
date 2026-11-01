@@ -1,7 +1,14 @@
 //! Remappable application shortcuts and the device-local global push-to-talk binding.
 use crate::design;
 use egui::{Event, InputState, Key, Modifiers, RichText};
-use model::{KeyChord, KeybindAction, Keybinds};
+use model::{CustomBinding, KeyChord, KeybindAction, Keybinds};
+
+/// Which row is recording its next key or mouse button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CaptureTarget {
+	BuiltIn(KeybindAction),
+	Custom(usize),
+}
 
 const NAVIGATION: &[KeybindAction] = &[
 	KeybindAction::ShowShortcuts,
@@ -33,7 +40,7 @@ const VOICE: &[KeybindAction] = &[
 pub(super) fn show(
 	ui: &mut egui::Ui,
 	bindings: &mut Keybinds,
-	capturing: &mut Option<KeybindAction>,
+	capturing: &mut Option<CaptureTarget>,
 	global_status: &str,
 ) {
 	section(
@@ -69,12 +76,14 @@ pub(super) fn show(
 		capturing,
 	);
 	show_voice(ui, bindings, capturing, global_status);
+	ui.add_space(10.0);
+	custom_section(ui, bindings, capturing);
 }
 
 pub(super) fn show_voice(
 	ui: &mut egui::Ui,
 	bindings: &mut Keybinds,
-	capturing: &mut Option<KeybindAction>,
+	capturing: &mut Option<CaptureTarget>,
 	global_status: &str,
 ) {
 	let colors = design::palette(ui);
@@ -100,7 +109,7 @@ pub(super) fn show_voice(
 fn voice_section(
 	ui: &mut egui::Ui,
 	bindings: &mut Keybinds,
-	capturing: &mut Option<KeybindAction>,
+	capturing: &mut Option<CaptureTarget>,
 ) {
 	section(
 		ui,
@@ -114,7 +123,7 @@ fn voice_section(
 
 #[derive(Clone, Copy)]
 struct ConflictNotice {
-	action: KeybindAction,
+	target: CaptureTarget,
 	conflicting_action: KeybindAction,
 	time: f64,
 }
@@ -122,7 +131,7 @@ struct ConflictNotice {
 impl Default for ConflictNotice {
 	fn default() -> Self {
 		Self {
-			action: KeybindAction::ShowShortcuts,
+			target: CaptureTarget::BuiltIn(KeybindAction::ShowShortcuts),
 			conflicting_action: KeybindAction::ShowShortcuts,
 			time: 0.0,
 		}
@@ -134,86 +143,92 @@ impl Default for ConflictNotice {
 #[derive(Clone, Copy, Default)]
 struct CaptureStarted;
 
-fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<KeybindAction>) {
-	if let Some(action) = *capturing {
-		if ui
-			.data_mut(|data| data.remove_temp::<CaptureStarted>(capture_started_id()))
-			.is_some()
-		{
-			return;
-		}
-		let mut captured = None;
-		let mut cancelled = false;
-		for event in ui.input(|input| input.events.clone()) {
-			match event {
-				Event::Key {
-					key,
-					pressed: true,
-					repeat: false,
-					modifiers,
-					..
-				} => {
-					if key == Key::Escape {
-						cancelled = true;
-					} else if let Some(name) = key_name(key) {
-						captured = Some(KeyChord::new(name, modifier_bits(modifiers)));
-					}
-					break;
+fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<CaptureTarget>) {
+	let Some(target) = *capturing else {
+		return;
+	};
+	if ui
+		.data_mut(|data| data.remove_temp::<CaptureStarted>(capture_started_id()))
+		.is_some()
+	{
+		return;
+	}
+	let mut captured = None;
+	let mut cancelled = false;
+	for event in ui.input(|input| input.events.clone()) {
+		match event {
+			Event::Key {
+				key,
+				pressed: true,
+				repeat: false,
+				modifiers,
+				..
+			} => {
+				if key == Key::Escape {
+					cancelled = true;
+				} else if let Some(name) = key_name(key) {
+					captured = Some(KeyChord::new(name, modifier_bits(modifiers)));
 				}
-				// Left and right click stay reserved for pointing, so either one cancels.
-				Event::PointerButton {
-					button,
-					pressed: true,
-					modifiers,
-					..
-				} => {
-					match button_name(button) {
-						Some(name) => {
-							captured = Some(KeyChord::new(name, modifier_bits(modifiers)))
-						}
-						None => cancelled = true,
-					}
-					break;
-				}
-				_ => {}
+				break;
 			}
+			// Left and right click stay reserved for pointing, so either one cancels.
+			Event::PointerButton {
+				button,
+				pressed: true,
+				modifiers,
+				..
+			} => {
+				match button_name(button) {
+					Some(name) => captured = Some(KeyChord::new(name, modifier_bits(modifiers))),
+					None => cancelled = true,
+				}
+				break;
+			}
+			_ => {}
 		}
-		if cancelled || captured.is_some() {
-			// The press that ended capture must not also act on the rest of this frame.
-			ui.input_mut(|input| {
-				input
-					.events
-					.retain(|event| !matches!(event, Event::PointerButton { pressed: true, .. }));
+	}
+	if cancelled || captured.is_some() {
+		// The press that ended capture must not also act on the rest of this frame.
+		ui.input_mut(|input| {
+			input
+				.events
+				.retain(|event| !matches!(event, Event::PointerButton { pressed: true, .. }));
+		});
+	}
+	if cancelled {
+		*capturing = None;
+	} else if let Some(chord) = captured {
+		let (ignore_builtin, ignore_custom) = match target {
+			CaptureTarget::BuiltIn(action) => (Some(action), None),
+			CaptureTarget::Custom(index) => (None, Some(index)),
+		};
+		if let Some(other) = bindings.conflict(&chord, ignore_builtin, ignore_custom) {
+			let now = ui.input(|input| input.time);
+			ui.data_mut(|data| {
+				data.insert_temp(
+					egui::Id::unique("keybind_conflict"),
+					ConflictNotice {
+						target,
+						conflicting_action: other,
+						time: now,
+					},
+				);
+			});
+			ui.ctx().request_repaint();
+		} else {
+			match target {
+				CaptureTarget::BuiltIn(action) => *bindings.chord_mut(action) = chord,
+				CaptureTarget::Custom(index) => {
+					if let Some(binding) = bindings.custom.get_mut(index) {
+						binding.chord = chord;
+					}
+				}
+			}
+			ui.data_mut(|data| {
+				data.remove_temp::<ConflictNotice>(egui::Id::unique("keybind_conflict"));
 			});
 		}
-		if cancelled {
-			*capturing = None;
-		} else if let Some(chord) = captured {
-			if let Some(other) = KeybindAction::ALL
-				.into_iter()
-				.find(|other| *other != action && bindings.chord(*other) == &chord)
-			{
-				let now = ui.input(|input| input.time);
-				ui.data_mut(|data| {
-					data.insert_temp(
-						egui::Id::unique("keybind_conflict"),
-						ConflictNotice {
-							action,
-							conflicting_action: other,
-							time: now,
-						},
-					);
-				});
-				ui.ctx().request_repaint();
-				*capturing = None;
-			} else {
-				*bindings.chord_mut(action) = chord;
-				ui.data_mut(|data| {
-					data.remove_temp::<ConflictNotice>(egui::Id::unique("keybind_conflict"));
-				});
-				*capturing = None;
-			}
-		}
+		*capturing = None;
 	}
 }
 
@@ -223,7 +238,7 @@ fn section(
 	description: &str,
 	actions: &[KeybindAction],
 	bindings: &mut Keybinds,
-	capturing: &mut Option<KeybindAction>,
+	capturing: &mut Option<CaptureTarget>,
 ) {
 	design::group(ui, title, |ui| {
 		design::hint(ui, description);
@@ -241,39 +256,12 @@ fn row(
 	ui: &mut egui::Ui,
 	action: KeybindAction,
 	bindings: &mut Keybinds,
-	capturing: &mut Option<KeybindAction>,
+	capturing: &mut Option<CaptureTarget>,
 ) {
 	let colors = design::palette(ui);
-	let active = *capturing == Some(action);
-	let notice: Option<ConflictNotice> =
-		ui.data(|data| data.get_temp(egui::Id::unique("keybind_conflict")));
-	let now = ui.input(|input| input.time);
-	let mut blink_factor = 0.0f32;
-	let mut fade_alpha = 0.0f32;
-	let mut conflict_text = None;
-
-	if let Some(n) = notice.filter(|n| n.action == action) {
-		let elapsed = (now - n.time) as f32;
-		const TOTAL_DURATION: f32 = 2.5;
-		const FADE_START: f32 = 1.0;
-		if elapsed < TOTAL_DURATION {
-			ui.ctx().request_repaint();
-			if elapsed < 0.6 {
-				let pulse = (elapsed * std::f32::consts::PI * 5.0).sin().abs();
-				blink_factor = pulse * pulse;
-			}
-			if elapsed < FADE_START {
-				fade_alpha = 1.0;
-			} else {
-				fade_alpha =
-					(1.0 - (elapsed - FADE_START) / (TOTAL_DURATION - FADE_START)).clamp(0.0, 1.0);
-			}
-			conflict_text = Some(format!(
-				"Already bound to {}.",
-				n.conflicting_action.label()
-			));
-		}
-	}
+	let target = CaptureTarget::BuiltIn(action);
+	let active = *capturing == Some(target);
+	let (blink_factor, fade_alpha, conflict_text) = conflict_visual(ui, target);
 
 	ui.horizontal(|ui| {
 		ui.set_min_height(46.0);
@@ -289,7 +277,7 @@ fn row(
 							.color(colors.accent),
 					);
 				}
-				if let Some(ref msg) = conflict_text.filter(|_| fade_alpha > 0.0) {
+				if let Some(msg) = &conflict_text {
 					let text_color = colors.danger.gamma_multiply(fade_alpha);
 					ui.add_space(6.0);
 					ui.label(RichText::new(msg).size(11.0).color(text_color));
@@ -299,7 +287,7 @@ fn row(
 		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 			if design::text_action(ui, &crate::i18n::translate("keybinds-row-reset")).clicked() {
 				*bindings.chord_mut(action) = Keybinds::default().chord(action).clone();
-				if *capturing == Some(action) {
+				if *capturing == Some(target) {
 					*capturing = None;
 				}
 				ui.data_mut(|data| {
@@ -307,7 +295,7 @@ fn row(
 				});
 			}
 			if shortcut_button(ui, bindings.chord(action), active, blink_factor).clicked() {
-				*capturing = Some(action);
+				*capturing = Some(target);
 				ui.data_mut(|data| {
 					data.remove_temp::<ConflictNotice>(egui::Id::unique("keybind_conflict"));
 					data.insert_temp(capture_started_id(), CaptureStarted);
@@ -315,6 +303,168 @@ fn row(
 			}
 		});
 	});
+}
+
+/// Final card: extra bindings the user adds on top of the fixed rows above.
+fn custom_section(
+	ui: &mut egui::Ui,
+	bindings: &mut Keybinds,
+	capturing: &mut Option<CaptureTarget>,
+) {
+	let remove = design::group(
+		ui,
+		&crate::i18n::translate("keybinds-custom-section-custom-bindings"),
+		|ui| {
+			design::hint(
+				ui,
+				&crate::i18n::translate(
+					"keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once",
+				),
+			);
+			ui.add_space(4.0);
+			let mut remove = None;
+			for index in 0..bindings.custom.len() {
+				if index > 0 {
+					design::card_divider(ui);
+				}
+				if custom_row(ui, index, bindings, capturing) {
+					remove = Some(index);
+				}
+			}
+			if !bindings.custom.is_empty() {
+				ui.add_space(8.0);
+			}
+			let at_limit = bindings.custom.len() >= model::keybinds::MAX_CUSTOM_BINDINGS;
+			ui.add_enabled_ui(!at_limit, |ui| {
+				if design::secondary_button(
+					ui,
+					&crate::i18n::translate("keybinds-custom-section-add-binding"),
+				)
+				.clicked()
+				{
+					bindings.custom.push(CustomBinding {
+						action: KeybindAction::ALL[0],
+						chord: KeyChord::new("", 0),
+					});
+					ui.data_mut(|data| {
+						data.remove_temp::<ConflictNotice>(egui::Id::unique("keybind_conflict"));
+					});
+				}
+			});
+			remove
+		},
+	);
+	if let Some(index) = remove {
+		bindings.custom.remove(index);
+		*capturing = match *capturing {
+			Some(CaptureTarget::Custom(captured)) if captured == index => None,
+			Some(CaptureTarget::Custom(captured)) if captured > index => {
+				Some(CaptureTarget::Custom(captured - 1))
+			}
+			other => other,
+		};
+		ui.data_mut(|data| {
+			data.remove_temp::<ConflictNotice>(egui::Id::unique("keybind_conflict"));
+		});
+	}
+}
+
+fn custom_row(
+	ui: &mut egui::Ui,
+	index: usize,
+	bindings: &mut Keybinds,
+	capturing: &mut Option<CaptureTarget>,
+) -> bool {
+	let colors = design::palette(ui);
+	let target = CaptureTarget::Custom(index);
+	let active = *capturing == Some(target);
+	let action = bindings.custom[index].action;
+	let (blink_factor, fade_alpha, conflict_text) = conflict_visual(ui, target);
+	let mut remove = false;
+
+	ui.horizontal(|ui| {
+		ui.set_min_height(46.0);
+		ui.allocate_ui_with_layout(
+			egui::vec2((ui.available_width() - 210.0).max(0.0), 46.0),
+			egui::Layout::left_to_right(egui::Align::Center),
+			|ui| {
+				egui::ComboBox::from_id_salt(("keybind-custom-action", index))
+					.width((ui.available_width() - 12.0).clamp(80.0, 210.0))
+					.selected_text(action.label())
+					.show_ui(ui, |ui| {
+						for candidate in KeybindAction::ALL {
+							ui.selectable_value(
+								&mut bindings.custom[index].action,
+								candidate,
+								candidate.label(),
+							);
+						}
+					});
+				if action.is_global() && bindings.global_enabled {
+					ui.label(
+						RichText::new(crate::i18n::translate("keybinds-row-global"))
+							.size(10.0)
+							.color(colors.accent),
+					);
+				}
+				if let Some(msg) = &conflict_text {
+					let text_color = colors.danger.gamma_multiply(fade_alpha);
+					ui.add_space(6.0);
+					ui.label(RichText::new(msg).size(11.0).color(text_color));
+				}
+			},
+		);
+		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+			if design::text_action(ui, &crate::i18n::translate("keybinds-custom-row-remove"))
+				.clicked()
+			{
+				remove = true;
+			}
+			if shortcut_button(ui, &bindings.custom[index].chord, active, blink_factor).clicked() {
+				*capturing = Some(target);
+				ui.data_mut(|data| {
+					data.remove_temp::<ConflictNotice>(egui::Id::unique("keybind_conflict"));
+					data.insert_temp(capture_started_id(), CaptureStarted);
+				});
+			}
+		});
+	});
+	remove
+}
+
+/// Blink strength, fade alpha and the conflict message for the row being captured.
+fn conflict_visual(ui: &egui::Ui, target: CaptureTarget) -> (f32, f32, Option<String>) {
+	let notice: Option<ConflictNotice> =
+		ui.data(|data| data.get_temp(egui::Id::unique("keybind_conflict")));
+	let Some(notice) = notice.filter(|notice| notice.target == target) else {
+		return (0.0, 0.0, None);
+	};
+	let elapsed = (ui.input(|input| input.time) - notice.time) as f32;
+	const TOTAL_DURATION: f32 = 2.5;
+	const FADE_START: f32 = 1.0;
+	if elapsed >= TOTAL_DURATION {
+		return (0.0, 0.0, None);
+	}
+	ui.ctx().request_repaint();
+	let blink_factor = if elapsed < 0.6 {
+		let pulse = (elapsed * std::f32::consts::PI * 5.0).sin().abs();
+		pulse * pulse
+	} else {
+		0.0
+	};
+	let fade_alpha = if elapsed < FADE_START {
+		1.0
+	} else {
+		(1.0 - (elapsed - FADE_START) / (TOTAL_DURATION - FADE_START)).clamp(0.0, 1.0)
+	};
+	(
+		blink_factor,
+		fade_alpha,
+		Some(format!(
+			"Already bound to {}.",
+			notice.conflicting_action.label()
+		)),
+	)
 }
 
 fn modifier_bits(modifiers: Modifiers) -> u8 {
@@ -764,7 +914,7 @@ mod tests {
 	#[test]
 	fn conflicting_keybind_leaves_binding_unchanged() {
 		let mut bindings = Keybinds::default();
-		let mut capturing = Some(KeybindAction::ToggleDeafen);
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::ToggleDeafen));
 		let mute_chord = bindings.chord(KeybindAction::ToggleMute).clone();
 		let deafen_before = bindings.chord(KeybindAction::ToggleDeafen).clone();
 
@@ -803,7 +953,7 @@ mod tests {
 		ctx: &egui::Context,
 		events: Vec<Event>,
 		bindings: &mut Keybinds,
-		capturing: &mut Option<KeybindAction>,
+		capturing: &mut Option<CaptureTarget>,
 	) {
 		let mut output = ctx.run_ui(
 			egui::RawInput {
@@ -826,7 +976,7 @@ mod tests {
 		}
 
 		let mut bindings = Keybinds::default();
-		let mut capturing = Some(KeybindAction::PushToTalk);
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk));
 		let ctx = egui::Context::default();
 		capture_frame(
 			&ctx,
@@ -876,7 +1026,7 @@ mod tests {
 		output.textures_delta.clear();
 		assert!(!pressed_unassigned);
 
-		let mut capturing = Some(KeybindAction::PushToMute);
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::PushToMute));
 		capture_frame(
 			&ctx,
 			vec![press(egui::PointerButton::Extra2)],
@@ -894,7 +1044,7 @@ mod tests {
 		let mut bindings = Keybinds::default();
 		let ctx = egui::Context::default();
 		for button in [egui::PointerButton::Primary, egui::PointerButton::Secondary] {
-			let mut capturing = Some(KeybindAction::ToggleMute);
+			let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::ToggleMute));
 			capture_frame(&ctx, vec![press(button)], &mut bindings, &mut capturing);
 			assert_eq!(capturing, None);
 		}
@@ -904,7 +1054,7 @@ mod tests {
 	#[test]
 	fn activating_key_is_not_captured() {
 		let mut bindings = Keybinds::default();
-		let mut capturing = Some(KeybindAction::PushToTalk);
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk));
 		let enter = Event::Key {
 			key: Key::Enter,
 			physical_key: None,
@@ -915,7 +1065,10 @@ mod tests {
 		let ctx = egui::Context::default();
 		ctx.data_mut(|data| data.insert_temp(capture_started_id(), CaptureStarted));
 		capture_frame(&ctx, vec![enter], &mut bindings, &mut capturing);
-		assert_eq!(capturing, Some(KeybindAction::PushToTalk));
+		assert_eq!(
+			capturing,
+			Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk))
+		);
 		assert_eq!(bindings, Keybinds::default());
 	}
 }

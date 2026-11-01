@@ -148,6 +148,26 @@ pub fn attachment_destination(
 	}
 }
 
+/// A save dialog for one text file the owner attaches to a bug report.
+pub fn text_destination(
+	parent: Arc<winit::window::Window>,
+	filename: &str,
+) -> impl std::future::Future<Output = Option<PathBuf>> + Send + 'static {
+	let filename = safe_filename(filename);
+	let dialog = rfd::AsyncFileDialog::new()
+		.set_parent(parent.as_ref())
+		.set_title("Save diagnostics")
+		.add_filter("Text file", &["txt"])
+		.add_filter("All files", &["*"])
+		.set_file_name(filename)
+		.save_file();
+	async move {
+		let file = dialog.await?;
+		drop(parent);
+		Some(file.path().to_owned())
+	}
+}
+
 /// Publish a completed sibling file without replacing a concurrently created destination.
 /// Native exclusive rename also works on volumes that do not support hard links.
 #[allow(unsafe_code)]

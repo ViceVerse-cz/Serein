@@ -334,7 +334,14 @@ mod native {
 		fn restore(&self) {
 			// SAFETY: called while the retained window/subclass is live on its owning thread.
 			unsafe {
-				let _ = ShowWindow(self.icon.hWnd, SW_RESTORE);
+				// Close-to-tray hides without minimizing. SW_RESTORE would unmaximize
+				// that window; only an actually minimized window needs restoration.
+				let command = if IsIconic(self.icon.hWnd).as_bool() {
+					SW_RESTORE
+				} else {
+					SW_SHOW
+				};
+				let _ = ShowWindow(self.icon.hWnd, command);
 				let _ = SetForegroundWindow(self.icon.hWnd);
 			}
 		}
@@ -655,6 +662,54 @@ mod native {
 				assert!(IsWindowVisible(hwnd).as_bool());
 				assert!(!IsIconic(hwnd).as_bool());
 				assert_eq!(tray.take_event(), Some(Event::Show));
+				let normal_position = window.outer_position().unwrap();
+				let normal_size = window.inner_size();
+				// Closing a maximized window hides it without minimizing. Tray activation
+				// must show it in that state rather than restoring its normal geometry.
+				let _ = ShowWindow(hwnd, SW_MAXIMIZE);
+				assert!(IsZoomed(hwnd).as_bool());
+				let _ = ShowWindow(hwnd, SW_HIDE);
+				assert!(!IsWindowVisible(hwnd).as_bool());
+				let _ = SendMessageW(
+					hwnd,
+					icon.uCallbackMessage,
+					None,
+					Some(LPARAM(((ID as u32) << 16 | NIN_SELECT) as isize)),
+				);
+				assert!(IsWindowVisible(hwnd).as_bool());
+				assert!(!IsIconic(hwnd).as_bool());
+				assert!(
+					IsZoomed(hwnd).as_bool(),
+					"tray click preserves maximization"
+				);
+				assert_eq!(tray.take_event(), Some(Event::Show));
+				// Follow the desktop's Visible/Minimized/Focus viewport commands too.
+				window.set_visible(true);
+				window.set_minimized(false);
+				window.focus_window();
+				assert!(IsZoomed(hwnd).as_bool());
+				tray.state.activate(SHOW);
+				assert!(
+					IsZoomed(hwnd).as_bool(),
+					"Show is idempotent while maximized"
+				);
+				assert_eq!(tray.take_event(), Some(Event::Show));
+				// A taskbar-minimized maximized window still needs SW_RESTORE.
+				let _ = ShowWindow(hwnd, SW_MINIMIZE);
+				assert!(IsIconic(hwnd).as_bool());
+				tray.state.activate(SHOW);
+				assert!(!IsIconic(hwnd).as_bool());
+				assert!(IsZoomed(hwnd).as_bool());
+				assert_eq!(tray.take_event(), Some(Event::Show));
+				let _ = ShowWindow(hwnd, SW_RESTORE);
+				let _ = ShowWindow(hwnd, SW_HIDE);
+				tray.state.activate(SHOW);
+				assert!(IsWindowVisible(hwnd).as_bool());
+				assert!(!IsIconic(hwnd).as_bool());
+				assert!(!IsZoomed(hwnd).as_bool());
+				assert_eq!(window.outer_position().unwrap(), normal_position);
+				assert_eq!(window.inner_size(), normal_size);
+				assert_eq!(tray.take_event(), Some(Event::Show));
 				tray.state.remove_icon();
 				let _ = SendMessageW(hwnd, tray.state.restart, None, None);
 				assert!(tray.state.present.get());
@@ -681,7 +736,7 @@ mod native {
 				assert!(IsWindowVisible(hwnd).as_bool());
 				assert!(IsIconic(hwnd).as_bool());
 			}
-			assert_eq!(wakes.get(), 2);
+			assert_eq!(wakes.get(), 6);
 			window.set_visible(false);
 		}
 	}

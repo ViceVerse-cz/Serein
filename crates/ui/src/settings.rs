@@ -145,7 +145,7 @@ impl Page {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
 			}
 			Self::Notifications => {
-				"notifications desktop system alerts overview sounds badges message ring"
+				"notifications desktop system alerts overview sounds badges message ring idle away afk timeout lock locked phone mobile push"
 			}
 			Self::Activity => {
 				"game activity playing osu status presence sharing registered games added current game detection detected process program executable rename wrong add hide last played"
@@ -252,10 +252,9 @@ impl MessagingUi {
 						.iter()
 						.any(|event| matches!(event, egui::Event::Ime(_)))
 			}) && ctx.input_mut(|input| {
-			crate::keybinds::pressed(
-				input,
-				self.keybinds.chord(model::KeybindAction::ShowShortcuts),
-			)
+			self.keybinds
+				.chords(model::KeybindAction::ShowShortcuts)
+				.any(|chord| crate::keybinds::pressed(input, chord))
 		}) {
 			self.settings.open = true;
 			self.settings.page = Page::Keybinds;
@@ -507,10 +506,9 @@ impl MessagingUi {
 		}
 		if self.keybind_capture.is_none()
 			&& ctx.input_mut(|input| {
-				crate::keybinds::pressed_exact(
-					input,
-					self.keybinds.chord(model::KeybindAction::CloseOverlay),
-				)
+				self.keybinds
+					.chords(model::KeybindAction::CloseOverlay)
+					.any(|chord| crate::keybinds::pressed_exact(input, chord))
 			}) {
 			self.settings.open = false;
 		}

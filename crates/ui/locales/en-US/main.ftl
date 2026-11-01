@@ -1548,6 +1548,14 @@ join-server-status-invite-accepted = Invite accepted. Waiting for server access.
 join-server-status-offline-preview = Offline preview — joining servers is disabled.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Remove
+# Context: custom_section
+keybinds-custom-section-add-binding = Add binding
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Add extra shortcuts for any action. Each key or mouse-button combination can only be used once.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Custom bindings
 # Context: row
 keybinds-row-global = GLOBAL
 # Context: row
@@ -1790,6 +1798,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Open
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Preview Sound
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Push to Talk Activate
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Push to Talk Deactivate
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Ringtones, call devices and microphone processing.
 # Context: notification_settings
@@ -3999,7 +4011,29 @@ updates-update-settings-restart-to-update = Restart to update
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein was installed via your distribution. Run this in a terminal to update.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Save diagnostics
+# Context: update_settings
 updates-update-settings-support-diagnostics = Support & diagnostics
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Copy recent lines
+# Context: update_settings
+updates-update-settings-diagnostic-log = Diagnostic log
+# Context: update_settings
+updates-update-settings-log-errors = Errors
+# Context: update_settings
+updates-update-settings-log-events = Errors, warnings and events
+# Context: update_settings
+updates-update-settings-log-everything = Everything (verbose)
+# Context: update_settings
+updates-update-settings-log-off = Off
+# Context: update_settings
+updates-update-settings-log-warnings = Errors and warnings
+# Context: update_settings
+updates-update-settings-open-folder = Open folder
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = The log folder could not be written. Check Serein's data folder and try again.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Timings, stages and failures in one local log file. Account, channel, message and credential data are never written, and nothing is uploaded.
 # Context: update_log
 updates-update-log = Update log
 # Context: update_settings
@@ -4493,6 +4527,7 @@ lib-composer-onboarding-incomplete = Finish joining this server to unlock more c
 lib-composer-onboarding-complete = Complete Onboarding
 profiles-message-placeholder = Message @{ $user }
 profiles-message-send = Send message
+profiles-message-open-chat = Open chat
 profiles-message-sending = Opening direct message…
 user-menu-contents-start-a-call = Start a Call
 verification-show-complete-the-check-to-open-this-conversation = Complete the check to open this conversation.
@@ -4647,6 +4682,14 @@ settings-convert-emoticons = Automatically convert emoticons in your messages to
 settings-convert-emoticons-description = Convert standalone emoticons such as :) to 🙂 when sending or editing messages. Code and links stay unchanged.
 settings-preload-on-hover = Preload on hover
 settings-preload-on-hover-description = Load a conversation, a profile or the GIF picker while the pointer rests on it, so it opens instantly. Uses the same requests as opening it, at most 12 per minute for each kind.
+settings-auto-idle = Go idle when away
+settings-auto-idle-description = Show as Idle after the time below without keyboard or mouse input, or right away when you lock your computer. Not during voice calls.
+settings-idle-after = Idle after
+settings-idle-after-minutes =
+    { $count ->
+        [one] { $count } minute
+       *[other] { $count } minutes
+    }
 
 profiles-board = Board
 profiles-board-unavailable = This profile’s board is unavailable.

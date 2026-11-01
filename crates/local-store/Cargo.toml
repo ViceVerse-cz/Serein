@@ -9,6 +9,7 @@ default = []
 development-data = []
 
 [dependencies]
+diagnostics.workspace = true
 model.workspace = true
 serde_json.workspace = true
 serde.workspace = true
