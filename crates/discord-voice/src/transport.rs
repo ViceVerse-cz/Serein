@@ -2660,7 +2660,8 @@ mod tests {
 			// A new encrypted frame after resume reuses the live MLS group, never its old nonce.
 			let encrypted = bob.session.encrypt_opus(&encoded[..length]).unwrap();
 			let mut header = header;
-			header[3] = 2;
+			// The mode round trip leaves a speech gap; resume beyond the stale jitter window.
+			header[3] = if guild { 2 } else { 32 };
 			let packet = transport.seal(&header, &encrypted).unwrap();
 			udp.send_to(&packet, client).await.unwrap();
 			done_rx.await.unwrap();
