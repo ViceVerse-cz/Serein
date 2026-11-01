@@ -246,8 +246,9 @@ pub fn show(
 									ui.painter().layout_no_wrap(label.clone(), font_id, text);
 								let button_padding = ui.spacing().button_padding.x * 2.0;
 								let button_width = (galley.size().x + button_padding).max(72.0);
+								let gap = ui.spacing().item_spacing.x + 12.0;
 								let text_width =
-									(ui.available_width() - button_width - 12.0).max(0.0);
+									(ui.available_width() - button_width - gap).max(0.0);
 
 								ui.allocate_ui_with_layout(
 									egui::vec2(text_width, 50.0),
@@ -442,11 +443,56 @@ mod tests {
 				&mut action,
 			);
 		});
-		let card_members = find_text(&card_output.shapes, "Mitglieder");
-		let card_online = find_text(&card_output.shapes, "Online");
+		let mut text_rects = Vec::new();
+		let mut rect_shapes = Vec::new();
+		let mut worklist: Vec<&egui::Shape> = card_output.shapes.iter().map(|s| &s.shape).collect();
+		while let Some(shape) = worklist.pop() {
+			match shape {
+				egui::Shape::Text(t) => {
+					let rect = t.galley.rect.translate(t.pos.to_vec2());
+					text_rects.push((t.galley.job.text.clone(), rect));
+				}
+				egui::Shape::Rect(r) => {
+					rect_shapes.push(r.rect);
+				}
+				egui::Shape::Vec(v) => {
+					worklist.extend(v.iter());
+				}
+				_ => {}
+			}
+		}
+
+		let members_rect = text_rects
+			.iter()
+			.find(|(t, _)| t.contains("Mitglieder"))
+			.map(|(_, r)| *r)
+			.expect("Mitglieder rect");
+		let online_rect = text_rects
+			.iter()
+			.find(|(t, _)| t.contains("Online"))
+			.map(|(_, r)| *r)
+			.expect("Online rect");
+		let join_label = crate::i18n::translate_if_key("invites-show-join");
+		let button_text_rect = text_rects
+			.iter()
+			.find(|(t, _)| t.contains(&join_label))
+			.map(|(_, r)| *r)
+			.expect("button text rect");
+		let button_rect = rect_shapes
+			.iter()
+			.find(|r| r.contains_rect(button_text_rect))
+			.copied()
+			.unwrap_or(button_text_rect);
+		let card_rect = rect_shapes
+			.iter()
+			.max_by(|a, b| (a.width() * a.height()).total_cmp(&(b.width() * b.height())))
+			.copied()
+			.expect("card rect");
+
+		assert!(card_rect.contains_rect(button_rect));
+		assert!(!button_rect.intersects(members_rect));
+		assert!(!button_rect.intersects(online_rect));
 		card_output.drop_without_applying_deltas();
-		assert!(card_members);
-		assert!(card_online);
 
 		crate::i18n::set_current(prev_lang);
 	}
