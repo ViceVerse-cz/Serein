@@ -2618,13 +2618,18 @@ impl Formatted {
 			..Default::default()
 		};
 		let mut remaining: usize = 120;
+		let prefix_len = job.text.len();
+		let mut truncated = false;
+		let mut next_is_word = false;
 		let mut emojis = Vec::new();
 		for (text, style) in &self.spans {
-			if remaining == 0 {
-				break;
-			}
 			if text.is_empty() {
 				continue;
+			}
+			if remaining == 0 {
+				truncated = true;
+				next_is_word = text.chars().next().is_some_and(|c| c.is_alphanumeric());
+				break;
 			}
 			let destination = style
 				.channel
@@ -2707,8 +2712,30 @@ impl Formatted {
 					muted.clone(),
 				)
 			};
-			let take: String = display.chars().take(remaining).collect();
-			remaining -= take.chars().count();
+			let mut cut_end = 0;
+			let mut taken_chars = 0;
+			let mut is_overflow = false;
+			for (offset, cluster) in display.grapheme_indices(true) {
+				let cluster_chars = cluster.chars().count();
+				if taken_chars + cluster_chars > remaining {
+					is_overflow = true;
+					break;
+				}
+				taken_chars += cluster_chars;
+				cut_end = offset + cluster.len();
+			}
+			let take = if is_overflow {
+				truncated = true;
+				next_is_word = display[cut_end..]
+					.chars()
+					.next()
+					.is_some_and(|c| c.is_alphanumeric());
+				remaining = 0;
+				display[..cut_end].to_string()
+			} else {
+				remaining -= taken_chars;
+				display
+			};
 			let mut start = 0;
 			if !style.code {
 				for (offset, cluster) in take.grapheme_indices(true) {
@@ -2731,6 +2758,57 @@ impl Formatted {
 				}
 			}
 			job.append(&take[start..], 0.0, format);
+			if is_overflow {
+				break;
+			}
+		}
+		if truncated {
+			let is_emoji_at = |idx: usize| emojis.iter().any(|e| e.at <= idx && idx < e.at + e.len);
+			let ends_with_ws = job.text.len() > prefix_len
+				&& !is_emoji_at(job.text.len() - 1)
+				&& job.text.ends_with(char::is_whitespace);
+			if next_is_word
+				&& !ends_with_ws
+				&& let Some(last_ws) = job.text[prefix_len..]
+					.char_indices()
+					.rfind(|&(idx, ch)| {
+						let abs_idx = prefix_len + idx;
+						ch.is_whitespace() && !is_emoji_at(abs_idx)
+					})
+					.map(|(idx, _)| prefix_len + idx)
+				&& last_ws > prefix_len
+			{
+				job.text.truncate(last_ws);
+			}
+			let mut trimmed_len = job.text.len();
+			while trimmed_len > prefix_len {
+				let last_idx = trimmed_len - 1;
+				if is_emoji_at(last_idx) {
+					break;
+				}
+				if let Some(ch) = job.text[..trimmed_len].chars().next_back()
+					&& ch.is_whitespace()
+				{
+					trimmed_len -= ch.len_utf8();
+					continue;
+				}
+				break;
+			}
+			job.text.truncate(trimmed_len);
+			let end = job.text.len();
+			let end_idx = egui::text::ByteIndex(end);
+			job.sections.retain_mut(|section| {
+				if section.byte_range.start >= end_idx {
+					false
+				} else {
+					if section.byte_range.end > end_idx {
+						section.byte_range.end = end_idx;
+					}
+					true
+				}
+			});
+			emojis.retain(|emoji| emoji.at + emoji.len <= end);
+			job.append("…", 0.0, muted);
 		}
 		emojis
 	}
@@ -2884,6 +2962,293 @@ impl Formatted {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn inline_preview_truncates_long_messages_with_ellipsis() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let input = "Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat.";
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+			assert!(!preview.text.ends_with("magn…"));
+			assert!(preview.text.ends_with("dolore…"));
+			assert!(preview.text.chars().count() <= 125);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_cuts_at_word_boundary_across_span_borders() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 116 characters prefix followed by a bold word across the 120 limit
+			let prefix = "a".repeat(115) + " ";
+			let input = format!("{prefix}**dolore magna**");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+			assert!(!preview.text.contains("dolo"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_shows_ellipsis_when_exact_limit_followed_by_spoiler() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a".repeat(120);
+			let input = format!("{prefix}||hidden content||");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_caller_prefix_when_truncating() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let mut preview = egui::text::LayoutJob::default();
+			preview.append("@author: ", 0.0, Default::default());
+			let long_word = "a".repeat(130);
+			let _ = super::Formatted::parse(&long_word).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.starts_with("@author: "));
+			assert!(preview.text.ends_with('…'));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_first_omitted_character_across_later_spans() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 116 chars ("a " * 58) + 10 chars bold ("abcdefghij") + tail
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}**abcdefghij** tail");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				!preview.text.contains("abcd"),
+				"mid-word abcd should be cut back to word boundary"
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_emoji_placeholder_near_limit() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 118 chars ("a " * 59) + "x😀 more" -> emoji fits in 120 limit
+			let prefix = "a ".repeat(59);
+			let input = format!("{prefix}x😀 more");
+			let mut preview = egui::text::LayoutJob::default();
+			let emojis = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert_eq!(emojis.len(), 1, "emoji should be preserved");
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_punctuation_after_word_does_not_backtrack() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}word, more");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				preview.text.contains("word…"),
+				"expected preview to retain 'word…' but got {:?}",
+				preview.text
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_joined_emoji_preserves_grapheme_boundary() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// "👩‍💻" is 3 codepoints / 10 bytes.
+			// Case 1: 118 chars + "👩‍💻 more" -> remaining 2; emoji requires 3, must not be split.
+			let prefix1 = "a".repeat(118);
+			let input1 = format!("{prefix1}👩‍💻 more");
+			let mut preview1 = egui::text::LayoutJob::default();
+			let emojis1 = super::Formatted::parse(&input1).append_inline_preview(
+				&mut preview1,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			let text1 = super::Formatted::inline_preview_text(&preview1, &emojis1);
+			assert_eq!(text1, format!("{prefix1}…"));
+
+			// Case 2: 117 chars + "👩‍💻 more" -> remaining 3; emoji fits intact.
+			let prefix2 = "a".repeat(117);
+			let input2 = format!("{prefix2}👩‍💻 more");
+			let mut preview2 = egui::text::LayoutJob::default();
+			let emojis2 = super::Formatted::parse(&input2).append_inline_preview(
+				&mut preview2,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			let text2 = super::Formatted::inline_preview_text(&preview2, &emojis2);
+			assert_eq!(text2, format!("{prefix2}👩‍💻…"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_edge_cases_empty_unicode_punct_and_consecutive_spaces() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 1. Empty preview
+			let mut p_empty = egui::text::LayoutJob::default();
+			let em_empty = super::Formatted::parse("").append_inline_preview(
+				&mut p_empty,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(p_empty.text, "");
+			assert!(em_empty.is_empty());
+
+			// 2. Very short preview
+			let mut p_short = egui::text::LayoutJob::default();
+			let em_short = super::Formatted::parse("hello").append_inline_preview(
+				&mut p_short,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(p_short.text, "hello");
+			assert!(em_short.is_empty());
+
+			// 3. Unicode punctuation (em-dash, ideographic comma) does not backtrack complete word
+			let prefix = "a ".repeat(58);
+			for punct in ["—", "…", "、", "。"] {
+				let input = format!("{prefix}word{punct} more");
+				let mut preview = egui::text::LayoutJob::default();
+				let _ = super::Formatted::parse(&input).append_inline_preview(
+					&mut preview,
+					ui,
+					&[],
+					None,
+					&[],
+					&[],
+				);
+				assert!(preview.text.ends_with("…"));
+				assert!(
+					preview.text.contains("word…"),
+					"expected 'word…' for punct {punct}, got {:?}",
+					preview.text
+				);
+			}
+
+			// 4. Consecutive whitespace is trimmed cleanly before ellipsis
+			let prefix_spaces = "a ".repeat(58);
+			let input_spaces = format!("{prefix_spaces}word   more");
+			let mut preview_spaces = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input_spaces).append_inline_preview(
+				&mut preview_spaces,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview_spaces.text.ends_with("word…"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_word_continuation_backtracks_to_previous_space() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}wordy more");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				!preview.text.contains("word"),
+				"partial word 'word' from 'wordy' must be backtracked"
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
 	#[test]
 	fn game_mentions_obey_code_escape_and_spoiler_boundaries() {
 		let parsed = super::Formatted::parse("<@$42> `<@$43>` \\<@$44> ||<@$45>|| <@46> <@&47>");
