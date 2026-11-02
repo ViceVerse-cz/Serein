@@ -1,6 +1,6 @@
-//! Linux live H.264 decoding through GStreamer. `decodebin` auto-plugs the highest-ranked
+//! Linux live H.264/H.265/AV1 decoding through GStreamer. `decodebin` auto-plugs the highest-ranked
 //! decoder, which is the VA-API or NVDEC plugin when one is installed and `avdec_h264`
-//! otherwise. The caller hands over complete, already decrypted Annex-B access units.
+//! otherwise. Callers supply complete decrypted Annex-B or AV1 OBU temporal units.
 use super::{BUSY, INVALID, UNSUPPORTED};
 pub use super::{LiveFrame as Frame, LiveSink as Sink, MAX_ACCESS_UNIT};
 use gstreamer as gst;
@@ -10,6 +10,34 @@ use std::sync::{
 	Arc,
 	atomic::{AtomicBool, AtomicU64, Ordering},
 };
+
+/// Probe decoder capabilities before advertising HEVC or AV1. Never advertise a codec just
+/// because its parser exists; decodebin also needs an installed ranked decoder.
+pub fn supports_h265() -> bool {
+	supports_codec("h265parse", "video/x-h265")
+}
+fn supports_codec(parser: &str, media: &str) -> bool {
+	if gst::init().is_err() || gst::ElementFactory::find(parser).is_none() {
+		return false;
+	}
+	let caps = gst::Caps::builder(media).build();
+	gst::ElementFactory::factories_with_type(
+		gst::ElementFactoryType::DECODER | gst::ElementFactoryType::MEDIA_VIDEO,
+		gst::Rank::MARGINAL,
+	)
+	.iter()
+	.any(|factory| {
+		if !factory.can_sink_any_caps(&caps) {
+			return false;
+		}
+		let Ok(decoder) = factory.create().build() else {
+			return false;
+		};
+		let available = decoder.set_state(gst::State::Ready).is_ok();
+		let _ = decoder.set_state(gst::State::Null);
+		available
+	})
+}
 
 const MAX_QUEUED_UNITS: u64 = 4;
 const MAX_QUEUED_BYTES: u64 = MAX_QUEUED_UNITS * MAX_ACCESS_UNIT as u64;
@@ -31,20 +59,45 @@ impl Drop for H264Decoder {
 
 impl H264Decoder {
 	pub fn new(sink: Sink) -> Result<Self, &'static str> {
+		Self::new_timed(Box::new(move |frame, _| sink(frame)))
+	}
+	pub fn new_timed(sink: super::TimedLiveSink) -> Result<Self, &'static str> {
+		Self::new_codec(sink, "video/x-h264", "h264parse", "byte-stream", "au")
+	}
+	/// Receive-only HEVC uses the same bounded queues, picture layout and timing tags.
+	pub fn new_h265_timed(sink: super::TimedLiveSink) -> Result<Self, &'static str> {
+		if !supports_h265() {
+			return Err(UNSUPPORTED);
+		}
+		Self::new_codec(sink, "video/x-h265", "h265parse", "byte-stream", "au")
+	}
+	pub fn new_av1_timed(sink: super::TimedLiveSink) -> Result<Self, &'static str> {
+		if !supports_codec("av1parse", "video/x-av1") {
+			return Err(UNSUPPORTED);
+		}
+		Self::new_codec(sink, "video/x-av1", "av1parse", "obu-stream", "tu")
+	}
+	fn new_codec(
+		sink: super::TimedLiveSink,
+		media: &str,
+		parser: &str,
+		format: &str,
+		alignment: &str,
+	) -> Result<Self, &'static str> {
 		gst::init().map_err(|_| UNSUPPORTED)?;
 		let pipeline = gst::Pipeline::new();
 		let appsrc = gst_app::AppSrc::builder()
 			.caps(
-				&gst::Caps::builder("video/x-h264")
-					.field("stream-format", "byte-stream")
-					.field("alignment", "au")
+				&gst::Caps::builder(media)
+					.field("stream-format", format)
+					.field("alignment", alignment)
 					.build(),
 			)
 			.build();
 		appsrc.set_stream_type(gst_app::AppStreamType::Stream);
 		appsrc.set_format(gst::Format::Time);
 		appsrc.set_is_live(true);
-		appsrc.set_do_timestamp(true);
+		appsrc.set_do_timestamp(false);
 		// Item accounting needs GStreamer 1.20; older installations use the caller's
 		// bounded software fallback rather than accepting an unbounded native queue.
 		if appsrc.find_property("current-level-buffers").is_none() {
@@ -52,7 +105,7 @@ impl H264Decoder {
 		}
 		appsrc.set_max_bytes(MAX_QUEUED_BYTES);
 		appsrc.set_block(false);
-		let parse = make("h264parse")?;
+		let parse = make(parser)?;
 		let decodebin = make("decodebin")?;
 		pipeline
 			.add_many([appsrc.upcast_ref::<gst::Element>(), &parse, &decodebin])
@@ -79,7 +132,13 @@ impl H264Decoder {
 						};
 						match picture(&sample) {
 							Ok(frame) => {
-								sink(frame);
+								sink(
+									frame,
+									sample
+										.buffer()
+										.and_then(|buffer| buffer.pts())
+										.map_or(0, |pts| pts.mseconds()),
+								);
 								delivered.fetch_add(1, Ordering::Release);
 								Ok(gst::FlowSuccess::Ok)
 							}
@@ -93,10 +152,13 @@ impl H264Decoder {
 				.build(),
 		);
 		decodebin.connect_pad_added({
-			let pipeline = pipeline.clone();
+			let pipeline = pipeline.downgrade();
 			let appsink = appsink.clone();
 			let failed = failed.clone();
 			move |_, pad| {
+				let Some(pipeline) = pipeline.upgrade() else {
+					return;
+				};
 				let is_video = pad
 					.current_caps()
 					.and_then(|caps| caps.structure(0).map(|s| s.name().starts_with("video/")))
@@ -133,8 +195,14 @@ impl H264Decoder {
 		})
 	}
 
-	/// Queue one Annex-B access unit. Errors from the pipeline surface on the next call.
+	/// Queue one complete access unit. Errors surface on the next pipeline call.
 	pub fn decode(&mut self, access_unit: &[u8]) -> Result<(), &'static str> {
+		self.decode_timed(access_unit, (self.pictures + 1) * 33)
+	}
+	pub fn decode_timed(&mut self, access_unit: &[u8], tag: u64) -> Result<(), &'static str> {
+		if tag > i64::MAX as u64 / 1_000_000 {
+			return Err(INVALID);
+		}
 		if access_unit.len() > MAX_ACCESS_UNIT {
 			return Err(INVALID);
 		}
@@ -160,7 +228,9 @@ impl H264Decoder {
 		}
 		self.pictures += 1;
 		let mut buffer = gst::Buffer::from_slice(access_unit.to_vec());
-		buffer.get_mut().ok_or(INVALID)?.set_offset(self.pictures);
+		let metadata = buffer.get_mut().ok_or(INVALID)?;
+		metadata.set_offset(self.pictures);
+		metadata.set_pts(gst::ClockTime::from_mseconds(tag));
 		// Rejections invalidate the reference chain; the caller requests a keyframe.
 		match self.appsrc.push_buffer(buffer) {
 			Ok(_) => Ok(()),
@@ -190,7 +260,7 @@ fn make(name: &str) -> Result<gst::Element, &'static str> {
 }
 
 fn picture(sample: &gst::Sample) -> Result<Frame, &'static str> {
-	super::gst::picture(sample)
+	super::gst::picture(sample, super::check_live_dimensions)
 }
 
 #[cfg(test)]
@@ -247,5 +317,27 @@ mod tests {
 			Err(_) => return, // No GStreamer H.264 plugins on this machine.
 		};
 		assert!(decoder.decode(&vec![0; MAX_ACCESS_UNIT + 1]).is_err());
+	}
+
+	#[test]
+	fn live_receiver_releases_pipeline_and_callback_on_drop() {
+		let owner = Arc::new(());
+		let lifetime = Arc::downgrade(&owner);
+		let Ok(decoder) = H264Decoder::new(Box::new(move |_| {
+			let _ = Arc::strong_count(&owner);
+		})) else {
+			assert!(lifetime.upgrade().is_none());
+			return; // Required native GStreamer plugins are unavailable.
+		};
+		let pipeline = decoder.pipeline.downgrade();
+		drop(decoder);
+		assert!(
+			pipeline.upgrade().is_none(),
+			"native pipeline leaked after close"
+		);
+		assert!(
+			lifetime.upgrade().is_none(),
+			"output callback leaked after close"
+		);
 	}
 }

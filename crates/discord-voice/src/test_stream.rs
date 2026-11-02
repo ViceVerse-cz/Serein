@@ -1,6 +1,7 @@
 //! Device-free Go Live sender/viewer integration; no Discord connection or capture device.
 use super::*;
 use crate::screen::{AudioChunk, EncodedFrame, Settings, SourceId, Video};
+use crate::video_receive::is_keyframe;
 use client_core::voice::Secret;
 use model::Id;
 use std::sync::atomic::AtomicU64;
@@ -55,7 +56,9 @@ async fn connect(
 	let selected: Value = serde_json::from_str(selected.to_text().unwrap()).unwrap();
 	assert_eq!(selected["op"], 1);
 	assert_eq!(selected["d"]["codecs"][0]["payload_type"], 120);
-	assert_eq!(selected["d"]["codecs"][1]["payload_type"], 101);
+	let codecs = selected["d"]["codecs"].as_array().unwrap();
+	let h264 = codecs.iter().find(|codec| codec["name"] == "H264").unwrap();
+	assert_eq!(h264["payload_type"], 101);
 	ws.send(Message::Binary(
 		[&[0, 1, 25], delivery.external.as_slice()].concat().into(),
 	))
@@ -237,6 +240,34 @@ async fn exchange(rekey_timeout: bool) {
 	assert!(
 		matches!(message(&mut view_ws).await, Message::Pong(data) if data.as_ref() == b"mapped")
 	);
+	// An SFU probe has authenticated transport timing, but no valid DAVE media.
+	// Exercise the actual UDP -> extension -> feedback path without admitting it
+	// to media reconstruction or the primary source's reception report.
+	let probe_header = [0x90, 96, 0, 1, 0, 0, 0, 0, 0, 0, 0, 51, 0xbe, 0xde, 0, 1];
+	let probe = {
+		use chacha20poly1305::{
+			KeyInit, XChaCha20Poly1305, XNonce,
+			aead::{Aead, Payload},
+		};
+		let nonce = [0x74; 24];
+		let mut wire = probe_header.to_vec();
+		let mut actual_nonce = [0; 24];
+		actual_nonce[..4].copy_from_slice(&nonce[..4]);
+		wire.extend(
+			XChaCha20Poly1305::new((&[7; 32]).into())
+				.encrypt(
+					XNonce::from_slice(&actual_nonce),
+					Payload {
+						msg: &[0x51, 0xff, 0xfe, 0, 0xde, 0xad],
+						aad: &probe_header,
+					},
+				)
+				.unwrap(),
+		);
+		wire.extend_from_slice(&nonce[..4]);
+		wire
+	};
+	view_udp.send_to(&probe, view_addr).await.unwrap();
 	// Sender-only sessions must keep receiving authenticated RTCP feedback after
 	// discovery. An unrelated media SSRC must not force our encoder's keyframe.
 	assert!(ready.load(Ordering::Acquire));
@@ -261,13 +292,30 @@ async fn exchange(rekey_timeout: bool) {
 	// keyframe requests. Echo native pong packets before verifying media below.
 	let mut ping = [0; MAX_PACKET + 1];
 	let mut ping_sequence = 0u32;
+	let mut reception_reports = 0;
+	let mut transport_reports = 0;
 	timeout(Duration::from_secs(8), async {
-		while ping_sequence < 2 {
+		while ping_sequence < 2 || transport_reports == 0 {
 			tokio::select! {
 				result = view_udp.recv_from(&mut ping) => {
 					let (length, address) = result.unwrap();
 					assert_eq!(address, view_addr);
-					if length != 8 { continue; } // Authenticated RTCP is separate.
+					if length != 8 {
+						let control=Encryption::new(&[7;32]).open_rtcp(&ping[..length]).expect("Authenticated viewer control");
+						if control[1]==201 {
+							reception_reports+=1;
+							assert_eq!(&control[..4], &[0x80,201,0,1]);
+							assert_eq!(&control[4..8], &42u32.to_be_bytes());
+						}
+						if control[..2]==[0x8f,205] {
+							transport_reports+=1;
+							assert_eq!(&control[4..8], &42u32.to_be_bytes());
+							assert_eq!(&control[8..16], &[0,0,0,0,0xff,0xfe,0,1]);
+							assert_eq!(&control[20..22], &[0xd0,0]);
+							assert!(length<=1200);
+						}
+						continue;
+					}
 					assert_eq!(&ping[..4], &[0x13, 0x37, 0xca, 0xfe]);
 					ping_sequence += 1;
 					assert_eq!(&ping[4..8], &ping_sequence.to_le_bytes());
@@ -281,6 +329,10 @@ async fn exchange(rekey_timeout: bool) {
 	})
 	.await
 	.expect("Idle viewer stopped maintaining UDP");
+	assert!(
+		reception_reports > 0,
+		"viewer sent no authenticated reception reports"
+	);
 	let mut encoder = openh264::encoder::Encoder::with_api_config(
 		openh264::OpenH264API::from_source(),
 		openh264::encoder::EncoderConfig::new(),
@@ -308,7 +360,7 @@ async fn exchange(rekey_timeout: bool) {
 				let _ = audio_tx.try_send(AudioChunk { samples, epoch: epoch.load(Ordering::Acquire) });
 				let _ = frames_tx.try_send(EncodedFrame { data: encoded.clone(), timestamp, keyframe: true });
 				timestamp += 1800;
-				while let Ok(frame) = playback_rx.try_recv() { heard |= frame.iter().any(|sample| sample.abs() > 0.01); }
+				while let Ok(frame) = playback_rx.try_recv() { heard |= frame.samples.iter().any(|sample| sample.abs() > 0.01); }
 				if let Ok(frame) = picture_rx.try_recv() { picture = Some(frame); }
 				if heard && picture.is_some() && audio_packets >= 3 { break; }
 			}

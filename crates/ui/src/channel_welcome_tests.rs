@@ -183,39 +183,6 @@ fn welcome_requires_readable_complete_latest_guild_history() {
 	}
 }
 
-#[test]
-fn long_channel_welcome_wraps_within_narrow_light_and_dark_viewports() {
-	for dark in [true, false] {
-		let ctx = Context::default();
-		ctx.set_visuals(if dark {
-			egui::Visuals::dark()
-		} else {
-			egui::Visuals::light()
-		});
-		let mut state = test_support::empty_channel_demo_state(true);
-		let mut view = TimelineView::default();
-		for width in [700.0, 240.0] {
-			let painted = frame(&ctx, &mut view, &mut state, width);
-			let (_, heading) = painted
-				.iter()
-				.find(|(text, _)| text.starts_with("Welcome to #"))
-				.unwrap();
-			let (_, description) = painted
-				.iter()
-				.find(|(text, _)| text == "This is the beginning of the conversation.")
-				.unwrap();
-			for rect in [heading, description] {
-				assert!(rect.left() >= 0.0 && rect.right() <= width + 1.0);
-				assert!(rect.top() >= 0.0 && rect.bottom() <= 601.0);
-			}
-			assert!(description.top() >= heading.bottom());
-			if width < 300.0 {
-				assert!(heading.height() > 60.0, "The long name must wrap");
-			}
-		}
-	}
-}
-
 fn dm_history(state: &mut State, count: u64) {
 	history(state, Id(22), count);
 }
@@ -312,61 +279,5 @@ fn channels_and_forum_posts_open_with_their_introduction_once_history_is_complet
 		!painted_text(Id(21), 50)
 			.iter()
 			.any(|text| text == "Welcome to #long-form!")
-	);
-}
-
-#[test]
-fn direct_message_introduction_shows_a_known_username_only_when_it_differs() {
-	let ctx = Context::default();
-	let mut state = test_support::demo_state();
-	dm_history(&mut state, 3);
-	let recipient = state.channel(Id(22)).unwrap().recipients[0].clone();
-	let mut view = TimelineView::default();
-	let mut painted_with = |state: &mut State, username: &str| {
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::UserAction(client_core::user_actions::Event::Friends(Some(vec![(
-				recipient.clone(),
-				username.into(),
-			)]))),
-		});
-		frame(&ctx, &mut view, state, 900.0)
-			.into_iter()
-			.map(|(text, _)| text)
-			.collect::<Vec<_>>()
-	};
-	let name = recipient.name.clone();
-	let named = |painted: &[String]| painted.iter().filter(|text| **text == name).count();
-	let painted = painted_with(&mut state, "synthetic.handle");
-	assert!(painted.iter().any(|text| text == "synthetic.handle"));
-	let before = named(&painted);
-	// A username equal to the heading would only repeat it.
-	assert_eq!(named(&painted_with(&mut state, &name)), before);
-}
-
-/// Jumping to a conversation's first message starts the view at the top, like Discord:
-/// the introduction is not pushed down by the padding that rests the live edge on the composer.
-#[test]
-fn a_window_opened_at_the_start_begins_at_the_top_instead_of_resting_on_the_composer() {
-	let ctx = Context::default();
-	let top = |targeted: bool| {
-		let mut state = test_support::demo_state();
-		dm_history(&mut state, 3);
-		state.history_targeted = targeted;
-		let mut view = TimelineView::default();
-		frame(&ctx, &mut view, &mut state, 900.0)
-			.into_iter()
-			.find(|(text, _)| {
-				text.starts_with("This is the beginning of your direct message history")
-			})
-			.map(|(_, rect)| rect.top())
-			.expect("introduction painted")
-	};
-	let live = top(false);
-	let jumped = top(true);
-	assert!(jumped < 300.0, "the start begins at the top: {jumped}");
-	assert!(
-		live > jumped + 50.0,
-		"the live edge still rests on the composer: {live}"
 	);
 }

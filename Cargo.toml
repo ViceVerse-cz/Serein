@@ -10,6 +10,7 @@ rust-version = "1.98"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+diagnostics = { path = "crates/diagnostics" }
 extensions = { path = "crates/extensions" }
 discord-voice = { path = "crates/discord-voice" }
 model = { path = "crates/model" }
@@ -177,6 +178,32 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.symphonia-core]
+opt-level = 3
+
+# Seeking replays attachment audio decoding from the start; unoptimized demuxers and
+# decoders make each seek in a development build take seconds.
+[profile.dev.package.symphonia-bundle-mp3]
+opt-level = 3
+
+[profile.dev.package.symphonia-bundle-flac]
+opt-level = 3
+
+[profile.dev.package.symphonia-codec-alac]
+opt-level = 3
+
+[profile.dev.package.symphonia-codec-pcm]
+opt-level = 3
+
+[profile.dev.package.symphonia-codec-vorbis]
+opt-level = 3
+
+[profile.dev.package.symphonia-format-isomp4]
+opt-level = 3
+
+[profile.dev.package.symphonia-format-ogg]
+opt-level = 3
+
+[profile.dev.package.symphonia-format-riff]
 opt-level = 3
 
 [profile.dev.package.epaint]

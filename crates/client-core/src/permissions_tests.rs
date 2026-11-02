@@ -106,6 +106,7 @@ fn large_startup() -> crate::Startup {
 		notifications: None,
 		session_dnd: Some(false),
 		warnings: Default::default(),
+		threads: Vec::new(),
 	};
 	let mut reads = Vec::new();
 	let mut settings = Vec::new();
@@ -395,6 +396,7 @@ fn snapshot() -> p::Snapshot {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: Id(10),
 					bits: BITS,
 				},
@@ -405,6 +407,7 @@ fn snapshot() -> p::Snapshot {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: Id(11),
 					bits: 0,
 				},
@@ -766,6 +769,7 @@ fn role_rest_catalog_and_self_membership_revoke_selected_history_immediately() {
 			tertiary_color: None,
 			position: 3,
 			hoist: false,
+			managed: false,
 		});
 		metadata.member.as_mut().unwrap().roles = vec![Id(11), Id(13)];
 		permission(&mut state, PermissionEvent::Guild(metadata.clone()));
@@ -1133,6 +1137,7 @@ fn revoked_view_cannot_return_through_stale_gateway_content_or_old_history() {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: Id(11),
 					bits: p::ATTACH_FILES,
 				},
@@ -1233,6 +1238,7 @@ fn deleting_an_unassigned_role_prunes_its_overwrites_and_invalidates_cached_deci
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: Id(10),
 					bits: BITS & !p::SEND_MESSAGES,
 				},
@@ -1311,6 +1317,7 @@ fn malformed_snapshots_are_atomic_and_rejected_permission_events_fail_closed() {
 				tertiary_color: None,
 				position: 0,
 				hoist: false,
+				managed: false,
 				id: Id(id),
 				bits: BITS,
 			})
@@ -1503,6 +1510,7 @@ fn member_requests_survive_guild_hydration_and_follow_current_permissions() {
 			secondary_color: None,
 			tertiary_color: None,
 			hoist,
+			managed: false,
 		};
 		for role in [
 			role(11, 2, 0x112233, true),

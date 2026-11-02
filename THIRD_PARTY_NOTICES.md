@@ -63,11 +63,12 @@ External browser opening enables eframe's `links` feature and adds **webbrowser 
 (MIT OR Apache-2.0). Its MIT license is copied unmodified from the registry release
 to `assets/licenses/files/webbrowser-1.2.4-LICENSE-MIT`; `Cargo.lock` records the archive checksum.
 
-Inline MP3/WAV/Ogg Vorbis attachment playback uses **Symphonia 0.6.1** and its core, metadata,
-MP3, PCM, RIFF, Ogg, Vorbis and common components (MPL-2.0), plus existing **CPAL 0.18.2** (Apache-2.0)
+Inline MP3/WAV/Ogg Vorbis/M4A/AAC/FLAC attachment playback uses **Symphonia 0.6.1** and its core,
+metadata, MP3, PCM, RIFF, Ogg, Vorbis, ISO MP4, AAC, ALAC, FLAC and common components (MPL-2.0),
+plus existing **CPAL 0.18.2** (Apache-2.0)
 for output in both default and voice builds. Additional resolved dependencies are
 extended 0.1.0 (MIT), lazy_static 1.5.0 (MIT OR Apache-2.0), and regex-lite 0.1.9
-(MIT OR Apache-2.0). Optional metadata features, recording and FLAC are disabled.
+(MIT OR Apache-2.0). Optional metadata features and recording are disabled.
 The unmodified corresponding Symphonia source archives, MPL text, direct component
 licenses and provenance are in `assets/licenses/audio`, shipped as `licenses/audio`
 in both packages. Recipients can extract the supplied `.crate` archives with `tar`;

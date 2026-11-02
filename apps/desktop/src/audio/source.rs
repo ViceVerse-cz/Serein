@@ -9,6 +9,52 @@ use symphonia::core::io::MediaSource;
 use tokio::{runtime::Handle, sync::Notify};
 
 const CHUNK: usize = 16 * 1024;
+/// Sequential range reads double from `CHUNK` up to this, so startup stays one small request
+/// while steady playback needs few round trips. At most two blocks are held at once.
+const MAX_BLOCK: usize = 256 * 1024;
+/// Downloaded bytes kept per clip so seeking, which replays decoding from the start, does not
+/// download again. Ranges are kept from the start of the file until the budget is spent.
+const MAX_DOWNLOADS: usize = 16 * 1024 * 1024;
+
+/// Ranges already downloaded for one clip generation; replaced when the generation changes.
+#[derive(Default)]
+pub(super) struct Downloads {
+	generation: u64,
+	ranges: Vec<(usize, Arc<[u8]>)>,
+	bytes: usize,
+}
+impl Downloads {
+	fn get(&self, generation: u64, position: usize) -> Option<(usize, Arc<[u8]>)> {
+		(self.generation == generation)
+			.then(|| {
+				self.ranges
+					.iter()
+					.find(|(start, bytes)| (*start..start + bytes.len()).contains(&position))
+					.cloned()
+			})
+			.flatten()
+	}
+	fn put(&mut self, generation: u64, start: usize, bytes: &Arc<[u8]>) {
+		if self.generation != generation {
+			*self = Self {
+				generation,
+				..Self::default()
+			};
+		}
+		if self.bytes + bytes.len() > MAX_DOWNLOADS
+			|| self.ranges.iter().any(|(existing, _)| *existing == start)
+		{
+			return;
+		}
+		self.bytes += bytes.len();
+		self.ranges.push((start, bytes.clone()));
+	}
+}
+/// Top-level MP4 boxes, nested boxes and the movie index each have a fixed ceiling.
+const MAX_MP4_BOXES: usize = 256;
+const MAX_MP4_CHILDREN: usize = 4096;
+const MAX_MOOV: usize = 8 * 1024 * 1024;
+const MAX_FLAC_BLOCKS: usize = 128;
 const RANGE_UNSUPPORTED: &str =
 	"Audio server does not support buffering; download to play externally";
 
@@ -36,8 +82,10 @@ pub(super) fn source(
 				wake,
 				runtime,
 				generation: request.generation,
-				cache: Vec::new(),
+				cache: Arc::from([]),
 				cache_start: 0,
+				block: CHUNK,
+				ahead: None,
 			},
 			position: 0,
 			len: request.expected,
@@ -68,7 +116,7 @@ pub(super) fn source(
 }
 
 enum Input {
-	#[cfg(feature = "demo")]
+	#[cfg(any(test, feature = "demo"))]
 	Memory(Vec<u8>),
 	Http {
 		client: reqwest::Client,
@@ -77,9 +125,101 @@ enum Input {
 		wake: Arc<Notify>,
 		runtime: Handle,
 		generation: u64,
-		cache: Vec<u8>,
+		cache: Arc<[u8]>,
 		cache_start: usize,
+		/// Size of the next sequential range request.
+		block: usize,
+		/// The following block, fetched in the background once reading passes half the cache.
+		ahead: Option<(usize, tokio::task::JoinHandle<io::Result<Vec<u8>>>)>,
 	},
+}
+impl Drop for Raw {
+	fn drop(&mut self) {
+		if let Input::Http {
+			ahead: Some((_, task)),
+			..
+		} = &self.input
+		{
+			task.abort();
+		}
+	}
+}
+
+/// One validated range request, cancelled when playback moves to another clip or seeks.
+#[allow(clippy::too_many_arguments)] // The captured fields of one HTTP input.
+async fn fetch(
+	client: reqwest::Client,
+	url: url::Url,
+	gate: Arc<Gate>,
+	wake: Arc<Notify>,
+	generation: u64,
+	start: usize,
+	count: usize,
+	total: usize,
+) -> io::Result<Vec<u8>> {
+	let end = start + count - 1;
+	let cancelled = async {
+		loop {
+			if !gate.current(generation) || gate.seek_millis.load(Ordering::Acquire) != NO_SEEK {
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(20)).await;
+		}
+	};
+	let transfer = async {
+		while gate.paused.load(Ordering::Acquire) {
+			wake.notified().await;
+		}
+		let mut response = client
+			.get(url)
+			.header(reqwest::header::ACCEPT_ENCODING, "identity")
+			.header(reqwest::header::RANGE, format!("bytes={start}-{end}"))
+			.send()
+			.await
+			.map_err(|_| invalid())?;
+		if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+			let range = format!("bytes {start}-{end}/{total}");
+			if response
+				.headers()
+				.get(reqwest::header::CONTENT_RANGE)
+				.and_then(|v| v.to_str().ok())
+				!= Some(range.as_str())
+			{
+				return Err(invalid());
+			}
+		} else if !(response.status() == reqwest::StatusCode::OK && start == 0 && count == total) {
+			return Err(io::Error::new(
+				io::ErrorKind::Unsupported,
+				RANGE_UNSUPPORTED,
+			));
+		}
+		if response
+			.headers()
+			.get(reqwest::header::CONTENT_ENCODING)
+			.is_some_and(|v| v != "identity")
+			|| response
+				.content_length()
+				.is_some_and(|size| size != count as u64)
+		{
+			return Err(invalid());
+		}
+		let mut bytes = Vec::with_capacity(count);
+		while let Some(chunk) = response.chunk().await.map_err(|_| invalid())? {
+			if chunk.len() > count - bytes.len() {
+				return Err(invalid());
+			}
+			bytes.extend_from_slice(&chunk);
+		}
+		if bytes.len() != count {
+			return Err(invalid());
+		}
+		Ok(bytes)
+	};
+	tokio::select! { biased;
+		// read_exact retries Interrupted, so cancellation must be terminal.
+		_ = cancelled => Err(io::Error::new(io::ErrorKind::ConnectionAborted, "Cancelled")),
+		result = transfer => result,
+	}
 }
 struct Raw {
 	input: Input,
@@ -92,7 +232,7 @@ fn invalid() -> io::Error {
 	io::Error::new(io::ErrorKind::InvalidData, INVALID)
 }
 impl Raw {
-	#[cfg(feature = "demo")]
+	#[cfg(any(test, feature = "demo"))]
 	fn memory(bytes: Vec<u8>) -> Self {
 		Self {
 			len: bytes.len(),
@@ -117,7 +257,7 @@ impl Read for Raw {
 			return Ok(0);
 		}
 		match &mut self.input {
-			#[cfg(feature = "demo")]
+			#[cfg(any(test, feature = "demo"))]
 			Input::Memory(bytes) => {
 				output[..count].copy_from_slice(&bytes[self.position..self.position + count])
 			}
@@ -130,6 +270,8 @@ impl Read for Raw {
 				generation,
 				cache,
 				cache_start,
+				block,
+				ahead,
 			} => {
 				if !gate.current(*generation) || gate.seek_millis.load(Ordering::Acquire) != NO_SEEK
 				{
@@ -138,85 +280,79 @@ impl Read for Raw {
 						"Cancelled",
 					));
 				}
-				if self.position < *cache_start || self.position >= *cache_start + cache.len() {
-					let start = self.position / CHUNK * CHUNK;
-					let count = CHUNK.min(self.len - start);
-					let end = start + count - 1;
-					let total = self.len;
-					let bytes = runtime.block_on(async {
-						let cancelled = async {
-							loop {
-								if !gate.current(*generation)
-									|| gate.seek_millis.load(Ordering::Acquire) != NO_SEEK
-								{
-									break;
+				let position = self.position;
+				let total = self.len;
+				let task = |start: usize, count: usize| {
+					fetch(
+						client.clone(),
+						url.clone(),
+						gate.clone(),
+						wake.clone(),
+						*generation,
+						start,
+						count,
+						total,
+					)
+				};
+				if position < *cache_start || position >= *cache_start + cache.len() {
+					let sequential = !cache.is_empty() && position == *cache_start + cache.len();
+					*block = if sequential {
+						(*block * 2).min(MAX_BLOCK)
+					} else {
+						CHUNK
+					};
+					// Random access (probing, the MP4 index) keeps the original aligned blocks.
+					let start = if sequential {
+						position
+					} else {
+						position / CHUNK * CHUNK
+					};
+					let downloaded = gate
+						.downloads
+						.lock()
+						.ok()
+						.and_then(|downloads| downloads.get(*generation, position));
+					let (start, bytes) = if let Some(range) = downloaded {
+						range
+					} else {
+						let bytes: Arc<[u8]> = match ahead.take() {
+							Some((ahead_start, handle)) if ahead_start == start => runtime
+								.block_on(handle)
+								.unwrap_or_else(|_| Err(invalid()))?,
+							other => {
+								if let Some((_, handle)) = other {
+									handle.abort();
 								}
-								tokio::time::sleep(Duration::from_millis(20)).await;
+								runtime.block_on(task(start, (*block).min(total - start)))?
 							}
-						};
-						let transfer = async {
-							while gate.paused.load(Ordering::Acquire) {
-								wake.notified().await;
-							}
-							let mut response = client
-								.get(url.clone())
-								.header(reqwest::header::ACCEPT_ENCODING, "identity")
-								.header(reqwest::header::RANGE, format!("bytes={start}-{end}"))
-								.send()
-								.await
-								.map_err(|_| invalid())?;
-							if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
-								let range = format!("bytes {start}-{end}/{total}");
-								if response
-									.headers()
-									.get(reqwest::header::CONTENT_RANGE)
-									.and_then(|v| v.to_str().ok())
-									!= Some(range.as_str())
-								{
-									return Err(invalid());
-								}
-							} else if !(response.status() == reqwest::StatusCode::OK
-								&& start == 0 && count == total)
-							{
-								return Err(io::Error::new(
-									io::ErrorKind::Unsupported,
-									RANGE_UNSUPPORTED,
-								));
-							}
-							if response
-								.headers()
-								.get(reqwest::header::CONTENT_ENCODING)
-								.is_some_and(|v| v != "identity")
-								|| response
-									.content_length()
-									.is_some_and(|size| size != count as u64)
-							{
-								return Err(invalid());
-							}
-							let mut bytes = Vec::with_capacity(count);
-							while let Some(chunk) = response.chunk().await.map_err(|_| invalid())? {
-								if chunk.len() > count - bytes.len() {
-									return Err(invalid());
-								}
-								bytes.extend_from_slice(&chunk);
-							}
-							if bytes.len() != count {
-								return Err(invalid());
-							}
-							Ok(bytes)
-						};
-						tokio::select! { biased;
-							// read_exact retries Interrupted, so cancellation must be terminal.
-							_ = cancelled => Err(io::Error::new(io::ErrorKind::ConnectionAborted, "Cancelled")),
-							result = transfer => result,
 						}
-					})?;
+						.into();
+						if let Ok(mut downloads) = gate.downloads.lock() {
+							downloads.put(*generation, start, &bytes);
+						}
+						(start, bytes)
+					};
 					*cache = bytes;
 					*cache_start = start;
 				}
-				let offset = self.position - *cache_start;
+				let offset = position - *cache_start;
 				count = count.min(cache.len() - offset);
 				output[..count].copy_from_slice(&cache[offset..offset + count]);
+				// Keep the network one block ahead of steady reads; probes near a block start
+				// never trigger it.
+				let next = *cache_start + cache.len();
+				let downloaded = || {
+					gate.downloads
+						.lock()
+						.is_ok_and(|downloads| downloads.get(*generation, next).is_some())
+				};
+				if ahead.is_none()
+					&& next < total && offset + count >= cache.len() / 2
+					&& !downloaded()
+				{
+					let count = (*block * 2).min(MAX_BLOCK).min(total - next);
+					*ahead = Some((next, runtime.spawn(task(next, count))));
+				}
 			}
 		}
 		self.position += count;
@@ -233,6 +369,10 @@ struct Sanitized {
 	prefix: Cursor<Vec<u8>>,
 	end: usize,
 	ogg: Option<Ogg>,
+	/// MP4 replacement byte ranges over the original layout. MP4 is the one seekable format:
+	/// its index can follow the audio, and sample offsets are absolute, so boxes are renamed in
+	/// place rather than removed.
+	mp4: Option<Vec<(usize, Vec<u8>)>>,
 }
 impl Sanitized {
 	/// Validate format headers and expose only bounded metadata and forward-only audio payloads.
@@ -245,8 +385,16 @@ impl Sanitized {
 			raw,
 			prefix: Cursor::new(Vec::new()),
 			ogg: None,
+			mp4: None,
 		};
-		if header.starts_with(b"OggS") {
+		if &header[4..8] == b"ftyp" {
+			result.mp4 = Some(mp4_overlays(&mut result.raw, result.end)?);
+			result.raw.jump(0)?;
+		} else if header.starts_with(b"fLaC") {
+			let (prefix, frames) = flac_prefix(&mut result.raw, result.end)?;
+			result.prefix = Cursor::new(prefix);
+			result.raw.jump(frames)?;
+		} else if header.starts_with(b"OggS") {
 			let mut ogg = Ogg::default();
 			let mut prefix = Vec::new();
 			while ogg.packets < ogg.headers {
@@ -366,6 +514,31 @@ impl Read for Sanitized {
 		if count != 0 {
 			return Ok(count);
 		}
+		if let Some(overlays) = &self.mp4 {
+			let position = self.raw.position;
+			if position >= self.end {
+				return Ok(0);
+			}
+			if let Some((start, bytes)) = overlays
+				.iter()
+				.find(|(start, bytes)| (*start..start + bytes.len()).contains(&position))
+			{
+				let from = position - start;
+				let count = output.len().min(bytes.len() - from);
+				output[..count].copy_from_slice(&bytes[from..from + count]);
+				self.raw.jump(position + count)?;
+				return Ok(count);
+			}
+			let next = overlays
+				.iter()
+				.map(|(start, _)| *start)
+				.filter(|start| *start > position)
+				.min()
+				.unwrap_or(self.end)
+				.min(self.end);
+			let count = output.len().min(next - position);
+			return self.raw.read(&mut output[..count]);
+		}
 		if let Some(ogg) = &mut self.ogg {
 			if self.raw.position == self.end {
 				if !ogg.ended || ogg.packet_len != 0 || ogg.packets <= ogg.headers {
@@ -382,20 +555,161 @@ impl Read for Sanitized {
 	}
 }
 impl Seek for Sanitized {
-	fn seek(&mut self, _: SeekFrom) -> io::Result<u64> {
-		Err(io::Error::new(
-			io::ErrorKind::Unsupported,
-			"Forward-only audio",
-		))
+	fn seek(&mut self, target: SeekFrom) -> io::Result<u64> {
+		if self.mp4.is_none() {
+			return Err(io::Error::new(
+				io::ErrorKind::Unsupported,
+				"Forward-only audio",
+			));
+		}
+		let position = match target {
+			SeekFrom::Start(offset) => i128::from(offset),
+			SeekFrom::Current(delta) => self.raw.position as i128 + i128::from(delta),
+			SeekFrom::End(delta) => self.end as i128 + i128::from(delta),
+		};
+		let position = usize::try_from(position)
+			.ok()
+			.filter(|position| *position <= self.end)
+			.ok_or_else(invalid)?;
+		self.raw.jump(position)?;
+		Ok(position as u64)
 	}
 }
 impl MediaSource for Sanitized {
 	fn is_seekable(&self) -> bool {
-		false
+		self.mp4.is_some()
 	}
 	fn byte_len(&self) -> Option<u64> {
-		None
+		self.mp4.as_ref().map(|_| self.end as u64)
 	}
+}
+
+/// Box size and header length at `at`; size 0 extends to `end`, size 1 is a 64-bit size.
+fn mp4_box(header: &[u8], at: usize, end: usize) -> io::Result<(usize, usize)> {
+	let size = u32::from_be_bytes(header[..4].try_into().map_err(|_| invalid())?);
+	let (header_len, size) = match size {
+		0 => (8, end - at),
+		1 => {
+			let large = header.get(8..16).ok_or_else(invalid)?;
+			(
+				16,
+				usize::try_from(u64::from_be_bytes(large.try_into().map_err(|_| invalid())?))
+					.map_err(|_| invalid())?,
+			)
+		}
+		size => (8, size as usize),
+	};
+	if size < header_len || at.checked_add(size).is_none_or(|next| next > end) {
+		return Err(invalid());
+	}
+	Ok((header_len, size))
+}
+
+/// Validate the top-level MP4 layout and return the in-place replacements: the movie index
+/// with metadata boxes renamed `free`, and `free` headers over unknown top-level boxes. Audio
+/// payload is never read here.
+fn mp4_overlays(raw: &mut Raw, end: usize) -> io::Result<Vec<(usize, Vec<u8>)>> {
+	let mut overlays = Vec::new();
+	let mut position = 0;
+	let mut moov = None;
+	let mut mdat = false;
+	for index in 0..MAX_MP4_BOXES {
+		if position == end {
+			break;
+		}
+		if end - position < 8 {
+			return Err(invalid());
+		}
+		raw.jump(position)?;
+		let mut header = [0; 16];
+		let available = (end - position).min(16);
+		raw.read_exact(&mut header[..available])?;
+		let (header_len, size) = mp4_box(&header[..available], position, end)?;
+		match &header[4..8] {
+			b"ftyp" if index == 0 => {}
+			_ if index == 0 => return Err(invalid()),
+			b"moov" => {
+				if moov.is_some() || size > MAX_MOOV {
+					return Err(invalid());
+				}
+				let mut index = vec![0; size];
+				raw.jump(position)?;
+				raw.read_exact(&mut index)?;
+				let mut children = 0;
+				sanitize_mp4(&mut index[header_len..], 0, &mut children)?;
+				moov = Some((position, index));
+			}
+			b"mdat" => mdat = true,
+			b"free" | b"skip" | b"wide" => {}
+			_ => overlays.push((position + 4, b"free".to_vec())),
+		}
+		position += size;
+	}
+	if position != end || !mdat {
+		return Err(invalid());
+	}
+	overlays.push(moov.ok_or_else(invalid)?);
+	Ok(overlays)
+}
+
+/// Rename metadata boxes (`udta`, `meta`) inside the movie index; the demuxer skips `free`.
+fn sanitize_mp4(boxes: &mut [u8], depth: usize, children: &mut usize) -> io::Result<()> {
+	if depth > 8 {
+		return Err(invalid());
+	}
+	let mut at = 0;
+	while at < boxes.len() {
+		*children += 1;
+		if *children > MAX_MP4_CHILDREN || boxes.len() - at < 8 {
+			return Err(invalid());
+		}
+		let (header_len, size) = mp4_box(&boxes[at..], at, boxes.len())?;
+		match &boxes[at + 4..at + 8] {
+			b"udta" | b"meta" => boxes[at + 4..at + 8].copy_from_slice(b"free"),
+			b"trak" | b"mdia" | b"minf" | b"stbl" | b"edts" | b"dinf" => {
+				sanitize_mp4(&mut boxes[at + header_len..at + size], depth + 1, children)?
+			}
+			_ => {}
+		}
+		at += size;
+	}
+	Ok(())
+}
+
+/// Keep only FLAC's STREAMINFO block; tags, pictures and padding are skipped unread.
+/// Returns the replacement header and the offset of the first audio frame.
+fn flac_prefix(raw: &mut Raw, end: usize) -> io::Result<(Vec<u8>, usize)> {
+	let mut position = 4;
+	let mut info = None;
+	for _ in 0..MAX_FLAC_BLOCKS {
+		raw.jump(position)?;
+		let mut header = [0; 4];
+		raw.read_exact(&mut header)?;
+		let kind = header[0] & 0x7f;
+		let len =
+			usize::from(header[1]) << 16 | usize::from(header[2]) << 8 | usize::from(header[3]);
+		let next = position
+			.checked_add(4 + len)
+			.filter(|next| *next < end)
+			.ok_or_else(invalid)?;
+		if kind == 0 {
+			if position != 4 || len != 34 {
+				return Err(invalid());
+			}
+			let mut block = vec![0; 34];
+			raw.read_exact(&mut block)?;
+			info = Some(block);
+		} else if kind == 127 || info.is_none() {
+			return Err(invalid());
+		}
+		position = next;
+		if header[0] & 0x80 != 0 {
+			let mut prefix = b"fLaC\x80\0\0\x22".to_vec();
+			prefix.extend_from_slice(&info.ok_or_else(invalid)?);
+			return Ok((prefix, position));
+		}
+	}
+	Err(invalid())
 }
 
 struct Ogg {
@@ -519,7 +833,6 @@ impl Ogg {
 #[cfg(all(debug_assertions, feature = "demo"))]
 /// Verify bounded reads, malformed metadata rejection and complete oversized WAV decoding offline.
 pub(super) fn debug_check() {
-	use std::{io::Write, sync::atomic::AtomicUsize};
 	let bytes = super::demo_wav();
 	let mut source = Sanitized::new(Raw::memory(bytes.clone())).expect("synthetic WAV header");
 	assert!(
@@ -561,66 +874,77 @@ pub(super) fn debug_check() {
 	assert_eq!(source.raw.position, 4106);
 	assert!(source.raw.bytes_read < 64, "ID3 payload is never fetched");
 
-	// The same source against a synthetic local server: tiny demuxer reads share one range.
-	// A valid WAV above the old file-size ceiling still uses tiny bounded ranges.
+	check_remote(24 * 1024 * 1024);
+}
+
+/// Decode a synthetic WAV of `len` bytes from a local range server: startup is one small
+/// request, steady reads are prefetched in growing blocks, and a mismatched range is rejected.
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
+fn check_remote(len: usize) {
+	use std::{
+		io::Write,
+		sync::atomic::{AtomicBool, AtomicUsize},
+	};
 	let mut fixture = super::demo_wav();
-	fixture.resize(24 * 1024 * 1024, 0);
+	fixture.resize(len, 0);
 	let riff_size = (fixture.len() - 8) as u32;
 	let data_size = (fixture.len() - 44) as u32;
 	fixture[4..8].copy_from_slice(&riff_size.to_le_bytes());
 	fixture[40..44].copy_from_slice(&data_size.to_le_bytes());
 	let expected = fixture.len();
 	let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-	let url = url::Url::parse(&format!(
-		"http://{}/synthetic.wav",
-		listener.local_addr().unwrap()
-	))
-	.unwrap();
+	let address = listener.local_addr().unwrap();
+	let url = url::Url::parse(&format!("http://{address}/synthetic.wav")).unwrap();
 	let requests = Arc::new(AtomicUsize::new(0));
-	let observed = requests.clone();
+	let corrupt = Arc::new(AtomicBool::new(false));
+	let done = Arc::new(AtomicBool::new(false));
+	let (observed, corrupt_next, stop) = (requests.clone(), corrupt.clone(), done.clone());
 	let server = std::thread::spawn(move || {
 		let mut probes = 0;
-		for (index, start) in [0, CHUNK, 0]
-			.into_iter()
-			.chain((0..expected).step_by(CHUNK))
-			.enumerate()
-		{
-			let (mut socket, header) = loop {
-				let (mut socket, _) = listener.accept().unwrap();
-				socket
-					.set_read_timeout(Some(Duration::from_secs(2)))
-					.unwrap();
-				let mut header = Vec::new();
-				while !header.ends_with(b"\r\n\r\n") {
-					assert!(header.len() < 8192);
-					let mut byte = [0];
-					socket.read_exact(&mut byte).unwrap();
-					header.push(byte[0]);
-				}
-				let header = String::from_utf8(header).unwrap().to_ascii_lowercase();
-				// Some development hosts probe listening ports; these are not range reads.
-				if header.starts_with("head / http/1.1\r\n") {
-					probes += 1;
-					assert!(probes <= 8, "too many unrelated local port probes");
-					let _ =
-						socket.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n");
-					continue;
-				}
-				break (socket, header);
-			};
-			assert!(
-				header.contains(&format!("range: bytes={start}-{}\r\n", start + CHUNK - 1)),
-				"unexpected synthetic range request #{index}"
-			);
-			assert!(!header.contains("authorization:"));
-			observed.fetch_add(1, Ordering::Release);
-			let total = expected + usize::from(index == 2);
-			write!(socket, "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{}/{total}\r\nContent-Length: {CHUNK}\r\nConnection: close\r\n\r\n", start + CHUNK - 1).unwrap();
-			// The third malformed header is rejected before its body is consumed.
-			let result = socket.write_all(&fixture[start..start + CHUNK]);
-			if index != 2 {
-				result.unwrap();
+		for socket in listener.incoming() {
+			if stop.load(Ordering::Acquire) {
+				break;
 			}
+			let mut socket = socket.unwrap();
+			socket
+				.set_read_timeout(Some(Duration::from_secs(2)))
+				.unwrap();
+			let mut header = Vec::new();
+			while !header.ends_with(b"\r\n\r\n") {
+				assert!(header.len() < 8192);
+				let mut byte = [0];
+				if socket.read_exact(&mut byte).is_err() {
+					break;
+				}
+				header.push(byte[0]);
+			}
+			let header = String::from_utf8(header).unwrap().to_ascii_lowercase();
+			// Some development hosts probe listening ports; these are not range reads.
+			if header.starts_with("head / http/1.1\r\n") || header.is_empty() {
+				probes += 1;
+				assert!(probes <= 8, "too many unrelated local port probes");
+				let _ = socket.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n");
+				continue;
+			}
+			assert!(!header.contains("authorization:"));
+			let range = header
+				.split("range: bytes=")
+				.nth(1)
+				.and_then(|rest| rest.split("\r\n").next())
+				.expect("every read is a range request");
+			let (start, end) = range.split_once('-').unwrap();
+			let (start, end): (usize, usize) = (start.parse().unwrap(), end.parse().unwrap());
+			assert!(start <= end && end < expected);
+			assert!(end + 1 - start <= MAX_BLOCK, "range blocks stay bounded");
+			observed.fetch_add(1, Ordering::AcqRel);
+			let total = expected + usize::from(corrupt_next.swap(false, Ordering::AcqRel));
+			let _ = write!(
+				socket,
+				"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{end}/{total}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+				end + 1 - start
+			);
+			// A mismatched header is rejected before its body is consumed.
+			let _ = socket.write_all(&fixture[start..=end]);
 		}
 	});
 	let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -642,6 +966,7 @@ pub(super) fn debug_check() {
 		generation: 0,
 		url: Some(url),
 		expected,
+		#[cfg(feature = "demo")]
 		voice_message: false,
 	};
 	let mut remote = self::source(
@@ -652,11 +977,14 @@ pub(super) fn debug_check() {
 	)
 	.unwrap();
 	resume.join().unwrap();
+	// Header validation and tiny demuxer reads share the first small range; no read-ahead yet.
 	assert_eq!(requests.load(Ordering::Acquire), 1);
 	remote.read_exact(&mut [0; 64]).unwrap();
 	assert_eq!(requests.load(Ordering::Acquire), 1);
-	remote.read_exact(&mut [0; CHUNK]).unwrap();
-	assert_eq!(requests.load(Ordering::Acquire), 2);
+	drop(remote);
+	// A corrupt range must reach the network, not a cached copy of the first one.
+	gate.clear_downloads();
+	corrupt.store(true, Ordering::Release);
 	assert!(
 		self::source(
 			&request,
@@ -666,22 +994,153 @@ pub(super) fn debug_check() {
 		)
 		.is_err()
 	);
-	let remote = self::source(&request, gate, wake, runtime.handle().clone()).unwrap();
-	let mut samples = 0;
-	super::decode_stream(remote, &|| true, &mut |packet, channels, rate, _| {
-		assert_eq!((channels, rate), (1, 24000));
-		samples += packet.len();
-		Ok(())
-	})
-	.unwrap();
-	assert_eq!(
-		samples,
-		(expected - 44) / 2,
-		"decode the entire WAV payload"
+	let decode = || {
+		let before = requests.load(Ordering::Acquire);
+		let remote = self::source(
+			&request,
+			gate.clone(),
+			wake.clone(),
+			runtime.handle().clone(),
+		)
+		.unwrap();
+		let mut samples = 0;
+		super::decode_stream(remote, &|| true, &mut |packet, channels, rate, _| {
+			assert_eq!((channels, rate), (1, 24000));
+			samples += packet.len();
+			Ok(())
+		})
+		.unwrap();
+		assert_eq!(
+			samples,
+			(expected - 44) / 2,
+			"decode the entire WAV payload"
+		);
+		requests.load(Ordering::Acquire) - before
+	};
+	let used = decode();
+	assert!(
+		used <= expected.div_ceil(MAX_BLOCK) + 8,
+		"{used} range requests for {expected} bytes"
 	);
-	assert_eq!(
-		requests.load(Ordering::Acquire),
-		3 + expected.div_ceil(CHUNK)
+	// A seek replays the clip from the start; cached ranges are not downloaded again.
+	let again = decode();
+	assert!(
+		again <= expected.saturating_sub(MAX_DOWNLOADS).div_ceil(MAX_BLOCK) + 2,
+		"{again} range requests to replay {expected} bytes"
 	);
+	if expected <= MAX_DOWNLOADS {
+		assert_eq!(again, 0);
+	}
+	gate.clear_downloads();
+	assert!(gate.downloads.lock().unwrap().get(0, 0).is_none());
+	done.store(true, Ordering::Release);
+	let _ = std::net::TcpStream::connect(address);
 	server.join().unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	const M4A: &[u8] = include_bytes!("../../tests/fixtures/audio-tone.m4a");
+	const ALAC: &[u8] = include_bytes!("../../tests/fixtures/audio-tone-alac.m4a");
+	const FLAC: &[u8] = include_bytes!("../../tests/fixtures/audio-tone.flac");
+
+	/// Box types directly inside `moov`, as the demuxer walks them.
+	fn moov_children(file: &[u8]) -> Vec<[u8; 4]> {
+		let mut at = 0;
+		while &file[at + 4..at + 8] != b"moov" {
+			at += u32::from_be_bytes(file[at..at + 4].try_into().unwrap()) as usize;
+		}
+		let end = at + u32::from_be_bytes(file[at..at + 4].try_into().unwrap()) as usize;
+		let mut kinds = Vec::new();
+		at += 8;
+		while at < end {
+			kinds.push(file[at + 4..at + 8].try_into().unwrap());
+			at += u32::from_be_bytes(file[at..at + 4].try_into().unwrap()) as usize;
+		}
+		kinds
+	}
+
+	fn streamed(bytes: &[u8]) -> io::Result<Vec<u8>> {
+		let mut source = Sanitized::new(Raw::memory(bytes.to_vec()))?;
+		let mut streamed = Vec::new();
+		source.read_to_end(&mut streamed)?;
+		Ok(streamed)
+	}
+
+	#[test]
+	fn mp4_and_flac_audio_decode_without_their_metadata() {
+		for fixture in [M4A, ALAC, FLAC] {
+			let source = Sanitized::new(Raw::memory(fixture.to_vec())).expect("sanitized");
+			let mut samples = 0;
+			super::super::decode_stream(
+				Box::new(source),
+				&|| true,
+				&mut |pcm, channels, rate, _| {
+					assert_eq!((channels, rate), (1, 24_000));
+					samples += pcm.len();
+					Ok(())
+				},
+			)
+			.expect("decoded");
+			// 0.2 s of 24 kHz mono, give or take encoder priming and padding.
+			assert!((3_000..=7_000).contains(&samples), "{samples}");
+		}
+		// The AAC fixture's index follows its audio, so the source must seek; offsets stay put.
+		assert!(
+			Sanitized::new(Raw::memory(M4A.to_vec()))
+				.unwrap()
+				.is_seekable()
+		);
+		for fixture in [M4A, ALAC] {
+			let bytes = streamed(fixture).unwrap();
+			assert_eq!(bytes.len(), fixture.len());
+			assert!(moov_children(fixture).contains(b"udta"));
+			let children = moov_children(&bytes);
+			assert!(children.contains(b"trak") && children.contains(b"free"));
+			assert!(!children.contains(b"udta") && !children.contains(b"meta"));
+		}
+		let source = Sanitized::new(Raw::memory(FLAC.to_vec())).unwrap();
+		assert!(!source.is_seekable());
+		assert!(
+			source.raw.bytes_read < 128,
+			"tags and padding are never fetched"
+		);
+		let bytes = streamed(FLAC).unwrap();
+		assert!(FLAC.windows(9).any(|w| w == b"Synthetic"));
+		assert!(!bytes.windows(9).any(|w| w == b"Synthetic"));
+	}
+
+	#[test]
+	fn remote_audio_streams_through_few_prefetched_ranges() {
+		super::check_remote(4 * 1024 * 1024);
+	}
+
+	#[test]
+	fn malformed_mp4_and_flac_are_rejected_before_decoding() {
+		assert!(streamed(&M4A[..M4A.len() - 1]).is_err(), "truncated index");
+		let mut no_ftyp = M4A.to_vec();
+		no_ftyp[4..8].copy_from_slice(b"moov");
+		assert!(streamed(&no_ftyp).is_err());
+		let moov = M4A.windows(4).position(|w| w == b"moov").unwrap() - 4;
+		let mut oversized = M4A.to_vec();
+		oversized[moov..moov + 4].copy_from_slice(&u32::MAX.to_be_bytes());
+		assert!(streamed(&oversized).is_err());
+		let mut nested = M4A.to_vec();
+		let trak = M4A.windows(4).position(|w| w == b"trak").unwrap() - 4;
+		nested[trak..trak + 4].copy_from_slice(&4u32.to_be_bytes());
+		assert!(streamed(&nested).is_err(), "child smaller than its header");
+		let mut tags_first = FLAC.to_vec();
+		tags_first[4] = 4;
+		assert!(streamed(&tags_first).is_err(), "STREAMINFO must come first");
+		// Blocks: STREAMINFO (34 bytes), tags (63), then the last block, padding.
+		let mut endless = FLAC.to_vec();
+		assert_eq!(endless[4 + 4 + 34 + 4 + 63] & 0x80, 0x80);
+		endless[4 + 4 + 34 + 4 + 63] &= 0x7f;
+		assert!(
+			streamed(&endless).is_err(),
+			"metadata must end before the file does"
+		);
+	}
 }

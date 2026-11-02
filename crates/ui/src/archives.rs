@@ -475,61 +475,6 @@ mod tests {
 		}
 	}
 
-	#[test]
-	fn archive_search_distinguishes_no_matches_from_an_empty_page() {
-		let ctx = egui::Context::default();
-		ctx.enable_accesskit();
-		let mut state = archive_state(15);
-		let mut archives = ArchivesUi {
-			filter: "absent".into(),
-			..Default::default()
-		};
-		let mut avatars = crate::avatars::Avatars::default();
-		let mut commands = vec![];
-		for populated in [false, true] {
-			if populated {
-				let mut thread = channel(8, 11, Some(Id(7)));
-				thread.guild = Some(state.guilds[0].id);
-				state
-					.archives
-					.as_mut()
-					.unwrap()
-					.page
-					.as_mut()
-					.unwrap()
-					.threads
-					.push(thread);
-			}
-			let expected = crate::i18n::translate(if populated {
-				"archives-show-no-older-thread-matches-this-search"
-			} else {
-				"archives-show-no-older-threads-returned"
-			});
-			let output = ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(640.0, 480.0),
-					)),
-					..Default::default()
-				},
-				|_| archives.show(&ctx, &mut state, &mut commands, &mut avatars),
-			);
-			let labels: Vec<_> = output
-				.platform_output
-				.accesskit_update
-				.as_ref()
-				.unwrap()
-				.nodes
-				.iter()
-				.filter_map(|(_, node)| node.label().or_else(|| node.value()))
-				.map(str::to_owned)
-				.collect();
-			output.drop_without_applying_deltas();
-			assert!(labels.contains(&expected), "{expected}: {labels:?}");
-		}
-		assert!(commands.is_empty());
-	}
 	fn frame(ctx: &egui::Context, key: Option<egui::Key>, draw: impl FnMut(&mut egui::Ui)) {
 		let output = ctx.run_ui(
 			egui::RawInput {

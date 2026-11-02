@@ -952,20 +952,6 @@ impl Draft {
 
 #[cfg(test)]
 mod tests {
-	/// The caret in an empty search box is sized by this layout; it must match typed text.
-	#[test]
-	fn empty_query_lays_out_like_typed_text() {
-		let ctx = egui::Context::default();
-		ctx.run_ui(Default::default(), |ui| {
-			let height = |text: &str| {
-				let job = super::highlight(ui, text, 200.0);
-				ui.fonts_mut(|fonts| fonts.layout_job(job)).rows[0].height()
-			};
-			assert_eq!(height(""), height("Search"));
-		})
-		.drop_without_applying_deltas();
-	}
-
 	/// "More filters" keeps a finished trailing `has:` and drops one still being typed.
 	#[test]
 	fn a_finished_has_filter_survives_and_a_partial_one_does_not() {

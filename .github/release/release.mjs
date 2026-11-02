@@ -83,8 +83,13 @@ if (plan && channel === 'production') {
     }],
   );
 }
+// Scheduled nightlies skip a commit that already has a nightly tag; manual dispatches still rebuild.
+const nightlyUnchanged = mode === 'plan' && channel === 'nightly'
+  && process.env.GITHUB_EVENT_NAME === 'schedule'
+  && execFileSync('git', ['tag', '--points-at', 'HEAD', '--list', 'v*-nightly.*'], { encoding: 'utf8' }).trim() !== '';
+if (nightlyUnchanged) console.log('HEAD already has a nightly release; skipping');
 // Nightly assets are published from the immutable plan commit; no branch mutation needs semantic-release.
-const result = mode === 'publish' && (channel === 'nightly' || resumed)
+const result = nightlyUnchanged ? null : mode === 'publish' && (channel === 'nightly' || resumed)
   ? { nextRelease: { version: plan.stableVersion, gitHead: plan.gitHead } }
   : await semanticRelease({
     branches: ['main'],

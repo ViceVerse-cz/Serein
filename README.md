@@ -1,7 +1,7 @@
 # Serein
 
 <p align="center">
-  <a href="https://github.com/ViceVerse-cz/rustcord">
+  <a href="https://github.com/ViceVerse-cz/Serein">
     <img src="docs/preview.png" alt="Serein Native Discord Client" width="900" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);" />
   </a>
 </p>
@@ -107,7 +107,7 @@ Use `net-im/serein-bin` in the keyword file and emerge command to install the pr
 
 #### 4. Nix (flake)
 
-Nix installs are updated through Nix, not the in-app updater. On macOS the build produces an unsigned, non-notarized `Serein.app`. See the [Nix package guide](nix/README.md) for the development shell and details.
+Nix installs are updated through Nix, not the in-app updater. On macOS the build produces an unsigned, non-notarized `Serein.app`. See the [Nix package guide](packaging/nix/README.md) for the development shell and details.
 
 The repository flake builds Serein from source for `x86_64-linux` and `aarch64-darwin`:
 
@@ -259,7 +259,7 @@ Download `serein-<version>-macOS-ARM64.zip` from [Releases](https://github.com/V
 
 - ⚡ **Pure Native Performance:** Built with pure Rust, `egui`, and `wgpu`. Immediate-mode rendering with minimal idle CPU, low memory footprint, and instantaneous launch times—zero Electron, Node.js, or web runtime overhead.
 - 🌐 **Direct Gateway & REST Transports:** Direct connection to Discord's official endpoints with active rate-limiting cooldowns, heartbeat handling, reconnect/resume loops, and partial payload patching.
-- 🔒 **Secure OS Credential Storage:** Session tokens are stored exclusively in your operating system's secure vault (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Never saved in plaintext.
+- 🔒 **Secure OS Credential Storage:** Session tokens use your operating system's secure vault by default (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Settings › Storage offers an explicit, unencrypted plaintext fallback when the keyring does not work.
 - 🛡️ **Ephemeral Authentication Webview:** Sign-in uses Discord's official hosted login page inside a temporary native webview (WKWebView, WebView2, or WebKitGTK) supporting email/password, QR login, and MFA. An origin-checked handoff secures the session credential and immediately terminates the webview.
 - 💾 **Bounded Local Persistence:** Recent chat history, drafts, image previews, settings, and diagnostics are stored in an account-isolated, bounded local SQLite database. All local data is strictly cleared upon explicit logout.
 - 🎙️ **Voice Calls, Video & Screen Sharing:** Complete native voice engine with 1-to-1 and group DM calls, server voice channels, push-to-talk, Sonora AEC3 acoustic echo cancellation, RNNoise noise suppression, Opus codec, and DAVE v1 end-to-end encryption. Includes native screen capture (macOS ScreenCaptureKit, Windows Graphics Capture, Linux portal/PipeWire with VA-API/NVENC hardware encoding and software fallback; Linux native capture remains unverified) and incoming stream & camera video playback with hardware-accelerated decoding (VideoToolbox, VA-API, DirectX).
@@ -382,7 +382,7 @@ cargo xtask package
 Serein is engineered as a clean multi-crate Cargo workspace, isolating UI rendering from networking, persistence, and service protocols:
 
 ```
-rustcord/
+serein/
 ├── apps/
 │   └── desktop/          # Application entrypoint, CLI flags, window lifecycle
 ├── crates/
@@ -406,7 +406,7 @@ rustcord/
 
 ## Security & Storage Policy
 
-- **Token Protection:** Tokens are saved solely in the native OS credential store (macOS Keychain, Windows Credential Manager, Linux Secret Service). Plaintext token fallback is strictly prohibited. Active tokens remain redacted in memory.
+- **Token Protection:** Tokens use the native OS credential store by default (macOS Keychain, Windows Credential Manager, Linux Secret Service). An explicit Storage setting allows private, bounded plaintext files when OS saving fails; disabling it deletes those secret files. Active tokens remain redacted in memory.
 - **Local Cache Bounds:** SQLite databases store recent channel history, drafts, settings, diagnostics, and image preview metadata within bounded byte and count limits. The local SQLite store is **not** encrypted by the application.
 - **Sanitary Logout:** Executing an explicit logout destroys active network sessions, purges active secrets from memory, deletes the token from the OS credential store, and erases that account's local cache and drafts.
 - **Zero Telemetry:** Serein contains no analytics, telemetry, background crash collectors, or tracking beacons.
@@ -423,7 +423,7 @@ For full details, review the [Storage Policy](docs/storage-policy.md) and [Threa
 - [Authentication & Login Handoff](docs/authentication.md)
 - [Storage Policy & Cache Retention](docs/storage-policy.md)
 - [Platform Support & Build Requirements](docs/platform-support.md)
-- [Nix Package & Development Shell](nix/README.md)
+- [Nix Package & Development Shell](packaging/nix/README.md)
 - [Voice Architecture & Procedure](docs/voice.md)
 - [Design Tokens & UI Styling](docs/design.md)
 - [Extensions & Plugin Architecture](docs/extensions.md)

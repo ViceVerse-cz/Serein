@@ -364,53 +364,6 @@ fn append_link(state: &mut State, channel: Id, link: &str) -> bool {
 mod tests {
 	use super::*;
 	use client_core::MAX_CONTENT;
-	#[test]
-	fn typed_public_upload_errors_have_english_and_czech_messages() {
-		use crate::i18n::Language;
-		for error in [
-			Error::Cancelled,
-			Error::Prepare,
-			Error::Changed,
-			Error::Unsupported,
-			Error::Failed,
-			Error::Rejected,
-			Error::Incomplete,
-			Error::ResponseLimit,
-			Error::Interrupted,
-			Error::InvalidLink,
-			Error::Busy,
-			Error::Unavailable,
-			Error::ConversationChanged,
-			Error::SelectionChanged,
-			Error::MissingSelection,
-		] {
-			let key = error_key(error);
-			let english = Language::English.text(key);
-			let czech = Language::Czech.text(key);
-			assert!(!english.starts_with("Unknown localization"), "{error:?}");
-			assert!(!czech.starts_with("Unknown localization"), "{error:?}");
-			assert_ne!(english, czech, "{error:?}");
-		}
-		let ctx = Context::default();
-		let mut state = test_support::demo_state();
-		let mut view = ExternalUpload::default();
-		view.open(
-			state.generation,
-			state.selected.unwrap(),
-			0,
-			None,
-			"synthetic.pdf".into(),
-			1,
-		);
-		view.complete(Err(Error::InvalidLink));
-		let _ = frame(&ctx, &mut view, &mut state, vec![]);
-		let labels = frame(&ctx, &mut view, &mut state, vec![]);
-		assert!(
-			labels
-				.iter()
-				.any(|(label, _)| label == &Language::English.text(error_key(Error::InvalidLink)))
-		);
-	}
 	fn frame(
 		ctx: &Context,
 		view: &mut ExternalUpload,

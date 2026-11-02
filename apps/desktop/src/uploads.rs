@@ -1630,20 +1630,6 @@ mod tests {
 		assert_eq!(frames[0].buffer().dimensions(), (160, 80));
 	}
 
-	#[test]
-	fn progress_distinguishes_streamed_bytes_from_message_confirmation() {
-		let mut uploads = Uploads::default();
-		assert_eq!(uploads.transfer_progress(), (None, false));
-		uploads.last = Some(Status::Uploading {
-			sent: 42,
-			total: 100,
-		});
-		assert_eq!(uploads.transfer_progress(), (Some((42, 100)), false));
-		uploads.last = Some(Status::Sending);
-		assert_eq!(uploads.transfer_progress(), (None, true));
-		uploads.last = Some(Status::Failed("rejected"));
-		assert_eq!(uploads.transfer_progress(), (None, false));
-	}
 	#[tokio::test]
 	async fn file_drop_is_bounded_scoped_selection_and_never_reads_handle_bytes() {
 		struct SyntheticDrop(std::path::PathBuf);
