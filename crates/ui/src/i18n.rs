@@ -40,6 +40,7 @@ thread_local! {
 	#[cfg(test)]
 	static TEST_CURRENT: std::cell::Cell<Language> = const { std::cell::Cell::new(Language::English) };
 	static ACTIVE_BUNDLE: RefCell<Option<ActiveBundle>> = const { RefCell::new(None) };
+	static FALLBACK_BUNDLE: RefCell<Option<ActiveBundle>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -203,30 +204,50 @@ impl Language {
 		ActiveBundle { language, bundle }
 	}
 
+	fn lookup_in_bundle(
+		bundle: &FluentBundle<FluentResource>,
+		key: &str,
+		args: Option<&FluentArgs<'_>>,
+	) -> Option<String> {
+		let pattern = if let Some((message, attribute)) = key.split_once('.') {
+			bundle
+				.get_message(message)?
+				.attributes()
+				.find(|value| value.id() == attribute)?
+				.value()
+		} else {
+			bundle.get_message(key)?.value()?
+		};
+		let mut errors = Vec::new();
+		let value = bundle
+			.format_pattern(pattern, args, &mut errors)
+			.into_owned();
+		errors.is_empty().then_some(value)
+	}
+
 	fn lookup(self, key: &str, args: Option<&FluentArgs<'_>>) -> Option<String> {
 		let language = self.resolved();
-		ACTIVE_BUNDLE.with_borrow_mut(|active| {
+		let result = ACTIVE_BUNDLE.with_borrow_mut(|active| {
 			if active
 				.as_ref()
 				.is_none_or(|active| active.language != language)
 			{
 				*active = Some(language.load());
 			}
-			let bundle = &active.as_ref()?.bundle;
-			let pattern = if let Some((message, attribute)) = key.split_once('.') {
-				bundle
-					.get_message(message)?
-					.attributes()
-					.find(|value| value.id() == attribute)?
-					.value()
-			} else {
-				bundle.get_message(key)?.value()?
-			};
-			let mut errors = Vec::new();
-			let value = bundle
-				.format_pattern(pattern, args, &mut errors)
-				.into_owned();
-			errors.is_empty().then_some(value)
+			active
+				.as_ref()
+				.and_then(|active| Self::lookup_in_bundle(&active.bundle, key, args))
+		});
+		if result.is_some() || language == Self::English {
+			return result;
+		}
+		FALLBACK_BUNDLE.with_borrow_mut(|fallback| {
+			if fallback.is_none() {
+				*fallback = Some(Self::English.load());
+			}
+			fallback
+				.as_ref()
+				.and_then(|fb| Self::lookup_in_bundle(&fb.bundle, key, args))
 		})
 	}
 
@@ -488,6 +509,17 @@ mod tests {
 			message_text(&message),
 			"Welcome, m.artin! Joined the server."
 		);
+	}
+
+	#[test]
+	fn missing_keys_fall_back_to_english() {
+		set_current(Language::German);
+		assert_eq!(translate("settings-chat-box"), "Chatfenster");
+		assert_eq!(
+			translate("settings-storage-page-saved-login"),
+			"Gespeicherte Anmeldung"
+		);
+		assert_eq!(translate("embeds-poll-result-no-votes"), "No one voted");
 	}
 
 	#[test]

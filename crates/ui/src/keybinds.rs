@@ -702,6 +702,24 @@ fn display_key(name: &str) -> String {
 		"MouseMiddle" => "Mouse 3".into(),
 		"MouseExtra1" => "Mouse 4".into(),
 		"MouseExtra2" => "Mouse 5".into(),
+		"OpenBracket" => "[".into(),
+		"CloseBracket" => "]".into(),
+		"OpenCurlyBracket" => "{".into(),
+		"CloseCurlyBracket" => "}".into(),
+		"Backslash" => "\\".into(),
+		"IntlBackslash" => "\\".into(),
+		"Semicolon" => ";".into(),
+		"Colon" => ":".into(),
+		"Quote" => "'".into(),
+		"Backtick" => "`".into(),
+		"Minus" => "-".into(),
+		"Equals" => "=".into(),
+		"Comma" => ",".into(),
+		"Period" => ".".into(),
+		"Plus" => "+".into(),
+		"Pipe" => "|".into(),
+		"Questionmark" => "?".into(),
+		"Exclamationmark" => "!".into(),
 		name if name
 			.strip_prefix("Num")
 			.is_some_and(|digit| digit.len() == 1) =>
@@ -771,6 +789,19 @@ const KEYS: &[(Key, &str)] = &[
 	(Key::Equals, "Equals"),
 	(Key::Comma, "Comma"),
 	(Key::Period, "Period"),
+	(Key::Colon, "Colon"),
+	(Key::Semicolon, "Semicolon"),
+	(Key::Backslash, "Backslash"),
+	(Key::IntlBackslash, "IntlBackslash"),
+	(Key::Pipe, "Pipe"),
+	(Key::Questionmark, "Questionmark"),
+	(Key::Exclamationmark, "Exclamationmark"),
+	(Key::OpenBracket, "OpenBracket"),
+	(Key::CloseBracket, "CloseBracket"),
+	(Key::OpenCurlyBracket, "OpenCurlyBracket"),
+	(Key::CloseCurlyBracket, "CloseCurlyBracket"),
+	(Key::Plus, "Plus"),
+	(Key::Quote, "Quote"),
 	(Key::Num0, "Num0"),
 	(Key::Num1, "Num1"),
 	(Key::Num2, "Num2"),
@@ -963,6 +994,40 @@ mod tests {
 			|ui| capture(ui, bindings, capturing),
 		);
 		output.textures_delta.clear();
+	}
+
+	#[test]
+	fn symbol_keys_bind_and_display() {
+		assert_eq!(display_key("OpenBracket"), "[");
+		assert_eq!(display_key("CloseBracket"), "]");
+		assert_eq!(display_key("Backslash"), "\\");
+		assert_eq!(display_key("Semicolon"), ";");
+		assert_eq!(display_key("Quote"), "'");
+		assert_eq!(display_key("Minus"), "-");
+		assert_eq!(display_key("Slash"), "/");
+
+		let mut bindings = Keybinds::default();
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk));
+		let ctx = egui::Context::default();
+		capture_frame(
+			&ctx,
+			vec![Event::Key {
+				key: Key::OpenBracket,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: Modifiers::COMMAND,
+			}],
+			&mut bindings,
+			&mut capturing,
+		);
+		assert_eq!(capturing, None);
+		assert_eq!(
+			bindings.chord(KeybindAction::PushToTalk),
+			&KeyChord::new("OpenBracket", modifier_bits(Modifiers::COMMAND))
+		);
+		let parts = chord_parts(bindings.chord(KeybindAction::PushToTalk));
+		assert_eq!(parts.last().map(String::as_str), Some("["));
 	}
 
 	#[test]

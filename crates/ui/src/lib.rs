@@ -17,7 +17,7 @@ mod avatars;
 #[cfg(feature = "demo")]
 pub use avatars::media::debug_heic_layout_check;
 pub use avatars::media::{Lane, MAX_FRAMES, Motion, Rendition, Size, fit_edge, is_motion_video};
-pub use avatars::{EMBED_EDGE, FRAME_EDGE, GifFrames};
+pub use avatars::{EFFECT_EDGE, EMBED_EDGE, FRAME_EDGE, GifFrames};
 mod categories;
 #[cfg(feature = "demo")]
 pub use categories::debug_thread_navigation_check;
@@ -999,7 +999,8 @@ impl MessagingUi {
 			(
 				std::time::Instant::now(),
 				Some(Ok(model::InvitePreview {
-					guild: Id(424242),
+					guild: Some(Id(424242)),
+					channel: None,
 					embed: model::Embed {
 						title: Some("Serein community".into()),
 						..Default::default()
@@ -1801,7 +1802,13 @@ impl MessagingUi {
 									&mut self.profile,
 									&mut self.user_action,
 								);
-								if let Some(status) = status {
+								// Members typing in the open channel, as Discord's member list shows.
+								if state
+									.typing_users(std::time::Instant::now())
+									.any(|typist| typist == member.user.id)
+								{
+									profiles::typing_badge(ui, avatar.rect, status, colors.sidebar);
+								} else if let Some(status) = status {
 									profiles::presence_badge(
 										ui,
 										avatar.rect,
@@ -2456,7 +2463,9 @@ impl MessagingUi {
 						}
 						let (status, _, _, clients) = profiles::presence(state, user.id, None);
 						let status = profiles::shown_status(state, user.id, status);
-						if dm && let Some(status) = status {
+						if dm && state.direct_typing(c.id, std::time::Instant::now()) {
+							profiles::typing_badge(ui, avatar.rect, status, colors.sidebar);
+						} else if dm && let Some(status) = status {
 							profiles::presence_badge(
 								ui,
 								avatar.rect,
@@ -3905,6 +3914,13 @@ impl MessagingUi {
                                 self.clear_draft(state, channel);
                             } else {
                                 self.draft_changes.push(channel);
+                                // Tell the conversation, as the official client does.
+                                if edit.changed()
+                                    && let Some(command) =
+                                        state.prepare_typing(channel, std::time::Instant::now())
+                                {
+                                    commands.push(command);
+                                }
                             }
                         }
                         self.mention_lookup.text = self.mention_menu.member_query().to_owned();
@@ -4441,6 +4457,8 @@ impl MessagingUi {
 		commands.extend(cosmetics_refresh);
 		// A server joined from an invite opens as soon as the Gateway delivers it.
 		commands.extend(state.navigate_after_join());
+		// A chat link to an unloaded thread opens once its bounded channel read admits it.
+		commands.extend(state.resolve_pending_link());
 		if let Some(action) = self.poll_creator.show(ui.ctx(), state, &mut self.avatars)
 			&& let Some(command) = state.prepare_poll(None, action)
 		{
@@ -5255,6 +5273,13 @@ impl MessagingUi {
 							{
 								self.guild = Some(guild);
 								if let Some(command) = state.select_guild(guild) {
+									commands.push(command);
+								}
+							}
+							Some(invites::Action::OpenChannel(channel))
+								if state.channel(channel).is_some() =>
+							{
+								if let Some(command) = state.select(channel) {
 									commands.push(command);
 								}
 							}
@@ -6529,7 +6554,46 @@ mod composer_tests {
 		output.drop_without_applying_deltas();
 		// This helper simulates key taps; raw-input tests explicitly model held keys.
 		ctx.input_mut(|i| i.keys_down.clear());
+		// These tests are about sending; the typing indicator has its own test.
+		commands.retain(|command| !matches!(command, Command::Typing { .. }));
 		commands
+	}
+
+	#[test]
+	fn typing_a_draft_sends_one_typing_indicator_until_it_lapses() {
+		let ctx = egui::Context::default();
+		let mut state = edit_state();
+		state.gateway_connected = true;
+		let channel = state.selected.unwrap();
+		let mut view = MessagingUi::default();
+		ctx.run_ui(Default::default(), |ui| {
+			view.composer(ui, &mut state, channel, &ctx, &mut vec![]);
+			ctx.memory_mut(|m| m.request_focus(ui.make_persistent_id("message-input")));
+		})
+		.drop_without_applying_deltas();
+		let mut typed = |text: &str, state: &mut State| {
+			let mut commands = vec![];
+			ctx.run_ui(
+				egui::RawInput {
+					events: vec![egui::Event::Text(text.into())],
+					..Default::default()
+				},
+				|ui| view.composer(ui, state, channel, &ctx, &mut commands),
+			)
+			.drop_without_applying_deltas();
+			commands
+				.iter()
+				.filter(
+					|command| matches!(command, Command::Typing { channel: at } if *at == channel),
+				)
+				.count()
+		};
+		assert_eq!(typed("h", &mut state), 1);
+		assert_eq!(
+			typed("i", &mut state),
+			0,
+			"throttled while Discord still shows it"
+		);
 	}
 
 	fn edit_key(key: egui::Key) -> egui::Event {
@@ -6760,7 +6824,8 @@ mod composer_tests {
 			(
 				std::time::Instant::now(),
 				Some(Ok(model::InvitePreview {
-					guild: Id(100),
+					guild: Some(Id(100)),
+					channel: None,
 					embed: model::Embed {
 						title: Some("Synthetic invited server".into()),
 						..Default::default()
@@ -9345,6 +9410,8 @@ mod composer_tests {
 			)
 			.drop_without_applying_deltas();
 			let sends = !busy && allowed && modifiers == egui::Modifiers::NONE && !repeat;
+			// A newline is typing too; this test counts sends.
+			commands.retain(|command| !matches!(command, Command::Typing { .. }));
 			assert_eq!(commands.len(), usize::from(sends));
 			if modifiers == egui::Modifiers::SHIFT {
 				assert_eq!(state.drafts[&channel], "\n");
@@ -9861,6 +9928,19 @@ pub fn debug_gif_favorites_check(mut message: model::Message) -> Vec<model::Gif>
 		assert_eq!(gif.preview, proxy_url.unwrap_or(url));
 		gifs.push(gif);
 	}
+	let webp_media = model::EmbedMedia {
+		url: Some("https://static.klipy.com/ii/synthetic/a1.webp".into()),
+		proxy_url: None,
+		width: 320,
+		height: 200,
+		..Default::default()
+	};
+	let webp_gif = embeds::gif_for_media(&webp_media, None, true)
+		.expect("Animated WebP provider media recognized");
+	assert_eq!(
+		webp_gif.url,
+		"https://static.klipy.com/ii/synthetic/a1.webp"
+	);
 	assert!(
 		embeds::gif_for_media(
 			&model::EmbedMedia {

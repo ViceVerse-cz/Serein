@@ -1428,6 +1428,14 @@ fn changes_active_history(state: &State, event: &Event) -> bool {
 	};
 	state.selected == Some(*channel)
 }
+/// Complete the offline group selection's history request before typing is observed.
+#[cfg(feature = "demo")]
+fn select_demo_group(state: &mut State) {
+	if let Some(Command::History { before, after, .. }) = state.select(model::Id(29)) {
+		test_support::load_page_with_cursors(state, before, after);
+	}
+}
+
 /// Synthetic People rows with presence; never a Discord member directory.
 #[cfg(feature = "demo")]
 fn demo_members(
@@ -1664,7 +1672,7 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-group-dm") {
 			// Existing synthetic group conversation; no account or call is opened.
-			let _ = state.select(model::Id(29));
+			select_demo_group(&mut state);
 		}
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-voice-failed") {
@@ -3492,6 +3500,10 @@ impl Desktop {
 	}
 	/// Dispatches one queued command to the demo or live transport.
 	fn command(&mut self, command: Command) {
+		// The offline preview has no one to tell.
+		if matches!(command, Command::Typing { .. }) && (self.state.demo || self.fixture_only) {
+			return;
+		}
 		if !self.state.gateway_connected
 			&& self.state.auth == AuthState::Authenticated
 			&& matches!(command, Command::Send { .. })
@@ -3702,6 +3714,8 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if self.state.demo {
 			let event = match command {
+				// Offline typing has no transport or synthetic state change.
+				Command::Typing { .. } => return,
 				// Offline previews confirm locally; nothing reaches the service.
 				Command::BadgeSettings { request, settings } => Event::BadgeSettings {
 					request,
@@ -6963,6 +6977,36 @@ fn plaintext_login_dir() -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[cfg(feature = "demo")]
+	#[test]
+	fn group_demo_loads_history_before_observing_typing() {
+		let mut state = test_support::demo_state();
+		select_demo_group(&mut state);
+		assert_eq!(state.selected, Some(model::Id(29)));
+		assert!(
+			!state.history_pending,
+			"group fixture must finish its history request"
+		);
+		assert!(state.timeline.iter().next().is_some());
+		let now = std::time::Instant::now();
+		let wall = std::time::SystemTime::now();
+		state.observe_typing_at(
+			client_core::typing::Signal {
+				channel: model::Id(29),
+				user: model::Id(2),
+				timestamp: wall
+					.duration_since(std::time::UNIX_EPOCH)
+					.unwrap()
+					.as_secs(),
+			},
+			wall,
+			now,
+		);
+		assert_eq!(
+			state.typing_users(now).collect::<Vec<_>>(),
+			vec![model::Id(2)]
+		);
+	}
 	#[test]
 	fn frame_sample_is_bounded_demo_only_and_excludes_warmup() {
 		for (demo, value) in [

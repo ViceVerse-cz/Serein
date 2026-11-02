@@ -40,6 +40,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check production build without development fixtures
         run: cargo check --locked -p serein --bin serein --no-default-features
+      - name: Check offline demo targets
+        run: cargo check --locked -p serein -p ui --all-targets --features serein/demo
+      - name: Test offline typing with demo support
+        run: cargo test --locked -p serein -p ui -p client-core -p discord-api --features serein/demo --lib --bins typing
       - run: cargo xtask check
       - parallel:
           - name: Flatpak encoding after GTK initialization (synthetic)
