@@ -49,7 +49,7 @@ impl MessagingUi {
 						ui.weak(&message.author.name);
 						let concealed = crate::embeds::has_spoilers(message);
 						let mut preview: String = if concealed {
-							"Spoiler".into()
+							i18n::translate("inbox-spoiler")
 						} else {
 							message.content.chars().take(240).collect()
 						};

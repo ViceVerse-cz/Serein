@@ -33,6 +33,17 @@ struct WireGame {
 	#[serde(default)]
 	executables: Option<Vec<WireExecutable>>,
 }
+
+/// Game references need presentation metadata, independently of process detection.
+#[derive(Deserialize)]
+struct WireGameMention {
+	#[serde(default)]
+	id: Option<String>,
+	#[serde(default)]
+	name: Option<String>,
+	#[serde(default)]
+	icon: Option<String>,
+}
 #[derive(Deserialize)]
 struct WireExecutable {
 	#[serde(default)]
@@ -54,7 +65,7 @@ pub async fn download_list(
 	download(
 		client,
 		cooldown,
-		"https://discord.com/api/v10/applications/detectable",
+		&format!("{}/applications/detectable", crate::api_v10_base()),
 		MAX_LIST,
 	)
 	.await
@@ -95,6 +106,87 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<Game>, &'static str> {
 	bound(games)
 }
 
+/// The same public list also contains games without local executable detection.
+pub fn decode_mentions(bytes: &[u8]) -> Result<Vec<model::GameMention>, &'static str> {
+	let failure = "The game catalog is unavailable.";
+	if bytes.len() > MAX_LIST {
+		return Err(failure);
+	}
+	let wire: Vec<WireGameMention> = serde_json::from_slice(bytes).map_err(|_| failure)?;
+	if wire.len() > MAX_GAMES {
+		return Err(failure);
+	}
+	let games: Vec<_> = wire
+		.into_iter()
+		.filter_map(|game| {
+			let id = game.id?.parse().ok()?;
+			let name = game.name?.trim().to_owned();
+			if name.is_empty()
+				|| name.len() > MAX_NAME
+				|| name.chars().any(|c| {
+					c.is_control() || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+				}) {
+				return None;
+			}
+			Some(model::GameMention {
+				id,
+				name,
+				icon: game.icon.filter(|hash| model::valid_avatar_hash(hash)),
+			})
+		})
+		.collect();
+	if games.is_empty() {
+		Err(failure)
+	} else {
+		Ok(games)
+	}
+}
+
+#[cfg(test)]
+mod mention_tests {
+	#[test]
+	fn game_mentions_ignore_malformed_executable_metadata() {
+		for executables in [
+			r#"[{"is_launcher":null}]"#,
+			r#"[{"name":42,"is_launcher":"yes"}]"#,
+			r#"{"unexpected":true}"#,
+		] {
+			let list = format!(
+				r#"[{{"id":"42","name":"Deadlock","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","executables":{executables}}},{{"id":"43","name":"Dead Space"}}]"#
+			);
+			let games = super::decode_mentions(list.as_bytes()).unwrap();
+			assert_eq!(games.len(), 2);
+			assert_eq!(games[0].id, model::Id(42));
+			assert_eq!(games[0].name, "Deadlock");
+			assert_eq!(
+				games[0].icon.as_deref(),
+				Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+			);
+		}
+	}
+
+	#[test]
+	fn catalog_keeps_games_without_executables_and_validates_icons() {
+		let games = super::decode_mentions(
+			br#"[
+			{"id":"42","name":"Deadlock","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			{"id":"43","name":"Dead Space","icon":"../private"},
+			{"id":"44","name":"Bad\nName"},
+			{"id":"0","name":"Zero"}
+		]"#,
+		)
+		.unwrap();
+		assert_eq!(games.len(), 2);
+		assert_eq!(games[0].name, "Deadlock");
+		assert_eq!(
+			games[0].icon.as_deref(),
+			Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		);
+		assert!(games[1].icon.is_none());
+		assert!(super::decode_mentions(b"[]").is_err());
+	}
+}
+
 /// The reduced form Serein caches on disk. It is re-checked exactly like a fresh download.
 pub fn decode_cached(bytes: &[u8]) -> Result<Vec<Game>, &'static str> {
 	let failure = "The cached game list is invalid.";
@@ -130,26 +222,34 @@ fn bound(mut games: Vec<Game>) -> Result<Vec<Game>, &'static str> {
 
 /// Executable-name lookup built once per sharing session. Comparing every running process
 /// against every entry is quadratic and far too slow to repeat on a timer.
-pub struct Index(HashMap<String, (Id, String)>);
+pub struct Index {
+	names: HashMap<String, (Id, String)>,
+	/// Windows only exposes image names, while Discord's list often stores
+	/// `win64/cs2.exe` or a launcher-relative path. Bare inputs fall back here.
+	basenames: HashMap<String, (Id, String)>,
+}
 
 impl Index {
 	pub fn new(games: &[Game]) -> Self {
 		let mut names = HashMap::with_capacity(games.len());
+		let mut basenames = HashMap::with_capacity(games.len());
 		for game in games {
 			for executable in &game.executables {
 				// The first claim wins, so a later entry cannot shadow an earlier game.
-				names
-					.entry(executable.clone())
-					.or_insert_with(|| (game.id, game.name.clone()));
+				let found = || (game.id, game.name.clone());
+				names.entry(executable.clone()).or_insert_with(found);
+				if let Some(base) = executable.rsplit('/').next() {
+					basenames.entry(base.into()).or_insert_with(found);
+				}
 			}
 		}
-		Self(names)
+		Self { names, basenames }
 	}
 	pub fn len(&self) -> usize {
-		self.0.len()
+		self.names.len()
 	}
 	pub fn is_empty(&self) -> bool {
-		self.0.is_empty()
+		self.names.is_empty()
 	}
 	/// Match a running executable path. Longer suffixes win, so
 	/// `steamapps/common/game/game.exe` beats a bare `game.exe` from another title.
@@ -171,79 +271,32 @@ impl Index {
 		let suffix = parts.join("/");
 		let mut candidate = suffix.as_str();
 		while !candidate.is_empty() {
-			if let Some(found) = self.0.get(candidate) {
+			if let Some(found) = self.names.get(candidate) {
 				return Some(found.clone());
 			}
 			candidate = candidate.split_once('/').map_or("", |(_, rest)| rest);
 		}
 		// macOS entries name the bundle, which sits above the executable inside it.
-		parts
+		if let Some(found) = parts
 			.iter()
 			.rev()
 			.filter(|part| part.ends_with(".app"))
-			.find_map(|part| self.0.get(*part).cloned())
+			.find_map(|part| self.names.get(*part).cloned())
+		{
+			return Some(found);
+		}
+		// Windows `tasklist` supplies only the image name, while the list often
+		// stores `win64/cs2.exe`. Match the basename after full suffix and bundle
+		// checks so a path-aware match still wins.
+		parts
+			.last()
+			.and_then(|basename| self.basenames.get(*basename).cloned())
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	#[ignore = "release process matcher benchmark; one warmup and five measured batches"]
-	fn process_matcher_benchmark() {
-		const PROCESSES: usize = 4096;
-		const SCANS: usize = 100;
-		let games: Vec<Game> = (0..PROCESSES / 4)
-			.map(|game| Game {
-				id: Id(game as u64 + 1),
-				name: format!("Synthetic game {game}"),
-				executables: vec![
-					format!("game-{game}.exe"),
-					format!("steamapps/common/game-{game}/bin/play.exe"),
-					format!("synthetic {game}.app"),
-				],
-			})
-			.collect();
-		let index = Index::new(&games);
-		let paths: Vec<String> = (0..PROCESSES)
-			.map(|process| {
-				let game = process / 4;
-				match process % 4 {
-					0 => format!("/opt/synthetic/tools/{game}/unmatched.exe"),
-					1 => format!(r"C:\Games\Slot{game}\game-{game}.exe"),
-					2 => format!(r"C:\Steam\steamapps\common\game-{game}\bin\play.exe"),
-					_ => format!("/Applications/Synthetic {game}.app/Contents/MacOS/main"),
-				}
-			})
-			.collect();
-		let mut samples = [0.0; 5];
-		for batch in 0..=samples.len() {
-			let started = std::time::Instant::now();
-			let mut hits = 0;
-			for _ in 0..SCANS {
-				for path in &paths {
-					hits += usize::from(
-						std::hint::black_box(index.find(std::hint::black_box(path))).is_some(),
-					);
-				}
-			}
-			let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
-			assert_eq!(hits, PROCESSES / 4 * 3 * SCANS);
-			if batch > 0 {
-				samples[batch - 1] = elapsed_ms;
-			}
-		}
-		eprintln!(
-			"Synthetic process matcher: {SCANS} scans of {PROCESSES} paths; batch ms {samples:?}"
-		);
-		samples.sort_by(f64::total_cmp);
-		eprintln!(
-			"Median {:.3} ms per batch, {:.3} ms per scan; matching only, excluding process enumeration.",
-			samples[2],
-			samples[2] / SCANS as f64,
-		);
-	}
 
 	#[test]
 	fn suffix_matching_preserves_component_limits_and_bundle_priority() {
@@ -277,6 +330,23 @@ mod tests {
 		] {
 			assert_eq!(index.find(path).map(|(id, _)| id), expected, "{path}");
 		}
+	}
+
+	#[test]
+	fn bare_windows_image_names_match_nested_detectable_paths() {
+		let games = decode(
+			br#"[{"id":"1158877933042143272","name":"Counter-Strike 2",
+				"executables":[{"name":"win64/cs2.exe","is_launcher":false}]}]"#,
+		)
+		.unwrap();
+		let index = Index::new(&games);
+		assert_eq!(
+			index.find("C:\\Games\\CS2\\cs2.exe").unwrap().1,
+			"Counter-Strike 2"
+		);
+		assert_eq!(index.find("cs2.exe").unwrap().1, "Counter-Strike 2");
+		assert_eq!(index.find("CS2.EXE").unwrap().1, "Counter-Strike 2");
+		assert!(index.find("not-cs2.exe").is_none());
 	}
 
 	#[test]

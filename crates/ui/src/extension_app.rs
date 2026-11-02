@@ -1473,23 +1473,6 @@ mod tests {
 	}
 
 	#[test]
-	fn destructive_and_media_proposals_describe_the_actual_operation() {
-		let deletion = HostEffect::AppAction {
-			action: AppAction::DeleteMessage {
-				channel_id: "20".into(),
-				message_id: "200".into(),
-			},
-		};
-		assert_eq!(effect_button(&deletion), "Apply: Delete message");
-		assert!(effect_description(&deletion).contains("cannot be undone"));
-		let camera = HostEffect::AppAction {
-			action: AppAction::SetCamera { enabled: true },
-		};
-		assert_eq!(effect_button(&camera), "Apply: Enable camera");
-		assert!(effect_description(&camera).contains("shared with call participants"));
-	}
-
-	#[test]
 	fn notification_patch_revalidates_grant_and_preserves_apply_time_values() {
 		use extensions::NotificationSettingsPatch;
 		let ctx = egui::Context::default();

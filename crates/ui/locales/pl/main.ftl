@@ -85,6 +85,7 @@ hide-chat = Ukryj czat
 show-chat = Pokaż czat
 search-conversation = Przeszukaj tę rozmowę
 show-member-list = Pokaż listę członków
+show-user-profile = Pokaż profil użytkownika
 pinned-messages = Przypięte wiadomości
 threads = Wątki
 
@@ -798,6 +799,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Podgląd wideo · odt
 embeds-text-text-display-limited = Ograniczone wyświetlanie tekstu
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Kliknij, aby dowiedzieć się więcej
 # Context: show
 emoji-details-show-a-custom-emoji = Niestandardowy emoji.
 # Context: show
@@ -1533,6 +1536,14 @@ join-server-status-invite-accepted = Zaproszenie zaakceptowane. Oczekiwanie na d
 join-server-status-offline-preview = Podgląd offline — dołączanie do serwerów jest wyłączone.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Usuń
+# Context: custom_section
+keybinds-custom-section-add-binding = Dodaj skrót
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Dodaj dodatkowe skróty dla dowolnej akcji. Każdej kombinacji klawisza lub przycisku myszy można użyć tylko raz.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Własne skróty
 # Context: row
 keybinds-row-global = ŚWIATOWY
 # Context: row
@@ -1773,6 +1784,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Otwórz
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Podgląd dźwięku
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Naciśnij, aby porozmawiać: włącz
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Naciśnij, aby porozmawiać: wyłącz
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Dzwonki, urządzenia telefoniczne i przetwarzanie mikrofonu.
 # Context: notification_settings
@@ -2991,6 +3006,8 @@ server-menu-header-server-menu = Menu serwera
 server-menu-leave-item-leave-server = Opuść serwer
 # Context: read_item
 server-menu-read-item-mark-as-read = Oznacz jako przeczytane
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = Oznacz wszystko jako przeczytane
 # Context: settings_item
 server-menu-settings-item-server-settings = Ustawienia serwera
 # Context: show
@@ -3576,6 +3593,8 @@ slash-commands-footer-refresh-application-commands = Odśwież polecenia aplikac
 
 ## crates/ui/src/stickers.rs
 # Context: message
+stickers-message-from-an-unavailable-server = Ta naklejka pochodzi z serwera dostępnego tylko na zaproszenie lub niedostępnego.
+# Context: message
 stickers-message-loading-sticker-details = Ładowanie szczegółów naklejki…
 # Context: message
 stickers-message-retry-sticker-details = Spróbuj ponownie podać szczegóły naklejki
@@ -3978,7 +3997,29 @@ updates-update-settings-restart-to-update = Uruchom ponownie, aby zaktualizować
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein został zainstalowany poprzez twoją dystrybucję. Uruchom to w terminalu, aby zaktualizować.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Zapisz diagnostykę
+# Context: update_settings
 updates-update-settings-support-diagnostics = Wsparcie i diagnostyka
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Kopiuj ostatnie wiersze
+# Context: update_settings
+updates-update-settings-diagnostic-log = Dziennik diagnostyczny
+# Context: update_settings
+updates-update-settings-log-errors = Błędy
+# Context: update_settings
+updates-update-settings-log-events = Błędy, ostrzeżenia i zdarzenia
+# Context: update_settings
+updates-update-settings-log-everything = Wszystko (szczegółowo)
+# Context: update_settings
+updates-update-settings-log-off = Wyłączony
+# Context: update_settings
+updates-update-settings-log-warnings = Błędy i ostrzeżenia
+# Context: update_settings
+updates-update-settings-open-folder = Otwórz folder
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Nie udało się zapisać folderu dziennika. Sprawdź folder danych Serein i spróbuj ponownie.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Czasy, etapy i błędy w jednym lokalnym pliku dziennika. Dane konta, kanałów, wiadomości i poświadczenia nigdy nie są zapisywane, a nic nie jest wysyłane.
 # Context: update_log
 updates-update-log = Dziennik aktualizacji
 # Context: update_settings
@@ -4013,6 +4054,8 @@ user-menu-contents-private-nicknames-are-available-for-confirmed-friends = Prywa
 user-menu-contents-profile = Profil
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = Usuń tę rozmowę ze swojej listy DM. Wiadomości są przechowywane.
+# Context: contents
+user-menu-contents-roles = Role
 # Context: contents
 user-menu-contents-unblock = Odblokować
 # Context: contents
@@ -4452,6 +4495,7 @@ lib-composer-onboarding-incomplete = Dokończ dołączanie do serwera, aby odblo
 lib-composer-onboarding-complete = Dokończ wprowadzenie
 profiles-message-placeholder = Wiadomość do @{ $user }
 profiles-message-send = Wyślij wiadomość
+profiles-message-open-chat = Otwórz czat
 profiles-message-sending = Otwieranie wiadomości prywatnej…
 user-menu-contents-start-a-call = Rozpocznij rozmowę
 verification-show-complete-the-check-to-open-this-conversation = Dokończ weryfikację, aby otworzyć tę rozmowę.
@@ -4729,8 +4773,110 @@ composer-placeholder-direct = Napisz do @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = To początek Twojej historii wiadomości prywatnych z { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Witamy na początku grupy { $name }.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = Witaj na #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = To początek kanału #{ $channel }.
+# Context: text_menu
+text-menu-cut = Wytnij
+text-menu-copy = Kopiuj
+text-menu-paste = Wklej
+text-menu-select-all = Zaznacz wszystko
+# Context: media_box
+forum-composer-attached-files = Załączone pliki: { $count }
+forum-composer-remove-file = Usuń { $file }
+post-menu-post-action-failed = Działanie na poście nie powiodło się
+post-menu-thread-action-failed = Działanie na wątku nie powiodło się
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = Pospolita
+# Context: badges
+badges-rarity-rare = Rzadka
+# Context: badges
+badges-rarity-epic = Epicka
+# Context: badges
+badges-rarity-mythic = Mityczna
+# Context: badges
+badges-always-visible = Zawsze widoczna na profilu
+# Context: badges
+badges-click-show = Kliknij, aby pokazać
+# Context: badges
+badges-click-hide = Kliknij, aby ukryć
+# Context: badges
+badges-customize-title = Dostosuj swoje odznaki
+# Context: badges
+badges-customize-hint = Przeciągnij, aby zmienić kolejność, i ukryj te, których inni nie powinni widzieć.
+# Context: badges
+badges-none = Brak odznak do wyświetlenia.
+# Context: badges
+badges-reset = Resetuj
+# Context: badges
+badges-saving = Zapisywanie…
+# Context: badges
+badges-save = Zapisz
+# Context: badges
+badges-view = Zobacz odznaki
+# Context: badges
+badges-your = Twoje odznaki
+# Context: badges
+badges-user = Odznaki użytkownika { $name }
+# Context: badges
+badges-browse = Przeglądaj swoje odznaki i odkrywaj nowe do zdobycia.
+# Context: badges
+badges-available = Do odblokowania
+# Context: badges
+badges-customize-button = Dostosuj swoje odznaki
+# Context: badges
+badges-close = Zamknij
+# Context: badges
+badges-locked = Jeszcze nie odblokowano
+# Context: badges
+badges-date-unlocked = Data odblokowania
+# Context: badges
+badges-rarity = Rzadkość
+# Context: badges
+badges-max-level = Osiągnięto najwyższy poziom tej odznaki.
+# Context: badges
+badges-next-level = Następny poziom: { $tier }
+# Context: badges
+badges-all-levels = Pokaż wszystkie poziomy
+# Context: badges
+badges-hide-levels = Ukryj poziomy
+# Context: badges
+badges-manage = Zarządzaj odznakami
+page-language-time = Język i czas
+description-language-time = Język interfejsu i sposób wyświetlania godziny.
+time-format-group = Format czasu
+time-format-auto = Automatycznie
+time-format-12-hour = 12-godzinny
+time-format-24-hour = 24-godzinny
+profiles-status-edit = Edytuj status
+profiles-status-clear = Wyczyść status
+send-throttled-title = Hola, za ostro
+send-throttled-body = Wysyłasz wiadomości zbyt szybko!
+send-throttled-dismiss = Wejdź do strefy spokoju
+profiles-private-profile = Profil prywatny
+profiles-private-notice = Profil użytkownika { $name } jest prywatny, więc część informacji jest ukryta. Wyślij zaproszenie do znajomych, aby zobaczyć więcej.
+settings-cosmetics-name-styles = Style nazw
+settings-cosmetics-name-styles-description = Czcionki, kolory i efekty nazw wyświetlanych z Nitro.
+search-overlays-message-contains = Wiadomość zawiera
+search-overlays-no-matching-content-types = Brak pasujących typów treści
+search-overlays-history = Historia
+search-overlays-clear-history = Wyczyść historię wyszukiwania
+main-sign-in-rate-limited-detail = Discord ogranicza to logowanie. Odczekaj, zanim spróbujesz ponownie. Wcześniejsza próba może wydłużyć oczekiwanie.
+
+# New message
+new-message-title = Nowa wiadomość
+new-message-subtitle = Wiadomości grupowe mogą mieć do 10 członków.
+new-message-search = Szukaj
+new-message-hint = Dodaj znajomych, aby rozpocząć wiadomość prywatną lub grupę.
+new-message-no-people-found = Nikt nie pasuje do tego wyszukiwania.
+new-message-create = Utwórz wiadomość
+new-message-cancel = Anuluj
+
+inbox-spoiler = Spoiler

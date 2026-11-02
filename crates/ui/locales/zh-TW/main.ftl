@@ -85,6 +85,7 @@ hide-chat = 隱藏聊天
 show-chat = 顯示聊天
 search-conversation = 搜尋這個對話
 show-member-list = 顯示成員清單
+show-user-profile = 顯示使用者個人資料
 pinned-messages = 釘選的訊息
 threads = 討論串
 
@@ -808,6 +809,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = 視訊預覽 · 會�
 embeds-text-text-display-limited = 文字顯示受限
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = 點擊以了解更多
 # Context: show
 emoji-details-show-a-custom-emoji = 自訂表情符號。
 # Context: show
@@ -1549,6 +1552,14 @@ join-server-status-invite-accepted = 邀請已接受。等待存取伺服器。
 join-server-status-offline-preview = 離線預覽：加入伺服器已停用。
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = 移除
+# Context: custom_section
+keybinds-custom-section-add-binding = 新增綁定
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = 為任何動作新增額外快速鍵。每個按鍵或滑鼠按鈕組合只能使用一次。
+# Context: custom_section
+keybinds-custom-section-custom-bindings = 自訂綁定
 # Context: row
 keybinds-row-global = 全域
 # Context: row
@@ -1789,6 +1800,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = 開啟
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = 預覽音效
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = 按住說話：開始
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = 按住說話：結束
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = 鈴聲、通話裝置與麥克風處理。
 # Context: notification_settings
@@ -3022,6 +3037,8 @@ server-menu-header-server-menu = 伺服器選單
 server-menu-leave-item-leave-server = 離開伺服器
 # Context: read_item
 server-menu-read-item-mark-as-read = 標為已讀
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = 全部標為已讀
 # Context: settings_item
 server-menu-settings-item-server-settings = 伺服器設定
 # Context: show
@@ -3605,6 +3622,8 @@ slash-commands-footer-refresh-application-commands = 重新整理應用指令
 
 ## crates/ui/src/stickers.rs
 # Context: message
+stickers-message-from-an-unavailable-server = 此貼圖來自僅限邀請或無法使用的伺服器。
+# Context: message
 stickers-message-loading-sticker-details = 貼圖詳細資料載入中…
 # Context: message
 stickers-message-retry-sticker-details = 重試貼圖詳細資料
@@ -4007,7 +4026,29 @@ updates-update-settings-restart-to-update = 重啟以更新
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein 是用發行版安裝的。請在終端機執行此指令更新。
 # Context: update_settings
+updates-update-settings-save-diagnostics = 儲存診斷資訊
+# Context: update_settings
 updates-update-settings-support-diagnostics = 支援與診斷
+# Context: update_settings
+updates-update-settings-copy-recent-lines = 複製最近幾行
+# Context: update_settings
+updates-update-settings-diagnostic-log = 診斷記錄
+# Context: update_settings
+updates-update-settings-log-errors = 錯誤
+# Context: update_settings
+updates-update-settings-log-events = 錯誤、警告與事件
+# Context: update_settings
+updates-update-settings-log-everything = 全部（詳細）
+# Context: update_settings
+updates-update-settings-log-off = 關閉
+# Context: update_settings
+updates-update-settings-log-warnings = 錯誤與警告
+# Context: update_settings
+updates-update-settings-open-folder = 開啟資料夾
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = 無法寫入記錄資料夾。請檢查 Serein 的資料資料夾後再試一次。
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = 將耗時、階段與失敗記錄在單一本機記錄檔中。絕不寫入帳號、頻道、訊息與憑證資料，也不會上傳任何內容。
 # Context: update_log
 updates-update-log = 更新日誌
 # Context: update_settings
@@ -4042,6 +4083,8 @@ user-menu-contents-private-nicknames-are-available-for-confirmed-friends = 私�
 user-menu-contents-profile = 個人檔案
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = 從私訊清單移除這個對話，訊息會保留。
+# Context: contents
+user-menu-contents-roles = 身分組
 # Context: contents
 user-menu-contents-unblock = 解除封鎖
 # Context: contents
@@ -4493,6 +4536,7 @@ lib-composer-onboarding-incomplete = 完成加入這個伺服器，才能解鎖�
 lib-composer-onboarding-complete = 完成新手引導
 profiles-message-placeholder = 傳送訊息給 @{ $user }
 profiles-message-send = 傳送訊息
+profiles-message-open-chat = 開啟聊天
 profiles-message-sending = 正在開啟私訊…
 user-menu-contents-start-a-call = 開始通話
 verification-show-complete-the-check-to-open-this-conversation = 完成驗證後才能開啟這個對話。
@@ -4648,6 +4692,8 @@ settings-chat-box = 聊天框
 settings-convert-emoticons = 自動把訊息中的顏文字轉成表情符號
 
 settings-convert-emoticons-description = 傳送或編輯訊息時，把 :) 這類獨立顏文字轉成 🙂。程式碼與連結不變。
+settings-preload-on-hover = 懸停時預先載入
+settings-preload-on-hover-description = 指標停留在對話、個人資料或 GIF 選擇器上時預先載入，開啟時即刻顯示。使用與開啟相同的請求，每類每分鐘最多 12 次。
 
 profiles-board = 看板
 profiles-board-unavailable = 這個個人檔案的看板無法使用。
@@ -4823,8 +4869,110 @@ composer-placeholder-direct = 傳送訊息給 @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = 這是你與 { $name } 的私訊紀錄的開頭。
+# Context: timeline_group_intro
+timeline-group-intro = 歡迎來到 { $name } 群組的開端。
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = 歡迎來到 #{ $channel }！
 # Context: timeline_channel_intro
 timeline-channel-intro-start = 這是 #{ $channel } 頻道的開頭。
+# Context: text_menu
+text-menu-cut = 剪下
+text-menu-copy = 複製
+text-menu-paste = 貼上
+text-menu-select-all = 全選
+# Context: media_box
+forum-composer-attached-files = 已附加 { $count } 個檔案
+forum-composer-remove-file = 移除 { $file }
+post-menu-post-action-failed = 貼文操作失敗
+post-menu-thread-action-failed = 討論串操作失敗
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = 普通
+# Context: badges
+badges-rarity-rare = 稀有
+# Context: badges
+badges-rarity-epic = 史詩
+# Context: badges
+badges-rarity-mythic = 神話
+# Context: badges
+badges-always-visible = 一律顯示在你的個人資料中
+# Context: badges
+badges-click-show = 點擊顯示
+# Context: badges
+badges-click-hide = 點擊隱藏
+# Context: badges
+badges-customize-title = 自訂你的徽章
+# Context: badges
+badges-customize-hint = 拖曳以重新排序，並隱藏不想讓他人看到的徽章。
+# Context: badges
+badges-none = 尚無可顯示的徽章。
+# Context: badges
+badges-reset = 重設
+# Context: badges
+badges-saving = 正在儲存…
+# Context: badges
+badges-save = 儲存
+# Context: badges
+badges-view = 查看徽章
+# Context: badges
+badges-your = 你的徽章
+# Context: badges
+badges-user = { $name } 的徽章
+# Context: badges
+badges-browse = 瀏覽你的徽章，探索可以解鎖的新徽章。
+# Context: badges
+badges-available = 可解鎖
+# Context: badges
+badges-customize-button = 自訂你的徽章
+# Context: badges
+badges-close = 關閉
+# Context: badges
+badges-locked = 尚未解鎖
+# Context: badges
+badges-date-unlocked = 解鎖日期
+# Context: badges
+badges-rarity = 稀有度
+# Context: badges
+badges-max-level = 你已達到此徽章的最高等級。
+# Context: badges
+badges-next-level = 下一級：{ $tier }
+# Context: badges
+badges-all-levels = 查看所有等級
+# Context: badges
+badges-hide-levels = 隱藏等級
+# Context: badges
+badges-manage = 管理徽章
+page-language-time = 語言與時間
+description-language-time = 顯示語言和時間格式。
+time-format-group = 時間格式
+time-format-auto = 自動
+time-format-12-hour = 12 小時制
+time-format-24-hour = 24 小時制
+profiles-status-edit = 編輯狀態
+profiles-status-clear = 清除狀態
+send-throttled-title = 哇，太辣了
+send-throttled-body = 你傳送訊息太快了！
+send-throttled-dismiss = 關閉提示
+profiles-private-profile = 私人個人資料
+profiles-private-notice = { $name } 的個人資料為私人，部分資訊已隱藏。加為好友即可查看更多。
+settings-cosmetics-name-styles = 名稱樣式
+settings-cosmetics-name-styles-description = Nitro 顯示名稱的字型、顏色與特效。
+search-overlays-message-contains = 訊息包含
+search-overlays-no-matching-content-types = 沒有符合的內容類型
+search-overlays-history = 歷史紀錄
+search-overlays-clear-history = 清除搜尋紀錄
+main-sign-in-rate-limited-detail = Discord 正在限制此次登入。請稍候再試。過早重試可能會延長等待時間。
+
+# New message
+new-message-title = 新私訊
+new-message-subtitle = 群組私訊最多可有 10 位成員。
+new-message-search = 搜尋
+new-message-hint = 新增好友以開始私訊或群組。
+new-message-no-people-found = 沒有符合的結果。
+new-message-create = 建立訊息
+new-message-cancel = 取消
+
+inbox-spoiler = 劇透

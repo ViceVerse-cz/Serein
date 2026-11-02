@@ -1,0 +1,104 @@
+{
+  "date": "2026-10-14",
+  "environment": {
+    "os": "Windows 11 Home x64, build 26200",
+    "cpu": "AMD Ryzen 7 7800X3D",
+    "ram_bytes": 34359738368,
+    "rust": "1.98.1",
+    "features": "standard package, --no-default-features, voice included; no demo/developer features"
+  },
+  "method": {
+    "package": "cargo xtask package; directory payload; .NET ZipFile.CreateFromDirectory with Optimal compression",
+    "parser": "Release ui test binary run directly; one warmup and five measured samples of 10000 parses per workload; final samples taken after Cargo processes completed",
+    "workloads": {
+      "plain": "A typical message with ordinary text and https://example.com/a.",
+      "underscores": "https://example.com/__first https://example.org/second__"
+    }
+  },
+  "baseline": {
+    "commit": "fbcbbad3afff8783c879c27d23b1ba59eadc2fa0",
+    "note": "Original runtime source with cfg(test)-only regression/benchmark harness appended",
+    "package": {
+      "exe_bytes": 87366656,
+      "exe_sha256": "76ACBE64CF770B74E4CAA60053E300C976BB2467F89C1F82646C60245AE062EF",
+      "installed_bytes": 91559945,
+      "installed_files": 216,
+      "zip_bytes": 50470238
+    },
+    "parser": {
+      "plain": {
+        "median_ns": 25179900,
+        "samples_ns": [
+          24172000,
+          24672800,
+          25179900,
+          25754200,
+          26431500
+        ]
+      },
+      "underscores": {
+        "median_ns": 28770800,
+        "samples_ns": [
+          27790900,
+          28060500,
+          28770800,
+          28995400,
+          31059600
+        ]
+      }
+    }
+  },
+  "after": {
+    "branch": "fix/url-underscore-markdown",
+    "runtime_source_sha256": "700E4BB18E9A170FEF9C1B5680A3362C84B2B6713D248062DEC1EB25D9F62DDD",
+    "note": "Task markdown.rs overlaid into disposable baseline worktree; timestamp refreshed to force recompilation. Runtime source hash matches task checkout.",
+    "package": {
+      "exe_bytes": 87381504,
+      "exe_sha256": "8152A306D7347B3290C82DBB36BA2081063AFC3C419C773BDC3145323A0B5425",
+      "installed_bytes": 91574793,
+      "installed_files": 216,
+      "zip_bytes": 50479398
+    },
+    "parser": {
+      "plain": {
+        "median_ns": 26114400,
+        "samples_ns": [
+          25164600,
+          25601900,
+          26114400,
+          26468800,
+          28605200
+        ]
+      },
+      "underscores": {
+        "median_ns": 41510000,
+        "samples_ns": [
+          39343400,
+          40487600,
+          41510000,
+          41518200,
+          42123400
+        ]
+      }
+    }
+  },
+  "verification": {
+    "xtask_check": "passed",
+    "workspace_tests_passed": 1330,
+    "workspace_tests_ignored": 31,
+    "release_regressions": "3 passed; the same 3 tests fail against original parser",
+    "package": "passed, unsigned Windows directory package; NSIS unavailable",
+    "warning": "Existing OpenH264 LNK4255 warning appeared on both revisions"
+  },
+  "limits": {
+    "source_bytes": 8192,
+    "events_per_pass": 512,
+    "links": 16
+  },
+  "unmeasured": [
+    "Native screenshots: desktop APIs disabled and Orca CLI unavailable",
+    "Native idle CPU, RSS and frame/startup latency",
+    "Linux/Wayland and macOS native behavior",
+    "Owner-controlled live Discord interoperability"
+  ]
+}

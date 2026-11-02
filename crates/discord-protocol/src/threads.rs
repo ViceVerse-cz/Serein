@@ -43,12 +43,17 @@ pub struct ThreadListSync {
 	channel_ids: Option<Vec<Id>>,
 	#[serde(deserialize_with = "list")]
 	threads: Vec<ChannelDto>,
+	/// The account's memberships among `threads`; first-party syncs usually omit it.
+	#[serde(default, deserialize_with = "list")]
+	members: Vec<serde_json::Value>,
 }
 pub struct Sync {
 	pub guild: Id,
 	pub parents: Option<Vec<Id>>,
 	pub threads: Vec<Channel>,
 	pub removed: Vec<Id>,
+	/// Archive metadata of every listed thread, then any membership the sync carried.
+	pub changes: Vec<model::threads::Change>,
 }
 #[derive(Deserialize)]
 pub struct ThreadUpdate {
@@ -60,8 +65,61 @@ pub struct ThreadUpdate {
 }
 #[derive(Deserialize)]
 pub struct ThreadMetadata {
-	#[serde(default)]
+	#[serde(default, deserialize_with = "crate::lossy::null_default")]
 	pub archived: bool,
+	#[serde(default, deserialize_with = "lenient")]
+	auto_archive_duration: Option<u32>,
+	#[serde(default, deserialize_with = "lenient_ms")]
+	archive_timestamp: Option<i64>,
+}
+impl ThreadMetadata {
+	pub fn meta(&self) -> model::threads::Meta {
+		model::threads::Meta {
+			// Discord's default window is one day.
+			auto_archive_minutes: self.auto_archive_duration.unwrap_or(1440),
+			activity: self.archive_timestamp.unwrap_or(0),
+		}
+	}
+}
+/// A thread member object. Thread-scoped events carry `id` (the thread) and `user_id`; the
+/// `member` embedded in a thread object carries neither and always describes the account.
+#[derive(Deserialize)]
+pub struct ThreadMember {
+	#[serde(default, deserialize_with = "lenient")]
+	pub id: Option<Id>,
+	#[serde(default, deserialize_with = "lenient")]
+	pub user_id: Option<Id>,
+	#[serde(default, deserialize_with = "lenient")]
+	pub guild_id: Option<Id>,
+	#[serde(default, deserialize_with = "lenient_ms")]
+	join_timestamp: Option<i64>,
+	#[serde(default, deserialize_with = "lenient")]
+	muted: Option<bool>,
+	#[serde(default, deserialize_with = "lenient")]
+	mute_config: Option<MuteConfig>,
+}
+#[derive(Deserialize)]
+struct MuteConfig {
+	#[serde(default, deserialize_with = "lenient_ms")]
+	end_time: Option<i64>,
+}
+impl ThreadMember {
+	pub fn into_model(&self) -> model::threads::Member {
+		model::threads::Member {
+			joined: self.join_timestamp.unwrap_or(0),
+			muted: self.muted.unwrap_or(false),
+			mute_end: self.mute_config.as_ref().and_then(|config| config.end_time),
+		}
+	}
+	/// The account's membership, as a change for `thread`.
+	pub fn change(&self, thread: Id) -> model::threads::Change {
+		model::threads::Change {
+			id: thread,
+			member: model::Patch::Value(self.into_model()),
+			meta: None,
+			pinned: None,
+		}
+	}
 }
 #[derive(Deserialize)]
 pub struct ThreadMembers {
@@ -69,6 +127,29 @@ pub struct ThreadMembers {
 	pub guild_id: Id,
 	#[serde(default, deserialize_with = "crate::read_state::entries")]
 	pub removed_member_ids: Vec<Id>,
+	#[serde(default, deserialize_with = "list")]
+	added_members: Vec<serde_json::Value>,
+}
+impl ThreadMembers {
+	/// The account's own entry among `added_members`, when it joined.
+	pub fn joined(&self, owner: Id) -> Option<model::threads::Change> {
+		self.added_members
+			.iter()
+			.filter_map(|member| ThreadMember::deserialize(member).ok())
+			.find(|member| member.user_id == Some(owner))
+			.map(|member| member.change(self.id))
+	}
+}
+
+/// Optional fields that must never reject the thread carrying them.
+pub(crate) fn lenient<'de, D: Deserializer<'de>, T: serde::de::DeserializeOwned>(
+	d: D,
+) -> Result<Option<T>, D::Error> {
+	Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).ok())
+}
+/// An RFC 3339 timestamp in Unix milliseconds; malformed values read as absent.
+pub(crate) fn lenient_ms<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
+	Ok(lenient::<D, crate::Timestamp>(d)?.and_then(|t| t.unix_ms()))
 }
 impl ThreadListSync {
 	pub fn into_model(self) -> Result<Sync, DecodeError> {
@@ -91,8 +172,10 @@ impl ThreadListSync {
 			.map_or(0, |ids| ids.capacity() * size_of::<Id>());
 		let mut threads = Vec::with_capacity(self.threads.len());
 		let mut removed = Vec::new();
+		let mut changes = Vec::new();
 		for mut thread in self.threads {
 			let hidden = thread.is_obfuscated();
+			let change = (!hidden).then(|| thread.thread_change()).flatten();
 			// Hidden entries still count toward identity, scope, and byte validation.
 			// Omitting them only after validation lets this snapshot revoke old rows.
 			thread.flags &= !(1 << 17);
@@ -110,14 +193,22 @@ impl ThreadListSync {
 			if hidden {
 				removed.push(thread.id);
 			} else {
+				changes.extend(change);
 				threads.push(thread);
 			}
 		}
+		changes.extend(
+			self.members
+				.iter()
+				.filter_map(|member| ThreadMember::deserialize(member).ok())
+				.filter_map(|member| Some(member.change(member.id.filter(|id| ids.contains(id))?))),
+		);
 		Ok(Sync {
 			guild: self.guild_id,
 			parents: self.channel_ids,
 			threads,
 			removed,
+			changes,
 		})
 	}
 }

@@ -83,3 +83,49 @@ impl State {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::{Envelope, Event};
+
+	#[test]
+	fn message_mutations_invalidate_in_flight_mentions() {
+		for event in [
+			Event::Patch(crate::message_actions::content_patch(
+				Id(1),
+				Id(80),
+				"edited".into(),
+			)),
+			Event::Delete {
+				channel: Id(1),
+				id: Id(80),
+			},
+			Event::DeleteBulk {
+				channel: Id(1),
+				ids: vec![Id(80)],
+			},
+		] {
+			let mut state = State {
+				demo: true,
+				..Default::default()
+			};
+			let Command::Mentions { request, .. } = state.request_mentions(None).unwrap() else {
+				panic!()
+			};
+			state.apply(Envelope {
+				generation: state.generation,
+				event,
+			});
+			assert!(!state.inbox.loading);
+			assert_ne!(state.inbox.request, request);
+			// The response captured before the gateway mutation must not restore old text.
+			state.apply_mentions(request, Ok(vec![crate::tests::message(80)]));
+			assert!(state.inbox.messages.is_empty() && !state.inbox.loaded);
+			assert!(
+				state.request_mentions(None).is_some(),
+				"refresh remains available"
+			);
+		}
+	}
+}
