@@ -1,6 +1,13 @@
 //! Native global voice bindings, using the desktop portal on Wayland.
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::HotKey};
-use model::{KeyChord, KeybindAction, Keybinds, keybinds::is_mouse_button};
+#[cfg(target_os = "windows")]
+use model::keybinds::is_pad_button;
+use model::{
+	KeyChord, KeybindAction, Keybinds,
+	keybinds::{is_mouse_button, polled_key_bit},
+};
+#[cfg(target_os = "windows")]
+use std::sync::atomic::Ordering;
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -19,6 +26,9 @@ const MODIFIER_REQUIRED: &str = "Add Ctrl, Alt, Shift, or Command to use a voice
 #[cfg(target_os = "windows")]
 /// Mouse poller identities, kept out of the range `global-hotkey` assigns to real hotkeys.
 const MOUSE_ID: u32 = 1 << 31;
+#[cfg(target_os = "windows")]
+/// Polled-key identities, one per [`POLLED_KEYS`](model::keybinds::POLLED_KEYS) bit.
+const POLLED_ID: u32 = 1 << 30;
 
 static NATIVE_INPUTS: Mutex<Vec<Weak<NativeInput>>> = Mutex::new(Vec::new());
 
@@ -128,10 +138,14 @@ pub struct Hotkeys {
 	/// Registered native hotkeys and the chord/action each one owns.
 	registered: Vec<(HotKey, KeybindAction, KeyChord)>,
 	bindings: Option<Vec<(KeybindAction, KeyChord)>>,
+	/// Voice chords that only the Windows poller can report, kept while global bindings are off.
+	polled: Vec<(KeybindAction, KeyChord)>,
 	native: Arc<NativeInput>,
 	status: &'static str,
 	#[cfg(target_os = "windows")]
-	mouse: Option<mouse::Poller>,
+	poller: Option<poller::Poller>,
+	#[cfg(target_os = "windows")]
+	shared: poller::Shared,
 	#[cfg(target_os = "linux")]
 	portal: Option<tokio::task::JoinHandle<()>>,
 	#[cfg(target_os = "linux")]
@@ -179,10 +193,13 @@ impl Hotkeys {
 			manager,
 			registered: Vec::new(),
 			bindings: None,
+			polled: Vec::new(),
 			native,
 			status,
 			#[cfg(target_os = "windows")]
-			mouse: None,
+			poller: None,
+			#[cfg(target_os = "windows")]
+			shared: poller::Shared::default(),
 			#[cfg(target_os = "linux")]
 			portal: None,
 			#[cfg(target_os = "linux")]
@@ -203,6 +220,19 @@ impl Hotkeys {
 	}
 
 	pub fn sync(&mut self, keybinds: &Keybinds, _runtime: &tokio::runtime::Runtime) {
+		// Polled keys need no registration, so they stay watched even while global bindings
+		// are off; only publishing is gated, on focus or on the global flag.
+		let polled = KeybindAction::ALL
+			.into_iter()
+			.filter(|action| action.is_global())
+			.flat_map(|action| {
+				keybinds
+					.chords(action)
+					.filter(|chord| polled_key_bit(&chord.key).is_some())
+					.cloned()
+					.map(move |chord| (action, chord))
+			})
+			.collect::<Vec<_>>();
 		let next = keybinds.global_enabled.then(|| {
 			KeybindAction::ALL
 				.into_iter()
@@ -215,11 +245,18 @@ impl Hotkeys {
 				})
 				.collect::<Vec<_>>()
 		});
-		if self.bindings == next {
+		#[cfg(target_os = "windows")]
+		self.shared
+			.global
+			.store(keybinds.global_enabled, Ordering::Relaxed);
+		if self.bindings == next && self.polled == polled {
 			return;
 		}
 		self.bindings = next.clone();
+		self.polled = polled;
 		self.unregister_all();
+		#[cfg(target_os = "windows")]
+		self.restart_poller();
 
 		#[cfg(target_os = "linux")]
 		{
@@ -287,6 +324,10 @@ impl Hotkeys {
 				failed = true;
 				continue;
 			}
+			// Polled keys never reach the OS registrar, so they cannot fail or need a modifier.
+			if polled_key_bit(&chord.key).is_some() {
+				continue;
+			}
 			if is_mouse_button(&chord.key) {
 				// Windows polls mouse bindings below; elsewhere they stay focused-only.
 				failed |= cfg!(not(target_os = "windows"));
@@ -322,10 +363,6 @@ impl Hotkeys {
 				Err(_) => failed = true,
 			}
 		}
-		#[cfg(target_os = "windows")]
-		{
-			self.mouse = mouse::Poller::start(&next, self.native.clone());
-		}
 		if failed {
 			self.status = INVALID;
 		} else if modifier_required {
@@ -338,7 +375,7 @@ impl Hotkeys {
 	fn unregister_all(&mut self) {
 		// Stop the poller first so it cannot publish a stale press after the clear.
 		#[cfg(target_os = "windows")]
-		drop(self.mouse.take());
+		drop(self.poller.take());
 		self.native.clear();
 		if let Some(manager) = &self.manager {
 			for (hotkey, ..) in self.registered.drain(..) {
@@ -347,6 +384,47 @@ impl Hotkeys {
 		} else {
 			self.registered.clear();
 		}
+	}
+
+	/// Restarts the Windows poller after the watched bindings or the capture state changed.
+	#[cfg(target_os = "windows")]
+	fn restart_poller(&mut self) {
+		// Join the old threads first so both configurations never publish at once.
+		self.poller = None;
+		self.shared.down.store(0, Ordering::Relaxed);
+		self.poller = poller::Poller::start(
+			self.bindings.as_deref().unwrap_or(&[]),
+			&self.polled,
+			&self.shared,
+			self.native.clone(),
+		);
+	}
+
+	/// Whether Serein is focused. Polled keys publish only while focused or globally enabled.
+	pub fn set_focused(&mut self, focused: bool) {
+		#[cfg(target_os = "windows")]
+		self.shared.focused.store(focused, Ordering::Relaxed);
+		#[cfg(not(target_os = "windows"))]
+		let _ = focused;
+	}
+
+	/// Whether a chord is being recorded. The poller then runs even with no polled binding,
+	/// so [`Self::polled_down`] stays live.
+	pub fn set_capturing(&mut self, capturing: bool) {
+		#[cfg(target_os = "windows")]
+		if self.shared.capturing.swap(capturing, Ordering::Relaxed) != capturing {
+			self.restart_poller();
+		}
+		#[cfg(not(target_os = "windows"))]
+		let _ = capturing;
+	}
+
+	/// Polled keys currently down, for chord capture.
+	pub fn polled_down(&self) -> u32 {
+		#[cfg(target_os = "windows")]
+		return self.shared.down.load(Ordering::Relaxed);
+		#[cfg(not(target_os = "windows"))]
+		0
 	}
 
 	pub fn take_toggle_pending(&mut self) -> u8 {
@@ -367,8 +445,17 @@ impl Hotkeys {
 			return true;
 		}
 		#[cfg(target_os = "windows")]
-		if let Some(poller) = &self.mouse
+		if let Some(poller) = &self.poller
 			&& poller.registers(action, chord)
+		{
+			return true;
+		}
+		// Polled chords are published by the poller, so focused input must skip them.
+		#[cfg(target_os = "windows")]
+		if self
+			.polled
+			.iter()
+			.any(|(polled, current)| *polled == action && current == chord)
 		{
 			return true;
 		}
@@ -396,7 +483,7 @@ impl Hotkeys {
 			}
 		});
 		#[cfg(target_os = "windows")]
-		if let Some(poller) = &self.mouse {
+		if let Some(poller) = &self.poller {
 			mask |= poller.toggle_mask();
 		}
 		#[cfg(target_os = "linux")]
@@ -819,28 +906,56 @@ fn code_name(name: &str) -> Option<&'static str> {
 	}
 }
 
-/// Windows has no global mouse-button hotkeys, so the physical button state is polled instead.
+/// Windows has no global mouse-button hotkeys and no gamepad hotkeys, so their physical
+/// state is polled instead.
 #[cfg(target_os = "windows")]
-mod mouse {
-	use super::{KeyChord, KeybindAction, MOUSE_ID, NativeInput};
+mod poller {
+	use super::{
+		KeyChord, KeybindAction, MOUSE_ID, NativeInput, POLLED_ID, is_pad_button, polled_key_bit,
+	};
+	use hidapi::{HidApi, HidDevice};
 	use model::keybinds::{ALT, CTRL, PRIMARY, SHIFT};
 	use std::sync::{
 		Arc,
-		atomic::{AtomicBool, Ordering},
+		atomic::{AtomicBool, AtomicU32, Ordering},
 	};
-	use std::time::Duration;
+	use std::time::{Duration, Instant};
 	use windows::Win32::UI::Input::KeyboardAndMouse::{
-		GetAsyncKeyState, VIRTUAL_KEY, VK_CONTROL, VK_MBUTTON, VK_MENU, VK_SHIFT, VK_XBUTTON1,
-		VK_XBUTTON2,
+		GetAsyncKeyState, VIRTUAL_KEY, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_MBUTTON,
+		VK_MENU, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_SHIFT, VK_XBUTTON1, VK_XBUTTON2,
 	};
 
 	/// Well under an ordinary click, which stays down for tens of milliseconds.
 	const PERIOD: Duration = Duration::from_millis(10);
+	/// Short enough that the stop flag is seen promptly, long enough to idle cheaply.
+	const PAD_TIMEOUT: i32 = 50;
+	/// The largest DualSense report, including the report id.
+	const PAD_REPORT: usize = 78;
+	/// How long an unplugged pad waits before the reader enumerates again.
+	const PAD_RETRY: Duration = Duration::from_secs(2);
+	/// The analog triggers read as pressed from here.
+	const TRIGGER_THRESHOLD: u8 = 128;
 
-	/// Runs only while a global voice action is bound to a mouse button.
+	/// State the poller threads share with `Hotkeys` and the focused input path.
+	#[derive(Clone, Default)]
+	pub(super) struct Shared {
+		/// Whether global bindings are enabled.
+		pub(super) global: Arc<AtomicBool>,
+		/// Whether the Serein window is focused.
+		pub(super) focused: Arc<AtomicBool>,
+		/// Whether the settings UI is recording a chord, so the mask must stay live.
+		pub(super) capturing: Arc<AtomicBool>,
+		/// Pad buttons down, written by the HID reader thread.
+		pub(super) pad: Arc<AtomicU32>,
+		/// Polled keys down, published for chord capture.
+		pub(super) down: Arc<AtomicU32>,
+	}
+
+	/// Runs while a voice action is bound to a polled input, or while capturing a chord.
 	pub(super) struct Poller {
 		stop: Arc<AtomicBool>,
 		thread: Option<std::thread::JoinHandle<()>>,
+		pad: Option<Pad>,
 		toggles: u8,
 		chords: Vec<(KeybindAction, KeyChord)>,
 	}
@@ -848,16 +963,29 @@ mod mouse {
 	impl Poller {
 		pub(super) fn start(
 			bindings: &[(KeybindAction, KeyChord)],
+			polled: &[(KeybindAction, KeyChord)],
+			shared: &Shared,
 			native: Arc<NativeInput>,
 		) -> Option<Self> {
-			let watched: Vec<_> = bindings
+			let mouse: Vec<(KeybindAction, VIRTUAL_KEY, u8)> = bindings
 				.iter()
 				.filter_map(|(action, chord)| Some((*action, button(&chord.key)?, chord.modifiers)))
 				.collect();
-			if watched.is_empty() {
+			// A bit doubles as the polled identity, so a second action on the same key folds
+			// into the first and both transitions keep one hold each.
+			let mut watched: Vec<(KeybindAction, u32)> = Vec::new();
+			for (action, chord) in polled {
+				if let Some(bit) = polled_key_bit(&chord.key)
+					&& !watched.iter().any(|(_, known)| *known == bit)
+				{
+					watched.push((*action, bit));
+				}
+			}
+			let capturing = shared.capturing.load(Ordering::Relaxed);
+			if mouse.is_empty() && watched.is_empty() && !capturing {
 				return None;
 			}
-			let toggles = watched.iter().fold(0, |mask, (action, ..)| {
+			let toggles = mouse.iter().fold(0, |mask, (action, ..)| {
 				mask | match action {
 					KeybindAction::ToggleMute => 1,
 					KeybindAction::ToggleDeafen => 2,
@@ -872,7 +1000,7 @@ mod mouse {
 				.collect();
 			// One group per action and physical button; modifier variants within a group OR.
 			let mut toggle_groups: Vec<(KeybindAction, VIRTUAL_KEY)> = Vec::new();
-			for (action, button, _) in &watched {
+			for (action, button, _) in &mouse {
 				if matches!(
 					action,
 					KeybindAction::ToggleMute | KeybindAction::ToggleDeafen
@@ -882,34 +1010,50 @@ mod mouse {
 					toggle_groups.push((*action, *button));
 				}
 			}
+			let pad = (capturing || polled.iter().any(|(_, chord)| is_pad_button(&chord.key)))
+				.then(|| Pad::start(shared.pad.clone()));
 			let stop = Arc::new(AtomicBool::new(false));
 			let stopped = stop.clone();
+			let global = shared.global.clone();
+			let focused = shared.focused.clone();
+			let pad_down = shared.pad.clone();
+			let down = shared.down.clone();
 			let thread = std::thread::Builder::new()
-				.name("serein-mouse-keybinds".into())
+				.name("serein-input-keybinds".into())
 				.spawn(move || {
-					let mut held = vec![false; watched.len()];
+					let keyboard: [(u32, VIRTUAL_KEY); 6] = [
+						("ControlLeft", VK_LCONTROL),
+						("ControlRight", VK_RCONTROL),
+						("ShiftLeft", VK_LSHIFT),
+						("ShiftRight", VK_RSHIFT),
+						("AltLeft", VK_LMENU),
+						("AltRight", VK_RMENU),
+					]
+					.map(|(name, key)| (polled_key_bit(name).unwrap_or(0), key));
+					let mut was = 0;
+					let mut held = vec![false; mouse.len()];
 					let mut held_toggles = vec![false; toggle_groups.len()];
 					while !stopped.load(Ordering::Relaxed) {
-						let next: Vec<bool> = watched
+						let next: Vec<bool> = mouse
 							.iter()
 							.map(|(_, button, modifiers)| {
 								key_down(*button) && modifiers_match(*modifiers)
 							})
 							.collect();
-						for (index, ((action, ..), (was, now))) in
-							watched.iter().zip(held.iter().zip(&next)).enumerate()
+						for (index, ((action, ..), (was_down, down_now))) in
+							mouse.iter().zip(held.iter().zip(&next)).enumerate()
 						{
-							// Toggle chords fold into one transition per button below.
-							if was != now
+							// Mouse chords stay global-only, never focus-gated.
+							if was_down != down_now
 								&& !matches!(
 									action,
 									KeybindAction::ToggleMute | KeybindAction::ToggleDeafen
 								) {
-								native.apply(MOUSE_ID + index as u32, *action, *now);
+								native.apply(MOUSE_ID + index as u32, *action, *down_now);
 							}
 						}
 						for (group, (action, button)) in toggle_groups.iter().enumerate() {
-							let down = watched.iter().zip(&next).any(
+							let down = mouse.iter().zip(&next).any(
 								|((watched, watched_button, _), down)| {
 									watched == action && watched_button.0 == button.0 && *down
 								},
@@ -920,13 +1064,42 @@ mod mouse {
 							}
 						}
 						held = next;
+
+						let mut now = pad_down.load(Ordering::Relaxed);
+						for (bit, key) in keyboard {
+							if key_down(key) {
+								now |= bit;
+							}
+						}
+						down.store(now, Ordering::Relaxed);
+						let live =
+							global.load(Ordering::Relaxed) || focused.load(Ordering::Relaxed);
+						for (id, action, pressed) in transitions(&watched, was, now, live) {
+							native.apply(id, action, pressed);
+						}
+						was = now;
 						std::thread::sleep(PERIOD);
+					}
+					// A restart must not inherit a press, so release everything still held.
+					// Toggle releases are ignored by `apply`, matching the running loop.
+					for (id, action, _) in transitions(&watched, was, 0, true) {
+						native.apply(id, action, false);
+					}
+					for (index, (action, ..)) in mouse.iter().enumerate() {
+						if held.get(index).copied().unwrap_or_default()
+							&& !matches!(
+								action,
+								KeybindAction::ToggleMute | KeybindAction::ToggleDeafen
+							) {
+							native.apply(MOUSE_ID + index as u32, *action, false);
+						}
 					}
 				})
 				.ok()?;
 			Some(Self {
 				stop,
 				thread: Some(thread),
+				pad,
 				toggles,
 				chords,
 			})
@@ -951,6 +1124,8 @@ mod mouse {
 			if let Some(thread) = self.thread.take() {
 				let _ = thread.join();
 			}
+			// The reader stops after the key poll, so no report outlives this poller.
+			self.pad.take();
 		}
 	}
 
@@ -975,6 +1150,245 @@ mod mouse {
 	fn key_down(key: VIRTUAL_KEY) -> bool {
 		// SAFETY: GetAsyncKeyState only reads global input state for a virtual-key code.
 		unsafe { GetAsyncKeyState(i32::from(key.0)) < 0 }
+	}
+
+	/// Press/release edges for the watched polled keys, carrying the identity [`NativeInput`]
+	/// tracks each hold under.
+	fn transitions(
+		watched: &[(KeybindAction, u32)],
+		was: u32,
+		now: u32,
+		live: bool,
+	) -> Vec<(u32, KeybindAction, bool)> {
+		// Losing focus or the pad releases every held bit; toggles act on press only.
+		let now = if live { now } else { 0 };
+		watched
+			.iter()
+			.filter_map(|(action, bit)| {
+				let pressed = now & bit != 0;
+				if pressed == (was & bit != 0)
+					|| (!pressed
+						&& matches!(
+							action,
+							KeybindAction::ToggleMute | KeybindAction::ToggleDeafen
+						)) {
+					return None;
+				}
+				Some((POLLED_ID + bit.trailing_zeros(), *action, pressed))
+			})
+			.collect()
+	}
+
+	/// The tick fold on its own, so the state machine is testable without input devices.
+	#[cfg(test)]
+	fn step(
+		watched: &[(KeybindAction, u32)],
+		was: u32,
+		now: u32,
+		live: bool,
+	) -> Vec<(KeybindAction, bool)> {
+		transitions(watched, was, now, live)
+			.into_iter()
+			.map(|(_, action, pressed)| (action, pressed))
+			.collect()
+	}
+
+	/// Raw DualSense reports arrive independently of the key poll, so they get a thread.
+	struct Pad {
+		stop: Arc<AtomicBool>,
+		thread: Option<std::thread::JoinHandle<()>>,
+	}
+
+	impl Pad {
+		fn start(mask: Arc<AtomicU32>) -> Self {
+			let stop = Arc::new(AtomicBool::new(false));
+			let stopped = stop.clone();
+			let thread = std::thread::Builder::new()
+				.name("serein-pad-keybinds".into())
+				.spawn(move || read_pad(&stopped, &mask))
+				.ok();
+			Self { stop, thread }
+		}
+	}
+
+	impl Drop for Pad {
+		fn drop(&mut self) {
+			self.stop.store(true, Ordering::Relaxed);
+			if let Some(thread) = self.thread.take() {
+				let _ = thread.join();
+			}
+		}
+	}
+
+	/// Keeps the pad button mask current, reopening the pad whenever it goes away.
+	fn read_pad(stop: &AtomicBool, mask: &AtomicU32) {
+		// A missing HID stack leaves the keyboard bindings working.
+		let Ok(mut api) = HidApi::new() else {
+			return;
+		};
+		let mut buffer = [0u8; PAD_REPORT];
+		let mut device: Option<HidDevice> = None;
+		while !stop.load(Ordering::Relaxed) {
+			if device.is_none() {
+				let _ = api.refresh_devices();
+				device = open_pad(&api);
+				if device.is_none() {
+					// Short sleeps keep a shutdown from waiting out the whole retry.
+					let retry = Instant::now() + PAD_RETRY;
+					while !stop.load(Ordering::Relaxed) && Instant::now() < retry {
+						std::thread::sleep(PERIOD);
+					}
+					continue;
+				}
+			}
+			let Some(pad) = device.as_ref() else {
+				continue;
+			};
+			match pad.read_timeout(&mut buffer, PAD_TIMEOUT) {
+				// A failed read is a disconnect; clearing releases any button still held.
+				Err(_) => {
+					mask.store(0, Ordering::Relaxed);
+					device = None;
+				}
+				Ok(0) => {}
+				Ok(read) => mask.store(pad_bits(&buffer[..read]), Ordering::Relaxed),
+			}
+		}
+		mask.store(0, Ordering::Relaxed);
+	}
+
+	/// The first DualSense interface, falling back to its Edge variant.
+	// ponytail: one pad at a time. Upgrade: open every match.
+	fn open_pad(api: &HidApi) -> Option<HidDevice> {
+		api.device_list()
+			.find(|device| {
+				device.vendor_id() == 0x054C
+					&& matches!(device.product_id(), 0x0CE6 | 0x0DF2)
+					&& device.usage_page() == 1
+					&& device.usage() == 5
+			})?
+			.open_device(api)
+			.ok()
+	}
+
+	/// Polled-key mask for a DualSense input report, or 0 for any other report.
+	fn pad_bits(report: &[u8]) -> u32 {
+		// The report id and length place the button block and the analog triggers.
+		let (offset, l2, r2) = match report.first() {
+			Some(0x01) if report.len() >= 11 => (8, 5, 6),
+			Some(0x31) if report.len() >= 12 => (9, 6, 7),
+			Some(0x01) if report.len() >= 8 => (5, 8, 9),
+			_ => return 0,
+		};
+		let buttons = report[offset];
+		let extended = report[offset + 1];
+		let analog = |index: usize| report.get(index).copied().unwrap_or_default();
+		let hat = buttons & 0x0F;
+		let mut mask = 0;
+		for (name, down) in [
+			("PadWest", buttons & 0x10 != 0),
+			("PadSouth", buttons & 0x20 != 0),
+			("PadEast", buttons & 0x40 != 0),
+			("PadNorth", buttons & 0x80 != 0),
+			// 8 and above is the centred-and-released state.
+			("PadUp", matches!(hat, 0 | 1 | 7)),
+			("PadRight", matches!(hat, 1..=3)),
+			("PadDown", matches!(hat, 3..=5)),
+			("PadLeft", matches!(hat, 5..=7)),
+			("PadL1", extended & 0x01 != 0),
+			("PadR1", extended & 0x02 != 0),
+			("PadL2", analog(l2) >= TRIGGER_THRESHOLD),
+			("PadR2", analog(r2) >= TRIGGER_THRESHOLD),
+			("PadL3", extended & 0x40 != 0),
+			("PadR3", extended & 0x80 != 0),
+		] {
+			if down {
+				mask |= polled_key_bit(name).unwrap_or(0);
+			}
+		}
+		mask
+	}
+
+	#[cfg(test)]
+	mod tests {
+		use super::*;
+
+		fn bit(name: &str) -> u32 {
+			polled_key_bit(name).expect("polled key")
+		}
+
+		#[test]
+		fn step_reports_press_and_release_edges() {
+			let watched = [(KeybindAction::PushToTalk, bit("ControlRight"))];
+			assert_eq!(
+				step(&watched, 0, bit("ControlRight"), true),
+				vec![(KeybindAction::PushToTalk, true)]
+			);
+			assert_eq!(
+				step(&watched, bit("ControlRight"), 0, true),
+				vec![(KeybindAction::PushToTalk, false)]
+			);
+			assert_eq!(step(&watched, 0, 0, true), vec![]);
+		}
+
+		#[test]
+		fn focus_loss_releases_held_ptt() {
+			let held = bit("ControlRight");
+			assert_eq!(
+				step(&[(KeybindAction::PushToTalk, held)], held, held, false),
+				vec![(KeybindAction::PushToTalk, false)]
+			);
+		}
+
+		#[test]
+		fn pad_disconnect_releases() {
+			// The pad reader cleared its bits while the button was still down.
+			assert_eq!(
+				step(
+					&[(KeybindAction::PushToTalk, bit("PadSouth"))],
+					bit("PadSouth") | bit("PadL2"),
+					bit("PadL2"),
+					true
+				),
+				vec![(KeybindAction::PushToTalk, false)]
+			);
+		}
+
+		#[test]
+		fn toggles_fire_once_per_press() {
+			let watched = [(KeybindAction::ToggleMute, bit("PadEast"))];
+			assert_eq!(
+				step(&watched, 0, bit("PadEast"), true),
+				vec![(KeybindAction::ToggleMute, true)]
+			);
+			assert_eq!(step(&watched, bit("PadEast"), 0, true), vec![]);
+		}
+
+		#[test]
+		fn pad_bits_usb_cross_and_l2() {
+			let report = [0x01, 0x80, 0x80, 0x80, 0x80, 200, 0, 0, 0x28, 0, 0, 0];
+			assert_eq!(pad_bits(&report), bit("PadSouth") | bit("PadL2"));
+		}
+
+		#[test]
+		fn pad_bits_hat_sets_both_directions() {
+			let mut report = [0u8; 12];
+			report[0] = 0x01;
+			report[8] = 0x01;
+			assert_eq!(pad_bits(&report), bit("PadUp") | bit("PadRight"));
+			report[8] = 0x08;
+			assert_eq!(pad_bits(&report), 0);
+		}
+
+		#[test]
+		fn pad_bits_rejects_short_or_unknown_reports() {
+			let bt_full = [0x31, 0, 0, 0];
+			let unknown = [0x02, 0, 0, 0, 0, 0, 0, 0, 0x28, 0, 0, 0];
+			let short = [0x01];
+			for report in [&[][..], &short[..], &unknown[..], &bt_full[..]] {
+				assert_eq!(pad_bits(report), 0);
+			}
+		}
 	}
 }
 
