@@ -485,23 +485,26 @@ changes through `54512d29` and do not isolate stream-feature cost.
 
 ### Upstream integration — November 2, 2026
 
-Upstream `5aa2e486` adds symbol-key shortcuts. It does not replace receive-side
-AV1/HEVC support, adaptive playback clocks, packet repair/feedback or UHD bounds.
-Recent call-device recovery (#858), camera recovery (#844) and local diagnostics
-(#846) are complementary and remain included. All 1,399 workspace tests pass (14
-ignored), as do formatting, production and policy checks. Strict Clippy still fails
-on the three unchanged upstream hotkey findings recorded above. Native Arch package
-smoke checks pass; no new owner-operated live result is claimed.
+The latest integration incorporates upstream `65d678e3`, including its hotkey/macOS
+CI fixes, dependency updates, invitation/friend fixes and UI corrections. The lockfile
+and audit policy now match upstream exactly; the stream feature adds no dependencies.
+Upstream's advisory exceptions remain exceptions, not cryptographic remediation.
 
-| Package metric | Previous integration (`d63bb4dd`) | Updated candidate | Delta |
+`cargo xtask check` passes: 1,417 unit/integration/doctests, 14 ignored, formatting,
+strict Clippy, production and policy checks. Auth-handoff, declared-license and six
+license-policy fixtures pass. Native Arch metadata, dependency, payload, mode and
+ownership smoke checks pass. No new owner-operated live result is claimed.
+
+| Package metric | Previous integration (`2ebbb315`) | Integrated candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 93,430,600 B | 93,433,288 B | +2,688 B (+0.003%) |
-| Installed payload | 98,129,053 B | 98,131,741 B | +2,688 B (+0.003%) |
-| Arch archive | 54,751,460 B | 54,745,380 B | -6,080 B (-0.011%) |
+| Executable | 93,433,288 B | 93,467,720 B | +34,432 B (+0.037%) |
+| Installed payload | 98,131,741 B | 98,166,173 B | +34,432 B (+0.035%) |
+| Arch archive | 54,745,380 B | 54,765,849 B | +20,469 B (+0.037%) |
 
 Installed payload: 245 files. One artifact set per revision, same standard
-voice-enabled release settings; archive compression/timestamps add noise. No playback
-speed, CPU/RSS or physical latency change is inferred from these package sizes.
+voice-enabled release settings; archive compression/timestamps add noise. These deltas
+include upstream changes, not only stream playback. No CPU/RSS, physical latency or
+playback-speed improvement is inferred from package size.
 
 ### Earlier playback recovery evidence
 
