@@ -3667,6 +3667,10 @@ fn provider_clip_stills_fetch_the_clip_and_unknown_hosts_stay_unfetched() {
 		assert_eq!(still(source), Some((source.to_owned(), None)));
 	}
 	assert!(still("https://example.com/clip.mp4").is_none());
+	// Discord's proxy serves the clip itself; a webp of it is not a picture the decoder reads.
+	let proxied =
+		"https://images-ext-1.discordapp.net/external/synthetic/https/example.org/clip.mp4";
+	assert_eq!(still(proxied), Some((proxied.to_owned(), None)));
 	assert!(is_isobmff(b"\0\0\0\x18ftypmp42"));
 	assert!(decode(b"\0\0\0\x18ftypmp42 not a clip", &budget("gif:x")).is_none());
 }

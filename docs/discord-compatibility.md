@@ -2685,7 +2685,7 @@ account is an unofficial request shape, inferred from the official client and li
 loopback tests cover the request shape and response validation, and the owner's release-build
 pass exercised the picker but not live group creation.
 
-## Clip previews on video link cards — October 28, 2026
+## Clip previews on video link cards â€” October 28, 2026
 
 A link whose page answers with a clip arrives as a video embed that carries the clip and no poster
 image; the reported kkinstagram.com reels are one example, and Discord draws the clip itself there.

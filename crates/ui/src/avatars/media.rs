@@ -908,8 +908,14 @@ fn pick(media: &model::EmbedMedia, animate: bool) -> Option<(&str, bool)> {
 	}
 	// A clip plays its own frames, and its first frame is its still otherwise. The
 	// original host may be unfetchable while Discord's proxy is not, so the fetchable
-	// one wins when the payload carries both.
-	if let Some(video) = [media.url.as_deref(), media.proxy_url.as_deref()]
+	// one wins when the payload carries both. A still keeps preferring the proxy, which
+	// outlives an expired attachment signature.
+	let candidates = if animate {
+		[media.url.as_deref(), media.proxy_url.as_deref()]
+	} else {
+		[media.proxy_url.as_deref(), media.url.as_deref()]
+	};
+	if let Some(video) = candidates
 		.into_iter()
 		.flatten()
 		.filter(|url| is_motion_video(url))
@@ -1010,6 +1016,11 @@ mod retention_tests {
 		assert_eq!(
 			pick(&attachment, true),
 			attachment.url.as_deref().map(|url| (url, true))
+		);
+		assert_eq!(
+			pick(&attachment, false),
+			attachment.proxy_url.as_deref().map(|url| (url, false)),
+			"A still of an attachment clip keeps going through the proxy"
 		);
 	}
 

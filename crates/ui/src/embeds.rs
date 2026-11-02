@@ -1029,6 +1029,34 @@ mod tests {
 		};
 		let clip = clip_media(&embed).expect("the clip is the card's media");
 		assert_eq!((clip.width, clip.height), (640, 1136));
+		// The card asks the media worker for the clip through Discord's proxy.
+		let mut message = test_support::message(1, model::Id(2));
+		message.content = embed.url.clone().unwrap();
+		message.embeds = vec![embed.clone()];
+		let mut images = Avatars::default();
+		egui::Context::default()
+			.run_ui(egui::RawInput::default(), |ui| {
+				show(
+					ui,
+					&message,
+					&mut FormatCache::default(),
+					&mut images,
+					&mut None,
+					&mut DownloadUi::default(),
+					&mut crate::profiles::ProfileSession::default(),
+					&client_core::State::default(),
+					crate::design::MessageCardSurface::Conversation,
+					false,
+				);
+			})
+			.drop_without_applying_deltas();
+		let proxied = clip.proxy_url.as_deref().unwrap();
+		assert!(
+			images
+				.take_requests()
+				.iter()
+				.any(|request| request.starts_with("media:") && request.ends_with(proxied))
+		);
 		// A card with a picture keeps its poster or bot thumbnail instead.
 		embed.thumbnail = Some(model::EmbedMedia {
 			url: Some("https://example.org/reels/synthetic/poster.png".into()),
