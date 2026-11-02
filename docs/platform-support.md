@@ -121,6 +121,30 @@ selects Dark; no preference selects Light. If detection fails entirely, the
 existing Dark fallback remains. Windows/macOS retain winit's system theme events.
 Real Linux desktop/portal rendering is unverified in this macOS repair session.
 
+## Go idle when away
+
+The Notifications setting shows Idle after the account's inactivity timeout
+(default 10 minutes) without system-wide keyboard or mouse input, or right away
+while the computer is locked, so Discord can send notifications to the phone.
+It is not applied during voice calls. Input age comes from `GetLastInputInfo` on
+Windows and CoreGraphics on macOS. On Linux Serein asks GNOME Mutter's
+IdleMonitor, then the Wayland `ext-idle-notify-v1` protocol (KDE Plasma, wlroots
+compositors, COSMIC), then `org.freedesktop.ScreenSaver` (KDE on X11), then X11
+XScreenSaver, which is skipped under Wayland. Wayland compositors with none of
+these stay online, and idle inhibitors such as video playback keep the session
+active. A lock is read from the WTS session state on Windows, the CGSession
+dictionary on macOS, and logind's `LockedHint` (then the ScreenSaver service's
+`GetActive`) on Linux. The check runs every 5 seconds off the UI thread, so locking applies
+within about that long. The timeout is read when Serein connects and saved to
+the account when changed here; edits from another device apply on the next
+connect. Serein also shows your own status as Idle while it applies. macOS and
+Linux behavior is unverified on a live session. A setting change invalidates an
+in-flight idle sample; its result is discarded before another query starts.
+The poller retains one blocking query at a time. A stalled Linux bus handshake,
+Wayland roundtrip or X11 query can stop idle detection without accumulating
+workers; the setting can still clear AFK. Wayland currently observes one seat,
+so activity on other seats in a multi-seat session is not included.
+
 ## Window transparency and blur
 
 Enable Transparency & blur in Appearance and restart to create an alpha-capable
@@ -206,6 +230,20 @@ Close follows ordinary exit checks. Turning the preference off or losing the
 tray host restores a hidden window. Normal taskbar/Dock minimizing is unchanged.
 Show restores the window, and Quit follows the existing unsaved-work and download
 checks.
+
+Windows tray activation shows a hidden or already visible window without resetting
+maximization; only an actually minimized window receives native restoration.
+The synthetic native regression covers tray clicks, the Show menu, repeated Show,
+minimized maximized windows and preserved normal geometry. On an interactive
+Windows desktop, run:
+
+```text
+cargo test --locked -p platform --lib tray::native::tests::native_minimize_restore_restart_quit_and_cleanup -- --exact --ignored --test-threads=1
+```
+
+Cross-compilation alone does not verify desktop behavior.
+The user-run Windows x64 synthetic regression reproduced the maximization failure
+before this fix and passed after it. Full-application visual validation remains pending.
 
 Windows voice state changes the icon and tooltip for speaking, muted and deafened
 states. Fixed-size icons are created once and destroyed with the registration;
