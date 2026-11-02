@@ -107,6 +107,58 @@ body:
         - **Update Channel:** ...
         - **Auto Update:** ...
 
+  - type: markdown
+    attributes:
+      value: |
+        ### Collect logs for voice, video, screen sharing or performance issues
+
+        1. Quit Serein completely, then open a terminal and run the command for your platform below.
+           Both flags enable voice timing reports and UI frame diagnostics.
+        2. Reproduce the issue briefly. For voice problems, join/leave the call yourself and note
+           whether you were speaking, muted, sharing your screen or using noise suppression.
+           If the call fails, also use **Copy failure reason** in the sidebar or call stage.
+        3. Quit Serein normally so the final frame summary is written. Find `serein-diagnostics.log`
+           in the terminal's current folder, review it for private information, then drag the file
+           into the diagnostics field below (or paste the relevant output).
+
+        **Windows (PowerShell)** — replace the executable path with your installed `serein.exe`:
+        ```powershell
+        $env:SEREIN_VOICE_DIAGNOSTICS="1"
+        $env:SEREIN_FRAME_DIAGNOSTICS="1"
+        & "C:\path\to\serein.exe" 2> serein-diagnostics.log
+        Remove-Item Env:SEREIN_VOICE_DIAGNOSTICS, Env:SEREIN_FRAME_DIAGNOSTICS
+        ```
+
+        **macOS (Terminal):**
+        ```sh
+        SEREIN_VOICE_DIAGNOSTICS=1 SEREIN_FRAME_DIAGNOSTICS=1 /Applications/Serein.app/Contents/MacOS/serein 2> serein-diagnostics.log
+        ```
+
+        **Linux (terminal)** — replace `serein` with your executable/AppImage path if needed:
+        ```sh
+        SEREIN_VOICE_DIAGNOSTICS=1 SEREIN_FRAME_DIAGNOSTICS=1 serein 2> serein-diagnostics.log
+        ```
+
+        **Flatpak:**
+        ```sh
+        flatpak run --env=SEREIN_VOICE_DIAGNOSTICS=1 --env=SEREIN_FRAME_DIAGNOSTICS=1 cz.viceverse.serein 2> serein-diagnostics.log
+        ```
+
+        Voice timing reports appear about every five seconds and stop after a bounded capture;
+        restart Serein if you need another capture. If Serein freezes or crashes, send whatever
+        output was captured even if the final frame summary is missing. These commands save stderr,
+        which can also contain framework logs: review the file before uploading and remove tokens,
+        credentials and private content. Diagnostics are disabled on the next normal launch after
+        clearing the PowerShell variables above (or closing that terminal).
+        See the [voice diagnostics guide](https://github.com/ViceVerse-cz/Serein/blob/main/docs/voice.md#investigating-high-cpu-during-a-call) for details.
+
+  - type: textarea
+    id: runtime_diagnostics
+    attributes:
+      label: Voice / Frame Diagnostics
+      description: Attach the reviewed log from the commands above or paste its output. Include any copied call failure reason and what you were doing during the capture. If you could not collect it, describe what prevented it.
+      placeholder: Drop serein-diagnostics.log here, or paste the relevant diagnostics and call failure reason...
+
   - type: checkboxes
     id: checklist
     attributes:

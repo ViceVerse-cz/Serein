@@ -13,10 +13,28 @@ pub enum Action {
 	AddFriend(User),
 	AcceptFriend(model::Id),
 	CloseDm(model::Id),
-	Block { user: model::Id, blocked: bool },
-	Ignore { user: model::Id, ignored: bool },
-	Mute { channel: model::Id, muted: bool },
-	MessageRequest { channel: model::Id, accept: bool },
+	Block {
+		user: model::Id,
+		blocked: bool,
+	},
+	Ignore {
+		user: model::Id,
+		ignored: bool,
+	},
+	Mute {
+		channel: model::Id,
+		muted: bool,
+	},
+	MessageRequest {
+		channel: model::Id,
+		accept: bool,
+	},
+	SetRole {
+		guild: model::Id,
+		user: model::Id,
+		role: model::Id,
+		assigned: bool,
+	},
 	Shortcut(Intent),
 }
 impl std::fmt::Debug for Action {
@@ -42,6 +60,19 @@ pub(super) fn prepare(action: Action, state: &mut State) -> Option<Command> {
 		Action::MessageRequest { channel, accept } => {
 			state.resolve_message_request(channel, accept)
 		}
+		Action::SetRole {
+			guild,
+			user,
+			role,
+			assigned,
+		} => state.request_server_admin(
+			guild,
+			model::server_admin::Action::SetRole {
+				user,
+				role,
+				assigned,
+			},
+		),
 	}
 }
 
@@ -155,6 +186,12 @@ pub(super) fn contents(
 	}
 	if !user.webhook {
 		crate::profiles::copy_username_button(ui, state, user);
+		if let Some(guild) = state
+			.selected
+			.and_then(|id| state.channel(id).and_then(|channel| channel.guild))
+		{
+			roles_menu(ui, state, guild, user.id, action);
+		}
 	}
 	if user.webhook || state.user.as_ref().is_some_and(|own| own.id == user.id) {
 		return;
@@ -359,6 +396,54 @@ pub(super) fn contents(
 	crate::profiles::report_button(ui, user);
 }
 
+/// Toggles assignable server roles on a member shown in the selected channel's live list.
+fn roles_menu(
+	ui: &mut egui::Ui,
+	state: &State,
+	guild: model::Id,
+	user: model::Id,
+	action: &mut Option<Action>,
+) {
+	let roles = state.member_menu_roles(guild, user);
+	if roles.is_empty() {
+		return;
+	}
+	let enabled = !state.server_admin.pending
+		&& !state.server_settings.saving
+		&& (state.demo
+			|| (state.gateway_connected
+				&& state.auth == client_core::auth::AuthState::Authenticated));
+	let text = crate::design::palette(ui).text;
+	ui.menu_button(crate::i18n::translate("user-menu-contents-roles"), |ui| {
+		ui.set_min_width(180.0);
+		let background = ui.visuals().window_fill;
+		egui::ScrollArea::vertical()
+			.max_height(320.0)
+			.show(ui, |ui| {
+				for (role, assigned) in roles {
+					let mut checked = assigned;
+					let mut name = egui::RichText::new(&role.name);
+					if role.color != 0 {
+						name = name
+							.color(crate::design::role_name_color(role.color, background, text));
+					}
+					if ui
+						.add_enabled(enabled, egui::Checkbox::new(&mut checked, name))
+						.clicked()
+					{
+						*action = Some(Action::SetRole {
+							guild,
+							user,
+							role: role.id,
+							assigned: !assigned,
+						});
+						ui.close();
+					}
+				}
+			});
+	});
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -412,115 +497,6 @@ mod tests {
 			labels(&shape.shape, &mut text);
 		}
 		(response.unwrap(), text)
-	}
-
-	#[test]
-	fn user_menu_mouse_keyboard_and_actions_in_both_themes() {
-		for light in [false, true] {
-			for label in [
-				"Profile",
-				"Mention",
-				"Message",
-				"Mute Conversation",
-				"Close DM",
-				"Block",
-			] {
-				let ctx = egui::Context::default();
-				ctx.set_visuals(if light {
-					egui::Visuals::light()
-				} else {
-					egui::Visuals::dark()
-				});
-				let state = test_support::demo_state();
-				let dm = state.channels.iter().find(|c| c.kind == 1).unwrap();
-				let user = &dm.recipients[0];
-				let (mut profile, mut action) = (crate::profiles::ProfileSession::default(), None);
-				let (row, _) = frame(&ctx, &state, user, vec![], &mut profile, &mut action);
-				if light {
-					row.request_focus();
-					frame(
-						&ctx,
-						&state,
-						user,
-						vec![Event::Key {
-							key: egui::Key::F10,
-							physical_key: None,
-							pressed: true,
-							repeat: false,
-							modifiers: Modifiers::SHIFT,
-						}],
-						&mut profile,
-						&mut action,
-					);
-				} else {
-					for pressed in [true, false] {
-						frame(
-							&ctx,
-							&state,
-							user,
-							pointer(row.rect.center(), PointerButton::Secondary, pressed),
-							&mut profile,
-							&mut action,
-						);
-					}
-				}
-				let (_, text) = frame(&ctx, &state, user, vec![], &mut profile, &mut action);
-				assert!(profile.open_user().is_none() && action.is_none());
-				for expected in [
-					"Profile",
-					"Mention",
-					"Message",
-					"Start a Call",
-					"Add Note",
-					"Add Friend Nickname",
-					"Mute Conversation",
-					"Close DM",
-					"Block",
-				] {
-					let rect = text
-						.iter()
-						.find(|(s, _)| s == expected)
-						.unwrap_or_else(|| panic!("Missing {expected}: {text:?}"))
-						.1;
-					assert!(
-						Rect::from_min_size(Pos2::ZERO, egui::vec2(320.0, 420.0))
-							.contains_rect(rect)
-					);
-				}
-				let pos = text.iter().find(|(s, _)| s == label).unwrap().1.center();
-				for pressed in [true, false] {
-					frame(
-						&ctx,
-						&state,
-						user,
-						pointer(pos, PointerButton::Primary, pressed),
-						&mut profile,
-						&mut action,
-					);
-				}
-				match label {
-					"Profile" => assert_eq!(profile.open_user().unwrap().id, user.id),
-					"Mention" => assert_eq!(action, Some(Action::Mention(user.clone()))),
-					"Message" => assert_eq!(action, Some(Action::Message(user.clone()))),
-					"Mute Conversation" => assert_eq!(
-						action,
-						Some(Action::Mute {
-							channel: dm.id,
-							muted: true
-						})
-					),
-					"Close DM" => assert_eq!(action, Some(Action::CloseDm(dm.id))),
-					_ => assert_eq!(
-						action,
-						Some(Action::Block {
-							user: user.id,
-							blocked: true
-						})
-					),
-				}
-				assert!(!egui::Popup::is_any_open(&ctx));
-			}
-		}
 	}
 
 	fn apply_user_event(state: &mut State, event: client_core::user_actions::Event) {

@@ -1,5 +1,16 @@
 # Local storage policy and audit
 
+## Typing indicators (October 23, 2026)
+
+Typing stays in session RAM: eight selected-channel typists, sixteen direct-conversation
+typist/deadline records, and sixteen recent outgoing channel/timestamp pairs. The fixed
+`Typing` struct has a 1.5-KiB test budget. Navigation retains direct-conversation records
+and outgoing throttles; session, access and failure changes clear them. A full outgoing
+store suppresses new channels until a timestamp expires rather than evicting a live throttle.
+The transport coalesces eight channel/user pairs per two seconds into an eight-slot lossy
+inbox. Outgoing indicators share the bounded command writer, carry a fixed revision and
+enqueue timestamp, and expire in that queue after two seconds. None of this is persisted.
+
 ## Per-conversation reply and attachment staging (October 16, 2026)
 
 Leaving a conversation keeps its unsent reply target and staged files in session RAM for
@@ -130,8 +141,9 @@ Each Linux live H.264 decoder now admits at most four queued compressed access
 units and 8,650,752 payload bytes in its native appsrc. Its existing nonblocking
 `max-bytes` setting only signaled pressure and did not enforce rejection. One
 producer checks native queue levels before copying the next access unit; native
-consumption can only lower them. Rejection resets decoding through the existing
-keyframe recovery path rather than silently losing a reference picture. Older
+consumption can only lower them. Brief rejection is retried by the dedicated decoder
+worker within the existing 150 ms picture-age budget; expiry retains keyframe recovery
+rather than silently losing a reference picture. Older
 GStreamer runtimes without item accounting (before 1.20) use the software fallback.
 The outer 16-picture / 16-MiB decode handoff, at most eight active decoders,
 current worker input, consumed native buffers, codec surfaces and decoded pictures
@@ -657,11 +669,14 @@ two logical size integers (1..=16,384), an optional physical position pair
 kept so un-maximizing after a restart returns to them. It survives account logout and introduces
 no new file or table.
 Notification opt-in, hidden-channel visibility, primary RGB color, audio devices (up to 1,024 bytes each),
-input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings and the global-keybind
+input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings (including up to 32
+extra custom bindings) and the global-keybind
 switch (enabled by default) are saved in the device-wide `app_preferences`
 SQLite singleton (16 KiB maximum), using the existing background worker. The Linux
-hide-window-decorations boolean is stored in this same record and defaults to false. These survive
-restart/logout; demo controls never read or write them. Save failures remain visible.
+hide-window-decorations boolean is stored in this same record and defaults to false. The home
+list's collapsed message requests section is another boolean in this record; closing it persists
+until the owner reopens it. These survive restart/logout; demo controls never read or write them.
+Save failures remain visible.
 The optional voice profile preserves older records: an absent profile migrates the legacy
 suppression boolean to Custom with RNNoise/Off, AEC on, and no AGC/sensitivity gate.
 The selected profile and retained Custom settings are saved together; suppression strength
@@ -770,7 +785,7 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 
 | Data | Location / bound | Removal |
 |---|---|---|
-| Discord token | OS credential store, service `cz.viceverse.serein`; packaged builds use account `discord-session` for the session restored on launch and `discord-session.<account id>` for each remembered account, while default source builds use the corresponding `discord-session.development` names; at most 2048 bytes each. A per-account entry is written once, when the roster records none, and rewritten only for a token the owner just supplied: on macOS every access to an existing entry is governed by that item's keychain ACL | Explicit logout / Forget saved login removes both entries for that build profile's account; forgetting or pruning a saved account removes its per-account entry; invalid-token expiry also requests deletion |
+| Discord token | OS credential store by default, service `cz.viceverse.serein`; packaged builds use account `discord-session` for the session restored on launch and `discord-session.<account id>` for each remembered account, while default source builds use the corresponding `discord-session.development` names; at most 2048 bytes each. A per-account entry is written once, when the roster records none, and rewritten only for a token the owner just supplied: on macOS every access to an existing entry is governed by that item's keychain ACL | Explicit logout / Forget saved login removes both entries for that build profile's account; forgetting or pruning a saved account removes its per-account entry; invalid-token expiry also requests deletion. The explicit plaintext fallback below shares these removal paths |
 | Remembered accounts (switcher) | `accounts` table in `client.sqlite3`: at most 8 rows of account ID, username, display name (64 bytes each), avatar hash, last-use timestamp and a flag recording whether the credential store holds that account's entry; no token | Logging out of, or forgetting, that account; the least recently used row is pruned past 8, taking its token and cached data with it |
 | History and drafts | `SEREIN_DATA_DIR/client.sqlite3` when an absolute override is set; otherwise `dirs::data_local_dir()/serein-development/client.sqlite3` for default source builds and `dirs::data_local_dir()/serein/client.sqlite3` for packaged builds | Clear cached history also clears service images and keeps drafts; logout clears the authenticated account’s history and drafts |
 | Messages | 500 per window, at most 20 stored channel windows globally, 48 MiB estimated text/metadata; SQLite main database capped at 64 MiB. A window that reaches its channel's first message also stores that message ID, so the channel introduction can show with the cached window | Oldest touched channel evicted transactionally, with its first-message ID |
@@ -787,11 +802,46 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | Audio devices, input profile/custom processing, push-to-talk and gain | Device-wide `app_preferences` SQLite singleton, bounded to 16 KiB; device names ≤1,024 bytes each | Retained across restart/logout; demo changes remain in memory |
 | Automatic emoticon conversion | Boolean in the existing device-wide `app_preferences` singleton; defaults off, including older saved preferences | Retained across restart/logout; converts standalone emoticons on message send/edit; demo changes remain in memory |
 | Preload on hover | Boolean in the existing device-wide `app_preferences` singleton; defaults on, including older saved preferences | Retained across restart/logout; off stops conversation, profile and GIF picker preloads; demo never preloads conversations or profiles |
+| Collapsed message requests | Boolean in the existing device-wide `app_preferences` singleton; defaults open, including older saved preferences | Retained across restart/logout; only the home list section folds, pending requests remain accessible from its header |
 | Authentication page | Wry incognito on Windows/macOS; ephemeral WebKit6 NetworkSession on Linux, destroyed on token handoff/cancel/timeout | Platform engine teardown; OS artifacts not promised erased |
 
-Typical packaged-build database directories: macOS `~/Library/Application Support/serein`, Windows `%LOCALAPPDATA%/serein`, Linux `$XDG_DATA_HOME/serein` or `~/.local/share/serein`; default source builds use the sibling `serein-development` directory. An absolute `SEREIN_DATA_DIR` selects the root for SQLite, image caches, extensions and detectable-game metadata; an empty or relative override disables those stores instead of falling back to production data. `cargo xtask package` disables the development feature, so distributed executables use the packaged-build directory and credential namespace. Newly created Unix data directories are private (0700); existing override permissions are preserved. Database contents are **not encrypted by Serein**. OS token protection does not encrypt history, backups or drafts, and the override does not relocate credentials from the OS store.
+Typical packaged-build database directories: macOS `~/Library/Application Support/serein`, Windows `%LOCALAPPDATA%/serein`, Linux `$XDG_DATA_HOME/serein` or `~/.local/share/serein`; default source builds use the sibling `serein-development` directory. An absolute `SEREIN_DATA_DIR` selects the root for SQLite, image caches, extensions and detectable-game metadata; an empty or relative override disables those stores instead of falling back to production data. `cargo xtask package` disables the development feature, so distributed executables use the packaged-build directory and credential namespace. Newly created Unix data directories are private (0700); existing override permissions are preserved. Database contents are **not encrypted by Serein**. OS token protection does not encrypt history, backups or drafts, and the override does not relocate OS credential entries. Opted-in plaintext login files use the selected data root.
 
-The app writes no background log, analytics, crash upload, saved password, MFA ticket, or plaintext credential file. A separate credential-free CDN downloader loads visible avatars, server icons, profile banners and validated service-proxied message images. Build outputs, this documentation, synthetic test databases and package files are development artifacts.
+The app writes no background log, analytics, crash upload, saved password or MFA ticket. Plaintext login files require the explicit opt-in described below. A separate credential-free CDN downloader loads visible avatars, server icons, profile banners and validated service-proxied message images. Build outputs, this documentation, synthetic test databases and package files are development artifacts.
+
+Settings › Storage offers **Save login in plaintext without a keyring**, disabled for
+new and migrated preferences. With explicit consent, failed or timed-out OS saves
+fall back to `<data dir>/plaintext-login/<entry>`. The token is unencrypted and can
+be read by software running as the same user, administrators and backups. Unix
+storage requires a nonsymlink 0700 directory and 0600 regular files; Windows uses
+the user data directory's inherited ACL. Files are published through exclusively
+created temporary files and atomic replacement. There are at most ten secret files
+(one launch entry, eight accounts and one incoming account before roster pruning),
+2,048 token bytes each, plus at most 64 empty authority markers. Directory scans admit
+at most 75 files, including interrupted temporary writes;
+new saves fail visibly at the limit. Startup and Forget remove interrupted writes.
+A plaintext file is authoritative over an older OS entry. A successful subsequent
+OS save removes the plaintext copy. Empty `.stale-<entry>` markers contain no token
+and prevent stale or late OS writes from restoring an account after plaintext
+removal; markers clear after confirmed OS replacement/deletion. A coalesced committed-roster
+snapshot removes orphaned per-account secrets and markers, retaining at most eight
+remembered IDs plus the current account. Up to ten newly saved account IDs remain
+protected until a later committed roster acknowledges them, so a delayed older
+snapshot cannot erase a new saved login. Forgotten per-account slots can also clear
+when no OS store exists. Disabling removes secret
+files immediately in worker order, retains these bounded markers, and retries
+failed cleanup on the next startup. Forget also removes plaintext while disabled.
+Deletion is not forensic erasure. Proxy credentials remain OS-store-only.
+
+Login credential IO uses one worker for local operations and one native keyring
+worker, with at most one active and one queued native request. Each native request
+has a five-second wait budget; an unresponsive provider can retain those bounded
+requests and their zeroizing secrets until it returns or the process exits. Late
+results cannot replace a newer authoritative plaintext entry. Expired queued native requests are skipped. Forget writes an empty authority marker
+even when plaintext fallback is disabled, before attempting native deletion. The current login
+shares the connection's secret allocation until session teardown so enabling or
+re-enabling fallback can save it without another authentication. Demo never opens
+these stores. These are synthetic implementation checks, not live keyring evidence.
 
 SQLite work is serialized on a worker. Normal startup opens the database to load appearance and reading/layout preferences before authentication; `--demo` does not open the account database or credential store. Extension catalog refresh, previews and selected package installs may download public GitHub content; extension files use a separate bounded temporary demo profile. Schema version 8 adds the bounded reading/layout singleton while preserving author metadata, embeds/suppression, attachments, mentioned users and unsupported-content presence bits; older history and drafts remain readable. Embed and attachment JSON are each capped at 256 KiB per message; mentioned users are capped at 100 entries and 128 KiB JSON. All three contribute to eviction accounting. Signed original/preview URLs and mention names/avatar hashes may be retained in unencrypted cached message metadata. Draft save status is visible; a full queue or disk failure is reported and must not be described as saved. An interrupted send may leave a saved draft for content Discord already accepted: recovered text never automatically sends. Normal close waits for queued store work if necessary; logout orders one transactional account deletion after earlier writes. Deletion is not a forensic erasure guarantee.
 
@@ -1004,14 +1054,74 @@ Schema 7 adds one checked integer `message_kind` (0..255) per cached message, wi
 ### Opt-in synchronization and compatibility diagnostics
 
 Voice performance diagnostics (`SEREIN_VOICE_DIAGNOSTICS=1`) are also off by default.
-They retain at most eight fixed-size numeric reports in a worker queue (under 2 KiB),
+They include aggregate compressed-video byte counts, decoded dimensions/transitions,
+repair/feedback counts and playback-queue outcomes. They retain at most eight fixed-size
+numeric reports in a worker queue,
 plus one report per producer and one being written. One background writer formats
 reports and caps attempted stderr output at 8,192 reports AND 8 MiB per process,
-across calls (about eleven hours of three concurrent five-second reporters). Queue overflow drops diagnostics without delaying media. A blocked
+across calls; the byte cap can end output before the report cap. Queue overflow drops
+diagnostics without delaying media. A blocked
 stderr can stall only that single diagnostic writer. No files, identifiers, device
 names, payloads, audio, keys or telemetry are produced. Explicit shell redirection
 is owner-managed; unrelated output and appended runs are outside these limits.
 See [voice CPU diagnostics](voice.md#investigating-high-cpu-during-a-call) for usage.
+
+Incoming-video repair retains at most 512 sequence positions and 512 KiB of encrypted RTP
+payload per announced source (16 sources, at most 8 MiB plus bounded tree metadata).
+Holes initially expire after 120 ms during receive processing or 20 ms transport ticks.
+Observed requested repairs can increase that deadline to 400 ms. At most 512 expired-hole
+metadata entries per source survive for one second to inform later deadlines; no discarded
+payload is replayed. Generic
+NACK feedback requests at most 64 missing numbers per source per 20 ms, at most three
+attempts per hole and 288 encrypted wire bytes per datagram. Source retirement or owner
+replacement discards pending packets, requests, media-activity and actual-PLI clocks.
+Empty padding packets use the same sequence window and retain no media payload.
+
+Watched-video pacing holds at most 64 decrypted encoded pictures and 8 MiB of allocated
+payload capacity, plus one source-clock anchor and bounded deque metadata. This is separate
+from the existing 16-picture/16-MiB decoder handoff and native decoder queue. Initial video
+buffering is 100 ms; severe stalls, pressure or incompatible clock changes trigger bounded
+keyframe recovery. Rekeys and teardown clear queued plaintext. The 64-item budget covers
+the existing 500 ms A/V hold horizon at 60 fps, with burst headroom; retained encoded
+payload remains limited to 8 MiB. Reception reports retain
+at most 16 transient source-statistics entries and 384 report-block bytes per one-second
+send. Backpressure retries retain the existing access unit rather than another copy.
+
+Watched-stream audio retains at most 128 compressed Opus packets (1,275 bytes each,
+exact-sized allocations) and one 5,760-sample mono PCM buffer per source, at most 16
+sources: 2,979,840 bytes of retained payload/PCM plus bounded metadata and codec state.
+One stack scratch buffer of 965 samples bounds rate adjustment; at most nine packets
+are decoded per source per 20 ms tick. Missing input has at most three concealment
+operations before silence/idle recovery. The 60–240 ms adaptive target fits the packet
+budget even at 2.5 ms packetization; a forward media gap over 500 ms restarts the queue.
+Normal participant voice jitter is unchanged.
+
+Timing state has at most 32 source clocks and 16 sender references, with constant-sized
+arrival estimates and shared atomic output clocks. Reports older than 30 seconds are
+ignored for synchronization. A PCM frame carries one optional timestamp/clock reference
+through the existing bounded stream, call and device queues; none adds a new PCM queue.
+Source retirement, rekeys and teardown invalidate old timestamp generations. Audio-buffer
+restart preserves already accepted PCM/video. Stale stream PCM is rejected before call
+mixing; mixed participant speech survives later stream timestamp invalidation. The output
+callback publishes only numeric timing, never media contents.
+Device-clock estimates expire after two seconds without new playback.
+
+Each decoder correlates at most 16 transient output tags to timestamps, evicting the oldest
+at capacity. The 150 ms age budget applies to queued submissions and backpressure retries,
+not tags awaiting delayed native output. Unknown tags are discarded and counted as stale.
+The watched UI retains at most eight decoded pictures, bounded together with its reusable
+latest-picture storage by 128 MiB of allocated
+plane capacity. Pressure skips decoded display pictures and leaves codec references intact.
+These transient buffers are cleared with the watched session. No media files, diagnostic
+archives, schema changes or persistent queues are added.
+
+AV1 reassembly retains a frame buffer and fragment buffer, each bounded to 2 MiB + 64 KiB;
+large fragment capacity is released at frame reset. Native normalization temporarily holds
+one extra bounded AU on the decoder worker, including the restored two-byte delimiter.
+Each packet/frame admits at most 64/256 OBU elements. Transport-wide timing feedback has
+one on-demand 2,048-entry timestamp deque (32 KiB), one-second reporting age, at most two
+256-status reports per 100 ms and at most 628 encrypted bytes per report. It retains no
+media, identities or advertised bandwidth estimate.
 
 `SEREIN_MEMBER_DIAGNOSTICS=1` enables fixed-label member synchronization diagnostics;
 `SEREIN_GATEWAY_DIAGNOSTICS=1` enables Gateway compatibility diagnostics. Both are off by default.
@@ -1028,13 +1138,63 @@ dispatches continue to be ignored and grant no capabilities. The diagnostic deli
 identify the exact unknown service event: even its received name is excluded, along with payloads,
 credentials, account/channel/list IDs, usernames, message content and signed URLs.
 
-Output goes only to stderr. Serein creates no log file; explicit shell redirection is owner-managed
+Output goes only to stderr. These diagnostics create no log file of their own; explicit shell
+redirection is owner-managed
 and can also capture unrelated framework output, to which these limits do not apply. Repeated
 application runs appended to one external file are not bounded by a single Gateway-run budget.
 Windows GUI builds may have no inherited stderr; launch with deliberate stderr redirection to
 capture diagnostics. Do not use a real owner session in default tests. Synthetic tests check
 redaction, UTF-8 byte/line limits, disabled and broken-output cases, and message delivery plus
 heartbeat sequencing after unsupported dispatches. No live interoperability claim follows.
+
+### Opt-in diagnostic log
+
+Settings › Updates › Support & diagnostics chooses **Off**, **Errors**, **Errors and warnings**,
+**Errors, warnings and events** or **Everything (verbose)**. Off is the default and creates neither
+a folder nor a file. The choice is a device preference in the existing app-preferences record, so it
+survives sign-out and restart. The level applies immediately; destination preparation runs on
+the single writer thread, including at startup, and Settings shows only its completed result.
+Repeated changes replace one pending setup request; stale completions cannot publish a new path.
+Demo and fixture sessions never install a file or open its folder.
+
+An enabled log writes `logs/serein.log` inside Serein's data folder, with private permissions on
+Unix. Every Unix open uses an owner-checked directory descriptor and rejects symlinks, hard-linked
+files and non-regular files (including FIFOs) without blocking. Directory/file permissions
+are set on their descriptors to 0700/0600; failures refuse the destination. Windows rejects
+reparse points, including junctions. A data folder that refuses the file (a read-only profile, a machine policy, a sandboxed run)
+is replaced by `serein-logs` in the temporary folder, and then by `serein-logs` beside the
+executable; the Settings page names the file that ended up in use, and each refused attempt is
+recorded with its error class and operating-system code. When every folder refuses, the level still
+applies: the copy button returns the lines kept in memory. Each line is the machine's local wall
+clock, the level, a category, a compile-time label and
+up to four fields. Categories are `app`, `session`, `call`, `voice`, `gateway`, `cache` and `media`.
+Every label and text value is a `&'static str` taken from the client's own vocabulary, and every
+other value is a number, so the API has no way to carry an account, channel, message, path, URL or
+credential value: redaction is a property of the type rather than of review. A line is capped at
+320 bytes and a record at four fields.
+
+Bounds: at most 256 formatted lines / 64 KiB wait for the writer, and at most 512 lines / 128 KiB
+stay in memory for the copy button; an overflow drops the oldest line. One writer thread owns the
+file, so no render, audio or network path touches the disk. The file rotates once to `serein.1.log`
+at 2 MiB, and a run stops appending after 4 MiB in total; the copyable tail keeps working
+afterwards. A folder that cannot be written is reported in Settings instead of promising a file,
+and a closed or removed file never stops the client. The log is local only: nothing is uploaded, and
+there is no telemetry, backend or automatic reporting.
+
+The first coverage is the call lifecycle (join requested, session description and voice server
+received, media started, media failure with its fixed reason, each automatic rejoin attempt, a
+connection-details deadline, giving up, and the terminal failure), plus session started/ready,
+gateway disconnect and resync, and the log level itself. A defect that ends a call by itself is
+therefore readable as a timeline instead of a description. The copy button copies the recent lines
+from memory, so a report does not depend on the file still being open.
+
+**Save diagnostics** writes one text file after a native destination choice: the environment block
+the copy button already produces, subsystem statuses (log level and file, local cache, saved login,
+session and gateway, call state, voice devices, notifications) and the recent log lines. Every value
+is a flag, a number, or a status string the interface shows; account, channel, message, path and
+credential values stay out. The file is written where the owner chooses, and the page names it so it
+can be attached to an issue. Cancelling the dialog changes nothing.
+
 
 ### Existing DM call presence
 

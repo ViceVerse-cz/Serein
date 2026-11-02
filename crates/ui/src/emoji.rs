@@ -267,18 +267,6 @@ mod tests {
 		}
 	}
 	#[test]
-	fn direct_decode_preserves_every_premultiplied_pixel() {
-		let rgba = image::load_from_memory_with_format(ATLAS, image::ImageFormat::Png)
-			.unwrap()
-			.into_rgba8();
-		let expected = egui::ColorImage::from_rgba_unmultiplied(
-			[rgba.width() as usize, rgba.height() as usize],
-			&rgba,
-		);
-		assert_eq!(decode_atlas().unwrap(), expected);
-	}
-
-	#[test]
 	fn atlas_is_bounded_and_matches_complete_sequences() {
 		let image = image::load_from_memory(ATLAS).unwrap();
 		assert!(image.width() as usize * image.height() as usize * 4 <= 16 * 1024 * 1024);

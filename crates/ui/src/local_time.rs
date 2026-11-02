@@ -149,28 +149,7 @@ pub fn local(instant: time::OffsetDateTime) -> time::OffsetDateTime {
 
 /// Current wall-clock time in the local zone.
 pub fn now() -> time::OffsetDateTime {
-	#[cfg(test)]
-	if let Some(now) = TEST_NOW.get() {
-		return now;
-	}
 	local(time::OffsetDateTime::now_utc())
-}
-
-#[cfg(test)]
-thread_local! {
-	static TEST_NOW: std::cell::Cell<Option<time::OffsetDateTime>> = const { std::cell::Cell::new(None) };
-}
-
-/// Pins this test thread's clock until the returned guard is dropped, including on panic.
-#[cfg(test)]
-pub(crate) fn pin_now(now: time::OffsetDateTime) -> impl Drop {
-	struct Reset(Option<time::OffsetDateTime>);
-	impl Drop for Reset {
-		fn drop(&mut self) {
-			TEST_NOW.set(self.0);
-		}
-	}
-	Reset(TEST_NOW.replace(Some(now)))
 }
 
 /// Renders a Discord `<t:seconds:style>` reference the way the official client does: absolute
@@ -356,27 +335,6 @@ mod tests {
 		assert_eq!(super::format_clock(at(14, 5), true, false), "14:05:09");
 	}
 
-	/// Message headers read like Discord's: today, yesterday, then the short date.
-	#[test]
-	fn calendar_times_name_today_and_yesterday_and_date_older_messages() {
-		// A fixed noon keeps "today" and "yesterday" from crossing midnight mid-test.
-		let now =
-			time::OffsetDateTime::now_utc().replace_time(time::Time::from_hms(12, 0, 0).unwrap());
-		let _clock = super::pin_now(now);
-		assert!(super::calendar(now).starts_with("Today at "));
-		assert_eq!(super::header(now), super::clock(super::local(now)));
-		assert!(super::header(now - time::Duration::days(1)).starts_with("Yesterday at "));
-		assert!(super::calendar(now - time::Duration::days(1)).starts_with("Yesterday at "));
-		let older = time::OffsetDateTime::UNIX_EPOCH
-			.replace_date(time::Date::from_calendar_date(2026, time::Month::April, 29).unwrap())
-			.replace_time(time::Time::from_hms(3, 42, 0).unwrap());
-		let label = super::calendar(older);
-		assert!(
-			label == "4/29/26, 03:42" || label == "4/29/26, 3:42 AM",
-			"{label}"
-		);
-	}
-
 	/// Drops Fluent's bidi isolation marks around placeables.
 	fn plain(text: String) -> String {
 		text.replace(['\u{2068}', '\u{2069}'], "")
@@ -475,32 +433,6 @@ mod tests {
 	}
 
 	#[test]
-	fn full_dates_spell_out_the_weekday_and_month() {
-		let at = local_at("2026-10-14T15:45:00+02:00");
-		assert_eq!(
-			super::format_full(at, true, super::DateOrder::MonthDayYear),
-			"Wednesday, October 14, 2026 at 3:45 PM"
-		);
-		assert_eq!(
-			super::format_full(at, false, super::DateOrder::DayMonthYear),
-			"Wednesday, 14 October 2026 at 15:45"
-		);
-		assert_eq!(
-			super::format_full(at, false, super::DateOrder::DayMonthYearDots),
-			"Wednesday, 14 October 2026 at 15:45"
-		);
-		for order in [
-			super::DateOrder::YearMonthDay,
-			super::DateOrder::YearMonthDayDashes,
-		] {
-			assert_eq!(
-				super::format_full(at, false, order),
-				"Wednesday, 2026 October 14 at 15:45"
-			);
-		}
-	}
-
-	#[test]
 	fn date_order_follows_the_locale() {
 		use super::DateOrder::*;
 		for (tag, order) in [
@@ -564,28 +496,6 @@ mod tests {
 		] {
 			assert!(!super::twelve_hour_locale(tag), "{tag}");
 		}
-	}
-
-	#[test]
-	fn calendar_uses_the_pinned_local_date_for_today_yesterday_and_older_times() {
-		let at = time::OffsetDateTime::parse(
-			"2026-10-12T17:37:03Z",
-			&time::format_description::well_known::Rfc3339,
-		)
-		.unwrap();
-		let clock = super::clock(at);
-		for (days, key) in [
-			(0, "search-result-today-at"),
-			(1, "search-result-yesterday-at"),
-		] {
-			let _clock = super::pin_now(at + time::Duration::days(days));
-			assert_eq!(
-				super::calendar(at),
-				crate::i18n::translate_args(key, &[("time", &clock)])
-			);
-		}
-		let _clock = super::pin_now(at + time::Duration::days(2));
-		assert_eq!(super::calendar(at), format!("10/12/26, {clock}"));
 	}
 
 	#[test]

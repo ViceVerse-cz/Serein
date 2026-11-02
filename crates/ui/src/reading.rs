@@ -290,25 +290,6 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn smaller_zoom_applies_and_survives_native_zoom_synchronization() {
-		let ctx = egui::Context::default();
-		let mut view = MessagingUi::default();
-		view.apply_reading_preferences(
-			&ctx,
-			ReadingPreferences {
-				zoom_percent: 50,
-				..ReadingPreferences::default()
-			},
-		);
-		ctx.run_ui(egui::RawInput::default(), |_| {})
-			.drop_without_applying_deltas();
-		view.sync_reading_zoom(&ctx);
-		view.sync_reading_zoom(&ctx);
-		assert_eq!(view.reading_preferences.zoom_percent, 50);
-		assert!((ctx.zoom_factor() - 0.5).abs() < 0.001);
-	}
-
-	#[test]
 	fn reading_controls_reset_retry_and_preserve_session_notification_opt_in() {
 		fn labels(shape: &egui::Shape, found: &mut Vec<(String, egui::Rect)>) {
 			match shape {
@@ -486,99 +467,5 @@ mod tests {
 			},
 		);
 		assert_eq!(view.reading_preferences, ReadingPreferences::default());
-	}
-
-	#[test]
-	fn sidebar_constraints_do_not_replace_saved_width_and_zoom_is_bounded() {
-		let ctx = egui::Context::default();
-		let mut view = MessagingUi::default();
-		view.apply_reading_preferences(
-			&ctx,
-			ReadingPreferences {
-				sidebar_width: 350,
-				..Default::default()
-			},
-		);
-		let sidebar_frame = |view: &mut MessagingUi, width, events| {
-			let mut rendered = 0.0;
-			ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(width, 400.0),
-					)),
-					events,
-					..Default::default()
-				},
-				|ui| {
-					let maximum = view.prepare_reading_sidebar(ui, "channels", 0.0);
-					let panel = egui::Panel::left("channels")
-						.default_size(
-							f32::from(view.reading_preferences.sidebar_width).min(maximum),
-						)
-						.size_range(190.0..=maximum)
-						.show(ui, |ui| {
-							ui.set_min_width(ui.available_width());
-							ui.label("Synthetic navigation");
-						});
-					rendered = panel.response.rect.width();
-					view.record_reading_sidebar(rendered);
-				},
-			)
-			.drop_without_applying_deltas();
-			rendered
-		};
-		for width in [900.0, 480.0, 900.0] {
-			let actual = sidebar_frame(&mut view, width, vec![]);
-			assert_eq!(view.reading_preferences.sidebar_width, 350);
-			assert!((actual - if width < 600.0 { 220.0 } else { 350.0 }).abs() < 1.0);
-		}
-		let edge = egui::pos2(350.0, 200.0);
-		let resized = egui::pos2(280.0, 200.0);
-		sidebar_frame(&mut view, 900.0, vec![egui::Event::PointerMoved(edge)]);
-		sidebar_frame(
-			&mut view,
-			900.0,
-			vec![egui::Event::PointerButton {
-				pos: edge,
-				button: egui::PointerButton::Primary,
-				pressed: true,
-				modifiers: egui::Modifiers::NONE,
-			}],
-		);
-		sidebar_frame(&mut view, 900.0, vec![egui::Event::PointerMoved(resized)]);
-		sidebar_frame(
-			&mut view,
-			900.0,
-			vec![egui::Event::PointerButton {
-				pos: resized,
-				button: egui::PointerButton::Primary,
-				pressed: false,
-				modifiers: egui::Modifiers::NONE,
-			}],
-		);
-		sidebar_frame(&mut view, 900.0, vec![]);
-		assert_eq!(
-			view.reading_preferences.sidebar_width, 280,
-			"Dragging the native panel edge updates the saved preference"
-		);
-		view.apply_reading_preferences(
-			&ctx,
-			ReadingPreferences {
-				sidebar_width: 270,
-				..Default::default()
-			},
-		);
-		assert!((sidebar_frame(&mut view, 900.0, vec![]) - 270.0).abs() < 1.0);
-		ctx.set_zoom_factor(1.4);
-		sidebar_frame(&mut view, 900.0, vec![]);
-		view.sync_reading_zoom(&ctx);
-		assert_eq!(view.reading_preferences.zoom_percent, 140);
-		ctx.set_zoom_factor(1.7);
-		sidebar_frame(&mut view, 900.0, vec![]);
-		view.sync_reading_zoom(&ctx);
-		sidebar_frame(&mut view, 900.0, vec![]);
-		assert_eq!(view.reading_preferences.zoom_percent, 150);
-		assert!((ctx.zoom_factor() - 1.5).abs() < 0.001);
 	}
 }

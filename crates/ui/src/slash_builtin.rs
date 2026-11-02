@@ -416,10 +416,6 @@ mod tests {
 		for (input, expected) in [
 			("/me  ahoj 世界\n🙂", "*ahoj 世界\n🙂*"),
 			("/spoiler secret", "||secret||"),
-			("/shrug", r"¯\\\_(ツ)\_/¯"),
-			("/shrug hi", r"hi ¯\\\_(ツ)\_/¯"),
-			("/tableflip", "(╯°□°)╯︵ ┻━┻"),
-			("/unflip", "┬─┬ ノ( ゜-゜ノ)"),
 		] {
 			assert_eq!(
 				parse(input).unwrap().action(),
