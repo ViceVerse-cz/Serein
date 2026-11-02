@@ -1281,6 +1281,8 @@ impl State {
 	}
 	pub fn select(&mut self, channel: Id) -> Option<Command> {
 		self.cancel_invite_navigation(channel);
+		// Reselecting the open conversation is still the user's own navigation.
+		self.link_resolution.clear();
 		// Keep the current conversation intact, but allow a restored channel to load again.
 		if self.selected == Some(channel) && self.freshness != Freshness::Unavailable {
 			return None;

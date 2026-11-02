@@ -107,10 +107,19 @@ impl LinkResolution {
 		self.target = None;
 	}
 
-	/// Follows a newer message link into the same chat without starting another read.
-	fn retarget(&mut self, message: Option<Id>) {
-		if let Some((_, _, _, pending)) = &mut self.target {
-			*pending = message;
+	/// Follows a newer message link into the same chat of the same server without starting
+	/// another read. A link naming another server never inherits the pending read.
+	fn retarget(&mut self, guild: Option<Id>, channel: Id, message: Option<Id>) -> bool {
+		match &mut self.target {
+			Some((at, pending_guild, pending_channel, pending))
+				if at.elapsed() < LINK_RESOLUTION
+					&& Some(*pending_guild) == guild
+					&& *pending_channel == channel =>
+			{
+				*pending = message;
+				true
+			}
+			_ => false,
 		}
 	}
 
@@ -181,8 +190,7 @@ impl State {
 		// A link click is the user's newest destination. A read already in flight for this
 		// same chat keeps running but follows the latest message; one for anywhere else is
 		// abandoned, so a late answer never overrides the user's own navigation.
-		if self.link_resolution.awaiting() == Some(channel) {
-			self.link_resolution.retarget(message);
+		if self.link_resolution.retarget(guild, channel, message) {
 			return Ok(None);
 		}
 		self.link_resolution.clear();
@@ -912,7 +920,7 @@ mod tests {
 
 	#[test]
 	fn a_user_navigation_cancels_a_pending_link_read() {
-		for case in 0..3 {
+		for case in 0..5 {
 			let mut state = chat_link_state();
 			let thread = Id(999);
 			// Back needs Home behind the open conversation before the link is clicked.
@@ -930,10 +938,20 @@ mod tests {
 				// Back lands on Home without selecting a channel of its own.
 				1 => assert!(state.navigate_back().is_some()),
 				// A message link inside the open channel is a destination too.
-				_ => {
+				2 => {
 					state
 						.open_chat_link(Some(Id(10)), Id(1), Some(Id(100)))
 						.unwrap();
+				}
+				// Reselecting the open channel keeps it open but drops the link.
+				3 => assert!(state.select(Id(1)).is_none()),
+				// The same channel id under another server never inherits the pending read.
+				_ => {
+					assert!(
+						state
+							.open_chat_link(Some(Id(30)), thread, Some(Id(100)))
+							.is_err()
+					);
 				}
 			}
 			assert!(
