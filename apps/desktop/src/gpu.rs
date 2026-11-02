@@ -105,12 +105,19 @@ pub fn select(
 			format!("no GPU adapter can draw this window; found {available}")
 		});
 	};
-	eprintln!("[Serein] GPU adapter: {}", describe(&adapter.get_info()));
 	let info = adapter.get_info();
+	eprintln!("[Serein] GPU adapter: {}", describe(&info));
 	if software(&info) {
-		eprintln!(
-			"[Serein] GPU adapter is a software rasterizer; set WGPU_BACKEND=gl to try the GPU's OpenGL driver"
-		);
+		// Already on OpenGL, the override has nothing left to try.
+		if info.backend == wgpu::Backend::Gl {
+			eprintln!(
+				"[Serein] GPU adapter is a software OpenGL rasterizer; install the GPU's graphics driver"
+			);
+		} else {
+			eprintln!(
+				"[Serein] GPU adapter is a software rasterizer; set WGPU_BACKEND=gl to try the GPU's OpenGL driver"
+			);
+		}
 	}
 	Ok((*adapter).clone())
 }

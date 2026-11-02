@@ -48,7 +48,8 @@ predates DX12, and drawing the client on the CPU that way freezes a machine whos
 presents through OpenGL. Windows therefore enumerates DirectX 12 and OpenGL (Vulkan stays out
 for the reason above), so both candidates exist for that ranking, and the chosen adapter is
 still printed to stderr. When only a software rasterizer is left, the client logs that fact and
-names the `WGPU_BACKEND=gl` override, which forces the OpenGL driver instead.
+names the `WGPU_BACKEND=gl` override, which forces the OpenGL driver; when that software
+adapter is already an OpenGL one, it suggests installing the GPU driver instead.
 
 Windows turns off winit's undecorated drop-shadow hack after the window exists, including
 after title-bar changes. egui-winit enables that hack for custom chrome. While restored it
