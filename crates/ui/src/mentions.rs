@@ -2472,6 +2472,7 @@ fn user_rows_show_the_status_dot_the_session_knows() {
 		generation: state.generation,
 		event: client_core::Event::DirectPresence(vec![client_core::presence::Update {
 			user: Id(9),
+			avatar: Patch::Absent,
 			status: Patch::Value("online".into()),
 			custom_status: Patch::Null,
 			activities: Patch::Value(vec![]),
