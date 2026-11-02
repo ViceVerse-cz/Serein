@@ -176,7 +176,7 @@ struct Live {
 	/// Latest decoded camera picture per remote user, replaced (never queued) by the decoder.
 	remote_video: Arc<std::sync::Mutex<RemotePictures>>,
 	/// Decoded audio of a watched stream, mixed into this call's playback.
-	stream_audio: mpsc::SyncSender<discord_voice::Frame>,
+	stream_audio: mpsc::SyncSender<discord_voice::PlaybackFrame>,
 }
 
 #[derive(Default)]
@@ -2129,6 +2129,7 @@ mod tests {
 	fn optimization_remote_video_reuses_the_latest_frame_buffer() {
 		let mut pictures = Vec::new();
 		let frame = |data: &'static [u8], width| discord_voice::RemoteFrame {
+			presentation: None,
 			user: 7,
 			picture: platform::video::Picture {
 				width,

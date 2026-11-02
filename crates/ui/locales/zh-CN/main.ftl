@@ -85,7 +85,6 @@ hide-chat = 隐藏聊天
 show-chat = 显示聊天
 search-conversation = 搜索这个对话
 show-member-list = 显示成员清单
-show-user-profile = 显示用户资料
 pinned-messages = 置顶的消息
 threads = 帖子
 
@@ -4878,6 +4877,9 @@ timeline-group-intro = 欢迎来到 { $name } 群组的开端。
 timeline-channel-intro-title = 欢迎来到 #{ $channel }！
 # Context: timeline_channel_intro
 timeline-channel-intro-start = 这是 #{ $channel } 频道的开头。
+show-user-profile = 显示用户资料
+hide-user-profile = 隐藏用户资料
+view-full-profile = 查看完整资料
 # Context: text_menu
 text-menu-cut = 剪切
 text-menu-copy = 复制

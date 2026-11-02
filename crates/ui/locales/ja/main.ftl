@@ -85,7 +85,6 @@ hide-chat = チャットを非表示にする
 show-chat = チャットを表示する
 search-conversation = この会話を検索
 show-member-list = メンバーリストを表示
-show-user-profile = ユーザープロフィールを表示
 pinned-messages = 固定メッセージ
 threads = スレッド
 
@@ -4763,6 +4762,9 @@ timeline-group-intro = グループ「{ $name }」の始まりへようこそ。
 timeline-channel-intro-title = #{ $channel } へようこそ！
 # Context: timeline_channel_intro
 timeline-channel-intro-start = #{ $channel } チャンネルの始まりです。
+show-user-profile = ユーザープロフィールを表示
+hide-user-profile = ユーザープロフィールを非表示
+view-full-profile = プロフィール全体を表示
 # Context: text_menu
 text-menu-cut = 切り取り
 text-menu-copy = コピー

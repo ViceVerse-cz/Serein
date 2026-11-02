@@ -17,7 +17,7 @@ mod avatars;
 #[cfg(feature = "demo")]
 pub use avatars::media::debug_heic_layout_check;
 pub use avatars::media::{Lane, MAX_FRAMES, Motion, Rendition, Size, fit_edge, is_motion_video};
-pub use avatars::{EMBED_EDGE, FRAME_EDGE, GifFrames};
+pub use avatars::{EFFECT_EDGE, EMBED_EDGE, FRAME_EDGE, GifFrames};
 mod categories;
 #[cfg(feature = "demo")]
 pub use categories::debug_thread_navigation_check;
@@ -82,14 +82,6 @@ mod profiles;
 mod slash_builtin;
 mod slash_commands;
 mod stickers;
-/// The other participant of the selected one-to-one DM; group DMs and channels have none.
-fn one_to_one_recipient(state: &State) -> Option<&model::User> {
-	state
-		.selected
-		.and_then(|id| state.channel(id))
-		.filter(|channel| channel.guild.is_none() && channel.kind == 1)
-		.and_then(|channel| channel.recipients.first())
-}
 /// Synthetic global profile used exclusively by the desktop's offline command adapter.
 #[cfg(any(test, feature = "demo"))]
 pub fn synthetic_own_profile(user: &model::User) -> model::UserProfile {
@@ -334,6 +326,8 @@ pub struct MessagingUi {
 	pending_mention: Option<Id>,
 	contact_editor: contact_editor::ContactEditor,
 	profile_link: Option<String>,
+	/// The docked DM card's link awaiting confirmation, apart from the popout's.
+	dm_profile_link: Option<String>,
 	profile_formatted: markdown::FormatCache,
 	pub reading_preferences: model::ReadingPreferences,
 	pub show_hidden_channels: bool,
@@ -432,6 +426,8 @@ pub struct MessagingUi {
 	pub attachment_paste_requested: Option<AttachmentPaste>,
 	pub pasted_text: Option<(Id, egui::Id, String)>,
 	paste_key_handled: bool,
+	/// The profile card docked beside a direct message, with its own footer draft.
+	dm_profile: profiles::ProfileSession,
 	/// A text field whose context menu asked to paste.
 	menu_paste: Option<egui::Id>,
 	pasted_text_frame: Option<u64>,
@@ -2426,7 +2422,7 @@ impl MessagingUi {
 		selected_voice: bool,
 		show_members: bool,
 		wide_members: bool,
-		search_open: bool,
+		outside_chat: bool,
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
@@ -2442,9 +2438,9 @@ impl MessagingUi {
 							design::window_palette(ui).chat,
 							design::ImageSection::TopBar,
 						)
-					} else if search_open {
-						// Spanning the search pane, the header sits outside the central panel,
-						// so it paints the chat coat that panel would otherwise provide.
+					} else if outside_chat {
+						// Spanning the search pane or docked profile, the header sits outside the
+						// central panel, so it paints the chat coat that panel would otherwise provide.
 						design::window_palette(ui).chat
 					} else {
 						egui::Color32::TRANSPARENT
@@ -2583,7 +2579,6 @@ impl MessagingUi {
 					);
 				}
 				if state.selected.is_some() && !selected_voice {
-					let one_to_one = one_to_one_recipient(state).is_some();
 					if self.search.open && !self.search.pins() {
 						ui.allocate_ui_with_layout(
 							egui::vec2(240.0_f32.min(ui.available_width() * 0.5).max(120.0), 28.0),
@@ -2636,31 +2631,21 @@ impl MessagingUi {
 						}
 					}
 					ui.add_space(4.0);
-					// A one-to-one DM toggles the other person's docked profile instead, which
-					// needs the wide layout.
-					if one_to_one {
-						let shown = *self.members_preference(state);
-						if wide_members
-							&& icons::toggle(
-								ui,
-								icons::Icon::Profile,
-								32.0,
-								shown,
-								&language.text("show-user-profile"),
-							)
-							.clicked()
-						{
-							*self.members_preference(state) = !shown;
-						}
-					} else if icons::toggle(
-						ui,
-						icons::Icon::People,
-						32.0,
-						show_members,
-						&language.text("show-member-list"),
-					)
-					.clicked()
-					{
+					// A one-to-one DM docks the other person's profile instead of a member list.
+					let direct = state
+						.selected
+						.and_then(|id| state.channel(id))
+						.is_some_and(|channel| channel.kind == 1)
+						// Narrow windows keep the member dialog for every conversation.
+						&& wide_members;
+					let (icon, label) = if !direct {
+						(icons::Icon::People, language.text("show-member-list"))
+					} else if show_members {
+						(icons::Icon::Profile, language.text("hide-user-profile"))
+					} else {
+						(icons::Icon::Profile, language.text("show-user-profile"))
+					};
+					if icons::toggle(ui, icon, 32.0, show_members, &label).clicked() {
 						if wide_members {
 							let shown = self.members_preference(state);
 							*shown = !*shown;
@@ -4224,14 +4209,83 @@ impl MessagingUi {
 		cleared
 	}
 
-	/// Applies what a profile card or the docked DM profile picked for `user`.
+	/// Discord's user profile panel beside a direct message: the recipient's card, kept loaded
+	/// while no popout needs the single open profile, and drawn from the recent cache otherwise.
+	fn dm_profile_panel(
+		&mut self,
+		ui: &mut egui::Ui,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		recipient: &model::User,
+		fill: egui::Color32,
+	) {
+		let view = state
+			.profile
+			.as_ref()
+			.filter(|view| view.user == recipient.id && view.guild.is_none());
+		let cached = view
+			.is_none()
+			.then(|| state.known_profile(recipient.id))
+			.flatten();
+		let mut action = None;
+		// The panel shares the conversation surface, so the card floats on the chat itself.
+		egui::Panel::right("dm-profile-pane")
+			.resizable(false)
+			.show_separator_line(false)
+			.exact_size(340.0)
+			.frame(
+				egui::Frame::new()
+					.fill(design::section_surface(
+						ui,
+						fill,
+						design::ImageSection::MessageList,
+					))
+					.inner_margin(egui::Margin::same(8)),
+			)
+			.show(ui, |ui| {
+				action = profiles::show_docked(
+					ui,
+					recipient,
+					view,
+					cached,
+					state,
+					&mut self.avatars,
+					&mut self.dm_profile_link,
+					&mut self.profile_formatted,
+					self.reading_preferences.confirm_external_links,
+					&mut self.dm_profile,
+				);
+			});
+		if self.dm_profile.take_full_request() {
+			self.profile.open_full(recipient.clone());
+		}
+		match action {
+			// The panel closes from its header button, not from the card.
+			None | Some(profiles::Action::Close) => {}
+			Some(action) => self.profile_action(ctx, state, commands, recipient, None, action),
+		}
+		// After the card's action, so a popout it opened keeps the single profile slot.
+		if self.profile.open_user().is_none() {
+			self.sync_profile(state, commands, recipient, None);
+		} else if let Some(command) =
+			state.preload_docked_profile(recipient.id, std::time::Instant::now())
+		{
+			commands.push(command);
+		}
+		if let Some(command) = profile_note(state, &mut self.dm_profile, recipient) {
+			commands.push(command);
+		}
+	}
+
+	/// Applies an action picked on a profile card, the popout's or the one docked beside a DM.
 	fn profile_action(
 		&mut self,
 		ctx: &egui::Context,
 		state: &mut State,
 		commands: &mut Vec<Command>,
 		user: &model::User,
-		profile_guild: Option<model::Id>,
+		profile_guild: Option<Id>,
 		action: profiles::Action,
 	) {
 		match action {
@@ -4342,45 +4396,6 @@ impl MessagingUi {
 			profiles::Action::OpenDirect(user) => {
 				self.open_user_direct(state, user, user_direct::Intent::Message, commands);
 			}
-			profiles::Action::Full(tab) => {
-				self.profile
-					.open_full_tab(state.generation, user.clone(), tab);
-			}
-		}
-	}
-
-	/// The other person's profile beside a one-to-one DM, read from the profile cache.
-	fn docked_profile(
-		&mut self,
-		ui: &mut egui::Ui,
-		ctx: &egui::Context,
-		state: &mut State,
-		commands: &mut Vec<Command>,
-		user: &model::User,
-		fill: egui::Color32,
-	) {
-		let now = std::time::Instant::now();
-		if let Some(command) = state.preload_docked_profile(user.id, now) {
-			commands.push(command);
-		}
-		let loading = state.profile_preloading(user.id, now);
-		#[cfg(any(test, feature = "demo"))]
-		let synthetic = state.demo.then(|| profiles::synthetic(user, None));
-		#[cfg(not(any(test, feature = "demo")))]
-		let synthetic: Option<model::UserProfile> = None;
-		let surface = design::section_surface(ui, fill, design::ImageSection::MemberList);
-		let action = egui::Panel::right("dm-profile-pane")
-			.resizable(false)
-			.show_separator_line(!design::has_window_background(ui))
-			.exact_size(profiles::DOCKED_WIDTH)
-			.frame(egui::Frame::new().fill(surface))
-			.show(ui, |ui| {
-				let data = state.known_profile(user.id).or(synthetic.as_ref());
-				profiles::docked(ui, user, data, loading, state, &mut self.avatars, surface)
-			})
-			.inner;
-		if let Some(action) = action {
-			self.profile_action(ctx, state, commands, user, None, action);
 		}
 	}
 
@@ -4536,6 +4551,8 @@ impl MessagingUi {
 		commands.extend(cosmetics_refresh);
 		// A server joined from an invite opens as soon as the Gateway delivers it.
 		commands.extend(state.navigate_after_join());
+		// A chat link to an unloaded thread opens once its bounded channel read admits it.
+		commands.extend(state.resolve_pending_link());
 		if let Some(action) = self.poll_creator.show(ui.ctx(), state, &mut self.avatars)
 			&& let Some(command) = state.prepare_poll(None, action)
 		{
@@ -4881,10 +4898,7 @@ impl MessagingUi {
 		self.search.sync(&ctx, state, &mut commands);
 		let search_open =
 			self.search.results_visible(state) && state.selected.is_some() && !selected_voice;
-		// A one-to-one DM docks the other person's profile where a member list would be.
-		let dm_recipient = one_to_one_recipient(state).cloned();
-		let show_members = dm_recipient.is_none()
-			&& !selected_voice
+		let show_members = !selected_voice
 			&& !search_open
 			&& state.selected.is_some()
 			&& if wide_members {
@@ -4935,7 +4949,30 @@ impl MessagingUi {
 					);
 				});
 		}
-		if show_members {
+		// A one-to-one DM shows the other person's profile where servers list members.
+		let dm_recipient = (show_members && wide_members)
+			.then(|| state.selected.and_then(|id| state.channel(id)))
+			.flatten()
+			.filter(|channel| channel.kind == 1)
+			.and_then(|channel| channel.recipients.first().cloned());
+		if dm_recipient.is_none() {
+			self.dm_profile_link = None;
+		}
+		if let Some(recipient) = &dm_recipient {
+			self.channel_header(
+				ui,
+				state,
+				selected_voice,
+				show_members,
+				wide_members,
+				true,
+				&mut commands,
+			);
+			self.dm_profile_panel(ui, &ctx, state, &mut commands, recipient, background.chat);
+			if state.members.is_some() {
+				commands.push(state.close_members());
+			}
+		} else if show_members {
 			if state
 				.members
 				.as_ref()
@@ -4983,12 +5020,6 @@ impl MessagingUi {
 			}
 		} else if state.members.is_some() {
 			commands.push(state.close_members());
-		}
-		// Direct messages share one remembered side-panel choice: this profile or a group's members.
-		if let Some(user) =
-			dm_recipient.filter(|_| wide_members && !search_open && *self.members_preference(state))
-		{
-			self.docked_profile(ui, &ctx, state, &mut commands, &user, background.sidebar);
 		}
 		self.reaction_picker.sync(state, state.selected);
 		egui::CentralPanel::default()
@@ -5045,7 +5076,7 @@ impl MessagingUi {
 				}
 				// In a DM call the header moves onto the call stage, shown while hovered.
 				let header_in_call = !search_open && self.dm_call_stage(state).is_some();
-				if !search_open && !header_in_call {
+				if !search_open && !header_in_call && dm_recipient.is_none() {
 					self.channel_header(
 						ui,
 						state,
@@ -5066,11 +5097,16 @@ impl MessagingUi {
 							ui.available_rect_before_wrap().top(),
 						)
 					});
+				// A docked DM profile already keeps the header above the call.
 				self.call_bar(
 					ui,
 					state,
 					&mut commands,
-					header_in_call.then_some((selected_voice, show_members, wide_members)),
+					(header_in_call && dm_recipient.is_none()).then_some((
+						selected_voice,
+						show_members,
+						wide_members,
+					)),
 				);
 				self.timeline.download.show_status(ui);
 				let Some(channel) = state.selected else {
@@ -5711,16 +5747,7 @@ impl MessagingUi {
 		{
 			let profile_guild = self.profile_guild(state);
 			self.sync_profile(state, &mut commands, &user, profile_guild);
-			// The private note uses an independent read and never locks message actions.
-			if !user.webhook
-				&& state.user.as_ref().is_some_and(|own| own.id != user.id)
-				&& state.user_note(user.id).is_none()
-				&& (state.demo
-					|| (state.gateway_connected
-						&& state.auth == client_core::auth::AuthState::Authenticated))
-				&& self.profile.note_wanted(state.generation, user.id)
-				&& let Some(command) = state.load_user_note(user.id)
-			{
+			if let Some(command) = profile_note(state, &mut self.profile, &user) {
 				commands.push(command);
 			}
 			self.profile
@@ -5728,7 +5755,7 @@ impl MessagingUi {
 				.clone_from(&self.own_presence.custom_status);
 			let anchor = self.profile.anchor_or_place(&ctx, user.id);
 			self.profile.ingest_opener_rect(&ctx);
-			if let Some(action) = profiles::show_with_session(
+			let action = profiles::show_with_session(
 				ui,
 				&user,
 				state.profile.as_ref(),
@@ -5739,7 +5766,8 @@ impl MessagingUi {
 				self.reading_preferences.confirm_external_links,
 				anchor,
 				&mut self.profile,
-			) {
+			);
+			if let Some(action) = action {
 				self.profile_action(&ctx, state, &mut commands, &user, profile_guild, action);
 			}
 			if self.drain_profile(state, &mut commands)
@@ -5864,6 +5892,23 @@ impl MessagingUi {
 		}
 		commands
 	}
+}
+
+/// The private note's one read per profile card; it never locks the card's message actions.
+fn profile_note(
+	state: &mut State,
+	session: &mut profiles::ProfileSession,
+	user: &model::User,
+) -> Option<Command> {
+	(!user.webhook
+		&& state.user.as_ref().is_some_and(|own| own.id != user.id)
+		&& state.user_note(user.id).is_none()
+		&& (state.demo
+			|| (state.gateway_connected
+				&& state.auth == client_core::auth::AuthState::Authenticated))
+		&& session.note_wanted(state.generation, user.id))
+	.then(|| state.load_user_note(user.id))
+	.flatten()
 }
 
 #[cfg(test)]

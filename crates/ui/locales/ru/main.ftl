@@ -85,7 +85,6 @@ hide-chat = Скрыть чат
 show-chat = Показать чат
 search-conversation = Искать этот разговор
 show-member-list = Показать список участников
-show-user-profile = Показать профиль пользователя
 pinned-messages = Закрепленные сообщения
 threads = Темы
 
@@ -4783,6 +4782,9 @@ timeline-group-intro = Добро пожаловать в начало груп�
 timeline-channel-intro-title = Добро пожаловать в #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Это начало канала #{ $channel }.
+show-user-profile = Показать профиль пользователя
+hide-user-profile = Скрыть профиль пользователя
+view-full-profile = Открыть полный профиль
 # Context: text_menu
 text-menu-cut = Вырезать
 text-menu-copy = Копировать

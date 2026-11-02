@@ -85,7 +85,6 @@ hide-chat = Skrýt chat
 show-chat = Zobrazit chat
 search-conversation = Hledat v této konverzaci
 show-member-list = Zobrazit seznam členů
-show-user-profile = Zobrazit profil uživatele
 pinned-messages = Připnuté zprávy
 threads = Vlákna
 
@@ -4869,6 +4868,9 @@ timeline-group-intro = Vítejte na začátku skupiny { $name }.
 timeline-channel-intro-title = Vítejte v #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Toto je začátek kanálu #{ $channel }.
+show-user-profile = Zobrazit profil uživatele
+hide-user-profile = Skrýt profil uživatele
+view-full-profile = Zobrazit celý profil
 # Context: text_menu
 text-menu-cut = Vyjmout
 text-menu-copy = Kopírovat

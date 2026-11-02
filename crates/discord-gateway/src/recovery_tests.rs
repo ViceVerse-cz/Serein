@@ -225,20 +225,39 @@ async fn recovery_probes_a_ready_socket_and_resumes_only_when_it_is_silent() {
 				(probe["op"].clone(), probe["d"].clone()),
 				(json!(1), json!(41))
 			);
+			// Queue an old-sequence heartbeat before the ack, like a timer heartbeat
+			// that was already in flight. It must not satisfy the synchronization below.
+			send(&mut socket, json!({"op":1,"d":null})).await;
 			send(&mut socket, json!({"op":11,"d":null})).await;
-			// A silently dead socket is replaced by a resume once a probe goes unanswered. Acks
-			// carry no identity, so a late handshake or probe ack can answer the next probe, and
-			// a signal seen before an ack joins the outstanding probe. Keep signalling and never
-			// ack until the client resumes.
-			let stream = loop {
-				gateway.reconnect.notify_one();
-				tokio::select! {
-					result = gateway.resume.accept() => break result.unwrap().0,
-					_ = gateway.initial.accept() => panic!("a silent ready socket must resume"),
-					() = tokio::time::sleep(Duration::from_millis(200)) => {}
+			// A new sequence proves the preceding ack was consumed. AUTH_SESSION_CHANGE
+			// only advances the dispatch cursor here; it does not reset recovery state.
+			send(
+				&mut socket,
+				json!({"op":0,"t":"AUTH_SESSION_CHANGE","s":42,"d":{}}),
+			)
+			.await;
+			send(&mut socket, json!({"op":1,"d":null})).await;
+			let mut older_heartbeat = false;
+			loop {
+				let heartbeat = packet(&mut socket).await;
+				assert_eq!(heartbeat["op"], 1);
+				if heartbeat["d"] == 42 {
+					break;
 				}
-			};
-			let next = Gateway::open(stream, Some(6)).await;
+				assert_eq!(heartbeat["d"], 41);
+				older_heartbeat = true;
+				// These precede the ack already sent above. Another ack here could
+				// arrive after the next recovery signal and cancel the unanswered probe.
+			}
+			assert!(older_heartbeat);
+			// A silently dead socket is replaced by a resume once the probe goes unanswered.
+			gateway.reconnect.notify_one();
+			let probe = packet(&mut socket).await;
+			assert_eq!(
+				(probe["op"].clone(), probe["d"].clone()),
+				(json!(1), json!(42))
+			);
+			let next = gateway.socket(true, Some(6)).await;
 			drop(socket);
 			gateway.stop(next).await;
 		})
