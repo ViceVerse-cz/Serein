@@ -1924,7 +1924,9 @@ not official support or proof of live interoperability.
 READY and relationship dispatches retain at most 4,000 pending profiles / 2 MiB,
 separate from confirmed friends. Missing profile metadata remains explicitly unknown.
 Writes reuse the existing single pending user-action slot and session generation;
-newer Gateway state wins over late HTTP results. No automatic write retries occur.
+newer Gateway state wins over late HTTP results. The only automatic write retry is for accepting
+an incoming friend request: after `Failure::Protocol` or `Failure::Forbidden`, its relationship
+`PUT` retries once with `confirm_stranger_request: true`. Other account writes keep a single attempt.
 Username-based sends wait for Gateway identity data rather than inventing an outgoing row.
 Synthetic reducer, protocol and local HTTP tests cover this path; live requests,
 service challenges and recipient privacy restrictions remain unverified.
