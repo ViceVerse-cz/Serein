@@ -12,7 +12,11 @@ does not claim an exhaustive historical archive. One page is retained in session
 current page. Refresh/retry are explicit; there is no background polling or persistence.
 Opening a result uses the existing permission-checked message-history navigation.
 Closing, account changes, disconnects and relevant content/permission invalidation clear
-the snapshot. Source research and local HTTP/UI fixtures do not prove live acceptance.
+the snapshot. During a request, edits and deletions are tracked by channel/message identity;
+only affected results are omitted from the reply. Tracking holds at most 1,024 identities
+(16 KiB), then invalidates the request and requires an explicit refresh on overflow. Filtering
+preserves the response's pagination cursor. Source research and local HTTP/UI fixtures do not
+prove live acceptance.
 
 ## Game mentions (October 14, 2026)
 

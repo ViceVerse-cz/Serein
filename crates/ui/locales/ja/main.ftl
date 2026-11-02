@@ -4861,3 +4861,5 @@ new-message-create = メッセージを作成
 new-message-cancel = キャンセル
 
 inbox-spoiler = ネタバレ
+inbox-empty-page = このページには閲覧できるメンションがありません。古いメンションをお試しください。
+inbox-media-preview = 添付ファイルまたは埋め込み

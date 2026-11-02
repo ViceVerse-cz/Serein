@@ -4878,3 +4878,5 @@ new-message-create = Criar mensagem
 new-message-cancel = Cancelar
 
 inbox-spoiler = Spoiler
+inbox-empty-page = Nenhuma menção acessível nesta página. Tente menções mais antigas.
+inbox-media-preview = Anexo ou conteúdo incorporado

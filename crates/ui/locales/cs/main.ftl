@@ -4976,3 +4976,5 @@ new-message-create = Vytvořit zprávu
 new-message-cancel = Zrušit
 
 inbox-spoiler = Spoiler
+inbox-empty-page = Na této stránce nejsou dostupné zmínky. Zkuste Starší zmínky.
+inbox-media-preview = Příloha nebo vložený obsah

@@ -2805,6 +2805,7 @@ impl State {
 			self.observe_group_change(patch.id, false);
 		}
 		self.filter_view_revisions(&envelope.event);
+		self.observe_mentions_mutation(&envelope.event);
 		if matches!(
 			&envelope.event,
 			Event::Disconnected
@@ -2813,11 +2814,7 @@ impl State {
 				| Event::Ready { .. }
 				| Event::Permissions(_)
 				| Event::Unavailable(_)
-		) || (self.inbox.loading
-			&& matches!(
-				&envelope.event,
-				Event::Patch(_) | Event::Delete { .. } | Event::DeleteBulk { .. }
-			)) || self
+		) || self
 			.inbox
 			.messages
 			.iter()

@@ -26,7 +26,11 @@ impl MessagingUi {
 						ui.colored_label(colors.danger, error);
 					} else if state.inbox.messages.is_empty() {
 						ui.label(i18n::translate(if state.inbox.loaded {
-							"inbox-empty"
+							if state.inbox.next.is_some() {
+								"inbox-empty-page"
+							} else {
+								"inbox-empty"
+							}
 						} else {
 							"inbox-refresh-needed"
 						}));
@@ -50,6 +54,10 @@ impl MessagingUi {
 						let concealed = crate::embeds::has_spoilers(message);
 						let mut preview: String = if concealed {
 							i18n::translate("inbox-spoiler")
+						} else if message.content.is_empty()
+							&& (!message.attachments.is_empty() || !message.embeds.is_empty())
+						{
+							i18n::translate("inbox-media-preview")
 						} else {
 							message.content.chars().take(240).collect()
 						};
@@ -57,7 +65,19 @@ impl MessagingUi {
 							preview.push('…');
 						}
 						ui.label(preview);
-						if ui.button(i18n::translate("inbox-open-message")).clicked() {
+						let label = i18n::translate("inbox-open-message");
+						let button = ui.button(&label);
+						button.widget_info(|| {
+							egui::WidgetInfo::labeled(
+								egui::Role::Button,
+								ui.is_enabled(),
+								format!(
+									"{label} · {} · {place} · {}",
+									message.author.name, message.id.0
+								),
+							)
+						});
+						if button.clicked() {
 							open = Some((channel.guild, channel.id, message.id));
 						}
 						ui.separator();

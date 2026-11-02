@@ -1996,3 +1996,12 @@ the native projection retains its existing URL and allocated-byte limits.
 Schema 28 adds the device-wide double-click reaction preset to the reading settings singleton. The bounded index selects one of six Unicode emoji, defaults to ❤️, and persists independently of session emoji recommendations.
 
 Schema 29 adds a bounded boolean opt-in for double-click reactions, disabled for new and migrated settings. The selected Unicode preset is retained while disabled; Reset chat restores the disabled default.
+
+## Recent mentions inbox
+
+One on-demand page stays in session memory: at most 25 messages and 1 MiB of message data,
+with wire replies limited to 2 MiB. While a request is pending, up to 1,024 mutated
+channel/message identities (16 KiB) prevent stale edited or deleted results from reappearing.
+Overflow invalidates the request rather than dropping mutation records; the user can refresh.
+The identities are released when the response completes or the request is cleared/replaced.
+Closing the inbox and account/access changes clear the page; no inbox data is persisted.

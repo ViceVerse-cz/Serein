@@ -4864,3 +4864,5 @@ new-message-create = Mesaj Oluştur
 new-message-cancel = İptal
 
 inbox-spoiler = Spoiler
+inbox-empty-page = Bu sayfada okunabilir bahsetme yok. Daha eski bahsetmeleri deneyin.
+inbox-media-preview = Ek veya gömülü içerik

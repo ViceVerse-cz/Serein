@@ -4992,3 +4992,5 @@ new-message-create = Create Message
 new-message-cancel = Cancel
 
 inbox-spoiler = Spoiler
+inbox-empty-page = No readable mentions on this page. Try Older mentions.
+inbox-media-preview = Attachment or embed
