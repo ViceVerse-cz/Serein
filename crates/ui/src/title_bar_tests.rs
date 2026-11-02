@@ -186,7 +186,8 @@ fn title_strip_does_not_emit_caption_commands() {
 	let mut view = MessagingUi::default();
 	frame(&ctx, &mut view, 760.0, vec![]);
 	let pos = egui::pos2(380.0, 18.0);
-	for _ in 0..2 {
+	// The OS drag loop eats releases on macOS and Linux, so a double click is two presses.
+	for expected in [ViewportCommand::StartDrag, ViewportCommand::Maximized(true)] {
 		assert_eq!(
 			frame(
 				&ctx,
@@ -194,16 +195,7 @@ fn title_strip_does_not_emit_caption_commands() {
 				760.0,
 				pointer(pos, PointerButton::Primary, true)
 			),
-			[ViewportCommand::StartDrag]
-		);
-		assert!(
-			frame(
-				&ctx,
-				&mut view,
-				760.0,
-				pointer(pos, PointerButton::Primary, false)
-			)
-			.is_empty()
+			[expected]
 		);
 	}
 }
