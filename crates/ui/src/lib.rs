@@ -6355,12 +6355,16 @@ mod composer_tests {
 			},
 		);
 		assert!(
-			output
+			view.diagnostics_copy_requested,
+			"the F-key diagnostics chord requests a host export while typing"
+		);
+		assert!(
+			!output
 				.platform_output
 				.commands
 				.iter()
 				.any(|command| matches!(command, egui::OutputCommand::CopyText(_))),
-			"the F-key diagnostics chord works while typing"
+			"formatting and clipboard delivery belong to the host worker"
 		);
 		output.drop_without_applying_deltas();
 	}
