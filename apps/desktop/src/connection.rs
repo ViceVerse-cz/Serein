@@ -621,8 +621,8 @@ impl Connection {
                                 if abandonment_blocks_join(pending_abandonment,control) {
                                     emit(Event::Voice(E::Failed{channel,request,message:"Previous call is releasing locally; retry joining after it finishes"}))?;continue;
                                 }
-                                if !*voice_availability.borrow() {
-                                    emit(Event::Voice(E::Failed{channel,request,message:"Voice is disconnected; no call was started"}))?;continue;
+                                if let Some(failure)=voice_offline_failure(*voice_availability.borrow(),channel,request) {
+                                    emit(Event::Voice(failure))?;continue;
                                 }
                                 if join_taken_over(control,*takeover_receive.borrow()) {
                                     emit(Event::Voice(E::Failed{channel,request,message:"Call attempt ended; join again to start a new attempt"}))?;continue;
@@ -1676,6 +1676,18 @@ fn queue_confirmation(
 		request,
 		revision,
 		message,
+	})
+}
+
+pub(crate) fn voice_offline_failure(
+	available: bool,
+	channel: model::Id,
+	request: u64,
+) -> Option<client_core::voice::Event> {
+	(!available).then_some(client_core::voice::Event::Failed {
+		channel,
+		request,
+		message: "Voice is disconnected; no call was started",
 	})
 }
 

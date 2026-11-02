@@ -58,6 +58,7 @@ fn ready() -> Event {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					// Only integration-owned roles are managed; this fixture is assignable.
 					managed: false,
 				}]),
 				member: Some(p::Member {

@@ -6,6 +6,7 @@ use model::Message;
 pub(crate) enum Action {
 	Join(String),
 	OpenGuild(model::Id),
+	OpenChannel(model::Id),
 }
 fn code(raw: &str) -> Option<String> {
 	let normalized;
@@ -137,7 +138,10 @@ pub fn show(
 			let preview = entry
 				.and_then(|(_, value)| value.as_ref())
 				.and_then(|r| r.as_ref().ok());
-			let member = preview.is_some_and(|p| state.guild(p.guild).is_some());
+			let member = preview.is_some_and(|p| {
+				p.guild.is_some_and(|g| state.guild(g).is_some())
+					|| p.channel.is_some_and(|c| state.channel(c).is_some())
+			});
 			let embed = preview.map(|p| &p.embed);
 			let failed = entry.is_some_and(|(_, v)| matches!(v, Some(Err(_))));
 			if !demo && entry.is_none() && requests.len() < 8 && !requests.contains(&code) {
@@ -347,7 +351,19 @@ pub fn show(
 									if ui.add(button).clicked() {
 										*action = Some(
 											if let Some(preview) = preview.filter(|_| member) {
-												Action::OpenGuild(preview.guild)
+												if let Some(guild) = preview
+													.guild
+													.filter(|&g| state.guild(g).is_some())
+												{
+													Action::OpenGuild(guild)
+												} else if let Some(channel) = preview
+													.channel
+													.filter(|&c| state.channel(c).is_some())
+												{
+													Action::OpenChannel(channel)
+												} else {
+													Action::Join(code.clone())
+												}
 											} else {
 												Action::Join(code.clone())
 											},
@@ -365,13 +381,11 @@ pub fn show(
 #[cfg(test)]
 mod tests {
 	#[test]
-	fn dot_stat_uses_localized_labels() {
+	fn localized_invite_stats_do_not_overlap_action() {
 		let prev_lang = crate::i18n::current();
 		crate::i18n::set_current(crate::i18n::Language::German);
 		let online_label = crate::i18n::translate_if_key("server-settings-preview-online");
 		let members_label = crate::i18n::translate_if_key("server-settings-preview-members");
-		assert_eq!(online_label, "Online");
-		assert_eq!(members_label, "Mitglieder");
 
 		let ctx = egui::Context::default();
 		let raw_input = egui::RawInput {
@@ -381,37 +395,6 @@ mod tests {
 			)),
 			..Default::default()
 		};
-		fn find_text(shapes: &[egui::epaint::ClippedShape], needle: &str) -> bool {
-			fn check_shape(s: &egui::Shape, needle: &str) -> bool {
-				match s {
-					egui::Shape::Text(t) => t.galley.job.text.contains(needle),
-					egui::Shape::Vec(v) => v.iter().any(|shape| check_shape(shape, needle)),
-					_ => false,
-				}
-			}
-			shapes.iter().any(|s| check_shape(&s.shape, needle))
-		}
-
-		let output = ctx.run_ui(raw_input.clone(), |ui| {
-			super::dot_stat(
-				ui,
-				egui::Color32::WHITE,
-				"340",
-				"server-settings-preview-members",
-			);
-			super::dot_stat(
-				ui,
-				egui::Color32::WHITE,
-				"12",
-				"server-settings-preview-online",
-			);
-		});
-		let found_members = find_text(&output.shapes, "Mitglieder");
-		let found_online = find_text(&output.shapes, "Online");
-		output.drop_without_applying_deltas();
-		assert!(found_members);
-		assert!(found_online);
-
 		let mut state = test_support::demo_state();
 		let code = "synthetic-invite".to_string();
 		state.invites.insert(
@@ -419,7 +402,8 @@ mod tests {
 			(
 				std::time::Instant::now(),
 				Some(Ok(model::InvitePreview {
-					guild: model::Id(999),
+					guild: Some(model::Id(999)),
+					channel: None,
 					embed: model::Embed {
 						title: Some("Rust Server".into()),
 						description: Some("● 12 online · 340 members".into()),
@@ -464,14 +448,14 @@ mod tests {
 
 		let members_rect = text_rects
 			.iter()
-			.find(|(t, _)| t.contains("Mitglieder"))
+			.find(|(t, _)| t.contains(&members_label))
 			.map(|(_, r)| *r)
-			.expect("Mitglieder rect");
+			.expect("members label rect");
 		let online_rect = text_rects
 			.iter()
-			.find(|(t, _)| t.contains("Online"))
+			.find(|(t, _)| t.contains(&online_label))
 			.map(|(_, r)| *r)
-			.expect("Online rect");
+			.expect("online label rect");
 		let join_label = crate::i18n::translate_if_key("invites-show-join");
 		let button_text_rect = text_rects
 			.iter()

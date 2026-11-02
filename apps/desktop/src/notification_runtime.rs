@@ -18,12 +18,38 @@ pub enum Alert {
 #[derive(Default)]
 pub struct Runtime {
 	sounds: crate::notification_sounds::Sounds,
+	/// Push-to-talk blips use their own worker, so a press or release neither cuts off a
+	/// message or ring cue nor is cancelled by one.
+	ptt_sounds: crate::notification_sounds::Sounds,
 	options: Device,
 	was_audible: bool,
 	ring: Option<((Id, Sound), Instant)>,
+	ptt: PttCues,
 	badge: Option<u32>,
 	badge_check: Option<Instant>,
 	badge_status: &'static str,
+}
+/// Push-to-talk edges: one start cue per press and one stop cue per release.
+#[derive(Default)]
+struct PttCues {
+	active: bool,
+}
+impl PttCues {
+	/// `mode` is the push-to-talk setting, `in_call` a live voice session and `held` the key.
+	/// A state without a live push-to-talk session resets silently: ending the call or turning
+	/// the mode off while holding is not a key release and must not cue.
+	fn update(&mut self, mode: bool, in_call: bool, held: bool) -> Option<Sound> {
+		if !(mode && in_call) {
+			self.active = false;
+			return None;
+		}
+		let active = std::mem::replace(&mut self.active, held);
+		(active != held).then_some(if held {
+			Sound::PttStart
+		} else {
+			Sound::PttStop
+		})
+	}
 }
 impl Runtime {
 	fn ring_cue(&mut self, ringing: Option<(Id, Sound)>, now: Instant) -> Option<Sound> {
@@ -47,8 +73,26 @@ impl Runtime {
 		}
 		None
 	}
+	/// Plays one local push-to-talk cue per key edge. Direct playback keeps the cue in the
+	/// frame that saw the key change, leaves the settings-preview slot to previews and uses
+	/// the PTT worker so an ordinary cue cannot cancel it.
+	pub fn ptt(
+		&mut self,
+		mode: bool,
+		in_call: bool,
+		held: bool,
+		options: Device,
+		ctx: &eframe::egui::Context,
+	) {
+		if let Some(cue) = self.ptt.update(mode, in_call, held)
+			&& options.allows(cue)
+		{
+			self.ptt_sounds.play(cue, options.volume, ctx);
+		}
+	}
 	pub fn clear(&mut self, window: &winit::window::Window) {
 		self.sounds.stop();
+		self.ptt_sounds.stop();
 		self.ring = None;
 		if self.badge.is_some_and(|count| count > 0) {
 			let _ = platform::badge::set(window, 0);
@@ -70,6 +114,7 @@ impl Runtime {
 		let badges = platform::badge::supported() && options.unread_badge;
 		if options != self.options || (self.was_audible && !audible) {
 			self.sounds.stop();
+			self.ptt_sounds.stop();
 			self.options = options;
 		}
 		self.was_audible = audible;
@@ -151,10 +196,18 @@ impl Runtime {
 		} else if let Some(since) = since {
 			ctx.request_repaint_after(Duration::from_secs(1).saturating_sub(since));
 		}
-		ui.notification_sound_status = if self.sounds.status().is_empty() {
-			self.badge_status
+		let ptt_error = self.ptt_sounds.error();
+		let sound_status = if !ptt_error.is_empty() {
+			ptt_error
+		} else if self.sounds.status().is_empty() {
+			self.ptt_sounds.status()
 		} else {
 			self.sounds.status()
+		};
+		ui.notification_sound_status = if sound_status.is_empty() {
+			self.badge_status
+		} else {
+			sound_status
 		};
 		alert
 	}
@@ -297,5 +350,30 @@ mod tests {
 		assert_eq!(runtime.ring_cue(None, now + Duration::from_secs(9)), None);
 		assert!(runtime.ring.is_none());
 		assert_eq!(runtime.ring_cue(None, now + Duration::from_secs(15)), None);
+	}
+
+	#[test]
+	fn push_to_talk_cues_fire_once_per_press_and_release() {
+		let mut cues = PttCues::default();
+		assert_eq!(cues.update(true, true, false), None);
+		assert_eq!(cues.update(true, true, true), Some(Sound::PttStart));
+		for _ in 0..50 {
+			assert_eq!(cues.update(true, true, true), None);
+		}
+		assert_eq!(cues.update(true, true, false), Some(Sound::PttStop));
+		assert_eq!(cues.update(true, true, false), None);
+		// Ending the call while held or turning the mode off is not a key release.
+		assert_eq!(cues.update(true, true, true), Some(Sound::PttStart));
+		assert_eq!(cues.update(true, false, true), None);
+		assert_eq!(cues.update(true, true, false), None);
+		// Held while connecting stays silent; becoming live mid-hold starts transmission.
+		assert_eq!(cues.update(true, false, true), None);
+		assert_eq!(cues.update(true, false, true), None);
+		assert_eq!(cues.update(true, true, true), Some(Sound::PttStart));
+		assert_eq!(cues.update(true, true, true), None);
+		assert_eq!(cues.update(true, true, false), Some(Sound::PttStop));
+		assert_eq!(cues.update(true, true, true), Some(Sound::PttStart));
+		assert_eq!(cues.update(false, true, false), None);
+		assert_eq!(cues.update(true, true, false), None);
 	}
 }
