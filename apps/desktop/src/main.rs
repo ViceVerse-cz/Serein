@@ -5670,7 +5670,15 @@ impl eframe::App for Desktop {
 			.as_ref()
 			.is_some_and(|connection| *connection.afk.borrow());
 		self.sync_fonts(ctx);
+		let capturing = self.messaging.keybind_capturing();
+		self.hotkeys.set_focused(ctx.input(|input| input.focused));
+		self.hotkeys.set_capturing(capturing);
 		self.hotkeys.sync(&self.messaging.keybinds, &self.runtime);
+		self.messaging.set_polled_down(self.hotkeys.polled_down());
+		if capturing {
+			// Capture needs every frame to see a release, even with no binding configured.
+			ctx.request_repaint_after(Duration::from_millis(16));
+		}
 		self.messaging.global_keybind_status = self.hotkeys.status();
 		let voice_toggles = self.hotkeys.take_toggle_pending()
 			| self
