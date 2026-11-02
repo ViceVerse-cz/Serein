@@ -6078,9 +6078,11 @@ impl eframe::App for Desktop {
 		if let Some(index) = self.messaging.attachment_view_open {
 			self.uploads
 				.request_view(index, self.runtime.handle(), &ctx);
-			if let Some(decoded) = self.uploads.view_image(index) {
-				self.messaging.attachment_view_image = Some((index, decoded));
-			}
+			// Pending is `None` too, so a file replaced at this index never shows the old pixels.
+			self.messaging.attachment_view_image = self
+				.uploads
+				.view_image(index)
+				.map(|decoded| (index, decoded));
 		} else {
 			self.uploads.cancel_view();
 			self.messaging.attachment_view_image = None;

@@ -286,11 +286,12 @@ pub fn pending_card(
 
 /// Full-size look at one staged image, before it is sent. Returns `true` to close: Escape, the
 /// close control, or a click outside the picture. `image` is the tray thumbnail until the
-/// full-size decode of the file arrives.
+/// full-size decode of the file arrives; `failed` says that decode will not arrive.
 pub fn pending_viewer(
 	ctx: &egui::Context,
 	name: &str,
 	image: Option<&egui::TextureHandle>,
+	failed: bool,
 ) -> bool {
 	let size = ctx.content_rect().size().max(egui::vec2(1.0, 1.0));
 	let mut close = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
@@ -340,6 +341,24 @@ pub fn pending_viewer(
 				.truncate()
 				.selectable(false),
 			);
+			if failed {
+				// Otherwise the thumbnail passes for the full image.
+				ui.put(
+					Rect::from_min_max(
+						egui::pos2(full.left() + 24.0, full.bottom() - 24.0),
+						full.right_bottom() - egui::vec2(24.0, 0.0),
+					),
+					egui::Label::new(
+						egui::RichText::new(crate::i18n::translate(
+							"attachments-pending-viewer-full-size-unavailable",
+						))
+						.size(13.0)
+						.color(Color32::from_gray(200)),
+					)
+					.truncate()
+					.selectable(false),
+				);
+			}
 			let mut close_clicked = false;
 			ui.scope_builder(
 				egui::UiBuilder::new()
