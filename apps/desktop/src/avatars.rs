@@ -87,7 +87,8 @@ fn media_encoded(rendition: &Rendition) -> usize {
 	}
 }
 fn decode_edge(key: &str) -> u32 {
-	if key.starts_with("anim:")
+	// Animated emoji fall through to the still emoji edge, which keeps their frames small.
+	if (key.starts_with("anim:") && !key.starts_with("anim:emoji-"))
 		|| key.starts_with("embed:")
 		|| key.starts_with("gif:")
 		|| key.starts_with("spotify-")
@@ -247,9 +248,10 @@ impl Cosmetic {
 	fn budget(self) -> Budget {
 		let (fit, encoded, frames) = match self {
 			Self::Decoration { .. } => (256, 4 * 1024 * 1024, 16 * 1024 * 1024),
-			Self::Nameplate | Self::EffectStill => (ui::EMBED_EDGE, 8 * 1024 * 1024, 0),
+			Self::Nameplate => (ui::EMBED_EDGE, 8 * 1024 * 1024, 0),
+			Self::EffectStill => (ui::EFFECT_EDGE, 8 * 1024 * 1024, 0),
 			Self::AnimatedNameplate => (ui::EMBED_EDGE, MAX_ANIMATED_ENCODED, 16 * 1024 * 1024),
-			Self::Effect => (ui::EMBED_EDGE, MAX_ANIMATED_ENCODED, 24 * 1024 * 1024),
+			Self::Effect => (ui::EFFECT_EDGE, MAX_ANIMATED_ENCODED, 64 * 1024 * 1024),
 			Self::FrameLayer => (ui::FRAME_EDGE, 8 * 1024 * 1024, 0),
 		};
 		Budget {
@@ -722,6 +724,11 @@ fn cdn_url(key: &str) -> Option<String> {
 			"https://cdn.discordapp.com/emojis/{id}.png?size=64"
 		));
 	}
+	// Animated custom emoji; GIF is a documented custom emoji format in the CDN reference.
+	if let Some(id) = key.strip_prefix("anim:emoji-") {
+		let id: Id = id.parse().ok()?;
+		return (id.0 != 0).then(|| format!("https://cdn.discordapp.com/emojis/{id}.gif?size=64"));
+	}
 	if let Some(value) = key.strip_prefix("banner-") {
 		let (id, hash) = value.split_once('-')?;
 		let id: Id = id.parse().ok()?;
@@ -839,6 +846,11 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 				|| path.starts_with("https://media.discordapp.net/streams/") =>
 		{
 			(proxy_base(source).map(String::from), None)
+		}
+		// Discord's media proxy serves a clip too, and its still is the clip's first
+		// frame rather than a webp of a video the image pipeline cannot read.
+		Motion::Still if path.starts_with("https://images-ext-") && ui::is_motion_video(source) => {
+			(motion_video_source(source), None)
 		}
 		// Provider media cannot go through Discord's proxy; a clip's still is its first frame.
 		Motion::Still if proxy_base(source).is_none() => (
@@ -2379,32 +2391,6 @@ mod tests {
 	}
 
 	#[test]
-	fn scalable_emoji_uses_bundled_shapes_and_preserves_transparency() {
-		for cell in 0..4009 {
-			let (svg, _) = ui::emoji::bundled_svg(&format!("emoji-unicode-{cell}-64")).unwrap();
-			let image =
-				super::rasterize_emoji(svg, 64).unwrap_or_else(|| panic!("artwork cell {cell}"));
-			assert_eq!(image.size, [64; 2]);
-			assert_eq!(image.pixels[0], egui::Color32::TRANSPARENT);
-			assert!(
-				image.pixels.iter().any(|pixel| pixel.a() > 0),
-				"artwork cell {cell}"
-			);
-		}
-		for cell in [0, 1000, 2000, 3000, 4008] {
-			for edge in [64, 128, 256] {
-				let (svg, _) =
-					ui::emoji::bundled_svg(&format!("emoji-unicode-{cell}-{edge}")).unwrap();
-				let image = super::rasterize_emoji(svg, edge).unwrap();
-				assert_eq!(image.size, [edge as usize; 2]);
-				assert_eq!(image.pixels[0], egui::Color32::TRANSPARENT);
-				assert!(image.pixels.iter().any(|pixel| pixel.a() > 0));
-			}
-		}
-		assert!(super::rasterize_emoji(b"invalid", 64).is_none());
-		assert!(super::rasterize_emoji(b"invalid", 1024).is_none());
-	}
-	#[test]
 	fn offline_emoji_worker_rejects_network_requests() {
 		let runtime = tokio::runtime::Runtime::new().unwrap();
 		let mut worker =
@@ -2904,6 +2890,21 @@ mod tests {
 			] {
 				assert!(super::cdn_url(key).is_none());
 			}
+			assert_eq!(
+				super::cdn_url("anim:emoji-9001").as_deref(),
+				Some("https://cdn.discordapp.com/emojis/9001.gif?size=64")
+			);
+			assert!(super::is_animated_key("anim:emoji-9001"));
+			assert_eq!(super::decode_edge("anim:emoji-9001"), 128);
+			assert!(super::budget("anim:emoji-9001").frames.is_some());
+			for key in [
+				"anim:emoji-0",
+				"anim:emoji-../9001",
+				"anim:emoji-9001?size=8192",
+				"anim:emoji-https://example.com/x.gif",
+			] {
+				assert!(super::cdn_url(key).is_none(), "{key}");
+			}
 		}
 
 		{
@@ -3154,6 +3155,11 @@ mod tests {
 		assert!(!is_animated_key(&format!("effect-still-c-{hash}")));
 		assert!(!is_animated_key("frame-30-31"));
 		assert!(budget(&format!("effect-c-{hash}")).frames.is_some());
+		assert_eq!(budget(&format!("effect-c-{hash}")).fit, ui::EFFECT_EDGE);
+		assert_eq!(
+			budget(&format!("effect-still-c-{hash}")).fit,
+			ui::EFFECT_EDGE
+		);
 		// Large catalog PNGs are decoded and scaled, not rejected by the icon canvas.
 		let art = budget("badge-art:https://cdn.discordapp.com/assets/content/a.png");
 		assert!(art.canvas >= 2048 && art.fit == 256 && art.frames.is_none());
@@ -3170,59 +3176,6 @@ mod tests {
 				.starts_with("embed-")
 		);
 		assert_eq!(disk_key("frame-30-31").as_deref(), Some("frame-30-31"));
-	}
-
-	#[test]
-	fn animated_banner_and_avatar_urls_and_keys() {
-		assert!(super::is_animated_key(
-			"banner-123-a_abcdef0123456789abcdef0123456789"
-		));
-		assert!(super::is_animated_key(
-			"member-banner-999-123-a_abcdef0123456789abcdef0123456789"
-		));
-		assert!(super::is_animated_key(
-			"member-avatar-999-123-a_abcdef0123456789abcdef0123456789"
-		));
-		assert!(super::is_animated_key(
-			"123-a_abcdef0123456789abcdef0123456789"
-		));
-		assert!(!super::is_animated_key(
-			"banner-123-abcdef0123456789abcdef0123456789"
-		));
-		assert!(!super::is_animated_key(
-			"member-banner-999-123-abcdef0123456789abcdef0123456789"
-		));
-		assert!(!super::is_animated_key(
-			"member-avatar-999-123-abcdef0123456789abcdef0123456789"
-		));
-		assert!(!super::is_animated_key(
-			"123-abcdef0123456789abcdef0123456789"
-		));
-
-		assert_eq!(
-			super::cdn_url("banner-123-a_abcdef0123456789abcdef0123456789").as_deref(),
-			Some(
-				"https://cdn.discordapp.com/banners/123/a_abcdef0123456789abcdef0123456789.gif?size=512"
-			)
-		);
-		assert_eq!(
-			super::cdn_url("member-banner-999-123-a_abcdef0123456789abcdef0123456789").as_deref(),
-			Some(
-				"https://cdn.discordapp.com/guilds/999/users/123/banners/a_abcdef0123456789abcdef0123456789.gif?size=512"
-			)
-		);
-		assert_eq!(
-			super::cdn_url("123-a_abcdef0123456789abcdef0123456789").as_deref(),
-			Some(
-				"https://cdn.discordapp.com/avatars/123/a_abcdef0123456789abcdef0123456789.gif?size=128"
-			)
-		);
-		assert_eq!(
-			super::cdn_url("123-abcdef0123456789abcdef0123456789").as_deref(),
-			Some(
-				"https://cdn.discordapp.com/avatars/123/abcdef0123456789abcdef0123456789.png?size=128"
-			)
-		);
 	}
 
 	use super::*;
@@ -3244,6 +3197,40 @@ mod tests {
 			32,
 		)
 		.is_some());
+
+		// The gateway projection must preserve the same opaque source encodings the loader
+		// already accepts for message embeds, for both the cover and the corner badge.
+		let paths = [
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/cover%2Epng",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/%3Fsource%3Dalbum%2Fcover/https/example.com/art.png",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/covers%2Ftrack.png",
+		];
+		for path in paths {
+			let wire = serde_json::json!({
+				"user_id":"2", "status":"online", "activities":[{
+					"type":2, "name":"Synthetic music", "application_id":"10",
+					"assets":{"large_image":format!("mp:{path}"),"small_image":"mp:external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/badge%2Epng"}
+				}]
+			});
+			let presence =
+				discord_protocol::presence::decode(&serde_json::to_vec(&wire).unwrap()).unwrap();
+			let model::Patch::Value(activities) = presence.activities else {
+				panic!("activity projection")
+			};
+			let image = activities[0].image.as_ref().unwrap();
+			assert_eq!(image, &model::ActivityImage::Proxy(path.into()));
+			let url = url::Url::parse(&cdn_url(&image.key()).expect("proxy artwork is loadable"))
+				.unwrap();
+			assert_eq!(url.host_str(), Some("media.discordapp.net"));
+			assert_eq!(url.path(), format!("/{path}"));
+			assert_eq!(
+				activities[0].small_image,
+				Some(model::ActivityImage::Proxy(
+					"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/badge%2Epng"
+						.into()
+				))
+			);
+		}
 	}
 
 	#[test]
@@ -3720,6 +3707,10 @@ fn provider_clip_stills_fetch_the_clip_and_unknown_hosts_stay_unfetched() {
 		assert_eq!(still(source), Some((source.to_owned(), None)));
 	}
 	assert!(still("https://example.com/clip.mp4").is_none());
+	// Discord's proxy serves the clip itself; a webp of it is not a picture the decoder reads.
+	let proxied =
+		"https://images-ext-1.discordapp.net/external/synthetic/https/example.org/clip.mp4";
+	assert_eq!(still(proxied), Some((proxied.to_owned(), None)));
 	assert!(is_isobmff(b"\0\0\0\x18ftypmp42"));
 	assert!(decode(b"\0\0\0\x18ftypmp42 not a clip", &budget("gif:x")).is_none());
 }

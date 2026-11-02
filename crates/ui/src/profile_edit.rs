@@ -596,10 +596,11 @@ fn preview(
 				// The banner image covers its color, so the saved profile paints it as is.
 				avatars.paint_banner(ui, profile, banner, corner, demo);
 			} else {
-				let color = draft
-					.color
-					.or(profile.theme_colors.map(|[top, _]| top))
-					.map_or(colors.raised, rgb);
+				let color = profile
+					.theme_colors
+					.map(crate::profiles::Theme::banner)
+					.or_else(|| draft.color.map(rgb))
+					.unwrap_or(colors.raised);
 				ui.painter().rect_filled(banner, corner, color);
 			}
 			let avatar = egui::Rect::from_min_size(

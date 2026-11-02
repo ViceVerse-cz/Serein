@@ -69,6 +69,10 @@ impl Gateway {
 			result = self.resume.accept() => (result.unwrap().0, true),
 		};
 		assert_eq!(resumed, resume, "recovery selected the wrong gateway URL");
+		Self::open(stream, op).await
+	}
+
+	async fn open(stream: TcpStream, op: Option<u64>) -> WebSocketStream<TcpStream> {
 		let mut socket = accept_async(stream).await.unwrap();
 		if let Some(op) = op {
 			send(
@@ -221,17 +225,38 @@ async fn recovery_probes_a_ready_socket_and_resumes_only_when_it_is_silent() {
 				(probe["op"].clone(), probe["d"].clone()),
 				(json!(1), json!(41))
 			);
+			// Queue an old-sequence heartbeat before the ack, like a timer heartbeat
+			// that was already in flight. It must not satisfy the synchronization below.
+			send(&mut socket, json!({"op":1,"d":null})).await;
 			send(&mut socket, json!({"op":11,"d":null})).await;
-			// A silently dead socket is replaced by a resume once the probe goes unanswered. A
-			// signal the client sees before that ack joins the outstanding probe, so signal until
-			// a new probe is sent.
-			let probe = loop {
-				gateway.reconnect.notify_one();
-				if let Ok(probe) = timeout(Duration::from_millis(200), packet(&mut socket)).await {
-					break probe;
+			// A new sequence proves the preceding ack was consumed. AUTH_SESSION_CHANGE
+			// only advances the dispatch cursor here; it does not reset recovery state.
+			send(
+				&mut socket,
+				json!({"op":0,"t":"AUTH_SESSION_CHANGE","s":42,"d":{}}),
+			)
+			.await;
+			send(&mut socket, json!({"op":1,"d":null})).await;
+			let mut older_heartbeat = false;
+			loop {
+				let heartbeat = packet(&mut socket).await;
+				assert_eq!(heartbeat["op"], 1);
+				if heartbeat["d"] == 42 {
+					break;
 				}
-			};
-			assert_eq!(probe["op"], 1);
+				assert_eq!(heartbeat["d"], 41);
+				older_heartbeat = true;
+				// These precede the ack already sent above. Another ack here could
+				// arrive after the next recovery signal and cancel the unanswered probe.
+			}
+			assert!(older_heartbeat);
+			// A silently dead socket is replaced by a resume once the probe goes unanswered.
+			gateway.reconnect.notify_one();
+			let probe = packet(&mut socket).await;
+			assert_eq!(
+				(probe["op"].clone(), probe["d"].clone()),
+				(json!(1), json!(42))
+			);
 			let next = gateway.socket(true, Some(6)).await;
 			drop(socket);
 			gateway.stop(next).await;

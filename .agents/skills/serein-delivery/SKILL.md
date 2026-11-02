@@ -25,7 +25,7 @@ or a concrete external blocker has been reported with a reviewable local result.
 
 Inspect branch, upstream and dirty paths; preserve unrelated work and use a task branch/worktree
 as required by the root instructions. Implement the complete requested slice, inspect the diff and
-run relevant verification. Fix failures caused by the task and rerun checks invalidated by the fix.
+run relevant verification. Add tests only per the root Tests section; no low-signal tests. Fix failures caused by the task and rerun checks invalidated by the fix.
 Use `cargo xtask check` for application changes outside `!fast`; avoid rebuilding unchanged code
 for documentation delivery. Record evidence and limitations in the PR, never in `docs/progress.md`
 or `docs/adr/`.

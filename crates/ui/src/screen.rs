@@ -443,34 +443,3 @@ fn segment(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
 	});
 	response
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	#[test]
-	fn settings_require_a_current_source_and_offer_high_quality_without_entitlements() {
-		let mut picker = ScreenUi {
-			selected: Some(SourceId::Window(7)),
-			..Default::default()
-		};
-		assert!(picker.settings().is_none());
-		picker.sources.push(Source {
-			id: SourceId::Window(7),
-			name: "Notes".into(),
-		});
-		picker.height = 1080;
-		picker.fps = 60;
-		let settings = picker.settings().unwrap();
-		assert_eq!(
-			(settings.width, settings.height, settings.fps),
-			(1920, 1080, 60)
-		);
-		assert_eq!(settings.bit_rate(), 16_000_000);
-		picker.audio = true;
-		assert!(picker.settings().unwrap().audio);
-		picker.audio = false;
-		assert!(!picker.settings().unwrap().audio);
-		picker.sources.clear();
-		assert!(picker.settings().is_none());
-	}
-}

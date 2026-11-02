@@ -216,6 +216,30 @@ impl CatalogBadge {
 			.and_then(|tier| tier.obtained_at)
 			.or(self.obtained_at)
 	}
+	/// Fill toward the next tier. Unverified fallback: when the service sends no usable
+	/// progress (or none despite a reached threshold), the single count in the info label,
+	/// such as "45 games played", is measured against the next tier's threshold.
+	pub fn next_fraction(&self) -> f32 {
+		let reached = self
+			.current()
+			.and_then(|tier| tier.threshold)
+			.is_some_and(|threshold| threshold > 0.0);
+		if let Some(progress) = &self.progress
+			&& (progress.current > 0.0 || !reached)
+		{
+			return progress.fraction();
+		}
+		let threshold = self.next().and_then(|tier| tier.threshold);
+		match (self.info.as_deref().and_then(single_count), threshold) {
+			(Some(current), Some(threshold)) => BadgeProgress {
+				current,
+				threshold,
+				helper: String::new(),
+			}
+			.fraction(),
+			_ => self.progress.as_ref().map_or(0.0, BadgeProgress::fraction),
+		}
+	}
 	fn bytes(&self) -> usize {
 		let text = |value: &Option<String>| value.as_ref().map_or(0, String::capacity);
 		size_of::<Self>()
@@ -414,6 +438,31 @@ pub fn displayed_badges(
 	shown
 }
 
+/// The only whole number in `text`, allowing digit-group separators; `None` for dates,
+/// decimals or several numbers.
+fn single_count(text: &str) -> Option<f64> {
+	let mut count = None;
+	let mut chars = text.chars().peekable();
+	while let Some(c) = chars.next() {
+		if !c.is_ascii_digit() {
+			continue;
+		}
+		if count.is_some() {
+			return None;
+		}
+		let mut digits = String::from(c);
+		while let Some(&next) = chars.peek() {
+			if next.is_ascii_digit() {
+				digits.push(next);
+			} else if !matches!(next, ',' | '\u{a0}' | '\u{202f}') {
+				break;
+			}
+			chars.next();
+		}
+		count = Some(digits.parse().ok()?);
+	}
+	count
+}
 #[cfg(test)]
 mod tests {
 	use super::*;

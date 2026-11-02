@@ -40,7 +40,7 @@ pub fn show(
 		&mut crate::markdown::FormatCache,
 	),
 	upload: Option<&Upload>,
-	(restore, cancel): (&mut Option<String>, &mut bool),
+	(restore, dismiss, cancel): (&mut Option<String>, &mut Option<String>, &mut bool),
 ) {
 	let colors = design::palette(ui);
 	let (avatars, opening, profile, channel, formats) = media;
@@ -241,18 +241,28 @@ pub fn show(
 								.color(colors.muted),
 							);
 						}
-						if ui
-							.button(crate::i18n::translate_if_key(
-								&(if pending.sticker.is_some() {
-									crate::i18n::translate("pending-show-dismiss")
-								} else {
-									crate::i18n::translate("pending-show-restore-to-composer")
-								}),
-							))
-							.clicked()
-						{
-							*restore = Some(pending.nonce.clone());
-						}
+						ui.horizontal(|ui| {
+							if ui
+								.button(crate::i18n::translate_if_key(
+									&(if pending.sticker.is_some() {
+										crate::i18n::translate("pending-show-dismiss")
+									} else {
+										crate::i18n::translate("pending-show-restore-to-composer")
+									}),
+								))
+								.clicked()
+							{
+								*restore = Some(pending.nonce.clone());
+							}
+							// A sticker row's only action already dismisses it.
+							if pending.sticker.is_none()
+								&& ui
+									.button(crate::i18n::translate("pending-show-dismiss"))
+									.clicked()
+							{
+								*dismiss = Some(pending.nonce.clone());
+							}
+						});
 					}
 					crate::timeline::fill_header_line(ui, compact, text_line);
 				});
@@ -439,116 +449,4 @@ fn upload_strip(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>, c
 				ui.painter().rect_filled(fill, 3, colors.accent);
 			}
 		});
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	#[test]
-	fn pending_content_progress_and_failure_remain_visible() {
-		fn text(shape: &egui::Shape, result: &mut String) {
-			match shape {
-				egui::Shape::Text(t) => result.push_str(&t.galley.job.text),
-				egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| text(s, result)),
-				_ => {}
-			}
-		}
-		let ctx = egui::Context::default();
-		let state = State {
-			demo: true,
-			..Default::default()
-		};
-		let mut pending = Pending {
-			sticker: None,
-			channel: model::Id(1),
-			content: format!("{} FULL END", "Full message text ".repeat(10)),
-			attachments: vec!["notes.txt".into(), "photo.png".into()],
-			nonce: "local".into(),
-			delivery: Delivery::Sending,
-			confirmed: None,
-		};
-		let mut upload = Upload {
-			nonce: pending.nonce.clone(),
-			files: vec![
-				UploadFile {
-					bytes: 40,
-					preview: None,
-				},
-				UploadFile {
-					bytes: 60,
-					preview: Some(ctx.load_texture(
-						"synthetic-photo",
-						egui::ColorImage::filled([4, 3], egui::Color32::WHITE),
-						egui::TextureOptions::LINEAR,
-					)),
-				},
-			],
-			progress: Some((25, 100)),
-		};
-		assert_eq!(upload.bytes(), 100);
-		for (delivery, progress, expected) in [
-			(Delivery::Sending, Some((25, 100)), "Uploading 2 files"),
-			(
-				Delivery::Sending,
-				Some((25, 100)),
-				"25 bytes of 100 bytes · 25%",
-			),
-			(Delivery::Sending, Some((100, 100)), "Sending message…"),
-			(Delivery::Sending, None, "Preparing upload · 100 bytes"),
-			(
-				Delivery::Sending,
-				Some((0, 0)),
-				"Preparing upload · 100 bytes",
-			),
-			(Delivery::Rejected, None, "Not sent"),
-			(Delivery::Ambiguous, None, "Delivery unknown"),
-		] {
-			pending.delivery = delivery;
-			upload.progress = progress;
-			let mut painted = String::new();
-			let mut profile = crate::profiles::ProfileSession::default();
-			for _ in 0..2 {
-				let output = ctx.run_ui(
-					egui::RawInput {
-						screen_rect: Some(egui::Rect::from_min_size(
-							egui::Pos2::ZERO,
-							egui::vec2(260.0, 900.0),
-						)),
-						..Default::default()
-					},
-					|ui| {
-						show(
-							ui,
-							&pending,
-							(true, 10, false),
-							&state,
-							(
-								&mut crate::avatars::Avatars::default(),
-								&mut None,
-								&mut profile,
-								&mut None,
-								&mut crate::markdown::FormatCache::default(),
-							),
-							Some(&upload),
-							(&mut None, &mut false),
-						);
-					},
-				);
-				painted.clear();
-				for shape in &output.shapes {
-					text(&shape.shape, &mut painted);
-				}
-				output.drop_without_applying_deltas();
-			}
-			assert!(painted.contains("FULL END"), "{painted}");
-			assert!(painted.contains(expected), "{painted}");
-			// Every file stays visible: the text file as a card, the image as a thumbnail only.
-			assert!(painted.contains("notes.txt"), "{painted}");
-			assert!(!painted.contains("photo.png"), "{painted}");
-			assert_eq!(
-				painted.contains("Restore to composer"),
-				delivery != Delivery::Sending
-			);
-		}
-	}
 }

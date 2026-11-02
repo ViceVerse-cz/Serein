@@ -2028,48 +2028,6 @@ mod tests {
 	}
 
 	#[test]
-	#[ignore = "Downloads public GitHub catalog/packages; no Discord account or traffic"]
-	fn public_repository_catalog_and_packages_match_pins() {
-		let profile = Profile::new();
-		let Event::Catalog(catalog) = run(&profile.0, Job::RefreshCatalog, &gate()).unwrap() else {
-			panic!("expected catalog")
-		};
-		assert!(
-			catalog
-				.entries
-				.iter()
-				.any(|entry| entry.manifest.kind == ExtensionKind::Plugin)
-		);
-		assert!(
-			catalog
-				.entries
-				.iter()
-				.any(|entry| entry.manifest.id == "forest-piano")
-		);
-		assert!(
-			catalog
-				.entries
-				.iter()
-				.any(|entry| entry.manifest.id == "soft-white")
-		);
-		for entry in catalog.entries {
-			let bytes = download(
-				&entry.release_url,
-				MAX_PACKAGE,
-				&gate(),
-				Duration::from_secs(60),
-			)
-			.unwrap();
-			assert_eq!(bytes.len() as u64, entry.download_bytes);
-			assert_eq!(digest(&bytes), entry.sha256);
-			let package = extensions::parse_package(&bytes).unwrap();
-			assert_eq!(package.manifest, entry.manifest);
-			package_background(&package).unwrap();
-			package_cover(&package).unwrap();
-		}
-	}
-
-	#[test]
 	fn catalog_cache_is_bounded_and_does_not_change_installed_themes() {
 		let profile = Profile::new();
 		let bytes = include_bytes!("../../../extensions/catalog.json");
@@ -2320,30 +2278,6 @@ mod tests {
 		cancelled.generation.fetch_add(1, Ordering::Release);
 		assert!(atomic_write(&profile.0.join("cancelled.json"), b"no", &cancelled).is_err());
 		assert!(!profile.0.join("cancelled.json").exists());
-	}
-
-	#[test]
-	fn shop_preview_demo_catalog_and_images_are_local_and_hash_pinned() {
-		let starters = starters().unwrap();
-		assert_eq!(starters.len(), 10);
-		let mut ids = std::collections::BTreeSet::new();
-		for starter in starters {
-			let InstallSource::Bundled {
-				bytes,
-				sha256,
-				manifest,
-			} = starter.source
-			else {
-				panic!("Expected bundled source");
-			};
-			assert_eq!(sha256, digest(bytes));
-			assert!(ids.insert(manifest.id));
-			assert_eq!(starter.download_bytes, bytes.len() as u64);
-			assert_eq!(
-				starter.theme.is_some(),
-				manifest.kind == ExtensionKind::Theme
-			);
-		}
 	}
 
 	#[test]

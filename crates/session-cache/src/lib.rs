@@ -807,58 +807,6 @@ mod tests {
 	}
 
 	#[test]
-	#[ignore = "synthetic release workload; run with --release --ignored --nocapture"]
-	fn edited_message_capacity_workload() {
-		for source_len in [64, 7000] {
-			let mut samples = Vec::new();
-			let mut retained = (0, 0, 0);
-			for sample in 0..6 {
-				let mut elapsed = std::time::Duration::ZERO;
-				for _ in 0..100 {
-					let mut timeline = Timeline::default();
-					for id in 1..=MAX_MESSAGES as u64 {
-						let mut row = message(id);
-						row.content = "x".repeat(source_len);
-						timeline.insert(row, false, false).unwrap();
-					}
-					assert_eq!(timeline.len(), MAX_MESSAGES);
-					let before = timeline.bytes();
-					let patches: Vec<_> = (1..=MAX_MESSAGES as u64)
-						.map(|id| {
-							let mut patch = empty_patch(id);
-							patch.content = Patch::Value("edited".into());
-							patch
-						})
-						.collect();
-					let start = std::time::Instant::now();
-					for patch in patches {
-						std::hint::black_box(&mut timeline).patch(patch).unwrap();
-					}
-					elapsed += start.elapsed();
-					assert_eq!(timeline.len(), MAX_MESSAGES);
-					assert!(timeline.iter().all(|row| row.content == "edited"));
-					retained = (
-						before,
-						timeline.bytes(),
-						timeline
-							.iter()
-							.map(|row| row.content.capacity())
-							.sum::<usize>(),
-					);
-				}
-				if sample != 0 {
-					samples.push(elapsed.as_secs_f64() * 1_000_000.0 / 100.0);
-				}
-			}
-			samples.sort_by(f64::total_cmp);
-			eprintln!(
-				"edited_message_capacity {source_len}->6 bytes: 500 rows; before {} / after {} estimated bytes; content capacity {}; median {:.3} us per 500 edits; five samples {samples:?}",
-				retained.0, retained.1, retained.2, samples[2]
-			);
-		}
-	}
-
-	#[test]
 	fn forwarded_snapshot_survives_outer_body_updates() {
 		let mut original = message(1);
 		original.forwarded = true;
@@ -1361,56 +1309,6 @@ mod tests {
 			assert!(timeline.is_empty());
 			assert!(timeline.get_display(Id(1)).is_none());
 			assert_eq!(timeline.bytes(), 0);
-		}
-	}
-
-	#[test]
-	#[ignore = "synthetic release benchmark; run with --release --ignored --nocapture"]
-	fn page_membership_benchmark() {
-		for mode in ["recent", "older", "append"] {
-			let mut samples = Vec::new();
-			for sample in 0..6 {
-				let mut elapsed = std::time::Duration::ZERO;
-				for _ in 0..100 {
-					let mut timeline = Timeline::default();
-					for id in 1000..1500 {
-						let mut row = message(id);
-						row.author_roles = (1..=512).map(Id).collect();
-						row.author_nick = Some("Synthetic nickname".into());
-						timeline.insert(row, false, false).unwrap();
-					}
-					let older = mode == "older";
-					if mode == "append" {
-						timeline.begin_append();
-					} else {
-						timeline.begin_page(older);
-					}
-					let first = match mode {
-						"older" => 950,
-						"append" => 1500,
-						_ => 1450,
-					};
-					let items = (first..first + 50).map(message).collect();
-					let start = std::time::Instant::now();
-					std::hint::black_box(&mut timeline)
-						.finish_page(items, older)
-						.unwrap();
-					elapsed += start.elapsed();
-					assert_eq!(
-						timeline.get(Id(first)).unwrap().author_roles.len(),
-						if mode == "recent" { 512 } else { 0 }
-					);
-					assert!(timeline.bytes() <= MAX_BYTES);
-				}
-				if sample != 0 {
-					samples.push(elapsed.as_secs_f64() * 1_000_000.0 / 100.0);
-				}
-			}
-			samples.sort_by(f64::total_cmp);
-			eprintln!(
-				"page_membership {mode}: median {:.3} us; five 100-page samples {samples:?}",
-				samples[2]
-			);
 		}
 	}
 

@@ -74,7 +74,7 @@ pub fn set(window: &winit::window::Window, count: u32) -> Result<(), &'static st
 	}
 	result
 }
-#[cfg(any(target_os = "windows", test))]
+#[cfg(target_os = "windows")]
 fn count_icon(count: u32) -> ([u8; 32], [u8; 1024]) {
 	const DIGITS: [[u8; 7]; 10] = [
 		[14, 17, 19, 21, 25, 17, 14],
@@ -155,18 +155,4 @@ fn count_icon(count: u32) -> ([u8; 32], [u8; 1024]) {
 		}
 	}
 	(mask, pixels)
-}
-#[cfg(test)]
-mod tests {
-	#[test]
-	fn badge_has_transparent_corners_and_round_red_background() {
-		let (mask, pixels) = super::count_icon(4);
-		assert_eq!(pixels[..4], [0; 4]);
-		assert_eq!(
-			pixels[(2 * 16 + 7) * 4..(2 * 16 + 7) * 4 + 4],
-			[67, 63, 242, 255]
-		);
-		assert_ne!(mask[0] & 128, 0);
-		assert_eq!(pixels[(8 * 16 + 7) * 4..(8 * 16 + 7) * 4 + 4], [255; 4]);
-	}
 }

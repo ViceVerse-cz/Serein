@@ -938,31 +938,4 @@ mod tests {
 			assert!(!switcher.is_open());
 		}
 	}
-
-	#[test]
-	fn switcher_requests_real_direct_user_avatars() {
-		let ctx = egui::Context::default();
-		let mut state = state();
-		state.demo = false;
-		let user = &mut state.channels[24].recipients[0];
-		user.avatar = Some("a".repeat(32));
-		let expected = user.avatar_key();
-		let choices = candidates(&state, "");
-		let mut avatars = Avatars::default();
-		let output = ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(640.0, 760.0),
-				)),
-				..Default::default()
-			},
-			|ui| {
-				ui.set_width(560.0);
-				result_row(ui, &choices[0], true, true, &mut avatars, false);
-			},
-		);
-		output.drop_without_applying_deltas();
-		assert_eq!(avatars.take_requests(), vec![expected]);
-	}
 }

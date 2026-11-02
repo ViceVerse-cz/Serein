@@ -402,6 +402,7 @@ mod tests {
 			attachments: vec![],
 			delivery: crate::Delivery::Sending,
 			confirmed: None,
+			reply: None,
 		});
 		assert!(state.leave_group(Id(10)).is_none());
 		state.pending.clear();

@@ -15,6 +15,9 @@ pub(super) struct Pending {
 	own_presence: OwnPresence,
 	sent_presence: Option<OwnPresence>,
 	idle_since: Option<u64>,
+	afk: bool,
+	afk_since: Option<u64>,
+	sent_afk: Option<bool>,
 	sent: Option<Option<Activity>>,
 	next_send: Instant,
 	pub observation: Observation,
@@ -28,6 +31,9 @@ impl Default for Pending {
 			own_presence: OwnPresence::default(),
 			sent_presence: None,
 			idle_since: None,
+			afk: false,
+			afk_since: None,
+			sent_afk: None,
 			sent: None,
 			next_send: Instant::now(),
 			observation: Observation::Unconfirmed,
@@ -40,13 +46,7 @@ impl Pending {
 			return Err(Failure::Protocol);
 		}
 		if self.own_presence.status != presence.status {
-			self.idle_since = (presence.status == PresenceStatus::Idle).then(|| {
-				SystemTime::now()
-					.duration_since(UNIX_EPOCH)
-					.unwrap_or_default()
-					.as_millis()
-					.min(u64::MAX as u128) as u64
-			});
+			self.idle_since = (presence.status == PresenceStatus::Idle).then(now_ms);
 		}
 		if self.own_presence != *presence {
 			self.own_presence = presence.clone();
@@ -54,9 +54,27 @@ impl Pending {
 		}
 		Ok(())
 	}
+	/// System inactivity (unofficial/unverified, mirrors the official client): Online shows as
+	/// idle while the saved status stays untouched.
+	pub fn update_afk(&mut self, afk: bool) {
+		if self.afk != afk {
+			self.afk = afk;
+			self.afk_since = afk.then(now_ms);
+			self.observation = Observation::Unconfirmed;
+		}
+	}
 	/// Reidentifying must retain Invisible; activity publication still waits for READY.
 	pub fn identify_presence(&self) -> serde_json::Value {
-		serde_json::json!({"since":self.idle_since,"activities":[],"status":self.own_presence.status.wire(),"afk":false})
+		let status = self.own_presence.status;
+		if self.afk {
+			let status = if status == PresenceStatus::Online {
+				PresenceStatus::Idle
+			} else {
+				status
+			};
+			return serde_json::json!({"since":self.afk_since,"activities":[],"status":status.wire(),"afk":true});
+		}
+		serde_json::json!({"since":self.idle_since,"activities":[],"status":status.wire(),"afk":false})
 	}
 	pub fn update(&mut self, activity: &Option<Activity>) -> Result<(), Failure> {
 		if let Some(activity) = activity {
@@ -72,6 +90,7 @@ impl Pending {
 		self.sent = None;
 		self.sent_spotify = None;
 		self.sent_presence = None;
+		self.sent_afk = None;
 		self.observation = Observation::Unconfirmed;
 	}
 	pub fn update_spotify(
@@ -87,6 +106,7 @@ impl Pending {
 	pub fn observe(&mut self, bytes: &[u8], session: &str) {
 		if self.sent.as_ref() != Some(&self.current)
 			|| self.sent_presence.as_ref() != Some(&self.own_presence)
+			|| self.sent_afk != Some(self.afk)
 			|| self.own_presence.status == PresenceStatus::Invisible
 		{
 			self.observation = Observation::Unconfirmed;
@@ -103,7 +123,8 @@ impl Pending {
 	pub fn deadline(&self) -> Option<Instant> {
 		(self.sent.as_ref() != Some(&self.current)
 			|| self.sent_spotify.as_ref() != Some(&self.spotify)
-			|| self.sent_presence.as_ref() != Some(&self.own_presence))
+			|| self.sent_presence.as_ref() != Some(&self.own_presence)
+			|| self.sent_afk != Some(self.afk))
 		.then_some(self.next_send)
 	}
 	pub fn packet(&mut self, now: Instant) -> Option<Message> {
@@ -139,12 +160,14 @@ impl Pending {
 		}
 		if self.sent.as_ref() != Some(&self.current)
 			|| self.sent_presence.as_ref() != Some(&self.own_presence)
+			|| self.sent_afk != Some(self.afk)
 		{
 			self.observation = Observation::Unconfirmed;
 		}
 		self.sent = Some(self.current.clone());
 		self.sent_spotify = Some(self.spotify.clone());
 		self.sent_presence = Some(self.own_presence.clone());
+		self.sent_afk = Some(self.afk);
 		// Charge attempts too: a failed write may have reached Discord.
 		self.next_send = now + Duration::from_secs(5);
 		Some(Message::Text(
@@ -153,6 +176,14 @@ impl Pending {
 				.into(),
 		))
 	}
+}
+
+fn now_ms() -> u64 {
+	SystemTime::now()
+		.duration_since(UNIX_EPOCH)
+		.unwrap_or_default()
+		.as_millis()
+		.min(u64::MAX as u128) as u64
 }
 
 #[cfg(debug_assertions)]
@@ -364,6 +395,30 @@ mod tests {
 			custom_only["d"]["activities"],
 			serde_json::json!([{"type":4,"name":"Custom Status","state":"Still here"}])
 		);
+		// System inactivity shows Online as idle without touching the chosen status.
+		own.status = PresenceStatus::Online;
+		pending.update_presence(&own).unwrap();
+		pending.packet(now + Duration::from_secs(35)).unwrap();
+		pending.update_afk(true);
+		let afk = packet(pending.packet(now + Duration::from_secs(40)).unwrap());
+		assert_eq!(afk["d"]["status"], "idle");
+		assert_eq!(afk["d"]["afk"], true);
+		assert!(afk["d"]["since"].as_u64().is_some_and(|since| since > 0));
+		pending.update_afk(true);
+		assert!(pending.deadline().is_none());
+		pending.update(&Some(game("osu!"))).unwrap();
+		let again = packet(pending.packet(now + Duration::from_secs(45)).unwrap());
+		assert_eq!(afk["d"]["since"], again["d"]["since"]);
+		pending.update_afk(false);
+		let back = packet(pending.packet(now + Duration::from_secs(50)).unwrap());
+		assert_eq!(back["d"]["status"], "online");
+		assert_eq!(back["d"]["afk"], false);
+		own.status = PresenceStatus::DoNotDisturb;
+		pending.update_presence(&own).unwrap();
+		pending.update_afk(true);
+		let dnd = packet(pending.packet(now + Duration::from_secs(55)).unwrap());
+		assert_eq!(dnd["d"]["status"], "dnd");
+		assert_eq!(dnd["d"]["afk"], true);
 	}
 
 	#[test]

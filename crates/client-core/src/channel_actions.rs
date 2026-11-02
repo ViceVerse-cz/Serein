@@ -29,6 +29,8 @@ pub const TAG_NAME_LIMIT: usize = 20;
 pub const HIDE_AFTER: [u32; 4] = [60, 1440, 4320, 10080];
 /// Forum channel flag: new posts must carry a tag.
 pub const REQUIRE_TAG: u64 = 1 << 4;
+/// Discord error 160004: a thread already exists for the starter message.
+pub const THREAD_ALREADY_OPENED: &str = "A thread has already been opened on this message";
 
 /// Forum and media channel settings, loaded and saved with the rest of the channel.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -352,8 +354,68 @@ impl State {
 			.is_some_and(|c| c.guild.is_some() && matches!(c.kind, 0 | 2 | 4 | 5 | 13 | 15 | 16))
 			&& self.permission(channel, VIEW_CHANNEL | MANAGE_CHANNELS) == Some(true)
 	}
+	/// Resolved channel overwrites from the permission snapshot or loaded channel details.
+	pub(crate) fn channel_permission_overwrites(
+		&self,
+		guild: Id,
+		channel: Id,
+	) -> Option<&[model::permissions::Overwrite]> {
+		self.channel_actions
+			.details
+			.as_ref()
+			.filter(|(id, _)| *id == channel)
+			.map(|(_, edit)| edit.overwrites.as_slice())
+			.or_else(|| {
+				self.permissions
+					.channels
+					.get(&channel)
+					.filter(|c| c.guild == guild)
+					.and_then(|c| c.overwrites.as_deref())
+			})
+	}
+	/// Check if the current user has authority to manage permissions on a channel.
 	pub fn can_manage_channel_permissions(&self, channel: Id) -> bool {
-		self.can_manage_channel(channel) && self.permission(channel, MANAGE_ROLES) == Some(true)
+		if !self.can_manage_channel(channel) {
+			return false;
+		}
+		if self.permission(channel, MANAGE_ROLES) == Some(true) {
+			return true;
+		}
+		let Some(source) = self.channel(channel) else {
+			return false;
+		};
+		let Some(guild_id) = source.guild else {
+			return false;
+		};
+		let Some(guild) = self.permissions.guilds.get(&guild_id) else {
+			return false;
+		};
+		let Some(user) = self.user.as_ref().map(|u| u.id) else {
+			return false;
+		};
+		let Some(overwrites) = self.channel_permission_overwrites(guild_id, channel) else {
+			return false;
+		};
+		let elevated = overwrites.iter().any(|row| {
+			row.allow & MANAGE_ROLES != 0
+				&& match row.kind {
+					0 => {
+						row.id == guild.id
+							|| guild
+								.member
+								.as_ref()
+								.is_some_and(|m| m.roles.contains(&row.id))
+					}
+					1 => row.id == user,
+					_ => false,
+				}
+		});
+		if elevated {
+			return true;
+		}
+		let now = Self::permission_time();
+		model::permissions::effective(guild, user, Some(overwrites), now)
+			.is_some_and(|bits| bits & MANAGE_ROLES != 0)
 	}
 	pub fn can_open_channel_settings(&self, channel: Id) -> bool {
 		self.can_manage_channel(channel)
@@ -399,6 +461,7 @@ impl State {
 				.is_some_and(|c| c.guild == source.guild && self.can_manage_channel(*id))
 		})
 	}
+	/// Check if the current user has authority to edit specific permission bits on a channel.
 	pub fn can_edit_channel_permission(&self, channel: Id, bits: u128) -> bool {
 		if !self.can_manage_channel_permissions(channel) {
 			return false;
@@ -412,29 +475,25 @@ impl State {
 		let Some(user) = self.user.as_ref().map(|u| u.id) else {
 			return false;
 		};
+		let channel_overwrites = self.channel_permission_overwrites(guild.id, channel);
 		// Discord permits guild/parent bits, or any bit when the actor has an
 		// applicable MANAGE_ROLES channel overwrite. Existing unknown bits stay intact.
-		let elevated = self
-			.permissions
-			.channels
-			.get(&channel)
-			.and_then(|c| c.overwrites.as_ref())
-			.is_some_and(|rows| {
-				rows.iter().any(|row| {
-					row.allow & MANAGE_ROLES != 0
-						&& match row.kind {
-							0 => {
-								row.id == guild.id
-									|| guild
-										.member
-										.as_ref()
-										.is_some_and(|m| m.roles.contains(&row.id))
-							}
-							1 => row.id == user,
-							_ => false,
+		let elevated = channel_overwrites.is_some_and(|rows| {
+			rows.iter().any(|row| {
+				row.allow & MANAGE_ROLES != 0
+					&& match row.kind {
+						0 => {
+							row.id == guild.id
+								|| guild
+									.member
+									.as_ref()
+									.is_some_and(|m| m.roles.contains(&row.id))
 						}
-				})
-			});
+						1 => row.id == user,
+						_ => false,
+					}
+			})
+		});
 		if elevated {
 			return true;
 		}
@@ -456,6 +515,12 @@ impl State {
 				model::permissions::effective(guild, user, Some(overwrites), now)
 		{
 			available |= parent_bits;
+		}
+		if let Some(overwrites) = channel_overwrites
+			&& let Some(channel_bits) =
+				model::permissions::effective(guild, user, Some(overwrites), now)
+		{
+			available |= channel_bits;
 		}
 		available & bits == bits
 	}
@@ -643,16 +708,25 @@ impl State {
 			action,
 		})
 	}
+	/// One bounded channel read for an unloaded thread named in the open conversation.
 	pub fn request_channel_reference(&mut self, guild: Id, channel: Id) -> Option<Command> {
+		if self
+			.selected
+			.and_then(|id| self.channel(id))
+			.and_then(|source| source.guild)
+			!= Some(guild)
+		{
+			return None;
+		}
+		self.request_thread_reference(guild, channel)
+	}
+	/// The same bounded read, admitted for any joined server: a Discord chat link may name a
+	/// thread of another server. The service remains authoritative over the thread's access.
+	pub(crate) fn request_thread_reference(&mut self, guild: Id, channel: Id) -> Option<Command> {
 		if self.channel_action_pending()
 			|| self.channel(channel).is_some()
 			|| self.channel_action_status(channel).is_some()
 			|| self.guild(guild).is_none()
-			|| self
-				.selected
-				.and_then(|id| self.channel(id))
-				.and_then(|source| source.guild)
-				!= Some(guild)
 			|| (!self.demo && (self.auth != AuthState::Authenticated || !self.gateway_connected))
 		{
 			return None;
@@ -860,10 +934,11 @@ impl State {
 						&& match &action {
 							Action::Create { kind, .. } => c.kind == kind.wire_kind(),
 							Action::CreateCategory { .. } => c.kind == 4,
-							Action::CreateThread { name, .. } => {
+							Action::CreateThread { name, message } => {
 								matches!(c.kind, 10..=12)
 									&& c.parent_id == Some(channel)
-									&& c.name.trim() == name.trim()
+									&& (c.name.trim() == name.trim()
+										|| message.is_some_and(|m| c.id == m))
 							}
 							_ => true,
 						}
@@ -895,8 +970,16 @@ impl State {
 				if failure.ends_session() {
 					self.fail(failure);
 				}
-				self.channel_actions.status = Some((channel, failure.label(), false));
-				self.status = failure.label();
+				// A thread read that admitted nothing names a destination this account cannot
+				// open; it is not an ambiguous write.
+				let status = if matches!(action, Action::Reference) && failure == Failure::Ambiguous
+				{
+					"This chat is unavailable"
+				} else {
+					failure.label()
+				};
+				self.channel_actions.status = Some((channel, status, false));
+				self.status = status;
 				return Ok(());
 			}
 			Ok(Outcome::Post {
@@ -1018,6 +1101,7 @@ impl State {
 						self.can_open_channel_settings(channel)
 					}) && (if creating {
 					self.channel(updated.id).is_none()
+						|| matches!(action, Action::CreateThread { .. })
 				} else {
 					!observed
 				}) {
@@ -1025,10 +1109,14 @@ impl State {
 					if reference {
 						self.remember_channel_reference_name(&updated);
 					}
-					self.apply(crate::Envelope {
-						generation: self.generation,
-						event: crate::Event::ChannelCreated(*updated),
-					});
+					if !matches!(action, Action::CreateThread { .. })
+						|| self.channel(target).is_none()
+					{
+						self.apply(crate::Envelope {
+							generation: self.generation,
+							event: crate::Event::ChannelCreated(*updated),
+						});
+					}
 					if reference {
 						if self.channel(target).is_none() {
 							self.forget_channel_reference_name(target);
@@ -1329,6 +1417,7 @@ mod tests {
 				tertiary_color: None,
 				position: 0,
 				hoist: false,
+				managed: false,
 				bits: VIEW_CHANNEL | MANAGE_ROLES,
 			}]);
 			guild.member = Some(model::permissions::Member {
@@ -1444,6 +1533,7 @@ mod tests {
 			tertiary_color: None,
 			position: 0,
 			hoist: false,
+			managed: false,
 			bits: VIEW_CHANNEL,
 		}]);
 		guild.member = Some(model::permissions::Member {
@@ -1867,5 +1957,318 @@ mod tests {
 			.unwrap();
 		assert_eq!(state.guild_channel_muted(Id(3)), Some(true));
 		assert!(!state.notification_allowed(Id(3)));
+	}
+
+	/// Verify voice channel permission overwrite editing accounts for channel-level VIEW_CHANNEL access.
+	#[test]
+	fn voice_channel_permission_overwrites_rely_on_channel_access_for_view_channel() {
+		use model::permissions as p;
+		let mut state = state();
+		state.channels[0].kind = 2;
+		let guild = state.permissions.guilds.get_mut(&Id(2)).unwrap();
+		guild.owner = Some(Id(99));
+		guild.roles = Some(vec![
+			p::Role {
+				id: Id(2),
+				bits: 0,
+				name: "everyone".into(),
+				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
+				position: 0,
+				hoist: false,
+				managed: false,
+			},
+			p::Role {
+				id: Id(10),
+				bits: p::MANAGE_CHANNELS | p::MANAGE_ROLES,
+				name: "Manager".into(),
+				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
+				position: 1,
+				hoist: false,
+				managed: false,
+			},
+		]);
+		guild.member = Some(p::Member {
+			roles: vec![Id(10)],
+			timeout_until: None,
+		});
+		let before = Edit {
+			name: "Private VC".into(),
+			overwrites: vec![
+				p::Overwrite {
+					id: Id(2),
+					kind: 0,
+					allow: 0,
+					deny: p::VIEW_CHANNEL,
+				},
+				p::Overwrite {
+					id: Id(10),
+					kind: 0,
+					allow: p::VIEW_CHANNEL | p::CONNECT,
+					deny: 0,
+				},
+			],
+			..Edit::default()
+		};
+		state.apply(crate::Envelope {
+			generation: state.generation,
+			event: crate::Event::Permissions(crate::permissions::Event::Channel {
+				channel: Id(3),
+				guild: Some(Id(2)),
+				overwrites: model::Patch::Value(before.overwrites.clone()),
+			}),
+		});
+		let load = state.request_channel_action(Id(3), Action::Load).unwrap();
+		finish(&mut state, load, Ok(Outcome::Details(before.clone())));
+
+		assert!(
+			state.can_edit_channel_permission(Id(3), p::VIEW_CHANNEL),
+			"user with channel-level VIEW_CHANNEL access must be able to edit VIEW_CHANNEL"
+		);
+
+		let mut after = before.clone();
+		after.overwrites.push(p::Overwrite {
+			id: Id(50),
+			kind: 1,
+			allow: p::VIEW_CHANNEL,
+			deny: 0,
+		});
+		assert!(
+			state
+				.request_channel_action(
+					Id(3),
+					Action::Edit {
+						before: before.clone(),
+						after
+					}
+				)
+				.is_some(),
+			"saving VIEW_CHANNEL overwrite on private voice channel must succeed"
+		);
+	}
+
+	/// Verify channel settings overwrite fallback allows permission management when snapshot lacks overwrites.
+	#[test]
+	fn channel_settings_with_manage_roles_overwrite_allows_permission_management_when_snapshot_empty()
+	 {
+		use model::permissions as p;
+		let mut state = state();
+		state.channels[0].kind = 2;
+		let guild = state.permissions.guilds.get_mut(&Id(2)).unwrap();
+		guild.owner = Some(Id(99));
+		guild.roles = Some(vec![
+			p::Role {
+				id: Id(2),
+				bits: 0,
+				name: "everyone".into(),
+				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
+				position: 0,
+				hoist: false,
+				managed: false,
+			},
+			p::Role {
+				id: Id(10),
+				bits: p::MANAGE_CHANNELS,
+				name: "Channel Mod".into(),
+				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
+				position: 1,
+				hoist: false,
+				managed: false,
+			},
+		]);
+		guild.member = Some(p::Member {
+			roles: vec![Id(10)],
+			timeout_until: None,
+		});
+		let snapshot_overwrites = vec![
+			p::Overwrite {
+				id: Id(2),
+				kind: 0,
+				allow: 0,
+				deny: p::VIEW_CHANNEL,
+			},
+			p::Overwrite {
+				id: Id(10),
+				kind: 0,
+				allow: p::VIEW_CHANNEL | p::CONNECT,
+				deny: 0,
+			},
+		];
+		state.apply(crate::Envelope {
+			generation: state.generation,
+			event: crate::Event::Permissions(crate::permissions::Event::Channel {
+				channel: Id(3),
+				guild: Some(Id(2)),
+				overwrites: model::Patch::Value(snapshot_overwrites),
+			}),
+		});
+		assert_eq!(state.permission(Id(3), p::MANAGE_ROLES), Some(false));
+		assert!(!state.can_manage_channel_permissions(Id(3)));
+
+		let before = Edit {
+			name: "Private VC".into(),
+			overwrites: vec![
+				p::Overwrite {
+					id: Id(2),
+					kind: 0,
+					allow: 0,
+					deny: p::VIEW_CHANNEL,
+				},
+				p::Overwrite {
+					id: Id(10),
+					kind: 0,
+					allow: p::VIEW_CHANNEL | p::CONNECT | p::MANAGE_ROLES,
+					deny: 0,
+				},
+			],
+			..Edit::default()
+		};
+		let load = state.request_channel_action(Id(3), Action::Load).unwrap();
+		finish(&mut state, load, Ok(Outcome::Details(before.clone())));
+
+		assert!(
+			state.can_manage_channel_permissions(Id(3)),
+			"loaded channel settings with MANAGE_ROLES overwrite must authorize channel permission management"
+		);
+		assert!(
+			state.can_edit_channel_permission(Id(3), p::VIEW_CHANNEL),
+			"can_edit_channel_permission must pass when loaded details grant MANAGE_ROLES"
+		);
+
+		let mut after = before.clone();
+		after.overwrites.push(p::Overwrite {
+			id: Id(50),
+			kind: 1,
+			allow: p::VIEW_CHANNEL,
+			deny: 0,
+		});
+		assert!(
+			state
+				.request_channel_action(
+					Id(3),
+					Action::Edit {
+						before: before.clone(),
+						after
+					}
+				)
+				.is_some(),
+			"saving channel overwrites must succeed when loaded details grant MANAGE_ROLES"
+		);
+	}
+
+	#[test]
+	fn confirmed_channel_edit_updates_an_existing_channel_without_a_gateway_echo() {
+		let mut state = state();
+		let load = state.request_channel_action(Id(3), Action::Load).unwrap();
+		finish(
+			&mut state,
+			load,
+			Ok(Outcome::Details(Edit {
+				name: "general".into(),
+				..Edit::default()
+			})),
+		);
+		let command = state
+			.request_channel_action(
+				Id(3),
+				Action::Edit {
+					before: Edit {
+						name: "general".into(),
+						..Edit::default()
+					},
+					after: Edit {
+						name: "renamed".into(),
+						..Edit::default()
+					},
+				},
+			)
+			.unwrap();
+		let mut updated = state.channels[0].clone();
+		updated.name = "renamed".into();
+		finish(
+			&mut state,
+			command,
+			Ok(Outcome::Channel {
+				channel: Box::new(updated),
+				permissions: None,
+			}),
+		);
+		assert_eq!(state.channel(Id(3)).unwrap().name, "renamed");
+		assert!(state.channel_action_succeeded(Id(3)));
+	}
+
+	#[test]
+	fn thread_create_matches_existing_starter_message_thread_even_with_divergent_name() {
+		let mut state = state();
+		let mut starter = crate::tests::message(42);
+		starter.channel = Id(3);
+		state.timeline.insert(starter, false, false).unwrap();
+		let action = Action::CreateThread {
+			name: "User Typed Name".into(),
+			message: Some(Id(42)),
+		};
+		let command = state.request_channel_action(Id(3), action).unwrap();
+		let mut existing = state.channels[0].clone();
+		existing.id = Id(42);
+		existing.parent_id = Some(Id(3));
+		existing.kind = 11;
+		existing.name = "Original Name by Other User".into();
+		finish(
+			&mut state,
+			command,
+			Ok(Outcome::Channel {
+				channel: Box::new(existing),
+				permissions: None,
+			}),
+		);
+		assert!(state.channel(Id(42)).is_some());
+		assert!(state.channel_action_succeeded(Id(3)));
+		assert_eq!(
+			state.channel(Id(42)).unwrap().name,
+			"Original Name by Other User"
+		);
+	}
+
+	#[test]
+	fn thread_create_outcome_does_not_overwrite_already_loaded_channel_with_stale_data() {
+		let mut state = state();
+		let mut starter = crate::tests::message(42);
+		starter.channel = Id(3);
+		state.timeline.insert(starter, false, false).unwrap();
+		let mut current = state.channels[0].clone();
+		current.id = Id(42);
+		current.parent_id = Some(Id(3));
+		current.kind = 11;
+		current.name = "Renamed via Gateway".into();
+		state.channels.push(current);
+
+		let action = Action::CreateThread {
+			name: "Creation Time Name".into(),
+			message: Some(Id(42)),
+		};
+		let command = state.request_channel_action(Id(3), action).unwrap();
+
+		let mut stale = state.channels[0].clone();
+		stale.id = Id(42);
+		stale.parent_id = Some(Id(3));
+		stale.kind = 11;
+		stale.name = "Stale Creation Time Name".into();
+		finish(
+			&mut state,
+			command,
+			Ok(Outcome::Channel {
+				channel: Box::new(stale),
+				permissions: None,
+			}),
+		);
+		assert_eq!(state.channel(Id(42)).unwrap().name, "Renamed via Gateway");
+		assert!(state.channel_action_succeeded(Id(3)));
 	}
 }

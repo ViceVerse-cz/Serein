@@ -7,6 +7,10 @@ cask "serein" do
   desc "Experimental native Discord client"
   homepage "https://github.com/ViceVerse-cz/Serein"
 
+  # Frozen: this cask moved to the ViceVerse-cz/homebrew-serein tap and is no longer updated here.
+  deprecate! date: "2026-10-16",
+             because: "moved to its own tap; run `brew untap ViceVerse-cz/serein && brew tap ViceVerse-cz/serein`"
+
   depends_on arch: :arm64
   depends_on macos: :sonoma
 
