@@ -1794,8 +1794,10 @@ live-account validation are not available in this agent environment.
 Shared user menus expose Add Note and Add/Edit Friend Nickname; the latter requires a
 confirmed friend and never changes a server nickname. Notes load before editing,
 failed writes retain the draft, and clearing is explicit. Private names appear in
-Friends/search, DM navigation/header/composer, message author labels and profile cards.
-Public names, usernames and IDs remain unchanged.
+Friends/search, DM navigation/header/composer, message author labels, profile cards
+and the typing indicator. A loaded server nickname still wins over a private name in
+a server, as it does for message authors. Public names, usernames and IDs remain
+unchanged.
 
 These normal-user routes are **unofficial and live-unverified**:
 GET/PUT `/users/@me/notes/{id}` and PATCH `/users/@me/relationships/{id}`.
