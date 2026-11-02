@@ -74,7 +74,7 @@ impl ClearAfter {
 			Self::Hours4 => now + time::Duration::hours(4),
 			Self::Today => now.replace_time(time::Time::MIDNIGHT) + time::Duration::days(1),
 		};
-		let clock = format!("{:02}:{:02}", at.hour(), at.minute());
+		let clock = crate::local_time::clock(at);
 		Some(if at.date() == now.date() {
 			format!(
 				"{} {clock}",
@@ -135,6 +135,15 @@ impl MessagingUi {
 		self.own_presence.expires_at_ms = presence.expires_at_ms;
 		self.own_presence.status = presence.status;
 		self.own_presence.custom_status = presence.custom_status;
+	}
+
+	/// The status to show the owner: Idle while inactivity applies to an Online choice.
+	pub fn shown_presence_status(&self) -> PresenceStatus {
+		if self.auto_idle_active && self.own_presence.status == PresenceStatus::Online {
+			PresenceStatus::Idle
+		} else {
+			self.own_presence.status
+		}
 	}
 
 	pub(super) fn account_menu(
@@ -250,7 +259,7 @@ impl MessagingUi {
 				ui.painter(),
 				dot,
 				11.5,
-				self.own_presence.status,
+				self.shown_presence_status(),
 				colors.raised,
 			);
 			ui.add_space((avatar.bottom() + 12.0 - ui.cursor().top()).max(0.0));
@@ -394,10 +403,16 @@ impl MessagingUi {
 				.truncate()
 				.selectable(false),
 			);
+			// The handle sits under the display name; the blank line keeps the row height when an
+			// entry does not know it yet, instead of naming the account twice.
 			ui.add(
-				egui::Label::new(RichText::new(&account.name).size(12.0).color(colors.muted))
-					.truncate()
-					.selectable(false),
+				egui::Label::new(
+					RichText::new(account.handle().unwrap_or_default())
+						.size(12.0)
+						.color(colors.muted),
+				)
+				.truncate()
+				.selectable(false),
 			);
 		});
 		// Same affordance as the sign-in screen's saved accounts.
@@ -701,11 +716,26 @@ impl MessagingUi {
 			colors.muted,
 		);
 		if response.clicked() {
-			self.account_menu
-				.draft
-				.clone_from(&self.own_presence.custom_status);
-			self.account_menu.clear_after = ClearAfter::nearest(self.own_presence_expires);
-			self.account_menu.custom_open = true;
+			self.open_custom_status_editor();
+		}
+	}
+	/// Opens the custom status dialog on the current status, as its pencil does.
+	pub(super) fn open_custom_status_editor(&mut self) {
+		self.account_menu
+			.draft
+			.clone_from(&self.own_presence.custom_status);
+		self.account_menu.clear_after = ClearAfter::nearest(self.own_presence_expires);
+		self.account_menu.custom_open = true;
+	}
+	/// Clears the custom status and its deadline; the presence update follows.
+	pub(super) fn clear_custom_status(&mut self) {
+		self.account_menu.draft.clear();
+		self.account_menu.clear_after = ClearAfter::Never;
+		self.own_presence_expires = None;
+		self.own_presence.expires_at_ms = None;
+		if !self.own_presence.custom_status.is_empty() {
+			self.own_presence.custom_status.clear();
+			self.own_presence_changed = true;
 		}
 	}
 	/// "Clear after" dropdown, matching the presence rows: value on the left, chevron right.
@@ -929,14 +959,7 @@ impl MessagingUi {
 			.inner
 			.clicked()
 		{
-			self.account_menu.draft.clear();
-			self.account_menu.clear_after = ClearAfter::Never;
-			self.own_presence_expires = None;
-			self.own_presence.expires_at_ms = None;
-			if !self.own_presence.custom_status.is_empty() {
-				self.own_presence.custom_status.clear();
-				self.own_presence_changed = true;
-			}
+			self.clear_custom_status();
 		}
 	}
 }
@@ -958,29 +981,14 @@ fn presence_dot(
 	status: PresenceStatus,
 	background: egui::Color32,
 ) {
-	painter.circle_filled(center, radius, profiles::presence_color(status.wire()));
-	match status {
-		PresenceStatus::Idle => {
-			painter.circle_filled(
-				center - egui::Vec2::splat(radius * 0.5),
-				radius * 0.8,
-				background,
-			);
-		}
-		PresenceStatus::Invisible => {
-			painter.circle_filled(center, radius * 0.56, background);
-		}
-		PresenceStatus::DoNotDisturb => {
-			painter.line_segment(
-				[
-					center - vec2(radius * 0.62, 0.0),
-					center + vec2(radius * 0.62, 0.0),
-				],
-				egui::Stroke::new(radius * 0.42, background),
-			);
-		}
-		_ => {}
-	}
+	profiles::paint_status(
+		painter,
+		center,
+		radius,
+		status.wire(),
+		false,
+		(background, 0.0),
+	);
 }
 
 #[cfg(test)]
@@ -1096,6 +1104,13 @@ mod tests {
 						has_token: true,
 					},
 					alt_account(),
+					// Recorded before the handle was kept: the display name must not repeat.
+					model::SavedAccount {
+						id: model::Id(424_243),
+						name: "Synthetic Stale".into(),
+						display: Some("Synthetic Stale".into()),
+						..alt_account()
+					},
 				],
 				..Default::default()
 			};
@@ -1109,6 +1124,13 @@ mod tests {
 			assert!(listed("Synthetic Alt"));
 			assert!(listed("synthetic-alt"));
 			assert!(listed("Add an account"));
+			assert_eq!(
+				text.iter()
+					.filter(|(value, _)| value == "Synthetic Stale")
+					.count(),
+				1,
+				"an entry without a known handle must not name the account twice"
+			);
 			// The signed-in account is remembered but never listed as a switch target.
 			assert!(!listed("Signed in already"));
 			click(

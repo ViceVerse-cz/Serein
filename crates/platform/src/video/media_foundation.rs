@@ -36,7 +36,7 @@ const ALL: u32 = MF_SOURCE_READER_ALL_STREAMS.0 as u32;
 const UNSUPPORTED: &str = "This video format or codec is not supported by Windows.";
 const INVALID: &str = "The video could not be decoded safely.";
 
-use super::{Info, ReadSeek, Sample};
+use super::{Color, Info, Layout, Picture, ReadSeek, Sample};
 
 // Keep the reader and byte stream ahead of Runtime: COM objects must be released
 // before MFShutdown/CoUninitialize. Rc also makes this actor thread-affine.
@@ -316,13 +316,13 @@ impl Decoder {
 			let mut channels = 0;
 			if let Some(index) = audio_index {
 				let audio = reader.GetNativeMediaType(index, 0).map_err(|_| INVALID)?;
-				sample_rate = audio
+				let native_rate = audio
 					.GetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND)
 					.map_err(|_| UNSUPPORTED)?;
-				channels = audio
+				let native_channels = audio
 					.GetUINT32(&MF_MT_AUDIO_NUM_CHANNELS)
 					.map_err(|_| UNSUPPORTED)?;
-				if !(1..=96_000).contains(&sample_rate) || !(1..=2).contains(&channels) {
+				if !(1..=96_000).contains(&native_rate) || !(1..=2).contains(&native_channels) {
 					return Err(UNSUPPORTED);
 				}
 				let audio = MFCreateMediaType().map_err(|_| INVALID)?;
@@ -339,13 +339,19 @@ impl Decoder {
 					.SetStreamSelection(index, true)
 					.map_err(|_| INVALID)?;
 				let audio = reader.GetCurrentMediaType(index).map_err(|_| INVALID)?;
-				if audio
+				// The decoder may legitimately widen the stream: HE-AAC spectral-band
+				// replication doubles the sample rate and parametric stereo widens
+				// mono to stereo. Trust the negotiated float output, still bounded.
+				sample_rate = audio
 					.GetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND)
-					.map_err(|_| INVALID)?
-					!= sample_rate || audio
+					.map_err(|_| INVALID)?;
+				channels = audio
 					.GetUINT32(&MF_MT_AUDIO_NUM_CHANNELS)
-					.map_err(|_| INVALID)?
-					!= channels || audio
+					.map_err(|_| INVALID)?;
+				if !(1..=96_000).contains(&sample_rate) || !(1..=2).contains(&channels) {
+					return Err(UNSUPPORTED);
+				}
+				if audio
 					.GetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE)
 					.map_err(|_| INVALID)?
 					!= 32
@@ -510,12 +516,18 @@ impl Decoder {
 				return Err(INVALID);
 			}
 			if index == self.video_index {
+				// The RGB32 reader already converted colour and applied rotation.
 				let rgba = self.video_frame(&sample)?;
 				return Ok(Some(Sample::Video {
 					pts,
-					width: self.info.width,
-					height: self.info.height,
-					rgba,
+					picture: Picture {
+						width: self.info.width,
+						height: self.info.height,
+						layout: Layout::Rgba,
+						color: Color::WEBRTC,
+						rotation: 0,
+						data: rgba,
+					},
 				}));
 			}
 			if Some(index) == self.audio_index {
@@ -931,14 +943,9 @@ mod tests {
 			}
 			for sample in [video, audio].into_iter().flatten() {
 				match sample {
-					Sample::Video {
-						pts,
-						rgba,
-						width,
-						height,
-					} => {
-						assert_eq!(rgba.len(), (width * height * 4) as usize);
-						assert!(rgba.windows(4).any(|pixel| pixel[0] != pixel[1]));
+					Sample::Video { pts, picture } => {
+						assert!(picture.is_valid());
+						assert!(picture.data.windows(4).any(|pixel| pixel[0] != pixel[1]));
 						assert!(pts >= last_pts);
 						last_pts = pts;
 						videos += 1;
@@ -996,16 +1003,13 @@ mod tests {
 		}
 		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(portrait))).unwrap();
 		assert_eq!((decoder.info().width, decoder.info().height), (180, 320));
-		let Some(Sample::Video {
-			width,
-			height,
-			rgba,
-			..
-		}) = decoder.read_video().unwrap()
-		else {
+		let Some(Sample::Video { picture, .. }) = decoder.read_video().unwrap() else {
 			panic!("Missing portrait frame");
 		};
-		assert_eq!((width, height, rgba.len()), (180, 320, 180 * 320 * 4));
+		assert_eq!(
+			(picture.width, picture.height, picture.data.len()),
+			(180, 320, 180 * 320 * 4)
+		);
 
 		{
 			let stream: IStream = ReadStream {

@@ -204,7 +204,7 @@ account-menu-clears-at-tomorrow = demain
 # Context: custom_status_actions
 account-menu-custom-status-actions-apply = Appliquer
 # Context: custom_status_actions
-account-menu-custom-status-actions-clear = Clair
+account-menu-custom-status-actions-clear = Effacer
 # Context: account_custom_status_row
 account-menu-custom-status-edit = Modifier le statut personnalisé
 # Context: custom_status_editor
@@ -307,7 +307,7 @@ attachments-loading-card-preparing = Préparation…
 # Context: show_status
 attachments-show-status-cancel-download = Annuler le téléchargement
 # Context: show_status
-attachments-show-status-dismiss = Rejeter
+attachments-show-status-dismiss = Ignorer
 # Context: viewer
 attachments-viewer-a-download-is-already-active = Un téléchargement est déjà actif
 # Context: viewer
@@ -499,7 +499,7 @@ channel-menu-show-close = Fermer
 # Context: show_feedback
 channel-menu-show-feedback-channel-action = Action de canal
 # Context: show_feedback
-channel-menu-show-feedback-dismiss = Rejeter
+channel-menu-show-feedback-dismiss = Ignorer
 # Context: show
 channel-menu-show-in-this-channels-category-inherits-category-permissions = Dans la catégorie de cette chaîne · hérite des autorisations de catégorie
 # Context: show
@@ -798,6 +798,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Aperçu vidéo · la 
 embeds-text-text-display-limited = Affichage du texte limité
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Cliquez pour en savoir plus
 # Context: show
 emoji-details-show-a-custom-emoji = Un emoji personnalisé.
 # Context: show
@@ -978,7 +980,7 @@ extensions-ui-show-result-apply-to-draft = Appliquer au brouillon
 # Context: show_result
 extensions-ui-show-result-close = Fermer
 # Context: show_result
-extensions-ui-show-result-dismiss = Rejeter
+extensions-ui-show-result-dismiss = Ignorer
 # Context: show_result
 extensions-ui-show-result-extension-error = Erreur d'extension
 # Context: show_result
@@ -1004,7 +1006,7 @@ extensions-ui-toolbar-checking-for-packages-and-updates = Vérification des pack
 # Context: toolbar
 extensions-ui-toolbar-clear-search = Effacer la recherche
 # Context: toolbar
-extensions-ui-toolbar-dismiss = Rejeter
+extensions-ui-toolbar-dismiss = Ignorer
 # Context: toolbar
 extensions-ui-toolbar-import-theme = Importer le thème…
 # Context: toolbar
@@ -1462,7 +1464,7 @@ invites-show-you-ve-been-invited-to-join-a-server = Vous avez été invité à r
 
 ## crates/ui/src/join_server.rs
 # Context: audience
-join-server-audience-back = Dos
+join-server-audience-back = Retour
 # Context: audience
 join-server-audience-for-a-club-or-community = Pour un club ou une communauté
 # Context: audience
@@ -1502,7 +1504,7 @@ join-server-choose-join-a-server = Rejoindre un serveur
 # Context: choose
 join-server-choose-offline-preview-creating-and-joining-servers-are-disabled = Aperçu hors ligne : la création et la connexion de serveurs sont désactivées.
 # Context: customize
-join-server-customize-back = Dos
+join-server-customize-back = Retour
 # Context: customize
 join-server-customize-change-server-icon = Changer l'icône du serveur
 # Context: customize
@@ -1520,7 +1522,7 @@ join-server-customize-server-name = Nom du serveur
 # Context: customize
 join-server-customize-upload-server-icon = Icône du serveur de téléchargement
 # Context: show_join
-join-server-show-join-back = Dos
+join-server-show-join-back = Retour
 # Context: show_join
 join-server-show-join-cancel = Annuler
 # Context: show_join
@@ -1533,6 +1535,14 @@ join-server-status-invite-accepted = Invitation acceptée. En attente d'accès a
 join-server-status-offline-preview = Aperçu hors ligne : la connexion aux serveurs est désactivée.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Supprimer
+# Context: custom_section
+keybinds-custom-section-add-binding = Ajouter un raccourci
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Ajoutez des raccourcis supplémentaires pour n'importe quelle action. Chaque combinaison de touche ou de bouton de souris ne peut servir qu'une fois.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Raccourcis personnalisés
 # Context: row
 keybinds-row-global = MONDIAL
 # Context: row
@@ -1774,6 +1784,10 @@ notification-settings-notification-settings-open = Ouvrir
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Aperçu du son
 # Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Pousser pour parler : activation
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Pousser pour parler : désactivation
+# Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Sonneries, appareils d'appel et traitement du microphone.
 # Context: notification_settings
 notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = Affiche un badge rouge sur l'icône de l'application lorsque vous avez des messages non lus.
@@ -1804,7 +1818,7 @@ notifications-notification-rail-unread = , non lu
 # Context: show
 pending-show-check-the-conversation-before-sending-again = Vérifiez la conversation avant de la renvoyer.
 # Context: show
-pending-show-dismiss = Rejeter
+pending-show-dismiss = Ignorer
 # Context: show
 pending-show-restore-to-composer = Restaurer vers le compositeur
 # Context: show
@@ -1944,7 +1958,7 @@ post-menu-context-open-thread = Discussion ouverte
 # Context: context
 post-menu-context-pin-post = Épingler le message
 # Context: context
-post-menu-context-pin-thread = Fil de broche
+post-menu-context-pin-thread = Épingler le fil
 # Context: context
 post-menu-context-remove-from-favorites = Supprimer des favoris
 # Context: context
@@ -1978,7 +1992,7 @@ post-menu-show-cancel = Annuler
 # Context: show
 post-menu-show-delete = Supprimer
 # Context: show
-post-menu-show-dismiss = Rejeter
+post-menu-show-dismiss = Ignorer
 # Context: show
 post-menu-show-edit = Modifier
 # Context: show
@@ -2052,21 +2066,21 @@ profiles-activity-card-activity-options = Options d'activité
 # Context: activity_card
 profiles-activity-card-copy-activity = Activité de copie
 # Context: activity_card
-profiles-activity-card-listening-to-spotify = Écouter Spotify
+profiles-activity-card-listening-to-spotify = Écoute Spotify
 # Context: activity_row
-profiles-activity-row-show = Montrer
+profiles-activity-row-show = Montre
 # Context: activity_verb
 profiles-activity-verb-activity = Activité
 # Context: activity_verb
-profiles-activity-verb-competing-in = En compétition
+profiles-activity-verb-competing-in = En compétition sur
 # Context: activity_verb
-profiles-activity-verb-listening-to = Écouter
+profiles-activity-verb-listening-to = Écoute
 # Context: activity_verb
-profiles-activity-verb-playing = Jouant
+profiles-activity-verb-playing = Joue à
 # Context: activity_verb
-profiles-activity-verb-streaming = Streaming
+profiles-activity-verb-streaming = Streame
 # Context: activity_verb
-profiles-activity-verb-watching = Regarder
+profiles-activity-verb-watching = Regarde
 # Context: more_menu
 profiles-more-menu-add-friend-nickname = Ajouter un pseudo d'ami
 # Context: more_menu
@@ -2092,7 +2106,7 @@ profiles-more-menu-copy-webhook-id = Copier l'ID du webhook
 # Context: more_menu
 profiles-more-menu-edit-friend-nickname = Modifier le pseudo d'un ami
 # Context: more_menu
-profiles-more-menu-mute = Muet
+profiles-more-menu-mute = Couper le son
 # Context: more_menu
 profiles-more-menu-mute-this-direct-message-s-notifications-until-you-unmute-it = Désactivez les notifications de ce message direct jusqu'à ce que vous le réactiviez.
 # Context: more_menu
@@ -2400,7 +2414,7 @@ search-pane-order-on-this-page = Commandez sur cette page
 # Context: pane
 search-pane-pinned-messages = Messages épinglés
 # Context: pane
-search-pane-reload-pins = Recharger les épingles
+search-pane-reload-pins = Recharger les messages épinglés
 # Context: pane
 search-pane-search-this-conversation = Rechercher cette conversation
 # Context: pane
@@ -2430,7 +2444,7 @@ search-pins-popout-close = Fermer
 # Context: pins_popout
 search-pins-popout-pinned-messages = Messages épinglés
 # Context: pins_popout
-search-pins-popout-reload-pins = Recharger les épingles
+search-pins-popout-reload-pins = Recharger les messages épinglés
 # Context: result_card
 search-result-card-jump-to-message-from = Aller au message de
 # Context: result_card
@@ -2438,7 +2452,7 @@ search-result-card-spoiler-media-open-the-message-to-reveal-it = Spoiler media -
 
 ## crates/ui/src/select.rs
 # Context: on_end_pass
-select-on-end-pass-copy = Copie
+select-on-end-pass-copy = Copier
 
 ## crates/ui/src/server_admin.rs
 # Context: date
@@ -2456,7 +2470,7 @@ server-admin-dialog-emoji-name = Nom émoji
 # Context: dialog
 server-admin-dialog-inactive-for = Inactif pour
 # Context: dialog
-server-admin-dialog-kick-member = Membre de coup de pied
+server-admin-dialog-kick-member = Expulser le membre
 # Context: dialog
 server-admin-dialog-leave-blank-to-use-their-username = Laissez vide pour utiliser leur nom d'utilisateur.
 # Context: dialog
@@ -2464,7 +2478,7 @@ server-admin-dialog-nickname = Surnom
 # Context: dialog
 server-admin-dialog-preview = Aperçu
 # Context: dialog
-server-admin-dialog-prune-members = Élaguer les membres
+server-admin-dialog-prune-members = Expulser les membres inactifs
 # Context: dialog
 server-admin-dialog-save = Sauvegarder
 # Context: dialog
@@ -2552,7 +2566,7 @@ server-admin-member-menu-change-nickname = Changer de pseudo
 # Context: member_menu
 server-admin-member-menu-copy-user-id = Copier l'ID utilisateur
 # Context: member_menu
-server-admin-member-menu-kick = Coup
+server-admin-member-menu-kick = Expulser
 # Context: member_menu
 server-admin-member-menu-message = Message
 # Context: member_menu
@@ -2582,7 +2596,7 @@ server-admin-members-oldest-discord-accounts = Comptes Discord les plus anciens
 # Context: members
 server-admin-members-oldest-members = Membres les plus anciens
 # Context: members
-server-admin-members-prune = Élaguer
+server-admin-members-prune = Expulser les inactifs
 # Context: members
 server-admin-members-recent-members = Membres récents
 # Context: members
@@ -2644,7 +2658,7 @@ server-audit-log-action-text-created-role = Rôle créé
 # Context: action_text
 server-audit-log-action-text-created-scheduled-event = Événement programmé créé
 # Context: action_text
-server-audit-log-action-text-created-soundboard-sound = Création du son de la table d'harmonie
+server-audit-log-action-text-created-soundboard-sound = Son de soundboard créé
 # Context: action_text
 server-audit-log-action-text-created-stage = Scène créée
 # Context: action_text
@@ -2678,9 +2692,9 @@ server-audit-log-action-text-deleted-role = Rôle supprimé
 # Context: action_text
 server-audit-log-action-text-deleted-scheduled-event = Événement programmé supprimé
 # Context: action_text
-server-audit-log-action-text-deleted-soundboard-sound = Son de table d'harmonie supprimé
+server-audit-log-action-text-deleted-soundboard-sound = Son de soundboard supprimé
 # Context: action_text
-server-audit-log-action-text-deleted-stage = Étape supprimée
+server-audit-log-action-text-deleted-stage = Scène supprimée
 # Context: action_text
 server-audit-log-action-text-deleted-sticker = Autocollant supprimé
 # Context: action_text
@@ -2740,9 +2754,9 @@ server-audit-log-action-text-updated-scheduled-event = Événement programmé mi
 # Context: action_text
 server-audit-log-action-text-updated-server-settings = Paramètres du serveur mis à jour
 # Context: action_text
-server-audit-log-action-text-updated-soundboard-sound = Son de table d'harmonie mis à jour
+server-audit-log-action-text-updated-soundboard-sound = Son de soundboard mis à jour
 # Context: action_text
-server-audit-log-action-text-updated-stage = Étape mise à jour
+server-audit-log-action-text-updated-stage = Scène mise à jour
 # Context: action_text
 server-audit-log-action-text-updated-sticker = Autocollant mis à jour
 # Context: action_text
@@ -2991,10 +3005,12 @@ server-menu-header-server-menu = Menu du serveur
 server-menu-leave-item-leave-server = Quitter le serveur
 # Context: read_item
 server-menu-read-item-mark-as-read = Marquer comme lu
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = Tout marquer comme lu
 # Context: settings_item
 server-menu-settings-item-server-settings = Paramètres du serveur
 # Context: show
-server-menu-show-are-you-sure-you-want-to-leave = Êtes-vous sûr de vouloir partir
+server-menu-show-are-you-sure-you-want-to-leave = Êtes-vous sûr de vouloir quitter
 # Context: show
 server-menu-show-cancel = Annuler
 # Context: show
@@ -3501,6 +3517,54 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein ne collecte pas de télémétrie et ne télécharge pas de diagnostics. Discord conserve les données côté service conformément à ses propres politiques.
 # Context: storage_page
 settings-storage-page-your-privacy = Votre vie privée
+# Context: cosmetic_settings
+settings-cosmetics = Cosmétiques de profil
+# Context: cosmetic_settings
+settings-cosmetics-decorations = Décorations d’avatar
+# Context: cosmetic_settings
+settings-cosmetics-decorations-description = Illustrations autour des avatars.
+# Context: cosmetic_settings
+settings-cosmetics-nameplates = Plaques de nom
+# Context: cosmetic_settings
+settings-cosmetics-nameplates-description = Illustrations derrière les noms dans les listes de membres et de messages privés.
+# Context: cosmetic_settings
+settings-cosmetics-effects = Effets de profil
+# Context: cosmetic_settings
+settings-cosmetics-effects-description = Animations jouées sur les cartes de profil.
+# Context: cosmetic_settings
+settings-cosmetics-frames = Cadres de profil
+# Context: cosmetic_settings
+settings-cosmetics-frames-description = Illustrations autour des cartes de profil.
+# Context: cosmetic_settings
+settings-cosmetics-hidden-are-not-downloaded = Les cosmétiques masqués ne sont pas téléchargés. Seul l’affichage sur cet appareil change.
+# Context: image_cache_settings
+settings-image-cache = Cache d’images
+# Context: image_cache_settings
+settings-image-cache-media = Cache multimédia
+# Context: image_cache_settings
+settings-image-cache-media-description = Avatars, bannières, aperçus et stickers.
+# Context: image_cache_settings
+settings-image-cache-artwork = Cache d’illustrations partagées
+# Context: image_cache_settings
+settings-image-cache-artwork-description = Emojis, badges, tags de serveur, icônes de rôle, décorations d’avatar et plaques de nom, stockés à part pour que les gros médias ne les évincent jamais.
+# Context: image_cache_settings
+settings-image-cache-usage = { $used } sur { $limit } utilisés.
+# Context: image_cache_settings
+settings-image-cache-usage-unavailable = L’utilisation s’affiche une fois les images chargées.
+# Context: image_cache_settings
+settings-image-cache-clear = Vider
+# Context: image_cache_settings
+settings-image-cache-clear-description = Supprime maintenant ces images téléchargées. Les messages, brouillons et votre connexion sont conservés.
+# Context: image_cache_settings
+settings-image-cache-retention = Supprimer les images inutilisées après
+# Context: image_cache_settings
+settings-image-cache-retention-description = Les images en cache non affichées pendant cette durée sont supprimées du disque.
+# Context: image_cache_settings
+settings-image-cache-days =
+    { $count ->
+        [one] { $count } jour
+       *[other] { $count } jours
+    }
 
 ## crates/ui/src/slash_commands.rs
 # Context: argument
@@ -3525,6 +3589,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Commande i
 slash-commands-footer-refresh-application-commands = Actualiser les commandes de l'application
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Cet autocollant provient d'un serveur accessible uniquement sur invitation ou indisponible.
 # Context: message
 stickers-message-loading-sticker-details = Chargement des détails de l'autocollant…
 # Context: message
@@ -3574,7 +3640,7 @@ theme-editor-appearance-switch-dark = Sombre
 # Context: appearance_switch
 theme-editor-appearance-switch-editing = Édition
 # Context: appearance_switch
-theme-editor-appearance-switch-light = Lumière
+theme-editor-appearance-switch-light = Clair
 # Context: color_input
 theme-editor-color-input-use-rrggbb-or-rrggbbaa = Utilisez #RRGGBB ou #RRGGBBAA
 # Context: color_override
@@ -3746,7 +3812,7 @@ theme-editor-tab-basics = Les bases
 # Context: key
 theme-editor-tab-colors = Couleurs
 # Context: toolbar
-theme-editor-toolbar-back = Dos
+theme-editor-toolbar-back = Retour
 # Context: toolbar
 theme-editor-toolbar-preview-in-app = Aperçu dans l'application
 # Context: toolbar
@@ -3780,7 +3846,7 @@ timeline-deleted-message-actions-toggle-deleted-highlight = Basculer la surbrill
 # Context: loading_messages
 timeline-loading-messages-loading-messages = Chargement des messages
 # Context: message_actions
-timeline-message-actions-copy = Copie
+timeline-message-actions-copy = Copier
 # Context: message_actions
 timeline-message-actions-copy-message-id = Copier l'ID du message
 # Context: message_actions
@@ -3794,7 +3860,7 @@ timeline-message-actions-edit-message = Modifier le message
 # Context: message_actions
 timeline-message-actions-extensions = Rallonges
 # Context: message_actions
-timeline-message-actions-forward = Avant
+timeline-message-actions-forward = Transférer
 # Context: message_actions
 timeline-message-actions-mark-read-through-here = Mark a lu ici
 # Context: message_actions
@@ -3869,7 +3935,7 @@ timeline-unread-banner-jump-to-unread = Aller aux non lus
 
 ## crates/ui/src/toasts.rs
 # Context: show
-toasts-show-dismiss = Rejeter
+toasts-show-dismiss = Ignorer
 
 ## crates/ui/src/updates.rs
 # Context: shows_update_banner
@@ -3889,7 +3955,7 @@ updates-update-settings-check-for-updates = Vérifier les mises à jour
 # Context: update_settings
 updates-update-settings-copied = Copié
 # Context: update_settings
-updates-update-settings-copy = Copie
+updates-update-settings-copy = Copier
 # Context: update_settings
 updates-update-settings-copy-command = Commande Copier
 # Context: update_settings
@@ -3927,7 +3993,29 @@ updates-update-settings-restart-to-update = Redémarrer pour mettre à jour
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein a été installé via votre distribution. Exécutez ceci dans un terminal pour mettre à jour.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Enregistrer le diagnostic
+# Context: update_settings
 updates-update-settings-support-diagnostics = Assistance et diagnostic
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Copier les dernières lignes
+# Context: update_settings
+updates-update-settings-diagnostic-log = Journal de diagnostic
+# Context: update_settings
+updates-update-settings-log-errors = Erreurs
+# Context: update_settings
+updates-update-settings-log-events = Erreurs, avertissements et événements
+# Context: update_settings
+updates-update-settings-log-everything = Tout (détaillé)
+# Context: update_settings
+updates-update-settings-log-off = Désactivé
+# Context: update_settings
+updates-update-settings-log-warnings = Erreurs et avertissements
+# Context: update_settings
+updates-update-settings-open-folder = Ouvrir le dossier
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Impossible d’écrire le dossier du journal. Vérifiez le dossier de données de Serein et réessayez.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Durées, étapes et échecs dans un seul fichier journal local. Les données de compte, de salon, de message et les identifiants ne sont jamais écrits, et rien n’est envoyé.
 # Context: update_log
 updates-update-log = Journal des mises à jour
 # Context: update_settings
@@ -3962,6 +4050,8 @@ user-menu-contents-private-nicknames-are-available-for-confirmed-friends = Des p
 user-menu-contents-profile = Profil
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = Supprimez cette conversation de votre liste DM. Les messages sont conservés.
+# Context: contents
+user-menu-contents-roles = Rôles
 # Context: contents
 user-menu-contents-unblock = Débloquer
 # Context: contents
@@ -4057,7 +4147,7 @@ voice-live-badge-live-2 = En direct
 # Context: live_badge
 voice-live-badge-streaming = Streaming
 # Context: microphone_preview_controls
-voice-microphone-preview-controls-hear-yourself-through-your-selected-speakers-use-headphones-to-avoid = Écoutez-vous à travers les enceintes sélectionnées. Utilisez des écouteurs pour éviter les commentaires.
+voice-microphone-preview-controls-hear-yourself-through-your-selected-speakers-use-headphones-to-avoid = Écoutez-vous à travers les enceintes sélectionnées. Utilisez un casque pour éviter l'écho.
 # Context: microphone_preview_controls
 voice-microphone-preview-controls-input-level = Niveau d'entrée
 # Context: microphone_preview_controls
@@ -4079,7 +4169,7 @@ voice-mute-toggle-mute = Muet
 # Context: mute_toggle
 voice-mute-toggle-speaking-is-unavailable-in-this-channel = La parole n’est pas disponible sur cette chaîne.
 # Context: mute_toggle
-voice-mute-toggle-undeafen = Insourdissant
+voice-mute-toggle-undeafen = Désactiver le mode sourdine
 # Context: mute_toggle
 voice-mute-toggle-unmute = Activer le son
 # Context: mute_toggle_with_settings
@@ -4111,6 +4201,10 @@ voice-voice-card-section-disconnect = Déconnecter
 # Context: voice_card_section
 voice-voice-card-section-dismiss-call = Rejeter l'appel
 # Context: voice_card_section
+voice-voice-card-section-reconnect-attempt = { $reason } · tentative { $attempt } sur { $total }
+# Context: voice_card_section
+voice-voice-card-section-reconnecting = Reconnexion…
+# Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Microphone indisponible · toujours connecté. Choisissez une autre entrée dans les paramètres audio.
 # Context: voice_channel_button
 voice-voice-channel-button-connected = , connecté
@@ -4129,7 +4223,7 @@ voice-voice-participant-deafened = Assourdi
 # Context: voice_participant
 voice-voice-participant-deafened-by-server = Assourdi par le serveur
 # Context: voice_participant_menu
-voice-voice-participant-menu-mute = Muet
+voice-voice-participant-menu-mute = Couper le micro
 # Context: voice_participant_menu
 voice-voice-participant-menu-reset-volume = Réinitialiser le volume
 # Context: voice_participant_menu
@@ -4187,7 +4281,7 @@ voice-voice-processing-controls-input-profile = Profil d'entrée
 # Context: voice_processing_controls
 voice-voice-processing-controls-input-threshold = Seuil d'entrée
 # Context: voice_processing_controls
-voice-voice-processing-controls-mute-and-deafen-always-take-priority = Les sourds et les sourds sont toujours prioritaires.
+voice-voice-processing-controls-mute-and-deafen-always-take-priority = Couper le micro et le son est toujours prioritaire.
 # Context: voice_processing_controls
 voice-voice-processing-controls-noise-suppression = Suppression du bruit
 # Context: voice_processing_controls
@@ -4395,6 +4489,7 @@ lib-composer-onboarding-incomplete = Termine de rejoindre ce serveur pour déblo
 lib-composer-onboarding-complete = Terminer l'accueil
 profiles-message-placeholder = Message à @{ $user }
 profiles-message-send = Envoyer le message
+profiles-message-open-chat = Ouvrir la discussion
 profiles-message-sending = Ouverture du message privé…
 user-menu-contents-start-a-call = Démarrer un appel
 verification-show-complete-the-check-to-open-this-conversation = Termine la vérification pour ouvrir cette conversation.
@@ -4507,3 +4602,279 @@ profiles-activity-empty = Aucune activité partagée.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+
+## crates/platform/src/app_menu.rs
+# Context: macos_menu_bar
+app-menu-about = À propos de Serein
+# Context: macos_menu_bar
+app-menu-updates = Rechercher les mises à jour…
+# Context: macos_menu_bar
+app-menu-settings = Réglages…
+# Context: macos_menu_bar
+app-menu-services = Services
+# Context: macos_menu_bar
+app-menu-hide = Masquer Serein
+# Context: macos_menu_bar
+app-menu-hide-others = Masquer les autres
+# Context: macos_menu_bar
+app-menu-show-all = Tout afficher
+# Context: macos_menu_bar
+app-menu-quit = Quitter Serein
+# Context: macos_menu_bar
+app-menu-file = Fichier
+# Context: macos_menu_bar
+app-menu-close-window = Fermer la fenêtre
+# Context: macos_menu_bar
+app-menu-edit = Édition
+# Context: macos_menu_bar
+app-menu-undo = Annuler
+# Context: macos_menu_bar
+app-menu-redo = Rétablir
+# Context: macos_menu_bar
+app-menu-cut = Couper
+# Context: macos_menu_bar
+app-menu-copy = Copier
+# Context: macos_menu_bar
+app-menu-paste = Coller
+# Context: macos_menu_bar
+app-menu-select-all = Tout sélectionner
+# Context: macos_menu_bar
+app-menu-emoji = Emoji et symboles
+# Context: macos_menu_bar
+app-menu-view = Présentation
+# Context: macos_menu_bar
+app-menu-actual-size = Taille réelle
+# Context: macos_menu_bar
+app-menu-zoom-in = Zoom avant
+# Context: macos_menu_bar
+app-menu-zoom-out = Zoom arrière
+# Context: macos_menu_bar
+app-menu-full-screen = Passer en plein écran
+# Context: macos_menu_bar
+app-menu-window = Fenêtre
+# Context: macos_menu_bar
+app-menu-minimize = Placer dans le Dock
+# Context: macos_menu_bar
+app-menu-zoom = Réduire/agrandir
+# Context: macos_menu_bar
+app-menu-bring-all-to-front = Tout ramener au premier plan
+# Context: macos_menu_bar
+app-menu-help = Aide
+# Context: macos_menu_bar
+app-menu-github = Serein sur GitHub
+# Context: macos_menu_bar
+app-menu-report-issue = Signaler un problème…
+
+## crates/model/src/system_messages.rs
+# Context: system_message
+system-message-a-member = un membre
+# Context: system_message
+system-message-added = { $actor } a ajouté { $target } à la conversation.
+# Context: system_message
+system-message-left = { $actor } a quitté la conversation.
+# Context: system_message
+system-message-removed = { $actor } a retiré { $target } de la conversation.
+# Context: system_message
+system-message-call = { $actor } a lancé un appel.
+# Context: system_message
+system-message-channel-name = { $actor } a changé le nom du salon.
+# Context: system_message
+system-message-channel-name-value = { $actor } a changé le nom du salon : { $value }
+# Context: system_message
+system-message-channel-icon = { $actor } a changé l'icône du salon.
+# Context: system_message
+system-message-pinned = { $actor } a épinglé un message dans ce salon.
+# Context: system_message
+system-message-joined = Bienvenue, { $actor } ! A rejoint le serveur.
+# Context: system_message
+system-message-boosted = { $actor } a boosté le serveur !
+# Context: system_message
+system-message-boosted-level = { $actor } a boosté le serveur ! Le serveur a atteint le niveau { $level }.
+# Context: system_message
+system-message-channel-follow = { $actor } a ajouté un suivi de salon.
+# Context: system_message
+system-message-discovery-disqualified = Ce serveur n'est plus éligible à la Découverte de serveurs.
+# Context: system_message
+system-message-discovery-requalified = Ce serveur est de nouveau éligible à la Découverte de serveurs.
+# Context: system_message
+system-message-discovery-warning = Avertissement d'éligibilité à la Découverte de serveurs.
+# Context: system_message
+system-message-discovery-final-warning = Dernier avertissement d'éligibilité à la Découverte de serveurs.
+# Context: system_message
+system-message-thread = { $actor } a créé un fil.
+# Context: system_message
+system-message-thread-value = { $actor } a créé un fil : { $value }
+# Context: system_message
+system-message-thread-starter = Fil créé à partir d'un message précédent.
+# Context: system_message
+system-message-invite-reminder = Rappel d'invitation · Invitez des personnes sur ce serveur.
+# Context: system_message
+system-message-automod = Action d'AutoMod.
+# Context: system_message
+system-message-role-subscription = { $actor } a acheté ou renouvelé un abonnement de rôle.
+# Context: system_message
+system-message-premium-upsell = Offre d'abonnement premium.
+# Context: system_message
+system-message-stage-start = { $actor } a lancé une conférence.
+# Context: system_message
+system-message-stage-end = La conférence est terminée.
+# Context: system_message
+system-message-stage-speaker = { $actor } intervient désormais dans la conférence.
+# Context: system_message
+system-message-stage-raise-hand = { $actor } a demandé à prendre la parole.
+# Context: system_message
+system-message-stage-topic = { $actor } a changé le sujet de la conférence.
+# Context: system_message
+system-message-application-subscription = Abonnement premium d'application du serveur.
+# Context: system_message
+system-message-raid-alert-enabled = Mode d'alerte du serveur activé.
+# Context: system_message
+system-message-raid-alert-disabled = Mode d'alerte du serveur désactivé.
+# Context: system_message
+system-message-raid-report = Un raid sur le serveur a été signalé.
+# Context: system_message
+system-message-false-alarm = Un incident du serveur a été signalé comme fausse alerte.
+# Context: system_message
+system-message-purchase = Notification d'achat.
+# Context: system_message
+system-message-poll-closed = Le sondage { $question } de { $actor } est terminé.
+# Context: system_message
+system-message-poll-result = Résultats du sondage.
+# Context: system_message
+system-message-stream-hd = { $actor } a passé le stream en HD.
+# Context: system_message
+system-message-report-deleted = { $actor } a supprimé un message signalé.
+# Context: system_message
+system-message-timed-out = { $actor } a exclu temporairement { $target }.
+# Context: system_message
+system-message-kicked = { $actor } a expulsé { $target }.
+# Context: system_message
+system-message-banned = { $actor } a banni { $target }.
+# Context: system_message
+system-message-report-resolved = { $actor } a traité un signalement.
+# Context: system_message
+system-message-voice-hangout = { $actor } a lancé un salon vocal improvisé.
+# Context: system_message
+system-message-friend-accepted = { $actor } a accepté votre demande d'ami.
+
+## crates/ui/src/lib.rs composer
+# Context: composer_placeholder
+composer-placeholder = Message
+# Context: composer_placeholder
+composer-placeholder-channel = Envoyer un message dans #{ $channel }
+# Context: composer_placeholder
+composer-placeholder-direct = Envoyer un message à @{ $name }
+
+# Context: timeline_dm_intro
+timeline-dm-intro = Ceci est le début de votre historique de messages privés avec { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Bienvenue au début du groupe { $name }.
+
+# Context: timeline_channel_intro
+timeline-channel-intro-title = Bienvenue dans #{ $channel } !
+# Context: timeline_channel_intro
+timeline-channel-intro-start = Ceci est le début du salon #{ $channel }.
+show-user-profile = Afficher le profil
+hide-user-profile = Masquer le profil
+view-full-profile = Voir le profil complet
+# Context: text_menu
+text-menu-cut = Couper
+text-menu-copy = Copier
+text-menu-paste = Coller
+text-menu-select-all = Tout sélectionner
+# Context: media_box
+forum-composer-attached-files = { $count ->
+    [one] { $count } fichier joint
+   *[other] { $count } fichiers joints
+    }
+forum-composer-remove-file = Retirer { $file }
+post-menu-post-action-failed = L'action sur la publication a échoué
+post-menu-thread-action-failed = L'action sur le fil a échoué
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = Commun
+# Context: badges
+badges-rarity-rare = Rare
+# Context: badges
+badges-rarity-epic = Épique
+# Context: badges
+badges-rarity-mythic = Mythique
+# Context: badges
+badges-always-visible = Toujours affiché sur votre profil
+# Context: badges
+badges-click-show = Cliquez pour afficher
+# Context: badges
+badges-click-hide = Cliquez pour masquer
+# Context: badges
+badges-customize-title = Personnaliser vos badges
+# Context: badges
+badges-customize-hint = Faites glisser pour réorganiser et masquez ceux que les autres ne doivent pas voir.
+# Context: badges
+badges-none = Aucun badge à afficher.
+# Context: badges
+badges-reset = Réinitialiser
+# Context: badges
+badges-saving = Enregistrement…
+# Context: badges
+badges-save = Enregistrer
+# Context: badges
+badges-view = Voir les badges
+# Context: badges
+badges-your = Vos badges
+# Context: badges
+badges-user = Badges de { $name }
+# Context: badges
+badges-browse = Parcourez vos badges et découvrez ceux que vous pouvez débloquer.
+# Context: badges
+badges-available = À débloquer
+# Context: badges
+badges-customize-button = Personnaliser vos badges
+# Context: badges
+badges-close = Fermer
+# Context: badges
+badges-locked = Pas encore débloqué
+# Context: badges
+badges-date-unlocked = Date de déblocage
+# Context: badges
+badges-rarity = Rareté
+# Context: badges
+badges-max-level = Vous avez atteint le niveau le plus élevé de ce badge.
+# Context: badges
+badges-next-level = Niveau suivant : { $tier }
+# Context: badges
+badges-all-levels = Voir tous les niveaux
+# Context: badges
+badges-hide-levels = Masquer les niveaux
+# Context: badges
+badges-manage = Gérer vos badges
+page-language-time = Langue et heure
+description-language-time = Langue d'affichage et format de l'heure.
+time-format-group = Format de l'heure
+time-format-auto = Automatique
+time-format-12-hour = 12 heures
+time-format-24-hour = 24 heures
+profiles-status-edit = Modifier le statut
+profiles-status-clear = Effacer le statut
+send-throttled-title = Holà, beaucoup trop épicé
+send-throttled-body = Vous envoyez des messages trop rapidement !
+send-throttled-dismiss = Entrer dans la zone zen
+profiles-private-profile = Profil privé
+profiles-private-notice = Le profil de { $name } est privé, certaines infos sont donc masquées. Ajoutez cette personne en ami pour en voir plus.
+settings-cosmetics-name-styles = Styles de nom
+settings-cosmetics-name-styles-description = Polices, couleurs et effets de pseudo Nitro.
+search-overlays-message-contains = Le message contient
+search-overlays-no-matching-content-types = Aucun type de contenu correspondant
+search-overlays-history = Historique
+search-overlays-clear-history = Effacer l'historique de recherche
+main-sign-in-rate-limited-detail = Discord limite cette connexion. Patientez avant de réessayer. Une nouvelle tentative trop tôt peut prolonger l'attente.
+
+# New message
+new-message-title = Nouveau message
+new-message-subtitle = Les messages de groupe peuvent compter jusqu'à 10 membres.
+new-message-search = Rechercher
+new-message-hint = Ajoutez des amis pour démarrer un message privé ou un groupe.
+new-message-no-people-found = Personne ne correspond à cette recherche.
+new-message-create = Créer un message
+new-message-cancel = Annuler

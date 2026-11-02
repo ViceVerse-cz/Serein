@@ -14,11 +14,14 @@ pub mod notification_preferences;
 pub mod onboarding;
 pub mod voice_settings;
 pub use channel_preferences::{ChannelPreferences, PreferenceEdit, Shortcut};
-pub use keybinds::{KeyChord, KeybindAction, Keybinds};
+pub use keybinds::{CustomBinding, KeyChord, KeybindAction, Keybinds};
 pub mod forum;
 pub mod gifs;
 mod graphics;
+pub mod threads;
 pub use graphics::GpuPreference;
+mod time_format;
+pub use time_format::TimeFormat;
 pub mod guild_folders;
 pub mod message_options;
 pub mod permissions;
@@ -30,6 +33,11 @@ pub mod server_invites;
 pub mod server_roles;
 pub mod server_settings;
 pub use reading_preferences::ReadingPreferences;
+mod cache_preferences;
+pub use cache_preferences::*;
+pub mod badges;
+mod cosmetics;
+pub use cosmetics::*;
 mod profile;
 mod system_messages;
 pub use profile::*;
@@ -108,6 +116,9 @@ pub struct User {
 	/// Service-supplied server identity displayed beside this user's name.
 	#[serde(default, skip_serializing)]
 	pub primary_guild: Option<Box<ClanTag>>,
+	/// Service-supplied avatar decoration and nameplate; display-only, never persisted.
+	#[serde(default, skip)]
+	pub cosmetics: Option<Box<Cosmetics>>,
 }
 impl User {
 	pub fn account_label(&self) -> Option<&'static str> {
@@ -126,7 +137,9 @@ impl User {
 				std::mem::size_of::<ClanTag>()
 					+ guild.tag.capacity()
 					+ guild.badge.as_ref().map_or(0, String::capacity)
-			})
+			}) + self.cosmetics.as_ref().map_or(0, |cosmetics| {
+			std::mem::size_of::<Cosmetics>() + cosmetics.heap_bytes()
+		})
 	}
 	pub fn avatar_key(&self) -> String {
 		if let Some(hash) = self
@@ -204,16 +217,58 @@ impl SavedAccount {
 			.filter(|display| !display.is_empty())
 			.unwrap_or(&self.name)
 	}
+	/// Roster identity of the account that just signed in. The handle is stored apart from the
+	/// display name: the user this client keeps already carries the display name, so the handle
+	/// comes from `own`, the loaded profile's handle and display name. A loaded profile is
+	/// authoritative, including a removed display name; until it loads the entry keeps what
+	/// `previous` knew. An unknown handle is recorded as the display name, so `handle` hides it.
+	pub fn identity(
+		user: &User,
+		own: Option<(&str, Option<&str>)>,
+		previous: Option<&SavedAccount>,
+	) -> Self {
+		let (handle, display) = match own {
+			Some((handle, display)) => (Some(handle), display),
+			None => (
+				previous.map(|saved| saved.name.as_str()),
+				previous.and_then(|saved| saved.display.as_deref()),
+			),
+		};
+		let handle = handle.filter(|handle| !handle.is_empty());
+		let display = display
+			.filter(|display| !display.is_empty())
+			.or(handle.is_none().then_some(user.name.as_str()));
+		Self {
+			id: user.id,
+			name: handle.unwrap_or(&user.name).to_owned(),
+			display: display.map(str::to_owned),
+			avatar: user.avatar.clone(),
+			discriminator: user.discriminator,
+			has_token: false,
+		}
+	}
+	/// The handle shown under the display name. An entry recorded before the handle was kept
+	/// carries the display name twice, so it shows no handle until that account signs in again
+	/// and rewrites its entry.
+	pub fn handle(&self) -> Option<&str> {
+		let display = self
+			.display
+			.as_deref()
+			.filter(|display| !display.is_empty());
+		(display != Some(self.name.as_str())).then_some(self.name.as_str())
+	}
 	/// Avatar lookups and name rows reuse the ordinary user widgets.
 	pub fn user(&self) -> User {
 		User {
 			kind: AccountKind::Human,
 			webhook: false,
 			id: self.id,
-			name: self.name.clone(),
+			// Initials fall back to the display name, as for every other avatar.
+			name: self.label().to_owned(),
 			avatar: self.avatar.clone(),
 			discriminator: self.discriminator,
 			primary_guild: None,
+			cosmetics: None,
 		}
 	}
 	pub fn heap_bytes(&self) -> usize {
@@ -226,9 +281,22 @@ pub fn valid_avatar_hash(hash: &str) -> bool {
 	let hash = hash.strip_prefix("a_").unwrap_or(hash);
 	hash.len() == 32 && hash.bytes().all(|b| b.is_ascii_hexdigit())
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum JoinedTarget {
+	Guild(Id),
+	Channel(Id),
+}
+impl JoinedTarget {
+	pub fn id(&self) -> Id {
+		match self {
+			Self::Guild(id) | Self::Channel(id) => *id,
+		}
+	}
+}
 #[derive(Clone)]
 pub struct InvitePreview {
-	pub guild: Id,
+	pub guild: Option<Id>,
+	pub channel: Option<Id>,
 	pub embed: Embed,
 }
 impl InvitePreview {
@@ -327,6 +395,9 @@ impl Interaction {
 		size_of::<Self>() + self.user.heap_bytes() + self.command.capacity()
 	}
 }
+/// Message flag: this message started a thread, whose thread channel shares its ID.
+/// [Documented message flags](https://docs.discord.com/developers/resources/message#message-object)
+pub const HAS_THREAD: u64 = 1 << 5;
 #[derive(Clone, PartialEq, Eq)]
 pub struct Message {
 	pub poll: Option<Box<polls::Poll>>,
@@ -549,20 +620,7 @@ impl ActivityImage {
 			Self::Asset { application, asset } => application.0 != 0 && asset.0 != 0,
 			Self::Application(id) => id.0 != 0,
 			Self::Spotify(id) => id.len() == 40 && id.bytes().all(|b| b.is_ascii_hexdigit()),
-			Self::Proxy(path) => {
-				!path.is_empty()
-					&& path.len() <= 1024
-					&& !path.starts_with('/')
-					&& !path
-						.chars()
-						.any(|c| c.is_control() || c.is_whitespace() || c == '\\')
-					&& !path.split('/').any(|part| matches!(part, "." | ".."))
-					&& !path.as_bytes().windows(3).any(|part| {
-						part.eq_ignore_ascii_case(b"%2e")
-							|| part.eq_ignore_ascii_case(b"%2f")
-							|| part.eq_ignore_ascii_case(b"%5c")
-					})
-			}
+			Self::Proxy(path) => valid_activity_proxy_path(path),
 		}
 	}
 	pub fn heap_bytes(&self) -> usize {
@@ -579,6 +637,85 @@ impl ActivityImage {
 			Self::Spotify(id) => format!("spotify-{id}"),
 		}
 	}
+}
+
+// The source URL within an external proxy reference is opaque data. Its encoded dots
+// and slashes are not routing separators, but decoded dot segments must still be rejected.
+fn valid_activity_proxy_path(path: &str) -> bool {
+	if path.is_empty()
+		|| path.len() > 1024
+		|| path.starts_with('/')
+		|| path
+			.chars()
+			.any(|c| c.is_control() || c.is_whitespace() || c == '\\')
+		|| path.split('/').any(|part| matches!(part, "." | ".."))
+		|| path
+			.as_bytes()
+			.windows(3)
+			.any(|part| part.eq_ignore_ascii_case(b"%5c"))
+	{
+		return false;
+	}
+	let encoded_separator =
+		|part: &[u8]| part.eq_ignore_ascii_case(b"%2e") || part.eq_ignore_ascii_case(b"%2f");
+	if !path.as_bytes().windows(3).any(encoded_separator) {
+		return true;
+	}
+	// Confine the encoding exception to the same external-image envelope the worker
+	// accepts. Do not relax references to other Discord paths or encoded authorities.
+	let Some((hash, source)) = path
+		.strip_prefix("external/")
+		.and_then(|p| p.split_once('/'))
+	else {
+		return false;
+	};
+	if !(16..=256).contains(&hash.len())
+		|| !hash
+			.bytes()
+			.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+	{
+		return false;
+	}
+	let Some((mut scheme, mut source)) = source.split_once('/') else {
+		return false;
+	};
+	if scheme
+		.get(..3)
+		.is_some_and(|s| s.eq_ignore_ascii_case("%3f"))
+	{
+		let Some(parts) = source.split_once('/') else {
+			return false;
+		};
+		(scheme, source) = parts;
+	}
+	let domain = source.split('/').next().unwrap_or_default();
+	if !matches!(scheme, "https" | "http")
+		|| domain.is_empty()
+		|| domain.as_bytes().windows(3).any(encoded_separator)
+	{
+		return false;
+	}
+	let bytes = path.as_bytes();
+	let (mut index, mut dots) = (0, Some(0));
+	while let Some(&byte) = bytes.get(index) {
+		let (byte, length) = match bytes.get(index..index + 3) {
+			Some(part) if part.eq_ignore_ascii_case(b"%2e") => (b'.', 3),
+			Some(part) if part.eq_ignore_ascii_case(b"%2f") => (b'/', 3),
+			_ => (byte, 1),
+		};
+		match byte {
+			b'/' => {
+				if matches!(dots, Some(1 | 2)) {
+					return false;
+				}
+				dots = Some(0);
+			}
+			b'.' => dots = dots.map(|n| n + 1),
+			_ => dots = None,
+		}
+		index += length;
+	}
+	!matches!(dots, Some(1 | 2))
 }
 
 /// Bounded activity metadata. Secrets and actions are never retained.
@@ -944,6 +1081,71 @@ mod presence_tests {
 		);
 		assert!(!ActivityImage::Proxy("external/../secret".into()).valid());
 		assert!(!ActivityImage::Proxy("x".repeat(1025)).valid());
+		for path in [
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/art/%2e%2E/secret.png",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/art%2F..%2fsecret.png",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/art%5csecret.png",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example%2ecom/art.png",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/%3Fv%3D4/file/example.com/art%2Epng",
+			"attachments/1/2/art%2Fsecret.png",
+		] {
+			assert!(!ActivityImage::Proxy(path.into()).valid(), "{path}");
+		}
+	}
+}
+
+#[cfg(test)]
+mod roster_identity_tests {
+	use super::*;
+
+	fn user(name: &str) -> User {
+		User {
+			id: Id(2),
+			name: name.into(),
+			avatar: None,
+			webhook: false,
+			kind: AccountKind::Human,
+			discriminator: 0,
+			primary_guild: None,
+			cosmetics: None,
+		}
+	}
+
+	#[test]
+	fn a_roster_entry_keeps_the_handle_apart_from_the_display_name() {
+		// The user this client keeps already carries the display name, so a roster entry built
+		// from it alone showed that name on both switcher lines.
+		let user = user("Display name");
+		let saved = SavedAccount::identity(&user, Some(("handle", Some("Display name"))), None);
+		assert_eq!(
+			(saved.name.as_str(), saved.label()),
+			("handle", "Display name")
+		);
+		assert_eq!(saved.user().name, "Display name");
+		assert!(saved.is_valid());
+		// Regression: before the own profile loads, the display name is never shown as a handle.
+		let pending = SavedAccount::identity(&user, None, None);
+		assert_eq!((pending.label(), pending.handle()), ("Display name", None));
+		assert!(pending.is_valid());
+		// Until it loads, a known entry keeps its handle and display name.
+		let kept = SavedAccount::identity(&user, None, Some(&saved));
+		assert_eq!(
+			(kept.label(), kept.handle()),
+			("Display name", Some("handle"))
+		);
+		// Regression: a loaded profile without a display name clears the saved one.
+		let plain = SavedAccount::identity(&user, Some(("handle", None)), Some(&saved));
+		assert_eq!((plain.label(), plain.display.as_deref()), ("handle", None));
+		assert_eq!(plain.handle(), Some("handle"));
+		assert_eq!(saved.handle(), Some("handle"));
+		// A row written before the handle was kept names the account once, never twice.
+		let stale = SavedAccount {
+			name: "Display name".into(),
+			display: Some("Display name".into()),
+			..saved
+		};
+		assert_eq!(stale.handle(), None);
+		assert_eq!(stale.label(), "Display name");
 	}
 }
 

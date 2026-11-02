@@ -31,6 +31,9 @@ fn is_animated_key(key: &str) -> bool {
 	if key.starts_with("anim:") {
 		return true;
 	}
+	if let Some(cosmetic) = Cosmetic::parse(key) {
+		return cosmetic.animated();
+	}
 	if let Some(value) = key.strip_prefix("banner-") {
 		return value
 			.split_once('-')
@@ -52,7 +55,11 @@ fn is_animated_key(key: &str) -> bool {
 	false
 }
 fn encoded_limit(key: &str) -> usize {
-	if let Some(rendition) = Rendition::parse(key) {
+	if let Some(cosmetic) = Cosmetic::parse(key) {
+		cosmetic.budget().encoded
+	} else if key.starts_with("badge-art:") {
+		badge_art_budget().encoded
+	} else if let Some(rendition) = Rendition::parse(key) {
 		media_encoded(&rendition)
 	} else if is_animated_key(key) {
 		MAX_ANIMATED_ENCODED
@@ -73,13 +80,15 @@ fn media_encoded(rendition: &Rendition) -> usize {
 	};
 	match rendition.motion {
 		Motion::Animated => MAX_ANIMATED_ENCODED,
+		Motion::Still if ui::is_motion_video(rendition.source.as_str()) => MAX_ANIMATED_ENCODED,
 		Motion::Still => {
 			(width as usize * height as usize * 3).clamp(MAX_ENCODED, MAX_MEDIA_ENCODED)
 		}
 	}
 }
 fn decode_edge(key: &str) -> u32 {
-	if key.starts_with("anim:")
+	// Animated emoji fall through to the still emoji edge, which keeps their frames small.
+	if (key.starts_with("anim:") && !key.starts_with("anim:emoji-"))
 		|| key.starts_with("embed:")
 		|| key.starts_with("gif:")
 		|| key.starts_with("spotify-")
@@ -87,6 +96,8 @@ fn decode_edge(key: &str) -> u32 {
 		|| key.starts_with("member-banner-")
 	{
 		ui::EMBED_EDGE
+	} else if key.starts_with("badge-art:") {
+		256
 	} else {
 		128
 	}
@@ -140,7 +151,142 @@ impl FrameBudget {
 }
 
 /// Determines the memory and dimension bounds for decoding the image identified by `key`.
+/// Collectible artwork. Every route is unofficial client behavior; see
+/// docs/discord-compatibility.md.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Cosmetic {
+	Decoration { animated: bool },
+	Nameplate,
+	AnimatedNameplate,
+	Effect,
+	EffectStill,
+	FrameLayer,
+}
+
+impl Cosmetic {
+	fn parse(key: &str) -> Option<Self> {
+		if let Some(asset) = key.strip_prefix("decoration-") {
+			return Some(Self::Decoration {
+				animated: asset.starts_with("a_"),
+			});
+		}
+		if key.starts_with("nameplate-anim-") {
+			return Some(Self::AnimatedNameplate);
+		}
+		if key.starts_with("nameplate-") {
+			return Some(Self::Nameplate);
+		}
+		if key.starts_with("effect-still-") {
+			return Some(Self::EffectStill);
+		}
+		if key.starts_with("effect-") {
+			return Some(Self::Effect);
+		}
+		key.starts_with("frame-").then_some(Self::FrameLayer)
+	}
+	fn animated(self) -> bool {
+		matches!(
+			self,
+			Self::Decoration { animated: true } | Self::AnimatedNameplate | Self::Effect
+		)
+	}
+	fn url(key: &str) -> Option<String> {
+		const CDN: &str = "https://cdn.discordapp.com";
+		match Self::parse(key)? {
+			Self::Decoration { animated } => {
+				let asset = key.strip_prefix("decoration-")?;
+				model::valid_avatar_hash(asset).then(|| {
+					format!(
+						"{CDN}/avatar-decoration-presets/{asset}.png?size=240&passthrough={animated}"
+					)
+				})
+			}
+			Self::AnimatedNameplate => {
+				let sku: Id = key.strip_prefix("nameplate-anim-")?.parse().ok()?;
+				(sku.0 != 0).then(|| format!("{CDN}/media/v1/collectibles-shop/{sku}/animated"))
+			}
+			Self::Nameplate => {
+				let asset = key.strip_prefix("nameplate-")?;
+				if !model::valid_nameplate_asset(asset) {
+					return None;
+				}
+				let mut url = url::Url::parse(&format!("{CDN}/assets/collectibles")).ok()?;
+				url.path_segments_mut()
+					.ok()?
+					.extend(asset.trim_end_matches('/').split('/'))
+					.push("static.png");
+				Some(url.into())
+			}
+			Self::Effect | Self::EffectStill => {
+				let value = key
+					.strip_prefix("effect-still-")
+					.or_else(|| key.strip_prefix("effect-"))?;
+				let (tag, hash) = value.split_once('-')?;
+				let asset = model::EffectAsset {
+					shop: tag == "s",
+					hash: hash.to_owned(),
+				};
+				(matches!(tag, "c" | "s") && asset.valid()).then(|| {
+					if asset.shop {
+						format!("{CDN}/media/v1/collectibles-shop/{hash}")
+					} else {
+						format!("{CDN}/assets/content/{hash}")
+					}
+				})
+			}
+			Self::FrameLayer => {
+				let (sku, layer) = key.strip_prefix("frame-")?.split_once('-')?;
+				let sku: Id = sku.parse().ok()?;
+				let layer: Id = layer.parse().ok()?;
+				(sku.0 != 0 && layer.0 != 0)
+					.then(|| format!("{CDN}/media/v1/collectibles-shop/{sku}/{layer}/static"))
+			}
+		}
+	}
+	/// Effects are 450 x 880 APNG layers of about 30 frames; frame layers are authored for
+	/// a 1200-unit card, so they keep more width than other still artwork.
+	fn budget(self) -> Budget {
+		let (fit, encoded, frames) = match self {
+			Self::Decoration { .. } => (256, 4 * 1024 * 1024, 16 * 1024 * 1024),
+			Self::Nameplate => (ui::EMBED_EDGE, 8 * 1024 * 1024, 0),
+			Self::EffectStill => (ui::EFFECT_EDGE, 8 * 1024 * 1024, 0),
+			Self::AnimatedNameplate => (ui::EMBED_EDGE, MAX_ANIMATED_ENCODED, 16 * 1024 * 1024),
+			Self::Effect => (ui::EFFECT_EDGE, MAX_ANIMATED_ENCODED, 64 * 1024 * 1024),
+			Self::FrameLayer => (ui::FRAME_EDGE, 8 * 1024 * 1024, 0),
+		};
+		Budget {
+			fit,
+			encoded,
+			canvas: 4096,
+			alloc: 64 * 1024 * 1024,
+			frames: self.animated().then_some(FrameBudget {
+				fit,
+				bytes: frames,
+				count: 120,
+				shrinks: 1,
+			}),
+		}
+	}
+}
+
+/// Badge catalog art is often a large PNG; it is decoded within bounds and scaled down.
+fn badge_art_budget() -> Budget {
+	Budget {
+		fit: 256,
+		encoded: 4 * 1024 * 1024,
+		canvas: 4096,
+		alloc: 64 * 1024 * 1024,
+		frames: None,
+	}
+}
+
 fn budget(key: &str) -> Budget {
+	if let Some(cosmetic) = Cosmetic::parse(key) {
+		return cosmetic.budget();
+	}
+	if key.starts_with("badge-art:") {
+		return badge_art_budget();
+	}
 	let Some(rendition) = Rendition::parse(key) else {
 		let edge = decode_edge(key);
 		return Budget {
@@ -174,8 +320,12 @@ fn budget(key: &str) -> Budget {
 const MAX_AVATAR_ENCODED: usize = 512 * 1024;
 const MAX_LOTTIE_ENCODED: usize = 512 * 1024;
 const MAX_APPLICATION_METADATA: usize = 64 * 1024;
+// Default budgets; the owner chooses others in Settings › Storage.
+#[cfg(test)]
 const MAX_DISK: u64 = 1024 * 1024 * 1024;
+#[cfg(test)]
 const MAX_FILES: usize = 4096;
+#[cfg(test)]
 const RETENTION: Duration = Duration::from_secs(90 * 24 * 60 * 60);
 const CACHE_ERROR: &str = "Images could not be cached; they remain available in memory";
 pub type Cleanup = mpsc::Receiver<Result<(), &'static str>>;
@@ -284,41 +434,54 @@ pub struct AvatarWorker {
 	clear: Arc<AtomicBool>,
 	cleanup: Option<Cleanup>,
 	bundled_only: bool,
+	limits: watch::Sender<model::CachePreferences>,
+	clear_partition: async_mpsc::Sender<model::CachePartition>,
+	usage: watch::Receiver<Option<Usage>>,
 }
+/// Disk use of the media and shared-artwork caches, in that order.
+pub type Usage = [model::CacheUsage; 2];
+/// Shared artwork lives below the account's media cache, so one removal clears both.
+const ARTWORK_DIR: &str = "artwork";
 impl AvatarWorker {
 	pub fn start(
 		runtime: &tokio::runtime::Runtime,
 		account: Id,
 		ctx: egui::Context,
+		limits: model::CachePreferences,
 	) -> Result<Self, &'static str> {
 		let root = local_store::data_dir()
 			.ok()
 			.map(|root| root.join("avatars").join(account.to_string()));
-		Self::start_at(runtime, root, ctx)
+		Self::start_inner(runtime, root, ctx, false, limits)
 	}
+	#[cfg(test)]
 	fn start_at(
 		runtime: &tokio::runtime::Runtime,
 		root: Option<PathBuf>,
 		ctx: egui::Context,
 	) -> Result<Self, &'static str> {
-		Self::start_inner(runtime, root, ctx, false)
+		Self::start_inner(runtime, root, ctx, false, Default::default())
 	}
 	pub fn start_bundled(
 		runtime: &tokio::runtime::Runtime,
 		ctx: egui::Context,
 	) -> Result<Self, &'static str> {
-		Self::start_inner(runtime, None, ctx, true)
+		Self::start_inner(runtime, None, ctx, true, Default::default())
 	}
 	fn start_inner(
 		runtime: &tokio::runtime::Runtime,
 		root: Option<PathBuf>,
 		ctx: egui::Context,
 		bundled_only: bool,
+		limits: model::CachePreferences,
 	) -> Result<Self, &'static str> {
 		let (requests, receive) = async_mpsc::channel(1024);
 		let (send, results) = result_channel(ctx.clone());
 		let wake = ctx.clone();
 		let (cancel, cancelled) = watch::channel(false);
+		let (limits, watched_limits) = watch::channel(limits);
+		let (clear_partition, clears) = async_mpsc::channel(4);
+		let (publish, usage) = watch::channel(None);
 		let clear = Arc::new(AtomicBool::new(false));
 		let cleanup_flag = clear.clone();
 		let (done, cleanup) = mpsc::sync_channel(1);
@@ -326,7 +489,19 @@ impl AvatarWorker {
 		std::thread::Builder::new()
 			.name("avatar-cache".into())
 			.spawn(move || {
-				handle.block_on(run(root.as_deref(), receive, send, cancelled, bundled_only));
+				handle.block_on(run(
+					root.as_deref(),
+					receive,
+					send,
+					cancelled,
+					bundled_only,
+					Control {
+						limits: watched_limits,
+						clears,
+						usage: publish,
+						wake: ctx.clone(),
+					},
+				));
 				let result = if cleanup_flag.load(Ordering::Acquire) && !bundled_only {
 					clear_directory(root.as_deref())
 				} else {
@@ -344,7 +519,33 @@ impl AvatarWorker {
 			clear,
 			cleanup: Some(cleanup),
 			bundled_only,
+			limits,
+			clear_partition,
+			usage,
 		})
+	}
+	/// Applies new disk budgets; the worker evicts down to them before its next read.
+	pub fn set_limits(&self, limits: model::CachePreferences) {
+		self.limits.send_if_modified(|current| {
+			let changed = *current != limits;
+			*current = limits;
+			changed
+		});
+	}
+	/// Empties one partition without stopping image loading. False only while the worker's
+	/// queue is full, so the caller keeps the request and retries; a stopped worker or the
+	/// bundled demo worker has nothing to clear.
+	#[must_use]
+	pub fn clear_partition(&self, partition: model::CachePartition) -> bool {
+		self.bundled_only
+			|| !matches!(
+				self.clear_partition.try_send(partition),
+				Err(async_mpsc::error::TrySendError::Full(_))
+			)
+	}
+	/// Latest measured disk use, or `None` before the caches were opened.
+	pub fn usage(&self) -> Option<Usage> {
+		*self.usage.borrow()
 	}
 	pub fn request(&self, key: String) -> bool {
 		(ui::emoji::bundled_svg(&key).is_some() || (!self.bundled_only && cdn_url(&key).is_some()))
@@ -442,6 +643,9 @@ fn cdn_url(key: &str) -> Option<String> {
 	if key.starts_with("media:") {
 		return media_urls(&Rendition::parse(key)?).map(|urls| urls.primary);
 	}
+	if Cosmetic::parse(key).is_some() {
+		return Cosmetic::url(key);
+	}
 	if let Some(value) = key
 		.strip_prefix("anim:sticker-")
 		.or_else(|| key.strip_prefix("embed:sticker-"))
@@ -501,7 +705,10 @@ fn cdn_url(key: &str) -> Option<String> {
 	}
 	if let Some(id) = key.strip_prefix("app-icon-") {
 		let id: Id = id.parse().ok()?;
-		return Some(format!("https://discord.com/api/v10/applications/{id}/rpc"));
+		return Some(format!(
+			"{}/applications/{id}/rpc",
+			discord_api::api_v10_base()
+		));
 	}
 	if let Some(value) = key.strip_prefix("activity-") {
 		let (application, asset) = value.split_once('-')?;
@@ -516,6 +723,11 @@ fn cdn_url(key: &str) -> Option<String> {
 		return Some(format!(
 			"https://cdn.discordapp.com/emojis/{id}.png?size=64"
 		));
+	}
+	// Animated custom emoji; GIF is a documented custom emoji format in the CDN reference.
+	if let Some(id) = key.strip_prefix("anim:emoji-") {
+		let id: Id = id.parse().ok()?;
+		return (id.0 != 0).then(|| format!("https://cdn.discordapp.com/emojis/{id}.gif?size=64"));
 	}
 	if let Some(value) = key.strip_prefix("banner-") {
 		let (id, hash) = value.split_once('-')?;
@@ -560,10 +772,14 @@ fn cdn_url(key: &str) -> Option<String> {
 	if let Some(source) = key.strip_prefix("gif:") {
 		return model::valid_gif_preview(source).then(|| source.to_owned());
 	}
-	// Profile badge and server-tag artwork hashes arrive only inside a requested profile.
-	if let Some(hash) = key.strip_prefix("badge-") {
-		return model::valid_avatar_hash(hash)
-			.then(|| format!("https://cdn.discordapp.com/badge-icons/{hash}.png?size=64"));
+	// Catalog artwork arrives as full Discord CDN addresses inside a requested badge catalog.
+	if let Some(url) = key.strip_prefix("badge-art:") {
+		return model::badges::valid_badge_url(url).then(|| url.to_owned());
+	}
+	// Profile badge and server-tag artwork names arrive only inside a requested profile.
+	if let Some(icon) = key.strip_prefix("badge-") {
+		return model::valid_badge_icon(icon)
+			.then(|| format!("https://cdn.discordapp.com/badge-icons/{icon}.png?size=64"));
 	}
 	if let Some(value) = key.strip_prefix("clan-") {
 		let (guild, hash) = value.split_once('-')?;
@@ -631,6 +847,16 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 		{
 			(proxy_base(source).map(String::from), None)
 		}
+		// Discord's media proxy serves a clip too, and its still is the clip's first
+		// frame rather than a webp of a video the image pipeline cannot read.
+		Motion::Still if path.starts_with("https://images-ext-") && ui::is_motion_video(source) => {
+			(motion_video_source(source), None)
+		}
+		// Provider media cannot go through Discord's proxy; a clip's still is its first frame.
+		Motion::Still if proxy_base(source).is_none() => (
+			motion_video_source(source).or(provider.then(|| source.to_owned())),
+			None,
+		),
 		Motion::Still => (
 			proxy_url(source, size, ProxyFormat::LosslessWebp),
 			proxy_base(source).and_then(|mut original| {
@@ -885,10 +1111,44 @@ fn disk_key(key: &str) -> Option<String> {
 		|| key.starts_with("media:")
 		|| key.starts_with("gif:")
 		|| key.starts_with("game:")
+		|| key.starts_with("nameplate-")
+		|| key.starts_with("badge-art:")
 	{
 		Some(format!("embed-{:x}", Sha256::digest(url.as_bytes())))
 	} else {
 		Some(key.to_owned())
+	}
+}
+
+/// Small artwork reused across conversations gets its own disk budget, so a burst of large
+/// media cannot evict the emoji, badges and decorations shown in almost every view.
+fn partition(key: &str) -> model::CachePartition {
+	const ARTWORK: [&str; 8] = [
+		"emoji-",
+		"badge-",
+		"clan-",
+		"role-icon-",
+		"guild-",
+		"default-",
+		"decoration-",
+		"nameplate-",
+	];
+	// Hover-only nameplate animations and badge catalog art are large and rarely replayed.
+	if ARTWORK.iter().any(|prefix| key.starts_with(prefix))
+		&& !key.starts_with("nameplate-anim-")
+		&& !key.starts_with("badge-art:")
+		&& !key.starts_with("emoji-unicode-")
+	{
+		model::CachePartition::Artwork
+	} else {
+		model::CachePartition::Media
+	}
+}
+
+fn partition_root(root: &Path, partition: model::CachePartition) -> PathBuf {
+	match partition {
+		model::CachePartition::Media => root.to_owned(),
+		model::CachePartition::Artwork => root.join(ARTWORK_DIR),
 	}
 }
 
@@ -898,12 +1158,74 @@ pub(crate) fn notification_image_path(account: Id, key: &str) -> Option<String> 
 	if name.len() > 160 {
 		return None;
 	}
-	let root = local_store::data_dir().ok()?;
-	root.join("avatars")
-		.join(account.to_string())
+	let root = local_store::data_dir()
+		.ok()?
+		.join("avatars")
+		.join(account.to_string());
+	partition_root(&root, partition(key))
 		.join(format!("{name}.png"))
 		.to_str()
 		.map(str::to_owned)
+}
+
+/// Moves shared artwork cached before the artwork partition existed, once, so upgrading
+/// does not download every emoji and badge again. Hashed names cannot be classified and
+/// simply age out of the media cache.
+fn adopt_artwork(root: &Path) -> io::Result<()> {
+	let artwork = root.join(ARTWORK_DIR);
+	if artwork.exists() || !root.exists() {
+		return Ok(());
+	}
+	fs::create_dir_all(&artwork)?;
+	for entry in fs::read_dir(root)? {
+		let entry = entry?;
+		let name = entry.file_name();
+		let Some(key) = name.to_str().and_then(|name| name.strip_suffix(".png")) else {
+			continue;
+		};
+		if entry.file_type()?.is_file() && partition(key) == model::CachePartition::Artwork {
+			fs::rename(entry.path(), artwork.join(&name))?;
+		}
+	}
+	Ok(())
+}
+
+struct Control {
+	limits: watch::Receiver<model::CachePreferences>,
+	clears: async_mpsc::Receiver<model::CachePartition>,
+	usage: watch::Sender<Option<Usage>>,
+	/// Storage settings show usage as soon as a removal or new budget settles.
+	wake: egui::Context,
+}
+impl Control {
+	fn publish(&self, disks: &[Option<Disk>; 2]) {
+		let usage = match disks {
+			[Some(media), Some(artwork)] => Some([media.usage(), artwork.usage()]),
+			_ => None,
+		};
+		let changed = self.usage.send_if_modified(|current| {
+			let changed = *current != usage;
+			*current = usage;
+			changed
+		});
+		if changed {
+			self.wake.request_repaint();
+		}
+	}
+}
+
+fn open_disks(root: Option<&Path>, limits: model::CachePreferences) -> [Option<Disk>; 2] {
+	let Some(root) = root else {
+		return [None, None];
+	};
+	let _ = adopt_artwork(root);
+	let open = |partition, limit| {
+		Disk::open_with(partition_root(root, partition), limit, limits.retention()).ok()
+	};
+	[
+		open(model::CachePartition::Media, limits.media_limit()),
+		open(model::CachePartition::Artwork, limits.artwork_limit()),
+	]
 }
 
 async fn run(
@@ -912,8 +1234,11 @@ async fn run(
 	results: ResultSender,
 	mut cancelled: watch::Receiver<bool>,
 	bundled_only: bool,
+	mut control: Control,
 ) {
-	let mut disk = root.and_then(|root| Disk::open(root.to_owned()).ok());
+	let limits = *control.limits.borrow_and_update();
+	let mut disks = open_disks(root, limits);
+	control.publish(&disks);
 	let client = (!bundled_only)
 		.then(|| {
 			reqwest::Client::builder()
@@ -922,7 +1247,8 @@ async fn run(
 				.redirect(reqwest::redirect::Policy::none())
 				.timeout(Duration::from_secs(15))
 				.connect_timeout(Duration::from_secs(5))
-				.pool_max_idle_per_host(1)
+				// Keep one warm connection per concurrent job so bursts skip new TLS handshakes.
+				.pool_max_idle_per_host(JOBS)
 				.build()
 				.ok()
 		})
@@ -930,11 +1256,22 @@ async fn run(
 	let mut cooldown = Instant::now();
 	// Eight bounded loads overlap; each downloads and decodes off this loop, which owns the disk.
 	let mut jobs = tokio::task::JoinSet::new();
-	let (mut viewer, mut inline) = (VecDeque::<String>::new(), VecDeque::<String>::new());
+	// Each partition's clear generation. Every job carries the generation it began in, so a
+	// download started before a clear still reaches the UI but is not written back to disk.
+	let mut cleared = [0u64; 2];
+	// Opened pictures first, then small shared artwork, then everything else in order.
+	let (mut viewer, mut artwork, mut inline) = (
+		VecDeque::<String>::new(),
+		VecDeque::<String>::new(),
+		VecDeque::<String>::new(),
+	);
 	loop {
 		while jobs.len() < JOBS
 			&& !*cancelled.borrow()
-			&& let Some(key) = viewer.pop_front().or_else(|| inline.pop_front())
+			&& let Some(key) = viewer
+				.pop_front()
+				.or_else(|| artwork.pop_front())
+				.or_else(|| inline.pop_front())
 		{
 			if let Some((source, edge)) = ui::emoji::bundled_svg(&key) {
 				jobs.spawn(async move {
@@ -943,14 +1280,16 @@ async fn run(
 							.await
 							.ok()
 							.flatten();
-					Loaded {
+					// Bundled shapes are never written to disk.
+					let loaded = Loaded {
 						key,
 						fetched: None,
 						image,
 						frames: Vec::new(),
 						error: None,
 						until: Instant::now(),
-					}
+					};
+					(u64::MAX, loaded)
 				});
 				continue;
 			}
@@ -961,30 +1300,23 @@ async fn run(
 				continue;
 			};
 			let persistent = disk_key(&key).is_some();
-			let mut error = (persistent && disk.is_none()).then_some(CACHE_ERROR);
-			let cached = disk.as_mut().and_then(|disk| {
-				if !persistent {
-					return None;
-				}
-				match disk.read(&key) {
-					Ok(bytes) => bytes,
-					Err(_) => {
-						error = Some(CACHE_ERROR);
-						None
-					}
-				}
-			});
-			jobs.spawn(load(Job {
+			let disk = &disks[partition(&key) as usize];
+			let error = (persistent && disk.is_none()).then_some(CACHE_ERROR);
+			// The job reads its cached copy, so a large stored clip never stalls dispatch.
+			let cache = disk.as_ref().filter(|_| persistent).map(Disk::reader);
+			let generation = cleared[partition(&key) as usize];
+			let job = load(Job {
 				budget: budget(&key),
 				key,
 				url: primary,
 				fallback,
-				cached,
+				cache,
 				error,
 				client: client.clone(),
 				cooldown,
 				early: results.clone(),
-			}));
+			});
+			jobs.spawn(async move { (generation, job.await) });
 		}
 		let loaded = tokio::select! {
 			biased;
@@ -993,34 +1325,69 @@ async fn run(
 				let Some(Ok(loaded)) = completed else { break };
 				loaded
 			},
-			key = requests.recv(), if viewer.len() + inline.len() < QUEUED => {
+			key = requests.recv(), if viewer.len() + artwork.len() + inline.len() < QUEUED => {
 				let Some(key) = key else { break };
 				if *cancelled.borrow() { break; }
 				if Rendition::parse(&key).is_some_and(|rendition| rendition.lane == Lane::Viewer) {
 					viewer.push_back(key);
+				} else if partition(&key) == model::CachePartition::Artwork && !is_animated_key(&key) {
+					// Animated decorations decode every frame; they must not delay server icons.
+					artwork.push_back(key);
 				} else {
 					inline.push_back(key);
 				}
 				continue;
 			},
+			changed = control.limits.changed() => {
+				if changed.is_err() { break; }
+				let limits = *control.limits.borrow_and_update();
+				let [media, artwork] = &mut disks;
+				for (disk, limit) in [(media, limits.media_limit()), (artwork, limits.artwork_limit())] {
+					if let Some(cache) = disk.as_mut()
+						&& cache.set_limits(limit, limits.retention()).is_err()
+					{
+						*disk = None;
+					}
+				}
+				control.publish(&disks);
+				continue;
+			},
+			partition = control.clears.recv() => {
+				let Some(partition) = partition else { break };
+				cleared[partition as usize] += 1;
+				let disk = &mut disks[partition as usize];
+				if let Some(cache) = disk.as_mut()
+					&& cache.clear().is_err()
+				{
+					*disk = None;
+				}
+				control.publish(&disks);
+				continue;
+			},
 		};
-		let Loaded {
-			key,
-			fetched,
-			image,
-			frames,
-			mut error,
-			until,
-		} = loaded;
+		let (
+			generation,
+			Loaded {
+				key,
+				fetched,
+				image,
+				frames,
+				mut error,
+				until,
+			},
+		) = loaded;
 		cooldown = cooldown.max(until);
 		if *cancelled.borrow() {
 			break;
 		}
-		if disk_key(&key).is_some()
-			&& let (Some(disk), Some(bytes)) = (&mut disk, &fetched)
-			&& disk.write(&key, bytes).is_err()
+		if generation == cleared[partition(&key) as usize]
+			&& disk_key(&key).is_some()
+			&& let (Some(disk), Some(bytes)) = (&mut disks[partition(&key) as usize], &fetched)
 		{
-			error = Some(CACHE_ERROR);
+			if disk.write(&key, bytes).is_err() {
+				error = Some(CACHE_ERROR);
+			}
+			control.publish(&disks);
 		}
 		// Decoded results can wait for the UI; the encoded source is no longer needed.
 		drop(fetched);
@@ -1102,7 +1469,7 @@ struct Job {
 	url: String,
 	fallback: Option<String>,
 	budget: Budget,
-	cached: Option<Vec<u8>>,
+	cache: Option<DiskReader>,
 	error: Option<&'static str>,
 	client: Option<reqwest::Client>,
 	cooldown: Instant,
@@ -1125,20 +1492,35 @@ async fn load(job: Job) -> Loaded {
 		url,
 		fallback,
 		budget,
-		cached,
-		error,
+		cache,
+		mut error,
 		client,
 		cooldown,
 		early,
 	} = job;
+	let cached = match cache {
+		Some(cache) => {
+			let name = key.clone();
+			match tokio::task::spawn_blocking(move || cache.read(&name)).await {
+				Ok(Ok(bytes)) => bytes,
+				_ => {
+					error = Some(CACHE_ERROR);
+					None
+				}
+			}
+		}
+		None => None,
+	};
 	let animated = budget.frames.is_some();
 	let mut until = cooldown;
 	let mut early = animated.then_some(early);
 	let mut stale = None;
 	if let Some(bytes) = cached {
+		let clip = is_isobmff(&bytes);
 		let (image, frames, _) = decode_blocking(&key, bytes, false, budget, early.clone()).await;
 		// A single stored frame is fetched again: a static rendition may share its cache name.
-		if image.is_some() && (!animated || frames.len() >= 2) {
+		// A cached clip is already the full source; fetching it again cannot improve decoding.
+		if image.is_some() && (!animated || frames.len() >= 2 || clip) {
 			return Loaded {
 				key,
 				fetched: None,
@@ -1221,7 +1603,12 @@ async fn decode_blocking(
 		let Some(frame_budget) = budget.frames else {
 			return (decode(&bytes, &budget), Vec::new(), Some(bytes));
 		};
+		let preview = std::sync::Mutex::new(None);
 		let post = |image: &egui::ColorImage| {
+			// Keep the opening frame if decoding the rest fails, without opening the clip again.
+			if is_isobmff(&bytes) {
+				*preview.lock().expect("preview decode owns its mutex") = Some(image.clone());
+			}
 			if let Some(results) = &early {
 				results.preview(AvatarResult {
 					key: key.clone(),
@@ -1233,11 +1620,27 @@ async fn decode_blocking(
 				});
 			}
 		};
-		let frames = decode_animation(&bytes, &frame_budget, post).unwrap_or_default();
+		let mut frames = decode_animation(&bytes, &frame_budget, post).unwrap_or_default();
+		// A profile effect layer that plays its file once keeps the last frame for the rest of
+		// its duration, as browsers do, instead of jumping back to the first frame.
+		if Cosmetic::parse(&key) == Some(Cosmetic::Effect)
+			&& apng_plays(&bytes).is_some_and(|plays| plays > 0)
+			&& let Some((delay, _)) = frames.last_mut()
+		{
+			*delay = Duration::from_secs(60 * 60);
+		}
 		let image = frames
 			.first()
 			.map(|(_, image)| image.as_ref().clone())
-			.or_else(|| decode(&bytes, &budget));
+			.or_else(|| preview.into_inner().ok().flatten())
+			.or_else(|| {
+				// A failed clip already tried to produce its first frame within the decode deadline.
+				if is_isobmff(&bytes) {
+					None
+				} else {
+					decode(&bytes, &budget)
+				}
+			});
 		(image, frames, Some(bytes))
 	})
 	.await
@@ -1344,6 +1747,15 @@ fn decode(bytes: &[u8], budget: &Budget) -> Option<egui::ColorImage> {
 			image.as_raw(),
 		));
 	}
+	if is_isobmff(bytes) {
+		return std::thread::scope(|scope| {
+			scope
+				.spawn(|| first_video_frame(bytes, budget.fit))
+				.join()
+				.ok()
+				.flatten()
+		});
+	}
 	// Provider previews can be GIF/JPEG/WebP; decode only the first frame, within limits.
 	let mut reader = image::ImageReader::new(Cursor::new(bytes))
 		.with_guessed_format()
@@ -1402,7 +1814,56 @@ fn resize_to(image: image::RgbaImage, fit: u32) -> image::RgbaImage {
 	} else {
 		image::imageops::FilterType::Lanczos3
 	};
-	image::imageops::resize(&image, width, height, filter)
+	// The generic `imageops::resize` would be instantiated in this unoptimized dev crate, about
+	// 30 times slower per animation frame; the `DynamicImage` method runs the same filter
+	// compiled in the optimized `image` crate.
+	image::DynamicImage::ImageRgba8(image)
+		.resize_exact(width, height, filter)
+		.into_rgba8()
+}
+
+/// The opening picture of a clip: the still for provider video Discord cannot proxy, and for a
+/// clip too long to decode whole.
+fn first_video_frame(bytes: &[u8], fit: u32) -> Option<egui::ColorImage> {
+	let started = Instant::now();
+	let bytes: Arc<[u8]> = bytes.into();
+	let mut decoder = open_preview_decoder(bytes, started)?;
+	while started.elapsed() < Duration::from_secs(3) {
+		match decoder.poll_video() {
+			Ok(std::task::Poll::Pending) => {
+				let _ = decoder.poll_audio();
+				std::thread::sleep(Duration::from_millis(2));
+			}
+			Ok(std::task::Poll::Ready(Some(platform::video::Sample::Video {
+				picture, ..
+			}))) => {
+				let (width, height, rgba) = picture.to_rgba()?;
+				let pixels = (width as usize).checked_mul(height as usize)?;
+				if width == 0 || height == 0 || rgba.len() != pixels.checked_mul(4)? {
+					return None;
+				}
+				let image = resize_to(image::RgbaImage::from_raw(width, height, rgba)?, fit);
+				return Some(egui::ColorImage::from_rgba_unmultiplied(
+					[image.width() as usize, image.height() as usize],
+					image.as_raw(),
+				));
+			}
+			Ok(std::task::Poll::Ready(Some(_))) => {}
+			Ok(std::task::Poll::Ready(None)) | Err(_) => return None,
+		}
+	}
+	None
+}
+
+fn open_preview_decoder(bytes: Arc<[u8]>, started: Instant) -> Option<platform::video::Decoder> {
+	let source = Box::new(Cursor::new(bytes));
+	#[cfg(target_os = "linux")]
+	let decoder = platform::video::Decoder::open_until(source, started + Duration::from_secs(3));
+	#[cfg(not(target_os = "linux"))]
+	let decoder = platform::video::Decoder::open(source);
+	decoder
+		.ok()
+		.filter(|_| started.elapsed() < Duration::from_secs(3))
 }
 
 fn decode_motion_video(
@@ -1417,8 +1878,7 @@ fn decode_motion_video(
 	// One owned copy for the decoder's 'static stream, shared by every shrink pass.
 	let bytes: Arc<[u8]> = bytes.into();
 	'decode: loop {
-		let mut decoder =
-			platform::video::Decoder::open(Box::new(Cursor::new(bytes.clone()))).ok()?;
+		let mut decoder = open_preview_decoder(bytes.clone(), started)?;
 		let duration = decoder.info().duration;
 		let mut frames: Vec<(f64, Arc<egui::ColorImage>)> = Vec::new();
 		let mut total = 0usize;
@@ -1436,10 +1896,10 @@ fn decode_motion_video(
 				}
 				Ok(std::task::Poll::Ready(Some(platform::video::Sample::Video {
 					pts,
-					width,
-					height,
-					rgba,
+					picture,
 				}))) => {
+					// Clip frames are resized and cached once, so the CPU conversion stays.
+					let (width, height, rgba) = picture.to_rgba()?;
 					let pixels = (width as usize).checked_mul(height as usize)?;
 					if width == 0 || height == 0 || rgba.len() != pixels.checked_mul(4)? {
 						return None;
@@ -1595,6 +2055,23 @@ fn decode_animation(
 	}
 }
 
+/// The APNG play count from `acTL`, where 0 means forever; `None` for other images.
+fn apng_plays(bytes: &[u8]) -> Option<u32> {
+	let mut chunks = bytes.strip_prefix(b"\x89PNG\r\n\x1a\n")?;
+	while let [a, b, c, d, kind @ ..] = chunks
+		&& kind.len() >= 8
+	{
+		let length = u32::from_be_bytes([*a, *b, *c, *d]) as usize;
+		let (name, data) = kind.split_at(4);
+		match name {
+			b"acTL" => return Some(u32::from_be_bytes(data.get(4..8)?.try_into().ok()?)),
+			b"IDAT" => return None,
+			_ => chunks = data.get(length.checked_add(4)?..)?,
+		}
+	}
+	None
+}
+
 fn animation_frames(bytes: &[u8]) -> Option<image::Frames<'_>> {
 	use image::{AnimationDecoder, ImageDecoder};
 	let mut limits = image::Limits::default();
@@ -1621,30 +2098,13 @@ fn animation_frames(bytes: &[u8]) -> Option<image::Frames<'_>> {
 	})
 }
 
-struct Disk {
+/// What a job needs to read one cached file off the worker loop; the loop keeps the accounting.
+struct DiskReader {
 	root: PathBuf,
-	bytes: u64,
-	files: usize,
-	last_prune: Instant,
+	retention: Duration,
 }
-impl Disk {
-	fn open(root: PathBuf) -> io::Result<Self> {
-		fs::create_dir_all(&root)?;
-		#[cfg(unix)]
-		{
-			use std::os::unix::fs::PermissionsExt;
-			fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
-		}
-		let mut disk = Self {
-			root,
-			bytes: 0,
-			files: 0,
-			last_prune: Instant::now(),
-		};
-		disk.prune(0, 0)?;
-		Ok(disk)
-	}
-	fn read(&mut self, key: &str) -> io::Result<Option<Vec<u8>>> {
+impl DiskReader {
+	fn read(&self, key: &str) -> io::Result<Option<Vec<u8>>> {
 		let name = disk_key(key).ok_or(io::ErrorKind::InvalidInput)?;
 		let path = self.root.join(format!("{name}.png"));
 		let file = match OpenOptions::new().read(true).write(true).open(&path) {
@@ -1657,7 +2117,7 @@ impl Disk {
 			|| SystemTime::now()
 				.duration_since(metadata.modified()?)
 				.unwrap_or_default()
-				>= RETENTION
+				>= self.retention
 		{
 			return Ok(None);
 		}
@@ -1671,14 +2131,83 @@ impl Disk {
 		file.set_modified(SystemTime::now())?;
 		Ok(Some(bytes))
 	}
+}
+struct Disk {
+	root: PathBuf,
+	bytes: u64,
+	files: usize,
+	last_prune: Instant,
+	limit: model::DiskLimit,
+	retention: Duration,
+}
+impl Disk {
+	#[cfg(test)]
+	fn open(root: PathBuf) -> io::Result<Self> {
+		Self::open_with(
+			root,
+			model::DiskLimit {
+				bytes: MAX_DISK,
+				files: MAX_FILES,
+			},
+			RETENTION,
+		)
+	}
+	fn open_with(root: PathBuf, limit: model::DiskLimit, retention: Duration) -> io::Result<Self> {
+		fs::create_dir_all(&root)?;
+		#[cfg(unix)]
+		{
+			use std::os::unix::fs::PermissionsExt;
+			fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
+		}
+		let mut disk = Self {
+			root,
+			bytes: 0,
+			files: 0,
+			last_prune: Instant::now(),
+			limit,
+			retention,
+		};
+		disk.prune(0, 0)?;
+		Ok(disk)
+	}
+	fn usage(&self) -> model::CacheUsage {
+		model::CacheUsage {
+			bytes: self.bytes,
+			files: self.files,
+		}
+	}
+	/// Smaller budgets or retention evict immediately; larger ones apply to later writes.
+	fn set_limits(&mut self, limit: model::DiskLimit, retention: Duration) -> io::Result<()> {
+		self.limit = limit;
+		self.retention = retention;
+		self.prune(0, 0)
+	}
+	/// Removes this partition's images but not nested partitions.
+	fn clear(&mut self) -> io::Result<()> {
+		for entry in fs::read_dir(&self.root)? {
+			let entry = entry?;
+			if entry.file_type()?.is_file() {
+				fs::remove_file(entry.path())?;
+			}
+		}
+		self.bytes = 0;
+		self.files = 0;
+		Ok(())
+	}
+	fn reader(&self) -> DiskReader {
+		DiskReader {
+			root: self.root.clone(),
+			retention: self.retention,
+		}
+	}
 	fn write(&mut self, key: &str, bytes: &[u8]) -> io::Result<()> {
 		if cdn_url(key).is_none() || bytes.len() > encoded_limit(key) {
 			return Err(io::ErrorKind::InvalidInput.into());
 		}
 		let name = disk_key(key).ok_or(io::ErrorKind::InvalidInput)?;
 		let path = self.root.join(format!("{name}.png"));
-		if self.bytes + bytes.len() as u64 > MAX_DISK
-			|| self.files + 1 > MAX_FILES
+		if self.bytes + bytes.len() as u64 > self.limit.bytes
+			|| self.files + 1 > self.limit.files
 			|| self.last_prune.elapsed() >= Duration::from_secs(24 * 60 * 60)
 		{
 			self.prune(bytes.len() as u64, 1)?;
@@ -1735,7 +2264,7 @@ impl Disk {
 					|| SystemTime::now()
 						.duration_since(modified)
 						.unwrap_or_default()
-						>= RETENTION
+						>= self.retention
 				{
 					fs::remove_file(entry.path())?;
 					continue;
@@ -1747,14 +2276,17 @@ impl Disk {
 					oldest.pop();
 				}
 			}
-			if self.bytes + reserve_bytes <= MAX_DISK && self.files + reserve_files <= MAX_FILES {
+			if self.bytes + reserve_bytes <= self.limit.bytes
+				&& self.files + reserve_files <= self.limit.files
+			{
 				break;
 			}
 			for (_, path, bytes) in oldest.into_sorted_vec() {
 				fs::remove_file(path)?;
 				self.bytes = self.bytes.saturating_sub(bytes);
 				self.files -= 1;
-				if self.bytes + reserve_bytes <= MAX_DISK && self.files + reserve_files <= MAX_FILES
+				if self.bytes + reserve_bytes <= self.limit.bytes
+					&& self.files + reserve_files <= self.limit.files
 				{
 					break;
 				}
@@ -1858,32 +2390,6 @@ mod tests {
 		))
 	}
 
-	#[test]
-	fn scalable_emoji_uses_bundled_shapes_and_preserves_transparency() {
-		for cell in 0..4009 {
-			let (svg, _) = ui::emoji::bundled_svg(&format!("emoji-unicode-{cell}-64")).unwrap();
-			let image =
-				super::rasterize_emoji(svg, 64).unwrap_or_else(|| panic!("artwork cell {cell}"));
-			assert_eq!(image.size, [64; 2]);
-			assert_eq!(image.pixels[0], egui::Color32::TRANSPARENT);
-			assert!(
-				image.pixels.iter().any(|pixel| pixel.a() > 0),
-				"artwork cell {cell}"
-			);
-		}
-		for cell in [0, 1000, 2000, 3000, 4008] {
-			for edge in [64, 128, 256] {
-				let (svg, _) =
-					ui::emoji::bundled_svg(&format!("emoji-unicode-{cell}-{edge}")).unwrap();
-				let image = super::rasterize_emoji(svg, edge).unwrap();
-				assert_eq!(image.size, [edge as usize; 2]);
-				assert_eq!(image.pixels[0], egui::Color32::TRANSPARENT);
-				assert!(image.pixels.iter().any(|pixel| pixel.a() > 0));
-			}
-		}
-		assert!(super::rasterize_emoji(b"invalid", 64).is_none());
-		assert!(super::rasterize_emoji(b"invalid", 1024).is_none());
-	}
 	#[test]
 	fn offline_emoji_worker_rejects_network_requests() {
 		let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -2116,6 +2622,9 @@ mod tests {
 			clear: Arc::new(AtomicBool::new(false)),
 			cleanup: None,
 			bundled_only: false,
+			limits: watch::channel(Default::default()).0,
+			clear_partition: async_mpsc::channel(1).0,
+			usage: watch::channel(None).1,
 		};
 		let mut oversized = queued_image(1);
 		oversized
@@ -2381,6 +2890,21 @@ mod tests {
 			] {
 				assert!(super::cdn_url(key).is_none());
 			}
+			assert_eq!(
+				super::cdn_url("anim:emoji-9001").as_deref(),
+				Some("https://cdn.discordapp.com/emojis/9001.gif?size=64")
+			);
+			assert!(super::is_animated_key("anim:emoji-9001"));
+			assert_eq!(super::decode_edge("anim:emoji-9001"), 128);
+			assert!(super::budget("anim:emoji-9001").frames.is_some());
+			for key in [
+				"anim:emoji-0",
+				"anim:emoji-../9001",
+				"anim:emoji-9001?size=8192",
+				"anim:emoji-https://example.com/x.gif",
+			] {
+				assert!(super::cdn_url(key).is_none(), "{key}");
+			}
 		}
 
 		{
@@ -2494,56 +3018,164 @@ mod tests {
 	}
 
 	#[test]
-	fn animated_banner_and_avatar_urls_and_keys() {
-		assert!(super::is_animated_key(
-			"banner-123-a_abcdef0123456789abcdef0123456789"
+	fn shared_artwork_has_its_own_budget_and_is_adopted_once() {
+		use model::CachePartition::{Artwork, Media};
+		for key in [
+			"emoji-41771983423143937",
+			"badge-0123456789abcdef0123456789abcdef",
+			"clan-7-0123456789abcdef0123456789abcdef",
+			"role-icon-7-0123456789abcdef0123456789abcdef",
+			"guild-7-0123456789abcdef0123456789abcdef",
+			"default-3",
+			"decoration-a_fed43ab12698df65902ba06727e20c0e",
+			"nameplate-nameplates/x/",
+		] {
+			assert_eq!(partition(key), Artwork, "{key}");
+		}
+		for key in [
+			"7-0123456789abcdef0123456789abcdef",
+			"banner-7-0123456789abcdef0123456789abcdef",
+			"nameplate-anim-12",
+			"emoji-unicode-0-64",
+			"frame-30-31",
+			"anim:https://media.discordapp.net/x.gif",
+		] {
+			assert_eq!(partition(key), Media, "{key}");
+		}
+		let root = std::env::temp_dir().join(format!(
+			"serein-artwork-test-{}-{}",
+			std::process::id(),
+			SystemTime::now()
+				.duration_since(SystemTime::UNIX_EPOCH)
+				.unwrap()
+				.as_nanos()
 		));
-		assert!(super::is_animated_key(
-			"member-banner-999-123-a_abcdef0123456789abcdef0123456789"
-		));
-		assert!(super::is_animated_key(
-			"member-avatar-999-123-a_abcdef0123456789abcdef0123456789"
-		));
-		assert!(super::is_animated_key(
-			"123-a_abcdef0123456789abcdef0123456789"
-		));
-		assert!(!super::is_animated_key(
-			"banner-123-abcdef0123456789abcdef0123456789"
-		));
-		assert!(!super::is_animated_key(
-			"member-banner-999-123-abcdef0123456789abcdef0123456789"
-		));
-		assert!(!super::is_animated_key(
-			"member-avatar-999-123-abcdef0123456789abcdef0123456789"
-		));
-		assert!(!super::is_animated_key(
-			"123-abcdef0123456789abcdef0123456789"
-		));
+		fs::create_dir_all(&root).unwrap();
+		for name in ["emoji-5.png", "default-1.png", "7-0123.png", "embed-ab.png"] {
+			fs::write(root.join(name), [1, 2, 3]).unwrap();
+		}
+		adopt_artwork(&root).unwrap();
+		let artwork = root.join(ARTWORK_DIR);
+		assert!(artwork.join("emoji-5.png").exists() && artwork.join("default-1.png").exists());
+		assert!(root.join("7-0123.png").exists() && root.join("embed-ab.png").exists());
+		// Later starts leave files in place, even ones that would classify as artwork.
+		fs::write(root.join("emoji-6.png"), [1]).unwrap();
+		adopt_artwork(&root).unwrap();
+		assert!(root.join("emoji-6.png").exists());
+		fs::remove_file(root.join("emoji-6.png")).unwrap();
+		let limits = model::CachePreferences::default();
+		let [Some(mut media), Some(mut shared)] = open_disks(Some(&root), limits) else {
+			panic!("both partitions open");
+		};
+		// The media partition counts only its own files, not the nested artwork directory.
+		assert_eq!(media.usage().files, 2);
+		assert_eq!(shared.usage().files, 2);
+		// A smaller budget evicts at once; clearing one partition keeps the other.
+		media
+			.set_limits(model::DiskLimit { bytes: 3, files: 1 }, limits.retention())
+			.unwrap();
+		assert_eq!(media.usage().files, 1);
+		media.clear().unwrap();
+		assert_eq!(media.usage(), model::CacheUsage::default());
+		assert!(artwork.join("emoji-5.png").exists());
+		shared.clear().unwrap();
+		assert_eq!(fs::read_dir(&artwork).unwrap().count(), 0);
+		// Shorter retention removes images that were not shown within it.
+		fs::write(root.join("7-0123.png"), [1]).unwrap();
+		OpenOptions::new()
+			.write(true)
+			.open(root.join("7-0123.png"))
+			.unwrap()
+			.set_modified(SystemTime::now() - Duration::from_secs(8 * 86_400))
+			.unwrap();
+		media
+			.set_limits(limits.media_limit(), Duration::from_secs(7 * 86_400))
+			.unwrap();
+		assert_eq!(media.usage().files, 0);
+		clear_directory(Some(&root)).unwrap();
+	}
 
+	#[test]
+	fn cosmetic_urls_budgets_and_cache_names_are_confined() {
+		let hash = "149abd61a0e8a52895ef4e06e05dcba352a11fb76089554b3d726cec8bc1c981";
+		for (key, url) in [
+			(
+				"decoration-a_fed43ab12698df65902ba06727e20c0e".to_owned(),
+				"https://cdn.discordapp.com/avatar-decoration-presets/a_fed43ab12698df65902ba06727e20c0e.png?size=240&passthrough=true".to_owned(),
+			),
+			(
+				"decoration-fed43ab12698df65902ba06727e20c0e".to_owned(),
+				"https://cdn.discordapp.com/avatar-decoration-presets/fed43ab12698df65902ba06727e20c0e.png?size=240&passthrough=false".to_owned(),
+			),
+			(
+				"nameplate-nameplates/buffering.../1541529803809755246/".to_owned(),
+				"https://cdn.discordapp.com/assets/collectibles/nameplates/buffering.../1541529803809755246/static.png".to_owned(),
+			),
+			(
+				"nameplate-nameplates/it’s & fine/".to_owned(),
+				"https://cdn.discordapp.com/assets/collectibles/nameplates/it%E2%80%99s%20&%20fine/static.png".to_owned(),
+			),
+			(
+				"nameplate-anim-12".to_owned(),
+				"https://cdn.discordapp.com/media/v1/collectibles-shop/12/animated".to_owned(),
+			),
+			(
+				format!("effect-c-{hash}"),
+				format!("https://cdn.discordapp.com/assets/content/{hash}"),
+			),
+			(
+				format!("effect-still-s-{hash}"),
+				format!("https://cdn.discordapp.com/media/v1/collectibles-shop/{hash}"),
+			),
+			(
+				"frame-30-31".to_owned(),
+				"https://cdn.discordapp.com/media/v1/collectibles-shop/30/31/static".to_owned(),
+			),
+		] {
+			assert_eq!(cdn_url(&key).as_deref(), Some(url.as_str()), "{key}");
+		}
+		for bad in [
+			"decoration-../x",
+			"nameplate-nameplates/../avatars/",
+			"nameplate-anim-0",
+			"effect-x-aaaa",
+			"effect-c-../../x",
+			"frame-0-1",
+			"frame-1-../2",
+		] {
+			assert!(cdn_url(bad).is_none(), "{bad}");
+		}
+		assert!(is_animated_key(
+			"decoration-a_fed43ab12698df65902ba06727e20c0e"
+		));
+		assert!(!is_animated_key(
+			"decoration-fed43ab12698df65902ba06727e20c0e"
+		));
+		assert!(is_animated_key(&format!("effect-c-{hash}")));
+		assert!(!is_animated_key(&format!("effect-still-c-{hash}")));
+		assert!(!is_animated_key("frame-30-31"));
+		assert!(budget(&format!("effect-c-{hash}")).frames.is_some());
+		assert_eq!(budget(&format!("effect-c-{hash}")).fit, ui::EFFECT_EDGE);
 		assert_eq!(
-			super::cdn_url("banner-123-a_abcdef0123456789abcdef0123456789").as_deref(),
-			Some(
-				"https://cdn.discordapp.com/banners/123/a_abcdef0123456789abcdef0123456789.gif?size=512"
-			)
+			budget(&format!("effect-still-c-{hash}")).fit,
+			ui::EFFECT_EDGE
 		);
+		// Large catalog PNGs are decoded and scaled, not rejected by the icon canvas.
+		let art = budget("badge-art:https://cdn.discordapp.com/assets/content/a.png");
+		assert!(art.canvas >= 2048 && art.fit == 256 && art.frames.is_none());
+		// They use the media partition and lane, not the small-artwork budget.
 		assert_eq!(
-			super::cdn_url("member-banner-999-123-a_abcdef0123456789abcdef0123456789").as_deref(),
-			Some(
-				"https://cdn.discordapp.com/guilds/999/users/123/banners/a_abcdef0123456789abcdef0123456789.gif?size=512"
-			)
+			partition("badge-art:https://cdn.discordapp.com/assets/content/a.png"),
+			model::CachePartition::Media
 		);
-		assert_eq!(
-			super::cdn_url("123-a_abcdef0123456789abcdef0123456789").as_deref(),
-			Some(
-				"https://cdn.discordapp.com/avatars/123/a_abcdef0123456789abcdef0123456789.gif?size=128"
-			)
+		assert_eq!(budget("frame-30-31").fit, ui::FRAME_EDGE);
+		// Folder names are hashed before they reach the disk cache.
+		assert!(
+			disk_key("nameplate-nameplates/x/")
+				.unwrap()
+				.starts_with("embed-")
 		);
-		assert_eq!(
-			super::cdn_url("123-abcdef0123456789abcdef0123456789").as_deref(),
-			Some(
-				"https://cdn.discordapp.com/avatars/123/abcdef0123456789abcdef0123456789.png?size=128"
-			)
-		);
+		assert_eq!(disk_key("frame-30-31").as_deref(), Some("frame-30-31"));
 	}
 
 	use super::*;
@@ -2565,6 +3197,40 @@ mod tests {
 			32,
 		)
 		.is_some());
+
+		// The gateway projection must preserve the same opaque source encodings the loader
+		// already accepts for message embeds, for both the cover and the corner badge.
+		let paths = [
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/cover%2Epng",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/%3Fsource%3Dalbum%2Fcover/https/example.com/art.png",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/covers%2Ftrack.png",
+		];
+		for path in paths {
+			let wire = serde_json::json!({
+				"user_id":"2", "status":"online", "activities":[{
+					"type":2, "name":"Synthetic music", "application_id":"10",
+					"assets":{"large_image":format!("mp:{path}"),"small_image":"mp:external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/badge%2Epng"}
+				}]
+			});
+			let presence =
+				discord_protocol::presence::decode(&serde_json::to_vec(&wire).unwrap()).unwrap();
+			let model::Patch::Value(activities) = presence.activities else {
+				panic!("activity projection")
+			};
+			let image = activities[0].image.as_ref().unwrap();
+			assert_eq!(image, &model::ActivityImage::Proxy(path.into()));
+			let url = url::Url::parse(&cdn_url(&image.key()).expect("proxy artwork is loadable"))
+				.unwrap();
+			assert_eq!(url.host_str(), Some("media.discordapp.net"));
+			assert_eq!(url.path(), format!("/{path}"));
+			assert_eq!(
+				activities[0].small_image,
+				Some(model::ActivityImage::Proxy(
+					"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/badge%2Epng"
+						.into()
+				))
+			);
+		}
 	}
 
 	#[test]
@@ -2715,13 +3381,17 @@ mod tests {
 		}));
 		drop(disk);
 		let mut disk = Disk::open(account_a.clone()).unwrap();
-		assert_eq!(disk.read("default-0").unwrap().unwrap(), bytes);
-		assert_eq!(disk.read(embed_key).unwrap().unwrap(), bytes);
-		assert_eq!(disk.read("embed:sticker-7-3").unwrap().unwrap(), bytes);
-		assert_eq!(disk.read("app-icon-7").unwrap().unwrap(), bytes);
+		assert_eq!(disk.reader().read("default-0").unwrap().unwrap(), bytes);
+		assert_eq!(disk.reader().read(embed_key).unwrap().unwrap(), bytes);
+		assert_eq!(
+			disk.reader().read("embed:sticker-7-3").unwrap().unwrap(),
+			bytes
+		);
+		assert_eq!(disk.reader().read("app-icon-7").unwrap().unwrap(), bytes);
 		assert!(
 			Disk::open(account_b.clone())
 				.unwrap()
+				.reader()
 				.read("default-0")
 				.unwrap()
 				.is_none()
@@ -2742,7 +3412,7 @@ mod tests {
 			.set_modified(SystemTime::now() - RETENTION - Duration::from_secs(1))
 			.unwrap();
 		disk.prune(0, 0).unwrap();
-		assert!(disk.read("default-0").unwrap().is_none());
+		assert!(disk.reader().read("default-0").unwrap().is_none());
 		fs::remove_file(account_a.join(format!("{}.png", disk_key(embed_key).unwrap()))).unwrap();
 		fs::remove_file(account_a.join(format!("{}.png", disk_key("embed:sticker-7-3").unwrap())))
 			.unwrap();
@@ -3021,4 +3691,26 @@ pub(crate) fn debug_profile_resolution_check() {
 	println!(
 		"Profile avatar/banner renditions request source resolution; attachment signatures preserved."
 	);
+}
+
+#[test]
+fn provider_clip_stills_fetch_the_clip_and_unknown_hosts_stay_unfetched() {
+	let still = |source: &str| {
+		media_urls(&Rendition::parse(&format!("media:is:320x240:{source}")).unwrap())
+			.map(|urls| (urls.primary, urls.fallback))
+	};
+	for source in [
+		"https://static.klipy.com/ii/synthetic/a1.mp4",
+		"https://media.tenor.com/synthetic/clip.mp4",
+		"https://static.klipy.com/ii/synthetic/a1.webp",
+	] {
+		assert_eq!(still(source), Some((source.to_owned(), None)));
+	}
+	assert!(still("https://example.com/clip.mp4").is_none());
+	// Discord's proxy serves the clip itself; a webp of it is not a picture the decoder reads.
+	let proxied =
+		"https://images-ext-1.discordapp.net/external/synthetic/https/example.org/clip.mp4";
+	assert_eq!(still(proxied), Some((proxied.to_owned(), None)));
+	assert!(is_isobmff(b"\0\0\0\x18ftypmp42"));
+	assert!(decode(b"\0\0\0\x18ftypmp42 not a clip", &budget("gif:x")).is_none());
 }

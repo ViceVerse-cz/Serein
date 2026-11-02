@@ -87,8 +87,18 @@ impl Query {
 				.is_none_or(|cursor| cursor.user.0 != 0 && cursor.joined_at >= 0)
 	}
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VoiceChange {
+	Move(Option<Id>),
+	Mute(bool),
+}
 #[derive(Clone)]
 pub enum Action {
+	Voice {
+		user: Id,
+		channel: Id,
+		change: VoiceChange,
+	},
 	AuditLog(crate::server_audit_log::Query),
 	Integrations(crate::server_integrations::Action),
 	Invites(crate::server_invites::Action),
@@ -184,6 +194,15 @@ impl Action {
 	}
 	pub fn valid(&self) -> bool {
 		match self {
+			Self::Voice {
+				user,
+				channel,
+				change,
+			} => {
+				user.0 != 0
+					&& channel.0 != 0
+					&& !matches!(change, VoiceChange::Move(Some(to)) if to.0 == 0 || to == channel)
+			}
 			Self::Roles(action) => action.valid(),
 			Self::Invites(action) => action.valid(),
 			Self::Integrations(action) => action.valid(),
@@ -253,6 +272,7 @@ impl Action {
 	}
 }
 pub enum Result {
+	VoiceUpdated(Id),
 	WebhookUrl(crate::server_integrations::WebhookUrl),
 	AuditLog(crate::server_audit_log::Page),
 	Integrations(crate::server_integrations::Snapshot),
@@ -389,7 +409,7 @@ impl Result {
 				}
 				Self::Members(page) => page.valid(),
 				Self::Member(member) => member.valid(),
-				Self::Kicked(id) => id.0 != 0,
+				Self::Kicked(id) | Self::VoiceUpdated(id) => id.0 != 0,
 				_ => true,
 			}
 	}

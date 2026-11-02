@@ -107,6 +107,8 @@ pub struct StreamPreview {
 	pub url: Option<String>,
 	pub error: Option<&'static str>,
 }
+/// Automatic rejoins after joined media drops before the call fails.
+pub const MAX_REJOIN_ATTEMPTS: u8 = 3;
 pub struct Call {
 	pub channel: Id,
 	pub guild: Option<Id>,
@@ -123,6 +125,9 @@ pub struct Call {
 	/// Participant whose screen share this device explicitly chose to watch.
 	pub watching: Option<Id>,
 	pub error: Option<&'static str>,
+	/// Automatic rejoin after joined media dropped: the attempt (1-based) and why it dropped.
+	/// Cleared once the replacement session connects.
+	pub reconnecting: Option<(u8, &'static str)>,
 }
 impl Call {
 	/// Discord's microphone indicator: deafening always reads (and is sent) as muted.
@@ -517,7 +522,15 @@ impl ClientState {
 		})
 	}
 	pub fn can_camera(&self, channel: Id) -> bool {
-		self.can_call(channel) && self.permission(channel, model::permissions::STREAM) == Some(true)
+		self.gateway_connected && self.has_camera_access(channel)
+	}
+	/// Whether an already-established local camera remains permitted to capture media.
+	/// New camera activation must still use `can_camera`, which also requires a live Gateway.
+	pub fn has_camera_access(&self, channel: Id) -> bool {
+		!self.demo
+			&& self.auth == AuthState::Authenticated
+			&& self.has_voice_access(channel)
+			&& self.permission(channel, model::permissions::STREAM) == Some(true)
 	}
 	pub fn start_call(&mut self, channel: Id, ring: bool) -> Option<crate::Command> {
 		self.start_call_with_mute(channel, ring, false, false)
@@ -529,7 +542,16 @@ impl ClientState {
 		muted: bool,
 		deafened: bool,
 	) -> Option<crate::Command> {
-		if !self.can_call(channel) || self.voice.active.is_some() {
+		if !self.can_call(channel) {
+			return None;
+		}
+		// A failed call is not a live one: joining again replaces it instead of being refused.
+		if self
+			.voice
+			.active
+			.as_ref()
+			.is_some_and(|call| call.phase != Phase::Failed)
+		{
 			return None;
 		}
 		let guild = self.channel(channel)?.guild;
@@ -558,6 +580,8 @@ impl ClientState {
 		let request = self.voice.sequence;
 		self.voice.outgoing = ring.then_some((channel, request, false));
 		self.voice.ring_error = None;
+		// A join puts this account back in the channel; an older departure must not outlive it.
+		self.voice.departed = None;
 		self.voice.active = Some(Call {
 			channel,
 			guild,
@@ -573,6 +597,7 @@ impl ClientState {
 			watching: None,
 			participants,
 			error: None,
+			reconnecting: None,
 		});
 		if self.voice.incoming == Some(channel) {
 			self.voice.incoming = None;
@@ -583,6 +608,47 @@ impl ClientState {
 			ring,
 			mute: muted || deafened,
 			deaf: deafened,
+		}))
+	}
+	/// Joined media for `request` dropped; keep the call (and Discord's voice state) while the
+	/// desktop waits to rejoin. Media-dependent state ends with the old session.
+	pub fn reconnect_call(&mut self, request: u64, attempt: u8, reason: &'static str) {
+		if let Some(call) = &mut self.voice.active
+			&& call.request == request
+			&& call.phase != Phase::Failed
+		{
+			call.phase = Phase::Connecting;
+			call.camera = false;
+			call.watching = None;
+			call.reconnecting = Some((attempt, reason));
+		}
+	}
+	/// Rejoin the reconnecting call with a fresh Discord voice session, as Discord's client
+	/// does after its media connection drops. Never rings and keeps the mute choice.
+	pub fn rejoin_call(&mut self) -> Option<crate::Command> {
+		let call = self.voice.active.as_ref()?;
+		if call.reconnecting.is_none()
+			|| call.phase == Phase::Failed
+			|| !self.gateway_connected
+			|| !self.can_call(call.channel)
+		{
+			return None;
+		}
+		let muted = call.muted || !self.can_speak(call.channel);
+		self.voice.sequence = self.voice.sequence.wrapping_add(1);
+		let request = self.voice.sequence;
+		// The join puts this account back in the channel, so an earlier departure record must not
+		// let a later rejoin skip the leave that makes its join a real one.
+		self.voice.departed = None;
+		let call = self.voice.active.as_mut()?;
+		call.request = request;
+		call.muted = muted;
+		Some(crate::Command::Voice(Command::Join {
+			channel: call.channel,
+			request,
+			ring: false,
+			mute: muted || call.deafened,
+			deaf: call.deafened,
 		}))
 	}
 	pub fn leave_call(&mut self) -> Option<crate::Command> {
@@ -998,6 +1064,9 @@ impl ClientState {
 					&& call.phase != Phase::Failed
 				{
 					call.phase = phase;
+					if matches!(phase, Phase::Connected | Phase::Waiting) {
+						call.reconnecting = None;
+					}
 					if matches!(phase, Phase::Connected | Phase::Failed) {
 						self.voice.outgoing = None;
 					}
@@ -1024,6 +1093,7 @@ impl ClientState {
 					call.phase = Phase::Failed;
 					call.camera = false;
 					call.watching = None;
+					call.reconnecting = None;
 					call.error.get_or_insert(message);
 					call.participants.clear();
 				}
@@ -1155,6 +1225,7 @@ impl ClientState {
 			call.phase = Phase::Failed;
 			call.camera = false;
 			call.watching = None;
+			call.reconnecting = None;
 			call.error.get_or_insert(reason);
 			call.participants.clear();
 		}
@@ -1178,6 +1249,7 @@ mod tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			}),
 			guilds: vec![model::Guild {
 				default_message_notifications: None,
@@ -1222,6 +1294,30 @@ mod tests {
 		};
 		crate::tests::grant_permissions(&mut state);
 		state
+	}
+
+	#[test]
+	fn a_failed_call_does_not_block_joining_the_channel_again() {
+		let mut state = stream_preview_state();
+		assert!(state.start_call(Id(20), false).is_some());
+		let request = state.voice.active.as_ref().unwrap().request;
+		// The call fails while Discord still has this account in the channel; its card stays up.
+		state.apply_voice(Event::Failed {
+			channel: Id(20),
+			request,
+			message: "Audio devices are unavailable",
+		});
+		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Failed);
+		// Joining again replaces the failed card instead of being refused, and the old reason
+		// does not follow the new attempt.
+		assert!(
+			state.start_call(Id(20), false).is_some(),
+			"a failed call is replaceable"
+		);
+		let call = state.voice.active.as_ref().unwrap();
+		assert_eq!(call.phase, Phase::Connecting);
+		assert_ne!(call.request, request, "the new attempt has its own request");
+		assert!(call.error.is_none());
 	}
 
 	#[test]
@@ -1347,6 +1443,7 @@ mod tests {
 							tertiary_color: None,
 							position: 0,
 							hoist: false,
+							managed: false,
 							bits: p::VIEW_CHANNEL,
 						}]),
 						member: Some(p::Member {
@@ -1381,6 +1478,7 @@ mod tests {
 				gateway_connected: true,
 				user: Some(User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(1),
 					name: "Owner".into(),
 					avatar: None,
@@ -1541,6 +1639,7 @@ mod tests {
 				roles: vec![],
 				user: User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(2),
 					name: "x".repeat(MAX_ROSTER_BYTES),
 					avatar: None,
@@ -1591,6 +1690,7 @@ mod tests {
 							tertiary_color: None,
 							position: 0,
 							hoist: false,
+							managed: false,
 							id: Id(10),
 							bits: p::VIEW_CHANNEL | p::CONNECT,
 						}]),
@@ -1657,6 +1757,7 @@ mod tests {
 				gateway_connected: true,
 				user: Some(User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(1),
 					name: "Owner".into(),
 					avatar: None,
@@ -1706,6 +1807,7 @@ mod tests {
 							tertiary_color: None,
 							position: 0,
 							hoist: false,
+							managed: false,
 						}]),
 						member: Some(p::Member {
 							roles: vec![],
@@ -1814,6 +1916,7 @@ mod tests {
 			gateway_connected: true,
 			user: Some(User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(1),
 				name: "Owner".into(),
 				avatar: None,
@@ -1831,6 +1934,7 @@ mod tests {
 				kind: 1,
 				recipients: vec![User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(3),
 					name: "Peer".into(),
 					avatar: None,
@@ -2103,6 +2207,7 @@ mod tests {
 				gateway_connected: true,
 				user: Some(User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(1),
 					name: "Owner".into(),
 					avatar: None,
@@ -2120,6 +2225,7 @@ mod tests {
 					kind: 1,
 					recipients: vec![User {
 						primary_guild: None,
+						cosmetics: None,
 						id: Id(3),
 						name: "Peer".into(),
 						avatar: None,

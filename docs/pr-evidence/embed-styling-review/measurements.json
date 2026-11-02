@@ -1,0 +1,56 @@
+﻿{
+    "method":  "One release native-preview run per revision, 5-second warmup, 20 one-second samples. 100% CPU is one core. Concurrent host compilation makes tiny differences noisy.",
+    "baselineRetention":  "Baseline binary, ZIP and raw samples were removed by cleanup after measurement. Aggregates were preserved from recorded command output.",
+    "baseline":  {
+                     "revision":  "c01461edf02da38bd0428200bfd9e032e3357e46",
+                     "native":  {
+                                    "IntervalSeconds":  1,
+                                    "HelperNames":  [
+                                                        "conhost"
+                                                    ],
+                                    "SettledPrivateBytes":  388874240,
+                                    "IdleCpuOneCorePercent":  0.16166862549546712,
+                                    "PeakPrivateBytes":  388874240,
+                                    "Samples":  20,
+                                    "HelperIdleCpuOneCorePercent":  0,
+                                    "WarmupSeconds":  5,
+                                    "HelperPeakWorkingSet":  10629120,
+                                    "HelperSettledPrivateBytes":  1622016,
+                                    "HelperSettledWorkingSet":  10629120,
+                                    "HelperPeakPrivateBytes":  1622016,
+                                    "PeakWorkingSet":  174346240,
+                                    "SettledWorkingSet":  174346240
+                                },
+                     "package":  {
+                                     "installedBytes":  91110921,
+                                     "zipBytes":  50316564,
+                                     "executableBytes":  86917632
+                                 }
+                 },
+    "after":  {
+                  "revision":  "9354335e2a3828d4fbd6946ba6cc84ed506fa48d",
+                  "native":  {
+                                 "Samples":  20,
+                                 "IntervalSeconds":  1,
+                                 "WarmupSeconds":  5,
+                                 "PeakWorkingSet":  174428160,
+                                 "SettledWorkingSet":  174428160,
+                                 "PeakPrivateBytes":  389730304,
+                                 "SettledPrivateBytes":  389730304,
+                                 "IdleCpuOneCorePercent":  0.40543234820391033,
+                                 "HelperNames":  [
+                                                     "conhost"
+                                                 ],
+                                 "HelperPeakWorkingSet":  10670080,
+                                 "HelperSettledWorkingSet":  10670080,
+                                 "HelperPeakPrivateBytes":  1740800,
+                                 "HelperSettledPrivateBytes":  1740800,
+                                 "HelperIdleCpuOneCorePercent":  0
+                             },
+                  "package":  {
+                                  "installedBytes":  91119113,
+                                  "zipBytes":  50320128,
+                                  "executableBytes":  86925824
+                              }
+              }
+}

@@ -4,7 +4,7 @@ on:
     branches: [main]
     paths: &paths
       - "flake.*"
-      - "nix/**"
+      - "packaging/nix/**"
       - ".github/workflows/nix.yml"
       - "**/Cargo.*"
       - "rust-toolchain.toml"

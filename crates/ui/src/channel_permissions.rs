@@ -11,6 +11,7 @@ pub(super) struct PermissionsUi {
 }
 
 impl PermissionsUi {
+	/// Render the channel permissions editor tabs and overwrite table.
 	pub fn show(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -76,6 +77,7 @@ impl PermissionsUi {
 		});
 	}
 
+	/// Render the role and member target list with add-target popup menu.
 	fn targets(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -88,9 +90,12 @@ impl PermissionsUi {
 		ui.add_enabled_ui(
 			state.can_manage_channel_permissions(channel.id) && rows.len() < p::MAX_OVERWRITES,
 			|ui| {
-				ui.menu_button(
-					crate::i18n::translate("channel-permissions-targets-add-role-or-member"),
-					|ui| {
+				let button = ui.button(crate::i18n::translate(
+					"channel-permissions-targets-add-role-or-member",
+				));
+				egui::Popup::menu(&button)
+					.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+					.show(|ui| {
 						ui.set_width(240.0);
 						ui.add(
 							egui::TextEdit::singleline(&mut self.search)
@@ -200,8 +205,7 @@ impl PermissionsUi {
 							self.member_id.clear();
 							ui.close();
 						}
-					},
-				);
+					});
 			},
 		);
 		egui::ScrollArea::vertical()

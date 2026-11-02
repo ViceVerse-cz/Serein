@@ -16,6 +16,12 @@ pub struct Device {
 	pub screen_share_on: bool,
 	pub user_join: bool,
 	pub user_leave: bool,
+	/// Push-to-talk key pressed (transmission started).
+	pub ptt_start: bool,
+	/// Push-to-talk key released (transmission ended).
+	pub ptt_stop: bool,
+	/// Someone started watching this device's own screen share.
+	pub viewer_join: bool,
 	pub volume: u8,
 }
 impl Default for Device {
@@ -35,6 +41,9 @@ impl Default for Device {
 			screen_share_on: true,
 			user_join: true,
 			user_leave: true,
+			ptt_start: true,
+			ptt_stop: true,
+			viewer_join: true,
 			volume: 75,
 		}
 	}
@@ -53,6 +62,9 @@ pub enum Sound {
 	ScreenShareOn,
 	UserJoin,
 	UserLeave,
+	PttStart,
+	PttStop,
+	ViewerJoin,
 }
 impl Device {
 	pub fn allows(self, sound: Sound) -> bool {
@@ -71,6 +83,9 @@ impl Device {
 				Sound::ScreenShareOn => self.screen_share_on,
 				Sound::UserJoin => self.user_join,
 				Sound::UserLeave => self.user_leave,
+				Sound::PttStart => self.ptt_start,
+				Sound::PttStop => self.ptt_stop,
+				Sound::ViewerJoin => self.viewer_join,
 			}
 	}
 }
@@ -103,6 +118,16 @@ mod tests {
 		assert!(settings.allows(Sound::UserJoin));
 		assert!(!settings.allows(Sound::UserLeave));
 		settings.user_leave = true;
+		assert!(settings.allows(Sound::PttStart));
+		assert!(settings.allows(Sound::PttStop));
+		settings.ptt_start = false;
+		assert!(!settings.allows(Sound::PttStart));
+		assert!(settings.allows(Sound::PttStop));
+		settings.ptt_start = true;
+		settings.ptt_stop = false;
+		assert!(settings.allows(Sound::PttStart));
+		assert!(!settings.allows(Sound::PttStop));
+		settings.ptt_stop = true;
 		settings.camera_on = false;
 		assert!(!settings.allows(Sound::CameraOn));
 		assert!(settings.allows(Sound::ScreenShareOn));
@@ -111,6 +136,11 @@ mod tests {
 		assert!(settings.allows(Sound::CameraOn));
 		assert!(!settings.allows(Sound::ScreenShareOn));
 		settings.screen_share_on = true;
+		assert!(settings.allows(Sound::ViewerJoin));
+		settings.viewer_join = false;
+		assert!(!settings.allows(Sound::ViewerJoin));
+		assert!(settings.allows(Sound::ScreenShareOn));
+		settings.viewer_join = true;
 		settings.mute = false;
 		assert!(!settings.allows(Sound::Mute));
 		assert!(settings.allows(Sound::Unmute));
@@ -134,6 +164,9 @@ mod tests {
 			Sound::ScreenShareOn,
 			Sound::UserJoin,
 			Sound::UserLeave,
+			Sound::PttStart,
+			Sound::PttStop,
+			Sound::ViewerJoin,
 		] {
 			assert!(!settings.allows(sound));
 		}

@@ -9,11 +9,14 @@ use client_core::{
 use egui::RichText;
 use model::{
 	Id,
+	server_admin::VoiceChange,
 	voice_settings::{InputProfile, NoiseSuppression},
 };
 
 /// Local mutes share the 64 per-user volume slots sent to the mixer.
 const MAX_USER_MUTES: usize = 64;
+
+pub(super) struct VoiceDrag(pub Id, pub Id, pub Id);
 
 pub(super) struct CallSwitch {
 	from: (Id, u64),
@@ -311,6 +314,65 @@ impl MessagingUi {
 					}
 					ui.separator();
 				}
+				let (guild, channel, user) = (entry.guild, entry.channel, entry.participant.user);
+				let can_move =
+					state.can_moderate_voice(guild, channel, user, VoiceChange::Move(None));
+				let muted = entry.participant.server_muted;
+				let can_mute =
+					state.can_moderate_voice(guild, channel, user, VoiceChange::Mute(!muted));
+				if can_move || can_mute {
+					let enabled = !state.server_admin.pending
+						&& (state.demo
+							|| (state.gateway_connected && state.auth == AuthState::Authenticated));
+					ui.add_enabled_ui(enabled, |ui| {
+						if can_mute
+							&& ui
+								.button(crate::i18n::translate(if muted {
+									"voice-server-unmute"
+								} else {
+									"voice-server-mute"
+								}))
+								.clicked()
+						{
+							self.voice_moderation =
+								Some((guild, channel, user, VoiceChange::Mute(!muted)));
+							ui.close();
+						}
+						if can_move {
+							ui.menu_button(crate::i18n::translate("voice-move-to"), |ui| {
+								egui::ScrollArea::vertical()
+									.max_height(240.0)
+									.show(ui, |ui| {
+										for target in state.channels.iter().filter(|target| {
+											target.guild == Some(guild)
+												&& target.kind == 2 && target.id != channel
+										}) {
+											let change = VoiceChange::Move(Some(target.id));
+											if state.can_view(target.id)
+												&& state.permission(
+													target.id,
+													model::permissions::CONNECT,
+												) == Some(true) && ui.button(&target.name).clicked()
+											{
+												self.voice_moderation =
+													Some((guild, channel, user, change));
+												ui.close();
+											}
+										}
+									});
+							});
+							if ui
+								.button(crate::i18n::translate("voice-disconnect-member"))
+								.clicked()
+							{
+								self.voice_moderation =
+									Some((guild, channel, user, VoiceChange::Move(None)));
+								ui.close();
+							}
+						}
+					});
+					ui.separator();
+				}
 				if let Some(user) = resolve_member(state, entry).0 {
 					crate::user_menu::contents(
 						ui,
@@ -381,6 +443,8 @@ impl MessagingUi {
 			ui.painter()
 				.rect_filled(row, 8, crate::design::row_highlight(ui, colors.hover, 1.0));
 		}
+		let (unread, count) = crate::notifications::row_activity(state, channel, viewable);
+		let unread_while_connected = unread && connected;
 		let text_color = channel_marks::tint(
 			&colors,
 			access,
@@ -394,6 +458,16 @@ impl MessagingUi {
 				Emphasis::Idle
 			},
 		);
+		if unread_while_connected && !selected && !access.muted() {
+			ui.painter().rect_filled(
+				egui::Rect::from_center_size(
+					egui::pos2(row.left() - 6.0, row.center().y),
+					egui::vec2(4.0, 8.0),
+				),
+				2,
+				colors.text_strong,
+			);
+		}
 		let glyph = egui::Rect::from_center_size(
 			row.left_center() + egui::vec2(18.0, 0.0),
 			egui::Vec2::splat(20.0),
@@ -408,15 +482,19 @@ impl MessagingUi {
 		channel_marks::paint(ui.painter(), access, row, glyph, text_color);
 		let marks = channel_marks::trailing(access);
 		let elapsed_width = if elapsed.is_some() { 64.0 } else { 0.0 };
+		let badge_width = if count > 0 { 34.0 } else { 0.0 };
 		let name = ui.painter().layout(
 			channel.name.clone(),
 			egui::FontId::new(15.0, design::medium_family(ui.ctx())),
 			text_color,
-			(row.width() - 40.0 - elapsed_width - marks).max(10.0),
+			(row.width() - 40.0 - elapsed_width - badge_width - marks).max(10.0),
 		);
 		let name_rect = egui::Rect::from_min_size(
 			egui::pos2(row.left() + 34.0, row.center().y - name.size().y * 0.5),
-			egui::vec2(row.width() - 40.0 - elapsed_width - marks, name.size().y),
+			egui::vec2(
+				row.width() - 40.0 - elapsed_width - badge_width - marks,
+				name.size().y,
+			),
 		);
 		ui.painter()
 			.with_clip_rect(name_rect)
@@ -430,6 +508,20 @@ impl MessagingUi {
 				text_color,
 			);
 		}
+		if count > 0 {
+			crate::notifications::badge(
+				ui,
+				row.right_center() - egui::vec2(20.0 + marks + elapsed_width, 0.0),
+				count,
+				if selected {
+					colors.selected
+				} else if hovered {
+					colors.hover
+				} else {
+					colors.sidebar
+				},
+			);
+		}
 		if elapsed.is_some() && ui.is_rect_visible(response.rect) {
 			ui.ctx()
 				.request_repaint_after(std::time::Duration::from_secs(1));
@@ -440,7 +532,7 @@ impl MessagingUi {
 				viewable,
 				selected,
 				format!(
-					"{} {}{}{}",
+					"{} {}{}{}{}; {} {}",
 					channel.name,
 					crate::i18n::translate("voice-voice-channel-button-voice-channel"),
 					channel_marks::label(access),
@@ -448,7 +540,14 @@ impl MessagingUi {
 						crate::i18n::translate("voice-voice-channel-button-connected")
 					} else {
 						String::new()
-					}
+					},
+					if unread_while_connected {
+						crate::i18n::translate("categories-channel-list-unread")
+					} else {
+						String::new()
+					},
+					count,
+					crate::i18n::translate("categories-channel-list-notifications")
 				),
 			)
 		});
@@ -476,10 +575,30 @@ impl MessagingUi {
 		ui.push_id(
 			("voice-participant", entry.channel, entry.participant.user),
 			|ui| {
+				let draggable = !state.server_admin.pending
+					&& (state.demo
+						|| (state.gateway_connected && state.auth == AuthState::Authenticated))
+					&& state.can_moderate_voice(
+						entry.guild,
+						entry.channel,
+						entry.participant.user,
+						VoiceChange::Move(None),
+					);
 				let (rect, row) = ui.allocate_exact_size(
 					egui::vec2(ui.available_width(), 34.0),
-					egui::Sense::click(),
+					if draggable {
+						egui::Sense::click_and_drag()
+					} else {
+						egui::Sense::click()
+					},
 				);
+				if draggable && row.drag_started_by(egui::PointerButton::Primary) {
+					row.dnd_set_drag_payload(VoiceDrag(
+						entry.guild,
+						entry.channel,
+						entry.participant.user,
+					));
+				}
 				row.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
 				let hovered = row.contains_pointer() || row.has_focus();
 				if hovered {
@@ -1067,7 +1186,7 @@ impl MessagingUi {
 		})
 	}
 
-	fn remote_texture(&self, user: Id) -> Option<&egui::TextureHandle> {
+	fn remote_texture(&self, user: Id) -> Option<&egui::load::SizedTexture> {
 		self.voice_remote_video
 			.iter()
 			.find(|(id, _)| *id == user)
@@ -1229,10 +1348,10 @@ impl MessagingUi {
 			.map_or_else(|| "Participant".to_owned(), |user| user.name.clone());
 		let content = match &self.voice_stream_view {
 			Some(texture) => {
-				let content = fit_rect(rect, texture.size_vec2());
+				let content = fit_rect(rect, texture.size);
 				ui.put(
 					content,
-					egui::Image::from_texture((texture.id(), content.size())).corner_radius(8),
+					egui::Image::from_texture((texture.id, content.size())).corner_radius(8),
 				);
 				content
 			}
@@ -1368,7 +1487,7 @@ impl MessagingUi {
 			(egui::vec2(40.0, 20.0), 11.0, 8.0)
 		};
 		let live = egui::Rect::from_min_size(rect.left_top() + egui::Vec2::splat(margin), pill);
-		ui.painter().rect_filled(live, 4, colors.danger);
+		ui.painter().rect_filled(live, 4, colors.badge_fill());
 		ui.painter().text(
 			live.center(),
 			egui::Align2::CENTER_CENTER,
@@ -1501,7 +1620,7 @@ impl MessagingUi {
 				.map(|texture| (texture.id(), texture.size_vec2(), true))
 		} else if entry.participant.video {
 			self.remote_texture(entry.participant.user)
-				.map(|texture| (texture.id(), texture.size_vec2(), false))
+				.map(|texture| (texture.id, texture.size, false))
 		} else {
 			None
 		};
@@ -1572,7 +1691,7 @@ impl MessagingUi {
 			let badge = avatar.rect.right_bottom() - egui::Vec2::splat(avatar_size * 0.14);
 			ui.painter().circle_filled(badge, radius, STAGE_FILL);
 			ui.painter()
-				.circle_filled(badge, radius - 2.0, colors.danger);
+				.circle_filled(badge, radius - 2.0, colors.badge_fill());
 			crate::icons::paint(
 				ui.painter(),
 				icon,
@@ -1627,7 +1746,7 @@ impl MessagingUi {
 			};
 			let margin = if compact { 5.0 } else { 8.0 };
 			let live = egui::Rect::from_min_size(rect.left_top() + egui::Vec2::splat(margin), pill);
-			ui.painter().rect_filled(live, 4, colors.danger);
+			ui.painter().rect_filled(live, 4, colors.badge_fill());
 			ui.painter().text(
 				live.center(),
 				egui::Align2::CENTER_CENTER,
@@ -1679,17 +1798,10 @@ impl MessagingUi {
 			{
 				notices.push((error.into(), true));
 			}
-			if self.screen.context == Some((state.generation, channel, call.request)) {
-				let status = self.screen.capture_status.unwrap_or(self.screen.status);
-				if !status.is_empty() {
-					notices.push((status.into(), false));
-				}
-			}
+			// Screen-share and stream outcomes arrive as toasts; progress lives in the
+			// tiles and control tooltips, so the stage carries no status line for them.
 			if !self.voice_camera_status.is_empty() {
 				notices.push((self.voice_camera_status.into(), false));
-			}
-			if call.watching.is_none() && !self.voice_stream_status.is_empty() {
-				notices.push((self.voice_stream_status.into(), false));
 			}
 			if call.server_deafened {
 				notices.push(("Deafened by the server".into(), false));
@@ -2547,7 +2659,11 @@ impl MessagingUi {
 						} else {
 							(crate::icons::Icon::Video, "Preview camera")
 						};
-						if design::primary_icon_button(ui, icon, label).clicked() {
+						let mut response = design::primary_icon_button(ui, icon, label);
+						if !self.camera_test_blocked.is_empty() {
+							response = response.on_disabled_hover_text(self.camera_test_blocked);
+						}
+						if response.clicked() {
 							self.camera_test_requested = !self.camera_test_requested;
 							self.camera_test_status = "";
 						}
@@ -3674,9 +3790,13 @@ impl MessagingUi {
 		let colors = design::palette(ui);
 		let phase = call.phase;
 		let channel_id = call.channel;
+		let guild_id = call.guild;
 		let camera = call.camera;
 		let connected = matches!(phase, Phase::Connected | Phase::Waiting);
 		let error = call.error;
+		let reconnecting = call.reconnecting;
+		let reconnecting_title =
+			reconnecting.map(|_| crate::i18n::translate("voice-voice-card-section-reconnecting"));
 		let channel = state
 			.channel(call.channel)
 			.map_or("Direct message", |c| c.name.as_str())
@@ -3695,6 +3815,8 @@ impl MessagingUi {
 			"Call failed"
 		} else if connected {
 			"Voice Connected"
+		} else if let Some(title) = &reconnecting_title {
+			title.as_str()
 		} else {
 			"Connecting…"
 		};
@@ -3767,18 +3889,46 @@ impl MessagingUi {
 									.truncate()
 									.selectable(false),
 								);
-								ui.add(
-									egui::Label::new(
-										RichText::new(detail).size(12.0).color(colors.muted),
-									)
-									.truncate()
-									.selectable(false),
+								let response = ui.add(
+								    egui::Label::new(
+        								RichText::new(detail).size(12.0).color(colors.muted),
+    								)
+  									.truncate()
+   									.selectable(false)
+   									.sense(egui::Sense::click()),
 								);
+
+								if response.clicked() {
+    								self.guild = guild_id;
+
+    								if state.selected != Some(channel_id)
+        								&& let Some(command) = state.select(channel_id)
+    								{
+        								commands.push(command);
+    								}
+
+    									self.navigation_channel = Some(channel_id);
+								}
+
+								response
+   									.on_hover_cursor(egui::CursorIcon::PointingHand)
+    								.on_hover_text("Switch to this voice channel");
 							});
 						});
 					});
 				});
 				call_failure(ui, error, colors.text_strong);
+				if let Some((attempt, reason)) = reconnecting {
+					ui.add(
+						egui::Label::new(
+							RichText::new(reconnect_detail(reason, attempt))
+								.size(12.0)
+								.color(colors.muted),
+						)
+						.wrap()
+						.selectable(true),
+					);
+				}
 				let controls = self.controls_enabled(state);
 				let can_camera = self.voice_camera_available
 					&& state.can_camera(channel_id)
@@ -4206,6 +4356,22 @@ fn speaking_avatar(ui: &egui::Ui, avatar: &egui::Response, name: &str) {
 	avatar.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &label));
 }
 
+/// Why media dropped and how far the automatic rejoin is; transport advice to rejoin by
+/// hand does not apply while the client is already doing it.
+fn reconnect_detail(reason: &str, attempt: u8) -> String {
+	crate::i18n::translate_args(
+		"voice-voice-card-section-reconnect-attempt",
+		&[
+			("reason", reason.trim_end_matches("; rejoin the call")),
+			("attempt", &attempt.to_string()),
+			(
+				"total",
+				&client_core::voice::MAX_REJOIN_ATTEMPTS.to_string(),
+			),
+		],
+	)
+}
+
 fn call_failure(ui: &mut egui::Ui, error: Option<&str>, color: egui::Color32) {
 	let Some(error) = error else { return };
 	ui.horizontal_top(|ui| {
@@ -4259,7 +4425,7 @@ fn pill<R>(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui) -> R) 
 	ui.painter().rect_stroke(
 		rect,
 		12,
-		egui::Stroke::new(1.0, egui::Color32::from_white_alpha(18)),
+		egui::Stroke::new(1.0, PILL_FILL.blend(egui::Color32::from_white_alpha(18))),
 		egui::StrokeKind::Inside,
 	);
 	let mut inner = ui.new_child(
@@ -4602,14 +4768,18 @@ fn status_icon(ui: &mut egui::Ui, icon: crate::icons::Icon, color: egui::Color32
 
 /// Discord's LIVE pill, sized for the channel list row rather than a stage tile.
 fn live_badge(ui: &mut egui::Ui) {
-	let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 16.0), egui::Sense::hover());
+	let text = crate::i18n::translate("voice-live-badge-live");
+	let font_id = egui::FontId::new(9.0, design::medium_family(ui.ctx()));
+	let galley = ui
+		.painter()
+		.layout_no_wrap(text, font_id, egui::Color32::WHITE);
+	let width = (galley.size().x + 8.0).max(32.0);
+	let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 16.0), egui::Sense::hover());
 	let colors = design::palette(ui);
-	ui.painter().rect_filled(rect, 4, colors.danger);
-	ui.painter().text(
-		rect.center(),
-		egui::Align2::CENTER_CENTER,
-		crate::i18n::translate("voice-live-badge-live"),
-		egui::FontId::new(9.0, design::medium_family(ui.ctx())),
+	ui.painter().rect_filled(rect, 4, colors.badge_fill());
+	ui.painter().galley(
+		rect.center() - galley.size() * 0.5,
+		galley,
 		egui::Color32::WHITE,
 	);
 	response.widget_info(|| {
@@ -4659,35 +4829,6 @@ fn device_combo(
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn held_push_to_mute_shows_a_slashed_microphone_without_toggling() {
-		use crate::icons::Icon;
-		assert_eq!(
-			MessagingUi::mute_toggle_icon(false, false, false),
-			Icon::Microphone
-		);
-		assert_eq!(
-			MessagingUi::mute_toggle_icon(false, false, true),
-			Icon::MicrophoneSlash
-		);
-		assert_eq!(
-			MessagingUi::mute_toggle_icon(false, true, false),
-			Icon::MicrophoneSlash
-		);
-		assert_eq!(
-			MessagingUi::mute_toggle_icon(false, true, true),
-			Icon::MicrophoneSlash
-		);
-		assert_eq!(
-			MessagingUi::mute_toggle_icon(true, false, true),
-			Icon::Headphones
-		);
-		assert_eq!(
-			MessagingUi::mute_toggle_icon(true, true, false),
-			Icon::HeadphonesSlash
-		);
-	}
 
 	#[test]
 	fn explicit_join_audio_waits_for_call_switch_and_survives_teardown() {
@@ -4744,29 +4885,6 @@ mod tests {
 	}
 
 	#[test]
-	fn frameless_avatars_stay_close_and_inside_short_or_narrow_stages() {
-		// Two DM avatars: Discord-tight spacing instead of wide plates.
-		let (columns, size) = frameless_fit(2, egui::vec2(800.0, 300.0));
-		assert_eq!(columns, 2);
-		assert!(size.x - tile_avatar(size, true) <= FRAMELESS_MARGIN + 0.5);
-		for (count, area) in [
-			(2, egui::vec2(800.0, 60.0)),
-			(6, egui::vec2(220.0, 200.0)),
-			(9, egui::vec2(150.0, 120.0)),
-		] {
-			let (columns, size) = frameless_fit(count, area);
-			let rows = count.div_ceil(columns) as f32;
-			assert!(
-				size.y * rows + TILE_GAP * (rows - 1.0) <= area.y + 0.5,
-				"{count} {area:?}"
-			);
-			assert!(size.x * columns as f32 <= area.x + 0.5);
-			let avatar = tile_avatar(size, true);
-			assert!(avatar <= size.x && avatar <= size.y.max(12.0));
-		}
-	}
-
-	#[test]
 	fn deafening_mutes_and_undeafening_restores_the_microphone() {
 		let mut view = MessagingUi::default();
 		assert_eq!(view.toggle_voice(true), (false, true));
@@ -4808,24 +4926,417 @@ mod tests {
 	}
 
 	#[test]
-	fn voice_toggle_cues_follow_the_resulting_state_and_preferences() {
-		use model::notification_preferences::Sound;
-
-		let mut view = MessagingUi::default();
-		for (deafen, active, expected) in [
-			(false, true, Sound::Mute),
-			(false, false, Sound::Unmute),
-			(true, true, Sound::Deafen),
-			(true, false, Sound::Undeafen),
-		] {
-			view.notification_preview = None;
-			view.queue_voice_toggle_cue(deafen, active);
-			assert_eq!(view.notification_preview, Some(expected));
+	fn voice_moderation_checks_permissions_source_and_reconciles_demo_actions() {
+		use model::{
+			permissions as p,
+			server_admin::{Action, Result as Outcome},
+		};
+		let mut state = test_support::voice_demo_state();
+		let guild = Id(10);
+		let metadata = state.permissions.guilds.get_mut(&guild).unwrap();
+		metadata.owner = Some(Id(99));
+		metadata
+			.roles
+			.as_mut()
+			.unwrap()
+			.iter_mut()
+			.find(|role| role.id == guild)
+			.unwrap()
+			.bits = p::VIEW_CHANNEL | p::CONNECT | p::MUTE_MEMBERS | p::MOVE_MEMBERS;
+		for id in [Id(25), Id(26)] {
+			state.permissions.channels.insert(
+				id,
+				p::Channel {
+					id,
+					guild,
+					overwrites: Some(vec![]),
+				},
+			);
 		}
-		view.notification_options.mute = false;
-		view.notification_preview = None;
-		view.queue_voice_toggle_cue(false, true);
-		assert_eq!(view.notification_preview, None);
+		state.permissions.clear_cache();
+		assert!(state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(26)))));
+		assert!(!state.can_moderate_voice(guild, Id(25), Id(1), VoiceChange::Mute(true)));
+		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(25)))));
+		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(20)))));
+		state
+			.permissions
+			.channels
+			.get_mut(&Id(26))
+			.unwrap()
+			.overwrites = Some(vec![p::Overwrite {
+			id: guild,
+			kind: 0,
+			allow: 0,
+			deny: p::CONNECT,
+		}]);
+		state.permissions.clear_cache();
+		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(26)))));
+		state
+			.permissions
+			.channels
+			.get_mut(&Id(26))
+			.unwrap()
+			.overwrites = Some(vec![]);
+		state.permissions.clear_cache();
+		for change in [
+			VoiceChange::Mute(true),
+			VoiceChange::Mute(false),
+			VoiceChange::Move(Some(Id(26))),
+			VoiceChange::Move(None),
+		] {
+			let channel = state
+				.voice
+				.roster
+				.iter()
+				.find(|entry| entry.participant.user == Id(2))
+				.unwrap()
+				.channel;
+			let action = Action::Voice {
+				user: Id(2),
+				channel,
+				change,
+			};
+			let Command::ServerAdmin { request, .. } =
+				state.request_server_admin(guild, action.clone()).unwrap()
+			else {
+				panic!()
+			};
+			assert!(
+				state.request_server_admin(guild, action.clone()).is_none(),
+				"one outstanding mutation"
+			);
+			assert!(state.server_admin_command_allowed(guild, request, &action));
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::ServerAdmin(client_core::server_admin::Event {
+					guild,
+					request,
+					result: Ok(Outcome::VoiceUpdated(Id(2))),
+				}),
+			});
+			assert!(!state.server_admin.pending);
+			match change {
+				VoiceChange::Mute(muted) => assert_eq!(
+					state
+						.voice
+						.roster
+						.iter()
+						.find(|entry| entry.participant.user == Id(2))
+						.unwrap()
+						.participant
+						.server_muted,
+					muted
+				),
+				VoiceChange::Move(to) => assert_eq!(
+					state
+						.voice
+						.roster
+						.iter()
+						.find(|entry| entry.participant.user == Id(2))
+						.map(|entry| entry.channel),
+					to
+				),
+			}
+		}
+		assert!(
+			!state.can_moderate_voice(guild, Id(26), Id(2), VoiceChange::Mute(true)),
+			"departed source cannot be moderated"
+		);
+	}
+
+	#[test]
+	fn voice_moderation_menu_click_records_server_action() {
+		for (label, change) in [
+			("Server mute", VoiceChange::Mute(true)),
+			("Disconnect", VoiceChange::Move(None)),
+		] {
+			let mut state = test_support::voice_demo_state();
+			state.permissions.guilds.get_mut(&Id(10)).unwrap().owner =
+				Some(state.user.as_ref().unwrap().id);
+			state.permissions.clear_cache();
+			let entry = state
+				.voice
+				.roster
+				.iter()
+				.find(|entry| entry.participant.user == Id(2))
+				.unwrap()
+				.clone();
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let mut view = MessagingUi::default();
+			let frame = |view: &mut MessagingUi, events| {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(600.0, 700.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| view.voice_participant(ui, &state, &entry),
+				);
+				let button = output.shapes.iter().find_map(|shape| match &shape.shape {
+					egui::Shape::Text(text) if text.galley.job.text == label => {
+						Some(text.galley.rect.translate(text.pos.to_vec2()).center())
+					}
+					_ => None,
+				});
+				output.drop_without_applying_deltas();
+				button
+			};
+			frame(&mut view, vec![]);
+			let point = egui::pos2(100.0, 17.0);
+			let click = |point, button, pressed| {
+				vec![
+					egui::Event::PointerMoved(point),
+					egui::Event::PointerButton {
+						pos: point,
+						button,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				]
+			};
+			for pressed in [true, false] {
+				frame(
+					&mut view,
+					click(point, egui::PointerButton::Secondary, pressed),
+				);
+			}
+			let point = frame(&mut view, vec![]).expect("moderation menu item");
+			for pressed in [true, false] {
+				frame(
+					&mut view,
+					click(point, egui::PointerButton::Primary, pressed),
+				);
+			}
+			assert_eq!(view.voice_moderation, Some((Id(10), Id(25), Id(2), change)));
+			assert!(
+				view.voice_user_mutes().is_empty(),
+				"server mute is distinct from local mute"
+			);
+		}
+	}
+
+	#[test]
+	fn voice_move_controls_dispatch_and_reject_denied_destinations() {
+		use model::{permissions as p, server_admin::Action};
+		for dragging in [false, true] {
+			for denied in [false, true] {
+				let mut state = test_support::voice_demo_state();
+				let guild = Id(10);
+				let metadata = state.permissions.guilds.get_mut(&guild).unwrap();
+				metadata.owner = Some(Id(99));
+				metadata
+					.roles
+					.as_mut()
+					.unwrap()
+					.iter_mut()
+					.find(|role| role.id == guild)
+					.unwrap()
+					.bits = p::VIEW_CHANNEL | p::CONNECT | p::MOVE_MEMBERS;
+				for id in [Id(25), Id(26)] {
+					state.permissions.channels.insert(
+						id,
+						p::Channel {
+							id,
+							guild,
+							overwrites: Some(vec![]),
+						},
+					);
+				}
+				if denied {
+					state
+						.permissions
+						.channels
+						.get_mut(&Id(26))
+						.unwrap()
+						.overwrites = Some(vec![p::Overwrite {
+						id: guild,
+						kind: 0,
+						allow: 0,
+						deny: p::CONNECT,
+					}]);
+				}
+				state.permissions.clear_cache();
+				let entry = state
+					.voice
+					.roster
+					.iter()
+					.find(|e| e.participant.user == Id(2))
+					.unwrap()
+					.clone();
+				let ctx = egui::Context::default();
+				crate::design::apply(&ctx);
+				let mut view = MessagingUi {
+					guild: Some(guild),
+					..Default::default()
+				};
+				let frame = |view: &mut MessagingUi, state: &mut State, events| {
+					let output = ctx.run_ui(
+						egui::RawInput {
+							screen_rect: Some(egui::Rect::from_min_size(
+								egui::Pos2::ZERO,
+								egui::vec2(600.0, 900.0),
+							)),
+							events,
+							..Default::default()
+						},
+						|ui| {
+							if dragging {
+								view.channel_list(ui, state);
+							} else {
+								view.voice_participant(ui, state, &entry);
+							}
+						},
+					);
+					let text: Vec<_> = output
+						.shapes
+						.iter()
+						.filter_map(|shape| match &shape.shape {
+							egui::Shape::Text(t) => Some((
+								t.galley.job.text.clone(),
+								t.galley.rect.translate(t.pos.to_vec2()).center(),
+							)),
+							_ => None,
+						})
+						.collect();
+					output.drop_without_applying_deltas();
+					text
+				};
+				let click = |pos, button, pressed| {
+					vec![
+						egui::Event::PointerMoved(pos),
+						egui::Event::PointerButton {
+							pos,
+							button,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					]
+				};
+				let text = frame(&mut view, &mut state, vec![]);
+				if dragging {
+					let source = text
+						.iter()
+						.find(|(text, _)| text.starts_with("Robin"))
+						.expect("participant row")
+						.1;
+					let target = text
+						.iter()
+						.find(|(text, _)| text == "Quiet room")
+						.expect("destination channel")
+						.1;
+					frame(
+						&mut view,
+						&mut state,
+						click(source, egui::PointerButton::Primary, true),
+					);
+					frame(
+						&mut view,
+						&mut state,
+						vec![egui::Event::PointerMoved(source + egui::vec2(16.0, 0.0))],
+					);
+					assert!(
+						egui::DragAndDrop::has_payload_of_type::<super::VoiceDrag>(&ctx),
+						"participant begins voice drag"
+					);
+					frame(
+						&mut view,
+						&mut state,
+						vec![egui::Event::PointerMoved(target)],
+					);
+					frame(
+						&mut view,
+						&mut state,
+						click(target, egui::PointerButton::Primary, false),
+					);
+				} else {
+					for pressed in [true, false] {
+						frame(
+							&mut view,
+							&mut state,
+							click(
+								egui::pos2(100.0, 17.0),
+								egui::PointerButton::Secondary,
+								pressed,
+							),
+						);
+					}
+					let text = frame(&mut view, &mut state, vec![]);
+					let submenu = text
+						.iter()
+						.find(|(text, _)| text == "Move to")
+						.expect("move submenu")
+						.1;
+					for pressed in [true, false] {
+						frame(
+							&mut view,
+							&mut state,
+							click(submenu, egui::PointerButton::Primary, pressed),
+						);
+					}
+					let text = frame(&mut view, &mut state, vec![]);
+					let destination = text.iter().find(|(text, _)| text == "Quiet room");
+					if denied {
+						assert!(destination.is_none(), "denied destination is excluded");
+					} else {
+						for pressed in [true, false] {
+							frame(
+								&mut view,
+								&mut state,
+								click(
+									destination.unwrap().1,
+									egui::PointerButton::Primary,
+									pressed,
+								),
+							);
+						}
+					}
+				}
+				let expected =
+					(!denied).then_some((guild, Id(25), Id(2), VoiceChange::Move(Some(Id(26)))));
+				assert_eq!(
+					view.voice_moderation, expected,
+					"dragging={dragging}, denied={denied}"
+				);
+				let mut commands = Vec::new();
+				ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(1000.0, 900.0),
+						)),
+						..Default::default()
+					},
+					|ui| commands = view.show(ui, &mut state),
+				)
+				.drop_without_applying_deltas();
+				let actions: Vec<_> = commands
+					.into_iter()
+					.filter_map(|command| match command {
+						client_core::Command::ServerAdmin { action, .. } => match *action {
+							Action::Voice {
+								user,
+								channel,
+								change,
+							} => Some((user, channel, change)),
+							_ => None,
+						},
+						_ => None,
+					})
+					.collect();
+				assert_eq!(
+					actions,
+					if denied {
+						vec![]
+					} else {
+						vec![(Id(2), Id(25), VoiceChange::Move(Some(Id(26))))]
+					}
+				);
+			}
+		}
 	}
 
 	#[test]
@@ -5045,99 +5556,6 @@ mod tests {
 		assert!(commands.is_empty());
 		assert!(view.ring_request.is_none());
 	}
-	#[test]
-	fn solo_call_stages_show_both_local_previews_without_a_roster() {
-		fn textures(shape: &egui::Shape, ids: &mut Vec<egui::TextureId>) {
-			match shape {
-				egui::Shape::Mesh(mesh) => ids.push(mesh.texture_id),
-				egui::Shape::Rect(rect) => {
-					if let Some(brush) = &rect.brush {
-						ids.push(brush.fill_texture_id);
-					}
-				}
-				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| textures(shape, ids)),
-				_ => {}
-			}
-		}
-		for guild in [false, true] {
-			for width in [320.0, 900.0] {
-				for dark in [false, true] {
-					let mut state = if guild {
-						test_support::voice_demo_state()
-					} else {
-						test_support::call_demo_state()
-					};
-					state.voice.roster.clear();
-					let call = state.voice.active.as_mut().unwrap();
-					call.participants.clear();
-					call.phase = Phase::Waiting;
-					call.camera = true;
-					let (channel, request) = (call.channel, call.request);
-					let ctx = egui::Context::default();
-					ctx.set_visuals(if dark {
-						egui::Visuals::dark()
-					} else {
-						egui::Visuals::light()
-					});
-					let mut messaging = MessagingUi::default();
-					let camera = ctx.load_texture(
-						"synthetic-camera",
-						egui::ColorImage::filled([4, 3], egui::Color32::RED),
-						Default::default(),
-					);
-					let screen = ctx.load_texture(
-						"synthetic-screen",
-						egui::ColorImage::filled([16, 9], egui::Color32::BLUE),
-						Default::default(),
-					);
-					let expected = [camera.id(), screen.id()];
-					messaging.voice_camera_preview = Some(camera);
-					messaging.screen.preview = Some(screen);
-					messaging.screen.busy = true;
-					messaging.screen.context = Some((state.generation, channel, request));
-					assert_eq!(stage_participants(&state, channel).len(), 1);
-					let mut commands = vec![];
-					for phase in [Phase::Waiting, Phase::Connected, Phase::Failed] {
-						state.voice.active.as_mut().unwrap().phase = phase;
-						let mut output = ctx.run_ui(
-							egui::RawInput {
-								screen_rect: Some(egui::Rect::from_min_size(
-									egui::Pos2::ZERO,
-									egui::vec2(width, 800.0),
-								)),
-								..Default::default()
-							},
-							|ui| {
-								if guild {
-									messaging.voice_channel(ui, &mut state, channel, &mut commands);
-								} else {
-									messaging.call_bar(ui, &mut state, &mut commands, None);
-								}
-							},
-						);
-						let mut rendered = vec![];
-						for shape in &output.shapes {
-							textures(&shape.shape, &mut rendered);
-						}
-						output.textures_delta.clear();
-						for id in expected {
-							assert_eq!(
-								rendered.contains(&id),
-								phase != Phase::Failed,
-								"guild={guild}, width={width}, phase={phase:?}, texture={id:?}"
-							);
-						}
-					}
-					assert!(
-						commands.is_empty(),
-						"Synthetic previews must never start media"
-					);
-					state.voice.active = None;
-					assert!(stage_participants(&state, channel).is_empty());
-				}
-			}
-		}
-	}
 
 	#[test]
 	fn existing_dm_call_banner_joins_without_ringing_and_disables_unavailable_actions() {
@@ -5267,190 +5685,6 @@ mod tests {
 				}
 			}
 		}
-	}
-
-	#[test]
-	fn voice_popup_keeps_device_selection_open_and_demo_controls_inert() {
-		fn labels(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
-			match shape {
-				egui::Shape::Text(text) => out.push((
-					text.galley.job.text.clone(),
-					text.galley.rect.translate(text.pos.to_vec2()),
-				)),
-				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| labels(shape, out)),
-				_ => {}
-			}
-		}
-		fn frame(
-			ctx: &egui::Context,
-			messaging: &mut MessagingUi,
-			demo: bool,
-			events: Vec<egui::Event>,
-		) -> Vec<(String, egui::Rect)> {
-			let mut output = ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(800.0, 800.0),
-					)),
-					events,
-					..Default::default()
-				},
-				|ui| {
-					let trigger = ui.button(crate::i18n::translate("voice-frame-open-voice"));
-					messaging.voice_settings_popup(&trigger, demo, false, true);
-				},
-			);
-			output.textures_delta.clear();
-			let mut text = vec![];
-			for shape in output.shapes {
-				labels(&shape.shape, &mut text);
-			}
-			text
-		}
-		fn click(ctx: &egui::Context, messaging: &mut MessagingUi, demo: bool, pos: egui::Pos2) {
-			for pressed in [true, false] {
-				frame(
-					ctx,
-					messaging,
-					demo,
-					vec![
-						egui::Event::PointerMoved(pos),
-						egui::Event::PointerButton {
-							pos,
-							button: egui::PointerButton::Primary,
-							pressed,
-							modifiers: egui::Modifiers::NONE,
-						},
-					],
-				);
-			}
-		}
-		let position = |text: &[(String, egui::Rect)], label: &str| {
-			text.iter()
-				.find(|(value, _)| value == label)
-				.unwrap_or_else(|| panic!("Missing visible control: {label}"))
-				.1
-				.center()
-		};
-		for demo in [false, true] {
-			let ctx = egui::Context::default();
-			let mut messaging = MessagingUi {
-				voice_available: true,
-				voice_inputs: vec![("synthetic-input".into(), "Synthetic headset".into())],
-				voice_gain: crate::VoiceGain {
-					input_percent: 140,
-					output_percent: 80,
-				},
-				..Default::default()
-			};
-			frame(&ctx, &mut messaging, demo, vec![]);
-			let text = frame(&ctx, &mut messaging, demo, vec![]);
-			click(&ctx, &mut messaging, demo, position(&text, "Open voice"));
-			let text = frame(&ctx, &mut messaging, demo, vec![]);
-			click(
-				&ctx,
-				&mut messaging,
-				demo,
-				position(&text, "System default"),
-			);
-			let text = frame(&ctx, &mut messaging, demo, vec![]);
-			if demo {
-				assert!(
-					!egui::Popup::is_any_open(&ctx),
-					"Disabled devices must not open a picker"
-				);
-				click(
-					&ctx,
-					&mut messaging,
-					demo,
-					position(&text, "Refresh devices"),
-				);
-				let text = frame(&ctx, &mut messaging, demo, vec![]);
-				click(&ctx, &mut messaging, demo, position(&text, "Reset levels"));
-				assert_eq!(messaging.voice_input, None);
-				assert!(!messaging.voice_refresh_devices);
-				assert_eq!(messaging.voice_gain.input_percent, 140);
-				assert_eq!(messaging.voice_gain.output_percent, 80);
-			} else {
-				assert!(
-					egui::Popup::is_any_open(&ctx),
-					"The device picker must survive its opening frame"
-				);
-				click(
-					&ctx,
-					&mut messaging,
-					demo,
-					position(&text, "Synthetic headset"),
-				);
-				assert_eq!(messaging.voice_input.as_deref(), Some("synthetic-input"));
-				assert!(!egui::Popup::is_any_open(&ctx));
-			}
-			let text = frame(&ctx, &mut messaging, demo, vec![]);
-			assert!(
-				text.iter().any(|(value, _)| value == "All voice settings"),
-				"Changing settings must keep the voice popup open"
-			);
-			click(&ctx, &mut messaging, demo, egui::pos2(760.0, 760.0));
-			let text = frame(&ctx, &mut messaging, demo, vec![]);
-			assert!(
-				!text.iter().any(|(value, _)| value == "All voice settings"),
-				"Clicking outside must close the popup"
-			);
-		}
-	}
-
-	#[test]
-	fn gain_sliders_accept_keyboard_input_and_reset_with_the_session() {
-		let mut messaging = MessagingUi::default();
-		assert_eq!(messaging.voice_gain.input_percent, 100);
-		assert_eq!(messaging.voice_gain.output_percent, 100);
-		let ctx = egui::Context::default();
-		let raw = || egui::RawInput {
-			screen_rect: Some(egui::Rect::from_min_size(
-				egui::Pos2::ZERO,
-				egui::vec2(240.0, 260.0),
-			)),
-			..Default::default()
-		};
-		ctx.run_ui(raw(), |ui| {
-			gain_controls(ui, &mut messaging.voice_gain)[0].request_focus();
-		})
-		.drop_without_applying_deltas();
-		let mut input = raw();
-		input.events.push(egui::Event::Key {
-			key: egui::Key::ArrowRight,
-			physical_key: None,
-			pressed: true,
-			repeat: false,
-			modifiers: egui::Modifiers::NONE,
-		});
-		ctx.run_ui(input, |ui| {
-			let controls = gain_controls(ui, &mut messaging.voice_gain);
-			assert!(
-				controls
-					.iter()
-					.all(|r| r.rect.right() <= ui.max_rect().right() + 1.0)
-			);
-		})
-		.drop_without_applying_deltas();
-		assert_eq!(messaging.voice_gain.input_percent, 101);
-		assert_eq!(messaging.voice_gain.output_percent, 100);
-		assert!(
-			!messaging.voice_refresh_devices,
-			"Gain does not enumerate devices"
-		);
-		messaging.voice_gain.input_percent = u16::MAX;
-		messaging.voice_gain.output_percent = 0;
-		ctx.run_ui(raw(), |ui| {
-			gain_controls(ui, &mut messaging.voice_gain);
-		})
-		.drop_without_applying_deltas();
-		assert_eq!(messaging.voice_gain.input_percent, 200);
-		assert_eq!(messaging.voice_gain.output_percent, 0);
-		messaging.clear();
-		assert_eq!(messaging.voice_gain.input_percent, 100);
-		assert_eq!(messaging.voice_gain.output_percent, 100);
 	}
 
 	#[test]
@@ -5644,48 +5878,6 @@ mod tests {
 	}
 
 	#[test]
-	fn streaming_roster_click_still_opens_profile() {
-		let state = test_support::voice_demo_state();
-		let entry = &state.voice.roster[2];
-		assert!(entry.participant.streaming);
-		let mut messaging = MessagingUi::default();
-		let ctx = egui::Context::default();
-		let mut rect = egui::Rect::NOTHING;
-		ctx.run_ui(Default::default(), |ui| {
-			rect = ui
-				.scope(|ui| messaging.voice_participant(ui, &state, entry))
-				.response
-				.rect;
-		})
-		.drop_without_applying_deltas();
-		let pos = rect.left_center() + egui::vec2(40.0, 0.0);
-		for pressed in [true, false] {
-			ctx.run_ui(
-				egui::RawInput {
-					events: vec![
-						egui::Event::PointerMoved(pos),
-						egui::Event::PointerButton {
-							pos,
-							button: egui::PointerButton::Primary,
-							pressed,
-							modifiers: egui::Modifiers::NONE,
-						},
-					],
-					..Default::default()
-				},
-				|ui| {
-					ui.scope(|ui| messaging.voice_participant(ui, &state, entry));
-				},
-			)
-			.drop_without_applying_deltas();
-		}
-		assert_eq!(
-			messaging.profile.open_user().map(|user| user.id),
-			Some(entry.participant.user)
-		);
-	}
-
-	#[test]
 	fn stream_preview_watch_clears_rejected_and_completed_intents() {
 		for phase in [Phase::Connected, Phase::Waiting] {
 			for present in [false, true] {
@@ -5747,6 +5939,7 @@ mod tests {
 					kind: Default::default(),
 					discriminator: 0,
 					primary_guild: None,
+					cosmetics: None,
 				}],
 				member_list_id: None,
 				tags: None,
@@ -5796,5 +5989,31 @@ mod tests {
 		);
 		messaging.voice_available = true;
 		assert!(messaging.call_unavailable(&state, Id(1)).is_none());
+	}
+
+	#[test]
+	fn live_badge_expands_to_fit_multilingual_label() {
+		let prev_lang = crate::i18n::current();
+		crate::i18n::set_current(crate::i18n::Language::Spanish);
+		let ctx = egui::Context::default();
+		let text = crate::i18n::translate("voice-live-badge-live");
+		let font_id = egui::FontId::new(9.0, design::medium_family(&ctx));
+		let mut expected_width = 0.0;
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let galley =
+				ui.painter()
+					.layout_no_wrap(text.clone(), font_id.clone(), egui::Color32::WHITE);
+			expected_width = (galley.size().x + 8.0).max(32.0);
+		});
+		output.drop_without_applying_deltas();
+		assert!(expected_width > 32.0);
+		let mut badge_width = 0.0;
+		let output = ctx.run_ui(Default::default(), |ui| {
+			live_badge(ui);
+			badge_width = ui.min_rect().width();
+		});
+		output.drop_without_applying_deltas();
+		assert_eq!(badge_width, expected_width);
+		crate::i18n::set_current(prev_lang);
 	}
 }

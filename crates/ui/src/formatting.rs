@@ -40,7 +40,11 @@ impl Style {
 		ctx.input_mut(|input| {
 			SHORTCUTS
 				.iter()
-				.find(|(action, _)| crate::keybinds::pressed(input, bindings.chord(*action)))
+				.find(|(action, _)| {
+					bindings
+						.chords(*action)
+						.any(|chord| crate::keybinds::pressed(input, chord))
+				})
 				.map(|(_, style)| *style)
 		})
 	}

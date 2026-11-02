@@ -226,7 +226,7 @@ impl State {
 	pub fn thread_of(&self, message: &model::Message) -> Option<&Channel> {
 		let is_thread =
 			|c: &&Channel| matches!(c.kind, 10..=12) && c.parent_id == Some(message.channel);
-		if message.flags & (1 << 5) != 0
+		if message.flags & model::HAS_THREAD != 0
 			&& let Some(thread) = self.channels.iter().find(|c| c.id == message.id)
 			&& is_thread(&thread)
 		{
@@ -246,6 +246,21 @@ impl State {
 			}
 		}
 		None
+	}
+
+	/// The thread `message` started that this session has not loaded.
+	///
+	/// The service's [`model::HAS_THREAD`] flag is the only admitted proof of the relation: a
+	/// thread channel shares its starter's ID. The timeline offers to open such a thread with
+	/// one bounded channel read; nothing here fetches or guesses a parent.
+	pub fn unloaded_thread(&self, message: &model::Message) -> Option<Id> {
+		let parent = self.channel(message.channel)?;
+		(message.flags & model::HAS_THREAD != 0
+			&& message.kind != 18
+			&& parent.guild.is_some()
+			&& matches!(parent.kind, 0 | 5 | 10..=12 | 15 | 16)
+			&& self.channel(message.id).is_none())
+		.then_some(message.id)
 	}
 
 	fn archive_thread_kind(&self, parent: Id, kind: Kind) -> Option<u8> {
@@ -293,6 +308,7 @@ mod tests {
 			channel,
 			author: model::User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -331,6 +347,7 @@ mod tests {
 			selected: Some(Id(10)),
 			user: Some(model::User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -379,6 +396,7 @@ mod tests {
 				tertiary_color: None,
 				position: 0,
 				hoist: false,
+				managed: false,
 				id: Id(1),
 				bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY,
 			}]);
@@ -855,6 +873,18 @@ mod tests {
 			state.thread_of(&flagged_duplicate).map(|c| c.id),
 			Some(Id(32)),
 			"A flagged starter still resolves by id, whatever the thread is called"
+		);
+		// A flagged starter whose thread the session never loaded stays openable on demand.
+		let mut unloaded = message(40, Id(10));
+		unloaded.flags = model::HAS_THREAD;
+		assert_eq!(state.unloaded_thread(&unloaded), Some(Id(40)));
+		assert!(
+			state.unloaded_thread(&flagged).is_none(),
+			"A loaded thread is not offered as an unloaded one"
+		);
+		assert!(
+			state.unloaded_thread(&unflagged).is_none(),
+			"Only the service flag may assert that a message started a thread"
 		);
 	}
 }

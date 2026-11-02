@@ -687,6 +687,7 @@ mod tests {
 		};
 		let user = |id| User {
 			primary_guild: None,
+			cosmetics: None,
 			id: Id(id),
 			name: format!("User {id}"),
 			avatar: None,
@@ -1278,6 +1279,7 @@ mod tests {
 	fn reaction_permissions_distinguish_existing_emoji_and_late_reads() {
 		let user = User {
 			primary_guild: None,
+			cosmetics: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -1328,6 +1330,7 @@ mod tests {
 						tertiary_color: None,
 						position: 0,
 						hoist: false,
+						managed: false,
 						id: Id(1),
 						bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY,
 					}]),

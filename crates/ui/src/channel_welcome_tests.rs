@@ -60,10 +60,17 @@ fn frame(
 	painted
 }
 
+/// Visible text without Fluent's isolation marks around inserted names.
+fn plain(text: &str) -> String {
+	text.replace(['\u{2068}', '\u{2069}'], "")
+}
+
+/// The empty channel's full-height welcome; the history introduction ends with "!".
 fn welcomes(painted: &[(String, Rect)]) -> bool {
-	painted
-		.iter()
-		.any(|(text, _)| text.starts_with("Welcome to #"))
+	painted.iter().any(|(text, _)| {
+		let text = plain(text);
+		text.starts_with("Welcome to #") && !text.ends_with('!')
+	})
 }
 
 #[test]
@@ -176,35 +183,101 @@ fn welcome_requires_readable_complete_latest_guild_history() {
 	}
 }
 
+fn dm_history(state: &mut State, count: u64) {
+	history(state, Id(22), count);
+}
+
+fn history(state: &mut State, channel: Id, count: u64) {
+	state.gateway_connected = true;
+	state.auth = client_core::auth::AuthState::Authenticated;
+	let Some(client_core::Command::History { request, .. }) = state.select(channel) else {
+		panic!("conversation history requested");
+	};
+	let messages = (0..count)
+		.rev()
+		.map(|n| {
+			let mut message = test_support::message(1_000_000 + n, channel);
+			message.attachments.clear();
+			message.embeds.clear();
+			message
+		})
+		.collect();
+	state.apply(Envelope {
+		generation: state.generation,
+		event: Event::History {
+			channel,
+			request,
+			older: false,
+			messages,
+		},
+	});
+}
+
+fn introduces(painted: &[(String, Rect)]) -> bool {
+	painted
+		.iter()
+		.any(|(text, _)| text.starts_with("This is the beginning of your direct message history"))
+}
+
 #[test]
-fn long_channel_welcome_wraps_within_narrow_light_and_dark_viewports() {
-	for dark in [true, false] {
-		let ctx = Context::default();
-		ctx.set_visuals(if dark {
-			egui::Visuals::dark()
-		} else {
-			egui::Visuals::light()
-		});
-		let mut state = test_support::empty_channel_demo_state(true);
+fn direct_messages_open_with_an_introduction_once_history_is_complete() {
+	let ctx = Context::default();
+	// A short history is the whole conversation: the introduction leads it.
+	let mut state = test_support::demo_state();
+	dm_history(&mut state, 3);
+	assert!(state.older_exhausted);
+	let mut view = TimelineView::default();
+	let painted = frame(&ctx, &mut view, &mut state, 900.0);
+	assert!(introduces(&painted));
+	assert!(!welcomes(&painted));
+	// Reached by scrolling up a long history or from a search result, the start still
+	// introduces the conversation even though the newest messages are not loaded.
+	let mut state = test_support::demo_state();
+	dm_history(&mut state, 3);
+	state.history_targeted = true;
+	state.history_after = Some(model::Id(1_000_000));
+	let mut view = TimelineView::default();
+	assert!(introduces(&frame(&ctx, &mut view, &mut state, 900.0)));
+	// A full page may have older messages: no introduction until they are loaded.
+	let mut state = test_support::demo_state();
+	dm_history(&mut state, 50);
+	assert!(!state.older_exhausted);
+	let mut view = TimelineView::default();
+	assert!(!introduces(&frame(&ctx, &mut view, &mut state, 900.0)));
+}
+
+#[test]
+fn channels_and_forum_posts_open_with_their_introduction_once_history_is_complete() {
+	let ctx = Context::default();
+	let painted_text = |channel: Id, count: u64| {
+		let mut state = test_support::demo_state();
+		history(&mut state, channel, count);
 		let mut view = TimelineView::default();
-		for width in [700.0, 240.0] {
-			let painted = frame(&ctx, &mut view, &mut state, width);
-			let (_, heading) = painted
-				.iter()
-				.find(|(text, _)| text.starts_with("Welcome to #"))
-				.unwrap();
-			let (_, description) = painted
-				.iter()
-				.find(|(text, _)| text == "This is the beginning of the conversation.")
-				.unwrap();
-			for rect in [heading, description] {
-				assert!(rect.left() >= 0.0 && rect.right() <= width + 1.0);
-				assert!(rect.top() >= 0.0 && rect.bottom() <= 601.0);
-			}
-			assert!(description.top() >= heading.bottom());
-			if width < 300.0 {
-				assert!(heading.height() > 60.0, "The long name must wrap");
-			}
-		}
-	}
+		frame(&ctx, &mut view, &mut state, 900.0)
+			.into_iter()
+			.map(|(text, _)| plain(&text))
+			.collect::<Vec<_>>()
+	};
+	// #long-form (21) is a server text channel; 27 is a synthetic forum post.
+	let channel = painted_text(Id(21), 3);
+	assert!(channel.iter().any(|text| text == "Welcome to #long-form!"));
+	assert!(
+		channel
+			.iter()
+			.any(|text| text == "This is the start of the #long-form channel.")
+	);
+	let post = painted_text(Id(27), 3);
+	assert!(post.iter().any(|text| text == "A synthetic forum post"));
+	assert!(!post.iter().any(|text| text.starts_with("Welcome to #")));
+	assert!(
+		!post
+			.iter()
+			.any(|text| text.starts_with("This is the start of"))
+	);
+	// A full page may have older messages: no introduction yet.
+	assert!(
+		!painted_text(Id(21), 50)
+			.iter()
+			.any(|text| text == "Welcome to #long-form!")
+	);
 }

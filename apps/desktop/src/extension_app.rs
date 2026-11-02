@@ -1550,6 +1550,12 @@ mod tests {
 			theme_colors: None,
 			clan: None,
 			board: None,
+			effect_sku: None,
+			frame_sku: None,
+			effect: None,
+			frame: None,
+			badge_catalog: None,
+			private: false,
 			limited: false,
 		});
 		let guild = state.guilds[0].clone();
@@ -1683,6 +1689,7 @@ mod tests {
 			guild: None,
 			query: String::new(),
 			before: None,
+			oldest: false,
 			offset: 0,
 			total: None,
 			pin_before: None,

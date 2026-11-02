@@ -402,6 +402,7 @@ mod tests {
 			attachments: vec![],
 			delivery: crate::Delivery::Sending,
 			confirmed: None,
+			reply: None,
 		});
 		assert!(state.leave_group(Id(10)).is_none());
 		state.pending.clear();
@@ -434,6 +435,7 @@ mod tests {
 			event: CoreEvent::Ready {
 				user: model::User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(1),
 					name: "Synthetic".into(),
 					avatar: None,

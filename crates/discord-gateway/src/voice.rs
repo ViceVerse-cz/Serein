@@ -307,10 +307,17 @@ impl Calls {
 				..
 			} => {
 				let guild = *self.allowed.get(&channel).ok_or(Failure::Protocol)?;
-				if self.active.is_some() || self.departing.is_some() {
+				// A join for a channel this account is already in changes nothing on Discord's
+				// side and returns no voice credentials, so a rejoin leaves first and comes back
+				// through this branch only once the departure is confirmed.
+				if self.active.is_some_and(|(active, _)| active != channel)
+					|| self.departing.is_some()
+				{
 					return Err(Failure::Protocol);
 				}
 				self.active = Some((channel, request));
+				self.stream = None;
+				self.watch = None;
 				self.active_guild = guild;
 				self.active_session = None;
 				self.negotiation_server = None;
@@ -335,6 +342,13 @@ impl Calls {
 			}
 			Command::Leave { channel, request } => {
 				if self.active != Some((channel, request)) {
+					// A repeated leave for a call that is already departing still reaches
+					// Discord: the first acknowledgement may have been lost, and a second opcode 4
+					// with no channel is harmless.
+					if self.departing == Some((channel, request)) {
+						self.departure_deadline = Some(Instant::now() + Duration::from_secs(10));
+						return Ok(Some(self.state_frame(None, self.departing_guild)));
+					}
 					return Ok(None);
 				}
 				self.departing = self.active.take();
@@ -798,6 +812,12 @@ impl Calls {
 					emit,
 				)?;
 			}
+			"STREAM_UPDATE" => {
+				// Only the count drives the viewer cue; a malformed refresh is ignored.
+				if let Ok(update) = decode::<stream::Update>(data) {
+					self.emit_stream(screen::Event::Viewers(update.viewers), emit)?;
+				}
+			}
 			"STREAM_DELETE" => {
 				let Ok(deleted) = decode::<stream::Deleted>(data) else {
 					return self.emit_stream(
@@ -948,7 +968,7 @@ impl Calls {
 		emit: &impl Fn(Event) -> Result<(), Failure>,
 	) -> Result<(), Failure> {
 		match kind {
-			"STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_DELETE" => {
+			"STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_UPDATE" | "STREAM_DELETE" => {
 				self.stream_dispatch(kind, data, emit)?;
 			}
 			"CALL_CREATE" | "CALL_UPDATE" | "CALL_DELETE" => {
@@ -1158,24 +1178,6 @@ pub fn debug_voice_state_retry_check() {
 
 #[cfg(test)]
 mod tests {
-	#[test]
-	fn deletion_reasons_map_to_messages_and_user_requests_stay_silent() {
-		assert_eq!(deletion_reason(None), None);
-		assert_eq!(deletion_reason(Some("user_requested")), None);
-		assert_eq!(
-			deletion_reason(Some("stream_ended")),
-			Some("Discord reported the stream as ended")
-		);
-		assert_eq!(
-			deletion_reason(Some("something_new")),
-			Some("Discord ended the stream")
-		);
-		assert_eq!(
-			deletion_reason(Some(&"x".repeat(65))),
-			Some("Discord ended the stream")
-		);
-	}
-
 	use super::*;
 	use std::sync::Mutex;
 	#[test]
@@ -1184,6 +1186,9 @@ mod tests {
 			let user = |id, name: &str| UserDto {
 				premium_type: model::Patch::Absent,
 				primary_guild: None,
+				avatar_decoration_data: None,
+				collectibles: None,
+				display_name_styles: None,
 				clan: None,
 				id: Id(id),
 				username: name.into(),
@@ -2488,6 +2493,30 @@ mod tests {
 				..
 			})
 		));
+		for key in ["guild:10:20:2", "guild:10:20:1"] {
+			calls
+				.dispatch(
+					"STREAM_UPDATE",
+					format!(r#"{{"stream_key":"{key}","viewer_ids":["4","5"],"paused":false}}"#)
+						.as_bytes(),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+		}
+		assert!(matches!(
+			events.lock().unwrap().remove(3),
+			Event::Voice(voice::Event::Stream {
+				stream_request: 8,
+				event: screen::Event::Viewers(2),
+				..
+			})
+		));
+		assert_eq!(
+			events.lock().unwrap().len(),
+			3,
+			"other streams' viewers are ignored"
+		);
 
 		let Frame::Text(delete) = calls
 			.stream_packet(

@@ -1,4 +1,5 @@
 //! Visible-avatar requests and a small texture working set. Disk/network work lives outside egui.
+mod cosmetics;
 pub(crate) mod media;
 
 use egui::{ColorImage, TextureHandle};
@@ -38,6 +39,10 @@ const TEXTURE_BYTES: usize = 64 * 1024 * 1024;
 const IDLE_TEXTURES: Duration = Duration::from_secs(60);
 /// Longest edge for string-keyed artwork: stickers, picker previews, banners and activity art.
 pub const EMBED_EDGE: u32 = 512;
+/// Longest edge for profile frame layers, which span a whole card.
+pub const FRAME_EDGE: u32 = 1024;
+/// Longest edge for profile effect layers (Discord canvas is 450 x 880).
+pub const EFFECT_EDGE: u32 = 1024;
 const REQUESTS: usize = 128;
 const RETRY: Duration = Duration::from_secs(5);
 
@@ -52,6 +57,8 @@ struct AvatarKey {
 #[derive(Default)]
 pub(crate) struct Avatars {
 	pub animate_gifs: bool,
+	/// Hidden cosmetics are neither painted nor requested.
+	pub cosmetics: model::CosmeticPreferences,
 	avatar_animation: bool,
 	animations: HashMap<String, Animation>,
 	no_animations: HashSet<String>,
@@ -59,6 +66,12 @@ pub(crate) struct Avatars {
 	released: HashSet<String>,
 	/// Hover-only artwork that wanted to play while its frames were missing.
 	wanted: HashSet<String>,
+	/// Profile effect layers with a decode in flight, so readiness neither repeats the request
+	/// nor waits on frames that were discarded without one.
+	effect_decoding: HashSet<String>,
+	/// Effect layers already decoded again once; losing their frames again (an effect larger
+	/// than the animation pool) shows them as stills instead of decoding in a loop.
+	effect_reloaded: HashSet<String>,
 	textures: HashMap<String, (Instant, TextureHandle)>,
 	emoji_textures: HashMap<String, (Instant, TextureHandle)>,
 	emoji_bytes: usize,
@@ -77,11 +90,14 @@ impl Animation {
 		if total_nanos == 0 {
 			return None;
 		}
+		let elapsed_nanos = (self.started.elapsed().as_nanos() % total_nanos) as u64;
+		self.seek(ctx, Duration::from_nanos(elapsed_nanos))
+	}
+	/// Shows the frame at `elapsed` into the clip, which must be shorter than `total`.
+	fn seek(&mut self, ctx: &egui::Context, mut elapsed: Duration) -> Option<TextureHandle> {
 		let now = Instant::now();
 		self.played = now;
-		let elapsed_nanos = (self.started.elapsed().as_nanos() % total_nanos) as u64;
-		let mut elapsed = Duration::from_nanos(elapsed_nanos);
-		let mut target_index = 0;
+		let mut target_index = self.frames.len().saturating_sub(1);
 		let mut frame_remaining = Duration::ZERO;
 		for (index, (delay, _)) in self.frames.iter().enumerate() {
 			if elapsed < *delay {
@@ -147,7 +163,19 @@ fn paint_texture(
 	}
 }
 
+/// Playback key for an animated custom emoji, or `None` when it should show its still.
+fn animated_emoji_key(id: model::Id, play: bool) -> Option<String> {
+	(play && id.0 != 0).then(|| format!("anim:emoji-{id}"))
+}
+
 fn is_animated_profile_or_avatar_key(key: &str) -> bool {
+	// Decorations and nameplates animate while hovered, like the avatar beside them.
+	if let Some(asset) = key.strip_prefix("decoration-") {
+		return asset.starts_with("a_");
+	}
+	if key.starts_with("nameplate-anim-") {
+		return true;
+	}
 	if let Some(value) = key.strip_prefix("banner-") {
 		return value
 			.split_once('-')
@@ -197,6 +225,8 @@ impl Avatars {
 		self.no_animations.clear();
 		self.released.clear();
 		self.wanted.clear();
+		self.effect_decoding.clear();
+		self.effect_reloaded.clear();
 		self.media.set_animation(enabled);
 		if !enabled {
 			self.animations.clear();
@@ -213,6 +243,7 @@ impl Avatars {
 		}
 	}
 	pub fn accept_animation(&mut self, key: String, frames: GifFrames) {
+		self.effect_decoding.remove(&key);
 		if key.starts_with("media:") {
 			if self.animate_gifs
 				&& let Some(rendition) = media::Rendition::parse(&key)
@@ -250,11 +281,14 @@ impl Avatars {
 		// Reserve the playback texture too; the shared still stays unchanged for other widgets.
 		let frame_bytes = || frames.iter().map(|(_, image)| image.pixels.len() * 4);
 		let bytes = frame_bytes().sum::<usize>() + frame_bytes().max().unwrap_or(0);
+		let edge = if key.starts_with("effect-") {
+			EFFECT_EDGE as usize
+		} else {
+			EMBED_EDGE as usize
+		};
 		if bytes > ANIMATION_BYTES
 			|| frames.iter().any(|(delay, image)| {
-				*delay < Duration::from_millis(20)
-					|| image.size[0] > EMBED_EDGE as usize
-					|| image.size[1] > EMBED_EDGE as usize
+				*delay < Duration::from_millis(20) || image.size[0] > edge || image.size[1] > edge
 			}) {
 			return;
 		}
@@ -372,7 +406,14 @@ impl Avatars {
 		if !self.attempts.contains_key(&key) {
 			return;
 		}
-		let limit = if key.starts_with("anim:")
+		let limit = if key.starts_with("frame-") {
+			FRAME_EDGE as usize
+		} else if key.starts_with("effect-") {
+			EFFECT_EDGE as usize
+		} else if key.starts_with("decoration-") || key.starts_with("badge-art:") {
+			256
+		} else if key.starts_with("anim:")
+			|| key.starts_with("nameplate-")
 			|| key.starts_with("embed:")
 			|| key.starts_with("gif:")
 			|| key.starts_with("spotify-")
@@ -392,6 +433,8 @@ impl Avatars {
 				&& image.size[1] <= limit
 				&& image.pixels.len() == image.size[0] * image.size[1]
 		}) else {
+			// A failed or rejected load ends any decode an effect layer was waiting for.
+			self.effect_decoding.remove(&key);
 			if let Some(attempt) = self.attempts.get_mut(&key) {
 				*attempt = (Instant::now(), true);
 			}
@@ -495,6 +538,48 @@ impl Avatars {
 			None
 		}
 	}
+	/// Custom emoji artwork. Animated emoji (`<a:name:id>`) play their GIF while GIF animation
+	/// is on, using the shared bounded animation pool; otherwise, and after the animated
+	/// artwork fails, they show the still PNG.
+	pub(crate) fn custom_emoji(
+		&mut self,
+		ctx: &egui::Context,
+		id: model::Id,
+		animated: bool,
+		size: f32,
+		demo: bool,
+	) -> Option<egui::Image<'static>> {
+		if let Some(key) = animated_emoji_key(id, animated && self.animate_gifs && !demo)
+			&& !self.no_animations.contains(&key)
+		{
+			let frame = self.advance_animation(ctx, &key, false);
+			// Frames evicted from the shared pool come back while the emoji is visible.
+			if frame.is_none()
+				&& self.textures.contains_key(&key)
+				&& !self.animations.contains_key(&key)
+				&& !self.released.contains(&key)
+			{
+				self.request(key.clone());
+			}
+			if let Some(entry) = self.textures.get_mut(&key) {
+				entry.0 = Instant::now();
+				return Some(
+					egui::Image::new(frame.as_ref().unwrap_or(&entry.1))
+						.fit_to_exact_size(egui::Vec2::splat(size)),
+				);
+			}
+			self.request(key);
+			// A still cached earlier bridges the download without fetching it as well.
+			return self
+				.emoji_textures
+				.get_mut(&format!("emoji-{id}"))
+				.map(|entry| {
+					entry.0 = Instant::now();
+					egui::Image::new(&entry.1).fit_to_exact_size(egui::Vec2::splat(size))
+				});
+		}
+		self.custom_image(ctx, id, size, demo)
+	}
 	fn sticker_key(
 		&mut self,
 		_ctx: &egui::Context,
@@ -548,7 +633,9 @@ impl Avatars {
 		demo: bool,
 	) -> Option<egui::Image<'static>> {
 		match asset {
-			model::ImageShare::Emoji { id, .. } => self.custom_image(ctx, id, size, demo),
+			model::ImageShare::Emoji { id, animated } => {
+				self.custom_emoji(ctx, id, animated, size, demo)
+			}
 			model::ImageShare::Sticker { id, format_type } => {
 				let key = self.sticker_key(ctx, id, format_type, demo);
 				let animated = self.advance_animation(ctx, &key, false);
@@ -673,6 +760,10 @@ impl Avatars {
 		}
 		response
 	}
+	/// Whether GIFs animate right now: animation is on and the window has focus.
+	pub(crate) fn gifs_playing(&self, ctx: &egui::Context) -> bool {
+		self.animate_gifs && ctx.input(|input| input.focused)
+	}
 	/// Picker preview texture; a small GIF preview plays, never the full-size original.
 	/// Synthetic previews are painted locally.
 	pub(crate) fn gif_texture(
@@ -684,6 +775,18 @@ impl Avatars {
 		if !model::valid_gif_preview(&gif.preview) {
 			return None;
 		}
+		self.synthetic_gif(ctx, gif, demo);
+		self.preview_texture(ctx, &gif.preview, demo)
+	}
+	/// Loads a picker preview for a later frame without playing it.
+	pub(crate) fn warm_gif(&mut self, ctx: &egui::Context, gif: &model::Gif, demo: bool) {
+		if model::valid_gif_preview(&gif.preview) {
+			self.synthetic_gif(ctx, gif, demo);
+			self.warm_preview(&gif.preview, demo);
+		}
+	}
+	#[cfg_attr(not(any(test, feature = "demo")), allow(unused_variables))]
+	fn synthetic_gif(&mut self, ctx: &egui::Context, gif: &model::Gif, demo: bool) {
 		#[cfg(any(test, feature = "demo"))]
 		if demo && gif.preview.contains("/synthetic/") {
 			let key = self.preview_key(&gif.preview);
@@ -692,7 +795,16 @@ impl Avatars {
 				self.accept(ctx, key, Some(synthetic_gif(gif)));
 			}
 		}
-		self.preview_texture(ctx, &gif.preview, demo)
+	}
+	/// Loads provider artwork for a later frame without playing it, so a closed picker
+	/// neither advances animations nor schedules repaints.
+	pub(crate) fn warm_preview(&mut self, preview: &str, demo: bool) {
+		let key = self.preview_key(preview);
+		if let Some(entry) = self.textures.get_mut(&key) {
+			entry.0 = Instant::now();
+		} else if !demo {
+			self.request(key);
+		}
 	}
 	fn preview_key(&self, preview: &str) -> String {
 		if self.animate_gifs && (preview.ends_with(".gif") || preview.ends_with(".webp")) {
@@ -731,10 +843,13 @@ impl Avatars {
 		corner: egui::CornerRadius,
 		demo: bool,
 	) {
+		// A profile theme decides the banner, as on Discord; the legacy accent is a fallback.
 		let color = profile
-			.accent_color
-			.or(profile.theme_colors.map(|c| c[0]))
-			.map(|rgb| egui::Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8))
+			.theme_colors
+			.map(crate::profiles::Theme::banner)
+			.or(profile
+				.accent_color
+				.map(|rgb| egui::Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)))
 			.unwrap_or(crate::design::palette(ui).accent.gamma_multiply(0.4));
 		ui.painter().rect_filled(rect, corner, color);
 		if ui.is_rect_visible(rect)
@@ -918,18 +1033,16 @@ impl Avatars {
 				self.attempts.insert(key.clone(), (Instant::now(), false));
 				self.accept(ui.ctx(), key.clone(), Some(image));
 			}
-			if !self.paint(
-				ui,
-				&key,
-				ui.layout()
-					.align_size_within_rect(egui::Vec2::splat(size), response.rect),
-				(size * 0.5) as u8,
-			) {
+			let rect = ui
+				.layout()
+				.align_size_within_rect(egui::Vec2::splat(size), response.rect);
+			if !self.paint(ui, &key, rect, (size * 0.5) as u8) {
 				crate::design::paint_avatar(ui, &profile.user.name, size, response.rect);
 				if !demo {
 					self.request(key);
 				}
 			}
+			self.paint_decoration(ui, &profile.user, size, rect, demo);
 		}
 		response.widget_info(|| {
 			egui::WidgetInfo::labeled(
@@ -1317,18 +1430,28 @@ impl Avatars {
 					},
 				})
 			});
+		// A favorite's saved Discord attachment link lacks the expiring signature and is
+		// refused; the embed's own media is the same GIF, freshly signed, and plays as is.
 		let original = gif
-			.filter(|gif| self.animate_gifs && gif.url.ends_with(".gif"))
-			.map(|gif| model::EmbedMedia {
-				url: Some(gif.url.clone()),
-				proxy_url: (!model::valid_gif_preview(&gif.url)
-					&& !model::valid_discord_media_url(&gif.url))
-				.then(|| gif.preview.clone()),
-				width: gif.width,
-				height: gif.height,
-				placeholder: poster
-					.map(|poster| poster.placeholder.clone())
-					.unwrap_or_default(),
+			.filter(|gif| self.animate_gifs && !model::valid_discord_media_url(&gif.url))
+			.and_then(|gif| {
+				let play_url = [Some(gif.url.as_str()), Some(gif.preview.as_str())]
+					.into_iter()
+					.flatten()
+					.find(|u| {
+						let path = u.split(['?', '#']).next().unwrap_or(u);
+						let lower = path.to_ascii_lowercase();
+						lower.ends_with(".gif") || lower.ends_with(".webp")
+					})?;
+				Some(model::EmbedMedia {
+					url: Some(play_url.to_owned()),
+					proxy_url: (!model::valid_gif_preview(play_url)).then(|| gif.preview.clone()),
+					width: gif.width,
+					height: gif.height,
+					placeholder: poster
+						.map(|poster| poster.placeholder.clone())
+						.unwrap_or_default(),
+				})
 			});
 		let media = video
 			.as_ref()
@@ -1422,6 +1545,7 @@ impl Avatars {
 					self.request(key.to_string());
 				}
 			}
+			self.paint_decoration(ui, user, size, rect, demo);
 		}
 	}
 	pub fn show(
@@ -1833,6 +1957,112 @@ mod tests {
 	}
 
 	#[test]
+	fn animated_custom_emoji_play_with_gifs_and_fall_back_to_the_still() {
+		let ctx = egui::Context::default();
+		let id = model::Id(42);
+		assert_eq!(
+			animated_emoji_key(id, true).as_deref(),
+			Some("anim:emoji-42")
+		);
+		assert_eq!(animated_emoji_key(id, false), None);
+		assert_eq!(animated_emoji_key(model::Id(0), true), None);
+		let mut images = Avatars::default();
+		// Static emoji, and animated ones with GIF animation off, use the still artwork.
+		for (still, animated, enabled) in [(41, false, true), (42, true, false)] {
+			images.set_animation(enabled);
+			let still = model::Id(still);
+			assert!(
+				images
+					.custom_emoji(&ctx, still, animated, 20.0, false)
+					.is_none()
+			);
+			assert_eq!(images.take_requests(), vec![format!("emoji-{still}")]);
+		}
+		images.accept(
+			&ctx,
+			"emoji-42".into(),
+			Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
+		);
+		images.set_animation(true);
+		// The cached still bridges the animated download without another still request.
+		let still = images.texture_id("emoji-42");
+		let image = images.custom_emoji(&ctx, id, true, 20.0, false).unwrap();
+		let texture = |image: &egui::Image<'_>, ctx: &egui::Context| match image.source(ctx) {
+			egui::ImageSource::Texture(texture) => Some(texture.id),
+			_ => None,
+		};
+		assert_eq!(texture(&image, &ctx), still);
+		assert_eq!(images.take_requests(), vec!["anim:emoji-42"]);
+		images.accept(
+			&ctx,
+			"anim:emoji-42".into(),
+			Some(ColorImage::filled([64, 64], egui::Color32::RED)),
+		);
+		images.accept_animation(
+			"anim:emoji-42".into(),
+			vec![
+				(
+					Duration::from_millis(100),
+					std::sync::Arc::new(ColorImage::filled([64, 64], egui::Color32::RED)),
+				),
+				(
+					Duration::from_millis(100),
+					std::sync::Arc::new(ColorImage::filled([64, 64], egui::Color32::BLUE)),
+				),
+			],
+		);
+		assert!(images.animations.contains_key("anim:emoji-42"));
+		let mut played = None;
+		ctx.run_ui(
+			egui::RawInput {
+				focused: true,
+				..Default::default()
+			},
+			|ui| {
+				played = images
+					.custom_emoji(ui.ctx(), id, true, 20.0, false)
+					.and_then(|image| texture(&image, ui.ctx()));
+			},
+		)
+		.drop_without_applying_deltas();
+		let frames = images.animations["anim:emoji-42"]
+			.texture
+			.as_ref()
+			.map(|t| t.id());
+		assert!(played.is_some() && played == frames);
+		assert!(images.take_requests().is_empty());
+		// Frames evicted by the shared pool are fetched again while the emoji stays visible.
+		images.animations.remove("anim:emoji-42");
+		assert!(images.custom_emoji(&ctx, id, true, 20.0, false).is_some());
+		assert_eq!(images.take_requests(), vec!["anim:emoji-42"]);
+
+		// A failed animated download shows the still instead of retrying the GIF.
+		let other = model::Id(43);
+		assert!(
+			images
+				.custom_emoji(&ctx, other, true, 20.0, false)
+				.is_none()
+		);
+		assert_eq!(images.take_requests(), vec!["anim:emoji-43"]);
+		images.accept(&ctx, "anim:emoji-43".into(), None);
+		assert!(
+			images
+				.custom_emoji(&ctx, other, true, 20.0, false)
+				.is_none()
+		);
+		assert_eq!(images.take_requests(), vec!["emoji-43"]);
+
+		// Demo artwork stays local.
+		let mut demo = Avatars::default();
+		demo.set_animation(true);
+		assert!(
+			demo.custom_emoji(&ctx, model::Id(9001), true, 20.0, true)
+				.is_some()
+		);
+		assert!(demo.take_requests().is_empty());
+	}
+
+	#[test]
 	fn stickers_obey_animation_preferences_and_demo_stays_offline() {
 		let ctx = egui::Context::default();
 		let sticker = model::Sticker {
@@ -1928,6 +2158,45 @@ mod tests {
 		assert_eq!(images.textures.len(), 1);
 		assert!(images.attempts["thumb:ffffffffffff"].1);
 	}
+	#[test]
+	fn favorited_attachment_gif_plays_from_the_embeds_signed_link() {
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		images.set_animation(true);
+		let unsigned = "https://cdn.discordapp.com/attachments/1/2/synthetic.gif";
+		let signed = format!("{unsigned}?ex=1&is=2&hm=3");
+		// Saved favorites keep the address without its expiring signature.
+		let gif = model::Gif {
+			id: "favorite".into(),
+			title: String::new(),
+			url: unsigned.into(),
+			preview: unsigned.into(),
+			width: 720,
+			height: 578,
+		};
+		let embed = model::Embed {
+			kind: "image".into(),
+			thumbnail: Some(model::EmbedMedia {
+				url: Some(signed.clone()),
+				proxy_url: Some(signed.replace("cdn.discordapp.com", "media.discordapp.net")),
+				width: 720,
+				height: 578,
+				..Default::default()
+			}),
+			..Default::default()
+		};
+		ctx.run_ui(Default::default(), |ui| {
+			images.show_gif_embed(ui, &embed, Some(&gif), egui::vec2(320.0, 320.0), false);
+		})
+		.drop_without_applying_deltas();
+		let requests = images.take_requests();
+		assert!(!requests.is_empty());
+		assert!(
+			requests.iter().all(|key| key.contains("hm=3")),
+			"{requests:?}"
+		);
+	}
+
 	#[test]
 	fn gif_picker_requests_animation_advances_frames_and_respects_setting() {
 		let ctx = egui::Context::default();
@@ -2570,86 +2839,6 @@ mod tests {
 		);
 	}
 
-	/// Offline settled media frames; no window, GPU, network, or account access.
-	#[test]
-	#[ignore = "release media workload; one warmup and five measured batches"]
-	fn media_frame_benchmark() {
-		for (scenario, surface, animate) in [
-			("thumbnail", Surface::Inline, false),
-			("viewer", Surface::Viewer, false),
-			("animated", Surface::Viewer, true),
-		] {
-			let ctx = egui::Context::default();
-			let mut images = Avatars::default();
-			images.set_animation(animate);
-			let media: Vec<_> = (0..12)
-				.map(|id| model::EmbedMedia {
-					url: Some(format!(
-						"https://cdn.discordapp.com/attachments/1/{}/image.{}?ex=abc&is=def&hm=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef&format=webp&width=4096&height=2048&quality=lossless",
-						id + 1,
-						if animate { "WeBp" } else { "png" }
-					)),
-					width: 4096,
-					height: 2048,
-					..Default::default()
-				})
-				.collect();
-			let frame = |images: &mut Avatars| {
-				ctx.run_ui(
-					egui::RawInput {
-						screen_rect: Some(egui::Rect::from_min_size(
-							egui::Pos2::ZERO,
-							egui::vec2(1200.0, 300.0),
-						)),
-						..Default::default()
-					},
-					|ui| {
-						ui.horizontal(|ui| {
-							for media in &media {
-								std::hint::black_box(
-									images
-										.show_media(
-											ui,
-											media,
-											egui::vec2(48.0, 32.0),
-											false,
-											surface,
-										)
-										.quality,
-								);
-							}
-						});
-					},
-				)
-				.drop_without_applying_deltas();
-			};
-			frame(&mut images);
-			let requests = images.take_requests();
-			assert_eq!(requests.len(), 12);
-			for key in requests {
-				images.accept(
-					&ctx,
-					key,
-					Some(ColorImage::filled([4, 2], egui::Color32::WHITE)),
-				);
-			}
-			for sample in 0..6 {
-				let started = Instant::now();
-				for _ in 0..1000 {
-					frame(&mut images);
-				}
-				let elapsed = started.elapsed();
-				assert!(images.take_requests().is_empty());
-				if sample > 0 {
-					println!(
-						"media scenario={scenario} frames=1000 images=12 sample={sample} elapsed_ms={:.3}",
-						elapsed.as_secs_f64() * 1000.0
-					);
-				}
-			}
-		}
-	}
-
 	#[test]
 	fn pending_requests_survive_retry_and_capacity_until_resolved() {
 		let ctx = egui::Context::default();
@@ -2716,6 +2905,14 @@ mod tests {
 				.sum::<usize>(),
 			TEXTURES * 128 * 128 * 4
 		);
+		avatars.request("effect-c-test".into());
+		avatars.take_requests();
+		avatars.accept(
+			&ctx,
+			"effect-c-test".into(),
+			Some(ColorImage::filled([450, 880], egui::Color32::WHITE)),
+		);
+		assert!(avatars.texture_id("effect-c-test").is_some());
 		avatars.accept(
 			&ctx,
 			"unsolicited".into(),
@@ -2778,5 +2975,29 @@ mod tests {
 		);
 		avatars.request("x".repeat(2055));
 		assert!(avatars.attempts.keys().all(|key| key.len() <= 2054));
+	}
+
+	#[test]
+	fn effect_animation_keeps_full_resolution_frames() {
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		avatars.set_animation(true);
+		avatars.request("effect-c-test".into());
+		avatars.take_requests();
+		avatars.accept(
+			&ctx,
+			"effect-c-test".into(),
+			Some(ColorImage::filled([450, 880], egui::Color32::WHITE)),
+		);
+		let frames: crate::avatars::GifFrames = (0..2)
+			.map(|_| {
+				(
+					std::time::Duration::from_millis(50),
+					std::sync::Arc::new(ColorImage::filled([450, 880], egui::Color32::WHITE)),
+				)
+			})
+			.collect();
+		avatars.accept_animation("effect-c-test".into(), frames);
+		assert!(avatars.animations.contains_key("effect-c-test"));
 	}
 }

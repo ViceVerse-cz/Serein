@@ -285,6 +285,7 @@ mod tests {
 			avatar: None,
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		State {
 			auth: AuthState::Authenticated,
@@ -378,6 +379,7 @@ mod tests {
 				tertiary_color: None,
 				position: 0,
 				hoist: false,
+				managed: false,
 			};
 			state
 				.permissions
@@ -682,6 +684,7 @@ mod tests {
 						tertiary_color: None,
 						position: 0,
 						hoist: false,
+						managed: false,
 					}]),
 					member: Some(p::Member {
 						roles: vec![],

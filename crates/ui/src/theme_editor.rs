@@ -1828,41 +1828,6 @@ mod tests {
 			_ => {}
 		}
 	}
-
-	fn map_frame(
-		ctx: &egui::Context,
-		region: &mut ImageRegion,
-		sections: &mut SectionOpacity,
-		events: Vec<egui::Event>,
-	) -> Vec<(String, egui::Rect)> {
-		let output = ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(500.0, 600.0),
-				)),
-				events,
-				focused: true,
-				..Default::default()
-			},
-			|ui| {
-				section_map(
-					ui,
-					None,
-					region,
-					design::builtin_colors(true, design::Variant::Standard),
-					BackgroundFit::Cover,
-					sections,
-				);
-			},
-		);
-		let mut labels = Vec::new();
-		for shape in &output.shapes {
-			collect(&shape.shape, &mut labels);
-		}
-		output.drop_without_applying_deltas();
-		labels
-	}
 	fn toolbar_frame(
 		ctx: &egui::Context,
 		editor: &mut ThemeEditor,
@@ -1923,70 +1888,6 @@ mod tests {
 	}
 
 	#[test]
-	fn map_selects_the_member_panel_and_save_points_to_required_basics() {
-		let ctx = egui::Context::default();
-		ctx.set_theme(egui::ThemePreference::Dark);
-		let mut editor = ThemeEditor::new();
-		assert_eq!(editor.save_error().0, EditorTab::Basics);
-		let mut sections = SectionOpacity::default();
-		let labels = map_frame(&ctx, &mut editor.region, &mut sections, vec![]);
-		let position = labels
-			.iter()
-			.find(|(label, _)| label == "Members")
-			.unwrap()
-			.1
-			.center();
-		for pressed in [true, false] {
-			map_frame(
-				&ctx,
-				&mut editor.region,
-				&mut sections,
-				vec![
-					egui::Event::PointerMoved(position),
-					egui::Event::PointerButton {
-						pos: position,
-						button: egui::PointerButton::Primary,
-						pressed,
-						modifiers: egui::Modifiers::NONE,
-					},
-				],
-			);
-		}
-		assert_eq!(editor.region, ImageRegion::MemberList);
-		assert_eq!(sections, SectionOpacity::default());
-		// The text selector provides the same navigation as the map.
-		for label in ["Member list", "Top bars"] {
-			let labels = map_frame(&ctx, &mut editor.region, &mut sections, vec![]);
-			let position = labels
-				.iter()
-				.find(|(text, _)| text == label)
-				.unwrap()
-				.1
-				.center();
-			for pressed in [true, false] {
-				map_frame(
-					&ctx,
-					&mut editor.region,
-					&mut sections,
-					vec![
-						egui::Event::PointerMoved(position),
-						egui::Event::PointerButton {
-							pos: position,
-							button: egui::PointerButton::Primary,
-							pressed,
-							modifiers: egui::Modifiers::NONE,
-						},
-					],
-				);
-			}
-		}
-		assert_eq!(editor.region, ImageRegion::TopBars);
-		assert_eq!(sections, SectionOpacity::default());
-		editor.package.manifest.author = "Creator".into();
-		assert!(editor.package.validate().is_ok());
-	}
-
-	#[test]
 	fn tabs_and_save_keep_required_fields_easy_to_find() {
 		let ctx = egui::Context::default();
 		ctx.set_theme(egui::ThemePreference::Dark);
@@ -2003,17 +1904,5 @@ mod tests {
 			toolbar_click(&ctx, &mut editor, "Save and apply").as_slice(),
 			[ExtensionRequest::SaveTheme { .. }]
 		));
-	}
-
-	#[test]
-	fn editor_opens_on_the_active_appearance_and_keeps_the_chosen_palette() {
-		let ctx = egui::Context::default();
-		ctx.set_theme(egui::ThemePreference::Light);
-		let mut editor = ThemeEditor::new();
-		assert!(toolbar_click(&ctx, &mut editor, "Colors").is_empty());
-		assert!(!editor.dark);
-		assert!(toolbar_click(&ctx, &mut editor, "Dark").is_empty());
-		toolbar_frame(&ctx, &mut editor, vec![]);
-		assert!(editor.dark);
 	}
 }

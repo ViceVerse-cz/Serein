@@ -4,6 +4,8 @@ pub mod activity_sharing;
 pub mod application_commands;
 pub mod archives;
 mod attachments;
+pub mod badges;
+pub mod collectibles;
 mod diagnostics;
 mod embeds;
 mod extra_content;
@@ -51,6 +53,11 @@ use serde_json::value::RawValue;
 #[derive(Deserialize, Debug, PartialEq, Eq)]
 #[serde(try_from = "String")]
 pub struct Timestamp(i128);
+impl Timestamp {
+	pub fn unix_ms(&self) -> Option<i64> {
+		i64::try_from(self.0 / 1_000_000).ok()
+	}
+}
 impl TryFrom<String> for Timestamp {
 	type Error = &'static str;
 	fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -105,6 +112,12 @@ pub struct UserDto {
 	/// Older normal-session payloads duplicated `primary_guild` under this name.
 	#[serde(default)]
 	pub clan: Option<PrimaryGuildDto>,
+	#[serde(default)]
+	pub avatar_decoration_data: collectibles::DecorationField,
+	#[serde(default)]
+	pub collectibles: collectibles::CollectiblesField,
+	#[serde(default)]
+	pub display_name_styles: collectibles::NameStyleField,
 }
 #[derive(Clone, Deserialize)]
 pub struct PrimaryGuildDto {
@@ -137,6 +150,11 @@ impl UserDto {
 			.and_then(PrimaryGuildDto::into_model)
 			.or_else(|| self.clan.and_then(PrimaryGuildDto::into_model))
 			.map(Box::new);
+		let cosmetics = collectibles::cosmetics(
+			self.avatar_decoration_data,
+			self.collectibles,
+			self.display_name_styles,
+		);
 		User {
 			kind: if self.bot && (self.public_flags | self.flags) & (1 << 16) != 0 {
 				model::AccountKind::VerifiedBot
@@ -161,6 +179,7 @@ impl UserDto {
 				.filter(|n| *n <= 9999)
 				.unwrap_or(0),
 			primary_guild,
+			cosmetics,
 		}
 	}
 }
@@ -206,6 +225,11 @@ pub struct ChannelDto {
 	pub default_sort_order: Option<u8>,
 	#[serde(default)]
 	pub default_tag_setting: Option<String>,
+	/// The account's membership, embedded in joined thread objects.
+	#[serde(default, deserialize_with = "threads::lenient")]
+	pub member: Option<threads::ThreadMember>,
+	#[serde(default, deserialize_with = "threads::lenient")]
+	pub thread_metadata: Option<threads::ThreadMetadata>,
 }
 const CHANNEL_FLAG_SPAM: u64 = 1 << 5;
 impl ChannelDto {
@@ -215,6 +239,23 @@ impl ChannelDto {
 
 	fn spam_folder(&self) -> bool {
 		self.is_spam || self.flags & CHANNEL_FLAG_SPAM != 0
+	}
+
+	/// Membership and archive metadata of a thread; `None` for other channels.
+	pub fn thread_change(&self) -> Option<model::threads::Change> {
+		matches!(self.kind, 10..=12).then(|| model::threads::Change {
+			id: self.id,
+			member: self
+				.member
+				.as_ref()
+				.map_or(Patch::Absent, |member| Patch::Value(member.into_model())),
+			meta: self
+				.thread_metadata
+				.as_ref()
+				.map(threads::ThreadMetadata::meta),
+			// A whole thread object always states its flags.
+			pinned: Some(model::threads::pinned(self.flags)),
+		})
 	}
 
 	pub fn pending_message_request(&self) -> bool {
@@ -594,6 +635,9 @@ pub struct Ready {
 	/// Set when decoding or [`Ready::navigation`] dropped malformed or conflicting entries.
 	#[serde(skip)]
 	pub skipped: bool,
+	/// Membership and archive metadata of the threads [`Ready::navigation`] admitted.
+	#[serde(skip)]
+	pub thread_changes: Vec<model::threads::Change>,
 }
 impl Ready {
 	pub fn navigation(&mut self) -> Result<(Vec<Guild>, Vec<Channel>), DecodeError> {
@@ -702,8 +746,12 @@ impl Ready {
 					{
 						continue;
 					}
+					let change = thread.thread_change();
 					match threads::into_thread(thread, g.id) {
-						Ok(thread) => channels.push(thread),
+						Ok(thread) => {
+							channels.push(thread);
+							self.thread_changes.extend(change);
+						}
 						Err(_) => skipped = true,
 					}
 				}
@@ -815,6 +863,12 @@ pub struct MessageDto {
 }
 #[derive(Deserialize)]
 pub struct MessageMemberDto {
+	#[serde(default)]
+	pub avatar_decoration_data: collectibles::DecorationField,
+	#[serde(default)]
+	pub collectibles: collectibles::CollectiblesField,
+	#[serde(default)]
+	pub display_name_styles: collectibles::NameStyleField,
 	#[serde(default)]
 	pub nick: Option<String>,
 	#[serde(default, deserialize_with = "permissions::member_roles")]
@@ -957,6 +1011,14 @@ impl MessageDto {
 		}
 		.map(Box::new);
 		let mut author = self.author.into_model();
+		if let Some(member) = self.member.as_mut() {
+			collectibles::apply_member(
+				&mut author,
+				member.avatar_decoration_data.take(),
+				member.collectibles.take(),
+			);
+			collectibles::apply_member_style(&mut author, member.display_name_styles.take());
+		}
 		author.webhook = self.webhook_id.is_some();
 		if self.application_id.is_some()
 			&& (author.webhook || author.kind == model::AccountKind::Bot)
@@ -1628,6 +1690,12 @@ pub struct MemberDto {
 	pub nick: Option<String>,
 	#[serde(default)]
 	pub presence: Patch<PresenceDto>,
+	#[serde(default)]
+	pub avatar_decoration_data: collectibles::DecorationField,
+	#[serde(default)]
+	pub collectibles: collectibles::CollectiblesField,
+	#[serde(default)]
+	pub display_name_styles: collectibles::NameStyleField,
 }
 /// Re-parse shape for a member row whose strict decode failed: its presence can no longer
 /// fail the row, only be dropped.
@@ -1640,6 +1708,12 @@ struct LenientMemberDto {
 	nick: Option<String>,
 	#[serde(default, deserialize_with = "lenient_presence")]
 	presence: Patch<PresenceDto>,
+	#[serde(default)]
+	avatar_decoration_data: collectibles::DecorationField,
+	#[serde(default)]
+	collectibles: collectibles::CollectiblesField,
+	#[serde(default)]
+	display_name_styles: collectibles::NameStyleField,
 }
 /// Unrepresentable activities cost the presence its details; an unreadable status drops it.
 pub(crate) fn lenient_presence<'de, D: serde::Deserializer<'de>>(
@@ -1741,6 +1815,9 @@ impl<'de> Deserialize<'de> for MemberItem {
 			user: member.user,
 			nick: member.nick,
 			presence: member.presence,
+			avatar_decoration_data: member.avatar_decoration_data,
+			collectibles: member.collectibles,
+			display_name_styles: member.display_name_styles,
 		});
 		Ok(Self::Member { member, presence })
 	}
@@ -1794,9 +1871,12 @@ impl MemberItem {
 					Patch::Value(value) => Some(value),
 					_ => None,
 				};
+				let mut user = m.user.into_model();
+				collectibles::apply_member(&mut user, m.avatar_decoration_data, m.collectibles);
+				collectibles::apply_member_style(&mut user, m.display_name_styles);
 				let mut member = model::Member {
 					roles: m.roles,
-					user: m.user.into_model(),
+					user,
 					nick: m.nick.map(|n| n.chars().take(128).collect()),
 					custom_status: presence
 						.as_ref()

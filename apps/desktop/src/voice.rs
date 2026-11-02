@@ -3,6 +3,7 @@ use client_core::{
 	Command, Event, State,
 	voice::{self, Phase, Secret},
 };
+use diagnostics::{Category, Level, Value};
 use discord_voice::{
 	Controls, Status,
 	audio::{Audio, Devices},
@@ -175,13 +176,15 @@ struct Live {
 	/// Latest decoded camera picture per remote user, replaced (never queued) by the decoder.
 	remote_video: Arc<std::sync::Mutex<RemotePictures>>,
 	/// Decoded audio of a watched stream, mixed into this call's playback.
-	stream_audio: mpsc::SyncSender<discord_voice::Frame>,
+	stream_audio: mpsc::SyncSender<discord_voice::PlaybackFrame>,
 }
 
 #[derive(Default)]
 struct CallCues {
 	joined: bool,
 	peers: Option<[u64; voice::MAX_PARTICIPANTS]>,
+	/// Peers announcing Go Live in the last snapshot; the local share cues itself.
+	streamers: Option<[u64; voice::MAX_PARTICIPANTS]>,
 }
 impl CallCues {
 	fn poll(
@@ -202,13 +205,33 @@ impl CallCues {
 			return cue;
 		}
 		let mut peers = [0; voice::MAX_PARTICIPANTS];
+		let mut streamers = [0; voice::MAX_PARTICIPANTS];
+		let mut streaming = streamers.iter_mut();
 		for (slot, participant) in peers.iter_mut().zip(
 			participants
 				.iter()
 				.filter(|participant| participant.user != owner),
 		) {
 			*slot = participant.user.0;
+			if participant.streaming
+				&& let Some(stream) = streaming.next()
+			{
+				*stream = participant.user.0;
+			}
 		}
+		let previous_streamers = self
+			.streamers
+			.replace(streamers)
+			.unwrap_or([0; voice::MAX_PARTICIPANTS]);
+		// Discord ranks a new stream above membership changes made in the same update.
+		let stream_cue = self
+			.peers
+			.is_some_and(|_| {
+				streamers
+					.iter()
+					.any(|user| *user != 0 && !previous_streamers.contains(user))
+			})
+			.then_some(Sound::ScreenShareOn);
 		// ponytail: membership scans are capped at 64 IDs; no per-frame set allocation.
 		let membership_cue = self.peers.replace(peers).and_then(|previous| {
 			if previous
@@ -223,41 +246,36 @@ impl CallCues {
 					.then_some(Sound::UserJoin)
 			}
 		});
-		cue.or(membership_cue)
+		cue.or(stream_cue).or(membership_cue)
 	}
 }
 /// Remote cameras kept as textures at once; matches the transport's source limit.
 const MAX_REMOTE_VIDEO: usize = 16;
-type RemotePictures = Vec<(u64, Arc<egui::ColorImage>, bool)>;
+/// Latest native picture per remote user plus a dirty flag; the UI uploads dirty ones.
+type RemotePictures = Vec<(u64, platform::video::Picture, bool)>;
 type CameraPicture = Option<(Arc<egui::ColorImage>, bool)>;
 
-#[allow(clippy::chunks_exact_to_as_chunks)] // Matches egui's faster profiled conversion loop.
+/// Replace one user's latest picture in place: a plain copy of the decoder's planes, reusing
+/// the previous allocation. Colour conversion happens on the GPU at upload.
 fn store_remote_frame(
 	pictures: &mut RemotePictures,
 	frame: discord_voice::RemoteFrame<'_>,
 ) -> bool {
-	if frame.rgba.len() != frame.width as usize * frame.height as usize * 4 {
+	if !frame.picture.is_valid() {
 		return false;
 	}
 	let entry = if let Some(index) = pictures.iter().position(|(user, _, _)| *user == frame.user) {
 		&mut pictures[index]
 	} else if pictures.len() < MAX_REMOTE_VIDEO {
-		pictures.push((frame.user, Arc::new(egui::ColorImage::default()), false));
+		pictures.push((frame.user, frame.picture.with_data(Vec::new()), false));
 		pictures.last_mut().expect("remote frame inserted")
 	} else {
 		return false;
 	};
-	let size = [frame.width as usize, frame.height as usize];
-	if let Some(image) = Arc::get_mut(&mut entry.1) {
-		image.size = size;
-		image.source_size = egui::vec2(frame.width as f32, frame.height as f32);
-		image.pixels.clear();
-		image.pixels.extend(frame.rgba.chunks_exact(4).map(|pixel| {
-			egui::Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3])
-		}));
-	} else {
-		entry.1 = Arc::new(egui::ColorImage::from_rgba_unmultiplied(size, frame.rgba));
-	}
+	let mut data = std::mem::take(&mut entry.1.data);
+	data.clear();
+	data.extend_from_slice(frame.picture.data);
+	entry.1 = frame.picture.with_data(data);
 	entry.2 = true;
 	true
 }
@@ -298,6 +316,43 @@ struct CameraTest {
 	picture: Arc<std::sync::Mutex<CameraPicture>>,
 }
 
+/// Waits before each automatic rejoin after joined media dropped, like Discord's client.
+/// Once these are spent the call fails and needs an explicit rejoin.
+const REJOIN_DELAYS: [Duration; voice::MAX_REJOIN_ATTEMPTS as usize] = [
+	Duration::from_secs(1),
+	Duration::from_secs(3),
+	Duration::from_secs(10),
+];
+/// A rejoined call must stay connected this long before a new drop starts from attempt one.
+const REJOIN_STABLE: Duration = Duration::from_secs(30);
+/// How long a rejoin waits for Discord to confirm that this account left the channel.
+const REJOIN_DEPARTURE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Shown while a live call has no audio device; the call itself stays connected.
+const AUDIO_UNAVAILABLE: &str =
+	"Audio devices are unavailable; the call stays connected while they come back";
+
+/// One call-lifecycle line. Every field is a constant or a number, so an attached log needs no
+/// redaction; the owner's log level decides whether the line is kept.
+fn note(level: Level, label: &'static str, fields: &[(&'static str, Value)]) {
+	diagnostics::record_fields(Category::Call, level, label, fields);
+}
+
+struct Rejoin {
+	generation: u64,
+	channel: Id,
+	attempt: u8,
+	/// When the next attempt sends its join; `None` while that attempt is negotiating.
+	at: Option<Instant>,
+	/// When the rejoined call connected.
+	recovered: Option<Instant>,
+	/// The camera was on when media dropped; it comes back with the call.
+	camera: bool,
+	/// Whether this attempt already asked to leave: a join before the departure is a no-op.
+	departed: bool,
+	/// Whether Discord confirmed that departure.
+	departure_confirmed: bool,
+}
+
 #[derive(Default)]
 pub struct Voice {
 	camera_test: Option<CameraTest>,
@@ -313,11 +368,22 @@ pub struct Voice {
 	retiring: Option<mpsc::Receiver<()>>,
 	device_scan: Option<mpsc::Receiver<Result<discord_voice::audio::DeviceList, &'static str>>>,
 	camera_scan: Option<mpsc::Receiver<Result<discord_voice::camera::DeviceList, &'static str>>>,
+	/// Remote camera textures behind `ui.voice_remote_video`, by user.
+	remote_textures: Vec<(Id, crate::gpu_video::VideoTexture)>,
+	/// A joined call failed; the next poll plays the leave cue a hangup would.
+	leave_cue: bool,
+	rejoin: Option<Rejoin>,
+	/// Media dropped and a rejoin is scheduled: the main gateway may have died with it, so the
+	/// app should confirm that socket before the rejoin depends on it.
+	pub gateway_check: bool,
 }
 impl Voice {
 	pub fn stop(&mut self) {
 		self.camera_test = None;
 		self.mic_preview = None;
+		// Logout stops polling; the next poll (or `MessagingUi::clear`) drops the borrowed
+		// ids before a frame paints, and disposal waits for the current frame.
+		self.remote_textures.clear();
 		self.screen.stop();
 		self.watch.stop();
 		self.pending = None;
@@ -327,6 +393,15 @@ impl Voice {
 			live.task.abort();
 			self.retiring = Some(live.audio.shutdown());
 		}
+	}
+	/// Hang up this device's call. A call it had joined plays the leave cue on the next poll,
+	/// mirroring its local join cue; a call still connecting ends silently.
+	pub fn hang_up(&mut self, state: &State) {
+		self.leave_cue |= self
+			.live
+			.as_ref()
+			.is_some_and(|live| live.cues.joined && live.generation == state.generation);
+		self.stop();
 	}
 	pub fn stop_camera(&mut self) {
 		if let Some(camera) = &self.camera {
@@ -396,6 +471,23 @@ impl Voice {
 			started: Instant::now(),
 			failed_candidate: false,
 		});
+		note(
+			Level::Info,
+			"join requested",
+			&[
+				(
+					"kind",
+					if channel.guild.is_some() {
+						"guild".into()
+					} else if peer.is_some() {
+						"dm".into()
+					} else {
+						"group".into()
+					},
+				),
+				("ring", (ring && channel.guild.is_none()).into()),
+			],
+		);
 		Ok(())
 	}
 	/// Take negotiation secrets before reducing the UI event. Nothing is persisted.
@@ -405,6 +497,24 @@ impl Voice {
 		let Event::Voice(event) = event else {
 			return None;
 		};
+		// A rejoin waits for the departure it asked for: Discord ignores a join for a channel it
+		// still has this account in, so the join goes out only once the departure is confirmed.
+		if let voice::Event::Departed { channel, request } = event
+			&& let Some(rejoin) = self.rejoin.as_mut()
+			&& rejoin.generation == state.generation
+			&& rejoin.channel == *channel
+			&& state
+				.voice
+				.active
+				.as_ref()
+				.is_some_and(|call| call.channel == *channel && call.request == *request)
+		{
+			// The departure counts even when it confirms an earlier attempt whose backoff is
+			// still running; the next poll then joins instead of leaving again.
+			rejoin.departed = true;
+			rejoin.departure_confirmed = true;
+			rejoin.at = Some(Instant::now());
+		}
 		if let voice::Event::TakenOver { channel, request } = event {
 			let current = self
 				.live
@@ -557,6 +667,7 @@ impl Voice {
 					// candidate until our voice socket authenticates it; never infer actor from order.
 					pending.session = Some(session);
 					pending.negotiation_revision = *negotiation_revision;
+					note(Level::Debug, "session description received", &[]);
 				}
 			}
 			voice::Event::Server {
@@ -576,6 +687,7 @@ impl Voice {
 					return Some("Discord omitted the voice connection token");
 				};
 				pending.server = Some((token, endpoint));
+				note(Level::Info, "voice server received", &[]);
 			}
 			_ => {}
 		}
@@ -590,7 +702,12 @@ impl Voice {
 	pub fn fail(&mut self, state: &mut State, message: &'static str) -> Option<Command> {
 		let call = state.voice.active.as_ref()?;
 		let (channel, request) = (call.channel, call.request);
+		note(Level::Error, "call failed", &[("reason", message.into())]);
 		let command = self.end_control(channel, request);
+		self.leave_cue |= self
+			.live
+			.as_ref()
+			.is_some_and(|live| live.cues.joined && live.generation == state.generation);
 		self.stop();
 		state.apply_voice(voice::Event::Failed {
 			channel,
@@ -598,6 +715,178 @@ impl Voice {
 			message,
 		});
 		Some(command)
+	}
+	/// Media for the active call failed. A call this device had joined rejoins automatically
+	/// within the attempt budget; anything else fails as before.
+	pub fn fail_or_rejoin(&mut self, state: &mut State, message: &'static str) -> Option<Command> {
+		let call = state.voice.active.as_ref()?;
+		let (channel, request, camera) = (call.channel, call.request, call.camera);
+		let joined = self.live.as_ref().is_some_and(|live| {
+			live.cues.joined && live.generation == state.generation && live.channel == channel
+		});
+		note(
+			Level::Warn,
+			"media failure",
+			&[("reason", message.into()), ("joined", joined.into())],
+		);
+		let previous = self
+			.rejoin
+			.take()
+			.filter(|rejoin| rejoin.generation == state.generation && rejoin.channel == channel);
+		let attempt = match &previous {
+			Some(rejoin) => rejoin.attempt + 1,
+			None if joined => 1,
+			None => return self.fail(state, message),
+		};
+		if message == discord_voice::DISCONNECTED_BY_DISCORD
+			|| usize::from(attempt) > REJOIN_DELAYS.len()
+		{
+			return self.give_up_rejoin(state, message, true);
+		}
+		self.leave_cue |= joined;
+		self.stop();
+		self.gateway_check = true;
+		note(
+			Level::Info,
+			"rejoin scheduled",
+			&[
+				("attempt", attempt.into()),
+				(
+					"delay_ms",
+					(REJOIN_DELAYS[usize::from(attempt) - 1].as_millis() as u64).into(),
+				),
+			],
+		);
+		self.rejoin = Some(Rejoin {
+			generation: state.generation,
+			channel,
+			attempt,
+			at: Some(Instant::now() + REJOIN_DELAYS[usize::from(attempt) - 1]),
+			recovered: None,
+			camera: camera || previous.is_some_and(|rejoin| rejoin.camera),
+			departed: false,
+			departure_confirmed: false,
+		});
+		// Discord keeps this account in the channel meanwhile; the next attempt leaves it first.
+		state.reconnect_call(request, attempt, message);
+		None
+	}
+	/// Rejoining is over: fail the call and leave the channel Discord still has it in.
+	/// `rejoining` covers a joined call or any rejoin attempt, even one that connected.
+	fn give_up_rejoin(
+		&mut self,
+		state: &mut State,
+		message: &'static str,
+		rejoining: bool,
+	) -> Option<Command> {
+		self.rejoin = None;
+		note(
+			Level::Error,
+			"rejoin given up",
+			&[("reason", message.into())],
+		);
+		let (channel, request) = state
+			.voice
+			.active
+			.as_ref()
+			.map(|call| (call.channel, call.request))?;
+		let command = self.fail(state, message);
+		if rejoining {
+			// The drop already played its cue; the failed rejoin ends the call audibly too.
+			self.leave_cue = true;
+			Some(Command::Voice(voice::Command::Leave { channel, request }))
+		} else {
+			command
+		}
+	}
+	/// Drive a pending automatic rejoin; returns its join or a restored camera.
+	fn poll_rejoin(
+		&mut self,
+		state: &mut State,
+		ui: &ui::MessagingUi,
+		ctx: &egui::Context,
+	) -> Option<Command> {
+		let rejoin = self.rejoin.as_mut()?;
+		let Some(call) = state.voice.active.as_ref().filter(|call| {
+			rejoin.generation == state.generation
+				&& call.channel == rejoin.channel
+				&& call.phase != Phase::Failed
+		}) else {
+			// Hung up, moved, replaced or signed out: nothing to rejoin.
+			self.rejoin = None;
+			return None;
+		};
+		if call.reconnecting.is_none() {
+			// Only uninterrupted health renews the budget; a later socket resume restarts it.
+			if !matches!(call.phase, Phase::Connected | Phase::Waiting) {
+				rejoin.recovered = None;
+				return None;
+			}
+			let recovered = *rejoin.recovered.get_or_insert_with(Instant::now);
+			if rejoin.camera && ui.voice_camera_available {
+				rejoin.camera = false;
+				return state.set_call_camera(true);
+			}
+			if recovered.elapsed() >= REJOIN_STABLE {
+				self.rejoin = None;
+			} else {
+				ctx.request_repaint_after(REJOIN_STABLE - recovered.elapsed());
+			}
+			return None;
+		}
+		let at = rejoin.at?;
+		let now = Instant::now();
+		if now >= at && !state.gateway_connected {
+			// The gateway's reconnect event wakes the next frame.
+			return None;
+		}
+		if now < at || self.retiring.is_some() {
+			ctx.request_repaint_after(
+				at.saturating_duration_since(now)
+					.max(Duration::from_millis(50)),
+			);
+			return None;
+		}
+		// A departure this session already observed counts even when its event arrived during the
+		// backoff, when no attempt was listening for it: the gateway has forgotten the call and a
+		// second leave would send nothing.
+		if !rejoin.departure_confirmed
+			&& state.voice.departed.is_some_and(|(channel, request)| {
+				channel == call.channel && request == call.request
+			}) {
+			rejoin.departed = true;
+			rejoin.departure_confirmed = true;
+		}
+		// Discord ignores a join for a channel it still has this account in, and no voice
+		// credentials ever arrive, so a rejoin leaves first and joins only once the departure is
+		// confirmed — the same order the official client uses.
+		if !rejoin.departed {
+			rejoin.departed = true;
+			rejoin.at = Some(now + REJOIN_DEPARTURE_TIMEOUT);
+			return Some(Command::Voice(voice::Command::Leave {
+				channel: call.channel,
+				request: call.request,
+			}));
+		}
+		if !rejoin.departure_confirmed {
+			// Silence from the gateway is a failed attempt, not a reason to join blind.
+			return self.fail_or_rejoin(
+				state,
+				"Discord did not confirm leaving the channel before the reconnect",
+			);
+		}
+		rejoin.at = None;
+		match state.rejoin_call() {
+			Some(command) => {
+				note(Level::Info, "rejoin started", &[]);
+				Some(command)
+			}
+			None => self.give_up_rejoin(
+				state,
+				"Voice reconnect is no longer allowed in this channel",
+				true,
+			),
+		}
 	}
 	pub fn poll(
 		&mut self,
@@ -607,6 +896,24 @@ impl Voice {
 		ctx: &egui::Context,
 	) -> Option<Command> {
 		self.reap();
+		if std::mem::take(&mut self.leave_cue) && ui.notification_options.allows(Sound::UserLeave) {
+			ui.notification_preview = Some(Sound::UserLeave);
+			ctx.request_repaint();
+		}
+		if let Some(command) = self.poll_rejoin(state, ui, ctx) {
+			return Some(command);
+		}
+		// A live call keeps its place while the system has no audio device; the audio worker
+		// retries on its own and clears this when a device returns. Hanging up clears it too.
+		let missing = self
+			.live
+			.as_ref()
+			.is_some_and(|live| live.audio.devices_missing());
+		if missing {
+			ui.voice_device_status = AUDIO_UNAVAILABLE;
+		} else if ui.voice_device_status == AUDIO_UNAVAILABLE {
+			ui.voice_device_status = "";
+		}
 		ui.voice_switch_ready =
 			self.pending.is_none() && self.live.is_none() && self.retiring.is_none();
 		self.poll_mic_preview(state, ui, ctx);
@@ -664,7 +971,12 @@ impl Voice {
 			ui.voice_camera_preview = None;
 			ui.voice_camera_status = "";
 			ui.voice_privacy_code = None;
+		}
+		// Remote camera textures exist only for live media and are always dropped together
+		// with the ids the view borrows, so no tile can draw a freed texture.
+		if expected.is_none() || self.live.is_none() {
 			ui.voice_remote_video.clear();
+			self.remote_textures.clear();
 		}
 		let current = self
 			.live
@@ -688,10 +1000,23 @@ impl Voice {
 			}
 			let command = current.map(|(_, channel, request)| self.end_control(channel, request));
 			self.stop();
+			ui.voice_remote_video.clear();
+			self.remote_textures.clear();
 			// Permission/removal failures must leave the service too; never target a new account.
 			return current
 				.filter(|(generation, _, _)| *generation == state.generation)
 				.and(command);
+		}
+		// A rejoin hears back over the main gateway, so an outage there loses Discord's answer.
+		// Ask again once the gateway is back instead of spending an attempt on the outage.
+		if !state.gateway_connected
+			&& self.pending.is_some()
+			&& let Some(rejoin) = self.rejoin.as_mut()
+			&& rejoin.at.is_none()
+		{
+			rejoin.at = Some(Instant::now());
+			self.pending = None;
+			return None;
 		}
 		if let Some(pending) = self.pending.as_ref().or_else(|| {
 			self.live
@@ -699,9 +1024,22 @@ impl Voice {
 				.and_then(|live| live.negotiation.as_ref())
 		}) {
 			if pending.started.elapsed() >= Duration::from_secs(30) {
-				return self.fail(
+				// #826: this branch reported a timeout as a permission problem, and the wait that
+				// ran out started at the original join, so record both rather than guess.
+				note(
+					Level::Warn,
+					"connection details missing",
+					&[
+						(
+							"wait_ms",
+							(pending.started.elapsed().as_millis() as u64).into(),
+						),
+						("redial", pending.failed_candidate.into()),
+					],
+				);
+				return self.fail_or_rejoin(
                     state,
-                    "Discord did not provide voice connection details; check Connect permission and channel capacity",
+                    "Discord did not answer the voice join within 30 seconds; the account may still be in the channel",
                 );
 			}
 			ctx.request_repaint_after(
@@ -723,10 +1061,12 @@ impl Voice {
 				ui.voice_ptt_active,
 			) || ui.voice_ptm_active;
 			let input_enabled = state.can_speak(pending.channel);
-			if let Err(error) =
-				self.start_media(runtime, pending, ui, ctx, listen_only, input_enabled)
-			{
-				return self.fail(state, error);
+			let waited = pending.started.elapsed().as_millis() as u64;
+			match self.start_media(runtime, pending, ui, ctx, listen_only, input_enabled) {
+				Ok(()) => note(Level::Info, "media started", &[("wait_ms", waited.into())]),
+				// Initial unconfirmed candidates can belong to another device. Only a rejoin
+				// owns a previously established call that this device must explicitly leave.
+				Err(error) => return self.give_up_rejoin(state, error, self.rejoin.is_some()),
 			}
 		}
 		if self.pending.is_some() && self.retiring.is_some() {
@@ -863,7 +1203,10 @@ impl Voice {
 					.gate
 					.ready
 					.load(std::sync::atomic::Ordering::Acquire)
-					&& !devices_ready;
+					&& !devices_ready
+					// A call that already had sound keeps its place while its devices come back:
+					// the startup deadline must not turn a sleeping headset into a dropped call.
+					&& !live.audio.opened_once();
 				match device_wait(&mut live.device_deadline, pending, Instant::now()) {
 					Ok(Some(remaining)) => {
 						state.apply_voice(voice::Event::Progress {
@@ -916,33 +1259,34 @@ impl Voice {
 					ctx.request_repaint();
 				}
 			}
-			let pictures = live
-				.remote_video
-				.try_lock()
-				.map(|mut slot| {
-					slot.iter_mut()
-						.filter_map(|(user, image, dirty)| {
-							std::mem::take(dirty).then(|| (*user, image.clone()))
-						})
-						.collect::<Vec<_>>()
-				})
-				.unwrap_or_default();
-			for (user, image) in pictures {
-				if let Some((_, texture)) = ui
-					.voice_remote_video
-					.iter_mut()
-					.find(|(id, _)| id.0 == user)
-				{
-					texture.set(image, egui::TextureOptions::LINEAR);
-				} else if ui.voice_remote_video.len() < MAX_REMOTE_VIDEO {
-					ui.voice_remote_video.push((
-						Id(user),
-						ctx.load_texture(
-							format!("remote-camera-{user}"),
-							image,
-							egui::TextureOptions::LINEAR,
-						),
-					));
+			// Uploading is a plane copy into GPU staging, so it runs under the slot lock
+			// instead of cloning each picture out first.
+			if let Ok(mut slot) = live.remote_video.try_lock() {
+				for (user, picture, dirty) in slot.iter_mut() {
+					if !std::mem::take(dirty) {
+						continue;
+					}
+					let user = Id(*user);
+					let index = match self.remote_textures.iter().position(|(id, _)| *id == user) {
+						Some(index) => index,
+						None if self.remote_textures.len() < MAX_REMOTE_VIDEO => {
+							self.remote_textures.push((user, Default::default()));
+							self.remote_textures.len() - 1
+						}
+						None => continue,
+					};
+					let name = format!("remote-camera-{}", user.0);
+					let Some(texture) =
+						self.remote_textures[index]
+							.1
+							.upload(ctx, &name, picture.borrow())
+					else {
+						continue;
+					};
+					match ui.voice_remote_video.iter_mut().find(|(id, _)| *id == user) {
+						Some((_, shown)) => *shown = texture,
+						None => ui.voice_remote_video.push((user, texture)),
+					}
 				}
 			}
 			// Cameras announced off, or participants who left, release their textures.
@@ -959,6 +1303,7 @@ impl Voice {
 				})
 				.unwrap_or_default();
 			ui.voice_remote_video.retain(|(id, _)| visible.contains(id));
+			self.remote_textures.retain(|(id, _)| visible.contains(id));
 			if let Ok(mut pictures) = live.remote_video.try_lock() {
 				pictures.retain(|(id, _, _)| visible.contains(&Id(*id)));
 			}
@@ -984,6 +1329,11 @@ impl Voice {
 					.map(Id),
 			);
 		}
+		// Discord removed this account mid-rejoin; never wait for or retry a replacement.
+		if failure == Some(discord_voice::DISCONNECTED_BY_DISCORD) && self.rejoin.is_some() {
+			note(Level::Error, "removed by the service", &[]);
+			return self.give_up_rejoin(state, discord_voice::DISCONNECTED_BY_DISCORD, true);
+		}
 		if failure.is_some()
 			&& self
 				.live
@@ -1000,7 +1350,7 @@ impl Voice {
 			return None;
 		}
 		let command = if let Some(error) = failure {
-			self.fail(state, error)
+			self.fail_or_rejoin(state, error)
 		} else {
 			command.or_else(|| self.poll_camera(state, ui, ctx))
 		};
@@ -1133,12 +1483,14 @@ impl Voice {
 	}
 
 	fn poll_camera_test(&mut self, state: &State, ui: &mut ui::MessagingUi, ctx: &egui::Context) {
-		ui.camera_test_available = !state.demo
-			&& ui.voice_available
-			&& discord_voice::camera::SUPPORTED
-			&& state.voice.active.is_none()
-			&& self.pending.is_none()
-			&& self.live.is_none();
+		let in_call = state.voice.active.is_some() || self.pending.is_some() || self.live.is_some();
+		ui.camera_test_available =
+			!state.demo && ui.voice_available && discord_voice::camera::SUPPORTED && !in_call;
+		ui.camera_test_blocked = if in_call {
+			"The preview is off during a call. Turn on your camera in the call to see it here."
+		} else {
+			""
+		};
 		if !ui.camera_test_available || !ui.voice_settings_open() {
 			ui.camera_test_requested = false;
 			ui.camera_test_status = "";
@@ -1146,10 +1498,15 @@ impl Voice {
 		if let Some(preview) = &self.camera_test {
 			if preview.device != ui.voice_camera_device {
 				ui.camera_test_requested = false;
-				ui.camera_test_status = "Camera changed. Click Preview camera to use it.";
+				ui.camera_test_status = "";
+				ui.toasts.push(
+					ui::design::Level::Info,
+					"Camera changed. Click Preview camera to use it.",
+				);
 			} else if let Some(error) = preview.camera.error() {
 				ui.camera_test_requested = false;
-				ui.camera_test_status = error;
+				ui.camera_test_status = "";
+				ui.toasts.push(ui::design::Level::Error, error);
 			}
 		}
 		if !ui.camera_test_requested {
@@ -1185,7 +1542,8 @@ impl Voice {
 				}
 				Err(error) => {
 					ui.camera_test_requested = false;
-					ui.camera_test_status = error;
+					ui.camera_test_status = "";
+					ui.toasts.push(ui::design::Level::Error, error);
 					return;
 				}
 			}
@@ -1274,8 +1632,11 @@ impl Voice {
 		if requested && self.camera.is_some() && self.camera_device != ui.voice_camera_device {
 			self.stop_camera();
 			ui.voice_camera_preview = None;
-			ui.voice_camera_status =
-				"Camera device changed. Turn on the camera to use the selected device.";
+			ui.voice_camera_status = "";
+			ui.toasts.push(
+				ui::design::Level::Info,
+				"Camera device changed. Turn on the camera to use the selected device.",
+			);
 			return state.set_call_camera(false);
 		}
 		let preview_allowed = camera_preview_allowed(state);
@@ -1284,16 +1645,28 @@ impl Voice {
 			self.stop_camera();
 			ui.voice_camera_preview = None;
 			if requested {
-				ui.voice_camera_status =
-					error.unwrap_or("Camera stopped; reconnect securely before turning it on");
+				ui.voice_camera_status = "";
+				ui.toasts.push(
+					ui::design::Level::Error,
+					error.unwrap_or("Camera stopped; reconnect securely before turning it on"),
+				);
 				return state.set_call_camera(false);
 			}
 			return None;
 		}
 		if self.camera_preview.is_none() {
 			if self.camera.is_some() {
-				ui.voice_camera_status = "Camera is still closing; try again shortly";
+				ui.voice_camera_status = "";
+				ui.toasts.push(
+					ui::design::Level::Warning,
+					"Camera is still closing; try again shortly",
+				);
 				return state.set_call_camera(false);
+			}
+			// An existing preview can survive a Gateway outage, but a new capture must wait.
+			let call = state.voice.active.as_ref()?;
+			if !state.can_camera(call.channel) {
+				return None;
 			}
 			let live = self.live.as_ref()?;
 			self.camera_generation = self.camera_generation.checked_add(1).unwrap_or(1);
@@ -1304,15 +1677,15 @@ impl Voice {
 			let start = live.camera_clock;
 			let wake = ctx.clone();
 			let on_frame = std::sync::Arc::new(move |frame: discord_voice::camera::Frame| {
+				// Held or dropped pictures carry no H264 but still refresh the local preview.
 				let data = frame.h264;
-				if data.len() > discord_voice::camera_video::MAX_FRAME_BYTES {
-					return;
+				if (1..=discord_voice::camera_video::MAX_FRAME_BYTES).contains(&data.len()) {
+					let _ = send.try_send(discord_voice::camera_video::Frame {
+						generation,
+						timestamp: (start.elapsed().as_micros() * 90 / 1000) as u32,
+						data,
+					});
 				}
-				let _ = send.try_send(discord_voice::camera_video::Frame {
-					generation,
-					timestamp: (start.elapsed().as_micros() * 90 / 1000) as u32,
-					data,
-				});
 				if let Ok(mut slot) = preview.try_lock()
 					&& store_camera_frame(&mut slot, &frame.rgb)
 				{
@@ -1334,7 +1707,8 @@ impl Voice {
 						.send_modify(|controls| controls.camera = generation);
 				}
 				Err(error) => {
-					ui.voice_camera_status = error;
+					ui.voice_camera_status = "";
+					ui.toasts.push(ui::design::Level::Error, error);
 					return state.set_call_camera(false);
 				}
 			}
@@ -1356,7 +1730,8 @@ impl Voice {
 					ctx.request_repaint();
 				}
 			}
-			ui.voice_camera_status = "Camera on · local preview";
+			// The local tile is the confirmation; no lingering status line.
+			ui.voice_camera_status = "";
 		}
 		None
 	}
@@ -1543,12 +1918,12 @@ impl Drop for Voice {
 }
 
 // A peer joining/leaving rekeys media without revoking the local camera gesture.
-fn camera_preview_allowed(state: &State) -> bool {
+pub(crate) fn camera_preview_allowed(state: &State) -> bool {
 	state.voice.active.as_ref().is_some_and(|call| {
 		(matches!(call.phase, Phase::Connected | Phase::Waiting)
 			|| (call.connected_at.is_some()
 				&& matches!(call.phase, Phase::Securing | Phase::OpeningAudio)))
-			&& state.can_camera(call.channel)
+			&& state.has_camera_access(call.channel)
 	})
 }
 
@@ -1686,13 +2061,45 @@ pub fn debug_call_cues_check() {
 		Some(Sound::UserLeave)
 	);
 	assert_eq!(cues.poll(true, true, owner.user, &[owner]), None);
+	// Another participant going live is announced once; the local share cues itself.
+	let mut streaming_peer = peer;
+	streaming_peer.streaming = true;
+	let mut streaming_owner = owner;
+	streaming_owner.streaming = true;
+	assert_eq!(
+		cues.poll(true, true, owner.user, &[owner, peer]),
+		Some(Sound::UserJoin)
+	);
+	assert_eq!(
+		cues.poll(true, true, owner.user, &[streaming_owner, peer]),
+		None
+	);
+	assert_eq!(
+		cues.poll(true, true, owner.user, &[owner, streaming_peer]),
+		Some(Sound::ScreenShareOn)
+	);
+	assert_eq!(
+		cues.poll(true, true, owner.user, &[owner, streaming_peer]),
+		None
+	);
+	assert_eq!(cues.poll(true, true, owner.user, &[owner, peer]), None);
+	// Streams already live when this device joins or resynchronises are not announced.
+	assert_eq!(cues.poll(true, false, owner.user, &[]), None);
+	assert_eq!(
+		cues.poll(true, true, owner.user, &[owner, streaming_peer]),
+		None
+	);
+	assert_eq!(
+		CallCues::default().poll(true, true, owner.user, &[owner, streaming_peer]),
+		Some(Sound::UserJoin)
+	);
 	assert_eq!(
 		CallCues::default().poll(true, true, owner.user, &[owner]),
 		Some(Sound::UserJoin),
 		"a new explicitly started call has its own join cue"
 	);
 	println!(
-		"Call cue debug check passed: local/remote joins, departures, rekeying and reconnect suppression. No audio devices opened."
+		"Call cue debug check passed: local/remote joins, departures, remote streams, rekeying and reconnect suppression. No audio devices opened."
 	);
 }
 
@@ -1721,53 +2128,33 @@ mod tests {
 	#[test]
 	fn optimization_remote_video_reuses_the_latest_frame_buffer() {
 		let mut pictures = Vec::new();
-		let rgba = [1, 2, 3, 255, 4, 5, 6, 255];
-		assert!(store_remote_frame(
-			&mut pictures,
-			discord_voice::RemoteFrame {
-				user: 7,
-				width: 2,
-				height: 1,
-				rgba: &rgba,
+		let frame = |data: &'static [u8], width| discord_voice::RemoteFrame {
+			presentation: None,
+			user: 7,
+			picture: platform::video::Picture {
+				width,
+				height: 2,
+				layout: platform::video::Layout::I420,
+				color: platform::video::Color::WEBRTC,
+				rotation: 0,
+				data,
 			},
-		));
-		let pixels = pictures[0].1.pixels.as_ptr();
+		};
+		const TWO: [u8; 6] = [16, 16, 16, 16, 128, 128];
+		assert!(store_remote_frame(&mut pictures, frame(&TWO, 2)));
+		let planes = pictures[0].1.data.as_ptr();
 		pictures[0].2 = false;
-		assert!(store_remote_frame(
-			&mut pictures,
-			discord_voice::RemoteFrame {
-				user: 7,
-				width: 2,
-				height: 1,
-				rgba: &rgba,
-			},
-		));
-		assert_eq!(pictures[0].1.pixels.as_ptr(), pixels);
+		assert!(store_remote_frame(&mut pictures, frame(&TWO, 2)));
+		assert_eq!(pictures[0].1.data.as_ptr(), planes);
 		assert!(pictures[0].2);
-		let upload = pictures[0].1.clone();
+		// A smaller picture keeps the allocation; invalid planes are rejected.
 		assert!(store_remote_frame(
 			&mut pictures,
-			discord_voice::RemoteFrame {
-				user: 7,
-				width: 1,
-				height: 1,
-				rgba: &rgba[..4],
-			},
+			frame(&[16, 16, 128, 128], 1)
 		));
-		assert!(!Arc::ptr_eq(&pictures[0].1, &upload));
-		assert_eq!(upload.size, [2, 1]);
-	}
-
-	#[test]
-	fn optimization_local_camera_reuses_the_latest_frame_buffer() {
-		let mut picture = None;
-		let rgb = vec![127; discord_voice::camera::WIDTH * discord_voice::camera::HEIGHT * 3];
-		assert!(store_camera_frame(&mut picture, &rgb));
-		let pixels = picture.as_ref().unwrap().0.pixels.as_ptr();
-		picture.as_mut().unwrap().1 = false;
-		assert!(store_camera_frame(&mut picture, &rgb));
-		assert_eq!(picture.as_ref().unwrap().0.pixels.as_ptr(), pixels);
-		assert!(picture.unwrap().1);
+		assert_eq!(pictures[0].1.data.as_ptr(), planes);
+		assert_eq!((pictures[0].1.width, pictures[0].1.data.len()), (1, 4));
+		assert!(!store_remote_frame(&mut pictures, frame(&[16], 1)));
 	}
 
 	#[test]
@@ -1839,6 +2226,24 @@ mod tests {
 					)
 				);
 			}
+			let channel = state.voice.active.as_ref().unwrap().channel;
+			state.voice.active.as_mut().unwrap().camera = true;
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: Event::Disconnected,
+			});
+			assert!(!state.gateway_connected);
+			assert!(state.voice.active.as_ref().unwrap().camera);
+			assert!(state.has_camera_access(channel));
+			assert!(!state.can_camera(channel));
+			assert!(camera_preview_allowed(&state));
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: Event::Resumed,
+			});
+			assert!(state.gateway_connected);
+			assert!(state.can_camera(channel));
+			assert!(camera_preview_allowed(&state));
 			state.voice.active.as_mut().unwrap().connected_at = None;
 			for phase in [
 				Phase::Connecting,
@@ -1850,8 +2255,26 @@ mod tests {
 				assert!(!camera_preview_allowed(&state));
 			}
 			state.voice.active.as_mut().unwrap().phase = Phase::Waiting;
-			state.gateway_connected = false;
+			state.demo = true;
 			assert!(!camera_preview_allowed(&state));
+			state.demo = false;
+			state.auth = client_core::auth::AuthState::Expired;
+			assert!(!camera_preview_allowed(&state));
+			state.auth = client_core::auth::AuthState::Authenticated;
+			if state.voice.active.as_ref().unwrap().guild.is_some() {
+				let mut revoked_role =
+					state.permissions.guilds[&Id(10)].roles.as_ref().unwrap()[0].clone();
+				revoked_role.bits &= !model::permissions::STREAM;
+				state.apply(client_core::Envelope {
+					generation: state.generation,
+					event: Event::Permissions(client_core::permissions::Event::Role {
+						guild: Id(10),
+						role: revoked_role,
+					}),
+				});
+				assert!(!state.has_camera_access(channel));
+				assert!(!camera_preview_allowed(&state));
+			}
 			state.voice.active = None;
 			assert!(!camera_preview_allowed(&state));
 		}
@@ -1898,6 +2321,7 @@ mod tests {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: Id(10),
 					bits,
 				}]),
@@ -1985,8 +2409,269 @@ mod tests {
 		assert!(!pending.ring);
 		assert!(manager.live.is_none());
 		state.leave_call();
-		manager.stop();
+		manager.hang_up(&state);
 		assert!(manager.pending.is_none());
+		assert!(
+			!manager.leave_cue,
+			"a call that never connected ends silently"
+		);
+	}
+	#[test]
+	fn a_departure_that_arrives_during_backoff_still_confirms_the_rejoin() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.start_call(Id(25), false).unwrap();
+		let request = state.voice.active.as_ref().unwrap().request;
+		state.reconnect_call(request, 1, "Voice socket failed; rejoin the call");
+		let mut manager = Voice::default();
+		// The attempt's five seconds ran out before Discord answered, so the next attempt is
+		// already waiting when the confirmation finally arrives.
+		manager.rejoin = Some(Rejoin {
+			generation: state.generation,
+			channel: Id(25),
+			attempt: 2,
+			at: Some(Instant::now() + REJOIN_DELAYS[1]),
+			recovered: None,
+			camera: false,
+			departed: false,
+			departure_confirmed: false,
+		});
+		let mut stale = Event::Voice(voice::Event::Departed {
+			channel: Id(25),
+			request: request + 1,
+		});
+		assert!(manager.observe(&state, &mut stale).is_none());
+		assert!(!manager.rejoin.as_ref().unwrap().departure_confirmed);
+		let mut event = Event::Voice(voice::Event::Departed {
+			channel: Id(25),
+			request,
+		});
+		assert!(manager.observe(&state, &mut event).is_none());
+		let rejoin = manager.rejoin.as_ref().unwrap();
+		assert!(
+			rejoin.departed && rejoin.departure_confirmed,
+			"a late confirmation still counts, so the next attempt joins instead of leaving again"
+		);
+		assert!(
+			rejoin.at.is_some_and(|at| at <= Instant::now()),
+			"the wait is cut short so the join happens on the next frame"
+		);
+	}
+	#[test]
+	fn a_stored_departure_for_another_request_does_not_skip_leaving() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.gateway_connected = true;
+		state.start_call(Id(25), false).unwrap();
+		let request = state.voice.active.as_ref().unwrap().request;
+		state.reconnect_call(request, 1, "Synthetic transport loss");
+		state.voice.departed = Some((Id(25), request + 1));
+		let mut manager = Voice::default();
+		manager.rejoin = Some(Rejoin {
+			generation: state.generation,
+			channel: Id(25),
+			attempt: 1,
+			at: Some(Instant::now()),
+			recovered: None,
+			camera: false,
+			departed: false,
+			departure_confirmed: false,
+		});
+		let command = manager.poll_rejoin(
+			&mut state,
+			&ui::MessagingUi::default(),
+			&egui::Context::default(),
+		);
+		assert!(
+			matches!(command, Some(Command::Voice(voice::Command::Leave { channel: Id(25), request: left })) if left == request)
+		);
+		assert!(!manager.rejoin.as_ref().unwrap().departure_confirmed);
+	}
+
+	#[test]
+	fn a_failed_rejoin_leaves_the_channel_and_plays_the_leave_cue() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.start_call(Id(25), false).unwrap();
+		let request = state.voice.active.as_ref().unwrap().request;
+		state.reconnect_call(request, 3, "Voice socket failed; rejoin the call");
+		let mut manager = Voice::default();
+		manager.rejoin = Some(Rejoin {
+			generation: state.generation,
+			channel: Id(25),
+			attempt: 3,
+			at: None,
+			recovered: None,
+			camera: false,
+			departed: true,
+			departure_confirmed: true,
+		});
+		assert!(!manager.leave_cue);
+		let command = manager.fail_or_rejoin(&mut state, "Rejoin failed");
+		assert!(matches!(
+			command,
+			Some(Command::Voice(voice::Command::Leave { channel: Id(25), request: left })) if left == request
+		));
+		assert!(manager.leave_cue && manager.rejoin.is_none());
+		let call = state.voice.active.as_ref().unwrap();
+		assert_eq!(call.phase, Phase::Failed);
+		assert!(call.reconnecting.is_none());
+	}
+	#[test]
+	fn an_exhausted_rejoin_that_had_connected_still_plays_the_leave_cue() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.start_call(Id(25), false).unwrap();
+		let request = state.voice.active.as_ref().unwrap().request;
+		// The last attempt reached Waiting (clearing `reconnecting`) before devices failed.
+		state.apply_voice(voice::Event::Progress {
+			channel: Id(25),
+			request,
+			phase: Phase::Waiting,
+		});
+		assert!(state.voice.active.as_ref().unwrap().reconnecting.is_none());
+		let mut manager = Voice::default();
+		manager.rejoin = Some(Rejoin {
+			generation: state.generation,
+			channel: Id(25),
+			attempt: voice::MAX_REJOIN_ATTEMPTS,
+			at: None,
+			recovered: None,
+			camera: false,
+			departed: true,
+			departure_confirmed: true,
+		});
+		assert!(matches!(
+			manager.fail_or_rejoin(&mut state, "Audio devices stopped"),
+			Some(Command::Voice(voice::Command::Leave { channel: Id(25), request: left })) if left == request
+		));
+		assert!(manager.leave_cue && manager.rejoin.is_none());
+		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Failed);
+	}
+	#[test]
+	fn a_gateway_outage_during_rejoin_asks_again_without_spending_an_attempt() {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.gateway_connected = true;
+		state.start_call(Id(25), false).unwrap();
+		let request = state.voice.active.as_ref().unwrap().request;
+		state.reconnect_call(request, 1, "Voice socket failed; rejoin the call");
+		let mut manager = Voice::default();
+		manager.rejoin = Some(Rejoin {
+			generation: state.generation,
+			channel: Id(25),
+			attempt: 1,
+			at: Some(Instant::now()),
+			recovered: None,
+			camera: false,
+			departed: true,
+			departure_confirmed: true,
+		});
+		let mut ui = ui::MessagingUi::default();
+		let context = egui::Context::default();
+		let is_join = |command: &Option<Command>| {
+			matches!(
+				command,
+				Some(Command::Voice(voice::Command::Join {
+					channel: Id(25),
+					ring: false,
+					..
+				}))
+			)
+		};
+		assert!(is_join(&manager.poll_rejoin(&mut state, &ui, &context)));
+		manager.begin(&state, false).unwrap();
+		// The gateway drops before Discord answers the join: that answer is lost.
+		state.gateway_connected = false;
+		assert!(
+			manager
+				.poll(&runtime, &mut state, &mut ui, &context)
+				.is_none()
+		);
+		assert!(manager.pending.is_none());
+		let rejoin = manager.rejoin.as_ref().unwrap();
+		assert!(rejoin.attempt == 1 && rejoin.at.is_some());
+		// Nothing is sent while offline.
+		assert!(
+			manager
+				.poll(&runtime, &mut state, &mut ui, &context)
+				.is_none()
+		);
+		// Back online, the same attempt asks again.
+		state.gateway_connected = true;
+		assert!(is_join(
+			&manager.poll(&runtime, &mut state, &mut ui, &context)
+		));
+		assert_eq!(
+			state
+				.voice
+				.active
+				.as_ref()
+				.unwrap()
+				.reconnecting
+				.map(|r| r.0),
+			Some(1)
+		);
+		// An attempt that fails while the gateway looked connected asks the app to check it.
+		manager.begin(&state, false).unwrap();
+		assert!(!manager.gateway_check);
+		assert!(
+			manager
+				.fail_or_rejoin(&mut state, "Rejoin timed out")
+				.is_none()
+		);
+		assert!(manager.gateway_check && manager.rejoin.as_ref().unwrap().attempt == 2);
+	}
+	#[test]
+	fn a_rejoin_budget_renews_only_after_uninterrupted_health() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.start_call(Id(25), false).unwrap();
+		let request = state.voice.active.as_ref().unwrap().request;
+		let mut manager = Voice::default();
+		let stable_since = Instant::now() - REJOIN_STABLE - Duration::from_secs(1);
+		manager.rejoin = Some(Rejoin {
+			generation: state.generation,
+			channel: Id(25),
+			attempt: 2,
+			at: None,
+			recovered: Some(stable_since),
+			camera: false,
+			departed: true,
+			departure_confirmed: true,
+		});
+		let ui = ui::MessagingUi::default();
+		let context = egui::Context::default();
+		// A later socket resume interrupts the recovered call: the timer restarts.
+		state.apply_voice(voice::Event::Progress {
+			channel: Id(25),
+			request,
+			phase: Phase::Securing,
+		});
+		assert!(manager.poll_rejoin(&mut state, &ui, &context).is_none());
+		let rejoin = manager
+			.rejoin
+			.as_ref()
+			.expect("budget kept while unhealthy");
+		assert!(rejoin.recovered.is_none() && rejoin.attempt == 2);
+		// Healthy again: counting starts now, not from the first recovery.
+		state.apply_voice(voice::Event::Progress {
+			channel: Id(25),
+			request,
+			phase: Phase::Connected,
+		});
+		assert!(manager.poll_rejoin(&mut state, &ui, &context).is_none());
+		assert!(manager.rejoin.as_ref().unwrap().recovered.is_some());
+		manager.rejoin.as_mut().unwrap().recovered = Some(stable_since);
+		assert!(manager.poll_rejoin(&mut state, &ui, &context).is_none());
+		assert!(
+			manager.rejoin.is_none(),
+			"stable long enough renews the budget"
+		);
 	}
 	#[test]
 	fn invalidation_leaves_service_but_never_sends_old_account_commands() {
@@ -2458,7 +3143,7 @@ mod tests {
 		let mut manager = Voice::default();
 		manager.begin(&state, false).unwrap();
 		assert!(
-			matches!(manager.fail(&mut state, "Synthetic startup failure"), Some(Command::Voice(voice::Command::AbandonSession { channel:Id(22), request:r })) if r == request)
+			matches!(manager.give_up_rejoin(&mut state, "Synthetic startup failure", false), Some(Command::Voice(voice::Command::AbandonSession { channel:Id(22), request:r })) if r == request)
 		);
 		assert!(manager.pending.is_none() && manager.live.is_none());
 		assert!(
