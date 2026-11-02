@@ -45,9 +45,13 @@ via `openmls` -> `openmls_rust_crypto` -> `hpke-rs-rust-crypto` -> `p256 0.13` /
 dependencies have not yet migrated to `crypto-bigint >=0.7.6`. The voice subsystem owner maintains
 this acceptance until both paths use compatible patched releases. Additional ignores in `.cargo/audit.toml`
 cover transitive advisories inherited from upstream (RUSTSEC-2026-0385, RUSTSEC-2026-0381, RUSTSEC-2026-0382,
-RUSTSEC-2026-0383, and RUSTSEC-2026-0386) as well as RUSTSEC-2026-0414 affecting directly pinned
-`pulldown-cmark` in `crates/ui/Cargo.toml`, temporarily ignored until dependency updates are fully
-reconciled across the workspace.
+RUSTSEC-2026-0383, and RUSTSEC-2026-0386). The policy also retains the older
+RUSTSEC-2026-0414 exception for `pulldown-cmark`.
+
+The direct `pulldown-cmark` pin is now 0.13.6, addressing RUSTSEC-2026-0433's quadratic
+nested-image wikilink parsing. Serein uses the default parser or enables only strikethrough;
+it does not enable the affected `ENABLE_WIKILINKS` option. The patched release is used
+without adding an advisory exception. See the [upstream fix](https://github.com/pulldown-cmark/pulldown-cmark/pull/1186).
 
 Explicit public attachment hosting adds Catbox as a third-party recipient of one
 user-selected file only after per-file consent. Anyone with its returned link can

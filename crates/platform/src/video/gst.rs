@@ -294,7 +294,7 @@ impl Decoder {
 		self.last_video_pts = pts;
 		Ok(Poll::Ready(Some(Sample::Video {
 			pts: self.last_video_pts,
-			picture: picture(&sample)?,
+			picture: picture(&sample, super::check_dimensions)?,
 		})))
 	}
 
@@ -521,13 +521,18 @@ pub(super) fn planar_caps() -> gst::Caps {
 }
 
 /// Copies one NV12 or I420 sample into a tightly packed [`Picture`] with its colorimetry.
-pub(super) fn picture(sample: &gst::Sample) -> Result<Picture, &'static str> {
-	let (width, height) = frame_dimensions(sample)?;
+pub(super) fn picture(
+	sample: &gst::Sample,
+	check_dimensions: fn(u32, u32) -> Result<(), &'static str>,
+) -> Result<Picture, &'static str> {
 	let caps = sample.caps().ok_or(INVALID)?;
 	let info = gst_video::VideoInfo::from_caps(caps).map_err(|_| INVALID)?;
+	let (width, height) = (info.width(), info.height());
+	check_dimensions(width, height)?;
 	let layout = match info.format() {
 		gst_video::VideoFormat::Nv12 => Layout::Nv12,
-		_ => Layout::I420,
+		gst_video::VideoFormat::I420 => Layout::I420,
+		_ => return Err(INVALID),
 	};
 	let colorimetry = info.colorimetry();
 	let full_range = colorimetry.range() == gst_video::VideoColorRange::Range0_255;
@@ -649,6 +654,40 @@ mod tests {
 			dropped: dropped.clone(),
 		};
 		(Box::new(source), dropped)
+	}
+
+	#[test]
+	fn live_uhd_samples_copy_planes_but_inline_and_oversized_samples_stay_bounded() {
+		gst::init().unwrap();
+		let info = gst_video::VideoInfo::builder(gst_video::VideoFormat::I420, 3840, 2160)
+			.build()
+			.unwrap();
+		let mut bytes = vec![128; info.size()];
+		bytes[0] = 16;
+		*bytes.last_mut().unwrap() = 240;
+		let sample = gst::Sample::builder()
+			.caps(&info.to_caps().unwrap())
+			.buffer(&gst::Buffer::from_slice(bytes))
+			.build();
+		assert!(picture(&sample, super::super::check_dimensions).is_err());
+		let decoded = picture(&sample, super::super::check_live_dimensions).unwrap();
+		assert_eq!((decoded.width, decoded.height), (3840, 2160));
+		assert!(decoded.is_valid());
+		assert_eq!(decoded.data[0], 16);
+		assert_eq!(decoded.data.last(), Some(&240));
+		// No buffer is needed to reject these: check dimensions before mapping/allocating.
+		for (width, height) in [(3841, 1), (3840, 2161), (3840, 3840)] {
+			let caps = gst_video::VideoInfo::builder(gst_video::VideoFormat::I420, width, height)
+				.build()
+				.unwrap()
+				.to_caps()
+				.unwrap();
+			let sample = gst::Sample::builder().caps(&caps).build();
+			assert_eq!(
+				picture(&sample, super::super::check_live_dimensions),
+				Err("Live playback supports videos up to 4K (3840×2160).")
+			);
+		}
 	}
 
 	#[test]

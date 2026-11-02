@@ -7,16 +7,25 @@ mod crypto;
 mod diagnostics;
 mod jitter;
 mod mixer;
+mod presentation;
 pub mod screen;
+mod stream_audio_receive;
 mod stream_playout;
+mod stream_sync;
 mod teardown;
 mod timer;
 mod transport;
+mod transport_feedback;
 mod video;
+mod video_av1;
+mod video_codec;
 // Linux has no shared hardware encoder, but the camera's GStreamer encoder still takes the
 // same configuration, so the facade is compiled on every supported platform.
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod video_encode;
+mod video_feedback;
+mod video_hevc;
+mod video_playout;
 mod video_receive;
 mod video_sps;
 pub use crypto::Identity;
@@ -24,6 +33,8 @@ pub use teardown::wait_for_media_threads;
 pub use transport::{DISCONNECTED_BY_DISCORD, run, run_stream, run_with_identity, watch_stream};
 pub use video_receive::{RemoteFrame, VideoSink};
 pub mod camera_video;
+
+pub use presentation::{PlaybackFrame, Presentation};
 
 pub type Frame = [f32; 960];
 #[derive(Clone, Copy)]
