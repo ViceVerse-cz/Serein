@@ -78,6 +78,28 @@ pub fn channel(state: &State, user: Id) -> Result<Channel, Failure> {
 		}))
 }
 
+/// A synthetic group DM with the chosen friends, as the service would answer.
+pub fn group(state: &State, recipients: &[Id], request: u64) -> Result<Channel, Failure> {
+	let recipients = recipients
+		.iter()
+		.map(|user| state.friend(*user).cloned().ok_or(Failure::Forbidden))
+		.collect::<Result<Vec<_>, _>>()?;
+	Ok(Channel {
+		id: Id(200_000 + request),
+		guild: None,
+		name: String::new(),
+		kind: 3,
+		parent_id: None,
+		position: 0,
+		recipients,
+		last_message: None,
+		icon: None,
+		member_list_id: None,
+		tags: None,
+		message_count: None,
+	})
+}
+
 fn apply(state: &mut State, event: user_actions::Event) {
 	state.apply(Envelope {
 		generation: state.generation,

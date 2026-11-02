@@ -69,6 +69,10 @@ impl Gateway {
 			result = self.resume.accept() => (result.unwrap().0, true),
 		};
 		assert_eq!(resumed, resume, "recovery selected the wrong gateway URL");
+		Self::open(stream, op).await
+	}
+
+	async fn open(stream: TcpStream, op: Option<u64>) -> WebSocketStream<TcpStream> {
 		let mut socket = accept_async(stream).await.unwrap();
 		if let Some(op) = op {
 			send(
@@ -222,17 +226,19 @@ async fn recovery_probes_a_ready_socket_and_resumes_only_when_it_is_silent() {
 				(json!(1), json!(41))
 			);
 			send(&mut socket, json!({"op":11,"d":null})).await;
-			// A silently dead socket is replaced by a resume once the probe goes unanswered. A
-			// signal the client sees before that ack joins the outstanding probe, so signal until
-			// a new probe is sent.
-			let probe = loop {
+			// A silently dead socket is replaced by a resume once a probe goes unanswered. Acks
+			// carry no identity, so a late handshake or probe ack can answer the next probe, and
+			// a signal seen before an ack joins the outstanding probe. Keep signalling and never
+			// ack until the client resumes.
+			let stream = loop {
 				gateway.reconnect.notify_one();
-				if let Ok(probe) = timeout(Duration::from_millis(200), packet(&mut socket)).await {
-					break probe;
+				tokio::select! {
+					result = gateway.resume.accept() => break result.unwrap().0,
+					_ = gateway.initial.accept() => panic!("a silent ready socket must resume"),
+					() = tokio::time::sleep(Duration::from_millis(200)) => {}
 				}
 			};
-			assert_eq!(probe["op"], 1);
-			let next = gateway.socket(true, Some(6)).await;
+			let next = Gateway::open(stream, Some(6)).await;
 			drop(socket);
 			gateway.stop(next).await;
 		})

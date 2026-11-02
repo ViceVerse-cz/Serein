@@ -589,6 +589,11 @@ impl DiscordApi {
 				{
 					return Ok(br#"{"note":""}"#.to_vec());
 				}
+				if error.code == Some(160004) {
+					return Err(Failure::ProtocolAt(
+						client_core::channel_actions::THREAD_ALREADY_OPENED,
+					));
+				}
 				return Err(if status == StatusCode::FORBIDDEN {
 					Failure::Forbidden
 				} else if status.is_server_error() && write {
@@ -688,9 +693,15 @@ impl DiscordApi {
 			)
 			.await
 			.and_then(|bytes| {
-				discord_protocol::invites::decode(&bytes)
-					.map(|p| p.guild)
-					.map_err(|_| Failure::Ambiguous)
+				let preview =
+					discord_protocol::invites::decode(&bytes).map_err(|_| Failure::Ambiguous)?;
+				if let Some(guild) = preview.guild {
+					Ok(model::JoinedTarget::Guild(guild))
+				} else if let Some(channel) = preview.channel {
+					Ok(model::JoinedTarget::Channel(channel))
+				} else {
+					Err(Failure::Ambiguous)
+				}
 			})
 		} else {
 			Err(Failure::Protocol)
@@ -934,6 +945,13 @@ impl DiscordApi {
 						user,
 						request,
 						result: result.map(Box::new),
+					});
+				}
+				if let client_core::user_actions::Action::CreateGroup { recipients } = action {
+					return Event::UserAction(client_core::user_actions::Event::GroupCreated {
+						request,
+						result: self.create_group(&recipients).await.map(Box::new),
+						recipients,
 					});
 				}
 				if let client_core::user_actions::Action::LoadNote(user) = action {
@@ -2394,7 +2412,8 @@ mod tests {
 				(
 					std::time::Instant::now(),
 					Some(Ok(model::InvitePreview {
-						guild: model::Id(2),
+						guild: Some(model::Id(2)),
+						channel: None,
 						embed: Default::default(),
 					})),
 				),
@@ -2418,7 +2437,7 @@ mod tests {
 			assert!(matches!(
 				api.execute(command).await,
 				Event::JoinInvite {
-					result: Ok(model::Id(2)),
+					result: Ok(model::JoinedTarget::Guild(model::Id(2))),
 					..
 				}
 			));

@@ -1330,6 +1330,7 @@ mod tests {
 						tertiary_color: None,
 						position: 0,
 						hoist: false,
+						managed: false,
 						id: Id(1),
 						bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY,
 					}]),

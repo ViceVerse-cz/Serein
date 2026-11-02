@@ -60,6 +60,10 @@ pub struct Gate {
 	input_failed_revision: AtomicU64,
 	/// A failed microphone is being retried; the warning stays up until the retry succeeds.
 	input_retrying: AtomicBool,
+	/// A live call has no usable device; it keeps retrying instead of ending.
+	devices_missing: AtomicBool,
+	/// Whether this call ever opened audio, so the startup deadline stops applying to it.
+	opened: AtomicBool,
 	input_callbacks: AtomicU64,
 	revision: AtomicU64,
 	acknowledged_revision: AtomicU64,
@@ -84,6 +88,8 @@ impl Default for Gate {
 			failed_revision: AtomicU64::new(0),
 			input_failed_revision: AtomicU64::new(0),
 			input_retrying: AtomicBool::new(false),
+			devices_missing: AtomicBool::new(false),
+			opened: AtomicBool::new(false),
 			input_callbacks: AtomicU64::new(0),
 			revision: AtomicU64::new(1),
 			acknowledged_revision: AtomicU64::new(0),
@@ -249,16 +255,19 @@ impl Audio {
 					if worker_gate.failed_revision.load(Ordering::Acquire) == revision
 						&& worker_gate.revision.load(Ordering::Acquire) == revision
 					{
-						if recovery_attempts >= MAX_RECOVERY_ATTEMPTS {
-							emit(Err(
-								"Audio device stopped or disconnected; choose a device and call again",
-							));
-							break;
-						}
+						// A live call keeps its place in the channel: the device is reopened as soon
+						// as the system offers it again, exactly as in the official client.
 						recovery_attempts += 1;
 						worker_gate.revision.fetch_add(1, Ordering::AcqRel);
 						streams = None;
-						std::thread::park_timeout(RECOVERY_DELAY);
+						if recovery_attempts >= MAX_RECOVERY_ATTEMPTS {
+							worker_gate.devices_missing.store(true, Ordering::Release);
+							recovery_attempts = 0;
+							emit(Ok(())); // Wake the interface for the unavailable-audio state.
+							std::thread::park_timeout(RECOVERY_PATIENCE);
+						} else {
+							std::thread::park_timeout(RECOVERY_DELAY);
+						}
 						continue;
 					}
 					if streams.is_none() {
@@ -274,6 +283,8 @@ impl Audio {
 								}
 								streams = Some((revision, value));
 								worker_gate.echo_reset.store(true, Ordering::Release);
+								worker_gate.devices_missing.store(false, Ordering::Release);
+								worker_gate.opened.store(true, Ordering::Release);
 								opened_at = Some(Instant::now());
 								opened_once = true;
 								emit(Ok(()));
@@ -284,7 +295,16 @@ impl Audio {
 								{
 									continue;
 								}
-								if opened_once && recovery_attempts < MAX_RECOVERY_ATTEMPTS {
+								// A call that never opened audio reports the failure. A live call
+								// waits for the device instead of losing the channel.
+								if opened_once {
+									worker_gate.devices_missing.store(true, Ordering::Release);
+									recovery_attempts = 0;
+									emit(Ok(()));
+									std::thread::park_timeout(RECOVERY_PATIENCE);
+									continue;
+								}
+								if recovery_attempts < MAX_RECOVERY_ATTEMPTS {
 									recovery_attempts += 1;
 									std::thread::park_timeout(RECOVERY_DELAY);
 									continue;
@@ -441,6 +461,16 @@ impl Audio {
 	pub fn is_stopped(&self) -> bool {
 		self.gate.stopped.load(Ordering::Acquire)
 	}
+	/// True while a live call has no usable device and keeps retrying in the background. The call
+	/// itself stays up, so the interface can say audio is temporarily unavailable.
+	pub fn devices_missing(&self) -> bool {
+		self.gate.devices_missing.load(Ordering::Acquire)
+	}
+	/// Whether audio opened at least once for this call. A call that already had sound keeps its
+	/// place while devices come back, so the startup deadline no longer applies to it.
+	pub fn opened_once(&self) -> bool {
+		self.gate.opened.load(Ordering::Acquire)
+	}
 	pub fn shutdown(mut self) -> mpsc::Receiver<()> {
 		self.done.take().expect("audio owns completion")
 	}
@@ -534,9 +564,13 @@ impl Drop for Audio {
 	}
 }
 
-/// Six seconds of reopen attempts before a device loss ends the call.
+/// Six seconds of reopen attempts before an initial device failure fails the *call attempt*.
+/// Once a call is live, a missing device never ends it: a headset can sleep or switch Bluetooth
+/// profiles for minutes, and the person stays in the channel exactly as in the official client.
 const MAX_RECOVERY_ATTEMPTS: u8 = 24;
 const RECOVERY_DELAY: Duration = Duration::from_millis(250);
+/// How long a live call waits between attempts while its devices stay away.
+const RECOVERY_PATIENCE: Duration = Duration::from_secs(5);
 
 struct Streams {
 	// Reuse the connection that owns these streams for polling and microphone retries.
@@ -615,7 +649,10 @@ impl Streams {
 		let host = cpal::default_host();
 		let output = choose(&host, settings.output.as_deref(), false)?;
 		let output_id = output.id().ok().map(|id| id.to_string());
-		let output_config = config(&output, false)?;
+		let output_config = platform::audio::output_config(
+			&output,
+			platform::audio::OutputConfigPreference::Voice,
+		)?;
 		let stream_config = output_config.config();
 		#[cfg(target_os = "linux")]
 		let stream_config = {
@@ -718,7 +755,7 @@ fn open_input_stream(
 	permission_macos::authorize(gate, revision)?;
 	let input = choose(host, settings.input.as_deref(), true)?;
 	let input_id = input.id().ok().map(|id| id.to_string());
-	let input_config = config(&input, true)?;
+	let input_config = input_config(&input)?;
 	let stream_config = input_config.config();
 	#[cfg(target_os = "linux")]
 	let stream_config = {
@@ -770,25 +807,12 @@ fn choose(host: &cpal::Host, id: Option<&str>, input: bool) -> Result<cpal::Devi
 	}
 	.ok_or("No default audio device is available")
 }
-fn config(device: &cpal::Device, input: bool) -> Result<cpal::SupportedStreamConfig, &'static str> {
-	let supported: Vec<_> = if input {
-		device
-			.supported_input_configs()
-			.map_err(|_| "Microphone formats are unavailable")?
-			.take(64)
-			.collect()
-	} else if cfg!(target_os = "windows") {
-		// WASAPI advertises converted formats too; enumeration order can pick
-		// 16-bit PCM that a driver rejects. Use its native shared-mode mix format
-		// below and let Playback handle conversion from our 48 kHz frames.
-		Vec::new()
-	} else {
-		device
-			.supported_output_configs()
-			.map_err(|_| "Speaker formats are unavailable")?
-			.take(64)
-			.collect()
-	};
+fn input_config(device: &cpal::Device) -> Result<cpal::SupportedStreamConfig, &'static str> {
+	let supported: Vec<_> = device
+		.supported_input_configs()
+		.map_err(|_| "Microphone formats are unavailable")?
+		.take(64)
+		.collect();
 	if let Some(config) = supported
 		.into_iter()
 		.filter(|c| c.channels() > 0 && c.channels() <= 8)
@@ -798,12 +822,9 @@ fn config(device: &cpal::Device, input: bool) -> Result<cpal::SupportedStreamCon
 	{
 		return Ok(config);
 	}
-	let config = if input {
-		device.default_input_config()
-	} else {
-		device.default_output_config()
-	}
-	.map_err(|_| "Default audio format is unavailable")?;
+	let config = device
+		.default_input_config()
+		.map_err(|_| "Default audio format is unavailable")?;
 	if config.channels() == 0
 		|| config.channels() > 8
 		|| !(8_000..=192_000).contains(&config.sample_rate())

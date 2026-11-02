@@ -673,6 +673,8 @@ const INTRO_ESTIMATE: f32 = 236.0;
 enum Intro {
 	/// The other person in a one-to-one conversation.
 	Direct(model::User),
+	/// A group direct message, looked up when painted.
+	Group(Id),
 	/// A server channel, thread or forum post with messages.
 	Channel { name: String, kind: u8, post: bool },
 }
@@ -710,6 +712,7 @@ fn intro(state: &State, empty: bool) -> Option<Intro> {
 	};
 	match channel.kind {
 		1 => channel.recipients.first().cloned().map(Intro::Direct),
+		3 if channel.guild.is_none() => Some(Intro::Group(channel.id)),
 		// An empty server channel keeps its full-height welcome instead.
 		0 | 5 if channel.guild.is_some() && !empty => Some(named(false)),
 		10..=12 if !empty => {
@@ -740,6 +743,12 @@ fn intro_key(intro: &Intro, state: &State) -> u64 {
 		}
 		Intro::Channel { name, kind, post } => {
 			(name, kind, post).hash(&mut hasher);
+		}
+		Intro::Group(id) => {
+			id.hash(&mut hasher);
+			if let Some(channel) = state.channel(*id) {
+				state.conversation_name(channel).hash(&mut hasher);
+			}
 		}
 	}
 	hasher.finish()
@@ -806,6 +815,57 @@ fn intro_username(state: &State, user: &model::User, heading: &str) -> Option<St
 	crate::profiles::known_username(state, user.id).filter(|username| username != heading)
 }
 
+/// One intro sentence with the conversation's name in bold.
+fn intro_sentence(ui: &mut egui::Ui, key: &str, name: &str) {
+	let colors = crate::design::palette(ui);
+	let text = crate::i18n::translate_args(key, &[("name", name)]);
+	let mut job = egui::text::LayoutJob::default();
+	let plain = egui::TextFormat::simple(egui::FontId::proportional(15.0), colors.text);
+	let bold = egui::TextFormat::simple(
+		egui::FontId::new(15.0, crate::design::semibold_family(ui.ctx())),
+		colors.text_strong,
+	);
+	match text.rfind(name).filter(|_| !name.is_empty()) {
+		Some(at) => {
+			job.append(&text[..at], 0.0, plain.clone());
+			job.append(name, 0.0, bold);
+			job.append(&text[at + name.len()..], 0.0, plain);
+		}
+		None => job.append(&text, 0.0, plain),
+	}
+	ui.add(egui::Label::new(job).wrap().selectable(false));
+}
+
+/// "Welcome to the beginning of the … group" header, as in the official client.
+fn group_intro(
+	ui: &mut egui::Ui,
+	channel: &model::Channel,
+	state: &State,
+	avatars: &mut crate::avatars::Avatars,
+	width: f32,
+) {
+	let colors = crate::design::palette(ui);
+	egui::Frame::NONE
+		.inner_margin(egui::Margin {
+			left: 16,
+			right: 16,
+			top: 16,
+			bottom: 4,
+		})
+		.show(ui, |ui| {
+			ui.set_min_width((width - 32.0).max(1.0));
+			ui.spacing_mut().item_spacing.y = 8.0;
+			avatars.show_group(ui, channel, 80.0, state.demo);
+			let name = state.conversation_name(channel);
+			ui.add(
+				egui::Label::new(crate::design::semibold(ui, name, 30.0).color(colors.text_strong))
+					.wrap()
+					.selectable(false),
+			);
+			intro_sentence(ui, "timeline-group-intro", name);
+		});
+}
+
 /// "This is the beginning of your direct message history" header, as in the official client.
 fn dm_intro(
 	ui: &mut egui::Ui,
@@ -843,23 +903,7 @@ fn dm_intro(
 			if let Some(username) = intro_username(state, user, &name) {
 				ui.label(RichText::new(username).size(20.0).color(colors.text));
 			}
-			let text = crate::i18n::translate_args("timeline-dm-intro", &[("name", name.as_str())]);
-			let mut job = egui::text::LayoutJob::default();
-			let font = egui::FontId::proportional(15.0);
-			let plain = egui::TextFormat::simple(font.clone(), colors.text);
-			let bold = egui::TextFormat::simple(
-				egui::FontId::new(15.0, crate::design::semibold_family(ui.ctx())),
-				colors.text_strong,
-			);
-			match text.rfind(name.as_str()).filter(|_| !name.is_empty()) {
-				Some(at) => {
-					job.append(&text[..at], 0.0, plain.clone());
-					job.append(&name, 0.0, bold);
-					job.append(&text[at + name.len()..], 0.0, plain);
-				}
-				None => job.append(&text, 0.0, plain),
-			}
-			ui.add(egui::Label::new(job).wrap().selectable(false));
+			intro_sentence(ui, "timeline-dm-intro", &name);
 			ui.horizontal_wrapped(|ui| {
 				ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 				if let Some(known) = state.known_profile(user.id)
@@ -1048,6 +1092,9 @@ fn grouped(previous: Option<&Message>, message: &Message, boundary: Option<Id>) 
 
 pub(crate) fn mentions_viewer(message: &Message, state: &State) -> bool {
 	let viewer = state.user.as_ref().map(|user| user.id);
+	if viewer.is_some_and(|viewer| message.author.id == viewer) {
+		return false;
+	}
 	message.mention_everyone
 		|| viewer.is_some_and(|viewer| message.mentions.iter().any(|mention| mention.id == viewer))
 		|| (viewer.is_some()
@@ -2011,6 +2058,7 @@ impl TimelineView {
 			TargetReveal::Center
 		});
 	}
+	/// Render the message timeline using a default scroll session (test helper).
 	#[cfg(test)]
 	pub fn show(
 		&mut self,
@@ -2036,6 +2084,7 @@ impl TimelineView {
 		);
 	}
 
+	/// Render the message timeline within the active scroll session.
 	#[allow(clippy::too_many_arguments)]
 	pub fn show_with_scroll(
 		&mut self,
@@ -2374,7 +2423,10 @@ impl TimelineView {
 				}
 			}
 			return;
-		} else if empty && history_available && !welcome && !matches!(intro, Some(Intro::Direct(_)))
+		} else if empty
+			&& history_available
+			&& !welcome
+			&& !matches!(intro, Some(Intro::Direct(_) | Intro::Group(_)))
 		{
 			ui.label(crate::i18n::translate_if_key(match state.freshness {
 				model::Freshness::Loading => "timeline-show-with-scroll-loading-messages",
@@ -2676,6 +2728,11 @@ impl TimelineView {
 							}
 							Intro::Channel { name, kind, post } => {
 								channel_intro(ui, name, *kind, *post, width);
+							}
+							Intro::Group(id) => {
+								if let Some(channel) = state.channel(*id) {
+									group_intro(ui, channel, state, avatars, width);
+								}
 							}
 						})
 						.response;
@@ -3411,6 +3468,26 @@ impl TimelineView {
 													media = true;
 												}
 											} else {
+												if !message.extra_content.components_v2 {
+													let previous_view = self.viewing;
+													crate::attachments::show(
+														ui,
+														message,
+														avatars,
+														&mut self.viewing,
+														&mut self.opening,
+														&mut self.download,
+														&mut self.audio,
+														&mut self.video,
+														state.demo,
+														&mut surface,
+														crate::design::MessageCardSurface::Conversation,
+													);
+													if self.viewing != previous_view {
+														self.component_viewing = None;
+														self.embed_viewing = None;
+													}
+												}
 												let invite_top = ui.cursor().top();
 												crate::invites::show(
 													ui,
@@ -3461,26 +3538,6 @@ impl TimelineView {
 														ui.min_rect().bottom(),
 													),
 												));
-												if !message.extra_content.components_v2 {
-													let previous_view = self.viewing;
-													crate::attachments::show(
-														ui,
-														message,
-														avatars,
-														&mut self.viewing,
-														&mut self.opening,
-														&mut self.download,
-														&mut self.audio,
-														&mut self.video,
-														state.demo,
-														&mut surface,
-														crate::design::MessageCardSurface::Conversation,
-													);
-													if self.viewing != previous_view {
-														self.component_viewing = None;
-														self.embed_viewing = None;
-													}
-												}
 											}
 											if before != (text, media) {
 												if text == 0 && !media {
@@ -5298,6 +5355,55 @@ mod tests {
 		}
 	}
 
+	/// Verify message attachments render above rich embeds and link previews.
+	#[test]
+	fn attachments_render_above_embeds_and_link_previews() {
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		let id = ((1_788_998_580_000u64 - 1_420_070_400_000) << 22) | 1;
+		let mut message = text_message(id);
+		message.content = "Message with attachment and embed".into();
+		message.attachments.push(model::Attachment {
+			id: Id(10),
+			filename: "synthetic-upload.txt".into(),
+			description: None,
+			content_type: Some("text/plain".into()),
+			size: 128,
+			media: model::EmbedMedia::default(),
+			spoiler: false,
+			duration_ms: None,
+			waveform: vec![],
+		});
+		message.embeds.push(model::Embed {
+			kind: "rich".into(),
+			title: Some("Synthetic link preview card".into()),
+			description: Some("Card description text".into()),
+			..Default::default()
+		});
+		state.channels[0].last_message = Some(Id(id));
+		state.timeline.insert(message, false, false).unwrap();
+		let ctx = egui::Context::default();
+		let mut view = TimelineView::default();
+		let labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		let attachment_rect = labels
+			.iter()
+			.find(|(text, _)| text == "synthetic-upload.txt")
+			.expect("attachment filename rendered")
+			.1;
+		let embed_rect = labels
+			.iter()
+			.find(|(text, _)| text == "Synthetic link preview card")
+			.expect("embed title rendered")
+			.1;
+		assert!(
+			attachment_rect.max.y <= embed_rect.min.y,
+			"attachment (bottom: {}) must render above embed card (top: {})",
+			attachment_rect.max.y,
+			embed_rect.min.y
+		);
+	}
+
 	/// Channel switches keep cached video posters while stopping playback.
 	#[test]
 	fn channel_switch_keeps_video_posters_but_stops_playback() {
@@ -6925,6 +7031,7 @@ mod tests {
 							tertiary_color: None,
 							position: 0,
 							hoist: false,
+							managed: false,
 							bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY,
 						}]),
 					})

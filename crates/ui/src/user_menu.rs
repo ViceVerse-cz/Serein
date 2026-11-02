@@ -13,10 +13,28 @@ pub enum Action {
 	AddFriend(User),
 	AcceptFriend(model::Id),
 	CloseDm(model::Id),
-	Block { user: model::Id, blocked: bool },
-	Ignore { user: model::Id, ignored: bool },
-	Mute { channel: model::Id, muted: bool },
-	MessageRequest { channel: model::Id, accept: bool },
+	Block {
+		user: model::Id,
+		blocked: bool,
+	},
+	Ignore {
+		user: model::Id,
+		ignored: bool,
+	},
+	Mute {
+		channel: model::Id,
+		muted: bool,
+	},
+	MessageRequest {
+		channel: model::Id,
+		accept: bool,
+	},
+	SetRole {
+		guild: model::Id,
+		user: model::Id,
+		role: model::Id,
+		assigned: bool,
+	},
 	Shortcut(Intent),
 }
 impl std::fmt::Debug for Action {
@@ -42,6 +60,19 @@ pub(super) fn prepare(action: Action, state: &mut State) -> Option<Command> {
 		Action::MessageRequest { channel, accept } => {
 			state.resolve_message_request(channel, accept)
 		}
+		Action::SetRole {
+			guild,
+			user,
+			role,
+			assigned,
+		} => state.request_server_admin(
+			guild,
+			model::server_admin::Action::SetRole {
+				user,
+				role,
+				assigned,
+			},
+		),
 	}
 }
 
@@ -155,6 +186,12 @@ pub(super) fn contents(
 	}
 	if !user.webhook {
 		crate::profiles::copy_username_button(ui, state, user);
+		if let Some(guild) = state
+			.selected
+			.and_then(|id| state.channel(id).and_then(|channel| channel.guild))
+		{
+			roles_menu(ui, state, guild, user.id, action);
+		}
 	}
 	if user.webhook || state.user.as_ref().is_some_and(|own| own.id == user.id) {
 		return;
@@ -357,6 +394,54 @@ pub(super) fn contents(
 		ui.close();
 	}
 	crate::profiles::report_button(ui, user);
+}
+
+/// Toggles assignable server roles on a member shown in the selected channel's live list.
+fn roles_menu(
+	ui: &mut egui::Ui,
+	state: &State,
+	guild: model::Id,
+	user: model::Id,
+	action: &mut Option<Action>,
+) {
+	let roles = state.member_menu_roles(guild, user);
+	if roles.is_empty() {
+		return;
+	}
+	let enabled = !state.server_admin.pending
+		&& !state.server_settings.saving
+		&& (state.demo
+			|| (state.gateway_connected
+				&& state.auth == client_core::auth::AuthState::Authenticated));
+	let text = crate::design::palette(ui).text;
+	ui.menu_button(crate::i18n::translate("user-menu-contents-roles"), |ui| {
+		ui.set_min_width(180.0);
+		let background = ui.visuals().window_fill;
+		egui::ScrollArea::vertical()
+			.max_height(320.0)
+			.show(ui, |ui| {
+				for (role, assigned) in roles {
+					let mut checked = assigned;
+					let mut name = egui::RichText::new(&role.name);
+					if role.color != 0 {
+						name = name
+							.color(crate::design::role_name_color(role.color, background, text));
+					}
+					if ui
+						.add_enabled(enabled, egui::Checkbox::new(&mut checked, name))
+						.clicked()
+					{
+						*action = Some(Action::SetRole {
+							guild,
+							user,
+							role: role.id,
+							assigned: !assigned,
+						});
+						ui.close();
+					}
+				}
+			});
+	});
 }
 
 #[cfg(test)]

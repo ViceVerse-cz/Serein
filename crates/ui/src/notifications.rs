@@ -35,10 +35,13 @@ impl RailCache {
 			return false;
 		}
 		let mut badges = std::collections::BTreeMap::<Id, (bool, u32)>::new();
+		let now = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.map_or(0, |elapsed| elapsed.as_millis() as i64);
 		for channel in state.channels.iter().take(client_core::MAX_NAV) {
 			if let Some(guild) = channel.guild {
 				let entry = badges.entry(guild).or_default();
-				entry.0 |= state.lights_guild_rail(channel);
+				entry.0 |= state.lights_guild_rail(channel, now);
 				entry.1 = entry.1.saturating_add(state.mention_count(channel.id));
 			}
 		}
@@ -92,10 +95,13 @@ fn home_request_label(friends: u32, messages: u32) -> String {
 
 pub(super) fn row_activity(state: &State, channel: &model::Channel, visible: bool) -> (bool, u32) {
 	let forum = channel.guild.is_some() && matches!(channel.kind, 15 | 16);
+	// A forum lights only for posts the account has not seen, never its own boundary.
 	let unread = visible
-		&& (state.channel_unread(channel) == Some(true)
-			|| state.unread_count(channel.id) > 0
-			|| (forum && state.forum_unread(channel.id)));
+		&& if forum {
+			state.forum_unread(channel.id)
+		} else {
+			state.channel_unread(channel) == Some(true) || state.unread_count(channel.id) > 0
+		};
 	let count = if !visible || forum {
 		0
 	} else if channel.guild.is_some() {

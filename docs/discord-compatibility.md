@@ -1211,7 +1211,7 @@ The composer now displays known user mentions as `@name`, Unicode as bundled Twe
 
 Guild voice entry uses the documented [Gateway voice state update and voice allocation flow](https://docs.discord.com/developers/topics/voice-connections): guild-scoped join/mute/leave, matching owner session plus guild server update, and guild ID as voice Identify/Resume server ID. The DAVE group remains identified by channel ID. This protocol documentation is not approval or live evidence for normal-user accounts. Server channel rosters use READY, GUILD_CREATE, VOICE_STATE_UPDATE and unofficial READY_SUPPLEMENTAL/PASSIVE_UPDATE_V2 shapes from the original [discord.py-self dispatcher](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py).
 
-The media engine extends the existing DAVE/Opus path to bounded group membership and simultaneous remote audio mixing. Server mute/deafen gates local media. Empty rooms wait without opening audio devices; microphone capture requires an established encrypted group. Stage channels and group DMs remain visibly unsupported. Main Gateway disconnect, channel/session moves, permission invalidation or voice server migration stop the current media session and require deliberate rejoin. A dropped media session of a joined call (unacknowledged heartbeats, failed resume, negotiation timeout) is rejoined automatically up to three times by re-sending opcode 4 for the same channel; that Discord answers this with fresh voice credentials is unverified. Each scheduled rejoin first asks the main Gateway to confirm its socket with a heartbeat. A rejoin waits while the Gateway is disconnected, and one whose answer was lost to a Gateway outage asks again after reconnecting without spending an attempt. No automatic call or DM ringing is triggered by viewing a roster or joining a guild channel.
+The media engine extends the existing DAVE/Opus path to bounded group membership and simultaneous remote audio mixing. Server mute/deafen gates local media. Empty rooms wait without opening audio devices; microphone capture requires an established encrypted group. Stage channels and group DMs remain visibly unsupported. Main Gateway disconnect, channel/session moves, permission invalidation or voice server migration stop the current media session and require deliberate rejoin. A local audio device that disappears never ends a live call: the device is reopened in the background at a calm pace while the call keeps its place in the channel, as in the official client, and only a call that never opened audio at all reports a failure. A dropped media session of a joined call (unacknowledged heartbeats, failed resume, negotiation timeout) is rejoined automatically up to three times. Each attempt leaves the channel first and joins again only after Discord confirms the departure: a re-sent opcode 4 for a channel Discord still has the account in changed nothing and returned no voice credentials in a seven-hour owner session, so the previous in-place rejoin is no longer used. That Discord answers the leave-then-join pair with fresh credentials is unverified here. Each scheduled rejoin first asks the main Gateway to confirm its socket with a heartbeat. A rejoin waits while the Gateway is disconnected, and one whose answer was lost to a Gateway outage asks again after reconnecting without spending an attempt. No automatic call or DM ringing is triggered by viewing a roster or joining a guild channel.
 
 The implementation is tested with synthetic protocol/crypto/UI data. The owner-controlled official-client two-way audio, multi-party join/leave, permission, device and network tests in [voice.md](voice.md) remain required before claiming working live interoperability.
 
@@ -1625,7 +1625,14 @@ are shared across the session's metadata lookups. Unresolved artwork is
 omitted and application-name lookup failures are visible. These routes and normal-user Gateway
 publication remain unofficial/unstable. The existing [Update Presence](https://docs.discord.com/developers/events/gateway-events#update-presence)
 path waits for READY/RESUMED, coalesces updates and limits attempts (including clears) to one
-per five seconds. The Gateway payload retains the existing online/afk/since behavior.
+per five seconds. After system inactivity, Serein sends `afk: true` with `since` set to when
+it marked the session idle and shows Online as `idle` (DND, Invisible and manual Idle stay as
+chosen; the saved status is unchanged) so Discord can route push notifications to the phone. The
+inactivity timeout is the account's `voice_and_video.afk_timeout` in settings-proto/1 (60 to 3600
+seconds, default 600). It is read with the status, and a change in Settings rewrites only that
+field, keeping the other voice settings like the status patches do. A locked screen counts as
+idle at once and voice calls suppress it. This mirrors the official client and is
+unofficial/unverified.
 
 Offline tests cover native Windows IPC, malformed/oversized frames, handshake/update/clear,
 unsupported subscriptions, shutdown, rich Gateway fields, rate spacing and reconnect.
@@ -1807,8 +1814,10 @@ live-account validation are not available in this agent environment.
 Shared user menus expose Add Note and Add/Edit Friend Nickname; the latter requires a
 confirmed friend and never changes a server nickname. Notes load before editing,
 failed writes retain the draft, and clearing is explicit. Private names appear in
-Friends/search, DM navigation/header/composer, message author labels and profile cards.
-Public names, usernames and IDs remain unchanged.
+Friends/search, DM navigation/header/composer, message author labels, profile cards
+and the typing indicator. A loaded server nickname still wins over a private name in
+a server, as it does for message authors. Public names, usernames and IDs remain
+unchanged.
 
 These normal-user routes are **unofficial and live-unverified**:
 GET/PUT `/users/@me/notes/{id}` and PATCH `/users/@me/relationships/{id}`.
@@ -1944,7 +1953,9 @@ not official support or proof of live interoperability.
 READY and relationship dispatches retain at most 4,000 pending profiles / 2 MiB,
 separate from confirmed friends. Missing profile metadata remains explicitly unknown.
 Writes reuse the existing single pending user-action slot and session generation;
-newer Gateway state wins over late HTTP results. No automatic write retries occur.
+newer Gateway state wins over late HTTP results. The only automatic write retry is for accepting
+an incoming friend request: after `Failure::Protocol` or `Failure::Forbidden`, its relationship
+`PUT` retries once with `confirm_stranger_request: true`. Other account writes keep a single attempt.
 Username-based sends wait for Gateway identity data rather than inventing an outgoing row.
 Synthetic reducer, protocol and local HTTP tests cover this path; live requests,
 service challenges and recipient privacy restrictions remain unverified.
@@ -1956,6 +1967,26 @@ Acknowledged ID requests retain a bounded outgoing row with unknown profile meta
 Gateway data arrives. Failed writes preserve friendship; newer Gateway updates win over
 late acknowledgements. Cancellation and account changes discard pending UI confirmations.
 These paths have offline UI/reducer/HTTP coverage, not live-account verification.
+
+### Accepting a stranger's request — October 26, 2026
+
+The owner reported that accepting an incoming request failed with the generic
+"Unsupported service response" while the official clients accepted it. Discord can require one
+extra confirmation for a request it attributes to a stranger: the public
+[discord.py-self relationship implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/relationship.py)
+documents that "friend requests from users Discord ascertains to be strangers require additional
+confirmation to accept" and resends the same `PUT` with `confirm_stranger_request: true` after
+its warning; without it the acceptance is rejected.
+
+Serein sends the plain `PUT .../{id}` with an empty object first, as before, and only after that
+request is rejected (a protocol-level or forbidden answer) resends it once with
+`confirm_stranger_request: true` and reports that second outcome. A relationship `PUT` assigns
+state rather than sending content, and the account owner already chose Accept, so the retry
+carries that same deliberate choice; removes, blocks, notes, nicknames and every other account
+write keep their single attempt. Serein has no warning dialog of its own yet, so the official
+client's stranger prompt has no local equivalent. Synthetic local-HTTP tests cover the first
+rejection, the confirmation body and the second outcome; normal-user acceptance remains
+live-unverified beyond the owner's report.
 
 ### Blocked and ignored users (September 21, 2026)
 
@@ -2622,3 +2653,34 @@ the official notice in place of the withheld details, and omits Member Since and
 matching the official client. Roles, mutuals and the message field stay. The service
 withholds the hidden data itself; Serein never infers privacy from missing fields. No live
 private-profile response has been used as validation.
+
+## Member list on a return visit — October 25, 2026
+
+On large servers Discord remembers which member-list rows a client asked for, even after the
+pane moves to another server. On a return visit Serein asked for the same rows again; Discord
+saw no change and never re-sent the list, so it stayed on "Loading people…". Serein now first
+asks for a different row window, then the real one, which Discord treats as new and answers.
+Clearing the rows with an empty list is not an option: Discord disconnects with code 4002.
+
+This behaviour is unofficial and inferred from owner traces; a loopback test models it, and
+the owner confirmed the fix in a debug build.
+
+## New message picker - October 27, 2026
+
+The DM list header carries the official client's "New Message" action: a picker that lists
+friends, searches them by display name or handle, and opens either one direct message or a
+group. One chosen person reuses the existing DM path (`GET` selection when the conversation
+is already loaded, otherwise `POST /users/@me/channels` with `recipient_id`). Two to nine
+people send one `POST /users/@me/channels` with `recipients`; the service adds this
+account as the owner, so ten people is the whole group.
+
+The group request and its answer are bounded like the rest of the account writes: no retry,
+one request at a time, and the response is admitted only when it is a group channel whose
+recipients cover everyone that was asked for. The created channel is opened the same way a
+newly opened DM is, and navigation made while the request was in flight wins over it.
+Failures report the service label instead of leaving the picker open.
+
+`POST /users/@me/channels` is a documented route, but sending `recipients` from a normal
+account is an unofficial request shape, inferred from the official client and live-unverified:
+loopback tests cover the request shape and response validation, and the owner's release-build
+pass exercised the picker but not live group creation.

@@ -6,6 +6,15 @@ pub const MAX_TITLE: usize = 100;
 pub const SUMMARY_BATCH: usize = 4;
 
 /// The on-demand active-post list of one forum; the gateway only delivers joined posts.
+/// The forum on screen and its boundary from before this visit acknowledged it.
+#[derive(Clone, Copy)]
+pub struct Visit {
+	pub forum: Id,
+	/// The forum's read row when the visit began; without one nothing is new.
+	boundary: Option<Option<Id>>,
+	acknowledged: bool,
+}
+
 #[derive(Default)]
 pub struct Posts {
 	// At most 200 fixed-size forum/cursor pairs for the displayed guild.
@@ -22,6 +31,8 @@ pub struct Posts {
 	pub loading: bool,
 	/// Posts admitted so far, used as the search offset of the next page.
 	pub loaded: usize,
+	/// The first page answered, even with no active posts; an empty forum is not refetched.
+	pub fetched: bool,
 	pub more: bool,
 	pub error: Option<&'static str>,
 }
@@ -224,9 +235,8 @@ impl State {
 	}
 
 	pub fn is_forum(&self, channel: Id) -> bool {
-		self.channels
-			.iter()
-			.any(|c| c.id == channel && c.guild.is_some() && matches!(c.kind, 15 | 16))
+		self.channel(channel)
+			.is_some_and(|c| c.guild.is_some() && matches!(c.kind, 15 | 16))
 	}
 
 	/// Loaded posts of a forum: active threads the gateway delivered, newest activity first.
@@ -240,54 +250,116 @@ impl State {
 		posts
 	}
 
-	/// Is one post unread? Posts arrive through the on-demand list as well as the gateway, so
-	/// a post the service never sent a read row for counts as unread once the snapshot is
-	/// complete and the service reports a message in it.
+	/// Is one post unread on its card? An opened post follows its own read row. A post the
+	/// account never opened is only new: created after the forum's boundary as it stood
+	/// when this visit began, so the visit's own acknowledgement keeps its cards marked.
 	pub fn post_unread(&self, post: &Channel) -> bool {
-		if let Some(unread) = self.channel_unread(post) {
-			return unread || self.unread_count(post.id) > 0;
+		if self.read_state.row(post.id).is_some() {
+			return self.channel_unread(post) == Some(true) || self.unread_count(post.id) > 0;
 		}
-		self.gateway_connected
-			&& self.read_state.known()
-			&& self.can_view(post.id)
-			&& post.last_message.is_some()
+		let visit = self
+			.forum_visit
+			.filter(|visit| post.parent_id == Some(visit.forum))
+			.map(|visit| visit.boundary);
+		post.parent_id
+			.and_then(|forum| visit.unwrap_or_else(|| self.forum_boundary(forum)))
+			.is_some_and(|boundary| self.post_new_since(post, boundary))
 	}
 
-	/// Forum containers carry no messages themselves; Discord marks them unread when one of
-	/// their posts is, so the sidebar row needs the same aggregate.
+	/// The forum's own acknowledged boundary. Without a service row nothing in it is new.
+	fn forum_boundary(&self, forum: Id) -> Option<Option<Id>> {
+		if !self.gateway_connected || !self.is_forum(forum) || !self.can_view(forum) {
+			return None;
+		}
+		self.read_state.row(forum)
+	}
+
+	/// An active post the account never opened, created after `boundary`.
+	fn post_new_since(&self, post: &Channel, boundary: Option<Id>) -> bool {
+		matches!(post.kind, 11 | 12)
+			&& Some(post.id) != self.archived_thread
+			&& self.read_state.row(post.id).is_none()
+			&& boundary.is_none_or(|read| post.id > read)
+	}
+
+	/// A post that makes its forum, and the forum's server, unread right now.
+	pub(crate) fn post_lights_forum(&self, post: &Channel) -> bool {
+		post.parent_id
+			.and_then(|forum| self.forum_boundary(forum))
+			.is_some_and(|boundary| self.post_new_since(post, boundary))
+	}
+
+	/// Discord lights a forum only for posts nobody has shown the account yet; the forum's
+	/// own message boundary and replies in opened posts do not count. Joined posts carry
+	/// their own unread state on their channel-list rows instead.
 	pub fn forum_unread(&self, forum: Id) -> bool {
-		self.is_forum(forum)
-			&& (self.unread(forum) == Some(true)
-				|| self
-					.channels
-					.iter()
-					.any(|post| self.is_post_of(post, forum) && self.post_unread(post)))
+		self.channel(forum)
+			.is_some_and(|channel| self.forum_latest_unseen(channel))
+			|| self.forum_new_count(forum) > 0
 	}
 
-	/// Loaded posts whose starter has not been read; replies do not make a post new again.
+	/// A forum's latest message is its newest post. One newer than the boundary that this
+	/// session never received is new as well; known posts answer for themselves.
+	pub(crate) fn forum_latest_unseen(&self, forum: &Channel) -> bool {
+		forum.last_message.is_some_and(|latest| {
+			self.channel(latest).is_none()
+				&& self
+					.forum_boundary(forum.id)
+					.is_some_and(|boundary| boundary.is_none_or(|read| latest > read))
+		})
+	}
+
+	/// Known posts newer than the forum's acknowledged boundary that were never opened.
 	pub fn forum_new_count(&self, forum: Id) -> u32 {
-		if !self.is_forum(forum) {
-			return 0;
-		}
-		let Some(boundary) = self.read_marker(forum) else {
+		let Some(boundary) = self.forum_boundary(forum) else {
 			return 0;
 		};
 		self.channels
 			.iter()
-			.filter(|post| {
-				self.is_post_of(post, forum)
-					&& Some(post.id) != self.archived_thread
-					&& boundary.is_none_or(|read| post.id > read)
-					&& self.post_unread(post)
-					&& self
-						.read_marker(post.id)
-						.is_some_and(|read| read.is_none_or(|id| id < post.id))
-			})
+			.filter(|post| post.parent_id == Some(forum) && self.post_new_since(post, boundary))
 			.count() as u32
 	}
 
-	fn is_post_of(&self, post: &Channel, forum: Id) -> bool {
-		post.parent_id == Some(forum) && matches!(post.kind, 11 | 12)
+	/// Opening a forum acknowledges its newest post, after remembering the previous
+	/// boundary for this visit's cards. Attempted once per visit.
+	pub fn prepare_forum_visit_read(&mut self) -> Option<Command> {
+		let forum = self.selected.filter(|id| self.is_forum(*id));
+		if self.forum_visit.map(|visit| visit.forum) != forum {
+			self.forum_visit = None;
+		}
+		let forum = forum?;
+		if self.auth != AuthState::Authenticated
+			|| !self.gateway_connected
+			|| !self.read_state.known()
+			|| !self.can_view(forum)
+		{
+			return None;
+		}
+		let boundary = self.read_state.row(forum);
+		let visit = self.forum_visit.get_or_insert(Visit {
+			forum,
+			boundary,
+			acknowledged: false,
+		});
+		if visit.acknowledged || self.read_state.busy() {
+			return None;
+		}
+		// A forum's latest message is its newest post; loaded posts may be newer still.
+		// Until one is known, a later frame may still find it in the first page.
+		let latest = self
+			.channels
+			.iter()
+			.filter(|post| post.parent_id == Some(forum) && matches!(post.kind, 11 | 12))
+			.map(|post| post.id)
+			.chain(self.channel(forum)?.last_message)
+			.max()?;
+		if let Some(visit) = self.forum_visit.as_mut() {
+			visit.acknowledged = true;
+		}
+		if boundary.flatten().is_some_and(|read| read >= latest) {
+			return None;
+		}
+		Some(self.mark_read_command(forum, latest, false, None))
 	}
 
 	pub fn can_load_posts(&self, parent: Id) -> bool {
@@ -348,7 +420,9 @@ impl State {
 			if !current || !self.posts.more || self.posts.loaded >= model::forum::MAX_POSTS {
 				return None;
 			}
-		} else if current && (self.posts.loaded > 0 || self.posts.error.is_some()) {
+		} else if current
+			&& (self.posts.fetched || self.posts.loaded > 0 || self.posts.error.is_some())
+		{
 			return None;
 		}
 		let guild = self.channel(parent)?.guild?;
@@ -458,6 +532,7 @@ impl State {
 			self.invalidate_navigation();
 		}
 		self.posts.loaded = self.posts.loaded.saturating_add(returned);
+		self.posts.fetched = true;
 		self.posts.more = page.more && returned > 0;
 	}
 
@@ -654,6 +729,73 @@ mod tests {
 		state.channels[3].last_message = Some(Id(500));
 		crate::tests::grant_permissions(&mut state);
 		state
+	}
+
+	#[test]
+	fn forum_visit_acknowledges_once_a_post_is_known_and_keeps_its_card_boundary() {
+		let mut state = state();
+		state
+			.apply_read_state(crate::read_state::Event::Snapshot {
+				entries: Some(vec![(Id(20), Some(Id(1)), 0)]),
+				version: None,
+				partial: false,
+			})
+			.unwrap();
+		let posts = state.channels.split_off(2);
+		state.invalidate_navigation();
+		state.selected = Some(Id(20));
+		assert!(
+			state.prepare_forum_visit_read().is_none(),
+			"nothing to acknowledge before the first page"
+		);
+		state.channels.extend(posts);
+		state.invalidate_navigation();
+		assert!(state.forum_unread(Id(20)));
+		let Some(Command::MarkRead {
+			channel: Id(20),
+			message: Id(22),
+			request,
+			..
+		}) = state.prepare_forum_visit_read()
+		else {
+			panic!("the first page's newest post is acknowledged in the same visit");
+		};
+		state
+			.apply_read_state(crate::read_state::Event::Result {
+				channel: Id(20),
+				message: Id(22),
+				request,
+				result: Ok(()),
+			})
+			.unwrap();
+		assert!(!state.forum_unread(Id(20)));
+		assert!(
+			state.post_unread(state.channel(Id(21)).unwrap()),
+			"cards keep the boundary from before the visit"
+		);
+		assert!(state.prepare_forum_visit_read().is_none());
+		state.selected = Some(Id(10));
+		assert!(state.prepare_forum_visit_read().is_none());
+		assert!(!state.post_unread(state.channel(Id(21)).unwrap()));
+	}
+
+	#[test]
+	fn an_empty_first_forum_page_is_not_refetched_every_frame() {
+		let mut state = state();
+		state.request_forum_posts(Id(20), false).unwrap();
+		let request = state.posts.request;
+		state.apply_forum_posts(
+			Id(20),
+			request,
+			Ok(model::forum::Page {
+				threads: Vec::new(),
+				more: false,
+				previews: Vec::new(),
+			}),
+		);
+		assert!(state.request_forum_posts(Id(20), false).is_none());
+		state.reload_forum_posts(Id(20));
+		assert!(state.request_forum_posts(Id(20), false).is_some());
 	}
 
 	#[test]

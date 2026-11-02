@@ -20,6 +20,8 @@ pub(crate) const PER_MINUTE: usize = 12;
 const ATTEMPTS: usize = 64;
 /// A preloaded page is trusted this long, so an unchanged target may be loaded again afterwards.
 const ATTEMPT_AGE: Duration = Duration::from_secs(5 * 60);
+/// Docked profiles remembered as recently failed.
+const DOCKED_FAILURES: usize = 16;
 /// Longer than the REST timeout: an in-flight marker this old lost its result to a session change.
 const LOST: Duration = Duration::from_secs(30);
 /// Preload request ids carry this bit, so they never equal a click's own request id.
@@ -196,6 +198,10 @@ pub struct Preload {
 	pub(crate) retry: Option<Command>,
 	/// The same for a profile card.
 	pub(crate) profile_retry: Option<Command>,
+	/// The docked profile request in flight: its person, request id and when it left.
+	pub(crate) docked: Option<(Id, u64, Instant)>,
+	/// People whose docked profile recently failed and when, so it is not retried every frame.
+	pub(crate) docked_failures: VecDeque<(Id, Instant)>,
 }
 
 /// Where a preload's result goes.
@@ -225,6 +231,9 @@ impl State {
 	pub fn interrupt_preloads(&mut self) {
 		self.preload.retry = None;
 		self.preload.profile_retry = None;
+		// A docked profile lost with the old connection is requested again on the new one.
+		self.preload.docked = None;
+		self.preload.docked_failures.clear();
 		self.preload.conversations.interrupt();
 		self.preload.profiles.interrupt();
 	}
@@ -281,6 +290,62 @@ impl State {
 		Some(Command::Prefetch(Box::new(
 			self.profile_command(user, guild, request),
 		)))
+	}
+	/// The global profile a docked panel shows, requested once without waiting for pointer
+	/// intent. The result fills the profile cache; a failed one is retried only after a while.
+	pub fn preload_docked_profile(&mut self, user: Id, now: Instant) -> Option<Command> {
+		let target = (user, None);
+		self.preload
+			.docked_failures
+			.retain(|(_, at)| now.saturating_duration_since(*at) < ATTEMPT_AGE);
+		if !self.can_preload()
+			|| user.0 == 0
+			|| self.known_profile(user).is_some()
+			|| self
+				.preload
+				.docked_failures
+				.iter()
+				.any(|(known, _)| *known == user)
+		{
+			return None;
+		}
+		// Only failures hold the panel back: a loaded profile that left the cache, such as
+		// after a friendship change, is requested again at once.
+		self.preload.profiles.forget(target);
+		// An unrelated hover preload may hold the slot; ask again on a later frame.
+		let request = self.preload.profiles.admit(target, None, now)?;
+		self.preload.docked = Some((user, request, now));
+		Some(Command::Prefetch(Box::new(
+			self.profile_command(user, None, request),
+		)))
+	}
+	/// Remembers a failed docked request, keeping the newest failures within a fixed bound.
+	pub(crate) fn docked_arrived(&mut self, request: u64, ok: bool) {
+		let Some((user, _, at)) = self
+			.preload
+			.docked
+			.take_if(|(_, known, _)| *known == request)
+		else {
+			return;
+		};
+		if !ok {
+			let failures = &mut self.preload.docked_failures;
+			failures.retain(|(known, _)| *known != user);
+			if failures.len() == DOCKED_FAILURES {
+				failures.pop_front();
+			}
+			failures.push_back((user, at));
+		}
+	}
+	/// Whether a preload of `user`'s global profile is still waiting for its response.
+	pub fn profile_preloading(&self, user: Id, now: Instant) -> bool {
+		self.preload
+			.profiles
+			.in_flight
+			.as_ref()
+			.is_some_and(|flight| {
+				flight.target == (user, None) && now.saturating_duration_since(flight.since) < LOST
+			})
 	}
 	/// How long until a resting pointer becomes intent, so the UI can wake without input.
 	pub fn preload_wake(&self, now: Instant) -> Option<Duration> {

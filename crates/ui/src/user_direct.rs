@@ -117,6 +117,110 @@ mod tests {
 	}
 
 	#[test]
+	fn confirmed_open_dm_moves_the_footer_draft_without_sending() {
+		let (mut state, user, channel) = fixture();
+		let mut view = crate::MessagingUi {
+			voice_available: true,
+			..Default::default()
+		};
+		view.profile.command_open(user.clone());
+		view.profile
+			.set_message_draft(state.generation, user.id, "keep this unsent");
+		let mut commands = vec![];
+		view.open_user_direct(&mut state, user.clone(), Intent::Message, &mut commands);
+		confirmed(
+			&mut view,
+			&mut state,
+			user.id,
+			channel.clone(),
+			&mut commands,
+		);
+		assert_eq!(state.selected, Some(channel.id));
+		assert_eq!(
+			state.drafts.get(&channel.id).map(String::as_str),
+			Some("keep this unsent")
+		);
+		assert!(view.draft_changes.contains(&channel.id));
+		assert!(view.focus_switched_composer);
+		assert!(view.profile.open_user().is_none());
+		assert!(
+			!commands
+				.iter()
+				.any(|command| matches!(command, Command::Send { .. }))
+		);
+	}
+
+	#[test]
+	fn stale_message_completion_keeps_a_newer_profile_and_draft() {
+		let (mut state, user, channel) = fixture();
+		let mut view = crate::MessagingUi {
+			voice_available: true,
+			..Default::default()
+		};
+		view.profile.command_open(user.clone());
+		view.profile
+			.set_message_draft(state.generation, user.id, "older unsent");
+		let mut commands = vec![];
+		view.open_user_direct(&mut state, user.clone(), Intent::Message, &mut commands);
+		let newer = User {
+			id: Id(700002),
+			name: "Newer profile (synthetic)".into(),
+			..user.clone()
+		};
+		view.profile.command_open(newer.clone());
+		view.profile
+			.set_message_draft(state.generation, newer.id, "newer unsent");
+		confirmed(
+			&mut view,
+			&mut state,
+			user.id,
+			channel.clone(),
+			&mut commands,
+		);
+		assert_eq!(state.selected, Some(channel.id));
+		assert!(!state.drafts.contains_key(&channel.id));
+		assert_eq!(view.profile.open_user().map(|open| open.id), Some(newer.id));
+		assert_eq!(
+			view.profile
+				.message_draft(state.generation, newer.id)
+				.map(String::as_str),
+			Some("newer unsent")
+		);
+		assert!(!view.focus_switched_composer);
+	}
+
+	#[test]
+	fn confirmed_open_dm_reuses_the_empty_destination_draft_capacity() {
+		let (mut state, user, channel) = fixture();
+		state.drafts.insert(
+			channel.id,
+			String::with_capacity(client_core::MAX_DRAFT_BYTES),
+		);
+		let mut view = crate::MessagingUi {
+			voice_available: true,
+			..Default::default()
+		};
+		view.profile.command_open(user.clone());
+		view.profile
+			.set_message_draft(state.generation, user.id, "keep this unsent");
+		let mut commands = vec![];
+		view.open_user_direct(&mut state, user.clone(), Intent::Message, &mut commands);
+		confirmed(
+			&mut view,
+			&mut state,
+			user.id,
+			channel.clone(),
+			&mut commands,
+		);
+		assert_eq!(
+			state.drafts.get(&channel.id).map(String::as_str),
+			Some("keep this unsent")
+		);
+		assert!(view.profile.open_user().is_none());
+		assert!(view.focus_switched_composer);
+	}
+
+	#[test]
 	fn canceled_or_revoked_profile_handoff_never_sends_or_calls() {
 		for outcome in 0..5 {
 			let (mut state, user, channel) = fixture();
@@ -307,8 +411,8 @@ impl crate::MessagingUi {
 	) {
 		match pending.intent {
 			Intent::Message => {
-				self.profile.close();
-				self.focus_switched_composer = true;
+				self.focus_switched_composer =
+					self.hand_off_footer_draft(state, pending.generation, pending.user.id, channel);
 			}
 			Intent::Call => {
 				if let Some(reason) = self.call_unavailable(state, channel) {
@@ -328,5 +432,48 @@ impl crate::MessagingUi {
 				}
 			}
 		}
+	}
+
+	/// Moves an unsent profile-footer draft into the destination composer. If that composer
+	/// already holds text or the draft budget is full, the card stays open so the text is not lost.
+	fn hand_off_footer_draft(
+		&mut self,
+		state: &mut State,
+		generation: u64,
+		user: Id,
+		channel: Id,
+	) -> bool {
+		let Some(draft) = self.profile.message_draft(generation, user) else {
+			return self.close_profile_after_direct(user);
+		};
+		let replaced_capacity = state.drafts.get(&channel).map_or(0, String::capacity);
+		let can_keep = state.drafts.get(&channel).is_none_or(String::is_empty)
+			&& (state.drafts.contains_key(&channel) || state.drafts.len() < 64)
+			&& state
+				.draft_bytes()
+				.saturating_sub(replaced_capacity)
+				.saturating_add(draft.capacity())
+				<= client_core::MAX_DRAFT_BYTES;
+		if !can_keep {
+			state.status =
+				"Clear some draft space before opening chat; your profile message was kept";
+			return false;
+		}
+		let Some(draft) = self.profile.take_message_draft(generation, user) else {
+			return self.close_profile_after_direct(user);
+		};
+		state.drafts.insert(channel, draft);
+		self.draft_changes.push(channel);
+		self.profile.close();
+		true
+	}
+
+	/// Closes the card only when it still belongs to the user whose DM just opened.
+	fn close_profile_after_direct(&mut self, user: Id) -> bool {
+		if self.profile.open_user().is_some_and(|open| open.id != user) {
+			return false;
+		}
+		self.profile.close();
+		true
 	}
 }
