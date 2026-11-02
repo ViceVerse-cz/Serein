@@ -1,7 +1,7 @@
 # Flatpak
 
 Build on native Linux with Python 3.11+, Git, rustup and the repository's pinned
-Rust 1.98.1 toolchain installed. GNOME SDK/Platform 51 supplies GTK4/WebKit6 and
+Rust 1.99.1 toolchain installed. GNOME SDK/Platform 51 supplies GTK4/WebKit6 and
 native media/build libraries. The toolchain is copied into build-only sources;
 no moving Rust SDK extension or compiler is shipped in the application.
 
