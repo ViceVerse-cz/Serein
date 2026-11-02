@@ -2,6 +2,48 @@
 
 const MAX_KEY_NAME_BYTES: usize = 24;
 
+/// Keys only the native input poller can report, by name. The index is the bit in its down mask.
+pub const POLLED_KEYS: [&str; 20] = [
+	"ControlLeft",
+	"ControlRight",
+	"ShiftLeft",
+	"ShiftRight",
+	"AltLeft",
+	"AltRight",
+	"PadSouth",
+	"PadEast",
+	"PadWest",
+	"PadNorth",
+	"PadUp",
+	"PadDown",
+	"PadLeft",
+	"PadRight",
+	"PadL1",
+	"PadR1",
+	"PadL2",
+	"PadR2",
+	"PadL3",
+	"PadR3",
+];
+
+/// The down-mask bit for a polled key, or `None` for any other key name.
+pub fn polled_key_bit(name: &str) -> Option<u32> {
+	POLLED_KEYS
+		.iter()
+		.position(|key| *key == name)
+		.map(|index| 1 << index)
+}
+
+/// Whether `name` is a controller button from [`POLLED_KEYS`].
+pub fn is_pad_button(name: &str) -> bool {
+	name.starts_with("Pad") && polled_key_bit(name).is_some()
+}
+
+/// Polled keys are lone voice keys, so they stay off every non-global action.
+fn accepts_polled_key(action: KeybindAction, chord: &KeyChord) -> bool {
+	action.is_global() || polled_key_bit(&chord.key).is_none()
+}
+
 pub const PRIMARY: u8 = 1;
 pub const SHIFT: u8 = 2;
 pub const ALT: u8 = 4;
@@ -38,6 +80,7 @@ impl KeyChord {
 			&& self.key.len() <= MAX_KEY_NAME_BYTES
 			&& self.key.bytes().all(|byte| byte.is_ascii_alphanumeric())
 			&& self.modifiers & !(PRIMARY | SHIFT | ALT | CTRL) == 0
+			&& (self.modifiers == 0 || polled_key_bit(&self.key).is_none())
 	}
 }
 
@@ -323,12 +366,12 @@ impl Keybinds {
 	pub fn is_valid(&self) -> bool {
 		KeybindAction::ALL.into_iter().all(|action| {
 			let chord = self.chord(action);
-			chord.is_valid()
+			(chord.is_valid() && accepts_polled_key(action, chord))
 				|| (action.is_optional() && chord.key.is_empty() && chord.modifiers == 0)
 		}) && self.custom.len() <= MAX_CUSTOM_BINDINGS
 			&& self.custom.iter().all(|binding| {
 				// A row the user added but has not recorded yet is not an invalid preference.
-				binding.chord.is_valid()
+				(binding.chord.is_valid() && accepts_polled_key(binding.action, &binding.chord))
 					|| (binding.chord.key.is_empty() && binding.chord.modifiers == 0)
 			})
 	}
@@ -352,6 +395,36 @@ mod tests {
 		assert!(bindings.is_valid());
 		bindings.send_message = KeyChord::new("", 0);
 		assert!(!bindings.is_valid());
+	}
+
+	#[test]
+	fn polled_keys_are_lone_voice_keys() {
+		assert_eq!(POLLED_KEYS.len(), 20);
+		assert_eq!(polled_key_bit("ControlLeft"), Some(1));
+		assert_eq!(polled_key_bit("PadR3"), Some(1 << 19));
+		assert_eq!(polled_key_bit("V"), None);
+		assert!(is_pad_button("PadSouth"));
+		assert!(!is_pad_button("ControlRight"));
+		assert!(!is_pad_button("PadUnknown"));
+
+		let mut bindings = Keybinds {
+			push_to_talk: KeyChord::new("ControlRight", 0),
+			..Default::default()
+		};
+		assert!(bindings.is_valid());
+		bindings.push_to_talk = KeyChord::new("ControlRight", SHIFT);
+		assert!(!bindings.is_valid());
+		bindings.push_to_talk = KeyChord::new("V", 0);
+		bindings.bold = KeyChord::new("PadSouth", 0);
+		assert!(!bindings.is_valid());
+		bindings.bold = KeyChord::new("B", PRIMARY);
+		bindings.custom = vec![CustomBinding {
+			action: KeybindAction::Bold,
+			chord: KeyChord::new("PadSouth", 0),
+		}];
+		assert!(!bindings.is_valid());
+		bindings.custom[0].action = KeybindAction::PushToTalk;
+		assert!(bindings.is_valid());
 	}
 
 	#[test]
