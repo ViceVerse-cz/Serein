@@ -233,6 +233,8 @@ pub enum Action {
 		user: User,
 		content: String,
 	},
+	/// Open the DM from the profile footer without submitting its draft.
+	OpenDirect(User),
 	AddFriend(Id),
 	RemoveFriend,
 	AcceptFriend(Id),
@@ -1102,6 +1104,38 @@ pub(crate) fn presence_badge(
 	);
 	ui.allocate_rect(presence_badge_rect(rect, mobile), egui::Sense::hover())
 		.on_hover_text(presence_label(status));
+}
+
+/// Discord's typing badge: the status disc stretched leftward into a pill of the status
+/// colour holding three dots that pulse in turn. A group has no status, so `None` is grey.
+pub(crate) fn typing_badge(ui: &mut egui::Ui, rect: Rect, status: Option<&str>, ring: Color32) {
+	let (radius, ring_width, center) = presence_badge_metrics(rect);
+	let pill = Rect::from_min_max(
+		pos2(center.x + radius - radius * 4.4, center.y - radius),
+		pos2(center.x + radius, center.y + radius),
+	);
+	let painter = ui.painter();
+	painter.rect_filled(pill.expand(ring_width), radius + ring_width, ring);
+	painter.rect_filled(pill, radius, presence_color(status.unwrap_or("offline")));
+	let time = ui.input(|input| input.time);
+	for dot in 0..3 {
+		// Each dot brightens a third of a 1.2 s cycle after the previous one.
+		let phase = (time / 1.2 - f64::from(dot) / 3.0).rem_euclid(1.0);
+		let pulse = (1.0 - (phase * std::f64::consts::TAU).cos()) as f32 / 2.0;
+		painter.circle_filled(
+			pos2(
+				pill.center().x + (dot as f32 - 1.0) * radius * 1.15,
+				pill.center().y,
+			),
+			radius * 0.34,
+			Color32::WHITE.gamma_multiply(0.45 + 0.55 * pulse),
+		);
+	}
+	// Animates only while someone is typing; indicators expire within ten seconds.
+	ui.ctx()
+		.request_repaint_after(std::time::Duration::from_millis(50));
+	ui.allocate_rect(pill.expand(ring_width), egui::Sense::hover())
+		.on_hover_text(crate::i18n::translate("typing-badge-typing"));
 }
 
 /// Discord's status glyphs, each set in a surface-coloured `ring` around a `radius` disc: a
@@ -2530,6 +2564,29 @@ impl ProfileSession {
 		}
 	}
 
+	/// The unsent footer draft typed for `user` in `generation`, if any.
+	pub fn message_draft(&self, generation: u64, user: Id) -> Option<&String> {
+		(self.message_target == Some((generation, user)) && !self.message_draft.trim().is_empty())
+			.then_some(&self.message_draft)
+	}
+
+	/// Takes the footer draft after moving it into the destination composer.
+	pub fn take_message_draft(&mut self, generation: u64, user: Id) -> Option<String> {
+		if self.message_target == Some((generation, user)) && !self.message_draft.trim().is_empty()
+		{
+			self.message_pending = false;
+			Some(std::mem::take(&mut self.message_draft))
+		} else {
+			None
+		}
+	}
+
+	#[cfg(test)]
+	pub(crate) fn set_message_draft(&mut self, generation: u64, user: Id, draft: &str) {
+		self.reconcile_card_input(generation, user);
+		self.message_draft = draft.to_owned();
+	}
+
 	pub fn open_user(&self) -> Option<&User> {
 		self.open.as_ref()
 	}
@@ -2763,6 +2820,7 @@ fn message_input(
 	let colors = design::palette(ui);
 	let can_send = enabled && !ime_this_frame && !session.message_draft.trim().is_empty();
 	let mut clicked = false;
+	let mut open_clicked = false;
 	let top = ui.cursor().top();
 	egui::Frame::new()
 		// Profile theme colours keep the composer legible over bright or saturated gradients.
@@ -2782,8 +2840,8 @@ fn message_input(
 		.show(ui, |ui| {
 			ui.horizontal(|ui| {
 				let button = 30.0;
-				let edit_width =
-					(ui.available_width() - button - ui.spacing().item_spacing.x).max(1.0);
+				let spacing = ui.spacing().item_spacing.x;
+				let edit_width = (ui.available_width() - 2.0 * button - 2.0 * spacing).max(1.0);
 				let row = ui.text_style_height(&egui::TextStyle::Body);
 				// Shrinks to one line and scrolls past four; the row stays as tall as the button.
 				egui::ScrollArea::vertical()
@@ -2808,6 +2866,43 @@ fn message_input(
 								.hint_text(RichText::new(placeholder).color(theme.muted)),
 						);
 					});
+				let open_label = crate::i18n::translate("profiles-message-open-chat");
+				let (_, open_rect) = ui.allocate_space(Vec2::splat(button));
+				let open = ui.interact(
+					open_rect,
+					egui::Id::unique(("profile-open-chat", state.generation, user.id)),
+					if enabled {
+						egui::Sense::click()
+					} else {
+						egui::Sense::hover()
+					},
+				);
+				let open_hot = enabled && (open.hovered() || open.has_focus());
+				ui.painter().circle_filled(
+					open_rect.center(),
+					button / 2.0,
+					if open_hot {
+						theme.chip_hover
+					} else if enabled {
+						theme.chip
+					} else {
+						Color32::TRANSPARENT
+					},
+				);
+				icons::paint(
+					ui.painter(),
+					Icon::Forum,
+					open_rect.shrink(8.0),
+					if enabled {
+						if open_hot { theme.text } else { theme.muted }
+					} else {
+						theme.muted.gamma_multiply(0.7)
+					},
+				);
+				open.widget_info(|| {
+					egui::WidgetInfo::labeled(egui::Role::Button, enabled, &open_label)
+				});
+				open_clicked = open.on_hover_text(open_label).clicked();
 				let (rect, response) = ui.allocate_exact_size(
 					Vec2::splat(button),
 					if can_send {
@@ -2888,7 +2983,12 @@ fn message_input(
 	if session.message_draft.capacity() > client_core::MAX_CONTENT * 4 {
 		session.message_draft.shrink_to_fit();
 	}
-	if (enter || clicked) && !session.message_pending && !session.message_draft.trim().is_empty() {
+	if open_clicked && enabled {
+		Some(Action::OpenDirect(user.clone()))
+	} else if (enter || clicked)
+		&& !session.message_pending
+		&& !session.message_draft.trim().is_empty()
+	{
 		session.message_pending = true;
 		Some(Action::SendMessage {
 			user: user.clone(),
@@ -4883,6 +4983,52 @@ mod tests {
 			)
 			.is_none()
 		);
+	}
+
+	#[test]
+	fn profile_message_footer_opens_chat_without_sending_its_draft() {
+		let state = test_support::demo_state();
+		let mut user = test_support::message(1, Id(22)).author;
+		user.id = Id(991);
+		assert!(state.can_open_user_dm(&user));
+		let mut session = ProfileSession::default();
+		session.reconcile_card_input(state.generation, user.id);
+		session.message_draft = "keep this unsent".into();
+		let ctx = egui::Context::default();
+		let id = egui::Id::unique(("profile-open-chat", state.generation, user.id));
+		let frame = |session: &mut ProfileSession, events| {
+			let mut action = None;
+			ctx.run_ui(input(vec2(400.0, 200.0), events), |ui| {
+				let theme = Theme::new(&design::palette(ui), None);
+				action = message_input(ui, &user, &state, session, &theme);
+			})
+			.drop_without_applying_deltas();
+			action
+		};
+		frame(&mut session, vec![]);
+		let center = ctx
+			.read_response(id)
+			.expect("open chat button")
+			.rect
+			.center();
+		let pointer = |pressed| {
+			vec![
+				egui::Event::PointerMoved(center),
+				egui::Event::PointerButton {
+					pos: center,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		assert!(frame(&mut session, pointer(true)).is_none());
+		assert!(matches!(
+			frame(&mut session, pointer(false)),
+			Some(Action::OpenDirect(target)) if target.id == user.id
+		));
+		assert_eq!(session.message_draft, "keep this unsent");
+		assert!(!session.message_pending);
 	}
 
 	#[test]

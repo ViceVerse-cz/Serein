@@ -693,9 +693,15 @@ impl DiscordApi {
 			)
 			.await
 			.and_then(|bytes| {
-				discord_protocol::invites::decode(&bytes)
-					.map(|p| p.guild)
-					.map_err(|_| Failure::Ambiguous)
+				let preview =
+					discord_protocol::invites::decode(&bytes).map_err(|_| Failure::Ambiguous)?;
+				if let Some(guild) = preview.guild {
+					Ok(model::JoinedTarget::Guild(guild))
+				} else if let Some(channel) = preview.channel {
+					Ok(model::JoinedTarget::Channel(channel))
+				} else {
+					Err(Failure::Ambiguous)
+				}
 			})
 		} else {
 			Err(Failure::Protocol)
@@ -1124,6 +1130,7 @@ impl DiscordApi {
 					result,
 				})
 			}
+			Command::Typing { channel } => Event::TypingSent(self.trigger_typing(channel).await),
 			Command::MarkGuildRead { guild, request } => {
 				let result = self.mark_guild_read(guild).await;
 				Event::ReadState(client_core::read_state::Event::GuildAck {
@@ -1665,6 +1672,18 @@ impl DiscordApi {
 		*token = next;
 		Ok(())
 	}
+	/// Documented Trigger Typing Indicator; Discord shows it to others for ten seconds or until
+	/// this account's next message.
+	pub async fn trigger_typing(&self, channel: model::Id) -> Result<(), Failure> {
+		self.request_limited(
+			Method::POST,
+			&format!("/channels/{channel}/typing"),
+			None,
+			4096,
+		)
+		.await
+		.map(|_| ())
+	}
 	async fn mark_guild_read(&self, guild: model::Id) -> Result<(), Failure> {
 		self.request_limited(Method::POST, &format!("/guilds/{guild}/ack"), None, 4096)
 			.await
@@ -2089,6 +2108,50 @@ mod tests {
 	}
 
 	#[tokio::test]
+	async fn typing_indicator_posts_an_empty_documented_request() {
+		use tokio::{
+			io::{AsyncReadExt, AsyncWriteExt},
+			net::TcpListener,
+		};
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_TYPING_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let server = tokio::spawn(async move {
+			let (mut socket, _) = listener.accept().await.unwrap();
+			let mut request = Vec::new();
+			while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+				let mut bytes = [0; 1024];
+				let n = socket.read(&mut bytes).await.unwrap();
+				assert!(n > 0 && request.len() < 4096);
+				request.extend_from_slice(&bytes[..n]);
+			}
+			let header = String::from_utf8(request).unwrap();
+			assert!(header.starts_with("POST /channels/7/typing HTTP/1.1\r\n"));
+			assert!(
+				!header
+					.to_ascii_lowercase()
+					.contains("content-type: application/json")
+			);
+			socket
+				.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+				.await
+				.unwrap();
+		});
+		let event = tokio::time::timeout(
+			Duration::from_secs(10),
+			api.execute(Command::Typing {
+				channel: model::Id(7),
+			}),
+		)
+		.await
+		.unwrap();
+		assert!(matches!(event, Event::TypingSent(Ok(()))));
+		server.await.unwrap();
+	}
+	#[tokio::test]
 	async fn preloads_give_way_to_clicks_instead_of_waiting() {
 		let api = DiscordApi::new(Arc::new(
 			SessionSecret::from_owner_input("SYNTHETIC_PRELOAD_TOKEN".into()).unwrap(),
@@ -2349,7 +2412,8 @@ mod tests {
 				(
 					std::time::Instant::now(),
 					Some(Ok(model::InvitePreview {
-						guild: model::Id(2),
+						guild: Some(model::Id(2)),
+						channel: None,
 						embed: Default::default(),
 					})),
 				),
@@ -2373,7 +2437,7 @@ mod tests {
 			assert!(matches!(
 				api.execute(command).await,
 				Event::JoinInvite {
-					result: Ok(model::Id(2)),
+					result: Ok(model::JoinedTarget::Guild(model::Id(2))),
 					..
 				}
 			));

@@ -1,5 +1,16 @@
 # Local storage policy and audit
 
+## Typing indicators (October 23, 2026)
+
+Typing stays in session RAM: eight selected-channel typists, sixteen direct-conversation
+typist/deadline records, and sixteen recent outgoing channel/timestamp pairs. The fixed
+`Typing` struct has a 1.5-KiB test budget. Navigation retains direct-conversation records
+and outgoing throttles; session, access and failure changes clear them. A full outgoing
+store suppresses new channels until a timestamp expires rather than evicting a live throttle.
+The transport coalesces eight channel/user pairs per two seconds into an eight-slot lossy
+inbox. Outgoing indicators share the bounded command writer, carry a fixed revision and
+enqueue timestamp, and expire in that queue after two seconds. None of this is persisted.
+
 ## Per-conversation reply and attachment staging (October 16, 2026)
 
 Leaving a conversation keeps its unsent reply target and staged files in session RAM for
@@ -130,8 +141,9 @@ Each Linux live H.264 decoder now admits at most four queued compressed access
 units and 8,650,752 payload bytes in its native appsrc. Its existing nonblocking
 `max-bytes` setting only signaled pressure and did not enforce rejection. One
 producer checks native queue levels before copying the next access unit; native
-consumption can only lower them. Rejection resets decoding through the existing
-keyframe recovery path rather than silently losing a reference picture. Older
+consumption can only lower them. Brief rejection is retried by the dedicated decoder
+worker within the existing 150 ms picture-age budget; expiry retains keyframe recovery
+rather than silently losing a reference picture. Older
 GStreamer runtimes without item accounting (before 1.20) use the software fallback.
 The outer 16-picture / 16-MiB decode handoff, at most eight active decoders,
 current worker input, consumed native buffers, codec surfaces and decoded pictures
@@ -657,7 +669,8 @@ two logical size integers (1..=16,384), an optional physical position pair
 kept so un-maximizing after a restart returns to them. It survives account logout and introduces
 no new file or table.
 Notification opt-in, hidden-channel visibility, primary RGB color, audio devices (up to 1,024 bytes each),
-input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings and the global-keybind
+input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings (including up to 32
+extra custom bindings) and the global-keybind
 switch (enabled by default) are saved in the device-wide `app_preferences`
 SQLite singleton (16 KiB maximum), using the existing background worker. The Linux
 hide-window-decorations boolean is stored in this same record and defaults to false. The home
@@ -1041,14 +1054,74 @@ Schema 7 adds one checked integer `message_kind` (0..255) per cached message, wi
 ### Opt-in synchronization and compatibility diagnostics
 
 Voice performance diagnostics (`SEREIN_VOICE_DIAGNOSTICS=1`) are also off by default.
-They retain at most eight fixed-size numeric reports in a worker queue (under 2 KiB),
+They include aggregate compressed-video byte counts, decoded dimensions/transitions,
+repair/feedback counts and playback-queue outcomes. They retain at most eight fixed-size
+numeric reports in a worker queue,
 plus one report per producer and one being written. One background writer formats
 reports and caps attempted stderr output at 8,192 reports AND 8 MiB per process,
-across calls (about eleven hours of three concurrent five-second reporters). Queue overflow drops diagnostics without delaying media. A blocked
+across calls; the byte cap can end output before the report cap. Queue overflow drops
+diagnostics without delaying media. A blocked
 stderr can stall only that single diagnostic writer. No files, identifiers, device
 names, payloads, audio, keys or telemetry are produced. Explicit shell redirection
 is owner-managed; unrelated output and appended runs are outside these limits.
 See [voice CPU diagnostics](voice.md#investigating-high-cpu-during-a-call) for usage.
+
+Incoming-video repair retains at most 512 sequence positions and 512 KiB of encrypted RTP
+payload per announced source (16 sources, at most 8 MiB plus bounded tree metadata).
+Holes initially expire after 120 ms during receive processing or 20 ms transport ticks.
+Observed requested repairs can increase that deadline to 400 ms. At most 512 expired-hole
+metadata entries per source survive for one second to inform later deadlines; no discarded
+payload is replayed. Generic
+NACK feedback requests at most 64 missing numbers per source per 20 ms, at most three
+attempts per hole and 288 encrypted wire bytes per datagram. Source retirement or owner
+replacement discards pending packets, requests, media-activity and actual-PLI clocks.
+Empty padding packets use the same sequence window and retain no media payload.
+
+Watched-video pacing holds at most 64 decrypted encoded pictures and 8 MiB of allocated
+payload capacity, plus one source-clock anchor and bounded deque metadata. This is separate
+from the existing 16-picture/16-MiB decoder handoff and native decoder queue. Initial video
+buffering is 100 ms; severe stalls, pressure or incompatible clock changes trigger bounded
+keyframe recovery. Rekeys and teardown clear queued plaintext. The 64-item budget covers
+the existing 500 ms A/V hold horizon at 60 fps, with burst headroom; retained encoded
+payload remains limited to 8 MiB. Reception reports retain
+at most 16 transient source-statistics entries and 384 report-block bytes per one-second
+send. Backpressure retries retain the existing access unit rather than another copy.
+
+Watched-stream audio retains at most 128 compressed Opus packets (1,275 bytes each,
+exact-sized allocations) and one 5,760-sample mono PCM buffer per source, at most 16
+sources: 2,979,840 bytes of retained payload/PCM plus bounded metadata and codec state.
+One stack scratch buffer of 965 samples bounds rate adjustment; at most nine packets
+are decoded per source per 20 ms tick. Missing input has at most three concealment
+operations before silence/idle recovery. The 60–240 ms adaptive target fits the packet
+budget even at 2.5 ms packetization; a forward media gap over 500 ms restarts the queue.
+Normal participant voice jitter is unchanged.
+
+Timing state has at most 32 source clocks and 16 sender references, with constant-sized
+arrival estimates and shared atomic output clocks. Reports older than 30 seconds are
+ignored for synchronization. A PCM frame carries one optional timestamp/clock reference
+through the existing bounded stream, call and device queues; none adds a new PCM queue.
+Source retirement, rekeys and teardown invalidate old timestamp generations. Audio-buffer
+restart preserves already accepted PCM/video. Stale stream PCM is rejected before call
+mixing; mixed participant speech survives later stream timestamp invalidation. The output
+callback publishes only numeric timing, never media contents.
+Device-clock estimates expire after two seconds without new playback.
+
+Each decoder correlates at most 16 transient output tags to timestamps, evicting the oldest
+at capacity. The 150 ms age budget applies to queued submissions and backpressure retries,
+not tags awaiting delayed native output. Unknown tags are discarded and counted as stale.
+The watched UI retains at most eight decoded pictures, bounded together with its reusable
+latest-picture storage by 128 MiB of allocated
+plane capacity. Pressure skips decoded display pictures and leaves codec references intact.
+These transient buffers are cleared with the watched session. No media files, diagnostic
+archives, schema changes or persistent queues are added.
+
+AV1 reassembly retains a frame buffer and fragment buffer, each bounded to 2 MiB + 64 KiB;
+large fragment capacity is released at frame reset. Native normalization temporarily holds
+one extra bounded AU on the decoder worker, including the restored two-byte delimiter.
+Each packet/frame admits at most 64/256 OBU elements. Transport-wide timing feedback has
+one on-demand 2,048-entry timestamp deque (32 KiB), one-second reporting age, at most two
+256-status reports per 100 ms and at most 628 encrypted bytes per report. It retains no
+media, identities or advertised bandwidth estimate.
 
 `SEREIN_MEMBER_DIAGNOSTICS=1` enables fixed-label member synchronization diagnostics;
 `SEREIN_GATEWAY_DIAGNOSTICS=1` enables Gateway compatibility diagnostics. Both are off by default.
@@ -1065,13 +1138,63 @@ dispatches continue to be ignored and grant no capabilities. The diagnostic deli
 identify the exact unknown service event: even its received name is excluded, along with payloads,
 credentials, account/channel/list IDs, usernames, message content and signed URLs.
 
-Output goes only to stderr. Serein creates no log file; explicit shell redirection is owner-managed
+Output goes only to stderr. These diagnostics create no log file of their own; explicit shell
+redirection is owner-managed
 and can also capture unrelated framework output, to which these limits do not apply. Repeated
 application runs appended to one external file are not bounded by a single Gateway-run budget.
 Windows GUI builds may have no inherited stderr; launch with deliberate stderr redirection to
 capture diagnostics. Do not use a real owner session in default tests. Synthetic tests check
 redaction, UTF-8 byte/line limits, disabled and broken-output cases, and message delivery plus
 heartbeat sequencing after unsupported dispatches. No live interoperability claim follows.
+
+### Opt-in diagnostic log
+
+Settings › Updates › Support & diagnostics chooses **Off**, **Errors**, **Errors and warnings**,
+**Errors, warnings and events** or **Everything (verbose)**. Off is the default and creates neither
+a folder nor a file. The choice is a device preference in the existing app-preferences record, so it
+survives sign-out and restart. The level applies immediately; destination preparation runs on
+the single writer thread, including at startup, and Settings shows only its completed result.
+Repeated changes replace one pending setup request; stale completions cannot publish a new path.
+Demo and fixture sessions never install a file or open its folder.
+
+An enabled log writes `logs/serein.log` inside Serein's data folder, with private permissions on
+Unix. Every Unix open uses an owner-checked directory descriptor and rejects symlinks, hard-linked
+files and non-regular files (including FIFOs) without blocking. Directory/file permissions
+are set on their descriptors to 0700/0600; failures refuse the destination. Windows rejects
+reparse points, including junctions. A data folder that refuses the file (a read-only profile, a machine policy, a sandboxed run)
+is replaced by `serein-logs` in the temporary folder, and then by `serein-logs` beside the
+executable; the Settings page names the file that ended up in use, and each refused attempt is
+recorded with its error class and operating-system code. When every folder refuses, the level still
+applies: the copy button returns the lines kept in memory. Each line is the machine's local wall
+clock, the level, a category, a compile-time label and
+up to four fields. Categories are `app`, `session`, `call`, `voice`, `gateway`, `cache` and `media`.
+Every label and text value is a `&'static str` taken from the client's own vocabulary, and every
+other value is a number, so the API has no way to carry an account, channel, message, path, URL or
+credential value: redaction is a property of the type rather than of review. A line is capped at
+320 bytes and a record at four fields.
+
+Bounds: at most 256 formatted lines / 64 KiB wait for the writer, and at most 512 lines / 128 KiB
+stay in memory for the copy button; an overflow drops the oldest line. One writer thread owns the
+file, so no render, audio or network path touches the disk. The file rotates once to `serein.1.log`
+at 2 MiB, and a run stops appending after 4 MiB in total; the copyable tail keeps working
+afterwards. A folder that cannot be written is reported in Settings instead of promising a file,
+and a closed or removed file never stops the client. The log is local only: nothing is uploaded, and
+there is no telemetry, backend or automatic reporting.
+
+The first coverage is the call lifecycle (join requested, session description and voice server
+received, media started, media failure with its fixed reason, each automatic rejoin attempt, a
+connection-details deadline, giving up, and the terminal failure), plus session started/ready,
+gateway disconnect and resync, and the log level itself. A defect that ends a call by itself is
+therefore readable as a timeline instead of a description. The copy button copies the recent lines
+from memory, so a report does not depend on the file still being open.
+
+**Save diagnostics** writes one text file after a native destination choice: the environment block
+the copy button already produces, subsystem statuses (log level and file, local cache, saved login,
+session and gateway, call state, voice devices, notifications) and the recent log lines. Every value
+is a flag, a number, or a status string the interface shows; account, channel, message, path and
+credential values stay out. The file is written where the owner chooses, and the page names it so it
+can be attached to an issue. Cancelling the dialog changes nothing.
+
 
 ### Existing DM call presence
 

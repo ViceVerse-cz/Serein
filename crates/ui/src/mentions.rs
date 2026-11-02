@@ -1055,6 +1055,18 @@ mod tests {
 	use model::Channel;
 
 	#[test]
+	fn self_sent_messages_never_mention_viewer() {
+		let state = test_support::demo_state();
+		let viewer = state.user.as_ref().unwrap();
+		let mut message = test_support::message(1, model::Id(20));
+		message.author = viewer.clone();
+		message.mentions = vec![viewer.clone()];
+		message.mention_everyone = true;
+		message.mention_roles = vec![Id(1548470397144666162)];
+		assert!(!crate::timeline::mentions_viewer(&message, &state));
+	}
+
+	#[test]
 	fn game_empty_search_keeps_editor_keys_unless_retrying() {
 		use client_core::game_mentions::Status;
 		for status in [
@@ -2189,6 +2201,13 @@ pub fn debug_role_mentions_check(state: &mut State) {
 	assert!(crate::timeline::mentions_viewer(&message, state));
 	message.mention_roles = vec![Id(999999)];
 	assert!(!crate::timeline::mentions_viewer(&message, state));
+	let viewer = state.user.as_ref().unwrap();
+	let mut self_message = message.clone();
+	self_message.author = viewer.clone();
+	self_message.mentions = vec![viewer.clone()];
+	self_message.mention_everyone = true;
+	self_message.mention_roles = vec![Id(1548470397144666162)];
+	assert!(!crate::timeline::mentions_viewer(&self_message, state));
 	let mut menu = Menu::default();
 	let mut draft = "@Role".to_owned();
 	menu.refresh(state, channel, &draft, Some(5), &[]);
