@@ -17,7 +17,7 @@ mod avatars;
 #[cfg(feature = "demo")]
 pub use avatars::media::debug_heic_layout_check;
 pub use avatars::media::{Lane, MAX_FRAMES, Motion, Rendition, Size, fit_edge, is_motion_video};
-pub use avatars::{EMBED_EDGE, FRAME_EDGE, GifFrames};
+pub use avatars::{EFFECT_EDGE, EMBED_EDGE, FRAME_EDGE, GifFrames};
 mod categories;
 #[cfg(feature = "demo")]
 pub use categories::debug_thread_navigation_check;
@@ -42,6 +42,7 @@ mod extension_admin_actions;
 mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
+mod new_message;
 pub mod proxy_auth;
 mod rich_presence;
 mod theme_editor;
@@ -247,6 +248,8 @@ struct ProfileImage {
 	floor: attachments::Floor,
 }
 
+pub const DEFAULT_IDLE_TIMEOUT_SECS: u32 = 10 * 60;
+
 #[derive(Default)]
 pub struct MessagingUi {
 	poll_creator: polls::Creator,
@@ -305,6 +308,7 @@ pub struct MessagingUi {
 	archives: archives::ArchivesUi,
 	archive_parent: Option<Id>,
 	thread_create: thread_create::ThreadCreateUi,
+	new_message: new_message::NewMessageUi,
 	forum: forum::ForumUi,
 	scroll: scroll::Session,
 	side_press: scroll::SidePress,
@@ -322,6 +326,8 @@ pub struct MessagingUi {
 	pending_mention: Option<Id>,
 	contact_editor: contact_editor::ContactEditor,
 	profile_link: Option<String>,
+	/// The docked DM card's link awaiting confirmation, apart from the popout's.
+	dm_profile_link: Option<String>,
 	profile_formatted: markdown::FormatCache,
 	pub reading_preferences: model::ReadingPreferences,
 	pub show_hidden_channels: bool,
@@ -415,6 +421,8 @@ pub struct MessagingUi {
 	pub attachment_paste_requested: Option<AttachmentPaste>,
 	pub pasted_text: Option<(Id, egui::Id, String)>,
 	paste_key_handled: bool,
+	/// The profile card docked beside a direct message, with its own footer draft.
+	dm_profile: profiles::ProfileSession,
 	/// A text field whose context menu asked to paste.
 	menu_paste: Option<egui::Id>,
 	pasted_text_frame: Option<u64>,
@@ -497,7 +505,7 @@ pub struct MessagingUi {
 	pub voice_preview_status: &'static str,
 	/// Device-local application shortcuts; the desktop host mirrors the global binding.
 	pub keybinds: model::Keybinds,
-	keybind_capture: Option<model::KeybindAction>,
+	keybind_capture: Option<crate::keybinds::CaptureTarget>,
 	pub global_keybind_status: &'static str,
 	/// Server folders the owner left open; restored from device preferences at startup.
 	pub expanded_folders: Vec<u64>,
@@ -507,6 +515,15 @@ pub struct MessagingUi {
 	/// Latest media activity, capped at 64 IDs (512 bytes) by the voice host.
 	pub voice_speaking: Vec<Id>,
 	pub notifications_enabled: bool,
+	/// Show as Idle after the account's idle timeout of system inactivity, or on lock.
+	pub auto_idle: bool,
+	/// Idle timeout in seconds from the account, not saved locally; 0 until read (see
+	/// `idle_timeout`).
+	pub idle_timeout_secs: u32,
+	/// Short hint when the timeout could not be saved to the account; display only.
+	pub idle_timeout_status: &'static str,
+	/// Set while system inactivity shows this session as Idle; display only, never saved.
+	pub auto_idle_active: bool,
 	pub notification_options: model::notification_preferences::Device,
 	pub notification_preview: Option<model::notification_preferences::Sound>,
 	pub notification_sound_status: &'static str,
@@ -518,6 +535,20 @@ pub struct MessagingUi {
 	pub build: design::Build,
 	pub updates: updates::Updates,
 	pub updates_save_failed: bool,
+	/// The owner's diagnostic log level; the desktop host applies and persists it.
+	pub diagnostics_log: diagnostics::Level,
+	/// True when the log folder could not be written, so the page explains instead of promising.
+	pub diagnostics_log_failed: bool,
+	/// The file the log actually appends to, named under the level so a report can be found.
+	pub diagnostics_log_path: Option<String>,
+	/// True when the system refused to open the log folder; the host copied its path instead.
+	pub diagnostics_log_open_failed: bool,
+	/// Set by the page's save button; the host writes one report file and names it here.
+	pub diagnostics_save_requested: bool,
+	/// The report file the host last wrote, shown under the button so it can be attached.
+	pub diagnostics_saved_path: Option<String>,
+	/// Set by the page's button; the host opens the folder and clears it.
+	pub open_log_folder_requested: bool,
 	/// Header pin button rect while the pins popout is open.
 	pins_anchor: Option<egui::Rect>,
 	editing: Option<(Id, Id, String)>,
@@ -659,11 +690,14 @@ impl MessagingUi {
 
 	/// Text entry suppresses held keys, but a held mouse button is never typing.
 	fn voice_hold_down(&self, ctx: &egui::Context, action: model::KeybindAction) -> bool {
-		let chord = self.keybinds.chord(action);
-		if !model::keybinds::is_mouse_button(&chord.key) && ctx.egui_wants_keyboard_input() {
-			return false;
-		}
-		ctx.input(|input| input.focused && crate::keybinds::down(input, chord))
+		let wants_keyboard = ctx.egui_wants_keyboard_input();
+		ctx.input(|input| {
+			input.focused
+				&& self.keybinds.chords(action).any(|chord| {
+					(!wants_keyboard || model::keybinds::is_mouse_button(&chord.key))
+						&& crate::keybinds::down(input, chord)
+				})
+		})
 	}
 
 	/// Whether egui must see mouse 3–5: one is bound, or a binding is being recorded.
@@ -682,30 +716,44 @@ impl MessagingUi {
 	fn button_claimed(&self, button: egui::PointerButton) -> bool {
 		self.keybind_capture.is_some()
 			|| model::KeybindAction::ALL.into_iter().any(|action| {
-				crate::keybinds::button_from_name(&self.keybinds.chord(action).key) == Some(button)
+				self.keybinds
+					.chords(action)
+					.any(|chord| crate::keybinds::button_from_name(&chord.key) == Some(button))
 			})
 	}
 
-	/// Returns focused-window mute/deafen presses that were not claimed by a native global hotkey.
-	pub fn voice_toggle_pressed(&self, ctx: &egui::Context, global_mask: u8) -> u8 {
+	/// Returns focused-window mute/deafen presses whose chord is not registered globally.
+	/// `registered_globally` answers per chord, so a focused custom chord still works while
+	/// only the built-in modifier chord is owned by the native registrar.
+	pub fn voice_toggle_pressed(
+		&self,
+		ctx: &egui::Context,
+		registered_globally: impl Fn(model::KeybindAction, &model::KeyChord) -> bool,
+	) -> u8 {
 		if !ctx.input(|input| input.focused) {
 			return 0;
 		}
-		let wants_kb = ctx.egui_wants_keyboard_input();
+		let wants_keyboard = ctx.egui_wants_keyboard_input();
 		ctx.input_mut(|input| {
 			let mut toggles = 0;
-			let mute_chord = self.keybinds.chord(model::KeybindAction::ToggleMute);
-			if global_mask & 1 == 0
-				&& (!wants_kb || model::keybinds::is_mouse_button(&mute_chord.key))
-				&& crate::keybinds::pressed(input, mute_chord)
-			{
+			if self
+				.keybinds
+				.chords(model::KeybindAction::ToggleMute)
+				.any(|chord| {
+					!registered_globally(model::KeybindAction::ToggleMute, chord)
+						&& (!wants_keyboard || model::keybinds::is_mouse_button(&chord.key))
+						&& crate::keybinds::pressed(input, chord)
+				}) {
 				toggles |= 1;
 			}
-			let deafen_chord = self.keybinds.chord(model::KeybindAction::ToggleDeafen);
-			if global_mask & 2 == 0
-				&& (!wants_kb || model::keybinds::is_mouse_button(&deafen_chord.key))
-				&& crate::keybinds::pressed(input, deafen_chord)
-			{
+			if self
+				.keybinds
+				.chords(model::KeybindAction::ToggleDeafen)
+				.any(|chord| {
+					!registered_globally(model::KeybindAction::ToggleDeafen, chord)
+						&& (!wants_keyboard || model::keybinds::is_mouse_button(&chord.key))
+						&& crate::keybinds::pressed(input, chord)
+				}) {
 				toggles |= 2;
 			}
 			toggles
@@ -949,7 +997,8 @@ impl MessagingUi {
 			(
 				std::time::Instant::now(),
 				Some(Ok(model::InvitePreview {
-					guild: Id(424242),
+					guild: Some(Id(424242)),
+					channel: None,
 					embed: model::Embed {
 						title: Some("Serein community".into()),
 						..Default::default()
@@ -1168,6 +1217,10 @@ impl MessagingUi {
 			// The switcher roster belongs to the device, not to the account being cleared.
 			accounts: std::mem::take(&mut self.accounts),
 			updates: std::mem::take(&mut self.updates),
+			diagnostics_log: self.diagnostics_log,
+			diagnostics_log_path: self.diagnostics_log_path.take(),
+			diagnostics_log_failed: self.diagnostics_log_failed,
+			diagnostics_log_open_failed: self.diagnostics_log_open_failed,
 			minimize_to_tray: self.minimize_to_tray,
 			tray_available: self.tray_available,
 			tray_status: self.tray_status,
@@ -1747,7 +1800,13 @@ impl MessagingUi {
 									&mut self.profile,
 									&mut self.user_action,
 								);
-								if let Some(status) = status {
+								// Members typing in the open channel, as Discord's member list shows.
+								if state
+									.typing_users(std::time::Instant::now())
+									.any(|typist| typist == member.user.id)
+								{
+									profiles::typing_badge(ui, avatar.rect, status, colors.sidebar);
+								} else if let Some(status) = status {
 									profiles::presence_badge(
 										ui,
 										avatar.rect,
@@ -2170,7 +2229,7 @@ impl MessagingUi {
 								design::presence_dot(
 									ui,
 									avatar.rect,
-									self.own_presence.status.wire(),
+									self.shown_presence_status().wire(),
 									ring,
 								);
 								anchor =
@@ -2241,7 +2300,7 @@ impl MessagingUi {
 																} else if state.demo {
 																	language.text("offline-preview")
 																} else if state.gateway_connected {
-																	language.text(account_menu::presence_status_key(self.own_presence.status))
+																	language.text(account_menu::presence_status_key(self.shown_presence_status()))
 																} else {
 																	language.text("reconnecting")
 																},
@@ -2302,7 +2361,7 @@ impl MessagingUi {
 		selected_voice: bool,
 		show_members: bool,
 		wide_members: bool,
-		search_open: bool,
+		outside_chat: bool,
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
@@ -2318,9 +2377,9 @@ impl MessagingUi {
 							design::window_palette(ui).chat,
 							design::ImageSection::TopBar,
 						)
-					} else if search_open {
-						// Spanning the search pane, the header sits outside the central panel,
-						// so it paints the chat coat that panel would otherwise provide.
+					} else if outside_chat {
+						// Spanning the search pane or docked profile, the header sits outside the
+						// central panel, so it paints the chat coat that panel would otherwise provide.
 						design::window_palette(ui).chat
 					} else {
 						egui::Color32::TRANSPARENT
@@ -2402,7 +2461,9 @@ impl MessagingUi {
 						}
 						let (status, _, _, clients) = profiles::presence(state, user.id, None);
 						let status = profiles::shown_status(state, user.id, status);
-						if dm && let Some(status) = status {
+						if dm && state.direct_typing(c.id, std::time::Instant::now()) {
+							profiles::typing_badge(ui, avatar.rect, status, colors.sidebar);
+						} else if dm && let Some(status) = status {
 							profiles::presence_badge(
 								ui,
 								avatar.rect,
@@ -2509,15 +2570,21 @@ impl MessagingUi {
 						}
 					}
 					ui.add_space(4.0);
-					if icons::toggle(
-						ui,
-						icons::Icon::People,
-						32.0,
-						show_members,
-						&language.text("show-member-list"),
-					)
-					.clicked()
-					{
+					// A one-to-one DM docks the other person's profile instead of a member list.
+					let direct = state
+						.selected
+						.and_then(|id| state.channel(id))
+						.is_some_and(|channel| channel.kind == 1)
+						// Narrow windows keep the member dialog for every conversation.
+						&& wide_members;
+					let (icon, label) = if !direct {
+						(icons::Icon::People, language.text("show-member-list"))
+					} else if show_members {
+						(icons::Icon::Profile, language.text("hide-user-profile"))
+					} else {
+						(icons::Icon::Profile, language.text("show-user-profile"))
+					};
+					if icons::toggle(ui, icon, 32.0, show_members, &label).clicked() {
 						if wide_members {
 							let shown = self.members_preference(state);
 							*shown = !*shown;
@@ -2927,10 +2994,10 @@ impl MessagingUi {
 			&& state.drafts.get(&channel).is_none_or(String::is_empty)
 			&& ctx.input_mut(|input| {
 				!input.events.iter().any(ime_updates_text)
-					&& crate::keybinds::pressed_exact(
-						input,
-						self.keybinds.chord(model::KeybindAction::EditLastMessage),
-					)
+					&& self
+						.keybinds
+						.chords(model::KeybindAction::EditLastMessage)
+						.any(|chord| crate::keybinds::pressed_exact(input, chord))
 			}) && let Some(message) = state
 			.timeline
 			.iter()
@@ -3377,10 +3444,9 @@ impl MessagingUi {
 			&& !ime_this_frame
 			&& ctx.memory(|m| m.has_focus(composer_id))
 			&& ctx.input_mut(|i| {
-				crate::keybinds::pressed_exact(
-					i,
-					self.keybinds.chord(model::KeybindAction::SendMessage),
-				)
+				self.keybinds
+					.chords(model::KeybindAction::SendMessage)
+					.any(|chord| crate::keybinds::pressed_exact(i, chord))
 			});
 		let placeholder = state.channel(channel).map_or_else(
 			|| crate::i18n::translate("composer-placeholder"),
@@ -3589,7 +3655,7 @@ impl MessagingUi {
                         if application_command {
                             return ui.scope(|ui| {
                                 ui.add_enabled_ui(keyboard_enabled, |ui| {
-                                    self.slash_commands.composer(ui, state, channel, self.keybinds.chord(model::KeybindAction::SendMessage));
+                                    self.slash_commands.composer(ui, state, channel, &self.keybinds);
                                 });
                                 if self.slash_commands.active.is_none() {
                                     ctx.memory_mut(|memory| memory.request_focus(composer_id));
@@ -3843,6 +3909,13 @@ impl MessagingUi {
                                 self.clear_draft(state, channel);
                             } else {
                                 self.draft_changes.push(channel);
+                                // Tell the conversation, as the official client does.
+                                if edit.changed()
+                                    && let Some(command) =
+                                        state.prepare_typing(channel, std::time::Instant::now())
+                                {
+                                    commands.push(command);
+                                }
                             }
                         }
                         self.mention_lookup.text = self.mention_menu.member_query().to_owned();
@@ -4067,6 +4140,196 @@ impl MessagingUi {
 		cleared
 	}
 
+	/// Discord's user profile panel beside a direct message: the recipient's card, kept loaded
+	/// while no popout needs the single open profile, and drawn from the recent cache otherwise.
+	fn dm_profile_panel(
+		&mut self,
+		ui: &mut egui::Ui,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		recipient: &model::User,
+		fill: egui::Color32,
+	) {
+		let view = state
+			.profile
+			.as_ref()
+			.filter(|view| view.user == recipient.id && view.guild.is_none());
+		let cached = view
+			.is_none()
+			.then(|| state.known_profile(recipient.id))
+			.flatten();
+		let mut action = None;
+		// The panel shares the conversation surface, so the card floats on the chat itself.
+		egui::Panel::right("dm-profile-pane")
+			.resizable(false)
+			.show_separator_line(false)
+			.exact_size(340.0)
+			.frame(
+				egui::Frame::new()
+					.fill(design::section_surface(
+						ui,
+						fill,
+						design::ImageSection::MessageList,
+					))
+					.inner_margin(egui::Margin::same(8)),
+			)
+			.show(ui, |ui| {
+				action = profiles::show_docked(
+					ui,
+					recipient,
+					view,
+					cached,
+					state,
+					&mut self.avatars,
+					&mut self.dm_profile_link,
+					&mut self.profile_formatted,
+					self.reading_preferences.confirm_external_links,
+					&mut self.dm_profile,
+				);
+			});
+		if self.dm_profile.take_full_request() {
+			self.profile.open_full(recipient.clone());
+		}
+		match action {
+			// The panel closes from its header button, not from the card.
+			None | Some(profiles::Action::Close) => {}
+			Some(action) => self.profile_action(ctx, state, commands, recipient, None, action),
+		}
+		// After the card's action, so a popout it opened keeps the single profile slot.
+		if self.profile.open_user().is_none() {
+			self.sync_profile(state, commands, recipient, None);
+		} else if let Some(command) =
+			state.preload_docked_profile(recipient.id, std::time::Instant::now())
+		{
+			commands.push(command);
+		}
+		if let Some(command) = profile_note(state, &mut self.dm_profile, recipient) {
+			commands.push(command);
+		}
+	}
+
+	/// Applies an action picked on a profile card, the popout's or the one docked beside a DM.
+	fn profile_action(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		user: &model::User,
+		profile_guild: Option<Id>,
+		action: profiles::Action,
+	) {
+		match action {
+			profiles::Action::Avatar {
+				media,
+				points,
+				grid,
+			} => {
+				let ext = media
+					.url
+					.as_deref()
+					.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
+					.unwrap_or("png");
+				self.profile_image = Some(ProfileImage {
+					generation: state.generation,
+					attachment: model::Attachment {
+						id: Id(0),
+						filename: format!("avatar.{ext}"),
+						description: Some(format!("{}’s profile picture", user.name)),
+						content_type: Some(format!("image/{ext}")),
+						size: 0,
+						media,
+						spoiler: false,
+						duration_ms: None,
+						waveform: Vec::new(),
+					},
+					floor: attachments::Floor::Thumbnail(attachments::Thumbnail {
+						longest_side_points: points,
+						grid,
+					}),
+				});
+				self.profile.close();
+			}
+			profiles::Action::Banner(media) => {
+				let ext = media
+					.url
+					.as_deref()
+					.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
+					.unwrap_or("png");
+				self.profile_image = Some(ProfileImage {
+					generation: state.generation,
+					attachment: model::Attachment {
+						id: Id(0),
+						filename: format!("banner.{ext}"),
+						description: Some(format!("{}’s banner", user.name)),
+						content_type: Some(format!("image/{ext}")),
+						size: 0,
+						media,
+						spoiler: false,
+						duration_ms: None,
+						waveform: Vec::new(),
+					},
+					floor: attachments::Floor::Fit,
+				});
+				self.profile.close();
+			}
+			profiles::Action::AddFriend(id) => {
+				if let Some(command) = state.add_profile_friend(id) {
+					commands.push(command);
+				}
+			}
+			profiles::Action::AcceptFriend(id) => {
+				if let Some(command) = state.resolve_friend_request(id, true) {
+					commands.push(command);
+				}
+			}
+			profiles::Action::RemoveFriend => {
+				self.friend_removal = Some((state.generation, user.clone()));
+			}
+			profiles::Action::Menu(action) => {
+				// Dispatched with the other user menus on the next frame.
+				self.user_action = Some(action);
+			}
+			profiles::Action::Edit => {
+				self.profile.close();
+				self.preview_settings("profile");
+			}
+			profiles::Action::Profile(next) => {
+				self.profile.navigate(next);
+			}
+			profiles::Action::Server(guild) => {
+				self.profile.close();
+				if state.guild(guild).is_some() && self.server_settings.navigate_away(state) {
+					self.guild = Some(guild);
+					if let Some(command) = state.select_guild(guild) {
+						commands.push(command);
+					}
+				}
+			}
+			profiles::Action::EditStatus => self.open_custom_status_editor(),
+			profiles::Action::ClearStatus => self.clear_custom_status(),
+			profiles::Action::Close => {
+				self.profile.close_unless_armed(ctx);
+			}
+			profiles::Action::SaveBadges(settings) => {
+				if let Some(command) = state.save_badge_settings(settings) {
+					commands.push(command);
+				}
+			}
+			profiles::Action::Retry => {
+				if let Some(command) = state.request_profile(user.id, profile_guild) {
+					commands.push(command);
+				}
+			}
+			profiles::Action::SendMessage { user, content } => {
+				self.open_user_direct(state, user, user_direct::Intent::Send(content), commands);
+			}
+			profiles::Action::OpenDirect(user) => {
+				self.open_user_direct(state, user, user_direct::Intent::Message, commands);
+			}
+		}
+	}
+
 	/// The server a profile card opens in: the one being administered, else the open channel's.
 	fn profile_guild(&self, state: &State) -> Option<model::Id> {
 		self.server_settings.guild().or_else(|| {
@@ -4157,27 +4420,33 @@ impl MessagingUi {
 			.map(|gif| gif.url.clone())
 			.collect();
 		crate::scroll::apply_preferences(ui.ctx(), self.reading_preferences);
-		let diagnostics_chord = self
+		let diagnostics_chords: Vec<model::KeyChord> = self
 			.keybinds
-			.chord(model::KeybindAction::CopyIssueDiagnostics);
-		let diagnostics_function_key = diagnostics_chord
-			.key
-			.strip_prefix('F')
-			.and_then(|number| number.parse::<u8>().ok())
-			.is_some_and(|number| (1..=35).contains(&number));
-		let diagnostics_allowed_in_context = diagnostics_function_key
-			|| diagnostics_chord.modifiers
-				& (model::keybinds::PRIMARY | model::keybinds::CTRL | model::keybinds::ALT)
-				!= 0 || (!ui.ctx().egui_wants_keyboard_input()
-			&& !ui.input(|input| {
+			.chords(model::KeybindAction::CopyIssueDiagnostics)
+			.cloned()
+			.collect();
+		// Text entry only suppresses plain chords; an F-key or modified chord keeps working.
+		let diagnostics_typing = ui.ctx().egui_wants_keyboard_input()
+			|| ui.input(|input| {
 				input
 					.events
 					.iter()
 					.any(|event| matches!(event, egui::Event::Text(_) | egui::Event::Paste(_)))
-			}));
+			});
+		let diagnostics_allowed = |chord: &model::KeyChord| {
+			let function_key = chord
+				.key
+				.strip_prefix('F')
+				.and_then(|number| number.parse::<u8>().ok())
+				.is_some_and(|number| (1..=35).contains(&number));
+			function_key
+				|| chord.modifiers
+					& (model::keybinds::PRIMARY | model::keybinds::CTRL | model::keybinds::ALT)
+					!= 0 || !diagnostics_typing
+		};
 		if self.keybind_capture.is_none()
 			&& !self.ime_active
-			&& diagnostics_allowed_in_context
+			&& diagnostics_chords.iter().any(&diagnostics_allowed)
 			&& ui.input(|input| {
 				input.focused
 					&& !input
@@ -4185,11 +4454,10 @@ impl MessagingUi {
 						.iter()
 						.any(|event| matches!(event, egui::Event::Ime(_)))
 			}) && ui.input_mut(|input| {
-			crate::keybinds::pressed_exact(
-				input,
-				self.keybinds
-					.chord(model::KeybindAction::CopyIssueDiagnostics),
-			)
+			diagnostics_chords
+				.iter()
+				.filter(|chord| diagnostics_allowed(chord))
+				.any(|chord| crate::keybinds::pressed_exact(input, chord))
 		}) {
 			self.copy_diagnostic_info(ui.ctx());
 		}
@@ -4236,6 +4504,8 @@ impl MessagingUi {
 		commands.extend(cosmetics_refresh);
 		// A server joined from an invite opens as soon as the Gateway delivers it.
 		commands.extend(state.navigate_after_join());
+		// A chat link to an unloaded thread opens once its bounded channel read admits it.
+		commands.extend(state.resolve_pending_link());
 		if let Some(action) = self.poll_creator.show(ui.ctx(), state, &mut self.avatars)
 			&& let Some(command) = state.prepare_poll(None, action)
 		{
@@ -4366,17 +4636,18 @@ impl MessagingUi {
 						.iter()
 						.any(|event| matches!(event, egui::Event::Ime(_)))
 			}) && ctx.input_mut(|input| {
-			crate::keybinds::pressed(
-				input,
-				self.keybinds
-					.chord(model::KeybindAction::SwitchConversation),
-			)
+			self.keybinds
+				.chords(model::KeybindAction::SwitchConversation)
+				.any(|chord| crate::keybinds::pressed(input, chord))
 		}) {
 			self.switcher.open(&ctx);
 		}
 		self.switcher_frame = self.switcher.is_open();
 		let direct_origin = (state.selected, state.request);
 		if let Some(command) = state.select_opened_dm() {
+			commands.push(command);
+		}
+		if let Some(command) = state.select_created_group() {
 			commands.push(command);
 		}
 		self.finish_user_direct(state, direct_origin, &mut commands);
@@ -4402,7 +4673,13 @@ impl MessagingUi {
 			}
 		}
 		if self.navigation_channel != state.selected {
-			self.focus_switched_composer = state.selected.is_some();
+			// A retained footer draft keeps focus instead of moving it to the new composer.
+			let profile_keeps_focus = self.profile.open_user().is_some_and(|user| {
+				self.profile
+					.message_draft(state.generation, user.id)
+					.is_some()
+			});
+			self.focus_switched_composer = state.selected.is_some() && !profile_keeps_focus;
 			self.navigation_channel = state.selected;
 			self.guild = state
 				.selected
@@ -4564,11 +4841,9 @@ impl MessagingUi {
 						_ => false,
 					})
 			}) && ctx.input_mut(|input| {
-			crate::keybinds::pressed_exact(
-				input,
-				self.keybinds
-					.chord(model::KeybindAction::SearchConversation),
-			)
+			self.keybinds
+				.chords(model::KeybindAction::SearchConversation)
+				.any(|chord| crate::keybinds::pressed_exact(input, chord))
 		}) && let Some(channel) = state.selected
 		{
 			self.search.focus_conversation(channel, state);
@@ -4627,7 +4902,30 @@ impl MessagingUi {
 					);
 				});
 		}
-		if show_members {
+		// A one-to-one DM shows the other person's profile where servers list members.
+		let dm_recipient = (show_members && wide_members)
+			.then(|| state.selected.and_then(|id| state.channel(id)))
+			.flatten()
+			.filter(|channel| channel.kind == 1)
+			.and_then(|channel| channel.recipients.first().cloned());
+		if dm_recipient.is_none() {
+			self.dm_profile_link = None;
+		}
+		if let Some(recipient) = &dm_recipient {
+			self.channel_header(
+				ui,
+				state,
+				selected_voice,
+				show_members,
+				wide_members,
+				true,
+				&mut commands,
+			);
+			self.dm_profile_panel(ui, &ctx, state, &mut commands, recipient, background.chat);
+			if state.members.is_some() {
+				commands.push(state.close_members());
+			}
+		} else if show_members {
 			if state
 				.members
 				.as_ref()
@@ -4731,7 +5029,7 @@ impl MessagingUi {
 				}
 				// In a DM call the header moves onto the call stage, shown while hovered.
 				let header_in_call = !search_open && self.dm_call_stage(state).is_some();
-				if !search_open && !header_in_call {
+				if !search_open && !header_in_call && dm_recipient.is_none() {
 					self.channel_header(
 						ui,
 						state,
@@ -4752,11 +5050,16 @@ impl MessagingUi {
 							ui.available_rect_before_wrap().top(),
 						)
 					});
+				// A docked DM profile already keeps the header above the call.
 				self.call_bar(
 					ui,
 					state,
 					&mut commands,
-					header_in_call.then_some((selected_voice, show_members, wide_members)),
+					(header_in_call && dm_recipient.is_none()).then_some((
+						selected_voice,
+						show_members,
+						wide_members,
+					)),
 				);
 				self.timeline.download.show_status(ui);
 				let Some(channel) = state.selected else {
@@ -5039,6 +5342,13 @@ impl MessagingUi {
 									commands.push(command);
 								}
 							}
+							Some(invites::Action::OpenChannel(channel))
+								if state.channel(channel).is_some() =>
+							{
+								if let Some(command) = state.select(channel) {
+									commands.push(command);
+								}
+							}
 							Some(invites::Action::Join(code)) => {
 								if state.invite_join.code == code
 									&& state.invite_challenge().is_some()
@@ -5190,6 +5500,8 @@ impl MessagingUi {
 			self.thread_create.open(channel, None, String::new());
 		}
 		self.thread_create.show(&ctx, state, &mut commands);
+		self.new_message
+			.show(&ctx, state, &mut self.avatars, &mut commands);
 		self.screen.show(&ctx, state);
 		if let Some(id) = self.timeline.channel_reference_load.take()
 			&& state.channel(id).is_none()
@@ -5233,6 +5545,9 @@ impl MessagingUi {
 		if let Some((channel, message)) = self.timeline.leave_read.take()
 			&& let Some(command) = state.prepare_mark_left_channel_read(channel, message)
 		{
+			commands.push(command);
+		}
+		if !settings_open && let Some(command) = state.prepare_forum_visit_read() {
 			commands.push(command);
 		}
 		if let Some(channel) = self.timeline.mark_channel_read.take() {
@@ -5384,16 +5699,7 @@ impl MessagingUi {
 		{
 			let profile_guild = self.profile_guild(state);
 			self.sync_profile(state, &mut commands, &user, profile_guild);
-			// The private note uses an independent read and never locks message actions.
-			if !user.webhook
-				&& state.user.as_ref().is_some_and(|own| own.id != user.id)
-				&& state.user_note(user.id).is_none()
-				&& (state.demo
-					|| (state.gateway_connected
-						&& state.auth == client_core::auth::AuthState::Authenticated))
-				&& self.profile.note_wanted(state.generation, user.id)
-				&& let Some(command) = state.load_user_note(user.id)
-			{
+			if let Some(command) = profile_note(state, &mut self.profile, &user) {
 				commands.push(command);
 			}
 			self.profile
@@ -5401,7 +5707,7 @@ impl MessagingUi {
 				.clone_from(&self.own_presence.custom_status);
 			let anchor = self.profile.anchor_or_place(&ctx, user.id);
 			self.profile.ingest_opener_rect(&ctx);
-			match profiles::show_with_session(
+			let action = profiles::show_with_session(
 				ui,
 				&user,
 				state.profile.as_ref(),
@@ -5412,117 +5718,9 @@ impl MessagingUi {
 				self.reading_preferences.confirm_external_links,
 				anchor,
 				&mut self.profile,
-			) {
-				Some(profiles::Action::Avatar {
-					media,
-					points,
-					grid,
-				}) => {
-					let ext = media
-						.url
-						.as_deref()
-						.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
-						.unwrap_or("png");
-					self.profile_image = Some(ProfileImage {
-						generation: state.generation,
-						attachment: model::Attachment {
-							id: Id(0),
-							filename: format!("avatar.{ext}"),
-							description: Some(format!("{}’s profile picture", user.name)),
-							content_type: Some(format!("image/{ext}")),
-							size: 0,
-							media,
-							spoiler: false,
-							duration_ms: None,
-							waveform: Vec::new(),
-						},
-						floor: attachments::Floor::Thumbnail(attachments::Thumbnail {
-							longest_side_points: points,
-							grid,
-						}),
-					});
-					self.profile.close();
-				}
-				Some(profiles::Action::Banner(media)) => {
-					let ext = media
-						.url
-						.as_deref()
-						.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
-						.unwrap_or("png");
-					self.profile_image = Some(ProfileImage {
-						generation: state.generation,
-						attachment: model::Attachment {
-							id: Id(0),
-							filename: format!("banner.{ext}"),
-							description: Some(format!("{}’s banner", user.name)),
-							content_type: Some(format!("image/{ext}")),
-							size: 0,
-							media,
-							spoiler: false,
-							duration_ms: None,
-							waveform: Vec::new(),
-						},
-						floor: attachments::Floor::Fit,
-					});
-					self.profile.close();
-				}
-				Some(profiles::Action::AddFriend(id)) => {
-					if let Some(command) = state.add_profile_friend(id) {
-						commands.push(command);
-					}
-				}
-				Some(profiles::Action::AcceptFriend(id)) => {
-					if let Some(command) = state.resolve_friend_request(id, true) {
-						commands.push(command);
-					}
-				}
-				Some(profiles::Action::RemoveFriend) => {
-					self.friend_removal = Some((state.generation, user.clone()));
-				}
-				Some(profiles::Action::Menu(action)) => {
-					// Dispatched with the other user menus on the next frame.
-					self.user_action = Some(action);
-				}
-				Some(profiles::Action::Edit) => {
-					self.profile.close();
-					self.preview_settings("profile");
-				}
-				Some(profiles::Action::Profile(next)) => {
-					self.profile.navigate(next);
-				}
-				Some(profiles::Action::Server(guild)) => {
-					self.profile.close();
-					if state.guild(guild).is_some() && self.server_settings.navigate_away(state) {
-						self.guild = Some(guild);
-						if let Some(command) = state.select_guild(guild) {
-							commands.push(command);
-						}
-					}
-				}
-				Some(profiles::Action::EditStatus) => self.open_custom_status_editor(),
-				Some(profiles::Action::ClearStatus) => self.clear_custom_status(),
-				Some(profiles::Action::Close) => {
-					self.profile.close_unless_armed(&ctx);
-				}
-				Some(profiles::Action::SaveBadges(settings)) => {
-					if let Some(command) = state.save_badge_settings(settings) {
-						commands.push(command);
-					}
-				}
-				Some(profiles::Action::Retry) => {
-					if let Some(command) = state.request_profile(user.id, profile_guild) {
-						commands.push(command);
-					}
-				}
-				Some(profiles::Action::SendMessage { user, content }) => {
-					self.open_user_direct(
-						state,
-						user,
-						user_direct::Intent::Send(content),
-						&mut commands,
-					);
-				}
-				None => {}
+			);
+			if let Some(action) = action {
+				self.profile_action(&ctx, state, &mut commands, &user, profile_guild, action);
 			}
 			if self.drain_profile(state, &mut commands)
 				&& let Some(user) = self.profile.open_user().cloned()
@@ -5648,10 +5846,40 @@ impl MessagingUi {
 	}
 }
 
+/// The private note's one read per profile card; it never locks the card's message actions.
+fn profile_note(
+	state: &mut State,
+	session: &mut profiles::ProfileSession,
+	user: &model::User,
+) -> Option<Command> {
+	(!user.webhook
+		&& state.user.as_ref().is_some_and(|own| own.id != user.id)
+		&& state.user_note(user.id).is_none()
+		&& (state.demo
+			|| (state.gateway_connected
+				&& state.auth == client_core::auth::AuthState::Authenticated))
+		&& session.note_wanted(state.generation, user.id))
+	.then(|| state.load_user_note(user.id))
+	.flatten()
+}
+
 #[cfg(test)]
 mod composer_tests {
 	use super::*;
 	use client_core::MAX_CONTENT;
+
+	#[test]
+	fn clearing_an_account_preserves_the_device_log_preference() {
+		let mut ui = MessagingUi {
+			diagnostics_log: diagnostics::Level::Info,
+			diagnostics_log_path: Some("local-log".into()),
+			..Default::default()
+		};
+		ui.clear();
+		assert_eq!(ui.diagnostics_log, diagnostics::Level::Info);
+		assert_eq!(ui.diagnostics_log_path.as_deref(), Some("local-log"));
+		assert!(!ui.open_log_folder_requested);
+	}
 
 	#[test]
 	fn composer_context_menu_saves_cuts_and_gates_clipboard_requests() {
@@ -5914,7 +6142,9 @@ mod composer_tests {
 		] {
 			view.keybinds.copy_issue_diagnostics =
 				model::KeyChord::new(if assigned { "F12" } else { "" }, 0);
-			view.keybind_capture = capturing.then_some(model::KeybindAction::ToggleMute);
+			view.keybind_capture = capturing.then_some(crate::keybinds::CaptureTarget::BuiltIn(
+				model::KeybindAction::ToggleMute,
+			));
 			view.ime_active = composing;
 			let expected = view.diagnostic_info(&ctx);
 			let output = ctx.run_ui(
@@ -5981,12 +6211,97 @@ mod composer_tests {
 	}
 
 	#[test]
+	fn a_registered_global_mute_chord_does_not_hide_a_focused_custom_chord() {
+		let mut view = MessagingUi::default();
+		view.keybinds.toggle_mute =
+			model::KeyChord::new("M", model::keybinds::PRIMARY | model::keybinds::SHIFT);
+		view.keybinds.custom = vec![model::CustomBinding {
+			action: model::KeybindAction::ToggleMute,
+			chord: model::KeyChord::new("Y", 0),
+		}];
+		let registered = view.keybinds.toggle_mute.clone();
+		let ctx = egui::Context::default();
+		let pressed = |key: egui::Key, modifiers: egui::Modifiers, expected: u8| {
+			ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					events: vec![egui::Event::Key {
+						key,
+						physical_key: None,
+						pressed: true,
+						repeat: false,
+						modifiers,
+					}],
+					..Default::default()
+				},
+				|ui| {
+					assert_eq!(
+						view.voice_toggle_pressed(ui.ctx(), |action, chord| {
+							action == model::KeybindAction::ToggleMute && chord == &registered
+						}),
+						expected
+					);
+				},
+			)
+			.drop_without_applying_deltas();
+		};
+		// The plain custom chord still works while only the built-in chord is global.
+		pressed(egui::Key::Y, egui::Modifiers::NONE, 1);
+		// The globally registered chord is left to the native handler.
+		pressed(
+			egui::Key::M,
+			egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+			0,
+		);
+	}
+
+	#[test]
+	fn a_custom_push_to_talk_chord_holds_in_the_focused_window() {
+		let mut view = MessagingUi::default();
+		view.keybinds.custom = vec![model::CustomBinding {
+			action: model::KeybindAction::PushToTalk,
+			chord: model::KeyChord::new("Y", 0),
+		}];
+		let ctx = egui::Context::default();
+		for focused in [true, false] {
+			ctx.run_ui(
+				egui::RawInput {
+					focused,
+					events: vec![egui::Event::Key {
+						key: egui::Key::Y,
+						physical_key: None,
+						pressed: true,
+						repeat: false,
+						modifiers: egui::Modifiers::NONE,
+					}],
+					..Default::default()
+				},
+				|ui| assert_eq!(view.push_to_talk_down(ui.ctx()), focused),
+			)
+			.drop_without_applying_deltas();
+		}
+		// The key stays held across frames that carry no repeat event.
+		ctx.run_ui(
+			egui::RawInput {
+				focused: true,
+				..Default::default()
+			},
+			|ui| assert!(view.push_to_talk_down(ui.ctx())),
+		)
+		.drop_without_applying_deltas();
+	}
+
+	#[test]
 	fn an_unmodified_diagnostics_key_does_not_replace_the_clipboard_while_typing() {
 		let ctx = egui::Context::default();
 		let mut state = edit_state();
 		state.demo = true;
 		let mut view = MessagingUi::default();
-		view.keybinds.copy_issue_diagnostics = model::KeyChord::new("C", 0);
+		view.keybinds.copy_issue_diagnostics = model::KeyChord::new("F12", 0);
+		view.keybinds.custom = vec![model::CustomBinding {
+			action: model::KeybindAction::CopyIssueDiagnostics,
+			chord: model::KeyChord::new("C", 0),
+		}];
 		for events in [
 			vec![],
 			vec![egui::Event::Text("seed".into())],
@@ -6031,6 +6346,36 @@ mod composer_tests {
 				.is_some_and(|draft| draft.ends_with('c')),
 			"the diagnostic shortcut leaves normal typing intact"
 		);
+		// An F-key still qualifies while text entry has focus.
+		let output = ctx.run_ui(
+			egui::RawInput {
+				focused: true,
+				events: vec![egui::Event::Key {
+					key: egui::Key::F12,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui::Modifiers::NONE,
+				}],
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(900.0, 600.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				view.show(ui, &mut state);
+			},
+		);
+		assert!(
+			output
+				.platform_output
+				.commands
+				.iter()
+				.any(|command| matches!(command, egui::OutputCommand::CopyText(_))),
+			"the F-key diagnostics chord works while typing"
+		);
+		output.drop_without_applying_deltas();
 	}
 
 	#[test]
@@ -6284,7 +6629,46 @@ mod composer_tests {
 		output.drop_without_applying_deltas();
 		// This helper simulates key taps; raw-input tests explicitly model held keys.
 		ctx.input_mut(|i| i.keys_down.clear());
+		// These tests are about sending; the typing indicator has its own test.
+		commands.retain(|command| !matches!(command, Command::Typing { .. }));
 		commands
+	}
+
+	#[test]
+	fn typing_a_draft_sends_one_typing_indicator_until_it_lapses() {
+		let ctx = egui::Context::default();
+		let mut state = edit_state();
+		state.gateway_connected = true;
+		let channel = state.selected.unwrap();
+		let mut view = MessagingUi::default();
+		ctx.run_ui(Default::default(), |ui| {
+			view.composer(ui, &mut state, channel, &ctx, &mut vec![]);
+			ctx.memory_mut(|m| m.request_focus(ui.make_persistent_id("message-input")));
+		})
+		.drop_without_applying_deltas();
+		let mut typed = |text: &str, state: &mut State| {
+			let mut commands = vec![];
+			ctx.run_ui(
+				egui::RawInput {
+					events: vec![egui::Event::Text(text.into())],
+					..Default::default()
+				},
+				|ui| view.composer(ui, state, channel, &ctx, &mut commands),
+			)
+			.drop_without_applying_deltas();
+			commands
+				.iter()
+				.filter(
+					|command| matches!(command, Command::Typing { channel: at } if *at == channel),
+				)
+				.count()
+		};
+		assert_eq!(typed("h", &mut state), 1);
+		assert_eq!(
+			typed("i", &mut state),
+			0,
+			"throttled while Discord still shows it"
+		);
 	}
 
 	fn edit_key(key: egui::Key) -> egui::Event {
@@ -6515,7 +6899,8 @@ mod composer_tests {
 			(
 				std::time::Instant::now(),
 				Some(Ok(model::InvitePreview {
-					guild: Id(100),
+					guild: Some(Id(100)),
+					channel: None,
 					embed: model::Embed {
 						title: Some("Synthetic invited server".into()),
 						..Default::default()
@@ -8821,6 +9206,142 @@ mod composer_tests {
 	}
 
 	#[test]
+	fn profile_footer_open_chat_hands_its_draft_to_the_loaded_dm() {
+		let mut state = test_support::demo_state();
+		state.selected = Some(Id(20));
+		let user = test_support::message(1, Id(22)).author;
+		let mut view = MessagingUi {
+			profile: {
+				let mut profile = profiles::ProfileSession::default();
+				profile.command_open(user.clone());
+				profile.set_message_draft(state.generation, user.id, "keep this unsent");
+				profile
+			},
+			..Default::default()
+		};
+		let mut commands = vec![];
+		view.profile_action(
+			&egui::Context::default(),
+			&mut state,
+			&mut commands,
+			&user,
+			None,
+			profiles::Action::OpenDirect(user.clone()),
+		);
+		assert_eq!(state.selected, Some(Id(22)));
+		assert_eq!(
+			state.drafts.get(&Id(22)).map(String::as_str),
+			Some("keep this unsent")
+		);
+		assert!(view.draft_changes.contains(&Id(22)));
+		assert!(view.focus_switched_composer);
+		assert!(view.profile.open_user().is_none());
+		assert!(
+			!commands
+				.iter()
+				.any(|command| matches!(command, Command::Send { .. }))
+		);
+	}
+
+	#[test]
+	fn profile_footer_open_chat_keeps_the_card_when_the_destination_has_text() {
+		let mut state = test_support::demo_state();
+		state.selected = Some(Id(20));
+		state
+			.drafts
+			.insert(Id(22), "existing direct message draft".into());
+		let user = test_support::message(1, Id(22)).author;
+		let mut view = MessagingUi {
+			profile: {
+				let mut profile = profiles::ProfileSession::default();
+				profile.command_open(user.clone());
+				profile.set_message_draft(state.generation, user.id, "keep this unsent");
+				profile
+			},
+			..Default::default()
+		};
+		let mut commands = vec![];
+		view.profile_action(
+			&egui::Context::default(),
+			&mut state,
+			&mut commands,
+			&user,
+			None,
+			profiles::Action::OpenDirect(user.clone()),
+		);
+		assert_eq!(state.selected, Some(Id(22)));
+		assert_eq!(
+			state.drafts.get(&Id(22)).map(String::as_str),
+			Some("existing direct message draft")
+		);
+		assert_eq!(
+			view.profile
+				.message_draft(state.generation, user.id)
+				.map(String::as_str),
+			Some("keep this unsent")
+		);
+		assert!(view.profile.open_user().is_some());
+		assert!(!view.focus_switched_composer);
+		assert!(
+			!commands
+				.iter()
+				.any(|command| matches!(command, Command::Send { .. }))
+		);
+	}
+
+	#[test]
+	fn open_chat_conflict_keeps_profile_focus_on_the_next_frame() {
+		let mut state = test_support::demo_state();
+		state.selected = Some(Id(20));
+		state
+			.drafts
+			.insert(Id(22), "existing direct message draft".into());
+		let user = test_support::message(1, Id(22)).author;
+		let mut view = MessagingUi {
+			navigation_channel: state.selected,
+			profile: {
+				let mut profile = profiles::ProfileSession::default();
+				profile.command_open(user.clone());
+				profile.set_message_draft(state.generation, user.id, "keep this unsent");
+				profile
+			},
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		view.profile_action(
+			&ctx,
+			&mut state,
+			&mut vec![],
+			&user,
+			None,
+			profiles::Action::OpenDirect(user.clone()),
+		);
+		assert_eq!(state.selected, Some(Id(22)));
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1120.0, 900.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				view.show(ui, &mut state);
+			},
+		);
+		output.drop_without_applying_deltas();
+		assert!(view.profile.open_user().is_some());
+		assert_eq!(
+			state.drafts.get(&Id(22)).map(String::as_str),
+			Some("existing direct message draft")
+		);
+		assert!(
+			ctx.memory(|memory| memory.focused().is_none()),
+			"the retained profile keeps focus instead of the destination composer"
+		);
+	}
+
+	#[test]
 	fn inline_edit_keeps_the_pending_draft_attachment_separate() {
 		let ctx = egui::Context::default();
 		let mut state = edit_state();
@@ -8964,6 +9485,8 @@ mod composer_tests {
 			)
 			.drop_without_applying_deltas();
 			let sends = !busy && allowed && modifiers == egui::Modifiers::NONE && !repeat;
+			// A newline is typing too; this test counts sends.
+			commands.retain(|command| !matches!(command, Command::Typing { .. }));
 			assert_eq!(commands.len(), usize::from(sends));
 			if modifiers == egui::Modifiers::SHIFT {
 				assert_eq!(state.drafts[&channel], "\n");
@@ -9480,6 +10003,19 @@ pub fn debug_gif_favorites_check(mut message: model::Message) -> Vec<model::Gif>
 		assert_eq!(gif.preview, proxy_url.unwrap_or(url));
 		gifs.push(gif);
 	}
+	let webp_media = model::EmbedMedia {
+		url: Some("https://static.klipy.com/ii/synthetic/a1.webp".into()),
+		proxy_url: None,
+		width: 320,
+		height: 200,
+		..Default::default()
+	};
+	let webp_gif = embeds::gif_for_media(&webp_media, None, true)
+		.expect("Animated WebP provider media recognized");
+	assert_eq!(
+		webp_gif.url,
+		"https://static.klipy.com/ii/synthetic/a1.webp"
+	);
 	assert!(
 		embeds::gif_for_media(
 			&model::EmbedMedia {

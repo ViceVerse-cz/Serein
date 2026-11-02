@@ -106,6 +106,7 @@ fn large_startup() -> crate::Startup {
 		notifications: None,
 		session_dnd: Some(false),
 		warnings: Default::default(),
+		threads: Vec::new(),
 	};
 	let mut reads = Vec::new();
 	let mut settings = Vec::new();

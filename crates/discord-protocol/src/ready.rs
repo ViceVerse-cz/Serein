@@ -133,6 +133,7 @@ impl Envelope<'_> {
 				presences,
 				merged_presences,
 				skipped,
+				thread_changes: Vec::new(),
 			},
 			warnings,
 		))
@@ -589,6 +590,8 @@ mod tests {
 						default_forum_layout: None,
 						default_sort_order: None,
 						default_tag_setting: None,
+						member: None,
+						thread_metadata: None,
 					})
 					.collect();
 				assert_eq!(

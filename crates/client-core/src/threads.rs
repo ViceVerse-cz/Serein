@@ -119,6 +119,130 @@ impl State {
 		}
 		Ok(())
 	}
+
+	/// Records membership and archive metadata for known threads of `guild`, or of any
+	/// server for the login snapshot.
+	pub(super) fn apply_thread_changes(
+		&mut self,
+		guild: Option<Id>,
+		changes: Vec<model::threads::Change>,
+	) {
+		for change in changes.into_iter().take(MAX_NAV) {
+			if !self.channel(change.id).is_some_and(|thread| {
+				matches!(thread.kind, 10..=12) && guild.is_none_or(|id| thread.guild == Some(id))
+			}) {
+				continue;
+			}
+			self.thread_info
+				.entry(change.id)
+				.or_default()
+				.apply(&change);
+		}
+	}
+
+	pub fn thread_member(&self, thread: Id) -> Option<&model::threads::Member> {
+		self.thread_info.get(&thread)?.member.as_ref()
+	}
+
+	/// An active thread the account joined. Retained read history alone is not membership.
+	pub fn thread_joined(&self, thread: &Channel) -> bool {
+		matches!(thread.kind, 10..=12)
+			&& Some(thread.id) != self.archived_thread
+			&& self.thread_member(thread.id).is_some()
+	}
+
+	/// Unread that keeps a thread listed even beneath a muted parent: a mention, or unread
+	/// messages while the thread itself is not muted.
+	fn thread_unread_relevant(&self, thread: &Channel, now: i64) -> bool {
+		self.mention_count(thread.id) > 0
+			|| (self.channel_unread(thread) == Some(true)
+				&& !self
+					.thread_member(thread.id)
+					.is_some_and(|member| member.muted_at(now)))
+	}
+
+	/// Discord keeps a joined thread in the channel list until its auto-archive window has
+	/// elapsed since its latest activity, even before the service archives it.
+	fn thread_recent(&self, thread: &Channel, now: i64) -> bool {
+		let meta = self.thread_info.get(&thread.id).and_then(|info| info.meta);
+		let latest = model::threads::snowflake_ms(thread.last_message.unwrap_or(thread.id))
+			.max(meta.map_or(0, |meta| meta.activity));
+		let window = i64::from(meta.map_or(1440, |meta| meta.auto_archive_minutes)) * 60_000;
+		latest.saturating_add(window) > now
+	}
+
+	/// Threads Discord lists beneath each parent of `guild` in the channel list, in order.
+	///
+	/// Joined active threads that are recent, pinned, unread or mentioned, newest join
+	/// first. A muted parent keeps only unread or mentioned threads, and hiding muted
+	/// channels drops muted threads without mentions, unless the parent or one of its
+	/// threads is selected. The selected thread is always listed, first when not joined.
+	pub fn sidebar_threads(
+		&self,
+		guild: Id,
+		now: i64,
+		hide_muted: bool,
+	) -> BTreeMap<Id, Vec<&Channel>> {
+		let open = self
+			.selected
+			.and_then(|id| self.channel(id))
+			.filter(|thread| thread.guild == Some(guild) && matches!(thread.kind, 10..=12));
+		let focus = open.and_then(|thread| thread.parent_id).or(self.selected);
+		let mut rows = BTreeMap::<Id, Vec<&Channel>>::new();
+		for thread in &self.channels {
+			let Some(parent) = thread
+				.parent_id
+				.filter(|_| thread.guild == Some(guild) && self.thread_joined(thread))
+			else {
+				continue;
+			};
+			if !self.channel(parent).is_some_and(|parent| {
+				matches!(parent.kind, 0 | 5 | 15 | 16)
+					&& parent.guild == thread.guild
+					&& parent.parent_id != Some(thread.id)
+			}) {
+				continue;
+			}
+			let focused = focus == Some(parent);
+			let unread = self.thread_unread_relevant(thread, now);
+			// A muted category mutes the forums and channels inside it as well.
+			let parent_muted = self.guild_channel_muted(parent) == Some(true)
+				|| self
+					.channel(parent)
+					.and_then(|parent| parent.parent_id)
+					.is_some_and(|category| self.guild_channel_muted(category) == Some(true));
+			let listed = if !focused && parent_muted {
+				unread
+			} else {
+				unread
+					|| self.thread_recent(thread, now)
+					|| self
+						.thread_info
+						.get(&thread.id)
+						.is_some_and(|info| info.pinned)
+			};
+			let muted = self.guild_channel_muted(thread.id) == Some(true)
+				|| self
+					.thread_member(thread.id)
+					.is_some_and(|member| member.muted_at(now));
+			if listed && (focused || !hide_muted || !muted || self.mention_count(thread.id) > 0) {
+				rows.entry(parent).or_default().push(thread);
+			}
+		}
+		let joined = |thread: &Channel| self.thread_member(thread.id).map_or(0, |m| m.joined);
+		for threads in rows.values_mut() {
+			threads.sort_unstable_by_key(|thread| std::cmp::Reverse((joined(thread), thread.id)));
+		}
+		if let Some(open) = open
+			&& let Some(parent) = open.parent_id
+		{
+			let threads = rows.entry(parent).or_default();
+			if !threads.iter().any(|thread| thread.id == open.id) {
+				threads.insert(0, open);
+			}
+		}
+		rows
+	}
 }
 
 #[cfg(test)]

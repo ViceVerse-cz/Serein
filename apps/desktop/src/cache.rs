@@ -275,6 +275,13 @@ impl Cache {
 						.into_iter()
 						.map(|action| value.keybinds.chord(action).key.capacity())
 						.sum::<usize>()
+					+ value.keybinds.custom.capacity() * size_of::<model::CustomBinding>()
+					+ value
+						.keybinds
+						.custom
+						.iter()
+						.map(|binding| binding.chord.key.capacity())
+						.sum::<usize>()
 			}
 			Operation::SaveThemeVariant(value) => value.as_ref().map_or(0, String::capacity),
 			Operation::SaveAccount(account) => {

@@ -248,9 +248,10 @@ impl Cosmetic {
 	fn budget(self) -> Budget {
 		let (fit, encoded, frames) = match self {
 			Self::Decoration { .. } => (256, 4 * 1024 * 1024, 16 * 1024 * 1024),
-			Self::Nameplate | Self::EffectStill => (ui::EMBED_EDGE, 8 * 1024 * 1024, 0),
+			Self::Nameplate => (ui::EMBED_EDGE, 8 * 1024 * 1024, 0),
+			Self::EffectStill => (ui::EFFECT_EDGE, 8 * 1024 * 1024, 0),
 			Self::AnimatedNameplate => (ui::EMBED_EDGE, MAX_ANIMATED_ENCODED, 16 * 1024 * 1024),
-			Self::Effect => (ui::EMBED_EDGE, MAX_ANIMATED_ENCODED, 24 * 1024 * 1024),
+			Self::Effect => (ui::EFFECT_EDGE, MAX_ANIMATED_ENCODED, 64 * 1024 * 1024),
 			Self::FrameLayer => (ui::FRAME_EDGE, 8 * 1024 * 1024, 0),
 		};
 		Budget {
@@ -845,6 +846,11 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 				|| path.starts_with("https://media.discordapp.net/streams/") =>
 		{
 			(proxy_base(source).map(String::from), None)
+		}
+		// Discord's media proxy serves a clip too, and its still is the clip's first
+		// frame rather than a webp of a video the image pipeline cannot read.
+		Motion::Still if path.starts_with("https://images-ext-") && ui::is_motion_video(source) => {
+			(motion_video_source(source), None)
 		}
 		// Provider media cannot go through Discord's proxy; a clip's still is its first frame.
 		Motion::Still if proxy_base(source).is_none() => (
@@ -3149,6 +3155,11 @@ mod tests {
 		assert!(!is_animated_key(&format!("effect-still-c-{hash}")));
 		assert!(!is_animated_key("frame-30-31"));
 		assert!(budget(&format!("effect-c-{hash}")).frames.is_some());
+		assert_eq!(budget(&format!("effect-c-{hash}")).fit, ui::EFFECT_EDGE);
+		assert_eq!(
+			budget(&format!("effect-still-c-{hash}")).fit,
+			ui::EFFECT_EDGE
+		);
 		// Large catalog PNGs are decoded and scaled, not rejected by the icon canvas.
 		let art = budget("badge-art:https://cdn.discordapp.com/assets/content/a.png");
 		assert!(art.canvas >= 2048 && art.fit == 256 && art.frames.is_none());
@@ -3186,6 +3197,40 @@ mod tests {
 			32,
 		)
 		.is_some());
+
+		// The gateway projection must preserve the same opaque source encodings the loader
+		// already accepts for message embeds, for both the cover and the corner badge.
+		let paths = [
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/cover%2Epng",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/%3Fsource%3Dalbum%2Fcover/https/example.com/art.png",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/covers%2Ftrack.png",
+		];
+		for path in paths {
+			let wire = serde_json::json!({
+				"user_id":"2", "status":"online", "activities":[{
+					"type":2, "name":"Synthetic music", "application_id":"10",
+					"assets":{"large_image":format!("mp:{path}"),"small_image":"mp:external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/badge%2Epng"}
+				}]
+			});
+			let presence =
+				discord_protocol::presence::decode(&serde_json::to_vec(&wire).unwrap()).unwrap();
+			let model::Patch::Value(activities) = presence.activities else {
+				panic!("activity projection")
+			};
+			let image = activities[0].image.as_ref().unwrap();
+			assert_eq!(image, &model::ActivityImage::Proxy(path.into()));
+			let url = url::Url::parse(&cdn_url(&image.key()).expect("proxy artwork is loadable"))
+				.unwrap();
+			assert_eq!(url.host_str(), Some("media.discordapp.net"));
+			assert_eq!(url.path(), format!("/{path}"));
+			assert_eq!(
+				activities[0].small_image,
+				Some(model::ActivityImage::Proxy(
+					"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/badge%2Epng"
+						.into()
+				))
+			);
+		}
 	}
 
 	#[test]
@@ -3662,6 +3707,10 @@ fn provider_clip_stills_fetch_the_clip_and_unknown_hosts_stay_unfetched() {
 		assert_eq!(still(source), Some((source.to_owned(), None)));
 	}
 	assert!(still("https://example.com/clip.mp4").is_none());
+	// Discord's proxy serves the clip itself; a webp of it is not a picture the decoder reads.
+	let proxied =
+		"https://images-ext-1.discordapp.net/external/synthetic/https/example.org/clip.mp4";
+	assert_eq!(still(proxied), Some((proxied.to_owned(), None)));
 	assert!(is_isobmff(b"\0\0\0\x18ftypmp42"));
 	assert!(decode(b"\0\0\0\x18ftypmp42 not a clip", &budget("gif:x")).is_none());
 }

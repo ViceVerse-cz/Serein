@@ -1233,8 +1233,8 @@ pub const WINDOW_CAPTION_HEIGHT: f32 = if cfg!(target_os = "windows") {
 	TITLE_BAR_HEIGHT
 };
 
-/// Make `rect` behave like a native title bar: drag moves the window and, where the app
-/// draws its own frame (Windows), a double click toggles maximize.
+/// Make `rect` behave like a native title bar: drag moves the window and a double click
+/// toggles maximize.
 pub fn window_drag(ui: &mut egui::Ui, rect: egui::Rect) {
 	// The OS owns dragging. Sensing only clicks lets child caption buttons win hit testing.
 	let response = ui.interact(
@@ -1243,16 +1243,40 @@ pub fn window_drag(ui: &mut egui::Ui, rect: egui::Rect) {
 		egui::Sense::click(),
 	);
 	// StartDrag must reach the window backend on the press, before egui's drag threshold.
-	if response.is_pointer_button_down_on()
-		&& ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+	if !response.is_pointer_button_down_on()
+		|| !ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
 	{
-		ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+		return;
 	}
-	if cfg!(target_os = "windows") && response.double_clicked() {
-		let maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
+	// The OS drag loop swallows the release on macOS and Linux, so egui never reports a
+	// double click there; pair consecutive presses instead.
+	let press_id = response.id.with("last-press");
+	let (time, pos, maximized) = ui.input(|i| {
+		(
+			i.time,
+			i.pointer.interact_pos(),
+			i.viewport().maximized.unwrap_or(false),
+		)
+	});
+	let (delay, distance) = ui.ctx().options(|options| {
+		(
+			options.input_options.max_double_click_delay,
+			options.input_options.max_click_dist,
+		)
+	});
+	let last = ui.data_mut(|data| data.remove_temp::<(f64, egui::Pos2)>(press_id));
+	let double = last.zip(pos).is_some_and(|((last_time, last_pos), pos)| {
+		time - last_time < delay && last_pos.distance(pos) <= distance
+	});
+	if double {
 		ui.ctx()
 			.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+		return;
 	}
+	if let Some(pos) = pos {
+		ui.data_mut(|data| data.insert_temp(press_id, (time, pos)));
+	}
+	ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
 }
 
 /// Hit boxes for the native Windows resize handles within `rect`, each paired

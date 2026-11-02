@@ -30,7 +30,7 @@ pub mod profile;
 pub mod reactions;
 pub mod read_state;
 mod replies;
-pub use replies::{HistoryNavigation, ParkedReplies, Reply, ReplyDeletions};
+pub use replies::{HistoryNavigation, LinkResolution, ParkedReplies, Reply, ReplyDeletions};
 pub mod group_actions;
 pub mod onboarding;
 pub mod resident;
@@ -219,6 +219,10 @@ pub enum Command {
 		guild: Id,
 		request: u64,
 	},
+	/// Documented Trigger Typing Indicator for this account; see `State::prepare_typing`.
+	Typing {
+		channel: Id,
+	},
 	/// Latest message per unread channel, at most `MAX_BULK_ACK`.
 	MarkAllRead {
 		request: u64,
@@ -320,6 +324,8 @@ pub struct Startup {
 	pub notifications: Option<notifications::Event>,
 	pub session_dnd: Option<bool>,
 	pub warnings: model::account::Warnings,
+	/// Membership and archive metadata of the joined threads among `channels`.
+	pub threads: Vec<model::threads::Change>,
 }
 impl Startup {
 	/// Validate and build the permission mirror on the Gateway worker before enqueueing.
@@ -361,6 +367,7 @@ impl Startup {
 			+ self.guilds.iter().map(Guild::bytes).sum::<usize>()
 			+ self.channels.iter().map(Channel::bytes).sum::<usize>()
 			+ self.read_state.bytes()
+			+ self.threads.capacity() * size_of::<model::threads::Change>()
 			+ self
 				.notifications
 				.as_ref()
@@ -483,7 +490,7 @@ pub enum Event {
 	Onboarding(onboarding::Event),
 	JoinInvite {
 		request: u64,
-		result: Result<Id, auth::Failure>,
+		result: Result<model::JoinedTarget, auth::Failure>,
 	},
 	GuildJoined(Guild),
 	GuildCreated {
@@ -504,6 +511,8 @@ pub enum Event {
 		result: Result<Box<model::InvitePreview>, auth::Failure>,
 	},
 	Typing(typing::Signal),
+	/// Result of this account's own typing indicator; carries nothing to display.
+	TypingSent(Result<(), auth::Failure>),
 	PostCreated {
 		parent: Id,
 		request: u64,
@@ -583,6 +592,11 @@ pub enum Event {
 		parents: Option<Vec<Id>>,
 		threads: Vec<Channel>,
 		removed: Vec<Id>,
+	},
+	/// Membership or archive metadata of known threads.
+	ThreadInfo {
+		guild: Id,
+		changes: Vec<model::threads::Change>,
 	},
 	GuildChanged(GuildPatch),
 	GuildEmojis {
@@ -740,6 +754,8 @@ pub struct State {
 	pub archives: Option<archives::View>,
 	pub posting: forum::Posting,
 	pub posts: forum::Posts,
+	/// The forum on screen, for its once-per-visit acknowledgement and card boundary.
+	pub forum_visit: Option<forum::Visit>,
 	pub archived_thread: Option<Id>,
 	pub thread_starter: thread_starter::Starter,
 	pub search: Option<search::SearchView>,
@@ -757,6 +773,9 @@ pub struct State {
 	/// One exact target awaiting its history page; never a metadata cache.
 	#[doc(hidden)]
 	pub history_navigation: HistoryNavigation,
+	/// A chat link waiting on the one bounded channel read that can admit its thread.
+	#[doc(hidden)]
+	pub link_resolution: LinkResolution,
 	/// Session reading cursors. Missing means the channel has not been opened yet.
 	pub reading: Vec<(Id, ReadingCursor)>,
 	pub reply_deletions: ReplyDeletions,
@@ -806,9 +825,9 @@ pub struct State {
 	/// Session-local guild/channel ID pairs, oldest visit first; at most 16 KiB.
 	#[doc(hidden)]
 	pub last_viewed_channels: Vec<(Id, Id)>,
-	/// Session-local opened threads, newest first; at most 1,024 IDs / 8 KiB.
+	/// Membership and archive metadata of known threads; one entry per thread channel.
 	#[doc(hidden)]
-	pub last_viewed_threads: Vec<Id>,
+	pub thread_info: BTreeMap<Id, model::threads::Info>,
 	pub timeline: Timeline,
 	pub preserve_deleted_messages: bool,
 	pub resident: resident::Windows,
@@ -979,6 +998,7 @@ impl Default for State {
 			archives: None,
 			posting: forum::Posting::default(),
 			posts: forum::Posts::default(),
+			forum_visit: None,
 			archived_thread: None,
 			thread_starter: Default::default(),
 			search: None,
@@ -991,6 +1011,7 @@ impl Default for State {
 			restore_scroll: false,
 			history_targeted: false,
 			history_navigation: HistoryNavigation::default(),
+			link_resolution: LinkResolution::default(),
 			reading: Vec::new(),
 			reply_deletions: ReplyDeletions::default(),
 			read_state: read_state::ReadState::default(),
@@ -1028,7 +1049,7 @@ impl Default for State {
 			selected: None,
 			last_viewed_dm: None,
 			last_viewed_channels: Vec::new(),
-			last_viewed_threads: Vec::new(),
+			thread_info: BTreeMap::new(),
 			timeline: Timeline::default(),
 			preserve_deleted_messages: false,
 			resident: resident::Windows::default(),
@@ -1260,6 +1281,8 @@ impl State {
 	}
 	pub fn select(&mut self, channel: Id) -> Option<Command> {
 		self.cancel_invite_navigation(channel);
+		// Reselecting the open conversation is still the user's own navigation.
+		self.link_resolution.clear();
 		// Keep the current conversation intact, but allow a restored channel to load again.
 		if self.selected == Some(channel) && self.freshness != Freshness::Unavailable {
 			return None;
@@ -1279,11 +1302,11 @@ impl State {
 
 	fn cancel_invite_navigation(&mut self, channel: Id) {
 		// Choosing another server's channel while a join is pending cancels its navigation.
-		if let Some((_, guild)) = self.invite_join.navigate
-			&& self
-				.channel(channel)
-				.is_some_and(|c| c.guild != Some(guild))
-		{
+		if let Some((_, target)) = self.invite_join.navigate
+			&& self.channel(channel).is_some_and(|c| match target {
+				model::JoinedTarget::Guild(guild) => c.guild != Some(guild),
+				model::JoinedTarget::Channel(group) => c.id != group,
+			}) {
 			self.invite_join.navigate = None;
 		}
 	}
@@ -1315,6 +1338,8 @@ impl State {
 		if self.selected == Some(channel) && self.freshness != Freshness::Unavailable {
 			return Apply::AlreadyHere;
 		}
+		// The user's own navigation wins over a link still waiting for its bounded read.
+		self.link_resolution.clear();
 		if !self.channel(channel).is_some_and(navigable) {
 			return Apply::Rejected("This channel kind is unsupported");
 		}
@@ -1326,14 +1351,6 @@ impl State {
 		}
 		let parked_reply = self.swap_parked_reply(channel);
 		self.remember_channel(channel);
-		if self
-			.channel(channel)
-			.is_some_and(|c| matches!(c.kind, 10..=12))
-		{
-			self.last_viewed_threads.retain(|id| *id != channel);
-			self.last_viewed_threads.truncate(1023);
-			self.last_viewed_threads.insert(0, channel);
-		}
 		self.retire_archived_thread(Some(channel));
 		self.typing.clear();
 		let trusted = self.select_resident(channel);
@@ -1439,6 +1456,7 @@ impl State {
 	/// Open Friends / Home. Does not clear the timeline or emit a command.
 	pub fn open_home(&mut self) {
 		self.park_reply();
+		self.link_resolution.clear();
 		self.last_viewed_dm = None;
 		self.application_commands.clear();
 		self.selected = None;
@@ -1457,6 +1475,7 @@ impl State {
 			self.trail.drop_current();
 		}
 		self.selected = None;
+		self.link_resolution.clear();
 		self.history_navigation.clear();
 		self.search_target = None;
 		self.restore_scroll = false;
@@ -1489,6 +1508,7 @@ impl State {
 					self.park_reply();
 					self.application_commands.clear();
 					self.selected = None;
+					self.link_resolution.clear();
 					self.history_navigation.clear();
 					self.search_target = None;
 					self.restore_scroll = false;
@@ -1499,10 +1519,18 @@ impl State {
 			match apply {
 				Apply::Opened(command) => {
 					self.commit_nav(back);
+					match place {
+						Place::Channel(channel) => self.cancel_invite_navigation(channel),
+						Place::Home => self.invite_join.navigate = None,
+					}
 					return Some(NavStep { command });
 				}
 				Apply::AlreadyHere => {
 					self.commit_nav(back);
+					match place {
+						Place::Channel(channel) => self.cancel_invite_navigation(channel),
+						Place::Home => self.invite_join.navigate = None,
+					}
 					return Some(NavStep { command: None });
 				}
 				Apply::Rejected(status) => {
@@ -2580,6 +2608,7 @@ impl State {
 				notifications,
 				session_dnd,
 				mut warnings,
+				threads,
 			} = data;
 			self.apply_with_permissions(
 				Envelope {
@@ -2597,6 +2626,8 @@ impl State {
 				return;
 			}
 			self.set_premium_type(premium_type);
+			self.thread_info.clear();
+			self.apply_thread_changes(None, threads);
 			warnings.read_state |= self.apply_read_state(read_state).is_err();
 			if let Some(settings) = notifications {
 				warnings.notifications |= self.apply_notification_preferences(settings).is_err();
@@ -2653,6 +2684,9 @@ impl State {
 			}
 			return;
 		}
+		if matches!(envelope.event, Event::TypingSent(_)) {
+			return;
+		}
 		if let Event::DirectPresence(updates) = &envelope.event {
 			if envelope.event.bytes() <= MAX_MEMBER_PRESENCE_BYTES {
 				self.apply_direct_presence(updates);
@@ -2685,7 +2719,7 @@ impl State {
 		}
 		// Ephemeral names must not outlive navigation identity/permission replacement.
 		if access_changed {
-			self.typing.clear();
+			self.typing.clear_all();
 		}
 		let previous_access = access_changed.then(|| self.permission_access()).flatten();
 		let previous_member_list = (access_changed && self.members.is_some()).then(|| {
@@ -2992,6 +3026,10 @@ impl State {
 				threads,
 				removed,
 			} => self.apply_threads_sync(guild, parents, threads, removed),
+			Event::ThreadInfo { guild, changes } => {
+				self.apply_thread_changes(Some(guild), changes);
+				Ok(())
+			}
 			Event::Interaction(event) => self.apply_interaction(event),
 			Event::ApplicationCommands {
 				channel,
@@ -3370,7 +3408,8 @@ impl State {
 			}
 			Event::MemberPresence { .. }
 			| Event::DirectPresence(_)
-			| Event::SharedGuildPresence(_) => {
+			| Event::SharedGuildPresence(_)
+			| Event::TypingSent(_) => {
 				unreachable!("presence handled before timeline revision")
 			}
 			Event::MemberSearch { request, result } => {
@@ -4148,7 +4187,7 @@ impl State {
 	}
 	fn remove_channels(&mut self, removed: &BTreeSet<Id>) {
 		self.invalidate_navigation();
-		self.last_viewed_threads.retain(|id| !removed.contains(id));
+		self.thread_info.retain(|id, _| !removed.contains(id));
 		for id in removed {
 			self.resident.remove(*id);
 		}
@@ -4200,7 +4239,7 @@ impl State {
 		}
 	}
 	fn fail(&mut self, failure: auth::Failure) {
-		self.typing.clear();
+		self.typing.clear_all();
 		self.status = failure.label();
 		match failure {
 			auth::Failure::Expired => self.auth = auth::AuthState::Expired,
@@ -4383,6 +4422,12 @@ impl Event {
 				Self::UserAction(user_actions::Event::DmOpened { result, .. }) => {
 					result.as_ref().map_or(0, |channel| channel.bytes())
 				}
+				Self::UserAction(user_actions::Event::GroupCreated {
+					recipients, result, ..
+				}) => {
+					recipients.capacity() * size_of::<Id>()
+						+ result.as_ref().map_or(0, |channel| channel.bytes())
+				}
 				Self::UserAction(user_actions::Event::Requests(entries)) => {
 					entries.as_ref().map_or(0, |e| {
 						e.capacity() * size_of::<(User, String, bool)>()
@@ -4516,6 +4561,9 @@ impl Event {
 					})
 					.sum(),
 				Self::ChannelCreated(channel) | Self::ChannelRestored(channel) => channel.bytes(),
+				Self::ThreadInfo { changes, .. } => {
+					changes.capacity() * size_of::<model::threads::Change>()
+				}
 				Self::ThreadsSync {
 					parents,
 					threads,
@@ -5124,7 +5172,8 @@ mod tests {
 				})
 			));
 			// A joined server opens once delivered; choosing another server cancels that.
-			state.invite_join.navigate = Some((std::time::Instant::now(), Id(2)));
+			state.invite_join.navigate =
+				Some((std::time::Instant::now(), model::JoinedTarget::Guild(Id(2))));
 			assert!(state.navigate_after_join().is_some());
 			assert_eq!(
 				state
@@ -5134,7 +5183,8 @@ mod tests {
 				Some(Id(2))
 			);
 			assert!(state.navigate_after_join().is_none());
-			state.invite_join.navigate = Some((std::time::Instant::now(), Id(2)));
+			state.invite_join.navigate =
+				Some((std::time::Instant::now(), model::JoinedTarget::Guild(Id(2))));
 			state.select(Id(11));
 			assert!(state.navigate_after_join().is_none());
 			assert_eq!(state.selected, Some(Id(11)));

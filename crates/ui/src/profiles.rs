@@ -233,6 +233,8 @@ pub enum Action {
 		user: User,
 		content: String,
 	},
+	/// Open the DM from the profile footer without submitting its draft.
+	OpenDirect(User),
 	AddFriend(Id),
 	RemoveFriend,
 	AcceptFriend(Id),
@@ -1100,6 +1102,38 @@ pub(crate) fn presence_badge(
 	);
 	ui.allocate_rect(presence_badge_rect(rect, mobile), egui::Sense::hover())
 		.on_hover_text(presence_label(status));
+}
+
+/// Discord's typing badge: the status disc stretched leftward into a pill of the status
+/// colour holding three dots that pulse in turn. A group has no status, so `None` is grey.
+pub(crate) fn typing_badge(ui: &mut egui::Ui, rect: Rect, status: Option<&str>, ring: Color32) {
+	let (radius, ring_width, center) = presence_badge_metrics(rect);
+	let pill = Rect::from_min_max(
+		pos2(center.x + radius - radius * 4.4, center.y - radius),
+		pos2(center.x + radius, center.y + radius),
+	);
+	let painter = ui.painter();
+	painter.rect_filled(pill.expand(ring_width), radius + ring_width, ring);
+	painter.rect_filled(pill, radius, presence_color(status.unwrap_or("offline")));
+	let time = ui.input(|input| input.time);
+	for dot in 0..3 {
+		// Each dot brightens a third of a 1.2 s cycle after the previous one.
+		let phase = (time / 1.2 - f64::from(dot) / 3.0).rem_euclid(1.0);
+		let pulse = (1.0 - (phase * std::f64::consts::TAU).cos()) as f32 / 2.0;
+		painter.circle_filled(
+			pos2(
+				pill.center().x + (dot as f32 - 1.0) * radius * 1.15,
+				pill.center().y,
+			),
+			radius * 0.34,
+			Color32::WHITE.gamma_multiply(0.45 + 0.55 * pulse),
+		);
+	}
+	// Animates only while someone is typing; indicators expire within ten seconds.
+	ui.ctx()
+		.request_repaint_after(std::time::Duration::from_millis(50));
+	ui.allocate_rect(pill.expand(ring_width), egui::Sense::hover())
+		.on_hover_text(crate::i18n::translate("typing-badge-typing"));
 }
 
 /// Discord's status glyphs, each set in a surface-coloured `ring` around a `radius` disc: a
@@ -2506,6 +2540,34 @@ impl ProfileSession {
 		}
 	}
 
+	/// True once a docked card asked for the full profile; the request is consumed.
+	pub fn take_full_request(&mut self) -> bool {
+		std::mem::take(&mut self.full)
+	}
+
+	/// The unsent footer draft typed for `user` in `generation`, if any.
+	pub fn message_draft(&self, generation: u64, user: Id) -> Option<&String> {
+		(self.message_target == Some((generation, user)) && !self.message_draft.trim().is_empty())
+			.then_some(&self.message_draft)
+	}
+
+	/// Takes the footer draft after moving it into the destination composer.
+	pub fn take_message_draft(&mut self, generation: u64, user: Id) -> Option<String> {
+		if self.message_target == Some((generation, user)) && !self.message_draft.trim().is_empty()
+		{
+			self.message_pending = false;
+			Some(std::mem::take(&mut self.message_draft))
+		} else {
+			None
+		}
+	}
+
+	#[cfg(test)]
+	pub(crate) fn set_message_draft(&mut self, generation: u64, user: Id, draft: &str) {
+		self.reconcile_card_input(generation, user);
+		self.message_draft = draft.to_owned();
+	}
+
 	pub fn open_user(&self) -> Option<&User> {
 		self.open.as_ref()
 	}
@@ -2731,6 +2793,7 @@ fn message_input(
 	let colors = design::palette(ui);
 	let can_send = enabled && !ime_this_frame && !session.message_draft.trim().is_empty();
 	let mut clicked = false;
+	let mut open_clicked = false;
 	let top = ui.cursor().top();
 	egui::Frame::new()
 		// Profile theme colours keep the composer legible over bright or saturated gradients.
@@ -2750,8 +2813,8 @@ fn message_input(
 		.show(ui, |ui| {
 			ui.horizontal(|ui| {
 				let button = 30.0;
-				let edit_width =
-					(ui.available_width() - button - ui.spacing().item_spacing.x).max(1.0);
+				let spacing = ui.spacing().item_spacing.x;
+				let edit_width = (ui.available_width() - 2.0 * button - 2.0 * spacing).max(1.0);
 				let row = ui.text_style_height(&egui::TextStyle::Body);
 				// Shrinks to one line and scrolls past four; the row stays as tall as the button.
 				egui::ScrollArea::vertical()
@@ -2776,6 +2839,43 @@ fn message_input(
 								.hint_text(RichText::new(placeholder).color(theme.muted)),
 						);
 					});
+				let open_label = crate::i18n::translate("profiles-message-open-chat");
+				let (_, open_rect) = ui.allocate_space(Vec2::splat(button));
+				let open = ui.interact(
+					open_rect,
+					egui::Id::unique(("profile-open-chat", state.generation, user.id)),
+					if enabled {
+						egui::Sense::click()
+					} else {
+						egui::Sense::hover()
+					},
+				);
+				let open_hot = enabled && (open.hovered() || open.has_focus());
+				ui.painter().circle_filled(
+					open_rect.center(),
+					button / 2.0,
+					if open_hot {
+						theme.chip_hover
+					} else if enabled {
+						theme.chip
+					} else {
+						Color32::TRANSPARENT
+					},
+				);
+				icons::paint(
+					ui.painter(),
+					Icon::Forum,
+					open_rect.shrink(8.0),
+					if enabled {
+						if open_hot { theme.text } else { theme.muted }
+					} else {
+						theme.muted.gamma_multiply(0.7)
+					},
+				);
+				open.widget_info(|| {
+					egui::WidgetInfo::labeled(egui::Role::Button, enabled, &open_label)
+				});
+				open_clicked = open.on_hover_text(open_label).clicked();
 				let (rect, response) = ui.allocate_exact_size(
 					Vec2::splat(button),
 					if can_send {
@@ -2856,7 +2956,12 @@ fn message_input(
 	if session.message_draft.capacity() > client_core::MAX_CONTENT * 4 {
 		session.message_draft.shrink_to_fit();
 	}
-	if (enter || clicked) && !session.message_pending && !session.message_draft.trim().is_empty() {
+	if open_clicked && enabled {
+		Some(Action::OpenDirect(user.clone()))
+	} else if (enter || clicked)
+		&& !session.message_pending
+		&& !session.message_draft.trim().is_empty()
+	{
 		session.message_pending = true;
 		Some(Action::SendMessage {
 			user: user.clone(),
@@ -2944,11 +3049,68 @@ pub fn show_with_session(
 	anchor: Pos2,
 	session: &mut ProfileSession,
 ) -> Option<Action> {
+	card_view(
+		ui,
+		user,
+		(view, None),
+		state,
+		avatars,
+		(opening, formatted, confirm_links),
+		Some(anchor),
+		session,
+	)
+}
+
+/// The profile docked beside a direct message, like Discord's user profile panel: the same
+/// card at the panel's width, scrolling inside it and never dismissed by outside clicks.
+/// "View Full Profile" sets `session.full`; the caller opens the centred profile from it.
+/// Without the open `view`, the card draws from `cached` profile data.
+#[allow(clippy::too_many_arguments)]
+pub fn show_docked(
+	ui: &mut egui::Ui,
+	user: &User,
+	view: Option<&ProfileView>,
+	cached: Option<&model::UserProfile>,
+	state: &State,
+	avatars: &mut Avatars,
+	opening: &mut Option<String>,
+	formatted: &mut FormatCache,
+	confirm_links: bool,
+	session: &mut ProfileSession,
+) -> Option<Action> {
+	card_view(
+		ui,
+		user,
+		(view, cached),
+		state,
+		avatars,
+		(opening, formatted, confirm_links),
+		None,
+		session,
+	)
+}
+
+/// A popout at `anchor`, the centred full profile, or (without an anchor) the docked card.
+#[allow(clippy::too_many_arguments)]
+fn card_view(
+	ui: &mut egui::Ui,
+	user: &User,
+	(view, cached): (Option<&ProfileView>, Option<&model::UserProfile>),
+	state: &State,
+	avatars: &mut Avatars,
+	(opening, formatted, confirm_links): (&mut Option<String>, &mut FormatCache, bool),
+	anchor: Option<Pos2>,
+	session: &mut ProfileSession,
+) -> Option<Action> {
+	let docked = anchor.is_none();
+	let anchor = anchor.unwrap_or_default();
+	let dock_width = ui.available_width();
+	let dock_height = ui.available_height();
 	session.reconcile_card_input(state.generation, user.id);
 	let colors = design::palette(ui);
 	let viewport = ui.ctx().content_rect();
 	let view = view.filter(|_| !user.webhook);
-	let full = session.full && !user.webhook;
+	let full = session.full && !user.webhook && !docked;
 	let mut expand = full;
 	let bounds = viewport.shrink(if full { 32.0 } else { 8.0 });
 	let full_width = FULL_WIDTH.min(bounds.width());
@@ -2961,19 +3123,46 @@ pub fn show_with_session(
 	let (width, banner_height, avatar_size, pad) = if full {
 		(width, FULL_BANNER, FULL_AVATAR, FULL_PAD)
 	} else {
-		(WIDTH, 105.0, AVATAR, PAD)
+		(if docked { dock_width } else { WIDTH }, 105.0, AVATAR, PAD)
 	};
 	// Height shared by both full-profile columns below the close button.
 	let column = (bounds.height() - 48.0).max(80.0) - 36.0;
-	let data = view.and_then(|v| v.data.as_ref());
+	let data = view
+		.and_then(|v| v.data.as_ref())
+		.or(cached.filter(|_| !user.webhook));
 	// Overflow of an equipped frame beyond the card: top, bottom and each side.
 	let frame_overflow = data
 		.and_then(|d| d.frame.as_deref())
 		.filter(|_| avatars.cosmetics.frames)
 		.map(|frame| frame.overflow(width));
+	// Docked, the frame's overhang stays inside the panel: the card narrows to make room.
+	let (width, frame_overflow) = match frame_overflow {
+		Some([_, _, side]) if docked => {
+			let narrowed = (width - 2.0 * side).max(160.0);
+			(
+				narrowed,
+				data.and_then(|d| d.frame.as_deref())
+					.map(|frame| frame.overflow(narrowed)),
+			)
+		}
+		_ => (width, frame_overflow),
+	};
+	// What the docked card and its frame may paint over: the panel, never the header above.
+	let dock_clip = docked.then(|| ui.clip_rect());
+	// Docked, the card is exactly the panel's height less the frame's overhang; its details
+	// scroll inside it while the banner, frame, effect and footer stay where they are.
+	let bounds = if docked {
+		let [top, bottom, _] = frame_overflow.unwrap_or_default();
+		Rect::from_min_size(
+			ui.max_rect().min,
+			vec2(width, (dock_height - top - bottom).max(200.0)),
+		)
+	} else {
+		bounds
+	};
 	// The popout keeps an equipped frame's overflow on screen with the card.
 	let bounds = match frame_overflow {
-		Some([top, bottom, side]) if !full => {
+		Some([top, bottom, side]) if !full && !docked => {
 			let framed = Rect::from_min_max(
 				bounds.min + vec2(side, top),
 				bounds.max - vec2(side, bottom),
@@ -3015,17 +3204,33 @@ pub fn show_with_session(
 		.find(|c| c.kind == 1 && c.recipients.iter().any(|u| u.id == user.id))
 		.map(|c| c.id);
 	let mut action = None;
-	let menu_id = egui::Id::unique(("user-profile-more", user.id));
+	let menu_id = egui::Id::unique(("user-profile-more", user.id, docked));
 	// A menu that was already open owns Escape and clicks on its own items this frame.
 	let menu_open = egui::Popup::is_id_open(ui.ctx(), menu_id);
 	// The mutuals side panel stays open across frames until toggled, dismissed or navigated.
-	let mutuals_id = egui::Id::unique(("profile-mutuals", user.id));
+	let mutuals_id = egui::Id::unique(("profile-mutuals", user.id, docked));
 	let mut mutuals = ui.ctx().data(|d| d.get_temp::<Mutuals>(mutuals_id));
 	let mut mutual_anchor = None;
 	let mut mutual_links = Vec::new();
 	let mut full_tab = session.full_tab;
 	let mut panel_action = None;
 	let mut close = false;
+	// Docked, the card's surface, frame and effect stay fixed at the panel's size while
+	// everything from the banner down scrolls inside it, above a pinned footer.
+	const DOCK_FOOTER: f32 = 52.0;
+	let dock_card = docked.then(|| {
+		let [top, _, side] = frame_overflow.unwrap_or_default();
+		Rect::from_min_size(
+			ui.max_rect().min + vec2(side, top),
+			vec2(width, bounds.height()),
+		)
+	});
+	let dock_layers = docked.then(|| {
+		(
+			ui.painter().add(egui::Shape::Noop),
+			ui.painter().add(egui::Shape::Noop),
+		)
+	});
 	let own_card = state.user.as_ref().is_some_and(|own| own.id == user.id);
 	let catalog = data.and_then(|d| d.badge_catalog.as_deref());
 	// A clicked badge: where to anchor the menu and which badge it was.
@@ -3033,8 +3238,10 @@ pub fn show_with_session(
 	let mut card = |ui: &mut egui::Ui, avatars: &mut Avatars| {
 		ui.set_width(width);
 		ui.set_max_width(width);
-		// Area remembers its previous size; let details grow beyond a short prior profile.
-		ui.set_max_height(bounds.height());
+		if !docked {
+			// Area remembers its previous size; let details grow beyond a short prior profile.
+			ui.set_max_height(bounds.height());
+		}
 		if full && split {
 			// The identity column spans the modal like the board beside it.
 			ui.set_min_height(column);
@@ -3043,8 +3250,12 @@ pub fn show_with_session(
 		// Cross-label drag selection paints stray highlights in this dense card.
 		ui.style_mut().interaction.selectable_labels = false;
 		// Back frame layers sit behind the card; front layers and the effect cover it.
-		let frame_back = ui.painter().add(egui::Shape::Noop);
-		let background = ui.painter().add(egui::Shape::Noop);
+		let (frame_back, background) = dock_layers.unwrap_or_else(|| {
+			(
+				ui.painter().add(egui::Shape::Noop),
+				ui.painter().add(egui::Shape::Noop),
+			)
+		});
 		{
 			// egui resolves strong, button and spinner colors from the widget strokes rather
 			// than the override, so a bright theme needs every stroke recolored too.
@@ -3366,7 +3577,7 @@ pub fn show_with_session(
 				let has_action = own || message_target || user.webhook;
 				let footer = if full {
 					0.0
-				} else if message_target && !own {
+				} else if message_target && !own && !docked {
 					session.message_height.max(32.0) + 8.0
 				} else if has_action {
 					40.0
@@ -3660,7 +3871,7 @@ pub fn show_with_session(
 								voice_badge(ui, in_voice, false);
 							});
 						}
-						if !user.webhook && view.is_none_or(|v| v.loading) {
+						if !user.webhook && view.map_or(data.is_none(), |v| v.loading) {
 							ui.add_space(4.0);
 							ui.horizontal(|ui| {
 								ui.spinner();
@@ -3693,7 +3904,7 @@ pub fn show_with_session(
 							// No floor here: a busy profile (many badges, connections, a long
 							// bio) must still fit `bounds`, or the card's rounded bottom
 							// corner renders past the window edge and looks square.
-							let max_height = if full {
+							let max_height = if full || docked {
 								f32::INFINITY
 							} else {
 								(bounds.height() - used - footer - 48.0).max(0.0)
@@ -3706,7 +3917,7 @@ pub fn show_with_session(
 									sections += 1;
 									activity_list(
 										ui,
-										egui::Id::unique(("profile-activity", user.id)),
+										egui::Id::unique(("profile-activity", user.id, docked)),
 										activities,
 										avatars,
 										state.demo,
@@ -3919,8 +4130,10 @@ pub fn show_with_session(
 							}
 						}
 					});
-				// Footer: one full-width primary action when available.
-				if state.user.as_ref().is_some_and(|own| own.id == user.id) {
+				// Footer: one full-width primary action when available. The docked card
+				// draws its own below the scrolling content.
+				if docked {
+				} else if state.user.as_ref().is_some_and(|own| own.id == user.id) {
 					if ui
 						.add_sized(
 							[ui.available_width(), 32.0],
@@ -3967,10 +4180,27 @@ pub fn show_with_session(
 					);
 				}
 			});
-		let rect = ui.min_rect();
-		ui.painter().set(background, theme.background(rect));
+		let rect = dock_card.unwrap_or_else(|| ui.min_rect());
+		if !docked {
+			ui.painter().set(background, theme.background(rect));
+		}
+		// The private strip and banner span the card, so its outline goes back over them.
+		ui.painter().rect_stroke(
+			rect,
+			RADIUS,
+			Stroke::new(1.0, theme.border),
+			egui::StrokeKind::Inside,
+		);
 		if let Some(data) = data {
-			paint_collectibles(ui, avatars, data, rect, frame_back, full, state.demo);
+			paint_collectibles(
+				ui,
+				avatars,
+				data,
+				rect,
+				frame_back,
+				(full, dock_clip),
+				state.demo,
+			);
 		}
 	};
 	let rect = if full {
@@ -4070,6 +4300,39 @@ pub fn show_with_session(
 			}
 		}
 		modal.response.rect
+	} else if let (Some(card_rect), Some((_, background))) = (dock_card, dock_layers) {
+		ui.painter().set(background, theme.background(card_rect));
+		let content = Rect::from_min_max(
+			card_rect.min,
+			pos2(card_rect.right(), card_rect.bottom() - DOCK_FOOTER),
+		);
+		ui.scope_builder(UiBuilder::new().max_rect(content), |ui| {
+			egui::ScrollArea::vertical()
+				.id_salt(("docked-profile", user.id))
+				.max_height(content.height())
+				.auto_shrink([false, false])
+				.show(ui, |ui| card(ui, avatars));
+		});
+		// Beside the conversation itself, the card offers the full profile, not a message box.
+		if !user.webhook {
+			let footer = Rect::from_min_max(
+				pos2(card_rect.left() + PAD, content.bottom() + 8.0),
+				pos2(card_rect.right() - PAD, card_rect.bottom() - 8.0),
+			);
+			let button = ui.put(
+				footer,
+				egui::Button::new(
+					RichText::new(crate::i18n::translate("view-full-profile")).color(theme.text),
+				)
+				.fill(theme.chip)
+				.stroke(Stroke::NONE)
+				.corner_radius(RADIUS),
+			);
+			if button.clicked() {
+				expand = true;
+			}
+		}
+		card_rect
 	} else {
 		let x = if anchor.x + 12.0 + width <= bounds.right() {
 			anchor.x + 12.0
@@ -4190,14 +4453,15 @@ pub fn show_with_session(
 	if badge_escape {
 		session.badges.close_top();
 	}
-	let escape = opening.is_none()
+	let escape = !docked
+		&& opening.is_none()
 		&& !menu_open
 		&& !panel_escape
 		&& !badge_escape
 		&& ui
 			.ctx()
 			.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-	if (pressed_outside || escape) && opening.is_none() && action.is_none() {
+	if !docked && (pressed_outside || escape) && opening.is_none() && action.is_none() {
 		action = Some(Action::Close);
 	}
 	crate::markdown::confirm_external_link(ui.ctx(), opening, confirm_links);
@@ -4210,11 +4474,11 @@ fn effect_clock(
 	ctx: &egui::Context,
 	user: Id,
 	sku: Id,
-	full: bool,
+	kind: (bool, bool),
 	ready: bool,
 ) -> Option<std::time::Duration> {
 	// One record per card kind, replaced when another profile or effect shows there.
-	let id = egui::Id::unique(("profile-effect-clock", full));
+	let id = egui::Id::unique(("profile-effect-clock", kind));
 	let frame = ctx.cumulative_frame_nr();
 	let now = std::time::Instant::now();
 	let start = ctx
@@ -4233,19 +4497,25 @@ fn paint_collectibles(
 	data: &model::UserProfile,
 	card: Rect,
 	frame_back: egui::layers::ShapeIdx,
-	full: bool,
+	(full, dock_clip): (bool, Option<Rect>),
 	demo: bool,
 ) {
 	if let Some(effect) = data.effect.as_deref().filter(|_| avatars.cosmetics.effects) {
+		// The popout, full profile and docked card each keep their own clock and fade.
+		let kind = (full, dock_clip.is_some());
 		let ready = avatars.effect_ready(ui, effect, demo);
-		let elapsed = effect_clock(ui.ctx(), data.user.id, effect.sku, full, ready);
+		let elapsed = effect_clock(ui.ctx(), data.user.id, effect.sku, kind, ready);
+		// Docked, the effect covers the whole fixed card, not just its scrolling details.
+		if let Some(panel) = dock_clip {
+			ui.set_clip_rect(panel);
+		}
 		// The effect steps back while the pointer is over the card, so its text stays readable.
 		let hovered = ui
 			.ctx()
 			.pointer_hover_pos()
 			.is_some_and(|pointer| card.contains(pointer) && ui.clip_rect().contains(pointer));
 		let fade = ui.ctx().animate_bool_with_time(
-			egui::Id::unique(("profile-effect-hover", full)),
+			egui::Id::unique(("profile-effect-hover", kind)),
 			hovered,
 			0.2,
 		);
@@ -4255,7 +4525,9 @@ fn paint_collectibles(
 		return;
 	};
 	// The popout floats over the app; the full profile keeps its frame inside the modal.
-	let clip = if full {
+	let clip = if let Some(panel) = dock_clip {
+		panel
+	} else if full {
 		let [_, _, side] = frame.overflow(card.width());
 		ui.clip_rect().expand2(vec2(side, 0.0))
 	} else {
@@ -4547,6 +4819,52 @@ mod tests {
 			)
 			.is_none()
 		);
+	}
+
+	#[test]
+	fn profile_message_footer_opens_chat_without_sending_its_draft() {
+		let state = test_support::demo_state();
+		let mut user = test_support::message(1, Id(22)).author;
+		user.id = Id(991);
+		assert!(state.can_open_user_dm(&user));
+		let mut session = ProfileSession::default();
+		session.reconcile_card_input(state.generation, user.id);
+		session.message_draft = "keep this unsent".into();
+		let ctx = egui::Context::default();
+		let id = egui::Id::unique(("profile-open-chat", state.generation, user.id));
+		let frame = |session: &mut ProfileSession, events| {
+			let mut action = None;
+			ctx.run_ui(input(vec2(400.0, 200.0), events), |ui| {
+				let theme = Theme::new(&design::palette(ui), None);
+				action = message_input(ui, &user, &state, session, &theme);
+			})
+			.drop_without_applying_deltas();
+			action
+		};
+		frame(&mut session, vec![]);
+		let center = ctx
+			.read_response(id)
+			.expect("open chat button")
+			.rect
+			.center();
+		let pointer = |pressed| {
+			vec![
+				egui::Event::PointerMoved(center),
+				egui::Event::PointerButton {
+					pos: center,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		assert!(frame(&mut session, pointer(true)).is_none());
+		assert!(matches!(
+			frame(&mut session, pointer(false)),
+			Some(Action::OpenDirect(target)) if target.id == user.id
+		));
+		assert_eq!(session.message_draft, "keep this unsent");
+		assert!(!session.message_pending);
 	}
 
 	#[test]
@@ -5217,5 +5535,76 @@ mod tests {
 		};
 		assert_eq!(shown_status(&state, Id(7), None), None);
 		assert_eq!(shown_status(&state, Id(7), Some("idle")), Some("idle"));
+	}
+
+	#[test]
+	fn docked_card_keeps_its_frame_inside_the_panel_and_scrolls() {
+		let ctx = egui::Context::default();
+		let state = test_support::demo_state();
+		let user = state
+			.channels
+			.iter()
+			.find(|channel| channel.kind == 1)
+			.and_then(|channel| channel.recipients.first().cloned())
+			.unwrap();
+		let data = synthetic(&user, None);
+		assert!(data.frame.is_some());
+		let view = ProfileView {
+			user: user.id,
+			guild: None,
+			request: 0,
+			loading: false,
+			error: None,
+			data: Some(data),
+		};
+		let mut avatars = Avatars::default();
+		avatars.cosmetics = model::CosmeticPreferences::SHOWN;
+		let panel = Rect::from_min_size(pos2(900.0, 48.0), vec2(340.0, 500.0));
+		let mut session = ProfileSession::default();
+		let mut shapes = Vec::new();
+		for _ in 0..3 {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 600.0))),
+					..Default::default()
+				},
+				|ui| {
+					ui.scope_builder(UiBuilder::new().max_rect(panel), |ui| {
+						ui.set_clip_rect(panel);
+						show_docked(
+							ui,
+							&user,
+							Some(&view),
+							None,
+							&state,
+							&mut avatars,
+							&mut None,
+							&mut FormatCache::default(),
+							false,
+							&mut session,
+						);
+					});
+				},
+			);
+			shapes = output.shapes.clone();
+			output.drop_without_applying_deltas();
+		}
+		assert!(!shapes.is_empty());
+		for shape in &shapes {
+			// Nothing reaches the header above the panel or the conversation beside it.
+			let clip = shape.clip_rect;
+			assert!(
+				clip.top() >= panel.top() - 0.5
+					&& clip.left() >= panel.left() - 0.5
+					&& clip.bottom() <= panel.bottom() + 0.5,
+				"{clip:?}"
+			);
+			// The card fits the panel; only its details scroll, so nothing runs below it.
+			let visible = shape.shape.visual_bounding_rect().intersect(clip);
+			assert!(
+				!visible.is_positive() || visible.bottom() <= panel.bottom() + 0.5,
+				"{visible:?}"
+			);
+		}
 	}
 }
