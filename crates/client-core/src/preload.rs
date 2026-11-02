@@ -264,6 +264,14 @@ impl State {
 			.preload
 			.profiles
 			.intent(hovered, pressed, PROFILE_DWELL, now)?;
+		self.prefetch_profile(target, now)
+	}
+	/// Fetches `user`'s global profile into the recent cache, without dwell or the open slot,
+	/// for a card that shows them while another profile is open.
+	pub fn preload_docked_profile(&mut self, user: Id, now: Instant) -> Option<Command> {
+		self.prefetch_profile((user, None), now)
+	}
+	fn prefetch_profile(&mut self, target: (Id, Option<Id>), now: Instant) -> Option<Command> {
 		let (user, guild) = target;
 		if !self.can_preload()
 			|| user.0 == 0

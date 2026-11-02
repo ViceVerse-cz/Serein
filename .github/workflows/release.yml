@@ -1,7 +1,9 @@
-name: Release (manual)
-run-name: ${{ inputs.channel }} release by @${{ github.actor }}
+name: Release
+run-name: ${{ inputs.channel || 'nightly' }} release by @${{ github.actor }}
 
 on:
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
       channel:
@@ -15,7 +17,7 @@ permissions:
   contents: read
 
 env:
-  RELEASE_CHANNEL: ${{ inputs.channel }}
+  RELEASE_CHANNEL: ${{ inputs.channel || 'nightly' }}
 
 concurrency:
   group: serein-release
@@ -200,7 +202,7 @@ jobs:
     uses: ./.github/workflows/package-repositories.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
-      channel: ${{ inputs.channel }}
+      channel: ${{ inputs.channel || 'nightly' }}
       base_url: https://viceverse-cz.github.io/Serein
       deploy: true
     secrets: inherit

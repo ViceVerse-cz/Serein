@@ -878,10 +878,10 @@ fn duration_label(hours: u16) -> String {
 	}
 }
 
-#[cfg(any(feature = "demo", test))]
+#[cfg(feature = "demo")]
 struct WindowEffectsRestore((bool, u8, u8));
 
-#[cfg(any(feature = "demo", test))]
+#[cfg(feature = "demo")]
 impl Drop for WindowEffectsRestore {
 	fn drop(&mut self) {
 		let (enabled, transparency, blur) = self.0;

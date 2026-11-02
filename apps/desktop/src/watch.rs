@@ -12,6 +12,8 @@ use tokio::{runtime::Runtime, sync::watch, task::JoinHandle};
 use zeroize::Zeroizing;
 
 const SIGNAL_TIMEOUT: Duration = Duration::from_secs(30);
+// Eight UHD YUV pictures plus the displayed picture fit without increasing the item bound.
+const DECODED_BUDGET: usize = 128 * 1024 * 1024;
 
 /// Latest stream picture and whether the UI still has to upload it.
 type Slot = Option<(platform::video::Picture, bool)>;
@@ -37,6 +39,72 @@ fn store_frame(slot: &mut Slot, frame: discord_voice::RemoteFrame<'_>) -> bool {
 	true
 }
 
+// Decode early, display on the audio/device clock. Only decoded pictures may be
+// skipped here: the H.264 decoder has already consumed their reference state.
+#[derive(Default)]
+struct Scheduled {
+	latest: Slot,
+	pending: std::collections::VecDeque<(platform::video::Picture, discord_voice::Presentation)>,
+	bytes: usize,
+}
+impl Scheduled {
+	fn store(&mut self, frame: discord_voice::RemoteFrame<'_>) -> bool {
+		let Some(presentation) = frame.presentation.clone() else {
+			return store_frame(&mut self.latest, frame);
+		};
+		if !presentation.is_current() || !frame.picture.is_valid() {
+			return false;
+		}
+		let length = frame.picture.data.len();
+		if length > DECODED_BUDGET {
+			return false;
+		}
+		let old = if self.latest.as_ref().is_some_and(|(_, fresh)| !*fresh) {
+			self.latest.take()
+		} else {
+			None
+		};
+		let mut data = old.map(|(picture, _)| picture.data).unwrap_or_default();
+		if data.capacity() > length.saturating_mul(4) {
+			data = Vec::new();
+		}
+		let required = data.capacity().max(length);
+		while self.pending.len() >= 8
+			|| self.bytes
+				+ required + self
+				.latest
+				.as_ref()
+				.map_or(0, |(picture, _)| picture.data.capacity())
+				> DECODED_BUDGET
+		{
+			let Some((old, _)) = self.pending.pop_front() else {
+				return false;
+			};
+			self.bytes -= old.data.capacity();
+		}
+		data.clear();
+		data.reserve_exact(length);
+		data.extend_from_slice(frame.picture.data);
+		self.bytes += data.capacity();
+		self.pending
+			.push_back((frame.picture.with_data(data), presentation));
+		true
+	}
+	fn advance(&mut self, now: Instant) -> Option<Instant> {
+		while let Some((_, stamp)) = self.pending.front() {
+			if stamp.is_current() && stamp.deadline(now) > now {
+				return Some(stamp.deadline(now));
+			}
+			let (picture, stamp) = self.pending.pop_front().expect("front exists");
+			self.bytes -= picture.data.capacity();
+			if stamp.is_current() {
+				self.latest = Some((picture, true));
+			}
+		}
+		None
+	}
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Context {
 	generation: u64,
@@ -51,7 +119,7 @@ struct Pending {
 	peer: Option<Id>,
 	session: Zeroizing<String>,
 	identity: Arc<Identity>,
-	audio: Option<std::sync::mpsc::SyncSender<discord_voice::Frame>>,
+	audio: Option<std::sync::mpsc::SyncSender<discord_voice::PlaybackFrame>>,
 	rtc: Option<(Id, Id)>,
 	server: Option<(voice::Secret, String)>,
 	started: Instant,
@@ -65,7 +133,7 @@ struct Live {
 	context: Context,
 	task: JoinHandle<()>,
 	events: watch::Receiver<Option<Notice>>,
-	frames: Arc<Mutex<Slot>>,
+	frames: Arc<Mutex<Scheduled>>,
 }
 
 #[derive(Default)]
@@ -73,11 +141,9 @@ pub(super) struct Watch {
 	pending: Option<Pending>,
 	live: Option<Live>,
 	/// The streamer stopped or Discord failed the view; the state choice is cleared next poll.
-	ended: Option<&'static str>,
+	ended: Option<(ui::design::Level, &'static str)>,
 	sequence: u64,
 	status: &'static str,
-	/// Why the last view stopped; shown as a stage notice until the next request or hang-up.
-	notice: &'static str,
 	/// GPU texture behind `ui.voice_stream_view`.
 	texture: crate::gpu_video::VideoTexture,
 }
@@ -138,15 +204,23 @@ impl Watch {
 						// A null endpoint means Discord is still allocating the stream server.
 						(_, None) => pending.server = None,
 						(None, Some(_)) => {
-							self.ended = Some("Discord omitted the stream connection token");
+							self.ended = Some((
+								ui::design::Level::Warning,
+								"Discord omitted the stream connection token",
+							));
 						}
 					}
 				}
 			}
 			screen::Event::Deleted { reason } => {
-				self.ended = Some(reason.unwrap_or("The stream ended"));
+				self.ended = Some((
+					ui::design::Level::Info,
+					reason.unwrap_or("The stream ended"),
+				));
 			}
-			screen::Event::Failed(message) => self.ended = Some(message),
+			screen::Event::Failed(message) => {
+				self.ended = Some((ui::design::Level::Warning, message));
+			}
 			screen::Event::Viewers(_) => {}
 		}
 	}
@@ -157,7 +231,7 @@ impl Watch {
 		ui: &mut ui::MessagingUi,
 		ctx: &egui::Context,
 		call: Option<super::screen::Call<'_>>,
-		audio: Option<std::sync::mpsc::SyncSender<discord_voice::Frame>>,
+		audio: Option<std::sync::mpsc::SyncSender<discord_voice::PlaybackFrame>>,
 	) -> Option<Command> {
 		let wanted = state.voice.active.as_ref().and_then(|active| {
 			let streamer = active.watching?;
@@ -190,14 +264,12 @@ impl Watch {
 				}));
 			}
 		}
-		if state.voice.active.is_none() {
-			self.notice = "";
-		}
-		if let Some(message) = self.ended.take() {
+		if let Some((level, message)) = self.ended.take() {
 			let context = self.context();
 			self.stop();
 			self.status = message;
-			self.notice = message;
+			// Said once; the stage keeps no line for a view that already ended.
+			ui.toasts.push(level, message);
 			state.stop_watching();
 			ui.voice_stream_view = None;
 			self.texture = Default::default();
@@ -249,7 +321,6 @@ impl Watch {
 				started: Instant::now(),
 			});
 			self.status = "Requesting the stream…";
-			self.notice = "";
 			command = Some(Command::Voice(voice::Command::WatchStream {
 				channel,
 				request,
@@ -259,7 +330,10 @@ impl Watch {
 		}
 		if let Some(pending) = &self.pending {
 			if pending.started.elapsed() >= SIGNAL_TIMEOUT {
-				self.ended = Some("Discord did not provide the stream connection; try again");
+				self.ended = Some((
+					ui::design::Level::Warning,
+					"Discord did not provide the stream connection; try again",
+				));
 				ctx.request_repaint();
 			} else {
 				ctx.request_repaint_after(SIGNAL_TIMEOUT.saturating_sub(pending.started.elapsed()));
@@ -272,37 +346,40 @@ impl Watch {
 		{
 			let pending = self.pending.take().expect("complete stream negotiation");
 			if let Err(error) = self.start(runtime, pending, ctx) {
-				self.ended = Some(error);
+				self.ended = Some((ui::design::Level::Warning, error));
 			}
 		}
 		if let Some(live) = &mut self.live {
 			match *live.events.borrow_and_update() {
 				Some(Notice::Status(status)) => self.status = status,
-				Some(Notice::Failed(error)) => self.ended = Some(error),
+				Some(Notice::Failed(error)) => {
+					self.ended = Some((ui::design::Level::Warning, error));
+				}
 				None => {}
 			}
 			if live.task.is_finished() && self.ended.is_none() {
-				self.ended = Some("The stream connection ended");
+				self.ended = Some((ui::design::Level::Warning, "The stream connection ended"));
 			}
 			// Uploading copies the planes into GPU staging, so it runs under the slot lock
 			// and the decoder keeps refilling the same allocation.
-			if let Ok(mut slot) = live.frames.try_lock()
-				&& let Some((picture, fresh)) = slot.as_mut()
-				&& std::mem::take(fresh)
-				&& let Some(texture) = self.texture.upload(ctx, "remote-stream", picture.borrow())
-			{
-				ui.voice_stream_view = Some(texture);
-				self.status = "Watching the stream";
+			if let Ok(mut slot) = live.frames.try_lock() {
+				if let Some(deadline) = slot.advance(Instant::now()) {
+					ctx.request_repaint_after(deadline.saturating_duration_since(Instant::now()));
+				}
+				if let Some((picture, fresh)) = slot.latest.as_mut()
+					&& std::mem::take(fresh)
+					&& let Some(texture) =
+						self.texture.upload(ctx, "remote-stream", picture.borrow())
+				{
+					ui.voice_stream_view = Some(texture);
+					self.status = "Watching the stream";
+				}
 			}
 		} else {
 			ui.voice_stream_view = None;
 			self.texture = Default::default();
 		}
-		ui.voice_stream_status = if wanted.is_some() {
-			self.status
-		} else {
-			self.notice
-		};
+		ui.voice_stream_status = if wanted.is_some() { self.status } else { "" };
 		command
 	}
 	fn start(
@@ -325,7 +402,7 @@ impl Watch {
 			endpoint,
 			request: pending.context.stream_request,
 		};
-		let frames = Arc::new(Mutex::new(None));
+		let frames = Arc::new(Mutex::new(Scheduled::default()));
 		let slot = frames.clone();
 		let wake = ctx.clone();
 		let streamer = pending.context.streamer.0;
@@ -333,10 +410,7 @@ impl Watch {
 			if frame.user != streamer {
 				return;
 			}
-			if slot
-				.lock()
-				.is_ok_and(|mut slot| store_frame(&mut slot, frame))
-			{
+			if slot.lock().is_ok_and(|mut slot| slot.store(frame)) {
 				wake.request_repaint();
 			}
 		});
@@ -416,12 +490,11 @@ mod tests {
 					context,
 					task: runtime.spawn(std::future::pending()),
 					events,
-					frames: Arc::new(Mutex::new(None)),
+					frames: Arc::new(Mutex::new(Scheduled::default())),
 				}),
 				ended: None,
 				sequence: 0,
 				status: "",
-				notice: "",
 				texture: Default::default(),
 			};
 			for phase in [
@@ -457,6 +530,7 @@ mod tests {
 
 	fn frame(width: u32, height: u32, data: &[u8]) -> discord_voice::RemoteFrame<'_> {
 		discord_voice::RemoteFrame {
+			presentation: None,
 			user: 7,
 			picture: platform::video::Picture {
 				width,
@@ -539,31 +613,43 @@ mod tests {
 		assert_eq!(picture.data.len(), 1920 * 1080 * 3 / 2);
 		assert!(picture.data.capacity() <= 1920 * 1080 * 3 / 2);
 	}
-
-	/// Run this test executable directly under `/usr/bin/time -l` for process peak RSS.
-	/// The synthetic 1080p I420 input is stored as the decoder sink does; no device or
-	/// transport starts.
 	#[test]
-	#[ignore = "synthetic release CPU/RSS workload; run with --release --ignored --nocapture"]
-	fn watch_frame_memory_workload() {
-		let planes = i420(1920, 1080, 128);
-		let mut samples = Vec::new();
-		for run in 0..6 {
-			let mut slot = None;
-			let started = Instant::now();
-			for _ in 0..120 {
-				assert!(store_frame(&mut slot, frame(1920, 1080, &planes)));
-				std::hint::black_box(&slot);
-			}
-			if run > 0 {
-				samples.push(started.elapsed().as_secs_f64() * 1000.0);
-			}
+	fn decoded_stream_pictures_wait_for_presentation_and_pressure_skips_only_decoded_frames() {
+		let now = Instant::now();
+		let mut queue = Scheduled::default();
+		let pixels = i420(3840, 2160, 4);
+		for n in 0..16 {
+			let mut picture = frame(3840, 2160, &pixels);
+			picture.presentation = Some(discord_voice::Presentation::new(
+				now + Duration::from_millis(100 + n * 16),
+			));
+			assert!(queue.store(picture));
 		}
-		samples.sort_by(f64::total_cmp);
-		println!(
-			"watch_frame_memory_workload frames=120 samples_ms={samples:?} median_ms={:.3} frame_bytes={}",
-			samples[2],
-			planes.len()
-		);
+		assert_eq!(queue.pending.len(), 8);
+		assert!(queue.bytes <= DECODED_BUDGET);
+		assert!(queue.latest.is_none());
+		assert_eq!(queue.advance(now), Some(now + Duration::from_millis(228)));
+		queue.advance(now + Duration::from_millis(260));
+		assert_eq!(queue.pending.len(), 5);
+		assert!(queue.latest.as_ref().unwrap().1);
+		assert!(queue.bytes + queue.latest.as_ref().unwrap().0.data.capacity() <= DECODED_BUDGET);
+		drop(queue);
+		// A backend's RGBA fallback reaches the byte bound before the eight-picture bound.
+		let mut queue = Scheduled::default();
+		let pixels = vec![4; 3840 * 2160 * 4];
+		for n in 0..16 {
+			let mut picture = frame(3840, 2160, &pixels);
+			picture.picture.layout = platform::video::Layout::Rgba;
+			picture.presentation = Some(discord_voice::Presentation::new(
+				now + Duration::from_millis(100 + n * 16),
+			));
+			assert!(queue.store(picture));
+		}
+		assert_eq!(queue.pending.len(), 4);
+		assert!(queue.bytes <= DECODED_BUDGET);
+		queue.advance(now + Duration::from_secs(1));
+		assert!(queue.pending.is_empty());
+		assert_eq!(queue.bytes, 0);
+		assert!(queue.latest.as_ref().unwrap().1);
 	}
 }

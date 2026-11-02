@@ -79,6 +79,7 @@ impl Mixer {
 			.map(|s| s.user)
 	}
 	/// Mix one 20ms frame, preserving up to 120ms packets without bursting playback queues.
+	#[cfg(test)]
 	pub fn pop(&mut self) -> (Option<Frame>, bool) {
 		self.pop_with_volumes(&[])
 	}
@@ -343,39 +344,6 @@ mod tests {
 					);
 				}
 			}
-		}
-	}
-
-	#[test]
-	#[ignore = "synthetic release workload; run with --release --ignored --nocapture"]
-	fn synthetic_mix_workload() {
-		let packet = opus(0.05);
-		for peers in [1, 8, 63] {
-			let mut mixer = Mixer::default();
-			for user in 1..=peers {
-				mixer.announce(user, user as u32).unwrap();
-			}
-			let mut sequence = 0u16;
-			let mut samples = Vec::new();
-			for run in 0..6 {
-				let start = std::time::Instant::now();
-				for _ in 0..1000 {
-					for user in 1..=peers {
-						mixer.push(user as u32, sequence, packet.clone());
-					}
-					std::hint::black_box(mixer.pop());
-					sequence = sequence.wrapping_add(1);
-				}
-				if run > 0 {
-					samples.push(start.elapsed().as_micros());
-				}
-			}
-			samples.sort_unstable();
-			println!(
-				"synthetic_mix peers={peers} ticks=1000 samples=5 median_us={} us_per_tick={:.2}",
-				samples[2],
-				samples[2] as f64 / 1000.0
-			);
 		}
 	}
 }

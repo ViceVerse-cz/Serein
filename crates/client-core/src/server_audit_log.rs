@@ -117,6 +117,7 @@ mod tests {
 					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 				}]),
 			},
 		);

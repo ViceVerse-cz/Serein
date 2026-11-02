@@ -7,8 +7,6 @@ use egui::RichText;
 use model::{Channel, Id, Shortcut};
 use std::collections::{BTreeMap, BTreeSet};
 
-const MAX_VISIBLE_THREADS: usize = 4;
-
 /// Voice and stage channels keep a separate position list, drawn below other channels.
 fn voice_lane(kind: u8) -> bool {
 	matches!(kind, 2 | 13)
@@ -55,6 +53,8 @@ struct CacheKey {
 	hide_muted: bool,
 	relationships: u64,
 	requests_collapsed: bool,
+	/// Threads leave the list once their archive window passes, without any event.
+	minute: i64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -215,6 +215,7 @@ impl Cache {
 	}
 }
 
+#[cfg(any(test, feature = "demo"))]
 fn rows<'a>(
 	state: &'a State,
 	scope: Scope,
@@ -222,6 +223,43 @@ fn rows<'a>(
 	collapsed: &BTreeSet<Id>,
 	show_hidden: bool,
 	requests_collapsed: bool,
+) -> Vec<Row<'a>> {
+	rows_at(
+		state,
+		scope,
+		roster,
+		collapsed,
+		show_hidden,
+		requests_collapsed,
+		ThreadRules {
+			now: now_ms(),
+			hide_muted: false,
+		},
+	)
+}
+
+fn now_ms() -> i64 {
+	std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map_or(0, |elapsed| elapsed.as_millis() as i64)
+}
+
+/// Inputs to Discord's thread listing that are not part of the session state.
+#[derive(Clone, Copy)]
+struct ThreadRules {
+	/// Unix milliseconds, for archive windows and timed mutes.
+	now: i64,
+	hide_muted: bool,
+}
+
+fn rows_at<'a>(
+	state: &'a State,
+	scope: Scope,
+	roster: &Roster<'a>,
+	collapsed: &BTreeSet<Id>,
+	show_hidden: bool,
+	requests_collapsed: bool,
+	rules: ThreadRules,
 ) -> Vec<Row<'a>> {
 	let guild = scope.guild();
 	let channels = &state.channels;
@@ -231,29 +269,22 @@ fn rows<'a>(
 		.collect();
 	categories.sort_unstable_by_key(|c| (c.position, c.id));
 	let category_ids: BTreeSet<_> = categories.iter().map(|c| c.id).collect();
-	let parents: BTreeMap<_, _> = channels
-		.iter()
-		.filter(|c| guild.is_some() && c.guild == guild && matches!(c.kind, 0 | 5 | 15 | 16))
-		.map(|c| (c.id, c))
-		.collect();
 	let mut groups: BTreeMap<Option<Id>, Vec<&Channel>> = BTreeMap::new();
-	let mut threads: BTreeMap<Id, Vec<&Channel>> = BTreeMap::new();
-	for channel in channels.iter().filter(|c| {
+	let admitted = |c: &Channel| {
 		scope.admits(c, state) && (show_hidden || state.can_view(c.id)) && !roster.lifted(c.id)
-	}) {
-		if matches!(channel.kind, 10..=12) && !state.last_viewed_threads.contains(&channel.id) {
-			continue;
-		}
-		if matches!(channel.kind, 10..=12)
-			&& let Some(parent) = channel.parent_id.and_then(|id| parents.get(&id))
-			&& parent.parent_id != Some(channel.id)
-		{
-			threads.entry(parent.id).or_default().push(channel);
-			continue;
-		}
-		let parent = channel
-			.parent_id
-			.filter(|id| !matches!(channel.kind, 10..=12) && category_ids.contains(id));
+	};
+	// Threads appear only beneath their parents, following Discord's relevance rules.
+	let mut threads = guild.map_or_else(BTreeMap::new, |guild| {
+		state.sidebar_threads(guild, rules.now, rules.hide_muted)
+	});
+	for list in threads.values_mut() {
+		list.retain(|c| admitted(c));
+	}
+	for channel in channels
+		.iter()
+		.filter(|c| !matches!(c.kind, 10..=12) && admitted(c))
+	{
+		let parent = channel.parent_id.filter(|id| category_ids.contains(id));
 		groups.entry(parent).or_default().push(channel);
 	}
 	for group in groups.values_mut() {
@@ -262,9 +293,6 @@ fn rows<'a>(
 		} else {
 			group.sort_unstable_by_key(|c| std::cmp::Reverse((state.channel_activity(c), c.id)));
 		}
-	}
-	for group in threads.values_mut() {
-		group.sort_unstable_by_key(|c| state.last_viewed_threads.iter().position(|id| *id == c.id));
 	}
 	let append = |channel: &'a Channel, slot: Slot, hidden: bool, rows: &mut Vec<Row<'a>>| {
 		if hidden {
@@ -276,18 +304,13 @@ fn rows<'a>(
 				.get(&channel.id)
 				.into_iter()
 				.flatten()
-				.take(MAX_VISIBLE_THREADS)
 				.map(|c| Row::Channel(c, slot, true)),
 		);
 	};
 	let count = |channels: &[&Channel]| {
 		channels
 			.iter()
-			.map(|c| {
-				1 + threads
-					.get(&c.id)
-					.map_or(0, |threads| threads.len().min(MAX_VISIBLE_THREADS))
-			})
+			.map(|c| 1 + threads.get(&c.id).map_or(0, Vec::len))
 			.sum::<usize>()
 	};
 	let mut rows = Vec::new();
@@ -333,9 +356,8 @@ fn rows<'a>(
 			);
 		}
 	}
-	if let Some(heading) = scope.remainder_heading()
-		&& !tree.is_empty()
-	{
+	// Home keeps its heading even with no unpinned DMs: it carries the New Message action.
+	if let Some(heading) = scope.remainder_heading() {
 		rows.push(Row::Heading(heading));
 	}
 	rows.extend(tree);
@@ -430,19 +452,39 @@ fn category_header(
 	response
 }
 
-fn eyebrow_row(ui: &mut egui::Ui, label: &str, row_height: f32) -> egui::Rect {
+fn eyebrow_row(
+	ui: &mut egui::Ui,
+	label: &str,
+	row_height: f32,
+	trailing: bool,
+) -> (egui::Rect, bool) {
 	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
-	ui.allocate_ui_with_layout(
+	let mut clicked = false;
+	let response = ui.allocate_ui_with_layout(
 		egui::vec2(ui.available_width(), row_height),
 		egui::Layout::left_to_right(egui::Align::Center),
 		|ui| {
+			// The row spans the list even though its contents are a short caption.
+			ui.set_width(ui.available_width());
 			ui.add_space(8.0);
 			ui.add(egui::Label::new(design::eyebrow(ui, label, colors.muted)).selectable(false));
+			if trailing {
+				// Discord's New Message action sits at the right end of the DM list heading.
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					ui.add_space(4.0);
+					clicked = crate::icons::button(
+						ui,
+						crate::icons::Icon::Plus,
+						24.0,
+						&crate::i18n::translate("new-message-title"),
+					)
+					.clicked();
+				});
+			}
 		},
-	)
-	.response
-	.rect
+	);
+	(response.response.rect, clicked)
 }
 
 fn shelf_row(rows: &[CachedRow], index: usize) -> bool {
@@ -460,6 +502,45 @@ fn shelf_row(rows: &[CachedRow], index: usize) -> bool {
 			})
 			.unwrap_or(false),
 		_ => false,
+	}
+}
+
+/// Thread rows start after the spine's elbow, aligned under their parent's name.
+const THREAD_INDENT: f32 = 26.0;
+
+/// The tree line from the parent's icon: a rounded elbow into this thread, continuing
+/// down when another thread follows.
+fn paint_thread_spine(ui: &egui::Ui, rect: egui::Rect, continues: bool, color: egui::Color32) {
+	let stroke = egui::Stroke::new(1.5, color.gamma_multiply(0.8));
+	// Parent icons are centred 18 points in; the spine also bridges the row gap above.
+	let x = rect.left() + 18.0;
+	let y = rect.center().y;
+	let radius = 8.0;
+	let top = rect.top() - ui.spacing().item_spacing.y;
+	let painter = ui.painter();
+	painter.line_segment([egui::pos2(x, top), egui::pos2(x, y - radius)], stroke);
+	painter.add(egui::epaint::QuadraticBezierShape::from_points_stroke(
+		[
+			egui::pos2(x, y - radius),
+			egui::pos2(x, y),
+			egui::pos2(x + radius, y),
+		],
+		false,
+		egui::Color32::TRANSPARENT,
+		stroke,
+	));
+	painter.line_segment(
+		[
+			egui::pos2(x + radius, y),
+			egui::pos2(rect.left() + THREAD_INDENT - 2.0, y),
+		],
+		stroke,
+	);
+	if continues {
+		painter.line_segment(
+			[egui::pos2(x, y - radius), egui::pos2(x, rect.bottom())],
+			stroke,
+		);
 	}
 }
 
@@ -503,6 +584,7 @@ impl MessagingUi {
 			.is_some_and(|guild| state.hides_muted_channels(guild) == Some(true));
 		let scope = Scope::of(self.guild);
 		let shortcuts_available = self.shortcuts_available(state);
+		let now = now_ms();
 		let key = CacheKey {
 			generation: state.generation,
 			revision: state.channel_list_revision(),
@@ -513,6 +595,7 @@ impl MessagingUi {
 			hide_muted,
 			relationships: state.relationship_view(),
 			requests_collapsed: self.message_requests_collapsed,
+			minute: now / 60_000,
 		};
 		if self.channel_cache.key != Some(key) {
 			let categories: BTreeSet<_> = state
@@ -539,17 +622,34 @@ impl MessagingUi {
 				.iter()
 				.copied()
 				.collect();
-			let mut channel_rows = rows(
+			let mut channel_rows = rows_at(
 				state,
 				scope,
 				&roster,
 				&collapsed,
 				self.show_hidden_channels,
 				self.message_requests_collapsed,
+				ThreadRules { now, hide_muted },
 			);
 			if hide_muted {
-				channel_rows.retain(|row| {
-					!matches!(row, Row::Channel(channel, ..) if Some(channel.id) != state.selected && state.guild_channel_muted(channel.id) == Some(true))
+				// Thread rows already follow Discord's mute and mention rules; they leave only
+				// with their parent.
+				let focus = state
+					.selected
+					.and_then(|id| state.channel(id))
+					.map(|selected| match selected.kind {
+						10..=12 => selected.parent_id,
+						_ => Some(selected.id),
+					});
+				let mut parent_kept = true;
+				channel_rows.retain(|row| match row {
+					Row::Channel(_, _, true) => parent_kept,
+					Row::Channel(channel, ..) => {
+						parent_kept = focus == Some(Some(channel.id))
+							|| state.guild_channel_muted(channel.id) != Some(true);
+						parent_kept
+					}
+					_ => true,
 				});
 				let mut index = 0;
 				while index < channel_rows.len() {
@@ -614,7 +714,13 @@ impl MessagingUi {
 		}
 		let dm_list = self.guild.is_none();
 		let row_height = if dm_list { 44.0 } else { 34.0 };
-		let row_count = self.channel_cache.rows.len().max(usize::from(dm_list));
+		// An empty DM remainder still gets its "no conversations" line under the heading.
+		let empty_dms = dm_list
+			&& matches!(
+				self.channel_cache.rows.last(),
+				None | Some(CachedRow::Heading(Heading::DirectMessages))
+			);
+		let row_count = self.channel_cache.rows.len() + usize::from(empty_dms);
 		let previous_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
 		let mut drop_rows = Vec::new();
@@ -635,12 +741,16 @@ impl MessagingUi {
 					};
 					match row {
 						CachedRow::Heading(heading) => {
-							let rect = eyebrow_row(
+							let (rect, new_message) = eyebrow_row(
 								ui,
 								&crate::i18n::translate_if_key(heading.key()),
 								row_height,
+								dm_list && heading == Heading::DirectMessages,
 							);
 							paint_shelf_rule(ui, rect, &self.channel_cache.rows, index);
+							if new_message {
+								self.new_message.open(state);
+							}
 						}
 						CachedRow::Requests(count, collapsed) => {
 							let response = category_header(
@@ -850,12 +960,26 @@ impl MessagingUi {
 									rect,
 								});
 							}
-							let hovered = enabled && (response.hovered() || response.has_focus());
+							// The avatar and action buttons are widgets on top; hovering them still highlights the row.
+							let pointer_over = ui.rect_contains_pointer(rect);
+							let hovered = enabled && (pointer_over || response.has_focus());
+							// Threads hang off a spine below their parent's icon, as in Discord;
+							// their highlight starts where the elbow ends.
+							let highlight = if nested {
+								let next_nested = matches!(
+									self.channel_cache.rows.get(index + 1),
+									Some(CachedRow::Channel(_, _, true))
+								);
+								paint_thread_spine(ui, rect, next_nested, colors.muted);
+								row.with_min_x(row.left() + THREAD_INDENT)
+							} else {
+								row
+							};
 							if active {
-								ui.painter().rect_filled(row, 8, colors.selected);
+								ui.painter().rect_filled(highlight, 8, colors.selected);
 							} else if hovered {
 								ui.painter().rect_filled(
-									row,
+									highlight,
 									8,
 									crate::design::row_highlight(ui, colors.hover, 1.0),
 								);
@@ -924,10 +1048,7 @@ impl MessagingUi {
 									0.0
 								} + channel_marks::trailing(access);
 							let content = egui::Rect::from_min_max(
-								egui::pos2(
-									row.left() + 8.0 + if nested { 14.0 } else { 0.0 },
-									row.top(),
-								),
+								egui::pos2(highlight.left() + 8.0, row.top()),
 								egui::pos2(row.right() - 8.0 - trailing, row.bottom()),
 							);
 							let mut inner = ui.new_child(
@@ -942,6 +1063,14 @@ impl MessagingUi {
 									let avatar = self
 										.avatars
 										.show_group(&mut inner, channel, 32.0, state.demo);
+									if state.direct_typing(channel.id, std::time::Instant::now()) {
+										crate::profiles::typing_badge(
+											&mut inner,
+											avatar.rect,
+											None,
+											colors.sidebar,
+										);
+									}
 									self.group_menu.context(
 										&avatar,
 										state,
@@ -965,6 +1094,16 @@ impl MessagingUi {
 									let status =
 										crate::profiles::shown_status(state, user.id, status);
 									if channel.kind == 1
+										&& state
+											.direct_typing(channel.id, std::time::Instant::now())
+									{
+										crate::profiles::typing_badge(
+											&mut inner,
+											avatar.rect,
+											status,
+											colors.sidebar,
+										);
+									} else if channel.kind == 1
 										&& let Some(status) = status
 									{
 										crate::profiles::presence_badge(
@@ -999,7 +1138,7 @@ impl MessagingUi {
 								} else {
 									design::avatar(&mut inner, &channel.name, 32.0);
 								}
-							} else {
+							} else if !nested {
 								let icon = match channel.kind {
 									13 => crate::icons::Icon::Speaker,
 									5 => crate::icons::Icon::Megaphone,
@@ -1433,16 +1572,49 @@ pub fn debug_thread_navigation_check(state: &mut State) {
 				.any(|post| post.id == created)
 		);
 		state.select(created);
-		assert_eq!(visible(state)[0], created);
+		assert_eq!(
+			visible(state),
+			[created],
+			"The open post lists even unjoined"
+		);
 		state.select(parent);
 	}
-	assert_eq!(visible(state), [Id(1004), Id(1003), Id(1002), Id(1001)]);
+	assert!(visible(state).is_empty(), "Opening a post does not join it");
+	let now = now_ms();
+	let changes = (1000..1005)
+		.map(|id| model::threads::Change {
+			id: Id(id),
+			member: model::Patch::Value(model::threads::Member {
+				joined: now - 5_000 + id as i64,
+				muted: false,
+				mute_end: None,
+			}),
+			meta: Some(model::threads::Meta {
+				auto_archive_minutes: 60,
+				activity: now,
+			}),
+			pinned: Some(false),
+		})
+		.collect();
+	state.apply(client_core::Envelope {
+		generation: state.generation,
+		event: client_core::Event::ThreadInfo {
+			guild: Id(10),
+			changes,
+		},
+	});
+	let joined = [Id(1004), Id(1003), Id(1002), Id(1001), Id(1000)];
+	assert_eq!(visible(state), joined);
 	state.select(Id(1002));
-	assert_eq!(visible(state), [Id(1002), Id(1004), Id(1003), Id(1001)]);
+	assert_eq!(
+		visible(state),
+		joined,
+		"Selecting a joined post keeps its row"
+	);
 	state.select(Id(1000));
-	assert_eq!(visible(state), [Id(1000), Id(1002), Id(1004), Id(1003)]);
+	assert_eq!(visible(state), joined);
 	println!(
-		"Thread debug check passed: image post dispatch permission, created posts, four opened threads, newest first."
+		"Thread debug check passed: image post dispatch permission, created posts, open and joined threads, newest join first."
 	);
 }
 
@@ -1451,80 +1623,56 @@ mod tests {
 	use super::*;
 
 	#[test]
-	#[ignore = "release channel-list benchmark; ten warmup frames and one warmup/five measured batches"]
-	fn channel_list_frame_benchmark() {
-		const FRAMES: usize = 200;
-		for churn in [false, true] {
-			let mut state = test_support::demo_state();
-			let template = state.guilds[0].clone();
-			state.guilds = (0..100)
-				.map(|index| model::Guild {
-					id: Id(100 + index),
-					..template.clone()
-				})
-				.collect();
-			state.channels = (0..10_000)
-				.map(|index| Channel {
-					guild: Some(Id(100 + index / 100)),
-					..channel(10_000 + index, 0, (index % 100) as i32, None)
-				})
-				.collect();
-			state.invalidate_navigation();
-			state
-				.permissions
-				.replace(test_support::permission_snapshot(&state))
-				.unwrap();
-			state.select(Id(10_000));
-			let mut view = MessagingUi {
-				guild: Some(Id(100)),
-				..Default::default()
-			};
-			let ctx = egui::Context::default();
-			let mut frame_number = 0;
-			let mut frame = || {
-				if churn {
-					state.apply(client_core::Envelope {
-						generation: state.generation,
-						event: client_core::Event::Message(test_support::message(
-							1_000_000 + frame_number,
-							Id(10_000),
-						)),
+	fn the_direct_message_heading_offers_new_message_at_the_far_right() {
+		const WIDTH: f32 = 320.0;
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let click = |pos: egui::Pos2| {
+			let mut clicked = false;
+			for (moved, pressed) in [(true, false), (false, true), (false, false)] {
+				let mut events = vec![];
+				if moved {
+					events.push(egui::Event::PointerMoved(pos));
+				} else {
+					events.push(egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
 					});
 				}
-				frame_number += 1;
-				ctx.run_ui(
+				let output = ctx.run_ui(
 					egui::RawInput {
 						screen_rect: Some(egui::Rect::from_min_size(
 							egui::Pos2::ZERO,
-							egui::vec2(280.0, 700.0),
+							egui::vec2(WIDTH, 44.0),
 						)),
-						time: Some(frame_number as f64 / 60.0),
+						events,
 						..Default::default()
 					},
 					|ui| {
-						std::hint::black_box(view.channel_list(ui, &mut state));
+						let (rect, hit) = eyebrow_row(ui, "Direct Messages", 44.0, true);
+						clicked = hit;
+						assert!(
+							(rect.width() - WIDTH).abs() < 1.0,
+							"the heading row spans the list, not its caption: {}",
+							rect.width()
+						);
 					},
-				)
-				.drop_without_applying_deltas();
-			};
-			for _ in 0..10 {
-				frame();
+				);
+				output.drop_without_applying_deltas();
 			}
-			let mut samples = Vec::with_capacity(5);
-			for batch in 0..6 {
-				let start = std::time::Instant::now();
-				for _ in 0..FRAMES {
-					frame();
-				}
-				if batch != 0 {
-					samples.push(start.elapsed().as_secs_f64() * 1_000.0);
-				}
-			}
-			assert_eq!(view.channel_cache.rows.len(), 100);
-			println!(
-				"channel_list: channels=10000, guild_channels=100, churn={churn}, frames={FRAMES}, samples_ms={samples:?}"
-			);
-		}
+			clicked
+		};
+		// The button is drawn at the right end of the row, not on top of the caption.
+		assert!(
+			click(egui::pos2(WIDTH - 12.0, 22.0)),
+			"the plus is at the far right"
+		);
+		assert!(
+			!click(egui::pos2(120.0, 22.0)),
+			"the caption itself is not a button"
+		);
 	}
 
 	#[test]
@@ -1644,108 +1792,6 @@ mod tests {
 				.sections()
 				.is_empty()
 		);
-	}
-	#[test]
-	fn find_and_friends_stay_pinned_while_the_dm_list_scrolls() {
-		for width in [220.0, 320.0] {
-			let ctx = egui::Context::default();
-			design::apply(&ctx);
-			let mut state = test_support::demo_state();
-			state.channels = (1..=60)
-				.map(|id| {
-					let mut c = channel(id, 3, 0, None);
-					c.guild = None;
-					c
-				})
-				.collect();
-			let mut view = MessagingUi::default();
-			let render = |view: &mut MessagingUi, state: &mut State, events| {
-				let mut output = ctx.run_ui(
-					egui::RawInput {
-						screen_rect: Some(egui::Rect::from_min_size(
-							egui::Pos2::ZERO,
-							egui::vec2(width, 380.0),
-						)),
-						events,
-						..Default::default()
-					},
-					|ui| view.sidebar(ui, state, "Direct Messages", &mut vec![]),
-				);
-				output.textures_delta.clear();
-				output
-					.shapes
-					.iter()
-					.filter_map(|s| match &s.shape {
-						egui::Shape::Text(t) => {
-							let rect = egui::Rect::from_min_size(t.pos, t.galley.size());
-							s.clip_rect
-								.intersects(rect)
-								.then(|| (t.galley.job.text.clone(), rect))
-						}
-						_ => None,
-					})
-					.collect::<Vec<_>>()
-			};
-			render(&mut view, &mut state, vec![]);
-			let before = render(&mut view, &mut state, vec![]);
-			let find = before
-				.iter()
-				.find(|(s, _)| s == "Find conversation")
-				.unwrap()
-				.1;
-			// Friends is the icon-only button pinned to the right of the search row.
-			let friends = egui::pos2(width - 8.0 - 15.0, find.center().y);
-			for pressed in [true, false] {
-				render(
-					&mut view,
-					&mut state,
-					vec![
-						egui::Event::PointerMoved(friends),
-						egui::Event::PointerButton {
-							pos: friends,
-							button: egui::PointerButton::Primary,
-							pressed,
-							modifiers: egui::Modifiers::NONE,
-						},
-					],
-				);
-			}
-			assert!(state.selected.is_none());
-			let mut after = vec![];
-			for _ in 0..12 {
-				after = render(
-					&mut view,
-					&mut state,
-					vec![
-						egui::Event::PointerMoved(egui::pos2(100.0, 250.0)),
-						egui::Event::MouseWheel {
-							phase: egui::TouchPhase::Move,
-							source: egui::MouseWheelSource::Unknown,
-							unit: egui::MouseWheelUnit::Point,
-							delta: egui::vec2(0.0, -100.0),
-							modifiers: egui::Modifiers::NONE,
-						},
-					],
-				);
-			}
-			assert_eq!(
-				after
-					.iter()
-					.find(|(s, _)| s == "Find conversation")
-					.unwrap()
-					.1,
-				find
-			);
-			assert!(!after.iter().any(|(s, _)| s == "DIRECT MESSAGES"));
-			let visible_dms = after
-				.iter()
-				.filter(|(s, _)| s.starts_with("Synthetic "))
-				.count();
-			assert!(
-				visible_dms > 0 && visible_dms < 12,
-				"list remains virtualized: {visible_dms}"
-			);
-		}
 	}
 	fn channel(id: u64, kind: u8, position: i32, parent_id: Option<Id>) -> Channel {
 		Channel {
@@ -1910,103 +1956,27 @@ mod tests {
 		));
 	}
 
+	/// Regression: the DM heading carries New Message, so it stays without unpinned DMs.
 	#[test]
-	fn channel_rows_scroll_continuously_past_voice_participants() {
+	fn the_direct_message_heading_stays_when_no_unpinned_dms_remain() {
 		let mut state = test_support::demo_state();
-		state.guilds = vec![model::Guild {
-			default_message_notifications: None,
-			stickers: None,
-			id: Id(100),
-			name: "Synthetic".into(),
-			icon: None,
-			emojis: None,
-		}];
-		state.channels = (0..20)
-			.map(|index| {
-				channel(
-					200 + index,
-					if index == 1 { 2 } else { 0 },
-					index as i32,
-					None,
-				)
-			})
-			.collect();
-		state
-			.permissions
-			.replace(test_support::permission_snapshot(&state))
-			.unwrap();
-		state.voice.roster = vec![client_core::voice::RosterEntry {
-			guild: Id(100),
-			channel: Id(201),
-			member: None,
-			participant: client_core::voice::Participant {
-				user: Id(999),
-				muted: true,
-				deafened: true,
-				server_muted: false,
-				server_deafened: false,
-				video: false,
-				streaming: false,
-			},
-		}];
-		let mut view = MessagingUi {
-			guild: Some(Id(100)),
+		state.channels.retain(|c| c.guild.is_some());
+		let heading_last = |state: &State, preferences: &model::ChannelPreferences| {
+			let roster = Roster::build(state, preferences, Scope::Home, false);
+			let output = rows(state, Scope::Home, &roster, &BTreeSet::new(), false, false);
+			matches!(output.last(), Some(Row::Heading(Heading::DirectMessages)))
+		};
+		assert!(heading_last(&state, &Default::default()), "no DMs at all");
+		let mut dm = channel(30, 1, 0, None);
+		dm.guild = None;
+		state.channels.push(dm);
+		let pinned = model::ChannelPreferences {
+			pinned: vec![Id(30)],
 			..Default::default()
 		};
-		let ctx = egui::Context::default();
-		design::apply(&ctx);
-		let mut original_y = None;
-		for offset in [0.0, 33.0, 34.0, 41.0, 42.0, 67.0, 68.0, 101.0, 102.0] {
-			let mut frame = |scroll: bool| {
-				ctx.run_ui(
-					egui::RawInput {
-						screen_rect: Some(egui::Rect::from_min_size(
-							egui::Pos2::ZERO,
-							egui::vec2(240.0, 200.0),
-						)),
-						events: vec![egui::Event::PointerMoved(egui::pos2(100.0, 100.0))],
-						..Default::default()
-					},
-					|ui| {
-						if scroll {
-							let id = ui.make_persistent_id(egui::IdSalt::new((
-								"channel-list",
-								view.guild,
-							)));
-							let current = egui::scroll_area::State::load(&ctx, id)
-								.unwrap_or_default()
-								.clamped_offset()
-								.y;
-							ui.input_mut(|input| input.smooth_scroll_delta.y = current - offset);
-						}
-						view.channel_list(ui, &mut state);
-						assert_eq!(ui.spacing().item_spacing.y, 8.0);
-					},
-				)
-			};
-			frame(true).drop_without_applying_deltas();
-			let output = frame(false);
-			let y = output.shapes.iter().find_map(|shape| match &shape.shape {
-				egui::Shape::Text(text) if text.galley.job.text == "Synthetic 204" => {
-					Some(text.pos.y)
-				}
-				_ => None,
-			});
-			output.drop_without_applying_deltas();
-			assert!(
-				view.channel_cache
-					.rows
-					.iter()
-					.any(|row| matches!(row, CachedRow::Participant(_)))
-			);
-			let y = y.expect("The same synthetic channel remains visible");
-			let original = *original_y.get_or_insert(y);
-			assert!(
-				(y + offset - original).abs() < 0.1,
-				"Channel jumped at scroll offset {offset}: {y} versus {original}"
-			);
-		}
+		assert!(heading_last(&state, &pinned), "every DM is pinned");
 	}
+
 	#[test]
 	fn direct_and_group_messages_follow_activity_together() {
 		let mut state = test_support::demo_state();
@@ -2241,22 +2211,36 @@ mod tests {
 			channel(28, 0, 0, Some(Id(27))),
 		];
 		hierarchy.iter_mut().find(|c| c.id == Id(26)).unwrap().guild = Some(Id(101));
+		// Every thread is joined and pinned, so only the hierarchy decides where it lists;
+		// 9 was joined after 8 and lists first.
+		let thread_info = [9, 8, 11, 13, 20, 21, 22, 23, 24, 25, 27]
+			.into_iter()
+			.map(|id| {
+				let info = model::threads::Info {
+					member: Some(model::threads::Member {
+						joined: i64::from(id == 9),
+						muted: false,
+						mute_end: None,
+					}),
+					meta: Some(model::threads::Meta {
+						auto_archive_minutes: 60,
+						activity: 0,
+					}),
+					pinned: true,
+				};
+				(Id(id), info)
+			})
+			.collect();
 		let hierarchy_state = State {
 			channels: hierarchy.clone(),
-			last_viewed_threads: vec![9, 8, 11, 13, 20, 21, 22, 23, 24, 25, 27]
-				.into_iter()
-				.map(Id)
-				.collect(),
+			thread_info,
 			..State::default()
 		};
+		// Orphaned, cyclic and cross-server threads have no parent row to list beneath.
 		let expanded = tree(&hierarchy_state, BTreeSet::new());
-		assert_eq!(expanded.len(), hierarchy.len() - 1);
-		assert_eq!(
-			ids(expanded),
-			[20, 21, 22, 23, 24, 25, 27, 28, 4, 7, 9, 8, 10, 11, 12, 13]
-		);
+		assert_eq!(ids(expanded), [28, 4, 7, 9, 8, 10, 11, 12, 13]);
 		let collapsed = tree(&hierarchy_state, BTreeSet::from([Id(4)]));
-		assert_eq!(ids(collapsed), [20, 21, 22, 23, 24, 25, 27, 28, 4]);
+		assert_eq!(ids(collapsed), [28, 4]);
 		assert!(!hierarchy[1].supports_text() && !hierarchy[6].supports_text());
 		assert!(hierarchy[2].supports_text());
 		assert_eq!(
@@ -2344,8 +2328,20 @@ mod tests {
 			view.channel_cache.rows.as_slice(),
 			[CachedRow::Category(_, 1)]
 		));
-		// Forum containers never request history; opened posts remain keyboard-selectable.
+		// Forum containers never request history; joined posts remain keyboard-selectable.
 		state.channels = vec![channel(7, 15, 0, None), channel(8, 11, 0, Some(Id(7)))];
+		state.thread_info.insert(
+			Id(8),
+			model::threads::Info {
+				member: Some(model::threads::Member {
+					joined: 0,
+					muted: false,
+					mute_end: None,
+				}),
+				meta: None,
+				pinned: true,
+			},
+		);
 		state.revision += 1;
 		state.invalidate_navigation();
 		state
@@ -2355,6 +2351,7 @@ mod tests {
 		state.selected = None;
 		state.select(Id(8));
 		assert!(state.select(Id(7)).is_none());
+		assert_eq!(state.selected, Some(Id(7)));
 		let ctx = egui::Context::default();
 		let mut picked = None;
 		// The forum row itself is a destination; the second Tab reaches the loaded post.
@@ -2503,7 +2500,7 @@ mod tests {
 					.unwrap_or((egui::Pos2::ZERO, egui::Color32::TRANSPARENT));
 				let near = |rect: egui::Rect| (rect.center().y - pos.y).abs() < 20.0;
 				let badge = rects.iter().any(|(rect, fill)| {
-					*fill == colors.danger && near(*rect) && rect.height() >= 16.0
+					*fill == colors.badge_fill() && near(*rect) && rect.height() >= 16.0
 				});
 				let pill = rects.iter().any(|(rect, fill)| {
 					*fill == colors.text_strong
@@ -2610,6 +2607,89 @@ mod tests {
 			true,
 			true,
 			"a mention and the unread mark both show while connected",
+		);
+	}
+
+	#[test]
+	fn channel_row_highlights_when_hovering_avatar() {
+		let mut state = test_support::demo_state();
+		state.selected = None;
+		let mut view = MessagingUi {
+			guild: None,
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let colors = design::palette_for(&ctx);
+
+		fn walk(shape: &egui::Shape, rects: &mut Vec<(egui::Rect, egui::Color32)>) {
+			match shape {
+				egui::Shape::Rect(rect) => rects.push((rect.rect, rect.fill)),
+				egui::Shape::Vec(children) => {
+					for shape in children {
+						walk(shape, rects);
+					}
+				}
+				_ => {}
+			}
+		}
+
+		// First frame with pointer outside: no row is hovered.
+		let mut rects_idle = Vec::new();
+		let output_idle = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(280.0, 1600.0),
+				)),
+				events: vec![egui::Event::PointerMoved(egui::pos2(-10.0, -10.0))],
+				..Default::default()
+			},
+			|ui| {
+				view.channel_list(ui, &mut state);
+			},
+		);
+		for clipped in &output_idle.shapes {
+			walk(&clipped.shape, &mut rects_idle);
+		}
+		output_idle.drop_without_applying_deltas();
+
+		let hover_color = crate::design::row_highlight(
+			&egui::Ui::new(ctx.clone(), egui::Id::NULL, egui::UiBuilder::new()),
+			colors.hover,
+			1.0,
+		);
+
+		assert!(
+			!rects_idle.iter().any(|(_, fill)| *fill == hover_color),
+			"no row highlight when pointer is outside"
+		);
+
+		// Second frame with pointer placed over the avatar area of the first row (e.g. x = 20, y = 20).
+		let mut rects_hover = Vec::new();
+		let output_hover = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(280.0, 1600.0),
+				)),
+				events: vec![egui::Event::PointerMoved(egui::pos2(20.0, 66.0))],
+				..Default::default()
+			},
+			|ui| {
+				view.channel_list(ui, &mut state);
+			},
+		);
+		for clipped in &output_hover.shapes {
+			walk(&clipped.shape, &mut rects_hover);
+		}
+		output_hover.drop_without_applying_deltas();
+
+		assert!(
+			rects_hover
+				.iter()
+				.any(|(rect, fill)| *fill == hover_color && rect.contains(egui::pos2(20.0, 66.0))),
+			"row highlight must be painted when pointer hovers over the avatar widget"
 		);
 	}
 }

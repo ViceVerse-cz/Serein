@@ -9,6 +9,7 @@ pub const MAX_LOCAL_GAME_ACTIVITY_BYTES: usize = 4 * 1024;
 #[derive(Clone)]
 pub struct Update {
 	pub user: Id,
+	pub avatar: Patch<String>,
 	pub status: Patch<String>,
 	pub custom_status: Patch<String>,
 	pub activities: Patch<Vec<RichActivity>>,
@@ -20,7 +21,8 @@ impl Update {
 			Patch::Value(text) => text.capacity(),
 			_ => 0,
 		};
-		text(&self.status)
+		text(&self.avatar)
+			+ text(&self.status)
 			+ text(&self.custom_status)
 			+ match &self.activities {
 				Patch::Value(activities) => activity_bytes(activities),
@@ -34,6 +36,9 @@ impl Update {
 			newer.activities = Patch::Null;
 			newer.custom_status = Patch::Null;
 			newer.clients = Patch::Null;
+		}
+		if !matches!(newer.avatar, Patch::Absent) {
+			self.avatar = newer.avatar;
 		}
 		if !matches!(newer.status, Patch::Absent) {
 			self.status = newer.status;
@@ -243,6 +248,65 @@ impl State {
 			{
 				continue;
 			}
+			match &update.avatar {
+				Patch::Absent => {}
+				Patch::Null => {
+					for channel in &mut self.channels {
+						for recipient in &mut channel.recipients {
+							if recipient.id == update.user && recipient.avatar.is_some() {
+								recipient.avatar = None;
+								membership_changed = true;
+							}
+						}
+					}
+					if let Some(list) = &mut self.members {
+						let mut avatar_changed = false;
+						for slot in list.slots.iter_mut().flatten() {
+							if let model::MemberSlot::Person(member) = slot
+								&& member.user.id == update.user
+								&& member.user.avatar.is_some()
+							{
+								member.user.avatar = None;
+								membership_changed = true;
+								avatar_changed = true;
+							}
+						}
+						if avatar_changed && list.lazy {
+							self.member_chunks.merge(list);
+							self.member_chunks.evict(&list.ranges);
+						}
+					}
+				}
+				Patch::Value(avatar) => {
+					for channel in &mut self.channels {
+						for recipient in &mut channel.recipients {
+							if recipient.id == update.user
+								&& recipient.avatar.as_deref() != Some(avatar)
+							{
+								recipient.avatar = Some(avatar.clone());
+								membership_changed = true;
+							}
+						}
+					}
+					if let Some(list) = &mut self.members {
+						let mut avatar_changed = false;
+						for slot in list.slots.iter_mut().flatten() {
+							if let model::MemberSlot::Person(member) = slot
+								&& member.user.id == update.user
+								&& member.user.avatar.as_deref() != Some(avatar)
+							{
+								member.user.avatar = Some(avatar.clone());
+								membership_changed = true;
+								avatar_changed = true;
+							}
+						}
+						if avatar_changed && list.lazy {
+							self.member_chunks.merge(list);
+							self.member_chunks.evict(&list.ranges);
+						}
+					}
+				}
+			}
 			let index = self
 				.direct_presences
 				.iter()
@@ -445,7 +509,7 @@ impl State {
 mod tests {
 	use super::*;
 	use crate::{Envelope, Event, auth::AuthState};
-	use model::{Channel, Guild, Member, MemberList, MemberPresence, MemberSlot, User};
+	use model::{Channel, Freshness, Guild, Member, MemberList, MemberPresence, MemberSlot, User};
 
 	fn state() -> State {
 		let user = User {
@@ -478,7 +542,7 @@ mod tests {
 				parent_id: None,
 				position: 0,
 				name: "Synthetic".into(),
-				kind: 0,
+				kind: Default::default(),
 				recipients: vec![],
 				icon: None,
 				member_list_id: Some("everyone".into()),
@@ -562,7 +626,7 @@ mod tests {
 	#[test]
 	fn local_game_activity_is_bounded_coalesced_and_cleared_at_session_boundaries() {
 		let game = RichActivity {
-			kind: 0,
+			kind: Default::default(),
 			name: "osu!".into(),
 			details: Some("Playing a map".into()),
 			state: None,
@@ -1183,12 +1247,90 @@ mod tests {
 	) -> Update {
 		Update {
 			user: Id(user),
+			avatar: Patch::Absent,
 			status,
 			activities,
 			custom_status: Patch::Absent,
 			clients: Patch::Absent,
 		}
 	}
+	#[test]
+	fn direct_presence_updates_recipient_and_member_avatar() {
+		let mut state = direct_state();
+		state.members = Some(MemberList {
+			guild: Some(Id(10)),
+			channel: Id(1),
+			request: 7,
+			start: 0,
+			slots: vec![Some(MemberSlot::Person(Member {
+				roles: vec![],
+				user: User {
+					id: Id(2),
+					name: "test".into(),
+					avatar: None,
+					discriminator: 0,
+					kind: Default::default(),
+					webhook: false,
+					primary_guild: None,
+					cosmetics: None,
+				},
+				nick: None,
+				status: Some("online".into()),
+				custom_status: None,
+				activities: vec![],
+				clients: ClientPlatforms::default(),
+			}))],
+			total: 1,
+			lazy: true,
+			groups: vec![],
+			ranges: vec![],
+			freshness: Freshness::Fresh,
+		});
+		assert_eq!(state.channels[0].recipients[0].avatar, None);
+		let hash = "0123456789abcdef0123456789abcdef".to_string();
+		apply(
+			&mut state,
+			Event::DirectPresence(vec![Update {
+				user: Id(2),
+				avatar: Patch::Value(hash.clone()),
+				status: Patch::Absent,
+				custom_status: Patch::Absent,
+				activities: Patch::Absent,
+				clients: Patch::Absent,
+			}]),
+		);
+		assert_eq!(
+			state.channels[0].recipients[0].avatar.as_deref(),
+			Some(hash.as_str())
+		);
+		if let Some(model::MemberSlot::Person(m)) =
+			state.members.as_ref().and_then(|l| l.slots[0].as_ref())
+		{
+			assert_eq!(m.user.avatar.as_deref(), Some(hash.as_str()));
+		} else {
+			panic!("expected Person slot");
+		}
+		apply(
+			&mut state,
+			Event::DirectPresence(vec![Update {
+				user: Id(2),
+				avatar: Patch::Null,
+				status: Patch::Absent,
+				custom_status: Patch::Absent,
+				activities: Patch::Absent,
+				clients: Patch::Absent,
+			}]),
+		);
+		assert_eq!(state.channels[0].recipients[0].avatar, None);
+		if let Some(model::MemberSlot::Person(m)) =
+			state.members.as_ref().and_then(|l| l.slots[0].as_ref())
+		{
+			assert_eq!(m.user.avatar, None);
+		} else {
+			panic!("expected Person slot");
+		}
+	}
+
 	#[test]
 	fn client_platform_patches_preserve_replace_and_clear_offline() {
 		let mut state = direct_state();
@@ -1200,6 +1342,7 @@ mod tests {
 			&mut state,
 			Event::DirectPresence(vec![Update {
 				user: Id(2),
+				avatar: Patch::Absent,
 				status: Patch::Value("online".into()),
 				custom_status: Patch::Absent,
 				activities: Patch::Absent,
@@ -1228,7 +1371,7 @@ mod tests {
 	}
 	fn activity() -> RichActivity {
 		RichActivity {
-			kind: 0,
+			kind: Default::default(),
 			name: "Synthetic game".into(),
 			details: Some("In a match".into()),
 			state: None,

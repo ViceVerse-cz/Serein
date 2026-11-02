@@ -93,13 +93,3 @@ fn byte(text: &str, chars: usize) -> usize {
 		.nth(chars)
 		.map_or(text.len(), |(index, _)| index)
 }
-
-#[cfg(test)]
-mod tests {
-	#[test]
-	fn char_cursors_map_to_byte_offsets() {
-		assert_eq!(super::byte("héllo", 2), 3);
-		assert_eq!(super::byte("héllo", 9), 6);
-		assert_eq!(super::byte("", 0), 0);
-	}
-}

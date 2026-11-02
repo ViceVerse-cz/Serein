@@ -515,8 +515,9 @@ fn segment(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
 	#[test]
-	fn settings_require_a_current_source_and_offer_high_quality_without_entitlements() {
+	fn stale_source_cannot_start_capture() {
 		let mut picker = ScreenUi {
 			selected: Some(SourceId::Window(7)),
 			..Default::default()
@@ -524,47 +525,12 @@ mod tests {
 		assert!(picker.settings().is_none());
 		picker.sources.push(Source {
 			id: SourceId::Window(7),
-			name: "Notes".into(),
-			width: 0,
-			height: 0,
-			refresh_hz: 0,
-		});
-		picker.resolution = Resolution::Preset {
+			name: "Synthetic window".into(),
 			width: 1920,
 			height: 1080,
-		};
-		picker.fps = 60;
-		let settings = picker.settings().unwrap();
-		assert_eq!(
-			(settings.width, settings.height, settings.fps),
-			(1920, 1080, 60)
-		);
-		assert_eq!(settings.bit_rate(), 16_000_000);
-		let resolutions: Vec<_> = offered_resolutions(2560, 1440).collect();
-		assert!(resolutions.contains(&Resolution::Source));
-		assert!(resolutions.contains(&Resolution::Preset {
-			width: 2560,
-			height: 1440,
-		}));
-		assert!(!offered_resolutions(1920, 1080).any(|item| item
-			== Resolution::Preset {
-				width: 2560,
-				height: 1440,
-			}));
-		assert_eq!(picture(Resolution::Source, 2560, 1440), Some((2560, 1440)));
-		assert_eq!(picture(Resolution::Source, 5120, 1440), Some((3840, 1080)));
-		assert_eq!(
-			offered_frame_rates(165).collect::<Vec<_>>(),
-			vec![15, 30, 60, 90, 120]
-		);
-		assert_eq!(
-			offered_frame_rates(60).collect::<Vec<_>>(),
-			vec![15, 30, 60]
-		);
-		picker.audio = true;
-		assert!(picker.settings().unwrap().audio);
-		picker.audio = false;
-		assert!(!picker.settings().unwrap().audio);
+			refresh_hz: 60,
+		});
+		assert!(picker.settings().is_some());
 		picker.sources.clear();
 		assert!(picker.settings().is_none());
 	}

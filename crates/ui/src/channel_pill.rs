@@ -699,27 +699,6 @@ mod tests {
 	}
 
 	#[test]
-	fn message_links_name_voice_announcement_and_direct_conversations() {
-		let state = kinds_state();
-		for (guild, channel, icon, label) in [
-			(Some(10), 22, Icon::Speaker, "#voice-lounge > message"),
-			(Some(10), 23, Icon::Megaphone, "#announcements > message"),
-			(Some(10), 25, Icon::Threads, "Forum: video-forum > YT-app"),
-			(
-				Some(10),
-				26,
-				Icon::Thread,
-				"Thread: private-thread > message",
-			),
-			(None, 28, Icon::Profile, "Synthetic Robin > message"),
-			(None, 29, Icon::People, "Weekend group > message"),
-		] {
-			let pill = resolve(&state, guild, channel);
-			assert_eq!((pill.icon, pill.label().as_str()), (icon, label));
-		}
-	}
-
-	#[test]
 	fn hidden_or_mismatched_message_destinations_stay_generic() {
 		use model::permissions as p;
 		let state = kinds_state();

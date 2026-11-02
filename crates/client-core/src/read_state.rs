@@ -117,6 +117,13 @@ impl ReadState {
 	pub(crate) fn known(&self) -> bool {
 		self.known
 	}
+	/// The service's acknowledged message for a channel that has a read row.
+	pub(crate) fn row(&self, channel: Id) -> Option<Option<Id>> {
+		self.entries.get(&channel).map(|(id, _)| *id)
+	}
+	pub(crate) fn busy(&self) -> bool {
+		self.pending.is_some()
+	}
 	pub fn status(&self, channel: Id) -> Option<&'static str> {
 		self.status
 			.filter(|(id, _)| *id == channel)
@@ -653,7 +660,7 @@ impl State {
 			}) if *pending_guild == guild && *pending_request == request
 		)
 	}
-	fn mark_read_command(
+	pub(crate) fn mark_read_command(
 		&mut self,
 		channel: Id,
 		message: Id,
@@ -684,6 +691,7 @@ impl State {
 			mention_count,
 		}
 	}
+	/// Advance the observed latest message ID for a channel and record read-state activity.
 	pub fn observe_last_message(&mut self, channel: Id, message: Id) {
 		if let Some(index) = self.channel_index(channel) {
 			let channel = &mut self.channels[index];
@@ -1135,50 +1143,6 @@ mod navigation_tests {
 		}
 	}
 	#[test]
-	#[ignore = "synthetic release workload; run directly after building"]
-	fn timeline_cursor_workload() {
-		use std::{hint::black_box, time::Instant};
-		for deleted_tail in [false, true] {
-			let mut state = state(Some(Id(500)));
-			state.channels[0].last_message = Some(Id(501));
-			state.timeline.clear();
-			state.set_preserve_deleted_messages(true);
-			for id in 1..=500 {
-				state.timeline.insert(message(id), false, false).unwrap();
-			}
-			if deleted_tail {
-				for id in 491..=500 {
-					state.timeline.delete(Id(id)).unwrap();
-				}
-			}
-			let expected = Some(Id(if deleted_tail { 490 } else { 500 }));
-			assert_eq!(state.forward_cursor(), expected);
-			assert_eq!(state.live_edge_latest(), Some(Id(501)));
-			assert_eq!(state.unread(Id(1)), Some(false));
-			let mut times = Vec::with_capacity(5);
-			for batch in 0..6 {
-				let started = Instant::now();
-				for _ in 0..100_000 {
-					black_box(black_box(&state).live_edge_latest());
-					black_box(black_box(&state).forward_cursor());
-					black_box(black_box(&state).unread(Id(1)));
-				}
-				let elapsed = started.elapsed();
-				if batch != 0 {
-					times.push(elapsed);
-				}
-			}
-			let range = (*times.iter().min().unwrap(), *times.iter().max().unwrap());
-			times.sort_unstable();
-			println!(
-				"Synthetic timeline cursors: 100000 live-edge/forward/unread query triples, 500 rows, read marker 500/latest metadata 501, retained deleted tail {deleted_tail}; median {:?}, range {:?}; {} estimated timeline bytes. Excludes rendering, process RSS and live compatibility.",
-				times[2],
-				range,
-				state.timeline.retained_bytes()
-			);
-		}
-	}
-	#[test]
 	fn marking_a_dm_or_group_unread_restores_the_badge_count() {
 		{
 			for kind in [1, 3] {
@@ -1532,6 +1496,61 @@ mod navigation_tests {
 			},
 		);
 	}
+	/// Verify SendResult reconciles own read state without briefly showing the DM channel as unread.
+	#[test]
+	fn send_result_reconciles_own_read_state_without_flashing_unread_directs() {
+		let mut state = state(Some(Id(500)));
+		assert_eq!(state.unread_directs(None), Vec::<Id>::new());
+		assert_eq!(state.channel_unread(&state.channels[0]), Some(false));
+
+		let Command::Send { nonce, .. } = state.prepare_send().unwrap() else {
+			panic!("expected send command");
+		};
+		let mut sent = message(501);
+		sent.author = state.user.clone().unwrap();
+		sent.channel = Id(1);
+		sent.nonce = Some(nonce.clone());
+
+		apply(
+			&mut state,
+			CoreEvent::SendResult {
+				nonce,
+				result: Ok(sent.clone()),
+			},
+		);
+
+		assert_eq!(
+			state.channel_unread(&state.channels[0]),
+			Some(false),
+			"own sent message in SendResult must not mark channel unread"
+		);
+		assert_eq!(
+			state.unread_directs(None),
+			Vec::<Id>::new(),
+			"own sent message in SendResult must not place DM on unread direct rail"
+		);
+
+		apply(&mut state, CoreEvent::Message(sent));
+		assert_eq!(state.channel_unread(&state.channels[0]), Some(false));
+		assert_eq!(state.unread_directs(None), Vec::<Id>::new());
+
+		let mut incoming = message(502);
+		incoming.author = model::User {
+			primary_guild: None,
+			cosmetics: None,
+			id: Id(999),
+			name: "Recipient".into(),
+			avatar: None,
+			webhook: false,
+			kind: Default::default(),
+			discriminator: 0,
+		};
+		incoming.channel = Id(1);
+		apply(&mut state, CoreEvent::Message(incoming));
+		assert_eq!(state.channel_unread(&state.channels[0]), Some(true));
+		assert_eq!(state.unread_directs(None), vec![Id(1)]);
+	}
+
 	#[test]
 	fn historical_sends_confirm_without_splicing_a_live_tail_in_either_order() {
 		{

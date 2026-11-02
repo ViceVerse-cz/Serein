@@ -4,9 +4,11 @@
 
 #[path = "../src/crypto.rs"]
 mod crypto;
+use stream_playback::{diagnostics, video_av1, video_codec, video_hevc};
 #[path = "support/stream_feedback.rs"]
 mod stream_feedback;
 mod stream_playback;
+pub use stream_playback::{PlaybackFrame, Presentation};
 #[path = "../src/test_mls.rs"]
 mod test_mls;
 #[path = "../src/video.rs"]
