@@ -957,6 +957,26 @@ to eight per two seconds. The UI schedules only the next visible expiry, with no
 Existing People typing subscriptions are unchanged; guild delivery may depend on that pane's
 subscription. Service availability and normal-account acceptance remain live-unverified.
 
+Typing indicators (October 17, 2026): Serein now sends this account's typing with the
+documented [Trigger Typing Indicator](https://docs.discord.com/developers/resources/channel#trigger-typing-indicator)
+endpoint (`POST /channels/{id}/typing`, empty body). It is sent only when a keystroke changes
+a new-message draft in the open conversation (never while editing) and the account could send
+there, at most once per channel every eight seconds against Discord's ten-second display, and
+again after this account's own message ends it. Sixteen recent outgoing channels are retained;
+when full, new channels are suppressed until a timestamp expires. Typing shares the message
+writer and an ordering guard with attachment sends. A newer indicator or send discards pending
+typing; started requests finish before a send can begin. Queued indicators older than two
+seconds are dropped. Failures other than session-ending ones are ignored, and the offline
+preview never sends it.
+Received typing now also tracks DMs and group DMs that are not selected, in a fixed sixteen
+entry store (channel, typist, deadline) with the same expiry and validation. The transport
+admits known private conversations alongside the selected channel, with eight coalesced
+signals per two seconds across all channels. Stored typing is cleared on
+session, access and failure changes but kept across navigation. The DM list and DM avatar
+replace the status dot with Discord's typing pill (status colour, three pulsing dots); group
+DMs use grey. The People pane does the same for members typing in the open channel. The pill
+animates at 20 frames per second only while drawn; indicators expire within ten seconds.
+
 Message components (September 19, issue #313): native action rows, buttons, string/user/
 role/mentionable/channel selects, Components V2 sections, containers, text, thumbnails,
 media galleries, files and separators retain bounded typed service data. Modal controls
