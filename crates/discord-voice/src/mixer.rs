@@ -79,6 +79,7 @@ impl Mixer {
 			.map(|s| s.user)
 	}
 	/// Mix one 20ms frame, preserving up to 120ms packets without bursting playback queues.
+	#[cfg(test)]
 	pub fn pop(&mut self) -> (Option<Frame>, bool) {
 		self.pop_with_volumes(&[])
 	}

@@ -30,8 +30,27 @@ fn main() {
 		metrics.report.is_none(),
 		"disabled diagnostics retain no aggregate buffer"
 	);
+	let sizes = VideoSizeCounters {
+		enabled: true,
+		..Default::default()
+	};
+	let disabled_sizes = VideoSizeCounters {
+		enabled: false,
+		..Default::default()
+	};
+	disabled_sizes.record(1920, 1080);
+	assert_eq!(disabled_sizes.take().last, 0);
+	sizes.record(1920, 1080);
+	sizes.record(1920, 1080);
+	metrics.video_sizes(&sizes);
+	assert!(metrics.report.is_none());
 	// Keep the synthetic sender alive for this short-lived debug process.
 	metrics.send = Some(Box::leak(Box::new(send)));
+	metrics.video_sizes(&sizes);
+	sizes.record(720, 1280);
+	sizes.record(640, 360);
+	sizes.record(1920, 1080);
+	metrics.video_sizes(&sizes);
 	metrics.decoder_counts(1, 0);
 	for stage in [
 		Stage::EchoRender,
@@ -73,6 +92,10 @@ fn main() {
 	// reset with the rest of the report.
 	metrics.video(Video::Packets, 120);
 	metrics.video(Video::Packets, 30);
+	metrics.video(Video::EncodedBytes, 1_000_000);
+	metrics.video(Video::RtpBytes, 1_125_000);
+	metrics.video(Video::Av1Frames, 300);
+	metrics.video(Video::TwccSent, 44);
 	metrics.video(Video::StallTicks, 1);
 	metrics.video_max(Video::PictureGapMs, 900);
 	metrics.video_max(Video::PictureGapMs, 2400);
@@ -109,6 +132,23 @@ fn main() {
 		"software"
 	);
 	assert!(report.window_ms >= 5000);
+	assert_eq!(report.video_sizes.changes, 3);
+	let unpack = |key: u64| ((key >> 12) & 4095, key & 4095);
+	assert_eq!(unpack(report.video_sizes.last), (1920, 1080));
+	assert_eq!(unpack(report.video_sizes.min), (640, 360));
+	assert_eq!(unpack(report.video_sizes.max), (1920, 1080));
+	assert_eq!(metrics.report.as_ref().unwrap().video_sizes.last, 0);
+	sizes.record(1920, 1080);
+	metrics.video_sizes(&sizes);
+	assert_eq!(
+		metrics.report.as_ref().unwrap().video_sizes.changes,
+		0,
+		"report boundaries do not count as resolution changes"
+	);
+	assert_eq!(
+		unpack(metrics.report.as_ref().unwrap().video_sizes.min),
+		(1920, 1080)
+	);
 	assert_eq!(report.stream_ticks, [2, 1, 1, 0, 0, 2, 1, 2]);
 	assert_eq!(report.queued_audio, 6);
 	assert_eq!(report.video[Video::Packets as usize], 150);
@@ -171,6 +211,32 @@ fn main() {
 			.contains("stream_ticks")
 	);
 	assert!(!std::str::from_utf8(&output).unwrap().contains("video_send"));
+	assert!(
+		std::str::from_utf8(&output)
+			.unwrap()
+			.contains("video_size: last=1920x1080 min=640x360 max=1920x1080 changes=3")
+	);
+	let mut exact = report;
+	exact.window_ms = 5000;
+	let mut formatted = Vec::new();
+	assert!(write_report(exact, &mut bytes, &mut formatted));
+	assert!(
+		std::str::from_utf8(&formatted)
+			.unwrap()
+			.contains("encoded_bytes=1000000 encoded_bps=1600000")
+	);
+	let text = std::str::from_utf8(&formatted).unwrap();
+	assert!(text.contains("video_rtp_bytes=1125000 video_rtp_bps=1800000"));
+	assert!(text.contains("av1_frames=300"));
+	assert!(text.contains("twcc_sent=44"));
+	exact.window_ms = 0;
+	formatted.clear();
+	assert!(write_report(exact, &mut bytes, &mut formatted));
+	assert!(
+		std::str::from_utf8(&formatted)
+			.unwrap()
+			.contains("encoded_bps=0")
+	);
 	let mut too_small = output.len() - 1;
 	let mut rejected = Vec::new();
 	assert!(!write_report(report, &mut too_small, &mut rejected));

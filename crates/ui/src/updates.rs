@@ -282,6 +282,8 @@ impl MessagingUi {
 
 	/// Requests the host export worker; the host copies the result and acknowledges completion.
 	pub fn copy_diagnostic_info(&mut self, ctx: &egui::Context) {
+		self.updates.copied_diagnostics = None;
+		self.diagnostics_export_failed = false;
 		self.diagnostics_copy_requested = true;
 		ctx.request_repaint();
 	}
@@ -592,7 +594,7 @@ impl MessagingUi {
 						&mut self.diagnostics_disk,
 					);
 				});
-				if recording && self.diagnostics_disk {
+				if (recording && self.diagnostics_disk) || self.diagnostics_log_failed {
 					if design::button(
 						ui,
 						"updates-update-settings-open-folder",

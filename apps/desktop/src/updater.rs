@@ -371,10 +371,10 @@ impl Updater {
 		let worker_progress = Arc::clone(&progress);
 		let ctx = ctx.clone();
 		runtime.spawn(async move {
-			let result = work(worker_cancel, worker_progress)
+			let result = work(Arc::clone(&worker_cancel), worker_progress)
 				.await
 				.map_err(|error| format!("Update failed: {error}"));
-			if result.is_err() {
+			if result.is_err() && !worker_cancel.load(Ordering::Acquire) {
 				diagnostics::record(
 					diagnostics::Category::Updater,
 					diagnostics::Level::Error,

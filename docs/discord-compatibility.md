@@ -419,10 +419,22 @@ still open the browser, and unrelated links retain existing confirmation behavio
 Known channels can be in another joined server, an existing DM/group DM, a thread
 or a forum post (whose destination is the thread channel, not its parent).
 Guild/channel identity and current view/history permissions are checked first.
-An absent thread can be admitted only from the existing bounded archive page through
-its normal permission and metadata-budget guards. Unloaded archives, unknown channels
-and unsupported channel kinds remain unavailable; navigation does not discover
-arbitrary channels, join servers, open unknown DMs, unarchive threads or join calls.
+An absent thread can be admitted from the existing bounded archive page through its
+normal permission and metadata-budget guards, or by one bounded documented channel read
+of that ID — the same read an unresolved channel mention already makes. That read is
+allowed only inside a joined server, at most one at a time, and admits only a thread whose
+loaded parent this session may view; a second click shares it, the link opens when it
+lands, and it expires after sixty seconds or on any navigation of the user's own. A DM,
+another server's channel or a channel that is not a thread of a viewable parent stays
+unavailable. Unloaded archives, unknown channels and unsupported channel kinds remain
+unavailable; navigation does not discover arbitrary channels, join servers, open unknown
+DMs, unarchive threads or join calls.
+
+A message the service flags as a thread starter whose thread this session has not loaded
+shows the thread card with a generic label instead of the thread's name; clicking it makes
+the same single read, and the thread's name and activity appear once it is admitted. Like an
+archive-opened thread it stays one transient conversation, retired when the user navigates
+elsewhere, so its card returns to the generic label on a later visit.
 
 Fresh loaded messages, including an eligible dormant resident window that holds the
 live target, scroll and highlight locally without recent-history or saved-cursor
@@ -729,6 +741,157 @@ Native limits, platform requirements and the owner-operated validation gate are 
 and recording remain unsupported. This section supersedes older camera-exclusion
 statements in the historical voice/screen-sharing notes below.
 
+## Incoming stream quality and recovery — October 22, 2026
+
+Watched streams send authenticated RFC 3550 reception reports once per second, using
+actual sequence/loss/jitter counters and authenticated sender-report clocks. No artificial
+bandwidth estimate, new codec or higher resolution preset is advertised. The Discord
+transport framing and normal-account interoperability remain unofficial.
+
+Incoming video orders authenticated RTP across picture boundaries and requests missing
+original sequences through bounded RFC 4585 Generic NACKs when an RTX pair is announced.
+Ordered packets drain immediately; holes initially have a 120 ms repair deadline. Requested
+hole fills increase that source's allowance to their observed hole age plus 40 ms, capped
+at 400 ms. A bounded one-second history of at most 512 expired-hole metadata records lets
+late responses teach subsequent holes, without replaying discarded media. The allowance
+resets when its source is retired. Response timing includes reordering/retries and is not
+a proven network RTT. Late originals and restored RTX arriving within the allowance can
+complete an earlier picture without discarding intact successors.
+Expiry or resource pressure still requires a keyframe. Empty RTP padding/keepalives consume
+sequence numbers without changing picture timestamps/fragments or breaking references.
+PLIs target the most recently active media source, with an independent 500 ms cooldown
+beginning on each actual request. Existing transport authentication and DAVE gates remain.
+
+Watched video and audio share one RTP timing controller. Initial buffering is 100 ms;
+arrival estimates adapt its target within 60–240 ms. The audio item budget also supports
+sustained 2.5/5/10 ms Opus packetization. Audio sample-rate correction is bounded; video
+slews toward authenticated same-owner sender-clock mappings at a filtered, time-based
+rate independent of the sender's frame rate. Without usable sender reports, exact
+cross-source synchronization remains unverified. Generic RTCP CNAME/AVPF conformance
+is not claimed by these Discord-specific ownership and feedback rules.
+
+Presentation timestamps survive native decode and the existing audio queues. Device
+callback timestamps provide a smoothed output-clock estimate, and the watched UI queues
+bounded decoded pictures for presentation on that clock. Decode scheduling accounts for
+measured decoder delay. Missing device timing has a bounded startup fallback and expires
+after inactivity. Physical speaker/monitor latency, display scanout and official-client
+parity have not been measured. Notification audio and encryption are unchanged. The later UHD reception extension
+raises the shared live decoder bound to 3840×2160; sending presets and inline attachments
+retain their limits.
+
+Synthetic protocol, encrypted local-UDP, sample-clock and Linux native decode checks cover
+these paths. An owner-operated `fb093bc` test covered about 111 minutes at 720p/~60 fps,
+with no decoder errors or persistent audio starvation and a few isolated recovery pauses.
+That evidence precedes adaptive buffering and presentation-level scheduling; the final
+combined candidate needs another owner comparison. Windows/macOS native timing behavior
+and broad network interoperability remain unverified.
+
+### Final owner playback evidence — October 24, 2026
+
+On final runtime candidate `e935dc7b`, an owner-operated Linux AV1 2560×1440 test
+sustains 60.004 decoded fps over a reviewed 696.615-second interval (41,800 pictures).
+Complete decrypted payload averages 7.892 Mbps; authenticated video datagrams average
+8.249 Mbps. There are no decoder errors, stale/queue/playout drops/resets, incomplete
+pictures, DAVE-decrypt failures or audio concealment/rebufferings in that interval.
+Six packets are repaired without expiry; timing feedback is active. An earlier 80.133-second
+steady sample is also clean, with one audio rebuffer during startup. Smooth playback
+is confirmed for this Linux 1440p60 test.
+
+Reception supports up to 4K60, but live 4K60 validation remains pending. Same-stream
+official-client quality/bitrate parity and physical presentation latency remain unmeasured. The earlier provisional failures and pending
+statements below describe preceding candidates; this evidence supersedes their 1440p60
+AV1 playback gate, without claiming universal codec/platform compatibility.
+
+### AV1 native temporal-unit recovery — October 24, 2026
+
+Owner-operated attempts on `bc9b2682` receive AV1 2560×1440, with complete decrypted
+video reaching roughly 7.5 Mbps and authenticated timing feedback active. Audio keeps
+playing without concealment, but each attempt delivers one decoded picture, then none.
+No incomplete video or DAVE-decrypt failures are recorded. Recovery requests gate most
+following predictions; the continued packet flow is not a working playback result.
+
+The earlier synthetic AV1 IVF fixture retained temporal delimiter OBUs. Removing all
+480 delimiters reproduces exactly one native output picture from 480 inputs, with zero
+reported decoder errors. AV1 RTP normally removes these delimiters, while the native
+GStreamer TU-aligned OBU stream requires them. Post-DAVE normalization now restores one
+empty leading delimiter without duplicating an existing one. This leaves RTP/DAVE bytes,
+keyframe checks, codecs and queue bounds intact. The corrected fixture delivers all 480
+pictures with matching reference luma and tags, no decoder errors, stale/admission/playout drops
+or final audio concealment. The original test did not cover this RTP-to-native boundary;
+the subsequent successful owner retest is recorded above.
+
+### Watched-stream transport feedback — October 23, 2026
+
+A subsequent owner-operated test on `fcf6fe62` used a different stream from the earlier
+1440p AV1 comparison: both clients received HEVC 1280×534 at about 59.8 decoded fps.
+Serein's 100.133-second post-startup payload sample averaged 1.299 Mbps (0.662–1.449),
+while eight official-client post-startup reports spanning 70.234 seconds averaged
+3.841 Mbps (2.601–4.151). Neither reported dropped video. Serein recorded timing jitter
+and four audio rebuffer events; Discord audio interruptions were not assessed. Sequential
+scenes and accounting differ, so the reported ~2.96× gap does not prove its cause.
+Neither sample exercises AV1.
+
+Quality-100 subscription requests were already sent. The receiver previously discarded
+transport sequence extensions and produced no transport-wide arrival feedback. It now
+reports authenticated native extension-5 arrivals using WebRTC RTPFB/FMT=15, including
+network probes without delivering probe payloads to media decoders. This follows an
+unofficial native extension mapping; extension presence is required. The feedback is
+bounded by timestamp count/age, datagram size and cadence, and adds no bandwidth estimate,
+REMB or dependency. Numeric counters separate authenticated video/probe datagrams from
+complete decrypted payload and count feedback activity. Wire regressions cover sequence
+wrap, loss, duplicate/reordered arrivals, signed deltas, idle restart, age/count limits,
+malformed extension metadata and transport authentication. The existing synthetic
+stream exchange also verifies an authenticated UDP probe produces encrypted timing
+feedback without entering media decoding/reception reports. Live rate improvement is
+not isolated causally; the final owner test observes active feedback and sustained
+AV1 playback, as recorded above. See [voice details](voice.md).
+
+### Linux watched-stream AV1 reception — October 23, 2026
+
+An owner-controlled sequential 1440p comparison of `8f79435b` found HEVC at 1.23 Mbps
+and 59.5 decoded fps in Serein, versus Discord's reported `AV1X` at 4.59 Mbps and 60 fps.
+Both received 2560×1440 and neither reported playback drops. Samples differ in content
+and bitrate accounting; they establish different received encodes, not the reason for
+the allocation. Serein previously offered no AV1 support.
+
+Capable Linux viewers now offer receive-only `AV1` before HEVC/H.264. `AV1X` is accepted
+as a session-name alias. Each source still routes authenticated advertised RTP independently
+of outgoing session selection; AV1 uses this client's 105/106 primary/RTX assignments.
+The [AOM RTP v1.0.0 format](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html)
+handles bounded aggregation/fragmentation, exact DAVE framing and post-authentication
+sequence/surface validation. Native normalization supports the installed GStreamer parser
+and decoder. Main-profile, single spatial-layer 8/10-bit 4:2:0 reception is supported;
+unsupported capabilities retain HEVC/H.264 fallback. Windows/macOS and sending remain H.264.
+The source/codec-change, repair, DAVE and queue gates described above still apply.
+Tests cover encrypted AV1 RTX through actual routing, DAVE and timed playout, malformed
+length/header/fragment states and allocation bounds. A synthetic Linux 1440p60 native
+workload delivers all 480 reference-identical pictures and presentation tags with no
+errors/drops. The final owner test above verifies live AV1 1440p60 reception/playback;
+quality parity and a causal bitrate uplift remain unverified. No fixed bandwidth claim
+or estimator is added.
+
+### Linux watched-stream HEVC reception — October 22, 2026
+
+Linux viewers can negotiate receive-only H.265 when the installed GStreamer parser,
+HEVC decoder and bounded native pipeline initialize; H.264 remains offered as fallback.
+Windows/macOS viewers, camera sessions and stream encoders still use H.264. HEVC uses
+[RFC 7798](https://www.rfc-editor.org/rfc/rfc7798.html) single-layer/no-DONL packetization,
+existing authenticated RTX repair and DAVE decryption. Negotiation/session updates are
+unofficial, following the public native receiver and discord.py-self implementations
+linked in [voice.md](voice.md#incoming-stream-recovery-and-pacing).
+Received codecs are selected per source from advertised RTP payload types, independently
+of the outgoing session `video_codec`. A forward primary codec change retires that source's
+buffered video/decoder state and requires a recovery picture with VPS/SPS/PPS; delayed old
+packets/RTX and session-only updates do not reset unrelated received media. SPS validation enforces the 3840×2160 live receive bound before native submission.
+Offline encrypted reassembly, malformed packet/bounds and native reference-picture checks
+cover the implementation. An owner-operated October 23 comparison of the same stream
+confirmed H.265, 1280×718 and approximately 30 fps in both Serein and official Discord;
+reported average bitrates were 1.13/1.11 Mbps respectively. Serein recorded no decoder
+errors/playback drops, and Discord reported no dropped frames. This sequential test does
+not prove identical content, physical timing or behavior on every network. The owner
+reported satisfaction with playback; live 4K60 validation remains pending.
+No bandwidth estimator, new dependency, media cache or video recording is introduced.
+
 ## Outgoing screen sharing — September 11, 2026
 
 October 3 reliability audit: UDP media sends drop on local socket pressure without
@@ -807,16 +970,17 @@ SSRC, coalescing requests to at most twice per second. Windows/macOS can freshly
 one retained current snapshot on an idle keyframe request, without waiting for screen
 movement. The additional snapshot is bounded to 33,177,600 bytes, normally reduced to
 the chosen output resolution. Ordinary idle time does not encode extra frames. Linux
-already requests periodic PipeWire keepalive frames. Sender RTX repair, receiver NACK
-requests and adaptive bitrate remain unsupported. The viewer accepts announced RTX
-packets and bounded packet reordering within the current picture; native/live video
-quality is not established by these changes.
+already requests periodic PipeWire keepalive frames. Subsequent sender RTX/rate control
+and incoming packet repair are described above; those changes do not establish universal
+native/live video quality.
 
 Watched streams have a session-only 0–200% audio volume and mute control, independent
-of participant voice levels. Audio playout retains at most two queued 20 ms frames
-and clears delayed mixer output after a stall. Decoder input is bounded to 16 pictures
-and 16 MiB, with a 150 ms age limit and keyframe recovery. These bounds reduce backlog;
-they do not implement sender-clock audio/video synchronization or establish live sync.
+of participant voice levels. The stream/call audio bridge retains at most eight 20 ms
+frames and starts with 40 ms of scheduling headroom; stalls still clear delayed output.
+Decoder input is bounded to 16 pictures and 16 MiB, with a 150 ms age limit and keyframe
+recovery. The October 22 receiver also uses authenticated sender reports and an OS device-time
+estimate for A/V scheduling, with bounds described in `voice.md`. This does not establish
+physical lip-sync accuracy or universal official-client quality parity.
 
 September 27 preview update: hovering a currently streaming guild participant requests
 Discord's still preview and shows it in a compact 16:9 popover with a Watch Stream action.
@@ -1025,7 +1189,7 @@ discord.com route is an integration assumption, not a new API guarantee. Headles
 construction and explicit confirmation; native launch, browser account selection and destination
 resolution remain owner-unverified. The browser uses its own session and Discord authorization.
 
-Loaded threads (September 10): READY guild thread arrays follow the original [discord.py-self guild parser](https://github.com/dolfies/discord.py-self/blob/master/discord/guild.py); active create/update/delete, scoped sync, archive eviction and owner-removal handling are informed by its [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py). Discord's [Gateway thread events](https://docs.discord.com/developers/events/gateway-events#thread-list-sync) document the guild/parent scope and membership fields. These primary sources establish wire evidence, not normal-account acceptance; no implementation blocks were copied. Active discovery is limited to service-supplied snapshots/events; explicit archive reads are described below, with existing subscriptions unchanged. A visible unresolved channel mention performs one bounded documented channel read and admits only a same-guild thread whose loaded parent remains viewable; resolved names are retained in a bounded session-only cache. Unknown updates do not otherwise hydrate a missing thread. See native navigation scope.
+Loaded threads (September 10): READY guild thread arrays follow the original [discord.py-self guild parser](https://github.com/dolfies/discord.py-self/blob/master/discord/guild.py); active create/update/delete, scoped sync, archive eviction and owner-removal handling are informed by its [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py). Discord's [Gateway thread events](https://docs.discord.com/developers/events/gateway-events#thread-list-sync) document the guild/parent scope and membership fields. These primary sources establish wire evidence, not normal-account acceptance; no implementation blocks were copied. Active discovery is limited to service-supplied snapshots/events; explicit archive reads are described below, with existing subscriptions unchanged. A visible unresolved channel mention, and a Discord chat link to a thread this session never loaded, each perform one bounded documented channel read and admit only a same-guild thread whose loaded parent remains viewable; resolved names are retained in a bounded session-only cache. Unknown updates do not otherwise hydrate a missing thread. See native navigation scope.
 
 Serein is unofficial and not endorsed by Discord. No normal-user live session has been tested. Technical compatibility does not imply approval. Discord forbids normal-account automation outside its OAuth2/bot API and warns of account termination ([policy](https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots)); its [terms](https://discord.com/terms) also apply.
 
@@ -1057,7 +1221,7 @@ Server identity tags (September 19): Discord's documented [User object](https://
 | Upload / preview / save | Normal session + separate credential-free media transfer; [attachment reference](https://docs.discord.com/developers/resources/message#attachment-object) and [normal-user staged upload](https://github.com/dolfies/discord.py-self/blob/2ba64a9a997e151a9c259984e0a179b1fdf4aff4/discord/abc.py#L1551) | Documented attachment metadata; staged upload unofficial; service delivery/conversion live-unverified | Up to ten explicitly selected files totaling 500,000,000 bytes, streamed upload/cancel and message confirmation; Discord enforces the account's lower entitlement limit. Static previews, native viewer, image/video attachment context menus with native clipboard copy, and explicit image/file Save As (1 byte through 100 MiB). Upload limits below; preview/save limits |
 | Conversation search | Normal session; [discord.py-self search flow](https://github.com/dolfies/discord.py-self/blob/master/discord/abc.py), [HTTP routes](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py), [response types](https://github.com/dolfies/discord.py-self/blob/master/discord/types/message.py) checked September 10 | Unofficial and unstable | Search current conversation, numbered result pages, snapshot snippets, history revalidation on Open message; indexing/permission failures are visible. Live-unverified |
 | Pinned messages | Normal session; [Get Channel Pins](https://docs.discord.com/developers/resources/message#get-channel-pins) and [normal-user implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) | Documented route; normal-user acceptance live-unverified | Manual 25-pin pages, Older/Retry, Reload newest and history-validated Open message; pin/unpin mutations unsupported |
-| Threads / forums | Normal session; navigation and archive scope, archive sources below | Wire evidence checked September 10; normal-user behavior live-unverified | READY/thread-event reconciliation, parent/post hierarchy and manual public/private/joined-private archive pages implemented; complete active directory and create/join controls remain incomplete |
+| Threads / forums | Normal session; navigation and archive scope, archive sources below | Wire evidence checked September 10; normal-user behavior live-unverified | READY/thread-event reconciliation, parent/post hierarchy and manual public/private/joined-private archive pages implemented; a chat link or a flagged starter admits one unloaded thread per bounded read; complete active directory and create/join controls remain incomplete |
 | One-to-one DM voice | Normal session + per-call credentials; [Discord voice](https://docs.discord.com/developers/topics/voice-connections), [DAVE](https://daveprotocol.com/), [discord.py-self signaling](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py) | Voice transport/DAVE documented; normal-user DM entry/ringing unofficial; implementation live-unverified | Native Opus/CPAL/DAVE v1 path, call controls and bounded resume implemented; synthetic tests only. Physical audio and official-client two-way call gate blocked; voice included in every build |
 | Logout | Local credential/task disposal; OAuth revocation applies only to OAuth tokens | Local behavior implemented; remote session revocation unverified | Local logout only, does not delete sent messages or claim server token revocation |
 
@@ -1517,11 +1681,19 @@ the missing startup path. This does not verify the owner's reported live payload
 subscriptions, or promote guild-scoped presence into globally authoritative DM presence.
 
 Activity artwork: profile cards show a static image to the left of the text. The decoder prefers
-`assets.large_image`, then `small_image` when large is absent, then the application icon. Numeric
+`assets.large_image`, falling back to the application icon; `small_image` stays a corner badge. Numeric
 assets and `mp:` references follow the [documented activity asset formats](https://docs.discord.com/developers/events/gateway-events#activity-object-activity-asset-image)
 and [CDN paths](https://docs.discord.com/developers/reference#image-formatting). Media-proxy
 references must also pass the existing safe image-loader path restrictions; direct external
 URLs and unsupported asset schemes are never fetched. A missing/failed image keeps the text.
+Encoded filename characters and source-query segments inside an admitted `external/<hash>/...`
+proxy reference are retained verbatim, including encoded dots and slashes. The activity model
+previously rejected those characters before the image loader could process them, silently falling
+back to an application icon. The exception is limited to a validated external-proxy envelope;
+encoded authorities, decoded dot-segment traversal, backslashes and references over 1,024 bytes
+remain rejected. Downloads still use the fixed Discord media host and existing bounded decode
+worker, without visiting the embedded source URL or following redirects. This fixes the synthetic
+encoded-artwork reproduction for issue #856; the owner's specific live presence remains unverified.
 Application-only activities use the unauthenticated
 [`GET /applications/{id}/rpc` endpoint](https://docs.discord.food/resources/application#get-rpc-application-unauthenticated)
 to obtain an icon hash, then the fixed Discord CDN app-icons path. This metadata route is
@@ -2686,3 +2858,49 @@ Failures report the service label instead of leaving the picker open.
 account is an unofficial request shape, inferred from the official client and live-unverified:
 loopback tests cover the request shape and response validation, and the owner's release-build
 pass exercised the picker but not live group creation.
+
+## Clip previews on video link cards — October 28, 2026
+
+A link whose page answers with a clip arrives as a video embed that carries the clip and no poster
+image; the reported kkinstagram.com reels are one example, and Discord draws the clip itself there.
+Such a card now paints the clip in its own media area, using the clip's first frame when animation is
+off, instead of showing the video hint on an otherwise empty card. Playback still opens in the browser.
+
+The clip's own host is normally not a source this client fetches. When the payload carries Discord's
+media proxy beside the clip, that proxied URL is the one requested, and the still is decoded from the
+clip instead of asking the image proxy for a webp of a video. Issue #820 supplied screenshots and the
+offline embeds preview, not a live payload, so that link's exact wire shape stays unverified.
+## Opening an unloaded thread — October 26, 2026
+
+The owner reported a private thread that opens in the official desktop and mobile clients but
+not in Serein: its link did nothing, the thread was missing from the sidebar, and its starter
+message had no thread card. A private thread only reaches a session's navigation when the
+service lists it, which the READY/thread-sync scope the loader implements does not do for a
+thread the account may view through MANAGE_THREADS without being a member of it — inferred
+from that owner report, not an established rule for every normal-user payload. Official
+clients read such a thread on demand; Serein only knew threads the service had already listed
+or an already open archive page carried.
+
+A Discord chat link now resolves an unloaded destination with one bounded `GET
+/channels/{id}` read — the route the unresolved-mention path already used — and the thread
+opens when that read lands. The read is available only for a joined server and an authenticated,
+connected session, one at a time through the existing channel-action slot, and the session
+admits only a thread of that guild whose parent channel it has loaded and may view. A link click
+is the user's newest destination: it follows the latest message target while the read for that
+same chat is in flight, and any link to another chat, channel selection, Back/Forward step or
+Home visit cancels the wait, so a slow answer cannot take over the window. The pending link also
+expires after sixty seconds. DMs, another server's channels, non-thread answers and threads under
+an unloaded or hidden parent stay unavailable. Nothing joins, unarchives, subscribes or sends;
+opening remains a read.
+
+The thread card under a starter message follows the service's documented `HAS_THREAD` flag
+when the thread itself is not loaded, since the thread channel shares the starter's ID. It
+shows a generic label rather than inventing a name or activity, and its click performs the
+same single read; the real name and metadata appear once the service answers.
+
+Synthetic tests cover the read request, its admission, the rejected answer, the newer message
+target and the cancellation on navigation. On October 26, 2026 the owner confirmed on a local
+release build that both the link and the starter card open this private thread. That is
+observation of one account, not a general normal-user guarantee: the read itself stays
+unofficial, and a later visit shows the generic card again because the admitted thread is one
+transient conversation.

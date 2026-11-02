@@ -607,8 +607,10 @@ fn main() -> eframe::Result {
 					instance_descriptor: {
 						let mut descriptor =
 							eframe::wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+						// DX12 alone offers WARP on hardware that predates it and hides the GPU's
+						// OpenGL driver; ranking prefers a real GPU, so both are enumerated.
 						descriptor.backends = eframe::wgpu::Backends::from_env()
-							.unwrap_or(eframe::wgpu::Backends::DX12);
+							.unwrap_or(eframe::wgpu::Backends::DX12 | eframe::wgpu::Backends::GL);
 						// An HWND swapchain is always opaque; only a DirectComposition one carries
 						// alpha to the desktop and its acrylic backdrop. The env override still wins.
 						if transparency_available
@@ -891,6 +893,7 @@ struct FrameMetrics {
 	max_micros: u64,
 	buckets: [u64; 8],
 	reflows: (u64, u64),
+	reported_reflows: u64,
 }
 impl Default for FrameMetrics {
 	fn default() -> Self {
@@ -919,6 +922,7 @@ impl FrameMetrics {
 			max_micros: 0,
 			buckets: [0; 8],
 			reflows: (0, 0),
+			reported_reflows: 0,
 		}
 	}
 	fn sample_active_at(&mut self, now: std::time::Instant) -> bool {
@@ -974,7 +978,10 @@ impl FrameMetrics {
 			self.buckets = [0; 8];
 			return;
 		}
-		self.shared_since.get_or_insert_with(Instant::now);
+		if self.shared_since.is_none() {
+			self.shared_since = Some(Instant::now());
+			self.reported_reflows = self.reflows.0;
+		}
 		if self.sample.is_some() {
 			self.viewport_size = ctx.input(|i| {
 				i.viewport()
@@ -991,6 +998,16 @@ impl FrameMetrics {
 			self.search_focused += u64::from(search_focused);
 		}
 	}
+	fn summary_reflows(&mut self) -> u64 {
+		let total = self.reflows.0;
+		let value = if self.enabled {
+			total
+		} else {
+			total.saturating_sub(self.reported_reflows)
+		};
+		self.reported_reflows = total;
+		value
+	}
 	fn finish(&mut self) {
 		if let Some(started) = self.started.take() {
 			let micros = started.elapsed().as_micros();
@@ -1005,6 +1022,7 @@ impl FrameMetrics {
 				.shared_since
 				.is_some_and(|at| at.elapsed() >= Duration::from_secs(5))
 			{
+				let reflows = self.summary_reflows();
 				diagnostics::summary(
 					diagnostics::Category::App,
 					"frame summary",
@@ -1012,7 +1030,7 @@ impl FrameMetrics {
 						("callbacks", self.frames.into()),
 						("max_us", self.max_micros.into()),
 						("inputless", self.inputless.into()),
-						("reflows", self.reflows.0.into()),
+						("reflows", reflows.into()),
 					],
 				);
 				self.shared_since = Some(Instant::now());
@@ -1172,8 +1190,6 @@ struct Desktop {
 	/// Saved account awaiting the owner's confirmation before it is forgotten.
 	confirming_forget: Option<model::Id>,
 	credential_status: &'static str,
-	/// Until when the sign-in failure copy button reads "Copied".
-	sign_in_copied: Option<f64>,
 	forgetting: bool,
 	confirming_close: bool,
 	confirming_logout: bool,
@@ -2531,7 +2547,6 @@ impl Desktop {
 			presence_authoritative: false,
 			presence_saved: None,
 			confirming_forget: sign_in_forget,
-			sign_in_copied: None,
 			credential_status: if demo {
 				"Fixture mode skips saved login; extensions use public GitHub downloads"
 			} else if loading_saved {
@@ -2630,12 +2645,6 @@ impl Desktop {
 		if self.messaging.open_log_folder_requested {
 			self.messaging.open_log_folder_requested = false;
 			self.messaging.diagnostics_log_open_failed = false;
-			// A folder repaired outside the app starts working here instead of after a restart.
-			if self.messaging.diagnostics_log_failed {
-				self.apply_diagnostics_log(self.messaging.diagnostics_log);
-				ctx.request_repaint_after(Duration::from_millis(50));
-				return;
-			}
 			let folder = diagnostics::path()
 				.and_then(|path| path.parent().map(std::path::Path::to_path_buf))
 				.or_else(|| self.log_directory.clone());
@@ -7088,6 +7097,20 @@ mod tests {
 			vec![model::Id(2)]
 		);
 	}
+	#[test]
+	fn frame_summaries_use_interval_reflows_unless_console_metrics_are_cumulative() {
+		let mut metrics = FrameMetrics::new(None);
+		metrics.enabled = false;
+		metrics.reported_reflows = 40;
+		metrics.reflows = (43, 0);
+		assert_eq!(metrics.summary_reflows(), 3);
+		metrics.reflows.0 = 45;
+		assert_eq!(metrics.summary_reflows(), 2);
+		metrics.enabled = true;
+		assert_eq!(metrics.summary_reflows(), 45);
+		assert_eq!(metrics.reflows.0, 45);
+	}
+
 	#[test]
 	fn frame_sample_is_bounded_demo_only_and_excludes_warmup() {
 		for (demo, value) in [

@@ -45,8 +45,9 @@ panic text, backtraces, images, audio, video, and signaling payloads.
 The collector is not a terminal recorder. Native libraries and framework output may contain
 sensitive text and do not become part of a report. Do not attach browser logs, raw terminal output,
 process memory dumps or screenshots of private conversations as a substitute. Diagnostics use
-a closed, reviewed event/key/tag vocabulary and approved numeric measurements. Unknown static
-text is replaced with an unclassified category rather than retained. A Rust string lifetime or
+a closed, reviewed event/key/tag vocabulary and approved numeric measurements. Events with
+unknown names or field keys are dropped. Unknown text field values are replaced with an
+unclassified category rather than retained. A Rust string lifetime or
 numeric type alone does not prove that a value is nonpersonal. New instrumentation must be reviewed at
 its source, including values passed indirectly through helper functions.
 

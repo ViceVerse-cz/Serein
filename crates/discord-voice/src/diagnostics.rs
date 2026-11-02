@@ -48,7 +48,7 @@ pub(crate) enum Stage {
 pub(crate) enum Video {
 	/// Video RTP packets (payload 101) accepted by the transport cipher.
 	Packets,
-	/// Retransmission packets (payload 102); currently ignored, so a high count means loss.
+	/// Retransmission packets (payload 102) received before SSRC/sequence restoration.
 	Rtx,
 	/// Packets that failed the transport AEAD.
 	OpenFailed,
@@ -86,8 +86,158 @@ pub(crate) enum Video {
 	DecodeQueueMs,
 	/// Queued frames discarded after exceeding the latency budget.
 	StaleFrames,
+	/// Compressed video bytes in complete, decrypted pictures, before decoder admission.
+	EncodedBytes,
+	/// Authenticated reception reports sent by this watched-stream transport.
+	ReceiverReportsSent,
+	/// Generic NACK datagrams sent to request missing video packets.
+	NacksSent,
+	/// Observed sequence holes filled before their repair deadline.
+	RepairedPackets,
+	/// Watched pictures enqueued after their RTP-clock playback deadline.
+	PlayoutLate,
+	/// Playback clock anchors cleared after discontinuity/security/pressure.
+	PlayoutResets,
+	/// Pictures discarded from the bounded watched-playback queue.
+	PlayoutDrops,
+	/// Maximum watched-playback queue depth during this report.
+	PlayoutDepth,
+	/// Authenticated empty video RTP payloads handled as padding/keepalives.
+	PaddingPackets,
+	/// Accepted watched-audio sender clock reports.
+	AvAudioReports,
+	/// Accepted watched-video sender clock reports.
+	AvVideoReports,
+	/// Video deadlines related to an audio sender clock.
+	AvVideoSynced,
+	/// Maximum pre-correction video scheduling offset, not physical output latency.
+	AvOffsetMs,
+	/// Maximum device/bridge delay estimate, separately from sender-clock correction.
+	AvDeviceOffsetMs,
+	PlayoutRewinds,
+	PlayoutSourceChanges,
+	PlayoutExpired,
+	PlayoutPressure,
+	PlayoutAhead,
+	AvTimelineRebases,
+	/// Decrypted access units by negotiated codec, not decoder output counts.
+	H264Frames,
+	H265Frames,
+	H264Packets,
+	H265Packets,
+	PayloadRejected,
+	CodecSwitches,
+	SessionH264,
+	SessionH265,
+	/// Sequence holes abandoned after the adaptive repair deadline.
+	RepairExpired,
+	/// Known expired holes filled later; each hole is counted at most once.
+	RepairLate,
+	/// Maximum first-NACK-to-hole-fill interval; not a proven network RTT.
+	RepairResponseMs,
+	/// Maximum current per-source repair allowance, in milliseconds.
+	RepairBudgetMs,
+	Av1Frames,
+	Av1Packets,
+	SessionAv1,
+	RtpBytes,
+	ProbePackets,
+	ProbeBytes,
+	TwccReceived,
+	TwccSent,
+	TwccReported,
+	TwccMissing,
+	TwccDiscarded,
 }
-const VIDEO_SLOTS: usize = 20;
+const VIDEO_SLOTS: usize = Video::TwccDiscarded as usize + 1;
+
+/// Opt-in only; media callbacks do no additional atomic work when diagnostics are off.
+pub(crate) fn enabled() -> bool {
+	static ENABLED: OnceLock<bool> = OnceLock::new();
+	*ENABLED.get_or_init(|| std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|v| v == "1"))
+}
+
+/// Dimensions of delivered pictures only. The packed key sorts by pixel count and retains
+/// both dimensions; live pictures have already passed the shared UHD bound.
+#[derive(Clone, Copy, Default)]
+struct VideoSizes {
+	last: u64,
+	min: u64,
+	max: u64,
+	changes: u64,
+}
+
+impl VideoSizes {
+	fn dimensions(key: u64) -> (u64, u64) {
+		((key >> 12) & 4095, key & 4095)
+	}
+	fn merge(&mut self, next: Self) {
+		if next.last != 0 {
+			self.last = next.last;
+		}
+		if next.min != 0 {
+			self.min = if self.min == 0 {
+				next.min
+			} else {
+				self.min.min(next.min)
+			};
+		}
+		self.max = self.max.max(next.max);
+		self.changes = self.changes.saturating_add(next.changes);
+	}
+}
+
+/// Fixed-size decoder-callback counters, drained by its transport without a blocking lock.
+pub(crate) struct VideoSizeCounters {
+	enabled: bool,
+	last: AtomicU64,
+	min: AtomicU64,
+	max: AtomicU64,
+	changes: AtomicU64,
+}
+
+impl Default for VideoSizeCounters {
+	fn default() -> Self {
+		Self {
+			enabled: enabled(),
+			last: AtomicU64::new(0),
+			min: AtomicU64::new(0),
+			max: AtomicU64::new(0),
+			changes: AtomicU64::new(0),
+		}
+	}
+}
+
+impl VideoSizeCounters {
+	pub fn record(&self, width: u32, height: u32) {
+		if !self.enabled {
+			return;
+		}
+		debug_assert!(width > 0 && height > 0 && width <= 3840 && height <= 3840);
+		let key = ((u64::from(width) * u64::from(height)) << 24)
+			| (u64::from(width) << 12)
+			| u64::from(height);
+		let previous = self.last.swap(key, Ordering::Relaxed);
+		if previous != 0 && previous != key {
+			self.changes.fetch_add(1, Ordering::Relaxed);
+		}
+		let _ = self
+			.min
+			.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |min| {
+				Some(if min == 0 { key } else { min.min(key) })
+			});
+		self.max.fetch_max(key, Ordering::Relaxed);
+	}
+
+	fn take(&self) -> VideoSizes {
+		VideoSizes {
+			last: self.last.load(Ordering::Relaxed),
+			min: self.min.swap(0, Ordering::Relaxed),
+			max: self.max.swap(0, Ordering::Relaxed),
+			changes: self.changes.swap(0, Ordering::Relaxed),
+		}
+	}
+}
 
 /// Voice signaling messages, so a handshake that never completes names its own missing step.
 /// Opcodes only; no signaling contents are recorded.
@@ -204,6 +354,9 @@ struct Report {
 	at_ms: u64,
 	window_ms: u64,
 	video: [u64; VIDEO_SLOTS],
+	video_sizes: VideoSizes,
+	stream_audio: [u64; 10],
+	device_playback: [u64; 2],
 	signal: [u64; SIGNAL_SLOTS],
 	/// Application-audio capture (Linux): inputs allowed, captures started, applications
 	/// excluded after a failure, and mixed 20 ms chunks handed to the stream.
@@ -223,6 +376,7 @@ pub(crate) struct Metrics {
 	send: Option<&'static mpsc::SyncSender<Report>>,
 	since: Instant,
 	scope: Scope,
+	recording_session: u64,
 	report: Option<Box<Report>>,
 }
 
@@ -244,6 +398,9 @@ fn empty_report(scope: Scope) -> Report {
 		at_ms: 0,
 		window_ms: 0,
 		video: [0; VIDEO_SLOTS],
+		video_sizes: VideoSizes::default(),
+		stream_audio: [0; 10],
+		device_playback: [0; 2],
 		signal: [0; SIGNAL_SLOTS],
 		capture: [0; 6],
 		stages: [[0; 3]; 11],
@@ -263,10 +420,14 @@ impl Metrics {
 	}
 
 	fn active(&mut self) -> bool {
-		self.active_when(self.enabled())
+		self.active_when(self.enabled(), diagnostics::recording_session())
 	}
 
-	fn active_when(&mut self, enabled: bool) -> bool {
+	fn active_when(&mut self, enabled: bool, session: u64) -> bool {
+		if self.recording_session != session {
+			self.recording_session = session;
+			self.report = None;
+		}
 		if !enabled {
 			self.report = None;
 			return false;
@@ -281,7 +442,7 @@ impl Metrics {
 	pub fn new(scope: Scope) -> Self {
 		static REPORTER: OnceLock<Option<mpsc::SyncSender<Report>>> = OnceLock::new();
 		let send = REPORTER.get_or_init(|| {
-			if std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_none_or(|v| v != "1") {
+			if !enabled() {
 				return None;
 			}
 			let (send, receive) = mpsc::sync_channel::<Report>(8);
@@ -302,7 +463,39 @@ impl Metrics {
 			send: send.as_ref(),
 			since: Instant::now(),
 			scope,
+			recording_session: diagnostics::recording_session(),
 			report: None,
+		}
+	}
+
+	pub fn device_playback(&mut self, values: [u64; 2]) {
+		if !self.active() {
+			return;
+		}
+		for (slot, value) in self
+			.report
+			.as_mut()
+			.expect("active metrics")
+			.device_playback
+			.iter_mut()
+			.zip(values)
+		{
+			*slot = slot.saturating_add(value);
+		}
+	}
+
+	/// Fixed aggregates only: no PCM, source identities or raw RTP timestamps.
+	pub fn stream_audio(&mut self, values: [u64; 10]) {
+		if !self.active() {
+			return;
+		}
+		for (index, value) in values.into_iter().enumerate() {
+			let slot = &mut self.report.as_mut().expect("active metrics").stream_audio[index];
+			*slot = if (6..8).contains(&index) {
+				(*slot).max(value)
+			} else {
+				slot.saturating_add(value)
+			};
 		}
 	}
 
@@ -316,6 +509,17 @@ impl Metrics {
 			return;
 		}
 		self.report.as_mut().expect("active metrics").decoder_counts = [hardware, software];
+	}
+
+	/// Aggregate dimensions independently of the decoder's short polling interval.
+	pub fn video_sizes(&mut self, counters: &VideoSizeCounters) {
+		if self.active() {
+			self.report
+				.as_mut()
+				.expect("active metrics")
+				.video_sizes
+				.merge(counters.take());
+		}
 	}
 
 	pub fn finish(&mut self, stage: Stage, start: Option<Instant>) {
@@ -491,6 +695,9 @@ impl Metrics {
 		report.stream_ticks = [0; 8];
 		report.queued_audio = 0;
 		report.video = [0; VIDEO_SLOTS];
+		report.video_sizes = VideoSizes::default();
+		report.stream_audio = [0; 10];
+		report.device_playback = [0; 2];
 		report.signal = [0; SIGNAL_SLOTS];
 		report.capture = [0; 6];
 	}
@@ -553,6 +760,7 @@ fn shared_report(report: &Report) {
 			record(
 				"media stage",
 				&[
+					("scope", scope.into()),
 					("stage", stage.into()),
 					("calls", calls.into()),
 					("total_us", total.into()),
@@ -562,28 +770,29 @@ fn shared_report(report: &Report) {
 		}
 	}
 	let video = [
-		"packets",
-		"rtx",
-		"open_failed",
-		"not_ready",
-		"unknown_sender",
-		"incomplete",
-		"complete",
-		"decrypt_failed",
-		"gated",
-		"queue_full",
-		"keyframes",
-		"keyframes_without_params",
-		"pli_sent",
-		"awaiting_ticks",
-		"decoder_errors",
-		"pictures",
-		"picture_gap_ms",
-		"stall_ticks",
-		"decode_queue_ms",
-		"stale_frames",
+		(Video::Packets, "packets"),
+		(Video::Rtx, "rtx"),
+		(Video::OpenFailed, "open_failed"),
+		(Video::NotReady, "not_ready"),
+		(Video::UnknownSsrc, "unknown_sender"),
+		(Video::Incomplete, "incomplete"),
+		(Video::Complete, "complete"),
+		(Video::DecryptFailed, "decrypt_failed"),
+		(Video::Gated, "gated"),
+		(Video::QueueFull, "queue_full"),
+		(Video::Keyframes, "keyframes"),
+		(Video::KeyframesWithoutParams, "keyframes_without_params"),
+		(Video::PliSent, "pli_sent"),
+		(Video::AwaitingTicks, "awaiting_ticks"),
+		(Video::DecoderErrors, "decoder_errors"),
+		(Video::Pictures, "pictures"),
+		(Video::PictureGapMs, "picture_gap_ms"),
+		(Video::StallTicks, "stall_ticks"),
+		(Video::DecodeQueueMs, "decode_queue_ms"),
+		(Video::StaleFrames, "stale_frames"),
 	];
-	for (counter, value) in video.into_iter().zip(report.video) {
+	for (variant, counter) in video {
+		let value = report.video[variant as usize];
 		if value > 0 {
 			record(
 				"video counter",
@@ -596,29 +805,34 @@ fn shared_report(report: &Report) {
 		}
 	}
 	let signal = [
-		"text",
-		"binary",
-		"other",
-		"ready",
-		"session",
-		"clients",
-		"sender",
-		"prepare_transition",
-		"execute_transition",
-		"prepare_epoch",
-		"external_sender",
-		"proposals",
-		"commit",
-		"key_package_sent",
-		"transition_ready_sent",
-		"subscribe_sent",
-		"sink_wants_sent",
+		(Signal::Text, "text"),
+		(Signal::Binary, "binary"),
+		(Signal::Other, "other"),
+		(Signal::Ready, "ready"),
+		(Signal::Session, "session"),
+		(Signal::Clients, "clients"),
+		(Signal::Sender, "sender"),
+		(Signal::PrepareTransition, "prepare_transition"),
+		(Signal::ExecuteTransition, "execute_transition"),
+		(Signal::PrepareEpoch, "prepare_epoch"),
+		(Signal::ExternalSender, "external_sender"),
+		(Signal::Proposals, "proposals"),
+		(Signal::Commit, "commit"),
+		(Signal::KeyPackageSent, "key_package_sent"),
+		(Signal::TransitionReadySent, "transition_ready_sent"),
+		(Signal::SubscribeSent, "subscribe_sent"),
+		(Signal::SinkWantsSent, "sink_wants_sent"),
 	];
-	for (counter, value) in signal.into_iter().zip(report.signal) {
+	for (variant, counter) in signal {
+		let value = report.signal[variant as usize];
 		if value > 0 {
 			record(
 				"voice signaling counter",
-				&[("counter", counter.into()), ("value", value.into())],
+				&[
+					("scope", scope.into()),
+					("counter", counter.into()),
+					("value", value.into()),
+				],
 			);
 		}
 	}
@@ -629,7 +843,11 @@ fn shared_report(report: &Report) {
 		if value > 0 {
 			record(
 				"capture counter",
-				&[("counter", counter.into()), ("value", value.into())],
+				&[
+					("scope", scope.into()),
+					("counter", counter.into()),
+					("value", value.into()),
+				],
 			);
 		}
 	}
@@ -656,7 +874,11 @@ fn shared_report(report: &Report) {
 		if ticks > 0 {
 			record(
 				"stream state",
-				&[("state", state.into()), ("ticks", ticks.into())],
+				&[
+					("scope", scope.into()),
+					("state", state.into()),
+					("ticks", ticks.into()),
+				],
 			);
 		}
 	}
@@ -728,9 +950,93 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 			stall_ticks,
 			decode_queue_ms,
 			stale_frames,
+			encoded_bytes,
+			receiver_reports_sent,
+			nacks_sent,
+			repaired_packets,
+			playout_late,
+			playout_resets,
+			playout_drops,
+			playout_depth,
+			padding_packets,
+			av_audio_reports,
+			av_video_reports,
+			av_video_synced,
+			av_offset_ms,
+			av_device_offset_ms,
+			playout_rewinds,
+			playout_source_changes,
+			playout_expired,
+			playout_pressure,
+			playout_ahead,
+			av_timeline_rebases,
+			h264_frames,
+			h265_frames,
+			h264_packets,
+			h265_packets,
+			payload_rejected,
+			codec_switches,
+			session_h264,
+			session_h265,
+			repair_expired,
+			repair_late,
+			repair_response_ms,
+			repair_budget_ms,
+			av1_frames,
+			av1_packets,
+			session_av1,
+			video_rtp_bytes,
+			probe_packets,
+			probe_bytes,
+			twcc_received,
+			twcc_sent,
+			twcc_reported,
+			twcc_missing,
+			twcc_discarded,
 		] = report.video;
+		let encoded_bps = encoded_bytes
+			.saturating_mul(8000)
+			.checked_div(report.window_ms)
+			.unwrap_or(0);
+		let video_rtp_bps = video_rtp_bytes
+			.saturating_mul(8000)
+			.checked_div(report.window_ms)
+			.unwrap_or(0);
+		line.push_str(&format!(" receive_transport: video_rtp_bytes={video_rtp_bytes} video_rtp_bps={video_rtp_bps} probe_packets={probe_packets} probe_bytes={probe_bytes} twcc_received={twcc_received} twcc_sent={twcc_sent} twcc_reported={twcc_reported} twcc_missing={twcc_missing} twcc_discarded={twcc_discarded}"));
 		line.push_str(&format!(
-			" video: packets={packets} rtx={rtx} open_failed={open_failed} not_ready={not_ready} unknown_ssrc={unknown_ssrc} incomplete={incomplete} complete={complete} decrypt_failed={decrypt_failed} gated={gated} queue_full={queue_full} keyframes={keyframes} keyframes_without_params={keyframes_without_params} pli_sent={pli_sent} awaiting_ticks={awaiting_ticks} decoder_errors={decoder_errors} pictures={pictures} picture_gap_ms={picture_gap_ms} stall_ticks={stall_ticks} decode_queue_ms={decode_queue_ms} stale_frames={stale_frames}"
+			" av1_frames={av1_frames} av1_packets={av1_packets} session_av1={session_av1} repair: repair_expired={repair_expired} repair_late={repair_late} repair_response_ms={repair_response_ms} repair_budget_ms={repair_budget_ms}"
+		));
+		line.push_str(&format!(
+			" video: packets={packets} rtx={rtx} open_failed={open_failed} not_ready={not_ready} unknown_ssrc={unknown_ssrc} incomplete={incomplete} complete={complete} decrypt_failed={decrypt_failed} gated={gated} queue_full={queue_full} keyframes={keyframes} keyframes_without_params={keyframes_without_params} pli_sent={pli_sent} awaiting_ticks={awaiting_ticks} decoder_errors={decoder_errors} pictures={pictures} picture_gap_ms={picture_gap_ms} stall_ticks={stall_ticks} decode_queue_ms={decode_queue_ms} stale_frames={stale_frames} encoded_bytes={encoded_bytes} encoded_bps={encoded_bps} receiver_reports_sent={receiver_reports_sent} nacks_sent={nacks_sent} repaired_packets={repaired_packets} playout_late={playout_late} playout_resets={playout_resets} playout_drops={playout_drops} playout_depth={playout_depth} padding_packets={padding_packets} av_audio_reports={av_audio_reports} av_video_reports={av_video_reports} av_video_synced={av_video_synced} av_offset_ms={av_offset_ms} av_device_offset_ms={av_device_offset_ms} playout_rewinds={playout_rewinds} playout_source_changes={playout_source_changes} playout_expired={playout_expired} playout_pressure={playout_pressure} playout_ahead={playout_ahead} av_timeline_rebases={av_timeline_rebases} h264_frames={h264_frames} h265_frames={h265_frames} h264_packets={h264_packets} h265_packets={h265_packets} payload_rejected={payload_rejected} codec_switches={codec_switches} session_h264={session_h264} session_h265={session_h265}"
+		));
+	}
+	if report.device_playback.iter().any(|value| *value != 0) {
+		let [empty_frames, stale_frames] = report.device_playback;
+		line.push_str(&format!(
+			" device_playback: device_empty_frames={empty_frames} device_stale_frames={stale_frames}"
+		));
+	}
+	if report.stream_audio.iter().any(|value| *value != 0) {
+		let [
+			decoded_samples,
+			concealed_samples,
+			decode_errors,
+			rebufferings,
+			rate_up_samples,
+			rate_down_samples,
+			buffer_ms,
+			target_ms,
+			bridge_drops,
+			bridge_underruns,
+		] = report.stream_audio;
+		line.push_str(&format!(" stream_audio: decoded_samples={decoded_samples} concealed_samples={concealed_samples} audio_decode_errors={decode_errors} audio_rebufferings={rebufferings} rate_up_samples={rate_up_samples} rate_down_samples={rate_down_samples} audio_buffer_ms={buffer_ms} audio_target_ms={target_ms} bridge_drops={bridge_drops} bridge_underruns={bridge_underruns}"));
+	}
+	if report.video_sizes.last != 0 {
+		let (width, height) = VideoSizes::dimensions(report.video_sizes.last);
+		let (min_width, min_height) = VideoSizes::dimensions(report.video_sizes.min);
+		let (max_width, max_height) = VideoSizes::dimensions(report.video_sizes.max);
+		line.push_str(&format!(
+			" video_size: last={width}x{height} min={min_width}x{min_height} max={max_width}x{max_height} changes={}", report.video_sizes.changes
 		));
 	}
 	if report.signal.iter().any(|count| *count != 0) {
@@ -778,20 +1084,76 @@ mod shared_tests {
 	use super::*;
 
 	#[test]
+	fn shared_measurements_keep_both_worker_scopes() {
+		diagnostics::install_mode(diagnostics::Level::Debug, std::path::PathBuf::new(), false);
+		let mut report = empty_report(Scope::Audio);
+		report.stages[Stage::Encode as usize] = [1, 10, 10];
+		report.signal[Signal::Text as usize] = 1;
+		report.stream_ticks[0] = 1;
+		shared_report(&report);
+		report.scope = Scope::Transport;
+		shared_report(&report);
+		let text = diagnostics::recent(100);
+		let latest = text.split("Latest subsystem summaries:").nth(1).unwrap();
+		for scope in ["audio", "transport"] {
+			for event in ["media stage", "voice signaling counter", "stream state"] {
+				assert!(
+					latest.contains(&format!("{event} scope={scope} ")),
+					"{event} lost {scope}"
+				);
+			}
+		}
+		diagnostics::install_mode(diagnostics::Level::Off, std::path::PathBuf::new(), false);
+	}
+
+	#[test]
 	fn toggling_recording_allocates_lazily_and_discards_previous_counters() {
 		let mut metrics = Metrics {
 			send: None,
 			since: Instant::now(),
 			scope: Scope::Audio,
+			recording_session: 0,
 			report: None,
 		};
-		assert!(!metrics.active_when(false));
+		assert!(!metrics.active_when(false, 0));
 		assert!(metrics.report.is_none());
-		assert!(metrics.active_when(true));
+		assert!(metrics.active_when(true, 0));
 		metrics.report.as_mut().unwrap().drops = 7;
-		assert!(!metrics.active_when(false));
+		assert!(!metrics.active_when(false, 0));
 		assert!(metrics.report.is_none());
-		assert!(metrics.active_when(true));
+		assert!(metrics.active_when(true, 0));
 		assert_eq!(metrics.report.as_ref().unwrap().drops, 0);
+		metrics.report.as_mut().unwrap().drops = 9;
+		metrics.since = Instant::now() - Duration::from_secs(10);
+		let before = Instant::now();
+		assert!(
+			metrics.active_when(true, 1),
+			"off/on between media ticks starts a new session"
+		);
+		assert_eq!(metrics.report.as_ref().unwrap().drops, 0);
+		assert!(metrics.since >= before);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	#[test]
+	fn uhd_dimensions_survive_packing_and_pixel_count_range_selection() {
+		let sizes = VideoSizeCounters {
+			enabled: true,
+			..VideoSizeCounters::default()
+		};
+		for (width, height) in [(2560, 1440), (3840, 2160), (1920, 1080), (2160, 3840)] {
+			sizes.record(width, height);
+			assert_eq!(
+				VideoSizes::dimensions(sizes.last.load(Ordering::Relaxed)),
+				(u64::from(width), u64::from(height))
+			);
+		}
+		let range = sizes.take();
+		assert_eq!(VideoSizes::dimensions(range.min), (1920, 1080));
+		assert_eq!(VideoSizes::dimensions(range.max), (3840, 2160));
+		assert_eq!(VideoSizes::dimensions(range.last), (2160, 3840));
 	}
 }

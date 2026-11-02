@@ -13,7 +13,7 @@ use std::{
 };
 
 mod vocabulary;
-const MAX_FIELDS: usize = 4;
+const MAX_FIELDS: usize = 5;
 const MAX_RING_LINES: usize = 2048;
 const MAX_RING_BYTES: usize = 512 * 1024;
 const MAX_QUEUE_LINES: usize = 128;
@@ -137,6 +137,7 @@ pub enum InstallStatus {
 	Pending,
 	Failed,
 }
+static RECORDING_SESSION: AtomicU64 = AtomicU64::new(0);
 static LEVEL: AtomicU8 = AtomicU8::new(0);
 static DROPPED: AtomicU64 = AtomicU64::new(0);
 static SINK: Sink = Sink {
@@ -235,6 +236,10 @@ impl Sink {
 		self.shared.lock().unwrap_or_else(|p| p.into_inner())
 	}
 }
+/// Changes when recording is started again or its history is cleared.
+pub fn recording_session() -> u64 {
+	RECORDING_SESSION.load(Ordering::Acquire)
+}
 pub fn level() -> Level {
 	Level::from_code(LEVEL.load(Ordering::Acquire))
 }
@@ -275,6 +280,7 @@ pub fn install_mode(at: Level, directory: PathBuf, disk: bool) {
 		shared.recording = None;
 		DROPPED.store(0, Ordering::Relaxed);
 	} else if shared.recording.is_none() {
+		RECORDING_SESSION.fetch_add(1, Ordering::AcqRel);
 		shared.recording = Some(Box::new(Recording {
 			started: Instant::now(),
 			ring: VecDeque::new(),
@@ -330,6 +336,7 @@ pub fn clear() {
 }
 /// Explicit owner action can also remove residual managed files while recording is off.
 pub fn clear_at(directory: Option<PathBuf>) {
+	RECORDING_SESSION.fetch_add(1, Ordering::AcqRel);
 	let mut s = SINK.lock();
 	if let Some(r) = s.recording.as_mut() {
 		r.ring = VecDeque::new();
@@ -557,14 +564,20 @@ fn writer() {
 	let mut current: Option<(u64, PathBuf, FileSink)> = None;
 	loop {
 		let mut s = SINK.lock();
-		if let Some(directory) = s.cleanup.pop_front() {
+		if let Some(directory) = s.cleanup.front().cloned() {
 			current = None;
 			drop(s);
 			let failed = remove_history(&directory).is_err();
 			s = SINK.lock();
 			if failed {
+				// Keep the destination pending for the next explicit setup/clear action.
+				// Stop this worker instead of spinning or silently opening retained history.
 				s.status = InstallStatus::Failed;
+				s.worker = false;
+				SINK.wake.notify_all();
+				return;
 			}
+			s.cleanup.pop_front();
 		}
 		if !s.cleanup.is_empty() {
 			continue;
@@ -945,6 +958,13 @@ mod tests {
 		install_mode(Level::Debug, logs.clone(), false);
 		assert!(!SINK.lock().worker);
 		assert!(!logs.exists());
+		let first_session = recording_session();
+		install_mode(Level::Debug, logs.clone(), false);
+		assert_eq!(
+			recording_session(),
+			first_session,
+			"unchanged settings keep the session"
+		);
 		record(Category::App, Level::Info, "started");
 		record(
 			Category::App,
@@ -988,6 +1008,26 @@ mod tests {
 			assert_eq!(r.summaries.len(), 64);
 			assert_eq!(r.summaries.last().unwrap().category, Category::Runtime);
 		}
+		clear();
+		assert_ne!(recording_session(), first_session);
+		for scope in ["audio", "transport"] {
+			summary(
+				Category::Voice,
+				"media stage",
+				&[
+					("scope", scope.into()),
+					("stage", "encode".into()),
+					("calls", 1u64.into()),
+					("total_us", 10u64.into()),
+					("max_us", 10u64.into()),
+				],
+			);
+		}
+		assert_eq!(
+			SINK.lock().recording.as_ref().unwrap().summaries.len(),
+			2,
+			"five-field stages retain both worker scopes"
+		);
 		// Producers never wait on an exporter/writer holding the collector lock.
 		{
 			let guard = SINK.lock();
@@ -1029,6 +1069,30 @@ mod tests {
 		install_mode(Level::Debug, PathBuf::new(), true);
 		assert_eq!(install_status(), InstallStatus::Failed);
 		assert!(!SINK.lock().worker);
+		install_mode(Level::Off, PathBuf::new(), false);
+		let blocked = root.path().join("blocked");
+		std::fs::create_dir_all(blocked.join(LOG_FILE)).unwrap();
+		clear_at(Some(blocked.clone()));
+		flush(Duration::from_secs(3));
+		assert_eq!(install_status(), InstallStatus::Failed);
+		assert!(SINK.lock().cleanup.contains(&blocked));
+		install_mode(Level::Debug, blocked.clone(), true);
+		flush(Duration::from_secs(3));
+		assert_eq!(install_status(), InstallStatus::Failed);
+		assert!(
+			SINK.lock().cleanup.contains(&blocked),
+			"setup cannot forget failed deletion"
+		);
+		std::fs::remove_dir(blocked.join(LOG_FILE)).unwrap();
+		install_mode(Level::Debug, blocked.clone(), true);
+		flush(Duration::from_secs(3));
+		assert_eq!(install_status(), InstallStatus::Ready);
+		assert!(SINK.lock().cleanup.is_empty());
+		let previous = recording_session();
+		install_mode(Level::Off, blocked.clone(), false);
+		flush(Duration::from_secs(3));
+		install_mode(Level::Debug, blocked, false);
+		assert_ne!(recording_session(), previous);
 		install_mode(Level::Off, PathBuf::new(), false);
 	}
 	#[test]
