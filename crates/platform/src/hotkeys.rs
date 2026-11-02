@@ -931,6 +931,9 @@ mod poller {
 	const PAD_TIMEOUT: i32 = 50;
 	/// The largest DualSense report, including the report id.
 	const PAD_REPORT: usize = 78;
+	/// A pad that streams nothing for about this many empty reads is treated as gone, so a
+	/// stalled device cannot leave push-to-talk held.
+	const PAD_SILENT_READS: u8 = 20;
 	/// How long an unplugged pad waits before the reader enumerates again.
 	const PAD_RETRY: Duration = Duration::from_secs(2);
 	/// The analog triggers read as pressed from here.
@@ -1030,7 +1033,7 @@ mod poller {
 						("AltRight", VK_RMENU),
 					]
 					.map(|(name, key)| (polled_key_bit(name).unwrap_or(0), key));
-					let mut was = 0;
+					let mut polled = Polled { watched, was: 0 };
 					let mut held = vec![false; mouse.len()];
 					let mut held_toggles = vec![false; toggle_groups.len()];
 					while !stopped.load(Ordering::Relaxed) {
@@ -1074,15 +1077,14 @@ mod poller {
 						down.store(now, Ordering::Relaxed);
 						let live =
 							global.load(Ordering::Relaxed) || focused.load(Ordering::Relaxed);
-						for (id, action, pressed) in transitions(&watched, was, now, live) {
+						for (id, action, pressed) in polled.tick(now, live) {
 							native.apply(id, action, pressed);
 						}
-						was = now;
 						std::thread::sleep(PERIOD);
 					}
 					// A restart must not inherit a press, so release everything still held.
 					// Toggle releases are ignored by `apply`, matching the running loop.
-					for (id, action, _) in transitions(&watched, was, 0, true) {
+					for (id, action, _) in polled.release() {
 						native.apply(id, action, false);
 					}
 					for (index, (action, ..)) in mouse.iter().enumerate() {
@@ -1150,6 +1152,26 @@ mod poller {
 	fn key_down(key: VIRTUAL_KEY) -> bool {
 		// SAFETY: GetAsyncKeyState only reads global input state for a virtual-key code.
 		unsafe { GetAsyncKeyState(i32::from(key.0)) < 0 }
+	}
+
+	/// The polled-key fold across ticks: the watched keys and the mask seen last tick.
+	struct Polled {
+		watched: Vec<(KeybindAction, u32)>,
+		was: u32,
+	}
+
+	impl Polled {
+		fn tick(&mut self, now: u32, live: bool) -> Vec<(u32, KeybindAction, bool)> {
+			let events = transitions(&self.watched, self.was, now, live);
+			// A gated tick holds nothing, so later ticks must not re-release the same keys.
+			self.was = if live { now } else { 0 };
+			events
+		}
+
+		/// Releases everything still held, for a poller that is being stopped or restarted.
+		fn release(&mut self) -> Vec<(u32, KeybindAction, bool)> {
+			self.tick(0, true)
+		}
 	}
 
 	/// Press/release edges for the watched polled keys, carrying the identity [`NativeInput`]
@@ -1228,10 +1250,12 @@ mod poller {
 		};
 		let mut buffer = [0u8; PAD_REPORT];
 		let mut device: Option<HidDevice> = None;
+		let mut silent = 0;
 		while !stop.load(Ordering::Relaxed) {
 			if device.is_none() {
 				let _ = api.refresh_devices();
 				device = open_pad(&api);
+				silent = 0;
 				if device.is_none() {
 					// Short sleeps keep a shutdown from waiting out the whole retry.
 					let retry = Instant::now() + PAD_RETRY;
@@ -1248,10 +1272,20 @@ mod poller {
 				// A failed read is a disconnect; clearing releases any button still held.
 				Err(_) => {
 					mask.store(0, Ordering::Relaxed);
+					silent = 0;
 					device = None;
 				}
-				Ok(0) => {}
-				Ok(read) => mask.store(pad_bits(&buffer[..read]), Ordering::Relaxed),
+				// A live pad streams reports, so silence means it stalled or left.
+				Ok(0) if silent < PAD_SILENT_READS => silent += 1,
+				Ok(0) => {
+					silent = 0;
+					mask.store(0, Ordering::Relaxed);
+					device = None;
+				}
+				Ok(read) => {
+					silent = 0;
+					mask.store(pad_bits(&buffer[..read]), Ordering::Relaxed);
+				}
 			}
 		}
 		mask.store(0, Ordering::Relaxed);
@@ -1338,6 +1372,49 @@ mod poller {
 				step(&[(KeybindAction::PushToTalk, held)], held, held, false),
 				vec![(KeybindAction::PushToTalk, false)]
 			);
+		}
+
+		#[test]
+		fn gated_ticks_release_once_then_press_on_refocus() {
+			let held = bit("ControlRight");
+			let mut polled = Polled {
+				watched: vec![(KeybindAction::PushToTalk, held)],
+				was: 0,
+			};
+			let actions = |events: Vec<(u32, KeybindAction, bool)>| {
+				events
+					.into_iter()
+					.map(|(_, action, pressed)| (action, pressed))
+					.collect::<Vec<_>>()
+			};
+			assert_eq!(
+				actions(polled.tick(held, true)),
+				vec![(KeybindAction::PushToTalk, true)]
+			);
+			// Unfocused with the key still held: one release, then silence on later ticks.
+			assert_eq!(
+				actions(polled.tick(held, false)),
+				vec![(KeybindAction::PushToTalk, false)]
+			);
+			for _ in 0..3 {
+				assert_eq!(actions(polled.tick(held, false)), vec![]);
+			}
+			// Refocusing while the key is still down presses once more.
+			assert_eq!(
+				actions(polled.tick(held, true)),
+				vec![(KeybindAction::PushToTalk, true)]
+			);
+		}
+
+		#[test]
+		fn pad_bits_reads_bluetooth_layouts() {
+			// Full Bluetooth report: buttons at 9, triggers at 6 and 7.
+			let full = [0x31, 0x80, 0x80, 0x80, 0x80, 0, 200, 0, 0, 0x28, 0, 0];
+			// Simple Bluetooth report: buttons at 5, triggers at 8 and 9.
+			let simple = [0x01, 0x80, 0x80, 0x80, 0x80, 0x28, 0, 0, 200, 0];
+			for report in [&full[..], &simple[..]] {
+				assert_eq!(pad_bits(report), bit("PadSouth") | bit("PadL2"));
+			}
 		}
 
 		#[test]
