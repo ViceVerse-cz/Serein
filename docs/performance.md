@@ -483,28 +483,31 @@ The integrated payload contains 245 files. One artifact set per revision, unchan
 release settings; archive timestamps/compression add noise. These deltas include upstream
 changes through `54512d29` and do not isolate stream-feature cost.
 
-### Upstream integration — November 2, 2026
+### Upstream integration — November 3, 2026
 
-The latest integration incorporates upstream `65d678e3`, including its hotkey/macOS
-CI fixes, dependency updates, invitation/friend fixes and UI corrections. The lockfile
-and audit policy now match upstream exactly; the stream feature adds no dependencies.
-Upstream's advisory exceptions remain exceptions, not cryptographic remediation.
+This integration incorporates upstream `23010ac7`. The transport conflict retains
+upstream's 510 kb/s stereo Opus microphone encoder, including dual-mono input and
+soft clipping, alongside the stream timing and receive logic. The existing encrypted
+WebSocket/UDP/DAVE loopback test now verifies stereo 1,275-byte outgoing packets and
+successful mono decoding of all 960 samples in a 20 ms frame. No live microphone or
+Discord call was used. The lockfile and audit policy still match upstream exactly.
 
-`cargo xtask check` passes: 1,417 unit/integration/doctests, 14 ignored, formatting,
-strict Clippy, production and policy checks. Auth-handoff, declared-license and six
-license-policy fixtures pass. Native Arch metadata, dependency, payload, mode and
-ownership smoke checks pass. No new owner-operated live result is claimed.
+`cargo xtask check` passes: 1,443 unit/integration/doctests, 14 ignored, formatting,
+strict Clippy, production and policy checks. Auth-handoff checks pass. Native Arch
+metadata, dependency, payload, mode and ownership smoke checks pass. License inputs
+are unchanged from the preceding verified integration. No fresh owner-operated live
+result, microphone quality or physical A/V latency claim is made.
 
-| Package metric | Previous integration (`2ebbb315`) | Integrated candidate | Delta |
+| Package metric | Previous integration (`e1d82421`) | Integrated candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 93,433,288 B | 93,467,720 B | +34,432 B (+0.037%) |
-| Installed payload | 98,131,741 B | 98,166,173 B | +34,432 B (+0.035%) |
-| Arch archive | 54,745,380 B | 54,765,849 B | +20,469 B (+0.037%) |
+| Executable | 93,467,720 B | 93,495,880 B | +28,160 B (+0.030%) |
+| Installed payload | 98,166,173 B | 98,194,333 B | +28,160 B (+0.029%) |
+| Arch archive | 54,765,849 B | 54,776,341 B | +10,492 B (+0.019%) |
 
 Installed payload: 245 files. One artifact set per revision, same standard
 voice-enabled release settings; archive compression/timestamps add noise. These deltas
-include upstream changes, not only stream playback. No CPU/RSS, physical latency or
-playback-speed improvement is inferred from package size.
+include upstream changes and do not isolate stream playback. CPU/RSS and physical
+latency are unmeasured; no speed improvement is inferred from package size.
 
 ### Earlier playback recovery evidence
 

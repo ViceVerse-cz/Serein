@@ -222,26 +222,34 @@ fn bound(mut games: Vec<Game>) -> Result<Vec<Game>, &'static str> {
 
 /// Executable-name lookup built once per sharing session. Comparing every running process
 /// against every entry is quadratic and far too slow to repeat on a timer.
-pub struct Index(HashMap<String, (Id, String)>);
+pub struct Index {
+	names: HashMap<String, (Id, String)>,
+	/// Windows only exposes image names, while Discord's list often stores
+	/// `win64/cs2.exe` or a launcher-relative path. Bare inputs fall back here.
+	basenames: HashMap<String, (Id, String)>,
+}
 
 impl Index {
 	pub fn new(games: &[Game]) -> Self {
 		let mut names = HashMap::with_capacity(games.len());
+		let mut basenames = HashMap::with_capacity(games.len());
 		for game in games {
 			for executable in &game.executables {
 				// The first claim wins, so a later entry cannot shadow an earlier game.
-				names
-					.entry(executable.clone())
-					.or_insert_with(|| (game.id, game.name.clone()));
+				let found = || (game.id, game.name.clone());
+				names.entry(executable.clone()).or_insert_with(found);
+				if let Some(base) = executable.rsplit('/').next() {
+					basenames.entry(base.into()).or_insert_with(found);
+				}
 			}
 		}
-		Self(names)
+		Self { names, basenames }
 	}
 	pub fn len(&self) -> usize {
-		self.0.len()
+		self.names.len()
 	}
 	pub fn is_empty(&self) -> bool {
-		self.0.is_empty()
+		self.names.is_empty()
 	}
 	/// Match a running executable path. Longer suffixes win, so
 	/// `steamapps/common/game/game.exe` beats a bare `game.exe` from another title.
@@ -263,17 +271,26 @@ impl Index {
 		let suffix = parts.join("/");
 		let mut candidate = suffix.as_str();
 		while !candidate.is_empty() {
-			if let Some(found) = self.0.get(candidate) {
+			if let Some(found) = self.names.get(candidate) {
 				return Some(found.clone());
 			}
 			candidate = candidate.split_once('/').map_or("", |(_, rest)| rest);
 		}
 		// macOS entries name the bundle, which sits above the executable inside it.
-		parts
+		if let Some(found) = parts
 			.iter()
 			.rev()
 			.filter(|part| part.ends_with(".app"))
-			.find_map(|part| self.0.get(*part).cloned())
+			.find_map(|part| self.names.get(*part).cloned())
+		{
+			return Some(found);
+		}
+		// Windows `tasklist` supplies only the image name, while the list often
+		// stores `win64/cs2.exe`. Match the basename after full suffix and bundle
+		// checks so a path-aware match still wins.
+		parts
+			.last()
+			.and_then(|basename| self.basenames.get(*basename).cloned())
 	}
 }
 
@@ -313,6 +330,23 @@ mod tests {
 		] {
 			assert_eq!(index.find(path).map(|(id, _)| id), expected, "{path}");
 		}
+	}
+
+	#[test]
+	fn bare_windows_image_names_match_nested_detectable_paths() {
+		let games = decode(
+			br#"[{"id":"1158877933042143272","name":"Counter-Strike 2",
+				"executables":[{"name":"win64/cs2.exe","is_launcher":false}]}]"#,
+		)
+		.unwrap();
+		let index = Index::new(&games);
+		assert_eq!(
+			index.find("C:\\Games\\CS2\\cs2.exe").unwrap().1,
+			"Counter-Strike 2"
+		);
+		assert_eq!(index.find("cs2.exe").unwrap().1, "Counter-Strike 2");
+		assert_eq!(index.find("CS2.EXE").unwrap().1, "Counter-Strike 2");
+		assert!(index.find("not-cs2.exe").is_none());
 	}
 
 	#[test]

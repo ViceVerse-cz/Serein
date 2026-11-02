@@ -30,7 +30,7 @@ pub mod profile;
 pub mod reactions;
 pub mod read_state;
 mod replies;
-pub use replies::{HistoryNavigation, ParkedReplies, Reply, ReplyDeletions};
+pub use replies::{HistoryNavigation, LinkResolution, ParkedReplies, Reply, ReplyDeletions};
 pub mod group_actions;
 pub mod onboarding;
 pub mod resident;
@@ -218,6 +218,10 @@ pub enum Command {
 	MarkGuildRead {
 		guild: Id,
 		request: u64,
+	},
+	/// Documented Trigger Typing Indicator for this account; see `State::prepare_typing`.
+	Typing {
+		channel: Id,
 	},
 	/// Latest message per unread channel, at most `MAX_BULK_ACK`.
 	MarkAllRead {
@@ -507,6 +511,8 @@ pub enum Event {
 		result: Result<Box<model::InvitePreview>, auth::Failure>,
 	},
 	Typing(typing::Signal),
+	/// Result of this account's own typing indicator; carries nothing to display.
+	TypingSent(Result<(), auth::Failure>),
 	PostCreated {
 		parent: Id,
 		request: u64,
@@ -767,6 +773,9 @@ pub struct State {
 	/// One exact target awaiting its history page; never a metadata cache.
 	#[doc(hidden)]
 	pub history_navigation: HistoryNavigation,
+	/// A chat link waiting on the one bounded channel read that can admit its thread.
+	#[doc(hidden)]
+	pub link_resolution: LinkResolution,
 	/// Session reading cursors. Missing means the channel has not been opened yet.
 	pub reading: Vec<(Id, ReadingCursor)>,
 	pub reply_deletions: ReplyDeletions,
@@ -1002,6 +1011,7 @@ impl Default for State {
 			restore_scroll: false,
 			history_targeted: false,
 			history_navigation: HistoryNavigation::default(),
+			link_resolution: LinkResolution::default(),
 			reading: Vec::new(),
 			reply_deletions: ReplyDeletions::default(),
 			read_state: read_state::ReadState::default(),
@@ -1271,6 +1281,8 @@ impl State {
 	}
 	pub fn select(&mut self, channel: Id) -> Option<Command> {
 		self.cancel_invite_navigation(channel);
+		// Reselecting the open conversation is still the user's own navigation.
+		self.link_resolution.clear();
 		// Keep the current conversation intact, but allow a restored channel to load again.
 		if self.selected == Some(channel) && self.freshness != Freshness::Unavailable {
 			return None;
@@ -1326,6 +1338,8 @@ impl State {
 		if self.selected == Some(channel) && self.freshness != Freshness::Unavailable {
 			return Apply::AlreadyHere;
 		}
+		// The user's own navigation wins over a link still waiting for its bounded read.
+		self.link_resolution.clear();
 		if !self.channel(channel).is_some_and(navigable) {
 			return Apply::Rejected("This channel kind is unsupported");
 		}
@@ -1442,6 +1456,7 @@ impl State {
 	/// Open Friends / Home. Does not clear the timeline or emit a command.
 	pub fn open_home(&mut self) {
 		self.park_reply();
+		self.link_resolution.clear();
 		self.last_viewed_dm = None;
 		self.application_commands.clear();
 		self.selected = None;
@@ -1460,6 +1475,7 @@ impl State {
 			self.trail.drop_current();
 		}
 		self.selected = None;
+		self.link_resolution.clear();
 		self.history_navigation.clear();
 		self.search_target = None;
 		self.restore_scroll = false;
@@ -1492,6 +1508,7 @@ impl State {
 					self.park_reply();
 					self.application_commands.clear();
 					self.selected = None;
+					self.link_resolution.clear();
 					self.history_navigation.clear();
 					self.search_target = None;
 					self.restore_scroll = false;
@@ -2667,6 +2684,9 @@ impl State {
 			}
 			return;
 		}
+		if matches!(envelope.event, Event::TypingSent(_)) {
+			return;
+		}
 		if let Event::DirectPresence(updates) = &envelope.event {
 			if envelope.event.bytes() <= MAX_MEMBER_PRESENCE_BYTES {
 				self.apply_direct_presence(updates);
@@ -2699,7 +2719,7 @@ impl State {
 		}
 		// Ephemeral names must not outlive navigation identity/permission replacement.
 		if access_changed {
-			self.typing.clear();
+			self.typing.clear_all();
 		}
 		let previous_access = access_changed.then(|| self.permission_access()).flatten();
 		let previous_member_list = (access_changed && self.members.is_some()).then(|| {
@@ -3388,7 +3408,8 @@ impl State {
 			}
 			Event::MemberPresence { .. }
 			| Event::DirectPresence(_)
-			| Event::SharedGuildPresence(_) => {
+			| Event::SharedGuildPresence(_)
+			| Event::TypingSent(_) => {
 				unreachable!("presence handled before timeline revision")
 			}
 			Event::MemberSearch { request, result } => {
@@ -4218,7 +4239,7 @@ impl State {
 		}
 	}
 	fn fail(&mut self, failure: auth::Failure) {
-		self.typing.clear();
+		self.typing.clear_all();
 		self.status = failure.label();
 		match failure {
 			auth::Failure::Expired => self.auth = auth::AuthState::Expired,
