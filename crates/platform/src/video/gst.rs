@@ -695,15 +695,31 @@ mod tests {
 	#[test]
 	fn larger_than_1080p_videos_play_scaled_to_the_inline_bound() {
 		gst::init().unwrap();
-		let path = std::env::temp_dir().join(format!("serein-4k-{}.mp4", std::process::id()));
-		let Ok(pipeline) = gst::parse::launch(&format!(
-			"videotestsrc num-buffers=5 ! video/x-raw,width=3840,height=2160,framerate=30/1 \
-			 ! x264enc speed-preset=ultrafast ! mp4mux ! filesink location={}",
-			path.display()
-		)) else {
-			eprintln!("skipped: no H.264 encoder");
+		if gst::ElementFactory::find("x264enc").is_none() {
+			assert!(
+				std::env::var_os("CI").is_none(),
+				"Linux CI requires x264enc from gstreamer1.0-plugins-ugly"
+			);
+			eprintln!("skipped: install x264enc to exercise oversized video playback");
 			return;
-		};
+		}
+		// Include spaces deliberately: paths are properties, never pipeline syntax.
+		let directory = tempfile::Builder::new()
+			.prefix("serein 4k playback ")
+			.tempdir()
+			.unwrap();
+		let path = directory.path().join("synthetic 4k.mp4");
+		let pipeline = gst::parse::launch(
+			"videotestsrc num-buffers=5 ! video/x-raw,width=3840,height=2160,framerate=30/1 \
+			 ! x264enc speed-preset=ultrafast ! mp4mux ! filesink name=output",
+		)
+		.expect("synthetic scaling pipeline must parse when its encoder is installed")
+		.downcast::<gst::Pipeline>()
+		.unwrap();
+		pipeline
+			.by_name("output")
+			.unwrap()
+			.set_property("location", path.to_str().unwrap());
 		pipeline.set_state(gst::State::Playing).unwrap();
 		let bus = pipeline.bus().unwrap();
 		let done = bus.timed_pop_filtered(
