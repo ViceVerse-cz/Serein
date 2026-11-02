@@ -1,4 +1,6 @@
 //! One second of PCM ahead of playback; decoder reads drive bounded HTTP ranges.
+//! Output starts after a short pre-roll and, after an underrun, waits for a re-buffer
+//! threshold, so a slow network pauses audio once instead of stuttering.
 use super::*;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rtrb::{Consumer, RingBuffer};
@@ -12,7 +14,13 @@ struct Playback {
 	rate: u32,
 	eof: Arc<AtomicBool>,
 	finished: Arc<AtomicBool>,
+	/// Set by an underrun; cleared once `REBUFFER_FRAMES` are queued again or decoding ended.
+	rebuffering: bool,
 }
+
+/// Queued audio required to start or resume output, in fractions of a second.
+const PREROLL_DIVISOR: u32 = 4;
+const REBUFFER_DIVISOR: u32 = 5;
 
 impl Playback {
 	fn render<T: cpal::SizedSample + cpal::FromSample<f32>>(
@@ -29,6 +37,15 @@ impl Playback {
 			|| gate.seek_millis.load(Ordering::Acquire) != NO_SEEK
 		{
 			return;
+		}
+		if self.rebuffering {
+			if !self.eof.load(Ordering::Acquire)
+				&& self.frames.slots() < (self.rate / REBUFFER_DIVISOR) as usize
+			{
+				gate.buffering.store(true, Ordering::Release);
+				return;
+			}
+			self.rebuffering = false;
 		}
 		let volume = f32::from_bits(gate.volume.load(Ordering::Acquire));
 		for output in data.chunks_exact_mut(output_channels) {
@@ -48,6 +65,7 @@ impl Playback {
 					}
 					Err(_) => {
 						gate.buffering.store(true, Ordering::Release);
+						self.rebuffering = true;
 						return;
 					}
 				}
@@ -62,6 +80,7 @@ impl Playback {
 				Err(_) if eof => (left, from + 1.0),
 				Err(_) => {
 					gate.buffering.store(true, Ordering::Release);
+					self.rebuffering = true;
 					return;
 				}
 			};
@@ -159,6 +178,8 @@ pub(super) fn play(
 		});
 		let mut producer = None;
 		let mut stream = None;
+		// Built with the ring; output opens once enough audio is queued.
+		let mut pending = None;
 		let eof = Arc::new(AtomicBool::new(false));
 		let finished = Arc::new(AtomicBool::new(false));
 		let mut total_frames = 0u64;
@@ -166,6 +187,21 @@ pub(super) fn play(
 		let speed = f64::from(f32::from_bits(gate.speed.load(Ordering::Acquire)));
 		let mut stretch: Option<super::stretch::Stretch> = None;
 		let mut staged: Vec<super::stretch::Frame> = Vec::new();
+		let open = |pending: &mut Option<Playback>,
+		            stream: &mut Option<cpal::Stream>,
+		            duration: Duration|
+		 -> Result<(), &'static str> {
+			if let Some(playback) = pending.take() {
+				*stream = Some(open_output(playback, gate.clone(), request.generation)?);
+				publish(Status {
+					state: State::Playing,
+					position: Duration::from_millis(target),
+					duration,
+				});
+			}
+			Ok(())
+		};
+
 		let wait = || {
 			runtime.block_on(async {
 			tokio::select! { _ = wake.notified() => {}, _ = tokio::time::sleep(Duration::from_millis(20)) => {} }
@@ -194,25 +230,17 @@ pub(super) fn play(
 						if producer.is_none() {
 							let (sender, frames) = RingBuffer::new(rate as usize);
 							gate.position_frames.store(target_frame, Ordering::Release);
-							stream = Some(open_output(
-								Playback {
-									frames,
-									current: None,
-									phase: 0.0,
-									position: target_frame as f64,
-									rate,
-									eof: eof.clone(),
-									finished: finished.clone(),
-								},
-								gate.clone(),
-								request.generation,
-							)?);
-							producer = Some(sender);
-							publish(Status {
-								state: State::Playing,
-								position: Duration::from_millis(target),
-								duration,
+							pending = Some(Playback {
+								frames,
+								current: None,
+								phase: 0.0,
+								position: target_frame as f64,
+								rate,
+								eof: eof.clone(),
+								finished: finished.clone(),
+								rebuffering: false,
 							});
+							producer = Some(sender);
 						}
 						let producer = producer.as_mut().expect("initialized above");
 						if speed != 1.0 && stretch.is_none() {
@@ -237,7 +265,14 @@ pub(super) fn play(
 								None => staged.push((frame, (first + index as u64) as f64)),
 							}
 						}
-						feed(producer, &staged, gate, &current, &wait)
+						feed(producer, &staged, gate, &current, &wait, &mut || {
+							open(&mut pending, &mut stream, duration)
+						})?;
+						let queued = rate as usize - producer.slots();
+						if stream.is_none() && queued >= (rate / PREROLL_DIVISOR) as usize {
+							open(&mut pending, &mut stream, duration)?;
+						}
+						Ok(())
 					},
 				)
 			});
@@ -246,12 +281,18 @@ pub(super) fn play(
 			(Some(stretch), Some(producer)) => {
 				staged.clear();
 				stretch.finish(&mut staged);
-				feed(producer, &staged, gate, &current, &wait)
+				feed(producer, &staged, gate, &current, &wait, &mut || {
+					open(&mut pending, &mut stream, duration)
+				})
 			}
 			_ => Ok(()),
 		});
 		if result.is_ok() {
 			eof.store(true, Ordering::Release);
+			// A clip shorter than the pre-roll still plays.
+			if stream.is_none() && pending.is_some() {
+				open(&mut pending, &mut stream, duration)?;
+			}
 			while stream.is_some() && !finished.load(Ordering::Acquire) && current() {
 				if gate.failed.load(Ordering::Acquire) {
 					return Err("Audio output disconnected");
@@ -287,8 +328,12 @@ fn feed(
 	gate: &Gate,
 	current: &impl Fn() -> bool,
 	wait: &impl Fn(),
+	open: &mut impl FnMut() -> Result<(), &'static str>,
 ) -> Result<(), &'static str> {
 	for frame in frames {
+		if producer.slots() == 0 {
+			open()?;
+		}
 		while gate.paused.load(Ordering::Acquire) || producer.slots() == 0 {
 			if !current() {
 				return Err("Cancelled");
@@ -320,6 +365,7 @@ pub(super) fn debug_check() {
 		rate: 48000,
 		eof: eof.clone(),
 		finished: finished.clone(),
+		rebuffering: false,
 	};
 	let mut output = [1.0f32; 4];
 	playback.render(&mut output, 2, 48000, &gate, 0);
@@ -346,4 +392,50 @@ pub(super) fn debug_check() {
 	playback.render(&mut drain, 2, 48000, &gate, 0);
 	assert!(finished.load(Ordering::Acquire));
 	assert_eq!(gate.position_frames.load(Ordering::Acquire), 8);
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn an_underrun_resumes_only_after_the_rebuffer_threshold() {
+		// 20 Hz in and out: one frame per output frame, threshold rate / 5 = 4 frames.
+		let gate = Gate::default();
+		let (mut sender, frames) = RingBuffer::new(16);
+		let eof = Arc::new(AtomicBool::new(false));
+		let mut playback = Playback {
+			frames,
+			current: None,
+			phase: 0.0,
+			position: 0.0,
+			rate: 20,
+			eof: eof.clone(),
+			finished: Arc::new(AtomicBool::new(false)),
+			rebuffering: false,
+		};
+		let mut output = [1.0f32; 4];
+		sender.push([0.5; 2]).unwrap();
+		playback.render(&mut output, 2, 20, &gate, 0);
+		assert!(playback.rebuffering && gate.buffering.load(Ordering::Acquire));
+		for _ in 0..3 {
+			sender.push([0.5; 2]).unwrap();
+		}
+		playback.render(&mut output, 2, 20, &gate, 0);
+		assert_eq!(output, [0.0; 4], "three frames are below the threshold");
+		sender.push([0.5; 2]).unwrap();
+		playback.render(&mut output, 2, 20, &gate, 0);
+		assert!(!playback.rebuffering);
+		assert_eq!(output, [0.5; 4]);
+		// The end of decoding releases a short tail without waiting for the threshold.
+		let mut drain = [0.0f32; 32];
+		playback.render(&mut drain, 2, 20, &gate, 0);
+		assert!(playback.rebuffering);
+		sender.push([0.25; 2]).unwrap();
+		eof.store(true, Ordering::Release);
+		playback.render(&mut output, 2, 20, &gate, 0);
+		assert!(!playback.rebuffering);
+		// The frame held across the underrun plays first, then the tail.
+		assert_eq!(output, [0.5, 0.5, 0.25, 0.25]);
+	}
 }

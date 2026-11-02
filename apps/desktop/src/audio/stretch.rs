@@ -90,7 +90,7 @@ impl Stretch {
 		}
 	}
 
-	/// The fade-out of the last grain, once the source has ended.
+	/// Overlap the final grain with its natural continuation, then drain the source ending.
 	pub(super) fn finish(&mut self, output: &mut Vec<Frame>) {
 		if self.previous.is_none() {
 			// Shorter than one grain: play it as it is.
@@ -99,10 +99,22 @@ impl Stretch {
 			}
 			return;
 		}
-		{
-			for (i, frame) in self.tail.iter().enumerate() {
-				output.push((*frame, self.nominal + i as f64 * self.speed));
-			}
+		let previous = self.previous.unwrap();
+		// Similarity search can leave the selected grain behind the nominal clock.
+		// Limit the unwindowed ending to the remaining playback duration so that
+		// draining that lookbehind does not lengthen a fast clip.
+		let end = self.base + self.input.len();
+		let remaining = ((end as f64 - self.nominal).max(0.0) / self.speed).ceil() as usize;
+		let start = (previous + self.hop)
+			.max(end.saturating_sub(remaining.max(self.hop)))
+			.saturating_sub(self.base);
+		let rest = &self.input[start.min(self.input.len())..];
+		for i in 0..self.hop.max(rest.len()) {
+			let tail = self.tail.get(i).copied().unwrap_or([0.0; 2]);
+			let weight = if i < self.hop { self.window[i] } else { 1.0 };
+			let sample = rest.get(i).copied().unwrap_or([0.0; 2]);
+			let mixed = std::array::from_fn(|c| tail[c] + sample[c] * weight);
+			output.push((mixed, self.nominal + i as f64 * self.speed));
 		}
 	}
 
@@ -177,6 +189,19 @@ mod tests {
 			assert!(
 				(last - 48000.0).abs() < 48000.0 * 0.06,
 				"{speed}×: ends at {last}"
+			);
+		}
+	}
+
+	#[test]
+	fn finish_preserves_a_distinct_source_ending() {
+		let mut input = vec![[0.0; 2]; 4800];
+		input[4799] = [0.75; 2];
+		for speed in [0.75, 1.5, 2.0] {
+			let output = run(speed, &input);
+			assert!(
+				(output.last().unwrap().0[0] - 0.75).abs() < 1e-5,
+				"{speed}x"
 			);
 		}
 	}

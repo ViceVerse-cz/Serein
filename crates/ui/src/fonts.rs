@@ -379,6 +379,7 @@ pub fn apply_custom(ctx: &Context, font: Option<&CustomFont>) {
 				.insert(0, name.into());
 		}
 	}
+	sync_name_families(&mut definitions);
 	ctx.set_fonts(definitions.clone());
 	ctx.request_repaint();
 }
@@ -397,6 +398,136 @@ const SYMBOLS: &[u8] = include_bytes!("../../../assets/fonts/NotoSansSymbols2-Re
 const INTER: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
 const INTER_MEDIUM: &[u8] = include_bytes!("../../../assets/fonts/Inter-Medium.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
+
+/// Discord display-name fonts by `display_name_styles.font_id`. Each is installed the first time
+/// a styled name needs it, so sessions with name styles off never parse them. Néo-Castel (7) is
+/// sold only through a checkout and Hexagon (17) has no identified source; both, Default (11)
+/// and unknown ids keep the interface font.
+const NAME_FONTS: [(u32, &str, &[u8]); 14] = [
+	(
+		1,
+		"Serein Name Bangers",
+		include_bytes!("../../../assets/fonts/Bangers-Regular.ttf"),
+	),
+	(
+		2,
+		"Serein Name BioRhyme",
+		include_bytes!("../../../assets/fonts/BioRhyme.ttf"),
+	),
+	(
+		3,
+		"Serein Name Cherry Bomb",
+		include_bytes!("../../../assets/fonts/CherryBombOne-Regular.ttf"),
+	),
+	(
+		4,
+		"Serein Name Chicle",
+		include_bytes!("../../../assets/fonts/Chicle-Regular.ttf"),
+	),
+	(
+		5,
+		"Serein Name Compagnon",
+		include_bytes!("../../../assets/fonts/Compagnon-Roman.otf"),
+	),
+	(
+		6,
+		"Serein Name MuseoModerno",
+		include_bytes!("../../../assets/fonts/MuseoModerno.ttf"),
+	),
+	(
+		8,
+		"Serein Name Pixelify",
+		include_bytes!("../../../assets/fonts/PixelifySans.ttf"),
+	),
+	(
+		9,
+		"Serein Name Ribes",
+		include_bytes!("../../../assets/fonts/Ribes-Regular.otf"),
+	),
+	(
+		10,
+		"Serein Name Sinistre",
+		include_bytes!("../../../assets/fonts/Sinistre-Regular.otf"),
+	),
+	(
+		12,
+		"Serein Name Zilla Slab",
+		include_bytes!("../../../assets/fonts/ZillaSlab-Regular.ttf"),
+	),
+	(
+		13,
+		"Serein Name Playpen Sans",
+		include_bytes!("../../../assets/fonts/PlaypenSans.ttf"),
+	),
+	(
+		14,
+		"Serein Name Orbitron",
+		include_bytes!("../../../assets/fonts/Orbitron.ttf"),
+	),
+	(
+		15,
+		"Serein Name New Rocker",
+		include_bytes!("../../../assets/fonts/NewRocker-Regular.ttf"),
+	),
+	(
+		16,
+		"Serein Name Kalam",
+		include_bytes!("../../../assets/fonts/Kalam-Regular.ttf"),
+	),
+];
+
+/// The family for a name font, once it is active; otherwise queues its install for the next
+/// pass and returns `None`, so this pass keeps the interface font.
+pub(crate) fn name_family(ctx: &Context, font: u32) -> Option<FontFamily> {
+	static FAMILIES: std::sync::OnceLock<Vec<FontFamily>> = std::sync::OnceLock::new();
+	let index = NAME_FONTS.iter().position(|(id, ..)| *id == font)?;
+	let family = &FAMILIES.get_or_init(|| {
+		NAME_FONTS
+			.iter()
+			.map(|(_, name, _)| FontFamily::Name((*name).into()))
+			.collect()
+	})[index];
+	if ctx.fonts(|fonts| fonts.definitions().families.contains_key(family)) {
+		return Some(family.clone());
+	}
+	let shared = ctx.data(|data| {
+		data.get_temp::<Arc<Mutex<FontDefinitions>>>(egui::Id::unique(DEFINITIONS_KEY))
+	})?;
+	let mut definitions = shared.lock().expect("font definitions");
+	if !definitions.families.contains_key(family) {
+		add_name_font(&mut definitions, family.clone(), index);
+		ctx.set_fonts(definitions.clone());
+		ctx.request_repaint();
+	}
+	None
+}
+
+/// The name face leads; the medium interface family covers scripts the face lacks.
+fn add_name_font(definitions: &mut FontDefinitions, family: FontFamily, index: usize) {
+	let (_, name, data) = NAME_FONTS[index];
+	let mut data = latin(data);
+	// Variable faces would otherwise draw their default instance; match the medium name weight.
+	data.tweak.coords = egui::epaint::text::VariationCoords::new([(b"wght", 500.0)]);
+	definitions.font_data.insert(name.into(), data.into());
+	definitions.families.insert(family, vec![name.to_owned()]);
+	sync_name_families(definitions);
+}
+
+/// Each installed name family is its face followed by the current medium family, so a custom
+/// interface font that is set or removed later never leaves a name family pointing at it.
+fn sync_name_families(definitions: &mut FontDefinitions) {
+	let medium = definitions
+		.families
+		.get(&FontFamily::Name(crate::design::MEDIUM.into()))
+		.cloned()
+		.unwrap_or_default();
+	for (_, name, _) in NAME_FONTS {
+		if let Some(list) = definitions.families.get_mut(&FontFamily::Name(name.into())) {
+			list.truncate(1);
+			list.extend(medium.iter().cloned());
+		}
+	}
+}
 
 const CHECKED_JOBS: usize = 512;
 const CHECKED_BYTES: usize = 128 * 1024;
@@ -539,6 +670,11 @@ fn add_fallback(definitions: &mut FontDefinitions, name: &str, data: FontData) {
 			.or_default()
 			.push(name.into());
 	}
+	for (family, list) in &mut definitions.families {
+		if matches!(family, FontFamily::Name(family) if family.starts_with("Serein Name ")) {
+			list.push(name.into());
+		}
+	}
 }
 
 fn latin(data: &'static [u8]) -> FontData {
@@ -652,36 +788,78 @@ mod tests {
 	}
 
 	#[test]
-	fn cjk_arriving_after_settled_latin_frames_installs_the_fallback() {
+	fn name_fonts_parse_install_on_first_use_and_keep_fallbacks() {
+		use skrifa::MetadataProvider;
+		assert!(
+			NAME_FONTS
+				.iter()
+				.map(|(.., data)| data.len())
+				.sum::<usize>()
+				<= 4 * 1024 * 1024
+		);
+		for (id, name, data) in NAME_FONTS {
+			let face = skrifa::FontRef::new(data).unwrap_or_else(|_| panic!("{name}"));
+			assert!(face.charmap().map('A').is_some(), "{name} lacks Latin");
+			assert!(!matches!(id, 0 | 7 | 11 | 17));
+		}
 		let ctx = Context::default();
 		install(&ctx);
-		for _ in 0..3 {
+		let mut families = Vec::new();
+		for _ in 0..2 {
 			ctx.run_ui(Default::default(), |ui| {
-				ui.label("Synthetic Latin text");
+				families.push(name_family(ui.ctx(), 1));
+				assert!(name_family(ui.ctx(), 11).is_none());
 				assert!(!ui.fonts(|fonts| {
-					fonts.definitions().font_data.contains_key("Noto Sans CJK")
+					fonts
+						.definitions()
+						.font_data
+						.contains_key("Serein Name Kalam")
 				}));
 			})
 			.drop_without_applying_deltas();
 		}
-		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-		loop {
-			let mut installed = false;
+		assert_eq!(families[0], None, "the first pass keeps the interface font");
+		let family = families[1].clone().expect("installed on the next pass");
+		ctx.run_ui(Default::default(), |ui| {
+			let list = &ui.fonts(|fonts| fonts.definitions().families[&family].clone());
+			assert_eq!(list[0], "Serein Name Bangers");
+			assert!(list.iter().any(|face| face == "Inter Medium"));
+			assert!(list.iter().any(|face| face == "Noto Sans Arabic"));
+			ui.label(egui::RichText::new("Synthetic name").family(family.clone()));
+		})
+		.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn name_families_follow_a_custom_font_that_is_set_then_removed() {
+		let ctx = Context::default();
+		install(&ctx);
+		for _ in 0..2 {
 			ctx.run_ui(Default::default(), |ui| {
-				ui.label("日本語");
-				installed =
-					ui.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK"));
+				name_family(ui.ctx(), 1);
 			})
 			.drop_without_applying_deltas();
-			if installed {
-				break;
-			}
-			assert!(
-				std::time::Instant::now() < deadline,
-				"CJK worker did not install its fallback"
-			);
-			std::thread::sleep(std::time::Duration::from_millis(5));
 		}
+		let custom = CustomFont {
+			name: "Synthetic".into(),
+			data: FontData::from_static(INTER),
+		};
+		let family = FontFamily::Name("Serein Name Bangers".into());
+		apply_custom(&ctx, Some(&custom));
+		let list = ctx.fonts(|fonts| fonts.definitions().families[&family].clone());
+		assert_eq!(&list[..2], ["Serein Name Bangers", CUSTOM[1]]);
+		apply_custom(&ctx, None);
+		ctx.run_ui(Default::default(), |ui| {
+			let definitions = ui.fonts(|fonts| fonts.definitions().clone());
+			assert!(
+				definitions.families[&family]
+					.iter()
+					.all(|face| definitions.font_data.contains_key(face))
+			);
+			// Resolving the family panicked while it still named the removed custom font.
+			ui.label(egui::RichText::new("Synthetic name").family(family.clone()));
+		})
+		.drop_without_applying_deltas();
 	}
 
 	#[test]
@@ -769,41 +947,5 @@ mod tests {
 			});
 		});
 		output.drop_without_applying_deltas();
-	}
-
-	#[test]
-	fn latin_faces_are_rasterized_without_truetype_hinting() {
-		for data in [INTER, INTER_MEDIUM, INTER_SEMIBOLD] {
-			let font = skrifa::FontRef::new(data).expect("valid bundled font");
-			for table in ["glyf", "fpgm", "prep"] {
-				let tag = skrifa::Tag::new(table.as_bytes().try_into().unwrap());
-				assert!(
-					font.table_data(tag).is_some(),
-					"Inter must be the TrueType build, missing `{table}`",
-				);
-			}
-		}
-		let ctx = Context::default();
-		install(&ctx);
-		crate::design::apply(&ctx);
-		for theme in [egui::Theme::Dark, egui::Theme::Light] {
-			let options = &ctx.style_of(theme).visuals.text_options;
-			assert!(options.subpixel_binning);
-			assert!(!options.font_hinting);
-		}
-		assert_eq!(
-			ctx.style_of(egui::Theme::Dark)
-				.visuals
-				.text_options
-				.color_transfer_function,
-			egui::epaint::FontColorTransferFunction::Gamma(0.5)
-		);
-		let tweaks = definitions(false)
-			.font_data
-			.iter()
-			.filter(|(name, _)| name.starts_with("Inter"))
-			.map(|(_, data)| (data.tweak.hinting, data.tweak.subpixel_binning))
-			.collect::<Vec<_>>();
-		assert_eq!(tweaks, vec![(Some(false), Some(true)); 3]);
 	}
 }

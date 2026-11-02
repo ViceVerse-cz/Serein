@@ -85,6 +85,7 @@ hide-chat = Sohbeti gizle
 show-chat = Sohbeti göster
 search-conversation = Bu görüşmeyi arayın
 show-member-list = Üye listesini göster
+show-user-profile = Kullanıcı profilini göster
 pinned-messages = Sabitlenmiş mesajlar
 threads = Konular
 
@@ -799,6 +800,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Video önizlemesi · 
 embeds-text-text-display-limited = Metin gösterimi sınırlı
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Daha fazla bilgi için tıklayın
 # Context: show
 emoji-details-show-a-custom-emoji = Özel bir emoji.
 # Context: show
@@ -1534,6 +1537,14 @@ join-server-status-invite-accepted = Davet kabul edildi. Sunucu erişimi bekleni
 join-server-status-offline-preview = Çevrimdışı önizleme — sunuculara katılma devre dışı bırakıldı.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Kaldır
+# Context: custom_section
+keybinds-custom-section-add-binding = Kısayol ekle
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Her eylem için ek kısayollar ekleyin. Her tuş veya fare düğmesi kombinasyonu yalnızca bir kez kullanılabilir.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Özel kısayollar
 # Context: row
 keybinds-row-global = KÜRESEL
 # Context: row
@@ -1774,6 +1785,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Aç
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Sesi Önizle
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Konuşmak için bas: başlat
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Konuşmak için bas: bitir
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Zil sesleri, çağrı cihazları ve mikrofon işleme.
 # Context: notification_settings
@@ -2992,6 +3007,8 @@ server-menu-header-server-menu = Sunucu menüsü
 server-menu-leave-item-leave-server = Sunucudan ayrıl
 # Context: read_item
 server-menu-read-item-mark-as-read = Okundu Olarak İşaretle
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = Tümünü Okundu Olarak İşaretle
 # Context: settings_item
 server-menu-settings-item-server-settings = Sunucu Ayarları
 # Context: show
@@ -3572,6 +3589,8 @@ slash-commands-footer-refresh-application-commands = Uygulama komutlarını yeni
 
 ## crates/ui/src/stickers.rs
 # Context: message
+stickers-message-from-an-unavailable-server = Bu çıkartma, yalnızca davetle katılınabilen veya kullanılamayan bir sunucudan.
+# Context: message
 stickers-message-loading-sticker-details = Çıkartma ayrıntıları yükleniyor…
 # Context: message
 stickers-message-retry-sticker-details = Çıkartma ayrıntılarını yeniden dene
@@ -3969,7 +3988,29 @@ updates-update-settings-restart-to-update = Güncellemek için yeniden başlatı
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein dağıtımınız aracılığıyla kuruldu. Güncellemek için bunu bir terminalde çalıştırın.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Tanılamayı kaydet
+# Context: update_settings
 updates-update-settings-support-diagnostics = Destek ve teşhis
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Son satırları kopyala
+# Context: update_settings
+updates-update-settings-diagnostic-log = Tanılama günlüğü
+# Context: update_settings
+updates-update-settings-log-errors = Hatalar
+# Context: update_settings
+updates-update-settings-log-events = Hatalar, uyarılar ve olaylar
+# Context: update_settings
+updates-update-settings-log-everything = Her şey (ayrıntılı)
+# Context: update_settings
+updates-update-settings-log-off = Kapalı
+# Context: update_settings
+updates-update-settings-log-warnings = Hatalar ve uyarılar
+# Context: update_settings
+updates-update-settings-open-folder = Klasörü aç
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Günlük klasörü yazılamadı. Serein'in veri klasörünü denetleyip yeniden deneyin.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Süreler, aşamalar ve hatalar tek bir yerel günlük dosyasında. Hesap, kanal, mesaj ve kimlik bilgileri asla yazılmaz ve hiçbir şey yüklenmez.
 # Context: update_log
 updates-update-log = Güncelleme günlüğü
 # Context: update_settings
@@ -4004,6 +4045,8 @@ user-menu-contents-private-nicknames-are-available-for-confirmed-friends = Onayl
 user-menu-contents-profile = Profil
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = Bu konuşmayı DM listenizden kaldırın. Mesajlar saklanıyor.
+# Context: contents
+user-menu-contents-roles = Roller
 # Context: contents
 user-menu-contents-unblock = Engellemeyi kaldır
 # Context: contents
@@ -4433,6 +4476,7 @@ lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için s
 lib-composer-onboarding-complete = Tanıtımı tamamla
 profiles-message-placeholder = @{ $user } kullanıcısına mesaj
 profiles-message-send = Mesaj gönder
+profiles-message-open-chat = Sohbeti aç
 profiles-message-sending = Direkt mesaj açılıyor…
 user-menu-contents-start-a-call = Arama başlat
 verification-show-complete-the-check-to-open-this-conversation = Bu sohbeti açmak için doğrulamayı tamamla.
@@ -4713,6 +4757,8 @@ composer-placeholder-direct = @{ $name } kişisine mesaj gönder
 
 # Context: timeline_dm_intro
 timeline-dm-intro = { $name } ile doğrudan mesaj geçmişinin başlangıcı.
+# Context: timeline_group_intro
+timeline-group-intro = { $name } grubunun başlangıcına hoş geldiniz.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = #{ $channel } kanalına hoş geldin!
@@ -4796,3 +4842,24 @@ time-format-24-hour = 24 saat
 profiles-status-edit = Durumu düzenle
 profiles-status-clear = Durumu temizle
 audio-playback-speed = Oynatma hızı
+send-throttled-title = Hop, biraz yavaş!
+send-throttled-body = Mesajları çok hızlı gönderiyorsun!
+send-throttled-dismiss = Tamam, yavaşlıyorum
+profiles-private-profile = Gizli Profil
+profiles-private-notice = { $name } adlı kullanıcının profili gizli, bu yüzden bazı bilgiler saklı. Daha fazlasını görmek için arkadaş olarak ekle.
+settings-cosmetics-name-styles = Ad stilleri
+settings-cosmetics-name-styles-description = Nitro görünen ad yazı tipleri, renkleri ve efektleri.
+search-overlays-message-contains = Mesaj şunu içerir
+search-overlays-no-matching-content-types = Eşleşen içerik türü yok
+search-overlays-history = Geçmiş
+search-overlays-clear-history = Arama geçmişini temizle
+main-sign-in-rate-limited-detail = Discord bu oturum açmayı sınırlıyor. Tekrar denemeden önce bekle. Daha erken bir deneme bekleme süresini uzatabilir.
+
+# New message
+new-message-title = Yeni Mesaj
+new-message-subtitle = Grup DM'lerinde en fazla 10 üye olabilir.
+new-message-search = Ara
+new-message-hint = Bir doğrudan mesaj veya grup başlatmak için arkadaş ekleyin.
+new-message-no-people-found = Bu aramayla eşleşen kimse yok.
+new-message-create = Mesaj Oluştur
+new-message-cancel = İptal

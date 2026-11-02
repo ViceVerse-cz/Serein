@@ -87,6 +87,7 @@ impl Role {
 			tertiary_color: self.colors.tertiary,
 			position: self.position,
 			hoist: self.hoist,
+			managed: self.managed,
 		}
 	}
 }

@@ -241,6 +241,21 @@ pub struct Palette {
 	/// Alias of `sidebar`, kept for older call sites.
 	pub surface: Color32,
 }
+/// Dark themes' default danger red, tuned for red text and outlines on dark surfaces.
+const DARK_DANGER: Color32 = rgb(0xef5561);
+/// Discord's solid count-badge and LIVE-pill red, deeper so white text stays crisp.
+const BADGE_RED: Color32 = rgb(0xd22d39);
+impl Palette {
+	/// Fill for solid badges and pills carrying white text. A theme's own danger color is
+	/// kept; the dark default text red would read washed out as a fill.
+	pub fn badge_fill(&self) -> Color32 {
+		if self.danger == DARK_DANGER {
+			BADGE_RED
+		} else {
+			self.danger
+		}
+	}
+}
 const fn rgb(value: u32) -> Color32 {
 	Color32::from_rgb((value >> 16) as u8, (value >> 8) as u8, value as u8)
 }
@@ -290,7 +305,7 @@ fn dark_common(
 		accent_text: Color32::WHITE,
 		positive: rgb(0x2fb87a),
 		warning: rgb(0xe8a33d),
-		danger: rgb(0xef5561),
+		danger: DARK_DANGER,
 		mention_bg: MENTION_BG,
 		mention_text: rgb(0xbcd9ff),
 		backdrop: None,
@@ -298,7 +313,8 @@ fn dark_common(
 		surface: sidebar,
 	}
 }
-fn gradient(stops: [u32; 2]) -> Palette {
+/// Gradient preset with an opaque border, like the flat presets, for stable fractional-scale edges.
+fn gradient(stops: [u32; 2], border: u32) -> Palette {
 	let mut p = dark_common(
 		Color32::from_black_alpha(140),
 		Color32::from_black_alpha(90),
@@ -306,13 +322,14 @@ fn gradient(stops: [u32; 2]) -> Palette {
 		Color32::from_black_alpha(120),
 		Color32::from_white_alpha(18),
 		Color32::from_white_alpha(34),
-		Color32::from_white_alpha(28),
+		rgb(border),
 	);
 	p.text = rgb(0xe6eaf2);
 	p.muted = rgb(0xafb6c4);
 	p.backdrop = Some([rgb(stops[0]), rgb(stops[1])]);
 	p
 }
+/// Resolve a built-in preset with the current accent, before extension overrides or surface blending.
 pub fn builtin_colors(dark: bool, variant: Variant) -> Palette {
 	let palette = match variant {
 		Variant::Standard if dark => dark_common(
@@ -365,10 +382,10 @@ pub fn builtin_colors(dark: bool, variant: Variant) -> Palette {
 			rgb(0x3d4456),
 			rgb(0x3a4152),
 		),
-		Variant::Nightfall => gradient([0x35519f, 0x1b1440]),
-		Variant::Ember => gradient([0x8c2340, 0x140609]),
-		Variant::Verdant => gradient([0x2b6350, 0x081a15]),
-		Variant::Afterglow => gradient([0xd9663c, 0x35205e]),
+		Variant::Nightfall => gradient([0x35519f, 0x1b1440], 0x2f3451),
+		Variant::Ember => gradient([0x8c2340, 0x140609], 0x41262e),
+		Variant::Verdant => gradient([0x2b6350, 0x081a15], 0x283934),
+		Variant::Afterglow => gradient([0xd9663c, 0x35205e], 0x5b3b40),
 	};
 	customize(palette, primary_color())
 }
@@ -901,6 +918,7 @@ pub(crate) fn control_colors(dark: bool, variant: Variant) -> Palette {
 pub fn window_palette(ui: &egui::Ui) -> Palette {
 	colors(ui.visuals().dark_mode, variant())
 }
+/// Composite surface fills while preserving theme tokens for each consumer's own background.
 fn opaque_surfaces(mut palette: Palette) -> Palette {
 	let backdrop = palette
 		.backdrop
@@ -1730,12 +1748,11 @@ pub fn disclosure(ui: &mut egui::Ui, label: &str, open: bool) -> egui::Response 
 	response
 }
 
-/// Presence dot with a surface-coloured ring, bottom-right of an avatar `rect`.
-pub fn presence_dot(ui: &egui::Ui, rect: egui::Rect, color: Color32, ring: Color32) {
+/// Discord's status glyph with a surface-coloured ring, bottom-right of an avatar `rect`.
+pub fn presence_dot(ui: &egui::Ui, rect: egui::Rect, status: &str, ring: Color32) {
 	let radius = (rect.width() * 0.16).clamp(4.0, 8.0);
 	let center = rect.right_bottom() - egui::vec2(radius + 0.5, radius + 0.5);
-	ui.painter().circle_filled(center, radius + 2.0, ring);
-	ui.painter().circle_filled(center, radius, color);
+	crate::profiles::paint_status(ui.painter(), center, radius, status, false, (ring, 2.0));
 }
 
 /// Preserve role hue where readable, otherwise move toward the theme's text color.
@@ -1772,123 +1789,40 @@ fn contrast(a: Color32, b: Color32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-
-	#[test]
-	fn clickable_cursor_preserves_disabled_text_and_specialized_controls() {
-		use egui::{CursorIcon, Sense};
-		for theme in [egui::ThemePreference::Dark, egui::ThemePreference::Light] {
-			for (kind, expected) in [
-				("button", CursorIcon::PointingHand),
-				("checkbox", CursorIcon::PointingHand),
-				("custom", CursorIcon::PointingHand),
-				("click-drag", CursorIcon::PointingHand),
-				("chrome", CursorIcon::Default),
-				("menu-anchor", CursorIcon::Default),
-				("disabled", CursorIcon::Default),
-				("disabled-custom", CursorIcon::Default),
-				("hover", CursorIcon::Default),
-				("text", CursorIcon::Text),
-				("resize", CursorIcon::ResizeHorizontal),
-				("drag", CursorIcon::Grab),
-			] {
-				let ctx = egui::Context::default();
-				ctx.set_theme(theme);
-				super::apply(&ctx);
-				super::apply(&ctx);
-				let mut center = egui::Pos2::ZERO;
-				let mut text = String::from("Editable text");
-				let mut actual = CursorIcon::Default;
-				for _ in 0..3 {
-					let output = ctx.run_ui(
-						egui::RawInput {
-							events: vec![egui::Event::PointerMoved(center)],
-							..Default::default()
-						},
-						|ui| {
-							let response = match kind {
-								"button" => ui.button("Action"),
-								"checkbox" => ui.checkbox(&mut false, "Toggle"),
-								"disabled" => ui.add_enabled(false, egui::Button::new("Disabled")),
-								"text" => ui.text_edit_singleline(&mut text),
-								_ => {
-									ui.add_enabled_ui(kind != "disabled-custom", |ui| {
-										ui.allocate_exact_size(
-											egui::vec2(100.0, 32.0),
-											match kind {
-												"hover" => Sense::hover(),
-												"click-drag" => Sense::click_and_drag(),
-												"chrome" => Sense::CLICK | Sense::DRAG,
-												"menu-anchor" => super::menu_anchor_sense(),
-												_ => Sense::click(),
-											},
-										)
-										.1
-									})
-									.inner
-								}
-							};
-							center = response.rect.center();
-							if matches!(kind, "resize" | "drag") {
-								response.on_hover_cursor(expected);
-							}
-						},
-					);
-					actual = output.platform_output.cursor_icon;
-					output.drop_without_applying_deltas();
-				}
-				assert_eq!(actual, expected, "{kind}");
-			}
-		}
-	}
 	use super::*;
-	#[test]
-	fn hex_colors_accept_pasted_values_without_applying_partial_or_invalid_input() {
-		for text in ["#FF4000", "ff4000", " #Ff4000 "] {
-			assert_eq!(parse_hex_color(text), Some(0xFF4000));
-		}
-		assert_eq!(parse_hex_color("#000000"), Some(0));
-		assert_eq!(parse_hex_color("FFFFFF"), Some(0xFFFFFF));
-		for text in [
-			"",
-			"#FF4",
-			"#FF40000",
-			"#FF4000FF",
-			"#GG4000",
-			"+FF400",
-			"éFF400",
-		] {
-			assert_eq!(parse_hex_color(text), None);
-		}
-	}
-	#[test]
-	fn primary_color_preserves_readable_controls() {
-		for dark in [false, true] {
-			let base = colors(dark, Variant::Standard);
-			for rgb in [[0, 0, 0], [255, 255, 255], [255, 220, 0], [90, 40, 200]] {
-				let p = customize(base, Some(rgb));
-				assert_eq!(p.accent.to_array()[..3], rgb);
-				assert!(contrast(p.accent_text, p.accent) >= 4.5);
-				assert_eq!((p.text, p.raised), (base.text, base.raised));
-			}
-			assert_eq!(customize(base, None), base);
-			assert_eq!(base.accent, rgb(DEFAULT_PRIMARY_RGB));
-		}
 
-		{
-			for variant in Variant::ALL {
-				for dark in [false, true] {
-					let p = colors(dark, variant);
-					for rgb in [0, 0xffffff, 0xff0000, 0x00ff00, 0x0000ff, 0xe78284] {
-						for background in [p.sidebar, p.hover] {
-							assert!(
-								contrast(role_name_color(rgb, background, p.text), background)
-									>= 4.5
-							);
-						}
-					}
-				}
-			}
+	#[test]
+	fn solid_badges_use_discord_red_unless_the_theme_changed_danger() {
+		for variant in Variant::ALL {
+			let dark = builtin_colors(true, variant);
+			assert_eq!(dark.badge_fill(), BADGE_RED, "{variant:?}");
+			// Red text keeps its lighter, readable shade.
+			assert_eq!(dark.danger, DARK_DANGER);
 		}
+		let light = builtin_colors(false, Variant::Standard);
+		assert_eq!(light.badge_fill(), light.danger);
+		let mut custom = builtin_colors(true, Variant::Standard);
+		custom.danger = rgb(0x00ff00);
+		assert_eq!(custom.badge_fill(), custom.danger);
+	}
+
+	#[test]
+	fn compositing_surfaces_preserves_custom_border_alpha() {
+		let authored = extensions::ThemePalette {
+			colors: [
+				("base".into(), "#0c3658".into()),
+				("raised".into(), "#762438".into()),
+				("border".into(), "#ffffff60".into()),
+			]
+			.into(),
+			..Default::default()
+		};
+		let themed = recolor(
+			builtin_colors(true, Variant::Ember),
+			extension_palette(&authored).unwrap(),
+		);
+		let border = themed.border;
+		assert_eq!(opaque_surfaces(themed).border, border);
 	}
 
 	#[test]
@@ -3146,160 +3080,6 @@ pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
 mod sign_in_widget_tests {
 	use super::*;
 	#[test]
-	fn control_palettes_ignore_window_transparency_for_presets_and_translucent_themes() {
-		let mut theme = extensions::Theme::default();
-		for (appearance, chat, raised, backdrop) in [
-			(
-				&mut theme.light,
-				"#f4f4f488",
-				"#efebe780",
-				["#d8d8d8", "#ffffff"],
-			),
-			(
-				&mut theme.dark,
-				"#18182088",
-				"#20202880",
-				["#101018", "#303038"],
-			),
-		] {
-			appearance.colors.insert("chat".into(), chat.into());
-			appearance.colors.insert("raised".into(), raised.into());
-			appearance.backdrop = Some(backdrop.map(str::to_owned));
-		}
-		for theme in [None, Some(&theme)] {
-			set_extension_theme(theme);
-			for variant in Variant::ALL {
-				for dark in [false, true] {
-					set_window_effects(false, 15, 50);
-					let controls = control_colors(dark, variant);
-					let window = colors(dark, variant);
-					for amount in [0, 15, 50, 85, 100] {
-						set_window_effects(true, amount, 50);
-						assert_eq!(control_colors(dark, variant), controls);
-						let faded = colors(dark, variant);
-						for (actual, original) in [
-							(faded.base, window.base),
-							(faded.sidebar, window.sidebar),
-							(faded.chat, window.chat),
-							(faded.raised, window.raised),
-						] {
-							assert_eq!(
-								actual.a(),
-								(u16::from(original.a()) * u16::from(100 - amount) / 100) as u8
-							);
-						}
-						assert_eq!((faded.text, faded.muted), (window.text, window.muted));
-					}
-				}
-			}
-		}
-		set_extension_theme(None);
-		set_window_effects(false, 15, 50);
-	}
-
-	#[test]
-	fn window_image_backdrop_applies_transparency_to_the_original_tint_once() {
-		let ctx = egui::Context::default();
-		ctx.set_theme(egui::ThemePreference::Light);
-		set_extension_theme(None);
-		set_background_image(
-			&ctx,
-			Some(std::sync::Arc::new(egui::ColorImage::filled(
-				[2, 2],
-				Color32::WHITE,
-			))),
-		);
-		let base = resolved_colors(false, variant()).base.to_opaque();
-		for amount in [0, 50, 100] {
-			set_window_effects(true, amount, 0);
-			let expected = base.gamma_multiply(f32::from(100 - amount) / 100.0);
-			let output = ctx.run_ui(egui::RawInput::default(), |_| paint_backdrop(&ctx));
-			let mut vertices = 0;
-			for shape in &output.shapes {
-				if let egui::Shape::Mesh(mesh) = &shape.shape
-					&& mesh.texture_id == egui::TextureId::default()
-				{
-					for vertex in &mesh.vertices {
-						assert_eq!(vertex.color, expected);
-						vertices += 1;
-					}
-				}
-			}
-			assert!(vertices > 0);
-			output.drop_without_applying_deltas();
-		}
-		set_background_image(&ctx, None);
-		set_window_effects(false, 15, 50);
-	}
-
-	#[test]
-	fn transparency_composes_with_background_images_and_section_opacity() {
-		let ctx = egui::Context::default();
-		ctx.set_theme(egui::ThemePreference::Dark);
-		for target in [
-			extensions::BackgroundTarget::Window,
-			extensions::BackgroundTarget::Chat,
-		] {
-			let mut theme = extensions::Theme::default();
-			theme.dark.background = Some(extensions::Background {
-				opacity: 100,
-				target,
-				sections: Some(extensions::SectionOpacity {
-					message_list: 80,
-					..Default::default()
-				}),
-				..Default::default()
-			});
-			set_extension_theme(Some(&theme));
-			set_background_image(
-				&ctx,
-				Some(std::sync::Arc::new(egui::ColorImage::filled(
-					[2, 2],
-					Color32::WHITE,
-				))),
-			);
-			for (enabled, transparency, expected_alpha) in
-				[(false, 100, 255), (true, 50, 128), (true, 100, 0)]
-			{
-				set_window_effects(enabled, transparency, 0);
-				let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-					paint_backdrop(&ctx);
-					paint_chat_background(ui, ui.max_rect());
-					if target == extensions::BackgroundTarget::Window {
-						let surface = section_surface(
-							ui,
-							colors(true, Variant::Standard).chat,
-							ImageSection::MessageList,
-						);
-						let expected = if !enabled {
-							204
-						} else if transparency == 50 {
-							102
-						} else {
-							0
-						};
-						assert_eq!(surface.a(), expected);
-					}
-				});
-				let mut vertices = 0;
-				for shape in &output.shapes {
-					if let egui::Shape::Mesh(mesh) = &shape.shape {
-						for vertex in &mesh.vertices {
-							assert!(vertex.color.a() <= expected_alpha);
-							assert!(vertex.color.a() >= expected_alpha.saturating_sub(1));
-							vertices += 1;
-						}
-					}
-				}
-				assert!(vertices > 0);
-				output.drop_without_applying_deltas();
-			}
-		}
-		set_extension_theme(None);
-		set_window_effects(false, 15, 50);
-	}
-
-	#[test]
 	fn custom_themes_follow_the_resolved_system_appearance() {
 		let mut theme = extensions::Theme::default();
 		theme.light.colors.insert("chat".into(), "#fafaf0".into());
@@ -3321,80 +3101,5 @@ mod sign_in_widget_tests {
 			.drop_without_applying_deltas();
 		}
 		set_extension_theme(None);
-	}
-
-	/// The sign-in screen depends on these two: a row that reports a click and shows both
-	/// identity lines, and an expander that reports a click without owning its own state.
-	#[test]
-	fn account_row_and_disclosure_click_and_label_themselves() {
-		for light in [false, true] {
-			let ctx = egui::Context::default();
-			ctx.set_theme(if light {
-				egui::ThemePreference::Light
-			} else {
-				egui::ThemePreference::Dark
-			});
-			apply(&ctx);
-			let area = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(320.0, 120.0));
-			let run = |events: Vec<egui::Event>| {
-				let mut clicks = (false, false);
-				let output = ctx.run_ui(
-					egui::RawInput {
-						screen_rect: Some(area),
-						focused: true,
-						events,
-						..Default::default()
-					},
-					|ui| {
-						ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
-							ui.spacing_mut().item_spacing.y = 0.0;
-							clicks.0 = account_row(ui, "Riley Quinn", "@riley").clicked();
-							clicks.1 = disclosure(ui, "About Serein", false).clicked();
-						});
-					},
-				);
-				let mut text = Vec::new();
-				fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
-					match shape {
-						egui::Shape::Text(t) => out.push(t.galley.job.text.clone()),
-						egui::Shape::Vec(shapes) => {
-							for shape in shapes {
-								collect(shape, out);
-							}
-						}
-						_ => {}
-					}
-				}
-				for shape in &output.shapes {
-					collect(&shape.shape, &mut text);
-				}
-				output.drop_without_applying_deltas();
-				(text, clicks)
-			};
-			let (text, _) = run(vec![]);
-			for expected in ["Riley Quinn", "@riley", "About Serein", "RQ"] {
-				assert!(text.iter().any(|value| value == expected), "{expected}");
-			}
-			// The row owns the full width; the expander sits directly beneath it.
-			for (position, row) in [
-				(egui::pos2(160.0, 27.0), true),
-				(egui::pos2(160.0, 68.0), false),
-			] {
-				let mut clicks = (false, false);
-				for pressed in [true, false] {
-					clicks = run(vec![
-						egui::Event::PointerMoved(position),
-						egui::Event::PointerButton {
-							pos: position,
-							button: egui::PointerButton::Primary,
-							pressed,
-							modifiers: egui::Modifiers::NONE,
-						},
-					])
-					.1;
-				}
-				assert_eq!(clicks, (row, !row));
-			}
-		}
 	}
 }

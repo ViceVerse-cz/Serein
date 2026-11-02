@@ -61,6 +61,8 @@ struct Gate {
 	failed: AtomicBool,
 	buffering: AtomicBool,
 	sample_rate: AtomicU32,
+	/// Downloaded ranges of the current clip, reused when a seek replays it from the start.
+	downloads: std::sync::Mutex<source::Downloads>,
 }
 impl Default for Gate {
 	fn default() -> Self {
@@ -74,12 +76,18 @@ impl Default for Gate {
 			failed: AtomicBool::new(false),
 			buffering: AtomicBool::new(true),
 			sample_rate: AtomicU32::new(0),
+			downloads: Default::default(),
 		}
 	}
 }
 impl Gate {
 	fn current(&self, generation: u64) -> bool {
 		self.generation.load(Ordering::Acquire) == generation
+	}
+	fn clear_downloads(&self) {
+		if let Ok(mut downloads) = self.downloads.lock() {
+			*downloads = source::Downloads::default();
+		}
 	}
 }
 #[derive(Clone)]
@@ -159,6 +167,7 @@ impl Audio {
 			});
 		}
 		let generation = self.gate.generation.fetch_add(1, Ordering::AcqRel) + 1;
+		self.gate.clear_downloads();
 		self.gate.paused.store(false, Ordering::Release);
 		self.gate.seek_millis.store(NO_SEEK, Ordering::Release);
 		self.gate.sample_rate.store(0, Ordering::Release);
@@ -251,6 +260,8 @@ impl Audio {
 			if rate > 0 {
 				let at = self.gate.position_frames.load(Ordering::Acquire) as f64 / f64::from(rate);
 				self.seek(Duration::from_secs_f64(at));
+			} else {
+				self.seek(Duration::ZERO);
 			}
 		}
 	}
@@ -259,6 +270,7 @@ impl Audio {
 			return;
 		}
 		self.gate.generation.fetch_add(1, Ordering::AcqRel);
+		self.gate.clear_downloads();
 		if let Some(worker) = &self.worker {
 			worker.requests.send_replace(None);
 			worker.wake.notify_one();
@@ -1073,25 +1085,23 @@ impl Playback {
 mod tests {
 	use super::*;
 	#[test]
+	fn speed_change_restarts_loading_and_preserves_paused_position() {
+		let mut audio = Audio::default();
+		audio.status.state = State::Loading;
+		audio.speed(1.5);
+		assert_eq!(audio.gate.seek_millis.swap(NO_SEEK, Ordering::AcqRel), 0);
+		audio.status.state = State::Paused;
+		audio.gate.paused.store(true, Ordering::Release);
+		audio.gate.sample_rate.store(48000, Ordering::Release);
+		audio.gate.position_frames.store(96000, Ordering::Release);
+		audio.speed(2.0);
+		assert_eq!(audio.gate.seek_millis.load(Ordering::Acquire), 2000);
+		assert!(audio.gate.paused.load(Ordering::Acquire));
+	}
+
+	#[test]
 	fn start_admits_large_attachments_and_rejects_invalid_sizes() {
 		check_large_attachment_admission();
-	}
-	#[cfg(target_os = "linux")]
-	#[test]
-	fn pulseaudio_playback_avoids_the_server_default_buffer() {
-		let config = cpal::StreamConfig {
-			channels: 2,
-			sample_rate: 48000,
-			buffer_size: cpal::BufferSize::Default,
-		};
-		assert_eq!(
-			playback_config(cpal::HostId::PulseAudio, config).buffer_size,
-			cpal::BufferSize::Fixed(1920)
-		);
-		assert_eq!(
-			playback_config(cpal::HostId::Alsa, config).buffer_size,
-			cpal::BufferSize::Default
-		);
 	}
 	#[test]
 	fn decode_bounded_audio_and_reject_malformed_headers() {

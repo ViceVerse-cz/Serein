@@ -42,6 +42,7 @@ fn main() {
 				secondary_color: Some(0x89b4fa),
 				tertiary_color: None,
 				hoist: true,
+				managed: false,
 			}]),
 		},
 	);

@@ -11,6 +11,8 @@ use std::{
 };
 
 const MAX_WINDOWS: usize = 8; // The shared row/byte budget below evicts sooner for long windows.
+/// Hover preloads may hold only a few windows, so a sweep cannot push out visited conversations.
+const MAX_SPECULATIVE: usize = 3;
 /// ponytail: trusting an untouched window assumes the gateway delivered every edit, deletion and
 /// reaction for the channel since it was parked (unverified for very large guilds). The age cap
 /// bounds that risk; a per-channel server revision would allow longer trust.
@@ -41,6 +43,12 @@ struct Window {
 	timeline: Timeline,
 	parked: Instant,
 	older_exhausted: bool,
+	/// Parked by a hover preload and never opened; evicted before visited windows.
+	speculative: bool,
+	/// For a preloaded page, the channel's latest known message when it was parked. The page is
+	/// the service's latest, so it stays current while that is unchanged, even when the
+	/// latest known message was deleted and the page ends earlier.
+	validated: Option<Id>,
 }
 /// A restored window that may be shown as the current page without revalidation.
 pub(crate) struct Trusted {
@@ -54,6 +62,15 @@ pub struct Windows {
 impl Windows {
 	pub(crate) fn remove(&mut self, channel: Id) {
 		self.entries.retain(|entry| entry.identity.id != channel);
+	}
+	/// Removes the oldest preloaded window, or the oldest window when none was preloaded.
+	fn evict(&mut self, speculative_only: bool) -> Option<Window> {
+		let index = self
+			.entries
+			.iter()
+			.position(|entry| entry.speculative)
+			.or_else(|| (!speculative_only && !self.entries.is_empty()).then_some(0))?;
+		self.entries.remove(index)
 	}
 }
 impl State {
@@ -135,7 +152,15 @@ impl State {
 			&& (self.resident_history_rows() > MAX_ROWS
 				|| self.resident_history_bytes() > MAX_BYTES)
 		{
-			self.resident.entries.pop_front();
+			self.evict_resident(false);
+		}
+	}
+	/// Evicts one window, preloaded ones first. An evicted preload may be loaded again later.
+	fn evict_resident(&mut self, speculative_only: bool) {
+		if let Some(window) = self.resident.evict(speculative_only)
+			&& window.speculative
+		{
+			self.preload.conversations.forget(window.identity.id);
 		}
 	}
 	pub(crate) fn prune_resident(&mut self) {
@@ -158,7 +183,8 @@ impl State {
 		self.gateway_connected
 			&& entry.parked.elapsed() < TRUST_AGE
 			&& latest.is_some()
-			&& entry.timeline.iter().next_back().map(|message| message.id) == latest
+			&& (entry.timeline.iter().next_back().map(|message| message.id) == latest
+				|| entry.validated == latest)
 	}
 	/// Whether `channel` already has a dormant window that would reopen without a request.
 	pub(crate) fn resident_current(&self, channel: Id) -> bool {
@@ -202,14 +228,25 @@ impl State {
 			return;
 		}
 		self.resident.remove(channel);
+		if self
+			.resident
+			.entries
+			.iter()
+			.filter(|entry| entry.speculative)
+			.count() >= MAX_SPECULATIVE
+		{
+			self.evict_resident(true);
+		}
 		if self.resident.entries.len() == MAX_WINDOWS {
-			self.resident.entries.pop_front();
+			self.evict_resident(false);
 		}
 		self.resident.entries.push_back(Window {
 			identity,
 			timeline,
 			parked: Instant::now(),
 			older_exhausted,
+			speculative: true,
+			validated: self.channel(channel).and_then(|entry| entry.last_message),
 		});
 		self.enforce_resident_budget();
 	}
@@ -256,7 +293,7 @@ impl State {
 			} else {
 				self.resident.remove(identity.id);
 				if self.resident.entries.len() == MAX_WINDOWS {
-					self.resident.entries.pop_front();
+					self.evict_resident(false);
 				}
 				let older_exhausted = self.older_exhausted && !timeline.older_evicted();
 				self.resident.entries.push_back(Window {
@@ -264,6 +301,8 @@ impl State {
 					timeline,
 					parked: Instant::now(),
 					older_exhausted,
+					speculative: false,
+					validated: None,
 				});
 			}
 		}
@@ -872,6 +911,7 @@ mod tests {
 						tertiary_color: None,
 						position: 0,
 						hoist: false,
+						managed: false,
 						id: Id(10),
 						bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY,
 					}]),

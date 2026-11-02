@@ -7,7 +7,9 @@ backend, web wrapper, or separate voice service.
 
 - Voice ships in every build. Keep media processing outside UI rendering and audio callbacks.
 - Bound local caches, payloads and queues by bytes and item count.
-- Store saved tokens only in the OS credential store; redact active secrets in memory.
+- Prefer the OS credential store for saved tokens. Allow plaintext login files only with the
+  owner's explicit Storage setting; keep files private, bounded and removable. Redact active
+  secrets in memory.
 - Authentication and user-solved invite verification may use only the temporary webviews and
   handoff limits described in the relevant auth docs.
 - No credential extraction, challenge bypass, telemetry, unbounded logs, backend or account system.
@@ -42,6 +44,20 @@ For application work outside `!fast`, use the pinned toolchain and lockfile, run
 `cargo xtask check`; run `node tests/login-handoff.cjs` for auth changes and `cargo xtask package`
 for runtime changes. Use synthetic fixtures. Instructions-only changes need skill validation and
 diff review, not application builds. Re-run only checks invalidated by a fix.
+
+## Tests
+
+Write few, high-signal tests. A test must plausibly catch a regression that the compiler, Clippy or
+a quick read of the code would not. Prefer extending an existing test over adding a near-duplicate.
+
+- Write: wire/protocol parsing including malformed input, byte/item bounds, security boundaries
+  (redaction, credentials, permissions, sandbox, auth handoff), persistence and migrations, state
+  reconciliation/ordering, and a regression test for each real bug fix.
+- Do not write: tests restating types, derives, defaults or constants; mirrors of the implementation;
+  pinned copy text, colors, sizes or layout values; "renders without panic" UI smoke tests; tests of
+  std or third-party behaviour; real sleeps or wall-clock performance asserts; table rows that hit
+  the same branch.
+- Delete tests in those categories when you touch them instead of updating them.
 
 ## Repository map
 

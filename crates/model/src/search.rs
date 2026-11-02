@@ -44,9 +44,15 @@ pub fn search_terms(query: &str) -> Result<SearchTerms, &'static str> {
 			"has" => {
 				if !matches!(
 					value,
-					"link" | "embed" | "file" | "image" | "video" | "sound"
+					"link"
+						| "embed" | "file" | "image"
+						| "video" | "sound"
+						| "poll" | "sticker"
+						| "forward"
 				) {
-					return Err("Choose link, embed, file, image, video or sound.");
+					return Err(
+						"Choose image, video, link, file, embed, sound, poll, sticker or forward.",
+					);
 				}
 				"has"
 			}
@@ -70,6 +76,12 @@ pub fn search_terms(query: &str) -> Result<SearchTerms, &'static str> {
 		if filters.len() >= 16 {
 			return Err("Use at most 16 search filters.");
 		}
+		// Unofficial: Discord's search names forwarded messages `snapshot`.
+		let value = if (parameter, value) == ("has", "forward") {
+			"snapshot"
+		} else {
+			value
+		};
 		filters.push((parameter, value.to_owned()));
 	}
 	let content = if filters.is_empty() {
@@ -116,11 +128,23 @@ impl SearchPage {
 				.sum::<usize>()
 	}
 	/// `channel` is `None` for a server-wide search, whose hits may come from any channel.
-	pub fn valid(&self, channel: Option<Id>, before: Option<Id>) -> bool {
+	/// Hits follow the requested order: newest first, or oldest first.
+	/// A `cursor` page continues past that message: older ones newest first, newer ones oldest
+	/// first.
+	pub fn valid(&self, channel: Option<Id>, cursor: Option<Id>, oldest: bool) -> bool {
 		self.valid_hits(channel)
 			&& self.pin_cursor.is_none()
-			&& self.hits.iter().all(|h| before.is_none_or(|b| h.id < b))
-			&& self.hits.windows(2).all(|w| w[0].id > w[1].id)
+			&& self
+				.hits
+				.iter()
+				.all(|h| cursor.is_none_or(|c| if oldest { h.id > c } else { h.id < c }))
+			&& self.hits.windows(2).all(|w| {
+				if oldest {
+					w[0].id < w[1].id
+				} else {
+					w[0].id > w[1].id
+				}
+			})
 	}
 	/// Pin order follows pin time, not message creation time.
 	pub fn valid_pins(&self, channel: Id) -> bool {
@@ -143,5 +167,22 @@ impl SearchPage {
 			.iter()
 			.enumerate()
 			.all(|(i, h)| self.hits[..i].iter().all(|other| other.id != h.id))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn forwards_polls_and_stickers_are_message_types() {
+		let (_, filters) = super::search_terms("has:forward has:poll has:sticker").unwrap();
+		assert_eq!(
+			filters,
+			[
+				("has", "snapshot".to_owned()),
+				("has", "poll".to_owned()),
+				("has", "sticker".to_owned())
+			]
+		);
+		assert!(super::search_terms("has:nothing").is_err());
 	}
 }

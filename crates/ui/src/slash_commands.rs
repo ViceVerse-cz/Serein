@@ -250,6 +250,13 @@ impl Menu {
 	pub fn visible(&self) -> bool {
 		self.enabled && !self.dismissed && (self.query.is_some() || self.active.is_some())
 	}
+	/// Whether [`Self::keys`] accepts Tab, so the composer must keep it from focus navigation.
+	pub fn claims_tab(&self, ctx: &egui::Context) -> bool {
+		self.visible()
+			&& self.active.is_none()
+			&& !self.items.is_empty()
+			&& !egui::Popup::is_any_open(ctx)
+	}
 	pub fn keys(&mut self, ctx: &egui::Context) -> Option<Pick> {
 		if !self.visible() || egui::Popup::is_any_open(ctx) {
 			return None;
@@ -703,7 +710,7 @@ impl Menu {
 		ui: &mut egui::Ui,
 		state: &State,
 		channel: Id,
-		send_chord: &model::KeyChord,
+		bindings: &model::Keybinds,
 	) -> bool {
 		self.argument_rect = None;
 		let submit_failed = self.error.is_some();
@@ -741,7 +748,7 @@ impl Menu {
 					let no_options = options.is_some_and(<[_]>::is_empty);
 					let name_submit = no_options
 						&& allowed && ui.memory(|memory| memory.has_focus(name_id))
-						&& inline_submit(ui, send_chord);
+						&& inline_submit(ui, bindings);
 					let mut name_job = egui::text::LayoutJob::simple_singleline(
 						format!("/{}", active.name),
 						egui::FontId::new(15.0, design::semibold_family(ui.ctx())),
@@ -929,7 +936,7 @@ impl Menu {
 								ui.add_space(18.0);
 								if had_focus
 									&& option.choices.is_empty()
-									&& option.kind != 5 && inline_submit(ui, send_chord)
+									&& option.kind != 5 && inline_submit(ui, bindings)
 								{
 									self.run = true;
 								}
@@ -1023,14 +1030,16 @@ impl Menu {
 	}
 }
 
-fn inline_submit(ui: &egui::Ui, chord: &model::KeyChord) -> bool {
+fn inline_submit(ui: &egui::Ui, bindings: &model::Keybinds) -> bool {
 	!egui::Popup::is_any_open(ui.ctx())
 		&& ui.input_mut(|input| {
 			!input
 				.events
 				.iter()
 				.any(|event| matches!(event, egui::Event::Ime(_)))
-				&& crate::keybinds::pressed_exact(input, chord)
+				&& bindings
+					.chords(model::KeybindAction::SendMessage)
+					.any(|chord| crate::keybinds::pressed_exact(input, chord))
 		})
 }
 

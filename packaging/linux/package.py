@@ -56,6 +56,10 @@ def stage_payload(root, stage, prefix="usr"):
     for name in ["README.md", "LICENSE-MIT", "LICENSE-APACHE", "THIRD_PARTY_NOTICES.md"]:
         copy(root / name, doc / name)
     for name in ["NotoSansCJK-LICENSE.txt", "NotoSansArabic-OFL.txt", "NotoSansMath-OFL.txt", "NotoSansSymbols2-OFL.txt", "Inter-OFL.txt",
+                 "Bangers-OFL.txt", "BioRhyme-OFL.txt", "CherryBombOne-OFL.txt", "Chicle-OFL.txt",
+                 "Compagnon-OFL.txt", "MuseoModerno-OFL.txt", "PixelifySans-OFL.txt", "Ribes-OFL.txt",
+                 "Sinistre-OFL.txt", "ZillaSlab-OFL.txt", "PlaypenSans-OFL.txt", "Orbitron-OFL.txt",
+                 "NewRocker-OFL.txt", "Kalam-OFL.txt",
                  "Twemoji-CC-BY-4.0.txt", "Unicode-LICENSE.txt", "Phosphor-Icons-MIT.txt",
                  "Simple-Icons-CC0.txt"]:
         copy(root / "licenses" / name, doc / "licenses" / name)
@@ -149,7 +153,7 @@ def package(root, application_version):
             f"Package: serein\nVersion: {version}\nArchitecture: {architecture}\n"
             "Section: net\nPriority: optional\n"
             "Maintainer: Serein contributors <noreply@github.com>\n"
-            "Homepage: https://github.com/ViceVerse-cz/rustcord\n"
+            "Homepage: https://github.com/ViceVerse-cz/Serein\n"
             f"Installed-Size: {installed_kib}\nDepends: {depends}\n"
             "Recommends: gnome-keyring, xdg-desktop-portal-gnome | xdg-desktop-portal-kde | xdg-desktop-portal-wlr, "
             "gstreamer1.0-plugins-bad, gstreamer1.0-gl, gstreamer1.0-libav\n"

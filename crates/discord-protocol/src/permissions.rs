@@ -90,6 +90,8 @@ pub(crate) struct Role {
 	position: i32,
 	#[serde(default, deserialize_with = "null_default")]
 	hoist: bool,
+	#[serde(default, deserialize_with = "null_default")]
+	managed: bool,
 }
 #[derive(Deserialize)]
 struct RoleColors {
@@ -132,6 +134,7 @@ impl Role {
 			tertiary_color: colors.tertiary,
 			position: self.position,
 			hoist: self.hoist,
+			managed: self.managed,
 		})
 	}
 }

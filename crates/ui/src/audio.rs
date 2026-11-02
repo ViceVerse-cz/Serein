@@ -31,6 +31,7 @@ pub struct AudioUi {
 	pub command: Option<AudioCommand>,
 	pub seen: bool,
 	pub volume: f32,
+	pub last_nonzero_volume: f32,
 	/// Voice message playback speed, kept for the session like Discord's.
 	pub speed: f32,
 }
@@ -44,6 +45,7 @@ impl Default for AudioUi {
 			command: None,
 			seen: false,
 			volume: 1.0,
+			last_nonzero_volume: 1.0,
 			speed: 1.0,
 		}
 	}
@@ -60,6 +62,9 @@ impl AudioUi {
 		message: &Message,
 		attachment: &Attachment,
 	) -> egui::Response {
+		if self.volume > 0.0 {
+			self.last_nonzero_volume = self.volume;
+		}
 		let colors = crate::design::palette(ui);
 		let voice = attachment.is_voice_message();
 		let button_color = if voice {
@@ -277,6 +282,7 @@ impl AudioUi {
 								ui,
 								("voice-volume", message.id, attachment.id),
 								self.volume,
+								self.last_nonzero_volume,
 								&colors,
 							) {
 								self.volume = volume;
@@ -386,6 +392,7 @@ fn volume_popup(
 	ui: &mut egui::Ui,
 	salt: impl std::hash::Hash + std::fmt::Debug,
 	volume: f32,
+	restore: f32,
 	colors: &crate::design::Palette,
 ) -> Option<f32> {
 	// Scoped to this card, so a message drawn twice in one frame cannot collide with itself.
@@ -417,15 +424,7 @@ fn volume_popup(
 	let mut changed = None;
 	// A click mutes or restores, like the official control.
 	if response.clicked() {
-		let restore = ui
-			.ctx()
-			.data(|d| d.get_temp::<f32>(id.with("restore")))
-			.unwrap_or(1.0);
-		let next = if volume > 0.0 { 0.0 } else { restore.max(0.05) };
-		if volume > 0.0 {
-			ui.ctx()
-				.data_mut(|d| d.insert_temp(id.with("restore"), volume));
-		}
+		let next = if volume > 0.0 { 0.0 } else { restore };
 		changed = Some(next);
 	}
 	let open_id = id.with("open");
@@ -754,6 +753,7 @@ mod tests {
 		let ctx = egui::Context::default();
 		crate::design::apply(&ctx);
 		let mut audio = AudioUi::default();
+		let card_id = std::cell::Cell::new(message.id);
 		let frame = |audio: &mut AudioUi, events: Vec<egui::Event>| {
 			let mut pill = None;
 			let output = ctx.run_ui(
@@ -767,7 +767,9 @@ mod tests {
 				},
 				|ui| {
 					ui.add_space(150.0);
-					audio.show(ui, &message, &file);
+					let mut card = message.clone();
+					card.id = card_id.get();
+					audio.show(ui, &card, &file);
 				},
 			);
 			for shape in &output.shapes {
@@ -835,6 +837,15 @@ mod tests {
 		frame(&mut audio, vec![]);
 		frame(&mut audio, vec![]);
 		assert!(!visible(&ctx), "leaving both closes it");
+		audio.volume = 0.25;
+		frame(&mut audio, vec![]);
+		frame(&mut audio, click(speaker));
+		assert_eq!(audio.volume, 0.0);
+		// A fresh card must restore the session's last volume too.
+		card_id.set(Id(message.id.0 + 1));
+		frame(&mut audio, vec![]);
+		frame(&mut audio, click(speaker));
+		assert_eq!(audio.volume, 0.25);
 	}
 
 	/// The timeline can draw one message twice in a frame; its volume popup must not clash.

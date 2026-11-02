@@ -1,6 +1,50 @@
 use crate::{Id, User};
 pub const MAX_MENTIONS: usize = 100;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GameMention {
+	pub id: Id,
+	pub name: String,
+	pub icon: Option<String>,
+}
+
+impl GameMention {
+	pub fn icon_key(&self) -> String {
+		self.icon.as_ref().map_or_else(
+			|| format!("app-icon-{}", self.id),
+			|hash| format!("application-icon-{}-{hash}", self.id),
+		)
+	}
+}
+
+/// Unofficial application reference, distinct from user and role notifications.
+pub fn game_mention_prefix(text: &str) -> Option<(Id, usize)> {
+	let rest = text.strip_prefix("<@$")?;
+	let end = rest.find('>')?;
+	Some((rest[..end].parse().ok()?, end + 4))
+}
+
+#[cfg(test)]
+mod game_tests {
+	use super::*;
+	#[test]
+	fn game_tokens_never_become_user_or_role_pings() {
+		assert_eq!(game_mention_prefix("<@$42> tail"), Some((Id(42), 6)));
+		assert_eq!(user_mention_prefix("<@$42>"), None);
+		assert_eq!(role_mention_prefix("<@$42>"), None);
+		for token in [
+			"<@$0>",
+			"<@$-42>",
+			"<@$42x>",
+			"<@$42",
+			"<@$18446744073709551616>",
+			"<@$１２>",
+		] {
+			assert_eq!(game_mention_prefix(token), None, "{token}");
+		}
+	}
+}
+
 pub fn mention_bytes(users: &Vec<User>) -> usize {
 	users.capacity() * size_of::<User>() + users.iter().map(User::heap_bytes).sum::<usize>()
 }

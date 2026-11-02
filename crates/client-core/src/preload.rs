@@ -18,6 +18,10 @@ pub const PROFILE_DWELL: Duration = Duration::from_millis(300);
 pub(crate) const PER_MINUTE: usize = 12;
 /// Remembered targets, so revisiting an unchanged one does not repeat its request.
 const ATTEMPTS: usize = 64;
+/// A preloaded page is trusted this long, so an unchanged target may be loaded again afterwards.
+const ATTEMPT_AGE: Duration = Duration::from_secs(5 * 60);
+/// Docked profiles remembered as recently failed.
+const DOCKED_FAILURES: usize = 16;
 /// Longer than the REST timeout: an in-flight marker this old lost its result to a session change.
 const LOST: Duration = Duration::from_secs(30);
 /// Preload request ids carry this bit, so they never equal a click's own request id.
@@ -35,7 +39,7 @@ pub struct Intent<K> {
 	adopted: Option<(u64, u64)>,
 	sent: VecDeque<Instant>,
 	/// Each target with the version (latest message) it was last requested at.
-	attempts: VecDeque<(K, Option<Id>)>,
+	attempts: VecDeque<(K, Option<Id>, Instant)>,
 	next: u64,
 }
 struct InFlight<K> {
@@ -108,14 +112,18 @@ impl<K: Copy + PartialEq> Intent<K> {
 		{
 			self.sent.pop_front();
 		}
-		if self.sent.len() >= PER_MINUTE || self.attempts.contains(&(target, version)) {
+		if self.sent.len() >= PER_MINUTE
+			|| self.attempts.iter().any(|(known, known_version, at)| {
+				(*known, *known_version) == (target, version)
+					&& now.saturating_duration_since(*at) < ATTEMPT_AGE
+			}) {
 			return None;
 		}
-		self.attempts.retain(|(known, _)| *known != target);
+		self.attempts.retain(|(known, ..)| *known != target);
 		if self.attempts.len() == ATTEMPTS {
 			self.attempts.pop_front();
 		}
-		self.attempts.push_back((target, version));
+		self.attempts.push_back((target, version, now));
 		self.sent.push_back(now);
 		self.next = self.next.wrapping_add(1) & !REQUEST_BIT;
 		let request = REQUEST_BIT | self.next;
@@ -144,6 +152,10 @@ impl<K: Copy + PartialEq> Intent<K> {
 		self.adopted = Some((preload, request));
 		true
 	}
+	/// Forgets that `target` was requested, so a later rest may load it again.
+	pub(crate) fn forget(&mut self, target: K) {
+		self.attempts.retain(|(known, ..)| *known != target);
+	}
 	fn interrupt(&mut self) {
 		self.hovered = None;
 		self.in_flight = None;
@@ -164,7 +176,7 @@ impl<K: Copy + PartialEq> Intent<K> {
 		if let Some(flight) = &flight
 			&& !ok
 		{
-			self.attempts.retain(|(known, _)| *known != flight.target);
+			self.attempts.retain(|(known, ..)| *known != flight.target);
 		}
 		match self.adopted {
 			Some((preload, own)) if preload == request => {
@@ -182,6 +194,14 @@ pub struct Preload {
 	pub(crate) conversations: Intent<Id>,
 	/// Profiles by `(user, guild)`, as a card would request them.
 	pub(crate) profiles: Intent<(Id, Option<Id>)>,
+	/// The recent-page request of a click whose adopted preload was turned away.
+	pub(crate) retry: Option<Command>,
+	/// The same for a profile card.
+	pub(crate) profile_retry: Option<Command>,
+	/// The docked profile request in flight: its person, request id and when it left.
+	pub(crate) docked: Option<(Id, u64, Instant)>,
+	/// People whose docked profile recently failed and when, so it is not retried every frame.
+	pub(crate) docked_failures: VecDeque<(Id, Instant)>,
 }
 
 /// Where a preload's result goes.
@@ -194,8 +214,26 @@ pub(crate) enum Arrival {
 }
 
 impl State {
+	/// The request a history result answers: a click's own id when it adopted this preload.
+	pub fn history_request(&self, request: u64) -> u64 {
+		match self.preload.conversations.adopted {
+			Some((preload, own)) if preload == request => own,
+			_ => request,
+		}
+	}
+	/// A click's own requests, sent when the preloads it adopted were turned away.
+	pub fn take_preload_retries(&mut self) -> impl Iterator<Item = Command> {
+		[self.preload.retry.take(), self.preload.profile_retry.take()]
+			.into_iter()
+			.flatten()
+	}
 	/// Forget work owned by the replaced connection, retaining the minute caps and request ids.
 	pub fn interrupt_preloads(&mut self) {
+		self.preload.retry = None;
+		self.preload.profile_retry = None;
+		// A docked profile lost with the old connection is requested again on the new one.
+		self.preload.docked = None;
+		self.preload.docked_failures.clear();
 		self.preload.conversations.interrupt();
 		self.preload.profiles.interrupt();
 	}
@@ -247,12 +285,67 @@ impl State {
 		{
 			return None;
 		}
-		// ponytail: profiles carry no version, so a person tried among the last 64 targets is not
-		// preloaded again after their cached card expires; their click still loads it normally.
+		// Profiles carry no version: a person is preloaded again only once their attempt expires.
 		let request = self.preload.profiles.admit(target, None, now)?;
 		Some(Command::Prefetch(Box::new(
 			self.profile_command(user, guild, request),
 		)))
+	}
+	/// The global profile a docked panel shows, requested once without waiting for pointer
+	/// intent. The result fills the profile cache; a failed one is retried only after a while.
+	pub fn preload_docked_profile(&mut self, user: Id, now: Instant) -> Option<Command> {
+		let target = (user, None);
+		self.preload
+			.docked_failures
+			.retain(|(_, at)| now.saturating_duration_since(*at) < ATTEMPT_AGE);
+		if !self.can_preload()
+			|| user.0 == 0
+			|| self.known_profile(user).is_some()
+			|| self
+				.preload
+				.docked_failures
+				.iter()
+				.any(|(known, _)| *known == user)
+		{
+			return None;
+		}
+		// Only failures hold the panel back: a loaded profile that left the cache, such as
+		// after a friendship change, is requested again at once.
+		self.preload.profiles.forget(target);
+		// An unrelated hover preload may hold the slot; ask again on a later frame.
+		let request = self.preload.profiles.admit(target, None, now)?;
+		self.preload.docked = Some((user, request, now));
+		Some(Command::Prefetch(Box::new(
+			self.profile_command(user, None, request),
+		)))
+	}
+	/// Remembers a failed docked request, keeping the newest failures within a fixed bound.
+	pub(crate) fn docked_arrived(&mut self, request: u64, ok: bool) {
+		let Some((user, _, at)) = self
+			.preload
+			.docked
+			.take_if(|(_, known, _)| *known == request)
+		else {
+			return;
+		};
+		if !ok {
+			let failures = &mut self.preload.docked_failures;
+			failures.retain(|(known, _)| *known != user);
+			if failures.len() == DOCKED_FAILURES {
+				failures.pop_front();
+			}
+			failures.push_back((user, at));
+		}
+	}
+	/// Whether a preload of `user`'s global profile is still waiting for its response.
+	pub fn profile_preloading(&self, user: Id, now: Instant) -> bool {
+		self.preload
+			.profiles
+			.in_flight
+			.as_ref()
+			.is_some_and(|flight| {
+				flight.target == (user, None) && now.saturating_duration_since(flight.since) < LOST
+			})
 	}
 	/// How long until a resting pointer becomes intent, so the UI can wake without input.
 	pub fn preload_wake(&self, now: Instant) -> Option<Duration> {
@@ -402,7 +495,7 @@ mod tests {
 	}
 
 	#[test]
-	fn rejected_adopted_history_clears_loading_without_ending_the_session() {
+	fn a_click_whose_adopted_preload_gave_way_sends_its_own_request() {
 		let mut state = state();
 		let Some((_, request)) =
 			preloaded(state.preload_conversation(None, Some(Id(1)), Instant::now()))
@@ -410,6 +503,8 @@ mod tests {
 			panic!()
 		};
 		assert!(state.select(Id(1)).is_none());
+		let own = state.request;
+		assert_eq!(state.history_request(request), own);
 		apply(
 			&mut state,
 			Event::HistoryFailed {
@@ -418,11 +513,64 @@ mod tests {
 				failure: crate::auth::Failure::Capacity,
 			},
 		);
-		assert!(!state.history_pending);
-		assert_eq!(state.freshness, Freshness::Stale);
+		let retries: Vec<_> = state.take_preload_retries().collect();
+		assert!(matches!(
+			retries.as_slice(),
+			[Command::History { channel: Id(1), before: None, after: None, request }]
+				if *request == state.request && *request != own
+		));
+		assert!(state.history_pending);
+		assert_eq!(state.freshness, Freshness::Loading);
 		assert!(state.gateway_connected);
 		assert_eq!(state.auth, AuthState::Authenticated);
-		assert_eq!(state.status, "Work queue full; action was not sent");
+		assert_ne!(state.status, "Work queue full; action was not sent");
+		assert_eq!(state.take_preload_retries().count(), 0);
+	}
+
+	#[test]
+	fn preloaded_windows_give_way_to_visited_ones_and_can_load_again() {
+		let mut state = state();
+		let now = Instant::now();
+		// Three visited conversations park as dormant windows.
+		for channel in 1..=4 {
+			if let Some(Command::History { request, .. }) = state.select(Id(channel)) {
+				apply(&mut state, page(channel, request));
+			}
+		}
+		// A sweep preloads more conversations than the speculative share.
+		for (step, channel) in (10..=14).enumerate() {
+			let at = now + CONVERSATION_DWELL * 4 * step as u32;
+			let Some((_, request)) = preloaded(rest(&mut state, channel, at)) else {
+				panic!("conversation {channel} preloads");
+			};
+			apply(&mut state, page(channel, request));
+		}
+		// Visited conversations still reopen without a request.
+		for channel in 1..=3 {
+			assert!(state.resident_current(Id(channel)), "{channel}");
+		}
+		assert!(!state.resident_current(Id(10)) && !state.resident_current(Id(11)));
+		assert!(state.resident_current(Id(14)));
+		// An evicted preload may be loaded again.
+		let later = now + Duration::from_secs(61);
+		assert!(preloaded(rest(&mut state, 10, later)).is_some());
+	}
+
+	#[test]
+	fn a_preloaded_page_stays_current_when_the_latest_known_message_was_deleted() {
+		let mut state = state();
+		// The latest known message (1051) is gone; the service returns through 1050.
+		state.observe_last_message(Id(1), Id(1051));
+		let Some((_, request)) = preloaded(rest(&mut state, 1, Instant::now())) else {
+			panic!()
+		};
+		apply(&mut state, page(1, request));
+		assert!(state.resident_current(Id(1)));
+		assert!(
+			state.select(Id(1)).is_none(),
+			"opens without another request"
+		);
+		assert_eq!(state.freshness, Freshness::Fresh);
 	}
 
 	#[test]

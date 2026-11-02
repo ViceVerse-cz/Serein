@@ -128,3 +128,19 @@ allow = ["MPL-2.0"]
 name = "symphonia-format-ogg"
 version = "=0.6.1"
 allow = ["MPL-2.0"]
+
+# M4A/AAC/ALAC/FLAC attachment playback; unmodified source ships in licenses/audio/source.
+[[licenses.exceptions]]
+name = "symphonia-format-isomp4"
+version = "=0.6.1"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+name = "symphonia-codec-alac"
+version = "=0.6.1"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+name = "symphonia-bundle-flac"
+version = "=0.6.1"
+allow = ["MPL-2.0"]

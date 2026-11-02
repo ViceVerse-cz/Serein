@@ -58,6 +58,10 @@ struct ProfileDto {
 	mutual_guilds: Small<MutualGuild, 50>,
 	#[serde(default)]
 	mutual_friends: Small<UserDto, 50>,
+	/// Unofficial, observed in the official client: the profile is private to this viewer
+	/// (Profile Privacy), so the service withheld bio, status, badges and similar details.
+	#[serde(default)]
+	private: bool,
 }
 #[derive(Deserialize)]
 struct GameWidgetDto {
@@ -231,6 +235,7 @@ struct Member {
 	user: Option<UserDto>,
 	avatar_decoration_data: collectibles::DecorationField,
 	collectibles: collectibles::CollectiblesField,
+	display_name_styles: collectibles::NameStyleField,
 }
 #[derive(Deserialize)]
 struct Badge {
@@ -432,6 +437,7 @@ pub fn decode_profile(
 			member_cosmetics = Some((
 				member.avatar_decoration_data.take(),
 				member.collectibles.take(),
+				member.display_name_styles.take(),
 			));
 			limited |= member.roles.limited;
 			member.roles.items.sort_unstable();
@@ -470,8 +476,9 @@ pub fn decode_profile(
 			(top <= 0xff_ffff && bottom <= 0xff_ffff).then_some([top, bottom])
 		});
 	let mut user = dto.user.user.into_model();
-	if let Some((decoration, nameplate)) = member_cosmetics {
+	if let Some((decoration, nameplate, style)) = member_cosmetics {
 		collectibles::apply_member(&mut user, decoration, nameplate);
+		collectibles::apply_member_style(&mut user, style);
 	}
 	let clan = user.primary_guild.as_deref().cloned();
 	let mut profile = UserProfile {
@@ -525,6 +532,7 @@ pub fn decode_profile(
 		effect: None,
 		frame: None,
 		badge_catalog: None,
+		private: dto.private,
 		limited,
 	};
 	// Discard optional board summaries first; preserve complete editable profile fields.
@@ -591,9 +599,9 @@ mod tests {
 	}
 	#[test]
 	fn equipped_effects_frames_and_server_decorations_are_read_leniently() {
-		let value = json!({"user":{"id":"1","username":"n","avatar_decoration_data":{"asset":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sku_id":"4"}},
+		let value = json!({"user":{"id":"1","username":"n","avatar_decoration_data":{"asset":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sku_id":"4"},"display_name_styles":{"font_id":1,"effect_id":1,"colors":[1]}},
 			"user_profile":{"profile_effect":{"id":"10","expires_at":null},"collectibles":[{"sku_id":"11","type":3}]},
-			"guild_member":{"roles":[],"avatar_decoration_data":{"asset":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","sku_id":"5"}},
+			"guild_member":{"roles":[],"avatar_decoration_data":{"asset":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","sku_id":"5"},"display_name_styles":{"font_id":13,"effect_id":2,"colors":[2,3]}},
 			"guild_member_profile":{"guild_id":"2","collectibles":[{"sku_id":"12","type":1}]}});
 		let server = decode_profile(value.to_string().as_bytes(), Some(Id(2)), false).unwrap();
 		assert_eq!(
@@ -609,6 +617,18 @@ mod tests {
 			.as_ref()
 			.unwrap();
 		assert_eq!(decoration.asset, "b".repeat(32));
+		// The server member's name style replaces the account's in that server.
+		let style = server
+			.user
+			.cosmetics
+			.as_deref()
+			.unwrap()
+			.name_style
+			.as_ref();
+		assert_eq!(
+			style.map(|style| (style.font, &style.colors[..])),
+			Some((13, &[2, 3][..]))
+		);
 		let mut value = value;
 		let object = value.as_object_mut().unwrap();
 		object.remove("guild_member");
@@ -646,6 +666,20 @@ mod tests {
 		assert!(decode(&value, false).limited);
 		value["mutual_guilds"] = json!({});
 		assert!(decode_profile(value.to_string().as_bytes(), None, false).is_err());
+	}
+	/// The official client reads `private` from the profile response (unofficial).
+	#[test]
+	fn private_profiles_are_flagged_and_public_ones_are_not() {
+		let private = json!({"user":{"id":"1","username":"misha"},"private":true,"mutual_guilds":[{"id":"2"}]});
+		let profile = decode_profile(private.to_string().as_bytes(), None, true).unwrap();
+		assert!(profile.private);
+		assert!(profile.bio.is_empty() && profile.badges.is_empty());
+		let public = json!({"user":{"id":"1","username":"misha"}});
+		assert!(
+			!decode_profile(public.to_string().as_bytes(), None, true)
+				.unwrap()
+				.private
+		);
 	}
 	#[test]
 	fn profile_metadata_is_bounded_and_guild_identity_is_checked() {

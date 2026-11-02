@@ -10,6 +10,8 @@ pub(crate) struct Preload {
 	pressed: Option<Id>,
 	/// A person and whether they are pressed.
 	person: Option<(Id, bool)>,
+	/// The hovered server's target channel at a state revision; resolving it can scan channels.
+	guild_target: Option<(Id, u64, Option<Id>)>,
 }
 impl Preload {
 	/// Notes a conversation row; `channel` is resolved only while the pointer is on the row.
@@ -30,6 +32,21 @@ impl Preload {
 			self.pressed = Some(channel);
 		}
 	}
+	/// Notes a server icon by the channel its click would open.
+	pub(crate) fn guild(&mut self, response: &egui::Response, state: &State, guild: Id) {
+		let mut cache = self.guild_target;
+		self.conversation(response, || match cache {
+			Some((known, revision, target)) if known == guild && revision == state.revision => {
+				target
+			}
+			_ => {
+				let target = state.guild_target(guild);
+				cache = Some((guild, state.revision, target));
+				target
+			}
+		});
+		self.guild_target = cache;
+	}
 	/// Notes the person a profile card would open for.
 	pub(crate) fn person(&mut self, person: Option<(Id, bool)>) {
 		self.person = person;
@@ -48,7 +65,10 @@ impl Preload {
 			conversation,
 			pressed,
 			person,
+			guild_target,
 		} = std::mem::take(self);
+		// Kept only while a server icon stays under the pointer.
+		self.guild_target = guild_target.filter(|_| conversation.is_some());
 		if !enabled {
 			return;
 		}
