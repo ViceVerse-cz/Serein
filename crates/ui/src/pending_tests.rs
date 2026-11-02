@@ -450,12 +450,14 @@ fn restore_never_swaps_or_resurrects_a_reply_target() {
 #[test]
 fn staged_viewer_closes_before_decoding_a_shifted_file_or_another_conversation() {
 	let mut state = test_support::demo_state();
-	let mut ui = crate::MessagingUi::default();
-	ui.attachment_files = vec![("same.png".into(), 12), ("same.png".into(), 12)];
-	ui.attachment_keys = vec![10, 11];
-	ui.attachment_view_open = Some(0);
-	ui.attachment_view_scope = Some((state.generation, state.selected));
-	ui.attachment_view_file = Some(("same.png".into(), 12, Some(10)));
+	let mut ui = crate::MessagingUi {
+		attachment_files: vec![("same.png".into(), 12), ("same.png".into(), 12)],
+		attachment_keys: vec![10, 11],
+		attachment_view_open: Some(0),
+		attachment_view_scope: Some((state.generation, state.selected)),
+		attachment_view_file: Some(("same.png".into(), 12, Some(10))),
+		..Default::default()
+	};
 	ui.validate_attachment_view(&state);
 	assert_eq!(ui.attachment_view_open, Some(0));
 	// Identical names and sizes still denote different staged files.
