@@ -912,11 +912,12 @@ fn pick(media: &model::EmbedMedia, animate: bool) -> Option<(&str, bool)> {
 		return Some((video, true));
 	}
 	let original_gif = media.url.as_deref().filter(|url| {
+		let p = path(url);
 		animate
 			&& (model::valid_gif_url(url)
 				|| url.starts_with("https://cdn.discordapp.com/")
 				|| url.starts_with("https://media.discordapp.net/"))
-			&& path(url).ends_with(".gif")
+			&& (p.ends_with(".gif") || p.ends_with(".webp"))
 	});
 	let raw = original_gif
 		.or(media.proxy_url.as_deref())
@@ -931,6 +932,20 @@ fn pick(media: &model::EmbedMedia, animate: bool) -> Option<(&str, bool)> {
 #[cfg(test)]
 mod retention_tests {
 	use super::*;
+
+	#[test]
+	fn pick_prefers_playable_webp_over_still_proxy() {
+		let media = model::EmbedMedia {
+			url: Some("https://static.klipy.com/ii/synthetic/a1.webp".into()),
+			proxy_url: Some("https://images-ext-1.discordapp.net/external/xyz/still.png".into()),
+			width: 320,
+			height: 240,
+			..Default::default()
+		};
+		let picked = pick(&media, true).expect("playable webp selected");
+		assert_eq!(picked.0, "https://static.klipy.com/ii/synthetic/a1.webp");
+		assert!(picked.1);
+	}
 
 	fn load(library: &mut MediaLibrary, ctx: &egui::Context, index: usize) -> Rendition {
 		let source = library

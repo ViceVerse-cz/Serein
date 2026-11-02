@@ -57,6 +57,7 @@ impl Pending {
 	fn insert(&mut self, update: PresenceUpdate, now: Instant) {
 		let update = Update {
 			user: update.user,
+			avatar: update.avatar,
 			status: update.status,
 			custom_status: update.custom_status,
 			activities: update.activities,
