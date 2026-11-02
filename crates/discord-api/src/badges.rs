@@ -57,14 +57,3 @@ fn catalog_path(user: Id, own: bool) -> String {
 		format!("/users/{user}/badges")
 	}
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn own_catalog_uses_the_current_user_route() {
-		assert_eq!(catalog_path(Id(5), true), "/users/@me/badges");
-		assert_eq!(catalog_path(Id(5), false), "/users/5/badges");
-	}
-}

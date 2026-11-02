@@ -13,6 +13,7 @@ developer-session = []
 demo = ["dep:test-support", "ui/demo"]
 
 [dependencies]
+diagnostics.workspace = true
 extensions.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -40,10 +41,10 @@ time = { workspace = true, features = ["local-offset"] }
 sha2 = "=0.10.9"
 md4 = "=0.10.2"
 semver = "=1.0.28"
-zip = { version = "=4.6.1", default-features = false, features = ["deflate-flate2"] }
+zip = { version = "=9.0.5", default-features = false, features = ["deflate-flate2"] }
 cpal = { version = "=0.18.2", default-features = false }
 rtrb = "=0.4.0"
-symphonia = { version = "=0.6.1", default-features = false, features = ["mp3", "pcm", "wav", "ogg", "vorbis"] }
+symphonia = { version = "=0.6.1", default-features = false, features = ["mp3", "pcm", "wav", "ogg", "vorbis", "isomp4", "aac", "alac", "flac"] }
 opus2 = { version = "=0.4.0", default-features = false, features = ["backend-libopus", "static", "bundled"] }
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 png = "=0.18.1"

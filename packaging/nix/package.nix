@@ -94,9 +94,12 @@ in
     rustPlatform.buildRustPackage (finalAttrs: {
         pname = "serein";
         # Match `cargo build`: release automation versions Cargo.toml, not this file.
-        version = (lib.importTOML ../Cargo.toml).workspace.package.version;
+        version = (lib.importTOML ../../Cargo.toml).workspace.package.version;
 
-        src = ../.;
+        # Keep bundled symbols local so each copy stays consistent.
+        env.RUSTFLAGS = lib.optionalString isLinux "-C link-arg=-Wl,--exclude-libs,ALL";
+
+        src = ../../.;
 
         cargoLock = {
             lockFile = "${finalAttrs.src}/Cargo.lock";
@@ -124,9 +127,7 @@ in
             ];
 
         buildInputs =
-            lib.optionals isLinux (
-                toolkitDeps ++ graphicsDeps ++ windowingDeps ++ audioDeps ++ gstPlugins
-            )
+            lib.optionals isLinux (toolkitDeps ++ graphicsDeps ++ windowingDeps ++ audioDeps ++ gstPlugins)
             ++ lib.optionals isDarwin [
                 apple-sdk_15
                 swiftPackages.stdlib

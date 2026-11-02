@@ -96,16 +96,56 @@ fn nameplate(dto: CollectiblesField, now: u64) -> Option<Nameplate> {
 }
 
 /// Equipped user-level cosmetics, or `None` when nothing valid is equipped.
+/// Unofficial `display_name_styles`: `{font_id, effect_id, colors}`, as the official web
+/// client reads it from user and member objects.
+#[derive(Clone, Deserialize)]
+pub struct NameStyleDto {
+	#[serde(default)]
+	font_id: Option<u32>,
+	#[serde(default)]
+	effect_id: Option<u32>,
+	#[serde(default)]
+	colors: Option<Vec<i64>>,
+}
+pub type NameStyleField = Option<Lenient<NameStyleDto>>;
+
+/// A style with at most four valid colours; anything else is dropped.
+pub fn name_style(field: NameStyleField) -> Option<model::NameStyle> {
+	let dto = Lenient::value(field)?;
+	let colors = dto.colors?;
+	if colors.is_empty() || colors.len() > model::NameStyle::MAX_COLORS {
+		return None;
+	}
+	let style = model::NameStyle {
+		font: dto.font_id.unwrap_or(0),
+		effect: model::NameEffect::from_id(dto.effect_id.unwrap_or(1)),
+		colors: colors
+			.into_iter()
+			.map(|color| u32::try_from(color).ok().filter(|c| *c <= 0xff_ffff))
+			.collect::<Option<Vec<_>>>()?,
+	};
+	style.valid().then_some(style)
+}
+
 pub fn cosmetics(
 	decoration_dto: DecorationField,
 	collectibles: CollectiblesField,
+	style: NameStyleField,
 ) -> Option<Box<Cosmetics>> {
 	let now = model::unix_now();
 	let cosmetics = Cosmetics {
 		decoration: decoration(decoration_dto, now),
 		nameplate: nameplate(collectibles, now),
+		name_style: name_style(style),
 	};
 	(!cosmetics.is_empty()).then(|| Box::new(cosmetics))
+}
+
+/// A server member's own name style replaces the user's in that server.
+pub fn apply_member_style(user: &mut User, field: NameStyleField) {
+	if let Some(style) = name_style(field) {
+		user.cosmetics.get_or_insert_default().name_style = Some(style);
+	}
 }
 
 /// A server member's own decoration and nameplate replace the user's in that server.
@@ -424,6 +464,42 @@ pub fn decode_frame(bytes: &[u8], sku: Id) -> Result<ProfileFrame, DecodeError> 
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn name_styles_parse_bounded_and_members_override_users() {
+		let user: crate::UserDto = serde_json::from_value(serde_json::json!({
+			"id": "1", "username": "misha",
+			"display_name_styles": {"font_id": 3, "effect_id": 2, "colors": [16711680, 255]}
+		}))
+		.unwrap();
+		let mut user = user.into_model();
+		let style = user.cosmetics.as_ref().unwrap().name_style.clone().unwrap();
+		assert_eq!((style.font, style.effect), (3, model::NameEffect::Gradient));
+		assert_eq!(style.colors, [0xff0000, 0x0000ff]);
+		apply_member_style(
+			&mut user,
+			serde_json::from_value(serde_json::json!({"effect_id": 3, "colors": [65280]})).ok(),
+		);
+		let member = user
+			.cosmetics
+			.as_ref()
+			.unwrap()
+			.name_style
+			.as_ref()
+			.unwrap();
+		assert_eq!(
+			(member.effect, member.colors.as_slice()),
+			(model::NameEffect::Neon, &[0x00ff00][..])
+		);
+		for bad in [
+			serde_json::json!({"effect_id": 2, "colors": []}),
+			serde_json::json!({"effect_id": 2, "colors": [16777216]}),
+			serde_json::json!({"effect_id": 2, "colors": [1, 2, 3, 4, 5]}),
+			serde_json::json!("not a style"),
+		] {
+			assert!(name_style(serde_json::from_value(bad).ok()).is_none());
+		}
+	}
+
 	use super::*;
 	use serde_json::json;
 

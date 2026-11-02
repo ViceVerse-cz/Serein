@@ -634,6 +634,18 @@ impl MessagingUi {
 							}
 							ui.separator();
 						}
+						if let Item::Folder(id) = item {
+							ui.set_width(232.0);
+							let guilds = state
+								.guild_folders
+								.as_ref()
+								.and_then(|settings| {
+									settings.folders.iter().find(|folder| folder.id == Some(id))
+								})
+								.map_or(&[][..], |folder| folder.guild_ids.as_slice());
+							self.server_menu.folder_read_item(ui, state, guilds);
+							ui.separator();
+						}
 						if ui
 							.add_enabled(
 								!state.folders_pending,
@@ -949,12 +961,74 @@ impl MessagingUi {
 				commands.push(command);
 			}
 		}
+		if let Some(guilds) = self.server_menu.mark_read_folder_requested.take()
+			&& let Some(command) = state.prepare_mark_guilds_read(&guilds)
+		{
+			commands.push(command);
+		}
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use client_core::read_state::Event as ReadEvent;
+	use model::{Channel, permissions as perms};
+
+	fn readable_guild_state() -> State {
+		let mut state = test_support::demo_state();
+		test_support::seed_demo_folder_mosaic(&mut state);
+		state.channels.push(Channel {
+			id: Id(111),
+			guild: Some(Id(11)),
+			parent_id: None,
+			kind: 0,
+			position: 0,
+			name: "synthetic-unread".into(),
+			recipients: vec![],
+			last_message: Some(Id(500)),
+			icon: None,
+			member_list_id: None,
+			message_count: None,
+			tags: None,
+		});
+		state.permissions.guilds.insert(
+			Id(11),
+			perms::Guild {
+				id: Id(11),
+				owner: Some(Id(1)),
+				roles: None,
+				member: None,
+			},
+		);
+		state.permissions.channels.insert(
+			Id(111),
+			perms::Channel {
+				id: Id(111),
+				guild: Id(11),
+				overwrites: Some(vec![]),
+			},
+		);
+		state
+			.apply_read_state(ReadEvent::Snapshot {
+				entries: Some(vec![
+					(Id(20), Some(Id(495)), 0),
+					(Id(22), Some(Id(1)), 0),
+					(Id(111), Some(Id(1)), 0),
+				]),
+				version: None,
+				partial: false,
+			})
+			.unwrap();
+		if let Some(dm) = state
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(22))
+		{
+			dm.last_message = Some(Id(500));
+		}
+		state
+	}
 
 	#[test]
 	fn server_icon_restores_channel_once_in_standalone_and_expanded_folder() {
@@ -1112,6 +1186,46 @@ mod tests {
 					.any(|(item, _)| *item == Item::Folder(9))
 			);
 		}
+	}
+
+	#[test]
+	fn folder_mark_read_acks_only_the_folder_servers_in_one_bulk_request() {
+		let mut state = readable_guild_state();
+		assert!(state.can_mark_guild_read(Id(10)));
+		assert!(state.can_mark_guild_read(Id(11)));
+		assert_eq!(state.unread(Id(22)), Some(true));
+		assert!(state.can_mark_guilds_read(&[Id(999), Id(11)]));
+		assert!(!state.can_mark_guilds_read(&[Id(999)]));
+
+		let Some(Command::MarkAllRead { request, channels }) =
+			state.prepare_mark_guilds_read(&[Id(10), Id(10), Id(999), Id(11)])
+		else {
+			panic!("folder should send one bulk acknowledgement");
+		};
+		assert!(!channels.is_empty());
+		assert!(channels.iter().all(|(channel, _)| {
+			state
+				.channel(*channel)
+				.is_some_and(|channel| matches!(channel.guild, Some(Id(10) | Id(11))))
+		}));
+		assert!(channels.iter().any(|(channel, _)| *channel == Id(111)));
+		assert!(!state.can_mark_guilds_read(&[Id(10), Id(11)]));
+
+		let acked = channels.len();
+		state
+			.apply_read_state(ReadEvent::AllAck {
+				request,
+				acked,
+				result: Ok(()),
+			})
+			.unwrap();
+		assert!(!state.can_mark_guilds_read(&[Id(10), Id(11)]));
+		assert_eq!(
+			state.unread(Id(22)),
+			Some(true),
+			"direct messages stay unread"
+		);
+		assert!(state.continue_mark_all_read().is_none());
 	}
 
 	#[test]

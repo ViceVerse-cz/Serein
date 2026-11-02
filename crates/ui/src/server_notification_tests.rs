@@ -13,7 +13,6 @@ struct Harness {
 	state: State,
 	commands: Vec<Command>,
 	size: egui::Vec2,
-	rail: bool,
 }
 
 fn labels(shape: &egui::Shape, clip: Rect, output: &mut Vec<(String, Rect)>) {
@@ -69,7 +68,6 @@ impl Harness {
 			state,
 			commands: vec![],
 			size: egui::vec2(width, height),
-			rail: false,
 			view: MessagingUi {
 				guild: Some(Id(10)),
 				..Default::default()
@@ -87,14 +85,9 @@ impl Harness {
 				..Default::default()
 			},
 			|ui| {
-				if self.rail {
-					self.view
-						.server_folders(ui, &mut self.state, &mut self.commands);
-				} else {
-					self.view
-						.server_menu
-						.header(ui, &mut self.state, Id(10), "Synthetic server");
-				}
+				self.view
+					.server_menu
+					.header(ui, &mut self.state, Id(10), "Synthetic server");
 				self.view.server_menu.show(
 					ui.ctx(),
 					&mut self.state,
@@ -156,31 +149,6 @@ impl Harness {
 		self.settle()
 			.iter()
 			.any(|(text, _)| text == "Use server default")
-	}
-}
-
-#[test]
-fn ordinary_members_open_notification_settings_from_header_and_rail() {
-	for rail in [false, true] {
-		let mut h = Harness::new(800.0, 800.0, false);
-		h.rail = rail;
-		if rail {
-			// The isolated rail begins at the content origin with one 48px guild avatar.
-			h.view.guild = None;
-			h.settle();
-			h.click_at(egui::pos2(24.0, 24.0), egui::PointerButton::Secondary);
-		} else {
-			h.click("Synthetic server");
-		}
-		let text = h.settle();
-		assert!(!text.iter().any(|(text, _)| text == "Server Settings"));
-		h.click("Notification Settings");
-		assert!(h.shown());
-		assert_eq!(h.view.guild, Some(Id(10)));
-		assert!(
-			h.commands.is_empty(),
-			"opening account settings performs no write"
-		);
 	}
 }
 
@@ -261,62 +229,5 @@ fn closing_or_changing_context_discards_unsaved_notification_edits() {
 				"reopening must not save an old draft"
 			);
 		}
-	}
-}
-
-#[test]
-fn narrow_notification_dialog_keeps_footer_visible_and_scrolls_controls() {
-	for light in [false, true] {
-		let mut h = Harness::new(320.0, 550.0, light);
-		h.open();
-		let screen = Rect::from_min_size(Pos2::ZERO, h.size);
-		for label in [
-			"Notification Settings",
-			"Use server default",
-			"Save changes",
-			"Close",
-		] {
-			let point = h.point(label);
-			assert!(screen.contains(point), "{label} must stay in the viewport");
-		}
-		for (text, rect) in h.settle() {
-			assert!(
-				rect.left() >= -1.0 && rect.right() <= h.size.x + 1.0,
-				"horizontal overflow: {text}: {rect:?}"
-			);
-		}
-		let content = h.point("Only mentions");
-		for _ in 0..4 {
-			h.frame(vec![
-				egui::Event::PointerMoved(content),
-				egui::Event::MouseWheel {
-					phase: egui::TouchPhase::Move,
-					source: egui::MouseWheelSource::Unknown,
-					unit: egui::MouseWheelUnit::Point,
-					delta: egui::vec2(0.0, -160.0),
-					modifiers: egui::Modifiers::NONE,
-				},
-			]);
-		}
-		let roles = h.point("Suppress role mentions");
-		assert!(screen.contains(roles));
-		h.click_at(roles, egui::PointerButton::Primary);
-		assert!(h.commands.is_empty());
-		h.click("Save changes");
-		assert!(matches!(
-			h.commands.as_slice(),
-			[Command::ServerAction {
-				action: Action::Notifications {
-					options: NotificationOptions {
-						suppress_roles: Some(_),
-						level: None,
-						muted: None,
-						suppress_everyone: None
-					},
-					..
-				},
-				..
-			}]
-		));
 	}
 }

@@ -5,6 +5,8 @@ mod app_settings;
 mod audio;
 mod avatars;
 mod cache;
+#[cfg(all(debug_assertions, feature = "demo"))]
+mod camera_gateway_demo;
 mod captcha;
 #[cfg(feature = "demo")]
 mod channel_demo;
@@ -73,6 +75,46 @@ use zeroize::Zeroizing;
 
 /// Run explicit offline checks before native startup, or launch the configured desktop client.
 fn main() -> eframe::Result {
+	let camera_gateway_check = std::env::args().any(|arg| arg == "--demo-check-camera-gateway");
+	let camera_gateway_capture = std::env::args().any(|arg| {
+		arg == "--demo-camera-gateway-evidence"
+			|| arg.starts_with("--demo-camera-gateway-evidence=")
+	});
+	if camera_gateway_check || camera_gateway_capture {
+		let args: Vec<String> = std::env::args().collect();
+		if !args.iter().any(|arg| arg == "--demo") {
+			eprintln!(
+				"Camera Gateway evidence requires --demo; no application startup was attempted."
+			);
+			std::process::exit(2);
+		}
+		#[cfg(all(debug_assertions, feature = "demo"))]
+		{
+			if camera_gateway_check && camera_gateway_capture {
+				eprintln!("Choose either the offline check or native evidence capture.");
+				std::process::exit(2);
+			}
+			if camera_gateway_check {
+				camera_gateway_demo::check();
+				return Ok(());
+			}
+			let output = args
+				.iter()
+				.find_map(|arg| arg.strip_prefix("--demo-camera-gateway-evidence="))
+				.filter(|path| !path.is_empty())
+				.map(std::path::PathBuf::from)
+				.unwrap_or_else(|| {
+					eprintln!("Evidence output path must not be empty.");
+					std::process::exit(2);
+				});
+			return camera_gateway_demo::capture(output);
+		}
+		#[cfg(not(all(debug_assertions, feature = "demo")))]
+		{
+			eprintln!("Camera Gateway evidence requires a debug build with --features demo.");
+			std::process::exit(2);
+		}
+	}
 	platform::memory::tune_allocator();
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
@@ -312,6 +354,7 @@ fn main() -> eframe::Result {
 					tertiary_color: None,
 					position: 1,
 					hoist: false,
+					managed: false,
 					bits: 0,
 				},
 			}),
@@ -472,6 +515,22 @@ fn main() -> eframe::Result {
 	} else {
 		local_store::LocalStore::open_default().and_then(|store| store.app_preferences())
 	};
+	// The owner's saved log level takes effect before the window, so an early defect leaves a
+	// trace instead of a description that has to be reconstructed afterwards.
+	let log_directory = local_store::data_dir().ok().map(|root| root.join("logs"));
+	if !demo && let (Some(directory), Ok(saved)) = (&log_directory, &preferences) {
+		diagnostics::install(saved.diagnostics_log, directory.clone());
+	}
+	diagnostics::record_fields(
+		diagnostics::Category::App,
+		diagnostics::Level::Info,
+		"started",
+		&[
+			("version", env!("CARGO_PKG_VERSION").into()),
+			("os", std::env::consts::OS.into()),
+			("arch", std::env::consts::ARCH.into()),
+		],
+	);
 	let (gpu_preference, transparency_available, hide_window_decorations, window_geometry) =
 		preferences
 			.as_ref()
@@ -538,8 +597,10 @@ fn main() -> eframe::Result {
 					instance_descriptor: {
 						let mut descriptor =
 							eframe::wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+						// DX12 alone offers WARP on hardware that predates it and hides the GPU's
+						// OpenGL driver; ranking prefers a real GPU, so both are enumerated.
 						descriptor.backends = eframe::wgpu::Backends::from_env()
-							.unwrap_or(eframe::wgpu::Backends::DX12);
+							.unwrap_or(eframe::wgpu::Backends::DX12 | eframe::wgpu::Backends::GL);
 						// An HWND swapchain is always opaque; only a DirectComposition one carries
 						// alpha to the desktop and its acrylic backdrop. The env override still wins.
 						if transparency_available
@@ -573,7 +634,7 @@ fn main() -> eframe::Result {
 		persistence_path: None,
 		..Default::default()
 	};
-	eframe::run_native(
+	let result = eframe::run_native(
 		"Serein",
 		options,
 		Box::new(move |cc| {
@@ -597,7 +658,13 @@ fn main() -> eframe::Result {
 			}
 			Ok(Box::new(desktop))
 		}),
-	)
+	);
+	// Quitting mid-share drops media workers that are still closing their encoders, and
+	// NVIDIA's exit handlers crash or deadlock if the process exits during that teardown.
+	if !discord_voice::wait_for_media_threads(std::time::Duration::from_secs(5)) {
+		eprintln!("Screen or camera capture was still closing when Serein exited.");
+	}
+	result
 }
 /// Offline updater flow and settings rendering; never opens an account or installs a package.
 #[cfg(feature = "demo")]
@@ -1041,6 +1108,21 @@ struct Desktop {
 	/// Written under the account's own entry on every READY, including a launch restore, so
 	/// the switcher can always get back to an account it lists.
 	pending_account_save: Option<Arc<SessionSecret>>,
+	/// Current login, sharing the connection allocation, so enabling plaintext storage
+	/// can save it without another authentication, including after disabling/re-enabling.
+	current_login: Option<Arc<SessionSecret>>,
+	/// The plaintext fallback choice last handed to the credential worker.
+	plaintext_login: bool,
+	/// Where the opt-in diagnostic log belongs, resolved once so a Settings change needs no lookup.
+	log_directory: Option<std::path::PathBuf>,
+	/// Whether the first frame has reported the start-up install's result to the settings page.
+	log_verified: bool,
+	/// Whether the system refused this process the shell, so the folder button copies instead.
+	log_open_refused: bool,
+	/// A diagnostics file being written after the owner picked a destination.
+	diagnostics_save: Option<std::sync::mpsc::Receiver<Option<Result<std::path::PathBuf, ()>>>>,
+	/// Active/per-account fallback saves waiting for bounded credential-queue capacity.
+	plaintext_save_pending: [bool; 2],
 	account_presences: std::collections::BTreeMap<model::Id, model::OwnPresence>,
 	presence_load_pending: bool,
 	deferred_connect: Option<(SessionSecret, bool)>,
@@ -1074,6 +1156,19 @@ struct Desktop {
 	#[cfg(feature = "demo")]
 	synthetic_id: u64,
 	token_input: Zeroizing<String>,
+}
+/// Records the few session and gateway milestones that explain a reconnect. Payloads, identifiers
+/// and credentials never reach the log: only fixed labels and the event's own kind.
+fn log_session_event(event: &Event) {
+	use diagnostics::{Category, Level};
+	let (category, level, label) = match event {
+		Event::Startup(_) => (Category::Session, Level::Info, "session started"),
+		Event::Ready { .. } => (Category::Session, Level::Info, "session ready"),
+		Event::Disconnected => (Category::Gateway, Level::Warn, "gateway disconnected"),
+		Event::Resync => (Category::Gateway, Level::Warn, "gateway resync"),
+		_ => return,
+	};
+	diagnostics::record(category, level, label);
 }
 /// Check only navigation whose effective access can change with this event.
 fn access_candidates(state: &State, event: &Event) -> Vec<model::Id> {
@@ -1285,6 +1380,16 @@ fn recovery_draft(state: &State, channel: model::Id) -> String {
 		})
 		.unwrap_or_default()
 }
+/// Staged files may upload whenever the channel accepts attachments. The history
+/// window's freshness is not a channel state: Send from older history jumps to the
+/// latest page, so that window is reloading while the upload is dispatched.
+fn attachment_send_allowed(state: &State, channel: model::Id) -> bool {
+	!state.demo
+		&& state.can_attach(channel)
+		&& state.auth == AuthState::Authenticated
+		&& state.gateway_connected
+		&& state.selected == Some(channel)
+}
 fn confirmed_recovery_channel(state: &State, event: &Event) -> Option<model::Id> {
 	let (message, nonce) = match event {
 		Event::SendResult {
@@ -1325,6 +1430,14 @@ fn changes_active_history(state: &State, event: &Event) -> bool {
 	};
 	state.selected == Some(*channel)
 }
+/// Complete the offline group selection's history request before typing is observed.
+#[cfg(feature = "demo")]
+fn select_demo_group(state: &mut State) {
+	if let Some(Command::History { before, after, .. }) = state.select(model::Id(29)) {
+		test_support::load_page_with_cursors(state, before, after);
+	}
+}
+
 /// Synthetic People rows with presence; never a Discord member directory.
 #[cfg(feature = "demo")]
 fn demo_members(
@@ -1479,6 +1592,14 @@ impl Desktop {
 			.worker_threads(2)
 			.enable_all()
 			.build()?;
+		// Configured before the worker's first read, so a plaintext login restores on launch.
+		let plaintext_login = !demo
+			&& preferences
+				.as_ref()
+				.is_ok_and(|preferences| preferences.plaintext_login);
+		if !demo {
+			platform::plaintext_login::configure(plaintext_login_dir(), plaintext_login);
+		}
 		let mut store = (!demo).then(|| credentials::Store::start(cc.egui_ctx.clone()));
 		let cache = (!demo).then(|| cache::Cache::start(cc.egui_ctx.clone()));
 		#[cfg(all(debug_assertions, feature = "demo"))]
@@ -1553,7 +1674,7 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-group-dm") {
 			// Existing synthetic group conversation; no account or call is opened.
-			let _ = state.select(model::Id(29));
+			select_demo_group(&mut state);
 		}
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-voice-failed") {
@@ -1626,6 +1747,7 @@ impl Desktop {
 							tertiary_color: None,
 							position: 2,
 							hoist: true,
+							managed: false,
 						},
 						model::permissions::Role {
 							id: model::Id(9002),
@@ -1636,6 +1758,7 @@ impl Desktop {
 							tertiary_color: gradient_roles.then_some(16761760),
 							position: 1,
 							hoist: true,
+							managed: false,
 						},
 					]);
 				}
@@ -2352,6 +2475,13 @@ impl Desktop {
 			variant_changed: false,
 			pending_save: None,
 			pending_account_save: None,
+			current_login: None,
+			plaintext_login,
+			log_directory: local_store::data_dir().ok().map(|root| root.join("logs")),
+			log_verified: false,
+			log_open_refused: false,
+			diagnostics_save: None,
+			plaintext_save_pending: [false; 2],
 			account_presences: std::collections::BTreeMap::new(),
 			presence_load_pending,
 			deferred_connect: None,
@@ -2426,6 +2556,236 @@ impl Desktop {
 		}
 		false
 	}
+	/// Applies the owner's diagnostic log choice and opens the log folder when the page asks for
+	/// it. The first frame also reports a start-up install that could not write, so the page
+	/// explains instead of promising a file. Nothing here touches an account or a service.
+	fn sync_diagnostics_log(&mut self, ctx: &egui::Context) {
+		if self.fixture_only || self.state.demo {
+			self.messaging.open_log_folder_requested = false;
+			return;
+		}
+		let level = self.messaging.diagnostics_log;
+		if diagnostics::level() != level || !self.log_verified {
+			self.log_verified = true;
+			self.apply_diagnostics_log(level);
+		}
+		if diagnostics::install_status() == diagnostics::InstallStatus::Pending {
+			ctx.request_repaint_after(Duration::from_millis(50));
+			return;
+		}
+		self.messaging.diagnostics_log_failed =
+			diagnostics::install_status() == diagnostics::InstallStatus::Failed;
+		self.messaging.diagnostics_log_path =
+			diagnostics::path().map(|path| path.display().to_string());
+		if self.messaging.open_log_folder_requested {
+			self.messaging.open_log_folder_requested = false;
+			self.messaging.diagnostics_log_open_failed = false;
+			// A folder repaired outside the app starts working here instead of after a restart.
+			if self.messaging.diagnostics_log_failed {
+				self.apply_diagnostics_log(self.messaging.diagnostics_log);
+				ctx.request_repaint_after(Duration::from_millis(50));
+				return;
+			}
+			let folder = diagnostics::path()
+				.and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+				.or_else(|| self.log_directory.clone());
+			if let Some(folder) = folder {
+				// A button that appears to do nothing is worse than a logged reason. Once the
+				// system has refused the shell for this process, asking again only repeats the
+				// refusal, so the path goes to the clipboard instead.
+				if self.log_open_refused {
+					ctx.copy_text(folder.display().to_string());
+					self.messaging.diagnostics_log_open_failed = true;
+				} else if let Err(code) = platform::open_folder(&folder) {
+					self.log_open_refused = true;
+					self.messaging.diagnostics_log_open_failed = true;
+					// The system refused the shell; the path still has to reach the owner.
+					ctx.copy_text(folder.display().to_string());
+					diagnostics::record_fields(
+						diagnostics::Category::App,
+						diagnostics::Level::Warn,
+						"log folder not opened",
+						&[("code", code.into())],
+					);
+					// Whether process creation works at all separates a shell policy from a
+					// security product that blocks this binary from starting anything.
+					match platform::spawn_probe() {
+						Ok(()) => diagnostics::record(
+							diagnostics::Category::App,
+							diagnostics::Level::Warn,
+							"process creation works",
+						),
+						Err(probe) => diagnostics::record_fields(
+							diagnostics::Category::App,
+							diagnostics::Level::Warn,
+							"process creation refused",
+							&[("code", probe.into())],
+						),
+					}
+				}
+			}
+		}
+	}
+	/// Applies a log level, names the file in the page and reports a folder that cannot be written
+	/// instead of promising one. A machine with no resolvable data folder still gets a log: the
+	/// crate falls back to its own folder in the temporary directory and the page names it.
+	fn apply_diagnostics_log(&mut self, level: diagnostics::Level) {
+		let directory = self
+			.log_directory
+			.clone()
+			.unwrap_or_else(diagnostics::fallback_directory);
+		diagnostics::install(level, directory);
+		self.messaging.diagnostics_log_failed = false;
+		self.messaging.diagnostics_log_path =
+			diagnostics::path().map(|path| path.display().to_string());
+	}
+	/// One text file for a bug report: environment, subsystem statuses and the recent log. Every
+	/// value is a flag, a number, or a status string the interface already shows; account, channel,
+	/// message, path and credential values stay out of it.
+	fn diagnostics_report(&self, ctx: &egui::Context) -> String {
+		use std::fmt::Write;
+		let mut report = String::with_capacity(24 * 1024);
+		report.push_str("# Serein diagnostics\n\n");
+		report.push_str(&self.messaging.diagnostic_info(ctx));
+		report.push('\n');
+		let log_file = diagnostics::path()
+			.map(|path| path.display().to_string())
+			.unwrap_or_else(|| "none".into());
+		let _ = writeln!(report, "\n- **Log level:** {:?}", diagnostics::level());
+		let _ = writeln!(report, "- **Log file:** {log_file}");
+		let _ = writeln!(report, "- **Local cache:** {}", self.cache_status);
+		let _ = writeln!(report, "- **Saved login:** {}", self.credential_status);
+		let _ = writeln!(
+			report,
+			"- **Session:** authenticated={} gateway={}",
+			self.state.auth == AuthState::Authenticated,
+			self.state.gateway_connected
+		);
+		let call = match self.state.voice.active.as_ref() {
+			Some(call) if call.phase == client_core::voice::Phase::Failed => "failed",
+			Some(_) => "active",
+			None => "none",
+		};
+		let _ = writeln!(report, "- **Call:** {call}");
+		let _ = writeln!(
+			report,
+			"- **Voice devices:** {}",
+			self.messaging.voice_device_status
+		);
+		let _ = writeln!(
+			report,
+			"- **Notifications:** {}",
+			self.messaging.notification_status
+		);
+		report.push_str("\n## Recent log\n\n```\n");
+		report.push_str(&diagnostics::recent(400));
+		report.push_str("\n```\n");
+		report
+	}
+	/// Writes that report after the owner picks a destination, and names the file in the page.
+	fn sync_diagnostics_save(&mut self, ctx: &egui::Context) {
+		if std::mem::take(&mut self.messaging.diagnostics_save_requested)
+			&& self.diagnostics_save.is_none()
+		{
+			let report = self.diagnostics_report(ctx);
+			let (send, receive) = std::sync::mpsc::sync_channel(1);
+			let parent = self.window.clone();
+			let wake = ctx.clone();
+			self.runtime.spawn(async move {
+				let destination =
+					platform::save::text_destination(parent, "serein-diagnostics.txt").await;
+				let outcome = match destination {
+					Some(path) => {
+						let written = path.clone();
+						match tokio::task::spawn_blocking(move || std::fs::write(&written, report))
+							.await
+						{
+							Ok(Ok(())) => Some(Ok(path)),
+							_ => Some(Err(())),
+						}
+					}
+					// The owner closed the dialog: nothing to report and nothing to hide.
+					None => None,
+				};
+				let _ = send.send(outcome);
+				wake.request_repaint();
+			});
+			self.diagnostics_save = Some(receive);
+		}
+		if let Some(receiver) = &self.diagnostics_save
+			&& let Ok(outcome) = receiver.try_recv()
+		{
+			match outcome {
+				Some(Ok(path)) => {
+					self.messaging.diagnostics_saved_path = Some(path.display().to_string());
+					diagnostics::record(
+						diagnostics::Category::App,
+						diagnostics::Level::Info,
+						"diagnostics saved",
+					);
+				}
+				Some(Err(())) => diagnostics::record(
+					diagnostics::Category::App,
+					diagnostics::Level::Warn,
+					"diagnostics not saved",
+				),
+				None => {}
+			}
+			self.diagnostics_save = None;
+		}
+	}
+	/// Hands the owner's plaintext saved-login choice to the credential worker, in order with
+	/// its other writes, and saves a login that failed earlier for want of a keyring.
+	fn sync_plaintext_login(&mut self) {
+		let enabled = self.messaging.plaintext_login;
+		let (Some(store), Some(directory)) = (&self.store, plaintext_login_dir()) else {
+			return;
+		};
+		if enabled != self.plaintext_login {
+			let operation = credentials::Operation::SetPlaintext { directory, enabled };
+			if store
+				.send
+				.try_send((self.state.generation, credentials::Request::NONE, operation))
+				.is_err()
+			{
+				return; // Retried after the worker wakes the UI.
+			}
+			self.plaintext_login = enabled;
+			self.plaintext_save_pending = [enabled; 2];
+		}
+		if !enabled || self.state.auth != AuthState::Authenticated {
+			return;
+		}
+		let Some(secret) = self.current_login.clone() else {
+			return;
+		};
+		if self.plaintext_save_pending[0]
+			&& store
+				.send
+				.try_send((
+					self.state.generation,
+					credentials::Request::NONE,
+					credentials::Operation::Save(secret.clone()),
+				))
+				.is_ok()
+		{
+			self.plaintext_save_pending[0] = false;
+		}
+		if self.plaintext_save_pending[1]
+			&& let Some(account) = self.state.user.as_ref().map(|user| user.id)
+			&& store
+				.send
+				.try_send((
+					self.state.generation,
+					credentials::Request::NONE,
+					credentials::Operation::SaveAccount(account, secret),
+				))
+				.is_ok()
+		{
+			self.plaintext_save_pending[1] = false;
+		}
+	}
+
 	fn save_app_preferences(&mut self) {
 		if self.fixture_only || self.state.demo {
 			return;
@@ -3142,6 +3502,10 @@ impl Desktop {
 	}
 	/// Dispatches one queued command to the demo or live transport.
 	fn command(&mut self, command: Command) {
+		// The offline preview has no one to tell.
+		if matches!(command, Command::Typing { .. }) && (self.state.demo || self.fixture_only) {
+			return;
+		}
 		if !self.state.gateway_connected
 			&& self.state.auth == AuthState::Authenticated
 			&& matches!(command, Command::Send { .. })
@@ -3191,14 +3555,9 @@ impl Desktop {
 				.iter()
 				.any(|p| p.nonce == *nonce && !p.attachments.is_empty())
 		{
-			let (channel, nonce) = (*channel, nonce.clone());
-			let available = !self.state.demo
-				&& self.state.can_attach(channel)
+			let channel = *channel;
+			let available = attachment_send_allowed(&self.state, channel)
 				&& !self.fixture_only
-				&& self.state.auth == AuthState::Authenticated
-				&& self.state.gateway_connected
-				&& self.state.freshness == model::Freshness::Fresh
-				&& self.state.selected == Some(channel)
 				&& self.connection.is_some();
 			if available
 				&& let Some(source) = self.uploads.take_source(self.state.generation, channel)
@@ -3227,15 +3586,14 @@ impl Desktop {
 					return;
 				}
 			}
-			self.state.apply(Envelope {
-				generation: self.state.generation,
-				event: Event::SendResult {
-					nonce,
-					result: Err(Failure::ProtocolAt(
-						"File not sent; reconnect and reselect the attachment",
-					)),
-				},
-			});
+			// Nothing left the client: keep the caption, reply and staged files for a retry.
+			let failure = "File not sent; check the connection and attachment, then send again";
+			if self.state.return_unsent(command, failure) {
+				self.messaging.draft_changes.push(channel);
+			}
+			self.messaging
+				.toasts
+				.push(ui::design::Level::Error, failure);
 			return;
 		}
 		// A forum post with files takes the same staged-upload path as a message.
@@ -3340,7 +3698,7 @@ impl Desktop {
 				self.messaging.voice_camera_preview = None;
 			}
 			if matches!(control, client_core::voice::Command::Leave { .. }) {
-				self.voice.stop();
+				self.voice.hang_up(&self.state);
 				self.messaging.camera_test_requested = false;
 				self.messaging.camera_test_texture = None;
 			}
@@ -3358,6 +3716,8 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if self.state.demo {
 			let event = match command {
+				// Offline typing has no transport or synthetic state change.
+				Command::Typing { .. } => return,
 				// Offline previews confirm locally; nothing reaches the service.
 				Command::BadgeSettings { request, settings } => Event::BadgeSettings {
 					request,
@@ -3490,6 +3850,15 @@ impl Desktop {
 					result: dm_demo::channel(&self.state, user).map(Box::new),
 				}),
 				Command::UserAction {
+					action: client_core::user_actions::Action::CreateGroup { recipients },
+					request,
+					..
+				} => Event::UserAction(client_core::user_actions::Event::GroupCreated {
+					result: dm_demo::group(&self.state, &recipients, request).map(Box::new),
+					recipients,
+					request,
+				}),
+				Command::UserAction {
 					action: client_core::user_actions::Action::LoadNote(user),
 					request,
 					..
@@ -3554,6 +3923,13 @@ impl Desktop {
 					Event::ReadState(client_core::read_state::Event::GuildAck {
 						guild,
 						request,
+						result: Ok(()),
+					})
+				}
+				Command::MarkAllRead { request, channels } => {
+					Event::ReadState(client_core::read_state::Event::AllAck {
+						request,
+						acked: channels.len(),
 						result: Ok(()),
 					})
 				}
@@ -3797,6 +4173,7 @@ impl Desktop {
 					query,
 					before,
 					offset,
+					oldest,
 					request,
 					..
 				} => {
@@ -3814,8 +4191,10 @@ impl Desktop {
 						.map_or(channel, model::Id);
 					for id in (1..=500)
 						.rev()
-						.filter(|id| before.is_none_or(|b| *id < b.0))
-					{
+						// The cursor continues older newest first, newer oldest first.
+						.filter(|id| {
+							before.is_none_or(|b| if oldest { *id > b.0 } else { *id < b.0 })
+						}) {
 						let message = test_support::message(id, source);
 						if message
 							.content
@@ -3870,7 +4249,8 @@ impl Desktop {
 								)
 							}) {
 							total += 1;
-							if total > u64::from(offset) && hits.len() < model::SEARCH_PAGE_SIZE {
+							// The fixture is small: keep every match, then page in the chosen order.
+							{
 								hits.push(model::SearchHit {
 									id: message.id,
 									channel: source,
@@ -3883,6 +4263,15 @@ impl Desktop {
 							}
 						}
 					}
+					hits.sort_unstable_by_key(|hit| std::cmp::Reverse(hit.id));
+					if oldest {
+						hits.reverse();
+					}
+					let hits = hits
+						.into_iter()
+						.skip(offset as usize)
+						.take(model::SEARCH_PAGE_SIZE)
+						.collect();
 					Event::Search {
 						channel,
 						request,
@@ -4435,7 +4824,14 @@ impl Desktop {
 						self.queue_cache_for(*account, cache::Operation::Forget);
 					}
 					match roster {
-						Ok(accounts) => self.messaging.accounts = accounts.clone(),
+						Ok(accounts) => {
+							self.messaging.accounts = accounts.clone();
+							if let Some(store) = &mut self.store {
+								store.retain_accounts(
+									accounts.iter().map(|account| account.id).collect(),
+								);
+							}
+						}
 						Err(_) => {
 							self.roster_failed = true;
 							self.cache_error = true;
@@ -4547,10 +4943,16 @@ impl Desktop {
 			}
 		}
 		self.retry_history_clears();
+		self.sync_plaintext_login();
+		self.sync_diagnostics_log(ctx);
+		self.sync_diagnostics_save(ctx);
 		let mut results = Vec::new();
 		if let Some(store) = &mut self.store {
 			for _ in 0..4 {
-				match store.poll(std::time::Instant::now()) {
+				match store.poll(
+					std::time::Instant::now(),
+					self.state.user.as_ref().map(|user| user.id),
+				) {
 					Some(result) => results.push(result),
 					None => break,
 				}
@@ -4560,7 +4962,11 @@ impl Desktop {
 			}
 		}
 		for (generation, outcome) in results {
-			if generation != self.state.generation {
+			if generation != self.state.generation
+				&& !matches!(
+					outcome,
+					credentials::Outcome::PlaintextSet(..) | credentials::Outcome::Reconciled(..)
+				) {
 				continue;
 			}
 			match outcome {
@@ -4606,13 +5012,20 @@ impl Desktop {
 							"Could not save this account for the switcher; sign in again to retry";
 					}
 				}
-				credentials::Outcome::Saved(Ok(())) => {
-					self.credential_status = "Login saved in the OS credential store"
+				credentials::Outcome::Saved(Ok(saved)) => {
+					self.credential_status = match saved {
+						platform::Saved::CredentialStore => {
+							"Login saved in the OS credential store"
+						}
+						platform::Saved::Plaintext => {
+							"Login saved in plaintext because no OS keyring is available"
+						}
+					}
 				}
 				credentials::Outcome::Saved(Err(platform::CredentialError::NoStore)) => {
 					self.messaging.toasts.push(
 						ui::design::Level::Warning,
-						"No OS keyring found, so you will need to sign in again next launch",
+						"No OS keyring found, so you will need to sign in again next launch. Settings › Storage can save it in plaintext instead.",
 					);
 				}
 				credentials::Outcome::Saved(Err(_)) => {
@@ -4625,6 +5038,24 @@ impl Desktop {
 							ui::design::Level::Error,
 							"Could not remove that account's saved login from the OS credential store",
 						);
+					}
+				}
+				credentials::Outcome::Reconciled(result) => {
+					if result.is_err() {
+						self.messaging.toasts.push(
+							ui::design::Level::Error,
+							"Could not remove orphaned plaintext saved logins",
+						);
+					}
+				}
+				credentials::Outcome::PlaintextSet(enabled, result) => {
+					if result.is_err() {
+						self.messaging.toasts.push(
+							ui::design::Level::Error,
+							"Could not delete the plaintext saved logins in Serein's data folder",
+						);
+					} else if !enabled {
+						self.credential_status = "Plaintext saved logins deleted";
 					}
 				}
 				credentials::Outcome::Forgotten(result) => {
@@ -4745,14 +5176,19 @@ impl Desktop {
 					_ => full_window = true,
 				}
 			}
-			let guild_ack = matches!(
-				&event.event,
+			let guild_ack = match &event.event {
 				Event::ReadState(client_core::read_state::Event::GuildAck {
 					guild,
 					request,
 					result: Ok(()),
-				}) if self.state.pending_guild_ack(*guild, *request)
-			);
+				}) => self.state.pending_guild_ack(*guild, *request),
+				Event::ReadState(client_core::read_state::Event::AllAck {
+					request,
+					result: Ok(()),
+					..
+				}) => self.state.pending_all_ack(*request),
+				_ => false,
+			};
 			if event.generation == self.state.generation
 				&& (invalidate
 					|| event.event.changes_access()
@@ -4784,6 +5220,7 @@ impl Desktop {
 			{
 				self.extensions.access_changed(&mut self.messaging);
 			}
+			log_session_event(&event.event);
 			self.state.apply(event);
 			if let Some(message) = takeover_notice {
 				self.messaging
@@ -4852,6 +5289,7 @@ impl Desktop {
 					// A token the owner just supplied replaces whatever was stored before.
 					let fresh_token = self.pending_save.is_some();
 					if let Some(secret) = self.pending_save.take() {
+						self.current_login = Some(secret.clone());
 						queued &= store
 							.send
 							.try_send((
@@ -4928,6 +5366,12 @@ impl Desktop {
 			self.queue_cache(operation);
 		}
 		if let Some(failure) = terminal {
+			diagnostics::record_fields(
+				diagnostics::Category::Session,
+				diagnostics::Level::Error,
+				"session stopped",
+				&[("reason", failure.label().into())],
+			);
 			for (setting, scope) in [
 				("SEREIN_MEMBER_DIAGNOSTICS", "members"),
 				("SEREIN_GATEWAY_DIAGNOSTICS", "gateway"),
@@ -4945,6 +5389,7 @@ impl Desktop {
 			self.state.interrupt_gif_favorites();
 			self.connection = None;
 			self.pending_save = None;
+			self.current_login = None;
 			self.pending_account_save = None;
 			self.voice.stop();
 			self.messaging.camera_test_requested = false;
@@ -4953,6 +5398,10 @@ impl Desktop {
 				generation: self.state.generation,
 				event: Event::Failure(failure),
 			});
+			if failure == Failure::RateLimited && self.state.failure_detail.is_none() {
+				self.state.failure_detail =
+					Some(ui::i18n::translate("main-sign-in-rate-limited-detail").into());
+			}
 			if !matches!(self.state.auth, AuthState::Expired | AuthState::Challenged) {
 				self.state.auth = AuthState::Failed;
 			}
@@ -5146,6 +5595,14 @@ impl eframe::App for Desktop {
 		}
 	}
 	fn on_exit(&mut self) {
+		diagnostics::record(
+			diagnostics::Category::App,
+			diagnostics::Level::Info,
+			"exiting",
+		);
+		diagnostics::flush(std::time::Duration::from_millis(500));
+		// Later launches start a new client instead of waking this one while it shuts down.
+		self.instance.release();
 		if self.updater.finish_restart().is_err() {
 			eprintln!(
 				"Could not hand off the prepared update. The installed app was not replaced."
@@ -5175,13 +5632,50 @@ impl eframe::App for Desktop {
 		);
 		self.messaging.sync_reading_zoom(ctx);
 		self.poll(ctx);
+		// Here, not in `ui`: a connection made while hidden in the tray must still go idle.
+		if let Some(connection) = &mut self.connection {
+			// shortcut: the timeout is read once per connection; a change made on another
+			// device is picked up on the next connect, not live.
+			if connection.idle_timeout.has_changed().unwrap_or(false) {
+				if let Some(secs) = *connection.idle_timeout.borrow_and_update() {
+					connection.idle_timeout_synced = Some(secs);
+					self.messaging.idle_timeout_secs = secs;
+				}
+			} else if let Some(synced) = connection.idle_timeout_synced
+				&& synced != self.messaging.idle_timeout_secs
+			{
+				connection.idle_timeout_synced = Some(self.messaging.idle_timeout_secs);
+				connection
+					.idle_timeout_edits
+					.send_replace(Some(self.messaging.idle_timeout_secs));
+			}
+			self.messaging.idle_timeout_status =
+				connection.idle_timeout_error.borrow().unwrap_or_default();
+			// Not during voice calls (a failed call waiting to be dismissed is not one): the
+			// poller treats `None` as off.
+			let in_call = self
+				.state
+				.voice
+				.active
+				.as_ref()
+				.is_some_and(|call| call.phase != client_core::voice::Phase::Failed);
+			let timeout = (self.messaging.auto_idle && !in_call)
+				.then(|| Duration::from_secs(self.messaging.idle_timeout().into()));
+			connection
+				.auto_idle
+				.send_if_modified(|current| std::mem::replace(current, timeout) != timeout);
+		}
+		self.messaging.auto_idle_active = self
+			.connection
+			.as_ref()
+			.is_some_and(|connection| *connection.afk.borrow());
 		self.sync_fonts(ctx);
 		self.hotkeys.sync(&self.messaging.keybinds, &self.runtime);
 		self.messaging.global_keybind_status = self.hotkeys.status();
 		let voice_toggles = self.hotkeys.take_toggle_pending()
 			| self
 				.messaging
-				.voice_toggle_pressed(ctx, self.hotkeys.global_toggle_mask());
+				.voice_toggle_pressed(ctx, |action, chord| self.hotkeys.is_global(action, chord));
 		if voice_toggles != 0 && !self.fixture_only {
 			// Toggle from the newest choice; a mute and deafen in one frame apply in order.
 			let mut latest = None;
@@ -5315,10 +5809,17 @@ impl eframe::App for Desktop {
 		}
 		#[cfg(target_os = "macos")]
 		self.app_menu(ctx);
+		// Like Discord, Ctrl+Q exits even when closing the window only hides it to the tray.
+		#[cfg(not(target_os = "macos"))]
+		if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Q)) {
+			self.tray_window.quit(ctx);
+		}
+		let window_visible = self.window.is_visible();
 		self.tray_window.logic(
 			ctx,
 			self.background_available(),
-			self.window.is_visible().is_some(),
+			window_visible.is_some(),
+			window_visible,
 		);
 		// The hide command lands after this frame, so the flag leads reported visibility.
 		// Occlusion can occur during macOS fullscreen transitions; it is not a request
@@ -5388,6 +5889,21 @@ impl eframe::App for Desktop {
 		self.messaging.voice_ptt_active = self.messaging.voice_push_to_talk
 			&& self.state.voice.active.is_some()
 			&& (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down());
+		self.notification_runtime.ptt(
+			self.messaging.voice_push_to_talk,
+			!self.fixture_only
+				&& !self.state.demo
+				&& self.state.auth == AuthState::Authenticated
+				&& self.state.voice.active.as_ref().is_some_and(|call| {
+					matches!(
+						call.phase,
+						client_core::voice::Phase::Connected | client_core::voice::Phase::Waiting
+					)
+				}),
+			self.messaging.voice_ptt_active,
+			self.messaging.notification_options,
+			ctx,
+		);
 		self.messaging.voice_ptm_active = self.state.voice.active.is_some()
 			&& (self.messaging.push_to_mute_down(ctx) || self.hotkeys.push_to_mute_down());
 		if self.state.auth == AuthState::Authenticated || self.state.demo {
@@ -5422,9 +5938,10 @@ impl eframe::App for Desktop {
 			)
 		});
 		ui::design::paint_backdrop(&ctx);
+		// A history page loading while browsing must not refuse a paste or drop.
 		let upload_allowed = self.state.user.is_some()
 			&& self.state.gateway_connected
-			&& self.state.freshness == model::Freshness::Fresh;
+			&& self.state.freshness != model::Freshness::Unavailable;
 		// A forum container carries its own attachment permission for a post's first message.
 		let can_attach = self.state.selected.is_some_and(|channel| {
 			self.state.can_attach(channel) || self.state.can_attach_post(channel)
@@ -5489,6 +6006,13 @@ impl eframe::App for Desktop {
 		if !can_attach {
 			self.uploads.cancel();
 		}
+		let state = &self.state;
+		self.uploads.follow_conversation(
+			state.generation,
+			state.selected,
+			state.user.is_some() && state.gateway_connected,
+			|channel| state.can_view(channel),
+		);
 		self.uploads.poll(
 			self.state.generation,
 			self.state.selected,
@@ -5653,6 +6177,7 @@ impl eframe::App for Desktop {
 		self.messaging.voice_available = true;
 		if close_requested
 			&& !self.close_approved
+			&& !self.tray_window.system_close()
 			&& ((self.state.demo && self.state.has_unsent())
 				|| self
 					.state
@@ -5866,11 +6391,13 @@ impl eframe::App for Desktop {
 			{
 				self.notifications.notify();
 			}
-			// Revalidate scope after navigation without polling workers a second time.
-			self.uploads.revalidate_scope(
-				self.state.generation,
-				self.state.selected,
-				self.state.user.is_some() && self.state.gateway_connected,
+			// Park or restore staged files after navigation without polling workers again.
+			let state = &self.state;
+			self.uploads.follow_conversation(
+				state.generation,
+				state.selected,
+				state.user.is_some() && state.gateway_connected,
+				|channel| state.can_view(channel),
 			);
 			if !self.state.selected.is_some_and(|channel| {
 				self.state.can_attach(channel) || self.state.can_attach_post(channel)
@@ -6442,65 +6969,45 @@ impl eframe::App for Desktop {
 	}
 }
 
+/// Holds owner-enabled plaintext logins, inside the private local data directory.
+fn plaintext_login_dir() -> Option<std::path::PathBuf> {
+	local_store::data_dir()
+		.ok()
+		.map(|root| root.join("plaintext-login"))
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
 	#[cfg(feature = "demo")]
 	#[test]
-	fn demo_group_members_preserve_recipients_and_deduplicate_current_account() {
+	fn group_demo_loads_history_before_observing_typing() {
 		let mut state = test_support::demo_state();
-		let channel = model::Id(29);
-		state.selected = Some(channel);
-		let recipient = state.channel(channel).unwrap().recipients[1].clone();
-		for include_current in [false, true] {
-			if include_current {
-				let current = state.user.clone().unwrap();
-				state
-					.channels
-					.iter_mut()
-					.find(|c| c.id == channel)
-					.unwrap()
-					.recipients = vec![current, recipient.clone()];
-			}
-			let Some(Command::Members { guild, request, .. }) = state.request_members() else {
-				panic!("synthetic group member request");
-			};
-			let expected = state.members.as_ref().unwrap().clone();
-			let response = demo_members(&state, guild, channel, request);
-			state.apply(Envelope {
-				generation: state.generation,
-				event: Event::Members(response),
-			});
-			let list = state.members.as_ref().unwrap();
-			assert_eq!(list.total, if include_current { 2 } else { 3 });
-			assert_eq!(list.total, expected.total);
-			let users = |list: &model::MemberList| {
-				list.slots
-					.iter()
-					.filter_map(|slot| match slot {
-						Some(model::MemberSlot::Person(member)) => Some(member.user.clone()),
-						_ => None,
-					})
-					.collect::<Vec<_>>()
-			};
-			assert!(users(list) == users(&expected));
-			assert!(users(list).contains(&recipient));
-		}
-	}
-
-	#[test]
-	fn user_action_results_use_toasts() {
-		let success = Event::UserAction(client_core::user_actions::Event::Written {
-			action: client_core::user_actions::Action::Nickname {
+		select_demo_group(&mut state);
+		assert_eq!(state.selected, Some(model::Id(29)));
+		assert!(
+			!state.history_pending,
+			"group fixture must finish its history request"
+		);
+		assert!(state.timeline.iter().next().is_some());
+		let now = std::time::Instant::now();
+		let wall = std::time::SystemTime::now();
+		state.observe_typing_at(
+			client_core::typing::Signal {
+				channel: model::Id(29),
 				user: model::Id(2),
-				text: "Synthetic".into(),
+				timestamp: wall
+					.duration_since(std::time::UNIX_EPOCH)
+					.unwrap()
+					.as_secs(),
 			},
-			request: 1,
-			result: Ok(()),
-		});
-		let (level, text) = user_action_notice(&success).unwrap();
-		assert!(matches!(level, ui::design::Level::Success));
-		assert_eq!(text, "Nickname saved");
+			wall,
+			now,
+		);
+		assert_eq!(
+			state.typing_users(now).collect::<Vec<_>>(),
+			vec![model::Id(2)]
+		);
 	}
 	#[test]
 	fn frame_sample_is_bounded_demo_only_and_excludes_warmup() {
@@ -6754,6 +7261,25 @@ mod tests {
 			false,
 		);
 		assert!(state.timeline.is_empty());
+	}
+	#[test]
+	fn attachment_sends_stay_allowed_while_the_latest_page_reloads() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		let channel = state.selected.unwrap();
+		assert!(attachment_send_allowed(&state, channel));
+		// Send from older history jumps to the latest page before the upload dispatches.
+		state.history(None);
+		assert_eq!(state.freshness, model::Freshness::Loading);
+		assert!(attachment_send_allowed(&state, channel));
+		state.gateway_connected = false;
+		assert!(!attachment_send_allowed(&state, channel));
+		state.gateway_connected = true;
+		state.freshness = model::Freshness::Unavailable;
+		assert!(!attachment_send_allowed(&state, channel));
+		state.freshness = model::Freshness::Fresh;
+		state.selected = None;
+		assert!(!attachment_send_allowed(&state, channel));
 	}
 	#[test]
 	fn correlated_confirmation_preserves_other_pending_text_and_ignores_unrelated_events() {

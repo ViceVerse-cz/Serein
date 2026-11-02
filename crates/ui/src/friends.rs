@@ -595,7 +595,14 @@ impl MessagingUi {
 								{
 									(None, None, &[][..], model::ClientPlatforms::default())
 								} else {
-									profiles::presence(state, user.id, None)
+									let (status, custom, activities, clients) =
+										profiles::presence(state, user.id, None);
+									(
+										profiles::shown_status(state, user.id, status),
+										custom,
+										activities,
+										clients,
+									)
 								};
 								let dm = restricted
 									.is_none()
@@ -961,7 +968,7 @@ fn header_tab(
 			),
 			vec2(badge.size().x.max(8.0) + 8.0, 16.0),
 		);
-		painter.rect_filled(pill, 8, colors.danger);
+		painter.rect_filled(pill, 8, colors.badge_fill());
 		painter.galley_with_override_text_color(
 			pill.center() - badge.size() / 2.0,
 			badge,
@@ -1152,6 +1159,7 @@ mod tests {
 					&mut state,
 					Event::DirectPresence(vec![client_core::presence::Update {
 						user: Id(1001),
+						avatar: Patch::Absent,
 						status,
 						custom_status: Patch::Null,
 						activities: Patch::Value(vec![model::RichActivity {
@@ -1184,6 +1192,7 @@ mod tests {
 					&mut state,
 					Event::DirectPresence(vec![client_core::presence::Update {
 						user: Id(1001),
+						avatar: Patch::Absent,
 						status,
 						custom_status: Patch::Absent,
 						activities: Patch::Absent,
@@ -1236,6 +1245,7 @@ mod tests {
 				.enumerate()
 				.map(|(index, (user, _))| client_core::presence::Update {
 					user: user.id,
+					avatar: Patch::Absent,
 					status: Patch::Value(if index < 7 { "online" } else { "offline" }.into()),
 					custom_status: Patch::Null,
 					activities: Patch::Null,

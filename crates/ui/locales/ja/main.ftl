@@ -799,6 +799,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = ビデオのプレビ
 embeds-text-text-display-limited = テキスト表示制限あり
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = クリックして詳細を表示
 # Context: show
 emoji-details-show-a-custom-emoji = カスタム絵文字。
 # Context: show
@@ -1534,6 +1536,14 @@ join-server-status-invite-accepted = 招待を承認しました。サーバー�
 join-server-status-offline-preview = オフライン プレビュー — サーバーへの参加は無効になっています。
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = 削除
+# Context: custom_section
+keybinds-custom-section-add-binding = ショートカットを追加
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = 任意のアクションに追加のショートカットを割り当てます。キーやマウスボタンの組み合わせは1回しか使えません。
+# Context: custom_section
+keybinds-custom-section-custom-bindings = カスタムショートカット
 # Context: row
 keybinds-row-global = グローバル
 # Context: row
@@ -1774,6 +1784,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = 開ける
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = サウンドのプレビュー
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = プッシュして話す：開始
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = プッシュして話す：終了
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = 着信音、通話デバイス、マイクの処理。
 # Context: notification_settings
@@ -2992,6 +3006,8 @@ server-menu-header-server-menu = サーバーメニュー
 server-menu-leave-item-leave-server = サーバーから離れる
 # Context: read_item
 server-menu-read-item-mark-as-read = 既読としてマーク
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = すべて既読にする
 # Context: settings_item
 server-menu-settings-item-server-settings = サーバー設定
 # Context: show
@@ -3572,6 +3588,8 @@ slash-commands-footer-refresh-application-commands = アプリケーションコ
 
 ## crates/ui/src/stickers.rs
 # Context: message
+stickers-message-from-an-unavailable-server = このステッカーは招待制または利用できないサーバーのものです。
+# Context: message
 stickers-message-loading-sticker-details = ステッカーの詳細を読み込んでいます…
 # Context: message
 stickers-message-retry-sticker-details = リトライステッカー詳細
@@ -3969,7 +3987,29 @@ updates-update-settings-restart-to-update = 更新するには再起動してく
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein はディストリビューション経由でインストールされました。ターミナルでこれを実行して更新します。
 # Context: update_settings
+updates-update-settings-save-diagnostics = 診断を保存
+# Context: update_settings
 updates-update-settings-support-diagnostics = サポートと診断
+# Context: update_settings
+updates-update-settings-copy-recent-lines = 最近の行をコピー
+# Context: update_settings
+updates-update-settings-diagnostic-log = 診断ログ
+# Context: update_settings
+updates-update-settings-log-errors = エラー
+# Context: update_settings
+updates-update-settings-log-events = エラー、警告、イベント
+# Context: update_settings
+updates-update-settings-log-everything = すべて（詳細）
+# Context: update_settings
+updates-update-settings-log-off = オフ
+# Context: update_settings
+updates-update-settings-log-warnings = エラーと警告
+# Context: update_settings
+updates-update-settings-open-folder = フォルダーを開く
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = ログフォルダーに書き込めませんでした。Serein のデータフォルダーを確認して、もう一度お試しください。
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = タイミング、段階、失敗を 1 つのローカルログファイルに記録します。アカウント、チャンネル、メッセージ、認証情報は書き込まれず、どこにも送信されません。
 # Context: update_log
 updates-update-log = 更新履歴
 # Context: update_settings
@@ -4004,6 +4044,8 @@ user-menu-contents-private-nicknames-are-available-for-confirmed-friends = 確�
 user-menu-contents-profile = プロフィール
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = この会話を DM リストから削除してください。メッセージは保存されます。
+# Context: contents
+user-menu-contents-roles = ロール
 # Context: contents
 user-menu-contents-unblock = ブロックを解除する
 # Context: contents
@@ -4433,6 +4475,7 @@ lib-composer-onboarding-incomplete = 参加を完了すると、さらにチャ�
 lib-composer-onboarding-complete = オンボーディングを完了
 profiles-message-placeholder = @{ $user } にメッセージ
 profiles-message-send = メッセージを送信
+profiles-message-open-chat = チャットを開く
 profiles-message-sending = ダイレクトメッセージを開いています…
 user-menu-contents-start-a-call = 通話を開始
 verification-show-complete-the-check-to-open-this-conversation = 確認を完了してこの会話を開いてください。
@@ -4710,6 +4753,8 @@ composer-placeholder-direct = @{ $name }へメッセージを送信
 
 # Context: timeline_dm_intro
 timeline-dm-intro = { $name } とのダイレクトメッセージ履歴の始まりです。
+# Context: timeline_group_intro
+timeline-group-intro = グループ「{ $name }」の始まりへようこそ。
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = #{ $channel } へようこそ！
@@ -4795,3 +4840,24 @@ time-format-12-hour = 12時間制
 time-format-24-hour = 24時間制
 profiles-status-edit = ステータスを編集
 profiles-status-clear = ステータスを消去
+send-throttled-title = ちょっと待って、刺激が強すぎ
+send-throttled-body = メッセージの送信が速すぎます！
+send-throttled-dismiss = チルゾーンへ
+profiles-private-profile = 非公開プロフィール
+profiles-private-notice = { $name } さんのプロフィールは非公開のため、一部の情報が表示されません。フレンドに追加すると詳しく見られます。
+settings-cosmetics-name-styles = 名前のスタイル
+settings-cosmetics-name-styles-description = Nitro の表示名のフォント、色とエフェクト。
+search-overlays-message-contains = メッセージに含まれるもの
+search-overlays-no-matching-content-types = 一致するコンテンツの種類はありません
+search-overlays-history = 履歴
+search-overlays-clear-history = 検索履歴を消去
+main-sign-in-rate-limited-detail = Discord がこのサインインを制限しています。しばらく待ってから再試行してください。早すぎる再試行は待ち時間を延ばすことがあります。
+
+# New message
+new-message-title = 新規メッセージ
+new-message-subtitle = グループDMには最大10人まで参加できます。
+new-message-search = 検索
+new-message-hint = フレンドを追加して、DMまたはグループを開始します。
+new-message-no-people-found = 一致する相手はいません。
+new-message-create = メッセージを作成
+new-message-cancel = キャンセル

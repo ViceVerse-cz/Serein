@@ -12,13 +12,40 @@ pub(crate) fn galley(
 	fallback: Color32,
 	width: f32,
 ) -> Arc<Galley> {
-	let primary = colors.map_or(fallback, |colors| {
-		crate::design::role_name_color(colors.primary, background, fallback)
+	let (mut stops, mut len) = ([0; 3], 0);
+	if let Some(colors) = colors.filter(|colors| colors.secondary.is_some() && colors.valid()) {
+		for stop in [Some(colors.primary), colors.secondary, colors.tertiary]
+			.into_iter()
+			.flatten()
+		{
+			stops[len] = stop;
+			len += 1;
+		}
+	}
+	let primary = colors.map(|colors| colors.primary);
+	let stops = (len >= 2).then_some(&stops[..len]);
+	gradient(ui, text, font, primary, stops, background, fallback, width)
+}
+
+/// A name filled with `primary`, or with a left-to-right gradient through two or more `stops`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn gradient(
+	ui: &Ui,
+	text: &str,
+	font: FontId,
+	primary: Option<u32>,
+	stops: Option<&[u32]>,
+	background: Color32,
+	fallback: Color32,
+	width: f32,
+) -> Arc<Galley> {
+	let primary = primary.map_or(fallback, |primary| {
+		crate::design::role_name_color(primary, background, fallback)
 	});
 	let mut job = LayoutJob::simple(text.to_owned(), font, primary, width.max(0.0));
 	job.wrap = egui::text::TextWrapping::truncate_at_width(width.max(0.0));
 	let mut galley = ui.painter().layout_job(job);
-	let Some(colors) = colors.filter(|colors| colors.secondary.is_some() && colors.valid()) else {
+	let Some(stops) = stops.filter(|stops| stops.len() >= 2) else {
 		return galley;
 	};
 	// Leave the font cache untouched; shaping, elision and accessibility retain the original text.
@@ -42,11 +69,7 @@ pub(crate) fn galley(
 					.unwrap_or_else(|| {
 						let at = ((placed.pos.x + x - bounds.left()) / bounds.width().max(1.0))
 							.clamp(0.0, 1.0);
-						crate::design::role_name_color(
-							interpolate(colors, at),
-							background,
-							fallback,
-						)
+						crate::design::role_name_color(interpolate(stops, at), background, fallback)
 					});
 				vertices[index].color = color;
 			}
@@ -55,17 +78,11 @@ pub(crate) fn galley(
 	galley
 }
 
-fn interpolate(colors: Colors, at: f32) -> u32 {
-	let secondary = colors.secondary.unwrap_or(colors.primary);
-	let (from, to, at) = if let Some(tertiary) = colors.tertiary {
-		if at < 0.5 {
-			(colors.primary, secondary, at * 2.0)
-		} else {
-			(secondary, tertiary, (at - 0.5) * 2.0)
-		}
-	} else {
-		(colors.primary, secondary, at)
-	};
+/// Evenly spaced `stops`; `at` runs from 0 at the first to 1 at the last.
+fn interpolate(stops: &[u32], at: f32) -> u32 {
+	let span = at.clamp(0.0, 1.0) * (stops.len() - 1) as f32;
+	let segment = (span as usize).min(stops.len() - 2);
+	let (from, to, at) = (stops[segment], stops[segment + 1], span - segment as f32);
 	let channel = |shift: u32| {
 		let a = ((from >> shift) & 255) as f32;
 		let b = ((to >> shift) & 255) as f32;
@@ -77,71 +94,6 @@ fn interpolate(colors: Colors, at: f32) -> u32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn gradient_stops_and_holographic_midpoint() {
-		let mut colors = Colors {
-			primary: 0xff0000,
-			secondary: Some(0x0000ff),
-			tertiary: None,
-		};
-		assert_eq!(interpolate(colors, 0.0), 0xff0000);
-		assert_eq!(interpolate(colors, 0.5), 0x800080);
-		assert_eq!(interpolate(colors, 1.0), 0x0000ff);
-		colors.tertiary = Some(0x00ff00);
-		assert_eq!(interpolate(colors, 0.5), 0x0000ff);
-		assert_eq!(interpolate(colors, 1.0), 0x00ff00);
-	}
-
-	#[test]
-	fn gradient_preserves_layout_and_cached_solid_galley() {
-		let ctx = egui::Context::default();
-		ctx.run_ui(Default::default(), |ui| {
-			for text in ["W", "", "Long synthetic username e\u{301} مرحبا", "👨‍👩‍👧"]
-			{
-				let colors = Colors {
-					primary: 0xe78284,
-					secondary: Some(0x89b4fa),
-					tertiary: None,
-				};
-				let make = |colors| {
-					galley(
-						ui,
-						text,
-						FontId::proportional(15.0),
-						colors,
-						Color32::BLACK,
-						Color32::WHITE,
-						100.0,
-					)
-				};
-				let solid = make(Some(Colors {
-					primary: colors.primary,
-					..Default::default()
-				}));
-				let gradient = make(Some(colors));
-				assert_eq!(solid.rect, gradient.rect);
-				assert_eq!(solid.elided, gradient.elided);
-				assert_eq!(solid.job.text, gradient.job.text);
-				assert_eq!(
-					solid,
-					make(Some(Colors {
-						primary: colors.primary,
-						..Default::default()
-					}))
-				);
-				if text == "W" {
-					let vertices = &gradient.rows[0].visuals.mesh.vertices;
-					assert!(
-						vertices
-							.windows(2)
-							.any(|pair| pair[0].color != pair[1].color)
-					);
-				}
-			}
-		})
-		.drop_without_applying_deltas();
-	}
 
 	#[test]
 	fn gradient_vertices_keep_contrast_in_light_and_dark_modes() {

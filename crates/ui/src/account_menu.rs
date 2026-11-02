@@ -137,6 +137,15 @@ impl MessagingUi {
 		self.own_presence.custom_status = presence.custom_status;
 	}
 
+	/// The status to show the owner: Idle while inactivity applies to an Online choice.
+	pub fn shown_presence_status(&self) -> PresenceStatus {
+		if self.auto_idle_active && self.own_presence.status == PresenceStatus::Online {
+			PresenceStatus::Idle
+		} else {
+			self.own_presence.status
+		}
+	}
+
 	pub(super) fn account_menu(
 		&mut self,
 		anchor: &egui::Response,
@@ -250,7 +259,7 @@ impl MessagingUi {
 				ui.painter(),
 				dot,
 				11.5,
-				self.own_presence.status,
+				self.shown_presence_status(),
 				colors.raised,
 			);
 			ui.add_space((avatar.bottom() + 12.0 - ui.cursor().top()).max(0.0));
@@ -394,10 +403,16 @@ impl MessagingUi {
 				.truncate()
 				.selectable(false),
 			);
+			// The handle sits under the display name; the blank line keeps the row height when an
+			// entry does not know it yet, instead of naming the account twice.
 			ui.add(
-				egui::Label::new(RichText::new(&account.name).size(12.0).color(colors.muted))
-					.truncate()
-					.selectable(false),
+				egui::Label::new(
+					RichText::new(account.handle().unwrap_or_default())
+						.size(12.0)
+						.color(colors.muted),
+				)
+				.truncate()
+				.selectable(false),
 			);
 		});
 		// Same affordance as the sign-in screen's saved accounts.
@@ -966,29 +981,14 @@ fn presence_dot(
 	status: PresenceStatus,
 	background: egui::Color32,
 ) {
-	painter.circle_filled(center, radius, profiles::presence_color(status.wire()));
-	match status {
-		PresenceStatus::Idle => {
-			painter.circle_filled(
-				center - egui::Vec2::splat(radius * 0.5),
-				radius * 0.8,
-				background,
-			);
-		}
-		PresenceStatus::Invisible => {
-			painter.circle_filled(center, radius * 0.56, background);
-		}
-		PresenceStatus::DoNotDisturb => {
-			painter.line_segment(
-				[
-					center - vec2(radius * 0.62, 0.0),
-					center + vec2(radius * 0.62, 0.0),
-				],
-				egui::Stroke::new(radius * 0.42, background),
-			);
-		}
-		_ => {}
-	}
+	profiles::paint_status(
+		painter,
+		center,
+		radius,
+		status.wire(),
+		false,
+		(background, 0.0),
+	);
 }
 
 #[cfg(test)]
@@ -1104,6 +1104,13 @@ mod tests {
 						has_token: true,
 					},
 					alt_account(),
+					// Recorded before the handle was kept: the display name must not repeat.
+					model::SavedAccount {
+						id: model::Id(424_243),
+						name: "Synthetic Stale".into(),
+						display: Some("Synthetic Stale".into()),
+						..alt_account()
+					},
 				],
 				..Default::default()
 			};
@@ -1117,6 +1124,13 @@ mod tests {
 			assert!(listed("Synthetic Alt"));
 			assert!(listed("synthetic-alt"));
 			assert!(listed("Add an account"));
+			assert_eq!(
+				text.iter()
+					.filter(|(value, _)| value == "Synthetic Stale")
+					.count(),
+				1,
+				"an entry without a known handle must not name the account twice"
+			);
 			// The signed-in account is remembered but never listed as a switch target.
 			assert!(!listed("Signed in already"));
 			click(

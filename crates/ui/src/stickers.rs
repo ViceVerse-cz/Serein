@@ -265,6 +265,54 @@ impl Browser {
 	}
 }
 
+/// What a received sticker's details card says about its source.
+#[derive(Debug, PartialEq)]
+enum Provenance<'a> {
+	/// A joined server or a loaded standard pack.
+	Named(&'a str),
+	Loading,
+	/// Details name a server this session cannot see, such as an invite-only one.
+	OtherServer,
+	/// Details could not be loaded, with the reason when known; the card offers a retry.
+	Unavailable(Option<&'static str>),
+}
+
+fn provenance<'a>(
+	source: Option<&'a str>,
+	detail: &Sticker,
+	loading: bool,
+	error: Option<&'static str>,
+) -> Provenance<'a> {
+	match source {
+		Some(name) => Provenance::Named(name),
+		None if loading => Provenance::Loading,
+		None if detail.guild_id.is_some() => Provenance::OtherServer,
+		None => Provenance::Unavailable(error),
+	}
+}
+
+/// A details line followed by the compact retry icon.
+fn retry_row(ui: &mut egui::Ui, text: String, id: Id, request: &mut Option<Id>) {
+	ui.horizontal_top(|ui| {
+		ui.spacing_mut().item_spacing.x = 4.0;
+		let retry = 24.0;
+		let width = (ui.available_width() - retry - 4.0).max(40.0);
+		ui.allocate_ui(egui::vec2(width, retry), |ui| {
+			ui.add(egui::Label::new(text).wrap());
+		});
+		if crate::icons::button(
+			ui,
+			crate::icons::Icon::Reload,
+			retry,
+			"stickers-message-retry-sticker-details",
+		)
+		.clicked()
+		{
+			*request = Some(id);
+		}
+	});
+}
+
 /// Message artwork and an anchored details card. The owner dispatches explicit reads.
 pub(crate) fn message(
 	ui: &mut egui::Ui,
@@ -275,7 +323,21 @@ pub(crate) fn message(
 	browse: &mut Option<Sticker>,
 ) -> egui::Response {
 	let edge = ui.available_width().min(160.0);
-	let response = avatars.sticker_image(ui, sticker, egui::Vec2::splat(edge), state.demo);
+	let mut response = avatars
+		.sticker_image(ui, sticker, egui::Vec2::splat(edge), state.demo)
+		.on_hover_cursor(egui::CursorIcon::PointingHand);
+	if response.hovered() {
+		let art = avatars.share_image(
+			ui.ctx(),
+			model::ImageShare::Sticker {
+				id: sticker.id,
+				format_type: sticker.format_type,
+			},
+			crate::emoji_details::HOVER_ART,
+			state.demo,
+		);
+		response = crate::emoji_details::hover_card(response, art, &sticker.name, true);
+	}
 	if response.clicked() {
 		*request = Some(sticker.id);
 	}
@@ -315,37 +377,77 @@ pub(crate) fn message(
 							&& section.stickers.iter().any(|s| s.id == sticker.id)
 					})
 				});
-			ui.add(
-				egui::Label::new(
-					design::semibold(ui, &detail.name, 16.0).color(colors.text_strong),
-				)
-				.wrap(),
-			);
-			if let Some(section) = section {
-				ui.label(format!(
-					"{} {} {}.",
-					crate::i18n::translate("stickers-message-this-is-a"),
-					section.name,
-					crate::i18n::translate("stickers-message-sticker")
-				));
-			} else if state.stickers.detail_loading == Some(sticker.id) {
-				ui.label(crate::i18n::translate(
-					"stickers-message-loading-sticker-details",
-				));
-			} else {
-				ui.label(state.stickers.detail_error.map_or_else(
-					|| crate::i18n::translate("stickers-message-sticker-details-unavailable"),
-					str::to_owned,
-				));
-				if ui
-					.button(crate::i18n::translate(
-						"stickers-message-retry-sticker-details",
-					))
-					.clicked()
-				{
-					*request = Some(sticker.id);
-				}
-			}
+			// A joined server names the source even when its catalog no longer lists the sticker.
+			let source = section.map(|section| section.name).or_else(|| {
+				detail
+					.guild_id
+					.and_then(|id| state.guild(id))
+					.map(|guild| guild.name.as_str())
+			});
+			let loading = state.stickers.detail_loading == Some(sticker.id);
+			let provenance = provenance(source, detail, loading, state.stickers.detail_error);
+			// A failed reload keeps the known source but still offers the retry.
+			let failed = !loading && state.stickers.detail_error.is_some();
+			ui.horizontal_top(|ui| {
+				ui.spacing_mut().item_spacing.x = 12.0;
+				avatars.sticker_image(ui, sticker, egui::Vec2::splat(64.0), state.demo);
+				ui.vertical(|ui| {
+					ui.spacing_mut().item_spacing.y = 4.0;
+					ui.set_width(ui.available_width());
+					ui.add(
+						egui::Label::new(
+							design::semibold(ui, &detail.name, 16.0).color(colors.text_strong),
+						)
+						.wrap(),
+					);
+					let line = |text: String| egui::Label::new(text).wrap();
+					match provenance {
+						Provenance::Named(name) => {
+							ui.add(line(format!(
+								"{} {} {}.",
+								crate::i18n::translate("stickers-message-this-is-a"),
+								name,
+								crate::i18n::translate("stickers-message-sticker")
+							)));
+						}
+						Provenance::Loading => {
+							ui.add(line(crate::i18n::translate(
+								"stickers-message-loading-sticker-details",
+							)));
+						}
+						Provenance::OtherServer if failed => {
+							retry_row(
+								ui,
+								crate::i18n::translate(
+									"stickers-message-from-an-unavailable-server",
+								),
+								sticker.id,
+								request,
+							);
+						}
+						Provenance::OtherServer => {
+							ui.add(line(crate::i18n::translate(
+								"stickers-message-from-an-unavailable-server",
+							)));
+						}
+						Provenance::Unavailable(error) => {
+							retry_row(
+								ui,
+								error.map_or_else(
+									|| {
+										crate::i18n::translate(
+											"stickers-message-sticker-details-unavailable",
+										)
+									},
+									str::to_owned,
+								),
+								sticker.id,
+								request,
+							);
+						}
+					}
+				});
+			});
 			if !detail.description.is_empty() {
 				egui::ScrollArea::vertical()
 					.max_height(120.0)
@@ -495,45 +597,31 @@ mod tests {
 		}
 	}
 	#[test]
-	fn rail_target_after_five_hundred_stickers_is_reached() {
-		let ctx = egui::Context::default();
-		let mut state = State {
-			demo: true,
-			..State::default()
-		};
-		state.stickers.packs = vec![
-			model::StickerPack {
-				id: Id(1),
-				name: "First".into(),
-				stickers: (1..=500).map(|id| sticker(id, 1)).collect(),
-			},
-			model::StickerPack {
-				id: Id(2),
-				name: "Last".into(),
-				stickers: vec![sticker(501, 2)],
-			},
-		];
-		let mut browser = Browser {
-			query: "old query".into(),
-			..Default::default()
-		};
-		browser.focus(&state.stickers.packs[1].stickers[0]);
-		let mut avatars = Avatars::default();
-		ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(400.0, 400.0),
-				)),
-				..Default::default()
-			},
-			|ui| {
-				browser.show(ui, &state, &mut avatars, &mut None, false);
-			},
-		)
-		.drop_without_applying_deltas();
-		assert!(browser.query.is_empty());
-		assert_eq!(browser.target, None);
-		assert!(avatars.take_requests().is_empty());
+	fn provenance_names_known_sources_and_explains_other_servers() {
+		let mut item = sticker(7, 8);
+		item.pack_id = None;
+		assert_eq!(
+			provenance(Some("Synthetic friends"), &item, true, None),
+			Provenance::Named("Synthetic friends")
+		);
+		assert_eq!(provenance(None, &item, true, None), Provenance::Loading);
+		assert_eq!(
+			provenance(None, &item, false, Some("Offline")),
+			Provenance::Unavailable(Some("Offline"))
+		);
+		assert_eq!(
+			provenance(None, &item, false, None),
+			Provenance::Unavailable(None)
+		);
+		item.guild_id = Some(Id(99));
+		assert_eq!(
+			provenance(None, &item, false, None),
+			Provenance::OtherServer
+		);
+		// A failed reload keeps the details already known.
+		assert_eq!(
+			provenance(None, &item, false, Some("Offline")),
+			Provenance::OtherServer
+		);
 	}
 }

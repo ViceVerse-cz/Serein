@@ -98,10 +98,28 @@ struct RequirementDto {
 #[derive(Deserialize)]
 struct ProgressDto {
 	#[serde(default)]
-	current: f64,
-	threshold: f64,
+	current: Option<Number>,
+	#[serde(default)]
+	threshold: Option<Number>,
 	#[serde(default)]
 	progress_helper_text: Option<Lenient<String>>,
+}
+/// A count sent as a JSON number or as numeric text.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Number {
+	Number(f64),
+	Text(String),
+}
+impl Number {
+	fn value(this: Option<Self>) -> Option<f64> {
+		match this? {
+			Self::Number(value) => Some(value),
+			Self::Text(text) if text.len() <= 32 => text.trim().parse().ok(),
+			Self::Text(_) => None,
+		}
+		.filter(|value| value.is_finite())
+	}
 }
 /// ISO-8601 text or a Unix timestamp in seconds or milliseconds.
 #[derive(Deserialize)]
@@ -201,13 +219,26 @@ fn badge(dto: BadgeDto) -> Option<CatalogBadge> {
 	}
 	tiers.shrink_to_fit();
 	let (icon, art) = dto.art.split();
-	let progress = values(dto.progress).next().and_then(|progress| {
-		(progress.threshold.is_finite() && progress.current.is_finite()).then(|| BadgeProgress {
-			current: progress.current,
-			threshold: progress.threshold,
-			helper: lenient_text(progress.progress_helper_text).unwrap_or_default(),
+	// Prefer the entry measured against the next tier when several are sent.
+	let next_threshold = next_tier
+		.as_ref()
+		.and_then(|key| tiers.iter().find(|tier| tier.key == *key))
+		.and_then(|tier| tier.threshold);
+	let mut progress: Vec<BadgeProgress> = values(dto.progress)
+		.take(MAX_WIRE_TIERS)
+		.filter_map(|progress| {
+			Some(BadgeProgress {
+				current: Number::value(progress.current)?,
+				threshold: Number::value(progress.threshold)?,
+				helper: lenient_text(progress.progress_helper_text).unwrap_or_default(),
+			})
 		})
-	});
+		.collect();
+	let chosen = progress
+		.iter()
+		.position(|progress| Some(progress.threshold) == next_threshold)
+		.unwrap_or(0);
+	let progress = (chosen < progress.len()).then(|| progress.swap_remove(chosen));
 	let badge = CatalogBadge {
 		id: dto.badge_id,
 		name: text(dto.name),
