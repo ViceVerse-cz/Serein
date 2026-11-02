@@ -2223,8 +2223,33 @@ impl Formatted {
 		let mut inlines: Vec<Inline> = Vec::new();
 		// Label overwrites the first section's leading space with the wrap indentation.
 		job.append("", 0.0, Self::format(ui, &Style::default()));
+		// A run that ends with blank lines (`\n\n` before the next paragraph) makes egui drop
+		// the row's leading indent: the whole run is then shaped from the row start and stops
+		// wrapping at the remaining width, which paints it over the run before it. Shape the
+		// run without those trailing breaks and replay them as explicit row breaks below.
+		let total: usize = spans.iter().map(|(text, _)| text.len()).sum();
+		let trailing = spans
+			.iter()
+			.rev()
+			.flat_map(|(text, _)| text.chars().rev())
+			.take_while(|character| *character == '\n')
+			.count();
+		let kept = total.saturating_sub(trailing);
+		// Each blank row keeps the height its newline had in the galley, so the paragraph gap
+		// survives and selection still copies it as a blank line.
+		let blank = spans.last().map_or(0.0, |(_, style)| {
+			let format = Self::format(ui, style);
+			let height = format
+				.line_height
+				.unwrap_or_else(|| ui.fonts_mut(|fonts| fonts.row_height(&format.font_id)));
+			line.map_or(height, |line| height.max(line))
+		});
+		let mut written = 0;
 		for (text, style) in spans {
 			let format = Self::format(ui, style);
+			let available = kept.saturating_sub(written).min(text.len());
+			written += available;
+			let text = &text[..available];
 			let mut start = 0;
 			let mut offset = 0;
 			while offset < text.len() {
@@ -2466,6 +2491,14 @@ impl Formatted {
 			}
 		}
 		surface.run(ui, &response, pos, galley, artwork);
+		// The first break ends the run's row; every further one is a blank row of its own.
+		if trailing > 0 {
+			ui.end_row();
+			for _ in 1..trailing {
+				ui.set_row_height(blank);
+				ui.end_row();
+			}
+		}
 		if ui.is_rect_visible(response.rect) {
 			for (index, rect) in &slots {
 				if !ui.is_rect_visible(*rect) {
@@ -2596,6 +2629,35 @@ impl Formatted {
 			.find(|(text, _)| !text.is_empty())
 			.is_none_or(|(text, _)| text.ends_with('\n'))
 	}
+	fn clean_custom_emojis(text: &str) -> String {
+		let mut output = String::with_capacity(text.len());
+		let mut offset = 0;
+		while offset < text.len() {
+			if let Some((_, len)) = crate::emoji::custom_prefix(&text[offset..]) {
+				let token = &text[offset..offset + len];
+				let body = token
+					.strip_prefix("<:")
+					.or_else(|| token.strip_prefix("<a:"))
+					.unwrap_or("");
+				if let Some(colon) = body.find(':') {
+					let name = &body[..colon];
+					output.push(':');
+					output.push_str(name);
+					output.push(':');
+					offset += len;
+					continue;
+				}
+			}
+			let chr = text[offset..]
+				.chars()
+				.next()
+				.expect("valid UTF-8 character");
+			output.push(chr);
+			offset += chr.len_utf8();
+		}
+		output
+	}
+
 	pub(crate) fn append_inline_preview(
 		&self,
 		job: &mut LayoutJob,
@@ -2618,13 +2680,18 @@ impl Formatted {
 			..Default::default()
 		};
 		let mut remaining: usize = 120;
+		let prefix_len = job.text.len();
+		let mut truncated = false;
+		let mut next_is_word = false;
 		let mut emojis = Vec::new();
 		for (text, style) in &self.spans {
-			if remaining == 0 {
-				break;
-			}
 			if text.is_empty() {
 				continue;
+			}
+			if remaining == 0 {
+				truncated = true;
+				next_is_word = text.chars().next().is_some_and(|c| c.is_alphanumeric());
+				break;
 			}
 			let destination = style
 				.channel
@@ -2700,15 +2767,41 @@ impl Formatted {
 			} else if style.mass_mention {
 				(text.clone(), pill.clone())
 			} else {
-				(
-					text.chars()
-						.map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c })
-						.collect(),
-					muted.clone(),
-				)
+				let normalized: String = text
+					.chars()
+					.map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c })
+					.collect();
+				let display = if !style.code {
+					Self::clean_custom_emojis(&normalized)
+				} else {
+					normalized
+				};
+				(display, muted.clone())
 			};
-			let take: String = display.chars().take(remaining).collect();
-			remaining -= take.chars().count();
+			let mut cut_end = 0;
+			let mut taken_chars = 0;
+			let mut is_overflow = false;
+			for (offset, cluster) in display.grapheme_indices(true) {
+				let cluster_chars = cluster.chars().count();
+				if taken_chars + cluster_chars > remaining {
+					is_overflow = true;
+					break;
+				}
+				taken_chars += cluster_chars;
+				cut_end = offset + cluster.len();
+			}
+			let take = if is_overflow {
+				truncated = true;
+				next_is_word = display[cut_end..]
+					.chars()
+					.next()
+					.is_some_and(|c| c.is_alphanumeric());
+				remaining = 0;
+				display[..cut_end].to_string()
+			} else {
+				remaining -= taken_chars;
+				display
+			};
 			let mut start = 0;
 			if !style.code {
 				for (offset, cluster) in take.grapheme_indices(true) {
@@ -2731,6 +2824,57 @@ impl Formatted {
 				}
 			}
 			job.append(&take[start..], 0.0, format);
+			if is_overflow {
+				break;
+			}
+		}
+		if truncated {
+			let is_emoji_at = |idx: usize| emojis.iter().any(|e| e.at <= idx && idx < e.at + e.len);
+			let ends_with_ws = job.text.len() > prefix_len
+				&& !is_emoji_at(job.text.len() - 1)
+				&& job.text.ends_with(char::is_whitespace);
+			if next_is_word
+				&& !ends_with_ws
+				&& let Some(last_ws) = job.text[prefix_len..]
+					.char_indices()
+					.rfind(|&(idx, ch)| {
+						let abs_idx = prefix_len + idx;
+						ch.is_whitespace() && !is_emoji_at(abs_idx)
+					})
+					.map(|(idx, _)| prefix_len + idx)
+				&& last_ws > prefix_len
+			{
+				job.text.truncate(last_ws);
+			}
+			let mut trimmed_len = job.text.len();
+			while trimmed_len > prefix_len {
+				let last_idx = trimmed_len - 1;
+				if is_emoji_at(last_idx) {
+					break;
+				}
+				if let Some(ch) = job.text[..trimmed_len].chars().next_back()
+					&& ch.is_whitespace()
+				{
+					trimmed_len -= ch.len_utf8();
+					continue;
+				}
+				break;
+			}
+			job.text.truncate(trimmed_len);
+			let end = job.text.len();
+			let end_idx = egui::text::ByteIndex(end);
+			job.sections.retain_mut(|section| {
+				if section.byte_range.start >= end_idx {
+					false
+				} else {
+					if section.byte_range.end > end_idx {
+						section.byte_range.end = end_idx;
+					}
+					true
+				}
+			});
+			emojis.retain(|emoji| emoji.at + emoji.len <= end);
+			job.append("…", 0.0, muted);
 		}
 		emojis
 	}
@@ -2884,6 +3028,313 @@ impl Formatted {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn inline_preview_truncates_long_messages_with_ellipsis() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let input = "Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat.";
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+			assert!(!preview.text.ends_with("magn…"));
+			assert!(preview.text.ends_with("dolore…"));
+			assert!(preview.text.chars().count() <= 125);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_cuts_at_word_boundary_across_span_borders() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 116 characters prefix followed by a bold word across the 120 limit
+			let prefix = "a".repeat(115) + " ";
+			let input = format!("{prefix}**dolore magna**");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+			assert!(!preview.text.contains("dolo"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_shows_ellipsis_when_exact_limit_followed_by_spoiler() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a".repeat(120);
+			let input = format!("{prefix}||hidden content||");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_caller_prefix_when_truncating() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let mut preview = egui::text::LayoutJob::default();
+			preview.append("@author: ", 0.0, Default::default());
+			let long_word = "a".repeat(130);
+			let _ = super::Formatted::parse(&long_word).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.starts_with("@author: "));
+			assert!(preview.text.ends_with('…'));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_first_omitted_character_across_later_spans() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 116 chars ("a " * 58) + 10 chars bold ("abcdefghij") + tail
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}**abcdefghij** tail");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				!preview.text.contains("abcd"),
+				"mid-word abcd should be cut back to word boundary"
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_emoji_placeholder_near_limit() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 118 chars ("a " * 59) + "x😀 more" -> emoji fits in 120 limit
+			let prefix = "a ".repeat(59);
+			let input = format!("{prefix}x😀 more");
+			let mut preview = egui::text::LayoutJob::default();
+			let emojis = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert_eq!(emojis.len(), 1, "emoji should be preserved");
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_punctuation_after_word_does_not_backtrack() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}word, more");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				preview.text.contains("word…"),
+				"expected preview to retain 'word…' but got {:?}",
+				preview.text
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_joined_emoji_preserves_grapheme_boundary() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// "👩‍💻" is 3 codepoints / 10 bytes.
+			// Case 1: 118 chars + "👩‍💻 more" -> remaining 2; emoji requires 3, must not be split.
+			let prefix1 = "a".repeat(118);
+			let input1 = format!("{prefix1}👩‍💻 more");
+			let mut preview1 = egui::text::LayoutJob::default();
+			let emojis1 = super::Formatted::parse(&input1).append_inline_preview(
+				&mut preview1,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			let text1 = super::Formatted::inline_preview_text(&preview1, &emojis1);
+			assert_eq!(text1, format!("{prefix1}…"));
+
+			// Case 2: 117 chars + "👩‍💻 more" -> remaining 3; emoji fits intact.
+			let prefix2 = "a".repeat(117);
+			let input2 = format!("{prefix2}👩‍💻 more");
+			let mut preview2 = egui::text::LayoutJob::default();
+			let emojis2 = super::Formatted::parse(&input2).append_inline_preview(
+				&mut preview2,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			let text2 = super::Formatted::inline_preview_text(&preview2, &emojis2);
+			assert_eq!(text2, format!("{prefix2}👩‍💻…"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_edge_cases_empty_unicode_punct_and_consecutive_spaces() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 1. Empty preview
+			let mut p_empty = egui::text::LayoutJob::default();
+			let em_empty = super::Formatted::parse("").append_inline_preview(
+				&mut p_empty,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(p_empty.text, "");
+			assert!(em_empty.is_empty());
+
+			// 2. Very short preview
+			let mut p_short = egui::text::LayoutJob::default();
+			let em_short = super::Formatted::parse("hello").append_inline_preview(
+				&mut p_short,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(p_short.text, "hello");
+			assert!(em_short.is_empty());
+
+			// 3. Unicode punctuation (em-dash, ideographic comma) does not backtrack complete word
+			let prefix = "a ".repeat(58);
+			for punct in ["—", "…", "、", "。"] {
+				let input = format!("{prefix}word{punct} more");
+				let mut preview = egui::text::LayoutJob::default();
+				let _ = super::Formatted::parse(&input).append_inline_preview(
+					&mut preview,
+					ui,
+					&[],
+					None,
+					&[],
+					&[],
+				);
+				assert!(preview.text.ends_with("…"));
+				assert!(
+					preview.text.contains("word…"),
+					"expected 'word…' for punct {punct}, got {:?}",
+					preview.text
+				);
+			}
+
+			// 4. Consecutive whitespace is trimmed cleanly before ellipsis
+			let prefix_spaces = "a ".repeat(58);
+			let input_spaces = format!("{prefix_spaces}word   more");
+			let mut preview_spaces = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input_spaces).append_inline_preview(
+				&mut preview_spaces,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview_spaces.text.ends_with("word…"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_word_continuation_backtracks_to_previous_space() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}wordy more");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				!preview.text.contains("word"),
+				"partial word 'word' from 'wordy' must be backtracked"
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_replaces_custom_emojis_with_names() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let input =
+				"Check <:ehappy:1316064437991641259> and <a:party:123456789> and `<:code:111>`";
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(preview.text, "Check :ehappy: and :party: and <:code:111>");
+		});
+		output.drop_without_applying_deltas();
+	}
+
 	#[test]
 	fn game_mentions_obey_code_escape_and_spoiler_boundaries() {
 		let parsed = super::Formatted::parse("<@$42> `<@$43>` \\<@$44> ||<@$45>|| <@46> <@&47>");
@@ -5162,5 +5613,221 @@ mod tests {
 		}
 		assert_eq!(cache.entries.len(), 500);
 		assert!(cache.bytes <= 1024 * 1024);
+	}
+
+	#[test]
+	fn a_bold_link_line_in_a_message_body_wraps_without_overlapping() {
+		// A paragraph that ends with a blank line, laid out with the blocks around it: that run
+		// used to lose the row's indent and be painted over the link before it.
+		let state = test_support::demo_state();
+		let channel = state.channels[0].id;
+		let source = crate::mentions::MentionSource {
+			state: &state,
+			channel,
+		};
+		let parsed = Formatted::parse(
+			"# SYNTHETIC HEADING\n**⚠️ READ [THE SYNTHETIC GUIDE](<https://example.com/guide#anchor>) BEFORE ANY OF THE ITEMS BELOW ⚠️**\n\n[First item](https://example.com/first.zip) for sending one thing.\n[Second item](https://example.com/second.zip) for sending another thing.\n[Third item](https://example.com/third.zip) for setting a third thing.\n[Fourth item](https://example.com/fourth.zip) for setting a fourth thing.\n[Fifth item](https://example.com/fifth.zip) for setting a fifth thing.\n\n-# Synthetic footer line.",
+		);
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		for width in (300..=640).step_by(10) {
+			let width = width as f32;
+			let mut images = crate::avatars::Avatars::default();
+			let mut revealed = 0;
+			let mut profile = crate::profiles::ProfileSession::default();
+			let mut opening = None;
+			let mut channel_reference = None;
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(width + 40.0, 800.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					ui.set_max_width(width);
+					let mut surface = crate::select::Surface::new(ui, "body");
+					parsed.show_references(
+						ui,
+						&mut opening,
+						&[],
+						Some(&source),
+						&mut profile,
+						(&state.channels, &mut channel_reference, &state.guilds, &[]),
+						(&mut images, false, &mut revealed),
+						&mut surface,
+						crate::design::MessageCardSurface::Conversation,
+					);
+					surface.finish(ui);
+				},
+			);
+			let mut rects = Vec::new();
+			for shape in &output.shapes {
+				if let egui::Shape::Text(text) = &shape.shape {
+					for row in &text.galley.rows {
+						let rect = row
+							.rect_without_leading_space()
+							.translate(text.pos.to_vec2());
+						if rect.width() > 0.5 && rect.height() > 0.5 {
+							rects.push((rect, text.galley.text()));
+						}
+					}
+				}
+			}
+			for (index, (left, left_text)) in rects.iter().enumerate() {
+				for (right, right_text) in &rects[index + 1..] {
+					let overlap = left.intersect(*right);
+					assert!(
+						overlap.width() <= 1.0 || overlap.height() <= 1.0,
+						"body at {width}px {left_text:?} [{left:?}] overlaps {right_text:?} [{right:?}]"
+					);
+				}
+			}
+			output.textures_delta.clear();
+		}
+	}
+
+	#[test]
+	fn copying_across_a_paragraph_break_keeps_the_blank_line() {
+		// The paragraph before the link is shaped without its trailing breaks: the blank row
+		// they leave is what tells selection to copy them back.
+		let ctx = egui::Context::default();
+		let parsed = Formatted::parse("plain text\n\n[link](https://example.com) after");
+		let mut images = crate::avatars::Avatars::default();
+		let mut mask = 0;
+		let mut clock = 0.0;
+		let mut run = |events| {
+			clock += 1.0;
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(700.0, 200.0),
+					)),
+					events,
+					time: Some(clock),
+					..Default::default()
+				},
+				|ui| {
+					let mut surface = crate::select::Surface::new(ui, "body");
+					let mut profile = crate::profiles::ProfileSession::default();
+					parsed.show_references(
+						ui,
+						&mut None,
+						&[],
+						None,
+						&mut profile,
+						(&[], &mut None, &[], &[]),
+						(&mut images, false, &mut mask),
+						&mut surface,
+						crate::design::MessageCardSurface::Opaque,
+					);
+					surface.finish(ui);
+				},
+			)
+		};
+		run(vec![]).drop_without_applying_deltas();
+		let output = run(vec![]);
+		let text_rect = |prefix: &str| {
+			output
+				.shapes
+				.iter()
+				.find_map(|shape| {
+					if let egui::Shape::Text(text) = &shape.shape
+						&& text.galley.text().starts_with(prefix)
+					{
+						Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+					} else {
+						None
+					}
+				})
+				.expect("visible selectable text")
+		};
+		let start = text_rect("plain").left_top() + egui::vec2(0.0, 5.0);
+		let end = text_rect(" after").right_top() + egui::vec2(0.0, 5.0);
+		output.drop_without_applying_deltas();
+		for events in [
+			vec![
+				egui::Event::PointerMoved(start),
+				egui::Event::PointerButton {
+					pos: start,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+			vec![egui::Event::PointerMoved(end)],
+			vec![egui::Event::PointerButton {
+				pos: end,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			}],
+		] {
+			run(events).drop_without_applying_deltas();
+		}
+		let output = run(vec![egui::Event::Copy]);
+		let copied = output
+			.platform_output
+			.commands
+			.iter()
+			.find_map(|command| match command {
+				egui::OutputCommand::CopyText(text) => Some(text.clone()),
+				_ => None,
+			})
+			.expect("selected text");
+		output.drop_without_applying_deltas();
+		assert!(copied.starts_with("plain text\n\nlink"), "{copied:?}");
+	}
+
+	#[test]
+	fn a_wrapped_bold_line_with_a_link_and_emoji_keeps_its_rows_apart() {
+		// Bold text around an angle-bracket link, with emoji at both ends: it has to wrap, and
+		// the wrapped rows must not be painted on top of each other.
+		let parsed = Formatted::parse(
+			"**⚠️ READ [THE SYNTHETIC GUIDE](<https://example.com/guide#anchor>) BEFORE ANY OF THE ITEMS BELOW ⚠️**",
+		);
+		let ctx = egui::Context::default();
+		for width in (200..=640).step_by(10) {
+			let width = width as f32;
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(width + 40.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					ui.set_max_width(width);
+					parsed.show(ui, &mut None);
+				},
+			);
+			let mut rects = Vec::new();
+			for shape in &output.shapes {
+				if let egui::Shape::Text(text) = &shape.shape {
+					for row in &text.galley.rows {
+						// Only the painted part of a row: a leading space offsets the glyphs.
+						let rect = row
+							.rect_without_leading_space()
+							.translate(text.pos.to_vec2());
+						if rect.width() > 0.5 && rect.height() > 0.5 {
+							rects.push((rect, text.galley.text()));
+						}
+					}
+				}
+			}
+			for (index, (left, left_text)) in rects.iter().enumerate() {
+				for (right, right_text) in &rects[index + 1..] {
+					let overlap = left.intersect(*right);
+					assert!(
+						overlap.width() <= 1.0 || overlap.height() <= 1.0,
+						"at {width}px {left_text:?} [{left:?}] overlaps {right_text:?} [{right:?}]"
+					);
+				}
+			}
+			output.textures_delta.clear();
+		}
 	}
 }

@@ -32,6 +32,13 @@ PR. Mark complete implementations ready for review; only unfinished requested wo
 CI failures or unavailable evidence do not determine draft status. Report checks and limitations
 accurately. Never merge, force-push, deploy, release or change repository permissions.
 
+After pushing changes to an open PR, request fresh review from its existing human reviewers
+and prompt the review bots that reviewed it using their supported re-review commands. This is
+authorized delivery work; do not ask the owner again. Include the pushed commit and a brief
+summary of addressed findings, and ask reviewers to reassess and resolve findings they confirm
+are fixed. Verify the requests were submitted and report review as pending until it completes.
+Do not resolve reviewers' threads on their behalf or treat a re-review request as approval.
+
 ### `!fast`
 
 Implement locally and run only the smallest useful debug command. Skip tests, packages, screenshots,

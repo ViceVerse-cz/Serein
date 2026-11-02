@@ -356,9 +356,8 @@ fn rows_at<'a>(
 			);
 		}
 	}
-	if let Some(heading) = scope.remainder_heading()
-		&& !tree.is_empty()
-	{
+	// Home keeps its heading even with no unpinned DMs: it carries the New Message action.
+	if let Some(heading) = scope.remainder_heading() {
 		rows.push(Row::Heading(heading));
 	}
 	rows.extend(tree);
@@ -453,19 +452,39 @@ fn category_header(
 	response
 }
 
-fn eyebrow_row(ui: &mut egui::Ui, label: &str, row_height: f32) -> egui::Rect {
+fn eyebrow_row(
+	ui: &mut egui::Ui,
+	label: &str,
+	row_height: f32,
+	trailing: bool,
+) -> (egui::Rect, bool) {
 	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
-	ui.allocate_ui_with_layout(
+	let mut clicked = false;
+	let response = ui.allocate_ui_with_layout(
 		egui::vec2(ui.available_width(), row_height),
 		egui::Layout::left_to_right(egui::Align::Center),
 		|ui| {
+			// The row spans the list even though its contents are a short caption.
+			ui.set_width(ui.available_width());
 			ui.add_space(8.0);
 			ui.add(egui::Label::new(design::eyebrow(ui, label, colors.muted)).selectable(false));
+			if trailing {
+				// Discord's New Message action sits at the right end of the DM list heading.
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					ui.add_space(4.0);
+					clicked = crate::icons::button(
+						ui,
+						crate::icons::Icon::Plus,
+						24.0,
+						&crate::i18n::translate("new-message-title"),
+					)
+					.clicked();
+				});
+			}
 		},
-	)
-	.response
-	.rect
+	);
+	(response.response.rect, clicked)
 }
 
 fn shelf_row(rows: &[CachedRow], index: usize) -> bool {
@@ -695,7 +714,13 @@ impl MessagingUi {
 		}
 		let dm_list = self.guild.is_none();
 		let row_height = if dm_list { 44.0 } else { 34.0 };
-		let row_count = self.channel_cache.rows.len().max(usize::from(dm_list));
+		// An empty DM remainder still gets its "no conversations" line under the heading.
+		let empty_dms = dm_list
+			&& matches!(
+				self.channel_cache.rows.last(),
+				None | Some(CachedRow::Heading(Heading::DirectMessages))
+			);
+		let row_count = self.channel_cache.rows.len() + usize::from(empty_dms);
 		let previous_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
 		let mut drop_rows = Vec::new();
@@ -716,12 +741,16 @@ impl MessagingUi {
 					};
 					match row {
 						CachedRow::Heading(heading) => {
-							let rect = eyebrow_row(
+							let (rect, new_message) = eyebrow_row(
 								ui,
 								&crate::i18n::translate_if_key(heading.key()),
 								row_height,
+								dm_list && heading == Heading::DirectMessages,
 							);
 							paint_shelf_rule(ui, rect, &self.channel_cache.rows, index);
+							if new_message {
+								self.new_message.open(state);
+							}
 						}
 						CachedRow::Requests(count, collapsed) => {
 							let response = category_header(
@@ -931,7 +960,9 @@ impl MessagingUi {
 									rect,
 								});
 							}
-							let hovered = enabled && (response.hovered() || response.has_focus());
+							// The avatar and action buttons are widgets on top; hovering them still highlights the row.
+							let pointer_over = ui.rect_contains_pointer(rect);
+							let hovered = enabled && (pointer_over || response.has_focus());
 							// Threads hang off a spine below their parent's icon, as in Discord;
 							// their highlight starts where the elbow ends.
 							let highlight = if nested {
@@ -1032,6 +1063,14 @@ impl MessagingUi {
 									let avatar = self
 										.avatars
 										.show_group(&mut inner, channel, 32.0, state.demo);
+									if state.direct_typing(channel.id, std::time::Instant::now()) {
+										crate::profiles::typing_badge(
+											&mut inner,
+											avatar.rect,
+											None,
+											colors.sidebar,
+										);
+									}
 									self.group_menu.context(
 										&avatar,
 										state,
@@ -1055,6 +1094,16 @@ impl MessagingUi {
 									let status =
 										crate::profiles::shown_status(state, user.id, status);
 									if channel.kind == 1
+										&& state
+											.direct_typing(channel.id, std::time::Instant::now())
+									{
+										crate::profiles::typing_badge(
+											&mut inner,
+											avatar.rect,
+											status,
+											colors.sidebar,
+										);
+									} else if channel.kind == 1
 										&& let Some(status) = status
 									{
 										crate::profiles::presence_badge(
@@ -1574,6 +1623,59 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn the_direct_message_heading_offers_new_message_at_the_far_right() {
+		const WIDTH: f32 = 320.0;
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let click = |pos: egui::Pos2| {
+			let mut clicked = false;
+			for (moved, pressed) in [(true, false), (false, true), (false, false)] {
+				let mut events = vec![];
+				if moved {
+					events.push(egui::Event::PointerMoved(pos));
+				} else {
+					events.push(egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					});
+				}
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(WIDTH, 44.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| {
+						let (rect, hit) = eyebrow_row(ui, "Direct Messages", 44.0, true);
+						clicked = hit;
+						assert!(
+							(rect.width() - WIDTH).abs() < 1.0,
+							"the heading row spans the list, not its caption: {}",
+							rect.width()
+						);
+					},
+				);
+				output.drop_without_applying_deltas();
+			}
+			clicked
+		};
+		// The button is drawn at the right end of the row, not on top of the caption.
+		assert!(
+			click(egui::pos2(WIDTH - 12.0, 22.0)),
+			"the plus is at the far right"
+		);
+		assert!(
+			!click(egui::pos2(120.0, 22.0)),
+			"the caption itself is not a button"
+		);
+	}
+
+	#[test]
 	fn channel_rows_reuse_guild_messages_and_invalidate_on_navigation_changes() {
 		let mut state = test_support::demo_state();
 		let selected = state.selected.unwrap();
@@ -1852,6 +1954,27 @@ mod tests {
 			.as_slice(),
 			[Row::Category(_, 1)]
 		));
+	}
+
+	/// Regression: the DM heading carries New Message, so it stays without unpinned DMs.
+	#[test]
+	fn the_direct_message_heading_stays_when_no_unpinned_dms_remain() {
+		let mut state = test_support::demo_state();
+		state.channels.retain(|c| c.guild.is_some());
+		let heading_last = |state: &State, preferences: &model::ChannelPreferences| {
+			let roster = Roster::build(state, preferences, Scope::Home, false);
+			let output = rows(state, Scope::Home, &roster, &BTreeSet::new(), false, false);
+			matches!(output.last(), Some(Row::Heading(Heading::DirectMessages)))
+		};
+		assert!(heading_last(&state, &Default::default()), "no DMs at all");
+		let mut dm = channel(30, 1, 0, None);
+		dm.guild = None;
+		state.channels.push(dm);
+		let pinned = model::ChannelPreferences {
+			pinned: vec![Id(30)],
+			..Default::default()
+		};
+		assert!(heading_last(&state, &pinned), "every DM is pinned");
 	}
 
 	#[test]
@@ -2205,8 +2328,20 @@ mod tests {
 			view.channel_cache.rows.as_slice(),
 			[CachedRow::Category(_, 1)]
 		));
-		// Forum containers never request history; opened posts remain keyboard-selectable.
+		// Forum containers never request history; joined posts remain keyboard-selectable.
 		state.channels = vec![channel(7, 15, 0, None), channel(8, 11, 0, Some(Id(7)))];
+		state.thread_info.insert(
+			Id(8),
+			model::threads::Info {
+				member: Some(model::threads::Member {
+					joined: 0,
+					muted: false,
+					mute_end: None,
+				}),
+				meta: None,
+				pinned: true,
+			},
+		);
 		state.revision += 1;
 		state.invalidate_navigation();
 		state
@@ -2216,6 +2351,7 @@ mod tests {
 		state.selected = None;
 		state.select(Id(8));
 		assert!(state.select(Id(7)).is_none());
+		assert_eq!(state.selected, Some(Id(7)));
 		let ctx = egui::Context::default();
 		let mut picked = None;
 		// The forum row itself is a destination; the second Tab reaches the loaded post.
@@ -2471,6 +2607,89 @@ mod tests {
 			true,
 			true,
 			"a mention and the unread mark both show while connected",
+		);
+	}
+
+	#[test]
+	fn channel_row_highlights_when_hovering_avatar() {
+		let mut state = test_support::demo_state();
+		state.selected = None;
+		let mut view = MessagingUi {
+			guild: None,
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let colors = design::palette_for(&ctx);
+
+		fn walk(shape: &egui::Shape, rects: &mut Vec<(egui::Rect, egui::Color32)>) {
+			match shape {
+				egui::Shape::Rect(rect) => rects.push((rect.rect, rect.fill)),
+				egui::Shape::Vec(children) => {
+					for shape in children {
+						walk(shape, rects);
+					}
+				}
+				_ => {}
+			}
+		}
+
+		// First frame with pointer outside: no row is hovered.
+		let mut rects_idle = Vec::new();
+		let output_idle = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(280.0, 1600.0),
+				)),
+				events: vec![egui::Event::PointerMoved(egui::pos2(-10.0, -10.0))],
+				..Default::default()
+			},
+			|ui| {
+				view.channel_list(ui, &mut state);
+			},
+		);
+		for clipped in &output_idle.shapes {
+			walk(&clipped.shape, &mut rects_idle);
+		}
+		output_idle.drop_without_applying_deltas();
+
+		let hover_color = crate::design::row_highlight(
+			&egui::Ui::new(ctx.clone(), egui::Id::NULL, egui::UiBuilder::new()),
+			colors.hover,
+			1.0,
+		);
+
+		assert!(
+			!rects_idle.iter().any(|(_, fill)| *fill == hover_color),
+			"no row highlight when pointer is outside"
+		);
+
+		// Second frame with pointer placed over the avatar area of the first row (e.g. x = 20, y = 20).
+		let mut rects_hover = Vec::new();
+		let output_hover = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(280.0, 1600.0),
+				)),
+				events: vec![egui::Event::PointerMoved(egui::pos2(20.0, 66.0))],
+				..Default::default()
+			},
+			|ui| {
+				view.channel_list(ui, &mut state);
+			},
+		);
+		for clipped in &output_hover.shapes {
+			walk(&clipped.shape, &mut rects_hover);
+		}
+		output_hover.drop_without_applying_deltas();
+
+		assert!(
+			rects_hover
+				.iter()
+				.any(|(rect, fill)| *fill == hover_color && rect.contains(egui::pos2(20.0, 66.0))),
+			"row highlight must be painted when pointer hovers over the avatar widget"
 		);
 	}
 }
