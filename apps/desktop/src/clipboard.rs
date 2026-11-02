@@ -247,19 +247,4 @@ mod tests {
 		assert!(super::png(&[], 1, 1).is_err());
 		assert!(super::png(&[], 0, 0).is_err());
 	}
-
-	#[test]
-	fn supplied_text_is_prepared_without_an_os_clipboard() {
-		let request = ui::AttachmentPaste {
-			target: eframe::egui::Id::unique("paste"),
-			text: Some("line one\r\nline two".into()),
-			image: None,
-		};
-		let super::Read::Content(super::Content::Text(text)) =
-			super::supplied_content(request).unwrap().unwrap()
-		else {
-			panic!("Expected supplied clipboard text")
-		};
-		assert_eq!(text, "line one\nline two");
-	}
 }

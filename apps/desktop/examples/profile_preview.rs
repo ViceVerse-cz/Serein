@@ -22,6 +22,7 @@ struct Preview {
 	state: client_core::State,
 	output: PathBuf,
 	thumbnail: bool,
+	proxy_artwork: bool,
 	frames: u8,
 	/// Wheel distance and pointer position injected over the first frames, for pages below the fold.
 	scroll: Option<(f32, egui::Pos2)>,
@@ -69,6 +70,12 @@ impl eframe::App for Preview {
 					slash_demo::respond(&mut self.state, request);
 					continue;
 				}
+				client_core::Command::BadgeSettings { request, settings } => {
+					client_core::Event::BadgeSettings {
+						request,
+						result: Ok(settings),
+					}
+				}
 				client_core::Command::ServerAdmin {
 					guild,
 					request,
@@ -103,6 +110,34 @@ impl eframe::App for Preview {
 				generation: self.state.generation,
 				event,
 			});
+		}
+		if self.proxy_artwork {
+			// Only generated artwork is served. There is no network/image-worker adapter in
+			// this executable, so a gateway reference rejected by the model stays blank.
+			for key in self.messaging.take_avatar_requests() {
+				let image = if key == model::ActivityImage::Proxy(PROXY_ART.into()).key() {
+					let mut image =
+						egui::ColorImage::filled([64, 64], egui::Color32::from_rgb(41, 63, 105));
+					for y in 0..64 {
+						for x in 0..64 {
+							if (x / 8 + y / 8) % 2 == 0 {
+								image.pixels[y * 64 + x] = egui::Color32::from_rgb(100, 205, 175);
+							}
+						}
+					}
+					Some(image)
+				} else if key == "activity-10-20" {
+					Some(egui::ColorImage::filled(
+						[32, 32],
+						egui::Color32::from_rgb(225, 95, 100),
+					))
+				} else {
+					None
+				};
+				if image.is_some() {
+					self.messaging.accept_avatar(&ctx, key, image);
+				}
+			}
 		}
 		for request in std::mem::take(&mut self.messaging.extensions.requests) {
 			if let ui::ExtensionRequest::PreviewTheme { theme, image } = request {
@@ -210,8 +245,11 @@ fn prime_profile(state: &mut client_core::State) {
 	}
 }
 
+/// Opaque external artwork reference; only generated pixels are served in this example.
+const PROXY_ART: &str = "external/abcdefghijklmnopqrstuvwxyzABCDEFG/%3Falbum%3Dart%2Fcover/https/example.invalid/cover%2Epng";
+
 /// Several synthetic Rich Presence entries for the first friend and the message author.
-fn prime_activities(state: &mut client_core::State) {
+fn prime_activities(state: &mut client_core::State, proxy_artwork: bool) {
 	let activity =
 		|kind, name: &str, details: Option<&str>, state: Option<&str>| model::RichActivity {
 			kind,
@@ -223,7 +261,7 @@ fn prime_activities(state: &mut client_core::State) {
 			ends_at: None,
 			started_at: Some(1_700_000_000_000),
 		};
-	let activities = vec![
+	let mut activities = vec![
 		activity(
 			0,
 			"Synthetic Quest",
@@ -233,6 +271,19 @@ fn prime_activities(state: &mut client_core::State) {
 		activity(2, "Spotify", Some("Quiet Harbor"), Some("The Offline Band")),
 		activity(3, "Harbor Stories", None, None),
 	];
+	if proxy_artwork {
+		let wire = serde_json::json!({"user_id":"2","status":"online","activities":[{
+			"type":2,"name":"Synthetic music","details":"An encoded album cover",
+			"state":"The Offline Band","application_id":"10",
+			"assets":{"large_image":format!("mp:{PROXY_ART}"),"small_image":"20"}
+		}]});
+		let presence =
+			discord_protocol::presence::decode(&serde_json::to_vec(&wire).unwrap()).unwrap();
+		let model::Patch::Value(projected) = presence.activities else {
+			unreachable!()
+		};
+		activities = projected;
+	}
 	let author = test_support::message(1, model::Id(20)).author.id;
 	state.apply(client_core::Envelope {
 		generation: state.generation,
@@ -241,6 +292,7 @@ fn prime_activities(state: &mut client_core::State) {
 				.into_iter()
 				.map(|user| client_core::presence::Update {
 					user,
+					avatar: model::Patch::Absent,
 					status: model::Patch::Value("online".into()),
 					custom_status: model::Patch::Absent,
 					activities: model::Patch::Value(activities.clone()),
@@ -337,6 +389,8 @@ fn prime_channel_links(state: &mut client_core::State) {
 				tertiary_color: None,
 				position: 1,
 				hoist: false,
+				// An ordinary role the fixture can hand out; only integrations are managed.
+				managed: false,
 			},
 		}),
 	});
@@ -636,7 +690,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|general|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light] [--compact] [--transparency=0..100]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|embeds|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|updates|general|chat|language|notifications|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--proxy-artwork] [--width=1120] [--height=760] [--scroll=PIXELS] [--keybinds-custom] [--light] [--toasts] [--compact] [--transparency=0..100]".into());
 	}
 	let smoke = args.iter().any(|arg| arg == "--smoke");
 	let interactive = args.iter().any(|arg| arg == "--interactive");
@@ -657,6 +711,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "collectibles"
 			| "member-tags"
 			| "markdown"
+			| "embeds"
 			| "channel-links"
 			| "channel-link-replies"
 			| "dm-tags"
@@ -666,7 +721,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "account"
 			| "appearance"
 			| "storage"
+			| "updates"
 			| "general"
+			| "chat" | "language"
+			| "notifications"
 			| "keybinds"
 			| "extensions"
 			| "server"
@@ -684,7 +742,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "forum-settings"
 			| "friends"
 	) {
-		return Err("Page must be profile, markdown, channel-links, channel-link-replies, profile-card, collectibles, member-tags, dm-tags, account, appearance, storage, general, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
+		return Err("Page must be profile, markdown, embeds, channel-links, channel-link-replies, profile-card, collectibles, member-tags, dm-tags, account, appearance, storage, general, chat, language, notifications, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
 	}
 	let slash_command = value("--command=").unwrap_or("help").to_owned();
 	if !matches!(slash_command.as_str(), "help" | "weather") {
@@ -708,16 +766,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		})
 		.unwrap_or_default();
 	let light = args.iter().any(|arg| arg == "--light");
+	let toasts = args.iter().any(|arg| arg == "--toasts");
 	let transparency = value("--transparency=").map(str::parse::<u8>).transpose()?;
 	if transparency.is_some_and(|amount| amount > 100) {
 		return Err("Transparency must be in 0..=100".into());
 	}
-	let activities = args.iter().any(|arg| arg == "--activities");
+	let proxy_artwork = args.iter().any(|arg| arg == "--proxy-artwork");
+	let activities = proxy_artwork || args.iter().any(|arg| arg == "--activities");
 	let friends_tab = value("--tab=").unwrap_or("online").to_owned();
 	let theme_editor = value("--theme-editor=").map(str::to_owned);
 	let theme_preview = args.iter().any(|arg| arg == "--theme-preview");
 	let thumbnail = args.iter().any(|arg| arg == "--thumbnail");
 	let extension = value("--extension=").map(str::to_owned);
+	let name_style = value("--name-style=").and_then(|id| id.parse::<u32>().ok());
+	let name_font = value("--name-font=").and_then(|id| id.parse::<u32>().ok());
+	// `--name-style=` and `--name-font=` give the previewed user a synthetic Nitro name style;
+	// a font alone uses the solid effect.
+	let styled = name_style.is_some() || name_font.is_some();
+	let style_name = |user: &mut model::User| {
+		if styled {
+			user.cosmetics.get_or_insert_default().name_style = Some(model::NameStyle {
+				font: name_font.unwrap_or(0),
+				effect: model::NameEffect::from_id(name_style.unwrap_or(1)),
+				colors: vec![0xff7ab8, 0x7a5cff, 0x34d6ff, 0xffd166],
+			});
+		}
+	};
+	let member_presence = value("--presence=").unwrap_or("online").to_owned();
+	let card_status = value("--status=").map(str::to_owned);
+	let private_profile = args.iter().any(|arg| arg == "--private");
 	let fixture = extension.as_deref().map(extension_fixture).transpose()?;
 	let saved = Arc::new(AtomicBool::new(false));
 	let completed = saved.clone();
@@ -752,7 +829,73 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				test_support::demo_state()
 			};
 			if activities {
-				prime_activities(&mut state);
+				prime_activities(&mut state, proxy_artwork);
+			}
+			if page == "embeds" {
+				let channel = state.selected.expect("synthetic embed conversation");
+				let messages: Vec<model::Message> = (0..3)
+					.rev()
+					.map(|variant| {
+						let mut message = test_support::message(600 + variant, channel);
+						let url = format!("https://example.org/synthetic/post/{variant}");
+						message.content = if variant == 0 {
+							url.clone()
+						} else {
+							"Synthetic post without its source URL in the message".into()
+						};
+						message.attachments.clear();
+						message.reactions = Some(vec![]);
+						message.embeds = vec![model::Embed {
+							kind: "rich".into(),
+							url: Some(url),
+							description: Some(
+								match variant {
+									0 => {
+										"The message already links the source. No extra source action is needed."
+									}
+									1 => {
+										"An untitled card with a footer and a separate author link."
+									}
+									_ => "An untitled card with no footer or timestamp.",
+								}
+								.into(),
+							),
+							author: Some(model::EmbedAuthor {
+								name: "Synthetic (@synthetic)".into(),
+								url: Some("https://example.org/synthetic/author".into()),
+								..Default::default()
+							}),
+							footer: (variant != 2).then(|| model::EmbedFooter {
+								text: "X".into(),
+								..Default::default()
+							}),
+							timestamp: (variant != 2).then(|| "2026-10-12T17:37:03Z".into()),
+							..Default::default()
+						}];
+						message
+					})
+					.collect();
+				// A link that resolves to a hosted clip carries the clip and no poster.
+				let mut clip = test_support::message(604, channel);
+				clip.content = "https://example.org/synthetic/reel/".into();
+				clip.attachments.clear();
+				clip.reactions = Some(vec![]);
+				clip.embeds = vec![model::Embed {
+					kind: "video".into(),
+					url: Some(clip.content.clone()),
+					video: Some(model::EmbedMedia {
+						url: Some("https://example.org/synthetic/reel/clip.mp4".into()),
+						width: 640,
+						height: 1136,
+						..Default::default()
+					}),
+					..Default::default()
+				}];
+				state.timeline.clear();
+				state
+					.timeline
+					.seed_cache(messages.into_iter().chain(std::iter::once(clip)).collect())
+					.expect("valid synthetic embeds");
 			}
 			if page == "markdown" {
 				let channel = state.selected.expect("synthetic markdown conversation");
@@ -775,10 +918,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				prime_channel_link_replies(&mut state);
 			}
 			if page == "profile" {
+				if let Some(own) = state.user.as_mut() {
+					style_name(own);
+				}
 				prime_profile(&mut state);
 			}
 			if page == "member-tags" {
-				let user = test_support::message(1, model::Id(20)).author;
+				let mut user = test_support::message(1, model::Id(20)).author;
+				style_name(&mut user);
 				state.members = Some(model::MemberList {
 					channel: model::Id(20),
 					guild: Some(model::Id(10)),
@@ -793,7 +940,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 						user,
 						nick: None,
 						roles: vec![],
-						status: Some("online".into()),
+						// `--presence=` shows another status glyph (idle, dnd, offline).
+						status: Some(member_presence.clone()),
 						custom_status: Some("Building a quieter place".into()),
 						activities: vec![],
 						clients: model::ClientPlatforms {
@@ -848,6 +996,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				let _ = state.select(model::Id(26));
 			}
 			let mut messaging = ui::MessagingUi::default();
+			if styled {
+				messaging.cosmetics.name_styles = true;
+			}
 			if args.iter().any(|arg| arg == "--compact") {
 				messaging.apply_reading_preferences(
 					&cc.egui_ctx,
@@ -886,6 +1037,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					| "post-intro" | "markdown"
 					| "channel-links"
 					| "channel-link-replies"
+					| "embeds"
 			) {
 				// State is primed above; the normal offline messaging surface renders the list.
 			} else if page == "slash-commands" {
@@ -908,7 +1060,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				// Synthetic cosmetics: the UI draws their artwork locally, offline. They are
 				// opt-in, so this page turns all four on.
 				messaging.cosmetics = model::CosmeticPreferences::SHOWN;
-				let user = test_support::message(1, model::Id(20)).author;
+				let mut user = test_support::message(1, model::Id(20)).author;
+				style_name(&mut user);
+				if let Some(own) = state.user.as_mut() {
+					style_name(own);
+				}
 				let mut offline = test_support::message(2, model::Id(20)).author;
 				offline.id = model::Id(3);
 				offline.name = "Sky (synthetic)".into();
@@ -940,15 +1096,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 						member(offline, "offline"),
 					],
 				});
+				let own = state.user.clone().expect("synthetic account");
 				if args.iter().any(|arg| arg == "--full") {
 					messaging.preview_full_profile(user);
+				} else if args.iter().any(|arg| arg == "--badge-directory") {
+					messaging.preview_badges(
+						own,
+						Some(model::badges::id::ACCOUNT_AGE),
+						egui::Pos2::ZERO,
+					);
+				} else if args.iter().any(|arg| arg == "--badge-customize") {
+					messaging.preview_badges(own, None, egui::pos2(1010.0, 330.0));
+				} else if args.iter().any(|arg| arg == "--own") {
+					messaging.preview_profile_popout(own);
 				} else {
 					messaging.preview_profile_popout(user);
 				}
 			} else if page == "profile-card" {
 				state.demo = false;
 				state.gateway_connected = true;
-				let user = test_support::message(1, model::Id(20)).author;
+				let mut user = test_support::message(1, model::Id(20)).author;
+				style_name(&mut user);
 				state.members = Some(model::MemberList {
 					channel: model::Id(20),
 					guild: Some(model::Id(10)),
@@ -964,14 +1132,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 						nick: None,
 						roles: vec![],
 						status: Some("online".into()),
-						custom_status: None,
-						activities: vec![],
+						// `--status=` gives the synthetic member a custom status.
+						custom_status: card_status.clone(),
+						activities: state
+							.presence_for(user.id)
+							.filter(|_| proxy_artwork)
+							.map_or_else(Vec::new, |presence| presence.activities.clone()),
 						clients: model::ClientPlatforms {
 							mobile: true,
 							..Default::default()
 						},
 					}))],
 				});
+				// `--private` serves the card a private profile, as Discord sends a non-friend.
+				let guild = Some(model::Id(10));
+				if private_profile
+					&& let Some(client_core::Command::Profile { request, .. }) =
+						state.request_profile(user.id, guild)
+				{
+					let mut profile = ui::synthetic_own_profile(&user);
+					profile.private = true;
+					profile.bio.clear();
+					profile.badges.clear();
+					profile.connections.clear();
+					state.apply(client_core::Envelope {
+						generation: state.generation,
+						event: client_core::Event::Profile {
+							user: user.id,
+							guild,
+							request,
+							result: Ok(Box::new(profile)),
+						},
+					});
+					state.clear_profile();
+				}
 				messaging.preview_profile(user);
 			} else if let Some((package, invocation, result)) = fixture {
 				prime_extension_chat(&mut state);
@@ -1046,6 +1240,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 						&page
 					},
 				);
+				if page == "keybinds" && args.iter().any(|arg| arg == "--keybinds-custom") {
+					// Synthetic rows for the extra-binding card; no saved preference is read.
+					messaging.keybinds.custom = vec![
+						model::CustomBinding {
+							action: model::KeybindAction::PushToTalk,
+							chord: model::KeyChord::new("Y", 0),
+						},
+						model::CustomBinding {
+							action: model::KeybindAction::ToggleMute,
+							chord: model::KeyChord::new("F8", 0),
+						},
+					];
+				}
 				if page == "storage" {
 					// Synthetic measurements; the demo image worker keeps no disk cache.
 					messaging.image_cache_usage = Some([
@@ -1058,6 +1265,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 							files: 642,
 						},
 					]);
+				}
+				if page == "chat" {
+					// The app applies saved preferences at startup; this fixture skips them.
+					messaging.preload_on_hover =
+						local_store::AppPreferences::default().preload_on_hover;
 				}
 				if page == "extensions" {
 					seed_catalog(
@@ -1109,6 +1321,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					}
 				}
 			}
+			// `--toasts`: a full stack of notices, short to wrapping, over the shown page.
+			if toasts {
+				for (level, text) in [
+					(ui::design::Level::Success, "Note saved"),
+					(
+						ui::design::Level::Warning,
+						"Attachments must total at most 500 MB; account limits may be lower",
+					),
+					(
+						ui::design::Level::Error,
+						"Attach up to 10 files per message",
+					),
+				] {
+					messaging.toasts.push(level, text);
+				}
+			}
 			Ok(Box::new(Preview {
 				interactive,
 				smoke,
@@ -1116,6 +1344,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				state,
 				output,
 				thumbnail,
+				proxy_artwork,
 				frames: 0,
 				scroll,
 				requested: false,
@@ -1130,12 +1359,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		return Err("No screenshot saved".into());
 	}
 	Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-	#[test]
-	fn non_theme_catalog_loads_community_preview() {
-		super::seed_catalog(&mut ui::ExtensionUi::default(), false);
-	}
 }

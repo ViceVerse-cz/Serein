@@ -806,6 +806,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Náhled videa · pře
 embeds-text-text-display-limited = Omezené zobrazení textu
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Kliknutím zobrazíte více
 # Context: show
 emoji-details-show-a-custom-emoji = Vlastní emotikony.
 # Context: show
@@ -1544,6 +1546,14 @@ join-server-status-invite-accepted = Pozvánka přijata. Čekání na přístup 
 join-server-status-offline-preview = Offline náhled — připojení k serverům je zakázáno.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Odebrat
+# Context: custom_section
+keybinds-custom-section-add-binding = Přidat zkratku
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Přidejte další zkratky pro libovolnou akci. Každou kombinaci klávesy nebo tlačítka myši lze použít jen jednou.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Vlastní zkratky
 # Context: row
 keybinds-row-global = GLOBÁLNÍ
 # Context: row
@@ -1784,6 +1794,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Otevřít
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Náhled zvuku
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Aktivace push to talk
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Deaktivace push to talk
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Zpracování vyzváněcích tónů, hovorových zařízení a mikrofonu.
 # Context: notification_settings
@@ -3004,6 +3018,8 @@ server-menu-header-server-menu = Nabídka serveru
 server-menu-leave-item-leave-server = Opustit server
 # Context: read_item
 server-menu-read-item-mark-as-read = Označit jako přečtené
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = Označit vše jako přečtené
 # Context: settings_item
 server-menu-settings-item-server-settings = Nastavení serveru
 # Context: show
@@ -3514,6 +3530,9 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein neshromažďuje telemetrii ani nenahrává diagnostiku. Discord uchovává data na straně služeb podle svých vlastních zásad.
 # Context: storage_page
 settings-storage-page-your-privacy = Vaše soukromí
+settings-storage-page-saved-login = Uložené přihlášení
+settings-storage-page-plaintext-login = Ukládat přihlášení jako prostý text bez klíčenky
+settings-storage-page-plaintext-login-description = Použije se jen tehdy, když nefunguje žádná klíčenka systému (GNOME Keyring, KWallet, Klíčenka ani Správce přihlašovacích údajů). Token se uloží nešifrovaně do soukromého souboru ve složce dat Sereinu, kde ho může přečíst kdokoli s přístupem k vašemu uživatelskému účtu. Vypnutím se tyto soubory smažou.
 # Context: cosmetic_settings
 settings-cosmetics = Kosmetika profilu
 # Context: cosmetic_settings
@@ -3587,6 +3606,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Příkaz n
 slash-commands-footer-refresh-application-commands = Obnovit příkazy aplikace
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Tato nálepka pochází ze serveru, který je jen pro pozvané nebo není dostupný.
 # Context: message
 stickers-message-loading-sticker-details = Načítání podrobností nálepky…
 # Context: message
@@ -3990,7 +4011,29 @@ updates-update-settings-restart-to-update = Pro aktualizaci restartujte
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein byl nainstalován prostřednictvím vaší distribuce. Spusťte to v terminálu pro aktualizaci.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Uložit diagnostiku
+# Context: update_settings
 updates-update-settings-support-diagnostics = Podpora a diagnostika
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Kopírovat poslední řádky
+# Context: update_settings
+updates-update-settings-diagnostic-log = Diagnostický protokol
+# Context: update_settings
+updates-update-settings-log-errors = Chyby
+# Context: update_settings
+updates-update-settings-log-events = Chyby, varování a události
+# Context: update_settings
+updates-update-settings-log-everything = Vše (podrobně)
+# Context: update_settings
+updates-update-settings-log-off = Vypnuto
+# Context: update_settings
+updates-update-settings-log-warnings = Chyby a varování
+# Context: update_settings
+updates-update-settings-open-folder = Otevřít složku
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Složku protokolu se nepodařilo zapsat. Zkontrolujte složku dat Serein a zkuste to znovu.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Časy, fáze a selhání v jednom místním souboru protokolu. Údaje o účtu, kanálech, zprávách a přihlašovací údaje se nikdy nezapisují a nic se neodesílá.
 # Context: update_log
 updates-update-log = Historie aktualizací
 # Context: update_settings
@@ -4025,6 +4068,8 @@ user-menu-contents-private-nicknames-are-available-for-confirmed-friends = Pro p
 user-menu-contents-profile = Profil
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = Odeberte tuto konverzaci ze seznamu DM. Zprávy se uchovávají.
+# Context: contents
+user-menu-contents-roles = Role
 # Context: contents
 user-menu-contents-unblock = Odblokovat
 # Context: contents
@@ -4484,6 +4529,7 @@ lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni da
 lib-composer-onboarding-complete = Dokončit uvítání
 profiles-message-placeholder = Zpráva pro @{ $user }
 profiles-message-send = Odeslat zprávu
+profiles-message-open-chat = Otevřít chat
 profiles-message-sending = Otevírání soukromé zprávy…
 user-menu-contents-start-a-call = Zahájit hovor
 verification-show-complete-the-check-to-open-this-conversation = Dokonči ověření a otevři tuto konverzaci.
@@ -4636,6 +4682,8 @@ member-in-voice = V hlasovém chatu
 settings-chat-box = Psaní zpráv
 settings-convert-emoticons = Automaticky převádět emotikony ve zprávách na emoji
 settings-convert-emoticons-description = Při odesílání nebo úpravě zpráv převést samostatné emotikony jako :) na 🙂. Kód a odkazy zůstanou beze změny.
+settings-preload-on-hover = Předem načítat po najetí myší
+settings-preload-on-hover-description = Načíst konverzaci, profil nebo výběr GIFů, když na nich spočine ukazatel, aby se otevřely okamžitě. Používá stejné požadavky jako otevření, nejvýše 12 za minutu pro každý druh.
 
 profiles-board = Board
 profiles-board-unavailable = This profile’s board is unavailable.
@@ -4811,8 +4859,111 @@ composer-placeholder-direct = Zpráva pro @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = Toto je začátek vaší historie přímých zpráv s uživatelem { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Vítejte na začátku skupiny { $name }.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = Vítejte v #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Toto je začátek kanálu #{ $channel }.
+show-user-profile = Zobrazit profil uživatele
+hide-user-profile = Skrýt profil uživatele
+view-full-profile = Zobrazit celý profil
+# Context: text_menu
+text-menu-cut = Vyjmout
+text-menu-copy = Kopírovat
+text-menu-paste = Vložit
+text-menu-select-all = Vybrat vše
+# Context: media_box
+forum-composer-attached-files = Přiložené soubory: { $count }
+forum-composer-remove-file = Odebrat { $file }
+post-menu-post-action-failed = Akce s příspěvkem selhala
+post-menu-thread-action-failed = Akce s vláknem selhala
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = Běžný
+# Context: badges
+badges-rarity-rare = Vzácný
+# Context: badges
+badges-rarity-epic = Epický
+# Context: badges
+badges-rarity-mythic = Mýtický
+# Context: badges
+badges-always-visible = Na profilu se zobrazuje vždy
+# Context: badges
+badges-click-show = Kliknutím zobrazíte
+# Context: badges
+badges-click-hide = Kliknutím skryjete
+# Context: badges
+badges-customize-title = Přizpůsobit odznaky
+# Context: badges
+badges-customize-hint = Přetažením změníte pořadí a skryjete ty, které ostatní nemají vidět.
+# Context: badges
+badges-none = Zatím žádné odznaky k zobrazení.
+# Context: badges
+badges-reset = Obnovit
+# Context: badges
+badges-saving = Ukládání…
+# Context: badges
+badges-save = Uložit
+# Context: badges
+badges-view = Zobrazit odznaky
+# Context: badges
+badges-your = Vaše odznaky
+# Context: badges
+badges-user = Odznaky uživatele { $name }
+# Context: badges
+badges-browse = Procházejte své odznaky a objevte nové, které můžete získat.
+# Context: badges
+badges-available = K odemčení
+# Context: badges
+badges-customize-button = Přizpůsobit odznaky
+# Context: badges
+badges-close = Zavřít
+# Context: badges
+badges-locked = Zatím neodemčeno
+# Context: badges
+badges-date-unlocked = Datum odemčení
+# Context: badges
+badges-rarity = Vzácnost
+# Context: badges
+badges-max-level = Dosáhli jste nejvyšší úrovně tohoto odznaku.
+# Context: badges
+badges-next-level = Další úroveň: { $tier }
+# Context: badges
+badges-all-levels = Zobrazit všechny úrovně
+# Context: badges
+badges-hide-levels = Skrýt úrovně
+# Context: badges
+badges-manage = Spravovat odznaky
+page-language-time = Jazyk a čas
+description-language-time = Jazyk rozhraní a zobrazení času.
+time-format-group = Formát času
+time-format-auto = Automaticky
+time-format-12-hour = 12hodinový
+time-format-24-hour = 24hodinový
+profiles-status-edit = Upravit stav
+profiles-status-clear = Vymazat stav
+send-throttled-title = Hola hola, moc pálivé
+send-throttled-body = Posíláte zprávy příliš rychle!
+send-throttled-dismiss = Vstoupit do zóny klidu
+profiles-private-profile = Soukromý profil
+profiles-private-notice = Profil uživatele { $name } je soukromý, takže některé informace jsou skryté. Pošlete žádost o přátelství, abyste viděli víc.
+settings-cosmetics-name-styles = Styly jmen
+settings-cosmetics-name-styles-description = Písma, barvy a efekty zobrazovaných jmen s Nitrem.
+search-overlays-message-contains = Zpráva obsahuje
+search-overlays-no-matching-content-types = Žádné odpovídající typy obsahu
+search-overlays-history = Historie
+search-overlays-clear-history = Vymazat historii hledání
+main-sign-in-rate-limited-detail = Discord omezuje toto přihlášení. Než to zkusíte znovu, počkejte. Dřívější pokus může čekání prodloužit.
+
+# New message
+new-message-title = Nová zpráva
+new-message-subtitle = Skupinové DM mohou mít až 10 členů.
+new-message-search = Hledat
+new-message-hint = Přidejte přátele a začněte přímou zprávu nebo skupinu.
+new-message-no-people-found = Nikdo neodpovídá hledání.
+new-message-create = Vytvořit zprávu
+new-message-cancel = Zrušit

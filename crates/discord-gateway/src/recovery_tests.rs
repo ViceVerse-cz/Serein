@@ -69,6 +69,10 @@ impl Gateway {
 			result = self.resume.accept() => (result.unwrap().0, true),
 		};
 		assert_eq!(resumed, resume, "recovery selected the wrong gateway URL");
+		Self::open(stream, op).await
+	}
+
+	async fn open(stream: TcpStream, op: Option<u64>) -> WebSocketStream<TcpStream> {
 		let mut socket = accept_async(stream).await.unwrap();
 		if let Some(op) = op {
 			send(
@@ -197,6 +201,63 @@ async fn invalid_session_before_hello_identifies_at_original_gateway() {
 			let mut socket = gateway.socket(true, None).await;
 			close(&mut socket, 4009).await;
 			let next = gateway.socket(false, Some(2)).await;
+			drop(socket);
+			gateway.stop(next).await;
+		})
+		.await;
+}
+
+#[tokio::test]
+async fn recovery_probes_a_ready_socket_and_resumes_only_when_it_is_silent() {
+	let gateway = Gateway::new().await;
+	gateway
+		.run(async {
+			let mut socket = gateway.socket(false, Some(2)).await;
+			let mut ready = ready(41, "synthetic-recovery-session");
+			ready["d"]["resume_gateway_url"] = json!("wss://gateway-resume.discord.gg/");
+			send(&mut socket, ready).await;
+			acknowledge(&mut socket, 41).await;
+			gateway.manual.store(true, Ordering::Relaxed);
+			// A healthy socket acknowledges the probe heartbeat and is kept.
+			gateway.reconnect.notify_one();
+			let probe = packet(&mut socket).await;
+			assert_eq!(
+				(probe["op"].clone(), probe["d"].clone()),
+				(json!(1), json!(41))
+			);
+			// Queue an old-sequence heartbeat before the ack, like a timer heartbeat
+			// that was already in flight. It must not satisfy the synchronization below.
+			send(&mut socket, json!({"op":1,"d":null})).await;
+			send(&mut socket, json!({"op":11,"d":null})).await;
+			// A new sequence proves the preceding ack was consumed. AUTH_SESSION_CHANGE
+			// only advances the dispatch cursor here; it does not reset recovery state.
+			send(
+				&mut socket,
+				json!({"op":0,"t":"AUTH_SESSION_CHANGE","s":42,"d":{}}),
+			)
+			.await;
+			send(&mut socket, json!({"op":1,"d":null})).await;
+			let mut older_heartbeat = false;
+			loop {
+				let heartbeat = packet(&mut socket).await;
+				assert_eq!(heartbeat["op"], 1);
+				if heartbeat["d"] == 42 {
+					break;
+				}
+				assert_eq!(heartbeat["d"], 41);
+				older_heartbeat = true;
+				// These precede the ack already sent above. Another ack here could
+				// arrive after the next recovery signal and cancel the unanswered probe.
+			}
+			assert!(older_heartbeat);
+			// A silently dead socket is replaced by a resume once the probe goes unanswered.
+			gateway.reconnect.notify_one();
+			let probe = packet(&mut socket).await;
+			assert_eq!(
+				(probe["op"].clone(), probe["d"].clone()),
+				(json!(1), json!(42))
+			);
+			let next = gateway.socket(true, Some(6)).await;
 			drop(socket);
 			gateway.stop(next).await;
 		})

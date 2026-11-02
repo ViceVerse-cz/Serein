@@ -62,6 +62,39 @@ fn link(
 		}
 	}
 }
+
+/// A source action is needed only when the card and message have no existing source link.
+fn source_fallback(
+	message: &Message,
+	embed: &Embed,
+	cache: &mut FormatCache,
+	message_links_shown: bool,
+) -> Option<String> {
+	let inline = inline_image(embed).is_some();
+	if (!inline
+		&& embed
+			.title
+			.as_deref()
+			.is_some_and(|title| !title.is_empty()))
+		|| embed.video.is_some()
+		|| matches!(embed.kind.as_str(), "video" | "gifv")
+	{
+		return None;
+	}
+	let url = embed.url.as_deref().and_then(external_url)?;
+	if (message_links_shown && cache.get(message.id, &message.content).links.contains(&url))
+		|| (!inline
+			&& [&embed.author, &embed.provider]
+				.into_iter()
+				.flatten()
+				.any(|author| {
+					!author.name.is_empty()
+						&& author.url.as_deref().and_then(external_url).as_ref() == Some(&url)
+				})) {
+		return None;
+	}
+	Some(url)
+}
 #[allow(clippy::too_many_arguments)]
 fn text(
 	ui: &mut egui::Ui,
@@ -123,6 +156,17 @@ fn inline_image(embed: &Embed) -> Option<&model::EmbedMedia> {
 				})
 		})
 		.flatten()
+}
+
+/// A link that resolves to a hosted clip arrives as a video embed without a poster
+/// image. Discord draws the clip itself there, so the card shows its frames instead of
+/// an empty page; playback still opens in the browser through the card's video line.
+fn clip_media(embed: &Embed) -> Option<&model::EmbedMedia> {
+	let clip = embed.video.as_ref()?;
+	(embed.image.is_none()
+		&& embed.thumbnail.is_none()
+		&& (clip.url.is_some() || clip.proxy_url.is_some()))
+	.then_some(clip)
 }
 
 // Discord link previews carry additional images as same-URL embed entries.
@@ -220,7 +264,8 @@ fn gallery(
 				let star =
 					gif_for_media(media, embed.url.as_deref(), embed.kind == "gifv").map(|gif| {
 						let favorite = download.gif_favorites.contains(&gif.url);
-						let star = favorite_star(ui, &response, favorite);
+						let star =
+							favorite_star(ui, &response, favorite, images.gifs_playing(ui.ctx()));
 						if star.clicked() {
 							download.gif_favorite_request = Some(gif);
 						}
@@ -301,16 +346,21 @@ pub(crate) fn gif_for_media(
 	animated: bool,
 ) -> Option<Gif> {
 	let is_gif = |url: &str| {
-		url.split('?')
-			.next()
-			.unwrap_or(url)
-			.to_ascii_lowercase()
-			.ends_with(".gif")
+		let path = url.split(['?', '#']).next().unwrap_or(url);
+		let lower = path.to_ascii_lowercase();
+		lower.ends_with(".gif")
 	};
-	if !animated
-		&& !media.url.as_deref().is_some_and(is_gif)
-		&& !media.proxy_url.as_deref().is_some_and(is_gif)
-	{
+	let is_webp = |url: &str| {
+		let path = url.split(['?', '#']).next().unwrap_or(url);
+		let lower = path.to_ascii_lowercase();
+		lower.ends_with(".webp")
+	};
+	let has_gif =
+		media.url.as_deref().is_some_and(is_gif) || media.proxy_url.as_deref().is_some_and(is_gif);
+	let has_webp = media.url.as_deref().is_some_and(is_webp)
+		|| media.proxy_url.as_deref().is_some_and(is_webp);
+
+	if !has_gif && !(animated && has_webp) && !animated {
 		return None;
 	}
 	let preview = [media.url.as_deref(), media.proxy_url.as_deref()]
@@ -478,6 +528,20 @@ fn image_preview(
 	}
 }
 
+/// The clip of a poster-less video card, drawn where Discord draws its player.
+fn clip_preview(ui: &mut egui::Ui, clip: &model::EmbedMedia, images: &mut Avatars, demo: bool) {
+	images.show_media(
+		ui,
+		clip,
+		egui::vec2(
+			ui.available_width(),
+			crate::avatars::media::MEDIA_MAX_HEIGHT,
+		),
+		demo,
+		Surface::Inline,
+	);
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn show(
 	ui: &mut egui::Ui,
@@ -489,6 +553,7 @@ pub fn show(
 	profile: &mut crate::profiles::ProfileSession,
 	state: &client_core::State,
 	card_surface: crate::design::MessageCardSurface,
+	hide_media_links: bool,
 ) -> Option<Gif> {
 	if message.embeds_suppressed {
 		return None;
@@ -509,9 +574,24 @@ pub fn show(
 			index += count;
 			continue;
 		}
+		let source_url = source_fallback(
+			message,
+			embed,
+			cache,
+			!hide_media_links || !standalone_media_links(message),
+		);
 		ui.push_id(("embed", index), |ui| {
 			if count > 1 && inline_image(embed).is_some() {
 				gallery(ui, group, images, message.id, download, demo);
+				if let Some(url) = &source_url {
+					link(
+						ui,
+						&crate::i18n::translate("embeds-link-open-link"),
+						Some(url),
+						opening,
+						false,
+					);
+				}
 				if group.iter().any(|e| e.limited) {
 					ui.small(crate::i18n::translate("embeds-show-embed-display-limited"));
 				}
@@ -543,7 +623,8 @@ pub fn show(
 				embed_context_menu(&response, image, download, demo);
 				let star = gif.map(|gif| {
 					let favorite = state.is_gif_favorite(&gif);
-					let star = favorite_star(ui, &response, favorite);
+					let star =
+						favorite_star(ui, &response, favorite, images.gifs_playing(ui.ctx()));
 					if star.clicked() {
 						favorite_action = Some(gif);
 					}
@@ -557,6 +638,15 @@ pub fn show(
 						.clicked()
 				{
 					download.view_embed(message.id, image);
+				}
+				if let Some(url) = &source_url {
+					link(
+						ui,
+						&crate::i18n::translate("embeds-link-open-link"),
+						Some(url),
+						opening,
+						false,
+					);
 				}
 				ui.add_space(6.0);
 				return;
@@ -603,24 +693,22 @@ pub fn show(
 										);
 									}
 									if let Some(author) = &embed.author {
+										// Discord: a 24 px icon and the name in strong text,
+										// a link only on hover.
 										ui.horizontal_wrapped(|ui| {
+											ui.spacing_mut().item_spacing.x = 8.0;
 											if let Some(icon) = &author.icon {
 												images.show_media(
 													ui,
 													icon,
-													egui::vec2(20.0, 20.0),
+													egui::vec2(24.0, 24.0),
 													demo,
 													Surface::Inline,
 												);
 											}
-											link(
-												ui,
-												&author.name,
-												author.url.as_deref(),
-												opening,
-												false,
-											);
+											author_name(ui, author, opening, colors.text_strong);
 										});
+										ui.add_space(2.0);
 									}
 									if let Some(title) = &embed.title {
 										link(ui, title, embed.url.as_deref(), opening, true);
@@ -712,6 +800,8 @@ pub fn show(
 									download,
 									demo,
 								);
+							} else if let Some(clip) = clip_media(embed) {
+								clip_preview(ui, clip, images, demo);
 							}
 							if thumbnail.is_none()
 								&& large.is_none() && let Some(image) = &embed.thumbnail
@@ -741,33 +831,82 @@ pub fn show(
 									opening,
 									false,
 								);
-							} else if embed.title.is_none()
-								&& let Some(url) = embed.url.as_deref()
-							{
-								link(ui, "Open source…", Some(url), opening, false);
 							}
-							if let Some(footer) = &embed.footer {
+							// One footer line, as on Discord: icon, text, then " • " and the
+							// embed time in the chosen clock style.
+							let when = embed.timestamp.as_deref().map(|raw| {
+								time::OffsetDateTime::parse(
+									raw,
+									&time::format_description::well_known::Rfc3339,
+								)
+								.map_or_else(|_| raw.to_owned(), crate::local_time::calendar)
+							});
+							let footer_text = embed
+								.footer
+								.as_ref()
+								.map(|footer| footer.text.as_str())
+								.filter(|text| !text.is_empty());
+							if footer_text.is_some() || when.is_some() {
+								ui.add_space(4.0);
 								ui.horizontal_wrapped(|ui| {
-									if let Some(icon) = &footer.icon {
+									ui.spacing_mut().item_spacing.x = 8.0;
+									if let Some(icon) =
+										embed.footer.as_ref().and_then(|f| f.icon.as_ref())
+									{
 										images.show_media(
 											ui,
 											icon,
-											egui::vec2(16.0, 16.0),
+											egui::vec2(20.0, 20.0),
 											demo,
 											Surface::Inline,
 										);
 									}
-									ui.add(
-										egui::Label::new(
-											RichText::new(&footer.text).small().color(colors.muted),
-										)
-										.wrap()
-										.selectable(true),
+									let line = match (footer_text, when.as_deref()) {
+										(Some(text), Some(when)) => format!("{text} • {when}"),
+										(Some(text), None) => text.to_owned(),
+										(None, Some(when)) => when.to_owned(),
+										(None, None) => String::new(),
+									};
+									let mut text =
+										RichText::new(line).size(12.0).color(colors.muted);
+									if source_url.is_some() {
+										text = text.underline();
+									}
+									let response = ui.add(
+										egui::Label::new(text)
+											.wrap()
+											.selectable(source_url.is_none())
+											.sense(if source_url.is_some() {
+												egui::Sense::click()
+											} else {
+												egui::Sense::hover()
+											}),
 									);
+									if let Some(url) = &source_url {
+										response.widget_info(|| {
+											egui::WidgetInfo::labeled(
+												egui::Role::Link,
+												ui.is_enabled(),
+												url,
+											)
+										});
+										if response
+											.on_hover_text(url)
+											.on_hover_cursor(egui::CursorIcon::PointingHand)
+											.clicked()
+										{
+											*opening = Some(url.clone());
+										}
+									}
 								});
-							}
-							if let Some(timestamp) = &embed.timestamp {
-								ui.small(timestamp);
+							} else if let Some(url) = &source_url {
+								link(
+									ui,
+									&crate::i18n::translate("embeds-link-open-link"),
+									Some(url),
+									opening,
+									false,
+								);
 							}
 							if group.iter().any(|e| e.limited) {
 								ui.small(crate::i18n::translate(
@@ -805,7 +944,7 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 		let e = &embeds[index];
 		let image_height = if count > 1 {
 			gallery_rect(count, count - 1, 456.0).bottom()
-		} else if e.image.is_some() || large_thumbnail(e).is_some() {
+		} else if e.image.is_some() || large_thumbnail(e).is_some() || clip_media(e).is_some() {
 			200.0
 		} else {
 			0.0
@@ -813,7 +952,12 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 		height += if e.kind == "poll_result" {
 			72.0
 		} else if inline_image(e).is_some() {
-			if count > 1 { image_height + 6.0 } else { 206.0 }
+			let source = if e.kind == "image" && e.url.is_some() {
+				20.0
+			} else {
+				0.0
+			};
+			(if count > 1 { image_height + 6.0 } else { 206.0 }) + source
 		} else {
 			let mut lines = 0.0;
 			if e.provider
@@ -838,6 +982,10 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 				.as_ref()
 				.is_some_and(|footer| !footer.text.is_empty())
 				|| e.timestamp.is_some()
+				|| (e.url.is_some()
+					&& e.title.as_deref().is_none_or(str::is_empty)
+					&& e.video.is_none()
+					&& !matches!(e.kind.as_str(), "video" | "gifv"))
 			{
 				lines += 1.0;
 			}
@@ -861,10 +1009,229 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 mod tests {
 	use super::*;
 
+	/// A link that resolves to a hosted clip carries no poster; the card paints the clip.
+	#[test]
+	fn a_video_card_without_a_poster_shows_its_clip() {
+		let mut embed = Embed {
+			kind: "video".into(),
+			url: Some("https://example.org/reels/synthetic/".into()),
+			video: Some(model::EmbedMedia {
+				url: Some("https://example.org/reels/synthetic/clip.mp4".into()),
+				proxy_url: Some(
+					"https://images-ext-1.discordapp.net/external/synthetic/https/example.org/reels/synthetic/clip.mp4"
+						.into(),
+				),
+				width: 640,
+				height: 1136,
+				..Default::default()
+			}),
+			..Default::default()
+		};
+		let clip = clip_media(&embed).expect("the clip is the card's media");
+		assert_eq!((clip.width, clip.height), (640, 1136));
+		// The card asks the media worker for the clip through Discord's proxy.
+		let mut message = test_support::message(1, model::Id(2));
+		message.content = embed.url.clone().unwrap();
+		message.embeds = vec![embed.clone()];
+		let mut images = Avatars::default();
+		egui::Context::default()
+			.run_ui(egui::RawInput::default(), |ui| {
+				show(
+					ui,
+					&message,
+					&mut FormatCache::default(),
+					&mut images,
+					&mut None,
+					&mut DownloadUi::default(),
+					&mut crate::profiles::ProfileSession::default(),
+					&client_core::State::default(),
+					crate::design::MessageCardSurface::Conversation,
+					false,
+				);
+			})
+			.drop_without_applying_deltas();
+		let proxied = clip.proxy_url.as_deref().unwrap();
+		assert!(
+			images
+				.take_requests()
+				.iter()
+				.any(|request| request.starts_with("media:") && request.ends_with(proxied))
+		);
+		// A card with a picture keeps its poster or bot thumbnail instead.
+		embed.thumbnail = Some(model::EmbedMedia {
+			url: Some("https://example.org/reels/synthetic/poster.png".into()),
+			..Default::default()
+		});
+		assert!(clip_media(&embed).is_none());
+		embed.thumbnail = None;
+		// Nothing to fetch is not a preview area.
+		embed.video = Some(model::EmbedMedia::default());
+		assert!(clip_media(&embed).is_none());
+	}
+
+	#[test]
+	fn source_fallback_requires_a_safe_url_without_an_existing_source_action() {
+		let mut message = test_support::message(1, model::Id(2));
+		let mut embed = Embed {
+			kind: "rich".into(),
+			url: Some("https://example.org/post/1".into()),
+			..Default::default()
+		};
+		let mut cache = FormatCache::default();
+		assert_eq!(
+			source_fallback(&message, &embed, &mut cache, true),
+			embed.url
+		);
+		for content in [
+			"https://example.org/post/1",
+			"[Read the post](https://example.org/post/1)",
+		] {
+			message.content = content.into();
+			assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		}
+		for content in [
+			"https://example.org/post/12",
+			"`https://example.org/post/1`",
+		] {
+			message.content = content.into();
+			assert_eq!(
+				source_fallback(&message, &embed, &mut cache, true),
+				embed.url
+			);
+		}
+		embed.title = Some("A linked title".into());
+		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		embed.title = Some(String::new());
+		embed.author = Some(model::EmbedAuthor {
+			name: "Author".into(),
+			url: embed.url.clone(),
+			..Default::default()
+		});
+		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		embed.provider = embed.author.take();
+		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		embed.provider = None;
+		embed.kind = "video".into();
+		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		embed.kind = "rich".into();
+		embed.video = Some(model::EmbedMedia::default());
+		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		embed.video = None;
+		for url in [
+			None,
+			Some("javascript:alert(1)"),
+			Some("https://user:password@example.org/post/1"),
+		] {
+			embed.url = url.map(str::to_owned);
+			assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		}
+	}
+
+	#[test]
+	fn untitled_card_source_author_and_provider_dispatch_their_own_urls() {
+		fn text_center(shape: &egui::Shape, label: &str) -> Option<egui::Pos2> {
+			match shape {
+				egui::Shape::Text(text) if text.galley.job.text == label => {
+					Some(text.pos + text.galley.rect.center().to_vec2())
+				}
+				egui::Shape::Vec(shapes) => {
+					shapes.iter().find_map(|shape| text_center(shape, label))
+				}
+				_ => None,
+			}
+		}
+		for footer in [true, false] {
+			let source_label = crate::i18n::translate("embeds-link-open-link");
+			for (label, url) in [
+				(
+					if footer { "X" } else { &source_label },
+					"https://example.org/post/1",
+				),
+				("Author", "https://example.org/author"),
+				("Provider", "https://example.org/provider"),
+			] {
+				let mut message = test_support::message(1, model::Id(2));
+				message.content = "A post without its URL in the message".into();
+				message.embeds = vec![Embed {
+					kind: "rich".into(),
+					url: Some("https://example.org/post/1".into()),
+					author: Some(model::EmbedAuthor {
+						name: "Author".into(),
+						url: Some("https://example.org/author".into()),
+						..Default::default()
+					}),
+					provider: Some(model::EmbedAuthor {
+						name: "Provider".into(),
+						url: Some("https://example.org/provider".into()),
+						..Default::default()
+					}),
+					footer: footer.then(|| model::EmbedFooter {
+						text: "X".into(),
+						..Default::default()
+					}),
+					..Default::default()
+				}];
+				let ctx = egui::Context::default();
+				let mut opening = None;
+				let mut cache = FormatCache::default();
+				let mut images = Avatars::default();
+				let mut frame = |events| {
+					ctx.run_ui(
+						egui::RawInput {
+							screen_rect: Some(egui::Rect::from_min_size(
+								egui::Pos2::ZERO,
+								egui::vec2(640.0, 700.0),
+							)),
+							events,
+							..Default::default()
+						},
+						|ui| {
+							show(
+								ui,
+								&message,
+								&mut cache,
+								&mut images,
+								&mut opening,
+								&mut DownloadUi::default(),
+								&mut crate::profiles::ProfileSession::default(),
+								&client_core::State::default(),
+								crate::design::MessageCardSurface::Conversation,
+								false,
+							);
+						},
+					)
+				};
+				frame(vec![]).drop_without_applying_deltas();
+				let output = frame(vec![]);
+				let pos = output
+					.shapes
+					.iter()
+					.find_map(|shape| text_center(&shape.shape, label))
+					.expect(label);
+				output.drop_without_applying_deltas();
+				for pressed in [true, false] {
+					frame(vec![
+						egui::Event::PointerMoved(pos),
+						egui::Event::PointerButton {
+							pos,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					])
+					.drop_without_applying_deltas();
+				}
+				assert_eq!(opening.as_deref(), Some(url), "{label}, footer={footer}");
+			}
+		}
+	}
+
 	#[test]
 	fn image_previews_dispatch_copy_and_save_without_opening_links() {
 		for variant in 0..5 {
-			for copy in [true, false] {
+			for (copy, hide_media_links) in
+				[(true, false), (false, false), (true, true), (false, true)]
+			{
 				let mut message = test_support::message(1, model::Id(2));
 				let media = model::EmbedMedia {
 					url: Some("https://cdn.discordapp.com/attachments/2/42/preview.png".into()),
@@ -884,6 +1251,9 @@ mod tests {
 					thumbnail: (variant == 3).then(|| media.clone()),
 					..Default::default()
 				}];
+				if hide_media_links {
+					message.content = message.embeds[0].url.clone().unwrap();
+				}
 				if variant == 4 {
 					message.embeds.push(message.embeds[0].clone());
 					message.embeds[0].image.as_mut().unwrap().url =
@@ -917,6 +1287,7 @@ mod tests {
 									&mut profile,
 									&client_core::State::default(),
 									crate::design::MessageCardSurface::Conversation,
+									hide_media_links,
 								)
 								.is_none()
 							);
@@ -940,6 +1311,13 @@ mod tests {
 					})
 					.next_back()
 					.expect("rendered image");
+				assert_eq!(
+					output.shapes.iter().any(|shape| matches!(&shape.shape,
+						egui::Shape::Text(text) if text.galley.job.text == crate::i18n::translate("embeds-link-open-link")
+					)),
+					variant != 1 && (!hide_media_links || matches!(variant, 0 | 4)),
+					"source action for media variant {variant}"
+				);
 				output.drop_without_applying_deltas();
 				for pressed in [true, false] {
 					frame(vec![
@@ -1041,83 +1419,6 @@ mod tests {
 	}
 
 	#[test]
-	fn gallery_tiles_fit_without_overlap_and_request_each_image_viewer() {
-		for theme in [egui::Theme::Dark, egui::Theme::Light] {
-			for width in [96.0, 240.0, 456.0] {
-				for count in [2, 3, 4, 10] {
-					let rects: Vec<_> = (0..count).map(|i| gallery_rect(count, i, width)).collect();
-					for (i, rect) in rects.iter().enumerate() {
-						assert!(rect.width() > 0.0 && rect.right() <= width);
-						assert!(rects[..i].iter().all(|other| !rect.intersects(*other)));
-					}
-					if count == 3 {
-						assert_eq!(rects[0].height(), width);
-						assert_eq!(rects[0].bottom(), rects[2].bottom());
-						assert_eq!(rects[1].left(), rects[2].left());
-					}
-					let ctx = egui::Context::default();
-					ctx.set_theme(theme);
-					let embeds = gallery_embeds(count);
-					let mut images = Avatars::default();
-					let mut download = DownloadUi::default();
-					let mut origin = egui::Pos2::ZERO;
-					let mut frame = |events| {
-						ctx.run_ui(
-							egui::RawInput {
-								screen_rect: Some(egui::Rect::from_min_size(
-									egui::Pos2::ZERO,
-									egui::vec2(width + 16.0, 1400.0),
-								)),
-								events,
-								..Default::default()
-							},
-							|ui| {
-								ui.set_width(width);
-								origin = ui.cursor().min;
-								gallery(
-									ui,
-									&embeds,
-									&mut images,
-									model::Id(42),
-									&mut download,
-									false,
-								);
-							},
-						)
-						.drop_without_applying_deltas();
-						(origin, download.embed_view_request.take())
-					};
-					frame(vec![]);
-					let (origin, _) = frame(vec![]);
-					for (i, rect) in rects.iter().enumerate() {
-						let pos = rect.center() + origin.to_vec2();
-						frame(vec![
-							egui::Event::PointerMoved(pos),
-							egui::Event::PointerButton {
-								pos,
-								button: egui::PointerButton::Primary,
-								pressed: true,
-								modifiers: Default::default(),
-							},
-						]);
-						let (_, opened) = frame(vec![egui::Event::PointerButton {
-							pos,
-							button: egui::PointerButton::Primary,
-							pressed: false,
-							modifiers: Default::default(),
-						}]);
-						assert_eq!(
-							opened,
-							Some((model::Id(42), embeds[i].image.as_ref().unwrap().clone()))
-						);
-					}
-					assert_eq!(images.take_requests().len(), count);
-				}
-			}
-		}
-	}
-
-	#[test]
 	fn hide_media_links_requires_matching_visible_media_without_caption_or_spoiler() {
 		let mut message = test_support::message(1, model::Id(1));
 		message.content = "https://klipy.com/gifs/waving-lizard".into();
@@ -1202,114 +1503,119 @@ mod tests {
 		}
 	}
 
-	/// Adjacent fields render through the same field-column code path with no explicit
-	/// id_salt of their own, so egui's auto-assigned widget ids can land on the same value
-	/// for two different fields (data-dependent on their wrapped line counts) unless each
-	/// field is given its own id namespace. Regression for that: egui paints a "used the
-	/// same ID" debug warning (gated on `debug_assertions`, which test builds have on) when
-	/// two same-frame widgets collide, so its absence here confirms the fields stay isolated.
 	#[test]
-	fn adjacent_fields_do_not_share_widget_ids() {
-		let mut message = test_support::message(1, model::Id(2));
-		message.embeds = vec![Embed {
-			kind: "rich".into(),
-			description: Some(
-				"For tutorials & guides, please check out our [Help Center](https://example.org/help)"
+	fn gif_for_media_ignores_static_webp_attachment() {
+		let media = model::EmbedMedia {
+			url: Some("https://cdn.discordapp.com/attachments/123/456/photo.webp".into()),
+			width: 320,
+			height: 200,
+			..Default::default()
+		};
+		assert!(gif_for_media(&media, None, false).is_none());
+	}
+
+	#[test]
+	fn gif_for_media_supports_animated_webp_provider_links() {
+		let media = model::EmbedMedia {
+			url: Some(
+				"https://static.klipy.com/ii/71b2873e478b9d8d0482ea3ec777ba7f/f6/40/HtVp9vFM.webp"
 					.into(),
 			),
-			fields: vec![
-				model::EmbedField {
-					name: "No Staff Applications".into(),
-					value: "We are currently **not looking** for staff, please do not open tickets asking to join the team.".into(),
-					inline: false,
-				},
-				model::EmbedField {
-					name: "Second field".into(),
-					value: "Some other body text that also wraps to more than one line at this width.".into(),
-					inline: false,
-				},
-			],
+			width: 320,
+			height: 200,
 			..Default::default()
-		}];
-		let ctx = egui::Context::default();
-		let mut images = Avatars::default();
-		let mut cache = FormatCache::default();
-		let mut opening = None;
-		let mut download = DownloadUi::default();
-		let output = ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(640.0, 700.0),
-				)),
-				..Default::default()
-			},
-			|ui| {
-				let mut profile = crate::profiles::ProfileSession::default();
-				show(
-					ui,
-					&message,
-					&mut cache,
-					&mut images,
-					&mut opening,
-					&mut download,
-					&mut profile,
-					&client_core::State::default(),
-					crate::design::MessageCardSurface::Conversation,
-				);
-			},
+		};
+		let gif = gif_for_media(&media, None, true).expect("animated webp recognized");
+		assert_eq!(
+			gif.url,
+			"https://static.klipy.com/ii/71b2873e478b9d8d0482ea3ec777ba7f/f6/40/HtVp9vFM.webp"
 		);
-		for shape in &output.shapes {
-			if let egui::epaint::Shape::Text(text) = &shape.shape {
-				assert!(
-					!text.galley.job.text.contains("widget ID"),
-					"egui reported a widget id clash: {:?}",
-					text.galley.job.text
-				);
-			}
-		}
-		output.drop_without_applying_deltas();
 	}
 }
 
-/// Shared star overlay for message GIFs and uploaded GIF attachments.
+/// A message GIF's overlay, Discord style. While GIFs are paused (the window is unfocused or
+/// animation is off) a "GIF" label sits in the top-left corner; hovering the GIF drops a
+/// favorite star into that corner instead, yellow under the pointer until it is a favorite.
 pub(crate) fn favorite_star(
 	ui: &mut egui::Ui,
 	response: &egui::Response,
 	favorite: bool,
+	playing: bool,
 ) -> egui::Response {
+	let palette = crate::design::palette(ui);
+	let id = response.id.with("favorite");
 	let star_rect = egui::Rect::from_min_size(
-		response.rect.right_top() + egui::vec2(-34.0, 4.0),
+		response.rect.left_top() + egui::vec2(6.0, 6.0),
 		egui::Vec2::splat(30.0),
 	);
+	let focused = ui.memory(|memory| memory.has_focus(id));
+	let over = ui.rect_contains_pointer(response.rect.expand(2.0));
+	// Drops in from above while the GIF is hovered; it only takes clicks once mostly shown.
+	let shown = ui
+		.ctx()
+		.animate_bool_with_time(id.with("shown"), over || focused, 0.14);
 	let star = ui.interact(
 		star_rect,
-		response.id.with("favorite"),
-		egui::Sense::click(),
-	);
-	ui.painter()
-		.rect_filled(star_rect, 6, egui::Color32::from_black_alpha(190));
-	crate::icons::paint(
-		ui.painter(),
-		if favorite {
-			crate::icons::Icon::StarFill
+		id,
+		if shown > 0.5 {
+			egui::Sense::click()
 		} else {
-			crate::icons::Icon::Star
+			// Hidden, it still takes Tab focus, which reveals it for keyboard users.
+			egui::Sense::focusable_noninteractive()
 		},
-		star_rect.shrink(5.0),
-		if favorite {
-			crate::design::palette(ui).warning
+	);
+	if !playing && shown < 1.0 {
+		let label = ui.painter().layout_no_wrap(
+			"GIF".into(),
+			egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx())),
+			egui::Color32::WHITE.gamma_multiply(1.0 - shown),
+		);
+		let badge = egui::Rect::from_min_size(
+			response.rect.left_top() + egui::vec2(6.0, 6.0),
+			label.size() + egui::vec2(12.0, 6.0),
+		);
+		ui.painter().rect_filled(
+			badge,
+			5,
+			egui::Color32::from_black_alpha((170.0 * (1.0 - shown)) as u8),
+		);
+		ui.painter().galley(
+			badge.min + egui::vec2(6.0, 3.0),
+			label,
+			egui::Color32::WHITE,
+		);
+	}
+	if shown > 0.0 {
+		let rect = star_rect.translate(egui::vec2(0.0, -8.0 * (1.0 - shown)));
+		let hot = star.hovered() || star.has_focus();
+		ui.painter().rect_filled(
+			rect,
+			6,
+			egui::Color32::from_black_alpha((if hot { 215.0 } else { 175.0 } * shown) as u8),
+		);
+		let color = if favorite || hot {
+			palette.warning
 		} else {
 			egui::Color32::WHITE
-		},
-	);
-	if star.has_focus() {
-		ui.painter().rect_stroke(
-			star_rect,
-			6,
-			ui.visuals().selection.stroke,
-			egui::StrokeKind::Inside,
+		};
+		crate::icons::paint(
+			ui.painter(),
+			if favorite {
+				crate::icons::Icon::StarFill
+			} else {
+				crate::icons::Icon::Star
+			},
+			rect.shrink(5.0),
+			color.gamma_multiply(shown),
 		);
+		if star.has_focus() {
+			ui.painter().rect_stroke(
+				rect,
+				6,
+				ui.visuals().selection.stroke,
+				egui::StrokeKind::Inside,
+			);
+		}
 	}
 	star.widget_info(|| {
 		egui::WidgetInfo::selected(
@@ -1319,6 +1625,9 @@ pub(crate) fn favorite_star(
 			crate::i18n::translate("embeds-show-favorite-gif"),
 		)
 	});
+	if shown < 0.5 {
+		return star;
+	}
 	star.on_hover_text(crate::i18n::translate_if_key(
 		&(if favorite {
 			crate::i18n::translate("embeds-show-remove-from-gif-favorites")
@@ -1326,4 +1635,41 @@ pub(crate) fn favorite_star(
 			crate::i18n::translate("embeds-show-save-to-gif-favorites")
 		}),
 	))
+}
+
+/// An embed author name: strong text that underlines on hover and opens its page if it has one.
+fn author_name(
+	ui: &mut egui::Ui,
+	author: &model::EmbedAuthor,
+	opening: &mut Option<String>,
+	color: egui::Color32,
+) {
+	let url = author.url.as_deref().and_then(external_url);
+	let response = ui.add(
+		egui::Label::new(RichText::new(&author.name).size(14.0).strong().color(color))
+			.wrap()
+			.sense(if url.is_some() {
+				egui::Sense::click()
+			} else {
+				egui::Sense::hover()
+			}),
+	);
+	if let Some(url) = url {
+		response.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), &author.name)
+		});
+		if response.hovered() {
+			ui.painter().hline(
+				response.rect.x_range(),
+				response.rect.bottom(),
+				egui::Stroke::new(1.0, color),
+			);
+		}
+		if response
+			.on_hover_cursor(egui::CursorIcon::PointingHand)
+			.clicked()
+		{
+			*opening = Some(url);
+		}
+	}
 }

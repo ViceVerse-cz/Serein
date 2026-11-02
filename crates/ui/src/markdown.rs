@@ -40,6 +40,158 @@ fn escaped(source: &str, at: usize) -> bool {
 		% 2 == 1
 }
 
+/// Inline markdown delimiters that are legal URL characters. A bare URL is literal text, so
+/// these must not open emphasis, underline, strikethrough or entities inside it. Backticks are
+/// not legal URL characters (RFC 3986 requires `%60`); URLs overlapping code stay unprotected.
+const URL_MARKUP: [char; 4] = ['_', '*', '~', '&'];
+/// Delimiters a trailing run may use to close formatting begun before the URL.
+const URL_CLOSERS: [char; 3] = ['_', '*', '~'];
+/// Masking one trailing opener can turn a later URL's closer into an opener; re-check this often.
+const URL_PROTECTION_ROUNDS: usize = 4;
+
+/// Mask markup inside bare URLs. `None` means the bounded preliminary parse ran out of budget
+/// and the message must use the literal fallback rather than unprotected Markdown.
+fn protect_url_markup(input: &str) -> Option<std::borrow::Cow<'_, str>> {
+	if !input.contains(URL_MARKUP) {
+		return Some(input.into());
+	}
+	let mut candidates = Vec::new();
+	let mut scanned = 0;
+	for word in input.split_whitespace() {
+		let start = scanned + input[scanned..].find(word).expect("word from source");
+		scanned = start + word.len();
+		if !word.contains(URL_MARKUP) {
+			continue;
+		}
+		let candidate = word.trim_start_matches(['(', '[', '{', '*', '_', '~', '|']);
+		let prefix = &word[..word.len() - candidate.len()];
+		let closing: String = prefix
+			.trim_start_matches(['(', '[', '{'])
+			.chars()
+			.rev()
+			.collect();
+		let candidate = candidate.strip_suffix(&closing).unwrap_or(candidate);
+		if candidate.contains(URL_MARKUP)
+			&& !candidate.contains('\\')
+			&& let Some(target) = bare_url(candidate)
+		{
+			let start = start + prefix.len();
+			candidates.push((start..start + target.len(), false));
+		}
+	}
+	if candidates.is_empty() {
+		return Some(input.into());
+	}
+	// Keep code, existing links (including masked labels), and HTML inert. Only a URL
+	// beginning in ordinary text is eligible; reference definitions have no text event.
+	for (count, (event, range)) in Parser::new_ext(input, Options::ENABLE_STRIKETHROUGH)
+		.into_offset_iter()
+		.enumerate()
+	{
+		if count >= MAX_EVENTS {
+			return None;
+		}
+		match event {
+			Event::Start(Tag::Link { .. } | Tag::Image { .. } | Tag::CodeBlock(_))
+			| Event::Code(_)
+			| Event::Html(_)
+			| Event::InlineHtml(_) => {
+				candidates.retain(|(url, _)| url.end <= range.start || url.start >= range.end);
+			}
+			Event::Text(_) => {
+				for (url, eligible) in &mut candidates {
+					*eligible |= range.contains(&url.start);
+				}
+			}
+			_ => {}
+		}
+	}
+	candidates.retain(|(_, eligible)| *eligible);
+	if candidates.is_empty() {
+		return Some(input.into());
+	}
+	let mut masked = input.as_bytes().to_vec();
+	let mut closers = Vec::new();
+	for (range, _) in &candidates {
+		// Keep only the final delimiter run, plus punctuation after it, for closing
+		// surrounding styles (`__a https://x/b__:`); mask every earlier delimiter.
+		let url = &input[range.clone()];
+		let unpunctuated =
+			url.trim_end_matches(|c: char| c.is_ascii_punctuation() && !URL_MARKUP.contains(&c));
+		let end = range.start + unpunctuated.trim_end_matches(URL_CLOSERS).len();
+		if end < range.start + unpunctuated.len() {
+			closers.push(end..range.start + unpunctuated.len());
+		}
+		for byte in &mut masked[range.start..end] {
+			if URL_MARKUP.contains(&char::from(*byte)) {
+				*byte = b'x';
+			}
+		}
+	}
+	// A kept run may close formatting begun before the URL, but must not open a style.
+	// Masking one opener can re-pair later runs, so repeat; if that does not settle,
+	// mask every kept run and leave the surrounding style unclosed.
+	let mut settled = closers.is_empty();
+	for _ in 0..URL_PROTECTION_ROUNDS {
+		if settled {
+			break;
+		}
+		settled = true;
+		let provisional = std::str::from_utf8(&masked).expect("ASCII replacement preserves UTF-8");
+		let mut openers = Vec::new();
+		for (count, (event, range)) in Parser::new_ext(provisional, Options::ENABLE_STRIKETHROUGH)
+			.into_offset_iter()
+			.enumerate()
+		{
+			if count >= MAX_EVENTS {
+				return None;
+			}
+			if matches!(
+				event,
+				Event::Start(Tag::Strong | Tag::Emphasis | Tag::Strikethrough)
+			) && candidates.iter().any(|(url, _)| url.contains(&range.start))
+			{
+				openers.push(range.start);
+			}
+		}
+		for start in openers {
+			let delimiter = masked[start];
+			for byte in &mut masked[start..] {
+				if *byte != delimiter {
+					break;
+				}
+				*byte = b'x';
+				settled = false;
+			}
+		}
+	}
+	if !settled {
+		for run in closers {
+			masked[run].fill(b'x');
+		}
+	}
+	// ASCII substitutions preserve source offsets; text events are restored before rendering.
+	Some(
+		String::from_utf8(masked)
+			.expect("ASCII replacement preserves UTF-8")
+			.into(),
+	)
+}
+
+fn bare_url(word: &str) -> Option<&str> {
+	let mut target = word.trim_end_matches(['.', ',', ';', '!', '?', ']', '}']);
+	while target.ends_with(')') && target.matches(')').count() > target.matches('(').count() {
+		target = &target[..target.len() - 1];
+	}
+	(target
+		.get(..8)
+		.is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
+		|| target
+			.get(..7)
+			.is_some_and(|scheme| scheme.eq_ignore_ascii_case("http://")))
+	.then_some(target)
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 struct Style {
 	strong: bool,
@@ -58,6 +210,7 @@ struct Style {
 	/// Only bare URLs and angle autolinks get native message chips; masked labels stay text.
 	message_link: bool,
 	mention: Option<Id>,
+	game: Option<Id>,
 	role: Option<Id>,
 	role_color: Option<u32>,
 	mass_mention: bool,
@@ -167,6 +320,7 @@ fn only_emoji(spans: &[(String, Style)], blocks: &[CodeBlock], mentions: usize) 
 			|| style.timestamp.is_some()
 			|| style.channel.is_some()
 			|| style.mention.is_some()
+			|| style.game.is_some()
 			|| style.role.is_some()
 			|| style.mass_mention
 			|| style.heading > 0
@@ -747,8 +901,23 @@ impl Formatted {
 					.take_while(|b| *b == b'\\')
 					.count() % 2 == 0
 		};
-		let mut events = Parser::new_ext(input, Options::ENABLE_STRIKETHROUGH)
+		let Some(parser_input) = protect_url_markup(input) else {
+			return Self::limited_literal(&source[..end], source.contains("||"));
+		};
+		let protected = matches!(&parser_input, std::borrow::Cow::Owned(_));
+		let mut events = Parser::new_ext(&parser_input, Options::ENABLE_STRIKETHROUGH)
 			.into_offset_iter()
+			.map(|(event, range)| {
+				let event = match event {
+					Event::Text(text)
+						if protected && text.as_ref() == &parser_input[range.clone()] =>
+					{
+						Event::Text(input[range.clone()].into())
+					}
+					event => event,
+				};
+				(event, range)
+			})
 			.peekable();
 		// Merge only unchanged source text. Entity/escape expansions stay separate and inert,
 		// even when followed by an identical literal reference.
@@ -1174,17 +1343,7 @@ impl Formatted {
 			let start = scanned + text[scanned..].find(word).expect("word from source");
 			scanned = start + word.len();
 			let candidate = word.trim_start_matches(['(', '[', '{']);
-			let mut target = candidate.trim_end_matches(['.', ',', ';', '!', '?', ']', '}']);
-			while target.ends_with(')') && target.matches(')').count() > target.matches('(').count()
-			{
-				target = &target[..target.len() - 1];
-			}
-			if (target
-				.get(..8)
-				.is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
-				|| target
-					.get(..7)
-					.is_some_and(|scheme| scheme.eq_ignore_ascii_case("http://")))
+			if let Some(target) = bare_url(candidate)
 				&& let Some(link) = self.add_link(target)
 			{
 				let link_start = start + word.len() - candidate.len();
@@ -1234,6 +1393,7 @@ impl Formatted {
 				continue;
 			}
 			let is_role = reference.starts_with("<@&");
+			let is_game = reference.starts_with("<@$");
 			let (id, len, is_channel, mass_mention) =
 				if let Some(len) = model::mass_mention_prefix(reference) {
 					(None, len, false, true)
@@ -1243,6 +1403,8 @@ impl Formatted {
 						model::channel_mention_prefix(reference)
 					} else if is_role {
 						model::role_mention_prefix(reference)
+					} else if is_game {
+						model::game_mention_prefix(reference)
 					} else {
 						model::user_mention_prefix(reference)
 					}) else {
@@ -1266,7 +1428,8 @@ impl Formatted {
 			self.push(
 				token,
 				Style {
-					mention: id.filter(|_| !is_channel && !is_role),
+					mention: id.filter(|_| !is_channel && !is_role && !is_game),
+					game: id.filter(|_| is_game),
 					role: id.filter(|_| is_role),
 					mass_mention,
 					channel: id.filter(|_| is_channel),
@@ -1594,6 +1757,35 @@ impl Formatted {
 						start += 1;
 						continue;
 					}
+					if let Some(id) = spans[start].1.game {
+						reserve(ui);
+						let catalog = render.source.map(|s| &s.state.game_mentions);
+						let label = catalog.map_or_else(
+							|| format!("Unknown game ({id})"),
+							|games| games.label(id),
+						);
+						let key = catalog
+							.and_then(|games| games.find(id))
+							.map_or_else(|| format!("app-icon-{id}"), model::GameMention::icon_key);
+						let response = crate::channel_pill::game(
+							ui,
+							&label,
+							key,
+							render.images,
+							render.demo,
+							render.line,
+							&mut *render.surface,
+						);
+						response.widget_info(|| {
+							egui::WidgetInfo::labeled(
+								egui::Role::Label,
+								ui.is_enabled(),
+								format!("{label}, game"),
+							)
+						});
+						start += 1;
+						continue;
+					}
 					if let Some(id) = spans[start].1.mention {
 						reserve(ui);
 						let colors = crate::design::palette(ui);
@@ -1699,8 +1891,8 @@ impl Formatted {
 								&& style.message_link == native_message_link
 								&& style.spoiler == spoiler
 								&& style.mention.is_none()
-								&& style.role.is_none() && !style.mass_mention
-								&& style.channel.is_none()
+								&& style.game.is_none() && style.role.is_none()
+								&& !style.mass_mention && style.channel.is_none()
 								&& style.block.is_none() && (quoted || !style.quote)
 						})
 						.count();
@@ -2031,8 +2223,33 @@ impl Formatted {
 		let mut inlines: Vec<Inline> = Vec::new();
 		// Label overwrites the first section's leading space with the wrap indentation.
 		job.append("", 0.0, Self::format(ui, &Style::default()));
+		// A run that ends with blank lines (`\n\n` before the next paragraph) makes egui drop
+		// the row's leading indent: the whole run is then shaped from the row start and stops
+		// wrapping at the remaining width, which paints it over the run before it. Shape the
+		// run without those trailing breaks and replay them as explicit row breaks below.
+		let total: usize = spans.iter().map(|(text, _)| text.len()).sum();
+		let trailing = spans
+			.iter()
+			.rev()
+			.flat_map(|(text, _)| text.chars().rev())
+			.take_while(|character| *character == '\n')
+			.count();
+		let kept = total.saturating_sub(trailing);
+		// Each blank row keeps the height its newline had in the galley, so the paragraph gap
+		// survives and selection still copies it as a blank line.
+		let blank = spans.last().map_or(0.0, |(_, style)| {
+			let format = Self::format(ui, style);
+			let height = format
+				.line_height
+				.unwrap_or_else(|| ui.fonts_mut(|fonts| fonts.row_height(&format.font_id)));
+			line.map_or(height, |line| height.max(line))
+		});
+		let mut written = 0;
 		for (text, style) in spans {
 			let format = Self::format(ui, style);
+			let available = kept.saturating_sub(written).min(text.len());
+			written += available;
+			let text = &text[..available];
 			let mut start = 0;
 			let mut offset = 0;
 			while offset < text.len() {
@@ -2193,7 +2410,13 @@ impl Formatted {
 			}
 			let inline = &mut inlines[*index];
 			inline.image = match inline.custom {
-				Some(id) => images.custom_image(ui.ctx(), id, size, demo),
+				Some(id) => images.custom_emoji(
+					ui.ctx(),
+					id,
+					crate::emoji::custom_animated(&inline.text),
+					size,
+					demo,
+				),
 				None => shared
 					.and_then(|asset| images.share_image(ui.ctx(), asset, size, demo))
 					.or_else(|| {
@@ -2268,6 +2491,14 @@ impl Formatted {
 			}
 		}
 		surface.run(ui, &response, pos, galley, artwork);
+		// The first break ends the run's row; every further one is a blank row of its own.
+		if trailing > 0 {
+			ui.end_row();
+			for _ in 1..trailing {
+				ui.set_row_height(blank);
+				ui.end_row();
+			}
+		}
 		if ui.is_rect_visible(response.rect) {
 			for (index, rect) in &slots {
 				if !ui.is_rect_visible(*rect) {
@@ -2276,14 +2507,33 @@ impl Formatted {
 				let inline = &inlines[*index];
 				let image = inline.image.clone();
 				if !link {
-					let hit = ui
+					let mut hit = ui
 						.interact(
 							*rect,
 							response.id.with(("emoji", *index, &inline.text)),
 							egui::Sense::click(),
 						)
-						.on_hover_cursor(egui::CursorIcon::PointingHand)
-						.on_hover_text(&inline.text);
+						.on_hover_cursor(egui::CursorIcon::PointingHand);
+					if hit.hovered() {
+						// Default emoji use a sharper raster than the inline atlas cell.
+						let art = inline
+							.cell
+							.filter(|_| inline.custom.is_none() && shared.is_none())
+							.and_then(|cell| {
+								images.unicode_image(
+									ui.ctx(),
+									cell,
+									crate::emoji_details::HOVER_ART,
+								)
+							})
+							.or_else(|| image.clone());
+						hit = crate::emoji_details::hover_card(
+							hit,
+							art,
+							&crate::emoji_details::name(&inline.text, guilds),
+							true,
+						);
+					}
 					hit.widget_info(|| {
 						egui::WidgetInfo::labeled(
 							egui::Role::Button,
@@ -2305,8 +2555,10 @@ impl Formatted {
 				.find(|(_, rect)| rect.contains(point))
 				.map(|(index, _)| *index)
 		};
-		if let Some(index) = response.hover_pos().and_then(slot_at) {
-			response = response.on_hover_text_at_pointer(&inlines[index].text);
+		// Emoji outside links have their own hover card; links keep only the name.
+		if link && let Some(index) = response.hover_pos().and_then(slot_at) {
+			response = response
+				.on_hover_text_at_pointer(crate::emoji_details::name(&inlines[index].text, guilds));
 		}
 		let menu = response.id.with("emoji-menu");
 		if response.secondary_clicked() {
@@ -2377,6 +2629,35 @@ impl Formatted {
 			.find(|(text, _)| !text.is_empty())
 			.is_none_or(|(text, _)| text.ends_with('\n'))
 	}
+	fn clean_custom_emojis(text: &str) -> String {
+		let mut output = String::with_capacity(text.len());
+		let mut offset = 0;
+		while offset < text.len() {
+			if let Some((_, len)) = crate::emoji::custom_prefix(&text[offset..]) {
+				let token = &text[offset..offset + len];
+				let body = token
+					.strip_prefix("<:")
+					.or_else(|| token.strip_prefix("<a:"))
+					.unwrap_or("");
+				if let Some(colon) = body.find(':') {
+					let name = &body[..colon];
+					output.push(':');
+					output.push_str(name);
+					output.push(':');
+					offset += len;
+					continue;
+				}
+			}
+			let chr = text[offset..]
+				.chars()
+				.next()
+				.expect("valid UTF-8 character");
+			output.push(chr);
+			offset += chr.len_utf8();
+		}
+		output
+	}
+
 	pub(crate) fn append_inline_preview(
 		&self,
 		job: &mut LayoutJob,
@@ -2399,13 +2680,18 @@ impl Formatted {
 			..Default::default()
 		};
 		let mut remaining: usize = 120;
+		let prefix_len = job.text.len();
+		let mut truncated = false;
+		let mut next_is_word = false;
 		let mut emojis = Vec::new();
 		for (text, style) in &self.spans {
-			if remaining == 0 {
-				break;
-			}
 			if text.is_empty() {
 				continue;
+			}
+			if remaining == 0 {
+				truncated = true;
+				next_is_word = text.chars().next().is_some_and(|c| c.is_alphanumeric());
+				break;
 			}
 			let destination = style
 				.channel
@@ -2428,6 +2714,14 @@ impl Formatted {
 			let (display, format) = if let Some(id) = style.mention {
 				(
 					crate::mentions::mention_label(id, users, source),
+					pill.clone(),
+				)
+			} else if let Some(id) = style.game {
+				(
+					source.map_or_else(
+						|| format!("Unknown game ({id})"),
+						|s| s.state.game_mentions.label(id),
+					),
 					pill.clone(),
 				)
 			} else if let Some(id) = style.role {
@@ -2473,15 +2767,41 @@ impl Formatted {
 			} else if style.mass_mention {
 				(text.clone(), pill.clone())
 			} else {
-				(
-					text.chars()
-						.map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c })
-						.collect(),
-					muted.clone(),
-				)
+				let normalized: String = text
+					.chars()
+					.map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c })
+					.collect();
+				let display = if !style.code {
+					Self::clean_custom_emojis(&normalized)
+				} else {
+					normalized
+				};
+				(display, muted.clone())
 			};
-			let take: String = display.chars().take(remaining).collect();
-			remaining -= take.chars().count();
+			let mut cut_end = 0;
+			let mut taken_chars = 0;
+			let mut is_overflow = false;
+			for (offset, cluster) in display.grapheme_indices(true) {
+				let cluster_chars = cluster.chars().count();
+				if taken_chars + cluster_chars > remaining {
+					is_overflow = true;
+					break;
+				}
+				taken_chars += cluster_chars;
+				cut_end = offset + cluster.len();
+			}
+			let take = if is_overflow {
+				truncated = true;
+				next_is_word = display[cut_end..]
+					.chars()
+					.next()
+					.is_some_and(|c| c.is_alphanumeric());
+				remaining = 0;
+				display[..cut_end].to_string()
+			} else {
+				remaining -= taken_chars;
+				display
+			};
 			let mut start = 0;
 			if !style.code {
 				for (offset, cluster) in take.grapheme_indices(true) {
@@ -2504,6 +2824,57 @@ impl Formatted {
 				}
 			}
 			job.append(&take[start..], 0.0, format);
+			if is_overflow {
+				break;
+			}
+		}
+		if truncated {
+			let is_emoji_at = |idx: usize| emojis.iter().any(|e| e.at <= idx && idx < e.at + e.len);
+			let ends_with_ws = job.text.len() > prefix_len
+				&& !is_emoji_at(job.text.len() - 1)
+				&& job.text.ends_with(char::is_whitespace);
+			if next_is_word
+				&& !ends_with_ws
+				&& let Some(last_ws) = job.text[prefix_len..]
+					.char_indices()
+					.rfind(|&(idx, ch)| {
+						let abs_idx = prefix_len + idx;
+						ch.is_whitespace() && !is_emoji_at(abs_idx)
+					})
+					.map(|(idx, _)| prefix_len + idx)
+				&& last_ws > prefix_len
+			{
+				job.text.truncate(last_ws);
+			}
+			let mut trimmed_len = job.text.len();
+			while trimmed_len > prefix_len {
+				let last_idx = trimmed_len - 1;
+				if is_emoji_at(last_idx) {
+					break;
+				}
+				if let Some(ch) = job.text[..trimmed_len].chars().next_back()
+					&& ch.is_whitespace()
+				{
+					trimmed_len -= ch.len_utf8();
+					continue;
+				}
+				break;
+			}
+			job.text.truncate(trimmed_len);
+			let end = job.text.len();
+			let end_idx = egui::text::ByteIndex(end);
+			job.sections.retain_mut(|section| {
+				if section.byte_range.start >= end_idx {
+					false
+				} else {
+					if section.byte_range.end > end_idx {
+						section.byte_range.end = end_idx;
+					}
+					true
+				}
+			});
+			emojis.retain(|emoji| emoji.at + emoji.len <= end);
+			job.append("…", 0.0, muted);
 		}
 		emojis
 	}
@@ -2657,6 +3028,338 @@ impl Formatted {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn inline_preview_truncates_long_messages_with_ellipsis() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let input = "Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat.";
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+			assert!(!preview.text.ends_with("magn…"));
+			assert!(preview.text.ends_with("dolore…"));
+			assert!(preview.text.chars().count() <= 125);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_cuts_at_word_boundary_across_span_borders() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 116 characters prefix followed by a bold word across the 120 limit
+			let prefix = "a".repeat(115) + " ";
+			let input = format!("{prefix}**dolore magna**");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+			assert!(!preview.text.contains("dolo"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_shows_ellipsis_when_exact_limit_followed_by_spoiler() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a".repeat(120);
+			let input = format!("{prefix}||hidden content||");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_caller_prefix_when_truncating() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let mut preview = egui::text::LayoutJob::default();
+			preview.append("@author: ", 0.0, Default::default());
+			let long_word = "a".repeat(130);
+			let _ = super::Formatted::parse(&long_word).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.starts_with("@author: "));
+			assert!(preview.text.ends_with('…'));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_first_omitted_character_across_later_spans() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 116 chars ("a " * 58) + 10 chars bold ("abcdefghij") + tail
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}**abcdefghij** tail");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				!preview.text.contains("abcd"),
+				"mid-word abcd should be cut back to word boundary"
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_emoji_placeholder_near_limit() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 118 chars ("a " * 59) + "x😀 more" -> emoji fits in 120 limit
+			let prefix = "a ".repeat(59);
+			let input = format!("{prefix}x😀 more");
+			let mut preview = egui::text::LayoutJob::default();
+			let emojis = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert_eq!(emojis.len(), 1, "emoji should be preserved");
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_punctuation_after_word_does_not_backtrack() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}word, more");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				preview.text.contains("word…"),
+				"expected preview to retain 'word…' but got {:?}",
+				preview.text
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_joined_emoji_preserves_grapheme_boundary() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// "👩‍💻" is 3 codepoints / 10 bytes.
+			// Case 1: 118 chars + "👩‍💻 more" -> remaining 2; emoji requires 3, must not be split.
+			let prefix1 = "a".repeat(118);
+			let input1 = format!("{prefix1}👩‍💻 more");
+			let mut preview1 = egui::text::LayoutJob::default();
+			let emojis1 = super::Formatted::parse(&input1).append_inline_preview(
+				&mut preview1,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			let text1 = super::Formatted::inline_preview_text(&preview1, &emojis1);
+			assert_eq!(text1, format!("{prefix1}…"));
+
+			// Case 2: 117 chars + "👩‍💻 more" -> remaining 3; emoji fits intact.
+			let prefix2 = "a".repeat(117);
+			let input2 = format!("{prefix2}👩‍💻 more");
+			let mut preview2 = egui::text::LayoutJob::default();
+			let emojis2 = super::Formatted::parse(&input2).append_inline_preview(
+				&mut preview2,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			let text2 = super::Formatted::inline_preview_text(&preview2, &emojis2);
+			assert_eq!(text2, format!("{prefix2}👩‍💻…"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_edge_cases_empty_unicode_punct_and_consecutive_spaces() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 1. Empty preview
+			let mut p_empty = egui::text::LayoutJob::default();
+			let em_empty = super::Formatted::parse("").append_inline_preview(
+				&mut p_empty,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(p_empty.text, "");
+			assert!(em_empty.is_empty());
+
+			// 2. Very short preview
+			let mut p_short = egui::text::LayoutJob::default();
+			let em_short = super::Formatted::parse("hello").append_inline_preview(
+				&mut p_short,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(p_short.text, "hello");
+			assert!(em_short.is_empty());
+
+			// 3. Unicode punctuation (em-dash, ideographic comma) does not backtrack complete word
+			let prefix = "a ".repeat(58);
+			for punct in ["—", "…", "、", "。"] {
+				let input = format!("{prefix}word{punct} more");
+				let mut preview = egui::text::LayoutJob::default();
+				let _ = super::Formatted::parse(&input).append_inline_preview(
+					&mut preview,
+					ui,
+					&[],
+					None,
+					&[],
+					&[],
+				);
+				assert!(preview.text.ends_with("…"));
+				assert!(
+					preview.text.contains("word…"),
+					"expected 'word…' for punct {punct}, got {:?}",
+					preview.text
+				);
+			}
+
+			// 4. Consecutive whitespace is trimmed cleanly before ellipsis
+			let prefix_spaces = "a ".repeat(58);
+			let input_spaces = format!("{prefix_spaces}word   more");
+			let mut preview_spaces = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input_spaces).append_inline_preview(
+				&mut preview_spaces,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview_spaces.text.ends_with("word…"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_word_continuation_backtracks_to_previous_space() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}wordy more");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				!preview.text.contains("word"),
+				"partial word 'word' from 'wordy' must be backtracked"
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_replaces_custom_emojis_with_names() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let input =
+				"Check <:ehappy:1316064437991641259> and <a:party:123456789> and `<:code:111>`";
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(preview.text, "Check :ehappy: and :party: and <:code:111>");
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn game_mentions_obey_code_escape_and_spoiler_boundaries() {
+		let parsed = super::Formatted::parse("<@$42> `<@$43>` \\<@$44> ||<@$45>|| <@46> <@&47>");
+		let games: Vec<_> = parsed.spans.iter().filter_map(|(_, s)| s.game).collect();
+		assert_eq!(games, [model::Id(42), model::Id(45)]);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(_, s)| s.game == Some(model::Id(45)) && s.spoiler.is_some())
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(_, s)| s.mention == Some(model::Id(46)))
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(_, s)| s.role == Some(model::Id(47)))
+		);
+		assert!(!parsed.jumbo());
+	}
 	use super::*;
 
 	#[test]
@@ -2732,56 +3435,6 @@ mod tests {
 			assert!(
 				!inside.contains('\\') && !outside.contains('\\'),
 				"{source:?}"
-			);
-		}
-	}
-
-	#[test]
-	#[ignore = "release-only BiDi microbenchmark; run with --ignored --nocapture"]
-	fn bidi_ascii_benchmark() {
-		use std::{hint::black_box, time::Instant};
-		const ITERATIONS: usize = 100_000;
-		for (name, spans) in [
-			(
-				"ascii",
-				vec![(
-					"A typical message with plain English text and a link https://example.com."
-						.repeat(4),
-					Style::default(),
-				)],
-			),
-			(
-				"ascii_styled",
-				vec![
-					("A styled message ".repeat(8), Style::default()),
-					(
-						"with a bold section ".repeat(8),
-						Style {
-							strong: true,
-							..Default::default()
-						},
-					),
-				],
-			),
-			(
-				"mixed_rtl",
-				vec![("English مرحبا! ".repeat(8), Style::default())],
-			),
-		] {
-			let mut samples = Vec::with_capacity(5);
-			for run in 0..6 {
-				let start = Instant::now();
-				for _ in 0..ITERATIONS {
-					black_box(bidi_spans(black_box(&spans)));
-				}
-				if run > 0 {
-					samples.push(start.elapsed());
-				}
-			}
-			samples.sort_unstable();
-			println!(
-				"{name}: {ITERATIONS} calls, median {:?}, samples {samples:?}",
-				samples[2]
 			);
 		}
 	}
@@ -3284,141 +3937,6 @@ mod tests {
 		output.drop_without_applying_deltas();
 	}
 
-	#[test]
-	fn dragging_message_chips_copies_the_complete_original_url_without_activation() {
-		let target = "HTTPS://DISCORD.COM:443/channels/10/20/100?jump=1&q=%2F#message";
-		for width in [160.0, 800.0] {
-			for source in [
-				format!("Before {target} after"),
-				format!("Before <{target}> after"),
-			] {
-				let mut ui = MessageLinkTestUi::new(&source);
-				ui.frame(width, vec![]).0.drop_without_applying_deltas();
-				// Both a multi-run drag and a drag started inside the chip copy the URL,
-				// rather than its resolved channel name; wrapped chips remain atomic.
-				for gesture in ["whole message", "inside chip"] {
-					// Refresh geometry after the preceding selection instead of reusing
-					// coordinates from a frame before that gesture.
-					let (output, opening) = ui.frame(width, vec![]);
-					assert!(opening.is_none());
-					let first = message_link_text(&output, "Before").unwrap();
-					let last = message_link_text(&output, "after").unwrap();
-					let prefix = first
-						.galley
-						.rows
-						.iter()
-						.find(|row| !row.glyphs.is_empty())
-						.unwrap()
-						.rect_without_leading_space()
-						.translate(first.pos.to_vec2());
-					let suffix = last
-						.galley
-						.rows
-						.iter()
-						.rfind(|row| !row.glyphs.is_empty())
-						.unwrap()
-						.rect_without_leading_space()
-						.translate(last.pos.to_vec2());
-					let suffix_rows: Vec<_> = last
-						.galley
-						.rows
-						.iter()
-						.map(|row| row.rect().translate(last.pos.to_vec2()))
-						.collect();
-					let slot = message_link_text(&output, target).expect("URL selection slot");
-					let chip = egui::Rect::from_min_size(slot.pos, slot.galley.size());
-					let left = egui::pos2(chip.left() + chip.width() * 0.25, chip.center().y);
-					let right = egui::pos2(chip.left() + chip.width() * 0.75, chip.center().y);
-					let (start, end, expected) = if gesture == "whole message" {
-						(
-							egui::pos2(prefix.left(), prefix.center().y),
-							egui::pos2(suffix.right(), suffix.center().y),
-							format!("Before {target} after"),
-						)
-					} else {
-						(left, right, target.to_owned())
-					};
-					let geometry = format!(
-						"{gesture}, width={width}, source={source:?}, start={start:?}, end={end:?}, \
-						 chip={chip:?}, prefix={prefix:?}, suffix={suffix:?}, suffix rows={suffix_rows:?}"
-					);
-					assert!(
-						chip.width() <= width && slot.galley.rows.len() == 1,
-						"{geometry}"
-					);
-					assert_eq!(
-						slot.galley.cursor_from_pos(left - slot.pos).index.0,
-						0,
-						"{geometry}"
-					);
-					assert_eq!(
-						slot.galley.cursor_from_pos(right - slot.pos).index.0,
-						target.chars().count(),
-						"{geometry}"
-					);
-					assert!(
-						suffix_rows
-							.iter()
-							.all(|row| !row.contains(left) && !row.contains(right)),
-						"Following text must not claim the chip's selection hit band: {geometry}"
-					);
-					output.drop_without_applying_deltas();
-					for events in [
-						vec![
-							egui::Event::PointerMoved(start),
-							egui::Event::PointerButton {
-								pos: start,
-								button: egui::PointerButton::Primary,
-								pressed: true,
-								modifiers: egui::Modifiers::NONE,
-							},
-						],
-						vec![egui::Event::PointerMoved(end)],
-						vec![egui::Event::PointerButton {
-							pos: end,
-							button: egui::PointerButton::Primary,
-							pressed: false,
-							modifiers: egui::Modifiers::NONE,
-						}],
-					] {
-						let (output, opening) = ui.frame(width, events);
-						assert!(
-							opening.is_none(),
-							"Selection drags must not navigate: {geometry}"
-						);
-						let current = message_link_text(&output, target)
-							.expect("URL selection slot during drag");
-						assert_eq!(
-							egui::Rect::from_min_size(current.pos, current.galley.size()),
-							chip,
-							"Selection must not change the chip's layout: {geometry}"
-						);
-						output.drop_without_applying_deltas();
-					}
-					let (output, opening) = ui.frame(width, vec![egui::Event::Copy]);
-					assert!(opening.is_none(), "{geometry}");
-					let copied = output
-						.platform_output
-						.commands
-						.iter()
-						.find_map(|command| match command {
-							egui::OutputCommand::CopyText(text) => Some(text),
-							_ => None,
-						})
-						.unwrap_or_else(|| {
-							panic!("Selected message body must copy text: {geometry}")
-						});
-					assert_eq!(
-						copied.split_whitespace().collect::<Vec<_>>().join(" "),
-						expected,
-						"{geometry}"
-					);
-					output.drop_without_applying_deltas();
-				}
-			}
-		}
-	}
-
 	fn link_occurrences(parsed: &Formatted) -> Vec<u32> {
 		parsed
 			.spans
@@ -3450,258 +3968,6 @@ mod tests {
 		let neighbor_ids = link_occurrences(&neighbors);
 		assert_eq!(neighbor_ids.len(), 2);
 		assert_ne!(neighbor_ids[0], neighbor_ids[1]);
-	}
-
-	fn message_link_slots<'a>(
-		output: &'a egui::FullOutput,
-		target: &str,
-	) -> Vec<&'a egui::epaint::TextShape> {
-		fn walk<'a>(
-			shape: &'a egui::Shape,
-			target: &str,
-			found: &mut Vec<&'a egui::epaint::TextShape>,
-		) {
-			match shape {
-				egui::Shape::Text(text) if text.galley.text().trim() == target => found.push(text),
-				egui::Shape::Vec(shapes) => {
-					for shape in shapes {
-						walk(shape, target, found);
-					}
-				}
-				_ => {}
-			}
-		}
-		let mut found = Vec::new();
-		for shape in &output.shapes {
-			walk(&shape.shape, target, &mut found);
-		}
-		found.sort_by(|left, right| left.pos.x.total_cmp(&right.pos.x));
-		found
-	}
-
-	#[test]
-	fn dragging_adjacent_identical_message_chips_copies_both_urls() {
-		let target = "https://discord.com/channels/10/20/30";
-		let mut ui = MessageLinkTestUi::new(&format!("<{target}><{target}>"));
-		ui.frame(800.0, vec![]).0.drop_without_applying_deltas();
-		let (output, opening) = ui.frame(800.0, vec![]);
-		assert!(opening.is_none());
-		let slots = message_link_slots(&output, target);
-		assert_eq!(slots.len(), 2, "each autolink needs its own selection slot");
-		let first = egui::Rect::from_min_size(slots[0].pos, slots[0].galley.size());
-		let second = egui::Rect::from_min_size(slots[1].pos, slots[1].galley.size());
-		assert!(
-			second.left() + 1.0 >= first.right(),
-			"chips must stay separate: first={first:?} second={second:?}"
-		);
-		let start = egui::pos2(first.left() + first.width() * 0.25, first.center().y);
-		let end = egui::pos2(second.left() + second.width() * 0.75, second.center().y);
-		output.drop_without_applying_deltas();
-		for events in [
-			vec![
-				egui::Event::PointerMoved(start),
-				egui::Event::PointerButton {
-					pos: start,
-					button: egui::PointerButton::Primary,
-					pressed: true,
-					modifiers: egui::Modifiers::NONE,
-				},
-			],
-			vec![egui::Event::PointerMoved(end)],
-			vec![egui::Event::PointerButton {
-				pos: end,
-				button: egui::PointerButton::Primary,
-				pressed: false,
-				modifiers: egui::Modifiers::NONE,
-			}],
-		] {
-			let (output, opening) = ui.frame(800.0, events);
-			assert!(opening.is_none(), "Selection drags must not navigate");
-			output.drop_without_applying_deltas();
-		}
-		let (output, opening) = ui.frame(800.0, vec![egui::Event::Copy]);
-		assert!(opening.is_none());
-		let copied = output
-			.platform_output
-			.commands
-			.iter()
-			.find_map(|command| match command {
-				egui::OutputCommand::CopyText(text) => Some(text.as_str()),
-				_ => None,
-			})
-			.expect("dragging both chips must copy text");
-		assert_eq!(
-			copied.matches(target).count(),
-			2,
-			"copied text lost an occurrence: {copied:?}"
-		);
-		output.drop_without_applying_deltas();
-	}
-
-	#[test]
-	fn quote_rails_span_every_wrapped_line_of_their_block() {
-		fn shapes(
-			shape: &egui::Shape,
-			rails: &mut Vec<egui::Rect>,
-			texts: &mut Vec<(String, egui::Rect, usize)>,
-		) {
-			match shape {
-				egui::Shape::Rect(rect) if rect.rect.width() == f32::from(QUOTE_RAIL) => {
-					rails.push(rect.rect);
-				}
-				egui::Shape::Text(text) => texts.push((
-					text.galley.job.text.clone(),
-					text.galley.rect.translate(text.pos.to_vec2()),
-					text.galley.rows.len(),
-				)),
-				egui::Shape::Vec(children) => {
-					for shape in children {
-						shapes(shape, rails, texts);
-					}
-				}
-				_ => {}
-			}
-		}
-		let parsed = Formatted::parse(
-			"> quoted words that have to wrap over several lines inside a narrow message body\n\nafter",
-		);
-		assert!(
-			!parsed
-				.spans
-				.iter()
-				.any(|(text, _)| text.contains('\u{2502}'))
-		);
-		let ctx = egui::Context::default();
-		crate::design::apply(&ctx);
-		let output = ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(220.0, 300.0),
-				)),
-				..Default::default()
-			},
-			|ui| parsed.show(ui, &mut None),
-		);
-		let (mut rails, mut texts) = (vec![], vec![]);
-		for shape in &output.shapes {
-			shapes(&shape.shape, &mut rails, &mut texts);
-		}
-		output.drop_without_applying_deltas();
-		let (_, quote, rows) = texts
-			.iter()
-			.find(|(text, _, _)| text.starts_with("quoted words"))
-			.unwrap_or_else(|| panic!("Missing quote: {texts:?}"));
-		assert!(
-			*rows >= 3,
-			"The quote must wrap for this test to mean anything"
-		);
-		assert_eq!(rails.len(), 1, "One rail for one quoted block: {rails:?}");
-		let rail = rails[0];
-		assert!(
-			rail.top() <= quote.top() && rail.bottom() >= quote.bottom(),
-			"The rail must cover every wrapped line: {rail:?} against {quote:?}"
-		);
-		assert!(
-			rail.right() <= quote.left(),
-			"The rail sits left of the quoted text: {rail:?} against {quote:?}"
-		);
-	}
-
-	#[test]
-	fn emoji_quotes_reserve_their_full_height_between_paragraphs() {
-		fn shapes(
-			shape: &egui::Shape,
-			rails: &mut Vec<egui::Rect>,
-			texts: &mut Vec<(String, egui::Rect)>,
-		) {
-			match shape {
-				egui::Shape::Rect(rect) if rect.rect.width() == f32::from(QUOTE_RAIL) => {
-					rails.push(rect.rect);
-				}
-				egui::Shape::Text(text) => texts.push((
-					text.galley.job.text.clone(),
-					text.galley
-						.rows
-						.iter()
-						.filter(|row| row.glyphs.iter().any(|glyph| !glyph.chr.is_whitespace()))
-						.fold(egui::Rect::NOTHING, |rect, row| rect.union(row.rect()))
-						.translate(text.pos.to_vec2()),
-				)),
-				egui::Shape::Vec(children) => {
-					for shape in children {
-						shapes(shape, rails, texts);
-					}
-				}
-				_ => {}
-			}
-		}
-		let sources = [
-			(
-				include_str!("../tests/fixtures/prune-announcement.txt"),
-				"Guild Feature",
-				"Server owners",
-			),
-			(
-				"before\n> ⚠️ **A warning** with enough words to wrap onto several lines in a narrow message.\nafter",
-				"before",
-				"after",
-			),
-			(
-				"before\n> A plain quote with enough words to wrap onto several lines in a narrow message.\n\nafter ✍️",
-				"before",
-				"after",
-			),
-		];
-		for (source, before, after) in sources {
-			let parsed = Formatted::parse(source);
-			assert!(parsed.artwork);
-			for width in [220.0, 560.0, 1260.0] {
-				for (light, scale) in [(false, 1.0), (true, 1.0), (false, 2.0), (true, 2.0)] {
-					let ctx = egui::Context::default();
-					ctx.set_pixels_per_point(scale);
-					crate::design::apply(&ctx);
-					if light {
-						ctx.set_visuals(egui::Visuals::light());
-					}
-					let output = ctx.run_ui(
-						egui::RawInput {
-							screen_rect: Some(egui::Rect::from_min_size(
-								egui::Pos2::ZERO,
-								egui::vec2(width, 1600.0),
-							)),
-							..Default::default()
-						},
-						|ui| parsed.show(ui, &mut None),
-					);
-					let (mut rails, mut texts) = (vec![], vec![]);
-					for shape in &output.shapes {
-						shapes(&shape.shape, &mut rails, &mut texts);
-					}
-					output.drop_without_applying_deltas();
-					assert_eq!(rails.len(), 1);
-					let rail = rails[0];
-					let before = texts
-						.iter()
-						.find(|(text, _)| text.contains(before))
-						.unwrap()
-						.1;
-					let after = texts
-						.iter()
-						.find(|(text, _)| text.contains(after))
-						.unwrap()
-						.1;
-					assert!(
-						before.bottom() <= rail.top(),
-						"Preceding text overlaps quote at width {width}: {before:?}, {rail:?}"
-					);
-					assert!(
-						after.top() >= rail.bottom(),
-						"Following text overlaps quote at width {width}: {after:?}, {rail:?}"
-					);
-				}
-			}
-		}
 	}
 
 	#[test]
@@ -4652,333 +4918,6 @@ mod tests {
 	}
 
 	#[test]
-	fn selecting_across_images_copies_unicode_and_custom_markup() {
-		let ctx = egui::Context::default();
-		crate::emoji::install(&ctx).unwrap();
-		let source = "A 👩🏽‍💻 ❤️ <:serein_wave:9001> Z";
-		let parsed = Formatted::parse(source);
-		let mut avatars = crate::avatars::Avatars::default();
-		let mut clock = 0.0;
-		let mut run = |events| {
-			clock += 1.0;
-			ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(800.0, 200.0),
-					)),
-					events,
-					time: Some(clock),
-					..Default::default()
-				},
-				|ui| {
-					let mut profile = crate::profiles::ProfileSession::default();
-					parsed.show_with_images(
-						ui,
-						&mut None,
-						&[],
-						None,
-						&mut profile,
-						(&mut avatars, true, &[]),
-						crate::design::MessageCardSurface::Opaque,
-					)
-				},
-			)
-		};
-		let mut output = run(vec![]);
-		let mut start = egui::Pos2::ZERO;
-		let mut end = egui::Pos2::ZERO;
-		let mut custom_rect = egui::Rect::NOTHING;
-		for shape in &output.shapes {
-			// Text and artwork share one galley so rows with emoji grow before text is placed.
-			if let egui::Shape::Text(text) = &shape.shape
-				&& text.galley.text() == source
-			{
-				let row = &text.galley.rows[0];
-				start = text.pos + egui::vec2(0.0, 5.0);
-				end = text.pos + egui::vec2(row.size.x, 5.0);
-				let markup = row
-					.glyphs
-					.iter()
-					.find(|glyph| glyph.chr == '<')
-					.expect("custom emoji glyph");
-				custom_rect = egui::Rect::from_min_size(
-					text.pos + egui::vec2(markup.pos.x, 0.0),
-					egui::vec2(markup.advance_width, row.size.y),
-				);
-			}
-		}
-		output.textures_delta.clear();
-		assert!(end.x > start.x && custom_rect.width() > 0.0);
-		for events in [
-			vec![
-				egui::Event::PointerMoved(start),
-				egui::Event::PointerButton {
-					pos: start,
-					button: egui::PointerButton::Primary,
-					pressed: true,
-					modifiers: egui::Modifiers::NONE,
-				},
-			],
-			vec![egui::Event::PointerMoved(end)],
-			vec![egui::Event::PointerButton {
-				pos: end,
-				button: egui::PointerButton::Primary,
-				pressed: false,
-				modifiers: egui::Modifiers::NONE,
-			}],
-		] {
-			run(events).drop_without_applying_deltas();
-		}
-		let mut output = run(vec![egui::Event::Copy]);
-		output.textures_delta.clear();
-		let copied = output
-			.platform_output
-			.commands
-			.iter()
-			.find_map(|command| match command {
-				egui::OutputCommand::CopyText(text) => Some(text.as_str()),
-				_ => None,
-			});
-		assert_eq!(copied.map(str::trim_end), Some(source));
-		for fraction in [0.25, 0.75] {
-			let start = custom_rect.left_top() + egui::vec2(custom_rect.width() * fraction, 5.0);
-			for events in [
-				vec![
-					egui::Event::PointerMoved(start),
-					egui::Event::PointerButton {
-						pos: start,
-						button: egui::PointerButton::Primary,
-						pressed: true,
-						modifiers: egui::Modifiers::NONE,
-					},
-				],
-				vec![egui::Event::PointerMoved(end)],
-				vec![egui::Event::PointerButton {
-					pos: end,
-					button: egui::PointerButton::Primary,
-					pressed: false,
-					modifiers: egui::Modifiers::NONE,
-				}],
-			] {
-				run(events).drop_without_applying_deltas();
-			}
-			let mut output = run(vec![egui::Event::Copy]);
-			output.textures_delta.clear();
-			let copied = output
-				.platform_output
-				.commands
-				.iter()
-				.find_map(|command| match command {
-					egui::OutputCommand::CopyText(text) => Some(text.as_str()),
-					_ => None,
-				});
-			assert!(
-				matches!(
-					copied.map(str::trim_end),
-					Some("<:serein_wave:9001> Z" | " Z")
-				),
-				"partial emoji copied: {copied:?}"
-			);
-		}
-	}
-	#[test]
-	fn emoji_click_shows_default_known_or_unknown_source_and_escape_closes() {
-		fn text_shapes<'a>(shape: &'a egui::Shape, texts: &mut Vec<&'a egui::epaint::TextShape>) {
-			match shape {
-				egui::Shape::Text(text) => texts.push(text),
-				egui::Shape::Vec(shapes) => {
-					for shape in shapes {
-						text_shapes(shape, texts);
-					}
-				}
-				_ => {}
-			}
-		}
-		for light in [false, true] {
-			for (source, title, description) in [
-				(
-					"\u{1f9c2}",
-					":salt:",
-					"A default emoji. You can use this emoji everywhere on Discord.",
-				),
-				(
-					"<:old_name:9001>",
-					":serein_wave:",
-					"From Emoji source server",
-				),
-				(
-					"<:unknown:999999>",
-					":unknown:",
-					"Source server unavailable in this session.",
-				),
-			] {
-				let ctx = egui::Context::default();
-				if light {
-					ctx.set_visuals(egui::Visuals::light());
-				}
-				crate::emoji::install(&ctx).unwrap();
-				let mut state = test_support::demo_state();
-				for guild in &mut state.guilds {
-					guild.name = "Emoji source server".into();
-				}
-				let parsed = Formatted::parse(source);
-				let mut images = crate::avatars::Avatars::default();
-				let mut clock = 0.0;
-				let mut frame = |events| {
-					clock += 0.02;
-					ctx.run_ui(
-						egui::RawInput {
-							screen_rect: Some(egui::Rect::from_min_size(
-								egui::Pos2::ZERO,
-								egui::vec2(360.0, 300.0),
-							)),
-							events,
-							time: Some(clock),
-							..Default::default()
-						},
-						|ui| {
-							let mut profile = crate::profiles::ProfileSession::default();
-							parsed.show_with_images(
-								ui,
-								&mut None,
-								&[],
-								None,
-								&mut profile,
-								(&mut images, true, &state.guilds),
-								crate::design::MessageCardSurface::Opaque,
-							)
-						},
-					)
-				};
-				let mut output = frame(vec![]);
-				let mut texts = vec![];
-				for shape in &output.shapes {
-					text_shapes(&shape.shape, &mut texts);
-				}
-				let text = texts
-					.iter()
-					.find(|text| text.galley.text() == source)
-					.unwrap();
-				let row = &text.galley.rows[0];
-				let glyph = &row.glyphs[0];
-				let point = text.pos
-					+ egui::vec2(glyph.pos.x + glyph.advance_width / 2.0, row.size.y / 2.0);
-				output.textures_delta.clear();
-				frame(vec![egui::Event::PointerMoved(point)]).drop_without_applying_deltas();
-				for pressed in [true, false] {
-					frame(vec![egui::Event::PointerButton {
-						pos: point,
-						button: egui::PointerButton::Primary,
-						pressed,
-						modifiers: egui::Modifiers::NONE,
-					}])
-					.drop_without_applying_deltas();
-				}
-				frame(vec![]).drop_without_applying_deltas();
-				let output = frame(vec![]);
-				let mut texts = vec![];
-				for shape in &output.shapes {
-					text_shapes(&shape.shape, &mut texts);
-				}
-				assert!(
-					texts.iter().any(|text| text.galley.text() == title),
-					"missing title {title}"
-				);
-				assert!(
-					texts.iter().any(|text| text.galley.text() == description),
-					"missing description {description}"
-				);
-				for text in texts {
-					let rect = text.galley.rect.translate(text.pos.to_vec2());
-					assert!(
-						rect.right() <= 360.5 && rect.bottom() <= 300.5,
-						"clipped emoji details: {rect:?}"
-					);
-				}
-				output.drop_without_applying_deltas();
-				assert!(egui::Popup::is_any_open(&ctx));
-				frame(vec![egui::Event::Key {
-					key: egui::Key::Escape,
-					physical_key: None,
-					pressed: true,
-					repeat: false,
-					modifiers: egui::Modifiers::NONE,
-				}])
-				.drop_without_applying_deltas();
-				assert!(!egui::Popup::is_any_open(&ctx));
-			}
-		}
-	}
-
-	#[test]
-	fn high_dpi_inline_emoji_keep_the_atlas_while_jumbo_requests_vectors() {
-		for (source, expected_vector) in [("Inline 🙂", false), ("🙂", true)] {
-			let ctx = egui::Context::default();
-			crate::design::apply(&ctx);
-			let parsed = Formatted::parse(source);
-			let mut images = crate::avatars::Avatars::default();
-			let mut raw = egui::RawInput::default();
-			raw.viewports
-				.get_mut(&egui::ViewportId::ROOT)
-				.unwrap()
-				.native_pixels_per_point = Some(2.0);
-			ctx.run_ui(raw, |ui| {
-				if parsed.jumbo() {
-					crate::design::jumbo_emoji(ui);
-				}
-				let mut surface = crate::select::Surface::new(ui, "vector-presentation-test");
-				parsed.show_search(
-					ui,
-					&mut None,
-					&[],
-					None,
-					&mut crate::profiles::ProfileSession::default(),
-					(&[], &mut None, &[], &[]),
-					(&mut images, true, &mut 0),
-					&mut surface,
-					"",
-					crate::design::MessageCardSurface::Conversation,
-				);
-			})
-			.drop_without_applying_deltas();
-			assert_eq!(ctx.pixels_per_point(), 2.0);
-			let requests = images.take_requests();
-			assert_eq!(
-				requests.iter().any(|key| key.starts_with("emoji-unicode-")),
-				expected_vector
-			);
-		}
-	}
-
-	#[test]
-	fn emoji_render_as_whole_images_but_code_and_source_stay_literal() {
-		let ctx = egui::Context::default();
-		crate::emoji::install(&ctx).unwrap();
-		let source = "👩🏽‍💻 `😀` 🇨🇿";
-		let parsed = Formatted::parse(source);
-		assert!(
-			parsed
-				.spans
-				.iter()
-				.any(|(text, style)| style.code && text == "😀")
-		);
-		let output = ctx.run_ui(Default::default(), |ui| {
-			parsed.show(ui, &mut None);
-		});
-		let images = output
-			.shapes
-			.iter()
-			.filter(|shape| {
-				matches!(
-					&shape.shape, egui::Shape::Rect(rect) if rect.brush.is_some()
-				)
-			})
-			.count();
-		output.drop_without_applying_deltas();
-		assert_eq!(images, 2, "one image per complete grapheme, none in code");
-	}
-	#[test]
 	fn fenced_blocks_record_language_and_discord_fence_shapes() {
 		let parsed = Formatted::parse("intro\n```js\nconst a = 1;\n```\nafter");
 		assert_eq!(parsed.blocks.len(), 1);
@@ -5040,201 +4979,6 @@ mod tests {
 		let many = "```\nx\n```\n".repeat(MAX_BLOCKS + 4);
 		let parsed = Formatted::parse(&many);
 		assert!(parsed.blocks.len() <= MAX_BLOCKS);
-	}
-	#[test]
-	fn fenced_code_uses_its_actual_surface_instead_of_global_chat_transparency() {
-		let original = crate::design::default_window_effects();
-		let parsed = Formatted::parse("```rust\nfn main() {}\n```");
-		for light in [false, true] {
-			for transparency in [0, 15, 50, 100] {
-				crate::design::set_window_effects(true, transparency, 0);
-				let ctx = egui::Context::default();
-				ctx.set_visuals(if light {
-					egui::Visuals::light()
-				} else {
-					egui::Visuals::dark()
-				});
-				for (background, search) in [
-					(crate::design::MessageCardSurface::Opaque, false),
-					(crate::design::MessageCardSurface::Opaque, true),
-					(crate::design::MessageCardSurface::Conversation, false),
-				] {
-					let mut expected = egui::Color32::TRANSPARENT;
-					let output = ctx.run_ui(Default::default(), |ui| {
-						expected = background.fill(ui, ui.visuals().code_bg_color);
-						let mut profile = crate::profiles::ProfileSession::default();
-						let mut images = crate::avatars::Avatars::default();
-						if search {
-							let mut surface = crate::select::Surface::new(ui, "search-code");
-							parsed.show_search(
-								ui,
-								&mut None,
-								&[],
-								None,
-								&mut profile,
-								(&[], &mut None, &[], &[]),
-								(&mut images, true, &mut 0),
-								&mut surface,
-								"main",
-								background,
-							);
-							surface.finish(ui);
-						} else {
-							parsed.show_with_images(
-								ui,
-								&mut None,
-								&[],
-								None,
-								&mut profile,
-								(&mut images, true, &[]),
-								background,
-							);
-						}
-					});
-					assert!(
-						output.shapes.iter().any(|shape| matches!(
-							&shape.shape,
-							egui::Shape::Rect(rect) if rect.corner_radius == egui::CornerRadius::same(6)
-								&& rect.stroke.width == 1.0 && rect.fill == expected
-						)),
-						"missing framed code surface at transparency {transparency}"
-					);
-					match background {
-						crate::design::MessageCardSurface::Opaque => {
-							assert_eq!(expected, ctx.global_style().visuals.code_bg_color)
-						}
-						// A faint coat keeps the block visible even on fully see-through chat.
-						crate::design::MessageCardSurface::Conversation if transparency > 0 => {
-							assert!((1..=24).contains(&expected.a()))
-						}
-						_ => {}
-					}
-					output.drop_without_applying_deltas();
-				}
-			}
-		}
-		crate::design::set_window_effects(original.0, original.1, original.2);
-	}
-	#[test]
-	fn code_blocks_render_a_framed_widget_with_copy_control() {
-		fn walk<'a>(shape: &'a egui::Shape, out: &mut Vec<&'a egui::Shape>) {
-			match shape {
-				egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
-				other => out.push(other),
-			}
-		}
-		let ctx = egui::Context::default();
-		crate::icons::install(&ctx);
-		let parsed = Formatted::parse("before\n```rust\nfn main() {}\n```\nafter");
-		let frame = |events| {
-			ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(420.0, 300.0),
-					)),
-					events,
-					..Default::default()
-				},
-				|ui| parsed.show(ui, &mut None),
-			)
-		};
-		let mut button = None;
-		for _ in 0..2 {
-			let output = frame(vec![]);
-			let code_bg = ctx.global_style().visuals.code_bg_color;
-			let mut shapes = Vec::new();
-			output
-				.shapes
-				.iter()
-				.for_each(|s| walk(&s.shape, &mut shapes));
-			let texts: Vec<(&str, egui::Pos2, egui::Vec2, egui::FontFamily)> = shapes
-				.iter()
-				.filter_map(|shape| match shape {
-					egui::Shape::Text(text) => Some((
-						text.galley.text(),
-						text.pos,
-						text.galley.size(),
-						text.galley.job.sections[0].format.font_id.family.clone(),
-					)),
-					_ => None,
-				})
-				.collect();
-			let code = texts
-				.iter()
-				.find(|(text, ..)| *text == "fn main() {}")
-				.expect("code text");
-			let before = texts
-				.iter()
-				.find(|(text, ..)| *text == "before")
-				.expect("paragraph before code block");
-			let after = texts
-				.iter()
-				.find(|(text, ..)| *text == "after")
-				.expect("paragraph after code block");
-			assert_eq!(code.3, egui::FontFamily::Monospace);
-			assert!(
-				texts.iter().any(|(text, ..)| *text == "Rust"),
-				"language header"
-			);
-			assert!(
-				texts.iter().any(|(text, ..)| *text == "before"),
-				"paragraph newline before the block is dropped: {texts:?}"
-			);
-			assert!(texts.iter().any(|(text, ..)| *text == "after"));
-			let bg = shapes
-				.iter()
-				.find_map(|shape| match shape {
-					egui::Shape::Rect(rect) if rect.fill == code_bg => Some(rect.rect),
-					_ => None,
-				})
-				.expect("framed background");
-			assert!(bg.contains_rect(egui::Rect::from_min_size(code.1, code.2)));
-			assert!(
-				before.1.y + before.2.y <= bg.top(),
-				"paragraph before the block overlaps its frame: before={before:?}, block={bg:?}"
-			);
-			assert!(
-				after.1.y >= bg.bottom(),
-				"paragraph after the block overlaps its frame: after={after:?}, block={bg:?}"
-			);
-			let header = texts
-				.iter()
-				.find(|(text, ..)| *text == "Rust")
-				.expect("header");
-			button = Some(egui::pos2(
-				bg.right() - 10.0 - 12.0,
-				header.1.y + header.2.y / 2.0,
-			));
-			output.drop_without_applying_deltas();
-		}
-		let pos = button.expect("copy control");
-		let output = frame(vec![
-			egui::Event::PointerMoved(pos),
-			egui::Event::PointerButton {
-				pos,
-				button: egui::PointerButton::Primary,
-				pressed: true,
-				modifiers: egui::Modifiers::NONE,
-			},
-			egui::Event::PointerButton {
-				pos,
-				button: egui::PointerButton::Primary,
-				pressed: false,
-				modifiers: egui::Modifiers::NONE,
-			},
-		]);
-		let copied: Vec<String> = output
-			.platform_output
-			.commands
-			.iter()
-			.filter_map(|command| match command {
-				egui::OutputCommand::CopyText(text) => Some(text.clone()),
-				_ => None,
-			})
-			.collect();
-		output.drop_without_applying_deltas();
-		assert_eq!(copied, vec!["fn main() {}".to_owned()]);
 	}
 	#[test]
 	fn dragging_out_of_a_code_block_leaves_the_text_above_it_unselected() {
@@ -5323,87 +5067,6 @@ mod tests {
 		assert_eq!(copied, "bravo\n\nafter the block");
 	}
 	#[test]
-	fn an_unlabelled_code_block_floats_a_copy_control_above_its_text() {
-		let ctx = egui::Context::default();
-		crate::icons::install(&ctx);
-		let parsed = Formatted::parse("```\nfirst line of code\nsecond line\nthird line\n```");
-		let frame = |events| {
-			ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(420.0, 300.0),
-					)),
-					events,
-					..Default::default()
-				},
-				|ui| parsed.show(ui, &mut None),
-			)
-		};
-		let mut block = None;
-		for _ in 0..2 {
-			let output = frame(Vec::new());
-			let code_bg = ctx.global_style().visuals.code_bg_color;
-			block = output.shapes.iter().find_map(|shape| match &shape.shape {
-				egui::Shape::Rect(rect) if rect.fill == code_bg => Some(rect.rect),
-				_ => None,
-			});
-			output.drop_without_applying_deltas();
-		}
-		// No language header, so the control floats in the block's top-right corner and
-		// only while the pointer is inside it.
-		let block = block.expect("framed background");
-		let pos = egui::pos2(block.right() - 17.0, block.top() + 17.0);
-		let hover = frame(vec![egui::Event::PointerMoved(pos)]);
-		let code = hover
-			.shapes
-			.iter()
-			.position(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text().starts_with("first line")))
-			.expect("painted code galley");
-		let control = hover
-			.shapes
-			.iter()
-			.position(|shape| {
-				let bounds = shape.shape.visual_bounding_rect();
-				bounds.contains(pos) && bounds.width() < 40.0
-			})
-			.expect("floating control");
-		hover.drop_without_applying_deltas();
-		assert!(
-			code < control,
-			"the block's deferred text must paint under the control, not over it"
-		);
-		let output = frame(vec![
-			egui::Event::PointerMoved(pos),
-			egui::Event::PointerButton {
-				pos,
-				button: egui::PointerButton::Primary,
-				pressed: true,
-				modifiers: egui::Modifiers::NONE,
-			},
-			egui::Event::PointerButton {
-				pos,
-				button: egui::PointerButton::Primary,
-				pressed: false,
-				modifiers: egui::Modifiers::NONE,
-			},
-		]);
-		let copied: Vec<String> = output
-			.platform_output
-			.commands
-			.iter()
-			.filter_map(|command| match command {
-				egui::OutputCommand::CopyText(text) => Some(text.clone()),
-				_ => None,
-			})
-			.collect();
-		output.drop_without_applying_deltas();
-		assert_eq!(
-			copied,
-			vec!["first line of code\nsecond line\nthird line".to_owned()]
-		);
-	}
-	#[test]
 	fn mass_mentions_render_as_pills_only_for_exact_plain_tokens() {
 		let parsed = Formatted::parse("@everyone @here `@everyone` @everyone_else \\@here");
 		assert_eq!(
@@ -5438,181 +5101,6 @@ mod tests {
 			.count();
 		assert_eq!((pills, backgrounds), (2, 2));
 		output.drop_without_applying_deltas();
-	}
-	#[test]
-	fn reply_previews_render_message_destinations_and_preserve_literal_links() {
-		let mut state = test_support::demo_state();
-		let mut guild = state.guilds[0].clone();
-		guild.id = Id(999);
-		guild.name = "Other server".into();
-		state.guilds.push(guild);
-		state
-			.channels
-			.iter_mut()
-			.find(|channel| channel.id == Id(28))
-			.unwrap()
-			.name = "長い名前".repeat(80);
-		let source = crate::mentions::MentionSource {
-			state: &state,
-			channel: Id(20),
-		};
-		let ctx = egui::Context::default();
-		for dark in [true, false] {
-			ctx.set_visuals(if dark {
-				egui::Visuals::dark()
-			} else {
-				egui::Visuals::light()
-			});
-			for (input, destination) in [
-				("https://discord.com/channels/10/20/501", true),
-				("https://discord.com/channels/10/27/501", true),
-				("https://discord.com/channels/10/28/501", true),
-				("https://discord.com/channels/999/900/501", true),
-				("https://discord.com/channels/10/998/501", true),
-				("https://example.com/channels/10/20/501", false),
-				("https://discord.com/channels/10/20", true),
-				(
-					"[Named link](https://discord.com/channels/10/20/501)",
-					false,
-				),
-				("`https://discord.com/channels/10/20/501`", false),
-			] {
-				let parsed = Formatted::parse(input);
-				let mut job = LayoutJob::default();
-				let mut images = Vec::new();
-				let output = ctx.run_ui(Default::default(), |ui| {
-					images = parsed.append_inline_preview(
-						&mut job,
-						ui,
-						&[],
-						Some(&source),
-						&[],
-						&state.channels,
-					);
-				});
-				output.drop_without_applying_deltas();
-				let text = Formatted::inline_preview_text(&job, &images);
-				if destination {
-					let link = discord_chat_link(input).unwrap();
-					let pill = crate::channel_pill::Pill::message(
-						&link,
-						&state.channels,
-						&state.guilds,
-						Some(&source),
-					);
-					assert_eq!(text, pill.label().chars().take(120).collect::<String>());
-					assert_eq!(images.len(), 1);
-					assert!(
-						matches!(images[0].image, PreviewImage::Channel(icon) if icon == pill.icon)
-					);
-					// The icon slot and the name share one background strip.
-					assert!(job.sections.iter().all(|section| {
-						section.format.background == crate::design::palette_for(&ctx).mention_bg
-					}));
-				} else {
-					assert!(images.is_empty());
-					assert_eq!(
-						text,
-						if input.starts_with('[') {
-							"Named link"
-						} else {
-							input.trim_matches('`')
-						}
-					);
-				}
-			}
-		}
-	}
-	#[test]
-	fn timestamps_render_the_formatted_instant_not_the_raw_token() {
-		let parsed = Formatted::parse(
-			"<t:1700000000:R> <t:1700000000> `<t:1700000000:t>` \\<t:1:t> <t:1:z> <t:abc:t>",
-		);
-		let stamps: Vec<_> = parsed
-			.spans
-			.iter()
-			.filter_map(|(text, style)| style.timestamp.map(|stamp| (text.as_str(), stamp)))
-			.collect();
-		assert_eq!(
-			stamps,
-			vec![
-				("<t:1700000000:R>", (1_700_000_000, b'R')),
-				("<t:1700000000>", (1_700_000_000, b'f')),
-			]
-		);
-		let ctx = egui::Context::default();
-		let mut output = ctx.run_ui(Default::default(), |ui| {
-			ui.set_width(400.0);
-			parsed.show(ui, &mut None);
-		});
-		output.textures_delta.clear();
-		output.drop_without_applying_deltas();
-		let mut job = LayoutJob::default();
-		ctx.run_ui(Default::default(), |ui| {
-			let _ = parsed.append_inline_preview(&mut job, ui, &[], None, &[], &[]);
-		})
-		.drop_without_applying_deltas();
-		assert!(job.text.contains("ago"), "relative style: {}", job.text);
-		assert!(
-			job.text.contains("November 14, 2023"),
-			"default style: {}",
-			job.text
-		);
-		// Code spans, escapes and unknown styles keep the literal source.
-		assert_eq!(job.text.matches("<t:").count(), 4, "{}", job.text);
-	}
-	#[test]
-	fn mention_highlights_include_unknown_users_in_both_themes() {
-		let ctx = egui::Context::default();
-		let users = vec![model::User {
-			id: Id(42),
-			name: "Synthetic Robin".into(),
-			avatar: None,
-			webhook: false,
-			kind: Default::default(),
-			discriminator: 0,
-			primary_guild: None,
-			cosmetics: None,
-		}];
-		let parsed = Formatted::parse("<@42> <@!43> `<@44>` \\<@45>");
-		for dark in [true, false] {
-			ctx.set_visuals(if dark {
-				egui::Visuals::dark()
-			} else {
-				egui::Visuals::light()
-			});
-			for width in [80.0, 300.0] {
-				let mut output = ctx.run_ui(Default::default(), |ui| {
-					ui.set_width(width);
-					let mut profile = crate::profiles::ProfileSession::default();
-					parsed.show_mentions(ui, &mut None, &users, &mut profile);
-				});
-				output.textures_delta.clear();
-				let colors = crate::design::colors(dark, crate::design::variant());
-				let highlighted: Vec<_> = output
-					.shapes
-					.iter()
-					.filter_map(|shape| {
-						let egui::Shape::Text(text) = &shape.shape else {
-							return None;
-						};
-						(text.fallback_color == colors.mention_text)
-							.then_some(text.galley.job.text.as_str())
-					})
-					.collect();
-				assert_eq!(highlighted, ["@Synthetic Robin", "@43"]);
-				// Each mention row paints its own rounded background.
-				let backgrounds = output
-					.shapes
-					.iter()
-					.filter(
-						|shape| matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == colors.mention_bg),
-					)
-					.count();
-				assert!(backgrounds >= 2, "{backgrounds}");
-				output.drop_without_applying_deltas();
-			}
-		}
 	}
 
 	#[test]
@@ -5668,6 +5156,333 @@ mod tests {
 		assert_eq!(profile.open_user().unwrap().name, "Synthetic Robin");
 		assert!(opening.is_none());
 	}
+	#[test]
+	fn bare_url_underscores_do_not_format_or_join_neighboring_links() {
+		for target in [
+			"https://example.com/__first__second",
+			"https://example.com/___first___second",
+			"http://example.com/____?q=__value__#___fragment",
+			"HTTPS://EXAMPLE.COM/a__b__c",
+			"https://example.com/__café__/___end",
+		] {
+			for source in [
+				target.to_owned(),
+				format!("({target})."),
+				format!("https://before.test/__ {target} https://after.test/__"),
+				format!("__ordinary underline__ {target} _ordinary italic_"),
+			] {
+				let parsed = Formatted::parse(&source);
+				let text: String = parsed.spans.iter().map(|(text, _)| text.as_str()).collect();
+				assert!(text.contains(target), "{source}: {text}");
+				assert!(
+					parsed.spans.iter().any(|(text, style)| {
+						text == target && style.link.is_some() && !style.strong && !style.italic
+					}),
+					"URL must be one literal link: {source}"
+				);
+				assert!(
+					parsed
+						.spans
+						.iter()
+						.filter(|(_, style)| style.link.is_none())
+						.all(|(text, style)| {
+							!style.underline || text.contains("ordinary underline")
+						}),
+					"URL delimiters leaked formatting: {source}"
+				);
+			}
+		}
+		let source = "https://example.com/__first https://example.org/second__";
+		let parsed = Formatted::parse(source);
+		assert_eq!(
+			parsed.links,
+			[
+				"https://example.com/__first",
+				"https://example.org/second__"
+			]
+		);
+		assert_eq!(
+			parsed
+				.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>(),
+			source
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.underline && !style.italic)
+		);
+		let parsed = Formatted::parse("https://example.com/__. https://example.org/__.");
+		assert_eq!(
+			parsed.links,
+			["https://example.com/__", "https://example.org/__"]
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.underline && !style.italic)
+		);
+		let source = (0..MAX_LINKS + 8)
+			.map(|id| format!("https://example.com/__{id}__ "))
+			.collect::<String>();
+		assert_eq!(Formatted::parse(&source).links.len(), MAX_LINKS);
+	}
+
+	#[test]
+	fn bare_urls_keep_every_inline_delimiter_literal() {
+		for target in [
+			"https://example.com/*first*second",
+			"https://example.com/**first**second",
+			"https://example.com/~first~second",
+			"https://example.com/~~first~~second",
+			"https://example.com/?a=1&amp;b=&lt;2",
+			"https://example.com/_*~mixed~*_/end",
+		] {
+			for source in [
+				target.to_owned(),
+				format!("({target})."),
+				format!("https://before.test/** {target} https://after.test/~~"),
+				format!("**ordinary bold** {target} ~~ordinary strike~~"),
+			] {
+				let parsed = Formatted::parse(&source);
+				assert!(
+					parsed.spans.iter().any(|(text, style)| text == target
+						&& style.link.is_some()
+						&& !style.strong && !style.italic
+						&& !style.strike && !style.code),
+					"URL must be one literal link: {source}"
+				);
+				assert!(
+					parsed
+						.spans
+						.iter()
+						.filter(|(_, style)| style.link.is_none())
+						.all(|(text, style)| {
+							(!style.strong || text.contains("ordinary bold"))
+								&& (!style.strike || text.contains("ordinary strike"))
+								&& !style.italic && !style.code
+						}),
+					"URL delimiters leaked formatting: {source}"
+				);
+			}
+		}
+		for source in [
+			"**before https://example.com/a**",
+			"~~before https://example.com/a~~",
+			"__before https://example.com/a__:",
+			"*before https://example.com/a*'",
+		] {
+			let parsed = Formatted::parse(source);
+			assert_eq!(parsed.links, ["https://example.com/a"], "{source}");
+			assert!(
+				parsed
+					.spans
+					.iter()
+					.any(|(text, style)| text == "https://example.com/a"
+						&& (style.strong || style.strike || style.underline || style.italic)),
+				"{source}"
+			);
+		}
+	}
+
+	#[test]
+	fn url_markup_protection_leaves_closers_before_trailing_punctuation() {
+		let parsed = Formatted::parse("__before https://example.com/a__b__:");
+		assert_eq!(parsed.links, ["https://example.com/a__b"]);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "before " && style.underline)
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "https://example.com/a__b"
+					&& style.underline
+					&& style.link.is_some())
+		);
+		let parsed = Formatted::parse("https://example.com/a__b__: https://example.org/__c");
+		assert_eq!(
+			parsed
+				.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>(),
+			"https://example.com/a__b__: https://example.org/__c"
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.underline && !style.italic)
+		);
+	}
+
+	#[test]
+	fn url_markup_protection_handles_inner_closers_code_and_budget() {
+		let parsed = Formatted::parse("**before https://example.com/*path*?**");
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "https://example.com/*path*"
+					&& style.strong && !style.italic
+					&& style.link.is_some())
+		);
+		assert_eq!(parsed.links, ["https://example.com/*path*"]);
+		assert!(parsed.spans.iter().all(|(_, style)| !style.italic));
+
+		// Backticks are not URL characters; code spans keep precedence and nothing falls back.
+		let parsed = Formatted::parse(
+			"**bold** https://a.test/` https://b.test/` https://c.test/` https://d.test/`",
+		);
+		assert!(!parsed.limited);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "bold" && style.strong)
+		);
+		assert!(
+			Formatted::parse("`https://example.com/*a*` https://example.org/b")
+				.spans
+				.iter()
+				.any(|(text, style)| text == "https://example.com/*a*" && style.code)
+		);
+
+		let source = "https://a.test/**: https://b.test/**: word**";
+		let parsed = Formatted::parse(source);
+		assert_eq!(
+			parsed
+				.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>(),
+			source
+		);
+		assert_eq!(parsed.links, ["https://a.test/**:", "https://b.test/**:"]);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.strong && !style.italic)
+		);
+
+		let parsed = Formatted::parse(&format!(
+			"https://example.com/{}*bold*",
+			"_".repeat(MAX_EVENTS + 88)
+		));
+		assert!(parsed.limited || parsed.spans.iter().all(|(_, style)| !style.italic));
+	}
+
+	#[test]
+	fn url_underscore_protection_preserves_code_labels_and_spoilers() {
+		let target = "https://example.com/__first__second";
+		for source in [
+			format!("`{target}`"),
+			format!("```\n{target}\n```"),
+			format!("![{target}](https://image.test/)"),
+		] {
+			let parsed = Formatted::parse(&source);
+			assert!(parsed.links.is_empty(), "{source}");
+			assert!(
+				parsed
+					.spans
+					.iter()
+					.map(|(text, _)| text.as_str())
+					.collect::<String>()
+					.contains(target)
+			);
+		}
+		let parsed = Formatted::parse(&format!("[__label__]({target})"));
+		assert_eq!(parsed.links, [target]);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "label" && style.underline && !style.message_link)
+		);
+		for source in [format!("||{target}||"), format!("||<{target}>||")] {
+			let parsed = Formatted::parse(&source);
+			assert_eq!(parsed.links, [target], "{source}");
+			assert!(
+				parsed.spans.iter().any(|(text, style)| text == target
+					&& style.link.is_some()
+					&& style.spoiler.is_some()),
+				"{source}"
+			);
+		}
+		for source in [
+			format!("**{target}**"),
+			format!("__{target}__"),
+			format!("*{target}*"),
+		] {
+			let parsed = Formatted::parse(&source);
+			assert_eq!(parsed.links, [target], "{source}");
+		}
+	}
+
+	#[test]
+	fn url_underscores_keep_the_rendered_click_destination() {
+		let target = "https://example.com/__first__second";
+		for source in [format!("__before {target}__"), format!("_before {target}_")] {
+			let parsed = Formatted::parse(&source);
+			assert_eq!(parsed.links, [target], "{source}");
+			assert!(
+				parsed
+					.spans
+					.iter()
+					.any(|(text, style)| text == target && (style.italic || style.underline))
+			);
+		}
+		let parsed = Formatted::parse(&format!("[__label__][ref]\n\n[ref]: {target}"));
+		assert_eq!(parsed.links, [target]);
+		let mut ui = MessageLinkTestUi::new(target);
+		for events in [vec![], vec![], vec![message_link_key(egui::Key::Tab, true)]] {
+			ui.frame(900.0, events).0.drop_without_applying_deltas();
+		}
+		let (output, opening) = ui.frame(900.0, vec![message_link_key(egui::Key::Enter, true)]);
+		assert_eq!(opening.as_deref(), Some(target));
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	#[ignore = "release-only markdown microbenchmark; run with --ignored --nocapture"]
+	fn url_underscore_parse_benchmark() {
+		for (name, source) in [
+			(
+				"plain",
+				"A typical message with ordinary text and https://example.com/a.",
+			),
+			(
+				"underscores",
+				"https://example.com/__first https://example.org/second__",
+			),
+		] {
+			let mut samples = Vec::new();
+			for run in 0..6 {
+				let start = std::time::Instant::now();
+				for _ in 0..10_000 {
+					std::hint::black_box(Formatted::parse(std::hint::black_box(source)));
+				}
+				if run > 0 {
+					samples.push(start.elapsed());
+				}
+			}
+			samples.sort_unstable();
+			println!(
+				"{name}: 10000 parses, median {:?}, samples {samples:?}",
+				samples[2]
+			);
+		}
+	}
+
 	#[test]
 	fn inline_links_preserve_markdown_and_activate_their_own_destinations() {
 		let source = "Before [**Markdown** *label*](https://example.com/masked) then (https://example.org/a_(b)). `https://code.test` [https://label.test](javascript:bad)";
@@ -5798,5 +5613,221 @@ mod tests {
 		}
 		assert_eq!(cache.entries.len(), 500);
 		assert!(cache.bytes <= 1024 * 1024);
+	}
+
+	#[test]
+	fn a_bold_link_line_in_a_message_body_wraps_without_overlapping() {
+		// A paragraph that ends with a blank line, laid out with the blocks around it: that run
+		// used to lose the row's indent and be painted over the link before it.
+		let state = test_support::demo_state();
+		let channel = state.channels[0].id;
+		let source = crate::mentions::MentionSource {
+			state: &state,
+			channel,
+		};
+		let parsed = Formatted::parse(
+			"# SYNTHETIC HEADING\n**⚠️ READ [THE SYNTHETIC GUIDE](<https://example.com/guide#anchor>) BEFORE ANY OF THE ITEMS BELOW ⚠️**\n\n[First item](https://example.com/first.zip) for sending one thing.\n[Second item](https://example.com/second.zip) for sending another thing.\n[Third item](https://example.com/third.zip) for setting a third thing.\n[Fourth item](https://example.com/fourth.zip) for setting a fourth thing.\n[Fifth item](https://example.com/fifth.zip) for setting a fifth thing.\n\n-# Synthetic footer line.",
+		);
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		for width in (300..=640).step_by(10) {
+			let width = width as f32;
+			let mut images = crate::avatars::Avatars::default();
+			let mut revealed = 0;
+			let mut profile = crate::profiles::ProfileSession::default();
+			let mut opening = None;
+			let mut channel_reference = None;
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(width + 40.0, 800.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					ui.set_max_width(width);
+					let mut surface = crate::select::Surface::new(ui, "body");
+					parsed.show_references(
+						ui,
+						&mut opening,
+						&[],
+						Some(&source),
+						&mut profile,
+						(&state.channels, &mut channel_reference, &state.guilds, &[]),
+						(&mut images, false, &mut revealed),
+						&mut surface,
+						crate::design::MessageCardSurface::Conversation,
+					);
+					surface.finish(ui);
+				},
+			);
+			let mut rects = Vec::new();
+			for shape in &output.shapes {
+				if let egui::Shape::Text(text) = &shape.shape {
+					for row in &text.galley.rows {
+						let rect = row
+							.rect_without_leading_space()
+							.translate(text.pos.to_vec2());
+						if rect.width() > 0.5 && rect.height() > 0.5 {
+							rects.push((rect, text.galley.text()));
+						}
+					}
+				}
+			}
+			for (index, (left, left_text)) in rects.iter().enumerate() {
+				for (right, right_text) in &rects[index + 1..] {
+					let overlap = left.intersect(*right);
+					assert!(
+						overlap.width() <= 1.0 || overlap.height() <= 1.0,
+						"body at {width}px {left_text:?} [{left:?}] overlaps {right_text:?} [{right:?}]"
+					);
+				}
+			}
+			output.textures_delta.clear();
+		}
+	}
+
+	#[test]
+	fn copying_across_a_paragraph_break_keeps_the_blank_line() {
+		// The paragraph before the link is shaped without its trailing breaks: the blank row
+		// they leave is what tells selection to copy them back.
+		let ctx = egui::Context::default();
+		let parsed = Formatted::parse("plain text\n\n[link](https://example.com) after");
+		let mut images = crate::avatars::Avatars::default();
+		let mut mask = 0;
+		let mut clock = 0.0;
+		let mut run = |events| {
+			clock += 1.0;
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(700.0, 200.0),
+					)),
+					events,
+					time: Some(clock),
+					..Default::default()
+				},
+				|ui| {
+					let mut surface = crate::select::Surface::new(ui, "body");
+					let mut profile = crate::profiles::ProfileSession::default();
+					parsed.show_references(
+						ui,
+						&mut None,
+						&[],
+						None,
+						&mut profile,
+						(&[], &mut None, &[], &[]),
+						(&mut images, false, &mut mask),
+						&mut surface,
+						crate::design::MessageCardSurface::Opaque,
+					);
+					surface.finish(ui);
+				},
+			)
+		};
+		run(vec![]).drop_without_applying_deltas();
+		let output = run(vec![]);
+		let text_rect = |prefix: &str| {
+			output
+				.shapes
+				.iter()
+				.find_map(|shape| {
+					if let egui::Shape::Text(text) = &shape.shape
+						&& text.galley.text().starts_with(prefix)
+					{
+						Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+					} else {
+						None
+					}
+				})
+				.expect("visible selectable text")
+		};
+		let start = text_rect("plain").left_top() + egui::vec2(0.0, 5.0);
+		let end = text_rect(" after").right_top() + egui::vec2(0.0, 5.0);
+		output.drop_without_applying_deltas();
+		for events in [
+			vec![
+				egui::Event::PointerMoved(start),
+				egui::Event::PointerButton {
+					pos: start,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+			vec![egui::Event::PointerMoved(end)],
+			vec![egui::Event::PointerButton {
+				pos: end,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			}],
+		] {
+			run(events).drop_without_applying_deltas();
+		}
+		let output = run(vec![egui::Event::Copy]);
+		let copied = output
+			.platform_output
+			.commands
+			.iter()
+			.find_map(|command| match command {
+				egui::OutputCommand::CopyText(text) => Some(text.clone()),
+				_ => None,
+			})
+			.expect("selected text");
+		output.drop_without_applying_deltas();
+		assert!(copied.starts_with("plain text\n\nlink"), "{copied:?}");
+	}
+
+	#[test]
+	fn a_wrapped_bold_line_with_a_link_and_emoji_keeps_its_rows_apart() {
+		// Bold text around an angle-bracket link, with emoji at both ends: it has to wrap, and
+		// the wrapped rows must not be painted on top of each other.
+		let parsed = Formatted::parse(
+			"**⚠️ READ [THE SYNTHETIC GUIDE](<https://example.com/guide#anchor>) BEFORE ANY OF THE ITEMS BELOW ⚠️**",
+		);
+		let ctx = egui::Context::default();
+		for width in (200..=640).step_by(10) {
+			let width = width as f32;
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(width + 40.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					ui.set_max_width(width);
+					parsed.show(ui, &mut None);
+				},
+			);
+			let mut rects = Vec::new();
+			for shape in &output.shapes {
+				if let egui::Shape::Text(text) = &shape.shape {
+					for row in &text.galley.rows {
+						// Only the painted part of a row: a leading space offsets the glyphs.
+						let rect = row
+							.rect_without_leading_space()
+							.translate(text.pos.to_vec2());
+						if rect.width() > 0.5 && rect.height() > 0.5 {
+							rects.push((rect, text.galley.text()));
+						}
+					}
+				}
+			}
+			for (index, (left, left_text)) in rects.iter().enumerate() {
+				for (right, right_text) in &rects[index + 1..] {
+					let overlap = left.intersect(*right);
+					assert!(
+						overlap.width() <= 1.0 || overlap.height() <= 1.0,
+						"at {width}px {left_text:?} [{left:?}] overlaps {right_text:?} [{right:?}]"
+					);
+				}
+			}
+			output.textures_delta.clear();
+		}
 	}
 }

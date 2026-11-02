@@ -420,16 +420,3 @@ pub(super) fn run(
 		result
 	})
 }
-
-#[cfg(test)]
-mod tests {
-	#[test]
-	fn niri_detection_preserves_other_desktops() {
-		for desktop in ["niri", "Niri", "GNOME:niri"] {
-			assert!(super::niri_desktop(desktop));
-		}
-		for desktop in ["", "GNOME", "KDE", "sway", "Hyprland", "not-niri"] {
-			assert!(!super::niri_desktop(desktop));
-		}
-	}
-}

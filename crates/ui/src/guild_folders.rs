@@ -393,7 +393,13 @@ impl MessagingUi {
 		let mut refresh = false;
 		let mut drop_rows = Vec::new();
 		let mut background: Option<(u64, egui::layers::ShapeIdx, egui::Rect, Color32)> = None;
-		let call_guild = state.voice.active.as_ref().and_then(|call| call.guild);
+		let call_guild = state.voice.active.as_ref().and_then(|call| {
+			if call.phase == client_core::voice::Phase::Failed {
+				None
+			} else {
+				call.guild
+			}
+		});
 		// The latest folder row's openness, and the clipped child `Ui` its servers slide out of.
 		let mut openness = (0, 1.0);
 		let mut reveal: Option<(u64, egui::Ui, f32, f32)> = None;
@@ -491,6 +497,7 @@ impl MessagingUi {
 							}
 							rail_badge(ui, response.id, response.rect, count, colors.base);
 							self.guild_rail_name(&response, state, guild);
+							self.preload.guild(&response, state, id);
 							if response.clicked() {
 								self.guild = Some(id);
 								if let Some(command) = state.select_guild(id) {
@@ -567,13 +574,8 @@ impl MessagingUi {
 							);
 							if !open {
 								let own = call_guild.is_some_and(|g| folder.guild_ids.contains(&g));
-								if own
-									|| folder
-										.guild_ids
-										.iter()
-										.any(|g| self.rail_cache.guild_voice(*g))
-								{
-									voice_badge(ui, rect, own);
+								if own {
+									voice_badge(ui, rect, true);
 								}
 							}
 							rail_badge(
@@ -631,6 +633,18 @@ impl MessagingUi {
 							if settings || notifications || leave {
 								self.guild = Some(id);
 							}
+							ui.separator();
+						}
+						if let Item::Folder(id) = item {
+							ui.set_width(232.0);
+							let guilds = state
+								.guild_folders
+								.as_ref()
+								.and_then(|settings| {
+									settings.folders.iter().find(|folder| folder.id == Some(id))
+								})
+								.map_or(&[][..], |folder| folder.guild_ids.as_slice());
+							self.server_menu.folder_read_item(ui, state, guilds);
 							ui.separator();
 						}
 						if ui
@@ -948,12 +962,74 @@ impl MessagingUi {
 				commands.push(command);
 			}
 		}
+		if let Some(guilds) = self.server_menu.mark_read_folder_requested.take()
+			&& let Some(command) = state.prepare_mark_guilds_read(&guilds)
+		{
+			commands.push(command);
+		}
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use client_core::read_state::Event as ReadEvent;
+	use model::{Channel, permissions as perms};
+
+	fn readable_guild_state() -> State {
+		let mut state = test_support::demo_state();
+		test_support::seed_demo_folder_mosaic(&mut state);
+		state.channels.push(Channel {
+			id: Id(111),
+			guild: Some(Id(11)),
+			parent_id: None,
+			kind: 0,
+			position: 0,
+			name: "synthetic-unread".into(),
+			recipients: vec![],
+			last_message: Some(Id(500)),
+			icon: None,
+			member_list_id: None,
+			message_count: None,
+			tags: None,
+		});
+		state.permissions.guilds.insert(
+			Id(11),
+			perms::Guild {
+				id: Id(11),
+				owner: Some(Id(1)),
+				roles: None,
+				member: None,
+			},
+		);
+		state.permissions.channels.insert(
+			Id(111),
+			perms::Channel {
+				id: Id(111),
+				guild: Id(11),
+				overwrites: Some(vec![]),
+			},
+		);
+		state
+			.apply_read_state(ReadEvent::Snapshot {
+				entries: Some(vec![
+					(Id(20), Some(Id(495)), 0),
+					(Id(22), Some(Id(1)), 0),
+					(Id(111), Some(Id(1)), 0),
+				]),
+				version: None,
+				partial: false,
+			})
+			.unwrap();
+		if let Some(dm) = state
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(22))
+		{
+			dm.last_message = Some(Id(500));
+		}
+		state
+	}
 
 	#[test]
 	fn server_icon_restores_channel_once_in_standalone_and_expanded_folder() {
@@ -1111,6 +1187,46 @@ mod tests {
 					.any(|(item, _)| *item == Item::Folder(9))
 			);
 		}
+	}
+
+	#[test]
+	fn folder_mark_read_acks_only_the_folder_servers_in_one_bulk_request() {
+		let mut state = readable_guild_state();
+		assert!(state.can_mark_guild_read(Id(10)));
+		assert!(state.can_mark_guild_read(Id(11)));
+		assert_eq!(state.unread(Id(22)), Some(true));
+		assert!(state.can_mark_guilds_read(&[Id(999), Id(11)]));
+		assert!(!state.can_mark_guilds_read(&[Id(999)]));
+
+		let Some(Command::MarkAllRead { request, channels }) =
+			state.prepare_mark_guilds_read(&[Id(10), Id(10), Id(999), Id(11)])
+		else {
+			panic!("folder should send one bulk acknowledgement");
+		};
+		assert!(!channels.is_empty());
+		assert!(channels.iter().all(|(channel, _)| {
+			state
+				.channel(*channel)
+				.is_some_and(|channel| matches!(channel.guild, Some(Id(10) | Id(11))))
+		}));
+		assert!(channels.iter().any(|(channel, _)| *channel == Id(111)));
+		assert!(!state.can_mark_guilds_read(&[Id(10), Id(11)]));
+
+		let acked = channels.len();
+		state
+			.apply_read_state(ReadEvent::AllAck {
+				request,
+				acked,
+				result: Ok(()),
+			})
+			.unwrap();
+		assert!(!state.can_mark_guilds_read(&[Id(10), Id(11)]));
+		assert_eq!(
+			state.unread(Id(22)),
+			Some(true),
+			"direct messages stay unread"
+		);
+		assert!(state.continue_mark_all_read().is_none());
 	}
 
 	#[test]
@@ -1300,5 +1416,117 @@ mod tests {
 		assert_eq!(settings.folders[0].id, folder);
 		assert_eq!(settings.folders[0].guild_ids, vec![Id(1), Id(2)]);
 		assert!(settings.valid());
+	}
+
+	#[test]
+	fn collapsed_folder_voice_badge_only_renders_for_own_call() {
+		let mut state = test_support::demo_state();
+		state.voice.active = None;
+		state.guild_folders = Some(Settings {
+			folders: vec![Folder {
+				id: Some(42),
+				name: Some("Voice Folder".into()),
+				guild_ids: vec![Id(10)],
+				..Default::default()
+			}],
+			..Default::default()
+		});
+		state.voice.roster = vec![client_core::voice::RosterEntry {
+			guild: Id(10),
+			channel: Id(20),
+			participant: client_core::voice::Participant {
+				user: Id(99),
+				muted: false,
+				deafened: false,
+				server_muted: false,
+				server_deafened: false,
+				video: false,
+				streaming: false,
+			},
+			member: None,
+		}];
+		let ctx = egui::Context::default();
+		let mut view = MessagingUi::default();
+		view.rail_cache.sync(&state);
+		assert!(view.rail_cache.guild_voice(Id(10)));
+
+		let run_render = |view: &mut MessagingUi, state: &mut State| {
+			let mut commands = Vec::new();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(200.0, 400.0),
+					)),
+					..Default::default()
+				},
+				|ui| view.server_folders(ui, state, &mut commands),
+			);
+			let shapes = output.shapes.clone();
+			output.drop_without_applying_deltas();
+			shapes
+		};
+
+		// When not in a call, collapsed folder must NOT paint a voice badge circle (radius 11.0 / 9.0)
+		let shapes_without_own_call = run_render(&mut view, &mut state);
+		let has_voice_badge = shapes_without_own_call
+			.iter()
+			.any(|shape| match &shape.shape {
+				egui::Shape::Circle(circle) => {
+					(circle.radius - 11.0).abs() < 0.1 || (circle.radius - 9.0).abs() < 0.1
+				}
+				_ => false,
+			});
+		assert!(
+			!has_voice_badge,
+			"Collapsed folder must not render a voice badge when other users are in voice"
+		);
+
+		// When the user IS in a call in that guild, the voice badge must be rendered
+		state.voice.active = Some(client_core::voice::Call {
+			channel: Id(20),
+			guild: Some(Id(10)),
+			connected_at: None,
+			channel_started_at: None,
+			server_muted: false,
+			server_deafened: false,
+			request: 1,
+			phase: client_core::voice::Phase::Connected,
+			muted: false,
+			deafened: false,
+			participants: vec![],
+			camera: false,
+			watching: None,
+			error: None,
+			reconnecting: None,
+		});
+		let shapes_with_own_call = run_render(&mut view, &mut state);
+		let has_voice_badge = shapes_with_own_call.iter().any(|shape| match &shape.shape {
+			egui::Shape::Circle(circle) => {
+				(circle.radius - 11.0).abs() < 0.1 || (circle.radius - 9.0).abs() < 0.1
+			}
+			_ => false,
+		});
+		assert!(
+			has_voice_badge,
+			"Collapsed folder must render a voice badge when local user is in call"
+		);
+
+		// When the call phase is Failed, the voice badge must NOT be rendered
+		state.voice.active.as_mut().unwrap().phase = client_core::voice::Phase::Failed;
+		let shapes_with_failed_call = run_render(&mut view, &mut state);
+		let has_voice_badge_failed =
+			shapes_with_failed_call
+				.iter()
+				.any(|shape| match &shape.shape {
+					egui::Shape::Circle(circle) => {
+						(circle.radius - 11.0).abs() < 0.1 || (circle.radius - 9.0).abs() < 0.1
+					}
+					_ => false,
+				});
+		assert!(
+			!has_voice_badge_failed,
+			"Collapsed folder must not render a voice badge when call phase is Failed"
+		);
 	}
 }
