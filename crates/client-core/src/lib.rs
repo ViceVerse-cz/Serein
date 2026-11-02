@@ -219,6 +219,10 @@ pub enum Command {
 		guild: Id,
 		request: u64,
 	},
+	/// Documented Trigger Typing Indicator for this account; see `State::prepare_typing`.
+	Typing {
+		channel: Id,
+	},
 	/// Latest message per unread channel, at most `MAX_BULK_ACK`.
 	MarkAllRead {
 		request: u64,
@@ -486,7 +490,7 @@ pub enum Event {
 	Onboarding(onboarding::Event),
 	JoinInvite {
 		request: u64,
-		result: Result<Id, auth::Failure>,
+		result: Result<model::JoinedTarget, auth::Failure>,
 	},
 	GuildJoined(Guild),
 	GuildCreated {
@@ -507,6 +511,8 @@ pub enum Event {
 		result: Result<Box<model::InvitePreview>, auth::Failure>,
 	},
 	Typing(typing::Signal),
+	/// Result of this account's own typing indicator; carries nothing to display.
+	TypingSent(Result<(), auth::Failure>),
 	PostCreated {
 		parent: Id,
 		request: u64,
@@ -1290,11 +1296,11 @@ impl State {
 
 	fn cancel_invite_navigation(&mut self, channel: Id) {
 		// Choosing another server's channel while a join is pending cancels its navigation.
-		if let Some((_, guild)) = self.invite_join.navigate
-			&& self
-				.channel(channel)
-				.is_some_and(|c| c.guild != Some(guild))
-		{
+		if let Some((_, target)) = self.invite_join.navigate
+			&& self.channel(channel).is_some_and(|c| match target {
+				model::JoinedTarget::Guild(guild) => c.guild != Some(guild),
+				model::JoinedTarget::Channel(group) => c.id != group,
+			}) {
 			self.invite_join.navigate = None;
 		}
 	}
@@ -1502,10 +1508,18 @@ impl State {
 			match apply {
 				Apply::Opened(command) => {
 					self.commit_nav(back);
+					match place {
+						Place::Channel(channel) => self.cancel_invite_navigation(channel),
+						Place::Home => self.invite_join.navigate = None,
+					}
 					return Some(NavStep { command });
 				}
 				Apply::AlreadyHere => {
 					self.commit_nav(back);
+					match place {
+						Place::Channel(channel) => self.cancel_invite_navigation(channel),
+						Place::Home => self.invite_join.navigate = None,
+					}
 					return Some(NavStep { command: None });
 				}
 				Apply::Rejected(status) => {
@@ -2659,6 +2673,9 @@ impl State {
 			}
 			return;
 		}
+		if matches!(envelope.event, Event::TypingSent(_)) {
+			return;
+		}
 		if let Event::DirectPresence(updates) = &envelope.event {
 			if envelope.event.bytes() <= MAX_MEMBER_PRESENCE_BYTES {
 				self.apply_direct_presence(updates);
@@ -2691,7 +2708,7 @@ impl State {
 		}
 		// Ephemeral names must not outlive navigation identity/permission replacement.
 		if access_changed {
-			self.typing.clear();
+			self.typing.clear_all();
 		}
 		let previous_access = access_changed.then(|| self.permission_access()).flatten();
 		let previous_member_list = (access_changed && self.members.is_some()).then(|| {
@@ -3380,7 +3397,8 @@ impl State {
 			}
 			Event::MemberPresence { .. }
 			| Event::DirectPresence(_)
-			| Event::SharedGuildPresence(_) => {
+			| Event::SharedGuildPresence(_)
+			| Event::TypingSent(_) => {
 				unreachable!("presence handled before timeline revision")
 			}
 			Event::MemberSearch { request, result } => {
@@ -4210,7 +4228,7 @@ impl State {
 		}
 	}
 	fn fail(&mut self, failure: auth::Failure) {
-		self.typing.clear();
+		self.typing.clear_all();
 		self.status = failure.label();
 		match failure {
 			auth::Failure::Expired => self.auth = auth::AuthState::Expired,
@@ -5143,7 +5161,8 @@ mod tests {
 				})
 			));
 			// A joined server opens once delivered; choosing another server cancels that.
-			state.invite_join.navigate = Some((std::time::Instant::now(), Id(2)));
+			state.invite_join.navigate =
+				Some((std::time::Instant::now(), model::JoinedTarget::Guild(Id(2))));
 			assert!(state.navigate_after_join().is_some());
 			assert_eq!(
 				state
@@ -5153,7 +5172,8 @@ mod tests {
 				Some(Id(2))
 			);
 			assert!(state.navigate_after_join().is_none());
-			state.invite_join.navigate = Some((std::time::Instant::now(), Id(2)));
+			state.invite_join.navigate =
+				Some((std::time::Instant::now(), model::JoinedTarget::Guild(Id(2))));
 			state.select(Id(11));
 			assert!(state.navigate_after_join().is_none());
 			assert_eq!(state.selected, Some(Id(11)));
