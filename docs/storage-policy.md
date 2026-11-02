@@ -1052,7 +1052,11 @@ Schema 7 adds one checked integer `message_kind` (0..255) per cached message, wi
 
 ### Opt-in synchronization and compatibility diagnostics
 
-Voice performance diagnostics (`SEREIN_VOICE_DIAGNOSTICS=1`) are also off by default.
+The developer console compatibility reporters below are off by default. Safe summaries and
+Gateway/member event categories also feed the shared collector when **Record diagnostics** is
+enabled; their shared retention is described in the next section.
+
+Voice console performance diagnostics use `SEREIN_VOICE_DIAGNOSTICS=1`.
 They retain at most eight fixed-size numeric reports in a worker queue (under 2 KiB),
 plus one report per producer and one being written. One background writer formats
 reports and caps attempted stderr output at 8,192 reports AND 8 MiB per process,
@@ -1068,7 +1072,8 @@ Each enabled scope has a hard budget of 64 attempted records AND 8 KiB of format
 output per Gateway run, shared across reconnect attempts. The desktop adds at most one
 fixed-label terminal session-failure line per enabled scope (less than 256 bytes). Failed or
 partial writes consume the attempted record's budget; a closed stderr never fails the session.
-No diagnostic strings, raw events, queue, archive, database entries or telemetry are retained.
+These console reporters retain no raw events, archive, database entries or telemetry. The
+separate shared collector retains reviewed categories only while the owner enables recording.
 
 Member labels distinguish subscription/cancellation, empty or populated SYNC, identity mismatch,
 decode/range/capacity failure and timeout. Gateway labels distinguish an unsupported dispatch,
@@ -1077,9 +1082,10 @@ dispatches continue to be ignored and grant no capabilities. The diagnostic deli
 identify the exact unknown service event: even its received name is excluded, along with payloads,
 credentials, account/channel/list IDs, usernames, message content and signed URLs.
 
-Output goes only to stderr. These diagnostics create no log file of their own; explicit shell
-redirection is owner-managed
-and can also capture unrelated framework output, to which these limits do not apply. Repeated
+Console output goes to stderr. These console reporters create no log file of their own; the
+shared collector writes only when its separate disk option is enabled. Explicit shell redirection
+is owner-managed and can also capture unrelated framework output, to which these limits do not
+apply. Repeated
 application runs appended to one external file are not bounded by a single Gateway-run budget.
 Windows GUI builds may have no inherited stderr; launch with deliberate stderr redirection to
 capture diagnostics. Do not use a real owner session in default tests. Synthetic tests check
@@ -1088,51 +1094,54 @@ heartbeat sequencing after unsupported dispatches. No live interoperability clai
 
 ### Opt-in diagnostic log
 
-Settings › Updates › Support & diagnostics chooses **Off**, **Errors**, **Errors and warnings**,
-**Errors, warnings and events** or **Everything (verbose)**. Off is the default and creates neither
-a folder nor a file. The choice is a device preference in the existing app-preferences record, so it
-survives sign-out and restart. The level applies immediately; destination preparation runs on
-the single writer thread, including at startup, and Settings shows only its completed result.
-Repeated changes replace one pending setup request; stale completions cannot publish a new path.
-Demo and fixture sessions never install a file or open its folder.
+**Record diagnostics**, under Settings › Updates › Support & diagnostics, is off by default.
+Enabling it collects all supported safe categories in bounded memory. **Save diagnostic history
+to disk** is a separate off-by-default preference; recording does not imply disk storage.
+Both choices use the existing device app-preferences record, separate from account data.
+They apply immediately. Steady-state Off does not allocate diagnostic history or run a writer or
+periodic reporter; fixed settings and disabled-state checks remain. A cleanup worker can finish
+asynchronous managed-file deletion after disabling, then exits. Demo/fixture sessions do not install
+persistent files or open their folder.
 
-An enabled log writes `logs/serein.log` inside Serein's data folder, with private permissions on
-Unix. Every Unix open uses an owner-checked directory descriptor and rejects symlinks, hard-linked
-files and non-regular files (including FIFOs) without blocking. Directory/file permissions
-are set on their descriptors to 0700/0600; failures refuse the destination. Windows rejects
-reparse points, including junctions. A data folder that refuses the file (a read-only profile, a machine policy, a sandboxed run)
-is replaced by `serein-logs` in the temporary folder, and then by `serein-logs` beside the
-executable; the Settings page names the file that ended up in use, and each refused attempt is
-recorded with its error class and operating-system code. When every folder refuses, the level still
-applies: the copy button returns the lines kept in memory. Each line is the machine's local wall
-clock, the level, a category, a compile-time label and
-up to four fields. Categories are `app`, `session`, `call`, `voice`, `gateway`, `cache` and `media`.
-Every label and text value is a `&'static str` taken from the client's own vocabulary, and every
-other value is a number, so the API has no way to carry an account, channel, message, path, URL or
-credential value: redaction is a property of the type rather than of review. A line is capped at
-320 bytes and a record at four fields.
+The recent-event ring retains at most 2,048 records and 512 KiB. Latest aggregate summaries retain
+at most 64 fixed-size records (under 64 KiB). A disk writer queue retains at most 128 records and
+64 KiB, plus one bounded drained batch in the writer; overflow drops diagnostic work without
+delaying media. Full copied/saved reports are capped at
+1 MiB and identify dropped or truncated data. Periodic summaries are emitted every five seconds, with additional native-operation checkpoints
+and teardown summaries; latest samples replace earlier samples with the same key.
+Audio callbacks never format reports or perform filesystem work; optional fixed counters are
+published by media workers. One bounded writer owns optional file I/O.
 
-Bounds: at most 256 formatted lines / 64 KiB wait for the writer, and at most 512 lines / 128 KiB
-stay in memory for the copy button; an overflow drops the oldest line. One writer thread owns the
-file, so no render, audio or network path touches the disk. The file rotates once to `serein.1.log`
-at 2 MiB, and a run stops appending after 4 MiB in total; the copyable tail keeps working
-afterwards. A folder that cannot be written is reported in Settings instead of promising a file,
-and a closed or removed file never stops the client. The log is local only: nothing is uploaded, and
-there is no telemetry, backend or automatic reporting.
+Managed disk history uses the private application diagnostics directory, with at most three
+1-MiB files across launches. Unsafe destinations are refused, without silently falling back to
+an executable or shared temporary folder. Unix opens reject symlinks, hard links and non-regular
+files and apply private directory/file permissions; Windows rejects reparse points. A file error
+must not stop chat or voice. Ordinary shutdown flushes on a bounded best-effort basis; a crash may
+lose the final records. Disabling disk storage schedules removal of managed files; disabling
+recording also clears collected memory immediately. Cleanup is asynchronous and failures can
+require manual deletion through **Open folder**; they are reported rather than hidden. Manual exports remain under the
+owner's control.
 
-The first coverage is the call lifecycle (join requested, session description and voice server
-received, media started, media failure with its fixed reason, each automatic rejoin attempt, a
-connection-details deadline, giving up, and the terminal failure), plus session started/ready,
-gateway disconnect and resync, and the log level itself. A defect that ends a call by itself is
-therefore readable as a timeline instead of a description. The copy button copies the recent lines
-from memory, so a report does not depend on the file still being open.
+Report values are reviewed fixed categories and approved numbers, with relative elapsed time.
+They never include account/channel/message/device identifiers, paths, raw environment or error
+strings, credentials, payloads, media, extension identities or exact hardware models. The API
+uses a closed event/key/tag vocabulary; unknown static text becomes an unclassified category,
+not retained arbitrary text. Static string types and numeric types alone are not a privacy
+guarantee: each source must be reviewed.
+There is no telemetry, upload, backend or automatic issue submission.
 
-**Save diagnostics** writes one text file after a native destination choice: the environment block
-the copy button already produces, subsystem statuses (log level and file, local cache, saved login,
-session and gateway, call state, voice devices, notifications) and the recent log lines. Every value
-is a flag, a number, or a status string the interface shows; account, channel, message, path and
-credential values stay out. The file is written where the owner chooses, and the page names it so it
-can be attached to an issue. Cancelling the dialog changes nothing.
+**Copy diagnostic report** and **Save report…** use the same safe report formatter. Save uses a
+native destination choice and cancellation creates no file. The report includes broad environment
+categories and retained safe diagnostics, not arbitrary UI status text or the log filesystem path.
+When recording is off, an on-demand report contains safe environment details and an explicit
+disabled-recording notice. Copy and Save include only the current memory ring and summaries;
+they never import prior-run files blindly. Retained prior-run files can be found with **Open
+folder**. Earlier or evicted memory events cannot be reconstructed.
+
+See [diagnostics and issue reports](diagnostics.md) for collection steps, the subsystem audit
+inventory, privacy exclusions and limits on crash/hang coverage. Existing opt-in console reporters
+remain developer compatibility paths; terminal redirection may include unrelated private framework
+output and is not the issue-report export workflow.
 
 
 ### Existing DM call presence

@@ -58,8 +58,12 @@ impl Blur {
 		{
 			use winit::platform::windows::{BackdropType, WindowExtWindows};
 			self.decorated = self.window.is_decorated();
-			if let Err(error) = dwm::extend_frame(&self.window, enabled) {
-				eprintln!("Window blur: {error}");
+			if dwm::extend_frame(&self.window, enabled).is_err() {
+				diagnostics::record(
+					diagnostics::Category::Platform,
+					diagnostics::Level::Warn,
+					"window blur unavailable",
+				);
 			}
 			self.window.set_system_backdrop(if enabled {
 				BackdropType::TransientWindow
@@ -74,8 +78,12 @@ impl Blur {
 				self.window.window_handle().map(|h| h.as_raw()),
 				Ok(RawWindowHandle::Xlib(_))
 			) {
-				if let Err(error) = x11::set_blur(&self.window, enabled) {
-					eprintln!("Window blur: {error}");
+				if x11::set_blur(&self.window, enabled).is_err() {
+					diagnostics::record(
+						diagnostics::Category::Platform,
+						diagnostics::Level::Warn,
+						"window blur unavailable",
+					);
 				}
 			} else {
 				self.window.set_blur(enabled);

@@ -207,84 +207,83 @@ impl MessagingUi {
 		}
 	}
 
-	/// Formats system and client environment details for GitHub issue reports.
-	pub fn diagnostic_info(&self, ctx: &egui::Context) -> String {
-		let os = std::env::consts::OS;
-		let arch = std::env::consts::ARCH;
+	/// Only locally selected categories cross the report boundary. No environment values,
+	/// adapter descriptions, theme names, file paths or interface status prose are exported.
+	pub fn diagnostic_environment(&self, ctx: &egui::Context) -> String {
+		let backend = match self.gpu_adapter.rsplit_once('(').map(|(_, tail)| tail) {
+			Some("Vulkan)") => "Vulkan",
+			Some("Metal)") => "Metal",
+			Some("Dx12)") => "Dx12",
+			Some("Gl)") => "Gl",
+			Some("BrowserWebGpu)") => "BrowserWebGpu",
+			_ => "unknown",
+		};
 		let channel = match self.build.channel {
-			design::Channel::Stable => "Stable",
-			design::Channel::Nightly => "Nightly",
-			design::Channel::Dev => "Dev",
+			design::Channel::Stable => "stable",
+			design::Channel::Nightly => "nightly",
+			design::Channel::Dev => "dev",
 		};
-		let theme_mode = match ctx.theme() {
-			egui::Theme::Dark => "Dark",
-			egui::Theme::Light => "Light",
-		};
-		let theme_variant = design::variant().label();
-		let scale = ctx.pixels_per_point();
-		let update_channel = if self.updates.nightly {
-			"Nightly"
+		let package = if self.updates.flatpak {
+			"flatpak"
 		} else {
-			"Production"
+			"native"
 		};
-
-		#[cfg(target_os = "linux")]
-		let session_type = std::env::var("XDG_SESSION_TYPE")
-			.map(|s| format!(" ({s})"))
-			.unwrap_or_default();
-		#[cfg(not(target_os = "linux"))]
-		let session_type = "";
-
-		#[cfg(target_os = "linux")]
-		let package_type = if self.updates.flatpak {
-			"\n- **Packaging:** Flatpak".to_owned()
-		} else if let Some(cmd) = &self.updates.linux_update_cmd {
-			let mgr = if cmd.contains("dnf") {
-				"DNF (RPM)"
-			} else if cmd.contains("apt") {
-				"APT (DEB)"
-			} else if cmd.contains("pacman") {
-				"Pacman (Arch)"
-			} else if cmd.contains("zypper") {
-				"Zypper (RPM)"
-			} else {
-				"Native Package"
-			};
-			format!("\n- **Packaging:** {mgr}")
-		} else {
-			"\n- **Packaging:** Native / AppImage".to_owned()
-		};
-		#[cfg(not(target_os = "linux"))]
-		let package_type = "";
-
-		// The adapter and the preference that chose it are what graphics reports hinge on.
-		let graphics = if self.gpu_adapter.is_empty() {
-			String::new()
-		} else {
-			format!(
-				"\n- **Graphics:** {} ({} preference)",
-				self.gpu_adapter,
-				self.gpu_preference.label()
-			)
-		};
-
+		let focused = ctx.input(|i| i.focused);
+		let keyboard_focus = ctx.memory(|m| m.focused().is_some());
+		let ime = self.ime_active;
+		let capture = self.keybind_capture.is_some();
 		format!(
-			"- **Serein Version:** {} ({channel})\n- **Operating System:** {os} ({arch}){session_type}{package_type}{graphics}\n- **Display Scale:** {scale:.2}\n- **Theme:** {theme_mode} ({theme_variant})\n- **Update Channel:** {update_channel}\n- **Auto Update:** {}",
+			"# Serein diagnostic report\n\n- **Report schema:** 1\n- **Serein version:** {} ({channel})\n- **Operating system:** {} ({})\n- **Packaging:** {package}\n- **Graphics backend:** {backend}\n- **Graphics preference:** {}\n- **Input state:** window_focused={focused} keyboard_focus={keyboard_focus} ime_active={ime} binding_capture={capture}\n",
 			self.build.version,
-			if self.updates.auto_update {
-				"Enabled"
-			} else {
-				"Disabled"
-			}
+			std::env::consts::OS,
+			std::env::consts::ARCH,
+			self.gpu_preference.label(),
 		)
 	}
 
-	/// Copies formatted diagnostics to clipboard and sets a temporary feedback countdown.
+	/// Shared formatter for copied and saved reports. May run on the host's export worker.
+	pub fn format_diagnostic_report(mut environment: String) -> String {
+		use std::fmt::Write;
+		let recording = diagnostics::level() != diagnostics::Level::Off;
+		let _ = writeln!(
+			environment,
+			"- **Recording:** {}",
+			if recording { "enabled" } else { "disabled" }
+		);
+		let _ = writeln!(
+			environment,
+			"- **Disk history:** {}",
+			if diagnostics::disk_enabled() {
+				"enabled"
+			} else {
+				"disabled"
+			}
+		);
+		environment.push_str("\n## Recent diagnostics\n\n```text\n");
+		if recording {
+			environment.push_str(&diagnostics::recent(2_048));
+		} else {
+			environment.push_str("Recording disabled; earlier events are unavailable.\n");
+		}
+		environment.push_str("\n```\n");
+		// The collector bounds its tail independently; the complete artifact also includes
+		// environment and current-state projections, so enforce the report limit here too.
+		const MAX_REPORT_BYTES: usize = 1024 * 1024;
+		if environment.len() > MAX_REPORT_BYTES {
+			environment.truncate(environment.floor_char_boundary(MAX_REPORT_BYTES - 32));
+			environment.push_str("\nReport truncated.\n");
+		}
+		environment
+	}
+
+	pub fn diagnostic_info(&self, ctx: &egui::Context) -> String {
+		Self::format_diagnostic_report(self.diagnostic_environment(ctx))
+	}
+
+	/// Requests the host export worker; the host copies the result and acknowledges completion.
 	pub fn copy_diagnostic_info(&mut self, ctx: &egui::Context) {
-		let info = self.diagnostic_info(ctx);
-		ctx.copy_text(info);
-		self.updates.copied_diagnostics = Some(ctx.input(|i| i.time) + 2.5);
-		ctx.request_repaint_after(std::time::Duration::from_secs(3));
+		self.diagnostics_copy_requested = true;
+		ctx.request_repaint();
 	}
 
 	/// Update controls for the signed-out header, rendered inside its menu popup so the
@@ -532,7 +531,7 @@ impl MessagingUi {
 					|ui| {
 						if design::button(
 							ui,
-							&crate::i18n::translate("updates-update-settings-save-diagnostics"),
+							&crate::i18n::translate("updates-diagnostics-save"),
 							design::ButtonKind::Outline,
 						)
 						.clicked()
@@ -544,7 +543,7 @@ impl MessagingUi {
 							&crate::i18n::translate_if_key(if copied {
 								"updates-update-settings-copied"
 							} else {
-								"updates-update-settings-copy"
+								"updates-diagnostics-copy"
 							}),
 							design::ButtonKind::Outline,
 						)
@@ -570,97 +569,59 @@ impl MessagingUi {
 					);
 				}
 				design::card_divider(ui);
-				let copied_log = self
-					.updates
-					.copied_log
-					.is_some_and(|until| ui.input(|i| i.time) < until);
-				design::row(
+				let mut recording = self.diagnostics_log != diagnostics::Level::Off;
+				if design::switch(
 					ui,
-					"updates-update-settings-diagnostic-log",
-					Some(if self.diagnostics_log_failed {
-						"updates-update-settings-the-log-folder-could-not-be-written"
-					} else {
-						"updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or"
-					}),
-					|ui| {
-						egui::ComboBox::from_id_salt("diagnostic-log-level")
-							.selected_text(log_level_label(self.diagnostics_log))
-							.width(ui.available_width().min(160.0))
-							.show_ui(ui, |ui| {
-								for level in diagnostics::Level::ALL {
-									ui.selectable_value(
-										&mut self.diagnostics_log,
-										level,
-										log_level_label(level),
-									);
-								}
-							});
-					},
-				);
-				if self.diagnostics_log != diagnostics::Level::Off
-					&& let Some(path) = &self.diagnostics_log_path
+					"updates-diagnostics-record",
+					Some("updates-diagnostics-record-description"),
+					&mut recording,
+				)
+				.changed()
 				{
-					// The file is named where the owner enables the log, so a report can be found
-					// without guessing which of Serein's folders holds it; a warning colour marks
-					// a folder the system refused to open, whose path the host copied instead.
-					let colors = design::palette(ui);
-					let color = if self.diagnostics_log_open_failed {
-						colors.warning
+					self.diagnostics_log = if recording {
+						diagnostics::Level::Debug
 					} else {
-						colors.muted
+						diagnostics::Level::Off
 					};
-					ui.add_space(4.0);
-					ui.add(
-						egui::Label::new(egui::RichText::new(path).size(12.0).color(color)).wrap(),
-					);
 				}
-				design::card_divider(ui);
-				design::row(
-					ui,
-					"updates-update-settings-copy-recent-lines",
-					None,
-					|ui| {
-						if design::button(
-							ui,
-							&crate::i18n::translate_if_key(if copied_log {
-								"updates-update-settings-copied"
-							} else {
-								"updates-update-settings-copy"
-							}),
-							design::ButtonKind::Outline,
-						)
-						.clicked()
-						{
-							ui.ctx().copy_text(diagnostics::recent(200));
-							self.updates.copied_log = Some(ui.input(|i| i.time) + 2.5);
-							ui.ctx()
-								.request_repaint_after(std::time::Duration::from_secs(3));
-						}
-						if design::button(
-							ui,
-							&crate::i18n::translate("updates-update-settings-open-folder"),
-							design::ButtonKind::Outline,
-						)
-						.clicked()
-						{
-							self.open_log_folder_requested = true;
-						}
-					},
-				);
+				ui.add_enabled_ui(recording, |ui| {
+					design::switch(
+						ui,
+						"updates-diagnostics-disk",
+						Some("updates-diagnostics-disk-description"),
+						&mut self.diagnostics_disk,
+					);
+				});
+				if recording && self.diagnostics_disk {
+					if design::button(
+						ui,
+						"updates-update-settings-open-folder",
+						design::ButtonKind::Outline,
+					)
+					.clicked()
+					{
+						self.open_log_folder_requested = true;
+					}
+					// Local destination feedback helps recover a previous run after a crash.
+					// Paths are never part of the exported report.
+					if let Some(path) = &self.diagnostics_log_path {
+						ui.add(egui::Label::new(egui::RichText::new(path).size(12.0)).wrap());
+					}
+				}
+				if self.diagnostics_log_failed {
+					design::hint(ui, "updates-diagnostics-disk-failed");
+				}
+				if self.diagnostics_export_failed {
+					design::hint(ui, "updates-diagnostics-export-failed");
+				}
+				if design::button(ui, "updates-diagnostics-clear", design::ButtonKind::Outline)
+					.clicked()
+				{
+					self.diagnostics_clear_requested = true;
+				}
 			},
 		);
 	}
-}
-
-/// The interface name of each diagnostic log level.
-fn log_level_label(level: diagnostics::Level) -> String {
-	crate::i18n::translate(match level {
-		diagnostics::Level::Off => "updates-update-settings-log-off",
-		diagnostics::Level::Error => "updates-update-settings-log-errors",
-		diagnostics::Level::Warn => "updates-update-settings-log-warnings",
-		diagnostics::Level::Info => "updates-update-settings-log-events",
-		diagnostics::Level::Debug => "updates-update-settings-log-everything",
-	})
 }
 
 impl MessagingUi {

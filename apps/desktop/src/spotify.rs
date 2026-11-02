@@ -40,6 +40,13 @@ pub async fn run(
 				result.unwrap_or(Err(Failure::Network))
 			}
 		};
+		if result.is_err() {
+			diagnostics::record(
+				diagnostics::Category::Activity,
+				diagnostics::Level::Warn,
+				"linked playback polling failed",
+			);
+		}
 		publish(&activity, result.ok().flatten(), &ctx);
 		let delay = remaining(&activity).clamp(Duration::from_secs(1), Duration::from_secs(15));
 		tokio::select! {

@@ -1,44 +1,28 @@
-//! Serein's opt-in diagnostic log.
-//!
-//! A record carries a compile-time category and label, numbers, and at most four fields whose text
-//! is a compile-time constant. Nothing in this API accepts an account, channel, message, path,
-//! credential or URL value, so a written log can be attached to an issue without redaction.
-//!
-//! Every buffer is bounded. Ring overflow and queue overflow drop the oldest line rather than the
-//! newest, the writer thread is the only one that touches the disk, and the file rotates once and
-//! then stops instead of growing without end. Logging is off until the owner selects a level in
-//! Settings; nothing is created until logging is enabled.
-
+//! Opt-in, bounded diagnostics. Only reviewed event/field/tag vocabulary crosses this boundary.
+//! Memory collection and private disk history are independent. No strings from errors or payloads.
 use std::{
 	collections::VecDeque,
 	fs::File,
 	io::Write,
 	path::{Path, PathBuf},
 	sync::{
-		Condvar, Mutex, MutexGuard, OnceLock,
-		atomic::{AtomicU8, Ordering},
+		Condvar, Mutex, MutexGuard,
+		atomic::{AtomicU8, AtomicU64, Ordering},
 	},
 	time::{Duration, Instant},
 };
 
-/// Fields one record may carry; a longer slice is truncated, never allocated past this.
+mod vocabulary;
 const MAX_FIELDS: usize = 4;
-/// Lines waiting for the writer, and their formatted bytes.
-const MAX_QUEUE_LINES: usize = 256;
+const MAX_RING_LINES: usize = 2048;
+const MAX_RING_BYTES: usize = 512 * 1024;
+const MAX_QUEUE_LINES: usize = 128;
 const MAX_QUEUE_BYTES: usize = 64 * 1024;
-/// The copyable tail kept for the Settings button, independent of the file.
-const MAX_RING_LINES: usize = 512;
-const MAX_RING_BYTES: usize = 128 * 1024;
-/// One formatted line, so a single record cannot bloat either buffer.
-const MAX_LINE_BYTES: usize = 320;
-/// The file rotates once; a run then stops appending instead of growing without end.
-const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
-const MAX_RUN_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_LINE_BYTES: usize = 512;
+const MAX_FILE_BYTES: u64 = 1024 * 1024;
 const LOG_FILE: &str = "serein.log";
-const PREVIOUS_LOG_FILE: &str = "serein.1.log";
+const LOG_FILES: [&str; 3] = [LOG_FILE, "serein.1.log", "serein.2.log"];
 
-/// How much detail the log keeps: a record is written when its level is at or above the
-/// owner's choice, so `Error` keeps failures only and `Debug` keeps everything.
 #[derive(
 	Clone,
 	Copy,
@@ -53,24 +37,15 @@ const PREVIOUS_LOG_FILE: &str = "serein.1.log";
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Level {
-	/// Nothing is recorded and no folder or file is created.
 	#[default]
 	Off,
-	/// An operation the owner asked for failed.
 	Error,
-	/// A recoverable anomaly: a retry, a rejected event, an expiring deadline.
 	Warn,
-	/// Lifecycle milestones: a call joined, a gateway connected, a level chosen.
 	Info,
-	/// Internal decisions worth seeing next to a reproduction.
 	Debug,
 }
-
 impl Level {
-	/// Every level in menu order.
 	pub const ALL: [Self; 5] = [Self::Off, Self::Error, Self::Warn, Self::Info, Self::Debug];
-
-	/// The level's name in a log line.
 	fn tag(self) -> &'static str {
 		match self {
 			Self::Off => "off",
@@ -80,46 +55,36 @@ impl Level {
 			Self::Debug => "DEBUG",
 		}
 	}
-
 	fn code(self) -> u8 {
-		match self {
-			Self::Off => 0,
-			Self::Error => 1,
-			Self::Warn => 2,
-			Self::Info => 3,
-			Self::Debug => 4,
-		}
+		self as u8
 	}
-
 	fn from_code(code: u8) -> Self {
 		Self::ALL
-			.into_iter()
-			.find(|level| level.code() == code)
-			.unwrap_or(Self::Off)
+			.get(usize::from(code))
+			.copied()
+			.unwrap_or_default()
 	}
 }
-
-/// What a record is about, so a log can be read by scope before it is read in order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Category {
-	/// Startup, shutdown, saved preferences and the log itself.
 	App,
-	/// Login, READY and account changes.
 	Session,
-	/// The call card: joining, rejoining and failing.
 	Call,
-	/// Media inside a call: devices, transport, capture and encoding.
 	Voice,
-	/// Gateway connection, session and dispatch handling.
 	Gateway,
-	/// Local cache, history and disk budgets.
 	Cache,
-	/// Attachments, images and video.
 	Media,
+	Composer,
+	Messages,
+	Api,
+	Storage,
+	Extensions,
+	Platform,
+	Updater,
+	Activity,
+	Runtime,
 }
-
 impl Category {
-	/// The category's name in a log line.
 	fn tag(self) -> &'static str {
 		match self {
 			Self::App => "app",
@@ -129,104 +94,42 @@ impl Category {
 			Self::Gateway => "gateway",
 			Self::Cache => "cache",
 			Self::Media => "media",
+			Self::Composer => "composer",
+			Self::Messages => "messages",
+			Self::Api => "api",
+			Self::Storage => "storage",
+			Self::Extensions => "extensions",
+			Self::Platform => "platform",
+			Self::Updater => "updater",
+			Self::Activity => "activity",
+			Self::Runtime => "runtime",
 		}
 	}
 }
-
-/// One field value: a number, or a constant from the client's own vocabulary.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Value {
 	Unsigned(u64),
 	Signed(i64),
-	/// A `&'static str`, so record sites can only use their own constants.
 	Text(&'static str),
 }
-
-impl From<u8> for Value {
-	fn from(value: u8) -> Self {
-		Self::Unsigned(u64::from(value))
-	}
-}
-
-impl From<u16> for Value {
-	fn from(value: u16) -> Self {
-		Self::Unsigned(u64::from(value))
-	}
-}
-
-impl From<u32> for Value {
-	fn from(value: u32) -> Self {
-		Self::Unsigned(u64::from(value))
-	}
-}
-
-impl From<u64> for Value {
-	fn from(value: u64) -> Self {
-		Self::Unsigned(value)
-	}
-}
-
-impl From<usize> for Value {
-	fn from(value: usize) -> Self {
-		Self::Unsigned(value as u64)
-	}
-}
-
+macro_rules! unsigned { ($($t:ty),*) => { $(impl From<$t> for Value { fn from(v:$t)->Self {Self::Unsigned(v as u64)} })* }; }
+unsigned!(u8, u16, u32, u64, usize);
 impl From<i64> for Value {
-	fn from(value: i64) -> Self {
-		Self::Signed(value)
+	fn from(v: i64) -> Self {
+		Self::Signed(v)
 	}
 }
-
 impl From<bool> for Value {
-	fn from(value: bool) -> Self {
-		Self::Unsigned(u64::from(value))
+	fn from(v: bool) -> Self {
+		Self::Unsigned(u64::from(v))
 	}
 }
-
 impl From<&'static str> for Value {
-	fn from(value: &'static str) -> Self {
-		Self::Text(value)
+	fn from(v: &'static str) -> Self {
+		Self::Text(v)
 	}
 }
 
-/// Whether a record at `level` would be kept now, so callers can skip measuring a value.
-pub fn is_enabled(level: Level) -> bool {
-	sink().enabled(level)
-}
-
-/// The level the log is currently set to.
-pub fn level() -> Level {
-	Level::from_code(sink().level.load(Ordering::Relaxed))
-}
-
-/// The fallback folder used when Serein's own data folder cannot be written.
-const FALLBACK_FOLDER: &str = "serein-logs";
-
-/// The folder a log uses when the app has no writable data folder at all.
-pub fn fallback_directory() -> PathBuf {
-	std::env::temp_dir().join(FALLBACK_FOLDER)
-}
-
-/// The folder that holds the running binary; a sandboxed run often keeps write access there even
-/// when the profile and the temporary folder are refused.
-fn executable_directory() -> Option<PathBuf> {
-	let executable = std::env::current_exe().ok()?;
-	executable.parent().map(Path::to_path_buf)
-}
-
-/// Name the folder for the log file and apply `level`. Only an enabled level touches the disk, so
-/// an owner who never turns the log on gets no folder and no file. When the data folder cannot be
-/// written, the temporary folder and then the executable's own folder are tried, because a report
-/// still needs its evidence; the caller can then name the file that ended up in use.
-pub fn install(level: Level, directory: PathBuf) {
-	let sink = sink();
-	sink.configure(level, directory);
-	set_level(level);
-	sink.wake.notify_all();
-}
-
-/// Installation is performed by the single writer, never by a UI frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum InstallStatus {
 	#[default]
@@ -234,118 +137,678 @@ pub enum InstallStatus {
 	Pending,
 	Failed,
 }
-
-pub fn install_status() -> InstallStatus {
-	sink().lock().status
+static LEVEL: AtomicU8 = AtomicU8::new(0);
+static DROPPED: AtomicU64 = AtomicU64::new(0);
+static SINK: Sink = Sink {
+	shared: Mutex::new(Shared {
+		recording: None,
+		generation: 0,
+		disk: None,
+		cleanup: VecDeque::new(),
+		worker: false,
+		status: InstallStatus::Ready,
+		pending: 0,
+	}),
+	wake: Condvar::new(),
+};
+struct Recording {
+	started: Instant,
+	ring: VecDeque<Record>,
+	bytes: usize,
+	queue: VecDeque<Record>,
+	queue_bytes: usize,
+	summaries: Vec<Record>,
 }
-
-fn prepare_destination(level: Level, directory: PathBuf) -> Result<PathBuf, &'static str> {
-	let mut path = directory.join(LOG_FILE);
-	let mut moved = false;
-	let mut reason = None;
-	// Every attempt is reported by number: a fixed label alone cannot tell "denied" from
-	// "sharing violation", and the whole point of this log is to answer that without guessing.
-	let mut attempts: Vec<(&'static str, Option<std::io::Error>)> = Vec::with_capacity(3);
-	if level != Level::Off {
-		let primary = prepare(&directory);
-		let refused = primary.is_some();
-		attempts.push(("data", primary));
-		if refused {
-			let mut candidates = vec![("temporary", fallback_directory())];
-			if let Some(executable) = executable_directory() {
-				candidates.push(("executable", executable.join(FALLBACK_FOLDER)));
+struct Shared {
+	recording: Option<Box<Recording>>,
+	generation: u64,
+	disk: Option<PathBuf>,
+	cleanup: VecDeque<PathBuf>,
+	worker: bool,
+	status: InstallStatus,
+	pending: usize,
+}
+struct Sink {
+	shared: Mutex<Shared>,
+	wake: Condvar,
+}
+// Canonical typed indices ensure the retained schema never contains caller string references.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct EventCode(u16);
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FieldCode(u8);
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct TagCode(u16);
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RetainedValue {
+	Unsigned(u64),
+	Signed(i64),
+	Tag(TagCode),
+	Unclassified,
+}
+const _: () = assert!(
+	vocabulary::EVENTS.len() <= u16::MAX as usize
+		&& vocabulary::FIELDS.len() <= u8::MAX as usize
+		&& vocabulary::TAGS.len() <= u16::MAX as usize
+);
+#[derive(Clone)]
+struct Record {
+	millis: u64,
+	category: Category,
+	level: Level,
+	code: EventCode,
+	fields: [Option<(FieldCode, RetainedValue)>; MAX_FIELDS],
+}
+impl Record {
+	fn bytes(&self) -> usize {
+		std::mem::size_of::<Self>()
+	}
+	fn format(&self) -> String {
+		use std::fmt::Write;
+		let mut line = format!(
+			"+{}ms {} {} {}",
+			self.millis,
+			self.level.tag(),
+			self.category.tag(),
+			vocabulary::EVENTS[usize::from(self.code.0)]
+		);
+		for (name, value) in self.fields.iter().flatten() {
+			let _ = write!(line, " {}=", vocabulary::FIELDS[usize::from(name.0)]);
+			match value {
+				RetainedValue::Unsigned(n) => {
+					let _ = write!(line, "{n}");
+				}
+				RetainedValue::Signed(n) => {
+					let _ = write!(line, "{n}");
+				}
+				RetainedValue::Tag(t) => line.push_str(vocabulary::TAGS[usize::from(t.0)]),
+				RetainedValue::Unclassified => line.push_str("unclassified"),
 			}
-			for (label, candidate) in candidates {
-				let error = prepare(&candidate);
-				let worked = error.is_none();
-				attempts.push((label, error));
-				if worked {
-					path = candidate.join(LOG_FILE);
-					moved = true;
+		}
+		line.truncate(line.floor_char_boundary(MAX_LINE_BYTES.min(line.len())));
+		line.push('\n');
+		line
+	}
+}
+impl Sink {
+	fn lock(&self) -> MutexGuard<'_, Shared> {
+		self.shared.lock().unwrap_or_else(|p| p.into_inner())
+	}
+}
+pub fn level() -> Level {
+	Level::from_code(LEVEL.load(Ordering::Acquire))
+}
+pub fn is_enabled(at: Level) -> bool {
+	at != Level::Off && level() >= at
+}
+pub fn disk_enabled() -> bool {
+	SINK.lock().disk.is_some()
+}
+pub fn install_status() -> InstallStatus {
+	SINK.lock().status
+}
+pub fn path() -> Option<PathBuf> {
+	SINK.lock().disk.as_ref().map(|d| d.join(LOG_FILE))
+}
+/// Compatibility destination, used only after explicit disk opt-in; no fallback writes occur.
+pub fn fallback_directory() -> PathBuf {
+	std::env::temp_dir().join("serein-logs")
+}
+/// Compatibility entry point for existing explicit file-logging callers.
+pub fn install(at: Level, directory: PathBuf) {
+	install_mode(at, directory, true);
+}
+pub fn install_mode(at: Level, directory: PathBuf, disk: bool) {
+	if at != Level::Off {
+		install_panic_hook();
+	}
+	LEVEL.store(Level::Off.code(), Ordering::Release);
+	let mut shared = SINK.lock();
+	let mut invalid = at != Level::Off
+		&& disk
+		&& (directory.as_os_str().is_empty() || directory.as_os_str().len() > 4096);
+	if shared.cleanup.len() >= 4 && !shared.cleanup.contains(&directory) {
+		invalid |= disk;
+	}
+	let wanted = (at != Level::Off && disk && !invalid).then_some(directory);
+	if at == Level::Off {
+		shared.recording = None;
+		DROPPED.store(0, Ordering::Relaxed);
+	} else if shared.recording.is_none() {
+		shared.recording = Some(Box::new(Recording {
+			started: Instant::now(),
+			ring: VecDeque::new(),
+			bytes: 0,
+			queue: VecDeque::new(),
+			queue_bytes: 0,
+			summaries: Vec::new(),
+		}));
+	}
+	if shared.disk != wanted {
+		shared.generation = shared.generation.wrapping_add(1);
+		if let Some(old) = shared.disk.take()
+			&& !shared.cleanup.contains(&old)
+		{
+			shared.cleanup.push_back(old);
+		}
+		shared.disk = wanted;
+		shared.status = if shared.disk.is_some() {
+			InstallStatus::Pending
+		} else {
+			InstallStatus::Ready
+		};
+		if let Some(r) = shared.recording.as_mut() {
+			r.queue = VecDeque::new();
+			r.queue_bytes = 0;
+		}
+	}
+	if shared.disk.is_some() && shared.status == InstallStatus::Failed && !invalid {
+		shared.generation = shared.generation.wrapping_add(1);
+		shared.status = InstallStatus::Pending;
+	}
+	LEVEL.store(at.code(), Ordering::Release);
+	if invalid {
+		shared.status = InstallStatus::Failed;
+	}
+	if !shared.cleanup.is_empty() {
+		shared.status = InstallStatus::Pending;
+	}
+	start_writer(&mut shared);
+	SINK.wake.notify_all();
+}
+pub fn set_level(at: Level) {
+	let directory = SINK.lock().disk.clone();
+	install_mode(
+		at,
+		directory.clone().unwrap_or_default(),
+		directory.is_some(),
+	);
+}
+/// Clears memory immediately; the disk worker removes managed history before reopening.
+pub fn clear() {
+	clear_at(None);
+}
+/// Explicit owner action can also remove residual managed files while recording is off.
+pub fn clear_at(directory: Option<PathBuf>) {
+	let mut s = SINK.lock();
+	if let Some(r) = s.recording.as_mut() {
+		r.ring = VecDeque::new();
+		r.queue = VecDeque::new();
+		r.summaries = Vec::new();
+		r.bytes = 0;
+		r.queue_bytes = 0;
+		r.started = Instant::now();
+	}
+	s.generation = s.generation.wrapping_add(1);
+	if let Some(dir) = s
+		.disk
+		.clone()
+		.or(directory.filter(|d| !d.as_os_str().is_empty() && d.as_os_str().len() <= 4096))
+		&& !s.cleanup.contains(&dir)
+	{
+		if s.cleanup.len() < 4 {
+			s.cleanup.push_back(dir);
+		} else {
+			s.status = InstallStatus::Failed;
+		}
+	}
+	if !s.cleanup.is_empty() {
+		s.status = InstallStatus::Pending;
+	}
+	start_writer(&mut s);
+	DROPPED.store(0, Ordering::Relaxed);
+	SINK.wake.notify_all();
+}
+pub fn record(category: Category, at: Level, code: &'static str) {
+	record_fields(category, at, code, &[]);
+}
+pub fn record_fields(
+	category: Category,
+	at: Level,
+	code: &'static str,
+	fields: &[(&'static str, Value)],
+) {
+	emit(category, at, code, fields, false);
+}
+/// Latest numeric aggregate per approved scope; at most 64 slots, independent of event eviction.
+pub fn summary(category: Category, code: &'static str, fields: &[(&'static str, Value)]) {
+	emit(category, Level::Debug, code, fields, true);
+}
+fn emit(
+	category: Category,
+	at: Level,
+	code: &'static str,
+	fields: &[(&'static str, Value)],
+	summary: bool,
+) {
+	if !is_enabled(at) {
+		return;
+	}
+	// A static lifetime alone is not a privacy boundary: reject anything outside the reviewed
+	// vocabulary, including leaked strings or arbitrary error labels supplied by a new caller.
+	let Some(code) = vocabulary::EVENTS.iter().position(|known| *known == code) else {
+		DROPPED.fetch_add(1, Ordering::Relaxed);
+		return;
+	};
+	if fields.len() > MAX_FIELDS
+		|| fields
+			.iter()
+			.any(|(key, _)| !vocabulary::FIELDS.contains(key))
+	{
+		DROPPED.fetch_add(1, Ordering::Relaxed);
+		return;
+	}
+	let code = EventCode(code as u16);
+	let Ok(mut s) = SINK.shared.try_lock() else {
+		DROPPED.fetch_add(1, Ordering::Relaxed);
+		return;
+	};
+	let disk = s.disk.is_some();
+	if !is_enabled(at) {
+		return;
+	}
+	let Some(r) = s.recording.as_mut() else {
+		return;
+	};
+	let mut slots = [None; MAX_FIELDS];
+	for (slot, (key, value)) in slots.iter_mut().zip(fields.iter()) {
+		let field = FieldCode(
+			vocabulary::FIELDS
+				.iter()
+				.position(|known| known == key)
+				.expect("validated field") as u8,
+		);
+		let value = match value {
+			Value::Unsigned(n) => RetainedValue::Unsigned(*n),
+			Value::Signed(n) => RetainedValue::Signed(*n),
+			Value::Text(t) => vocabulary::TAGS
+				.iter()
+				.position(|known| known == t)
+				.map(|at| RetainedValue::Tag(TagCode(at as u16)))
+				.unwrap_or(RetainedValue::Unclassified),
+		};
+		*slot = Some((field, value));
+	}
+	let item = Record {
+		millis: r.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+		category,
+		level: at,
+		code,
+		fields: slots,
+	};
+	if summary {
+		if let Some(index) = r.summaries.iter().position(|old| {
+			old.category == category
+				&& old.code == code
+				&& old
+					.fields
+					.iter()
+					.zip(slots.iter())
+					.all(|(a, b)| match (a, b) {
+						(Some((_, RetainedValue::Tag(x))), Some((_, RetainedValue::Tag(y)))) => {
+							x == y
+						}
+						(Some((_, RetainedValue::Tag(_))), _)
+						| (_, Some((_, RetainedValue::Tag(_)))) => false,
+						_ => true,
+					})
+		}) {
+			r.summaries.remove(index);
+		} else if r.summaries.len() == 64 {
+			r.summaries.remove(0);
+			DROPPED.fetch_add(1, Ordering::Relaxed);
+		}
+		r.summaries.push(item.clone());
+	}
+	while r.ring.len() >= MAX_RING_LINES || r.bytes + item.bytes() > MAX_RING_BYTES {
+		if let Some(old) = r.ring.pop_front() {
+			r.bytes -= old.bytes();
+			DROPPED.fetch_add(1, Ordering::Relaxed);
+		} else {
+			break;
+		}
+	}
+	r.bytes += item.bytes();
+	r.ring.push_back(item.clone());
+	if disk {
+		while r.queue.len() >= MAX_QUEUE_LINES || r.queue_bytes + item.bytes() > MAX_QUEUE_BYTES {
+			if let Some(old) = r.queue.pop_front() {
+				r.queue_bytes -= old.bytes();
+				DROPPED.fetch_add(1, Ordering::Relaxed);
+			} else {
+				break;
+			}
+		}
+		r.queue_bytes += item.bytes();
+		r.queue.push_back(item);
+		SINK.wake.notify_all();
+	}
+}
+/// Bounded report text, formatted from a snapshot after releasing the producer lock.
+pub fn recent(max_lines: usize) -> String {
+	let (records, summaries) = {
+		let s = SINK.lock();
+		let Some(r) = &s.recording else {
+			return "Recording disabled.\n".into();
+		};
+		(
+			r.ring
+				.iter()
+				.rev()
+				.take(max_lines.min(MAX_RING_LINES))
+				.cloned()
+				.collect::<Vec<_>>(),
+			r.summaries.clone(),
+		)
+	};
+	let mut out = format!(
+		"Dropped/evicted records: {}\n",
+		DROPPED.load(Ordering::Relaxed)
+	);
+	for r in records.iter().rev() {
+		out.push_str(&r.format());
+	}
+	if !summaries.is_empty() {
+		out.push_str("\nLatest subsystem summaries:\n");
+		for r in summaries {
+			out.push_str(&r.format());
+		}
+	}
+	if out.len() > 1024 * 1024 {
+		out.truncate(out.floor_char_boundary(1024 * 1024 - 32));
+		out.push_str("\nReport truncated.\n");
+	}
+	out
+}
+pub fn flush(timeout: Duration) {
+	let start = Instant::now();
+	let mut s = SINK.lock();
+	while s.worker
+		&& (s.pending > 0
+			|| !s.cleanup.is_empty()
+			|| (s.disk.is_none() && s.worker)
+			|| s.status == InstallStatus::Pending
+			|| s.recording.as_ref().is_some_and(|r| !r.queue.is_empty()))
+	{
+		let Some(left) = timeout.checked_sub(start.elapsed()) else {
+			return;
+		};
+		s = SINK
+			.wake
+			.wait_timeout(s, left)
+			.unwrap_or_else(|p| p.into_inner())
+			.0;
+	}
+}
+fn start_writer(shared: &mut Shared) {
+	if (shared.disk.is_some() || !shared.cleanup.is_empty()) && !shared.worker {
+		shared.worker = true;
+		if std::thread::Builder::new()
+			.name("serein-diagnostics".into())
+			.spawn(writer)
+			.is_err()
+		{
+			shared.worker = false;
+			shared.status = InstallStatus::Failed;
+		}
+	}
+}
+fn writer() {
+	let mut current: Option<(u64, PathBuf, FileSink)> = None;
+	loop {
+		let mut s = SINK.lock();
+		if let Some(directory) = s.cleanup.pop_front() {
+			current = None;
+			drop(s);
+			let failed = remove_history(&directory).is_err();
+			s = SINK.lock();
+			if failed {
+				s.status = InstallStatus::Failed;
+			}
+		}
+		if !s.cleanup.is_empty() {
+			continue;
+		}
+		if current
+			.as_ref()
+			.is_some_and(|(generation, _, _)| *generation != s.generation)
+		{
+			current = None;
+		}
+
+		let Some(directory) = s.disk.clone() else {
+			s.worker = false;
+			if s.status == InstallStatus::Pending {
+				s.status = InstallStatus::Ready;
+			}
+			s.cleanup = VecDeque::new();
+			SINK.wake.notify_all();
+			return;
+		};
+		if current.is_none() {
+			let generation = s.generation;
+			drop(s);
+			let ready = FileSink::new(directory.clone());
+			s = SINK.lock();
+			if generation != s.generation {
+				drop(s);
+				if ready.is_ok() {
+					let _ = remove_history(&directory);
+				}
+				continue;
+			}
+			match ready {
+				Ok(file) => {
+					current = Some((generation, directory, file));
+					if s.status != InstallStatus::Failed {
+						s.status = InstallStatus::Ready;
+					}
+				}
+				Err(_) => {
+					s.status = InstallStatus::Failed;
+					s.worker = false;
+					SINK.wake.notify_all();
+					return;
+				}
+			}
+			SINK.wake.notify_all();
+		}
+		let Some(r) = s.recording.as_mut() else {
+			continue;
+		};
+		if r.queue.is_empty() {
+			drop(SINK.wake.wait(s).unwrap_or_else(|p| p.into_inner()));
+			continue;
+		}
+		let batch = std::mem::take(&mut r.queue);
+		r.queue_bytes = 0;
+		s.pending = batch.len();
+		let generation = s.generation;
+		drop(s);
+		let mut failed = false;
+		if let Some((_, _, file)) = current.as_mut() {
+			for item in batch {
+				// Disabling/reconfiguring drops queued work rather than writing it later.
+				if !disk_enabled() || SINK.lock().generation != generation {
+					break;
+				}
+				if file.write(&item.format()).is_err() {
+					failed = true;
 					break;
 				}
 			}
-			if !moved {
-				reason = Some(attempt_failure(&attempts[0].1));
+		}
+		let mut s = SINK.lock();
+		s.pending = 0;
+		if failed {
+			s.status = InstallStatus::Failed;
+		}
+		SINK.wake.notify_all();
+	}
+}
+struct FileSink {
+	directory: PathBuf,
+	file: Option<File>,
+	bytes: u64,
+}
+impl FileSink {
+	fn new(directory: PathBuf) -> std::io::Result<Self> {
+		let file = open_log(&directory)?;
+		for name in &LOG_FILES[1..] {
+			let path = directory.join(name);
+			if let Ok(meta) = std::fs::symlink_metadata(&path)
+				&& (!meta.is_file() || meta.file_type().is_symlink() || meta.len() > MAX_FILE_BYTES)
+			{
+				remove_managed(&directory, name)?;
 			}
 		}
-	}
-	for (folder, error) in &attempts {
-		let Some(error) = error else {
-			record_fields(
-				Category::App,
-				Level::Info,
-				"log folder ready",
-				&[("folder", (*folder).into())],
-			);
-			continue;
+		let bytes = file.metadata()?.len();
+		let mut sink = Self {
+			directory,
+			file: Some(file),
+			bytes,
 		};
-		record_fields(
-			Category::App,
-			Level::Warn,
-			"log folder refused",
-			&[
-				("folder", (*folder).into()),
-				("kind", error_kind(error).into()),
-				(
-					"os_error",
-					i64::from(error.raw_os_error().unwrap_or(-1)).into(),
-				),
-			],
-		);
+		if bytes > MAX_FILE_BYTES {
+			sink.file = None;
+			remove_managed(&sink.directory, LOG_FILE)?;
+			sink.file = Some(open_log(&sink.directory)?);
+			sink.bytes = 0;
+		}
+		Ok(sink)
 	}
-	if let Some(reason) = reason {
-		record_fields(
-			Category::App,
-			Level::Error,
-			"log file unavailable",
-			&[("reason", reason.into())],
-		);
-		return Err(reason);
+	fn rotate(&mut self) -> std::io::Result<()> {
+		self.file = None;
+		remove_managed(&self.directory, LOG_FILES[2])?;
+		for index in (0..2).rev() {
+			rename_managed(&self.directory, LOG_FILES[index], LOG_FILES[index + 1])?;
+		}
+		self.file = Some(open_log(&self.directory)?);
+		self.bytes = 0;
+		Ok(())
 	}
-	if moved {
-		record_fields(
-			Category::App,
-			Level::Warn,
-			"log file moved",
-			&[("reason", "the data folder could not be written".into())],
-		);
-	}
-	Ok(path)
-}
-
-/// The fixed reason a failed attempt reports to the page.
-fn attempt_failure(error: &Option<std::io::Error>) -> &'static str {
-	match error.as_ref().map(|error| error.kind()) {
-		Some(std::io::ErrorKind::NotFound) => "the log folder does not exist",
-		Some(std::io::ErrorKind::PermissionDenied) => "the log folder is not writable",
-		Some(_) => "the log folder could not be created",
-		None => "the log folder could not be created",
+	fn write(&mut self, line: &str) -> std::io::Result<()> {
+		if self.bytes + line.len() as u64 > MAX_FILE_BYTES {
+			self.rotate()?;
+		}
+		// Reserve attempts before I/O: partial failures must still consume the cap.
+		self.bytes += line.len() as u64;
+		self.file
+			.as_mut()
+			.ok_or_else(refused)?
+			.write_all(line.as_bytes())?;
+		Ok(())
 	}
 }
-
-/// A small stable number for the failure class, so a report needs no prose to name it.
-fn error_kind(error: &std::io::Error) -> u64 {
-	match error.kind() {
-		std::io::ErrorKind::NotFound => 1,
-		std::io::ErrorKind::PermissionDenied => 2,
-		std::io::ErrorKind::AlreadyExists => 3,
-		std::io::ErrorKind::InvalidInput => 4,
-		std::io::ErrorKind::UnexpectedEof => 5,
-		std::io::ErrorKind::WriteZero => 6,
-		std::io::ErrorKind::ReadOnlyFilesystem => 7,
-		std::io::ErrorKind::DirectoryNotEmpty => 8,
-		std::io::ErrorKind::StorageFull => 9,
-		std::io::ErrorKind::NotADirectory => 10,
-		std::io::ErrorKind::IsADirectory => 11,
-		_ => 0,
+#[cfg(unix)]
+fn private_dir(directory: &Path) -> std::io::Result<std::os::fd::OwnedFd> {
+	use rustix::fs::{self, Mode, OFlags};
+	let fd = fs::open(
+		directory,
+		OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+		Mode::empty(),
+	)?;
+	if fs::fstat(&fd)?.st_uid != rustix::process::geteuid().as_raw() {
+		return Err(refused());
+	}
+	Ok(fd)
+}
+fn remove_managed(directory: &Path, name: &str) -> std::io::Result<()> {
+	#[cfg(unix)]
+	{
+		let dir = private_dir(directory)?;
+		match rustix::fs::unlinkat(&dir, name, rustix::fs::AtFlags::empty()) {
+			Ok(()) => Ok(()),
+			Err(e) if e == rustix::io::Errno::NOENT => Ok(()),
+			Err(e) => Err(e.into()),
+		}
+	}
+	#[cfg(not(unix))]
+	{
+		if shared(directory) {
+			return Err(refused());
+		}
+		match std::fs::remove_file(directory.join(name)) {
+			Ok(()) => Ok(()),
+			Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+			Err(e) => Err(e),
+		}
 	}
 }
-
-/// Creates the folder and proves the file can be opened, without keeping it open: the writer owns
-/// the handle. Returns the operating system's error when the folder is unusable.
-fn prepare(directory: &Path) -> Option<std::io::Error> {
-	open_log(directory).err()
+fn rename_managed(directory: &Path, from: &str, to: &str) -> std::io::Result<()> {
+	#[cfg(unix)]
+	{
+		let dir = private_dir(directory)?;
+		match rustix::fs::renameat(&dir, from, &dir, to) {
+			Ok(()) => Ok(()),
+			Err(e) if e == rustix::io::Errno::NOENT => Ok(()),
+			Err(e) => Err(e.into()),
+		}
+	}
+	#[cfg(not(unix))]
+	{
+		if shared(directory) {
+			return Err(refused());
+		}
+		match std::fs::rename(directory.join(from), directory.join(to)) {
+			Ok(()) => Ok(()),
+			Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+			Err(e) => Err(e),
+		}
+	}
+}
+fn remove_history(directory: &Path) -> std::io::Result<()> {
+	if !directory.exists() {
+		return Ok(());
+	}
+	for name in LOG_FILES {
+		remove_managed(directory, name)?;
+	}
+	Ok(())
+}
+/// A manually selected report destination is never included in the report itself.
+/// Refuse symlinks and special files, restrict new Unix files before writing.
+pub fn save_report(path: &Path, report: &str) -> std::io::Result<()> {
+	if report.len() > 1024 * 1024 {
+		return Err(refused());
+	}
+	#[cfg(unix)]
+	{
+		use rustix::fs::{self, FileType, Mode, OFlags};
+		let fd = fs::open(
+			path,
+			OFlags::CREATE | OFlags::WRONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+			Mode::from_raw_mode(0o600),
+		)?;
+		let stat = fs::fstat(&fd)?;
+		if stat.st_uid != rustix::process::geteuid().as_raw()
+			|| stat.st_nlink != 1
+			|| FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile
+		{
+			return Err(refused());
+		}
+		fs::fchmod(&fd, Mode::from_raw_mode(0o600))?;
+		fs::ftruncate(&fd, 0)?;
+		File::from(fd).write_all(report.as_bytes())
+	}
+	#[cfg(not(unix))]
+	{
+		if shared(path) {
+			return Err(refused());
+		}
+		let mut options = std::fs::OpenOptions::new();
+		options.create(true).write(true);
+		#[cfg(windows)]
+		{
+			use std::os::windows::fs::OpenOptionsExt;
+			options.custom_flags(0x0020_0000);
+		}
+		let mut file = options.open(path)?;
+		if !file.metadata()?.is_file() || reparse(&file.metadata()?) {
+			return Err(refused());
+		}
+		file.set_len(0)?;
+		file.write_all(report.as_bytes())
+	}
 }
 
 fn refused() -> std::io::Error {
@@ -435,376 +898,6 @@ fn reparse(meta: &std::fs::Metadata) -> bool {
 	}
 }
 
-/// Applies a level chosen in Settings; it takes effect for the next record.
-pub fn set_level(level: Level) {
-	let sink = sink();
-	let previous = Level::from_code(sink.level.swap(level.code(), Ordering::Relaxed));
-	if previous != level {
-		record_fields(
-			Category::App,
-			Level::Info,
-			"log level",
-			&[("now", level.tag().into()), ("was", previous.tag().into())],
-		);
-	}
-}
-
-/// Where the log file is written, once a folder is installed.
-pub fn path() -> Option<PathBuf> {
-	sink()
-		.lock()
-		.directory
-		.as_ref()
-		.map(|dir| dir.join(LOG_FILE))
-}
-
-/// The most recent formatted lines, newest last, for the copy button.
-pub fn recent(max_lines: usize) -> String {
-	let shared = sink().lock();
-	let mut lines: Vec<&str> = shared
-		.ring
-		.iter()
-		.rev()
-		.take(max_lines)
-		.map(String::as_str)
-		.collect();
-	lines.reverse();
-	lines.join("\n")
-}
-
-/// Waits for queued lines to reach the file, so an orderly exit does not lose the tail.
-pub fn flush(timeout: Duration) {
-	let sink = sink();
-	let started = Instant::now();
-	let mut shared = sink.lock();
-	while !(shared.queue.is_empty()
-		&& shared.pending == 0
-		&& shared.status != InstallStatus::Pending)
-	{
-		let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
-			return;
-		};
-		shared = sink.wait(shared, remaining);
-	}
-}
-
-/// Records a labelled moment with no fields.
-pub fn record(category: Category, level: Level, label: &'static str) {
-	record_fields(category, level, label, &[]);
-}
-
-/// Records a labelled moment with bounded numeric or fixed-text fields.
-pub fn record_fields(
-	category: Category,
-	level: Level,
-	label: &'static str,
-	fields: &[(&'static str, Value)],
-) {
-	let sink = sink();
-	if !sink.enabled(level) {
-		return;
-	}
-	sink.push(format_line(&clock(), category, level, label, fields));
-}
-
-fn sink() -> &'static Sink {
-	static SINK: OnceLock<&'static Sink> = OnceLock::new();
-	SINK.get_or_init(|| {
-		let sink: &'static Sink = Box::leak(Box::new(Sink::new()));
-		let _ = std::thread::Builder::new()
-			.name("serein-log".into())
-			.spawn(move || writer(sink));
-		sink
-	})
-}
-
-/// The one writer: it parks until lines arrive and is the only thread that opens the file. It
-/// reopens whenever the destination changes, so Settings never names a file the writer ignores.
-fn writer(sink: &'static Sink) {
-	let mut file: Option<FileSink> = None;
-	let mut spent = 0;
-	loop {
-		let (batch, install) = sink.take_work();
-		if let Some((generation, level, directory)) = install {
-			spent = file.as_ref().map_or(spent, FileSink::spent);
-			file = None;
-			let result = if level == Level::Off {
-				None
-			} else {
-				Some(prepare_destination(level, directory))
-			};
-			let status = if result.as_ref().is_some_and(Result::is_err) {
-				InstallStatus::Failed
-			} else {
-				InstallStatus::Ready
-			};
-			let directory = result
-				.and_then(Result::ok)
-				.and_then(|path| path.parent().map(Path::to_path_buf));
-			// Even metadata reads stay outside the mutex used by UI producers.
-			let prepared = directory
-				.as_ref()
-				.map(|directory| FileSink::new(directory.join(LOG_FILE), spent));
-			let mut shared = sink.lock();
-			if shared.destination == generation {
-				shared.status = status;
-				shared.directory = directory;
-				file = prepared;
-			}
-			sink.wake.notify_all();
-		}
-		if sink.level.load(Ordering::Relaxed) != Level::Off.code()
-			&& let Some(file) = &mut file
-		{
-			file.write(&batch);
-		}
-		sink.finished(batch.len());
-	}
-}
-
-struct Shared {
-	queue: VecDeque<String>,
-	queue_bytes: usize,
-	ring: VecDeque<String>,
-	ring_bytes: usize,
-	/// Lines taken by the writer and not yet on disk, so `flush` can wait for the file too.
-	pending: usize,
-	directory: Option<PathBuf>,
-	/// Bumped by every install, so the writer notices a destination it has not opened yet.
-	destination: u64,
-	install: Option<(u64, Level, PathBuf)>,
-	status: InstallStatus,
-}
-
-struct Sink {
-	level: AtomicU8,
-	shared: Mutex<Shared>,
-	wake: Condvar,
-}
-
-impl Sink {
-	fn configure(&self, level: Level, directory: PathBuf) {
-		let mut shared = self.lock();
-		shared.destination = shared.destination.wrapping_add(1);
-		shared.install = Some((shared.destination, level, directory));
-		shared.status = InstallStatus::Pending;
-		shared.directory = None;
-	}
-
-	fn new() -> Self {
-		Self {
-			level: AtomicU8::new(Level::Off.code()),
-			shared: Mutex::new(Shared {
-				queue: VecDeque::new(),
-				queue_bytes: 0,
-				ring: VecDeque::new(),
-				ring_bytes: 0,
-				pending: 0,
-				directory: None,
-				destination: 0,
-				install: None,
-				status: InstallStatus::Ready,
-			}),
-			wake: Condvar::new(),
-		}
-	}
-
-	/// A record is kept when it is at or above the chosen level.
-	fn enabled(&self, level: Level) -> bool {
-		level != Level::Off && Level::from_code(self.level.load(Ordering::Relaxed)) >= level
-	}
-
-	fn lock(&self) -> MutexGuard<'_, Shared> {
-		self.shared
-			.lock()
-			.unwrap_or_else(|poisoned| poisoned.into_inner())
-	}
-
-	fn wait<'a>(
-		&self,
-		shared: MutexGuard<'a, Shared>,
-		timeout: Duration,
-	) -> MutexGuard<'a, Shared> {
-		self.wake
-			.wait_timeout(shared, timeout)
-			.unwrap_or_else(|poisoned| poisoned.into_inner())
-			.0
-	}
-
-	fn push(&self, line: String) {
-		{
-			let mut shared = self.lock();
-			let Shared {
-				queue,
-				queue_bytes,
-				ring,
-				ring_bytes,
-				pending,
-				..
-			} = &mut *shared;
-			let dropped = push_bounded(
-				queue,
-				queue_bytes,
-				line.clone(),
-				MAX_QUEUE_LINES,
-				MAX_QUEUE_BYTES,
-			);
-			// A line the queue dropped will never be written, so `flush` must not wait for it.
-			*pending = (*pending).saturating_sub(dropped) + 1;
-			push_bounded(ring, ring_bytes, line, MAX_RING_LINES, MAX_RING_BYTES);
-		}
-		self.wake.notify_all();
-	}
-
-	/// Blocks until a line or setup request is queued, then hands the writer bounded work.
-	fn take_work(&self) -> (Vec<String>, Option<(u64, Level, PathBuf)>) {
-		let mut shared = self.lock();
-		while shared.queue.is_empty() && shared.install.is_none() {
-			shared = self
-				.wake
-				.wait(shared)
-				.unwrap_or_else(|poisoned| poisoned.into_inner());
-		}
-		let mut batch = Vec::with_capacity(MAX_QUEUE_LINES);
-		let mut bytes = 0;
-		while let Some(line) = shared.queue.front() {
-			if !batch.is_empty() && bytes + line.len() > MAX_QUEUE_BYTES {
-				break;
-			}
-			bytes += line.len();
-			shared.queue_bytes -= line.len();
-			batch.push(shared.queue.pop_front().expect("front line"));
-		}
-		(batch, shared.install.take())
-	}
-
-	fn finished(&self, lines: usize) {
-		{
-			let mut shared = self.lock();
-			shared.pending = shared.pending.saturating_sub(lines);
-		}
-		self.wake.notify_all();
-	}
-}
-
-/// Keeps the newest lines: an overflow drops the oldest, never the newest. Returns how many lines
-/// the queue gave up, which keeps the writer's outstanding count honest.
-fn push_bounded(
-	queue: &mut VecDeque<String>,
-	bytes: &mut usize,
-	line: String,
-	max_lines: usize,
-	max_bytes: usize,
-) -> usize {
-	*bytes += line.len();
-	queue.push_back(line);
-	let mut dropped = 0;
-	while queue.len() > max_lines || *bytes > max_bytes {
-		let Some(given_up) = queue.pop_front() else {
-			break;
-		};
-		*bytes -= given_up.len();
-		dropped += 1;
-	}
-	dropped
-}
-
-/// Appends to one file, rotates it once, then stops instead of growing without end.
-struct FileSink {
-	path: PathBuf,
-	file: Option<File>,
-	/// Bytes in the current file, reset when it rotates.
-	file_bytes: u64,
-	/// Bytes this process has written across rotations, never reset.
-	run_bytes: u64,
-	stopped: bool,
-}
-
-impl FileSink {
-	fn new(path: PathBuf, run_bytes: u64) -> Self {
-		// The file is opened in append mode, so what earlier runs left counts against its budget.
-		let file_bytes = std::fs::metadata(&path).map_or(0, |meta| meta.len());
-		Self {
-			path,
-			file: None,
-			file_bytes,
-			run_bytes,
-			stopped: false,
-		}
-	}
-
-	/// Bytes this process has written for the whole run, across rotations and reopens.
-	fn spent(&self) -> u64 {
-		self.run_bytes
-	}
-
-	fn write(&mut self, lines: &[String]) -> usize {
-		if self.stopped {
-			return 0;
-		}
-		let mut written = 0;
-		for line in lines {
-			let bytes = line.len() as u64;
-			if self.run_bytes.saturating_add(bytes) > MAX_RUN_BYTES {
-				// The run's budget is spent; the tail stays in the copyable ring.
-				self.stopped = true;
-				self.file = None;
-				break;
-			}
-			if self.handle().is_none() {
-				self.stopped = true;
-				break;
-			}
-			if self.file_bytes.saturating_add(bytes) > MAX_FILE_BYTES && !self.rotate() {
-				// Another program holds the old file: stop rather than append past the cap.
-				self.stopped = true;
-				break;
-			}
-			if self.handle().is_none() {
-				self.stopped = true;
-				break;
-			}
-			let Some(file) = self.file.as_mut() else {
-				self.stopped = true;
-				break;
-			};
-			// Reserve even a failed/partial write against the process budget.
-			self.run_bytes = self.run_bytes.saturating_add(bytes);
-			if file.write_all(line.as_bytes()).is_err() {
-				// A full or removed file must not stop the client; the ring stays usable.
-				self.file = None;
-				break;
-			}
-			self.file_bytes = self.file_bytes.saturating_add(bytes);
-			written += 1;
-		}
-		written
-	}
-
-	fn handle(&mut self) -> Option<&mut File> {
-		if self.file.is_none() {
-			let directory = self.path.parent()?;
-			let file = open_log(directory).ok()?;
-			self.file_bytes = file.metadata().ok()?.len();
-			self.file = Some(file);
-		}
-		self.file.as_mut()
-	}
-
-	/// Moves the full file aside. Returns whether the file was really replaced, because appending
-	/// to a file another program refused to move would grow past the cap.
-	fn rotate(&mut self) -> bool {
-		self.file = None;
-		let previous = self.path.with_file_name(PREVIOUS_LOG_FILE);
-		let _ = std::fs::remove_file(&previous);
-		if std::fs::rename(&self.path, &previous).is_err() {
-			return false;
-		}
-		self.file_bytes = 0;
-		true
-	}
-}
-
 /// Creates only missing folders, privately, so a log stays as restricted as the data folder.
 fn create_private(directory: &Path) -> std::io::Result<()> {
 	#[cfg(unix)]
@@ -821,353 +914,168 @@ fn create_private(directory: &Path) -> std::io::Result<()> {
 	}
 }
 
-/// The wall clock of the machine, read once per run; a log line correlates an action with a time.
-fn clock() -> String {
-	static OFFSET: OnceLock<Option<time::UtcOffset>> = OnceLock::new();
-	let utc = time::OffsetDateTime::now_utc();
-	let at = match OFFSET
-		.get_or_init(|| time::UtcOffset::local_offset_at(time::OffsetDateTime::now_utc()).ok())
-	{
-		Some(offset) => utc.to_offset(*offset),
-		None => utc,
-	};
-	format!(
-		"{:02}:{:02}:{:02}.{:03}",
-		at.hour(),
-		at.minute(),
-		at.second(),
-		at.millisecond()
-	)
-}
-
-fn format_line(
-	stamp: &str,
-	category: Category,
-	level: Level,
-	label: &str,
-	fields: &[(&'static str, Value)],
-) -> String {
-	use std::fmt::Write;
-	let mut line = String::with_capacity(MAX_LINE_BYTES.min(96 + fields.len() * 24));
-	line.push_str(stamp);
-	line.push(' ');
-	push_padded(&mut line, level.tag(), 5);
-	push_padded(&mut line, category.tag(), 8);
-	line.push_str(label);
-	for (name, value) in fields.iter().take(MAX_FIELDS) {
-		line.push(' ');
-		line.push_str(name);
-		line.push('=');
-		match value {
-			Value::Unsigned(number) => {
-				let _ = write!(line, "{number}");
+/// Optional safe panic marker. Install only once collection is explicitly enabled. The hook
+/// never formats PanicHookInfo, location, payload, thread name or a backtrace.
+fn install_panic_hook() {
+	static HOOK: std::sync::Once = std::sync::Once::new();
+	HOOK.call_once(|| {
+		let previous = std::panic::take_hook();
+		std::panic::set_hook(Box::new(move |info| {
+			if is_enabled(Level::Error) {
+				record(Category::Runtime, Level::Error, "worker panicked");
 			}
-			Value::Signed(number) => {
-				let _ = write!(line, "{number}");
-			}
-			Value::Text(text) => {
-				line.push('"');
-				line.push_str(text);
-				line.push('"');
-			}
-		}
-	}
-	truncate(&mut line, MAX_LINE_BYTES);
-	line.push('\n');
-	line
-}
-
-fn push_padded(line: &mut String, text: &str, width: usize) {
-	line.push_str(text);
-	for _ in text.len()..width {
-		line.push(' ');
-	}
-	line.push(' ');
-}
-
-/// Truncates on a character boundary, so a line stays valid UTF-8.
-fn truncate(line: &mut String, cap: usize) {
-	if line.len() <= cap {
-		return;
-	}
-	let mut end = cap;
-	while !line.is_char_boundary(end) {
-		end -= 1;
-	}
-	line.truncate(end);
+			previous(info);
+		}));
+	});
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	fn line(level: Level, label: &str, fields: &[(&'static str, Value)]) -> String {
-		format_line("13:47:52.011", Category::Call, level, label, fields)
-	}
-
+	// One global lifecycle scenario avoids parallel tests reconfiguring the process singleton.
 	#[test]
-	fn a_level_keeps_itself_and_above_and_off_keeps_nothing() {
-		let sink = Sink::new();
-		assert!(!sink.enabled(Level::Error), "off records nothing");
-		sink.level.store(Level::Warn.code(), Ordering::Relaxed);
-		assert!(sink.enabled(Level::Error), "a worse record is kept");
-		assert!(sink.enabled(Level::Warn));
-		assert!(!sink.enabled(Level::Info), "a finer record is filtered");
-		assert!(!sink.enabled(Level::Off));
-		sink.level.store(Level::Debug.code(), Ordering::Relaxed);
-		assert!(sink.enabled(Level::Debug));
-	}
-
-	#[test]
-	fn a_formatted_line_names_its_level_category_label_and_numbers() {
-		assert_eq!(
-			line(
-				Level::Warn,
-				"media failure",
-				&[("attempt", 2u8.into()), ("reason", "disconnected".into())]
-			),
-			"13:47:52.011 WARN  call     media failure attempt=2 reason=\"disconnected\"\n"
+	fn opt_in_privacy_bounds_and_disk_lifecycle() {
+		let root = tempfile::tempdir().unwrap();
+		let logs = root.path().join("logs");
+		install_mode(Level::Off, logs.clone(), false);
+		record(Category::App, Level::Error, "started");
+		assert!(SINK.lock().recording.is_none());
+		assert!(!SINK.lock().worker);
+		assert!(!logs.exists());
+		install_mode(Level::Debug, logs.clone(), false);
+		assert!(!SINK.lock().worker);
+		assert!(!logs.exists());
+		record(Category::App, Level::Info, "started");
+		record(
+			Category::App,
+			Level::Error,
+			"private token must not be retained",
 		);
-		assert_eq!(
-			line(Level::Info, "joined", &[]),
-			"13:47:52.011 INFO  call     joined\n"
+		record_fields(
+			Category::App,
+			Level::Error,
+			"started",
+			&[("reason", Value::Text("/home/private/name"))],
 		);
-	}
-
-	#[test]
-	fn an_over_long_line_is_truncated_on_a_character_boundary() {
-		let mut ascii = "a".repeat(MAX_LINE_BYTES + 64);
-		truncate(&mut ascii, MAX_LINE_BYTES);
-		assert_eq!(ascii.len(), MAX_LINE_BYTES);
-		let mut mixed = "я".repeat(MAX_LINE_BYTES);
-		truncate(&mut mixed, MAX_LINE_BYTES - 1);
-		assert!(mixed.len() < MAX_LINE_BYTES);
-		assert!(
-			mixed.is_char_boundary(mixed.len()),
-			"a cut never splits a character"
-		);
-	}
-
-	#[test]
-	fn both_buffers_keep_the_newest_lines_within_their_bounds() {
-		let sink = Sink::new();
-		for index in 0..(MAX_RING_LINES * 2) {
-			sink.push(format!("line {index} {}\n", "x".repeat(48)));
-		}
-		let shared = sink.lock();
-		assert!(shared.ring.len() <= MAX_RING_LINES);
-		assert!(shared.queue.len() <= MAX_QUEUE_LINES);
-		assert!(shared.ring_bytes <= MAX_RING_BYTES);
-		assert!(shared.queue_bytes <= MAX_QUEUE_BYTES);
-		assert_eq!(
-			shared.pending,
-			shared.queue.len(),
-			"a dropped line is never awaited by flush"
-		);
-		assert!(
-			shared
-				.ring
-				.back()
-				.is_some_and(|last| last.starts_with("line 1023 ")),
-			"the newest line survives an overflow"
-		);
-		assert!(
-			shared
-				.ring
-				.front()
-				.is_some_and(|first| !first.starts_with("line 1023 ")),
-			"the oldest lines are the ones dropped"
-		);
-	}
-
-	#[test]
-	fn a_batch_drained_for_the_writer_stays_within_the_queue_budget() {
-		let sink = Sink::new();
-		for index in 0..MAX_QUEUE_LINES {
-			sink.push(format!("{index:0>60}\n"));
-		}
-		let (batch, _) = sink.take_work();
-		assert!(!batch.is_empty());
-		assert!(batch.len() <= MAX_QUEUE_LINES);
-		assert!(batch.iter().map(String::len).sum::<usize>() <= MAX_QUEUE_BYTES);
-	}
-
-	#[test]
-	fn the_file_rotates_once_then_stops_at_the_run_budget() {
-		let directory = tempfile::tempdir().unwrap();
-		let path = directory.path().join("logs").join(LOG_FILE);
-		let mut sink = FileSink::new(path.clone(), 0);
-		let chunk = format!("{}\n", "y".repeat(1024));
-		let per_file = MAX_FILE_BYTES as usize / chunk.len() + 4;
-		sink.write(&vec![chunk.clone(); per_file]);
-		assert!(path.exists(), "the first file is written");
-		assert!(
-			std::fs::metadata(&path).unwrap().len() <= MAX_FILE_BYTES,
-			"a file never grows past its own budget"
-		);
-		assert!(
-			path.with_file_name(PREVIOUS_LOG_FILE).exists(),
-			"the previous file is kept once"
-		);
-		let per_run = MAX_RUN_BYTES as usize / chunk.len() + 4;
-		sink.write(&vec![chunk; per_run]);
-		assert!(
-			sink.stopped,
-			"the run budget closes the file for this process"
-		);
-		assert!(
-			std::fs::metadata(path.with_file_name(PREVIOUS_LOG_FILE))
-				.unwrap()
-				.len() + std::fs::metadata(&path).unwrap().len()
-				<= MAX_FILE_BYTES * 2,
-			"two files bound what a run can leave on disk"
-		);
-	}
-
-	#[test]
-	fn a_folder_that_cannot_be_created_keeps_the_log_silent_instead_of_panicking() {
-		let directory = tempfile::tempdir().unwrap();
-		let blocker = directory.path().join("file");
-		std::fs::write(&blocker, b"not a folder").unwrap();
-		let mut sink = FileSink::new(blocker.join(LOG_FILE), 0);
-		assert_eq!(sink.write(&["line\n".to_owned()]), 0);
-		assert!(sink.stopped);
-	}
-
-	#[test]
-	fn a_file_left_by_an_earlier_run_counts_toward_its_budget() {
-		let directory = tempfile::tempdir().unwrap();
-		let path = directory.path().join(LOG_FILE);
-		// A run that stopped just under the cap leaves the next launch to notice it.
-		std::fs::write(&path, vec![b'x'; MAX_FILE_BYTES as usize - 8]).unwrap();
-		let mut sink = FileSink::new(path.clone(), 0);
-		sink.write(&["a short line\n".to_owned()]);
-		assert!(
-			path.with_file_name(PREVIOUS_LOG_FILE).exists(),
-			"the full file is rotated before anything is appended"
-		);
-		assert!(
-			std::fs::metadata(&path).unwrap().len() <= MAX_FILE_BYTES,
-			"an appended file still honours its own cap across launches"
-		);
-	}
-
-	#[test]
-	fn a_shared_fallback_folder_is_refused_before_anything_is_written() {
-		// A folder another account planted is not a log destination; the check is by owner on
-		// Unix and by link type everywhere, and either way nothing may be appended.
-		let directory = tempfile::tempdir().unwrap();
-		let logs = directory.path().join("logs");
-		std::fs::create_dir_all(&logs).unwrap();
-		#[cfg(unix)]
-		{
-			let planted = directory.path().join("planted");
-			std::fs::create_dir_all(&planted).unwrap();
-			std::os::unix::fs::symlink(&planted, logs.join(LOG_FILE)).unwrap();
-			assert!(prepare(&logs).is_some(), "a linked log file is refused");
-			assert!(
-				!planted.join(LOG_FILE).exists(),
-				"nothing is written through the link"
+		assert!(!recent(100).contains("private"));
+		assert!(recent(100).contains("started"));
+		for i in 0u64..6000 {
+			record_fields(
+				Category::App,
+				Level::Info,
+				"started",
+				&[("callbacks", i.into())],
 			);
 		}
-		#[cfg(not(unix))]
 		{
-			assert!(prepare(&logs).is_none());
+			let s = SINK.lock();
+			let r = s.recording.as_ref().unwrap();
+			assert!(r.ring.len() <= MAX_RING_LINES);
+			assert!(r.bytes <= MAX_RING_BYTES);
+			assert!(r.queue.is_empty());
+			assert!(r.ring.capacity() * std::mem::size_of::<Record>() <= MAX_RING_BYTES);
 		}
-	}
-	#[test]
-	fn setup_is_coalesced_without_touching_the_destination() {
-		let directory = tempfile::tempdir().unwrap();
-		let logs = directory.path().join("not-created-by-the-caller");
-		let sink = Sink::new();
-		sink.configure(Level::Info, logs.clone());
-		sink.configure(Level::Off, logs.clone());
-		assert!(!logs.exists());
-		let (batch, request) = sink.take_work();
-		assert!(batch.is_empty());
-		let (_, level, path) = request.unwrap();
-		assert_eq!(level, Level::Off);
-		assert_eq!(path, logs);
-		assert!(sink.lock().install.is_none());
-	}
-
-	#[test]
-	fn a_repaired_destination_can_reopen_without_renewing_the_run_budget() {
-		let directory = tempfile::tempdir().unwrap();
-		let blocker = directory.path().join("logs");
-		std::fs::write(&blocker, b"blocker").unwrap();
-		let path = blocker.join(LOG_FILE);
-		let spent = MAX_RUN_BYTES - 5;
-		let mut broken = FileSink::new(path.clone(), spent);
-		assert_eq!(broken.write(&["abc\n".into()]), 0);
-		std::fs::remove_file(&blocker).unwrap();
-		let mut repaired = FileSink::new(path.clone(), broken.spent());
-		assert_eq!(repaired.write(&["abc\n".into(), "def\n".into()]), 1);
-		assert!(repaired.stopped);
-		assert_eq!(std::fs::read(path).unwrap(), b"abc\n");
-	}
-
-	#[cfg(unix)]
-	#[test]
-	fn every_reopen_refuses_symlinks_and_fifos() {
-		let directory = tempfile::tempdir().unwrap();
-		let target = directory.path().join("target");
-		std::fs::write(&target, b"unchanged").unwrap();
-		let logs = directory.path().join("logs");
-		std::fs::create_dir(&logs).unwrap();
-		let path = logs.join(LOG_FILE);
-		std::os::unix::fs::symlink(&target, &path).unwrap();
-		assert!(prepare(&logs).is_some());
-		assert_eq!(
-			FileSink::new(path.clone(), 0).write(&["private\n".into()]),
-			0
-		);
-		assert_eq!(std::fs::read(&target).unwrap(), b"unchanged");
-		#[cfg(all(unix, not(target_os = "macos")))]
+		// New subsystem summaries displace old samples instead of being silently excluded.
+		for scope in ["audio", "transport", "stream_send"] {
+			for code in vocabulary::EVENTS {
+				summary(Category::Voice, code, &[("scope", scope.into())]);
+			}
+		}
+		summary(Category::Runtime, "worker panicked", &[]);
 		{
-			use rustix::fs::{CWD, Mode, mkfifoat};
-			std::fs::remove_file(&path).unwrap();
-			mkfifoat(CWD, &path, Mode::from_raw_mode(0o600)).unwrap();
-			assert!(prepare(&logs).is_some());
-			assert_eq!(FileSink::new(path, 0).write(&["private\n".into()]), 0);
+			let s = SINK.lock();
+			let r = s.recording.as_ref().unwrap();
+			assert_eq!(r.summaries.len(), 64);
+			assert_eq!(r.summaries.last().unwrap().category, Category::Runtime);
 		}
+		// Producers never wait on an exporter/writer holding the collector lock.
+		{
+			let guard = SINK.lock();
+			record(Category::App, Level::Error, "started");
+			drop(guard);
+		}
+		assert!(DROPPED.load(Ordering::Relaxed) > 0);
+		install_mode(Level::Debug, logs.clone(), true);
+		record(Category::App, Level::Info, "started");
+		flush(Duration::from_secs(3));
+		assert_eq!(install_status(), InstallStatus::Ready);
+		assert!(logs.join(LOG_FILE).exists());
+		install_mode(Level::Debug, logs.clone(), false);
+		flush(Duration::from_secs(3));
+		assert!(!logs.join(LOG_FILE).exists());
+		assert!(SINK.lock().recording.is_some());
+		assert!(!SINK.lock().worker);
+		clear();
+		assert!(!recent(100).contains("started"));
+		// Reconfiguration cannot discard deletion requests for earlier destinations.
+		for index in 0..3 {
+			let next = root.path().join(format!("next-{index}"));
+			install_mode(Level::Debug, next.clone(), true);
+			record(Category::App, Level::Info, "started");
+			install_mode(Level::Off, next, false);
+		}
+		flush(Duration::from_secs(3));
+		for index in 0..3 {
+			assert!(
+				!root
+					.path()
+					.join(format!("next-{index}"))
+					.join(LOG_FILE)
+					.exists()
+			);
+		}
+		install_mode(Level::Off, logs, false);
+		assert!(SINK.lock().recording.is_none());
+		install_mode(Level::Debug, PathBuf::new(), true);
+		assert_eq!(install_status(), InstallStatus::Failed);
+		assert!(!SINK.lock().worker);
+		install_mode(Level::Off, PathBuf::new(), false);
 	}
 	#[test]
-	fn the_writer_installs_flushes_and_changes_destination_without_ui_io() {
-		let directory = tempfile::tempdir().unwrap();
-		let disabled = directory.path().join("disabled");
-		install(Level::Off, disabled.clone());
-		flush(Duration::from_secs(2));
-		assert_eq!(install_status(), InstallStatus::Ready);
-		assert!(!disabled.exists());
-		assert!(path().is_none());
-		let first = directory.path().join("first");
-		install(Level::Info, first.clone());
-		record(Category::App, Level::Info, "synthetic first destination");
-		flush(Duration::from_secs(2));
-		assert_eq!(install_status(), InstallStatus::Ready);
-		assert_eq!(path(), Some(first.join(LOG_FILE)));
-		assert!(
-			std::fs::read_to_string(first.join(LOG_FILE))
-				.unwrap()
-				.contains("synthetic first destination")
-		);
-		let second = directory.path().join("second");
-		install(Level::Info, second.clone());
-		record(Category::App, Level::Info, "synthetic second destination");
-		flush(Duration::from_secs(2));
-		assert_eq!(path(), Some(second.join(LOG_FILE)));
-		assert!(
-			std::fs::read_to_string(second.join(LOG_FILE))
-				.unwrap()
-				.contains("synthetic second destination")
-		);
-		assert!(
-			!std::fs::read_to_string(first.join(LOG_FILE))
-				.unwrap()
-				.contains("synthetic second destination")
-		);
-		install(Level::Off, disabled);
-		flush(Duration::from_secs(2));
+	fn rotation_reopen_and_unsafe_destinations() {
+		let root = tempfile::tempdir().unwrap();
+		let logs = root.path().join("logs");
+		let mut file = FileSink::new(logs.clone()).unwrap();
+		let line = "x".repeat(512);
+		for _ in 0..(MAX_FILE_BYTES as usize * 4 / line.len() + 1) {
+			file.write(&line).unwrap();
+		}
+		drop(file);
+		// A failed write (including a partial write) consumes the full reserved attempt.
+		let mut failed = FileSink::new(logs.clone()).unwrap();
+		failed.file = Some(File::open(logs.join(LOG_FILE)).unwrap());
+		let before = failed.bytes;
+		assert!(failed.write("failed write").is_err());
+		assert_eq!(failed.bytes, before + 12);
+		drop(failed);
+		let total: u64 = LOG_FILES
+			.iter()
+			.map(|name| std::fs::metadata(logs.join(name)).unwrap().len())
+			.sum();
+		assert!(total <= MAX_FILE_BYTES * 3);
+		std::fs::write(logs.join(LOG_FILE), vec![0; MAX_FILE_BYTES as usize + 1]).unwrap();
+		drop(FileSink::new(logs.clone()).unwrap());
+		assert!(std::fs::metadata(logs.join(LOG_FILE)).unwrap().len() <= MAX_FILE_BYTES);
+		#[cfg(unix)]
+		{
+			let target = root.path().join("target");
+			std::fs::write(&target, b"untouched").unwrap();
+			std::fs::remove_file(logs.join(LOG_FILE)).unwrap();
+			std::os::unix::fs::symlink(&target, logs.join(LOG_FILE)).unwrap();
+			assert!(FileSink::new(logs.clone()).is_err());
+			assert!(save_report(&logs.join(LOG_FILE), "safe report").is_err());
+			assert_eq!(std::fs::read(target).unwrap(), b"untouched");
+			std::fs::remove_file(logs.join(LOG_FILE)).unwrap();
+			#[cfg(not(target_os = "macos"))]
+			{
+				rustix::fs::mkfifoat(
+					rustix::fs::CWD,
+					logs.join(LOG_FILE),
+					rustix::fs::Mode::from_raw_mode(0o600),
+				)
+				.unwrap();
+				assert!(FileSink::new(logs).is_err());
+			}
+		}
 	}
 }

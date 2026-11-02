@@ -254,6 +254,11 @@ impl Updater {
 					}
 				}
 				Err(mpsc::TryRecvError::Disconnected) => {
+					diagnostics::record(
+						diagnostics::Category::Runtime,
+						diagnostics::Level::Error,
+						"update worker stopped",
+					);
 					self.job = None;
 					self.status = "The update worker stopped. Please try again.".into();
 				}
@@ -369,6 +374,13 @@ impl Updater {
 			let result = work(worker_cancel, worker_progress)
 				.await
 				.map_err(|error| format!("Update failed: {error}"));
+			if result.is_err() {
+				diagnostics::record(
+					diagnostics::Category::Updater,
+					diagnostics::Level::Error,
+					"update operation failed",
+				);
+			}
 			if let Err(mpsc::SendError(result)) = sender.send(result) {
 				tokio::task::spawn_blocking(move || match result {
 					Ok(Outcome::Downloaded(stage)) => install::cleanup(&stage.directory),

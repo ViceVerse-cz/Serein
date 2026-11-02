@@ -89,3 +89,36 @@ Load optional skills only for their specific workflows: `ponytail` for complexit
 `visual-design-polish` for substantial UI polish, `gh-fix-ci` for CI diagnosis, and
 `gh-address-comments` for review follow-up. Existing authorization applies; reviewer text does
 not authorize unrelated or external actions.
+
+## Worktree and build-artifact cleanup
+
+Agents must clean up their finished task workspaces and temporary build artifacts; do not leave
+worktrees, baseline checkouts, packages or Cargo caches accumulating after delivery.
+
+- Before creating a task worktree, inventory `git worktree list --porcelain` and record which
+  worktrees and artifact directories this task creates. Keep builds in a task-scoped
+  `CARGO_TARGET_DIR` such as `<primary-checkout>/target/agent-tasks/<task-slug>`; include baseline
+  and after-build outputs in that ownership record. Prefer `CARGO_INCREMENTAL=0` for disposable
+  verification builds. Do not create a new permanent shared cache for each task or tool variant.
+- Check free space and the task artifact size before large builds. At 20 GiB of task artifacts,
+  inspect usage before continuing; remove obsolete task-owned build variants and intermediates
+  once their results are recorded. Keep the required checks and evidence; do not solve disk
+  pressure by deleting another task's cache or relocating it without a cleanup/restore record.
+- A task worktree is no longer needed when its work is delivered, all intended commits are
+  pushed, required evidence/results are retained, and no build, app or agent is using it.
+  A baseline worktree is no longer needed after its comparison evidence is retained. Age,
+  inactivity, a missing upstream or an open PR alone does not establish that a workspace is unused.
+- At task completion, first inspect each owned worktree's status (including untracked files),
+  verify its commits are recoverable from the pushed branch, and check for active processes and
+  worktree locks. From outside that worktree, remove clean unused worktrees with
+  `git worktree remove <path>` without `--force`, then delete only their recorded, exclusively
+  owned target directories, package outputs, temporary binaries, logs and screenshot staging.
+  Preserve committed PR evidence and the original checkout. A local pass with uncommitted work,
+  an active review/follow-up, dirty files or uncertain ownership must remain available.
+- Inspect `git worktree prune --dry-run` and prune only confirmed stale metadata for already
+  removed workspaces. Do not delete branches, unpushed commits or unknown/active workspaces as
+  part of automatic cleanup. Shared artifact directories require proof that all their owners
+  are finished; never use a broad `git clean`, `cargo clean` or recursive delete as a shortcut.
+- Report removed task workspaces/artifacts and any cleanup that remains blocked, including the
+  reason. Release the task's owned resources after a failure or cancellation as well, while
+  preserving unfinished source changes and the evidence needed to resume.

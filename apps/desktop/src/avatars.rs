@@ -383,6 +383,11 @@ impl ResultSender {
 			result.image = None;
 			result.frames = Vec::new();
 			result.error = Some("Decoded image exceeds the memory limit");
+			diagnostics::record(
+				diagnostics::Category::Media,
+				diagnostics::Level::Warn,
+				"image decode limit exceeded",
+			);
 		}
 		let bytes = result.bytes();
 		if bytes > RESULT_BYTES {
@@ -1451,11 +1456,19 @@ async fn bounded_decode<T: Send + 'static>(
 	decode: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, tokio::task::JoinError> {
 	let permit = slots.acquire_owned().await.expect("decode slots stay open");
-	tokio::task::spawn_blocking(move || {
+	let result = tokio::task::spawn_blocking(move || {
 		let _permit = permit;
 		decode()
 	})
-	.await
+	.await;
+	if result.is_err() {
+		diagnostics::record(
+			diagnostics::Category::Runtime,
+			diagnostics::Level::Error,
+			"image decode worker stopped",
+		);
+	}
+	result
 }
 
 struct Job {

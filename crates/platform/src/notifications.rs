@@ -387,6 +387,23 @@ fn worker(
 }
 
 fn publish(status: &AtomicU64, generation: u64, outcome: Status) {
+	if matches!(
+		outcome,
+		Status::Denied | Status::Unavailable | Status::QueueFull
+	) {
+		let reason = match outcome {
+			Status::Denied => "denied",
+			Status::QueueFull => "queue_full",
+			_ => "unavailable",
+		};
+		diagnostics::record_fields(
+			diagnostics::Category::Platform,
+			diagnostics::Level::Warn,
+			"notification delivery unavailable",
+			&[("reason", reason.into())],
+		);
+	}
+
 	// An OS result must not overwrite the next session/dismissal's state.
 	let _ = status.fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
 		(current >> 8 == generation).then_some(encoded(generation, outcome))

@@ -82,6 +82,36 @@ fn instantiate(engine: &Engine, module: &Module) -> Result<(Store<StoreLimits>, 
 /// ABI: `serein_alloc(i32) -> i32`, `serein_invoke(i32, i32) -> i64`.
 /// The result packs the output pointer in its high 32 bits and byte length in its low 32 bits.
 pub fn invoke(package: &Package, input: &Invocation) -> Result<Output, Error> {
+	let result = invoke_inner(package, input);
+	if let Err(error) = &result {
+		let reason = match error {
+			Error::Limit => "limit",
+			Error::Invalid => "invalid",
+			Error::Version => "version",
+			Error::Capability => "capability",
+			Error::Module => "module",
+			Error::Execution => "execution",
+			Error::Fuel => "fuel",
+			Error::Memory => "memory",
+			Error::Stack => "stack",
+			Error::Trap => "trap",
+			Error::Input => "input",
+			Error::InputLimit => "input_limit",
+			Error::OutputLimit => "output_limit",
+			Error::Handler => "handler",
+			Error::Output => "output",
+		};
+		diagnostics::record_fields(
+			diagnostics::Category::Extensions,
+			diagnostics::Level::Error,
+			"extension invocation failed",
+			&[("reason", reason.into())],
+		);
+	}
+	result
+}
+
+fn invoke_inner(package: &Package, input: &Invocation) -> Result<Output, Error> {
 	if package.manifest.kind != ExtensionKind::Plugin || package.theme.is_some() {
 		return Err(Error::Invalid);
 	}

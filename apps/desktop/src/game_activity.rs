@@ -332,7 +332,11 @@ async fn listen<A: Applications>(
 				ctx.request_repaint();
 			},
 			Some(result) = workers.join_next(), if !workers.is_empty() => {
-				let (slot, result) = result.map_err(|_| "Game activity stopped. Turn sharing off and on to retry.")?;
+				let (slot, result) = result.map_err(|_| {
+					diagnostics::record(diagnostics::Category::Runtime, diagnostics::Level::Error,
+						"game activity worker stopped");
+					"Game activity stopped. Turn sharing off and on to retry."
+				})?;
 				// Drain accepted updates before retiring the slot so an old update cannot revive it.
 				while let Ok((index, value)) = receive.try_recv() {
 					values[index] = value.map(|value| (Instant::now(), value));
@@ -341,6 +345,8 @@ async fn listen<A: Applications>(
 				values[slot] = None;
 				publish(&values, &scanned, activity, report, ctx);
 				if let Err(error) = result && activity.borrow().is_none() {
+					diagnostics::record(diagnostics::Category::Activity, diagnostics::Level::Warn,
+						"game activity unavailable");
 					let _ = report.send_replace(Err(error)); ctx.request_repaint();
 				}
 			}

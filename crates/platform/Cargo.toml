@@ -9,6 +9,7 @@ default = []
 development-data = []
 
 [dependencies]
+diagnostics.workspace = true
 client-core.workspace = true
 cpal = { version = "=0.18.2", default-features = false }
 model.workspace = true

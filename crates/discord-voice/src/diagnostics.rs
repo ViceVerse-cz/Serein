@@ -222,7 +222,8 @@ struct Report {
 pub(crate) struct Metrics {
 	send: Option<&'static mpsc::SyncSender<Report>>,
 	since: Instant,
-	report: Report,
+	scope: Scope,
+	report: Option<Box<Report>>,
 }
 
 /// Reports and bytes the reporter thread accepts before going quiet. Debug-only opt-in, but
@@ -235,7 +236,48 @@ fn started() -> Instant {
 	*START.get_or_init(Instant::now)
 }
 
+fn empty_report(scope: Scope) -> Report {
+	Report {
+		scope,
+		encoder_counts: [0; 2],
+		decoder_counts: [0; 2],
+		at_ms: 0,
+		window_ms: 0,
+		video: [0; VIDEO_SLOTS],
+		signal: [0; SIGNAL_SLOTS],
+		capture: [0; 6],
+		stages: [[0; 3]; 11],
+		wakes: 0,
+		resets: 0,
+		drops: 0,
+		stalls: 0,
+		noise_frames: 0,
+		stream_ticks: [0; 8],
+		queued_audio: 0,
+	}
+}
+
 impl Metrics {
+	fn enabled(&self) -> bool {
+		self.send.is_some() || diagnostics::is_enabled(diagnostics::Level::Debug)
+	}
+
+	fn active(&mut self) -> bool {
+		self.active_when(self.enabled())
+	}
+
+	fn active_when(&mut self, enabled: bool) -> bool {
+		if !enabled {
+			self.report = None;
+			return false;
+		}
+		if self.report.is_none() {
+			self.since = Instant::now();
+			self.report = Some(Box::new(empty_report(self.scope)));
+		}
+		true
+	}
+
 	pub fn new(scope: Scope) -> Self {
 		static REPORTER: OnceLock<Option<mpsc::SyncSender<Report>>> = OnceLock::new();
 		let send = REPORTER.get_or_init(|| {
@@ -259,34 +301,21 @@ impl Metrics {
 		Self {
 			send: send.as_ref(),
 			since: Instant::now(),
-			report: Report {
-				scope,
-				encoder_counts: [0; 2],
-				decoder_counts: [0; 2],
-				at_ms: 0,
-				window_ms: 0,
-				video: [0; VIDEO_SLOTS],
-				signal: [0; SIGNAL_SLOTS],
-				capture: [0; 6],
-				stages: [[0; 3]; 11],
-				wakes: 0,
-				resets: 0,
-				drops: 0,
-				stalls: 0,
-				noise_frames: 0,
-				stream_ticks: [0; 8],
-				queued_audio: 0,
-			},
+			scope,
+			report: None,
 		}
 	}
 
 	pub fn start(&self) -> Option<Instant> {
-		self.send.map(|_| Instant::now())
+		self.enabled().then(Instant::now)
 	}
 
 	/// Snapshot live decoder counts owned by this transport, never process-wide history.
 	pub fn decoder_counts(&mut self, hardware: u64, software: u64) {
-		self.report.decoder_counts = [hardware, software];
+		if !self.active() {
+			return;
+		}
+		self.report.as_mut().expect("active metrics").decoder_counts = [hardware, software];
 	}
 
 	pub fn finish(&mut self, stage: Stage, start: Option<Instant>) {
@@ -297,11 +326,12 @@ impl Metrics {
 
 	/// Records one call measured elsewhere; ignored while diagnostics are off.
 	pub fn add(&mut self, stage: Stage, elapsed: Duration) {
-		if self.send.is_none() {
+		if !self.active() {
 			return;
 		}
 		let micros = elapsed.as_micros().min(u128::from(u64::MAX)) as u64;
-		let [calls, total, max] = &mut self.report.stages[stage as usize];
+		let [calls, total, max] =
+			&mut self.report.as_mut().expect("active metrics").stages[stage as usize];
 		*calls = calls.saturating_add(1);
 		*total = total.saturating_add(micros);
 		*max = (*max).max(micros);
@@ -309,50 +339,75 @@ impl Metrics {
 
 	/// Adds to one remote video counter; ignored while diagnostics are off.
 	pub fn video(&mut self, event: Video, count: u64) {
-		if self.send.is_none() {
+		if !self.active() {
 			return;
 		}
-		let slot = &mut self.report.video[event as usize];
+		let slot = &mut self.report.as_mut().expect("active metrics").video[event as usize];
 		*slot = slot.saturating_add(count);
 	}
 
 	/// Keeps the largest observed value for a maximum-style video counter.
 	pub fn video_max(&mut self, event: Video, value: u64) {
-		if self.send.is_none() {
+		if !self.active() {
 			return;
 		}
-		let slot = &mut self.report.video[event as usize];
+		let slot = &mut self.report.as_mut().expect("active metrics").video[event as usize];
 		*slot = (*slot).max(value);
 	}
 
 	/// Adds to one application-audio capture counter; ignored while diagnostics are off.
 	#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 	pub fn capture(&mut self, event: Capture, count: u64) {
-		if self.send.is_none() {
+		if !self.active() {
 			return;
 		}
-		let slot = &mut self.report.capture[event as usize];
+		let slot = &mut self.report.as_mut().expect("active metrics").capture[event as usize];
 		*slot = slot.saturating_add(count);
 	}
 
 	/// Adds to one signaling counter; ignored while diagnostics are off.
 	pub fn signal(&mut self, event: Signal, count: u64) {
-		if self.send.is_none() {
+		if !self.active() {
 			return;
 		}
-		let slot = &mut self.report.signal[event as usize];
+		let slot = &mut self.report.as_mut().expect("active metrics").signal[event as usize];
 		*slot = slot.saturating_add(count);
 	}
 
 	pub fn poll(&mut self, reset: bool, drops: u64, stalled: bool, noise_frames: u64) {
-		if self.send.is_none() {
+		if !self.active() {
 			return;
 		}
-		self.report.wakes = self.report.wakes.saturating_add(1);
-		self.report.resets = self.report.resets.saturating_add(u64::from(reset));
-		self.report.drops = self.report.drops.saturating_add(drops);
-		self.report.stalls = self.report.stalls.saturating_add(u64::from(stalled));
-		self.report.noise_frames = self.report.noise_frames.saturating_add(noise_frames);
+		self.report.as_mut().expect("active metrics").wakes = self
+			.report
+			.as_mut()
+			.expect("active metrics")
+			.wakes
+			.saturating_add(1);
+		self.report.as_mut().expect("active metrics").resets = self
+			.report
+			.as_mut()
+			.expect("active metrics")
+			.resets
+			.saturating_add(u64::from(reset));
+		self.report.as_mut().expect("active metrics").drops = self
+			.report
+			.as_mut()
+			.expect("active metrics")
+			.drops
+			.saturating_add(drops);
+		self.report.as_mut().expect("active metrics").stalls = self
+			.report
+			.as_mut()
+			.expect("active metrics")
+			.stalls
+			.saturating_add(u64::from(stalled));
+		self.report.as_mut().expect("active metrics").noise_frames = self
+			.report
+			.as_mut()
+			.expect("active metrics")
+			.noise_frames
+			.saturating_add(noise_frames);
 		if self.since.elapsed() >= Duration::from_secs(5) {
 			self.flush();
 		}
@@ -362,14 +417,23 @@ impl Metrics {
 	/// Flags: transport key, DAVE ready, group ready, pending, waiting, announced,
 	/// capture ready, audio enabled.
 	pub fn stream_state(&mut self, flags: [bool; 8], queued_audio: usize) {
-		if self.send.is_none() {
+		if !self.active() {
 			return;
 		}
-		for (ticks, flag) in self.report.stream_ticks.iter_mut().zip(flags) {
+		for (ticks, flag) in self
+			.report
+			.as_mut()
+			.expect("active metrics")
+			.stream_ticks
+			.iter_mut()
+			.zip(flags)
+		{
 			*ticks = ticks.saturating_add(u64::from(flag));
 		}
-		self.report.queued_audio = self
+		self.report.as_mut().expect("active metrics").queued_audio = self
 			.report
+			.as_ref()
+			.expect("active metrics")
 			.queued_audio
 			.saturating_add(u64::try_from(queued_audio).unwrap_or(u64::MAX));
 	}
@@ -381,38 +445,220 @@ impl Metrics {
 	}
 
 	fn flush(&mut self) {
-		let Some(send) = self.send else { return };
-		self.report.encoder_counts = match self.report.scope {
-			Scope::StreamSend | Scope::ScreenVideo => Some(&SCREEN_ENCODERS),
-			Scope::Transport => Some(&CAMERA_ENCODERS),
-			_ => None,
+		if !self.active() {
+			return;
 		}
-		.map_or([0; 2], |counts| {
-			counts.each_ref().map(|count| count.load(Ordering::Relaxed))
-		});
-		self.report.at_ms = started().elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-		self.report.window_ms = self.since.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-		if let Err(mpsc::TrySendError::Disconnected(_)) = send.try_send(self.report) {
+		self.report.as_mut().expect("active metrics").encoder_counts =
+			match self.report.as_mut().expect("active metrics").scope {
+				Scope::StreamSend | Scope::ScreenVideo => Some(&SCREEN_ENCODERS),
+				Scope::Transport => Some(&CAMERA_ENCODERS),
+				_ => None,
+			}
+			.map_or([0; 2], |counts| {
+				counts.each_ref().map(|count| count.load(Ordering::Relaxed))
+			});
+		self.report.as_mut().expect("active metrics").at_ms =
+			started().elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+		self.report.as_mut().expect("active metrics").window_ms =
+			self.since.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+		if diagnostics::is_enabled(diagnostics::Level::Debug) {
+			shared_report(self.report.as_ref().expect("active metrics"));
+		}
+		if let Some(send) = self.send
+			&& let Err(mpsc::TrySendError::Disconnected(_)) =
+				send.try_send(**self.report.as_ref().expect("active metrics"))
+		{
 			self.send = None;
 		}
+		if !self.enabled() {
+			self.report = None;
+			return;
+		}
+		self.reset();
+	}
+
+	fn reset(&mut self) {
+		let Some(report) = self.report.as_mut() else {
+			return;
+		};
 		self.since = Instant::now();
-		self.report.stages = [[0; 3]; 11];
-		self.report.wakes = 0;
-		self.report.resets = 0;
-		self.report.drops = 0;
-		self.report.stalls = 0;
-		self.report.noise_frames = 0;
-		self.report.stream_ticks = [0; 8];
-		self.report.queued_audio = 0;
-		self.report.video = [0; VIDEO_SLOTS];
-		self.report.signal = [0; SIGNAL_SLOTS];
-		self.report.capture = [0; 6];
+		report.stages = [[0; 3]; 11];
+		report.wakes = 0;
+		report.resets = 0;
+		report.drops = 0;
+		report.stalls = 0;
+		report.noise_frames = 0;
+		report.stream_ticks = [0; 8];
+		report.queued_audio = 0;
+		report.video = [0; VIDEO_SLOTS];
+		report.signal = [0; SIGNAL_SLOTS];
+		report.capture = [0; 6];
 	}
 }
 
 impl Drop for Metrics {
 	fn drop(&mut self) {
 		self.flush();
+	}
+}
+
+// Called only by the media processing worker, never by a native audio callback. No received
+// values, identities, device labels or media bytes enter the shared report.
+fn shared_report(report: &Report) {
+	use diagnostics::{Category, Value};
+	let scope = match report.scope {
+		Scope::Audio => "audio",
+		Scope::Transport => "transport",
+		Scope::StreamSend => "stream_send",
+		Scope::StreamReceive => "stream_receive",
+		Scope::ScreenAudio => "screen_audio",
+		Scope::ScreenVideo => "screen_video",
+	};
+	let record = |label, values: &[(&'static str, Value)]| {
+		diagnostics::summary(Category::Voice, label, values);
+	};
+	record(
+		"media summary",
+		&[
+			("scope", scope.into()),
+			("window_ms", report.window_ms.into()),
+			("wakes", report.wakes.into()),
+			("drops", report.drops.into()),
+		],
+	);
+	record(
+		"media recovery",
+		&[
+			("scope", scope.into()),
+			("resets", report.resets.into()),
+			("stalls", report.stalls.into()),
+			("noise_frames", report.noise_frames.into()),
+		],
+	);
+	let stages = [
+		"echo_render",
+		"echo_capture",
+		"noise",
+		"encode",
+		"mix",
+		"receive",
+		"video_send",
+		"video_receive",
+		"capture_read",
+		"capture_queue",
+		"capture_restart",
+	];
+	for (stage, [calls, total, max]) in stages.into_iter().zip(report.stages) {
+		if calls > 0 {
+			record(
+				"media stage",
+				&[
+					("stage", stage.into()),
+					("calls", calls.into()),
+					("total_us", total.into()),
+					("max_us", max.into()),
+				],
+			);
+		}
+	}
+	let video = [
+		"packets",
+		"rtx",
+		"open_failed",
+		"not_ready",
+		"unknown_sender",
+		"incomplete",
+		"complete",
+		"decrypt_failed",
+		"gated",
+		"queue_full",
+		"keyframes",
+		"keyframes_without_params",
+		"pli_sent",
+		"awaiting_ticks",
+		"decoder_errors",
+		"pictures",
+		"picture_gap_ms",
+		"stall_ticks",
+		"decode_queue_ms",
+		"stale_frames",
+	];
+	for (counter, value) in video.into_iter().zip(report.video) {
+		if value > 0 {
+			record(
+				"video counter",
+				&[
+					("scope", scope.into()),
+					("counter", counter.into()),
+					("value", value.into()),
+				],
+			);
+		}
+	}
+	let signal = [
+		"text",
+		"binary",
+		"other",
+		"ready",
+		"session",
+		"clients",
+		"sender",
+		"prepare_transition",
+		"execute_transition",
+		"prepare_epoch",
+		"external_sender",
+		"proposals",
+		"commit",
+		"key_package_sent",
+		"transition_ready_sent",
+		"subscribe_sent",
+		"sink_wants_sent",
+	];
+	for (counter, value) in signal.into_iter().zip(report.signal) {
+		if value > 0 {
+			record(
+				"voice signaling counter",
+				&[("counter", counter.into()), ("value", value.into())],
+			);
+		}
+	}
+	let capture = [
+		"inputs", "started", "excluded", "chunks", "ready", "dropped",
+	];
+	for (counter, value) in capture.into_iter().zip(report.capture) {
+		if value > 0 {
+			record(
+				"capture counter",
+				&[("counter", counter.into()), ("value", value.into())],
+			);
+		}
+	}
+	record(
+		"video codecs",
+		&[
+			("scope", scope.into()),
+			("encode_hardware", report.encoder_counts[0].into()),
+			("encode_software", report.encoder_counts[1].into()),
+			("decode_software", report.decoder_counts[1].into()),
+		],
+	);
+	let states = [
+		"transport_key",
+		"dave_ready",
+		"group_ready",
+		"pending",
+		"waiting",
+		"announced",
+		"capture_ready",
+		"audio_enabled",
+	];
+	for (state, ticks) in states.into_iter().zip(report.stream_ticks) {
+		if ticks > 0 {
+			record(
+				"stream state",
+				&[("state", state.into()), ("ticks", ticks.into())],
+			);
+		}
 	}
 }
 
@@ -525,4 +771,27 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 	// Charge attempted bytes even on a partial write. Failure never affects the call.
 	*bytes -= line.len();
 	writer.write_all(line.as_bytes()).is_ok()
+}
+
+#[cfg(test)]
+mod shared_tests {
+	use super::*;
+
+	#[test]
+	fn toggling_recording_allocates_lazily_and_discards_previous_counters() {
+		let mut metrics = Metrics {
+			send: None,
+			since: Instant::now(),
+			scope: Scope::Audio,
+			report: None,
+		};
+		assert!(!metrics.active_when(false));
+		assert!(metrics.report.is_none());
+		assert!(metrics.active_when(true));
+		metrics.report.as_mut().unwrap().drops = 7;
+		assert!(!metrics.active_when(false));
+		assert!(metrics.report.is_none());
+		assert!(metrics.active_when(true));
+		assert_eq!(metrics.report.as_ref().unwrap().drops, 0);
+	}
 }

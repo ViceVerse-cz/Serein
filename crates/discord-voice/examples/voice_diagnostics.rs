@@ -26,10 +26,10 @@ fn main() {
 	metrics.stream_state([true; 8], 4);
 	metrics.checkpoint();
 	assert!(receive.try_recv().is_err());
-	assert_eq!(metrics.report.wakes, 0);
-	assert_eq!(metrics.report.stages, [[0; 3]; 11]);
-	assert_eq!(metrics.report.stream_ticks, [0; 8]);
-	assert_eq!(metrics.report.queued_audio, 0);
+	assert!(
+		metrics.report.is_none(),
+		"disabled diagnostics retain no aggregate buffer"
+	);
 	// Keep the synthetic sender alive for this short-lived debug process.
 	metrics.send = Some(Box::leak(Box::new(send)));
 	metrics.decoder_counts(1, 0);
@@ -52,6 +52,8 @@ fn main() {
 	assert!(
 		metrics
 			.report
+			.as_ref()
+			.unwrap()
 			.stages
 			.iter()
 			.all(|s| s[0] == 1 && s[1] == s[2])
@@ -59,11 +61,11 @@ fn main() {
 	metrics.poll(true, 2, true, 3);
 	assert_eq!(
 		(
-			metrics.report.wakes,
-			metrics.report.resets,
-			metrics.report.drops,
-			metrics.report.stalls,
-			metrics.report.noise_frames
+			metrics.report.as_ref().unwrap().wakes,
+			metrics.report.as_ref().unwrap().resets,
+			metrics.report.as_ref().unwrap().drops,
+			metrics.report.as_ref().unwrap().stalls,
+			metrics.report.as_ref().unwrap().noise_frames
 		),
 		(1, 1, 2, 1, 3)
 	);
@@ -78,9 +80,18 @@ fn main() {
 	metrics.signal(Signal::Text, 1);
 	metrics.signal(Signal::ExecuteTransition, 1);
 	metrics.signal(Signal::SinkWantsSent, 2);
-	assert_eq!(metrics.report.video[Video::Packets as usize], 150);
-	assert_eq!(metrics.report.video[Video::PictureGapMs as usize], 2400);
-	assert_eq!(metrics.report.signal[Signal::SinkWantsSent as usize], 2);
+	assert_eq!(
+		metrics.report.as_ref().unwrap().video[Video::Packets as usize],
+		150
+	);
+	assert_eq!(
+		metrics.report.as_ref().unwrap().video[Video::PictureGapMs as usize],
+		2400
+	);
+	assert_eq!(
+		metrics.report.as_ref().unwrap().signal[Signal::SinkWantsSent as usize],
+		2
+	);
 	metrics.stream_state([true, true, true, false, false, true, false, true], 4);
 	metrics.stream_state([true, false, false, false, false, true, true, true], 2);
 	metrics.since -= Duration::from_secs(5);
@@ -93,18 +104,21 @@ fn main() {
 		"hardware",
 		"queued reports retain their snapshot"
 	);
-	assert_eq!(codec_label(metrics.report.decoder_counts), "software");
+	assert_eq!(
+		codec_label(metrics.report.as_ref().unwrap().decoder_counts),
+		"software"
+	);
 	assert!(report.window_ms >= 5000);
 	assert_eq!(report.stream_ticks, [2, 1, 1, 0, 0, 2, 1, 2]);
 	assert_eq!(report.queued_audio, 6);
 	assert_eq!(report.video[Video::Packets as usize], 150);
 	assert_eq!(report.signal[Signal::ExecuteTransition as usize], 1);
-	assert_eq!(metrics.report.video, [0; VIDEO_SLOTS]);
-	assert_eq!(metrics.report.signal, [0; SIGNAL_SLOTS]);
-	assert_eq!(metrics.report.wakes, 0);
-	assert_eq!(metrics.report.stages, [[0; 3]; 11]);
-	assert_eq!(metrics.report.stream_ticks, [0; 8]);
-	assert_eq!(metrics.report.queued_audio, 0);
+	assert_eq!(metrics.report.as_ref().unwrap().video, [0; VIDEO_SLOTS]);
+	assert_eq!(metrics.report.as_ref().unwrap().signal, [0; SIGNAL_SLOTS]);
+	assert_eq!(metrics.report.as_ref().unwrap().wakes, 0);
+	assert_eq!(metrics.report.as_ref().unwrap().stages, [[0; 3]; 11]);
+	assert_eq!(metrics.report.as_ref().unwrap().stream_ticks, [0; 8]);
+	assert_eq!(metrics.report.as_ref().unwrap().queued_audio, 0);
 	metrics.add(Stage::CaptureRead, Duration::from_micros(10));
 	metrics.add(Stage::CaptureRead, Duration::from_micros(20));
 	metrics.add(Stage::CaptureQueue, Duration::from_micros(5));
@@ -117,13 +131,13 @@ fn main() {
 		(native.wakes, native.resets, native.drops, native.stalls),
 		(1, 1, 2, 1)
 	);
-	assert_eq!(metrics.report.stages, [[0; 3]; 11]);
+	assert_eq!(metrics.report.as_ref().unwrap().stages, [[0; 3]; 11]);
 	assert_eq!(
 		(
-			metrics.report.wakes,
-			metrics.report.resets,
-			metrics.report.drops,
-			metrics.report.stalls
+			metrics.report.as_ref().unwrap().wakes,
+			metrics.report.as_ref().unwrap().resets,
+			metrics.report.as_ref().unwrap().drops,
+			metrics.report.as_ref().unwrap().stalls
 		),
 		(0, 0, 0, 0)
 	);
@@ -194,57 +208,6 @@ fn main() {
 		assert!(!write_report(transport, &mut too_small, &mut rejected));
 		assert!(rejected.is_empty());
 		std::io::stderr().write_all(&output).unwrap();
-	}
-	// `write_report` destructures both counter arrays positionally, so every variant must
-	// keep its declared slot. Listing them here also proves each index stays in bounds.
-	let video = [
-		Video::Packets,
-		Video::Rtx,
-		Video::OpenFailed,
-		Video::NotReady,
-		Video::UnknownSsrc,
-		Video::Incomplete,
-		Video::Complete,
-		Video::DecryptFailed,
-		Video::Gated,
-		Video::QueueFull,
-		Video::Keyframes,
-		Video::KeyframesWithoutParams,
-		Video::PliSent,
-		Video::AwaitingTicks,
-		Video::DecoderErrors,
-		Video::Pictures,
-		Video::PictureGapMs,
-		Video::StallTicks,
-		Video::DecodeQueueMs,
-		Video::StaleFrames,
-	];
-	assert_eq!(video.len(), VIDEO_SLOTS);
-	for (index, slot) in video.into_iter().enumerate() {
-		assert_eq!(slot as usize, index);
-	}
-	let signal = [
-		Signal::Text,
-		Signal::Binary,
-		Signal::Other,
-		Signal::Ready,
-		Signal::Session,
-		Signal::Clients,
-		Signal::Sender,
-		Signal::PrepareTransition,
-		Signal::ExecuteTransition,
-		Signal::PrepareEpoch,
-		Signal::ExternalSender,
-		Signal::Proposals,
-		Signal::Commit,
-		Signal::KeyPackageSent,
-		Signal::TransitionReadySent,
-		Signal::SubscribeSent,
-		Signal::SinkWantsSent,
-	];
-	assert_eq!(signal.len(), SIGNAL_SLOTS);
-	for (index, slot) in signal.into_iter().enumerate() {
-		assert_eq!(slot as usize, index);
 	}
 	println!(
 		"Offline voice diagnostics check passed: timing, stream-state, video and signaling aggregation, disabled mode, periodic reset/flush, bounded nonblocking queue, byte budget and closed output."

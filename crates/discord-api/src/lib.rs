@@ -381,6 +381,50 @@ impl DiscordApi {
 		body: Option<RequestContent>,
 		max_bytes: usize,
 		retry: Option<&client_core::captcha::Retry>,
+		challenge: Option<&mut Option<client_core::captcha::Challenge>>,
+	) -> Result<Vec<u8>, Failure> {
+		let measured =
+			diagnostics::is_enabled(diagnostics::Level::Debug).then(std::time::Instant::now);
+		let write = method != Method::GET;
+		let result = self
+			.request_with_content_inner(method, path, body, max_bytes, retry, challenge)
+			.await;
+		if let Some(started) = measured {
+			let reason = match &result {
+				Ok(_) => "ok",
+				Err(Failure::Network) => "network",
+				Err(Failure::Ambiguous) => "ambiguous",
+				Err(Failure::RateLimited) => "rate_limited",
+				Err(Failure::Forbidden) => "forbidden",
+				Err(Failure::Expired) => "expired",
+				Err(Failure::Challenged) => "challenged",
+				Err(Failure::Capacity | Failure::CapacityAt(_)) => "capacity",
+				Err(Failure::InvalidCredential) => "invalid_credential",
+				Err(Failure::Protocol | Failure::ProtocolAt(_)) => "protocol",
+			};
+			diagnostics::record_fields(
+				diagnostics::Category::Api,
+				diagnostics::Level::Debug,
+				"request completed",
+				&[
+					("write", write.into()),
+					("outcome", reason.into()),
+					(
+						"elapsed_ms",
+						(started.elapsed().as_millis().min(u64::MAX as u128) as u64).into(),
+					),
+				],
+			);
+		}
+		result
+	}
+	async fn request_with_content_inner(
+		&self,
+		method: Method,
+		path: &str,
+		body: Option<RequestContent>,
+		max_bytes: usize,
+		retry: Option<&client_core::captcha::Retry>,
 		mut challenge: Option<&mut Option<client_core::captcha::Challenge>>,
 	) -> Result<Vec<u8>, Failure> {
 		// Only typed adapter methods construct paths. Never accept a URL or route from UI/content.

@@ -9,10 +9,12 @@ body:
         Thank you for reporting a crash or performance issue.
 
         > [!TIP]
-        > **Quickly copy your client diagnostics:** In Serein, go to **Settings → Updates** and click **"Copy issue diagnostics"** (or click the **"Copy issue info"** link at the bottom of the Settings sidebar) to copy your Serein version, OS, display scale, and theme settings.
+        > **Diagnostics are strongly recommended, but optional.** In Serein, open **Settings → Updates → Support & diagnostics**, enable **Record diagnostics**, reproduce the problem, then select **Copy diagnostic report** or **Save report…** and include the report below.
+        > Recording is off by default. Reports exclude message contents, credentials, account identifiers, paths, and other personal data. Please review attachments before posting publicly. You can submit this issue without diagnostics.
 
         > [!CAUTION]
-        > **NEVER** share your Discord authentication token or credentials in logs, panic messages, or traces.
+        > **NEVER** share your Discord authentication token, passwords, private messages, or raw crash dumps in issues.
+        > For a crash or freeze, enable **Save diagnostic history to disk** before reproducing it. This separate option is off by default. Use **Open folder** to find retained files if the copy button cannot be used; the final records may be missing. Copy and Save export current memory history, not previous runs.
 
   - type: dropdown
     id: issue_category
@@ -44,19 +46,9 @@ body:
       label: Steps to Reproduce
       description: Steps to consistently reproduce the crash or performance issue.
       placeholder: |
-        1. Run Serein with `RUST_BACKTRACE=1`
+        1. Launch Serein (optionally enable diagnostics first)
         2. ...
         3. ...
-    validations:
-      required: true
-
-  - type: textarea
-    id: backtrace
-    attributes:
-      label: Rust Backtrace / Crash Log
-      description: |
-        Run Serein from the terminal with `RUST_BACKTRACE=1 serein` (or via `cargo run --bin serein`) and paste the complete panic backtrace or crash report here.
-      render: shell
     validations:
       required: true
 
@@ -78,17 +70,15 @@ body:
   - type: input
     id: hardware
     attributes:
-      label: Hardware & Graphics (CPU, GPU, RAM)
-      description: Details about your machine (e.g. CPU model, GPU model, driver version, display refresh rate).
-      placeholder: "e.g. AMD Ryzen 7 5800X, NVIDIA RTX 3080 (Driver 550.54), 32 GB RAM, 144Hz monitor"
-    validations:
-      required: true
+      label: Graphics Backend (optional)
+      description: Broad graphics backend if known. Exact hardware models and other identifying details are not needed.
+      placeholder: "e.g. Vulkan, Metal, or DirectX 12"
 
   - type: input
     id: version
     attributes:
       label: Serein Version / Commit Hash
-      description: Release tag or git commit hash. Found in **Settings → Updates** or copied via **"Copy issue diagnostics"**.
+      description: Release tag or git commit hash. Found in **Settings → Updates** or copied via **"Copy diagnostic report"**.
       placeholder: "e.g. 0.1.0 or commit 36b5336"
     validations:
       required: true
@@ -96,68 +86,13 @@ body:
   - type: textarea
     id: diagnostics
     attributes:
-      label: Client & Environment Diagnostics
+      label: Diagnostic Report (recommended, optional)
       description: |
-        Paste the information copied from Serein (**Settings → Updates → "Copy issue diagnostics"** or the sidebar link) here.
-      placeholder: |
-        - **Serein Version:** ...
-        - **Operating System:** ...
-        - **Display Scale:** ...
-        - **Theme:** ...
-        - **Update Channel:** ...
-        - **Auto Update:** ...
-
-  - type: markdown
-    attributes:
-      value: |
-        ### Collect logs for voice, video, screen sharing or performance issues
-
-        1. Quit Serein completely, then open a terminal and run the command for your platform below.
-           Both flags enable voice timing reports and UI frame diagnostics.
-        2. Reproduce the issue briefly. For voice problems, join/leave the call yourself and note
-           whether you were speaking, muted, sharing your screen or using noise suppression.
-           If the call fails, also use **Copy failure reason** in the sidebar or call stage.
-        3. Quit Serein normally so the final frame summary is written. Find `serein-diagnostics.log`
-           in the terminal's current folder, review it for private information, then drag the file
-           into the diagnostics field below (or paste the relevant output).
-
-        **Windows (PowerShell)** — replace the executable path with your installed `serein.exe`:
-        ```powershell
-        $env:SEREIN_VOICE_DIAGNOSTICS="1"
-        $env:SEREIN_FRAME_DIAGNOSTICS="1"
-        & "C:\path\to\serein.exe" 2> serein-diagnostics.log
-        Remove-Item Env:SEREIN_VOICE_DIAGNOSTICS, Env:SEREIN_FRAME_DIAGNOSTICS
-        ```
-
-        **macOS (Terminal):**
-        ```sh
-        SEREIN_VOICE_DIAGNOSTICS=1 SEREIN_FRAME_DIAGNOSTICS=1 /Applications/Serein.app/Contents/MacOS/serein 2> serein-diagnostics.log
-        ```
-
-        **Linux (terminal)** — replace `serein` with your executable/AppImage path if needed:
-        ```sh
-        SEREIN_VOICE_DIAGNOSTICS=1 SEREIN_FRAME_DIAGNOSTICS=1 serein 2> serein-diagnostics.log
-        ```
-
-        **Flatpak:**
-        ```sh
-        flatpak run --env=SEREIN_VOICE_DIAGNOSTICS=1 --env=SEREIN_FRAME_DIAGNOSTICS=1 cz.viceverse.serein 2> serein-diagnostics.log
-        ```
-
-        Voice timing reports appear about every five seconds and stop after a bounded capture;
-        restart Serein if you need another capture. If Serein freezes or crashes, send whatever
-        output was captured even if the final frame summary is missing. These commands save stderr,
-        which can also contain framework logs: review the file before uploading and remove tokens,
-        credentials and private content. Diagnostics are disabled on the next normal launch after
-        clearing the PowerShell variables above (or closing that terminal).
-        See the [voice diagnostics guide](https://github.com/ViceVerse-cz/Serein/blob/main/docs/voice.md#investigating-high-cpu-during-a-call) for details.
-
-  - type: textarea
-    id: runtime_diagnostics
-    attributes:
-      label: Voice / Frame Diagnostics
-      description: Attach the reviewed log from the commands above or paste its output. Include any copied call failure reason and what you were doing during the capture. If you could not collect it, describe what prevented it.
-      placeholder: Drop serein-diagnostics.log here, or paste the relevant diagnostics and call failure reason...
+        Paste **Copy diagnostic report** output or attach the file from **Save report…** in **Settings → Updates → Support & diagnostics**. If diagnostics were disabled when the problem occurred, enable recording and reproduce it only if you are comfortable doing so. You can also explain why a report is unavailable or leave this field blank.
+        Reports contain safe technical categories and timing summaries, not message contents or account identifiers. Review attachments before posting publicly. Do not attach raw terminal output, browser logs, or memory dumps.
+      placeholder: Paste a report or drag the exported text file here. Diagnostics are optional.
+    validations:
+      required: false
 
   - type: checkboxes
     id: checklist
@@ -166,5 +101,5 @@ body:
       options:
         - label: I have searched existing GitHub issues and discussions.
           required: true
-        - label: I have verified that no private Discord tokens or sensitive credentials appear in the backtrace.
+        - label: I have reviewed my report and attachments for credentials, private messages, and personal information.
           required: true

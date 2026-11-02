@@ -83,6 +83,7 @@ impl Settings {
 			time_format: ui.time_format,
 			plaintext_login: ui.plaintext_login,
 			diagnostics_log: ui.diagnostics_log,
+			diagnostics_disk: ui.diagnostics_disk,
 		};
 		if value != self.current {
 			self.state.touched = true;
@@ -133,7 +134,12 @@ impl Settings {
 		ui.image_cache = value.image_cache;
 		ui.time_format = value.time_format;
 		ui.plaintext_login = value.plaintext_login;
-		ui.diagnostics_log = value.diagnostics_log;
+		ui.diagnostics_log = if value.diagnostics_log == diagnostics::Level::Off {
+			diagnostics::Level::Off
+		} else {
+			diagnostics::Level::Debug
+		};
+		ui.diagnostics_disk = value.diagnostics_disk;
 		ui::local_time::set_format(ui.time_format, ui.language);
 	}
 }

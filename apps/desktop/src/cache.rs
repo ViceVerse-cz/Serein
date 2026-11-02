@@ -324,9 +324,18 @@ impl Cache {
 		{
 			return false;
 		}
-		self.send
+		let accepted = self
+			.send
 			.try_send((generation, account, epoch, operation, reservation))
-			.is_ok()
+			.is_ok();
+		if !accepted {
+			diagnostics::record(
+				diagnostics::Category::Storage,
+				diagnostics::Level::Warn,
+				"local storage queue unavailable",
+			);
+		}
+		accepted
 	}
 	pub fn start(ctx: egui::Context) -> Self {
 		let (send, commands) = mpsc::sync_channel::<(u64, Id, u64, Operation, Reservation)>(16);
@@ -339,6 +348,31 @@ impl Cache {
 			let results = Arc::new(Budget::default());
 			while let Ok((generation, account, epoch, operation, reservation)) = commands.recv() {
 				let outcome = execute(&mut store, &worker_history, account, epoch, operation);
+				let failed = matches!(
+					&outcome,
+					Outcome::CustomFont(Err(_))
+						| Outcome::AppPreferencesSaved(Err(_))
+						| Outcome::ReadingPreferences(Err(_))
+						| Outcome::ReadingPreferencesSaved(Err(_))
+						| Outcome::GameActivity(Err(_))
+						| Outcome::GameActivitySaved(Err(_))
+						| Outcome::MinimizeToTray(Err(_))
+						| Outcome::MinimizeToTraySaved(Err(_))
+						| Outcome::ChannelPreferences(Err(_))
+						| Outcome::ChannelPreferencesSaved(Err(_))
+						| Outcome::AccountPresences(Err(_))
+						| Outcome::AccountPresenceSaved(Err(_))
+						| Outcome::Accounts { roster: Err(_), .. }
+						| Outcome::Failed { .. }
+				);
+				if failed {
+					diagnostics::record(
+						diagnostics::Category::Storage,
+						diagnostics::Level::Error,
+						"local storage operation failed",
+					);
+				}
+
 				drop(reservation);
 				let bytes = match &outcome {
 					Outcome::CustomFont(Ok(Some(font))) => {

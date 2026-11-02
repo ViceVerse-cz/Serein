@@ -3977,7 +3977,7 @@ updates-update-settings-copy = Copy
 # Context: update_settings
 updates-update-settings-copy-command = Copy command
 # Context: update_settings
-updates-update-settings-copy-system-and-client-environment-details-formatted-for-github-issue = Copy system and client environment details formatted for GitHub issue reports.
+updates-update-settings-copy-system-and-client-environment-details-formatted-for-github-issue = Copy or save a privacy-safe report with system categories and recent diagnostics for a GitHub issue.
 # Context: update_settings
 updates-update-settings-could-not-load-or-save-update-preferences-changes-may-not = Could not load or save update preferences. Changes may not survive restart.
 # Context: update_settings
@@ -4981,3 +4981,14 @@ new-message-hint = Add friends to start a direct message or a group.
 new-message-no-people-found = No one matches that search.
 new-message-create = Create Message
 new-message-cancel = Cancel
+
+# Opt-in unified diagnostics
+updates-diagnostics-record = Record diagnostics
+updates-diagnostics-record-description = Off by default. Collect safe error and performance summaries in memory. Turning this off clears recorded history.
+updates-diagnostics-disk = Save diagnostic history to disk
+updates-diagnostics-disk-description = Keep bounded local logs across restarts for crash reports. Turning this off deletes managed log files. Exported files remain yours to remove.
+updates-diagnostics-clear = Clear diagnostic history
+updates-diagnostics-disk-failed = Diagnostic files could not be written or removed. Memory recording remains available.
+updates-diagnostics-export-failed = The diagnostic report could not be saved. Try another destination or copy it instead.
+updates-diagnostics-copy = Copy diagnostic report
+updates-diagnostics-save = Save report…

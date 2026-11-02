@@ -297,6 +297,12 @@ impl Diagnostics {
 		}
 	}
 	fn record(&mut self, label: &'static str) {
+		diagnostics::record_fields(
+			diagnostics::Category::Gateway,
+			diagnostics::Level::Debug,
+			"gateway diagnostic",
+			&[("scope", self.scope.into()), ("event", label.into())],
+		);
 		self.record_to(label, &mut std::io::stderr());
 	}
 	fn record_to(&mut self, label: &'static str, writer: &mut impl std::io::Write) {

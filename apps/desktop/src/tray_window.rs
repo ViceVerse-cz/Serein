@@ -118,6 +118,11 @@ impl State {
 	) {
 		let was_hidden = self.hidden;
 		if self.hidden && !tray_available {
+			diagnostics::record(
+				diagnostics::Category::Platform,
+				diagnostics::Level::Warn,
+				"tray unavailable while window hidden",
+			);
 			self.show(ctx);
 		}
 		let (close, minimized) = ctx.input(|input| {
@@ -144,6 +149,11 @@ impl State {
 					ctx.request_repaint();
 				}
 				HideOutcome::Failed => {
+					diagnostics::record(
+						diagnostics::Category::Platform,
+						diagnostics::Level::Warn,
+						"native window hide unconfirmed",
+					);
 					// The compositor ignored the hide, so keeping the close cancelled would
 					// strand a visible window that cannot be closed. Close for real instead:
 					// ViewportCommand::Close raises a close request for a later frame, which

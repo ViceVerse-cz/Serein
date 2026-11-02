@@ -1588,11 +1588,13 @@ of these types is unverified.
 ### Unknown Gateway variants (September 10, 2026)
 
 Unknown dispatches remain ignored without granting capabilities; unsupported opcodes retain the
-existing protocol-error behavior. Opt-in `SEREIN_GATEWAY_DIAGNOSTICS=1` now records bounded fixed
-categories for these cases and missing dispatch names. Received names and payloads never enter
+existing protocol-error behavior. The opt-in shared diagnostic collector records fixed categories
+for these cases and missing dispatch names. The developer compatibility variable
+`SEREIN_GATEWAY_DIAGNOSTICS=1` also enables bounded console reporting. Received names and payloads never enter
 diagnostics. This changes observability, not the supported service contract. Offline local-socket
 checks cover continued message delivery and heartbeat cursor advancement; normal-user service
-behavior remains unverified. See storage-policy.md for exact per-run limits and stderr handling.
+behavior remains unverified. See [diagnostics](diagnostics.md) for safe issue reports and
+[storage policy](storage-policy.md#opt-in-diagnostic-log) for bounded retention and console handling.
 
 ### Outgoing game IPC Rich Presence (September 11, 2026)
 

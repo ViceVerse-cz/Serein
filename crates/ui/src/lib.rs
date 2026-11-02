@@ -539,6 +539,11 @@ pub struct MessagingUi {
 	pub updates_save_failed: bool,
 	/// The owner's diagnostic log level; the desktop host applies and persists it.
 	pub diagnostics_log: diagnostics::Level,
+	/// Separate owner opt-in to bounded history across restarts.
+	pub diagnostics_disk: bool,
+	pub diagnostics_copy_requested: bool,
+	pub diagnostics_clear_requested: bool,
+	pub diagnostics_export_failed: bool,
 	/// True when the log folder could not be written, so the page explains instead of promising.
 	pub diagnostics_log_failed: bool,
 	/// The file the log actually appends to, named under the level so a report can be found.
@@ -1220,6 +1225,7 @@ impl MessagingUi {
 			accounts: std::mem::take(&mut self.accounts),
 			updates: std::mem::take(&mut self.updates),
 			diagnostics_log: self.diagnostics_log,
+			diagnostics_disk: self.diagnostics_disk,
 			diagnostics_log_path: self.diagnostics_log_path.take(),
 			diagnostics_log_failed: self.diagnostics_log_failed,
 			diagnostics_log_open_failed: self.diagnostics_log_open_failed,
@@ -2849,10 +2855,28 @@ impl MessagingUi {
 		ctx: &egui::Context,
 		commands: &mut Vec<Command>,
 	) {
+		let blocked = |reason: &'static str| {
+			diagnostics::record_fields(
+				diagnostics::Category::Composer,
+				diagnostics::Level::Info,
+				"submit blocked",
+				&[("reason", reason.into())],
+			)
+		};
 		let Some(channel) = state.selected else {
+			blocked("no conversation");
 			return;
 		};
-		if self.upload_busy || self.image_share_requested.is_some() || !state.can_send(channel) {
+		if self.upload_busy {
+			blocked("upload busy");
+			return;
+		}
+		if self.image_share_requested.is_some() {
+			blocked("image preparation pending");
+			return;
+		}
+		if !state.can_send(channel) {
+			blocked("sending unavailable");
 			return;
 		}
 		let draft = state.drafts.get(&channel).map_or("", String::as_str);
@@ -2860,10 +2884,16 @@ impl MessagingUi {
 			&& let Some(assets) = model::ImageShare::markdown_only(draft)
 		{
 			if !state.can_attach(channel) {
+				blocked("attachments unavailable");
 				state.status =
 					"Attaching images is unavailable here; add text to send a named link.";
 				return;
 			}
+			diagnostics::record(
+				diagnostics::Category::Composer,
+				diagnostics::Level::Info,
+				"image preparation requested",
+			);
 			self.image_share_requested =
 				Some((state.generation, channel, assets, draft.to_owned()));
 			return;
@@ -2886,9 +2916,21 @@ impl MessagingUi {
 			// Consume this selection once, before desktop dispatch.
 			self.stage_pending_upload(ctx, &command);
 			self.timeline.follow_latest(state);
+			diagnostics::record(
+				diagnostics::Category::Composer,
+				diagnostics::Level::Info,
+				"message handed to dispatcher",
+			);
 			commands.push(command);
-		} else if let Some(original) = original_draft {
-			state.drafts.insert(channel, original);
+		} else {
+			blocked(if state.freshness != Freshness::Fresh {
+				"connection not current"
+			} else {
+				"validation or pending send"
+			});
+			if let Some(original) = original_draft {
+				state.drafts.insert(channel, original);
+			}
 		}
 	}
 	/// Submits message drafts or edits after applying the device conversion preference.
@@ -5792,14 +5834,40 @@ mod composer_tests {
 	use client_core::MAX_CONTENT;
 
 	#[test]
+	fn complete_diagnostic_artifact_has_a_byte_limit_including_its_header() {
+		let report = MessagingUi::format_diagnostic_report("界".repeat(400_000));
+		assert!(report.len() <= 1024 * 1024);
+		assert!(report.ends_with("Report truncated.\n"));
+	}
+
+	#[test]
+	fn diagnostic_report_excludes_native_names_paths_and_interface_status_prose() {
+		let ctx = egui::Context::default();
+		let view = MessagingUi {
+			gpu_adapter: "private_device_name (Vulkan)".into(),
+			diagnostics_log_path: Some("/home/private_owner/serein.log".into()),
+			diagnostics_saved_path: Some("/home/private_owner/export.txt".into()),
+			voice_device_status: "private_device_status",
+			notification_status: "private_notification_status",
+			storage_status: "private_storage_status",
+			..Default::default()
+		};
+		let report = view.diagnostic_info(&ctx);
+		assert!(!report.contains("private_"));
+		assert!(report.contains("Vulkan"));
+	}
+
+	#[test]
 	fn clearing_an_account_preserves_the_device_log_preference() {
 		let mut ui = MessagingUi {
 			diagnostics_log: diagnostics::Level::Info,
+			diagnostics_disk: true,
 			diagnostics_log_path: Some("local-log".into()),
 			..Default::default()
 		};
 		ui.clear();
 		assert_eq!(ui.diagnostics_log, diagnostics::Level::Info);
+		assert!(ui.diagnostics_disk);
 		assert_eq!(ui.diagnostics_log_path.as_deref(), Some("local-log"));
 		assert!(!ui.open_log_folder_requested);
 	}
@@ -6046,7 +6114,7 @@ mod composer_tests {
 	}
 
 	#[test]
-	fn diagnostics_shortcut_copies_existing_report_and_respects_key_capture() {
+	fn diagnostics_shortcut_requests_host_report_and_respects_key_capture() {
 		let ctx = egui::Context::default();
 		let mut state = test_support::demo_state();
 		let mut view = MessagingUi::default();
@@ -6069,7 +6137,7 @@ mod composer_tests {
 				model::KeybindAction::ToggleMute,
 			));
 			view.ime_active = composing;
-			let expected = view.diagnostic_info(&ctx);
+			view.diagnostics_copy_requested = false;
 			let output = ctx.run_ui(
 				egui::RawInput {
 					focused: true,
@@ -6092,12 +6160,7 @@ mod composer_tests {
 					)));
 				},
 			);
-			assert_eq!(
-				output.platform_output.commands.iter().any(
-					|command| matches!(command, egui::OutputCommand::CopyText(text) if text == &expected)
-				),
-				copies
-			);
+			assert_eq!(view.diagnostics_copy_requested, copies);
 			output.drop_without_applying_deltas();
 		}
 	}
@@ -6260,6 +6323,7 @@ mod composer_tests {
 					.iter()
 					.any(|command| matches!(command, egui::OutputCommand::CopyText(_)))
 			);
+			assert!(!view.diagnostics_copy_requested);
 			output.drop_without_applying_deltas();
 		}
 		assert!(

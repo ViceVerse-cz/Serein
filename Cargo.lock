@@ -950,6 +950,7 @@ dependencies = [
 name = "client-core"
 version = "0.1.0"
 dependencies = [
+ "diagnostics",
  "model",
  "session-cache",
  "thiserror 2.0.20",
@@ -1438,7 +1439,6 @@ dependencies = [
  "rustix 1.1.5",
  "serde",
  "tempfile",
- "time",
 ]
 
 [[package]]
@@ -1491,6 +1491,7 @@ name = "discord-api"
 version = "0.1.0"
 dependencies = [
  "client-core",
+ "diagnostics",
  "discord-protocol",
  "futures-util",
  "model",
@@ -1506,6 +1507,7 @@ name = "discord-gateway"
 version = "0.1.0"
 dependencies = [
  "client-core",
+ "diagnostics",
  "discord-protocol",
  "flate2",
  "futures-util",
@@ -1541,6 +1543,7 @@ dependencies = [
  "client-core",
  "cpal",
  "davey",
+ "diagnostics",
  "dispatch2",
  "futures-util",
  "getrandom 0.4.3",
@@ -2036,6 +2039,7 @@ checksum = "af9673d8203fcb076b19dfd17e38b3d4ae9f44959416ea532ce72415a6020365"
 name = "extensions"
 version = "0.1.0"
 dependencies = [
+ "diagnostics",
  "serde",
  "serde_json",
  "serein-extension-sdk",
@@ -5230,6 +5234,7 @@ dependencies = [
  "ashpd",
  "client-core",
  "cpal",
+ "diagnostics",
  "dirs",
  "futures-lite",
  "futures-util",
@@ -7547,6 +7552,7 @@ dependencies = [
 name = "tray-debug"
 version = "0.1.0"
 dependencies = [
+ "diagnostics",
  "egui",
  "image",
  "ksni",

@@ -51,6 +51,13 @@ struct Events(std::cell::Cell<u8>);
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
 impl Events {
 	fn push(&self, event: Event) {
+		if event == Event::Unavailable {
+			diagnostics::record(
+				diagnostics::Category::Platform,
+				diagnostics::Level::Warn,
+				"native tray unavailable",
+			);
+		}
 		self.0.set(self.0.get() | event as u8);
 	}
 	fn take(&self) -> Option<Event> {
