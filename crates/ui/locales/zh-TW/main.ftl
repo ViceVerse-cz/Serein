@@ -4978,3 +4978,5 @@ new-message-hint = 新增好友以開始私訊或群組。
 new-message-no-people-found = 沒有符合的結果。
 new-message-create = 建立訊息
 new-message-cancel = 取消
+
+attachments-pending-viewer-loading = 正在載入完整尺寸圖片…

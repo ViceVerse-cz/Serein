@@ -338,7 +338,7 @@ async fn preview(source: &Source) -> Option<egui::ColorImage> {
 }
 /// Pixels of one staged image for the full-size viewer, at most `edge` per side and never
 /// enlarged; only requested while it is open. A closed viewer stops before the read and decode.
-async fn view(source: &Source, edge: u32, cancelled: &AtomicBool) -> Option<egui::ColorImage> {
+async fn view(source: &Source, edge: u32, cancelled: &Arc<AtomicBool>) -> Option<egui::ColorImage> {
 	if !previewable(source.filename()) || cancelled.load(Ordering::Acquire) {
 		return None;
 	}
@@ -346,7 +346,11 @@ async fn view(source: &Source, edge: u32, cancelled: &AtomicBool) -> Option<egui
 	if cancelled.load(Ordering::Acquire) {
 		return None;
 	}
+	let cancelled = cancelled.clone();
 	tokio::task::spawn_blocking(move || {
+		if cancelled.load(Ordering::Acquire) {
+			return None;
+		}
 		let image = decode_image(&bytes, edge)?;
 		// The RGBA copy stays within `PREVIEW_ALLOC` too, whatever the source's channels.
 		let (width, height) = (u64::from(image.width()), u64::from(image.height()));
@@ -447,6 +451,8 @@ pub struct Uploads {
 	view_image: Option<(u64, Option<Arc<egui::ColorImage>>)>,
 	/// Set while a viewer decode runs, cancelled or not, so reopening never stacks a second.
 	view_busy: Arc<AtomicBool>,
+	/// At most two attempts per file while the viewer stays open.
+	view_attempts: Option<(u64, u8)>,
 	/// Selections still being inspected and decoded; at most `MAX_FILES`. Later selections
 	/// join the composer while earlier ones (or the previous message's upload) still run.
 	choosing: Vec<Choosing>,
@@ -518,6 +524,9 @@ impl Uploads {
 		});
 		Ok(())
 	}
+	pub fn selection_keys(&self) -> Vec<u64> {
+		self.selected.iter().map(|chosen| chosen.key).collect()
+	}
 	pub fn public_selection_key(&self, index: usize) -> Option<u64> {
 		self.selected.get(index).map(|chosen| chosen.key)
 	}
@@ -532,6 +541,16 @@ impl Uploads {
 			return;
 		};
 		let key = chosen.key;
+		let retry = self
+			.view_image
+			.as_ref()
+			.is_some_and(|(current, image)| *current == key && image.is_none())
+			&& self
+				.view_attempts
+				.is_some_and(|(current, attempts)| current == key && attempts < 2);
+		if retry {
+			self.view_image = None;
+		}
 		let showing = self
 			.view_image
 			.as_ref()
@@ -553,6 +572,11 @@ impl Uploads {
 		if self.view_busy.swap(true, Ordering::AcqRel) {
 			return;
 		}
+		let attempts = self
+			.view_attempts
+			.filter(|(current, _)| *current == key)
+			.map_or(0, |(_, attempts)| attempts);
+		self.view_attempts = Some((key, attempts + 1));
 		let slot = ViewSlot(self.view_busy.clone(), context.clone());
 		let edge = VIEW_EDGE
 			.min(u32::try_from(context.input(|input| input.max_texture_side)).unwrap_or(u32::MAX));
@@ -561,8 +585,8 @@ impl Uploads {
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let flag = cancelled.clone();
 		runtime.spawn(async move {
-			let _slot = slot;
 			let image = view(&source, edge, &flag).await;
+			drop(slot);
 			if !flag.load(Ordering::Acquire) {
 				let _ = send.send(image.map(Arc::new));
 			}
@@ -575,6 +599,7 @@ impl Uploads {
 			cancelled.store(true, Ordering::Release);
 		}
 		self.view_image = None;
+		self.view_attempts = None;
 	}
 	/// Polls the pending decode and reports the pixels for `index` once they are known.
 	pub fn view_image(&mut self, index: usize) -> Option<Option<Arc<egui::ColorImage>>> {
@@ -1203,6 +1228,7 @@ impl Uploads {
 }
 impl Drop for Uploads {
 	fn drop(&mut self) {
+		self.cancel_view();
 		self.cancel();
 	}
 }
@@ -1225,30 +1251,84 @@ mod tests {
 		std::fs::remove_dir_all(dir).unwrap();
 	}
 
-	#[tokio::test]
-	async fn the_viewer_never_stacks_decodes_or_enlarges_small_images() {
+	fn viewer_source(width: u32, height: u32) -> Source {
 		let mut png = Vec::new();
-		image::RgbaImage::new(3, 2)
+		image::RgbaImage::new(width, height)
 			.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
 			.unwrap();
-		let source = Source::pasted_png(png).unwrap();
-		// Full size is the image's own size, not the cap: a small paste never grows to 8192 px.
-		let image = view(&source, VIEW_EDGE, &AtomicBool::new(false))
-			.await
-			.unwrap();
-		assert_eq!(image.size, [3, 2]);
+		Source::pasted_png(png).unwrap()
+	}
+
+	#[tokio::test]
+	async fn the_viewer_preserves_source_detail_and_honors_the_texture_limit() {
+		let cancelled = Arc::new(AtomicBool::new(false));
+		for (width, height, edge, expected) in [
+			(3, 2, VIEW_EDGE, [3, 2]),
+			(400, 300, VIEW_EDGE, [400, 300]),
+			(400, 300, 200, [200, 150]),
+		] {
+			let image = view(&viewer_source(width, height), edge, &cancelled)
+				.await
+				.unwrap();
+			assert_eq!(image.size, expected);
+		}
+	}
+
+	#[tokio::test]
+	async fn cancelled_viewer_releases_its_slot_and_can_deliver_again() {
 		let mut uploads = Uploads::default();
-		uploads.push(source, None);
+		uploads.push(viewer_source(400, 300), None);
 		let context = egui::Context::default();
 		let runtime = tokio::runtime::Handle::current();
-		// A closed viewer's decode still runs: reopening waits for it instead of adding another.
-		uploads.view_busy.store(true, Ordering::Release);
+		uploads.request_view(0, &runtime, &context);
+		let (_, receiver, cancelled) = uploads.view.as_mut().unwrap();
+		let original = std::mem::replace(receiver, mpsc::sync_channel(1).1);
+		let cancelled = cancelled.clone();
+		uploads.cancel_view();
+		assert!(cancelled.load(Ordering::Acquire));
+		// The current-thread runtime has not polled the task; cancelling prevents its read.
+		assert!(
+			tokio::task::spawn_blocking(move || original.recv())
+				.await
+				.unwrap()
+				.is_err()
+		);
+		assert!(!uploads.view_busy.load(Ordering::Acquire));
+		uploads.request_view(0, &runtime, &context);
+		let (_, result, _) = uploads.view.take().unwrap();
+		let image = tokio::task::spawn_blocking(move || result.recv())
+			.await
+			.unwrap()
+			.unwrap()
+			.unwrap();
+		assert_eq!(image.size, [400, 300]);
+		assert!(!uploads.view_busy.load(Ordering::Acquire));
+	}
+
+	#[tokio::test]
+	async fn viewer_failures_retry_once_and_teardown_cancels_pending_work() {
+		let mut uploads = Uploads::default();
+		uploads.push(Source::pasted_png(vec![1]).unwrap(), None);
+		let context = egui::Context::default();
+		let runtime = tokio::runtime::Handle::current();
+		for attempt in 1..=2 {
+			uploads.request_view(0, &runtime, &context);
+			let (key, result, _) = uploads.view.take().unwrap();
+			let image = tokio::task::spawn_blocking(move || result.recv())
+				.await
+				.unwrap()
+				.unwrap();
+			assert!(image.is_none());
+			uploads.view_image = Some((key, image));
+			assert_eq!(uploads.view_attempts, Some((key, attempt)));
+		}
 		uploads.request_view(0, &runtime, &context);
 		assert!(uploads.view.is_none());
-		uploads.view_busy.store(false, Ordering::Release);
+		uploads.cancel_view();
 		uploads.request_view(0, &runtime, &context);
-		assert!(uploads.view.is_some());
-		assert!(uploads.view_busy.load(Ordering::Acquire));
+		let flag = uploads.view.as_ref().unwrap().2.clone();
+		drop(uploads);
+		assert!(flag.load(Ordering::Acquire));
 	}
 
 	#[tokio::test]
@@ -1928,6 +2008,7 @@ mod tests {
 			view: None,
 			view_image: None,
 			view_busy: Arc::default(),
+			view_attempts: None,
 			parked: vec![],
 			uploading: None,
 			last: None,

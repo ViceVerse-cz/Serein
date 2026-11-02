@@ -4880,3 +4880,5 @@ new-message-hint = Ajoutez des amis pour démarrer un message privé ou un group
 new-message-no-people-found = Personne ne correspond à cette recherche.
 new-message-create = Créer un message
 new-message-cancel = Annuler
+
+attachments-pending-viewer-loading = Chargement de l’image en taille réelle…

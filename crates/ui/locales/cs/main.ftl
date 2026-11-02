@@ -4969,3 +4969,5 @@ new-message-hint = Přidejte přátele a začněte přímou zprávu nebo skupinu
 new-message-no-people-found = Nikdo neodpovídá hledání.
 new-message-create = Vytvořit zprávu
 new-message-cancel = Zrušit
+
+attachments-pending-viewer-loading = Načítání obrázku…

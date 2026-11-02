@@ -4883,3 +4883,5 @@ new-message-hint = Добавьте друзей, чтобы начать лич
 new-message-no-people-found = Никто не найден.
 new-message-create = Создать сообщение
 new-message-cancel = Отмена
+
+attachments-pending-viewer-loading = Загрузка полноразмерного изображения…

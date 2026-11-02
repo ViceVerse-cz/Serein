@@ -6025,6 +6025,7 @@ impl eframe::App for Desktop {
 			// Explicit artwork Send finishes asynchronously; retain its prepared thumbnails.
 			self.messaging.attachment_previews = self.uploads.previews();
 			self.messaging.attachment_files = self.uploads.files();
+			self.messaging.attachment_keys = self.uploads.selection_keys();
 			self.messaging.stage_pending_upload(&ctx, &command);
 			if let Command::Send { channel, .. } = &command {
 				self.messaging.draft_changes.push(*channel);
@@ -6075,7 +6076,10 @@ impl eframe::App for Desktop {
 				.map(|(name, size)| (name.to_owned(), size));
 			self.messaging.attachment_previews = self.uploads.previews();
 			self.messaging.attachment_files = self.uploads.files();
+			self.messaging.attachment_keys = self.uploads.selection_keys();
 		}
+		// Validate identity before any decode request after navigation or selection changes.
+		self.messaging.validate_attachment_view(&self.state);
 		// One staged image can be looked at full size; its decode runs off the render thread.
 		if let Some(index) = self.messaging.attachment_view_open {
 			self.uploads

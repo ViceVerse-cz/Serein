@@ -207,7 +207,7 @@ pub fn pending_card(
 			// cursor is what says the thumbnail is clickable.
 			let response = ui
 				.interact(
-					preview_rect,
+					fitted,
 					ui.scope_id().with("pending-preview"),
 					Sense::click(),
 				)
@@ -292,9 +292,10 @@ pub fn pending_viewer(
 	name: &str,
 	image: Option<&egui::TextureHandle>,
 	failed: bool,
+	loading: bool,
 ) -> bool {
 	let size = ctx.content_rect().size().max(egui::vec2(1.0, 1.0));
-	let mut close = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+	let mut close = false;
 	let overlap = egui::Modal::new(egui::Id::unique("attachment-pending-viewer"))
 		.backdrop_color(Color32::from_black_alpha(236))
 		.frame(egui::Frame::NONE)
@@ -341,7 +342,7 @@ pub fn pending_viewer(
 				.truncate()
 				.selectable(false),
 			);
-			if failed {
+			if failed || loading {
 				// Otherwise the thumbnail passes for the full image.
 				ui.put(
 					Rect::from_min_max(
@@ -349,9 +350,11 @@ pub fn pending_viewer(
 						full.right_bottom() - egui::vec2(24.0, 0.0),
 					),
 					egui::Label::new(
-						egui::RichText::new(crate::i18n::translate(
-							"attachments-pending-viewer-full-size-unavailable",
-						))
+						egui::RichText::new(crate::i18n::translate(if failed {
+							"attachments-pending-viewer-full-size-unavailable"
+						} else {
+							"attachments-pending-viewer-loading"
+						}))
 						.size(13.0)
 						.color(Color32::from_gray(200)),
 					)
@@ -1579,12 +1582,7 @@ mod tests {
 		design::apply(&ctx);
 		let texture = ctx.load_texture(
 			"attachments-pending-test",
-			egui::ColorImage::from_rgba_unmultiplied(
-				[2, 2],
-				&[
-					255, 255, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255,
-				],
-			),
+			egui::ColorImage::filled([108, 108], Color32::WHITE),
 			egui::TextureOptions::LINEAR,
 		);
 		let press = |thumbnail: bool, pos: egui::Pos2| {
@@ -1633,6 +1631,8 @@ mod tests {
 		// The preview area of an image card opens it; the file name below does not.
 		assert_eq!(press(true, egui::pos2(88.0, 62.0)), PendingAction::Preview);
 		assert_eq!(press(true, egui::pos2(88.0, 150.0)), PendingAction::None);
+		assert_eq!(press(true, egui::pos2(20.0, 62.0)), PendingAction::None);
+		assert_eq!(press(true, egui::pos2(166.0, 18.0)), PendingAction::Remove);
 		// A file without a thumbnail has nothing to open.
 		assert_eq!(press(false, egui::pos2(88.0, 62.0)), PendingAction::None);
 		// Pointing at the thumbnail is what tells the user it can be clicked.

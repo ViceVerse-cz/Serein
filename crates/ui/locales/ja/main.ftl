@@ -4863,3 +4863,5 @@ new-message-hint = フレンドを追加して、DMまたはグループを開�
 new-message-no-people-found = 一致する相手はいません。
 new-message-create = メッセージを作成
 new-message-cancel = キャンセル
+
+attachments-pending-viewer-loading = フルサイズの画像を読み込み中…

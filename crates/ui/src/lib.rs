@@ -416,6 +416,9 @@ pub struct MessagingUi {
 	attachment_textures: Vec<Option<(usize, egui::TextureHandle)>>,
 	/// Staged file the user opened full size; the app decodes it into `attachment_view_image`.
 	pub attachment_view_open: Option<usize>,
+	/// Stable upload selection keys, in the same order as `attachment_files`.
+	pub attachment_keys: Vec<u64>,
+	attachment_view_file: Option<(String, u64, Option<u64>)>,
 	pub attachment_view_image: Option<(usize, Option<std::sync::Arc<egui::ColorImage>>)>,
 	/// Conversation the open viewer belongs to, so switching leaves it behind.
 	attachment_view_scope: Option<(u64, Option<Id>)>,
@@ -923,30 +926,44 @@ impl MessagingUi {
 			})
 			.collect()
 	}
+	/// Clears a viewer whose conversation or selected file changed, before requesting a decode.
+	pub fn validate_attachment_view(&mut self, state: &State) {
+		let valid = self.attachment_view_open.is_some_and(|index| {
+			self.attachment_view_scope == Some((state.generation, state.selected))
+				&& self
+					.selected_files()
+					.get(index)
+					.is_some_and(|(name, bytes)| {
+						self.attachment_view_file.as_ref()
+							== Some(&(
+								name.clone(),
+								*bytes,
+								self.attachment_keys.get(index).copied(),
+							))
+					})
+		});
+		if !valid {
+			self.attachment_view_open = None;
+			self.attachment_view_scope = None;
+			self.attachment_view_file = None;
+			self.attachment_view_image = None;
+			self.attachment_view_texture = None;
+		}
+	}
 	/// Full-size look at one staged image; the tray thumbnail shows until the decode lands.
 	fn attachment_viewer(&mut self, ctx: &egui::Context, state: &State) {
-		let scope = (state.generation, state.selected);
-		if self.attachment_view_open.is_some() && self.attachment_view_scope != Some(scope) {
-			// Another conversation staged its own files; this viewer was never about them.
-			self.attachment_view_open = None;
-			self.attachment_view_scope = None;
-		}
+		self.validate_attachment_view(state);
 		let Some(index) = self.attachment_view_open else {
-			self.attachment_view_texture = None;
 			return;
 		};
-		let Some((filename, _)) = self.selected_files().get(index).cloned() else {
-			self.attachment_view_open = None;
-			self.attachment_view_scope = None;
-			self.attachment_view_texture = None;
-			return;
-		};
+		let (filename, _) = self.selected_files()[index].clone();
 		let decoded = self
 			.attachment_view_image
 			.as_ref()
 			.filter(|(current, _)| *current == index)
 			.map(|(_, image)| image.clone());
 		let failed = matches!(decoded, Some(None));
+		let loading = decoded.is_none();
 		let full = decoded.flatten();
 		let texture = match full {
 			Some(image) => {
@@ -973,7 +990,13 @@ impl MessagingUi {
 			}
 		};
 		let thumbnail = self.attachment_textures(ctx).get(index).cloned().flatten();
-		if attachments::pending_viewer(ctx, &filename, texture.or(thumbnail).as_ref(), failed) {
+		if attachments::pending_viewer(
+			ctx,
+			&filename,
+			texture.or(thumbnail).as_ref(),
+			failed,
+			loading,
+		) {
 			self.attachment_view_open = None;
 			self.attachment_view_scope = None;
 			self.attachment_view_texture = None;
@@ -4108,6 +4131,11 @@ impl MessagingUi {
 										self.attachment_view_scope = None;
 									}
 									attachments::PendingAction::Preview => {
+										self.attachment_view_file = Some((
+											filename.clone(),
+											*bytes,
+											self.attachment_keys.get(index).copied(),
+										));
 										self.attachment_view_open = Some(index);
 										self.attachment_view_scope =
 											Some((state.generation, state.selected));
