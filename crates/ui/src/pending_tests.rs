@@ -446,3 +446,28 @@ fn restore_never_swaps_or_resurrects_a_reply_target() {
 	assert_eq!(state.drafts[&channel], "Reply caption");
 	assert_eq!(state.reply_target(), None);
 }
+
+#[test]
+fn staged_viewer_closes_before_decoding_a_shifted_file_or_another_conversation() {
+	let mut state = test_support::demo_state();
+	let mut ui = MessagingUi::default();
+	ui.attachment_files = vec![("same.png".into(), 12), ("same.png".into(), 12)];
+	ui.attachment_keys = vec![10, 11];
+	ui.attachment_view_open = Some(0);
+	ui.attachment_view_scope = Some((state.generation, state.selected));
+	ui.attachment_view_file = Some(("same.png".into(), 12, Some(10)));
+	ui.validate_attachment_view(&state);
+	assert_eq!(ui.attachment_view_open, Some(0));
+	// Identical names and sizes still denote different staged files.
+	ui.attachment_files.remove(0);
+	ui.attachment_keys.remove(0);
+	ui.validate_attachment_view(&state);
+	assert!(ui.attachment_view_open.is_none());
+	assert!(ui.attachment_view_image.is_none());
+	ui.attachment_view_open = Some(0);
+	ui.attachment_view_scope = Some((state.generation, state.selected));
+	ui.attachment_view_file = Some(("same.png".into(), 12, Some(11)));
+	state.generation += 1;
+	ui.validate_attachment_view(&state);
+	assert!(ui.attachment_view_open.is_none());
+}
