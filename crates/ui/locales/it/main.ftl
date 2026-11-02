@@ -85,7 +85,6 @@ hide-chat = Nascondi chat
 show-chat = Mostra chat
 search-conversation = Cerca questa conversazione
 show-member-list = Mostra l'elenco dei membri
-show-user-profile = Mostra profilo utente
 pinned-messages = Messaggi fissati
 threads = Discussioni
 
@@ -4775,6 +4774,9 @@ timeline-group-intro = Benvenuto all'inizio del gruppo { $name }.
 timeline-channel-intro-title = Benvenuto in #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Questo è l'inizio del canale #{ $channel }.
+show-user-profile = Mostra profilo utente
+hide-user-profile = Nascondi profilo utente
+view-full-profile = Visualizza profilo completo
 # Context: text_menu
 text-menu-cut = Taglia
 text-menu-copy = Copia

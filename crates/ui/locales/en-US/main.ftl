@@ -85,7 +85,6 @@ hide-chat = Hide chat
 show-chat = Show chat
 search-conversation = Search this conversation
 show-member-list = Show member list
-show-user-profile = Show user profile
 pinned-messages = Pinned messages
 threads = Threads
 
@@ -4872,6 +4871,9 @@ timeline-group-intro = Welcome to the beginning of the { $name } group.
 timeline-channel-intro-title = Welcome to #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = This is the start of the #{ $channel } channel.
+show-user-profile = Show User Profile
+hide-user-profile = Hide User Profile
+view-full-profile = View Full Profile
 # Context: text_menu
 text-menu-cut = Cut
 text-menu-copy = Copy

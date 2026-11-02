@@ -85,7 +85,6 @@ hide-chat = 隱藏聊天
 show-chat = 顯示聊天
 search-conversation = 搜尋這個對話
 show-member-list = 顯示成員清單
-show-user-profile = 顯示使用者個人資料
 pinned-messages = 釘選的訊息
 threads = 討論串
 
@@ -4876,6 +4875,9 @@ timeline-group-intro = 歡迎來到 { $name } 群組的開端。
 timeline-channel-intro-title = 歡迎來到 #{ $channel }！
 # Context: timeline_channel_intro
 timeline-channel-intro-start = 這是 #{ $channel } 頻道的開頭。
+show-user-profile = 顯示使用者個人檔案
+hide-user-profile = 隱藏使用者個人檔案
+view-full-profile = 檢視完整個人檔案
 # Context: text_menu
 text-menu-cut = 剪下
 text-menu-copy = 複製

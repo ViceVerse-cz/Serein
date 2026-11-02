@@ -255,8 +255,6 @@ pub enum Action {
 	EditStatus,
 	/// The trash can on the account's own status bubble.
 	ClearStatus,
-	/// Open the centred full profile on this tab, as from the docked DM profile.
-	Full(FullTab),
 }
 
 /// Shared Rich Presence card for member profiles and the account preview.
@@ -1445,28 +1443,6 @@ impl Theme {
 			},
 		}
 	}
-	/// Recolors text and widgets for content drawn on this theme.
-	fn apply(&self, ui: &mut egui::Ui) {
-		// egui resolves strong, button and spinner colors from the widget strokes rather
-		// than the override, so a bright theme needs every stroke recolored too.
-		let visuals = ui.visuals_mut();
-		visuals.override_text_color = Some(self.text);
-		visuals.hyperlink_color = self.link;
-		let widgets = &mut visuals.widgets;
-		for widget in [
-			&mut widgets.noninteractive,
-			&mut widgets.inactive,
-			&mut widgets.hovered,
-			&mut widgets.active,
-			&mut widgets.open,
-		] {
-			widget.fg_stroke.color = self.text;
-			widget.bg_stroke = Stroke::NONE;
-		}
-		widgets.inactive.weak_bg_fill = self.chip;
-		widgets.hovered.weak_bg_fill = self.chip_hover;
-		widgets.active.weak_bg_fill = self.chip_hover;
-	}
 	/// White over a bright theme takes dark text, black over a dark one takes light text.
 	fn bright([top, bottom]: [u32; 2]) -> bool {
 		(luma(rgb(top)) + luma(rgb(bottom))) * 0.5 > 0.5
@@ -2289,7 +2265,7 @@ pub(crate) fn debug_activity_panel(state: &State) {
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-pub enum FullTab {
+enum FullTab {
 	#[default]
 	Board,
 	Activity,
@@ -2564,6 +2540,11 @@ impl ProfileSession {
 		}
 	}
 
+	/// True once a docked card asked for the full profile; the request is consumed.
+	pub fn take_full_request(&mut self) -> bool {
+		std::mem::take(&mut self.full)
+	}
+
 	/// The unsent footer draft typed for `user` in `generation`, if any.
 	pub fn message_draft(&self, generation: u64, user: Id) -> Option<&String> {
 		(self.message_target == Some((generation, user)) && !self.message_draft.trim().is_empty())
@@ -2595,14 +2576,6 @@ impl ProfileSession {
 	pub fn open_full(&mut self, user: User) {
 		self.command_open(user);
 		self.full = true;
-	}
-
-	/// Opens the full profile of `user` on `tab`.
-	pub fn open_full_tab(&mut self, generation: u64, user: User, tab: FullTab) {
-		let id = user.id;
-		self.open_full(user);
-		self.reconcile_card_input(generation, id);
-		self.full_tab = tab;
 	}
 
 	/// Whether the open card should read its private note now; true once per card.
@@ -3076,11 +3049,68 @@ pub fn show_with_session(
 	anchor: Pos2,
 	session: &mut ProfileSession,
 ) -> Option<Action> {
+	card_view(
+		ui,
+		user,
+		(view, None),
+		state,
+		avatars,
+		(opening, formatted, confirm_links),
+		Some(anchor),
+		session,
+	)
+}
+
+/// The profile docked beside a direct message, like Discord's user profile panel: the same
+/// card at the panel's width, scrolling inside it and never dismissed by outside clicks.
+/// "View Full Profile" sets `session.full`; the caller opens the centred profile from it.
+/// Without the open `view`, the card draws from `cached` profile data.
+#[allow(clippy::too_many_arguments)]
+pub fn show_docked(
+	ui: &mut egui::Ui,
+	user: &User,
+	view: Option<&ProfileView>,
+	cached: Option<&model::UserProfile>,
+	state: &State,
+	avatars: &mut Avatars,
+	opening: &mut Option<String>,
+	formatted: &mut FormatCache,
+	confirm_links: bool,
+	session: &mut ProfileSession,
+) -> Option<Action> {
+	card_view(
+		ui,
+		user,
+		(view, cached),
+		state,
+		avatars,
+		(opening, formatted, confirm_links),
+		None,
+		session,
+	)
+}
+
+/// A popout at `anchor`, the centred full profile, or (without an anchor) the docked card.
+#[allow(clippy::too_many_arguments)]
+fn card_view(
+	ui: &mut egui::Ui,
+	user: &User,
+	(view, cached): (Option<&ProfileView>, Option<&model::UserProfile>),
+	state: &State,
+	avatars: &mut Avatars,
+	(opening, formatted, confirm_links): (&mut Option<String>, &mut FormatCache, bool),
+	anchor: Option<Pos2>,
+	session: &mut ProfileSession,
+) -> Option<Action> {
+	let docked = anchor.is_none();
+	let anchor = anchor.unwrap_or_default();
+	let dock_width = ui.available_width();
+	let dock_height = ui.available_height();
 	session.reconcile_card_input(state.generation, user.id);
 	let colors = design::palette(ui);
 	let viewport = ui.ctx().content_rect();
 	let view = view.filter(|_| !user.webhook);
-	let full = session.full && !user.webhook;
+	let full = session.full && !user.webhook && !docked;
 	let mut expand = full;
 	let bounds = viewport.shrink(if full { 32.0 } else { 8.0 });
 	let full_width = FULL_WIDTH.min(bounds.width());
@@ -3093,19 +3123,46 @@ pub fn show_with_session(
 	let (width, banner_height, avatar_size, pad) = if full {
 		(width, FULL_BANNER, FULL_AVATAR, FULL_PAD)
 	} else {
-		(WIDTH, 105.0, AVATAR, PAD)
+		(if docked { dock_width } else { WIDTH }, 105.0, AVATAR, PAD)
 	};
 	// Height shared by both full-profile columns below the close button.
 	let column = (bounds.height() - 48.0).max(80.0) - 36.0;
-	let data = view.and_then(|v| v.data.as_ref());
+	let data = view
+		.and_then(|v| v.data.as_ref())
+		.or(cached.filter(|_| !user.webhook));
 	// Overflow of an equipped frame beyond the card: top, bottom and each side.
 	let frame_overflow = data
 		.and_then(|d| d.frame.as_deref())
 		.filter(|_| avatars.cosmetics.frames)
 		.map(|frame| frame.overflow(width));
+	// Docked, the frame's overhang stays inside the panel: the card narrows to make room.
+	let (width, frame_overflow) = match frame_overflow {
+		Some([_, _, side]) if docked => {
+			let narrowed = (width - 2.0 * side).max(160.0);
+			(
+				narrowed,
+				data.and_then(|d| d.frame.as_deref())
+					.map(|frame| frame.overflow(narrowed)),
+			)
+		}
+		_ => (width, frame_overflow),
+	};
+	// What the docked card and its frame may paint over: the panel, never the header above.
+	let dock_clip = docked.then(|| ui.clip_rect());
+	// Docked, the card is exactly the panel's height less the frame's overhang; its details
+	// scroll inside it while the banner, frame, effect and footer stay where they are.
+	let bounds = if docked {
+		let [top, bottom, _] = frame_overflow.unwrap_or_default();
+		Rect::from_min_size(
+			ui.max_rect().min,
+			vec2(width, (dock_height - top - bottom).max(200.0)),
+		)
+	} else {
+		bounds
+	};
 	// The popout keeps an equipped frame's overflow on screen with the card.
 	let bounds = match frame_overflow {
-		Some([top, bottom, side]) if !full => {
+		Some([top, bottom, side]) if !full && !docked => {
 			let framed = Rect::from_min_max(
 				bounds.min + vec2(side, top),
 				bounds.max - vec2(side, bottom),
@@ -3147,17 +3204,33 @@ pub fn show_with_session(
 		.find(|c| c.kind == 1 && c.recipients.iter().any(|u| u.id == user.id))
 		.map(|c| c.id);
 	let mut action = None;
-	let menu_id = egui::Id::unique(("user-profile-more", user.id));
+	let menu_id = egui::Id::unique(("user-profile-more", user.id, docked));
 	// A menu that was already open owns Escape and clicks on its own items this frame.
 	let menu_open = egui::Popup::is_id_open(ui.ctx(), menu_id);
 	// The mutuals side panel stays open across frames until toggled, dismissed or navigated.
-	let mutuals_id = egui::Id::unique(("profile-mutuals", user.id));
+	let mutuals_id = egui::Id::unique(("profile-mutuals", user.id, docked));
 	let mut mutuals = ui.ctx().data(|d| d.get_temp::<Mutuals>(mutuals_id));
 	let mut mutual_anchor = None;
 	let mut mutual_links = Vec::new();
 	let mut full_tab = session.full_tab;
 	let mut panel_action = None;
 	let mut close = false;
+	// Docked, the card's surface, frame and effect stay fixed at the panel's size while
+	// everything from the banner down scrolls inside it, above a pinned footer.
+	const DOCK_FOOTER: f32 = 52.0;
+	let dock_card = docked.then(|| {
+		let [top, _, side] = frame_overflow.unwrap_or_default();
+		Rect::from_min_size(
+			ui.max_rect().min + vec2(side, top),
+			vec2(width, bounds.height()),
+		)
+	});
+	let dock_layers = docked.then(|| {
+		(
+			ui.painter().add(egui::Shape::Noop),
+			ui.painter().add(egui::Shape::Noop),
+		)
+	});
 	let own_card = state.user.as_ref().is_some_and(|own| own.id == user.id);
 	let catalog = data.and_then(|d| d.badge_catalog.as_deref());
 	// A clicked badge: where to anchor the menu and which badge it was.
@@ -3165,8 +3238,10 @@ pub fn show_with_session(
 	let mut card = |ui: &mut egui::Ui, avatars: &mut Avatars| {
 		ui.set_width(width);
 		ui.set_max_width(width);
-		// Area remembers its previous size; let details grow beyond a short prior profile.
-		ui.set_max_height(bounds.height());
+		if !docked {
+			// Area remembers its previous size; let details grow beyond a short prior profile.
+			ui.set_max_height(bounds.height());
+		}
 		if full && split {
 			// The identity column spans the modal like the board beside it.
 			ui.set_min_height(column);
@@ -3175,9 +3250,33 @@ pub fn show_with_session(
 		// Cross-label drag selection paints stray highlights in this dense card.
 		ui.style_mut().interaction.selectable_labels = false;
 		// Back frame layers sit behind the card; front layers and the effect cover it.
-		let frame_back = ui.painter().add(egui::Shape::Noop);
-		let background = ui.painter().add(egui::Shape::Noop);
-		theme.apply(ui);
+		let (frame_back, background) = dock_layers.unwrap_or_else(|| {
+			(
+				ui.painter().add(egui::Shape::Noop),
+				ui.painter().add(egui::Shape::Noop),
+			)
+		});
+		{
+			// egui resolves strong, button and spinner colors from the widget strokes rather
+			// than the override, so a bright theme needs every stroke recolored too.
+			let visuals = ui.visuals_mut();
+			visuals.override_text_color = Some(theme.text);
+			visuals.hyperlink_color = theme.link;
+			let widgets = &mut visuals.widgets;
+			for widget in [
+				&mut widgets.noninteractive,
+				&mut widgets.inactive,
+				&mut widgets.hovered,
+				&mut widgets.active,
+				&mut widgets.open,
+			] {
+				widget.fg_stroke.color = theme.text;
+				widget.bg_stroke = Stroke::NONE;
+			}
+			widgets.inactive.weak_bg_fill = theme.chip;
+			widgets.hovered.weak_bg_fill = theme.chip_hover;
+			widgets.active.weak_bg_fill = theme.chip_hover;
+		}
 
 		// Header: banner, overlapping avatar with presence, badge pill.
 		let has_banner = data.as_ref().and_then(|d| d.banner_url()).is_some();
@@ -3478,7 +3577,7 @@ pub fn show_with_session(
 				let has_action = own || message_target || user.webhook;
 				let footer = if full {
 					0.0
-				} else if message_target && !own {
+				} else if message_target && !own && !docked {
 					session.message_height.max(32.0) + 8.0
 				} else if has_action {
 					40.0
@@ -3772,7 +3871,7 @@ pub fn show_with_session(
 								voice_badge(ui, in_voice, false);
 							});
 						}
-						if !user.webhook && view.is_none_or(|v| v.loading) {
+						if !user.webhook && view.map_or(data.is_none(), |v| v.loading) {
 							ui.add_space(4.0);
 							ui.horizontal(|ui| {
 								ui.spinner();
@@ -3805,7 +3904,7 @@ pub fn show_with_session(
 							// No floor here: a busy profile (many badges, connections, a long
 							// bio) must still fit `bounds`, or the card's rounded bottom
 							// corner renders past the window edge and looks square.
-							let max_height = if full {
+							let max_height = if full || docked {
 								f32::INFINITY
 							} else {
 								(bounds.height() - used - footer - 48.0).max(0.0)
@@ -3818,7 +3917,7 @@ pub fn show_with_session(
 									sections += 1;
 									activity_list(
 										ui,
-										egui::Id::unique(("profile-activity", user.id)),
+										egui::Id::unique(("profile-activity", user.id, docked)),
 										activities,
 										avatars,
 										state.demo,
@@ -4031,8 +4130,10 @@ pub fn show_with_session(
 							}
 						}
 					});
-				// Footer: one full-width primary action when available.
-				if state.user.as_ref().is_some_and(|own| own.id == user.id) {
+				// Footer: one full-width primary action when available. The docked card
+				// draws its own below the scrolling content.
+				if docked {
+				} else if state.user.as_ref().is_some_and(|own| own.id == user.id) {
 					if ui
 						.add_sized(
 							[ui.available_width(), 32.0],
@@ -4079,10 +4180,27 @@ pub fn show_with_session(
 					);
 				}
 			});
-		let rect = ui.min_rect();
-		ui.painter().set(background, theme.background(rect));
+		let rect = dock_card.unwrap_or_else(|| ui.min_rect());
+		if !docked {
+			ui.painter().set(background, theme.background(rect));
+		}
+		// The private strip and banner span the card, so its outline goes back over them.
+		ui.painter().rect_stroke(
+			rect,
+			RADIUS,
+			Stroke::new(1.0, theme.border),
+			egui::StrokeKind::Inside,
+		);
 		if let Some(data) = data {
-			paint_collectibles(ui, avatars, data, rect, frame_back, full, state.demo);
+			paint_collectibles(
+				ui,
+				avatars,
+				data,
+				rect,
+				frame_back,
+				(full, dock_clip),
+				state.demo,
+			);
 		}
 	};
 	let rect = if full {
@@ -4182,6 +4300,39 @@ pub fn show_with_session(
 			}
 		}
 		modal.response.rect
+	} else if let (Some(card_rect), Some((_, background))) = (dock_card, dock_layers) {
+		ui.painter().set(background, theme.background(card_rect));
+		let content = Rect::from_min_max(
+			card_rect.min,
+			pos2(card_rect.right(), card_rect.bottom() - DOCK_FOOTER),
+		);
+		ui.scope_builder(UiBuilder::new().max_rect(content), |ui| {
+			egui::ScrollArea::vertical()
+				.id_salt(("docked-profile", user.id))
+				.max_height(content.height())
+				.auto_shrink([false, false])
+				.show(ui, |ui| card(ui, avatars));
+		});
+		// Beside the conversation itself, the card offers the full profile, not a message box.
+		if !user.webhook {
+			let footer = Rect::from_min_max(
+				pos2(card_rect.left() + PAD, content.bottom() + 8.0),
+				pos2(card_rect.right() - PAD, card_rect.bottom() - 8.0),
+			);
+			let button = ui.put(
+				footer,
+				egui::Button::new(
+					RichText::new(crate::i18n::translate("view-full-profile")).color(theme.text),
+				)
+				.fill(theme.chip)
+				.stroke(Stroke::NONE)
+				.corner_radius(RADIUS),
+			);
+			if button.clicked() {
+				expand = true;
+			}
+		}
+		card_rect
 	} else {
 		let x = if anchor.x + 12.0 + width <= bounds.right() {
 			anchor.x + 12.0
@@ -4302,342 +4453,19 @@ pub fn show_with_session(
 	if badge_escape {
 		session.badges.close_top();
 	}
-	let escape = opening.is_none()
+	let escape = !docked
+		&& opening.is_none()
 		&& !menu_open
 		&& !panel_escape
 		&& !badge_escape
 		&& ui
 			.ctx()
 			.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-	if (pressed_outside || escape) && opening.is_none() && action.is_none() {
+	if !docked && (pressed_outside || escape) && opening.is_none() && action.is_none() {
 		action = Some(Action::Close);
 	}
 	crate::markdown::confirm_external_link(ui.ctx(), opening, confirm_links);
 	action
-}
-
-/// Width of the docked DM profile beside the conversation.
-pub(crate) const DOCKED_WIDTH: f32 = 300.0;
-const DOCKED_BANNER: f32 = 120.0;
-
-/// The other person's profile in a one-to-one DM, docked where a server's member list sits.
-/// `data` is their loaded global profile; until it arrives only the known user is shown.
-/// `surface` is the panel fill behind an unthemed profile, used to ring the avatar.
-pub(crate) fn docked(
-	ui: &mut egui::Ui,
-	user: &User,
-	data: Option<&model::UserProfile>,
-	loading: bool,
-	state: &State,
-	avatars: &mut Avatars,
-	surface: Color32,
-) -> Option<Action> {
-	let colors = design::palette(ui);
-	let theme = Theme::new(&colors, data.and_then(|d| d.theme_colors));
-	let panel = ui.max_rect();
-	let ring = if let Some((top, bottom)) = theme.gradient {
-		let mut mesh = egui::Mesh::default();
-		for (corner, color) in [
-			(panel.left_top(), top),
-			(panel.right_top(), top),
-			(panel.left_bottom(), bottom),
-			(panel.right_bottom(), bottom),
-		] {
-			mesh.colored_vertex(corner, color);
-		}
-		mesh.add_triangle(0, 1, 2);
-		mesh.add_triangle(1, 3, 2);
-		ui.painter().add(mesh);
-		top
-	} else {
-		surface
-	};
-	theme.apply(ui);
-	ui.style_mut().interaction.selectable_labels = false;
-	let (status, custom, activities, clients) = presence(state, user.id, None);
-	let status = shown_status(state, user.id, status);
-	let custom = custom.map(str::trim).filter(|text| !text.is_empty());
-	let own = state.user.as_ref().is_some_and(|own| own.id == user.id);
-	let catalog = data.and_then(|d| d.badge_catalog.as_deref());
-	let mut action = None;
-	let mut full = None;
-	ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-		egui::Frame::new().inner_margin(16).show(ui, |ui| {
-			if ui
-				.add_sized(
-					[ui.available_width(), 36.0],
-					egui::Button::new(
-						RichText::new(crate::i18n::translate("profiles-view-full-profile"))
-							.size(14.0),
-					)
-					.corner_radius(RADIUS),
-				)
-				.clicked()
-			{
-				full = Some(FullTab::default());
-			}
-		});
-		ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-			egui::ScrollArea::vertical()
-				.id_salt(("docked-profile", user.id))
-				.auto_shrink([false, false])
-				.show(ui, |ui| {
-					ui.spacing_mut().item_spacing = vec2(8.0, 4.0);
-					let width = ui.available_width();
-					let has_banner = data.and_then(|d| d.banner_url()).is_some();
-					let (banner, banner_response) = ui.allocate_exact_size(
-						vec2(width, DOCKED_BANNER),
-						if has_banner {
-							egui::Sense::click()
-						} else {
-							egui::Sense::hover()
-						},
-					);
-					if let Some(data) = data {
-						avatars.paint_banner(ui, data, banner, CornerRadius::ZERO, state.demo);
-					} else {
-						ui.painter().rect_filled(banner, 0, colors.raised);
-					}
-					let circles = Rect::from_min_size(
-						pos2(
-							banner.right() - PAD - 2.0 * CIRCLE - 8.0,
-							banner.top() + PAD,
-						),
-						vec2(2.0 * CIRCLE + 8.0, CIRCLE),
-					);
-					ui.scope_builder(
-						UiBuilder::new()
-							.max_rect(circles)
-							.layout(egui::Layout::right_to_left(egui::Align::Center)),
-						|ui| {
-							ui.spacing_mut().item_spacing.x = 8.0;
-							let more = header_circle(ui, Icon::More, "profiles-show-more", true);
-							egui::Popup::menu(&more)
-								.id(egui::Id::unique(("docked-profile-more", user.id)))
-								.show(|ui| {
-									let mut expand = false;
-									let dm = state.selected;
-									if let Some(picked) =
-										more_menu(ui, state, user, dm, &mut expand)
-									{
-										action = Some(picked);
-									}
-									if expand {
-										full = Some(FullTab::default());
-									}
-								});
-							if let Some(picked) = friend_button(ui, state, user, true) {
-								action = Some(picked);
-							}
-						},
-					);
-					let avatar = Rect::from_min_size(
-						banner.left_bottom() + vec2(PAD + 4.0, -AVATAR * 0.5 - 6.0),
-						Vec2::splat(AVATAR),
-					);
-					if has_banner
-						&& !ui.input(|i| {
-							i.pointer
-								.interact_pos()
-								.is_some_and(|pos| circles.contains(pos) || avatar.contains(pos))
-						}) && banner_response
-						.on_hover_cursor(egui::CursorIcon::ZoomIn)
-						.clicked() && let Some(url) = data.and_then(|d| d.banner_url())
-					{
-						action = Some(Action::Banner(model::EmbedMedia {
-							url: Some(url),
-							width: 2048,
-							height: 1024,
-							..Default::default()
-						}));
-					}
-					ui.painter()
-						.circle_filled(avatar.center(), AVATAR * 0.5 + AVATAR_RING, ring);
-					ui.scope_builder(UiBuilder::new().max_rect(avatar), |ui| {
-						let response = avatars.with_avatar_animation(true, |avatars| match data {
-							Some(data) => avatars.show_profile_avatar(ui, data, AVATAR, state.demo),
-							None => avatars.show(ui, user, AVATAR, state.demo),
-						});
-						if response
-							.on_hover_cursor(egui::CursorIcon::PointingHand)
-							.on_hover_text(crate::i18n::translate("profiles-view-full-profile"))
-							.clicked()
-						{
-							full = Some(FullTab::default());
-						}
-					});
-					if let Some(status) = status {
-						presence_badge(ui, avatar, status, clients, ring);
-					}
-					ui.add_space((avatar.bottom() + 12.0 - ui.cursor().top()).max(0.0));
-					egui::Frame::new()
-						.inner_margin(egui::Margin::symmetric(16, 0))
-						.show(ui, |ui| {
-							ui.set_width(ui.available_width());
-							let display = data
-								.and_then(|d| {
-									state.friend_nickname(user.id).or(d.global_name.as_deref())
-								})
-								.unwrap_or_else(|| state.user_display_name(user));
-							let display = display.split_whitespace().collect::<Vec<_>>().join(" ");
-							let name = crate::name_styles::label(
-								ui,
-								crate::name_styles::style(data.map_or(user, |d| &d.user)),
-								&display,
-								egui::FontId::new(20.0, design::semibold_family(ui.ctx())),
-								None,
-								ring,
-								theme.text,
-								egui::Sense::click(),
-								true,
-							);
-							if name
-								.on_hover_cursor(egui::CursorIcon::PointingHand)
-								.on_hover_text(crate::i18n::translate("profiles-view-full-profile"))
-								.clicked()
-							{
-								full = Some(FullTab::default());
-							}
-							let shown = data.map_or_else(Vec::new, |d| {
-								model::badges::displayed_badges(&d.badges, catalog)
-							});
-							let clan = data
-								.map(|d| d.clan.as_ref())
-								.unwrap_or(user.primary_guild.as_deref());
-							ui.horizontal_wrapped(|ui| {
-								ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
-								let username = data.map_or_else(
-									|| user.name.clone(),
-									|d| {
-										if d.user.discriminator > 0 {
-											format!("{}#{:04}", d.username, d.user.discriminator)
-										} else {
-											d.username.clone()
-										}
-									},
-								);
-								ui.label(RichText::new(username).size(14.0));
-								if let Some(clan) = clan {
-									clan_chip(ui, &theme, avatars, clan, state.demo);
-								}
-								let icons: Vec<_> =
-									shown.iter().filter(|b| b.icon_key().is_some()).collect();
-								if !icons.is_empty() {
-									egui::Frame::new()
-										.fill(theme.panel)
-										.corner_radius(6)
-										.inner_margin(egui::Margin::symmetric(6, 3))
-										.show(ui, |ui| {
-											ui.spacing_mut().item_spacing.x = 4.0;
-											for badge in icons {
-												crate::badges::badge_icon(
-													ui, avatars, badge, catalog, 20.0, state.demo,
-												);
-											}
-										});
-								}
-							});
-							if let Some(text) = custom {
-								ui.add_space(4.0);
-								egui::Frame::new()
-									.fill(theme.chip)
-									.corner_radius(RADIUS)
-									.inner_margin(egui::Margin::symmetric(10, 6))
-									.show(ui, |ui| {
-										ui.add(
-											egui::Label::new(RichText::new(text).size(13.0)).wrap(),
-										);
-									});
-							}
-							if let Some(data) = data.filter(|d| {
-								!own && (!d.mutual_guilds.is_empty()
-									|| !d.mutual_friends.is_empty())
-							}) {
-								ui.add_space(4.0);
-								ui.horizontal_wrapped(|ui| {
-									ui.spacing_mut().item_spacing = vec2(16.0, 4.0);
-									for (tab, count, icon, one, many) in [
-										(
-											FullTab::Friends,
-											data.mutual_friends.len(),
-											Icon::People,
-											"profiles-show-mutual-friend",
-											"profiles-show-mutual-friends",
-										),
-										(
-											FullTab::Servers,
-											data.mutual_guilds.len(),
-											Icon::Servers,
-											"profiles-show-mutual-server",
-											"profiles-show-mutual-servers",
-										),
-									] {
-										if count == 0 {
-											continue;
-										}
-										let key = if count == 1 { one } else { many };
-										let text =
-											format!("{count} {}", crate::i18n::translate(key));
-										if mutual_link(ui, &theme, icon, text).clicked() {
-											full = Some(tab);
-										}
-									}
-								});
-							}
-							if data.is_none() && loading {
-								ui.add_space(4.0);
-								ui.horizontal(|ui| {
-									ui.spinner();
-									ui.label(
-										RichText::new(crate::i18n::translate(
-											"profiles-show-loading-profile",
-										))
-										.size(13.0)
-										.color(theme.muted),
-									);
-								});
-							}
-							let mut sections = 0;
-							ui.add_space(12.0);
-							if !activities.is_empty() {
-								sections += 1;
-								activity_list(
-									ui,
-									egui::Id::unique(("docked-profile-activity", user.id)),
-									activities,
-									avatars,
-									state.demo,
-									(theme.chip, theme.muted),
-								);
-							}
-							if data.is_none_or(|d| !d.private)
-								&& let Some(date) = creation_date(user.id)
-							{
-								section(
-									ui,
-									&theme,
-									&mut sections,
-									"profiles-show-member-since",
-									true,
-								);
-								ui.label(RichText::new(date).size(15.0));
-							}
-							if let Some(since) = state.friend_since(user.id).and_then(local_date) {
-								section(
-									ui,
-									&theme,
-									&mut sections,
-									"profiles-show-friends-since",
-									true,
-								);
-								ui.label(RichText::new(since).size(15.0));
-							}
-							ui.add_space(16.0);
-						});
-				});
-		});
-	});
-	full.map(Action::Full).or(action)
 }
 
 /// Time since this card's effect became ready to play; it restarts whenever the card reopens.
@@ -4646,11 +4474,11 @@ fn effect_clock(
 	ctx: &egui::Context,
 	user: Id,
 	sku: Id,
-	full: bool,
+	kind: (bool, bool),
 	ready: bool,
 ) -> Option<std::time::Duration> {
 	// One record per card kind, replaced when another profile or effect shows there.
-	let id = egui::Id::unique(("profile-effect-clock", full));
+	let id = egui::Id::unique(("profile-effect-clock", kind));
 	let frame = ctx.cumulative_frame_nr();
 	let now = std::time::Instant::now();
 	let start = ctx
@@ -4669,19 +4497,25 @@ fn paint_collectibles(
 	data: &model::UserProfile,
 	card: Rect,
 	frame_back: egui::layers::ShapeIdx,
-	full: bool,
+	(full, dock_clip): (bool, Option<Rect>),
 	demo: bool,
 ) {
 	if let Some(effect) = data.effect.as_deref().filter(|_| avatars.cosmetics.effects) {
+		// The popout, full profile and docked card each keep their own clock and fade.
+		let kind = (full, dock_clip.is_some());
 		let ready = avatars.effect_ready(ui, effect, demo);
-		let elapsed = effect_clock(ui.ctx(), data.user.id, effect.sku, full, ready);
+		let elapsed = effect_clock(ui.ctx(), data.user.id, effect.sku, kind, ready);
+		// Docked, the effect covers the whole fixed card, not just its scrolling details.
+		if let Some(panel) = dock_clip {
+			ui.set_clip_rect(panel);
+		}
 		// The effect steps back while the pointer is over the card, so its text stays readable.
 		let hovered = ui
 			.ctx()
 			.pointer_hover_pos()
 			.is_some_and(|pointer| card.contains(pointer) && ui.clip_rect().contains(pointer));
 		let fade = ui.ctx().animate_bool_with_time(
-			egui::Id::unique(("profile-effect-hover", full)),
+			egui::Id::unique(("profile-effect-hover", kind)),
 			hovered,
 			0.2,
 		);
@@ -4691,7 +4525,9 @@ fn paint_collectibles(
 		return;
 	};
 	// The popout floats over the app; the full profile keeps its frame inside the modal.
-	let clip = if full {
+	let clip = if let Some(panel) = dock_clip {
+		panel
+	} else if full {
 		let [_, _, side] = frame.overflow(card.width());
 		ui.clip_rect().expand2(vec2(side, 0.0))
 	} else {
@@ -5699,5 +5535,76 @@ mod tests {
 		};
 		assert_eq!(shown_status(&state, Id(7), None), None);
 		assert_eq!(shown_status(&state, Id(7), Some("idle")), Some("idle"));
+	}
+
+	#[test]
+	fn docked_card_keeps_its_frame_inside_the_panel_and_scrolls() {
+		let ctx = egui::Context::default();
+		let state = test_support::demo_state();
+		let user = state
+			.channels
+			.iter()
+			.find(|channel| channel.kind == 1)
+			.and_then(|channel| channel.recipients.first().cloned())
+			.unwrap();
+		let data = synthetic(&user, None);
+		assert!(data.frame.is_some());
+		let view = ProfileView {
+			user: user.id,
+			guild: None,
+			request: 0,
+			loading: false,
+			error: None,
+			data: Some(data),
+		};
+		let mut avatars = Avatars::default();
+		avatars.cosmetics = model::CosmeticPreferences::SHOWN;
+		let panel = Rect::from_min_size(pos2(900.0, 48.0), vec2(340.0, 500.0));
+		let mut session = ProfileSession::default();
+		let mut shapes = Vec::new();
+		for _ in 0..3 {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 600.0))),
+					..Default::default()
+				},
+				|ui| {
+					ui.scope_builder(UiBuilder::new().max_rect(panel), |ui| {
+						ui.set_clip_rect(panel);
+						show_docked(
+							ui,
+							&user,
+							Some(&view),
+							None,
+							&state,
+							&mut avatars,
+							&mut None,
+							&mut FormatCache::default(),
+							false,
+							&mut session,
+						);
+					});
+				},
+			);
+			shapes = output.shapes.clone();
+			output.drop_without_applying_deltas();
+		}
+		assert!(!shapes.is_empty());
+		for shape in &shapes {
+			// Nothing reaches the header above the panel or the conversation beside it.
+			let clip = shape.clip_rect;
+			assert!(
+				clip.top() >= panel.top() - 0.5
+					&& clip.left() >= panel.left() - 0.5
+					&& clip.bottom() <= panel.bottom() + 0.5,
+				"{clip:?}"
+			);
+			// The card fits the panel; only its details scroll, so nothing runs below it.
+			let visible = shape.shape.visual_bounding_rect().intersect(clip);
+			assert!(
+				!visible.is_positive() || visible.bottom() <= panel.bottom() + 0.5,
+				"{visible:?}"
+			);
+		}
 	}
 }
