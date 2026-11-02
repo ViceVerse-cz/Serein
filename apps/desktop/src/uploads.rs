@@ -1287,6 +1287,8 @@ mod tests {
 		let cancelled = cancelled.clone();
 		uploads.cancel_view();
 		assert!(cancelled.load(Ordering::Acquire));
+		uploads.request_view(0, &runtime, &context);
+		assert!(uploads.view.is_none());
 		// The current-thread runtime has not polled the task; cancelling prevents its read.
 		assert!(
 			tokio::task::spawn_blocking(move || original.recv())
