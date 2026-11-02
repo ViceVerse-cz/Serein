@@ -450,7 +450,7 @@ fn restore_never_swaps_or_resurrects_a_reply_target() {
 #[test]
 fn staged_viewer_closes_before_decoding_a_shifted_file_or_another_conversation() {
 	let mut state = test_support::demo_state();
-	let mut ui = MessagingUi::default();
+	let mut ui = crate::MessagingUi::default();
 	ui.attachment_files = vec![("same.png".into(), 12), ("same.png".into(), 12)];
 	ui.attachment_keys = vec![10, 11];
 	ui.attachment_view_open = Some(0);
