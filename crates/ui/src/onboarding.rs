@@ -398,7 +398,7 @@ fn server_name(state: &State, guild: Id) -> String {
 				.invites
 				.values()
 				.filter_map(|(_, preview)| preview.as_ref()?.as_ref().ok())
-				.find(|preview| preview.guild == guild)
+				.find(|preview| preview.guild == Some(guild))
 				.and_then(|preview| preview.embed.title.clone())
 		})
 		.unwrap_or_else(|| translate("onboarding-show-this-server"))

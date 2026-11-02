@@ -895,28 +895,41 @@ pub fn is_motion_video(url: &str) -> bool {
 	})
 }
 
+/// Whether the media worker may fetch this clip, mirroring its motion-video rule.
+fn fetchable_clip(url: &str) -> bool {
+	model::valid_discord_media_url(url)
+		|| model::valid_gif_url(url)
+		|| model::valid_gif_video_source(url)
+}
+
 fn pick(media: &model::EmbedMedia, animate: bool) -> Option<(&str, bool)> {
 	fn path(url: &str) -> &str {
 		url.split('?').next().unwrap_or(url)
 	}
-	if animate
-		&& let Some(video) = media
-			.url
-			.as_deref()
-			.filter(|url| is_motion_video(url))
-			.or(media
-				.proxy_url
-				.as_deref()
-				.filter(|url| is_motion_video(url)))
+	// A clip plays its own frames, and its first frame is its still otherwise. The
+	// original host may be unfetchable while Discord's proxy is not, so the fetchable
+	// one wins when the payload carries both. A still keeps preferring the proxy, which
+	// outlives an expired attachment signature.
+	let candidates = if animate {
+		[media.url.as_deref(), media.proxy_url.as_deref()]
+	} else {
+		[media.proxy_url.as_deref(), media.url.as_deref()]
+	};
+	if let Some(video) = candidates
+		.into_iter()
+		.flatten()
+		.filter(|url| is_motion_video(url))
+		.min_by_key(|url| u8::from(!fetchable_clip(url)))
 	{
-		return Some((video, true));
+		return Some((video, animate));
 	}
 	let original_gif = media.url.as_deref().filter(|url| {
+		let p = path(url);
 		animate
 			&& (model::valid_gif_url(url)
 				|| url.starts_with("https://cdn.discordapp.com/")
 				|| url.starts_with("https://media.discordapp.net/"))
-			&& path(url).ends_with(".gif")
+			&& (p.ends_with(".gif") || p.ends_with(".webp"))
 	});
 	let raw = original_gif
 		.or(media.proxy_url.as_deref())
@@ -931,6 +944,20 @@ fn pick(media: &model::EmbedMedia, animate: bool) -> Option<(&str, bool)> {
 #[cfg(test)]
 mod retention_tests {
 	use super::*;
+
+	#[test]
+	fn pick_prefers_playable_webp_over_still_proxy() {
+		let media = model::EmbedMedia {
+			url: Some("https://static.klipy.com/ii/synthetic/a1.webp".into()),
+			proxy_url: Some("https://images-ext-1.discordapp.net/external/xyz/still.png".into()),
+			width: 320,
+			height: 240,
+			..Default::default()
+		};
+		let picked = pick(&media, true).expect("playable webp selected");
+		assert_eq!(picked.0, "https://static.klipy.com/ii/synthetic/a1.webp");
+		assert!(picked.1);
+	}
 
 	fn load(library: &mut MediaLibrary, ctx: &egui::Context, index: usize) -> Rendition {
 		let source = library
@@ -957,6 +984,44 @@ mod retention_tests {
 			Some(ColorImage::filled([512, 288], Color32::WHITE))
 		));
 		rendition
+	}
+
+	/// A clip on a host the worker refuses arrives with Discord's proxy beside it.
+	#[test]
+	fn a_clip_from_an_unfetchable_host_is_drawn_through_discords_proxy() {
+		let clip = model::EmbedMedia {
+			url: Some("https://www.example.org/reels/synthetic/clip.mp4".into()),
+			proxy_url: Some(
+				"https://images-ext-1.discordapp.net/external/synthetic/https/www.example.org/reels/synthetic/clip.mp4"
+					.into(),
+			),
+			width: 640,
+			height: 1136,
+			..Default::default()
+		};
+		assert_eq!(
+			pick(&clip, true),
+			clip.proxy_url.as_deref().map(|url| (url, true))
+		);
+		assert_eq!(
+			pick(&clip, false),
+			clip.proxy_url.as_deref().map(|url| (url, false)),
+			"A still of a clip is its first frame"
+		);
+		let attachment = model::EmbedMedia {
+			url: Some("https://cdn.discordapp.com/attachments/1/2/clip.mp4".into()),
+			proxy_url: clip.proxy_url.clone(),
+			..clip
+		};
+		assert_eq!(
+			pick(&attachment, true),
+			attachment.url.as_deref().map(|url| (url, true))
+		);
+		assert_eq!(
+			pick(&attachment, false),
+			attachment.proxy_url.as_deref().map(|url| (url, false)),
+			"A still of an attachment clip keeps going through the proxy"
+		);
 	}
 
 	#[test]

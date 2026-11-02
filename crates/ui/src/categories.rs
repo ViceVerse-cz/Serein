@@ -960,7 +960,9 @@ impl MessagingUi {
 									rect,
 								});
 							}
-							let hovered = enabled && (response.hovered() || response.has_focus());
+							// The avatar and action buttons are widgets on top; hovering them still highlights the row.
+							let pointer_over = ui.rect_contains_pointer(rect);
+							let hovered = enabled && (pointer_over || response.has_focus());
 							// Threads hang off a spine below their parent's icon, as in Discord;
 							// their highlight starts where the elbow ends.
 							let highlight = if nested {
@@ -1061,6 +1063,14 @@ impl MessagingUi {
 									let avatar = self
 										.avatars
 										.show_group(&mut inner, channel, 32.0, state.demo);
+									if state.direct_typing(channel.id, std::time::Instant::now()) {
+										crate::profiles::typing_badge(
+											&mut inner,
+											avatar.rect,
+											None,
+											colors.sidebar,
+										);
+									}
 									self.group_menu.context(
 										&avatar,
 										state,
@@ -1084,6 +1094,16 @@ impl MessagingUi {
 									let status =
 										crate::profiles::shown_status(state, user.id, status);
 									if channel.kind == 1
+										&& state
+											.direct_typing(channel.id, std::time::Instant::now())
+									{
+										crate::profiles::typing_badge(
+											&mut inner,
+											avatar.rect,
+											status,
+											colors.sidebar,
+										);
+									} else if channel.kind == 1
 										&& let Some(status) = status
 									{
 										crate::profiles::presence_badge(
@@ -2331,6 +2351,7 @@ mod tests {
 		state.selected = None;
 		state.select(Id(8));
 		assert!(state.select(Id(7)).is_none());
+		assert_eq!(state.selected, Some(Id(7)));
 		let ctx = egui::Context::default();
 		let mut picked = None;
 		// The forum row itself is a destination; the second Tab reaches the loaded post.
@@ -2586,6 +2607,89 @@ mod tests {
 			true,
 			true,
 			"a mention and the unread mark both show while connected",
+		);
+	}
+
+	#[test]
+	fn channel_row_highlights_when_hovering_avatar() {
+		let mut state = test_support::demo_state();
+		state.selected = None;
+		let mut view = MessagingUi {
+			guild: None,
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let colors = design::palette_for(&ctx);
+
+		fn walk(shape: &egui::Shape, rects: &mut Vec<(egui::Rect, egui::Color32)>) {
+			match shape {
+				egui::Shape::Rect(rect) => rects.push((rect.rect, rect.fill)),
+				egui::Shape::Vec(children) => {
+					for shape in children {
+						walk(shape, rects);
+					}
+				}
+				_ => {}
+			}
+		}
+
+		// First frame with pointer outside: no row is hovered.
+		let mut rects_idle = Vec::new();
+		let output_idle = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(280.0, 1600.0),
+				)),
+				events: vec![egui::Event::PointerMoved(egui::pos2(-10.0, -10.0))],
+				..Default::default()
+			},
+			|ui| {
+				view.channel_list(ui, &mut state);
+			},
+		);
+		for clipped in &output_idle.shapes {
+			walk(&clipped.shape, &mut rects_idle);
+		}
+		output_idle.drop_without_applying_deltas();
+
+		let hover_color = crate::design::row_highlight(
+			&egui::Ui::new(ctx.clone(), egui::Id::NULL, egui::UiBuilder::new()),
+			colors.hover,
+			1.0,
+		);
+
+		assert!(
+			!rects_idle.iter().any(|(_, fill)| *fill == hover_color),
+			"no row highlight when pointer is outside"
+		);
+
+		// Second frame with pointer placed over the avatar area of the first row (e.g. x = 20, y = 20).
+		let mut rects_hover = Vec::new();
+		let output_hover = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(280.0, 1600.0),
+				)),
+				events: vec![egui::Event::PointerMoved(egui::pos2(20.0, 66.0))],
+				..Default::default()
+			},
+			|ui| {
+				view.channel_list(ui, &mut state);
+			},
+		);
+		for clipped in &output_hover.shapes {
+			walk(&clipped.shape, &mut rects_hover);
+		}
+		output_hover.drop_without_applying_deltas();
+
+		assert!(
+			rects_hover
+				.iter()
+				.any(|(rect, fill)| *fill == hover_color && rect.contains(egui::pos2(20.0, 66.0))),
+			"row highlight must be painted when pointer hovers over the avatar widget"
 		);
 	}
 }

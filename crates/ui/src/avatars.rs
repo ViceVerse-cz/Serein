@@ -41,6 +41,8 @@ const IDLE_TEXTURES: Duration = Duration::from_secs(60);
 pub const EMBED_EDGE: u32 = 512;
 /// Longest edge for profile frame layers, which span a whole card.
 pub const FRAME_EDGE: u32 = 1024;
+/// Longest edge for profile effect layers (Discord canvas is 450 x 880).
+pub const EFFECT_EDGE: u32 = 1024;
 const REQUESTS: usize = 128;
 const RETRY: Duration = Duration::from_secs(5);
 
@@ -279,11 +281,14 @@ impl Avatars {
 		// Reserve the playback texture too; the shared still stays unchanged for other widgets.
 		let frame_bytes = || frames.iter().map(|(_, image)| image.pixels.len() * 4);
 		let bytes = frame_bytes().sum::<usize>() + frame_bytes().max().unwrap_or(0);
+		let edge = if key.starts_with("effect-") {
+			EFFECT_EDGE as usize
+		} else {
+			EMBED_EDGE as usize
+		};
 		if bytes > ANIMATION_BYTES
 			|| frames.iter().any(|(delay, image)| {
-				*delay < Duration::from_millis(20)
-					|| image.size[0] > EMBED_EDGE as usize
-					|| image.size[1] > EMBED_EDGE as usize
+				*delay < Duration::from_millis(20) || image.size[0] > edge || image.size[1] > edge
 			}) {
 			return;
 		}
@@ -403,11 +408,12 @@ impl Avatars {
 		}
 		let limit = if key.starts_with("frame-") {
 			FRAME_EDGE as usize
+		} else if key.starts_with("effect-") {
+			EFFECT_EDGE as usize
 		} else if key.starts_with("decoration-") || key.starts_with("badge-art:") {
 			256
 		} else if key.starts_with("anim:")
 			|| key.starts_with("nameplate-")
-			|| key.starts_with("effect-")
 			|| key.starts_with("embed:")
 			|| key.starts_with("gif:")
 			|| key.starts_with("spotify-")
@@ -1427,19 +1433,25 @@ impl Avatars {
 		// A favorite's saved Discord attachment link lacks the expiring signature and is
 		// refused; the embed's own media is the same GIF, freshly signed, and plays as is.
 		let original = gif
-			.filter(|gif| {
-				self.animate_gifs
-					&& gif.url.ends_with(".gif")
-					&& !model::valid_discord_media_url(&gif.url)
-			})
-			.map(|gif| model::EmbedMedia {
-				url: Some(gif.url.clone()),
-				proxy_url: (!model::valid_gif_preview(&gif.url)).then(|| gif.preview.clone()),
-				width: gif.width,
-				height: gif.height,
-				placeholder: poster
-					.map(|poster| poster.placeholder.clone())
-					.unwrap_or_default(),
+			.filter(|gif| self.animate_gifs && !model::valid_discord_media_url(&gif.url))
+			.and_then(|gif| {
+				let play_url = [Some(gif.url.as_str()), Some(gif.preview.as_str())]
+					.into_iter()
+					.flatten()
+					.find(|u| {
+						let path = u.split(['?', '#']).next().unwrap_or(u);
+						let lower = path.to_ascii_lowercase();
+						lower.ends_with(".gif") || lower.ends_with(".webp")
+					})?;
+				Some(model::EmbedMedia {
+					url: Some(play_url.to_owned()),
+					proxy_url: (!model::valid_gif_preview(play_url)).then(|| gif.preview.clone()),
+					width: gif.width,
+					height: gif.height,
+					placeholder: poster
+						.map(|poster| poster.placeholder.clone())
+						.unwrap_or_default(),
+				})
 			});
 		let media = video
 			.as_ref()
@@ -2893,6 +2905,14 @@ mod tests {
 				.sum::<usize>(),
 			TEXTURES * 128 * 128 * 4
 		);
+		avatars.request("effect-c-test".into());
+		avatars.take_requests();
+		avatars.accept(
+			&ctx,
+			"effect-c-test".into(),
+			Some(ColorImage::filled([450, 880], egui::Color32::WHITE)),
+		);
+		assert!(avatars.texture_id("effect-c-test").is_some());
 		avatars.accept(
 			&ctx,
 			"unsolicited".into(),
@@ -2955,5 +2975,29 @@ mod tests {
 		);
 		avatars.request("x".repeat(2055));
 		assert!(avatars.attempts.keys().all(|key| key.len() <= 2054));
+	}
+
+	#[test]
+	fn effect_animation_keeps_full_resolution_frames() {
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		avatars.set_animation(true);
+		avatars.request("effect-c-test".into());
+		avatars.take_requests();
+		avatars.accept(
+			&ctx,
+			"effect-c-test".into(),
+			Some(ColorImage::filled([450, 880], egui::Color32::WHITE)),
+		);
+		let frames: crate::avatars::GifFrames = (0..2)
+			.map(|_| {
+				(
+					std::time::Duration::from_millis(50),
+					std::sync::Arc::new(ColorImage::filled([450, 880], egui::Color32::WHITE)),
+				)
+			})
+			.collect();
+		avatars.accept_animation("effect-c-test".into(), frames);
+		assert!(avatars.animations.contains_key("effect-c-test"));
 	}
 }

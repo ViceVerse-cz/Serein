@@ -307,8 +307,9 @@ impl Calls {
 				..
 			} => {
 				let guild = *self.allowed.get(&channel).ok_or(Failure::Protocol)?;
-				// A rejoin replaces this channel's dropped media session in place, so Discord
-				// sends fresh voice credentials without the call ever leaving the channel.
+				// A join for a channel this account is already in changes nothing on Discord's
+				// side and returns no voice credentials, so a rejoin leaves first and comes back
+				// through this branch only once the departure is confirmed.
 				if self.active.is_some_and(|(active, _)| active != channel)
 					|| self.departing.is_some()
 				{
@@ -341,6 +342,13 @@ impl Calls {
 			}
 			Command::Leave { channel, request } => {
 				if self.active != Some((channel, request)) {
+					// A repeated leave for a call that is already departing still reaches
+					// Discord: the first acknowledgement may have been lost, and a second opcode 4
+					// with no channel is harmless.
+					if self.departing == Some((channel, request)) {
+						self.departure_deadline = Some(Instant::now() + Duration::from_secs(10));
+						return Ok(Some(self.state_frame(None, self.departing_guild)));
+					}
 					return Ok(None);
 				}
 				self.departing = self.active.take();

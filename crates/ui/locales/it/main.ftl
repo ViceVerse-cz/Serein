@@ -85,7 +85,6 @@ hide-chat = Nascondi chat
 show-chat = Mostra chat
 search-conversation = Cerca questa conversazione
 show-member-list = Mostra l'elenco dei membri
-show-user-profile = Mostra profilo utente
 pinned-messages = Messaggi fissati
 threads = Discussioni
 
@@ -1536,6 +1535,14 @@ join-server-status-invite-accepted = Invito accettato. In attesa dell'accesso al
 join-server-status-offline-preview = Anteprima offline: l'accesso ai server è disabilitato.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Rimuovi
+# Context: custom_section
+keybinds-custom-section-add-binding = Aggiungi scorciatoia
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Aggiungi scorciatoie extra per qualsiasi azione. Ogni combinazione di tasto o pulsante del mouse può essere usata una sola volta.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Scorciatoie personalizzate
 # Context: row
 keybinds-row-global = GLOBALE
 # Context: row
@@ -1776,6 +1783,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Aprire
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Anteprima del suono
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Spingi per parlare: attiva
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Spingi per parlare: disattiva
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Suonerie, dispositivi di chiamata ed elaborazione microfonica.
 # Context: notification_settings
@@ -3982,7 +3993,29 @@ updates-update-settings-restart-to-update = Riavvia per aggiornare
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein è stato installato tramite la tua distribuzione. Eseguilo in un terminale per aggiornare.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Salva diagnostica
+# Context: update_settings
 updates-update-settings-support-diagnostics = Supporto e diagnostica
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Copia le righe recenti
+# Context: update_settings
+updates-update-settings-diagnostic-log = Registro di diagnostica
+# Context: update_settings
+updates-update-settings-log-errors = Errori
+# Context: update_settings
+updates-update-settings-log-events = Errori, avvisi ed eventi
+# Context: update_settings
+updates-update-settings-log-everything = Tutto (dettagliato)
+# Context: update_settings
+updates-update-settings-log-off = Disattivato
+# Context: update_settings
+updates-update-settings-log-warnings = Errori e avvisi
+# Context: update_settings
+updates-update-settings-open-folder = Apri cartella
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Impossibile scrivere la cartella del registro. Controlla la cartella dati di Serein e riprova.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Tempi, fasi ed errori in un unico file di registro locale. I dati di account, canali, messaggi e le credenziali non vengono mai scritti e nulla viene caricato.
 # Context: update_log
 updates-update-log = Registro aggiornamenti
 # Context: update_settings
@@ -4456,6 +4489,7 @@ lib-composer-onboarding-incomplete = Completa l'accesso a questo server per sblo
 lib-composer-onboarding-complete = Completa l'accoglienza
 profiles-message-placeholder = Messaggio a @{ $user }
 profiles-message-send = Invia messaggio
+profiles-message-open-chat = Apri chat
 profiles-message-sending = Apertura del messaggio diretto…
 user-menu-contents-start-a-call = Avvia una chiamata
 verification-show-complete-the-check-to-open-this-conversation = Completa la verifica per aprire questa conversazione.
@@ -4740,6 +4774,9 @@ timeline-group-intro = Benvenuto all'inizio del gruppo { $name }.
 timeline-channel-intro-title = Benvenuto in #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Questo è l'inizio del canale #{ $channel }.
+show-user-profile = Mostra profilo utente
+hide-user-profile = Nascondi profilo utente
+view-full-profile = Visualizza profilo completo
 # Context: text_menu
 text-menu-cut = Taglia
 text-menu-copy = Copia
