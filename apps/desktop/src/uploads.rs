@@ -586,10 +586,11 @@ impl Uploads {
 		let flag = cancelled.clone();
 		runtime.spawn(async move {
 			let image = view(&source, edge, &flag).await;
-			drop(slot);
 			if !flag.load(Ordering::Acquire) {
 				let _ = send.send(image.map(Arc::new));
 			}
+			// Repaint only after delivery, so a frame cannot poll before the result arrives.
+			drop(slot);
 		});
 		self.view = Some((key, result, cancelled));
 	}
@@ -1296,11 +1297,15 @@ mod tests {
 		assert!(!uploads.view_busy.load(Ordering::Acquire));
 		uploads.request_view(0, &runtime, &context);
 		let (_, result, _) = uploads.view.take().unwrap();
-		let image = tokio::task::spawn_blocking(move || result.recv())
-			.await
-			.unwrap()
-			.unwrap()
-			.unwrap();
+		let image = tokio::task::spawn_blocking(move || {
+			let image = result.recv();
+			assert!(result.recv().is_err());
+			image
+		})
+		.await
+		.unwrap()
+		.unwrap()
+		.unwrap();
 		assert_eq!(image.size, [400, 300]);
 		assert!(!uploads.view_busy.load(Ordering::Acquire));
 	}
@@ -1314,10 +1319,14 @@ mod tests {
 		for attempt in 1..=2 {
 			uploads.request_view(0, &runtime, &context);
 			let (key, result, _) = uploads.view.take().unwrap();
-			let image = tokio::task::spawn_blocking(move || result.recv())
-				.await
-				.unwrap()
-				.unwrap();
+			let image = tokio::task::spawn_blocking(move || {
+				let image = result.recv();
+				assert!(result.recv().is_err());
+				image
+			})
+			.await
+			.unwrap()
+			.unwrap();
 			assert!(image.is_none());
 			uploads.view_image = Some((key, image));
 			assert_eq!(uploads.view_attempts, Some((key, attempt)));
