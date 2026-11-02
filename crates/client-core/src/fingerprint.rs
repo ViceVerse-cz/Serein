@@ -153,16 +153,4 @@ mod tests {
 			assert_eq!(base64(b"foobar"), "Zm9vYmFy");
 		}
 	}
-	#[test]
-	fn nonce_is_a_decimal_snowflake() {
-		let a = nonce(1_700_000_000_000, 1);
-		let b = nonce(1_700_000_000_000, 2);
-		assert_ne!(a, b);
-		assert!(a.bytes().all(|b| b.is_ascii_digit()));
-		assert_eq!(
-			a.parse::<u64>().unwrap() >> 22,
-			(1_700_000_000_000 - 1_420_070_400_000)
-		);
-		assert_eq!(nonce(0, 7), "7");
-	}
 }

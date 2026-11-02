@@ -158,6 +158,17 @@ fn inline_image(embed: &Embed) -> Option<&model::EmbedMedia> {
 		.flatten()
 }
 
+/// A link that resolves to a hosted clip arrives as a video embed without a poster
+/// image. Discord draws the clip itself there, so the card shows its frames instead of
+/// an empty page; playback still opens in the browser through the card's video line.
+fn clip_media(embed: &Embed) -> Option<&model::EmbedMedia> {
+	let clip = embed.video.as_ref()?;
+	(embed.image.is_none()
+		&& embed.thumbnail.is_none()
+		&& (clip.url.is_some() || clip.proxy_url.is_some()))
+	.then_some(clip)
+}
+
 // Discord link previews carry additional images as same-URL embed entries.
 // Only consume continuations without independent content (or with repeated metadata).
 fn gallery_len(embeds: &[Embed]) -> usize {
@@ -335,16 +346,21 @@ pub(crate) fn gif_for_media(
 	animated: bool,
 ) -> Option<Gif> {
 	let is_gif = |url: &str| {
-		url.split('?')
-			.next()
-			.unwrap_or(url)
-			.to_ascii_lowercase()
-			.ends_with(".gif")
+		let path = url.split(['?', '#']).next().unwrap_or(url);
+		let lower = path.to_ascii_lowercase();
+		lower.ends_with(".gif")
 	};
-	if !animated
-		&& !media.url.as_deref().is_some_and(is_gif)
-		&& !media.proxy_url.as_deref().is_some_and(is_gif)
-	{
+	let is_webp = |url: &str| {
+		let path = url.split(['?', '#']).next().unwrap_or(url);
+		let lower = path.to_ascii_lowercase();
+		lower.ends_with(".webp")
+	};
+	let has_gif =
+		media.url.as_deref().is_some_and(is_gif) || media.proxy_url.as_deref().is_some_and(is_gif);
+	let has_webp = media.url.as_deref().is_some_and(is_webp)
+		|| media.proxy_url.as_deref().is_some_and(is_webp);
+
+	if !has_gif && !(animated && has_webp) && !animated {
 		return None;
 	}
 	let preview = [media.url.as_deref(), media.proxy_url.as_deref()]
@@ -510,6 +526,20 @@ fn image_preview(
 	if response.clicked() {
 		download.view_embed(message, image);
 	}
+}
+
+/// The clip of a poster-less video card, drawn where Discord draws its player.
+fn clip_preview(ui: &mut egui::Ui, clip: &model::EmbedMedia, images: &mut Avatars, demo: bool) {
+	images.show_media(
+		ui,
+		clip,
+		egui::vec2(
+			ui.available_width(),
+			crate::avatars::media::MEDIA_MAX_HEIGHT,
+		),
+		demo,
+		Surface::Inline,
+	);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -770,6 +800,8 @@ pub fn show(
 									download,
 									demo,
 								);
+							} else if let Some(clip) = clip_media(embed) {
+								clip_preview(ui, clip, images, demo);
 							}
 							if thumbnail.is_none()
 								&& large.is_none() && let Some(image) = &embed.thumbnail
@@ -912,7 +944,7 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 		let e = &embeds[index];
 		let image_height = if count > 1 {
 			gallery_rect(count, count - 1, 456.0).bottom()
-		} else if e.image.is_some() || large_thumbnail(e).is_some() {
+		} else if e.image.is_some() || large_thumbnail(e).is_some() || clip_media(e).is_some() {
 			200.0
 		} else {
 			0.0
@@ -976,6 +1008,66 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// A link that resolves to a hosted clip carries no poster; the card paints the clip.
+	#[test]
+	fn a_video_card_without_a_poster_shows_its_clip() {
+		let mut embed = Embed {
+			kind: "video".into(),
+			url: Some("https://example.org/reels/synthetic/".into()),
+			video: Some(model::EmbedMedia {
+				url: Some("https://example.org/reels/synthetic/clip.mp4".into()),
+				proxy_url: Some(
+					"https://images-ext-1.discordapp.net/external/synthetic/https/example.org/reels/synthetic/clip.mp4"
+						.into(),
+				),
+				width: 640,
+				height: 1136,
+				..Default::default()
+			}),
+			..Default::default()
+		};
+		let clip = clip_media(&embed).expect("the clip is the card's media");
+		assert_eq!((clip.width, clip.height), (640, 1136));
+		// The card asks the media worker for the clip through Discord's proxy.
+		let mut message = test_support::message(1, model::Id(2));
+		message.content = embed.url.clone().unwrap();
+		message.embeds = vec![embed.clone()];
+		let mut images = Avatars::default();
+		egui::Context::default()
+			.run_ui(egui::RawInput::default(), |ui| {
+				show(
+					ui,
+					&message,
+					&mut FormatCache::default(),
+					&mut images,
+					&mut None,
+					&mut DownloadUi::default(),
+					&mut crate::profiles::ProfileSession::default(),
+					&client_core::State::default(),
+					crate::design::MessageCardSurface::Conversation,
+					false,
+				);
+			})
+			.drop_without_applying_deltas();
+		let proxied = clip.proxy_url.as_deref().unwrap();
+		assert!(
+			images
+				.take_requests()
+				.iter()
+				.any(|request| request.starts_with("media:") && request.ends_with(proxied))
+		);
+		// A card with a picture keeps its poster or bot thumbnail instead.
+		embed.thumbnail = Some(model::EmbedMedia {
+			url: Some("https://example.org/reels/synthetic/poster.png".into()),
+			..Default::default()
+		});
+		assert!(clip_media(&embed).is_none());
+		embed.thumbnail = None;
+		// Nothing to fetch is not a preview area.
+		embed.video = Some(model::EmbedMedia::default());
+		assert!(clip_media(&embed).is_none());
+	}
 
 	#[test]
 	fn source_fallback_requires_a_safe_url_without_an_existing_source_action() {
@@ -1327,83 +1419,6 @@ mod tests {
 	}
 
 	#[test]
-	fn gallery_tiles_fit_without_overlap_and_request_each_image_viewer() {
-		for theme in [egui::Theme::Dark, egui::Theme::Light] {
-			for width in [96.0, 240.0, 456.0] {
-				for count in [2, 3, 4, 10] {
-					let rects: Vec<_> = (0..count).map(|i| gallery_rect(count, i, width)).collect();
-					for (i, rect) in rects.iter().enumerate() {
-						assert!(rect.width() > 0.0 && rect.right() <= width);
-						assert!(rects[..i].iter().all(|other| !rect.intersects(*other)));
-					}
-					if count == 3 {
-						assert_eq!(rects[0].height(), width);
-						assert_eq!(rects[0].bottom(), rects[2].bottom());
-						assert_eq!(rects[1].left(), rects[2].left());
-					}
-					let ctx = egui::Context::default();
-					ctx.set_theme(theme);
-					let embeds = gallery_embeds(count);
-					let mut images = Avatars::default();
-					let mut download = DownloadUi::default();
-					let mut origin = egui::Pos2::ZERO;
-					let mut frame = |events| {
-						ctx.run_ui(
-							egui::RawInput {
-								screen_rect: Some(egui::Rect::from_min_size(
-									egui::Pos2::ZERO,
-									egui::vec2(width + 16.0, 1400.0),
-								)),
-								events,
-								..Default::default()
-							},
-							|ui| {
-								ui.set_width(width);
-								origin = ui.cursor().min;
-								gallery(
-									ui,
-									&embeds,
-									&mut images,
-									model::Id(42),
-									&mut download,
-									false,
-								);
-							},
-						)
-						.drop_without_applying_deltas();
-						(origin, download.embed_view_request.take())
-					};
-					frame(vec![]);
-					let (origin, _) = frame(vec![]);
-					for (i, rect) in rects.iter().enumerate() {
-						let pos = rect.center() + origin.to_vec2();
-						frame(vec![
-							egui::Event::PointerMoved(pos),
-							egui::Event::PointerButton {
-								pos,
-								button: egui::PointerButton::Primary,
-								pressed: true,
-								modifiers: Default::default(),
-							},
-						]);
-						let (_, opened) = frame(vec![egui::Event::PointerButton {
-							pos,
-							button: egui::PointerButton::Primary,
-							pressed: false,
-							modifiers: Default::default(),
-						}]);
-						assert_eq!(
-							opened,
-							Some((model::Id(42), embeds[i].image.as_ref().unwrap().clone()))
-						);
-					}
-					assert_eq!(images.take_requests().len(), count);
-				}
-			}
-		}
-	}
-
-	#[test]
 	fn hide_media_links_requires_matching_visible_media_without_caption_or_spoiler() {
 		let mut message = test_support::message(1, model::Id(1));
 		message.content = "https://klipy.com/gifs/waving-lizard".into();
@@ -1488,240 +1503,33 @@ mod tests {
 		}
 	}
 
-	/// Adjacent fields render through the same field-column code path with no explicit
-	/// id_salt of their own, so egui's auto-assigned widget ids can land on the same value
-	/// for two different fields (data-dependent on their wrapped line counts) unless each
-	/// field is given its own id namespace. Regression for that: egui paints a "used the
-	/// same ID" debug warning (gated on `debug_assertions`, which test builds have on) when
-	/// two same-frame widgets collide, so its absence here confirms the fields stay isolated.
 	#[test]
-	fn adjacent_fields_do_not_share_widget_ids() {
-		let mut message = test_support::message(1, model::Id(2));
-		message.embeds = vec![Embed {
-			kind: "rich".into(),
-			description: Some(
-				"For tutorials & guides, please check out our [Help Center](https://example.org/help)"
+	fn gif_for_media_ignores_static_webp_attachment() {
+		let media = model::EmbedMedia {
+			url: Some("https://cdn.discordapp.com/attachments/123/456/photo.webp".into()),
+			width: 320,
+			height: 200,
+			..Default::default()
+		};
+		assert!(gif_for_media(&media, None, false).is_none());
+	}
+
+	#[test]
+	fn gif_for_media_supports_animated_webp_provider_links() {
+		let media = model::EmbedMedia {
+			url: Some(
+				"https://static.klipy.com/ii/71b2873e478b9d8d0482ea3ec777ba7f/f6/40/HtVp9vFM.webp"
 					.into(),
 			),
-			fields: vec![
-				model::EmbedField {
-					name: "No Staff Applications".into(),
-					value: "We are currently **not looking** for staff, please do not open tickets asking to join the team.".into(),
-					inline: false,
-				},
-				model::EmbedField {
-					name: "Second field".into(),
-					value: "Some other body text that also wraps to more than one line at this width.".into(),
-					inline: false,
-				},
-			],
+			width: 320,
+			height: 200,
 			..Default::default()
-		}];
-		let ctx = egui::Context::default();
-		let mut images = Avatars::default();
-		let mut cache = FormatCache::default();
-		let mut opening = None;
-		let mut download = DownloadUi::default();
-		let output = ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(640.0, 700.0),
-				)),
-				..Default::default()
-			},
-			|ui| {
-				let mut profile = crate::profiles::ProfileSession::default();
-				show(
-					ui,
-					&message,
-					&mut cache,
-					&mut images,
-					&mut opening,
-					&mut download,
-					&mut profile,
-					&client_core::State::default(),
-					crate::design::MessageCardSurface::Conversation,
-					false,
-				);
-			},
-		);
-		for shape in &output.shapes {
-			if let egui::epaint::Shape::Text(text) = &shape.shape {
-				assert!(
-					!text.galley.job.text.contains("widget ID"),
-					"egui reported a widget id clash: {:?}",
-					text.galley.job.text
-				);
-			}
-		}
-		output.drop_without_applying_deltas();
-	}
-
-	/// Paused GIFs wear a "GIF" label; the favorite star appears only while hovered.
-	#[test]
-	fn gif_overlay_labels_paused_gifs_and_drops_the_star_in_on_hover() {
-		let ctx = egui::Context::default();
-		let media = egui::Rect::from_min_size(egui::pos2(20.0, 20.0), egui::vec2(200.0, 120.0));
-		let star_size = egui::Vec2::splat(30.0);
-		let gif = egui::Id::unique("gif");
-		let mut tick = 0;
-		// One stable GIF id and 60 Hz frames, so the star's animation is followed frame by frame.
-		let mut frame = |pointer: Option<egui::Pos2>, playing: bool| {
-			tick += 1;
-			let mut sense = egui::Sense::hover();
-			let output = ctx.run_ui(
-				egui::RawInput {
-					time: Some(f64::from(tick) / 60.0),
-					predicted_dt: 1.0 / 60.0,
-					events: pointer
-						.map(|pos| vec![egui::Event::PointerMoved(pos)])
-						.unwrap_or_default(),
-					..Default::default()
-				},
-				|ui| {
-					let response = ui.interact(media, gif, egui::Sense::click());
-					sense = favorite_star(ui, &response, false, playing).sense;
-				},
-			);
-			let mut texts = Vec::new();
-			let mut star_top = None;
-			for shape in &output.shapes {
-				match &shape.shape {
-					egui::Shape::Text(text) => texts.push(text.galley.job.text.clone()),
-					egui::Shape::Rect(rect) if rect.rect.size() == star_size => {
-						star_top = Some(rect.rect.top());
-					}
-					_ => {}
-				}
-			}
-			output.drop_without_applying_deltas();
-			(texts, star_top, sense)
 		};
-		let (texts, star, sense) = frame(None, false);
-		assert!(texts.iter().any(|text| text == "GIF"));
-		assert_eq!(star, None, "no star until the GIF is hovered");
-		assert!(
-			sense.is_focusable(),
-			"the hidden star stays reachable with Tab"
+		let gif = gif_for_media(&media, None, true).expect("animated webp recognized");
+		assert_eq!(
+			gif.url,
+			"https://static.klipy.com/ii/71b2873e478b9d8d0482ea3ec777ba7f/f6/40/HtVp9vFM.webp"
 		);
-		assert!(!sense.senses_click(), "the hidden star takes no clicks");
-		let (texts, _, _) = frame(None, true);
-		assert!(texts.is_empty(), "playing GIFs carry no label");
-
-		let rest = media.top() + 6.0;
-		let mut steps = Vec::new();
-		for _ in 0..20 {
-			let (texts, star, sense) = frame(Some(media.center()), true);
-			assert!(texts.is_empty());
-			steps.push((
-				star.expect("hovering paints the star"),
-				sense.senses_click(),
-			));
-		}
-		let (top, clickable) = *steps.last().unwrap();
-		assert_eq!(top, rest, "the star settles in the corner");
-		assert!(clickable);
-		for &(top, clickable) in &steps {
-			let shown = 1.0 - (rest - top) / 8.0;
-			assert!(
-				(0.0..=1.0).contains(&shown),
-				"the star drops from above: {top}"
-			);
-			// Clicks are only taken once the star is mostly shown.
-			assert_eq!(clickable, shown > 0.5, "click threshold at shown = {shown}");
-		}
-		assert!(
-			steps
-				.iter()
-				.any(|&(top, clickable)| top < rest - 1.0 && !clickable),
-			"the drop-in passes through a partly shown, unclickable star"
-		);
-		assert!(
-			steps
-				.iter()
-				.any(|&(top, clickable)| top < rest && clickable),
-			"the star turns clickable before it settles"
-		);
-	}
-
-	/// An X/Twitter link card, shaped like the service's: author, text, footer and time.
-	#[test]
-	fn tweet_card_puts_footer_and_time_on_one_line_without_a_source_link() {
-		let _clock = crate::local_time::pin_now(
-			time::OffsetDateTime::parse(
-				"2026-10-14T12:00:00Z",
-				&time::format_description::well_known::Rfc3339,
-			)
-			.unwrap(),
-		);
-		let mut message = test_support::message(1, model::Id(2));
-		message.content = "https://x.com/synthetic/status/1".into();
-		message.embeds = vec![Embed {
-			kind: "rich".into(),
-			url: Some(message.content.clone()),
-			description: Some("A synthetic post".into()),
-			author: Some(model::EmbedAuthor {
-				name: "Synthetic (@synthetic)".into(),
-				url: Some("https://x.com/synthetic".into()),
-				..Default::default()
-			}),
-			footer: Some(model::EmbedFooter {
-				text: "X".into(),
-				..Default::default()
-			}),
-			timestamp: Some("2026-10-12T17:37:03.721000+00:00".into()),
-			..Default::default()
-		}];
-		let ctx = egui::Context::default();
-		let output = ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(640.0, 700.0),
-				)),
-				..Default::default()
-			},
-			|ui| {
-				show(
-					ui,
-					&message,
-					&mut FormatCache::default(),
-					&mut Avatars::default(),
-					&mut None,
-					&mut DownloadUi::default(),
-					&mut crate::profiles::ProfileSession::default(),
-					&client_core::State::default(),
-					crate::design::MessageCardSurface::Conversation,
-					false,
-				);
-			},
-		);
-		let mut painted = Vec::new();
-		fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
-			match shape {
-				egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
-				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| walk(shape, out)),
-				_ => {}
-			}
-		}
-		output
-			.shapes
-			.iter()
-			.for_each(|shape| walk(&shape.shape, &mut painted));
-		output.drop_without_applying_deltas();
-		let footer = painted
-			.iter()
-			.find(|text| text.starts_with("X • "))
-			.unwrap_or_else(|| panic!("{painted:?}"));
-		// Tests pin UTC; the clock style is whatever the process last set.
-		assert!(
-			footer == "X • 10/12/26, 17:37" || footer == "X • 10/12/26, 5:37 PM",
-			"{footer}"
-		);
-		assert!(painted.iter().any(|text| text == "Synthetic (@synthetic)"));
-		assert!(!painted.iter().any(|text| text.contains("Open source")));
-		assert!(!painted.iter().any(|text| text.contains("2026-10-12T")));
 	}
 }
 

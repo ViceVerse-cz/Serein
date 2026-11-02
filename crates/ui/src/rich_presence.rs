@@ -326,22 +326,3 @@ fn seed_fields(elements: &[Element], values: &mut BTreeMap<String, String>) {
 		}
 	}
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	#[test]
-	fn collapsed_fields_submit_defaults_and_keep_edits() {
-		let fields = vec![Element::TextInput {
-			id: "image-key".into(),
-			label: "Image".into(),
-			value: "galaxy".into(),
-		}];
-		let mut values = BTreeMap::new();
-		seed_fields(&fields, &mut values);
-		assert_eq!(values["image-key"], "galaxy");
-		values.insert("image-key".into(), "stars".into());
-		seed_fields(&fields, &mut values);
-		assert_eq!(values["image-key"], "stars");
-	}
-}

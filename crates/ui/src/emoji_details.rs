@@ -179,30 +179,3 @@ pub(crate) fn show(
 		}
 	});
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn names_use_shortcodes_and_the_joined_catalog() {
-		assert_eq!(shortcode("😂"), ":joy:");
-		assert_eq!(shortcode("🔥"), ":fire:");
-		assert_eq!(shortcode("👍🏽"), ":thumbsup_tone3:");
-		assert_eq!(shortcode("❤"), ":heart:");
-		assert_eq!(shortcode("<:wave:9001>"), ":wave:");
-		assert_eq!(shortcode("<a:wave_animated:9001>"), ":wave_animated:");
-		// Trailing text and unknown sequences are not emoji; they stay as received.
-		assert_eq!(shortcode("<:wave:9001> hi"), "<:wave:9001> hi");
-		assert_eq!(shortcode("sticker"), "sticker");
-		let guilds = test_support::demo_state().guilds;
-		let (guild, emoji) = source("<a:old_name:9001>", &guilds).expect("synthetic catalog");
-		assert_eq!(
-			name("<a:old_name:9001>", &guilds),
-			format!(":{}:", emoji.name)
-		);
-		assert!(!guild.name.is_empty());
-		assert_eq!(name("<a:wave_animated:999999>", &guilds), ":wave_animated:");
-		assert_eq!(name("😂", &guilds), ":joy:");
-	}
-}

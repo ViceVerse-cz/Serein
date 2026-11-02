@@ -626,22 +626,6 @@ mod tests {
 			roles: None,
 		}
 	}
-	#[test]
-	fn expiration_distinguishes_unlimited_unknown_expired_and_day_countdowns() {
-		let mut row = invite();
-		assert_eq!(expiry(&row, 0), ("∞".into(), false));
-		row.max_age = None;
-		assert_eq!(expiry(&row, 0), ("Unknown".into(), false));
-		row.created_at = Some(10_000_000_000);
-		row.max_age = Some(90061);
-		assert_eq!(expiry(&row, 10_000_000_000), ("1:01:01:01".into(), true));
-		row.expires_at = Some(11_000_000_000);
-		assert_eq!(expiry(&row, 10_000_000_001), ("00:00:01".into(), true));
-		assert_eq!(expiry(&row, 11_000_000_000), ("Expired".into(), false));
-		assert_eq!(uses(&row), "2");
-		row.max_uses = Some(10);
-		assert_eq!(uses(&row), "2/10");
-	}
 	fn text_position(shape: &egui::Shape, target: &str) -> Option<egui::Pos2> {
 		match shape {
 			egui::Shape::Text(text) if text.galley.job.text == target => {

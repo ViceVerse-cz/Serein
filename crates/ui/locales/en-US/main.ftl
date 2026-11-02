@@ -1547,6 +1547,14 @@ join-server-status-invite-accepted = Invite accepted. Waiting for server access.
 join-server-status-offline-preview = Offline preview — joining servers is disabled.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Remove
+# Context: custom_section
+keybinds-custom-section-add-binding = Add binding
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Add extra shortcuts for any action. Each key or mouse-button combination can only be used once.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Custom bindings
 # Context: row
 keybinds-row-global = GLOBAL
 # Context: row
@@ -1789,6 +1797,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Open
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Preview Sound
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Push to Talk Activate
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Push to Talk Deactivate
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Ringtones, call devices and microphone processing.
 # Context: notification_settings
@@ -3519,6 +3531,9 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein does not collect telemetry or upload diagnostics. Discord retains service-side data according to its own policies.
 # Context: storage_page
 settings-storage-page-your-privacy = Your privacy
+settings-storage-page-saved-login = Saved login
+settings-storage-page-plaintext-login = Save login in plaintext without a keyring
+settings-storage-page-plaintext-login-description = Used only when no OS keyring (GNOME Keyring, KWallet, Keychain or Credential Manager) works. The token is stored unencrypted in a private file in Serein's data folder, where anyone with access to your user account can read it. Turning this off deletes those files.
 # Context: cosmetic_settings
 settings-cosmetics = Profile cosmetics
 # Context: cosmetic_settings
@@ -3995,7 +4010,29 @@ updates-update-settings-restart-to-update = Restart to update
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein was installed via your distribution. Run this in a terminal to update.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Save diagnostics
+# Context: update_settings
 updates-update-settings-support-diagnostics = Support & diagnostics
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Copy recent lines
+# Context: update_settings
+updates-update-settings-diagnostic-log = Diagnostic log
+# Context: update_settings
+updates-update-settings-log-errors = Errors
+# Context: update_settings
+updates-update-settings-log-events = Errors, warnings and events
+# Context: update_settings
+updates-update-settings-log-everything = Everything (verbose)
+# Context: update_settings
+updates-update-settings-log-off = Off
+# Context: update_settings
+updates-update-settings-log-warnings = Errors and warnings
+# Context: update_settings
+updates-update-settings-open-folder = Open folder
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = The log folder could not be written. Check Serein's data folder and try again.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Timings, stages and failures in one local log file. Account, channel, message and credential data are never written, and nothing is uploaded.
 # Context: update_log
 updates-update-log = Update log
 # Context: update_settings
@@ -4030,6 +4067,8 @@ user-menu-contents-private-nicknames-are-available-for-confirmed-friends = Priva
 user-menu-contents-profile = Profile
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = Remove this conversation from your DM list. Messages are kept.
+# Context: contents
+user-menu-contents-roles = Roles
 # Context: contents
 user-menu-contents-unblock = Unblock
 # Context: contents
@@ -4487,6 +4526,7 @@ lib-composer-onboarding-incomplete = Finish joining this server to unlock more c
 lib-composer-onboarding-complete = Complete Onboarding
 profiles-message-placeholder = Message @{ $user }
 profiles-message-send = Send message
+profiles-message-open-chat = Open chat
 profiles-message-sending = Opening direct message…
 user-menu-contents-start-a-call = Start a Call
 verification-show-complete-the-check-to-open-this-conversation = Complete the check to open this conversation.
@@ -4641,6 +4681,14 @@ settings-convert-emoticons = Automatically convert emoticons in your messages to
 settings-convert-emoticons-description = Convert standalone emoticons such as :) to 🙂 when sending or editing messages. Code and links stay unchanged.
 settings-preload-on-hover = Preload on hover
 settings-preload-on-hover-description = Load a conversation, a profile or the GIF picker while the pointer rests on it, so it opens instantly. Uses the same requests as opening it, at most 12 per minute for each kind.
+settings-auto-idle = Go idle when away
+settings-auto-idle-description = Show as Idle after the time below without keyboard or mouse input, or right away when you lock your computer. Not during voice calls.
+settings-idle-after = Idle after
+settings-idle-after-minutes =
+    { $count ->
+        [one] { $count } minute
+       *[other] { $count } minutes
+    }
 
 profiles-board = Board
 profiles-board-unavailable = This profile’s board is unavailable.
@@ -4816,11 +4864,16 @@ composer-placeholder-direct = Message @{ $name }
 
 # Context: timeline_dm_intro
 timeline-dm-intro = This is the beginning of your direct message history with { $name }.
+# Context: timeline_group_intro
+timeline-group-intro = Welcome to the beginning of the { $name } group.
 
 # Context: timeline_channel_intro
 timeline-channel-intro-title = Welcome to #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = This is the start of the #{ $channel } channel.
+show-user-profile = Show User Profile
+hide-user-profile = Hide User Profile
+view-full-profile = View Full Profile
 # Context: text_menu
 text-menu-cut = Cut
 text-menu-copy = Copy
@@ -4918,3 +4971,15 @@ profiles-private-notice = { $name }’s profile is private, so some info is hidd
 settings-cosmetics-name-styles = Name styles
 settings-cosmetics-name-styles-description = Nitro display name fonts, colours and effects.
 main-sign-in-rate-limited-detail = Discord is rate limiting this sign-in. Wait before trying again. Another attempt before that can make the wait longer.
+
+# Avatar badge while someone is typing.
+typing-badge-typing = Typing…
+
+# New message
+new-message-title = New Message
+new-message-subtitle = Group DMs can have up to 10 members.
+new-message-search = Search
+new-message-hint = Add friends to start a direct message or a group.
+new-message-no-people-found = No one matches that search.
+new-message-create = Create Message
+new-message-cancel = Cancel

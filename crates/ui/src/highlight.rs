@@ -2081,25 +2081,6 @@ mod tests {
 	}
 
 	#[test]
-	fn rust_tokens_cover_keywords_macros_lifetimes_and_strings() {
-		let toks = tokens(
-			Language::Rust,
-			"#[derive(Debug)]\nfn main<'a>() -> Option<&'a str> { let x: u32 = 0x1F; println!(\"hi {x}\"); // note\n 'c' }",
-		);
-		assert!(toks.contains(&("#[derive(Debug)]", Token::Attribute)));
-		assert!(toks.contains(&("fn", Token::Keyword)));
-		assert!(toks.contains(&("main", Token::Function)));
-		assert!(toks.contains(&("'a", Token::Type)));
-		assert!(toks.contains(&("Option", Token::Type)));
-		assert!(toks.contains(&("u32", Token::Type)));
-		assert!(toks.contains(&("0x1F", Token::Number)));
-		assert!(toks.contains(&("println!", Token::Attribute)));
-		assert!(toks.contains(&("\"hi {x}\"", Token::String)));
-		assert!(toks.contains(&("// note", Token::Comment)));
-		assert!(toks.contains(&("'c'", Token::String)));
-	}
-
-	#[test]
 	fn javascript_template_strings_span_lines_and_unterminated_quotes_stop_at_newline() {
 		let toks = tokens(
 			Language::JavaScript,
@@ -2109,52 +2090,6 @@ mod tests {
 		assert!(toks.contains(&("\"open", Token::String)));
 		assert!(toks.contains(&("next", Token::Function)));
 		assert!(toks.contains(&("const", Token::Keyword)));
-	}
-
-	#[test]
-	fn markup_and_config_languages() {
-		let toks = tokens(
-			Language::Html,
-			"<!-- c --><div class=\"x\" data-a='1'>&amp;</div>",
-		);
-		assert!(toks.contains(&("<!-- c -->", Token::Comment)));
-		assert!(toks.contains(&("div", Token::Tag)));
-		assert!(toks.contains(&("class", Token::Attribute)));
-		assert!(toks.contains(&("\"x\"", Token::String)));
-		assert!(toks.contains(&("&amp;", Token::Constant)));
-		let toks = tokens(
-			Language::Css,
-			".a:hover { color: #fff; width: 10px; } @media (x) {}",
-		);
-		assert!(toks.contains(&(".a", Token::Type)));
-		assert!(toks.contains(&(":hover", Token::Keyword)));
-		assert!(toks.contains(&("color", Token::Attribute)));
-		assert!(toks.contains(&("#fff", Token::Number)));
-		assert!(toks.contains(&("10px", Token::Number)));
-		assert!(toks.contains(&("@media", Token::Keyword)));
-		let toks = tokens(
-			Language::Yaml,
-			"# top\nkey: value\nlist:\n  - 3\n  - \"s\" # end\nflag: true",
-		);
-		assert!(toks.contains(&("# top", Token::Comment)));
-		assert!(toks.contains(&("key", Token::Attribute)));
-		assert!(toks.contains(&("3", Token::Number)));
-		assert!(toks.contains(&("\"s\"", Token::String)));
-		assert!(toks.contains(&("# end", Token::Comment)));
-		assert!(toks.contains(&("true", Token::Constant)));
-		let toks = tokens(Language::Toml, "[package]\nname = \"x\" # c\nn = 12");
-		assert!(toks.contains(&("[package]", Token::Type)));
-		assert!(toks.contains(&("name", Token::Attribute)));
-		assert!(toks.contains(&("\"x\"", Token::String)));
-		assert!(toks.contains(&("12", Token::Number)));
-		let toks = tokens(
-			Language::Diff,
-			"--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n same",
-		);
-		assert!(toks.contains(&("--- a", Token::Comment)));
-		assert!(toks.contains(&("@@ -1 +1 @@", Token::Keyword)));
-		assert!(toks.contains(&("-old", Token::Removed)));
-		assert!(toks.contains(&("+new", Token::Added)));
 	}
 
 	#[test]

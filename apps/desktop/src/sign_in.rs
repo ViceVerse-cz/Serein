@@ -75,6 +75,8 @@ impl Desktop {
 		self.state.failure_detail = None;
 		let secret = Arc::new(secret);
 		self.pending_save = save.then(|| secret.clone());
+		self.current_login = Some(secret.clone());
+		self.plaintext_save_pending = [false; 2];
 		self.pending_account_save = Some(secret.clone());
 		self.connection = Some(connection::Connection::start(
 			self.runtime.handle(),
@@ -122,6 +124,8 @@ impl Desktop {
 		self.login = None;
 		self.connection = None;
 		self.pending_save = None;
+		self.current_login = None;
+		self.plaintext_save_pending = [false; 2];
 		self.pending_account_save = None;
 		let old_account = self.state.user.as_ref().filter(|_| !was_demo).map(|u| u.id);
 		self.switching = None;
@@ -262,33 +266,32 @@ impl Desktop {
 			return;
 		}
 		let Some(user) = &self.state.user else { return };
-		let display = self
-			.state
-			.own_profile
-			.data
-			.as_ref()
-			.and_then(|profile| profile.global_name.as_deref());
+		// The switcher lists the handle under the display name. Only the account's own profile
+		// carries the handle, so until it loads the entry keeps what the roster already knows.
+		let profile = self.state.own_profile.data.as_ref();
+		let previous = self
+			.messaging
+			.accounts
+			.iter()
+			.find(|saved| saved.id == user.id);
+		let account = model::SavedAccount::identity(
+			user,
+			profile.map(|profile| (profile.username.as_str(), profile.global_name.as_deref())),
+			previous,
+		);
+		if !account.is_valid() {
+			return;
+		}
 		// Re-record once per session so the switcher orders by last use, then only on change.
 		let recorded = self.roster_generation == Some(self.state.generation);
 		if recorded
 			&& self.messaging.accounts.iter().any(|saved| {
-				saved.id == user.id
-					&& saved.name == user.name
-					&& saved.avatar == user.avatar
-					&& saved.discriminator == user.discriminator
-					&& saved.display.as_deref() == display
+				saved.id == account.id
+					&& saved.name == account.name
+					&& saved.avatar == account.avatar
+					&& saved.discriminator == account.discriminator
+					&& saved.display == account.display
 			}) {
-			return;
-		}
-		let account = model::SavedAccount {
-			id: user.id,
-			name: user.name.clone(),
-			display: display.map(str::to_owned),
-			avatar: user.avatar.clone(),
-			discriminator: user.discriminator,
-			has_token: false,
-		};
-		if !account.is_valid() {
 			return;
 		}
 		self.roster_pending =
@@ -452,6 +455,8 @@ impl Desktop {
 								}
 								self.connection = None;
 								self.pending_save = None;
+								self.current_login = None;
+								self.plaintext_save_pending = [false; 2];
 								self.pending_account_save = None;
 								self.state.auth = AuthState::Unauthenticated;
 								self.state.status = "Disconnected";
@@ -759,7 +764,10 @@ impl Desktop {
 				(
 					account.id,
 					account.label().to_owned(),
-					format!("@{}", account.name),
+					account
+						.handle()
+						.map(|handle| format!("@{handle}"))
+						.unwrap_or_default(),
 				)
 			})
 			.collect();
@@ -1037,6 +1045,8 @@ impl Desktop {
 			}
 			self.connection = None;
 			self.pending_save = None;
+			self.current_login = None;
+			self.plaintext_save_pending = [false; 2];
 			self.pending_account_save = None;
 			let generation = self.state.generation + 1;
 			self.state = test_support::demo_state();

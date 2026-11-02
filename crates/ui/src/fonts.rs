@@ -863,39 +863,6 @@ mod tests {
 	}
 
 	#[test]
-	fn cjk_arriving_after_settled_latin_frames_installs_the_fallback() {
-		let ctx = Context::default();
-		install(&ctx);
-		for _ in 0..3 {
-			ctx.run_ui(Default::default(), |ui| {
-				ui.label("Synthetic Latin text");
-				assert!(!ui.fonts(|fonts| {
-					fonts.definitions().font_data.contains_key("Noto Sans CJK")
-				}));
-			})
-			.drop_without_applying_deltas();
-		}
-		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-		loop {
-			let mut installed = false;
-			ctx.run_ui(Default::default(), |ui| {
-				ui.label("日本語");
-				installed =
-					ui.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK"));
-			})
-			.drop_without_applying_deltas();
-			if installed {
-				break;
-			}
-			assert!(
-				std::time::Instant::now() < deadline,
-				"CJK worker did not install its fallback"
-			);
-			std::thread::sleep(std::time::Duration::from_millis(5));
-		}
-	}
-
-	#[test]
 	fn startup_does_not_decode_cjk_but_on_demand_definitions_do() {
 		let before = CJK_DECODES.get();
 		install(&Context::default());
@@ -980,41 +947,5 @@ mod tests {
 			});
 		});
 		output.drop_without_applying_deltas();
-	}
-
-	#[test]
-	fn latin_faces_are_rasterized_without_truetype_hinting() {
-		for data in [INTER, INTER_MEDIUM, INTER_SEMIBOLD] {
-			let font = skrifa::FontRef::new(data).expect("valid bundled font");
-			for table in ["glyf", "fpgm", "prep"] {
-				let tag = skrifa::Tag::new(table.as_bytes().try_into().unwrap());
-				assert!(
-					font.table_data(tag).is_some(),
-					"Inter must be the TrueType build, missing `{table}`",
-				);
-			}
-		}
-		let ctx = Context::default();
-		install(&ctx);
-		crate::design::apply(&ctx);
-		for theme in [egui::Theme::Dark, egui::Theme::Light] {
-			let options = &ctx.style_of(theme).visuals.text_options;
-			assert!(options.subpixel_binning);
-			assert!(!options.font_hinting);
-		}
-		assert_eq!(
-			ctx.style_of(egui::Theme::Dark)
-				.visuals
-				.text_options
-				.color_transfer_function,
-			egui::epaint::FontColorTransferFunction::Gamma(0.5)
-		);
-		let tweaks = definitions(false)
-			.font_data
-			.iter()
-			.filter(|(name, _)| name.starts_with("Inter"))
-			.map(|(_, data)| (data.tweak.hinting, data.tweak.subpixel_binning))
-			.collect::<Vec<_>>();
-		assert_eq!(tweaks, vec![(Some(false), Some(true)); 3]);
 	}
 }

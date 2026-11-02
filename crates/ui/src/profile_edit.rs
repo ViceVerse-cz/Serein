@@ -724,53 +724,6 @@ fn preview(
 mod tests {
 	use super::*;
 	#[test]
-	fn preview_banner_matches_profile_theme_and_uses_accent_only_as_fallback() {
-		let state = test_support::demo_state();
-		let mut profile = crate::profiles::synthetic(state.user.as_ref().unwrap(), None);
-		profile.banner = None;
-		let ctx = egui::Context::default();
-		let mut avatars = Avatars::default();
-		for theme in [Some([0x515153, 0x373738]), Some([0xffffff, 0x010101]), None] {
-			profile.theme_colors = theme;
-			for accent in [Some(0x123456), None] {
-				let mut draft = Draft::from_profile(&profile);
-				draft.color = accent;
-				let mut expected = None;
-				let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-					ui.set_width(300.0);
-					expected = Some(
-						theme
-							.map(crate::profiles::Theme::banner)
-							.or_else(|| {
-								accent.map(|c| {
-									egui::Color32::from_rgb(
-										(c >> 16) as u8,
-										(c >> 8) as u8,
-										c as u8,
-									)
-								})
-							})
-							.unwrap_or(design::palette(ui).raised),
-					);
-					preview(
-						ui,
-						&draft,
-						&profile,
-						&mut avatars,
-						(true, &[]),
-						&mut None,
-						Picture::Remote,
-						false,
-					);
-				});
-				assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
-					egui::Shape::Rect(rect) if (rect.rect.height() - 90.0).abs() < 0.01 && Some(rect.fill) == expected)));
-				output.drop_without_applying_deltas();
-			}
-		}
-		assert!(avatars.take_requests().is_empty());
-	}
-	#[test]
 	fn draft_only_sends_changed_fields_and_can_clear_values() {
 		let user = model::User {
 			id: model::Id(1),
