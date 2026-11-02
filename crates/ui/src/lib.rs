@@ -1044,11 +1044,13 @@ impl MessagingUi {
 			self.attachment_view_texture = None;
 			return;
 		};
-		let full = self
+		let decoded = self
 			.attachment_view_image
 			.as_ref()
 			.filter(|(current, _)| *current == index)
-			.and_then(|(_, image)| image.clone());
+			.map(|(_, image)| image.clone());
+		let failed = matches!(decoded, Some(None));
+		let full = decoded.flatten();
 		let texture = match full {
 			Some(image) => {
 				let key = std::sync::Arc::as_ptr(&image) as usize;
@@ -1074,7 +1076,7 @@ impl MessagingUi {
 			}
 		};
 		let thumbnail = self.attachment_textures(ctx).get(index).cloned().flatten();
-		if attachments::pending_viewer(ctx, &filename, texture.or(thumbnail).as_ref()) {
+		if attachments::pending_viewer(ctx, &filename, texture.or(thumbnail).as_ref(), failed) {
 			self.attachment_view_open = None;
 			self.attachment_view_scope = None;
 			self.attachment_view_texture = None;
