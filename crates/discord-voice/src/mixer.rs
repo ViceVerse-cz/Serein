@@ -52,6 +52,7 @@ impl Mixer {
 	pub fn remove(&mut self, user: u64) {
 		self.speakers.retain(|s| s.user != user);
 	}
+	#[allow(dead_code)]
 	pub fn retain(&mut self, mut keep: impl FnMut(u64) -> bool) {
 		self.speakers.retain(|s| keep(s.user));
 	}
@@ -82,6 +83,7 @@ impl Mixer {
 			.map(|s| s.user)
 	}
 	/// Mix one 20ms frame, preserving up to 120ms packets without bursting playback queues.
+	#[cfg(test)]
 	pub fn pop(&mut self) -> (Option<Frame>, bool) {
 		self.pop_with_volumes(&[])
 	}

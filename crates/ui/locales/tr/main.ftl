@@ -85,7 +85,6 @@ hide-chat = Sohbeti gizle
 show-chat = Sohbeti göster
 search-conversation = Bu görüşmeyi arayın
 show-member-list = Üye listesini göster
-show-user-profile = Kullanıcı profilini göster
 pinned-messages = Sabitlenmiş mesajlar
 threads = Konular
 
@@ -4764,6 +4763,9 @@ timeline-group-intro = { $name } grubunun başlangıcına hoş geldiniz.
 timeline-channel-intro-title = #{ $channel } kanalına hoş geldin!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = #{ $channel } kanalının başlangıcı.
+show-user-profile = Kullanıcı profilini göster
+hide-user-profile = Kullanıcı profilini gizle
+view-full-profile = Tam profili görüntüle
 # Context: text_menu
 text-menu-cut = Kes
 text-menu-copy = Kopyala
