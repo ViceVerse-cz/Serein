@@ -2228,13 +2228,22 @@ impl Formatted {
 		// wrapping at the remaining width, which paints it over the run before it. Shape the
 		// run without those trailing breaks and replay them as explicit row breaks below.
 		let total: usize = spans.iter().map(|(text, _)| text.len()).sum();
-		let trailing: Vec<char> = spans
+		let trailing = spans
 			.iter()
 			.rev()
 			.flat_map(|(text, _)| text.chars().rev())
 			.take_while(|character| *character == '\n')
-			.collect();
-		let kept = total.saturating_sub(trailing.len());
+			.count();
+		let kept = total.saturating_sub(trailing);
+		// Each blank row keeps the height its newline had in the galley, so the paragraph gap
+		// survives and selection still copies it as a blank line.
+		let blank = spans.last().map_or(0.0, |(_, style)| {
+			let format = Self::format(ui, style);
+			let height = format
+				.line_height
+				.unwrap_or_else(|| ui.fonts_mut(|fonts| fonts.row_height(&format.font_id)));
+			line.map_or(height, |line| height.max(line))
+		});
 		let mut written = 0;
 		for (text, style) in spans {
 			let format = Self::format(ui, style);
@@ -2482,9 +2491,13 @@ impl Formatted {
 			}
 		}
 		surface.run(ui, &response, pos, galley, artwork);
-		// The blank line between paragraphs is a row break, exactly as it used to be.
-		for _ in 0..trailing.len() {
+		// The first break ends the run's row; every further one is a blank row of its own.
+		if trailing > 0 {
 			ui.end_row();
+			for _ in 1..trailing {
+				ui.set_row_height(blank);
+				ui.end_row();
+			}
 		}
 		if ui.is_rect_visible(response.rect) {
 			for (index, rect) in &slots {
@@ -5228,6 +5241,7 @@ mod tests {
 						&mut surface,
 						crate::design::MessageCardSurface::Conversation,
 					);
+					surface.finish(ui);
 				},
 			);
 			let mut rects = Vec::new();
@@ -5254,6 +5268,99 @@ mod tests {
 			}
 			output.textures_delta.clear();
 		}
+	}
+
+	#[test]
+	fn copying_across_a_paragraph_break_keeps_the_blank_line() {
+		// The paragraph before the link is shaped without its trailing breaks: the blank row
+		// they leave is what tells selection to copy them back.
+		let ctx = egui::Context::default();
+		let parsed = Formatted::parse("plain text\n\n[link](https://example.com) after");
+		let mut images = crate::avatars::Avatars::default();
+		let mut mask = 0;
+		let mut clock = 0.0;
+		let mut run = |events| {
+			clock += 1.0;
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(700.0, 200.0),
+					)),
+					events,
+					time: Some(clock),
+					..Default::default()
+				},
+				|ui| {
+					let mut surface = crate::select::Surface::new(ui, "body");
+					let mut profile = crate::profiles::ProfileSession::default();
+					parsed.show_references(
+						ui,
+						&mut None,
+						&[],
+						None,
+						&mut profile,
+						(&[], &mut None, &[], &[]),
+						(&mut images, false, &mut mask),
+						&mut surface,
+						crate::design::MessageCardSurface::Opaque,
+					);
+					surface.finish(ui);
+				},
+			)
+		};
+		run(vec![]).drop_without_applying_deltas();
+		let output = run(vec![]);
+		let text_rect = |prefix: &str| {
+			output
+				.shapes
+				.iter()
+				.find_map(|shape| {
+					if let egui::Shape::Text(text) = &shape.shape
+						&& text.galley.text().starts_with(prefix)
+					{
+						Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+					} else {
+						None
+					}
+				})
+				.expect("visible selectable text")
+		};
+		let start = text_rect("plain").left_top() + egui::vec2(0.0, 5.0);
+		let end = text_rect(" after").right_top() + egui::vec2(0.0, 5.0);
+		output.drop_without_applying_deltas();
+		for events in [
+			vec![
+				egui::Event::PointerMoved(start),
+				egui::Event::PointerButton {
+					pos: start,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+			vec![egui::Event::PointerMoved(end)],
+			vec![egui::Event::PointerButton {
+				pos: end,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			}],
+		] {
+			run(events).drop_without_applying_deltas();
+		}
+		let output = run(vec![egui::Event::Copy]);
+		let copied = output
+			.platform_output
+			.commands
+			.iter()
+			.find_map(|command| match command {
+				egui::OutputCommand::CopyText(text) => Some(text.clone()),
+				_ => None,
+			})
+			.expect("selected text");
+		output.drop_without_applying_deltas();
+		assert!(copied.starts_with("plain text\n\nlink"), "{copied:?}");
 	}
 
 	#[test]
