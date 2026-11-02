@@ -620,20 +620,7 @@ impl ActivityImage {
 			Self::Asset { application, asset } => application.0 != 0 && asset.0 != 0,
 			Self::Application(id) => id.0 != 0,
 			Self::Spotify(id) => id.len() == 40 && id.bytes().all(|b| b.is_ascii_hexdigit()),
-			Self::Proxy(path) => {
-				!path.is_empty()
-					&& path.len() <= 1024
-					&& !path.starts_with('/')
-					&& !path
-						.chars()
-						.any(|c| c.is_control() || c.is_whitespace() || c == '\\')
-					&& !path.split('/').any(|part| matches!(part, "." | ".."))
-					&& !path.as_bytes().windows(3).any(|part| {
-						part.eq_ignore_ascii_case(b"%2e")
-							|| part.eq_ignore_ascii_case(b"%2f")
-							|| part.eq_ignore_ascii_case(b"%5c")
-					})
-			}
+			Self::Proxy(path) => valid_activity_proxy_path(path),
 		}
 	}
 	pub fn heap_bytes(&self) -> usize {
@@ -650,6 +637,85 @@ impl ActivityImage {
 			Self::Spotify(id) => format!("spotify-{id}"),
 		}
 	}
+}
+
+// The source URL within an external proxy reference is opaque data. Its encoded dots
+// and slashes are not routing separators, but decoded dot segments must still be rejected.
+fn valid_activity_proxy_path(path: &str) -> bool {
+	if path.is_empty()
+		|| path.len() > 1024
+		|| path.starts_with('/')
+		|| path
+			.chars()
+			.any(|c| c.is_control() || c.is_whitespace() || c == '\\')
+		|| path.split('/').any(|part| matches!(part, "." | ".."))
+		|| path
+			.as_bytes()
+			.windows(3)
+			.any(|part| part.eq_ignore_ascii_case(b"%5c"))
+	{
+		return false;
+	}
+	let encoded_separator =
+		|part: &[u8]| part.eq_ignore_ascii_case(b"%2e") || part.eq_ignore_ascii_case(b"%2f");
+	if !path.as_bytes().windows(3).any(encoded_separator) {
+		return true;
+	}
+	// Confine the encoding exception to the same external-image envelope the worker
+	// accepts. Do not relax references to other Discord paths or encoded authorities.
+	let Some((hash, source)) = path
+		.strip_prefix("external/")
+		.and_then(|p| p.split_once('/'))
+	else {
+		return false;
+	};
+	if !(16..=256).contains(&hash.len())
+		|| !hash
+			.bytes()
+			.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+	{
+		return false;
+	}
+	let Some((mut scheme, mut source)) = source.split_once('/') else {
+		return false;
+	};
+	if scheme
+		.get(..3)
+		.is_some_and(|s| s.eq_ignore_ascii_case("%3f"))
+	{
+		let Some(parts) = source.split_once('/') else {
+			return false;
+		};
+		(scheme, source) = parts;
+	}
+	let domain = source.split('/').next().unwrap_or_default();
+	if !matches!(scheme, "https" | "http")
+		|| domain.is_empty()
+		|| domain.as_bytes().windows(3).any(encoded_separator)
+	{
+		return false;
+	}
+	let bytes = path.as_bytes();
+	let (mut index, mut dots) = (0, Some(0));
+	while let Some(&byte) = bytes.get(index) {
+		let (byte, length) = match bytes.get(index..index + 3) {
+			Some(part) if part.eq_ignore_ascii_case(b"%2e") => (b'.', 3),
+			Some(part) if part.eq_ignore_ascii_case(b"%2f") => (b'/', 3),
+			_ => (byte, 1),
+		};
+		match byte {
+			b'/' => {
+				if matches!(dots, Some(1 | 2)) {
+					return false;
+				}
+				dots = Some(0);
+			}
+			b'.' => dots = dots.map(|n| n + 1),
+			_ => dots = None,
+		}
+		index += length;
+	}
+	!matches!(dots, Some(1 | 2))
 }
 
 /// Bounded activity metadata. Secrets and actions are never retained.
@@ -1015,6 +1081,16 @@ mod presence_tests {
 		);
 		assert!(!ActivityImage::Proxy("external/../secret".into()).valid());
 		assert!(!ActivityImage::Proxy("x".repeat(1025)).valid());
+		for path in [
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/art/%2e%2E/secret.png",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/art%2F..%2fsecret.png",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example.com/art%5csecret.png",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/https/example%2ecom/art.png",
+			"external/abcdefghijklmnopqrstuvwxyzABCDEFG/%3Fv%3D4/file/example.com/art%2Epng",
+			"attachments/1/2/art%2Fsecret.png",
+		] {
+			assert!(!ActivityImage::Proxy(path.into()).valid(), "{path}");
+		}
 	}
 }
 

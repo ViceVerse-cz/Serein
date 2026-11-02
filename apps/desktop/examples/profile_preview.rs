@@ -22,6 +22,7 @@ struct Preview {
 	state: client_core::State,
 	output: PathBuf,
 	thumbnail: bool,
+	proxy_artwork: bool,
 	frames: u8,
 	/// Wheel distance and pointer position injected over the first frames, for pages below the fold.
 	scroll: Option<(f32, egui::Pos2)>,
@@ -109,6 +110,34 @@ impl eframe::App for Preview {
 				generation: self.state.generation,
 				event,
 			});
+		}
+		if self.proxy_artwork {
+			// Only generated artwork is served. There is no network/image-worker adapter in
+			// this executable, so a gateway reference rejected by the model stays blank.
+			for key in self.messaging.take_avatar_requests() {
+				let image = if key == model::ActivityImage::Proxy(PROXY_ART.into()).key() {
+					let mut image =
+						egui::ColorImage::filled([64, 64], egui::Color32::from_rgb(41, 63, 105));
+					for y in 0..64 {
+						for x in 0..64 {
+							if (x / 8 + y / 8) % 2 == 0 {
+								image.pixels[y * 64 + x] = egui::Color32::from_rgb(100, 205, 175);
+							}
+						}
+					}
+					Some(image)
+				} else if key == "activity-10-20" {
+					Some(egui::ColorImage::filled(
+						[32, 32],
+						egui::Color32::from_rgb(225, 95, 100),
+					))
+				} else {
+					None
+				};
+				if image.is_some() {
+					self.messaging.accept_avatar(&ctx, key, image);
+				}
+			}
 		}
 		for request in std::mem::take(&mut self.messaging.extensions.requests) {
 			if let ui::ExtensionRequest::PreviewTheme { theme, image } = request {
@@ -216,8 +245,11 @@ fn prime_profile(state: &mut client_core::State) {
 	}
 }
 
+/// Opaque external artwork reference; only generated pixels are served in this example.
+const PROXY_ART: &str = "external/abcdefghijklmnopqrstuvwxyzABCDEFG/%3Falbum%3Dart%2Fcover/https/example.invalid/cover%2Epng";
+
 /// Several synthetic Rich Presence entries for the first friend and the message author.
-fn prime_activities(state: &mut client_core::State) {
+fn prime_activities(state: &mut client_core::State, proxy_artwork: bool) {
 	let activity =
 		|kind, name: &str, details: Option<&str>, state: Option<&str>| model::RichActivity {
 			kind,
@@ -229,7 +261,7 @@ fn prime_activities(state: &mut client_core::State) {
 			ends_at: None,
 			started_at: Some(1_700_000_000_000),
 		};
-	let activities = vec![
+	let mut activities = vec![
 		activity(
 			0,
 			"Synthetic Quest",
@@ -239,6 +271,19 @@ fn prime_activities(state: &mut client_core::State) {
 		activity(2, "Spotify", Some("Quiet Harbor"), Some("The Offline Band")),
 		activity(3, "Harbor Stories", None, None),
 	];
+	if proxy_artwork {
+		let wire = serde_json::json!({"user_id":"2","status":"online","activities":[{
+			"type":2,"name":"Synthetic music","details":"An encoded album cover",
+			"state":"The Offline Band","application_id":"10",
+			"assets":{"large_image":format!("mp:{PROXY_ART}"),"small_image":"20"}
+		}]});
+		let presence =
+			discord_protocol::presence::decode(&serde_json::to_vec(&wire).unwrap()).unwrap();
+		let model::Patch::Value(projected) = presence.activities else {
+			unreachable!()
+		};
+		activities = projected;
+	}
 	let author = test_support::message(1, model::Id(20)).author.id;
 	state.apply(client_core::Envelope {
 		generation: state.generation,
@@ -645,7 +690,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|embeds|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|updates|general|chat|language|notifications|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--keybinds-custom] [--light] [--toasts] [--compact] [--transparency=0..100]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|embeds|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|updates|general|chat|language|notifications|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--proxy-artwork] [--width=1120] [--height=760] [--scroll=PIXELS] [--keybinds-custom] [--light] [--toasts] [--compact] [--transparency=0..100]".into());
 	}
 	let smoke = args.iter().any(|arg| arg == "--smoke");
 	let interactive = args.iter().any(|arg| arg == "--interactive");
@@ -726,7 +771,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	if transparency.is_some_and(|amount| amount > 100) {
 		return Err("Transparency must be in 0..=100".into());
 	}
-	let activities = args.iter().any(|arg| arg == "--activities");
+	let proxy_artwork = args.iter().any(|arg| arg == "--proxy-artwork");
+	let activities = proxy_artwork || args.iter().any(|arg| arg == "--activities");
 	let friends_tab = value("--tab=").unwrap_or("online").to_owned();
 	let theme_editor = value("--theme-editor=").map(str::to_owned);
 	let theme_preview = args.iter().any(|arg| arg == "--theme-preview");
@@ -783,7 +829,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				test_support::demo_state()
 			};
 			if activities {
-				prime_activities(&mut state);
+				prime_activities(&mut state, proxy_artwork);
 			}
 			if page == "embeds" {
 				let channel = state.selected.expect("synthetic embed conversation");
@@ -1088,7 +1134,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 						status: Some("online".into()),
 						// `--status=` gives the synthetic member a custom status.
 						custom_status: card_status.clone(),
-						activities: vec![],
+						activities: state
+							.presence_for(user.id)
+							.filter(|_| proxy_artwork)
+							.map_or_else(Vec::new, |presence| presence.activities.clone()),
 						clients: model::ClientPlatforms {
 							mobile: true,
 							..Default::default()
@@ -1295,6 +1344,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				state,
 				output,
 				thumbnail,
+				proxy_artwork,
 				frames: 0,
 				scroll,
 				requested: false,

@@ -1529,11 +1529,19 @@ the missing startup path. This does not verify the owner's reported live payload
 subscriptions, or promote guild-scoped presence into globally authoritative DM presence.
 
 Activity artwork: profile cards show a static image to the left of the text. The decoder prefers
-`assets.large_image`, then `small_image` when large is absent, then the application icon. Numeric
+`assets.large_image`, falling back to the application icon; `small_image` stays a corner badge. Numeric
 assets and `mp:` references follow the [documented activity asset formats](https://docs.discord.com/developers/events/gateway-events#activity-object-activity-asset-image)
 and [CDN paths](https://docs.discord.com/developers/reference#image-formatting). Media-proxy
 references must also pass the existing safe image-loader path restrictions; direct external
 URLs and unsupported asset schemes are never fetched. A missing/failed image keeps the text.
+Encoded filename characters and source-query segments inside an admitted `external/<hash>/...`
+proxy reference are retained verbatim, including encoded dots and slashes. The activity model
+previously rejected those characters before the image loader could process them, silently falling
+back to an application icon. The exception is limited to a validated external-proxy envelope;
+encoded authorities, decoded dot-segment traversal, backslashes and references over 1,024 bytes
+remain rejected. Downloads still use the fixed Discord media host and existing bounded decode
+worker, without visiting the embedded source URL or following redirects. This fixes the synthetic
+encoded-artwork reproduction for issue #856; the owner's specific live presence remains unverified.
 Application-only activities use the unauthenticated
 [`GET /applications/{id}/rpc` endpoint](https://docs.discord.food/resources/application#get-rpc-application-unauthenticated)
 to obtain an icon hash, then the fixed Discord CDN app-icons path. This metadata route is
