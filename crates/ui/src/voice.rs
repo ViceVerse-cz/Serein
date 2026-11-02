@@ -2516,6 +2516,7 @@ impl MessagingUi {
 				ui,
 				&mut self.keybinds,
 				&mut self.keybind_capture,
+				self.polled_down,
 				self.global_keybind_status,
 			);
 		}

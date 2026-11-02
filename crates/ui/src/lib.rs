@@ -504,6 +504,8 @@ pub struct MessagingUi {
 	/// Device-local application shortcuts; the desktop host mirrors the global binding.
 	pub keybinds: model::Keybinds,
 	keybind_capture: Option<crate::keybinds::CaptureTarget>,
+	/// Latest pad and side-modifier down mask from the native poller.
+	polled_down: u32,
 	pub global_keybind_status: &'static str,
 	/// Server folders the owner left open; restored from device preferences at startup.
 	pub expanded_folders: Vec<u64>,
@@ -679,6 +681,17 @@ impl MessagingUi {
 	/// Returns whether the configured push-to-talk chord is held in the focused window.
 	pub fn push_to_talk_down(&self, ctx: &egui::Context) -> bool {
 		self.voice_hold_down(ctx, model::KeybindAction::PushToTalk)
+	}
+
+	/// Stores the latest down mask from the native poller; its bits index
+	/// `model::keybinds::POLLED_KEYS`.
+	pub fn set_polled_down(&mut self, mask: u32) {
+		self.polled_down = mask;
+	}
+
+	/// Whether a settings row is recording its next key, pad button, or chord.
+	pub fn keybind_capturing(&self) -> bool {
+		self.keybind_capture.is_some()
 	}
 
 	/// Returns whether the configured push-to-mute chord is held in the focused window.

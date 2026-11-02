@@ -1,6 +1,7 @@
 //! Remappable application shortcuts and the device-local global push-to-talk binding.
 use crate::design;
 use egui::{Event, InputState, Key, Modifiers, RichText};
+use model::keybinds::{POLLED_KEYS, is_pad_button, polled_key_bit};
 use model::{CustomBinding, KeyChord, KeybindAction, Keybinds};
 
 /// Which row is recording its next key or mouse button.
@@ -41,6 +42,7 @@ pub(super) fn show(
 	ui: &mut egui::Ui,
 	bindings: &mut Keybinds,
 	capturing: &mut Option<CaptureTarget>,
+	polled_down: u32,
 	global_status: &str,
 ) {
 	section(
@@ -75,7 +77,7 @@ pub(super) fn show(
 		bindings,
 		capturing,
 	);
-	show_voice(ui, bindings, capturing, global_status);
+	show_voice(ui, bindings, capturing, polled_down, global_status);
 	ui.add_space(10.0);
 	custom_section(ui, bindings, capturing);
 }
@@ -84,6 +86,7 @@ pub(super) fn show_voice(
 	ui: &mut egui::Ui,
 	bindings: &mut Keybinds,
 	capturing: &mut Option<CaptureTarget>,
+	polled_down: u32,
 	global_status: &str,
 ) {
 	let colors = design::palette(ui);
@@ -103,7 +106,7 @@ pub(super) fn show_voice(
 	if bindings.global_enabled {
 		design::hint(ui, global_status);
 	}
-	capture(ui, bindings, capturing);
+	capture(ui, bindings, capturing, polled_down);
 }
 
 fn voice_section(
@@ -143,48 +146,123 @@ impl Default for ConflictNotice {
 #[derive(Clone, Copy, Default)]
 struct CaptureStarted;
 
-fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<CaptureTarget>) {
+/// The native poller's down mask kept between frames, plus the side modifier whose
+/// release records the binding.
+#[derive(Clone, Copy, Default)]
+struct PolledCapture {
+	mask: u32,
+	armed: u32,
+}
+
+fn polled_capture_id() -> egui::Id {
+	egui::Id::unique("keybind_polled_capture")
+}
+
+/// First key set in `rising` from the polled table that is, or is not, a pad button.
+fn rising_polled_key(rising: u32, pad: bool) -> Option<&'static str> {
+	POLLED_KEYS
+		.iter()
+		.enumerate()
+		.find(|(index, name)| rising & (1 << index) != 0 && is_pad_button(name) == pad)
+		.map(|(_, name)| *name)
+}
+
+fn capture(
+	ui: &mut egui::Ui,
+	bindings: &mut Keybinds,
+	capturing: &mut Option<CaptureTarget>,
+	polled_down: u32,
+) {
 	let Some(target) = *capturing else {
 		return;
 	};
-	if ui
+	let action = match target {
+		CaptureTarget::BuiltIn(action) => Some(action),
+		CaptureTarget::Custom(index) => bindings.custom.get(index).map(|binding| binding.action),
+	};
+	let mut polled: PolledCapture = ui
+		.data(|data| data.get_temp(polled_capture_id()))
+		.unwrap_or_default();
+	let previous = std::mem::replace(&mut polled.mask, polled_down);
+	let mut captured = None;
+	// Only global actions take lone side modifiers or pad buttons. The native poller
+	// dispatches them, so egui never sees a press that the loop below could record.
+	if action.is_some_and(KeybindAction::is_global) {
+		let rising = polled_down & !previous;
+		let falling = previous & !polled_down;
+		if let Some(name) = rising_polled_key(rising, true) {
+			captured = Some(KeyChord::new(name, 0));
+		} else {
+			if let Some(name) = rising_polled_key(rising, false) {
+				polled.armed = polled_key_bit(name).unwrap_or_default();
+			}
+			let pressed = ui.input(|input| {
+				input.events.iter().any(|event| {
+					matches!(
+						event,
+						Event::Key { pressed: true, .. }
+							| Event::PointerButton { pressed: true, .. }
+					)
+				})
+			});
+			if pressed {
+				// A real key or button wins: the normal capture path records it below.
+				polled.armed = 0;
+			} else if polled.armed & falling != 0 {
+				captured = POLLED_KEYS
+					.get(polled.armed.trailing_zeros() as usize)
+					.map(|name| KeyChord::new(name, 0));
+				polled.armed = 0;
+			}
+		}
+	} else {
+		polled.armed = 0;
+	}
+	if captured.is_some() {
+		polled.armed = 0;
+	}
+	let started = ui
 		.data_mut(|data| data.remove_temp::<CaptureStarted>(capture_started_id()))
-		.is_some()
-	{
+		.is_some();
+	ui.data_mut(|data| data.insert_temp(polled_capture_id(), polled));
+	if started {
 		return;
 	}
-	let mut captured = None;
 	let mut cancelled = false;
-	for event in ui.input(|input| input.events.clone()) {
-		match event {
-			Event::Key {
-				key,
-				pressed: true,
-				repeat: false,
-				modifiers,
-				..
-			} => {
-				if key == Key::Escape {
-					cancelled = true;
-				} else if let Some(name) = key_name(key) {
-					captured = Some(KeyChord::new(name, modifier_bits(modifiers)));
+	if captured.is_none() {
+		for event in ui.input(|input| input.events.clone()) {
+			match event {
+				Event::Key {
+					key,
+					pressed: true,
+					repeat: false,
+					modifiers,
+					..
+				} => {
+					if key == Key::Escape {
+						cancelled = true;
+					} else if let Some(name) = key_name(key) {
+						captured = Some(KeyChord::new(name, modifier_bits(modifiers)));
+					}
+					break;
 				}
-				break;
-			}
-			// Left and right click stay reserved for pointing, so either one cancels.
-			Event::PointerButton {
-				button,
-				pressed: true,
-				modifiers,
-				..
-			} => {
-				match button_name(button) {
-					Some(name) => captured = Some(KeyChord::new(name, modifier_bits(modifiers))),
-					None => cancelled = true,
+				// Left and right click stay reserved for pointing, so either one cancels.
+				Event::PointerButton {
+					button,
+					pressed: true,
+					modifiers,
+					..
+				} => {
+					match button_name(button) {
+						Some(name) => {
+							captured = Some(KeyChord::new(name, modifier_bits(modifiers)))
+						}
+						None => cancelled = true,
+					}
+					break;
 				}
-				break;
+				_ => {}
 			}
-			_ => {}
 		}
 	}
 	if cancelled || captured.is_some() {
@@ -198,37 +276,42 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 	if cancelled {
 		*capturing = None;
 	} else if let Some(chord) = captured {
-		let (ignore_builtin, ignore_custom) = match target {
-			CaptureTarget::BuiltIn(action) => (Some(action), None),
-			CaptureTarget::Custom(index) => (None, Some(index)),
-		};
-		if let Some(other) = bindings.conflict(&chord, ignore_builtin, ignore_custom) {
-			let now = ui.input(|input| input.time);
-			ui.data_mut(|data| {
-				data.insert_temp(
-					egui::Id::unique("keybind_conflict"),
-					ConflictNotice {
-						target,
-						conflicting_action: other,
-						time: now,
-					},
-				);
-			});
-			ui.ctx().request_repaint();
-		} else {
-			match target {
-				CaptureTarget::BuiltIn(action) => *bindings.chord_mut(action) = chord,
-				CaptureTarget::Custom(index) => {
-					if let Some(binding) = bindings.custom.get_mut(index) {
-						binding.chord = chord;
-					}
+		record(ui, bindings, target, chord);
+		*capturing = None;
+	}
+}
+
+/// Applies `chord` to the capturing row, or shows the conflict notice instead.
+fn record(ui: &mut egui::Ui, bindings: &mut Keybinds, target: CaptureTarget, chord: KeyChord) {
+	let (ignore_builtin, ignore_custom) = match target {
+		CaptureTarget::BuiltIn(action) => (Some(action), None),
+		CaptureTarget::Custom(index) => (None, Some(index)),
+	};
+	if let Some(other) = bindings.conflict(&chord, ignore_builtin, ignore_custom) {
+		let now = ui.input(|input| input.time);
+		ui.data_mut(|data| {
+			data.insert_temp(
+				egui::Id::unique("keybind_conflict"),
+				ConflictNotice {
+					target,
+					conflicting_action: other,
+					time: now,
+				},
+			);
+		});
+		ui.ctx().request_repaint();
+	} else {
+		match target {
+			CaptureTarget::BuiltIn(action) => *bindings.chord_mut(action) = chord,
+			CaptureTarget::Custom(index) => {
+				if let Some(binding) = bindings.custom.get_mut(index) {
+					binding.chord = chord;
 				}
 			}
-			ui.data_mut(|data| {
-				data.remove_temp::<ConflictNotice>(egui::Id::unique("keybind_conflict"));
-			});
 		}
-		*capturing = None;
+		ui.data_mut(|data| {
+			data.remove_temp::<ConflictNotice>(egui::Id::unique("keybind_conflict"));
+		});
 	}
 }
 
@@ -495,6 +578,10 @@ fn egui_modifiers(bits: u8) -> Modifiers {
 }
 
 pub(crate) fn pressed(input: &mut InputState, chord: &KeyChord) -> bool {
+	// The native poller owns these, so egui must never consume them as shortcuts.
+	if polled_key_bit(&chord.key).is_some() {
+		return false;
+	}
 	if let Some(button) = button_from_name(&chord.key) {
 		let wanted = egui_modifiers(chord.modifiers);
 		consume_button(input, button, |modifiers| {
@@ -507,6 +594,9 @@ pub(crate) fn pressed(input: &mut InputState, chord: &KeyChord) -> bool {
 }
 
 pub(crate) fn pressed_exact(input: &mut InputState, chord: &KeyChord) -> bool {
+	if polled_key_bit(&chord.key).is_some() {
+		return false;
+	}
 	if let Some(button) = button_from_name(&chord.key) {
 		return consume_button(input, button, |modifiers| {
 			modifier_bits(modifiers) == chord.modifiers
@@ -542,6 +632,9 @@ fn consume_button(
 }
 
 pub(crate) fn down(input: &InputState, chord: &KeyChord) -> bool {
+	if polled_key_bit(&chord.key).is_some() {
+		return false;
+	}
 	let held = match button_from_name(&chord.key) {
 		Some(button) => input.pointer.button_down(button),
 		None => key_name_to_egui(&chord.key).is_some_and(|key| input.key_down(key)),
@@ -702,6 +795,26 @@ fn display_key(name: &str) -> String {
 		"MouseMiddle" => "Mouse 3".into(),
 		"MouseExtra1" => "Mouse 4".into(),
 		"MouseExtra2" => "Mouse 5".into(),
+		"ControlLeft" => "Left Ctrl".into(),
+		"ControlRight" => "Right Ctrl".into(),
+		"ShiftLeft" => "Left Shift".into(),
+		"ShiftRight" => "Right Shift".into(),
+		"AltLeft" => "Left Alt".into(),
+		"AltRight" => "Right Alt".into(),
+		"PadSouth" => "Cross".into(),
+		"PadEast" => "Circle".into(),
+		"PadWest" => "Square".into(),
+		"PadNorth" => "Triangle".into(),
+		"PadUp" => "D-pad Up".into(),
+		"PadDown" => "D-pad Down".into(),
+		"PadLeft" => "D-pad Left".into(),
+		"PadRight" => "D-pad Right".into(),
+		"PadL1" => "L1".into(),
+		"PadR1" => "R1".into(),
+		"PadL2" => "L2".into(),
+		"PadR2" => "R2".into(),
+		"PadL3" => "L3".into(),
+		"PadR3" => "R3".into(),
 		"OpenBracket" => "[".into(),
 		"CloseBracket" => "]".into(),
 		"OpenCurlyBracket" => "{".into(),
@@ -962,7 +1075,7 @@ mod tests {
 				..Default::default()
 			},
 			|ui| {
-				capture(ui, &mut bindings, &mut capturing);
+				capture(ui, &mut bindings, &mut capturing, 0);
 			},
 		);
 		output.textures_delta.clear();
@@ -983,6 +1096,7 @@ mod tests {
 	fn capture_frame(
 		ctx: &egui::Context,
 		events: Vec<Event>,
+		polled_down: u32,
 		bindings: &mut Keybinds,
 		capturing: &mut Option<CaptureTarget>,
 	) {
@@ -991,9 +1105,133 @@ mod tests {
 				events,
 				..Default::default()
 			},
-			|ui| capture(ui, bindings, capturing),
+			|ui| capture(ui, bindings, capturing, polled_down),
 		);
 		output.textures_delta.clear();
+	}
+
+	fn polled_bit(name: &str) -> u32 {
+		model::keybinds::polled_key_bit(name).unwrap()
+	}
+
+	#[test]
+	fn lone_right_ctrl_records_on_release() {
+		let mut bindings = Keybinds::default();
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk));
+		let ctx = egui::Context::default();
+		let right_ctrl = polled_bit("ControlRight");
+		capture_frame(&ctx, vec![], right_ctrl, &mut bindings, &mut capturing);
+		assert_eq!(
+			capturing,
+			Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk))
+		);
+		capture_frame(&ctx, vec![], 0, &mut bindings, &mut capturing);
+		assert_eq!(capturing, None);
+		assert_eq!(
+			bindings.chord(KeybindAction::PushToTalk),
+			&KeyChord::new("ControlRight", 0)
+		);
+	}
+
+	#[test]
+	fn ctrl_combo_still_records_combo() {
+		let mut bindings = Keybinds::default();
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk));
+		let ctx = egui::Context::default();
+		let right_ctrl = polled_bit("ControlRight");
+		capture_frame(&ctx, vec![], right_ctrl, &mut bindings, &mut capturing);
+		capture_frame(
+			&ctx,
+			vec![Event::Key {
+				key: Key::K,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: Modifiers::CTRL,
+			}],
+			right_ctrl,
+			&mut bindings,
+			&mut capturing,
+		);
+		assert_eq!(capturing, None);
+		assert_eq!(
+			bindings.chord(KeybindAction::PushToTalk),
+			&KeyChord::new("K", model::keybinds::CTRL)
+		);
+		capture_frame(&ctx, vec![], 0, &mut bindings, &mut capturing);
+		assert_eq!(
+			bindings.chord(KeybindAction::PushToTalk),
+			&KeyChord::new("K", model::keybinds::CTRL)
+		);
+	}
+
+	#[test]
+	fn polled_keys_ignored_for_text_rows() {
+		let mut bindings = Keybinds::default();
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::Bold));
+		let ctx = egui::Context::default();
+		let right_ctrl = polled_bit("ControlRight");
+		capture_frame(&ctx, vec![], right_ctrl, &mut bindings, &mut capturing);
+		capture_frame(&ctx, vec![], 0, &mut bindings, &mut capturing);
+		assert_eq!(
+			bindings.chord(KeybindAction::Bold),
+			&KeyChord::new("B", model::keybinds::PRIMARY)
+		);
+		assert_eq!(capturing, Some(CaptureTarget::BuiltIn(KeybindAction::Bold)));
+	}
+
+	#[test]
+	fn pad_button_records_on_press() {
+		let mut bindings = Keybinds {
+			custom: vec![CustomBinding {
+				action: KeybindAction::PushToTalk,
+				chord: KeyChord::new("", 0),
+			}],
+			..Default::default()
+		};
+		let mut capturing = Some(CaptureTarget::Custom(0));
+		let ctx = egui::Context::default();
+		capture_frame(
+			&ctx,
+			vec![],
+			polled_bit("PadSouth"),
+			&mut bindings,
+			&mut capturing,
+		);
+		assert_eq!(capturing, None);
+		assert_eq!(bindings.custom[0].chord, KeyChord::new("PadSouth", 0));
+	}
+
+	#[test]
+	fn held_ptt_modifier_does_not_consume_shortcut() {
+		let bindings = Keybinds {
+			push_to_talk: KeyChord::new("ControlRight", 0),
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let mut shortcut = false;
+		let mut ptt = false;
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				events: vec![Event::Key {
+					key: Key::C,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: Modifiers::CTRL,
+				}],
+				..Default::default()
+			},
+			|ui| {
+				ui.input_mut(|input| {
+					ptt = pressed(input, bindings.chord(KeybindAction::PushToTalk));
+					shortcut = pressed(input, &KeyChord::new("C", model::keybinds::CTRL));
+				});
+			},
+		);
+		output.textures_delta.clear();
+		assert!(!ptt);
+		assert!(shortcut);
 	}
 
 	#[test]
@@ -1018,6 +1256,7 @@ mod tests {
 				repeat: false,
 				modifiers: Modifiers::COMMAND,
 			}],
+			0,
 			&mut bindings,
 			&mut capturing,
 		);
@@ -1046,6 +1285,7 @@ mod tests {
 		capture_frame(
 			&ctx,
 			vec![press(egui::PointerButton::Extra1)],
+			0,
 			&mut bindings,
 			&mut capturing,
 		);
@@ -1095,6 +1335,7 @@ mod tests {
 		capture_frame(
 			&ctx,
 			vec![press(egui::PointerButton::Extra2)],
+			0,
 			&mut bindings,
 			&mut capturing,
 		);
@@ -1110,7 +1351,7 @@ mod tests {
 		let ctx = egui::Context::default();
 		for button in [egui::PointerButton::Primary, egui::PointerButton::Secondary] {
 			let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::ToggleMute));
-			capture_frame(&ctx, vec![press(button)], &mut bindings, &mut capturing);
+			capture_frame(&ctx, vec![press(button)], 0, &mut bindings, &mut capturing);
 			assert_eq!(capturing, None);
 		}
 		assert_eq!(bindings, Keybinds::default());
@@ -1129,7 +1370,7 @@ mod tests {
 		};
 		let ctx = egui::Context::default();
 		ctx.data_mut(|data| data.insert_temp(capture_started_id(), CaptureStarted));
-		capture_frame(&ctx, vec![enter], &mut bindings, &mut capturing);
+		capture_frame(&ctx, vec![enter], 0, &mut bindings, &mut capturing);
 		assert_eq!(
 			capturing,
 			Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk))
