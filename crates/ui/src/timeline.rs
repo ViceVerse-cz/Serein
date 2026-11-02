@@ -1092,6 +1092,9 @@ fn grouped(previous: Option<&Message>, message: &Message, boundary: Option<Id>) 
 
 pub(crate) fn mentions_viewer(message: &Message, state: &State) -> bool {
 	let viewer = state.user.as_ref().map(|user| user.id);
+	if viewer.is_some_and(|viewer| message.author.id == viewer) {
+		return false;
+	}
 	message.mention_everyone
 		|| viewer.is_some_and(|viewer| message.mentions.iter().any(|mention| mention.id == viewer))
 		|| (viewer.is_some()
