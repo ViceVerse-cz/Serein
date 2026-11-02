@@ -85,7 +85,6 @@ hide-chat = Скрыть чат
 show-chat = Показать чат
 search-conversation = Искать этот разговор
 show-member-list = Показать список участников
-show-user-profile = Показать профиль пользователя
 pinned-messages = Закрепленные сообщения
 threads = Темы
 

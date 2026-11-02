@@ -85,7 +85,6 @@ hide-chat = Hide chat
 show-chat = Show chat
 search-conversation = Search this conversation
 show-member-list = Show member list
-show-user-profile = Show user profile
 pinned-messages = Pinned messages
 threads = Threads
 

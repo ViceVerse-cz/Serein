@@ -85,7 +85,6 @@ hide-chat = チャットを非表示にする
 show-chat = チャットを表示する
 search-conversation = この会話を検索
 show-member-list = メンバーリストを表示
-show-user-profile = ユーザープロフィールを表示
 pinned-messages = 固定メッセージ
 threads = スレッド
 
