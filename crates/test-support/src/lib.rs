@@ -1471,6 +1471,7 @@ pub fn friends_demo_state() -> State {
 			(0..16)
 				.map(|i| client_core::presence::Update {
 					user: Id(1001 + i),
+					avatar: model::Patch::Absent,
 					status: model::Patch::Value(if i < 7 { "online" } else { "offline" }.into()),
 					custom_status: if i == 0 {
 						model::Patch::Value("Building something fun".into())

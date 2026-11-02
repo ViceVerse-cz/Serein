@@ -1427,19 +1427,25 @@ impl Avatars {
 		// A favorite's saved Discord attachment link lacks the expiring signature and is
 		// refused; the embed's own media is the same GIF, freshly signed, and plays as is.
 		let original = gif
-			.filter(|gif| {
-				self.animate_gifs
-					&& gif.url.ends_with(".gif")
-					&& !model::valid_discord_media_url(&gif.url)
-			})
-			.map(|gif| model::EmbedMedia {
-				url: Some(gif.url.clone()),
-				proxy_url: (!model::valid_gif_preview(&gif.url)).then(|| gif.preview.clone()),
-				width: gif.width,
-				height: gif.height,
-				placeholder: poster
-					.map(|poster| poster.placeholder.clone())
-					.unwrap_or_default(),
+			.filter(|gif| self.animate_gifs && !model::valid_discord_media_url(&gif.url))
+			.and_then(|gif| {
+				let play_url = [Some(gif.url.as_str()), Some(gif.preview.as_str())]
+					.into_iter()
+					.flatten()
+					.find(|u| {
+						let path = u.split(['?', '#']).next().unwrap_or(u);
+						let lower = path.to_ascii_lowercase();
+						lower.ends_with(".gif") || lower.ends_with(".webp")
+					})?;
+				Some(model::EmbedMedia {
+					url: Some(play_url.to_owned()),
+					proxy_url: (!model::valid_gif_preview(play_url)).then(|| gif.preview.clone()),
+					width: gif.width,
+					height: gif.height,
+					placeholder: poster
+						.map(|poster| poster.placeholder.clone())
+						.unwrap_or_default(),
+				})
 			});
 		let media = video
 			.as_ref()

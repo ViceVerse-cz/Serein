@@ -26,6 +26,8 @@ pub struct Updates {
 	pub download_requested: bool,
 	pub restart_requested: bool,
 	pub copied_diagnostics: Option<f64>,
+	/// Feedback for the copy button of the diagnostic log's recent lines.
+	pub copied_log: Option<f64>,
 	pub copied_command: Option<f64>,
 	/// Ready flag the sidebar banner was dismissed at, so a later stage prompts again.
 	pub banner_dismissed: Option<bool>,
@@ -49,6 +51,7 @@ impl Default for Updates {
 			download_requested: false,
 			restart_requested: false,
 			copied_diagnostics: None,
+			copied_log: None,
 			copied_command: None,
 			banner_dismissed: None,
 			log: Vec::new(),
@@ -518,27 +521,146 @@ impl MessagingUi {
 					.updates
 					.copied_diagnostics
 					.is_some_and(|until| ui.input(|i| i.time) < until);
-				if design::row(
-				ui,
-				"updates-update-settings-issue-diagnostics",
-				Some(
-					"updates-update-settings-copy-system-and-client-environment-details-formatted-for-github-issue",
-				),
-				|ui| {
-					design::button(
-						ui,
-						&crate::i18n::translate_if_key(if copied { "updates-update-settings-copied" } else { "updates-update-settings-copy" }),
-						design::ButtonKind::Outline,
-					)
-				},
-			)
-			.clicked()
-			{
-				self.copy_diagnostic_info(ui.ctx());
-			}
+				let mut copying = false;
+				let mut saving = false;
+				design::row(
+					ui,
+					"updates-update-settings-issue-diagnostics",
+					Some(
+						"updates-update-settings-copy-system-and-client-environment-details-formatted-for-github-issue",
+					),
+					|ui| {
+						if design::button(
+							ui,
+							&crate::i18n::translate("updates-update-settings-save-diagnostics"),
+							design::ButtonKind::Outline,
+						)
+						.clicked()
+						{
+							saving = true;
+						}
+						if design::button(
+							ui,
+							&crate::i18n::translate_if_key(if copied {
+								"updates-update-settings-copied"
+							} else {
+								"updates-update-settings-copy"
+							}),
+							design::ButtonKind::Outline,
+						)
+						.clicked()
+						{
+							copying = true;
+						}
+					},
+				);
+				if copying {
+					self.copy_diagnostic_info(ui.ctx());
+				}
+				if saving {
+					self.diagnostics_save_requested = true;
+				}
+				if let Some(path) = &self.diagnostics_saved_path {
+					// The file the owner should attach; naming it is enough, no new copy needed.
+					let colors = design::palette(ui);
+					ui.add_space(4.0);
+					ui.add(
+						egui::Label::new(egui::RichText::new(path).size(12.0).color(colors.muted))
+							.wrap(),
+					);
+				}
+				design::card_divider(ui);
+				let copied_log = self
+					.updates
+					.copied_log
+					.is_some_and(|until| ui.input(|i| i.time) < until);
+				design::row(
+					ui,
+					"updates-update-settings-diagnostic-log",
+					Some(if self.diagnostics_log_failed {
+						"updates-update-settings-the-log-folder-could-not-be-written"
+					} else {
+						"updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or"
+					}),
+					|ui| {
+						egui::ComboBox::from_id_salt("diagnostic-log-level")
+							.selected_text(log_level_label(self.diagnostics_log))
+							.width(ui.available_width().min(160.0))
+							.show_ui(ui, |ui| {
+								for level in diagnostics::Level::ALL {
+									ui.selectable_value(
+										&mut self.diagnostics_log,
+										level,
+										log_level_label(level),
+									);
+								}
+							});
+					},
+				);
+				if self.diagnostics_log != diagnostics::Level::Off
+					&& let Some(path) = &self.diagnostics_log_path
+				{
+					// The file is named where the owner enables the log, so a report can be found
+					// without guessing which of Serein's folders holds it; a warning colour marks
+					// a folder the system refused to open, whose path the host copied instead.
+					let colors = design::palette(ui);
+					let color = if self.diagnostics_log_open_failed {
+						colors.warning
+					} else {
+						colors.muted
+					};
+					ui.add_space(4.0);
+					ui.add(
+						egui::Label::new(egui::RichText::new(path).size(12.0).color(color)).wrap(),
+					);
+				}
+				design::card_divider(ui);
+				design::row(
+					ui,
+					"updates-update-settings-copy-recent-lines",
+					None,
+					|ui| {
+						if design::button(
+							ui,
+							&crate::i18n::translate_if_key(if copied_log {
+								"updates-update-settings-copied"
+							} else {
+								"updates-update-settings-copy"
+							}),
+							design::ButtonKind::Outline,
+						)
+						.clicked()
+						{
+							ui.ctx().copy_text(diagnostics::recent(200));
+							self.updates.copied_log = Some(ui.input(|i| i.time) + 2.5);
+							ui.ctx()
+								.request_repaint_after(std::time::Duration::from_secs(3));
+						}
+						if design::button(
+							ui,
+							&crate::i18n::translate("updates-update-settings-open-folder"),
+							design::ButtonKind::Outline,
+						)
+						.clicked()
+						{
+							self.open_log_folder_requested = true;
+						}
+					},
+				);
 			},
 		);
 	}
+}
+
+/// The interface name of each diagnostic log level.
+fn log_level_label(level: diagnostics::Level) -> String {
+	crate::i18n::translate(match level {
+		diagnostics::Level::Off => "updates-update-settings-log-off",
+		diagnostics::Level::Error => "updates-update-settings-log-errors",
+		diagnostics::Level::Warn => "updates-update-settings-log-warnings",
+		diagnostics::Level::Info => "updates-update-settings-log-events",
+		diagnostics::Level::Debug => "updates-update-settings-log-everything",
+	})
 }
 
 impl MessagingUi {

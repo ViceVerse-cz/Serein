@@ -1537,6 +1537,14 @@ join-server-status-invite-accepted = Davet kabul edildi. Sunucu erişimi bekleni
 join-server-status-offline-preview = Çevrimdışı önizleme — sunuculara katılma devre dışı bırakıldı.
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = Kaldır
+# Context: custom_section
+keybinds-custom-section-add-binding = Kısayol ekle
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = Her eylem için ek kısayollar ekleyin. Her tuş veya fare düğmesi kombinasyonu yalnızca bir kez kullanılabilir.
+# Context: custom_section
+keybinds-custom-section-custom-bindings = Özel kısayollar
 # Context: row
 keybinds-row-global = KÜRESEL
 # Context: row
@@ -1777,6 +1785,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = Aç
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Sesi Önizle
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = Konuşmak için bas: başlat
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = Konuşmak için bas: bitir
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Zil sesleri, çağrı cihazları ve mikrofon işleme.
 # Context: notification_settings
@@ -3976,7 +3988,29 @@ updates-update-settings-restart-to-update = Güncellemek için yeniden başlatı
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein dağıtımınız aracılığıyla kuruldu. Güncellemek için bunu bir terminalde çalıştırın.
 # Context: update_settings
+updates-update-settings-save-diagnostics = Tanılamayı kaydet
+# Context: update_settings
 updates-update-settings-support-diagnostics = Destek ve teşhis
+# Context: update_settings
+updates-update-settings-copy-recent-lines = Son satırları kopyala
+# Context: update_settings
+updates-update-settings-diagnostic-log = Tanılama günlüğü
+# Context: update_settings
+updates-update-settings-log-errors = Hatalar
+# Context: update_settings
+updates-update-settings-log-events = Hatalar, uyarılar ve olaylar
+# Context: update_settings
+updates-update-settings-log-everything = Her şey (ayrıntılı)
+# Context: update_settings
+updates-update-settings-log-off = Kapalı
+# Context: update_settings
+updates-update-settings-log-warnings = Hatalar ve uyarılar
+# Context: update_settings
+updates-update-settings-open-folder = Klasörü aç
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = Günlük klasörü yazılamadı. Serein'in veri klasörünü denetleyip yeniden deneyin.
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = Süreler, aşamalar ve hatalar tek bir yerel günlük dosyasında. Hesap, kanal, mesaj ve kimlik bilgileri asla yazılmaz ve hiçbir şey yüklenmez.
 # Context: update_log
 updates-update-log = Güncelleme günlüğü
 # Context: update_settings
@@ -4442,6 +4476,7 @@ lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için s
 lib-composer-onboarding-complete = Tanıtımı tamamla
 profiles-message-placeholder = @{ $user } kullanıcısına mesaj
 profiles-message-send = Mesaj gönder
+profiles-message-open-chat = Sohbeti aç
 profiles-message-sending = Direkt mesaj açılıyor…
 user-menu-contents-start-a-call = Arama başlat
 verification-show-complete-the-check-to-open-this-conversation = Bu sohbeti açmak için doğrulamayı tamamla.
