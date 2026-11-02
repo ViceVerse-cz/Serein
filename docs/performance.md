@@ -483,31 +483,33 @@ The integrated payload contains 245 files. One artifact set per revision, unchan
 release settings; archive timestamps/compression add noise. These deltas include upstream
 changes through `54512d29` and do not isolate stream-feature cost.
 
-### Upstream integration — November 3, 2026
+### Upstream integration and parser security patch — November 3, 2026
 
-This integration incorporates upstream `23010ac7`. The transport conflict retains
-upstream's 510 kb/s stereo Opus microphone encoder, including dual-mono input and
-soft clipping, alongside the stream timing and receive logic. The existing encrypted
-WebSocket/UDP/DAVE loopback test now verifies stereo 1,275-byte outgoing packets and
-successful mono decoding of all 960 samples in a 20 ms frame. No live microphone or
-Discord call was used. The lockfile and audit policy still match upstream exactly.
+This integration incorporates upstream `23010ac7`, retaining its stereo Opus microphone
+encoder alongside the stream timing and receive logic. The encrypted loopback regression
+verifies stereo 1,275-byte outgoing packets and mono decoding of a full 20 ms frame.
+
+The direct pulldown-cmark pin advances from 0.13.5 to 0.13.6 for RUSTSEC-2026-0433.
+Serein does not enable the affected wikilinks option; the patched MIT-licensed release
+is used without adding an audit exception. With cargo-audit 0.22.2 and the same database
+`263a4d951a0867d4bddc29dddd6d59427c78f9a7`, the old lockfile reports that one finding
+and the patched lockfile reports none, with no denied warnings. Both runs use the same
+inherited audit policy; ignored upstream advisories are not claimed as remediated.
 
 `cargo xtask check` passes: 1,443 unit/integration/doctests, 14 ignored, formatting,
-strict Clippy, production and policy checks. Auth-handoff checks pass. Native Arch
-metadata, dependency, payload, mode and ownership smoke checks pass. License inputs
-are unchanged from the preceding verified integration. No fresh owner-operated live
-result, microphone quality or physical A/V latency claim is made.
+strict Clippy, production and policy checks. Declared-license and six license-policy
+fixtures pass. Native Arch metadata, dependency, payload, mode and ownership smoke
+checks pass. No fresh owner-operated live or physical A/V quality result is claimed.
 
-| Package metric | Previous integration (`e1d82421`) | Integrated candidate | Delta |
+| Package metric | Before parser patch (`a6c6e80a`) | Patched candidate | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 93,467,720 B | 93,495,880 B | +28,160 B (+0.030%) |
-| Installed payload | 98,166,173 B | 98,194,333 B | +28,160 B (+0.029%) |
-| Arch archive | 54,765,849 B | 54,776,341 B | +10,492 B (+0.019%) |
+| Executable | 93,495,880 B | 93,496,008 B | +128 B (+0.000%) |
+| Installed payload | 98,194,333 B | 98,194,461 B | +128 B (+0.000%) |
+| Arch archive | 54,776,341 B | 54,782,011 B | +5,670 B (+0.010%) |
 
 Installed payload: 245 files. One artifact set per revision, same standard
-voice-enabled release settings; archive compression/timestamps add noise. These deltas
-include upstream changes and do not isolate stream playback. CPU/RSS and physical
-latency are unmeasured; no speed improvement is inferred from package size.
+voice-enabled release settings; archive compression/timestamps add noise. CPU/RSS and
+physical latency are unmeasured; no speed improvement is inferred from package size.
 
 ### Earlier playback recovery evidence
 
