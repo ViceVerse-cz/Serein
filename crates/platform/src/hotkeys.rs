@@ -430,7 +430,11 @@ impl Hotkeys {
 	/// so [`Self::polled_down`] stays live.
 	pub fn set_capturing(&mut self, capturing: bool) {
 		#[cfg(any(target_os = "windows", target_os = "macos"))]
-		if self.shared.capturing.swap(capturing, Ordering::Relaxed) != capturing {
+		if self.shared.capturing.load(Ordering::Relaxed) != capturing {
+			// Stop the old poller under the old flag, so it cannot publish a held key as a
+			// fresh press once recording ends; the new poller then seeds held toggles.
+			self.poller = None;
+			self.shared.capturing.store(capturing, Ordering::Relaxed);
 			self.restart_poller();
 		}
 		#[cfg(not(any(target_os = "windows", target_os = "macos")))]
