@@ -15,6 +15,20 @@ const EMOJI_LIMIT: usize = 256;
 const ROW: f32 = 36.0;
 const VISIBLE_ROWS: f32 = 8.5;
 
+/// VenSerein (MentionAvatars): Toggle for rendering member avatars in mention autocompletion.
+pub static MENTION_AVATARS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_mention_avatars_enabled(enabled: bool) {
+	MENTION_AVATARS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn mention_avatars_enabled() -> bool {
+	MENTION_AVATARS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Default)]
 pub struct Menu {
 	catalog_revision: u64,
@@ -938,8 +952,10 @@ fn row(
 			game.name.clone()
 		}
 		Candidate::User { user, name } => {
-			let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
-			avatars.show(&mut child, user, 24.0, demo);
+			if mention_avatars_enabled() {
+				let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
+				avatars.show(&mut child, user, 24.0, demo);
+			}
 			name.clone()
 		}
 		Candidate::Mass { .. } | Candidate::Role { .. } => {
@@ -1052,6 +1068,15 @@ fn row(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn mention_avatars_toggle_works() {
+		assert!(mention_avatars_enabled());
+		set_mention_avatars_enabled(false);
+		assert!(!mention_avatars_enabled());
+		set_mention_avatars_enabled(true);
+		assert!(mention_avatars_enabled());
+	}
 	use model::Channel;
 
 	#[test]

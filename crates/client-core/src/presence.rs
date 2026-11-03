@@ -6,6 +6,34 @@ pub const MAX_DIRECT_PRESENCE_BYTES: usize = 512 * 1024;
 
 pub const MAX_LOCAL_GAME_ACTIVITY_BYTES: usize = 4 * 1024;
 
+/// VenSerein (IgnoreActivities): Filters out selected types of presence activity (e.g. games/music) from display.
+pub static IGNORE_ACTIVITIES_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_ignore_activities_enabled(enabled: bool) {
+	IGNORE_ACTIVITIES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn ignore_activities_enabled() -> bool {
+	IGNORE_ACTIVITIES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (GameActivityToggle): Global toggle to control broadcast of registered game activity.
+pub static GAME_ACTIVITY_TOGGLE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_game_activity_toggle_enabled(enabled: bool) {
+	GAME_ACTIVITY_TOGGLE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn game_activity_toggle_enabled() -> bool {
+	GAME_ACTIVITY_TOGGLE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Clone)]
 pub struct Update {
 	pub user: Id,
@@ -507,6 +535,21 @@ impl State {
 
 #[cfg(test)]
 mod tests {
+
+	#[test]
+	fn ignore_activities_and_game_toggle_works() {
+		assert!(!ignore_activities_enabled());
+		set_ignore_activities_enabled(true);
+		assert!(ignore_activities_enabled());
+		set_ignore_activities_enabled(false);
+		assert!(!ignore_activities_enabled());
+
+		assert!(game_activity_toggle_enabled());
+		set_game_activity_toggle_enabled(false);
+		assert!(!game_activity_toggle_enabled());
+		set_game_activity_toggle_enabled(true);
+		assert!(game_activity_toggle_enabled());
+	}
 	use super::*;
 	use crate::{Envelope, Event, auth::AuthState};
 	use model::{Channel, Freshness, Guild, Member, MemberList, MemberPresence, MemberSlot, User};

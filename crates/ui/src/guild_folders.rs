@@ -288,6 +288,20 @@ pub fn read_all_notifications_button_enabled() -> bool {
 	READ_ALL_NOTIFICATIONS_BUTTON_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// VenSerein (MutedServersActivityBadge): Suppresses unread dots and count badges on muted servers.
+pub static MUTED_SERVERS_ACTIVITY_BADGE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_muted_servers_activity_badge_enabled(enabled: bool) {
+	MUTED_SERVERS_ACTIVITY_BADGE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn muted_servers_activity_badge_enabled() -> bool {
+	MUTED_SERVERS_ACTIVITY_BADGE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn paint_folder_tile(
 	ui: &mut egui::Ui,
 	avatars: &mut crate::avatars::Avatars,
@@ -514,7 +528,13 @@ impl MessagingUi {
 								self.guild == Some(id),
 								state.demo,
 							);
-							let (unread, count) = self.rail_cache.guild_badge(id);
+							let (mut unread, mut count) = self.rail_cache.guild_badge(id);
+							if muted_servers_activity_badge_enabled()
+								&& state.server_notification_settings(id).muted == Some(true)
+							{
+								unread = false;
+								count = 0;
+							}
 							rail_indicator(
 								ui,
 								response.id,
@@ -1003,6 +1023,15 @@ impl MessagingUi {
 
 #[cfg(test)]
 mod tests {
+
+	#[test]
+	fn muted_servers_activity_badge_toggle_works() {
+		assert!(!muted_servers_activity_badge_enabled());
+		set_muted_servers_activity_badge_enabled(true);
+		assert!(muted_servers_activity_badge_enabled());
+		set_muted_servers_activity_badge_enabled(false);
+		assert!(!muted_servers_activity_badge_enabled());
+	}
 
 	#[test]
 	fn read_all_notifications_button_toggle_works() {

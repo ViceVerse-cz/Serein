@@ -18,6 +18,39 @@ pub fn fav_emoji_first_enabled() -> bool {
 	FAV_EMOJI_FIRST_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// VenSerein (BetterGifAltText): Derives human-readable alt description from GIF slug when title is absent.
+pub static BETTER_GIF_ALT_TEXT_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_better_gif_alt_text_enabled(enabled: bool) {
+	BETTER_GIF_ALT_TEXT_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn better_gif_alt_text_enabled() -> bool {
+	BETTER_GIF_ALT_TEXT_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn derive_gif_alt_text(title: &str, url: &str) -> String {
+	if !title.is_empty() {
+		return title.to_string();
+	}
+	if BETTER_GIF_ALT_TEXT_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+		if let Some(slug) = url.rsplit('/').next() {
+			let cleaned = slug
+				.split('-')
+				.take_while(|p| !p.chars().all(|c| c.is_ascii_digit()))
+				.collect::<Vec<_>>()
+				.join(" ");
+			if !cleaned.is_empty() {
+				return cleaned;
+			}
+		}
+	}
+	"GIF".to_owned()
+}
+
 const NAMES: &str = include_str!("../../../assets/twemoji/names.tsv");
 const DISCORD_NAMES: &str = include_str!("../../../assets/twemoji/discord-shortcodes.tsv");
 const CELL: f32 = 40.0;
@@ -2433,11 +2466,7 @@ fn gif_grid(
 						egui::Stroke::new(2.0, colors.text_strong),
 						egui::StrokeKind::Inside,
 					);
-					*hovered = Some(if gif.title.is_empty() {
-						"GIF".to_owned()
-					} else {
-						gif.title.clone()
-					});
+					*hovered = Some(derive_gif_alt_text(&gif.title, &gif.url));
 				}
 				if let Some(star) = &star {
 					let hot = star.hovered() || star.has_focus();
@@ -2561,6 +2590,17 @@ fn cell(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn better_gif_alt_text_toggle_and_derive_works() {
+		assert!(!better_gif_alt_text_enabled());
+		assert_eq!(derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"), "GIF");
+		set_better_gif_alt_text_enabled(true);
+		assert!(better_gif_alt_text_enabled());
+		assert_eq!(derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"), "funny cat dancing");
+		set_better_gif_alt_text_enabled(false);
+		assert_eq!(derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"), "GIF");
+	}
 
 	#[test]
 	fn fav_emoji_first_toggle_works() {
