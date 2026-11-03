@@ -1135,8 +1135,13 @@ pub(crate) fn presence_badge(
 		mobile,
 		(ring, ring_width),
 	);
+	let hover_text = if platform_indicators_enabled() && clients.any() {
+		format!("{} ({})", presence_label(status), platform_label(clients))
+	} else {
+		presence_label(status)
+	};
 	ui.allocate_rect(presence_badge_rect(rect, mobile), egui::Sense::hover())
-		.on_hover_text(presence_label(status));
+		.on_hover_text(hover_text);
 }
 
 /// Discord's typing badge: the status disc stretched leftward into a pill of the status
@@ -4731,8 +4736,45 @@ pub static UNLOCKED_AVATAR_ZOOM_ENABLED: std::sync::atomic::AtomicBool =
 	std::sync::atomic::AtomicBool::new(false);
 
 #[allow(dead_code)]
+pub fn unlocked_avatar_zoom_enabled() -> bool {
+	UNLOCKED_AVATAR_ZOOM_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
 pub fn set_unlocked_avatar_zoom_enabled(enabled: bool) {
 	UNLOCKED_AVATAR_ZOOM_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub static PLATFORM_INDICATORS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn platform_indicators_enabled() -> bool {
+	PLATFORM_INDICATORS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_platform_indicators_enabled(enabled: bool) {
+	PLATFORM_INDICATORS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn platform_label(clients: model::ClientPlatforms) -> String {
+	let mut list = Vec::new();
+	if clients.desktop {
+		list.push("Desktop");
+	}
+	if clients.mobile {
+		list.push("Mobile");
+	}
+	if clients.web {
+		list.push("Web");
+	}
+	if clients.vr {
+		list.push("VR");
+	}
+	if list.is_empty() {
+		String::new()
+	} else {
+		list.join(", ")
+	}
 }
 
 pub static ALWAYS_EXPAND_ROLES_ENABLED: std::sync::atomic::AtomicBool =
@@ -4745,6 +4787,22 @@ pub fn set_always_expand_roles_enabled(enabled: bool) {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn platform_indicators_toggle_and_label() {
+		assert!(platform_indicators_enabled());
+		let clients = model::ClientPlatforms {
+			desktop: true,
+			mobile: true,
+			web: false,
+			vr: false,
+		};
+		assert_eq!(platform_label(clients), "Desktop, Mobile");
+
+		set_platform_indicators_enabled(false);
+		assert!(!platform_indicators_enabled());
+		set_platform_indicators_enabled(true);
+	}
+
 	#[test]
 	fn user_voice_show_toggle_works() {
 		assert!(user_voice_show_enabled());

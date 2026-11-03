@@ -86,7 +86,9 @@ fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, boo
 	if count == 0 {
 		return None;
 	}
-	let verb = if count == 1 {
+	let verb = if typing_tweaks_enabled() {
+		if count == 1 { " is typing (typingTweaks active)…" } else { " are typing (typingTweaks active)…" }
+	} else if count == 1 {
 		" is typing…"
 	} else {
 		" are typing…"
@@ -187,6 +189,13 @@ pub(super) fn overlay(
 	job.wrap.max_width = (rect.right() - text_left).max(0.0);
 	job.wrap.max_rows = 1;
 	job.wrap.break_anywhere = true;
+	if typing_indicator_avatar_enabled() {
+		painter.circle_filled(
+			egui::pos2(dots_left - 1.0, rect.center().y),
+			2.0,
+			colors.accent,
+		);
+	}
 	let strong = crate::design::semibold_family(ui.ctx());
 	for (text, is_name) in &segments {
 		job.append(
@@ -236,8 +245,43 @@ pub fn set_no_typing_animation_enabled(enabled: bool) {
 	NO_TYPING_ANIMATION_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
+pub static TYPING_TWEAKS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+pub fn typing_tweaks_enabled() -> bool {
+	TYPING_TWEAKS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_typing_tweaks_enabled(enabled: bool) {
+	TYPING_TWEAKS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub static TYPING_INDICATOR_AVATAR_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+pub fn typing_indicator_avatar_enabled() -> bool {
+	TYPING_INDICATOR_AVATAR_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_typing_indicator_avatar_enabled(enabled: bool) {
+	TYPING_INDICATOR_AVATAR_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn typing_tweaks_and_avatar_toggles_work() {
+		assert!(!typing_tweaks_enabled());
+		set_typing_tweaks_enabled(true);
+		assert!(typing_tweaks_enabled());
+		set_typing_tweaks_enabled(false);
+
+		assert!(!typing_indicator_avatar_enabled());
+		set_typing_indicator_avatar_enabled(true);
+		assert!(typing_indicator_avatar_enabled());
+		set_typing_indicator_avatar_enabled(false);
+	}
+
 	#[test]
 	fn no_typing_animation_toggle_works() {
 		set_no_typing_animation_enabled(true);
