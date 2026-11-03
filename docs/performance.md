@@ -1545,3 +1545,33 @@ then alternated after builds finished: one warmup and five samples per binary. T
 It is a general reducer check, not an avatar-burst, input-latency or camera benchmark.
 Background OS load is not controlled; no speed improvement is claimed. Process RSS,
 UI frame latency, physical audio/camera behavior and live Discord remain unmeasured.
+
+## Lone side-modifier and controller voice keybinds (2026-11-03)
+
+Compared baseline `7e71af5` (main) with this branch on Windows 11 x64 (10.0.26300),
+AMD Ryzen 9 9900X3D, 32 GiB RAM, pinned Rust 1.98.1 and locked dependencies. Both standard
+`cargo xtask package` builds include voice and disable developer/default features, built in
+separate worktrees and target directories. NSIS is unavailable, so there is no installer.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 92,810,240 | 92,914,176 | +103,936 / +0.112% |
+| Installed payload bytes (233 / 234 files) | 97,169,437 | 97,274,783 | +105,346 / +0.108% |
+| ZIP bytes (.NET `ZipFile`, Optimal) | 53,173,457 | 53,214,241 | +40,784 / +0.077% |
+
+The extra installed file is the `hidapi` MIT license text.
+
+The input poller runs only while a voice action is bound to a lone side modifier or controller
+button, or while a binding is being recorded. A throwaway release harness constructed
+`platform::hotkeys::Hotkeys`, synced one Push to Talk binding while unfocused, and idled. Each
+mode had a 5 s warmup, then process CPU over 30 s. These are one sample per mode, so the
+differences are approximate.
+
+| Binding | CPU, one core | Threads |
+| --- | ---: | ---: |
+| None (default keybinds) | 0.000% | 1 |
+| Right Ctrl | 0.104% | 2 |
+| DualSense Cross (USB pad connected) | 0.312% | 3 |
+
+This measures the poller alone, not the full application, frame latency or live voice.
+The macOS poller and the Bluetooth/Edge pad paths were not measured.
