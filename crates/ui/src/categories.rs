@@ -904,7 +904,12 @@ impl MessagingUi {
 									),
 								);
 								self.preload.conversation(&response, || Some(channel.id));
-								if response.clicked() {
+								if crate::voice::vc_double_click_enabled() {
+									response.clone().on_hover_text("Double-click to join voice");
+									if response.double_clicked() {
+										selected = Some(channel.id);
+									}
+								} else if response.clicked() {
 									selected = Some(channel.id);
 								}
 								paint_shelf_rule(

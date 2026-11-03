@@ -8,6 +8,21 @@ use crate::{
 	markdown::external_url,
 };
 use egui::{Color32, Rect, RichText, Sense, Stroke, StrokeKind};
+
+/// VenSerein (BlurNSFW): Global toggle for blurring/curtaining NSFW and spoiler media until revealed.
+static BLUR_NSFW_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// VenSerein: Enable or disable BlurNSFW mode.
+#[allow(dead_code)]
+pub fn set_blur_nsfw_enabled(enable: bool) {
+	BLUR_NSFW_ENABLED.store(enable, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein: Check if BlurNSFW mode is enabled.
+#[allow(dead_code)]
+pub fn blur_nsfw_enabled() -> bool {
+	BLUR_NSFW_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
 use model::{Attachment, Id, Message};
 
 /// Rough content family of a file, chosen from its name and reported type only.
@@ -363,11 +378,40 @@ pub(crate) fn show_subset(
 					ui.horizontal_top(|ui| {
 						for attachment in row {
 							ui.push_id(("attachment", attachment.id), |ui| {
+								let is_spoiler = attachment.spoiler || attachment.filename.starts_with("SPOILER_");
+								let target_dim = artwork_size(attachment, size);
+								let reveal_id = egui::Id::unique(("attachment-spoiler-revealed", message.id, attachment.id));
+								let revealed = ui.data(|d| d.get_temp::<bool>(reveal_id)).unwrap_or(false);
+								if is_spoiler && blur_nsfw_enabled() && !revealed {
+									let (rect, response) = ui.allocate_exact_size(target_dim, Sense::click());
+									let colors = design::palette(ui);
+									ui.painter().rect_filled(rect, 8, colors.surface);
+									ui.painter().rect_stroke(rect, 8, (1.0, colors.border), StrokeKind::Inside);
+									ui.painter().text(
+										rect.center(),
+										egui::Align2::CENTER_CENTER,
+										"SPOILER (click to reveal)",
+										egui::FontId::proportional(13.0),
+										colors.text_strong,
+									);
+									response.widget_info(|| {
+										egui::WidgetInfo::labeled(
+											egui::Role::Button,
+											ui.is_enabled(),
+											format!("Reveal spoiler {}", attachment.filename),
+										)
+									});
+									if response.clicked() {
+										ui.data_mut(|d| d.insert_temp(reveal_id, true));
+									}
+									surface.keep(&response);
+									return;
+								}
 								let image = images
 									.show_media(
 										ui,
 										&attachment.media,
-										artwork_size(attachment, size),
+										target_dim,
 										demo,
 										if columns == 3 {
 											Surface::Banner
@@ -1841,5 +1885,13 @@ mod tests {
 			frame(&ctx, Some(key), |ui| download.show_status(ui));
 		}
 		assert!(download.cancel_requested);
+	}
+
+	#[test]
+	fn test_venserein_blur_nsfw_toggle() {
+		assert!(super::blur_nsfw_enabled());
+		super::set_blur_nsfw_enabled(false);
+		assert!(!super::blur_nsfw_enabled());
+		super::set_blur_nsfw_enabled(true);
 	}
 }

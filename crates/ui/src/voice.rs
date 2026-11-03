@@ -1,4 +1,35 @@
 use crate::channel_marks::{self, Emphasis};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// VenSerein (CallTimer): toggle for displaying real-time call duration in the voice card.
+static CALL_TIMER_ENABLED: AtomicBool = AtomicBool::new(true);
+
+/// VenSerein: Enable or disable CallTimer.
+#[allow(dead_code)]
+pub fn set_call_timer_enabled(enable: bool) {
+	CALL_TIMER_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+/// VenSerein: Returns whether CallTimer is currently enabled.
+#[allow(dead_code)]
+pub fn call_timer_enabled() -> bool {
+	CALL_TIMER_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (VcDoubleClick): toggle for requiring double click to join/switch voice channels.
+static VC_DOUBLE_CLICK_ENABLED: AtomicBool = AtomicBool::new(true);
+
+/// VenSerein: Enable or disable VcDoubleClick.
+#[allow(dead_code)]
+pub fn set_vc_double_click_enabled(enable: bool) {
+	VC_DOUBLE_CLICK_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+/// VenSerein: Returns whether VcDoubleClick is currently enabled.
+#[allow(dead_code)]
+pub fn vc_double_click_enabled() -> bool {
+	VC_DOUBLE_CLICK_ENABLED.load(Ordering::Relaxed)
+}
 use crate::design::LazyHover;
 use crate::{MessagingUi, design};
 use client_core::{
@@ -3809,16 +3840,26 @@ impl MessagingUi {
 			Some(guild) => format!("{channel} / {guild}"),
 			None => channel,
 		};
-		let title = if state.demo && phase != Phase::Failed {
-			"Voice preview"
-		} else if phase == Phase::Failed {
-			"Call failed"
-		} else if connected {
-			"Voice Connected"
-		} else if let Some(title) = &reconnecting_title {
-			title.as_str()
+		let elapsed = if CALL_TIMER_ENABLED.load(Ordering::Relaxed) {
+			elapsed_label(call)
 		} else {
-			"Connecting…"
+			None
+		};
+		let title = if state.demo && phase != Phase::Failed {
+			"Voice preview".to_owned()
+		} else if phase == Phase::Failed {
+			"Call failed".to_owned()
+		} else if connected {
+			if let Some(elapsed) = elapsed {
+				ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+				format!("Voice Connected ({elapsed})")
+			} else {
+				"Voice Connected".to_owned()
+			}
+		} else if let Some(title) = &reconnecting_title {
+			title.clone()
+		} else {
+			"Connecting…".to_owned()
 		};
 		let color = if phase == Phase::Failed {
 			colors.danger
@@ -3884,7 +3925,7 @@ impl MessagingUi {
 								ui.spacing_mut().item_spacing.y = 0.0;
 								ui.add(
 									egui::Label::new(
-										design::semibold(ui, title, 15.0).color(color),
+										design::semibold(ui, &title, 15.0).color(color),
 									)
 									.truncate()
 									.selectable(false),
@@ -5748,6 +5789,8 @@ mod tests {
 		assert_eq!(elapsed_label(call).as_deref(), Some("02:05:40"));
 		call.phase = Phase::Failed;
 		assert!(elapsed_label(call).is_none());
+		assert!(super::call_timer_enabled());
+		assert!(super::vc_double_click_enabled());
 		state.demo = true;
 		for width in [640.0, 1120.0] {
 			let mut output = context.run_ui(
