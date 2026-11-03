@@ -4,6 +4,20 @@ use client_core::{Command, State};
 use model::Id;
 use std::sync::OnceLock;
 
+/// VenSerein (FavEmojiFirst): Prioritizes favorites and expands frequently used emojis to the top of the emoji picker.
+pub static FAV_EMOJI_FIRST_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_fav_emoji_first_enabled(enabled: bool) {
+	FAV_EMOJI_FIRST_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn fav_emoji_first_enabled() -> bool {
+	FAV_EMOJI_FIRST_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 const NAMES: &str = include_str!("../../../assets/twemoji/names.tsv");
 const DISCORD_NAMES: &str = include_str!("../../../assets/twemoji/discord-shortcodes.tsv");
 const CELL: f32 = 40.0;
@@ -781,9 +795,10 @@ impl Picker {
 	}
 
 	fn favorites(&self) -> Vec<usize> {
-		let mut favorites: Vec<_> = self.frequent.iter().take(8).map(|(i, _)| *i).collect();
-		for text in ["👍", "❤️", "😂", "🎉", "👀", "✅", "🙏", "😢"] {
-			if favorites.len() == 8 {
+		let limit = if fav_emoji_first_enabled() { 16 } else { 8 };
+		let mut favorites: Vec<_> = self.frequent.iter().take(limit).map(|(i, _)| *i).collect();
+		for text in ["👍", "❤️", "😂", "🎉", "👀", "✅", "🙏", "😢", "🔥", "🚀", "✨", "💯", "👏", "🥳", "🥺", "💀"] {
+			if favorites.len() >= limit {
 				break;
 			}
 			if let Some(index) = standard().iter().position(|(emoji, _)| *emoji == text)
@@ -2546,6 +2561,18 @@ fn cell(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn fav_emoji_first_toggle_works() {
+		let picker = Picker::default();
+		assert!(!fav_emoji_first_enabled());
+		assert_eq!(picker.favorites().len(), 8);
+		set_fav_emoji_first_enabled(true);
+		assert!(fav_emoji_first_enabled());
+		assert_eq!(picker.favorites().len(), 16);
+		set_fav_emoji_first_enabled(false);
+		assert!(!fav_emoji_first_enabled());
+	}
 	#[test]
 	fn gif_favorite_loading_is_single_flight_and_video_placeholders_never_request_media() {
 		let ctx = egui::Context::default();

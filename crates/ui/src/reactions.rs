@@ -1,5 +1,19 @@
 use model::{Reaction, ReactionEmoji};
 
+/// VenSerein (SuperReactionTweaks): Disables heavy GPU super reaction animations, rendering clean pills.
+pub static SUPER_REACTION_TWEAKS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_super_reaction_tweaks_enabled(enabled: bool) {
+	SUPER_REACTION_TWEAKS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn super_reaction_tweaks_enabled() -> bool {
+	SUPER_REACTION_TWEAKS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Action {
 	Reload,
@@ -512,5 +526,14 @@ mod tests {
 					|| (!toggle && action.is_none())
 			);
 		}
+	}
+
+	#[test]
+	fn super_reaction_tweaks_toggle_works() {
+		assert!(!super_reaction_tweaks_enabled());
+		set_super_reaction_tweaks_enabled(true);
+		assert!(super_reaction_tweaks_enabled());
+		set_super_reaction_tweaks_enabled(false);
+		assert!(!super_reaction_tweaks_enabled());
 	}
 }

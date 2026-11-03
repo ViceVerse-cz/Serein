@@ -23,7 +23,7 @@ pub fn force_owner_crown_enabled() -> bool {
 
 fn format_message_author_name<'a>(state: &'a State, message: &'a model::Message) -> std::borrow::Cow<'a, str> {
 	let author_name = state.message_author_name(message);
-	let base = if SHOW_ME_YOUR_NAME_ENABLED.load(Ordering::Relaxed)
+	let mut base: std::borrow::Cow<'a, str> = if SHOW_ME_YOUR_NAME_ENABLED.load(Ordering::Relaxed)
 		&& author_name != message.author.name
 		&& !message.author.webhook
 	{
@@ -44,8 +44,14 @@ fn format_message_author_name<'a>(state: &'a State, message: &'a model::Message)
 					.any(|(id, g)| *id == guild_id && g.owner == Some(message.author.id))
 			});
 		if is_owner {
-			return std::borrow::Cow::Owned(format!("{base} 👑"));
+			base = std::borrow::Cow::Owned(format!("{base} 👑"));
 		}
+	}
+
+	if BETTER_ROLE_DOT_ENABLED.load(Ordering::Relaxed)
+		&& state.message_author_colors(message).is_some()
+	{
+		base = std::borrow::Cow::Owned(format!("● {base}"));
 	}
 
 	base
@@ -60,6 +66,45 @@ pub fn set_reply_timestamp_enabled(enable: bool) {
 #[allow(dead_code)]
 pub fn reply_timestamp_enabled() -> bool {
 	REPLY_TIMESTAMP_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (ValidReply): Validates referenced message existence before replying.
+pub static VALID_REPLY_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_valid_reply_enabled(enable: bool) {
+	VALID_REPLY_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn valid_reply_enabled() -> bool {
+	VALID_REPLY_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (NoUnblockToJump): Bypasses unblock confirmation prompts when jumping to messages.
+pub static NO_UNBLOCK_TO_JUMP_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_no_unblock_to_jump_enabled(enable: bool) {
+	NO_UNBLOCK_TO_JUMP_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn no_unblock_to_jump_enabled() -> bool {
+	NO_UNBLOCK_TO_JUMP_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (BetterRoleDot): Prepends role dot indicator for enhanced contrast with colored roles.
+pub static BETTER_ROLE_DOT_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_better_role_dot_enabled(enable: bool) {
+	BETTER_ROLE_DOT_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn better_role_dot_enabled() -> bool {
+	BETTER_ROLE_DOT_ENABLED.load(Ordering::Relaxed)
 }
 use crate::design::LazyHover;
 use crate::markdown::{FormatCache, Formatted, discord_url};
@@ -5101,6 +5146,27 @@ mod tests {
 		assert!(force_owner_crown_enabled());
 		set_force_owner_crown_enabled(false);
 		assert!(!force_owner_crown_enabled());
+	}
+
+	#[test]
+	fn valid_reply_and_jump_and_role_dot_toggles_work() {
+		assert!(!valid_reply_enabled());
+		set_valid_reply_enabled(true);
+		assert!(valid_reply_enabled());
+		set_valid_reply_enabled(false);
+		assert!(!valid_reply_enabled());
+
+		assert!(!no_unblock_to_jump_enabled());
+		set_no_unblock_to_jump_enabled(true);
+		assert!(no_unblock_to_jump_enabled());
+		set_no_unblock_to_jump_enabled(false);
+		assert!(!no_unblock_to_jump_enabled());
+
+		assert!(!better_role_dot_enabled());
+		set_better_role_dot_enabled(true);
+		assert!(better_role_dot_enabled());
+		set_better_role_dot_enabled(false);
+		assert!(!better_role_dot_enabled());
 	}
 
 	use super::*;
