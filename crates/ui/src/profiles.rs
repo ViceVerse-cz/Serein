@@ -1169,22 +1169,24 @@ pub(crate) fn paint_status(
 	}
 	painter.circle_filled(center, radius + ring_width, ring);
 	painter.circle_filled(center, radius, color);
-	match status {
-		"idle" => {
-			// The crescent: a disc of the ring colour bites the upper left.
-			painter.circle_filled(center - Vec2::splat(radius * 0.45), radius * 0.72, ring);
-		}
-		"dnd" => {
-			painter.rect_filled(
-				Rect::from_center_size(center, vec2(radius * 1.25, radius * 0.5)),
-				radius * 0.25,
-				ring,
-			);
-		}
-		"online" => {}
-		// Offline and invisible are a hollow ring.
-		_ => {
-			painter.circle_filled(center, radius * 0.5, ring);
+	if !COLOR_SIGHTED_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+		match status {
+			"idle" => {
+				// The crescent: a disc of the ring colour bites the upper left.
+				painter.circle_filled(center - Vec2::splat(radius * 0.45), radius * 0.72, ring);
+			}
+			"dnd" => {
+				painter.rect_filled(
+					Rect::from_center_size(center, vec2(radius * 1.25, radius * 0.5)),
+					radius * 0.25,
+					ring,
+				);
+			}
+			"online" => {}
+			// Offline and invisible are a hollow ring.
+			_ => {
+				painter.circle_filled(center, radius * 0.5, ring);
+			}
 		}
 	}
 }
@@ -3430,7 +3432,7 @@ fn card_view(
 					avatars.show(ui, user, avatar_size, state.demo)
 				}
 			});
-			let image_avatar = full || user.webhook;
+			let image_avatar = full || user.webhook || UNLOCKED_AVATAR_ZOOM_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
 			let label = crate::i18n::translate(if image_avatar {
 				"profiles-show-view-profile-picture"
 			} else {
@@ -4682,6 +4684,22 @@ fn synthetic_frame() -> model::ProfileFrame {
 }
 
 
+pub static COLOR_SIGHTED_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_color_sighted_enabled(enabled: bool) {
+	COLOR_SIGHTED_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub static UNLOCKED_AVATAR_ZOOM_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_unlocked_avatar_zoom_enabled(enabled: bool) {
+	UNLOCKED_AVATAR_ZOOM_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub static ALWAYS_EXPAND_ROLES_ENABLED: std::sync::atomic::AtomicBool =
 	std::sync::atomic::AtomicBool::new(false);
 
@@ -4692,6 +4710,22 @@ pub fn set_always_expand_roles_enabled(enabled: bool) {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn color_sighted_toggle_works() {
+		set_color_sighted_enabled(true);
+		assert!(COLOR_SIGHTED_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+		set_color_sighted_enabled(false);
+		assert!(!COLOR_SIGHTED_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
+	#[test]
+	fn unlocked_avatar_zoom_toggle_works() {
+		set_unlocked_avatar_zoom_enabled(true);
+		assert!(UNLOCKED_AVATAR_ZOOM_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+		set_unlocked_avatar_zoom_enabled(false);
+		assert!(!UNLOCKED_AVATAR_ZOOM_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
 	#[test]
 	fn always_expand_roles_toggle_works() {
 		set_always_expand_roles_enabled(true);

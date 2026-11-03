@@ -266,6 +266,14 @@ fn mosaic_cell(tile: egui::Rect, index: usize) -> egui::Rect {
 	)
 }
 
+pub static PLAIN_FOLDER_ICON_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_plain_folder_icon_enabled(enabled: bool) {
+	PLAIN_FOLDER_ICON_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn paint_folder_tile(
 	ui: &mut egui::Ui,
 	avatars: &mut crate::avatars::Avatars,
@@ -276,6 +284,15 @@ fn paint_folder_tile(
 ) {
 	let plate = (rect.width().min(rect.height()) * 0.29) as u8;
 	ui.painter().rect_filled(rect, plate, fill);
+	if PLAIN_FOLDER_ICON_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+		icons::paint(
+			ui.painter(),
+			Icon::Folder,
+			egui::Rect::from_center_size(rect.center(), egui::vec2(20.0, 20.0)),
+			design::palette(ui).text,
+		);
+		return;
+	}
 	let circle = (MOSAIC_ICON * 0.5).ceil() as u8;
 	for (index, guild) in mosaic.into_iter().enumerate() {
 		if let Some(guild) = guild {
@@ -972,6 +989,15 @@ impl MessagingUi {
 
 #[cfg(test)]
 mod tests {
+
+	#[test]
+	fn plain_folder_icon_toggle_works() {
+		set_plain_folder_icon_enabled(true);
+		assert!(PLAIN_FOLDER_ICON_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+		set_plain_folder_icon_enabled(false);
+		assert!(!PLAIN_FOLDER_ICON_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
 	use super::*;
 	use client_core::read_state::Event as ReadEvent;
 	use model::{Channel, permissions as perms};

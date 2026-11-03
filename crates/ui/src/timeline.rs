@@ -1,6 +1,24 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// VenSerein (ReplyTimestamp): Global toggle for showing original message timestamp in reply preview.
+pub static SHOW_ME_YOUR_NAME_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_show_me_your_name_enabled(enabled: bool) {
+	SHOW_ME_YOUR_NAME_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+fn format_message_author_name<'a>(state: &'a State, message: &'a model::Message) -> std::borrow::Cow<'a, str> {
+	let author_name = state.message_author_name(message);
+	if SHOW_ME_YOUR_NAME_ENABLED.load(Ordering::Relaxed)
+		&& author_name != message.author.name
+		&& !message.author.webhook
+	{
+		std::borrow::Cow::Owned(format!("{author_name} (@{})", message.author.name))
+	} else {
+		std::borrow::Cow::Borrowed(author_name)
+	}
+}
 static REPLY_TIMESTAMP_ENABLED: AtomicBool = AtomicBool::new(true);
 
 #[allow(dead_code)]
@@ -620,7 +638,7 @@ fn starter_row(
 							crate::account_badge::name(
 								ui,
 								&message.author,
-								state.message_author_name(message),
+								&format_message_author_name(state, message),
 								15.5,
 								(
 									colors.text_strong,
@@ -3218,7 +3236,7 @@ impl TimelineView {
 													crate::account_badge::name(
 														ui,
 														&message.author,
-														state.message_author_name(message),
+														&format_message_author_name(state, message),
 														15.5,
 														(
 															colors.text_strong,
@@ -5015,6 +5033,15 @@ pub fn debug_unread_navigation_check(state: &mut State) {
 mod pending_tests;
 #[cfg(test)]
 mod tests {
+
+	#[test]
+	fn show_me_your_name_toggle_works() {
+		set_show_me_your_name_enabled(true);
+		assert!(SHOW_ME_YOUR_NAME_ENABLED.load(Ordering::Relaxed));
+		set_show_me_your_name_enabled(false);
+		assert!(!SHOW_ME_YOUR_NAME_ENABLED.load(Ordering::Relaxed));
+	}
+
 	use super::*;
 
 	/// Text actually painted this frame, in painting order.
