@@ -504,6 +504,8 @@ struct ThreadCard<'a> {
 	count: Option<u32>,
 	/// The thread's latest message, once its bounded read landed.
 	last: Option<&'a Message>,
+	/// One safe line of that message, with mentions named and spoilers hidden.
+	text: Option<&'a str>,
 	/// The latest message this session knows of, so the card shows its time before the body.
 	latest: Option<Id>,
 }
@@ -518,10 +520,33 @@ fn thread_count(count: u32) -> String {
 		),
 	}
 }
-/// One line of a thread's latest message: its text, or what it carries when the text is empty.
-fn thread_preview_text(message: &Message) -> String {
-	let one_line = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
-	let text = one_line(&crate::i18n::message_text(message));
+/// One safe line of a thread's latest message: mentions by name, hidden spoilers, and what a
+/// message without text carries. `channel` is the channel the card sits in, which resolves the
+/// guild's nicks and roles even when the thread itself is not loaded.
+fn thread_preview_text(
+	ui: &egui::Ui,
+	state: &State,
+	formatted: &mut FormatCache,
+	channel: Id,
+	message: &Message,
+) -> String {
+	if crate::embeds::has_spoilers(message) {
+		return "Spoiler".to_owned();
+	}
+	let mut job = egui::text::LayoutJob::default();
+	let source = crate::mentions::MentionSource { state, channel };
+	let emojis = formatted
+		.get(message.id, &message.content)
+		.append_inline_preview(
+			&mut job,
+			ui,
+			&message.mentions,
+			Some(&source),
+			crate::mentions::known_roles(state, channel),
+			&state.channels,
+		);
+	let text = Formatted::inline_preview_text(&job, &emojis);
+	let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
 	if !text.is_empty() {
 		return text;
 	}
@@ -529,6 +554,7 @@ fn thread_preview_text(message: &Message) -> String {
 		return attachment.filename.clone();
 	}
 	if let Some(embed) = message.embeds.first() {
+		let one_line = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
 		if let Some(title) = embed.title.as_deref() {
 			let title = one_line(title);
 			if !title.is_empty() {
@@ -549,7 +575,11 @@ fn thread_preview_text(message: &Message) -> String {
 		return sticker.name.clone();
 	}
 	if let Some(poll) = message.poll.as_deref() {
-		return one_line(&poll.question);
+		return poll
+			.question
+			.split_whitespace()
+			.collect::<Vec<_>>()
+			.join(" ");
 	}
 	String::new()
 }
@@ -671,7 +701,7 @@ fn thread_card(
 				(inner - text_left - time.as_ref().map_or(0.0, |time| time.size().x) - 12.0)
 					.max(24.0);
 			let text = egui::WidgetText::from(
-				RichText::new(thread_preview_text(message))
+				RichText::new(card.text.unwrap_or_default())
 					.size(12.5)
 					.color(colors.muted),
 			)
@@ -3968,6 +3998,15 @@ impl TimelineView {
 											});
 										let last =
 											preview.as_ref().and_then(|preview| preview.last);
+										let text = last.map(|reply| {
+											thread_preview_text(
+												ui,
+												state,
+												&mut self.formatted,
+												message.channel,
+												reply,
+											)
+										});
 										let latest = last
 											.map(|message| message.id)
 											.or_else(|| {
@@ -3988,6 +4027,7 @@ impl TimelineView {
 												name,
 												count,
 												last,
+												text: text.as_deref(),
 												latest,
 											},
 											&colors,
@@ -6749,10 +6789,55 @@ mod tests {
 		);
 	}
 	#[test]
-	fn a_thread_preview_collapses_text_and_names_what_an_empty_message_carries() {
+	fn a_thread_preview_names_mentions_hides_spoilers_and_falls_back_to_what_a_message_carries() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let state = test_support::demo_state();
+		let mut formatted = FormatCache::default();
 		let mut message = text_message(7);
 		message.content = "  first line\nsecond line  ".into();
-		assert_eq!(thread_preview_text(&message), "first line second line");
+		let text = |message: &Message, formatted: &mut FormatCache| {
+			let mut text = None;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(800.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					text = Some(thread_preview_text(ui, &state, formatted, Id(20), message));
+				},
+			);
+			output.drop_without_applying_deltas();
+			text.unwrap()
+		};
+		assert_eq!(text(&message, &mut formatted), "first line second line");
+
+		// A mention names its author instead of the raw token.
+		message.content = "Hi <@9>".into();
+		message.mentions = vec![model::User {
+			id: Id(9),
+			name: "Synthetic".into(),
+			avatar: None,
+			webhook: false,
+			kind: Default::default(),
+			discriminator: 0,
+			primary_guild: None,
+			cosmetics: None,
+		}];
+		let preview = text(&message, &mut formatted);
+		assert!(
+			preview.contains("Synthetic") && !preview.contains('<'),
+			"{preview}"
+		);
+
+		// A card cannot reveal a spoiler, so it only says there is one.
+		message.content = "A ||private ending|| Z".into();
+		message.mentions.clear();
+		assert_eq!(text(&message, &mut formatted), "Spoiler");
+
 		message.content.clear();
 		message.attachments = vec![model::Attachment {
 			id: Id(8),
@@ -6765,7 +6850,7 @@ mod tests {
 			duration_ms: None,
 			waveform: vec![],
 		}];
-		assert_eq!(thread_preview_text(&message), "synthetic.png");
+		assert_eq!(text(&message, &mut formatted), "synthetic.png");
 	}
 	#[test]
 	fn grouping_respects_dates_replies_unread_and_five_minute_gaps() {

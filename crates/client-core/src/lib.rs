@@ -3829,6 +3829,10 @@ impl State {
 					) {
 					self.message_actions.observe_content(p.channel, p.id);
 				}
+				// A card's cache holds a copy, so an edit must make it read the reply again.
+				if !matches!(p.content, Patch::Absent) || !matches!(p.edited, Patch::Absent) {
+					self.thread_previews.mark_stale(p.channel, p.id);
+				}
 				if self.selected == Some(p.channel)
 					&& self.reactions.invalidated(p.id)
 					&& !matches!(p.reactions, Patch::Absent)
@@ -3851,6 +3855,8 @@ impl State {
 				self.parked_replies.forget_targets(channel, &[id]);
 				self.read_state.activity.delete(channel, id);
 				self.forget_pending_replies(channel, &[id]);
+				// A card must never keep showing a reply that no longer exists.
+				self.thread_previews.forget(channel, &[id]);
 				if let Some(channel) = self
 					.channels
 					.iter_mut()
@@ -3890,6 +3896,7 @@ impl State {
 			}
 			Event::DeleteBulk { channel, ids } => {
 				self.parked_replies.forget_targets(channel, &ids);
+				self.thread_previews.forget(channel, &ids);
 				if ids.len() <= 100 {
 					for id in &ids {
 						self.read_state.activity.delete(channel, *id);

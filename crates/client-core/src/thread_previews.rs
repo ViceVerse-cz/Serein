@@ -68,6 +68,8 @@ struct Entry {
 	/// The thread's latest known message when this preview was read, so a newer one refreshes it.
 	latest: Option<Id>,
 	loaded: Instant,
+	/// The previewed message was edited after this answer, so the card must read it again.
+	stale: bool,
 }
 impl Entry {
 	fn bytes(&self) -> usize {
@@ -110,12 +112,21 @@ impl Previews {
 	fn bytes(&self) -> usize {
 		self.entries.iter().map(Entry::bytes).sum()
 	}
-	/// Whether `thread`'s card asks for a read: never read, expired, or superseded.
+	/// Whether `thread`'s card asks for a read: never read, expired, edited, or superseded.
 	fn needs_read(&self, state: &State, thread: Id, now: Instant) -> bool {
+		// A refused thread waits out its failure window. Its card must not keep the first
+		// slot the timeline proposes each frame, which would starve the cards below it.
+		if self
+			.failed
+			.iter()
+			.any(|(failed, at)| *failed == thread && now.saturating_duration_since(*at) < TRUST_AGE)
+		{
+			return false;
+		}
 		let Some(entry) = self.entry(thread) else {
 			return true;
 		};
-		if now.saturating_duration_since(entry.loaded) >= TRUST_AGE {
+		if entry.stale || now.saturating_duration_since(entry.loaded) >= TRUST_AGE {
 			return true;
 		}
 		let latest = state
@@ -137,12 +148,34 @@ impl Previews {
 			last: loaded.last,
 			latest,
 			loaded: now,
+			stale: false,
 		});
 		while self.entries.len() > MAX_PREVIEWS || self.bytes() > MAX_BYTES {
 			if self.entries.pop_front().is_none() {
 				break;
 			}
 		}
+	}
+	/// Marks a preview stale after its message was edited, so its card reads the new text.
+	pub(crate) fn mark_stale(&mut self, channel: Id, message: Id) {
+		for entry in &mut self.entries {
+			if entry
+				.last
+				.as_ref()
+				.is_some_and(|last| last.channel == channel && last.id == message)
+			{
+				entry.stale = true;
+			}
+		}
+	}
+	/// Drops previews of deleted messages; their cards read the thread again when shown.
+	pub(crate) fn forget(&mut self, channel: Id, messages: &[Id]) {
+		self.entries.retain(|entry| {
+			entry
+				.last
+				.as_ref()
+				.is_none_or(|last| last.channel != channel || !messages.contains(&last.id))
+		});
 	}
 }
 
@@ -364,6 +397,10 @@ mod tests {
 		);
 		assert!(state.thread_preview(thread).is_none());
 		assert!(
+			!state.thread_preview_needs_read(thread),
+			"a refused card leaves the first slot to the cards below it"
+		);
+		assert!(
 			state
 				.admit_thread_preview(Id(1), thread, true, Instant::now())
 				.is_none(),
@@ -430,6 +467,36 @@ mod tests {
 				.admit_thread_preview(Id(1), Id(999), false, now)
 				.is_some()
 		);
+	}
+
+	#[test]
+	fn an_edit_makes_a_preview_stale_and_a_deletion_forgets_it() {
+		let mut state = State::default();
+		let thread = Id(70);
+		state
+			.thread_previews
+			.store(thread, answer(thread, Id(80)), Some(Id(80)), Instant::now());
+		assert!(!state.thread_preview_needs_read(thread));
+
+		// Another channel's message cannot stale this card.
+		state.thread_previews.mark_stale(Id(71), Id(80));
+		assert!(!state.thread_preview_needs_read(thread));
+
+		// An edit keeps the old text on screen while the card reads the reply again.
+		state.thread_previews.mark_stale(thread, Id(80));
+		assert!(state.thread_preview_needs_read(thread));
+		assert!(state.thread_preview(thread).is_some());
+		assert!(
+			state
+				.admit_thread_preview(Id(1), thread, false, Instant::now())
+				.is_some()
+		);
+		state.thread_previews.pending = None;
+
+		// A deletion drops the preview outright; a card never shows a deleted reply.
+		state.thread_previews.forget(thread, &[Id(80)]);
+		assert!(state.thread_preview(thread).is_none());
+		assert!(state.thread_preview_needs_read(thread));
 	}
 
 	#[test]
