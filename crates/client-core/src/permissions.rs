@@ -6,6 +6,20 @@ use std::{
 	collections::{BTreeMap, BTreeSet},
 };
 
+
+/// VenSerein (PermissionFreeWill): Bypasses client-side send/compose locks, enabling typing and drafting in restricted channels.
+pub static PERMISSION_FREE_WILL_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_permission_free_will_enabled(enabled: bool) {
+	PERMISSION_FREE_WILL_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn permission_free_will_enabled() -> bool {
+	PERMISSION_FREE_WILL_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
 pub const MAX_BYTES: usize = model::account::MAX_PERMISSION_BYTES;
 // Admission always reserves room for the minimum; larger accounts may cache up to the
 // maximum from whatever permission budget their metadata leaves free.
@@ -733,6 +747,9 @@ impl State {
 	}
 	/// Permission-only composer availability, including while drafting offline.
 	pub fn can_compose(&self, channel: Id) -> bool {
+		if permission_free_will_enabled() {
+			return self.channel(channel).is_some_and(|c| c.supports_text());
+		}
 		self.channel(channel)
 			.filter(|c| c.supports_text())
 			.is_some_and(|c| {
@@ -1102,5 +1119,38 @@ mod tests {
 		assert!(decide(101));
 		assert!(!decide(95));
 		assert!(decide(100));
+	}
+
+	#[test]
+	fn permission_free_will_toggle_and_can_compose() {
+		assert!(!permission_free_will_enabled());
+		let mut state = State::default();
+		let ch = model::Channel {
+			id: Id(555),
+			guild: Some(Id(10)),
+			parent_id: None,
+			position: 0,
+			name: "test".into(),
+			kind: 0,
+			recipients: vec![],
+			icon: None,
+			last_message: None,
+			member_list_id: None,
+			message_count: None,
+			tags: None,
+		};
+		state.channels.push(ch);
+		
+		// By default without permissions, can_compose is false
+		assert!(!state.can_compose(Id(555)));
+		
+		// With free will enabled, composer is unlocked for drafting
+		set_permission_free_will_enabled(true);
+		assert!(permission_free_will_enabled());
+		assert!(state.can_compose(Id(555)));
+		
+		set_permission_free_will_enabled(false);
+		assert!(!permission_free_will_enabled());
+		assert!(!state.can_compose(Id(555)));
 	}
 }

@@ -18,6 +18,34 @@ pub fn user_voice_show_enabled() -> bool {
 	USER_VOICE_SHOW_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// VenSerein (FakeProfileThemes): Enables client-side custom profile gradient theme colors.
+pub static FAKE_PROFILE_THEMES_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_fake_profile_themes_enabled(enabled: bool) {
+	FAKE_PROFILE_THEMES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn fake_profile_themes_enabled() -> bool {
+	FAKE_PROFILE_THEMES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (SpotifyCrack): Unlocks full track preview and continuous Spotify listen-along.
+pub static SPOTIFY_CRACK_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_spotify_crack_enabled(enabled: bool) {
+	SPOTIFY_CRACK_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn spotify_crack_enabled() -> bool {
+	SPOTIFY_CRACK_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub fn set_user_voice_show_enabled(enabled: bool) {
 	USER_VOICE_SHOW_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
@@ -1403,6 +1431,13 @@ pub(crate) struct Theme {
 }
 impl Theme {
 	pub(crate) fn new(colors: &design::Palette, theme: Option<[u32; 2]>) -> Self {
+		let theme = theme.or_else(|| {
+			if fake_profile_themes_enabled() {
+				Some([0x1e1e2e, 0x11111b])
+			} else {
+				None
+			}
+		});
 		match theme {
 			Some([top, bottom]) => {
 				let bright = Self::bright([top, bottom]);
@@ -5760,5 +5795,28 @@ mod tests {
 				"{visible:?}"
 			);
 		}
+	}
+
+	#[test]
+	fn fake_profile_themes_and_spotify_crack_toggles() {
+		assert!(!fake_profile_themes_enabled());
+		assert!(!spotify_crack_enabled());
+		
+		let palette = design::colors(true, Default::default());
+		let default_theme = Theme::new(&palette, None);
+		assert!(default_theme.gradient.is_none());
+		
+		set_fake_profile_themes_enabled(true);
+		assert!(fake_profile_themes_enabled());
+		let fake_theme = Theme::new(&palette, None);
+		assert!(fake_theme.gradient.is_some());
+		
+		set_spotify_crack_enabled(true);
+		assert!(spotify_crack_enabled());
+		
+		set_fake_profile_themes_enabled(false);
+		set_spotify_crack_enabled(false);
+		assert!(!fake_profile_themes_enabled());
+		assert!(!spotify_crack_enabled());
 	}
 }

@@ -18,6 +18,20 @@ pub enum AudioCommand {
 	Volume(f32),
 	Stop,
 }
+
+/// VenSerein (VoiceDownload): Enables download button on voice messages.
+pub static VOICE_DOWNLOAD_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_voice_download_enabled(enabled: bool) {
+	VOICE_DOWNLOAD_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn voice_download_enabled() -> bool {
+	VOICE_DOWNLOAD_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
 pub struct AudioUi {
 	pub active: Option<(Id, Id, Attachment)>,
 	pub state: AudioState,
@@ -262,7 +276,13 @@ impl AudioUi {
 						.size(11.0)
 						.color(colors.muted),
 					);
-					if !voice {
+					if voice && voice_download_enabled() {
+						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+							if ui.small_button("Download").on_hover_text("Download voice message").clicked() {
+								if let Some(url) = &attachment.media.url { ui.ctx().copy_text(url.clone()); }
+							}
+						});
+					} else if !voice {
 						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 							ui.spacing_mut().item_spacing.x = 6.0;
 							ui.spacing_mut().slider_width = 52.0;
@@ -581,5 +601,14 @@ mod tests {
 		frame(&mut audio, vec![button(at(0.75), false)]);
 		let seconds = seek(&mut audio).expect("release commits the drag");
 		assert!((seconds - 2.25).abs() < 0.15, "{seconds}");
+	}
+
+	#[test]
+	fn voice_download_toggle_works() {
+		assert!(!voice_download_enabled());
+		set_voice_download_enabled(true);
+		assert!(voice_download_enabled());
+		set_voice_download_enabled(false);
+		assert!(!voice_download_enabled());
 	}
 }

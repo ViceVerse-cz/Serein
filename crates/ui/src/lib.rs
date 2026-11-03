@@ -570,6 +570,20 @@ pub struct MessagingUi {
 	pub blur: u8,
 }
 
+
+/// VenSerein (AddAttachments): Allows attaching files/images when editing an already sent message.
+pub static ADD_ATTACHMENTS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_add_attachments_enabled(enabled: bool) {
+	ADD_ATTACHMENTS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn add_attachments_enabled() -> bool {
+	ADD_ATTACHMENTS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
 pub static FULL_USER_IN_CHATBOX_ENABLED: std::sync::atomic::AtomicBool =
 	std::sync::atomic::AtomicBool::new(true);
 
@@ -3152,7 +3166,7 @@ impl MessagingUi {
 		}
 		let mut cancel_edit = false;
 		if ctx.input(|input| !input.raw.hovered_files.is_empty()) {
-			let available = state.can_attach(channel) && !self.attach_busy && !editing_here;
+			let available = state.can_attach(channel) && !self.attach_busy && (!editing_here || add_attachments_enabled());
 			egui::Frame::new()
 				.fill(colors.accent.gamma_multiply(0.12))
 				.stroke(egui::Stroke::new(1.5, colors.accent))
@@ -3495,7 +3509,7 @@ impl MessagingUi {
 					.any(|chord| crate::keybinds::pressed_exact(i, chord))
 			});
 		let placeholder = composer_placeholder(state, channel);
-		let can_attach = !editing_here
+		let can_attach = (!editing_here || add_attachments_enabled())
 			&& self.slash_commands.active.is_none()
 			&& state.can_attach(channel)
 			&& !self.attach_busy
@@ -9591,6 +9605,15 @@ mod composer_tests {
 		assert_eq!(messaging.draft_changes, [Id(1), Id(1)]);
 	}
 
+
+	#[test]
+	fn add_attachments_toggle_works() {
+		assert!(!add_attachments_enabled());
+		set_add_attachments_enabled(true);
+		assert!(add_attachments_enabled());
+		set_add_attachments_enabled(false);
+		assert!(!add_attachments_enabled());
+	}
 	#[test]
 	fn full_user_in_chatbox_toggle_and_placeholder_formatting() {
 		let user = model::User {

@@ -11,6 +11,10 @@ use model::{
 	Id, ProfileBadge,
 	badges::{BadgeCatalog, BadgeRarity, BadgeSettings, CatalogBadge, hideable, pinned},
 };
+#[allow(unused_imports)]
+pub use model::badges::{
+	SHOW_HIDDEN_THINGS_ENABLED, set_show_hidden_things_enabled, show_hidden_things_enabled,
+};
 
 const TILE: f32 = 48.0;
 const DIRECTORY_TILE: f32 = 62.0;
@@ -1194,4 +1198,15 @@ mod tests {
 		panels.close_top();
 		assert!(!panels.is_open());
 	}
+
+	#[test]
+	fn show_hidden_things_ui_toggle_works() {
+		set_show_hidden_things_enabled(false);
+		assert!(!show_hidden_things_enabled());
+		set_show_hidden_things_enabled(true);
+		assert!(show_hidden_things_enabled());
+		set_show_hidden_things_enabled(false);
+		assert!(!show_hidden_things_enabled());
+	}
 }
+
