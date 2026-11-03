@@ -43,6 +43,19 @@ pub fn set_secret_ring_tone_enabled(enable: bool) {
 pub fn secret_ring_tone_enabled() -> bool {
 	SECRET_RING_TONE_ENABLED.load(Ordering::Relaxed)
 }
+
+/// VenSerein (VolumeBooster): Boosts maximum voice participant and stream volume from 200% up to 400%.
+pub static VOLUME_BOOSTER_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_volume_booster_enabled(enable: bool) {
+	VOLUME_BOOSTER_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn volume_booster_enabled() -> bool {
+	VOLUME_BOOSTER_ENABLED.load(Ordering::Relaxed)
+}
 use crate::design::LazyHover;
 use crate::{MessagingUi, design};
 use client_core::{
@@ -171,7 +184,8 @@ impl MessagingUi {
 		if self.voice_stream_muted {
 			0
 		} else {
-			self.voice_stream_volume.unwrap_or(100).min(200)
+			let max_vol = if volume_booster_enabled() { 400 } else { 200 };
+			self.voice_stream_volume.unwrap_or(100).min(max_vol)
 		}
 	}
 
@@ -4762,11 +4776,12 @@ pub(super) fn participant_user(state: &State, channel: Id, user: Id) -> Option<&
 /// Labelled percentage slider shared by the voice popout and the settings page.
 fn gain_slider(ui: &mut egui::Ui, value: &mut u16, title: &str) -> egui::Response {
 	let title = crate::i18n::translate_if_key(title);
+	let max_gain = if volume_booster_enabled() { 400 } else { 200 };
 	ui.scope(|ui| {
 		let colors = design::palette(ui);
 		ui.spacing_mut().item_spacing.y = 4.0;
 		let label = ui.label(RichText::new(title).size(13.0).color(colors.muted));
-		design::slider(ui, value, 0..=200, "%").labelled_by(label.id)
+		design::slider(ui, value, 0..=max_gain, "%").labelled_by(label.id)
 	})
 	.inner
 }
@@ -5808,6 +5823,10 @@ mod tests {
 		super::set_secret_ring_tone_enabled(true);
 		assert!(super::secret_ring_tone_enabled());
 		super::set_secret_ring_tone_enabled(false);
+		assert!(!super::volume_booster_enabled());
+		super::set_volume_booster_enabled(true);
+		assert!(super::volume_booster_enabled());
+		super::set_volume_booster_enabled(false);
 		state.demo = true;
 		for width in [640.0, 1120.0] {
 			let mut output = context.run_ui(

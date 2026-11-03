@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// VenSerein (ReplyTimestamp): Global toggle for showing original message timestamp in reply preview.
+/// VenSerein (ShowMeYourName): Displays username next to nickname.
 pub static SHOW_ME_YOUR_NAME_ENABLED: AtomicBool = AtomicBool::new(false);
 
 #[allow(dead_code)]
@@ -8,16 +8,47 @@ pub fn set_show_me_your_name_enabled(enabled: bool) {
 	SHOW_ME_YOUR_NAME_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
+/// VenSerein (ForceOwnerCrown): Always displays the owner crown icon next to the server owner's name.
+pub static FORCE_OWNER_CROWN_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_force_owner_crown_enabled(enabled: bool) {
+	FORCE_OWNER_CROWN_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn force_owner_crown_enabled() -> bool {
+	FORCE_OWNER_CROWN_ENABLED.load(Ordering::Relaxed)
+}
+
 fn format_message_author_name<'a>(state: &'a State, message: &'a model::Message) -> std::borrow::Cow<'a, str> {
 	let author_name = state.message_author_name(message);
-	if SHOW_ME_YOUR_NAME_ENABLED.load(Ordering::Relaxed)
+	let base = if SHOW_ME_YOUR_NAME_ENABLED.load(Ordering::Relaxed)
 		&& author_name != message.author.name
 		&& !message.author.webhook
 	{
 		std::borrow::Cow::Owned(format!("{author_name} (@{})", message.author.name))
 	} else {
 		std::borrow::Cow::Borrowed(author_name)
+	};
+
+	if FORCE_OWNER_CROWN_ENABLED.load(Ordering::Relaxed) {
+		let is_owner = state
+			.channel(message.channel)
+			.and_then(|c| c.guild)
+			.map_or(false, |guild_id| {
+				state
+					.permissions
+					.guilds
+					.iter()
+					.any(|(id, g)| *id == guild_id && g.owner == Some(message.author.id))
+			});
+		if is_owner {
+			return std::borrow::Cow::Owned(format!("{base} 👑"));
+		}
 	}
+
+	base
 }
 static REPLY_TIMESTAMP_ENABLED: AtomicBool = AtomicBool::new(true);
 
@@ -5062,6 +5093,14 @@ mod tests {
 		assert!(SHOW_ME_YOUR_NAME_ENABLED.load(Ordering::Relaxed));
 		set_show_me_your_name_enabled(false);
 		assert!(!SHOW_ME_YOUR_NAME_ENABLED.load(Ordering::Relaxed));
+	}
+
+	#[test]
+	fn force_owner_crown_toggle_works() {
+		set_force_owner_crown_enabled(true);
+		assert!(force_owner_crown_enabled());
+		set_force_owner_crown_enabled(false);
+		assert!(!force_owner_crown_enabled());
 	}
 
 	use super::*;

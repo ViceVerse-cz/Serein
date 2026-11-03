@@ -560,7 +560,9 @@ fn artwork_size(attachment: &Attachment, gallery: egui::Vec2) -> egui::Vec2 {
 }
 
 pub(crate) fn image_layout(count: usize, width: f32) -> (usize, egui::Vec2) {
-	let columns = if count >= 5 && width >= 420.0 {
+	let columns = if no_mosaic_enabled() {
+		1
+	} else if count >= 5 && width >= 420.0 {
 		3
 	} else if count > 1 && width >= 280.0 {
 		2
@@ -1537,6 +1539,20 @@ pub fn set_image_filename_overlay_enabled(enabled: bool) {
 	IMAGE_FILENAME_OVERLAY_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// VenSerein (NoMosaic): Disables grid/mosaic layout of multiple images, rendering them sequentially.
+pub static NO_MOSAIC_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_no_mosaic_enabled(enabled: bool) {
+	NO_MOSAIC_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn no_mosaic_enabled() -> bool {
+	NO_MOSAIC_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[cfg(test)]
 mod tests {
 	#[test]
@@ -1553,6 +1569,18 @@ mod tests {
 		assert!(IMAGE_FILENAME_OVERLAY_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
 		set_image_filename_overlay_enabled(false);
 		assert!(!IMAGE_FILENAME_OVERLAY_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
+	#[test]
+	fn no_mosaic_toggle_works() {
+		set_no_mosaic_enabled(true);
+		assert!(no_mosaic_enabled());
+		let (cols, _) = image_layout(6, 600.0);
+		assert_eq!(cols, 1);
+		set_no_mosaic_enabled(false);
+		assert!(!no_mosaic_enabled());
+		let (cols, _) = image_layout(6, 600.0);
+		assert_eq!(cols, 3);
 	}
 
 	use super::*;

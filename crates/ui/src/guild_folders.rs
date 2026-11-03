@@ -274,6 +274,20 @@ pub fn set_plain_folder_icon_enabled(enabled: bool) {
 	PLAIN_FOLDER_ICON_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// VenSerein (ReadAllNotificationsButton): Exposes mark-all-read shortcut in server navigation.
+pub static READ_ALL_NOTIFICATIONS_BUTTON_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_read_all_notifications_button_enabled(enabled: bool) {
+	READ_ALL_NOTIFICATIONS_BUTTON_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn read_all_notifications_button_enabled() -> bool {
+	READ_ALL_NOTIFICATIONS_BUTTON_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn paint_folder_tile(
 	ui: &mut egui::Ui,
 	avatars: &mut crate::avatars::Avatars,
@@ -989,6 +1003,15 @@ impl MessagingUi {
 
 #[cfg(test)]
 mod tests {
+
+	#[test]
+	fn read_all_notifications_button_toggle_works() {
+		assert!(!read_all_notifications_button_enabled());
+		set_read_all_notifications_button_enabled(true);
+		assert!(read_all_notifications_button_enabled());
+		set_read_all_notifications_button_enabled(false);
+		assert!(!read_all_notifications_button_enabled());
+	}
 
 	#[test]
 	fn plain_folder_icon_toggle_works() {
