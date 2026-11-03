@@ -49,6 +49,9 @@ pub struct Toasts {
 }
 
 impl Toasts {
+	pub fn len(&self) -> usize {
+		self.items.len()
+	}
 	/// States `text` briefly. Repeating a notice that is still on screen restarts its
 	/// deadline rather than stacking a copy, so a repeated failure reads as one event.
 	pub fn push(&mut self, level: design::Level, text: impl Into<String>) {

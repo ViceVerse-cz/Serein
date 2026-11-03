@@ -2067,7 +2067,9 @@ impl Formatted {
 			.map_or_else(|| block.tag.clone(), str::to_owned);
 		let display = block.display.as_deref().unwrap_or(&block.code);
 		let plain = [(0, display.len() as u32, crate::highlight::Token::Plain)];
-		let segments: &[crate::highlight::Segment] = if block.segments.is_empty() {
+		let segments: &[crate::highlight::Segment] = if block.segments.is_empty()
+			|| !crate::highlight::shiki_codeblocks_enabled()
+		{
 			&plain
 		} else {
 			&block.segments

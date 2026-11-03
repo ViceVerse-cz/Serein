@@ -510,6 +510,9 @@ pub(crate) fn show_subset(
 						media_context_menu(&response, attachment, download, opening, demo);
 					} else if attachment.is_audio() {
 						let response = audio.show(ui, message, attachment);
+						if let Some(req) = audio.download_request.take() {
+							download.request = Some(req);
+						}
 						surface.keep(&response);
 						if attachment.is_voice_message() {
 							response.context_menu(|ui| {

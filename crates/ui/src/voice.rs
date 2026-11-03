@@ -128,6 +128,56 @@ pub(super) struct CallSwitch {
 }
 
 impl MessagingUi {
+	pub fn check_vc_narrator(&mut self, state: &State, channel: Id, entries: &[RosterEntry]) {
+		if !vc_narrator_enabled() {
+			if !self.voice_narrator_cache.is_empty() {
+				self.voice_narrator_cache.clear();
+			}
+			return;
+		}
+		let in_this_channel = state
+			.voice
+			.active
+			.as_ref()
+			.is_some_and(|call| call.channel == channel && call.phase != Phase::Failed);
+		if !in_this_channel {
+			self.voice_narrator_cache.clear();
+			return;
+		}
+		let initial_populate = self.voice_narrator_cache.is_empty();
+		let mut current_ids = std::collections::HashSet::new();
+		for entry in entries {
+			let id = entry.participant.user;
+			current_ids.insert(id);
+			let (_, name) = resolve_member(state, entry);
+			let muted = entry.participant.muted || entry.participant.server_muted;
+			if let Some((_, old_muted)) = self.voice_narrator_cache.get_mut(&id) {
+				if *old_muted != muted {
+					*old_muted = muted;
+					let ev = if muted { VcEvent::Muted } else { VcEvent::Unmuted };
+					let msg = format_vc_narrator_message(name, ev);
+					self.toasts.push(design::Level::Info, msg);
+				}
+			} else {
+				self.voice_narrator_cache.insert(id, (name.to_string(), muted));
+				if !initial_populate {
+					let msg = format_vc_narrator_message(name, VcEvent::Joined);
+					self.toasts.push(design::Level::Info, msg);
+				}
+			}
+		}
+		let mut departed = Vec::new();
+		for (id, (name, _)) in &self.voice_narrator_cache {
+			if !current_ids.contains(id) {
+				departed.push((*id, name.clone()));
+			}
+		}
+		for (id, name) in departed {
+			self.voice_narrator_cache.remove(&id);
+			let msg = format_vc_narrator_message(&name, VcEvent::Left);
+			self.toasts.push(design::Level::Info, msg);
+		}
+	}
 	pub(super) fn exit_voice_fullscreen(&mut self) {
 		if let Some((_, ctx, previous, focus)) = self.voice_fullscreen.take() {
 			self.voice_fullscreen_request = Some(previous);
@@ -1180,6 +1230,7 @@ impl MessagingUi {
 		entries: &[RosterEntry],
 		dm: bool,
 	) {
+		self.check_vc_narrator(state, channel, entries);
 		let tiles = self.stage_tiles(state, channel, entries);
 		if tiles.is_empty() {
 			return;
@@ -6156,7 +6207,8 @@ mod tests {
 	}
 
 	#[test]
-	fn vc_narrator_toggle_and_message_formatting() {
+	fn vc_narrator_toggle_and_runtime_dispatch() {
+		set_vc_narrator_enabled(false);
 		assert!(!vc_narrator_enabled());
 		set_vc_narrator_enabled(true);
 		assert!(vc_narrator_enabled());
@@ -6165,6 +6217,68 @@ mod tests {
 		assert_eq!(format_vc_narrator_message("Bob", VcEvent::Left), "Bob left");
 		assert_eq!(format_vc_narrator_message("Charlie", VcEvent::Muted), "Charlie muted");
 		assert_eq!(format_vc_narrator_message("Dave", VcEvent::Unmuted), "Dave unmuted");
+
+		let mut messaging = MessagingUi::default();
+		let mut state = State::default();
+		let channel = Id(10);
+		state.voice.active = Some(client_core::voice::Call {
+			channel,
+			guild: None,
+			connected_at: None,
+			channel_started_at: None,
+			server_muted: false,
+			server_deafened: false,
+			request: 1,
+			phase: Phase::Connected,
+			muted: false,
+			deafened: false,
+			participants: vec![],
+			camera: false,
+			watching: None,
+			error: None,
+			reconnecting: None,
+		});
+		let entry1 = RosterEntry {
+			guild: Id(0),
+			channel,
+			participant: Participant {
+				user: Id(101),
+				muted: false,
+				deafened: false,
+				server_muted: false,
+				server_deafened: false,
+				video: false,
+				streaming: false,
+			},
+			member: None,
+		};
+		messaging.check_vc_narrator(&state, channel, &[entry1.clone()]);
+		assert_eq!(messaging.toasts.len(), 0);
+
+		let entry2 = RosterEntry {
+			guild: Id(0),
+			channel,
+			participant: Participant {
+				user: Id(102),
+				muted: false,
+				deafened: false,
+				server_muted: false,
+				server_deafened: false,
+				video: false,
+				streaming: false,
+			},
+			member: None,
+		};
+		messaging.check_vc_narrator(&state, channel, &[entry1.clone(), entry2.clone()]);
+		assert_eq!(messaging.toasts.len(), 1);
+
+		let mut entry2_muted = entry2.clone();
+		entry2_muted.participant.muted = true;
+		messaging.check_vc_narrator(&state, channel, &[entry1.clone(), entry2_muted]);
+		assert_eq!(messaging.toasts.len(), 2);
+
+		messaging.check_vc_narrator(&state, channel, &[entry1.clone()]);
+		assert_eq!(messaging.toasts.len(), 3);
 
 		set_vc_narrator_enabled(false);
 		assert!(!vc_narrator_enabled());

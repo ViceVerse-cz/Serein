@@ -54,6 +54,7 @@ pub struct AudioUi {
 	pub command: Option<AudioCommand>,
 	pub seen: bool,
 	pub volume: f32,
+	pub download_request: Option<Attachment>,
 }
 impl Default for AudioUi {
 	fn default() -> Self {
@@ -65,6 +66,7 @@ impl Default for AudioUi {
 			command: None,
 			seen: false,
 			volume: 1.0,
+			download_request: None,
 		}
 	}
 }
@@ -293,7 +295,7 @@ impl AudioUi {
 					if voice && voice_download_enabled() {
 						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 							if ui.small_button("Download").on_hover_text("Download voice message").clicked() {
-								if let Some(url) = &attachment.media.url { ui.ctx().copy_text(url.clone()); }
+								self.download_request = Some(attachment.clone()); if let Some(url) = &attachment.media.url { ui.ctx().copy_text(url.clone()); }
 							}
 						});
 					} else if !voice {

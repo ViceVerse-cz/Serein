@@ -512,6 +512,7 @@ pub struct MessagingUi {
 	pub voice_privacy_code: Option<String>,
 	/// Latest media activity, capped at 64 IDs (512 bytes) by the voice host.
 	pub voice_speaking: Vec<Id>,
+	pub voice_narrator_cache: std::collections::HashMap<Id, (String, bool)>,
 	pub notifications_enabled: bool,
 	/// Show as Idle after the account's idle timeout of system inactivity, or on lock.
 	pub auto_idle: bool,
@@ -1232,7 +1233,16 @@ impl MessagingUi {
 		let paste_enabled = allowed && (menu || ctx.memory(|m| m.has_focus(target)));
 		if let Some((paste_channel, pasted_target, text)) = pasted_text {
 			if paste_enabled && paste_channel == channel && pasted_target == target {
-				let text = normalize_gif_paste(&text);
+				let text = if let Some((id, format_type)) = parse_sticker_paste(&text) {
+					let ext = match format_type {
+						4 => "gif",
+						3 => "json",
+						_ => "png",
+					};
+					format!("https://media.discordapp.net/stickers/{id}.{ext}")
+				} else {
+					normalize_gif_paste(&text)
+				};
 				ctx.input_mut(|i| i.events.push(egui::Event::Paste(text)));
 				self.pasted_text_frame = Some(ctx.cumulative_frame_nr());
 			} else {
