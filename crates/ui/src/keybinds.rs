@@ -779,6 +779,16 @@ fn shortcut_button(
 }
 
 fn display_key(name: &str) -> String {
+	// macOS names the modifier keys the way its own shortcuts UI does.
+	if cfg!(target_os = "macos") {
+		match name {
+			"ControlLeft" => return "Left Control".into(),
+			"ControlRight" => return "Right Control".into(),
+			"AltLeft" => return "Left Option".into(),
+			"AltRight" => return "Right Option".into(),
+			_ => {}
+		}
+	}
 	match name {
 		"" => "Unassigned".into(),
 		"ArrowUp" => "↑".into(),

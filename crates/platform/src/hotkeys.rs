@@ -6,7 +6,7 @@ use model::{
 	KeyChord, KeybindAction, Keybinds,
 	keybinds::{is_mouse_button, polled_key_bit},
 };
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::sync::atomic::Ordering;
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -26,7 +26,7 @@ const MODIFIER_REQUIRED: &str = "Add Ctrl, Alt, Shift, or Command to use a voice
 #[cfg(target_os = "windows")]
 /// Mouse poller identities, kept out of the range `global-hotkey` assigns to real hotkeys.
 const MOUSE_ID: u32 = 1 << 31;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 /// Polled-key identities, one per [`POLLED_KEYS`](model::keybinds::POLLED_KEYS) bit.
 const POLLED_ID: u32 = 1 << 30;
 
@@ -138,14 +138,19 @@ pub struct Hotkeys {
 	/// Registered native hotkeys and the chord/action each one owns.
 	registered: Vec<(HotKey, KeybindAction, KeyChord)>,
 	bindings: Option<Vec<(KeybindAction, KeyChord)>>,
-	/// Voice chords that only the Windows poller can report, kept while global bindings are off.
+	/// Voice chords that only the native key poller can report, kept while global bindings
+	/// are off.
 	polled: Vec<(KeybindAction, KeyChord)>,
 	native: Arc<NativeInput>,
 	status: &'static str,
 	#[cfg(target_os = "windows")]
 	poller: Option<poller::Poller>,
+	#[cfg(target_os = "macos")]
+	poller: Option<mac_poller::Poller>,
 	#[cfg(target_os = "windows")]
 	shared: poller::Shared,
+	#[cfg(target_os = "macos")]
+	shared: mac_poller::Shared,
 	#[cfg(target_os = "linux")]
 	portal: Option<tokio::task::JoinHandle<()>>,
 	#[cfg(target_os = "linux")]
@@ -198,8 +203,12 @@ impl Hotkeys {
 			status,
 			#[cfg(target_os = "windows")]
 			poller: None,
+			#[cfg(target_os = "macos")]
+			poller: None,
 			#[cfg(target_os = "windows")]
 			shared: poller::Shared::default(),
+			#[cfg(target_os = "macos")]
+			shared: mac_poller::Shared::default(),
 			#[cfg(target_os = "linux")]
 			portal: None,
 			#[cfg(target_os = "linux")]
@@ -245,7 +254,7 @@ impl Hotkeys {
 				})
 				.collect::<Vec<_>>()
 		});
-		#[cfg(target_os = "windows")]
+		#[cfg(any(target_os = "windows", target_os = "macos"))]
 		self.shared
 			.global
 			.store(keybinds.global_enabled, Ordering::Relaxed);
@@ -255,7 +264,7 @@ impl Hotkeys {
 		self.bindings = next.clone();
 		self.polled = polled;
 		self.unregister_all();
-		#[cfg(target_os = "windows")]
+		#[cfg(any(target_os = "windows", target_os = "macos"))]
 		self.restart_poller();
 
 		#[cfg(target_os = "linux")]
@@ -374,7 +383,7 @@ impl Hotkeys {
 
 	fn unregister_all(&mut self) {
 		// Stop the poller first so it cannot publish a stale press after the clear.
-		#[cfg(target_os = "windows")]
+		#[cfg(any(target_os = "windows", target_os = "macos"))]
 		drop(self.poller.take());
 		self.native.clear();
 		if let Some(manager) = &self.manager {
@@ -386,44 +395,53 @@ impl Hotkeys {
 		}
 	}
 
-	/// Restarts the Windows poller after the watched bindings or the capture state changed.
-	#[cfg(target_os = "windows")]
+	/// Restarts the native key poller after the watched bindings or the capture state
+	/// changed.
+	#[cfg(any(target_os = "windows", target_os = "macos"))]
 	fn restart_poller(&mut self) {
-		// Join the old threads first so both configurations never publish at once.
+		// Join the old thread first so both configurations never publish at once.
 		self.poller = None;
 		self.shared.down.store(0, Ordering::Relaxed);
-		self.poller = poller::Poller::start(
-			self.bindings.as_deref().unwrap_or(&[]),
-			&self.polled,
-			&self.shared,
-			self.native.clone(),
-		);
+		#[cfg(target_os = "windows")]
+		{
+			self.poller = poller::Poller::start(
+				self.bindings.as_deref().unwrap_or(&[]),
+				&self.polled,
+				&self.shared,
+				self.native.clone(),
+			);
+		}
+		#[cfg(target_os = "macos")]
+		{
+			self.poller =
+				mac_poller::Poller::start(&self.polled, &self.shared, self.native.clone());
+		}
 	}
 
 	/// Whether Serein is focused. Polled keys publish only while focused or globally enabled.
 	pub fn set_focused(&mut self, focused: bool) {
-		#[cfg(target_os = "windows")]
+		#[cfg(any(target_os = "windows", target_os = "macos"))]
 		self.shared.focused.store(focused, Ordering::Relaxed);
-		#[cfg(not(target_os = "windows"))]
+		#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 		let _ = focused;
 	}
 
 	/// Whether a chord is being recorded. The poller then runs even with no polled binding,
 	/// so [`Self::polled_down`] stays live.
 	pub fn set_capturing(&mut self, capturing: bool) {
-		#[cfg(target_os = "windows")]
+		#[cfg(any(target_os = "windows", target_os = "macos"))]
 		if self.shared.capturing.swap(capturing, Ordering::Relaxed) != capturing {
 			self.restart_poller();
 		}
-		#[cfg(not(target_os = "windows"))]
+		#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 		let _ = capturing;
 	}
 
 	/// Polled keys currently down, for chord capture.
 	pub fn polled_down(&self) -> u32 {
-		#[cfg(target_os = "windows")]
+		#[cfg(any(target_os = "windows", target_os = "macos"))]
 		return self.shared.down.load(Ordering::Relaxed);
-		#[cfg(not(target_os = "windows"))]
+		#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 		0
 	}
 
@@ -451,7 +469,7 @@ impl Hotkeys {
 			return true;
 		}
 		// Polled chords are published by the poller, so focused input must skip them.
-		#[cfg(target_os = "windows")]
+		#[cfg(any(target_os = "windows", target_os = "macos"))]
 		if self
 			.polled
 			.iter()
@@ -906,12 +924,169 @@ fn code_name(name: &str) -> Option<&'static str> {
 	}
 }
 
+/// The polled-key fold shared by the Windows and macOS pollers.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+mod polled_fold {
+	use super::{KeybindAction, POLLED_ID};
+
+	/// The polled-key fold across ticks: the watched keys and the mask seen last tick.
+	pub(super) struct Polled {
+		pub(super) watched: Vec<(KeybindAction, u32)>,
+		pub(super) was: u32,
+	}
+
+	impl Polled {
+		pub(super) fn tick(&mut self, now: u32, live: bool) -> Vec<(u32, KeybindAction, bool)> {
+			let events = transitions(&self.watched, self.was, now, live);
+			// A gated tick holds nothing, so later ticks must not re-release the same keys.
+			self.was = if live { now } else { 0 };
+			events
+		}
+
+		/// Releases everything still held, for a poller that is being stopped or restarted.
+		pub(super) fn release(&mut self) -> Vec<(u32, KeybindAction, bool)> {
+			self.tick(0, true)
+		}
+	}
+
+	/// Press/release edges for the watched polled keys, carrying the identity
+	/// [`NativeInput`](super::NativeInput) tracks each hold under.
+	fn transitions(
+		watched: &[(KeybindAction, u32)],
+		was: u32,
+		now: u32,
+		live: bool,
+	) -> Vec<(u32, KeybindAction, bool)> {
+		// Losing focus or the pad releases every held bit; toggles act on press only.
+		let now = if live { now } else { 0 };
+		watched
+			.iter()
+			.filter_map(|(action, bit)| {
+				let pressed = now & bit != 0;
+				if pressed == (was & bit != 0)
+					|| (!pressed
+						&& matches!(
+							action,
+							KeybindAction::ToggleMute | KeybindAction::ToggleDeafen
+						)) {
+					return None;
+				}
+				Some((POLLED_ID + bit.trailing_zeros(), *action, pressed))
+			})
+			.collect()
+	}
+
+	/// The tick fold on its own, so the state machine is testable without input devices.
+	#[cfg(test)]
+	fn step(
+		watched: &[(KeybindAction, u32)],
+		was: u32,
+		now: u32,
+		live: bool,
+	) -> Vec<(KeybindAction, bool)> {
+		transitions(watched, was, now, live)
+			.into_iter()
+			.map(|(_, action, pressed)| (action, pressed))
+			.collect()
+	}
+
+	#[cfg(test)]
+	mod tests {
+		use super::*;
+		use model::keybinds::polled_key_bit;
+
+		fn bit(name: &str) -> u32 {
+			polled_key_bit(name).expect("polled key")
+		}
+
+		#[test]
+		fn step_reports_press_and_release_edges() {
+			let watched = [(KeybindAction::PushToTalk, bit("ControlRight"))];
+			assert_eq!(
+				step(&watched, 0, bit("ControlRight"), true),
+				vec![(KeybindAction::PushToTalk, true)]
+			);
+			assert_eq!(
+				step(&watched, bit("ControlRight"), 0, true),
+				vec![(KeybindAction::PushToTalk, false)]
+			);
+			assert_eq!(step(&watched, 0, 0, true), vec![]);
+		}
+
+		#[test]
+		fn focus_loss_releases_held_ptt() {
+			let held = bit("ControlRight");
+			assert_eq!(
+				step(&[(KeybindAction::PushToTalk, held)], held, held, false),
+				vec![(KeybindAction::PushToTalk, false)]
+			);
+		}
+
+		#[test]
+		fn gated_ticks_release_once_then_press_on_refocus() {
+			let held = bit("ControlRight");
+			let mut polled = Polled {
+				watched: vec![(KeybindAction::PushToTalk, held)],
+				was: 0,
+			};
+			let actions = |events: Vec<(u32, KeybindAction, bool)>| {
+				events
+					.into_iter()
+					.map(|(_, action, pressed)| (action, pressed))
+					.collect::<Vec<_>>()
+			};
+			assert_eq!(
+				actions(polled.tick(held, true)),
+				vec![(KeybindAction::PushToTalk, true)]
+			);
+			// Unfocused with the key still held: one release, then silence on later ticks.
+			assert_eq!(
+				actions(polled.tick(held, false)),
+				vec![(KeybindAction::PushToTalk, false)]
+			);
+			for _ in 0..3 {
+				assert_eq!(actions(polled.tick(held, false)), vec![]);
+			}
+			// Refocusing while the key is still down presses once more.
+			assert_eq!(
+				actions(polled.tick(held, true)),
+				vec![(KeybindAction::PushToTalk, true)]
+			);
+		}
+
+		#[test]
+		fn pad_disconnect_releases() {
+			// The pad reader cleared its bits while the button was still down.
+			assert_eq!(
+				step(
+					&[(KeybindAction::PushToTalk, bit("PadSouth"))],
+					bit("PadSouth") | bit("PadL2"),
+					bit("PadL2"),
+					true
+				),
+				vec![(KeybindAction::PushToTalk, false)]
+			);
+		}
+
+		#[test]
+		fn toggles_fire_once_per_press() {
+			let watched = [(KeybindAction::ToggleMute, bit("PadEast"))];
+			assert_eq!(
+				step(&watched, 0, bit("PadEast"), true),
+				vec![(KeybindAction::ToggleMute, true)]
+			);
+			assert_eq!(step(&watched, bit("PadEast"), 0, true), vec![]);
+		}
+	}
+}
+
 /// Windows has no global mouse-button hotkeys and no gamepad hotkeys, so their physical
 /// state is polled instead.
 #[cfg(target_os = "windows")]
 mod poller {
 	use super::{
-		KeyChord, KeybindAction, MOUSE_ID, NativeInput, POLLED_ID, is_pad_button, polled_key_bit,
+		KeyChord, KeybindAction, MOUSE_ID, NativeInput, is_pad_button, polled_fold::Polled,
+		polled_key_bit,
 	};
 	use hidapi::{HidApi, HidDevice};
 	use model::keybinds::{ALT, CTRL, PRIMARY, SHIFT};
@@ -1167,67 +1342,6 @@ mod poller {
 		}
 	}
 
-	/// The polled-key fold across ticks: the watched keys and the mask seen last tick.
-	struct Polled {
-		watched: Vec<(KeybindAction, u32)>,
-		was: u32,
-	}
-
-	impl Polled {
-		fn tick(&mut self, now: u32, live: bool) -> Vec<(u32, KeybindAction, bool)> {
-			let events = transitions(&self.watched, self.was, now, live);
-			// A gated tick holds nothing, so later ticks must not re-release the same keys.
-			self.was = if live { now } else { 0 };
-			events
-		}
-
-		/// Releases everything still held, for a poller that is being stopped or restarted.
-		fn release(&mut self) -> Vec<(u32, KeybindAction, bool)> {
-			self.tick(0, true)
-		}
-	}
-
-	/// Press/release edges for the watched polled keys, carrying the identity [`NativeInput`]
-	/// tracks each hold under.
-	fn transitions(
-		watched: &[(KeybindAction, u32)],
-		was: u32,
-		now: u32,
-		live: bool,
-	) -> Vec<(u32, KeybindAction, bool)> {
-		// Losing focus or the pad releases every held bit; toggles act on press only.
-		let now = if live { now } else { 0 };
-		watched
-			.iter()
-			.filter_map(|(action, bit)| {
-				let pressed = now & bit != 0;
-				if pressed == (was & bit != 0)
-					|| (!pressed
-						&& matches!(
-							action,
-							KeybindAction::ToggleMute | KeybindAction::ToggleDeafen
-						)) {
-					return None;
-				}
-				Some((POLLED_ID + bit.trailing_zeros(), *action, pressed))
-			})
-			.collect()
-	}
-
-	/// The tick fold on its own, so the state machine is testable without input devices.
-	#[cfg(test)]
-	fn step(
-		watched: &[(KeybindAction, u32)],
-		was: u32,
-		now: u32,
-		live: bool,
-	) -> Vec<(KeybindAction, bool)> {
-		transitions(watched, was, now, live)
-			.into_iter()
-			.map(|(_, action, pressed)| (action, pressed))
-			.collect()
-	}
-
 	/// Raw DualSense reports arrive independently of the key poll, so they get a thread.
 	struct Pad {
 		stop: Arc<AtomicBool>,
@@ -1383,61 +1497,6 @@ mod poller {
 		}
 
 		#[test]
-		fn step_reports_press_and_release_edges() {
-			let watched = [(KeybindAction::PushToTalk, bit("ControlRight"))];
-			assert_eq!(
-				step(&watched, 0, bit("ControlRight"), true),
-				vec![(KeybindAction::PushToTalk, true)]
-			);
-			assert_eq!(
-				step(&watched, bit("ControlRight"), 0, true),
-				vec![(KeybindAction::PushToTalk, false)]
-			);
-			assert_eq!(step(&watched, 0, 0, true), vec![]);
-		}
-
-		#[test]
-		fn focus_loss_releases_held_ptt() {
-			let held = bit("ControlRight");
-			assert_eq!(
-				step(&[(KeybindAction::PushToTalk, held)], held, held, false),
-				vec![(KeybindAction::PushToTalk, false)]
-			);
-		}
-
-		#[test]
-		fn gated_ticks_release_once_then_press_on_refocus() {
-			let held = bit("ControlRight");
-			let mut polled = Polled {
-				watched: vec![(KeybindAction::PushToTalk, held)],
-				was: 0,
-			};
-			let actions = |events: Vec<(u32, KeybindAction, bool)>| {
-				events
-					.into_iter()
-					.map(|(_, action, pressed)| (action, pressed))
-					.collect::<Vec<_>>()
-			};
-			assert_eq!(
-				actions(polled.tick(held, true)),
-				vec![(KeybindAction::PushToTalk, true)]
-			);
-			// Unfocused with the key still held: one release, then silence on later ticks.
-			assert_eq!(
-				actions(polled.tick(held, false)),
-				vec![(KeybindAction::PushToTalk, false)]
-			);
-			for _ in 0..3 {
-				assert_eq!(actions(polled.tick(held, false)), vec![]);
-			}
-			// Refocusing while the key is still down presses once more.
-			assert_eq!(
-				actions(polled.tick(held, true)),
-				vec![(KeybindAction::PushToTalk, true)]
-			);
-		}
-
-		#[test]
 		fn pad_bits_reads_bluetooth_layouts() {
 			// Full Bluetooth report: buttons at 9, triggers at 6 and 7.
 			let full = [0x31, 0x80, 0x80, 0x80, 0x80, 0, 200, 0, 0, 0x28, 0, 0];
@@ -1446,30 +1505,6 @@ mod poller {
 			for report in [&full[..], &simple[..]] {
 				assert_eq!(pad_bits(report), bit("PadSouth") | bit("PadL2"));
 			}
-		}
-
-		#[test]
-		fn pad_disconnect_releases() {
-			// The pad reader cleared its bits while the button was still down.
-			assert_eq!(
-				step(
-					&[(KeybindAction::PushToTalk, bit("PadSouth"))],
-					bit("PadSouth") | bit("PadL2"),
-					bit("PadL2"),
-					true
-				),
-				vec![(KeybindAction::PushToTalk, false)]
-			);
-		}
-
-		#[test]
-		fn toggles_fire_once_per_press() {
-			let watched = [(KeybindAction::ToggleMute, bit("PadEast"))];
-			assert_eq!(
-				step(&watched, 0, bit("PadEast"), true),
-				vec![(KeybindAction::ToggleMute, true)]
-			);
-			assert_eq!(step(&watched, bit("PadEast"), 0, true), vec![]);
 		}
 
 		#[test]
@@ -1497,6 +1532,127 @@ mod poller {
 				assert_eq!(pad_bits(report), 0);
 			}
 		}
+	}
+}
+
+/// macOS has no global registration for a lone modifier, so its key state is polled with
+/// CoreGraphics instead. There is no controller support here.
+#[cfg(target_os = "macos")]
+mod mac_poller {
+	use super::{KeyChord, KeybindAction, NativeInput, polled_fold::Polled, polled_key_bit};
+	use std::sync::{
+		Arc,
+		atomic::{AtomicBool, AtomicU32, Ordering},
+	};
+	use std::time::Duration;
+
+	/// Well under an ordinary click, which stays down for tens of milliseconds.
+	const PERIOD: Duration = Duration::from_millis(10);
+
+	/// State the poller thread shares with `Hotkeys` and the focused input path.
+	#[derive(Clone, Default)]
+	pub(super) struct Shared {
+		/// Whether global bindings are enabled.
+		pub(super) global: Arc<AtomicBool>,
+		/// Whether the Serein window is focused.
+		pub(super) focused: Arc<AtomicBool>,
+		/// Whether the settings UI is recording a chord, so the mask must stay live.
+		pub(super) capturing: Arc<AtomicBool>,
+		/// Polled keys down, also published for chord capture.
+		pub(super) down: Arc<AtomicU32>,
+	}
+
+	/// Runs while a voice action is bound to a polled key, or while capturing a chord.
+	pub(super) struct Poller {
+		stop: Arc<AtomicBool>,
+		thread: Option<std::thread::JoinHandle<()>>,
+	}
+
+	impl Poller {
+		pub(super) fn start(
+			polled: &[(KeybindAction, KeyChord)],
+			shared: &Shared,
+			native: Arc<NativeInput>,
+		) -> Option<Self> {
+			// A bit doubles as the polled identity, so a second action on the same key folds
+			// into the first and both transitions keep one hold each.
+			let mut watched: Vec<(KeybindAction, u32)> = Vec::new();
+			for (action, chord) in polled {
+				if let Some(bit) = polled_key_bit(&chord.key)
+					&& !watched.iter().any(|(_, known)| *known == bit)
+				{
+					watched.push((*action, bit));
+				}
+			}
+			if watched.is_empty() && !shared.capturing.load(Ordering::Relaxed) {
+				return None;
+			}
+			let stop = Arc::new(AtomicBool::new(false));
+			let stopped = stop.clone();
+			let global = shared.global.clone();
+			let focused = shared.focused.clone();
+			let down = shared.down.clone();
+			let thread = std::thread::Builder::new()
+				.name("serein-input-keybinds".into())
+				.spawn(move || {
+					// CGKeyCode values for the side modifiers `POLLED_KEYS` can report.
+					let keyboard: [(u32, u16); 6] = [
+						("ControlLeft", 0x3B),
+						("ControlRight", 0x3E),
+						("ShiftLeft", 0x38),
+						("ShiftRight", 0x3C),
+						("AltLeft", 0x3A),
+						("AltRight", 0x3D),
+					]
+					.map(|(name, code)| (polled_key_bit(name).unwrap_or(0), code));
+					let mut polled = Polled { watched, was: 0 };
+					while !stopped.load(Ordering::Relaxed) {
+						let mut now = 0;
+						for (bit, code) in keyboard {
+							if key_down(code) {
+								now |= bit;
+							}
+						}
+						down.store(now, Ordering::Relaxed);
+						let live =
+							global.load(Ordering::Relaxed) || focused.load(Ordering::Relaxed);
+						for (id, action, pressed) in polled.tick(now, live) {
+							native.apply(id, action, pressed);
+						}
+						std::thread::sleep(PERIOD);
+					}
+					// A restart must not inherit a press, so release everything still held.
+					// Toggle releases are ignored by `apply`, matching the running loop.
+					for (id, action, _) in polled.release() {
+						native.apply(id, action, false);
+					}
+				})
+				.ok()?;
+			Some(Self {
+				stop,
+				thread: Some(thread),
+			})
+		}
+	}
+
+	impl Drop for Poller {
+		fn drop(&mut self) {
+			self.stop.store(true, Ordering::Relaxed);
+			if let Some(thread) = self.thread.take() {
+				let _ = thread.join();
+			}
+		}
+	}
+
+	/// Whether the physical key with this CGKeyCode is down, focused or not.
+	#[allow(unsafe_code)]
+	fn key_down(code: u16) -> bool {
+		#[link(name = "CoreGraphics", kind = "framework")]
+		unsafe extern "C" {
+			fn CGEventSourceKeyState(state: i32, keycode: u16) -> bool;
+		}
+		// SAFETY: reads the combined session's key state for one key code; no pointers.
+		unsafe { CGEventSourceKeyState(0, code) }
 	}
 }
 
