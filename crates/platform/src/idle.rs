@@ -3,7 +3,18 @@ use std::time::Duration;
 /// Time since the last keyboard/mouse input anywhere on the system, `Duration::MAX` while the
 /// session is locked, or `None` when this desktop exposes no idle source. Blocking; call off
 /// the UI thread and async runtime.
+pub static DISABLE_CALL_IDLE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_disable_call_idle_enabled(enabled: bool) {
+	DISABLE_CALL_IDLE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn system_idle() -> Option<Duration> {
+	if DISABLE_CALL_IDLE_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+		return Some(Duration::ZERO);
+	}
 	if session_locked() {
 		return Some(Duration::MAX);
 	}
@@ -363,4 +374,17 @@ fn x11_idle() -> Option<Duration> {
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 fn input_idle() -> Option<Duration> {
 	None
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn disable_call_idle_toggle_works() {
+		set_disable_call_idle_enabled(true);
+		assert_eq!(system_idle(), Some(Duration::ZERO));
+		set_disable_call_idle_enabled(false);
+		assert!(!DISABLE_CALL_IDLE_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
 }

@@ -30,6 +30,19 @@ pub fn set_vc_double_click_enabled(enable: bool) {
 pub fn vc_double_click_enabled() -> bool {
 	VC_DOUBLE_CLICK_ENABLED.load(Ordering::Relaxed)
 }
+
+/// VenSerein (SecretRingTone): Forces the rare 0.1% Discord easter egg ringtone.
+pub static SECRET_RING_TONE_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_secret_ring_tone_enabled(enable: bool) {
+	SECRET_RING_TONE_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn secret_ring_tone_enabled() -> bool {
+	SECRET_RING_TONE_ENABLED.load(Ordering::Relaxed)
+}
 use crate::design::LazyHover;
 use crate::{MessagingUi, design};
 use client_core::{
@@ -5791,6 +5804,10 @@ mod tests {
 		assert!(elapsed_label(call).is_none());
 		assert!(super::call_timer_enabled());
 		assert!(super::vc_double_click_enabled());
+		assert!(!super::secret_ring_tone_enabled());
+		super::set_secret_ring_tone_enabled(true);
+		assert!(super::secret_ring_tone_enabled());
+		super::set_secret_ring_tone_enabled(false);
 		state.demo = true;
 		for width in [640.0, 1120.0] {
 			let mut output = context.run_ui(

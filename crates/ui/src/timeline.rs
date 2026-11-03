@@ -2070,6 +2070,17 @@ impl TimelineView {
 		self.mark_unread = None;
 		self.seen_latest = None;
 	}
+	pub fn jump_to_top(&mut self) {
+		self.target_browsing = true;
+		self.following = false;
+		self.jump = true;
+		self.scroll_offset = 0.0;
+		self.anchor = None;
+		self.reveal_scroll = None;
+		self.present_scroll = None;
+		self.pending_reveal = None;
+	}
+
 	pub(super) fn follow_latest(&mut self, state: &State) {
 		self.latest |= state.history_targeted
 			|| state.history_before.is_some()
@@ -5033,6 +5044,17 @@ pub fn debug_unread_navigation_check(state: &mut State) {
 mod pending_tests;
 #[cfg(test)]
 mod tests {
+
+	#[test]
+	fn jump_to_top_resets_following_and_anchors_first_message() {
+		let mut timeline = super::TimelineView::default();
+		timeline.following = true;
+		timeline.jump_to_top();
+		assert!(!timeline.following);
+		assert!(timeline.jump);
+		assert_eq!(timeline.anchor, None);
+		assert_eq!(timeline.scroll_offset, 0.0);
+	}
 
 	#[test]
 	fn show_me_your_name_toggle_works() {

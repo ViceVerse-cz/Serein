@@ -382,7 +382,9 @@ pub(crate) fn show_subset(
 								let target_dim = artwork_size(attachment, size);
 								let reveal_id = egui::Id::unique(("attachment-spoiler-revealed", message.id, attachment.id));
 								let revealed = ui.data(|d| d.get_temp::<bool>(reveal_id)).unwrap_or(false);
-								if is_spoiler && blur_nsfw_enabled() && !revealed {
+								let should_hide = (is_spoiler && blur_nsfw_enabled())
+									|| HIDE_ATTACHMENTS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+								if should_hide && !revealed {
 									let (rect, response) = ui.allocate_exact_size(target_dim, Sense::click());
 									let colors = design::palette(ui);
 									ui.painter().rect_filled(rect, 8, colors.surface);
@@ -1519,6 +1521,14 @@ pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 }
 
 
+pub static HIDE_ATTACHMENTS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_hide_attachments_enabled(enabled: bool) {
+	HIDE_ATTACHMENTS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub static IMAGE_FILENAME_OVERLAY_ENABLED: std::sync::atomic::AtomicBool =
 	std::sync::atomic::AtomicBool::new(false);
 
@@ -1529,6 +1539,14 @@ pub fn set_image_filename_overlay_enabled(enabled: bool) {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn hide_attachments_toggle_works() {
+		set_hide_attachments_enabled(true);
+		assert!(HIDE_ATTACHMENTS_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+		set_hide_attachments_enabled(false);
+		assert!(!HIDE_ATTACHMENTS_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
 	#[test]
 	fn image_filename_overlay_toggle_works() {
 		set_image_filename_overlay_enabled(true);
