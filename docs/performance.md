@@ -1575,3 +1575,7 @@ differences are approximate.
 
 This measures the poller alone, not the full application, frame latency or live voice.
 The macOS poller and the Bluetooth/Edge pad paths were not measured.
+
+On Windows the poller also runs whenever global keybinds are on and a voice action uses
+Mouse 3, 4 or 5, since those buttons have no OS registrar there (pre-existing behavior, not
+part of this branch's measurements above).

@@ -931,11 +931,31 @@ mod polled_fold {
 
 	/// The polled-key fold across ticks: the watched keys and the mask seen last tick.
 	pub(super) struct Polled {
-		pub(super) watched: Vec<(KeybindAction, u32)>,
-		pub(super) was: u32,
+		watched: Vec<(KeybindAction, u32)>,
+		was: u32,
 	}
 
 	impl Polled {
+		/// A fresh poller seeded with the keys held right now. A toggle already down must
+		/// not press again across a restart, while a hold does: the old poller released it
+		/// on exit, so its owner is no longer listening.
+		pub(super) fn new(watched: Vec<(KeybindAction, u32)>, held_now: u32) -> Self {
+			let toggles = watched.iter().fold(0, |mask, (action, bit)| {
+				mask | if matches!(
+					action,
+					KeybindAction::ToggleMute | KeybindAction::ToggleDeafen
+				) {
+					*bit
+				} else {
+					0
+				}
+			});
+			Self {
+				watched,
+				was: held_now & toggles,
+			}
+		}
+
 		pub(super) fn tick(&mut self, now: u32, live: bool) -> Vec<(u32, KeybindAction, bool)> {
 			let events = transitions(&self.watched, self.was, now, live);
 			// A gated tick holds nothing, so later ticks must not re-release the same keys.
@@ -1025,10 +1045,7 @@ mod polled_fold {
 		#[test]
 		fn gated_ticks_release_once_then_press_on_refocus() {
 			let held = bit("ControlRight");
-			let mut polled = Polled {
-				watched: vec![(KeybindAction::PushToTalk, held)],
-				was: 0,
-			};
+			let mut polled = Polled::new(vec![(KeybindAction::PushToTalk, held)], 0);
 			let actions = |events: Vec<(u32, KeybindAction, bool)>| {
 				events
 					.into_iter()
@@ -1076,6 +1093,30 @@ mod polled_fold {
 				vec![(KeybindAction::ToggleMute, true)]
 			);
 			assert_eq!(step(&watched, bit("PadEast"), 0, true), vec![]);
+		}
+
+		#[test]
+		fn restart_does_not_repress_a_held_toggle() {
+			// Recording another row restarts the poller while the toggle key is down.
+			let held = bit("ControlRight");
+			let mut polled = Polled::new(vec![(KeybindAction::ToggleMute, held)], held);
+			assert_eq!(polled.tick(held, true), vec![]);
+			assert_eq!(polled.tick(0, true), vec![]);
+		}
+
+		#[test]
+		fn restart_represses_a_held_hold_action() {
+			// The old poller released the hold as it stopped, so the new one presses it.
+			let held = bit("ControlRight");
+			let mut polled = Polled::new(vec![(KeybindAction::PushToTalk, held)], held);
+			assert_eq!(
+				polled.tick(held, true),
+				vec![(
+					POLLED_ID + held.trailing_zeros(),
+					KeybindAction::PushToTalk,
+					true
+				)]
+			);
 		}
 	}
 }
@@ -1194,6 +1235,7 @@ mod poller {
 			let stopped = stop.clone();
 			let global = shared.global.clone();
 			let focused = shared.focused.clone();
+			let capture_flag = shared.capturing.clone();
 			let pad_down = shared.pad.clone();
 			let down = shared.down.clone();
 			let thread = std::thread::Builder::new()
@@ -1208,10 +1250,32 @@ mod poller {
 						("AltRight", VK_RMENU),
 					]
 					.map(|(name, key)| (polled_key_bit(name).unwrap_or(0), key));
-					let mut polled = Polled { watched, was: 0 };
+					let sample_keys = || {
+						let mut now = pad_down.load(Ordering::Relaxed);
+						for (bit, key) in keyboard {
+							if key_down(key) {
+								now |= bit;
+							}
+						}
+						altgr_filter(now)
+					};
+					// A restart must not re-fire a held toggle, so start from what is down.
+					let mut polled = Polled::new(watched, sample_keys());
 					let mut held = vec![false; mouse.len()];
-					let mut held_toggles = vec![false; toggle_groups.len()];
+					let mut held_toggles: Vec<bool> = toggle_groups
+						.iter()
+						.map(|(action, group_button)| {
+							mouse.iter().any(|(watched, button, modifiers)| {
+								watched == action
+									&& button.0 == group_button.0
+									&& key_down(*button) && modifiers_match(*modifiers)
+							})
+						})
+						.collect();
 					while !stopped.load(Ordering::Relaxed) {
+						let live = (global.load(Ordering::Relaxed)
+							|| focused.load(Ordering::Relaxed))
+							&& !capture_flag.load(Ordering::Relaxed);
 						let next: Vec<bool> = mouse
 							.iter()
 							.map(|(_, button, modifiers)| {
@@ -1221,12 +1285,12 @@ mod poller {
 						for (index, ((action, ..), (was_down, down_now))) in
 							mouse.iter().zip(held.iter().zip(&next)).enumerate()
 						{
+							let toggling = matches!(
+								action,
+								KeybindAction::ToggleMute | KeybindAction::ToggleDeafen
+							);
 							// Mouse chords stay global-only, never focus-gated.
-							if was_down != down_now
-								&& !matches!(
-									action,
-									KeybindAction::ToggleMute | KeybindAction::ToggleDeafen
-								) {
+							if live && was_down != down_now && !toggling {
 								native.apply(MOUSE_ID + index as u32, *action, *down_now);
 							}
 						}
@@ -1236,23 +1300,19 @@ mod poller {
 									watched == action && watched_button.0 == button.0 && *down
 								},
 							);
+							// Tracking still moves while capturing, so nothing is queued.
 							if down != held_toggles[group] {
 								held_toggles[group] = down;
-								native.apply(MOUSE_ID + 64 + group as u32, *action, down);
+								if live {
+									native.apply(MOUSE_ID + 64 + group as u32, *action, down);
+								}
 							}
 						}
 						held = next;
 
-						let mut now = pad_down.load(Ordering::Relaxed);
-						for (bit, key) in keyboard {
-							if key_down(key) {
-								now |= bit;
-							}
-						}
-						let now = altgr_filter(now);
+						let now = sample_keys();
+						// Recording reads the raw mask, so publishing alone is gated.
 						down.store(now, Ordering::Relaxed);
-						let live =
-							global.load(Ordering::Relaxed) || focused.load(Ordering::Relaxed);
 						for (id, action, pressed) in polled.tick(now, live) {
 							native.apply(id, action, pressed);
 						}
@@ -1371,11 +1431,18 @@ mod poller {
 
 	/// Keeps the pad button mask current, reopening the pad whenever it goes away.
 	fn read_pad(stop: &AtomicBool, mask: &AtomicU32) {
-		// A missing HID stack leaves the keyboard bindings working.
-		let Ok(mut api) = HidApi::new() else {
-			return;
-		};
 		let mut buffer = [0u8; PAD_REPORT];
+		// A missing HID stack leaves the keyboard bindings working, and it can arrive
+		// late, so keep retrying until the poller stops.
+		let mut api = loop {
+			if stop.load(Ordering::Relaxed) {
+				return;
+			}
+			if let Ok(api) = HidApi::new() {
+				break api;
+			}
+			wait(stop, PAD_RETRY);
+		};
 		let mut device: Option<HidDevice> = None;
 		let mut silent = 0;
 		// Only a pad that keeps streaming reports may be cleared for silence; a
@@ -1388,11 +1455,7 @@ mod poller {
 				silent = 0;
 				streaming = false;
 				if device.is_none() {
-					// Short sleeps keep a shutdown from waiting out the whole retry.
-					let retry = Instant::now() + PAD_RETRY;
-					while !stop.load(Ordering::Relaxed) && Instant::now() < retry {
-						std::thread::sleep(PERIOD);
-					}
+					wait(stop, PAD_RETRY);
 					continue;
 				}
 			}
@@ -1407,49 +1470,61 @@ mod poller {
 					streaming = false;
 					device = None;
 				}
-				Ok(0) if !streaming => {}
-				// A live pad streams reports, so silence means it stalled or left.
-				Ok(0) if silent < PAD_SILENT_READS => silent += 1,
-				Ok(0) => {
-					silent = 0;
-					mask.store(0, Ordering::Relaxed);
-					streaming = false;
-					device = None;
-				}
 				Ok(read) => {
-					silent = 0;
 					let report = &buffer[..read];
-					streaming |= matches!(report.first(), Some(0x01) if report.len() >= 11)
-						|| report.first() == Some(&0x31);
-					mask.store(pad_bits(report), Ordering::Relaxed);
+					match pad_bits(report) {
+						Some(bits) => {
+							silent = 0;
+							streaming |= matches!(report.first(), Some(0x01) if report.len() >= 11)
+								|| report.first() == Some(&0x31);
+							mask.store(bits, Ordering::Relaxed);
+						}
+						// Nothing new about the buttons, but a live pad streams reports: one
+						// that stops is treated as gone, so a stall cannot hold a key down.
+						None if !streaming => {}
+						None if silent < PAD_SILENT_READS => silent += 1,
+						None => {
+							silent = 0;
+							mask.store(0, Ordering::Relaxed);
+							streaming = false;
+							device = None;
+						}
+					}
 				}
 			}
 		}
 		mask.store(0, Ordering::Relaxed);
 	}
 
-	/// The first DualSense interface, falling back to its Edge variant.
-	// ponytail: one pad at a time. Upgrade: open every match.
+	/// Sleeps in short slices, so a stopped reader returns without waiting out a retry.
+	fn wait(stop: &AtomicBool, delay: Duration) {
+		let until = Instant::now() + delay;
+		while !stop.load(Ordering::Relaxed) && Instant::now() < until {
+			std::thread::sleep(PERIOD);
+		}
+	}
+
+	/// The first DualSense that opens, falling back to its Edge variant.
 	fn open_pad(api: &HidApi) -> Option<HidDevice> {
 		api.device_list()
-			.find(|device| {
+			.filter(|device| {
 				device.vendor_id() == 0x054C
 					&& matches!(device.product_id(), 0x0CE6 | 0x0DF2)
 					&& device.usage_page() == 1
 					&& device.usage() == 5
-			})?
-			.open_device(api)
-			.ok()
+			})
+			.find_map(|device| device.open_device(api).ok())
 	}
 
-	/// Polled-key mask for a DualSense input report, or 0 for any other report.
-	fn pad_bits(report: &[u8]) -> u32 {
+	/// Polled-key mask for a DualSense input report, or `None` for a report this does not
+	/// recognize.
+	fn pad_bits(report: &[u8]) -> Option<u32> {
 		// The report id and length place the button block and the analog triggers.
 		let (offset, l2, r2) = match report.first() {
 			Some(0x01) if report.len() >= 11 => (8, 5, 6),
 			Some(0x31) if report.len() >= 12 => (9, 6, 7),
 			Some(0x01) if report.len() >= 8 => (5, 8, 9),
-			_ => return 0,
+			_ => return None,
 		};
 		let buttons = report[offset];
 		let extended = report[offset + 1];
@@ -1477,7 +1552,7 @@ mod poller {
 				mask |= polled_key_bit(name).unwrap_or(0);
 			}
 		}
-		mask
+		Some(mask)
 	}
 
 	#[cfg(test)]
@@ -1503,14 +1578,14 @@ mod poller {
 			// Simple Bluetooth report: buttons at 5, triggers at 8 and 9.
 			let simple = [0x01, 0x80, 0x80, 0x80, 0x80, 0x28, 0, 0, 200, 0];
 			for report in [&full[..], &simple[..]] {
-				assert_eq!(pad_bits(report), bit("PadSouth") | bit("PadL2"));
+				assert_eq!(pad_bits(report), Some(bit("PadSouth") | bit("PadL2")));
 			}
 		}
 
 		#[test]
 		fn pad_bits_usb_cross_and_l2() {
 			let report = [0x01, 0x80, 0x80, 0x80, 0x80, 200, 0, 0, 0x28, 0, 0, 0];
-			assert_eq!(pad_bits(&report), bit("PadSouth") | bit("PadL2"));
+			assert_eq!(pad_bits(&report), Some(bit("PadSouth") | bit("PadL2")));
 		}
 
 		#[test]
@@ -1518,9 +1593,10 @@ mod poller {
 			let mut report = [0u8; 12];
 			report[0] = 0x01;
 			report[8] = 0x01;
-			assert_eq!(pad_bits(&report), bit("PadUp") | bit("PadRight"));
+			assert_eq!(pad_bits(&report), Some(bit("PadUp") | bit("PadRight")));
+			// Centred is still a report this pad sent, so the mask is known to be empty.
 			report[8] = 0x08;
-			assert_eq!(pad_bits(&report), 0);
+			assert_eq!(pad_bits(&report), Some(0));
 		}
 
 		#[test]
@@ -1529,7 +1605,7 @@ mod poller {
 			let unknown = [0x02, 0, 0, 0, 0, 0, 0, 0, 0x28, 0, 0, 0];
 			let short = [0x01];
 			for report in [&[][..], &short[..], &unknown[..], &bt_full[..]] {
-				assert_eq!(pad_bits(report), 0);
+				assert_eq!(pad_bits(report), None);
 			}
 		}
 	}
@@ -1591,6 +1667,7 @@ mod mac_poller {
 			let stopped = stop.clone();
 			let global = shared.global.clone();
 			let focused = shared.focused.clone();
+			let capture_flag = shared.capturing.clone();
 			let down = shared.down.clone();
 			let thread = std::thread::Builder::new()
 				.name("serein-input-keybinds".into())
@@ -1605,17 +1682,24 @@ mod mac_poller {
 						("AltRight", 0x3D),
 					]
 					.map(|(name, code)| (polled_key_bit(name).unwrap_or(0), code));
-					let mut polled = Polled { watched, was: 0 };
-					while !stopped.load(Ordering::Relaxed) {
+					let sample_keys = || {
 						let mut now = 0;
 						for (bit, code) in keyboard {
 							if key_down(code) {
 								now |= bit;
 							}
 						}
+						now
+					};
+					// A restart must not re-fire a held toggle, so start from what is down.
+					let mut polled = Polled::new(watched, sample_keys());
+					while !stopped.load(Ordering::Relaxed) {
+						// Recording reads the raw mask, so publishing alone is gated.
+						let now = sample_keys();
 						down.store(now, Ordering::Relaxed);
-						let live =
-							global.load(Ordering::Relaxed) || focused.load(Ordering::Relaxed);
+						let live = (global.load(Ordering::Relaxed)
+							|| focused.load(Ordering::Relaxed))
+							&& !capture_flag.load(Ordering::Relaxed);
 						for (id, action, pressed) in polled.tick(now, live) {
 							native.apply(id, action, pressed);
 						}

@@ -194,7 +194,14 @@ fn capture(
 			captured = Some(KeyChord::new(name, 0));
 		} else {
 			if let Some(name) = rising_polled_key(rising, false) {
-				polled.armed = polled_key_bit(name).unwrap_or_default();
+				let bit = polled_key_bit(name).unwrap_or_default();
+				// Two side modifiers at once is a chord Serein cannot bind, so drop the
+				// armed key instead of recording whichever one is released first.
+				polled.armed = if polled.armed != 0 && polled.armed != bit {
+					0
+				} else {
+					bit
+				};
 			}
 			let pressed = ui.input(|input| {
 				input.events.iter().any(|event| {
@@ -1149,6 +1156,31 @@ mod tests {
 		);
 		capture_frame(&ctx, vec![], 0, &mut bindings, &mut capturing);
 		assert_eq!(capturing, None);
+		assert_eq!(
+			bindings.chord(KeybindAction::PushToTalk),
+			&KeyChord::new("ControlRight", 0)
+		);
+	}
+
+	#[test]
+	fn overlapping_modifiers_record_nothing() {
+		let mut bindings = Keybinds::default();
+		let before = bindings.chord(KeybindAction::PushToTalk).clone();
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk));
+		let ctx = egui::Context::default();
+		let right_ctrl = polled_bit("ControlRight");
+		let left_shift = polled_bit("ShiftLeft");
+		for down in [right_ctrl, right_ctrl | left_shift, right_ctrl, 0] {
+			capture_frame(&ctx, vec![], down, &mut bindings, &mut capturing);
+		}
+		assert_eq!(
+			capturing,
+			Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk))
+		);
+		assert_eq!(bindings.chord(KeybindAction::PushToTalk), &before);
+		// Releasing everything and starting over records the lone modifier normally.
+		capture_frame(&ctx, vec![], right_ctrl, &mut bindings, &mut capturing);
+		capture_frame(&ctx, vec![], 0, &mut bindings, &mut capturing);
 		assert_eq!(
 			bindings.chord(KeybindAction::PushToTalk),
 			&KeyChord::new("ControlRight", 0)
