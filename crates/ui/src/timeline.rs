@@ -783,6 +783,24 @@ fn thread_card(
 		|| crate::i18n::translate("timeline-thread-activity-thread"),
 		str::to_owned,
 	);
+	// The card is painted, so its parts exist only as shapes; name them for screen readers.
+	let mut named = Vec::new();
+	if let Some(name) = card.name {
+		named.push(name.to_owned());
+	}
+	if let Some(count) = card.count {
+		named.push(thread_count(count));
+	}
+	if let (Some(last), Some(text)) = (card.last, card.text) {
+		named.push(format!("{}: {text}", state.message_author_name(last)));
+	}
+	if let Some(latest) = card.latest {
+		named.push(crate::local_time::ago(timestamp(latest)));
+	}
+	let named = named.join(" · ");
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), named.clone())
+	});
 	(
 		response.on_hover_text(crate::i18n::translate_args(
 			"timeline-open-thread",
@@ -6630,6 +6648,7 @@ mod tests {
 	fn an_unloaded_thread_starter_offers_its_thread_card() {
 		let ctx = egui::Context::default();
 		crate::design::apply(&ctx);
+		ctx.enable_accesskit();
 		let mut state = test_support::chat_demo_state();
 		state
 			.permissions
@@ -6743,6 +6762,7 @@ mod tests {
 		});
 		view.thread_preview_request = None;
 		painted.clear();
+		let mut accessible = Vec::new();
 		for _ in 0..2 {
 			let output = ctx.run_ui(
 				egui::RawInput {
@@ -6769,6 +6789,14 @@ mod tests {
 			for shape in &output.shapes {
 				painted_labels(&shape.shape, &mut painted);
 			}
+			if let Some(update) = output.platform_output.accesskit_update.as_ref() {
+				accessible.extend(
+					update
+						.nodes
+						.iter()
+						.filter_map(|(_, node)| node.label().map(str::to_owned)),
+				);
+			}
 			output.drop_without_applying_deltas();
 		}
 		let count = format!("{} ›", thread_count(3));
@@ -6783,6 +6811,14 @@ mod tests {
 				"missing {label}: {painted:?}"
 			);
 		}
+		// Painted text has no accessible node of its own, so the card names its parts.
+		assert!(
+			accessible.iter().any(|label| {
+				label.contains("Synthetic private thread")
+					&& label.contains("The latest reply in this thread")
+			}),
+			"the card names itself and its preview: {accessible:?}"
+		);
 		assert!(
 			view.thread_preview_request.is_none(),
 			"a trusted preview is not read again: {painted:?}"
