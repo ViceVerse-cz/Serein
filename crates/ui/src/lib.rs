@@ -570,6 +570,54 @@ pub struct MessagingUi {
 	pub blur: u8,
 }
 
+pub static FULL_USER_IN_CHATBOX_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn full_user_in_chatbox_enabled() -> bool {
+	FULL_USER_IN_CHATBOX_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_full_user_in_chatbox_enabled(enabled: bool) {
+	FULL_USER_IN_CHATBOX_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub(crate) fn composer_placeholder(state: &State, channel: Id) -> String {
+	state.channel(channel).map_or_else(
+		|| crate::i18n::translate("composer-placeholder"),
+		|c| {
+			if c.guild.is_some() {
+				crate::i18n::translate_args(
+					"composer-placeholder-channel",
+					&[("channel", &c.name)],
+				)
+			} else if full_user_in_chatbox_enabled()
+				&& c.kind == 1
+				&& let Some(user) = c.recipients.first()
+			{
+				let tag = if user.discriminator != 0 {
+					format!("{}#{:04}", user.name, user.discriminator)
+				} else {
+					user.name.clone()
+				};
+				let display = state.friend_nickname(user.id);
+				let full_name = match display {
+					Some(nick) if nick != user.name => format!("{nick} (@{tag})"),
+					_ => tag,
+				};
+				crate::i18n::translate_args(
+					"composer-placeholder-direct",
+					&[("name", &full_name)],
+				)
+			} else {
+				crate::i18n::translate_args(
+					"composer-placeholder-direct",
+					&[("name", state.conversation_name(c))],
+				)
+			}
+		},
+	)
+}
+
 /// Context strip (reply/edit) drawn as the rounded top of the composer block.
 fn composer_cap(
 	ui: &mut egui::Ui,
@@ -3446,22 +3494,7 @@ impl MessagingUi {
 					.chords(model::KeybindAction::SendMessage)
 					.any(|chord| crate::keybinds::pressed_exact(i, chord))
 			});
-		let placeholder = state.channel(channel).map_or_else(
-			|| crate::i18n::translate("composer-placeholder"),
-			|c| {
-				if c.guild.is_some() {
-					crate::i18n::translate_args(
-						"composer-placeholder-channel",
-						&[("channel", &c.name)],
-					)
-				} else {
-					crate::i18n::translate_args(
-						"composer-placeholder-direct",
-						&[("name", state.conversation_name(c))],
-					)
-				}
-			},
-		);
+		let placeholder = composer_placeholder(state, channel);
 		let can_attach = !editing_here
 			&& self.slash_commands.active.is_none()
 			&& state.can_attach(channel)
@@ -9556,6 +9589,51 @@ mod composer_tests {
 			"clearing at the slot limit must free capacity"
 		);
 		assert_eq!(messaging.draft_changes, [Id(1), Id(1)]);
+	}
+
+	#[test]
+	fn full_user_in_chatbox_toggle_and_placeholder_formatting() {
+		let user = model::User {
+			kind: model::AccountKind::Human,
+			webhook: false,
+			id: Id(42),
+			name: "Luna".into(),
+			avatar: None,
+			discriminator: 1337,
+			primary_guild: None,
+			cosmetics: None,
+		};
+		let channel = model::Channel {
+			last_message: None,
+			id: Id(100),
+			guild: None,
+			parent_id: None,
+			position: 0,
+			name: "Luna".into(),
+			kind: 1,
+			recipients: vec![user],
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+			icon: None,
+		};
+		let state = State {
+			channels: vec![channel],
+			..Default::default()
+		};
+
+		set_full_user_in_chatbox_enabled(true);
+		assert!(full_user_in_chatbox_enabled());
+		let placeholder_full = composer_placeholder(&state, Id(100));
+		assert!(placeholder_full.contains("Luna#1337"));
+
+		set_full_user_in_chatbox_enabled(false);
+		assert!(!full_user_in_chatbox_enabled());
+		let placeholder_simple = composer_placeholder(&state, Id(100));
+		assert!(placeholder_simple.contains("Luna"));
+		assert!(!placeholder_simple.contains("#1337"));
+
+		set_full_user_in_chatbox_enabled(true);
 	}
 }
 

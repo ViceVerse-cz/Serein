@@ -32,6 +32,17 @@ pub fn better_gif_alt_text_enabled() -> bool {
 	BETTER_GIF_ALT_TEXT_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+pub static BETTER_GIF_PICKER_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+pub fn better_gif_picker_enabled() -> bool {
+	BETTER_GIF_PICKER_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_better_gif_picker_enabled(enabled: bool) {
+	BETTER_GIF_PICKER_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn derive_gif_alt_text(title: &str, url: &str) -> String {
 	if !title.is_empty() {
 		return title.to_string();
@@ -459,7 +470,11 @@ impl Default for Picker {
 			matches: (0..standard().len()).collect(),
 			custom: CustomMatches::default(),
 			tab: Tab::Emoji,
-			gif_section: GifSection::Home,
+			gif_section: if better_gif_picker_enabled() {
+				GifSection::Favorites
+			} else {
+				GifSection::Home
+			},
 			gif_query: String::new(),
 			gif_changed_at: None,
 		}
@@ -2600,6 +2615,21 @@ mod tests {
 		assert_eq!(derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"), "funny cat dancing");
 		set_better_gif_alt_text_enabled(false);
 		assert_eq!(derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"), "GIF");
+	}
+
+	#[test]
+	fn better_gif_picker_toggle_works() {
+		assert!(!better_gif_picker_enabled());
+		let picker_default = Picker::default();
+		assert_eq!(picker_default.gif_section, GifSection::Home);
+
+		set_better_gif_picker_enabled(true);
+		assert!(better_gif_picker_enabled());
+		let picker_favorites = Picker::default();
+		assert_eq!(picker_favorites.gif_section, GifSection::Favorites);
+
+		set_better_gif_picker_enabled(false);
+		assert!(!better_gif_picker_enabled());
 	}
 
 	#[test]

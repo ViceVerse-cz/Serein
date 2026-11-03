@@ -3,6 +3,17 @@ use client_core::{Command, State};
 use egui::{Align2, Color32, FontId};
 use model::Id;
 
+pub static SERVER_LIST_INDICATORS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn server_list_indicators_enabled() -> bool {
+	SERVER_LIST_INDICATORS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_server_list_indicators_enabled(enabled: bool) {
+	SERVER_LIST_INDICATORS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Fixed width of the server rail column.
 pub(super) const RAIL_WIDTH: f32 = 64.0;
 /// Home, server and folder tiles on the rail.
@@ -176,15 +187,17 @@ pub(super) fn rail_indicator(
 			egui::emath::easing::cubic_out,
 		)
 	};
+	let unread_scale = if server_list_indicators_enabled() { 10.0 } else { 7.0 };
 	let height = (34.0 * ease("rail-pill-selected", selected))
 		.max(17.0 * ease("rail-pill-hover", hovered))
-		.max(7.0 * ease("rail-pill-unread", unread));
+		.max(unread_scale * ease("rail-pill-unread", unread));
 	if height < 0.5 {
 		return;
 	}
+	let pill_width = if server_list_indicators_enabled() { 9.0 } else { 8.0 };
 	let pill = egui::Rect::from_center_size(
 		egui::pos2(rect.left() - f32::from(RAIL_MARGIN) + 1.0, rect.center().y),
-		egui::vec2(8.0, height),
+		egui::vec2(pill_width, height),
 	);
 	ui.painter()
 		.rect_filled(pill, 4, design::palette(ui).text_strong);
@@ -524,6 +537,15 @@ mod tests {
 		assert_eq!(view.guild, None);
 		assert_eq!(state.selected, None);
 		assert!(!view.search.open);
+	}
+
+	#[test]
+	fn server_list_indicators_toggle() {
+		assert!(server_list_indicators_enabled());
+		set_server_list_indicators_enabled(false);
+		assert!(!server_list_indicators_enabled());
+		set_server_list_indicators_enabled(true);
+		assert!(server_list_indicators_enabled());
 	}
 
 	#[test]

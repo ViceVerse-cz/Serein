@@ -11,6 +11,41 @@ use egui::{Color32, CornerRadius, Pos2, Rect, RichText, Stroke, UiBuilder, Vec2,
 use model::{Id, User};
 
 /// Voice presence follows the person across views, using only known, visible calls.
+pub static USER_VOICE_SHOW_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn user_voice_show_enabled() -> bool {
+	USER_VOICE_SHOW_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_user_voice_show_enabled(enabled: bool) {
+	USER_VOICE_SHOW_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub(crate) fn user_voice_channel_name(state: &State, user: Id) -> Option<String> {
+	if !state.gateway_connected {
+		return None;
+	}
+	for entry in &state.voice.roster {
+		if entry.participant.user == user && state.can_view(entry.channel) {
+			if let Some(ch) = state.channel(entry.channel) {
+				if let Some(guild) = state.guilds.iter().find(|g| g.id == entry.guild) {
+					return Some(format!("{} ({})", ch.name, guild.name));
+				}
+				return Some(ch.name.clone());
+			}
+		}
+	}
+	for (channel, participants) in state.voice.dm_call_participants() {
+		if state.can_view(channel) && participants.iter().any(|p| p.user == user) {
+			if let Some(ch) = state.channel(channel) {
+				return Some(ch.name.clone());
+			}
+		}
+	}
+	None
+}
+
 pub(crate) fn voice_users(state: &State) -> std::collections::BTreeSet<Id> {
 	if !state.gateway_connected {
 		return Default::default();
@@ -4710,6 +4745,15 @@ pub fn set_always_expand_roles_enabled(enabled: bool) {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn user_voice_show_toggle_works() {
+		assert!(user_voice_show_enabled());
+		set_user_voice_show_enabled(false);
+		assert!(!user_voice_show_enabled());
+		set_user_voice_show_enabled(true);
+		assert!(user_voice_show_enabled());
+	}
+
 	#[test]
 	fn color_sighted_toggle_works() {
 		set_color_sighted_enabled(true);

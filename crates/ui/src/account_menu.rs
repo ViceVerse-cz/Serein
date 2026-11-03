@@ -4,6 +4,17 @@ use client_core::{Command, State};
 use egui::{RichText, vec2};
 use model::PresenceStatus;
 
+pub static ACCOUNT_PANEL_SERVER_PROFILE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+pub fn account_panel_server_profile_enabled() -> bool {
+	ACCOUNT_PANEL_SERVER_PROFILE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_account_panel_server_profile_enabled(enabled: bool) {
+	ACCOUNT_PANEL_SERVER_PROFILE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[derive(Default)]
 pub(super) struct AccountMenu {
 	open: bool,
@@ -159,15 +170,27 @@ impl MessagingUi {
 			};
 		}
 		if anchor.clicked() {
-			self.account_menu.open = !self.account_menu.open;
-			if self.account_menu.open {
-				self.account_menu.draft = self.own_presence.custom_status.clone();
-				self.profile.hide();
-				if state.own_profile.data.is_none()
-					&& !state.own_profile.loading
-					&& let Some(command) = state.load_own_profile()
-				{
-					commands.push(command);
+			if account_panel_server_profile_enabled()
+				&& state
+					.selected
+					.and_then(|id| state.channel(id))
+					.and_then(|c| c.guild)
+					.is_some()
+				&& let Some(user) = &state.user
+			{
+				self.account_menu.open = false;
+				self.profile.command_open(user.clone());
+			} else {
+				self.account_menu.open = !self.account_menu.open;
+				if self.account_menu.open {
+					self.account_menu.draft = self.own_presence.custom_status.clone();
+					self.profile.hide();
+					if state.own_profile.data.is_none()
+						&& !state.own_profile.loading
+						&& let Some(command) = state.load_own_profile()
+					{
+						commands.push(command);
+					}
 				}
 			}
 		}
@@ -1314,5 +1337,14 @@ mod tests {
 				assert!(view.take_avatar_requests().is_empty());
 			}
 		}
+	}
+
+	#[test]
+	fn account_panel_server_profile_toggle() {
+		assert!(!account_panel_server_profile_enabled());
+		set_account_panel_server_profile_enabled(true);
+		assert!(account_panel_server_profile_enabled());
+		set_account_panel_server_profile_enabled(false);
+		assert!(!account_panel_server_profile_enabled());
 	}
 }
