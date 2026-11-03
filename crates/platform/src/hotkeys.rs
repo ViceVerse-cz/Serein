@@ -1074,7 +1074,8 @@ mod poller {
 								now |= bit;
 							}
 						}
-						down.store(altgr_filter(now), Ordering::Relaxed);
+						let now = altgr_filter(now);
+						down.store(now, Ordering::Relaxed);
 						let live =
 							global.load(Ordering::Relaxed) || focused.load(Ordering::Relaxed);
 						for (id, action, pressed) in polled.tick(now, live) {
