@@ -76,8 +76,8 @@ pub(crate) fn user_voice_channel_name(state: &State, user: Id) -> Option<String>
 	}
 	if let Some(call) = &state.voice.active {
 		if call.guild.is_none() && state.can_view(call.channel) {
-			if let Some(ch) = state.channel(call.channel) {
-				if ch.recipients.iter().any(|u| u.id == user) {
+			if call.participants.iter().any(|p| p.user == user) {
+				if let Some(ch) = state.channel(call.channel) {
 					if !ch.name.is_empty() {
 						return Some(ch.name.clone());
 					}

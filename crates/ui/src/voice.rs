@@ -150,6 +150,20 @@ impl MessagingUi {
 			self.voice_narrator_cache.clear();
 			self.voice_narrator_channel = Some(channel);
 		}
+		let ringing = state.voice.ringing(channel);
+		let ringing_filtered: Vec<RosterEntry>;
+		let entries: &[RosterEntry] = if !ringing.is_empty()
+			&& let Some(call) = state.voice.active.as_ref().filter(|c| c.channel == channel)
+		{
+			ringing_filtered = entries
+				.iter()
+				.filter(|e| !ringing.contains(&e.participant.user) || call.participants.iter().any(|p| p.user == e.participant.user))
+				.cloned()
+				.collect();
+			&ringing_filtered
+		} else {
+			entries
+		};
 		let initial_populate = self.voice_narrator_cache.is_empty();
 		let mut current_ids = std::collections::HashSet::new();
 		for entry in entries {
@@ -3304,7 +3318,7 @@ impl MessagingUi {
 		let Some(call) = state.voice.active.as_ref() else {
 			return;
 		};
-		let narrator_entries = stage_participants(state, call.channel);
+		let narrator_entries = narrator_participants(state, call);
 		self.check_vc_narrator(state, call.channel, &narrator_entries);
 		let phase = call.phase;
 		let camera = call.camera;
@@ -3953,7 +3967,7 @@ impl MessagingUi {
 		let Some(call) = state.voice.active.as_ref() else {
 			return;
 		};
-		let narrator_entries = stage_participants(state, call.channel);
+		let narrator_entries = narrator_participants(state, call);
 		self.check_vc_narrator(state, call.channel, &narrator_entries);
 		let colors = design::palette(ui);
 		let phase = call.phase;
@@ -4793,6 +4807,14 @@ fn stage_participants(state: &State, channel: Id) -> Vec<RosterEntry> {
 		}
 	}
 	entries
+}
+
+fn narrator_participants(state: &State, call: &client_core::voice::Call) -> Vec<RosterEntry> {
+	let ringing = state.voice.ringing(call.channel);
+	stage_participants(state, call.channel)
+		.into_iter()
+		.filter(|e| !ringing.contains(&e.participant.user) || call.participants.iter().any(|p| p.user == e.participant.user))
+		.collect()
 }
 
 /// The local participant follows this device's toggles at once instead of waiting for the
@@ -6288,6 +6310,42 @@ mod tests {
 
 		messaging.check_vc_narrator(&state, channel, &[entry1.clone()]);
 		assert_eq!(messaging.toasts.len(), 3);
+
+		// Ringing user must NOT trigger narrator toast
+		state.apply_voice(client_core::voice::Event::Call {
+			channel,
+			ringing: Some(vec![Id(103)]),
+			participants: None,
+			unavailable: false,
+		});
+		let entry3 = RosterEntry {
+			guild: Id(0),
+			channel,
+			participant: Participant {
+				user: Id(103),
+				muted: false,
+				deafened: false,
+				server_muted: false,
+				server_deafened: false,
+				video: false,
+				streaming: false,
+			},
+			member: None,
+		};
+		messaging.check_vc_narrator(&state, channel, &[entry1.clone(), entry3]);
+		assert_eq!(messaging.toasts.len(), 3);
+
+		// When call ends (state.voice.active becomes None), MessagingUi::show resets narrator cache
+		assert!(!messaging.voice_narrator_cache.is_empty());
+		state.voice.active = None;
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+			messaging.show(ui, &mut state);
+		});
+		output.textures_delta.clear();
+		assert!(messaging.voice_narrator_cache.is_empty());
+		assert_eq!(messaging.voice_narrator_channel, None);
 
 		set_vc_narrator_enabled(false);
 		assert!(!vc_narrator_enabled());

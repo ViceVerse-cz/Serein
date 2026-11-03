@@ -177,7 +177,7 @@ impl MessagingUi {
 		let should_open_profile = account_panel_server_profile_enabled() && is_guild_channel;
 
 		if anchor.clicked() {
-			if should_open_profile && let Some(user) = &state.user {
+			if should_open_profile && anchor.clicked_by(egui::PointerButton::Primary) && let Some(user) = &state.user {
 				self.account_menu.open = false;
 				self.profile.command_open(user.clone());
 			} else {

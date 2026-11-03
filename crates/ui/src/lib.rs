@@ -673,12 +673,13 @@ pub fn parse_sticker_paste(text: &str) -> Option<(u64, u8)> {
 		.strip_prefix("https://media.discordapp.net/stickers/")
 		.or_else(|| trimmed.strip_prefix("https://cdn.discordapp.com/stickers/"))
 	{
-		let (path, _) = rest.split_once('?').unwrap_or((rest, ""));
+		let (path_and_query, _) = rest.split_once('#').unwrap_or((rest, ""));
+		let (path, _) = path_and_query.split_once('?').unwrap_or((path_and_query, ""));
 		let id_str = path.split(['.', '/']).next()?;
 		let id = id_str.parse::<u64>().ok()?;
-		let format_type = if path.ends_with(".gif") || path.contains(".gif") {
+		let format_type = if path.ends_with(".gif") {
 			4
-		} else if path.ends_with(".json") || path.contains(".json") {
+		} else if path.ends_with(".json") {
 			3
 		} else {
 			1
@@ -4639,6 +4640,12 @@ impl MessagingUi {
 		let forward = side.forward && !self.button_claimed(egui::PointerButton::Extra2);
 		if back || forward {
 			self.navigate_history(state, &mut commands, back);
+		}
+		if state.voice.active.is_none() {
+			if !self.voice_narrator_cache.is_empty() {
+				self.voice_narrator_cache.clear();
+			}
+			self.voice_narrator_channel = None;
 		}
 		// Fullscreen media owns the whole client surface, including during native resizing.
 		if self.show_fullscreen_voice(ui.ctx(), state) {
@@ -9742,6 +9749,8 @@ mod composer_tests {
 		assert_eq!(parse_sticker_paste(sticker_url), Some((123456789, 1)));
 		// Query parameters like ?name=.gif must not change format from png (1) to gif (4)
 		assert_eq!(parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png?name=.gif"), Some((123456789, 1)));
+		// Fragment like #.gif must not change format from png (1) to gif (4)
+		assert_eq!(parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png#.gif"), Some((123456789, 1)));
 		// Text following the URL must not be dropped; it should return None
 		assert_eq!(parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png and caption"), None);
 		let animated_sticker = "https://cdn.discordapp.com/stickers/987654321.gif";

@@ -434,7 +434,7 @@ pub(crate) fn show_subset(
 										image.rect.min + egui::vec2(6.0, 6.0),
 										egui::vec2((image.rect.width() - 12.0).max(20.0), 18.0),
 									);
-									let painter = ui.painter();
+									let painter = ui.painter().with_clip_rect(label_rect);
 									painter.rect_filled(
 										label_rect,
 										4.0,

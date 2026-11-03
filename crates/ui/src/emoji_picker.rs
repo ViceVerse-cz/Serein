@@ -56,11 +56,10 @@ pub fn set_greet_sticker_picker_enabled(enabled: bool) {
 
 pub fn is_greeting_sticker(name: &str) -> bool {
 	let lower = name.to_ascii_lowercase();
-	lower.contains("wave")
-		|| lower.contains("hi")
-		|| lower.contains("hello")
-		|| lower.contains("welcome")
-		|| lower.contains("greet")
+	lower
+		.split(|c: char| !c.is_alphanumeric())
+		.filter(|s| !s.is_empty())
+		.any(|token| matches!(token, "wave" | "hi" | "hello" | "welcome" | "greet"))
 }
 
 pub fn derive_gif_alt_text(title: &str, url: &str) -> String {
@@ -651,7 +650,11 @@ impl Picker {
 		self.pending_open = true;
 		self.tab = Tab::Gifs;
 		self.focus = true;
-		self.gif_section = GifSection::Home;
+		self.gif_section = if better_gif_picker_enabled() {
+			GifSection::Favorites
+		} else {
+			GifSection::Home
+		};
 		self.gif_query = query.chars().take(64).collect();
 		self.gif_changed_at = None;
 	}
@@ -2664,6 +2667,8 @@ mod tests {
 		let state = test_support::demo_state();
 		picker_favorites.sync(&state, None);
 		assert_eq!(picker_favorites.gif_section, GifSection::Favorites);
+		picker_favorites.open_gifs("");
+		assert_eq!(picker_favorites.gif_section, GifSection::Favorites);
 
 		set_better_gif_picker_enabled(false);
 		assert!(!better_gif_picker_enabled());
@@ -2695,6 +2700,8 @@ mod tests {
 
 		assert!(is_greeting_sticker("wave_hello"));
 		assert!(is_greeting_sticker("wumpus_hi"));
+		assert!(!is_greeting_sticker("white_cat"));
+		assert!(!is_greeting_sticker("think_positive"));
 		assert!(!is_greeting_sticker("angry_cat"));
 
 		set_greet_sticker_picker_enabled(false);
