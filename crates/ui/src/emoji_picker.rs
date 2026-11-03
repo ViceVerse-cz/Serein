@@ -43,6 +43,26 @@ pub fn set_better_gif_picker_enabled(enabled: bool) {
 	BETTER_GIF_PICKER_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
+pub static GREET_STICKER_PICKER_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+pub fn greet_sticker_picker_enabled() -> bool {
+	GREET_STICKER_PICKER_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_greet_sticker_picker_enabled(enabled: bool) {
+	GREET_STICKER_PICKER_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn is_greeting_sticker(name: &str) -> bool {
+	let lower = name.to_ascii_lowercase();
+	lower.contains("wave")
+		|| lower.contains("hi")
+		|| lower.contains("hello")
+		|| lower.contains("welcome")
+		|| lower.contains("greet")
+}
+
 pub fn derive_gif_alt_text(title: &str, url: &str) -> String {
 	if !title.is_empty() {
 		return title.to_string();
@@ -638,6 +658,11 @@ impl Picker {
 	pub(crate) fn search_stickers(&mut self, query: &str) {
 		self.open_stickers(None);
 		self.stickers.target = None;
+		let query = if greet_sticker_picker_enabled() && query.is_empty() {
+			"wave"
+		} else {
+			query
+		};
 		self.stickers.query = query.chars().take(64).collect();
 	}
 
@@ -2642,6 +2667,27 @@ mod tests {
 		assert_eq!(picker.favorites().len(), 16);
 		set_fav_emoji_first_enabled(false);
 		assert!(!fav_emoji_first_enabled());
+	}
+
+	#[test]
+	fn greet_sticker_picker_toggle_and_search_works() {
+		assert!(!greet_sticker_picker_enabled());
+		let mut picker = Picker::default();
+		picker.search_stickers("");
+		assert_eq!(picker.stickers.query, "");
+
+		set_greet_sticker_picker_enabled(true);
+		assert!(greet_sticker_picker_enabled());
+		picker.search_stickers("");
+		assert_eq!(picker.stickers.query, "wave");
+
+		assert!(is_greeting_sticker("wave_hello"));
+		assert!(is_greeting_sticker("wumpus_hi"));
+		assert!(!is_greeting_sticker("angry_cat"));
+
+		set_greet_sticker_picker_enabled(false);
+		picker.search_stickers("");
+		assert_eq!(picker.stickers.query, "");
 	}
 	#[test]
 	fn gif_favorite_loading_is_single_flight_and_video_placeholders_never_request_media() {

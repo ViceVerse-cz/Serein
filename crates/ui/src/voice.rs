@@ -69,6 +69,36 @@ pub fn set_bigger_stream_preview_enabled(enable: bool) {
 pub fn bigger_stream_preview_enabled() -> bool {
 	BIGGER_STREAM_PREVIEW_ENABLED.load(Ordering::Relaxed)
 }
+
+/// VenSerein (VcNarrator): Announces voice channel events (join, leave, mute, unmute) via TTS.
+pub static VC_NARRATOR_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_vc_narrator_enabled(enable: bool) {
+	VC_NARRATOR_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn vc_narrator_enabled() -> bool {
+	VC_NARRATOR_ENABLED.load(Ordering::Relaxed)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VcEvent {
+	Joined,
+	Left,
+	Muted,
+	Unmuted,
+}
+
+pub fn format_vc_narrator_message(user_name: &str, event: VcEvent) -> String {
+	match event {
+		VcEvent::Joined => format!("{} joined", user_name),
+		VcEvent::Left => format!("{} left", user_name),
+		VcEvent::Muted => format!("{} muted", user_name),
+		VcEvent::Unmuted => format!("{} unmuted", user_name),
+	}
+}
 use crate::design::LazyHover;
 use crate::{MessagingUi, design};
 use client_core::{
@@ -6124,4 +6154,20 @@ mod tests {
 		set_bigger_stream_preview_enabled(false);
 		assert!(!bigger_stream_preview_enabled());
 	}
+
+	#[test]
+	fn vc_narrator_toggle_and_message_formatting() {
+		assert!(!vc_narrator_enabled());
+		set_vc_narrator_enabled(true);
+		assert!(vc_narrator_enabled());
+
+		assert_eq!(format_vc_narrator_message("Alice", VcEvent::Joined), "Alice joined");
+		assert_eq!(format_vc_narrator_message("Bob", VcEvent::Left), "Bob left");
+		assert_eq!(format_vc_narrator_message("Charlie", VcEvent::Muted), "Charlie muted");
+		assert_eq!(format_vc_narrator_message("Dave", VcEvent::Unmuted), "Dave unmuted");
+
+		set_vc_narrator_enabled(false);
+		assert!(!vc_narrator_enabled());
+	}
 }
+

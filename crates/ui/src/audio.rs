@@ -32,6 +32,20 @@ pub fn set_voice_download_enabled(enabled: bool) {
 pub fn voice_download_enabled() -> bool {
 	VOICE_DOWNLOAD_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
+
+/// VenSerein (VoiceMessages): Controls voice message recording and playback.
+pub static VOICE_MESSAGES_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_voice_messages_enabled(enabled: bool) {
+	VOICE_MESSAGES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn voice_messages_enabled() -> bool {
+	VOICE_MESSAGES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
 pub struct AudioUi {
 	pub active: Option<(Id, Id, Attachment)>,
 	pub state: AudioState,
@@ -67,7 +81,7 @@ impl AudioUi {
 		attachment: &Attachment,
 	) -> egui::Response {
 		let colors = crate::design::palette(ui);
-		let voice = attachment.is_voice_message();
+		let voice = attachment.is_voice_message() && voice_messages_enabled();
 		let button_color = if voice {
 			colors.text_strong
 		} else {
@@ -611,4 +625,14 @@ mod tests {
 		set_voice_download_enabled(false);
 		assert!(!voice_download_enabled());
 	}
+
+	#[test]
+	fn voice_messages_toggle_works() {
+		assert!(voice_messages_enabled());
+		set_voice_messages_enabled(false);
+		assert!(!voice_messages_enabled());
+		set_voice_messages_enabled(true);
+		assert!(voice_messages_enabled());
+	}
 }
+

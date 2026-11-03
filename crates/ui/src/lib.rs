@@ -591,6 +591,75 @@ pub fn full_user_in_chatbox_enabled() -> bool {
 	FULL_USER_IN_CHATBOX_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// VenSerein (GifPaste): Normalizes pasted Tenor, Giphy, and direct GIF URLs into clean media links.
+pub static GIF_PASTE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_gif_paste_enabled(enabled: bool) {
+	GIF_PASTE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn gif_paste_enabled() -> bool {
+	GIF_PASTE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn normalize_gif_paste(text: &str) -> String {
+	if !gif_paste_enabled() {
+		return text.to_owned();
+	}
+	let trimmed = text.trim();
+	if trimmed.starts_with("https://tenor.com/view/")
+		|| trimmed.starts_with("https://media.tenor.com/")
+		|| trimmed.starts_with("https://giphy.com/gifs/")
+		|| trimmed.starts_with("https://media.giphy.com/")
+		|| (trimmed.starts_with("http") && trimmed.ends_with(".gif"))
+	{
+		trimmed.to_owned()
+	} else {
+		text.to_owned()
+	}
+}
+
+/// VenSerein (StickerPaste): Parses pasted Discord sticker URLs into sticker IDs and format types.
+pub static STICKER_PASTE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_sticker_paste_enabled(enabled: bool) {
+	STICKER_PASTE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn sticker_paste_enabled() -> bool {
+	STICKER_PASTE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn parse_sticker_paste(text: &str) -> Option<(u64, u8)> {
+	if !sticker_paste_enabled() {
+		return None;
+	}
+	let trimmed = text.trim();
+	if let Some(rest) = trimmed
+		.strip_prefix("https://media.discordapp.net/stickers/")
+		.or_else(|| trimmed.strip_prefix("https://cdn.discordapp.com/stickers/"))
+	{
+		let id_str = rest.split(['.', '?', '/']).next()?;
+		let id = id_str.parse::<u64>().ok()?;
+		let format_type = if rest.contains(".gif") {
+			4
+		} else if rest.contains(".json") {
+			3
+		} else {
+			1
+		};
+		Some((id, format_type))
+	} else {
+		None
+	}
+}
+
 pub fn set_full_user_in_chatbox_enabled(enabled: bool) {
 	FULL_USER_IN_CHATBOX_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
@@ -1163,6 +1232,7 @@ impl MessagingUi {
 		let paste_enabled = allowed && (menu || ctx.memory(|m| m.has_focus(target)));
 		if let Some((paste_channel, pasted_target, text)) = pasted_text {
 			if paste_enabled && paste_channel == channel && pasted_target == target {
+				let text = normalize_gif_paste(&text);
 				ctx.input_mut(|i| i.events.push(egui::Event::Paste(text)));
 				self.pasted_text_frame = Some(ctx.cumulative_frame_nr());
 			} else {
@@ -9613,6 +9683,31 @@ mod composer_tests {
 		assert!(add_attachments_enabled());
 		set_add_attachments_enabled(false);
 		assert!(!add_attachments_enabled());
+	}
+
+	#[test]
+	fn gif_paste_and_sticker_paste_toggles_and_parsers() {
+		assert!(!gif_paste_enabled());
+		set_gif_paste_enabled(true);
+		assert!(gif_paste_enabled());
+		let gif_url = "  https://tenor.com/view/funny-cat-12345  ";
+		assert_eq!(normalize_gif_paste(gif_url), "https://tenor.com/view/funny-cat-12345");
+		let non_gif = "Hello world";
+		assert_eq!(normalize_gif_paste(non_gif), "Hello world");
+		set_gif_paste_enabled(false);
+		assert_eq!(normalize_gif_paste(gif_url), gif_url);
+
+		assert!(!sticker_paste_enabled());
+		set_sticker_paste_enabled(true);
+		assert!(sticker_paste_enabled());
+		let sticker_url = "https://media.discordapp.net/stickers/123456789.png?size=160";
+		assert_eq!(parse_sticker_paste(sticker_url), Some((123456789, 1)));
+		let animated_sticker = "https://cdn.discordapp.com/stickers/987654321.gif";
+		assert_eq!(parse_sticker_paste(animated_sticker), Some((987654321, 4)));
+		let invalid = "https://example.com/not_a_sticker";
+		assert_eq!(parse_sticker_paste(invalid), None);
+		set_sticker_paste_enabled(false);
+		assert_eq!(parse_sticker_paste(sticker_url), None);
 	}
 	#[test]
 	fn full_user_in_chatbox_toggle_and_placeholder_formatting() {

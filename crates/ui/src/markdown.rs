@@ -2645,6 +2645,7 @@ impl Formatted {
 		let display = block.display.as_deref().unwrap_or(&block.code);
 		block.segments = block
 			.language
+			.filter(|_| crate::highlight::shiki_codeblocks_enabled())
 			.map(|language| crate::highlight::tokenize(language, display))
 			.unwrap_or_default();
 	}

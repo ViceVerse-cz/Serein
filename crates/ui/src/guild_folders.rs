@@ -11,6 +11,28 @@ use model::{
 };
 use std::collections::BTreeSet;
 
+pub static BETTER_FOLDERS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+pub fn better_folders_enabled() -> bool {
+	BETTER_FOLDERS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_better_folders_enabled(enabled: bool) {
+	BETTER_FOLDERS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub static BETTER_FOLDERS_CLOSE_OTHERS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+pub fn better_folders_close_others_enabled() -> bool {
+	BETTER_FOLDERS_CLOSE_OTHERS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_better_folders_close_others_enabled(enabled: bool) {
+	BETTER_FOLDERS_CLOSE_OTHERS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[derive(Default)]
 pub(super) struct FolderUi {
 	expanded: BTreeSet<u64>,
@@ -90,6 +112,14 @@ impl FolderUi {
 		if self.expanded.remove(&id) {
 			self.closing.insert(id);
 		} else {
+			if better_folders_close_others_enabled() {
+				for &other in &self.expanded {
+					if other != id {
+						self.closing.insert(other);
+					}
+				}
+				self.expanded.retain(|&other| other == id);
+			}
 			self.expanded.insert(id);
 			self.closing.remove(&id);
 		}
@@ -1607,4 +1637,34 @@ mod tests {
 			"Collapsed folder must not render a voice badge when call phase is Failed"
 		);
 	}
+
+	#[test]
+	fn better_folders_toggles_and_close_others() {
+		assert!(!better_folders_enabled());
+		set_better_folders_enabled(true);
+		assert!(better_folders_enabled());
+
+		assert!(!better_folders_close_others_enabled());
+		set_better_folders_close_others_enabled(true);
+		assert!(better_folders_close_others_enabled());
+
+		let mut ui = FolderUi::default();
+		ui.toggle(10);
+		assert!(ui.expanded.contains(&10));
+
+		// When close_others is true, expanding 20 closes 10
+		ui.toggle(20);
+		assert!(ui.expanded.contains(&20));
+		assert!(!ui.expanded.contains(&10));
+		assert!(ui.closing.contains(&10));
+
+		// Now disable close_others and verify both can be open
+		set_better_folders_close_others_enabled(false);
+		ui.toggle(10);
+		assert!(ui.expanded.contains(&10));
+		assert!(ui.expanded.contains(&20));
+
+		set_better_folders_enabled(false);
+	}
 }
+

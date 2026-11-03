@@ -9,6 +9,37 @@ use std::{
 	time::{Duration, Instant},
 };
 
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GifProvider {
+	Tenor = 0,
+	Giphy = 1,
+}
+
+pub static CURRENT_GIF_PROVIDER: AtomicU8 = AtomicU8::new(0);
+
+pub fn gif_provider() -> GifProvider {
+	match CURRENT_GIF_PROVIDER.load(Ordering::Relaxed) {
+		1 => GifProvider::Giphy,
+		_ => GifProvider::Tenor,
+	}
+}
+
+pub fn set_gif_provider(provider: GifProvider) {
+	CURRENT_GIF_PROVIDER.store(provider as u8, Ordering::Relaxed);
+}
+
+pub static GIF_PROVIDER_SWITCHER_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub fn gif_provider_switcher_enabled() -> bool {
+	GIF_PROVIDER_SWITCHER_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_gif_provider_switcher_enabled(enabled: bool) {
+	GIF_PROVIDER_SWITCHER_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
 const GIF_CACHE_PAGES: usize = 8;
 const GIF_CACHE_BYTES: usize = 768 * 1024;
 const GIF_CACHE_TTL: Duration = Duration::from_secs(10 * 60);
@@ -946,4 +977,21 @@ mod tests {
 		state.logout();
 		assert!(state.gifs.favorites.is_empty() && state.gifs.sync_remote.is_empty());
 	}
+
+	#[test]
+	fn gif_provider_switcher_toggle_and_provider_switching() {
+		set_gif_provider_switcher_enabled(false);
+		assert!(!gif_provider_switcher_enabled());
+		set_gif_provider_switcher_enabled(true);
+		assert!(gif_provider_switcher_enabled());
+
+		set_gif_provider(GifProvider::Tenor);
+		assert_eq!(gif_provider(), GifProvider::Tenor);
+		set_gif_provider(GifProvider::Giphy);
+		assert_eq!(gif_provider(), GifProvider::Giphy);
+
+		set_gif_provider(GifProvider::Tenor);
+		set_gif_provider_switcher_enabled(false);
+	}
 }
+
