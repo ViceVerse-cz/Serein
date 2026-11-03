@@ -7,7 +7,7 @@ use egui::RichText;
 #[derive(Default)]
 pub(super) struct Settings {
 	pub open: bool,
-	page: Page,
+	pub(super) page: Page,
 	query: String,
 	language_time_format: Option<(model::TimeFormat, Language)>,
 	pub(super) editor: crate::profile_edit::Editor,
@@ -17,7 +17,7 @@ pub(super) struct Settings {
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum Page {
+pub(super) enum Page {
 	Account,
 	Profile,
 	General,

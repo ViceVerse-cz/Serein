@@ -1155,6 +1155,13 @@ mod poller {
 	/// The analog triggers read as pressed from here.
 	const TRIGGER_THRESHOLD: u8 = 128;
 
+	/// Whether a mouse hold edge reaches [`NativeInput`]. A press needs a live poller,
+	/// while a release always goes through: a press published before the gate closed
+	/// would otherwise stay held and leave push-to-talk open.
+	fn mouse_hold_edge(was_down: bool, down_now: bool, toggling: bool, live: bool) -> bool {
+		!toggling && was_down != down_now && (live || !down_now)
+	}
+
 	/// State the poller threads share with `Hotkeys` and the focused input path.
 	#[derive(Clone, Default)]
 	pub(super) struct Shared {
@@ -1289,8 +1296,9 @@ mod poller {
 								action,
 								KeybindAction::ToggleMute | KeybindAction::ToggleDeafen
 							);
-							// Mouse chords stay global-only, never focus-gated.
-							if live && was_down != down_now && !toggling {
+							// Mouse chords stay global-only, never focus-gated, but a
+							// release must always land so a gated press cannot stick.
+							if mouse_hold_edge(*was_down, *down_now, toggling, live) {
 								native.apply(MOUSE_ID + index as u32, *action, *down_now);
 							}
 						}
@@ -1561,6 +1569,20 @@ mod poller {
 
 		fn bit(name: &str) -> u32 {
 			polled_key_bit(name).expect("polled key")
+		}
+
+		#[test]
+		fn gated_mouse_hold_still_releases() {
+			// Live press and release.
+			assert!(mouse_hold_edge(false, true, false, true));
+			assert!(mouse_hold_edge(true, false, false, true));
+			// Gated: the press is dropped, the release still lands.
+			assert!(!mouse_hold_edge(false, true, false, false));
+			assert!(mouse_hold_edge(true, false, false, false));
+			// No edge, and toggles keep their press-only behaviour.
+			assert!(!mouse_hold_edge(true, true, false, true));
+			assert!(!mouse_hold_edge(false, true, true, true));
+			assert!(!mouse_hold_edge(true, false, true, true));
 		}
 
 		#[test]

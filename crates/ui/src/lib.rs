@@ -4391,6 +4391,15 @@ impl MessagingUi {
 	}
 
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		// Recording keeps every polled voice shortcut gated, so a capture whose row has
+		// left the screen must not survive into the next frame.
+		if !self.settings.open
+			|| !matches!(
+				self.settings.page,
+				settings::Page::Keybinds | settings::Page::Voice
+			) {
+			self.keybind_capture = None;
+		}
 		self.avatars.cosmetics = self.cosmetics;
 		name_styles::set_enabled(self.cosmetics.name_styles);
 		let cosmetics_refresh = state.set_profile_cosmetics(self.cosmetics);
@@ -6126,6 +6135,9 @@ mod composer_tests {
 			view.keybind_capture = capturing.then_some(crate::keybinds::CaptureTarget::BuiltIn(
 				model::KeybindAction::ToggleMute,
 			));
+			// Capture only survives while its row is on screen.
+			view.settings.open = capturing;
+			view.settings.page = settings::Page::Keybinds;
 			view.ime_active = composing;
 			let expected = view.diagnostic_info(&ctx);
 			let output = ctx.run_ui(
@@ -6157,6 +6169,37 @@ mod composer_tests {
 				copies
 			);
 			output.drop_without_applying_deltas();
+		}
+	}
+
+	#[test]
+	fn capture_cleared_once_the_recording_row_leaves_the_screen() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let mut view = MessagingUi::default();
+		let capture = || {
+			Some(crate::keybinds::CaptureTarget::BuiltIn(
+				model::KeybindAction::PushToTalk,
+			))
+		};
+		let frame = |view: &mut MessagingUi, state: &mut client_core::State| {
+			let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+				view.show(ui, state);
+			});
+			output.drop_without_applying_deltas();
+		};
+		for (open, page, remains) in [
+			(false, settings::Page::Keybinds, false),
+			(true, settings::Page::General, false),
+			(true, settings::Page::Keybinds, true),
+			(true, settings::Page::Voice, true),
+		] {
+			view.settings.open = open;
+			view.settings.page = page;
+			view.keybind_capture = capture();
+			frame(&mut view, &mut state);
+			assert_eq!(view.keybind_capture.is_some(), remains);
+			assert_eq!(view.keybind_capturing(), remains);
 		}
 	}
 

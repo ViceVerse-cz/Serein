@@ -167,6 +167,15 @@ fn rising_polled_key(rising: u32, pad: bool) -> Option<&'static str> {
 		.map(|(_, name)| *name)
 }
 
+/// Every polled key that is a side modifier rather than a pad button.
+fn side_modifier_mask() -> u32 {
+	POLLED_KEYS
+		.iter()
+		.enumerate()
+		.filter(|(_, name)| !is_pad_button(name))
+		.fold(0, |mask, (index, _)| mask | (1 << index))
+}
+
 fn capture(
 	ui: &mut egui::Ui,
 	bindings: &mut Keybinds,
@@ -184,24 +193,47 @@ fn capture(
 		.data(|data| data.get_temp(polled_capture_id()))
 		.unwrap_or_default();
 	let previous = std::mem::replace(&mut polled.mask, polled_down);
+	let started = ui
+		.data_mut(|data| data.remove_temp::<CaptureStarted>(capture_started_id()))
+		.is_some();
+	// Escape wins over a pad button or side modifier that rose in the same frame, so
+	// abandoning a capture can never record one of them instead.
+	let escaped = ui.input(|input| {
+		input.events.iter().any(|event| {
+			matches!(
+				event,
+				Event::Key {
+					key: Key::Escape,
+					pressed: true,
+					repeat: false,
+					..
+				}
+			)
+		})
+	});
 	let mut captured = None;
 	// Only global actions take lone side modifiers or pad buttons. The native poller
 	// dispatches them, so egui never sees a press that the loop below could record.
-	if action.is_some_and(KeybindAction::is_global) {
+	if escaped {
+		polled.armed = 0;
+	} else if action.is_some_and(KeybindAction::is_global) {
 		let rising = polled_down & !previous;
 		let falling = previous & !polled_down;
 		if let Some(name) = rising_polled_key(rising, true) {
 			captured = Some(KeyChord::new(name, 0));
 		} else {
-			if let Some(name) = rising_polled_key(rising, false) {
+			let side = side_modifier_mask();
+			// Two side modifiers at once is a chord Serein cannot bind, so never arm
+			// one while another is down and drop it the moment another joins.
+			if polled.armed & side != 0 && polled_down & side & !polled.armed != 0 {
+				polled.armed = 0;
+			} else if polled.armed == 0
+				&& let Some(name) = rising_polled_key(rising, false)
+			{
 				let bit = polled_key_bit(name).unwrap_or_default();
-				// Two side modifiers at once is a chord Serein cannot bind, so drop the
-				// armed key instead of recording whichever one is released first.
-				polled.armed = if polled.armed != 0 && polled.armed != bit {
-					0
-				} else {
-					bit
-				};
+				if polled_down & side & !bit == 0 {
+					polled.armed = bit;
+				}
 			}
 			let pressed = ui.input(|input| {
 				input.events.iter().any(|event| {
@@ -228,15 +260,12 @@ fn capture(
 	if captured.is_some() {
 		polled.armed = 0;
 	}
-	let started = ui
-		.data_mut(|data| data.remove_temp::<CaptureStarted>(capture_started_id()))
-		.is_some();
 	ui.data_mut(|data| data.insert_temp(polled_capture_id(), polled));
 	if started {
 		return;
 	}
-	let mut cancelled = false;
-	if captured.is_none() {
+	let mut cancelled = escaped;
+	if captured.is_none() && !cancelled {
 		for event in ui.input(|input| input.events.clone()) {
 			match event {
 				Event::Key {
@@ -1185,6 +1214,45 @@ mod tests {
 			bindings.chord(KeybindAction::PushToTalk),
 			&KeyChord::new("ControlRight", 0)
 		);
+	}
+
+	#[test]
+	fn escape_wins_over_a_pad_button_rising_in_the_same_frame() {
+		let mut bindings = Keybinds::default();
+		let before = bindings.chord(KeybindAction::PushToTalk).clone();
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk));
+		let ctx = egui::Context::default();
+		capture_frame(
+			&ctx,
+			vec![Event::Key {
+				key: Key::Escape,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: Modifiers::NONE,
+			}],
+			polled_bit("PadSouth"),
+			&mut bindings,
+			&mut capturing,
+		);
+		assert_eq!(capturing, None);
+		assert_eq!(bindings.chord(KeybindAction::PushToTalk), &before);
+	}
+
+	#[test]
+	fn side_modifiers_rising_together_never_arm() {
+		let mut bindings = Keybinds::default();
+		let before = bindings.chord(KeybindAction::PushToTalk).clone();
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk));
+		let ctx = egui::Context::default();
+		let both = polled_bit("ControlRight") | polled_bit("ShiftLeft");
+		capture_frame(&ctx, vec![], both, &mut bindings, &mut capturing);
+		capture_frame(&ctx, vec![], 0, &mut bindings, &mut capturing);
+		assert_eq!(
+			capturing,
+			Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk))
+		);
+		assert_eq!(bindings.chord(KeybindAction::PushToTalk), &before);
 	}
 
 	#[test]
