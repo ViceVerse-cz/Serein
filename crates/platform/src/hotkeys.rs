@@ -1074,7 +1074,7 @@ mod poller {
 								now |= bit;
 							}
 						}
-						down.store(now, Ordering::Relaxed);
+						down.store(altgr_filter(now), Ordering::Relaxed);
 						let live =
 							global.load(Ordering::Relaxed) || focused.load(Ordering::Relaxed);
 						for (id, action, pressed) in polled.tick(now, live) {
@@ -1152,6 +1152,18 @@ mod poller {
 	fn key_down(key: VIRTUAL_KEY) -> bool {
 		// SAFETY: GetAsyncKeyState only reads global input state for a virtual-key code.
 		unsafe { GetAsyncKeyState(i32::from(key.0)) < 0 }
+	}
+
+	/// Windows synthesises Left Ctrl while AltGr (Right Alt) is held, so a voice key
+	/// bound to Left Ctrl must not fire for it.
+	fn altgr_filter(mask: u32) -> u32 {
+		let right_alt = polled_key_bit("AltRight").unwrap_or(0);
+		let left_ctrl = polled_key_bit("ControlLeft").unwrap_or(0);
+		if mask & right_alt != 0 {
+			mask & !left_ctrl
+		} else {
+			mask
+		}
 	}
 
 	/// The polled-key fold across ticks: the watched keys and the mask seen last tick.
@@ -1251,11 +1263,15 @@ mod poller {
 		let mut buffer = [0u8; PAD_REPORT];
 		let mut device: Option<HidDevice> = None;
 		let mut silent = 0;
+		// Only a pad that keeps streaming reports may be cleared for silence; a
+		// change-only pad keeps its last mask and clears on `Err`.
+		let mut streaming = false;
 		while !stop.load(Ordering::Relaxed) {
 			if device.is_none() {
 				let _ = api.refresh_devices();
 				device = open_pad(&api);
 				silent = 0;
+				streaming = false;
 				if device.is_none() {
 					// Short sleeps keep a shutdown from waiting out the whole retry.
 					let retry = Instant::now() + PAD_RETRY;
@@ -1273,18 +1289,24 @@ mod poller {
 				Err(_) => {
 					mask.store(0, Ordering::Relaxed);
 					silent = 0;
+					streaming = false;
 					device = None;
 				}
+				Ok(0) if !streaming => {}
 				// A live pad streams reports, so silence means it stalled or left.
 				Ok(0) if silent < PAD_SILENT_READS => silent += 1,
 				Ok(0) => {
 					silent = 0;
 					mask.store(0, Ordering::Relaxed);
+					streaming = false;
 					device = None;
 				}
 				Ok(read) => {
 					silent = 0;
-					mask.store(pad_bits(&buffer[..read]), Ordering::Relaxed);
+					let report = &buffer[..read];
+					streaming |= matches!(report.first(), Some(0x01) if report.len() >= 11)
+						|| report.first() == Some(&0x31);
+					mask.store(pad_bits(report), Ordering::Relaxed);
 				}
 			}
 		}
@@ -1349,6 +1371,14 @@ mod poller {
 
 		fn bit(name: &str) -> u32 {
 			polled_key_bit(name).expect("polled key")
+		}
+
+		#[test]
+		fn altgr_drops_synthetic_left_ctrl() {
+			let left_ctrl = bit("ControlLeft");
+			let right_alt = bit("AltRight");
+			assert_eq!(altgr_filter(right_alt | left_ctrl), right_alt);
+			assert_eq!(altgr_filter(left_ctrl), left_ctrl);
 		}
 
 		#[test]

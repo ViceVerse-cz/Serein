@@ -483,6 +483,10 @@ fn custom_row(
 							);
 						}
 					});
+				// A pad button or lone modifier recorded for a voice action cannot stay
+				// once the row switches to a text action; clearing it keeps the prefs valid.
+				normalize_custom_binding(&mut bindings.custom[index]);
+				let action = bindings.custom[index].action;
 				if action.is_global() && bindings.global_enabled {
 					ui.label(
 						RichText::new(crate::i18n::translate("keybinds-row-global"))
@@ -513,6 +517,14 @@ fn custom_row(
 		});
 	});
 	remove
+}
+
+/// Drops a recorded pad button or lone modifier from a custom row whose action no
+/// longer accepts it, so the row reads as unrecorded instead of invalidating the prefs.
+fn normalize_custom_binding(binding: &mut CustomBinding) {
+	if !binding.action.is_global() && polled_key_bit(&binding.chord.key).is_some() {
+		binding.chord = KeyChord::new("", 0);
+	}
 }
 
 /// Blink strength, fade alpha and the conflict message for the row being captured.
@@ -1163,6 +1175,55 @@ mod tests {
 			bindings.chord(KeybindAction::PushToTalk),
 			&KeyChord::new("K", model::keybinds::CTRL)
 		);
+	}
+
+	#[test]
+	fn unmapped_key_press_disarms_lone_modifier() {
+		let mut bindings = Keybinds::default();
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk));
+		let ctx = egui::Context::default();
+		let right_ctrl = polled_bit("ControlRight");
+		capture_frame(&ctx, vec![], right_ctrl, &mut bindings, &mut capturing);
+		// Copy has no name in the binding table, so it neither records nor ends capture;
+		// it must still disarm the side modifier before it is released.
+		capture_frame(
+			&ctx,
+			vec![Event::Key {
+				key: Key::Copy,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: Modifiers::NONE,
+			}],
+			right_ctrl,
+			&mut bindings,
+			&mut capturing,
+		);
+		assert_eq!(
+			capturing,
+			Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk))
+		);
+		capture_frame(&ctx, vec![], 0, &mut bindings, &mut capturing);
+		assert_eq!(
+			bindings.chord(KeybindAction::PushToTalk),
+			&KeyChord::new("V", 0)
+		);
+	}
+
+	#[test]
+	fn custom_row_action_change_clears_polled_chord() {
+		let mut bindings = Keybinds {
+			custom: vec![CustomBinding {
+				action: KeybindAction::PushToTalk,
+				chord: KeyChord::new("PadSouth", 0),
+			}],
+			..Default::default()
+		};
+		assert!(bindings.is_valid());
+		bindings.custom[0].action = KeybindAction::Bold;
+		normalize_custom_binding(&mut bindings.custom[0]);
+		assert_eq!(bindings.custom[0].chord, KeyChord::new("", 0));
+		assert!(bindings.is_valid());
 	}
 
 	#[test]
