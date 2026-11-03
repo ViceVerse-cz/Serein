@@ -34,6 +34,34 @@ pub fn game_activity_toggle_enabled() -> bool {
 	GAME_ACTIVITY_TOGGLE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// VenSerein (AutoDndWhilePlaying): Automatically treats presence as DND while a game activity is detected.
+pub static AUTO_DND_WHILE_PLAYING_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_auto_dnd_while_playing_enabled(enabled: bool) {
+	AUTO_DND_WHILE_PLAYING_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn auto_dnd_while_playing_enabled() -> bool {
+	AUTO_DND_WHILE_PLAYING_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (StreamerModeOnStream): Automatically activates privacy protections when user is streaming or sharing screen.
+pub static STREAMER_MODE_ON_STREAM_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_streamer_mode_on_stream_enabled(enabled: bool) {
+	STREAMER_MODE_ON_STREAM_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn streamer_mode_on_stream_enabled() -> bool {
+	STREAMER_MODE_ON_STREAM_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Clone)]
 pub struct Update {
 	pub user: Id,
@@ -170,6 +198,28 @@ pub fn projected_row_bytes(row: &model::Member, update: &MemberPresence) -> usiz
 }
 
 impl State {
+	/// Computes effective status for the current user, applying AutoDndWhilePlaying if active.
+	pub fn effective_local_status<'a>(&'a self, base_status: &'a str) -> &'a str {
+		if auto_dnd_while_playing_enabled() && self.local_game_activity().is_some() {
+			"dnd"
+		} else {
+			base_status
+		}
+	}
+
+	/// Checks whether streamer mode is active (either explicitly or via streaming activity).
+	pub fn is_streamer_mode_active(&self) -> bool {
+		if streamer_mode_on_stream_enabled() {
+			if let Some(call) = self.voice.active.as_ref() {
+				if let Some(user) = self.user.as_ref() {
+					if call.participants.iter().any(|p| p.user == user.id && p.streaming) {
+						return true;
+					}
+				}
+			}
+		}
+		false
+	}
 	/// Invalidates Online membership, without invalidating on activity-only updates.
 	/// Connection state and relationship visibility are separate cache keys.
 	pub fn direct_presence_epoch(&self) -> u64 {
@@ -1582,5 +1632,27 @@ mod tests {
 		assert!(state.direct_presence_epoch() > epoch);
 		assert!(state.presence_for(Id(2)).is_none());
 		assert_eq!(state.revision, revision);
+	}
+
+	#[test]
+	fn auto_dnd_and_streamer_mode_toggles_and_effective_status() {
+		assert!(!auto_dnd_while_playing_enabled());
+		assert!(!streamer_mode_on_stream_enabled());
+		
+		set_auto_dnd_while_playing_enabled(true);
+		assert!(auto_dnd_while_playing_enabled());
+		
+		set_streamer_mode_on_stream_enabled(true);
+		assert!(streamer_mode_on_stream_enabled());
+		
+		let state = State::default();
+		// When no game activity is present, base status is kept
+		assert_eq!(state.effective_local_status("online"), "online");
+		assert!(!state.is_streamer_mode_active());
+		
+		set_auto_dnd_while_playing_enabled(false);
+		set_streamer_mode_on_stream_enabled(false);
+		assert!(!auto_dnd_while_playing_enabled());
+		assert!(!streamer_mode_on_stream_enabled());
 	}
 }

@@ -229,6 +229,34 @@ pub struct MentionSource<'a> {
 	pub channel: Id,
 }
 
+/// VenSerein (RoleColorEverywhere): Renders member's highest role color across mentions and UI elements.
+pub static ROLE_COLOR_EVERYWHERE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_role_color_everywhere_enabled(enabled: bool) {
+	ROLE_COLOR_EVERYWHERE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn role_color_everywhere_enabled() -> bool {
+	ROLE_COLOR_EVERYWHERE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn user_role_color(
+	id: Id,
+	source: Option<&MentionSource<'_>>,
+	roles: &[model::permissions::Role],
+) -> Option<u32> {
+	let source = source?;
+	let member = member(source.state, source.channel, id)?;
+	roles
+		.iter()
+		.filter(|r| r.color != 0 && member.roles.contains(&r.id))
+		.max_by_key(|r| r.position)
+		.map(|r| r.color)
+}
+
 fn member(state: &State, channel: Id, id: Id) -> Option<&model::Member> {
 	state
 		.members
@@ -2412,5 +2440,19 @@ pub fn debug_role_mentions_check(state: &mut State) {
 	if let Some(dm) = state.channels.iter().find(|c| c.guild.is_none()) {
 		menu.refresh(state, dm.id, "@Role", Some(5), &[]);
 		assert!(menu.candidates.is_empty(), "roles must not leak into DMs");
+	}
+}
+
+#[cfg(test)]
+mod tests_role_color {
+	use super::*;
+
+	#[test]
+	fn role_color_everywhere_toggle_works() {
+		assert!(!role_color_everywhere_enabled());
+		set_role_color_everywhere_enabled(true);
+		assert!(role_color_everywhere_enabled());
+		set_role_color_everywhere_enabled(false);
+		assert!(!role_color_everywhere_enabled());
 	}
 }

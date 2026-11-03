@@ -14,6 +14,20 @@ pub fn super_reaction_tweaks_enabled() -> bool {
 	SUPER_REACTION_TWEAKS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// VenSerein (WhoReacted): Shows an expanded list of reactors in the reaction tooltip without truncating after 3.
+pub static WHO_REACTED_EXPANDED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_who_reacted_expanded(enabled: bool) {
+	WHO_REACTED_EXPANDED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn who_reacted_expanded() -> bool {
+	WHO_REACTED_EXPANDED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Action {
 	Reload,
@@ -22,7 +36,8 @@ pub enum Action {
 }
 
 fn reacting_names<'a>(names: impl Iterator<Item = &'a str>, count: u32) -> String {
-	let names = names.take(3).collect::<Vec<_>>();
+	let limit = if who_reacted_expanded() { 12 } else { 3 };
+	let names = names.take(limit).collect::<Vec<_>>();
 	let remaining = count.saturating_sub(names.len() as u32);
 	let names = names.join(", ");
 	if remaining == 0 {
@@ -535,5 +550,21 @@ mod tests {
 		assert!(super_reaction_tweaks_enabled());
 		set_super_reaction_tweaks_enabled(false);
 		assert!(!super_reaction_tweaks_enabled());
+	}
+
+	#[test]
+	fn who_reacted_expanded_toggle_and_limit() {
+		assert!(!who_reacted_expanded());
+		let sample_names = ["Alice", "Bob", "Charlie", "Dave", "Eve", "Frank"];
+		let default_str = reacting_names(sample_names.iter().copied(), 6);
+		assert!(default_str.contains("Alice, Bob, Charlie"));
+		
+		set_who_reacted_expanded(true);
+		assert!(who_reacted_expanded());
+		let expanded_str = reacting_names(sample_names.iter().copied(), 6);
+		assert_eq!(expanded_str, "Alice, Bob, Charlie, Dave, Eve, Frank");
+		
+		set_who_reacted_expanded(false);
+		assert!(!who_reacted_expanded());
 	}
 }

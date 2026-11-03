@@ -56,6 +56,19 @@ pub fn set_volume_booster_enabled(enable: bool) {
 pub fn volume_booster_enabled() -> bool {
 	VOLUME_BOOSTER_ENABLED.load(Ordering::Relaxed)
 }
+
+/// VenSerein (BiggerStreamPreview): Expands stream hover preview from compact 300px to comfortable 540px.
+pub static BIGGER_STREAM_PREVIEW_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_bigger_stream_preview_enabled(enable: bool) {
+	BIGGER_STREAM_PREVIEW_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn bigger_stream_preview_enabled() -> bool {
+	BIGGER_STREAM_PREVIEW_ENABLED.load(Ordering::Relaxed)
+}
 use crate::design::LazyHover;
 use crate::{MessagingUi, design};
 use client_core::{
@@ -761,9 +774,16 @@ impl MessagingUi {
 		entry: &RosterEntry,
 	) {
 		let target = (entry.guild, entry.channel, entry.participant.user);
+		let bigger = bigger_stream_preview_enabled();
+		let preview_width = if bigger { 540.0 } else { 300.0 };
+		let preview_size = if bigger {
+			egui::vec2(540.0, 304.0)
+		} else {
+			egui::vec2(300.0, 169.0)
+		};
 		let mut tooltip = egui::Tooltip::for_enabled(row)
 			.gap(8.0)
-			.width(324.0)
+			.width(preview_width + 24.0)
 			.accessible_name("Stream preview");
 		tooltip.popup = tooltip.popup.align(egui::RectAlign::RIGHT_START).frame(
 			egui::Frame::popup(&row.ctx.style_of(row.ctx.theme()))
@@ -785,7 +805,7 @@ impl MessagingUi {
 		}
 		let colors = design::palette(ui);
 		tooltip.show(|ui| {
-			ui.set_width(300.0);
+			ui.set_width(preview_width);
 			ui.spacing_mut().item_spacing.y = 10.0;
 			ui.horizontal(|ui| {
 				ui.label(design::semibold(ui, "Streaming Now", 15.0).color(colors.text_strong));
@@ -814,13 +834,13 @@ impl MessagingUi {
 						height: 288,
 						..Default::default()
 					},
-					egui::vec2(300.0, 169.0),
+					preview_size,
 					state.demo,
 					crate::avatars::Surface::Banner,
 				);
 			} else {
 				let (rect, _) =
-					ui.allocate_exact_size(egui::vec2(300.0, 169.0), egui::Sense::hover());
+					ui.allocate_exact_size(preview_size, egui::Sense::hover());
 				ui.painter().rect_filled(rect, 8, colors.canvas);
 				let preview = state
 					.voice
@@ -6094,5 +6114,14 @@ mod tests {
 		output.drop_without_applying_deltas();
 		assert_eq!(badge_width, expected_width);
 		crate::i18n::set_current(prev_lang);
+	}
+
+	#[test]
+	fn bigger_stream_preview_toggle_works() {
+		assert!(!bigger_stream_preview_enabled());
+		set_bigger_stream_preview_enabled(true);
+		assert!(bigger_stream_preview_enabled());
+		set_bigger_stream_preview_enabled(false);
+		assert!(!bigger_stream_preview_enabled());
 	}
 }

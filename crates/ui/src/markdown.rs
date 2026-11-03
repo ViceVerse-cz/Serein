@@ -1807,11 +1807,21 @@ impl Formatted {
 						let colors = crate::design::palette(ui);
 						let user = crate::mentions::find_user(id, render.users, render.source);
 						let label = crate::mentions::mention_label(id, render.users, render.source);
+						let role_color = if crate::mentions::role_color_everywhere_enabled() {
+							crate::mentions::user_role_color(id, render.source, render.roles)
+						} else {
+							None
+						};
+						let (mention_fg, mention_bg) = if let Some(rgb) = role_color {
+							mention_colors(ui, Some(rgb))
+						} else {
+							(colors.mention_text, colors.mention_bg)
+						};
 						let response = crate::channel_pill::mention(
 							ui,
 							&label,
-							colors.mention_text,
-							colors.mention_bg,
+							mention_fg,
+							mention_bg,
 							egui::Sense::click(),
 							render.line,
 							Some(&mut *render.surface),
