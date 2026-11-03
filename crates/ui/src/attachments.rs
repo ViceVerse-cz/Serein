@@ -378,12 +378,10 @@ pub(crate) fn show_subset(
 					ui.horizontal_top(|ui| {
 						for attachment in row {
 							ui.push_id(("attachment", attachment.id), |ui| {
-								let is_spoiler = attachment.spoiler || attachment.filename.starts_with("SPOILER_");
 								let target_dim = artwork_size(attachment, size);
-								let reveal_id = egui::Id::unique(("attachment-spoiler-revealed", message.id, attachment.id));
+								let reveal_id = egui::Id::unique(("attachment-revealed", message.id, attachment.id));
 								let revealed = ui.data(|d| d.get_temp::<bool>(reveal_id)).unwrap_or(false);
-								let should_hide = (is_spoiler && blur_nsfw_enabled())
-									|| HIDE_ATTACHMENTS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+								let should_hide = HIDE_ATTACHMENTS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
 								if should_hide && !revealed {
 									let (rect, response) = ui.allocate_exact_size(target_dim, Sense::click());
 									let colors = design::palette(ui);
@@ -442,10 +440,9 @@ pub(crate) fn show_subset(
 										4.0,
 										egui::Color32::from_black_alpha(160),
 									);
-									let display_name = if attachment.filename.len() > 24 {
-										format!("{}…", &attachment.filename[..23])
-									} else {
-										attachment.filename.clone()
+									let display_name = match attachment.filename.char_indices().nth(23) {
+										Some((idx, _)) => format!("{}…", &attachment.filename[..idx]),
+										None => attachment.filename.clone(),
 									};
 									painter.text(
 										label_rect.left_center() + egui::vec2(6.0, 0.0),
@@ -511,10 +508,12 @@ pub(crate) fn show_subset(
 					} else if attachment.is_audio() {
 						let response = audio.show(ui, message, attachment);
 						if let Some(req) = audio.download_request.take() {
-							download.request = Some(req);
+							if !demo && !download.busy() {
+								download.request = Some(req);
+							}
 						}
 						surface.keep(&response);
-						if attachment.is_voice_message() {
+						if attachment.is_voice_message() && crate::audio::voice_messages_enabled() {
 							response.context_menu(|ui| {
 								download_button(ui, attachment, download, demo);
 								open_original(ui, attachment, opening);
@@ -1511,7 +1510,7 @@ pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 					.map(|attachment| {
 						if attachment.is_video() {
 							crate::video::estimated_height(attachment, width)
-						} else if attachment.is_voice_message() {
+						} else if attachment.is_voice_message() && crate::audio::voice_messages_enabled() {
 							88.0
 						} else if attachment.is_audio() {
 							138.0

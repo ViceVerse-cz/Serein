@@ -295,7 +295,7 @@ impl AudioUi {
 					if voice && voice_download_enabled() {
 						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 							if ui.small_button("Download").on_hover_text("Download voice message").clicked() {
-								self.download_request = Some(attachment.clone()); if let Some(url) = &attachment.media.url { ui.ctx().copy_text(url.clone()); }
+								self.download_request = Some(attachment.clone());
 							}
 						});
 					} else if !voice {

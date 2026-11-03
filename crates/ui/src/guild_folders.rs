@@ -637,12 +637,15 @@ impl MessagingUi {
 								ui.set_opacity(opacity);
 							}
 
-							let unread = folder
-								.guild_ids
-								.iter()
-								.any(|g| self.rail_cache.guild_badge(*g).0);
-							let count = folder.guild_ids.iter().fold(0u32, |sum, g| {
-								sum.saturating_add(self.rail_cache.guild_badge(*g).1)
+							let (unread, count) = folder.guild_ids.iter().fold((false, 0u32), |(has_unread, sum), g| {
+								let (mut u, mut c) = self.rail_cache.guild_badge(*g);
+								if muted_servers_activity_badge_enabled()
+									&& state.server_notification_settings(*g).muted == Some(true)
+								{
+									u = false;
+									c = 0;
+								}
+								(has_unread || u, sum.saturating_add(c))
 							});
 							// Always tracked so the pill shrinks away when the folder opens.
 							rail_indicator(

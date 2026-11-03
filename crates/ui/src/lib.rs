@@ -137,7 +137,30 @@ use client_core::{Command, MAX_DRAFT_BYTES, NavStep, State};
 use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
-pub use voice::StageFocus;
+pub use voice::{StageFocus, set_vc_narrator_enabled, vc_narrator_enabled};
+pub use account_menu::{account_panel_server_profile_enabled, set_account_panel_server_profile_enabled};
+pub use embeds::{
+	fix_spotify_embeds_enabled, fix_youtube_embeds_enabled, set_fix_spotify_embeds_enabled,
+	set_fix_youtube_embeds_enabled,
+};
+pub use emoji_picker::{
+	better_gif_picker_enabled, greet_sticker_picker_enabled, set_better_gif_picker_enabled,
+	set_greet_sticker_picker_enabled,
+};
+pub use guild_folders::{
+	better_folders_close_others_enabled, better_folders_enabled,
+	set_better_folders_close_others_enabled, set_better_folders_enabled,
+};
+pub use highlight::{set_shiki_codeblocks_enabled, shiki_codeblocks_enabled};
+pub use notifications::{server_list_indicators_enabled, set_server_list_indicators_enabled};
+pub use profiles::{
+	platform_indicators_enabled, set_platform_indicators_enabled, set_user_voice_show_enabled,
+	user_voice_show_enabled,
+};
+pub use typing::{
+	set_typing_indicator_avatar_enabled, set_typing_tweaks_enabled,
+	typing_indicator_avatar_enabled, typing_tweaks_enabled,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {
@@ -513,6 +536,7 @@ pub struct MessagingUi {
 	/// Latest media activity, capped at 64 IDs (512 bytes) by the voice host.
 	pub voice_speaking: Vec<Id>,
 	pub voice_narrator_cache: std::collections::HashMap<Id, (String, bool)>,
+	pub voice_narrator_channel: Option<Id>,
 	pub notifications_enabled: bool,
 	/// Show as Idle after the account's idle timeout of system inactivity, or on lock.
 	pub auto_idle: bool,
@@ -642,15 +666,19 @@ pub fn parse_sticker_paste(text: &str) -> Option<(u64, u8)> {
 		return None;
 	}
 	let trimmed = text.trim();
+	if trimmed.contains(char::is_whitespace) {
+		return None;
+	}
 	if let Some(rest) = trimmed
 		.strip_prefix("https://media.discordapp.net/stickers/")
 		.or_else(|| trimmed.strip_prefix("https://cdn.discordapp.com/stickers/"))
 	{
-		let id_str = rest.split(['.', '?', '/']).next()?;
+		let (path, _) = rest.split_once('?').unwrap_or((rest, ""));
+		let id_str = path.split(['.', '/']).next()?;
 		let id = id_str.parse::<u64>().ok()?;
-		let format_type = if rest.contains(".gif") {
+		let format_type = if path.ends_with(".gif") || path.contains(".gif") {
 			4
-		} else if rest.contains(".json") {
+		} else if path.ends_with(".json") || path.contains(".json") {
 			3
 		} else {
 			1
@@ -3246,7 +3274,7 @@ impl MessagingUi {
 		}
 		let mut cancel_edit = false;
 		if ctx.input(|input| !input.raw.hovered_files.is_empty()) {
-			let available = state.can_attach(channel) && !self.attach_busy && (!editing_here || add_attachments_enabled());
+			let available = state.can_attach(channel) && !self.attach_busy && !editing_here;
 			egui::Frame::new()
 				.fill(colors.accent.gamma_multiply(0.12))
 				.stroke(egui::Stroke::new(1.5, colors.accent))
@@ -3589,7 +3617,7 @@ impl MessagingUi {
 					.any(|chord| crate::keybinds::pressed_exact(i, chord))
 			});
 		let placeholder = composer_placeholder(state, channel);
-		let can_attach = (!editing_here || add_attachments_enabled())
+		let can_attach = !editing_here
 			&& self.slash_commands.active.is_none()
 			&& state.can_attach(channel)
 			&& !self.attach_busy
@@ -9712,6 +9740,10 @@ mod composer_tests {
 		assert!(sticker_paste_enabled());
 		let sticker_url = "https://media.discordapp.net/stickers/123456789.png?size=160";
 		assert_eq!(parse_sticker_paste(sticker_url), Some((123456789, 1)));
+		// Query parameters like ?name=.gif must not change format from png (1) to gif (4)
+		assert_eq!(parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png?name=.gif"), Some((123456789, 1)));
+		// Text following the URL must not be dropped; it should return None
+		assert_eq!(parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png and caption"), None);
 		let animated_sticker = "https://cdn.discordapp.com/stickers/987654321.gif";
 		assert_eq!(parse_sticker_paste(animated_sticker), Some((987654321, 4)));
 		let invalid = "https://example.com/not_a_sticker";

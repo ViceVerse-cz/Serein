@@ -25,19 +25,6 @@ fn date_id(value: &str) -> Result<Option<u64>, ()> {
 }
 
 
-/// VenSerein (FullSearchContext): Expands message context and allows surrounding context queries for search hits.
-pub static FULL_SEARCH_CONTEXT_ENABLED: std::sync::atomic::AtomicBool =
-	std::sync::atomic::AtomicBool::new(false);
-
-#[allow(dead_code)]
-pub fn set_full_search_context_enabled(enabled: bool) {
-	FULL_SEARCH_CONTEXT_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
-}
-
-#[allow(dead_code)]
-pub fn full_search_context_enabled() -> bool {
-	FULL_SEARCH_CONTEXT_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
-}
 #[derive(Default)]
 pub struct SearchUi {
 	pub open: bool,
@@ -73,14 +60,6 @@ pub struct SearchUi {
 }
 
 impl SearchUi {
-	/// Returns the surrounding message context limit for search results.
-	pub fn context_limit(&self) -> usize {
-		if full_search_context_enabled() {
-			50
-		} else {
-			5
-		}
-	}
 	/// Refocus the current query without dropping its page or scroll position.
 	pub fn focus_conversation(&mut self, channel: Id, state: &State) {
 		if self.open && (self.composing || self.filter_draft.is_some() || self.viewing.is_some()) {
@@ -2786,18 +2765,4 @@ mod tests {
 		assert_eq!(view.channel_reference_load, Some(Id(99)));
 	}
 
-	#[test]
-	fn full_search_context_toggle_and_limit() {
-		assert!(!full_search_context_enabled());
-		let view = SearchUi::default();
-		assert_eq!(view.context_limit(), 5);
-		
-		set_full_search_context_enabled(true);
-		assert!(full_search_context_enabled());
-		assert_eq!(view.context_limit(), 50);
-		
-		set_full_search_context_enabled(false);
-		assert!(!full_search_context_enabled());
-		assert_eq!(view.context_limit(), 5);
-	}
 }

@@ -2146,6 +2146,7 @@ impl TimelineView {
 		self.mark_unread = None;
 		self.seen_latest = None;
 	}
+	#[allow(dead_code)]
 	pub fn jump_to_top(&mut self) {
 		self.target_browsing = true;
 		self.following = false;
@@ -3584,7 +3585,7 @@ impl TimelineView {
 													.color(colors.muted),
 												);
 											}
-											if crate::embeds::has_media_spoilers(message) && !media
+											if crate::attachments::blur_nsfw_enabled() && crate::embeds::has_media_spoilers(message) && !media
 											{
 												let reveal = ui.button(crate::i18n::translate(
 													"timeline-show-with-scroll-reveal-spoiler-media",

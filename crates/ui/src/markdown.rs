@@ -1222,7 +1222,7 @@ impl Formatted {
 				.filter(|_| {
 					style
 						.spoiler
-						.is_none_or(|region| revealed & 1 << region != 0)
+						.is_none_or(|region| reveal_all_spoilers_enabled() || revealed & 1 << region != 0)
 				})
 				.filter(|id| {
 					state.channel(*id).is_none() && state.channel_reference_name(*id).is_none()
@@ -2647,7 +2647,6 @@ impl Formatted {
 		let display = block.display.as_deref().unwrap_or(&block.code);
 		block.segments = block
 			.language
-			.filter(|_| crate::highlight::shiki_codeblocks_enabled())
 			.map(|language| crate::highlight::tokenize(language, display))
 			.unwrap_or_default();
 	}

@@ -169,15 +169,15 @@ impl MessagingUi {
 				..Default::default()
 			};
 		}
+		let is_guild_channel = state
+			.selected
+			.and_then(|id| state.channel(id))
+			.and_then(|c| c.guild)
+			.is_some();
+		let should_open_profile = account_panel_server_profile_enabled() && is_guild_channel;
+
 		if anchor.clicked() {
-			if account_panel_server_profile_enabled()
-				&& state
-					.selected
-					.and_then(|id| state.channel(id))
-					.and_then(|c| c.guild)
-					.is_some()
-				&& let Some(user) = &state.user
-			{
+			if should_open_profile && let Some(user) = &state.user {
 				self.account_menu.open = false;
 				self.profile.command_open(user.clone());
 			} else {
@@ -191,6 +191,18 @@ impl MessagingUi {
 					{
 						commands.push(command);
 					}
+				}
+			}
+		} else if anchor.secondary_clicked() {
+			self.account_menu.open = !self.account_menu.open;
+			if self.account_menu.open {
+				self.account_menu.draft = self.own_presence.custom_status.clone();
+				self.profile.hide();
+				if state.own_profile.data.is_none()
+					&& !state.own_profile.loading
+					&& let Some(command) = state.load_own_profile()
+				{
+					commands.push(command);
 				}
 			}
 		}
@@ -1344,6 +1356,52 @@ mod tests {
 		assert!(!account_panel_server_profile_enabled());
 		set_account_panel_server_profile_enabled(true);
 		assert!(account_panel_server_profile_enabled());
+
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let mut view = crate::MessagingUi::default();
+		let mut state = test_support::demo_state();
+		let own = state.user.as_ref().unwrap().clone();
+		state.own_profile.data = Some(profiles::synthetic(&own, None));
+		let size = egui::vec2(300.0, 600.0);
+
+		// Case 1: Guild channel with feature enabled -> click opens profile
+		state.selected = state.channels.iter().find(|c| c.guild.is_some()).map(|c| c.id);
+		let text = frame(&ctx, &mut view, &mut state, size, vec![]);
+		let pos = locate(&text, "You (synthetic)");
+		click(&ctx, &mut view, &mut state, size, pos);
+		assert!(!view.account_menu.open);
+		assert!(view.profile.open_user().is_some());
+
+		// Fallback: Secondary click opens account menu even in guild channel
+		view.profile.hide();
+		for pressed in [true, false] {
+			frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				size,
+				vec![
+					Event::PointerMoved(pos),
+					Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Secondary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				],
+			);
+		}
+		assert!(view.account_menu.open);
+
+		// Case 2: DM channel with feature enabled -> click opens account menu
+		view.account_menu.open = false;
+		state.selected = state.channels.iter().find(|c| c.guild.is_none()).map(|c| c.id);
+		let text = frame(&ctx, &mut view, &mut state, size, vec![]);
+		let pos = locate(&text, "You (synthetic)");
+		click(&ctx, &mut view, &mut state, size, pos);
+		assert!(view.account_menu.open);
+
 		set_account_panel_server_profile_enabled(false);
 		assert!(!account_panel_server_profile_enabled());
 	}

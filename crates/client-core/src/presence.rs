@@ -1649,6 +1649,12 @@ mod tests {
 		// When no game activity is present, base status is kept
 		assert_eq!(state.effective_local_status("online"), "online");
 		assert!(!state.is_streamer_mode_active());
+
+		// When game activity is present and auto DND is enabled, effective status is "dnd"
+		let mut active_state = direct_state();
+		active_state.demo = true;
+		active_state.local_game_activity = Some(activity());
+		assert_eq!(active_state.effective_local_status("online"), "dnd");
 		
 		set_auto_dnd_while_playing_enabled(false);
 		set_streamer_mode_on_stream_enabled(false);

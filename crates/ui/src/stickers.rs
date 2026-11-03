@@ -51,6 +51,13 @@ fn sections(state: &State) -> Vec<Section<'_>> {
 }
 
 fn matches(sticker: &Sticker, source: &str, query: &str) -> bool {
+	if crate::emoji_picker::greet_sticker_picker_enabled() && query == "wave" {
+		if crate::emoji_picker::is_greeting_sticker(&sticker.name)
+			|| crate::emoji_picker::is_greeting_sticker(&sticker.tags)
+		{
+			return true;
+		}
+	}
 	query.is_empty()
 		|| [&sticker.name, &sticker.tags, source]
 			.iter()

@@ -51,10 +51,12 @@ pub(crate) struct Activity {
 	observed_counts: BTreeMap<Id, (u32, u32)>,
 	observed: VecDeque<(Id, Id, bool)>,
 	notifications: VecDeque<Notification>,
+	pub(crate) alerted_dms: std::collections::BTreeSet<Id>,
 }
 impl Activity {
 	pub(crate) fn clear_notifications(&mut self) {
 		self.notifications.clear();
+		self.alerted_dms.clear();
 	}
 	pub(crate) fn forget(&mut self, channel: Id) {
 		self.high_water.remove(&channel);
@@ -65,6 +67,7 @@ impl Activity {
 		self.observed_counts.remove(&channel);
 		self.observed.retain(|(c, ..)| *c != channel);
 		self.notifications.retain(|n| n.channel != channel);
+		self.alerted_dms.remove(&channel);
 	}
 	pub(crate) fn delete(&mut self, channel: Id, message: Id) {
 		self.observed
@@ -95,6 +98,7 @@ impl Activity {
 			// Without a refreshed service count, only retained observed messages are countable.
 			self.counts.remove(&channel);
 		}
+		self.alerted_dms.remove(&channel);
 		self.recount(channel);
 	}
 	fn recount(&mut self, channel: Id) {
@@ -954,9 +958,10 @@ impl State {
 		if !allowed {
 			return;
 		}
+		let is_dm = self.channel(message.channel).is_some_and(|c| c.guild.is_none());
 		if ONE_PING_PER_DM_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
-			&& direct
-			&& self.read_state.activity.notifications.iter().any(|n| n.direct && n.channel == message.channel)
+			&& is_dm
+			&& self.read_state.activity.alerted_dms.contains(&message.channel)
 		{
 			return;
 		}
@@ -1006,6 +1011,9 @@ impl State {
 				> MAX_NOTIFICATION_BYTES
 		{
 			activity.notifications.pop_front();
+		}
+		if is_dm {
+			activity.alerted_dms.insert(message.channel);
 		}
 		activity.notifications.push_back(notification);
 	}

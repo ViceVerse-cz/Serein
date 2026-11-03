@@ -262,6 +262,10 @@ impl MessagingUi {
 	pub fn viewing_latest(&self, channel: Id) -> bool {
 		self.timeline.viewing_latest(channel)
 	}
+	#[allow(dead_code)]
+	pub fn jump_to_top(&mut self) {
+		self.timeline.jump_to_top();
+	}
 	pub(super) fn notification_rail(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -542,8 +546,41 @@ mod tests {
 	#[test]
 	fn server_list_indicators_toggle() {
 		assert!(server_list_indicators_enabled());
+
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let rect = egui::Rect::from_min_size(egui::pos2(50.0, 50.0), egui::vec2(40.0, 40.0));
+		let id = egui::Id::unique("test-rail-indicator");
+
+		let mut output_enabled = ctx.run_ui(egui::RawInput::default(), |ui| {
+			ui.ctx().animate_bool_with_time_and_easing(id.with("rail-pill-unread"), true, 0.0_f32, egui::emath::easing::cubic_out);
+			rail_indicator(ui, id, rect, false, false, true);
+		});
+		output_enabled.textures_delta.clear();
+		let shapes_enabled = output_enabled.shapes;
+
+		let pill_width_enabled = shapes_enabled.iter().find_map(|s| match &s.shape {
+			egui::Shape::Rect(r) => Some(r.rect.width()),
+			_ => None,
+		});
+		assert_eq!(pill_width_enabled, Some(9.0));
+
 		set_server_list_indicators_enabled(false);
 		assert!(!server_list_indicators_enabled());
+
+		let mut output_disabled = ctx.run_ui(egui::RawInput::default(), |ui| {
+			ui.ctx().animate_bool_with_time_and_easing(id.with("rail-pill-unread"), true, 0.0_f32, egui::emath::easing::cubic_out);
+			rail_indicator(ui, id, rect, false, false, true);
+		});
+		output_disabled.textures_delta.clear();
+		let shapes_disabled = output_disabled.shapes;
+
+		let pill_width_disabled = shapes_disabled.iter().find_map(|s| match &s.shape {
+			egui::Shape::Rect(r) => Some(r.rect.width()),
+			_ => None,
+		});
+		assert_eq!(pill_width_disabled, Some(8.0));
+
 		set_server_list_indicators_enabled(true);
 		assert!(server_list_indicators_enabled());
 	}

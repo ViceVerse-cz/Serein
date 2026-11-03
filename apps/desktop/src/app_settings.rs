@@ -135,6 +135,9 @@ impl Settings {
 		ui.plaintext_login = value.plaintext_login;
 		ui.diagnostics_log = value.diagnostics_log;
 		ui::local_time::set_format(ui.time_format, ui.language);
+		ui::set_gif_paste_enabled(true);
+		ui::set_sticker_paste_enabled(true);
+		ui::set_vc_narrator_enabled(true);
 	}
 }
 

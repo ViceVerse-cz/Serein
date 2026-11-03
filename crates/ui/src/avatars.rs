@@ -859,8 +859,14 @@ impl Avatars {
 		demo: bool,
 	) {
 		// A profile theme decides the banner, as on Discord; the legacy accent is a fallback.
-		let color = profile
-			.theme_colors
+		let theme_colors = profile.theme_colors.or_else(|| {
+			if crate::profiles::fake_profile_themes_enabled() {
+				Some([0x1e1e2e, 0x11111b])
+			} else {
+				None
+			}
+		});
+		let color = theme_colors
 			.map(crate::profiles::Theme::banner)
 			.or(profile
 				.accent_color

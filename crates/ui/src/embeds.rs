@@ -30,21 +30,36 @@ pub fn set_fix_youtube_embeds_enabled(enabled: bool) {
 }
 
 pub fn clean_embed_url(url: &str) -> String {
-	if fix_spotify_embeds_enabled() && url.contains("spotify.com") {
-		if let Some((base, _)) = url.split_once('?') {
-			return base.to_owned();
-		}
-	}
-	if fix_youtube_embeds_enabled() && (url.contains("youtube.com") || url.contains("youtu.be")) {
-		if let Some((base, query)) = url.split_once('?') {
-			let cleaned_params: Vec<&str> = query
-				.split('&')
-				.filter(|part| !part.starts_with("si=") && !part.starts_with("feature=") && !part.starts_with("utm_"))
-				.collect();
-			if cleaned_params.is_empty() {
-				return base.to_owned();
-			} else {
-				return format!("{base}?{}", cleaned_params.join("&"));
+	if let Ok(mut parsed) = url::Url::parse(url) {
+		let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+		let is_spotify = fix_spotify_embeds_enabled()
+			&& (host == "spotify.com" || host.ends_with(".spotify.com"));
+		let is_youtube = fix_youtube_embeds_enabled()
+			&& (host == "youtube.com"
+				|| host.ends_with(".youtube.com")
+				|| host == "youtu.be"
+				|| host.ends_with(".youtu.be"));
+
+		if is_spotify {
+			parsed.set_query(None);
+			return parsed.into();
+		} else if is_youtube {
+			if let Some(query) = parsed.query() {
+				let cleaned: Vec<&str> = query
+					.split('&')
+					.filter(|part| {
+						!part.starts_with("si=")
+							&& !part.starts_with("feature=")
+							&& !part.starts_with("utm_")
+					})
+					.collect();
+				if cleaned.is_empty() {
+					parsed.set_query(None);
+				} else {
+					let joined = cleaned.join("&");
+					parsed.set_query(Some(&joined));
+				}
+				return parsed.into();
 			}
 		}
 	}
@@ -127,7 +142,8 @@ fn source_fallback(
 	}
 	let raw_url = embed.url.as_deref().and_then(external_url)?;
 	let url = clean_embed_url(&raw_url);
-	if (message_links_shown && cache.get(message.id, &message.content).links.contains(&url))
+	let links = &cache.get(message.id, &message.content).links;
+	if (message_links_shown && (links.contains(&url) || links.contains(&raw_url)))
 		|| (!inline
 			&& [&embed.author, &embed.provider]
 				.into_iter()
@@ -1076,6 +1092,19 @@ mod tests {
 		set_fix_youtube_embeds_enabled(false);
 		assert_eq!(clean_embed_url(yt_dirty), yt_dirty);
 		set_fix_youtube_embeds_enabled(true);
+
+		assert_eq!(
+			clean_embed_url("https://youtu.be/VIDEO?si=TOKEN#t=90"),
+			"https://youtu.be/VIDEO#t=90"
+		);
+		assert_eq!(
+			clean_embed_url("https://www.youtube.com/watch?v=abc&si=token&t=42"),
+			"https://www.youtube.com/watch?v=abc&t=42"
+		);
+		assert_eq!(
+			clean_embed_url("https://example.com/view?source=spotify.com&id=123"),
+			"https://example.com/view?source=spotify.com&id=123"
+		);
 	}
 
 	#[test]
@@ -1741,3 +1770,4 @@ fn author_name(
 		}
 	}
 }
+

@@ -295,7 +295,6 @@ fn relative(delta: time::Duration) -> String {
 		let minutes = seconds / 60;
 		let hours = minutes / 60;
 		let days = hours / 24;
-		let months = days / 30;
 		let years = days / 365;
 		if seconds < 5 {
 			"a few seconds".to_owned()
@@ -307,7 +306,8 @@ fn relative(delta: time::Duration) -> String {
 			if hours == 1 { "1 hour".to_owned() } else { format!("{hours} hours") }
 		} else if days < 30 {
 			if days == 1 { "1 day".to_owned() } else { format!("{days} days") }
-		} else if months < 12 {
+		} else if days < 365 {
+			let months = (days / 30).max(1);
 			if months == 1 { "1 month".to_owned() } else { format!("{months} months") }
 		} else {
 			if years == 1 { "1 year".to_owned() } else { format!("{years} years") }
@@ -545,12 +545,23 @@ mod tests {
 			super::relative(time::Duration::hours(-47)),
 			"1 day ago"
 		);
+		assert_eq!(
+			super::relative(time::Duration::days(-360)),
+			"12 months ago"
+		);
+		assert_eq!(
+			super::relative(time::Duration::days(-364)),
+			"12 months ago"
+		);
+		assert_eq!(
+			super::relative(time::Duration::days(-365)),
+			"1 year ago"
+		);
 		super::set_dont_round_timestamps(false);
 		assert_eq!(
 			super::relative(time::Duration::hours(-47)),
 			"2 days ago"
 		);
-		super::set_dont_round_timestamps(true);
 	}
 
 	#[test]

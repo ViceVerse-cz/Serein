@@ -133,6 +133,7 @@ impl MessagingUi {
 			if !self.voice_narrator_cache.is_empty() {
 				self.voice_narrator_cache.clear();
 			}
+			self.voice_narrator_channel = None;
 			return;
 		}
 		let in_this_channel = state
@@ -142,7 +143,12 @@ impl MessagingUi {
 			.is_some_and(|call| call.channel == channel && call.phase != Phase::Failed);
 		if !in_this_channel {
 			self.voice_narrator_cache.clear();
+			self.voice_narrator_channel = None;
 			return;
+		}
+		if self.voice_narrator_channel != Some(channel) {
+			self.voice_narrator_cache.clear();
+			self.voice_narrator_channel = Some(channel);
 		}
 		let initial_populate = self.voice_narrator_cache.is_empty();
 		let mut current_ids = std::collections::HashSet::new();
@@ -277,7 +283,7 @@ impl MessagingUi {
 		if self.voice_stream_muted {
 			0
 		} else {
-			let max_vol = if volume_booster_enabled() { 400 } else { 200 };
+			let max_vol = 200;
 			self.voice_stream_volume.unwrap_or(100).min(max_vol)
 		}
 	}
@@ -1230,7 +1236,6 @@ impl MessagingUi {
 		entries: &[RosterEntry],
 		dm: bool,
 	) {
-		self.check_vc_narrator(state, channel, entries);
 		let tiles = self.stage_tiles(state, channel, entries);
 		if tiles.is_empty() {
 			return;
@@ -3299,6 +3304,8 @@ impl MessagingUi {
 		let Some(call) = state.voice.active.as_ref() else {
 			return;
 		};
+		let narrator_entries = stage_participants(state, call.channel);
+		self.check_vc_narrator(state, call.channel, &narrator_entries);
 		let phase = call.phase;
 		let camera = call.camera;
 		let can_camera = self.voice_camera_available
@@ -3946,6 +3953,8 @@ impl MessagingUi {
 		let Some(call) = state.voice.active.as_ref() else {
 			return;
 		};
+		let narrator_entries = stage_participants(state, call.channel);
+		self.check_vc_narrator(state, call.channel, &narrator_entries);
 		let colors = design::palette(ui);
 		let phase = call.phase;
 		let channel_id = call.channel;
@@ -4877,7 +4886,7 @@ pub(super) fn participant_user(state: &State, channel: Id, user: Id) -> Option<&
 /// Labelled percentage slider shared by the voice popout and the settings page.
 fn gain_slider(ui: &mut egui::Ui, value: &mut u16, title: &str) -> egui::Response {
 	let title = crate::i18n::translate_if_key(title);
-	let max_gain = if volume_booster_enabled() { 400 } else { 200 };
+	let max_gain = 200;
 	ui.scope(|ui| {
 		let colors = design::palette(ui);
 		ui.spacing_mut().item_spacing.y = 4.0;

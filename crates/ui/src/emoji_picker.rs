@@ -688,7 +688,11 @@ impl Picker {
 		if self.reaction.is_some() {
 			return;
 		}
-		self.gif_section = GifSection::Home;
+		self.gif_section = if better_gif_picker_enabled() {
+			GifSection::Favorites
+		} else {
+			GifSection::Home
+		};
 		self.gif_query.clear();
 		self.gif_changed_at = None;
 		if let Some(command) = state.clear_gifs() {
@@ -712,7 +716,11 @@ impl Picker {
 			if !self.pending_open {
 				self.stickers = crate::stickers::Browser::default();
 				self.tab = Tab::Emoji;
-				self.gif_section = GifSection::Home;
+				self.gif_section = if better_gif_picker_enabled() {
+					GifSection::Favorites
+				} else {
+					GifSection::Home
+				};
 				self.gif_query.clear();
 				self.gif_changed_at = None;
 			}
@@ -2650,7 +2658,11 @@ mod tests {
 
 		set_better_gif_picker_enabled(true);
 		assert!(better_gif_picker_enabled());
-		let picker_favorites = Picker::default();
+		let mut picker_favorites = Picker::default();
+		assert_eq!(picker_favorites.gif_section, GifSection::Favorites);
+
+		let state = test_support::demo_state();
+		picker_favorites.sync(&state, None);
 		assert_eq!(picker_favorites.gif_section, GifSection::Favorites);
 
 		set_better_gif_picker_enabled(false);
