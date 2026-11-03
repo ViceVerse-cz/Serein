@@ -5,6 +5,21 @@ use pulldown_cmark::{CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEn
 use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// VenSerein (RevealAllSpoilers): Global toggle for auto-revealing all spoiler text in chat.
+static REVEAL_ALL_SPOILERS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_reveal_all_spoilers_enabled(enable: bool) {
+	REVEAL_ALL_SPOILERS_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn reveal_all_spoilers_enabled() -> bool {
+	REVEAL_ALL_SPOILERS_ENABLED.load(Ordering::Relaxed)
+}
+
 /// Maximum rendered source bytes; metadata fingerprints use the same boundary.
 pub(crate) const MAX_INPUT: usize = 8192;
 const MAX_EVENTS: usize = 512;
@@ -1656,6 +1671,7 @@ impl Formatted {
 					}
 					let spoiler = spans[start].1.spoiler;
 					if let Some(region) = spoiler
+						&& !reveal_all_spoilers_enabled()
 						&& *render.revealed & (1_u32 << region) == 0
 					{
 						// Hidden text never reaches labels, selection, tooltips, links,
@@ -5829,5 +5845,19 @@ mod tests {
 			}
 			output.textures_delta.clear();
 		}
+	}
+}
+
+#[cfg(test)]
+mod venserein_reveal_spoilers_tests {
+	use super::*;
+
+	#[test]
+	fn test_reveal_all_spoilers_toggle() {
+		assert!(!reveal_all_spoilers_enabled());
+		set_reveal_all_spoilers_enabled(true);
+		assert!(reveal_all_spoilers_enabled());
+		set_reveal_all_spoilers_enabled(false);
+		assert!(!reveal_all_spoilers_enabled());
 	}
 }
