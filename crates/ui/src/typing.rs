@@ -162,6 +162,7 @@ pub(super) fn overlay(
 		egui::Sense::hover(),
 	);
 	let painter = ui.painter_at(rect);
+	let no_animation = NO_TYPING_ANIMATION_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
 	// Three pulsing dots, Discord style; the animation runs only while someone is typing and
 	// this window has focus. A background window paints them at rest and asks for no frames.
 	let focused = ui.input(|input| input.focused);
@@ -169,7 +170,7 @@ pub(super) fn overlay(
 	let dots_left = rect.left() + DOT_RADIUS + 2.0;
 	for index in 0..3 {
 		let phase = (time / DOT_PERIOD - f64::from(index) * 0.18).fract();
-		let pulse = if focused {
+		let pulse = if focused && !no_animation {
 			(0.5 - 0.5 * (phase * std::f64::consts::TAU).cos()) as f32
 		} else {
 			0.5
@@ -222,12 +223,29 @@ pub(super) fn overlay(
 		let frame = std::time::Duration::from_millis(80);
 		let delay = deadline.saturating_duration_since(now);
 		ui.ctx()
-			.request_repaint_after(if focused { delay.min(frame) } else { delay });
+			.request_repaint_after(if focused && !no_animation { delay.min(frame) } else { delay });
 	}
+}
+
+
+pub static NO_TYPING_ANIMATION_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_no_typing_animation_enabled(enabled: bool) {
+	NO_TYPING_ANIMATION_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn no_typing_animation_toggle_works() {
+		set_no_typing_animation_enabled(true);
+		assert!(NO_TYPING_ANIMATION_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+		set_no_typing_animation_enabled(false);
+		assert!(!NO_TYPING_ANIMATION_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
 	use super::*;
 	use client_core::{auth::AuthState, typing::Signal};
 	use model::{Channel, Freshness, User};

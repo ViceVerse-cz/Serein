@@ -954,6 +954,12 @@ impl State {
 		if !allowed {
 			return;
 		}
+		if ONE_PING_PER_DM_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+			&& direct
+			&& self.read_state.activity.notifications.iter().any(|n| n.direct && n.channel == message.channel)
+		{
+			return;
+		}
 		let sender = alert_text(self.message_author_name(message), 80, 256);
 		let sender = if sender.is_empty() {
 			"Unknown sender".to_owned()
@@ -1005,8 +1011,25 @@ impl State {
 	}
 }
 
+
+pub static ONE_PING_PER_DM_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_one_ping_per_dm_enabled(enabled: bool) {
+	ONE_PING_PER_DM_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn one_ping_per_dm_toggle_works() {
+		set_one_ping_per_dm_enabled(true);
+		assert!(ONE_PING_PER_DM_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+		set_one_ping_per_dm_enabled(false);
+		assert!(!ONE_PING_PER_DM_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
 	use super::*;
 
 	use model::{Channel, Guild, Patch, User, permissions as p};

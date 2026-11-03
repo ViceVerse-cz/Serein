@@ -429,6 +429,30 @@ pub(crate) fn show_subset(
 										format!("View image {}", attachment.filename),
 									)
 								});
+								if IMAGE_FILENAME_OVERLAY_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+									let label_rect = egui::Rect::from_min_size(
+										image.rect.min + egui::vec2(6.0, 6.0),
+										egui::vec2((image.rect.width() - 12.0).max(20.0), 18.0),
+									);
+									let painter = ui.painter();
+									painter.rect_filled(
+										label_rect,
+										4.0,
+										egui::Color32::from_black_alpha(160),
+									);
+									let display_name = if attachment.filename.len() > 24 {
+										format!("{}…", &attachment.filename[..23])
+									} else {
+										attachment.filename.clone()
+									};
+									painter.text(
+										label_rect.left_center() + egui::vec2(6.0, 0.0),
+										egui::Align2::LEFT_CENTER,
+										display_name,
+										egui::FontId::proportional(11.0),
+										egui::Color32::WHITE,
+									);
+								}
 								media_context_menu(&response, attachment, download, opening, demo);
 								let gif = crate::embeds::gif_for_media(
 									&attachment.media,
@@ -1494,8 +1518,25 @@ pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 		.sum()
 }
 
+
+pub static IMAGE_FILENAME_OVERLAY_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_image_filename_overlay_enabled(enabled: bool) {
+	IMAGE_FILENAME_OVERLAY_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn image_filename_overlay_toggle_works() {
+		set_image_filename_overlay_enabled(true);
+		assert!(IMAGE_FILENAME_OVERLAY_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+		set_image_filename_overlay_enabled(false);
+		assert!(!IMAGE_FILENAME_OVERLAY_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
 	use super::*;
 
 	#[test]

@@ -2024,7 +2024,8 @@ fn role_chips(
 		})
 		.collect();
 	let expanded_id = ui.make_persistent_id(("profile-roles-expanded", guild.guild, user));
-	let expanded = ui.data(|data| data.get_temp::<bool>(expanded_id).unwrap_or(false));
+	let expanded = ui.data(|data| data.get_temp::<bool>(expanded_id).unwrap_or(false))
+		|| ALWAYS_EXPAND_ROLES_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
 	let fits = |widths: &[f32]| {
 		let mut rows = 1;
 		let mut used = 0.0;
@@ -4680,8 +4681,25 @@ fn synthetic_frame() -> model::ProfileFrame {
 	}
 }
 
+
+pub static ALWAYS_EXPAND_ROLES_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_always_expand_roles_enabled(enabled: bool) {
+	ALWAYS_EXPAND_ROLES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn always_expand_roles_toggle_works() {
+		set_always_expand_roles_enabled(true);
+		assert!(ALWAYS_EXPAND_ROLES_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+		set_always_expand_roles_enabled(false);
+		assert!(!ALWAYS_EXPAND_ROLES_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
 	use super::*;
 
 	#[test]
