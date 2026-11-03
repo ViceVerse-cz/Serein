@@ -533,19 +533,24 @@ fn thread_preview_text(
 	if crate::embeds::has_spoilers(message) {
 		return "Spoiler".to_owned();
 	}
-	let mut job = egui::text::LayoutJob::default();
-	let source = crate::mentions::MentionSource { state, channel };
-	let emojis = formatted
-		.get(message.id, &message.content)
-		.append_inline_preview(
-			&mut job,
-			ui,
-			&message.mentions,
-			Some(&source),
-			crate::mentions::known_roles(state, channel),
-			&state.channels,
-		);
-	let text = Formatted::inline_preview_text(&job, &emojis);
+	let text = if message.is_system() {
+		// A service row carries its meaning in the summary, not in the raw content.
+		crate::i18n::message_text(message).into_owned()
+	} else {
+		let mut job = egui::text::LayoutJob::default();
+		let source = crate::mentions::MentionSource { state, channel };
+		let emojis = formatted
+			.get(message.id, &message.content)
+			.append_inline_preview(
+				&mut job,
+				ui,
+				&message.mentions,
+				Some(&source),
+				crate::mentions::known_roles(state, channel),
+				&state.channels,
+			);
+		Formatted::inline_preview_text(&job, &emojis)
+	};
 	let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
 	if !text.is_empty() {
 		return text;
@@ -6851,6 +6856,13 @@ mod tests {
 		};
 		assert_eq!(text(&message, &mut formatted), "first line second line");
 
+		// A service row uses its summary, so its card is not blank.
+		message.kind = 18;
+		message.content = "Synthetic thread".into();
+		let preview = text(&message, &mut formatted);
+		assert!(preview.contains("started a thread"), "{preview}");
+		message.kind = 0;
+
 		// A mention names its author instead of the raw token.
 		message.content = "Hi <@9>".into();
 		message.mentions = vec![model::User {
@@ -6873,6 +6885,15 @@ mod tests {
 		message.content = "A ||private ending|| Z".into();
 		message.mentions.clear();
 		assert_eq!(text(&message, &mut formatted), "Spoiler");
+
+		// The concealment can live in an embed instead of the message text.
+		message.content.clear();
+		message.embeds = vec![model::Embed {
+			title: Some("||the ending||".into()),
+			..Default::default()
+		}];
+		assert_eq!(text(&message, &mut formatted), "Spoiler");
+		message.embeds.clear();
 
 		message.content.clear();
 		message.attachments = vec![model::Attachment {
