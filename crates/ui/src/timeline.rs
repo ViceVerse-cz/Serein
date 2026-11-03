@@ -6816,13 +6816,14 @@ mod tests {
 				"missing {label}: {painted:?}"
 			);
 		}
-		// Painted text has no accessible node of its own, so the card names its parts.
+		// Painted text has no accessible node of its own, so the card names every part.
 		assert!(
 			accessible.iter().any(|label| {
 				label.contains("Synthetic private thread")
-					&& label.contains("The latest reply in this thread")
+					&& label.contains(&thread_count(3))
+					&& label.contains("You (synthetic): The latest reply in this thread")
 			}),
-			"the card names itself and its preview: {accessible:?}"
+			"the card names its name, count, author and preview: {accessible:?}"
 		);
 		assert!(
 			view.thread_preview_request.is_none(),
