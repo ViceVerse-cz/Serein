@@ -1,3 +1,17 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// VenSerein (ReplyTimestamp): Global toggle for showing original message timestamp in reply preview.
+static REPLY_TIMESTAMP_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_reply_timestamp_enabled(enable: bool) {
+	REPLY_TIMESTAMP_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn reply_timestamp_enabled() -> bool {
+	REPLY_TIMESTAMP_ENABLED.load(Ordering::Relaxed)
+}
 use crate::design::LazyHover;
 use crate::markdown::{FormatCache, Formatted, discord_url};
 use client_core::State;
@@ -2969,11 +2983,15 @@ impl TimelineView {
 																crate::icons::Icon::File
 															}
 														});
+														let author_name = state.message_author_name(original);
+														let header_label = if REPLY_TIMESTAMP_ENABLED.load(Ordering::Relaxed) {
+															let reply_time = crate::local_time::clock(timestamp(original.id));
+															format!("@{author_name} ({reply_time})  ")
+														} else {
+															format!("@{author_name}  ")
+														};
 														preview.append(
-															&format!(
-																"@{}  ",
-																state.message_author_name(original)
-															),
+															&header_label,
 															0.0,
 															egui::TextFormat {
 																font_id: egui::FontId::new(
@@ -9810,5 +9828,19 @@ impl crate::MessagingUi {
 		);
 		println!("Immediate message labels and Shift menu checks passed.");
 		println!("Double-click uses the saved reaction independently of recommendations");
+	}
+}
+
+#[cfg(test)]
+mod venserein_reply_timestamp_tests {
+	use super::*;
+
+	#[test]
+	fn test_reply_timestamp_toggle() {
+		assert!(reply_timestamp_enabled());
+		set_reply_timestamp_enabled(false);
+		assert!(!reply_timestamp_enabled());
+		set_reply_timestamp_enabled(true);
+		assert!(reply_timestamp_enabled());
 	}
 }
