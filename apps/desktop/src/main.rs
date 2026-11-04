@@ -4033,6 +4033,23 @@ impl Desktop {
 						result: Ok(message),
 					}
 				}
+				Command::ThreadPreview {
+					thread, request, ..
+				} => {
+					// The fixture card shows one synthetic latest reply; its channel is the
+					// state's when the demo loaded the thread.
+					let channel = self.state.channel(thread).cloned();
+					let mut message = test_support::message(thread.0 + 3, thread);
+					message.content = "The latest synthetic reply in this thread.".into();
+					Event::ThreadPreview {
+						thread,
+						request,
+						result: Ok(client_core::thread_previews::Loaded {
+							channel,
+							last: Some(message),
+						}),
+					}
+				}
 				Command::CreatePost {
 					parent,
 					guild,

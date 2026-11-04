@@ -293,6 +293,7 @@ fn encode_loop(
 		ready.clone(),
 		audio_epoch,
 		raw_pending.clone(),
+		stop.clone(),
 	)?;
 	// The worker's stop also reaches a pending macOS picker, so call teardown closes it now.
 	#[cfg(not(target_os = "windows"))]
