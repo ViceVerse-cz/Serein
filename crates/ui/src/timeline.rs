@@ -56,6 +56,32 @@ fn format_message_author_name<'a>(state: &'a State, message: &'a model::Message)
 
 	base
 }
+/// VenSerein (PinIcon): Global toggle for showing a pin icon next to timestamps of pinned messages.
+static PIN_ICON_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_pin_icon_enabled(enabled: bool) {
+	PIN_ICON_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn pin_icon_enabled() -> bool {
+	PIN_ICON_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (ShowRolesInChat): Global toggle for showing highest server role badges next to author names in chat.
+static SHOW_ROLES_IN_CHAT_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_show_roles_in_chat_enabled(enabled: bool) {
+	SHOW_ROLES_IN_CHAT_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn show_roles_in_chat_enabled() -> bool {
+	SHOW_ROLES_IN_CHAT_ENABLED.load(Ordering::Relaxed)
+}
+
 static REPLY_TIMESTAMP_ENABLED: AtomicBool = AtomicBool::new(true);
 
 #[allow(dead_code)]
@@ -473,6 +499,49 @@ fn layout_key(message: &Message) -> u64 {
 pub(crate) const MESSAGE_LINE: f32 = 22.0;
 
 /// Widest author name in a compact row; the body takes the rest beside it.
+fn render_role_badge(
+	ui: &mut egui::Ui,
+	role_name: &str,
+	role_color: u32,
+	colors: &crate::design::Palette,
+) {
+	let font_id = egui::FontId::proportional(11.0);
+	let text_color = if role_color != 0 {
+		let [r, g, b] = [(role_color >> 16) as u8, (role_color >> 8) as u8, role_color as u8];
+		egui::Color32::from_rgb(r, g, b)
+	} else {
+		colors.muted
+	};
+	let bg_color = egui::Color32::from_rgba_unmultiplied(
+		text_color.r(),
+		text_color.g(),
+		text_color.b(),
+		35,
+	);
+	let dot_color = text_color;
+
+	let galley = ui.painter().layout_no_wrap(
+		role_name.to_owned(),
+		font_id,
+		colors.text_strong,
+	);
+	let height = 16.0;
+	let width = galley.size().x + 18.0;
+	let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+	ui.painter().rect_filled(rect, 4, bg_color);
+	ui.painter().circle_filled(
+		egui::pos2(rect.left() + 7.0, rect.center().y),
+		3.0,
+		dot_color,
+	);
+	ui.painter().galley(
+		egui::pos2(rect.left() + 14.0, rect.center().y - galley.size().y * 0.5),
+		galley,
+		colors.text_strong,
+	);
+	resp.on_hover_text(role_name);
+}
+
 pub(crate) fn compact_author_width(available: f32) -> f32 {
 	(available * 0.35).clamp(72.0, 150.0)
 }
@@ -544,7 +613,7 @@ pub(crate) fn fill_header_line(ui: &mut egui::Ui, compact: bool, text_line: egui
 	}
 }
 // Discord snowflakes carry milliseconds since 2015-01-01. All u64 IDs fit time's range.
-fn timestamp(id: Id) -> time::OffsetDateTime {
+pub(crate) fn timestamp(id: Id) -> time::OffsetDateTime {
 	crate::local_time::local(
 		time::OffsetDateTime::from_unix_timestamp(((id.0 >> 22) / 1000) as i64 + 1_420_070_400)
 			.expect("snowflake timestamp is in range"),
@@ -3306,6 +3375,10 @@ impl TimelineView {
 													crate::local_time::full(time)
 												});
 											surface.exclude(time.rect);
+											if pin_icon_enabled() && state.is_pinned(message.channel, id) {
+												let pin_rect = crate::icons::inline(ui, crate::icons::Icon::Pin, 12.0, colors.muted);
+												surface.exclude(pin_rect);
+											}
 										},
 									);
 									let width = compact_author_width(ui.available_width());
@@ -3358,6 +3431,11 @@ impl TimelineView {
 												&message.author,
 											);
 											surface.keep(&author);
+											if show_roles_in_chat_enabled()
+												&& let Some(role) = state.message_author_highest_role(message)
+											{
+												render_role_badge(ui, &role.name, role.color, &colors);
+											}
 										},
 									);
 									ui.spacing_mut().item_spacing.x = body_spacing;
@@ -3434,6 +3512,11 @@ impl TimelineView {
 													&message.author,
 												);
 												surface.keep(&author);
+												if show_roles_in_chat_enabled()
+													&& let Some(role) = state.message_author_highest_role(message)
+												{
+													render_role_badge(ui, &role.name, role.color, &colors);
+												}
 												let time = timestamp(id);
 												let time = ui
 													.label(
@@ -3447,6 +3530,10 @@ impl TimelineView {
 														crate::local_time::full(time)
 													});
 												surface.exclude(time.rect);
+												if pin_icon_enabled() && state.is_pinned(message.channel, id) {
+													let pin_rect = crate::icons::inline(ui, crate::icons::Icon::Pin, 13.0, colors.muted);
+													surface.exclude(pin_rect);
+												}
 											},
 										);
 									}
@@ -9997,5 +10084,25 @@ mod venserein_reply_timestamp_tests {
 		assert!(!reply_timestamp_enabled());
 		set_reply_timestamp_enabled(true);
 		assert!(reply_timestamp_enabled());
+	}
+}
+
+#[cfg(test)]
+mod venserein_batch1_timeline_tests {
+	use super::*;
+
+	#[test]
+	fn test_pin_icon_and_show_roles_toggles() {
+		assert!(pin_icon_enabled());
+		set_pin_icon_enabled(false);
+		assert!(!pin_icon_enabled());
+		set_pin_icon_enabled(true);
+		assert!(pin_icon_enabled());
+
+		assert!(!show_roles_in_chat_enabled());
+		set_show_roles_in_chat_enabled(true);
+		assert!(show_roles_in_chat_enabled());
+		set_show_roles_in_chat_enabled(false);
+		assert!(!show_roles_in_chat_enabled());
 	}
 }

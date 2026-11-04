@@ -28,6 +28,20 @@ pub fn who_reacted_expanded() -> bool {
 	WHO_REACTED_EXPANDED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// VenSerein (ReactionTimestamps): Global toggle for showing timestamps in the reaction popout.
+pub static REACTION_TIMESTAMPS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_reaction_timestamps_enabled(enabled: bool) {
+	REACTION_TIMESTAMPS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn reaction_timestamps_enabled() -> bool {
+	REACTION_TIMESTAMPS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Action {
 	Reload,
@@ -428,7 +442,20 @@ pub fn show_users(
 			for user in &details.users {
 				ui.horizontal(|ui| {
 					avatars.show_plain(ui, user, 36.0, state.demo);
-					ui.label(crate::design::medium(ui, &user.name, 15.0));
+					if REACTION_TIMESTAMPS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+						ui.vertical(|ui| {
+							ui.label(crate::design::medium(ui, &user.name, 14.5));
+							let user_time = crate::timeline::timestamp(user.id);
+							let time_str = crate::local_time::full(user_time);
+							ui.label(
+								egui::RichText::new(time_str)
+									.size(11.0)
+									.color(ui.visuals().weak_text_color()),
+							);
+						});
+					} else {
+						ui.label(crate::design::medium(ui, &user.name, 15.0));
+					}
 				});
 			}
 			if details.users.len() >= client_core::reactions::MAX_REACTION_USERS {
@@ -566,5 +593,19 @@ mod tests {
 		
 		set_who_reacted_expanded(false);
 		assert!(!who_reacted_expanded());
+	}
+}
+
+#[cfg(test)]
+mod venserein_batch1_reactions_tests {
+	use super::*;
+
+	#[test]
+	fn test_reaction_timestamps_toggle() {
+		assert!(reaction_timestamps_enabled());
+		set_reaction_timestamps_enabled(false);
+		assert!(!reaction_timestamps_enabled());
+		set_reaction_timestamps_enabled(true);
+		assert!(reaction_timestamps_enabled());
 	}
 }

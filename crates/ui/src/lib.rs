@@ -161,6 +161,19 @@ pub use typing::{
 	set_typing_indicator_avatar_enabled, set_typing_tweaks_enabled,
 	typing_indicator_avatar_enabled, typing_tweaks_enabled,
 };
+pub use categories::{
+	cleaner_channel_groups_enabled, message_peek_enabled,
+	set_cleaner_channel_groups_enabled, set_message_peek_enabled,
+};
+pub use markdown::{
+	markdown_tables_enabled, message_colors_enabled,
+	set_markdown_tables_enabled, set_message_colors_enabled,
+};
+pub use reactions::{reaction_timestamps_enabled, set_reaction_timestamps_enabled};
+pub use timeline::{
+	pin_icon_enabled, set_pin_icon_enabled, set_show_roles_in_chat_enabled,
+	show_roles_in_chat_enabled,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {

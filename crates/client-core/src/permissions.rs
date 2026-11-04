@@ -515,6 +515,20 @@ impl State {
 			.unwrap_or(message.author_roles.as_slice());
 		self.display_roles(guild, roles).1.map(p::Role::colors)
 	}
+	pub fn message_author_highest_role<'a>(
+		&'a self,
+		message: &model::Message,
+	) -> Option<&'a p::Role> {
+		if message.author.webhook {
+			return None;
+		}
+		let guild = self.channel(message.channel)?.guild?;
+		let roles = self
+			.live_author_roles(guild, message.channel, message.author.id)
+			.unwrap_or(message.author_roles.as_slice());
+		let (hoist, color) = self.display_roles(guild, roles);
+		color.or(hoist)
+	}
 	pub fn forum_author_color(
 		&self,
 		channel: Id,

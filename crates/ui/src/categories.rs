@@ -6,6 +6,33 @@ use client_core::State;
 use egui::RichText;
 use model::{Channel, Id, Shortcut};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// VenSerein (CleanerChannelGroups): Global toggle to keep collapsed categories clean without popping out unread channels.
+static CLEANER_CHANNEL_GROUPS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_cleaner_channel_groups_enabled(enabled: bool) {
+	CLEANER_CHANNEL_GROUPS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn cleaner_channel_groups_enabled() -> bool {
+	CLEANER_CHANNEL_GROUPS_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (MessagePeek): Global toggle for showing the last message preview snippet in DM list.
+static MESSAGE_PEEK_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_message_peek_enabled(enabled: bool) {
+	MESSAGE_PEEK_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn message_peek_enabled() -> bool {
+	MESSAGE_PEEK_ENABLED.load(Ordering::Relaxed)
+}
 
 /// Voice and stage channels keep a separate position list, drawn below other channels.
 fn voice_lane(kind: u8) -> bool {
@@ -1175,18 +1202,68 @@ impl MessagingUi {
 								label.push_str(" · unavailable");
 							}
 							let subtitle = if dm_list && channel.kind == 1 {
-								channel.recipients.first().and_then(|user| {
-									let (_, custom, activities, _) =
-										crate::profiles::presence(state, user.id, None);
-									crate::profiles::subtitle(custom, activities)
-								})
+								if MESSAGE_PEEK_ENABLED.load(Ordering::Relaxed)
+									&& let Some(last_id) = channel.last_message
+									&& let Some(last_msg) = state.timeline.get(last_id)
+								{
+									let snippet = if !last_msg.content.is_empty() {
+										let mut s = last_msg.content.replace('\n', " ");
+										if s.len() > 60 {
+											let mut end = 60;
+											while !s.is_char_boundary(end) {
+												end -= 1;
+											}
+											s.truncate(end);
+											s.push('…');
+										}
+										s
+									} else if !last_msg.attachments.is_empty() {
+										"[Attachment]".to_owned()
+									} else {
+										String::new()
+									};
+									if !snippet.is_empty() {
+										let author = state.message_author_name(last_msg);
+										Some(format!("{author}: {snippet}"))
+									} else {
+										channel.recipients.first().and_then(|user| {
+											let (_, custom, activities, _) =
+												crate::profiles::presence(state, user.id, None);
+											crate::profiles::subtitle(custom, activities)
+										})
+									}
+								} else {
+									channel.recipients.first().and_then(|user| {
+										let (_, custom, activities, _) =
+											crate::profiles::presence(state, user.id, None);
+										crate::profiles::subtitle(custom, activities)
+									})
+								}
 							} else {
 								(dm_list && channel.kind == 3).then(|| {
-									format!(
-										"{} {}",
-										channel.recipients.len() + 1,
-										language.text("members-count")
-									)
+									if MESSAGE_PEEK_ENABLED.load(Ordering::Relaxed)
+										&& let Some(last_id) = channel.last_message
+										&& let Some(last_msg) = state.timeline.get(last_id)
+										&& !last_msg.content.is_empty()
+									{
+										let mut s = last_msg.content.replace('\n', " ");
+										if s.len() > 50 {
+											let mut end = 50;
+											while !s.is_char_boundary(end) {
+												end -= 1;
+											}
+											s.truncate(end);
+											s.push('…');
+										}
+										let author = state.message_author_name(last_msg);
+										format!("{author}: {s}")
+									} else {
+										format!(
+											"{} {}",
+											channel.recipients.len() + 1,
+											language.text("members-count")
+										)
+									}
 								})
 							};
 							let direct_user = (dm_list && channel.kind == 1)
@@ -2696,5 +2773,25 @@ mod tests {
 				.any(|(rect, fill)| *fill == hover_color && rect.contains(egui::pos2(20.0, 66.0))),
 			"row highlight must be painted when pointer hovers over the avatar widget"
 		);
+	}
+}
+
+#[cfg(test)]
+mod venserein_batch1_categories_tests {
+	use super::*;
+
+	#[test]
+	fn test_categories_toggles() {
+		assert!(!cleaner_channel_groups_enabled());
+		set_cleaner_channel_groups_enabled(true);
+		assert!(cleaner_channel_groups_enabled());
+		set_cleaner_channel_groups_enabled(false);
+		assert!(!cleaner_channel_groups_enabled());
+
+		assert!(message_peek_enabled());
+		set_message_peek_enabled(false);
+		assert!(!message_peek_enabled());
+		set_message_peek_enabled(true);
+		assert!(message_peek_enabled());
 	}
 }
