@@ -105,6 +105,188 @@ impl Scheduled {
 	}
 }
 
+/// Decoder output: keep the watched user's pictures and wake the UI when one is due.
+///
+/// Pictures are decoded ahead of their presentation time. Waking the UI on decode as well
+/// ran a full UI pass that had nothing new to show, doubling the passes per stream frame.
+fn frame_sink(
+	slot: Arc<Mutex<Scheduled>>,
+	wake: egui::Context,
+	streamer: u64,
+) -> discord_voice::VideoSink {
+	Arc::new(move |frame: discord_voice::RemoteFrame| {
+		if frame.user != streamer {
+			return;
+		}
+		let now = Instant::now();
+		let due = frame
+			.presentation
+			.as_ref()
+			.map(|presentation| presentation.deadline(now).saturating_duration_since(now));
+		if slot.lock().is_ok_and(|mut slot| slot.store(frame)) {
+			match due {
+				Some(delay) => wake.request_repaint_after(delay),
+				None => wake.request_repaint(),
+			}
+		}
+	})
+}
+
+/// Moves due pictures forward and uploads the newest one; true when a new picture is shown.
+/// Uploading copies the planes into GPU staging, so it runs under the slot lock and the
+/// decoder keeps refilling the same allocation.
+fn present(
+	frames: &Mutex<Scheduled>,
+	texture: &mut crate::gpu_video::VideoTexture,
+	ui: &mut ui::MessagingUi,
+	ctx: &egui::Context,
+) -> bool {
+	let Ok(mut slot) = frames.try_lock() else {
+		// The decoder is storing a picture; look again shortly instead of waiting a frame.
+		ctx.request_repaint_after(Duration::from_millis(5));
+		return false;
+	};
+	if let Some(deadline) = slot.advance(Instant::now()) {
+		ctx.request_repaint_after(deadline.saturating_duration_since(Instant::now()));
+	}
+	if let Some((picture, fresh)) = slot.latest.as_mut()
+		&& std::mem::take(fresh)
+		&& let Some(shown) = texture.upload(ctx, "remote-stream", picture.borrow())
+	{
+		ui.voice_stream_view = Some(shown);
+		return true;
+	}
+	false
+}
+
+/// `--demo-stream-file=REC.au` (a `screen_bench --out` lab recording) replays an encoded
+/// stream through the platform decoder, the watch slot and the GPU upload, paced at
+/// `--demo-stream-fps` (default 30), and logs decode, upload and UI pass counts. Offline.
+#[cfg(feature = "demo")]
+struct Replay {
+	frames: Arc<Mutex<Scheduled>>,
+	stop: Arc<std::sync::atomic::AtomicBool>,
+	decoded: Arc<std::sync::atomic::AtomicU64>,
+	uploads: u64,
+	report: (Instant, u64, u64, u64),
+}
+
+#[cfg(feature = "demo")]
+impl Drop for Replay {
+	fn drop(&mut self) {
+		self.stop.store(true, std::sync::atomic::Ordering::Release);
+	}
+}
+
+#[cfg(feature = "demo")]
+impl Watch {
+	fn replay(&mut self, streamer: Option<Id>, ui: &mut ui::MessagingUi, ctx: &egui::Context) {
+		use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+		let Some(streamer) = streamer else {
+			self.replay = None;
+			return;
+		};
+		let argument =
+			|name: &str| std::env::args().find_map(|arg| arg.strip_prefix(name).map(str::to_owned));
+		if self.replay.is_none()
+			&& let Some(path) = argument("--demo-stream-file=")
+		{
+			let fps: u32 = argument("--demo-stream-fps=")
+				.and_then(|fps| fps.parse().ok())
+				.filter(|fps| (1..=120).contains(fps))
+				.unwrap_or(30);
+			let frames = Arc::new(Mutex::new(Scheduled::default()));
+			let sink = frame_sink(frames.clone(), ctx.clone(), streamer.0);
+			let (stop, decoded) = (
+				Arc::new(AtomicBool::new(false)),
+				Arc::new(AtomicU64::new(0)),
+			);
+			let (thread_stop, counted) = (stop.clone(), decoded.clone());
+			let spawned = std::thread::Builder::new()
+				.name("demo-stream".into())
+				.spawn(move || {
+					// Lab recordings are seconds long; refuse anything that is not.
+					let Some(bytes) = std::fs::metadata(&path)
+						.ok()
+						.filter(|file| file.len() <= 256 << 20)
+						.and_then(|_| std::fs::read(&path).ok())
+					else {
+						eprintln!("[Serein demo stream] cannot read {path} (at most 256 MiB)");
+						return;
+					};
+					let mut units = Vec::new();
+					let mut rest = bytes.as_slice();
+					while let Some((length, tail)) = rest.split_first_chunk::<4>() {
+						let length = u32::from_le_bytes(*length) as usize;
+						if length > 4 << 20 || tail.len() < length {
+							break;
+						}
+						units.push(&tail[..length]);
+						rest = &tail[length..];
+					}
+					let origin = Instant::now();
+					// Pictures are shown a little after decoding, as the network playout does.
+					let playout = Duration::from_millis(60);
+					let deliver: platform::video::TimedLiveSink = Box::new(move |frame, tag| {
+						counted.fetch_add(1, Ordering::Relaxed);
+						sink(discord_voice::RemoteFrame {
+							presentation: Some(discord_voice::Presentation::new(
+								origin + Duration::from_millis(tag) + playout,
+							)),
+							user: streamer.0,
+							picture: frame.borrow(),
+						});
+					});
+					let Ok(mut decoder) = platform::video::live::H264Decoder::new_timed(deliver)
+					else {
+						eprintln!("[Serein demo stream] no platform H.264 decoder");
+						return;
+					};
+					for (index, unit) in units.iter().cycle().enumerate() {
+						if thread_stop.load(Ordering::Acquire) {
+							break;
+						}
+						let at = origin + Duration::from_secs_f64(index as f64 / f64::from(fps));
+						std::thread::sleep(at.saturating_duration_since(Instant::now()));
+						let _ = decoder.decode_timed(unit, (at - origin).as_millis() as u64);
+					}
+				});
+			if spawned.is_ok() {
+				self.replay = Some(Replay {
+					frames,
+					stop,
+					decoded,
+					uploads: 0,
+					report: (Instant::now(), 0, 0, ctx.cumulative_pass_nr()),
+				});
+			}
+		}
+		let Some(replay) = &mut self.replay else {
+			return;
+		};
+		if present(&replay.frames, &mut self.texture, ui, ctx) {
+			replay.uploads += 1;
+			ui.voice_stream_status = "Offline replay · recorded lab stream";
+		}
+		let (since, decoded, uploads, passes) = replay.report;
+		if since.elapsed() >= Duration::from_secs(5) {
+			let now = (
+				replay.decoded.load(Ordering::Relaxed),
+				replay.uploads,
+				ctx.cumulative_pass_nr(),
+			);
+			let seconds = since.elapsed().as_secs_f64();
+			eprintln!(
+				"[Serein demo stream] decoded/s={:.1} uploads/s={:.1} ui_passes/s={:.1}",
+				(now.0 - decoded) as f64 / seconds,
+				(now.1 - uploads) as f64 / seconds,
+				(now.2 - passes) as f64 / seconds,
+			);
+			replay.report = (Instant::now(), now.0, now.1, now.2);
+		}
+	}
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Context {
 	generation: u64,
@@ -146,6 +328,8 @@ pub(super) struct Watch {
 	status: &'static str,
 	/// GPU texture behind `ui.voice_stream_view`.
 	texture: crate::gpu_video::VideoTexture,
+	#[cfg(feature = "demo")]
+	replay: Option<Replay>,
 }
 impl Watch {
 	pub fn stop(&mut self) {
@@ -289,6 +473,8 @@ impl Watch {
 			} else {
 				""
 			};
+			#[cfg(feature = "demo")]
+			self.replay(wanted.map(|wanted| wanted.3), ui, ctx);
 			return command;
 		}
 		if let Some((generation, channel, request, streamer)) = wanted
@@ -360,20 +546,8 @@ impl Watch {
 			if live.task.is_finished() && self.ended.is_none() {
 				self.ended = Some((ui::design::Level::Warning, "The stream connection ended"));
 			}
-			// Uploading copies the planes into GPU staging, so it runs under the slot lock
-			// and the decoder keeps refilling the same allocation.
-			if let Ok(mut slot) = live.frames.try_lock() {
-				if let Some(deadline) = slot.advance(Instant::now()) {
-					ctx.request_repaint_after(deadline.saturating_duration_since(Instant::now()));
-				}
-				if let Some((picture, fresh)) = slot.latest.as_mut()
-					&& std::mem::take(fresh)
-					&& let Some(texture) =
-						self.texture.upload(ctx, "remote-stream", picture.borrow())
-				{
-					ui.voice_stream_view = Some(texture);
-					self.status = "Watching the stream";
-				}
+			if present(&live.frames, &mut self.texture, ui, ctx) {
+				self.status = "Watching the stream";
 			}
 		} else {
 			ui.voice_stream_view = None;
@@ -403,17 +577,7 @@ impl Watch {
 			request: pending.context.stream_request,
 		};
 		let frames = Arc::new(Mutex::new(Scheduled::default()));
-		let slot = frames.clone();
-		let wake = ctx.clone();
-		let streamer = pending.context.streamer.0;
-		let sink: discord_voice::VideoSink = Arc::new(move |frame: discord_voice::RemoteFrame| {
-			if frame.user != streamer {
-				return;
-			}
-			if slot.lock().is_ok_and(|mut slot| slot.store(frame)) {
-				wake.request_repaint();
-			}
-		});
+		let sink = frame_sink(frames.clone(), ctx.clone(), pending.context.streamer.0);
 		let (send, events) = watch::channel(None);
 		let wake = ctx.clone();
 		let identity = pending.identity;
@@ -496,6 +660,8 @@ mod tests {
 				sequence: 0,
 				status: "",
 				texture: Default::default(),
+				#[cfg(feature = "demo")]
+				replay: None,
 			};
 			for phase in [
 				voice::Phase::Connected,
@@ -545,6 +711,32 @@ mod tests {
 
 	fn i420(width: u32, height: u32, value: u8) -> Vec<u8> {
 		vec![value; platform::video::Layout::I420.len(width, height).unwrap()]
+	}
+
+	/// Decoding runs ahead of presentation; waking the UI on decode too ran a full UI pass
+	/// with nothing new to show, doubling the passes per stream frame.
+	#[test]
+	fn decoded_pictures_wake_the_ui_when_due_not_when_decoded() {
+		let ctx = egui::Context::default();
+		let delays = Arc::new(Mutex::new(Vec::new()));
+		let seen = delays.clone();
+		ctx.set_request_repaint_callback(move |info| seen.lock().unwrap().push(info.delay));
+		let sink = frame_sink(Arc::default(), ctx.clone(), 7);
+		let data = i420(4, 4, 9);
+		let mut scheduled = frame(4, 4, &data);
+		scheduled.presentation = Some(discord_voice::Presentation::new(
+			Instant::now() + Duration::from_millis(80),
+		));
+		sink(scheduled);
+		let mut other = frame(4, 4, &data);
+		other.user = 8;
+		sink(other);
+		let requested = std::mem::take(&mut *delays.lock().unwrap());
+		assert_eq!(requested.len(), 1, "{requested:?}");
+		assert!(requested[0] >= Duration::from_millis(40), "{requested:?}");
+		// Pictures without a presentation time are shown as soon as they arrive.
+		sink(frame(4, 4, &data));
+		assert_eq!(*delays.lock().unwrap(), [Duration::ZERO]);
 	}
 
 	#[test]

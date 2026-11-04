@@ -579,6 +579,8 @@ Use two clients with headphones, enable audio on the sender, play another app an
 from the viewer: the app should be audible without the viewer's voice returning in the
 stream. Repeat while starting/stopping apps, changing outputs, rekeying and stopping sharing.
 
+The offline lab in [`tools/screen-lab/`](../tools/screen-lab/README.md) measures the Linux sender and viewer on a disposable headless wlroots compositor, with synthetic scenes and recordings only. With `--features demo`, `--demo-call-stream --demo-stream-file=REC.au` replays a lab recording through the real viewer decoder and upload path.
+
 The native demo (`cargo run --locked -p serein -- --demo --demo-voice`) exposes a synthetic picker without OS source discovery or capture. Live screen sharing requires the same owner-controlled login gate as voice testing. See [compatibility and limits](discord-compatibility.md#outgoing-screen-sharing--september-11-2026).
 
 ## Camera in calls (macOS, Windows and Linux)
