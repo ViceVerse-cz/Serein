@@ -258,6 +258,8 @@ pub struct MessagingUi {
 	pub convert_emoticons: bool,
 	/// Device preference: request a conversation's page while the pointer rests on it.
 	pub preload_on_hover: bool,
+	/// Device preference: start every call that begins in its own window.
+	pub voice_popout_auto: bool,
 	preload: preload::Preload,
 	pub image_share_requested: Option<(u64, Id, Vec<model::ImageShare>, String)>,
 	pub interaction_file_request: Option<String>,

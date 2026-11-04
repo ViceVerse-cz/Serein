@@ -70,6 +70,8 @@ impl Settings {
 			voice_push_to_talk: ui.voice_push_to_talk,
 			voice_muted: ui.voice_muted,
 			voice_deafened: ui.voice_deafened,
+			voice_popout_auto: ui.voice_popout_auto,
+			voice_popout_geometry: self.current.voice_popout_geometry,
 			voice_input: ui.voice_input.clone(),
 			voice_output: ui.voice_output.clone(),
 			input_percent: ui.voice_gain.input_percent,
@@ -121,6 +123,7 @@ impl Settings {
 		ui.voice_push_to_talk = value.voice_push_to_talk;
 		ui.voice_muted = value.voice_muted;
 		ui.voice_deafened = value.voice_deafened;
+		ui.voice_popout_auto = value.voice_popout_auto;
 		ui.voice_input.clone_from(&value.voice_input);
 		ui.voice_output.clone_from(&value.voice_output);
 		ui.voice_gain.input_percent = value.input_percent;
@@ -442,6 +445,31 @@ mod tests {
 		settings.observe(&ui);
 		assert!(!settings.current.message_requests_collapsed);
 		assert!(settings.state.dirty);
+	}
+
+	#[test]
+	fn popout_preferences_round_trip_and_keep_saved_geometry() {
+		let mut settings = Settings {
+			loaded: true,
+			..Default::default()
+		};
+		let geometry = local_store::WindowGeometry {
+			size: [960, 640],
+			position: Some([-1920, 0]),
+			maximized: true,
+		};
+		settings.current.voice_popout_geometry = Some(geometry);
+		let mut ui = ui::MessagingUi::default();
+		settings.apply(&mut ui);
+		assert!(!ui.voice_popout_auto);
+		ui.voice_popout_auto = true;
+		settings.observe(&ui);
+		assert!(settings.current.voice_popout_auto);
+		assert_eq!(settings.current.voice_popout_geometry, Some(geometry));
+
+		settings.current.voice_popout_auto = false;
+		settings.apply(&mut ui);
+		assert!(!ui.voice_popout_auto);
 	}
 
 	#[test]

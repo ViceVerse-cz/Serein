@@ -2511,6 +2511,12 @@ impl MessagingUi {
 				);
 			}
 		});
+		design::switch(
+			ui,
+			"settings-voice-popout-auto",
+			Some("settings-voice-popout-auto-description"),
+			&mut self.voice_popout_auto,
+		);
 		if !compact {
 			crate::keybinds::show_voice(
 				ui,
