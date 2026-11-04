@@ -119,6 +119,13 @@ impl Screen {
 
 	/// Stops sharing because something went wrong, and says so once.
 	fn fail(&mut self, message: &'static str) {
+		// The share dialog already shows this reason; the log keeps it for a report too.
+		diagnostics::record_fields(
+			diagnostics::Category::Voice,
+			diagnostics::Level::Error,
+			"share_failed",
+			&[("reason", diagnostics::Value::Text(message))],
+		);
 		self.toast = Some((ui::design::Level::Error, message));
 		self.request_stop(message);
 	}
@@ -404,7 +411,15 @@ impl Screen {
 						self.toast = Some((ui::design::Level::Error, self.status));
 					}
 				}
-				ui::screen::Request::Stop => self.request_stop("Stopping screen sharing…"),
+				ui::screen::Request::Stop => {
+					// Discord cues the end of this device's own share, like its start.
+					let cue = model::notification_preferences::Sound::ScreenShareOff;
+					if self.live.is_some() && ui.notification_options.allows(cue) {
+						ui.notification_preview = Some(cue);
+						ctx.request_repaint();
+					}
+					self.request_stop("Stopping screen sharing…")
+				}
 			}
 		}
 

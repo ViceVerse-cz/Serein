@@ -19,13 +19,14 @@ from the source sample rate; no re-encoding, metadata stripping or trimming is a
 | `undeafen.mp3` | [undeafen](https://discord.com/assets/b150f03c89944403.mp3) | `690b64977594baa41c7978d76259224f67799ba337df2d1045dce970ef82b243` |
 | `camera-on.mp3` | [camera_on](https://discord.com/assets/855607d0932ea396.mp3) | `faeb721a072575c96d1e140aaecd469bf3f7278347596968dddf22fdb65005bf` |
 | `screen-share-on.mp3` | [stream_started](https://discord.com/assets/abe52a3c92953edb.mp3) | `b5cb29d5d5cc0e8e22fa014bac4a1c2d601f6890ae6db1c18d4b6310283a3271` |
+| `screen-share-off.mp3` | [stream_ended](https://discord.com/assets/cbff07b5a83e0321.mp3), downloaded November 4, 2026 | `a724e183167405783122b997def6b3e6f53020957031224b27c434d6df8ef75f` |
 | `user-join.mp3` | [user_join](https://discord.com/assets/b135ff6c8e091b43.mp3) | `d30746caf3e4675ae0d822d51461a9ad24832afa1e20179c3c2fc7b50b911a26` |
 | `user-leave.mp3` | [user_leave](https://discord.com/assets/7b9a183742515fc2.mp3) | `9fd71c2d8112c82a7fb316602bb1645bc65f5edfa260110bbaae80090fbe9df0` |
 | `viewer-join.mp3` | [stream_user_joined](https://discord.com/assets/3d2af2764581bb2e.mp3), downloaded October 19, 2026 | `3b51208e7559fc5b16a297cd8d882648fa7534adf706dfbd529c39266d132213` |
 | `ptt-start.mp3` | [ptt_start](https://discord.com/assets/f5c8ec31889c5317.mp3), downloaded October 29, 2026 | `9a06714cbc4fffe5c181be5499d08a3de31bcd21bfd0678c1a42764c0db4c99a` |
 | `ptt-stop.mp3` | [ptt_stop](https://discord.com/assets/34b5969be3a063ba.mp3), downloaded October 29, 2026 | `e470a8a450681b6ef92251c974fc295b598445faf1749697765a9b293f50c0e7` |
 
-The fifteen files total 666,726 bytes; each distinct cue is bundled independently. No network fetch or user-file access occurs during playback.
+The sixteen files total 734,265 bytes; each distinct cue is bundled independently. No network fetch or user-file access occurs during playback.
 Incoming and outgoing rings repeat every six and three seconds respectively,
 leaving enough time for each complete clip before its next playback.
 

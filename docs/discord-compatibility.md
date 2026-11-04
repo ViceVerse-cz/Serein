@@ -2902,3 +2902,19 @@ release build that both the link and the starter card open this private thread. 
 observation of one account, not a general normal-user guarantee: the read itself stays
 unofficial, and a later visit shows the generic card again because the admitted thread is one
 transient conversation.
+
+## Private-call stream cues — November 4, 2026
+
+Issue #882 reported no sound when another participant started screen sharing in a group call,
+although the same cue played in a server voice channel. Server voice states carry `self_stream`;
+private calls announce a share through its stream key, and this client only read keys for its own
+stream or the one it watched. The voice state machine now reads the `STREAM_CREATE` and
+`STREAM_DELETE` key of the connected private call (`call:<channel>:<user>`) and marks that
+participant as streaming, which plays the cue, updates the live badge and ends a watch when the
+share stops. Guild calls keep using `self_stream`, so their events are unchanged. Keys for
+another conversation, a malformed key and a viewer refresh are ignored. Nothing joins,
+subscribes or sends; the stream path remains unofficial normal-user behavior.
+
+Stopping this device's own share now plays Discord's `stream_ended` cue. The existing screen-share
+sound switch governs both edges of the share. The bundled asset is `stream_ended` from Discord's
+public asset host, recorded with its source URL and SHA-256 in the sound assets README.

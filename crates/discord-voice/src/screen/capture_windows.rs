@@ -238,14 +238,21 @@ impl Capture {
 }
 
 trait NativeSource:
-	TryInto<windows_capture::settings::GraphicsCaptureItemType> + Send + 'static
+	TryInto<windows_capture::settings::GraphicsCaptureItemType> + Send + Copy + 'static
 {
 	fn dimensions(&self) -> Option<(u32, u32)>;
+	/// Converts the source once, so Windows can answer with its permission decision.
+	fn probe(&self) -> Result<(), &'static str>;
 }
 
 impl NativeSource for Monitor {
 	fn dimensions(&self) -> Option<(u32, u32)> {
 		self.width().ok().zip(self.height().ok())
+	}
+	fn probe(&self) -> Result<(), &'static str> {
+		<Monitor as TryInto<windows_capture::settings::GraphicsCaptureItemType>>::try_into(*self)
+			.map(|_| ())
+			.map_err(|error| capture_refusal(error.code().0 as u32))
 	}
 }
 
@@ -259,6 +266,11 @@ impl NativeSource for Window {
 					.ok()
 					.and_then(|height| u32::try_from(height).ok()),
 			)
+	}
+	fn probe(&self) -> Result<(), &'static str> {
+		<Window as TryInto<windows_capture::settings::GraphicsCaptureItemType>>::try_into(*self)
+			.map(|_| ())
+			.map_err(|error| capture_refusal(error.code().0 as u32))
 	}
 }
 
@@ -278,6 +290,11 @@ where
 	if width == 0 || height == 0 || width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT {
 		return Err("Selected source exceeds the 4K capture limit");
 	}
+	// Windows 11 keeps a per-application consent; an application that never asks is denied and
+	// the Settings page lists no request. Asking here shows the system prompt once.
+	request_access()?;
+	// The item conversion can still refuse the source (a protected window, for example).
+	item.probe()?;
 	let flags = Flags {
 		frames,
 		stop,
@@ -304,8 +321,7 @@ where
 		ColorFormat::Bgra8,
 		flags,
 	);
-	let control =
-		Handler::start_free_threaded(native).map_err(|_| "Screen capture could not be started")?;
+	let control = Handler::start_free_threaded(native).map_err(|error| start_failure(&error))?;
 	Ok(Capture {
 		control: Some(control),
 		audio: None,
@@ -317,6 +333,86 @@ impl Drop for Capture {
 		self.audio.take();
 		if let Some(control) = self.control.take() {
 			let _ = control.stop();
+		}
+	}
+}
+
+/// `E_ACCESSDENIED`; Windows 11's "Screenshots and screen recording" privacy setting returns it.
+const ACCESS_DENIED: u32 = 0x8007_0005;
+/// Windows 11 blocks programmatic capture for applications the owner has not allowed.
+const DENIED: &str = "Windows blocked screen capture for this app; allow it in Settings, Privacy & security, Screenshots and screen recording";
+
+/// Asks Windows for the programmatic capture consent this application needs.
+///
+/// The consent is per application: an application that never asks is denied outright and the
+/// Settings page lists no request. The call shows the system prompt once and blocks this capture
+/// worker until the owner answers.
+fn request_access() -> Result<(), &'static str> {
+	use windows::Graphics::Capture::{GraphicsCaptureAccess, GraphicsCaptureAccessKind};
+	use windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus;
+	// SAFETY: WinRT activation needs an initialized apartment on this worker thread. Only the
+	// consent call below decides the outcome, so an already-initialized mode is harmless.
+	#[allow(unsafe_code)]
+	unsafe {
+		let _ = windows::Win32::System::WinRT::RoInitialize(
+			windows::Win32::System::WinRT::RO_INIT_MULTITHREADED,
+		);
+	}
+	let Ok(operation) =
+		GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Programmatic)
+	else {
+		// Builds without the consent API report their decision through the capture item instead.
+		return Ok(());
+	};
+	match operation.get() {
+		Ok(status) if status == AppCapabilityAccessStatus::Allowed => Ok(()),
+		// A decision the owner made is the only answer this call can be trusted with: an
+		// unpackaged executable reports NotDeclaredByApp even where capture is already allowed,
+		// and that decision still belongs to the capture item.
+		Ok(status)
+			if status == AppCapabilityAccessStatus::DeniedByUser
+				|| status == AppCapabilityAccessStatus::DeniedBySystem =>
+		{
+			Err(DENIED)
+		}
+		_ => Ok(()),
+	}
+}
+
+/// The item conversion is the first place Windows reports the privacy decision.
+fn capture_refusal(code: u32) -> &'static str {
+	if code == ACCESS_DENIED {
+		DENIED
+	} else {
+		"Screen capture could not be started"
+	}
+}
+
+fn start_failure(
+	error: &windows_capture::capture::GraphicsCaptureApiError<&'static str>,
+) -> &'static str {
+	use windows_capture::{capture::GraphicsCaptureApiError as Error, graphics_capture_api};
+	match error {
+		Error::GraphicsCaptureApiError(graphics_capture_api::Error::WindowsError(windows))
+			if windows.code().0 as u32 == ACCESS_DENIED =>
+		{
+			DENIED
+		}
+		Error::DirectXError(_) => "The graphics driver could not start screen capture",
+		Error::FailedToInitWinRT
+		| Error::FailedToCreateDispatcherQueueController
+		| Error::FailedToShutdownDispatcherQueue
+		| Error::FailedToSetDispatcherQueueCompletedHandler
+		| Error::FailedToRunMessageLoop
+		| Error::FailedToStartCaptureThread
+		| Error::FailedToJoinThread => "Windows could not start its screen-capture service",
+		Error::ItemConvertFailed => "The selected screen or window cannot be captured",
+		Error::GraphicsCaptureApiError(graphics_capture_api::Error::Unsupported) => {
+			"Windows Graphics Capture is unavailable on this Windows build"
+		}
+		Error::GraphicsCaptureApiError(_) => "Windows refused to start screen capture",
+		Error::NewHandlerError(_) | Error::FrameHandlerError(_) => {
+			"Screen capture could not be started"
 		}
 	}
 }

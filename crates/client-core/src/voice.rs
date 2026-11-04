@@ -82,7 +82,8 @@ pub struct Participant {
 	pub server_deafened: bool,
 	/// Camera on (`self_video`); frames arrive on the call transport.
 	pub video: bool,
-	/// Go Live screen share announced (`self_stream`); viewing needs an explicit watch.
+	/// Go Live screen share announced: `self_stream`, or a private call's stream key. Viewing
+	/// still needs an explicit watch.
 	pub streaming: bool,
 }
 #[derive(Clone)]
@@ -307,6 +308,13 @@ pub enum Event {
 	},
 	Deleted {
 		channel: Id,
+	},
+	/// A stream in the active call started or ended, announced by its stream key. Private calls
+	/// carry no `self_stream` on their participants, so this is their live signal.
+	ParticipantStream {
+		channel: Id,
+		user: Id,
+		streaming: bool,
 	},
 	ChannelStarted {
 		guild: Id,
@@ -1051,6 +1059,39 @@ impl ClientState {
 				}
 				if call.watching == Some(user) && (channel != Some(call.channel) || !streaming) {
 					call.watching = None;
+				}
+			}
+			Event::ParticipantStream {
+				channel,
+				user,
+				streaming,
+			} => {
+				// A stream key is the only live signal a private call gives for its participants.
+				if let Some(call) = &mut self.voice.active
+					&& call.channel == channel
+				{
+					if let Some(participant) = call
+						.participants
+						.iter_mut()
+						.find(|participant| participant.user == user)
+					{
+						participant.streaming = streaming;
+					}
+					if !streaming && call.watching == Some(user) {
+						call.watching = None;
+					}
+				}
+				// Keep the retained call membership current, so a later join shows it too.
+				for (known, participants) in &mut self.voice.dm_participants {
+					if *known != channel {
+						continue;
+					}
+					if let Some(participant) = participants
+						.iter_mut()
+						.find(|participant| participant.user == user)
+					{
+						participant.streaming = streaming;
+					}
 				}
 			}
 			Event::Progress {
@@ -2445,5 +2486,52 @@ mod tests {
 				assert_eq!(state.outgoing_ring(), None, "{end} must consume the intent");
 			}
 		}
+	}
+
+	#[test]
+	fn a_private_call_stream_key_sets_the_participant_and_ends_watching() {
+		let mut state = dm_state();
+		state.start_call(Id(2), false).unwrap();
+		let call = state.voice.active.as_mut().unwrap();
+		call.participants = vec![Participant {
+			user: Id(3),
+			muted: false,
+			deafened: false,
+			server_muted: false,
+			server_deafened: false,
+			video: false,
+			streaming: false,
+		}];
+		call.watching = Some(Id(3));
+		state.apply_voice(Event::ParticipantStream {
+			channel: Id(2),
+			user: Id(3),
+			streaming: true,
+		});
+		let call = state.voice.active.as_ref().unwrap();
+		assert!(call.participants[0].streaming);
+		assert_eq!(
+			call.watching,
+			Some(Id(3)),
+			"a live stream keeps its watcher"
+		);
+		state.apply_voice(Event::ParticipantStream {
+			channel: Id(2),
+			user: Id(3),
+			streaming: false,
+		});
+		let call = state.voice.active.as_ref().unwrap();
+		assert!(!call.participants[0].streaming);
+		assert_eq!(
+			call.watching, None,
+			"a stream that stopped cannot stay watched"
+		);
+		// Another conversation's stream leaves this call alone.
+		state.apply_voice(Event::ParticipantStream {
+			channel: Id(9),
+			user: Id(3),
+			streaming: true,
+		});
+		assert!(!state.voice.active.as_ref().unwrap().participants[0].streaming);
 	}
 }

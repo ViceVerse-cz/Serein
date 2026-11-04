@@ -713,6 +713,21 @@ impl Calls {
 		let Ok(key) = decode::<stream::Key>(data) else {
 			return Ok(());
 		};
+		// A stream in this call names its owner even when this device neither streams nor
+		// watches it; private calls give no `self_stream` on their participants.
+		if let (Some((guild, channel, user)), Some((active, _))) = (key.target(), self.active)
+			&& guild.is_none()
+			&& self.active_guild.is_none()
+			&& channel == active
+			&& self.allowed.get(&channel) == Some(&None)
+			&& matches!(kind, "STREAM_CREATE" | "STREAM_DELETE")
+		{
+			emit(Event::Voice(voice::Event::ParticipantStream {
+				channel,
+				user,
+				streaming: kind == "STREAM_CREATE",
+			}))?;
+		}
 		if let Some(watch) = &self.watch
 			&& (self.active != Some((watch.channel, watch.request))
 				|| self.allowed.get(&watch.channel) != Some(&self.active_guild))
@@ -2570,5 +2585,71 @@ mod tests {
 			&emit,
 		).unwrap();
 		assert_eq!(events.lock().unwrap().len(), 4);
+	}
+
+	#[test]
+	fn a_private_call_stream_names_its_owner_for_the_sound_cue() {
+		let mut calls = Calls::default();
+		calls.allowed.insert(Id(20), None);
+		calls
+			.packet(Command::Join {
+				channel: Id(20),
+				request: 7,
+				ring: false,
+				mute: false,
+				deaf: false,
+			})
+			.unwrap();
+		let events = Mutex::new(Vec::new());
+		let emit = |event| {
+			events.lock().unwrap().push(event);
+			Ok(())
+		};
+		// Another participant's stream is announced by its key: private calls do not set
+		// `self_stream` on their participants, so the live badge and cue need this event.
+		calls
+			.dispatch(
+				"STREAM_CREATE",
+				br#"{"stream_key":"call:20:2","rtc_server_id":"30","rtc_channel_id":"31"}"#,
+				Some(Id(1)),
+				&emit,
+			)
+			.unwrap();
+		assert!(matches!(
+			events.lock().unwrap().pop().unwrap(),
+			Event::Voice(voice::Event::ParticipantStream {
+				channel: Id(20),
+				user: Id(2),
+				streaming: true,
+			})
+		));
+		// Another conversation's stream and a viewer refresh say nothing about this call.
+		for (kind, data) in [
+			("STREAM_CREATE", br#"{"stream_key":"call:21:2"}"#.as_slice()),
+			("STREAM_DELETE", br#"{"stream_key":"call:21:2"}"#.as_slice()),
+			(
+				"STREAM_UPDATE",
+				br#"{"stream_key":"call:20:2","viewer_ids":[]}"#.as_slice(),
+			),
+		] {
+			calls.dispatch(kind, data, Some(Id(1)), &emit).unwrap();
+			assert!(events.lock().unwrap().is_empty(), "{kind}");
+		}
+		calls
+			.dispatch(
+				"STREAM_DELETE",
+				br#"{"stream_key":"call:20:2"}"#,
+				Some(Id(1)),
+				&emit,
+			)
+			.unwrap();
+		assert!(matches!(
+			events.lock().unwrap().pop().unwrap(),
+			Event::Voice(voice::Event::ParticipantStream {
+				channel: Id(20),
+				user: Id(2),
+				streaming: false,
+			})
+		));
 	}
 }
