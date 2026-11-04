@@ -60,6 +60,8 @@ pub enum Sound {
 	Undeafen,
 	CameraOn,
 	ScreenShareOn,
+	/// This device's own share stopped. The screen-share cue switch covers both edges.
+	ScreenShareOff,
 	UserJoin,
 	UserLeave,
 	PttStart,
@@ -80,7 +82,7 @@ impl Device {
 				Sound::Deafen => self.deafen,
 				Sound::Undeafen => self.undeafen,
 				Sound::CameraOn => self.camera_on,
-				Sound::ScreenShareOn => self.screen_share_on,
+				Sound::ScreenShareOn | Sound::ScreenShareOff => self.screen_share_on,
 				Sound::UserJoin => self.user_join,
 				Sound::UserLeave => self.user_leave,
 				Sound::PttStart => self.ptt_start,
@@ -135,6 +137,10 @@ mod tests {
 		settings.screen_share_on = false;
 		assert!(settings.allows(Sound::CameraOn));
 		assert!(!settings.allows(Sound::ScreenShareOn));
+		assert!(
+			!settings.allows(Sound::ScreenShareOff),
+			"one switch covers both edges of the share"
+		);
 		settings.screen_share_on = true;
 		assert!(settings.allows(Sound::ViewerJoin));
 		settings.viewer_join = false;
@@ -162,6 +168,7 @@ mod tests {
 			Sound::Undeafen,
 			Sound::CameraOn,
 			Sound::ScreenShareOn,
+			Sound::ScreenShareOff,
 			Sound::UserJoin,
 			Sound::UserLeave,
 			Sound::PttStart,

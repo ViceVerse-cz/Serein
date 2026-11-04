@@ -449,3 +449,17 @@ macOS and Linux have no local HEIC decoder in this implementation; proxy-provide
 PNG/JPEG/WebP renditions can still display. The offline Windows check decodes an
 original synthetic 6000x4000 HEIC both at source size and as a 320px thumbnail,
 checking dimensions and pixel conversion. Owner photos and live Discord remain unverified.
+
+## Windows screenshots-and-recording permission — November 4, 2026
+
+Windows 11 builds that expose Settings > Privacy & security > Screenshots and screen recording keep
+a per-application consent for programmatic Graphics Capture. On Windows 11 build 26300 a locally
+built, unpackaged executable was denied at the capture item with `E_ACCESSDENIED` ("You do not have
+permission to capture the given monitor"), and the Settings page listed no request; the installed
+copy at its own path had a consent record from earlier capture and worked. Serein now asks the
+platform for that consent with `GraphicsCaptureAccess.RequestAccessAsync(Programmatic)` when a share
+starts. An unpackaged executable answers `NotDeclaredByApp`, so the capture item keeps deciding;
+`DeniedByUser` or `DeniedBySystem` names the setting in the share dialog. The diagnostic log records
+the start failure with its reason instead of a generic message. The permission is per executable
+path, so a build run from a different folder (a local release build beside an installed copy) needs
+its own allowance even when the other copy works. The capture pipeline itself is unchanged.

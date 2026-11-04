@@ -137,6 +137,9 @@ fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[
 		Sound::ScreenShareOn => {
 			include_bytes!("../../../assets/sounds/discord/screen-share-on.mp3")
 		}
+		Sound::ScreenShareOff => {
+			include_bytes!("../../../assets/sounds/discord/screen-share-off.mp3")
+		}
 		Sound::UserJoin => include_bytes!("../../../assets/sounds/discord/user-join.mp3"),
 		Sound::UserLeave => include_bytes!("../../../assets/sounds/discord/user-leave.mp3"),
 		Sound::PttStart => include_bytes!("../../../assets/sounds/discord/ptt-start.mp3"),
@@ -393,6 +396,7 @@ mod tests {
 				Sound::Undeafen,
 				Sound::CameraOn,
 				Sound::ScreenShareOn,
+				Sound::ScreenShareOff,
 				Sound::OutgoingRing,
 				Sound::UserJoin,
 				Sound::UserLeave,
@@ -404,7 +408,8 @@ mod tests {
 			assert_ne!(cues[0], cues[1]);
 			assert_ne!(cues[3], cues[4]);
 			assert_ne!(cues[5], cues[6]);
-			assert_ne!(cues[12], cues[13]);
+			assert_ne!(cues[8], cues[9]);
+			assert_ne!(cues[13], cues[14]);
 			let expectations = [
 				(0.2, 0.5),
 				(0.5, 0.9),
@@ -415,6 +420,7 @@ mod tests {
 				(0.6, 1.0),
 				(0.9, 1.1),
 				(1.6, 1.9),
+				(1.5, 1.8),
 				(2.3, 2.6),
 				(1.0, 1.2),
 				(0.9, 1.1),
@@ -423,7 +429,7 @@ mod tests {
 				(1.5, 1.8),
 			];
 			assert!(
-				Duration::from_secs_f64(cues[9].len() as f64 / f64::from(rate))
+				Duration::from_secs_f64(cues[10].len() as f64 / f64::from(rate))
 					+ Duration::from_millis(100)
 					< OUTGOING_RING_INTERVAL
 			);

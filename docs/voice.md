@@ -455,7 +455,7 @@ not establish production readiness or superiority over Discord's processing.
 
 ## Screen sharing
 
-In a connected call, select **Share your screen**, choose a display/window, 480p, 720p or 1080p, 15/30/60 fps, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
+In a connected call, select **Share your screen**, choose a display/window, 480p, 720p or 1080p, 15/30/60 fps, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed. Starting this device's share plays Discord's screen-share cue. Selecting **Stop sharing** plays the stop cue. Ending the share by leaving the call or logging out does not. The single screen-share sound switch governs both cues.
 
 480p uses 854×480 pixels and a target video bitrate of 2 Mbps at 15/30 fps or 4 Mbps at 60 fps.
 
@@ -471,6 +471,13 @@ window, ScreenCaptureKit captures its owning application's audio, which may incl
 other windows in that application; this is not isolation of one window's audio.
 Serein's own playback remains excluded. No microphone is captured by screen sharing.
 The native picker has not been opened during synthetic verification.
+
+Windows 11 builds that expose the "Screenshots and screen recording" privacy page can
+deny programmatic capture to an application until the owner allows it there. Starting a
+share asks Windows for that consent where the platform exposes it; a refusal names the
+setting in the share dialog and the diagnostic log records the reason. The Windows
+permission applies to the exact executable path, so a build run from a new folder can be
+refused even when an installed copy was already allowed.
 
 Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
 
