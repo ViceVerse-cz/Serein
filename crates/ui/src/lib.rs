@@ -1044,6 +1044,14 @@ impl MessagingUi {
 	pub fn preview_pins(&mut self) {
 		self.search.preview_pins();
 	}
+	/// Fixture-only: open the active call in its own window, optionally with its chat panel.
+	#[cfg(feature = "demo")]
+	pub fn preview_voice_popout(&mut self, state: &State, chat: bool) {
+		if let Some(call) = &state.voice.active {
+			self.voice_popout = Some(call.channel);
+			self.voice_popout_chat = chat;
+		}
+	}
 	/// Fixture-only: open the account popout above the footer card at startup.
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_account_menu(&mut self, generation: u64) {

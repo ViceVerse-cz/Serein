@@ -2000,6 +2000,15 @@ impl Desktop {
 			demo_textures.push(texture);
 			messaging.voice_focus = Some(ui::StageFocus::Participant(robin));
 		}
+		#[cfg(feature = "demo")]
+		if demo
+			&& let Some(chat) = std::env::args().find_map(|arg| {
+				arg.strip_prefix("--demo-popout")
+					.map(|rest| rest.trim_start_matches('=') == "chat")
+			}) {
+			// `--demo-popout` or `--demo-popout=chat`: the call starts in its own window.
+			messaging.preview_voice_popout(&state, chat);
+		}
 		messaging.build = ui::design::Build {
 			channel: if cfg!(debug_assertions) {
 				ui::design::Channel::Dev
