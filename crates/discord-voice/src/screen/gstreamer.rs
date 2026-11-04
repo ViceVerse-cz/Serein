@@ -455,10 +455,14 @@ mod tests {
 	}
 
 	fn capture(source: gst::Element) -> Capture {
-		capture_with(Mode::Software, source).unwrap()
+		capture_with(Mode::Software, source, false).unwrap()
 	}
 
-	fn capture_with(mode: Mode, source: gst::Element) -> Result<Capture, &'static str> {
+	fn capture_with(
+		mode: Mode,
+		source: gst::Element,
+		ready: bool,
+	) -> Result<Capture, &'static str> {
 		let settings = Settings {
 			source: SourceId::Display(1),
 			width: 1280,
@@ -473,7 +477,7 @@ mod tests {
 			settings.bit_rate(),
 			source,
 			Arc::new(AtomicBool::new(false)),
-			Arc::new(AtomicBool::new(false)),
+			Arc::new(AtomicBool::new(ready)),
 			Arc::new(AtomicBool::new(true)),
 			|| true,
 		)
@@ -482,19 +486,25 @@ mod tests {
 	#[test]
 	fn stalled_source_clock_does_not_hold_frames() {
 		gst::init().unwrap();
-		let capture = capture(glib::Object::new::<ClockSource>().upcast());
+		let capture = capture_with(
+			Mode::Software,
+			glib::Object::new::<ClockSource>().upcast(),
+			true,
+		)
+		.unwrap();
 		let deadline = Instant::now() + Duration::from_secs(5);
-		let mut previews = 0;
-		while previews < 4 && Instant::now() < deadline {
+		let (mut previews, mut frames) = (0, 0);
+		while (previews < 4 || frames < 4) && Instant::now() < deadline {
 			assert!(!capture.failed());
-			previews += usize::from(
-				capture
-					.preview
-					.try_pull_sample(gst::ClockTime::from_mseconds(100))
-					.is_some(),
-			);
+			let wait = gst::ClockTime::from_mseconds(50);
+			previews += usize::from(capture.preview.try_pull_sample(wait).is_some());
+			frames += usize::from(capture.frames.try_pull_sample(wait).is_some());
 		}
 		assert!(previews >= 4, "only {previews} preview pictures arrived");
+		assert!(
+			frames >= 4,
+			"only {frames} pictures reached the encoder sink"
+		);
 	}
 
 	/// The logged Hyprland format had no pixel aspect, and pipewiresrc's fixation of the
@@ -525,19 +535,39 @@ mod tests {
 		assert!(pad.peer_query_accept_caps(&cropped));
 	}
 
+	/// Whether GL upload into NVENC works here at all, independent of Serein's caps.
+	fn gl_nvenc_usable() -> bool {
+		let Ok(probe) = gst::parse::launch(
+			"videotestsrc num-buffers=2 ! glupload ! glcolorconvert ! nvh264enc ! fakesink",
+		) else {
+			return false;
+		};
+		let usable = probe.set_state(gst::State::Playing).is_ok()
+			&& probe.bus().is_some_and(|bus| {
+				bus.timed_pop_filtered(
+					gst::ClockTime::from_seconds(10),
+					&[gst::MessageType::Eos, gst::MessageType::Error],
+				)
+				.is_some_and(|message| matches!(message.view(), gst::MessageView::Eos(_)))
+			});
+		let _ = probe.set_state(gst::State::Null);
+		usable
+	}
+
 	/// The preview branch's 10 fps limit reached the GL mixer through the tee, so NVENC
-	/// encoded at the preview rate. Needs NVENC and GL; skipped where they are unavailable.
+	/// encoded at the preview rate. Skipped only where GL upload into NVENC cannot run.
 	#[test]
 	fn gl_scaling_keeps_the_requested_frame_rate() {
 		gst::init().unwrap();
+		if !gl_nvenc_usable() {
+			eprintln!("skipped: GL upload into NVENC is unavailable here");
+			return;
+		}
 		let source = gst::ElementFactory::make("videotestsrc")
 			.property("is-live", true)
 			.build()
 			.unwrap();
-		let Ok(capture) = capture_with(Mode::Nvidia, source) else {
-			eprintln!("skipped: NVENC/GL pipeline unavailable");
-			return;
-		};
+		let capture = capture_with(Mode::Nvidia, source, false).expect("GL/NVENC capture");
 		let mixer = capture
 			.pipeline
 			.by_name("fit")
@@ -550,10 +580,10 @@ mod tests {
 				.preview
 				.try_pull_sample(gst::ClockTime::from_mseconds(100));
 		}
-		let Some(caps) = mixer.current_caps() else {
-			eprintln!("skipped: NVENC/GL pipeline did not negotiate");
-			return;
-		};
+		assert!(!capture.failed(), "GL/NVENC capture failed to start");
+		let caps = mixer
+			.current_caps()
+			.expect("GL mixer did not negotiate within 5 s");
 		assert_eq!(
 			caps.structure(0)
 				.unwrap()
