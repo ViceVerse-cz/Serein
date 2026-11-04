@@ -498,6 +498,16 @@ target/debug/examples/linux_screen
 target/debug/examples/linux_screen --niri-timestamps
 ```
 
+Capture pipelines run on GStreamer's monotonic system clock rather than the clock
+pipewiresrc offers. With xdg-desktop-portal-hyprland 1.4.1 that PipeWire clock was observed
+never to advance (zero graph ticks), so GStreamer held every picture after the first: the
+preview froze and the portal repeatedly renegotiated for buffers. Portals also send no pixel
+aspect, so the first caps filter prefers square pixels instead of letting pipewiresrc
+fixate the scaler's range to 1/2147483647. Scaled output caps carry the requested frame
+rate, so NVENC's GL mixer no longer adopts the 10 fps preview limit. Synthetic tests
+reproduce these failures; live
+Hyprland/NVIDIA delivery still needs verification.
+
 GPU buffers stay native where driver/plugin
 negotiation permits; zero-copy is not guaranteed, especially across GPUs. Local preview
 is capped at 640×360/10 fps and suspended when minimized or viewing another channel.
