@@ -471,6 +471,14 @@ pub struct MessagingUi {
 	voice_fullscreen: Option<(voice::StageFocus, egui::Context, bool, egui::Id)>,
 	/// Native window transition for the desktop to apply after this UI frame.
 	voice_fullscreen_request: Option<bool>,
+	/// The call channel whose stage is in the call window instead of this one.
+	voice_popout: Option<Id>,
+	/// The call window shows the call channel's chat beside its stage.
+	voice_popout_chat: bool,
+	/// Whether the call window is fullscreen on its monitor.
+	voice_popout_fullscreen: bool,
+	/// Native transition for the call window, applied by the desktop after this frame.
+	voice_popout_fullscreen_request: Option<bool>,
 	/// Whether the other participants stay visible as a strip under the enlarged tile.
 	pub voice_focus_participants: bool,
 	/// How far the call stage's hover chrome (and tile name badges) has faded out: 0 shown.
@@ -4379,7 +4387,266 @@ impl MessagingUi {
 		}
 	}
 
+	/// Timeline and composer of the selected conversation, filling `ui`. They are single
+	/// instance, so exactly one window draws them in a frame.
+	fn conversation(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		channel: Id,
+		message_fill: Option<(egui::layers::ShapeIdx, f32)>,
+		commands: &mut Vec<Command>,
+	) {
+		let colors = crate::design::palette(ui);
+		let background = crate::design::window_palette(ui);
+		let message_surface =
+			design::section_surface(ui, background.chat, design::ImageSection::MessageList);
+		let ctx = ui.ctx().clone();
+		egui::Panel::bottom("composer")
+			.show_separator_line(false)
+			.frame(
+				egui::Frame::new()
+					// The central panel already paints the chat surface; a second
+					// coat would band a darker strip under a see-through timeline.
+					.fill(if design::has_section_background(ui) {
+						design::section_surface(ui, background.chat, design::ImageSection::Composer)
+					} else {
+						egui::Color32::TRANSPARENT
+					})
+					// The bottom inset matches the account card's, so the input and the
+					// account pill sit on one line across the window.
+					.inner_margin(egui::Margin {
+						left: 16,
+						right: 16,
+						top: 2,
+						bottom: 8,
+					}),
+			)
+			.show(ui, |ui| {
+				if state.message_request(channel) {
+					self.message_request_bar(ui, state, channel);
+				}
+				self.composer(ui, state, channel, &ctx, commands);
+			});
+		if let Some((shape, top)) = message_fill {
+			let remaining = ui.available_rect_before_wrap();
+			ui.painter().set(
+				shape,
+				egui::Shape::rect_filled(
+					egui::Rect::from_min_max(
+						egui::pos2(remaining.left(), top),
+						remaining.right_bottom(),
+					),
+					0.0,
+					message_surface,
+				),
+			);
+		}
+		let notices: Vec<String> = [
+			match state.freshness {
+				Freshness::Fresh | Freshness::Loading => None,
+				Freshness::Stale => Some("Cached history · awaiting sync"),
+				Freshness::Unavailable => Some("Conversation unavailable"),
+			}
+			.map(str::to_owned),
+			state.read_state.status(channel).map(str::to_owned),
+			(state.archived_thread.is_some() && state.archived_thread == state.selected)
+				.then(|| "Opened from archive".to_owned()),
+		]
+		.into_iter()
+		.flatten()
+		.collect();
+		if !notices.is_empty() {
+			egui::Frame::new()
+				.inner_margin(egui::Margin::symmetric(16, 4))
+				.show(ui, |ui| {
+					ui.label(
+						RichText::new(notices.join(" · "))
+							.size(11.0)
+							.color(colors.muted),
+					);
+				});
+		}
+		egui::Frame::new()
+			.inner_margin(egui::Margin {
+				left: 0,
+				right: 0,
+				top: 4,
+				bottom: 0,
+			})
+			.show(ui, |ui| {
+				design::paint_chat_background(ui, ui.available_rect_before_wrap());
+				self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
+				self.timeline.compact_messages = self.reading_preferences.compact_messages;
+				self.timeline.double_click_reaction = self
+					.reading_preferences
+					.double_click_reaction_enabled
+					.then_some(self.reading_preferences.double_click_emoji());
+				self.timeline.instant_scrolling = !self.reading_preferences.smooth_scrolling;
+				self.timeline.extension_actions = self.extensions.message_actions();
+				self.timeline.quick_reactions = Some(self.reaction_picker.quick_reactions());
+				let mut seen = std::collections::BTreeSet::new();
+				let author_lookup: Vec<_> = state
+					.timeline
+					.iter()
+					.rev()
+					.filter(|message| !message.author.webhook)
+					.map(|message| message.author.id)
+					.filter(|id| seen.insert(*id))
+					.take(client_core::member_search::LIMIT)
+					.collect();
+				if let Some(command) = state.request_author_members(&author_lookup) {
+					commands.push(command);
+				}
+				self.timeline.show_with_scroll(
+					ui,
+					state,
+					&mut self.editing,
+					&mut self.deleting,
+					(&mut self.avatars, &mut self.profile),
+					self.pending_upload.as_ref(),
+					&mut self.scroll,
+				);
+				if let Some((id, action)) = self.timeline.poll_action.take()
+					&& let Some(command) = state.prepare_poll(Some(id), action)
+				{
+					commands.push(command);
+				}
+				if let Some(id) = self.timeline.sticker_request.take() {
+					if let Some(command) = state.request_sticker(id) {
+						commands.push(command);
+					}
+					if let Some(command) = state.request_sticker_packs() {
+						commands.push(command);
+					}
+				}
+				if let Some(sticker) = self.timeline.browse_sticker.take() {
+					self.emoji_picker.open_stickers(Some(&sticker));
+				}
+				if let Some(command) = state.request_author_members(&self.timeline.visible_authors)
+				{
+					commands.push(command);
+				}
+				if let Some((action, text)) = self.timeline.extension_request.take() {
+					self.extensions
+						.invoke_message(action, text, state, ui.ctx());
+				}
+				if let Some((message, anchor, trigger)) = self.timeline.reaction_picker.take() {
+					self.emoji_picker.dismiss(state, commands);
+					self.reaction_picker
+						.open_reaction(state, message, anchor, trigger);
+				}
+				self.reaction_picker.hide_nitro_emojis = self.hide_nitro_emojis;
+				self.reaction_picker
+					.show_reaction(ui, state, &mut self.avatars, commands);
+				if let Some((message, emoji, open)) = self.timeline.reaction_users.take()
+					&& let Some(command) = state.request_reaction_users(message, emoji, open)
+				{
+					commands.push(command);
+				}
+				crate::reactions::show_users(ui.ctx(), state, &mut self.avatars, commands);
+				if let Some((channel, message)) = self.timeline.quick_delete.take()
+					&& let Some(command) = state.prepare_delete(channel, message)
+				{
+					commands.push(command);
+				}
+				if let Some(id) = self.timeline.remove_preserved.take() {
+					state.discard_preserved_deleted(id);
+				}
+				if let Some(nonce) = self.timeline.restore_pending.take() {
+					if state
+						.pending
+						.iter()
+						.any(|p| p.nonce == nonce && p.sticker.is_some())
+					{
+						state.discard_pending_sticker(&nonce);
+					} else {
+						self.restore_pending(state, channel, &nonce);
+					}
+				}
+				if let Some(nonce) = self.timeline.dismiss_pending.take()
+					&& let Some(channel) = state.discard_pending(&nonce)
+				{
+					// The recovery draft may have been the dismissed caption; save it again.
+					self.draft_changes.push(channel);
+				}
+				self.cancel_upload_requested |= std::mem::take(&mut self.timeline.cancel_upload);
+				if let Some(gif) = self.timeline.gif_favorite.take() {
+					state.toggle_gif_favorite(&gif);
+				}
+				match self.timeline.invite_action.take() {
+					Some(invites::Action::OpenGuild(guild)) if state.guild(guild).is_some() => {
+						self.guild = Some(guild);
+						if let Some(command) = state.select_guild(guild) {
+							commands.push(command);
+						}
+					}
+					Some(invites::Action::OpenChannel(channel))
+						if state.channel(channel).is_some() =>
+					{
+						if let Some(command) = state.select(channel) {
+							commands.push(command);
+						}
+					}
+					Some(invites::Action::Join(code)) => {
+						if state.invite_join.code == code && state.invite_challenge().is_some() {
+							self.verification.active = false;
+						} else if let Some(command) = state.join_invite(code) {
+							commands.push(command);
+						}
+					}
+					_ => {}
+				}
+				for code in std::mem::take(&mut self.timeline.invite_requests) {
+					if let Some(command) = state.request_invite(code) {
+						commands.push(command);
+					}
+				}
+				if std::mem::take(&mut self.timeline.edit_started) {
+					self.edit_modified = None;
+					self.edit_undo_cleared = false;
+					self.composer_edit = None;
+					self.edit_sent = None;
+				}
+				if std::mem::take(&mut self.timeline.reply_started) {
+					self.focus_switched_composer = true;
+					ctx.request_repaint();
+				}
+				if let Some(target) = self.timeline.reply_target.take() {
+					if let Some(command) = state.open_reply_target(target) {
+						commands.push(command);
+					}
+					ctx.request_repaint();
+				} else if std::mem::take(&mut self.timeline.unread_jump) {
+					if let Some(command) = state.open_unread() {
+						commands.push(command);
+					}
+					ctx.request_repaint();
+				} else if std::mem::take(&mut self.timeline.load_newer)
+					| (std::mem::take(&mut self.timeline.fill_newer)
+								// A scroll up outranks filling; it asks for older messages.
+								&& !self.timeline.load_older
+								// A history request cancels a loading search; only a scroll may.
+								&& !state.search.as_ref().is_some_and(|s| s.loading)
+								&& !state.archives.as_ref().is_some_and(|a| a.loading))
+				{
+					if let Some(command) = state.newer_history() {
+						commands.push(command);
+					}
+					ctx.request_repaint();
+				} else if std::mem::take(&mut self.timeline.latest) {
+					commands.push(state.history(None));
+				} else if std::mem::take(&mut self.timeline.load_older)
+					&& let Some(command) = state.older_history()
+				{
+					commands.push(command);
+				}
+			});
+	}
+
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		// The call window never outlives its call, and chat returns once another opens here.
+		self.sync_voice_popout(state);
 		self.avatars.cosmetics = self.cosmetics;
 		name_styles::set_enabled(self.cosmetics.name_styles);
 		let cosmetics_refresh = state.set_profile_cosmetics(self.cosmetics);
@@ -5111,270 +5378,17 @@ impl MessagingUi {
 					);
 					return;
 				}
-				egui::Panel::bottom("composer")
-					.show_separator_line(false)
-					.frame(
-						egui::Frame::new()
-							// The central panel already paints the chat surface; a second
-							// coat would band a darker strip under a see-through timeline.
-							.fill(if design::has_section_background(ui) {
-								design::section_surface(
-									ui,
-									background.chat,
-									design::ImageSection::Composer,
-								)
-							} else {
-								egui::Color32::TRANSPARENT
-							})
-							// The bottom inset matches the account card's, so the input and the
-							// account pill sit on one line across the window.
-							.inner_margin(egui::Margin {
-								left: 16,
-								right: 16,
-								top: 2,
-								bottom: 8,
-							}),
-					)
-					.show(ui, |ui| {
-						if state.message_request(channel) {
-							self.message_request_bar(ui, state, channel);
-						}
-						self.composer(ui, state, channel, &ctx, &mut commands);
+				if self.voice_popout_owns_chat(state) {
+					ui.add_space((ui.available_height() * 0.4).max(24.0));
+					ui.vertical_centered(|ui| {
+						ui.label(
+							RichText::new(language.text("voice-popout-chat-elsewhere"))
+								.color(colors.muted),
+						);
 					});
-				if let Some((shape, top)) = message_fill {
-					let remaining = ui.available_rect_before_wrap();
-					ui.painter().set(
-						shape,
-						egui::Shape::rect_filled(
-							egui::Rect::from_min_max(
-								egui::pos2(remaining.left(), top),
-								remaining.right_bottom(),
-							),
-							0.0,
-							message_surface,
-						),
-					);
+					return;
 				}
-				let notices: Vec<String> = [
-					match state.freshness {
-						Freshness::Fresh | Freshness::Loading => None,
-						Freshness::Stale => Some("Cached history · awaiting sync"),
-						Freshness::Unavailable => Some("Conversation unavailable"),
-					}
-					.map(str::to_owned),
-					state.read_state.status(channel).map(str::to_owned),
-					(state.archived_thread.is_some() && state.archived_thread == state.selected)
-						.then(|| "Opened from archive".to_owned()),
-				]
-				.into_iter()
-				.flatten()
-				.collect();
-				if !notices.is_empty() {
-					egui::Frame::new()
-						.inner_margin(egui::Margin::symmetric(16, 4))
-						.show(ui, |ui| {
-							ui.label(
-								RichText::new(notices.join(" · "))
-									.size(11.0)
-									.color(colors.muted),
-							);
-						});
-				}
-				egui::Frame::new()
-					.inner_margin(egui::Margin {
-						left: 0,
-						right: 0,
-						top: 4,
-						bottom: 0,
-					})
-					.show(ui, |ui| {
-						design::paint_chat_background(ui, ui.available_rect_before_wrap());
-						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
-						self.timeline.compact_messages = self.reading_preferences.compact_messages;
-						self.timeline.double_click_reaction = self
-							.reading_preferences
-							.double_click_reaction_enabled
-							.then_some(self.reading_preferences.double_click_emoji());
-						self.timeline.instant_scrolling =
-							!self.reading_preferences.smooth_scrolling;
-						self.timeline.extension_actions = self.extensions.message_actions();
-						self.timeline.quick_reactions =
-							Some(self.reaction_picker.quick_reactions());
-						let mut seen = std::collections::BTreeSet::new();
-						let author_lookup: Vec<_> = state
-							.timeline
-							.iter()
-							.rev()
-							.filter(|message| !message.author.webhook)
-							.map(|message| message.author.id)
-							.filter(|id| seen.insert(*id))
-							.take(client_core::member_search::LIMIT)
-							.collect();
-						if let Some(command) = state.request_author_members(&author_lookup) {
-							commands.push(command);
-						}
-						self.timeline.show_with_scroll(
-							ui,
-							state,
-							&mut self.editing,
-							&mut self.deleting,
-							(&mut self.avatars, &mut self.profile),
-							self.pending_upload.as_ref(),
-							&mut self.scroll,
-						);
-						if let Some((id, action)) = self.timeline.poll_action.take()
-							&& let Some(command) = state.prepare_poll(Some(id), action)
-						{
-							commands.push(command);
-						}
-						if let Some(id) = self.timeline.sticker_request.take() {
-							if let Some(command) = state.request_sticker(id) {
-								commands.push(command);
-							}
-							if let Some(command) = state.request_sticker_packs() {
-								commands.push(command);
-							}
-						}
-						if let Some(sticker) = self.timeline.browse_sticker.take() {
-							self.emoji_picker.open_stickers(Some(&sticker));
-						}
-						if let Some(command) =
-							state.request_author_members(&self.timeline.visible_authors)
-						{
-							commands.push(command);
-						}
-						if let Some((action, text)) = self.timeline.extension_request.take() {
-							self.extensions
-								.invoke_message(action, text, state, ui.ctx());
-						}
-						if let Some((message, anchor, trigger)) =
-							self.timeline.reaction_picker.take()
-						{
-							self.emoji_picker.dismiss(state, &mut commands);
-							self.reaction_picker
-								.open_reaction(state, message, anchor, trigger);
-						}
-						self.reaction_picker.hide_nitro_emojis = self.hide_nitro_emojis;
-						self.reaction_picker.show_reaction(
-							ui,
-							state,
-							&mut self.avatars,
-							&mut commands,
-						);
-						if let Some((message, emoji, open)) = self.timeline.reaction_users.take()
-							&& let Some(command) =
-								state.request_reaction_users(message, emoji, open)
-						{
-							commands.push(command);
-						}
-						crate::reactions::show_users(
-							ui.ctx(),
-							state,
-							&mut self.avatars,
-							&mut commands,
-						);
-						if let Some((channel, message)) = self.timeline.quick_delete.take()
-							&& let Some(command) = state.prepare_delete(channel, message)
-						{
-							commands.push(command);
-						}
-						if let Some(id) = self.timeline.remove_preserved.take() {
-							state.discard_preserved_deleted(id);
-						}
-						if let Some(nonce) = self.timeline.restore_pending.take() {
-							if state
-								.pending
-								.iter()
-								.any(|p| p.nonce == nonce && p.sticker.is_some())
-							{
-								state.discard_pending_sticker(&nonce);
-							} else {
-								self.restore_pending(state, channel, &nonce);
-							}
-						}
-						if let Some(nonce) = self.timeline.dismiss_pending.take()
-							&& let Some(channel) = state.discard_pending(&nonce)
-						{
-							// The recovery draft may have been the dismissed caption; save it again.
-							self.draft_changes.push(channel);
-						}
-						self.cancel_upload_requested |=
-							std::mem::take(&mut self.timeline.cancel_upload);
-						if let Some(gif) = self.timeline.gif_favorite.take() {
-							state.toggle_gif_favorite(&gif);
-						}
-						match self.timeline.invite_action.take() {
-							Some(invites::Action::OpenGuild(guild))
-								if state.guild(guild).is_some() =>
-							{
-								self.guild = Some(guild);
-								if let Some(command) = state.select_guild(guild) {
-									commands.push(command);
-								}
-							}
-							Some(invites::Action::OpenChannel(channel))
-								if state.channel(channel).is_some() =>
-							{
-								if let Some(command) = state.select(channel) {
-									commands.push(command);
-								}
-							}
-							Some(invites::Action::Join(code)) => {
-								if state.invite_join.code == code
-									&& state.invite_challenge().is_some()
-								{
-									self.verification.active = false;
-								} else if let Some(command) = state.join_invite(code) {
-									commands.push(command);
-								}
-							}
-							_ => {}
-						}
-						for code in std::mem::take(&mut self.timeline.invite_requests) {
-							if let Some(command) = state.request_invite(code) {
-								commands.push(command);
-							}
-						}
-						if std::mem::take(&mut self.timeline.edit_started) {
-							self.edit_modified = None;
-							self.edit_undo_cleared = false;
-							self.composer_edit = None;
-							self.edit_sent = None;
-						}
-						if std::mem::take(&mut self.timeline.reply_started) {
-							self.focus_switched_composer = true;
-							ctx.request_repaint();
-						}
-						if let Some(target) = self.timeline.reply_target.take() {
-							if let Some(command) = state.open_reply_target(target) {
-								commands.push(command);
-							}
-							ctx.request_repaint();
-						} else if std::mem::take(&mut self.timeline.unread_jump) {
-							if let Some(command) = state.open_unread() {
-								commands.push(command);
-							}
-							ctx.request_repaint();
-						} else if std::mem::take(&mut self.timeline.load_newer)
-							| (std::mem::take(&mut self.timeline.fill_newer)
-								// A scroll up outranks filling; it asks for older messages.
-								&& !self.timeline.load_older
-								// A history request cancels a loading search; only a scroll may.
-								&& !state.search.as_ref().is_some_and(|s| s.loading)
-								&& !state.archives.as_ref().is_some_and(|a| a.loading))
-						{
-							if let Some(command) = state.newer_history() {
-								commands.push(command);
-							}
-							ctx.request_repaint();
-						} else if std::mem::take(&mut self.timeline.latest) {
-							commands.push(state.history(None));
-						} else if std::mem::take(&mut self.timeline.load_older)
-							&& let Some(command) = state.older_history()
-						{
-							commands.push(command);
-						}
-					});
+				self.conversation(ui, state, channel, message_fill, &mut commands);
 			});
 		if state
 			.archives
