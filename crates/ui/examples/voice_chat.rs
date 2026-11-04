@@ -144,6 +144,10 @@ fn popout_checks() {
 	assert!(has(&main(&mut view, &mut state, vec![]), "Watch Stream"));
 	pop(&mut view, &mut state);
 	assert_eq!(view.take_voice_fullscreen_request(), None);
+	assert!(
+		!view.voice_popout_takes_drops(),
+		"a closed call-window chat takes no drops"
+	);
 	// With chat beside the stage the main window would draw the composer if it owned chat.
 	view.voice_chat_open = true;
 	let docked = main(&mut view, &mut state, vec![]);
@@ -179,6 +183,7 @@ fn popout_checks() {
 	}
 	assert_eq!(state.selected, Some(channel));
 	assert!(view.voice_popout_chat_open());
+	assert!(view.voice_popout_takes_drops());
 	let docked = main(&mut view, &mut state, vec![]);
 	assert!(has(&docked, "Chat is open in the call window"));
 	assert!(!composer_for(&docked, &name), "one composer per frame");
@@ -197,6 +202,7 @@ fn popout_checks() {
 	let _ = state.select(other);
 	let docked = main(&mut view, &mut state, vec![]);
 	assert!(!view.voice_popout_chat_open());
+	assert!(!view.voice_popout_takes_drops());
 	assert!(composer_for(&docked, &other_name));
 	// Bring back docks without navigating.
 	let _ = state.select(channel);

@@ -340,6 +340,53 @@ fn fit_popout_geometry_on(
 	}
 }
 
+/// Viewport rectangles are in points (physical pixels ÷ native scale ÷ egui zoom) while the
+/// saved geometry keeps a logical size and a physical position. Sizes come from the content
+/// rectangle because Wayland reports no inner rectangle.
+pub fn popout_frame_geometry(
+	size_points: Option<[f32; 2]>,
+	position_points: Option<[f32; 2]>,
+	native_scale: f64,
+	zoom: f32,
+) -> (Option<[u32; 2]>, Option<[i32; 2]>) {
+	let zoom = f64::from(zoom.max(0.01));
+	(
+		size_points.map(|size| {
+			[
+				(size[0] as f64 * zoom).round().max(1.0) as u32,
+				(size[1] as f64 * zoom).round().max(1.0) as u32,
+			]
+		}),
+		position_points.map(|position| {
+			[
+				(position[0] as f64 * native_scale * zoom).round() as i32,
+				(position[1] as f64 * native_scale * zoom).round() as i32,
+			]
+		}),
+	)
+}
+
+/// Builder points from saved geometry: the viewport builder scales sizes and positions by
+/// egui zoom on the way out, so a saved logical size and physical position come back here.
+pub fn popout_request_geometry(
+	size: [u32; 2],
+	position: Option<[i32; 2]>,
+	native_scale: f64,
+	zoom: f32,
+) -> ([f32; 2], Option<[f32; 2]>) {
+	let zoom = f64::from(zoom.max(0.01));
+	let scale = native_scale.max(0.01) * zoom;
+	(
+		[size[0] as f32 / zoom as f32, size[1] as f32 / zoom as f32],
+		position.map(|position| {
+			[
+				(position[0] as f64 / scale) as f32,
+				(position[1] as f64 / scale) as f32,
+			]
+		}),
+	)
+}
+
 /// The geometry a call-window frame should persist, if it reports enough to save one.
 /// A maximized window keeps its last normal size and position and only flips the flag;
 /// fullscreen and minimized frames never overwrite the saved geometry.
@@ -576,6 +623,19 @@ pub fn debug_window_geometry_check() {
 			position: Some([300, 100]),
 			maximized: false,
 		})
+	);
+	// egui zoom divides every viewport report; stored geometry keeps logical and physical.
+	let (size, position) =
+		popout_frame_geometry(Some([640.0, 480.0]), Some([200.0, 100.0]), 1.0, 1.5);
+	assert_eq!(size, Some([960, 720]));
+	assert_eq!(position, Some([300, 150]));
+	assert_eq!(
+		popout_request_geometry([960, 720], Some([300, 150]), 1.0, 1.5),
+		([640.0, 480.0], Some([200.0, 100.0]))
+	);
+	assert_eq!(
+		popout_request_geometry([960, 720], Some([300, 150]), 2.0, 1.5),
+		([640.0, 480.0], Some([100.0, 50.0]))
 	);
 	assert_eq!(
 		fit_window_geometry([1850, 1000], [3000, 2000], [0, 0], [1920, 1080], [1, 1]),

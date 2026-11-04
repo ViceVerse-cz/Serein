@@ -142,6 +142,9 @@ impl Desktop {
 			}
 		}
 		self.messaging.clear();
+		// The next popout fits its geometry afresh instead of reopening the old session's spot.
+		self.popout_geometry = None;
+		self.popout_fullscreen_expected = None;
 		if intent.forgets() {
 			self.messaging
 				.accounts

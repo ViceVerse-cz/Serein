@@ -43,10 +43,7 @@ Settings → Voice offers **Open calls in a separate window** (off by default): 
 each accepted or started DM/group call then opens popped out. Watch-Stream joins, reconnects and
 phase changes stay docked. Popout size, position and maximized flag are saved with the other
 device preferences and restored on the next popout; a position on a disconnected monitor reopens
-centred on the main window's monitor. Native window behavior is verified on one Windows monitor
-only (open, move, reopen, maximize, fullscreen, chat, pasted image); the second-monitor and
-tray-hide cases in the design's smoke list remain unverified, as does file drag-and-drop into the
-popout.
+centred on the main window's monitor.
 
 The Audio menu provides saved Microphone gain and Speaker volume controls from 0% to
 200%, initially 100%. Reset levels restores both to 100%. Changes apply to the active call

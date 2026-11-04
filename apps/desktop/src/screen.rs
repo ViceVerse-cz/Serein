@@ -451,7 +451,9 @@ impl Screen {
 			live.worker.set_preview_visible(
 				ui.screen.preview.is_none()
 					|| (state.selected == Some(live.context.channel)
-						&& !ctx.input(|input| input.viewport().minimized.unwrap_or(false))),
+						&& !ctx.input(|input| input.viewport().minimized.unwrap_or(false)))
+					// The call window draws the preview while the main window browses elsewhere.
+					|| ui.voice_popout() == Some(live.context.channel),
 			);
 			if let Some(frame) = live.worker.take_preview() {
 				let image = egui::ColorImage::from_rgba_unmultiplied(

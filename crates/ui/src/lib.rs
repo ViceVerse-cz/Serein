@@ -4387,6 +4387,104 @@ impl MessagingUi {
 		}
 	}
 
+	/// Dialogs and cards the conversation owns: public upload, forward, author card and the
+	/// delete confirmation. The window that draws the conversation draws these too.
+	fn conversation_overlays(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		let ctx = ui.ctx().clone();
+		self.external_upload
+			.show(&ctx, state, &mut self.draft_changes);
+		if let Some(message) = self.timeline.forward_request.take() {
+			self.forwarding.open(state, message);
+		}
+		self.forwarding
+			.show(&ctx, state, &mut self.avatars, commands);
+		// While the card's DM waits on a captcha, step aside for the dialog but keep its draft.
+		let direct_verifying = self.user_direct.is_some()
+			&& matches!(
+				state.verification(),
+				Some((client_core::captcha::Verification::Direct { .. }, _))
+			);
+		if let Some(user) = self.profile.open_user().cloned()
+			&& !direct_verifying
+		{
+			let profile_guild = self.profile_guild(state);
+			self.sync_profile(state, commands, &user, profile_guild);
+			if let Some(command) = profile_note(state, &mut self.profile, &user) {
+				commands.push(command);
+			}
+			self.profile
+				.own_status
+				.clone_from(&self.own_presence.custom_status);
+			let anchor = self.profile.anchor_or_place(&ctx, user.id);
+			self.profile.ingest_opener_rect(&ctx);
+			let action = profiles::show_with_session(
+				ui,
+				&user,
+				state.profile.as_ref(),
+				state,
+				&mut self.avatars,
+				&mut self.profile_link,
+				&mut self.profile_formatted,
+				self.reading_preferences.confirm_external_links,
+				anchor,
+				&mut self.profile,
+			);
+			if let Some(action) = action {
+				self.profile_action(&ctx, state, commands, &user, profile_guild, action);
+			}
+			if self.drain_profile(state, commands)
+				&& let Some(user) = self.profile.open_user().cloned()
+			{
+				self.sync_profile(state, commands, &user, profile_guild);
+			}
+		} else {
+			self.profile_link = None;
+		}
+		if self.deleting.is_some_and(|(channel, message)| {
+			state.selected != Some(channel) || state.timeline.get(message).is_none()
+		}) {
+			self.deleting = None;
+		}
+		if let Some((channel, message)) = self.deleting {
+			let allowed = state.can_delete(channel, message);
+			let conversation = state
+				.channel(channel)
+				.map_or("this conversation", |c| c.name.as_str());
+			let mut confirm = dialog::Confirm::new(
+				"delete-message",
+				"Delete message?",
+				format!(
+					"This permanently removes the selected message from {conversation} for everyone."
+				),
+			)
+			.danger()
+			.confirm_label("Delete")
+			.cancel_label("Keep Message")
+			.enabled(allowed);
+			if !allowed {
+				confirm = confirm.note(
+					dialog::Level::Warning,
+					"Deleting this message is unavailable.",
+				);
+			}
+			match confirm.show(&ctx) {
+				Some(dialog::Choice::Confirmed) => {
+					if let Some(command) = state.prepare_delete(channel, message) {
+						commands.push(command);
+					}
+					self.deleting = None;
+				}
+				Some(dialog::Choice::Cancelled) => self.deleting = None,
+				None => {}
+			}
+		}
+	}
+
 	/// Timeline and composer of the selected conversation, filling `ui`. They are single
 	/// instance, so exactly one window draws them in a frame.
 	fn conversation(
@@ -5410,8 +5508,6 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
-		self.external_upload
-			.show(&ctx, state, &mut self.draft_changes);
 		self.search
 			.overlays(&ctx, state, &mut self.avatars, &mut commands);
 		if state.invite_challenge().is_none() {
@@ -5559,12 +5655,6 @@ impl MessagingUi {
 			}
 		}
 
-		if let Some(message) = self.timeline.forward_request.take() {
-			self.forwarding.open(state, message);
-		}
-		self.forwarding
-			.show(&ctx, state, &mut self.avatars, &mut commands);
-
 		if let Some((message, custom_id, values)) = self.timeline.component_action.take()
 			&& let Some(command) = state.prepare_component(message, &custom_id, values)
 		{
@@ -5672,49 +5762,6 @@ impl MessagingUi {
 		}
 		self.contact_editor.show(&ctx, state, &mut commands);
 		self.drain_profile(state, &mut commands);
-		// While the card's DM waits on a captcha, step aside for the dialog but keep its draft.
-		let direct_verifying = self.user_direct.is_some()
-			&& matches!(
-				state.verification(),
-				Some((client_core::captcha::Verification::Direct { .. }, _))
-			);
-		if let Some(user) = self.profile.open_user().cloned()
-			&& !direct_verifying
-		{
-			let profile_guild = self.profile_guild(state);
-			self.sync_profile(state, &mut commands, &user, profile_guild);
-			if let Some(command) = profile_note(state, &mut self.profile, &user) {
-				commands.push(command);
-			}
-			self.profile
-				.own_status
-				.clone_from(&self.own_presence.custom_status);
-			let anchor = self.profile.anchor_or_place(&ctx, user.id);
-			self.profile.ingest_opener_rect(&ctx);
-			let action = profiles::show_with_session(
-				ui,
-				&user,
-				state.profile.as_ref(),
-				state,
-				&mut self.avatars,
-				&mut self.profile_link,
-				&mut self.profile_formatted,
-				self.reading_preferences.confirm_external_links,
-				anchor,
-				&mut self.profile,
-			);
-			if let Some(action) = action {
-				self.profile_action(&ctx, state, &mut commands, &user, profile_guild, action);
-			}
-			if self.drain_profile(state, &mut commands)
-				&& let Some(user) = self.profile.open_user().cloned()
-			{
-				self.sync_profile(state, &mut commands, &user, profile_guild);
-			}
-		} else {
-			self.profile_link = None;
-		}
-
 		if let Some(image) = &self.profile_image
 			&& (image.generation != state.generation
 				|| attachments::viewer(
@@ -5733,43 +5780,8 @@ impl MessagingUi {
 		}
 
 		self.reconcile_edit(state);
-		if self.deleting.is_some_and(|(channel, message)| {
-			state.selected != Some(channel) || state.timeline.get(message).is_none()
-		}) {
-			self.deleting = None;
-		}
-		if let Some((channel, message)) = self.deleting {
-			let allowed = state.can_delete(channel, message);
-			let conversation = state
-				.channel(channel)
-				.map_or("this conversation", |c| c.name.as_str());
-			let mut confirm = dialog::Confirm::new(
-				"delete-message",
-				"Delete message?",
-				format!(
-					"This permanently removes the selected message from {conversation} for everyone."
-				),
-			)
-			.danger()
-			.confirm_label("Delete")
-			.cancel_label("Keep Message")
-			.enabled(allowed);
-			if !allowed {
-				confirm = confirm.note(
-					dialog::Level::Warning,
-					"Deleting this message is unavailable.",
-				);
-			}
-			match confirm.show(&ctx) {
-				Some(dialog::Choice::Confirmed) => {
-					if let Some(command) = state.prepare_delete(channel, message) {
-						commands.push(command);
-					}
-					self.deleting = None;
-				}
-				Some(dialog::Choice::Cancelled) => self.deleting = None,
-				None => {}
-			}
+		if !self.voice_popout_owns_chat(state) {
+			self.conversation_overlays(ui, state, &mut commands);
 		}
 		self.show_call_switch(&ctx, state, &mut commands);
 		self.apply_ring_request(state, &mut commands);
@@ -6592,6 +6604,83 @@ mod composer_tests {
 			.unwrap();
 		state.drafts.insert(Id(10), "Unsent draft 👋".into());
 		state
+	}
+
+	#[test]
+	fn popout_owns_conversation_dialogs() {
+		let main = egui::Context::default();
+		let window = egui::Context::default();
+		let mut state = edit_state();
+		state.voice.active = Some(client_core::voice::Call {
+			channel: Id(10),
+			guild: None,
+			connected_at: None,
+			channel_started_at: None,
+			server_muted: false,
+			server_deafened: false,
+			request: 1,
+			phase: client_core::voice::Phase::Connected,
+			muted: false,
+			deafened: false,
+			participants: vec![],
+			camera: false,
+			watching: None,
+			error: None,
+			reconnecting: None,
+		});
+		let mut view = MessagingUi {
+			voice_popout: Some(Id(10)),
+			voice_popout_chat: true,
+			..Default::default()
+		};
+		view.deleting = Some((Id(10), Id(20)));
+		let labels =
+			|ctx: &egui::Context, root: bool, state: &mut State, view: &mut MessagingUi| {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(960.0, 640.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						if root {
+							let _ = view.show(ui, state);
+						} else {
+							let _ = view.show_voice_popout(ui, state);
+						}
+					},
+				);
+				let mut labels = vec![];
+				fn walk(shape: &egui::Shape, labels: &mut Vec<String>) {
+					match shape {
+						egui::Shape::Text(text) => labels.push(text.galley.job.text.clone()),
+						egui::Shape::Vec(shapes) => {
+							for shape in shapes {
+								walk(shape, labels);
+							}
+						}
+						_ => {}
+					}
+				}
+				for shape in &output.shapes {
+					walk(&shape.shape, &mut labels);
+				}
+				output.drop_without_applying_deltas();
+				labels
+			};
+		assert!(
+			labels(&window, false, &mut state, &mut view)
+				.iter()
+				.any(|text| text == "Delete message?")
+		);
+		assert!(
+			!labels(&main, true, &mut state, &mut view)
+				.iter()
+				.any(|text| text == "Delete message?"),
+			"the main window must not draw the popout's confirmation"
+		);
 	}
 
 	fn edit_frame(

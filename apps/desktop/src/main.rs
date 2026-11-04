@@ -5525,19 +5525,25 @@ impl Desktop {
 			.state
 			.channel(channel)
 			.map_or_else(|| "Voice".to_owned(), |channel| channel.name.clone());
+		// The builder works in points, so saved logical and physical values come back through
+		// the same native scale and egui zoom that sampling divided out.
+		let zoom = ctx.zoom_factor();
+		let native = geometry.position.map_or(1.0, |position| {
+			app_settings::popout_scale_factor(&self.window, position)
+		});
+		let (size, position) =
+			app_settings::popout_request_geometry(geometry.size, geometry.position, native, zoom);
 		let mut builder = egui::ViewportBuilder::default()
 			.with_title(format!("{name} — Serein"))
-			.with_inner_size([geometry.size[0] as f32, geometry.size[1] as f32])
+			.with_inner_size(size)
 			.with_min_inner_size([
-				app_settings::MIN_POPOUT_SIZE[0] as f32,
-				app_settings::MIN_POPOUT_SIZE[1] as f32,
+				app_settings::MIN_POPOUT_SIZE[0] as f32 / zoom,
+				app_settings::MIN_POPOUT_SIZE[1] as f32 / zoom,
 			])
 			.with_decorations(true)
 			.with_maximized(geometry.maximized);
-		if let Some(position) = geometry.position {
-			let scale = app_settings::popout_scale_factor(&self.window, position) as f32;
-			builder =
-				builder.with_position([position[0] as f32 / scale, position[1] as f32 / scale]);
+		if let Some(position) = position {
+			builder = builder.with_position(position);
 		}
 		ctx.show_viewport_immediate(id, builder, |ui, _class| {
 			let ctx = ui.ctx().clone();
@@ -5547,10 +5553,6 @@ impl Desktop {
 				self.popout_geometry = None;
 				ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Close);
 				return Vec::new();
-			}
-			if let Some(fullscreen) = self.messaging.take_voice_popout_fullscreen_request() {
-				ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Fullscreen(fullscreen));
-				self.popout_fullscreen_expected = Some(fullscreen);
 			}
 			if let Some(fullscreen) = viewport.fullscreen {
 				if self.popout_fullscreen_expected == Some(fullscreen) {
@@ -5562,27 +5564,35 @@ impl Desktop {
 			}
 			let dropped = ui.input_mut(|input| std::mem::take(&mut input.raw.dropped_files));
 			if !dropped.is_empty() {
-				self.accept_dropped_files(&ctx, dropped);
+				// Files belong to the composer the call window draws; without it they would
+				// stage into whatever conversation the main window happens to show.
+				if self.messaging.voice_popout_takes_drops() {
+					self.accept_dropped_files(&ctx, dropped);
+				} else {
+					self.messaging
+						.toasts
+						.push(ui::design::Level::Error, Self::DROP_REFUSED);
+				}
 			}
 			// Keep the last normal geometry: maximized keeps it and flips the flag; fullscreen
-			// and minimized frames change nothing.
+			// and minimized frames change nothing. The content rectangle is the only size
+			// report Wayland has; rectangles are in points.
+			let (size, position) = app_settings::popout_frame_geometry(
+				Some([
+					ui.ctx().content_rect().width(),
+					ui.ctx().content_rect().height(),
+				]),
+				viewport.outer_rect.map(|outer| [outer.min.x, outer.min.y]),
+				viewport.native_pixels_per_point.map_or(1.0, f64::from),
+				zoom,
+			);
 			let sampled = app_settings::sample_popout_geometry(
-				self.app_settings.current.voice_popout_geometry,
-				viewport.inner_rect.map(|inner| {
-					[
-						inner.width().round().max(1.0) as u32,
-						inner.height().round().max(1.0) as u32,
-					]
-				}),
-				viewport
-					.outer_rect
-					.zip(viewport.native_pixels_per_point)
-					.map(|(outer, scale)| {
-						[
-							(outer.min.x * scale).round() as i32,
-							(outer.min.y * scale).round() as i32,
-						]
-					}),
+				self.app_settings
+					.current
+					.voice_popout_geometry
+					.or(self.popout_geometry),
+				size,
+				position,
 				viewport.maximized,
 				viewport.fullscreen,
 				viewport.minimized,
@@ -5595,9 +5605,20 @@ impl Desktop {
 				self.app_settings.current.voice_popout_geometry = Some(geometry);
 				self.app_settings.state.dirty = true;
 			}
-			self.messaging.show_voice_popout(ui, &mut self.state)
+			let commands = self.messaging.show_voice_popout(ui, &mut self.state);
+			// Read after the frame so a click or Escape applies without waiting for input.
+			if let Some(fullscreen) = self.messaging.take_voice_popout_fullscreen_request() {
+				ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Fullscreen(fullscreen));
+				self.popout_fullscreen_expected = Some(fullscreen);
+				ctx.request_repaint();
+			}
+			commands
 		})
 	}
+	/// Files no composer can take; the call window says the same when its chat is closed.
+	const DROP_REFUSED: &str =
+		"File not attached; return to a connected conversation and drop it again";
+
 	/// Stages dropped files for the selected conversation, or explains why it cannot.
 	fn accept_dropped_files(&mut self, ctx: &egui::Context, dropped: Vec<egui::DroppedFileHandle>) {
 		let upload_allowed = self.state.user.is_some()
@@ -5634,10 +5655,9 @@ impl Desktop {
 				self.messaging.toasts.push(ui::design::Level::Error, error);
 			}
 		} else {
-			self.messaging.toasts.push(
-				ui::design::Level::Error,
-				"File not attached; return to a connected conversation and drop it again",
-			);
+			self.messaging
+				.toasts
+				.push(ui::design::Level::Error, Self::DROP_REFUSED);
 		}
 	}
 }

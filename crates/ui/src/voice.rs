@@ -39,6 +39,12 @@ impl MessagingUi {
 		self.voice_popout_chat
 	}
 
+	/// A file dropped on the call window belongs to the chat it draws there; the main
+	/// window's conversation and the server emoji page are not reachable from it.
+	pub fn voice_popout_takes_drops(&self) -> bool {
+		self.voice_popout.is_some() && self.voice_popout_chat
+	}
+
 	/// Native fullscreen change for the call window, applied by the desktop after this frame.
 	pub fn take_voice_popout_fullscreen_request(&mut self) -> Option<bool> {
 		self.voice_popout_fullscreen_request.take()
@@ -144,6 +150,9 @@ impl MessagingUi {
 					}
 				}
 			});
+		if chat {
+			self.conversation_overlays(ui, state, &mut commands);
+		}
 		commands
 	}
 
@@ -3401,13 +3410,22 @@ impl MessagingUi {
 		let actions = 2.0 * 48.0;
 		let essential = 2.0 * 48.0 + BAR_GAP + HANG_UP;
 		let fullscreen_shown = screen_focused || popout;
-		let side = [watched.is_some(), focused, fullscreen_shown, !popout]
+		let mut side = [watched.is_some(), focused, fullscreen_shown]
 			.iter()
 			.filter(|shown| **shown)
 			.count() as f32
 			* 44.0;
 		let side_shown = bar.width() - 2.0 * STAGE_MARGIN >= essential + BAR_GAP + side;
-		let side = if side_shown { side } else { 0.0 };
+		if !side_shown {
+			side = 0.0;
+		}
+		// Pop Out is the extra slot: it sheds before Fullscreen and the participant strip.
+		let pop_out_shown = !popout
+			&& side_shown
+			&& bar.width() - 2.0 * STAGE_MARGIN >= essential + BAR_GAP + side + 44.0;
+		if pop_out_shown {
+			side += 44.0;
+		}
 		let room = bar.width() - 2.0 * STAGE_MARGIN - if side > 0.0 { side + BAR_GAP } else { 0.0 };
 		let chevrons = room >= 2.0 * 28.0 + actions + BAR_GAP + essential;
 		let media = if chevrons {
@@ -3606,7 +3624,7 @@ impl MessagingUi {
 				.layout(egui::Layout::right_to_left(egui::Align::Center)),
 		);
 		view.spacing_mut().item_spacing.x = 4.0;
-		if !popout && side_shown {
+		if pop_out_shown {
 			// Phosphor's arrow-square-out is Discord's arrow-out-of-box Pop Out glyph.
 			let pop_out = control(
 				&mut view,
