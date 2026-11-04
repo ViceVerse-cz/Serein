@@ -4,6 +4,9 @@ pub const MIN_WINDOW_SIZE: [u32; 2] = [760, 520];
 pub const DEFAULT_WINDOW_SIZE: [u32; 2] = [1120, 760];
 pub const MIN_POPOUT_SIZE: [u32; 2] = [480, 320];
 pub const DEFAULT_POPOUT_SIZE: [u32; 2] = [960, 640];
+/// Decoration allowance (logical) reserved when fitting the call window before it exists:
+/// covers Windows' 8 px borders and title bar and typical X11/macOS title bars.
+pub const POPOUT_FRAME: [u32; 2] = [16, 40];
 
 #[derive(Default)]
 pub struct Settings {
@@ -307,31 +310,41 @@ fn fit_popout_geometry_on(
 		return saved.unwrap_or(default);
 	}
 	let [mut width, mut height] = saved.map_or(DEFAULT_POPOUT_SIZE, |geometry| geometry.size);
-	let limit = |available: u32| (f64::from(available) / scale).floor().max(1.0) as u32;
+	// The window does not exist yet, so its decorations are unknown; reserve a typical frame
+	// so the outer rectangle, not just the content, fits the display.
+	let frame =
+		winit::dpi::LogicalSize::new(POPOUT_FRAME[0], POPOUT_FRAME[1]).to_physical::<u32>(scale);
+	let limit = |available: u32, frame: u32| {
+		(f64::from(available.saturating_sub(frame)) / scale)
+			.floor()
+			.max(1.0) as u32
+	};
 	// Never below the window minimum, never past the display edge.
 	width = width.clamp(
-		MIN_POPOUT_SIZE[0].min(limit(available.width)),
-		limit(available.width),
+		MIN_POPOUT_SIZE[0].min(limit(available.width, frame.width)),
+		limit(available.width, frame.width),
 	);
 	height = height.clamp(
-		MIN_POPOUT_SIZE[1].min(limit(available.height)),
-		limit(available.height),
+		MIN_POPOUT_SIZE[1].min(limit(available.height, frame.height)),
+		limit(available.height, frame.height),
 	);
-	let physical = winit::dpi::LogicalSize::new(width, height).to_physical::<u32>(scale);
-	let minimum = winit::dpi::LogicalSize::new(MIN_POPOUT_SIZE[0], MIN_POPOUT_SIZE[1])
-		.to_physical::<u32>(scale);
+	let inner = winit::dpi::LogicalSize::new(width, height).to_physical::<u32>(scale);
+	let physical = [
+		inner.width.saturating_add(frame.width),
+		inner.height.saturating_add(frame.height),
+	];
 	let centred = [
-		origin.x + ((i64::from(available.width) - i64::from(physical.width)) / 2) as i32,
-		origin.y + ((i64::from(available.height) - i64::from(physical.height)) / 2) as i32,
+		origin.x + ((i64::from(available.width) - i64::from(physical[0])) / 2) as i32,
+		origin.y + ((i64::from(available.height) - i64::from(physical[1])) / 2) as i32,
 	];
 	let (position, _) = fit_window_geometry(
 		saved_position
 			.filter(|position| monitor_contains(monitor, *position))
 			.unwrap_or(centred),
-		[physical.width, physical.height],
+		physical,
 		[origin.x, origin.y],
 		[available.width, available.height],
-		[minimum.width, minimum.height],
+		physical,
 	);
 	local_store::WindowGeometry {
 		size: [width, height],
@@ -503,11 +516,26 @@ pub fn debug_window_geometry_check() {
 		),
 	];
 	let current = Some(monitors[0]);
+	// The outer rectangle (content plus the reserved frame) stays on its display.
+	let outer_fits = |geometry: WindowGeometry| {
+		let [x, y] = geometry.position.unwrap();
+		let outer = [
+			geometry.size[0] + POPOUT_FRAME[0],
+			geometry.size[1] + POPOUT_FRAME[1],
+		];
+		monitors.iter().any(|(origin, size, _)| {
+			x >= origin.x
+				&& y >= origin.y
+				&& i64::from(x) + i64::from(outer[0]) <= i64::from(origin.x) + i64::from(size.width)
+				&& i64::from(y) + i64::from(outer[1])
+					<= i64::from(origin.y) + i64::from(size.height)
+		})
+	};
 	assert_eq!(
 		fit_popout_geometry_on(&monitors, current, None),
 		WindowGeometry {
 			size: DEFAULT_POPOUT_SIZE,
-			position: Some([480, 220]),
+			position: Some([472, 200]),
 			maximized: false,
 		}
 	);
@@ -519,7 +547,8 @@ pub fn debug_window_geometry_check() {
 	};
 	let fitted = fit_popout_geometry_on(&monitors, current, Some(lost));
 	assert_eq!(fitted.size, [1200, 800]);
-	assert_eq!(fitted.position, Some([360, 140]));
+	assert_eq!(fitted.position, Some([352, 120]));
+	assert!(outer_fits(fitted));
 	assert!(fitted.maximized);
 	assert_eq!(
 		fit_popout_geometry_on(
@@ -554,23 +583,25 @@ pub fn debug_window_geometry_check() {
 			maximized: false,
 		}
 	);
-	// A saved size larger than the display lands fully inside it.
+	// A saved size larger than the display lands fully inside it, frame included.
+	let oversized = fit_popout_geometry_on(
+		&monitors,
+		current,
+		Some(WindowGeometry {
+			size: [4000, 3000],
+			position: Some([1800, 1000]),
+			maximized: false,
+		}),
+	);
 	assert_eq!(
-		fit_popout_geometry_on(
-			&monitors,
-			current,
-			Some(WindowGeometry {
-				size: [4000, 3000],
-				position: Some([1800, 1000]),
-				maximized: false,
-			})
-		),
+		oversized,
 		WindowGeometry {
-			size: [1920, 1080],
+			size: [1904, 1040],
 			position: Some([0, 0]),
 			maximized: false,
 		}
 	);
+	assert!(outer_fits(oversized));
 	// A maximized frame keeps the last normal size and position and only flips the flag.
 	let normal = WindowGeometry {
 		size: [800, 600],
