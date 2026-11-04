@@ -1,5 +1,0 @@
-# Preserve exact upstream bytes and recorded SHA-256 values on every host.
-* -text
-.gitattributes text eol=lf
-PROVENANCE.md text eol=lf
-overrides.json text eol=lf
