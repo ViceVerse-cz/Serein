@@ -5686,6 +5686,7 @@ impl Desktop {
 				self.runtime.handle(),
 				ctx,
 				dropped,
+				popout,
 			) {
 				self.messaging
 					.notice_in(popout, ui::design::Level::Error, error);
@@ -6258,8 +6259,9 @@ impl eframe::App for Desktop {
 		self.messaging.upload_busy = self.uploads.busy() || self.clipboard.is_some();
 		self.messaging.attach_busy = !self.uploads.accepting();
 		self.messaging.attachment_loading = self.uploads.loading();
-		if let Some(notice) = self.uploads.take_notice() {
-			self.messaging.toasts.push(ui::design::Level::Error, notice);
+		if let Some((notice, popout)) = self.uploads.take_notice_origin() {
+			self.messaging
+				.notice_in(popout, ui::design::Level::Error, notice);
 		}
 		if !self.state.demo {
 			let (progress, sending) = self.uploads.transfer_progress();
