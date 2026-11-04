@@ -29,8 +29,9 @@ calls) moves the live stage into its own decorated, resizable window titled
 `<channel name> — Serein`, minimum 480×320, not always-on-top. It carries the same tiles, focus
 and stream overlay controls and the complete control bar; its own **Fullscreen** button works for
 any stage (not only an enlarged tile) and covers the popout's monitor only, with Escape to exit.
-Ending the call, logging out or closing the window docks the stage back without navigating; the
-main window shows "Call is in another window" with **Bring back** in the meantime.
+Ending the call or logging out closes the popout; closing the window docks the stage back
+without navigating, and the main window shows "Call is in another window" with **Bring back**
+while the popout is open.
 
 The chat bubble at the popout's top right opens the call channel's timeline and composer in a
 resizable side panel. Opening it selects the call channel; while it is open the main window shows

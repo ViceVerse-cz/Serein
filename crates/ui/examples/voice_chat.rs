@@ -145,7 +145,7 @@ fn popout_checks() {
 	pop(&mut view, &mut state);
 	assert_eq!(view.take_voice_fullscreen_request(), None);
 	assert!(
-		!view.voice_popout_takes_drops(),
+		!view.voice_popout_takes_drops(&state),
 		"a closed call-window chat takes no drops"
 	);
 	// With chat beside the stage the main window would draw the composer if it owned chat.
@@ -183,7 +183,7 @@ fn popout_checks() {
 	}
 	assert_eq!(state.selected, Some(channel));
 	assert!(view.voice_popout_chat_open());
-	assert!(view.voice_popout_takes_drops());
+	assert!(view.voice_popout_takes_drops(&state));
 	let docked = main(&mut view, &mut state, vec![]);
 	assert!(has(&docked, "Chat is open in the call window"));
 	assert!(!composer_for(&docked, &name), "one composer per frame");
@@ -202,7 +202,7 @@ fn popout_checks() {
 	let _ = state.select(other);
 	let docked = main(&mut view, &mut state, vec![]);
 	assert!(!view.voice_popout_chat_open());
-	assert!(!view.voice_popout_takes_drops());
+	assert!(!view.voice_popout_takes_drops(&state));
 	assert!(composer_for(&docked, &other_name));
 	// Bring back docks without navigating.
 	let _ = state.select(channel);
@@ -237,6 +237,33 @@ fn popout_checks() {
 	);
 }
 
+/// Browsing another populated voice channel must not clear the call's enlarged tile.
+fn browsing_keeps_call_focus() {
+	let mut state = test_support::voice_demo_state();
+	let channel = state.selected.unwrap();
+	let quiet = model::Id(26);
+	let mut visitor = state.voice.roster[1].clone();
+	visitor.channel = quiet;
+	visitor.participant.user = model::Id(9);
+	state.voice.roster.push(visitor);
+	state.voice.active.as_mut().unwrap().watching = Some(model::Id(3));
+	let ctx = egui::Context::default();
+	ui::design::apply(&ctx);
+	let mut view = ui::MessagingUi::default();
+	view.language = ui::i18n::Language::English;
+	let focus = Some(ui::StageFocus::Stream(model::Id(3)));
+	view.voice_focus = focus;
+	let _ = state.select(quiet);
+	frame(&ctx, &mut view, &mut state, 1400.0, vec![]);
+	assert_eq!(
+		view.voice_focus, focus,
+		"another channel's stage must not clear the call's focus"
+	);
+	let _ = state.select(channel);
+	frame(&ctx, &mut view, &mut state, 1400.0, vec![]);
+	assert_eq!(view.voice_focus, focus);
+}
+
 fn click(pos: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
 	vec![
 		egui::Event::PointerMoved(pos),
@@ -251,6 +278,7 @@ fn click(pos: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
 
 fn main() {
 	popout_checks();
+	browsing_keeps_call_focus();
 	for (width, right_click) in [
 		(1400.0, false),
 		(800.0, false),

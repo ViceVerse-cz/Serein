@@ -4589,6 +4589,10 @@ voice-pop-out = Pop Out
 voice-popout-docked = Call is in another window
 voice-popout-bring-back = Bring back
 voice-popout-chat-elsewhere = Chat is open in the call window
+voice-popout-fullscreen = Fullscreen
+voice-popout-fullscreen-hint = Make the call window fullscreen
+voice-popout-exit-fullscreen = Exit fullscreen
+voice-popout-exit-fullscreen-hint = Exit fullscreen (Esc)
 
 # Synchronized favorite GIFs (unofficial account settings).
 gif-favorites-sync-refresh = Refresh from Discord

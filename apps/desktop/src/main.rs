@@ -1063,6 +1063,9 @@ struct Desktop {
 	popout_geometry: Option<local_store::WindowGeometry>,
 	/// Fullscreen value already sent to the call window, until the OS reports it back.
 	popout_fullscreen_expected: Option<bool>,
+	/// Focused-window voice shortcuts read in the call window: push-to-talk held,
+	/// push-to-mute held, and mute/deafen toggle bits; the next logic pass ORs them in.
+	popout_voice_keys: (bool, bool, u8),
 	frame_metrics: FrameMetrics,
 	#[cfg(feature = "demo")]
 	rendering_demo: Option<rendering_demo::RenderingDemo>,
@@ -2443,6 +2446,7 @@ impl Desktop {
 			monitor_period: None,
 			popout_geometry: None,
 			popout_fullscreen_expected: None,
+			popout_voice_keys: (false, false, 0),
 			frame_metrics: FrameMetrics::new(frame_sample),
 			#[cfg(feature = "demo")]
 			rendering_demo: (demo && std::env::args().any(|arg| arg == "--demo-rendering"))
@@ -5518,6 +5522,7 @@ impl Desktop {
 		let Some(channel) = self.messaging.voice_popout() else {
 			self.popout_geometry = None;
 			self.popout_fullscreen_expected = None;
+			self.popout_voice_keys = (false, false, 0);
 			return Vec::new();
 		};
 		if self.popout_geometry.is_none() {
@@ -5571,16 +5576,31 @@ impl Desktop {
 					self.messaging.set_voice_popout_fullscreen(fullscreen);
 				}
 			}
+			self.messaging
+				.set_voice_popout_minimized(viewport.minimized.unwrap_or(false));
+			// Root logic reads only the main window's keys; hand it the call window's.
+			let toggles = self
+				.messaging
+				.voice_toggle_pressed(&ctx, |action, chord| self.hotkeys.is_global(action, chord));
+			let keys = (
+				self.messaging.push_to_talk_down(&ctx),
+				self.messaging.push_to_mute_down(&ctx),
+				self.popout_voice_keys.2 | toggles,
+			);
+			// Logic ran before this callback, so a change needs one more pass to apply.
+			if keys != self.popout_voice_keys {
+				ctx.request_repaint();
+			}
+			self.popout_voice_keys = keys;
 			let dropped = ui.input_mut(|input| std::mem::take(&mut input.raw.dropped_files));
 			if !dropped.is_empty() {
 				// Files belong to the composer the call window draws; without it they would
 				// stage into whatever conversation the main window happens to show.
-				if self.messaging.voice_popout_takes_drops() {
-					self.accept_dropped_files(&ctx, dropped);
+				if self.messaging.voice_popout_takes_drops(&self.state) {
+					self.accept_dropped_files(&ctx, dropped, true);
 				} else {
 					self.messaging
-						.toasts
-						.push(ui::design::Level::Error, Self::DROP_REFUSED);
+						.notice_in(true, ui::design::Level::Error, Self::DROP_REFUSED);
 				}
 			}
 			// Keep the last normal geometry: maximized keeps it and flips the flag; fullscreen
@@ -5629,14 +5649,20 @@ impl Desktop {
 		"File not attached; return to a connected conversation and drop it again";
 
 	/// Stages dropped files for the selected conversation, or explains why it cannot.
-	fn accept_dropped_files(&mut self, ctx: &egui::Context, dropped: Vec<egui::DroppedFileHandle>) {
+	/// `popout` drops come from the call window's composer, never the server emoji page.
+	fn accept_dropped_files(
+		&mut self,
+		ctx: &egui::Context,
+		dropped: Vec<egui::DroppedFileHandle>,
+		popout: bool,
+	) {
 		let upload_allowed = self.state.user.is_some()
 			&& self.state.gateway_connected
 			&& self.state.freshness != model::Freshness::Unavailable;
 		let can_attach = self.state.selected.is_some_and(|channel| {
 			self.state.can_attach(channel) || self.state.can_attach_post(channel)
 		});
-		if self.messaging.accepts_server_emoji_drops() {
+		if !popout && self.messaging.accepts_server_emoji_drops() {
 			let paths: Vec<_> = dropped
 				.into_iter()
 				.take(11)
@@ -5661,12 +5687,12 @@ impl Desktop {
 				ctx,
 				dropped,
 			) {
-				self.messaging.toasts.push(ui::design::Level::Error, error);
+				self.messaging
+					.notice_in(popout, ui::design::Level::Error, error);
 			}
 		} else {
 			self.messaging
-				.toasts
-				.push(ui::design::Level::Error, Self::DROP_REFUSED);
+				.notice_in(popout, ui::design::Level::Error, Self::DROP_REFUSED);
 		}
 	}
 }
@@ -5843,7 +5869,10 @@ impl eframe::App for Desktop {
 		self.sync_fonts(ctx);
 		self.hotkeys.sync(&self.messaging.keybinds, &self.runtime);
 		self.messaging.global_keybind_status = self.hotkeys.status();
+		// The call window's focused presses arrive from its last pass; edges are taken once.
+		let popout_toggles = std::mem::take(&mut self.popout_voice_keys.2);
 		let voice_toggles = self.hotkeys.take_toggle_pending()
+			| popout_toggles
 			| self
 				.messaging
 				.voice_toggle_pressed(ctx, |action, chord| self.hotkeys.is_global(action, chord));
@@ -6057,9 +6086,12 @@ impl eframe::App for Desktop {
 				}
 			}
 		}
+		let (popout_ptt, popout_ptm, _) = self.popout_voice_keys;
 		self.messaging.voice_ptt_active = self.messaging.voice_push_to_talk
 			&& self.state.voice.active.is_some()
-			&& (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down());
+			&& (self.messaging.push_to_talk_down(ctx)
+				|| popout_ptt
+				|| self.hotkeys.push_to_talk_down());
 		self.notification_runtime.ptt(
 			self.messaging.voice_push_to_talk,
 			!self.fixture_only
@@ -6076,7 +6108,9 @@ impl eframe::App for Desktop {
 			ctx,
 		);
 		self.messaging.voice_ptm_active = self.state.voice.active.is_some()
-			&& (self.messaging.push_to_mute_down(ctx) || self.hotkeys.push_to_mute_down());
+			&& (self.messaging.push_to_mute_down(ctx)
+				|| popout_ptm
+				|| self.hotkeys.push_to_mute_down());
 		if self.state.auth == AuthState::Authenticated || self.state.demo {
 			self.poll_voice(ctx);
 		} else {
@@ -6204,7 +6238,7 @@ impl eframe::App for Desktop {
 		}
 		// Move native handles once; never load dropped bytes on the rendering thread.
 		if !dropped.is_empty() {
-			self.accept_dropped_files(&ctx, dropped);
+			self.accept_dropped_files(&ctx, dropped, false);
 		}
 		// Offline fixtures may stage a synthetic attachment without any upload selection.
 		if !self.state.demo || self.uploads.selection().is_some() {

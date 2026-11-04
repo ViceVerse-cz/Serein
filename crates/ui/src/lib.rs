@@ -479,6 +479,14 @@ pub struct MessagingUi {
 	voice_popout_fullscreen: bool,
 	/// Native transition for the call window, applied by the desktop after this frame.
 	voice_popout_fullscreen_request: Option<bool>,
+	/// The call window's own notices, for actions taken there.
+	voice_popout_toasts: toasts::Toasts,
+	/// Whether the call window is minimized, reported by the desktop each popout frame.
+	voice_popout_minimized: bool,
+	/// The open profile card was opened from the call window, so that window draws it.
+	profile_in_popout: bool,
+	/// The pending link confirmation was opened from the call window, so that window draws it.
+	popout_links: bool,
 	/// Whether the other participants stay visible as a strip under the enlarged tile.
 	pub voice_focus_participants: bool,
 	/// How far the call stage's hover chrome (and tile name badges) has faded out: 0 shown.
@@ -4395,22 +4403,42 @@ impl MessagingUi {
 		}
 	}
 
-	/// Dialogs and cards the conversation owns: public upload, forward, author card and the
-	/// delete confirmation. The window that draws the conversation draws these too.
-	fn conversation_overlays(
+	/// Dialogs the composer opens; drawn by the window that draws the composer.
+	fn poll_creator_overlay(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		if let Some(action) = self.poll_creator.show(ctx, state, &mut self.avatars)
+			&& let Some(command) = state.prepare_poll(None, action)
+		{
+			commands.push(command);
+		}
+	}
+
+	/// External link confirmations; drawn by the window whose link asked for them.
+	fn link_confirmations(&mut self, ctx: &egui::Context) {
+		markdown::confirm_external_link(
+			ctx,
+			&mut self.timeline.browser_opening,
+			self.reading_preferences.confirm_external_links,
+		);
+		markdown::confirm_external_link(
+			ctx,
+			&mut self.timeline.opening,
+			self.reading_preferences.confirm_external_links,
+		);
+	}
+
+	/// The open profile card; drawn by the window whose pointer opened it.
+	fn profile_overlay(
 		&mut self,
 		ui: &mut egui::Ui,
 		state: &mut State,
 		commands: &mut Vec<Command>,
 	) {
 		let ctx = ui.ctx().clone();
-		self.external_upload
-			.show(&ctx, state, &mut self.draft_changes);
-		if let Some(message) = self.timeline.forward_request.take() {
-			self.forwarding.open(state, message);
-		}
-		self.forwarding
-			.show(&ctx, state, &mut self.avatars, commands);
 		// While the card's DM waits on a captcha, step aside for the dialog but keep its draft.
 		let direct_verifying = self.user_direct.is_some()
 			&& matches!(
@@ -4453,6 +4481,24 @@ impl MessagingUi {
 		} else {
 			self.profile_link = None;
 		}
+	}
+
+	/// Dialogs the conversation owns: public upload, forward and the delete confirmation.
+	/// The window that draws the conversation draws these too.
+	fn conversation_overlays(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		let ctx = ui.ctx().clone();
+		self.external_upload
+			.show(&ctx, state, &mut self.draft_changes);
+		if let Some(message) = self.timeline.forward_request.take() {
+			self.forwarding.open(state, message);
+		}
+		self.forwarding
+			.show(&ctx, state, &mut self.avatars, commands);
 		if self.deleting.is_some_and(|(channel, message)| {
 			state.selected != Some(channel) || state.timeline.get(message).is_none()
 		}) {
@@ -4849,10 +4895,10 @@ impl MessagingUi {
 		commands.extend(state.navigate_after_join());
 		// A chat link to an unloaded thread opens once its bounded channel read admits it.
 		commands.extend(state.resolve_pending_link());
-		if let Some(action) = self.poll_creator.show(ui.ctx(), state, &mut self.avatars)
-			&& let Some(command) = state.prepare_poll(None, action)
-		{
-			commands.push(command);
+		let profile_before = self.profile.open_user().map(|user| user.id);
+		if !self.voice_popout_owns_chat(state) {
+			let ctx = ui.ctx().clone();
+			self.poll_creator_overlay(&ctx, state, &mut commands);
 		}
 		// Bound side buttons run their binding instead of history navigation.
 		let back = side.back && !self.button_claimed(egui::PointerButton::Extra1);
@@ -4957,16 +5003,9 @@ impl MessagingUi {
 				Err(message) => state.status = message,
 			}
 		}
-		markdown::confirm_external_link(
-			&ctx,
-			&mut self.timeline.browser_opening,
-			self.reading_preferences.confirm_external_links,
-		);
-		markdown::confirm_external_link(
-			&ctx,
-			&mut self.timeline.opening,
-			self.reading_preferences.confirm_external_links,
-		);
+		if !self.popout_links {
+			self.link_confirmations(&ctx);
+		}
 		let colors = crate::design::palette(ui);
 		let background = crate::design::window_palette(ui);
 		if !settings_open
@@ -5790,6 +5829,13 @@ impl MessagingUi {
 		self.reconcile_edit(state);
 		if !self.voice_popout_owns_chat(state) {
 			self.conversation_overlays(ui, state, &mut commands);
+		}
+		// A card opened from this window comes back here from the call window.
+		if self.profile.open_user().map(|user| user.id) != profile_before {
+			self.profile_in_popout = false;
+		}
+		if !self.profile_in_popout {
+			self.profile_overlay(ui, state, &mut commands);
 		}
 		self.show_call_switch(&ctx, state, &mut commands);
 		self.apply_ring_request(state, &mut commands);
@@ -6678,17 +6724,25 @@ mod composer_tests {
 				output.drop_without_applying_deltas();
 				labels
 			};
-		assert!(
-			labels(&window, false, &mut state, &mut view)
-				.iter()
-				.any(|text| text == "Delete message?")
-		);
-		assert!(
-			!labels(&main, true, &mut state, &mut view)
-				.iter()
-				.any(|text| text == "Delete message?"),
-			"the main window must not draw the popout's confirmation"
-		);
+		view.poll_creator.open(&state, Id(10));
+		view.reading_preferences.confirm_external_links = true;
+		view.timeline.opening = Some("https://example.com/popout".into());
+		view.popout_links = true;
+		let dialogs = ["Delete message?", "Create a Poll", "Open external link?"];
+		let drawn = labels(&window, false, &mut state, &mut view);
+		for dialog in dialogs {
+			assert!(
+				drawn.iter().any(|text| text == dialog),
+				"the call window draws {dialog:?}"
+			);
+		}
+		let drawn = labels(&main, true, &mut state, &mut view);
+		for dialog in dialogs {
+			assert!(
+				!drawn.iter().any(|text| text == dialog),
+				"the main window must not draw the popout's {dialog:?}"
+			);
+		}
 	}
 
 	fn edit_frame(

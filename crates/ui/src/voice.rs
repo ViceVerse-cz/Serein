@@ -41,8 +41,27 @@ impl MessagingUi {
 
 	/// A file dropped on the call window belongs to the chat it draws there; the main
 	/// window's conversation and the server emoji page are not reachable from it.
-	pub fn voice_popout_takes_drops(&self) -> bool {
-		self.voice_popout.is_some() && self.voice_popout_chat
+	pub fn voice_popout_takes_drops(&self, state: &State) -> bool {
+		self.voice_popout_owns_chat(state)
+	}
+
+	/// A notice for the window the user acted in; the call window draws its own stack.
+	pub fn notice_in(&mut self, popout: bool, level: design::Level, text: impl Into<String>) {
+		if popout && self.voice_popout.is_some() {
+			self.voice_popout_toasts.push(level, text);
+		} else {
+			self.toasts.push(level, text);
+		}
+	}
+
+	/// Reported by the desktop from the call window's viewport each frame it draws.
+	pub fn set_voice_popout_minimized(&mut self, minimized: bool) {
+		self.voice_popout_minimized = minimized;
+	}
+
+	/// Whether the call window is open and not minimized, so its stage is on screen.
+	pub fn voice_popout_visible(&self) -> bool {
+		self.voice_popout.is_some() && !self.voice_popout_minimized
 	}
 
 	/// Native fullscreen change for the call window, applied by the desktop after this frame.
@@ -64,6 +83,18 @@ impl MessagingUi {
 		self.voice_popout_chat = false;
 		self.voice_popout_fullscreen = false;
 		self.voice_popout_fullscreen_request = None;
+		self.voice_popout_minimized = false;
+		self.voice_popout_toasts = Default::default();
+		// A card or link dialog opened in the call window leaves with it.
+		if self.profile_in_popout {
+			self.profile.close();
+			self.profile_in_popout = false;
+		}
+		if self.popout_links {
+			self.timeline.opening = None;
+			self.timeline.browser_opening = None;
+			self.popout_links = false;
+		}
 	}
 
 	/// A call the user just joined, accepted or started opens in its own window when the
@@ -105,14 +136,22 @@ impl MessagingUi {
 			return commands;
 		};
 		crate::i18n::set_current(self.language);
-		if self.voice_popout_fullscreen
-			&& ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
-		{
-			self.voice_popout_fullscreen = false;
-			self.voice_popout_fullscreen_request = Some(false);
-		}
+		crate::scroll::apply_preferences(ui.ctx(), self.reading_preferences);
+		// Like the main pass: a card's opener rectangle is fresh each frame.
+		ui.ctx().data_mut(|data| {
+			data.remove::<egui::Rect>(crate::profiles::profile_opener_id());
+		});
+		// An open picker closes on Escape without consuming it; that press is not for fullscreen.
+		let popup_open = egui::Popup::is_any_open(ui.ctx());
+		let profile_before = self.profile.open_user().map(|user| user.id);
+		let links_before = (
+			self.timeline.opening.is_some(),
+			self.timeline.browser_opening.is_some(),
+		);
 		let chat = self.voice_popout_owns_chat(state);
 		if chat {
+			let ctx = ui.ctx().clone();
+			self.poll_creator_overlay(&ctx, state, &mut commands);
 			let background = design::window_palette(ui);
 			egui::Panel::right("voice-popout-chat")
 				.resizable(true)
@@ -150,9 +189,42 @@ impl MessagingUi {
 					}
 				}
 			});
+		// Cards and link dialogs open in the window whose pointer asked for them.
+		if self.profile.open_user().map(|user| user.id) != profile_before
+			&& self.profile.open_user().is_some()
+		{
+			self.profile_in_popout = true;
+		}
+		if (!links_before.0
+			&& self
+				.timeline
+				.opening
+				.as_deref()
+				.is_some_and(|link| crate::markdown::discord_chat_link(link).is_none()))
+			|| (!links_before.1 && self.timeline.browser_opening.is_some())
+		{
+			self.popout_links = true;
+		}
 		if chat {
 			self.conversation_overlays(ui, state, &mut commands);
 		}
+		if self.profile_in_popout {
+			self.profile_overlay(ui, state, &mut commands);
+		}
+		if self.popout_links {
+			self.link_confirmations(ui.ctx());
+			self.popout_links =
+				self.timeline.opening.is_some() || self.timeline.browser_opening.is_some();
+		}
+		// Dialogs, the composer and pickers take Escape first; only a spare press leaves fullscreen.
+		if self.voice_popout_fullscreen
+			&& !popup_open
+			&& ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+		{
+			self.voice_popout_fullscreen = false;
+			self.voice_popout_fullscreen_request = Some(false);
+		}
+		self.voice_popout_toasts.show(ui.ctx(), 12.0);
 		commands
 	}
 
@@ -1300,14 +1372,23 @@ impl MessagingUi {
 		if tiles.is_empty() {
 			return;
 		}
+		// Only the call's own stage owns the shared focus; a browsed channel never clears it.
+		let owns_focus = state
+			.voice
+			.active
+			.as_ref()
+			.is_some_and(|call| call.channel == channel && call.phase != Phase::Failed);
 		// Focus survives only while that tile still shows video; Escape restores the grid.
 		let focus = self.voice_focus.filter(|focus| {
-			tiles
-				.iter()
-				.any(|tile| tile.focus() == *focus && self.tile_has_video(state, channel, tile))
+			owns_focus
+				&& tiles
+					.iter()
+					.any(|tile| tile.focus() == *focus && self.tile_has_video(state, channel, tile))
 		});
 		let focus = focus.filter(|_| !ui.input(|input| input.key_pressed(egui::Key::Escape)));
-		self.voice_focus = focus;
+		if owns_focus {
+			self.voice_focus = focus;
+		}
 		// A live share turns the avatar-only DM stage into boxed tiles, as in Discord.
 		let video = tiles.iter().any(|tile| {
 			matches!(tile, Tile::Stream(_) | Tile::LocalScreen)
@@ -1397,7 +1478,7 @@ impl MessagingUi {
 				}
 			}
 		}
-		if let Some(focus) = toggle {
+		if let Some(focus) = toggle.filter(|_| owns_focus) {
 			self.voice_focus = (self.voice_focus != Some(focus)).then_some(focus);
 		}
 	}
@@ -3641,7 +3722,18 @@ impl MessagingUi {
 			}
 		}
 		if fullscreen_shown && side_shown {
-			let fullscreen = fullscreen_control(&mut view, STAGE_TEXT);
+			let fullscreen = fullscreen_control(
+				&mut view,
+				STAGE_TEXT,
+				match (popout, self.voice_popout_fullscreen) {
+					(false, _) => ("Fullscreen", "View this screen share in fullscreen"),
+					(true, false) => ("voice-popout-fullscreen", "voice-popout-fullscreen-hint"),
+					(true, true) => (
+						"voice-popout-exit-fullscreen",
+						"voice-popout-exit-fullscreen-hint",
+					),
+				},
+			);
 			if fullscreen.clicked() {
 				if popout {
 					self.voice_popout_fullscreen = !self.voice_popout_fullscreen;
@@ -4685,7 +4777,14 @@ fn control(
 	response.on_hover_text(hint)
 }
 
-fn fullscreen_control(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response {
+/// `text` is the (label, hover hint) pair; either may be a Fluent key.
+fn fullscreen_control(
+	ui: &mut egui::Ui,
+	color: egui::Color32,
+	text: (&str, &str),
+) -> egui::Response {
+	let label = crate::i18n::translate_if_key(text.0);
+	let hint = crate::i18n::translate_if_key(text.1);
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(48.0, CONTROL_HEIGHT), egui::Sense::click());
 	if response.hovered() || response.has_focus() {
@@ -4698,8 +4797,8 @@ fn fullscreen_control(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response
 		egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(22.0)),
 		color,
 	);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Fullscreen"));
-	response.on_hover_text("View this screen share in fullscreen")
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+	response.on_hover_text(hint)
 }
 
 /// Circular filled action (answer/decline) used by the incoming-call banner.
