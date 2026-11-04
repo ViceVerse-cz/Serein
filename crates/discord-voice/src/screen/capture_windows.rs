@@ -292,7 +292,7 @@ where
 	}
 	// Windows 11 keeps a per-application consent; an application that never asks is denied and
 	// the Settings page lists no request. Asking here shows the system prompt once.
-	request_access()?;
+	request_access(&stop)?;
 	// The item conversion can still refuse the source (a protected window, for example).
 	item.probe()?;
 	let flags = Flags {
@@ -341,15 +341,18 @@ impl Drop for Capture {
 const ACCESS_DENIED: u32 = 0x8007_0005;
 /// Windows 11 blocks programmatic capture for applications the owner has not allowed.
 const DENIED: &str = "Windows blocked screen capture for this app; allow it in Settings, Privacy & security, Screenshots and screen recording";
+/// How often a pending consent wait checks whether the share was cancelled.
+const CONSENT_POLL: Duration = Duration::from_millis(50);
 
 /// Asks Windows for the programmatic capture consent this application needs.
 ///
 /// The consent is per application: an application that never asks is denied outright and the
-/// Settings page lists no request. The call shows the system prompt once and blocks this capture
-/// worker until the owner answers.
-fn request_access() -> Result<(), &'static str> {
+/// Settings page lists no request. The call shows the system prompt once; the wait stays
+/// cancellable so a share stopped while the prompt is open releases the worker at once.
+fn request_access(stop: &AtomicBool) -> Result<(), &'static str> {
 	use windows::Graphics::Capture::{GraphicsCaptureAccess, GraphicsCaptureAccessKind};
 	use windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus;
+	use windows_future::AsyncStatus;
 	// SAFETY: WinRT activation needs an initialized apartment on this worker thread. Only the
 	// consent call below decides the outcome, so an already-initialized mode is harmless.
 	#[allow(unsafe_code)]
@@ -364,7 +367,13 @@ fn request_access() -> Result<(), &'static str> {
 		// Builds without the consent API report their decision through the capture item instead.
 		return Ok(());
 	};
-	match operation.get() {
+	while operation.Status() == Ok(AsyncStatus::Started) {
+		if stop.load(Ordering::Acquire) {
+			return Err("Screen sharing was cancelled");
+		}
+		std::thread::sleep(CONSENT_POLL);
+	}
+	match operation.GetResults() {
 		Ok(status) if status == AppCapabilityAccessStatus::Allowed => Ok(()),
 		// A decision the owner made is the only answer this call can be trusted with: an
 		// unpackaged executable reports NotDeclaredByApp even where capture is already allowed,

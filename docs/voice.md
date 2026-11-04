@@ -455,7 +455,7 @@ not establish production readiness or superiority over Discord's processing.
 
 ## Screen sharing
 
-In a connected call, select **Share your screen**, choose a display/window, 480p, 720p or 1080p, 15/30/60 fps, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed. Starting and stopping this device's share each play Discord's screen-share cue; the single screen-share sound switch governs both.
+In a connected call, select **Share your screen**, choose a display/window, 480p, 720p or 1080p, 15/30/60 fps, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed. Starting this device's share plays Discord's screen-share cue. Selecting **Stop sharing** plays the stop cue. Ending the share by leaving the call or logging out does not. The single screen-share sound switch governs both cues.
 
 480p uses 854×480 pixels and a target video bitrate of 2 Mbps at 15/30 fps or 4 Mbps at 60 fps.
 
