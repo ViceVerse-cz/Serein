@@ -172,6 +172,18 @@ fn popout_checks() {
 	popout_frame(&window, &mut view, &mut state, key(egui::Key::Escape));
 	assert_eq!(view.take_voice_popout_fullscreen_request(), Some(false));
 	assert_eq!(view.take_voice_fullscreen_request(), None);
+	// Escape in a fullscreen call window leaves fullscreen and keeps the enlarged tile;
+	// only the next press restores the grid.
+	state.voice.active.as_mut().unwrap().watching = Some(model::Id(3));
+	let focus = Some(ui::StageFocus::Stream(model::Id(3)));
+	view.voice_focus = focus;
+	view.set_voice_popout_fullscreen(true);
+	popout_frame(&window, &mut view, &mut state, key(egui::Key::Escape));
+	assert_eq!(view.take_voice_popout_fullscreen_request(), Some(false));
+	assert_eq!(view.voice_focus, focus, "one Escape must not do two things");
+	popout_frame(&window, &mut view, &mut state, key(egui::Key::Escape));
+	assert_eq!(view.voice_focus, None);
+	state.voice.active.as_mut().unwrap().watching = None;
 	// The chat bubble selects the call channel and takes timeline and composer along.
 	let _ = state.select(other);
 	let bubble = tab_to(

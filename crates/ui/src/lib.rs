@@ -487,6 +487,9 @@ pub struct MessagingUi {
 	profile_in_popout: bool,
 	/// The pending link confirmation was opened from the call window, so that window draws it.
 	popout_links: bool,
+	/// Set during the call window's stage pass when Escape belongs to a dialog, picker or
+	/// fullscreen, so the stage keeps its enlarged tile.
+	voice_stage_escape_held: bool,
 	/// Whether the other participants stay visible as a strip under the enlarged tile.
 	pub voice_focus_participants: bool,
 	/// How far the call stage's hover chrome (and tile name badges) has faded out: 0 shown.
@@ -4895,7 +4898,11 @@ impl MessagingUi {
 		commands.extend(state.navigate_after_join());
 		// A chat link to an unloaded thread opens once its bounded channel read admits it.
 		commands.extend(state.resolve_pending_link());
-		let profile_before = self.profile.open_user().map(|user| user.id);
+		let profile_before = self.profile.open_requests();
+		let links_before = (
+			self.timeline.opening.clone(),
+			self.timeline.browser_opening.clone(),
+		);
 		if !self.voice_popout_owns_chat(state) {
 			let ctx = ui.ctx().clone();
 			self.poll_creator_overlay(&ctx, state, &mut commands);
@@ -5830,9 +5837,16 @@ impl MessagingUi {
 		if !self.voice_popout_owns_chat(state) {
 			self.conversation_overlays(ui, state, &mut commands);
 		}
-		// A card opened from this window comes back here from the call window.
-		if self.profile.open_user().map(|user| user.id) != profile_before {
+		// A card opened or reopened from this window comes back here from the call window.
+		if self.profile.open_requests() != profile_before {
 			self.profile_in_popout = false;
+		}
+		// So does a link confirmation this window asked for; the newest request wins the slot.
+		if (self.timeline.opening != links_before.0 && self.timeline.opening.is_some())
+			|| (self.timeline.browser_opening != links_before.1
+				&& self.timeline.browser_opening.is_some())
+		{
+			self.popout_links = false;
 		}
 		if !self.profile_in_popout {
 			self.profile_overlay(ui, state, &mut commands);

@@ -2502,6 +2502,8 @@ pub struct ProfileSession {
 	hovered: Option<(Id, bool)>,
 	/// Badge customize menu and directory over the open card.
 	badges: crate::badges::BadgePanels,
+	/// Bumped by every request that opens or reopens a card, so the asking window can own it.
+	opens: u64,
 }
 
 pub enum ProfileEffect {
@@ -2570,6 +2572,11 @@ impl ProfileSession {
 
 	pub fn open_user(&self) -> Option<&User> {
 		self.open.as_ref()
+	}
+
+	/// Changes whenever a card is opened or reopened, even for the same person.
+	pub fn open_requests(&self) -> u64 {
+		self.opens
 	}
 
 	/// Opens the centred full profile, as from the popout's "View Full Profile".
@@ -2645,6 +2652,7 @@ impl ProfileSession {
 		self.reset_card_input();
 		self.full = false;
 		self.open = Some(user.clone());
+		self.opens += 1;
 	}
 
 	pub fn command_open(&mut self, user: User) {
@@ -2657,6 +2665,7 @@ impl ProfileSession {
 			self.pending.push(ProfileEffect::ClearCore);
 		}
 		self.open = Some(user);
+		self.opens += 1;
 	}
 
 	pub fn navigate(&mut self, user: User) {
@@ -2664,6 +2673,7 @@ impl ProfileSession {
 		self.reset_card_input();
 		self.pending.push(ProfileEffect::ClearCore);
 		self.open = Some(user);
+		self.opens += 1;
 		self.anchor = None;
 	}
 

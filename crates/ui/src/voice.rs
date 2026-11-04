@@ -143,10 +143,15 @@ impl MessagingUi {
 		});
 		// An open picker closes on Escape without consuming it; that press is not for fullscreen.
 		let popup_open = egui::Popup::is_any_open(ui.ctx());
-		let profile_before = self.profile.open_user().map(|user| user.id);
+		// Escape goes to a dialog or picker first, then to leaving fullscreen; only a spare
+		// press restores the stage grid.
+		self.voice_stage_escape_held = popup_open
+			|| self.voice_popout_fullscreen
+			|| ui.ctx().memory(|memory| memory.top_modal_layer().is_some());
+		let profile_before = self.profile.open_requests();
 		let links_before = (
-			self.timeline.opening.is_some(),
-			self.timeline.browser_opening.is_some(),
+			self.timeline.opening.clone(),
+			self.timeline.browser_opening.clone(),
 		);
 		let chat = self.voice_popout_owns_chat(state);
 		if chat {
@@ -167,6 +172,7 @@ impl MessagingUi {
 			.show(ui, |ui| {
 				let rect = ui.max_rect();
 				self.voice_stage(ui, state, channel, 0.0, true, &mut commands);
+				self.voice_stage_escape_held = false;
 				let mut corner =
 					ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(
 						rect.right_top() + egui::vec2(-52.0, 12.0),
@@ -189,19 +195,18 @@ impl MessagingUi {
 					}
 				}
 			});
-		// Cards and link dialogs open in the window whose pointer asked for them.
-		if self.profile.open_user().map(|user| user.id) != profile_before
-			&& self.profile.open_user().is_some()
-		{
+		// Cards and link dialogs open in the window whose pointer last asked for them.
+		if self.profile.open_requests() != profile_before && self.profile.open_user().is_some() {
 			self.profile_in_popout = true;
 		}
-		if (!links_before.0
+		if (self.timeline.opening != links_before.0
 			&& self
 				.timeline
 				.opening
 				.as_deref()
 				.is_some_and(|link| crate::markdown::discord_chat_link(link).is_none()))
-			|| (!links_before.1 && self.timeline.browser_opening.is_some())
+			|| (self.timeline.browser_opening != links_before.1
+				&& self.timeline.browser_opening.is_some())
 		{
 			self.popout_links = true;
 		}
@@ -1385,7 +1390,9 @@ impl MessagingUi {
 					.iter()
 					.any(|tile| tile.focus() == *focus && self.tile_has_video(state, channel, tile))
 		});
-		let focus = focus.filter(|_| !ui.input(|input| input.key_pressed(egui::Key::Escape)));
+		let focus = focus.filter(|_| {
+			self.voice_stage_escape_held || !ui.input(|input| input.key_pressed(egui::Key::Escape))
+		});
 		if owns_focus {
 			self.voice_focus = focus;
 		}
