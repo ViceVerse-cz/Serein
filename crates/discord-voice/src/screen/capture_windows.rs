@@ -189,6 +189,7 @@ pub(crate) struct Capture {
 }
 
 impl Capture {
+	#[allow(clippy::too_many_arguments)] // One capture's output, stop, readiness, audio and consent flags.
 	pub(crate) fn start(
 		settings: CaptureSettings,
 		frames: SyncSender<RawFrame>,
@@ -197,6 +198,8 @@ impl Capture {
 		ready: Arc<AtomicBool>,
 		audio_epoch: Arc<AtomicU64>,
 		pending: Arc<AtomicBool>,
+		// The worker's cancellation: a stopped share gives up a pending consent wait.
+		cancel: Arc<AtomicBool>,
 	) -> Result<Self, &'static str> {
 		if settings.width == 0
 			|| settings.height == 0
@@ -213,7 +216,7 @@ impl Capture {
 					.into_iter()
 					.find(|monitor| monitor_id(monitor) == id)
 					.ok_or("Selected display is no longer available")?;
-				start_item(settings, monitor, frames, stop.clone(), pending)
+				start_item(settings, monitor, frames, stop.clone(), pending, cancel)
 			}
 			SourceId::Window(id) => {
 				let window = Window::enumerate()
@@ -221,7 +224,7 @@ impl Capture {
 					.into_iter()
 					.find(|window| window_id(window) == id)
 					.ok_or("Selected window is no longer available")?;
-				start_item(settings, window, frames, stop.clone(), pending)
+				start_item(settings, window, frames, stop.clone(), pending, cancel)
 			}
 			#[allow(unreachable_patterns)] // Portal may be absent from platform-scoped models.
 			_ => return Err("The desktop screen picker is available only on Linux"),
@@ -274,12 +277,14 @@ impl NativeSource for Window {
 	}
 }
 
+#[allow(clippy::too_many_arguments)] // One capture's stop, readiness, audio and cancellation flags.
 fn start_item<T>(
 	settings: CaptureSettings,
 	item: T,
 	frames: SyncSender<RawFrame>,
 	stop: Arc<AtomicBool>,
 	pending: Arc<AtomicBool>,
+	cancel: Arc<AtomicBool>,
 ) -> Result<Capture, &'static str>
 where
 	T: NativeSource,
@@ -292,7 +297,7 @@ where
 	}
 	// Windows 11 keeps a per-application consent; an application that never asks is denied and
 	// the Settings page lists no request. Asking here shows the system prompt once.
-	request_access(&stop)?;
+	request_access(&cancel)?;
 	// The item conversion can still refuse the source (a protected window, for example).
 	item.probe()?;
 	let flags = Flags {

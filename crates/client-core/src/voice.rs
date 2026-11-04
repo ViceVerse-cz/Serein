@@ -910,6 +910,20 @@ impl ClientState {
 				}
 				if let Some(mut participants) = participants {
 					participants.shrink_to_fit();
+					// The snapshot carries no private share state; keep what the stream keys
+					// announced, also for a call this device has not joined.
+					if let Some((_, retained)) = self
+						.voice
+						.dm_participants
+						.iter()
+						.find(|(id, _)| *id == channel)
+					{
+						for participant in &mut participants {
+							participant.streaming |= retained.iter().any(|previous| {
+								previous.user == participant.user && previous.streaming
+							});
+						}
+					}
 					if let Some(call) = &mut self.voice.active
 						&& call.channel == channel
 					{
@@ -919,16 +933,6 @@ impl ClientState {
 								.any(|participant| participant.user != own.id)
 						}) {
 							self.voice.outgoing = None;
-						}
-						// This call snapshot carries no private share state; the stream key did.
-						for participant in &mut participants {
-							if let Some(previous) = call
-								.participants
-								.iter()
-								.find(|previous| previous.user == participant.user)
-							{
-								participant.streaming |= previous.streaming;
-							}
 						}
 						call.participants = participants.clone();
 						if call.watching.is_some_and(|user| {

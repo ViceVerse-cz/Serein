@@ -714,14 +714,17 @@ impl Calls {
 			return Ok(());
 		};
 		// A stream in this call names its owner even when this device neither streams nor
-		// watches it; private calls give no `self_stream` on their participants.
-		if let (Some((guild, channel, user)), Some((active, _))) = (key.target(), self.active)
+		// watches it; private calls give no `self_stream` on their participants. A creation
+		// needs the joined call, while a deletion also clears the retained membership of a
+		// call this device already left.
+		if let Some((guild, channel, user)) = key.target()
 			&& guild.is_none()
-			&& self.active_guild.is_none()
-			&& channel == active
 			&& self.allowed.get(&channel) == Some(&None)
-			&& matches!(kind, "STREAM_CREATE" | "STREAM_DELETE")
-		{
+			&& match kind {
+				"STREAM_CREATE" => self.active.is_some_and(|(active, _)| active == channel),
+				"STREAM_DELETE" => true,
+				_ => false,
+			} {
 			emit(Event::Voice(voice::Event::ParticipantStream {
 				channel,
 				user,
@@ -2651,5 +2654,36 @@ mod tests {
 				streaming: false,
 			})
 		));
+		// Leaving the call keeps the channel as an allowed private conversation: a later
+		// deletion still clears the retained share, while a creation needs the joined call.
+		calls.active = None;
+		calls
+			.dispatch(
+				"STREAM_DELETE",
+				br#"{"stream_key":"call:20:2"}"#,
+				Some(Id(1)),
+				&emit,
+			)
+			.unwrap();
+		assert!(matches!(
+			events.lock().unwrap().pop().unwrap(),
+			Event::Voice(voice::Event::ParticipantStream {
+				channel: Id(20),
+				user: Id(2),
+				streaming: false,
+			})
+		));
+		calls
+			.dispatch(
+				"STREAM_CREATE",
+				br#"{"stream_key":"call:20:2","rtc_server_id":"30","rtc_channel_id":"31"}"#,
+				Some(Id(1)),
+				&emit,
+			)
+			.unwrap();
+		assert!(
+			events.lock().unwrap().is_empty(),
+			"a creation needs the joined call"
+		);
 	}
 }
