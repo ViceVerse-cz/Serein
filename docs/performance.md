@@ -4,6 +4,36 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Watched-stream repaint cadence and the screen-share lab — November 4, 2026
+
+Watching a stream ran two full UI passes per stream picture. The decoder sink woke the UI as
+soon as a picture was decoded, although pictures wait in the presentation queue for their
+deadline, and the poll then woke it again when the picture was due. The sink now wakes the UI
+at that deadline; pictures without a presentation time are still shown at once.
+
+Measured on an Apple M1 (16 GiB, Fedora Asahi Remix, labwc headless output 1920×1080, Honeykrisp
+Vulkan) with a debug `--features demo` build: `--demo --demo-call-stream` replayed a recorded
+1080p30 H.264 lab stream through the platform decoder, the watch slot and the GPU upload. Process
+CPU was sampled over 20 s after an 8 s warmup, one run per build.
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| UI passes per second, 30 fps stream | 58.9 | 32.0 |
+| Pictures decoded / uploaded per second | 30.0 / 30.0 | 30.0 / 30.0 |
+| Process CPU (debug build, one run) | 103.1% | 78.9% |
+
+The pass count is deterministic; the CPU figures are a single debug-build sample, so they show
+the direction rather than a release-build saving. Release CPU, frame latency and live Discord
+viewing were not measured.
+
+The same machine runs the new offline lab in `tools/screen-lab/`. Decoding a recorded 1080p30
+text stream costs 10–12 ms per picture (p95 under 15 ms, about 30% of one core) through either
+the platform decoder or OpenH264, so decoding was not the viewer bottleneck. On the sender side,
+release builds of `main` held 30 fps for scrolling text at 720p30 and 1080p30 using 80–90% of one
+core, about 65% of it in OpenH264 at roughly 21 ms per 1080p picture. Two sender experiments
+were measured and not adopted: a fused Rust scaler with raw PipeWire frames saved about 10% CPU
+without changing frame rate, and OpenH264 fixed-slice threading roughly doubled encode time.
+
 ## Push-to-talk notification cues — October 29, 2026
 
 Baseline `1b2f894` and this branch were built with the pinned Rust toolchain and locked

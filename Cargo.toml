@@ -1,5 +1,7 @@
 [workspace]
 members = ["apps/desktop", "crates/*", "tools/*"]
+# Shell scripts for the headless screen-share lab, not a crate.
+exclude = ["tools/screen-lab"]
 default-members = ["apps/desktop"]
 resolver = "3"
 
