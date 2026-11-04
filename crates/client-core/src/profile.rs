@@ -52,6 +52,13 @@ impl ProfileCache {
 			.map(|entry| size_of::<CachedProfile>() + entry.data.bytes())
 			.sum()
 	}
+	/// VenSerein (ShowBadgesInChat): Returns cached profile badges for a user.
+	pub fn get_user_badges(&self, user: Id) -> Option<&[model::ProfileBadge]> {
+		self.entries
+			.iter()
+			.find(|entry| entry.user == user)
+			.map(|entry| entry.data.badges.as_slice())
+	}
 	/// Whether an unexpired profile for `(user, guild)` is cached, without evicting anything.
 	fn contains(&self, user: Id, guild: Option<Id>, now: Instant) -> bool {
 		self.entries.iter().any(|entry| {

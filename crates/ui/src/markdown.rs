@@ -46,6 +46,19 @@ pub fn reveal_all_spoilers_enabled() -> bool {
 	REVEAL_ALL_SPOILERS_ENABLED.load(Ordering::Relaxed)
 }
 
+/// VenSerein (MessageLinkTooltip): Shows message preview tooltip on hovering message link pills.
+static MESSAGE_LINK_TOOLTIP_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_message_link_tooltip_enabled(enable: bool) {
+	MESSAGE_LINK_TOOLTIP_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn message_link_tooltip_enabled() -> bool {
+	MESSAGE_LINK_TOOLTIP_ENABLED.load(Ordering::Relaxed)
+}
+
 /// Maximum rendered source bytes; metadata fingerprints use the same boundary.
 pub(crate) const MAX_INPUT: usize = 8192;
 const MAX_EVENTS: usize = 512;
@@ -2226,14 +2239,31 @@ impl Formatted {
 							)
 							.on_hover_text(url)
 						} else if let Some(pill) = &pill {
-							pill.show(
+							let resp = pill.show(
 								ui,
 								render.images,
 								render.demo,
 								render.line,
 								Some((&mut *render.surface, url)),
-							)
-							.on_hover_text(url)
+							);
+							if message_link_tooltip_enabled()
+								&& let Some(link) = &message_link
+								&& let Some(msg_id) = link.message
+								&& let Some(source) = render.source
+								&& let Some(msg) = source.state.timeline.get(msg_id)
+							{
+								let author = source.state.message_author_name(msg);
+								let text = msg.display_text();
+								let preview = if text.len() > 100 {
+									let end = text.floor_char_boundary(100);
+									format!("{}…", &text[..end])
+								} else {
+									text.into_owned()
+								};
+								resp.on_hover_text(format!("👤 {author}: {preview}\n{url}"))
+							} else {
+								resp.on_hover_text(url)
+							}
 						} else {
 							Self::show_emoji(
 								spans,
@@ -6240,5 +6270,14 @@ mod venserein_markdown_tests {
 
 		// Restore
 		set_message_colors_enabled(true);
+	}
+
+	#[test]
+	fn test_message_link_tooltip_toggle() {
+		assert!(message_link_tooltip_enabled());
+		set_message_link_tooltip_enabled(false);
+		assert!(!message_link_tooltip_enabled());
+		set_message_link_tooltip_enabled(true);
+		assert!(message_link_tooltip_enabled());
 	}
 }

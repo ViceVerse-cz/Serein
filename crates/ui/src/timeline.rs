@@ -82,6 +82,32 @@ pub fn show_roles_in_chat_enabled() -> bool {
 	SHOW_ROLES_IN_CHAT_ENABLED.load(Ordering::Relaxed)
 }
 
+/// VenSerein (HideMessages): Global toggle for hiding messages locally from the view.
+static HIDE_MESSAGES_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_hide_messages_enabled(enabled: bool) {
+	HIDE_MESSAGES_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn hide_messages_enabled() -> bool {
+	HIDE_MESSAGES_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (BetterBackreading): Enhances history loading and reading position stability when backreading.
+static BETTER_BACKREADING_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_better_backreading_enabled(enabled: bool) {
+	BETTER_BACKREADING_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn better_backreading_enabled() -> bool {
+	BETTER_BACKREADING_ENABLED.load(Ordering::Relaxed)
+}
+
 static REPLY_TIMESTAMP_ENABLED: AtomicBool = AtomicBool::new(true);
 
 #[allow(dead_code)]
@@ -211,6 +237,8 @@ pub struct TimelineView {
 	/// The loaded window does not fill the view; fetch newer messages without leaving it.
 	pub(super) fill_newer: bool,
 	pub(super) mark_read: Option<Id>,
+	/// VenSerein (HideMessages): Set of message IDs hidden from active view.
+	pub hidden_messages: BTreeSet<Id>,
 	pub(super) mark_unread: Option<Id>,
 	pub(super) auto_read_attempt: Option<Id>,
 	at_current_latest: bool,
@@ -1584,6 +1612,7 @@ fn message_actions(
 		model::ReactionEmoji,
 		&mut Option<(Id, model::ReactionEmoji, bool)>,
 	)>,
+	hidden_messages: Option<&mut BTreeSet<Id>>,
 ) {
 	let (mark_read, mark_unread, reply) = selection;
 	let (editing, edit_started) = editing;
@@ -1723,6 +1752,24 @@ fn message_actions(
 		{
 			*pin_request = Some((message.channel, message.id, !pinned));
 			ui.close();
+		}
+		if hide_messages_enabled()
+			&& let Some(hidden) = hidden_messages
+		{
+			let is_hidden = hidden.contains(&message.id);
+			let label = if is_hidden {
+				"Unhide Message"
+			} else {
+				"Hide Message"
+			};
+			if ui.button(label).clicked() {
+				if is_hidden {
+					hidden.remove(&message.id);
+				} else {
+					hidden.insert(message.id);
+				}
+				ui.close();
+			}
 		}
 		if own || can_delete {
 			ui.separator();
@@ -2091,6 +2138,30 @@ fn show_system(
 	}
 }
 impl TimelineView {
+	/// VenSerein (HideMessages): Hides a message from the active timeline view.
+	#[allow(dead_code)]
+	pub fn hide_message(&mut self, id: Id) {
+		self.hidden_messages.insert(id);
+	}
+
+	/// VenSerein (HideMessages): Unhides a previously hidden message.
+	#[allow(dead_code)]
+	pub fn unhide_message(&mut self, id: Id) {
+		self.hidden_messages.remove(&id);
+	}
+
+	/// VenSerein (HideMessages): Checks whether a message is hidden.
+	#[allow(dead_code)]
+	pub fn is_message_hidden(&self, id: Id) -> bool {
+		hide_messages_enabled() && self.hidden_messages.contains(&id)
+	}
+
+	/// VenSerein (HideMessages): Clears all hidden messages.
+	#[allow(dead_code)]
+	pub fn clear_hidden_messages(&mut self) {
+		self.hidden_messages.clear();
+	}
+
 	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
 		if self.video.is_fullscreen() {
 			let current = self
@@ -2897,6 +2968,7 @@ impl TimelineView {
 				&& !ui.input(|input| input.pointer.any_down() || input.pointer.any_released());
 			let name_hover = self.name_hover.take();
 			let mut end = first;
+			let mut unhide_target = None;
 			for index in first..self.rows.len() {
 				let row_id = ui.make_persistent_id(self.rows[index].0.0);
 				let ui = if index < anchor {
@@ -2957,6 +3029,28 @@ impl TimelineView {
 				let Some(message) = display_message(state, id) else {
 					continue;
 				};
+				if hide_messages_enabled() && self.hidden_messages.contains(&id) {
+					let response = ui
+						.scope_builder(egui::UiBuilder::new().scope_id(row_id), |ui| {
+							ui.horizontal(|ui| {
+								ui.add_space(54.0);
+								if ui
+									.button(
+										egui::RichText::new("👁 Hidden message (click to unhide)")
+											.italics()
+											.size(11.0)
+											.color(egui::Color32::from_gray(140)),
+									)
+									.clicked()
+								{
+									unhide_target = Some(id);
+								}
+							});
+						})
+						.response;
+					measurements.push((id, 0, response.rect.height()));
+					continue;
+				}
 				if !message.author.webhook
 					&& self.visible_authors.len() < client_core::member_search::LIMIT
 					&& !self.visible_authors.contains(&message.author.id)
@@ -3516,6 +3610,14 @@ impl TimelineView {
 													&& let Some(role) = state.message_author_highest_role(message)
 												{
 													render_role_badge(ui, &role.name, role.color, &colors);
+												}
+												if crate::badges::show_badges_in_chat_enabled()
+													&& let Some(badges) = state.user_profile_badges(message.author.id)
+												{
+													for badge in badges.iter().take(4) {
+														let resp = crate::badges::badge_icon(ui, avatars, badge, None, 14.0, state.demo);
+														surface.exclude(resp.rect);
+													}
 												}
 												let time = timestamp(id);
 												let time = ui
@@ -4495,6 +4597,7 @@ impl TimelineView {
 									.map(|reaction| {
 										(reaction.emoji.clone(), &mut self.reaction_users)
 									}),
+								Some(&mut self.hidden_messages),
 							);
 							self.toolbar = Some((id, toolbar_rect));
 						}
@@ -4582,6 +4685,9 @@ impl TimelineView {
 				if index >= anchor {
 					self.rows[index].1 = *height;
 				}
+			}
+			if let Some(target) = unhide_target {
+				self.hidden_messages.remove(&target);
 			}
 			viewport.min.y
 		});
@@ -4740,7 +4846,12 @@ impl TimelineView {
 		}
 		// Explicit upward input requests one page even when a short view cannot scroll.
 		// Idle layout still never drains history merely to fill the viewport.
-		self.load_older = output.state.clamped_offset().y < 160.0
+		let older_threshold = if better_backreading_enabled() {
+			600.0
+		} else {
+			160.0
+		};
+		self.load_older = output.state.clamped_offset().y < older_threshold
 			&& ui.input(|i| {
 				scroll_delta > 0.0
 					&& (session.holding()
@@ -6157,6 +6268,7 @@ mod tests {
 							(false, false, &mut None),
 							(own, &mut thread_request),
 							(false, &mut None),
+							None,
 							None,
 						)
 					},
@@ -10104,5 +10216,40 @@ mod venserein_batch1_timeline_tests {
 		assert!(show_roles_in_chat_enabled());
 		set_show_roles_in_chat_enabled(false);
 		assert!(!show_roles_in_chat_enabled());
+	}
+}
+
+#[cfg(test)]
+mod venserein_batch2_timeline_tests {
+	use super::*;
+
+	#[test]
+	fn test_hide_messages_and_better_backreading_toggles() {
+		assert!(!hide_messages_enabled());
+		set_hide_messages_enabled(true);
+		assert!(hide_messages_enabled());
+
+		let mut view = TimelineView::default();
+		let id = Id(999);
+		assert!(!view.is_message_hidden(id));
+
+		view.hide_message(id);
+		assert!(view.is_message_hidden(id));
+
+		view.unhide_message(id);
+		assert!(!view.is_message_hidden(id));
+
+		view.hide_message(id);
+		view.clear_hidden_messages();
+		assert!(!view.is_message_hidden(id));
+
+		set_hide_messages_enabled(false);
+		assert!(!hide_messages_enabled());
+
+		assert!(better_backreading_enabled());
+		set_better_backreading_enabled(false);
+		assert!(!better_backreading_enabled());
+		set_better_backreading_enabled(true);
+		assert!(better_backreading_enabled());
 	}
 }

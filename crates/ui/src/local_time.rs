@@ -18,6 +18,17 @@ pub fn dont_round_timestamps() -> bool {
 	DONT_ROUND_TIMESTAMPS.load(Ordering::Relaxed)
 }
 
+/// VenSerein (CustomTimestamps): Option to display seconds in message timestamps and headers.
+static CUSTOM_TIMESTAMPS_SECONDS: AtomicBool = AtomicBool::new(false);
+
+pub fn custom_timestamps_seconds_enabled() -> bool {
+	CUSTOM_TIMESTAMPS_SECONDS.load(Ordering::Relaxed)
+}
+
+pub fn set_custom_timestamps_seconds_enabled(enabled: bool) {
+	CUSTOM_TIMESTAMPS_SECONDS.store(enabled, Ordering::Relaxed);
+}
+
 /// Applies the clock style and date order. `Auto` follows the display language, or the system
 /// locale when the language follows the system, as Discord does.
 pub fn set_format(format: model::TimeFormat, language: crate::i18n::Language) {
@@ -118,7 +129,7 @@ fn twelve_hour_locale(tag: &str) -> bool {
 
 /// A time of day in the chosen clock style: `14:05` or `2:05 PM`.
 pub fn clock(at: time::OffsetDateTime) -> String {
-	clock_with(at, false)
+	clock_with(at, custom_timestamps_seconds_enabled())
 }
 
 /// [`clock`] with seconds: `14:05:09` or `2:05:09 PM`.
@@ -212,7 +223,7 @@ fn format_header(
 	twelve: bool,
 	order: DateOrder,
 ) -> String {
-	let clock = format_clock(at, false, twelve);
+	let clock = format_clock(at, custom_timestamps_seconds_enabled(), twelve);
 	if at.date() == today {
 		clock
 	} else if today.previous_day() == Some(at.date()) {
@@ -581,5 +592,22 @@ mod tests {
 			);
 		}
 		assert_eq!(super::discord_timestamp(i64::MAX, b'f'), None);
+	}
+
+	#[test]
+	fn test_custom_timestamps_seconds_toggle_and_clock() {
+		assert!(!super::custom_timestamps_seconds_enabled());
+		let instant = time::OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+		let normal_clock = super::clock(instant);
+		assert_eq!(normal_clock, "22:13");
+
+		super::set_custom_timestamps_seconds_enabled(true);
+		assert!(super::custom_timestamps_seconds_enabled());
+		let with_seconds = super::clock(instant);
+		assert_eq!(with_seconds, "22:13:20");
+
+		super::set_custom_timestamps_seconds_enabled(false);
+		assert!(!super::custom_timestamps_seconds_enabled());
+		assert_eq!(super::clock(instant), "22:13");
 	}
 }

@@ -46,6 +46,18 @@ pub fn spotify_crack_enabled() -> bool {
 	SPOTIFY_CRACK_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// VenSerein (AlwaysExpandProfiles): Always expands profile popouts directly to the full modal.
+pub static ALWAYS_EXPAND_PROFILES_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_always_expand_profiles_enabled(enabled: bool) {
+	ALWAYS_EXPAND_PROFILES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn always_expand_profiles_enabled() -> bool {
+	ALWAYS_EXPAND_PROFILES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub fn set_user_voice_show_enabled(enabled: bool) {
 	USER_VOICE_SHOW_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
@@ -2736,12 +2748,12 @@ impl ProfileSession {
 			self.pending.push(ProfileEffect::ClearCore);
 		}
 		self.reset_card_input();
-		self.full = false;
+		self.full = always_expand_profiles_enabled();
 		self.open = Some(user.clone());
 	}
 
 	pub fn command_open(&mut self, user: User) {
-		self.full = false;
+		self.full = always_expand_profiles_enabled();
 		if self.open.as_ref().is_none_or(|open| open.id != user.id) {
 			self.badges.close();
 			self.reset_card_input();
@@ -5833,5 +5845,31 @@ mod tests {
 		set_spotify_crack_enabled(false);
 		assert!(!fake_profile_themes_enabled());
 		assert!(!spotify_crack_enabled());
+	}
+
+	#[test]
+	fn test_always_expand_profiles_toggle() {
+		assert!(!always_expand_profiles_enabled());
+		let user = model::User {
+			id: Id(123),
+			name: "TestUser".into(),
+			discriminator: 0,
+			avatar: None,
+			kind: model::AccountKind::Human,
+			webhook: false,
+			primary_guild: None,
+			cosmetics: None,
+		};
+		let mut session = ProfileSession::default();
+		session.command_open(user.clone());
+		assert!(!session.full);
+
+		set_always_expand_profiles_enabled(true);
+		assert!(always_expand_profiles_enabled());
+		session.command_open(user);
+		assert!(session.full);
+
+		set_always_expand_profiles_enabled(false);
+		assert!(!always_expand_profiles_enabled());
 	}
 }

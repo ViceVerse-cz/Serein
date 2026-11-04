@@ -529,6 +529,17 @@ impl State {
 		let (hoist, color) = self.display_roles(guild, roles);
 		color.or(hoist)
 	}
+
+	/// VenSerein (ShowBadgesInChat): Returns profile badges for a user if available.
+	pub fn user_profile_badges(&self, user: Id) -> Option<&[model::ProfileBadge]> {
+		self.profile_cache.get_user_badges(user).or_else(|| {
+			self.profile
+				.as_ref()
+				.filter(|p| p.user == user)
+				.and_then(|p| p.data.as_ref())
+				.map(|data| data.badges.as_slice())
+		})
+	}
 	pub fn forum_author_color(
 		&self,
 		channel: Id,
