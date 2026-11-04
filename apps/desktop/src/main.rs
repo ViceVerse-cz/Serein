@@ -1059,6 +1059,10 @@ struct Desktop {
 	maximize_after_show: bool,
 	monitor_geometry: Option<(Option<egui::Rect>, Option<f32>, Option<egui::Vec2>)>,
 	monitor_period: Option<Duration>,
+	/// Where the call window opens; fitted once when it opens.
+	popout_geometry: Option<local_store::WindowGeometry>,
+	/// Fullscreen value already sent to the call window, until the OS reports it back.
+	popout_fullscreen_expected: Option<bool>,
 	frame_metrics: FrameMetrics,
 	#[cfg(feature = "demo")]
 	rendering_demo: Option<rendering_demo::RenderingDemo>,
@@ -2428,6 +2432,8 @@ impl Desktop {
 			maximize_after_show: false,
 			monitor_geometry: None,
 			monitor_period: None,
+			popout_geometry: None,
+			popout_fullscreen_expected: None,
 			frame_metrics: FrameMetrics::new(frame_sample),
 			#[cfg(feature = "demo")]
 			rendering_demo: (demo && std::env::args().any(|arg| arg == "--demo-rendering"))
@@ -5498,6 +5504,142 @@ impl Desktop {
 			.contains(&millihertz)
 			.then(|| Duration::from_secs_f64(1000.0 / f64::from(millihertz)))
 	}
+	/// Hosts the call window: an immediate child viewport drawing the stage and its chat.
+	fn voice_popout_viewport(&mut self, ctx: &egui::Context) -> Vec<Command> {
+		let Some(channel) = self.messaging.voice_popout() else {
+			self.popout_geometry = None;
+			self.popout_fullscreen_expected = None;
+			return Vec::new();
+		};
+		if self.popout_geometry.is_none() {
+			self.popout_geometry = Some(app_settings::fit_popout_geometry(
+				&self.window,
+				self.app_settings.current.voice_popout_geometry,
+			));
+		}
+		let Some(geometry) = self.popout_geometry else {
+			return Vec::new();
+		};
+		let id = egui::ViewportId::from_hash_of("serein-voice-popout");
+		let name = self
+			.state
+			.channel(channel)
+			.map_or_else(|| "Voice".to_owned(), |channel| channel.name.clone());
+		let mut builder = egui::ViewportBuilder::default()
+			.with_title(format!("{name} — Serein"))
+			.with_inner_size([geometry.size[0] as f32, geometry.size[1] as f32])
+			.with_min_inner_size([
+				app_settings::MIN_POPOUT_SIZE[0] as f32,
+				app_settings::MIN_POPOUT_SIZE[1] as f32,
+			])
+			.with_decorations(true)
+			.with_maximized(geometry.maximized);
+		if let Some(position) = geometry.position {
+			let scale = app_settings::popout_scale_factor(&self.window, position) as f32;
+			builder =
+				builder.with_position([position[0] as f32 / scale, position[1] as f32 / scale]);
+		}
+		ctx.show_viewport_immediate(id, builder, |ui, _class| {
+			let ctx = ui.ctx().clone();
+			let viewport = ui.input(|input| input.viewport().clone());
+			if viewport.close_requested() {
+				self.messaging.close_voice_popout();
+				self.popout_geometry = None;
+				ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Close);
+				return Vec::new();
+			}
+			if let Some(fullscreen) = self.messaging.take_voice_popout_fullscreen_request() {
+				ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Fullscreen(fullscreen));
+				self.popout_fullscreen_expected = Some(fullscreen);
+			}
+			if let Some(fullscreen) = viewport.fullscreen {
+				if self.popout_fullscreen_expected == Some(fullscreen) {
+					self.popout_fullscreen_expected = None;
+				} else if self.popout_fullscreen_expected.is_none() {
+					// The OS can leave fullscreen itself; keep the toggle truthful.
+					self.messaging.set_voice_popout_fullscreen(fullscreen);
+				}
+			}
+			let dropped = ui.input_mut(|input| std::mem::take(&mut input.raw.dropped_files));
+			if !dropped.is_empty() {
+				self.accept_dropped_files(&ctx, dropped);
+			}
+			// Keep the last normal geometry: maximized keeps it and flips the flag; fullscreen
+			// and minimized frames change nothing.
+			let sampled = app_settings::sample_popout_geometry(
+				self.app_settings.current.voice_popout_geometry,
+				viewport.inner_rect.map(|inner| {
+					[
+						inner.width().round().max(1.0) as u32,
+						inner.height().round().max(1.0) as u32,
+					]
+				}),
+				viewport
+					.outer_rect
+					.zip(viewport.native_pixels_per_point)
+					.map(|(outer, scale)| {
+						[
+							(outer.min.x * scale).round() as i32,
+							(outer.min.y * scale).round() as i32,
+						]
+					}),
+				viewport.maximized,
+				viewport.fullscreen,
+				viewport.minimized,
+			);
+			if self.app_settings.loaded
+				&& let Some(geometry) = sampled
+				&& geometry.is_valid()
+				&& self.app_settings.current.voice_popout_geometry != Some(geometry)
+			{
+				self.app_settings.current.voice_popout_geometry = Some(geometry);
+				self.app_settings.state.dirty = true;
+			}
+			self.messaging.show_voice_popout(ui, &mut self.state)
+		})
+	}
+	/// Stages dropped files for the selected conversation, or explains why it cannot.
+	fn accept_dropped_files(&mut self, ctx: &egui::Context, dropped: Vec<egui::DroppedFileHandle>) {
+		let upload_allowed = self.state.user.is_some()
+			&& self.state.gateway_connected
+			&& self.state.freshness != model::Freshness::Unavailable;
+		let can_attach = self.state.selected.is_some_and(|channel| {
+			self.state.can_attach(channel) || self.state.can_attach_post(channel)
+		});
+		if self.messaging.accepts_server_emoji_drops() {
+			let paths: Vec<_> = dropped
+				.into_iter()
+				.take(11)
+				.map(|file| file.path().to_path_buf())
+				.collect();
+			if !paths.is_empty() {
+				self.messaging.queue_server_emoji_drop(paths);
+			}
+		} else if upload_allowed
+			&& can_attach
+			&& self.login.is_none()
+			&& !self.confirming_close
+			&& !self.confirming_logout
+			&& !self.messaging.has_edit_in(self.state.selected)
+			&& !self.downloads.is_active()
+			&& let Some(channel) = self.state.selected
+		{
+			if let Err(error) = self.uploads.start_drop(
+				self.state.generation,
+				channel,
+				self.runtime.handle(),
+				ctx,
+				dropped,
+			) {
+				self.messaging.toasts.push(ui::design::Level::Error, error);
+			}
+		} else {
+			self.messaging.toasts.push(
+				ui::design::Level::Error,
+				"File not attached; return to a connected conversation and drop it again",
+			);
+		}
+	}
 }
 impl eframe::App for Desktop {
 	fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
@@ -6033,39 +6175,7 @@ impl eframe::App for Desktop {
 		}
 		// Move native handles once; never load dropped bytes on the rendering thread.
 		if !dropped.is_empty() {
-			if self.messaging.accepts_server_emoji_drops() {
-				let paths: Vec<_> = dropped
-					.into_iter()
-					.take(11)
-					.map(|file| file.path().to_path_buf())
-					.collect();
-				if !paths.is_empty() {
-					self.messaging.queue_server_emoji_drop(paths);
-				}
-			} else if upload_allowed
-				&& can_attach
-				&& self.login.is_none()
-				&& !self.confirming_close
-				&& !self.confirming_logout
-				&& !self.messaging.has_edit_in(self.state.selected)
-				&& !self.downloads.is_active()
-				&& let Some(channel) = self.state.selected
-			{
-				if let Err(error) = self.uploads.start_drop(
-					self.state.generation,
-					channel,
-					self.runtime.handle(),
-					&ctx,
-					dropped,
-				) {
-					self.messaging.toasts.push(ui::design::Level::Error, error);
-				}
-			} else {
-				self.messaging.toasts.push(
-					ui::design::Level::Error,
-					"File not attached; return to a connected conversation and drop it again",
-				);
-			}
+			self.accept_dropped_files(&ctx, dropped);
 		}
 		// Offline fixtures may stage a synthetic attachment without any upload selection.
 		if !self.state.demo || self.uploads.selection().is_some() {
@@ -6295,6 +6405,7 @@ impl eframe::App for Desktop {
 				self.messaging.notification_sound_status = "Could not save device notification settings. Changes apply only until restart.";
 			}
 			let mut commands = self.messaging.show(ui, &mut self.state);
+			commands.extend(self.voice_popout_viewport(&ctx));
 			self.extensions.cancel_stale_message_events(&self.state);
 			self.choose_interaction_files(&ctx);
 			if let Some(command) = self.captcha.sync(

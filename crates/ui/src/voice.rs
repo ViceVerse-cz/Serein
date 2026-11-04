@@ -44,6 +44,14 @@ impl MessagingUi {
 		self.voice_popout_fullscreen_request.take()
 	}
 
+	/// Reconciles the toggle with fullscreen the OS entered or left on its own.
+	pub fn set_voice_popout_fullscreen(&mut self, fullscreen: bool) {
+		self.voice_popout_fullscreen = fullscreen;
+		if !fullscreen {
+			self.voice_popout_fullscreen_request = None;
+		}
+	}
+
 	/// Dock the stage back into the main window without navigating.
 	pub fn close_voice_popout(&mut self) {
 		self.voice_popout = None;
