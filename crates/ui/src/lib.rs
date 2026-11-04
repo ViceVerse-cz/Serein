@@ -5461,6 +5461,12 @@ impl MessagingUi {
 		if let Some(command) = state.request_thread_starter() {
 			commands.push(command);
 		}
+		// A visible thread card reads its latest message once; the state bounds the request.
+		if let Some(message) = self.timeline.thread_preview_request.take()
+			&& let Some(command) = state.request_thread_preview(message)
+		{
+			commands.push(command);
+		}
 		if let Some(channel) = self.archives.create_requested.take() {
 			// The editor replaces the Threads dialog instead of stacking on it.
 			commands.push(state.clear_archives());
