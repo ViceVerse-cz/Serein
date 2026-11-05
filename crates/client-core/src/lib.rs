@@ -2507,7 +2507,8 @@ impl State {
 			if self
 				.voice
 				.viewer_fetch_request
-				.is_some_and(|(pending, _)| pending == request)
+				.as_ref()
+				.is_some_and(|(pending, _)| *pending == request)
 			{
 				self.voice.viewer_fetch_request = None;
 			}
