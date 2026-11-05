@@ -352,6 +352,9 @@ pub struct MessagingUi {
 	pub custom_font: fonts::Settings,
 	/// Which GPU renders the window; the running adapter only changes on restart.
 	pub gpu_preference: model::GpuPreference,
+	/// Device preference: repaint every display refresh while focused, so variable refresh rate
+	/// displays hold one rate instead of flickering.
+	pub steady_refresh_rate: bool,
 	/// Adapter currently in use, shown next to the preference for bug reports.
 	pub gpu_adapter: String,
 	pub reading_status: &'static str,

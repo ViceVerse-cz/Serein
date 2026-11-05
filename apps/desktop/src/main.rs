@@ -1018,6 +1018,8 @@ impl SessionEnd {
 		self == Self::Logout
 	}
 }
+/// Window placement, scale, monitor size and focus; any change re-reads the monitor's refresh rate.
+type MonitorKey = (Option<egui::Rect>, Option<f32>, Option<egui::Vec2>, bool);
 struct Desktop {
 	proxy_auth: proxy_auth::Authentication,
 	api_proxy: tokio::sync::watch::Sender<Option<discord_api::proxy::ApiProxy>>,
@@ -1057,7 +1059,7 @@ struct Desktop {
 	cached_history_request: Option<(model::Id, u64)>,
 	/// The saved maximized state still has to be re-applied once the window is shown.
 	maximize_after_show: bool,
-	monitor_geometry: Option<(Option<egui::Rect>, Option<f32>, Option<egui::Vec2>)>,
+	monitor_geometry: Option<MonitorKey>,
 	monitor_period: Option<Duration>,
 	frame_metrics: FrameMetrics,
 	/// The minimum last handed to winit; applying an unchanged one forces a frame on Windows.
@@ -1912,6 +1914,11 @@ impl Desktop {
 		if demo && std::env::args().any(|arg| arg == "--demo-game-activity") {
 			messaging.share_game_activity = true;
 			messaging.own_game = Some("Playing osu!".into());
+		}
+		// `--demo-steady-refresh`: the steady refresh setting starts on, for frame-cadence samples.
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-steady-refresh") {
+			messaging.steady_refresh_rate = true;
 		}
 		// `--demo-call-stream`: the direct-message peer shares a synthetic screen this device is
 		// watching, so the stream stage renders offline without any capture or network.
@@ -5595,12 +5602,14 @@ impl eframe::App for Desktop {
 				self.app_settings.state.dirty = true;
 			}
 		}
-		// Monitor size also detects Wayland moves without a global window position.
+		// Monitor size also detects Wayland moves without a global window position. A focus change
+		// re-reads the refresh rate as well: display settings change it without moving the window.
 		if let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id) {
 			let geometry = (
 				viewport.outer_rect,
 				viewport.native_pixels_per_point,
 				viewport.monitor_size,
+				raw_input.focused,
 			);
 			if self.monitor_geometry != Some(geometry) {
 				self.monitor_geometry = Some(geometry);
@@ -5949,6 +5958,18 @@ impl eframe::App for Desktop {
 			// Speaking, notices, remote video, devices, hotkeys and deadlines each wake the UI
 			// themselves; this heartbeat only bounds a missed wake, so a call does not repaint at 20 Hz.
 			ctx.request_repaint_after(std::time::Duration::from_secs(1));
+		}
+		// Variable refresh rate displays follow the focused window's presents, so redrawing only on
+		// change swings them between their limits and flickers (#889). The opt-in steady rate asks
+		// for the next frame within half a refresh: a Fifo present blocks until the next refresh
+		// anyway, and a surface that stops blocking (locked or occluded) cannot spin a core.
+		if self.messaging.steady_refresh_rate
+			&& ctx.input(|input| {
+				input.focused
+					&& input.viewport().minimized != Some(true)
+					&& input.viewport().occluded != Some(true)
+			}) {
+			ctx.request_repaint_after(self.frame_period().unwrap_or(Duration::from_millis(16)) / 2);
 		}
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
