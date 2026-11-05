@@ -729,6 +729,8 @@ impl ClientState {
 			&& call.request == request
 			&& call.phase != Phase::Failed
 		{
+			self.voice.audience = None;
+			self.voice.viewer_fetch_request = None;
 			call.phase = Phase::Connecting;
 			call.camera = false;
 			call.watching = None;
@@ -2312,6 +2314,48 @@ mod tests {
 			state.apply_stream_viewer_users(7, vec![(Id(2), None)]);
 			assert!(state.voice.audience.is_none());
 		}
+	}
+
+	#[test]
+	fn canceled_viewer_reads_retry_after_resume_and_media_loss_clears_audience() {
+		let mut state = stream_preview_state();
+		state.start_call(Id(20), false).unwrap();
+		let request = state.voice.active.as_ref().unwrap().request;
+		state.apply_voice(Event::Stream {
+			channel: Id(20),
+			request,
+			stream_request: 7,
+			event: screen::Event::Viewers {
+				count: 2,
+				ids: vec![Id(2), Id(3)],
+			},
+		});
+		assert!(state.request_stream_viewer_users(&[Id(2)]).is_some());
+		state.apply_stream_viewer_users(7, vec![(Id(2), None)]);
+		assert!(state.request_stream_viewer_users(&[Id(3)]).is_some());
+		state.apply(crate::Envelope {
+			generation: state.generation,
+			event: crate::Event::Disconnected,
+		});
+		assert!(state.voice.viewer_fetch_request.is_none());
+		state.apply(crate::Envelope {
+			generation: state.generation,
+			event: crate::Event::Resumed,
+		});
+		let Some(crate::Command::StreamViewerUsers { users, .. }) =
+			state.request_stream_viewer_users(&[Id(2), Id(3)])
+		else {
+			panic!("canceled viewer read was not retried");
+		};
+		assert_eq!(users, [Id(3)]);
+		state.reconnect_call(request + 1, 1, "Stale reconnect");
+		assert!(state.voice.audience.is_some());
+		assert!(state.voice.viewer_fetch_request.is_some());
+		state.reconnect_call(request, 1, "Synthetic media loss");
+		assert!(state.voice.audience.is_none());
+		assert!(state.voice.viewer_fetch_request.is_none());
+		assert!(state.rejoin_call().is_some());
+		assert!(state.audience().is_empty());
 	}
 
 	fn dm_state() -> ClientState {

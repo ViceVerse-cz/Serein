@@ -36,6 +36,7 @@ use client_core::{
 	auth::{AuthProvider, Failure, SessionSecret},
 };
 use discord_protocol::*;
+use futures_util::StreamExt;
 use model::{Id, User};
 use reqwest::{
 	Client, Method, StatusCode,
@@ -1523,9 +1524,11 @@ impl DiscordApi {
 			Command::StreamViewerUsers { request, users } => {
 				// Optional identity failures preserve fallback rows; authentication failures
 				// remain global even when another concurrent read has already stopped the API.
-				let reads = futures_util::future::join_all(users.into_iter().map(|user| async move {
-					(user, self.user_identity(user).await)
-				})).await;
+				let reads: Vec<_> = futures_util::stream::iter(users)
+					.map(|user| async move { (user, self.user_identity(user).await) })
+					.buffered(FOREGROUND_PERMITS)
+					.collect()
+					.await;
 				if let Some(failure) = reads.iter().find_map(|(_, result)| {
 					result.as_ref().err().copied().filter(|failure| {
 						failure.ends_session() && *failure != Failure::Capacity
@@ -3218,6 +3221,36 @@ mod tests {
             server.await.unwrap();
         }).await.unwrap();
 	}
+	#[tokio::test]
+	async fn viewer_identity_batch_leaves_permits_for_message_requests() {
+		tokio::time::timeout(Duration::from_secs(5), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_VIEWER_TOKEN".into()).unwrap(),
+			)).unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let api = Arc::new(api);
+			let worker_api = api.clone();
+			let worker = tokio::spawn(async move {
+				worker_api.execute(Command::StreamViewerUsers {
+					request: 7,
+					users: (1..=8).map(Id).collect(),
+				}).await
+			});
+			// Keep the first reads pending; the rest of the roster must not take permits.
+			let mut sockets = Vec::new();
+			for _ in 0..FOREGROUND_PERMITS {
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut buffer = [0; 4096];
+				assert!(socket.read(&mut buffer).await.unwrap() > 0);
+				sockets.push(socket);
+			}
+			assert_eq!(api.requests.available_permits(), FOREGROUND_PERMITS);
+			worker.abort();
+			assert!(matches!(worker.await, Err(error) if error.is_cancelled()));
+		}).await.unwrap();
+	}
+
 	#[tokio::test]
 	async fn viewer_identity_expiry_is_global_but_optional_failures_keep_fallbacks() {
 		tokio::time::timeout(Duration::from_secs(5), async {

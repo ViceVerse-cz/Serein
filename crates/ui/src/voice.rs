@@ -1321,7 +1321,7 @@ impl MessagingUi {
 		state: &State,
 		rect: egui::Rect,
 		compact: bool,
-		/// Right inset for the viewer chip: fullscreen reserves room for its exit button.
+		// Right inset for the viewer chip: fullscreen reserves room for its exit button.
 		viewer_inset: f32,
 	) {
 		let content = self

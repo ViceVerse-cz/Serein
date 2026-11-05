@@ -4078,9 +4078,14 @@ impl State {
 				// The voice socket is independent and a RESUME replays roster changes, so the call,
 				// roster and known DM calls all stay. Only a fresh READY invalidates the voice state.
 				self.voice.incoming = None;
-				// The transport worker owning this read was dropped with the connection; release
-				// the marker so the restored session can resolve any still-listed viewers.
-				self.voice.viewer_fetch_request = None;
+				// The transport worker was dropped before reporting these reads. Retry only
+				// that canceled batch; completed failures remain suppressed for this roster.
+				if let Some((request, users)) = self.voice.viewer_fetch_request.take()
+					&& let Some(audience) = self.voice.audience.as_mut()
+					&& audience.stream_request == request
+				{
+					audience.attempted.retain(|id| !users.contains(id));
+				}
 				if std::mem::replace(&mut self.gateway_connected, false) {
 					self.cancel_history();
 					self.freshness = Freshness::Stale;
