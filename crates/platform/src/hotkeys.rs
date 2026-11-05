@@ -1481,7 +1481,9 @@ mod poller {
 				let _ = api.refresh_devices();
 				device = open_pad(&api);
 				silent = 0;
-				streaming = false;
+				// Buttons carried over from a stopped reader are unconfirmed until this
+				// device reports, so they expire on silence like a streaming pad's.
+				streaming = mask.load(Ordering::Relaxed) != 0;
 				if device.is_none() {
 					// No pad to read: release anything the last reader left held.
 					mask.store(0, Ordering::Relaxed);
