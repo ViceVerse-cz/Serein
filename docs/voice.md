@@ -43,6 +43,17 @@ At most 64 custom levels are retained; a full table replaces its first retained 
 Nothing is sent to Discord. Boosting may clip; physical listening and
 native slider interaction remain unverified.
 
+While signed in, Serein also serves that same local mixer to JokelMixer on
+`127.0.0.1:6890`. The deck can set another person's playback from 0% to 200%, locally
+mute them, and mute or deafen this client. Requests must come from loopback, carry
+`X-DVM-Bridge: 1`, and must not send an `Origin` header. At most four connections and
+250 state events are retained, all in memory; signing out closes the port. Per-person
+levels still use the saved device preferences above. Mute and deafen in an active call
+are the normal call updates. This does not start a call or open a microphone. Live
+Stream Deck behavior is unverified.
+
+
+
 Guild voice participant menus also offer **Server mute / Server unmute**, **Move to**,
 and **Disconnect** when the account has the corresponding channel permissions.
 Sidebar participants can be dragged onto another available voice channel; the Move to

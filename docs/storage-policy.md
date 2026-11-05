@@ -1,5 +1,16 @@
 # Local storage policy and audit
 
+## JokelMixer bridge (November 5, 2026)
+
+The signed-in desktop process listens on `127.0.0.1:6890` only. The event ring holds at
+most 250 JSON events and the command queue holds 32 writes; both live in process memory
+and are cleared when the listener stops. Sign-out drops the socket. Nothing is written
+to SQLite or the credential store. Diagnostics records only three fixed lines: listening,
+stopped, and a dropped command when the queue is full. Per-person volumes and local mutes
+continue to use the existing device-preference fields. Request bodies are capped at 16 KiB
+and headers at 8 KiB. A missing `X-DVM-Bridge: 1` header, a non-loopback `Host`, or any
+`Origin` header is refused before a call is touched.
+
 ## Typing indicators (October 23, 2026)
 
 Typing stays in session RAM: eight selected-channel typists, sixteen direct-conversation

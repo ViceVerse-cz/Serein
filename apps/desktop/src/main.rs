@@ -34,6 +34,7 @@ mod gpu;
 mod gpu_video;
 mod group_icon;
 mod interaction_uploads;
+mod jokelmixer;
 mod notification_runtime;
 mod notification_sounds;
 #[cfg(feature = "demo")]
@@ -1067,6 +1068,7 @@ struct Desktop {
 	avatar_clear_account: Option<model::Id>,
 	avatar_cleanup: Option<std::sync::mpsc::Receiver<Result<(), &'static str>>>,
 	voice: voice::Voice,
+	jokelmixer: jokelmixer::Bridge,
 	runtime: tokio::runtime::Runtime,
 	store: Option<credentials::Store>,
 	cache: Option<cache::Cache>,
@@ -2337,6 +2339,9 @@ impl Desktop {
 			state.guilds[0].default_message_notifications = Some(1);
 			messaging.preview_server_notifications(&mut state, guild);
 		}
+		let wake = cc.egui_ctx.clone();
+		let jokelmixer =
+			jokelmixer::Bridge::start(runtime.handle(), move || wake.request_repaint());
 		let mut hotkeys = platform::hotkeys::Hotkeys::new({
 			let ctx = cc.egui_ctx.clone();
 			move || ctx.request_repaint()
@@ -2437,6 +2442,7 @@ impl Desktop {
 			avatar_start_failed: false,
 			avatar_clear_account: None,
 			voice: voice::Voice::default(),
+			jokelmixer,
 			runtime,
 			store,
 			cache,
@@ -4694,6 +4700,28 @@ impl Desktop {
 			}
 		}
 	}
+	fn drain_jokelmixer(&mut self) {
+		for _ in 0..32 {
+			let Some(command) = self.jokelmixer.poll() else {
+				break;
+			};
+			match command {
+				jokelmixer::MixerCommand::SelfVoice { mute, deaf } => {
+					let (muted, deafened) = self.messaging.apply_mixer_self_voice(mute, deaf);
+					if let Some(command) = self.state.set_call_mute(muted, deafened)
+						&& !self.state.demo
+						&& !self.fixture_only
+					{
+						self.command(command);
+					}
+				}
+				jokelmixer::MixerCommand::User { id, volume, muted } => {
+					self.messaging
+						.apply_mixer_user(model::Id(id), volume, muted);
+				}
+			}
+		}
+	}
 	fn poll_voice(&mut self, ctx: &egui::Context) {
 		if let Some(command) =
 			self.voice
@@ -5923,11 +5951,14 @@ impl eframe::App for Desktop {
 		);
 		self.messaging.voice_ptm_active = self.state.voice.active.is_some()
 			&& (self.messaging.push_to_mute_down(ctx) || self.hotkeys.push_to_mute_down());
+		self.drain_jokelmixer();
 		if self.state.auth == AuthState::Authenticated || self.state.demo {
 			self.poll_voice(ctx);
 		} else {
 			self.voice.stop();
 		}
+		self.jokelmixer
+			.publish(jokelmixer::Snapshot::capture(&self.state, &self.messaging));
 		self.sync_tray(ctx);
 		if self.state.voice.active.is_some() {
 			// Speaking, notices, remote video, devices, hotkeys and deadlines each wake the UI

@@ -179,6 +179,15 @@ impl MessagingUi {
 		}
 	}
 
+	/// Saved playback percent for one person, 0–200. A local mute does not change this;
+	/// the mixer still applies zero gain while that mute is set.
+	pub fn voice_user_volume_percent(&self, user: Id) -> u16 {
+		self.voice_user_volumes
+			.as_deref()
+			.and_then(|values| values.iter().find(|(id, _)| *id == user.0))
+			.map_or(100, |(_, volume)| (*volume).min(200))
+	}
+
 	/// Non-default volume overrides, for persistence to device settings.
 	pub fn voice_user_volume_overrides(&self) -> Vec<(u64, u16)> {
 		self.voice_user_volumes
@@ -226,6 +235,44 @@ impl MessagingUi {
 				63
 			});
 		values[index] = (user.0, volume);
+	}
+
+	/// Absolute mute and deafen from JokelMixer. Omitted fields keep the current choice.
+	/// Returns the resulting pair so the desktop can push it into the active call.
+	pub fn apply_mixer_self_voice(
+		&mut self,
+		mute: Option<bool>,
+		deaf: Option<bool>,
+	) -> (bool, bool) {
+		let before = (self.voice_muted, self.voice_deafened);
+		if let Some(mute) = mute {
+			self.voice_muted = mute;
+		}
+		if let Some(deaf) = deaf {
+			self.voice_deafened = deaf;
+		}
+		let after = (self.voice_muted, self.voice_deafened);
+		if after.1 != before.1 {
+			self.queue_voice_toggle_cue(true, after.1);
+		}
+		if after.0 != before.0 {
+			self.queue_voice_toggle_cue(false, after.0);
+		}
+		after
+	}
+
+	/// One person's local playback from JokelMixer. Volume is a percent, 0–200.
+	/// Mute is this device only and does not replace the saved percent.
+	pub fn apply_mixer_user(&mut self, user: Id, volume: Option<u16>, muted: Option<bool>) {
+		if user.0 == 0 {
+			return;
+		}
+		if let Some(volume) = volume {
+			self.set_voice_user_volume(user, volume.min(200));
+		}
+		if let Some(muted) = muted {
+			self.set_voice_user_locally_muted(user, muted);
+		}
 	}
 
 	fn voice_participant_menu(
