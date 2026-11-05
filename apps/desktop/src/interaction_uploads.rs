@@ -100,6 +100,7 @@ impl Desktop {
 			self.runtime.handle(),
 			ctx,
 			self.window.clone(),
+			false,
 		) {
 			self.state.interactions.error = Some(error);
 		}

@@ -653,6 +653,7 @@ impl Uploads {
 		runtime: &tokio::runtime::Handle,
 		context: &egui::Context,
 		parent: Arc<winit::window::Window>,
+		popout: bool,
 	) -> Result<(), &'static str> {
 		// One native picker at a time; loading selections may continue behind it.
 		if !self.accepting()
@@ -666,6 +667,9 @@ impl Uploads {
 		// Construct on the native UI thread; await and inspect outside rendering.
 		let dialog = platform::save::attachment_source(parent);
 		self.start_selection(generation, channel, runtime, context, 0, dialog);
+		if let Some(batch) = self.choosing.last_mut() {
+			batch.popout = popout;
+		}
 		Ok(())
 	}
 	pub fn start_drop(

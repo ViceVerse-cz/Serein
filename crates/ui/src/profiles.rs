@@ -2607,6 +2607,11 @@ impl ProfileSession {
 		}
 	}
 
+	/// Forgets where the card was placed, so the next draw anchors at the current pointer.
+	pub fn reset_anchor(&mut self) {
+		self.anchor = None;
+	}
+
 	pub fn disarm(&mut self) {
 		self.trigger = None;
 	}

@@ -5674,6 +5674,8 @@ impl Desktop {
 		} else if upload_allowed
 			&& can_attach
 			&& self.login.is_none()
+			// The composer is the call window's while it owns the chat; this window has none.
+			&& (popout || !self.messaging.voice_popout_takes_drops(&self.state))
 			&& !self.confirming_close
 			&& !self.confirming_logout
 			&& !self.messaging.has_edit_in(self.state.selected)
@@ -6683,6 +6685,7 @@ impl eframe::App for Desktop {
 					);
 				}
 			}
+			let attach_in_popout = self.messaging.take_attach_in_popout();
 			if std::mem::take(&mut self.messaging.attach_requested)
 				&& let Some(channel) = self.state.selected
 				&& (self.state.can_attach(channel) || self.state.can_attach_post(channel))
@@ -6692,6 +6695,7 @@ impl eframe::App for Desktop {
 					self.runtime.handle(),
 					&ctx,
 					self.window.clone(),
+					attach_in_popout,
 				) {
 				self.state.status = error;
 			}

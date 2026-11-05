@@ -487,6 +487,8 @@ pub struct MessagingUi {
 	profile_in_popout: bool,
 	/// The pending link confirmation was opened from the call window, so that window draws it.
 	popout_links: bool,
+	/// The pending file picker request came from the call window's composer.
+	attach_in_popout: bool,
 	/// Set during the call window's stage pass when Escape belongs to a dialog, picker or
 	/// fullscreen, so the stage keeps its enlarged tile.
 	voice_stage_escape_held: bool,
@@ -4899,6 +4901,7 @@ impl MessagingUi {
 		// A chat link to an unloaded thread opens once its bounded channel read admits it.
 		commands.extend(state.resolve_pending_link());
 		let profile_before = self.profile.open_requests();
+		let attach_before = self.attach_requested;
 		let links_before = (
 			self.timeline.opening.clone(),
 			self.timeline.browser_opening.clone(),
@@ -5837,9 +5840,16 @@ impl MessagingUi {
 		if !self.voice_popout_owns_chat(state) {
 			self.conversation_overlays(ui, state, &mut commands);
 		}
-		// A card opened or reopened from this window comes back here from the call window.
+		// A card opened or reopened from this window comes back here from the call window,
+		// and is placed at this window's pointer rather than where the other one put it.
 		if self.profile.open_requests() != profile_before {
+			if self.profile_in_popout {
+				self.profile.reset_anchor();
+			}
 			self.profile_in_popout = false;
+		}
+		if self.attach_requested && !attach_before {
+			self.attach_in_popout = false;
 		}
 		// So does a link confirmation this window asked for; the newest request wins the slot.
 		if (self.timeline.opening != links_before.0 && self.timeline.opening.is_some())

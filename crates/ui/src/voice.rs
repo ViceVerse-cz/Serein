@@ -77,6 +77,11 @@ impl MessagingUi {
 		}
 	}
 
+	/// Takes the origin of the pending picker request: true when the call window asked.
+	pub fn take_attach_in_popout(&mut self) -> bool {
+		std::mem::take(&mut self.attach_in_popout)
+	}
+
 	/// Dock the stage back into the main window without navigating.
 	pub fn close_voice_popout(&mut self) {
 		self.voice_popout = None;
@@ -149,6 +154,7 @@ impl MessagingUi {
 			|| self.voice_popout_fullscreen
 			|| ui.ctx().memory(|memory| memory.top_modal_layer().is_some());
 		let profile_before = self.profile.open_requests();
+		let attach_before = self.attach_requested;
 		let links_before = (
 			self.timeline.opening.clone(),
 			self.timeline.browser_opening.clone(),
@@ -196,7 +202,13 @@ impl MessagingUi {
 				}
 			});
 		// Cards and link dialogs open in the window whose pointer last asked for them.
+		if self.attach_requested && !attach_before {
+			self.attach_in_popout = true;
+		}
 		if self.profile.open_requests() != profile_before && self.profile.open_user().is_some() {
+			if !self.profile_in_popout {
+				self.profile.reset_anchor();
+			}
 			self.profile_in_popout = true;
 		}
 		if (self.timeline.opening != links_before.0
