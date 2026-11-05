@@ -111,7 +111,9 @@ struct Viewer(Option<Id>);
 impl<'de> serde::Deserialize<'de> for Viewer {
 	fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
 		struct Element;
-		impl serde::de::Visitor<'_> for Element {
+		// The visitor declares its own `'de`; an anonymous `Visitor<'_>` cannot name the
+		// lifetime its `visit_some`/`visit_map`/`visit_seq` signatures need.
+		impl<'de> serde::de::Visitor<'de> for Element {
 			type Value = Viewer;
 			fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 				f.write_str("a Discord ID string")
@@ -128,7 +130,7 @@ impl<'de> serde::Deserialize<'de> for Viewer {
 			fn visit_none<E: serde::de::Error>(self) -> Result<Viewer, E> {
 				Ok(Viewer(None))
 			}
-			fn visit_some<D: for<'de> serde::Deserializer<'de>>(
+			fn visit_some<D: serde::Deserializer<'de>>(
 				self,
 				deserializer: D,
 			) -> Result<Viewer, D::Error> {
@@ -145,7 +147,7 @@ impl<'de> serde::Deserialize<'de> for Viewer {
 			fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<Viewer, E> {
 				Ok(Viewer(None))
 			}
-			fn visit_map<A: for<'de> serde::de::MapAccess<'de>>(
+			fn visit_map<A: serde::de::MapAccess<'de>>(
 				self,
 				mut map: A,
 			) -> Result<Viewer, A::Error> {
@@ -155,7 +157,7 @@ impl<'de> serde::Deserialize<'de> for Viewer {
 				{}
 				Ok(Viewer(None))
 			}
-			fn visit_seq<A: for<'de> serde::de::SeqAccess<'de>>(
+			fn visit_seq<A: serde::de::SeqAccess<'de>>(
 				self,
 				mut seq: A,
 			) -> Result<Viewer, A::Error> {
