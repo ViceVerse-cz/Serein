@@ -243,6 +243,7 @@ pub fn maximize_after_show(window: &winit::window::Window) -> bool {
 pub fn update_window_minimum(
 	window: &winit::window::Window,
 	monitor: &winit::monitor::MonitorHandle,
+	applied: &mut Option<winit::dpi::PhysicalSize<u32>>,
 ) {
 	let available = monitor.size();
 	if available.width == 0 || available.height == 0 {
@@ -250,14 +251,63 @@ pub fn update_window_minimum(
 	}
 	let inner = window.inner_size();
 	let outer = window.outer_size();
-	window.set_min_inner_size(Some(window_minimum(
+	let minimum = window_minimum(
 		available,
 		[
 			outer.width.saturating_sub(inner.width),
 			outer.height.saturating_sub(inner.height),
 		],
 		monitor.scale_factor(),
-	)));
+	);
+	// Windows applies a minimum synchronously and invalidates the whole window, so a redundant
+	// call forces a frame; this runs whenever the window rectangle changes, including a drag.
+	if *applied == Some(minimum) {
+		return;
+	}
+	window.set_min_inner_size(Some(minimum));
+	*applied = Some(minimum);
+}
+
+/// A placement must stay put this long before it is saved; a drag samples a new one per frame.
+pub const GEOMETRY_REST_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Observation {
+	/// The saved placement already matches the sample.
+	Saved,
+	/// A first sample; an equal second one commits it.
+	Pending,
+	/// Two equal samples, so the window is at rest and the sample can be saved.
+	Commit,
+}
+
+/// Saves a window placement only once two consecutive samples agree.
+#[derive(Default)]
+pub struct GeometryRest {
+	pending: Option<local_store::WindowGeometry>,
+}
+
+impl GeometryRest {
+	pub fn observe(
+		&mut self,
+		sampled: local_store::WindowGeometry,
+		saved: Option<local_store::WindowGeometry>,
+	) -> Observation {
+		if saved == Some(sampled) {
+			self.pending = None;
+			return Observation::Saved;
+		}
+		if self.pending == Some(sampled) {
+			self.pending = None;
+			return Observation::Commit;
+		}
+		self.pending = Some(sampled);
+		Observation::Pending
+	}
+	/// The last sample, for a window that closes or hides before it could rest.
+	pub fn take_pending(&mut self) -> Option<local_store::WindowGeometry> {
+		self.pending.take()
+	}
 }
 
 fn window_minimum(
@@ -459,5 +509,31 @@ mod tests {
 			ui.voice_processing.effective().suppression,
 			model::voice_settings::NoiseSuppression::Off
 		);
+	}
+
+	#[test]
+	fn window_geometry_is_saved_only_after_it_rests() {
+		let mut rest = GeometryRest::default();
+		let placed = local_store::WindowGeometry {
+			size: [1120, 760],
+			position: Some([100, 100]),
+			maximized: false,
+		};
+		let mut moving = placed;
+		for step in 0..8 {
+			moving.position = Some([100 + step * 7, 100]);
+			assert_eq!(rest.observe(moving, None), Observation::Pending);
+		}
+		assert_eq!(rest.observe(placed, Some(placed)), Observation::Saved);
+		assert_eq!(rest.take_pending(), None);
+
+		assert_eq!(rest.observe(placed, None), Observation::Pending);
+		assert_eq!(rest.observe(placed, None), Observation::Commit);
+		assert_eq!(rest.observe(placed, Some(placed)), Observation::Saved);
+		assert_eq!(rest.take_pending(), None);
+
+		assert_eq!(rest.observe(moving, None), Observation::Pending);
+		assert_eq!(rest.take_pending(), Some(moving));
+		assert_eq!(rest.take_pending(), None);
 	}
 }

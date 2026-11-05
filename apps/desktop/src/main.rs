@@ -1060,6 +1060,10 @@ struct Desktop {
 	monitor_geometry: Option<(Option<egui::Rect>, Option<f32>, Option<egui::Vec2>)>,
 	monitor_period: Option<Duration>,
 	frame_metrics: FrameMetrics,
+	/// The minimum last handed to winit; applying an unchanged one forces a frame on Windows.
+	window_minimum: Option<winit::dpi::PhysicalSize<u32>>,
+	/// A sampled placement waiting for a second, equal sample before it is saved.
+	geometry_rest: app_settings::GeometryRest,
 	#[cfg(feature = "demo")]
 	rendering_demo: Option<rendering_demo::RenderingDemo>,
 	avatars: Option<avatars::AvatarWorker>,
@@ -2429,6 +2433,8 @@ impl Desktop {
 			monitor_geometry: None,
 			monitor_period: None,
 			frame_metrics: FrameMetrics::new(frame_sample),
+			window_minimum: None,
+			geometry_rest: app_settings::GeometryRest::default(),
 			#[cfg(feature = "demo")]
 			rendering_demo: (demo && std::env::args().any(|arg| arg == "--demo-rendering"))
 				.then(rendering_demo::RenderingDemo::default),
@@ -5509,7 +5515,7 @@ impl Desktop {
 	}
 	fn refresh_monitor(&mut self) -> Option<Duration> {
 		let monitor = self.window.current_monitor()?;
-		app_settings::update_window_minimum(&self.window, &monitor);
+		app_settings::update_window_minimum(&self.window, &monitor, &mut self.window_minimum);
 		let millihertz = monitor.refresh_rate_millihertz()?;
 		(1_000..=1_000_000)
 			.contains(&millihertz)
@@ -5574,7 +5580,24 @@ impl eframe::App for Desktop {
 					maximized: false,
 				}
 			};
-			if geometry.is_valid() && self.app_settings.current.window_geometry != Some(geometry) {
+			if geometry.is_valid() {
+				match self
+					.geometry_rest
+					.observe(geometry, self.app_settings.current.window_geometry)
+				{
+					app_settings::Observation::Saved => {}
+					app_settings::Observation::Pending => {
+						ctx.request_repaint_after(app_settings::GEOMETRY_REST_DELAY);
+					}
+					app_settings::Observation::Commit => {
+						self.app_settings.current.window_geometry = Some(geometry);
+						self.app_settings.state.dirty = true;
+					}
+				}
+			}
+		} else if !self.fixture_only && !self.state.demo && self.app_settings.loaded {
+			// A window that closes or hides before it rests still keeps its last placement.
+			if let Some(geometry) = self.geometry_rest.take_pending() {
 				self.app_settings.current.window_geometry = Some(geometry);
 				self.app_settings.state.dirty = true;
 			}
