@@ -269,6 +269,82 @@ pub fn pick_random_voice_channel(state: &State, guild_id: Id) -> Option<Id> {
 		.as_millis() as usize;
 	Some(voice_channels[now % voice_channels.len()])
 }
+
+/// VenSerein (CustomSounds): Allows custom soundpack sound effects for voice call events.
+pub static CUSTOM_SOUNDS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn custom_sounds_enabled() -> bool {
+	CUSTOM_SOUNDS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_custom_sounds_enabled(enabled: bool) {
+	CUSTOM_SOUNDS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (ExitSounds): Plays customizable disconnect sound when leaving a voice channel.
+pub static EXIT_SOUNDS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn exit_sounds_enabled() -> bool {
+	EXIT_SOUNDS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_exit_sounds_enabled(enabled: bool) {
+	EXIT_SOUNDS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (VoiceJoinMessages): Displays toast notifications when friends join voice channels.
+pub static VOICE_JOIN_MESSAGES_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn voice_join_messages_enabled() -> bool {
+	VOICE_JOIN_MESSAGES_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_voice_join_messages_enabled(enabled: bool) {
+	VOICE_JOIN_MESSAGES_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (VoiceChatUtilities): Handy utilities in voice channels (copy voice link, ping VC, reset audio).
+pub static VOICE_CHAT_UTILITIES_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn voice_chat_utilities_enabled() -> bool {
+	VOICE_CHAT_UTILITIES_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_voice_chat_utilities_enabled(enabled: bool) {
+	VOICE_CHAT_UTILITIES_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (MicLoopbackTester): Adds local microphone loopback test button to verify input audio and latency.
+pub static MIC_LOOPBACK_TESTER_ENABLED: AtomicBool = AtomicBool::new(false);
+static MIC_LOOPBACK_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn mic_loopback_tester_enabled() -> bool {
+	MIC_LOOPBACK_TESTER_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_mic_loopback_tester_enabled(enabled: bool) {
+	MIC_LOOPBACK_TESTER_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn mic_loopback_active() -> bool {
+	MIC_LOOPBACK_ACTIVE.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_mic_loopback_active(active: bool) {
+	MIC_LOOPBACK_ACTIVE.store(active, Ordering::Relaxed);
+}
 use crate::design::LazyHover;
 use crate::{MessagingUi, design};
 use client_core::{
@@ -6590,6 +6666,37 @@ mod tests {
 		set_random_voice_enabled(false);
 		assert!(!random_voice_enabled());
 		set_random_voice_enabled(true);
+	}
+
+	#[test]
+	fn test_venserein_phase3_batch2_voice_toggles() {
+		assert!(!custom_sounds_enabled());
+		set_custom_sounds_enabled(true);
+		assert!(custom_sounds_enabled());
+		set_custom_sounds_enabled(false);
+
+		assert!(exit_sounds_enabled());
+		set_exit_sounds_enabled(false);
+		assert!(!exit_sounds_enabled());
+		set_exit_sounds_enabled(true);
+
+		assert!(voice_join_messages_enabled());
+		set_voice_join_messages_enabled(false);
+		assert!(!voice_join_messages_enabled());
+		set_voice_join_messages_enabled(true);
+
+		assert!(voice_chat_utilities_enabled());
+		set_voice_chat_utilities_enabled(false);
+		assert!(!voice_chat_utilities_enabled());
+		set_voice_chat_utilities_enabled(true);
+
+		assert!(!mic_loopback_tester_enabled());
+		set_mic_loopback_tester_enabled(true);
+		assert!(mic_loopback_tester_enabled());
+		set_mic_loopback_active(true);
+		assert!(mic_loopback_active());
+		set_mic_loopback_active(false);
+		set_mic_loopback_tester_enabled(false);
 	}
 }
 

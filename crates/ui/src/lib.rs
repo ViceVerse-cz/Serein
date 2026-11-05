@@ -7,7 +7,12 @@ mod audio;
 mod badges;
 mod forwarding;
 mod role_names;
-pub use audio::{AudioCommand, AudioState, AudioUi};
+pub use audio::{
+	AudioCommand, AudioState, AudioUi,
+	better_audio_player_enabled, set_better_audio_player_enabled,
+	media_playback_speed_enabled, set_media_playback_speed_enabled,
+	voice_messages_in_background_enabled, set_voice_messages_in_background_enabled,
+};
 mod video;
 pub use video::{VideoCommand, VideoState, VideoUi};
 mod attachments;
@@ -148,6 +153,11 @@ pub use voice::{
 	wait_for_slot_enabled, set_wait_for_slot_enabled, waiting_voice_channel, set_waiting_voice_channel,
 	follow_voice_user_enabled, set_follow_voice_user_enabled, followed_voice_user, set_followed_voice_user,
 	random_voice_enabled, set_random_voice_enabled, pick_random_voice_channel,
+	custom_sounds_enabled, set_custom_sounds_enabled,
+	exit_sounds_enabled, set_exit_sounds_enabled,
+	voice_join_messages_enabled, set_voice_join_messages_enabled,
+	voice_chat_utilities_enabled, set_voice_chat_utilities_enabled,
+	mic_loopback_tester_enabled, set_mic_loopback_tester_enabled, mic_loopback_active, set_mic_loopback_active,
 };
 pub use account_menu::{account_panel_server_profile_enabled, set_account_panel_server_profile_enabled};
 pub use embeds::{

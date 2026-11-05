@@ -46,6 +46,48 @@ pub fn set_voice_messages_enabled(enabled: bool) {
 pub fn voice_messages_enabled() -> bool {
 	VOICE_MESSAGES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
+
+/// VenSerein (BetterAudioPlayer): Enhanced scrubber with milliseconds and detailed waveform.
+pub static BETTER_AUDIO_PLAYER_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_better_audio_player_enabled(enabled: bool) {
+	BETTER_AUDIO_PLAYER_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn better_audio_player_enabled() -> bool {
+	BETTER_AUDIO_PLAYER_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (MediaPlaybackSpeed): Allows controlling playback speed (0.5x, 1x, 1.25x, 1.5x, 2x) for audio.
+pub static MEDIA_PLAYBACK_SPEED_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_media_playback_speed_enabled(enabled: bool) {
+	MEDIA_PLAYBACK_SPEED_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn media_playback_speed_enabled() -> bool {
+	MEDIA_PLAYBACK_SPEED_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (VoiceMessagesInBackground): Keeps voice message audio playing across channel switches.
+pub static VOICE_MESSAGES_IN_BACKGROUND_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_voice_messages_in_background_enabled(enabled: bool) {
+	VOICE_MESSAGES_IN_BACKGROUND_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn voice_messages_in_background_enabled() -> bool {
+	VOICE_MESSAGES_IN_BACKGROUND_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
 pub struct AudioUi {
 	pub active: Option<(Id, Id, Attachment)>,
 	pub state: AudioState,
@@ -54,6 +96,7 @@ pub struct AudioUi {
 	pub command: Option<AudioCommand>,
 	pub seen: bool,
 	pub volume: f32,
+	pub speed: f32,
 	pub download_request: Option<Attachment>,
 }
 impl Default for AudioUi {
@@ -66,6 +109,7 @@ impl Default for AudioUi {
 			command: None,
 			seen: false,
 			volume: 1.0,
+			speed: 1.0,
 			download_request: None,
 		}
 	}
@@ -445,8 +489,15 @@ fn waveform(
 }
 
 fn timestamp(seconds: f64) -> String {
-	let seconds = seconds.max(0.0) as u64;
-	format!("{}:{:02}", seconds / 60, seconds % 60)
+	if better_audio_player_enabled() {
+		let total_secs = seconds.max(0.0);
+		let secs = total_secs as u64;
+		let tenths = ((total_secs - secs as f64) * 10.0) as u64;
+		format!("{}:{:02}.{}", secs / 60, secs % 60, tenths)
+	} else {
+		let seconds = seconds.max(0.0) as u64;
+		format!("{}:{:02}", seconds / 60, seconds % 60)
+	}
 }
 
 #[cfg(test)]
@@ -635,6 +686,26 @@ mod tests {
 		assert!(!voice_messages_enabled());
 		set_voice_messages_enabled(true);
 		assert!(voice_messages_enabled());
+	}
+
+	#[test]
+	fn test_venserein_phase3_batch2_audio_toggles() {
+		assert!(!better_audio_player_enabled());
+		assert_eq!(timestamp(125.4), "2:05");
+		set_better_audio_player_enabled(true);
+		assert!(better_audio_player_enabled());
+		assert_eq!(timestamp(125.4), "2:05.4");
+		set_better_audio_player_enabled(false);
+
+		assert!(media_playback_speed_enabled());
+		set_media_playback_speed_enabled(false);
+		assert!(!media_playback_speed_enabled());
+		set_media_playback_speed_enabled(true);
+
+		assert!(voice_messages_in_background_enabled());
+		set_voice_messages_in_background_enabled(false);
+		assert!(!voice_messages_in_background_enabled());
+		set_voice_messages_in_background_enabled(true);
 	}
 }
 
