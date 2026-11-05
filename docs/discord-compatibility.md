@@ -2853,6 +2853,14 @@ sets `presences: true`, as the public
 does, and the lookup attaches each returned presence to its member; a member returned without one
 stays unknown rather than guessed.
 
+Follow-up: live guild presence patches also update completed lookup snapshots, including people
+outside the current member window. The Gateway retains at most the existing two lookup slots,
+each limited to 100 members and 128 KiB of row data, and coalesces updates over 100 ms without
+additional network requests. A patch that would exceed the byte cap clears that row's stale
+presence instead. Replacing or clearing a lookup discards its snapshot. Known live friend/DM
+presence takes precedence over a retained lookup result. These behaviors have synthetic regression
+coverage; live protocol behavior remains unofficial and unverified by these tests.
+
 Known limitation, owner-tested: the suggestion list is built from the loaded member window, so on
 a large server scrolling that list changes who is suggested and can drop a dot once the person's
 status is no longer held. The owner observed the official client retaining these dots beyond the loaded member window;

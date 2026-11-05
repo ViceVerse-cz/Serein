@@ -1224,6 +1224,13 @@ pub(crate) fn presence(
 			member.activities.as_slice(),
 			member.clients,
 		)
+	} else if let Some(live) = state.presence_for(user) {
+		(
+			live.status.as_deref(),
+			live.custom_status.as_deref(),
+			live.activities.as_slice(),
+			live.clients,
+		)
 	} else if let Some(member) = state
 		// The member-list window is one lazy range; a name lookup and the visible-author
 		// lookup each return whole members with their presence. Using those keeps a dot
@@ -5593,6 +5600,32 @@ mod tests {
 			error: None,
 		};
 		assert_eq!(presence(&state, user.id, Some(guild)).0, Some("online"));
+		// A newer live DM presence must win over the retained online lookup snapshot.
+		let mut dm = state.channels[0].clone();
+		dm.id = Id(98765);
+		dm.guild = None;
+		dm.kind = 1;
+		dm.recipients = vec![user.clone()];
+		state.channels.push(dm);
+		state.gateway_connected = true;
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::DirectPresence(vec![client_core::presence::Update {
+				user: user.id,
+				avatar: model::Patch::Absent,
+				status: model::Patch::Value("offline".into()),
+				custom_status: model::Patch::Absent,
+				activities: model::Patch::Absent,
+				clients: model::Patch::Absent,
+			}]),
+		});
+		assert_eq!(presence(&state, user.id, Some(guild)).0, Some("offline"));
+		state.member_search[0].rows[0].status = None;
+		assert_eq!(presence(&state, user.id, Some(guild)).0, Some("offline"));
 	}
 
 	#[test]

@@ -26,6 +26,9 @@ pub(super) struct Search {
 	active: [Option<(Request, Instant)>; 2],
 	next_send: Instant,
 	seen: [Option<u64>; 2],
+	/// Completed lookup snapshots, bounded by the same row/byte caps as their emitted events.
+	cached: [Option<(Request, Vec<model::Member>)>; 2],
+	presence_deadline: Option<Instant>,
 }
 impl Default for Search {
 	fn default() -> Self {
@@ -33,6 +36,8 @@ impl Default for Search {
 			queued: Default::default(),
 			active: Default::default(),
 			seen: [None; 2],
+			cached: Default::default(),
+			presence_deadline: None,
 			next_send: Instant::now(),
 		}
 	}
@@ -40,12 +45,24 @@ impl Default for Search {
 impl Search {
 	pub fn update(&mut self, requests: &[Option<Request>; 2]) {
 		for (slot, request) in requests.iter().enumerate() {
+			if request.is_none() {
+				self.seen[slot] = None;
+			}
+			if self.cached[slot]
+				.as_ref()
+				.is_some_and(|(old, _)| Some(old) != request.as_ref())
+			{
+				self.cached[slot] = None;
+			}
 			if let Some(request) = request
 				&& self.seen[slot] != Some(request.nonce)
 			{
 				self.seen[slot] = Some(request.nonce);
 				self.queued[slot] = Some(request.clone());
 			}
+		}
+		if self.cached.iter().all(Option::is_none) {
+			self.presence_deadline = None;
 		}
 	}
 
@@ -60,6 +77,7 @@ impl Search {
 					.any(Option::is_some)
 					.then_some(self.next_send),
 			)
+			.chain(self.presence_deadline)
 			.min()
 	}
 	pub fn tick(
@@ -67,6 +85,18 @@ impl Search {
 		emit: &impl Fn(Event) -> Result<(), Failure>,
 	) -> Result<Option<Frame>, Failure> {
 		let now = Instant::now();
+		if self
+			.presence_deadline
+			.is_some_and(|deadline| now >= deadline)
+		{
+			self.presence_deadline = None;
+			for (request, rows) in self.cached.iter().flatten() {
+				emit(Event::MemberSearch {
+					request: request.clone(),
+					result: Ok(rows.clone()),
+				})?;
+			}
+		}
 		for active in &mut self.active {
 			if active
 				.as_ref()
@@ -111,6 +141,59 @@ impl Search {
 			serde_json::json!({"op":8,"d":data}).to_string().into(),
 		)))
 	}
+	/// Reconcile live guild patches into completed lookup rows, batching repaint events.
+	pub fn presence(&mut self, update: &discord_protocol::presence::PresenceUpdate, now: Instant) {
+		if !self.cached.iter().flatten().any(|(request, rows)| {
+			update.guild == Some(request.guild) && rows.iter().any(|row| row.user.id == update.user)
+		}) {
+			return;
+		}
+		let patch = client_core::presence::Update {
+			user: update.user,
+			avatar: update.avatar.clone(),
+			status: update.status.clone(),
+			custom_status: update.custom_status.clone(),
+			activities: update.activities.clone(),
+			clients: update.clients.clone(),
+		};
+		for (request, rows) in self.cached.iter_mut().flatten() {
+			if update.guild != Some(request.guild) {
+				continue;
+			}
+			let bytes = rows.iter().map(model::Member::bytes).sum::<usize>();
+			let Some(row) = rows.iter_mut().find(|row| row.user.id == patch.user) else {
+				continue;
+			};
+			let previous = model::MemberPresence {
+				user: row.user.id,
+				status: row.status.clone(),
+				custom_status: row.custom_status.clone(),
+				activities: row.activities.clone(),
+				clients: row.clients,
+			};
+			let resolved = patch.resolve(Some(&previous));
+			if resolved == previous {
+				continue;
+			}
+			if bytes - row.bytes() + client_core::presence::projected_row_bytes(row, &resolved)
+				> MAX_BYTES
+			{
+				// Forget stale presence rather than retain a misleading dot or exceed the cache cap.
+				row.status = None;
+				row.custom_status = None;
+				row.activities.clear();
+				row.clients = Default::default();
+			} else {
+				row.status = resolved.status;
+				row.custom_status = resolved.custom_status;
+				row.activities = resolved.activities;
+				row.clients = resolved.clients;
+			}
+			self.presence_deadline
+				.get_or_insert(now + Duration::from_millis(100));
+		}
+	}
+
 	pub fn chunk(&mut self, bytes: &[u8]) -> Option<Event> {
 		if bytes.len() > 512 * 1024 {
 			return None;
@@ -149,18 +232,19 @@ impl Search {
 					}
 					.into_model()?;
 					if let Some(update) = presences.get(&row.user.id) {
-						if let model::Patch::Value(status) = &update.status {
-							row.status = Some(status.clone());
+						let resolved = client_core::presence::Update {
+							user: update.user,
+							avatar: update.avatar.clone(),
+							status: update.status.clone(),
+							custom_status: update.custom_status.clone(),
+							activities: update.activities.clone(),
+							clients: update.clients.clone(),
 						}
-						if let model::Patch::Value(custom) = &update.custom_status {
-							row.custom_status = Some(custom.clone());
-						}
-						if let model::Patch::Value(activities) = &update.activities {
-							row.activities = activities.clone();
-						}
-						if let model::Patch::Value(clients) = update.clients {
-							row.clients = clients;
-						}
+						.resolve(None);
+						row.status = resolved.status;
+						row.custom_status = resolved.custom_status;
+						row.activities = resolved.activities;
+						row.clients = resolved.clients;
 					}
 					Some(row)
 				})
@@ -172,6 +256,11 @@ impl Search {
 			}
 			Ok(rows)
 		})();
+		if let Ok(rows) = &result
+			&& self.seen[request.slot] == Some(request.nonce)
+		{
+			self.cached[request.slot] = Some((request.clone(), rows.clone()));
+		}
 		Some(Event::MemberSearch { request, result })
 	}
 }
@@ -238,7 +327,7 @@ mod tests {
 			slot: 0,
 		};
 		let mut search = Search::default();
-		search.queued[0] = Some(request);
+		search.update(&[Some(request), None]);
 		let frame = search.tick(&|_| Ok(())).unwrap().unwrap();
 		let packet: serde_json::Value = serde_json::from_str(frame.to_text().unwrap()).unwrap();
 		assert_eq!(packet["d"]["presences"], true);
@@ -250,8 +339,14 @@ mod tests {
 			"members": [
 				{"user": {"id": "9", "username": "known"}, "roles": []},
 				{"user": {"id": "10", "username": "unknown"}, "roles": []},
+				{"user": {"id": "11", "username": "offline"}, "roles": []},
+				{"user": {"id": "12", "username": "null-status"}, "roles": []},
 			],
-			"presences": [{"user": {"id": "9"}, "status": "idle"}],
+			"presences": [
+				{"user": {"id": "9"}, "status": "idle"},
+				{"user": {"id": "11"}, "status": "offline", "client_status":{"mobile":"online"}, "activities":[{"type":0,"name":"Old game"},{"type":4,"state":"Old custom status"}]},
+				{"user": {"id": "12"}, "status": null, "client_status":{"mobile":"online"}, "activities":[{"type":0,"name":"Old game"},{"type":4,"state":"Old custom status"}]},
+			],
 		});
 		let Some(Event::MemberSearch {
 			result: Ok(rows), ..
@@ -259,11 +354,66 @@ mod tests {
 		else {
 			panic!("the lookup must decode")
 		};
-		assert_eq!(rows.len(), 2);
+		assert_eq!(rows.len(), 4);
+		for row in &rows[2..] {
+			assert!(row.activities.is_empty());
+			assert!(row.custom_status.is_none());
+			assert!(!row.clients.any());
+		}
 		assert_eq!(rows[0].status.as_deref(), Some("idle"));
 		assert_eq!(
 			rows[1].status, None,
 			"a member without a presence stays unknown rather than guessed"
 		);
+		let now = Instant::now();
+		let decode = |guild: &str, status: &str| {
+			discord_protocol::presence::decode(
+				serde_json::json!({"guild_id":guild,"user":{"id":"9"},"status":status})
+					.to_string()
+					.as_bytes(),
+			)
+			.unwrap()
+		};
+		search.presence(&decode("99", "offline"), now);
+		assert!(
+			search.presence_deadline.is_none(),
+			"other guilds cannot change lookup rows"
+		);
+		search.presence(&decode("1", "online"), now);
+		search.presence(&decode("1", "offline"), now);
+		assert_eq!(
+			search.presence_deadline,
+			Some(now + Duration::from_millis(100))
+		);
+		search.presence_deadline = Some(now);
+		let events = std::cell::RefCell::new(Vec::new());
+		search
+			.tick(&|event| {
+				events.borrow_mut().push(event);
+				Ok(())
+			})
+			.unwrap();
+		let events = events.into_inner();
+		assert!(
+			matches!(&events[..], [Event::MemberSearch { result: Ok(rows), .. }]
+			if rows[0].status.as_deref() == Some("offline") && rows[1].status.is_none())
+		);
+		// Fill a still-valid snapshot to its byte budget; a larger live patch must forget
+		// stale status without growing the cache. Roles make this independent of UI copy.
+		let (_, cached) = search.cached[0].as_mut().unwrap();
+		let bytes = cached.iter().map(model::Member::bytes).sum::<usize>();
+		cached[1].roles = vec![Id(1); (MAX_BYTES - bytes) / size_of::<Id>()];
+		let large = discord_protocol::presence::decode(
+			br#"{"guild_id":"1","user":{"id":"9"},"status":"online","activities":[{"type":4,"state":"Bounded synthetic custom presence"}]}"#
+		).unwrap();
+		search.presence(&large, now);
+		let (_, cached) = search.cached[0].as_ref().unwrap();
+		assert!(cached[0].status.is_none());
+		assert!(cached.iter().all(model::Member::valid));
+		assert!(cached.iter().map(model::Member::bytes).sum::<usize>() <= MAX_BYTES);
+		search.update(&[None, None]);
+		search.presence(&decode("1", "online"), now);
+		assert!(search.cached.iter().all(Option::is_none));
+		assert!(search.presence_deadline.is_none());
 	}
 }

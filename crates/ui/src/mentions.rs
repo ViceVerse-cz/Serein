@@ -935,6 +935,7 @@ fn row(
 		Candidate::Role { .. } => Some("Role"),
 		_ => None,
 	};
+	let mut shown_presence = None;
 	let primary = match candidate {
 		Candidate::GameSearch => {
 			crate::icons::paint(
@@ -964,6 +965,7 @@ fn row(
 			let (status, _, _, clients) =
 				crate::profiles::presence(context.state, user.id, context.guild);
 			if let Some(status) = crate::profiles::shown_status(context.state, user.id, status) {
+				shown_presence = Some(status);
 				crate::profiles::presence_badge(
 					&mut child,
 					avatar.rect,
@@ -1069,7 +1071,10 @@ fn row(
 			match candidate {
 				Candidate::GameSearch => "@game, search games".into(),
 				Candidate::Game(game) => format!("{}, game", game.name),
-				Candidate::User { name, .. } => name.clone(),
+				Candidate::User { name, .. } => shown_presence.map_or_else(
+					|| name.clone(),
+					|status| format!("{name}, {}", crate::profiles::presence_label(status)),
+				),
 				Candidate::Mass { name } => format!("@{name}"),
 				Candidate::Role { name, .. } => format!("@{name}, role"),
 				Candidate::Channel { name, .. } => name.clone(),
@@ -2422,7 +2427,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 	}
 }
 #[test]
-fn user_rows_show_the_status_dot_the_session_knows() {
+fn user_rows_expose_known_presence_to_accessibility() {
 	use client_core::auth::AuthState;
 	use model::{Channel, Patch};
 
@@ -2438,14 +2443,8 @@ fn user_rows_show_the_status_dot_the_session_knows() {
 			cosmetics: None,
 		}
 	}
-	fn count_color(shape: &egui::Shape, color: egui::Color32) -> usize {
-		match shape {
-			egui::Shape::Circle(circle) if circle.fill == color => 1,
-			egui::Shape::Vec(shapes) => shapes.iter().map(|s| count_color(s, color)).sum(),
-			_ => 0,
-		}
-	}
 	let ctx = egui::Context::default();
+	ctx.enable_accesskit();
 	crate::fonts::install(&ctx);
 	crate::design::apply(&ctx);
 	let mut state = client_core::State {
@@ -2479,9 +2478,8 @@ fn user_rows_show_the_status_dot_the_session_knows() {
 			clients: Patch::Absent,
 		}]),
 	});
-	let online = crate::profiles::presence_color("online");
 	let mut avatars = Avatars::default();
-	let mut dots = |candidate: Candidate| {
+	let mut labels = |candidate: Candidate| {
 		avatars = Avatars::default();
 		let output = ctx.run_ui(
 			egui::RawInput {
@@ -2507,28 +2505,30 @@ fn user_rows_show_the_status_dot_the_session_knows() {
 				);
 			},
 		);
-		let count = output
-			.shapes
+		let labels: Vec<String> = output
+			.platform_output
+			.accesskit_update
+			.as_ref()
+			.unwrap()
+			.nodes
 			.iter()
-			.map(|shape| count_color(&shape.shape, online))
-			.sum::<usize>();
+			.filter_map(|(_, node)| node.label().map(str::to_owned))
+			.collect();
 		output.drop_without_applying_deltas();
-		count
+		labels
 	};
-	assert_eq!(
-		dots(Candidate::User {
-			user: user(9, "friend"),
-			name: "friend".into(),
-		}),
-		1,
-		"a known online presence paints one dot"
-	);
-	assert_eq!(
-		dots(Candidate::User {
-			user: user(10, "stranger"),
-			name: "stranger".into(),
-		}),
-		0,
-		"a candidate without a known presence paints none"
-	);
+	let known = labels(Candidate::User {
+		user: user(9, "friend"),
+		name: "friend".into(),
+	});
+	assert!(known.contains(&format!(
+		"friend, {}",
+		crate::profiles::presence_label("online")
+	)));
+	let unknown = labels(Candidate::User {
+		user: user(10, "stranger"),
+		name: "stranger".into(),
+	});
+	assert!(unknown.contains(&"stranger".to_owned()));
+	assert!(!unknown.iter().any(|label| label.starts_with("stranger,")));
 }

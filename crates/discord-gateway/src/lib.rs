@@ -1919,6 +1919,7 @@ async fn run_recoverable(
 									}
 									"PRESENCE_UPDATE" => {
 										if let Ok(update)=discord_protocol::presence::decode(packet.d.get().as_bytes()) {
+											queries.presence(&update,Instant::now());
 											if update.guild.is_none() { direct_presence.push(update,Instant::now()); }
 											else {
 												shared_presence.push(update.clone(),Instant::now());
