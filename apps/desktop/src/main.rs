@@ -5645,8 +5645,8 @@ impl eframe::App for Desktop {
 		gpu_video::collect();
 		// `raw_input_hook` samples placements before the pass begins, where a requested repaint
 		// can be dropped when the pass starts, so the frame that saves a resting one is asked here.
-		if let Some(remaining) = self.geometry_rest.remaining(std::time::Instant::now()) {
-			ctx.request_repaint_after(remaining);
+		if let Some(wake) = self.geometry_rest.take_wake() {
+			ctx.request_repaint_after(wake);
 		}
 		let search_focused = {
 			#[cfg(feature = "demo")]

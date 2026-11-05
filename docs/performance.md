@@ -15,7 +15,7 @@ worktree.
 | --- | ---: | ---: | ---: |
 | Release executable | 92,905,472 B | 92,905,472 B | 0 B |
 | `dist/` regular-file payload (233 files) | 97,265,351 B | 97,265,351 B | 0 B |
-| ZIP of `dist/` (`7z a -tzip -mx=9`) | 52,172,759 B | 52,172,290 B | −469 B (−0.001%) |
+| ZIP of `dist/` (`7z a -tzip -mx=9`) | 52,172,759 B | 52,172,111 B | −648 B (−0.001%) |
 
 Only `serein.exe` differs, at the same size; the ZIP difference is compression noise.
 
