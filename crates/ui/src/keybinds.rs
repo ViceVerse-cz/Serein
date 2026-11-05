@@ -218,7 +218,9 @@ fn capture(
 	let mut captured = None;
 	// Only global actions take lone side modifiers or pad buttons. The native poller
 	// dispatches them, so egui never sees a press that the loop below could record.
-	if escaped {
+	// Presses made in another app never record; the mask still tracks them above, so
+	// they do not replay on refocus.
+	if escaped || !ui.input(|input| input.focused) {
 		polled.armed = 0;
 	} else if action.is_some_and(KeybindAction::is_global) {
 		let rising = polled_down & !previous;
@@ -1273,6 +1275,27 @@ mod tests {
 		capture_frame(&ctx, vec![], right_ctrl, &mut bindings, &mut capturing);
 		capture_frame(&ctx, vec![], 0, &mut bindings, &mut capturing);
 		assert_eq!(bindings.chord(KeybindAction::ToggleMute), &before);
+	}
+
+	#[test]
+	fn pad_press_in_another_app_does_not_record() {
+		let mut bindings = Keybinds::default();
+		let before = bindings.chord(KeybindAction::ToggleMute).clone();
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::ToggleMute));
+		let ctx = egui::Context::default();
+		let south = polled_bit("PadSouth");
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				focused: false,
+				..Default::default()
+			},
+			|ui| capture(ui, &mut bindings, &mut capturing, south),
+		);
+		output.textures_delta.clear();
+		// Still held on refocus: not a new press, so nothing records.
+		capture_frame(&ctx, vec![], south, &mut bindings, &mut capturing);
+		assert_eq!(bindings.chord(KeybindAction::ToggleMute), &before);
+		assert!(capturing.is_some());
 	}
 
 	#[test]
