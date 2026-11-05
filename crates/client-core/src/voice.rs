@@ -1268,6 +1268,10 @@ impl ClientState {
 					&& call.phase != Phase::Failed
 				{
 					call.phase = phase;
+					if phase == Phase::Failed {
+						self.voice.audience = None;
+						self.voice.viewer_fetch_request = None;
+					}
 					if matches!(phase, Phase::Connected | Phase::Waiting) {
 						call.reconnecting = None;
 					}
@@ -1295,6 +1299,8 @@ impl ClientState {
 				{
 					self.voice.outgoing = None;
 					call.phase = Phase::Failed;
+					self.voice.audience = None;
+					self.voice.viewer_fetch_request = None;
 					call.camera = false;
 					call.watching = None;
 					call.reconnecting = None;
@@ -1312,7 +1318,9 @@ impl ClientState {
 					.voice
 					.active
 					.as_ref()
-					.is_some_and(|call| call.channel == channel && call.request == request)
+					.is_some_and(|call| {
+						call.channel == channel && call.request == request && call.phase != Phase::Failed
+					})
 				{
 					// The latest refresh wins even when it is empty: a stopped share reports no
 					// viewers. Identities already fetched for retained IDs carry over, so a
@@ -2277,6 +2285,33 @@ mod tests {
 			state.request_stream_viewer_users(&[Id(2)]).is_some(),
 			"a changed roster may retry a failed read"
 		);
+	}
+
+	#[test]
+	fn failed_calls_discard_viewers_and_ignore_late_rosters() {
+		for progress in [false, true] {
+			let mut state = stream_preview_state();
+			state.start_call(Id(20), false).unwrap();
+			let request = state.voice.active.as_ref().unwrap().request;
+			let viewers = || Event::Stream {
+				channel: Id(20),
+				request,
+				stream_request: 7,
+				event: screen::Event::Viewers { count: 1, ids: vec![Id(2)] },
+			};
+			state.apply_voice(viewers());
+			assert!(state.request_stream_viewer_users(&[Id(2)]).is_some());
+			state.apply_voice(if progress {
+				Event::Progress { channel: Id(20), request, phase: Phase::Failed }
+			} else {
+				Event::Failed { channel: Id(20), request, message: "Synthetic failure" }
+			});
+			assert!(state.voice.audience.is_none());
+			assert!(state.voice.viewer_fetch_request.is_none());
+			state.apply_voice(viewers());
+			state.apply_stream_viewer_users(7, vec![(Id(2), None)]);
+			assert!(state.voice.audience.is_none());
+		}
 	}
 
 	fn dm_state() -> ClientState {

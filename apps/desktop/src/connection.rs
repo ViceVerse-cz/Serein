@@ -745,13 +745,14 @@ impl Connection {
 							}
 							if matches!(command,Command::StreamViewerUsers{..}) {
 								// One bounded identity read per roster; a per-user failure leaves
-								// its row on the fallback label, and only a rejected report ends
-								// the session like the sibling workers.
+								// its row on the fallback label; authentication and report failures
+								// end the session like the sibling workers.
 								drop(viewers.take());
 								let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
 								viewers=Some(AbortTask(tokio::spawn(async move {
 									let event=api.execute(command).await;
-									if let Err(failure)=emit(event) {api.stop();let _=finished.send(Some(failure));}
+									let failure=match &event {Event::Failure(f) if f.ends_session()=>Some(*f),_=>None};
+									if let Some(failure)=emit(event).err().or(failure) {api.stop();let _=finished.send(Some(failure));}
 									wake.request_repaint();
 								})));
 								continue;

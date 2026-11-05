@@ -1521,14 +1521,19 @@ impl DiscordApi {
 				}
 			}
 			Command::StreamViewerUsers { request, users } => {
-				// The four REST permits bound this in flight; a failed or oversized identity
-				// leaves its row on the fallback label.
-				let results =
-					futures_util::future::join_all(users.into_iter().map(|user| async move {
-						let result = self.user_identity(user).await.ok();
-						(user, result)
-					}))
-					.await;
+				// Optional identity failures preserve fallback rows; authentication failures
+				// remain global even when another concurrent read has already stopped the API.
+				let reads = futures_util::future::join_all(users.into_iter().map(|user| async move {
+					(user, self.user_identity(user).await)
+				})).await;
+				if let Some(failure) = reads.iter().find_map(|(_, result)| {
+					result.as_ref().err().copied().filter(|failure| {
+						failure.ends_session() && *failure != Failure::Capacity
+					})
+				}) {
+					return Event::Failure(failure);
+				}
+				let results = reads.into_iter().map(|(user, result)| (user, result.ok())).collect();
 				Event::StreamViewerUsers { request, results }
 			}
 			Command::EditProfile {
@@ -3213,6 +3218,45 @@ mod tests {
             server.await.unwrap();
         }).await.unwrap();
 	}
+	#[tokio::test]
+	async fn viewer_identity_expiry_is_global_but_optional_failures_keep_fallbacks() {
+		tokio::time::timeout(Duration::from_secs(5), async {
+			for (status, length, expired) in [
+				("401 Unauthorized", 0, true),
+				("403 Forbidden", 0, false),
+				("200 OK", 16 * 1024 + 1, false),
+			] {
+				let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+				let mut api = DiscordApi::new(Arc::new(
+					SessionSecret::from_owner_input("SYNTHETIC_VIEWER_TOKEN".into()).unwrap(),
+				)).unwrap();
+				api.base = format!("http://{}", listener.local_addr().unwrap());
+				let server = tokio::spawn(async move {
+					let (mut socket, _) = listener.accept().await.unwrap();
+					let mut buffer = [0; 4096];
+					let n = socket.read(&mut buffer).await.unwrap();
+					assert!(std::str::from_utf8(&buffer[..n]).unwrap().starts_with("GET /users/5 HTTP/1.1"));
+					socket.write_all(format!(
+						"HTTP/1.1 {status}\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n"
+					).as_bytes()).await.unwrap();
+				});
+				let event = api.execute(Command::StreamViewerUsers {
+					request: 7,
+					users: vec![Id(5)],
+				}).await;
+				if expired {
+					assert!(matches!(event, Event::Failure(Failure::Expired)));
+					assert!(api.stopped());
+				} else {
+					assert!(matches!(event, Event::StreamViewerUsers { request: 7, results }
+						if results.len() == 1 && results[0].0 == Id(5) && results[0].1.is_none()));
+					assert!(!api.stopped());
+				}
+				server.await.unwrap();
+			}
+		}).await.unwrap();
+	}
+
 	#[tokio::test]
 	async fn optional_badge_capacity_preserves_profiles_but_expiry_ends_session() {
 		tokio::time::timeout(Duration::from_secs(5), async {
