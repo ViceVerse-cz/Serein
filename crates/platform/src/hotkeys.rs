@@ -1254,6 +1254,9 @@ mod poller {
 			}
 			let pad = (capturing || polled.iter().any(|(_, chord)| is_pad_button(&chord.key)))
 				.then(|| Pad::start(shared.pad.clone()));
+			if pad.is_none() {
+				shared.pad.store(0, Ordering::Relaxed);
+			}
 			let stop = Arc::new(AtomicBool::new(false));
 			let stopped = stop.clone();
 			let global = shared.global.clone();
@@ -1465,6 +1468,7 @@ mod poller {
 			if let Ok(api) = HidApi::new() {
 				break api;
 			}
+			mask.store(0, Ordering::Relaxed);
 			wait(stop, PAD_RETRY);
 		};
 		let mut device: Option<HidDevice> = None;
@@ -1479,6 +1483,8 @@ mod poller {
 				silent = 0;
 				streaming = false;
 				if device.is_none() {
+					// No pad to read: release anything the last reader left held.
+					mask.store(0, Ordering::Relaxed);
 					wait(stop, PAD_RETRY);
 					continue;
 				}
@@ -1517,7 +1523,8 @@ mod poller {
 				}
 			}
 		}
-		mask.store(0, Ordering::Relaxed);
+		// The mask outlives this reader, so a restarted poller seeds from the buttons
+		// still held and does not see them as a fresh press.
 	}
 
 	/// Sleeps in short slices, so a stopped reader returns without waiting out a retry.
