@@ -430,11 +430,14 @@ unavailable. Unloaded archives, unknown channels and unsupported channel kinds r
 unavailable; navigation does not discover arbitrary channels, join servers, open unknown
 DMs, unarchive threads or join calls.
 
-A message the service flags as a thread starter whose thread this session has not loaded
-shows the thread card with a generic label instead of the thread's name; clicking it makes
-the same single read, and the thread's name and activity appear once it is admitted. Like an
-archive-opened thread it stays one transient conversation, retired when the user navigates
-elsewhere, so its card returns to the generic label on a later visit.
+A message the service flags as a thread starter shows the card Discord hangs under it: the
+thread's name and message count, then its latest author, reply and relative time, with the whole
+card as the open affordance. A thread this session has not loaded is named and previewed through
+the bounded card reads described under “Thread card previews” at the end of this document.
+Clicking the card makes the same single channel read the chat-link path uses, and the thread
+opens when it is admitted. Like an archive-opened thread it stays one transient conversation,
+retired when the user navigates elsewhere, so a later visit previews it again with one bounded
+read.
 
 Fresh loaded messages, including an eligible dormant resident window that holds the
 live target, scroll and highlight locally without recent-history or saved-cursor
@@ -2892,13 +2895,54 @@ an unloaded or hidden parent stay unavailable. Nothing joins, unarchives, subscr
 opening remains a read.
 
 The thread card under a starter message follows the service's documented `HAS_THREAD` flag
-when the thread itself is not loaded, since the thread channel shares the starter's ID. It
-shows a generic label rather than inventing a name or activity, and its click performs the
-same single read; the real name and metadata appear once the service answers.
+when the thread itself is not loaded, since the thread channel shares the starter's ID. Its
+preview, name and count come from the bounded card reads described under “Thread card previews”
+below; its click still performs the same single channel read, and nothing is invented before the
+service answers.
 
 Synthetic tests cover the read request, its admission, the rejected answer, the newer message
 target and the cancellation on navigation. On October 26, 2026 the owner confirmed on a local
 release build that both the link and the starter card open this private thread. That is
 observation of one account, not a general normal-user guarantee: the read itself stays
-unofficial, and a later visit shows the generic card again because the admitted thread is one
+unofficial, and a later visit reads the card's preview again because the admitted thread is one
 transient conversation.
+
+## Private-call stream cues — November 4, 2026
+
+Issue #882 reported no sound when another participant started screen sharing in a group call,
+although the same cue played in a server voice channel. Server voice states carry `self_stream`;
+private calls announce a share through its stream key, and this client only read keys for its own
+stream or the one it watched. The voice state machine now reads the `STREAM_CREATE` and
+`STREAM_DELETE` key of the connected private call (`call:<channel>:<user>`) and marks that
+participant as streaming, which plays the cue, updates the live badge and ends a watch when the
+share stops. Guild calls keep using `self_stream`, so their events are unchanged. Keys for
+another conversation, a malformed key and a viewer refresh are ignored. Nothing joins,
+subscribes or sends; the stream path remains unofficial normal-user behavior.
+
+Stopping this device's own share now plays Discord's `stream_ended` cue. The existing screen-share
+sound switch governs both edges of the share. The bundled asset is `stream_ended` from Discord's
+public asset host, recorded with its source URL and SHA-256 in the sound assets README.
+## Thread card previews — November 3, 2026
+
+The card under a message that started a thread now follows the official client's layout: the
+thread's name and message count, then its latest author, the first line of that reply and its
+relative time, with the whole card as the one open affordance. It is a side-by-side comparison
+of the official client and Serein that the owner supplied, not a wire observation.
+
+The gateway's channel list carries a thread's name and count but no message body, so the last
+line needs a read. A visible card whose latest message this session does not know asks for one
+through two documented routes: `GET /channels/{id}` when the session has not loaded the thread,
+which also proves access and carries the name and count, and
+`GET /channels/{id}/messages?limit=1` for the newest message. Admission keeps to one answer in
+flight, at most twelve reads a minute, a 24-card cache whose entries are trusted for five
+minutes and refreshed when the service's latest message moves, and a thread whose read failed is
+not retried until that trust would have expired. Only a message the service flagged as a
+starter of a loaded, viewable parent channel is admitted, and an answer describing another
+thread or a message of another channel is rejected. Nothing joins, unarchives, subscribes, marks
+read or sends.
+
+The card keeps a fixed height while the read is in flight, so rows below it do not jump. Until
+a name arrives it shows only the thread glyph: the generic “Thread” label and the “View thread”
+button are gone, and a refused read leaves the card with whatever the channel list already
+carries. Synthetic tests cover admission, the bounded cache, the rejected answer, the refresh on
+a newer known message, and the card's rendered name, count, author and reply.

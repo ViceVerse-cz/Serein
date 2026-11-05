@@ -12,6 +12,8 @@ the window moves or its native scale changes, restoring 760 × 520 logical pixel
 when the current display can accommodate the window and its decorations.
 Minimized, hidden, maximized and fullscreen states do not replace normal geometry.
 Closing frames do not overwrite the saved geometry.
+A changed placement is saved once sampled unchanged for at least 500 ms, so a drag or resize queues no
+write per frame. Maximizing retains the latest sampled normal placement for restoration; a placement sampled just before the window closes or hides is still saved.
 The offline `--demo` ignores saved geometry and does not save its window state.
 
 The voice call popout keeps the same three fields in the same preferences: logical inner size,
@@ -85,7 +87,13 @@ On Windows, the custom title strip paints native-fidelity Windows 11 caption but
 excludes the caption buttons area so edge/corner resizing does not intercept corner clicks on
 Close. Caption buttons keep their own actions; Windows double-click maximize/restore remains
 available. Synthetic egui input tests check command dispatch, including corner hit testing.
-Native OS window movement still requires a desktop interaction check.
+On Windows, dragging the strip runs the OS move loop, which paints synchronously and waits for
+vsync before the next move. Serein therefore skips repaints for window moves and raw mouse motion
+(a patched egui-winit; see `vendor/egui-winit/SEREIN-PATCH.md`) and reapplies the minimum size
+only when it changes, so an otherwise idle window follows the cursor like a native one. Continuous
+rendering, such as an animation or playing video, still paces a drag to the display refresh rate.
+Synthetic `SendInput` drags on Windows 11 are measured in `docs/performance.md`; physical-mouse
+behavior on other machines and native macOS/Linux window movement remain unverified.
 On Windows and macOS, General settings can hide this 36 px strip and use the native title bar
 and window buttons instead. The device preference defaults to showing the custom strip and
 is saved with other app preferences; older saved settings keep that default. macOS switches
@@ -459,3 +467,17 @@ macOS and Linux have no local HEIC decoder in this implementation; proxy-provide
 PNG/JPEG/WebP renditions can still display. The offline Windows check decodes an
 original synthetic 6000x4000 HEIC both at source size and as a 320px thumbnail,
 checking dimensions and pixel conversion. Owner photos and live Discord remain unverified.
+
+## Windows screenshots-and-recording permission — November 4, 2026
+
+Windows 11 builds that expose Settings > Privacy & security > Screenshots and screen recording keep
+a per-application consent for programmatic Graphics Capture. On Windows 11 build 26300 a locally
+built, unpackaged executable was denied at the capture item with `E_ACCESSDENIED` ("You do not have
+permission to capture the given monitor"), and the Settings page listed no request; the installed
+copy at its own path had a consent record from earlier capture and worked. Serein now asks the
+platform for that consent with `GraphicsCaptureAccess.RequestAccessAsync(Programmatic)` when a share
+starts. An unpackaged executable answers `NotDeclaredByApp`, so the capture item keeps deciding;
+`DeniedByUser` or `DeniedBySystem` names the setting in the share dialog. The diagnostic log records
+the start failure with its reason instead of a generic message. The permission is per executable
+path, so a build run from a different folder (a local release build beside an installed copy) needs
+its own allowance even when the other copy works. The capture pipeline itself is unchanged.

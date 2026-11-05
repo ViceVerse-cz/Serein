@@ -42,6 +42,7 @@ pub mod server_audit_log;
 pub mod server_integrations;
 pub mod server_roles;
 pub mod server_settings;
+pub mod thread_previews;
 mod thread_starter;
 mod threads;
 mod trail;
@@ -196,6 +197,13 @@ pub enum Command {
 	ThreadStarter {
 		thread: Id,
 		parent: Id,
+		request: u64,
+	},
+	/// The card under a thread's starter: its latest message, and its channel when unloaded.
+	ThreadPreview {
+		guild: Id,
+		thread: Id,
+		needs_channel: bool,
 		request: u64,
 	},
 	Gifs {
@@ -528,6 +536,12 @@ pub enum Event {
 		request: u64,
 		result: Result<Message, auth::Failure>,
 	},
+	/// The latest message (and, for an unloaded thread, its channel) under a thread card.
+	ThreadPreview {
+		thread: Id,
+		request: u64,
+		result: Result<thread_previews::Loaded, auth::Failure>,
+	},
 	ForumSummaries {
 		request: u64,
 		results: Vec<(Id, Result<model::forum::Summary, auth::Failure>)>,
@@ -758,6 +772,7 @@ pub struct State {
 	pub forum_visit: Option<forum::Visit>,
 	pub archived_thread: Option<Id>,
 	pub thread_starter: thread_starter::Starter,
+	pub thread_previews: thread_previews::Previews,
 	pub search: Option<search::SearchView>,
 	pub search_request: u64,
 	pub gifs: gifs::Gifs,
@@ -1001,6 +1016,7 @@ impl Default for State {
 			forum_visit: None,
 			archived_thread: None,
 			thread_starter: Default::default(),
+			thread_previews: Default::default(),
 			search: None,
 			search_request: 0,
 			gifs: gifs::Gifs::default(),
@@ -2283,6 +2299,13 @@ impl State {
 			self.apply_thread_starter(thread, request, Err(auth::Failure::Capacity));
 			return;
 		}
+		if let Command::ThreadPreview {
+			thread, request, ..
+		} = command
+		{
+			self.apply_thread_preview(thread, request, Err(auth::Failure::Capacity));
+			return;
+		}
 		if let Command::ForumSummaries { channels, request } = command {
 			self.apply_forum_summaries(
 				request,
@@ -2915,6 +2938,14 @@ impl State {
 				result,
 			} => {
 				self.apply_thread_starter(thread, request, result);
+				Ok(())
+			}
+			Event::ThreadPreview {
+				thread,
+				request,
+				result,
+			} => {
+				self.apply_thread_preview(thread, request, result);
 				Ok(())
 			}
 			Event::ForumSummaries { request, results } => {
@@ -3798,6 +3829,10 @@ impl State {
 					) {
 					self.message_actions.observe_content(p.channel, p.id);
 				}
+				// A card's cache holds a copy, so an edit must make it read the reply again.
+				if !matches!(p.content, Patch::Absent) || !matches!(p.edited, Patch::Absent) {
+					self.thread_previews.mark_stale(p.channel, p.id);
+				}
 				if self.selected == Some(p.channel)
 					&& self.reactions.invalidated(p.id)
 					&& !matches!(p.reactions, Patch::Absent)
@@ -3820,6 +3855,8 @@ impl State {
 				self.parked_replies.forget_targets(channel, &[id]);
 				self.read_state.activity.delete(channel, id);
 				self.forget_pending_replies(channel, &[id]);
+				// A card must never keep showing a reply that no longer exists.
+				self.thread_previews.forget(channel, &[id]);
 				if let Some(channel) = self
 					.channels
 					.iter_mut()
@@ -3859,6 +3896,7 @@ impl State {
 			}
 			Event::DeleteBulk { channel, ids } => {
 				self.parked_replies.forget_targets(channel, &ids);
+				self.thread_previews.forget(channel, &ids);
 				if ids.len() <= 100 {
 					for id in &ids {
 						self.read_state.activity.delete(channel, *id);
@@ -4489,6 +4527,9 @@ impl Event {
 					result.as_ref().map_or(0, model::archives::Page::bytes)
 				}
 				Self::ThreadStarter { result, .. } => result.as_ref().map_or(0, Message::bytes),
+				Self::ThreadPreview { result, .. } => {
+					result.as_ref().map_or(0, thread_previews::Loaded::bytes)
+				}
 				Self::ForumSummaries { results, .. } => {
 					results.capacity()
 						* size_of::<(Id, Result<model::forum::Summary, auth::Failure>)>()
