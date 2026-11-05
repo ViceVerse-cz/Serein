@@ -154,9 +154,10 @@ pub use guild_folders::{
 pub use highlight::{set_shiki_codeblocks_enabled, shiki_codeblocks_enabled};
 pub use notifications::{server_list_indicators_enabled, set_server_list_indicators_enabled};
 pub use profiles::{
-	always_expand_profiles_enabled, platform_indicators_enabled,
-	set_always_expand_profiles_enabled, set_platform_indicators_enabled,
-	set_user_voice_show_enabled, user_voice_show_enabled,
+	always_expand_profiles_enabled, banners_everywhere_enabled, platform_indicators_enabled,
+	set_always_expand_profiles_enabled, set_banners_everywhere_enabled,
+	set_platform_indicators_enabled, set_timezones_enabled, set_user_voice_show_enabled,
+	timezones_enabled, user_voice_show_enabled,
 };
 pub use typing::{
 	set_typing_indicator_avatar_enabled, set_typing_tweaks_enabled,
@@ -167,12 +168,16 @@ pub use categories::{
 	set_cleaner_channel_groups_enabled, set_message_peek_enabled,
 };
 pub use markdown::{
-	markdown_tables_enabled, message_colors_enabled, message_link_tooltip_enabled,
+	content_warning_enabled, has_content_warning, markdown_tables_enabled,
+	message_colors_enabled, message_link_tooltip_enabled, set_content_warning_enabled,
 	set_markdown_tables_enabled, set_message_colors_enabled, set_message_link_tooltip_enabled,
 };
 pub use reactions::{reaction_timestamps_enabled, set_reaction_timestamps_enabled};
 pub use badges::{show_badges_in_chat_enabled, set_show_badges_in_chat_enabled};
 pub use local_time::{custom_timestamps_seconds_enabled, set_custom_timestamps_seconds_enabled};
+pub use embeds::{set_show_message_embeds_enabled, show_message_embeds_enabled};
+pub use emoji_picker::{set_whitelisted_emojis_enabled, whitelisted_emojis_enabled};
+pub use user_menu::{last_active_enabled, set_last_active_enabled};
 pub use timeline::{
 	better_backreading_enabled, hide_messages_enabled, pin_icon_enabled,
 	set_better_backreading_enabled, set_hide_messages_enabled, set_pin_icon_enabled,

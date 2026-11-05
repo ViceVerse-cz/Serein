@@ -59,6 +59,33 @@ pub fn message_link_tooltip_enabled() -> bool {
 	MESSAGE_LINK_TOOLTIP_ENABLED.load(Ordering::Relaxed)
 }
 
+/// VenSerein (ContentWarning): Global toggle for client-side content warning detection.
+static CONTENT_WARNING_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_content_warning_enabled(enable: bool) {
+	CONTENT_WARNING_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn content_warning_enabled() -> bool {
+	CONTENT_WARNING_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (ContentWarning): Detects whether text starts with or contains sensitive trigger prefixes.
+pub fn has_content_warning(text: &str) -> Option<&'static str> {
+	if !content_warning_enabled() {
+		return None;
+	}
+	let lower = text.to_lowercase();
+	for prefix in ["cw:", "tw:", "trigger warning:", "content warning:"] {
+		if lower.starts_with(prefix) || lower.contains(&format!(" {prefix}")) {
+			return Some("Sensitive Content");
+		}
+	}
+	None
+}
+
 /// Maximum rendered source bytes; metadata fingerprints use the same boundary.
 pub(crate) const MAX_INPUT: usize = 8192;
 const MAX_EVENTS: usize = 512;
@@ -6279,5 +6306,22 @@ mod venserein_markdown_tests {
 		assert!(!message_link_tooltip_enabled());
 		set_message_link_tooltip_enabled(true);
 		assert!(message_link_tooltip_enabled());
+	}
+
+	#[test]
+	fn test_content_warning_detection_and_toggle() {
+		assert!(!content_warning_enabled());
+		assert_eq!(has_content_warning("cw: spoilers ahead"), None);
+
+		set_content_warning_enabled(true);
+		assert!(content_warning_enabled());
+		assert_eq!(has_content_warning("cw: spoilers ahead"), Some("Sensitive Content"));
+		assert_eq!(has_content_warning("TW: blood and gore"), Some("Sensitive Content"));
+		assert_eq!(has_content_warning("content warning: sensitive"), Some("Sensitive Content"));
+		assert_eq!(has_content_warning("hello world!"), None);
+
+		set_content_warning_enabled(false);
+		assert!(!content_warning_enabled());
+		assert_eq!(has_content_warning("cw: spoilers ahead"), None);
 	}
 }

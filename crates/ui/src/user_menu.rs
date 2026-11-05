@@ -3,6 +3,18 @@ use crate::shortcuts::{Intent, ShortcutView};
 use client_core::{Command, State};
 use model::{Shortcut, User};
 
+/// VenSerein (LastActive): Global toggle for showing user's last active message time in menu or profile.
+pub static LAST_ACTIVE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn last_active_enabled() -> bool {
+	LAST_ACTIVE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_last_active_enabled(enabled: bool) {
+	LAST_ACTIVE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub enum Action {
 	Note(User),
@@ -157,6 +169,14 @@ pub(super) fn contents(
 	let colors = crate::design::palette(ui);
 	ui.set_min_width(200.0);
 	ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
+	if last_active_enabled()
+		&& let Some(last_id) = state.user_last_active_message(user.id)
+	{
+		let last_time = crate::timeline::timestamp(last_id);
+		let text = format!("🕒 Last active: {}", crate::local_time::header(last_time));
+		ui.label(egui::RichText::new(text).size(11.0).color(colors.muted));
+		ui.separator();
+	}
 	if ui
 		.button(crate::i18n::translate("user-menu-contents-profile"))
 		.clicked()
@@ -853,5 +873,17 @@ mod tests {
 			);
 			assert!(render(&mut view, &mut state, vec![]).0.is_empty());
 		}
+	}
+
+	#[test]
+	fn test_last_active_toggle_and_timeline() {
+		assert!(last_active_enabled());
+		set_last_active_enabled(false);
+		assert!(!last_active_enabled());
+		set_last_active_enabled(true);
+		assert!(last_active_enabled());
+
+		let state = State::default();
+		assert_eq!(state.user_last_active_message(model::Id(123)), None);
 	}
 }

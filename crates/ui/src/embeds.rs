@@ -29,6 +29,18 @@ pub fn set_fix_youtube_embeds_enabled(enabled: bool) {
 	FIX_YOUTUBE_EMBEDS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// VenSerein (ShowMessageEmbeds): Allows forcing embeds to display even if suppressed.
+pub static SHOW_MESSAGE_EMBEDS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn show_message_embeds_enabled() -> bool {
+	SHOW_MESSAGE_EMBEDS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_show_message_embeds_enabled(enabled: bool) {
+	SHOW_MESSAGE_EMBEDS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn clean_embed_url(url: &str) -> String {
 	if let Ok(mut parsed) = url::Url::parse(url) {
 		let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
@@ -616,7 +628,7 @@ pub fn show(
 	card_surface: crate::design::MessageCardSurface,
 	hide_media_links: bool,
 ) -> Option<Gif> {
-	if message.embeds_suppressed {
+	if message.embeds_suppressed && !show_message_embeds_enabled() {
 		return None;
 	}
 	let source = crate::mentions::MentionSource {
@@ -1071,6 +1083,15 @@ mod tests {
 	use super::*;
 
 	/// A link that resolves to a hosted clip carries no poster; the card paints the clip.
+	#[test]
+	fn test_show_message_embeds_toggle() {
+		assert!(show_message_embeds_enabled());
+		set_show_message_embeds_enabled(false);
+		assert!(!show_message_embeds_enabled());
+		set_show_message_embeds_enabled(true);
+		assert!(show_message_embeds_enabled());
+	}
+
 	#[test]
 	fn clean_embed_url_spotify_and_youtube_cleaning() {
 		assert!(fix_spotify_embeds_enabled());

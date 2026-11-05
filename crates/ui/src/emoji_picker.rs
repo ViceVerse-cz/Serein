@@ -18,6 +18,18 @@ pub fn fav_emoji_first_enabled() -> bool {
 	FAV_EMOJI_FIRST_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// VenSerein (WhitelistedEmojis): Whitelist / quick favorites for custom emojis across servers.
+pub static WHITELISTED_EMOJIS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn whitelisted_emojis_enabled() -> bool {
+	WHITELISTED_EMOJIS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_whitelisted_emojis_enabled(enabled: bool) {
+	WHITELISTED_EMOJIS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// VenSerein (BetterGifAltText): Derives human-readable alt description from GIF slug when title is absent.
 pub static BETTER_GIF_ALT_TEXT_ENABLED: std::sync::atomic::AtomicBool =
 	std::sync::atomic::AtomicBool::new(false);
@@ -2643,6 +2655,15 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn test_whitelisted_emojis_toggle() {
+		assert!(whitelisted_emojis_enabled());
+		set_whitelisted_emojis_enabled(false);
+		assert!(!whitelisted_emojis_enabled());
+		set_whitelisted_emojis_enabled(true);
+		assert!(whitelisted_emojis_enabled());
+	}
+
+	#[test]
 	fn better_gif_alt_text_toggle_and_derive_works() {
 		assert!(!better_gif_alt_text_enabled());
 		assert_eq!(derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"), "GIF");
@@ -3722,4 +3743,5 @@ pub(crate) fn debug_gif_retry(state: &mut State) {
 		}
 		assert!(matches!(picked, Some(Err(GifAction::Retry(None)))));
 	}
+
 }

@@ -294,6 +294,15 @@ impl State {
 		self.friend(user)?;
 		self.user_actions.friends_since.get(&user).copied()
 	}
+
+	/// VenSerein (LastActive): Returns the latest message ID from `user_id` in the loaded timeline.
+	pub fn user_last_active_message(&self, user_id: Id) -> Option<Id> {
+		self.timeline
+			.iter()
+			.filter(|m| m.author.id == user_id)
+			.map(|m| m.id)
+			.max()
+	}
 	pub fn user_display_name<'a>(&'a self, user: &'a model::User) -> &'a str {
 		self.friend_nickname(user.id).unwrap_or(&user.name)
 	}

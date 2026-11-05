@@ -58,6 +58,30 @@ pub fn always_expand_profiles_enabled() -> bool {
 	ALWAYS_EXPAND_PROFILES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// VenSerein (BannersEverywhere): Global toggle for showing user banners in more UI surfaces.
+pub static BANNERS_EVERYWHERE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn banners_everywhere_enabled() -> bool {
+	BANNERS_EVERYWHERE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_banners_everywhere_enabled(enabled: bool) {
+	BANNERS_EVERYWHERE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (Timezones): Global toggle for showing user timezones and local time on profile cards.
+pub static TIMEZONES_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn timezones_enabled() -> bool {
+	TIMEZONES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_timezones_enabled(enabled: bool) {
+	TIMEZONES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn set_user_voice_show_enabled(enabled: bool) {
 	USER_VOICE_SHOW_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
@@ -3976,6 +4000,22 @@ fn card_view(
 								voice_badge(ui, in_voice, false);
 							});
 						}
+						if timezones_enabled() && !user.webhook {
+							ui.add_space(2.0);
+							ui.horizontal(|ui| {
+								let now = crate::local_time::clock(crate::local_time::now());
+								ui.label(RichText::new(format!("🕒 Local Time: {now}")).size(12.0).color(theme.muted));
+							});
+						}
+						if crate::user_menu::last_active_enabled()
+							&& let Some(last_id) = state.user_last_active_message(user.id)
+						{
+							let last_time = crate::timeline::timestamp(last_id);
+							ui.add_space(2.0);
+							ui.horizontal(|ui| {
+								ui.label(RichText::new(format!("🕒 Last active: {}", crate::local_time::header(last_time))).size(12.0).color(theme.muted));
+							});
+						}
 						if !user.webhook && view.map_or(data.is_none(), |v| v.loading) {
 							ui.add_space(4.0);
 							ui.horizontal(|ui| {
@@ -5871,5 +5911,20 @@ mod tests {
 
 		set_always_expand_profiles_enabled(false);
 		assert!(!always_expand_profiles_enabled());
+	}
+
+	#[test]
+	fn test_banners_everywhere_and_timezones_toggles() {
+		assert!(banners_everywhere_enabled());
+		set_banners_everywhere_enabled(false);
+		assert!(!banners_everywhere_enabled());
+		set_banners_everywhere_enabled(true);
+		assert!(banners_everywhere_enabled());
+
+		assert!(timezones_enabled());
+		set_timezones_enabled(false);
+		assert!(!timezones_enabled());
+		set_timezones_enabled(true);
+		assert!(timezones_enabled());
 	}
 }
