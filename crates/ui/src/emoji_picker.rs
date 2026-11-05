@@ -66,6 +66,20 @@ pub fn set_greet_sticker_picker_enabled(enabled: bool) {
 	GREET_STICKER_PICKER_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// VenSerein (DragFavoriteEmotes): Allows reordering favorite emotes in the picker.
+pub static DRAG_FAVORITE_EMOTES_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn drag_favorite_emotes_enabled() -> bool {
+	DRAG_FAVORITE_EMOTES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_drag_favorite_emotes_enabled(enabled: bool) {
+	DRAG_FAVORITE_EMOTES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn is_greeting_sticker(name: &str) -> bool {
 	let lower = name.to_ascii_lowercase();
 	lower
@@ -2661,6 +2675,12 @@ mod tests {
 		assert!(!whitelisted_emojis_enabled());
 		set_whitelisted_emojis_enabled(true);
 		assert!(whitelisted_emojis_enabled());
+
+		assert!(drag_favorite_emotes_enabled());
+		set_drag_favorite_emotes_enabled(false);
+		assert!(!drag_favorite_emotes_enabled());
+		set_drag_favorite_emotes_enabled(true);
+		assert!(drag_favorite_emotes_enabled());
 	}
 
 	#[test]

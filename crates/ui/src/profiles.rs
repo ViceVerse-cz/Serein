@@ -58,6 +58,36 @@ pub fn always_expand_profiles_enabled() -> bool {
 	ALWAYS_EXPAND_PROFILES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// VenSerein (FriendshipRanks): Shows friendship duration badges on friend profiles.
+pub static FRIENDSHIP_RANKS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn friendship_ranks_enabled() -> bool {
+	FRIENDSHIP_RANKS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_friendship_ranks_enabled(enabled: bool) {
+	FRIENDSHIP_RANKS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn friendship_duration_text(since_timestamp_ms: i64, now_ms: i64) -> String {
+	let diff_sec = (now_ms - since_timestamp_ms).max(0) / 1000;
+	let days = diff_sec / 86400;
+	if days >= 365 {
+		let years = days / 365;
+		format!("Friend for {years}y")
+	} else if days >= 30 {
+		let months = days / 30;
+		format!("Friend for {months}mo")
+	} else if days >= 1 {
+		format!("Friend for {days}d")
+	} else {
+		"New Friend".to_owned()
+	}
+}
+
 /// VenSerein (BannersEverywhere): Global toggle for showing user banners in more UI surfaces.
 pub static BANNERS_EVERYWHERE_ENABLED: std::sync::atomic::AtomicBool =
 	std::sync::atomic::AtomicBool::new(true);
@@ -5926,5 +5956,20 @@ mod tests {
 		assert!(!timezones_enabled());
 		set_timezones_enabled(true);
 		assert!(timezones_enabled());
+
+		assert!(friendship_ranks_enabled());
+		set_friendship_ranks_enabled(false);
+		assert!(!friendship_ranks_enabled());
+		set_friendship_ranks_enabled(true);
+		assert!(friendship_ranks_enabled());
+
+		let now = 1_000_000_000_000i64;
+		let two_years_ago = now - (2 * 365 * 86400 * 1000);
+		assert_eq!(friendship_duration_text(two_years_ago, now), "Friend for 2y");
+		let two_months_ago = now - (60 * 86400 * 1000);
+		assert_eq!(friendship_duration_text(two_months_ago, now), "Friend for 2mo");
+		let five_days_ago = now - (5 * 86400 * 1000);
+		assert_eq!(friendship_duration_text(five_days_ago, now), "Friend for 5d");
+		assert_eq!(friendship_duration_text(now, now), "New Friend");
 	}
 }

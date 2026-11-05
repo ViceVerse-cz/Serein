@@ -59,6 +59,13 @@ impl ProfileCache {
 			.find(|entry| entry.user == user)
 			.map(|entry| entry.data.badges.as_slice())
 	}
+	/// VenSerein (CopyProfileColors): Returns cached profile theme colors for a user.
+	pub fn get_user_theme_colors(&self, user: Id) -> Option<[u32; 2]> {
+		self.entries
+			.iter()
+			.find(|entry| entry.user == user)
+			.and_then(|entry| entry.data.theme_colors)
+	}
 	/// Whether an unexpired profile for `(user, guild)` is cached, without evicting anything.
 	fn contains(&self, user: Id, guild: Option<Id>, now: Instant) -> bool {
 		self.entries.iter().any(|entry| {

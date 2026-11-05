@@ -100,6 +100,20 @@ pub fn set_server_search_enabled(enabled: bool) {
 	SERVER_SEARCH_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// VenSerein (HomeTyping): Displays typing indicator on the Home direct messages rail tile when someone is typing.
+pub static HOME_TYPING_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn home_typing_enabled() -> bool {
+	HOME_TYPING_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_home_typing_enabled(enabled: bool) {
+	HOME_TYPING_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[derive(Default)]
 pub(super) struct FolderUi {
 	expanded: BTreeSet<u64>,
@@ -1775,6 +1789,12 @@ mod tests {
 		assert!(!server_search_enabled());
 		set_server_search_enabled(true);
 		assert!(server_search_enabled());
+
+		assert!(home_typing_enabled());
+		set_home_typing_enabled(false);
+		assert!(!home_typing_enabled());
+		set_home_typing_enabled(true);
+		assert!(home_typing_enabled());
 	}
 }
 

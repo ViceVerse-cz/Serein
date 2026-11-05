@@ -159,6 +159,19 @@ pub fn sidebar_chat_enabled() -> bool {
 	SIDEBAR_CHAT_ENABLED.load(Ordering::Relaxed)
 }
 
+/// VenSerein (Dragify): Drag and drop channels, users, messages, and attachments anywhere.
+pub static DRAGIFY_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn dragify_enabled() -> bool {
+	DRAGIFY_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_dragify_enabled(enabled: bool) {
+	DRAGIFY_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
 /// VenSerein (ValidReply): Validates referenced message existence before replying.
 pub static VALID_REPLY_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -10320,5 +10333,11 @@ mod venserein_phase2_batch1_timeline_tests {
 		assert!(!sidebar_chat_enabled());
 		set_sidebar_chat_enabled(true);
 		assert!(sidebar_chat_enabled());
+
+		assert!(dragify_enabled());
+		set_dragify_enabled(false);
+		assert!(!dragify_enabled());
+		set_dragify_enabled(true);
+		assert!(dragify_enabled());
 	}
 }

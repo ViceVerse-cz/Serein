@@ -43,6 +43,19 @@ pub fn command_palette_enabled() -> bool {
 	COMMAND_PALETTE_ENABLED.load(Ordering::Relaxed)
 }
 
+/// VenSerein (FriendTags): Allows filtering friends by custom tags or notes in the switcher with `&`.
+pub static FRIEND_TAGS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn friend_tags_enabled() -> bool {
+	FRIEND_TAGS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_friend_tags_enabled(enabled: bool) {
+	FRIEND_TAGS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum CommandPaletteAction {
 	OpenSettings,
@@ -198,6 +211,36 @@ pub(super) fn channel_matches(
 }
 
 fn candidates(state: &State, query: &str) -> Vec<Candidate> {
+	if friend_tags_enabled() && query.trim_start().starts_with('&') {
+		let clean = query.trim_start().trim_start_matches('&').trim().to_lowercase();
+		let words: Vec<&str> = clean.split_whitespace().collect();
+		let mut friend_choices = Vec::new();
+		for user in state.friends() {
+			let labels = [
+				Some(user.name.as_str()),
+				state.friend_nickname(user.id),
+				state.friend_username(user.id),
+			]
+			.into_iter()
+			.flatten();
+			let mut label = String::new();
+			let mut matched = vec![false; words.len()];
+			if labels_match(labels, &words, &mut label, &mut matched) {
+				friend_choices.push(Candidate {
+					target: Target::Friend(user.id),
+					kind: Kind::Direct,
+					name: bounded(state.user_display_name(user)),
+					scope: bounded(state.friend_username(user.id).unwrap_or("Friend")),
+					current: false,
+					user: Some(user.clone()),
+				});
+				if friend_choices.len() == RESULTS {
+					break;
+				}
+			}
+		}
+		return friend_choices;
+	}
 	if command_palette_enabled() && query.trim_start().starts_with('>') {
 		let clean = query.trim_start().trim_start_matches('>').trim().to_lowercase();
 		let words: Vec<&str> = clean.split_whitespace().collect();
@@ -1091,6 +1134,12 @@ mod tests {
 
 		let all_actions = candidates(&state, ">");
 		assert_eq!(all_actions.len(), COMMAND_ACTIONS.len());
+
+		assert!(friend_tags_enabled());
+		set_friend_tags_enabled(false);
+		assert!(!friend_tags_enabled());
+		set_friend_tags_enabled(true);
+		assert!(friend_tags_enabled());
 	}
 }
 

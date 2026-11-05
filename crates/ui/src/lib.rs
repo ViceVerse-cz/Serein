@@ -153,6 +153,7 @@ pub use guild_folders::{
 	hide_servers_enabled, set_hide_servers_enabled, hide_server, unhide_server, is_server_hidden,
 	custom_folder_icons_enabled, set_custom_folder_icons_enabled,
 	server_search_enabled, set_server_search_enabled,
+	home_typing_enabled, set_home_typing_enabled,
 };
 pub use highlight::{set_shiki_codeblocks_enabled, shiki_codeblocks_enabled};
 pub use notifications::{server_list_indicators_enabled, set_server_list_indicators_enabled};
@@ -161,6 +162,7 @@ pub use profiles::{
 	set_always_expand_profiles_enabled, set_banners_everywhere_enabled,
 	set_platform_indicators_enabled, set_timezones_enabled, set_user_voice_show_enabled,
 	timezones_enabled, user_voice_show_enabled,
+	friendship_ranks_enabled, set_friendship_ranks_enabled, friendship_duration_text,
 };
 pub use typing::{
 	set_typing_indicator_avatar_enabled, set_typing_tweaks_enabled,
@@ -179,14 +181,26 @@ pub use reactions::{reaction_timestamps_enabled, set_reaction_timestamps_enabled
 pub use badges::{show_badges_in_chat_enabled, set_show_badges_in_chat_enabled};
 pub use local_time::{custom_timestamps_seconds_enabled, set_custom_timestamps_seconds_enabled};
 pub use embeds::{set_show_message_embeds_enabled, show_message_embeds_enabled};
-pub use emoji_picker::{set_whitelisted_emojis_enabled, whitelisted_emojis_enabled};
-pub use user_menu::{last_active_enabled, set_last_active_enabled};
+pub use emoji_picker::{
+	set_whitelisted_emojis_enabled, whitelisted_emojis_enabled,
+	drag_favorite_emotes_enabled, set_drag_favorite_emotes_enabled,
+};
+pub use user_menu::{
+	last_active_enabled, set_last_active_enabled,
+	copy_user_mention_enabled, set_copy_user_mention_enabled,
+	copy_profile_colors_enabled, set_copy_profile_colors_enabled,
+	copy_status_urls_enabled, set_copy_status_urls_enabled,
+	cancel_friend_request_enabled, set_cancel_friend_request_enabled,
+	custom_user_colors_enabled, set_custom_user_colors_enabled,
+	custom_user_color, set_custom_user_color,
+};
 pub use timeline::{
 	better_backreading_enabled, hide_messages_enabled, pin_icon_enabled,
 	set_better_backreading_enabled, set_hide_messages_enabled, set_pin_icon_enabled,
 	set_show_roles_in_chat_enabled, show_roles_in_chat_enabled,
 	auto_jump_to_message_enabled, jump_to_enabled, set_auto_jump_to_message_enabled,
 	set_jump_to_enabled, set_sidebar_chat_enabled, sidebar_chat_enabled,
+	dragify_enabled, set_dragify_enabled,
 };
 pub use categories::{
 	draft_navigator_enabled, set_draft_navigator_enabled,
@@ -200,6 +214,7 @@ pub use switcher::{
 	command_palette_enabled, frequent_quick_switcher_enabled, recent_dm_switcher_enabled,
 	set_command_palette_enabled, set_frequent_quick_switcher_enabled,
 	set_recent_dm_switcher_enabled, CommandPaletteAction,
+	friend_tags_enabled, set_friend_tags_enabled,
 };
 pub use keybinds::{keyboard_navigation_enabled, set_keyboard_navigation_enabled};
 
