@@ -1472,18 +1472,14 @@ mod poller {
 			wait(stop, PAD_RETRY);
 		};
 		let mut device: Option<HidDevice> = None;
-		let mut silent = 0;
-		// Only a pad that keeps streaming reports may be cleared for silence; a
-		// change-only pad keeps its last mask and clears on `Err`.
-		let mut streaming = false;
+		let mut quiet = Quiet::default();
 		while !stop.load(Ordering::Relaxed) {
 			if device.is_none() {
 				let _ = api.refresh_devices();
 				device = open_pad(&api);
-				silent = 0;
 				// Buttons carried over from a stopped reader are unconfirmed until this
-				// device reports, so they expire on silence like a streaming pad's.
-				streaming = mask.load(Ordering::Relaxed) != 0;
+				// device reports, so they expire on silence even on a change-only pad.
+				quiet = Quiet::reopened(mask.load(Ordering::Relaxed) != 0);
 				if device.is_none() {
 					// No pad to read: release anything the last reader left held.
 					mask.store(0, Ordering::Relaxed);
@@ -1498,35 +1494,61 @@ mod poller {
 				// A failed read is a disconnect; clearing releases any button still held.
 				Err(_) => {
 					mask.store(0, Ordering::Relaxed);
-					silent = 0;
-					streaming = false;
 					device = None;
 				}
 				Ok(read) => {
 					let report = &buffer[..read];
-					match pad_bits(report) {
-						Some(bits) => {
-							silent = 0;
-							streaming |= matches!(report.first(), Some(0x01) if report.len() >= 11)
-								|| report.first() == Some(&0x31);
-							mask.store(bits, Ordering::Relaxed);
-						}
-						// Nothing new about the buttons, but a live pad streams reports: one
-						// that stops is treated as gone, so a stall cannot hold a key down.
-						None if !streaming => {}
-						None if silent < PAD_SILENT_READS => silent += 1,
-						None => {
-							silent = 0;
-							mask.store(0, Ordering::Relaxed);
-							streaming = false;
-							device = None;
-						}
+					if let Some(bits) = pad_bits(report) {
+						quiet.report(report);
+						mask.store(bits, Ordering::Relaxed);
+					} else if quiet.gone() {
+						// A stall cannot hold a key down.
+						mask.store(0, Ordering::Relaxed);
+						device = None;
 					}
 				}
 			}
 		}
 		// The mask outlives this reader, so a restarted poller seeds from the buttons
 		// still held and does not see them as a fresh press.
+	}
+
+	/// Silence tracking for one opened pad. A pad that streams reports and stops is
+	/// gone; a change-only pad keeps its last mask, except buttons carried over from a
+	/// stopped reader, which only a report from this device confirms.
+	#[derive(Default)]
+	struct Quiet {
+		streaming: bool,
+		carried: bool,
+		silent: u8,
+	}
+
+	impl Quiet {
+		fn reopened(carried: bool) -> Self {
+			Self {
+				carried,
+				..Self::default()
+			}
+		}
+
+		fn report(&mut self, report: &[u8]) {
+			self.silent = 0;
+			self.carried = false;
+			self.streaming |= matches!(report.first(), Some(0x01) if report.len() >= 11)
+				|| report.first() == Some(&0x31);
+		}
+
+		/// Counts a read with nothing new; true once the pad should be treated as gone.
+		fn gone(&mut self) -> bool {
+			if !(self.streaming || self.carried) {
+				return false;
+			}
+			if self.silent < PAD_SILENT_READS {
+				self.silent += 1;
+				return false;
+			}
+			true
+		}
 	}
 
 	/// Sleeps in short slices, so a stopped reader returns without waiting out a retry.
@@ -1654,6 +1676,20 @@ mod poller {
 			for report in [&[][..], &short[..], &unknown[..], &bt_full[..]] {
 				assert_eq!(pad_bits(report), None);
 			}
+		}
+
+		#[test]
+		fn carried_buttons_expire_until_confirmed() {
+			let silence = |quiet: &mut Quiet| (0..=PAD_SILENT_READS).any(|_| quiet.gone());
+			// A reopened pad that never reports releases what the old reader held.
+			assert!(silence(&mut Quiet::reopened(true)));
+			// One change-only report confirms them; silence then keeps the hold.
+			let mut quiet = Quiet::reopened(true);
+			quiet.report(&[0x01, 0x80, 0x80, 0x80, 0x80, 0x28, 0, 0, 0, 0]);
+			assert!(!silence(&mut quiet));
+			// A streaming pad that stops is gone.
+			quiet.report(&[0x01; 12]);
+			assert!(silence(&mut quiet));
 		}
 	}
 }
