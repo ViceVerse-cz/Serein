@@ -25,6 +25,7 @@ concurrency:
 
 jobs:
   prepare:
+    if: github.repository == 'ViceVerse-cz/Serein'
     runs-on: ubuntu-latest
     permissions:
       contents: write
