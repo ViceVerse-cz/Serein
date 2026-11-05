@@ -1347,7 +1347,11 @@ impl MessagingUi {
 	///
 	/// This uses the same lookup the roster draws with, so a name shown here is never fetched
 	/// and a skipped name is always one the row can actually resolve.
-	pub(crate) fn request_missing_viewers(&mut self, state: &mut State, commands: &mut Vec<Command>) {
+	pub(crate) fn request_missing_viewers(
+		&mut self,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
 		let Some(audience) = &state.voice.audience else {
 			return;
 		};
@@ -1369,13 +1373,7 @@ impl MessagingUi {
 
 	/// Top-right watcher chip on this device's own share; a click opens the viewer roster.
 	/// `inset` keeps the chip clear of chrome sharing that corner (the fullscreen exit button).
-	fn viewer_badge(
-		&mut self,
-		ui: &mut egui::Ui,
-		state: &State,
-		content: egui::Rect,
-		inset: f32,
-	) {
+	fn viewer_badge(&mut self, ui: &mut egui::Ui, state: &State, content: egui::Rect, inset: f32) {
 		let Some(audience) = &state.voice.audience else {
 			return;
 		};
