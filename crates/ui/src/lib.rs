@@ -137,7 +137,18 @@ use client_core::{Command, MAX_DRAFT_BYTES, NavStep, State};
 use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
-pub use voice::{StageFocus, set_vc_narrator_enabled, vc_narrator_enabled};
+pub use voice::{
+	StageFocus, set_vc_narrator_enabled, vc_narrator_enabled,
+	full_vc_pfp_enabled, set_full_vc_pfp_enabled,
+	disable_cameras_enabled, set_disable_cameras_enabled,
+	vc_panel_settings_uncollapsed, set_vc_panel_settings_uncollapsed,
+	voice_buttons_enabled, set_voice_buttons_enabled,
+	voice_stats_enabled, set_voice_stats_enabled,
+	voice_rejoin_enabled, set_voice_rejoin_enabled, last_voice_channel, record_last_voice_channel,
+	wait_for_slot_enabled, set_wait_for_slot_enabled, waiting_voice_channel, set_waiting_voice_channel,
+	follow_voice_user_enabled, set_follow_voice_user_enabled, followed_voice_user, set_followed_voice_user,
+	random_voice_enabled, set_random_voice_enabled, pick_random_voice_channel,
+};
 pub use account_menu::{account_panel_server_profile_enabled, set_account_panel_server_profile_enabled};
 pub use embeds::{
 	fix_spotify_embeds_enabled, fix_youtube_embeds_enabled, set_fix_spotify_embeds_enabled,

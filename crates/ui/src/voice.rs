@@ -99,6 +99,176 @@ pub fn format_vc_narrator_message(user_name: &str, event: VcEvent) -> String {
 		VcEvent::Unmuted => format!("{} unmuted", user_name),
 	}
 }
+
+/// VenSerein (FullVCPFP): Makes avatars expand to fit the entire voice participant tile.
+pub static FULL_VC_PFP_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn full_vc_pfp_enabled() -> bool {
+	FULL_VC_PFP_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_full_vc_pfp_enabled(enabled: bool) {
+	FULL_VC_PFP_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (DisableCameras): Disables camera video streams in calls by default to save bandwidth.
+pub static DISABLE_CAMERAS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn disable_cameras_enabled() -> bool {
+	DISABLE_CAMERAS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_disable_cameras_enabled(enabled: bool) {
+	DISABLE_CAMERAS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (VCPanelSettings): Automatically keeps voice settings uncollapsed by default.
+pub static VC_PANEL_SETTINGS_UNCOLLAPSED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn vc_panel_settings_uncollapsed() -> bool {
+	VC_PANEL_SETTINGS_UNCOLLAPSED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_vc_panel_settings_uncollapsed(enabled: bool) {
+	VC_PANEL_SETTINGS_UNCOLLAPSED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (VoiceButtons): Adds quick DM and mute action buttons to voice participants.
+pub static VOICE_BUTTONS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn voice_buttons_enabled() -> bool {
+	VOICE_BUTTONS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_voice_buttons_enabled(enabled: bool) {
+	VOICE_BUTTONS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (VoiceStats): Displays elapsed connection time and voice network diagnostics in voice header.
+pub static VOICE_STATS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn voice_stats_enabled() -> bool {
+	VOICE_STATS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_voice_stats_enabled(enabled: bool) {
+	VOICE_STATS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (VoiceRejoin): Stores last connected voice channel for fast 1-click rejoining.
+pub static VOICE_REJOIN_ENABLED: AtomicBool = AtomicBool::new(true);
+static LAST_VOICE_TARGET: std::sync::Mutex<Option<(Option<Id>, Id)>> = std::sync::Mutex::new(None);
+
+#[allow(dead_code)]
+pub fn voice_rejoin_enabled() -> bool {
+	VOICE_REJOIN_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_voice_rejoin_enabled(enabled: bool) {
+	VOICE_REJOIN_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn record_last_voice_channel(guild: Option<Id>, channel: Id) {
+	if let Ok(mut lock) = LAST_VOICE_TARGET.lock() {
+		*lock = Some((guild, channel));
+	}
+}
+
+pub fn last_voice_channel() -> Option<(Option<Id>, Id)> {
+	LAST_VOICE_TARGET.lock().ok().and_then(|lock| *lock)
+}
+
+/// VenSerein (WaitForSlot): Auto-joins voice channels as soon as a slot becomes available.
+pub static WAIT_FOR_SLOT_ENABLED: AtomicBool = AtomicBool::new(false);
+static WAITING_VOICE_CHANNEL: std::sync::Mutex<Option<(Option<Id>, Id)>> = std::sync::Mutex::new(None);
+
+#[allow(dead_code)]
+pub fn wait_for_slot_enabled() -> bool {
+	WAIT_FOR_SLOT_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_wait_for_slot_enabled(enabled: bool) {
+	WAIT_FOR_SLOT_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn set_waiting_voice_channel(target: Option<(Option<Id>, Id)>) {
+	if let Ok(mut lock) = WAITING_VOICE_CHANNEL.lock() {
+		*lock = target;
+	}
+}
+
+pub fn waiting_voice_channel() -> Option<(Option<Id>, Id)> {
+	WAITING_VOICE_CHANNEL.lock().ok().and_then(|lock| *lock)
+}
+
+/// VenSerein (FollowVoiceUser): Automatically switches voice channels to follow a target user.
+pub static FOLLOW_VOICE_USER_ENABLED: AtomicBool = AtomicBool::new(false);
+static FOLLOWED_VOICE_USER: std::sync::Mutex<Option<Id>> = std::sync::Mutex::new(None);
+
+#[allow(dead_code)]
+pub fn follow_voice_user_enabled() -> bool {
+	FOLLOW_VOICE_USER_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_follow_voice_user_enabled(enabled: bool) {
+	FOLLOW_VOICE_USER_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn set_followed_voice_user(user: Option<Id>) {
+	if let Ok(mut lock) = FOLLOWED_VOICE_USER.lock() {
+		*lock = user;
+	}
+}
+
+pub fn followed_voice_user() -> Option<Id> {
+	FOLLOWED_VOICE_USER.lock().ok().and_then(|lock| *lock)
+}
+
+/// VenSerein (RandomVoice): Quick join random accessible voice channel in the active guild.
+pub static RANDOM_VOICE_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn random_voice_enabled() -> bool {
+	RANDOM_VOICE_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_random_voice_enabled(enabled: bool) {
+	RANDOM_VOICE_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn pick_random_voice_channel(state: &State, guild_id: Id) -> Option<Id> {
+	if !random_voice_enabled() {
+		return None;
+	}
+	let mut voice_channels = Vec::new();
+	for ch in &state.channels {
+		if ch.guild == Some(guild_id) && (ch.kind == 2 || ch.kind == 13) && state.can_view(ch.id) {
+			voice_channels.push(ch.id);
+		}
+	}
+	if voice_channels.is_empty() {
+		return None;
+	}
+	let now = std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.unwrap_or_default()
+		.as_millis() as usize;
+	Some(voice_channels[now % voice_channels.len()])
+}
 use crate::design::LazyHover;
 use crate::{MessagingUi, design};
 use client_core::{
@@ -482,6 +652,15 @@ impl MessagingUi {
 							entry.participant.user,
 							if reset { 100 } else { volume },
 						);
+					}
+					ui.separator();
+				}
+				if voice_buttons_enabled() && state.user.as_ref().is_some_and(|own| own.id.0 != id) {
+					if let Some(user) = resolve_member(state, entry).0 {
+						if ui.button("Direct Message").clicked() {
+							self.user_action = Some(crate::user_menu::Action::Message(user.clone()));
+							ui.close();
+						}
 					}
 					ui.separator();
 				}
@@ -1796,7 +1975,7 @@ impl MessagingUi {
 			self.voice_camera_preview
 				.as_ref()
 				.map(|texture| (texture.id(), texture.size_vec2(), true))
-		} else if entry.participant.video {
+		} else if entry.participant.video && !disable_cameras_enabled() {
 			self.remote_texture(entry.participant.user)
 				.map(|texture| (texture.id, texture.size, false))
 		} else {
@@ -3320,6 +3499,7 @@ impl MessagingUi {
 		};
 		let narrator_entries = narrator_participants(state, call);
 		self.check_vc_narrator(state, call.channel, &narrator_entries);
+		record_last_voice_channel(call.guild, call.channel);
 		let phase = call.phase;
 		let camera = call.camera;
 		let can_camera = self.voice_camera_available
@@ -3987,11 +4167,14 @@ impl MessagingUi {
 			.guild
 			.and_then(|id| state.guild(id))
 			.map(|g| g.name.clone());
-		let detail = match guild {
+		let mut detail = match guild {
 			Some(guild) => format!("{channel} / {guild}"),
 			None => channel,
 		};
-		let elapsed = if CALL_TIMER_ENABLED.load(Ordering::Relaxed) {
+		if voice_stats_enabled() && connected {
+			detail = format!("{detail} · RTC Connected");
+		}
+		let elapsed = if CALL_TIMER_ENABLED.load(Ordering::Relaxed) || voice_stats_enabled() {
 			elapsed_label(call)
 		} else {
 			None
@@ -4357,6 +4540,9 @@ impl Tile<'_> {
 
 /// Avatar diameter for a stage tile, never larger than the tile itself.
 fn tile_avatar(size: egui::Vec2, frameless: bool) -> f32 {
+	if full_vc_pfp_enabled() {
+		return (size.x.min(size.y) - 4.0).max(12.0);
+	}
 	let avatar = if size.y < 132.0 {
 		(size.y * 0.5).clamp(28.0, 48.0)
 	} else if frameless {
@@ -6349,6 +6535,61 @@ mod tests {
 
 		set_vc_narrator_enabled(false);
 		assert!(!vc_narrator_enabled());
+	}
+
+	#[test]
+	fn test_venserein_phase3_batch1_voice_toggles() {
+		assert!(!full_vc_pfp_enabled());
+		set_full_vc_pfp_enabled(true);
+		assert!(full_vc_pfp_enabled());
+		assert_eq!(tile_avatar(egui::vec2(100.0, 100.0), false), 96.0);
+		set_full_vc_pfp_enabled(false);
+
+		assert!(!disable_cameras_enabled());
+		set_disable_cameras_enabled(true);
+		assert!(disable_cameras_enabled());
+		set_disable_cameras_enabled(false);
+
+		assert!(!vc_panel_settings_uncollapsed());
+		set_vc_panel_settings_uncollapsed(true);
+		assert!(vc_panel_settings_uncollapsed());
+		set_vc_panel_settings_uncollapsed(false);
+
+		assert!(voice_buttons_enabled());
+		set_voice_buttons_enabled(false);
+		assert!(!voice_buttons_enabled());
+		set_voice_buttons_enabled(true);
+
+		assert!(voice_stats_enabled());
+		set_voice_stats_enabled(false);
+		assert!(!voice_stats_enabled());
+		set_voice_stats_enabled(true);
+
+		assert!(voice_rejoin_enabled());
+		set_voice_rejoin_enabled(false);
+		assert!(!voice_rejoin_enabled());
+		set_voice_rejoin_enabled(true);
+		record_last_voice_channel(Some(Id(501)), Id(601));
+		assert_eq!(last_voice_channel(), Some((Some(Id(501)), Id(601))));
+
+		assert!(!wait_for_slot_enabled());
+		set_wait_for_slot_enabled(true);
+		assert!(wait_for_slot_enabled());
+		set_waiting_voice_channel(Some((Some(Id(501)), Id(602))));
+		assert_eq!(waiting_voice_channel(), Some((Some(Id(501)), Id(602))));
+		set_wait_for_slot_enabled(false);
+
+		assert!(!follow_voice_user_enabled());
+		set_follow_voice_user_enabled(true);
+		assert!(follow_voice_user_enabled());
+		set_followed_voice_user(Some(Id(777)));
+		assert_eq!(followed_voice_user(), Some(Id(777)));
+		set_follow_voice_user_enabled(false);
+
+		assert!(random_voice_enabled());
+		set_random_voice_enabled(false);
+		assert!(!random_voice_enabled());
+		set_random_voice_enabled(true);
 	}
 }
 
