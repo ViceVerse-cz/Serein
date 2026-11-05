@@ -517,7 +517,16 @@ impl ClientState {
 		request: u64,
 		results: Vec<(Id, Option<model::User>)>,
 	) {
-		self.voice.viewer_fetch_request = None;
+		// A matching read releases its marker even when the roster already moved on; a stale
+		// result must leave a newer fetch's marker untouched.
+		if self
+			.voice
+			.viewer_fetch_request
+			.as_ref()
+			.is_some_and(|(pending, _)| *pending == request)
+		{
+			self.voice.viewer_fetch_request = None;
+		}
 		let Some(audience) = self
 			.voice
 			.audience
@@ -535,6 +544,7 @@ impl ClientState {
 					id,
 					name: Self::bounded_name(user.name),
 					avatar: user.avatar.filter(|hash| model::valid_avatar_hash(hash)),
+					discriminator: user.discriminator,
 				});
 			}
 		}
@@ -1306,7 +1316,9 @@ impl ClientState {
 				{
 					// The latest refresh wins even when it is empty: a stopped share reports no
 					// viewers. Identities already fetched for retained IDs carry over, so a
-					// repeated refresh does not re-request every watcher.
+					// repeated refresh does not re-request every watcher. A changed composition
+					// is a new roster: viewers who left clear their failed-read marker, so a
+					// returning watcher can get a name once the read can succeed again.
 					let ids: Vec<Id> = ids.into_iter().take(screen::MAX_VIEWERS).collect();
 					let previous = self
 						.voice
@@ -1316,17 +1328,18 @@ impl ClientState {
 					let (users, attempted) = previous.map_or_else(
 						|| (Vec::new(), Vec::new()),
 						|audience| {
+							let changed = audience.ids != ids;
 							(
 								audience
 									.users
 									.into_iter()
 									.filter(|user| ids.contains(&user.id))
 									.collect(),
-								audience
-									.attempted
-									.into_iter()
-									.filter(|id| ids.contains(id))
-									.collect(),
+								if changed {
+									Vec::new()
+								} else {
+									audience.attempted
+								},
 							)
 						},
 					);
@@ -2252,6 +2265,18 @@ mod tests {
 		state.apply_voice(viewers(0, Vec::new()));
 		assert!(state.audience().is_empty());
 		assert!(state.request_stream_viewer_users(&[Id(2)]).is_none());
+
+		// A changed roster clears the failed-read markers, so a returning watcher is asked
+		// once more, and 65 IDs still retain only the first 64.
+		state.apply_voice(viewers(65, (1..=65).map(Id).collect()));
+		let audience = state.voice.audience.as_ref().unwrap();
+		assert_eq!(audience.ids.len(), screen::MAX_VIEWERS);
+		assert_eq!(audience.ids.last(), Some(&Id(64)));
+		assert_eq!(audience.count, 65);
+		assert!(
+			state.request_stream_viewer_users(&[Id(2)]).is_some(),
+			"a changed roster may retry a failed read"
+		);
 	}
 
 	fn dm_state() -> ClientState {

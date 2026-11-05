@@ -18,6 +18,8 @@ pub struct StreamViewerUser {
 	pub id: Id,
 	pub name: String,
 	pub avatar: Option<String>,
+	/// Kept so the default-avatar fallback matches Discord's own choice.
+	pub discriminator: u16,
 }
 
 /// Recently viewed profiles stay in RAM so reopening a card does not repeat the request.

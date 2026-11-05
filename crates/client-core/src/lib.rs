@@ -2500,11 +2500,17 @@ impl State {
 			self.apply_stream_preview(guild, channel, user, request, Err(auth::Failure::Capacity));
 			return;
 		}
-		if matches!(command, Command::StreamViewerUsers { .. }) {
-			// Nothing was fetched: the rows stay on their fallback labels, and the pending
-			// marker is released so a later roster can still ask. The IDs stay in `attempted`,
-			// so the same ones are not retried every frame.
-			self.voice.viewer_fetch_request = None;
+		if let Command::StreamViewerUsers { request, .. } = command {
+			// Nothing was fetched: the rows stay on their fallback labels. The pending marker
+			// is released only when it named this request, so a newer lookup stays in flight;
+			// the rejected IDs stay in `attempted`, so they are not retried every frame.
+			if self
+				.voice
+				.viewer_fetch_request
+				.is_some_and(|(pending, _)| pending == request)
+			{
+				self.voice.viewer_fetch_request = None;
+			}
 			return;
 		}
 		if let Command::Voice(control) = command {
@@ -4071,6 +4077,9 @@ impl State {
 				// The voice socket is independent and a RESUME replays roster changes, so the call,
 				// roster and known DM calls all stay. Only a fresh READY invalidates the voice state.
 				self.voice.incoming = None;
+				// The transport worker owning this read was dropped with the connection; release
+				// the marker so the restored session can resolve any still-listed viewers.
+				self.voice.viewer_fetch_request = None;
 				if std::mem::replace(&mut self.gateway_connected, false) {
 					self.cancel_history();
 					self.freshness = Freshness::Stale;
@@ -4604,10 +4613,13 @@ impl Event {
 					result.as_ref().map_or(0, |p| p.bytes())
 				}
 				Self::StreamPreview { result, .. } => result.as_ref().map_or(0, String::capacity),
-				Self::StreamViewerUsers { results, .. } => results
-					.iter()
-					.map(|(_, user)| user.as_ref().map_or(0, model::User::heap_bytes))
-					.sum(),
+				Self::StreamViewerUsers { results, .. } => {
+					results.capacity() * size_of::<(Id, Option<model::User>)>()
+						+ results
+							.iter()
+							.map(|(_, user)| user.as_ref().map_or(0, model::User::heap_bytes))
+							.sum::<usize>()
+				}
 				Self::BadgeSettings { result, .. } => result
 					.as_ref()
 					.map_or(0, |s| (s.order.capacity() + s.hidden.capacity()) * 4),

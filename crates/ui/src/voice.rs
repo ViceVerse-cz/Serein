@@ -87,7 +87,7 @@ impl MessagingUi {
 				let rect = egui::Rect::from_min_size(screen.min, screen.size());
 				ui.painter().rect_filled(rect, 0, STAGE_FILL);
 				match focus {
-					StageFocus::LocalScreen => self.screen_tile(ui, state, rect, false),
+					StageFocus::LocalScreen => self.screen_tile(ui, state, rect, false, 56.0),
 					StageFocus::Stream(user) => {
 						self.stream_tile(ui, state, rect, channel, user, true)
 					}
@@ -899,7 +899,6 @@ impl MessagingUi {
 		channel: Id,
 		commands: &mut Vec<Command>,
 	) {
-		self.request_missing_viewers(state, commands);
 		let connected = state
 			.voice
 			.active
@@ -1243,7 +1242,7 @@ impl MessagingUi {
 		let compact = rect.height() < 132.0;
 		let hint = match tile {
 			Tile::LocalScreen => {
-				self.screen_tile(ui, state, rect, compact);
+				self.screen_tile(ui, state, rect, compact, 0.0);
 				self.screen
 					.capture_status
 					.unwrap_or("Your screen · local preview")
@@ -1316,7 +1315,15 @@ impl MessagingUi {
 		None
 	}
 
-	fn screen_tile(&mut self, ui: &mut egui::Ui, state: &State, rect: egui::Rect, compact: bool) {
+	fn screen_tile(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &State,
+		rect: egui::Rect,
+		compact: bool,
+		/// Right inset for the viewer chip: fullscreen reserves room for its exit button.
+		viewer_inset: f32,
+	) {
 		let content = self
 			.screen
 			.preview
@@ -1333,14 +1340,14 @@ impl MessagingUi {
 		if !compact {
 			name_badge(ui, content, "Your screen", None, self.badge_opacity());
 		}
-		self.viewer_badge(ui, state, content);
+		self.viewer_badge(ui, state, content, viewer_inset);
 	}
 
 	/// Ask once per roster for the watchers this device cannot name from its own caches.
 	///
 	/// This uses the same lookup the roster draws with, so a name shown here is never fetched
 	/// and a skipped name is always one the row can actually resolve.
-	fn request_missing_viewers(&mut self, state: &mut State, commands: &mut Vec<Command>) {
+	pub(crate) fn request_missing_viewers(&mut self, state: &mut State, commands: &mut Vec<Command>) {
 		let Some(audience) = &state.voice.audience else {
 			return;
 		};
@@ -1361,7 +1368,14 @@ impl MessagingUi {
 	}
 
 	/// Top-right watcher chip on this device's own share; a click opens the viewer roster.
-	fn viewer_badge(&mut self, ui: &mut egui::Ui, state: &State, content: egui::Rect) {
+	/// `inset` keeps the chip clear of chrome sharing that corner (the fullscreen exit button).
+	fn viewer_badge(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &State,
+		content: egui::Rect,
+		inset: f32,
+	) {
 		let Some(audience) = &state.voice.audience else {
 			return;
 		};
@@ -1378,7 +1392,7 @@ impl MessagingUi {
 		let galley = ui.painter().layout_no_wrap(label.clone(), font, STAGE_TEXT);
 		let size = egui::vec2(galley.size().x + 40.0, 24.0);
 		let rect = egui::Rect::from_min_size(
-			content.right_top() + egui::vec2(-8.0 - size.x, 8.0),
+			content.right_top() + egui::vec2(-inset - 8.0 - size.x, 8.0),
 			size,
 		);
 		let response = ui.interact(
@@ -1447,7 +1461,7 @@ impl MessagingUi {
 						id: user.id,
 						name: user.name.clone(),
 						avatar: user.avatar.clone(),
-						discriminator: 0,
+						discriminator: user.discriminator,
 						primary_guild: None,
 						cosmetics: None,
 					});
@@ -1472,9 +1486,13 @@ impl MessagingUi {
 		let missing = usize::from(audience.count).saturating_sub(audience.ids.len());
 		if missing > 0 {
 			ui.label(
-				RichText::new(crate::i18n::translate_count("voice-audience-more", missing, &[]))
-					.size(12.0)
-					.color(design::palette(ui).muted),
+				RichText::new(crate::i18n::translate_count(
+					"voice-audience-more",
+					missing,
+					&[],
+				))
+				.size(12.0)
+				.color(design::palette(ui).muted),
 			);
 		}
 	}
@@ -4845,7 +4863,9 @@ fn viewer_user<'a>(
 			.filter(|list| list.guild == guild)
 			.and_then(|list| {
 				list.slots.iter().flatten().find_map(|slot| match slot {
-					model::MemberSlot::Person(member) if member.user.id == user => Some(&member.user),
+					model::MemberSlot::Person(member) if member.user.id == user => {
+						Some(&member.user)
+					}
 					_ => None,
 				})
 			})

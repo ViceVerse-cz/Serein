@@ -87,7 +87,10 @@ fn viewers<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Viewers,
 		fn visit_none<E>(self) -> Result<Self::Value, E> {
 			Ok(Viewers::default())
 		}
-		fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+		fn visit_seq<A: serde::de::SeqAccess<'de>>(
+			self,
+			mut seq: A,
+		) -> Result<Self::Value, A::Error> {
 			let mut viewers = Viewers::default();
 			while let Some(viewer) = seq.next_element::<Viewer>()? {
 				viewers.count = viewers.count.saturating_add(1);
@@ -125,7 +128,7 @@ impl<'de> serde::Deserialize<'de> for Viewer {
 			fn visit_none<E: serde::de::Error>(self) -> Result<Viewer, E> {
 				Ok(Viewer(None))
 			}
-			fn visit_some<D: serde::Deserializer<'de>>(
+			fn visit_some<D: for<'de> serde::Deserializer<'de>>(
 				self,
 				deserializer: D,
 			) -> Result<Viewer, D::Error> {
@@ -135,17 +138,27 @@ impl<'de> serde::Deserialize<'de> for Viewer {
 				Ok(Viewer(None))
 			}
 			fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<Viewer, E> {
-				Ok(Viewer(u64::try_from(value).ok().filter(|id| *id != 0).map(Id)))
+				Ok(Viewer(
+					u64::try_from(value).ok().filter(|id| *id != 0).map(Id),
+				))
 			}
 			fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<Viewer, E> {
 				Ok(Viewer(None))
 			}
-			fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Viewer, A::Error> {
-				while map.next_entry::<serde::de::IgnoredAny, serde::de::IgnoredAny>()?.is_some()
+			fn visit_map<A: for<'de> serde::de::MapAccess<'de>>(
+				self,
+				mut map: A,
+			) -> Result<Viewer, A::Error> {
+				while map
+					.next_entry::<serde::de::IgnoredAny, serde::de::IgnoredAny>()?
+					.is_some()
 				{}
 				Ok(Viewer(None))
 			}
-			fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Viewer, A::Error> {
+			fn visit_seq<A: for<'de> serde::de::SeqAccess<'de>>(
+				self,
+				mut seq: A,
+			) -> Result<Viewer, A::Error> {
 				while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {}
 				Ok(Viewer(None))
 			}

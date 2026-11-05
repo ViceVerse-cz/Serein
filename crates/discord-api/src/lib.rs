@@ -674,12 +674,7 @@ impl DiscordApi {
 		// A base user is far smaller than the shared wire ceiling; bound it tightly.
 		const MAX_USER_WIRE: usize = 16 * 1024;
 		let bytes = self
-			.request_limited(
-				Method::GET,
-				&format!("/users/{user}"),
-				None,
-				MAX_USER_WIRE,
-			)
+			.request_limited(Method::GET, &format!("/users/{user}"), None, MAX_USER_WIRE)
 			.await?;
 		let identity = discord_protocol::decode::<UserDto>(&bytes)
 			.map_err(|_| Failure::Protocol)?
@@ -1526,12 +1521,14 @@ impl DiscordApi {
 				}
 			}
 			Command::StreamViewerUsers { request, users } => {
-				let mut results = Vec::with_capacity(users.len());
-				for user in users {
-					// A failed or oversized identity leaves its row on the fallback label.
-					let result = self.user_identity(user).await.ok();
-					results.push((user, result));
-				}
+				// The four REST permits bound this in flight; a failed or oversized identity
+				// leaves its row on the fallback label.
+				let results =
+					futures_util::future::join_all(users.into_iter().map(|user| async move {
+						let result = self.user_identity(user).await.ok();
+						(user, result)
+					}))
+					.await;
 				Event::StreamViewerUsers { request, results }
 			}
 			Command::EditProfile {

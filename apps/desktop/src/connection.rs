@@ -744,13 +744,14 @@ impl Connection {
 								continue;
 							}
 							if matches!(command,Command::StreamViewerUsers{..}) {
-								// One bounded identity read per roster; a failure leaves the rows
-								// labelled "Unknown viewer" rather than ending the session.
+								// One bounded identity read per roster; a per-user failure leaves
+								// its row on the fallback label, and only a rejected report ends
+								// the session like the sibling workers.
 								drop(viewers.take());
-								let api=api.clone();let emit=emit.clone();let wake=wake.clone();
+								let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
 								viewers=Some(AbortTask(tokio::spawn(async move {
 									let event=api.execute(command).await;
-									let _=emit(event);
+									if let Err(failure)=emit(event) {api.stop();let _=finished.send(Some(failure));}
 									wake.request_repaint();
 								})));
 								continue;
