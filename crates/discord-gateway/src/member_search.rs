@@ -21,6 +21,44 @@ struct Chunk {
 	#[serde(default)]
 	presences: Vec<Box<serde_json::value::RawValue>>,
 }
+/// Live patches that arrived after a request was sent, bounded independently per slot.
+#[derive(Default)]
+struct InFlightPresence {
+	updates: std::collections::BTreeMap<Id, client_core::presence::Update>,
+	lossy: bool,
+}
+impl InFlightPresence {
+	/// Merge partial fields, marking unreconciled chunk data unknown if either cap is exceeded.
+	fn push(&mut self, patch: &client_core::presence::Update) {
+		let mut merged = self
+			.updates
+			.get(&patch.user)
+			.cloned()
+			.unwrap_or_else(|| patch.clone());
+		merged.merge(patch.clone());
+		let retained = self
+			.updates
+			.values()
+			.map(|u| u.heap_bytes() + size_of::<Id>() + size_of::<client_core::presence::Update>())
+			.sum::<usize>();
+		let previous = self.updates.get(&patch.user).map_or(0, |u| {
+			u.heap_bytes() + size_of::<Id>() + size_of::<client_core::presence::Update>()
+		});
+		if (self.updates.len() == LIMIT && previous == 0)
+			|| retained - previous
+				+ merged.heap_bytes()
+				+ size_of::<Id>()
+				+ size_of::<client_core::presence::Update>()
+				> MAX_BYTES
+		{
+			self.lossy = true;
+			// A rejected newer patch must not leave an older patch authoritative.
+			self.updates.remove(&patch.user);
+		} else {
+			self.updates.insert(patch.user, merged);
+		}
+	}
+}
 pub(super) struct Search {
 	pub queued: [Option<Request>; 2],
 	active: [Option<(Request, Instant)>; 2],
@@ -29,6 +67,7 @@ pub(super) struct Search {
 	/// Completed lookup snapshots, bounded by the same row/byte caps as their emitted events.
 	cached: [Option<(Request, Vec<model::Member>)>; 2],
 	presence_deadline: Option<Instant>,
+	inflight: [InFlightPresence; 2],
 }
 impl Default for Search {
 	fn default() -> Self {
@@ -38,15 +77,25 @@ impl Default for Search {
 			seen: [None; 2],
 			cached: Default::default(),
 			presence_deadline: None,
+			inflight: Default::default(),
 			next_send: Instant::now(),
 		}
 	}
 }
 impl Search {
+	/// Replace requested slots and discard snapshots and live patches for cancelled queries.
 	pub fn update(&mut self, requests: &[Option<Request>; 2]) {
 		for (slot, request) in requests.iter().enumerate() {
+			if self.active[slot]
+				.as_ref()
+				.is_some_and(|(old, _)| Some(old) != request.as_ref())
+			{
+				self.active[slot] = None;
+				self.inflight[slot] = Default::default();
+			}
 			if request.is_none() {
 				self.seen[slot] = None;
+				self.queued[slot] = None;
 			}
 			if self.cached[slot]
 				.as_ref()
@@ -66,6 +115,7 @@ impl Search {
 		}
 	}
 
+	/// Earliest lookup timeout, send opportunity, or coalesced presence refresh.
 	pub fn deadline(&self) -> Option<Instant> {
 		self.active
 			.iter()
@@ -80,6 +130,7 @@ impl Search {
 			.chain(self.presence_deadline)
 			.min()
 	}
+	/// Flush due refreshes/timeouts and return at most one rate-limited lookup packet.
 	pub fn tick(
 		&mut self,
 		emit: &impl Fn(Event) -> Result<(), Failure>,
@@ -97,12 +148,13 @@ impl Search {
 				})?;
 			}
 		}
-		for active in &mut self.active {
+		for (slot, active) in self.active.iter_mut().enumerate() {
 			if active
 				.as_ref()
 				.is_some_and(|(_, deadline)| now >= *deadline)
 			{
 				let (request, _) = active.take().unwrap();
+				self.inflight[slot] = Default::default();
 				emit(Event::MemberSearch {
 					request,
 					result: Err(Failure::ProtocolAt("Member search timed out; try again")),
@@ -135,17 +187,25 @@ impl Search {
 		} else {
 			data["query"] = serde_json::json!(request.query);
 		}
+		self.inflight[slot] = Default::default();
 		self.active[slot] = Some((request, now + Duration::from_secs(15)));
 		self.next_send = now + Duration::from_secs(1);
 		Ok(Some(Frame::Text(
 			serde_json::json!({"op":8,"d":data}).to_string().into(),
 		)))
 	}
-	/// Reconcile live guild patches into completed lookup rows, batching repaint events.
+	/// Retain in-flight guild patches and reconcile completed lookup rows, batching repaint events.
 	pub fn presence(&mut self, update: &discord_protocol::presence::PresenceUpdate, now: Instant) {
-		if !self.cached.iter().flatten().any(|(request, rows)| {
-			update.guild == Some(request.guild) && rows.iter().any(|row| row.user.id == update.user)
-		}) {
+		let active = self
+			.active
+			.iter()
+			.flatten()
+			.any(|(request, _)| update.guild == Some(request.guild));
+		if !active
+			&& !self.cached.iter().flatten().any(|(request, rows)| {
+				update.guild == Some(request.guild)
+					&& rows.iter().any(|row| row.user.id == update.user)
+			}) {
 			return;
 		}
 		let patch = client_core::presence::Update {
@@ -156,6 +216,14 @@ impl Search {
 			activities: update.activities.clone(),
 			clients: update.clients.clone(),
 		};
+		for (slot, active) in self.active.iter().enumerate() {
+			if active.as_ref().is_some_and(|(request, _)| {
+				update.guild == Some(request.guild)
+					&& (request.users.is_empty() || request.users.contains(&update.user))
+			}) {
+				self.inflight[slot].push(&patch);
+			}
+		}
 		for (request, rows) in self.cached.iter_mut().flatten() {
 			if update.guild != Some(request.guild) {
 				continue;
@@ -194,6 +262,7 @@ impl Search {
 		}
 	}
 
+	/// Decode a matching chunk and apply newer in-flight patches before emitting its rows.
 	pub fn chunk(&mut self, bytes: &[u8]) -> Option<Event> {
 		if bytes.len() > 512 * 1024 {
 			return None;
@@ -206,6 +275,7 @@ impl Search {
 			})
 		})?;
 		let (request, _) = self.active[slot].take()?;
+		let inflight = std::mem::take(&mut self.inflight[slot]);
 		let result = (|| {
 			if chunk.chunk_index != 0 || chunk.chunk_count != 1 || chunk.members.len() > LIMIT {
 				return Err(Failure::Protocol);
@@ -246,6 +316,26 @@ impl Search {
 						row.activities = resolved.activities;
 						row.clients = resolved.clients;
 					}
+					if inflight.lossy {
+						row.status = None;
+						row.custom_status = None;
+						row.activities = vec![];
+						row.clients = Default::default();
+					}
+					if let Some(patch) = inflight.updates.get(&row.user.id) {
+						let previous = model::MemberPresence {
+							user: row.user.id,
+							status: row.status.clone(),
+							custom_status: row.custom_status.clone(),
+							activities: row.activities.clone(),
+							clients: row.clients,
+						};
+						let resolved = patch.resolve(Some(&previous));
+						row.status = resolved.status;
+						row.custom_status = resolved.custom_status;
+						row.activities = resolved.activities;
+						row.clients = resolved.clients;
+					}
 					Some(row)
 				})
 				.collect();
@@ -265,6 +355,7 @@ impl Search {
 	}
 }
 
+/// Synthetic nonce, request-shape, presence attachment and row-limit regression.
 #[cfg(debug_assertions)]
 pub fn debug_check(request: Request) -> Event {
 	let mut search = Search::default();
@@ -331,6 +422,13 @@ mod tests {
 		let frame = search.tick(&|_| Ok(())).unwrap().unwrap();
 		let packet: serde_json::Value = serde_json::from_str(frame.to_text().unwrap()).unwrap();
 		assert_eq!(packet["d"]["presences"], true);
+		search.presence(
+			&discord_protocol::presence::decode(
+				br#"{"guild_id":"1","user":{"id":"9"},"status":"offline"}"#,
+			)
+			.unwrap(),
+			Instant::now(),
+		);
 		let chunk = serde_json::json!({
 			"guild_id": "1",
 			"nonce": "7",
@@ -360,7 +458,8 @@ mod tests {
 			assert!(row.custom_status.is_none());
 			assert!(!row.clients.any());
 		}
-		assert_eq!(rows[0].status.as_deref(), Some("idle"));
+		assert_eq!(rows[0].status.as_deref(), Some("offline"));
+		assert!(search.inflight[0].updates.is_empty());
 		assert_eq!(
 			rows[1].status, None,
 			"a member without a presence stays unknown rather than guessed"
@@ -415,5 +514,64 @@ mod tests {
 		search.presence(&decode("1", "online"), now);
 		assert!(search.cached.iter().all(Option::is_none));
 		assert!(search.presence_deadline.is_none());
+	}
+	/// Both pending-patch caps degrade to unknown status and release state after completion.
+	#[test]
+	fn inflight_presence_overflow_forgets_unreconciled_status() {
+		let request = Request {
+			guild: Id(1),
+			channel: Id(2),
+			query: "known".into(),
+			users: vec![],
+			nonce: 8,
+			slot: 0,
+		};
+		let mut search = Search::default();
+		search.update(&[Some(request), None]);
+		search.tick(&|_| Ok(())).unwrap();
+		for user in 1000..1102 {
+			let update = discord_protocol::presence::decode(serde_json::json!({"guild_id":"1","user":{"id":user.to_string()},"status":"online"}).to_string().as_bytes()).unwrap();
+			search.presence(&update, Instant::now());
+		}
+		assert!(search.inflight[0].lossy);
+		assert!(search.inflight[0].updates.len() <= LIMIT);
+		// A smaller number of activity-rich patches must hit the byte cap independently.
+		search.inflight[0] = Default::default();
+		let activities: Vec<_> = (0..model::MAX_RICH_ACTIVITIES).map(|index| serde_json::json!({"type":0,"name":format!("{index}{}", "a".repeat(127)),"details":"b".repeat(128),"state":"c".repeat(128)})).collect();
+		for user in 2000..2080 {
+			let wire = serde_json::json!({"guild_id":"1","user":{"id":user.to_string()},"status":"online","activities":activities});
+			search.presence(
+				&discord_protocol::presence::decode(wire.to_string().as_bytes()).unwrap(),
+				Instant::now(),
+			);
+		}
+		assert!(search.inflight[0].lossy);
+		assert!(
+			search.inflight[0].updates.len() < LIMIT,
+			"byte cap applies before the item cap"
+		);
+		assert!(
+			search.inflight[0]
+				.updates
+				.values()
+				.map(|u| u.heap_bytes()
+					+ size_of::<Id>()
+					+ size_of::<client_core::presence::Update>())
+				.sum::<usize>()
+				<= MAX_BYTES
+		);
+		let chunk = br#"{"guild_id":"1","nonce":"8","chunk_index":0,"chunk_count":1,"members":[{"user":{"id":"9","username":"known"},"roles":[]}],"presences":[{"user":{"id":"9"},"status":"online"}]}"#;
+		let Some(Event::MemberSearch {
+			result: Ok(rows), ..
+		}) = search.chunk(chunk)
+		else {
+			panic!("bounded lookup result");
+		};
+		assert!(
+			rows[0].status.is_none(),
+			"dropped live patches cannot make old chunk status authoritative"
+		);
+		assert!(search.inflight[0].updates.is_empty());
+		assert!(!search.inflight[0].lossy);
 	}
 }

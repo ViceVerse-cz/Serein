@@ -901,6 +901,7 @@ struct RowContext<'a> {
 	guild: Option<Id>,
 	demo: bool,
 }
+/// Paint one suggestion and expose its known presence in the accessible name.
 fn row(
 	ui: &mut egui::Ui,
 	candidate: &Candidate,

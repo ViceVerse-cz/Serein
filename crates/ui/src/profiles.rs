@@ -1258,7 +1258,8 @@ pub(crate) fn presence(
 				.is_some_and(|request| Some(request.guild) == guild)
 		})
 		.flat_map(|view| view.rows.iter())
-		.find(|member| member.user.id == user)
+		.filter(|member| member.user.id == user)
+		.min_by_key(|member| member.status.is_none())
 	{
 		(
 			member.status.as_deref(),
@@ -3134,6 +3135,7 @@ pub fn show_docked(
 
 /// A popout at `anchor`, the centred full profile, or (without an anchor) the docked card.
 #[allow(clippy::too_many_arguments)]
+/// Render profile details using the shared badge status and platform fallback.
 fn card_view(
 	ui: &mut egui::Ui,
 	user: &User,
@@ -5580,6 +5582,7 @@ mod tests {
 		assert_eq!(shown_status(&state, Id(7), None), None);
 		assert_eq!(shown_status(&state, Id(7), Some("idle")), Some("idle"));
 	}
+	/// Lookup fallback preserves known status, live precedence and newer author identities.
 	#[test]
 	fn a_name_lookup_keeps_presence_after_the_member_window_moves() {
 		let mut state = test_support::chat_demo_state();
@@ -5617,6 +5620,25 @@ mod tests {
 			error: None,
 		};
 		assert_eq!(presence(&state, user.id, Some(guild)).0, Some("online"));
+		state.member_search[1] = client_core::member_search::View {
+			request: Some(client_core::member_search::Request {
+				guild,
+				channel,
+				query: String::new(),
+				users: vec![user.id],
+				nonce: 2,
+				slot: 1,
+			}),
+			rows: state.member_search[0].rows.clone(),
+			finished: true,
+			error: None,
+		};
+		state.member_search[0].rows[0].status = None;
+		assert_eq!(
+			presence(&state, user.id, Some(guild)).0,
+			Some("online"),
+			"a status-less first slot cannot hide the second slot's presence"
+		);
 		// A newer live DM presence must win over the retained online lookup snapshot.
 		let mut dm = state.channels[0].clone();
 		dm.id = Id(98765);

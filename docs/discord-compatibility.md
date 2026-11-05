@@ -2856,7 +2856,9 @@ stays unknown rather than guessed.
 Follow-up: live guild presence patches also update completed lookup snapshots, including people
 outside the current member window. The Gateway retains at most the existing two lookup slots,
 each limited to 100 members and 128 KiB of row data, and coalesces updates over 100 ms without
-additional network requests. A patch that would exceed the byte cap clears that row's stale
+additional network requests. Each in-flight lookup also retains at most 100 live presence patches
+within a 128 KiB payload/item budget so newer patches win over older chunk data. Overflow makes
+unreconciled chunk presence unknown; completion, timeout or cancellation clears these patches. A patch that would exceed the byte cap clears that row's stale
 presence instead. Replacing or clearing a lookup discards its snapshot. Replayed results refresh presence only,
 preserving newer nicknames/roles in lookup rows and message authors. Known live friend/DM
 presence takes precedence over a retained lookup result. These behaviors have synthetic regression
