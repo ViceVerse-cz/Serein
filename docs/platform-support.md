@@ -12,6 +12,8 @@ the window moves or its native scale changes, restoring 760 × 520 logical pixel
 when the current display can accommodate the window and its decorations.
 Minimized, hidden, maximized and fullscreen states do not replace normal geometry.
 Closing frames do not overwrite the saved geometry.
+A changed placement is saved once sampled unchanged for at least 500 ms, so a drag or resize queues no
+write per frame. Maximizing retains the latest sampled normal placement for restoration; a placement sampled just before the window closes or hides is still saved.
 The offline `--demo` ignores saved geometry and does not save its window state.
 
 Wayland does not expose global window coordinates to ordinary clients, so window
@@ -75,7 +77,13 @@ On Windows, the custom title strip paints native-fidelity Windows 11 caption but
 excludes the caption buttons area so edge/corner resizing does not intercept corner clicks on
 Close. Caption buttons keep their own actions; Windows double-click maximize/restore remains
 available. Synthetic egui input tests check command dispatch, including corner hit testing.
-Native OS window movement still requires a desktop interaction check.
+On Windows, dragging the strip runs the OS move loop, which paints synchronously and waits for
+vsync before the next move. Serein therefore skips repaints for window moves and raw mouse motion
+(a patched egui-winit; see `vendor/egui-winit/SEREIN-PATCH.md`) and reapplies the minimum size
+only when it changes, so an otherwise idle window follows the cursor like a native one. Continuous
+rendering, such as an animation or playing video, still paces a drag to the display refresh rate.
+Synthetic `SendInput` drags on Windows 11 are measured in `docs/performance.md`; physical-mouse
+behavior on other machines and native macOS/Linux window movement remain unverified.
 On Windows and macOS, General settings can hide this 36 px strip and use the native title bar
 and window buttons instead. The device preference defaults to showing the custom strip and
 is saved with other app preferences; older saved settings keep that default. macOS switches

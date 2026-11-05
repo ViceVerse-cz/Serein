@@ -4,6 +4,73 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Window drags on Windows — November 5, 2026
+
+Review follow-up: the measurements below describe the original `1f664628` implementation.
+The revised adapter schedules a delayed 500 ms repaint on Windows moves to ensure a final
+placement/monitor sample, and placement saving now checks elapsed monotonic time. This can
+produce occasional frames during a long drag; the original present counts do not measure
+this revision. Fresh Windows drag/idle and package-size comparisons are unavailable on the
+Ubuntu review host: no native Windows session or C linker (`cc`) is available, and both
+`cargo xtask check` and `cargo xtask package` stop while building xtask dependencies.
+No updated performance claim is made.
+
+Baseline `d57433c` and this branch were built with the pinned Rust 1.98.1 toolchain and locked
+dependencies on Windows 11 x64 (build 26200). Standard release packages use `cargo xtask package`
+(voice included, demo and development data disabled), each built the same day from its own worktree.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,904,448 B | 92,904,960 B | +512 B (+0.0006%) |
+| `dist/` regular-file payload (233 files) | 97,263,837 B | 97,264,814 B | +977 B (+0.001%) |
+| ZIP of `dist/` (`7z a -tzip -mx=9`) | 52,175,667 B | 52,172,078 B | −3,589 B (−0.007%) |
+
+Only `serein.exe` and the copied `THIRD_PARTY_NOTICES.md` (+465 B) differ; the smaller ZIP is
+compression noise.
+
+Drags used release `--features demo` builds of both revisions on a Ryzen 5 7600X with 32 GB of
+RAM, an RTX 5060 Ti (DX12, driver 32.0.16.1742) and a 3840×2160 120 Hz display at 100% scale. A
+script placed the 1120×760 window at (400, 300), focused it, waited 12 s, pressed the primary
+button 14 px into the title strip and sent absolute `SendInput` moves to the right: 300 steps of
+3 px every 4 ms (750 px/s) or 200 steps of 8 px every 2 ms (4,000 px/s). After each step it read
+`GetWindowRect`. Lag is how far the window trailed the cursor at that sample; position updates
+count samples at which the window had moved. PresentMon 2.6.0 counted presents between the first
+and last move. Character Map, a native Win32 window, is the reference. Runs alternated between
+revisions. Two disturbed runs were repeated: one window lost focus before the press, and one was
+sampled before it had come to rest.
+
+| Drag workload | Lag mean / p95 / max | Position updates | Longest gap | Presents during move |
+| --- | ---: | ---: | ---: | ---: |
+| Character Map, 750 px/s (1 run) | 0.1 / 0 / 3 px | 297 / 300 | 10.3 ms | — |
+| Baseline `--demo`, 750 px/s (3 runs) | 2.0–2.4 / 6 / 6–18 px | 140–144 / 300 | 12–28 ms | 139–145 |
+| After `--demo`, 750 px/s (3 runs) | 0 / 0 / 0 px | 300 / 300 | 4.1–4.2 ms | 2–3 |
+| Character Map, 4,000 px/s (1 run) | 0 / 0 / 0 px | 200 / 200 | 2.1 ms | — |
+| Baseline `--demo`, 4,000 px/s (3 runs) | 14.0–15.1 / 32 / 32–40 px | 49 / 200 | 10–12 ms | 48 |
+| After `--demo`, 4,000 px/s (3 runs) | 0.6–2.0 / 8 / 8–16 px | 178–192 / 200 | 4.0–6.0 ms | 1 |
+| Baseline sign-in screen, 750 px/s (2 runs) | 1.9–2.2 / 6 / 6–24 px | 141–144 / 300 | 12.1–34.7 ms | 140–144 |
+| After sign-in screen, 750 px/s (2 runs) | 0 / 0 / 0 px | 300 / 300 | 4.1 ms | 0 |
+
+The baseline presented about 120 frames/s for the whole drag, and the window moved at most once
+per frame, so it trailed the cursor by up to 40 px. After the change the window moves with each
+input sample, as Character Map does; the remaining presents are the composer's 500 ms caret blink.
+At 4,000 px/s it still trails some samples by one 8 px step. The sign-in runs use the same binaries
+without `--demo` and with an empty `SEREIN_DATA_DIR`, so they also save placements: every run stored
+the final position (1300, 300) before the script ended the process about 2.5 s after the drag.
+
+Process CPU during the 750 px/s drag fell from 0.42–0.50 s to 0.28–0.36 s, and it stayed at
+0.13–0.17 s at 4,000 px/s. Working set after each drag was 175.9–177.2 MiB for both revisions.
+Idle `--demo` runs, maximized and focused, waited 12 s and sampled 20 s (first 2 s discarded): both
+revisions presented 2.00 frames/s at 500 ms intervals, with 0.08–0.15% of one core and a
+207.9–208.1 MiB working set for the baseline (2 runs) and 0.08–0.39% and 208.2 MiB after (3 runs).
+Four baseline idle samples that recorded user input were discarded.
+
+Synthetic input arrives at an exact rate and the script reads window positions from another
+process, so these numbers are not end-to-end display latency. Physical mice on other hardware,
+other refresh rates and drags while the UI renders continuously (an animation or playing video)
+were not measured; continuous rendering still paces a drag to the refresh rate. macOS and Linux
+keep upstream egui-winit behavior and gain only the rested placement save and the cached minimum
+size, which were not measured there.
+
 ## Push-to-talk notification cues — October 29, 2026
 
 Baseline `1b2f894` and this branch were built with the pinned Rust toolchain and locked
