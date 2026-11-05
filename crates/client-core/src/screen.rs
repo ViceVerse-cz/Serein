@@ -4,6 +4,8 @@ use model::Id;
 
 pub const MAX_SOURCES: usize = 64;
 pub const MAX_SOURCE_NAME_BYTES: usize = 256;
+/// Watchers retained for the own-stream roster; the forwarded count may be larger.
+pub const MAX_VIEWERS: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceId {
@@ -69,8 +71,12 @@ pub enum Event {
 		reason: Option<&'static str>,
 	},
 	Failed(&'static str),
-	/// Discord's latest viewer count for this device's own stream (unofficial `STREAM_UPDATE`).
-	Viewers(u16),
+	/// Discord's latest viewers for this device's own stream (unofficial `STREAM_UPDATE`).
+	/// Only a bounded ID prefix is forwarded; the count always spans the whole roster.
+	Viewers {
+		count: u16,
+		ids: Vec<Id>,
+	},
 }
 impl Event {
 	pub(crate) fn bytes(&self) -> usize {
@@ -79,6 +85,7 @@ impl Event {
 				token.as_ref().map_or(0, voice::Secret::bytes)
 					+ endpoint.as_ref().map_or(0, String::capacity)
 			}
+			Self::Viewers { ids, .. } => ids.capacity() * size_of::<Id>(),
 			_ => 0,
 		}
 	}

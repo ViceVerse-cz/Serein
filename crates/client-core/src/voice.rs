@@ -108,6 +108,18 @@ pub struct StreamPreview {
 	pub url: Option<String>,
 	pub error: Option<&'static str>,
 }
+
+/// Viewers of this device's own screen share, from the latest unofficial `STREAM_UPDATE`.
+pub struct Audience {
+	/// Exactly the stream attempt the roster belongs to; an older refresh is ignored.
+	pub stream_request: u64,
+	/// Discord's whole roster size, which can exceed the retained IDs.
+	pub count: u16,
+	/// At most [`crate::screen::MAX_VIEWERS`] distinct IDs, in Discord's order.
+	pub ids: Vec<Id>,
+	/// Identities fetched for `ids` this device could not resolve itself; bounded the same way.
+	pub users: Vec<crate::profile::StreamViewerUser>,
+}
 /// Automatic rejoins after joined media drops before the call fails.
 pub const MAX_REJOIN_ATTEMPTS: u8 = 3;
 pub struct Call {
@@ -165,6 +177,10 @@ pub struct State {
 	pub ring_error: Option<(Id, u64, &'static str)>,
 	pub roster: Vec<RosterEntry>,
 	pub preview: Option<StreamPreview>,
+	/// Roster of this device's own stream; cleared with the share or the call.
+	pub audience: Option<Audience>,
+	/// The one identity read in flight: its stream attempt and the requested viewers.
+	pub(crate) viewer_fetch_request: Option<(u64, Vec<Id>)>,
 	sequence: u64,
 }
 impl State {
@@ -445,6 +461,65 @@ impl ClientState {
 			user,
 			request,
 		})
+	}
+
+	/// Base identities for up to [`screen::MAX_VIEWERS`] own-stream viewers that the roster,
+	/// member window and DM recipients could not resolve. Empty when nothing is shared or known.
+	pub fn request_stream_viewer_users(&mut self, unresolved: &[Id]) -> Option<crate::Command> {
+		// A single bounded read per roster: one missing name cannot make every frame re-ask.
+		if self.voice.viewer_fetch_request.is_some() {
+			return None;
+		}
+		let audience = self.voice.audience.as_ref()?;
+		let request = audience.stream_request;
+		if self.demo
+			|| self.auth != AuthState::Authenticated
+			|| !self.gateway_connected
+			|| audience.count == 0
+		{
+			return None;
+		}
+		let users: Vec<Id> = unresolved
+			.iter()
+			.copied()
+			.filter(|id| audience.ids.contains(id))
+			.filter(|id| !audience.users.iter().any(|known| known.id == *id))
+			.take(screen::MAX_VIEWERS)
+			.collect();
+		if users.is_empty() {
+			return None;
+		}
+		self.voice.viewer_fetch_request = Some((request, users.clone()));
+		Some(crate::Command::StreamViewerUsers { request, users })
+	}
+
+	pub(crate) fn apply_stream_viewer_users(
+		&mut self,
+		request: u64,
+		results: Vec<(Id, Option<model::User>)>,
+	) {
+		self.voice.viewer_fetch_request = None;
+		let Some(audience) = self
+			.voice
+			.audience
+			.as_mut()
+			.filter(|audience| audience.stream_request == request)
+		else {
+			return;
+		};
+		for (id, user) in results {
+			audience.users.retain(|known| known.id != id);
+			if let Some(user) = user
+				&& audience.ids.contains(&id)
+			{
+				audience.users.push(crate::profile::StreamViewerUser {
+					id,
+					name: user.name,
+					avatar: user.avatar,
+				});
+			}
+		}
+		audience.users.truncate(screen::MAX_VIEWERS);
 	}
 
 	pub(crate) fn apply_stream_preview(
@@ -760,6 +835,13 @@ impl ClientState {
 		if let Some(call) = &mut self.voice.active {
 			call.watching = None;
 		}
+	}
+	/// Retained viewers of the own stream, or empty when nothing is shared.
+	pub fn audience(&self) -> &[Id] {
+		self.voice
+			.audience
+			.as_ref()
+			.map_or(&[], |audience| audience.ids.as_slice())
 	}
 	pub fn apply_voice(&mut self, event: Event) {
 		match event {
@@ -1183,11 +1265,65 @@ impl ClientState {
 					call.participants.clear();
 				}
 			}
+			Event::Stream {
+				channel,
+				request,
+				stream_request,
+				event: screen::Event::Viewers { count, ids },
+			} => {
+				if self
+					.voice
+					.active
+					.as_ref()
+					.is_some_and(|call| call.channel == channel && call.request == request)
+				{
+					// The latest refresh wins even when it is empty: a stopped share reports no
+					// viewers. Identities already fetched for retained IDs carry over, so a
+					// repeated refresh does not re-request every watcher.
+					let ids: Vec<Id> = ids.into_iter().take(screen::MAX_VIEWERS).collect();
+					let users = self
+						.voice
+						.audience
+						.take()
+						.filter(|audience| audience.stream_request == stream_request)
+						.map(|audience| {
+							audience
+								.users
+								.into_iter()
+								.filter(|user| ids.contains(&user.id))
+								.collect()
+						})
+						.unwrap_or_default();
+					self.voice.audience = Some(Audience {
+						stream_request,
+						count,
+						ids,
+						users,
+					});
+				}
+			}
+			// An ended or failed share has no viewers; a new share starts from an empty roster.
+			Event::Stream {
+				channel,
+				request,
+				event: screen::Event::Deleted { .. } | screen::Event::Failed(_),
+				..
+			} => {
+				if self
+					.voice
+					.active
+					.as_ref()
+					.is_some_and(|call| call.channel == channel && call.request == request)
+				{
+					self.voice.audience = None;
+					self.voice.viewer_fetch_request = None;
+				}
+			}
 			Event::SessionConfirmed { .. }
 			| Event::SessionConfirmationFailed { .. }
 			| Event::Server { .. }
-			| Event::Stream { .. }
-			| Event::Watch { .. } => {} // The desktop consumes negotiation material; core never retains it.
+			| Event::Watch { .. }
+			| Event::Stream { .. } => {} // The desktop consumes negotiation material; core never retains it.
 		}
 	}
 	fn update_roster(&mut self, entry: RosterEntry) -> bool {
@@ -1285,6 +1421,15 @@ impl ClientState {
 		{
 			self.voice.preview = None;
 		}
+		if self
+			.voice
+			.active
+			.as_ref()
+			.is_some_and(|call| call.channel == channel)
+		{
+			self.voice.audience = None;
+			self.voice.viewer_fetch_request = None;
+		}
 		if self.voice.incoming == Some(channel) {
 			self.voice.incoming = None;
 		}
@@ -1305,6 +1450,8 @@ impl ClientState {
 		self.voice.ring_error = None;
 		self.voice.roster.clear();
 		self.voice.preview = None;
+		self.voice.audience = None;
+		self.voice.viewer_fetch_request = None;
 		self.voice.incoming = None;
 		if let Some(call) = &mut self.voice.active {
 			call.phase = Phase::Failed;
@@ -1993,6 +2140,76 @@ mod tests {
 			});
 			assert_eq!(state.voice.roster.len(), 2);
 		}
+	}
+
+	#[test]
+	fn own_stream_viewers_are_bounded_scoped_and_fetched_once_per_roster() {
+		let mut state = stream_preview_state();
+		state.start_call(Id(20), false).unwrap();
+		let request = state.voice.active.as_ref().unwrap().request;
+		let viewers = |count, ids: Vec<Id>| Event::Stream {
+			channel: Id(20),
+			request,
+			stream_request: 7,
+			event: screen::Event::Viewers { count, ids },
+		};
+
+		// A refresh for another call or attempt cannot become this share's roster.
+		state.apply_voice(Event::Stream {
+			channel: Id(20),
+			request: request + 1,
+			stream_request: 7,
+			event: screen::Event::Viewers {
+				count: 1,
+				ids: vec![Id(2)],
+			},
+		});
+		assert!(state.voice.audience.is_none());
+		state.apply_voice(viewers(2, vec![Id(2), Id(3)]));
+		assert_eq!(state.audience(), [Id(2), Id(3)]);
+
+		// Only unresolved, still-listed viewers are fetched, once, and only while they stay listed.
+		let Some(crate::Command::StreamViewerUsers {
+			request: fetch,
+			users,
+		}) = state.request_stream_viewer_users(&[Id(2), Id(3), Id(9)])
+		else {
+			panic!("viewer identities were not requested");
+		};
+		assert_eq!(fetch, 7);
+		assert_eq!(users, [Id(2), Id(3)]);
+		assert!(
+			state
+				.request_stream_viewer_users(&[Id(3)])
+				.is_none(),
+			"one identity read per roster"
+		);
+		state.apply_stream_viewer_users(
+			fetch,
+			vec![(
+				Id(3),
+				Some(User {
+					id: Id(3),
+					name: "Watcher".into(),
+					avatar: Some("hash".into()),
+					webhook: false,
+					kind: Default::default(),
+					discriminator: 0,
+					primary_guild: None,
+					cosmetics: None,
+				}),
+			)],
+		);
+		let audience = state.voice.audience.as_ref().unwrap();
+		assert_eq!(audience.users.len(), 1);
+		assert_eq!(audience.users[0].name, "Watcher");
+
+		// A repeated refresh keeps the identity, and an empty one clears the roster.
+		state.apply_voice(viewers(2, vec![Id(2), Id(3)]));
+		assert_eq!(state.voice.audience.as_ref().unwrap().users.len(), 1);
+		state.apply_voice(viewers(0, Vec::new()));
+		assert!(state.audience().is_empty());
+		assert!(state.request_stream_viewer_users(&[Id(2)]).is_none());
 	}
 
 	fn dm_state() -> ClientState {

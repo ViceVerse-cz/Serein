@@ -257,6 +257,11 @@ pub enum Command {
 		user: Id,
 		request: u64,
 	},
+	/// Base identities for viewers this device cannot resolve from its caches; bounded.
+	StreamViewerUsers {
+		request: u64,
+		users: Vec<Id>,
+	},
 	/// None loads the account's global profile; Some writes only explicitly changed fields.
 	EditProfile {
 		user: Id,
@@ -579,6 +584,10 @@ pub enum Event {
 		user: Id,
 		request: u64,
 		result: Result<String, auth::Failure>,
+	},
+	StreamViewerUsers {
+		request: u64,
+		results: Vec<(Id, Option<model::User>)>,
 	},
 	BadgeSettings {
 		request: u64,
@@ -2491,7 +2500,10 @@ impl State {
 			self.apply_stream_preview(guild, channel, user, request, Err(auth::Failure::Capacity));
 			return;
 		}
-
+		if matches!(command, Command::StreamViewerUsers { .. }) {
+			// Nothing was fetched: the rows stay on their fallback labels.
+			return;
+		}
 		if let Command::Voice(control) = command {
 			match control {
 				voice::Command::RingRecipient {
@@ -3139,6 +3151,10 @@ impl State {
 				result,
 			} => {
 				self.apply_stream_preview(guild, channel, user, request, result);
+				Ok(())
+			}
+			Event::StreamViewerUsers { request, results } => {
+				self.apply_stream_viewer_users(request, results);
 				Ok(())
 			}
 			Event::BadgeSettings { request, result } => {
@@ -4585,6 +4601,10 @@ impl Event {
 					result.as_ref().map_or(0, |p| p.bytes())
 				}
 				Self::StreamPreview { result, .. } => result.as_ref().map_or(0, String::capacity),
+				Self::StreamViewerUsers { results, .. } => results
+					.iter()
+					.map(|(_, user)| user.as_ref().map_or(0, model::User::heap_bytes))
+					.sum(),
 				Self::BadgeSettings { result, .. } => result
 					.as_ref()
 					.map_or(0, |s| (s.order.capacity() + s.hidden.capacity()) * 4),

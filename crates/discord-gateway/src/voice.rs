@@ -831,9 +831,15 @@ impl Calls {
 				)?;
 			}
 			"STREAM_UPDATE" => {
-				// Only the count drives the viewer cue; a malformed refresh is ignored.
+				// The count drives the viewer cue; a malformed refresh is ignored.
 				if let Ok(update) = decode::<stream::Update>(data) {
-					self.emit_stream(screen::Event::Viewers(update.viewers), emit)?;
+					self.emit_stream(
+						screen::Event::Viewers {
+							count: update.viewers.count,
+							ids: update.viewers.ids,
+						},
+						emit,
+					)?;
 				}
 			}
 			"STREAM_DELETE" => {
@@ -2526,9 +2532,9 @@ mod tests {
 			events.lock().unwrap().remove(3),
 			Event::Voice(voice::Event::Stream {
 				stream_request: 8,
-				event: screen::Event::Viewers(2),
+				event: screen::Event::Viewers { count: 2, ref ids },
 				..
-			})
+			}) if ids.as_slice() == [Id(4), Id(5)]
 		));
 		assert_eq!(
 			events.lock().unwrap().len(),

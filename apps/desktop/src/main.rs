@@ -4359,6 +4359,27 @@ impl Desktop {
 						"https://cdn.discordapp.com/streams/guild:{guild}:{channel}:{user}/0123456789abcdef.png"
 					)),
 				},
+				Command::StreamViewerUsers { request, users } => Event::StreamViewerUsers {
+					request,
+					results: users
+						.into_iter()
+						.map(|id| {
+							(
+								id,
+								Some(model::User {
+									kind: Default::default(),
+									webhook: false,
+									id,
+									name: format!("Synthetic viewer {}", id.0),
+									avatar: None,
+									discriminator: 0,
+									primary_guild: None,
+									cosmetics: None,
+								}),
+							)
+						})
+						.collect(),
+				},
 				Command::EditProfile {
 					user,
 					request,

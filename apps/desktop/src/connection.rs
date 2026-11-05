@@ -404,6 +404,7 @@ impl Connection {
                 let mut profile:Option<AbortTask>=None;
                 let mut profile_note:Option<AbortTask>=None;
 				let mut stream_preview:Option<AbortTask>=None;
+                let mut viewers:Option<AbortTask>=None;
                 let mut invite:Option<AbortTask>=None;
                 let mut search:Option<AbortTask>=None;
                 let mut gifs:Option<AbortTask>=None;
@@ -446,7 +447,7 @@ impl Connection {
                         }
                         changed=voice_availability.changed()=> {
 							if changed.is_err() {break;}
-							if !*voice_availability.borrow_and_update() {drop(ringing.take());drop(recipient_ringing.take());drop(profile.take());drop(stream_preview.take());drop(search.take());voice_request=None;recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
+							if !*voice_availability.borrow_and_update() {drop(ringing.take());drop(recipient_ringing.take());drop(profile.take());drop(stream_preview.take());drop(viewers.take());drop(search.take());voice_request=None;recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
                         }
                         request=upload_receive.recv()=>{
                             let Some(request)=request else {break;};
@@ -738,6 +739,18 @@ impl Connection {
 									let failure=stream_preview_session_failure(&event);
 									let error=emit(event).err().or(failure);
 									if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+									wake.request_repaint();
+								})));
+								continue;
+							}
+							if matches!(command,Command::StreamViewerUsers{..}) {
+								// One bounded identity read per roster; a failure leaves the rows
+								// labelled "Unknown viewer" rather than ending the session.
+								drop(viewers.take());
+								let api=api.clone();let emit=emit.clone();let wake=wake.clone();
+								viewers=Some(AbortTask(tokio::spawn(async move {
+									let event=api.execute(command).await;
+									let _=emit(event);
 									wake.request_repaint();
 								})));
 								continue;

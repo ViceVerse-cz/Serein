@@ -666,6 +666,29 @@ impl DiscordApi {
 			.await?;
 		discord_protocol::invites::decode(&bytes).map_err(|_| Failure::Protocol)
 	}
+	// Documented user route; only the base identity shape is read, not an extended profile.
+	async fn user_identity(&self, user: Id) -> Result<User, Failure> {
+		if user.0 == 0 {
+			return Err(Failure::Protocol);
+		}
+		// A base user is far smaller than the shared wire ceiling; bound it tightly.
+		const MAX_USER_WIRE: usize = 16 * 1024;
+		let bytes = self
+			.request_limited(
+				Method::GET,
+				&format!("/users/{user}"),
+				None,
+				MAX_USER_WIRE,
+			)
+			.await?;
+		let identity = discord_protocol::decode::<UserDto>(&bytes)
+			.map_err(|_| Failure::Protocol)?
+			.into_model();
+		if identity.id != user || identity.webhook || identity.name.is_empty() {
+			return Err(Failure::Protocol);
+		}
+		Ok(identity)
+	}
 	// Unofficial user endpoint; observed in discord.py-self/http.py accept_invite (2026-09-11).
 	// One explicit human solution may resume this specific write; never loop/retry automatically.
 	/// Accepts one invite, optionally resuming a single user-solved challenge.
@@ -1501,6 +1524,15 @@ impl DiscordApi {
 					request,
 					result,
 				}
+			}
+			Command::StreamViewerUsers { request, users } => {
+				let mut results = Vec::with_capacity(users.len());
+				for user in users {
+					// A failed or oversized identity leaves its row on the fallback label.
+					let result = self.user_identity(user).await.ok();
+					results.push((user, result));
+				}
+				Event::StreamViewerUsers { request, results }
 			}
 			Command::EditProfile {
 				user,
