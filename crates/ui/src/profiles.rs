@@ -5626,6 +5626,56 @@ mod tests {
 		assert_eq!(presence(&state, user.id, Some(guild)).0, Some("offline"));
 		state.member_search[0].rows[0].status = None;
 		assert_eq!(presence(&state, user.id, Some(guild)).0, Some("offline"));
+		let request = client_core::member_search::Request {
+			guild,
+			channel,
+			query: String::new(),
+			users: vec![user.id],
+			nonce: 99,
+			slot: 1,
+		};
+		let mut cached = state.member_search[0].rows[0].clone();
+		cached.nick = Some("Old nickname".into());
+		cached.roles = vec![Id(7)];
+		state.member_search[1] = client_core::member_search::View {
+			request: Some(request.clone()),
+			..Default::default()
+		};
+		let apply = |state: &mut State, row: model::Member| {
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::MemberSearch {
+					request: request.clone(),
+					result: Ok(vec![row]),
+				},
+			})
+		};
+		apply(&mut state, cached.clone());
+		assert!(
+			state
+				.timeline
+				.apply_author_membership(user.id, &[Id(8)], Some("New nickname"))
+		);
+		state.member_search[1].rows[0].nick = Some("New nickname".into());
+		state.member_search[1].rows[0].roles = vec![Id(8)];
+		cached.status = Some("idle".into());
+		apply(&mut state, cached);
+		let message = state
+			.timeline
+			.iter()
+			.find(|message| message.author.id == user.id)
+			.unwrap();
+		assert_eq!(message.author_nick.as_deref(), Some("New nickname"));
+		assert_eq!(message.author_roles, vec![Id(8)]);
+		assert_eq!(
+			state.member_search[1].rows[0].nick.as_deref(),
+			Some("New nickname")
+		);
+		assert_eq!(state.member_search[1].rows[0].roles, vec![Id(8)]);
+		assert_eq!(
+			state.member_search[1].rows[0].status.as_deref(),
+			Some("idle")
+		);
 	}
 
 	#[test]

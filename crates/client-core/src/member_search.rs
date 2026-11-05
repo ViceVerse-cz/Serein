@@ -133,6 +133,7 @@ impl State {
 		{
 			return;
 		}
+		let refreshing = self.member_search[request.slot].finished;
 		self.member_search[request.slot].finished = true;
 		match result {
 			Ok(rows)
@@ -144,6 +145,30 @@ impl State {
 							.all(|member| request.users.contains(&member.user.id)))
 					&& rows.iter().map(Member::bytes).sum::<usize>() <= MAX_BYTES =>
 			{
+				if refreshing {
+					// Replayed snapshots carry presence only: newer names and roles may already
+					// have arrived through member-list updates since the original lookup.
+					let current = &mut self.member_search[request.slot].rows;
+					for row in current.iter_mut() {
+						if let Some(update) =
+							rows.iter().find(|update| update.user.id == row.user.id)
+						{
+							row.status = update.status.clone();
+							row.custom_status = update.custom_status.clone();
+							row.activities = update.activities.clone();
+							row.clients = update.clients;
+						}
+					}
+					if current.iter().map(Member::bytes).sum::<usize>() > MAX_BYTES {
+						for row in current {
+							row.status = None;
+							row.custom_status = None;
+							row.activities = vec![];
+							row.clients = Default::default();
+						}
+					}
+					return;
+				}
 				if request.slot == 1 {
 					for member in &rows {
 						self.timeline.apply_author_membership(
