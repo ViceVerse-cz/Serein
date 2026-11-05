@@ -38,7 +38,11 @@ pub enum Resolution {
 pub const MAX_SHARE_WIDTH: u32 = 3840;
 pub const MAX_SHARE_HEIGHT: u32 = 2160;
 
-const PRESETS: [Resolution; 4] = [
+const PRESETS: [Resolution; 5] = [
+	Resolution::Preset {
+		width: 3840,
+		height: 2160,
+	},
 	Resolution::Preset {
 		width: 2560,
 		height: 1440,
@@ -153,6 +157,8 @@ impl Settings {
 			4_000_000
 		} else if pixels <= 1920 * 1080 {
 			8_000_000
+		} else if pixels >= 3840 * 2160 {
+			16_000_000
 		} else {
 			let scaled = 8_000_000u64 * pixels / (1920 * 1080);
 			u32::try_from(scaled.min(12_000_000)).unwrap_or(12_000_000)

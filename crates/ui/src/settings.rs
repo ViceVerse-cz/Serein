@@ -133,7 +133,7 @@ impl Page {
 			Self::Account => "my account profile logout",
 			Self::Profile => "profile edit display name about me bio pronouns color colour",
 			Self::General => {
-				"general windows macos linux login menu bar startup autostart automatically open minimized minimize close tray background title bar caption window buttons decorations borderless tiling graphics gpu adapter render discrete integrated hardware acceleration performance battery"
+				"general windows macos linux login menu bar startup autostart automatically open minimized minimize close tray background title bar caption window buttons decorations borderless tiling graphics gpu adapter render discrete integrated hardware acceleration performance battery vrr variable refresh rate steady refresh rate g-sync gsync freesync adaptive sync flicker flickering steady frame rate fps vsync"
 			}
 			Self::Appearance => {
 				"appearance customization font typography import ttf otf primary accent hex window effects transparency blur theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
@@ -944,6 +944,15 @@ impl MessagingUi {
 						}
 					});
 			});
+			design::card_divider(ui);
+			let label = language.text("general-steady-refresh-rate");
+			let description = language.text("general-steady-refresh-rate-description");
+			design::switch(
+				ui,
+				&label,
+				Some(&description),
+				&mut self.steady_refresh_rate,
+			);
 		});
 	}
 

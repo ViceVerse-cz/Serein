@@ -14,6 +14,7 @@ mod attachments;
 pub mod external_upload;
 pub use attachments::DownloadUi;
 mod avatars;
+mod resample;
 #[cfg(feature = "demo")]
 pub use avatars::media::debug_heic_layout_check;
 pub use avatars::media::{Lane, MAX_FRAMES, Motion, Rendition, Size, fit_edge, is_motion_video};
@@ -352,6 +353,9 @@ pub struct MessagingUi {
 	pub custom_font: fonts::Settings,
 	/// Which GPU renders the window; the running adapter only changes on restart.
 	pub gpu_preference: model::GpuPreference,
+	/// Device preference: repaint every display refresh while focused, so variable refresh rate
+	/// displays hold one rate instead of flickering.
+	pub steady_refresh_rate: bool,
 	/// Adapter currently in use, shown next to the preference for bug reports.
 	pub gpu_adapter: String,
 	pub reading_status: &'static str,
@@ -5459,6 +5463,12 @@ impl MessagingUi {
 		}
 		// A thread shows the message it hangs off; read it lazily like other per-channel data.
 		if let Some(command) = state.request_thread_starter() {
+			commands.push(command);
+		}
+		// A visible thread card reads its latest message once; the state bounds the request.
+		if let Some(message) = self.timeline.thread_preview_request.take()
+			&& let Some(command) = state.request_thread_preview(message)
+		{
 			commands.push(command);
 		}
 		if let Some(channel) = self.archives.create_requested.take() {

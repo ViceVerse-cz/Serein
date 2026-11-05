@@ -457,9 +457,11 @@ not establish production readiness or superiority over Discord's processing.
 
 In a connected call, select **Share your screen**, choose a display/window, then a resolution and frame rate, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
 
-When the selected display or window reports a pixel size, the quality row offers Source plus every preset that fits inside that size: 1440p (2560×1440), 1080p (1920×1080), 720p (1280×720), and 480p (854×480). Source is the native size, rounded down to even pixels and limited to 3840×2160. A size that has not been reported yet keeps 1080p, 720p, and 480p. Frame rate is 15, 30, or 60. 90 and 120 appear only when that monitor's refresh rate is at least 90 Hz or 120 Hz. Windows reads the refresh rate with the current display mode. macOS and the Linux portal do not report it, so those paths keep 15/30/60.
+Starting this device's share plays Discord's screen-share cue. Selecting **Stop sharing** plays the stop cue. Ending the share by leaving the call or logging out does not. The single screen-share sound switch governs both cues.
 
-Target bitrate is 2 Mbps at 480p, 4 Mbps at 720p, and 8 Mbps at 1080p for 15 and 30 fps. 60 fps doubles that, 90 fps triples it, and 120 fps quadruples it, with a ceiling of 16 Mbps. Above 1080p the 8 Mbps base scales with pixel count, up to 12 Mbps before the frame-rate multiplier.
+When the selected display or window reports a pixel size, the quality row offers Source plus every preset that fits inside that size: 2160p (3840×2160), 1440p (2560×1440), 1080p (1920×1080), 720p (1280×720), and 480p (854×480). Source is the native size, rounded down to even pixels and limited to 3840×2160. A size that has not been reported yet keeps 1080p, 720p, and 480p. Frame rate is 15, 30, or 60. 90 and 120 appear only when that monitor's refresh rate is at least 90 Hz or 120 Hz. Windows reads the refresh rate with the current display mode. macOS and the Linux portal do not report it, so those paths keep 15/30/60.
+
+Target bitrate is 2 Mbps at 480p, 4 Mbps at 720p, and 8 Mbps at 1080p for 15 and 30 fps. 60 fps doubles that, 90 fps triples it, and 120 fps quadruples it, with a ceiling of 16 Mbps. Above 1080p the 8 Mbps base scales with pixel count, up to 12 Mbps before the frame-rate multiplier; 2160p uses a 16 Mbps base. Encoder support for these sizes depends on the installed hardware and plugins, and the software fallback costs substantially more CPU.
 
 Capture uses macOS 14+ ScreenCaptureKit or Windows Graphics Capture. On macOS,
 Share Screen offers the native `SCContentSharingPicker` to choose one display or
@@ -473,6 +475,13 @@ window, ScreenCaptureKit captures its owning application's audio, which may incl
 other windows in that application; this is not isolation of one window's audio.
 Serein's own playback remains excluded. No microphone is captured by screen sharing.
 The native picker has not been opened during synthetic verification.
+
+Windows 11 builds that expose the "Screenshots and screen recording" privacy page can
+deny programmatic capture to an application until the owner allows it there. Starting a
+share asks Windows for that consent where the platform exposes it; a refusal names the
+setting in the share dialog and the diagnostic log records the reason. The Windows
+permission applies to the exact executable path, so a build run from a new folder can be
+refused even when an installed copy was already allowed.
 
 Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
 

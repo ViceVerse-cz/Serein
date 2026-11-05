@@ -12,6 +12,8 @@ the window moves or its native scale changes, restoring 760 × 520 logical pixel
 when the current display can accommodate the window and its decorations.
 Minimized, hidden, maximized and fullscreen states do not replace normal geometry.
 Closing frames do not overwrite the saved geometry.
+A changed placement is saved once sampled unchanged for at least 500 ms, so a drag or resize queues no
+write per frame. Maximizing retains the latest sampled normal placement for restoration; a placement sampled just before the window closes or hides is still saved.
 The offline `--demo` ignores saved geometry and does not save its window state.
 
 Wayland does not expose global window coordinates to ordinary clients, so window
@@ -75,7 +77,13 @@ On Windows, the custom title strip paints native-fidelity Windows 11 caption but
 excludes the caption buttons area so edge/corner resizing does not intercept corner clicks on
 Close. Caption buttons keep their own actions; Windows double-click maximize/restore remains
 available. Synthetic egui input tests check command dispatch, including corner hit testing.
-Native OS window movement still requires a desktop interaction check.
+On Windows, dragging the strip runs the OS move loop, which paints synchronously and waits for
+vsync before the next move. Serein therefore skips repaints for window moves and raw mouse motion
+(a patched egui-winit; see `vendor/egui-winit/SEREIN-PATCH.md`) and reapplies the minimum size
+only when it changes, so an otherwise idle window follows the cursor like a native one. Continuous
+rendering, such as an animation or playing video, still paces a drag to the display refresh rate.
+Synthetic `SendInput` drags on Windows 11 are measured in `docs/performance.md`; physical-mouse
+behavior on other machines and native macOS/Linux window movement remain unverified.
 On Windows and macOS, General settings can hide this 36 px strip and use the native title bar
 and window buttons instead. The device preference defaults to showing the custom strip and
 is saved with other app preferences; older saved settings keep that default. macOS switches
@@ -167,6 +175,28 @@ system accessibility and appearance preferences can also suppress effects.
 The compositor determines blur strength; zero disables it. Standard Wayland blur
 capability changes are processed without blocking the rendering loop. Linux and
 Windows native appearance remains unverified in this macOS local pass.
+
+## Variable refresh rate displays
+
+Serein redraws only when something changes: about twice a second while the composer's text
+cursor blinks, and up to the display's refresh rate during input. On Windows its DirectX 12
+swap chain moves to hardware independent flip while frames arrive quickly, so a variable refresh
+rate (VRR, G-SYNC, FreeSync) display can follow that cadence while Serein is the active window.
+Many panels flicker visibly when the rate swings between their limits, OLED panels in particular.
+
+General › Graphics › Steady refresh rate is off by default. When it is on, Serein draws at the
+display's refresh rate while its window is focused and not minimized, so the display can hold one
+rate. A window that macOS or X11 reports as covered pauses it as well; Windows and Wayland do not
+report that, so a focused window under an always-on-top one keeps drawing. Every refresh runs a
+full interface pass, which costs CPU time and power in proportion to the refresh rate: about a
+quarter of one core at 3840×2160 and 120 Hz in the November 5, 2026 entry of
+[performance findings](performance.md). Unfocused, minimized and hidden windows redraw only on
+change again. The setting applies immediately and is saved with the other device preferences.
+
+Excluding `serein.exe` from VRR in the graphics driver, such as NVIDIA's per-program Monitor
+Technology setting, avoids the swings without the extra frames. Present cadence was verified
+with PresentMon on Windows 11 with an RTX 5060 Ti; the panel's own refresh readout and macOS and
+Linux VRR behavior remain unverified.
 
 ## Built-in voice
 
@@ -449,3 +479,17 @@ macOS and Linux have no local HEIC decoder in this implementation; proxy-provide
 PNG/JPEG/WebP renditions can still display. The offline Windows check decodes an
 original synthetic 6000x4000 HEIC both at source size and as a 320px thumbnail,
 checking dimensions and pixel conversion. Owner photos and live Discord remain unverified.
+
+## Windows screenshots-and-recording permission — November 4, 2026
+
+Windows 11 builds that expose Settings > Privacy & security > Screenshots and screen recording keep
+a per-application consent for programmatic Graphics Capture. On Windows 11 build 26300 a locally
+built, unpackaged executable was denied at the capture item with `E_ACCESSDENIED` ("You do not have
+permission to capture the given monitor"), and the Settings page listed no request; the installed
+copy at its own path had a consent record from earlier capture and worked. Serein now asks the
+platform for that consent with `GraphicsCaptureAccess.RequestAccessAsync(Programmatic)` when a share
+starts. An unpackaged executable answers `NotDeclaredByApp`, so the capture item keeps deciding;
+`DeniedByUser` or `DeniedBySystem` names the setting in the share dialog. The diagnostic log records
+the start failure with its reason instead of a generic message. The permission is per executable
+path, so a build run from a different folder (a local release build beside an installed copy) needs
+its own allowance even when the other copy works. The capture pipeline itself is unchanged.

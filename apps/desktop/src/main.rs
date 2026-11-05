@@ -1018,6 +1018,8 @@ impl SessionEnd {
 		self == Self::Logout
 	}
 }
+/// Window placement, scale, monitor size and focus; any change re-reads the monitor's refresh rate.
+type MonitorKey = (Option<egui::Rect>, Option<f32>, Option<egui::Vec2>, bool);
 struct Desktop {
 	proxy_auth: proxy_auth::Authentication,
 	api_proxy: tokio::sync::watch::Sender<Option<discord_api::proxy::ApiProxy>>,
@@ -1057,9 +1059,13 @@ struct Desktop {
 	cached_history_request: Option<(model::Id, u64)>,
 	/// The saved maximized state still has to be re-applied once the window is shown.
 	maximize_after_show: bool,
-	monitor_geometry: Option<(Option<egui::Rect>, Option<f32>, Option<egui::Vec2>)>,
+	monitor_geometry: Option<MonitorKey>,
 	monitor_period: Option<Duration>,
 	frame_metrics: FrameMetrics,
+	/// The minimum last handed to winit; applying an unchanged one forces a frame on Windows.
+	window_minimum: Option<winit::dpi::PhysicalSize<u32>>,
+	/// A sampled placement waiting to remain unchanged for the rest interval.
+	geometry_rest: app_settings::GeometryRest,
 	#[cfg(feature = "demo")]
 	rendering_demo: Option<rendering_demo::RenderingDemo>,
 	avatars: Option<avatars::AvatarWorker>,
@@ -1909,6 +1915,11 @@ impl Desktop {
 			messaging.share_game_activity = true;
 			messaging.own_game = Some("Playing osu!".into());
 		}
+		// `--demo-steady-refresh`: the steady refresh setting starts on, for frame-cadence samples.
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-steady-refresh") {
+			messaging.steady_refresh_rate = true;
+		}
 		// `--demo-call-stream`: the direct-message peer shares a synthetic screen this device is
 		// watching, so the stream stage renders offline without any capture or network.
 		#[cfg(feature = "demo")]
@@ -2429,6 +2440,8 @@ impl Desktop {
 			monitor_geometry: None,
 			monitor_period: None,
 			frame_metrics: FrameMetrics::new(frame_sample),
+			window_minimum: None,
+			geometry_rest: app_settings::GeometryRest::default(),
 			#[cfg(feature = "demo")]
 			rendering_demo: (demo && std::env::args().any(|arg| arg == "--demo-rendering"))
 				.then(rendering_demo::RenderingDemo::default),
@@ -4033,6 +4046,23 @@ impl Desktop {
 						result: Ok(message),
 					}
 				}
+				Command::ThreadPreview {
+					thread, request, ..
+				} => {
+					// The fixture card shows one synthetic latest reply; its channel is the
+					// state's when the demo loaded the thread.
+					let channel = self.state.channel(thread).cloned();
+					let mut message = test_support::message(thread.0 + 3, thread);
+					message.content = "The latest synthetic reply in this thread.".into();
+					Event::ThreadPreview {
+						thread,
+						request,
+						result: Ok(client_core::thread_previews::Loaded {
+							channel,
+							last: Some(message),
+						}),
+					}
+				}
 				Command::CreatePost {
 					parent,
 					guild,
@@ -5492,7 +5522,7 @@ impl Desktop {
 	}
 	fn refresh_monitor(&mut self) -> Option<Duration> {
 		let monitor = self.window.current_monitor()?;
-		app_settings::update_window_minimum(&self.window, &monitor);
+		app_settings::update_window_minimum(&self.window, &monitor, &mut self.window_minimum);
 		let millihertz = monitor.refresh_rate_millihertz()?;
 		(1_000..=1_000_000)
 			.contains(&millihertz)
@@ -5532,16 +5562,8 @@ impl eframe::App for Desktop {
 		{
 			// While maximized, keep the normal geometry so un-maximizing after a restart returns to it.
 			let geometry = if viewport.maximized == Some(true) {
-				local_store::WindowGeometry {
-					maximized: true,
-					..self.app_settings.current.window_geometry.unwrap_or(
-						local_store::WindowGeometry {
-							size: app_settings::DEFAULT_WINDOW_SIZE,
-							position: None,
-							maximized: true,
-						},
-					)
-				}
+				self.geometry_rest
+					.maximized_geometry(self.app_settings.current.window_geometry)
 			} else {
 				let size = self
 					.window
@@ -5557,17 +5579,37 @@ impl eframe::App for Desktop {
 					maximized: false,
 				}
 			};
-			if geometry.is_valid() && self.app_settings.current.window_geometry != Some(geometry) {
+			if geometry.is_valid() {
+				match self.geometry_rest.observe(
+					geometry,
+					self.app_settings.current.window_geometry,
+					std::time::Instant::now(),
+				) {
+					app_settings::Observation::Saved => {}
+					app_settings::Observation::Pending => {
+						ctx.request_repaint_after(app_settings::GEOMETRY_REST_DELAY);
+					}
+					app_settings::Observation::Commit => {
+						self.app_settings.current.window_geometry = Some(geometry);
+						self.app_settings.state.dirty = true;
+					}
+				}
+			}
+		} else if !self.fixture_only && !self.state.demo && self.app_settings.loaded {
+			// A window that closes or hides before it rests still keeps its last placement.
+			if let Some(geometry) = self.geometry_rest.take_pending() {
 				self.app_settings.current.window_geometry = Some(geometry);
 				self.app_settings.state.dirty = true;
 			}
 		}
-		// Monitor size also detects Wayland moves without a global window position.
+		// Monitor size also detects Wayland moves without a global window position. A focus change
+		// re-reads the refresh rate as well: display settings change it without moving the window.
 		if let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id) {
 			let geometry = (
 				viewport.outer_rect,
 				viewport.native_pixels_per_point,
 				viewport.monitor_size,
+				raw_input.focused,
 			);
 			if self.monitor_geometry != Some(geometry) {
 				self.monitor_geometry = Some(geometry);
@@ -5916,6 +5958,18 @@ impl eframe::App for Desktop {
 			// Speaking, notices, remote video, devices, hotkeys and deadlines each wake the UI
 			// themselves; this heartbeat only bounds a missed wake, so a call does not repaint at 20 Hz.
 			ctx.request_repaint_after(std::time::Duration::from_secs(1));
+		}
+		// Variable refresh rate displays follow the focused window's presents, so redrawing only on
+		// change swings them between their limits and flickers (#889). The opt-in steady rate asks
+		// for the next frame within half a refresh: a Fifo present blocks until the next refresh
+		// anyway, and a surface that stops blocking (locked or occluded) cannot spin a core.
+		if self.messaging.steady_refresh_rate
+			&& ctx.input(|input| {
+				input.focused
+					&& input.viewport().minimized != Some(true)
+					&& input.viewport().occluded != Some(true)
+			}) {
+			ctx.request_repaint_after(self.frame_period().unwrap_or(Duration::from_millis(16)) / 2);
 		}
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {

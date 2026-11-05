@@ -1577,6 +1577,7 @@ dependencies = [
  "windows 0.61.3",
  "windows-capture",
  "windows-core 0.61.2",
+ "windows-future 0.2.1",
  "zbus",
  "zeroize",
 ]
@@ -1824,7 +1825,6 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "accesskit_winit",
  "arboard",
