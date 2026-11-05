@@ -817,6 +817,7 @@ pub fn voice_demo_state() -> State {
 		count: 3,
 		ids: vec![Id(2), Id(3), Id(9001)],
 		users: Vec::new(),
+		attempted: Vec::new(),
 	});
 	state.voice.active = Some(Call {
 		camera: false,

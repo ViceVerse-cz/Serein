@@ -119,6 +119,8 @@ pub struct Audience {
 	pub ids: Vec<Id>,
 	/// Identities fetched for `ids` this device could not resolve itself; bounded the same way.
 	pub users: Vec<crate::profile::StreamViewerUser>,
+	/// IDs already asked for, so a failed read is not retried every frame.
+	pub attempted: Vec<Id>,
 }
 /// Automatic rejoins after joined media drops before the call fails.
 pub const MAX_REJOIN_ATTEMPTS: u8 = 3;
@@ -463,6 +465,18 @@ impl ClientState {
 		})
 	}
 
+	/// Keeps a retained watcher name within the same 256-byte budget capture sources use.
+	fn bounded_name(name: String) -> String {
+		if name.len() <= screen::MAX_SOURCE_NAME_BYTES {
+			return name;
+		}
+		let mut end = screen::MAX_SOURCE_NAME_BYTES;
+		while !name.is_char_boundary(end) {
+			end -= 1;
+		}
+		name[..end].to_owned()
+	}
+
 	/// Base identities for up to [`screen::MAX_VIEWERS`] own-stream viewers that the roster,
 	/// member window and DM recipients could not resolve. Empty when nothing is shared or known.
 	pub fn request_stream_viewer_users(&mut self, unresolved: &[Id]) -> Option<crate::Command> {
@@ -484,12 +498,17 @@ impl ClientState {
 			.copied()
 			.filter(|id| audience.ids.contains(id))
 			.filter(|id| !audience.users.iter().any(|known| known.id == *id))
+			.filter(|id| !audience.attempted.contains(id))
 			.take(screen::MAX_VIEWERS)
 			.collect();
 		if users.is_empty() {
 			return None;
 		}
 		self.voice.viewer_fetch_request = Some((request, users.clone()));
+		if let Some(audience) = self.voice.audience.as_mut() {
+			audience.attempted.extend(users.iter().copied());
+			audience.attempted.truncate(screen::MAX_VIEWERS);
+		}
 		Some(crate::Command::StreamViewerUsers { request, users })
 	}
 
@@ -514,8 +533,8 @@ impl ClientState {
 			{
 				audience.users.push(crate::profile::StreamViewerUser {
 					id,
-					name: user.name,
-					avatar: user.avatar,
+					name: bounded_name(user.name),
+					avatar: user.avatar.filter(|hash| model::valid_avatar_hash(hash)),
 				});
 			}
 		}
@@ -1281,24 +1300,34 @@ impl ClientState {
 					// viewers. Identities already fetched for retained IDs carry over, so a
 					// repeated refresh does not re-request every watcher.
 					let ids: Vec<Id> = ids.into_iter().take(screen::MAX_VIEWERS).collect();
-					let users = self
+					let previous = self
 						.voice
 						.audience
 						.take()
-						.filter(|audience| audience.stream_request == stream_request)
-						.map(|audience| {
-							audience
-								.users
-								.into_iter()
-								.filter(|user| ids.contains(&user.id))
-								.collect()
-						})
-						.unwrap_or_default();
+						.filter(|audience| audience.stream_request == stream_request);
+					let (users, attempted) = previous.map_or_else(
+						|| (Vec::new(), Vec::new()),
+						|audience| {
+							(
+								audience
+									.users
+									.into_iter()
+									.filter(|user| ids.contains(&user.id))
+									.collect(),
+								audience
+									.attempted
+									.into_iter()
+									.filter(|id| ids.contains(id))
+									.collect(),
+							)
+						},
+					);
 					self.voice.audience = Some(Audience {
 						stream_request,
 						count,
 						ids,
 						users,
+						attempted,
 					});
 				}
 			}
@@ -2179,9 +2208,7 @@ mod tests {
 		assert_eq!(fetch, 7);
 		assert_eq!(users, [Id(2), Id(3)]);
 		assert!(
-			state
-				.request_stream_viewer_users(&[Id(3)])
-				.is_none(),
+			state.request_stream_viewer_users(&[Id(3)]).is_none(),
 			"one identity read per roster"
 		);
 		state.apply_stream_viewer_users(
@@ -2207,6 +2234,13 @@ mod tests {
 		// A repeated refresh keeps the identity, and an empty one clears the roster.
 		state.apply_voice(viewers(2, vec![Id(2), Id(3)]));
 		assert_eq!(state.voice.audience.as_ref().unwrap().users.len(), 1);
+		// A resolved or already-attempted viewer is never asked for twice.
+		state.apply_stream_viewer_users(fetch, vec![(Id(3), None)]);
+		assert!(state.voice.audience.as_ref().unwrap().users.is_empty());
+		assert!(
+			state.request_stream_viewer_users(&[Id(3)]).is_none(),
+			"a failed read is not retried for the same roster"
+		);
 		state.apply_voice(viewers(0, Vec::new()));
 		assert!(state.audience().is_empty());
 		assert!(state.request_stream_viewer_users(&[Id(2)]).is_none());
