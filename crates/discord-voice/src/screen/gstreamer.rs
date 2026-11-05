@@ -341,8 +341,8 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 	if info.format() != video::VideoFormat::Bgra
 		|| info.width() == 0
 		|| info.height() == 0
-		|| info.width() > 1920
-		|| info.height() > 1080
+		|| info.width() > 3840
+		|| info.height() > 2160
 	{
 		return Err(INVALID);
 	}
@@ -372,4 +372,52 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 		stride: row,
 		data: pixels,
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::screen::{Settings, SourceId};
+
+	/// The software encoder reads every picture through `raw`, so a sending preset that
+	/// `Settings::valid` accepts must also fit its frame bound.
+	#[test]
+	fn raw_accepts_every_sending_preset() {
+		gst::init().unwrap();
+		let sizes = [
+			(854, 480),
+			(1280, 720),
+			(1920, 1080),
+			(2560, 1440),
+			(3840, 2160),
+		];
+		let mut checked = 0;
+		for (width, height) in sizes {
+			let settings = Settings {
+				source: SourceId::Display(1),
+				width,
+				height,
+				fps: 30,
+				cursor: false,
+				audio: false,
+			};
+			if !settings.valid() {
+				continue;
+			}
+			let info = video::VideoInfo::builder(video::VideoFormat::Bgra, width, height)
+				.build()
+				.unwrap();
+			let sample = gst::Sample::builder()
+				.buffer(&gst::Buffer::with_size(info.size()).unwrap())
+				.caps(&info.to_caps().unwrap())
+				.build();
+			let frame = raw(&sample).unwrap_or_else(|error| panic!("{width}x{height}: {error}"));
+			assert_eq!((frame.width, frame.height), (width, height));
+			checked += 1;
+		}
+		assert!(
+			checked >= 4,
+			"the preset list no longer matches Settings::valid"
+		);
+	}
 }
