@@ -2501,7 +2501,10 @@ impl State {
 			return;
 		}
 		if matches!(command, Command::StreamViewerUsers { .. }) {
-			// Nothing was fetched: the rows stay on their fallback labels.
+			// Nothing was fetched: the rows stay on their fallback labels, and the pending
+			// marker is released so a later roster can still ask. The IDs stay in `attempted`,
+			// so the same ones are not retried every frame.
+			self.voice.viewer_fetch_request = None;
 			return;
 		}
 		if let Command::Voice(control) = command {

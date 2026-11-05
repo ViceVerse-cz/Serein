@@ -533,7 +533,7 @@ impl ClientState {
 			{
 				audience.users.push(crate::profile::StreamViewerUser {
 					id,
-					name: bounded_name(user.name),
+					name: Self::bounded_name(user.name),
 					avatar: user.avatar.filter(|hash| model::valid_avatar_hash(hash)),
 				});
 			}
@@ -758,6 +758,10 @@ impl ClientState {
 		let call = self.voice.active.take()?;
 		self.voice.ring_error = None;
 		self.voice.departed = None;
+		// The Gateway drops this call's stream on leave, so its roster cannot be reused by
+		// the next share; a later deletion event never reaches core for the old call.
+		self.voice.audience = None;
+		self.voice.viewer_fetch_request = None;
 		Some(crate::Command::Voice(Command::Leave {
 			channel: call.channel,
 			request: call.request,
@@ -890,6 +894,8 @@ impl ClientState {
 					self.voice.active = None;
 					self.voice.outgoing = None;
 					self.voice.departed = Some((channel, request));
+					self.voice.audience = None;
+					self.voice.viewer_fetch_request = None;
 					self.status = "This device's call session was replaced";
 				}
 			}
@@ -1168,6 +1174,8 @@ impl ClientState {
 						self.voice.outgoing = None;
 						if call.phase != Phase::Failed {
 							self.voice.active = None;
+							self.voice.audience = None;
+							self.voice.viewer_fetch_request = None;
 						}
 						return;
 					}

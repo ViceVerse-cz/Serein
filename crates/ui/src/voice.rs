@@ -1337,6 +1337,9 @@ impl MessagingUi {
 	}
 
 	/// Ask once per roster for the watchers this device cannot name from its own caches.
+	///
+	/// This uses the same lookup the roster draws with, so a name shown here is never fetched
+	/// and a skipped name is always one the row can actually resolve.
 	fn request_missing_viewers(&mut self, state: &mut State, commands: &mut Vec<Command>) {
 		let Some(audience) = &state.voice.audience else {
 			return;
@@ -1349,22 +1352,7 @@ impl MessagingUi {
 			.copied()
 			.filter(|id| !audience.users.iter().any(|user| user.id == *id))
 			.filter(|id| {
-				state.user.as_ref().is_none_or(|own| own.id != *id)
-					&& !state.channels.iter().any(|c| {
-						Some(c.id) == channel && c.recipients.iter().any(|user| user.id == *id)
-					})
-					&& !state.voice.roster.iter().any(|entry| {
-						Some(entry.channel) == channel && entry.participant.user == *id
-					})
-					&& !state
-						.members
-						.as_ref()
-						.filter(|list| list.guild == guild)
-						.is_some_and(|list| {
-							list.slots.iter().flatten().any(|slot| {
-								matches!(slot, model::MemberSlot::Person(member) if member.user.id == *id)
-							})
-						})
+				channel.is_none_or(|channel| viewer_user(state, channel, guild, *id).is_none())
 			})
 			.collect();
 		if let Some(command) = state.request_stream_viewer_users(&unresolved) {
@@ -1441,10 +1429,11 @@ impl MessagingUi {
 			.max_height(240.0)
 			.show(ui, |ui| {
 				let channel = state.voice.active.as_ref().map(|call| call.channel);
+				let guild = state.voice.active.as_ref().and_then(|call| call.guild);
 				for id in &audience.ids {
-					// Self, a conversation recipient or a known roster member needs no fetch;
-					// otherwise the fetched base identity, and finally the fallback label.
-					let known = channel.and_then(|channel| participant_user(state, channel, *id));
+					// The same lookup that decides what to fetch; otherwise the fetched base
+					// identity, and finally the fallback label.
+					let known = channel.and_then(|channel| viewer_user(state, channel, guild, *id));
 					let fetched = audience.users.iter().find(|user| user.id == *id);
 					let name = known
 						.map(|user| user.name.clone())
@@ -4835,6 +4824,32 @@ fn resolve_member<'a>(
 		.or_else(|| user.map(|u| u.name.as_str()))
 		.unwrap_or("Participant");
 	(user, name)
+}
+
+/// Resolve one own-stream viewer: self, a conversation recipient, the voice roster (including
+/// its member window) and finally the loaded guild member list.
+///
+/// Both the fetch decision and the drawn row use this, so they never disagree about which
+/// names are already known locally.
+fn viewer_user<'a>(
+	state: &'a State,
+	channel: Id,
+	guild: Option<Id>,
+	user: Id,
+) -> Option<&'a model::User> {
+	// `participant_user` already covers self, DM recipients and roster members.
+	participant_user(state, channel, user).or_else(|| {
+		state
+			.members
+			.as_ref()
+			.filter(|list| list.guild == guild)
+			.and_then(|list| {
+				list.slots.iter().flatten().find_map(|slot| match slot {
+					model::MemberSlot::Person(member) if member.user.id == user => Some(&member.user),
+					_ => None,
+				})
+			})
+	})
 }
 
 /// Find a call participant's user from self, DM recipients or the roster.
