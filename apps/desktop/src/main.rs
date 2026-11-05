@@ -5578,10 +5578,7 @@ impl eframe::App for Desktop {
 					self.app_settings.current.window_geometry,
 					std::time::Instant::now(),
 				) {
-					app_settings::Observation::Saved => {}
-					app_settings::Observation::Pending => {
-						ctx.request_repaint_after(app_settings::GEOMETRY_REST_DELAY);
-					}
+					app_settings::Observation::Saved | app_settings::Observation::Pending => {}
 					app_settings::Observation::Commit => {
 						self.app_settings.current.window_geometry = Some(geometry);
 						self.app_settings.state.dirty = true;
@@ -5646,6 +5643,11 @@ impl eframe::App for Desktop {
 	fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
 		// Last frame's shapes are painted; video textures retired since then can go.
 		gpu_video::collect();
+		// `raw_input_hook` samples placements before the pass begins, where a requested repaint
+		// can be dropped when the pass starts, so the frame that saves a resting one is asked here.
+		if let Some(remaining) = self.geometry_rest.remaining(std::time::Instant::now()) {
+			ctx.request_repaint_after(remaining);
+		}
 		let search_focused = {
 			#[cfg(feature = "demo")]
 			{

@@ -4,6 +4,29 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Window placement save after a move — November 5, 2026
+
+Baseline `2b593b1` (`main` after #893) and this branch were built with the pinned Rust 1.98.1
+toolchain and locked dependencies on Windows 11 x64 (build 26200). Standard release packages use
+`cargo xtask package` (voice included, demo and development data disabled), each from its own
+worktree.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,905,472 B | 92,905,472 B | 0 B |
+| `dist/` regular-file payload (233 files) | 97,265,351 B | 97,265,351 B | 0 B |
+| ZIP of `dist/` (`7z a -tzip -mx=9`) | 52,172,759 B | 52,172,290 B | −469 B (−0.001%) |
+
+Only `serein.exe` differs, at the same size; the ZIP difference is compression noise.
+
+Debug builds with default features and an empty `SEREIN_DATA_DIR` show the sign-in screen, which
+renders nothing while idle. After the window had been idle for 8 s, a script moved it with
+`SetWindowPos` (no input, activation or z-order change) while PresentMon 2.6.0 recorded the next
+4 s. The baseline presented no frame and kept the startup placement in `app_preferences`; this
+branch presented three frames about 1.0 s after the move and saved the new position. An idle window
+gains no frames, and while a placement is unsaved the wake adds at most one frame per 500 ms.
+Interactive drags were not re-measured.
+
 ## Window drags on Windows — November 5, 2026
 
 Review follow-up: the measurements below describe the original `1f664628` implementation.

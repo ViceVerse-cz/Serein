@@ -311,6 +311,12 @@ impl GeometryRest {
 		self.pending = Some((sampled, now));
 		Observation::Pending
 	}
+	/// How long until the unsaved placement may be saved, so a frame can sample it again.
+	pub fn remaining(&self, now: std::time::Instant) -> Option<std::time::Duration> {
+		self.pending.map(|(_, changed_at)| {
+			GEOMETRY_REST_DELAY.saturating_sub(now.saturating_duration_since(changed_at))
+		})
+	}
 	/// Keep the latest normal placement when a maximize event interrupts its rest interval.
 	pub fn maximized_geometry(
 		&self,
@@ -557,6 +563,10 @@ mod tests {
 			Observation::Pending
 		);
 		assert_eq!(
+			rest.remaining(now + GEOMETRY_REST_DELAY / 2),
+			Some(GEOMETRY_REST_DELAY / 2)
+		);
+		assert_eq!(
 			rest.observe(moving, None, now + GEOMETRY_REST_DELAY / 2),
 			Observation::Pending
 		);
@@ -564,10 +574,16 @@ mod tests {
 			rest.observe(moving, None, now + GEOMETRY_REST_DELAY),
 			Observation::Pending
 		);
+		// A change restarts the interval, so the wake moves with it.
+		assert_eq!(
+			rest.remaining(now + GEOMETRY_REST_DELAY),
+			Some(GEOMETRY_REST_DELAY / 2)
+		);
 		assert_eq!(
 			rest.observe(moving, None, now + GEOMETRY_REST_DELAY * 2),
 			Observation::Commit
 		);
+		assert_eq!(rest.remaining(now + GEOMETRY_REST_DELAY * 2), None);
 		assert_eq!(rest.observe(placed, Some(placed), now), Observation::Saved);
 		assert_eq!(rest.take_pending(), None);
 
