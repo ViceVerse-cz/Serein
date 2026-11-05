@@ -937,6 +937,7 @@ mod polled_fold {
 	pub(super) struct Polled {
 		watched: Vec<(KeybindAction, u32)>,
 		was: u32,
+		toggles: u32,
 	}
 
 	impl Polled {
@@ -957,13 +958,15 @@ mod polled_fold {
 			Self {
 				watched,
 				was: held_now & toggles,
+				toggles,
 			}
 		}
 
 		pub(super) fn tick(&mut self, now: u32, live: bool) -> Vec<(u32, KeybindAction, bool)> {
 			let events = transitions(&self.watched, self.was, now, live);
-			// A gated tick holds nothing, so later ticks must not re-release the same keys.
-			self.was = if live { now } else { 0 };
+			// A gated tick releases holds only; toggles keep their physical level, so one
+			// still held when the gate lifts does not press again.
+			self.was = if live { now } else { now & self.toggles };
 			events
 		}
 
@@ -1106,6 +1109,15 @@ mod polled_fold {
 			let mut polled = Polled::new(vec![(KeybindAction::ToggleMute, held)], held);
 			assert_eq!(polled.tick(held, true), vec![]);
 			assert_eq!(polled.tick(0, true), vec![]);
+		}
+
+		#[test]
+		fn refocus_does_not_repress_a_held_toggle() {
+			let held = bit("ControlRight");
+			let mut polled = Polled::new(vec![(KeybindAction::ToggleMute, held)], 0);
+			assert_eq!(polled.tick(held, true).len(), 1);
+			assert_eq!(polled.tick(held, false), vec![]);
+			assert_eq!(polled.tick(held, true), vec![]);
 		}
 
 		#[test]
