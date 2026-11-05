@@ -150,6 +150,9 @@ pub use emoji_picker::{
 pub use guild_folders::{
 	better_folders_close_others_enabled, better_folders_enabled,
 	set_better_folders_close_others_enabled, set_better_folders_enabled,
+	hide_servers_enabled, set_hide_servers_enabled, hide_server, unhide_server, is_server_hidden,
+	custom_folder_icons_enabled, set_custom_folder_icons_enabled,
+	server_search_enabled, set_server_search_enabled,
 };
 pub use highlight::{set_shiki_codeblocks_enabled, shiki_codeblocks_enabled};
 pub use notifications::{server_list_indicators_enabled, set_server_list_indicators_enabled};
@@ -185,7 +188,14 @@ pub use timeline::{
 	auto_jump_to_message_enabled, jump_to_enabled, set_auto_jump_to_message_enabled,
 	set_jump_to_enabled, set_sidebar_chat_enabled, sidebar_chat_enabled,
 };
-pub use categories::{draft_navigator_enabled, set_draft_navigator_enabled};
+pub use categories::{
+	draft_navigator_enabled, set_draft_navigator_enabled,
+	clean_channel_name_enabled, set_clean_channel_name_enabled, clean_channel_name,
+	channel_badges_enabled, set_channel_badges_enabled, channel_badge_label,
+	channel_tabs_enabled, set_channel_tabs_enabled,
+	show_resource_channels_enabled, set_show_resource_channels_enabled,
+	unread_badge_count_enabled, set_unread_badge_count_enabled,
+};
 pub use switcher::{
 	command_palette_enabled, frequent_quick_switcher_enabled, recent_dm_switcher_enabled,
 	set_command_palette_enabled, set_frequent_quick_switcher_enabled,

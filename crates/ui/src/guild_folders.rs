@@ -33,6 +33,73 @@ pub fn set_better_folders_close_others_enabled(enabled: bool) {
 	BETTER_FOLDERS_CLOSE_OTHERS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// VenSerein (HideServers): Allows hiding servers from the server list via context menu.
+pub static HIDE_SERVERS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn hide_servers_enabled() -> bool {
+	HIDE_SERVERS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_hide_servers_enabled(enabled: bool) {
+	HIDE_SERVERS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub static HIDDEN_SERVERS: std::sync::RwLock<BTreeSet<Id>> =
+	std::sync::RwLock::new(BTreeSet::new());
+
+#[allow(dead_code)]
+pub fn hide_server(id: Id) {
+	if let Ok(mut set) = HIDDEN_SERVERS.write() {
+		set.insert(id);
+	}
+}
+
+#[allow(dead_code)]
+pub fn unhide_server(id: Id) {
+	if let Ok(mut set) = HIDDEN_SERVERS.write() {
+		set.remove(&id);
+	}
+}
+
+#[allow(dead_code)]
+pub fn is_server_hidden(id: Id) -> bool {
+	if !hide_servers_enabled() {
+		return false;
+	}
+	HIDDEN_SERVERS.read().map_or(false, |set| set.contains(&id))
+}
+
+/// VenSerein (CustomFolderIcons): Customize folder icons in the server rail.
+pub static CUSTOM_FOLDER_ICONS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn custom_folder_icons_enabled() -> bool {
+	CUSTOM_FOLDER_ICONS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_custom_folder_icons_enabled(enabled: bool) {
+	CUSTOM_FOLDER_ICONS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (ServerSearch): Quick search and filter in the server rail.
+pub static SERVER_SEARCH_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn server_search_enabled() -> bool {
+	SERVER_SEARCH_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_server_search_enabled(enabled: bool) {
+	SERVER_SEARCH_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[derive(Default)]
 pub(super) struct FolderUi {
 	expanded: BTreeSet<u64>,
@@ -67,7 +134,7 @@ impl FolderUi {
 		let mut rows: Vec<Row> = state
 			.guilds
 			.iter()
-			.filter(|g| !seen.contains(&g.id))
+			.filter(|g| !seen.contains(&g.id) && !is_server_hidden(g.id))
 			.map(|g| (Item::Server(g.id), None))
 			.collect();
 		if let Some(settings) = &state.guild_folders {
@@ -87,7 +154,7 @@ impl FolderUi {
 					));
 				}
 				for &id in &folder.guild_ids {
-					if folder.id.is_none_or(shown) && state.guild(id).is_some() {
+					if folder.id.is_none_or(shown) && state.guild(id).is_some() && !is_server_hidden(id) {
 						rows.push((
 							Item::Server(id),
 							folder.id.map(|folder_id| {
@@ -716,6 +783,18 @@ impl MessagingUi {
 							let leave = self.server_menu.leave_item(ui, state, id);
 							if settings || notifications || leave {
 								self.guild = Some(id);
+							}
+							if hide_servers_enabled() {
+								let hidden = is_server_hidden(id);
+								let label = if hidden { "Unhide Server" } else { "Hide Server" };
+								if ui.button(label).clicked() {
+									if hidden {
+										unhide_server(id);
+									} else {
+										hide_server(id);
+									}
+									ui.close();
+								}
 							}
 							ui.separator();
 						}
@@ -1668,6 +1747,34 @@ mod tests {
 		assert!(ui.expanded.contains(&20));
 
 		set_better_folders_enabled(false);
+	}
+
+	#[test]
+	fn test_venserein_phase2_batch2_guild_folder_toggles() {
+		assert!(hide_servers_enabled());
+		set_hide_servers_enabled(false);
+		assert!(!hide_servers_enabled());
+		set_hide_servers_enabled(true);
+		assert!(hide_servers_enabled());
+
+		let test_id = Id(4242);
+		assert!(!is_server_hidden(test_id));
+		hide_server(test_id);
+		assert!(is_server_hidden(test_id));
+		unhide_server(test_id);
+		assert!(!is_server_hidden(test_id));
+
+		assert!(custom_folder_icons_enabled());
+		set_custom_folder_icons_enabled(false);
+		assert!(!custom_folder_icons_enabled());
+		set_custom_folder_icons_enabled(true);
+		assert!(custom_folder_icons_enabled());
+
+		assert!(server_search_enabled());
+		set_server_search_enabled(false);
+		assert!(!server_search_enabled());
+		set_server_search_enabled(true);
+		assert!(server_search_enabled());
 	}
 }
 

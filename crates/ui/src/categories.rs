@@ -47,6 +47,134 @@ pub fn draft_navigator_enabled() -> bool {
 	DRAFT_NAVIGATOR_ENABLED.load(Ordering::Relaxed)
 }
 
+/// VenSerein (CleanChannelName): Removes decorative emojis, unicode small-caps and symbols from channel names.
+pub static CLEAN_CHANNEL_NAME_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn clean_channel_name_enabled() -> bool {
+	CLEAN_CHANNEL_NAME_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_clean_channel_name_enabled(enabled: bool) {
+	CLEAN_CHANNEL_NAME_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn clean_channel_name(name: &str) -> String {
+	if !clean_channel_name_enabled() {
+		return name.to_owned();
+	}
+	let mut cleaned = String::with_capacity(name.len());
+	for ch in name.chars() {
+		let mapped = match ch {
+			'\u{1d00}' => 'a',
+			'\u{0299}' => 'b',
+			'\u{1d04}' => 'c',
+			'\u{1d05}' => 'd',
+			'\u{1d07}' => 'e',
+			'\u{a730}' => 'f',
+			'\u{0262}' => 'g',
+			'\u{029c}' => 'h',
+			'\u{026a}' => 'i',
+			'\u{1d0a}' => 'j',
+			'\u{1d0b}' => 'k',
+			'\u{029f}' => 'l',
+			'\u{1d0d}' => 'm',
+			'\u{0274}' => 'n',
+			'\u{1d0f}' => 'o',
+			'\u{1d18}' => 'p',
+			'\u{01eb}' => 'q',
+			'\u{0280}' => 'r',
+			'\u{a731}' => 's',
+			'\u{1d1b}' => 't',
+			'\u{1d1c}' => 'u',
+			'\u{1d20}' => 'v',
+			'\u{1d21}' => 'w',
+			'\u{028f}' => 'y',
+			'\u{1d22}' => 'z',
+			'\u{ff21}'..='\u{ff3a}' => (b'a' + (ch as u32 - 0xff21) as u8) as char,
+			'\u{ff41}'..='\u{ff5a}' => (b'a' + (ch as u32 - 0xff41) as u8) as char,
+			_ => ch,
+		};
+		if mapped.is_alphanumeric() || mapped == '-' || mapped == '_' || mapped == ' ' {
+			cleaned.push(mapped);
+		}
+	}
+	let trimmed = cleaned.trim().trim_matches('-').trim_matches('_').trim();
+	if !trimmed.is_empty() {
+		trimmed.to_owned()
+	} else {
+		name.to_owned()
+	}
+}
+
+/// VenSerein (ChannelBadges): Shows channel type badges (Text, Voice, Forum, Stage, Announce).
+pub static CHANNEL_BADGES_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn channel_badges_enabled() -> bool {
+	CHANNEL_BADGES_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_channel_badges_enabled(enabled: bool) {
+	CHANNEL_BADGES_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn channel_badge_label(kind: u8) -> Option<&'static str> {
+	if !channel_badges_enabled() {
+		return None;
+	}
+	match kind {
+		0 => Some("Text"),
+		2 => Some("Voice"),
+		5 => Some("Announce"),
+		13 => Some("Stage"),
+		15 | 16 => Some("Forum"),
+		10..=12 => Some("Thread"),
+		_ => None,
+	}
+}
+
+/// VenSerein (ChannelTabs): Allows browser-like tabs for switching between channels.
+pub static CHANNEL_TABS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn channel_tabs_enabled() -> bool {
+	CHANNEL_TABS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_channel_tabs_enabled(enabled: bool) {
+	CHANNEL_TABS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (ShowResourceChannels): Shows channels hidden behind server resources in the channel list.
+pub static SHOW_RESOURCE_CHANNELS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn show_resource_channels_enabled() -> bool {
+	SHOW_RESOURCE_CHANNELS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_show_resource_channels_enabled(enabled: bool) {
+	SHOW_RESOURCE_CHANNELS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (UnreadBadgeCount): Shows unread message count badge on unread channels in the channel list.
+pub static UNREAD_BADGE_COUNT_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn unread_badge_count_enabled() -> bool {
+	UNREAD_BADGE_COUNT_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_unread_badge_count_enabled(enabled: bool) {
+	UNREAD_BADGE_COUNT_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
 /// Voice and stage channels keep a separate position list, drawn below other channels.
 fn voice_lane(kind: u8) -> bool {
 	matches!(kind, 2 | 13)
@@ -311,7 +439,7 @@ fn rows_at<'a>(
 	let category_ids: BTreeSet<_> = categories.iter().map(|c| c.id).collect();
 	let mut groups: BTreeMap<Option<Id>, Vec<&Channel>> = BTreeMap::new();
 	let admitted = |c: &Channel| {
-		scope.admits(c, state) && (show_hidden || state.can_view(c.id)) && !roster.lifted(c.id)
+		scope.admits(c, state) && (show_hidden || show_resource_channels_enabled() || state.can_view(c.id)) && !roster.lifted(c.id)
 	};
 	// Threads appear only beneath their parents, following Discord's relevance rules.
 	let mut threads = guild.map_or_else(BTreeMap::new, |guild| {
@@ -1415,7 +1543,7 @@ impl MessagingUi {
 									- egui::vec2(8.0 + lane + label.size().x, label.size().y * 0.5);
 								ui.painter().galley(pos, label, colors.muted);
 							}
-							if count > 0 {
+							if count > 0 || (unread && UNREAD_BADGE_COUNT_ENABLED.load(Ordering::Relaxed)) {
 								crate::notifications::badge(
 									ui,
 									row.right_center()
@@ -1428,7 +1556,7 @@ impl MessagingUi {
 												},
 											0.0,
 										),
-									count,
+									count.max(1),
 									if active {
 										colors.selected
 									} else if hovered {
@@ -1444,10 +1572,17 @@ impl MessagingUi {
 							let response = response.on_hover_text_with(|| {
 								let has_draft = DRAFT_NAVIGATOR_ENABLED.load(Ordering::Relaxed)
 									&& state.drafts.get(&channel.id).is_some_and(|d| !d.trim().is_empty());
+								let display_name = if CLEAN_CHANNEL_NAME_ENABLED.load(Ordering::Relaxed) {
+									clean_channel_name(&channel.name)
+								} else {
+									channel.name.clone()
+								};
+								let badge_suffix = channel_badge_label(channel.kind).map_or(String::new(), |b| format!(" [{b}]"));
 								format!(
-									"{}{} · {}{}{}",
+									"{}{}{} · {}{}{}",
 									if has_draft { "✏️ " } else { "" },
-									channel.name,
+									display_name,
+									badge_suffix,
 									crate::i18n::translate_if_key(kind_label(channel.kind)),
 									channel_marks::label(access),
 									if unread && !forum && state.channel_unread(channel).is_none() {
@@ -2821,5 +2956,40 @@ mod venserein_batch1_categories_tests {
 		assert!(!draft_navigator_enabled());
 		set_draft_navigator_enabled(true);
 		assert!(draft_navigator_enabled());
+
+		assert!(clean_channel_name_enabled());
+		set_clean_channel_name_enabled(false);
+		assert!(!clean_channel_name_enabled());
+		set_clean_channel_name_enabled(true);
+		assert!(clean_channel_name_enabled());
+		assert_eq!(clean_channel_name("💬・chat"), "chat");
+		assert_eq!(clean_channel_name("📢・ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛs"), "announcements");
+
+		assert!(channel_badges_enabled());
+		set_channel_badges_enabled(false);
+		assert!(!channel_badges_enabled());
+		set_channel_badges_enabled(true);
+		assert!(channel_badges_enabled());
+		assert_eq!(channel_badge_label(0), Some("Text"));
+		assert_eq!(channel_badge_label(2), Some("Voice"));
+		assert_eq!(channel_badge_label(15), Some("Forum"));
+
+		assert!(channel_tabs_enabled());
+		set_channel_tabs_enabled(false);
+		assert!(!channel_tabs_enabled());
+		set_channel_tabs_enabled(true);
+		assert!(channel_tabs_enabled());
+
+		assert!(show_resource_channels_enabled());
+		set_show_resource_channels_enabled(false);
+		assert!(!show_resource_channels_enabled());
+		set_show_resource_channels_enabled(true);
+		assert!(show_resource_channels_enabled());
+
+		assert!(unread_badge_count_enabled());
+		set_unread_badge_count_enabled(false);
+		assert!(!unread_badge_count_enabled());
+		set_unread_badge_count_enabled(true);
+		assert!(unread_badge_count_enabled());
 	}
 }
