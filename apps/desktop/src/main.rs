@@ -5541,6 +5541,8 @@ impl eframe::App for Desktop {
 			self.maximize_after_show = false;
 			self.window.set_maximized(true);
 		}
+		// Only this frame's sample may schedule the next placement wake.
+		self.geometry_rest.begin_frame();
 		// Read native size independently of viewport rectangles: Wayland has no global position,
 		// so egui-winit cannot supply either rectangle there. Native scale excludes egui zoom.
 		if !self.fixture_only
@@ -5645,7 +5647,8 @@ impl eframe::App for Desktop {
 		gpu_video::collect();
 		// `raw_input_hook` samples placements before the pass begins, where a requested repaint
 		// can be dropped when the pass starts, so the frame that saves a resting one is asked here.
-		if let Some(wake) = self.geometry_rest.take_wake() {
+		// Every pass asks: a discarded pass's request would arrive stale and be ignored.
+		if let Some(wake) = self.geometry_rest.wake() {
 			ctx.request_repaint_after(wake);
 		}
 		let search_focused = {

@@ -285,12 +285,16 @@ pub enum Observation {
 #[derive(Default)]
 pub struct GeometryRest {
 	pending: Option<(local_store::WindowGeometry, std::time::Instant)>,
-	/// When a frame should sample the pending placement again, set by each observation that
-	/// leaves it pending and taken once, so a frame that samples nothing cannot re-arm it.
+	/// When a frame should sample the pending placement again, as of this frame's observation.
+	/// [`Self::begin_frame`] clears it, so a frame that samples nothing cannot re-arm it.
 	wake: Option<std::time::Duration>,
 }
 
 impl GeometryRest {
+	/// Starts a frame's sampling: only an observation in this frame schedules the next wake.
+	pub fn begin_frame(&mut self) {
+		self.wake = None;
+	}
 	/// Observe placement at a monotonic time; early frames do not shorten the rest interval.
 	pub fn observe(
 		&mut self,
@@ -318,9 +322,10 @@ impl GeometryRest {
 		self.wake = Some(GEOMETRY_REST_DELAY);
 		Observation::Pending
 	}
-	/// How long until a frame should sample the pending placement again, once per observation.
-	pub fn take_wake(&mut self) -> Option<std::time::Duration> {
-		self.wake.take()
+	/// How long until a frame should sample the pending placement again. Every pass of the
+	/// observing frame may request it, since a discarded pass's request is ignored.
+	pub fn wake(&self) -> Option<std::time::Duration> {
+		self.wake
 	}
 	/// Keep the latest normal placement when a maximize event interrupts its rest interval.
 	pub fn maximized_geometry(
@@ -568,9 +573,12 @@ mod tests {
 			rest.observe(placed, None, now + GEOMETRY_REST_DELAY / 2),
 			Observation::Pending
 		);
-		// Each observation that leaves the placement pending wakes one later frame, once.
-		assert_eq!(rest.take_wake(), Some(GEOMETRY_REST_DELAY / 2));
-		assert_eq!(rest.take_wake(), None);
+		// Every pass of the observing frame may request the wake, so a discarded pass keeps it;
+		// the next frame that samples nothing drops it.
+		assert_eq!(rest.wake(), Some(GEOMETRY_REST_DELAY / 2));
+		assert_eq!(rest.wake(), Some(GEOMETRY_REST_DELAY / 2));
+		rest.begin_frame();
+		assert_eq!(rest.wake(), None);
 		assert_eq!(
 			rest.observe(moving, None, now + GEOMETRY_REST_DELAY / 2),
 			Observation::Pending
@@ -580,12 +588,12 @@ mod tests {
 			Observation::Pending
 		);
 		// A change restarts the interval, so the wake moves with it.
-		assert_eq!(rest.take_wake(), Some(GEOMETRY_REST_DELAY / 2));
+		assert_eq!(rest.wake(), Some(GEOMETRY_REST_DELAY / 2));
 		assert_eq!(
 			rest.observe(moving, None, now + GEOMETRY_REST_DELAY * 2),
 			Observation::Commit
 		);
-		assert_eq!(rest.take_wake(), None);
+		assert_eq!(rest.wake(), None);
 		assert_eq!(rest.observe(placed, Some(placed), now), Observation::Saved);
 		assert_eq!(rest.take_pending(), None);
 
