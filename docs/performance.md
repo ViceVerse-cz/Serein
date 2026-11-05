@@ -4,6 +4,47 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Steady refresh rate for VRR displays — November 5, 2026
+
+Baseline `d57433c` and this branch were built with the pinned Rust 1.98.1 toolchain and locked
+dependencies on Windows 11 x64 (build 26200). Standard release packages use `cargo xtask package`
+(voice included, demo and development data disabled). Each revision was built from its own
+worktree, and each executable was checked for the new localization key before measuring.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,904,448 B | 92,909,056 B | +4,608 B (+0.005%) |
+| `dist/` regular-file payload (233 files) | 97,263,837 B | 97,268,445 B | +4,608 B (+0.005%) |
+| ZIP of `dist/` (`7z a -tzip -mx=9`) | 52,175,667 B | 52,177,524 B | +1,857 B (+0.004%) |
+
+All other `dist/` files are byte-identical.
+
+Frame presentation used release `--features demo` builds of both revisions, sampled with
+PresentMon 2.6.0 (`--v1_metrics`) on a Ryzen 5 7600X with 32 GB of RAM, an RTX 5060 Ti (DX12,
+driver 32.0.16.1742) and a 3840×2160 120 Hz display at 100% scale. The default `--demo` fixture ran
+maximized and focused, with the pointer parked on another display. Each run waited 12 s and then
+sampled 20 s; the first 2 s of each capture are discarded. CPU is process CPU time as a percentage
+of one logical core, and memory is the working set at the end of the sample. The steady-on runs
+add `--demo-steady-refresh`, which starts the fixture with the setting on.
+
+| Workload (3 runs each) | Presents/s | Interval p50 / p95 | CPU, one core | Working set |
+| --- | ---: | ---: | ---: | ---: |
+| Baseline | 2.00 | 500.0 / 500.5–501.1 ms | 0–0.08% | 212.3–212.8 MiB |
+| Steady refresh off | 2.00 | 500.0 / 500.7–500.8 ms | 0–0.15% | 212.5–213.2 MiB |
+| Steady refresh on | 119.7 | 8.33 / 8.48–8.53 ms | 25.5–29.9% | 212.8–213.1 MiB |
+
+Idle presents arrive every 500 ms, consistent with egui's text-cursor blink in the focused
+composer, and DWM composes those frames. With the setting on, 99.7–99.9% of intervals fall within
+±25% of the 8.33 ms refresh period, with two or three longer gaps per run (37–50 ms at most), and
+PresentMon reports every frame as hardware independent flip. Each refresh runs a full UI pass, so
+the cost grows with refresh rate and window size. A separate run that moved focus to the desktop
+after 10 s stopped presenting within that second.
+
+Every run above kept focus for the whole sample. Runs that lost focus or received input were
+discarded and repeated; input detection was added for the final batch, and two of the
+setting-off runs come from an earlier batch without it. PresentMon records presents and flips,
+not the panel's refresh, so display-side VRR behavior is not measured here.
+
 ## Push-to-talk notification cues — October 29, 2026
 
 Baseline `1b2f894` and this branch were built with the pinned Rust toolchain and locked

@@ -1909,6 +1909,11 @@ impl Desktop {
 			messaging.share_game_activity = true;
 			messaging.own_game = Some("Playing osu!".into());
 		}
+		// `--demo-steady-refresh`: the steady refresh setting starts on, for frame-cadence samples.
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-steady-refresh") {
+			messaging.steady_refresh_rate = true;
+		}
 		// `--demo-call-stream`: the direct-message peer shares a synthetic screen this device is
 		// watching, so the stream stage renders offline without any capture or network.
 		#[cfg(feature = "demo")]
@@ -5933,6 +5938,18 @@ impl eframe::App for Desktop {
 			// Speaking, notices, remote video, devices, hotkeys and deadlines each wake the UI
 			// themselves; this heartbeat only bounds a missed wake, so a call does not repaint at 20 Hz.
 			ctx.request_repaint_after(std::time::Duration::from_secs(1));
+		}
+		// Variable refresh rate displays follow the focused window's presents, so redrawing only on
+		// change swings them between their limits and flickers (#889). The opt-in steady rate asks
+		// for the next frame within half a refresh: a Fifo present blocks until the next refresh
+		// anyway, and a surface that stops blocking (locked or occluded) cannot spin a core.
+		if self.messaging.steady_refresh_rate
+			&& ctx.input(|input| {
+				input.focused
+					&& input.viewport().minimized != Some(true)
+					&& input.viewport().occluded != Some(true)
+			}) {
+			ctx.request_repaint_after(self.frame_period().unwrap_or(Duration::from_millis(16)) / 2);
 		}
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {

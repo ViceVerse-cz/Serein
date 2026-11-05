@@ -60,6 +60,7 @@ impl Settings {
 			message_requests_collapsed: ui.message_requests_collapsed,
 			hide_window_decorations: ui.hide_window_decorations,
 			gpu_preference: ui.gpu_preference,
+			steady_refresh_rate: ui.steady_refresh_rate,
 			primary_color: ui.primary_color,
 			transparency_blur: ui.transparency_blur,
 			transparency: ui.transparency,
@@ -111,6 +112,7 @@ impl Settings {
 		ui.message_requests_collapsed = value.message_requests_collapsed;
 		ui.hide_window_decorations = value.hide_window_decorations;
 		ui.gpu_preference = value.gpu_preference;
+		ui.steady_refresh_rate = value.steady_refresh_rate;
 		ui.primary_color = value.primary_color;
 		ui.transparency_blur = value.transparency_blur;
 		ui.transparency = value.transparency;
