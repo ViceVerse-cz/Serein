@@ -34,6 +34,19 @@ pub fn message_peek_enabled() -> bool {
 	MESSAGE_PEEK_ENABLED.load(Ordering::Relaxed)
 }
 
+/// VenSerein (DraftNavigator): Displays an indicator next to channels that have unsent message drafts.
+pub static DRAFT_NAVIGATOR_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_draft_navigator_enabled(enabled: bool) {
+	DRAFT_NAVIGATOR_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn draft_navigator_enabled() -> bool {
+	DRAFT_NAVIGATOR_ENABLED.load(Ordering::Relaxed)
+}
+
 /// Voice and stage channels keep a separate position list, drawn below other channels.
 fn voice_lane(kind: u8) -> bool {
 	matches!(kind, 2 | 13)
@@ -1197,7 +1210,13 @@ impl MessagingUi {
 									),
 								);
 							}
-							let mut label = String::from(state.conversation_name(channel));
+							let has_draft = DRAFT_NAVIGATOR_ENABLED.load(Ordering::Relaxed)
+								&& state.drafts.get(&channel.id).is_some_and(|d| !d.trim().is_empty());
+							let mut label = if has_draft {
+								format!("✏️ {}", state.conversation_name(channel))
+							} else {
+								String::from(state.conversation_name(channel))
+							};
 							if !enabled && visible {
 								label.push_str(" · unavailable");
 							}
@@ -1423,8 +1442,11 @@ impl MessagingUi {
 								channel_marks::paint(ui.painter(), access, row, glyph, name_color);
 							}
 							let response = response.on_hover_text_with(|| {
+								let has_draft = DRAFT_NAVIGATOR_ENABLED.load(Ordering::Relaxed)
+									&& state.drafts.get(&channel.id).is_some_and(|d| !d.trim().is_empty());
 								format!(
-									"{} · {}{}{}",
+									"{}{} · {}{}{}",
+									if has_draft { "✏️ " } else { "" },
 									channel.name,
 									crate::i18n::translate_if_key(kind_label(channel.kind)),
 									channel_marks::label(access),
@@ -2793,5 +2815,11 @@ mod venserein_batch1_categories_tests {
 		assert!(!message_peek_enabled());
 		set_message_peek_enabled(true);
 		assert!(message_peek_enabled());
+
+		assert!(draft_navigator_enabled());
+		set_draft_navigator_enabled(false);
+		assert!(!draft_navigator_enabled());
+		set_draft_navigator_enabled(true);
+		assert!(draft_navigator_enabled());
 	}
 }

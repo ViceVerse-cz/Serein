@@ -120,6 +120,45 @@ pub fn reply_timestamp_enabled() -> bool {
 	REPLY_TIMESTAMP_ENABLED.load(Ordering::Relaxed)
 }
 
+/// VenSerein (AutoJumpToMessage): Automatically jumps to unread messages or mentions when opening a channel.
+pub static AUTO_JUMP_TO_MESSAGE_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_auto_jump_to_message_enabled(enabled: bool) {
+	AUTO_JUMP_TO_MESSAGE_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn auto_jump_to_message_enabled() -> bool {
+	AUTO_JUMP_TO_MESSAGE_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (JumpTo): Adds context actions and controls to jump to oldest/first message or present.
+pub static JUMP_TO_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_jump_to_enabled(enabled: bool) {
+	JUMP_TO_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn jump_to_enabled() -> bool {
+	JUMP_TO_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (SidebarChat): Keeps thread chat or secondary conversation docked in sidebar.
+pub static SIDEBAR_CHAT_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_sidebar_chat_enabled(enabled: bool) {
+	SIDEBAR_CHAT_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn sidebar_chat_enabled() -> bool {
+	SIDEBAR_CHAT_ENABLED.load(Ordering::Relaxed)
+}
+
 /// VenSerein (ValidReply): Validates referenced message existence before replying.
 pub static VALID_REPLY_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -2434,6 +2473,10 @@ impl TimelineView {
 						if state.timeline.iter().next().is_some_and(|first| first.id <= read));
 				if arrived_on_live_edge && !section_loaded {
 					self.hold_read_ack = true;
+				}
+				if auto_jump_to_message_enabled() && state.can_jump_unread() {
+					self.unread_jump = true;
+					self.browse_away();
 				}
 			}
 		}
@@ -10251,5 +10294,31 @@ mod venserein_batch2_timeline_tests {
 		assert!(!better_backreading_enabled());
 		set_better_backreading_enabled(true);
 		assert!(better_backreading_enabled());
+	}
+}
+
+#[cfg(test)]
+mod venserein_phase2_batch1_timeline_tests {
+	use super::*;
+
+	#[test]
+	fn test_auto_jump_and_jump_to_and_sidebar_chat_toggles() {
+		assert!(auto_jump_to_message_enabled());
+		set_auto_jump_to_message_enabled(false);
+		assert!(!auto_jump_to_message_enabled());
+		set_auto_jump_to_message_enabled(true);
+		assert!(auto_jump_to_message_enabled());
+
+		assert!(jump_to_enabled());
+		set_jump_to_enabled(false);
+		assert!(!jump_to_enabled());
+		set_jump_to_enabled(true);
+		assert!(jump_to_enabled());
+
+		assert!(sidebar_chat_enabled());
+		set_sidebar_chat_enabled(false);
+		assert!(!sidebar_chat_enabled());
+		set_sidebar_chat_enabled(true);
+		assert!(sidebar_chat_enabled());
 	}
 }

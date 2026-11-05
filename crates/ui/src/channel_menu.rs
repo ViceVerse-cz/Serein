@@ -1,4 +1,6 @@
 //! Guild channel actions share one context menu and a session-scoped editor.
+#[allow(unused_imports)]
+pub use crate::timeline::{jump_to_enabled, set_jump_to_enabled};
 use crate::shortcuts::ShortcutView;
 use crate::{design, dialog, icons, user_menu};
 use client_core::{
@@ -51,6 +53,7 @@ pub(super) struct ChannelMenu {
 	posts: crate::post_menu::PostMenu,
 	pub invite_requested: Option<(Id, Id)>,
 	pub shortcut_requested: Option<crate::shortcuts::Intent>,
+	pub jump_to_requested: Option<(Id, bool)>,
 	requested: Option<(Id, Intent)>,
 	dialog: Option<Dialog>,
 	feedback: Option<Id>,
@@ -171,6 +174,18 @@ impl ChannelMenu {
 					channel.id
 				));
 				ui.close();
+			}
+			if crate::timeline::jump_to_enabled() && channel.supports_text() {
+				if row(ui, "Jump to Present", true, false).clicked() {
+					self.jump_to_requested = Some((channel.id, true));
+					self.generation = state.generation;
+					ui.close();
+				}
+				if row(ui, "Jump to Oldest Message", true, false).clicked() {
+					self.jump_to_requested = Some((channel.id, false));
+					self.generation = state.generation;
+					ui.close();
+				}
 			}
 			ui.separator();
 			ui.add_enabled_ui(available, |ui| {

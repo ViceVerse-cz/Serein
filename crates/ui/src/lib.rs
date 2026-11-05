@@ -182,7 +182,16 @@ pub use timeline::{
 	better_backreading_enabled, hide_messages_enabled, pin_icon_enabled,
 	set_better_backreading_enabled, set_hide_messages_enabled, set_pin_icon_enabled,
 	set_show_roles_in_chat_enabled, show_roles_in_chat_enabled,
+	auto_jump_to_message_enabled, jump_to_enabled, set_auto_jump_to_message_enabled,
+	set_jump_to_enabled, set_sidebar_chat_enabled, sidebar_chat_enabled,
 };
+pub use categories::{draft_navigator_enabled, set_draft_navigator_enabled};
+pub use switcher::{
+	command_palette_enabled, frequent_quick_switcher_enabled, recent_dm_switcher_enabled,
+	set_command_palette_enabled, set_frequent_quick_switcher_enabled,
+	set_recent_dm_switcher_enabled, CommandPaletteAction,
+};
+pub use keybinds::{keyboard_navigation_enabled, set_keyboard_navigation_enabled};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {
@@ -4794,6 +4803,43 @@ impl MessagingUi {
 		}) {
 			self.switcher.open(&ctx);
 		}
+		if switcher::recent_dm_switcher_enabled() {
+			let (ctrl_tab, ctrl_shift_tab) = ctx.input_mut(|input| {
+				(
+					input.consume_key(egui::Modifiers::COMMAND, egui::Key::Tab)
+						|| input.consume_key(egui::Modifiers::CTRL, egui::Key::Tab),
+					input.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Tab)
+						|| input.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::Tab),
+				)
+			});
+			if ctrl_tab || ctrl_shift_tab {
+				let dms: Vec<Id> = state
+					.channels
+					.iter()
+					.filter(|c| c.guild.is_none() && (c.kind == 1 || c.kind == 3) && state.can_view(c.id))
+					.map(|c| c.id)
+					.collect();
+				if !dms.is_empty() {
+					let current_idx = state.selected.and_then(|sel| dms.iter().position(|&id| id == sel));
+					let next_idx = match current_idx {
+						Some(idx) => {
+							if ctrl_shift_tab {
+								(idx + dms.len() - 1) % dms.len()
+							} else {
+								(idx + 1) % dms.len()
+							}
+						}
+						None => 0,
+					};
+					let target_dm = dms[next_idx];
+					if state.selected != Some(target_dm) {
+						if let Some(command) = state.select(target_dm) {
+							commands.push(command);
+						}
+					}
+				}
+			}
+		}
 		self.switcher_frame = self.switcher.is_open();
 		let direct_origin = (state.selected, state.request);
 		if let Some(command) = state.select_opened_dm() {
@@ -4822,6 +4868,32 @@ impl MessagingUi {
 						commands.push(command);
 					}
 				}
+				switcher::Target::Action(action) => match action {
+					switcher::CommandPaletteAction::OpenSettings => {
+						self.settings.open = true;
+					}
+					switcher::CommandPaletteAction::MarkAllRead => {
+						if let Some(command) = state.prepare_mark_all_read() {
+							commands.push(command);
+						}
+					}
+					switcher::CommandPaletteAction::ToggleMute => {}
+					switcher::CommandPaletteAction::ToggleDeafen => {}
+					switcher::CommandPaletteAction::JumpToPresent => {
+						self.timeline.follow_latest(state);
+					}
+					switcher::CommandPaletteAction::JumpToOldest => {
+						self.timeline.jump_to_top();
+					}
+					switcher::CommandPaletteAction::OpenPins => {
+						if self.search.toggle(true)
+							&& let Some(command) = state.request_pins()
+						{
+							commands.push(command);
+						}
+					}
+					switcher::CommandPaletteAction::OpenMentions => {}
+				},
 			}
 		}
 		if self.navigation_channel != state.selected {
@@ -4943,6 +5015,18 @@ impl MessagingUi {
 		self.sync_last_channels(state);
 		self.channel_menu
 			.show(&ctx, state, self.guild, &mut self.avatars, &mut commands);
+		if let Some((channel, to_present)) = self.channel_menu.jump_to_requested.take() {
+			if state.selected != Some(channel)
+				&& let Some(command) = state.select(channel)
+			{
+				commands.push(command);
+			}
+			if to_present {
+				self.timeline.follow_latest(state);
+			} else {
+				self.timeline.jump_to_top();
+			}
+		}
 		if let Some((guild, channel)) = self.channel_menu.invite_requested.take() {
 			self.server_menu.open_invite(state, guild, channel);
 		}
