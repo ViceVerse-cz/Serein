@@ -1211,6 +1211,7 @@ async fn run_inner(
 	)
 	.await
 }
+/// Run Gateway reconnect/resume recovery while processing bounded subscriptions and lookups.
 #[allow(clippy::too_many_arguments)]
 async fn run_recoverable(
 	secret: Arc<SessionSecret>,

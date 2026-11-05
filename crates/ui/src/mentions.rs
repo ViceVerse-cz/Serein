@@ -2429,6 +2429,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		assert!(menu.candidates.is_empty(), "roles must not leak into DMs");
 	}
 }
+/// Accessible suggestion names expose known presence and avoid inventing status for unknown users.
 #[test]
 fn user_rows_expose_known_presence_to_accessibility() {
 	use client_core::auth::AuthState;

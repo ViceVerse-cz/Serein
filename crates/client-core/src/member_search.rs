@@ -119,6 +119,7 @@ impl State {
 		};
 		Some(Command::MemberSearch(request))
 	}
+	/// Accept scoped, bounded lookup results; repeated snapshots refresh presence without identity replay.
 	pub(crate) fn searched_members(
 		&mut self,
 		request: Request,

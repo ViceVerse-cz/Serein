@@ -2951,6 +2951,7 @@ impl MessagingUi {
 			});
 		ui.add_space(8.0);
 	}
+	/// Render message composition and route autocomplete selections and outgoing commands.
 	fn composer(
 		&mut self,
 		ui: &mut egui::Ui,

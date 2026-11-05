@@ -292,7 +292,7 @@ impl Search {
 				.filter_map(|raw| discord_protocol::presence::decode(raw.get().as_bytes()).ok())
 				.map(|update| (update.user, update))
 				.collect();
-			let rows: Vec<_> = chunk
+			let mut rows: Vec<_> = chunk
 				.members
 				.into_iter()
 				.filter_map(|member| {
@@ -316,26 +316,7 @@ impl Search {
 						row.activities = resolved.activities;
 						row.clients = resolved.clients;
 					}
-					if inflight.lossy {
-						row.status = None;
-						row.custom_status = None;
-						row.activities = vec![];
-						row.clients = Default::default();
-					}
-					if let Some(patch) = inflight.updates.get(&row.user.id) {
-						let previous = model::MemberPresence {
-							user: row.user.id,
-							status: row.status.clone(),
-							custom_status: row.custom_status.clone(),
-							activities: row.activities.clone(),
-							clients: row.clients,
-						};
-						let resolved = patch.resolve(Some(&previous));
-						row.status = resolved.status;
-						row.custom_status = resolved.custom_status;
-						row.activities = resolved.activities;
-						row.clients = resolved.clients;
-					}
+
 					Some(row)
 				})
 				.collect();
@@ -343,6 +324,42 @@ impl Search {
 				|| rows.iter().map(model::Member::bytes).sum::<usize>() > MAX_BYTES
 			{
 				return Err(Failure::Capacity);
+			}
+			let mut retained = rows.iter().map(model::Member::bytes).sum::<usize>();
+			for row in &mut rows {
+				let before = row.bytes();
+				if inflight.lossy {
+					row.status = None;
+					row.custom_status = None;
+					row.activities = vec![];
+					row.clients = Default::default();
+				}
+				if let Some(patch) = inflight.updates.get(&row.user.id) {
+					let previous = model::MemberPresence {
+						user: row.user.id,
+						status: row.status.clone(),
+						custom_status: row.custom_status.clone(),
+						activities: row.activities.clone(),
+						clients: row.clients,
+					};
+					let resolved = patch.resolve(Some(&previous));
+					if retained - before
+						+ client_core::presence::projected_row_bytes(row, &resolved)
+						> MAX_BYTES
+					{
+						// Keep valid member identities even when live presence no longer fits.
+						row.status = None;
+						row.custom_status = None;
+						row.activities = vec![];
+						row.clients = Default::default();
+					} else {
+						row.status = resolved.status;
+						row.custom_status = resolved.custom_status;
+						row.activities = resolved.activities;
+						row.clients = resolved.clients;
+					}
+				}
+				retained = retained - before + row.bytes();
 			}
 			Ok(rows)
 		})();
@@ -573,5 +590,68 @@ mod tests {
 		);
 		assert!(search.inflight[0].updates.is_empty());
 		assert!(!search.inflight[0].lossy);
+	}
+	/// Pending activity metadata must not discard otherwise valid member identities and roles.
+	#[test]
+	fn pending_presence_overflow_preserves_lookup_members() {
+		let request = Request {
+			guild: Id(1),
+			channel: Id(2),
+			query: String::new(),
+			users: (9..9 + LIMIT as u64).map(Id).collect(),
+			nonce: 9,
+			slot: 1,
+		};
+		let mut baseline = Search::default();
+		baseline.update(&[None, Some(request.clone())]);
+		baseline.tick(&|_| Ok(())).unwrap();
+		let sample = serde_json::json!({"user":{"id":"9","username":"known"},"nick":"Synthetic nickname","roles":[]});
+		let member = MemberItem::Member {
+			presence: model::Patch::Absent,
+			member: Box::new(serde_json::from_value(sample.clone()).unwrap()),
+		}
+		.into_model()
+		.unwrap();
+		// Use legal distinct roles to approach the aggregate budget without pinning row layout.
+		let mut remaining = (MAX_BYTES - member.bytes() * LIMIT - 512) / size_of::<Id>();
+		let members: Vec<_> = (0..LIMIT)
+			.map(|index| {
+				let mut row = sample.clone();
+				row["user"]["id"] = serde_json::json!((9 + index).to_string());
+				let roles = remaining.min(model::permissions::MAX_MEMBER_ROLES);
+				remaining -= roles;
+				row["roles"] =
+					serde_json::json!((1..=roles).map(|role| role.to_string()).collect::<Vec<_>>());
+				row
+			})
+			.collect();
+		let chunk = serde_json::to_vec(&serde_json::json!({"guild_id":"1","nonce":"9","chunk_index":0,"chunk_count":1,"members":members,"presences":[{"user":{"id":"9"},"status":"online"}]})).unwrap();
+		let original = match baseline.chunk(&chunk) {
+			Some(Event::MemberSearch { result, .. }) => {
+				result.unwrap_or_else(|error| panic!("base member chunk: {error:?}"))
+			}
+			_ => panic!("base chunk decoding/scoping failed: {} bytes", chunk.len()),
+		};
+		let mut search = Search::default();
+		search.update(&[None, Some(request)]);
+		search.tick(&|_| Ok(())).unwrap();
+		let activities: Vec<_> = (0..model::MAX_RICH_ACTIVITIES).map(|index| serde_json::json!({"type":0,"name":format!("{index}{}", "a".repeat(127)),"details":"b".repeat(128),"state":"c".repeat(128),"assets":{"large_image":format!("mp:attachments/{}", "a".repeat(1000)),"small_image":format!("mp:attachments/{}", "b".repeat(1000))}})).collect();
+		let update = discord_protocol::presence::decode(serde_json::json!({"guild_id":"1","user":{"id":"9"},"status":"online","activities":activities}).to_string().as_bytes()).unwrap();
+		search.presence(&update, Instant::now());
+		let Some(Event::MemberSearch {
+			result: Ok(rows), ..
+		}) = search.chunk(&chunk)
+		else {
+			panic!("presence capacity must not reject valid members");
+		};
+		assert_eq!(rows.len(), original.len());
+		assert!(rows[0].status.is_none());
+		assert!(rows[0].activities.is_empty());
+		for (row, previous) in rows.iter().zip(&original) {
+			assert_eq!(row.user.id, previous.user.id);
+			assert_eq!(row.nick, previous.nick);
+			assert_eq!(row.roles, previous.roles);
+		}
+		assert!(rows.iter().map(model::Member::bytes).sum::<usize>() <= MAX_BYTES);
 	}
 }
