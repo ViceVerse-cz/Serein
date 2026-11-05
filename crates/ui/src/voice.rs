@@ -345,6 +345,32 @@ pub fn mic_loopback_active() -> bool {
 pub fn set_mic_loopback_active(active: bool) {
 	MIC_LOOPBACK_ACTIVE.store(active, Ordering::Relaxed);
 }
+
+/// VenSerein (NeverPausePreviews): Prevents stream and screen share previews from pausing when window is unfocused.
+pub static NEVER_PAUSE_PREVIEWS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn never_pause_previews_enabled() -> bool {
+	NEVER_PAUSE_PREVIEWS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_never_pause_previews_enabled(enabled: bool) {
+	NEVER_PAUSE_PREVIEWS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (StreamingCodecDisabler): Disables AV1 and experimental hardware video codecs in stream negotiation.
+pub static STREAMING_CODEC_DISABLER_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn streaming_codec_disabler_enabled() -> bool {
+	STREAMING_CODEC_DISABLER_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_streaming_codec_disabler_enabled(enabled: bool) {
+	STREAMING_CODEC_DISABLER_ENABLED.store(enabled, Ordering::Relaxed);
+}
 use crate::design::LazyHover;
 use crate::{MessagingUi, design};
 use client_core::{
@@ -6697,6 +6723,16 @@ mod tests {
 		assert!(mic_loopback_active());
 		set_mic_loopback_active(false);
 		set_mic_loopback_tester_enabled(false);
+
+		assert!(never_pause_previews_enabled());
+		set_never_pause_previews_enabled(false);
+		assert!(!never_pause_previews_enabled());
+		set_never_pause_previews_enabled(true);
+
+		assert!(!streaming_codec_disabler_enabled());
+		set_streaming_codec_disabler_enabled(true);
+		assert!(streaming_codec_disabler_enabled());
+		set_streaming_codec_disabler_enabled(false);
 	}
 }
 

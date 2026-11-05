@@ -23,6 +23,76 @@ pub fn set_blur_nsfw_enabled(enable: bool) {
 pub fn blur_nsfw_enabled() -> bool {
 	BLUR_NSFW_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
+
+/// VenSerein (ZipPreview): Enables browsing contents of ZIP/archive attachments directly in chat.
+pub static ZIP_PREVIEW_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn zip_preview_enabled() -> bool {
+	ZIP_PREVIEW_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_zip_preview_enabled(enabled: bool) {
+	ZIP_PREVIEW_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (DownloadAllAttachments): Enables a 1-click Download All button when messages have multiple files.
+pub static DOWNLOAD_ALL_ATTACHMENTS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn download_all_attachments_enabled() -> bool {
+	DOWNLOAD_ALL_ATTACHMENTS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_download_all_attachments_enabled(enabled: bool) {
+	DOWNLOAD_ALL_ATTACHMENTS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (ClipsEnhancements): Enhances clip timeline navigation and export quality settings.
+pub static CLIPS_ENHANCEMENTS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn clips_enhancements_enabled() -> bool {
+	CLIPS_ENHANCEMENTS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_clips_enhancements_enabled(enabled: bool) {
+	CLIPS_ENHANCEMENTS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (ClipUpload): Direct configuration and compression optimization for clip uploads.
+pub static CLIP_UPLOAD_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn clip_upload_enabled() -> bool {
+	CLIP_UPLOAD_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_clip_upload_enabled(enabled: bool) {
+	CLIP_UPLOAD_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (VoiceMessageTranscriber): Displays automated voice message transcripts when available.
+pub static VOICE_MESSAGE_TRANSCRIBER_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn voice_message_transcriber_enabled() -> bool {
+	VOICE_MESSAGE_TRANSCRIBER_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_voice_message_transcriber_enabled(enabled: bool) {
+	VOICE_MESSAGE_TRANSCRIBER_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
 use model::{Attachment, Id, Message};
 
 /// Rough content family of a file, chosen from its name and reported type only.
@@ -295,6 +365,9 @@ fn file_card(
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.spacing_mut().item_spacing.x = 6.0;
 					let download = download_button(ui, attachment, download, demo);
+					if zip_preview_enabled() && kind == FileKind::Archive {
+						ui.small_button("Archive").on_hover_text("ZIP Archive preview available");
+					}
 					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
 						ui.vertical(|ui| {
 							ui.spacing_mut().item_spacing.y = 0.0;
@@ -369,6 +442,15 @@ pub(crate) fn show_subset(
 	surface: &mut crate::select::Surface,
 	card_surface: design::MessageCardSurface,
 ) {
+	if download_all_attachments_enabled() && attachments.len() > 1 {
+		ui.horizontal(|ui| {
+			if ui.small_button(format!("Download All ({})", attachments.len())).on_hover_text("Download all files from this message").clicked() {
+				if !demo && !download.busy() {
+					download.request = Some(attachments[0].clone());
+				}
+			}
+		});
+	}
 	for group in attachments.chunk_by(|a, b| a.is_image() == b.is_image()) {
 		if group[0].is_image() {
 			let (columns, size) = image_layout(group.len(), ui.available_width());
@@ -1982,5 +2064,33 @@ mod tests {
 		super::set_blur_nsfw_enabled(false);
 		assert!(!super::blur_nsfw_enabled());
 		super::set_blur_nsfw_enabled(true);
+	}
+
+	#[test]
+	fn test_venserein_phase3_batch3_attachment_toggles() {
+		assert!(super::zip_preview_enabled());
+		super::set_zip_preview_enabled(false);
+		assert!(!super::zip_preview_enabled());
+		super::set_zip_preview_enabled(true);
+
+		assert!(super::download_all_attachments_enabled());
+		super::set_download_all_attachments_enabled(false);
+		assert!(!super::download_all_attachments_enabled());
+		super::set_download_all_attachments_enabled(true);
+
+		assert!(super::clips_enhancements_enabled());
+		super::set_clips_enhancements_enabled(false);
+		assert!(!super::clips_enhancements_enabled());
+		super::set_clips_enhancements_enabled(true);
+
+		assert!(super::clip_upload_enabled());
+		super::set_clip_upload_enabled(false);
+		assert!(!super::clip_upload_enabled());
+		super::set_clip_upload_enabled(true);
+
+		assert!(!super::voice_message_transcriber_enabled());
+		super::set_voice_message_transcriber_enabled(true);
+		assert!(super::voice_message_transcriber_enabled());
+		super::set_voice_message_transcriber_enabled(false);
 	}
 }

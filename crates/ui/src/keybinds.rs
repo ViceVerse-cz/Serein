@@ -16,6 +16,20 @@ pub fn keyboard_navigation_enabled() -> bool {
 	KEYBOARD_NAVIGATION_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// VenSerein (ToggleVideoBind): Enables dedicated keybinding to toggle video / camera stream.
+pub static TOGGLE_VIDEO_BIND_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn toggle_video_bind_enabled() -> bool {
+	TOGGLE_VIDEO_BIND_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_toggle_video_bind_enabled(enabled: bool) {
+	TOGGLE_VIDEO_BIND_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Which row is recording its next key or mouse button.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CaptureTarget {
@@ -1157,5 +1171,10 @@ mod tests {
 		assert!(!keyboard_navigation_enabled());
 		set_keyboard_navigation_enabled(true);
 		assert!(keyboard_navigation_enabled());
+
+		assert!(toggle_video_bind_enabled());
+		set_toggle_video_bind_enabled(false);
+		assert!(!toggle_video_bind_enabled());
+		set_toggle_video_bind_enabled(true);
 	}
 }

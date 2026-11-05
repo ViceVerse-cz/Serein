@@ -17,7 +17,15 @@ mod video;
 pub use video::{VideoCommand, VideoState, VideoUi};
 mod attachments;
 pub mod external_upload;
-pub use attachments::DownloadUi;
+pub use attachments::{
+	DownloadUi,
+	blur_nsfw_enabled, set_blur_nsfw_enabled,
+	zip_preview_enabled, set_zip_preview_enabled,
+	download_all_attachments_enabled, set_download_all_attachments_enabled,
+	clips_enhancements_enabled, set_clips_enhancements_enabled,
+	clip_upload_enabled, set_clip_upload_enabled,
+	voice_message_transcriber_enabled, set_voice_message_transcriber_enabled,
+};
 mod avatars;
 #[cfg(feature = "demo")]
 pub use avatars::media::debug_heic_layout_check;
@@ -158,6 +166,8 @@ pub use voice::{
 	voice_join_messages_enabled, set_voice_join_messages_enabled,
 	voice_chat_utilities_enabled, set_voice_chat_utilities_enabled,
 	mic_loopback_tester_enabled, set_mic_loopback_tester_enabled, mic_loopback_active, set_mic_loopback_active,
+	never_pause_previews_enabled, set_never_pause_previews_enabled,
+	streaming_codec_disabler_enabled, set_streaming_codec_disabler_enabled,
 };
 pub use account_menu::{account_panel_server_profile_enabled, set_account_panel_server_profile_enabled};
 pub use embeds::{
@@ -237,7 +247,10 @@ pub use switcher::{
 	set_recent_dm_switcher_enabled, CommandPaletteAction,
 	friend_tags_enabled, set_friend_tags_enabled,
 };
-pub use keybinds::{keyboard_navigation_enabled, set_keyboard_navigation_enabled};
+pub use keybinds::{
+	keyboard_navigation_enabled, set_keyboard_navigation_enabled,
+	toggle_video_bind_enabled, set_toggle_video_bind_enabled,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {
