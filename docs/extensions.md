@@ -127,7 +127,7 @@ Unknown API versions and invalid packages are rejected before installation.
 
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
-supports 53 capabilities, with at most 64 distinct declarations per manifest.
+supports 54 capabilities, with at most 64 distinct declarations per manifest.
 
 > **Preview SDK — PR #411, not yet released.** `channel_control`,
 > `server_control`, `role_control`, `moderation_control` and `media_control`, plus
@@ -138,6 +138,7 @@ supports 53 capabilities, with at most 64 distinct declarations per manifest.
 | --- | --- | --- |
 | `selected_message` | Read selected message text | A user-invoked `message` action only |
 | `composer` | Read the current draft and propose replacement | A `composer` action; replacement requires Apply |
+| `media_privacy` | Mask chat images, GIFs and videos; expose a stateful composer toggle | Preview; device-wide settings, no media bytes or URLs reach Wasm |
 | `storage` | Read/replace one opaque local UTF-8 value | Per-account/plugin; 1 MiB disk limit and 256 KiB invocation budget |
 | `api_proxy` | Configure the Discord REST API HTTP/HTTPS proxy | Preview; device-wide, available before login; only `storage` may accompany this grant; no account data, Gateway, CDN or calls |
 | `rich_presence` | Contribute one bounded custom activity and restore it during activation | Preview; explicit panel/activation actions only; separate activity-sharing preference; revoked on disable/account change |
@@ -359,7 +360,7 @@ retention, including existing protector packages with no-op activation. Input is
 restricted to the granted context and bounded form values.
 Results can propose a composer replacement or return native headings, text, rows,
 separators, buttons, text inputs, checkboxes, dropdowns and integer sliders. Standalone
-panel actions are available from Settings > Extensions. Composer actions appear in the composer Tools menu. Composer proposals require Apply, retain
+panel actions are available from Settings > Extensions. Composer actions appear in the composer Tools menu. A `composer_toggle` action draws one stateful icon button beside the emoji and GIF triggers; its manifest `icon` selects a built-in glyph. Composer proposals require Apply, retain
 the ordinary Send action and are discarded when their originating context is
 stale. Account/session changes invalidate outstanding results.
 
@@ -478,7 +479,7 @@ invocation input/output, panel complexity, queues and plugin storage.
 | Execution fuel | 10,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
 | Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
 | Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
-| Manifest actions / capabilities | 16 / 64 distinct | Only the 53 supported capability names are currently accepted. |
+| Manifest actions / capabilities | 16 / 64 distinct | Only the 54 supported capability names are currently accepted. |
 | Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
 | Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
 | App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |

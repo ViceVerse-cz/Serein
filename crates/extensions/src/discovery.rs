@@ -42,6 +42,7 @@ impl HostInfo {
 				Capability::MemberDetails,
 				Capability::SelectedMessage,
 				Capability::Composer,
+				Capability::MediaPrivacy,
 				Capability::Storage,
 				Capability::DeletedMessages,
 				Capability::ImageSharing,

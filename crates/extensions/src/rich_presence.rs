@@ -286,6 +286,7 @@ mod tests {
 				id: "apply".into(),
 				label: "Apply".into(),
 				surface: Surface::Panel,
+				icon: None,
 			}],
 		};
 		let input = Invocation {

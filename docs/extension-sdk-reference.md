@@ -39,6 +39,7 @@ The examples in this table use `i: &Invocation`. For a wrapper, set
 | `composer` | `Option<String>` / string or null | The current draft for a `composer` action with the `composer` grant. An empty draft is `Some("")`, not `None`. | `i.composer.as_deref()` |
 | `storage` | `Option<String>` / string or null | The plugin's last saved opaque UTF-8 value for this account (device-wide for the narrow `api_proxy` plugin). Requires `storage`; absent when nothing has been saved. The worker reloads it before execution. | `i.storage_json::<u64>()` if your plugin stores a JSON number |
 | `values` | `BTreeMap<String, String>` / object of string values | Current form values when a panel button invokes an action. Keys are input element IDs. Initial tool/panel opens normally have an empty map; reactive events always do. | `i.value("name")` or `i.parse_value::<bool>("enabled")` |
+| `media_privacy` | `Option<MediaPrivacy>` / object or absent | Current host masking state, supplied to `media_privacy` panel actions. It carries no media or message data. | `i.media_privacy.unwrap_or_default()` |
 
 `values` holds strings even for typed controls: a checkbox supplies `"true"` or
 `"false"`, a slider supplies a decimal integer string, and a select supplies the
@@ -111,7 +112,7 @@ can be inspected without decoding a newer capability/event enum.
 | --- | --- | --- | --- |
 | `api_version` | `u32` / integer | Current buffer/JSON ABI version, `1`. | `host.api_version` |
 | `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
-| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (52 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
+| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (54 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
 | `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
 
 A supported capability still needs to be declared and explicitly granted. Older

@@ -119,6 +119,7 @@ pub enum Capability {
 	MemberDetails,
 	SelectedMessage,
 	Composer,
+	MediaPrivacy,
 	Storage,
 	DeletedMessages,
 	ImageSharing,
@@ -151,6 +152,8 @@ pub enum Capability {
 pub enum Surface {
 	Message,
 	Composer,
+	/// A stateful icon button beside the composer's emoji and GIF triggers.
+	ComposerToggle,
 	Panel,
 	Activation,
 	MessageEvent,
@@ -165,6 +168,9 @@ pub struct Action {
 	pub id: String,
 	pub label: String,
 	pub surface: Surface,
+	/// Built-in glyph for `composer_toggle`, for example `eye-slash`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub icon: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -390,6 +396,9 @@ pub struct Invocation {
 	pub messaging_settings: Option<Box<MessagingSettingsSnapshot>>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub guild_folders: Option<Box<GuildFoldersSnapshot>>,
+	/// Current media privacy configuration, sent to `panel` actions.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub media_privacy: Option<MediaPrivacy>,
 	/// Milliseconds elapsed since this plugin was enabled for the current session.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tick_ms: Option<u64>,
@@ -527,8 +536,55 @@ pub struct Output {
 	pub panel: Vec<Element>,
 	#[serde(default)]
 	pub storage: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub media_privacy: Option<MediaPrivacy>,
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub effects: Vec<HostEffect>,
+}
+
+/// Chat media presentation controlled by a `media_privacy` plugin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaPrivacy {
+	pub enabled: bool,
+	pub reveal_on_hover: bool,
+	pub style: MediaPrivacyStyle,
+	/// Blur radius for `blur`, or mask opacity for `solid`, from 0 to 100.
+	pub strength: u8,
+	/// Opacity of the mask, from 0 to 100.
+	pub opacity: u8,
+	/// RGB tint used by `solid`.
+	pub color: [u8; 3],
+}
+
+impl Default for MediaPrivacy {
+	fn default() -> Self {
+		Self {
+			enabled: true,
+			reveal_on_hover: true,
+			style: MediaPrivacyStyle::Blur,
+			strength: 55,
+			opacity: 100,
+			color: [0, 0, 0],
+		}
+	}
+}
+
+impl MediaPrivacy {
+	pub fn validate(&self) -> Result<(), Error> {
+		if self.strength > 100 || self.opacity > 100 {
+			return Err(Error::Invalid);
+		}
+		Ok(())
+	}
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaPrivacyStyle {
+	#[default]
+	Blur,
+	Solid,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -674,6 +730,7 @@ impl Manifest {
 			Surface::Activation,
 			Surface::MessageEvent,
 			Surface::AppEvent,
+			Surface::ComposerToggle,
 			Surface::Tick,
 		] {
 			if self
@@ -695,9 +752,22 @@ impl Manifest {
 			{
 				return Err(Error::Invalid);
 			}
+			if action.icon.as_ref().is_some_and(|icon| {
+				icon.is_empty()
+					|| icon.len() > 32
+					|| !icon.bytes().all(|byte| {
+						byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+					})
+			}) {
+				return Err(Error::Invalid);
+			}
+			if action.icon.is_some() && action.surface != Surface::ComposerToggle {
+				return Err(Error::Invalid);
+			}
 			let required = match action.surface {
 				Surface::Message => Some(Capability::SelectedMessage),
 				Surface::Composer => Some(Capability::Composer),
+				Surface::ComposerToggle => Some(Capability::MediaPrivacy),
 				Surface::Panel => None,
 				Surface::Activation => None,
 				Surface::MessageEvent => Some(Capability::MessageEvents),
@@ -1002,6 +1072,14 @@ impl Invocation {
 			}
 			folders.validate()?;
 		}
+		if let Some(media_privacy) = &self.media_privacy {
+			if !manifest.capabilities.contains(&Capability::MediaPrivacy)
+				|| action.surface != Surface::Panel
+			{
+				return Err(Error::Capability);
+			}
+			media_privacy.validate()?;
+		}
 		if action.surface == Surface::MessageEvent {
 			if !manifest.capabilities.contains(&Capability::MessageEvents)
 				|| self.selected_message.is_some()
@@ -1046,7 +1124,8 @@ impl Invocation {
 				|| self.action_result.is_some()
 				|| self.queries.is_some()
 				|| self.messaging_settings.is_some()
-				|| self.guild_folders.is_some())
+				|| self.guild_folders.is_some()
+				|| self.media_privacy.is_some())
 		{
 			return Err(Error::Capability);
 		}
@@ -1077,9 +1156,18 @@ impl Output {
 				|| self.replacement.is_some()
 				|| !self.panel.is_empty()
 				|| self.storage.is_some()
+				|| self.media_privacy.is_some()
 				|| !self.effects.is_empty())
 		{
 			return Err(Error::Capability);
+		}
+		if let Some(media_privacy) = &self.media_privacy {
+			if !manifest.capabilities.contains(&Capability::MediaPrivacy)
+				|| surface != Surface::Panel
+			{
+				return Err(Error::Capability);
+			}
+			media_privacy.validate()?;
 		}
 		if let Some(config) = &self.api_proxy {
 			if !manifest.capabilities.contains(&Capability::ApiProxy)

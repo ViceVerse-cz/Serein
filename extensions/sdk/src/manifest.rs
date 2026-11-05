@@ -59,6 +59,7 @@ pub enum Capability {
 	MemberDetails,
 	SelectedMessage,
 	Composer,
+	MediaPrivacy,
 	Storage,
 	DeletedMessages,
 	ImageSharing,
@@ -91,6 +92,8 @@ pub enum Capability {
 pub enum Surface {
 	Message,
 	Composer,
+	/// A stateful icon button beside the composer's emoji and GIF triggers.
+	ComposerToggle,
 	Panel,
 	Activation,
 	MessageEvent,
@@ -105,4 +108,7 @@ pub struct Action {
 	pub id: String,
 	pub label: String,
 	pub surface: Surface,
+	/// Built-in glyph for `composer_toggle`, for example `eye-slash`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub icon: Option<String>,
 }

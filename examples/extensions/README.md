@@ -132,20 +132,22 @@ as `con` and `nul` are reserved. Themes declare no actions or capabilities.
 | `id` | string | Arrives as `input.action` (or `input.invocation.action` with a wrapper). Panel buttons invoke this same ID. |
 | `label` | string | Display name; nonempty, at most 128 UTF-8 bytes, without control characters. |
 | `surface` | string | When the action runs and what context it receives; choose below. |
+| `icon` | optional string | Built-in glyph for `composer_toggle`, such as `eye-slash`; rejected on other surfaces. |
 
 | Surface | When it runs | Required capability / input |
 | --- | --- | --- |
 | `panel` | User opens a tool or clicks a panel button | Form values on button clicks; other data requires its own grant. |
 | `message` | User chooses a message action | `selected_message`; receives the chosen message's text. |
 | `composer` | User chooses a draft action | `composer`; receives the draft and can propose replacement text. |
+| `composer_toggle` | User clicks the plugin button beside emoji/GIF | `media_privacy`; the host owns the persisted on/off state and applies returned masking settings from a panel action. |
 | `activation` | Enable or account load | Each returned feature needs its own grant; used to restore appearance or enable activation features. |
 | `message_event` | Accepted live message change | `message_events`; receives one typed event. |
 | `app_event` | Supported app change | `app_events`; receives the reason and separately granted snapshots. |
 | `tick` | Host schedule while enabled and signed in | `appearance`; receives `tick_ms` through `TickInvocation`. |
 
-At most one action of **each** automatic surface is allowed: `activation`,
-`message_event`, `app_event` and `tick`. A capability alone does not register a handler;
-declare its action too.
+At most one action of **each** automatic or toggle surface is allowed: `activation`,
+`message_event`, `app_event`, `composer_toggle` and `tick`. A capability alone does not
+register a handler; declare its action too.
 
 ### Scheduled appearance ticks
 

@@ -914,6 +914,25 @@ impl Bridge {
 							installed.api_proxy = Some(config.clone());
 							self.refresh_api_proxy();
 						}
+						if context.is_current(state)
+							&& let Some(config) = output.media_privacy
+						{
+							messaging.media_privacy = model::MediaPrivacyPreferences {
+								enabled: config.enabled,
+								reveal_on_hover: config.reveal_on_hover,
+								style: match config.style {
+									extensions::MediaPrivacyStyle::Blur => {
+										model::MediaPrivacyStyle::Blur
+									}
+									extensions::MediaPrivacyStyle::Solid => {
+										model::MediaPrivacyStyle::Solid
+									}
+								},
+								strength: config.strength,
+								opacity: config.opacity,
+								color: config.color,
+							};
+						}
 						if invocation.message_event.is_none() && invocation.app_event.is_none() {
 							messaging
 								.extensions
@@ -1910,6 +1929,7 @@ mod tests {
 				id: "app-event".into(),
 				label: "Observe".into(),
 				surface: Surface::AppEvent,
+				icon: None,
 			});
 		bridge.app_events(&state, &messaging);
 		assert_eq!(bridge.message_events.len(), 1);
@@ -1963,6 +1983,7 @@ mod tests {
 			id: "data-event".into(),
 			label: "Observe".into(),
 			surface: Surface::AppEvent,
+			icon: None,
 		});
 		bridge.app_events(&state, &messaging);
 		bridge.message_events.clear();
@@ -2035,6 +2056,7 @@ mod tests {
 			id: "data-event".into(),
 			label: "Observe".into(),
 			surface: Surface::AppEvent,
+			icon: None,
 		});
 		let channel = state.selected.unwrap();
 		state
