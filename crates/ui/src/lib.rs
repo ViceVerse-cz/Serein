@@ -14,6 +14,7 @@ mod attachments;
 pub mod external_upload;
 pub use attachments::DownloadUi;
 mod avatars;
+mod resample;
 #[cfg(feature = "demo")]
 pub use avatars::media::debug_heic_layout_check;
 pub use avatars::media::{Lane, MAX_FRAMES, Motion, Rendition, Size, fit_edge, is_motion_video};
