@@ -4453,7 +4453,14 @@ impl MessagingUi {
 		if let Some(user) = self.profile.open_user().cloned()
 			&& !direct_verifying
 		{
-			let profile_guild = self.profile_guild(state);
+			// A card in the call window belongs to the call's server, not the main window's.
+			let profile_guild = if self.profile_in_popout {
+				self.voice_popout
+					.and_then(|id| state.channel(id))
+					.and_then(|channel| channel.guild)
+			} else {
+				self.profile_guild(state)
+			};
 			self.sync_profile(state, commands, &user, profile_guild);
 			if let Some(command) = profile_note(state, &mut self.profile, &user) {
 				commands.push(command);
@@ -9362,6 +9369,71 @@ mod composer_tests {
 			assert_eq!(state.profile.as_ref().unwrap().guild, guild);
 			output.drop_without_applying_deltas();
 		}
+	}
+
+	#[test]
+	fn popout_profile_uses_call_server_not_main_window_server() {
+		let channel = |id, guild| model::Channel {
+			last_message: None,
+			id: Id(id),
+			guild: Some(Id(guild)),
+			parent_id: None,
+			position: 0,
+			name: "Synthetic".into(),
+			kind: if id == 10 { 2 } else { 0 },
+			recipients: vec![],
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+			icon: None,
+		};
+		let mut state = State {
+			demo: true,
+			selected: Some(Id(1)),
+			channels: vec![channel(1, 20), channel(10, 30)],
+			..Default::default()
+		};
+		state.voice.active = Some(client_core::voice::Call {
+			channel: Id(10),
+			guild: Some(Id(30)),
+			connected_at: None,
+			channel_started_at: None,
+			server_muted: false,
+			server_deafened: false,
+			request: 1,
+			phase: client_core::voice::Phase::Connected,
+			muted: false,
+			deafened: false,
+			participants: vec![],
+			camera: false,
+			watching: None,
+			error: None,
+			reconnecting: None,
+		});
+		let mut messaging = MessagingUi {
+			voice_popout: Some(Id(10)),
+			profile_in_popout: true,
+			profile: {
+				let mut profile = profiles::ProfileSession::default();
+				profile.command_open(test_support::message(1, Id(1)).author);
+				profile
+			},
+			..Default::default()
+		};
+		let output = egui::Context::default().run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1120.0, 900.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				messaging.show_voice_popout(ui, &mut state);
+			},
+		);
+		output.drop_without_applying_deltas();
+		assert_eq!(state.profile.as_ref().unwrap().guild, Some(Id(30)));
 	}
 
 	#[test]
