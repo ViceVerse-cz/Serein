@@ -1083,6 +1083,21 @@ pub(crate) fn shown_status<'a>(
 ) -> Option<&'a str> {
 	status.or_else(|| state.absent_presence_offline(user).then_some("offline"))
 }
+/// Resolve the same badge status and platform fallback for profiles and mention suggestions.
+pub(crate) fn displayed_presence<'a>(
+	state: &'a State,
+	user: Id,
+	status: Option<&'a str>,
+	clients: model::ClientPlatforms,
+) -> (Option<&'a str>, model::ClientPlatforms) {
+	let (status, clients) = match (status, state.presence_for(user)) {
+		(None, Some(direct)) if direct.status.is_some() => {
+			(direct.status.as_deref(), direct.clients)
+		}
+		_ => (status, clients),
+	};
+	(shown_status(state, user, status), clients)
+}
 pub(crate) fn presence_badge(
 	ui: &mut egui::Ui,
 	rect: Rect,
@@ -3209,20 +3224,8 @@ fn card_view(
 		(None, None, [].as_slice(), model::ClientPlatforms::default())
 	} else {
 		let (status, custom, activities, clients) = presence(state, user.id, guild);
-		// A guild row without a status defers to the friend's or recipient's own presence,
-		// with its platforms so the phone shows.
-		let (status, clients) = match (status, state.presence_for(user.id)) {
-			(None, Some(direct)) if direct.status.is_some() => {
-				(direct.status.as_deref(), direct.clients)
-			}
-			_ => (status, clients),
-		};
-		(
-			shown_status(state, user.id, status),
-			custom,
-			activities,
-			clients,
-		)
+		let (status, clients) = displayed_presence(state, user.id, status, clients);
+		(status, custom, activities, clients)
 	};
 	let in_voice = !user.webhook && user_in_voice(state, user.id);
 	let dm_channel = state
@@ -5348,6 +5351,20 @@ mod tests {
 			Some("Server status")
 		);
 		assert_eq!(presence(&state, user.id, None).1, Some("Direct status"));
+		if let Some(model::MemberSlot::Person(member)) =
+			&mut state.members.as_mut().unwrap().slots[0]
+		{
+			member.status = None;
+		}
+		state.direct_presences[0].clients.mobile = true;
+		let (status, _, _, clients) = presence(&state, user.id, Some(Id(10)));
+		let displayed = displayed_presence(&state, user.id, status, clients);
+		assert_eq!(displayed.0, Some("online"));
+		assert!(
+			displayed.1.mobile,
+			"the badge uses the fallback presence's platforms"
+		);
+
 		state.gateway_connected = false;
 		state.demo = false;
 		assert_eq!(

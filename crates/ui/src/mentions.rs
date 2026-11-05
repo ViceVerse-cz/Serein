@@ -964,7 +964,9 @@ fn row(
 			// and DM rows; a candidate with no known presence stays without one.
 			let (status, _, _, clients) =
 				crate::profiles::presence(context.state, user.id, context.guild);
-			if let Some(status) = crate::profiles::shown_status(context.state, user.id, status) {
+			let (status, clients) =
+				crate::profiles::displayed_presence(context.state, user.id, status, clients);
+			if let Some(status) = status {
 				shown_presence = Some(status);
 				crate::profiles::presence_badge(
 					&mut child,
