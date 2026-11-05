@@ -95,8 +95,8 @@ remain installed system resources and are not bundled or redistributed.
 The locally patched **egui-winit 0.36.2** (MIT OR Apache-2.0, upstream commit
 `4821fc54ae083ac516e137a61e70550330e55169`, source
 <https://github.com/emilk/egui/tree/4821fc54ae083ac516e137a61e70550330e55169/crates/egui-winit>)
-retains its licenses under `vendor/egui-winit`. Only two Windows-only repaint changes (window
-moves and raw mouse motion) and the de-workspaced manifest differ from upstream; see
+retains its licenses under `vendor/egui-winit`. Windows-only repaint changes (window
+moves and raw mouse motion), clipboard fallback/logging fixes and the de-workspaced manifest differ from upstream; see
 `vendor/egui-winit/SEREIN-PATCH.md` for provenance.
 
 Linux login uses gtk4 0.11.4, webkit6 0.6.1, javascriptcore6 0.6.0, glib 0.22.9 and soup3

@@ -1062,7 +1062,7 @@ struct Desktop {
 	frame_metrics: FrameMetrics,
 	/// The minimum last handed to winit; applying an unchanged one forces a frame on Windows.
 	window_minimum: Option<winit::dpi::PhysicalSize<u32>>,
-	/// A sampled placement waiting for a second, equal sample before it is saved.
+	/// A sampled placement waiting to remain unchanged for the rest interval.
 	geometry_rest: app_settings::GeometryRest,
 	#[cfg(feature = "demo")]
 	rendering_demo: Option<rendering_demo::RenderingDemo>,
@@ -5555,16 +5555,8 @@ impl eframe::App for Desktop {
 		{
 			// While maximized, keep the normal geometry so un-maximizing after a restart returns to it.
 			let geometry = if viewport.maximized == Some(true) {
-				local_store::WindowGeometry {
-					maximized: true,
-					..self.app_settings.current.window_geometry.unwrap_or(
-						local_store::WindowGeometry {
-							size: app_settings::DEFAULT_WINDOW_SIZE,
-							position: None,
-							maximized: true,
-						},
-					)
-				}
+				self.geometry_rest
+					.maximized_geometry(self.app_settings.current.window_geometry)
 			} else {
 				let size = self
 					.window
@@ -5581,10 +5573,11 @@ impl eframe::App for Desktop {
 				}
 			};
 			if geometry.is_valid() {
-				match self
-					.geometry_rest
-					.observe(geometry, self.app_settings.current.window_geometry)
-				{
+				match self.geometry_rest.observe(
+					geometry,
+					self.app_settings.current.window_geometry,
+					std::time::Instant::now(),
+				) {
 					app_settings::Observation::Saved => {}
 					app_settings::Observation::Pending => {
 						ctx.request_repaint_after(app_settings::GEOMETRY_REST_DELAY);

@@ -6,6 +6,15 @@ log and per-run evidence archive has been removed; the summaries below retain th
 
 ## Window drags on Windows — November 5, 2026
 
+Review follow-up: the measurements below describe the original `1f664628` implementation.
+The revised adapter schedules a delayed 500 ms repaint on Windows moves to ensure a final
+placement/monitor sample, and placement saving now checks elapsed monotonic time. This can
+produce occasional frames during a long drag; the original present counts do not measure
+this revision. Fresh Windows drag/idle and package-size comparisons are unavailable on the
+Ubuntu review host: no native Windows session or C linker (`cc`) is available, and both
+`cargo xtask check` and `cargo xtask package` stop while building xtask dependencies.
+No updated performance claim is made.
+
 Baseline `d57433c` and this branch were built with the pinned Rust 1.98.1 toolchain and locked
 dependencies on Windows 11 x64 (build 26200). Standard release packages use `cargo xtask package`
 (voice included, demo and development data disabled), each built the same day from its own worktree.

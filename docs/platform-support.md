@@ -12,8 +12,8 @@ the window moves or its native scale changes, restoring 760 × 520 logical pixel
 when the current display can accommodate the window and its decorations.
 Minimized, hidden, maximized and fullscreen states do not replace normal geometry.
 Closing frames do not overwrite the saved geometry.
-A changed placement is saved once it stays the same for 500 ms, so a drag or resize queues no
-write per frame; a placement sampled just before the window closes or hides is still saved.
+A changed placement is saved once sampled unchanged for at least 500 ms, so a drag or resize queues no
+write per frame. Maximizing retains the latest sampled normal placement for restoration; a placement sampled just before the window closes or hides is still saved.
 The offline `--demo` ignores saved geometry and does not save its window state.
 
 Wayland does not expose global window coordinates to ordinary clients, so window

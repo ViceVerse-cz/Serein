@@ -184,8 +184,9 @@ impl Clipboard {
         if let Some(clipboard) = &mut self.arboard {
             if let Err(err) = clipboard.set_image(arboard_from_color_image(image)) {
                 log::error!("arboard copy/cut error: {err}");
+            } else {
+                log::debug!("Copied image to clipboard");
             }
-            log::debug!("Copied image to clipboard");
             return;
         }
 

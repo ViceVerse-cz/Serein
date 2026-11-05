@@ -576,10 +576,16 @@ impl State {
             // Moving a window leaves its contents unchanged. On Windows the move runs in a modal
             // loop that waits for each synchronous paint and its vsync, so the window trailed the
             // cursor by a frame per move (Serein patch, see SEREIN-PATCH.md).
-            WindowEvent::Moved(_) if cfg!(target_os = "windows") => EventResponse {
-                repaint: false,
-                consumed: false,
-            },
+            WindowEvent::Moved(_) if cfg!(target_os = "windows") => {
+                // Sample the final placement/monitor even when no client input follows the move.
+                // Scheduling through egui keeps this out of the synchronous modal paint loop.
+                self.egui_ctx
+                    .request_repaint_after(std::time::Duration::from_millis(500));
+                EventResponse {
+                    repaint: false,
+                    consumed: false,
+                }
+            }
 
             // Things that may require repaint:
             WindowEvent::RedrawRequested
@@ -1149,7 +1155,7 @@ impl State {
                     self.egui_input.events.push(egui::Event::Copy);
                     return;
                 } else if is_paste_command(self.modifiers, active_key) {
-                    if let Some(contents) = self.clipboard.get() {
+                    if let Some(contents) = self.clipboard.get().filter(|text| !text.is_empty()) {
                         let contents = contents.replace("\r\n", "\n");
                         if !contents.is_empty() {
                             self.egui_input.events.push(egui::Event::Paste(contents));

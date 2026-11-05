@@ -275,38 +275,61 @@ pub const GEOMETRY_REST_DELAY: std::time::Duration = std::time::Duration::from_m
 pub enum Observation {
 	/// The saved placement already matches the sample.
 	Saved,
-	/// A first sample; an equal second one commits it.
+	/// The placement has not yet stayed unchanged for the rest interval.
 	Pending,
-	/// Two equal samples, so the window is at rest and the sample can be saved.
+	/// The placement stayed unchanged for the rest interval and can be saved.
 	Commit,
 }
 
-/// Saves a window placement only once two consecutive samples agree.
+/// Saves a window placement only after a full interval without a sampled change.
 #[derive(Default)]
 pub struct GeometryRest {
-	pending: Option<local_store::WindowGeometry>,
+	pending: Option<(local_store::WindowGeometry, std::time::Instant)>,
 }
 
 impl GeometryRest {
+	/// Observe placement at a monotonic time; early frames do not shorten the rest interval.
 	pub fn observe(
 		&mut self,
 		sampled: local_store::WindowGeometry,
 		saved: Option<local_store::WindowGeometry>,
+		now: std::time::Instant,
 	) -> Observation {
 		if saved == Some(sampled) {
 			self.pending = None;
 			return Observation::Saved;
 		}
-		if self.pending == Some(sampled) {
+		if let Some((pending, changed_at)) = self.pending
+			&& pending == sampled
+		{
+			if now.saturating_duration_since(changed_at) < GEOMETRY_REST_DELAY {
+				return Observation::Pending;
+			}
 			self.pending = None;
 			return Observation::Commit;
 		}
-		self.pending = Some(sampled);
+		self.pending = Some((sampled, now));
 		Observation::Pending
 	}
+	/// Keep the latest normal placement when a maximize event interrupts its rest interval.
+	pub fn maximized_geometry(
+		&self,
+		saved: Option<local_store::WindowGeometry>,
+	) -> local_store::WindowGeometry {
+		let normal = self.pending.map(|(geometry, _)| geometry).or(saved);
+		local_store::WindowGeometry {
+			maximized: true,
+			..normal.unwrap_or(local_store::WindowGeometry {
+				size: DEFAULT_WINDOW_SIZE,
+				position: None,
+				maximized: true,
+			})
+		}
+	}
+
 	/// The last sample, for a window that closes or hides before it could rest.
 	pub fn take_pending(&mut self) -> Option<local_store::WindowGeometry> {
-		self.pending.take()
+		self.pending.take().map(|(geometry, _)| geometry)
 	}
 }
 
@@ -514,6 +537,7 @@ mod tests {
 	#[test]
 	fn window_geometry_is_saved_only_after_it_rests() {
 		let mut rest = GeometryRest::default();
+		let now = std::time::Instant::now();
 		let placed = local_store::WindowGeometry {
 			size: [1120, 760],
 			position: Some([100, 100]),
@@ -522,17 +546,51 @@ mod tests {
 		let mut moving = placed;
 		for step in 0..8 {
 			moving.position = Some([100 + step * 7, 100]);
-			assert_eq!(rest.observe(moving, None), Observation::Pending);
+			assert_eq!(rest.observe(moving, None, now), Observation::Pending);
 		}
-		assert_eq!(rest.observe(placed, Some(placed)), Observation::Saved);
+		assert_eq!(rest.observe(placed, Some(placed), now), Observation::Saved);
 		assert_eq!(rest.take_pending(), None);
 
-		assert_eq!(rest.observe(placed, None), Observation::Pending);
-		assert_eq!(rest.observe(placed, None), Observation::Commit);
-		assert_eq!(rest.observe(placed, Some(placed)), Observation::Saved);
+		assert_eq!(rest.observe(placed, None, now), Observation::Pending);
+		assert_eq!(
+			rest.observe(placed, None, now + GEOMETRY_REST_DELAY / 2),
+			Observation::Pending
+		);
+		assert_eq!(
+			rest.observe(moving, None, now + GEOMETRY_REST_DELAY / 2),
+			Observation::Pending
+		);
+		assert_eq!(
+			rest.observe(moving, None, now + GEOMETRY_REST_DELAY),
+			Observation::Pending
+		);
+		assert_eq!(
+			rest.observe(moving, None, now + GEOMETRY_REST_DELAY * 2),
+			Observation::Commit
+		);
+		assert_eq!(rest.observe(placed, Some(placed), now), Observation::Saved);
 		assert_eq!(rest.take_pending(), None);
 
-		assert_eq!(rest.observe(moving, None), Observation::Pending);
+		assert_eq!(rest.observe(moving, None, now), Observation::Pending);
+		let maximized = rest.maximized_geometry(Some(placed));
+		assert_eq!(
+			maximized,
+			local_store::WindowGeometry {
+				maximized: true,
+				..moving
+			}
+		);
+		assert_eq!(
+			rest.observe(maximized, Some(placed), now),
+			Observation::Pending
+		);
+		assert_eq!(rest.maximized_geometry(Some(placed)), maximized);
+		assert_eq!(
+			rest.observe(maximized, Some(placed), now + GEOMETRY_REST_DELAY),
+			Observation::Commit
+		);
+		assert_eq!(rest.take_pending(), None);
+		assert_eq!(rest.observe(moving, None, now), Observation::Pending);
 		assert_eq!(rest.take_pending(), Some(moving));
 		assert_eq!(rest.take_pending(), None);
 	}
