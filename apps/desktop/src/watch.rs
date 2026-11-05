@@ -405,9 +405,10 @@ impl Watch {
 		let frames = Arc::new(Mutex::new(Scheduled::default()));
 		let slot = frames.clone();
 		let wake = ctx.clone();
-		let streamer = pending.context.streamer.0;
+		let streamer = pending.context.streamer;
+		let streamer_user = streamer.0;
 		let sink: discord_voice::VideoSink = Arc::new(move |frame: discord_voice::RemoteFrame| {
-			if frame.user != streamer {
+			if frame.user != streamer_user && frame.user != 0 {
 				return;
 			}
 			if slot.lock().is_ok_and(|mut slot| slot.store(frame)) {
@@ -420,8 +421,13 @@ impl Watch {
 		let audio = pending.audio;
 		let task = runtime.spawn(async move {
 			let (status_send, status_wake) = (send.clone(), wake.clone());
-			let result =
-				discord_voice::watch_stream(credentials, identity, sink, audio, move |event| {
+			let result = discord_voice::watch_stream(
+				credentials,
+				identity,
+				Some(streamer),
+				sink,
+				audio,
+				move |event| {
 					let status = match event {
 						Status::Connecting => "Connecting to the stream…",
 						Status::Discovering => "Checking the stream network…",
@@ -435,8 +441,9 @@ impl Watch {
 					status_send.send_replace(Some(Notice::Status(status)));
 					status_wake.request_repaint();
 					Ok(())
-				})
-				.await;
+				},
+			)
+			.await;
 			if let Err(error) = result {
 				send.send_replace(Some(Notice::Failed(error)));
 			}
@@ -613,6 +620,18 @@ mod tests {
 		assert_eq!(picture.data.len(), 1920 * 1080 * 3 / 2);
 		assert!(picture.data.capacity() <= 1920 * 1080 * 3 / 2);
 	}
+	#[test]
+	fn watch_accepts_1440p_frame() {
+		let mut slot = None;
+		assert!(store_frame(
+			&mut slot,
+			frame(2560, 1440, &i420(2560, 1440, 0))
+		));
+		let (picture, _) = slot.take().unwrap();
+		assert_eq!(picture.data.len(), 2560 * 1440 * 3 / 2);
+		assert_eq!((picture.width, picture.height), (2560, 1440));
+	}
+
 	#[test]
 	fn decoded_stream_pictures_wait_for_presentation_and_pressure_skips_only_decoded_frames() {
 		let now = Instant::now();

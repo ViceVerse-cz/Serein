@@ -1,3 +1,6 @@
+[net]
+git-fetch-with-cli = true
+
 [alias]
 xtask = "run -p xtask --"
 replay = "run --release -p replay-bench --"

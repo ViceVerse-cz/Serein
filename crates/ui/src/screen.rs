@@ -96,6 +96,7 @@ impl ScreenUi {
 			width: match self.height {
 				480 => 854,
 				1080 => 1920,
+				1440 => 2560,
 				_ => 1280,
 			},
 			height: self.height,
@@ -206,7 +207,7 @@ impl ScreenUi {
 		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
-			for height in [480, 720, 1080] {
+			for height in [480, 720, 1080, 1440] {
 				if segment(ui, &format!("{height}p"), self.height == height).clicked() {
 					self.height = height;
 				}

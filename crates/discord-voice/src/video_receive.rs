@@ -105,7 +105,6 @@ enum Decode {
 
 /// True when the cleartext Annex-B access unit carries both an SPS and a PPS, so a freshly
 /// created decoder can start from it.
-#[cfg(any(test, target_os = "linux"))]
 pub(crate) fn has_parameter_sets(frame: &[u8]) -> bool {
 	Codec::H264.has_parameter_sets(frame)
 }
@@ -427,6 +426,12 @@ impl Receivers {
 	}
 	pub fn remove(&mut self, user: u64) {
 		self.retain_user_sources(user, &[]);
+	}
+	pub fn retain(&mut self, mut keep: impl FnMut(u64) -> bool) {
+		self.sources.retain(|(_, owner, _)| keep(*owner));
+		self.rtx
+			.retain(|(_, media)| self.sources.iter().any(|(ssrc, _, _)| ssrc == media));
+		self.awaiting_keyframe.retain(|u| keep(*u));
 	}
 	/// Reconcile a complete stream announcement without resetting unchanged assemblers.
 	pub fn retain_user_sources(&mut self, user: u64, keep: &[u32]) {
@@ -2176,6 +2181,11 @@ mod tests {
 		assert!(!gated.accept(7, false));
 		assert!(is_keyframe(&[0, 0, 0, 1, 0x67, 1, 0, 0, 1, 0x65, 2]));
 		assert!(!is_keyframe(&[0, 0, 0, 1, 0x41, 9]));
+		assert!(bounded(1920, 1080).is_ok());
+		assert!(bounded(2560, 1440).is_ok());
+		assert!(bounded(3840, 2160).is_ok());
+		assert!(bounded(3840, 2161).is_err());
+		assert!(bounded(0, 4).is_err());
 	}
 	#[test]
 	fn software_decoders_reuse_scratch_across_alternating_resolutions() {

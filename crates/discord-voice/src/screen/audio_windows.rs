@@ -45,9 +45,7 @@ impl Audio {
 		};
 		result
 			.recv_timeout(std::time::Duration::from_secs(4))
-			.map_err(
-				|_| "Echo-free system audio could not start; Windows build 20348 or newer is required",
-			)?;
+			.map_err(|_| "Echo-free system audio capture is unavailable; share without audio")?;
 		Ok(audio)
 	}
 
@@ -143,10 +141,7 @@ mod native {
 		result
 	}
 
-	fn capture(input: &Samples, started: &mut Option<SyncSender<()>>) -> Result<()> {
-		if input.stop.load(Ordering::Acquire) {
-			return Err(E_FAIL.into());
-		}
+	fn activate_client(input: &Samples) -> Result<IAudioClient> {
 		let params = Arc::new(activation_params(std::process::id()));
 		let (send, done) = sync_channel(1);
 		let completion: IActivateAudioInterfaceCompletionHandler = Completion {
@@ -171,7 +166,6 @@ mod native {
 				}),
 			},
 		});
-		// The native operation retains the agile completion handler and its immutable blob.
 		let operation = unsafe {
 			ActivateAudioInterfaceAsync(
 				VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
@@ -191,17 +185,24 @@ mod native {
 		}
 		let mut status = HRESULT(0);
 		let mut activated = None;
-		// Completion has fired; GetActivateResult returns an owned COM reference.
 		unsafe { operation.GetActivateResult(&mut status, &mut activated)? };
 		drop(operation);
 		status.ok()?;
+		activated.ok_or(E_FAIL)?.cast()
+	}
+
+	fn capture(input: &Samples, started: &mut Option<SyncSender<()>>) -> Result<()> {
+		if input.stop.load(Ordering::Acquire) {
+			return Err(E_FAIL.into());
+		}
+		// Endpoint loopback would retransmit Serein's call playback to the other participants.
+		let client = activate_client(input)?;
 		if input.stop.load(Ordering::Acquire) || input.send.is_closed() {
 			return Err(E_FAIL.into());
 		}
 		let event = unsafe { CreateEventW(None, false, false, None)? };
 		// Created before the clients so it stays open until their COM references are released.
 		let event = unsafe { OwnedHandle::from_raw_handle(event.0) };
-		let client: IAudioClient = activated.ok_or(E_FAIL)?.cast()?;
 		let format = WAVEFORMATEX {
 			wFormatTag: 3, // WAVE_FORMAT_IEEE_FLOAT
 			nChannels: 2,
@@ -224,9 +225,9 @@ mod native {
 				None,
 			)?;
 		}
-		if unsafe { client.GetBufferSize()? } as usize > MAX_AUDIO_SAMPLES / 2 {
-			return Err(E_FAIL.into());
-		}
+		// The engine buffer size is not trustworthy here: process loopback on Windows 10
+		// reports a value no buffer could hold, while still delivering normal packets. Each
+		// packet is bounded in `packets` instead, so nothing is read past the queue limit.
 		let capture: IAudioCaptureClient = unsafe { client.GetService()? };
 		unsafe { client.SetEventHandle(HANDLE(event.as_raw_handle()))? };
 		if input.stop.load(Ordering::Acquire) || input.send.is_closed() {

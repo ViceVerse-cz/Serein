@@ -341,8 +341,8 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 	if info.format() != video::VideoFormat::Bgra
 		|| info.width() == 0
 		|| info.height() == 0
-		|| info.width() > 1920
-		|| info.height() > 1080
+		|| info.width() > 2560
+		|| info.height() > 1440
 	{
 		return Err(INVALID);
 	}
