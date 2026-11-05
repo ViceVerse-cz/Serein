@@ -196,6 +196,10 @@ fn capture(
 	let started = ui
 		.data_mut(|data| data.remove_temp::<CaptureStarted>(capture_started_id()))
 		.is_some();
+	// A side modifier armed by an earlier capture must not record into this one.
+	if started {
+		polled.armed = 0;
+	}
 	// Escape wins over a pad button or side modifier that rose in the same frame, so
 	// abandoning a capture can never record one of them instead.
 	let escaped = ui.input(|input| {
@@ -1253,6 +1257,22 @@ mod tests {
 			Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk))
 		);
 		assert_eq!(bindings.chord(KeybindAction::PushToTalk), &before);
+	}
+
+	#[test]
+	fn new_capture_ignores_a_modifier_armed_by_the_last_one() {
+		let mut bindings = Keybinds::default();
+		let before = bindings.chord(KeybindAction::ToggleMute).clone();
+		let ctx = egui::Context::default();
+		let right_ctrl = polled_bit("ControlRight");
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk));
+		capture_frame(&ctx, vec![], right_ctrl, &mut bindings, &mut capturing);
+		// Leaving the page ends that capture while Right Ctrl is still held.
+		capturing = Some(CaptureTarget::BuiltIn(KeybindAction::ToggleMute));
+		ctx.data_mut(|data| data.insert_temp(capture_started_id(), CaptureStarted));
+		capture_frame(&ctx, vec![], right_ctrl, &mut bindings, &mut capturing);
+		capture_frame(&ctx, vec![], 0, &mut bindings, &mut capturing);
+		assert_eq!(bindings.chord(KeybindAction::ToggleMute), &before);
 	}
 
 	#[test]
