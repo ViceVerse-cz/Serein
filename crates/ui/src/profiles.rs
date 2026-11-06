@@ -559,6 +559,8 @@ const RADIUS: u8 = 12;
 const CIRCLE: f32 = 32.0;
 /// The centred "View Full Profile" card.
 const FULL_WIDTH: f32 = 1000.0;
+/// Tallest the full profile's columns grow; longer profiles scroll inside it.
+const FULL_MAX_COLUMN: f32 = 640.0;
 const FULL_AVATAR: f32 = 120.0;
 const FULL_BANNER: f32 = 160.0;
 /// Inset of the full profile's identity column; text, actions and the avatar share this edge.
@@ -3126,7 +3128,7 @@ fn card_view(
 		(if docked { dock_width } else { WIDTH }, 105.0, AVATAR, PAD)
 	};
 	// Height shared by both full-profile columns below the close button.
-	let column = (bounds.height() - 48.0).max(80.0) - 36.0;
+	let column = ((bounds.height() - 48.0).max(80.0) - 36.0).min(FULL_MAX_COLUMN);
 	let data = view
 		.and_then(|v| v.data.as_ref())
 		.or(cached.filter(|_| !user.webhook));
