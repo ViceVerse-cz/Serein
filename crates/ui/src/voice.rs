@@ -446,6 +446,8 @@ impl MessagingUi {
 		values[index] = (user.0, volume);
 	}
 
+	/// The participant's context menu: local mute and volume, server moderation, and the shared
+	/// user actions, all scoped to the call's channel.
 	fn voice_participant_menu(
 		&mut self,
 		response: &egui::Response,
@@ -592,13 +594,15 @@ impl MessagingUi {
 					ui.separator();
 				}
 				if let Some(user) = resolve_member(state, entry).0 {
-					crate::user_menu::contents(
+					// The call window can be open while the main window shows another server.
+					crate::user_menu::contents_in(
 						ui,
 						state,
 						user,
 						&mut self.profile,
 						&mut self.user_action,
 						None,
+						Some(entry.channel),
 					);
 				}
 			});
@@ -1045,6 +1049,8 @@ impl MessagingUi {
 		}
 	}
 
+	/// Turns a requested stream preview into a watch command, joining its call first when
+	/// needed, or explains in the status line why it cannot start.
 	pub(super) fn apply_stream_preview_watch(
 		&mut self,
 		state: &mut State,
@@ -2361,6 +2367,8 @@ impl MessagingUi {
 		)
 	}
 
+	/// Joins `channel` with the given audio state and opens the call window when asked; returns
+	/// why the call was refused.
 	fn request_call_audio(
 		&mut self,
 		state: &mut State,
@@ -2398,6 +2406,8 @@ impl MessagingUi {
 		Ok(())
 	}
 
+	/// Drives the switch-call confirmation: once the current call leaves, joins the requested
+	/// channel with the retained audio state.
 	pub(super) fn show_call_switch(
 		&mut self,
 		ctx: &egui::Context,
@@ -2843,6 +2853,8 @@ impl MessagingUi {
 		}
 	}
 
+	/// Draws the voice settings body shared by the settings page and the compact call-window
+	/// panel.
 	pub(super) fn voice_settings_content(
 		&mut self,
 		ui: &mut egui::Ui,
