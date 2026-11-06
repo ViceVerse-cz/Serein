@@ -514,6 +514,11 @@ async fn portal(
 		.max_queued(16)
 		.build()
 		.await?;
+	// A host install has no portal app ID until this connection registers one; Flatpak skips
+	// it. Portals older than the Registry interface reject it, so the session still proceeds.
+	if let Ok(app_id) = "cz.viceverse.serein".parse() {
+		let _ = ashpd::register_host_app_with_connection(connection.clone(), app_id).await;
+	}
 	let proxy = GlobalShortcuts::with_connection(connection).await?;
 	let session = proxy.create_session(Default::default()).await?;
 	let mut activated = proxy.receive_activated().await?;
