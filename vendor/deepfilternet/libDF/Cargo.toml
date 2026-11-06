@@ -5,7 +5,7 @@ version = "0.5.7-pre"
 authors = ["Hendrik Schröter"]
 edition = "2021"
 description = "Noise supression using deep filtering"
-repository = "https://github.com/Rikorose/DeepFilterNet"
+repository = "https://github.com/ismailivanov/DeepFilterNetPlus"
 license = "MIT OR Apache-2.0"
 rust-version = "1.70"
 publish = false
@@ -42,13 +42,13 @@ log = { version = "0.4", features = ["std"], optional = true }
 rubato = { version = "0.14", optional = true }
 thiserror = { version = "1.0", optional = true }
 anyhow = { version = "1.0", optional = true, features = ["backtrace"] }
-ndarray = { version = "^0.15", optional = true, features = ["serde"] }
+ndarray = { version = "^0.16", optional = true, features = ["serde"] }
 crossbeam-channel = { version = "^0.5", optional = true }
 rust-ini = { version = "^0.21", optional = true }
-tract-core = { version = "=0.21.4", optional = true }
-tract-onnx = { version = "=0.21.4", optional = true }
-tract-pulse = { version = "=0.21.4", optional = true }
-tract-hir = { version = "=0.21.4", optional = true }
+tract-core = { version = "^0.22.5", optional = true }
+tract-onnx = { version = "^0.22.5", optional = true }
+tract-pulse = { version = "^0.22.5", optional = true }
+tract-hir = { version = "^0.22.5", optional = true }
 flate2 = { version = "1.0.24", optional = true }
 tar = { version = "0.4.38", optional = true }
 

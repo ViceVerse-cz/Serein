@@ -84,11 +84,8 @@ opt-level = 3
 [profile.dev.package.deep_filter]
 opt-level = 3
 
-# tract 0.21.4 debug builds reject the duplicate node names its own optimizer gives the
-# bundled DFN3 graph; release builds never run that check.
 [profile.dev.package.tract-core]
 opt-level = 3
-debug-assertions = false
 
 [profile.dev.package.tract-data]
 opt-level = 3
