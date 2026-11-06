@@ -309,6 +309,9 @@ impl CustomMatches {
 	}
 }
 
+/// One row of the picker's frequently used emoji.
+const FAVORITES: usize = 8;
+
 /// Home tiles warmed while the GIF button is hovered: about the rows visible when it opens.
 const GIF_WARM_TILES: usize = 8;
 
@@ -362,6 +365,14 @@ fn preload_gifs(
 	}
 }
 
+/// One emoji in the usage ranking: a catalog index or a custom emoji id, so the list stays
+/// `Copy` and the reaction and composer pickers can share it every frame.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Used {
+	Unicode(usize),
+	Custom(Id),
+}
+
 pub(crate) struct Picker {
 	/// Lock custom emoji that need Nitro instead of offering them through image sharing.
 	pub hide_nitro_emojis: bool,
@@ -369,8 +380,8 @@ pub(crate) struct Picker {
 	pub preload: bool,
 	stickers: crate::stickers::Browser,
 	reaction: Option<(Target, egui::Rect, egui::Id)>,
-	// ponytail: session-only Unicode usage; persist if cross-launch favorites are needed.
-	frequent: Vec<(usize, u32)>,
+	// ponytail: session-only usage; persist if cross-launch favorites are needed.
+	frequent: Vec<(Used, u32)>,
 	open: bool,
 	pending_open: bool,
 	focus: bool,
@@ -742,20 +753,28 @@ impl Picker {
 	}
 
 	pub(crate) fn record(&mut self, text: &str) {
-		let Some(index) = standard().iter().position(|(emoji, _)| *emoji == text) else {
-			return;
-		};
+		if let Some(index) = standard().iter().position(|(emoji, _)| *emoji == text) {
+			self.record_used(Used::Unicode(index));
+		}
+	}
+
+	/// Copies another picker's usage, so the composer offers what reactions use and back.
+	pub(crate) fn share_frequent(&mut self, from: &Self) {
+		self.frequent.clone_from(&from.frequent);
+	}
+
+	fn record_used(&mut self, used: Used) {
 		let count = self
 			.frequent
 			.iter()
-			.position(|(i, _)| *i == index)
+			.position(|(entry, _)| *entry == used)
 			.map_or(1, |position| {
 				self.frequent.remove(position).1.saturating_add(1)
 			});
 		if self.frequent.len() == 32 {
 			self.frequent.pop();
 		}
-		self.frequent.insert(0, (index, count));
+		self.frequent.insert(0, (used, count));
 		self.frequent
 			.sort_by_key(|entry| std::cmp::Reverse(entry.1));
 	}
@@ -764,7 +783,11 @@ impl Picker {
 	pub(crate) fn quick_reactions(&self) -> [&'static str; 3] {
 		let mut quick = crate::reactions::QUICK_DEFAULTS;
 		let mut filled = 0;
-		for text in self.frequent.iter().take(3).map(|(i, _)| standard()[*i].0) {
+		let unicode = self.frequent.iter().filter_map(|(used, _)| match used {
+			Used::Unicode(index) => Some(standard()[*index].0),
+			Used::Custom(_) => None,
+		});
+		for text in unicode.take(3) {
 			quick[filled] = text;
 			filled += 1;
 		}
@@ -780,16 +803,26 @@ impl Picker {
 		quick
 	}
 
-	fn favorites(&self) -> Vec<usize> {
-		let mut favorites: Vec<_> = self.frequent.iter().take(8).map(|(i, _)| *i).collect();
+	/// The most used emoji, custom ones still in a loaded server, filled with defaults.
+	fn favorites(&self, state: &State) -> Vec<Used> {
+		let mut favorites: Vec<_> = self
+			.frequent
+			.iter()
+			.map(|(used, _)| *used)
+			.filter(|used| match used {
+				Used::Unicode(_) => true,
+				Used::Custom(id) => state.custom_emoji(*id).is_some(),
+			})
+			.take(FAVORITES)
+			.collect();
 		for text in ["👍", "❤️", "😂", "🎉", "👀", "✅", "🙏", "😢"] {
-			if favorites.len() == 8 {
+			if favorites.len() == FAVORITES {
 				break;
 			}
 			if let Some(index) = standard().iter().position(|(emoji, _)| *emoji == text)
-				&& !favorites.contains(&index)
+				&& !favorites.contains(&Used::Unicode(index))
 			{
-				favorites.push(index);
+				favorites.push(Used::Unicode(index));
 			}
 		}
 		favorites
@@ -1445,7 +1478,7 @@ impl Picker {
 									.layout(egui::Layout::top_down(egui::Align::Min)),
 								|ui| {
 									ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-									if self.reaction.is_some() && self.query.is_empty() {
+									if self.query.is_empty() && self.server.is_none() {
 										ui.label(
 											crate::design::semibold(
 												ui,
@@ -1457,30 +1490,82 @@ impl Picker {
 											.color(colors.muted),
 										);
 										ui.horizontal_wrapped(|ui| {
-											for index in self.favorites() {
-												let (text, name) = standard()[index];
-												let emoji = model::ReactionEmoji {
-													id: None,
-													name: Some(text.into()),
+											for favorite in self.favorites(state) {
+												let custom = match favorite {
+													Used::Custom(id) => state.custom_emoji(id),
+													Used::Unicode(_) => None,
 												};
-												let response = cell(
-													ui,
-													crate::emoji::image(ui.ctx(), text, 32.0),
-													name,
-													self.can_pick(state, &emoji, None),
-													&colors,
-												);
-												if response.hovered() {
-													hovered = Some((
-														crate::emoji::image(ui.ctx(), text, 32.0),
-														text.into(),
-														shortcodes()[index].clone(),
-													));
+												let (image, name, code, emoji, text) =
+													match (favorite, custom) {
+														(_, Some((_, custom))) => (
+															avatars.custom_image(
+																ui.ctx(),
+																custom.id,
+																32.0,
+																demo,
+															),
+															custom.name.clone(),
+															format!(":{}:", custom.name),
+															model::ReactionEmoji {
+																id: Some(custom.id),
+																name: Some(custom.name.clone()),
+															},
+															custom.markup(),
+														),
+														(Used::Unicode(index), None) => {
+															let (text, _) = standard()[index];
+															(
+																crate::emoji::image(
+																	ui.ctx(),
+																	text,
+																	32.0,
+																),
+																text.to_owned(),
+																shortcodes()[index].clone(),
+																model::ReactionEmoji {
+																	id: None,
+																	name: Some(text.into()),
+																},
+																text.to_owned(),
+															)
+														}
+														(Used::Custom(_), None) => continue,
+													};
+												let enabled = self.can_pick(state, &emoji, custom);
+												let response = ui
+													.push_id(("frequent", emoji.id, &name), |ui| {
+														cell(
+															ui,
+															image.clone(),
+															&code,
+															enabled,
+															&colors,
+														)
+													})
+													.inner;
+												let response = if enabled {
+													response
+												} else {
+													response.on_hover_text(
+														if self.nitro_locked(state, custom) {
+															crate::i18n::translate(
+																"emoji-picker-popup-requires-nitro",
+															)
+														} else {
+															crate::i18n::translate(
+																"emoji-picker-popup-cannot-add-this-reaction-right-now",
+															)
+														},
+													)
+												};
+												if response.hovered() || response.has_focus() {
+													hovered = Some((image, name, code));
+													hovered_source =
+														custom.map(|(g, _)| g.name.as_str());
 												}
-												if response.clicked() {
-													selected =
-														Some(self.pick(state, emoji, text.into()));
-													used = Some(text);
+												if response.clicked() && enabled {
+													selected = Some(self.pick(state, emoji, text));
+													used = Some(favorite);
 												}
 											}
 										});
@@ -1670,13 +1755,13 @@ impl Picker {
 																	source.map(|g| g.name.as_str());
 															}
 															if response.clicked() && enabled {
-																if source.is_none() {
-																	used = Some(
-																		standard()[unicode
-																			[index - custom.len()]]
-																		.0,
-																	);
-																}
+																used = Some(match emoji.id {
+																	Some(id) => Used::Custom(id),
+																	None => Used::Unicode(
+																		unicode
+																			[index - custom.len()],
+																	),
+																});
 																selected = Some(
 																	self.pick(state, emoji, text),
 																);
@@ -1832,10 +1917,11 @@ impl Picker {
 			// Keep a form field's popout above the dialog that opened it.
 			ui.ctx().set_sublayer(ui.layer_id(), area.response.layer_id);
 		}
-		if self.reaction.is_some()
-			&& let Some(text) = used
+		// Form fields pick an emoji to configure, not to use.
+		if !matches!(self.reaction, Some((Target::Choose { .. }, _, _)))
+			&& let Some(used) = used
 		{
-			self.record(text);
+			self.record_used(used);
 		}
 		match gif_action {
 			Some(GifAction::Refresh) => {
@@ -2986,7 +3072,13 @@ mod tests {
 			assert!(selected && !picker.open);
 			assert_eq!(state.drafts[&channel], "Keep my draft");
 		}
-		assert_eq!(standard()[picker.favorites()[0]].0, "🚀");
+		// Custom reactions rank beside Unicode ones.
+		let rocket = standard()
+			.iter()
+			.position(|(emoji, _)| *emoji == "🚀")
+			.unwrap();
+		assert!(picker.favorites(&state)[..2].contains(&Used::Unicode(rocket)));
+		assert!(picker.favorites(&state)[..2].contains(&Used::Custom(Id(9001))));
 		state.reactions = Default::default();
 		picker.open_reaction(&state, message, anchor, egui::Id::unique("synthetic-react"));
 		frame(
@@ -3222,21 +3314,32 @@ mod tests {
 	#[test]
 	fn favorite_usage_is_ranked_deduplicated_and_bounded() {
 		let mut picker = Picker::default();
-		assert_eq!(picker.favorites().len(), 8);
-		assert_eq!(standard()[picker.favorites()[0]].0, "👍");
+		let state = State::default();
+		let first = |picker: &Picker| match picker.favorites(&state)[0] {
+			Used::Unicode(index) => standard()[index].0,
+			Used::Custom(_) => panic!("no custom emoji are loaded"),
+		};
+		assert_eq!(picker.favorites(&state).len(), 8);
+		assert_eq!(first(&picker), "👍");
 		picker.record("🚀");
 		picker.record("❤️");
 		picker.record("🚀");
-		assert_eq!(standard()[picker.favorites()[0]].0, "🚀");
-		let unique: std::collections::BTreeSet<_> = picker.favorites().into_iter().collect();
-		assert_eq!(unique.len(), 8);
+		assert_eq!(first(&picker), "🚀");
+		// Custom emoji from a server that is no longer loaded leave no hole in the row.
+		picker.record_used(Used::Custom(Id(404)));
+		let favorites = picker.favorites(&state);
+		assert!(!favorites.contains(&Used::Custom(Id(404))));
+		for (index, used) in favorites.iter().enumerate() {
+			assert!(!favorites[..index].contains(used));
+		}
+		assert_eq!(favorites.len(), 8);
 		for (text, _) in standard().iter().take(100) {
 			picker.record(text);
 		}
 		assert_eq!(picker.frequent.len(), 32);
 		assert_eq!(picker.frequent.capacity(), 32);
 		picker.frequent[0].1 = u32::MAX;
-		picker.record(standard()[picker.frequent[0].0].0);
+		picker.record_used(picker.frequent[0].0);
 		assert_eq!(picker.frequent[0].1, u32::MAX);
 	}
 

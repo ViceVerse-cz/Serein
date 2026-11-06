@@ -3629,6 +3629,8 @@ impl MessagingUi {
                             .add_enabled_ui(!application_command && !self.ime_active && !ime_this_frame, |ui| {
                                 self.emoji_picker.hide_nitro_emojis = self.hide_nitro_emojis;
                                 self.emoji_picker.preload = self.preload_on_hover;
+                                // One usage ranking for reactions and the composer.
+                                self.emoji_picker.share_frequent(&self.reaction_picker);
                                 self.emoji_picker
                                     .show(ui, state, channel, &mut self.avatars, commands)
                             })
@@ -3639,7 +3641,7 @@ impl MessagingUi {
                         }
                         let pick = match pick {
                             Some(emoji_picker::Pick::Insert(text)) => {
-                                self.reaction_picker.record(&text);
+                                self.reaction_picker.share_frequent(&self.emoji_picker);
                                 Some(text)
                             },
                             Some(emoji_picker::Pick::React(_, _) | emoji_picker::Pick::Choose(_)) => None,
