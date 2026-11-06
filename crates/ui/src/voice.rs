@@ -671,6 +671,26 @@ impl MessagingUi {
 					if entry.participant.streaming {
 						live_badge(ui);
 					}
+					let clients =
+						crate::profiles::presence(state, entry.participant.user, Some(entry.guild))
+							.3;
+					for (active, icon, label) in [
+						(
+							clients.desktop,
+							crate::icons::Icon::Television,
+							"voice-device-desktop",
+						),
+						(
+							clients.mobile,
+							crate::icons::Icon::DeviceMobile,
+							"voice-device-mobile",
+						),
+						(clients.web, crate::icons::Icon::Globe, "voice-device-web"),
+					] {
+						if active {
+							status_icon(ui, icon, colors.muted, label);
+						}
+					}
 					ui.allocate_ui_with_layout(
 						egui::vec2(ui.available_width(), 28.0),
 						egui::Layout::left_to_right(egui::Align::Center),

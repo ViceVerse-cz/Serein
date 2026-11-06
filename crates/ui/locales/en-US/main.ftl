@@ -4272,6 +4272,12 @@ voice-voice-participant-microphone-muted = Microphone muted
 voice-voice-participant-muted-by-server = Muted by server
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Muted for you on this device
+# Context: voice_participant
+voice-device-desktop = Desktop app
+# Context: voice_participant
+voice-device-mobile = Mobile app
+# Context: voice_participant
+voice-device-web = Web browser
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Install a voice-enabled build to use these controls.
 # Context: voice_popup_content
