@@ -774,6 +774,13 @@ impl State {
 				{
 					return Ok(());
 				}
+				// Automatic ACKs may race an HTTP read acknowledgement. Keep that request
+				// eligible to advance the cursor, but never cross a manual-unread update.
+				let previous_epoch = self
+					.read_state
+					.entries
+					.get(&channel)
+					.map_or(0, |(_, epoch)| *epoch);
 				self.read_state.version = version.or(self.read_state.version);
 				self.read_state.revision = self.read_state.revision.wrapping_add(1);
 				let current = self
@@ -797,6 +804,20 @@ impl State {
 				self.read_state
 					.entries
 					.insert(channel, (message, self.read_state.revision));
+				if !manual
+					&& let Some(Pending::Channel {
+						channel: pending_channel,
+						message: pending_message,
+						epoch,
+						manual: false,
+						..
+					}) = &mut self.read_state.pending
+					&& *pending_channel == channel
+					&& *epoch == previous_epoch
+					&& message.is_none_or(|message| message < *pending_message)
+				{
+					*epoch = self.read_state.revision;
+				}
 				if self.read_state.status(channel).is_some() {
 					self.read_state.status = None;
 				}
@@ -1363,6 +1384,61 @@ mod navigation_tests {
 			generation: state.generation,
 			event,
 		});
+	}
+	#[test]
+	fn automatic_ack_racing_read_result_does_not_restore_unread() {
+		for manual_unread in [false, true] {
+			let mut state = state(Some(Id(100)));
+			let mut other = state.channels[0].clone();
+			other.id = Id(2);
+			state.channels.push(other);
+			let Command::MarkRead {
+				channel,
+				message,
+				request,
+				..
+			} = state.prepare_mark_read(Id(500)).unwrap()
+			else {
+				panic!("expected read acknowledgement");
+			};
+			// An explicit unread action must still win over the pending request,
+			// even if another automatic ACK follows it.
+			if manual_unread {
+				state
+					.apply_read_state(Event::Ack {
+						channel,
+						message: Some(Id(99)),
+						manual: true,
+						mention_count: None,
+						version: None,
+					})
+					.unwrap();
+			}
+			state
+				.apply_read_state(Event::Ack {
+					channel,
+					message: Some(Id(100)),
+					manual: false,
+					mention_count: None,
+					version: None,
+				})
+				.unwrap();
+			state.select(Id(2));
+			state
+				.apply_read_state(Event::Result {
+					channel,
+					message,
+					request,
+					result: Ok(()),
+				})
+				.unwrap();
+			state.select(channel);
+			assert_eq!(
+				state.read_marker(channel),
+				Some(Some(Id(if manual_unread { 100 } else { 500 })))
+			);
+			assert_eq!(state.unread(channel), Some(manual_unread));
+		}
 	}
 	#[test]
 	fn read_failure_is_scoped_and_service_ack_resolves_it_in_either_order() {
