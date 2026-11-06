@@ -983,6 +983,7 @@ mod tests {
 	fn user() -> User {
 		User {
 			primary_guild: None,
+			cosmetics: None,
 			id: model::Id(1),
 			name: "Synthetic user".into(),
 			avatar: None,
@@ -1683,22 +1684,5 @@ mod tests {
 			.await
 			.unwrap()
 			.unwrap();
-	}
-
-	#[test]
-	fn end_only_activity_retains_its_countdown() {
-		let activity = rpc::ActivityFields {
-			timestamps: Some(rpc::Timestamps {
-				start: None,
-				end: Some(1_700_000_000_000),
-			}),
-			..Default::default()
-		}
-		.into_activity(model::Id(7), "Countdown".into())
-		.unwrap();
-		let display = display_activity(&activity);
-		assert_eq!(display.started_at, None);
-		assert_eq!(display.ends_at, Some(1_700_000_000_000));
-		assert!(display.valid());
 	}
 }

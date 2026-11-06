@@ -44,6 +44,8 @@ pub struct Rtp {
 	pub timestamp: u32,
 	pub marker: bool,
 	pub payload_type: u8,
+	/// Discord's unofficial extension 5, only after transport authentication.
+	pub transport_sequence: Option<u16>,
 	pub payload: Vec<u8>,
 }
 /// Feedback for our video SSRC, returned only after the whole compound packet validates.
@@ -121,8 +123,17 @@ impl Encryption {
 	/// Parse authenticated RFC 3550 reports, RFC 4585 PLI/NACK, and WebRTC REMB.
 	/// Invalid trailing packets discard all preceding feedback; NACKs are bounded to 128.
 	pub fn feedback(&self, packet: &[u8], video_ssrc: u32) -> Option<Feedback> {
-		if video_ssrc == 0
-			|| !(28..=MAX_PACKET).contains(&packet.len())
+		if video_ssrc == 0 {
+			return None;
+		}
+		let compound = self.open_rtcp(packet)?;
+		Self::parse_feedback(&compound, video_ssrc)
+	}
+
+	/// Authenticate a control datagram with the same protected header as `seal_rtcp`.
+	/// Callers still validate the complete compound RTCP framing before using its contents.
+	pub fn open_rtcp(&self, packet: &[u8]) -> Option<Vec<u8>> {
+		if !(28..=MAX_PACKET).contains(&packet.len())
 			|| packet[0] >> 6 != 2
 			|| !(192..=223).contains(&packet[1])
 		{
@@ -142,7 +153,10 @@ impl Encryption {
 		let mut compound = Vec::with_capacity(8 + body.len());
 		compound.extend_from_slice(&packet[..8]);
 		compound.extend_from_slice(&body);
-		let mut remaining = compound.as_slice();
+		Some(compound)
+	}
+
+	fn parse_feedback(mut remaining: &[u8], video_ssrc: u32) -> Option<Feedback> {
 		let mut feedback = Feedback::default();
 		while !remaining.is_empty() {
 			if remaining.len() < 4 || remaining[0] >> 6 != 2 || !(192..=223).contains(&remaining[1])
@@ -246,13 +260,15 @@ impl Encryption {
 		}
 		Some(feedback)
 	}
-	/// Authenticate and decrypt one Opus (120), H264 (101) or H264 RTX (102) RTP packet.
+	/// Authenticate and decrypt one advertised Opus, H.264/H.265/AV1 or matching RTX RTP packet.
 	pub fn open(&self, packet: &[u8]) -> Option<Rtp> {
 		if packet.len() < 32
 			|| packet.len() > MAX_PACKET
 			|| packet[0] >> 6 != 2
-			|| !matches!(packet[1] & 0x7f, 120 | 101 | 102)
-		{
+			|| !matches!(
+				packet[1] & 0x7f,
+				96 | 120 | 101 | 102 | 103 | 104 | 105 | 106
+			) {
 			return None;
 		}
 		let csrc_end = 12 + usize::from(packet[0] & 15) * 4;
@@ -273,12 +289,16 @@ impl Encryption {
 				},
 			)
 			.ok()?;
+		let mut transport_sequence = None;
 		if extended {
 			let extension_len = usize::from(u16::from_be_bytes(
 				packet[csrc_end + 2..csrc_end + 4].try_into().ok()?,
 			)) * 4;
 			if extension_len > frame.len() {
 				return None;
+			}
+			if packet[csrc_end..csrc_end + 2] == [0xbe, 0xde] {
+				transport_sequence = Self::transport_sequence(&frame[..extension_len]);
 			}
 			frame.drain(..extension_len);
 		}
@@ -295,8 +315,32 @@ impl Encryption {
 			timestamp: u32::from_be_bytes(packet[4..8].try_into().ok()?),
 			marker: packet[1] & 0x80 != 0,
 			payload_type: packet[1] & 0x7f,
+			transport_sequence,
 			payload: frame,
 		})
+	}
+	fn transport_sequence(mut extensions: &[u8]) -> Option<u16> {
+		let mut sequence = None;
+		while let Some((&header, rest)) = extensions.split_first() {
+			extensions = rest;
+			let id = header >> 4;
+			if id == 0 {
+				continue;
+			}
+			if id == 15 {
+				break;
+			}
+			let length = usize::from(header & 15) + 1;
+			let value = extensions.get(..length)?;
+			extensions = &extensions[length..];
+			if id == 5 {
+				if length != 2 || sequence.is_some() {
+					return None;
+				}
+				sequence = Some(u16::from_be_bytes(value.try_into().ok()?));
+			}
+		}
+		sequence
 	}
 }
 
@@ -310,6 +354,7 @@ pub(crate) struct Dave {
 	pub waiting: bool,
 	channel: u64,
 	pub pending: Option<u16>,
+	pub pending_protocol: Option<u16>,
 	pub ready: bool,
 	pub resets: u8,
 	epochs: u16,
@@ -337,6 +382,7 @@ impl Dave {
 			waiting: false,
 			channel,
 			pending: None,
+			pending_protocol: None,
 			ready: false,
 			resets: 0,
 			epochs: 0,
@@ -357,7 +403,7 @@ impl Dave {
 	pub fn should_wait_for_peer(&self) -> bool {
 		!self.ready
 			&& !self.waiting
-			&& self.pending.is_none()
+			&& !self.transitioning()
 			&& self.alone()
 			&& self.session.group().is_some()
 	}
@@ -406,7 +452,10 @@ impl Dave {
 			return Err("Discord removed this device from the call");
 		}
 		let before = self.participants.len() + self.announced.len();
-		self.participants.retain(|id| *id != user);
+		// The MLS group keeps them until Discord's removal commit; pruned afterwards.
+		if !self.is_group_member(user) {
+			self.participants.retain(|id| *id != user);
+		}
 		self.announced.retain(|id| *id != user);
 		let changed = before != self.participants.len() + self.announced.len();
 		if changed {
@@ -422,6 +471,7 @@ impl Dave {
 			return Err("Unexpected sole-member DAVE transition");
 		}
 		self.pending = None;
+		self.pending_protocol = None;
 		self.ready = false;
 		self.waiting = true;
 		Ok(())
@@ -451,6 +501,7 @@ impl Dave {
 		self.ready = false;
 		self.waiting = false;
 		self.pending = None;
+		self.pending_protocol = None;
 		self.pending_commit = None;
 		self.session
 			.reinit(
@@ -459,7 +510,9 @@ impl Dave {
 				self.channel,
 				Some(&self.identity.0),
 			)
-			.map_err(|_| "DAVE reset failed")
+			.map_err(|_| "DAVE reset failed")?;
+		self.prune();
+		Ok(())
 	}
 	pub fn key_package(&mut self) -> Result<Vec<u8>, &'static str> {
 		// Match libdave and discord.py-self: opcode followed by the raw TLS KeyPackage.
@@ -546,6 +599,9 @@ impl Dave {
 		if payload.len() < 3 || payload.len() > MAX_SIGNAL {
 			return Err("Truncated DAVE group transition");
 		}
+		// Davey keeps the previous epoch's decryption keys for ten seconds, so an
+		// established call keeps its media flowing through a member change.
+		let was_ready = self.ready;
 		self.ready = false;
 		self.waiting = false;
 		self.transition_budget()?;
@@ -569,11 +625,23 @@ impl Dave {
 		}
 		self.validate_group()?;
 		self.pending_commit = None;
+		self.prune();
 		self.pending = Some(transition);
 		if transition == 0 {
 			self.execute(transition)?;
+		} else {
+			self.ready = was_ready;
 		}
 		Ok(transition)
+	}
+	/// Departed members stay authenticated only while the MLS group still contains them.
+	fn prune(&mut self) {
+		let members = self.session.get_user_ids().unwrap_or_default();
+		let (own, peer) = (self.own, self.peer);
+		let announced = &self.announced;
+		self.participants.retain(|id| {
+			*id == own || Some(*id) == peer || announced.contains(id) || members.contains(id)
+		});
 	}
 	fn transition_budget(&mut self) -> Result<(), &'static str> {
 		self.epochs = self
@@ -604,9 +672,33 @@ impl Dave {
 		}
 		Ok(())
 	}
+	/// A transition Discord has prepared but not yet executed.
+	pub fn transitioning(&self) -> bool {
+		self.pending.is_some() || self.pending_protocol.is_some()
+	}
+	/// Unverified: Discord can prepare protocol version 1 before the MLS group exists.
+	/// Only version 1 is accepted, so a protocol transition never changes the media keys.
+	pub fn prepare_protocol(&mut self, id: u16) {
+		self.pending_protocol = Some(id);
+	}
 	pub fn execute(&mut self, id: u16) -> Result<(), &'static str> {
-		if self.pending != Some(id) || !self.session.is_ready() {
+		let is_protocol = self.pending_protocol == Some(id);
+		let is_mls = self.pending == Some(id);
+		if !is_protocol && !is_mls {
 			return Err("Unexpected DAVE encryption transition");
+		}
+		if is_protocol {
+			self.pending_protocol = None;
+		}
+		if !self.session.is_ready() {
+			return if is_protocol {
+				Ok(())
+			} else {
+				Err("Unexpected DAVE encryption transition")
+			};
+		}
+		if !is_mls && self.pending.is_some() {
+			return Ok(());
 		}
 		self.validate_group()?;
 		self.pending = None;
@@ -625,6 +717,33 @@ impl Drop for Dave {
 mod tests {
 	use super::*;
 	use openmls::prelude::{OpenMlsProvider, ProtocolVersion};
+	#[test]
+	fn authenticated_padding_only_video_does_not_break_the_following_picture() {
+		let mut cipher = Encryption::new(&[7; 32]);
+		let mut receivers = crate::video_receive::Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
+		receivers.accept(7, true);
+		let mut header = [0xa0, 101, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0];
+		header[8..12].copy_from_slice(&700u32.to_be_bytes());
+		let packet = cipher.seal(&header, &[0, 0, 3]).unwrap();
+		let rtp = cipher.open(&packet).unwrap();
+		assert!(rtp.payload.is_empty());
+		assert!(
+			receivers
+				.push(
+					rtp.ssrc,
+					rtp.sequence,
+					rtp.timestamp,
+					rtp.marker,
+					&rtp.payload
+				)
+				.is_none()
+		);
+		assert!(receivers.push(700, 3, 1800, true, &[0x41, 2]).is_some());
+		assert!(receivers.accept(7, false));
+		assert_eq!(receivers.take_stats().incomplete, 0);
+	}
 	#[test]
 	fn proposals_before_local_group_are_ignored_without_weakening_later_validation() {
 		let server = crate::test_mls::Delivery::new();
@@ -833,7 +952,7 @@ mod tests {
 		let opened = crypto.open(&sealed).unwrap();
 		assert!(opened.marker && opened.payload_type == 101 && opened.timestamp == 1);
 		let mut other = header;
-		other[1] = 96;
+		other[1] = 97;
 		let sealed = crypto.seal(&other, b"x").unwrap();
 		assert!(crypto.open(&sealed).is_none());
 		for i in 0..packet.len() {
@@ -865,6 +984,35 @@ mod tests {
 		assert_eq!(
 			crypto.open(&extension_packet).unwrap().payload,
 			vec![9, 8, 7]
+		);
+		// Extension metadata is authenticated just like the payload. Only complete,
+		// unambiguous one-byte extension 5 may drive transport-wide feedback.
+		let mut probe_header = header.to_vec();
+		probe_header[0] = 0xb0;
+		probe_header[1] = 96;
+		probe_header.extend([0xbe, 0xde, 0, 1]);
+		let probe = crypto
+			.seal_packet(&probe_header, &[0x51, 0xff, 0xfe, 0, 0, 0, 3])
+			.unwrap();
+		let opened = crypto.open(&probe).unwrap();
+		assert_eq!(opened.transport_sequence, Some(65534));
+		assert!(opened.payload.is_empty());
+		for i in 0..probe.len() {
+			let mut changed = probe.clone();
+			changed[i] ^= 1;
+			assert!(crypto.open(&changed).is_none());
+		}
+		for extension in [
+			&[0x51, 1][..],
+			&[0x50, 1],
+			&[0x51, 0, 1, 0x51, 0, 2],
+			&[0x51, 0, 1, 0x2f],
+		] {
+			assert_eq!(Encryption::transport_sequence(extension), None);
+		}
+		assert_eq!(
+			Encryption::transport_sequence(&[0, 0x51, 0, 7, 0xf0]),
+			Some(7)
 		);
 		crypto.counter = u32::MAX;
 		assert!(crypto.seal(&header, b"x").is_err());

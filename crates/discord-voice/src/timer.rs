@@ -3,15 +3,61 @@
 //! Windows rounds every timed wait up to its 15.6 ms default tick, which turns 20 ms Opus
 //! ticks into jitter and 1-2 ms video pacing sleeps into a frame-rate cap. Like browsers
 //! during calls, raise the resolution to 1 ms only while a media loop is running.
+//!
+//! Windows 11 also drops that request, and may run the process on efficiency cores, once
+//! every Serein window is minimized or covered (a streamer's game). Media loops opt the
+//! process out of that power throttling until the last one ends.
 use std::future::Future;
 
-struct Resolution {
+pub(crate) struct Resolution {
 	#[cfg(target_os = "windows")]
 	raised: bool,
 }
 
+#[cfg(target_os = "windows")]
+static THROTTLING_OPT_OUTS: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+
+/// Opts the process out of (`true`) or back into (`false`) Windows power throttling.
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn exempt_from_power_throttling(exempt: bool) {
+	use windows::Win32::System::Threading::{
+		GetCurrentProcess, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+		PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+		PROCESS_POWER_THROTTLING_STATE, ProcessPowerThrottling, SetProcessInformation,
+	};
+	// A zero control mask hands both policies back to the system.
+	let state = PROCESS_POWER_THROTTLING_STATE {
+		Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+		ControlMask: if exempt {
+			PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+				| PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+		} else {
+			0
+		},
+		StateMask: 0,
+	};
+	// SAFETY: The pseudo-handle needs no closing; the struct outlives the call and its size
+	// is passed exactly. Older Windows rejects unknown flags, which only keeps the default.
+	let _ = unsafe {
+		SetProcessInformation(
+			GetCurrentProcess(),
+			ProcessPowerThrottling,
+			(&raw const state).cast(),
+			size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+		)
+	};
+}
+
 impl Resolution {
-	fn acquire() -> Self {
+	pub(crate) fn acquire() -> Self {
+		#[cfg(target_os = "windows")]
+		if let Ok(mut count) = THROTTLING_OPT_OUTS.lock() {
+			if *count == 0 {
+				exempt_from_power_throttling(true);
+			}
+			*count += 1;
+		}
 		#[cfg(target_os = "windows")]
 		#[allow(unsafe_code)]
 		// SAFETY: A process-scoped request, balanced by timeEndPeriod in Drop on success.
@@ -31,6 +77,13 @@ impl Drop for Resolution {
 			// SAFETY: Balances the successful timeBeginPeriod(1) in acquire.
 			unsafe {
 				windows::Win32::Media::timeEndPeriod(1);
+			}
+		}
+		#[cfg(target_os = "windows")]
+		if let Ok(mut count) = THROTTLING_OPT_OUTS.lock() {
+			*count = count.saturating_sub(1);
+			if *count == 0 {
+				exempt_from_power_throttling(false);
 			}
 		}
 	}

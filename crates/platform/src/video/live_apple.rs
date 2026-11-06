@@ -10,7 +10,7 @@ use objc2_core_media::{
 	CMBlockBuffer, CMFormatDescription, CMSampleBuffer, CMSampleTimingInfo, CMTime, CMTimeFlags,
 	CMVideoFormatDescriptionCreateFromH264ParameterSets, kCMBlockBufferAssureMemoryNowFlag,
 };
-use objc2_core_video::{CVImageBuffer, kCVPixelFormatType_32BGRA};
+use objc2_core_video::CVImageBuffer;
 use objc2_video_toolbox::{
 	VTDecodeFrameFlags, VTDecodeInfoFlags, kVTVideoDecoderBadDataErr,
 	kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder,
@@ -27,7 +27,7 @@ const TIMESCALE: i32 = 90_000;
 const MAX_ASYNC_PICTURES: i64 = 3;
 
 struct Output {
-	sink: Sink,
+	sink: super::TimedLiveSink,
 	error: Option<&'static str>,
 }
 
@@ -50,6 +50,9 @@ pub struct H264Decoder {
 
 impl H264Decoder {
 	pub fn new(sink: Sink) -> Result<Self, &'static str> {
+		Self::new_timed(Box::new(move |frame, _| sink(frame)))
+	}
+	pub fn new_timed(sink: super::TimedLiveSink) -> Result<Self, &'static str> {
 		Ok(Self {
 			active: None,
 			output: Arc::new(Mutex::new(Output { sink, error: None })),
@@ -60,6 +63,12 @@ impl H264Decoder {
 	/// Queue one Annex-B access unit. An error from an earlier picture surfaces here, so
 	/// the caller can recover with a keyframe or fall back.
 	pub fn decode(&mut self, access_unit: &[u8]) -> Result<(), &'static str> {
+		self.decode_timed(access_unit, (self.pictures as u64 + 1) * 33)
+	}
+	pub fn decode_timed(&mut self, access_unit: &[u8], tag: u64) -> Result<(), &'static str> {
+		if tag > i64::MAX as u64 / 1_000_000 {
+			return Err(INVALID);
+		}
 		if access_unit.len() > MAX_ACCESS_UNIT {
 			return Err(INVALID);
 		}
@@ -88,8 +97,7 @@ impl H264Decoder {
 			self.active = None;
 			let format = format_description(sps, pps)?;
 			let refcon = Arc::as_ptr(&self.output).cast_mut().cast::<c_void>();
-			// BGRA is the output every VideoToolbox decoder provides; RGBA sessions are created
-			// but fail on the first picture.
+			// Hardware decoders produce bi-planar 4:2:0 natively; the renderer converts colour.
 			// SAFETY: The static key is valid; the dictionary lives through session creation.
 			let specification = unsafe {
 				CFDictionary::from_slices(
@@ -101,7 +109,7 @@ impl H264Decoder {
 				&format,
 				refcon,
 				output_frame,
-				kCVPixelFormatType_32BGRA,
+				&apple::NV12_FORMATS,
 				Some(specification.as_opaque()),
 			)?;
 			self.active = Some(Active {
@@ -135,8 +143,8 @@ impl H264Decoder {
 		};
 		let timing = CMSampleTimingInfo {
 			duration: time(0),
-			presentationTimeStamp: time(self.pictures * 3000),
-			decodeTimeStamp: time(self.pictures * 3000),
+			presentationTimeStamp: time(tag as i64 * 90),
+			decodeTimeStamp: time(tag as i64 * 90),
 		};
 		// SAFETY: Every out-pointer refers to an initialized local. The block buffer owns a
 		// private copy of the bytes; the output slot outlives the session (field order).
@@ -274,7 +282,7 @@ unsafe extern "C-unwind" fn output_frame(
 	status: i32,
 	flags: VTDecodeInfoFlags,
 	image: *mut CVImageBuffer,
-	_pts: CMTime,
+	pts: CMTime,
 	_duration: CMTime,
 ) {
 	if refcon.is_null() {
@@ -298,12 +306,11 @@ unsafe extern "C-unwind" fn output_frame(
 		return;
 	}
 	// SAFETY: VideoToolbox keeps the image buffer alive for the duration of the callback.
-	match unsafe { apple::copy_rgba(&*image) } {
-		Ok((width, height, rgba)) => (output.sink)(Frame {
-			width,
-			height,
-			rgba,
-		}),
+	match unsafe { apple::copy_nv12(&*image, super::check_live_dimensions) } {
+		Ok(picture) if pts.timescale > 0 && pts.value >= 0 => {
+			(output.sink)(picture, (pts.value as u64 * 1000) / pts.timescale as u64)
+		}
+		Ok(_) => output.error = Some(INVALID),
 		Err(error) => output.error = Some(error),
 	}
 }

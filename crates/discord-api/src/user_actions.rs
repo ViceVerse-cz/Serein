@@ -47,6 +47,54 @@ impl DiscordApi {
 		}
 		Ok(channel)
 	}
+	/// Creates one group DM for two to nine other people; the service adds this account.
+	pub(super) async fn create_group(
+		&self,
+		recipients: &[model::Id],
+	) -> Result<model::Channel, Failure> {
+		let mut people = recipients.to_vec();
+		people.sort_unstable_by_key(|id| id.0);
+		people.dedup();
+		if !(2..=client_core::user_actions::MAX_GROUP_RECIPIENTS).contains(&people.len())
+			|| people.iter().any(|id| id.0 == 0)
+		{
+			return Err(Failure::Protocol);
+		}
+		let bytes = self
+			.request_limited(
+				Method::POST,
+				"/users/@me/channels",
+				Some(json!({"recipients": people})),
+				64 * 1024,
+			)
+			.await
+			.map_err(|failure| {
+				if failure == Failure::Capacity {
+					Failure::Ambiguous
+				} else {
+					failure
+				}
+			})?;
+		let channel: discord_protocol::ChannelDto =
+			discord_protocol::decode(&bytes).map_err(|_| Failure::Ambiguous)?;
+		let channel = channel.into_model();
+		let named = channel
+			.recipients
+			.iter()
+			.all(|entry| people.contains(&entry.id))
+			&& people
+				.iter()
+				.all(|id| channel.recipients.iter().any(|entry| entry.id == *id));
+		if channel.id.0 == 0
+			|| channel.guild.is_some()
+			|| channel.kind != 3
+			|| channel.recipients.len() > client_core::user_actions::MAX_GROUP_RECIPIENTS
+			|| !named || channel.recipients.iter().any(|entry| entry.webhook)
+		{
+			return Err(Failure::Ambiguous);
+		}
+		Ok(channel)
+	}
 	/// Reads one user's private note, treating a missing note as empty.
 	pub(super) async fn user_note(&self, user: model::Id) -> Result<String, Failure> {
 		if user.0 == 0 {
@@ -110,18 +158,22 @@ impl DiscordApi {
 			| Action::Note { user: id, .. }
 			| Action::Nickname { user: id, .. } => id,
 			Action::AddFriend { .. } => unreachable!(),
+			Action::CreateGroup { .. } => unreachable!(),
 			Action::ResolveFriend { user, .. } | Action::ProfileFriend { user, .. } => user,
 			Action::OpenDm(id)
 			| Action::CloseDm(id)
 			| Action::Block { user: id, .. }
 			| Action::Ignore { user: id, .. }
-			| Action::Mute { channel: id, .. } => id,
+			| Action::Mute { channel: id, .. }
+			| Action::MessageRequest { channel: id, .. } => id,
 		};
 		if id.0 == 0 {
 			return Err(Failure::Protocol);
 		}
 		match action {
-			Action::LoadNote(_) | Action::OpenDm(_) => Err(Failure::Protocol),
+			Action::LoadNote(_) | Action::OpenDm(_) | Action::CreateGroup { .. } => {
+				Err(Failure::Protocol)
+			}
 			Action::Note { user, text } | Action::Nickname { user, text } => {
 				let nickname = matches!(action, Action::Nickname { .. });
 				if !client_core::user_actions::valid_personal_text(text, nickname) {
@@ -144,25 +196,43 @@ impl DiscordApi {
 			}
 			Action::AddFriend { .. } => unreachable!(),
 			Action::ResolveFriend { user, accept } => {
-				let (method, body) = if *accept {
-					(Method::PUT, Some(json!({})))
-				} else {
-					(Method::DELETE, None)
-				};
 				let path = format!("/users/@me/relationships/{user}");
-				if *accept {
-					self.request_with_captcha(
-						method,
+				if !*accept {
+					return self.request(Method::DELETE, &path, None).await.map(|_| ());
+				}
+				// The challenge slot is reborrowed per attempt so a solved challenge can
+				// resume this same write.
+				let mut challenge = challenge;
+				match self
+					.request_with_captcha(
+						Method::PUT,
 						&path,
-						body,
+						Some(json!({})),
 						crate::MAX_WIRE,
 						captcha,
-						challenge,
+						challenge.as_deref_mut(),
 					)
 					.await
-					.map(|_| ())
-				} else {
-					self.request(method, &path, body).await.map(|_| ())
+				{
+					Ok(_) => Ok(()),
+					// Discord leaves it to the client to confirm a request from someone it
+					// considers a stranger; the account owner already chose Accept, so resend
+					// once with that confirmation, as the official client does after its
+					// warning. A relationship PUT assigns state, so the visible allow/deny
+					// outcome belongs to the account owner's own click.
+					// Reference: discord.py-self `Relationship.accept(confirm_stranger_request)`.
+					Err(Failure::Protocol | Failure::Forbidden) => self
+						.request_with_captcha(
+							Method::PUT,
+							&path,
+							Some(json!({"confirm_stranger_request": true})),
+							crate::MAX_WIRE,
+							captcha,
+							challenge,
+						)
+						.await
+						.map(|_| ()),
+					Err(failure) => Err(failure),
 				}
 			}
 			Action::ProfileFriend { user, friend } => {
@@ -222,6 +292,18 @@ impl DiscordApi {
 				)
 				.await
 				.map(|_| ()),
+			// Unverified: the routes mirror the official client's message-request accept and ignore;
+			// no checked reference documents them. The gateway's channel update confirms the outcome.
+			Action::MessageRequest { channel, accept } => {
+				let path = format!("/channels/{channel}/recipients/@me");
+				if *accept {
+					self.request(Method::PUT, &path, Some(json!({"consent_status": 2})))
+						.await
+						.map(|_| ())
+				} else {
+					self.request(Method::DELETE, &path, None).await.map(|_| ())
+				}
+			}
 			Action::Mute { channel, muted } => {
 				// Unmuting clears the config; a leftover "forever" window keeps the mute on the service.
 				let mute_config =
@@ -313,6 +395,90 @@ mod tests {
 			assert_eq!((user, request, result), (Id(2), 7, expected));
 		}
 	}
+	/// Regression: one POST creates a group, with each chosen recipient once and sorted.
+	#[tokio::test]
+	async fn creating_a_group_posts_sorted_recipients_once_and_admits_only_a_group() {
+		for (body, created) in [
+			(
+				r#"{"id":"9","type":3,"name":null,"recipients":[{"id":"2","username":"a"},{"id":"3","username":"b"}]}"#,
+				true,
+			),
+			(
+				r#"{"id":"9","type":1,"recipients":[{"id":"2","username":"a"}]}"#,
+				false,
+			),
+		] {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_GROUP_TOKEN".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let server = async {
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut bytes = Vec::new();
+				let mut body_from = None;
+				while body_from.is_none() {
+					let mut chunk = [0; 1024];
+					let count = socket.read(&mut chunk).await.unwrap();
+					assert!(count > 0 && bytes.len() + count <= 4096);
+					bytes.extend_from_slice(&chunk[..count]);
+					let Some(end) = bytes.windows(4).position(|b| b == b"\r\n\r\n") else {
+						continue;
+					};
+					let head = std::str::from_utf8(&bytes[..end]).unwrap();
+					assert!(head.starts_with("POST /users/@me/channels HTTP/1.1"));
+					let length: usize = head
+						.lines()
+						.find_map(|line| {
+							line.to_ascii_lowercase()
+								.strip_prefix("content-length: ")
+								.map(|value| value.trim().parse().unwrap())
+						})
+						.unwrap();
+					if bytes.len() >= end + 4 + length {
+						body_from = Some((end + 4, length));
+					}
+				}
+				let (from, length) = body_from.unwrap();
+				let sent: serde_json::Value =
+					serde_json::from_slice(&bytes[from..from + length]).unwrap();
+				assert_eq!(sent, json!({"recipients": ["2", "3"]}));
+				socket
+					.write_all(
+						format!(
+							"HTTP/1.1 201 Created\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+							body.len()
+						)
+						.as_bytes(),
+					)
+					.await
+					.unwrap();
+			};
+			let (event, ()) = tokio::join!(
+				api.execute(Command::UserAction {
+					action: Action::CreateGroup {
+						recipients: vec![Id(3), Id(2), Id(2)],
+					},
+					request: 11,
+					captcha: None,
+				}),
+				server
+			);
+			let Event::UserAction(client_core::user_actions::Event::GroupCreated {
+				request,
+				recipients,
+				result,
+			}) = event
+			else {
+				panic!("expected one group result")
+			};
+			// The wire carried the deduplicated list; the event echoes the request it answered.
+			assert_eq!((request, recipients), (11, vec![Id(3), Id(2), Id(2)]));
+			assert_eq!(result.is_ok(), created);
+		}
+	}
+
 	/// Regression: account and friend actions use scoped routes and confirm outcomes.
 	#[tokio::test]
 	async fn account_and_friend_request_actions_use_scoped_routes_and_confirm_remote_outcomes() {
@@ -693,6 +859,81 @@ mod tests {
 			Event::UserAction(client_core::user_actions::Event::Written { result: Ok(()), .. })
 		));
 		assert!(!api.stopped());
+		server.await.unwrap();
+	}
+	/// Regression: Discord can require an explicit stranger confirmation to accept a request.
+	#[tokio::test]
+	async fn accepting_a_stranger_request_resends_once_with_the_confirmation() {
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_STRANGER_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let server = tokio::spawn(async move {
+			for attempt in 0..2 {
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut bytes = Vec::new();
+				let mut length = None;
+				while !bytes.windows(4).any(|b| b == b"\r\n\r\n")
+					|| bytes.len() < length.unwrap_or(0)
+				{
+					let mut chunk = [0; 1024];
+					let count = socket.read(&mut chunk).await.unwrap();
+					assert!(count > 0 && bytes.len() + count <= 8192);
+					bytes.extend_from_slice(&chunk[..count]);
+					if let Some(end) = bytes.windows(4).position(|b| b == b"\r\n\r\n") {
+						length = std::str::from_utf8(&bytes[..end])
+							.unwrap()
+							.lines()
+							.find_map(|h| {
+								h.to_ascii_lowercase()
+									.strip_prefix("content-length: ")
+									.map(|n| end + 4 + n.parse::<usize>().unwrap())
+							});
+					}
+				}
+				let end = bytes.windows(4).position(|b| b == b"\r\n\r\n").unwrap();
+				let headers = std::str::from_utf8(&bytes[..end]).unwrap();
+				assert!(headers.starts_with("PUT /users/@me/relationships/2 HTTP/1.1\r\n"));
+				let body: serde_json::Value = serde_json::from_slice(&bytes[end + 4..]).unwrap();
+				let (status, response) = if attempt == 0 {
+					// No captcha fields: the service wants the stranger confirmation.
+					assert_eq!(body, json!({}));
+					(
+						"400 Bad Request",
+						r#"{"code":50035,"message":"Must confirm stranger request"}"#,
+					)
+				} else {
+					assert_eq!(body, json!({"confirm_stranger_request": true}));
+					("204 No Content", "")
+				};
+				socket
+					.write_all(
+						format!(
+							"HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
+							response.len()
+						)
+						.as_bytes(),
+					)
+					.await
+					.unwrap();
+			}
+		});
+		let event = api
+			.execute(Command::UserAction {
+				action: Action::ResolveFriend {
+					user: Id(2),
+					accept: true,
+				},
+				request: 4,
+				captcha: None,
+			})
+			.await;
+		assert!(matches!(
+			event,
+			Event::UserAction(client_core::user_actions::Event::Written { result: Ok(()), .. })
+		));
 		server.await.unwrap();
 	}
 }

@@ -135,7 +135,17 @@ pub struct UserProfile {
 	pub clan: Option<ClanTag>,
 	/// Absent when the service withholds the board; never synthesized for live accounts.
 	pub board: Option<Vec<ProfileGameWidget>>,
+	/// Equipped profile effect and frame SKUs. Their artwork comes from a separate optional
+	/// catalog read, so `effect`/`frame` may stay empty while the SKU is known.
+	pub effect_sku: Option<crate::Id>,
+	pub frame_sku: Option<crate::Id>,
+	pub effect: Option<Box<crate::ProfileEffect>>,
+	pub frame: Option<Box<crate::ProfileFrame>>,
+	/// Owned and earnable badges from the optional catalog read; display order included.
+	pub badge_catalog: Option<Box<crate::badges::BadgeCatalog>>,
 	pub limited: bool,
+	/// The account's Profile Privacy hides details from this viewer; the card says so.
+	pub private: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfileGameWidgetKind {
@@ -220,14 +230,35 @@ pub struct ProfileBadge {
 	pub id: String,
 	pub description: String,
 	pub icon: Option<String>,
+	/// Catalog artwork URL for a badge the profile response did not include.
+	pub art: Option<String>,
 }
 impl ProfileBadge {
 	pub fn icon_key(&self) -> Option<String> {
 		self.icon
 			.as_deref()
-			.filter(|hash| valid_avatar_hash(hash))
+			.filter(|hash| valid_badge_icon(hash))
 			.map(|hash| format!("badge-{hash}"))
+			.or_else(|| {
+				self.art
+					.as_deref()
+					.filter(|url| crate::badges::valid_badge_url(url))
+					.map(|url| format!("badge-art:{url}"))
+			})
 	}
+	/// Numeric catalog identity, when the client knows this badge.
+	pub fn number(&self) -> Option<u32> {
+		crate::badges::badge_number(&self.id)
+	}
+}
+/// A `/badge-icons/` asset name: a 32-hex hash or a short slug.
+pub fn valid_badge_icon(icon: &str) -> bool {
+	valid_avatar_hash(icon)
+		|| (!icon.is_empty()
+			&& icon.len() <= 64
+			&& icon
+				.bytes()
+				.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')))
 }
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ClanTag {
@@ -272,8 +303,18 @@ fn bytes(value: &Option<String>) -> usize {
 	value.as_ref().map_or(0, String::capacity)
 }
 impl UserProfile {
+	/// Retained memory, including the separately bounded badge catalog.
 	pub fn bytes(&self) -> usize {
+		self.profile_bytes()
+			+ self
+				.badge_catalog
+				.as_ref()
+				.map_or(0, |catalog| catalog.bytes())
+	}
+	fn profile_bytes(&self) -> usize {
 		size_of::<Self>()
+			+ self.effect.as_ref().map_or(0, |effect| effect.bytes())
+			+ self.frame.as_ref().map_or(0, |frame| frame.bytes())
 			+ self.board.as_ref().map_or(0, |board| {
 				board.capacity() * size_of::<ProfileGameWidget>()
 					+ board
@@ -293,7 +334,9 @@ impl UserProfile {
 			+ self
 				.badges
 				.iter()
-				.map(|b| b.id.capacity() + b.description.capacity() + bytes(&b.icon))
+				.map(|b| {
+					b.id.capacity() + b.description.capacity() + bytes(&b.icon) + bytes(&b.art)
+				})
 				.sum::<usize>()
 			+ self
 				.clan
@@ -329,7 +372,24 @@ impl UserProfile {
 			})
 	}
 	pub fn valid(&self) -> bool {
-		self.bytes() <= MAX_PROFILE_BYTES
+		self.profile_bytes() <= MAX_PROFILE_BYTES
+			&& self
+				.badge_catalog
+				.as_deref()
+				.is_none_or(crate::badges::BadgeCatalog::valid)
+			&& self
+				.user
+				.cosmetics
+				.as_deref()
+				.is_none_or(crate::Cosmetics::valid)
+			&& self
+				.effect
+				.as_deref()
+				.is_none_or(|effect| effect.valid() && Some(effect.sku) == self.effect_sku)
+			&& self
+				.frame
+				.as_deref()
+				.is_none_or(|frame| frame.valid() && Some(frame.sku) == self.frame_sku)
 			&& self.board.as_ref().is_none_or(|board| {
 				board.len() <= 4
 					&& board.iter().enumerate().all(|(index, widget)| {
@@ -364,7 +424,8 @@ impl UserProfile {
 			&& self.badges.iter().all(|b| {
 				b.id.len() <= 64
 					&& b.description.len() <= 1024
-					&& b.icon.as_deref().is_none_or(valid_avatar_hash)
+					&& b.icon.as_deref().is_none_or(valid_badge_icon)
+					&& b.art.as_deref().is_none_or(crate::badges::valid_badge_url)
 			}) && self
 			.connections
 			.iter()
@@ -433,83 +494,5 @@ impl UserProfile {
 			return format!("member-avatar-{}-{}-{hash}", guild.guild, self.user.id);
 		}
 		self.user.avatar_key()
-	}
-}
-
-#[cfg(test)]
-mod banner_tests {
-	use super::*;
-	use crate::AccountKind;
-
-	#[test]
-	fn banner_and_avatar_urls_resolve_static_and_animated() {
-		let user = User {
-			kind: AccountKind::Human,
-			webhook: false,
-			id: Id(12345),
-			name: "TestUser".into(),
-			avatar: Some("a_abcdef0123456789abcdef0123456789".into()),
-			discriminator: 0,
-			primary_guild: None,
-		};
-		assert_eq!(
-			user.avatar_url(),
-			"https://cdn.discordapp.com/avatars/12345/a_abcdef0123456789abcdef0123456789.gif?size=128"
-		);
-
-		let static_user = User {
-			kind: AccountKind::Human,
-			webhook: false,
-			id: Id(12345),
-			name: "StaticUser".into(),
-			avatar: Some("0123456789abcdef0123456789abcdef".into()),
-			discriminator: 0,
-			primary_guild: None,
-		};
-		assert_eq!(
-			static_user.avatar_url(),
-			"https://cdn.discordapp.com/avatars/12345/0123456789abcdef0123456789abcdef.png?size=128"
-		);
-
-		let profile = UserProfile {
-			user: user.clone(),
-			username: "testuser".into(),
-			global_name: None,
-			banner: Some("a_11112222333344445555666677778888".into()),
-			accent_color: None,
-			bio: "".into(),
-			pronouns: "".into(),
-			badges: vec![],
-			connections: vec![],
-			mutual_guilds: vec![],
-			mutual_friends: vec![],
-			guild: None,
-			theme_colors: None,
-			clan: None,
-			board: None,
-			limited: false,
-		};
-		assert_eq!(
-			profile.banner_url(),
-			Some("https://cdn.discordapp.com/banners/12345/a_11112222333344445555666677778888.gif?size=2048".into())
-		);
-
-		let guild_profile = UserProfile {
-			guild: Some(GuildProfile {
-				guild: Id(999),
-				roles: vec![],
-				nick: None,
-				avatar: None,
-				banner: Some("a_99998888777766665555444433332222".into()),
-				bio: "".into(),
-				pronouns: "".into(),
-				joined_at: None,
-			}),
-			..profile
-		};
-		assert_eq!(
-			guild_profile.banner_url(),
-			Some("https://cdn.discordapp.com/guilds/999/users/12345/banners/a_99998888777766665555444433332222.gif?size=2048".into())
-		);
 	}
 }

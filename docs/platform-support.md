@@ -7,8 +7,13 @@ preferences. Outer position is saved in physical pixels where the window system
 supports it (including Linux X11); disconnected-monitor positions are ignored.
 Restoration fits the complete outer window to the selected monitor's dimensions,
 shrinking it and moving it inward when the display has become smaller. The normal
-minimum size is relaxed if necessary to fit that display.
+minimum size is relaxed if necessary to fit that display and recalculated when
+the window moves or its native scale changes, restoring 760 × 520 logical pixels
+when the current display can accommodate the window and its decorations.
 Minimized, hidden, maximized and fullscreen states do not replace normal geometry.
+Closing frames do not overwrite the saved geometry.
+A changed placement is saved once sampled unchanged for at least 500 ms, so a drag or resize queues no
+write per frame. Maximizing retains the latest sampled normal placement for restoration; a placement sampled just before the window closes or hides is still saved.
 The offline `--demo` ignores saved geometry and does not save its window state.
 
 Wayland does not expose global window coordinates to ordinary clients, so window
@@ -39,6 +44,15 @@ available (for example, `dx12` or `vulkan`). Affected users confirmed that forci
 DX12 launches successfully; the new default still needs native Windows validation.
 macOS and Linux retain their existing backend defaults.
 
+Adapter selection prefers a real GPU over a software rasterizer whichever backend presents it.
+Windows offers WARP ("Microsoft Basic Render Driver") as its Direct3D adapter on hardware that
+predates DX12, and drawing the client on the CPU that way freezes a machine whose GPU still
+presents through OpenGL. Windows therefore enumerates DirectX 12 and OpenGL (Vulkan stays out
+for the reason above), so both candidates exist for that ranking, and the chosen adapter is
+still printed to stderr. When only a software rasterizer is left, the client logs that fact and
+names the `WGPU_BACKEND=gl` override, which forces the OpenGL driver; when that software
+adapter is already an OpenGL one, it suggests installing the GPU driver instead.
+
 Windows turns off winit's undecorated drop-shadow hack after the window exists, including
 after title-bar changes. egui-winit enables that hack for custom chrome. While restored it
 adds one pixel to `WM_NCCALCSIZE` top and bottom. Maximizing skips the shift, which is why
@@ -58,9 +72,18 @@ driver/DWM presentation on that machine. Windows visual acceptance remains unver
 
 The custom title strip requests a native window move on the initial primary-button press,
 including over its nonselectable context title. It does not wait for egui's text/drag threshold.
-Caption buttons and other clickable title-strip controls keep their own actions; Windows
-double-click maximize/restore remains available. Synthetic egui input tests check command
-dispatch, not native OS window movement, which still requires a desktop interaction check.
+On Windows, the custom title strip paints native-fidelity Windows 11 caption buttons
+(minimize, maximize/restore, close) flush in the top-right corner. Custom resize hit testing
+excludes the caption buttons area so edge/corner resizing does not intercept corner clicks on
+Close. Caption buttons keep their own actions; Windows double-click maximize/restore remains
+available. Synthetic egui input tests check command dispatch, including corner hit testing.
+On Windows, dragging the strip runs the OS move loop, which paints synchronously and waits for
+vsync before the next move. Serein therefore skips repaints for window moves and raw mouse motion
+(a patched egui-winit; see `vendor/egui-winit/SEREIN-PATCH.md`) and reapplies the minimum size
+only when it changes, so an otherwise idle window follows the cursor like a native one. Continuous
+rendering, such as an animation or playing video, still paces a drag to the display refresh rate.
+Synthetic `SendInput` drags on Windows 11 are measured in `docs/performance.md`; physical-mouse
+behavior on other machines and native macOS/Linux window movement remain unverified.
 On Windows and macOS, General settings can hide this 36 px strip and use the native title bar
 and window buttons instead. The device preference defaults to showing the custom strip and
 is saved with other app preferences; older saved settings keep that default. macOS switches
@@ -96,7 +119,7 @@ the initial fast local pass.
 
 `cargo xtask package` builds the locked default release configuration. macOS gets `dist/Serein.app`; Windows gets an executable plus license files; Debian/Ubuntu Linux additionally produces a `.deb` with desktop integration and dependency metadata. On macOS, packaging replaces the executable through a fresh sibling file and rename, then seals the completed bundle with `codesign --force --sign -` and runs `codesign --verify --strict`. This is a **local ad-hoc signature**, with no signing identity, Developer ID certificate, or notarization. It verifies the staged bundle's integrity and does not certify Gatekeeper acceptance or a trusted publisher. The distinction between signature validity and trust is described in [Apple's code-signing guidance](https://developer.apple.com/library/archive/technotes/tn2206/_index.html).
 
-Windows/Linux local staging artifacts remain unsigned. These are not certified installers. Use `ditto -c -k --keepParent dist/Serein.app dist/Serein-macos.zip` on macOS; normal archive tools may package Windows staging output. Do not modify bundle resources after sealing; rerun packaging when source documentation changes. Linux additionally supports `--format rpm`, `--format arch` and `--format dir`; release jobs target Ubuntu 26.04 (x86_64 and ARM64), Fedora 43/44, openSUSE Tumbleweed and Arch independently. Fedora 43 packaging was added in a local fast pass; its build and installation remain unverified until Linux CI and desktop validation. [Flatpak](../packaging/flatpak/README.md) builds offline against GNOME SDK 49 with the pinned Rust compiler and locked vendored sources. Its sandbox currently excludes direct V4L2 camera access, and host game IPC needs the documented socket link; desktop login/keyring/audio still need Linux runtime validation. [Signed repository preparation](../packaging/repositories/README.md) supports apt, dnf/zypper and pacman, but requires configured signing credentials and an HTTPS host; preparing artifacts does not publish repositories. Windows installer/signing and release reproducibility remain open work.
+Windows/Linux local staging artifacts remain unsigned. These are not certified installers. Use `ditto -c -k --keepParent dist/Serein.app dist/Serein-macos.zip` on macOS; normal archive tools may package Windows staging output. Do not modify bundle resources after sealing; rerun packaging when source documentation changes. Linux additionally supports `--format rpm`, `--format arch` and `--format dir`; release jobs target Ubuntu 26.04 (x86_64 and ARM64), Fedora 43/44, openSUSE Tumbleweed and Arch independently. Fedora 43 packaging was added in a local fast pass; its build and installation remain unverified until Linux CI and desktop validation. [Flatpak](../packaging/flatpak/README.md) builds offline against GNOME SDK 51 with the pinned Rust compiler and locked vendored sources. Its sandbox currently excludes direct V4L2 camera access, and host game IPC needs the documented socket link; desktop login/keyring/audio still need Linux runtime validation. [Signed repository preparation](../packaging/repositories/README.md) supports apt, dnf/zypper and pacman, but requires configured signing credentials and an HTTPS host; preparing artifacts does not publish repositories. Windows installer/signing and release reproducibility remain open work.
 
 The webview lives only during login: WKWebView on macOS, WebView2 on Windows, GTK/WebKitGTK on Linux. Linux uses a separate GTK authentication window and pumps it only while login is active. Voice is built in. Audio devices open only for explicit playback, device testing, or a call reaching required encrypted readiness. Popup-dependent authentication and third-party embedded challenges may not work; do not claim all Discord login methods without live tests.
 
@@ -115,6 +138,30 @@ selects Dark; no preference selects Light. If detection fails entirely, the
 existing Dark fallback remains. Windows/macOS retain winit's system theme events.
 Real Linux desktop/portal rendering is unverified in this macOS repair session.
 
+## Go idle when away
+
+The Notifications setting shows Idle after the account's inactivity timeout
+(default 10 minutes) without system-wide keyboard or mouse input, or right away
+while the computer is locked, so Discord can send notifications to the phone.
+It is not applied during voice calls. Input age comes from `GetLastInputInfo` on
+Windows and CoreGraphics on macOS. On Linux Serein asks GNOME Mutter's
+IdleMonitor, then the Wayland `ext-idle-notify-v1` protocol (KDE Plasma, wlroots
+compositors, COSMIC), then `org.freedesktop.ScreenSaver` (KDE on X11), then X11
+XScreenSaver, which is skipped under Wayland. Wayland compositors with none of
+these stay online, and idle inhibitors such as video playback keep the session
+active. A lock is read from the WTS session state on Windows, the CGSession
+dictionary on macOS, and logind's `LockedHint` (then the ScreenSaver service's
+`GetActive`) on Linux. The check runs every 5 seconds off the UI thread, so locking applies
+within about that long. The timeout is read when Serein connects and saved to
+the account when changed here; edits from another device apply on the next
+connect. Serein also shows your own status as Idle while it applies. macOS and
+Linux behavior is unverified on a live session. A setting change invalidates an
+in-flight idle sample; its result is discarded before another query starts.
+The poller retains one blocking query at a time. A stalled Linux bus handshake,
+Wayland roundtrip or X11 query can stop idle detection without accumulating
+workers; the setting can still clear AFK. Wayland currently observes one seat,
+so activity on other seats in a multi-seat session is not included.
+
 ## Window transparency and blur
 
 Enable Transparency & blur in Appearance and restart to create an alpha-capable
@@ -128,6 +175,28 @@ system accessibility and appearance preferences can also suppress effects.
 The compositor determines blur strength; zero disables it. Standard Wayland blur
 capability changes are processed without blocking the rendering loop. Linux and
 Windows native appearance remains unverified in this macOS local pass.
+
+## Variable refresh rate displays
+
+Serein redraws only when something changes: about twice a second while the composer's text
+cursor blinks, and up to the display's refresh rate during input. On Windows its DirectX 12
+swap chain moves to hardware independent flip while frames arrive quickly, so a variable refresh
+rate (VRR, G-SYNC, FreeSync) display can follow that cadence while Serein is the active window.
+Many panels flicker visibly when the rate swings between their limits, OLED panels in particular.
+
+General › Graphics › Steady refresh rate is off by default. When it is on, Serein draws at the
+display's refresh rate while its window is focused and not minimized, so the display can hold one
+rate. A window that macOS or X11 reports as covered pauses it as well; Windows and Wayland do not
+report that, so a focused window under an always-on-top one keeps drawing. Every refresh runs a
+full interface pass, which costs CPU time and power in proportion to the refresh rate: about a
+quarter of one core at 3840×2160 and 120 Hz in the November 5, 2026 entry of
+[performance findings](performance.md). Unfocused, minimized and hidden windows redraw only on
+change again. The setting applies immediately and is saved with the other device preferences.
+
+Excluding `serein.exe` from VRR in the graphics driver, such as NVIDIA's per-program Monitor
+Technology setting, avoids the swings without the extra frames. Present cadence was verified
+with PresentMon on Windows 11 with an RTX 5060 Ti; the panel's own refresh readout and macOS and
+Linux VRR behavior remain unverified.
 
 ## Built-in voice
 
@@ -143,6 +212,15 @@ verification on the affected system.
 `cargo xtask package` stages the standard release including voice under `dist` (`dist/Serein.app` on macOS). The macOS bundle includes its microphone-use description; actual microphone permission, capture/playback, device switching and sleep/resume have not been exercised. Windows x64 voice release packaging and synthetic protocol/audio tests pass; physical audio and live calls remain unverified on Windows. Linux x64 text/voice release builds and Debian package smoke passed on Ubuntu 26.04 under WSL2; native Linux desktop/audio runtime remains unverified. CMake is a source-build dependency, not a runtime voice service.
 
 Device choices, voice keybinds and the owner's mute/deafen intent are device-local. Mute and deafen can be changed while idle, survive restart and apply to the first voice-state packet when the next call is joined. Voice bindings use native global registration on supported Windows/macOS/Linux X11 setups and the desktop GlobalShortcuts portal on Wayland when they include a modifier. Unmodified focused Push to Talk (V by default) observes key state without consuming typed text and is never registered as an OS-global shortcut. Missing/denied portal access and unavailable/conflicting registrations fall back to focused input. Use headphones because there is no acoustic echo cancellation. No signing, desktop integration, physical audio or live-compatibility claim follows from compilation alone.
+
+Wayland shortcut requests use the [XDG shortcut specification](https://specifications.freedesktop.org/shortcuts/latest/)
+and XKB keysyms (for example `CTRL+SHIFT+m`, `CTRL+1`, and `CTRL+Down`),
+rather than physical key-code names such as `KeyM` or `Digit1`. To check a portal
+registration without joining voice, enable global keybinds, approve the desktop
+dialog, move focus to another application and use Toggle Mute/Toggle Deafen.
+The mute/deafen intent should change when returning to Serein. Flatpak needs a host
+portal backend implementing GlobalShortcuts; the encoding regression test does not
+verify compositor approval or delivery on a particular desktop.
 
 Native emoji use eframe system-font fallback and installed OS color fonts. macOS
 Apple Color Emoji was visually checked with a synthetic moon status on September
@@ -191,6 +269,20 @@ Close follows ordinary exit checks. Turning the preference off or losing the
 tray host restores a hidden window. Normal taskbar/Dock minimizing is unchanged.
 Show restores the window, and Quit follows the existing unsaved-work and download
 checks.
+
+Windows tray activation shows a hidden or already visible window without resetting
+maximization; only an actually minimized window receives native restoration.
+The synthetic native regression covers tray clicks, the Show menu, repeated Show,
+minimized maximized windows and preserved normal geometry. On an interactive
+Windows desktop, run:
+
+```text
+cargo test --locked -p platform --lib tray::native::tests::native_minimize_restore_restart_quit_and_cleanup -- --exact --ignored --test-threads=1
+```
+
+Cross-compilation alone does not verify desktop behavior.
+The user-run Windows x64 synthetic regression reproduced the maximization failure
+before this fix and passed after it. Full-application visual validation remains pending.
 
 Windows voice state changes the icon and tooltip for speaking, muted and deafened
 states. Fixed-size icons are created once and destroyed with the registration;
@@ -387,3 +479,17 @@ macOS and Linux have no local HEIC decoder in this implementation; proxy-provide
 PNG/JPEG/WebP renditions can still display. The offline Windows check decodes an
 original synthetic 6000x4000 HEIC both at source size and as a 320px thumbnail,
 checking dimensions and pixel conversion. Owner photos and live Discord remain unverified.
+
+## Windows screenshots-and-recording permission — November 4, 2026
+
+Windows 11 builds that expose Settings > Privacy & security > Screenshots and screen recording keep
+a per-application consent for programmatic Graphics Capture. On Windows 11 build 26300 a locally
+built, unpackaged executable was denied at the capture item with `E_ACCESSDENIED` ("You do not have
+permission to capture the given monitor"), and the Settings page listed no request; the installed
+copy at its own path had a consent record from earlier capture and worked. Serein now asks the
+platform for that consent with `GraphicsCaptureAccess.RequestAccessAsync(Programmatic)` when a share
+starts. An unpackaged executable answers `NotDeclaredByApp`, so the capture item keeps deciding;
+`DeniedByUser` or `DeniedBySystem` names the setting in the share dialog. The diagnostic log records
+the start failure with its reason instead of a generic message. The permission is per executable
+path, so a build run from a different folder (a local release build beside an installed copy) needs
+its own allowance even when the other copy works. The capture pipeline itself is unchanged.

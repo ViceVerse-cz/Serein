@@ -293,10 +293,24 @@ impl State {
 		}
 		Ok(())
 	}
-	pub fn lights_guild_rail(&self, channel: &model::Channel) -> bool {
-		channel.kind != 2
-			&& self.channel_unread(channel) == Some(true)
-			&& !self.muted_for_guild_rail(channel)
+	/// Threads count only while joined, active and not muted through their membership at
+	/// `now` (Unix milliseconds), and forums only through their new posts; retained read
+	/// history of a left or unjoined thread does not light the server.
+	pub fn lights_guild_rail(&self, channel: &model::Channel, now: i64) -> bool {
+		let unread = match channel.kind {
+			2 => false,
+			15 | 16 => self.forum_latest_unseen(channel),
+			10..=12 => {
+				self.post_lights_forum(channel)
+					|| (self.thread_joined(channel)
+						&& !self
+							.thread_member(channel.id)
+							.is_some_and(|member| member.muted_at(now))
+						&& self.channel_unread(channel) == Some(true))
+			}
+			_ => self.channel_unread(channel) == Some(true),
+		};
+		unread && !self.muted_for_guild_rail(channel)
 	}
 
 	pub fn muted_for_guild_rail(&self, channel: &model::Channel) -> bool {
@@ -445,6 +459,23 @@ impl State {
 			});
 		setting.hide_muted_channels = Some(hide);
 		self.check_notification_capacity()
+	}
+
+	/// Time until the next timed mute lapses, so counts that hide muted conversations can be
+	/// refreshed by an otherwise idle window.
+	pub fn next_mute_expiry(&self) -> Option<std::time::Duration> {
+		let now = Self::permission_time();
+		self.notification_preferences
+			.settings
+			.values()
+			.flat_map(|s| {
+				s.mute_until
+					.into_iter()
+					.chain(s.channel_mute_until.iter().map(|(_, until)| *until))
+			})
+			.filter(|until| *until > now)
+			.min()
+			.map(|until| std::time::Duration::from_secs(until.abs_diff(now)))
 	}
 
 	/// Per-DM notification override; absent settings remain unknown outside the fixture.
@@ -601,11 +632,7 @@ impl State {
 		{
 			return false;
 		}
-		let Some(channel) = self
-			.channels
-			.iter()
-			.find(|c| c.id == channel && c.supports_text())
-		else {
+		let Some(channel) = self.channel(channel).filter(|c| c.supports_text()) else {
 			return false;
 		};
 		if channel.guild.is_some() && self.notification_preferences.dnd.is_none() {
@@ -854,6 +881,7 @@ impl State {
 		alert_text(&output, 160, 512)
 	}
 
+	/// Observe message notifications, updating notification badges and mention tracking.
 	pub(crate) fn observe_notification(&mut self, message: &Message) {
 		if !model::valid_mention_roles(&message.mention_roles) {
 			return;
@@ -985,6 +1013,7 @@ mod tests {
 	fn notification_state() -> State {
 		let owner = User {
 			primary_guild: None,
+			cosmetics: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -1035,24 +1064,33 @@ mod tests {
 							bits: p::VIEW_CHANNEL,
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
+							managed: false,
 						},
 						p::Role {
 							id: Id(10),
 							bits: 0,
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
+							managed: false,
 						},
 						p::Role {
 							id: Id(11),
 							bits: 0,
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
+							managed: false,
 						},
 					]),
 					member: Some(p::Member {
@@ -1381,6 +1419,7 @@ mod tests {
 	fn message(id: u64, channel: u64) -> Message {
 		let owner = User {
 			primary_guild: None,
+			cosmetics: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,

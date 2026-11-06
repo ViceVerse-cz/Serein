@@ -14,6 +14,7 @@ fn user() -> User {
 		avatar: None,
 		discriminator: 0,
 		primary_guild: None,
+		cosmetics: None,
 	}
 }
 
@@ -53,8 +54,12 @@ fn ready() -> Event {
 					bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY | p::SEND_MESSAGES,
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					// Only integration-owned roles are managed; this fixture is assignable.
+					managed: false,
 				}]),
 				member: Some(p::Member {
 					roles: vec![],
@@ -223,7 +228,7 @@ fuzz_target!(|data: &[u8]| {
 	let mut remaining = 24 * 1024 * 1024;
 	// Eight-byte operations: opcode, channel, ID little-endian, payload size,
 	// page count, flags, spare. Partial trailing operations are intentionally ignored.
-	for op in data.chunks_exact(8).take(256) {
+	for op in data.as_chunks::<8>().0.iter().take(256) {
 		let channel = Id(20 + u64::from(op[1] % 3));
 		let id = Id(1 + u64::from(u16::from_le_bytes([op[2], op[3]])));
 		match op[0] % 20 {

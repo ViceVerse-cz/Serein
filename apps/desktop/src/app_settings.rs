@@ -1,5 +1,8 @@
 use local_store::AppPreferences;
 
+pub const MIN_WINDOW_SIZE: [u32; 2] = [760, 520];
+pub const DEFAULT_WINDOW_SIZE: [u32; 2] = [1120, 760];
+
 #[derive(Default)]
 pub struct Settings {
 	pub current: AppPreferences,
@@ -51,9 +54,14 @@ impl Settings {
 			show_hidden_channels: ui.show_hidden_channels,
 			hide_nitro_emojis: ui.hide_nitro_emojis,
 			convert_emoticons: ui.convert_emoticons,
+			preload_on_hover: ui.preload_on_hover,
+			auto_idle: ui.auto_idle,
 			hide_title_bar: ui.hide_title_bar,
+			message_requests_collapsed: ui.message_requests_collapsed,
 			hide_window_decorations: ui.hide_window_decorations,
+			custom_title_bar: ui.custom_title_bar,
 			gpu_preference: ui.gpu_preference,
+			steady_refresh_rate: ui.steady_refresh_rate,
 			primary_color: ui.primary_color,
 			transparency_blur: ui.transparency_blur,
 			transparency: ui.transparency,
@@ -72,6 +80,11 @@ impl Settings {
 			expanded_folders: ui.expanded_folders.clone(),
 			user_volumes: ui.voice_user_volume_overrides(),
 			muted_users: ui.voice_user_mutes().to_vec(),
+			cosmetics: ui.cosmetics,
+			image_cache: ui.image_cache,
+			time_format: ui.time_format,
+			plaintext_login: ui.plaintext_login,
+			diagnostics_log: ui.diagnostics_log,
 		};
 		if value != self.current {
 			self.state.touched = true;
@@ -94,9 +107,14 @@ impl Settings {
 		ui.show_hidden_channels = value.show_hidden_channels;
 		ui.hide_nitro_emojis = value.hide_nitro_emojis;
 		ui.convert_emoticons = value.convert_emoticons;
+		ui.preload_on_hover = value.preload_on_hover;
+		ui.auto_idle = value.auto_idle;
 		ui.hide_title_bar = value.hide_title_bar;
+		ui.message_requests_collapsed = value.message_requests_collapsed;
 		ui.hide_window_decorations = value.hide_window_decorations;
+		ui.custom_title_bar = value.custom_title_bar;
 		ui.gpu_preference = value.gpu_preference;
+		ui.steady_refresh_rate = value.steady_refresh_rate;
 		ui.primary_color = value.primary_color;
 		ui.transparency_blur = value.transparency_blur;
 		ui.transparency = value.transparency;
@@ -115,6 +133,12 @@ impl Settings {
 		ui.expanded_folders.clone_from(&value.expanded_folders);
 		ui.set_voice_user_volume_overrides(&value.user_volumes);
 		ui.set_voice_user_mutes(&value.muted_users);
+		ui.cosmetics = value.cosmetics;
+		ui.image_cache = value.image_cache;
+		ui.time_format = value.time_format;
+		ui.plaintext_login = value.plaintext_login;
+		ui.diagnostics_log = value.diagnostics_log;
+		ui::local_time::set_format(ui.time_format, ui.language);
 	}
 }
 
@@ -163,6 +187,7 @@ pub fn restore_window_geometry(
 	// Wayland may not have reported its configured size before the first frame.
 	let requested = winit::dpi::LogicalSize::new(geometry.size[0], geometry.size[1])
 		.to_physical::<u32>(scale_factor);
+	let minimum = window_minimum(available, frame, scale_factor);
 	let position = position.or_else(|| {
 		window
 			.outer_position()
@@ -177,21 +202,156 @@ pub fn restore_window_geometry(
 		],
 		[origin.x, origin.y],
 		[available.width, available.height],
+		[
+			minimum.width.saturating_add(frame[0]),
+			minimum.height.saturating_add(frame[1]),
+		],
 	);
 	let size = winit::dpi::PhysicalSize::new(
 		size[0].saturating_sub(frame[0]).max(1),
 		size[1].saturating_sub(frame[1]).max(1),
 	);
 	// A newly smaller display must also be allowed to shrink below the usual minimum.
-	let minimum = winit::dpi::LogicalSize::new(760, 520).to_physical::<u32>(scale_factor);
-	window.set_min_inner_size(Some(winit::dpi::PhysicalSize::new(
-		minimum.width.min(size.width),
-		minimum.height.min(size.height),
-	)));
+	window.set_min_inner_size(Some(minimum));
 	let _ = window.request_inner_size(size);
 	if movable {
 		window.set_outer_position(winit::dpi::PhysicalPosition::new(position[0], position[1]));
 	}
+	// Linux maximizes from the viewport builder. macOS and Windows maximize only after placing the
+	// normal geometry, since moving a maximized window resets it.
+	if geometry.maximized {
+		#[cfg(target_os = "windows")]
+		egui_winit::set_maximized(window, true); // Keeps the still-hidden window from flashing.
+		#[cfg(target_os = "macos")]
+		window.set_maximized(true);
+	}
+}
+
+/// X11 window managers ignore maximize requests for a window that is not yet shown.
+pub fn maximize_after_show(window: &winit::window::Window) -> bool {
+	#[cfg(target_os = "linux")]
+	{
+		use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+		matches!(
+			window.window_handle().map(|h| h.as_raw()),
+			Ok(RawWindowHandle::Xlib(_) | RawWindowHandle::Xcb(_))
+		)
+	}
+	#[cfg(not(target_os = "linux"))]
+	{
+		let _ = window;
+		false
+	}
+}
+
+pub fn update_window_minimum(
+	window: &winit::window::Window,
+	monitor: &winit::monitor::MonitorHandle,
+	applied: &mut Option<winit::dpi::PhysicalSize<u32>>,
+) {
+	let available = monitor.size();
+	if available.width == 0 || available.height == 0 {
+		return;
+	}
+	let inner = window.inner_size();
+	let outer = window.outer_size();
+	let minimum = window_minimum(
+		available,
+		[
+			outer.width.saturating_sub(inner.width),
+			outer.height.saturating_sub(inner.height),
+		],
+		monitor.scale_factor(),
+	);
+	// Windows applies a minimum synchronously and invalidates the whole window, so a redundant
+	// call forces a frame; this runs whenever the window rectangle changes, including a drag.
+	if *applied == Some(minimum) {
+		return;
+	}
+	window.set_min_inner_size(Some(minimum));
+	*applied = Some(minimum);
+}
+
+/// A placement must stay put this long before it is saved; a drag samples a new one per frame.
+pub const GEOMETRY_REST_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Observation {
+	/// The saved placement already matches the sample.
+	Saved,
+	/// The placement has not yet stayed unchanged for the rest interval.
+	Pending,
+	/// The placement stayed unchanged for the rest interval and can be saved.
+	Commit,
+}
+
+/// Saves a window placement only after a full interval without a sampled change.
+#[derive(Default)]
+pub struct GeometryRest {
+	pending: Option<(local_store::WindowGeometry, std::time::Instant)>,
+}
+
+impl GeometryRest {
+	/// Observe placement at a monotonic time; early frames do not shorten the rest interval.
+	pub fn observe(
+		&mut self,
+		sampled: local_store::WindowGeometry,
+		saved: Option<local_store::WindowGeometry>,
+		now: std::time::Instant,
+	) -> Observation {
+		if saved == Some(sampled) {
+			self.pending = None;
+			return Observation::Saved;
+		}
+		if let Some((pending, changed_at)) = self.pending
+			&& pending == sampled
+		{
+			if now.saturating_duration_since(changed_at) < GEOMETRY_REST_DELAY {
+				return Observation::Pending;
+			}
+			self.pending = None;
+			return Observation::Commit;
+		}
+		self.pending = Some((sampled, now));
+		Observation::Pending
+	}
+	/// Keep the latest normal placement when a maximize event interrupts its rest interval.
+	pub fn maximized_geometry(
+		&self,
+		saved: Option<local_store::WindowGeometry>,
+	) -> local_store::WindowGeometry {
+		let normal = self.pending.map(|(geometry, _)| geometry).or(saved);
+		local_store::WindowGeometry {
+			maximized: true,
+			..normal.unwrap_or(local_store::WindowGeometry {
+				size: DEFAULT_WINDOW_SIZE,
+				position: None,
+				maximized: true,
+			})
+		}
+	}
+
+	/// The last sample, for a window that closes or hides before it could rest.
+	pub fn take_pending(&mut self) -> Option<local_store::WindowGeometry> {
+		self.pending.take().map(|(geometry, _)| geometry)
+	}
+}
+
+fn window_minimum(
+	available: winit::dpi::PhysicalSize<u32>,
+	frame: [u32; 2],
+	scale_factor: f64,
+) -> winit::dpi::PhysicalSize<u32> {
+	let minimum = winit::dpi::LogicalSize::new(MIN_WINDOW_SIZE[0], MIN_WINDOW_SIZE[1])
+		.to_physical::<u32>(scale_factor);
+	winit::dpi::PhysicalSize::new(
+		minimum
+			.width
+			.min(available.width.saturating_sub(frame[0]).max(1)),
+		minimum
+			.height
+			.min(available.height.saturating_sub(frame[1]).max(1)),
+	)
 }
 
 /// Fit the complete physical outer rectangle, not just its top-left corner.
@@ -200,9 +360,10 @@ fn fit_window_geometry(
 	mut size: [u32; 2],
 	origin: [i32; 2],
 	available: [u32; 2],
+	minimum: [u32; 2],
 ) -> ([i32; 2], [u32; 2]) {
 	for axis in 0..2 {
-		size[axis] = size[axis].max(1).min(available[axis].max(1));
+		size[axis] = size[axis].max(minimum[axis]).min(available[axis].max(1));
 		let minimum = i64::from(origin[axis]);
 		let maximum = (minimum + i64::from(available[axis].max(1)) - i64::from(size[axis]))
 			.min(i64::from(i32::MAX));
@@ -211,20 +372,29 @@ fn fit_window_geometry(
 	(position, size)
 }
 
-#[cfg(all(debug_assertions, feature = "demo"))]
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
+#[cfg_attr(test, test)]
 pub fn debug_window_geometry_check() {
 	use local_store::{LocalStore, WindowGeometry};
 	assert_eq!(
-		fit_window_geometry([1850, 1000], [3000, 2000], [0, 0], [1920, 1080]),
+		fit_window_geometry([1850, 1000], [3000, 2000], [0, 0], [1920, 1080], [1, 1]),
 		([0, 0], [1920, 1080])
 	);
 	assert_eq!(
-		fit_window_geometry([-100, 900], [1200, 800], [-1920, 0], [1920, 1080]),
+		fit_window_geometry([-100, 900], [1200, 800], [-1920, 0], [1920, 1080], [1, 1]),
 		([-1200, 280], [1200, 800])
 	);
 	assert_eq!(
-		fit_window_geometry([-1800, 80], [1000, 700], [-1920, 0], [1920, 1080]),
+		fit_window_geometry([-1800, 80], [1000, 700], [-1920, 0], [1920, 1080], [1, 1]),
 		([-1800, 80], [1000, 700])
+	);
+	assert_eq!(
+		fit_window_geometry([0, 0], [229, 70], [0, 0], [1920, 1080], MIN_WINDOW_SIZE),
+		([0, 0], MIN_WINDOW_SIZE)
+	);
+	assert_eq!(
+		fit_window_geometry([0, 0], [229, 70], [0, 0], [640, 480], MIN_WINDOW_SIZE),
+		([0, 0], [640, 480])
 	);
 	let mut random = [0_u8; 16];
 	getrandom::fill(&mut random).unwrap();
@@ -238,6 +408,7 @@ pub fn debug_window_geometry_check() {
 		let geometry = WindowGeometry {
 			size: [size.width, size.height],
 			position,
+			maximized: position.is_some(),
 		};
 		let mut settings = Settings::default();
 		settings.current.window_geometry = Some(geometry);
@@ -255,15 +426,15 @@ pub fn debug_window_geometry_check() {
 		for invalid in [
 			WindowGeometry {
 				size: [0, 800],
-				position,
+				..geometry
 			},
 			WindowGeometry {
 				size: [16385, 800],
-				position,
+				..geometry
 			},
 			WindowGeometry {
-				size: [1200, 800],
 				position: Some([i32::MAX, 0]),
+				..geometry
 			},
 		] {
 			settings.current.window_geometry = Some(invalid);
@@ -274,11 +445,28 @@ pub fn debug_window_geometry_check() {
 			Some(geometry)
 		);
 	}
+	// Older records were saved only while not maximized.
+	let small: WindowGeometry =
+		serde_json::from_str(r#"{"size":[640,480],"position":null}"#).unwrap();
+	assert!(!small.maximized);
+	let preferences = AppPreferences {
+		window_geometry: Some(small),
+		..AppPreferences::default()
+	};
+	store.save_app_preferences(&preferences).unwrap();
+	assert_eq!(
+		LocalStore::open(&path)
+			.unwrap()
+			.app_preferences()
+			.unwrap()
+			.window_geometry,
+		Some(small)
+	);
 	drop(store);
 	std::fs::remove_file(path).unwrap();
 	std::fs::remove_dir(directory).unwrap();
 	println!(
-		"Offline window geometry check passed: size without position, X11 coordinates, native scale, preference preservation, SQLite reopen and bounds."
+		"Offline window geometry check passed: minimum size, small display, X11 coordinates, native scale, maximized state, older records, preference preservation, SQLite reopen and bounds."
 	);
 }
 
@@ -294,6 +482,9 @@ mod tests {
 		ui.notifications_enabled = defaults.notifications_enabled;
 		ui.transparency = defaults.transparency;
 		ui.blur = defaults.blur;
+		ui.preload_on_hover = defaults.preload_on_hover;
+		ui.auto_idle = defaults.auto_idle;
+		ui.custom_title_bar = defaults.custom_title_bar;
 		settings.observe(&ui);
 		assert!(
 			!settings.state.touched,
@@ -313,6 +504,25 @@ mod tests {
 	}
 
 	#[test]
+	fn collapsed_message_requests_restore_and_track_user_changes() {
+		let mut settings = Settings {
+			loaded: true,
+			..Default::default()
+		};
+		settings.current.message_requests_collapsed = true;
+		let mut ui = ui::MessagingUi::default();
+		settings.apply(&mut ui);
+		assert!(ui.message_requests_collapsed);
+		settings.observe(&ui);
+		assert!(!settings.state.dirty);
+
+		ui.message_requests_collapsed = false;
+		settings.observe(&ui);
+		assert!(!settings.current.message_requests_collapsed);
+		assert!(settings.state.dirty);
+	}
+
+	#[test]
 	fn legacy_preferences_without_voice_settings_keep_suppression_disabled() {
 		let current: AppPreferences = serde_json::from_str("{}").unwrap();
 		assert!(!current.voice_noise_suppression);
@@ -327,5 +537,66 @@ mod tests {
 			ui.voice_processing.effective().suppression,
 			model::voice_settings::NoiseSuppression::Off
 		);
+	}
+
+	#[test]
+	fn window_geometry_is_saved_only_after_it_rests() {
+		let mut rest = GeometryRest::default();
+		let now = std::time::Instant::now();
+		let placed = local_store::WindowGeometry {
+			size: [1120, 760],
+			position: Some([100, 100]),
+			maximized: false,
+		};
+		let mut moving = placed;
+		for step in 0..8 {
+			moving.position = Some([100 + step * 7, 100]);
+			assert_eq!(rest.observe(moving, None, now), Observation::Pending);
+		}
+		assert_eq!(rest.observe(placed, Some(placed), now), Observation::Saved);
+		assert_eq!(rest.take_pending(), None);
+
+		assert_eq!(rest.observe(placed, None, now), Observation::Pending);
+		assert_eq!(
+			rest.observe(placed, None, now + GEOMETRY_REST_DELAY / 2),
+			Observation::Pending
+		);
+		assert_eq!(
+			rest.observe(moving, None, now + GEOMETRY_REST_DELAY / 2),
+			Observation::Pending
+		);
+		assert_eq!(
+			rest.observe(moving, None, now + GEOMETRY_REST_DELAY),
+			Observation::Pending
+		);
+		assert_eq!(
+			rest.observe(moving, None, now + GEOMETRY_REST_DELAY * 2),
+			Observation::Commit
+		);
+		assert_eq!(rest.observe(placed, Some(placed), now), Observation::Saved);
+		assert_eq!(rest.take_pending(), None);
+
+		assert_eq!(rest.observe(moving, None, now), Observation::Pending);
+		let maximized = rest.maximized_geometry(Some(placed));
+		assert_eq!(
+			maximized,
+			local_store::WindowGeometry {
+				maximized: true,
+				..moving
+			}
+		);
+		assert_eq!(
+			rest.observe(maximized, Some(placed), now),
+			Observation::Pending
+		);
+		assert_eq!(rest.maximized_geometry(Some(placed)), maximized);
+		assert_eq!(
+			rest.observe(maximized, Some(placed), now + GEOMETRY_REST_DELAY),
+			Observation::Commit
+		);
+		assert_eq!(rest.take_pending(), None);
+		assert_eq!(rest.observe(moving, None, now), Observation::Pending);
+		assert_eq!(rest.take_pending(), Some(moving));
+		assert_eq!(rest.take_pending(), None);
 	}
 }

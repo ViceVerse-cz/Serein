@@ -51,10 +51,21 @@ pub struct Role {
 	pub bits: u128,
 	pub name: String,
 	pub color: u32,
+	pub secondary_color: Option<u32>,
+	pub tertiary_color: Option<u32>,
 	pub position: i32,
 	pub hoist: bool,
+	/// Integration-owned roles (bots, boosts, subscriptions) cannot be assigned by hand.
+	pub managed: bool,
 }
 impl Role {
+	pub fn colors(&self) -> crate::server_roles::Colors {
+		crate::server_roles::Colors {
+			primary: self.color,
+			secondary: self.secondary_color,
+			tertiary: self.tertiary_color,
+		}
+	}
 	/// Higher positions rank first; equal positions favor the older (lower) role ID.
 	/// Compare roles from the same guild, excluding its @everyone role.
 	pub fn cmp_hierarchy(&self, other: &Self) -> std::cmp::Ordering {
@@ -341,8 +352,11 @@ mod tests {
 				Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: Id(1),
 					bits: VIEW_CHANNEL
 						| READ_MESSAGE_HISTORY
@@ -352,16 +366,22 @@ mod tests {
 				Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: Id(2),
 					bits: CONNECT,
 				},
 				Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: Id(3),
 					bits: SPEAK | SEND_MESSAGES_IN_THREADS,
 				},
@@ -480,8 +500,11 @@ mod tests {
 					Role {
 						name: String::new(),
 						color: 0,
+						secondary_color: None,
+						tertiary_color: None,
 						position: 0,
 						hoist: false,
+						managed: false,
 						id: Id(1),
 						bits: 0
 					};
@@ -493,8 +516,11 @@ mod tests {
 				roles: Some(vec![Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 					id: Id(2),
 					bits: 0,
 				}]),
@@ -527,8 +553,11 @@ mod tests {
 						.map(|id| Role {
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
+							managed: false,
 							id: Id(id as u64),
 							bits: 0,
 						})

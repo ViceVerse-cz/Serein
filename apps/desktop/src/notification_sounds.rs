@@ -29,6 +29,14 @@ impl Sounds {
 			_ => "",
 		}
 	}
+	/// The failure status alone, so a caller can prefer it over another worker's progress text.
+	pub fn error(&self) -> &'static str {
+		if self.status.load(Ordering::Acquire) == 2 {
+			"Audio output unavailable. Check your system sound settings."
+		} else {
+			""
+		}
+	}
 	pub fn stop(&mut self) {
 		self.generation.fetch_add(1, Ordering::AcqRel);
 		self.status.store(0, Ordering::Release);
@@ -129,8 +137,14 @@ fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[
 		Sound::ScreenShareOn => {
 			include_bytes!("../../../assets/sounds/discord/screen-share-on.mp3")
 		}
+		Sound::ScreenShareOff => {
+			include_bytes!("../../../assets/sounds/discord/screen-share-off.mp3")
+		}
 		Sound::UserJoin => include_bytes!("../../../assets/sounds/discord/user-join.mp3"),
 		Sound::UserLeave => include_bytes!("../../../assets/sounds/discord/user-leave.mp3"),
+		Sound::PttStart => include_bytes!("../../../assets/sounds/discord/ptt-start.mp3"),
+		Sound::PttStop => include_bytes!("../../../assets/sounds/discord/ptt-stop.mp3"),
+		Sound::ViewerJoin => include_bytes!("../../../assets/sounds/discord/viewer-join.mp3"),
 	};
 	if bytes.len() > 128 * 1024 || !(8000..=192000).contains(&rate) {
 		return Err(());
@@ -187,11 +201,12 @@ fn open(
 	finished: Arc<AtomicBool>,
 ) -> Result<(cpal::Stream, Duration), ()> {
 	let device = cpal::default_host().default_output_device().ok_or(())?;
-	let supported = device.default_output_config().map_err(|_| ())?;
+	let supported = platform::audio::output_config(
+		&device,
+		platform::audio::OutputConfigPreference::Notification,
+	)
+	.map_err(|_| ())?;
 	let config = supported.config();
-	if !(8000..=192000).contains(&config.sample_rate) || !(1..=8).contains(&config.channels) {
-		return Err(());
-	}
 	let samples = samples(sound, config.sample_rate, &|| {
 		generation.load(Ordering::Acquire) == request
 	})?;
@@ -381,14 +396,20 @@ mod tests {
 				Sound::Undeafen,
 				Sound::CameraOn,
 				Sound::ScreenShareOn,
+				Sound::ScreenShareOff,
 				Sound::OutgoingRing,
 				Sound::UserJoin,
 				Sound::UserLeave,
+				Sound::PttStart,
+				Sound::PttStop,
+				Sound::ViewerJoin,
 			]
 			.map(|s| samples(s, rate, &|| true).unwrap());
 			assert_ne!(cues[0], cues[1]);
 			assert_ne!(cues[3], cues[4]);
 			assert_ne!(cues[5], cues[6]);
+			assert_ne!(cues[8], cues[9]);
+			assert_ne!(cues[13], cues[14]);
 			let expectations = [
 				(0.2, 0.5),
 				(0.5, 0.9),
@@ -399,20 +420,24 @@ mod tests {
 				(0.6, 1.0),
 				(0.9, 1.1),
 				(1.6, 1.9),
+				(1.5, 1.8),
 				(2.3, 2.6),
 				(1.0, 1.2),
 				(0.9, 1.1),
+				(0.02, 0.25),
+				(0.02, 0.25),
+				(1.5, 1.8),
 			];
 			assert!(
-				Duration::from_secs_f64(cues[9].len() as f64 / f64::from(rate))
+				Duration::from_secs_f64(cues[10].len() as f64 / f64::from(rate))
 					+ Duration::from_millis(100)
 					< OUTGOING_RING_INTERVAL
 			);
-			for (cue, (min, max)) in cues.iter().zip(expectations) {
+			for (index, (cue, (min, max))) in cues.iter().zip(expectations).enumerate() {
 				let seconds = cue.len() as f64 / f64::from(rate);
 				assert!(
 					(min..max).contains(&seconds),
-					"unexpected cue duration {seconds}"
+					"unexpected cue {index} duration {seconds} at {rate} Hz"
 				);
 				assert!(cue.len() <= rate as usize * 6);
 				assert!(

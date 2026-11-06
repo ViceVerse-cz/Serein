@@ -1,15 +1,23 @@
 //! Credential persistence and temporary owner-operated login/verification surfaces.
+#[cfg(target_os = "macos")]
+pub mod app_menu;
+pub mod audio;
 pub mod badge;
 pub mod captcha;
 pub mod compositor;
 pub mod game_activity;
 pub mod heic;
 pub mod hotkeys;
+pub mod idle;
+mod login_keyring;
+pub mod memory;
 pub mod notifications;
+pub mod plaintext_login;
 pub mod pointer;
 pub mod processes;
 pub mod proxy_credentials;
 pub mod save;
+pub mod single_instance;
 pub mod startup;
 pub mod system_theme;
 pub mod tray;
@@ -41,6 +49,140 @@ const SERVICE: &str = "cz.viceverse.serein";
 const ACCOUNT: &str = "discord-session";
 #[cfg(feature = "development-data")]
 const ACCOUNT: &str = "discord-session.development";
+
+/// Whether this process may start another one at all. A security product that refuses the shell
+/// for an unknown binary usually refuses process creation too, and the difference is what a report
+/// needs; `Err` carries the operating system's code. The probe writes nothing and opens no window.
+pub fn spawn_probe() -> Result<(), i64> {
+	#[cfg(target_os = "windows")]
+	{
+		const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+		use std::os::windows::process::CommandExt;
+		std::process::Command::new("cmd.exe")
+			.args(["/c", "exit"])
+			.creation_flags(CREATE_NO_WINDOW)
+			.status()
+			.map(drop)
+			.map_err(|error| i64::from(error.raw_os_error().unwrap_or(-1)))
+	}
+	#[cfg(not(target_os = "windows"))]
+	{
+		Ok(())
+	}
+}
+
+/// Opens a folder in the owner's file manager. The caller passes a path it already owns, so this
+/// crosses no service or privilege boundary. `Err` carries the platform's failure code, which the
+/// caller records instead of leaving a button that appears to do nothing.
+pub fn open_folder(path: &std::path::Path) -> Result<(), i64> {
+	#[cfg(target_os = "windows")]
+	{
+		open_with_shell(path)
+	}
+	#[cfg(not(target_os = "windows"))]
+	{
+		#[cfg(target_os = "macos")]
+		const OPENER: &str = "open";
+		#[cfg(all(unix, not(target_os = "macos")))]
+		const OPENER: &str = "xdg-open";
+		let mut child = std::process::Command::new(OPENER)
+			.arg(path)
+			.spawn()
+			.map_err(|error| i64::from(error.raw_os_error().unwrap_or(-1)))?;
+		// The opener exits on its own; reaping it keeps finished children from piling up.
+		std::thread::spawn(move || {
+			let _ = child.wait();
+		});
+		Ok(())
+	}
+}
+
+/// Windows cannot simply start `explorer.exe` (a fresh one fails to initialize its DLLs,
+/// 0xc0000142) and a machine policy can refuse this process the shell entirely
+/// (SE_ERR_ACCESSDENIED), so two quiet routes are tried before the caller hands the path over.
+/// `ShellExecuteW` is deliberately absent: on a machine that refuses it, it puts a system dialog
+/// on screen instead of failing quietly.
+#[cfg(target_os = "windows")]
+fn open_with_shell(path: &std::path::Path) -> Result<(), i64> {
+	// The running shell browses the folder through COM; this never starts explorer.exe.
+	let selected = select_in_shell(path);
+	if selected.is_ok() {
+		return Ok(());
+	}
+	// A trusted command interpreter asks the shell on our behalf.
+	if start_via_cmd(path).is_ok() {
+		return Ok(());
+	}
+	// The first code names the policy that refused us, so it is the one worth reporting.
+	selected
+}
+
+/// Initializes an apartment for the shell calls. A render thread usually has none and the shell
+/// then reports SE_ERR_ACCESSDENIED. An existing different apartment is fine: the thread keeps
+/// whichever apartment it already had, so nothing is uninitialized here.
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn prepare_shell() {
+	use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+	// SAFETY: no memory or handles are passed; the call only sets the thread's apartment.
+	unsafe {
+		let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+	}
+}
+
+/// A NUL-terminated absolute path the shell calls can read, or `None` for an unrepresentable one.
+#[cfg(target_os = "windows")]
+fn wide_path(path: &std::path::Path) -> Option<Vec<u16>> {
+	use std::os::windows::ffi::OsStrExt;
+	let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+	let mut wide: Vec<u16> = absolute.as_os_str().encode_wide().collect();
+	if wide.contains(&0) {
+		return None;
+	}
+	wide.push(0);
+	Some(wide)
+}
+
+/// Asks the running shell to browse the folder: no new process, and the shell that already owns
+/// the desktop is the one that answers.
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn select_in_shell(path: &std::path::Path) -> Result<(), i64> {
+	use windows::Win32::UI::Shell::{ILCreateFromPathW, ILFree, SHOpenFolderAndSelectItems};
+	use windows::core::PCWSTR;
+
+	prepare_shell();
+	let wide = wide_path(path).ok_or(-1)?;
+	// SAFETY: `wide` is NUL-terminated and outlives both calls; the item list comes from the
+	// shell's own allocator and is released with ILFree, and no extra items are passed.
+	unsafe {
+		let list = ILCreateFromPathW(PCWSTR(wide.as_ptr()));
+		if list.is_null() {
+			return Err(-1);
+		}
+		let result = SHOpenFolderAndSelectItems(list, None, 0);
+		ILFree(Some(list));
+		result.map_err(|error| i64::from(error.code().0))
+	}
+}
+
+/// Last resort: `start` runs inside a trusted command interpreter, which the shell is more likely
+/// to accept than this process.
+#[cfg(target_os = "windows")]
+fn start_via_cmd(path: &std::path::Path) -> Result<(), i64> {
+	const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+	use std::os::windows::process::CommandExt;
+	let status = std::process::Command::new("cmd.exe")
+		.args(["/c", "start", "", &path.display().to_string()])
+		.creation_flags(CREATE_NO_WINDOW)
+		.status();
+	match status {
+		Ok(status) if status.success() => Ok(()),
+		Ok(status) => Err(i64::from(status.code().unwrap_or(-1))),
+		Err(error) => Err(i64::from(error.raw_os_error().unwrap_or(-1))),
+	}
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CredentialError {
 	/// No OS credential store exists (e.g. Linux without a Secret Service provider).
@@ -142,44 +284,183 @@ mod flatpak_locale_tests {
 	}
 }
 
+/// Where a saved login ended up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Saved {
+	CredentialStore,
+	/// The owner opted into the plaintext fallback and no credential store accepted it.
+	Plaintext,
+}
 /// The entry restored on launch. Switching accounts rewrites it from the per-account entry.
 pub fn load_session() -> Result<Option<SessionSecret>, CredentialError> {
-	load_entry(ACCOUNT)
+	load_login(ACCOUNT)
 }
-pub fn save_session(secret: &SessionSecret) -> Result<(), CredentialError> {
-	save_entry(ACCOUNT, secret)
+pub fn save_session(secret: &SessionSecret) -> Result<Saved, CredentialError> {
+	save_login(ACCOUNT, secret)
 }
 pub fn forget_session() -> Result<(), CredentialError> {
-	forget_entry(ACCOUNT)
+	forget_login(ACCOUNT)
 }
 /// One entry per remembered account, so the switcher never keeps a second copy in memory.
 fn account_entry(account: model::Id) -> String {
 	format!("{ACCOUNT}.{account}")
 }
 pub fn load_account_session(account: model::Id) -> Result<Option<SessionSecret>, CredentialError> {
-	load_entry(&account_entry(account))
+	load_login(&account_entry(account))
 }
 pub fn save_account_session(
 	account: model::Id,
 	secret: &SessionSecret,
-) -> Result<(), CredentialError> {
-	save_entry(&account_entry(account), secret)
+) -> Result<Saved, CredentialError> {
+	save_login(&account_entry(account), secret)
 }
 pub fn forget_account_session(account: model::Id) -> Result<(), CredentialError> {
-	forget_entry(&account_entry(account))
+	forget_login(&account_entry(account))
 }
-fn entry(name: &str) -> Result<keyring::Entry, CredentialError> {
-	keyring::Entry::new(SERVICE, name).map_err(|error| match error {
-		keyring::Error::NoDefaultStore => CredentialError::NoStore,
+/// A fallback file is authoritative until a confirmed OS save removes it. A marker
+/// remains after deletion to prevent an older (or late) keyring write restoring it.
+fn load_login(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
+	let (directory, enabled) = plaintext_login::configuration();
+	if let Some(directory) = directory {
+		if enabled && let Some(secret) = plaintext_login::load(&directory, name)? {
+			return Ok(Some(secret));
+		}
+		if plaintext_login::keyring_stale(&directory, name)? {
+			return Ok(None);
+		}
+	}
+	login_keyring::load(name)
+}
+fn save_login(name: &str, secret: &SessionSecret) -> Result<Saved, CredentialError> {
+	let (directory, enabled) = plaintext_login::configuration();
+	// Refresh any existing fallback before native IO: a cleanup error must never leave
+	// an older plaintext token authoritative after a successful keyring write.
+	if enabled
+		&& let Some(directory) = directory.as_ref()
+		&& plaintext_login::keyring_stale(directory, name)?
+	{
+		plaintext_login::save(directory, name, secret)?;
+	}
+	match login_keyring::save(name, secret) {
+		Ok(()) => {
+			if let Some(directory) = directory {
+				plaintext_login::keyring_current(&directory, name)?;
+			}
+			Ok(Saved::CredentialStore)
+		}
+		Err(error) => {
+			if enabled && let Some(directory) = directory {
+				plaintext_login::save(&directory, name, secret)?;
+				Ok(Saved::Plaintext)
+			} else {
+				Err(error)
+			}
+		}
+	}
+}
+fn forget_login(name: &str) -> Result<(), CredentialError> {
+	let (directory, _) = plaintext_login::configuration();
+	// Fence even a late default-backend save before attempting native deletion. An
+	// unavailable/full native queue must never resurrect a logged-out launch entry.
+	let local = directory.as_ref().map_or(Ok(()), |directory| {
+		plaintext_login::mark_stale(directory, name)?;
+		plaintext_login::forget(directory, name)
+	});
+	let stored = login_keyring::forget(name);
+	local?;
+	// Forgotten roster slots can be released when no OS store exists. The launch
+	// marker stays until confirmed deletion, preventing wrong-account restoration.
+	if (stored.is_ok() || (stored == Err(CredentialError::NoStore) && name != ACCOUNT))
+		&& let Some(directory) = directory
+	{
+		plaintext_login::keyring_current(&directory, name)?;
+	}
+	match stored {
+		Err(CredentialError::NoStore) => Ok(()),
+		stored => stored,
+	}
+}
+
+fn entry(name: &str) -> Result<keyring_core::Entry, CredentialError> {
+	credential_store()?;
+	keyring_core::Entry::new(SERVICE, name).map_err(|error| match error {
+		keyring_core::Error::NoDefaultStore => CredentialError::NoStore,
 		_ => CredentialError::Unavailable,
 	})
+}
+#[cfg(not(target_os = "linux"))]
+fn credential_store() -> Result<(), CredentialError> {
+	keyring::Entry::store_status()
+		.as_ref()
+		.copied()
+		.map_err(|_| CredentialError::NoStore)
+}
+/// Unlike keyring's one-shot default, a missing Secret Service is retried, so a provider that
+/// starts after Serein (or KWallet, which may need activating) is still found.
+#[cfg(target_os = "linux")]
+fn credential_store() -> Result<(), CredentialError> {
+	const RETRY: std::time::Duration = std::time::Duration::from_secs(15);
+	static LAST_FAILURE: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+	let mut last_failure = LAST_FAILURE
+		.lock()
+		.unwrap_or_else(std::sync::PoisonError::into_inner);
+	if keyring_core::get_default_store().is_some() {
+		return Ok(());
+	}
+	if last_failure.is_some_and(|at| at.elapsed() < RETRY) {
+		return Err(CredentialError::NoStore);
+	}
+	let store = zbus_secret_service_keyring_store::Store::new().or_else(|_| {
+		activate_kwallet();
+		zbus_secret_service_keyring_store::Store::new()
+	});
+	match store {
+		Ok(store) => {
+			keyring_core::set_default_store(store);
+			*last_failure = None;
+			Ok(())
+		}
+		Err(_) => {
+			*last_failure = Some(std::time::Instant::now());
+			Err(CredentialError::NoStore)
+		}
+	}
+}
+/// KWallet serves the Secret Service API but, unlike GNOME Keyring, often is not D-Bus
+/// activatable under that name, so outside a Plasma session nothing starts it. Start the
+/// wallet daemon itself, then wait briefly for it to claim the Secret Service name.
+#[cfg(target_os = "linux")]
+fn activate_kwallet() {
+	use zbus::names::WellKnownName;
+	let Ok(connection) = zbus::blocking::Connection::session() else {
+		return;
+	};
+	let Ok(bus) = zbus::blocking::fdo::DBusProxy::new(&connection) else {
+		return;
+	};
+	let started = ["org.kde.kwalletd6", "org.kde.kwalletd5"]
+		.into_iter()
+		.any(|daemon| {
+			bus.start_service_by_name(WellKnownName::from_static_str_unchecked(daemon), 0)
+				.is_ok()
+		});
+	if !started {
+		return;
+	}
+	let secrets = WellKnownName::from_static_str_unchecked("org.freedesktop.secrets");
+	for _ in 0..20 {
+		if bus.name_has_owner(secrets.clone().into()).unwrap_or(false) {
+			return;
+		}
+		std::thread::sleep(std::time::Duration::from_millis(100));
+	}
 }
 fn load_entry(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
 	match entry(name)?.get_password() {
 		Ok(value) => SessionSecret::from_owner_input(value)
 			.map(Some)
 			.map_err(|_| CredentialError::Invalid),
-		Err(keyring::Error::NoEntry) => Ok(None),
+		Err(keyring_core::Error::NoEntry) => Ok(None),
 		Err(_) => Err(CredentialError::Unavailable),
 	}
 }
@@ -190,7 +471,7 @@ fn save_entry(name: &str, secret: &SessionSecret) -> Result<(), CredentialError>
 }
 fn forget_entry(name: &str) -> Result<(), CredentialError> {
 	match entry(name)?.delete_credential() {
-		Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+		Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
 		Err(_) => Err(CredentialError::Unavailable),
 	}
 }

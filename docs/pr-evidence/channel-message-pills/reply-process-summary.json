@@ -1,0 +1,18 @@
+{
+    "before":  {
+                   "samples":  21,
+                   "elapsed_seconds":  20.3151965,
+                   "cpu_one_core_percent":  0.6922158001277516562539771643,
+                   "peak_working_set_bytes":  200089600,
+                   "settled_working_set_bytes":  200089600,
+                   "settled_private_bytes":  416260096
+               },
+    "after":  {
+                  "samples":  21,
+                  "elapsed_seconds":  20.268135899999998,
+                  "cpu_one_core_percent":  0,
+                  "peak_working_set_bytes":  213258240,
+                  "settled_working_set_bytes":  213257420.8,
+                  "settled_private_bytes":  416219136
+              }
+}

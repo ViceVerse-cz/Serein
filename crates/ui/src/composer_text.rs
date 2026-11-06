@@ -16,15 +16,20 @@ struct Inline {
 	label: Option<Arc<egui::Galley>>,
 	background: Color32,
 	image: Option<Image<'static>>,
+	asset: Option<model::ImageShare>,
+	icon: Option<crate::icons::Icon>,
+	game_icon: Option<String>,
 }
 
 #[derive(Default)]
 pub(crate) struct Layout {
 	inlines: Vec<Inline>,
 	cache: Option<(u64, Arc<egui::Galley>)>,
+	demo: bool,
 }
 
 impl Layout {
+	#[cfg(any(test, debug_assertions))]
 	#[allow(clippy::too_many_arguments)]
 	pub fn galley(
 		&mut self,
@@ -38,8 +43,37 @@ impl Layout {
 		avatars: &mut Avatars,
 		demo: bool,
 	) -> Arc<egui::Galley> {
+		self.galley_games(
+			ui,
+			text,
+			width,
+			users,
+			roles,
+			channels,
+			&Default::default(),
+			mass_mentions,
+			avatars,
+			demo,
+		)
+	}
+	#[allow(clippy::too_many_arguments)]
+	pub fn galley_games(
+		&mut self,
+		ui: &egui::Ui,
+		text: &str,
+		width: f32,
+		users: &[User],
+		roles: &[model::permissions::Role],
+		channels: &[model::Channel],
+		games: &client_core::game_mentions::Catalog,
+		mass_mentions: bool,
+		avatars: &mut Avatars,
+		demo: bool,
+	) -> Arc<egui::Galley> {
+		self.demo = demo;
 		let mut key = DefaultHasher::new();
 		text.hash(&mut key);
+		games.revision.hash(&mut key);
 		width.to_bits().hash(&mut key);
 		crate::fonts::revision(ui.ctx()).hash(&mut key);
 		ui.ctx().pixels_per_point().to_bits().hash(&mut key);
@@ -74,7 +108,7 @@ impl Layout {
 				channels
 					.iter()
 					.find(|c| c.id == id)
-					.map(|c| &c.name)
+					.map(|c| (&c.name, crate::channel_pill::icon(c, channels) as u8))
 					.hash(&mut key);
 			}
 		}
@@ -103,8 +137,26 @@ impl Layout {
 			let mut label = None;
 			let mut background = colors.accent.gamma_multiply(0.12);
 			let mut image = None;
+			let mut asset = None;
+			let mut icon = None;
+			let mut game_icon = None;
 			let mut artwork = false;
-			let length = if let Some((id, len)) = model::user_mention_prefix(tail) {
+			let length = if let Some((id, len)) = model::game_mention_prefix(tail) {
+				label = Some((games.label(id), colors.mention_text));
+				background = colors.mention_bg;
+				icon = Some(crate::icons::Icon::GameController);
+				game_icon = games.find(id).map(model::GameMention::icon_key);
+				len
+			} else if tail.starts_with("@game ")
+				&& text[..byte]
+					.chars()
+					.next_back()
+					.is_none_or(|c| c.is_whitespace() || matches!(c, '(' | '[' | '{'))
+			{
+				label = Some(("@game".into(), colors.text));
+				background = colors.selected;
+				5
+			} else if let Some((id, len)) = model::user_mention_prefix(tail) {
 				let name = users
 					.iter()
 					.find(|u| u.id == id)
@@ -121,25 +173,32 @@ impl Layout {
 				background = colors.mention_bg;
 				len
 			} else if let Some((id, len)) = model::channel_mention_prefix(tail) {
-				let name = channels
-					.iter()
-					.find(|c| c.id == id && c.guild.is_some())
-					.map_or_else(|| format!("unknown-channel ({id})"), |c| c.name.clone());
-				label = Some((format!("#{name}"), colors.mention_text));
+				let channel = channels.iter().find(|c| c.id == id && c.guild.is_some());
+				let name =
+					channel.map_or_else(|| format!("unknown-channel ({id})"), |c| c.name.clone());
+				icon = Some(channel.map_or(crate::icons::Icon::Hash, |c| {
+					crate::channel_pill::icon(c, channels)
+				}));
+				label = Some((name, colors.mention_text));
 				background = colors.mention_bg;
 				len
 			} else if mass_mentions && let Some(len) = model::mass_mention_prefix(tail) {
 				label = Some((tail[..len].to_owned(), colors.mention_text));
 				background = colors.mention_bg;
 				len
-			} else if let Some((asset, name, len)) = model::ImageShare::markdown_prefix(tail) {
-				image = avatars.share_image(ui.ctx(), asset, size, demo);
+			} else if let Some((share, name, len)) = model::ImageShare::markdown_prefix(tail) {
+				asset = Some(share);
+				image = avatars.lookup_share_image(ui.ctx(), share, size, demo);
 				if image.is_none() {
 					label = Some((name, colors.muted));
 				}
 				len
 			} else if let Some((id, len)) = emoji::custom_prefix(tail) {
-				image = avatars.custom_image(ui.ctx(), id, size, demo);
+				asset = Some(model::ImageShare::Emoji {
+					id,
+					animated: false,
+				});
+				image = avatars.lookup_share_image(ui.ctx(), asset.unwrap(), size, demo);
 				// A useful name remains visible while artwork is unavailable/loading.
 				if image.is_none() {
 					let name = tail[..len]
@@ -159,14 +218,17 @@ impl Layout {
 			};
 			let label = label.map(|(text, color)| {
 				let mut job = LayoutJob::simple_singleline(text, font.clone(), color);
-				job.wrap.max_width = (width - 6.0).max(1.0);
+				job.wrap.max_width =
+					(width - 6.0 - if icon.is_some() { size } else { 0.0 }).max(1.0);
 				job.wrap.max_rows = 1;
 				ui.fonts_mut(|f| f.layout_job(job))
 			});
 			let raw = &tail[..length];
 			let count = raw.chars().count();
 			if label.is_some() || image.is_some() || artwork {
-				let slot = label.as_ref().map_or(size, |g| g.size().x + 6.0);
+				let slot = label.as_ref().map_or(size, |g| {
+					g.size().x + 6.0 + if icon.is_some() { size } else { 0.0 }
+				});
 				// One blank glyph forms an unbroken inline object, even at a row break.
 				// Expand its character slots below, so native selection/copy/undo use wire text.
 				job.append(" ", 0.0, emoji::inline_format(ui, slot, size));
@@ -177,6 +239,9 @@ impl Layout {
 					label,
 					background,
 					image,
+					asset,
+					icon,
+					game_icon,
 				});
 				projected += 1;
 			} else {
@@ -224,7 +289,12 @@ impl Layout {
 		galley
 	}
 
-	pub fn paint(&self, ui: &mut egui::Ui, output: &egui::text_edit::TextEditOutput) {
+	pub fn paint(
+		&self,
+		ui: &mut egui::Ui,
+		output: &egui::text_edit::TextEditOutput,
+		avatars: &mut Avatars,
+	) {
 		// TextEdit keeps the empty hint galley on the first keystroke.
 		if self
 			.cache
@@ -247,13 +317,45 @@ impl Layout {
 				position.min,
 				egui::vec2(inline.width, position.height()),
 			);
-			if !rect.intersects(clip) {
+			if !rect.intersect(clip).is_positive() {
 				continue;
+			}
+			if let Some(asset) = inline.asset {
+				// Only visible slots may request or refresh artwork, even on a cache hit.
+				avatars.touch_share_image(ui.ctx(), asset, self.demo);
 			}
 			if let Some(label) = &inline.label {
 				painter.rect_filled(rect, 3, inline.background);
+				let offset = if let Some(icon) = inline.icon {
+					let size = emoji::inline_size(ui);
+					if let Some(key) = &inline.game_icon {
+						let icon_rect = egui::Rect::from_center_size(
+							egui::pos2(rect.left() + 3.0 + size / 2.0, rect.center().y),
+							egui::Vec2::splat(size),
+						);
+						let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon_rect));
+						child.set_clip_rect(clip);
+						avatars.show_icon(&mut child, Some(key.clone()), size, self.demo, "Game");
+					} else {
+						crate::icons::paint(
+							&painter,
+							icon,
+							egui::Rect::from_center_size(
+								egui::pos2(rect.left() + 3.0 + size / 2.0, rect.center().y),
+								egui::Vec2::splat(size * 0.65),
+							),
+							crate::design::palette(ui).mention_text,
+						);
+					}
+					size
+				} else {
+					0.0
+				};
 				painter.galley(
-					egui::pos2(rect.left() + 3.0, rect.center().y - label.size().y / 2.0),
+					egui::pos2(
+						rect.left() + 3.0 + offset,
+						rect.center().y - label.size().y / 2.0,
+					),
 					label.clone(),
 					Color32::PLACEHOLDER,
 				);
@@ -354,366 +456,8 @@ mod tests {
 			kind: Default::default(),
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		}]
-	}
-
-	#[test]
-	fn mention_highlights_follow_theme_and_preserve_wire_text() {
-		let ctx = egui::Context::default();
-		let mut layout = Layout::default();
-		let mut avatars = Avatars::default();
-		let mut text = "<@42> <@!43> @everyone @here <:missing:9001>".to_owned();
-		for dark in [true, false] {
-			ctx.set_visuals(if dark {
-				egui::Visuals::dark()
-			} else {
-				egui::Visuals::light()
-			});
-			for width in [80.0, 300.0] {
-				let output = ctx.run_ui(Default::default(), |ui| {
-					let colors = crate::design::palette(ui);
-					let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, _| {
-						layout.galley(
-							ui,
-							buffer.as_str(),
-							width,
-							&users(),
-							&[],
-							&[],
-							true,
-							&mut avatars,
-							false,
-						)
-					};
-					let edit = egui::TextEdit::multiline(&mut text)
-						.layouter(&mut layouter)
-						.show(ui);
-					layout.paint(ui, &edit);
-					assert_eq!(edit.galley.job.text, text);
-					assert_eq!(layout.inlines.len(), 5);
-					for (inline, label) in layout.inlines.iter().zip([
-						"@Zoë",
-						"@43",
-						"@everyone",
-						"@here",
-						":missing:",
-					]) {
-						let mention = label.starts_with('@');
-						let galley = inline.label.as_ref().unwrap();
-						assert_eq!(galley.job.text, label);
-						assert_eq!(
-							galley.job.sections[0].format.color,
-							if mention {
-								colors.mention_text
-							} else {
-								colors.muted
-							}
-						);
-						assert_eq!(
-							inline.background,
-							if mention {
-								colors.mention_bg
-							} else {
-								colors.accent.gamma_multiply(0.12)
-							}
-						);
-					}
-				});
-				let colors = crate::design::palette_for(&ctx);
-				assert_eq!(
-					output
-						.shapes
-						.iter()
-						.filter(|s| matches!(&s.shape,
-					egui::Shape::Rect(rect) if rect.fill == colors.mention_bg))
-						.count(),
-					4
-				);
-				output.drop_without_applying_deltas();
-			}
-		}
-	}
-
-	#[test]
-	fn emoji_slots_stay_large_and_never_use_font_artwork_while_loading() {
-		let ctx = egui::Context::default();
-		let mut avatars = Avatars::default();
-		let mut layout = Layout::default();
-		let text = "😀👩🏽‍💻❤️🇨🇿";
-		let mut cold_size = None;
-		for ready in [false, true] {
-			if ready {
-				emoji::install(&ctx).unwrap();
-			}
-			let output = ctx.run_ui(Default::default(), |ui| {
-				let galley =
-					layout.galley(ui, text, 65.0, &[], &[], &[], false, &mut avatars, true);
-				assert_eq!(galley.job.text, text);
-				assert_eq!(layout.inlines.len(), 4);
-				for inline in &layout.inlines {
-					assert_eq!(inline.width, emoji::inline_size(ui));
-					assert!(inline.width > egui::TextStyle::Body.resolve(ui.style()).size + 5.0);
-					assert_eq!(inline.image.is_some(), ready);
-				}
-				assert!(galley.rows.iter().all(|row| {
-					row.visuals
-						.mesh
-						.vertices
-						.iter()
-						.all(|v| v.color == Color32::TRANSPARENT)
-				}));
-				if let Some(size) = cold_size {
-					assert_eq!(galley.size(), size);
-				} else {
-					cold_size = Some(galley.size());
-				}
-			});
-			output.drop_without_applying_deltas();
-		}
-	}
-
-	#[test]
-	fn first_emoji_input_waits_for_its_own_galley_then_keeps_artwork() {
-		let ctx = egui::Context::default();
-		emoji::install(&ctx).unwrap();
-		let mut avatars = Avatars::default();
-		let mut layout = Layout::default();
-		let mut text = String::new();
-		let id = egui::Id::unique("emoji-first-input");
-		ctx.memory_mut(|m| m.request_focus(id));
-		for (frame, events) in [
-			vec![egui::Event::Text("😀".into())],
-			vec![],
-			vec![egui::Event::Text("❤️".into())],
-		]
-		.into_iter()
-		.enumerate()
-		{
-			let output = ctx.run_ui(
-				egui::RawInput {
-					events,
-					..Default::default()
-				},
-				|ui| {
-					let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
-						layout.galley(
-							ui,
-							buffer.as_str(),
-							width,
-							&[],
-							&[],
-							&[],
-							false,
-							&mut avatars,
-							true,
-						)
-					};
-					let edit = egui::TextEdit::multiline(&mut text)
-						.id(id)
-						.hint_text("Message")
-						.layouter(&mut layouter)
-						.show(ui);
-					layout.paint(ui, &edit);
-				},
-			);
-			let images = output
-				.shapes
-				.iter()
-				.filter(
-					|shape| matches!(&shape.shape, egui::Shape::Rect(rect) if rect.brush.is_some()),
-				)
-				.count();
-			assert_eq!(
-				images, frame,
-				"first input must not paint against the empty hint galley"
-			);
-			output.drop_without_applying_deltas();
-		}
-		assert_eq!(text, "😀❤️");
-	}
-
-	#[test]
-	fn nonsquare_emoji_keep_aspect_in_messages_and_composer() {
-		for dimensions in [[64, 32], [32, 64]] {
-			let ctx = egui::Context::default();
-			let texture = ctx.load_texture(
-				"synthetic-emoji",
-				egui::ColorImage::filled(dimensions, Color32::WHITE),
-				Default::default(),
-			);
-			let image = Image::new(&texture).fit_to_exact_size(egui::Vec2::splat(24.0));
-			let mut layout = Layout::default();
-			let mut avatars = Avatars::default();
-			let mut text = "<:serein_leaf:9001>".to_owned();
-			let message = crate::markdown::Formatted::parse(&text);
-			let mut output = ctx.run_ui(Default::default(), |ui| {
-				ui.style_mut()
-					.text_styles
-					.insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
-				// The timeline resolves custom artwork through the avatar cache.
-				avatars.custom_image(ui.ctx(), model::Id(9001), 24.0, false);
-				avatars.accept(
-					ui.ctx(),
-					"emoji-9001".into(),
-					Some(egui::ColorImage::filled(dimensions, Color32::WHITE)),
-				);
-				message.show_with_images(
-					ui,
-					&mut None,
-					&[],
-					None,
-					&mut crate::profiles::ProfileSession::default(),
-					(&mut avatars, false, &[]),
-					crate::design::MessageCardSurface::Opaque,
-				);
-				let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
-					layout.galley(
-						ui,
-						buffer.as_str(),
-						width,
-						&[],
-						&[],
-						&[],
-						false,
-						&mut avatars,
-						true,
-					)
-				};
-				let edit = egui::TextEdit::multiline(&mut text)
-					.layouter(&mut layouter)
-					.show(ui);
-				layout.inlines[0].image = Some(image.clone());
-				layout.paint(ui, &edit);
-			});
-			output.textures_delta.clear();
-			let sizes: Vec<_> = output
-				.shapes
-				.iter()
-				.filter_map(|shape| match &shape.shape {
-					egui::Shape::Rect(rect)
-						if rect.fill_texture_id() != egui::TextureId::default() =>
-					{
-						Some(rect.rect.size())
-					}
-					_ => None,
-				})
-				.collect();
-			assert_eq!(sizes.len(), 2);
-			for size in sizes {
-				assert!(
-					(size.x / size.y - dimensions[0] as f32 / dimensions[1] as f32).abs() < 0.01
-				);
-				assert!(size.x <= 24.0 && size.y <= 24.0);
-			}
-			output.drop_without_applying_deltas();
-		}
-	}
-
-	#[test]
-	fn artwork_keeps_wire_characters_and_cursor_geometry_across_wrapped_lines() {
-		let ctx = egui::Context::default();
-		emoji::install(&ctx).unwrap();
-		let text = "Hi <@42> 👩🏽‍💻 <:serein_leaf:9001>\nagain <@!42> ❤️";
-		let mut avatars = Avatars::default();
-		let mut layout = Layout::default();
-		let output = ctx.run_ui(Default::default(), |ui| {
-			let galley = layout.galley(
-				ui,
-				text,
-				130.0,
-				&users(),
-				&[],
-				&[],
-				false,
-				&mut avatars,
-				true,
-			);
-			assert_eq!(galley.job.text, text);
-			let mut reconstructed = String::new();
-			for row in &galley.rows {
-				reconstructed.extend(row.glyphs.iter().map(|g| g.chr));
-				if row.ends_with_newline {
-					reconstructed.push('\n');
-				}
-				assert!(row.glyphs.iter().all(|g| g.pos.x >= -0.1));
-				assert!(row.glyphs.windows(2).all(|g| g[0].pos.x <= g[1].pos.x));
-			}
-			assert_eq!(reconstructed, text);
-			assert_eq!(layout.inlines.len(), 5);
-			assert_eq!(
-				layout.inlines.iter().filter(|i| i.image.is_some()).count(),
-				3
-			);
-			assert_eq!(layout.inlines[0].label.as_ref().unwrap().job.text, "@Zoë");
-			assert_eq!(galley.end().index.0, text.chars().count());
-			for inline in &layout.inlines {
-				let mut cursor = CCursor::new(inline.source.start);
-				cursor.prefer_next_row = true;
-				let start = galley.pos_from_cursor(cursor);
-				cursor.index = inline.source.end.into();
-				cursor.prefer_next_row = false;
-				let end = galley.pos_from_cursor(cursor);
-				assert!(
-					(start.top() - end.top()).abs() < 0.1,
-					"inline must not wrap internally"
-				);
-				assert!((end.left() - start.left() - inline.width).abs() < 1.0);
-			}
-		});
-		output.drop_without_applying_deltas();
-		assert!(avatars.take_requests().is_empty());
-	}
-
-	#[test]
-	fn scrolled_out_artwork_stays_inside_the_composer_viewport() {
-		let ctx = egui::Context::default();
-		emoji::install(&ctx).unwrap();
-		let mut text = format!("😀{}😀", "\nline".repeat(30));
-		let mut avatars = Avatars::default();
-		let mut layout = Layout::default();
-		let mut viewport = egui::Rect::NOTHING;
-		let output = ctx.run_ui(Default::default(), |ui| {
-			viewport = egui::ScrollArea::vertical()
-				.max_height(40.0)
-				.show(ui, |ui| {
-					let mut layouter =
-						|ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width: f32| {
-							layout.galley(
-								ui,
-								buffer.as_str(),
-								width,
-								&[],
-								&[],
-								&[],
-								false,
-								&mut avatars,
-								true,
-							)
-						};
-					let edit = egui::TextEdit::multiline(&mut text)
-						.layouter(&mut layouter)
-						.show(ui);
-					layout.paint(ui, &edit);
-					assert!(edit.text_clip_rect.height() > 40.0);
-					ui.clip_rect()
-				})
-				.inner;
-			assert_eq!(
-				layout.inlines.iter().filter(|i| i.image.is_some()).count(),
-				2
-			);
-		});
-		let artwork: Vec<_> = output
-			.shapes
-			.iter()
-			.filter(|s| s.shape.texture_id() != egui::TextureId::default())
-			.collect();
-		assert_eq!(artwork.len(), 1, "the scrolled-out emoji is culled");
-		assert!(
-			artwork.iter().all(|s| viewport.contains_rect(s.clip_rect)),
-			"composer artwork must be clipped to the scroll viewport"
-		);
-		output.drop_without_applying_deltas();
 	}
 
 	#[test]
@@ -777,7 +521,7 @@ mod tests {
 					if !composing {
 						layout.snap_cursor(&mut edit, &ctx);
 					}
-					layout.paint(ui, &edit);
+					layout.paint(ui, &edit, &mut avatars);
 				},
 			);
 			if copying {

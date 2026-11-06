@@ -40,6 +40,7 @@ thread_local! {
 	#[cfg(test)]
 	static TEST_CURRENT: std::cell::Cell<Language> = const { std::cell::Cell::new(Language::English) };
 	static ACTIVE_BUNDLE: RefCell<Option<ActiveBundle>> = const { RefCell::new(None) };
+	static FALLBACK_BUNDLE: RefCell<Option<ActiveBundle>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -203,30 +204,50 @@ impl Language {
 		ActiveBundle { language, bundle }
 	}
 
+	fn lookup_in_bundle(
+		bundle: &FluentBundle<FluentResource>,
+		key: &str,
+		args: Option<&FluentArgs<'_>>,
+	) -> Option<String> {
+		let pattern = if let Some((message, attribute)) = key.split_once('.') {
+			bundle
+				.get_message(message)?
+				.attributes()
+				.find(|value| value.id() == attribute)?
+				.value()
+		} else {
+			bundle.get_message(key)?.value()?
+		};
+		let mut errors = Vec::new();
+		let value = bundle
+			.format_pattern(pattern, args, &mut errors)
+			.into_owned();
+		errors.is_empty().then_some(value)
+	}
+
 	fn lookup(self, key: &str, args: Option<&FluentArgs<'_>>) -> Option<String> {
 		let language = self.resolved();
-		ACTIVE_BUNDLE.with_borrow_mut(|active| {
+		let result = ACTIVE_BUNDLE.with_borrow_mut(|active| {
 			if active
 				.as_ref()
 				.is_none_or(|active| active.language != language)
 			{
 				*active = Some(language.load());
 			}
-			let bundle = &active.as_ref()?.bundle;
-			let pattern = if let Some((message, attribute)) = key.split_once('.') {
-				bundle
-					.get_message(message)?
-					.attributes()
-					.find(|value| value.id() == attribute)?
-					.value()
-			} else {
-				bundle.get_message(key)?.value()?
-			};
-			let mut errors = Vec::new();
-			let value = bundle
-				.format_pattern(pattern, args, &mut errors)
-				.into_owned();
-			errors.is_empty().then_some(value)
+			active
+				.as_ref()
+				.and_then(|active| Self::lookup_in_bundle(&active.bundle, key, args))
+		});
+		if result.is_some() || language == Self::English {
+			return result;
+		}
+		FALLBACK_BUNDLE.with_borrow_mut(|fallback| {
+			if fallback.is_none() {
+				*fallback = Some(Self::English.load());
+			}
+			fallback
+				.as_ref()
+				.and_then(|fb| Self::lookup_in_bundle(&fb.bundle, key, args))
 		})
 	}
 
@@ -272,6 +293,36 @@ pub fn translate_args(key: &str, values: &[(&'static str, &str)]) -> String {
 /// Like [`translate_args`], with a numeric `$count` for plural selection.
 pub fn translate_count(key: &str, count: usize, values: &[(&'static str, &str)]) -> String {
 	current().text_with_count(key, Some(count), values)
+}
+
+/// Like [`translate_args`], or `None` when the catalog lacks the key.
+pub fn try_translate_args(key: &str, values: &[(&'static str, String)]) -> Option<String> {
+	let mut args = FluentArgs::with_capacity(values.len());
+	for (name, value) in values {
+		args.set(*name, value.as_str());
+	}
+	current().lookup(key, Some(&args))
+}
+
+/// A system message's styled runs in the interface language.
+pub fn system_segments(system: &model::SystemMessage) -> Vec<model::Segment> {
+	system.localized(try_translate_args)
+}
+
+/// [`model::Message::display_text`] with system descriptions in the interface language.
+pub fn message_text(message: &model::Message) -> std::borrow::Cow<'_, str> {
+	let Some(system) = message.system_message() else {
+		return message.content.as_str().into();
+	};
+	let summary: String = system_segments(&system)
+		.iter()
+		.map(|segment| segment.text.as_str())
+		.collect();
+	if system.content_shown || message.content.is_empty() {
+		summary.into()
+	} else {
+		format!("{summary}\n{}", message.content).into()
+	}
 }
 
 /// Translate a semantic key while leaving service- or user-provided text untouched.
@@ -412,51 +463,63 @@ mod tests {
 	}
 
 	#[test]
-	fn counts_select_plural_forms() {
-		let since = |language: Language, count| {
-			language
-				.text_with_count(
-					"timeline-unread-banner-new-since",
-					Some(count),
-					&[("time", "23:21")],
-				)
-				.replace(['\u{2068}', '\u{2069}'], "")
-		};
-		assert_eq!(since(Language::English, 1), "1 new message since 23:21");
-		assert_eq!(since(Language::English, 57), "57 new messages since 23:21");
-		assert_eq!(since(Language::Czech, 1), "1 nová zpráva od 23:21");
-		assert_eq!(since(Language::Czech, 3), "3 nové zprávy od 23:21");
-		assert_eq!(since(Language::Czech, 57), "57 nových zpráv od 23:21");
-		assert_eq!(since(Language::Russian, 21), "21 новое сообщение с 23:21");
-		assert_eq!(since(Language::Russian, 12), "12 новых сообщений с 23:21");
-		assert_eq!(since(Language::Polish, 22), "22 nowe wiadomości od 23:21");
-		assert_eq!(since(Language::Polish, 12), "12 nowych wiadomości od 23:21");
+	fn system_messages_keep_styled_names_in_every_catalog() {
+		let mut message = test_support::message(1, model::Id(2));
+		message.author.name = "m.artin".into();
+		message.content.clear();
+		let english = (0..=u8::MAX)
+			.filter_map(|kind| {
+				message.kind = kind;
+				message.system_message()
+			})
+			.collect::<Vec<_>>();
 		for language in Language::ALL {
-			for count in [1, 2, 5, 22, 1000] {
-				for key in [
-					"timeline-unread-banner-new-since",
-					"timeline-unread-banner-new-since-more",
-				] {
-					let text = language
-						.text_with_count(key, Some(count), &[("time", "23:21")])
-						.replace(['\u{2068}', '\u{2069}'], "");
-					assert!(
-						text.contains(&count.to_string()) && text.contains("23:21"),
-						"{language:?} {key} {count}: {text}"
-					);
-				}
-				let text = language.text_with_count(
-					"timeline-present-control-new-messages",
-					Some(count),
-					&[],
+			set_current(language);
+			for system in &english {
+				let segments = system_segments(system);
+				let names = |segments: &[model::Segment]| {
+					segments.iter().filter(|s| s.user.is_some()).count()
+				};
+				assert_eq!(
+					names(&segments),
+					names(&system.segments),
+					"{language:?} {}",
+					system.key
 				);
+				let text: String = segments.iter().map(|s| s.text.as_str()).collect();
 				assert!(
-					text.replace(['\u{2068}', '\u{2069}'], "")
-						.contains(&count.to_string()),
-					"{language:?} {count}: {text}"
+					!text.contains(['\u{e000}', '\u{2068}', '\u{2069}'])
+						&& !text.starts_with("Unknown localization key:"),
+					"{language:?} {}: {text}",
+					system.key
 				);
 			}
 		}
+		set_current(Language::Czech);
+		message.kind = 7;
+		let joined = system_segments(&message.system_message().unwrap());
+		assert_eq!(joined[1].text, "m.artin");
+		assert!(joined[1].strong);
+		assert_eq!(
+			joined.iter().map(|s| s.text.as_str()).collect::<String>(),
+			"Vítejte, m.artin! Připojil(a) se k serveru."
+		);
+		set_current(Language::English);
+		assert_eq!(
+			message_text(&message),
+			"Welcome, m.artin! Joined the server."
+		);
+	}
+
+	#[test]
+	fn missing_keys_fall_back_to_english() {
+		set_current(Language::German);
+		assert_eq!(translate("settings-chat-box"), "Chatfenster");
+		assert_eq!(
+			translate("settings-storage-page-saved-login"),
+			"Gespeicherte Anmeldung"
+		);
+		assert_eq!(translate("embeds-poll-result-no-votes"), "No one voted");
 	}
 
 	#[test]

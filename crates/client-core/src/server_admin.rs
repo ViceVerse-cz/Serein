@@ -5,7 +5,7 @@ use crate::{
 };
 use model::{
 	Id, permissions as p,
-	server_admin::{Action, Emojis, Members, Query, Result as Outcome, Stickers},
+	server_admin::{Action, Emojis, Members, Query, Result as Outcome, Stickers, VoiceChange},
 };
 
 pub struct Event {
@@ -91,6 +91,41 @@ impl View {
 	}
 }
 impl State {
+	pub fn can_moderate_voice(
+		&self,
+		guild: Id,
+		channel: Id,
+		user: Id,
+		change: VoiceChange,
+	) -> bool {
+		if !self.user.as_ref().is_some_and(|own| own.id != user)
+			|| !self.voice.roster.iter().any(|entry| {
+				entry.guild == guild && entry.channel == channel && entry.participant.user == user
+			}) || !self
+			.channel(channel)
+			.is_some_and(|source| source.guild == Some(guild) && source.kind == 2)
+			|| !self.can_view(channel)
+		{
+			return false;
+		}
+		let permission = match change {
+			VoiceChange::Mute(_) => p::MUTE_MEMBERS,
+			VoiceChange::Move(_) => p::MOVE_MEMBERS,
+		};
+		self.permission(channel, permission) == Some(true)
+			&& match change {
+				VoiceChange::Move(Some(to)) => {
+					to != channel
+						&& self
+							.channel(to)
+							.is_some_and(|target| target.guild == Some(guild) && target.kind == 2)
+						&& self.can_view(to)
+						&& self.permission(to, p::CONNECT) == Some(true)
+				}
+				_ => true,
+			}
+	}
+
 	pub(crate) fn can_retain_channel_integrations(&self, guild: Id) -> bool {
 		let scope = match &self.server_admin.action {
 			Some(Action::Integrations(action)) => action.scope(),
@@ -212,6 +247,11 @@ impl State {
 			.find(|member| member.user.id == user)
 	}
 	fn above_admin_member(&self, guild: Id, user: Id) -> bool {
+		self.admin_member(guild, user)
+			.is_some_and(|member| self.outranks_member(guild, user, &member.roles))
+	}
+	/// You own the server, or your highest role outranks the member's (`roles` are theirs).
+	fn outranks_member(&self, guild: Id, user: Id, roles: &[Id]) -> bool {
 		let Some(actor) = self.user.as_ref().map(|user| user.id) else {
 			return false;
 		};
@@ -224,23 +264,20 @@ impl State {
 		if user == actor || user == owner {
 			return false;
 		}
-		let Some(member) = self.admin_member(guild, user) else {
-			return false;
-		};
 		if actor == owner {
 			return true;
 		}
-		let Some(roles) = metadata.roles.as_ref() else {
+		let Some(server_roles) = metadata.roles.as_ref() else {
 			return false;
 		};
 		let Some(own) = metadata.member.as_ref() else {
 			return false;
 		};
 		let highest = |ids: &[Id]| -> Option<&p::Role> {
-			let everyone = roles.iter().find(|role| role.id == guild)?;
+			let everyone = server_roles.iter().find(|role| role.id == guild)?;
 			let mut highest = everyone;
 			for id in ids {
-				let role = roles.iter().find(|role| role.id == *id)?;
+				let role = server_roles.iter().find(|role| role.id == *id)?;
 				if role.cmp_hierarchy(highest).is_gt() {
 					highest = role;
 				}
@@ -248,40 +285,11 @@ impl State {
 			Some(highest)
 		};
 		highest(&own.roles)
-			.zip(highest(&member.roles))
+			.zip(highest(roles))
 			.is_some_and(|(own, target)| own.cmp_hierarchy(target).is_gt())
 	}
-	pub fn can_kick_guild_member(&self, guild: Id, user: Id) -> bool {
-		self.guild_permission(guild, p::KICK_MEMBERS) && self.above_admin_member(guild, user)
-	}
-	pub fn can_edit_guild_nickname(&self, guild: Id, user: Id) -> bool {
-		if self.user.as_ref().is_some_and(|own| own.id == user) {
-			self.guild_permission(guild, p::CHANGE_NICKNAME)
-		} else {
-			self.guild_permission(guild, p::MANAGE_NICKNAMES)
-				&& self.above_admin_member(guild, user)
-		}
-	}
-	pub fn can_edit_member_role(&self, guild: Id, user: Id, role: Id) -> bool {
-		let own = self.user.as_ref().is_some_and(|actor| actor.id == user);
-		if !self.guild_permission(guild, p::MANAGE_ROLES)
-			|| (!own && !self.above_admin_member(guild, user))
-			|| self.admin_member(guild, user).is_none()
-			|| role == guild
-		{
-			return false;
-		}
-		let Some(row) = self
-			.server_admin
-			.members
-			.as_ref()
-			.and_then(|page| page.roles.iter().find(|row| row.role.id == role))
-		else {
-			return false;
-		};
-		if row.managed {
-			return false;
-		}
+	/// You own the server, or one of your roles sits above `role`.
+	fn role_below_own(&self, guild: Id, role: Id) -> bool {
 		let Some(metadata) = self.permissions.guilds.get(&guild) else {
 			return false;
 		};
@@ -308,6 +316,76 @@ impl State {
 				.filter(|role| own.roles.contains(&role.id))
 				.any(|role| role.cmp_hierarchy(current_role).is_gt())
 		})
+	}
+	/// Your own assignments, or a member row in the selected channel's live list or search.
+	fn live_member_role_ids(&self, guild: Id, user: Id) -> Option<&[Id]> {
+		if self.user.as_ref().is_some_and(|own| own.id == user) {
+			return self
+				.permissions
+				.guilds
+				.get(&guild)?
+				.member
+				.as_ref()
+				.map(|own| own.roles.as_slice());
+		}
+		self.live_member_roles(guild, self.selected?, user)
+	}
+	/// Roles you may toggle on a live member, highest first, paired with whether they hold it.
+	pub fn member_menu_roles(&self, guild: Id, user: Id) -> Vec<(&p::Role, bool)> {
+		let own = self.user.as_ref().is_some_and(|actor| actor.id == user);
+		let Some(assigned) = self.live_member_role_ids(guild, user) else {
+			return Vec::new();
+		};
+		if !self.guild_permission(guild, p::MANAGE_ROLES)
+			|| (!own && !self.outranks_member(guild, user, assigned))
+		{
+			return Vec::new();
+		}
+		let mut roles: Vec<_> = self
+			.guild_roles(guild)
+			.unwrap_or_default()
+			.iter()
+			.filter(|role| role.id != guild && !role.managed && self.role_below_own(guild, role.id))
+			.map(|role| (role, assigned.contains(&role.id)))
+			.collect();
+		roles.sort_by(|(a, _), (b, _)| b.cmp_hierarchy(a));
+		roles
+	}
+	pub fn can_kick_guild_member(&self, guild: Id, user: Id) -> bool {
+		self.guild_permission(guild, p::KICK_MEMBERS) && self.above_admin_member(guild, user)
+	}
+	pub fn can_edit_guild_nickname(&self, guild: Id, user: Id) -> bool {
+		if self.user.as_ref().is_some_and(|own| own.id == user) {
+			self.guild_permission(guild, p::CHANGE_NICKNAME)
+		} else {
+			self.guild_permission(guild, p::MANAGE_NICKNAMES)
+				&& self.above_admin_member(guild, user)
+		}
+	}
+	pub fn can_edit_member_role(&self, guild: Id, user: Id, role: Id) -> bool {
+		if self.admin_member(guild, user).is_none() {
+			// Context menus act on live member rows without the settings member page.
+			return self
+				.member_menu_roles(guild, user)
+				.iter()
+				.any(|(row, _)| row.id == role);
+		}
+		let own = self.user.as_ref().is_some_and(|actor| actor.id == user);
+		if !self.guild_permission(guild, p::MANAGE_ROLES)
+			|| (!own && !self.above_admin_member(guild, user))
+			|| role == guild
+		{
+			return false;
+		}
+		let Some(row) = self
+			.server_admin
+			.members
+			.as_ref()
+			.and_then(|page| page.roles.iter().find(|row| row.role.id == role))
+		else {
+			return false;
+		};
+		!row.managed && self.role_below_own(guild, role)
 	}
 	pub fn can_prune_guild(&self, guild: Id) -> bool {
 		if self.server_admin.guild != Some(guild) {
@@ -344,6 +422,11 @@ impl State {
 			return false;
 		}
 		match action {
+			Action::Voice {
+				user,
+				channel,
+				change,
+			} => self.can_moderate_voice(guild, *channel, *user, *change),
 			Action::AuditLog(query) => self.audit_log_action_allowed(guild, query),
 			Action::Roles(action) => self.role_action_allowed(guild, action),
 			Action::Invites(action) => self.invite_action_allowed(guild, action),
@@ -412,7 +495,9 @@ impl State {
 		}
 		if self.server_admin.pending
 			|| self.server_settings.saving
-			|| (self.server_admin.needs_refresh && action.write())
+			|| (self.server_admin.needs_refresh
+				&& action.write()
+				&& !matches!(action, Action::Voice { .. }))
 			|| !self.server_admin_action_allowed(guild, &action)
 			|| (!self.demo && (self.auth != AuthState::Authenticated || !self.gateway_connected))
 		{
@@ -531,7 +616,9 @@ impl State {
 		self.server_admin.pending = false;
 		self.server_admin.saving = false;
 		if action.as_ref().is_none_or(|action| {
-			if matches!(action, Action::AuditLog(_)) {
+			if matches!(action, Action::Voice { .. }) {
+				self.guild(event.guild).is_none()
+			} else if matches!(action, Action::AuditLog(_)) {
 				!self.can_open_audit_log_settings(event.guild)
 			} else if let Action::Integrations(action) = action {
 				!self.integration_action_allowed(event.guild, action)
@@ -570,6 +657,9 @@ impl State {
 				return Ok(());
 			}
 			Err(failure) => {
+				if matches!(action, Some(Action::Voice { .. })) {
+					self.status = failure.label();
+				}
 				if matches!(action, Some(Action::AuditLog(_))) && failure == Failure::Forbidden {
 					self.server_admin.revoke_audit_access();
 				}
@@ -624,6 +714,7 @@ impl State {
 				| (Some(Action::Prune { .. }), Outcome::Pruned(_))
 				| (Some(Action::ShowMembers { .. }), Outcome::ChannelList(_))
 		) || match (&action, &result) {
+			(Some(Action::Voice { user, .. }), Outcome::VoiceUpdated(id)) => user == id,
 			(
 				Some(Action::Integrations(model::server_integrations::Action::CopyWebhookUrl {
 					webhook,
@@ -821,6 +912,47 @@ impl State {
 					*row = member;
 				}
 			}
+			Outcome::VoiceUpdated(user) => {
+				self.status = "Voice moderation request accepted";
+				if self.demo
+					&& let Some(Action::Voice {
+						channel, change, ..
+					}) = action.as_ref()
+					&& let Some(entry) = self
+						.voice
+						.roster
+						.iter()
+						.find(|entry| {
+							entry.guild == event.guild
+								&& entry.channel == *channel
+								&& entry.participant.user == user
+						})
+						.cloned()
+				{
+					let participant = entry.participant;
+					self.apply_voice(crate::voice::Event::State {
+						guild: Some(event.guild),
+						user,
+						channel: match change {
+							VoiceChange::Move(to) => *to,
+							_ => Some(*channel),
+						},
+						server_muted: match change {
+							VoiceChange::Mute(muted) => *muted,
+							_ => participant.server_muted,
+						},
+						server_deafened: participant.server_deafened,
+						muted: participant.muted,
+						deafened: participant.deafened,
+						video: participant.video,
+						streaming: participant.streaming,
+						member: entry.member.map(Box::new),
+						request: None,
+						session: None,
+						negotiation_revision: None,
+					});
+				}
+			}
 			Outcome::Kicked(user) => {
 				if let Some(page) = &mut self.server_admin.members {
 					page.items.retain(|row| row.user.id != user);
@@ -896,6 +1028,7 @@ mod invite_tests {
 			gateway_connected: true,
 			user: Some(model::User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -927,8 +1060,11 @@ mod invite_tests {
 					name: "@everyone".into(),
 					bits: p::MANAGE_GUILD | p::MANAGE_ROLES,
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 				}]),
 			},
 		);
@@ -1047,6 +1183,7 @@ mod sticker_tests {
 	fn user(id: u64, name: &str) -> model::User {
 		model::User {
 			primary_guild: None,
+			cosmetics: None,
 			id: Id(id),
 			name: name.into(),
 			avatar: None,
@@ -1099,8 +1236,11 @@ mod sticker_tests {
 					name: "@everyone".into(),
 					bits,
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 				}]),
 			},
 		);

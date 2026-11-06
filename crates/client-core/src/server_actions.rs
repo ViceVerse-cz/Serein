@@ -583,6 +583,7 @@ mod tests {
 		let mut state = State {
 			user: Some(model::User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -628,8 +629,11 @@ mod tests {
 						bits: VIEW_CHANNEL | CREATE_INSTANT_INVITE,
 						name: String::new(),
 						color: 0,
+						secondary_color: None,
+						tertiary_color: None,
 						position: 0,
 						hoist: false,
+						managed: false,
 					}]),
 					member: Some(model::permissions::Member {
 						roles: vec![],
@@ -775,6 +779,7 @@ mod tests {
 		let mut state = state();
 		let friend = model::User {
 			primary_guild: None,
+			cosmetics: None,
 			id: Id(8),
 			name: "Friend".into(),
 			avatar: None,

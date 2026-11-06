@@ -81,6 +81,7 @@ mod tests {
 			gateway_connected: true,
 			user: Some(model::User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -112,8 +113,11 @@ mod tests {
 					name: "@everyone".into(),
 					bits: VIEW_AUDIT_LOG,
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
+					managed: false,
 				}]),
 			},
 		);

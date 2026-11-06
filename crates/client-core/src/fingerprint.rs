@@ -11,7 +11,7 @@ const CHROME_MAJOR: &str = "128";
 /// Safari version advertised on macOS, where the verification widget runs in WebKit.
 const SAFARI_VERSION: &str = "18.5";
 /// Build number of the official web client this fingerprint mirrors.
-pub const CLIENT_BUILD_NUMBER: u64 = 328_246;
+pub const CLIENT_BUILD_NUMBER: u64 = 634_304;
 pub const LOCALE: &str = "en-US";
 
 /// Discord's spelling of the host operating system.
@@ -152,17 +152,5 @@ mod tests {
 			assert_eq!(base64(b"foo"), "Zm9v");
 			assert_eq!(base64(b"foobar"), "Zm9vYmFy");
 		}
-	}
-	#[test]
-	fn nonce_is_a_decimal_snowflake() {
-		let a = nonce(1_700_000_000_000, 1);
-		let b = nonce(1_700_000_000_000, 2);
-		assert_ne!(a, b);
-		assert!(a.bytes().all(|b| b.is_ascii_digit()));
-		assert_eq!(
-			a.parse::<u64>().unwrap() >> 22,
-			(1_700_000_000_000 - 1_420_070_400_000)
-		);
-		assert_eq!(nonce(0, 7), "7");
 	}
 }

@@ -285,6 +285,7 @@ mod tests {
 			avatar: None,
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		State {
 			auth: AuthState::Authenticated,
@@ -374,8 +375,11 @@ mod tests {
 				bits,
 				name: "Synthetic role".into(),
 				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
 				position: 0,
 				hoist: false,
+				managed: false,
 			};
 			state
 				.permissions
@@ -676,8 +680,11 @@ mod tests {
 						bits: p::VIEW_CHANNEL | p::USE_APPLICATION_COMMANDS | p::SEND_MESSAGES,
 						name: "Synthetic role".into(),
 						color: 0,
+						secondary_color: None,
+						tertiary_color: None,
 						position: 0,
 						hoist: false,
+						managed: false,
 					}]),
 					member: Some(p::Member {
 						roles: vec![],

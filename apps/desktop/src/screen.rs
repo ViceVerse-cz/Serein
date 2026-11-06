@@ -84,12 +84,20 @@ pub(super) struct Screen {
 	command: Option<Command>,
 	sequence: u64,
 	status: &'static str,
+	/// Outcome to state once as a toast on the next poll; the stage keeps no status line.
+	toast: Option<(ui::design::Level, &'static str)>,
+	/// Last viewer count Discord reported for the own stream, and a cue waiting for `poll`.
+	viewers: Option<(Context, u16)>,
+	viewer_cue: bool,
+	share_cued: bool,
 }
 impl Screen {
 	pub fn stop(&mut self) {
 		self.pending = None;
 		self.command = None;
 		self.closing = None;
+		self.viewers = None;
+		self.viewer_cue = false;
 		// Keep one in-flight OS enumeration tracked until it completes.
 		self.retire_live();
 		self.status = "Screen sharing stopped";
@@ -108,6 +116,19 @@ impl Screen {
 			.map(|pending| pending.context)
 			.or_else(|| self.live.as_ref().map(|live| live.context))
 			.or_else(|| self.closing.as_ref().map(|closing| closing.context))
+	}
+
+	/// Stops sharing because something went wrong, and says so once.
+	fn fail(&mut self, message: &'static str) {
+		// The share dialog already shows this reason; the log keeps it for a report too.
+		diagnostics::record_fields(
+			diagnostics::Category::Voice,
+			diagnostics::Level::Error,
+			"share_failed",
+			&[("reason", diagnostics::Value::Text(message))],
+		);
+		self.toast = Some((ui::design::Level::Error, message));
+		self.request_stop(message);
 	}
 
 	fn request_stop(&mut self, message: &'static str) {
@@ -170,7 +191,7 @@ impl Screen {
 				if self.live.is_some() {
 					let _ = token.take();
 					let _ = endpoint.take();
-					self.request_stop("Discord changed the active screen-share server");
+					self.fail("Discord changed the active screen-share server");
 					return;
 				}
 				let Some(pending) = &mut self.pending else {
@@ -178,11 +199,11 @@ impl Screen {
 				};
 				let Some(endpoint) = endpoint.take() else {
 					let _ = token.take();
-					self.request_stop("Discord screen-share server is unavailable");
+					self.fail("Discord screen-share server is unavailable");
 					return;
 				};
 				let Some(token) = token.take() else {
-					self.request_stop("Discord omitted the screen-share token");
+					self.fail("Discord omitted the screen-share token");
 					return;
 				};
 				pending.server = Some((token, endpoint));
@@ -193,8 +214,20 @@ impl Screen {
 				self.closing = None;
 				// A server-side end names its cause, so it is never mistaken for a local stop.
 				self.status = reason.unwrap_or("Screen sharing stopped");
+				if let Some(reason) = reason {
+					self.toast = Some((ui::design::Level::Info, reason));
+				}
 			}
-			screen::Event::Failed(message) => self.request_stop(message),
+			screen::Event::Failed(message) => self.fail(message),
+			screen::Event::Viewers(count) => {
+				// As in Discord: chime when this stream gains a viewer while it had at most 25.
+				let previous = self
+					.viewers
+					.filter(|(context, _)| *context == incoming)
+					.map_or(0, |(_, count)| count);
+				self.viewer_cue |= self.live.is_some() && *count > previous && previous <= 25;
+				self.viewers = Some((incoming, *count));
+			}
 		}
 	}
 
@@ -222,10 +255,16 @@ impl Screen {
 			ui.screen.busy = false;
 			ui.screen.supported = false;
 			ui.screen.preview = None;
+			ui.screen.preview_paused = false;
 			ui.screen.capture_status = None;
 			return None;
 		}
 		ui.screen.supported = discord_voice::screen::supported();
+		let cue = model::notification_preferences::Sound::ViewerJoin;
+		if std::mem::take(&mut self.viewer_cue) && ui.notification_options.allows(cue) {
+			ui.notification_preview = Some(cue);
+			ctx.request_repaint();
+		}
 		if !ui.screen.open && ui.screen.request.is_none() && self.context().is_none() {
 			ui.screen.sources.clear();
 			ui.screen.selected = None;
@@ -317,7 +356,7 @@ impl Screen {
 			.or_else(|| self.live.as_ref().map(|live| live.context))
 			&& !state.can_stream(context.channel)
 		{
-			self.request_stop("Screen-share permission was removed; stopping sharing");
+			self.fail("Screen-share permission was removed; stopping sharing");
 		}
 
 		if let Some(request) = ui.screen.request.take() {
@@ -343,6 +382,7 @@ impl Screen {
 						});
 					if self.context().is_some() || self.retiring.is_some() {
 						self.status = "Previous screen share is still closing";
+						self.toast = Some((ui::design::Level::Warning, self.status));
 					} else if let Some(call) = valid {
 						self.sequence = self.sequence.wrapping_add(1).max(1);
 						let context = Context {
@@ -370,9 +410,18 @@ impl Screen {
 						}));
 					} else {
 						self.status = "Screen sharing requires the current connected call";
+						self.toast = Some((ui::design::Level::Error, self.status));
 					}
 				}
-				ui::screen::Request::Stop => self.request_stop("Stopping screen sharing…"),
+				ui::screen::Request::Stop => {
+					// Discord cues the end of this device's own share, like its start.
+					let cue = model::notification_preferences::Sound::ScreenShareOff;
+					if self.live.is_some() && ui.notification_options.allows(cue) {
+						ui.notification_preview = Some(cue);
+						ctx.request_repaint();
+					}
+					self.request_stop("Stopping screen sharing…")
+				}
 			}
 		}
 
@@ -381,9 +430,7 @@ impl Screen {
 			.as_ref()
 			.is_some_and(|pending| pending.started.elapsed() >= SIGNAL_TIMEOUT)
 		{
-			self.request_stop(
-				"Discord did not provide screen-share connection details within 30 seconds",
-			);
+			self.fail("Discord did not provide screen-share connection details within 30 seconds");
 		}
 		if let Some(pending) = &self.pending {
 			ctx.request_repaint_after(SIGNAL_TIMEOUT.saturating_sub(pending.started.elapsed()));
@@ -415,15 +462,36 @@ impl Screen {
 			}
 		}
 		if let Some(error) = failure {
-			self.request_stop(error);
+			self.fail(error);
+		}
+		// The worker is live while the Linux system picker is still open.
+		if self
+			.live
+			.as_ref()
+			.is_some_and(|live| live.worker.captured())
+			&& !self.share_cued
+		{
+			self.share_cued = true;
+			let cue = model::notification_preferences::Sound::ScreenShareOn;
+			if ui.notification_options.allows(cue) {
+				ui.notification_preview = Some(cue);
+				ctx.request_repaint();
+			}
+		}
+		if self.live.is_none() {
+			self.share_cued = false;
 		}
 		if let Some(live) = &self.live {
-			live.worker.set_preview_visible(
-				ui.screen.preview.is_none()
-					|| (state.selected == Some(live.context.channel)
-						&& !ctx.input(|input| input.viewport().minimized.unwrap_or(false))),
-			);
-			if let Some(frame) = live.worker.take_preview() {
+			let on_channel = state.selected == Some(live.context.channel);
+			let shown = on_channel
+				&& ctx.input(|input| input.focused && !input.viewport().minimized.unwrap_or(false));
+			live.worker.set_preview_visible(shown);
+			ui.screen.preview_paused = !shown;
+			if !shown {
+				// The pause message covers the tile. Keeping the texture stops the tile from
+				// unmounting, and the worker republishes its retained frame when preview returns.
+				let _ = live.worker.take_preview();
+			} else if let Some(frame) = live.worker.take_preview() {
 				let image = egui::ColorImage::from_rgba_unmultiplied(
 					[frame.width() as usize, frame.height() as usize],
 					frame.as_raw(),
@@ -433,21 +501,18 @@ impl Screen {
 				} else {
 					ui.screen.preview =
 						Some(ctx.load_texture("local-screen", image, egui::TextureOptions::LINEAR));
-					let cue = model::notification_preferences::Sound::ScreenShareOn;
-					if ui.notification_options.allows(cue) {
-						ui.notification_preview = Some(cue);
-						ctx.request_repaint();
-					}
 				}
 			}
 		} else {
 			ui.screen.preview = None;
+			ui.screen.preview_paused = false;
 		}
 
 		if let Some(closing) = &mut self.closing {
 			if !closing.timed_out && closing.started.elapsed() >= SIGNAL_TIMEOUT {
 				closing.timed_out = true;
 				self.status = "Discord did not acknowledge stopping screen share; leave the call before sharing again";
+				self.toast = Some((ui::design::Level::Warning, self.status));
 			}
 			if !closing.timed_out {
 				ctx.request_repaint_after(SIGNAL_TIMEOUT.saturating_sub(closing.started.elapsed()));
@@ -457,6 +522,9 @@ impl Screen {
 			|| self.live.is_some()
 			|| self.closing.is_some()
 			|| self.retiring.is_some();
+		if let Some((level, message)) = self.toast.take() {
+			ui.toasts.push(level, message);
+		}
 		ui.screen.status = self.status;
 		ui.screen.capture_status = self
 			.live
@@ -468,6 +536,7 @@ impl Screen {
 		let pending = self.pending.take().expect("complete screen negotiation");
 		let context = pending.context;
 		if let Err(error) = self.start(runtime, pending, ctx) {
+			self.toast = Some((ui::design::Level::Error, error));
 			self.close(context, error);
 		}
 	}
@@ -659,6 +728,7 @@ mod tests {
 			deafened: false,
 			participants: vec![],
 			error: None,
+			reconnecting: None,
 			camera: false,
 			watching: None,
 		});

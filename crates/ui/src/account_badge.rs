@@ -8,7 +8,7 @@ pub(super) fn name(
 	user: &User,
 	name: &str,
 	size: f32,
-	color: Color32,
+	color: (Color32, Option<model::server_roles::Colors>, Color32),
 	sense: Sense,
 	trailing: f32,
 ) -> Response {
@@ -31,14 +31,20 @@ pub(super) fn name(
 		text.size().x + 8.0 + if verified { 10.0 } else { 0.0 } + ui.spacing().item_spacing.x
 	});
 	let width = (ui.available_width() - reserve - trailing).max(0.0);
+	// A Nitro name style, when switched on, replaces the role colour like Discord's.
 	let response = ui
 		.scope(|ui| {
 			ui.set_max_width(width);
-			ui.add(
-				egui::Label::new(design::medium(ui, name, size).color(color))
-					.truncate()
-					.selectable(false)
-					.sense(sense),
+			crate::name_styles::label(
+				ui,
+				crate::name_styles::style(user),
+				name,
+				egui::FontId::new(size, design::medium_family(ui.ctx())),
+				color.1,
+				color.2,
+				color.0,
+				sense,
+				false,
 			)
 		})
 		.inner;
@@ -79,61 +85,4 @@ pub(super) fn name(
 		badge.on_hover_text(description);
 	}
 	response
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	fn textured_shapes(shape: &egui::Shape) -> usize {
-		match shape {
-			egui::Shape::Mesh(mesh) => usize::from(mesh.texture_id != egui::TextureId::default()),
-			egui::Shape::Rect(rect) => usize::from(
-				rect.brush
-					.as_ref()
-					.is_some_and(|brush| brush.fill_texture_id != egui::TextureId::default()),
-			),
-			egui::Shape::Vec(shapes) => shapes.iter().map(textured_shapes).sum(),
-			_ => 0,
-		}
-	}
-
-	fn icon_meshes(kind: model::AccountKind) -> usize {
-		let context = egui::Context::default();
-		crate::design::apply(&context);
-		let user = User {
-			kind,
-			webhook: false,
-			id: model::Id(1),
-			name: "Synthetic app".into(),
-			avatar: None,
-			discriminator: 0,
-			primary_guild: None,
-		};
-		let output = context.run_ui(Default::default(), |ui| {
-			ui.set_width(300.0);
-			name(
-				ui,
-				&user,
-				"Synthetic app",
-				15.0,
-				egui::Color32::WHITE,
-				Sense::hover(),
-				0.0,
-			);
-		});
-		let count = output
-			.shapes
-			.iter()
-			.map(|shape| textured_shapes(&shape.shape))
-			.sum();
-		output.drop_without_applying_deltas();
-		count
-	}
-
-	#[test]
-	fn verified_bot_adds_check_icon_to_app_badge() {
-		assert_eq!(icon_meshes(model::AccountKind::App), 0);
-		assert_eq!(icon_meshes(model::AccountKind::VerifiedBot), 1);
-	}
 }

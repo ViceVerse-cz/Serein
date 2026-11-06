@@ -12,62 +12,97 @@ use tokio::{runtime::Runtime, sync::watch, task::JoinHandle};
 use zeroize::Zeroizing;
 
 const SIGNAL_TIMEOUT: Duration = Duration::from_secs(30);
+// Eight UHD YUV pictures plus the displayed picture fit without increasing the item bound.
+const DECODED_BUDGET: usize = 128 * 1024 * 1024;
 
-/// Replace an undisplayed frame in place; UI ownership moves out through the existing slot.
-#[allow(clippy::chunks_exact_to_as_chunks)] // Match egui's conversion loop.
-fn store_frame(
-	picture: &mut Option<egui::ColorImage>,
-	frame: discord_voice::RemoteFrame<'_>,
-) -> bool {
-	let size = [frame.width as usize, frame.height as usize];
-	if size.contains(&0)
-		|| size[0]
-			.checked_mul(size[1])
-			.and_then(|pixels| pixels.checked_mul(4))
-			!= Some(frame.rgba.len())
-	{
+/// Latest stream picture and whether the UI still has to upload it.
+type Slot = Option<(platform::video::Picture, bool)>;
+
+/// Replace the latest picture in place: a plain copy of the decoder's planes into one reused
+/// allocation. Colour conversion happens on the GPU when the UI uploads it.
+fn store_frame(slot: &mut Slot, frame: discord_voice::RemoteFrame<'_>) -> bool {
+	let picture = frame.picture;
+	if !picture.is_valid() {
 		return false;
 	}
-	if let Some(image) = picture.as_mut() {
-		image.size = size;
-		image.source_size = egui::vec2(frame.width as f32, frame.height as f32);
-		let pixels = frame.rgba.len() / 4;
-		if image.pixels.capacity() > 1024 * 1024 / size_of::<egui::Color32>()
-			&& image.pixels.capacity() > pixels.saturating_mul(4)
-		{
-			// Release a previous large resolution while keeping ordinary resize reuse.
-			image.pixels = Vec::with_capacity(pixels);
+	let len = picture.data.len();
+	let mut data = slot.take().map(|(old, _)| old.data).unwrap_or_default();
+	if data.capacity() > 1024 * 1024 && data.capacity() > len.saturating_mul(4) {
+		// Release a previous large resolution while keeping ordinary resize reuse.
+		data = Vec::new();
+	}
+	data.clear();
+	// Exact growth: never double a previous resolution's allocation beyond the frame.
+	data.reserve_exact(len);
+	data.extend_from_slice(picture.data);
+	*slot = Some((picture.with_data(data), true));
+	true
+}
+
+// Decode early, display on the audio/device clock. Only decoded pictures may be
+// skipped here: the H.264 decoder has already consumed their reference state.
+#[derive(Default)]
+struct Scheduled {
+	latest: Slot,
+	pending: std::collections::VecDeque<(platform::video::Picture, discord_voice::Presentation)>,
+	bytes: usize,
+}
+impl Scheduled {
+	fn store(&mut self, frame: discord_voice::RemoteFrame<'_>) -> bool {
+		let Some(presentation) = frame.presentation.clone() else {
+			return store_frame(&mut self.latest, frame);
+		};
+		if !presentation.is_current() || !frame.picture.is_valid() {
+			return false;
 		}
-		if pixels > image.pixels.capacity() {
-			// Do not double a previous resolution's allocation beyond the frame bound.
-			image.pixels.reserve_exact(pixels - image.pixels.len());
+		let length = frame.picture.data.len();
+		if length > DECODED_BUDGET {
+			return false;
 		}
-		// egui's pixel conversion is optimized in debug builds too; keep large
-		// scalar application loops out of that path with bounded conversion scratch.
-		#[cfg(debug_assertions)]
+		let old = if self.latest.as_ref().is_some_and(|(_, fresh)| !*fresh) {
+			self.latest.take()
+		} else {
+			None
+		};
+		let mut data = old.map(|(picture, _)| picture.data).unwrap_or_default();
+		if data.capacity() > length.saturating_mul(4) {
+			data = Vec::new();
+		}
+		let required = data.capacity().max(length);
+		while self.pending.len() >= 8
+			|| self.bytes
+				+ required + self
+				.latest
+				.as_ref()
+				.map_or(0, |(picture, _)| picture.data.capacity())
+				> DECODED_BUDGET
 		{
-			image.pixels.resize(pixels, egui::Color32::TRANSPARENT);
-			for (output, input) in image
-				.as_raw_mut()
-				.chunks_mut(64 * 1024)
-				.zip(frame.rgba.chunks(64 * 1024))
-			{
-				let converted =
-					egui::ColorImage::from_rgba_unmultiplied([input.len() / 4, 1], input);
-				output.copy_from_slice(converted.as_raw());
+			let Some((old, _)) = self.pending.pop_front() else {
+				return false;
+			};
+			self.bytes -= old.data.capacity();
+		}
+		data.clear();
+		data.reserve_exact(length);
+		data.extend_from_slice(frame.picture.data);
+		self.bytes += data.capacity();
+		self.pending
+			.push_back((frame.picture.with_data(data), presentation));
+		true
+	}
+	fn advance(&mut self, now: Instant) -> Option<Instant> {
+		while let Some((_, stamp)) = self.pending.front() {
+			if stamp.is_current() && stamp.deadline(now) > now {
+				return Some(stamp.deadline(now));
+			}
+			let (picture, stamp) = self.pending.pop_front().expect("front exists");
+			self.bytes -= picture.data.capacity();
+			if stamp.is_current() {
+				self.latest = Some((picture, true));
 			}
 		}
-		#[cfg(not(debug_assertions))]
-		{
-			image.pixels.clear();
-			image.pixels.extend(frame.rgba.chunks_exact(4).map(|pixel| {
-				egui::Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3])
-			}));
-		}
-	} else {
-		*picture = Some(egui::ColorImage::from_rgba_unmultiplied(size, frame.rgba));
+		None
 	}
-	true
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -84,7 +119,7 @@ struct Pending {
 	peer: Option<Id>,
 	session: Zeroizing<String>,
 	identity: Arc<Identity>,
-	audio: Option<std::sync::mpsc::SyncSender<discord_voice::Frame>>,
+	audio: Option<std::sync::mpsc::SyncSender<discord_voice::PlaybackFrame>>,
 	rtc: Option<(Id, Id)>,
 	server: Option<(voice::Secret, String)>,
 	started: Instant,
@@ -98,7 +133,7 @@ struct Live {
 	context: Context,
 	task: JoinHandle<()>,
 	events: watch::Receiver<Option<Notice>>,
-	frames: Arc<Mutex<Option<egui::ColorImage>>>,
+	frames: Arc<Mutex<Scheduled>>,
 }
 
 #[derive(Default)]
@@ -106,11 +141,11 @@ pub(super) struct Watch {
 	pending: Option<Pending>,
 	live: Option<Live>,
 	/// The streamer stopped or Discord failed the view; the state choice is cleared next poll.
-	ended: Option<&'static str>,
+	ended: Option<(ui::design::Level, &'static str)>,
 	sequence: u64,
 	status: &'static str,
-	/// Why the last view stopped; shown as a stage notice until the next request or hang-up.
-	notice: &'static str,
+	/// GPU texture behind `ui.voice_stream_view`.
+	texture: crate::gpu_video::VideoTexture,
 }
 impl Watch {
 	pub fn stop(&mut self) {
@@ -119,6 +154,8 @@ impl Watch {
 		if let Some(live) = self.live.take() {
 			live.task.abort();
 		}
+		// Logout stops polling, so release the GPU picture here; disposal waits a frame.
+		self.texture = Default::default();
 	}
 	fn context(&self) -> Option<Context> {
 		self.pending
@@ -167,15 +204,24 @@ impl Watch {
 						// A null endpoint means Discord is still allocating the stream server.
 						(_, None) => pending.server = None,
 						(None, Some(_)) => {
-							self.ended = Some("Discord omitted the stream connection token");
+							self.ended = Some((
+								ui::design::Level::Warning,
+								"Discord omitted the stream connection token",
+							));
 						}
 					}
 				}
 			}
 			screen::Event::Deleted { reason } => {
-				self.ended = Some(reason.unwrap_or("The stream ended"));
+				self.ended = Some((
+					ui::design::Level::Info,
+					reason.unwrap_or("The stream ended"),
+				));
 			}
-			screen::Event::Failed(message) => self.ended = Some(message),
+			screen::Event::Failed(message) => {
+				self.ended = Some((ui::design::Level::Warning, message));
+			}
+			screen::Event::Viewers(_) => {}
 		}
 	}
 	pub fn poll(
@@ -185,15 +231,17 @@ impl Watch {
 		ui: &mut ui::MessagingUi,
 		ctx: &egui::Context,
 		call: Option<super::screen::Call<'_>>,
-		audio: Option<std::sync::mpsc::SyncSender<discord_voice::Frame>>,
+		audio: Option<std::sync::mpsc::SyncSender<discord_voice::PlaybackFrame>>,
 	) -> Option<Command> {
 		let wanted = state.voice.active.as_ref().and_then(|active| {
 			let streamer = active.watching?;
-			matches!(
-				active.phase,
-				voice::Phase::Connected | voice::Phase::Waiting
-			)
-			.then_some((state.generation, active.channel, active.request, streamer))
+			// The separate stream transport survives call rekeys and voice resumption.
+			(active.phase != voice::Phase::Failed).then_some((
+				state.generation,
+				active.channel,
+				active.request,
+				streamer,
+			))
 		});
 		let current = self.context();
 		let mut command = None;
@@ -216,16 +264,15 @@ impl Watch {
 				}));
 			}
 		}
-		if state.voice.active.is_none() {
-			self.notice = "";
-		}
-		if let Some(message) = self.ended.take() {
+		if let Some((level, message)) = self.ended.take() {
 			let context = self.context();
 			self.stop();
 			self.status = message;
-			self.notice = message;
+			// Said once; the stage keeps no line for a view that already ended.
+			ui.toasts.push(level, message);
 			state.stop_watching();
 			ui.voice_stream_view = None;
+			self.texture = Default::default();
 			ui.voice_stream_status = self.status;
 			return command.or_else(|| {
 				let context = context.filter(|context| context.generation == state.generation)?;
@@ -274,7 +321,6 @@ impl Watch {
 				started: Instant::now(),
 			});
 			self.status = "Requesting the stream…";
-			self.notice = "";
 			command = Some(Command::Voice(voice::Command::WatchStream {
 				channel,
 				request,
@@ -284,7 +330,10 @@ impl Watch {
 		}
 		if let Some(pending) = &self.pending {
 			if pending.started.elapsed() >= SIGNAL_TIMEOUT {
-				self.ended = Some("Discord did not provide the stream connection; try again");
+				self.ended = Some((
+					ui::design::Level::Warning,
+					"Discord did not provide the stream connection; try again",
+				));
 				ctx.request_repaint();
 			} else {
 				ctx.request_repaint_after(SIGNAL_TIMEOUT.saturating_sub(pending.started.elapsed()));
@@ -297,39 +346,40 @@ impl Watch {
 		{
 			let pending = self.pending.take().expect("complete stream negotiation");
 			if let Err(error) = self.start(runtime, pending, ctx) {
-				self.ended = Some(error);
+				self.ended = Some((ui::design::Level::Warning, error));
 			}
 		}
 		if let Some(live) = &mut self.live {
 			match *live.events.borrow_and_update() {
 				Some(Notice::Status(status)) => self.status = status,
-				Some(Notice::Failed(error)) => self.ended = Some(error),
+				Some(Notice::Failed(error)) => {
+					self.ended = Some((ui::design::Level::Warning, error));
+				}
 				None => {}
 			}
 			if live.task.is_finished() && self.ended.is_none() {
-				self.ended = Some("The stream connection ended");
+				self.ended = Some((ui::design::Level::Warning, "The stream connection ended"));
 			}
-			let image = live.frames.try_lock().ok().and_then(|mut slot| slot.take());
-			if let Some(image) = image {
-				if let Some(texture) = &mut ui.voice_stream_view {
-					texture.set(image, egui::TextureOptions::LINEAR);
-				} else {
-					ui.voice_stream_view = Some(ctx.load_texture(
-						"remote-stream",
-						image,
-						egui::TextureOptions::LINEAR,
-					));
+			// Uploading copies the planes into GPU staging, so it runs under the slot lock
+			// and the decoder keeps refilling the same allocation.
+			if let Ok(mut slot) = live.frames.try_lock() {
+				if let Some(deadline) = slot.advance(Instant::now()) {
+					ctx.request_repaint_after(deadline.saturating_duration_since(Instant::now()));
 				}
-				self.status = "Watching the stream";
+				if let Some((picture, fresh)) = slot.latest.as_mut()
+					&& std::mem::take(fresh)
+					&& let Some(texture) =
+						self.texture.upload(ctx, "remote-stream", picture.borrow())
+				{
+					ui.voice_stream_view = Some(texture);
+					self.status = "Watching the stream";
+				}
 			}
 		} else {
 			ui.voice_stream_view = None;
+			self.texture = Default::default();
 		}
-		ui.voice_stream_status = if wanted.is_some() {
-			self.status
-		} else {
-			self.notice
-		};
+		ui.voice_stream_status = if wanted.is_some() { self.status } else { "" };
 		command
 	}
 	fn start(
@@ -352,7 +402,7 @@ impl Watch {
 			endpoint,
 			request: pending.context.stream_request,
 		};
-		let frames = Arc::new(Mutex::new(None));
+		let frames = Arc::new(Mutex::new(Scheduled::default()));
 		let slot = frames.clone();
 		let wake = ctx.clone();
 		let streamer = pending.context.streamer.0;
@@ -360,10 +410,7 @@ impl Watch {
 			if frame.user != streamer {
 				return;
 			}
-			if slot
-				.lock()
-				.is_ok_and(|mut slot| store_frame(&mut slot, frame))
-			{
+			if slot.lock().is_ok_and(|mut slot| slot.store(frame)) {
 				wake.request_repaint();
 			}
 		});
@@ -415,205 +462,194 @@ impl Drop for Watch {
 mod tests {
 	use super::*;
 
-	fn frame(width: u32, height: u32, rgba: &[u8]) -> discord_voice::RemoteFrame<'_> {
-		discord_voice::RemoteFrame {
-			user: 7,
-			width,
-			height,
-			rgba,
-		}
-	}
-
 	#[test]
-	fn watch_reuses_dropped_frames_and_delivers_only_updates() {
-		let mut picture = None;
-		assert!(picture.take().is_none());
-		assert!(store_frame(
-			&mut picture,
-			frame(2, 1, &[1, 2, 3, 255, 4, 5, 6, 128])
-		));
-		let pixels = picture.as_ref().unwrap().pixels.as_ptr();
-		for _ in 0..20 {
-			assert!(store_frame(
-				&mut picture,
-				frame(2, 1, &[9, 8, 7, 255, 6, 5, 4, 128])
-			));
-			assert_eq!(picture.as_ref().unwrap().pixels.as_ptr(), pixels);
-		}
-		let latest = picture.take().unwrap();
-		assert_eq!(
-			latest.pixels,
-			egui::ColorImage::from_rgba_unmultiplied([2, 1], &[9, 8, 7, 255, 6, 5, 4, 128]).pixels
-		);
-		assert!(picture.take().is_none());
-		picture = Some(latest);
-		assert!(store_frame(&mut picture, frame(1, 1, &[3, 2, 1, 0])));
-		assert_eq!(picture.as_ref().unwrap().pixels.as_ptr(), pixels);
-		let latest = picture.take().unwrap();
-		assert_eq!(latest.size, [1, 1]);
-		assert_eq!(latest.source_size, egui::vec2(1.0, 1.0));
-		assert_eq!(latest.pixels, vec![egui::Color32::TRANSPARENT]);
-	}
-
-	#[test]
-	fn watch_preserves_pixels_owned_by_pending_egui_uploads() {
-		let mut picture = None;
+	fn watch_survives_call_recovery_until_its_selection_ends() {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		let mut state = test_support::voice_demo_state();
+		state.demo = false;
+		state.watch_stream(Id(3)).unwrap();
+		let call = state.voice.active.as_ref().unwrap();
+		let context = Context {
+			generation: state.generation,
+			channel: call.channel,
+			request: call.request,
+			stream_request: 2,
+			streamer: Id(3),
+		};
+		let mut ui = ui::MessagingUi::default();
 		let ctx = egui::Context::default();
-		let first = [1, 2, 3, 255, 4, 5, 6, 128];
-		assert!(store_frame(&mut picture, frame(2, 1, &first)));
-		// Discard Context's initial font texture allocation so only this upload is inspected.
-		ctx.tex_manager().write().take_delta().clear();
-		let mut texture = ctx.load_texture(
-			"synthetic-watch",
-			picture.take().unwrap(),
-			egui::TextureOptions::LINEAR,
-		);
-		assert!(picture.is_none());
-		assert!(store_frame(&mut picture, frame(1, 1, &[10, 20, 30, 255])));
-		let mut delta = ctx.tex_manager().write().take_delta();
-		assert_eq!(delta.set.len(), 1);
-		let uploads = &delta.set[&texture.id()];
-		assert_eq!(uploads.len(), 1);
-		assert!(uploads[0].is_whole());
-		let egui::ImageData::Color(pending) = &uploads[0].image;
-		assert_eq!(pending.size, [2, 1]);
-		assert_eq!(
-			pending.pixels,
-			egui::ColorImage::from_rgba_unmultiplied([2, 1], &first).pixels
-		);
-		assert_eq!(picture.as_ref().unwrap().size, [1, 1]);
-		delta.clear();
-		texture.set(picture.take().unwrap(), egui::TextureOptions::LINEAR);
-		assert!(store_frame(&mut picture, frame(2, 1, &first)));
-		let mut updated = ctx.tex_manager().write().take_delta();
-		assert_eq!(updated.set.len(), 1);
-		let uploads = &updated.set[&texture.id()];
-		assert_eq!(uploads.len(), 1);
-		assert!(uploads[0].is_whole());
-		let egui::ImageData::Color(pending) = &uploads[0].image;
-		assert_eq!(pending.size, [1, 1]);
-		assert_eq!(pending.pixels, vec![egui::Color32::from_rgb(10, 20, 30)]);
-		updated.clear();
-		drop(texture);
-		ctx.tex_manager().write().take_delta().clear();
+		for failed in [false, true] {
+			state.voice.active.as_mut().unwrap().watching = Some(context.streamer);
+			let (_send, events) = watch::channel(None);
+			let mut watch = Watch {
+				pending: None,
+				live: Some(Live {
+					context,
+					task: runtime.spawn(std::future::pending()),
+					events,
+					frames: Arc::new(Mutex::new(Scheduled::default())),
+				}),
+				ended: None,
+				sequence: 0,
+				status: "",
+				texture: Default::default(),
+			};
+			for phase in [
+				voice::Phase::Connected,
+				voice::Phase::Securing,
+				voice::Phase::ConnectingTransport,
+				voice::Phase::OpeningAudio,
+				voice::Phase::Waiting,
+				voice::Phase::Connected,
+			] {
+				state.voice.active.as_mut().unwrap().phase = phase;
+				assert!(
+					watch
+						.poll(&runtime, &mut state, &mut ui, &ctx, None, None)
+						.is_none()
+				);
+				assert!(watch.live.is_some());
+			}
+			if failed {
+				state.voice.active.as_mut().unwrap().phase = voice::Phase::Failed;
+			} else {
+				state.stop_watching();
+			}
+			assert!(matches!(
+				watch.poll(&runtime, &mut state, &mut ui, &ctx, None, None),
+				Some(Command::Voice(voice::Command::StopWatching {
+					channel, request, stream_request: 2,
+				})) if channel == context.channel && request == context.request
+			));
+			assert!(watch.live.is_none());
+		}
+	}
+
+	fn frame(width: u32, height: u32, data: &[u8]) -> discord_voice::RemoteFrame<'_> {
+		discord_voice::RemoteFrame {
+			presentation: None,
+			user: 7,
+			picture: platform::video::Picture {
+				width,
+				height,
+				layout: platform::video::Layout::I420,
+				color: platform::video::Color::WEBRTC,
+				rotation: 0,
+				data,
+			},
+		}
+	}
+
+	fn i420(width: u32, height: u32, value: u8) -> Vec<u8> {
+		vec![value; platform::video::Layout::I420.len(width, height).unwrap()]
+	}
+
+	#[test]
+	fn watch_reuses_the_frame_buffer_and_flags_only_updates() {
+		let mut slot = None;
+		assert!(store_frame(&mut slot, frame(2, 2, &i420(2, 2, 1))));
+		let planes = slot.as_ref().unwrap().0.data.as_ptr();
+		for value in 0..20 {
+			slot.as_mut().unwrap().1 = false;
+			assert!(store_frame(&mut slot, frame(2, 2, &i420(2, 2, value))));
+			let (picture, fresh) = slot.as_ref().unwrap();
+			assert!(*fresh);
+			assert_eq!(picture.data.as_ptr(), planes);
+			assert_eq!(picture.data, i420(2, 2, value));
+		}
+		// A smaller picture reuses the allocation too.
+		assert!(store_frame(&mut slot, frame(1, 1, &i420(1, 1, 9))));
+		let (picture, _) = slot.as_ref().unwrap();
+		assert_eq!(picture.data.as_ptr(), planes);
+		assert_eq!((picture.width, picture.height), (1, 1));
 	}
 
 	#[test]
 	fn watch_invalid_frames_preserve_the_last_valid_picture() {
-		let mut picture = None;
-		assert!(store_frame(&mut picture, frame(1, 1, &[1, 2, 3, 255])));
-		let pixels = picture.as_ref().unwrap().pixels.as_ptr();
+		let mut slot = None;
+		assert!(store_frame(&mut slot, frame(1, 1, &i420(1, 1, 4))));
+		let planes = slot.as_ref().unwrap().0.data.as_ptr();
 		for invalid in [
 			frame(0, 1, &[]),
 			frame(1, 0, &[]),
-			frame(1, 1, &[0; 3]),
+			frame(1, 1, &[0; 2]),
 			frame(u32::MAX, u32::MAX, &[]),
 		] {
-			assert!(!store_frame(&mut picture, invalid));
-			assert_eq!(picture.as_ref().unwrap().pixels.as_ptr(), pixels);
-			assert_eq!(picture.as_ref().unwrap().size, [1, 1]);
+			assert!(!store_frame(&mut slot, invalid));
+			let (picture, _) = slot.as_ref().unwrap();
+			assert_eq!(picture.data.as_ptr(), planes);
+			assert_eq!((picture.width, picture.height), (1, 1));
 		}
-		assert!(store_frame(&mut picture, frame(3, 1, &[0; 12])));
-		assert_eq!(picture.take().unwrap().pixels.len(), 3);
 	}
 
 	#[test]
-	fn watch_releases_large_pixel_capacity_after_a_resolution_drop() {
-		let mut picture = None;
-		let rgba = vec![255; 1920 * 1080 * 4];
-		assert!(store_frame(&mut picture, frame(1920, 1080, &rgba)));
-		assert_eq!(picture.as_ref().unwrap().pixels.len(), 1920 * 1080);
+	fn watch_releases_large_capacity_after_a_resolution_drop() {
+		let mut slot = None;
 		assert!(store_frame(
-			&mut picture,
-			frame(16, 16, &[255; 16 * 16 * 4])
+			&mut slot,
+			frame(1920, 1080, &i420(1920, 1080, 0))
 		));
-		let latest = picture.take().unwrap();
-		assert_eq!(latest.size, [16, 16]);
-		assert_eq!(latest.pixels.len(), 16 * 16);
-		assert!(latest.pixels.capacity() <= 16 * 16 * 4);
+		assert!(store_frame(&mut slot, frame(16, 16, &i420(16, 16, 0))));
+		let (picture, _) = slot.take().unwrap();
+		assert_eq!(picture.data.len(), 16 * 16 * 3 / 2);
+		assert!(picture.data.capacity() <= 16 * 16 * 6);
 	}
 
 	#[test]
-	fn watch_resolution_growth_does_not_double_the_pixel_capacity() {
-		let mut picture = None;
-		let rgba = vec![255; 1920 * 1080 * 4];
+	fn watch_resolution_growth_does_not_double_the_capacity() {
+		let mut slot = None;
 		assert!(store_frame(
-			&mut picture,
-			frame(1600, 900, &rgba[..1600 * 900 * 4])
+			&mut slot,
+			frame(1600, 900, &i420(1600, 900, 0))
 		));
-		assert!(store_frame(&mut picture, frame(1920, 1080, &rgba)));
-		let latest = picture.take().unwrap();
-		assert_eq!(latest.size, [1920, 1080]);
-		assert_eq!(latest.pixels.len(), 1920 * 1080);
-		assert!(latest.pixels.capacity() <= 1920 * 1080);
+		assert!(store_frame(
+			&mut slot,
+			frame(1920, 1080, &i420(1920, 1080, 0))
+		));
+		let (picture, _) = slot.take().unwrap();
+		assert_eq!(picture.data.len(), 1920 * 1080 * 3 / 2);
+		assert!(picture.data.capacity() <= 1920 * 1080 * 3 / 2);
 	}
-
 	#[test]
-	fn watch_reused_pixels_match_egui_across_scratch_boundaries() {
-		let mut picture = None;
-		let mut rgba = vec![0; 129 * 129 * 4];
-		assert!(store_frame(&mut picture, frame(129, 129, &rgba)));
-		let pixels = picture.as_ref().unwrap().pixels.as_ptr();
-		for (index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-			pixel.copy_from_slice(&[index as u8, 70, 210, [255, 128, 0, 32][index % 4]]);
+	fn decoded_stream_pictures_wait_for_presentation_and_pressure_skips_only_decoded_frames() {
+		let now = Instant::now();
+		let mut queue = Scheduled::default();
+		let pixels = i420(3840, 2160, 4);
+		for n in 0..16 {
+			let mut picture = frame(3840, 2160, &pixels);
+			picture.presentation = Some(discord_voice::Presentation::new(
+				now + Duration::from_millis(100 + n * 16),
+			));
+			assert!(queue.store(picture));
 		}
-		assert!(store_frame(&mut picture, frame(129, 129, &rgba)));
-		let latest = picture.take().unwrap();
-		assert_eq!(latest.pixels.as_ptr(), pixels);
-		assert_eq!(
-			latest.pixels,
-			egui::ColorImage::from_rgba_unmultiplied([129, 129], &rgba).pixels
-		);
-	}
-
-	/// Run this test executable directly under `/usr/bin/time -l` for process peak RSS.
-	/// Set SEREIN_WATCH_FRAME_LEGACY=1 for the original allocation-per-frame path.
-	/// Set SEREIN_WATCH_FRAME_UPLOAD_EVERY=3 to include a pending upload every third frame.
-	/// Both modes include the same synthetic 1080p input; no device or transport starts.
-	#[test]
-	#[ignore = "synthetic release CPU/RSS workload; run with --release --ignored --nocapture"]
-	fn watch_frame_memory_workload() {
-		let legacy = std::env::var_os("SEREIN_WATCH_FRAME_LEGACY").is_some();
-		let uploads_every = std::env::var("SEREIN_WATCH_FRAME_UPLOAD_EVERY")
-			.ok()
-			.map(|text| {
-				text.parse::<usize>()
-					.expect("upload interval must be an integer")
-			})
-			.unwrap_or(0);
-		let rgba = vec![255; 1920 * 1080 * 4];
-		let mut samples = Vec::new();
-		for run in 0..6 {
-			let mut old = None;
-			let mut picture = None;
-			let mut uploading = None;
-			let started = Instant::now();
-			for index in 0..120 {
-				if legacy {
-					old = Some(egui::ColorImage::from_rgba_unmultiplied(
-						[1920, 1080],
-						&rgba,
-					));
-				} else {
-					assert!(store_frame(&mut picture, frame(1920, 1080, &rgba)));
-				}
-				if uploads_every > 0 && index % uploads_every == 0 {
-					uploading = if legacy { old.take() } else { picture.take() };
-				} else {
-					uploading = None;
-				}
-				std::hint::black_box((&old, &picture, &uploading));
-			}
-			std::hint::black_box(uploading);
-			if run > 0 {
-				samples.push(started.elapsed().as_secs_f64() * 1000.0);
-			}
+		assert_eq!(queue.pending.len(), 8);
+		assert!(queue.bytes <= DECODED_BUDGET);
+		assert!(queue.latest.is_none());
+		assert_eq!(queue.advance(now), Some(now + Duration::from_millis(228)));
+		queue.advance(now + Duration::from_millis(260));
+		assert_eq!(queue.pending.len(), 5);
+		assert!(queue.latest.as_ref().unwrap().1);
+		assert!(queue.bytes + queue.latest.as_ref().unwrap().0.data.capacity() <= DECODED_BUDGET);
+		drop(queue);
+		// A backend's RGBA fallback reaches the byte bound before the eight-picture bound.
+		let mut queue = Scheduled::default();
+		let pixels = vec![4; 3840 * 2160 * 4];
+		for n in 0..16 {
+			let mut picture = frame(3840, 2160, &pixels);
+			picture.picture.layout = platform::video::Layout::Rgba;
+			picture.presentation = Some(discord_voice::Presentation::new(
+				now + Duration::from_millis(100 + n * 16),
+			));
+			assert!(queue.store(picture));
 		}
-		samples.sort_by(f64::total_cmp);
-		println!(
-			"watch_frame_memory_workload legacy={legacy} frames=120 uploads_every={uploads_every} samples_ms={samples:?} median_ms={:.3} frame_bytes={}",
-			samples[2],
-			rgba.len()
-		);
+		assert_eq!(queue.pending.len(), 4);
+		assert!(queue.bytes <= DECODED_BUDGET);
+		queue.advance(now + Duration::from_secs(1));
+		assert!(queue.pending.is_empty());
+		assert_eq!(queue.bytes, 0);
+		assert!(queue.latest.as_ref().unwrap().1);
 	}
 }

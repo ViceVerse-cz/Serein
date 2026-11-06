@@ -1,22 +1,33 @@
 //! Bounded native text formatting. No HTML renderer, image loader, or automatic URL access.
 use egui::{FontId, Stroke, TextFormat, text::LayoutJob};
 use model::Id;
-use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
 use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
 
-const MAX_INPUT: usize = 8192;
+/// Maximum rendered source bytes; metadata fingerprints use the same boundary.
+pub(crate) const MAX_INPUT: usize = 8192;
 const MAX_EVENTS: usize = 512;
 const MAX_DEPTH: usize = 16;
 const MAX_LINKS: usize = 16;
 const MAX_SPOILERS: u8 = 32;
 const MAX_BLOCKS: usize = 32;
 const PREVIEW_EMOJI_SIZE: f32 = 16.0;
+/// Space on each side of a channel icon inside a reply preview pill.
+const PREVIEW_ICON_GAP: f32 = 2.0;
+const PREVIEW_TEXT_SIZE: f32 = 13.0;
 
 pub(crate) struct PreviewEmoji {
 	at: usize,
+	/// Bytes of placeholder text standing in for `text`.
+	len: usize,
 	text: String,
-	cell: usize,
+	image: PreviewImage,
+}
+
+enum PreviewImage {
+	Emoji(usize),
+	Channel(crate::icons::Icon),
 }
 
 /// True when the raw source escapes the token at `at` with an odd run of backslashes.
@@ -27,6 +38,158 @@ fn escaped(source: &str, at: usize) -> bool {
 		.take_while(|b| *b == b'\\')
 		.count()
 		% 2 == 1
+}
+
+/// Inline markdown delimiters that are legal URL characters. A bare URL is literal text, so
+/// these must not open emphasis, underline, strikethrough or entities inside it. Backticks are
+/// not legal URL characters (RFC 3986 requires `%60`); URLs overlapping code stay unprotected.
+const URL_MARKUP: [char; 4] = ['_', '*', '~', '&'];
+/// Delimiters a trailing run may use to close formatting begun before the URL.
+const URL_CLOSERS: [char; 3] = ['_', '*', '~'];
+/// Masking one trailing opener can turn a later URL's closer into an opener; re-check this often.
+const URL_PROTECTION_ROUNDS: usize = 4;
+
+/// Mask markup inside bare URLs. `None` means the bounded preliminary parse ran out of budget
+/// and the message must use the literal fallback rather than unprotected Markdown.
+fn protect_url_markup(input: &str) -> Option<std::borrow::Cow<'_, str>> {
+	if !input.contains(URL_MARKUP) {
+		return Some(input.into());
+	}
+	let mut candidates = Vec::new();
+	let mut scanned = 0;
+	for word in input.split_whitespace() {
+		let start = scanned + input[scanned..].find(word).expect("word from source");
+		scanned = start + word.len();
+		if !word.contains(URL_MARKUP) {
+			continue;
+		}
+		let candidate = word.trim_start_matches(['(', '[', '{', '*', '_', '~', '|']);
+		let prefix = &word[..word.len() - candidate.len()];
+		let closing: String = prefix
+			.trim_start_matches(['(', '[', '{'])
+			.chars()
+			.rev()
+			.collect();
+		let candidate = candidate.strip_suffix(&closing).unwrap_or(candidate);
+		if candidate.contains(URL_MARKUP)
+			&& !candidate.contains('\\')
+			&& let Some(target) = bare_url(candidate)
+		{
+			let start = start + prefix.len();
+			candidates.push((start..start + target.len(), false));
+		}
+	}
+	if candidates.is_empty() {
+		return Some(input.into());
+	}
+	// Keep code, existing links (including masked labels), and HTML inert. Only a URL
+	// beginning in ordinary text is eligible; reference definitions have no text event.
+	for (count, (event, range)) in Parser::new_ext(input, Options::ENABLE_STRIKETHROUGH)
+		.into_offset_iter()
+		.enumerate()
+	{
+		if count >= MAX_EVENTS {
+			return None;
+		}
+		match event {
+			Event::Start(Tag::Link { .. } | Tag::Image { .. } | Tag::CodeBlock(_))
+			| Event::Code(_)
+			| Event::Html(_)
+			| Event::InlineHtml(_) => {
+				candidates.retain(|(url, _)| url.end <= range.start || url.start >= range.end);
+			}
+			Event::Text(_) => {
+				for (url, eligible) in &mut candidates {
+					*eligible |= range.contains(&url.start);
+				}
+			}
+			_ => {}
+		}
+	}
+	candidates.retain(|(_, eligible)| *eligible);
+	if candidates.is_empty() {
+		return Some(input.into());
+	}
+	let mut masked = input.as_bytes().to_vec();
+	let mut closers = Vec::new();
+	for (range, _) in &candidates {
+		// Keep only the final delimiter run, plus punctuation after it, for closing
+		// surrounding styles (`__a https://x/b__:`); mask every earlier delimiter.
+		let url = &input[range.clone()];
+		let unpunctuated =
+			url.trim_end_matches(|c: char| c.is_ascii_punctuation() && !URL_MARKUP.contains(&c));
+		let end = range.start + unpunctuated.trim_end_matches(URL_CLOSERS).len();
+		if end < range.start + unpunctuated.len() {
+			closers.push(end..range.start + unpunctuated.len());
+		}
+		for byte in &mut masked[range.start..end] {
+			if URL_MARKUP.contains(&char::from(*byte)) {
+				*byte = b'x';
+			}
+		}
+	}
+	// A kept run may close formatting begun before the URL, but must not open a style.
+	// Masking one opener can re-pair later runs, so repeat; if that does not settle,
+	// mask every kept run and leave the surrounding style unclosed.
+	let mut settled = closers.is_empty();
+	for _ in 0..URL_PROTECTION_ROUNDS {
+		if settled {
+			break;
+		}
+		settled = true;
+		let provisional = std::str::from_utf8(&masked).expect("ASCII replacement preserves UTF-8");
+		let mut openers = Vec::new();
+		for (count, (event, range)) in Parser::new_ext(provisional, Options::ENABLE_STRIKETHROUGH)
+			.into_offset_iter()
+			.enumerate()
+		{
+			if count >= MAX_EVENTS {
+				return None;
+			}
+			if matches!(
+				event,
+				Event::Start(Tag::Strong | Tag::Emphasis | Tag::Strikethrough)
+			) && candidates.iter().any(|(url, _)| url.contains(&range.start))
+			{
+				openers.push(range.start);
+			}
+		}
+		for start in openers {
+			let delimiter = masked[start];
+			for byte in &mut masked[start..] {
+				if *byte != delimiter {
+					break;
+				}
+				*byte = b'x';
+				settled = false;
+			}
+		}
+	}
+	if !settled {
+		for run in closers {
+			masked[run].fill(b'x');
+		}
+	}
+	// ASCII substitutions preserve source offsets; text events are restored before rendering.
+	Some(
+		String::from_utf8(masked)
+			.expect("ASCII replacement preserves UTF-8")
+			.into(),
+	)
+}
+
+fn bare_url(word: &str) -> Option<&str> {
+	let mut target = word.trim_end_matches(['.', ',', ';', '!', '?', ']', '}']);
+	while target.ends_with(')') && target.matches(')').count() > target.matches('(').count() {
+		target = &target[..target.len() - 1];
+	}
+	(target
+		.get(..8)
+		.is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
+		|| target
+			.get(..7)
+			.is_some_and(|scheme| scheme.eq_ignore_ascii_case("http://")))
+	.then_some(target)
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -42,7 +205,12 @@ struct Style {
 	/// Discord `-# ` subtext: smaller, quieter body text.
 	small: bool,
 	link: Option<usize>,
+	/// Separate ranges that store the same URL. Zero means this span is not a link.
+	link_occurrence: u32,
+	/// Only bare URLs and angle autolinks get native message chips; masked labels stay text.
+	message_link: bool,
 	mention: Option<Id>,
+	game: Option<Id>,
 	role: Option<Id>,
 	role_color: Option<u32>,
 	mass_mention: bool,
@@ -152,6 +320,7 @@ fn only_emoji(spans: &[(String, Style)], blocks: &[CodeBlock], mentions: usize) 
 			|| style.timestamp.is_some()
 			|| style.channel.is_some()
 			|| style.mention.is_some()
+			|| style.game.is_some()
 			|| style.role.is_some()
 			|| style.mass_mention
 			|| style.heading > 0
@@ -204,6 +373,8 @@ pub struct Formatted {
 	pub links: Vec<String>,
 	pub limited: bool,
 	pub spoilers: bool,
+	/// Last id handed out by `next_link_occurrence`. Not message content.
+	link_occurrence: u32,
 }
 
 #[derive(Default)]
@@ -300,33 +471,63 @@ pub(super) struct ChatLink {
 	pub message: Option<Id>,
 }
 
-/// Recognize only Discord's chat routes; other destinations keep normal link handling.
+/// Recognize the raw route, before URL parsing can remove dot segments or escaped dots.
+/// Query/fragment text is preserved on the link but never changes the navigation identity.
 pub(super) fn discord_chat_link(input: &str) -> Option<ChatLink> {
-	let target = external_url(input)?;
-	let url = url::Url::parse(&target).ok()?;
-	if url.scheme() != "https"
-		|| url.port().is_some()
-		|| !matches!(
-			url.host_str()?,
-			"discord.com"
-				| "www.discord.com"
-				| "ptb.discord.com"
-				| "canary.discord.com"
-				| "discordapp.com"
-				| "www.discordapp.com"
-				| "ptb.discordapp.com"
-				| "canary.discordapp.com"
-		) {
+	if input.len() > 2048
+		|| input
+			.chars()
+			.any(|chr| chr.is_control() || chr.is_whitespace() || chr == '\\')
+	{
 		return None;
 	}
+	let (scheme, rest) = input.split_once("://")?;
+	if !scheme.eq_ignore_ascii_case("https") {
+		return None;
+	}
+	let (authority, route) = rest.split_once('/')?;
+	let host = authority.strip_suffix(":443").unwrap_or(authority);
+	if ![
+		"discord.com",
+		"www.discord.com",
+		"ptb.discord.com",
+		"canary.discord.com",
+		"discordapp.com",
+		"www.discordapp.com",
+		"ptb.discordapp.com",
+		"canary.discordapp.com",
+	]
+	.iter()
+	.any(|allowed| host.eq_ignore_ascii_case(allowed))
+	{
+		return None;
+	}
+	let path_end = route.find(['?', '#']).unwrap_or(route.len());
+	let suffix = &route[path_end..];
+	// Reject malformed escapes without decoding anything. Escaped bytes are allowed only
+	// in the non-routing suffix, never in the authority or path.
+	let mut escapes = suffix.bytes();
+	while let Some(byte) = escapes.next() {
+		if byte == b'%'
+			&& !(escapes.next()?.is_ascii_hexdigit() && escapes.next()?.is_ascii_hexdigit())
+		{
+			return None;
+		}
+	}
+	let route = &route[..path_end];
 	let id = |value: &str| {
-		if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+		if value.is_empty()
+			|| value.len() > 20
+			|| value.starts_with('0')
+			|| !value.bytes().all(|byte| byte.is_ascii_digit())
+		{
 			return None;
 		}
 		value.parse::<u64>().ok().filter(|id| *id != 0).map(Id)
 	};
-	let mut path = url.path().trim_end_matches('/').split('/');
-	if !path.next()?.is_empty() || path.next()? != "channels" {
+	// Accept at most one trailing slash, not arbitrary extra empty path components.
+	let mut path = route.strip_suffix('/').unwrap_or(route).split('/');
+	if path.next()? != "channels" {
 		return None;
 	}
 	let guild = match path.next()? {
@@ -562,6 +763,31 @@ struct Render<'a> {
 	card_surface: crate::design::MessageCardSurface,
 }
 
+/// Whitespace, controls and zero-width characters: content with no visible text.
+fn invisible(chr: char) -> bool {
+	chr.is_whitespace()
+		|| chr.is_control()
+		|| matches!(chr, '\u{200b}'..='\u{200f}' | '\u{2060}'..='\u{2064}' | '\u{feff}')
+}
+
+/// Text and background of a role or mass mention: the role's own color, like Discord,
+/// with the text adjusted for contrast. Uncolored roles use the mention palette.
+fn mention_colors(ui: &egui::Ui, role_color: Option<u32>) -> (egui::Color32, egui::Color32) {
+	let colors = crate::design::palette(ui);
+	match role_color.filter(|rgb| *rgb != 0) {
+		Some(rgb) => {
+			let [r, g, b] = [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8];
+			let background = egui::Color32::from_rgba_unmultiplied(r, g, b, 38);
+			let behind = ui.visuals().panel_fill;
+			(
+				crate::design::role_name_color(rgb, behind, colors.mention_text),
+				background,
+			)
+		}
+		None => (colors.mention_text, colors.mention_bg),
+	}
+}
+
 fn channel_reference_name<'a>(
 	id: Id,
 	channels: &'a [model::Channel],
@@ -647,6 +873,7 @@ impl Formatted {
 			spoilers: false,
 			artwork: false,
 			jumbo: false,
+			link_occurrence: 0,
 		};
 		let mut stack = Vec::new();
 		let mut style = Style::default();
@@ -674,8 +901,23 @@ impl Formatted {
 					.take_while(|b| *b == b'\\')
 					.count() % 2 == 0
 		};
-		let mut events = Parser::new_ext(input, Options::ENABLE_STRIKETHROUGH)
+		let Some(parser_input) = protect_url_markup(input) else {
+			return Self::limited_literal(&source[..end], source.contains("||"));
+		};
+		let protected = matches!(&parser_input, std::borrow::Cow::Owned(_));
+		let mut events = Parser::new_ext(&parser_input, Options::ENABLE_STRIKETHROUGH)
 			.into_offset_iter()
+			.map(|(event, range)| {
+				let event = match event {
+					Event::Text(text)
+						if protected && text.as_ref() == &parser_input[range.clone()] =>
+					{
+						Event::Text(input[range.clone()].into())
+					}
+					event => event,
+				};
+				(event, range)
+			})
 			.peekable();
 		// Merge only unchanged source text. Entity/escape expansions stay separate and inert,
 		// even when followed by an identical literal reference.
@@ -783,9 +1025,19 @@ impl Formatted {
 								_ => output.push("• ", style),
 							}
 						}
-						Tag::Link { dest_url, .. } => {
+						Tag::Link {
+							dest_url,
+							link_type,
+							..
+						} => {
 							style.no_autolink = true;
 							style.link = output.add_link(&dest_url);
+							style.message_link = link_type == LinkType::Autolink;
+							style.link_occurrence = if style.link.is_some() {
+								output.next_link_occurrence()
+							} else {
+								0
+							};
 						}
 						Tag::Image { .. } => {
 							style.no_autolink = true;
@@ -978,6 +1230,7 @@ impl Formatted {
 			spoilers: concealed,
 			artwork: false,
 			jumbo: false,
+			link_occurrence: 0,
 		};
 		formatted.artwork = has_artwork(&formatted.spans);
 		formatted.jumbo = only_emoji(&formatted.spans, &formatted.blocks, formatted.mention_count);
@@ -1005,20 +1258,48 @@ impl Formatted {
 			}
 			self.push_literal(&text[consumed..start], style);
 			if let Some((opening, region)) = open.take() {
-				// Retain an empty marker so an empty paired region still has a reveal control.
-				self.spans[opening].0.clear();
-				self.spans[opening].1.spoiler = Some(region);
-				*regions += 1;
+				// Spoilers hiding nothing visible (Discord's ping-hiding trick repeats
+				// hundreds) merge with an adjacent empty one, so they use one region.
+				let empty = self.spans[opening + 1..]
+					.iter()
+					.all(|(text, _)| text.chars().all(invisible));
+				let merged = empty
+					&& opening > 0 && self.spans[opening - 1].0.is_empty()
+					&& self.spans[opening - 1].1.spoiler.is_some();
+				if merged {
+					self.spans.truncate(opening);
+				} else {
+					if empty {
+						self.spans.truncate(opening + 1);
+					}
+					// Retain an empty marker so an empty paired region still has a reveal control.
+					self.spans[opening].0.clear();
+					self.spans[opening].1.spoiler = Some(region);
+					// A region reused at the cap already counts.
+					if region == *regions {
+						*regions += 1;
+					}
+				}
 				self.spoilers = true;
 				style.spoiler = None;
 			} else {
-				if *regions == MAX_SPOILERS {
+				// At the cap, a spoiler directly after an empty one may still merge into it,
+				// so it provisionally shares that region instead of concealing everything.
+				let region = if *regions < MAX_SPOILERS {
+					*regions
+				} else if let Some(previous) = self
+					.spans
+					.last()
+					.and_then(|(text, previous)| previous.spoiler.filter(|_| text.is_empty()))
+				{
+					previous
+				} else {
 					return false;
-				}
+				};
 				let opening = self.spans.len();
 				self.push("||", style);
-				*open = Some((opening, *regions));
-				style.spoiler = Some(*regions);
+				*open = Some((opening, region));
+				style.spoiler = Some(region);
 			}
 			consumed = start + 2;
 			search = consumed;
@@ -1034,7 +1315,14 @@ impl Formatted {
 		}
 	}
 	fn add_link(&mut self, target: &str) -> Option<usize> {
-		let url = external_url(target)?;
+		let normalized = external_url(target)?;
+		// Keep the original spelling whenever normalization could yield a chat route.
+		// Otherwise a raw /../ or /%2e%2e/ attack becomes an internal link at click time.
+		let url = if discord_chat_link(&normalized).is_some() {
+			target.to_owned()
+		} else {
+			normalized
+		};
 		if let Some(index) = self.links.iter().position(|existing| *existing == url) {
 			return Some(index);
 		}
@@ -1044,6 +1332,10 @@ impl Formatted {
 		self.links.push(url);
 		Some(self.links.len() - 1)
 	}
+	fn next_link_occurrence(&mut self) -> u32 {
+		self.link_occurrence = self.link_occurrence.saturating_add(1);
+		self.link_occurrence
+	}
 	fn push_autolinks(&mut self, text: &str, style: Style) {
 		let mut consumed = 0;
 		let mut scanned = 0;
@@ -1051,20 +1343,18 @@ impl Formatted {
 			let start = scanned + text[scanned..].find(word).expect("word from source");
 			scanned = start + word.len();
 			let candidate = word.trim_start_matches(['(', '[', '{']);
-			let mut target = candidate.trim_end_matches(['.', ',', ';', '!', '?', ']', '}']);
-			while target.ends_with(')') && target.matches(')').count() > target.matches('(').count()
-			{
-				target = &target[..target.len() - 1];
-			}
-			if (target.starts_with("https://") || target.starts_with("http://"))
+			if let Some(target) = bare_url(candidate)
 				&& let Some(link) = self.add_link(target)
 			{
 				let link_start = start + word.len() - candidate.len();
 				self.push(&text[consumed..link_start], style);
+				let link_occurrence = self.next_link_occurrence();
 				self.push(
 					target,
 					Style {
 						link: Some(link),
+						link_occurrence,
+						message_link: true,
 						..style
 					},
 				);
@@ -1103,6 +1393,7 @@ impl Formatted {
 				continue;
 			}
 			let is_role = reference.starts_with("<@&");
+			let is_game = reference.starts_with("<@$");
 			let (id, len, is_channel, mass_mention) =
 				if let Some(len) = model::mass_mention_prefix(reference) {
 					(None, len, false, true)
@@ -1112,6 +1403,8 @@ impl Formatted {
 						model::channel_mention_prefix(reference)
 					} else if is_role {
 						model::role_mention_prefix(reference)
+					} else if is_game {
+						model::game_mention_prefix(reference)
 					} else {
 						model::user_mention_prefix(reference)
 					}) else {
@@ -1135,7 +1428,8 @@ impl Formatted {
 			self.push(
 				token,
 				Style {
-					mention: id.filter(|_| !is_channel && !is_role),
+					mention: id.filter(|_| !is_channel && !is_role && !is_game),
+					game: id.filter(|_| is_game),
 					role: id.filter(|_| is_role),
 					mass_mention,
 					channel: id.filter(|_| is_channel),
@@ -1370,13 +1664,48 @@ impl Formatted {
 							.iter()
 							.take_while(|(_, style)| style.spoiler == spoiler)
 							.count();
-						let response = ui
-							.push_id(("spoiler", region), |ui| {
-								ui.button(crate::i18n::translate(
-									"markdown-show-run-reveal-spoiler",
-								))
+						// Like Discord, a concealed spoiler is a block the size of its text. The
+						// text is only measured, never painted or exposed.
+						// Ignore delimiters and invisible characters, which have no visible width.
+						let hidden: String = spans[start..start + count]
+							.iter()
+							.flat_map(|(text, _)| text.chars())
+							.filter(|chr| *chr != '|' && !invisible(*chr))
+							.collect();
+						let font = egui::TextStyle::Body.resolve(ui.style());
+						let row = ui.fonts_mut(|fonts| fonts.row_height(&font));
+						let measured = ui
+							.fonts_mut(|fonts| {
+								fonts.layout_no_wrap(hidden, font, egui::Color32::TRANSPARENT)
 							})
-							.inner;
+							.size();
+						let size = egui::vec2(
+							measured
+								.x
+								.clamp(row * 0.5, ui.max_rect().width().max(row * 0.5)),
+							measured.y.max(row),
+						);
+						// Occupy the message's row height; the block itself is text height.
+						let (slot, response) = ui.allocate_exact_size(
+							egui::vec2(size.x, size.y.max(render.line.unwrap_or(0.0))),
+							egui::Sense::click(),
+						);
+						let rect = egui::Rect::from_center_size(slot.center(), size);
+						let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+						response.widget_info(|| {
+							egui::WidgetInfo::labeled(
+								egui::Role::Button,
+								ui.is_enabled(),
+								crate::i18n::translate("markdown-show-run-reveal-spoiler"),
+							)
+						});
+						if ui.is_rect_visible(rect) {
+							let muted = crate::design::palette(ui).muted;
+							let fill =
+								muted.gamma_multiply(if response.hovered() { 0.7 } else { 0.55 });
+							ui.painter()
+								.rect_filled(rect, crate::channel_pill::RADIUS, fill);
+						}
 						render.surface.keep(&response);
 						if response.clicked() {
 							*render.revealed |= 1_u32 << region;
@@ -1390,53 +1719,26 @@ impl Formatted {
 					}
 					if let Some(id) = spans[start].1.channel {
 						reserve(ui);
-						let colors = crate::design::palette(ui);
-						let name = channel_reference_name(id, render.channels, render.source);
-						if let Some(name) = name {
-							let label = format!("#{name}");
-							let response = ui
-								.add(egui::Link::new(
-									egui::RichText::new(&label)
-										.strong()
-										.color(colors.mention_text)
-										.background_color(colors.mention_bg),
-								))
-								.on_hover_text(crate::i18n::translate(
-									"markdown-show-run-open-channel",
-								));
-							render.surface.keep(&response);
-							response.widget_info(|| {
-								egui::WidgetInfo::labeled(
-									egui::Role::Link,
-									ui.is_enabled(),
-									format!("{label}, open channel"),
+						if let Some(pill) =
+							crate::channel_pill::Pill::channel(id, render.channels, render.source)
+						{
+							let known = channel_reference_name(id, render.channels, render.source)
+								.is_some();
+							// Like Discord, selecting a channel reference copies `#name`.
+							let copied = format!("#{}", pill.name);
+							let response = pill
+								.show(
+									ui,
+									render.images,
+									render.demo,
+									render.line,
+									Some((&mut *render.surface, &copied)),
 								)
-							});
-							if response.clicked() {
-								*render.channel = Some(id);
-							}
-						} else if render.channels.iter().all(|target| target.id != id) {
-							let label = "#unknown-channel";
-							let response = ui
-								.add(egui::Link::new(
-									egui::RichText::new(label)
-										.strong()
-										.color(colors.mention_text)
-										.background_color(colors.mention_bg),
-								))
-								.on_hover_text(crate::i18n::translate(
-									"markdown-show-run-load-channel",
-								));
-							render.surface.keep(&response);
-							response.widget_info(|| {
-								egui::WidgetInfo::labeled(
-									egui::Role::Link,
-									ui.is_enabled(),
-									crate::i18n::translate(
-										"markdown-show-run-unknown-channel-load-channel",
-									),
-								)
-							});
+								.on_hover_text(crate::i18n::translate(if known {
+									"markdown-show-run-open-channel"
+								} else {
+									"markdown-show-run-load-channel"
+								}));
 							if response.clicked() {
 								*render.channel = Some(id);
 							}
@@ -1455,22 +1757,52 @@ impl Formatted {
 						start += 1;
 						continue;
 					}
+					if let Some(id) = spans[start].1.game {
+						reserve(ui);
+						let catalog = render.source.map(|s| &s.state.game_mentions);
+						let label = catalog.map_or_else(
+							|| format!("Unknown game ({id})"),
+							|games| games.label(id),
+						);
+						let key = catalog
+							.and_then(|games| games.find(id))
+							.map_or_else(|| format!("app-icon-{id}"), model::GameMention::icon_key);
+						let response = crate::channel_pill::game(
+							ui,
+							&label,
+							key,
+							render.images,
+							render.demo,
+							render.line,
+							&mut *render.surface,
+						);
+						response.widget_info(|| {
+							egui::WidgetInfo::labeled(
+								egui::Role::Label,
+								ui.is_enabled(),
+								format!("{label}, game"),
+							)
+						});
+						start += 1;
+						continue;
+					}
 					if let Some(id) = spans[start].1.mention {
 						reserve(ui);
 						let colors = crate::design::palette(ui);
 						let user = crate::mentions::find_user(id, render.users, render.source);
 						let label = crate::mentions::mention_label(id, render.users, render.source);
-						let response = ui
-							.add(egui::Link::new(
-								egui::RichText::new(&label)
-									.strong()
-									.color(colors.mention_text)
-									.background_color(colors.mention_bg),
-							))
-							.on_hover_text(crate::i18n::translate(
-								"markdown-show-run-open-user-profile",
-							));
-						render.surface.keep(&response);
+						let response = crate::channel_pill::mention(
+							ui,
+							&label,
+							colors.mention_text,
+							colors.mention_bg,
+							egui::Sense::click(),
+							render.line,
+							Some(&mut *render.surface),
+						)
+						.on_hover_text(crate::i18n::translate(
+							"markdown-show-run-open-user-profile",
+						));
 						response.widget_info(|| {
 							egui::WidgetInfo::labeled(
 								egui::Role::Link,
@@ -1487,9 +1819,43 @@ impl Formatted {
 								kind: Default::default(),
 								discriminator: 0,
 								primary_guild: None,
+								cosmetics: None,
 							});
 							render.profile.person_click(ui, &response, None, &opened);
 						}
+						start += 1;
+						continue;
+					}
+					if spans[start].1.role.is_some() || spans[start].1.mass_mention {
+						reserve(ui);
+						let style = spans[start].1;
+						let role = style
+							.role
+							.and_then(|id| render.roles.iter().find(|role| role.id == id));
+						let label = match style.role {
+							Some(id) => format!(
+								"@{}",
+								role.map_or_else(
+									|| format!("unknown-role ({id})"),
+									|role| role.name.clone()
+								)
+							),
+							None => spans[start].0.clone(),
+						};
+						let (color, background) =
+							mention_colors(ui, role.map(|role| role.color).or(style.role_color));
+						let response = crate::channel_pill::mention(
+							ui,
+							&label,
+							color,
+							background,
+							egui::Sense::hover(),
+							render.line,
+							Some(&mut *render.surface),
+						);
+						response.widget_info(|| {
+							egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &label)
+						});
 						start += 1;
 						continue;
 					}
@@ -1515,13 +1881,18 @@ impl Formatted {
 						continue;
 					}
 					let target = spans[start].1.link;
+					let link_occurrence = spans[start].1.link_occurrence;
+					let native_message_link = spans[start].1.message_link;
 					let count = spans[start..]
 						.iter()
 						.take_while(|(_, style)| {
 							style.link == target
+								&& style.link_occurrence == link_occurrence
+								&& style.message_link == native_message_link
 								&& style.spoiler == spoiler
 								&& style.mention.is_none()
-								&& style.channel.is_none()
+								&& style.game.is_none() && style.role.is_none()
+								&& !style.mass_mention && style.channel.is_none()
 								&& style.block.is_none() && (quoted || !style.quote)
 						})
 						.count();
@@ -1541,35 +1912,12 @@ impl Formatted {
 					} else {
 						&spans[start..start + count]
 					};
-					// Role pills share the surrounding text's galley, including wrapping and emoji heights.
 					let resolved;
-					let spans = if spans
-						.iter()
-						.any(|(_, style)| style.role.is_some() || style.timestamp.is_some())
-					{
+					let spans = if spans.iter().any(|(_, style)| style.timestamp.is_some()) {
 						resolved = spans
 							.iter()
 							.map(|(text, style)| {
-								if let Some(id) = style.role {
-									let name =
-										render.roles.iter().find(|role| role.id == id).map_or_else(
-											|| format!("unknown-role ({id})"),
-											|role| role.name.clone(),
-										);
-									(
-										format!("@{name}"),
-										Style {
-											mass_mention: true,
-											role_color: render
-												.roles
-												.iter()
-												.find(|role| role.id == id)
-												.map(|role| role.color)
-												.filter(|color| *color != 0),
-											..*style
-										},
-									)
-								} else if let Some((seconds, kind)) = style.timestamp {
+								if let Some((seconds, kind)) = style.timestamp {
 									(
 										crate::local_time::discord_timestamp(seconds, kind)
 											.unwrap_or_else(|| text.clone()),
@@ -1588,16 +1936,16 @@ impl Formatted {
 					if let Some(index) = target {
 						let url = &self.links[index];
 						let label: String = spans.iter().map(|(text, _)| text.as_str()).collect();
-						let message_link = (label == *url)
+						let message_link = native_message_link
 							.then(|| discord_chat_link(url))
-							.flatten()
-							.filter(|link| link.message.is_some());
-						let pill_label = message_link.as_ref().map(|link| {
-							channel_reference_name(link.channel, render.channels, render.source)
-								.map_or_else(
-									|| "#unknown-channel".into(),
-									|name| format!("#{name}"),
-								)
+							.flatten();
+						let pill = message_link.as_ref().map(|link| {
+							crate::channel_pill::Pill::message(
+								link,
+								render.channels,
+								render.guilds,
+								render.source,
+							)
 						});
 						let response = if let Some(asset) =
 							model::ImageShare::from_url(url).filter(|_| label != *url)
@@ -1612,21 +1960,19 @@ impl Formatted {
 								render.guilds,
 								render.surface,
 								render.query,
+								render.line,
 								Some(asset),
 							)
 							.on_hover_text(url)
-						} else if let Some(label) = &pill_label {
-							let colors = crate::design::palette(ui);
-							let response = ui
-								.add(egui::Link::new(
-									egui::RichText::new(label)
-										.strong()
-										.color(colors.mention_text)
-										.background_color(colors.mention_bg),
-								))
-								.on_hover_text(url);
-							render.surface.keep(&response);
-							response
+						} else if let Some(pill) = &pill {
+							pill.show(
+								ui,
+								render.images,
+								render.demo,
+								render.line,
+								Some((&mut *render.surface, url)),
+							)
+							.on_hover_text(url)
 						} else {
 							Self::show_emoji(
 								spans,
@@ -1638,6 +1984,7 @@ impl Formatted {
 								render.guilds,
 								render.surface,
 								render.query,
+								render.line,
 								None,
 							)
 							.on_hover_text(url)
@@ -1646,7 +1993,8 @@ impl Formatted {
 							egui::WidgetInfo::labeled(
 								egui::Role::Link,
 								ui.is_enabled(),
-								pill_label.as_deref().unwrap_or(&label),
+								pill.as_ref()
+									.map_or_else(|| label.clone(), |pill| pill.label()),
 							)
 						});
 						if response.clicked() {
@@ -1663,6 +2011,7 @@ impl Formatted {
 							render.guilds,
 							render.surface,
 							render.query,
+							render.line,
 							None,
 						);
 					}
@@ -1844,11 +2193,13 @@ impl Formatted {
 		guilds: &[model::Guild],
 		surface: &mut crate::select::Surface,
 		query: &str,
+		line: Option<f32>,
 		shared: Option<model::ImageShare>,
 	) -> egui::Response {
 		struct Inline {
 			text: String,
 			custom: Option<model::Id>,
+			cell: Option<usize>,
 			image: Option<egui::Image<'static>>,
 		}
 		let size = crate::emoji::inline_size(ui);
@@ -1872,8 +2223,33 @@ impl Formatted {
 		let mut inlines: Vec<Inline> = Vec::new();
 		// Label overwrites the first section's leading space with the wrap indentation.
 		job.append("", 0.0, Self::format(ui, &Style::default()));
+		// A run that ends with blank lines (`\n\n` before the next paragraph) makes egui drop
+		// the row's leading indent: the whole run is then shaped from the row start and stops
+		// wrapping at the remaining width, which paints it over the run before it. Shape the
+		// run without those trailing breaks and replay them as explicit row breaks below.
+		let total: usize = spans.iter().map(|(text, _)| text.len()).sum();
+		let trailing = spans
+			.iter()
+			.rev()
+			.flat_map(|(text, _)| text.chars().rev())
+			.take_while(|character| *character == '\n')
+			.count();
+		let kept = total.saturating_sub(trailing);
+		// Each blank row keeps the height its newline had in the galley, so the paragraph gap
+		// survives and selection still copies it as a blank line.
+		let blank = spans.last().map_or(0.0, |(_, style)| {
+			let format = Self::format(ui, style);
+			let height = format
+				.line_height
+				.unwrap_or_else(|| ui.fonts_mut(|fonts| fonts.row_height(&format.font_id)));
+			line.map_or(height, |line| height.max(line))
+		});
+		let mut written = 0;
 		for (text, style) in spans {
 			let format = Self::format(ui, style);
+			let available = kept.saturating_sub(written).min(text.len());
+			written += available;
+			let text = &text[..available];
 			let mut start = 0;
 			let mut offset = 0;
 			while offset < text.len() {
@@ -1914,22 +2290,8 @@ impl Formatted {
 				inlines.push(Inline {
 					text: cluster.to_owned(),
 					custom: custom.map(|(id, _)| id),
-					image: shared
-						.and_then(|asset| images.share_image(ui.ctx(), asset, size, demo))
-						.or_else(|| {
-							cell.and_then(|cell| {
-								if jumbo
-									&& let Some(image) = images.unicode_image(ui.ctx(), cell, size)
-								{
-									return Some(image.alt_text(cluster));
-								}
-								atlas
-									.get_or_insert_with(|| crate::emoji::atlas(ui.ctx()))
-									.map(|atlas| {
-										crate::emoji::image_cell(atlas, cluster, cell, size)
-									})
-							})
-						}),
+					cell,
+					image: None,
 				});
 				offset += len;
 				start = offset;
@@ -1963,6 +2325,22 @@ impl Formatted {
 			}
 			job.sections = sections;
 		}
+		// In a message with inline artwork every row has the artwork's height, so text
+		// centred in it lines up across separately laid out runs and pills. Underlines
+		// and backgrounds follow a glyph's line height: those sections keep the text's
+		// own height and are centred by the taller row instead.
+		if let Some(line) = line {
+			for section in &mut job.sections {
+				let format = &mut section.format;
+				if format.line_height.is_none()
+					&& format.underline == Stroke::NONE
+					&& format.background == egui::Color32::TRANSPARENT
+					&& ui.fonts_mut(|fonts| fonts.row_height(&format.font_id)) < line
+				{
+					format.line_height = Some(line);
+				}
+			}
+		}
 		let label = egui::Label::new(job)
 			.wrap()
 			.halign(if right_aligned {
@@ -1972,28 +2350,27 @@ impl Formatted {
 			})
 			.selectable(false);
 		let (pos, mut galley, mut response) = label.layout_in_ui(ui);
+		let first_row_leading = galley.job.sections.first().map_or(0.0, |s| s.leading_space);
 		response
 			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &source));
 		let mut slots: Vec<(usize, egui::Rect)> = Vec::new();
 		if !inlines.is_empty() {
 			let wrap = galley.job.wrap.max_width;
+			// Placeholders use a scaled font squeezed into the artwork line height. Text
+			// may share that line height, but only ever to grow, never to shrink.
+			let is_slot = |glyph: &egui::epaint::text::Glyph| {
+				glyph.chr == ' ' && glyph.line_height < glyph.font_height
+			};
 			let galley_mut = std::sync::Arc::make_mut(&mut galley);
 			let mut next = 0;
 			for placed in &mut galley_mut.rows {
-				if next >= inlines.len()
-					|| !placed
-						.glyphs
-						.iter()
-						.any(|glyph| glyph.chr == ' ' && glyph.line_height == size)
-				{
+				if next >= inlines.len() || !placed.glyphs.iter().any(is_slot) {
 					continue;
 				}
 				let row = std::sync::Arc::make_mut(&mut placed.row);
 				let mut glyphs = Vec::with_capacity(row.glyphs.len());
 				for glyph in &row.glyphs {
-					// Placeholders are the only glyphs with the artwork line height; a literal
-					// space in message text keeps the body font's row height.
-					if next >= inlines.len() || glyph.chr != ' ' || glyph.line_height != size {
+					if next >= inlines.len() || !is_slot(glyph) {
 						glyphs.push(*glyph);
 						continue;
 					}
@@ -2026,27 +2403,101 @@ impl Formatted {
 				wrap,
 			));
 		}
+		// Resolve artwork only after its slot is positioned inside the viewport.
+		for (index, rect) in &slots {
+			if !ui.is_rect_visible(*rect) || !rect.intersect(ui.clip_rect()).is_positive() {
+				continue;
+			}
+			let inline = &mut inlines[*index];
+			inline.image = match inline.custom {
+				Some(id) => images.custom_emoji(
+					ui.ctx(),
+					id,
+					crate::emoji::custom_animated(&inline.text),
+					size,
+					demo,
+				),
+				None => shared
+					.and_then(|asset| images.share_image(ui.ctx(), asset, size, demo))
+					.or_else(|| {
+						inline.cell.and_then(|cell| {
+							if jumbo && let Some(image) = images.unicode_image(ui.ctx(), cell, size)
+							{
+								return Some(image.alt_text(&inline.text));
+							}
+							atlas
+								.get_or_insert_with(|| crate::emoji::atlas(ui.ctx()))
+								.map(|atlas| {
+									crate::emoji::image_cell(atlas, &inline.text, cell, size)
+								})
+						})
+					}),
+			};
+		}
 		let artwork = slots
 			.iter()
-			.map(|(index, rect)| {
-				let inline = &inlines[*index];
-				crate::select::Artwork {
-					rect: *rect,
-					image: match inline.custom {
-						Some(id) => images.custom_image(ui.ctx(), id, size, demo),
-						None => inline.image.clone(),
-					},
-				}
+			.map(|(index, rect)| crate::select::Artwork {
+				rect: *rect,
+				image: inlines[*index].image.clone(),
 			})
 			.collect();
-		surface.run(ui, &response, pos, galley, artwork);
-		if link {
-			response = ui.interact(
-				response.rect,
-				response.id.with("link"),
-				egui::Sense::click(),
+		// Labels in wrapping layouts encode preceding widgets as leading space in their first
+		// row. Surface's per-row selection bands must not cover that space (and steal
+		// a drag from a message chip). Rebase the row without moving any painted glyphs
+		// or cursor positions. An empty wrap row still starts after the previous widget.
+		if let Some(first) = galley.rows.first() {
+			let leading = first.glyphs.first().map_or_else(
+				|| (first_row_leading - first.pos.x).max(0.0),
+				|glyph| glyph.pos.x,
 			);
-			surface.through(&response);
+			if leading > 0.0 {
+				let galley = std::sync::Arc::make_mut(&mut galley);
+				let first = &mut galley.rows[0];
+				first.pos.x += leading;
+				let row = std::sync::Arc::make_mut(&mut first.row);
+				if !row.glyphs.is_empty() {
+					row.size.x -= leading;
+					for glyph in &mut row.glyphs {
+						glyph.pos.x -= leading;
+					}
+					let offset = egui::vec2(-leading, 0.0);
+					row.visuals.mesh.translate(offset);
+					row.visuals.mesh_bounds = row.visuals.mesh_bounds.translate(offset);
+				}
+				galley.rect |= first.rect();
+			}
+		}
+		if link {
+			let id = response.id.with("link");
+			// Wrapping leaves space for adjacent pills; a bounding rectangle would
+			// steal their clicks. Only the first row participates in tab navigation.
+			let mut hits: Option<egui::Response> = None;
+			for (index, row) in galley.rows.iter().enumerate() {
+				let rect = row.rect_without_leading_space().translate(pos.to_vec2());
+				let sense = if index == 0 {
+					egui::Sense::click()
+				} else {
+					egui::Sense::click() - egui::Sense::FOCUSABLE
+				};
+				let hit = ui.interact(rect, id.with(index), sense);
+				surface.through(&hit);
+				hits = Some(match hits {
+					Some(response) => response.union(hit),
+					None => hit,
+				});
+			}
+			if let Some(hit) = hits {
+				response = hit;
+			}
+		}
+		surface.run(ui, &response, pos, galley, artwork);
+		// The first break ends the run's row; every further one is a blank row of its own.
+		if trailing > 0 {
+			ui.end_row();
+			for _ in 1..trailing {
+				ui.set_row_height(blank);
+				ui.end_row();
+			}
 		}
 		if ui.is_rect_visible(response.rect) {
 			for (index, rect) in &slots {
@@ -2054,19 +2505,35 @@ impl Formatted {
 					continue;
 				}
 				let inline = &inlines[*index];
-				let image = match inline.custom {
-					Some(id) => images.custom_image(ui.ctx(), id, size, demo),
-					None => inline.image.clone(),
-				};
+				let image = inline.image.clone();
 				if !link {
-					let hit = ui
+					let mut hit = ui
 						.interact(
 							*rect,
 							response.id.with(("emoji", *index, &inline.text)),
 							egui::Sense::click(),
 						)
-						.on_hover_cursor(egui::CursorIcon::PointingHand)
-						.on_hover_text(&inline.text);
+						.on_hover_cursor(egui::CursorIcon::PointingHand);
+					if hit.hovered() {
+						// Default emoji use a sharper raster than the inline atlas cell.
+						let art = inline
+							.cell
+							.filter(|_| inline.custom.is_none() && shared.is_none())
+							.and_then(|cell| {
+								images.unicode_image(
+									ui.ctx(),
+									cell,
+									crate::emoji_details::HOVER_ART,
+								)
+							})
+							.or_else(|| image.clone());
+						hit = crate::emoji_details::hover_card(
+							hit,
+							art,
+							&crate::emoji_details::name(&inline.text, guilds),
+							true,
+						);
+					}
 					hit.widget_info(|| {
 						egui::WidgetInfo::labeled(
 							egui::Role::Button,
@@ -2088,8 +2555,10 @@ impl Formatted {
 				.find(|(_, rect)| rect.contains(point))
 				.map(|(index, _)| *index)
 		};
-		if let Some(index) = response.hover_pos().and_then(slot_at) {
-			response = response.on_hover_text_at_pointer(&inlines[index].text);
+		// Emoji outside links have their own hover card; links keep only the name.
+		if link && let Some(index) = response.hover_pos().and_then(slot_at) {
+			response = response
+				.on_hover_text_at_pointer(crate::emoji_details::name(&inlines[index].text, guilds));
 		}
 		let menu = response.id.with("emoji-menu");
 		if response.secondary_clicked() {
@@ -2160,6 +2629,35 @@ impl Formatted {
 			.find(|(text, _)| !text.is_empty())
 			.is_none_or(|(text, _)| text.ends_with('\n'))
 	}
+	fn clean_custom_emojis(text: &str) -> String {
+		let mut output = String::with_capacity(text.len());
+		let mut offset = 0;
+		while offset < text.len() {
+			if let Some((_, len)) = crate::emoji::custom_prefix(&text[offset..]) {
+				let token = &text[offset..offset + len];
+				let body = token
+					.strip_prefix("<:")
+					.or_else(|| token.strip_prefix("<a:"))
+					.unwrap_or("");
+				if let Some(colon) = body.find(':') {
+					let name = &body[..colon];
+					output.push(':');
+					output.push_str(name);
+					output.push(':');
+					offset += len;
+					continue;
+				}
+			}
+			let chr = text[offset..]
+				.chars()
+				.next()
+				.expect("valid UTF-8 character");
+			output.push(chr);
+			offset += chr.len_utf8();
+		}
+		output
+	}
+
 	pub(crate) fn append_inline_preview(
 		&self,
 		job: &mut LayoutJob,
@@ -2171,28 +2669,59 @@ impl Formatted {
 	) -> Vec<PreviewEmoji> {
 		let colors = crate::design::palette(ui);
 		let muted = TextFormat {
-			font_id: FontId::proportional(13.0),
+			font_id: FontId::proportional(PREVIEW_TEXT_SIZE),
 			color: colors.muted,
 			..Default::default()
 		};
 		let pill = TextFormat {
-			font_id: FontId::new(13.0, crate::design::semibold_family(ui.ctx())),
+			font_id: FontId::proportional(PREVIEW_TEXT_SIZE),
 			color: colors.mention_text,
 			background: colors.mention_bg,
 			..Default::default()
 		};
-		let mut remaining = 120;
+		let mut remaining: usize = 120;
+		let prefix_len = job.text.len();
+		let mut truncated = false;
+		let mut next_is_word = false;
 		let mut emojis = Vec::new();
 		for (text, style) in &self.spans {
-			if remaining == 0 {
-				break;
-			}
 			if text.is_empty() {
 				continue;
 			}
+			if remaining == 0 {
+				truncated = true;
+				next_is_word = text.chars().next().is_some_and(|c| c.is_alphanumeric());
+				break;
+			}
+			let destination = style
+				.channel
+				.and_then(|id| crate::channel_pill::Pill::channel(id, channels, source))
+				.or_else(|| {
+					style
+						.link
+						.filter(|_| style.message_link)
+						.and_then(|index| self.links.get(index))
+						.and_then(|url| discord_chat_link(url))
+						.map(|link| {
+							crate::channel_pill::Pill::message(
+								&link,
+								channels,
+								source.map_or(&[], |source| &source.state.guilds),
+								source,
+							)
+						})
+				});
 			let (display, format) = if let Some(id) = style.mention {
 				(
 					crate::mentions::mention_label(id, users, source),
+					pill.clone(),
+				)
+			} else if let Some(id) = style.game {
+				(
+					source.map_or_else(
+						|| format!("Unknown game ({id})"),
+						|s| s.state.game_mentions.label(id),
+					),
 					pill.clone(),
 				)
 			} else if let Some(id) = style.role {
@@ -2212,14 +2741,23 @@ impl Formatted {
 				let mut format = Self::format(ui, &style);
 				format.font_id = pill.font_id.clone();
 				(format!("@{name}"), format)
-			} else if let Some(id) = style.channel {
-				if let Some(name) = channel_reference_name(id, channels, source) {
-					(format!("#{name}"), pill.clone())
-				} else if channels.iter().any(|channel| channel.id == id) {
-					(text.clone(), muted.clone())
-				} else {
-					("#unknown-channel".into(), pill.clone())
-				}
+			} else if let Some(channel) = destination {
+				let prefix: String = channel.prefix().chars().take(remaining).collect();
+				remaining -= prefix.chars().count();
+				// The icon sits on plain spaces in the pill's own format, so the icon and
+				// name share one background strip at text height.
+				let space = ui.fonts_mut(|fonts| fonts.glyph_width(&pill.font_id, ' '));
+				let slot = " ".repeat(
+					((pill.font_id.size + 2.0 * PREVIEW_ICON_GAP) / space.max(1.0)).ceil() as usize,
+				);
+				emojis.push(PreviewEmoji {
+					at: job.text.len(),
+					len: slot.len(),
+					text: prefix,
+					image: PreviewImage::Channel(channel.icon),
+				});
+				job.append(&slot, 0.0, pill.clone());
+				(channel.text(), pill.clone())
 			} else if let Some((seconds, kind)) = style.timestamp {
 				(
 					crate::local_time::discord_timestamp(seconds, kind)
@@ -2229,15 +2767,41 @@ impl Formatted {
 			} else if style.mass_mention {
 				(text.clone(), pill.clone())
 			} else {
-				(
-					text.chars()
-						.map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c })
-						.collect(),
-					muted.clone(),
-				)
+				let normalized: String = text
+					.chars()
+					.map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c })
+					.collect();
+				let display = if !style.code {
+					Self::clean_custom_emojis(&normalized)
+				} else {
+					normalized
+				};
+				(display, muted.clone())
 			};
-			let take: String = display.chars().take(remaining).collect();
-			remaining -= take.chars().count();
+			let mut cut_end = 0;
+			let mut taken_chars = 0;
+			let mut is_overflow = false;
+			for (offset, cluster) in display.grapheme_indices(true) {
+				let cluster_chars = cluster.chars().count();
+				if taken_chars + cluster_chars > remaining {
+					is_overflow = true;
+					break;
+				}
+				taken_chars += cluster_chars;
+				cut_end = offset + cluster.len();
+			}
+			let take = if is_overflow {
+				truncated = true;
+				next_is_word = display[cut_end..]
+					.chars()
+					.next()
+					.is_some_and(|c| c.is_alphanumeric());
+				remaining = 0;
+				display[..cut_end].to_string()
+			} else {
+				remaining -= taken_chars;
+				display
+			};
 			let mut start = 0;
 			if !style.code {
 				for (offset, cluster) in take.grapheme_indices(true) {
@@ -2247,8 +2811,9 @@ impl Formatted {
 					job.append(&take[start..offset], 0.0, format.clone());
 					emojis.push(PreviewEmoji {
 						at: job.text.len(),
+						len: 1,
 						text: cluster.into(),
-						cell,
+						image: PreviewImage::Emoji(cell),
 					});
 					job.append(
 						" ",
@@ -2259,13 +2824,64 @@ impl Formatted {
 				}
 			}
 			job.append(&take[start..], 0.0, format);
+			if is_overflow {
+				break;
+			}
+		}
+		if truncated {
+			let is_emoji_at = |idx: usize| emojis.iter().any(|e| e.at <= idx && idx < e.at + e.len);
+			let ends_with_ws = job.text.len() > prefix_len
+				&& !is_emoji_at(job.text.len() - 1)
+				&& job.text.ends_with(char::is_whitespace);
+			if next_is_word
+				&& !ends_with_ws
+				&& let Some(last_ws) = job.text[prefix_len..]
+					.char_indices()
+					.rfind(|&(idx, ch)| {
+						let abs_idx = prefix_len + idx;
+						ch.is_whitespace() && !is_emoji_at(abs_idx)
+					})
+					.map(|(idx, _)| prefix_len + idx)
+				&& last_ws > prefix_len
+			{
+				job.text.truncate(last_ws);
+			}
+			let mut trimmed_len = job.text.len();
+			while trimmed_len > prefix_len {
+				let last_idx = trimmed_len - 1;
+				if is_emoji_at(last_idx) {
+					break;
+				}
+				if let Some(ch) = job.text[..trimmed_len].chars().next_back()
+					&& ch.is_whitespace()
+				{
+					trimmed_len -= ch.len_utf8();
+					continue;
+				}
+				break;
+			}
+			job.text.truncate(trimmed_len);
+			let end = job.text.len();
+			let end_idx = egui::text::ByteIndex(end);
+			job.sections.retain_mut(|section| {
+				if section.byte_range.start >= end_idx {
+					false
+				} else {
+					if section.byte_range.end > end_idx {
+						section.byte_range.end = end_idx;
+					}
+					true
+				}
+			});
+			emojis.retain(|emoji| emoji.at + emoji.len <= end);
+			job.append("…", 0.0, muted);
 		}
 		emojis
 	}
 	pub(crate) fn inline_preview_text(job: &LayoutJob, emojis: &[PreviewEmoji]) -> String {
 		let mut text = job.text.clone();
 		for emoji in emojis.iter().rev() {
-			text.replace_range(emoji.at..emoji.at + 1, &emoji.text);
+			text.replace_range(emoji.at..emoji.at + emoji.len, &emoji.text);
 		}
 		text
 	}
@@ -2275,9 +2891,35 @@ impl Formatted {
 		galley: &egui::Galley,
 		emojis: &[PreviewEmoji],
 	) {
-		let Some(atlas) = crate::emoji::atlas(ui.ctx()) else {
-			return;
-		};
+		let colors = crate::design::palette(ui);
+		// Channel icons sit on ordinary spaces: place them by character offset.
+		for emoji in emojis {
+			let PreviewImage::Channel(icon) = emoji.image else {
+				continue;
+			};
+			let index = galley
+				.job
+				.text
+				.get(..emoji.at)
+				.map_or(0, |text| text.chars().count());
+			let cursor = galley
+				.pos_from_cursor(egui::text::CCursor::new(index))
+				.translate(galley_pos.to_vec2());
+			let size = PREVIEW_TEXT_SIZE;
+			let rect = egui::Rect::from_min_size(
+				egui::pos2(
+					cursor.left() + PREVIEW_ICON_GAP,
+					cursor.center().y - size / 2.0,
+				),
+				egui::Vec2::splat(size),
+			);
+			crate::icons::paint(ui.painter(), icon, rect, colors.mention_text);
+		}
+		let emojis: Vec<_> = emojis
+			.iter()
+			.filter(|emoji| matches!(emoji.image, PreviewImage::Emoji(_)))
+			.collect();
+		let atlas = crate::emoji::atlas(ui.ctx());
 		let mut next = 0;
 		for placed in &galley.rows {
 			for glyph in &placed.glyphs {
@@ -2292,14 +2934,16 @@ impl Formatted {
 					egui::vec2(PREVIEW_EMOJI_SIZE, placed.row.size.y),
 				);
 				let emoji = &emojis[next];
-				crate::emoji::image_cell(atlas, &emoji.text, emoji.cell, PREVIEW_EMOJI_SIZE)
-					.paint_at(
-						ui,
-						egui::Rect::from_center_size(
-							rect.center(),
-							egui::Vec2::splat(PREVIEW_EMOJI_SIZE),
-						),
-					);
+				let rect = egui::Rect::from_center_size(
+					rect.center(),
+					egui::Vec2::splat(PREVIEW_EMOJI_SIZE),
+				);
+				if let PreviewImage::Emoji(cell) = emoji.image
+					&& let Some(atlas) = atlas
+				{
+					crate::emoji::image_cell(atlas, &emoji.text, cell, PREVIEW_EMOJI_SIZE)
+						.paint_at(ui, rect);
+				}
 				next += 1;
 			}
 		}
@@ -2325,10 +2969,9 @@ impl Formatted {
 		let visuals = ui.visuals();
 		let colors = crate::design::palette(ui);
 		let body = egui::TextStyle::Body.resolve(ui.style());
+		let mention = mention_colors(ui, style.role_color);
 		let color = if style.mass_mention {
-			style.role_color.map_or(colors.mention_text, |rgb| {
-				crate::design::role_name_color(rgb, colors.mention_bg, colors.mention_text)
-			})
+			mention.0
 		} else if style.link.is_some() {
 			visuals.hyperlink_color
 		} else if style.strong {
@@ -2350,7 +2993,7 @@ impl Formatted {
 			valign: ui.text_valign(),
 			font_id: if style.code {
 				FontId::monospace(size)
-			} else if style.strong || style.mass_mention {
+			} else if style.strong {
 				// egui has no synthetic bold: emphasis comes from the bundled heavier face.
 				FontId::new(size, crate::design::semibold_family(ui.ctx()))
 			} else {
@@ -2358,7 +3001,10 @@ impl Formatted {
 			},
 			color,
 			background: if style.mass_mention {
-				colors.mention_bg
+				mention.1
+			} else if style.spoiler.is_some() {
+				// Only revealed spoilers reach the formatter.
+				colors.muted.gamma_multiply(0.15)
 			} else if style.timestamp.is_some() || style.code {
 				visuals.code_bg_color
 			} else {
@@ -2382,6 +3028,338 @@ impl Formatted {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn inline_preview_truncates_long_messages_with_ellipsis() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let input = "Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat.";
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+			assert!(!preview.text.ends_with("magn…"));
+			assert!(preview.text.ends_with("dolore…"));
+			assert!(preview.text.chars().count() <= 125);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_cuts_at_word_boundary_across_span_borders() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 116 characters prefix followed by a bold word across the 120 limit
+			let prefix = "a".repeat(115) + " ";
+			let input = format!("{prefix}**dolore magna**");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+			assert!(!preview.text.contains("dolo"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_shows_ellipsis_when_exact_limit_followed_by_spoiler() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a".repeat(120);
+			let input = format!("{prefix}||hidden content||");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with('…'));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_caller_prefix_when_truncating() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let mut preview = egui::text::LayoutJob::default();
+			preview.append("@author: ", 0.0, Default::default());
+			let long_word = "a".repeat(130);
+			let _ = super::Formatted::parse(&long_word).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.starts_with("@author: "));
+			assert!(preview.text.ends_with('…'));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_first_omitted_character_across_later_spans() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 116 chars ("a " * 58) + 10 chars bold ("abcdefghij") + tail
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}**abcdefghij** tail");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				!preview.text.contains("abcd"),
+				"mid-word abcd should be cut back to word boundary"
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_preserves_emoji_placeholder_near_limit() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 118 chars ("a " * 59) + "x😀 more" -> emoji fits in 120 limit
+			let prefix = "a ".repeat(59);
+			let input = format!("{prefix}x😀 more");
+			let mut preview = egui::text::LayoutJob::default();
+			let emojis = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert_eq!(emojis.len(), 1, "emoji should be preserved");
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_punctuation_after_word_does_not_backtrack() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}word, more");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				preview.text.contains("word…"),
+				"expected preview to retain 'word…' but got {:?}",
+				preview.text
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_joined_emoji_preserves_grapheme_boundary() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// "👩‍💻" is 3 codepoints / 10 bytes.
+			// Case 1: 118 chars + "👩‍💻 more" -> remaining 2; emoji requires 3, must not be split.
+			let prefix1 = "a".repeat(118);
+			let input1 = format!("{prefix1}👩‍💻 more");
+			let mut preview1 = egui::text::LayoutJob::default();
+			let emojis1 = super::Formatted::parse(&input1).append_inline_preview(
+				&mut preview1,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			let text1 = super::Formatted::inline_preview_text(&preview1, &emojis1);
+			assert_eq!(text1, format!("{prefix1}…"));
+
+			// Case 2: 117 chars + "👩‍💻 more" -> remaining 3; emoji fits intact.
+			let prefix2 = "a".repeat(117);
+			let input2 = format!("{prefix2}👩‍💻 more");
+			let mut preview2 = egui::text::LayoutJob::default();
+			let emojis2 = super::Formatted::parse(&input2).append_inline_preview(
+				&mut preview2,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			let text2 = super::Formatted::inline_preview_text(&preview2, &emojis2);
+			assert_eq!(text2, format!("{prefix2}👩‍💻…"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_edge_cases_empty_unicode_punct_and_consecutive_spaces() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			// 1. Empty preview
+			let mut p_empty = egui::text::LayoutJob::default();
+			let em_empty = super::Formatted::parse("").append_inline_preview(
+				&mut p_empty,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(p_empty.text, "");
+			assert!(em_empty.is_empty());
+
+			// 2. Very short preview
+			let mut p_short = egui::text::LayoutJob::default();
+			let em_short = super::Formatted::parse("hello").append_inline_preview(
+				&mut p_short,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(p_short.text, "hello");
+			assert!(em_short.is_empty());
+
+			// 3. Unicode punctuation (em-dash, ideographic comma) does not backtrack complete word
+			let prefix = "a ".repeat(58);
+			for punct in ["—", "…", "、", "。"] {
+				let input = format!("{prefix}word{punct} more");
+				let mut preview = egui::text::LayoutJob::default();
+				let _ = super::Formatted::parse(&input).append_inline_preview(
+					&mut preview,
+					ui,
+					&[],
+					None,
+					&[],
+					&[],
+				);
+				assert!(preview.text.ends_with("…"));
+				assert!(
+					preview.text.contains("word…"),
+					"expected 'word…' for punct {punct}, got {:?}",
+					preview.text
+				);
+			}
+
+			// 4. Consecutive whitespace is trimmed cleanly before ellipsis
+			let prefix_spaces = "a ".repeat(58);
+			let input_spaces = format!("{prefix_spaces}word   more");
+			let mut preview_spaces = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input_spaces).append_inline_preview(
+				&mut preview_spaces,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview_spaces.text.ends_with("word…"));
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_word_continuation_backtracks_to_previous_space() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let prefix = "a ".repeat(58);
+			let input = format!("{prefix}wordy more");
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(&input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert!(preview.text.ends_with("…"));
+			assert!(
+				!preview.text.contains("word"),
+				"partial word 'word' from 'wordy' must be backtracked"
+			);
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn inline_preview_replaces_custom_emojis_with_names() {
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let input =
+				"Check <:ehappy:1316064437991641259> and <a:party:123456789> and `<:code:111>`";
+			let mut preview = egui::text::LayoutJob::default();
+			let _ = super::Formatted::parse(input).append_inline_preview(
+				&mut preview,
+				ui,
+				&[],
+				None,
+				&[],
+				&[],
+			);
+			assert_eq!(preview.text, "Check :ehappy: and :party: and <:code:111>");
+		});
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn game_mentions_obey_code_escape_and_spoiler_boundaries() {
+		let parsed = super::Formatted::parse("<@$42> `<@$43>` \\<@$44> ||<@$45>|| <@46> <@&47>");
+		let games: Vec<_> = parsed.spans.iter().filter_map(|(_, s)| s.game).collect();
+		assert_eq!(games, [model::Id(42), model::Id(45)]);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(_, s)| s.game == Some(model::Id(45)) && s.spoiler.is_some())
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(_, s)| s.mention == Some(model::Id(46)))
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(_, s)| s.role == Some(model::Id(47)))
+		);
+		assert!(!parsed.jumbo());
+	}
 	use super::*;
 
 	#[test]
@@ -2462,56 +3440,6 @@ mod tests {
 	}
 
 	#[test]
-	#[ignore = "release-only BiDi microbenchmark; run with --ignored --nocapture"]
-	fn bidi_ascii_benchmark() {
-		use std::{hint::black_box, time::Instant};
-		const ITERATIONS: usize = 100_000;
-		for (name, spans) in [
-			(
-				"ascii",
-				vec![(
-					"A typical message with plain English text and a link https://example.com."
-						.repeat(4),
-					Style::default(),
-				)],
-			),
-			(
-				"ascii_styled",
-				vec![
-					("A styled message ".repeat(8), Style::default()),
-					(
-						"with a bold section ".repeat(8),
-						Style {
-							strong: true,
-							..Default::default()
-						},
-					),
-				],
-			),
-			(
-				"mixed_rtl",
-				vec![("English مرحبا! ".repeat(8), Style::default())],
-			),
-		] {
-			let mut samples = Vec::with_capacity(5);
-			for run in 0..6 {
-				let start = Instant::now();
-				for _ in 0..ITERATIONS {
-					black_box(bidi_spans(black_box(&spans)));
-				}
-				if run > 0 {
-					samples.push(start.elapsed());
-				}
-			}
-			samples.sort_unstable();
-			println!(
-				"{name}: {ITERATIONS} calls, median {:?}, samples {samples:?}",
-				samples[2]
-			);
-		}
-	}
-
-	#[test]
 	fn discord_chat_links_validate_origin_route_and_ids() {
 		for host in [
 			"discord.com",
@@ -2548,6 +3476,38 @@ mod tests {
 				message: None
 			})
 		);
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/10/20/30?jump=1#message"),
+			Some(ChatLink {
+				guild: Some(Id(10)),
+				channel: Id(20),
+				message: Some(Id(30)),
+			})
+		);
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/10/20/30?topic=café#メッセージ"),
+			Some(ChatLink {
+				guild: Some(Id(10)),
+				channel: Id(20),
+				message: Some(Id(30)),
+			})
+		);
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/@me/20/30/?q=%2F%23#message"),
+			Some(ChatLink {
+				guild: None,
+				channel: Id(20),
+				message: Some(Id(30)),
+			})
+		);
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/1/2/18446744073709551615"),
+			Some(ChatLink {
+				guild: Some(Id(1)),
+				channel: Id(2),
+				message: Some(Id(u64::MAX)),
+			})
+		);
 		for target in [
 			"http://discord.com/channels/1/2",
 			"https://discord.com.evil.example/channels/1/2",
@@ -2567,6 +3527,29 @@ mod tests {
 			"https://discord.com/channels/1/%32",
 			"https://discord.com/channels/1/2\n",
 			"https://discord.com\\channels/1/2",
+			"https://discord.com./channels/1/2/3",
+			"https://discord.com:0443/channels/1/2/3",
+			"https://discord.com:443:443/channels/1/2/3",
+			"https://discord.com/CHANNELS/1/2/3",
+			"https://discord.com/channels/@ME/2/3",
+			"https://discord.com/channels/01/2/3",
+			"https://discord.com/channels/1/02/3",
+			"https://discord.com/channels/1/2/03",
+			"https://discord.com/channels/1/2//",
+			"https://discord.com/channels/1//2/3",
+			"https://discord.com//channels/1/2/3",
+			"https://discord.com/channels/1/2/3/extra?jump=1",
+			"https://discord.com/not/../channels/10/20/30?x",
+			"https://discord.com/./channels/1/2/3",
+			"https://discord.com/channels/1/4/../2/3",
+			"https://discord.com/channels/1/%2e/2/3",
+			"https://discord.com/not/%2e%2e/channels/1/2/3#message",
+			"https://discord.com/channels/1/2/3/%2E%2E",
+			"https://discord.com/channels/1/%2F2/3",
+			"https://discord%2Ecom/channels/1/2/3",
+			"https://discord.com/channels/1/２/3",
+			"https://discord.com/channels/1/2/3?q=%",
+			"https://discord.com/channels/1/2/3#%zz",
 		] {
 			assert!(discord_chat_link(target).is_none(), "{target}");
 		}
@@ -2662,170 +3645,329 @@ mod tests {
 			}
 		}
 	}
+
 	#[test]
-	fn quote_rails_span_every_wrapped_line_of_their_block() {
-		fn shapes(
-			shape: &egui::Shape,
-			rails: &mut Vec<egui::Rect>,
-			texts: &mut Vec<(String, egui::Rect, usize)>,
-		) {
-			match shape {
-				egui::Shape::Rect(rect) if rect.rect.width() == f32::from(QUOTE_RAIL) => {
-					rails.push(rect.rect);
-				}
-				egui::Shape::Text(text) => texts.push((
-					text.galley.job.text.clone(),
-					text.galley.rect.translate(text.pos.to_vec2()),
-					text.galley.rows.len(),
-				)),
-				egui::Shape::Vec(children) => {
-					for shape in children {
-						shapes(shape, rails, texts);
-					}
-				}
-				_ => {}
+	fn message_link_raw_destinations_survive_normalization_without_laundering_paths() {
+		for target in [
+			"https://discord.com/not/../channels/10/20/30?x",
+			"https://discord.com/./channels/10/20/30",
+			"https://discord.com/not/%2e%2e/channels/10/20/30#message",
+			"https://discord.com/channels/10/40/../20/30",
+			"https://discord%2Ecom/channels/10/20/30",
+		] {
+			assert!(
+				discord_chat_link(&external_url(target).unwrap()).is_some(),
+				"test must exercise a normalizable attack: {target}"
+			);
+			for source in [
+				target.to_owned(),
+				format!("<{target}>"),
+				format!("[Jump]({target})"),
+			] {
+				let parsed = Formatted::parse(&source);
+				assert_eq!(parsed.links, [target], "{source}");
+				assert!(discord_chat_link(&parsed.links[0]).is_none(), "{source}");
 			}
 		}
-		let parsed = Formatted::parse(
-			"> quoted words that have to wrap over several lines inside a narrow message body\n\nafter",
-		);
-		assert!(
-			!parsed
-				.spans
-				.iter()
-				.any(|(text, _)| text.contains('\u{2502}'))
-		);
-		let ctx = egui::Context::default();
-		crate::design::apply(&ctx);
-		let output = ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(220.0, 300.0),
-				)),
-				..Default::default()
-			},
-			|ui| parsed.show(ui, &mut None),
-		);
-		let (mut rails, mut texts) = (vec![], vec![]);
-		for shape in &output.shapes {
-			shapes(&shape.shape, &mut rails, &mut texts);
-		}
-		output.drop_without_applying_deltas();
-		let (_, quote, rows) = texts
-			.iter()
-			.find(|(text, _, _)| text.starts_with("quoted words"))
-			.unwrap_or_else(|| panic!("Missing quote: {texts:?}"));
-		assert!(
-			*rows >= 3,
-			"The quote must wrap for this test to mean anything"
-		);
-		assert_eq!(rails.len(), 1, "One rail for one quoted block: {rails:?}");
-		let rail = rails[0];
-		assert!(
-			rail.top() <= quote.top() && rail.bottom() >= quote.bottom(),
-			"The rail must cover every wrapped line: {rail:?} against {quote:?}"
-		);
-		assert!(
-			rail.right() <= quote.left(),
-			"The rail sits left of the quoted text: {rail:?} against {quote:?}"
-		);
 	}
 
 	#[test]
-	fn emoji_quotes_reserve_their_full_height_between_paragraphs() {
-		fn shapes(
-			shape: &egui::Shape,
-			rails: &mut Vec<egui::Rect>,
-			texts: &mut Vec<(String, egui::Rect)>,
-		) {
-			match shape {
-				egui::Shape::Rect(rect) if rect.rect.width() == f32::from(QUOTE_RAIL) => {
-					rails.push(rect.rect);
-				}
-				egui::Shape::Text(text) => texts.push((
-					text.galley.job.text.clone(),
-					text.galley
-						.rows
+	fn message_link_chips_use_autolink_syntax_not_normalized_label_equality() {
+		for target in [
+			"https://discord.com/channels/10/20/30",
+			"HTTPS://DISCORD.COM:443/channels/10/20/30",
+			"https://discord.com/channels/10/20/30?jump=1#message",
+			"https://discord.com/channels/10/20/30?topic=café#メッセージ",
+		] {
+			for source in [target.to_owned(), format!("<{target}>")] {
+				let parsed = Formatted::parse(&source);
+				assert_eq!(parsed.links, [target], "{source}");
+				assert!(
+					parsed.spans.iter().any(|(_, style)| {
+						style.link == Some(0) && style.message_link && !style.code
+					}),
+					"{source}"
+				);
+			}
+			for source in [
+				format!("[Read **original**]({target})"),
+				format!("[{target}]({target})"),
+			] {
+				let parsed = Formatted::parse(&source);
+				assert_eq!(parsed.links, [target], "{source}");
+				assert!(
+					parsed
+						.spans
 						.iter()
-						.filter(|row| row.glyphs.iter().any(|glyph| !glyph.chr.is_whitespace()))
-						.fold(egui::Rect::NOTHING, |rect, row| rect.union(row.rect()))
-						.translate(text.pos.to_vec2()),
-				)),
-				egui::Shape::Vec(children) => {
-					for shape in children {
-						shapes(shape, rails, texts);
-					}
-				}
-				_ => {}
+						.filter(|(_, style)| style.link.is_some())
+						.all(|(_, style)| !style.message_link),
+					"{source}"
+				);
+			}
+			for source in [format!("`{target}`"), format!("```\n{target}\n```")] {
+				let parsed = Formatted::parse(&source);
+				assert!(parsed.links.is_empty(), "{source}");
+				assert!(parsed.spans.iter().all(|(_, style)| style.link.is_none()));
+			}
+			let spoiler = Formatted::parse(&format!("||<{target}>||"));
+			assert!(spoiler.spans.iter().any(|(_, style)| {
+				style.link == Some(0) && style.message_link && style.spoiler.is_some()
+			}));
+		}
+		let bounded = Formatted::parse(
+			&(0..MAX_LINKS + 8)
+				.map(|id| format!("https://discord.com/channels/10/20/{} ", id + 1))
+				.collect::<String>(),
+		);
+		assert_eq!(bounded.links.len(), MAX_LINKS);
+	}
+
+	/// Offline message-body harness: assertions include the renderer's outgoing actions,
+	/// not just the parser flags or a standalone chip response.
+	struct MessageLinkTestUi {
+		ctx: egui::Context,
+		state: client_core::State,
+		parsed: Formatted,
+		images: crate::avatars::Avatars,
+		revealed: u32,
+		clock: f64,
+	}
+
+	impl MessageLinkTestUi {
+		fn new(source: &str) -> Self {
+			Self {
+				ctx: egui::Context::default(),
+				state: test_support::demo_state(),
+				parsed: Formatted::parse(source),
+				images: crate::avatars::Avatars::default(),
+				revealed: 0,
+				clock: 0.0,
 			}
 		}
-		let sources = [
-			(
-				include_str!("../tests/fixtures/prune-announcement.txt"),
-				"Guild Feature",
-				"Server owners",
-			),
-			(
-				"before\n> ⚠️ **A warning** with enough words to wrap onto several lines in a narrow message.\nafter",
-				"before",
-				"after",
-			),
-			(
-				"before\n> A plain quote with enough words to wrap onto several lines in a narrow message.\n\nafter ✍️",
-				"before",
-				"after",
-			),
-		];
-		for (source, before, after) in sources {
-			let parsed = Formatted::parse(source);
-			assert!(parsed.artwork);
-			for width in [220.0, 560.0, 1260.0] {
-				for (light, scale) in [(false, 1.0), (true, 1.0), (false, 2.0), (true, 2.0)] {
-					let ctx = egui::Context::default();
-					ctx.set_pixels_per_point(scale);
-					crate::design::apply(&ctx);
-					if light {
-						ctx.set_visuals(egui::Visuals::light());
-					}
-					let output = ctx.run_ui(
-						egui::RawInput {
-							screen_rect: Some(egui::Rect::from_min_size(
-								egui::Pos2::ZERO,
-								egui::vec2(width, 1600.0),
-							)),
-							..Default::default()
-						},
-						|ui| parsed.show(ui, &mut None),
+
+		fn frame(
+			&mut self,
+			width: f32,
+			events: Vec<egui::Event>,
+		) -> (egui::FullOutput, Option<String>) {
+			self.clock += 1.0;
+			let mut opening = None;
+			let mut profile = crate::profiles::ProfileSession::default();
+			let mut channel = None;
+			let output = self.ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(width, 400.0),
+					)),
+					time: Some(self.clock),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					let mut surface = crate::select::Surface::new(ui, "message-link-body");
+					self.parsed.show_references(
+						ui,
+						&mut opening,
+						&[],
+						Some(&crate::mentions::MentionSource {
+							state: &self.state,
+							channel: Id(20),
+						}),
+						&mut profile,
+						(&self.state.channels, &mut channel, &self.state.guilds, &[]),
+						(&mut self.images, false, &mut self.revealed),
+						&mut surface,
+						crate::design::MessageCardSurface::Opaque,
 					);
-					let (mut rails, mut texts) = (vec![], vec![]);
-					for shape in &output.shapes {
-						shapes(&shape.shape, &mut rails, &mut texts);
+					surface.finish(ui);
+				},
+			);
+			assert!(
+				!output
+					.platform_output
+					.commands
+					.iter()
+					.any(|command| matches!(command, egui::OutputCommand::OpenUrl(_)))
+			);
+			assert!(
+				self.images.take_requests().is_empty(),
+				"Rendering must not request previews"
+			);
+			assert!(channel.is_none() && profile.open_user().is_none());
+			(output, opening)
+		}
+	}
+
+	fn message_link_text<'a>(
+		output: &'a egui::FullOutput,
+		target: &str,
+	) -> Option<&'a egui::epaint::TextShape> {
+		fn find<'a>(shape: &'a egui::Shape, target: &str) -> Option<&'a egui::epaint::TextShape> {
+			match shape {
+				egui::Shape::Text(text) if text.galley.text().trim() == target => Some(text),
+				egui::Shape::Vec(shapes) => shapes.iter().find_map(|shape| find(shape, target)),
+				_ => None,
+			}
+		}
+		output
+			.shapes
+			.iter()
+			.find_map(|shape| find(&shape.shape, target))
+	}
+
+	fn message_link_key(key: egui::Key, pressed: bool) -> egui::Event {
+		egui::Event::Key {
+			key,
+			physical_key: None,
+			pressed,
+			repeat: false,
+			modifiers: egui::Modifiers::NONE,
+		}
+	}
+
+	#[test]
+	fn message_chips_and_masked_labels_activate_with_enter_and_space() {
+		for target in [
+			"https://discord.com/channels/10/20/100",
+			"HTTPS://DISCORD.COM:443/channels/10/20/100?jump=1#message",
+			"https://discord.com/channels/10/20/100?topic=café#メッセージ",
+		] {
+			for (source, native, label) in [
+				(target.to_owned(), true, "getting-started"),
+				(format!("<{target}>"), true, "getting-started"),
+				(format!("[Read original]({target})"), false, "Read original"),
+				(format!("[{target}]({target})"), false, target),
+			] {
+				for key in [egui::Key::Enter, egui::Key::Space] {
+					let mut ui = MessageLinkTestUi::new(&source);
+					ui.frame(220.0, vec![]).0.drop_without_applying_deltas();
+					let (output, opening) = ui.frame(220.0, vec![]);
+					assert!(opening.is_none());
+					assert!(message_link_text(&output, label).is_some(), "{source}");
+					if !native {
+						assert!(message_link_text(&output, "getting-started").is_none());
 					}
 					output.drop_without_applying_deltas();
-					assert_eq!(rails.len(), 1);
-					let rail = rails[0];
-					let before = texts
+					let (output, opening) =
+						ui.frame(220.0, vec![message_link_key(egui::Key::Tab, true)]);
+					assert!(opening.is_none());
+					let info = output
+						.platform_output
+						.events
 						.iter()
-						.find(|(text, _)| text.contains(before))
-						.unwrap()
-						.1;
-					let after = texts
-						.iter()
-						.find(|(text, _)| text.contains(after))
-						.unwrap()
-						.1;
-					assert!(
-						before.bottom() <= rail.top(),
-						"Preceding text overlaps quote at width {width}: {before:?}, {rail:?}"
-					);
-					assert!(
-						after.top() >= rail.bottom(),
-						"Following text overlaps quote at width {width}: {after:?}, {rail:?}"
-					);
+						.find_map(|event| match event {
+							egui::output::OutputEvent::FocusGained(info)
+								if info.role == egui::Role::Link =>
+							{
+								Some(info)
+							}
+							_ => None,
+						})
+						.expect("keyboard focus on the link");
+					if native {
+						assert_eq!(info.label.as_deref(), Some("#getting-started > message"));
+					} else {
+						assert_eq!(info.label.as_deref(), Some(label));
+					}
+					output.drop_without_applying_deltas();
+					let (output, opening) = ui.frame(220.0, vec![message_link_key(key, true)]);
+					assert_eq!(opening.as_deref(), Some(target), "{source} via {key:?}");
+					output.drop_without_applying_deltas();
 				}
 			}
 		}
+	}
+
+	#[test]
+	fn message_chips_stay_hidden_and_inert_until_spoilers_reveal_and_code_stays_literal() {
+		let target = "https://discord.com/channels/10/20/100?jump=1#message";
+		for source in [format!("`{target}`"), format!("```\n{target}\n```")] {
+			let mut ui = MessageLinkTestUi::new(&source);
+			for events in [
+				vec![],
+				vec![message_link_key(egui::Key::Tab, true)],
+				vec![message_link_key(egui::Key::Enter, true)],
+			] {
+				let (output, opening) = ui.frame(220.0, events);
+				assert!(opening.is_none());
+				assert!(message_link_text(&output, "getting-started").is_none());
+				assert!(
+					!output
+						.platform_output
+						.events
+						.iter()
+						.any(|event| event.widget_info().role == egui::Role::Link)
+				);
+				output.drop_without_applying_deltas();
+			}
+		}
+		let mut ui = MessageLinkTestUi::new(&format!("||<{target}>||"));
+		for events in [vec![], vec![message_link_key(egui::Key::Tab, true)]] {
+			let (output, opening) = ui.frame(220.0, events);
+			assert!(opening.is_none());
+			// The concealed region is a rounded block without text.
+			assert!(output.shapes.iter().any(|shape| matches!(
+				&shape.shape,
+				egui::Shape::Rect(rect)
+					if rect.corner_radius == crate::channel_pill::RADIUS.into()
+			)));
+			assert!(message_link_text(&output, target).is_none());
+			assert!(message_link_text(&output, "getting-started").is_none());
+			assert!(
+				!output
+					.platform_output
+					.events
+					.iter()
+					.any(|event| event.widget_info().role == egui::Role::Link)
+			);
+			output.drop_without_applying_deltas();
+		}
+		let (output, opening) = ui.frame(220.0, vec![message_link_key(egui::Key::Enter, true)]);
+		assert!(
+			opening.is_none(),
+			"Revealing a spoiler must not activate its link"
+		);
+		assert_eq!(ui.revealed, 1);
+		output.drop_without_applying_deltas();
+		let (output, opening) = ui.frame(220.0, vec![message_link_key(egui::Key::Enter, false)]);
+		assert!(opening.is_none());
+		assert!(message_link_text(&output, "getting-started").is_some());
+		assert!(message_link_text(&output, target).is_some());
+		output.drop_without_applying_deltas();
+	}
+
+	fn link_occurrences(parsed: &Formatted) -> Vec<u32> {
+		parsed
+			.spans
+			.iter()
+			.filter(|(_, style)| style.link.is_some())
+			.map(|(_, style)| style.link_occurrence)
+			.collect()
+	}
+
+	#[test]
+	fn adjacent_identical_links_keep_separate_occurrences() {
+		let target = "https://discord.com/channels/10/20/30";
+		let adjacent = Formatted::parse(&format!("<{target}><{target}>"));
+		assert_eq!(adjacent.links, [target]);
+		let occurrences = link_occurrences(&adjacent);
+		assert_eq!(occurrences.len(), 2);
+		assert_ne!(occurrences[0], 0);
+		assert_ne!(occurrences[0], occurrences[1]);
+
+		let labeled = Formatted::parse(&format!("[**one** two]({target})"));
+		let shared = link_occurrences(&labeled);
+		assert!(
+			shared.len() >= 2,
+			"emphasis inside one link stays one range"
+		);
+		assert!(shared.iter().all(|id| *id == shared[0] && *id != 0));
+
+		let neighbors = Formatted::parse(&format!("[left]({target})[right]({target})"));
+		let neighbor_ids = link_occurrences(&neighbors);
+		assert_eq!(neighbor_ids.len(), 2);
+		assert_ne!(neighbor_ids[0], neighbor_ids[1]);
 	}
 
 	#[test]
@@ -3022,6 +4164,30 @@ mod tests {
 	}
 
 	#[test]
+	fn empty_spoilers_merge_even_at_the_region_cap() {
+		let ordinary: String = (0..31).map(|index| format!("||s{index}|| ")).collect();
+		let parsed = Formatted::parse(&format!("{ordinary}{} visible", "||\u{200b}||".repeat(80)));
+		assert!(
+			!parsed.limited,
+			"empty spoilers must not exhaust the regions"
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text.contains("visible") && style.spoiler.is_none())
+		);
+		// 31 ordinary regions and one merged empty region.
+		let regions: std::collections::BTreeSet<_> = parsed
+			.spans
+			.iter()
+			.filter_map(|(_, style)| style.spoiler)
+			.collect();
+		assert!(regions.iter().all(|region| *region < MAX_SPOILERS));
+		assert_eq!(regions.len(), 32);
+	}
+
+	#[test]
 	fn spoiler_limits_never_fall_back_to_visible_secret_text() {
 		let exact = Formatted::parse(&"||x|| ".repeat(32));
 		assert!(exact.spoilers && !exact.limited);
@@ -3053,13 +4219,26 @@ mod tests {
 
 	#[test]
 	fn concealed_regions_skip_actions_images_and_text_until_keyboard_or_pointer_reveal() {
-		fn collect(shape: &egui::Shape, texts: &mut Vec<(String, egui::Rect)>) {
+		// Painted text, plus each concealed block recorded as "Reveal spoiler".
+		fn collect(
+			shape: &egui::Shape,
+			block: egui::Color32,
+			texts: &mut Vec<(String, egui::Rect)>,
+		) {
 			match shape {
 				egui::Shape::Text(text) => texts.push((
 					text.galley.text().into(),
 					egui::Rect::from_min_size(text.pos, text.galley.size()),
 				)),
-				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| collect(shape, texts)),
+				egui::Shape::Rect(rect)
+					if rect.fill == block
+						&& rect.corner_radius == crate::channel_pill::RADIUS.into() =>
+				{
+					texts.push(("Reveal spoiler".into(), rect.rect));
+				}
+				egui::Shape::Vec(shapes) => {
+					shapes.iter().for_each(|shape| collect(shape, block, texts))
+				}
 				_ => {}
 			}
 		}
@@ -3086,6 +4265,7 @@ mod tests {
 			let mut channel = None;
 			let mut mask = 0;
 			let mut render = |mask: &mut u32, events| {
+				let mut block = egui::Color32::TRANSPARENT;
 				let mut output = ctx.run_ui(
 					egui::RawInput {
 						screen_rect: Some(egui::Rect::from_min_size(
@@ -3096,6 +4276,7 @@ mod tests {
 						..Default::default()
 					},
 					|ui| {
+						block = crate::design::palette(ui).muted.gamma_multiply(0.55);
 						let mut surface = crate::select::Surface::new(ui, "body");
 						parsed.show_references(
 							ui,
@@ -3119,7 +4300,7 @@ mod tests {
 				}
 				let mut texts = Vec::new();
 				for shape in &output.shapes {
-					collect(&shape.shape, &mut texts);
+					collect(&shape.shape, block, &mut texts);
 				}
 				output.textures_delta.clear();
 				output.drop_without_applying_deltas();
@@ -3387,333 +4568,355 @@ mod tests {
 		}
 	}
 
-	#[test]
-	fn selecting_across_images_copies_unicode_and_custom_markup() {
-		let ctx = egui::Context::default();
-		crate::emoji::install(&ctx).unwrap();
-		let source = "A 👩🏽‍💻 ❤️ <:serein_wave:9001> Z";
-		let parsed = Formatted::parse(source);
-		let mut avatars = crate::avatars::Avatars::default();
-		let mut clock = 0.0;
-		let mut run = |events| {
-			clock += 1.0;
-			ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(800.0, 200.0),
-					)),
-					events,
-					time: Some(clock),
-					..Default::default()
-				},
-				|ui| {
-					let mut profile = crate::profiles::ProfileSession::default();
-					parsed.show_with_images(
-						ui,
-						&mut None,
-						&[],
-						None,
-						&mut profile,
-						(&mut avatars, true, &[]),
-						crate::design::MessageCardSurface::Opaque,
-					)
-				},
-			)
-		};
-		let mut output = run(vec![]);
-		let mut start = egui::Pos2::ZERO;
-		let mut end = egui::Pos2::ZERO;
-		let mut custom_rect = egui::Rect::NOTHING;
-		for shape in &output.shapes {
-			// Text and artwork share one galley so rows with emoji grow before text is placed.
-			if let egui::Shape::Text(text) = &shape.shape
-				&& text.galley.text() == source
-			{
-				let row = &text.galley.rows[0];
-				start = text.pos + egui::vec2(0.0, 5.0);
-				end = text.pos + egui::vec2(row.size.x, 5.0);
-				let markup = row
-					.glyphs
-					.iter()
-					.find(|glyph| glyph.chr == '<')
-					.expect("custom emoji glyph");
-				custom_rect = egui::Rect::from_min_size(
-					text.pos + egui::vec2(markup.pos.x, 0.0),
-					egui::vec2(markup.advance_width, row.size.y),
-				);
+	fn reference_text_shapes<'a>(
+		shape: &'a egui::Shape,
+		texts: &mut Vec<&'a egui::epaint::TextShape>,
+	) {
+		match shape {
+			egui::Shape::Text(text) => texts.push(text),
+			egui::Shape::Vec(shapes) => {
+				for shape in shapes {
+					reference_text_shapes(shape, texts);
+				}
 			}
-		}
-		output.textures_delta.clear();
-		assert!(end.x > start.x && custom_rect.width() > 0.0);
-		for events in [
-			vec![
-				egui::Event::PointerMoved(start),
-				egui::Event::PointerButton {
-					pos: start,
-					button: egui::PointerButton::Primary,
-					pressed: true,
-					modifiers: egui::Modifiers::NONE,
-				},
-			],
-			vec![egui::Event::PointerMoved(end)],
-			vec![egui::Event::PointerButton {
-				pos: end,
-				button: egui::PointerButton::Primary,
-				pressed: false,
-				modifiers: egui::Modifiers::NONE,
-			}],
-		] {
-			run(events).drop_without_applying_deltas();
-		}
-		let mut output = run(vec![egui::Event::Copy]);
-		output.textures_delta.clear();
-		let copied = output
-			.platform_output
-			.commands
-			.iter()
-			.find_map(|command| match command {
-				egui::OutputCommand::CopyText(text) => Some(text.as_str()),
-				_ => None,
-			});
-		assert_eq!(copied.map(str::trim_end), Some(source));
-		for fraction in [0.25, 0.75] {
-			let start = custom_rect.left_top() + egui::vec2(custom_rect.width() * fraction, 5.0);
-			for events in [
-				vec![
-					egui::Event::PointerMoved(start),
-					egui::Event::PointerButton {
-						pos: start,
-						button: egui::PointerButton::Primary,
-						pressed: true,
-						modifiers: egui::Modifiers::NONE,
-					},
-				],
-				vec![egui::Event::PointerMoved(end)],
-				vec![egui::Event::PointerButton {
-					pos: end,
-					button: egui::PointerButton::Primary,
-					pressed: false,
-					modifiers: egui::Modifiers::NONE,
-				}],
-			] {
-				run(events).drop_without_applying_deltas();
-			}
-			let mut output = run(vec![egui::Event::Copy]);
-			output.textures_delta.clear();
-			let copied = output
-				.platform_output
-				.commands
-				.iter()
-				.find_map(|command| match command {
-					egui::OutputCommand::CopyText(text) => Some(text.as_str()),
-					_ => None,
-				});
-			assert!(
-				matches!(
-					copied.map(str::trim_end),
-					Some("<:serein_wave:9001> Z" | " Z")
-				),
-				"partial emoji copied: {copied:?}"
-			);
+			_ => {}
 		}
 	}
+
 	#[test]
-	fn emoji_click_shows_default_known_or_unknown_source_and_escape_closes() {
-		fn text_shapes<'a>(shape: &'a egui::Shape, texts: &mut Vec<&'a egui::epaint::TextShape>) {
-			match shape {
-				egui::Shape::Text(text) => texts.push(text),
-				egui::Shape::Vec(shapes) => {
-					for shape in shapes {
-						text_shapes(shape, texts);
-					}
-				}
-				_ => {}
-			}
-		}
-		for light in [false, true] {
-			for (source, title, description) in [
-				(
-					"\u{1f9c2}",
-					":salt:",
-					"A default emoji. You can use this emoji everywhere on Discord.",
-				),
-				(
-					"<:old_name:9001>",
-					":serein_wave:",
-					"From Emoji source server",
-				),
-				(
-					"<:unknown:999999>",
-					":unknown:",
-					"Source server unavailable in this session.",
-				),
-			] {
+	fn reference_pills_wrap_and_activate_one_destination_with_keyboard_or_pointer() {
+		let mut state = test_support::demo_state();
+		let mut other = state.guilds[0].clone();
+		other.id = Id(99);
+		other.name = "Other synthetic server".into();
+		state.guilds.push(other);
+		let source = crate::mentions::MentionSource {
+			state: &state,
+			channel: Id(20),
+		};
+		for (raw, label, painted, selected) in [
+			("<#20>", "#getting-started", "getting-started", Some(Id(20))),
+			(
+				"<#28>",
+				"Thread: Introductions thread",
+				"Introductions thread",
+				Some(Id(28)),
+			),
+			("<#26>", "Forum: ideas", "ideas", Some(Id(26))),
+			(
+				"<#42>",
+				"Post: Different model weights for differently powerful phones",
+				"Different model weights for differently powerful phones",
+				Some(Id(42)),
+			),
+			(
+				"https://discord.com/channels/10/20/100",
+				"#getting-started > message",
+				"getting-started",
+				None,
+			),
+			(
+				"https://discord.com/channels/10/28/100",
+				"Thread: Introductions thread > message",
+				"Introductions thread",
+				None,
+			),
+			(
+				"https://discord.com/channels/10/26/100",
+				"Forum: ideas > message",
+				"ideas",
+				None,
+			),
+			(
+				"https://discord.com/channels/10/42/100",
+				"Forum: ideas > Different model weights for differently powerful phones",
+				"Different model weights for differently powerful phones",
+				None,
+			),
+			(
+				"https://discord.com/channels/99/777/100",
+				"Other synthetic server > message",
+				"Other synthetic server",
+				None,
+			),
+			(
+				"https://discord.com/channels/10/777/100",
+				"#unknown-channel > message",
+				"unknown-channel",
+				None,
+			),
+			(
+				"[a custom link label](https://discord.com/channels/10/20/100)",
+				"a custom link label",
+				"a custom link label",
+				None,
+			),
+		] {
+			for (width, dark) in [(120.0, false), (480.0, true)] {
 				let ctx = egui::Context::default();
-				if light {
-					ctx.set_visuals(egui::Visuals::light());
-				}
-				crate::emoji::install(&ctx).unwrap();
-				let mut state = test_support::demo_state();
-				for guild in &mut state.guilds {
-					guild.name = "Emoji source server".into();
-				}
-				let parsed = Formatted::parse(source);
+				crate::icons::install(&ctx);
+				ctx.enable_accesskit();
+				ctx.set_visuals(if dark {
+					egui::Visuals::dark()
+				} else {
+					egui::Visuals::light()
+				});
+				let parsed = Formatted::parse(&format!("{raw} [next](https://example.com/next)"));
+				let target = selected.is_none().then(|| parsed.links[0].clone());
 				let mut images = crate::avatars::Avatars::default();
-				let mut clock = 0.0;
+				let mut opening = None;
+				let mut channel = None;
+				let mut profile = crate::profiles::ProfileSession::default();
+				let mut revealed = u32::MAX;
 				let mut frame = |events| {
-					clock += 0.02;
-					ctx.run_ui(
+					let output = ctx.run_ui(
 						egui::RawInput {
 							screen_rect: Some(egui::Rect::from_min_size(
 								egui::Pos2::ZERO,
-								egui::vec2(360.0, 300.0),
+								egui::vec2(width, 500.0),
 							)),
 							events,
-							time: Some(clock),
 							..Default::default()
 						},
 						|ui| {
-							let mut profile = crate::profiles::ProfileSession::default();
-							parsed.show_with_images(
+							let mut surface =
+								crate::select::Surface::new(ui, "reference-navigation");
+							parsed.show_references(
 								ui,
-								&mut None,
+								&mut opening,
 								&[],
-								None,
+								Some(&source),
 								&mut profile,
-								(&mut images, true, &state.guilds),
+								(&state.channels, &mut channel, &state.guilds, &[]),
+								(&mut images, true, &mut revealed),
+								&mut surface,
 								crate::design::MessageCardSurface::Opaque,
-							)
+							);
+							surface.finish(ui);
 						},
-					)
+					);
+					assert!(
+						output
+							.platform_output
+							.commands
+							.iter()
+							.all(|command| matches!(
+								command,
+								egui::OutputCommand::TextSelectionSettled(_)
+							)),
+						"{raw}: navigation stays in the application: {:?}",
+						output.platform_output.commands
+					);
+					(output, opening.take(), channel.take())
 				};
-				let mut output = frame(vec![]);
-				let mut texts = vec![];
+				frame(vec![]).0.drop_without_applying_deltas();
+				let (output, opening, channel) = frame(vec![]);
+				assert!(opening.is_none() && channel.is_none());
+				assert_eq!(
+					output
+						.platform_output
+						.accesskit_update
+						.as_ref()
+						.unwrap()
+						.nodes
+						.iter()
+						.filter(|(_, node)| node.label() == Some(label))
+						.count(),
+					1,
+					"{raw}"
+				);
+				let mut texts = Vec::new();
 				for shape in &output.shapes {
-					text_shapes(&shape.shape, &mut texts);
+					reference_text_shapes(&shape.shape, &mut texts);
 				}
 				let text = texts
 					.iter()
-					.find(|text| text.galley.text() == source)
-					.unwrap();
-				let row = &text.galley.rows[0];
-				let glyph = &row.glyphs[0];
-				let point = text.pos
-					+ egui::vec2(glyph.pos.x + glyph.advance_width / 2.0, row.size.y / 2.0);
-				output.textures_delta.clear();
-				frame(vec![egui::Event::PointerMoved(point)]).drop_without_applying_deltas();
-				for pressed in [true, false] {
-					frame(vec![egui::Event::PointerButton {
-						pos: point,
-						button: egui::PointerButton::Primary,
-						pressed,
-						modifiers: egui::Modifiers::NONE,
-					}])
-					.drop_without_applying_deltas();
+					.find(|text| text.galley.text().contains(painted))
+					.expect(painted);
+				if width == 120.0 && painted.len() > 30 {
+					assert!(text.galley.rows.len() > 1, "long destination must wrap");
 				}
-				frame(vec![]).drop_without_applying_deltas();
-				let output = frame(vec![]);
-				let mut texts = vec![];
-				for shape in &output.shapes {
-					text_shapes(&shape.shape, &mut texts);
-				}
-				assert!(
-					texts.iter().any(|text| text.galley.text() == title),
-					"missing title {title}"
-				);
-				assert!(
-					texts.iter().any(|text| text.galley.text() == description),
-					"missing description {description}"
-				);
-				for text in texts {
+				for text in &texts {
 					let rect = text.galley.rect.translate(text.pos.to_vec2());
 					assert!(
-						rect.right() <= 360.5 && rect.bottom() <= 300.5,
-						"clipped emoji details: {rect:?}"
+						rect.left() >= -0.5 && rect.right() <= width + 0.5,
+						"{raw}: {rect:?}"
 					);
 				}
+				// The URL may only back an invisible selection slot, never painted glyphs.
+				assert!(
+					!texts.iter().any(|text| {
+						text.galley.text().contains("https://discord.com")
+							&& text
+								.galley
+								.rows
+								.iter()
+								.any(|row| !row.visuals.mesh.is_empty())
+					}),
+					"{raw}"
+				);
+				let points: Vec<_> = text
+					.galley
+					.rows
+					.iter()
+					.map(|row| {
+						row.rect_without_leading_space()
+							.translate(text.pos.to_vec2())
+							.center()
+					})
+					.collect();
 				output.drop_without_applying_deltas();
-				assert!(egui::Popup::is_any_open(&ctx));
-				frame(vec![egui::Event::Key {
-					key: egui::Key::Escape,
-					physical_key: None,
-					pressed: true,
-					repeat: false,
-					modifiers: egui::Modifiers::NONE,
-				}])
-				.drop_without_applying_deltas();
-				assert!(!egui::Popup::is_any_open(&ctx));
+				let key = |key| {
+					vec![egui::Event::Key {
+						key,
+						physical_key: None,
+						pressed: true,
+						repeat: false,
+						modifiers: egui::Modifiers::NONE,
+					}]
+				};
+				let mut activate = |events| {
+					let (output, opening, channel) = frame(events);
+					output.drop_without_applying_deltas();
+					(opening, channel)
+				};
+				assert_eq!(activate(key(egui::Key::Tab)), (None, None));
+				assert_eq!(
+					activate(key(egui::Key::Enter)),
+					(target.clone(), selected),
+					"{raw}"
+				);
+				assert_eq!(activate(vec![]), (None, None));
+				// A wrapped pill, including its icon and message suffix, is one tab stop.
+				assert_eq!(activate(key(egui::Key::Tab)), (None, None));
+				assert_eq!(
+					activate(key(egui::Key::Enter)),
+					(Some("https://example.com/next".into()), None)
+				);
+				for point in points {
+					for pressed in [true, false] {
+						assert_eq!(
+							activate(vec![
+								egui::Event::PointerMoved(point),
+								egui::Event::PointerButton {
+									pos: point,
+									button: egui::PointerButton::Primary,
+									pressed,
+									modifiers: egui::Modifiers::NONE,
+								}
+							]),
+							if pressed {
+								(None, None)
+							} else {
+								(target.clone(), selected)
+							},
+							"{raw}"
+						);
+					}
+				}
 			}
 		}
 	}
 
 	#[test]
-	fn high_dpi_inline_emoji_keep_the_atlas_while_jumbo_requests_vectors() {
-		for (source, expected_vector) in [("Inline 🙂", false), ("🙂", true)] {
-			let ctx = egui::Context::default();
-			crate::design::apply(&ctx);
-			let parsed = Formatted::parse(source);
-			let mut images = crate::avatars::Avatars::default();
-			let mut raw = egui::RawInput::default();
-			raw.viewports
-				.get_mut(&egui::ViewportId::ROOT)
-				.unwrap()
-				.native_pixels_per_point = Some(2.0);
-			ctx.run_ui(raw, |ui| {
-				if parsed.jumbo() {
-					crate::design::jumbo_emoji(ui);
-				}
-				let mut surface = crate::select::Surface::new(ui, "vector-presentation-test");
-				parsed.show_search(
+	fn concealed_reference_pills_hide_destination_labels_and_guild_artwork_requests() {
+		let mut state = test_support::demo_state();
+		let mut other = state.guilds[0].clone();
+		other.id = Id(99);
+		other.name = "Hidden synthetic server".into();
+		state.guilds.push(other);
+		let source = crate::mentions::MentionSource {
+			state: &state,
+			channel: Id(20),
+		};
+		let parsed =
+			Formatted::parse("before ||<#27> https://discord.com/channels/99/777/100|| after");
+		let ctx = egui::Context::default();
+		crate::icons::install(&ctx);
+		ctx.enable_accesskit();
+		let mut images = crate::avatars::Avatars::default();
+		for revealed in [false, true] {
+			let mut opening = None;
+			let mut channel = None;
+			let output = ctx.run_ui(Default::default(), |ui| {
+				let mut surface = crate::select::Surface::new(ui, "concealed-references");
+				parsed.show_references(
 					ui,
-					&mut None,
+					&mut opening,
 					&[],
-					None,
+					Some(&source),
 					&mut crate::profiles::ProfileSession::default(),
-					(&[], &mut None, &[], &[]),
-					(&mut images, true, &mut 0),
+					(&state.channels, &mut channel, &state.guilds, &[]),
+					(&mut images, false, &mut u32::from(revealed)),
 					&mut surface,
-					"",
-					crate::design::MessageCardSurface::Conversation,
+					crate::design::MessageCardSurface::Opaque,
 				);
-			})
-			.drop_without_applying_deltas();
-			assert_eq!(ctx.pixels_per_point(), 2.0);
-			let requests = images.take_requests();
-			assert_eq!(
-				requests.iter().any(|key| key.starts_with("emoji-unicode-")),
-				expected_vector
+				surface.finish(ui);
+			});
+			assert!(
+				opening.is_none()
+					&& channel.is_none()
+					&& output.platform_output.commands.is_empty()
 			);
+			let mut texts = Vec::new();
+			for shape in &output.shapes {
+				reference_text_shapes(&shape.shape, &mut texts);
+			}
+			let labels: Vec<_> = output
+				.platform_output
+				.accesskit_update
+				.as_ref()
+				.unwrap()
+				.nodes
+				.iter()
+				.filter_map(|(_, node)| node.label().or_else(|| node.value()))
+				.collect();
+			for name in ["A synthetic forum post", "Hidden synthetic server"] {
+				assert_eq!(
+					texts.iter().any(|text| text.galley.text().contains(name)),
+					revealed,
+					"{name}"
+				);
+				assert_eq!(
+					labels.iter().any(|label| label.contains(name)),
+					revealed,
+					"{name}"
+				);
+			}
+			assert_eq!(images.take_requests().len(), usize::from(revealed));
+			output.drop_without_applying_deltas();
 		}
 	}
 
 	#[test]
-	fn emoji_render_as_whole_images_but_code_and_source_stay_literal() {
-		let ctx = egui::Context::default();
-		crate::emoji::install(&ctx).unwrap();
-		let source = "👩🏽‍💻 `😀` 🇨🇿";
-		let parsed = Formatted::parse(source);
-		assert!(
-			parsed
-				.spans
-				.iter()
-				.any(|(text, style)| style.code && text == "😀")
-		);
-		let output = ctx.run_ui(Default::default(), |ui| {
-			parsed.show(ui, &mut None);
-		});
-		let images = output
-			.shapes
-			.iter()
-			.filter(|shape| {
-				matches!(
-					&shape.shape, egui::Shape::Rect(rect) if rect.brush.is_some()
-				)
-			})
-			.count();
-		output.drop_without_applying_deltas();
-		assert_eq!(images, 2, "one image per complete grapheme, none in code");
+	fn pill_metadata_fingerprints_cover_every_rendered_source_byte() {
+		let tail = "<#28> https://discord.com/channels/10/27/501";
+		for (prefix, rendered) in [
+			("x".repeat(MAX_INPUT - tail.len()), true),
+			("x".repeat(MAX_INPUT), false),
+			(format!("{}é", "x".repeat(MAX_INPUT - 1)), false),
+		] {
+			let state = test_support::demo_state();
+			let mut message = test_support::message(600, Id(20));
+			message.content = format!("{prefix}{tail}");
+			let parsed = Formatted::parse(&message.content);
+			assert_eq!(
+				parsed
+					.spans
+					.iter()
+					.any(|(_, style)| style.channel == Some(Id(28))),
+				rendered
+			);
+			assert_eq!(!parsed.links.is_empty(), rendered);
+			let before = crate::mentions::presentation_fingerprint(&state, &message);
+			state.invalidate_navigation();
+			assert_eq!(
+				crate::mentions::presentation_fingerprint(&state, &message) != before,
+				rendered
+			);
+		}
 	}
+
 	#[test]
 	fn fenced_blocks_record_language_and_discord_fence_shapes() {
 		let parsed = Formatted::parse("intro\n```js\nconst a = 1;\n```\nafter");
@@ -3776,203 +4979,6 @@ mod tests {
 		let many = "```\nx\n```\n".repeat(MAX_BLOCKS + 4);
 		let parsed = Formatted::parse(&many);
 		assert!(parsed.blocks.len() <= MAX_BLOCKS);
-	}
-	#[test]
-	fn fenced_code_uses_its_actual_surface_instead_of_global_chat_transparency() {
-		let original = crate::design::default_window_effects();
-		let parsed = Formatted::parse("```rust\nfn main() {}\n```");
-		for light in [false, true] {
-			for transparency in [0, 15, 50, 100] {
-				crate::design::set_window_effects(true, transparency, 0);
-				let ctx = egui::Context::default();
-				ctx.set_visuals(if light {
-					egui::Visuals::light()
-				} else {
-					egui::Visuals::dark()
-				});
-				for (background, search) in [
-					(crate::design::MessageCardSurface::Opaque, false),
-					(crate::design::MessageCardSurface::Opaque, true),
-					(crate::design::MessageCardSurface::Conversation, false),
-				] {
-					let mut expected = egui::Color32::TRANSPARENT;
-					let output = ctx.run_ui(Default::default(), |ui| {
-						expected = background.fill(ui, ui.visuals().code_bg_color);
-						let mut profile = crate::profiles::ProfileSession::default();
-						let mut images = crate::avatars::Avatars::default();
-						if search {
-							let mut surface = crate::select::Surface::new(ui, "search-code");
-							parsed.show_search(
-								ui,
-								&mut None,
-								&[],
-								None,
-								&mut profile,
-								(&[], &mut None, &[], &[]),
-								(&mut images, true, &mut 0),
-								&mut surface,
-								"main",
-								background,
-							);
-							surface.finish(ui);
-						} else {
-							parsed.show_with_images(
-								ui,
-								&mut None,
-								&[],
-								None,
-								&mut profile,
-								(&mut images, true, &[]),
-								background,
-							);
-						}
-					});
-					assert!(
-						output.shapes.iter().any(|shape| matches!(
-							&shape.shape,
-							egui::Shape::Rect(rect) if rect.corner_radius == egui::CornerRadius::same(6)
-								&& rect.stroke.width == 1.0 && rect.fill == expected
-						)),
-						"missing framed code surface at transparency {transparency}"
-					);
-					match background {
-						crate::design::MessageCardSurface::Opaque => {
-							assert_eq!(expected, ctx.global_style().visuals.code_bg_color)
-						}
-						crate::design::MessageCardSurface::Conversation if transparency == 100 => {
-							assert_eq!(expected.a(), 0)
-						}
-						crate::design::MessageCardSurface::Conversation if transparency > 0 => {
-							assert!(expected.a() <= 32)
-						}
-						_ => {}
-					}
-					output.drop_without_applying_deltas();
-				}
-			}
-		}
-		crate::design::set_window_effects(original.0, original.1, original.2);
-	}
-	#[test]
-	fn code_blocks_render_a_framed_widget_with_copy_control() {
-		fn walk<'a>(shape: &'a egui::Shape, out: &mut Vec<&'a egui::Shape>) {
-			match shape {
-				egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
-				other => out.push(other),
-			}
-		}
-		let ctx = egui::Context::default();
-		crate::icons::install(&ctx);
-		let parsed = Formatted::parse("before\n```rust\nfn main() {}\n```\nafter");
-		let frame = |events| {
-			ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(420.0, 300.0),
-					)),
-					events,
-					..Default::default()
-				},
-				|ui| parsed.show(ui, &mut None),
-			)
-		};
-		let mut button = None;
-		for _ in 0..2 {
-			let output = frame(vec![]);
-			let code_bg = ctx.global_style().visuals.code_bg_color;
-			let mut shapes = Vec::new();
-			output
-				.shapes
-				.iter()
-				.for_each(|s| walk(&s.shape, &mut shapes));
-			let texts: Vec<(&str, egui::Pos2, egui::Vec2, egui::FontFamily)> = shapes
-				.iter()
-				.filter_map(|shape| match shape {
-					egui::Shape::Text(text) => Some((
-						text.galley.text(),
-						text.pos,
-						text.galley.size(),
-						text.galley.job.sections[0].format.font_id.family.clone(),
-					)),
-					_ => None,
-				})
-				.collect();
-			let code = texts
-				.iter()
-				.find(|(text, ..)| *text == "fn main() {}")
-				.expect("code text");
-			let before = texts
-				.iter()
-				.find(|(text, ..)| *text == "before")
-				.expect("paragraph before code block");
-			let after = texts
-				.iter()
-				.find(|(text, ..)| *text == "after")
-				.expect("paragraph after code block");
-			assert_eq!(code.3, egui::FontFamily::Monospace);
-			assert!(
-				texts.iter().any(|(text, ..)| *text == "Rust"),
-				"language header"
-			);
-			assert!(
-				texts.iter().any(|(text, ..)| *text == "before"),
-				"paragraph newline before the block is dropped: {texts:?}"
-			);
-			assert!(texts.iter().any(|(text, ..)| *text == "after"));
-			let bg = shapes
-				.iter()
-				.find_map(|shape| match shape {
-					egui::Shape::Rect(rect) if rect.fill == code_bg => Some(rect.rect),
-					_ => None,
-				})
-				.expect("framed background");
-			assert!(bg.contains_rect(egui::Rect::from_min_size(code.1, code.2)));
-			assert!(
-				before.1.y + before.2.y <= bg.top(),
-				"paragraph before the block overlaps its frame: before={before:?}, block={bg:?}"
-			);
-			assert!(
-				after.1.y >= bg.bottom(),
-				"paragraph after the block overlaps its frame: after={after:?}, block={bg:?}"
-			);
-			let header = texts
-				.iter()
-				.find(|(text, ..)| *text == "Rust")
-				.expect("header");
-			button = Some(egui::pos2(
-				bg.right() - 10.0 - 12.0,
-				header.1.y + header.2.y / 2.0,
-			));
-			output.drop_without_applying_deltas();
-		}
-		let pos = button.expect("copy control");
-		let output = frame(vec![
-			egui::Event::PointerMoved(pos),
-			egui::Event::PointerButton {
-				pos,
-				button: egui::PointerButton::Primary,
-				pressed: true,
-				modifiers: egui::Modifiers::NONE,
-			},
-			egui::Event::PointerButton {
-				pos,
-				button: egui::PointerButton::Primary,
-				pressed: false,
-				modifiers: egui::Modifiers::NONE,
-			},
-		]);
-		let copied: Vec<String> = output
-			.platform_output
-			.commands
-			.iter()
-			.filter_map(|command| match command {
-				egui::OutputCommand::CopyText(text) => Some(text.clone()),
-				_ => None,
-			})
-			.collect();
-		output.drop_without_applying_deltas();
-		assert_eq!(copied, vec!["fn main() {}".to_owned()]);
 	}
 	#[test]
 	fn dragging_out_of_a_code_block_leaves_the_text_above_it_unselected() {
@@ -4061,87 +5067,6 @@ mod tests {
 		assert_eq!(copied, "bravo\n\nafter the block");
 	}
 	#[test]
-	fn an_unlabelled_code_block_floats_a_copy_control_above_its_text() {
-		let ctx = egui::Context::default();
-		crate::icons::install(&ctx);
-		let parsed = Formatted::parse("```\nfirst line of code\nsecond line\nthird line\n```");
-		let frame = |events| {
-			ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(420.0, 300.0),
-					)),
-					events,
-					..Default::default()
-				},
-				|ui| parsed.show(ui, &mut None),
-			)
-		};
-		let mut block = None;
-		for _ in 0..2 {
-			let output = frame(Vec::new());
-			let code_bg = ctx.global_style().visuals.code_bg_color;
-			block = output.shapes.iter().find_map(|shape| match &shape.shape {
-				egui::Shape::Rect(rect) if rect.fill == code_bg => Some(rect.rect),
-				_ => None,
-			});
-			output.drop_without_applying_deltas();
-		}
-		// No language header, so the control floats in the block's top-right corner and
-		// only while the pointer is inside it.
-		let block = block.expect("framed background");
-		let pos = egui::pos2(block.right() - 17.0, block.top() + 17.0);
-		let hover = frame(vec![egui::Event::PointerMoved(pos)]);
-		let code = hover
-			.shapes
-			.iter()
-			.position(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text().starts_with("first line")))
-			.expect("painted code galley");
-		let control = hover
-			.shapes
-			.iter()
-			.position(|shape| {
-				let bounds = shape.shape.visual_bounding_rect();
-				bounds.contains(pos) && bounds.width() < 40.0
-			})
-			.expect("floating control");
-		hover.drop_without_applying_deltas();
-		assert!(
-			code < control,
-			"the block's deferred text must paint under the control, not over it"
-		);
-		let output = frame(vec![
-			egui::Event::PointerMoved(pos),
-			egui::Event::PointerButton {
-				pos,
-				button: egui::PointerButton::Primary,
-				pressed: true,
-				modifiers: egui::Modifiers::NONE,
-			},
-			egui::Event::PointerButton {
-				pos,
-				button: egui::PointerButton::Primary,
-				pressed: false,
-				modifiers: egui::Modifiers::NONE,
-			},
-		]);
-		let copied: Vec<String> = output
-			.platform_output
-			.commands
-			.iter()
-			.filter_map(|command| match command {
-				egui::OutputCommand::CopyText(text) => Some(text.clone()),
-				_ => None,
-			})
-			.collect();
-		output.drop_without_applying_deltas();
-		assert_eq!(
-			copied,
-			vec!["first line of code\nsecond line\nthird line".to_owned()]
-		);
-	}
-	#[test]
 	fn mass_mentions_render_as_pills_only_for_exact_plain_tokens() {
 		let parsed = Formatted::parse("@everyone @here `@everyone` @everyone_else \\@here");
 		assert_eq!(
@@ -4156,109 +5081,26 @@ mod tests {
 		let ctx = egui::Context::default();
 		let output = ctx.run_ui(Default::default(), |ui| parsed.show(ui, &mut None));
 		let colors = crate::design::palette_for(&ctx);
-		let highlighted = output
+		let pills = output
 			.shapes
 			.iter()
-			.filter_map(|shape| match &shape.shape {
-				egui::Shape::Text(text) => Some(&text.galley.job.sections),
-				_ => None,
-			})
-			.flatten()
-			.filter(|section| {
-				section.format.background == colors.mention_bg
-					&& section.format.color == colors.mention_text
+			.filter(|shape| match &shape.shape {
+				egui::Shape::Text(text) => {
+					["@everyone", "@here"].contains(&text.galley.text())
+						&& text.fallback_color == colors.mention_text
+				}
+				_ => false,
 			})
 			.count();
-		assert_eq!(highlighted, 2);
-		output.drop_without_applying_deltas();
-	}
-	#[test]
-	fn timestamps_render_the_formatted_instant_not_the_raw_token() {
-		let parsed = Formatted::parse(
-			"<t:1700000000:R> <t:1700000000> `<t:1700000000:t>` \\<t:1:t> <t:1:z> <t:abc:t>",
-		);
-		let stamps: Vec<_> = parsed
-			.spans
+		let backgrounds = output
+			.shapes
 			.iter()
-			.filter_map(|(text, style)| style.timestamp.map(|stamp| (text.as_str(), stamp)))
-			.collect();
-		assert_eq!(
-			stamps,
-			vec![
-				("<t:1700000000:R>", (1_700_000_000, b'R')),
-				("<t:1700000000>", (1_700_000_000, b'f')),
-			]
-		);
-		let ctx = egui::Context::default();
-		let mut output = ctx.run_ui(Default::default(), |ui| {
-			ui.set_width(400.0);
-			parsed.show(ui, &mut None);
-		});
-		output.textures_delta.clear();
+			.filter(
+				|shape| matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == colors.mention_bg),
+			)
+			.count();
+		assert_eq!((pills, backgrounds), (2, 2));
 		output.drop_without_applying_deltas();
-		let mut job = LayoutJob::default();
-		ctx.run_ui(Default::default(), |ui| {
-			let _ = parsed.append_inline_preview(&mut job, ui, &[], None, &[], &[]);
-		})
-		.drop_without_applying_deltas();
-		assert!(job.text.contains("ago"), "relative style: {}", job.text);
-		assert!(
-			job.text.contains("November 14, 2023"),
-			"default style: {}",
-			job.text
-		);
-		// Code spans, escapes and unknown styles keep the literal source.
-		assert_eq!(job.text.matches("<t:").count(), 4, "{}", job.text);
-	}
-	#[test]
-	fn mention_highlights_include_unknown_users_in_both_themes() {
-		let ctx = egui::Context::default();
-		let users = vec![model::User {
-			id: Id(42),
-			name: "Synthetic Robin".into(),
-			avatar: None,
-			webhook: false,
-			kind: Default::default(),
-			discriminator: 0,
-			primary_guild: None,
-		}];
-		let parsed = Formatted::parse("<@42> <@!43> `<@44>` \\<@45>");
-		for dark in [true, false] {
-			ctx.set_visuals(if dark {
-				egui::Visuals::dark()
-			} else {
-				egui::Visuals::light()
-			});
-			for width in [80.0, 300.0] {
-				let mut output = ctx.run_ui(Default::default(), |ui| {
-					ui.set_width(width);
-					let mut profile = crate::profiles::ProfileSession::default();
-					parsed.show_mentions(ui, &mut None, &users, &mut profile);
-				});
-				output.textures_delta.clear();
-				let colors = crate::design::colors(dark, crate::design::variant());
-				let highlighted: Vec<_> = output
-					.shapes
-					.iter()
-					.filter_map(|shape| {
-						let egui::Shape::Text(text) = &shape.shape else {
-							return None;
-						};
-						text.galley
-							.job
-							.sections
-							.iter()
-							.any(|section| {
-								section.format.background == colors.mention_bg
-									&& section.format.color == colors.mention_text
-							})
-							.then_some(text.galley.job.text.as_str())
-					})
-					.collect();
-				assert_eq!(highlighted, ["@Synthetic Robin", "@43"]);
-				output.drop_without_applying_deltas();
-			}
-		}
 	}
 
 	#[test]
@@ -4292,6 +5134,7 @@ mod tests {
 			kind: Default::default(),
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		}];
 		for key in [egui::Key::Tab, egui::Key::Enter] {
 			let mut output = ctx.run_ui(
@@ -4313,6 +5156,333 @@ mod tests {
 		assert_eq!(profile.open_user().unwrap().name, "Synthetic Robin");
 		assert!(opening.is_none());
 	}
+	#[test]
+	fn bare_url_underscores_do_not_format_or_join_neighboring_links() {
+		for target in [
+			"https://example.com/__first__second",
+			"https://example.com/___first___second",
+			"http://example.com/____?q=__value__#___fragment",
+			"HTTPS://EXAMPLE.COM/a__b__c",
+			"https://example.com/__café__/___end",
+		] {
+			for source in [
+				target.to_owned(),
+				format!("({target})."),
+				format!("https://before.test/__ {target} https://after.test/__"),
+				format!("__ordinary underline__ {target} _ordinary italic_"),
+			] {
+				let parsed = Formatted::parse(&source);
+				let text: String = parsed.spans.iter().map(|(text, _)| text.as_str()).collect();
+				assert!(text.contains(target), "{source}: {text}");
+				assert!(
+					parsed.spans.iter().any(|(text, style)| {
+						text == target && style.link.is_some() && !style.strong && !style.italic
+					}),
+					"URL must be one literal link: {source}"
+				);
+				assert!(
+					parsed
+						.spans
+						.iter()
+						.filter(|(_, style)| style.link.is_none())
+						.all(|(text, style)| {
+							!style.underline || text.contains("ordinary underline")
+						}),
+					"URL delimiters leaked formatting: {source}"
+				);
+			}
+		}
+		let source = "https://example.com/__first https://example.org/second__";
+		let parsed = Formatted::parse(source);
+		assert_eq!(
+			parsed.links,
+			[
+				"https://example.com/__first",
+				"https://example.org/second__"
+			]
+		);
+		assert_eq!(
+			parsed
+				.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>(),
+			source
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.underline && !style.italic)
+		);
+		let parsed = Formatted::parse("https://example.com/__. https://example.org/__.");
+		assert_eq!(
+			parsed.links,
+			["https://example.com/__", "https://example.org/__"]
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.underline && !style.italic)
+		);
+		let source = (0..MAX_LINKS + 8)
+			.map(|id| format!("https://example.com/__{id}__ "))
+			.collect::<String>();
+		assert_eq!(Formatted::parse(&source).links.len(), MAX_LINKS);
+	}
+
+	#[test]
+	fn bare_urls_keep_every_inline_delimiter_literal() {
+		for target in [
+			"https://example.com/*first*second",
+			"https://example.com/**first**second",
+			"https://example.com/~first~second",
+			"https://example.com/~~first~~second",
+			"https://example.com/?a=1&amp;b=&lt;2",
+			"https://example.com/_*~mixed~*_/end",
+		] {
+			for source in [
+				target.to_owned(),
+				format!("({target})."),
+				format!("https://before.test/** {target} https://after.test/~~"),
+				format!("**ordinary bold** {target} ~~ordinary strike~~"),
+			] {
+				let parsed = Formatted::parse(&source);
+				assert!(
+					parsed.spans.iter().any(|(text, style)| text == target
+						&& style.link.is_some()
+						&& !style.strong && !style.italic
+						&& !style.strike && !style.code),
+					"URL must be one literal link: {source}"
+				);
+				assert!(
+					parsed
+						.spans
+						.iter()
+						.filter(|(_, style)| style.link.is_none())
+						.all(|(text, style)| {
+							(!style.strong || text.contains("ordinary bold"))
+								&& (!style.strike || text.contains("ordinary strike"))
+								&& !style.italic && !style.code
+						}),
+					"URL delimiters leaked formatting: {source}"
+				);
+			}
+		}
+		for source in [
+			"**before https://example.com/a**",
+			"~~before https://example.com/a~~",
+			"__before https://example.com/a__:",
+			"*before https://example.com/a*'",
+		] {
+			let parsed = Formatted::parse(source);
+			assert_eq!(parsed.links, ["https://example.com/a"], "{source}");
+			assert!(
+				parsed
+					.spans
+					.iter()
+					.any(|(text, style)| text == "https://example.com/a"
+						&& (style.strong || style.strike || style.underline || style.italic)),
+				"{source}"
+			);
+		}
+	}
+
+	#[test]
+	fn url_markup_protection_leaves_closers_before_trailing_punctuation() {
+		let parsed = Formatted::parse("__before https://example.com/a__b__:");
+		assert_eq!(parsed.links, ["https://example.com/a__b"]);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "before " && style.underline)
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "https://example.com/a__b"
+					&& style.underline
+					&& style.link.is_some())
+		);
+		let parsed = Formatted::parse("https://example.com/a__b__: https://example.org/__c");
+		assert_eq!(
+			parsed
+				.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>(),
+			"https://example.com/a__b__: https://example.org/__c"
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.underline && !style.italic)
+		);
+	}
+
+	#[test]
+	fn url_markup_protection_handles_inner_closers_code_and_budget() {
+		let parsed = Formatted::parse("**before https://example.com/*path*?**");
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "https://example.com/*path*"
+					&& style.strong && !style.italic
+					&& style.link.is_some())
+		);
+		assert_eq!(parsed.links, ["https://example.com/*path*"]);
+		assert!(parsed.spans.iter().all(|(_, style)| !style.italic));
+
+		// Backticks are not URL characters; code spans keep precedence and nothing falls back.
+		let parsed = Formatted::parse(
+			"**bold** https://a.test/` https://b.test/` https://c.test/` https://d.test/`",
+		);
+		assert!(!parsed.limited);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "bold" && style.strong)
+		);
+		assert!(
+			Formatted::parse("`https://example.com/*a*` https://example.org/b")
+				.spans
+				.iter()
+				.any(|(text, style)| text == "https://example.com/*a*" && style.code)
+		);
+
+		let source = "https://a.test/**: https://b.test/**: word**";
+		let parsed = Formatted::parse(source);
+		assert_eq!(
+			parsed
+				.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>(),
+			source
+		);
+		assert_eq!(parsed.links, ["https://a.test/**:", "https://b.test/**:"]);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.strong && !style.italic)
+		);
+
+		let parsed = Formatted::parse(&format!(
+			"https://example.com/{}*bold*",
+			"_".repeat(MAX_EVENTS + 88)
+		));
+		assert!(parsed.limited || parsed.spans.iter().all(|(_, style)| !style.italic));
+	}
+
+	#[test]
+	fn url_underscore_protection_preserves_code_labels_and_spoilers() {
+		let target = "https://example.com/__first__second";
+		for source in [
+			format!("`{target}`"),
+			format!("```\n{target}\n```"),
+			format!("![{target}](https://image.test/)"),
+		] {
+			let parsed = Formatted::parse(&source);
+			assert!(parsed.links.is_empty(), "{source}");
+			assert!(
+				parsed
+					.spans
+					.iter()
+					.map(|(text, _)| text.as_str())
+					.collect::<String>()
+					.contains(target)
+			);
+		}
+		let parsed = Formatted::parse(&format!("[__label__]({target})"));
+		assert_eq!(parsed.links, [target]);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "label" && style.underline && !style.message_link)
+		);
+		for source in [format!("||{target}||"), format!("||<{target}>||")] {
+			let parsed = Formatted::parse(&source);
+			assert_eq!(parsed.links, [target], "{source}");
+			assert!(
+				parsed.spans.iter().any(|(text, style)| text == target
+					&& style.link.is_some()
+					&& style.spoiler.is_some()),
+				"{source}"
+			);
+		}
+		for source in [
+			format!("**{target}**"),
+			format!("__{target}__"),
+			format!("*{target}*"),
+		] {
+			let parsed = Formatted::parse(&source);
+			assert_eq!(parsed.links, [target], "{source}");
+		}
+	}
+
+	#[test]
+	fn url_underscores_keep_the_rendered_click_destination() {
+		let target = "https://example.com/__first__second";
+		for source in [format!("__before {target}__"), format!("_before {target}_")] {
+			let parsed = Formatted::parse(&source);
+			assert_eq!(parsed.links, [target], "{source}");
+			assert!(
+				parsed
+					.spans
+					.iter()
+					.any(|(text, style)| text == target && (style.italic || style.underline))
+			);
+		}
+		let parsed = Formatted::parse(&format!("[__label__][ref]\n\n[ref]: {target}"));
+		assert_eq!(parsed.links, [target]);
+		let mut ui = MessageLinkTestUi::new(target);
+		for events in [vec![], vec![], vec![message_link_key(egui::Key::Tab, true)]] {
+			ui.frame(900.0, events).0.drop_without_applying_deltas();
+		}
+		let (output, opening) = ui.frame(900.0, vec![message_link_key(egui::Key::Enter, true)]);
+		assert_eq!(opening.as_deref(), Some(target));
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	#[ignore = "release-only markdown microbenchmark; run with --ignored --nocapture"]
+	fn url_underscore_parse_benchmark() {
+		for (name, source) in [
+			(
+				"plain",
+				"A typical message with ordinary text and https://example.com/a.",
+			),
+			(
+				"underscores",
+				"https://example.com/__first https://example.org/second__",
+			),
+		] {
+			let mut samples = Vec::new();
+			for run in 0..6 {
+				let start = std::time::Instant::now();
+				for _ in 0..10_000 {
+					std::hint::black_box(Formatted::parse(std::hint::black_box(source)));
+				}
+				if run > 0 {
+					samples.push(start.elapsed());
+				}
+			}
+			samples.sort_unstable();
+			println!(
+				"{name}: 10000 parses, median {:?}, samples {samples:?}",
+				samples[2]
+			);
+		}
+	}
+
 	#[test]
 	fn inline_links_preserve_markdown_and_activate_their_own_destinations() {
 		let source = "Before [**Markdown** *label*](https://example.com/masked) then (https://example.org/a_(b)). `https://code.test` [https://label.test](javascript:bad)";
@@ -4443,5 +5613,221 @@ mod tests {
 		}
 		assert_eq!(cache.entries.len(), 500);
 		assert!(cache.bytes <= 1024 * 1024);
+	}
+
+	#[test]
+	fn a_bold_link_line_in_a_message_body_wraps_without_overlapping() {
+		// A paragraph that ends with a blank line, laid out with the blocks around it: that run
+		// used to lose the row's indent and be painted over the link before it.
+		let state = test_support::demo_state();
+		let channel = state.channels[0].id;
+		let source = crate::mentions::MentionSource {
+			state: &state,
+			channel,
+		};
+		let parsed = Formatted::parse(
+			"# SYNTHETIC HEADING\n**⚠️ READ [THE SYNTHETIC GUIDE](<https://example.com/guide#anchor>) BEFORE ANY OF THE ITEMS BELOW ⚠️**\n\n[First item](https://example.com/first.zip) for sending one thing.\n[Second item](https://example.com/second.zip) for sending another thing.\n[Third item](https://example.com/third.zip) for setting a third thing.\n[Fourth item](https://example.com/fourth.zip) for setting a fourth thing.\n[Fifth item](https://example.com/fifth.zip) for setting a fifth thing.\n\n-# Synthetic footer line.",
+		);
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		for width in (300..=640).step_by(10) {
+			let width = width as f32;
+			let mut images = crate::avatars::Avatars::default();
+			let mut revealed = 0;
+			let mut profile = crate::profiles::ProfileSession::default();
+			let mut opening = None;
+			let mut channel_reference = None;
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(width + 40.0, 800.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					ui.set_max_width(width);
+					let mut surface = crate::select::Surface::new(ui, "body");
+					parsed.show_references(
+						ui,
+						&mut opening,
+						&[],
+						Some(&source),
+						&mut profile,
+						(&state.channels, &mut channel_reference, &state.guilds, &[]),
+						(&mut images, false, &mut revealed),
+						&mut surface,
+						crate::design::MessageCardSurface::Conversation,
+					);
+					surface.finish(ui);
+				},
+			);
+			let mut rects = Vec::new();
+			for shape in &output.shapes {
+				if let egui::Shape::Text(text) = &shape.shape {
+					for row in &text.galley.rows {
+						let rect = row
+							.rect_without_leading_space()
+							.translate(text.pos.to_vec2());
+						if rect.width() > 0.5 && rect.height() > 0.5 {
+							rects.push((rect, text.galley.text()));
+						}
+					}
+				}
+			}
+			for (index, (left, left_text)) in rects.iter().enumerate() {
+				for (right, right_text) in &rects[index + 1..] {
+					let overlap = left.intersect(*right);
+					assert!(
+						overlap.width() <= 1.0 || overlap.height() <= 1.0,
+						"body at {width}px {left_text:?} [{left:?}] overlaps {right_text:?} [{right:?}]"
+					);
+				}
+			}
+			output.textures_delta.clear();
+		}
+	}
+
+	#[test]
+	fn copying_across_a_paragraph_break_keeps_the_blank_line() {
+		// The paragraph before the link is shaped without its trailing breaks: the blank row
+		// they leave is what tells selection to copy them back.
+		let ctx = egui::Context::default();
+		let parsed = Formatted::parse("plain text\n\n[link](https://example.com) after");
+		let mut images = crate::avatars::Avatars::default();
+		let mut mask = 0;
+		let mut clock = 0.0;
+		let mut run = |events| {
+			clock += 1.0;
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(700.0, 200.0),
+					)),
+					events,
+					time: Some(clock),
+					..Default::default()
+				},
+				|ui| {
+					let mut surface = crate::select::Surface::new(ui, "body");
+					let mut profile = crate::profiles::ProfileSession::default();
+					parsed.show_references(
+						ui,
+						&mut None,
+						&[],
+						None,
+						&mut profile,
+						(&[], &mut None, &[], &[]),
+						(&mut images, false, &mut mask),
+						&mut surface,
+						crate::design::MessageCardSurface::Opaque,
+					);
+					surface.finish(ui);
+				},
+			)
+		};
+		run(vec![]).drop_without_applying_deltas();
+		let output = run(vec![]);
+		let text_rect = |prefix: &str| {
+			output
+				.shapes
+				.iter()
+				.find_map(|shape| {
+					if let egui::Shape::Text(text) = &shape.shape
+						&& text.galley.text().starts_with(prefix)
+					{
+						Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+					} else {
+						None
+					}
+				})
+				.expect("visible selectable text")
+		};
+		let start = text_rect("plain").left_top() + egui::vec2(0.0, 5.0);
+		let end = text_rect(" after").right_top() + egui::vec2(0.0, 5.0);
+		output.drop_without_applying_deltas();
+		for events in [
+			vec![
+				egui::Event::PointerMoved(start),
+				egui::Event::PointerButton {
+					pos: start,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+			vec![egui::Event::PointerMoved(end)],
+			vec![egui::Event::PointerButton {
+				pos: end,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			}],
+		] {
+			run(events).drop_without_applying_deltas();
+		}
+		let output = run(vec![egui::Event::Copy]);
+		let copied = output
+			.platform_output
+			.commands
+			.iter()
+			.find_map(|command| match command {
+				egui::OutputCommand::CopyText(text) => Some(text.clone()),
+				_ => None,
+			})
+			.expect("selected text");
+		output.drop_without_applying_deltas();
+		assert!(copied.starts_with("plain text\n\nlink"), "{copied:?}");
+	}
+
+	#[test]
+	fn a_wrapped_bold_line_with_a_link_and_emoji_keeps_its_rows_apart() {
+		// Bold text around an angle-bracket link, with emoji at both ends: it has to wrap, and
+		// the wrapped rows must not be painted on top of each other.
+		let parsed = Formatted::parse(
+			"**⚠️ READ [THE SYNTHETIC GUIDE](<https://example.com/guide#anchor>) BEFORE ANY OF THE ITEMS BELOW ⚠️**",
+		);
+		let ctx = egui::Context::default();
+		for width in (200..=640).step_by(10) {
+			let width = width as f32;
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(width + 40.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					ui.set_max_width(width);
+					parsed.show(ui, &mut None);
+				},
+			);
+			let mut rects = Vec::new();
+			for shape in &output.shapes {
+				if let egui::Shape::Text(text) = &shape.shape {
+					for row in &text.galley.rows {
+						// Only the painted part of a row: a leading space offsets the glyphs.
+						let rect = row
+							.rect_without_leading_space()
+							.translate(text.pos.to_vec2());
+						if rect.width() > 0.5 && rect.height() > 0.5 {
+							rects.push((rect, text.galley.text()));
+						}
+					}
+				}
+			}
+			for (index, (left, left_text)) in rects.iter().enumerate() {
+				for (right, right_text) in &rects[index + 1..] {
+					let overlap = left.intersect(*right);
+					assert!(
+						overlap.width() <= 1.0 || overlap.height() <= 1.0,
+						"at {width}px {left_text:?} [{left:?}] overlaps {right_text:?} [{right:?}]"
+					);
+				}
+			}
+			output.textures_delta.clear();
+		}
 	}
 }

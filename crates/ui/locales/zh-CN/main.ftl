@@ -51,8 +51,10 @@ general-start-minimized = 最小化启动
 general-start-minimized-description = 在背景启动，不占用你的屏幕。
 general-startup-unavailable = 自动启动仅支持 Windows 和 macOS。
 general-window = 窗口
-general-hide-decorations = 隐藏窗口装饰
-general-hide-decorations-description = 拿掉系统标题列与边框，改用窗口管理员来移动、调整大小或关闭 Serein。
+general-hide-decorations = 无标题栏
+general-hide-decorations-description = 适用于平铺式窗口管理器：移除所有标题栏与边框，包括 Serein 自己的标题栏。请用窗口管理器移动、调整大小或关闭 Serein。
+general-custom-title-bar = 自定义标题列
+general-custom-title-bar-description = 以 Serein 自己的 GTK 4 风格标题列取代系统标题列。
 general-hide-title-bar = 隐藏 Serein 标题列
 general-hide-title-bar-description = 改用系统标题列与窗口按钮。
 general-keep-menu-bar = 让 Serein 留在菜单栏
@@ -65,6 +67,8 @@ general-graphics = 图形
 general-render-with = 渲染方式
 general-gpu-restart = 下次启动 Serein 时生效。
 general-gpu-current-prefix = 目前绘制使用
+general-steady-refresh-rate = 固定刷新率
+general-steady-refresh-rate-description = 当 Serein 是活动窗口时，会以显示器的刷新率绘制，让可变刷新率（VRR、G-SYNC、FreeSync）显示器可以保持同一刷新率而不会闪烁。会更耗电。
 gpu-automatic = 自动
 gpu-high-performance = 高性能
 gpu-power-saving = 省电
@@ -87,6 +91,11 @@ search-conversation = 搜索这个对话
 show-member-list = 显示成员清单
 pinned-messages = 置顶的消息
 threads = 帖子
+
+channel-pill-thread = 帖子
+channel-pill-forum = 论坛
+channel-pill-post = 贴文
+channel-pill-message = 消息
 reload-history = 重新加载记录
 in-a-call = 通话中
 members-description = 所有能进入这个对话的人。
@@ -299,6 +308,8 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成附件无�
 attachments-open-original-open-original = 打开原始文件…
 # Context: pending_card
 attachments-pending-card-remove-attachment = 移除附件
+attachments-loading-card-preparing = 准备中…
+
 # Context: show_status
 attachments-show-status-cancel-download = 取消下载
 # Context: show_status
@@ -377,6 +388,18 @@ channel-list-heading-direct-messages = 私信
 channel-list-heading-favorites = 收藏
 # Context: key
 channel-list-heading-pinned = 置顶
+# Context: key
+channel-list-heading-message-requests = 消息请求
+# Context: label
+message-request-ignore-tooltip = 忽略请求
+# Context: label
+message-request-accept = 接受
+# Context: label
+message-request-ignore = 忽略
+# Context: label
+message-request-banner = 此人还不是你的好友。接受后对话将移至私信。
+# Context: label
+message-request-title = 消息请求
 
 ## crates/ui/src/channel_menu.rs
 # Context: context
@@ -763,6 +786,14 @@ embeds-image-preview-image-actions = 图片操作
 embeds-link-open-link = 开启链接…
 # Context: show
 embeds-show-additional-embed-content-is-not-supported = 不支持其他嵌入内容
+# Context: poll_result
+embeds-poll-result-winning-answer = 获胜答案
+# Context: poll_result
+embeds-poll-result-tie = 没有获胜答案
+# Context: poll_result
+embeds-poll-result-no-votes = 尚无人投票
+# Context: poll_result
+embeds-poll-result-view-poll = 查看投票
 # Context: show
 embeds-show-embed-display-limited = 嵌入内容显示受限
 # Context: show
@@ -781,6 +812,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = 视频预览 · 会�
 embeds-text-text-display-limited = 文字显示受限
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = 点击了解更多
 # Context: show
 emoji-details-show-a-custom-emoji = 自定义表情符号。
 # Context: show
@@ -810,6 +843,12 @@ emoji-picker-gif-body-searching-klipy = 正在搜索 KLIPY…
 # Context: gif_body
 emoji-picker-gif-body-trending-gifs = 热门 GIF
 # Context: gif_body
+emoji-picker-gif-body-retry = 重试
+
+# Context: gif_body
+emoji-picker-gif-body-no-trending-gifs-right-now = 请搜索 GIF，或稍后再试。
+
+# Context: gif_body
 emoji-picker-gif-body-try-a-different-search-term = 试试别的搜索词。
 # Context: gif_grid
 emoji-picker-gif-grid-favorite = 收藏
@@ -835,6 +874,9 @@ emoji-picker-popup-hover-an-emoji-to-preview-it = 滑过表情符号即可预览
 emoji-picker-popup-no-matching-emoji = 没有相符的表情符号。
 # Context: popup
 emoji-picker-popup-retry-sticker-packs = 重试贴纸包
+# Context: popup
+emoji-picker-popup-requires-nitro = 需要 Nitro 才能在此使用
+
 # Context: popup
 emoji-picker-popup-search-results = 搜索结果
 # Context: popup
@@ -1513,6 +1555,14 @@ join-server-status-invite-accepted = 邀请已接受。等待访问服务器。
 join-server-status-offline-preview = 离线预览：加入服务器已禁用。
 
 ## crates/ui/src/keybinds.rs
+# Context: custom_row
+keybinds-custom-row-remove = 移除
+# Context: custom_section
+keybinds-custom-section-add-binding = 添加绑定
+# Context: custom_section
+keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-button-combination-can-only-be-used-once = 为任意操作添加额外的快捷键。每个按键或鼠标按钮组合只能使用一次。
+# Context: custom_section
+keybinds-custom-section-custom-bindings = 自定义绑定
 # Context: row
 keybinds-row-global = 全局
 # Context: row
@@ -1671,7 +1721,6 @@ markdown-show-run-open-user-profile = 开启用户个人资料
 # Context: show_run
 markdown-show-run-reveal-spoiler = 显示剧透内容
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = 未知频道，加载频道
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -1754,6 +1803,10 @@ notification-settings-notification-settings-for-per-channel-or-per-server-notifi
 notification-settings-notification-settings-open = 开启
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = 预览音效
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-activate = 按住说话：开始
+# Context: notification_settings
+notification-settings-notification-settings-push-to-talk-deactivate = 按住说话：结束
 # Context: notification_settings
 notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = 铃声、通话设备与麦克风处理。
 # Context: notification_settings
@@ -2054,6 +2107,34 @@ profiles-more-menu-add-friend-nickname = 新增朋友昵称
 profiles-more-menu-add-note = 新增笔记
 # Context: more_menu
 profiles-more-menu-block = 屏蔽
+profiles-view-full-profile = 查看完整个人资料
+
+profiles-copy-username = 复制用户名
+
+profiles-username-unavailable = 打开此个人资料以加载用户名
+
+profiles-ignore = 忽略
+
+profiles-unignore = 取消忽略
+
+profiles-ignore-hint = 使用 Discord 的“忽略”设置而非屏蔽。对方不会收到通知。
+
+profiles-report-user-profile = 举报个人资料
+
+profiles-report-hint = 在浏览器打开 Discord 的支持表单，并复制对方的用户 ID
+
+profiles-show-activity = 活动
+
+profiles-show-connections = 连接
+
+profiles-show-friends-since = 成为好友于
+
+profiles-show-note = 笔记
+
+profiles-show-note-hint = 点击添加笔记
+
+profiles-show-note-only-you = 仅自己可见
+
 # Context: more_menu
 profiles-more-menu-copy-webhook-id = 复制 Webhook ID
 # Context: more_menu
@@ -2122,6 +2203,9 @@ profiles-show-view-profile-picture = 查看头像
 ## crates/ui/src/reactions.rs
 # Context: add_button
 reactions-add-button-add-reaction = 添加反应
+# Context: quick_button
+reactions-quick-react = 用 { $emoji } 回应
+
 # Context: show
 reactions-show-reactions-unavailable = 反应不可用
 # Context: show
@@ -2204,6 +2288,12 @@ screen-body-frame-rate = 帧率
 screen-body-include-the-pointer-in-the-shared-video = 分享画面时包含鼠标指针。
 # Context: body
 screen-body-quality = 品质
+# Context: body
+screen-body-source = 源
+# Context: body
+screen-preview-paused-title = 你的直播仍在进行！
+# Context: body
+screen-preview-paused-body = 我们已暂停此预览以节省资源。
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = 选择品质不需要 Nitro。
 # Context: body
@@ -2956,6 +3046,8 @@ server-menu-header-server-menu = 服务器菜单
 server-menu-leave-item-leave-server = 离开服务器
 # Context: read_item
 server-menu-read-item-mark-as-read = 标为已读
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = 全部标为已读
 # Context: settings_item
 server-menu-settings-item-server-settings = 服务器设置
 # Context: show
@@ -3443,6 +3535,15 @@ settings-chat-settings-channel-list = 频道列表
 settings-chat-settings-show-channels-you-cannot-currently-access = 显示你目前无法访问的频道。
 # Context: chat_settings
 settings-chat-settings-show-hidden-channels = 显示隐藏的频道
+# Context: chat_settings
+settings-chat-settings-emoji = 表情符号
+
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis = 建议需要 Nitro 的表情符号
+
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis-description = 即使没有 Nitro，也在建议与选择器中提供动态及其他服务器的表情符号。关闭时会从建议中隐藏，并在选择器中显示为锁定。
+
 # Context: close_control
 settings-close-control-close-settings-esc = 关闭设置（Esc）
 # Context: colour_preset_settings
@@ -3460,6 +3561,51 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein 不收集遥测数据，也不上传诊断信息。Discord 的服务端数据按其自身政策保留。
 # Context: storage_page
 settings-storage-page-your-privacy = 你的隐私
+# Context: cosmetic_settings
+settings-cosmetics = 个人资料装饰
+# Context: cosmetic_settings
+settings-cosmetics-decorations = 头像装饰
+# Context: cosmetic_settings
+settings-cosmetics-decorations-description = 显示在头像周围的图案。
+# Context: cosmetic_settings
+settings-cosmetics-nameplates = 名牌
+# Context: cosmetic_settings
+settings-cosmetics-nameplates-description = 成员列表和私信列表中名字后方的图案。
+# Context: cosmetic_settings
+settings-cosmetics-effects = 个人资料特效
+# Context: cosmetic_settings
+settings-cosmetics-effects-description = 在个人资料卡上播放的动画。
+# Context: cosmetic_settings
+settings-cosmetics-frames = 个人资料边框
+# Context: cosmetic_settings
+settings-cosmetics-frames-description = 显示在个人资料卡周围的图案。
+# Context: cosmetic_settings
+settings-cosmetics-hidden-are-not-downloaded = 隐藏的装饰不会被下载。这只会改变此设备上的显示。
+# Context: image_cache_settings
+settings-image-cache = 图片缓存
+# Context: image_cache_settings
+settings-image-cache-media = 媒体缓存
+# Context: image_cache_settings
+settings-image-cache-media-description = 头像、横幅、预览和贴纸。
+# Context: image_cache_settings
+settings-image-cache-artwork = 共享图案缓存
+# Context: image_cache_settings
+settings-image-cache-artwork-description = 表情、徽章、服务器标签、身份组图标、头像装饰和名牌单独保存，大型媒体不会把它们挤出缓存。
+# Context: image_cache_settings
+settings-image-cache-usage = 已使用 { $used }，共 { $limit }。
+# Context: image_cache_settings
+settings-image-cache-usage-unavailable = 图片加载后会显示用量。
+# Context: image_cache_settings
+settings-image-cache-clear = 清除
+# Context: image_cache_settings
+settings-image-cache-clear-description = 立即删除这些已下载的图片。消息、草稿和登录状态会保留。
+# Context: image_cache_settings
+settings-image-cache-retention = 未使用的图片保留时长
+# Context: image_cache_settings
+settings-image-cache-retention-description = 在此期间未再显示的缓存图片将从磁盘删除。
+# Context: image_cache_settings
+settings-image-cache-days =
+    { $count } 天
 
 ## crates/ui/src/slash_commands.rs
 # Context: argument
@@ -3484,6 +3630,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = 命令不�
 slash-commands-footer-refresh-application-commands = 刷新应用命令
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = 此贴纸来自仅限邀请或不可用的服务器。
 # Context: message
 stickers-message-loading-sticker-details = 贴纸详细信息加载中…
 # Context: message
@@ -3741,6 +3889,12 @@ timeline-loading-messages-loading-messages = 正在加载消息
 # Context: message_actions
 timeline-message-actions-copy = 复制
 # Context: message_actions
+timeline-message-actions-copy-message-id = 复制消息 ID
+
+# Context: message_actions
+timeline-message-actions-copy-message-link = 复制消息链接
+
+# Context: message_actions
 timeline-message-actions-create-thread = 创建帖子…
 # Context: message_actions
 timeline-message-actions-delete-message = 删除消息…
@@ -3790,7 +3944,6 @@ timeline-show-with-scroll-edited = （已编辑）
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ 已转发
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = 隐藏剧透
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = 消息历史尚不可用。请使用重新加载重试。
 # Context: show_with_scroll
@@ -3882,7 +4035,29 @@ updates-update-settings-restart-to-update = 重启以更新
 # Context: update_settings
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein 是以发行版方式安装的。请在终端中执行此命令更新。
 # Context: update_settings
+updates-update-settings-save-diagnostics = 保存诊断信息
+# Context: update_settings
 updates-update-settings-support-diagnostics = 支持与诊断
+# Context: update_settings
+updates-update-settings-copy-recent-lines = 复制最近几行
+# Context: update_settings
+updates-update-settings-diagnostic-log = 诊断日志
+# Context: update_settings
+updates-update-settings-log-errors = 错误
+# Context: update_settings
+updates-update-settings-log-events = 错误、警告与事件
+# Context: update_settings
+updates-update-settings-log-everything = 全部（详细）
+# Context: update_settings
+updates-update-settings-log-off = 关闭
+# Context: update_settings
+updates-update-settings-log-warnings = 错误与警告
+# Context: update_settings
+updates-update-settings-open-folder = 打开文件夹
+# Context: update_settings
+updates-update-settings-the-log-folder-could-not-be-written = 无法写入日志文件夹。请检查 Serein 的数据文件夹后重试。
+# Context: update_settings
+updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or = 耗时、阶段与失败记录在单个本地日志文件中。绝不写入账户、频道、消息与凭据数据，也不会上传任何内容。
 # Context: update_log
 updates-update-log = 更新日志
 # Context: update_settings
@@ -3917,6 +4092,8 @@ user-menu-contents-private-nicknames-are-available-for-confirmed-friends = 私�
 user-menu-contents-profile = 个人资料
 # Context: contents
 user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = 从此聊天列表移除此聊天，消息会保留。
+# Context: contents
+user-menu-contents-roles = 身份组
 # Context: contents
 user-menu-contents-unblock = 解除屏蔽
 # Context: contents
@@ -4065,6 +4242,10 @@ voice-voice-card-section-camera-settings = 摄像头设置
 voice-voice-card-section-disconnect = 断开连接
 # Context: voice_card_section
 voice-voice-card-section-dismiss-call = 关闭通话
+# Context: voice_card_section
+voice-voice-card-section-reconnect-attempt = { $reason } · 第 { $attempt } 次尝试，共 { $total } 次
+# Context: voice_card_section
+voice-voice-card-section-reconnecting = 正在重新连接…
 # Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = 麦克风不可用 · 仍保持连接。请在音频设置改选其他输入。
 # Context: voice_channel_button
@@ -4364,6 +4545,7 @@ lib-composer-onboarding-incomplete = 完成加入这个服务器，才能解锁�
 lib-composer-onboarding-complete = 完成新手引导
 profiles-message-placeholder = 发送消息给 @{ $user }
 profiles-message-send = 发送消息
+profiles-message-open-chat = 打开聊天
 profiles-message-sending = 正在打开私信…
 user-menu-contents-start-a-call = 开始通话
 verification-show-complete-the-check-to-open-this-conversation = 完成验证后才能打开这个对话。
@@ -4514,12 +4696,293 @@ screen-macos-system-picker-kind = 系统内容选择器
 
 member-in-voice = 在语音中
 
-profiles-board = Board
-profiles-board-unavailable = This profile’s board is unavailable.
-profiles-board-empty = No games on this board yet.
-profiles-board-show-more = Show more
-profiles-board-show-less = Show less
-profiles-activity-empty = 暂无共享活动。
-profiles-mutuals-empty = Nothing to show here.
+settings-chat-box = 聊天框
 
-reading-double-click-reaction = Double-click reaction
+settings-convert-emoticons = 自动把消息中的颜文字转成表情符号
+
+settings-convert-emoticons-description = 发送或编辑消息时，把 :) 这类独立颜文字转成 🙂。代码和链接不变。
+settings-preload-on-hover = 悬停时预加载
+settings-preload-on-hover-description = 指针停留在对话、个人资料或 GIF 选择器上时预先加载，打开时即刻显示。使用与打开相同的请求，每类每分钟最多 12 次。
+
+profiles-board = 看板
+profiles-board-unavailable = 这个个人资料的看板无法使用。
+profiles-board-empty = 这个看板目前还没有游戏。
+profiles-board-show-more = 查看更多
+profiles-board-show-less = 收起
+profiles-activity-empty = 暂无共享活动。
+profiles-mutuals-empty = 这里没有可显示的内容。
+
+reading-double-click-reaction = 双击回应
+
+## crates/platform/src/app_menu.rs
+# Context: macos_menu_bar
+app-menu-about = 关于 Serein
+# Context: macos_menu_bar
+app-menu-updates = 检查更新…
+# Context: macos_menu_bar
+app-menu-settings = 设置…
+# Context: macos_menu_bar
+app-menu-services = 服务
+# Context: macos_menu_bar
+app-menu-hide = 隐藏 Serein
+# Context: macos_menu_bar
+app-menu-hide-others = 隐藏其他
+# Context: macos_menu_bar
+app-menu-show-all = 全部显示
+# Context: macos_menu_bar
+app-menu-quit = 退出 Serein
+# Context: macos_menu_bar
+app-menu-file = 文件
+# Context: macos_menu_bar
+app-menu-close-window = 关闭窗口
+# Context: macos_menu_bar
+app-menu-edit = 编辑
+# Context: macos_menu_bar
+app-menu-undo = 撤销
+# Context: macos_menu_bar
+app-menu-redo = 重做
+# Context: macos_menu_bar
+app-menu-cut = 剪切
+# Context: macos_menu_bar
+app-menu-copy = 拷贝
+# Context: macos_menu_bar
+app-menu-paste = 粘贴
+# Context: macos_menu_bar
+app-menu-select-all = 全选
+# Context: macos_menu_bar
+app-menu-emoji = 表情与符号
+# Context: macos_menu_bar
+app-menu-view = 显示
+# Context: macos_menu_bar
+app-menu-actual-size = 实际大小
+# Context: macos_menu_bar
+app-menu-zoom-in = 放大
+# Context: macos_menu_bar
+app-menu-zoom-out = 缩小
+# Context: macos_menu_bar
+app-menu-full-screen = 进入全屏幕
+# Context: macos_menu_bar
+app-menu-window = 窗口
+# Context: macos_menu_bar
+app-menu-minimize = 最小化
+# Context: macos_menu_bar
+app-menu-zoom = 缩放
+# Context: macos_menu_bar
+app-menu-bring-all-to-front = 前置全部窗口
+# Context: macos_menu_bar
+app-menu-help = 帮助
+# Context: macos_menu_bar
+app-menu-github = GitHub 上的 Serein
+# Context: macos_menu_bar
+app-menu-report-issue = 报告问题…
+
+## crates/model/src/system_messages.rs
+# Context: system_message
+system-message-a-member = 一位成员
+# Context: system_message
+system-message-added = { $actor } 将 { $target } 添加到了对话中。
+# Context: system_message
+system-message-left = { $actor } 离开了对话。
+# Context: system_message
+system-message-removed = { $actor } 将 { $target } 移出了对话。
+# Context: system_message
+system-message-call = { $actor } 发起了通话。
+# Context: system_message
+system-message-channel-name = { $actor } 更改了频道名称。
+# Context: system_message
+system-message-channel-name-value = { $actor } 更改了频道名称：{ $value }
+# Context: system_message
+system-message-channel-icon = { $actor } 更改了频道图标。
+# Context: system_message
+system-message-pinned = { $actor } 在此频道中置顶了一条消息。
+# Context: system_message
+system-message-joined = 欢迎 { $actor }！已加入服务器。
+# Context: system_message
+system-message-boosted = { $actor } 助力了服务器！
+# Context: system_message
+system-message-boosted-level = { $actor } 助力了服务器！服务器已达到 { $level } 级。
+# Context: system_message
+system-message-channel-follow = { $actor } 添加了频道关注。
+# Context: system_message
+system-message-discovery-disqualified = 此服务器已不再符合服务器发现的条件。
+# Context: system_message
+system-message-discovery-requalified = 此服务器再次符合服务器发现的条件。
+# Context: system_message
+system-message-discovery-warning = 服务器发现资格警告。
+# Context: system_message
+system-message-discovery-final-warning = 服务器发现资格最终警告。
+# Context: system_message
+system-message-thread = { $actor } 发起了子区。
+# Context: system_message
+system-message-thread-value = { $actor } 发起了子区：{ $value }
+# Context: system_message
+system-message-thread-starter = 从先前消息发起的子区。
+# Context: system_message
+system-message-invite-reminder = 邀请提醒 · 邀请好友加入此服务器。
+# Context: system_message
+system-message-automod = AutoMod 操作。
+# Context: system_message
+system-message-role-subscription = { $actor } 购买或续订了身份组订阅。
+# Context: system_message
+system-message-premium-upsell = 高级订阅优惠。
+# Context: system_message
+system-message-stage-start = { $actor } 开启了舞台。
+# Context: system_message
+system-message-stage-end = 舞台已结束。
+# Context: system_message
+system-message-stage-speaker = { $actor } 成为了舞台发言人。
+# Context: system_message
+system-message-stage-raise-hand = { $actor } 请求发言。
+# Context: system_message
+system-message-stage-topic = { $actor } 更改了舞台话题。
+# Context: system_message
+system-message-application-subscription = 服务器应用高级订阅。
+# Context: system_message
+system-message-raid-alert-enabled = 已启用服务器警报模式。
+# Context: system_message
+system-message-raid-alert-disabled = 已停用服务器警报模式。
+# Context: system_message
+system-message-raid-report = 有人举报了服务器袭击。
+# Context: system_message
+system-message-false-alarm = 服务器事件已被举报为误报。
+# Context: system_message
+system-message-purchase = 购买通知。
+# Context: system_message
+system-message-poll-closed = { $actor } 的投票“{ $question }”已结束。
+# Context: system_message
+system-message-poll-result = 投票结果。
+# Context: system_message
+system-message-stream-hd = { $actor } 将直播升级为高清。
+# Context: system_message
+system-message-report-deleted = { $actor } 删除了一条被举报的消息。
+# Context: system_message
+system-message-timed-out = { $actor } 将 { $target } 禁言。
+# Context: system_message
+system-message-kicked = { $actor } 将 { $target } 踢出。
+# Context: system_message
+system-message-banned = { $actor } 封禁了 { $target }。
+# Context: system_message
+system-message-report-resolved = { $actor } 处理了一条举报。
+# Context: system_message
+system-message-voice-hangout = { $actor } 开启了语音聚会。
+# Context: system_message
+system-message-friend-accepted = { $actor } 接受了你的好友请求。
+
+## crates/ui/src/lib.rs composer
+# Context: composer_placeholder
+composer-placeholder = 消息
+# Context: composer_placeholder
+composer-placeholder-channel = 给 #{ $channel } 发消息
+# Context: composer_placeholder
+composer-placeholder-direct = 给 @{ $name } 发消息
+
+# Context: timeline_dm_intro
+timeline-dm-intro = 这是你与 { $name } 的私信记录的开头。
+# Context: timeline_group_intro
+timeline-group-intro = 欢迎来到 { $name } 群组的开端。
+
+# Context: timeline_channel_intro
+timeline-channel-intro-title = 欢迎来到 #{ $channel }！
+# Context: timeline_channel_intro
+timeline-channel-intro-start = 这是 #{ $channel } 频道的开头。
+show-user-profile = 显示用户资料
+hide-user-profile = 隐藏用户资料
+view-full-profile = 查看完整资料
+# Context: text_menu
+text-menu-cut = 剪切
+text-menu-copy = 复制
+text-menu-paste = 粘贴
+text-menu-select-all = 全选
+# Context: media_box
+forum-composer-attached-files = 已附加 { $count } 个文件
+forum-composer-remove-file = 移除 { $file }
+post-menu-post-action-failed = 贴文操作失败
+post-menu-thread-action-failed = 帖子操作失败
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = 普通
+# Context: badges
+badges-rarity-rare = 稀有
+# Context: badges
+badges-rarity-epic = 史诗
+# Context: badges
+badges-rarity-mythic = 神话
+# Context: badges
+badges-always-visible = 始终显示在你的个人资料中
+# Context: badges
+badges-click-show = 点击显示
+# Context: badges
+badges-click-hide = 点击隐藏
+# Context: badges
+badges-customize-title = 自定义你的徽章
+# Context: badges
+badges-customize-hint = 拖动以重新排序，并隐藏不想让他人看到的徽章。
+# Context: badges
+badges-none = 暂无可显示的徽章。
+# Context: badges
+badges-reset = 重置
+# Context: badges
+badges-saving = 正在保存…
+# Context: badges
+badges-save = 保存
+# Context: badges
+badges-view = 查看徽章
+# Context: badges
+badges-your = 你的徽章
+# Context: badges
+badges-user = { $name } 的徽章
+# Context: badges
+badges-browse = 浏览你的徽章，发现可以解锁的新徽章。
+# Context: badges
+badges-available = 可解锁
+# Context: badges
+badges-customize-button = 自定义你的徽章
+# Context: badges
+badges-close = 关闭
+# Context: badges
+badges-locked = 尚未解锁
+# Context: badges
+badges-date-unlocked = 解锁日期
+# Context: badges
+badges-rarity = 稀有度
+# Context: badges
+badges-max-level = 你已达到此徽章的最高等级。
+# Context: badges
+badges-next-level = 下一级：{ $tier }
+# Context: badges
+badges-all-levels = 查看所有等级
+# Context: badges
+badges-hide-levels = 隐藏等级
+# Context: badges
+badges-manage = 管理徽章
+page-language-time = 语言与时间
+description-language-time = 显示语言和时间格式。
+time-format-group = 时间格式
+time-format-auto = 自动
+time-format-12-hour = 12 小时制
+time-format-24-hour = 24 小时制
+profiles-status-edit = 编辑状态
+profiles-status-clear = 清除状态
+send-throttled-title = 哇，太辣了
+send-throttled-body = 你发送消息太快了！
+send-throttled-dismiss = 关闭提示
+profiles-private-profile = 私密资料
+profiles-private-notice = { $name } 的个人资料是私密的，部分信息已隐藏。添加为好友即可查看更多。
+settings-cosmetics-name-styles = 名称样式
+settings-cosmetics-name-styles-description = Nitro 显示名称的字体、颜色和特效。
+search-overlays-message-contains = 消息包含
+search-overlays-no-matching-content-types = 没有匹配的内容类型
+search-overlays-history = 历史记录
+search-overlays-clear-history = 清除搜索历史
+main-sign-in-rate-limited-detail = Discord 正在限制此次登录。请稍候再试。过早重试可能会延长等待时间。
+
+# New message
+new-message-title = 新私信
+new-message-subtitle = 群组私信最多可有 10 位成员。
+new-message-search = 搜索
+new-message-hint = 添加好友以开始私信或群组。
+new-message-no-people-found = 没有匹配的结果。
+new-message-create = 创建消息
+new-message-cancel = 取消

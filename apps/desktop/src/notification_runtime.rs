@@ -18,12 +18,38 @@ pub enum Alert {
 #[derive(Default)]
 pub struct Runtime {
 	sounds: crate::notification_sounds::Sounds,
+	/// Push-to-talk blips use their own worker, so a press or release neither cuts off a
+	/// message or ring cue nor is cancelled by one.
+	ptt_sounds: crate::notification_sounds::Sounds,
 	options: Device,
 	was_audible: bool,
 	ring: Option<((Id, Sound), Instant)>,
+	ptt: PttCues,
 	badge: Option<u32>,
 	badge_check: Option<Instant>,
 	badge_status: &'static str,
+}
+/// Push-to-talk edges: one start cue per press and one stop cue per release.
+#[derive(Default)]
+struct PttCues {
+	active: bool,
+}
+impl PttCues {
+	/// `mode` is the push-to-talk setting, `in_call` a live voice session and `held` the key.
+	/// A state without a live push-to-talk session resets silently: ending the call or turning
+	/// the mode off while holding is not a key release and must not cue.
+	fn update(&mut self, mode: bool, in_call: bool, held: bool) -> Option<Sound> {
+		if !(mode && in_call) {
+			self.active = false;
+			return None;
+		}
+		let active = std::mem::replace(&mut self.active, held);
+		(active != held).then_some(if held {
+			Sound::PttStart
+		} else {
+			Sound::PttStop
+		})
+	}
 }
 impl Runtime {
 	fn ring_cue(&mut self, ringing: Option<(Id, Sound)>, now: Instant) -> Option<Sound> {
@@ -47,8 +73,26 @@ impl Runtime {
 		}
 		None
 	}
+	/// Plays one local push-to-talk cue per key edge. Direct playback keeps the cue in the
+	/// frame that saw the key change, leaves the settings-preview slot to previews and uses
+	/// the PTT worker so an ordinary cue cannot cancel it.
+	pub fn ptt(
+		&mut self,
+		mode: bool,
+		in_call: bool,
+		held: bool,
+		options: Device,
+		ctx: &eframe::egui::Context,
+	) {
+		if let Some(cue) = self.ptt.update(mode, in_call, held)
+			&& options.allows(cue)
+		{
+			self.ptt_sounds.play(cue, options.volume, ctx);
+		}
+	}
 	pub fn clear(&mut self, window: &winit::window::Window) {
 		self.sounds.stop();
+		self.ptt_sounds.stop();
 		self.ring = None;
 		if self.badge.is_some_and(|count| count > 0) {
 			let _ = platform::badge::set(window, 0);
@@ -70,6 +114,7 @@ impl Runtime {
 		let badges = platform::badge::supported() && options.unread_badge;
 		if options != self.options || (self.was_audible && !audible) {
 			self.sounds.stop();
+			self.ptt_sounds.stop();
 			self.options = options;
 		}
 		self.was_audible = audible;
@@ -128,26 +173,13 @@ impl Runtime {
 		if let Some(sound) = sound {
 			self.sounds.play(sound, options.volume, ctx);
 		}
-		// Counts only change while frames run, so an idle window needs no badge timer: a
-		// throttled frame schedules one follow-up recount, and then the window can sleep.
+		// Counts otherwise only change while frames run: a throttled frame schedules one
+		// follow-up recount, and then the window can sleep until the next mute expiry.
 		let since = self.badge_check.map(|time| time.elapsed());
 		if since.is_none_or(|since| since >= Duration::from_secs(1)) || !badges || !live {
 			self.badge_check = Some(Instant::now());
 			let pings = if live && badges {
-				state
-					.channels
-					.iter()
-					.try_fold(0u32, |total, channel| {
-						if total >= 100 {
-							return None;
-						}
-						Some(
-							total
-								.saturating_add(state.mention_count(channel.id))
-								.min(100),
-						)
-					})
-					.unwrap_or(100)
+				badge_count(state)
 			} else {
 				0
 			};
@@ -155,21 +187,138 @@ impl Runtime {
 				self.badge_status = platform::badge::set(window, pings).err().unwrap_or("");
 				self.badge = Some(pings);
 			}
+			// A lapsing timed mute changes the count without any other activity.
+			if live
+				&& badges && let Some(expiry) = state.next_mute_expiry()
+			{
+				ctx.request_repaint_after(expiry);
+			}
 		} else if let Some(since) = since {
 			ctx.request_repaint_after(Duration::from_secs(1).saturating_sub(since));
 		}
-		ui.notification_sound_status = if self.sounds.status().is_empty() {
-			self.badge_status
+		let ptt_error = self.ptt_sounds.error();
+		let sound_status = if !ptt_error.is_empty() {
+			ptt_error
+		} else if self.sounds.status().is_empty() {
+			self.ptt_sounds.status()
 		} else {
 			self.sounds.status()
+		};
+		ui.notification_sound_status = if sound_status.is_empty() {
+			self.badge_status
+		} else {
+			sound_status
 		};
 		alert
 	}
 }
 
+fn badge_count(state: &State) -> u32 {
+	state
+		.channels
+		.iter()
+		.try_fold(0u32, |total, channel| {
+			if total >= 100 {
+				return None;
+			}
+			let count = state.mention_count(channel.id);
+			if count == 0 {
+				return Some(total);
+			}
+			let muted = if channel.guild.is_some() {
+				state.muted_for_guild_rail(channel)
+			} else {
+				state.dm_muted(channel.id) == Some(true)
+			};
+			Some(if muted {
+				total
+			} else {
+				total.saturating_add(count).min(100)
+			})
+		})
+		.unwrap_or(100)
+}
+
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
+pub fn debug_badge_check() {
+	use client_core::{Envelope, Event, notifications};
+	let mut state = test_support::demo_state();
+	state.read_state.reset();
+	state.apply(Envelope {
+		generation: state.generation,
+		event: Event::ReadState(client_core::read_state::Event::Snapshot {
+			entries: Some(vec![(Id(20), None, 3), (Id(22), None, 4)]),
+			version: Some(1),
+			partial: false,
+		}),
+	});
+	assert_eq!(badge_count(&state), 7);
+	for (guild, channels, muted, expected) in [
+		(None, vec![(Id(22), Some(true), None)], false, 3),
+		(Some(Id(10)), vec![(Id(20), Some(true), None)], false, 0),
+		(None, vec![(Id(22), Some(false), None)], false, 4),
+		(Some(Id(10)), vec![(Id(23), Some(true), None)], false, 4),
+		(Some(Id(10)), vec![], true, 4),
+		(Some(Id(10)), vec![], false, 7),
+	] {
+		state
+			.apply_notification_preferences(notifications::Event::Settings {
+				entries: vec![notifications::Setting {
+					guild,
+					muted: Some(muted),
+					channels,
+					overrides_known: true,
+					..Default::default()
+				}],
+				replace: false,
+			})
+			.unwrap();
+		assert_eq!(badge_count(&state), expected);
+	}
+	assert_eq!(state.mention_count(Id(20)), 3);
+	assert_eq!(state.mention_count(Id(22)), 4);
+	state
+		.channels
+		.iter_mut()
+		.find(|c| c.id == Id(22))
+		.unwrap()
+		.kind = 3;
+	for (until, expected) in [(i64::MAX, 3), (1, 7)] {
+		state
+			.apply_notification_preferences(notifications::Event::Settings {
+				entries: vec![notifications::Setting {
+					guild: None,
+					muted: Some(false),
+					channels: vec![(Id(22), Some(true), None)],
+					channel_mute_until: vec![(Id(22), until)],
+					..Default::default()
+				}],
+				replace: false,
+			})
+			.unwrap();
+		assert_eq!(badge_count(&state), expected);
+		assert_eq!(state.next_mute_expiry().is_some(), until == i64::MAX);
+	}
+	state.apply(Envelope {
+		generation: state.generation,
+		event: Event::ReadState(client_core::read_state::Event::Snapshot {
+			entries: Some(vec![(Id(20), None, u32::MAX), (Id(22), None, 4)]),
+			version: Some(2),
+			partial: false,
+		}),
+	});
+	assert_eq!(badge_count(&state), 100);
+	println!("Notification badge debug check passed: mutes, expiry, unmute and count cap.");
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn muted_conversations_do_not_count_toward_native_badge() {
+		debug_badge_check();
+	}
 
 	#[test]
 	fn ringtone_timer_repeats_each_cue_and_stops_on_clear() {
@@ -201,5 +350,30 @@ mod tests {
 		assert_eq!(runtime.ring_cue(None, now + Duration::from_secs(9)), None);
 		assert!(runtime.ring.is_none());
 		assert_eq!(runtime.ring_cue(None, now + Duration::from_secs(15)), None);
+	}
+
+	#[test]
+	fn push_to_talk_cues_fire_once_per_press_and_release() {
+		let mut cues = PttCues::default();
+		assert_eq!(cues.update(true, true, false), None);
+		assert_eq!(cues.update(true, true, true), Some(Sound::PttStart));
+		for _ in 0..50 {
+			assert_eq!(cues.update(true, true, true), None);
+		}
+		assert_eq!(cues.update(true, true, false), Some(Sound::PttStop));
+		assert_eq!(cues.update(true, true, false), None);
+		// Ending the call while held or turning the mode off is not a key release.
+		assert_eq!(cues.update(true, true, true), Some(Sound::PttStart));
+		assert_eq!(cues.update(true, false, true), None);
+		assert_eq!(cues.update(true, true, false), None);
+		// Held while connecting stays silent; becoming live mid-hold starts transmission.
+		assert_eq!(cues.update(true, false, true), None);
+		assert_eq!(cues.update(true, false, true), None);
+		assert_eq!(cues.update(true, true, true), Some(Sound::PttStart));
+		assert_eq!(cues.update(true, true, true), None);
+		assert_eq!(cues.update(true, true, false), Some(Sound::PttStop));
+		assert_eq!(cues.update(true, true, true), Some(Sound::PttStart));
+		assert_eq!(cues.update(false, true, false), None);
+		assert_eq!(cues.update(true, true, false), None);
 	}
 }

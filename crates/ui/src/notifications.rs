@@ -4,7 +4,13 @@ use egui::{Align2, Color32, FontId};
 use model::Id;
 
 /// Fixed width of the server rail column.
-pub(super) const RAIL_WIDTH: f32 = 68.0;
+pub(super) const RAIL_WIDTH: f32 = 64.0;
+/// Home, server and folder tiles on the rail.
+pub(super) const RAIL_TILE: f32 = 40.0;
+/// Direct-message avatars, a touch larger than server tiles like Discord's.
+pub(super) const RAIL_AVATAR: f32 = 42.0;
+/// Inset from the rail edge; centres a tile in the column.
+const RAIL_MARGIN: i8 = ((RAIL_WIDTH - RAIL_TILE) / 2.0) as i8;
 
 #[derive(Default)]
 pub(super) struct RailCache {
@@ -17,7 +23,7 @@ pub(super) struct RailCache {
 	voice_guilds: Box<[Id]>,
 }
 impl RailCache {
-	fn sync(&mut self, state: &State) -> bool {
+	pub(super) fn sync(&mut self, state: &State) -> bool {
 		let call = direct_call(state);
 		let key = (
 			state.generation,
@@ -29,10 +35,13 @@ impl RailCache {
 			return false;
 		}
 		let mut badges = std::collections::BTreeMap::<Id, (bool, u32)>::new();
+		let now = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.map_or(0, |elapsed| elapsed.as_millis() as i64);
 		for channel in state.channels.iter().take(client_core::MAX_NAV) {
 			if let Some(guild) = channel.guild {
 				let entry = badges.entry(guild).or_default();
-				entry.0 |= state.lights_guild_rail(channel);
+				entry.0 |= state.lights_guild_rail(channel, now);
 				entry.1 = entry.1.saturating_add(state.mention_count(channel.id));
 			}
 		}
@@ -84,6 +93,25 @@ fn home_request_label(friends: u32, messages: u32) -> String {
 	parts.join(" · ")
 }
 
+pub(super) fn row_activity(state: &State, channel: &model::Channel, visible: bool) -> (bool, u32) {
+	let forum = channel.guild.is_some() && matches!(channel.kind, 15 | 16);
+	// A forum lights only for posts the account has not seen, never its own boundary.
+	let unread = visible
+		&& if forum {
+			state.forum_unread(channel.id)
+		} else {
+			state.channel_unread(channel) == Some(true) || state.unread_count(channel.id) > 0
+		};
+	let count = if !visible || forum {
+		0
+	} else if channel.guild.is_some() {
+		state.mention_count(channel.id)
+	} else {
+		state.unread_count(channel.id)
+	};
+	(unread, count)
+}
+
 pub(super) fn badge(ui: &egui::Ui, center: egui::Pos2, count: u32, ring: Color32) {
 	badge_scaled(ui, center, count, ring, 1.0);
 }
@@ -105,7 +133,7 @@ fn badge_scaled(ui: &egui::Ui, center: egui::Pos2, count: u32, ring: Color32, sc
 	ui.painter()
 		.rect_filled(rect.expand(2.0 * scale), (11.0 * scale) as u8, ring);
 	ui.painter()
-		.rect_filled(rect, (9.0 * scale) as u8, colors.danger);
+		.rect_filled(rect, (9.0 * scale) as u8, colors.badge_fill());
 	// A fixed text size keeps the pop-in from laying out glyphs at every intermediate size.
 	if scale < 0.8 {
 		return;
@@ -148,14 +176,14 @@ pub(super) fn rail_indicator(
 			egui::emath::easing::cubic_out,
 		)
 	};
-	let height = (40.0 * ease("rail-pill-selected", selected))
-		.max(20.0 * ease("rail-pill-hover", hovered))
-		.max(8.0 * ease("rail-pill-unread", unread));
+	let height = (34.0 * ease("rail-pill-selected", selected))
+		.max(17.0 * ease("rail-pill-hover", hovered))
+		.max(7.0 * ease("rail-pill-unread", unread));
 	if height < 0.5 {
 		return;
 	}
 	let pill = egui::Rect::from_center_size(
-		egui::pos2(rect.left() - 10.0, rect.center().y),
+		egui::pos2(rect.left() - f32::from(RAIL_MARGIN) + 1.0, rect.center().y),
 		egui::vec2(8.0, height),
 	);
 	ui.painter()
@@ -242,17 +270,18 @@ impl MessagingUi {
 						design::ImageSection::ServerList,
 					))
 					.inner_margin(egui::Margin {
-						left: 11,
-						right: 11,
+						left: RAIL_MARGIN,
+						right: RAIL_MARGIN,
 						top: 4,
 						bottom: 8,
 					}),
 			)
 			.show(ui, |ui| {
-				ui.spacing_mut().item_spacing.y = 11.0;
+				// Discord stacks rail tiles 8 points apart.
+				ui.spacing_mut().item_spacing.y = 8.0;
 				let home = self.guild.is_none();
 				let (rect, response) =
-					ui.allocate_exact_size(egui::Vec2::splat(46.0), egui::Sense::click());
+					ui.allocate_exact_size(egui::Vec2::splat(RAIL_TILE), egui::Sense::click());
 				let hovered = response.hovered() || response.has_focus();
 				// Rests rounder and morphs to the squircle when hovered or selected.
 				let lit = ui.ctx().animate_bool_with_time_and_easing(
@@ -261,7 +290,7 @@ impl MessagingUi {
 					rail_motion(ui),
 					egui::emath::easing::cubic_out,
 				);
-				let radius = egui::lerp(18.0..=13.0, lit).round() as u8;
+				let radius = egui::lerp(16.0..=11.0, lit).round() as u8;
 				ui.painter().rect_filled(
 					rect,
 					radius,
@@ -270,7 +299,7 @@ impl MessagingUi {
 				crate::icons::paint(
 					ui.painter(),
 					crate::icons::Icon::Serein,
-					rect.shrink(10.5),
+					rect.shrink(9.0),
 					colors.text.lerp_to_gamma(colors.accent_text, lit),
 				);
 				rail_indicator(ui, response.id, rect, home, hovered, false);
@@ -288,6 +317,10 @@ impl MessagingUi {
 					egui::WidgetInfo::selected(egui::Role::Button, true, home, label.clone())
 				});
 				design::rail_name(&response, &label);
+				response.context_menu(|ui| {
+					ui.set_width(232.0);
+					self.server_menu.all_read_item(ui, state);
+				});
 				if response.clicked() {
 					self.guild = None;
 					if let Some(command) = state.open_messages() {
@@ -304,7 +337,7 @@ impl MessagingUi {
 						),
 					)
 					.show(ui, |ui| {
-						ui.spacing_mut().item_spacing.y = 12.0;
+						ui.spacing_mut().item_spacing.y = 8.0;
 						// Your own call keeps its conversation on the rail, like Discord's.
 						let call = direct_call(state);
 						// Copy one ID at a time so row actions can borrow the UI without cloning the cache.
@@ -314,15 +347,16 @@ impl MessagingUi {
 							};
 							let in_call = Some(channel.id) == call;
 							let response = if channel.kind == 3 {
-								self.avatars.show_group_rail(ui, channel, 48.0, state.demo)
+								self.avatars
+									.show_group_rail(ui, channel, RAIL_AVATAR, state.demo)
 							} else if let Some(user) = channel.recipients.first() {
-								self.avatars.show_rail(ui, user, 48.0, state.demo)
+								self.avatars.show_rail(ui, user, RAIL_AVATAR, state.demo)
 							} else {
 								let (rect, response) = ui.allocate_exact_size(
-									egui::Vec2::splat(48.0),
+									egui::Vec2::splat(RAIL_AVATAR),
 									egui::Sense::click(),
 								);
-								design::paint_avatar(ui, &channel.name, 48.0, rect);
+								design::paint_avatar(ui, &channel.name, RAIL_AVATAR, rect);
 								response
 							};
 							if channel.kind == 1
@@ -373,25 +407,28 @@ impl MessagingUi {
 								)
 							});
 							design::rail_name(&response, &channel.name);
+							self.preload.conversation(&response, || Some(channel.id));
 							if response.clicked() {
 								self.guild = None;
 								selected = Some(channel.id);
 							}
 						}
-						let (line, _) =
-							ui.allocate_exact_size(egui::vec2(48.0, 2.0), egui::Sense::hover());
+						let (line, _) = ui
+							.allocate_exact_size(egui::vec2(RAIL_TILE, 2.0), egui::Sense::hover());
 						ui.painter().rect_filled(
-							egui::Rect::from_center_size(line.center(), egui::vec2(32.0, 2.0)),
+							egui::Rect::from_center_size(line.center(), egui::vec2(27.0, 2.0)),
 							1,
 							colors.raised,
 						);
 						self.server_folders(ui, state, commands);
-						let (rect, response) =
-							ui.allocate_exact_size(egui::Vec2::splat(48.0), egui::Sense::click());
+						let (rect, response) = ui.allocate_exact_size(
+							egui::Vec2::splat(RAIL_TILE),
+							egui::Sense::click(),
+						);
 						let hovered = response.hovered() || response.has_focus();
 						ui.painter().rect_filled(
 							rect,
-							16,
+							14,
 							if hovered {
 								colors.accent
 							} else {
@@ -401,7 +438,7 @@ impl MessagingUi {
 						crate::icons::paint(
 							ui.painter(),
 							crate::icons::Icon::Plus,
-							rect.shrink(12.0),
+							rect.shrink(10.0),
 							if hovered {
 								colors.accent_text
 							} else {

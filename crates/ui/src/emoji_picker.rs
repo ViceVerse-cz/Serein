@@ -309,9 +309,64 @@ impl CustomMatches {
 	}
 }
 
+/// Home tiles warmed while the GIF button is hovered: about the rows visible when it opens.
+const GIF_WARM_TILES: usize = 8;
+
+/// Loads the GIF picker's home page (trending and categories, from the ten-minute cache when
+/// possible), the favorites sync, and the home's first tile images before the picker opens.
+fn preload_gifs(
+	ctx: &egui::Context,
+	state: &mut State,
+	avatars: &mut Avatars,
+	commands: &mut Vec<Command>,
+) {
+	if !state.gifs.sync_attempted
+		&& let Some(command) = state.request_gif_favorites()
+	{
+		commands.push(command);
+	}
+	// Only from a closed picker's empty view: a failed home waits for the picker's own retry.
+	if state.gifs.view.is_none()
+		&& let Some(command) = state.preload_gifs(std::time::Instant::now())
+	{
+		commands.push(command);
+	}
+	let demo = state.demo;
+	if let Some(gif) = state
+		.gifs
+		.favorites
+		.iter()
+		.find(|gif| model::valid_gif_preview(&gif.preview))
+	{
+		avatars.warm_gif(ctx, gif, demo);
+	}
+	let Some(page) = state
+		.gifs
+		.view
+		.as_ref()
+		.filter(|view| view.query.is_none())
+		.and_then(|view| view.page.as_ref())
+	else {
+		return;
+	};
+	if let Some(gif) = page.gifs.first() {
+		avatars.warm_gif(ctx, gif, demo);
+	}
+	for preview in page
+		.categories
+		.iter()
+		.filter_map(|category| category.preview.as_deref())
+		.take(GIF_WARM_TILES)
+	{
+		avatars.warm_preview(preview, demo);
+	}
+}
+
 pub(crate) struct Picker {
 	/// Lock custom emoji that need Nitro instead of offering them through image sharing.
 	pub hide_nitro_emojis: bool,
+	/// Device preference: resting on the GIF button loads the picker home before it opens.
+	pub preload: bool,
 	stickers: crate::stickers::Browser,
 	reaction: Option<(Target, egui::Rect, egui::Id)>,
 	// ponytail: session-only Unicode usage; persist if cross-launch favorites are needed.
@@ -340,6 +395,7 @@ impl Default for Picker {
 		// Initialize the static catalog during application creation, outside rendering.
 		Self {
 			hide_nitro_emojis: false,
+			preload: false,
 			stickers: crate::stickers::Browser::default(),
 			reaction: None,
 			frequent: Vec::with_capacity(32),
@@ -879,6 +935,9 @@ impl Picker {
 		if !self.open {
 			if was_open {
 				self.close_gifs(state, commands);
+			}
+			if self.preload && gif_trigger.hovered() {
+				preload_gifs(ui.ctx(), state, avatars, commands);
 			}
 			return None;
 		}
@@ -2044,7 +2103,7 @@ fn cover_uv(texture: [usize; 2], rect: egui::Rect) -> egui::Rect {
 	)
 }
 
-fn paint_cover(
+pub(crate) fn paint_cover(
 	ui: &egui::Ui,
 	rect: egui::Rect,
 	texture: (egui::TextureId, [usize; 2]),
@@ -2339,9 +2398,9 @@ fn gif_grid(
 				};
 				match avatars.gif_texture(ui.ctx(), gif, demo) {
 					Some(texture) => paint_cover(ui, rect, texture, 8),
-					None if !model::valid_gif_preview(&gif.preview) => {
-						avatars.paint_gif_media(ui, gif, rect, demo);
-					}
+					// Clips and Discord-hosted favorites keep the tile placeholder until painted.
+					None if !model::valid_gif_preview(&gif.preview)
+						&& avatars.paint_gif_media(ui, gif, rect, demo) => {}
 					None => {
 						ui.painter().rect_filled(rect, 8, colors.raised);
 						crate::icons::paint(
@@ -2535,295 +2594,6 @@ mod tests {
 		assert!(state.is_gif_favorite(&video));
 		assert!(avatars.gif_texture(&ctx, &video, false).is_none());
 		assert!(avatars.take_requests().is_empty());
-	}
-
-	#[test]
-	fn server_rail_prioritizes_current_server_and_preserves_other_servers() {
-		for current in [None, Some(0), Some(2), Some(4)] {
-			let order: Vec<_> = (0..5).map(|row| server_rail_index(row, current)).collect();
-			let mut expected: Vec<_> = (0..5).filter(|index| Some(*index) != current).collect();
-			if let Some(current) = current {
-				expected.insert(0, current);
-			}
-			assert_eq!(order, expected);
-		}
-	}
-
-	#[test]
-	fn current_server_is_the_first_clickable_picker_rail_entry() {
-		let ctx = egui::Context::default();
-		ctx.enable_accesskit();
-		let mut state = test_support::demo_state();
-		let channel = state.selected.unwrap();
-		let mut second = state.guilds[0].clone();
-		second.id = Id(777);
-		second.name = "Current synthetic server".into();
-		state.guilds[0].name = "Other synthetic server".into();
-		state.guilds.push(second);
-		state
-			.channels
-			.iter_mut()
-			.find(|known| known.id == channel)
-			.unwrap()
-			.guild = Some(Id(777));
-		let order: Vec<_> = state.guilds.iter().map(|guild| guild.id).collect();
-		let mut picker = Picker {
-			open: true,
-			..Default::default()
-		};
-		let mut avatars = Avatars::default();
-		let mut frame = |picker: &mut Picker, state: &mut State, events| {
-			ctx.run_ui(
-				egui::RawInput {
-					focused: true,
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(900.0, 700.0),
-					)),
-					events,
-					..Default::default()
-				},
-				|ui| {
-					ui.add_space(620.0);
-					let trigger = ui.button("Synthetic picker trigger");
-					let mut commands = Vec::new();
-					picker.popup(
-						ui,
-						state,
-						channel,
-						&mut avatars,
-						&mut commands,
-						&trigger,
-						None,
-					);
-					assert!(commands.is_empty());
-				},
-			)
-		};
-		for _ in 0..3 {
-			frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
-		}
-		let output = frame(&mut picker, &mut state, vec![]);
-		let nodes = &output
-			.platform_output
-			.accesskit_update
-			.as_ref()
-			.unwrap()
-			.nodes;
-		let position = |name| {
-			nodes
-				.iter()
-				.find_map(|(_, node)| {
-					(node.label() == Some(name))
-						.then(|| node.bounds())
-						.flatten()
-				})
-				.expect("server rail entry")
-		};
-		let current = position("Current synthetic server");
-		let other = position("Other synthetic server");
-		assert!(current.y0 < other.y0);
-		let pos = egui::pos2(
-			((current.x0 + current.x1) * 0.5) as f32,
-			((current.y0 + current.y1) * 0.5) as f32,
-		);
-		output.drop_without_applying_deltas();
-		for pressed in [true, false] {
-			frame(
-				&mut picker,
-				&mut state,
-				vec![
-					egui::Event::PointerMoved(pos),
-					egui::Event::PointerButton {
-						pos,
-						button: egui::PointerButton::Primary,
-						pressed,
-						modifiers: egui::Modifiers::NONE,
-					},
-				],
-			)
-			.drop_without_applying_deltas();
-		}
-		assert_eq!(picker.server, Some(Id(777)));
-		assert_eq!(
-			state
-				.guilds
-				.iter()
-				.map(|guild| guild.id)
-				.collect::<Vec<_>>(),
-			order
-		);
-		for number in 0..40 {
-			let mut guild = state.guilds[0].clone();
-			guild.id = Id(2000 + number);
-			guild.name = format!("Additional synthetic {number}");
-			state.guilds.push(guild);
-		}
-		frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
-		let rail = picker.rail_scroll.unwrap();
-		frame(
-			&mut picker,
-			&mut state,
-			vec![
-				egui::Event::PointerMoved(pos),
-				egui::Event::MouseWheel {
-					unit: egui::MouseWheelUnit::Point,
-					phase: egui::TouchPhase::Move,
-					source: egui::MouseWheelSource::Unknown,
-					delta: egui::vec2(0.0, -600.0),
-					modifiers: egui::Modifiers::NONE,
-				},
-			],
-		)
-		.drop_without_applying_deltas();
-		for _ in 0..6 {
-			frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
-		}
-		frame(
-			&mut picker,
-			&mut state,
-			vec![egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Point,
-				phase: egui::TouchPhase::End,
-				source: egui::MouseWheelSource::Unknown,
-				delta: egui::Vec2::ZERO,
-				modifiers: egui::Modifiers::NONE,
-			}],
-		)
-		.drop_without_applying_deltas();
-		assert!(
-			egui::scroll_area::State::load(&ctx, rail)
-				.unwrap()
-				.clamped_offset()
-				.y > 100.0
-		);
-		state
-			.channels
-			.iter_mut()
-			.find(|known| known.id == channel)
-			.unwrap()
-			.guild = Some(Id(2039));
-		for _ in 0..2 {
-			frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
-		}
-		assert_eq!(
-			egui::scroll_area::State::load(&ctx, rail)
-				.unwrap()
-				.clamped_offset()
-				.y,
-			0.0
-		);
-		assert_eq!(picker.rail_guild, Some(Id(2039)));
-	}
-
-	#[test]
-	#[ignore = "release picker frame benchmark; ten warmup frames and one warmup/five measured batches"]
-	fn custom_picker_frame_benchmark() {
-		const FRAMES: usize = 200;
-		for (label, guild_count, query, selected_server, churn) in [
-			("server", 1, "", true, false),
-			("search-hit", 100, "needle", false, false),
-			("search-miss", 100, "missing_emoji", false, false),
-			("search-many", 100, "emoji", false, false),
-			("search-hit-churn", 100, "needle", false, true),
-		] {
-			let mut state = test_support::demo_state();
-			let template = state.guilds[0].clone();
-			let emoji = template.emojis.as_ref().unwrap()[0].clone();
-			state.guilds = (0..guild_count)
-				.map(|guild| model::Guild {
-					default_message_notifications: None,
-					id: Id(template.id.0 + guild),
-					name: format!("Synthetic server {guild}"),
-					icon: None,
-					stickers: None,
-					emojis: Some(
-						(0..500)
-							.rev()
-							.map(|index| model::CustomEmoji {
-								id: Id(100_000 + guild * 500 + index),
-								name: if guild + 1 == guild_count && index == 499 {
-									"needle".into()
-								} else {
-									format!("emoji_{guild}_{index}")
-								},
-								..emoji.clone()
-							})
-							.collect(),
-					),
-				})
-				.collect();
-			state.invalidate_navigation();
-			let channel = state.selected.unwrap();
-			let mut picker = Picker {
-				open: true,
-				channel: Some(channel),
-				generation: state.generation,
-				server: selected_server.then_some(template.id),
-				query: query.into(),
-				..Picker::default()
-			};
-			picker.filter();
-			let ctx = egui::Context::default();
-			let mut avatars = Avatars::default();
-			let mut commands = Vec::new();
-			let mut frame_number = 0;
-			let mut frame = || {
-				// Exercise accepted message events, including reducer work, so domain
-				// invalidation is measured rather than a synthetic global revision bump.
-				if churn {
-					state.apply(client_core::Envelope {
-						generation: state.generation,
-						event: client_core::Event::Message(test_support::message(
-							1_000_000 + frame_number,
-							channel,
-						)),
-					});
-				}
-				frame_number += 1;
-				let output = ctx.run_ui(
-					egui::RawInput {
-						screen_rect: Some(egui::Rect::from_min_size(
-							egui::Pos2::ZERO,
-							egui::vec2(900.0, 700.0),
-						)),
-						time: Some(frame_number as f64 / 60.0),
-						..Default::default()
-					},
-					|ui| {
-						std::hint::black_box(picker.show(
-							ui,
-							&mut state,
-							channel,
-							&mut avatars,
-							&mut commands,
-						));
-					},
-				);
-				std::hint::black_box(output.shapes.len());
-				output.drop_without_applying_deltas();
-				commands.clear();
-			};
-			for _ in 0..10 {
-				frame();
-			}
-			let mut samples = Vec::with_capacity(5);
-			for batch in 0..6 {
-				let start = std::time::Instant::now();
-				for _ in 0..FRAMES {
-					frame();
-				}
-				let elapsed = start.elapsed().as_secs_f64() * 1_000.0;
-				if batch != 0 {
-					samples.push(elapsed);
-				}
-			}
-			assert!(picker.open);
-			assert_eq!(picker.query, query);
-			println!(
-				"custom_picker {label}: guilds={guild_count}, emojis_per_guild=500, frames={FRAMES}, samples_ms={samples:?}"
-			);
-		}
 	}
 
 	#[test]

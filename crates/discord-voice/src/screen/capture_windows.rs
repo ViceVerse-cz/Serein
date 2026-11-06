@@ -48,6 +48,9 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		sources.push(Source {
 			id: SourceId::Display(monitor_id(&monitor)),
 			name: bounded_name(name),
+			width,
+			height,
+			refresh_hz: monitor.refresh_rate().unwrap_or(0),
 		});
 		if sources.len() == MAX_SOURCES {
 			return Ok(sources);
@@ -75,6 +78,12 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		sources.push(Source {
 			id: SourceId::Window(window_id(&window)),
 			name: bounded_name(title),
+			width,
+			height,
+			refresh_hz: window
+				.monitor()
+				.and_then(|monitor| monitor.refresh_rate().ok())
+				.unwrap_or(0),
 		});
 		if sources.len() == MAX_SOURCES {
 			break;
@@ -189,6 +198,7 @@ pub(crate) struct Capture {
 }
 
 impl Capture {
+	#[allow(clippy::too_many_arguments)] // One capture's output, stop, readiness, audio and consent flags.
 	pub(crate) fn start(
 		settings: CaptureSettings,
 		frames: SyncSender<RawFrame>,
@@ -197,6 +207,8 @@ impl Capture {
 		ready: Arc<AtomicBool>,
 		audio_epoch: Arc<AtomicU64>,
 		pending: Arc<AtomicBool>,
+		// The worker's cancellation: a stopped share gives up a pending consent wait.
+		cancel: Arc<AtomicBool>,
 	) -> Result<Self, &'static str> {
 		if settings.width == 0
 			|| settings.height == 0
@@ -213,7 +225,7 @@ impl Capture {
 					.into_iter()
 					.find(|monitor| monitor_id(monitor) == id)
 					.ok_or("Selected display is no longer available")?;
-				start_item(settings, monitor, frames, stop.clone(), pending)
+				start_item(settings, monitor, frames, stop.clone(), pending, cancel)
 			}
 			SourceId::Window(id) => {
 				let window = Window::enumerate()
@@ -221,7 +233,7 @@ impl Capture {
 					.into_iter()
 					.find(|window| window_id(window) == id)
 					.ok_or("Selected window is no longer available")?;
-				start_item(settings, window, frames, stop.clone(), pending)
+				start_item(settings, window, frames, stop.clone(), pending, cancel)
 			}
 			#[allow(unreachable_patterns)] // Portal may be absent from platform-scoped models.
 			_ => return Err("The desktop screen picker is available only on Linux"),
@@ -238,14 +250,21 @@ impl Capture {
 }
 
 trait NativeSource:
-	TryInto<windows_capture::settings::GraphicsCaptureItemType> + Send + 'static
+	TryInto<windows_capture::settings::GraphicsCaptureItemType> + Send + Copy + 'static
 {
 	fn dimensions(&self) -> Option<(u32, u32)>;
+	/// Converts the source once, so Windows can answer with its permission decision.
+	fn probe(&self) -> Result<(), &'static str>;
 }
 
 impl NativeSource for Monitor {
 	fn dimensions(&self) -> Option<(u32, u32)> {
 		self.width().ok().zip(self.height().ok())
+	}
+	fn probe(&self) -> Result<(), &'static str> {
+		<Monitor as TryInto<windows_capture::settings::GraphicsCaptureItemType>>::try_into(*self)
+			.map(|_| ())
+			.map_err(|error| capture_refusal(error.code().0 as u32))
 	}
 }
 
@@ -260,14 +279,21 @@ impl NativeSource for Window {
 					.and_then(|height| u32::try_from(height).ok()),
 			)
 	}
+	fn probe(&self) -> Result<(), &'static str> {
+		<Window as TryInto<windows_capture::settings::GraphicsCaptureItemType>>::try_into(*self)
+			.map(|_| ())
+			.map_err(|error| capture_refusal(error.code().0 as u32))
+	}
 }
 
+#[allow(clippy::too_many_arguments)] // One capture's stop, readiness, audio and cancellation flags.
 fn start_item<T>(
 	settings: CaptureSettings,
 	item: T,
 	frames: SyncSender<RawFrame>,
 	stop: Arc<AtomicBool>,
 	pending: Arc<AtomicBool>,
+	cancel: Arc<AtomicBool>,
 ) -> Result<Capture, &'static str>
 where
 	T: NativeSource,
@@ -278,6 +304,11 @@ where
 	if width == 0 || height == 0 || width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT {
 		return Err("Selected source exceeds the 4K capture limit");
 	}
+	// Windows 11 keeps a per-application consent; an application that never asks is denied and
+	// the Settings page lists no request. Asking here shows the system prompt once.
+	request_access(&cancel)?;
+	// The item conversion can still refuse the source (a protected window, for example).
+	item.probe()?;
 	let flags = Flags {
 		frames,
 		stop,
@@ -285,13 +316,24 @@ where
 		next_frame: Instant::now(),
 		interval: Duration::from_secs_f64(1.0 / f64::from(settings.fps)),
 	};
-	let native = Settings::new(
-		item,
-		if settings.cursor {
+	let cursor =
+		if settings.cursor && GraphicsCaptureApi::is_cursor_settings_supported().unwrap_or(false) {
+			CursorCaptureSettings::WithCursor
+		} else if settings.cursor {
 			CursorCaptureSettings::Default
 		} else {
 			CursorCaptureSettings::WithoutCursor
-		},
+		};
+	// An unset interval lets Windows batch pointer-only updates away from the frame rate.
+	let minimum_update =
+		if GraphicsCaptureApi::is_minimum_update_interval_supported().unwrap_or(false) {
+			MinimumUpdateIntervalSettings::Custom(Duration::from_millis(1))
+		} else {
+			MinimumUpdateIntervalSettings::Default
+		};
+	let native = Settings::new(
+		item,
+		cursor,
 		// Hide the border where supported; older Windows must keep the system default.
 		if GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false) {
 			DrawBorderSettings::WithoutBorder
@@ -299,13 +341,12 @@ where
 			DrawBorderSettings::Default
 		},
 		SecondaryWindowSettings::Default,
-		MinimumUpdateIntervalSettings::Default,
+		minimum_update,
 		DirtyRegionSettings::Default,
 		ColorFormat::Bgra8,
 		flags,
 	);
-	let control =
-		Handler::start_free_threaded(native).map_err(|_| "Screen capture could not be started")?;
+	let control = Handler::start_free_threaded(native).map_err(|error| start_failure(&error))?;
 	Ok(Capture {
 		control: Some(control),
 		audio: None,
@@ -317,6 +358,95 @@ impl Drop for Capture {
 		self.audio.take();
 		if let Some(control) = self.control.take() {
 			let _ = control.stop();
+		}
+	}
+}
+
+/// `E_ACCESSDENIED`; Windows 11's "Screenshots and screen recording" privacy setting returns it.
+const ACCESS_DENIED: u32 = 0x8007_0005;
+/// Windows 11 blocks programmatic capture for applications the owner has not allowed.
+const DENIED: &str = "Windows blocked screen capture for this app; allow it in Settings, Privacy & security, Screenshots and screen recording";
+/// How often a pending consent wait checks whether the share was cancelled.
+const CONSENT_POLL: Duration = Duration::from_millis(50);
+
+/// Asks Windows for the programmatic capture consent this application needs.
+///
+/// The consent is per application: an application that never asks is denied outright and the
+/// Settings page lists no request. The call shows the system prompt once; the wait stays
+/// cancellable so a share stopped while the prompt is open releases the worker at once.
+fn request_access(stop: &AtomicBool) -> Result<(), &'static str> {
+	use windows::Graphics::Capture::{GraphicsCaptureAccess, GraphicsCaptureAccessKind};
+	use windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus;
+	use windows_future::AsyncStatus;
+	// SAFETY: WinRT activation needs an initialized apartment on this worker thread. Only the
+	// consent call below decides the outcome, so an already-initialized mode is harmless.
+	#[allow(unsafe_code)]
+	unsafe {
+		let _ = windows::Win32::System::WinRT::RoInitialize(
+			windows::Win32::System::WinRT::RO_INIT_MULTITHREADED,
+		);
+	}
+	let Ok(operation) =
+		GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Programmatic)
+	else {
+		// Builds without the consent API report their decision through the capture item instead.
+		return Ok(());
+	};
+	while operation.Status() == Ok(AsyncStatus::Started) {
+		if stop.load(Ordering::Acquire) {
+			return Err("Screen sharing was cancelled");
+		}
+		std::thread::sleep(CONSENT_POLL);
+	}
+	match operation.GetResults() {
+		Ok(status) if status == AppCapabilityAccessStatus::Allowed => Ok(()),
+		// A decision the owner made is the only answer this call can be trusted with: an
+		// unpackaged executable reports NotDeclaredByApp even where capture is already allowed,
+		// and that decision still belongs to the capture item.
+		Ok(status)
+			if status == AppCapabilityAccessStatus::DeniedByUser
+				|| status == AppCapabilityAccessStatus::DeniedBySystem =>
+		{
+			Err(DENIED)
+		}
+		_ => Ok(()),
+	}
+}
+
+/// The item conversion is the first place Windows reports the privacy decision.
+fn capture_refusal(code: u32) -> &'static str {
+	if code == ACCESS_DENIED {
+		DENIED
+	} else {
+		"Screen capture could not be started"
+	}
+}
+
+fn start_failure(
+	error: &windows_capture::capture::GraphicsCaptureApiError<&'static str>,
+) -> &'static str {
+	use windows_capture::{capture::GraphicsCaptureApiError as Error, graphics_capture_api};
+	match error {
+		Error::GraphicsCaptureApiError(graphics_capture_api::Error::WindowsError(windows))
+			if windows.code().0 as u32 == ACCESS_DENIED =>
+		{
+			DENIED
+		}
+		Error::DirectXError(_) => "The graphics driver could not start screen capture",
+		Error::FailedToInitWinRT
+		| Error::FailedToCreateDispatcherQueueController
+		| Error::FailedToShutdownDispatcherQueue
+		| Error::FailedToSetDispatcherQueueCompletedHandler
+		| Error::FailedToRunMessageLoop
+		| Error::FailedToStartCaptureThread
+		| Error::FailedToJoinThread => "Windows could not start its screen-capture service",
+		Error::ItemConvertFailed => "The selected screen or window cannot be captured",
+		Error::GraphicsCaptureApiError(graphics_capture_api::Error::Unsupported) => {
+			"Windows Graphics Capture is unavailable on this Windows build"
+		}
+		Error::GraphicsCaptureApiError(_) => "Windows refused to start screen capture",
+		Error::NewHandlerError(_) | Error::FrameHandlerError(_) => {
+			"Screen capture could not be started"
 		}
 	}
 }

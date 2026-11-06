@@ -29,8 +29,17 @@ mod portal_linux;
 mod video;
 // The shared screen module reaches the platform encoders' keyframe check through this path.
 #[cfg(target_os = "linux")]
+#[path = "../src/video_av1.rs"]
+mod video_av1;
+#[cfg(target_os = "linux")]
+#[path = "../src/video_codec.rs"]
+mod video_codec;
+#[cfg(target_os = "linux")]
 #[path = "../src/video_encode.rs"]
 mod video_encode;
+#[cfg(target_os = "linux")]
+#[path = "../src/video_hevc.rs"]
+mod video_hevc;
 #[cfg(target_os = "linux")]
 #[path = "../src/video_receive.rs"]
 mod video_receive;
@@ -38,6 +47,91 @@ mod video_receive;
 #[cfg(target_os = "linux")]
 #[path = "../src/diagnostics.rs"]
 mod diagnostics;
+#[cfg(target_os = "linux")]
+#[path = "../src/teardown.rs"]
+mod teardown;
+#[cfg(target_os = "linux")]
+#[path = "../src/timer.rs"]
+mod timer;
+
+/// `--nvenc-exit`: quits while a synthetic NVENC share is still encoding, the way closing
+/// Serein drops a live screen worker. `--no-wait` exits during the teardown instead of waiting
+/// for it: on NVIDIA drivers libnvcuvid's exit handler then crashes or deadlocks the process.
+#[cfg(target_os = "linux")]
+fn nvenc_exit() {
+	use ::gstreamer as gst;
+	use gstreamer::{Capture, Mode};
+	use std::{
+		sync::{
+			Arc,
+			atomic::{AtomicBool, Ordering},
+			mpsc,
+		},
+		time::Duration,
+	};
+	gst::init().unwrap();
+	let settings = Settings {
+		source: SourceId::Display(1),
+		width: 1280,
+		height: 720,
+		fps: 30,
+		cursor: true,
+		audio: false,
+	};
+	let stop = Arc::new(AtomicBool::new(false));
+	let worker_stop = stop.clone();
+	let (encoding, encoded) = mpsc::sync_channel(1);
+	let teardown = teardown::Thread::start();
+	std::thread::Builder::new()
+		.name("screen-encoder".into())
+		.spawn(move || {
+			let _teardown = teardown;
+			let source = gst::ElementFactory::make("videotestsrc")
+				.property("is-live", true)
+				.build()
+				.unwrap();
+			let ready = Arc::new(AtomicBool::new(true));
+			let Ok(pipeline) = Capture::new(
+				settings,
+				Mode::Nvidia,
+				settings.bit_rate(),
+				source,
+				worker_stop.clone(),
+				ready,
+				Arc::new(AtomicBool::new(true)),
+				|| true,
+			) else {
+				return;
+			};
+			while !worker_stop.load(Ordering::Acquire) && !pipeline.failed() {
+				if pipeline
+					.frames
+					.try_pull_sample(gst::ClockTime::from_mseconds(10))
+					.is_some()
+				{
+					let _ = encoding.try_send(());
+				}
+			}
+		})
+		.unwrap();
+	if encoded.recv_timeout(Duration::from_secs(10)).is_err() {
+		eprintln!(
+			"NVENC did not encode a synthetic frame; this check needs an NVIDIA GPU and nvh264enc."
+		);
+		std::process::exit(2);
+	}
+	stop.store(true, Ordering::Release);
+	if std::env::args().any(|arg| arg == "--no-wait") {
+		// Exit inside the encoder's teardown, where an RTX 3070 crashed in 10 of 10 runs.
+		std::thread::sleep(Duration::from_millis(5));
+	} else {
+		assert!(
+			teardown::wait_for_media_threads(Duration::from_secs(5)),
+			"NVENC teardown did not finish"
+		);
+	}
+	println!("Exiting with the synthetic NVENC share stopped.");
+}
 
 #[cfg(target_os = "linux")]
 fn main() {
@@ -51,6 +145,9 @@ fn main() {
 		},
 		time::{Duration, Instant},
 	};
+	if std::env::args().any(|arg| arg == "--nvenc-exit") {
+		return nvenc_exit();
+	}
 	let mode = if std::env::args().any(|arg| arg == "--legacy-vaapi") {
 		Mode::VaLegacy
 	} else {
@@ -94,8 +191,11 @@ fn main() {
 			assert!(pipeline.frames.try_pull_sample(gst::ClockTime::ZERO).is_none(), "must not encode before secure readiness");
 			if let Some(sample) = pipeline.preview.try_pull_sample(gst::ClockTime::ZERO) {
 				let raw = gstreamer::raw(&sample).unwrap();
-				assert_eq!((raw.width, raw.height), (640, 360));
-				assert_eq!(preview_frame(&raw).unwrap().as_raw().len(), 640 * 360 * 4);
+				assert_eq!((raw.width, raw.height), (settings.width, settings.height));
+				assert_eq!(
+					preview_frame(&raw).unwrap().as_raw().len(),
+					settings.width as usize * settings.height as usize * 4
+				);
 				let pts = sample.buffer().unwrap().pts().expect("preview timestamp");
 				assert!(last_preview_pts.is_none_or(|last| pts > last), "preview must keep advancing");
 				last_preview_pts = Some(pts);
@@ -162,3 +262,8 @@ fn main() {
 fn main() {
 	eprintln!("This debug check requires Linux with GStreamer.");
 }
+
+#[path = "../src/presentation.rs"]
+mod presentation;
+pub use presentation::{PlaybackFrame, Presentation};
+type Frame = [f32; 960];

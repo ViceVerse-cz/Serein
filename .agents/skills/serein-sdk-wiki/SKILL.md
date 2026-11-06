@@ -1,6 +1,6 @@
 ---
 name: serein-sdk-wiki
-description: Keep Serein's creator wiki synchronized with reviewed extension SDK, capability, ABI, example, theme and authoring-documentation changes. Use during SDK delivery or an explicit wiki refresh.
+description: Synchronize Serein’s creator wiki for author-visible extension SDK or theme API changes, or an explicit wiki refresh.
 ---
 
 # Maintain the Serein SDK wiki
@@ -10,7 +10,7 @@ remote is `https://github.com/ViceVerse-cz/Serein.wiki.git`. The authoritative s
 are `examples/extensions/README.md`, `docs/extension-sdk-reference.md`,
 `docs/extension-sdk-actions.md`, `docs/extension-sdk-overview.md`,
 `docs/extension-sdk-troubleshooting.md`, `docs/extensions.md`, and `docs/theme-api.md`.
-Update those alongside the code. Do not maintain a second copy of the API contract.
+Update the affected sources alongside the code. Do not maintain a second copy of the API contract.
 
 Apply this skill when changes affect extension manifests, capabilities, action
 surfaces, invocation/output fields, limits, lifecycle, SDK helpers, examples or
@@ -47,8 +47,8 @@ and edits; use another clone if necessary.
 From the repository root (replace values with the current pushed revision/status):
 
 ```powershell
-python .agents/skills/serein-sdk-wiki/scripts/sync.py --source-ref <full-pushed-commit> --wiki-dir target/<wiki-clone> --status "Preview SDK — PR #373, not yet released"
-python .agents/skills/serein-sdk-wiki/scripts/sync.py --source-ref <full-pushed-commit> --wiki-dir target/<wiki-clone> --status "Preview SDK — PR #373, not yet released" --check
+python .agents/skills/serein-sdk-wiki/scripts/sync.py --source-ref <full-pushed-commit> --wiki-dir target/<wiki-clone> --status "Preview SDK — PR #<number>, not yet released"
+python .agents/skills/serein-sdk-wiki/scripts/sync.py --source-ref <full-pushed-commit> --wiki-dir target/<wiki-clone> --status "Preview SDK — PR #<number>, not yet released" --check
 git -C target/<wiki-clone> diff --check
 git -C target/<wiki-clone> diff --stat
 git -C target/<wiki-clone> diff
@@ -85,6 +85,8 @@ origin/default branch. Do not force-push or change repository permissions,
 workflows, credentials, or secrets. If a normal push races, fetch and inspect the
 upstream changes before reconciling; do not overwrite a conflicting human edit.
 
+Completion includes canonical documentation, applicable example validation and reviewed wiki
+publication from the pushed source commit, or an explicit publication blocker.
 Read back the pushed wiki commit and open the affected public pages to verify
 navigation, rendered code and source/status links. Record the wiki URL and source
 commit in the SDK PR. If access or publication fails, finish the local generated

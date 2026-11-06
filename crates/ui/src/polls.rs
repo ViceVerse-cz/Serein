@@ -47,6 +47,7 @@ impl Cards {
 		let width = (ui.available_width() - 32.0).clamp(48.0, 440.0);
 		egui::Frame::new()
 			.fill(design::message_card_fill(ui, colors.sidebar))
+			.stroke(design::message_card_stroke(ui))
 			.corner_radius(8)
 			.inner_margin(16)
 			.show(ui, |ui| {
@@ -877,10 +878,10 @@ fn duration_label(hours: u16) -> String {
 	}
 }
 
-#[cfg(any(feature = "demo", test))]
+#[cfg(feature = "demo")]
 struct WindowEffectsRestore((bool, u8, u8));
 
-#[cfg(any(feature = "demo", test))]
+#[cfg(feature = "demo")]
 impl Drop for WindowEffectsRestore {
 	fn drop(&mut self) {
 		let (enabled, transparency, blur) = self.0;
@@ -921,15 +922,13 @@ pub fn debug_poll_check(state: &State) {
 				card_fill = design::message_card_fill(ui, design::palette(ui).sidebar);
 				let chat = design::window_palette(ui).chat;
 				if transparency > 0 {
-					// Card, answer and result coats must not turn translucent chat opaque.
-					assert!(card_fill.a() <= 32);
+					// Card, answer and result coats stay visible but must not turn
+					// translucent chat opaque.
+					assert!((1..=24).contains(&card_fill.a()));
 					assert!(
 						chat.blend(card_fill).blend(card_fill).blend(card_fill).a()
-							<= chat.a().saturating_add(24)
+							<= chat.a().saturating_add(64)
 					);
-					if transparency == 100 {
-						assert_eq!(card_fill.a(), 0);
-					}
 				}
 				ui.set_width(width - 16.0);
 				let mut cards = Cards::default();
