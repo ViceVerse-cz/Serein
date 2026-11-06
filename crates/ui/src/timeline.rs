@@ -1286,6 +1286,21 @@ fn queue_missing_channel_reference(
 		*queued = formatted.missing_channel_reference(state, revealed);
 	}
 }
+/// An 18 px reply or command line led by the spine; `horizontal` would take the
+/// theme's taller control height and push the author line down.
+fn reference_row(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
+	let colors = crate::design::palette(ui);
+	ui.allocate_ui_with_layout(
+		egui::vec2(ui.available_width(), 18.0),
+		egui::Layout::left_to_right(egui::Align::Center),
+		|ui| {
+			ui.spacing_mut().interact_size.y = 18.0;
+			ui.spacing_mut().item_spacing.x = 6.0;
+			reference_spine(ui, &colors);
+			add_contents(ui);
+		},
+	);
+}
 /// The curved gutter connector shared by reply and command-invocation headers.
 fn reference_spine(ui: &mut egui::Ui, colors: &crate::design::Palette) {
 	let (gutter, _) = ui.allocate_exact_size(egui::vec2(50.0, 18.0), egui::Sense::hover());
@@ -1381,45 +1396,51 @@ fn divider(ui: &mut egui::Ui, label: String, unread: bool, compact: bool) {
 	let colors = crate::design::palette(ui);
 	let color = if unread { colors.danger } else { colors.muted };
 	ui.add_space(if compact { 8.0 } else { 16.0 });
-	ui.horizontal(|ui| {
-		ui.add_space(16.0);
-		let font = egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx()));
-		let text = ui.painter().layout_no_wrap(label.clone(), font, color);
-		let (rect, response) = ui.allocate_exact_size(
-			egui::vec2((ui.available_width() - 16.0).max(0.0), 20.0),
-			crate::select::band_sense(),
-		);
-		response
-			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &label));
-		let pos = egui::pos2(
-			rect.center().x - text.size().x / 2.0,
-			rect.center().y - text.size().y / 2.0,
-		);
-		let gap = (rect.width() - text.size().x - 24.0).max(0.0) / 2.0;
-		for (a, b) in [
-			(rect.left(), rect.left() + gap),
-			(rect.right() - gap, rect.right()),
-		] {
-			ui.painter().line_segment(
-				[
-					egui::pos2(a, rect.center().y),
-					egui::pos2(b, rect.center().y),
-				],
-				egui::Stroke::new(1.0, if unread { color } else { colors.border }),
+	// `horizontal` would take the theme's taller control height.
+	ui.allocate_ui_with_layout(
+		egui::vec2(ui.available_width(), 20.0),
+		egui::Layout::left_to_right(egui::Align::Center),
+		|ui| {
+			ui.add_space(16.0);
+			let font = egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx()));
+			let text = ui.painter().layout_no_wrap(label.clone(), font, color);
+			let (rect, response) = ui.allocate_exact_size(
+				egui::vec2((ui.available_width() - 16.0).max(0.0), 20.0),
+				crate::select::band_sense(),
 			);
-		}
-		egui::text_selection::LabelSelectionState::label_text_selection(
-			ui,
-			&response,
-			pos,
-			text,
-			color,
-			egui::Stroke::NONE,
-		);
-		if response.hovered() {
-			ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
-		}
-	});
+			response.widget_info(|| {
+				egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &label)
+			});
+			let pos = egui::pos2(
+				rect.center().x - text.size().x / 2.0,
+				rect.center().y - text.size().y / 2.0,
+			);
+			let gap = (rect.width() - text.size().x - 24.0).max(0.0) / 2.0;
+			for (a, b) in [
+				(rect.left(), rect.left() + gap),
+				(rect.right() - gap, rect.right()),
+			] {
+				ui.painter().line_segment(
+					[
+						egui::pos2(a, rect.center().y),
+						egui::pos2(b, rect.center().y),
+					],
+					egui::Stroke::new(1.0, if unread { color } else { colors.border }),
+				);
+			}
+			egui::text_selection::LabelSelectionState::label_text_selection(
+				ui,
+				&response,
+				pos,
+				text,
+				color,
+				egui::Stroke::NONE,
+			);
+			if response.hovered() {
+				ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
+			}
+		},
+	);
 	ui.add_space(if compact { 2.0 } else { 4.0 });
 }
 /// A hover-bar reaction: its emoji, whether the reader already reacted, and whether it toggles now.
@@ -3064,9 +3085,18 @@ impl TimelineView {
 							self.compact_messages,
 						);
 					}
-					if self.unread_boundary == Some(id) {
+					let unread_boundary = self.unread_boundary == Some(id);
+					if unread_boundary {
 						divider(ui, "New messages".into(), true, self.compact_messages);
 					}
+					// Like Discord, the gap above a group sits outside the row highlight;
+					// a divider already separates the group.
+					let group_lift = if compact || new_day || unread_boundary {
+						0
+					} else {
+						group_gap(false) - 2
+					};
+					ui.add_space(f32::from(group_lift));
 					let colors = crate::design::palette(ui);
 					let background = ui.painter().add(egui::Shape::Noop);
 					let mut time_rect = None;
@@ -3083,7 +3113,7 @@ impl TimelineView {
 							} else if compact {
 								1
 							} else {
-								group_gap(self.compact_messages)
+								2
 							},
 							bottom: 1,
 						})
@@ -3096,10 +3126,7 @@ impl TimelineView {
 								.as_deref()
 								.filter(|_| message.reply_to.is_none())
 							{
-								ui.horizontal(|ui| {
-									ui.spacing_mut().interact_size.y = 18.0;
-									ui.spacing_mut().item_spacing.x = 6.0;
-									reference_spine(ui, &colors);
+								reference_row(ui, |ui| {
 									let avatar =
 										avatars.show(ui, &interaction.user, 16.0, state.demo);
 									surface.keep(&avatar);
@@ -3152,10 +3179,7 @@ impl TimelineView {
 							}
 							// A poll result's reference opens through its result card instead.
 							if let Some(reply) = message.reply_to.filter(|_| message.kind != 46) {
-								ui.horizontal(|ui| {
-									ui.spacing_mut().interact_size.y = 18.0;
-									ui.spacing_mut().item_spacing.x = 6.0;
-									reference_spine(ui, &colors);
+								reference_row(ui, |ui| {
 									// Reuse only loaded content; never fetch a thread while painting.
 									if message.reply_deleted || state.timeline.is_deleted(reply) {
 										let deleted = ui.add(
@@ -4126,6 +4150,8 @@ impl TimelineView {
 							surface.finish(ui);
 						});
 					let rect = row.response.rect;
+					// Group starts lost 8 px of top margin; keep the toolbar where it sat.
+					let toolbar_top = rect.top() - if compact { 10.0 } else { 18.0 };
 					if let Some(pos) = double_click
 						&& let Some(text) = self.double_click_reaction
 						&& !deleted && rect.contains(pos)
@@ -4252,7 +4278,7 @@ impl TimelineView {
 							.is_some_and(|u| u.id == message.author.id);
 						if deleted {
 							let toolbar_rect = egui::Rect::from_min_size(
-								egui::pos2(rect.right() - 46.0, rect.top() - 10.0),
+								egui::pos2(rect.right() - 46.0, toolbar_top),
 								egui::vec2(36.0, 28.0),
 							);
 							let mut toolbar = ui.new_child(
@@ -4339,7 +4365,7 @@ impl TimelineView {
 							let toolbar_rect = egui::Rect::from_min_size(
 								egui::pos2(
 									(rect.right() - 16.0 - width).max(rect.left()),
-									rect.top() - 10.0,
+									toolbar_top,
 								),
 								egui::vec2(width, 28.0),
 							);
