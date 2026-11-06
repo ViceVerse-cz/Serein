@@ -1,4 +1,4 @@
-//! Native global voice bindings, using the desktop portal on Wayland.
+//! Native global voice bindings, using the desktop portal on Wayland and evdev for mouse buttons on Linux.
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::HotKey};
 use model::{KeyChord, KeybindAction, Keybinds, keybinds::is_mouse_button};
 #[cfg(target_os = "linux")]
@@ -11,12 +11,18 @@ const DISABLED: &str = "Global keybinds are off. Shortcuts work while Serein is 
 const WAYLAND_PENDING: &str = "Approve the global voice keybinds in your desktop's dialog.";
 #[cfg(target_os = "linux")]
 const WAYLAND_UNAVAILABLE: &str = "Global voice keybinds were denied or the desktop GlobalShortcuts portal is unavailable; they still work while Serein is focused.";
+#[cfg(target_os = "linux")]
+const WAYLAND_KEYBOARD_UNAVAILABLE: &str = "Mouse-button voice keybinds work globally. Keyboard ones need the desktop GlobalShortcuts portal, which was denied or is unavailable; they still work while Serein is focused.";
+#[cfg(target_os = "linux")]
+const MOUSE_UNREADABLE: &str = "Global mouse-button keybinds need read access to /dev/input (join the input group and sign in again); they still work while Serein is focused.";
+#[cfg(target_os = "linux")]
+const MOUSE_MODIFIER_UNREADABLE: &str = "Global mouse-button keybinds need readable keyboard modifier state; they still work while Serein is focused.";
 const UNAVAILABLE: &str =
 	"Global voice keybinds are unavailable on this system; they work while Serein is focused.";
 const INVALID: &str = "One or more voice bindings cannot be registered globally; they still work while Serein is focused.";
 const MODIFIER_REQUIRED: &str = "Add Ctrl, Alt, Shift, or Command to use a voice binding globally; it still works while Serein is focused.";
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 /// Mouse poller identities, kept out of the range `global-hotkey` assigns to real hotkeys.
 const MOUSE_ID: u32 = 1 << 31;
 
@@ -133,6 +139,8 @@ pub struct Hotkeys {
 	#[cfg(target_os = "windows")]
 	mouse: Option<mouse::Poller>,
 	#[cfg(target_os = "linux")]
+	mouse: Option<evdev::Poller>,
+	#[cfg(target_os = "linux")]
 	portal: Option<tokio::task::JoinHandle<()>>,
 	#[cfg(target_os = "linux")]
 	portal_pending: Arc<AtomicU8>,
@@ -182,6 +190,8 @@ impl Hotkeys {
 			native,
 			status,
 			#[cfg(target_os = "windows")]
+			mouse: None,
+			#[cfg(target_os = "linux")]
 			mouse: None,
 			#[cfg(target_os = "linux")]
 			portal: None,
@@ -239,6 +249,10 @@ impl Hotkeys {
 		};
 
 		#[cfg(target_os = "linux")]
+		{
+			self.mouse = evdev::Poller::start(&next, self.native.clone());
+		}
+		#[cfg(target_os = "linux")]
 		if std::env::var_os("WAYLAND_DISPLAY").is_some() {
 			let pending = self.portal_pending.clone();
 			let registered = self.portal_registered.clone();
@@ -288,8 +302,12 @@ impl Hotkeys {
 				continue;
 			}
 			if is_mouse_button(&chord.key) {
-				// Windows polls mouse bindings below; elsewhere they stay focused-only.
-				failed |= cfg!(not(target_os = "windows"));
+				// Windows polls mouse bindings below and Linux reads them from evdev above;
+				// elsewhere they stay focused-only.
+				#[cfg(not(target_os = "linux"))]
+				{
+					failed |= cfg!(not(target_os = "windows"));
+				}
 				continue;
 			}
 			if chord.modifiers == 0 && !is_standalone_global_key(&chord.key) {
@@ -337,7 +355,7 @@ impl Hotkeys {
 
 	fn unregister_all(&mut self) {
 		// Stop the poller first so it cannot publish a stale press after the clear.
-		#[cfg(target_os = "windows")]
+		#[cfg(any(target_os = "windows", target_os = "linux"))]
 		drop(self.mouse.take());
 		self.native.clear();
 		if let Some(manager) = &self.manager {
@@ -366,7 +384,7 @@ impl Hotkeys {
 		{
 			return true;
 		}
-		#[cfg(target_os = "windows")]
+		#[cfg(any(target_os = "windows", target_os = "linux"))]
 		if let Some(poller) = &self.mouse
 			&& poller.registers(action, chord)
 		{
@@ -387,7 +405,10 @@ impl Hotkeys {
 
 	/// Bits for mute/deafen bindings currently owned by the native global registrar.
 	pub fn global_toggle_mask(&self) -> u8 {
-		#[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
+		#[cfg_attr(
+			not(any(target_os = "windows", target_os = "linux")),
+			allow(unused_mut)
+		)]
 		let mut mask = self.registered.iter().fold(0, |mask, (_, action, _)| {
 			mask | match action {
 				KeybindAction::ToggleMute => 1,
@@ -395,7 +416,7 @@ impl Hotkeys {
 				_ => 0,
 			}
 		});
-		#[cfg(target_os = "windows")]
+		#[cfg(any(target_os = "windows", target_os = "linux"))]
 		if let Some(poller) = &self.mouse {
 			mask |= poller.toggle_mask();
 		}
@@ -421,16 +442,36 @@ impl Hotkeys {
 		native
 	}
 
+	/// Assigned bindings that are keys rather than mouse buttons.
+	#[cfg(target_os = "linux")]
+	fn keyboard_bindings(&self) -> impl Iterator<Item = &KeyChord> {
+		self.bindings
+			.iter()
+			.flatten()
+			.filter(|(_, chord)| !chord.key.is_empty() && !is_mouse_button(&chord.key))
+			.map(|(_, chord)| chord)
+	}
+
 	pub fn status(&self) -> &'static str {
 		if self.bindings.is_none() {
 			return DISABLED;
 		}
 		#[cfg(target_os = "linux")]
+		if let Some(problem) = self.mouse.as_ref().and_then(evdev::Poller::problem) {
+			return problem;
+		}
+		#[cfg(target_os = "linux")]
 		if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+			let mouse_readable = self.mouse.as_ref().map(evdev::Poller::readable);
 			return match self.portal_status.load(Ordering::Relaxed) {
 				1 => WAYLAND_PENDING,
 				2 => READY,
 				4 => MODIFIER_REQUIRED,
+				// The portal had nothing to bind because every binding is a mouse button.
+				_ if mouse_readable == Some(true) && self.keyboard_bindings().next().is_none() => {
+					READY
+				}
+				_ if mouse_readable == Some(true) => WAYLAND_KEYBOARD_UNAVAILABLE,
 				_ => WAYLAND_UNAVAILABLE,
 			};
 		}
@@ -978,10 +1019,767 @@ mod mouse {
 	}
 }
 
+/// Neither X11 hotkeys nor the GlobalShortcuts portal cover mouse buttons, and compositors such
+/// as niri have no such portal, so bound buttons are read straight from evdev. The devices are
+/// only read, never grabbed: every button still reaches the focused application.
+#[cfg(target_os = "linux")]
+mod evdev {
+	use super::{KeyChord, KeybindAction, MOUSE_ID, NativeInput};
+	use model::keybinds::{ALT, CTRL, PRIMARY, SHIFT};
+	use std::fs::File;
+	use std::io::{self, ErrorKind, Read};
+	use std::os::fd::AsRawFd;
+	use std::os::unix::fs::OpenOptionsExt;
+	use std::path::{Path, PathBuf};
+	use std::sync::{
+		Arc,
+		atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
+	};
+	use std::time::{Duration, Instant};
+
+	const PERIOD: Duration = Duration::from_millis(10);
+	const RESCAN: Duration = Duration::from_secs(2);
+	/// Linux input_event contains a timeval followed by type, code and value.
+	const EVENT_SIZE: usize = size_of::<libc::input_event>();
+	const EV_KEY: u16 = 1;
+	const SYN_DROPPED: u16 = 3;
+	const MAX_DEVICES: usize = 64;
+	const MAX_EVENTS: usize = 64;
+	const BTN_MIDDLE: u16 = 0x112;
+	const BTN_SIDE: u16 = 0x113;
+	const BTN_EXTRA: u16 = 0x114;
+	const BTN_FORWARD: u16 = 0x115;
+	const BTN_BACK: u16 = 0x116;
+	const KEY_LEFTCTRL: u16 = 29;
+	const KEY_LEFTSHIFT: u16 = 42;
+	const KEY_RIGHTSHIFT: u16 = 54;
+	const KEY_LEFTALT: u16 = 56;
+	const KEY_RIGHTCTRL: u16 = 97;
+	const KEY_RIGHTALT: u16 = 100;
+	const MODIFIERS: [u16; 6] = [
+		KEY_LEFTCTRL,
+		KEY_RIGHTCTRL,
+		KEY_LEFTSHIFT,
+		KEY_RIGHTSHIFT,
+		KEY_LEFTALT,
+		KEY_RIGHTALT,
+	];
+	const MODIFIER_GROUPS: [(u8, [u16; 2]); 3] = [
+		(PRIMARY | CTRL, [KEY_LEFTCTRL, KEY_RIGHTCTRL]),
+		(SHIFT, [KEY_LEFTSHIFT, KEY_RIGHTSHIFT]),
+		(ALT, [KEY_LEFTALT, KEY_RIGHTALT]),
+	];
+
+	struct Device {
+		path: PathBuf,
+		file: File,
+		held: Vec<u16>,
+		keys: Vec<u16>,
+	}
+
+	type Watched = (KeybindAction, &'static [u16], u8);
+
+	/// Shared availability is indexed by exact chord, including custom bindings.
+	pub(super) struct Poller {
+		stop: Arc<AtomicBool>,
+		thread: Option<std::thread::JoinHandle<()>>,
+		available: Arc<AtomicU64>,
+		problem: Arc<AtomicU8>,
+		chords: Vec<(KeybindAction, KeyChord)>,
+	}
+
+	impl Poller {
+		pub(super) fn start(
+			bindings: &[(KeybindAction, KeyChord)],
+			native: Arc<NativeInput>,
+		) -> Option<Self> {
+			// At most four built-in and 32 custom voice chords; bound the bitset defensively too.
+			let chords: Vec<_> = bindings
+				.iter()
+				.filter(|(_, chord)| chord.is_valid() && buttons(&chord.key).is_some())
+				.take(64)
+				.cloned()
+				.collect();
+			let watched: Vec<_> = chords
+				.iter()
+				.map(|(action, chord)| (*action, buttons(&chord.key).unwrap(), chord.modifiers))
+				.collect();
+			if watched.is_empty() {
+				return None;
+			}
+			let mut wanted: Vec<u16> = watched
+				.iter()
+				.flat_map(|(_, codes, _)| codes.iter().copied())
+				.collect();
+			// Ctrl must agree even for an unmodified chord. Other modifier groups are read
+			// only when required; no ordinary keyboard key is retained.
+			wanted.extend([KEY_LEFTCTRL, KEY_RIGHTCTRL]);
+			for (mask, codes) in MODIFIER_GROUPS.iter().skip(1) {
+				if watched
+					.iter()
+					.any(|(_, _, modifiers)| modifiers & mask != 0)
+				{
+					wanted.extend(codes);
+				}
+			}
+			wanted.sort_unstable();
+			wanted.dedup();
+			let mut devices = Vec::new();
+			scan(&wanted, &mut devices);
+			let available = Arc::new(AtomicU64::new(availability(&devices, &watched)));
+			let status = Arc::new(AtomicU8::new(problem(&devices, &watched)));
+			let worker_available = available.clone();
+			let worker_problem = status.clone();
+			let stop = Arc::new(AtomicBool::new(false));
+			let stopped = stop.clone();
+			let thread = std::thread::Builder::new()
+				.name("serein-mouse-keybinds".into())
+				.spawn(move || {
+					let mut held = vec![false; watched.len()];
+					let mut scanned = Instant::now();
+					let mut buffer = [0; EVENT_SIZE];
+					while !stopped.load(Ordering::Relaxed) {
+						if scanned.elapsed() >= RESCAN {
+							scanned = Instant::now();
+							scan(&wanted, &mut devices);
+						}
+						let publish = |devices: &[Device]| {
+							let next = availability(devices, &watched);
+							let changed = worker_available.swap(next, Ordering::Relaxed) != next;
+							let next_problem = problem(devices, &watched);
+							let changed = worker_problem.swap(next_problem, Ordering::Relaxed)
+								!= next_problem || changed;
+							if changed {
+								(native.wake)();
+							}
+						};
+						publish(&devices);
+						let mut device = 0;
+						while device < devices.len() {
+							if poll_device(
+								&mut devices,
+								device,
+								&wanted,
+								&watched,
+								&mut held,
+								&native,
+								&mut buffer,
+							) {
+								device += 1;
+							}
+							publish(&devices);
+						}
+						std::thread::sleep(PERIOD);
+					}
+				})
+				.ok()?;
+			Some(Self {
+				stop,
+				thread: Some(thread),
+				available,
+				problem: status,
+				chords,
+			})
+		}
+
+		/// Only available chords suppress their focused counterparts.
+		pub(super) fn registers(&self, action: KeybindAction, chord: &KeyChord) -> bool {
+			let available = self.available.load(Ordering::Relaxed);
+			self.chords
+				.iter()
+				.enumerate()
+				.any(|(i, (registered, current))| {
+					available & (1 << i) != 0 && *registered == action && current == chord
+				})
+		}
+
+		pub(super) fn toggle_mask(&self) -> u8 {
+			let available = self.available.load(Ordering::Relaxed);
+			self.chords
+				.iter()
+				.enumerate()
+				.fold(0, |mask, (i, (action, _))| {
+					if available & (1 << i) != 0 {
+						mask | toggle_bit(*action)
+					} else {
+						mask
+					}
+				})
+		}
+
+		pub(super) fn readable(&self) -> bool {
+			self.problem.load(Ordering::Relaxed) == 0
+		}
+
+		/// A live status shared by X11 and Wayland, independent of keyboard registration.
+		pub(super) fn problem(&self) -> Option<&'static str> {
+			match self.problem.load(Ordering::Relaxed) {
+				1 => Some(super::MOUSE_UNREADABLE),
+				2 => Some(super::MOUSE_MODIFIER_UNREADABLE),
+				_ => None,
+			}
+		}
+	}
+
+	impl Drop for Poller {
+		fn drop(&mut self) {
+			self.stop.store(true, Ordering::Relaxed);
+			if let Some(thread) = self.thread.take() {
+				let _ = thread.join();
+			}
+		}
+	}
+
+	fn toggle_bit(action: KeybindAction) -> u8 {
+		match action {
+			KeybindAction::ToggleMute => 1,
+			KeybindAction::ToggleDeafen => 2,
+			_ => 0,
+		}
+	}
+
+	/// Side-button names vary between Linux mouse drivers.
+	fn buttons(name: &str) -> Option<&'static [u16]> {
+		match name {
+			"MouseMiddle" => Some(&[BTN_MIDDLE]),
+			"MouseExtra1" => Some(&[BTN_SIDE, BTN_BACK]),
+			"MouseExtra2" => Some(&[BTN_EXTRA, BTN_FORWARD]),
+			_ => None,
+		}
+	}
+
+	/// Extra Shift/Alt match focused input, while Ctrl must agree even when absent.
+	fn modifiers_match(modifiers: u8, down: &impl Fn(u16) -> bool) -> bool {
+		let any = |codes: [u16; 2]| codes.into_iter().any(down);
+		any([KEY_LEFTCTRL, KEY_RIGHTCTRL]) == (modifiers & (PRIMARY | CTRL) != 0)
+			&& (modifiers & SHIFT == 0 || any([KEY_LEFTSHIFT, KEY_RIGHTSHIFT]))
+			&& (modifiers & ALT == 0 || any([KEY_LEFTALT, KEY_RIGHTALT]))
+	}
+
+	/// Stream the whole directory twice, prioritizing button devices over modifier-only
+	/// nodes. Payloads and open devices remain bounded; no directory listing is retained.
+	fn scan(wanted: &[u16], devices: &mut Vec<Device>) {
+		scan_at(
+			wanted,
+			devices,
+			Path::new("/sys/class/input"),
+			Path::new("/dev/input"),
+			modifier_state,
+		);
+	}
+
+	fn scan_at(
+		wanted: &[u16],
+		devices: &mut Vec<Device>,
+		sys: &Path,
+		dev: &Path,
+		seed: fn(&File) -> io::Result<Vec<u16>>,
+	) {
+		for button_pass in [true, false] {
+			let Ok(entries) = std::fs::read_dir(sys) else {
+				return;
+			};
+			for entry in entries.flatten() {
+				let name = entry.file_name();
+				let Some(name) = name.to_str().filter(|name| {
+					name.strip_prefix("event").is_some_and(|suffix| {
+						!suffix.is_empty() && suffix.bytes().all(|c| c.is_ascii_digit())
+					})
+				}) else {
+					continue;
+				};
+				let path = dev.join(name);
+				if devices.iter().any(|device| device.path == path) {
+					continue;
+				}
+				let mut capabilities = String::new();
+				let Ok(file) = File::open(entry.path().join("device/capabilities/key")) else {
+					continue;
+				};
+				if file.take(1025).read_to_string(&mut capabilities).is_err()
+					|| capabilities.len() > 1024
+				{
+					continue;
+				}
+				let keys: Vec<_> = wanted
+					.iter()
+					.copied()
+					.filter(|code| has_key(&capabilities, *code))
+					.collect();
+				if keys.is_empty()
+					|| keys.iter().any(|code| !MODIFIERS.contains(code)) != button_pass
+				{
+					continue;
+				}
+				// A newly attached mouse may replace a modifier-only node at the limit.
+				let replace = if devices.len() >= MAX_DEVICES {
+					if !button_pass {
+						continue;
+					}
+					let Some(index) = devices.iter().rposition(|device| {
+						device.keys.iter().all(|code| MODIFIERS.contains(code))
+					}) else {
+						continue;
+					};
+					Some(index)
+				} else {
+					None
+				};
+				let Ok(file) = std::fs::OpenOptions::new()
+					.read(true)
+					.custom_flags(libc::O_NONBLOCK)
+					.open(&path)
+				else {
+					continue;
+				};
+				let held = if keys.iter().any(|code| MODIFIERS.contains(code)) {
+					let Ok(held) = seed(&file) else {
+						continue;
+					};
+					held.into_iter()
+						.filter(|code| keys.contains(code))
+						.collect()
+				} else {
+					Vec::new()
+				};
+				if let Some(index) = replace {
+					devices.remove(index);
+				}
+				devices.push(Device {
+					path,
+					file,
+					held,
+					keys,
+				});
+			}
+		}
+	}
+
+	/// EVIOCGKEY queries current kernel state. Seed only modifiers: reopening a held
+	/// mouse button must never manufacture a voice press after an overflow.
+	#[allow(unsafe_code)]
+	fn modifier_state(file: &File) -> io::Result<Vec<u16>> {
+		let mut bitmap = [0u8; 96]; // KEY_CNT (0x300) bits, Linux input-event-codes.h.
+		// SAFETY: this read-only ioctl writes at most the encoded 96 bytes into a
+		// live buffer, using an owned open fd. libc supplies the target's ioctl ABI.
+		let result = unsafe {
+			libc::ioctl(
+				file.as_raw_fd(),
+				libc::_IOR::<[u8; 96]>(u32::from(b'E'), 0x18),
+				bitmap.as_mut_ptr(),
+			)
+		};
+		if result < 0 {
+			return Err(io::Error::last_os_error());
+		}
+		Ok(seeded_modifiers(&bitmap))
+	}
+
+	fn seeded_modifiers(bitmap: &[u8; 96]) -> Vec<u16> {
+		MODIFIERS
+			.into_iter()
+			.filter(|code| bitmap[usize::from(*code) / 8] & (1 << (*code % 8)) != 0)
+			.collect()
+	}
+
+	/// sysfs hex words are native unsigned-long width, most significant first.
+	pub(super) fn has_key(capabilities: &str, code: u16) -> bool {
+		let code = usize::from(code);
+		capabilities
+			.split_whitespace()
+			.rev()
+			.nth(code / usize::BITS as usize)
+			.and_then(|word| usize::from_str_radix(word, 16).ok())
+			.is_some_and(|word| word & (1 << (code % usize::BITS as usize)) != 0)
+	}
+
+	/// 1: button unavailable; 2: required modifier (including Ctrl-up) unobservable.
+	fn binding_problem(devices: &[Device], codes: &[u16], modifiers: u8) -> u8 {
+		let supports = |code: &u16| devices.iter().any(|device| device.keys.contains(code));
+		if !codes.iter().any(supports) {
+			return 1;
+		}
+		if MODIFIER_GROUPS.iter().any(|(mask, codes)| {
+			(*mask == (PRIMARY | CTRL) || modifiers & mask != 0) && !codes.iter().any(supports)
+		}) {
+			return 2;
+		}
+		0
+	}
+
+	fn availability(devices: &[Device], watched: &[Watched]) -> u64 {
+		watched
+			.iter()
+			.enumerate()
+			.fold(0, |mask, (i, (_, codes, modifiers))| {
+				mask | (u64::from(binding_problem(devices, codes, *modifiers) == 0) << i)
+			})
+	}
+
+	fn problem(devices: &[Device], watched: &[Watched]) -> u8 {
+		watched
+			.iter()
+			.map(|(_, codes, modifiers)| binding_problem(devices, codes, *modifiers))
+			.find(|problem| *problem != 0)
+			.unwrap_or(0)
+	}
+
+	/// Held actions follow the chord state; toggles require a real button press with
+	/// modifiers already satisfied. Modifier-only events can never toggle voice.
+	fn apply_bindings(
+		devices: &[Device],
+		watched: &[Watched],
+		held: &mut [bool],
+		native: &NativeInput,
+		pressed: Option<u16>,
+	) {
+		let down = |code: u16| devices.iter().any(|device| device.held.contains(&code));
+		let mut toggled = 0;
+		for (i, ((action, codes, modifiers), held)) in watched.iter().zip(held).enumerate() {
+			let now = binding_problem(devices, codes, *modifiers) == 0
+				&& codes.iter().any(|code| down(*code))
+				&& modifiers_match(*modifiers, &down);
+			let bit = toggle_bit(*action);
+			if bit != 0 {
+				if now && pressed.is_some_and(|code| codes.contains(&code)) && toggled & bit == 0 {
+					native.apply(MOUSE_ID + i as u32, *action, true);
+					toggled |= bit;
+				}
+			} else if now != *held {
+				native.apply(MOUSE_ID + i as u32, *action, now);
+			}
+			*held = now;
+		}
+	}
+
+	/// Process each queued event before the next; on loss release held actions and
+	/// reopen on a later scan instead of trusting potentially missing releases.
+	fn poll_device(
+		devices: &mut Vec<Device>,
+		index: usize,
+		wanted: &[u16],
+		watched: &[Watched],
+		held: &mut [bool],
+		native: &NativeInput,
+		buffer: &mut [u8; EVENT_SIZE],
+	) -> bool {
+		for _ in 0..MAX_EVENTS {
+			match read_event(&mut devices[index], buffer, wanted) {
+				Ok(Some(pressed)) => apply_bindings(devices, watched, held, native, pressed),
+				Ok(None) => return true,
+				Err(()) => {
+					devices.remove(index);
+					apply_bindings(devices, watched, held, native, None);
+					return false;
+				}
+			}
+		}
+		true
+	}
+
+	fn fold_event(
+		held: &mut Vec<u16>,
+		event: &[u8; EVENT_SIZE],
+		wanted: &[u16],
+	) -> Result<Option<u16>, ()> {
+		let at = EVENT_SIZE - 8;
+		let kind = u16::from_ne_bytes([event[at], event[at + 1]]);
+		let code = u16::from_ne_bytes([event[at + 2], event[at + 3]]);
+		let value = i32::from_ne_bytes(event[at + 4..].try_into().unwrap());
+		if kind == 0 && code == SYN_DROPPED {
+			return Err(());
+		}
+		if kind == EV_KEY && wanted.contains(&code) {
+			match value {
+				0 => held.retain(|held| *held != code),
+				1 if !held.contains(&code) => {
+					held.push(code);
+					return Ok(Some(code));
+				}
+				_ => {}
+			}
+		}
+		Ok(None)
+	}
+
+	/// Outer None means no record; inner None means a release or other non-press.
+	fn read_event(
+		device: &mut Device,
+		buffer: &mut [u8; EVENT_SIZE],
+		wanted: &[u16],
+	) -> Result<Option<Option<u16>>, ()> {
+		match device.file.read(buffer) {
+			Ok(EVENT_SIZE) => fold_event(&mut device.held, buffer, wanted).map(Some),
+			Ok(_) => Err(()),
+			Err(error)
+				if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted) =>
+			{
+				Ok(None)
+			}
+			Err(_) => Err(()),
+		}
+	}
+	#[cfg(test)]
+	mod tests {
+		use super::*;
+		use std::io::{Seek, Write};
+
+		fn native() -> NativeInput {
+			NativeInput {
+				state: Default::default(),
+				wake: Arc::new(|| {}),
+			}
+		}
+
+		fn device(keys: &[u16]) -> Device {
+			Device {
+				path: PathBuf::new(),
+				file: tempfile::tempfile().unwrap(),
+				held: Vec::new(),
+				keys: keys.to_vec(),
+			}
+		}
+
+		fn event(kind: u16, code: u16, value: i32) -> [u8; EVENT_SIZE] {
+			let mut bytes = [0; EVENT_SIZE];
+			let at = EVENT_SIZE - 8;
+			bytes[at..at + 2].copy_from_slice(&kind.to_ne_bytes());
+			bytes[at + 2..at + 4].copy_from_slice(&code.to_ne_bytes());
+			bytes[at + 4..].copy_from_slice(&value.to_ne_bytes());
+			bytes
+		}
+
+		fn queue(device: &mut Device, events: &[(u16, u16, i32)]) {
+			device.file.set_len(0).unwrap();
+			device.file.rewind().unwrap();
+			for &(kind, code, value) in events {
+				device.file.write_all(&event(kind, code, value)).unwrap();
+			}
+			device.file.rewind().unwrap();
+		}
+
+		#[test]
+		fn queued_clicks_survive_and_lost_events_release_push_to_talk() {
+			let native = native();
+			let watched: &[Watched] = &[
+				(KeybindAction::ToggleMute, &[BTN_SIDE], 0),
+				(KeybindAction::PushToTalk, &[BTN_SIDE], 0),
+			];
+			let mut devices = vec![device(&[BTN_SIDE, KEY_LEFTCTRL])];
+			queue(
+				&mut devices[0],
+				&[(EV_KEY, BTN_SIDE, 1), (EV_KEY, BTN_SIDE, 0)],
+			);
+			let mut held = [false; 2];
+			assert!(!poll_device(
+				&mut devices,
+				0,
+				&[BTN_SIDE],
+				watched,
+				&mut held,
+				&native,
+				&mut [0; EVENT_SIZE]
+			));
+			assert!(devices.is_empty());
+			assert_eq!(native.take_toggles(), 1);
+			assert!(!native.push_down(KeybindAction::PushToTalk));
+
+			// Separate worker step: a missed release must not leave voice held.
+			devices.push(device(&[BTN_SIDE, KEY_LEFTCTRL]));
+			devices[0].held.push(BTN_SIDE);
+			apply_bindings(&devices, watched, &mut held, &native, None);
+			assert!(native.push_down(KeybindAction::PushToTalk));
+			queue(
+				&mut devices[0],
+				&[(0, SYN_DROPPED, 0), (EV_KEY, BTN_SIDE, 1)],
+			);
+			assert!(!poll_device(
+				&mut devices,
+				0,
+				&[BTN_SIDE],
+				watched,
+				&mut held,
+				&native,
+				&mut [0; EVENT_SIZE]
+			));
+			assert!(!native.push_down(KeybindAction::PushToTalk));
+			assert_eq!(native.take_toggles(), 0);
+		}
+
+		#[test]
+		fn modifier_changes_affect_held_actions_but_never_toggle_a_held_button() {
+			let native = native();
+			let watched: &[Watched] = &[
+				(KeybindAction::ToggleMute, &[BTN_SIDE], CTRL),
+				(KeybindAction::PushToTalk, &[BTN_SIDE], CTRL),
+				(KeybindAction::PushToMute, &[BTN_SIDE], 0),
+			];
+			let wanted = &[BTN_SIDE, KEY_LEFTCTRL];
+			let mut devices = vec![device(wanted)];
+			let mut held = [false; 3];
+			// Plain press matches only the unmodified held binding.
+			for (code, value, ptt, ptm) in [
+				(BTN_SIDE, 1, false, true),
+				(KEY_LEFTCTRL, 1, true, false),
+				(KEY_LEFTCTRL, 0, false, true),
+				(KEY_LEFTCTRL, 1, true, false),
+				(BTN_SIDE, 0, false, false),
+			] {
+				let pressed =
+					fold_event(&mut devices[0].held, &event(EV_KEY, code, value), wanted).unwrap();
+				apply_bindings(&devices, watched, &mut held, &native, pressed);
+				assert_eq!(native.take_toggles(), 0);
+				assert_eq!(native.push_down(KeybindAction::PushToTalk), ptt);
+				assert_eq!(native.push_down(KeybindAction::PushToMute), ptm);
+			}
+			let pressed =
+				fold_event(&mut devices[0].held, &event(EV_KEY, BTN_SIDE, 1), wanted).unwrap();
+			apply_bindings(&devices, watched, &mut held, &native, pressed);
+			assert_eq!(native.take_toggles(), 1);
+			assert!(native.push_down(KeybindAction::PushToTalk));
+			// Kernel autorepeat is not another press.
+			let pressed =
+				fold_event(&mut devices[0].held, &event(EV_KEY, BTN_SIDE, 2), wanted).unwrap();
+			apply_bindings(&devices, watched, &mut held, &native, pressed);
+			assert_eq!(native.take_toggles(), 0);
+		}
+
+		#[test]
+		fn availability_tracks_exact_chords_and_modifier_device_loss() {
+			let native = native();
+			let watched: &[Watched] = &[
+				(KeybindAction::ToggleMute, &[BTN_SIDE], 0),
+				(KeybindAction::ToggleMute, &[BTN_EXTRA], SHIFT),
+			];
+			let chords = vec![
+				(
+					KeybindAction::ToggleMute,
+					KeyChord {
+						key: "MouseExtra1".into(),
+						modifiers: 0,
+					},
+				),
+				(
+					KeybindAction::ToggleMute,
+					KeyChord {
+						key: "MouseExtra2".into(),
+						modifiers: SHIFT,
+					},
+				),
+			];
+			let mut devices = vec![device(&[BTN_SIDE, BTN_EXTRA])];
+			assert_eq!(problem(&devices, watched), 2);
+			assert_eq!(availability(&devices, watched), 0);
+			devices.push(device(&[KEY_LEFTCTRL]));
+			let available = Arc::new(AtomicU64::new(availability(&devices, watched)));
+			let status = Arc::new(AtomicU8::new(problem(&devices, watched)));
+			let poller = Poller {
+				stop: Arc::new(AtomicBool::new(false)),
+				thread: None,
+				available: available.clone(),
+				problem: status.clone(),
+				chords,
+			};
+			assert!(poller.registers(KeybindAction::ToggleMute, &poller.chords[0].1));
+			assert!(!poller.registers(KeybindAction::ToggleMute, &poller.chords[1].1));
+			assert_eq!(poller.toggle_mask(), 1);
+			assert_eq!(
+				poller.problem(),
+				Some(super::super::MOUSE_MODIFIER_UNREADABLE)
+			);
+			devices.push(device(&[KEY_LEFTSHIFT]));
+			available.store(availability(&devices, watched), Ordering::Relaxed);
+			status.store(problem(&devices, watched), Ordering::Relaxed);
+			assert!(poller.readable());
+			assert!(poller.registers(KeybindAction::ToggleMute, &poller.chords[1].1));
+			devices[0].held.push(BTN_EXTRA);
+			devices[2].held.push(KEY_LEFTSHIFT);
+			let mut held = [false; 2];
+			apply_bindings(&devices, watched, &mut held, &native, Some(BTN_EXTRA));
+			assert_eq!(native.take_toggles(), 1);
+			devices.remove(1); // Ctrl state is now unknown, not "released".
+			available.store(availability(&devices, watched), Ordering::Relaxed);
+			assert_eq!(poller.toggle_mask(), 0);
+			apply_bindings(&devices, watched, &mut held, &native, Some(BTN_EXTRA));
+			assert_eq!(native.take_toggles(), 0);
+		}
+
+		#[test]
+		fn modifier_snapshot_never_seeds_buttons_and_rejects_non_evdev_files() {
+			let mut bitmap = [0; 96];
+			for code in [KEY_LEFTCTRL, KEY_RIGHTSHIFT, BTN_SIDE] {
+				bitmap[usize::from(code) / 8] |= 1 << (code % 8);
+			}
+			assert_eq!(
+				seeded_modifiers(&bitmap),
+				vec![KEY_LEFTCTRL, KEY_RIGHTSHIFT]
+			);
+			assert!(modifier_state(&tempfile::tempfile().unwrap()).is_err());
+		}
+
+		#[test]
+		fn scan_prioritizes_buttons_beyond_old_entry_limit_and_replaces_modifier_nodes() {
+			let root = tempfile::tempdir().unwrap();
+			let sys = root.path().join("sys");
+			let dev = root.path().join("dev");
+			std::fs::create_dir_all(&dev).unwrap();
+			for i in 0..300 {
+				let path = sys.join(format!("event{i}/device/capabilities"));
+				std::fs::create_dir_all(&path).unwrap();
+				std::fs::write(
+					path.join("key"),
+					if i == 299 {
+						"80000 0 0 0 0"
+					} else {
+						"20000000"
+					},
+				)
+				.unwrap();
+				File::create(dev.join(format!("event{i}"))).unwrap();
+			}
+			let seed: fn(&File) -> io::Result<Vec<u16>> = |_| Ok(vec![KEY_LEFTCTRL]);
+			let mut devices = Vec::new();
+			scan_at(&[BTN_SIDE, KEY_LEFTCTRL], &mut devices, &sys, &dev, seed);
+			assert_eq!(devices.len(), MAX_DEVICES);
+			assert!(devices.iter().any(|d| d.keys.contains(&BTN_SIDE)));
+			assert!(devices.iter().all(|d| !d.held.contains(&BTN_SIDE)));
+			// A new button device replaces a modifier-only device in a full poller.
+			let path = sys.join("event300/device/capabilities");
+			std::fs::create_dir_all(&path).unwrap();
+			std::fs::write(path.join("key"), "100000 0 0 0 0").unwrap();
+			File::create(dev.join("event300")).unwrap();
+			scan_at(
+				&[BTN_SIDE, BTN_EXTRA, KEY_LEFTCTRL],
+				&mut devices,
+				&sys,
+				&dev,
+				seed,
+			);
+			assert_eq!(devices.len(), MAX_DEVICES);
+			assert!(devices.iter().any(|d| d.keys.contains(&BTN_EXTRA)));
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use std::sync::atomic::{AtomicBool, Ordering};
+
+	#[cfg(target_os = "linux")]
+	#[test]
+	fn evdev_capability_bitmaps_find_side_buttons_and_modifiers() {
+		// A real mouse: words are most significant first, so BTN_LEFT..BTN_TASK sit in word 4.
+		let mouse = "1f0000 0 0 0 0";
+		assert!(evdev::has_key(mouse, 0x113));
+		assert!(evdev::has_key(mouse, 0x114));
+		assert!(!evdev::has_key(mouse, 29));
+		let keyboard = "1000000000007 ff980000000007ff febeffdfffefffff fffffffffffffffe";
+		assert!(!evdev::has_key(keyboard, 0x113));
+		assert!(evdev::has_key(keyboard, 29));
+		assert!(evdev::has_key(keyboard, 42));
+		assert!(!evdev::has_key("", 0x113));
+	}
 
 	#[cfg(target_os = "linux")]
 	#[test]
