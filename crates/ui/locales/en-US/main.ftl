@@ -4129,6 +4129,8 @@ video-show-player-seek-video = Seek video
 video-show-player-video = video
 # Context: show_player
 video-show-player-video-volume = Video volume
+video-show-player-mute = Mute
+video-show-player-unmute = Unmute
 
 ## crates/ui/src/voice.rs
 # Context: call_bar

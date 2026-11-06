@@ -1653,3 +1653,14 @@ then alternated after builds finished: one warmup and five samples per binary. T
 It is a general reducer check, not an avatar-burst, input-latency or camera benchmark.
 Background OS load is not controlled; no speed improvement is claimed. Process RSS,
 UI frame latency, physical audio/camera behavior and live Discord remain unmeasured.
+
+### UHD inline playback — November 6, 2026
+
+Inline attachment playback now shares the live bound: 3840×2160 worth of pixels within a
+3840-pixel square, so portrait and ultrawide videos fit as well. Compressed and YUV samples
+keep their 16 MiB cap; Windows' RGB frames get a separate 40 MiB cap covering a 4K frame
+with aligned surface padding. The player still queues two decoded frames, at most about
+25 MiB as 4K NV12 or 64 MiB as RGBA; 1080p and smaller videos allocate as before. Frames
+larger than the renderer's maximum texture side are refused by the CPU fallback. The
+FFmpeg transcode fallback still produces at most 1080p. No 4K playback CPU or memory
+measurement has been recorded yet.

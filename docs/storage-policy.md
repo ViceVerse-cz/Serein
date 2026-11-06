@@ -1441,10 +1441,11 @@ Native video decoding is memory-only. One lazy worker handles the latest request
 with a replaceable pending request and cancellation fencing. The network source retains
 up to eight 256 KiB ranges (2 MiB, including an in-flight range); responses are checked for exact range/total/body lengths and reject
 redirects and content encoding. Encoded attachment size is capped at 100 MiB.
-The application queues at most two decoded frames (1080p NV12 on macOS and Linux,
-RGBA on Windows), one replaceable display frame, one GPU texture with its planes, one second of stereo float PCM (at most 768,000 bytes), and one decoded
-audio packet plus at most two seconds of timestamp-gap silence. Each native decoded
-sample is rejected above 16 MiB before copying. OS decoder/GPU allocations are additional
+The application queues at most two decoded frames (up to 4K, 3840×2160 worth of pixels in a
+3840-pixel square: NV12 on macOS and Linux, RGBA on Windows), one replaceable display frame, one GPU texture with its planes, one second of stereo float PCM (at most 768,000 bytes), and one decoded
+audio packet plus at most two seconds of timestamp-gap silence. Each native compressed or
+YUV sample is rejected above 16 MiB, and each Windows RGB frame above 40 MiB, before copying.
+At 4K the two queued frames are at most about 25 MiB as NV12 or 64 MiB as RGBA. OS decoder/GPU allocations are additional
 and are released with the player. No file cache or media URL/byte diagnostics are written.
 
 

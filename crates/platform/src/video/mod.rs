@@ -71,13 +71,16 @@ pub use gst::Decoder;
 
 /// Longest attachment any backend plays inline.
 pub const MAX_SECONDS: f64 = 2.0 * 60.0 * 60.0;
-/// Largest single decoded frame or compressed sample any backend accepts.
+/// Largest compressed sample, or decoded YUV frame, any backend accepts.
 pub const MAX_BYTES: usize = 16 * 1024 * 1024;
+/// Largest decoded RGB frame: 4K at four bytes per pixel, plus a decoder's aligned surface
+/// padding.
+pub const MAX_FRAME_BYTES: usize = 40 * 1024 * 1024;
 pub const UNSUPPORTED: &str = "This video format or codec is not supported on this system.";
 pub const INVALID: &str = "The video could not be decoded safely.";
 /// A live decoder queue is full; the access unit was not accepted but the decoder is healthy.
 pub const BUSY: &str = "The video decoder is falling behind.";
-pub const TOO_LARGE: &str = "Inline playback supports videos up to 1080p.";
+pub const TOO_LARGE: &str = "Inline playback supports videos up to 4K (3840×2160).";
 pub const TOO_LONG: &str = "Videos longer than two hours are not supported.";
 /// The system has no decoder for the video track; installing one fixes playback.
 pub const MISSING_HEVC: &str = "This video uses H.265 (HEVC), and no H.265 decoder is installed. Install one for GStreamer (for example gst-libav with a full FFmpeg) to play it here.";
@@ -114,12 +117,16 @@ impl Decoder {
 	}
 }
 
-/// The shared inline-player texture bound: 1080p worth of pixels within a 1920 px square.
+/// The shared inline-player texture bound, the same as live reception: 4K worth of pixels
+/// within a 3840 px square, so portrait and ultrawide videos fit too.
 pub fn check_dimensions(width: u32, height: u32) -> Result<(), &'static str> {
 	if width == 0 || height == 0 {
 		return Err(INVALID);
 	}
-	if width > 1920 || height > 1920 || u64::from(width) * u64::from(height) > 1920 * 1080 {
+	if width > MAX_LIVE_DIMENSION
+		|| height > MAX_LIVE_DIMENSION
+		|| u64::from(width) * u64::from(height) > MAX_LIVE_PIXELS
+	{
 		return Err(TOO_LARGE);
 	}
 	Ok(())
@@ -163,9 +170,10 @@ mod tests {
 	use super::*;
 	#[test]
 	fn rotation_and_bounds() {
-		assert!(check_dimensions(1920, 1080).is_ok());
-		assert!(check_dimensions(1921, 1).is_err());
-		assert!(check_dimensions(1920, 1920).is_err());
+		assert!(check_dimensions(3840, 2160).is_ok());
+		assert!(check_dimensions(2160, 3840).is_ok());
+		assert!(check_dimensions(3841, 1).is_err());
+		assert!(check_dimensions(3840, 3840).is_err());
 		assert!(check_dimensions(0, 1).is_err());
 		// A 2x1 frame with distinct pixels rotates into a 1x2 column.
 		let frame = [1, 1, 1, 255, 2, 2, 2, 255];
