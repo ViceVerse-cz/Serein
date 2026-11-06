@@ -1009,6 +1009,9 @@ impl MessagingUi {
 				std::time::Instant::now(),
 				Some(Ok(model::InvitePreview {
 					guild: Some(Id(424242)),
+					about: None,
+					guild_icon: None,
+					voice_channel: None,
 					channel: None,
 					embed: model::Embed {
 						title: Some("Serein community".into()),
@@ -5381,6 +5384,21 @@ impl MessagingUi {
 									commands.push(command);
 								}
 							}
+							Some(invites::Action::JoinVoice(channel))
+								if state.channel(channel).is_some() =>
+							{
+								// The invite's button cannot know every call condition; say why
+								// a join did not start instead of ignoring the click.
+								if let Err(reason) = self.request_call_audio(
+									state,
+									channel,
+									false,
+									None,
+									&mut commands,
+								) {
+									self.toasts.push(design::Level::Error, reason);
+								}
+							}
 							Some(invites::Action::Join(code)) => {
 								if state.invite_join.code == code
 									&& state.invite_challenge().is_some()
@@ -6981,6 +6999,9 @@ mod composer_tests {
 				std::time::Instant::now(),
 				Some(Ok(model::InvitePreview {
 					guild: Some(Id(100)),
+					about: None,
+					guild_icon: None,
+					voice_channel: None,
 					channel: None,
 					embed: model::Embed {
 						title: Some("Synthetic invited server".into()),
@@ -7008,7 +7029,7 @@ mod composer_tests {
 			let rect = output
 				.shapes
 				.iter()
-				.find_map(|shape| button_rect(&shape.shape, "Go To Server"));
+				.find_map(|shape| button_rect(&shape.shape, "Go to Server"));
 			output.drop_without_applying_deltas();
 			(rect, commands)
 		};
@@ -7017,7 +7038,7 @@ mod composer_tests {
 		}
 		let point = frame(&mut view, &mut state, vec![])
 			.0
-			.expect("Go To Server")
+			.expect("Go to Server")
 			.center();
 		let mut commands = vec![];
 		for pressed in [true, false] {

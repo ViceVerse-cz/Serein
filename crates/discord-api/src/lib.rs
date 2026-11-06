@@ -2494,6 +2494,9 @@ mod tests {
 					std::time::Instant::now(),
 					Some(Ok(model::InvitePreview {
 						guild: Some(model::Id(2)),
+						about: None,
+						guild_icon: None,
+						voice_channel: None,
 						channel: None,
 						embed: Default::default(),
 					})),

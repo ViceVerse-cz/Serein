@@ -1452,13 +1452,18 @@ invites-show-accepted = Accepted
 # Context: show
 invites-show-fetching-server-details = Fetching server details…
 # Context: show
-invites-show-go-to-server = Go To Server
+invites-show-go-to-server = Go to Server
 # Context: show
 invites-show-invite-expired-or-invalid = Invite expired or invalid
 # Context: show
 invites-show-invite-unavailable = Invite unavailable
 # Context: show
 invites-show-join = Join
+invites-show-join-voice = Join Voice
+invites-show-no-one-in-voice = No one is currently in voice
+invites-show-in-voice = { $count } in voice
+invites-show-members-see-voice = Only server members can see who's in voice
+invites-show-established = Est. { $date }
 # Context: show
 invites-show-joining = Joining…
 # Context: show

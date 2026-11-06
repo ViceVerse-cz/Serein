@@ -2982,3 +2982,17 @@ client by recency of the newest uses), and that other clients rank Serein's save
 Picks count when chosen in a picker or the quick reaction bar, not when a message is sent.
 Synthetic tests cover parsing, untouched-entry preservation, batching and the rows' merge; no
 live account was used.
+
+## Invite cards — November 6, 2026
+
+Invite cards follow the official client's layout, compared from owner-supplied screenshots
+rather than wire observation. The existing invite read now also keeps the server's
+`description` (at most 1,024 bytes; longer or control-laden text is dropped rather than
+failing the card) and the invited channel's `type`. A voice (2) or stage (13) channel invite
+renders as a voice card naming the channel. Members see who the session's voice roster lists
+in that channel and join the call through the usual explicit call path; others see that only
+members can view the roster, and the action joins the server. "Est." dates come from the
+server id's snowflake time. Without a `banner`, the header shows the invite `splash` from
+`cdn.discordapp.com/splashes/`, and the server icon is painted from its validated hash with the
+usual rounded server-icon shape. No request, route or join behaviour changed, and these channel
+types in invite responses remain unverified against live Discord.

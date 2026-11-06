@@ -2036,7 +2036,7 @@ impl MessagingUi {
 		self.request_call_audio(state, channel, ring, Some((muted, deafened)), commands)
 	}
 
-	fn request_call_audio(
+	pub(crate) fn request_call_audio(
 		&mut self,
 		state: &mut State,
 		channel: Id,
