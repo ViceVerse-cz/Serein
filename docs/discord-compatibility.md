@@ -1036,8 +1036,9 @@ System audio extension (September 15, 2026): Linux PulseAudio/PipeWire applicati
 and Windows process loopback feed the existing stereo Opus/DAVE stream audio sender.
 Both are opt-in and exclude Serein's playback, including received call and stream audio.
 Other applications are included even for a single-window share. macOS ScreenCaptureKit
-continues excluding the current process. Windows requires build 20348+ and uses native
-process-tree exclusion; unsupported systems fail visibly without whole-output fallback.
+continues excluding the current process. Windows uses native process-tree exclusion on build
+20348+ and per-application inclusion on older Windows 10 builds; a capture that fails reports
+its error visibly, without whole-output fallback.
 Linux uses `pa_stream_set_monitor_stream` before connecting each recording stream,
 rejects Serein/unknown application identities and disables recording-stream movement.
 Audio access is separate from portal-approved video, using the existing PulseAudio socket.

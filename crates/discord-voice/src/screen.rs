@@ -30,6 +30,7 @@ use openh264::{
 	},
 	formats::{BgraSliceU8, YUVBuffer, YUVSource},
 };
+use std::borrow::Cow;
 use std::sync::{
 	Arc, Mutex,
 	atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -119,7 +120,7 @@ pub struct Worker {
 	stop: Arc<AtomicBool>,
 	ready: Arc<AtomicBool>,
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
-	done: Option<mpsc::Receiver<Result<(), &'static str>>>,
+	done: Option<mpsc::Receiver<Result<(), Cow<'static, str>>>>,
 	#[cfg(target_os = "linux")]
 	status: Arc<Mutex<&'static str>>,
 	preview_visible: Arc<AtomicBool>,
@@ -186,7 +187,8 @@ impl Worker {
 					worker_preview_visible,
 					worker_captured,
 					&wake,
-				);
+				)
+				.map_err(Cow::Borrowed);
 				#[cfg(not(target_os = "linux"))]
 				let result = encode_loop(
 					settings,
@@ -254,7 +256,9 @@ impl Worker {
 		None
 	}
 
-	pub fn result(&self) -> Option<Result<(), &'static str>> {
+	/// How the share ended, once it has. The reason is owned because it can carry a Windows
+	/// error code that is only known at run time.
+	pub fn result(&self) -> Option<Result<(), Cow<'static, str>>> {
 		self.done.as_ref()?.try_recv().ok()
 	}
 
@@ -263,7 +267,8 @@ impl Worker {
 		self.preview.try_lock().ok()?.take()
 	}
 
-	pub fn shutdown(mut self) -> mpsc::Receiver<Result<(), &'static str>> {
+	/// Stops the worker and hands over the channel that reports how it ended.
+	pub fn shutdown(mut self) -> mpsc::Receiver<Result<(), Cow<'static, str>>> {
 		self.done.take().expect("screen worker completion")
 	}
 }
@@ -275,6 +280,8 @@ impl Drop for Worker {
 	}
 }
 
+/// Captures, encodes and sends frames until the share stops or capture fails. A failure's
+/// reason is owned so it can carry the Windows error code of a failed audio capture.
 #[cfg(not(target_os = "linux"))]
 #[allow(clippy::too_many_arguments)] // Media outputs of one explicitly started capture.
 fn encode_loop(
@@ -290,7 +297,7 @@ fn encode_loop(
 	preview_visible: Arc<AtomicBool>,
 	captured: Arc<AtomicBool>,
 	wake: &impl Fn(),
-) -> Result<(), &'static str> {
+) -> Result<(), Cow<'static, str>> {
 	if stop.load(Ordering::Acquire) || send.is_closed() {
 		return Ok(());
 	}
@@ -330,12 +337,10 @@ fn encode_loop(
 	while !stop.load(Ordering::Acquire) && !send.is_closed() {
 		#[cfg(target_os = "windows")]
 		if _native.failed() {
-			return Err(
-				"System audio capture stopped; check your output device or share without audio",
-			);
+			return Err(_native.failure());
 		}
 		if capture_stop.load(Ordering::Acquire) {
-			return Err("The selected screen or window stopped sharing");
+			return Err("The selected screen or window stopped sharing".into());
 		}
 		let frame = match raw.recv_timeout(Duration::from_millis(100)) {
 			Ok(frame) => {
@@ -351,7 +356,8 @@ fn encode_loop(
 			}
 			Err(_) => {
 				return Err(
-					"No screen frames received; check screen recording permission and the selected source",
+					"No screen frames received; check screen recording permission and the selected source"
+						.into(),
 				);
 			}
 		};

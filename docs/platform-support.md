@@ -430,11 +430,11 @@ Optional Linux stream audio uses native `libpulse` per-application monitoring on
 PulseAudio or PipeWire's PulseAudio server. Source builds need the libpulse development
 package (`libpulse-dev`, `pulseaudio-libs-devel`, `libpulse-devel` or Arch's `libpulse`).
 The existing Flatpak PulseAudio socket permission covers this access; the ScreenCast
-portal's PipeWire remote grants video only. Windows uses native process loopback on
-build 20348+ (Windows 11 / Server 2022), with a visible audio error on older systems.
-Both exclude Serein's playback and capture other applications even when sharing one
-window. There is no whole-output fallback. Hardware exclusion and receiving sound in
-an official client remain unverified.
+portal's PipeWire remote grants video only. Windows uses native process loopback: one
+exclude-Serein capture on build 20348+ (Windows 11 / Server 2022), and per-application
+captures on older Windows 10 builds. Both exclude Serein's playback and capture other
+applications even when sharing one window. There is no whole-output fallback. Hardware
+exclusion and receiving sound in an official client remain unverified.
 
 ## Additional macOS attachment codecs
 
