@@ -4,9 +4,10 @@ use crate::{MessagingUi, design, dialog, i18n::translate, icons};
 use egui::{Color32, FontId, Stroke};
 
 /// Title and body keys per step; the order is the flow.
-const STEPS: [(&str, &str); 6] = [
+const STEPS: [(&str, &str); 7] = [
 	("setup-appearance-title", "setup-appearance-body"),
 	("setup-window-title", "setup-window-body"),
+	("setup-desktop-title", "setup-desktop-body"),
 	("setup-profiles-title", "setup-profiles-body"),
 	("setup-chat-title", "setup-chat-body"),
 	("setup-notifications-title", "setup-notifications-body"),
@@ -83,9 +84,10 @@ impl MessagingUi {
 											match step {
 												0 => self.setup_appearance(ui),
 												1 => self.setup_window(ui),
-												2 => self.setup_profiles(ui),
-												3 => self.setup_chat(ui),
-												4 => self.setup_notifications(ui),
+												2 => self.setup_desktop(ui),
+												3 => self.setup_profiles(ui),
+												4 => self.setup_chat(ui),
+												5 => self.setup_notifications(ui),
 												_ => self.setup_voice(ui),
 											}
 										},
@@ -150,6 +152,8 @@ impl MessagingUi {
 		crate::settings::theme_preference_cards(ui);
 		ui.add_space(8.0);
 		self.colour_preset_settings(ui);
+		ui.add_space(8.0);
+		design::card(ui, |ui| self.primary_color_row(ui));
 	}
 
 	fn setup_window(&mut self, ui: &mut egui::Ui) {
@@ -181,6 +185,13 @@ impl MessagingUi {
 		});
 		ui.add_space(8.0);
 		design::notice(ui, design::Level::Info, "setup-window-restart");
+	}
+
+	/// How Serein sits on the desktop: launch at login, its title bar and the tray.
+	fn setup_desktop(&mut self, ui: &mut egui::Ui) {
+		design::card(ui, |ui| self.startup_switches(ui));
+		ui.add_space(8.0);
+		design::card(ui, |ui| self.window_switches(ui));
 	}
 
 	fn setup_profiles(&mut self, ui: &mut egui::Ui) {

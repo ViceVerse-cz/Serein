@@ -852,87 +852,95 @@ impl MessagingUi {
 		}
 	}
 
+	/// Open at login and start minimised; shared by Settings > General and setup.
+	pub(crate) fn startup_switches(&mut self, ui: &mut egui::Ui) {
+		let language = self.language;
+		ui.add_enabled_ui(self.startup_available && !self.startup_busy, |ui| {
+			let label = language.text("general-open-at-startup");
+			let description = language.text("general-open-at-startup-description");
+			design::switch(ui, &label, Some(&description), &mut self.startup_enabled);
+			design::card_divider(ui);
+			ui.add_enabled_ui(self.startup_enabled, |ui| {
+				let label = language.text("general-start-minimized");
+				let description = language.text("general-start-minimized-description");
+				design::switch(ui, &label, Some(&description), &mut self.startup_minimized);
+			});
+		});
+		if !self.startup_available {
+			design::hint(ui, &language.text("general-startup-unavailable"));
+		} else if !self.startup_status.is_empty() {
+			design::hint(ui, self.startup_status);
+		}
+	}
+
+	/// Title bar and tray switches; shared by Settings > General and setup.
+	pub(crate) fn window_switches(&mut self, ui: &mut egui::Ui) {
+		let language = self.language;
+		#[cfg(target_os = "linux")]
+		{
+			// Hiding every decoration and drawing Serein's own bar contradict each other:
+			// whichever switch was just turned on wins. The "no title bar" switch is at the
+			// bottom of this group, since it is only for tiling window managers.
+			let label = language.text("general-custom-title-bar");
+			let description = language.text("general-custom-title-bar-description");
+			if design::switch(ui, &label, Some(&description), &mut self.custom_title_bar).changed()
+				&& self.custom_title_bar
+			{
+				self.hide_window_decorations = false;
+			}
+			design::card_divider(ui);
+		}
+		#[cfg(any(target_os = "windows", target_os = "macos"))]
+		{
+			let label = language.text("general-hide-title-bar");
+			let description = language.text("general-hide-title-bar-description");
+			design::switch(ui, &label, Some(&description), &mut self.hide_title_bar);
+			design::card_divider(ui);
+		}
+		ui.add_enabled_ui(self.tray_available, |ui| {
+			let label = language.text(if cfg!(target_os = "macos") {
+				"general-keep-menu-bar"
+			} else {
+				"general-keep-system-tray"
+			});
+			let description = language.text(if cfg!(target_os = "macos") {
+				"general-menu-bar-description"
+			} else if cfg!(target_os = "linux") {
+				"general-linux-tray-description"
+			} else {
+				"general-windows-tray-description"
+			});
+			design::switch(ui, &label, Some(&description), &mut self.minimize_to_tray);
+		});
+		if !self.tray_available {
+			design::hint(ui, &language.text("general-tray-unavailable"));
+		} else if !self.tray_status.is_empty() {
+			design::hint(ui, self.tray_status);
+		}
+		#[cfg(target_os = "linux")]
+		{
+			design::card_divider(ui);
+			let label = language.text("general-hide-decorations");
+			let description = language.text("general-hide-decorations-description");
+			if design::switch(
+				ui,
+				&label,
+				Some(&description),
+				&mut self.hide_window_decorations,
+			)
+			.changed() && self.hide_window_decorations
+			{
+				self.custom_title_bar = false;
+			}
+		}
+	}
+
 	fn general_settings(&mut self, ui: &mut egui::Ui, _demo: bool) {
 		let language = self.language;
 		let title = language.text("general-startup");
-		design::group(ui, &title, |ui| {
-			ui.add_enabled_ui(self.startup_available && !self.startup_busy, |ui| {
-				let label = language.text("general-open-at-startup");
-				let description = language.text("general-open-at-startup-description");
-				design::switch(ui, &label, Some(&description), &mut self.startup_enabled);
-				design::card_divider(ui);
-				ui.add_enabled_ui(self.startup_enabled, |ui| {
-					let label = language.text("general-start-minimized");
-					let description = language.text("general-start-minimized-description");
-					design::switch(ui, &label, Some(&description), &mut self.startup_minimized);
-				});
-			});
-			if !self.startup_available {
-				design::hint(ui, &language.text("general-startup-unavailable"));
-			} else if !self.startup_status.is_empty() {
-				design::hint(ui, self.startup_status);
-			}
-		});
+		design::group(ui, &title, |ui| self.startup_switches(ui));
 		let title = language.text("general-window");
-		design::group(ui, &title, |ui| {
-			#[cfg(target_os = "linux")]
-			{
-				// Hiding every decoration and drawing Serein's own bar contradict each other:
-				// whichever switch was just turned on wins. The "no title bar" switch is at the
-				// bottom of this group, since it is only for tiling window managers.
-				let label = language.text("general-custom-title-bar");
-				let description = language.text("general-custom-title-bar-description");
-				if design::switch(ui, &label, Some(&description), &mut self.custom_title_bar)
-					.changed() && self.custom_title_bar
-				{
-					self.hide_window_decorations = false;
-				}
-				design::card_divider(ui);
-			}
-			#[cfg(any(target_os = "windows", target_os = "macos"))]
-			{
-				let label = language.text("general-hide-title-bar");
-				let description = language.text("general-hide-title-bar-description");
-				design::switch(ui, &label, Some(&description), &mut self.hide_title_bar);
-				design::card_divider(ui);
-			}
-			ui.add_enabled_ui(self.tray_available, |ui| {
-				let label = language.text(if cfg!(target_os = "macos") {
-					"general-keep-menu-bar"
-				} else {
-					"general-keep-system-tray"
-				});
-				let description = language.text(if cfg!(target_os = "macos") {
-					"general-menu-bar-description"
-				} else if cfg!(target_os = "linux") {
-					"general-linux-tray-description"
-				} else {
-					"general-windows-tray-description"
-				});
-				design::switch(ui, &label, Some(&description), &mut self.minimize_to_tray);
-			});
-			if !self.tray_available {
-				design::hint(ui, &language.text("general-tray-unavailable"));
-			} else if !self.tray_status.is_empty() {
-				design::hint(ui, self.tray_status);
-			}
-			#[cfg(target_os = "linux")]
-			{
-				design::card_divider(ui);
-				let label = language.text("general-hide-decorations");
-				let description = language.text("general-hide-decorations-description");
-				if design::switch(
-					ui,
-					&label,
-					Some(&description),
-					&mut self.hide_window_decorations,
-				)
-				.changed() && self.hide_window_decorations
-				{
-					self.custom_title_bar = false;
-				}
-			}
-		});
+		design::group(ui, &title, |ui| self.window_switches(ui));
 		let title = language.text("general-graphics");
 		design::group(ui, &title, |ui| {
 			let restart = language.text("general-gpu-restart");
@@ -1050,39 +1058,7 @@ impl MessagingUi {
 			ui,
 			&crate::i18n::translate("settings-appearance-settings-accent"),
 			|ui| {
-				let themed_accent = design::theme_sets_accent(ui.visuals().dark_mode);
-				design::row(
-					ui,
-					"settings-appearance-settings-primary-color",
-					Some(if themed_accent {
-						"settings-appearance-settings-the-active-theme-brings-its-own-accent-it-takes-over"
-					} else {
-						"settings-appearance-settings-used-for-buttons-selection-and-message-highlights"
-					}),
-					|ui| {
-						ui.add_enabled_ui(!themed_accent, |ui| {
-							if self.primary_color.is_some()
-								&& design::text_action(
-									ui,
-									&crate::i18n::translate("settings-appearance-settings-reset"),
-								)
-								.clicked()
-							{
-								self.primary_color = None;
-							}
-							let mut color =
-								self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
-							if design::color_edit(ui, &mut color)
-								.on_hover_text(crate::i18n::translate(
-									"settings-appearance-settings-choose-primary-color",
-								))
-								.changed()
-							{
-								self.primary_color = Some(color);
-							}
-						});
-					},
-				);
+				self.primary_color_row(ui);
 			},
 		);
 		design::group(
@@ -1119,6 +1095,42 @@ impl MessagingUi {
 		);
 		self.cosmetic_settings(ui);
 		self.layout_settings(ui, demo);
+	}
+
+	/// Primary colour picker with its reset; shared by Settings > Appearance and setup.
+	pub(crate) fn primary_color_row(&mut self, ui: &mut egui::Ui) {
+		let themed_accent = design::theme_sets_accent(ui.visuals().dark_mode);
+		design::row(
+			ui,
+			"settings-appearance-settings-primary-color",
+			Some(if themed_accent {
+				"settings-appearance-settings-the-active-theme-brings-its-own-accent-it-takes-over"
+			} else {
+				"settings-appearance-settings-used-for-buttons-selection-and-message-highlights"
+			}),
+			|ui| {
+				ui.add_enabled_ui(!themed_accent, |ui| {
+					if self.primary_color.is_some()
+						&& design::text_action(
+							ui,
+							&crate::i18n::translate("settings-appearance-settings-reset"),
+						)
+						.clicked()
+					{
+						self.primary_color = None;
+					}
+					let mut color = self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
+					if design::color_edit(ui, &mut color)
+						.on_hover_text(crate::i18n::translate(
+							"settings-appearance-settings-choose-primary-color",
+						))
+						.changed()
+					{
+						self.primary_color = Some(color);
+					}
+				});
+			},
+		);
 	}
 
 	/// Device-local switches for profile cosmetics. Hidden ones are neither drawn nor loaded.
