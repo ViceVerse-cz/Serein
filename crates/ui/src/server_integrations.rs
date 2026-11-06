@@ -832,15 +832,11 @@ impl IntegrationsUi {
 			|| crate::i18n::translate("server-integrations-editor-choose-a-channel"),
 			|channel| channel.name.clone(),
 		);
-		let mut label = egui::Atoms::new(label);
+		let mut select = crate::design::Select::from_id_salt("webhook-destination");
 		if let Some(channel) = current {
-			label.push_left(crate::icons::atom(
-				crate::icons::channel(channel.kind),
-				16.0,
-				muted,
-			));
+			select = select.icon(crate::icons::channel(channel.kind));
 		}
-		egui::ComboBox::from_id_salt("webhook-destination")
+		select
 			.selected_text(label)
 			.width(ui.available_width())
 			.show_ui(ui, |ui| {

@@ -158,7 +158,7 @@ impl MessagingUi {
 			);
 			ui.add_enabled_ui(value.double_click_reaction_enabled, |ui| {
 				design::row(ui, "emoji-picker-popup-emoji", None, |ui| {
-					egui::ComboBox::from_id_salt("double-click-reaction")
+					crate::design::Select::from_id_salt("double-click-reaction")
 						.width(96.0)
 						.selected_text(egui::RichText::new(value.double_click_emoji()).size(22.0))
 						.show_ui(ui, |ui| {

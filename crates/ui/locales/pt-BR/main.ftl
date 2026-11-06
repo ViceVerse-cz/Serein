@@ -1642,8 +1642,6 @@ main-restoring-screen-welcome-back = bem vindo de volta
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Contas salvas
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Eu possuo esta conta e autorizo ​​esta sessão.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = As senhas e 2FA permanecem na página de login do Discord; apenas o token da sessão é mantido no armazenamento de credenciais do seu sistema operacional.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = Sobre Serein
@@ -4146,8 +4144,6 @@ voice-device-combo-device-unavailable = Dispositivo indisponível
 voice-device-default = Padrão do sistema
 # Context: frame
 voice-frame-open-voice = Voz aberta
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% é o nível original. Níveis mais altos podem distorcer.
 # Context: labels
 voice-labels-choose-camera = Escolha a câmera
 # Context: live_badge
@@ -4248,12 +4244,6 @@ voice-voice-participant-microphone-muted = Microfone silenciado
 voice-voice-participant-muted-by-server = Silenciado pelo servidor
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Desativado para você neste dispositivo
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Escolha um algoritmo em todas as configurações de voz.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen desliga o áudio recebido e silencia o microfone com ele.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Segure o atalho configurado quando quiser falar.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Instale uma versão habilitada para voz para usar esses controles.
 # Context: voice_popup_content

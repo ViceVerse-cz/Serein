@@ -99,6 +99,9 @@ pub struct AppPreferences {
 	pub plaintext_login: bool,
 	/// Owner opt-in diagnostic log; older preferences deserialize with logging off.
 	pub diagnostics_log: diagnostics::Level,
+	/// First-run setup finished or skipped; absent in older preferences, so existing installs
+	/// see it once too.
+	pub setup_done: bool,
 }
 impl Default for AppPreferences {
 	fn default() -> Self {
@@ -142,6 +145,7 @@ impl Default for AppPreferences {
 			time_format: Default::default(),
 			plaintext_login: false,
 			diagnostics_log: diagnostics::Level::Off,
+			setup_done: false,
 		}
 	}
 }
@@ -2182,6 +2186,8 @@ mod tests {
 			serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
 		assert!(legacy.voice_processing.is_none());
 		assert!(legacy.voice_noise_suppression);
+		// Existing installs run first-run setup once, like a fresh one.
+		assert!(!legacy.setup_done);
 		// Existing serialized bindings omit the newly optional diagnostics shortcut.
 		let mut old_bindings = serde_json::to_value(model::Keybinds::default()).unwrap();
 		old_bindings

@@ -118,6 +118,7 @@ mod server_roles;
 mod server_settings;
 mod server_stickers;
 mod settings;
+mod setup;
 mod shortcuts;
 mod switcher;
 mod text_menu;
@@ -138,7 +139,7 @@ use client_core::{Command, MAX_DRAFT_BYTES, NavStep, State};
 use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
-pub use voice::StageFocus;
+pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {
@@ -344,6 +345,9 @@ pub struct MessagingUi {
 	pub time_format: model::TimeFormat,
 	/// Saved logins may fall back to plain files when no OS keyring works.
 	pub plaintext_login: bool,
+	/// First-run setup still to show; the desktop restores and persists it.
+	pub setup_pending: bool,
+	setup_step: usize,
 	/// Latest disk use of the media and shared-artwork caches, once measured.
 	pub image_cache_usage: Option<[model::CacheUsage; 2]>,
 	/// An image cache partition the owner asked to empty; the desktop consumes it.
@@ -487,6 +491,8 @@ pub struct MessagingUi {
 	stream_preview_open: Option<((Id, Id, Id), u64)>,
 	stream_preview_request: Option<(Id, Id, Id)>,
 	stream_preview_watch: Option<(Id, Id)>,
+	/// Guild voice channel double-clicked in the channel list, joined after selection applies.
+	voice_join: Option<Id>,
 	pub voice_inputs: Vec<(String, String)>,
 	pub voice_outputs: Vec<(String, String)>,
 	pub voice_input: Option<String>,
@@ -559,6 +565,8 @@ pub struct MessagingUi {
 	edit_sent: Option<SubmittedEdit>,
 	deleting: Option<(Id, Id)>,
 	ime_active: bool,
+	/// Enter the input method passed on after finishing a composition, replayed next frame.
+	ime_enter: Option<egui::Event>,
 	/// The composer claimed Tab last frame, so egui left it in the input for a suggestion menu.
 	composer_claims_tab: bool,
 	mention_menu: mentions::Menu,
@@ -1001,6 +1009,9 @@ impl MessagingUi {
 				std::time::Instant::now(),
 				Some(Ok(model::InvitePreview {
 					guild: Some(Id(424242)),
+					about: None,
+					guild_icon: None,
+					voice_channel: None,
 					channel: None,
 					embed: model::Embed {
 						title: Some("Serein community".into()),
@@ -1837,7 +1848,11 @@ impl MessagingUi {
 										egui::Layout::left_to_right(egui::Align::Center),
 										|ui| {
 											ui.spacing_mut().item_spacing.x = 5.0;
-											let server_tag = member.user.primary_guild.as_deref();
+											let server_tag = member
+												.user
+												.primary_guild
+												.as_deref()
+												.filter(|_| !self.cosmetics.hide_clan_tags);
 											let trailing =
 												profiles::server_tag_width(ui, server_tag)
 													+ if server_tag.is_some() { 5.0 } else { 0.0 };
@@ -2144,6 +2159,7 @@ impl MessagingUi {
 				{
 					commands.push(command);
 				}
+				self.apply_voice_join(state, commands);
 				if let Some(parent) = self.archive_parent.take()
 					&& let Some(command) =
 						state.request_archives(parent, model::archives::Kind::Public, None)
@@ -3039,7 +3055,7 @@ impl MessagingUi {
 			self.composer_edit = None;
 			self.mention_menu = mentions::Menu::default();
 			self.slash_commands.suspend(state, channel);
-			self.emoji_picker = emoji_picker::Picker::default();
+			self.emoji_picker.reset();
 			self.ime_active = false;
 			self.focus_switched_composer = false;
 			let gated = state
@@ -3082,17 +3098,23 @@ impl MessagingUi {
 					});
 				return;
 			}
-			design::glass_frame(ui, colors.raised, egui::Margin::same(12))
+			// Same margin and row height as the writable composer, so switching channels
+			// never resizes the bar.
+			design::glass_frame(ui, colors.raised, egui::Margin::symmetric(10, 6))
 				.corner_radius(8)
 				.show(ui, |ui| {
-					let mut hint =
-						"You don't have permission to send messages in this channel.".to_owned();
-					ui.add_enabled(
-						false,
-						TextEdit::singleline(&mut hint)
-							.align(egui::Align2::LEFT_CENTER)
-							.desired_width(f32::INFINITY)
-							.frame(egui::Frame::NONE),
+					let hint = "You don't have permission to send messages in this channel.";
+					ui.allocate_ui_with_layout(
+						egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+						egui::Layout::left_to_right(egui::Align::Center),
+						|ui| {
+							ui.add_space(4.0);
+							ui.add(
+								egui::Label::new(egui::RichText::new(hint).color(colors.muted))
+									.truncate(),
+							)
+							.on_hover_text(hint);
+						},
 					);
 				});
 			return;
@@ -3107,7 +3129,7 @@ impl MessagingUi {
 			self.composer_edit = editing_key;
 			self.ime_active = false;
 			self.mention_menu = mentions::Menu::default();
-			self.emoji_picker = emoji_picker::Picker::default();
+			self.emoji_picker.reset();
 		}
 		let mut cancel_edit = false;
 		if ctx.input(|input| !input.raw.hovered_files.is_empty()) {
@@ -3278,6 +3300,31 @@ impl MessagingUi {
 					}
 				}
 			});
+			// Korean input methods commit the syllable and pass Enter on in the same frame;
+			// input methods that confirm with Enter keep it. Replay it once the commit is in
+			// the draft, so it sends or picks a suggestion instead of adding a newline.
+			if let Some(enter) = self.ime_enter.take() {
+				ctx.input_mut(|i| i.events.push(enter));
+			} else if ime_this_frame && !self.ime_active {
+				ctx.input_mut(|i| {
+					let at = i.events.iter().position(|event| {
+						matches!(
+							event,
+							egui::Event::Key {
+								key: egui::Key::Enter,
+								pressed: true,
+								..
+							}
+						)
+					});
+					self.ime_enter = at.map(|at| i.events.remove(at));
+				});
+				if self.ime_enter.is_some() {
+					ctx.request_repaint();
+				}
+			}
+		} else {
+			self.ime_enter = None;
 		}
 		let composer_id = ui.make_persistent_id(if editing_here {
 			"message-edit"
@@ -3515,23 +3562,30 @@ impl MessagingUi {
                 // width. Last pass's visible draft height decides.
                 let stack_id = composer_id.with("stacked-actions");
                 let (stacked, draft_height) = ctx.data(|d| d.get_temp::<(bool, f32)>(stack_id)).unwrap_or_default();
-                let column = |ui: &mut egui::Ui, add: &mut dyn FnMut(&mut egui::Ui)| {
+                // A column shorter than its buttons would grow upward past the panel's clip, so
+                // each keeps at least the height its buttons took last pass.
+                let column = |ui: &mut egui::Ui, side: &str, add: &mut dyn FnMut(&mut egui::Ui)| {
                     if stacked {
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(28.0, draft_height),
+                        let id = stack_id.with(side);
+                        let buttons = ctx.data(|d| d.get_temp::<f32>(id)).unwrap_or_default();
+                        let height = ui.allocate_ui_with_layout(
+                            egui::vec2(28.0, draft_height.max(buttons)),
                             egui::Layout::bottom_up(egui::Align::Center),
                             |ui| {
                                 ui.spacing_mut().item_spacing.y = 4.0;
+                                let bottom = ui.cursor().bottom();
                                 add(ui);
+                                bottom - ui.min_rect().top()
                             },
-                        );
+                        ).inner;
+                        ctx.data_mut(|d| d.insert_temp(id, height));
                     } else {
                         add(ui);
                     }
                 };
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    column(ui, &mut |ui| {
+                    column(ui, "start", &mut |ui| {
                     // An active application command shows its app in place of the attach button.
                     let attach = if !editing_here && self.slash_commands.composer_badge(ui, state, &mut self.avatars) {
                         None
@@ -3575,7 +3629,7 @@ impl MessagingUi {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
                         let mut actions = None;
-                        column(ui, &mut |ui| {
+                        column(ui, "end", &mut |ui| {
                         let send_button = ui
                             .add_enabled_ui(can_send, |ui| {
                                 icons::button(
@@ -3607,10 +3661,7 @@ impl MessagingUi {
                             self.reaction_picker.dismiss(state, commands);
                         }
                         let pick = match pick {
-                            Some(emoji_picker::Pick::Insert(text)) => {
-                                self.reaction_picker.record(&text);
-                                Some(text)
-                            },
+                            Some(emoji_picker::Pick::Insert(text)) => Some(text),
                             Some(emoji_picker::Pick::React(_, _) | emoji_picker::Pick::Choose(_)) => None,
                             Some(emoji_picker::Pick::Sticker(sticker)) => {
                                 if editing_here { state.status = "Finish or cancel the edit before sending a sticker."; }
@@ -4395,6 +4446,7 @@ impl MessagingUi {
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		self.avatars.cosmetics = self.cosmetics;
 		name_styles::set_enabled(self.cosmetics.name_styles);
+		role_names::set_gradients(!self.cosmetics.solid_names);
 		let cosmetics_refresh = state.set_profile_cosmetics(self.cosmetics);
 		self.timeline.download.gif_favorites = state
 			.gifs
@@ -5212,7 +5264,7 @@ impl MessagingUi {
 							!self.reading_preferences.smooth_scrolling;
 						self.timeline.extension_actions = self.extensions.message_actions();
 						self.timeline.quick_reactions =
-							Some(self.reaction_picker.quick_reactions());
+							Some(self.reaction_picker.quick_reactions(state));
 						let mut seen = std::collections::BTreeSet::new();
 						let author_lookup: Vec<_> = state
 							.timeline
@@ -5330,6 +5382,21 @@ impl MessagingUi {
 							{
 								if let Some(command) = state.select(channel) {
 									commands.push(command);
+								}
+							}
+							Some(invites::Action::JoinVoice(channel))
+								if state.channel(channel).is_some() =>
+							{
+								// The invite's button cannot know every call condition; say why
+								// a join did not start instead of ignoring the click.
+								if let Err(reason) = self.request_call_audio(
+									state,
+									channel,
+									false,
+									None,
+									&mut commands,
+								) {
+									self.toasts.push(design::Level::Error, reason);
 								}
 							}
 							Some(invites::Action::Join(code)) => {
@@ -5606,7 +5673,7 @@ impl MessagingUi {
 			self.timeline.components.forget_message(id);
 		}
 		if let Some(text) = self.timeline.quick_reaction_used.take() {
-			self.reaction_picker.record(text);
+			self.reaction_picker.record(state, text, true);
 		}
 		if let Some((message, emoji)) = self.timeline.reaction.take() {
 			if let Some(emoji) = emoji {
@@ -5811,6 +5878,9 @@ impl MessagingUi {
 			}
 		}
 		self.onboarding.show(&ctx, state, &mut commands);
+		if self.setup_pending {
+			self.show_setup(&ctx);
+		}
 		self.scroll.clear_if_unbound(&ctx);
 		self.scroll.paint(&ctx);
 		// Clear the title bar and channel header so a notice never sits on the chrome.
@@ -6043,6 +6113,52 @@ mod composer_tests {
 				}
 			}
 		}
+		// Real clicks press and release on separate frames; the release lands outside the
+		// field and used to leave it unfocused, dropping Select All and menu pastes (#865).
+		state = edit_state();
+		view = MessagingUi::default();
+		state.drafts.insert(channel, "draft".into());
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		let composer = ctx.memory(|memory| memory.focused()).unwrap();
+		let rect = ctx.read_response(composer).unwrap().rect;
+		let menu_click = |view: &mut MessagingUi, state: &mut State, label: &str| {
+			for (pos, button) in [
+				(Some(rect.center()), egui::PointerButton::Secondary),
+				(None, egui::PointerButton::Primary),
+			] {
+				let pos = pos.unwrap_or_else(|| {
+					frame(view, state, vec![]);
+					let labels = frame(view, state, vec![]);
+					labels
+						.into_iter()
+						.find(|(text, _)| text == label)
+						.unwrap()
+						.1
+						.center()
+				});
+				let mut events = click(pos, button);
+				let release = events.pop().unwrap();
+				frame(view, state, events);
+				frame(view, state, vec![release]);
+			}
+			frame(view, state, vec![]);
+		};
+		menu_click(&mut view, &mut state, "Select All");
+		assert!(ctx.memory(|memory| memory.has_focus(composer)));
+		let range = egui::TextEdit::load_state(&ctx, composer)
+			.unwrap()
+			.cursor
+			.char_range()
+			.unwrap();
+		assert_eq!(range.sorted_cursors().map(|cursor| cursor.index.0), [0, 5]);
+		menu_click(&mut view, &mut state, "Paste");
+		let request = view.attachment_paste_requested.take().unwrap();
+		view.upload_busy = false;
+		view.pasted_text = Some((channel, request.target, "pasted".into()));
+		frame(&mut view, &mut state, vec![]);
+		assert_eq!(state.drafts.get(&channel).unwrap(), "pasted");
 	}
 
 	#[test]
@@ -6785,7 +6901,7 @@ mod composer_tests {
 	}
 
 	#[test]
-	fn composer_enter_dismissing_composition_does_not_send() {
+	fn composer_enter_passed_on_after_composition_sends_next_frame() {
 		for finish in [
 			egui::ImeEvent::Preedit {
 				text: String::new(),
@@ -6826,20 +6942,14 @@ mod composer_tests {
 				.is_empty()
 			);
 			assert!(!view.ime_active);
+			assert!(
+				state
+					.drafts
+					.get(&Id(10))
+					.is_none_or(|draft| !draft.contains('\n'))
+			);
 			assert!(matches!(
-				edit_frame(
-					&ctx,
-					&mut view,
-					&mut state,
-					vec![
-						egui::Event::Ime(egui::ImeEvent::Preedit {
-							text: String::new(),
-							active_range_chars: None,
-						}),
-						edit_key(egui::Key::Enter)
-					]
-				)
-				.as_slice(),
+				edit_frame(&ctx, &mut view, &mut state, vec![]).as_slice(),
 				[Command::Send { .. }]
 			));
 		}
@@ -6889,6 +6999,9 @@ mod composer_tests {
 				std::time::Instant::now(),
 				Some(Ok(model::InvitePreview {
 					guild: Some(Id(100)),
+					about: None,
+					guild_icon: None,
+					voice_channel: None,
 					channel: None,
 					embed: model::Embed {
 						title: Some("Synthetic invited server".into()),
@@ -6916,7 +7029,7 @@ mod composer_tests {
 			let rect = output
 				.shapes
 				.iter()
-				.find_map(|shape| button_rect(&shape.shape, "Go To Server"));
+				.find_map(|shape| button_rect(&shape.shape, "Go to Server"));
 			output.drop_without_applying_deltas();
 			(rect, commands)
 		};
@@ -6925,7 +7038,7 @@ mod composer_tests {
 		}
 		let point = frame(&mut view, &mut state, vec![])
 			.0
-			.expect("Go To Server")
+			.expect("Go to Server")
 			.center();
 		let mut commands = vec![];
 		for pressed in [true, false] {
@@ -7594,19 +7707,15 @@ mod composer_tests {
 			)
 			.is_empty()
 		);
-		let commands = edit_frame(
-			&ctx,
-			&mut view,
-			&mut state,
-			vec![edit_key(egui::Key::Enter)],
-		);
+		// The input method passed Enter on with the commit; it saves on the next frame.
+		let commands = edit_frame(&ctx, &mut view, &mut state, vec![]);
 		assert!(
-			matches!(commands.as_slice(), [Command::Edit { channel: Id(10), message: Id(20), content, .. }] if content.trim_end() == "Original <@1> 語")
+			matches!(commands.as_slice(), [Command::Edit { channel: Id(10), message: Id(20), content, .. }] if content == "Original <@1> 語")
 		);
 		assert!(view.has_edit(), "optimistic edits await confirmation");
 		assert_eq!(
 			state.timeline.get(Id(20)).unwrap().content,
-			"Original <@1> 語\n"
+			"Original <@1> 語"
 		);
 		let [Command::Edit { request, .. }] = commands.as_slice() else {
 			panic!("Saving the edit emits one edit command");
@@ -7618,17 +7727,14 @@ mod composer_tests {
 			Err(client_core::auth::Failure::Network),
 		);
 		assert_eq!(state.timeline.get(Id(20)).unwrap().content, "Original");
-		assert_eq!(
-			state.message_actions.failed_edits[0].2,
-			"Original <@1> 語\n"
-		);
+		assert_eq!(state.message_actions.failed_edits[0].2, "Original <@1> 語");
 		assert_eq!(state.drafts[&Id(10)], "Unsent draft 👋");
 		assert!(
 			view.draft_changes.is_empty(),
 			"edits must not overwrite unsent drafts"
 		);
 		assert!(edit_frame(&ctx, &mut view, &mut state, vec![]).is_empty());
-		assert_eq!(view.editing.as_ref().unwrap().2, "Original <@1> 語\n");
+		assert_eq!(view.editing.as_ref().unwrap().2, "Original <@1> 語");
 		assert!(state.message_actions.failed_edits.is_empty());
 		let commands = edit_frame(
 			&ctx,

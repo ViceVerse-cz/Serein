@@ -1642,8 +1642,6 @@ main-restoring-screen-welcome-back = Witamy z powrotem
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Zapisane konta
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Jestem właścicielem tego konta i autoryzuję tę sesję.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Hasła i 2FA pozostają na własnej stronie logowania Discord; w magazynie danych uwierzytelniających systemu operacyjnego przechowywany jest tylko token sesji.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = O Sereinie
@@ -4149,8 +4147,6 @@ voice-device-combo-device-unavailable = Urządzenie niedostępne
 voice-device-default = Domyślne systemowe
 # Context: frame
 voice-frame-open-voice = Otwarty głos
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% to poziom oryginalny. Wyższe poziomy mogą zniekształcać.
 # Context: labels
 voice-labels-choose-camera = Wybierz aparat
 # Context: live_badge
@@ -4251,12 +4247,6 @@ voice-voice-participant-microphone-muted = Mikrofon wyciszony
 voice-voice-participant-muted-by-server = Wyciszony przez serwer
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Wyciszony dla Ciebie na tym urządzeniu
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Wybierz algorytm we wszystkich ustawieniach głosu.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen wyłącza przychodzący dźwięk i wycisza nim mikrofon.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Przytrzymaj skonfigurowany skrót, gdy chcesz mówić.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Zainstaluj kompilację obsługującą głos, aby móc korzystać z tych elementów sterujących.
 # Context: voice_popup_content

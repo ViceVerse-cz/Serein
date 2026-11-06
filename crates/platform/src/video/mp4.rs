@@ -503,7 +503,8 @@ fn parse_visual_entry(stsd: &[u8]) -> Result<(VideoCodec, u32, u32), &'static st
 			b"encv" => return Err(UNSUPPORTED),
 			_ => continue,
 		};
-		super::check_dimensions(width, height)?;
+		// Source metadata is not a playback surface; the decoder requests bounded output.
+		super::playback_dimensions(width, height)?;
 		return Ok((codec, width, height));
 	}
 	Err(UNSUPPORTED)

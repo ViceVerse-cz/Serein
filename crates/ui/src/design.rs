@@ -2248,6 +2248,15 @@ pub enum ButtonKind {
 /// Compact inline button. Sizes, radius, focus ring and disabled styling are identical
 /// everywhere: dialog footers, settings toolbars and page headers all use this.
 pub fn button(ui: &mut egui::Ui, label: &str, kind: ButtonKind) -> egui::Response {
+	sized_button(ui, label, kind, false)
+}
+
+/// [`button`] stretched to the available width, for a popout's closing action.
+pub fn full_width_button(ui: &mut egui::Ui, label: &str, kind: ButtonKind) -> egui::Response {
+	sized_button(ui, label, kind, true)
+}
+
+fn sized_button(ui: &mut egui::Ui, label: &str, kind: ButtonKind, full: bool) -> egui::Response {
 	let label = crate::i18n::translate_if_key(label);
 	let p = palette(ui);
 	let (fill, stroke, text) = match kind {
@@ -2264,11 +2273,15 @@ pub fn button(ui: &mut egui::Ui, label: &str, kind: ButtonKind) -> egui::Respons
 	let galley = ui
 		.painter()
 		.layout_no_wrap(label.to_owned(), font, Color32::WHITE);
-	let width = (galley.size().x + 32.0).max(if kind == ButtonKind::Neutral {
-		72.0
+	let width = if full {
+		ui.available_width()
 	} else {
-		92.0
-	});
+		(galley.size().x + 32.0).max(if kind == ButtonKind::Neutral {
+			72.0
+		} else {
+			92.0
+		})
+	};
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(width, BUTTON_HEIGHT), egui::Sense::click());
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
@@ -2631,6 +2644,168 @@ pub fn segmented(ui: &mut egui::Ui, labels: &[&str], selected: usize) -> Option<
 		}
 	}
 	clicked
+}
+
+/// Discord-style select: a filled field with the current choice, an optional leading icon and a
+/// chevron, whose options open in a matching popup. Mirrors `egui::ComboBox`, so options are
+/// added with `selectable_value` or `selectable_label`.
+pub struct Select {
+	id_salt: egui::IdSalt,
+	text: egui::WidgetText,
+	width: Option<f32>,
+	height: f32,
+	icon: Option<crate::icons::Icon>,
+}
+
+impl Select {
+	pub fn from_id_salt(id_salt: impl egui::AsIdSalt) -> Self {
+		Self {
+			id_salt: egui::IdSalt::new(id_salt),
+			text: egui::WidgetText::default(),
+			width: None,
+			height: 300.0,
+			icon: None,
+		}
+	}
+	pub fn selected_text(mut self, text: impl Into<egui::WidgetText>) -> Self {
+		self.text = text.into();
+		self
+	}
+	pub fn width(mut self, width: f32) -> Self {
+		self.width = Some(width);
+		self
+	}
+	/// Most the option list grows before it scrolls.
+	pub fn height(mut self, height: f32) -> Self {
+		self.height = height;
+		self
+	}
+	/// The field always truncates its single line; kept for `ComboBox` call sites.
+	pub fn truncate(self) -> Self {
+		self
+	}
+	pub fn icon(mut self, icon: crate::icons::Icon) -> Self {
+		self.icon = Some(icon);
+		self
+	}
+	pub fn show_ui<R>(
+		self,
+		ui: &mut egui::Ui,
+		add_contents: impl FnOnce(&mut egui::Ui) -> R,
+	) -> egui::InnerResponse<Option<R>> {
+		const HEIGHT: f32 = 40.0;
+		let p = palette(ui);
+		let width = self
+			.width
+			.unwrap_or(ui.spacing().combo_width)
+			.min(ui.available_width())
+			.max(48.0);
+		let id = ui.make_persistent_id(self.id_salt);
+		let (rect, _) = ui.allocate_exact_size(egui::vec2(width, HEIGHT), egui::Sense::hover());
+		let response = ui.interact(rect, id, egui::Sense::click());
+		let label = self.text.text().to_owned();
+		response.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::Role::ComboBox, ui.is_enabled(), &label)
+		});
+		let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response));
+		if ui.is_rect_visible(rect) {
+			let stroke = if !ui.is_enabled() {
+				Stroke::new(1.0, p.border.gamma_multiply(0.6))
+			} else if open || response.has_focus() {
+				Stroke::new(1.0, p.accent)
+			} else if response.hovered() {
+				Stroke::new(1.0, p.muted)
+			} else {
+				Stroke::new(1.0, p.border)
+			};
+			ui.painter()
+				.rect(rect, 8, p.base, stroke, egui::StrokeKind::Inside);
+			let ink = if ui.is_enabled() {
+				p.text_strong
+			} else {
+				p.muted
+			};
+			let mut left = rect.left() + 14.0;
+			if let Some(icon) = self.icon {
+				crate::icons::paint(
+					ui.painter(),
+					icon,
+					egui::Rect::from_center_size(
+						egui::pos2(left + 10.0, rect.center().y),
+						egui::Vec2::splat(20.0),
+					),
+					ink,
+				);
+				left += 30.0;
+			}
+			let chevron = egui::Rect::from_center_size(
+				rect.right_center() - egui::vec2(20.0, 0.0),
+				egui::Vec2::splat(16.0),
+			);
+			let galley = self.text.into_galley(
+				ui,
+				Some(egui::TextWrapMode::Truncate),
+				(chevron.left() - 8.0 - left).max(0.0),
+				egui::TextStyle::Body,
+			);
+			ui.painter().galley(
+				egui::pos2(left, rect.center().y - galley.size().y / 2.0),
+				galley,
+				ink,
+			);
+			crate::icons::paint(
+				ui.painter(),
+				crate::icons::Icon::ChevronDown,
+				chevron,
+				if open { p.text_strong } else { p.muted },
+			);
+		}
+		let inner = egui::Popup::menu(&response)
+			.width(width)
+			.gap(6.0)
+			.frame(
+				egui::Frame::popup(ui.style())
+					.fill(p.base)
+					.stroke(Stroke::new(1.0, p.border))
+					.inner_margin(6)
+					.corner_radius(8),
+			)
+			.show(|ui| {
+				ui.set_min_width(width - 12.0);
+				let visuals = ui.visuals_mut();
+				visuals.selection.bg_fill = p.selected;
+				visuals.selection.stroke = Stroke::new(1.0, p.text_strong);
+				for (state, fill) in [
+					(&mut visuals.widgets.inactive, Color32::TRANSPARENT),
+					(&mut visuals.widgets.hovered, p.hover),
+					(&mut visuals.widgets.active, p.selected),
+				] {
+					state.weak_bg_fill = fill;
+					state.bg_stroke = Stroke::NONE;
+					state.corner_radius = egui::CornerRadius::same(6);
+					// Highlights stay inside their row instead of bleeding past its neighbours.
+					state.expansion = 0.0;
+				}
+				visuals.widgets.inactive.fg_stroke.color = p.text;
+				visuals.widgets.hovered.fg_stroke.color = p.text_strong;
+				visuals.widgets.active.fg_stroke.color = p.text_strong;
+				ui.spacing_mut().button_padding = egui::vec2(10.0, 8.0);
+				ui.spacing_mut().item_spacing.y = 2.0;
+				egui::ScrollArea::vertical()
+					.max_height(self.height)
+					.auto_shrink([false, true])
+					.show(ui, |ui| {
+						ui.with_layout(
+							egui::Layout::top_down_justified(egui::Align::LEFT),
+							add_contents,
+						)
+						.inner
+					})
+					.inner
+			})
+			.map(|inner| inner.inner);
+		egui::InnerResponse::new(inner, response)
+	}
 }
 
 /// Compact multi-select row with a leading image, two text lines and an outlined checkbox.

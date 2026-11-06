@@ -1658,8 +1658,6 @@ main-restoring-screen-welcome-back = 歡迎回來
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = 已儲存的帳戶
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = 這個帳戶為我本人所有，我授權此工作階段。
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = 密碼與 2FA 只留在 Discord 自己的登入頁；僅工作階段令牌會存進你的作業系統憑證儲存區。
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = 關於 Serein
@@ -4178,8 +4176,6 @@ voice-device-combo-device-unavailable = 裝置無法使用
 voice-device-default = 系統預設
 # Context: frame
 voice-frame-open-voice = 開啟語音
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% 是原始音量，過高可能失真。
 # Context: labels
 voice-labels-choose-camera = 選擇攝影機
 # Context: live_badge
@@ -4280,12 +4276,6 @@ voice-voice-participant-microphone-muted = 麥克風已靜音
 voice-voice-participant-muted-by-server = 被伺服器靜音
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = 在你這台裝置上已靜音
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = 請在「所有語音設定」中選擇演算法。
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = 關掉喇叭會停止播放收到的音訊，並同時讓麥克風靜音。
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = 想說話時，按住你設定的快捷鍵。
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = 請安裝支援語音的版本以使用這些控件。
 # Context: voice_popup_content

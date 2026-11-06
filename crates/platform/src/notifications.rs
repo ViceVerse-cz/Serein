@@ -396,6 +396,10 @@ fn publish(status: &AtomicU64, generation: u64, outcome: Status) {
 fn authorize() -> Status {
 	#[cfg(target_os = "macos")]
 	{
+		if notify_rust::check_bundle().is_err() {
+			return Status::Unavailable;
+		}
+		request_badge_authorization();
 		match notify_rust::request_auth_blocking() {
 			Ok(true) => Status::Ready,
 			Ok(false) => Status::Denied,
@@ -417,6 +421,27 @@ fn authorize() -> Status {
 	{
 		Status::Ready
 	}
+}
+
+/// mac-usernotifications 0.3.1 requests only alerts and sounds, which leaves the Dock unread
+/// badge without a Notifications setting. Asking for all three first keeps a single prompt;
+/// the crate's request afterwards installs its delegate and reports the decided status.
+#[cfg(target_os = "macos")]
+fn request_badge_authorization() {
+	use objc2_user_notifications::{UNAuthorizationOptions, UNUserNotificationCenter};
+	let (send, decided) = std::sync::mpsc::sync_channel(1);
+	UNUserNotificationCenter::currentNotificationCenter()
+		.requestAuthorizationWithOptions_completionHandler(
+			UNAuthorizationOptions::Alert
+				| UNAuthorizationOptions::Sound
+				| UNAuthorizationOptions::Badge,
+			&block2::RcBlock::new(
+				move |_: objc2::runtime::Bool, _: *mut objc2_foundation::NSError| {
+					let _ = send.try_send(());
+				},
+			),
+		);
+	let _ = decided.recv();
 }
 
 #[cfg(target_os = "windows")]

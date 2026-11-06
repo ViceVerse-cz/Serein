@@ -578,7 +578,7 @@ impl ThemeEditor {
 						}
 						changed |= row(ui, "Image fit", |ui| {
 							let mut changed = false;
-							egui::ComboBox::from_id_salt("image-fit")
+							crate::design::Select::from_id_salt("image-fit")
 								.selected_text(crate::i18n::translate_if_key(
 									&(match background.fit {
 										BackgroundFit::Cover => {
@@ -1311,7 +1311,7 @@ fn section_controls(
 			crate::i18n::translate("theme-editor-section-controls-selected-section"),
 			13.0,
 		));
-		egui::ComboBox::from_id_salt("background-section")
+		crate::design::Select::from_id_salt("background-section")
 			.width(ui.available_width())
 			.selected_text(crate::i18n::translate_if_key(selected.label_key()))
 			.show_ui(ui, |ui| {

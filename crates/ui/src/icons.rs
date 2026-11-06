@@ -126,13 +126,16 @@ pub enum Icon {
 	/// Stacked servers, for mutual-server counts.
 	Servers,
 	Fullscreen,
+	Cut,
+	Paste,
+	SelectAll,
 	/// Horizontally mirrored reply glyph from the shared atlas.
 	Forward,
 }
 
 impl Icon {
 	/// Canonical atlas cells; Forward reuses the mirrored Reply cell.
-	pub const ALL: [Icon; 107] = [
+	pub const ALL: [Icon; 110] = [
 		Icon::ChevronDown,
 		Icon::ChevronRight,
 		Icon::Gear,
@@ -240,6 +243,9 @@ impl Icon {
 		Icon::DeviceMobile,
 		Icon::Servers,
 		Icon::Fullscreen,
+		Icon::Cut,
+		Icon::Paste,
+		Icon::SelectAll,
 	];
 	/// Upstream icon name recorded in `index.tsv`.
 	fn asset(self) -> &'static str {
@@ -351,6 +357,9 @@ impl Icon {
 			Icon::DeviceMobile => "device-mobile",
 			Icon::Servers => "hard-drives",
 			Icon::Fullscreen => "corners-out",
+			Icon::Cut => "scissors",
+			Icon::Paste => "clipboard-text",
+			Icon::SelectAll => "selection-all",
 		}
 	}
 	fn cell(self) -> usize {

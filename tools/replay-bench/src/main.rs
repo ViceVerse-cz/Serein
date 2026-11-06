@@ -2,6 +2,7 @@ use client_core::{Envelope, Event};
 use model::Id;
 use std::time::Instant;
 mod soak;
+/// Dispatch synthetic workloads; ACK mode isolates HTTP-result reduction from fixture preparation.
 fn main() {
 	if std::env::args().nth(1).as_deref() == Some("--soak") {
 		let seconds = std::env::args()
@@ -21,6 +22,10 @@ fn main() {
 	}
 	if std::env::args().nth(1).as_deref() == Some("--wide-channels") {
 		wide_channels();
+		return;
+	}
+	if std::env::args().nth(1).as_deref() == Some("--ack-reconciliation") {
+		ack_reconciliation();
 		return;
 	}
 	let start = Instant::now();
@@ -273,5 +278,104 @@ fn hover_navigation() {
 		"Hover navigation retained: {} dormant windows; {} estimated retained bytes (not RSS).",
 		state.resident_window_count(),
 		state.resident_history_bytes()
+	);
+}
+
+/// Time ACK reduction with all 4,096 activity slots occupied; exclude fixture construction.
+fn ack_reconciliation() {
+	use client_core::{Command, State, auth::AuthState, read_state};
+	/// Populate the activity cap outside the timed reducer operation.
+	fn full_ledger() -> State {
+		let mut state = test_support::demo_state();
+		state.auth = AuthState::Authenticated;
+		state.gateway_connected = true;
+		state.selected = None;
+		state.timeline.clear();
+		let template = state.channels[0].clone();
+		state.channels = (0..1024_u64)
+			.map(|index| model::Channel {
+				id: Id(10_000 + index),
+				guild: None,
+				parent_id: None,
+				kind: 1,
+				last_message: Some(Id(1)),
+				recipients: vec![],
+				..template.clone()
+			})
+			.collect();
+		state.invalidate_navigation();
+		state
+			.apply_read_state(read_state::Event::Snapshot {
+				entries: Some(
+					state
+						.channels
+						.iter()
+						.map(|c| (c.id, Some(Id(1)), 0))
+						.collect(),
+				),
+				version: None,
+				partial: false,
+			})
+			.unwrap();
+		for index in 0..1024_u64 {
+			for offset in 1..=4 {
+				let mut message =
+					test_support::message(1_000_000 + index * 8 + offset, Id(10_000 + index));
+				message.author.id = Id(999_999);
+				state.apply(Envelope {
+					generation: state.generation,
+					event: Event::Message(message),
+				});
+			}
+		}
+		assert_eq!(state.unread_count(Id(10_000)), 4);
+		assert_eq!(state.unread_count(Id(11_023)), 4);
+		state
+	}
+	let mut partial = std::time::Duration::ZERO;
+	let mut bulk = std::time::Duration::ZERO;
+	for _ in 0..8 {
+		let mut state = full_ledger();
+		let Command::MarkRead {
+			channel,
+			message,
+			request,
+			..
+		} = state
+			.prepare_mark_left_channel_read(Id(10_000), Id(1_000_002))
+			.unwrap()
+		else {
+			panic!("partial read")
+		};
+		let start = Instant::now();
+		state
+			.apply_read_state(read_state::Event::Result {
+				channel,
+				message,
+				request,
+				result: Ok(()),
+			})
+			.unwrap();
+		partial += start.elapsed();
+		assert_eq!(state.read_marker(channel), Some(Some(message)));
+		let mut state = full_ledger();
+		let Command::MarkAllRead { request, channels } = state.prepare_mark_all_read().unwrap()
+		else {
+			panic!("bulk read")
+		};
+		assert_eq!(channels.len(), 1024);
+		let start = Instant::now();
+		state
+			.apply_read_state(read_state::Event::AllAck {
+				request,
+				acked: channels.len(),
+				result: Ok(()),
+			})
+			.unwrap();
+		bulk += start.elapsed();
+		assert!(!state.can_mark_all_read());
+	}
+	println!(
+		"Full-ledger ACK reducer: 8 partial reads in {partial:?}; 8 bulk reads of 1024 channels in {bulk:?}; 4096 observations before each ACK. Excludes setup, RSS, UI and live compatibility."
 	);
 }

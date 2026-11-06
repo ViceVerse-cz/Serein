@@ -109,6 +109,15 @@ pub fn clock(at: time::OffsetDateTime) -> String {
 	clock_with(at, false)
 }
 
+/// Stand-ins at least as wide as any [`clock`], so a column of times never shifts what follows.
+pub(crate) fn widest_clocks() -> [&'static str; 2] {
+	if TWELVE_HOUR.load(Ordering::Relaxed) {
+		["00:00 AM", "00:00 PM"]
+	} else {
+		["00:00", "00:00"]
+	}
+}
+
 /// [`clock`] with seconds: `14:05:09` or `2:05:09 PM`.
 pub fn clock_seconds(at: time::OffsetDateTime) -> String {
 	clock_with(at, true)

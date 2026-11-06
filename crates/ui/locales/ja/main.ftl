@@ -1643,8 +1643,6 @@ main-restoring-screen-welcome-back = おかえり
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = 保存されたアカウント
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = 私はこのアカウントを所有しており、このセッションを承認しています。
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = パスワードと 2FA は Discord 自体のログイン ページに残ります。セッション トークンのみが OS 資格情報ストアに保持されます。
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = セレインについて
@@ -4140,8 +4138,6 @@ voice-device-combo-device-unavailable = デバイスが使用不可
 voice-device-default = システムのデフォルト
 # Context: frame
 voice-frame-open-voice = オープンな声
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% が元のレベルです。レベルを高くすると歪む可能性があります。
 # Context: labels
 voice-labels-choose-camera = カメラを選択してください
 # Context: live_badge
@@ -4242,12 +4238,6 @@ voice-voice-participant-microphone-muted = マイクがミュートされまし�
 voice-voice-participant-muted-by-server = サーバーによってミュートされています
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = このデバイスではミュートされています
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = すべての音声設定でアルゴリズムを選択します。
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen は受信音声をオフにし、マイクをミュートします。
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = 話したいときは、設定したショートカットを長押しします。
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = これらのコントロールを使用するには、音声対応ビルドをインストールします。
 # Context: voice_popup_content

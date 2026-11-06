@@ -1642,8 +1642,6 @@ main-restoring-screen-welcome-back = Willkommen zurück
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Gespeicherte Konten
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Ich besitze dieses Konto und autorisiere diese Sitzung.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Passwörter und 2FA bleiben auf Discords eigener Anmeldeseite; Nur das Sitzungstoken wird in Ihrem Betriebssystem-Anmeldeinformationsspeicher aufbewahrt.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = Über Serein
@@ -4149,8 +4147,6 @@ voice-device-combo-device-unavailable = Gerät nicht verfügbar
 voice-device-default = Systemstandard
 # Context: frame
 voice-frame-open-voice = Offene Stimme
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100 % ist das ursprüngliche Niveau. Höhere Werte können zu Verzerrungen führen.
 # Context: labels
 voice-labels-choose-camera = Wählen Sie eine Kamera
 # Context: live_badge
@@ -4251,12 +4247,6 @@ voice-voice-participant-microphone-muted = Mikrofon stummgeschaltet
 voice-voice-participant-muted-by-server = Vom Server stummgeschaltet
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Auf diesem Gerät für Sie stummgeschaltet
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Wählen Sie in allen Spracheinstellungen einen Algorithmus.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen schaltet eingehende Audiosignale ab und schaltet damit Ihr Mikrofon stumm.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Halten Sie die konfigurierte Tastenkombination gedrückt, wenn Sie sprechen möchten.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Installieren Sie einen sprachaktivierten Build, um diese Steuerelemente zu verwenden.
 # Context: voice_popup_content
