@@ -4,8 +4,8 @@ use model::{
 	Id,
 	server_integrations::{Action, Snapshot},
 };
-use reqwest::Method;
 use serde_json::json;
+use wreq::Method;
 impl DiscordApi {
 	pub(super) async fn copy_webhook_url(
 		&self,

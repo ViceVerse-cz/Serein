@@ -9,6 +9,9 @@ model.workspace = true
 session-cache.workspace = true
 zeroize.workspace = true
 thiserror.workspace = true
+wreq.workspace = true
+wreq-util.workspace = true
+tokio-tungstenite.workspace = true
 
 [lints]
 workspace = true

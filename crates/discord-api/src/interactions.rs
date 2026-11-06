@@ -81,12 +81,7 @@ impl DiscordApi {
 			|guild| format!("/guilds/{guild}/application-command-index"),
 		);
 		let bytes = self
-			.request_limited(
-				reqwest::Method::GET,
-				&path,
-				None,
-				discord_protocol::MAX_WIRE,
-			)
+			.request_limited(wreq::Method::GET, &path, None, discord_protocol::MAX_WIRE)
 			.await
 			.map_err(|failure| match failure {
 				Failure::Capacity => {
@@ -184,14 +179,9 @@ impl DiscordApi {
 				"Interaction is too large; nothing was sent",
 			));
 		}
-		self.request_limited(
-			reqwest::Method::POST,
-			"/interactions",
-			Some(body),
-			64 * 1024,
-		)
-		.await
-		.map(|_| ())
+		self.request_limited(wreq::Method::POST, "/interactions", Some(body), 64 * 1024)
+			.await
+			.map(|_| ())
 	}
 }
 

@@ -1,7 +1,7 @@
 use crate::{DiscordApi, Failure};
 use client_core::group_actions::Action;
 use model::{ChannelPatch, Patch};
-use reqwest::Method;
+use wreq::Method;
 
 impl DiscordApi {
 	// Documented channel routes; ordinary-user session interoperability remains unverified.

@@ -1,7 +1,7 @@
 use crate::{DiscordApi, Failure};
 use discord_protocol::gif_favorites::{self, Decoded, MAX_RESPONSE};
 use model::Gif;
-use reqwest::Method;
+use wreq::Method;
 
 impl DiscordApi {
 	async fn read_gif_favorites(&self) -> Result<Decoded, Failure> {

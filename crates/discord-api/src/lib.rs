@@ -37,10 +37,6 @@ use client_core::{
 };
 use discord_protocol::*;
 use model::{Id, User};
-use reqwest::{
-	Client, Method, StatusCode,
-	header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue},
-};
 use std::{
 	sync::{
 		Arc,
@@ -51,6 +47,10 @@ use std::{
 use tokio::{
 	sync::{Mutex, Semaphore},
 	time::{Instant, sleep_until},
+};
+use wreq::{
+	Client, Method, StatusCode,
+	header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue},
 };
 
 tokio::task_local! {
@@ -176,8 +176,8 @@ fn invite_captcha(bytes: &[u8]) -> Option<client_core::captcha::Challenge> {
 }
 /// Headers Discord's web client sends on every REST call; without them a normal-user
 /// session is classified as automated and quarantined (spam flag, attachment limits).
-fn fingerprint_headers() -> Result<reqwest::header::HeaderMap, Failure> {
-	let mut headers = reqwest::header::HeaderMap::new();
+fn fingerprint_headers() -> Result<wreq::header::HeaderMap, Failure> {
+	let mut headers = wreq::header::HeaderMap::new();
 	headers.insert(
 		"x-super-properties",
 		HeaderValue::from_str(&client_core::fingerprint::super_properties())
@@ -189,24 +189,56 @@ fn fingerprint_headers() -> Result<reqwest::header::HeaderMap, Failure> {
 	);
 	headers.insert("x-discord-timezone", HeaderValue::from_static("UTC"));
 	headers.insert(
-		reqwest::header::ACCEPT_LANGUAGE,
+		wreq::header::ACCEPT_LANGUAGE,
 		HeaderValue::from_static("en-US,en;q=0.9"),
 	);
 	headers.insert(
-		reqwest::header::ORIGIN,
+		wreq::header::ORIGIN,
 		HeaderValue::from_static("https://discord.com"),
 	);
 	headers.insert(
-		reqwest::header::REFERER,
+		wreq::header::REFERER,
 		HeaderValue::from_static("https://discord.com/channels/@me"),
 	);
+	// Same-origin fetch() metadata; the emulation's own headers describe a page navigation.
+	headers.insert(wreq::header::ACCEPT, HeaderValue::from_static("*/*"));
+	headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
+	headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
+	headers.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
+	if let Some(platform) = client_core::fingerprint::client_hint_platform() {
+		headers.insert(
+			"sec-ch-ua",
+			HeaderValue::from_static(client_core::fingerprint::CHROME_SEC_CH_UA),
+		);
+		headers.insert("sec-ch-ua-mobile", HeaderValue::from_static("?0"));
+		headers.insert("sec-ch-ua-platform", HeaderValue::from_static(platform));
+	}
 	Ok(headers)
+}
+/// TLS and HTTP/2 handshake of the browser named by `client_core::fingerprint`, so the
+/// transport agrees with the advertised user agent. Bump with `CHROME_MAJOR`/`SAFARI_VERSION`.
+pub(crate) fn browser_emulation() -> wreq_util::Emulation {
+	use wreq_util::{Platform, Profile};
+	let (profile, platform) = if cfg!(target_os = "macos") {
+		(Profile::Safari18_5, Platform::MacOS)
+	} else if cfg!(windows) {
+		(Profile::Chrome128, Platform::Windows)
+	} else {
+		(Profile::Chrome128, Platform::Linux)
+	};
+	wreq_util::Emulation::builder()
+		.profile(profile)
+		.platform(platform)
+		.headers(false)
+		.build()
 }
 fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 	let builder = Client::builder()
-		.redirect(reqwest::redirect::Policy::none())
+		// Emulation resets TLS/HTTP options, so it must precede every other builder call.
+		.emulation(browser_emulation())
+		.redirect(wreq::redirect::Policy::none())
 		// Keep writes single-attempt, including attachment slot allocation.
-		.retry(reqwest::retry::never())
+		.retry(wreq::retry::Policy::never())
 		.timeout(Duration::from_secs(20))
 		.connect_timeout(Duration::from_secs(10))
 		.user_agent(client_core::fingerprint::user_agent())
@@ -465,7 +497,7 @@ impl DiscordApi {
 						.body(body),
 				};
 			}
-			let mut response = request.send().await.map_err(|_| {
+			let response = request.send().await.map_err(|_| {
 				if write {
 					Failure::Ambiguous
 				} else {
@@ -512,13 +544,17 @@ impl DiscordApi {
 			let mut bytes = zeroize::Zeroizing::new(Vec::with_capacity(
 				response.content_length().unwrap_or(0).min(max_bytes as u64) as usize,
 			));
-			while let Some(chunk) = response.chunk().await.map_err(|_| {
-				if write {
-					Failure::Ambiguous
-				} else {
-					Failure::Network
-				}
-			})? {
+			let mut body = std::pin::pin!(response.bytes_stream());
+			while let Some(chunk) = futures_util::StreamExt::next(&mut body)
+				.await
+				.transpose()
+				.map_err(|_| {
+					if write {
+						Failure::Ambiguous
+					} else {
+						Failure::Network
+					}
+				})? {
 				if bytes.len() + chunk.len() > max_bytes {
 					return Err(Failure::Capacity);
 				}

@@ -1,6 +1,6 @@
 use crate::{DiscordApi, Failure};
 use client_core::server_actions::Action;
-use reqwest::Method;
+use wreq::Method;
 
 impl DiscordApi {
 	pub(super) async fn send_server_invite(
