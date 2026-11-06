@@ -55,6 +55,8 @@ struct CacheKey {
 	requests_collapsed: bool,
 	/// Threads leave the list once their archive window passes, without any event.
 	minute: i64,
+	/// Voice-only clients list voice channels only.
+	voice_only: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -596,6 +598,7 @@ impl MessagingUi {
 			relationships: state.relationship_view(),
 			requests_collapsed: self.message_requests_collapsed,
 			minute: now / 60_000,
+			voice_only: self.voice_only,
 		};
 		if self.channel_cache.key != Some(key) {
 			let categories: BTreeSet<_> = state
@@ -656,6 +659,28 @@ impl MessagingUi {
 					if matches!(channel_rows[index], Row::Heading(..))
 						&& !matches!(channel_rows.get(index + 1), Some(Row::Channel(..)))
 					{
+						channel_rows.remove(index);
+					} else {
+						index += 1;
+					}
+				}
+			}
+			if self.voice_only {
+				// Voice-only clients keep voice channels and the categories that still hold one.
+				channel_rows.retain(|row| match row {
+					Row::Channel(channel, ..) => channel.kind == 2,
+					Row::Requests(..) => false,
+					_ => true,
+				});
+				let mut index = 0;
+				while index < channel_rows.len() {
+					let empty_heading =
+						matches!(channel_rows[index], Row::Heading(..) | Row::Category(..))
+							&& !matches!(
+								channel_rows.get(index + 1),
+								Some(Row::Channel(..)) | Some(Row::Category(..))
+							);
+					if empty_heading {
 						channel_rows.remove(index);
 					} else {
 						index += 1;

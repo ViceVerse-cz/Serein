@@ -252,6 +252,15 @@ struct ProfileImage {
 
 pub const DEFAULT_IDLE_TIMEOUT_SECS: u32 = 10 * 60;
 
+/// The phone bridge's default port, kept in step with the stored preference default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BridgePort(pub u16);
+impl Default for BridgePort {
+	fn default() -> Self {
+		Self(47_900)
+	}
+}
+
 #[derive(Default)]
 pub struct MessagingUi {
 	poll_creator: polls::Creator,
@@ -347,6 +356,15 @@ pub struct MessagingUi {
 	pub plaintext_login: bool,
 	/// First-run setup still to show; the desktop restores and persists it.
 	pub setup_pending: bool,
+	/// Voice-only client: text channels are hidden and no message pane is shown.
+	pub voice_only: bool,
+	/// Forward incoming chat to the paired phone app over the local network.
+	pub bridge_enabled: bool,
+	/// Shared secret the phone app presents; empty until the bridge is enabled.
+	pub bridge_token: String,
+	pub bridge_port: BridgePort,
+	/// Bound port once the listener is up; the desktop fills it each frame.
+	pub bridge_status: String,
 	setup_step: usize,
 	/// Latest disk use of the media and shared-artwork caches, once measured.
 	pub image_cache_usage: Option<[model::CacheUsage; 2]>,
@@ -5111,6 +5129,21 @@ impl MessagingUi {
 					});
 					return;
 				};
+				if self.voice_only && !selected_voice {
+					// Voice-only clients never render a conversation; text channels are hidden.
+					ui.add_space((ui.available_height() * 0.32).max(24.0));
+					ui.vertical_centered(|ui| {
+						ui.label(
+							design::semibold(ui, "Voice only", 20.0).color(colors.text_strong),
+						);
+						ui.add_space(8.0);
+						ui.label(
+							RichText::new("Pick a voice channel to join a call.")
+								.color(colors.muted),
+						);
+					});
+					return;
+				}
 				if selected_voice {
 					if !self.voice_chat_open {
 						self.voice_channel(ui, state, channel, &mut commands);

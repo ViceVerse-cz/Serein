@@ -2973,6 +2973,63 @@ impl MessagingUi {
 		.on_hover_text(crate::i18n::translate(
 			"voice-voice-processing-controls-mute-and-deafen-always-take-priority",
 		));
+		design::card_divider(ui);
+		design::switch(
+			ui,
+			"voice-voice-processing-controls-voice-only",
+			Some("voice-voice-processing-controls-hide-text-channels-and-messages"),
+			&mut self.voice_only,
+		);
+		design::card_divider(ui);
+		if design::switch(
+			ui,
+			"voice-voice-processing-controls-phone-bridge",
+			Some("voice-voice-processing-controls-forward-messages-to-the-paired-phone-app"),
+			&mut self.bridge_enabled,
+		)
+		.changed() && self.bridge_enabled
+			&& self.bridge_token.is_empty()
+		{
+			self.bridge_token = Self::bridge_token();
+		}
+		if self.bridge_enabled {
+			ui.add_space(4.0);
+			design::row(
+				ui,
+				"voice-voice-processing-controls-phone-bridge-port",
+				Some("voice-voice-processing-controls-port-the-phone-app-connects-to"),
+				|ui| {
+					ui.add(
+						egui::DragValue::new(&mut self.bridge_port.0)
+							.range(1024..=65_535)
+							.speed(1.0),
+					);
+				},
+			);
+			design::hint(
+				ui,
+				&format!(
+					"{} Token: {}",
+					if self.bridge_status.is_empty() {
+						"Not listening yet."
+					} else {
+						self.bridge_status.as_str()
+					},
+					self.bridge_token
+				),
+			);
+		}
+	}
+
+	/// A fresh pairing secret for the phone bridge. `RandomState` is seeded from the OS.
+	fn bridge_token() -> String {
+		use std::hash::{BuildHasher, Hasher};
+		let half = || {
+			std::collections::hash_map::RandomState::new()
+				.build_hasher()
+				.finish()
+		};
+		format!("{:016x}{:016x}", half(), half())
 	}
 
 	/// Whether the local mute/deafen controls may emit commands for the active call.

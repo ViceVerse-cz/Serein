@@ -102,6 +102,15 @@ pub struct AppPreferences {
 	/// First-run setup finished or skipped; absent in older preferences, so existing installs
 	/// see it once too.
 	pub setup_done: bool,
+	/// Voice-only client: text channels are hidden and the message pane is not shown.
+	/// Older preferences deserialize with chat enabled.
+	pub voice_only: bool,
+	/// Forward incoming chat messages to the paired phone app over the local network.
+	pub bridge_enabled: bool,
+	/// Shared secret the phone app must present; empty until the owner enables the bridge.
+	pub bridge_token: String,
+	/// Port the phone bridge listens on; older preferences use the default.
+	pub bridge_port: u16,
 }
 impl Default for AppPreferences {
 	fn default() -> Self {
@@ -146,6 +155,10 @@ impl Default for AppPreferences {
 			plaintext_login: false,
 			diagnostics_log: diagnostics::Level::Off,
 			setup_done: false,
+			voice_only: false,
+			bridge_enabled: false,
+			bridge_token: String::new(),
+			bridge_port: 47_900,
 		}
 	}
 }
@@ -174,6 +187,12 @@ impl AppPreferences {
 			&& [&self.voice_input, &self.voice_output]
 				.into_iter()
 				.all(|value| value.as_ref().is_none_or(|value| value.len() <= 1024))
+			&& self.bridge_token.len() <= 64
+			&& self
+				.bridge_token
+				.bytes()
+				.all(|byte| byte.is_ascii_alphanumeric())
+			&& (self.bridge_port >= 1024 || self.bridge_port == 0)
 	}
 }
 

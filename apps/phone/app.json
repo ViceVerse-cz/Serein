@@ -1,0 +1,31 @@
+{
+	"expo": {
+		"name": "Serein Voice",
+		"slug": "serein-voice",
+		"version": "0.1.0",
+		"orientation": "portrait",
+		"icon": "./assets/icon.png",
+		"userInterfaceStyle": "dark",
+		"newArchEnabled": true,
+		"ios": {
+			"supportsTablet": true,
+			"bundleIdentifier": "cz.viceverse.serein.voice",
+			"infoPlist": {
+				"NSLocalNetworkUsageDescription": "Connects to Serein on your computer to show its messages."
+			}
+		},
+		"android": {
+			"package": "cz.viceverse.serein.voice",
+			"adaptiveIcon": {
+				"backgroundColor": "#1b1d21",
+				"foregroundImage": "./assets/android-icon-foreground.png",
+				"backgroundImage": "./assets/android-icon-background.png",
+				"monochromeImage": "./assets/android-icon-monochrome.png"
+			},
+			"predictiveBackGestureEnabled": false
+		},
+		"web": {
+			"favicon": "./assets/favicon.png"
+		}
+	}
+}

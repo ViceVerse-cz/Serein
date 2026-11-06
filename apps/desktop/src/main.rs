@@ -4,6 +4,7 @@ mod access_marks_demo;
 mod app_settings;
 mod audio;
 mod avatars;
+mod bridge;
 mod cache;
 #[cfg(all(debug_assertions, feature = "demo"))]
 mod camera_gateway_demo;
@@ -1034,6 +1035,8 @@ struct Desktop {
 	api_proxy: tokio::sync::watch::Sender<Option<discord_api::proxy::ApiProxy>>,
 	extensions: extension_bridge::Bridge,
 	extension_close_pending: bool,
+	/// Read-only LAN bridge for the paired phone app.
+	bridge: bridge::Bridge,
 	login: Option<platform::LoginView>,
 	captcha: captcha::Captcha,
 	connection: Option<connection::Connection>,
@@ -2395,6 +2398,7 @@ impl Desktop {
 			api_proxy: tokio::sync::watch::channel(None).0,
 			extensions: extension_bridge::Bridge::default(),
 			extension_close_pending: false,
+			bridge: bridge::Bridge::default(),
 			login: None,
 			captcha: captcha::Captcha::default(),
 			connection: None,
@@ -5256,7 +5260,21 @@ impl Desktop {
 				self.extensions.access_changed(&mut self.messaging);
 			}
 			log_session_event(&event.event);
+			let forwarded = match &event.event {
+				Event::Message(message) => Some(message.clone()),
+				_ => None,
+			};
+			let announce_all = matches!(
+				&event.event,
+				Event::Startup(_) | Event::Resumed | Event::Resync
+			);
 			self.state.apply(event);
+			if announce_all {
+				self.bridge.announce_all(&self.state);
+			}
+			if let Some(message) = forwarded {
+				self.bridge.publish(&self.state, &message);
+			}
 			if let Some(message) = takeover_notice {
 				self.messaging
 					.toasts
@@ -6043,6 +6061,20 @@ impl eframe::App for Desktop {
 			sign_in::SIGN_IN_HEADER_HEIGHT
 		};
 		self.tray_window.ui(&ctx);
+		// The phone bridge follows the saved preference; a change restarts the listener.
+		self.bridge.configure(
+			self.runtime.handle(),
+			bridge::Config {
+				enabled: self.messaging.bridge_enabled && !self.state.demo,
+				port: self.messaging.bridge_port.0,
+				token: self.messaging.bridge_token.clone(),
+			},
+		);
+		self.messaging.bridge_status = self
+			.bridge
+			.port()
+			.map(|port| format!("Listening on port {port}."))
+			.unwrap_or_default();
 		// Change native hints before drawing, so the clear color and panel alpha
 		// agree for the whole frame. OS calls happen only when an effect changes.
 		self.sync_window_effects();

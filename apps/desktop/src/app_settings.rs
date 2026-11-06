@@ -85,6 +85,10 @@ impl Settings {
 			time_format: ui.time_format,
 			plaintext_login: ui.plaintext_login,
 			diagnostics_log: ui.diagnostics_log,
+			voice_only: ui.voice_only,
+			bridge_enabled: ui.bridge_enabled,
+			bridge_token: ui.bridge_token.clone(),
+			bridge_port: ui.bridge_port.0,
 			setup_done: !ui.setup_pending,
 		};
 		if value != self.current {
@@ -139,6 +143,10 @@ impl Settings {
 		ui.time_format = value.time_format;
 		ui.plaintext_login = value.plaintext_login;
 		ui.diagnostics_log = value.diagnostics_log;
+		ui.voice_only = value.voice_only;
+		ui.bridge_enabled = value.bridge_enabled;
+		ui.bridge_token = value.bridge_token.clone();
+		ui.bridge_port = ui::BridgePort(value.bridge_port);
 		// Unreadable preferences fall back to defaults; never nag with setup on every launch.
 		ui.setup_pending = self.loaded && !value.setup_done;
 		ui::local_time::set_format(ui.time_format, ui.language);
