@@ -38,6 +38,8 @@ const VOICE: &[KeybindAction] = &[
 	KeybindAction::PushToMute,
 ];
 
+/// Draws the built-in binding sections and the custom rows, sharing the capture slot so
+/// only one row records at a time.
 pub(super) fn show(
 	ui: &mut egui::Ui,
 	bindings: &mut Keybinds,
@@ -82,6 +84,8 @@ pub(super) fn show(
 	custom_section(ui, bindings, capturing);
 }
 
+/// Draws the voice bindings, the global-keybind switch with its status, and the capture
+/// row that records lone modifiers and pad buttons.
 pub(super) fn show_voice(
 	ui: &mut egui::Ui,
 	bindings: &mut Keybinds,
@@ -176,6 +180,8 @@ fn side_modifier_mask() -> u32 {
 		.fold(0, |mask, (index, _)| mask | (1 << index))
 }
 
+/// Records the next chord into the active capture target. Escape wins over a same-frame
+/// rise, side modifiers bind on release, and pad buttons bind on press.
 fn capture(
 	ui: &mut egui::Ui,
 	bindings: &mut Keybinds,
@@ -494,6 +500,8 @@ fn custom_section(
 	}
 }
 
+/// One custom binding row: action picker, chord button and the conflict or global hint.
+/// Returns whether the row asked to be removed.
 fn custom_row(
 	ui: &mut egui::Ui,
 	index: usize,
@@ -631,6 +639,8 @@ fn egui_modifiers(bits: u8) -> Modifiers {
 	}
 }
 
+/// Consumes this frame's press of `chord` for a focused window, matching modifiers
+/// logically. Polled keys belong to the native reader, so they never match here.
 pub(crate) fn pressed(input: &mut InputState, chord: &KeyChord) -> bool {
 	// The native poller owns these, so egui must never consume them as shortcuts.
 	if polled_key_bit(&chord.key).is_some() {
@@ -647,6 +657,8 @@ pub(crate) fn pressed(input: &mut InputState, chord: &KeyChord) -> bool {
 	}
 }
 
+/// Like [`pressed`], but every modifier must match exactly, so a registered global chord
+/// stays distinct from its focused variant.
 pub(crate) fn pressed_exact(input: &mut InputState, chord: &KeyChord) -> bool {
 	if polled_key_bit(&chord.key).is_some() {
 		return false;
@@ -685,6 +697,7 @@ fn consume_button(
 	matched
 }
 
+/// Whether `chord` is held right now in the focused window; polled keys are native-only.
 pub(crate) fn down(input: &InputState, chord: &KeyChord) -> bool {
 	if polled_key_bit(&chord.key).is_some() {
 		return false;
@@ -730,6 +743,8 @@ fn chord_parts(chord: &KeyChord) -> Vec<String> {
 	parts
 }
 
+/// The clickable chord button: accent while recording, a pulsing danger tint for a
+/// conflict, and the chord labels centred inside.
 fn shortcut_button(
 	ui: &mut egui::Ui,
 	chord: &KeyChord,
@@ -820,6 +835,7 @@ fn shortcut_button(
 	response
 }
 
+/// Key name as the settings UI shows it, using macOS spelling for modifiers on macOS.
 fn display_key(name: &str) -> String {
 	// macOS names the modifier keys the way its own shortcuts UI does.
 	if cfg!(target_os = "macos") {
@@ -1197,6 +1213,7 @@ mod tests {
 		);
 	}
 
+	/// Two side modifiers rising together never arm a lone-modifier binding.
 	#[test]
 	fn overlapping_modifiers_record_nothing() {
 		let mut bindings = Keybinds::default();
@@ -1261,6 +1278,7 @@ mod tests {
 		assert_eq!(bindings.chord(KeybindAction::PushToTalk), &before);
 	}
 
+	/// A modifier armed by a cancelled capture cannot record into the next one.
 	#[test]
 	fn new_capture_ignores_a_modifier_armed_by_the_last_one() {
 		let mut bindings = Keybinds::default();
@@ -1483,6 +1501,7 @@ mod tests {
 		assert_eq!(parts.last().map(String::as_str), Some("["));
 	}
 
+	/// A bound mouse button feeds the hold paths instead of being swallowed as navigation.
 	#[test]
 	fn mouse_buttons_bind_and_hold() {
 		assert_eq!(display_key("MouseMiddle"), "Mouse 3");
@@ -1521,6 +1540,7 @@ mod tests {
 		assert!(held);
 	}
 
+	/// Push-to-mute ships unassigned, so no default hold can mute a call by accident.
 	#[test]
 	fn push_to_mute_starts_unassigned() {
 		let mut bindings = Keybinds::default();
@@ -1559,6 +1579,7 @@ mod tests {
 		);
 	}
 
+	/// Left and right click cancel capture instead of being recorded as a binding.
 	#[test]
 	fn pointing_buttons_cancel_capture() {
 		let mut bindings = Keybinds::default();

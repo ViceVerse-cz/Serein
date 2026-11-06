@@ -75,6 +75,8 @@ impl KeyChord {
 		}
 	}
 
+	/// Whether the chord can be stored: a bounded ASCII key name, only known modifier
+	/// bits, and no unmodified key the native poller already owns.
 	pub fn is_valid(&self) -> bool {
 		!self.key.is_empty()
 			&& self.key.len() <= MAX_KEY_NAME_BYTES
@@ -363,6 +365,9 @@ impl Keybinds {
 			})
 	}
 
+	/// Whether every built-in and custom binding is storable: each is a valid chord the
+	/// action accepts, or an empty chord for an optional action; custom rows also stay
+	/// within the cap.
 	pub fn is_valid(&self) -> bool {
 		KeybindAction::ALL.into_iter().all(|action| {
 			let chord = self.chord(action);

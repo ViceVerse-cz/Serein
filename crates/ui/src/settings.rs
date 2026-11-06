@@ -309,6 +309,9 @@ impl MessagingUi {
 			self.settings.page = page;
 		}
 	}
+
+	/// Draws the settings modal at the size the window allows and returns nothing; page
+	/// state lives on `self.settings`.
 	pub(super) fn show_settings(
 		&mut self,
 		ctx: &egui::Context,

@@ -186,6 +186,8 @@ fn shift_clicked(ui: &egui::Ui, response: &egui::Response) -> bool {
 	})
 }
 
+/// Member list rows for a thread pane: people first, then an optional group row before
+/// each offline or role block.
 fn thread_member_rows<'a>(
 	state: &'a State,
 	list: &'a model::MemberList,
@@ -4343,6 +4345,8 @@ impl MessagingUi {
 		})
 	}
 
+	/// Keeps the profile panel pointed at the open user: webhooks close it, an unchanged
+	/// target is left alone, and demo state resolves locally instead of requesting.
 	fn sync_profile(
 		&mut self,
 		state: &mut State,
@@ -4390,6 +4394,9 @@ impl MessagingUi {
 		}
 	}
 
+	/// Draws the whole window for one frame and returns the commands the UI produced. A
+	/// capture whose recording row left the screen is cleared here, before it can keep the
+	/// polled voice shortcuts gated.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		// Recording keeps every polled voice shortcut gated, so a capture whose row has
 		// left the screen must not survive into the next frame.
@@ -6112,6 +6119,8 @@ mod composer_tests {
 		);
 	}
 
+	/// The diagnostics shortcut copies an existing report and leaves the clipboard alone
+	/// while a chord is being recorded.
 	#[test]
 	fn diagnostics_shortcut_copies_existing_report_and_respects_key_capture() {
 		let ctx = egui::Context::default();
@@ -6172,6 +6181,8 @@ mod composer_tests {
 		}
 	}
 
+	/// A capture is cleared once its recording row leaves the screen, so the polled voice
+	/// shortcuts are not gated forever.
 	#[test]
 	fn capture_cleared_once_the_recording_row_leaves_the_screen() {
 		let ctx = egui::Context::default();
@@ -6203,6 +6214,7 @@ mod composer_tests {
 		}
 	}
 
+	/// A mouse button bound to push-to-mute holds the mute instead of navigating back.
 	#[test]
 	fn a_bound_mouse_button_holds_push_to_mute_instead_of_navigating() {
 		let mut view = MessagingUi::default();

@@ -121,6 +121,7 @@ impl NativeInput {
 	}
 }
 
+/// Fans a global-hotkey event out to every live [`NativeInput`]; dead handles are skipped.
 fn dispatch_native_event(event: GlobalHotKeyEvent) {
 	let inputs = NATIVE_INPUTS
 		.lock()
@@ -172,6 +173,8 @@ pub struct Hotkeys {
 }
 
 impl Hotkeys {
+	/// Creates the native manager, unless Wayland owns registration, and installs the
+	/// process-wide event handler that forwards to this and later inputs.
 	pub fn new(wake: impl Fn() + Send + Sync + 'static) -> Self {
 		let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(wake);
 		let native = Arc::new(NativeInput {
@@ -228,6 +231,8 @@ impl Hotkeys {
 		}
 	}
 
+	/// Brings OS registrations in line with `keybinds`. Polled keys stay watched even
+	/// with global bindings off; publishing is what the gate suppresses.
 	pub fn sync(&mut self, keybinds: &Keybinds, _runtime: &tokio::runtime::Runtime) {
 		// Polled keys need no registration, so they stay watched even while global bindings
 		// are off; only publishing is gated, on focus or on the global flag.
@@ -381,6 +386,8 @@ impl Hotkeys {
 		}
 	}
 
+	/// Stops the poller, clears native state and drops every OS registration, so no stale
+	/// press survives a failed reconfiguration.
 	fn unregister_all(&mut self) {
 		// Stop the poller first so it cannot publish a stale press after the clear.
 		#[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -396,7 +403,9 @@ impl Hotkeys {
 	}
 
 	/// Restarts the native key poller after the watched bindings or the capture state
-	/// changed.
+	/// changed. The old reader is joined here, so the caller can block until an in-flight
+	/// HID read returns; a device open or enumeration is not interruptible and can take
+	/// longer than the pad read timeout.
 	#[cfg(any(target_os = "windows", target_os = "macos"))]
 	fn restart_poller(&mut self) {
 		// Join the old thread first so both configurations never publish at once.
@@ -449,6 +458,7 @@ impl Hotkeys {
 		0
 	}
 
+	/// Takes the mute/deafen bits the native handler toggled since the previous call.
 	pub fn take_toggle_pending(&mut self) -> u8 {
 		let pending = self.native.take_toggles();
 		#[cfg(target_os = "linux")]
@@ -832,6 +842,7 @@ fn native_hotkey(chord: &KeyChord) -> Option<HotKey> {
 	value.parse().ok()
 }
 
+/// Portable key name `global-hotkey` accepts, or `None` for keys it cannot register.
 fn code_name(name: &str) -> Option<&'static str> {
 	match name {
 		"ArrowDown" => Some("ArrowDown"),
@@ -962,6 +973,8 @@ mod polled_fold {
 			}
 		}
 
+		/// Converts one poll into press/release edges, releasing rather than pressing while
+		/// the gate is closed.
 		pub(super) fn tick(&mut self, now: u32, live: bool) -> Vec<(u32, KeybindAction, bool)> {
 			let events = transitions(&self.watched, self.was, now, live);
 			// A gated tick releases holds only; toggles keep their physical level, so one
@@ -1049,6 +1062,8 @@ mod polled_fold {
 			);
 		}
 
+		/// Gating releases a held action once, and refocusing presses it again without
+		/// duplicating the release.
 		#[test]
 		fn gated_ticks_release_once_then_press_on_refocus() {
 			let held = bit("ControlRight");
@@ -1078,6 +1093,7 @@ mod polled_fold {
 			);
 		}
 
+		/// Losing the pad releases every button it still reported as held.
 		#[test]
 		fn pad_disconnect_releases() {
 			// The pad reader cleared its bits while the button was still down.
@@ -1102,6 +1118,7 @@ mod polled_fold {
 			assert_eq!(step(&watched, bit("PadEast"), 0, true), vec![]);
 		}
 
+		/// A restart keeps a held toggle held, so the pad's silence cannot fire it twice.
 		#[test]
 		fn restart_does_not_repress_a_held_toggle() {
 			// Recording another row restarts the poller while the toggle key is down.
@@ -1159,7 +1176,9 @@ mod poller {
 
 	/// Well under an ordinary click, which stays down for tens of milliseconds.
 	const PERIOD: Duration = Duration::from_millis(10);
-	/// Short enough that the stop flag is seen promptly, long enough to idle cheaply.
+	/// Bounds the blocking HID read, so a stopped reader exits within about this long.
+	/// Enumeration and device open are not interruptible and see the flag only after
+	/// they return.
 	const PAD_TIMEOUT: i32 = 50;
 	/// The largest DualSense report, including the report id.
 	const PAD_REPORT: usize = 78;
@@ -1203,6 +1222,8 @@ mod poller {
 	}
 
 	impl Poller {
+		/// Starts the key poller, and the pad reader too, when a voice action is bound to a
+		/// polled input or a chord is being captured.
 		pub(super) fn start(
 			bindings: &[(KeybindAction, KeyChord)],
 			polled: &[(KeybindAction, KeyChord)],
@@ -1384,6 +1405,8 @@ mod poller {
 	}
 
 	impl Drop for Poller {
+		/// Stops and joins the reader before dropping the pad, so no report outlives the
+		/// poller. The join waits out any in-flight HID read or open.
 		fn drop(&mut self) {
 			self.stop.store(true, Ordering::Relaxed);
 			if let Some(thread) = self.thread.take() {
@@ -1411,6 +1434,7 @@ mod poller {
 			&& (modifiers & ALT == 0 || key_down(VK_MENU))
 	}
 
+	/// Whether the OS reports this virtual key as down, focused or not.
 	#[allow(unsafe_code)]
 	fn key_down(key: VIRTUAL_KEY) -> bool {
 		// SAFETY: GetAsyncKeyState only reads global input state for a virtual-key code.
@@ -1436,6 +1460,7 @@ mod poller {
 	}
 
 	impl Pad {
+		/// Spawns the pad reader, keeping the flag and handle needed to stop it.
 		fn start(mask: Arc<AtomicU32>) -> Self {
 			let stop = Arc::new(AtomicBool::new(false));
 			let stopped = stop.clone();
@@ -1448,6 +1473,7 @@ mod poller {
 	}
 
 	impl Drop for Pad {
+		/// Signals the reader and joins it; the join waits out an in-flight read or open.
 		fn drop(&mut self) {
 			self.stop.store(true, Ordering::Relaxed);
 			if let Some(thread) = self.thread.take() {
@@ -1524,6 +1550,8 @@ mod poller {
 	}
 
 	impl Quiet {
+		/// Seeds the tracker from the mask a previous reader left behind, which stays
+		/// unconfirmed until this device reports.
 		fn reopened(carried: bool) -> Self {
 			Self {
 				carried,
@@ -1531,6 +1559,8 @@ mod poller {
 			}
 		}
 
+		/// Records a recognized report: it clears silence, confirms carried buttons and
+		/// marks pads that stream on their own.
 		fn report(&mut self, report: &[u8]) {
 			self.silent = 0;
 			self.carried = false;
@@ -1640,6 +1670,8 @@ mod poller {
 			assert_eq!(altgr_filter(left_ctrl), left_ctrl);
 		}
 
+		/// Bluetooth reports carry the button block at the extended offset, and the
+		/// trigger bytes at their matching positions.
 		#[test]
 		fn pad_bits_reads_bluetooth_layouts() {
 			// Full Bluetooth report: buttons at 9, triggers at 6 and 7.
@@ -1668,6 +1700,8 @@ mod poller {
 			assert_eq!(pad_bits(&report), Some(0));
 		}
 
+		/// A short report or an unknown report id yields no mask instead of reading past
+		/// the buffer.
 		#[test]
 		fn pad_bits_rejects_short_or_unknown_reports() {
 			let bt_full = [0x31, 0, 0, 0];
@@ -1728,6 +1762,8 @@ mod mac_poller {
 	}
 
 	impl Poller {
+		/// Starts the key poller when a polled key is bound or a chord is being captured;
+		/// a bit doubles as the polled identity so duplicate keys fold together.
 		pub(super) fn start(
 			polled: &[(KeybindAction, KeyChord)],
 			shared: &Shared,
@@ -1803,6 +1839,7 @@ mod mac_poller {
 	}
 
 	impl Drop for Poller {
+		/// Stops and joins the CGEvent poller before the next one can start.
 		fn drop(&mut self) {
 			self.stop.store(true, Ordering::Relaxed);
 			if let Some(thread) = self.thread.take() {
