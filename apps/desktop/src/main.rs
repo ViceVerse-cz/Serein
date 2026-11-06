@@ -5713,11 +5713,19 @@ impl Desktop {
 				viewport.native_pixels_per_point.map_or(1.0, f64::from),
 				zoom,
 			);
+			let saved = self
+				.app_settings
+				.current
+				.voice_popout_geometry
+				.or(self.popout_geometry);
+			// A maximize keeps the latest normal placement, including one still resting.
+			let last = if viewport.maximized == Some(true) {
+				Some(self.popout_geometry_rest.maximized_geometry(saved))
+			} else {
+				saved
+			};
 			let sampled = app_settings::sample_popout_geometry(
-				self.app_settings
-					.current
-					.voice_popout_geometry
-					.or(self.popout_geometry),
+				last,
 				size,
 				position,
 				viewport.maximized,
@@ -5744,6 +5752,12 @@ impl Desktop {
 				}
 			}
 			let commands = self.messaging.show_voice_popout(ui, &mut self.state);
+			// A video fullscreen opened here belongs to this viewport, not the main window.
+			if let Some(fullscreen) = self.messaging.video().take_popout_fullscreen_request() {
+				ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Fullscreen(fullscreen));
+				self.popout_fullscreen_expected = Some(fullscreen);
+				ctx.request_repaint();
+			}
 			// Read after the frame so a click or Escape applies without waiting for input.
 			if let Some(fullscreen) = self.messaging.take_voice_popout_fullscreen_request() {
 				ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Fullscreen(fullscreen));
