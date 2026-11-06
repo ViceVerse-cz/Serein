@@ -257,14 +257,7 @@ impl MessagingUi {
 			self.profile_dialogs(ui, state, &mut commands);
 			// A viewer's original or link opens the confirmation in this window.
 			self.claim_popout_links(&links_before);
-			// Once the dialogs close, the main window draws the next ones again.
-			if self.profile_image.is_none()
-				&& !self.contact_editor.is_open()
-				&& self.friend_removal.is_none()
-				&& !self.profile_in_popout
-			{
-				self.profile_dialogs_in_popout = false;
-			}
+			self.release_profile_dialogs();
 		}
 		if self.popout_links {
 			self.link_confirmations(ui.ctx());

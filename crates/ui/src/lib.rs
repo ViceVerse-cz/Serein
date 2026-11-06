@@ -4542,6 +4542,19 @@ impl MessagingUi {
 		}
 	}
 
+	/// Returns dialog ownership once every popout-owned dialog has closed, so the main window
+	/// opens the next one again. A pending menu action may still open one, so it waits.
+	fn release_profile_dialogs(&mut self) {
+		if self.profile_dialogs_in_popout
+			&& self.profile_image.is_none()
+			&& !self.contact_editor.is_open()
+			&& self.friend_removal.is_none()
+			&& self.user_action.is_none()
+		{
+			self.profile_dialogs_in_popout = false;
+		}
+	}
+
 	/// Dialogs the conversation owns: public upload, forward and the delete confirmation.
 	/// The window that draws the conversation draws these too.
 	fn conversation_overlays(
@@ -9412,6 +9425,31 @@ mod composer_tests {
 			assert_eq!(state.profile.as_ref().unwrap().guild, guild);
 			output.drop_without_applying_deltas();
 		}
+	}
+
+	#[test]
+	fn popout_profile_dialogs_release_ownership_when_they_close() {
+		let mut state = test_support::demo_state();
+		let user = state.user.clone().unwrap();
+		let mut messaging = MessagingUi {
+			profile_dialogs_in_popout: true,
+			..Default::default()
+		};
+		// A dialog that is still open keeps the call window's ownership.
+		let _ = messaging
+			.contact_editor
+			.open(user.clone(), false, &mut state);
+		messaging.release_profile_dialogs();
+		assert!(messaging.profile_dialogs_in_popout);
+		// A queued menu action may still open one, so ownership is not released yet.
+		messaging.contact_editor = Default::default();
+		messaging.user_action = Some(user_menu::Action::Note(user.clone()));
+		messaging.release_profile_dialogs();
+		assert!(messaging.profile_dialogs_in_popout);
+		// With nothing left open, the next dialog belongs to the main window again.
+		messaging.user_action = None;
+		messaging.release_profile_dialogs();
+		assert!(!messaging.profile_dialogs_in_popout);
 	}
 
 	#[test]
