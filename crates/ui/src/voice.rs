@@ -2946,7 +2946,10 @@ impl MessagingUi {
 						});
 				},
 			);
-			if processing.suppression == NoiseSuppression::WebRtc {
+			if matches!(
+				processing.suppression,
+				NoiseSuppression::WebRtc | NoiseSuppression::DeepFilterNet
+			) {
 				ui.add_space(6.0);
 				let strength = ["Low", "Moderate", "High", "Very high"];
 				design::row(

@@ -91,7 +91,8 @@ The desktop persists Voice Isolation, Studio and Custom profiles via the shared
 `VoiceProcessing` model. Voice Isolation selects RNNoise, AEC3, digital AGC and
 −55 dBFS sensitivity; Studio retains only manual gain and privacy/permission gates.
 Custom selects Off, RNNoise (nnnoiseless 0.5.2), WebRTC (levels 0–3), or
-DeepFilterNet (bundled DFN3 on tract 0.21.4; adds 30 ms),
+DeepFilterNet (bundled DFN3 from DeepFilterNet Plus on tract 0.22.5, levels 0–3; adds
+30 ms and loads on a helper thread),
 independent echo cancellation/AGC and optional −80..=0 dBFS sensitivity. Sensitivity
 uses 3 dB hysteresis, 200 ms release and a 5 ms ramp. Local activity uses the selected
 threshold, or −70 dBFS when open; remote indicators remain display-only at −45 dBFS.

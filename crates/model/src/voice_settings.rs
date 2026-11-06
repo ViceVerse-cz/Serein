@@ -22,7 +22,7 @@ pub enum NoiseSuppression {
 #[serde(default)]
 pub struct Processing {
 	pub suppression: NoiseSuppression,
-	/// WebRTC suppression strength, from low (0) through very high (3).
+	/// WebRTC and DeepFilterNet suppression strength, from low (0) through very high (3).
 	pub suppression_level: u8,
 	pub echo_cancellation: bool,
 	pub automatic_gain: bool,

@@ -1,5 +1,5 @@
 //! Worker-owned speech processing; never runs in device callbacks.
-use df::tract::{DfParams, DfTract, RuntimeParams};
+use df::tract::{DfModels, DfParams, DfTract, RuntimeParams};
 use model::voice_settings::{NoiseSuppression, Processing, VoiceProcessing};
 use ndarray::{ArrayView2, ArrayViewMut2};
 use nnnoiseless::DenoiseState;
@@ -7,35 +7,74 @@ use sonora::{
 	AudioProcessing, Config, StreamConfig,
 	config::{AdaptiveDigital, EchoCanceller, GainController2, NoiseSuppressionLevel},
 };
-use std::time::{Duration, Instant};
+use std::{
+	thread::JoinHandle,
+	time::{Duration, Instant},
+};
 
 pub struct Echo {
 	processor: AudioProcessing,
 	gain: Option<AudioProcessing>,
 	noise: Option<Box<DenoiseState<'static>>>,
 	deep: Option<Box<DeepFilter>>,
+	/// DeepFilterNet networks being decoded and optimized on a helper thread.
+	deep_load: Option<JoinHandle<Option<DfModels>>>,
 	settings: Processing,
 }
+
+const DEEP_FAILED: &str = "DeepFilterNet noise suppression could not start";
 
 /// Bundled DeepFilterNet3. The model keeps recurrent and look-ahead history, so a reset
 /// restarts from `fresh` instead of decoding and optimizing the network again.
 struct DeepFilter {
 	fresh: DfTract,
 	model: DfTract,
+	level: u8,
+}
+/// The reference command-line stage thresholds. The narrower library defaults skip the
+/// stateful decoders on many speech frames, which audibly clips speech in moderate noise.
+fn deep_params() -> RuntimeParams {
+	RuntimeParams::default_with_ch(1).with_thresholds(-15.0, 35.0, 35.0)
 }
 impl DeepFilter {
-	fn load() -> Result<Box<Self>, &'static str> {
-		// The reference command-line thresholds. The narrower library defaults skip the stateful
-		// decoders on many speech frames, which audibly clips speech in moderate noise.
-		let params = RuntimeParams::default_with_ch(1).with_thresholds(-15.0, 35.0, 35.0);
-		let fresh = DfTract::new(DfParams::default(), &params)
+	/// Decoding and optimizing the networks takes about a fifth of a second; doing it on a
+	/// helper thread keeps the worker servicing playback meanwhile.
+	fn load() -> Result<JoinHandle<Option<DfModels>>, &'static str> {
+		std::thread::Builder::new()
+			.name("voice-deepfilternet".into())
+			.spawn(|| DfModels::new(DfParams::default(), &deep_params()).ok())
+			.map_err(|_| DEEP_FAILED)
+	}
+	fn start(models: DfModels, level: u8) -> Result<Box<Self>, &'static str> {
+		let fresh = DfTract::from_models(models, &deep_params())
 			.ok()
 			.filter(|model| model.sr == 48_000 && model.hop_size == 480)
-			.ok_or("DeepFilterNet noise suppression could not start")?;
-		Ok(Box::new(Self {
+			.ok_or(DEEP_FAILED)?;
+		let mut deep = Box::new(Self {
 			model: fresh.clone(),
 			fresh,
-		}))
+			level: u8::MAX,
+		});
+		deep.set_level(level);
+		Ok(deep)
+	}
+	/// Low and Moderate cap the attenuation so some room sound remains; High runs the full
+	/// model; Very high adds its post-filter, which attenuates very noisy sections further.
+	fn set_level(&mut self, level: u8) {
+		if level == self.level {
+			return;
+		}
+		let (limit_db, post_filter_beta) = match level {
+			0 => (12.0, 0.0),
+			1 => (24.0, 0.0),
+			2 => (100.0, 0.0),
+			_ => (100.0, 0.02),
+		};
+		for model in [&mut self.fresh, &mut self.model] {
+			model.set_atten_lim(limit_db);
+			model.set_pf_beta(post_filter_beta);
+		}
+		self.level = level;
 	}
 }
 
@@ -61,26 +100,37 @@ impl Echo {
 			gain: None,
 			noise: None,
 			deep: None,
+			deep_load: None,
 			settings: VoiceProcessing::from_legacy(false).effective(),
 		}
 	}
 
-	pub fn configure(&mut self, settings: Processing) -> Result<(), &'static str> {
+	/// Applies `settings` and reports whether the selected processing is ready. DeepFilterNet
+	/// loads on a helper thread, so the worker keeps calling this until it returns true.
+	pub fn configure(&mut self, settings: Processing) -> Result<bool, &'static str> {
 		if !settings.is_valid() {
 			return Err("Invalid microphone processing settings");
 		}
+		if settings.suppression != NoiseSuppression::DeepFilterNet {
+			self.deep = None;
+			self.deep_load = None;
+		} else if self.deep.is_none() && self.deep_load.is_none() {
+			self.deep_load = Some(DeepFilter::load()?);
+		}
+		if let Some(load) = self.deep_load.take_if(|load| load.is_finished()) {
+			let models = load.join().ok().flatten().ok_or(DEEP_FAILED)?;
+			self.deep = Some(DeepFilter::start(models, settings.suppression_level)?);
+		}
+		if let Some(deep) = &mut self.deep {
+			deep.set_level(settings.suppression_level);
+		}
 		if settings == self.settings {
-			return Ok(());
+			return Ok(self.deep_load.is_none());
 		}
 		if settings.suppression == NoiseSuppression::RnNoise && self.noise.is_none() {
 			self.noise = Some(noise_state());
 		} else if settings.suppression != NoiseSuppression::RnNoise {
 			self.noise = None;
-		}
-		if settings.suppression == NoiseSuppression::DeepFilterNet && self.deep.is_none() {
-			self.deep = Some(DeepFilter::load()?);
-		} else if settings.suppression != NoiseSuppression::DeepFilterNet {
-			self.deep = None;
 		}
 		if settings.echo_cancellation != self.settings.echo_cancellation
 			|| (settings.suppression == NoiseSuppression::WebRtc)
@@ -120,6 +170,15 @@ impl Echo {
 			self.gain = None;
 		}
 		self.settings = settings;
+		Ok(self.deep_load.is_none())
+	}
+
+	/// Configures and waits for a DeepFilterNet load; offline checks only, never the worker.
+	#[cfg(debug_assertions)]
+	pub fn configure_blocking(&mut self, settings: Processing) -> Result<(), &'static str> {
+		while !self.configure(settings)? {
+			std::thread::sleep(Duration::from_millis(1));
+		}
 		Ok(())
 	}
 

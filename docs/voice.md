@@ -434,7 +434,7 @@ Voice & Video settings offers three saved profiles:
   control (maximum 20 dB), and −55 dBFS input sensitivity.
 - **Studio:** bypasses processing and sensitivity gating. Manual gain, mute, deafen,
   push-to-talk and permission/security gates still apply.
-- **Custom:** Off, RNNoise, WebRTC (four suppression strengths), or DeepFilterNet;
+- **Custom:** Off, RNNoise, WebRTC or DeepFilterNet (both with four suppression strengths);
   independent echo cancellation and automatic gain controls; and optional manual
   sensitivity from −80 to 0 dBFS. The gate uses 3 dB hysteresis, a 200 ms release
   hold and a 5 ms ramp. This controls transmitted audio, not just the speaking glow.
@@ -450,15 +450,19 @@ No DSP runs in rendering or native audio callbacks. Settings replace one fixed-s
 worker snapshot and do not add a queue. Native PCM queues remain eight frames each.
 
 RNNoise uses bundled nnnoiseless 0.5.2. DeepFilterNet runs the bundled DeepFilterNet3
-model (48 kHz, 10 ms hops) on the tract 0.21.4 CPU runtime, at full attenuation with the
-reference command-line stage thresholds (−15/35/35 dB local SNR). It is a separate Custom
-choice; Voice Isolation still uses RNNoise. Its STFT overlap and two look-ahead frames
-delay the microphone by 30 ms, compared with 10 ms for RNNoise. Selecting it decodes and
-optimizes the network on the audio worker, which pauses that worker once for roughly a
-quarter of a second (about 250 ms measured in a release build on a Ryzen 7 7800X3D),
-and holds two copies of the model state so that mute, device and security resets discard
-its look-ahead and recurrent history without reloading. A load failure stops audio with a
-visible error. These processors keep bounded session state,
+model (48 kHz, 10 ms hops) from the DeepFilterNet Plus fork on the tract 0.22.5 CPU
+runtime, with the reference command-line stage thresholds (−15/35/35 dB local SNR). It is
+a separate Custom choice; Voice Isolation still uses RNNoise. Its strength caps the
+attenuation at 12 dB (Low) or 24 dB (Moderate), runs the full model (High, the default)
+or adds the model's post-filter, which attenuates very noisy sections further (Very
+high). Changing the strength does not reload the network. Its STFT overlap and two
+look-ahead frames delay the microphone by 30 ms, compared with 10 ms for RNNoise.
+Selecting it decodes and optimizes the network on a short-lived helper thread (221–233 ms
+in a release build on a Ryzen 5 7600X). Meanwhile the audio worker keeps playing call
+audio, and the microphone stays gated, as during any processing change, until the
+model is installed. Two copies of the model state let mute, device and security resets
+discard its look-ahead and recurrent history without reloading. A load failure stops
+audio with a visible error. These processors keep bounded session state,
 with no audio recordings or remote processing. Quality, CPU cost, physical latency and
 cross-platform behavior require owner-operated checks; this local implementation does
 not establish production readiness or superiority over Discord's processing.

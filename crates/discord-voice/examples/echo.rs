@@ -68,7 +68,7 @@ fn main() {
 		let mut filtered = echo::Echo::new();
 		let mut unfiltered = echo::Echo::new();
 		filtered
-			.configure(model::voice_settings::Processing {
+			.configure_blocking(model::voice_settings::Processing {
 				suppression,
 				..model::voice_settings::VoiceProcessing::from_legacy(true).effective()
 			})

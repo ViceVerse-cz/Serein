@@ -368,13 +368,18 @@ impl Audio {
 						active.input_gate = crate::activity::InputGate::default();
 						active.processing = processing;
 					}
-					if let Err(error) = echo.configure(processing) {
-						emit(Err(error));
-						break 'audio;
-					}
+					// DeepFilterNet loads off this thread: capture stays gated until it is ready,
+					// while playback keeps flowing.
+					let ready = match echo.configure(processing) {
+						Ok(ready) => ready,
+						Err(error) => {
+							emit(Err(error));
+							break 'audio;
+						}
+					};
 					// Publish readiness under the same watch lock as configuration changes.
 					let latest_processing = selected_processing.borrow();
-					let prepared = *latest_processing == processing;
+					let prepared = ready && *latest_processing == processing;
 					if !worker_gate
 						.processing_ready
 						.swap(prepared, Ordering::AcqRel)
@@ -1208,7 +1213,7 @@ pub fn debug_processing_check() {
 		NoiseSuppression::WebRtc,
 		NoiseSuppression::DeepFilterNet,
 	] {
-		dsp.configure(Processing {
+		dsp.configure_blocking(Processing {
 			suppression,
 			..Processing::default()
 		})
@@ -1243,13 +1248,16 @@ pub fn debug_processing_check() {
 mod tests {
 	use super::*;
 	#[test]
-	fn deepfilternet_removes_noise_and_resets_history() {
+	fn deepfilternet_loads_off_worker_caps_strength_and_resets_history() {
 		let mut dsp = echo::Echo::new();
-		dsp.configure(Processing {
+		let full = Processing {
 			suppression: NoiseSuppression::DeepFilterNet,
+			suppression_level: 2,
 			..Processing::studio()
-		})
-		.unwrap();
+		};
+		// The networks load on a helper thread instead of stalling the audio worker.
+		assert!(!dsp.configure(full).unwrap());
+		dsp.configure_blocking(full).unwrap();
 		let mut seed = 17_u32;
 		let mut noise = || -> Frame {
 			std::array::from_fn(|_| {
@@ -1257,18 +1265,32 @@ mod tests {
 				(seed as i32 as f32 / i32::MAX as f32) * 0.05
 			})
 		};
-		let (mut before, mut after) = (0.0, 0.0);
-		for tick in 0..60 {
-			let raw = noise();
-			let mut clean = raw;
-			dsp.capture(&mut clean, false).unwrap();
-			assert!(clean.iter().all(|s| s.is_finite() && s.abs() <= 1.0));
-			if tick >= 30 {
-				before += raw.iter().map(|s| s * s).sum::<f32>();
-				after += clean.iter().map(|s| s * s).sum::<f32>();
+		fn residual(dsp: &mut echo::Echo, noise: &mut impl FnMut() -> Frame) -> f32 {
+			let (mut before, mut after) = (0.0, 0.0);
+			for tick in 0..60 {
+				let raw = noise();
+				let mut clean = raw;
+				dsp.capture(&mut clean, false).unwrap();
+				assert!(clean.iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+				if tick >= 30 {
+					before += raw.iter().map(|s| s * s).sum::<f32>();
+					after += clean.iter().map(|s| s * s).sum::<f32>();
+				}
 			}
+			after / before
 		}
-		assert!(after < before * 0.1, "{before} -> {after}");
+		let full_residual = residual(&mut dsp, &mut noise);
+		assert!(full_residual < 0.1, "{full_residual}");
+		// Low caps attenuation at 12 dB (residual energy 0.063) without reloading the networks.
+		assert!(
+			dsp.configure(Processing {
+				suppression_level: 0,
+				..full
+			})
+			.unwrap()
+		);
+		let low_residual = residual(&mut dsp, &mut noise);
+		assert!((0.03..0.13).contains(&low_residual), "{low_residual}");
 		// Look-ahead and recurrent state hold earlier microphone audio; a reset must drop it.
 		let probe = noise();
 		let [mut first, mut second] = [probe; 2];
