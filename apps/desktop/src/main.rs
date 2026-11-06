@@ -5558,6 +5558,22 @@ impl Desktop {
 			self.window_transparent = transparent;
 		}
 		if let Some(window_blur) = &mut self.window_blur {
+			#[cfg(target_os = "linux")]
+			{
+				let square = self.window.is_maximized() || self.window.fullscreen().is_some();
+				let shape = (self.messaging.uses_custom_title_bar() && !square).then(|| {
+					let size = self
+						.window
+						.inner_size()
+						.to_logical::<f64>(self.window.scale_factor());
+					[
+						size.width.round() as i32,
+						size.height.round() as i32,
+						round_corners::RADIUS as i32,
+					]
+				});
+				window_blur.set_rounded_shape(shape);
+			}
 			// Only the user's own effect settings enable blur, not the custom title bar's alpha.
 			window_blur.set_enabled(effects_transparent() && effects.2 > 0);
 		}
