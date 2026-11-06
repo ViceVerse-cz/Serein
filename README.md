@@ -1,3 +1,6 @@
+> [!CAUTION]
+> **An official native Discord client has been announced.** Discord's CTO [confirmed](https://x.com/svishnevskiy/status/2118081920194203799) on November 4, 2026 that the desktop app is being rebuilt in Rust with GPUI in place of Electron, aiming for user testing soon but without a date. Serein remains an independent, unofficial client with no connection to that build — see the [coverage](https://windowsforum.com/news/discord-phoenix-rust-and-gpui-replace-electron-on-windows-but-290mb-ram-claims-need-testing.450993/).
+
 # Serein
 
 <p align="center">
