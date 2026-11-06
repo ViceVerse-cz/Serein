@@ -308,6 +308,8 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成アタッ�
 attachments-open-original-open-original = オリジナルを開く…
 # Context: pending_card
 attachments-pending-card-remove-attachment = 添付ファイルを削除する
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = フルサイズのプレビューを表示できません
 attachments-loading-card-preparing = 準備中…
 # Context: show_status
 attachments-show-status-cancel-download = ダウンロードをキャンセルする
@@ -4871,3 +4873,5 @@ new-message-hint = フレンドを追加して、DMまたはグループを開�
 new-message-no-people-found = 一致する相手はいません。
 new-message-create = メッセージを作成
 new-message-cancel = キャンセル
+
+attachments-pending-viewer-loading = フルサイズの画像を読み込み中…

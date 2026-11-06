@@ -308,6 +308,8 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Sentetik ataşman
 attachments-open-original-open-original = Orijinali aç…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Eki kaldır
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = Tam boyutlu önizleme kullanılamıyor
 attachments-loading-card-preparing = Hazırlanıyor…
 # Context: show_status
 attachments-show-status-cancel-download = İndirmeyi iptal et
@@ -4874,3 +4876,5 @@ new-message-hint = Bir doğrudan mesaj veya grup başlatmak için arkadaş ekley
 new-message-no-people-found = Bu aramayla eşleşen kimse yok.
 new-message-create = Mesaj Oluştur
 new-message-cancel = İptal
+
+attachments-pending-viewer-loading = Tam boyutlu resim yükleniyor…

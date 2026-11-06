@@ -308,6 +308,8 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Недоступ�
 attachments-open-original-open-original = Открыть оригинал…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Удалить вложение
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = Полноразмерный просмотр недоступен
 attachments-loading-card-preparing = Подготовка…
 # Context: show_status
 attachments-show-status-cancel-download = Отменить загрузку
@@ -4891,3 +4893,5 @@ new-message-hint = Добавьте друзей, чтобы начать лич
 new-message-no-people-found = Никто не найден.
 new-message-create = Создать сообщение
 new-message-cancel = Отмена
+
+attachments-pending-viewer-loading = Загрузка полноразмерного изображения…

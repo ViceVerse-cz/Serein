@@ -307,6 +307,8 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Nedostupné pro s
 attachments-open-original-open-original = Otevřít originál…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Odstraňte přílohu
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = Náhled v plné velikosti není k dispozici
 attachments-loading-card-preparing = Připravuje se…
 # Context: show_status
 attachments-show-status-cancel-download = Zrušit stahování
@@ -4977,3 +4979,5 @@ new-message-hint = Přidejte přátele a začněte přímou zprávu nebo skupinu
 new-message-no-people-found = Nikdo neodpovídá hledání.
 new-message-create = Vytvořit zprávu
 new-message-cancel = Zrušit
+
+attachments-pending-viewer-loading = Načítání obrázku…

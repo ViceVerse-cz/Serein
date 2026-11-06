@@ -308,6 +308,8 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成附件無�
 attachments-open-original-open-original = 開啟原始檔案…
 # Context: pending_card
 attachments-pending-card-remove-attachment = 移除附件
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = 無法顯示原尺寸預覽
 attachments-loading-card-preparing = 準備中…
 
 # Context: show_status
@@ -4986,3 +4988,5 @@ new-message-hint = 新增好友以開始私訊或群組。
 new-message-no-people-found = 沒有符合的結果。
 new-message-create = 建立訊息
 new-message-cancel = 取消
+
+attachments-pending-viewer-loading = 正在載入完整尺寸圖片…

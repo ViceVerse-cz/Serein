@@ -307,6 +307,8 @@ attachments-media-menu-unavailable-for-synthetic-attachments = No disponible par
 attachments-open-original-open-original = Abrir original…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Quitar archivo adjunto
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = Vista previa a tamaño completo no disponible
 attachments-loading-card-preparing = Preparando…
 # Context: show_status
 attachments-show-status-cancel-download = Cancelar descarga
@@ -4891,3 +4893,5 @@ new-message-hint = Añade amigos para iniciar un mensaje directo o un grupo.
 new-message-no-people-found = Nadie coincide con esa búsqueda.
 new-message-create = Crear mensaje
 new-message-cancel = Cancelar
+
+attachments-pending-viewer-loading = Cargando imagen a tamaño completo…
