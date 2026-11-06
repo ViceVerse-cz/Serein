@@ -219,7 +219,7 @@ mod tests {
 		assert!(!calls.allowed.contains_key(&Id(2)));
 		assert_eq!(calls.allowed.get(&Id(3)), Some(&Some(Id(1))));
 		let Event::Voice(client_core::voice::Event::Snapshot { participants, .. }) =
-			calls.snapshot(&mut ready.guilds[0], false).unwrap()
+			calls.snapshot(&mut ready.guilds[0], false)
 		else {
 			panic!("snapshot")
 		};
@@ -242,7 +242,7 @@ mod tests {
 		calls.allowed.remove(&id);
 		let mut supplemental = decode(br#"{"id":"1","voice_states":[{"channel_id":"2","user_id":"8"},{"channel_id":"3","user_id":"9"}]}"#).unwrap();
 		let Event::Voice(client_core::voice::Event::Snapshot { participants, .. }) =
-			calls.snapshot(&mut supplemental, true).unwrap()
+			calls.snapshot(&mut supplemental, true)
 		else {
 			panic!("snapshot")
 		};
