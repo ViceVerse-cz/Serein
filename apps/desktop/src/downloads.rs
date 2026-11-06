@@ -259,6 +259,13 @@ impl Downloads {
 			let done = job.done.load(Ordering::Acquire);
 			self.status = job.status.borrow().clone();
 			if done {
+				if matches!(self.status, Status::Failed(_)) {
+					diagnostics::record(
+						diagnostics::Category::Media,
+						diagnostics::Level::Error,
+						"media download failed",
+					);
+				}
 				self.job = None;
 			}
 		}

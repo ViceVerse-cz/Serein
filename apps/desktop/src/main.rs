@@ -72,7 +72,10 @@ use client_core::{
 };
 use eframe::egui;
 use model::Delivery;
-use std::{sync::Arc, time::Duration};
+use std::{
+	sync::Arc,
+	time::{Duration, Instant},
+};
 use zeroize::Zeroizing;
 
 /// Run explicit offline checks before native startup, or launch the configured desktop client.
@@ -521,14 +524,21 @@ fn main() -> eframe::Result {
 	// trace instead of a description that has to be reconstructed afterwards.
 	let log_directory = local_store::data_dir().ok().map(|root| root.join("logs"));
 	if !demo && let (Some(directory), Ok(saved)) = (&log_directory, &preferences) {
-		diagnostics::install(saved.diagnostics_log, directory.clone());
+		diagnostics::install_mode(
+			if saved.diagnostics_log == diagnostics::Level::Off {
+				diagnostics::Level::Off
+			} else {
+				diagnostics::Level::Debug
+			},
+			directory.clone(),
+			saved.diagnostics_disk,
+		);
 	}
 	diagnostics::record_fields(
 		diagnostics::Category::App,
 		diagnostics::Level::Info,
 		"started",
 		&[
-			("version", env!("CARGO_PKG_VERSION").into()),
 			("os", std::env::consts::OS.into()),
 			("arch", std::env::consts::ARCH.into()),
 		],
@@ -880,6 +890,7 @@ struct FrameSample {
 /// Sample mode emits two bounded records and never schedules repaints.
 struct FrameMetrics {
 	enabled: bool,
+	shared_since: Option<Instant>,
 	started: Option<std::time::Instant>,
 	sample: Option<FrameSample>,
 	frames: u64,
@@ -891,6 +902,7 @@ struct FrameMetrics {
 	max_micros: u64,
 	buckets: [u64; 8],
 	reflows: (u64, u64),
+	reported_reflows: u64,
 }
 impl Default for FrameMetrics {
 	fn default() -> Self {
@@ -900,6 +912,7 @@ impl Default for FrameMetrics {
 impl FrameMetrics {
 	fn new(sample: Option<(Duration, Duration)>) -> Self {
 		Self {
+			shared_since: None,
 			enabled: sample.is_some()
 				|| std::env::var_os("SEREIN_FRAME_DIAGNOSTICS").is_some_and(|v| v == "1"),
 			started: None,
@@ -918,6 +931,7 @@ impl FrameMetrics {
 			max_micros: 0,
 			buckets: [0; 8],
 			reflows: (0, 0),
+			reported_reflows: 0,
 		}
 	}
 	fn sample_active_at(&mut self, now: std::time::Instant) -> bool {
@@ -965,8 +979,17 @@ impl FrameMetrics {
 	}
 	fn begin(&mut self, ctx: &egui::Context, search_focused: bool) {
 		self.started = None;
-		if !self.enabled {
+		if !self.enabled && !diagnostics::is_enabled(diagnostics::Level::Debug) {
+			self.shared_since = None;
+			self.frames = 0;
+			self.inputless = 0;
+			self.max_micros = 0;
+			self.buckets = [0; 8];
 			return;
+		}
+		if self.shared_since.is_none() {
+			self.shared_since = Some(Instant::now());
+			self.reported_reflows = self.reflows.0;
 		}
 		if self.sample.is_some() {
 			self.viewport_size = ctx.input(|i| {
@@ -984,6 +1007,16 @@ impl FrameMetrics {
 			self.search_focused += u64::from(search_focused);
 		}
 	}
+	fn summary_reflows(&mut self) -> u64 {
+		let total = self.reflows.0;
+		let value = if self.enabled {
+			total
+		} else {
+			total.saturating_sub(self.reported_reflows)
+		};
+		self.reported_reflows = total;
+		value
+	}
 	fn finish(&mut self) {
 		if let Some(started) = self.started.take() {
 			let micros = started.elapsed().as_micros();
@@ -994,6 +1027,29 @@ impl FrameMetrics {
 				.max_micros
 				.max(u64::try_from(micros).unwrap_or(u64::MAX));
 			self.frames += 1;
+			if self
+				.shared_since
+				.is_some_and(|at| at.elapsed() >= Duration::from_secs(5))
+			{
+				let reflows = self.summary_reflows();
+				diagnostics::summary(
+					diagnostics::Category::App,
+					"frame summary",
+					&[
+						("callbacks", self.frames.into()),
+						("max_us", self.max_micros.into()),
+						("inputless", self.inputless.into()),
+						("reflows", reflows.into()),
+					],
+				);
+				self.shared_since = Some(Instant::now());
+				if !self.enabled {
+					self.frames = 0;
+					self.inputless = 0;
+					self.max_micros = 0;
+					self.buckets = [0; 8];
+				}
+			}
 		}
 	}
 }
@@ -1132,10 +1188,13 @@ struct Desktop {
 	log_directory: Option<std::path::PathBuf>,
 	/// Whether the first frame has reported the start-up install's result to the settings page.
 	log_verified: bool,
+	/// Last requested disk setting, including a request whose destination failed.
+	diagnostics_disk_applied: bool,
 	/// Whether the system refused this process the shell, so the folder button copies instead.
 	log_open_refused: bool,
 	/// A diagnostics file being written after the owner picked a destination.
 	diagnostics_save: Option<std::sync::mpsc::Receiver<Option<Result<std::path::PathBuf, ()>>>>,
+	diagnostics_copy: Option<std::sync::mpsc::Receiver<String>>,
 	/// Active/per-account fallback saves waiting for bounded credential-queue capacity.
 	plaintext_save_pending: [bool; 2],
 	account_presences: std::collections::BTreeMap<model::Id, model::OwnPresence>,
@@ -1146,8 +1205,6 @@ struct Desktop {
 	/// Saved account awaiting the owner's confirmation before it is forgotten.
 	confirming_forget: Option<model::Id>,
 	credential_status: &'static str,
-	/// Until when the sign-in failure copy button reads "Copied".
-	sign_in_copied: Option<f64>,
 	forgetting: bool,
 	confirming_close: bool,
 	confirming_logout: bool,
@@ -2510,8 +2567,10 @@ impl Desktop {
 			plaintext_login,
 			log_directory: local_store::data_dir().ok().map(|root| root.join("logs")),
 			log_verified: false,
+			diagnostics_disk_applied: false,
 			log_open_refused: false,
 			diagnostics_save: None,
+			diagnostics_copy: None,
 			plaintext_save_pending: [false; 2],
 			account_presences: std::collections::BTreeMap::new(),
 			presence_load_pending,
@@ -2519,7 +2578,6 @@ impl Desktop {
 			presence_authoritative: false,
 			presence_saved: None,
 			confirming_forget: sign_in_forget,
-			sign_in_copied: None,
 			credential_status: if demo {
 				"Fixture mode skips saved login; extensions use public GitHub downloads"
 			} else if loading_saved {
@@ -2595,8 +2653,15 @@ impl Desktop {
 			self.messaging.open_log_folder_requested = false;
 			return;
 		}
+		if std::mem::take(&mut self.messaging.diagnostics_clear_requested) {
+			diagnostics::clear_at(self.log_directory.clone());
+			ctx.request_repaint_after(Duration::from_millis(50));
+		}
 		let level = self.messaging.diagnostics_log;
-		if diagnostics::level() != level || !self.log_verified {
+		if diagnostics::level() != level
+			|| self.diagnostics_disk_applied != self.messaging.diagnostics_disk
+			|| !self.log_verified
+		{
 			self.log_verified = true;
 			self.apply_diagnostics_log(level);
 		}
@@ -2611,12 +2676,6 @@ impl Desktop {
 		if self.messaging.open_log_folder_requested {
 			self.messaging.open_log_folder_requested = false;
 			self.messaging.diagnostics_log_open_failed = false;
-			// A folder repaired outside the app starts working here instead of after a restart.
-			if self.messaging.diagnostics_log_failed {
-				self.apply_diagnostics_log(self.messaging.diagnostics_log);
-				ctx.request_repaint_after(Duration::from_millis(50));
-				return;
-			}
 			let folder = diagnostics::path()
 				.and_then(|path| path.parent().map(std::path::Path::to_path_buf))
 				.or_else(|| self.log_directory.clone());
@@ -2657,112 +2716,134 @@ impl Desktop {
 			}
 		}
 	}
-	/// Applies a log level, names the file in the page and reports a folder that cannot be written
-	/// instead of promising one. A machine with no resolvable data folder still gets a log: the
-	/// crate falls back to its own folder in the temporary directory and the page names it.
+	/// An unavailable private data folder keeps recording in memory and reports disk failure.
+	/// Never redirect diagnostic files to temporary or executable folders.
 	fn apply_diagnostics_log(&mut self, level: diagnostics::Level) {
-		let directory = self
-			.log_directory
-			.clone()
-			.unwrap_or_else(diagnostics::fallback_directory);
-		diagnostics::install(level, directory);
+		let directory = self.log_directory.clone().unwrap_or_default();
+		self.diagnostics_disk_applied = self.messaging.diagnostics_disk;
+		diagnostics::install_mode(level, directory, self.messaging.diagnostics_disk);
 		self.messaging.diagnostics_log_failed = false;
 		self.messaging.diagnostics_log_path =
 			diagnostics::path().map(|path| path.display().to_string());
 	}
-	/// One text file for a bug report: environment, subsystem statuses and the recent log. Every
-	/// value is a flag, a number, or a status string the interface already shows; account, channel,
-	/// message, path and credential values stay out of it.
-	fn diagnostics_report(&self, ctx: &egui::Context) -> String {
+	/// Takes only approved fixed state; report formatting and history copying run off-frame.
+	fn diagnostics_environment(&self, ctx: &egui::Context) -> String {
 		use std::fmt::Write;
-		let mut report = String::with_capacity(24 * 1024);
-		report.push_str("# Serein diagnostics\n\n");
-		report.push_str(&self.messaging.diagnostic_info(ctx));
-		report.push('\n');
-		let log_file = diagnostics::path()
-			.map(|path| path.display().to_string())
-			.unwrap_or_else(|| "none".into());
-		let _ = writeln!(report, "\n- **Log level:** {:?}", diagnostics::level());
-		let _ = writeln!(report, "- **Log file:** {log_file}");
-		let _ = writeln!(report, "- **Local cache:** {}", self.cache_status);
-		let _ = writeln!(report, "- **Saved login:** {}", self.credential_status);
+		let mut environment = self.messaging.diagnostic_environment(ctx);
 		let _ = writeln!(
-			report,
+			environment,
 			"- **Session:** authenticated={} gateway={}",
 			self.state.auth == AuthState::Authenticated,
 			self.state.gateway_connected
+		);
+		let _ = writeln!(
+			environment,
+			"- **Local storage:** {}",
+			if self.cache_error {
+				"failed"
+			} else {
+				"available"
+			}
+		);
+		let can_send = self
+			.state
+			.selected
+			.is_some_and(|channel| self.state.can_send(channel));
+		let can_attach = self
+			.state
+			.selected
+			.is_some_and(|channel| self.state.can_attach(channel));
+		let _ = writeln!(
+			environment,
+			"- **Composer permissions:** send_available={can_send} attachments_available={can_attach}"
 		);
 		let call = match self.state.voice.active.as_ref() {
 			Some(call) if call.phase == client_core::voice::Phase::Failed => "failed",
 			Some(_) => "active",
 			None => "none",
 		};
-		let _ = writeln!(report, "- **Call:** {call}");
-		let _ = writeln!(
-			report,
-			"- **Voice devices:** {}",
-			self.messaging.voice_device_status
-		);
-		let _ = writeln!(
-			report,
-			"- **Notifications:** {}",
-			self.messaging.notification_status
-		);
-		report.push_str("\n## Recent log\n\n```\n");
-		report.push_str(&diagnostics::recent(400));
-		report.push_str("\n```\n");
-		report
+		let _ = writeln!(environment, "- **Call:** {call}");
+		environment
 	}
-	/// Writes that report after the owner picks a destination, and names the file in the page.
+
+	/// Copy and Save share one formatter and one active export worker.
 	fn sync_diagnostics_save(&mut self, ctx: &egui::Context) {
-		if std::mem::take(&mut self.messaging.diagnostics_save_requested)
-			&& self.diagnostics_save.is_none()
-		{
-			let report = self.diagnostics_report(ctx);
-			let (send, receive) = std::sync::mpsc::sync_channel(1);
-			let parent = self.window.clone();
-			let wake = ctx.clone();
-			self.runtime.spawn(async move {
-				let destination =
-					platform::save::text_destination(parent, "serein-diagnostics.txt").await;
-				let outcome = match destination {
-					Some(path) => {
-						let written = path.clone();
-						match tokio::task::spawn_blocking(move || std::fs::write(&written, report))
+		if self.diagnostics_copy.is_none() && self.diagnostics_save.is_none() {
+			if std::mem::take(&mut self.messaging.diagnostics_copy_requested) {
+				let environment = self.diagnostics_environment(ctx);
+				let (send, receive) = std::sync::mpsc::sync_channel(1);
+				let wake = ctx.clone();
+				self.runtime.spawn_blocking(move || {
+					let report = ui::MessagingUi::format_diagnostic_report(environment);
+					let _ = send.send(report);
+					wake.request_repaint();
+				});
+				self.diagnostics_copy = Some(receive);
+			} else if std::mem::take(&mut self.messaging.diagnostics_save_requested) {
+				let environment = self.diagnostics_environment(ctx);
+				let (send, receive) = std::sync::mpsc::sync_channel(1);
+				let parent = self.window.clone();
+				let wake = ctx.clone();
+				self.runtime.spawn(async move {
+					let destination =
+						platform::save::text_destination(parent, "serein-diagnostics.txt").await;
+					let outcome = match destination {
+						Some(path) => {
+							let written = path.clone();
+							match tokio::task::spawn_blocking(move || {
+								let report = ui::MessagingUi::format_diagnostic_report(environment);
+								diagnostics::save_report(&written, &report)
+							})
 							.await
-						{
-							Ok(Ok(())) => Some(Ok(path)),
-							_ => Some(Err(())),
+							{
+								Ok(Ok(())) => Some(Ok(path)),
+								_ => Some(Err(())),
+							}
 						}
-					}
-					// The owner closed the dialog: nothing to report and nothing to hide.
-					None => None,
-				};
-				let _ = send.send(outcome);
-				wake.request_repaint();
-			});
-			self.diagnostics_save = Some(receive);
-		}
-		if let Some(receiver) = &self.diagnostics_save
-			&& let Ok(outcome) = receiver.try_recv()
-		{
-			match outcome {
-				Some(Ok(path)) => {
-					self.messaging.diagnostics_saved_path = Some(path.display().to_string());
-					diagnostics::record(
-						diagnostics::Category::App,
-						diagnostics::Level::Info,
-						"diagnostics saved",
-					);
-				}
-				Some(Err(())) => diagnostics::record(
-					diagnostics::Category::App,
-					diagnostics::Level::Warn,
-					"diagnostics not saved",
-				),
-				None => {}
+						None => None,
+					};
+					let _ = send.send(outcome);
+					wake.request_repaint();
+				});
+				self.diagnostics_save = Some(receive);
 			}
-			self.diagnostics_save = None;
+		}
+		if let Some(receiver) = &self.diagnostics_copy {
+			match receiver.try_recv() {
+				Ok(report) => {
+					ctx.copy_text(report);
+					self.messaging.updates.copied_diagnostics = Some(ctx.input(|i| i.time) + 2.5);
+					self.messaging.diagnostics_export_failed = false;
+					self.diagnostics_copy = None;
+					ctx.request_repaint_after(Duration::from_secs(3));
+				}
+				Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+					self.messaging.diagnostics_export_failed = true;
+					self.diagnostics_copy = None;
+				}
+				Err(std::sync::mpsc::TryRecvError::Empty) => {}
+			}
+		}
+		if let Some(receiver) = &self.diagnostics_save {
+			match receiver.try_recv() {
+				Ok(outcome) => {
+					match outcome {
+						Some(Ok(path)) => {
+							self.messaging.diagnostics_saved_path =
+								Some(path.display().to_string());
+							self.messaging.diagnostics_export_failed = false;
+						}
+						Some(Err(())) => self.messaging.diagnostics_export_failed = true,
+						None => {}
+					}
+					self.diagnostics_save = None;
+				}
+				Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+					self.messaging.diagnostics_export_failed = true;
+					self.diagnostics_save = None;
+				}
+				Err(std::sync::mpsc::TryRecvError::Empty) => {}
+			}
 		}
 	}
 	/// Hands the owner's plaintext saved-login choice to the credential worker, in order with
@@ -2966,7 +3047,14 @@ impl Desktop {
 			let tray = platform::tray::Tray::new(self.window.clone(), move || wake.request_repaint());
 			match tray {
 				Ok(tray) => self.tray = Some(tray),
-				Err(error) => self.tray_error = Some(error),
+				Err(error) => {
+					diagnostics::record(
+						diagnostics::Category::Platform,
+						diagnostics::Level::Warn,
+						"tray initialization failed",
+					);
+					self.tray_error = Some(error);
+				}
 			}
 		}
 		if let Some(tray) = &self.tray {
@@ -7139,6 +7227,20 @@ mod tests {
 			vec![model::Id(2)]
 		);
 	}
+	#[test]
+	fn frame_summaries_use_interval_reflows_unless_console_metrics_are_cumulative() {
+		let mut metrics = FrameMetrics::new(None);
+		metrics.enabled = false;
+		metrics.reported_reflows = 40;
+		metrics.reflows = (43, 0);
+		assert_eq!(metrics.summary_reflows(), 3);
+		metrics.reflows.0 = 45;
+		assert_eq!(metrics.summary_reflows(), 2);
+		metrics.enabled = true;
+		assert_eq!(metrics.summary_reflows(), 45);
+		assert_eq!(metrics.reflows.0, 45);
+	}
+
 	#[test]
 	fn frame_sample_is_bounded_demo_only_and_excludes_warmup() {
 		for (demo, value) in [

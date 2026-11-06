@@ -6,6 +6,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+diagnostics.workspace = true
 egui.workspace = true
 platform.workspace = true
 

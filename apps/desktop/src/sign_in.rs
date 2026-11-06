@@ -974,7 +974,11 @@ impl Desktop {
 		}
 		ui.add_space(4.0);
 		let now = ui.input(|i| i.time);
-		let copied = self.sign_in_copied.is_some_and(|until| now < until);
+		let copied = self
+			.messaging
+			.updates
+			.copied_diagnostics
+			.is_some_and(|until| now < until);
 		if ui::design::button(
 			ui,
 			if copied {
@@ -986,19 +990,9 @@ impl Desktop {
 		)
 		.clicked()
 		{
-			let report = format!(
-				"### Sign-in failure\n- **Reason:** {}\n- **Cause:** {}\n{}",
-				self.state.status,
-				self.state
-					.failure_detail
-					.as_deref()
-					.unwrap_or("No decode detail recorded"),
-				self.messaging.diagnostic_info(ui.ctx())
-			);
-			ui.ctx().copy_text(report);
-			self.sign_in_copied = Some(now + 2.5);
-			ui.ctx()
-				.request_repaint_after(std::time::Duration::from_secs(3));
+			// The unified report uses fixed state categories; raw decode details may include
+			// service-controlled schema keys and must not cross the export boundary.
+			self.messaging.copy_diagnostic_info(ui.ctx());
 		}
 	}
 	/// Fixture-only entry into the offline preview, kept visually secondary to signing in.

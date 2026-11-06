@@ -168,7 +168,17 @@ impl Hotkeys {
 		{
 			None
 		} else {
-			GlobalHotKeyManager::new().ok()
+			match GlobalHotKeyManager::new() {
+				Ok(manager) => Some(manager),
+				Err(_) => {
+					diagnostics::record(
+						diagnostics::Category::Platform,
+						diagnostics::Level::Warn,
+						"global hotkey manager unavailable",
+					);
+					None
+				}
+			}
 		};
 		let status = if manager.is_some() {
 			READY
@@ -266,6 +276,11 @@ impl Hotkeys {
 				ptt_held.store(0, Ordering::Relaxed);
 				ptm_held.store(0, Ordering::Relaxed);
 				if !no_shortcuts {
+					diagnostics::record(
+						diagnostics::Category::Platform,
+						diagnostics::Level::Warn,
+						"global shortcut portal session ended",
+					);
 					status.store(3, Ordering::Relaxed);
 				}
 				wake();
@@ -327,8 +342,18 @@ impl Hotkeys {
 			self.mouse = mouse::Poller::start(&next, self.native.clone());
 		}
 		if failed {
+			diagnostics::record(
+				diagnostics::Category::Platform,
+				diagnostics::Level::Warn,
+				"global hotkey registration failed",
+			);
 			self.status = INVALID;
 		} else if modifier_required {
+			diagnostics::record(
+				diagnostics::Category::Platform,
+				diagnostics::Level::Warn,
+				"global hotkey modifier required",
+			);
 			self.status = MODIFIER_REQUIRED;
 		} else {
 			self.status = READY;
@@ -342,7 +367,13 @@ impl Hotkeys {
 		self.native.clear();
 		if let Some(manager) = &self.manager {
 			for (hotkey, ..) in self.registered.drain(..) {
-				let _ = manager.unregister(hotkey);
+				if manager.unregister(hotkey).is_err() {
+					diagnostics::record(
+						diagnostics::Category::Platform,
+						diagnostics::Level::Warn,
+						"global hotkey unregistration failed",
+					);
+				}
 			}
 		} else {
 			self.registered.clear();
@@ -535,6 +566,13 @@ async fn portal(
 				_ => 0,
 			})
 	});
+	if mask == 0 {
+		diagnostics::record(
+			diagnostics::Category::Platform,
+			diagnostics::Level::Warn,
+			"global shortcut portal returned no bindings",
+		);
+	}
 	registered.store(mask, Ordering::Relaxed);
 	*chords.lock().expect("portal chords poisoned") = response
 		.shortcuts()
@@ -922,6 +960,13 @@ mod mouse {
 						held = next;
 						std::thread::sleep(PERIOD);
 					}
+				})
+				.inspect_err(|_| {
+					diagnostics::record(
+						diagnostics::Category::Platform,
+						diagnostics::Level::Warn,
+						"global mouse hotkey worker unavailable",
+					)
 				})
 				.ok()?;
 			Some(Self {

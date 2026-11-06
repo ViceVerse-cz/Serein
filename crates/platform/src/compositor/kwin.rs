@@ -140,12 +140,12 @@ async fn worker(
 	.await;
 	let (bus, scripting) = match connected {
 		Ok(Ok(connected)) => connected,
-		failure => {
-			let reason = match failure {
-				Ok(Err(error)) => error.to_string(),
-				_ => "timed out".into(),
-			};
-			eprintln!("KWin scripting unavailable ({reason}); Close will minimize instead.");
+		_ => {
+			diagnostics::record(
+				diagnostics::Category::Platform,
+				diagnostics::Level::Warn,
+				"compositor scripting unavailable",
+			);
 			return;
 		}
 	};
@@ -155,8 +155,11 @@ async fn worker(
 		let path = &paths[state as usize];
 		match tokio::time::timeout(TIMEOUT, run(&bus, &scripting, &name, path)).await {
 			Ok(Ok(())) => {}
-			Ok(Err(error)) => eprintln!("KWin window hiding failed: {error}"),
-			Err(_) => eprintln!("KWin window hiding failed: timed out"),
+			Ok(Err(_)) | Err(_) => diagnostics::record(
+				diagnostics::Category::Platform,
+				diagnostics::Level::Warn,
+				"compositor window hiding failed",
+			),
 		}
 	}
 	let _ = tokio::time::timeout(

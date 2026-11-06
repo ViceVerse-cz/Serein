@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+diagnostics.workspace = true
 model.workspace = true
 client-core.workspace = true
 discord-protocol.workspace = true

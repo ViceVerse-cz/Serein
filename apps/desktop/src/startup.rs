@@ -66,7 +66,14 @@ impl Startup {
 				self.saved = saved;
 				view.startup_status = "";
 			}
-			Err(error) => view.startup_status = error,
+			Err(error) => {
+				diagnostics::record(
+					diagnostics::Category::Platform,
+					diagnostics::Level::Warn,
+					"startup settings operation failed",
+				);
+				view.startup_status = error;
+			}
 		}
 		view.startup_enabled = self.saved.enabled;
 		view.startup_minimized = self.saved.minimized;

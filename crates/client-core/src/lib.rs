@@ -13,6 +13,7 @@ pub mod guild_folders;
 pub mod permissions;
 pub mod stickers;
 pub use permissions::ChannelAccess;
+mod diagnostic_events;
 #[cfg(test)]
 mod permissions_tests;
 
@@ -2606,6 +2607,7 @@ impl State {
 		if envelope.generation != self.generation {
 			return;
 		}
+		diagnostic_events::record(&envelope.event);
 		if self.handle_private_message_event(&envelope.event) {
 			return;
 		}

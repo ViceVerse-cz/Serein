@@ -319,26 +319,21 @@ a terminal failure; copy the failed-call reason as well when troubleshooting.
 `cargo run --locked -p serein -- --demo --demo-voice-failed` previews a synthetic
 failure and checks that subsequent cleanup/progress events retain its original reason.
 
-Set `SEREIN_VOICE_DIAGNOSTICS=1` before launching Serein to get aggregate voice
-timings on stderr every five seconds and a best-effort final summary on teardown.
-`StreamSend` reports the active screen encoder; `Transport` reports camera encoding
-and call video decoding; `StreamReceive` reports its own video decoding. Values are
-`hardware`, `software`, `mixed` for simultaneously active backends, or `unknown`
-when no backend is active. A fallback replaces the hardware indication with software.
-On macOS, live VideoToolbox sessions require hardware acceleration; failures use
-the software fallback after keyframe recovery.
-For example, launch an already-built macOS app from a terminal:
+For an issue report, open **Settings → Updates → Support & diagnostics**, enable **Record
+diagnostics**, reproduce the problem and choose **Copy diagnostic report** or **Save report…**.
+The shared collector includes safe voice timing and failure summaries without a separate verbose
+setting. Recording is off by default. For crashes or freezes, separately enable **Save diagnostic
+history to disk** before reproducing the problem. Diagnostics never start capture, join a call or
+send media. See [the diagnostics guide](diagnostics.md) for privacy and coverage limits.
 
-```sh
-SEREIN_VOICE_DIAGNOSTICS=1 SEREIN_FRAME_DIAGNOSTICS=1 /Applications/Serein.app/Contents/MacOS/serein 2> serein-voice.log
-```
+The developer compatibility variable `SEREIN_VOICE_DIAGNOSTICS=1` retains fixed numeric stderr
+summaries. Shell redirection can also capture unrelated framework output, which is not part of the
+privacy-safe exported report. Do not attach arbitrary terminal output to an issue. Remove the
+variable to disable console reporting on the next normal launch.
 
-On Windows PowerShell, set `$env:SEREIN_VOICE_DIAGNOSTICS="1"` and
-`$env:SEREIN_FRAME_DIAGNOSTICS="1"`, then launch `serein.exe 2> serein-voice.log`.
-On Linux, use the same environment assignments as macOS with the installed executable.
-Quit an already-running instance first. Join/leave the call yourself; diagnostics never
-enable capture, join a call or send media. Quit normally to obtain the existing UI frame
-summary. Remove the environment variables to disable diagnostics on the next launch.
+`StreamSend` reports screen encoding; `Transport` reports camera encoding and call video decoding;
+`StreamReceive` reports its own video decoding. Backend categories are `hardware`, `software`,
+`mixed`, or `unknown`; they do not identify the device or media source.
 
 Each voice stage reports `[calls, total_us, max_us]` over `window_ms`:
 `echo_render` processes speaker reference; `echo_capture` includes the selected microphone
@@ -357,14 +352,12 @@ while keeping application code unoptimized and debuggable; release builds remain
 restart to apply this change. Compare speaking, muted and noise-suppression-on/off windows to narrow
 the cause; UI frame diagnostics help identify excessive rendering separately.
 
-Logging is off by default. Fixed numeric reports go through an eight-slot queue to a
-separate writer; media workers never wait for stderr. Output stops after 8,192 reports
-or 8 MiB per process, shared by all calls, so restart for another capture. A full queue
-drops summaries. No IDs, device names, endpoints, keys, audio or signaling payloads
-are logged; upstream cryptographic tracing remains disabled. These reports create no file of their
-own; the separate opt-in diagnostic log in Settings writes a bounded local file and is described in
-[the storage policy](storage-policy.md#opt-in-diagnostic-log). Shell redirection is owner-managed and
-may include unrelated framework logs.
+The shared collector's memory and optional disk limits are described in
+[the storage policy](storage-policy.md#opt-in-diagnostic-log). Media callbacks never format or write
+reports. The developer stderr reporter remains independently bounded and may drop summaries when
+its queue is full. Shared voice records exclude IDs, device names, endpoints, keys, audio and
+signaling payloads; upstream cryptographic tracing remains disabled. This exclusion applies to
+the shared report, not arbitrary native/framework output independently printed to stderr.
 The device-free check is `cargo run --locked -p discord-voice --example voice_diagnostics`.
 On Linux, build with workspace feature unification (`cargo build --locked --workspace --examples`),
 then run `target/debug/examples/voice_diagnostics`; the package alone lacks winit platform features.

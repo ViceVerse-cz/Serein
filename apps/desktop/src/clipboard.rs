@@ -61,6 +61,13 @@ impl Paste {
 				Ok(Err(error)) => Err(error),
 				Err(_) => Err("Clipboard reading interrupted; paste again"),
 			};
+			if result.is_err() {
+				diagnostics::record(
+					diagnostics::Category::Platform,
+					diagnostics::Level::Warn,
+					"clipboard paste failed",
+				);
+			}
 			let _ = send.send(result);
 			context.request_repaint();
 		});
@@ -76,7 +83,14 @@ impl Paste {
 		match self.result.try_recv() {
 			Ok(result) => Some(result),
 			Err(mpsc::TryRecvError::Empty) => None,
-			Err(mpsc::TryRecvError::Disconnected) => Some(Err("Clipboard reading interrupted")),
+			Err(mpsc::TryRecvError::Disconnected) => {
+				diagnostics::record(
+					diagnostics::Category::Platform,
+					diagnostics::Level::Warn,
+					"clipboard worker stopped",
+				);
+				Some(Err("Clipboard reading interrupted"))
+			}
 		}
 	}
 }

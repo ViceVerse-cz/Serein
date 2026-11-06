@@ -119,6 +119,23 @@ impl Store {
 						}
 					}
 				};
+				let failed = matches!(
+					&outcome,
+					Outcome::Loaded(Err(_))
+						| Outcome::Saved(Err(_))
+						| Outcome::AccountSaved(_, Err(_))
+						| Outcome::Forgotten(Err(_))
+						| Outcome::AccountForgotten(Err(_))
+						| Outcome::PlaintextSet(_, Err(_))
+						| Outcome::Reconciled(Err(_))
+				);
+				if failed {
+					diagnostics::record(
+						diagnostics::Category::Storage,
+						diagnostics::Level::Error,
+						"credential store operation failed",
+					);
+				}
 				if events.send((generation, request, outcome)).is_err() {
 					break;
 				}

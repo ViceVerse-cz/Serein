@@ -26,10 +26,10 @@ fn main() {
 	metrics.stream_state([true; 8], 4);
 	metrics.checkpoint();
 	assert!(receive.try_recv().is_err());
-	assert_eq!(metrics.report.wakes, 0);
-	assert_eq!(metrics.report.stages, [[0; 3]; 11]);
-	assert_eq!(metrics.report.stream_ticks, [0; 8]);
-	assert_eq!(metrics.report.queued_audio, 0);
+	assert!(
+		metrics.report.is_none(),
+		"disabled diagnostics retain no aggregate buffer"
+	);
 	let sizes = VideoSizeCounters {
 		enabled: true,
 		..Default::default()
@@ -43,10 +43,7 @@ fn main() {
 	sizes.record(1920, 1080);
 	sizes.record(1920, 1080);
 	metrics.video_sizes(&sizes);
-	assert_eq!(
-		metrics.report.video_sizes.last, 0,
-		"disabled metrics do not aggregate dimensions"
-	);
+	assert!(metrics.report.is_none());
 	// Keep the synthetic sender alive for this short-lived debug process.
 	metrics.send = Some(Box::leak(Box::new(send)));
 	metrics.video_sizes(&sizes);
@@ -74,6 +71,8 @@ fn main() {
 	assert!(
 		metrics
 			.report
+			.as_ref()
+			.unwrap()
 			.stages
 			.iter()
 			.all(|s| s[0] == 1 && s[1] == s[2])
@@ -81,11 +80,11 @@ fn main() {
 	metrics.poll(true, 2, true, 3);
 	assert_eq!(
 		(
-			metrics.report.wakes,
-			metrics.report.resets,
-			metrics.report.drops,
-			metrics.report.stalls,
-			metrics.report.noise_frames
+			metrics.report.as_ref().unwrap().wakes,
+			metrics.report.as_ref().unwrap().resets,
+			metrics.report.as_ref().unwrap().drops,
+			metrics.report.as_ref().unwrap().stalls,
+			metrics.report.as_ref().unwrap().noise_frames
 		),
 		(1, 1, 2, 1, 3)
 	);
@@ -104,9 +103,18 @@ fn main() {
 	metrics.signal(Signal::Text, 1);
 	metrics.signal(Signal::ExecuteTransition, 1);
 	metrics.signal(Signal::SinkWantsSent, 2);
-	assert_eq!(metrics.report.video[Video::Packets as usize], 150);
-	assert_eq!(metrics.report.video[Video::PictureGapMs as usize], 2400);
-	assert_eq!(metrics.report.signal[Signal::SinkWantsSent as usize], 2);
+	assert_eq!(
+		metrics.report.as_ref().unwrap().video[Video::Packets as usize],
+		150
+	);
+	assert_eq!(
+		metrics.report.as_ref().unwrap().video[Video::PictureGapMs as usize],
+		2400
+	);
+	assert_eq!(
+		metrics.report.as_ref().unwrap().signal[Signal::SinkWantsSent as usize],
+		2
+	);
 	metrics.stream_state([true, true, true, false, false, true, false, true], 4);
 	metrics.stream_state([true, false, false, false, false, true, true, true], 2);
 	metrics.since -= Duration::from_secs(5);
@@ -119,31 +127,38 @@ fn main() {
 		"hardware",
 		"queued reports retain their snapshot"
 	);
-	assert_eq!(codec_label(metrics.report.decoder_counts), "software");
+	assert_eq!(
+		codec_label(metrics.report.as_ref().unwrap().decoder_counts),
+		"software"
+	);
 	assert!(report.window_ms >= 5000);
 	assert_eq!(report.video_sizes.changes, 3);
 	let unpack = |key: u64| ((key >> 12) & 4095, key & 4095);
 	assert_eq!(unpack(report.video_sizes.last), (1920, 1080));
 	assert_eq!(unpack(report.video_sizes.min), (640, 360));
 	assert_eq!(unpack(report.video_sizes.max), (1920, 1080));
-	assert_eq!(metrics.report.video_sizes.last, 0);
+	assert_eq!(metrics.report.as_ref().unwrap().video_sizes.last, 0);
 	sizes.record(1920, 1080);
 	metrics.video_sizes(&sizes);
 	assert_eq!(
-		metrics.report.video_sizes.changes, 0,
+		metrics.report.as_ref().unwrap().video_sizes.changes,
+		0,
 		"report boundaries do not count as resolution changes"
 	);
-	assert_eq!(unpack(metrics.report.video_sizes.min), (1920, 1080));
+	assert_eq!(
+		unpack(metrics.report.as_ref().unwrap().video_sizes.min),
+		(1920, 1080)
+	);
 	assert_eq!(report.stream_ticks, [2, 1, 1, 0, 0, 2, 1, 2]);
 	assert_eq!(report.queued_audio, 6);
 	assert_eq!(report.video[Video::Packets as usize], 150);
 	assert_eq!(report.signal[Signal::ExecuteTransition as usize], 1);
-	assert_eq!(metrics.report.video, [0; VIDEO_SLOTS]);
-	assert_eq!(metrics.report.signal, [0; SIGNAL_SLOTS]);
-	assert_eq!(metrics.report.wakes, 0);
-	assert_eq!(metrics.report.stages, [[0; 3]; 11]);
-	assert_eq!(metrics.report.stream_ticks, [0; 8]);
-	assert_eq!(metrics.report.queued_audio, 0);
+	assert_eq!(metrics.report.as_ref().unwrap().video, [0; VIDEO_SLOTS]);
+	assert_eq!(metrics.report.as_ref().unwrap().signal, [0; SIGNAL_SLOTS]);
+	assert_eq!(metrics.report.as_ref().unwrap().wakes, 0);
+	assert_eq!(metrics.report.as_ref().unwrap().stages, [[0; 3]; 11]);
+	assert_eq!(metrics.report.as_ref().unwrap().stream_ticks, [0; 8]);
+	assert_eq!(metrics.report.as_ref().unwrap().queued_audio, 0);
 	metrics.add(Stage::CaptureRead, Duration::from_micros(10));
 	metrics.add(Stage::CaptureRead, Duration::from_micros(20));
 	metrics.add(Stage::CaptureQueue, Duration::from_micros(5));
@@ -156,13 +171,13 @@ fn main() {
 		(native.wakes, native.resets, native.drops, native.stalls),
 		(1, 1, 2, 1)
 	);
-	assert_eq!(metrics.report.stages, [[0; 3]; 11]);
+	assert_eq!(metrics.report.as_ref().unwrap().stages, [[0; 3]; 11]);
 	assert_eq!(
 		(
-			metrics.report.wakes,
-			metrics.report.resets,
-			metrics.report.drops,
-			metrics.report.stalls
+			metrics.report.as_ref().unwrap().wakes,
+			metrics.report.as_ref().unwrap().resets,
+			metrics.report.as_ref().unwrap().drops,
+			metrics.report.as_ref().unwrap().stalls
 		),
 		(0, 0, 0, 0)
 	);

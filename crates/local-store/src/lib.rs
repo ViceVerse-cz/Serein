@@ -99,6 +99,8 @@ pub struct AppPreferences {
 	pub plaintext_login: bool,
 	/// Owner opt-in diagnostic log; older preferences deserialize with logging off.
 	pub diagnostics_log: diagnostics::Level,
+	/// Separate opt-in: diagnostics remain memory-only unless enabled.
+	pub diagnostics_disk: bool,
 }
 impl Default for AppPreferences {
 	fn default() -> Self {
@@ -142,6 +144,7 @@ impl Default for AppPreferences {
 			time_format: Default::default(),
 			plaintext_login: false,
 			diagnostics_log: diagnostics::Level::Off,
+			diagnostics_disk: false,
 		}
 	}
 }
@@ -2181,6 +2184,11 @@ mod tests {
 		let legacy: AppPreferences =
 			serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
 		assert!(legacy.voice_processing.is_none());
+		// A former enabled log setting never silently opts into disk retention.
+		let previous_log: AppPreferences =
+			serde_json::from_str(r#"{"diagnostics_log":"debug"}"#).unwrap();
+		assert_eq!(previous_log.diagnostics_log, diagnostics::Level::Debug);
+		assert!(!previous_log.diagnostics_disk);
 		assert!(legacy.voice_noise_suppression);
 		// Existing serialized bindings omit the newly optional diagnostics shortcut.
 		let mut old_bindings = serde_json::to_value(model::Keybinds::default()).unwrap();
@@ -2222,6 +2230,8 @@ mod tests {
 		);
 		// The saved file keeps the full action and chord of every extra binding.
 		let saved = AppPreferences {
+			diagnostics_log: diagnostics::Level::Debug,
+			diagnostics_disk: true,
 			keybinds: model::Keybinds {
 				custom: vec![model::CustomBinding {
 					action: model::KeybindAction::ToggleDeafen,
@@ -2232,6 +2242,7 @@ mod tests {
 			..Default::default()
 		};
 		store.save_app_preferences(&saved).unwrap();
+		assert_eq!(store.app_preferences().unwrap(), saved);
 		assert_eq!(
 			store.app_preferences().unwrap().keybinds.custom,
 			saved.keybinds.custom
