@@ -9,7 +9,10 @@ other vendor's branding, and no third-party font is embedded in them.
 - `serein-mark.svg` — solid white silhouette, view box trimmed to the mark's bounding box.
   `tools/generate-icons.py` rasterizes this one into the shared icon atlas as `serein-mark`,
   which the interface tints at draw time.
-- `serein-1024.png` — 1024×1024 sRGB RGBA preview render of the full-colour mark.
+- `serein.png` — 460×460 owner-supplied raster mark; the source for the packaged
+  platform icons (`packaging/windows/Serein.ico`, `packaging/macos/Serein.icns`,
+  `packaging/linux/hicolor/*`) and the `serein-1024.png` preview.
+- `serein-1024.png` — 1024×1024 sRGB preview render of the packaged mark.
 - `serein-tray.png` — 72×72 black-on-transparent render of `serein-mark.svg`, embedded by
   `crates/platform` as the macOS menu bar template image; macOS tints it per appearance, so only
   its alpha is used. Regenerate with:
