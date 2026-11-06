@@ -2621,6 +2621,7 @@ impl ProfileSession {
 		self.hovered.take()
 	}
 
+	/// Records the hovered person and toggles their card on a click of `primary` or `nested`.
 	pub fn person_click(
 		&mut self,
 		ui: &egui::Ui,
@@ -2660,6 +2661,8 @@ impl ProfileSession {
 		self.opens += 1;
 	}
 
+	/// Opens a person's card from a menu or command, keeping the loaded profile when it is the
+	/// same person.
 	pub fn command_open(&mut self, user: User) {
 		self.full = false;
 		if self.open.as_ref().is_none_or(|open| open.id != user.id) {
@@ -2673,6 +2676,7 @@ impl ProfileSession {
 		self.opens += 1;
 	}
 
+	/// Switches the card to another person from inside it, dropping the previous core.
 	pub fn navigate(&mut self, user: User) {
 		self.badges.close();
 		self.reset_card_input();

@@ -49,6 +49,7 @@ impl Desktop {
 			}
 		}
 	}
+	/// Opens one native picker for the interaction modal that asked for files this frame.
 	pub(crate) fn choose_interaction_files(&mut self, ctx: &eframe::egui::Context) {
 		let Some(custom_id) = self.messaging.interaction_file_request.take() else {
 			return;

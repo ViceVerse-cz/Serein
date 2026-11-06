@@ -241,6 +241,7 @@ type Monitor = (
 	f64,
 );
 
+/// Whether a top-left corner lies inside this monitor's bounds.
 fn monitor_contains(monitor: Monitor, position: [i32; 2]) -> bool {
 	let (origin, size, _) = monitor;
 	i64::from(position[0]) >= i64::from(origin.x)
@@ -249,6 +250,7 @@ fn monitor_contains(monitor: Monitor, position: [i32; 2]) -> bool {
 		&& i64::from(position[1]) < i64::from(origin.y) + i64::from(size.height)
 }
 
+/// The current display as origin, size and scale; a window off every display has none.
 fn monitor_of(window: &winit::window::Window) -> Option<Monitor> {
 	window
 		.current_monitor()
@@ -286,6 +288,8 @@ pub fn popout_scale_factor(window: &winit::window::Window, position: [i32; 2]) -
 		.map_or(1.0, |monitor| monitor.scale_factor())
 }
 
+/// Fits the saved or first-use size inside the saved position's display, a monitorless fallback
+/// included; the returned position is centred when nothing was saved.
 fn fit_popout_geometry_on(
 	monitors: &[Monitor],
 	current: Option<Monitor>,

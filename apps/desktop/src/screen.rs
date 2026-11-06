@@ -231,6 +231,8 @@ impl Screen {
 		}
 	}
 
+	/// Drains the share worker and viewer updates into the UI for this frame, then reports the
+	/// single command the share needs next.
 	pub fn poll(
 		&mut self,
 		runtime: &Runtime,
@@ -484,10 +486,10 @@ impl Screen {
 		if let Some(live) = &self.live {
 			// The stage draws the preview in exactly one window: docked in the main one, or the call window.
 			let popped = ui.voice_popout() == Some(live.context.channel);
-			let shown = (!popped
+			let docked = !popped
 				&& state.selected == Some(live.context.channel)
-				&& ctx.input(|input| input.focused && !input.viewport().minimized.unwrap_or(false)))
-				|| (popped && ui.voice_popout_visible());
+				&& ctx.input(|input| input.focused && !input.viewport().minimized.unwrap_or(false));
+			let shown = docked || (popped && ui.voice_popout_visible());
 			live.worker.set_preview_visible(shown);
 			ui.screen.preview_paused = !shown;
 			if !shown {

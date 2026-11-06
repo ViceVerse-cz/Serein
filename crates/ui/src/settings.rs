@@ -128,6 +128,7 @@ impl Page {
 	fn description(self, language: Language) -> String {
 		language.text(self.description_key())
 	}
+	/// Whether the search query matches this section's keywords, title or description.
 	fn matches(self, query: &str, language: Language) -> bool {
 		let keywords = match self {
 			Self::Account => "my account profile logout",

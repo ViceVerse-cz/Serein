@@ -1,6 +1,7 @@
 //! Offline debug check: cargo run --locked -p ui --example voice_chat
 use client_core::{Command, Envelope, Event, State};
 
+/// Runs one UI pass and returns every text label with the rectangle it painted into.
 fn capture(
 	ctx: &egui::Context,
 	width: f32,
@@ -46,6 +47,7 @@ fn capture(
 	labels
 }
 
+/// One pass of the main window over a fixed width, with voice commands asserted empty.
 fn frame(
 	ctx: &egui::Context,
 	view: &mut ui::MessagingUi,
@@ -112,6 +114,7 @@ fn composer_for(labels: &[(String, egui::Rect)], channel: &str) -> bool {
 		.any(|(text, _)| text.starts_with("Message #") && text.contains(channel))
 }
 
+/// Asserts the call window's chat, focus and dialog behavior with synthetic state.
 fn popout_checks() {
 	let mut state = test_support::voice_demo_state();
 	let channel = state.selected.unwrap();
@@ -288,6 +291,8 @@ fn click(pos: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
 	]
 }
 
+/// Runs both offline check suites, then renders the fixed wide and narrow scenarios; the process
+/// exits non-zero if any assertion fails.
 fn main() {
 	popout_checks();
 	browsing_keeps_call_focus();

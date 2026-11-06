@@ -152,6 +152,8 @@ impl Default for AppPreferences {
 	}
 }
 impl AppPreferences {
+	/// Rejects window placements and bounded values a corrupted or older preferences file could
+	/// produce, so loading never poisons the session.
 	pub fn is_valid(&self) -> bool {
 		self.window_geometry.is_none_or(WindowGeometry::is_valid)
 			&& self

@@ -646,6 +646,7 @@ impl Uploads {
 		}
 		Ok(())
 	}
+	/// Starts the native file picker for this conversation; refuses while one is still open.
 	pub fn start_choose(
 		&mut self,
 		generation: u64,
@@ -672,6 +673,7 @@ impl Uploads {
 		}
 		Ok(())
 	}
+	/// Validates dropped paths and loads them like a picker selection.
 	pub fn start_drop(
 		&mut self,
 		generation: u64,
@@ -706,6 +708,8 @@ impl Uploads {
 		}
 		Ok(())
 	}
+	/// Spawns the loader for one selection and records it, so `poll` can admit the result into
+	/// the composer once it is ready.
 	fn start_selection(
 		&mut self,
 		generation: u64,
@@ -799,6 +803,8 @@ impl Uploads {
 			self.previewing = parked.previewing;
 		}
 	}
+	/// Keeps a conversation's staged files for when it is shown again, evicting the oldest parked
+	/// batches when the count or byte cap is exceeded.
 	fn park(&mut self, scope: (u64, Id)) {
 		let parked = Parked {
 			scope,
@@ -837,6 +843,8 @@ impl Uploads {
 			self.remove();
 		}
 	}
+	/// Moves finished selections, previews and progress into the composer, and cancels staging
+	/// for a conversation this frame is not showing.
 	pub fn poll(
 		&mut self,
 		generation: u64,
