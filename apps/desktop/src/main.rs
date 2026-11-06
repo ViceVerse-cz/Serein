@@ -1072,6 +1072,8 @@ struct Desktop {
 	monitor_period: Option<Duration>,
 	/// Where the call window opens; fitted once when it opens.
 	popout_geometry: Option<local_store::WindowGeometry>,
+	/// A sampled call-window placement waiting to remain unchanged for the rest interval.
+	popout_geometry_rest: app_settings::GeometryRest,
 	/// Fullscreen value already sent to the call window, until the OS reports it back.
 	popout_fullscreen_expected: Option<bool>,
 	/// Focused-window voice shortcuts read in the call window: push-to-talk held,
@@ -2474,6 +2476,7 @@ impl Desktop {
 			monitor_geometry: None,
 			monitor_period: None,
 			popout_geometry: None,
+			popout_geometry_rest: app_settings::GeometryRest::default(),
 			popout_fullscreen_expected: None,
 			popout_voice_keys: (false, false, 0),
 			frame_metrics: FrameMetrics::new(frame_sample),
@@ -5601,6 +5604,7 @@ impl Desktop {
 	fn frame_period(&self) -> Option<Duration> {
 		self.monitor_period
 	}
+	/// Re-reads the current display's refresh rate and keeps the window minimum in step.
 	fn refresh_monitor(&mut self) -> Option<Duration> {
 		let monitor = self.window.current_monitor()?;
 		app_settings::update_window_minimum(&self.window, &monitor, &mut self.window_minimum);
@@ -5612,6 +5616,7 @@ impl Desktop {
 	/// Hosts the call window: an immediate child viewport drawing the stage and its chat.
 	fn voice_popout_viewport(&mut self, ctx: &egui::Context) -> Vec<Command> {
 		let Some(channel) = self.messaging.voice_popout() else {
+			self.save_popout_geometry();
 			self.popout_geometry = None;
 			self.popout_fullscreen_expected = None;
 			self.popout_voice_keys = (false, false, 0);
@@ -5655,6 +5660,7 @@ impl Desktop {
 			let ctx = ui.ctx().clone();
 			let viewport = ui.input(|input| input.viewport().clone());
 			if viewport.close_requested() {
+				self.save_popout_geometry();
 				self.messaging.close_voice_popout();
 				self.popout_geometry = None;
 				ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Close);
@@ -5721,10 +5727,21 @@ impl Desktop {
 			if self.app_settings.loaded
 				&& let Some(geometry) = sampled
 				&& geometry.is_valid()
-				&& self.app_settings.current.voice_popout_geometry != Some(geometry)
 			{
-				self.app_settings.current.voice_popout_geometry = Some(geometry);
-				self.app_settings.state.dirty = true;
+				match self.popout_geometry_rest.observe(
+					geometry,
+					self.app_settings.current.voice_popout_geometry,
+					std::time::Instant::now(),
+				) {
+					app_settings::Observation::Saved => {}
+					app_settings::Observation::Pending => {
+						ctx.request_repaint_after(app_settings::GEOMETRY_REST_DELAY);
+					}
+					app_settings::Observation::Commit => {
+						self.app_settings.current.voice_popout_geometry = Some(geometry);
+						self.app_settings.state.dirty = true;
+					}
+				}
 			}
 			let commands = self.messaging.show_voice_popout(ui, &mut self.state);
 			// Read after the frame so a click or Escape applies without waiting for input.
@@ -5735,6 +5752,13 @@ impl Desktop {
 			}
 			commands
 		})
+	}
+	/// Saves the call window's last sample when it closes before the rest interval elapses.
+	fn save_popout_geometry(&mut self) {
+		if let Some(geometry) = self.popout_geometry_rest.take_pending() {
+			self.app_settings.current.voice_popout_geometry = Some(geometry);
+			self.app_settings.state.dirty = true;
+		}
 	}
 	/// Files no composer can take; the call window says the same when its chat is closed.
 	const DROP_REFUSED: &str =
