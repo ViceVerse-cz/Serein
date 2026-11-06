@@ -4888,3 +4888,7 @@ new-message-hint = Aggiungi amici per avviare un messaggio diretto o un gruppo.
 new-message-no-people-found = Nessuno corrisponde a questa ricerca.
 new-message-create = Crea messaggio
 new-message-cancel = Annulla
+
+inbox-spoiler = Spoiler
+inbox-empty-page = Nessuna menzione accessibile in questa pagina. Prova le menzioni precedenti.
+inbox-media-preview = Allegato o contenuto incorporato

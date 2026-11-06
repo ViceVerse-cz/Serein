@@ -4986,3 +4986,7 @@ new-message-hint = 新增好友以開始私訊或群組。
 new-message-no-people-found = 沒有符合的結果。
 new-message-create = 建立訊息
 new-message-cancel = 取消
+
+inbox-spoiler = 劇透
+inbox-empty-page = 此頁沒有可檢視的提及。請嘗試檢視更早的提及。
+inbox-media-preview = 附件或嵌入內容

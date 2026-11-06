@@ -4891,3 +4891,7 @@ new-message-hint = Добавьте друзей, чтобы начать лич
 new-message-no-people-found = Никто не найден.
 new-message-create = Создать сообщение
 new-message-cancel = Отмена
+
+inbox-spoiler = Спойлер
+inbox-empty-page = На этой странице нет доступных упоминаний. Попробуйте более старые упоминания.
+inbox-media-preview = Вложение или встроенный контент

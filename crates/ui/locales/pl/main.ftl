@@ -4890,3 +4890,7 @@ new-message-hint = Dodaj znajomych, aby rozpocząć wiadomość prywatną lub gr
 new-message-no-people-found = Nikt nie pasuje do tego wyszukiwania.
 new-message-create = Utwórz wiadomość
 new-message-cancel = Anuluj
+
+inbox-spoiler = Spoiler
+inbox-empty-page = Brak dostępnych wzmianek na tej stronie. Sprawdź starsze wzmianki.
+inbox-media-preview = Załącznik lub osadzona treść

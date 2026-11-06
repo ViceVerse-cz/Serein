@@ -4254,6 +4254,15 @@ voice-voice-participant-deafened-by-server = Ohlušen serverem
 voice-voice-participant-menu-mute = Ztlumit
 # Context: voice_participant_menu
 voice-voice-participant-menu-reset-volume = Resetovat hlasitost
+inbox-title = Doručené
+inbox-description = Zmínky o vás, vašich rolích a všech za posledních 7 dní
+inbox-loading = Načítání zmínek…
+inbox-empty = V dostupných konverzacích nejsou žádné nedávné zmínky.
+inbox-refresh-needed = Obnovte seznam pro načtení nedávných zmínek.
+inbox-refresh = Obnovit
+inbox-retry = Zkusit znovu
+inbox-older = Starší zmínky
+inbox-open-message = Otevřít zprávu
 voice-server-mute = Ztlumit na serveru
 voice-server-unmute = Zrušit ztlumení na serveru
 voice-move-to = Přesunout do
@@ -4977,3 +4986,7 @@ new-message-hint = Přidejte přátele a začněte přímou zprávu nebo skupinu
 new-message-no-people-found = Nikdo neodpovídá hledání.
 new-message-create = Vytvořit zprávu
 new-message-cancel = Zrušit
+
+inbox-spoiler = Spoiler
+inbox-empty-page = Na této stránce nejsou dostupné zmínky. Zkuste Starší zmínky.
+inbox-media-preview = Příloha nebo vložený obsah
