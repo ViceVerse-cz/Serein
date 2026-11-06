@@ -1658,8 +1658,6 @@ main-restoring-screen-welcome-back = 欢迎回来
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = 已保存的账户
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = 该账户为本人所有，我授权此会话。
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = 密码与 2FA 只留在 Discord 自己的登录页；只有会话令牌会存入你的操作系统凭据存储区。
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = 关于 Serein

@@ -1643,8 +1643,6 @@ main-restoring-screen-welcome-back = おかえり
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = 保存されたアカウント
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = 私はこのアカウントを所有しており、このセッションを承認しています。
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = パスワードと 2FA は Discord 自体のログイン ページに残ります。セッション トークンのみが OS 資格情報ストアに保持されます。
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = セレインについて

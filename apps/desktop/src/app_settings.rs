@@ -85,6 +85,7 @@ impl Settings {
 			time_format: ui.time_format,
 			plaintext_login: ui.plaintext_login,
 			diagnostics_log: ui.diagnostics_log,
+			setup_done: !ui.setup_pending,
 		};
 		if value != self.current {
 			self.state.touched = true;
@@ -138,6 +139,8 @@ impl Settings {
 		ui.time_format = value.time_format;
 		ui.plaintext_login = value.plaintext_login;
 		ui.diagnostics_log = value.diagnostics_log;
+		// Unreadable preferences fall back to defaults; never nag with setup on every launch.
+		ui.setup_pending = self.loaded && !value.setup_done;
 		ui::local_time::set_format(ui.time_format, ui.language);
 	}
 }

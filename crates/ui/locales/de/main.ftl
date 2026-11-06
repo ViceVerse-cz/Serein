@@ -1642,8 +1642,6 @@ main-restoring-screen-welcome-back = Willkommen zurück
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Gespeicherte Konten
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Ich besitze dieses Konto und autorisiere diese Sitzung.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Passwörter und 2FA bleiben auf Discords eigener Anmeldeseite; Nur das Sitzungstoken wird in Ihrem Betriebssystem-Anmeldeinformationsspeicher aufbewahrt.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = Über Serein

@@ -136,7 +136,7 @@ impl Page {
 				"general windows macos linux login menu bar startup autostart automatically open minimized minimize close tray background title bar caption window buttons decorations borderless tiling graphics gpu adapter render discrete integrated hardware acceleration performance battery vrr variable refresh rate steady refresh rate g-sync gsync freesync adaptive sync flicker flickering steady frame rate fps vsync"
 			}
 			Self::Appearance => {
-				"appearance customization font typography import ttf otf primary accent hex window effects transparency blur theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
+				"appearance customization font typography import ttf otf primary accent hex window effects transparency blur gradient names cosmetics decorations theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
 			}
 			Self::Chat => {
 				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset emoji emojis nitro fake suggestions autocomplete locked emoticons chat box automatically convert"
@@ -972,6 +972,21 @@ impl MessagingUi {
 				&mut self.steady_refresh_rate,
 			);
 		});
+		design::card(ui, |ui| {
+			design::row(
+				ui,
+				"setup-run-again",
+				Some("setup-run-again-description"),
+				|ui| {
+					if design::button(ui, "setup-run-again-action", design::ButtonKind::Outline)
+						.clicked()
+					{
+						self.preview_setup(0);
+						self.settings.open = false;
+					}
+				},
+			);
+		});
 	}
 
 	/// Compact appearance popup for the signed-out header: mode, colour preset and zoom.
@@ -1109,42 +1124,7 @@ impl MessagingUi {
 	/// Device-local switches for profile cosmetics. Hidden ones are neither drawn nor loaded.
 	fn cosmetic_settings(&mut self, ui: &mut egui::Ui) {
 		design::group(ui, &crate::i18n::translate("settings-cosmetics"), |ui| {
-			let cosmetics = &mut self.cosmetics;
-			for (index, (label, detail, value)) in [
-				(
-					"settings-cosmetics-decorations",
-					"settings-cosmetics-decorations-description",
-					&mut cosmetics.decorations,
-				),
-				(
-					"settings-cosmetics-nameplates",
-					"settings-cosmetics-nameplates-description",
-					&mut cosmetics.nameplates,
-				),
-				(
-					"settings-cosmetics-effects",
-					"settings-cosmetics-effects-description",
-					&mut cosmetics.effects,
-				),
-				(
-					"settings-cosmetics-frames",
-					"settings-cosmetics-frames-description",
-					&mut cosmetics.frames,
-				),
-				(
-					"settings-cosmetics-name-styles",
-					"settings-cosmetics-name-styles-description",
-					&mut cosmetics.name_styles,
-				),
-			]
-			.into_iter()
-			.enumerate()
-			{
-				if index > 0 {
-					design::card_divider(ui);
-				}
-				design::switch(ui, label, Some(detail), value);
-			}
+			cosmetic_switches(ui, &mut self.cosmetics, true);
 			design::card_divider(ui);
 			design::hint(
 				ui,
@@ -1199,7 +1179,7 @@ impl MessagingUi {
 	}
 
 	/// Built-in presets plus enabled community themes, one swatch each.
-	fn colour_preset_settings(&mut self, ui: &mut egui::Ui) {
+	pub(crate) fn colour_preset_settings(&mut self, ui: &mut egui::Ui) {
 		let current = design::variant();
 		let mut presets: Vec<_> = design::Variant::ALL
 			.into_iter()
@@ -1711,7 +1691,89 @@ fn gradient_circle(
 	painter.add(egui::Shape::mesh(mesh));
 }
 
-fn theme_preference_cards(ui: &mut egui::Ui) {
+/// One switch per cosmetic under a master that shows everything or nothing; Settings and
+/// first-run setup share it; setup leaves out the per-cosmetic `details` to fit one screen.
+pub(crate) fn cosmetic_switches(
+	ui: &mut egui::Ui,
+	cosmetics: &mut model::CosmeticPreferences,
+	details: bool,
+) {
+	let mut all = *cosmetics == model::CosmeticPreferences::SHOWN;
+	if design::switch(
+		ui,
+		"settings-cosmetics-all",
+		Some("settings-cosmetics-all-description"),
+		&mut all,
+	)
+	.changed()
+	{
+		*cosmetics = if all {
+			model::CosmeticPreferences::SHOWN
+		} else {
+			model::CosmeticPreferences {
+				solid_names: true,
+				..Default::default()
+			}
+		};
+	}
+	let mut gradients = !cosmetics.solid_names;
+	let switches = [
+		(
+			"settings-cosmetics-decorations",
+			"settings-cosmetics-decorations-description",
+			&mut cosmetics.decorations,
+		),
+		(
+			"settings-cosmetics-nameplates",
+			"settings-cosmetics-nameplates-description",
+			&mut cosmetics.nameplates,
+		),
+		(
+			"settings-cosmetics-effects",
+			"settings-cosmetics-effects-description",
+			&mut cosmetics.effects,
+		),
+		(
+			"settings-cosmetics-frames",
+			"settings-cosmetics-frames-description",
+			&mut cosmetics.frames,
+		),
+		(
+			"settings-cosmetics-name-styles",
+			"settings-cosmetics-name-styles-description",
+			&mut cosmetics.name_styles,
+		),
+		(
+			"settings-cosmetics-gradient-names",
+			"settings-cosmetics-gradient-names-description",
+			&mut gradients,
+		),
+	];
+	if details {
+		for (label, detail, value) in switches {
+			design::card_divider(ui);
+			design::switch(ui, label, Some(detail), value);
+		}
+	} else {
+		// Labels alone fit two to a row; each row is its own pair so a wrapped label keeps
+		// its neighbour level with it.
+		design::card_divider(ui);
+		ui.spacing_mut().item_spacing.x = 24.0;
+		let mut switches = switches.into_iter();
+		while let Some((label, _, value)) = switches.next() {
+			let next = switches.next();
+			ui.columns(2, |columns| {
+				design::switch(&mut columns[0], label, None, value);
+				if let Some((label, _, value)) = next {
+					design::switch(&mut columns[1], label, None, value);
+				}
+			});
+		}
+	}
+	cosmetics.solid_names = !gradients;
+}
+
+pub(crate) fn theme_preference_cards(ui: &mut egui::Ui) {
 	let colors = design::palette(ui);
 	let current = ui.ctx().options(|options| options.theme_preference);
 	let mut chosen = None;

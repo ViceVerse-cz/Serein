@@ -118,6 +118,7 @@ mod server_roles;
 mod server_settings;
 mod server_stickers;
 mod settings;
+mod setup;
 mod shortcuts;
 mod switcher;
 mod text_menu;
@@ -344,6 +345,9 @@ pub struct MessagingUi {
 	pub time_format: model::TimeFormat,
 	/// Saved logins may fall back to plain files when no OS keyring works.
 	pub plaintext_login: bool,
+	/// First-run setup still to show; the desktop restores and persists it.
+	pub setup_pending: bool,
+	setup_step: usize,
 	/// Latest disk use of the media and shared-artwork caches, once measured.
 	pub image_cache_usage: Option<[model::CacheUsage; 2]>,
 	/// An image cache partition the owner asked to empty; the desktop consumes it.
@@ -4422,6 +4426,7 @@ impl MessagingUi {
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		self.avatars.cosmetics = self.cosmetics;
 		name_styles::set_enabled(self.cosmetics.name_styles);
+		role_names::set_gradients(!self.cosmetics.solid_names);
 		let cosmetics_refresh = state.set_profile_cosmetics(self.cosmetics);
 		self.timeline.download.gif_favorites = state
 			.gifs
@@ -5838,6 +5843,9 @@ impl MessagingUi {
 			}
 		}
 		self.onboarding.show(&ctx, state, &mut commands);
+		if self.setup_pending {
+			self.show_setup(&ctx);
+		}
 		self.scroll.clear_if_unbound(&ctx);
 		self.scroll.paint(&ctx);
 		// Clear the title bar and channel header so a notice never sits on the chrome.

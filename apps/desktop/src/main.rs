@@ -1162,7 +1162,6 @@ struct Desktop {
 	roster_generation: Option<u64>,
 	close_approved: bool,
 	fixture_only: bool,
-	authorized: bool,
 	/// Sign-in screen disclosures, folded away until the owner opens them.
 	about_open: bool,
 	token_open: bool,
@@ -1355,28 +1354,6 @@ fn hydrate_cache_result(state: &mut State, safety: &cache::HistorySafety, outcom
 	}
 }
 
-/// Soft radial accent glow behind the pre-session screens instead of a flat canvas.
-fn accent_glow(ui: &egui::Ui) {
-	let accent = ui::design::palette(ui).accent;
-	let rect = ui.max_rect();
-	let glow = rect.center() - egui::vec2(0.0, rect.height() * 0.1);
-	let radius = rect.width().max(rect.height()) * 0.55;
-	let mut mesh = egui::Mesh::default();
-	let alpha = if ui.visuals().dark_mode { 0.22 } else { 0.12 };
-	mesh.colored_vertex(glow, accent.gamma_multiply(alpha));
-	const SEGMENTS: u32 = 48;
-	for i in 0..=SEGMENTS {
-		let angle = i as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
-		mesh.colored_vertex(
-			glow + egui::vec2(angle.cos(), angle.sin()) * radius,
-			egui::Color32::TRANSPARENT,
-		);
-	}
-	for i in 1..=SEGMENTS {
-		mesh.add_triangle(0, i, i + 1);
-	}
-	ui.painter().add(egui::Shape::mesh(mesh));
-}
 fn recovery_draft(state: &State, channel: model::Id) -> String {
 	state
 		.drafts
@@ -1872,6 +1849,16 @@ impl Desktop {
 		app_settings.apply(&mut messaging);
 		#[cfg(feature = "demo")]
 		if demo {
+			// Fixtures never show first-run setup unless a capture asks for it.
+			messaging.setup_pending = false;
+			messaging.reading_preferences.compact_messages =
+				std::env::args().any(|arg| arg == "--demo-compact");
+			if let Some(step) = std::env::args().find_map(|arg| {
+				arg.strip_prefix("--demo-setup")
+					.map(|rest| rest.trim_start_matches('=').parse().unwrap_or(0))
+			}) {
+				messaging.preview_setup(step);
+			}
 			messaging.transparency_blur = transparency_available;
 			// Robin stays pinned on home. #getting-started is the guild Favorites row.
 			let _ = messaging
@@ -2281,9 +2268,6 @@ impl Desktop {
 			state.history_targeted = true;
 			state.status = "Offline fixture · unread strip and older-messages bar shown";
 		}
-		// Owner authorization for a new sign-in; fixture captures pre-tick it.
-		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
-		let mut authorized = false;
 		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
 		let mut sign_in_panels = false;
 		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
@@ -2306,9 +2290,9 @@ impl Desktop {
 					.map(|rest| rest.trim_start_matches('=').to_owned())
 			}) {
 			// Fixture-only: render the sign-in screen without a session. `--demo-login` shows the
-			// returning-owner layout with a synthetic roster and pre-ticked consent (the actions
-			// stay inert); `=new` shows the first-run layout, `=panels` the opened disclosures
-			// and `=failed` the attention banner.
+			// returning-owner layout with a synthetic roster (the actions stay inert); `=new`
+			// shows the first-run layout, `=panels` the opened disclosures and `=failed` the
+			// attention banner.
 			if !matches!(rest.as_str(), "new" | "panels") {
 				messaging.accounts = state
 					.user
@@ -2316,7 +2300,6 @@ impl Desktop {
 					.map(test_support::demo_accounts)
 					.unwrap_or_default();
 			}
-			authorized = true;
 			state.user = None;
 			state.status = "Disconnected";
 			sign_in_panels = rest == "panels";
@@ -2537,7 +2520,6 @@ impl Desktop {
 			roster_generation: None,
 			close_approved: false,
 			fixture_only: demo,
-			authorized,
 			about_open: sign_in_panels,
 			token_open: sign_in_panels,
 			sign_in_height: 0.0,

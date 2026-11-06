@@ -1654,9 +1654,7 @@ main-restoring-screen-welcome-back = Welcome back
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Saved accounts
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = I own this account and authorize this session.
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Passwords and 2FA stay on Discord's own login page; only the session token is kept, in your OS credential store.
+main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Passwords and 2FA stay on Discord's own login page. Only the session token is kept, in your OS credential store.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = About Serein
 # Context: sign_in_disclosures
@@ -1670,9 +1668,9 @@ main-sign-in-disclosures-session-token = Session token
 # Context: sign_in_disclosures
 main-sign-in-disclosures-sign-in-with-a-session-token = Sign in with a session token
 # Context: sign_in_header
-main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Continue with a saved account, or sign in with another one.
+main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Continue with a saved account or sign in with another
 # Context: sign_in_header
-main-sign-in-header-sign-in-with-your-discord-account-to-get-started = Sign in with your Discord account to get started.
+main-sign-in-header-sign-in-with-your-discord-account-to-get-started = Sign in with your Discord account
 # Context: sign_in_header
 main-sign-in-header-welcome-back = Welcome back
 # Context: sign_in_header
@@ -1681,9 +1679,9 @@ main-sign-in-header-welcome-to-serein = Welcome to Serein
 main-sign-in-status-copy-failure-details = Copy failure details
 main-sign-in-preview-explore-the-offline-preview = Explore the offline preview
 # Context: sign_in_preview
-main-sign-in-preview-sample-conversations-no-discord-connection = Sample conversations. No Discord connection.
+main-sign-in-preview-sample-conversations-no-discord-connection = Sample conversations, no Discord connection
 # Context: sign_in_screen
-main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord = Independent and open source. Not affiliated with Discord.
+main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord = Independent and open source · Not affiliated with Discord
 # Context: sign_in_screen
 main-sign-in-screen-serein = Serein
 # Context: ui
@@ -4980,6 +4978,10 @@ profiles-private-profile = Private Profile
 profiles-private-notice = { $name }’s profile is private, so some info is hidden. Add them as a friend to see more.
 settings-cosmetics-name-styles = Name styles
 settings-cosmetics-name-styles-description = Nitro display name fonts, colours and effects.
+settings-cosmetics-all = Show all cosmetics
+settings-cosmetics-all-description = Everything below at once. Turning it off also paints gradient names in one colour.
+settings-cosmetics-gradient-names = Gradient names
+settings-cosmetics-gradient-names-description = Role and Nitro names that blend several colours. Off paints them in their first colour.
 main-sign-in-rate-limited-detail = Discord is rate limiting this sign-in. Wait before trying again. Another attempt before that can make the wait longer.
 
 # Avatar badge while someone is typing.
@@ -4993,3 +4995,31 @@ new-message-hint = Add friends to start a direct message or a group.
 new-message-no-people-found = No one matches that search.
 new-message-create = Create Message
 new-message-cancel = Cancel
+
+## crates/ui/src/setup.rs
+setup-appearance-title = Make it yours
+setup-appearance-body = Mode and colours apply as you pick them
+setup-window-title = See through the window
+setup-window-body = Let your desktop show behind Serein's panels
+setup-window-transparency-description = Themes can tune the effect while it is on.
+setup-window-restart = Serein needs a restart before transparency turns on or off. Your choice is saved now.
+setup-profiles-title = Profile cosmetics
+setup-profiles-body = What this device draws around people and their names
+setup-chat-title = How chat reads
+setup-chat-body = Text size, message spacing and the clock on every message
+setup-notifications-title = What reaches you
+setup-notifications-body = What Serein does when a message arrives while you are elsewhere
+setup-notifications-desktop-description = Banners for direct messages and mentions. Fine-tune servers and channels from their menus.
+setup-notifications-sounds = Notification sounds
+setup-notifications-sounds-description = Message, call and voice sounds. Pick individual ones in Settings.
+setup-voice-title = Your microphone
+setup-voice-body = How you sound in calls. Devices and levels are in Settings.
+setup-voice-noise-description = Filter keyboards, fans and room noise before it leaves your microphone.
+setup-later-in-settings = All of this stays in Settings
+setup-back = Back
+setup-skip = Skip
+setup-continue = Continue
+setup-done = Done
+setup-run-again = Run first-time setup again
+setup-run-again-description = Walk through appearance, window, cosmetics, chat, notifications and voice again.
+setup-run-again-action = Start

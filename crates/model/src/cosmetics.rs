@@ -47,6 +47,9 @@ pub struct CosmeticPreferences {
 	pub frames: bool,
 	/// Nitro display name colours and effects; older preferences keep them off.
 	pub name_styles: bool,
+	/// Paint gradient role and Nitro names in their first colour; older preferences keep the
+	/// gradients.
+	pub solid_names: bool,
 }
 impl CosmeticPreferences {
 	pub const SHOWN: Self = Self {
@@ -55,6 +58,7 @@ impl CosmeticPreferences {
 		effects: true,
 		frames: true,
 		name_styles: true,
+		solid_names: false,
 	};
 }
 

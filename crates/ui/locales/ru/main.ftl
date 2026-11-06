@@ -1643,8 +1643,6 @@ main-restoring-screen-welcome-back = Добро пожаловать
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Сохраненные аккаунты
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Я владею этой учетной записью и разрешаю этот сеанс.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Пароли и 2FA остаются на собственной странице входа в Discord; в хранилище учетных данных вашей ОС сохраняется только токен сеанса.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = О Серейн

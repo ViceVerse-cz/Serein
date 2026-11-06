@@ -1653,8 +1653,6 @@ main-restoring-screen-welcome-back = Vítejte zpět
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Uložené účty
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Vlastním tento účet a autorizuji tuto relaci.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Hesla a 2FA zůstávají na vlastní přihlašovací stránce Discordu; ve vašem úložišti pověření OS je zachován pouze token relace.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = O Serein
