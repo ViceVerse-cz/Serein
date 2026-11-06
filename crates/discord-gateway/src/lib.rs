@@ -1211,6 +1211,7 @@ async fn run_inner(
 	)
 	.await
 }
+/// Run Gateway reconnect/resume recovery while processing bounded subscriptions and lookups.
 #[allow(clippy::too_many_arguments)]
 async fn run_recoverable(
 	secret: Arc<SessionSecret>,
@@ -1919,6 +1920,7 @@ async fn run_recoverable(
 									}
 									"PRESENCE_UPDATE" => {
 										if let Ok(update)=discord_protocol::presence::decode(packet.d.get().as_bytes()) {
+											queries.presence(&update,Instant::now());
 											if update.guild.is_none() { direct_presence.push(update,Instant::now()); }
 											else {
 												shared_presence.push(update.clone(),Instant::now());

@@ -1083,6 +1083,21 @@ pub(crate) fn shown_status<'a>(
 ) -> Option<&'a str> {
 	status.or_else(|| state.absent_presence_offline(user).then_some("offline"))
 }
+/// Resolve the same badge status and platform fallback for profiles and mention suggestions.
+pub(crate) fn displayed_presence<'a>(
+	state: &'a State,
+	user: Id,
+	status: Option<&'a str>,
+	clients: model::ClientPlatforms,
+) -> (Option<&'a str>, model::ClientPlatforms) {
+	let (status, clients) = match (status, state.presence_for(user)) {
+		(None, Some(direct)) if direct.status.is_some() => {
+			(direct.status.as_deref(), direct.clients)
+		}
+		_ => (status, clients),
+	};
+	(shown_status(state, user, status), clients)
+}
 pub(crate) fn presence_badge(
 	ui: &mut egui::Ui,
 	rect: Rect,
@@ -1218,6 +1233,34 @@ pub(crate) fn presence(
 				})
 				.find(|member| member.user.id == user)
 		}) {
+		(
+			member.status.as_deref(),
+			member.custom_status.as_deref(),
+			member.activities.as_slice(),
+			member.clients,
+		)
+	} else if let Some(live) = state.presence_for(user) {
+		(
+			live.status.as_deref(),
+			live.custom_status.as_deref(),
+			live.activities.as_slice(),
+			live.clients,
+		)
+	} else if let Some(member) = state
+		// The member-list window is one lazy range; a name lookup and the visible-author
+		// lookup each return whole members with their presence. Using those keeps a dot
+		// from appearing and vanishing as that range scrolls.
+		.member_search
+		.iter()
+		.filter(|view| {
+			view.request
+				.as_ref()
+				.is_some_and(|request| Some(request.guild) == guild)
+		})
+		.flat_map(|view| view.rows.iter())
+		.filter(|member| member.user.id == user)
+		.min_by_key(|member| member.status.is_none())
+	{
 		(
 			member.status.as_deref(),
 			member.custom_status.as_deref(),
@@ -3092,6 +3135,7 @@ pub fn show_docked(
 
 /// A popout at `anchor`, the centred full profile, or (without an anchor) the docked card.
 #[allow(clippy::too_many_arguments)]
+/// Render profile details using the shared badge status and platform fallback.
 fn card_view(
 	ui: &mut egui::Ui,
 	user: &User,
@@ -3182,20 +3226,8 @@ fn card_view(
 		(None, None, [].as_slice(), model::ClientPlatforms::default())
 	} else {
 		let (status, custom, activities, clients) = presence(state, user.id, guild);
-		// A guild row without a status defers to the friend's or recipient's own presence,
-		// with its platforms so the phone shows.
-		let (status, clients) = match (status, state.presence_for(user.id)) {
-			(None, Some(direct)) if direct.status.is_some() => {
-				(direct.status.as_deref(), direct.clients)
-			}
-			_ => (status, clients),
-		};
-		(
-			shown_status(state, user.id, status),
-			custom,
-			activities,
-			clients,
-		)
+		let (status, clients) = displayed_presence(state, user.id, status, clients);
+		(status, custom, activities, clients)
 	};
 	let in_voice = !user.webhook && user_in_voice(state, user.id);
 	let dm_channel = state
@@ -5321,6 +5353,20 @@ mod tests {
 			Some("Server status")
 		);
 		assert_eq!(presence(&state, user.id, None).1, Some("Direct status"));
+		if let Some(model::MemberSlot::Person(member)) =
+			&mut state.members.as_mut().unwrap().slots[0]
+		{
+			member.status = None;
+		}
+		state.direct_presences[0].clients.mobile = true;
+		let (status, _, _, clients) = presence(&state, user.id, Some(Id(10)));
+		let displayed = displayed_presence(&state, user.id, status, clients);
+		assert_eq!(displayed.0, Some("online"));
+		assert!(
+			displayed.1.mobile,
+			"the badge uses the fallback presence's platforms"
+		);
+
 		state.gateway_connected = false;
 		state.demo = false;
 		assert_eq!(
@@ -5535,6 +5581,140 @@ mod tests {
 		};
 		assert_eq!(shown_status(&state, Id(7), None), None);
 		assert_eq!(shown_status(&state, Id(7), Some("idle")), Some("idle"));
+	}
+	/// Lookup fallback preserves known status, live precedence and newer author identities.
+	#[test]
+	fn a_name_lookup_keeps_presence_after_the_member_window_moves() {
+		let mut state = test_support::chat_demo_state();
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		let channel = state.selected.expect("demo conversation");
+		let guild = state
+			.channel(channel)
+			.and_then(|channel| channel.guild)
+			.expect("server channel");
+		// The lazy member list no longer holds this person: the window scrolled past them.
+		state.members = None;
+		let user = test_support::message(1, channel).author;
+		state.member_search[0] = client_core::member_search::View {
+			request: Some(client_core::member_search::Request {
+				guild,
+				channel,
+				query: user.name.clone(),
+				users: vec![],
+				nonce: 1,
+				slot: 0,
+			}),
+			rows: vec![model::Member {
+				roles: vec![],
+				user: user.clone(),
+				nick: None,
+				status: Some("online".into()),
+				custom_status: None,
+				activities: vec![],
+				clients: model::ClientPlatforms::default(),
+			}],
+			finished: true,
+			error: None,
+		};
+		assert_eq!(presence(&state, user.id, Some(guild)).0, Some("online"));
+		state.member_search[1] = client_core::member_search::View {
+			request: Some(client_core::member_search::Request {
+				guild,
+				channel,
+				query: String::new(),
+				users: vec![user.id],
+				nonce: 2,
+				slot: 1,
+			}),
+			rows: state.member_search[0].rows.clone(),
+			finished: true,
+			error: None,
+		};
+		state.member_search[0].rows[0].status = None;
+		assert_eq!(
+			presence(&state, user.id, Some(guild)).0,
+			Some("online"),
+			"a status-less first slot cannot hide the second slot's presence"
+		);
+		// A newer live DM presence must win over the retained online lookup snapshot.
+		let mut dm = state.channels[0].clone();
+		dm.id = Id(98765);
+		dm.guild = None;
+		dm.kind = 1;
+		dm.recipients = vec![user.clone()];
+		state.channels.push(dm);
+		state.gateway_connected = true;
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::DirectPresence(vec![client_core::presence::Update {
+				user: user.id,
+				avatar: model::Patch::Absent,
+				status: model::Patch::Value("offline".into()),
+				custom_status: model::Patch::Absent,
+				activities: model::Patch::Absent,
+				clients: model::Patch::Absent,
+			}]),
+		});
+		assert_eq!(presence(&state, user.id, Some(guild)).0, Some("offline"));
+		state.member_search[0].rows[0].status = None;
+		assert_eq!(presence(&state, user.id, Some(guild)).0, Some("offline"));
+		let request = client_core::member_search::Request {
+			guild,
+			channel,
+			query: String::new(),
+			users: vec![user.id],
+			nonce: 99,
+			slot: 1,
+		};
+		let mut cached = state.member_search[0].rows[0].clone();
+		cached.nick = Some("Old nickname".into());
+		cached.roles = vec![Id(7)];
+		state.member_search[1] = client_core::member_search::View {
+			request: Some(request.clone()),
+			..Default::default()
+		};
+		let apply = |state: &mut State, row: model::Member| {
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::MemberSearch {
+					request: request.clone(),
+					result: Ok(vec![row]),
+				},
+			})
+		};
+		apply(&mut state, cached.clone());
+		assert!(
+			state
+				.timeline
+				.apply_author_membership(user.id, &[Id(8)], Some("New nickname"))
+		);
+		state.member_search[1].rows[0].nick = Some("New nickname".into());
+		state.member_search[1].rows[0].roles = vec![Id(8)];
+		cached.status = Some("idle".into());
+		apply(&mut state, cached);
+		let message = state
+			.timeline
+			.iter()
+			.find(|message| message.author.id == user.id)
+			.unwrap();
+		assert_eq!(message.author_nick.as_deref(), Some("New nickname"));
+		assert_eq!(message.author_roles, vec![Id(8)]);
+		assert_eq!(
+			state.member_search[1].rows[0].nick.as_deref(),
+			Some("New nickname")
+		);
+		assert_eq!(state.member_search[1].rows[0].roles, vec![Id(8)]);
+		assert_eq!(
+			state.member_search[1].rows[0].status.as_deref(),
+			Some("idle")
+		);
 	}
 
 	#[test]

@@ -2840,6 +2840,41 @@ Clearing the rows with an empty list is not an option: Discord disconnects with 
 This behaviour is unofficial and inferred from owner traces; a loopback test models it, and
 the owner confirmed the fix in a debug build.
 
+## Status dots in the mention picker — October 26, 2026
+
+Issue #772: the `@` autocomplete listed people with a plain avatar, while Discord paints the
+same status disc it uses everywhere else. A person candidate now carries that disc, built only
+from presence this session already holds — the current member-list window, the name lookup the
+composer already performs, the visible-author lookup, and the bounded direct-presence store for
+friends and DM recipients. A keystroke fetches no presence of its own, and a candidate whose
+presence is unknown keeps a bare avatar instead of an invented dot.
+
+The member lookup that feeds the picker previously asked for members without their presences, so
+a dot lived only while that person sat in the lazy member window. The Gateway member request now
+sets `presences: true`, as the public
+[discord.py-self member query](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py)
+does, and the lookup attaches each returned presence to its member; a member returned without one
+stays unknown rather than guessed.
+
+Follow-up: live guild presence patches also update completed lookup snapshots, including people
+outside the current member window. The Gateway retains at most the existing two lookup slots,
+each limited to 100 members and 128 KiB of row data, and coalesces updates over 100 ms without
+additional network requests. Each in-flight lookup also retains at most 100 live presence patches
+within a 128 KiB payload/item budget so newer patches win over older chunk data. Overflow makes
+unreconciled chunk presence unknown; completion, timeout or cancellation clears these patches. A patch that would exceed the byte cap clears that row's stale
+presence instead. Replacing or clearing a lookup discards its snapshot. Replayed results refresh presence only,
+preserving newer nicknames/roles in lookup rows and message authors. Known live friend/DM
+presence takes precedence over a retained lookup result. These behaviors have synthetic regression
+coverage; live protocol behavior remains unofficial and unverified by these tests.
+
+Known limitation, owner-tested: the suggestion list is built from the loaded member window, so on
+a large server scrolling that list changes who is suggested and can drop a dot once the person's
+status is no longer held. The owner observed the official client retaining these dots beyond the loaded member window;
+its caching strategy remains unverified. Serein keeps bounded caches on purpose. A larger opt-in cache or a server-side
+suggestion lookup would close the gap at the cost of memory or requests, which this change leaves
+for discussion. Synthetic tests cover the request flag, the attached presence, the picker's use
+of lookup rows, and the bare-avatar case.
+
 ## New message picker - October 27, 2026
 
 The DM list header carries the official client's "New Message" action: a picker that lists

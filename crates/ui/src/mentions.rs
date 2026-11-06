@@ -751,6 +751,8 @@ impl Menu {
 		&mut self,
 		ui: &mut egui::Ui,
 		anchor: egui::Rect,
+		state: &State,
+		channel: Id,
 		avatars: &mut Avatars,
 		demo: bool,
 	) -> Option<Pick> {
@@ -781,6 +783,11 @@ impl Menu {
 		let mut picked = None;
 		let follow = std::mem::take(&mut self.follow);
 		let selected = self.selected;
+		let context = RowContext {
+			state,
+			guild: state.channel(channel).and_then(|channel| channel.guild),
+			demo,
+		};
 		egui::Area::new(egui::Id::unique(("composer-autocomplete", self.channel)))
 			.kind(egui::UiKind::Popup)
 			.order(egui::Order::Foreground)
@@ -870,7 +877,7 @@ impl Menu {
 										candidate,
 										index == selected,
 										avatars,
-										demo,
+										&context,
 										&colors,
 										width - 2.0,
 									);
@@ -888,12 +895,19 @@ impl Menu {
 		picked.and_then(|index| self.pick(index))
 	}
 }
+/// Session data a suggestion row needs: which presence dots it may show, and demo rendering.
+struct RowContext<'a> {
+	state: &'a State,
+	guild: Option<Id>,
+	demo: bool,
+}
+/// Paint one suggestion and expose its known presence in the accessible name.
 fn row(
 	ui: &mut egui::Ui,
 	candidate: &Candidate,
 	selected: bool,
 	avatars: &mut Avatars,
-	demo: bool,
+	context: &RowContext<'_>,
 	colors: &crate::design::Palette,
 	width: f32,
 ) -> egui::Response {
@@ -922,6 +936,7 @@ fn row(
 		Candidate::Role { .. } => Some("Role"),
 		_ => None,
 	};
+	let mut shown_presence = None;
 	let primary = match candidate {
 		Candidate::GameSearch => {
 			crate::icons::paint(
@@ -934,12 +949,34 @@ fn row(
 		}
 		Candidate::Game(game) => {
 			let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
-			avatars.show_icon(&mut child, Some(game.icon_key()), 24.0, demo, &game.name);
+			avatars.show_icon(
+				&mut child,
+				Some(game.icon_key()),
+				24.0,
+				context.demo,
+				&game.name,
+			);
 			game.name.clone()
 		}
 		Candidate::User { user, name } => {
 			let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
-			avatars.show(&mut child, user, 24.0, demo);
+			let avatar = avatars.show(&mut child, user, 24.0, context.demo);
+			// The dot uses the presence this session actually holds, exactly like the member
+			// and DM rows; a candidate with no known presence stays without one.
+			let (status, _, _, clients) =
+				crate::profiles::presence(context.state, user.id, context.guild);
+			let (status, clients) =
+				crate::profiles::displayed_presence(context.state, user.id, status, clients);
+			if let Some(status) = status {
+				shown_presence = Some(status);
+				crate::profiles::presence_badge(
+					&mut child,
+					avatar.rect,
+					status,
+					clients,
+					colors.sidebar,
+				);
+			}
 			name.clone()
 		}
 		Candidate::Mass { .. } | Candidate::Role { .. } => {
@@ -984,7 +1021,7 @@ fn row(
 			(*code).to_owned()
 		}
 		Candidate::Custom { id, name, .. } => {
-			match avatars.custom_image(ui.ctx(), *id, 24.0, demo) {
+			match avatars.custom_image(ui.ctx(), *id, 24.0, context.demo) {
 				Some(image) => image.paint_at(ui, icon),
 				None => {
 					ui.painter().rect_filled(icon, 4, colors.hover);
@@ -1037,7 +1074,10 @@ fn row(
 			match candidate {
 				Candidate::GameSearch => "@game, search games".into(),
 				Candidate::Game(game) => format!("{}, game", game.name),
-				Candidate::User { name, .. } => name.clone(),
+				Candidate::User { name, .. } => shown_presence.map_or_else(
+					|| name.clone(),
+					|status| format!("{name}, {}", crate::profiles::presence_label(status)),
+				),
 				Candidate::Mass { name } => format!("@{name}"),
 				Candidate::Role { name, .. } => format!("@{name}, role"),
 				Candidate::Channel { name, .. } => name.clone(),
@@ -2388,4 +2428,111 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		menu.refresh(state, dm.id, "@Role", Some(5), &[]);
 		assert!(menu.candidates.is_empty(), "roles must not leak into DMs");
 	}
+}
+/// Accessible suggestion names expose known presence and avoid inventing status for unknown users.
+#[test]
+fn user_rows_expose_known_presence_to_accessibility() {
+	use client_core::auth::AuthState;
+	use model::{Channel, Patch};
+
+	fn user(id: u64, name: &str) -> User {
+		User {
+			id: Id(id),
+			name: name.into(),
+			avatar: None,
+			webhook: false,
+			kind: Default::default(),
+			discriminator: 0,
+			primary_guild: None,
+			cosmetics: None,
+		}
+	}
+	let ctx = egui::Context::default();
+	ctx.enable_accesskit();
+	crate::fonts::install(&ctx);
+	crate::design::apply(&ctx);
+	let mut state = client_core::State {
+		user: Some(user(1, "me")),
+		auth: AuthState::Authenticated,
+		gateway_connected: true,
+		channels: vec![Channel {
+			id: Id(2),
+			guild: None,
+			parent_id: None,
+			position: 0,
+			name: "Synthetic DM".into(),
+			kind: 1,
+			recipients: vec![user(9, "friend")],
+			last_message: None,
+			icon: None,
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+		}],
+		..State::default()
+	};
+	state.apply(client_core::Envelope {
+		generation: state.generation,
+		event: client_core::Event::DirectPresence(vec![client_core::presence::Update {
+			user: Id(9),
+			avatar: Patch::Absent,
+			status: Patch::Value("online".into()),
+			custom_status: Patch::Null,
+			activities: Patch::Value(vec![]),
+			clients: Patch::Absent,
+		}]),
+	});
+	let mut avatars = Avatars::default();
+	let mut labels = |candidate: Candidate| {
+		avatars = Avatars::default();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(420.0, 80.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				let _ = row(
+					ui,
+					&candidate,
+					false,
+					&mut avatars,
+					&RowContext {
+						state: &state,
+						guild: None,
+						demo: false,
+					},
+					&crate::design::palette(ui),
+					360.0,
+				);
+			},
+		);
+		let labels: Vec<String> = output
+			.platform_output
+			.accesskit_update
+			.as_ref()
+			.unwrap()
+			.nodes
+			.iter()
+			.filter_map(|(_, node)| node.label().map(str::to_owned))
+			.collect();
+		output.drop_without_applying_deltas();
+		labels
+	};
+	let known = labels(Candidate::User {
+		user: user(9, "friend"),
+		name: "friend".into(),
+	});
+	assert!(known.contains(&format!(
+		"friend, {}",
+		crate::profiles::presence_label("online")
+	)));
+	let unknown = labels(Candidate::User {
+		user: user(10, "stranger"),
+		name: "stranger".into(),
+	});
+	assert!(unknown.contains(&"stranger".to_owned()));
+	assert!(!unknown.iter().any(|label| label.starts_with("stranger,")));
 }
