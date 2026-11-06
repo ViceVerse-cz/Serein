@@ -559,6 +559,8 @@ pub struct MessagingUi {
 	edit_sent: Option<SubmittedEdit>,
 	deleting: Option<(Id, Id)>,
 	ime_active: bool,
+	/// Enter the input method passed on after finishing a composition, replayed next frame.
+	ime_enter: Option<egui::Event>,
 	/// The composer claimed Tab last frame, so egui left it in the input for a suggestion menu.
 	composer_claims_tab: bool,
 	mention_menu: mentions::Menu,
@@ -3278,6 +3280,31 @@ impl MessagingUi {
 					}
 				}
 			});
+			// Korean input methods commit the syllable and pass Enter on in the same frame;
+			// input methods that confirm with Enter keep it. Replay it once the commit is in
+			// the draft, so it sends or picks a suggestion instead of adding a newline.
+			if let Some(enter) = self.ime_enter.take() {
+				ctx.input_mut(|i| i.events.push(enter));
+			} else if ime_this_frame && !self.ime_active {
+				ctx.input_mut(|i| {
+					let at = i.events.iter().position(|event| {
+						matches!(
+							event,
+							egui::Event::Key {
+								key: egui::Key::Enter,
+								pressed: true,
+								..
+							}
+						)
+					});
+					self.ime_enter = at.map(|at| i.events.remove(at));
+				});
+				if self.ime_enter.is_some() {
+					ctx.request_repaint();
+				}
+			}
+		} else {
+			self.ime_enter = None;
 		}
 		let composer_id = ui.make_persistent_id(if editing_here {
 			"message-edit"
@@ -6785,7 +6812,7 @@ mod composer_tests {
 	}
 
 	#[test]
-	fn composer_enter_dismissing_composition_does_not_send() {
+	fn composer_enter_passed_on_after_composition_sends_next_frame() {
 		for finish in [
 			egui::ImeEvent::Preedit {
 				text: String::new(),
@@ -6826,20 +6853,14 @@ mod composer_tests {
 				.is_empty()
 			);
 			assert!(!view.ime_active);
+			assert!(
+				state
+					.drafts
+					.get(&Id(10))
+					.is_none_or(|draft| !draft.contains('\n'))
+			);
 			assert!(matches!(
-				edit_frame(
-					&ctx,
-					&mut view,
-					&mut state,
-					vec![
-						egui::Event::Ime(egui::ImeEvent::Preedit {
-							text: String::new(),
-							active_range_chars: None,
-						}),
-						edit_key(egui::Key::Enter)
-					]
-				)
-				.as_slice(),
+				edit_frame(&ctx, &mut view, &mut state, vec![]).as_slice(),
 				[Command::Send { .. }]
 			));
 		}
