@@ -221,7 +221,16 @@ registration without joining voice, enable global keybinds, approve the desktop
 dialog, move focus to another application and use Toggle Mute/Toggle Deafen.
 The mute/deafen intent should change when returning to Serein. Flatpak needs a host
 portal backend implementing GlobalShortcuts; the encoding regression test does not
-verify compositor approval or delivery on a particular desktop.
+verify compositor approval or delivery on a particular desktop. Outside Flatpak, Serein
+registers the portal app ID `cz.viceverse.serein` through the host Registry
+(xdg-desktop-portal 1.19+), which needs the installed `cz.viceverse.serein.desktop` entry;
+source runs and unintegrated AppImages without it fall back to focused input. Shortcut IDs
+are stable per action (`toggle-mute`, `toggle-deafen`, `push-to-talk`, `push-to-mute`);
+extra triggers for one action are numbered, such as `toggle-mute-2`. Hyprland only delivers
+portal shortcuts to keys bound in its config and does not apply the suggested trigger, so
+the check above needs a bind such as
+`bind = CTRL SHIFT, M, global, cz.viceverse.serein:toggle-mute`. Update existing binds that
+used the earlier `cz.viceverse.serein:serein-N` IDs.
 
 Native emoji use eframe system-font fallback and installed OS color fonts. macOS
 Apple Color Emoji was visually checked with a synthetic moon status on September
