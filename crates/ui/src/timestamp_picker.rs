@@ -84,10 +84,19 @@ impl Picker {
 		cursor
 	}
 
-	pub fn show(&mut self, ctx: &egui::Context, target: Target) -> Option<mentions::Pick> {
-		if self.request.as_ref().is_some_and(|r| r.target != target) {
+	/// Drops the dialog when navigation no longer points at its original composer.
+	pub fn retain(&mut self, target: Option<Target>) {
+		if self
+			.request
+			.as_ref()
+			.is_some_and(|r| Some(r.target) != target)
+		{
 			self.request = None;
 		}
+	}
+
+	pub fn show(&mut self, ctx: &egui::Context, target: Target) -> Option<mentions::Pick> {
+		self.retain(Some(target));
 		let request = self.request.as_mut()?;
 		let mut picked = None;
 		let mut cancel = false;
@@ -136,6 +145,10 @@ impl Picker {
 							});
 						if let Some(seconds) = parse(&request.date, &request.clock, &request.offset)
 						{
+							if request.style == Some(b'R') {
+								ui.ctx()
+									.request_repaint_after(crate::local_time::TIMESTAMP_REFRESH);
+							}
 							ui.label(
 								crate::local_time::discord_timestamp(
 									seconds,
@@ -267,7 +280,13 @@ fn parse(date: &str, clock: &str, offset: &str) -> Option<i64> {
 	}
 	let seconds = (hours * 3600 + minutes * 60) * if offset.starts_with('-') { -1 } else { 1 };
 	let offset = time::UtcOffset::from_whole_seconds(seconds).ok()?;
-	Some(date.with_time(clock).assume_offset(offset).unix_timestamp())
+	let seconds = date
+		.with_time(clock)
+		.assume_utc()
+		.unix_timestamp()
+		.checked_sub(i64::from(offset.whole_seconds()))?;
+	time::OffsetDateTime::from_unix_timestamp(seconds).ok()?;
+	Some(seconds)
 }
 
 pub(crate) fn silent_indicator(ui: &mut egui::Ui) {
@@ -299,6 +318,7 @@ mod tests {
 		assert!(parse("2000-02-29", "12:00:00", "+00:00").is_some());
 		for (date, clock, offset) in [
 			("1900-02-29", "12:00:00", "+00:00"),
+			("9999-12-31", "23:59:59", "-23:59"),
 			("2026-11-06", "24:00:00", "+00:00"),
 			("2026-11-06", "12:00:00", "+00:60"),
 			("2026-11-06", "12:00:00", "+-1:00"),

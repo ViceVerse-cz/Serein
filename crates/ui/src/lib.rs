@@ -4724,6 +4724,18 @@ impl MessagingUi {
 				}
 			}
 		}
+		// Home and other views without a composer must also invalidate its pending dialog.
+		self.timestamp_picker.retain(state.selected.map(|channel| {
+			timestamp_picker::Target {
+				generation: state.generation,
+				channel,
+				editing: self
+					.editing
+					.as_ref()
+					.filter(|(c, _, _)| *c == channel)
+					.map(|(_, id, _)| *id),
+			}
+		}));
 		if self.navigation_channel != state.selected {
 			// A retained footer draft keeps focus instead of moving it to the new composer.
 			let profile_keeps_focus = self.profile.open_user().is_some_and(|user| {

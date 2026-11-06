@@ -166,7 +166,6 @@ impl Revealed {
 	fn fingerprint(message: &Message) -> u64 {
 		let mut hasher = DefaultHasher::new();
 		message.content.hash(&mut hasher);
-		message.suppress_notifications.hash(&mut hasher);
 		message.embeds.hash(&mut hasher);
 		message.attachments.hash(&mut hasher);
 		hasher.finish()
@@ -337,7 +336,7 @@ fn layout_key(message: &Message) -> u64 {
 	message.author.kind.hash(&mut key);
 	message.author.webhook.hash(&mut key);
 	message.edited.hash(&mut key);
-	message.suppress_notifications.hash(&mut key);
+	(message.flags & (1 << 12) != 0).hash(&mut key);
 	message.reply_to.hash(&mut key);
 	if let Some(interaction) = &message.interaction {
 		interaction.user.id.hash(&mut key);
@@ -3636,7 +3635,8 @@ impl TimelineView {
 											),
 										);
 									}
-									if message.suppress_notifications {
+									// Retained wire flags also cover cached history; notification targeting stays session-only.
+									if message.flags & (1 << 12) != 0 {
 										crate::timestamp_picker::silent_indicator(ui);
 									}
 									let body = egui::Frame::NONE
@@ -6459,6 +6459,14 @@ mod tests {
 			assert!(visible.contains("secret one") && !visible.contains("secret two"));
 			assert_eq!(view.revealed[&message.id].text, 1);
 			assert!(!view.revealed[&message.id].media);
+			// Notification metadata changes must not conceal already revealed content.
+			message.flags |= 1 << 12;
+			message.suppress_notifications = false; // Cached history deliberately omits notification targeting.
+			state.timeline.insert(message.clone(), true, false).unwrap();
+			state.revision += 1;
+			let labels = render(&mut view, &mut state, vec![]);
+			assert!(labels.iter().any(|(text, _)| text.contains("secret one")));
+			assert_eq!(view.revealed[&message.id].text, 1);
 			// Like Discord, there is no re-hide control; start the next case concealed.
 			view.revealed.clear();
 			render(&mut view, &mut state, vec![]);

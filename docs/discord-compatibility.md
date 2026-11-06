@@ -2766,7 +2766,8 @@ in force. A quiet forwarding note affects only that separately sent note.
 
 New-message autocomplete offers `@silent` only at the beginning of the draft. The
 composer shows a quiet-send indicator while that prefix is active, and received
-messages show it when the service supplies `SUPPRESS_NOTIFICATIONS`. These indicators
+messages show it when retained wire flags include `SUPPRESS_NOTIFICATIONS`, including
+cached history. Notification targeting remains session-only. These indicators
 describe intent/metadata; they do not establish notification delivery at a recipient.
 
 `@time` is a local Serein composer shortcut, including in message edits. Selecting it
@@ -2777,8 +2778,10 @@ the selected shortcut with the documented
 [`<t:UNIX_SECONDS[:STYLE]>` syntax](https://docs.discord.com/developers/reference#message-formatting),
 using no style suffix by default or one of `t`, `T`, `d`, `D`, `f`, `F`, `s`, `S`, `R`.
 The existing Markdown renderer resolves these references in message bodies and inline
-previews; escaped/code references and malformed syntax remain literal. Relative formats
-refresh through the existing coarse repaint tick. Character and draft-byte budgets
+previews; escaped/code references and malformed syntax remain literal. Numeric date
+styles follow the selected locale’s date order. Relative formats
+refresh through the existing coarse repaint tick in messages and picker previews.
+Character and draft-byte budgets
 apply to replacement, and a changed draft or target cannot receive a stale insertion.
 Cancel/Escape leaves the original draft intact. No new service endpoint is used.
 

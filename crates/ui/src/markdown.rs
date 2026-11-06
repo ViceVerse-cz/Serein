@@ -1554,7 +1554,7 @@ impl Formatted {
 			.any(|(_, style)| matches!(style.timestamp, Some((_, b'R'))))
 		{
 			ui.ctx()
-				.request_repaint_after(std::time::Duration::from_secs(20));
+				.request_repaint_after(crate::local_time::TIMESTAMP_REFRESH);
 		}
 		// Wrapping rows only grow around widgets placed after the tallest one, so a
 		// mention before an emoji would keep the body line height and ride above the

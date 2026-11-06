@@ -1121,7 +1121,7 @@ mod tests {
 
 	#[test]
 	fn composer_shortcuts_respect_position_edits_and_conversation_identity() {
-		let state = test_support::demo_state();
+		let mut state = test_support::demo_state();
 		let channel = state.selected.unwrap();
 		let mut menu = Menu::default();
 		for (draft, editing, offered) in [
@@ -1172,6 +1172,26 @@ mod tests {
 				.is_none()
 		);
 		assert!(!picker.is_open());
+		let mut view = crate::MessagingUi {
+			navigation_channel: Some(channel),
+			..Default::default()
+		};
+		view.timestamp_picker
+			.accept(&mut draft, menu.pick(at).unwrap(), target, 64);
+		state.drafts.insert(channel, draft.clone());
+		state.open_home();
+		ctx.run_ui(Default::default(), |ui| {
+			let _ = view.show(ui, &mut state);
+		})
+		.drop_without_applying_deltas();
+		assert!(!view.timestamp_picker.is_open());
+		let _ = state.select(channel);
+		ctx.run_ui(Default::default(), |ui| {
+			let _ = view.show(ui, &mut state);
+		})
+		.drop_without_applying_deltas();
+		assert!(!view.timestamp_picker.is_open());
+		assert_eq!(state.drafts[&channel], draft);
 	}
 
 	#[test]
@@ -1770,6 +1790,86 @@ mod tests {
 					assert_eq!(state.drafts[&Id(1)], draft);
 				}
 				assert!(!view.timestamp_picker.is_open());
+				// Reopen and activate the actual Insert button, exercising the modal-to-composer handoff.
+				let mut menu = Menu::default();
+				menu.refresh(&state, Id(1), draft, Some(draft.chars().count()), &[]);
+				let index = menu
+					.candidates
+					.iter()
+					.position(|c| matches!(c, Candidate::Time))
+					.unwrap();
+				view.timestamp_picker.accept(
+					state.drafts.get_mut(&Id(1)).unwrap(),
+					menu.pick(index).unwrap(),
+					crate::timestamp_picker::Target {
+						generation: state.generation,
+						channel: Id(1),
+						editing: None,
+					},
+					4096,
+				);
+				view.draft_changes.clear();
+				let mut button = None;
+				let screen = Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1000.0, 700.0),
+				));
+				for _ in 0..3 {
+					let output = ctx.run_ui(
+						egui::RawInput {
+							screen_rect: screen,
+							..Default::default()
+						},
+						|ui| view.composer(ui, &mut state, Id(1), &ctx, &mut commands),
+					);
+					button = output.shapes.iter().find_map(|shape| match &shape.shape {
+						egui::Shape::Text(text)
+							if text.galley.text()
+								== crate::i18n::translate("timestamp-picker-insert") =>
+						{
+							Some(text.visual_bounding_rect().center())
+						}
+						_ => None,
+					});
+					output.drop_without_applying_deltas();
+				}
+				let button = button.expect("timestamp Insert control");
+				for pressed in [true, false] {
+					ctx.run_ui(
+						egui::RawInput {
+							screen_rect: screen,
+							events: vec![
+								egui::Event::PointerMoved(button),
+								egui::Event::PointerButton {
+									pos: button,
+									button: egui::PointerButton::Primary,
+									pressed,
+									modifiers: egui::Modifiers::NONE,
+								},
+							],
+							..Default::default()
+						},
+						|ui| view.composer(ui, &mut state, Id(1), &ctx, &mut commands),
+					)
+					.drop_without_applying_deltas();
+				}
+				assert!(!view.timestamp_picker.is_open());
+				let inserted = &state.drafts[&Id(1)];
+				let (_, style, len) =
+					model::timestamp_prefix(inserted).expect("inserted timestamp syntax");
+				assert_eq!(style, b'f');
+				assert_eq!(&inserted[len..], " ");
+				let cursor = egui::text_edit::TextEditState::load(&ctx, editor)
+					.unwrap()
+					.cursor
+					.char_range()
+					.unwrap();
+				assert_eq!(cursor.primary.index.0, inserted.chars().count());
+				assert!(view.draft_changes.contains(&Id(1)));
+				assert!(!commands.iter().any(|c| matches!(
+					c,
+					client_core::Command::Send { .. } | client_core::Command::Edit { .. }
+				)));
 			} else {
 				assert!(view.draft_changes.contains(&Id(1)));
 			}
