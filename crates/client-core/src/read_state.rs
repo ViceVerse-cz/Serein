@@ -890,11 +890,12 @@ impl State {
 							} else {
 								Some(message).max(current)
 							};
-							self.read_state.activity.ack(
-								channel,
-								next,
-								if manual { mention_count } else { None },
-							);
+							if manual {
+								self.read_state.activity.ack(channel, next, mention_count);
+							} else {
+								let latest = self.channel(channel).and_then(|c| c.last_message);
+								self.read_state.activity.ack_local(channel, message, latest);
+							}
 							self.read_state
 								.entries
 								.insert(channel, (next, self.read_state.revision));
@@ -1438,6 +1439,65 @@ mod navigation_tests {
 				Some(Some(Id(if manual_unread { 100 } else { 500 })))
 			);
 			assert_eq!(state.unread(channel), Some(manual_unread));
+		}
+	}
+	#[test]
+	fn racing_http_read_preserves_badges_and_activity_beyond_its_cursor() {
+		for newer in [false, true] {
+			let mut state = state(Some(Id(100)));
+			let Command::MarkRead {
+				channel,
+				message,
+				request,
+				..
+			} = state.prepare_mark_read(Id(500)).unwrap()
+			else {
+				panic!("expected read acknowledgement");
+			};
+			let incoming = |id| {
+				let mut row = self::message(id);
+				row.author.id = Id(999);
+				row
+			};
+			if newer {
+				apply(&mut state, CoreEvent::Message(incoming(501)));
+			}
+			state
+				.apply_read_state(Event::Ack {
+					channel,
+					message: Some(Id(100)),
+					manual: false,
+					mention_count: Some(1),
+					version: None,
+				})
+				.unwrap();
+			// This activity is not included in the service count and must survive too.
+			if newer {
+				apply(&mut state, CoreEvent::Message(incoming(502)));
+			}
+			state
+				.apply_read_state(Event::Result {
+					channel,
+					message,
+					request,
+					result: Ok(()),
+				})
+				.unwrap();
+			assert_eq!(state.read_marker(channel), Some(Some(Id(500))));
+			assert_eq!(state.unread(channel), Some(newer));
+			assert_eq!(state.unread_count(channel), if newer { 2 } else { 0 });
+			assert_eq!(state.mention_count(channel), if newer { 2 } else { 0 });
+			state
+				.apply_read_state(Event::Ack {
+					channel,
+					message: Some(Id(502)),
+					manual: false,
+					mention_count: Some(0),
+					version: None,
+				})
+				.unwrap();
+			assert_eq!(state.unread_count(channel), 0);
+			assert_eq!(state.mention_count(channel), 0);
 		}
 	}
 	#[test]

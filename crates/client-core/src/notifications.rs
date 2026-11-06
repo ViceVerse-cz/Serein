@@ -82,11 +82,23 @@ impl Activity {
 	pub(crate) fn set_count(&mut self, channel: Id, count: u32) {
 		self.counts.insert(channel, count);
 	}
-	pub(crate) fn ack(&mut self, channel: Id, message: Option<Id>, count: Option<u32>) {
+	fn retain_unread(&mut self, channel: Id, message: Option<Id>) {
 		self.observed
 			.retain(|(c, id, _)| *c != channel || message.is_none_or(|read| *id > read));
 		self.notifications
 			.retain(|n| n.channel != channel || message.is_none_or(|read| n.message > read));
+	}
+	/// HTTP success has no refreshed badge count. Keep the service baseline while
+	/// newer messages remain; only a Gateway ACK can reconcile that baseline exactly.
+	pub(crate) fn ack_local(&mut self, channel: Id, message: Id, latest: Option<Id>) {
+		self.retain_unread(channel, Some(message));
+		if latest.is_none_or(|latest| latest <= message) {
+			self.counts.remove(&channel);
+		}
+		self.recount(channel);
+	}
+	pub(crate) fn ack(&mut self, channel: Id, message: Option<Id>, count: Option<u32>) {
+		self.retain_unread(channel, message);
 		// The service count includes messages after this ACK. Avoid counting those twice.
 		if let Some(count) = count {
 			self.counts.insert(channel, count);
@@ -565,8 +577,9 @@ impl State {
 		}
 		rows.into_iter().take(15).map(|(_, id)| id).collect()
 	}
-	/// Service badge count plus bounded activity observed since that count. A lower bound
-	/// when history or settings are incomplete; this is not an exact total unread count.
+	/// Service badge count plus bounded activity observed since that count. Incomplete
+	/// history can undercount; a partial HTTP read can retain a stale service baseline
+	/// until the Gateway count arrives. This is not an exact total unread count.
 	pub fn unread_count(&self, channel: Id) -> u32 {
 		if self.can_view(channel) {
 			self.read_state.activity.count(channel, false)
