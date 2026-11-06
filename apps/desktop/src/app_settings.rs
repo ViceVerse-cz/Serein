@@ -488,6 +488,7 @@ mod tests {
 		ui.preload_on_hover = defaults.preload_on_hover;
 		ui.auto_idle = defaults.auto_idle;
 		ui.custom_title_bar = defaults.custom_title_bar;
+		ui.setup_pending = !defaults.setup_done;
 		settings.observe(&ui);
 		assert!(
 			!settings.state.touched,
