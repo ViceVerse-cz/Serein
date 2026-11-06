@@ -6,14 +6,41 @@
 //! surfaces as `importing the supplied dmabufs failed` and then a panic inside `egui-wgpu`
 //! (`The surface isn't supported by this adapter`). Rank the adapters that can actually
 //! present instead, ordered by the device preference, so a preference can never pick a
-//! device the window cannot use.
+//! device the window cannot use. A saved graphics API takes priority among presentable
+//! adapters; the automatic candidates remain available if that API loses its driver.
 
 use eframe::wgpu;
-use model::GpuPreference;
+use model::{GpuPreference, GraphicsApi};
 
-/// Keep eframe's adapter-specific requirements while reducing DX12 allocation reserves.
-pub fn setup() -> eframe::egui_wgpu::WgpuSetupCreateNew {
+/// Apply rendering preferences while preserving eframe's device requirements.
+pub fn setup(
+	preference: GpuPreference,
+	api: GraphicsApi,
+	_transparency: bool,
+) -> eframe::egui_wgpu::WgpuSetupCreateNew {
 	let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
+	let environment = wgpu::Backends::from_env();
+	let (backends, preferred) =
+		backend_policy(api, environment, wgpu::Instance::enabled_backend_features());
+	if api != GraphicsApi::Automatic && environment.is_none() && preferred.is_none() {
+		eprintln!(
+			"[Serein] Preferred graphics API {} is unsupported by this build; using Automatic",
+			api.label()
+		);
+	}
+	setup.instance_descriptor.backends = backends;
+	#[cfg(target_os = "windows")]
+	if _transparency && wgpu::Dx12SwapchainKind::from_env().is_none() {
+		// Only DirectComposition swapchains carry alpha to the Windows desktop.
+		setup
+			.instance_descriptor
+			.backend_options
+			.dx12
+			.presentation_system = wgpu::Dx12SwapchainKind::DxgiFromVisual;
+	}
+	setup.native_adapter_selector = Some(std::sync::Arc::new(move |adapters, surface| {
+		select(preference, preferred, adapters, surface)
+	}));
 	let device_descriptor = setup.device_descriptor;
 	setup.device_descriptor = std::sync::Arc::new(move |adapter| {
 		let mut descriptor = device_descriptor(adapter);
@@ -21,6 +48,58 @@ pub fn setup() -> eframe::egui_wgpu::WgpuSetupCreateNew {
 		descriptor
 	});
 	setup
+}
+
+fn backend(api: GraphicsApi) -> Option<wgpu::Backend> {
+	match api {
+		GraphicsApi::Automatic => None,
+		GraphicsApi::Vulkan => Some(wgpu::Backend::Vulkan),
+		GraphicsApi::DirectX12 => Some(wgpu::Backend::Dx12),
+		GraphicsApi::Metal => Some(wgpu::Backend::Metal),
+		GraphicsApi::OpenGl => Some(wgpu::Backend::Gl),
+	}
+}
+
+/// List platform/build support without initializing drivers, particularly Intel Vulkan on Windows.
+pub fn available_apis() -> Vec<GraphicsApi> {
+	let enabled = wgpu::Instance::enabled_backend_features();
+	GraphicsApi::ALL
+		.into_iter()
+		.filter(|api| backend(*api).is_none_or(|backend| enabled.contains(backend.into())))
+		.collect()
+}
+
+fn backend_policy(
+	api: GraphicsApi,
+	environment: Option<wgpu::Backends>,
+	enabled: wgpu::Backends,
+) -> (wgpu::Backends, Option<wgpu::Backend>) {
+	if let Some(backends) = environment {
+		return (backends, None);
+	}
+	// Preserve automatic startup policy; Vulkan on Windows requires an explicit opt-in.
+	let defaults = if cfg!(target_os = "windows") {
+		wgpu::Backends::DX12 | wgpu::Backends::GL
+	} else {
+		wgpu::Backends::PRIMARY | wgpu::Backends::GL
+	} & enabled;
+	let preferred = backend(api).filter(|backend| enabled.contains((*backend).into()));
+	// Keep the normal candidates as a recovery path if a saved API loses its driver or surface.
+	(
+		defaults | preferred.map_or(wgpu::Backends::empty(), Into::into),
+		preferred,
+	)
+}
+
+fn selection_rank(
+	info: &wgpu::AdapterInfo,
+	prefer_integrated: bool,
+	preferred: Option<wgpu::Backend>,
+) -> (u8, (u8, u8, u8)) {
+	(
+		u8::from(preferred.is_some_and(|backend| info.backend != backend)),
+		rank(info, prefer_integrated),
+	)
 }
 
 fn configure_memory(backend: wgpu::Backend, descriptor: &mut wgpu::DeviceDescriptor<'_>) {
@@ -79,8 +158,9 @@ pub fn describe(info: &wgpu::AdapterInfo) -> String {
 }
 
 /// Picks the adapter used for the window surface, or explains why none of them works.
-pub fn select(
+fn select(
 	preference: GpuPreference,
+	preferred: Option<wgpu::Backend>,
 	adapters: &[wgpu::Adapter],
 	surface: Option<&wgpu::Surface<'_>>,
 ) -> Result<wgpu::Adapter, String> {
@@ -92,7 +172,7 @@ pub fn select(
 			surface.is_none_or(|surface| !surface.get_capabilities(adapter).formats.is_empty())
 		})
 		.collect();
-	usable.sort_by_key(|adapter| rank(&adapter.get_info(), prefer_integrated));
+	usable.sort_by_key(|adapter| selection_rank(&adapter.get_info(), prefer_integrated, preferred));
 	let Some(adapter) = usable.first() else {
 		let available = adapters
 			.iter()
@@ -106,6 +186,13 @@ pub fn select(
 		});
 	};
 	let info = adapter.get_info();
+	if let Some(preferred) = preferred
+		&& info.backend != preferred
+	{
+		eprintln!(
+			"[Serein] Preferred graphics API {preferred:?} cannot draw this window; using Automatic"
+		);
+	}
 	eprintln!("[Serein] GPU adapter: {}", describe(&info));
 	if software(&info) {
 		// Already on OpenGL, the override has nothing left to try.
@@ -125,6 +212,40 @@ pub fn select(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn saved_api_selection_honors_override_and_recovers_missing_backends() {
+		let enabled = wgpu::Backends::VULKAN | wgpu::Backends::GL;
+		let (candidates, preferred) = backend_policy(GraphicsApi::OpenGl, None, enabled);
+		assert_eq!(preferred, Some(wgpu::Backend::Gl));
+		assert!(candidates.contains(wgpu::Backends::GL));
+		assert_eq!(
+			backend_policy(GraphicsApi::OpenGl, Some(wgpu::Backends::VULKAN), enabled),
+			(wgpu::Backends::VULKAN, None)
+		);
+		assert_eq!(
+			backend_policy(GraphicsApi::DirectX12, None, enabled),
+			backend_policy(GraphicsApi::Automatic, None, enabled)
+		);
+		let (automatic, _) = backend_policy(GraphicsApi::Automatic, None, enabled);
+		assert_eq!(
+			automatic.contains(wgpu::Backends::VULKAN),
+			!cfg!(target_os = "windows")
+		);
+		assert!(
+			backend_policy(GraphicsApi::Vulkan, None, enabled)
+				.0
+				.contains(wgpu::Backends::VULKAN)
+		);
+		let native = info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan);
+		let gl = info(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Gl);
+		assert!(selection_rank(&gl, false, preferred) < selection_rank(&native, false, preferred));
+		// If the preferred adapter cannot present, the remaining candidates retain Automatic ranking.
+		let software = info(wgpu::DeviceType::Cpu, wgpu::Backend::Vulkan);
+		assert!(
+			selection_rank(&native, false, preferred) < selection_rank(&software, false, preferred)
+		);
+	}
 
 	#[test]
 	fn memory_policy_preserves_device_requirements_and_other_backends() {

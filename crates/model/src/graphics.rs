@@ -65,6 +65,38 @@ impl<'de> serde::Deserialize<'de> for GpuPreference {
 	}
 }
 
+/// Device-local rendering API preference. Unknown keys from newer builds use Automatic.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GraphicsApi {
+	Vulkan,
+	#[serde(rename = "directx12")]
+	DirectX12,
+	Metal,
+	OpenGl,
+	#[default]
+	#[serde(other)]
+	Automatic,
+}
+impl GraphicsApi {
+	pub const ALL: [Self; 5] = [
+		Self::Automatic,
+		Self::Vulkan,
+		Self::DirectX12,
+		Self::Metal,
+		Self::OpenGl,
+	];
+	pub fn label(self) -> &'static str {
+		match self {
+			Self::Automatic => "Automatic",
+			Self::Vulkan => "Vulkan",
+			Self::DirectX12 => "DirectX 12",
+			Self::Metal => "Metal",
+			Self::OpenGl => "OpenGL",
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

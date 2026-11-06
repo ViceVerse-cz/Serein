@@ -1714,3 +1714,40 @@ with aligned surface padding. The player still queues two decoded frames, at mos
 larger than the renderer's maximum texture side are refused by the CPU fallback. The
 FFmpeg transcode fallback still produces at most 1080p. No 4K playback CPU or memory
 measurement has been recorded yet.
+
+## Graphics API picker — November 6, 2026
+
+Baseline `354d033b31e89079e50c16684852fd2b039c225a` versus the picker implementation in
+this PR. Ubuntu 24.04 x86_64 in Docker, pinned Rust 1.98.1 and lockfile, unchanged
+standard voice-enabled fat-LTO release profile. Both `cargo xtask package` runs
+passed the DEB smoke checks: executable, metadata, ownership, contents and host
+shared-library closure. Workspace artifacts were cleared for the relevant build
+profile before switching source worktrees; third-party artifacts were reused.
+
+| Metric / method | Baseline | Picker | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 93,979,096 B | 94,000,216 B | +21,120 B (+0.022%) |
+| Installed regular files (245 files) | 98,678,328 B | 98,699,448 B | +21,120 B (+0.021%) |
+| Compressed DEB | 47,292,820 B | 47,296,900 B | +4,080 B (+0.009%) |
+
+Installed bytes sum regular files extracted from the unsigned DEB; they are not
+filesystem allocation or RAM. One release package was built per revision. These
+small byte changes establish no runtime performance improvement.
+
+Supplementary native X11/Xvfb samples use **debug demo builds**, not the standard
+release binaries. Intel Core i5-1235U, 30 GiB visible RAM, llvmpipe (LLVM 20.1.2)
+through Vulkan, scale 1.0, 1280 × 950 window, General scrolled to its bottom with
+Automatic selected and the picker closed. One 10-second warmup and one 20-sample
+run per revision, one-second sampling.
+
+| Native debug demo metric | Baseline | Picker | Delta |
+| --- | ---: | ---: | ---: |
+| Idle CPU (100% = one core) | 0.10% | 0.10% | Below 0.01 percentage-point reporting precision |
+| Peak / settled sampled process RSS | 349,192,192 B | 349,691,904 B | +499,712 B (+0.143%) |
+
+CPU uses process user/system tick deltas over elapsed time; RSS uses `/proc`'s
+`VmRSS`. Both runs lasted about 20.007 seconds. Concurrent compilation is
+uncontrolled noise; display-server/compiler CPU and memory were not sampled.
+No release CPU/RSS, p95 frame/startup latency, physical GPU speed or affected
+Windows hardware behavior was measured. No Discord session or live media was used.
+See [the native evidence and reproduction procedure](pr-evidence/render-api-picker/README.md).
