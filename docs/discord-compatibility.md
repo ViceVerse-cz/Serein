@@ -2387,8 +2387,13 @@ artwork — the second symptom reported in that issue.
 **Detection.** Games that never speak RPC are matched by executable name against Discord's
 public `/applications/detectable` list (about 24,000 applications, 10,451 of them detectable,
 12.7 MB). The list is reduced on download to id, name and non-launcher executable names
-(1.1 MB), cached for a day under the local data directory, and re-checked against the same
-bounds when read back. Matching compares path suffixes longest-first, plus `.app` bundle
+(1.1 MB when it held only the detectable entries; the size with title-only entries is
+unmeasured), cached for a day under the local data directory, and re-checked against the same
+bounds when read back. Entries without executables are kept as titles only: a manually added
+game whose name exactly matches one application, or whose process matches a detectable entry,
+publishes that application so both clients show its artwork. A title shared by several
+applications resolves to none. Discord itself detects some of these games by unknown means
+(unverified); Serein still cannot detect them from a process alone. Matching compares path suffixes longest-first, plus `.app` bundle
 components for macOS entries; an executable-name index keeps a full sweep at roughly 6 ms for
 900 processes instead of ~920 ms for a linear scan. Processes are enumerated read-only through
 `/proc` on Linux, `ps` on macOS and `tasklist` on Windows: executable paths only, never
