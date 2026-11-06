@@ -877,14 +877,16 @@ impl MessagingUi {
 		design::group(ui, &title, |ui| {
 			#[cfg(target_os = "linux")]
 			{
-				let label = language.text("general-hide-decorations");
-				let description = language.text("general-hide-decorations-description");
-				design::switch(
-					ui,
-					&label,
-					Some(&description),
-					&mut self.hide_window_decorations,
-				);
+				// Hiding every decoration and drawing Serein's own bar contradict each other:
+				// whichever switch was just turned on wins. The "no title bar" switch is at the
+				// bottom of this group, since it is only for tiling window managers.
+				let label = language.text("general-custom-title-bar");
+				let description = language.text("general-custom-title-bar-description");
+				if design::switch(ui, &label, Some(&description), &mut self.custom_title_bar)
+					.changed() && self.custom_title_bar
+				{
+					self.hide_window_decorations = false;
+				}
 				design::card_divider(ui);
 			}
 			#[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -913,6 +915,22 @@ impl MessagingUi {
 				design::hint(ui, &language.text("general-tray-unavailable"));
 			} else if !self.tray_status.is_empty() {
 				design::hint(ui, self.tray_status);
+			}
+			#[cfg(target_os = "linux")]
+			{
+				design::card_divider(ui);
+				let label = language.text("general-hide-decorations");
+				let description = language.text("general-hide-decorations-description");
+				if design::switch(
+					ui,
+					&label,
+					Some(&description),
+					&mut self.hide_window_decorations,
+				)
+				.changed() && self.hide_window_decorations
+				{
+					self.custom_title_bar = false;
+				}
 			}
 		});
 		let title = language.text("general-graphics");

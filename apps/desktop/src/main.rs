@@ -531,18 +531,22 @@ fn main() -> eframe::Result {
 			("arch", std::env::consts::ARCH.into()),
 		],
 	);
-	let (gpu_preference, transparency_available, hide_window_decorations, window_geometry) =
-		preferences
-			.as_ref()
-			.map(|value| {
-				(
-					value.gpu_preference,
-					value.transparency_blur,
-					value.hide_window_decorations,
-					value.window_geometry,
-				)
-			})
-			.unwrap_or_default();
+	let (
+		gpu_preference,
+		transparency_available,
+		hide_window_decorations,
+		window_geometry,
+	) = {
+		// First launch has no saved preferences; use their defaults (custom title bar on).
+		let defaults = local_store::AppPreferences::default();
+		let value = preferences.as_ref().unwrap_or(&defaults);
+		(
+			value.gpu_preference,
+			value.transparency_blur,
+			value.hide_window_decorations || value.custom_title_bar,
+			value.window_geometry,
+		)
+	};
 	#[cfg(feature = "demo")]
 	let transparency_available =
 		transparency_available || demo && std::env::args().any(|arg| arg == "--demo-transparency");
@@ -2363,8 +2367,16 @@ impl Desktop {
 			.winit_window()
 			.ok_or("Native window unavailable")?
 			.clone();
-		messaging.hide_window_decorations = cfg!(target_os = "linux") && !window.is_decorated();
+		// The window starts undecorated for either "hide decorations" or the custom title bar;
+		// the saved preferences, not the live window, say which of the two it was.
+		// The custom bar wins if a hand-edited file enables both.
+		let undecorated = cfg!(target_os = "linux") && !window.is_decorated();
+		messaging.custom_title_bar = undecorated && app_settings.current.custom_title_bar;
+		messaging.hide_window_decorations = undecorated
+			&& app_settings.current.hide_window_decorations
+			&& !messaging.custom_title_bar;
 		app_settings.current.hide_window_decorations = messaging.hide_window_decorations;
+		app_settings.current.custom_title_bar = messaging.custom_title_bar;
 		#[cfg(target_os = "windows")]
 		{
 			use winit::platform::windows::{CornerPreference, WindowExtWindows as _};
@@ -6829,9 +6841,12 @@ impl eframe::App for Desktop {
 		}
 		let appearance = ctx.options(|options| options.theme_preference);
 		#[cfg(target_os = "linux")]
-		if self.window.is_decorated() == self.messaging.hide_window_decorations {
-			self.window
-				.set_decorations(!self.messaging.hide_window_decorations);
+		{
+			let undecorated =
+				self.messaging.hide_window_decorations || self.messaging.custom_title_bar;
+			if self.window.is_decorated() == undecorated {
+				self.window.set_decorations(!undecorated);
+			}
 		}
 		#[cfg(target_os = "windows")]
 		if self.window.is_decorated() != self.messaging.hide_title_bar {
@@ -7017,7 +7032,10 @@ impl eframe::App for Desktop {
 				None => {}
 			}
 		}
-		ui::design::window_resize(&ctx);
+		ui::design::window_resize_if(
+			&ctx,
+			cfg!(target_os = "windows") || self.messaging.uses_custom_title_bar(),
+		);
 		self.frame_metrics.reflows = self.messaging.timeline_reflows();
 		self.frame_metrics.finish();
 	}

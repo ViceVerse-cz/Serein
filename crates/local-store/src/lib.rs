@@ -57,6 +57,9 @@ pub struct AppPreferences {
 	/// Keep the home list's message requests section collapsed after a restart.
 	pub message_requests_collapsed: bool,
 	pub hide_window_decorations: bool,
+	/// Linux: replace the system title bar with Serein's own GTK 4 style header bar.
+	/// On by default, including for saved preferences from before the setting existed.
+	pub custom_title_bar: bool,
 	pub primary_color: Option<[u8; 3]>,
 	pub transparency_blur: bool,
 	pub transparency: u8,
@@ -114,6 +117,7 @@ impl Default for AppPreferences {
 			hide_title_bar: false,
 			message_requests_collapsed: false,
 			hide_window_decorations: false,
+			custom_title_bar: true,
 			primary_color: None,
 			transparency_blur: false,
 			transparency: 15,

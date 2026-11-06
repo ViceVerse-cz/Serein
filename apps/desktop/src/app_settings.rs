@@ -59,6 +59,7 @@ impl Settings {
 			hide_title_bar: ui.hide_title_bar,
 			message_requests_collapsed: ui.message_requests_collapsed,
 			hide_window_decorations: ui.hide_window_decorations,
+			custom_title_bar: ui.custom_title_bar,
 			gpu_preference: ui.gpu_preference,
 			steady_refresh_rate: ui.steady_refresh_rate,
 			primary_color: ui.primary_color,
@@ -111,6 +112,7 @@ impl Settings {
 		ui.hide_title_bar = value.hide_title_bar;
 		ui.message_requests_collapsed = value.message_requests_collapsed;
 		ui.hide_window_decorations = value.hide_window_decorations;
+		ui.custom_title_bar = value.custom_title_bar;
 		ui.gpu_preference = value.gpu_preference;
 		ui.steady_refresh_rate = value.steady_refresh_rate;
 		ui.primary_color = value.primary_color;
@@ -482,6 +484,7 @@ mod tests {
 		ui.blur = defaults.blur;
 		ui.preload_on_hover = defaults.preload_on_hover;
 		ui.auto_idle = defaults.auto_idle;
+		ui.custom_title_bar = defaults.custom_title_bar;
 		settings.observe(&ui);
 		assert!(
 			!settings.state.touched,

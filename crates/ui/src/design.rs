@@ -1279,17 +1279,23 @@ pub fn window_drag(ui: &mut egui::Ui, rect: egui::Rect) {
 	ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
 }
 
-/// Hit boxes for the native Windows resize handles within `rect`, each paired
-/// with its resize direction and cursor. The top-right caption area is
+/// Hit boxes for the native resize handles within `rect`, each paired with its
+/// resize direction and cursor. On Windows the top-right caption area is
 /// excluded so corner clicks reach Close; the east handle starts below
-/// [`WINDOW_CAPTION_HEIGHT`], covering the tallest caption strip.
+/// [`WINDOW_CAPTION_HEIGHT`], covering the tallest caption strip, and the
+/// north-east handle is empty. Linux's inset header bar buttons leave that corner free.
 pub(crate) fn resize_handles(
 	rect: egui::Rect,
-) -> [(egui::Rect, egui::ResizeDirection, egui::CursorIcon); 7] {
+) -> [(egui::Rect, egui::ResizeDirection, egui::CursorIcon); 8] {
 	use egui::{CursorIcon as C, ResizeDirection as D};
 	let (l, r, t, b) = (rect.left(), rect.right(), rect.top(), rect.bottom());
 	let edge = 5.0;
 	let corner = 12.0;
+	let (north_end, east_start) = if cfg!(target_os = "windows") {
+		(WINDOW_CONTROLS_WIDTH, WINDOW_CAPTION_HEIGHT)
+	} else {
+		(corner, corner)
+	};
 	let rect_at = |min: [f32; 2], max: [f32; 2]| egui::Rect::from_min_max(min.into(), max.into());
 	[
 		(
@@ -1308,7 +1314,7 @@ pub(crate) fn resize_handles(
 			C::ResizeNwSe,
 		),
 		(
-			rect_at([l + corner, t], [r - WINDOW_CONTROLS_WIDTH, t + edge]),
+			rect_at([l + corner, t], [r - north_end, t + edge]),
 			D::North,
 			C::ResizeVertical,
 		),
@@ -1323,9 +1329,18 @@ pub(crate) fn resize_handles(
 			C::ResizeHorizontal,
 		),
 		(
-			rect_at([r - edge, t + WINDOW_CAPTION_HEIGHT], [r, b - corner]),
+			rect_at([r - edge, t + east_start], [r, b - corner]),
 			D::East,
 			C::ResizeHorizontal,
+		),
+		(
+			if cfg!(target_os = "windows") {
+				egui::Rect::NOTHING
+			} else {
+				rect_at([r - corner, t], [r, t + corner])
+			},
+			D::NorthEast,
+			C::ResizeNeSw,
 		),
 	]
 }
@@ -1333,14 +1348,22 @@ pub(crate) fn resize_handles(
 /// Native resize handles for the undecorated Windows viewport, including sign-in.
 /// The top-right caption area is excluded so clicking the corner always reaches Close.
 pub fn window_resize(ctx: &egui::Context) {
-	if !cfg!(target_os = "windows")
+	window_resize_if(ctx, cfg!(target_os = "windows"));
+}
+
+/// [`window_resize`] when `active`; Linux enables it for the custom GTK 4 style title bar.
+pub fn window_resize_if(ctx: &egui::Context, active: bool) {
+	if !active
 		|| ctx.input(|i| {
 			i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false)
 		}) {
 		return;
 	}
 	let rect = ctx.viewport_rect();
-	for (index, (handle, direction, cursor)) in resize_handles(rect).into_iter().enumerate() {
+	let handles = resize_handles(rect).into_iter().enumerate();
+	for (index, (handle, direction, cursor)) in
+		handles.filter(|(_, (handle, ..))| handle.is_positive())
+	{
 		egui::Area::new(egui::Id::unique(("window-resize", index)))
 			.order(egui::Order::Foreground)
 			.fixed_pos(handle.min)
@@ -1360,8 +1383,13 @@ pub fn window_resize(ctx: &egui::Context) {
 }
 
 /// Native-fidelity Windows caption buttons (minimize, maximize/restore, close) for the
-/// undecorated Windows frame. Lay out in a right-to-left `ui`; a no-op on other platforms.
+/// undecorated Windows frame, or Linux's GTK 4 style header bar buttons; callers decide
+/// whether Linux's custom title bar is active. Lay out in a right-to-left `ui`; a no-op on macOS.
 pub fn window_controls(ui: &mut egui::Ui) {
+	if cfg!(target_os = "linux") {
+		gtk_window_controls(ui);
+		return;
+	}
 	if !cfg!(target_os = "windows") {
 		return;
 	}
@@ -1455,6 +1483,86 @@ pub fn window_controls(ui: &mut egui::Ui) {
 			.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
 	}
 	ui.add_space(12.0);
+	ui.spacing_mut().item_spacing.x = saved_spacing;
+}
+
+/// GTK 4 / libadwaita style header bar buttons: round 24 pt buttons with a soft fill that
+/// darkens on hover, symbolic glyphs, close on the far right. Lay out in a right-to-left `ui`.
+fn gtk_window_controls(ui: &mut egui::Ui) {
+	let p = palette(ui);
+	let maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
+	let saved_spacing = ui.spacing().item_spacing.x;
+	ui.spacing_mut().item_spacing.x = 6.0;
+	ui.add_space(8.0);
+	let button = |ui: &mut egui::Ui, label: &str| -> (egui::Response, egui::Rect, Color32) {
+		let (rect, response) = ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::click());
+		response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
+		let active = response.is_pointer_button_down_on();
+		let hovered = response.hovered() || response.has_focus();
+		let fill = if active {
+			p.selected
+		} else if hovered {
+			p.hover
+		} else {
+			p.hover.gamma_multiply(0.55)
+		};
+		ui.painter().circle_filled(rect.center(), 12.0, fill);
+		let color = if hovered || active {
+			p.text_strong
+		} else {
+			p.text
+		};
+		(response, rect, color)
+	};
+	let (close, rect, color) = button(ui, "Close");
+	let (c, stroke) = (rect.center(), Stroke::new(1.6, color));
+	ui.painter().line_segment(
+		[c + egui::vec2(-3.5, -3.5), c + egui::vec2(3.5, 3.5)],
+		stroke,
+	);
+	ui.painter().line_segment(
+		[c + egui::vec2(-3.5, 3.5), c + egui::vec2(3.5, -3.5)],
+		stroke,
+	);
+	if close.clicked() {
+		ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+	}
+	let (toggle, rect, color) = button(ui, if maximized { "Restore" } else { "Maximize" });
+	let (c, stroke) = (rect.center(), Stroke::new(1.6, color));
+	if maximized {
+		// The back window shows only where the front one does not cover it; the button fill
+		// is translucent, so it cannot mask the overlap.
+		let back = [
+			(-2.0, -2.0),
+			(-2.0, -4.5),
+			(4.5, -4.5),
+			(4.5, 2.0),
+			(2.0, 2.0),
+		]
+		.map(|(x, y)| c + egui::vec2(x, y));
+		ui.painter().add(egui::Shape::line(back.to_vec(), stroke));
+		let front = egui::Rect::from_min_max(c + egui::vec2(-4.5, -2.0), c + egui::vec2(2.0, 4.5));
+		ui.painter()
+			.rect_stroke(front, 1.0, stroke, egui::StrokeKind::Middle);
+	} else {
+		let square = egui::Rect::from_center_size(c, egui::Vec2::splat(8.0));
+		ui.painter()
+			.rect_stroke(square, 1.5, stroke, egui::StrokeKind::Middle);
+	}
+	if toggle.clicked() {
+		ui.ctx()
+			.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+	}
+	let (minimize, rect, color) = button(ui, "Minimize");
+	let c = rect.center();
+	ui.painter().line_segment(
+		[c + egui::vec2(-4.0, 3.0), c + egui::vec2(4.0, 3.0)],
+		Stroke::new(1.6, color),
+	);
+	if minimize.clicked() {
+		ui.ctx()
+			.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+	}
 	ui.spacing_mut().item_spacing.x = saved_spacing;
 }
 

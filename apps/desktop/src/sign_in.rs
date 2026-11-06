@@ -530,8 +530,9 @@ impl Desktop {
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
 								|ui| {
-									if ui::design::WINDOW_CONTROLS_WIDTH > 0.0
-										&& !self.messaging.hide_title_bar
+									if (ui::design::WINDOW_CONTROLS_WIDTH > 0.0
+										&& !self.messaging.hide_title_bar)
+										|| self.messaging.uses_custom_title_bar()
 									{
 										ui::design::window_controls(ui);
 									} else {

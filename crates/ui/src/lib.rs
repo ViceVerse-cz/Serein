@@ -350,6 +350,7 @@ pub struct MessagingUi {
 	pub clear_image_cache: Option<model::CachePartition>,
 	pub hide_title_bar: bool,
 	pub hide_window_decorations: bool,
+	pub custom_title_bar: bool,
 	pub custom_font: fonts::Settings,
 	/// Which GPU renders the window; the running adapter only changes on restart.
 	pub gpu_preference: model::GpuPreference,
@@ -1449,7 +1450,9 @@ impl MessagingUi {
 						))
 						.layout(egui::Layout::right_to_left(egui::Align::Center)),
 					|ui| {
-						design::window_controls(ui);
+						if !cfg!(target_os = "linux") || self.uses_custom_title_bar() {
+							design::window_controls(ui);
+						}
 						ui.spacing_mut().item_spacing.x = 10.0;
 						if self.updates.available || self.updates.ready {
 							let (label, icon) = if self.updates.ready {
@@ -4069,7 +4072,15 @@ impl MessagingUi {
 		ui.add_space(6.0);
 	}
 	fn shows_title_bar(&self) -> bool {
-		!cfg!(target_os = "linux") && !self.hide_title_bar
+		if cfg!(target_os = "linux") {
+			self.uses_custom_title_bar()
+		} else {
+			!self.hide_title_bar
+		}
+	}
+	/// Linux only: Serein draws its own GTK 4 style header bar instead of the system one.
+	pub fn uses_custom_title_bar(&self) -> bool {
+		cfg!(target_os = "linux") && self.custom_title_bar
 	}
 	fn apply_pending_mention(
 		&mut self,
