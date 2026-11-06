@@ -11,4 +11,6 @@ Why: dragging the custom title strip enters the OS modal move loop. Every `WM_WI
 
 Upstream tracks the symptom as [emilk/egui#3953](https://github.com/emilk/egui/issues/3953) (open, no fix). Remove this patch when an upstream egui release stops repainting on window moves and raw motion during OS drags, or at the next egui bump if upstream adopts an equivalent change.
 
+On Wayland, `Clipboard::get_image` first reads `image/png` through the patched smithay-clipboard (32 MiB read, 64 MiB decode allocation) before falling back to arboard; see `vendor/smithay-clipboard/SEREIN-PATCH.md`.
+
 Review follow-up also treats empty clipboard text as absent so image paste can fall back, and logs image-copy success only on success. Other platform input behavior is inherited from the pinned upstream revision, including the macOS latest-scroll-event momentum heuristic; event-specific momentum correlation is outside this Windows drag patch.
