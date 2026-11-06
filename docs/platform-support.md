@@ -78,9 +78,10 @@ excludes the caption buttons area so edge/corner resizing does not intercept cor
 Close. Caption buttons keep their own actions; Windows double-click maximize/restore remains
 available. Synthetic egui input tests check command dispatch, including corner hit testing.
 On Windows, dragging the strip runs the OS move loop, which paints synchronously and waits for
-vsync before the next move. Serein therefore skips repaints for window moves and raw mouse motion
-(a patched egui-winit; see `vendor/egui-winit/SEREIN-PATCH.md`) and reapplies the minimum size
-only when it changes, so an otherwise idle window follows the cursor like a native one. Continuous
+vsync before the next move. Through a patched egui-winit (see `vendor/egui-winit/SEREIN-PATCH.md`)
+Serein therefore ignores raw mouse motion and repaints for window moves at most once per 500 ms,
+enough to sample and save where the window comes to rest; it also reapplies the minimum size only
+when it changes. An otherwise idle window follows the cursor like a native one. Continuous
 rendering, such as an animation or playing video, still paces a drag to the display refresh rate.
 Synthetic `SendInput` drags on Windows 11 are measured in `docs/performance.md`; physical-mouse
 behavior on other machines and native macOS/Linux window movement remain unverified.
