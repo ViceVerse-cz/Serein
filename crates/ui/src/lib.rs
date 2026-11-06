@@ -9433,6 +9433,8 @@ mod composer_tests {
 		let user = state.user.clone().unwrap();
 		let mut messaging = MessagingUi {
 			profile_dialogs_in_popout: true,
+			// The old guard also required this to be cleared, which the viewer never did.
+			profile_in_popout: true,
 			..Default::default()
 		};
 		// A dialog that is still open keeps the call window's ownership.

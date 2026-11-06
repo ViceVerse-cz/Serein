@@ -255,10 +255,10 @@ impl MessagingUi {
 			let ctx = ui.ctx().clone();
 			self.confirm_friend_removal(&ctx, state, &mut commands);
 			self.profile_dialogs(ui, state, &mut commands);
-			// A viewer's original or link opens the confirmation in this window.
-			self.claim_popout_links(&links_before);
 			self.release_profile_dialogs();
 		}
+		// A link this window opened, from chat, a card or a viewer, keeps its confirmation here.
+		self.claim_popout_links(&links_before);
 		if self.popout_links {
 			self.link_confirmations(ui.ctx());
 			self.popout_links =
