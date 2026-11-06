@@ -3091,17 +3091,23 @@ impl MessagingUi {
 					});
 				return;
 			}
-			design::glass_frame(ui, colors.raised, egui::Margin::same(12))
+			// Same margin and row height as the writable composer, so switching channels
+			// never resizes the bar.
+			design::glass_frame(ui, colors.raised, egui::Margin::symmetric(10, 6))
 				.corner_radius(8)
 				.show(ui, |ui| {
-					let mut hint =
-						"You don't have permission to send messages in this channel.".to_owned();
-					ui.add_enabled(
-						false,
-						TextEdit::singleline(&mut hint)
-							.align(egui::Align2::LEFT_CENTER)
-							.desired_width(f32::INFINITY)
-							.frame(egui::Frame::NONE),
+					let hint = "You don't have permission to send messages in this channel.";
+					ui.allocate_ui_with_layout(
+						egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+						egui::Layout::left_to_right(egui::Align::Center),
+						|ui| {
+							ui.add_space(4.0);
+							ui.add(
+								egui::Label::new(egui::RichText::new(hint).color(colors.muted))
+									.truncate(),
+							)
+							.on_hover_text(hint);
+						},
 					);
 				});
 			return;
