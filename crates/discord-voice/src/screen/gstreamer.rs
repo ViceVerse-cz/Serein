@@ -87,9 +87,12 @@ impl Capture {
 		);
 		let preview_size = format!("width={},height={}", settings.width, settings.height);
 		let (scale, preview_scale) = match mode {
+			// Some drivers (Mesa radeonsi) ignore the border colour and leave the padding
+			// zeroed, which is green in NV12. Zero is black in RGB, so pad there and convert
+			// to NV12 in a second pass without borders; both stay in GPU memory.
 			Mode::Va => (
 				format!(
-					"vapostproc add-borders=true ! video/x-raw(memory:VAMemory),format=NV12,{size}"
+					"vapostproc add-borders=true ! video/x-raw(memory:VAMemory),format=BGRx,{size} ! vapostproc ! video/x-raw(memory:VAMemory),format=NV12,{size}"
 				),
 				format!("vapostproc add-borders=true ! video/x-raw,format=BGRA,{preview_size}"),
 			),
