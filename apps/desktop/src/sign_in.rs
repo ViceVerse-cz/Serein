@@ -195,7 +195,21 @@ impl Desktop {
 	}
 	/// Confirms first when work would be lost, then ends the session for `intent`.
 	pub(super) fn request_session_end(&mut self, ctx: &egui::Context, intent: SessionEnd) {
-		if self.state.has_unsent()
+		// Switching or adding keeps drafts the local cache has saved; logout removes them.
+		let drafts_kept = !intent.forgets()
+			&& !self.state.demo
+			&& !self.fixture_only
+			&& self.cache.is_some()
+			&& !self.cache_error;
+		let unsent = if drafts_kept {
+			self.state
+				.pending
+				.iter()
+				.any(|p| p.delivery != Delivery::Confirmed)
+		} else {
+			self.state.has_unsent()
+		};
+		if unsent
 			|| self.messaging.has_edit()
 			|| self.messaging.has_server_settings_changes()
 			|| self.messaging.extensions.theme_editor_dirty()
