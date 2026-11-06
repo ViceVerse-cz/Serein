@@ -561,10 +561,15 @@ has not been tested by the agent.
 
 Guild channel rows support right-click and Shift+F10 actions. Mark As Read uses
 the existing acknowledgement adapter without changing the selected conversation;
-Invite to Channel opens the existing invite dialog for that channel. Favorites
-and pinned DMs are account-isolated local shortcuts, not Discord-synchronized
-favorites. Pinned DMs sit above the home list. Guild channels use the existing
-Favorites shelf. Neither uses an unverified settings-proto field.
+Invite to Channel opens the existing invite dialog for that channel. Pin and
+favorite writes stay device-local shortcuts, not Discord-synchronized writes.
+Synced account favorites are *read* from the unofficial settings-proto/1
+`favorites` subtree (field 13, discord-protos schema; live-verified flag:
+unverified) carried by the existing guild-folder read: top-level channel
+references lift into Home's Pinned shelf and guild Favorites shelves in
+`position` order, with device-local choices winning ties. Foldered favorites
+stay out. Pinned DMs sit above the home list. Folder patch writes only touch
+the folders subtree, so upstream favorites survive saves.
 
 The empty channel-list area also has a server-scoped right-click menu. Hide Muted
 Channels is Discord's per-server `hide_muted_channels` flag on user guild settings,

@@ -4,7 +4,9 @@ use crate::DecodeError;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use model::{
 	Id,
-	guild_folders::{Folder, MAX_FOLDERS, MAX_GUILDS, MAX_NAME_CHARS, Settings},
+	guild_folders::{
+		FavoriteChannel, Folder, MAX_FAVORITES, MAX_FOLDERS, MAX_GUILDS, MAX_NAME_CHARS, Settings,
+	},
 };
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -57,6 +59,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Decoded, DecodeError> {
 	let mut unknown = HashMap::new();
 	let mut version_seen = false;
 	let mut folders_seen = false;
+	let mut favorites_seen = false;
 	for field in fields(&wire)? {
 		match field.number {
 			1 => {
@@ -91,6 +94,64 @@ pub fn decode_response(bytes: &[u8]) -> Result<Decoded, DecodeError> {
 					}
 				}
 				(settings.folders, unknown) = normalize(entries);
+			}
+			// Unofficial favorites subtree (discord-protos: Favorites, field 13).
+			// favorite_channels is a map<uint64, FavoriteChannel> encoded as repeated
+			// {1: key, 2: value} entries. Live-verified flag: unverified.
+			13 => {
+				if favorites_seen {
+					return Err(DecodeError);
+				}
+				favorites_seen = true;
+				let value = field.message()?;
+				if value.len() > MAX_FOLDER_WIRE {
+					return Err(DecodeError);
+				}
+				for entry in fields(value)? {
+					if entry.number != 1 {
+						continue;
+					}
+					let mut channel_id = None;
+					let mut favorite = FavoriteChannel::default();
+					for part in fields(entry.message()?)? {
+						match part.number {
+							1 => channel_id = Some(part.integer()?),
+							2 => {
+								for item in fields(part.message()?)? {
+									match item.number {
+										1 => {
+											let name = String::from_utf8_lossy(item.message()?)
+												.chars()
+												.map(|c| if c.is_control() { ' ' } else { c })
+												.take(MAX_NAME_CHARS)
+												.collect::<String>();
+											favorite.nickname = (!name.is_empty()).then_some(name);
+										}
+										2 => favorite.position = item.integer()?,
+										3 => {
+											let id = item.integer()?;
+											favorite.parent_id = (id != 0).then_some(Id(id));
+										}
+										4 => {
+											favorite.kind = u8::try_from(item.integer()?)
+												.map_err(|_| DecodeError)?;
+										}
+										_ => {}
+									}
+								}
+							}
+							_ => {}
+						}
+					}
+					if let Some(id) = channel_id
+						&& id != 0 && !settings.favorites.contains_key(&Id(id))
+					{
+						if settings.favorites.len() >= MAX_FAVORITES {
+							return Err(DecodeError);
+						}
+						settings.favorites.insert(Id(id), favorite);
+					}
+				}
 			}
 			_ => {}
 		}
@@ -381,6 +442,7 @@ mod tests {
 				color: Some(0),
 			}],
 			version: 0,
+			..Default::default()
 		};
 		let patch = encode_patch(&current, &settings).unwrap();
 		let mut wire = vec![10, 0]; // Present version message; data version defaults to zero.
@@ -476,5 +538,39 @@ mod tests {
 		assert_eq!(saved.settings, decoded.settings);
 		assert!(saved.unknown.contains_key(&Key::Folder(5)));
 		assert!(saved.unknown.contains_key(&Key::Server(Id(404))));
+	}
+
+	/// Favorites map entries decode with bounds; folder patches leave the
+	/// favorites subtree alone on the wire.
+	#[test]
+	fn favorites_decode_entries_and_survive_folder_patches() {
+		let mut entry = Vec::new();
+		write_varint(1 << 3 | 0, &mut entry); // map key (varint)
+		write_varint(50, &mut entry);
+		let mut value = Vec::new();
+		{
+			let mut nick = Vec::new();
+			message(1, b"bestie", &mut nick);
+			value.extend_from_slice(&nick);
+		}
+		write_varint(2 << 3 | 0, &mut value); // position
+		write_varint(3, &mut value);
+		write_varint(3 << 3 | 0, &mut value); // parent_id
+		write_varint(9, &mut value);
+		write_varint(4 << 3 | 0, &mut value); // type = 1 channel ref
+		write_varint(1, &mut value);
+		message(2, &value, &mut entry);
+
+		let mut favorites = Vec::new();
+		message(1, &entry, &mut favorites);
+		let mut wire = vec![10, 2, 24, 3];
+		message(13, &favorites, &mut wire);
+		let response = serde_json::json!({"settings": STANDARD.encode(&wire)}).to_string();
+		let decoded = decode_response(response.as_bytes()).unwrap();
+		let favorite = decoded.settings.favorites.get(&Id(50)).unwrap();
+		assert_eq!(favorite.nickname.as_deref(), Some("bestie"));
+		assert_eq!(favorite.position, 3);
+		assert_eq!(favorite.parent_id, Some(Id(9)));
+		assert_eq!(favorite.kind, 1);
 	}
 }

@@ -1962,6 +1962,44 @@ mod tests {
 		));
 	}
 
+	/// Account favorites from the settings read join the Pinned shelf without a
+	/// device-local pin; foldered favorites and non-channel entries stay out.
+	#[test]
+	fn synced_favorites_lift_channels_into_the_pinned_shelf() {
+		let mut state = test_support::demo_state();
+		state.channels.retain(|c| c.guild.is_some());
+		let mut dm = channel(30, 1, 0, None);
+		dm.guild = None;
+		let mut nested = channel(31, 1, 0, None);
+		nested.guild = None;
+		state.channels.extend([dm, nested]);
+		let mut favorites = std::collections::BTreeMap::new();
+		favorites.insert(
+			Id(30),
+			model::guild_folders::FavoriteChannel {
+				position: 0,
+				kind: 1,
+				..Default::default()
+			},
+		);
+		favorites.insert(
+			Id(31),
+			model::guild_folders::FavoriteChannel {
+				position: 1,
+				parent_id: Some(Id(99)),
+				kind: 1,
+				..Default::default()
+			},
+		);
+		state.guild_folders = Some(model::guild_folders::Settings {
+			favorites,
+			..Default::default()
+		});
+		let roster = Roster::build(&state, &Default::default(), Scope::Home, false);
+		assert!(roster.lifted(Id(30)));
+		assert!(!roster.lifted(Id(31)), "foldered favorites stay nested out");
+	}
+
 	/// Regression: the DM heading carries New Message, so it stays without unpinned DMs.
 	#[test]
 	fn the_direct_message_heading_stays_when_no_unpinned_dms_remain() {

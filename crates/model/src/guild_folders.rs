@@ -7,6 +7,7 @@ pub const MAX_GUILDS: usize = 1000;
 pub const MAX_NAME_BYTES: usize = 400;
 pub const MAX_NAME_CHARS: usize = 100;
 pub const MAX_HEAP_BYTES: usize = 128 * 1024;
+pub const MAX_FAVORITES: usize = 256;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Folder {
@@ -16,18 +17,40 @@ pub struct Folder {
 	pub color: Option<u32>,
 }
 
+/// One favorited channel in the account's favorites subtree. `kind == 1` is a
+/// channel reference; `kind == 2` is a favorite category other channels parent to.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FavoriteChannel {
+	pub nickname: Option<String>,
+	pub position: u64,
+	pub parent_id: Option<Id>,
+	pub kind: u8,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Settings {
 	pub folders: Vec<Folder>,
+	/// Account favorites, keyed by channel id, in `position` order on Discord's side.
+	pub favorites: std::collections::BTreeMap<Id, FavoriteChannel>,
 	pub version: u64,
 }
 
 impl Settings {
 	pub fn valid(&self) -> bool {
 		if self.folders.len() > MAX_FOLDERS
+			|| self.favorites.len() > MAX_FAVORITES
 			|| self.heap_bytes() > MAX_HEAP_BYTES
 			|| self.version > u32::MAX.into()
 		{
+			return false;
+		}
+		if !self.favorites.values().all(|favorite| {
+			favorite.nickname.as_ref().is_none_or(|name| {
+				name.len() <= MAX_NAME_BYTES
+					&& name.chars().count() <= MAX_NAME_CHARS
+					&& !name.chars().any(char::is_control)
+			})
+		}) {
 			return false;
 		}
 		let mut guilds = HashSet::new();
@@ -52,6 +75,17 @@ impl Settings {
 		self.folders
 			.capacity()
 			.saturating_mul(size_of::<Folder>())
+			.saturating_add(
+				self.favorites
+					.len()
+					.saturating_mul(size_of::<(Id, FavoriteChannel)>())
+					.saturating_add(
+						self.favorites
+							.values()
+							.map(|f| f.nickname.as_ref().map_or(0, String::capacity))
+							.fold(0usize, usize::saturating_add),
+					),
+			)
 			.saturating_add(
 				self.folders
 					.iter()

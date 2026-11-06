@@ -1099,6 +1099,7 @@ pub fn seed_demo_folder_mosaic(state: &mut State) {
 			},
 		],
 		version: 0,
+		..Default::default()
 	});
 }
 

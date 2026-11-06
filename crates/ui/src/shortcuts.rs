@@ -102,6 +102,23 @@ impl<'a> Roster<'a> {
 				rank.entry(*id).or_insert((index, position));
 			}
 		}
+		// Account favorites from the settings-proto/1 read overlay the matching
+		// shelf: top-level channel references pin into Home's Pinned roster and
+		// guild favorites into its Favorites shelf. Device-local choices win ties.
+		if let Some(settings) = &state.guild_folders {
+			let kind = match scope {
+				Scope::Home => Shortcut::Pinned,
+				Scope::Guild(_) => Shortcut::Favorite,
+			};
+			if let Some(index) = rosters.iter().position(|(k, _)| *k == kind) {
+				for (id, favorite) in &settings.favorites {
+					if favorite.kind == 1 && favorite.parent_id.is_none() {
+						rank.entry(*id)
+							.or_insert((index, favorite.position as usize));
+					}
+				}
+			}
+		}
 		let mut buckets: Vec<Vec<(usize, &Channel)>> = vec![Vec::new(); rosters.len()];
 		for channel in &state.channels {
 			if let Some(&(index, position)) = rank.get(&channel.id)

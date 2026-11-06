@@ -7,6 +7,7 @@ use serde::Deserialize;
 const MAX_UPDATE_BYTES: usize = crate::guild_folders::MAX_SETTINGS_RESPONSE;
 const PRELOADED_SETTINGS: u8 = 1;
 const STATUS_FIELD: u64 = 11;
+const FAVORITES_FIELD: u64 = 13;
 const FOLDERS_FIELD: u64 = 14;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -47,7 +48,11 @@ pub fn decode(bytes: &[u8]) -> Result<Option<Touched>, DecodeError> {
 	};
 	Ok(Some(Touched {
 		status: fields.iter().any(|field| field.number == STATUS_FIELD),
-		folders: fields.iter().any(|field| field.number == FOLDERS_FIELD),
+		// Favorites and folders share the settings-proto/1 read, so either
+		// subtree changing refreshes both.
+		folders: fields
+			.iter()
+			.any(|field| field.number == FOLDERS_FIELD || field.number == FAVORITES_FIELD),
 	}))
 }
 
