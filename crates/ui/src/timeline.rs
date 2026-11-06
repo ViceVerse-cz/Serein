@@ -411,7 +411,7 @@ const GROUPED_ROW_SAVINGS: f32 = 52.0;
 
 /// Space above a new message group: cozy by default, tighter when compact spacing is on.
 pub(crate) fn group_gap(compact_messages: bool) -> i8 {
-	if compact_messages { 4 } else { 10 }
+	if compact_messages { 4 } else { 16 }
 }
 
 fn reserved_chrome(ui: &egui::Ui, message: &Message, width: f32) -> f32 {
@@ -4150,8 +4150,9 @@ impl TimelineView {
 							surface.finish(ui);
 						});
 					let rect = row.response.rect;
-					// Group starts lost 8 px of top margin; keep the toolbar where it sat.
-					let toolbar_top = rect.top() - if compact { 10.0 } else { 18.0 };
+					// A group start's toolbar rises into the gap above it but stops short of the
+					// previous message, as in Discord.
+					let toolbar_top = rect.top() - if compact { 10.0 } else { 12.0 };
 					if let Some(pos) = double_click
 						&& let Some(text) = self.double_click_reaction
 						&& !deleted && rect.contains(pos)
