@@ -49,7 +49,8 @@ pub(crate) struct Activity {
 	counts: BTreeMap<Id, u32>,
 	high_water: BTreeMap<Id, Id>,
 	observed_counts: BTreeMap<Id, (u32, u32)>,
-	observed: VecDeque<(Id, Id, bool)>,
+	/// Channel, message, mention, and whether the current service count already covers it.
+	observed: VecDeque<(Id, Id, bool, bool)>,
 	notifications: VecDeque<Notification>,
 }
 impl Activity {
@@ -68,7 +69,7 @@ impl Activity {
 	}
 	pub(crate) fn delete(&mut self, channel: Id, message: Id) {
 		self.observed
-			.retain(|(c, id, _)| (*c, *id) != (channel, message));
+			.retain(|(c, id, ..)| (*c, *id) != (channel, message));
 		self.notifications
 			.retain(|n| (n.channel, n.message) != (channel, message));
 		if self.observed_counts.contains_key(&channel) {
@@ -84,35 +85,56 @@ impl Activity {
 	}
 	fn retain_unread(&mut self, channel: Id, message: Option<Id>) {
 		self.observed
-			.retain(|(c, id, _)| *c != channel || message.is_none_or(|read| *id > read));
+			.retain(|(c, id, ..)| *c != channel || message.is_none_or(|read| *id > read));
 		self.notifications
 			.retain(|n| n.channel != channel || message.is_none_or(|read| n.message > read));
 	}
-	/// HTTP success has no refreshed badge count. Keep the service baseline while
-	/// newer messages remain; only a Gateway ACK can reconcile that baseline exactly.
+	/// HTTP success removes known acknowledged mentions without discarding unknown service
+	/// activity. The monotonic high water prevents stale latest metadata clearing the baseline.
 	pub(crate) fn ack_local(&mut self, channel: Id, message: Id, latest: Option<Id>) {
+		let acknowledged = self
+			.observed
+			.iter()
+			.filter(|(c, id, mention, covered)| {
+				*c == channel && *id <= message && *mention && *covered
+			})
+			.count() as u32;
+		if let Some(count) = self.counts.get_mut(&channel) {
+			*count = count.saturating_sub(acknowledged);
+		}
 		self.retain_unread(channel, Some(message));
-		if latest.is_none_or(|latest| latest <= message) {
+		let latest = latest.max(self.high_water.get(&channel).copied());
+		if latest.is_some_and(|latest| latest <= message) {
 			self.counts.remove(&channel);
 		}
 		self.recount(channel);
 	}
+
 	pub(crate) fn ack(&mut self, channel: Id, message: Option<Id>, count: Option<u32>) {
 		self.retain_unread(channel, message);
 		// The service count includes messages after this ACK. Avoid counting those twice.
 		if let Some(count) = count {
 			self.counts.insert(channel, count);
-			self.observed.retain(|(c, ..)| *c != channel);
+			for (c, _, _, covered) in &mut self.observed {
+				if *c == channel {
+					*covered = true;
+				}
+			}
 		} else {
 			// Without a refreshed service count, only retained observed messages are countable.
 			self.counts.remove(&channel);
+			for (c, _, _, covered) in &mut self.observed {
+				if *c == channel {
+					*covered = false;
+				}
+			}
 		}
 		self.recount(channel);
 	}
 	fn recount(&mut self, channel: Id) {
 		let mut counts = (0, 0);
-		for (c, _, mention) in &self.observed {
-			if *c == channel {
+		for (c, _, mention, covered) in &self.observed {
+			if *c == channel && !covered {
 				counts.0 += 1;
 				counts.1 += u32::from(*mention);
 			}
@@ -945,10 +967,11 @@ impl State {
 			let activity = &mut self.read_state.activity;
 			// ponytail: retain 4096 observed messages; counts become a lower bound after eviction.
 			while activity.observed.len() >= MAX_OBSERVED
-				|| (activity.observed.len() + 1) * size_of::<(Id, Id, bool)>() > MAX_OBSERVED_BYTES
+				|| (activity.observed.len() + 1) * size_of::<(Id, Id, bool, bool)>()
+					> MAX_OBSERVED_BYTES
 			{
-				if let Some((channel, _, mention)) = activity.observed.pop_front()
-					&& let Some(counts) = activity.observed_counts.get_mut(&channel)
+				if let Some((channel, _, mention, covered)) = activity.observed.pop_front()
+					&& !covered && let Some(counts) = activity.observed_counts.get_mut(&channel)
 				{
 					counts.0 -= 1;
 					counts.1 -= u32::from(mention);
@@ -959,7 +982,7 @@ impl State {
 			}
 			activity
 				.observed
-				.push_back((message.channel, message.id, mention));
+				.push_back((message.channel, message.id, mention, false));
 			let counts = activity.observed_counts.entry(message.channel).or_default();
 			counts.0 += 1;
 			counts.1 += u32::from(mention);
@@ -1728,7 +1751,7 @@ mod tests {
 		assert!(activity.observed_counts.is_empty());
 		assert!(activity.high_water.is_empty());
 		assert!(activity.counts.is_empty());
-		activity.observed.push_back((Id(1), Id(2), true));
+		activity.observed.push_back((Id(1), Id(2), true, false));
 		activity.recount(Id(1));
 		assert_eq!(activity.count(Id(1), true), 1);
 		activity.delete(Id(1), Id(2));

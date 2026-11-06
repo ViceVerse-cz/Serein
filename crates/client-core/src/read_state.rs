@@ -804,19 +804,37 @@ impl State {
 				self.read_state
 					.entries
 					.insert(channel, (message, self.read_state.revision));
-				if !manual
-					&& let Some(Pending::Channel {
-						channel: pending_channel,
-						message: pending_message,
-						epoch,
-						manual: false,
-						..
-					}) = &mut self.read_state.pending
-					&& *pending_channel == channel
-					&& *epoch == previous_epoch
-					&& message.is_none_or(|message| message < *pending_message)
-				{
-					*epoch = self.read_state.revision;
+				if !manual {
+					let revision = self.read_state.revision;
+					let advance = |epoch: &mut u64, target: Id| {
+						if *epoch == previous_epoch && message.is_none_or(|id| id < target) {
+							*epoch = revision;
+						}
+					};
+					match &mut self.read_state.pending {
+						Some(Pending::Channel {
+							channel: pending,
+							message: target,
+							epoch,
+							manual: false,
+							..
+						}) if *pending == channel => advance(epoch, *target),
+						Some(Pending::Guild { channels, .. }) => {
+							for (pending, epoch, target) in channels {
+								if *pending == channel {
+									advance(epoch, *target);
+								}
+							}
+						}
+						Some(Pending::All { channels, .. }) => {
+							for (pending, epoch, target) in channels.iter_mut().flatten() {
+								if *pending == channel {
+									advance(epoch, *target);
+								}
+							}
+						}
+						_ => {}
+					}
 				}
 				if self.read_state.status(channel).is_some() {
 					self.read_state.status = None;
@@ -997,10 +1015,8 @@ impl State {
 					{
 						continue;
 					}
-					self.read_state
-						.activity
-						// Messages newer than this cursor keep their badge until the Gateway ACK.
-						.ack(channel, Some(message), None);
+					let latest = self.channel(channel).and_then(|c| c.last_message);
+					self.read_state.activity.ack_local(channel, message, latest);
 					self.read_state
 						.entries
 						.insert(channel, (Some(message), revision));
@@ -1387,6 +1403,106 @@ mod navigation_tests {
 		});
 	}
 	#[test]
+	fn bulk_reads_survive_older_automatic_acks_but_not_manual_updates() {
+		for guild in [false, true] {
+			for manual in [false, true] {
+				let mut state = state(Some(Id(100)));
+				let Command::MarkAllRead { request, .. } = state.prepare_mark_all_read().unwrap()
+				else {
+					panic!("bulk read")
+				};
+				if guild {
+					let Some(Pending::All { channels, .. }) = state.read_state.pending.take()
+					else {
+						panic!("pending bulk")
+					};
+					state.read_state.pending = Some(Pending::Guild {
+						guild: Id(42),
+						request,
+						channels: channels.into_iter().flatten().collect(),
+					});
+				}
+				if manual {
+					state
+						.apply_read_state(Event::Ack {
+							channel: Id(1),
+							message: Some(Id(99)),
+							manual: true,
+							mention_count: None,
+							version: None,
+						})
+						.unwrap();
+				}
+				state
+					.apply_read_state(Event::Ack {
+						channel: Id(1),
+						message: Some(Id(100)),
+						manual: false,
+						mention_count: Some(1),
+						version: None,
+					})
+					.unwrap();
+				state
+					.apply_read_state(if guild {
+						Event::GuildAck {
+							guild: Id(42),
+							request,
+							result: Ok(()),
+						}
+					} else {
+						Event::AllAck {
+							request,
+							acked: 1,
+							result: Ok(()),
+						}
+					})
+					.unwrap();
+				assert_eq!(
+					state.read_marker(Id(1)),
+					Some(Some(Id(if manual { 100 } else { 500 })))
+				);
+				assert_eq!(state.unread(Id(1)), Some(manual));
+			}
+		}
+	}
+	#[test]
+	fn stale_latest_metadata_cannot_clear_a_newer_service_baseline() {
+		for latest in [Patch::Value(Id(500)), Patch::Null] {
+			let mut state = state(Some(Id(100)));
+			let Command::MarkRead {
+				channel,
+				message,
+				request,
+				..
+			} = state.prepare_mark_read(Id(500)).unwrap()
+			else {
+				panic!("read")
+			};
+			state.observe_last_message(channel, Id(600));
+			state
+				.apply_read_state(Event::Ack {
+					channel,
+					message: Some(Id(100)),
+					manual: false,
+					mention_count: Some(2),
+					version: None,
+				})
+				.unwrap();
+			state
+				.apply_read_state(Event::Latest(vec![(channel, latest)]))
+				.unwrap();
+			state
+				.apply_read_state(Event::Result {
+					channel,
+					message,
+					request,
+					result: Ok(()),
+				})
+				.unwrap();
+			assert_eq!(state.mention_count(channel), 2);
+		}
+	}
+	#[test]
 	fn automatic_ack_racing_read_result_does_not_restore_unread() {
 		for manual_unread in [false, true] {
 			let mut state = state(Some(Id(100)));
@@ -1459,6 +1575,18 @@ mod navigation_tests {
 				row.author.id = Id(999);
 				row
 			};
+			state
+				.apply_notification_preferences(crate::notifications::Event::Settings {
+					entries: vec![],
+					replace: true,
+				})
+				.unwrap();
+			state
+				.apply_notification_preferences(crate::notifications::Event::Presence(Some(false)))
+				.unwrap();
+			assert!(state.notification_allowed(channel));
+			state.read_state.activity.forget(channel);
+			apply(&mut state, CoreEvent::Message(incoming(500)));
 			if newer {
 				apply(&mut state, CoreEvent::Message(incoming(501)));
 			}
@@ -1467,7 +1595,7 @@ mod navigation_tests {
 					channel,
 					message: Some(Id(100)),
 					manual: false,
-					mention_count: Some(1),
+					mention_count: Some(if newer { 2 } else { 1 }),
 					version: None,
 				})
 				.unwrap();
@@ -1483,6 +1611,13 @@ mod navigation_tests {
 					result: Ok(()),
 				})
 				.unwrap();
+			let queued = state.take_notification().map(|n| n.message);
+			assert_eq!(queued, newer.then_some(Id(501)));
+			assert_eq!(
+				state.take_notification().map(|n| n.message),
+				newer.then_some(Id(502))
+			);
+			assert!(state.take_notification().is_none());
 			assert_eq!(state.read_marker(channel), Some(Some(Id(500))));
 			assert_eq!(state.unread(channel), Some(newer));
 			assert_eq!(state.unread_count(channel), if newer { 2 } else { 0 });

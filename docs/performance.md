@@ -4,6 +4,26 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Read ACK reconciliation — November 6, 2026
+
+Review follow-up against PR #908 head `449211db`, Ubuntu 24.04.5 x86-64 on an Intel i5-1235U,
+Rust 1.98.1 and locked dependencies. The standard synthetic reducer replay uses 100,000 events.
+Each release binary ran once for warmup, then five alternating before/after pairs. Release package
+compilation was active in the background, so these overlapping ranges are not evidence of a speedup.
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Median replay time | 70.850 ms | 64.602 ms |
+| Observed replay range | 65.061–71.345 ms | 63.864–74.138 ms |
+| Retained timeline estimate | 401,492–401,977 B | 401,492–401,977 B |
+| Retained timeline rows | 500 | 500 |
+
+This workload does not isolate ACK reconciliation, process RSS, UI latency or Discord behavior.
+The activity ledger still admits at most 4,096 rows / 128 KiB. Each observed row now retains a
+service-coverage flag so partial local reads can reconcile known mentions without duplicate counts.
+Three synthetic read-state regressions fail against the original production code and pass after
+the changes; no live account data, OS notifications or Discord acknowledgements were used.
+
 ## Window placement save after a move — November 5, 2026
 
 Baseline `2b593b1` (`main` after #893) and this branch were built with the pinned Rust 1.98.1
