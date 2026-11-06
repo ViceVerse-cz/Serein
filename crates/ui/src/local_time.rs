@@ -180,6 +180,17 @@ pub fn discord_timestamp(seconds: i64, style: u8) -> Option<String> {
 			date.day(),
 			date.year()
 		),
+		b's' | b'S' => format!(
+			"{:02}/{:02}/{}, {}",
+			u8::from(date.month()),
+			date.day(),
+			date.year(),
+			if style == b'S' {
+				clock_seconds(at)
+			} else {
+				clock
+			}
+		),
 		b'D' => format!("{} {}, {}", date.month(), date.day(), date.year()),
 		b'F' => format!(
 			"{}, {} {}, {} {clock}",
@@ -514,6 +525,8 @@ mod tests {
 			(b't', "22:13"),
 			(b'T', "22:13:20"),
 			(b'd', "11/14/2023"),
+			(b's', "11/14/2023, 22:13"),
+			(b'S', "11/14/2023, 22:13:20"),
 			(b'D', "November 14, 2023"),
 			(b'f', "November 14, 2023 22:13"),
 			(b'F', "Tuesday, November 14, 2023 22:13"),

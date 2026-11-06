@@ -166,6 +166,7 @@ impl Revealed {
 	fn fingerprint(message: &Message) -> u64 {
 		let mut hasher = DefaultHasher::new();
 		message.content.hash(&mut hasher);
+		message.suppress_notifications.hash(&mut hasher);
 		message.embeds.hash(&mut hasher);
 		message.attachments.hash(&mut hasher);
 		hasher.finish()
@@ -336,6 +337,7 @@ fn layout_key(message: &Message) -> u64 {
 	message.author.kind.hash(&mut key);
 	message.author.webhook.hash(&mut key);
 	message.edited.hash(&mut key);
+	message.suppress_notifications.hash(&mut key);
 	message.reply_to.hash(&mut key);
 	if let Some(interaction) = &message.interaction {
 		interaction.user.id.hash(&mut key);
@@ -3633,6 +3635,9 @@ impl TimelineView {
 												&mut self.threads_request,
 											),
 										);
+									}
+									if message.suppress_notifications {
+										crate::timestamp_picker::silent_indicator(ui);
 									}
 									let body = egui::Frame::NONE
 										.inner_margin(egui::Margin {

@@ -3029,6 +3029,34 @@ impl Formatted {
 #[cfg(test)]
 mod tests {
 	#[test]
+	fn timestamps_resolve_in_bodies_and_previews_while_code_and_escapes_stay_literal() {
+		let ctx = egui::Context::default();
+		for style in *b"tTdDfFsSR" {
+			let raw = format!("<t:0:{}>", char::from(style));
+			let formatted = super::Formatted::parse(&raw);
+			let expected = crate::local_time::discord_timestamp(0, style).unwrap();
+			let output = ctx.run_ui(Default::default(), |ui| {
+				let mut preview = egui::text::LayoutJob::default();
+				formatted.append_inline_preview(&mut preview, ui, &[], None, &[], &[]);
+				assert_eq!(preview.text, expected);
+				formatted.show(ui, &mut None);
+			});
+			assert!(output.shapes.iter().any(
+				|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == expected)
+			));
+			output.drop_without_applying_deltas();
+		}
+		for raw in ["`<t:0>`", "\\<t:0>", "<t:0:bad>"] {
+			let formatted = super::Formatted::parse(raw);
+			assert!(
+				formatted
+					.spans
+					.iter()
+					.all(|(_, style)| style.timestamp.is_none())
+			);
+		}
+	}
+	#[test]
 	fn inline_preview_truncates_long_messages_with_ellipsis() {
 		let ctx = egui::Context::default();
 		let output = ctx.run_ui(Default::default(), |ui| {

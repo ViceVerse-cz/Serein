@@ -35,13 +35,24 @@ pub(crate) fn insert(
 	remaining: usize,
 	editing: bool,
 ) -> Option<usize> {
+	let limit = composer_limit(draft, editing);
+	insert_with_limit(draft, text, range, remaining, limit)
+}
+
+pub(crate) fn insert_with_limit(
+	draft: &mut String,
+	text: &str,
+	range: Option<egui::text::CCursorRange>,
+	remaining: usize,
+	limit: usize,
+) -> Option<usize> {
 	let count = draft.chars().count();
 	let (start, end) = range.map_or((count, count), |range| {
 		let range = range.as_sorted_char_range();
 		(range.start.0.min(count), range.end.0.min(count))
 	});
 	let inserted = text.chars().count();
-	if count - (end - start) + inserted > composer_limit(draft, editing) {
+	if count - (end - start) + inserted > limit {
 		return None;
 	}
 	let byte_start = draft
