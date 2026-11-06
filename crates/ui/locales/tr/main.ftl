@@ -51,8 +51,10 @@ general-start-minimized = Küçültülmüş başlangıç
 general-start-minimized-description = Arka planda başlayın, yolunuzdan çekilin.
 general-startup-unavailable = Otomatik başlatma Windows ve macOS'ta mevcuttur.
 general-window = Pencere
-general-hide-decorations = Pencere dekorasyonlarını gizle
-general-hide-decorations-description = Sistem başlık çubuğunu ve kenarlıklarını kaldırın. Serein'i taşımak, yeniden boyutlandırmak veya kapatmak için pencere yöneticinizi kullanın.
+general-hide-decorations = Başlık çubuğu yok
+general-hide-decorations-description = Döşemeli pencere yöneticileri için: Serein'in kendi başlık çubuğu dahil tüm başlık çubuklarını ve kenarlıkları kaldırır. Serein'i taşımak, yeniden boyutlandırmak veya kapatmak için pencere yöneticinizi kullanın.
+general-custom-title-bar = Özel başlık çubuğu
+general-custom-title-bar-description = Sistem başlık çubuğunu Serein'in GTK 4 tarzındaki kendi başlık çubuğuyla değiştirir.
 general-hide-title-bar = Serein başlık çubuğunu gizle
 general-hide-title-bar-description = Bunun yerine sistem başlık çubuğunu ve pencere düğmelerini kullanın.
 general-keep-menu-bar = Serein'i menü çubuğunda tutun
@@ -65,6 +67,8 @@ general-graphics = Grafik
 general-render-with = Şununla oluştur:
 general-gpu-restart = Serein'in bir sonraki başlangıcında etkili olur.
 general-gpu-current-prefix = Şu anda çizim yapıyorum
+general-steady-refresh-rate = Sabit yenileme hızı
+general-steady-refresh-rate-description = Serein etkin pencereyken ekranın yenileme hızında çizer; böylece değişken yenileme hızlı (VRR, G-SYNC, FreeSync) ekranlar titremek yerine tek bir hızda kalabilir. Daha fazla güç tüketir.
 gpu-automatic = Otomatik
 gpu-high-performance = Yüksek performans
 gpu-power-saving = Güç tasarrufu
@@ -2254,6 +2258,12 @@ screen-body-frame-rate = Kare hızı
 screen-body-include-the-pointer-in-the-shared-video = İşaretçiyi paylaşılan videoya ekleyin.
 # Context: body
 screen-body-quality = Kalite
+# Context: body
+screen-body-source = Kaynak
+# Context: body
+screen-preview-paused-title = Yayınınız hâlâ devam ediyor!
+# Context: body
+screen-preview-paused-body = Kaynaklarınızı korumak için bu önizlemeyi duraklattık.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = Kaliteli seçim Nitro gerektirmez.
 # Context: body

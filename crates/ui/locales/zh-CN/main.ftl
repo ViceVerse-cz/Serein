@@ -51,8 +51,10 @@ general-start-minimized = 最小化启动
 general-start-minimized-description = 在背景启动，不占用你的屏幕。
 general-startup-unavailable = 自动启动仅支持 Windows 和 macOS。
 general-window = 窗口
-general-hide-decorations = 隐藏窗口装饰
-general-hide-decorations-description = 拿掉系统标题列与边框，改用窗口管理员来移动、调整大小或关闭 Serein。
+general-hide-decorations = 无标题栏
+general-hide-decorations-description = 适用于平铺式窗口管理器：移除所有标题栏与边框，包括 Serein 自己的标题栏。请用窗口管理器移动、调整大小或关闭 Serein。
+general-custom-title-bar = 自定义标题列
+general-custom-title-bar-description = 以 Serein 自己的 GTK 4 风格标题列取代系统标题列。
 general-hide-title-bar = 隐藏 Serein 标题列
 general-hide-title-bar-description = 改用系统标题列与窗口按钮。
 general-keep-menu-bar = 让 Serein 留在菜单栏
@@ -65,6 +67,8 @@ general-graphics = 图形
 general-render-with = 渲染方式
 general-gpu-restart = 下次启动 Serein 时生效。
 general-gpu-current-prefix = 目前绘制使用
+general-steady-refresh-rate = 固定刷新率
+general-steady-refresh-rate-description = 当 Serein 是活动窗口时，会以显示器的刷新率绘制，让可变刷新率（VRR、G-SYNC、FreeSync）显示器可以保持同一刷新率而不会闪烁。会更耗电。
 gpu-automatic = 自动
 gpu-high-performance = 高性能
 gpu-power-saving = 省电
@@ -2284,6 +2288,12 @@ screen-body-frame-rate = 帧率
 screen-body-include-the-pointer-in-the-shared-video = 分享画面时包含鼠标指针。
 # Context: body
 screen-body-quality = 品质
+# Context: body
+screen-body-source = 源
+# Context: body
+screen-preview-paused-title = 你的直播仍在进行！
+# Context: body
+screen-preview-paused-body = 我们已暂停此预览以节省资源。
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = 选择品质不需要 Nitro。
 # Context: body

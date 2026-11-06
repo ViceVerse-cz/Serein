@@ -51,8 +51,10 @@ general-start-minimized = Iniciar minimizado
 general-start-minimized-description = Comece em segundo plano, fora do seu caminho.
 general-startup-unavailable = A inicialização automática está disponível no Windows e no macOS.
 general-window = Janela
-general-hide-decorations = Ocultar decorações de janelas
-general-hide-decorations-description = Remova a barra de título e as bordas do sistema. Use seu gerenciador de janelas para mover, redimensionar ou fechar o Serein.
+general-hide-decorations = Sem barra de título
+general-hide-decorations-description = Para gerenciadores de janelas lado a lado: remove todas as barras de título e bordas, incluindo a do próprio Serein. Mova, redimensione ou feche o Serein com seu gerenciador de janelas.
+general-custom-title-bar = Barra de título personalizada
+general-custom-title-bar-description = Substitui a barra de título do sistema pela barra de cabeçalho do próprio Serein, no estilo GTK 4.
 general-hide-title-bar = Ocultar barra de título do Serein
 general-hide-title-bar-description = Use a barra de título do sistema e os botões da janela.
 general-keep-menu-bar = Mantenha Serein na barra de menu
@@ -65,6 +67,8 @@ general-graphics = Gráficos
 general-render-with = Renderizar com
 general-gpu-restart = Entra em vigor na próxima vez que Serein for iniciado.
 general-gpu-current-prefix = Atualmente desenhando com
+general-steady-refresh-rate = Taxa de atualização estável
+general-steady-refresh-rate-description = Enquanto Serein é a janela ativa, desenha na taxa de atualização da tela, para que telas com taxa de atualização variável (VRR, G-SYNC, FreeSync) possam manter uma única taxa em vez de piscar. Consome mais energia.
 gpu-automatic = Automático
 gpu-high-performance = Alto desempenho
 gpu-power-saving = Economia de energia
@@ -2253,6 +2257,12 @@ screen-body-frame-rate = Taxa de quadros
 screen-body-include-the-pointer-in-the-shared-video = Inclua o ponteiro no vídeo compartilhado.
 # Context: body
 screen-body-quality = Qualidade
+# Context: body
+screen-body-source = Fonte
+# Context: body
+screen-preview-paused-title = Sua transmissão ainda está ativa!
+# Context: body
+screen-preview-paused-body = Pausamos esta prévia para economizar recursos.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = A seleção de qualidade não requer Nitro.
 # Context: body

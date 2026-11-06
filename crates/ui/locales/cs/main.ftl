@@ -51,8 +51,10 @@ general-start-minimized = Spustit minimalizovaně
 general-start-minimized-description = Spustí se na pozadí, aby vám nepřekážel.
 general-startup-unavailable = Automatické spuštění je dostupné ve Windows a macOS.
 general-window = Okno
-general-hide-decorations = Skrýt dekorace okna
-general-hide-decorations-description = Odebere systémový titulní pruh a okraje. K přesunu, změně velikosti nebo zavření použijte správce oken.
+general-hide-decorations = Bez záhlaví okna
+general-hide-decorations-description = Pro dlaždicové správce oken: odebere všechna záhlaví a okraje včetně záhlaví Serein. K přesunu, změně velikosti nebo zavření použijte správce oken.
+general-custom-title-bar = Vlastní záhlaví okna
+general-custom-title-bar-description = Nahradí systémový titulní pruh záhlavím Serein ve stylu GTK 4.
 general-hide-title-bar = Skrýt titulní pruh Sereinu
 general-hide-title-bar-description = Místo něj použije systémový titulní pruh a tlačítka okna.
 general-keep-menu-bar = Ponechat Serein v řádku nabídek
@@ -65,6 +67,8 @@ general-graphics = Grafika
 general-render-with = Vykreslovat pomocí
 general-gpu-restart = Projeví se při příštím spuštění Sereinu.
 general-gpu-current-prefix = Aktuálně vykresluje
+general-steady-refresh-rate = Stálá obnovovací frekvence
+general-steady-refresh-rate-description = Dokud je Serein aktivním oknem, vykresluje na obnovovací frekvenci displeje, takže monitory s proměnlivou obnovovací frekvencí (VRR, G-SYNC, FreeSync) mohou držet jednu frekvenci a neblikat. Spotřebovává více energie.
 gpu-automatic = Automaticky
 gpu-high-performance = Vysoký výkon
 gpu-power-saving = Úspora energie
@@ -2264,6 +2268,12 @@ screen-body-frame-rate = Snímková frekvence
 screen-body-include-the-pointer-in-the-shared-video = Zahrnout ukazatel do sdíleného videa.
 # Context: body
 screen-body-quality = Kvalitní
+# Context: body
+screen-body-source = Zdroj
+# Context: body
+screen-preview-paused-title = Váš stream stále běží!
+# Context: body
+screen-preview-paused-body = Náhled jsme pozastavili, abychom šetřili prostředky.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = Výběr kvality nevyžaduje Nitro.
 # Context: body

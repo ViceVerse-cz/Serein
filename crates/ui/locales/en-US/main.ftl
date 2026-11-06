@@ -51,8 +51,10 @@ general-start-minimized = Start minimized
 general-start-minimized-description = Start in the background, out of your way.
 general-startup-unavailable = Automatic startup is available on Windows and macOS.
 general-window = Window
-general-hide-decorations = Hide window decorations
-general-hide-decorations-description = Remove the system title bar and borders. Use your window manager to move, resize or close Serein.
+general-hide-decorations = No title bar
+general-hide-decorations-description = For tiling window managers: remove every title bar and border, including Serein's own. Move, resize and close Serein with your window manager.
+general-custom-title-bar = Custom title bar
+general-custom-title-bar-description = Replace the system title bar with Serein's own GTK 4 style header bar.
 general-hide-title-bar = Hide Serein title bar
 general-hide-title-bar-description = Use the system title bar and window buttons instead.
 general-keep-menu-bar = Keep Serein in the menu bar
@@ -65,6 +67,8 @@ general-graphics = Graphics
 general-render-with = Render with
 general-gpu-restart = Takes effect the next time Serein starts.
 general-gpu-current-prefix = Currently drawing with
+general-steady-refresh-rate = Steady refresh rate
+general-steady-refresh-rate-description = While Serein is the active window, draw at the display's refresh rate so variable refresh rate (VRR, G-SYNC, FreeSync) displays can hold one rate instead of flickering. Uses more power.
 gpu-automatic = Automatic
 gpu-high-performance = High performance
 gpu-power-saving = Power saving
@@ -2267,6 +2271,12 @@ screen-body-frame-rate = Frame rate
 screen-body-include-the-pointer-in-the-shared-video = Include the pointer in the shared video.
 # Context: body
 screen-body-quality = Quality
+# Context: body
+screen-body-source = Source
+# Context: body
+screen-preview-paused-title = Your stream is still running!
+# Context: body
+screen-preview-paused-body = We've paused this preview to save your resources.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = Quality selection does not require Nitro.
 # Context: body

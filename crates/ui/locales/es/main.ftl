@@ -51,8 +51,10 @@ general-start-minimized = Empezar minimizado
 general-start-minimized-description = Comience en segundo plano, fuera de su camino.
 general-startup-unavailable = El inicio automático está disponible en Windows y macOS.
 general-window = Ventana
-general-hide-decorations = Ocultar decoraciones de ventanas
-general-hide-decorations-description = Elimine la barra de título y los bordes del sistema. Utilice su administrador de ventanas para mover, cambiar el tamaño o cerrar Serein.
+general-hide-decorations = Sin barra de título
+general-hide-decorations-description = Para gestores de ventanas en mosaico: elimina todas las barras de título y bordes, incluida la propia de Serein. Mueve, cambia el tamaño o cierra Serein con tu gestor de ventanas.
+general-custom-title-bar = Barra de título personalizada
+general-custom-title-bar-description = Sustituye la barra de título del sistema por la barra de encabezado propia de Serein, al estilo de GTK 4.
 general-hide-title-bar = Ocultar barra de título de Serein
 general-hide-title-bar-description = Utilice la barra de título del sistema y los botones de ventana en su lugar.
 general-keep-menu-bar = Mantener Serein en la barra de menú
@@ -65,6 +67,8 @@ general-graphics = Gráficos
 general-render-with = Renderizar con
 general-gpu-restart = Entra en vigor la próxima vez que se inicie Serein.
 general-gpu-current-prefix = Actualmente dibujando con
+general-steady-refresh-rate = Frecuencia de actualización estable
+general-steady-refresh-rate-description = Mientras Serein es la ventana activa, se dibuja a la frecuencia de actualización de la pantalla, de modo que las pantallas con frecuencia de actualización variable (VRR, G-SYNC, FreeSync) pueden mantener una sola frecuencia en lugar de parpadear. Consume más energía.
 gpu-automatic = Automático
 gpu-high-performance = Rendimiento alto
 gpu-power-saving = Ahorro de energía
@@ -2253,6 +2257,12 @@ screen-body-frame-rate = Velocidad de fotogramas
 screen-body-include-the-pointer-in-the-shared-video = Incluye el puntero en el vídeo compartido.
 # Context: body
 screen-body-quality = Calidad
+# Context: body
+screen-body-source = Origen
+# Context: body
+screen-preview-paused-title = ¡Tu transmisión sigue en marcha!
+# Context: body
+screen-preview-paused-body = Hemos pausado esta vista previa para ahorrar recursos.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = La selección de calidad no requiere Nitro.
 # Context: body

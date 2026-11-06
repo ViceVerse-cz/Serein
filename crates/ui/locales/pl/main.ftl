@@ -51,8 +51,10 @@ general-start-minimized = Rozpocznij zminimalizowany
 general-start-minimized-description = Zacznij w tle, na uboczu.
 general-startup-unavailable = Automatyczne uruchamianie jest dostępne w systemach Windows i macOS.
 general-window = Okno
-general-hide-decorations = Ukryj dekoracje okienne
-general-hide-decorations-description = Usuń systemowy pasek tytułu i obramowania. Użyj menedżera okien, aby przenieść, zmienić rozmiar lub zamknąć Serein.
+general-hide-decorations = Bez paska tytułu
+general-hide-decorations-description = Dla kafelkowych menedżerów okien: usuwa wszystkie paski tytułu i obramowania, w tym własny pasek Serein. Przenoś, zmieniaj rozmiar i zamykaj Serein za pomocą menedżera okien.
+general-custom-title-bar = Własny pasek tytułu
+general-custom-title-bar-description = Zastępuje systemowy pasek tytułu własnym paskiem nagłówka Serein w stylu GTK 4.
 general-hide-title-bar = Ukryj pasek tytułu Serein
 general-hide-title-bar-description = Zamiast tego użyj systemowego paska tytułu i przycisków okien.
 general-keep-menu-bar = Trzymaj Serein na pasku menu
@@ -65,6 +67,8 @@ general-graphics = Grafika
 general-render-with = Renderuj za pomocą
 general-gpu-restart = Zaczyna obowiązywać przy następnym uruchomieniu Sereina.
 general-gpu-current-prefix = Obecnie rysuję z
+general-steady-refresh-rate = Stała częstotliwość odświeżania
+general-steady-refresh-rate-description = Gdy Serein jest aktywnym oknem, rysuje z częstotliwością odświeżania ekranu, dzięki czemu ekrany o zmiennej częstotliwości odświeżania (VRR, G-SYNC, FreeSync) mogą utrzymać jedną częstotliwość zamiast migotać. Zużywa więcej energii.
 gpu-automatic = Automatyczny
 gpu-high-performance = Wysoka wydajność
 gpu-power-saving = Oszczędność energii
@@ -2253,6 +2257,12 @@ screen-body-frame-rate = Liczba klatek na sekundę
 screen-body-include-the-pointer-in-the-shared-video = Dołącz wskaźnik do udostępnionego filmu.
 # Context: body
 screen-body-quality = Jakość
+# Context: body
+screen-body-source = Źródło
+# Context: body
+screen-preview-paused-title = Twoja transmisja nadal działa!
+# Context: body
+screen-preview-paused-body = Wstrzymaliśmy ten podgląd, aby oszczędzać zasoby.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = Wybór jakości nie wymaga Nitro.
 # Context: body

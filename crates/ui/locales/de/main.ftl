@@ -51,8 +51,10 @@ general-start-minimized = Minimiert starten
 general-start-minimized-description = Beginnen Sie im Hintergrund, aus dem Weg.
 general-startup-unavailable = Der automatische Start ist unter Windows und macOS verfügbar.
 general-window = Fenster
-general-hide-decorations = Fensterdekorationen verstecken
-general-hide-decorations-description = Entfernen Sie die Titelleiste und die Ränder des Systems. Verwenden Sie Ihren Fenstermanager, um Serein zu verschieben, in der Größe zu ändern oder zu schließen.
+general-hide-decorations = Keine Titelleiste
+general-hide-decorations-description = Für Kachel-Fenstermanager: Entfernt alle Titelleisten und Ränder, auch Sereins eigene. Verschieben, skalieren und schließen Sie Serein mit Ihrem Fenstermanager.
+general-custom-title-bar = Eigene Titelleiste
+general-custom-title-bar-description = Ersetzt die Systemtitelleiste durch Sereins eigene Kopfleiste im GTK-4-Stil.
 general-hide-title-bar = Serein-Titelleiste ausblenden
 general-hide-title-bar-description = Verwenden Sie stattdessen die Systemtitelleiste und die Fensterschaltflächen.
 general-keep-menu-bar = Behalten Sie Serein in der Menüleiste
@@ -65,6 +67,8 @@ general-graphics = Grafik
 general-render-with = Rendern mit
 general-gpu-restart = Wird beim nächsten Start von Serein wirksam.
 general-gpu-current-prefix = Zeichne derzeit mit
+general-steady-refresh-rate = Konstante Bildwiederholrate
+general-steady-refresh-rate-description = Solange Serein das aktive Fenster ist, wird mit der Bildwiederholrate des Displays gezeichnet, sodass Displays mit variabler Bildwiederholrate (VRR, G-SYNC, FreeSync) eine Rate halten können, statt zu flackern. Verbraucht mehr Energie.
 gpu-automatic = Automatisch
 gpu-high-performance = Hohe Leistung
 gpu-power-saving = Energiesparend
@@ -2253,6 +2257,12 @@ screen-body-frame-rate = Bildrate
 screen-body-include-the-pointer-in-the-shared-video = Fügen Sie den Zeiger in das geteilte Video ein.
 # Context: body
 screen-body-quality = Qualität
+# Context: body
+screen-body-source = Quelle
+# Context: body
+screen-preview-paused-title = Dein Stream läuft noch!
+# Context: body
+screen-preview-paused-body = Wir haben diese Vorschau pausiert, um Ressourcen zu sparen.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = Qualitätsauswahl erfordert kein Nitro.
 # Context: body

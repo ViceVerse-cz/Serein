@@ -38,6 +38,17 @@ impl Blur {
 		}
 	}
 
+	/// Linux Wayland: keep the blur inside a rounded window of `[width, height, radius]`
+	/// surface-local pixels, or `None` for the whole surface. Applied by the next `set_enabled`.
+	pub fn set_rounded_shape(&mut self, shape: Option<[i32; 3]>) {
+		#[cfg(target_os = "linux")]
+		if let Some(wayland) = &mut self.wayland {
+			wayland.set_shape(shape);
+		}
+		#[cfg(not(target_os = "linux"))]
+		let _ = shape;
+	}
+
 	pub fn set_enabled(&mut self, enabled: bool) {
 		#[cfg(target_os = "linux")]
 		let enabled = if let Some(wayland) = &mut self.wayland {

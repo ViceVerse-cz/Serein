@@ -186,6 +186,28 @@ The compositor determines blur strength; zero disables it. Standard Wayland blur
 capability changes are processed without blocking the rendering loop. Linux and
 Windows native appearance remains unverified in this macOS local pass.
 
+## Variable refresh rate displays
+
+Serein redraws only when something changes: about twice a second while the composer's text
+cursor blinks, and up to the display's refresh rate during input. On Windows its DirectX 12
+swap chain moves to hardware independent flip while frames arrive quickly, so a variable refresh
+rate (VRR, G-SYNC, FreeSync) display can follow that cadence while Serein is the active window.
+Many panels flicker visibly when the rate swings between their limits, OLED panels in particular.
+
+General › Graphics › Steady refresh rate is off by default. When it is on, Serein draws at the
+display's refresh rate while its window is focused and not minimized, so the display can hold one
+rate. A window that macOS or X11 reports as covered pauses it as well; Windows and Wayland do not
+report that, so a focused window under an always-on-top one keeps drawing. Every refresh runs a
+full interface pass, which costs CPU time and power in proportion to the refresh rate: about a
+quarter of one core at 3840×2160 and 120 Hz in the November 5, 2026 entry of
+[performance findings](performance.md). Unfocused, minimized and hidden windows redraw only on
+change again. The setting applies immediately and is saved with the other device preferences.
+
+Excluding `serein.exe` from VRR in the graphics driver, such as NVIDIA's per-program Monitor
+Technology setting, avoids the swings without the extra frames. Present cadence was verified
+with PresentMon on Windows 11 with an RTX 5060 Ti; the panel's own refresh readout and macOS and
+Linux VRR behavior remain unverified.
+
 ## Built-in voice
 
 Linux device discovery and call streams prefer CPAL's PulseAudio backend, including

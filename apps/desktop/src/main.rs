@@ -48,6 +48,8 @@ mod reading_settings;
 mod registered_games;
 #[cfg(feature = "demo")]
 mod rendering_demo;
+#[cfg(target_os = "linux")]
+mod round_corners;
 mod screen;
 #[cfg(feature = "demo")]
 mod server_settings_demo;
@@ -531,18 +533,24 @@ fn main() -> eframe::Result {
 			("arch", std::env::consts::ARCH.into()),
 		],
 	);
-	let (gpu_preference, transparency_available, hide_window_decorations, window_geometry) =
-		preferences
-			.as_ref()
-			.map(|value| {
-				(
-					value.gpu_preference,
-					value.transparency_blur,
-					value.hide_window_decorations,
-					value.window_geometry,
-				)
-			})
-			.unwrap_or_default();
+	let (
+		gpu_preference,
+		transparency_available,
+		hide_window_decorations,
+		window_geometry,
+		custom_title_bar,
+	) = {
+		// First launch has no saved preferences; use their defaults (custom title bar on).
+		let defaults = local_store::AppPreferences::default();
+		let value = preferences.as_ref().unwrap_or(&defaults);
+		(
+			value.gpu_preference,
+			value.transparency_blur,
+			value.hide_window_decorations || value.custom_title_bar,
+			value.window_geometry,
+			cfg!(target_os = "linux") && value.custom_title_bar,
+		)
+	};
 	#[cfg(feature = "demo")]
 	let transparency_available =
 		transparency_available || demo && std::env::args().any(|arg| arg == "--demo-transparency");
@@ -553,7 +561,8 @@ fn main() -> eframe::Result {
 	let options = eframe::NativeOptions {
 		viewport: {
 			let builder = egui::ViewportBuilder::default()
-				.with_transparent(transparency_available)
+				// The custom Linux title bar needs alpha for its rounded corners.
+				.with_transparent(transparency_available || custom_title_bar)
 				.with_inner_size(
 					window_geometry
 						.map_or(app_settings::DEFAULT_WINDOW_SIZE, |geometry| geometry.size)
@@ -1018,6 +1027,8 @@ impl SessionEnd {
 		self == Self::Logout
 	}
 }
+/// Window placement, scale, monitor size and focus; any change re-reads the monitor's refresh rate.
+type MonitorKey = (Option<egui::Rect>, Option<f32>, Option<egui::Vec2>, bool);
 struct Desktop {
 	proxy_auth: proxy_auth::Authentication,
 	api_proxy: tokio::sync::watch::Sender<Option<discord_api::proxy::ApiProxy>>,
@@ -1057,7 +1068,7 @@ struct Desktop {
 	cached_history_request: Option<(model::Id, u64)>,
 	/// The saved maximized state still has to be re-applied once the window is shown.
 	maximize_after_show: bool,
-	monitor_geometry: Option<(Option<egui::Rect>, Option<f32>, Option<egui::Vec2>)>,
+	monitor_geometry: Option<MonitorKey>,
 	monitor_period: Option<Duration>,
 	/// Where the call window opens; fitted once when it opens.
 	popout_geometry: Option<local_store::WindowGeometry>,
@@ -1920,6 +1931,11 @@ impl Desktop {
 			messaging.share_game_activity = true;
 			messaging.own_game = Some("Playing osu!".into());
 		}
+		// `--demo-steady-refresh`: the steady refresh setting starts on, for frame-cadence samples.
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-steady-refresh") {
+			messaging.steady_refresh_rate = true;
+		}
 		// `--demo-call-stream`: the direct-message peer shares a synthetic screen this device is
 		// watching, so the stream stage renders offline without any capture or network.
 		#[cfg(feature = "demo")]
@@ -2372,8 +2388,17 @@ impl Desktop {
 			.winit_window()
 			.ok_or("Native window unavailable")?
 			.clone();
-		messaging.hide_window_decorations = cfg!(target_os = "linux") && !window.is_decorated();
+		// The window starts undecorated for either "hide decorations" or the custom title bar;
+		// the saved preferences, not the live window, say which of the two it was.
+		// The custom bar wins if a hand-edited file enables both.
+		let undecorated = cfg!(target_os = "linux") && !window.is_decorated();
+		messaging.custom_title_bar = undecorated && app_settings.current.custom_title_bar;
+		messaging.hide_window_decorations = undecorated
+			&& app_settings.current.hide_window_decorations
+			&& !messaging.custom_title_bar;
+		let custom_title_bar = messaging.custom_title_bar;
 		app_settings.current.hide_window_decorations = messaging.hide_window_decorations;
+		app_settings.current.custom_title_bar = messaging.custom_title_bar;
 		#[cfg(target_os = "windows")]
 		{
 			use winit::platform::windows::{CornerPreference, WindowExtWindows as _};
@@ -2472,7 +2497,7 @@ impl Desktop {
 			appearance: egui::ThemePreference::System,
 			appearance_changed: false,
 			transparency_available,
-			window_transparent: transparency_available,
+			window_transparent: transparency_available || custom_title_bar,
 			reading,
 			app_settings,
 			font_picker: None,
@@ -5514,18 +5539,62 @@ impl Desktop {
 			ctx.request_repaint();
 		}
 	}
+	/// Clip the finished frame to a rounded window shape for the custom Linux title bar.
+	#[cfg(target_os = "linux")]
+	fn round_window_corners(&self, ctx: &egui::Context, frame: &eframe::Frame) {
+		let square = ctx.input(|i| {
+			i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false)
+		});
+		if !self.messaging.uses_custom_title_bar() || square || !self.window_transparent {
+			return;
+		}
+		let Some(state) = frame.wgpu_render_state() else {
+			return;
+		};
+		// Debug is the topmost order, above popups and tooltips; a bare layer there is also
+		// drained after the Debug areas. The radius is in native pixels so it ignores the UI
+		// zoom, like the blur region, which is in surface (logical) pixels.
+		let radius = round_corners::RADIUS * self.window.scale_factor() as f32;
+		ctx.layer_painter(egui::LayerId::new(
+			egui::Order::Debug,
+			egui::Id::unique("serein-round-corners"),
+		))
+		.add(round_corners::Mask::callback(
+			ctx.viewport_rect(),
+			state.target_format,
+			radius,
+		));
+	}
 	fn sync_window_effects(&mut self) {
 		if !self.transparency_available {
 			return;
 		}
 		let effects = ui::design::window_effects();
-		let transparent = effects.0 && effects.1 > 0;
+		// The custom Linux title bar keeps alpha for its rounded corners.
+		let transparent = effects_transparent() || self.messaging.uses_custom_title_bar();
 		if transparent != self.window_transparent {
 			self.window.set_transparent(transparent);
 			self.window_transparent = transparent;
 		}
 		if let Some(window_blur) = &mut self.window_blur {
-			window_blur.set_enabled(transparent && effects.2 > 0);
+			#[cfg(target_os = "linux")]
+			{
+				let square = self.window.is_maximized() || self.window.fullscreen().is_some();
+				let shape = (self.messaging.uses_custom_title_bar() && !square).then(|| {
+					let size = self
+						.window
+						.inner_size()
+						.to_logical::<f64>(self.window.scale_factor());
+					[
+						size.width.round() as i32,
+						size.height.round() as i32,
+						round_corners::RADIUS as i32,
+					]
+				});
+				window_blur.set_rounded_shape(shape);
+			}
+			// Only the user's own effect settings enable blur, not the custom title bar's alpha.
+			window_blur.set_enabled(effects_transparent() && effects.2 > 0);
 		}
 	}
 	/// Frame period of the display the window is on; egui otherwise assumes 60 Hz.
@@ -5722,12 +5791,18 @@ impl Desktop {
 		}
 	}
 }
+/// Whether the user's transparency settings, not just the rounded-corner mask, show through.
+fn effects_transparent() -> bool {
+	let (enabled, transparency, _) = ui::design::window_effects();
+	enabled && transparency > 0
+}
 impl eframe::App for Desktop {
 	fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
-		if self.window_transparent {
+		if self.window_transparent && effects_transparent() {
 			egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
 		} else {
-			// Opaque windows need opaque pixels too, including uncovered panel corners.
+			// Opaque windows need opaque pixels too, including uncovered panel corners. A
+			// window transparent only for the rounded-corner mask stays opaque inside it.
 			visuals.panel_fill.to_opaque().to_normalized_gamma_f32()
 		}
 	}
@@ -5795,12 +5870,14 @@ impl eframe::App for Desktop {
 				self.app_settings.state.dirty = true;
 			}
 		}
-		// Monitor size also detects Wayland moves without a global window position.
+		// Monitor size also detects Wayland moves without a global window position. A focus change
+		// re-reads the refresh rate as well: display settings change it without moving the window.
 		if let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id) {
 			let geometry = (
 				viewport.outer_rect,
 				viewport.native_pixels_per_point,
 				viewport.monitor_size,
+				raw_input.focused,
 			);
 			if self.monitor_geometry != Some(geometry) {
 				self.monitor_geometry = Some(geometry);
@@ -6157,6 +6234,18 @@ impl eframe::App for Desktop {
 			// Speaking, notices, remote video, devices, hotkeys and deadlines each wake the UI
 			// themselves; this heartbeat only bounds a missed wake, so a call does not repaint at 20 Hz.
 			ctx.request_repaint_after(std::time::Duration::from_secs(1));
+		}
+		// Variable refresh rate displays follow the focused window's presents, so redrawing only on
+		// change swings them between their limits and flickers (#889). The opt-in steady rate asks
+		// for the next frame within half a refresh: a Fifo present blocks until the next refresh
+		// anyway, and a surface that stops blocking (locked or occluded) cannot spin a core.
+		if self.messaging.steady_refresh_rate
+			&& ctx.input(|input| {
+				input.focused
+					&& input.viewport().minimized != Some(true)
+					&& input.viewport().occluded != Some(true)
+			}) {
+			ctx.request_repaint_after(self.frame_period().unwrap_or(Duration::from_millis(16)) / 2);
 		}
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
@@ -6988,9 +7077,12 @@ impl eframe::App for Desktop {
 		}
 		let appearance = ctx.options(|options| options.theme_preference);
 		#[cfg(target_os = "linux")]
-		if self.window.is_decorated() == self.messaging.hide_window_decorations {
-			self.window
-				.set_decorations(!self.messaging.hide_window_decorations);
+		{
+			let undecorated =
+				self.messaging.hide_window_decorations || self.messaging.custom_title_bar;
+			if self.window.is_decorated() == undecorated {
+				self.window.set_decorations(!undecorated);
+			}
 		}
 		#[cfg(target_os = "windows")]
 		if self.window.is_decorated() != self.messaging.hide_title_bar {
@@ -7176,7 +7268,12 @@ impl eframe::App for Desktop {
 				None => {}
 			}
 		}
-		ui::design::window_resize(&ctx);
+		ui::design::window_resize_if(
+			&ctx,
+			cfg!(target_os = "windows") || self.messaging.uses_custom_title_bar(),
+		);
+		#[cfg(target_os = "linux")]
+		self.round_window_corners(&ctx, frame);
 		self.frame_metrics.reflows = self.messaging.timeline_reflows();
 		self.frame_metrics.finish();
 	}

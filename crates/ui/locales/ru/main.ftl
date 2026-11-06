@@ -51,8 +51,10 @@ general-start-minimized = Начать сворачивать
 general-start-minimized-description = Начните в фоновом режиме, подальше от вас.
 general-startup-unavailable = Автоматический запуск доступен в Windows и macOS.
 general-window = Окно
-general-hide-decorations = Скрыть украшения на окнах
-general-hide-decorations-description = Удалите строку заголовка и границы системы. Используйте оконный менеджер, чтобы переместить, изменить размер или закрыть Serein.
+general-hide-decorations = Без заголовка окна
+general-hide-decorations-description = Для тайловых оконных менеджеров: убирает все заголовки и рамки, включая собственный заголовок Serein. Перемещайте, изменяйте размер и закрывайте Serein средствами оконного менеджера.
+general-custom-title-bar = Собственный заголовок окна
+general-custom-title-bar-description = Заменяет системную строку заголовка собственной панелью заголовка Serein в стиле GTK 4.
 general-hide-title-bar = Скрыть строку заголовка Серейн
 general-hide-title-bar-description = Вместо этого используйте системную строку заголовка и кнопки окна.
 general-keep-menu-bar = Держите Серейн в строке меню
@@ -65,6 +67,8 @@ general-graphics = Графика
 general-render-with = Рендеринг с помощью
 general-gpu-restart = Изменение этого параметра вступает в силу после перезапуска.
 general-gpu-current-prefix = Сейчас активна
+general-steady-refresh-rate = Постоянная частота обновления
+general-steady-refresh-rate-description = Пока окно Serein активно, отрисовка идёт с частотой обновления экрана, поэтому мониторы с переменной частотой обновления (VRR, G-SYNC, FreeSync) могут держать одну частоту и не мерцать. Расходует больше энергии.
 gpu-automatic = Автоматический
 gpu-high-performance = Высокая производительность
 gpu-power-saving = Экономия энергии
@@ -2254,6 +2258,12 @@ screen-body-frame-rate = Частота кадров
 screen-body-include-the-pointer-in-the-shared-video = Включите указатель в общедоступное видео.
 # Context: body
 screen-body-quality = Качество
+# Context: body
+screen-body-source = Источник
+# Context: body
+screen-preview-paused-title = Ваша трансляция всё ещё идёт!
+# Context: body
+screen-preview-paused-body = Мы приостановили этот предпросмотр, чтобы сэкономить ресурсы.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = Качественный отбор не требует нитро.
 # Context: body

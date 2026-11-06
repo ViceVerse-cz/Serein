@@ -51,8 +51,10 @@ general-start-minimized = 最小化して開始
 general-start-minimized-description = 邪魔にならないバックグラウンドで開始します。
 general-startup-unavailable = 自動起動は Windows と macOS で利用できます。
 general-window = ウィンドウ
-general-hide-decorations = ウィンドウの装飾を隠す
-general-hide-decorations-description = システムのタイトルバーと境界線を削除します。ウィンドウ マネージャーを使用して、Serein を移動、サイズ変更、または閉じます。
+general-hide-decorations = タイトルバーなし
+general-hide-decorations-description = タイル型ウィンドウ マネージャー向け: Serein 独自のものを含め、すべてのタイトルバーと境界線を削除します。Serein の移動、サイズ変更、終了はウィンドウ マネージャーで行います。
+general-custom-title-bar = カスタムタイトルバー
+general-custom-title-bar-description = システムのタイトルバーを Serein 独自の GTK 4 風ヘッダーバーに置き換えます。
 general-hide-title-bar = セレインのタイトルバーを非表示にする
 general-hide-title-bar-description = 代わりに、システムのタイトル バーとウィンドウ ボタンを使用してください。
 general-keep-menu-bar = セレインをメニューバーに置いておく
@@ -65,6 +67,8 @@ general-graphics = グラフィックス
 general-render-with = でレンダリング
 general-gpu-restart = 次回セレイン起動時に有効となります。
 general-gpu-current-prefix = 現在絵を描いているのは
+general-steady-refresh-rate = リフレッシュレートを固定
+general-steady-refresh-rate-description = Serein がアクティブなウィンドウの間は、ディスプレイのリフレッシュレートで描画するため、可変リフレッシュレート (VRR、G-SYNC、FreeSync) のディスプレイでもちらつかずに一定のレートを保てます。消費電力が増えます。
 gpu-automatic = 自動
 gpu-high-performance = 高性能
 gpu-power-saving = 省電力
@@ -2254,6 +2258,12 @@ screen-body-frame-rate = フレームレート
 screen-body-include-the-pointer-in-the-shared-video = 共有ビデオにポインターを含めます。
 # Context: body
 screen-body-quality = 品質
+# Context: body
+screen-body-source = ソース
+# Context: body
+screen-preview-paused-title = 配信は続行中です！
+# Context: body
+screen-preview-paused-body = リソースを節約するため、このプレビューを一時停止しました。
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = 品質の選択にはニトロは必要ありません。
 # Context: body

@@ -57,6 +57,9 @@ pub struct AppPreferences {
 	/// Keep the home list's message requests section collapsed after a restart.
 	pub message_requests_collapsed: bool,
 	pub hide_window_decorations: bool,
+	/// Linux: replace the system title bar with Serein's own GTK 4 style header bar.
+	/// On by default, including for saved preferences from before the setting existed.
+	pub custom_title_bar: bool,
 	pub primary_color: Option<[u8; 3]>,
 	pub transparency_blur: bool,
 	pub transparency: u8,
@@ -79,6 +82,9 @@ pub struct AppPreferences {
 	pub output_percent: u16,
 	/// Which GPU renders the window; applied on the next start.
 	pub gpu_preference: model::GpuPreference,
+	/// Repaint every display refresh while the window is focused, so variable refresh rate
+	/// displays hold one rate; older preferences deserialize with it off.
+	pub steady_refresh_rate: bool,
 	/// Device-local, account-independent keyboard bindings.
 	pub keybinds: model::Keybinds,
 	/// Expanded server folders, bounded so one device preference stays small.
@@ -115,6 +121,7 @@ impl Default for AppPreferences {
 			hide_title_bar: false,
 			message_requests_collapsed: false,
 			hide_window_decorations: false,
+			custom_title_bar: true,
 			primary_color: None,
 			transparency_blur: false,
 			transparency: 15,
@@ -131,6 +138,7 @@ impl Default for AppPreferences {
 			input_percent: 100,
 			output_percent: 100,
 			gpu_preference: Default::default(),
+			steady_refresh_rate: false,
 			keybinds: Default::default(),
 			expanded_folders: Vec::new(),
 			user_volumes: Vec::new(),
@@ -2292,6 +2300,7 @@ mod tests {
 			voice_input: Some("synthetic microphone".into()),
 			output_percent: 75,
 			gpu_preference: model::GpuPreference::PowerSaving,
+			steady_refresh_rate: true,
 			..Default::default()
 		};
 		store.save_app_preferences(&value).unwrap();
