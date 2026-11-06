@@ -1164,6 +1164,13 @@ impl Playback {
 		value
 	}
 }
+/// Configures `dsp` and waits for a DeepFilterNet load, as the worker does by polling.
+#[cfg(any(test, debug_assertions))]
+fn configure_ready(dsp: &mut echo::Echo, processing: Processing) {
+	while !dsp.configure(processing).unwrap() {
+		std::thread::sleep(Duration::from_millis(1));
+	}
+}
 /// Offline processing exercise: no audio host, native streams or Discord transport.
 #[cfg(debug_assertions)]
 pub fn debug_processing_check() {
@@ -1216,11 +1223,13 @@ pub fn debug_processing_check() {
 		if suppression.supported() != suppression {
 			continue;
 		}
-		dsp.configure_blocking(Processing {
-			suppression,
-			..Processing::default()
-		})
-		.unwrap();
+		configure_ready(
+			&mut dsp,
+			Processing {
+				suppression,
+				..Processing::default()
+			},
+		);
 		for _ in 0..40 {
 			let mut frame = original;
 			dsp.render(&[0.0; 960]).unwrap();
@@ -1261,7 +1270,7 @@ mod tests {
 		};
 		// The networks load on a helper thread instead of stalling the audio worker.
 		assert!(!dsp.configure(full).unwrap());
-		dsp.configure_blocking(full).unwrap();
+		configure_ready(&mut dsp, full);
 		let mut seed = 17_u32;
 		let mut noise = || -> Frame {
 			std::array::from_fn(|_| {

@@ -164,21 +164,25 @@ impl Echo {
 		if !settings.is_valid() {
 			return Err("Invalid microphone processing settings");
 		}
-		if settings.suppression != NoiseSuppression::DeepFilterNet {
+		let deep_selected = settings.suppression == NoiseSuppression::DeepFilterNet;
+		if !deep_selected {
+			// An unfinished load keeps its handle, so a quick switch back reuses it.
 			self.deep = None;
-			self.deep_load = None;
 		} else if self.deep.is_none() && self.deep_load.is_none() {
 			self.deep_load = Some(DeepFilter::load()?);
 		}
-		if let Some(load) = self.deep_load.take_if(|load| load.is_finished()) {
+		if let Some(load) = self.deep_load.take_if(|load| load.is_finished())
+			&& deep_selected
+		{
 			let models = load.join().ok().flatten().ok_or(DEEP_FAILED)?;
 			self.deep = Some(DeepFilter::start(models, settings.suppression_level)?);
 		}
 		if let Some(deep) = &mut self.deep {
 			deep.set_level(settings.suppression_level);
 		}
+		let ready = !deep_selected || self.deep.is_some();
 		if settings == self.settings {
-			return Ok(self.deep_load.is_none());
+			return Ok(ready);
 		}
 		if settings.suppression == NoiseSuppression::RnNoise && self.noise.is_none() {
 			self.noise = Some(noise_state());
@@ -223,16 +227,7 @@ impl Echo {
 			self.gain = None;
 		}
 		self.settings = settings;
-		Ok(self.deep_load.is_none())
-	}
-
-	/// Configures and waits for a DeepFilterNet load; offline checks only, never the worker.
-	#[cfg(debug_assertions)]
-	pub fn configure_blocking(&mut self, settings: Processing) -> Result<(), &'static str> {
-		while !self.configure(settings)? {
-			std::thread::sleep(Duration::from_millis(1));
-		}
-		Ok(())
+		Ok(ready)
 	}
 
 	pub fn reset(&mut self) {

@@ -70,12 +70,14 @@ fn main() {
 		}
 		let mut filtered = echo::Echo::new();
 		let mut unfiltered = echo::Echo::new();
-		filtered
-			.configure_blocking(model::voice_settings::Processing {
-				suppression,
-				..model::voice_settings::VoiceProcessing::from_legacy(true).effective()
-			})
-			.unwrap();
+		let processing = model::voice_settings::Processing {
+			suppression,
+			..model::voice_settings::VoiceProcessing::from_legacy(true).effective()
+		};
+		// DeepFilterNet loads on a helper thread; poll as the audio worker does.
+		while !filtered.configure(processing).unwrap() {
+			std::thread::sleep(std::time::Duration::from_millis(1));
+		}
 		let mut seed = 17_u32;
 		let mut before = 0.0;
 		let mut after = 0.0;
