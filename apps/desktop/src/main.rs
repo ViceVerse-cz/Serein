@@ -48,6 +48,8 @@ mod reading_settings;
 mod registered_games;
 #[cfg(feature = "demo")]
 mod rendering_demo;
+#[cfg(target_os = "linux")]
+mod round_corners;
 mod screen;
 #[cfg(feature = "demo")]
 mod server_settings_demo;
@@ -536,6 +538,7 @@ fn main() -> eframe::Result {
 		transparency_available,
 		hide_window_decorations,
 		window_geometry,
+		custom_title_bar,
 	) = {
 		// First launch has no saved preferences; use their defaults (custom title bar on).
 		let defaults = local_store::AppPreferences::default();
@@ -545,6 +548,7 @@ fn main() -> eframe::Result {
 			value.transparency_blur,
 			value.hide_window_decorations || value.custom_title_bar,
 			value.window_geometry,
+			cfg!(target_os = "linux") && value.custom_title_bar,
 		)
 	};
 	#[cfg(feature = "demo")]
@@ -557,7 +561,8 @@ fn main() -> eframe::Result {
 	let options = eframe::NativeOptions {
 		viewport: {
 			let builder = egui::ViewportBuilder::default()
-				.with_transparent(transparency_available)
+				// The custom Linux title bar needs alpha for its rounded corners.
+				.with_transparent(transparency_available || custom_title_bar)
 				.with_inner_size(
 					window_geometry
 						.map_or(app_settings::DEFAULT_WINDOW_SIZE, |geometry| geometry.size)
@@ -2375,6 +2380,7 @@ impl Desktop {
 		messaging.hide_window_decorations = undecorated
 			&& app_settings.current.hide_window_decorations
 			&& !messaging.custom_title_bar;
+		let custom_title_bar = messaging.custom_title_bar;
 		app_settings.current.hide_window_decorations = messaging.hide_window_decorations;
 		app_settings.current.custom_title_bar = messaging.custom_title_bar;
 		#[cfg(target_os = "windows")]
@@ -2472,7 +2478,7 @@ impl Desktop {
 			appearance: egui::ThemePreference::System,
 			appearance_changed: false,
 			transparency_available,
-			window_transparent: transparency_available,
+			window_transparent: transparency_available || custom_title_bar,
 			reading,
 			app_settings,
 			font_picker: None,
@@ -5514,18 +5520,46 @@ impl Desktop {
 			ctx.request_repaint();
 		}
 	}
+	/// Clip the finished frame to a rounded window shape for the custom Linux title bar.
+	#[cfg(target_os = "linux")]
+	fn round_window_corners(&self, ctx: &egui::Context, frame: &eframe::Frame) {
+		let square = ctx.input(|i| {
+			i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false)
+		});
+		if !self.messaging.uses_custom_title_bar() || square || !self.window_transparent {
+			return;
+		}
+		let Some(state) = frame.wgpu_render_state() else {
+			return;
+		};
+		// Debug is the topmost order, above popups and tooltips; a bare layer there is also
+		// drained after the Debug areas. The radius is in native pixels so it ignores the UI
+		// zoom, like the blur region, which is in surface (logical) pixels.
+		let radius = round_corners::RADIUS * self.window.scale_factor() as f32;
+		ctx.layer_painter(egui::LayerId::new(
+			egui::Order::Debug,
+			egui::Id::unique("serein-round-corners"),
+		))
+		.add(round_corners::Mask::callback(
+			ctx.viewport_rect(),
+			state.target_format,
+			radius,
+		));
+	}
 	fn sync_window_effects(&mut self) {
 		if !self.transparency_available {
 			return;
 		}
 		let effects = ui::design::window_effects();
-		let transparent = effects.0 && effects.1 > 0;
+		// The custom Linux title bar keeps alpha for its rounded corners.
+		let transparent = effects_transparent() || self.messaging.uses_custom_title_bar();
 		if transparent != self.window_transparent {
 			self.window.set_transparent(transparent);
 			self.window_transparent = transparent;
 		}
 		if let Some(window_blur) = &mut self.window_blur {
-			window_blur.set_enabled(transparent && effects.2 > 0);
+			// Only the user's own effect settings enable blur, not the custom title bar's alpha.
+			window_blur.set_enabled(effects_transparent() && effects.2 > 0);
 		}
 	}
 	/// Frame period of the display the window is on; egui otherwise assumes 60 Hz.
@@ -5541,12 +5575,18 @@ impl Desktop {
 			.then(|| Duration::from_secs_f64(1000.0 / f64::from(millihertz)))
 	}
 }
+/// Whether the user's transparency settings, not just the rounded-corner mask, show through.
+fn effects_transparent() -> bool {
+	let (enabled, transparency, _) = ui::design::window_effects();
+	enabled && transparency > 0
+}
 impl eframe::App for Desktop {
 	fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
-		if self.window_transparent {
+		if self.window_transparent && effects_transparent() {
 			egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
 		} else {
-			// Opaque windows need opaque pixels too, including uncovered panel corners.
+			// Opaque windows need opaque pixels too, including uncovered panel corners. A
+			// window transparent only for the rounded-corner mask stays opaque inside it.
 			visuals.panel_fill.to_opaque().to_normalized_gamma_f32()
 		}
 	}
@@ -7036,6 +7076,8 @@ impl eframe::App for Desktop {
 			&ctx,
 			cfg!(target_os = "windows") || self.messaging.uses_custom_title_bar(),
 		);
+		#[cfg(target_os = "linux")]
+		self.round_window_corners(&ctx, frame);
 		self.frame_metrics.reflows = self.messaging.timeline_reflows();
 		self.frame_metrics.finish();
 	}
