@@ -2122,6 +2122,11 @@ profiles-show-friends-since = FRIENDS SINCE
 profiles-show-note = NOTE
 profiles-show-note-hint = Click to add a note
 profiles-show-note-only-you = Only visible to you
+profiles-breach-check = BREACH CHECK
+profiles-breach-checking = Checking public breach sources…
+profiles-breach-clear = No public breaches found
+profiles-breach-hit = Found in public breaches
+profiles-breach-attribution = Names only, via LeakCheck and XposedOrNot
 # Context: more_menu
 profiles-more-menu-copy-webhook-id = Copy webhook ID
 # Context: more_menu
@@ -4692,6 +4697,9 @@ member-in-voice = In voice
 settings-chat-box = Chat Box
 settings-convert-emoticons = Automatically convert emoticons in your messages to emoji
 settings-convert-emoticons-description = Convert standalone emoticons such as :) to 🙂 when sending or editing messages. Code and links stay unchanged.
+settings-privacy = Privacy
+settings-breach-checks = Check public breach sources on profiles
+settings-breach-checks-description = When you open a profile, Serein asks free public breach indexes (LeakCheck, XposedOrNot) about the email addresses and handles that profile publishes. Results show breach names only, never passwords or records. Queries leave this device; turn this off anytime.
 settings-preload-on-hover = Preload on hover
 settings-preload-on-hover-description = Load a conversation, a profile or the GIF picker while the pointer rests on it, so it opens instantly. Uses the same requests as opening it, at most 12 per minute for each kind.
 settings-auto-idle = Go idle when away

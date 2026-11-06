@@ -1188,6 +1188,14 @@ impl MessagingUi {
 				self.hide_nitro_emojis = !suggest;
 			},
 		);
+		design::group(ui, &crate::i18n::translate("settings-privacy"), |ui| {
+			design::switch(
+				ui,
+				"settings-breach-checks",
+				Some("settings-breach-checks-description"),
+				&mut self.breach_checks,
+			);
+		});
 	}
 
 	/// Built-in presets plus enabled community themes, one swatch each.

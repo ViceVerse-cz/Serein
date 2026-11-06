@@ -4077,6 +4077,78 @@ fn card_view(
 											full,
 										);
 									}
+									let breach_reports = state.breach.reports(user.id);
+									if state.breach.pending(user.id) || breach_reports.is_some() {
+										section(
+											ui,
+											&theme,
+											&mut sections,
+											"profiles-breach-check",
+											full,
+										);
+										if state.breach.pending(user.id) {
+											ui.label(
+												RichText::new(crate::i18n::translate(
+													"profiles-breach-checking",
+												))
+												.size(body)
+												.color(theme.muted),
+											);
+										} else if let Some(reports) = breach_reports {
+											if reports.is_empty() {
+												ui.label(
+													RichText::new(crate::i18n::translate(
+														"profiles-breach-clear",
+													))
+													.size(body)
+													.color(theme.muted),
+												);
+											} else {
+												for (query, report) in reports {
+													ui.horizontal(|ui| {
+														ui.spacing_mut().item_spacing.x = 6.0;
+														ui.label(RichText::new(query).size(body));
+														let verdict = if report.found == 0 {
+															crate::i18n::translate(
+																"profiles-breach-clear",
+															)
+														} else {
+															crate::i18n::translate(
+																"profiles-breach-hit",
+															)
+														};
+														ui.label(
+															RichText::new(verdict)
+																.size(body)
+																.color(if report.found == 0 {
+																	theme.muted
+																} else {
+																	theme.text
+																}),
+														);
+													});
+													if !report.sources.is_empty() {
+														ui.label(
+															RichText::new(format!(
+																"{} · {}",
+																report.sources.join(", "),
+																report.source
+															))
+															.size(body - 1.0)
+															.color(theme.muted),
+														);
+													}
+												}
+												ui.label(
+													RichText::new(crate::i18n::translate(
+														"profiles-breach-attribution",
+													))
+													.size(body - 1.0)
+													.color(theme.muted),
+												);
+											}
+										}
+									}
 									// Discord keeps the private note at the bottom of the profile.
 									if !own && !user.webhook && !data.private {
 										section(

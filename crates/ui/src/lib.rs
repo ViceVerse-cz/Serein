@@ -258,6 +258,9 @@ pub struct MessagingUi {
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
 	pub convert_emoticons: bool,
+	/// Device-local opt-in: check public breach indexes for identifiers an opened
+	/// profile publishes. Off by default; queries leave this device.
+	pub breach_checks: bool,
 	/// Device preference: request a conversation's page while the pointer rests on it.
 	pub preload_on_hover: bool,
 	preload: preload::Preload,
@@ -4414,6 +4417,12 @@ impl MessagingUi {
 			.as_ref()
 			.is_some_and(|view| view.user == user.id && view.guild == profile_guild)
 		{
+			// Opt-in public breach lookups fire once per settled profile view.
+			if self.breach_checks
+				&& let Some(command) = state.request_breach_check(user.id)
+			{
+				commands.push(command);
+			}
 			return;
 		}
 		self.profile_link = None;

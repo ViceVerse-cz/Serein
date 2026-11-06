@@ -2,6 +2,7 @@
 mod activity_sharing;
 mod archives;
 mod badges;
+pub mod breachcheck;
 mod channel_actions;
 mod collectibles;
 pub mod detectable;
@@ -34,6 +35,7 @@ mod user_actions;
 use client_core::{
 	Command, Event, Reply,
 	auth::{AuthProvider, Failure, SessionSecret},
+	breach::{self, BreachReport, Source},
 };
 use discord_protocol::*;
 use model::{Id, User};
@@ -1179,6 +1181,10 @@ impl DiscordApi {
 				result: self.gifs(query.as_deref()).await,
 			},
 			Command::CancelGifs => Event::Failure(Failure::Protocol),
+			Command::BreachCheck { user, queries } => Event::BreachReports {
+				user,
+				results: self.breach_reports(&queries).await,
+			},
 			Command::GifFavorites { request, change } => {
 				let (result, frequent_emoji) = match self.gif_favorites(change).await {
 					Ok((gifs, emoji)) => (Ok(gifs), emoji),
@@ -1912,6 +1918,27 @@ impl DiscordApi {
 	/// into a fixed route; previews stay static and are loaded by the credential-free worker.
 	/// Trending needs two routes: `/gifs/trending` returns the categories with a single sample
 	/// GIF, while the Trending GIFs grid is `/gifs/trending-gifs`.
+	/// Public breach lookups paced under each index's free rate limit; one identifier
+	/// fans out to every source and a failed index simply contributes no report.
+	async fn breach_reports(&self, queries: &[String]) -> Vec<(String, BreachReport)> {
+		let mut results = Vec::with_capacity(queries.len() * Source::ALL.len());
+		let mut first = true;
+		for query in queries.iter().take(breach::MAX_QUERIES) {
+			if !breachcheck::valid_query(query) {
+				continue;
+			}
+			for source in Source::ALL {
+				if !first {
+					tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+				}
+				first = false;
+				if let Ok(report) = breachcheck::lookup(source, query).await {
+					results.push((query.clone(), report));
+				}
+			}
+		}
+		results
+	}
 	async fn gifs(&self, query: Option<&str>) -> Result<model::GifPage, Failure> {
 		const OPTIONS: &str = "media_format=tinygif&provider=klipy&locale=en-US";
 		match query {

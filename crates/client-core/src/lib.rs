@@ -2,6 +2,7 @@
 pub mod application_commands;
 pub mod archives;
 pub mod auth;
+pub mod breach;
 pub mod captcha;
 pub mod channel_actions;
 pub mod emoji_frecency;
@@ -268,6 +269,12 @@ pub enum Command {
 		user: Id,
 		request: u64,
 		changes: Option<model::ProfileEdit>,
+	},
+	/// Public breach-source lookups for identifiers the profile owner publishes;
+	/// `queries` comes from `breach::identifiers` and is already bounded.
+	BreachCheck {
+		user: Id,
+		queries: Vec<String>,
 	},
 	Voice(voice::Command),
 	Members {
@@ -601,6 +608,11 @@ pub enum Event {
 		request: u64,
 		result: Result<Box<UserProfile>, auth::Failure>,
 	},
+	/// Aggregate public-index results keyed by the queried identifier.
+	BreachReports {
+		user: Id,
+		results: Vec<(String, breach::BreachReport)>,
+	},
 	Voice(voice::Event),
 	ChannelCreated(Channel),
 	ChannelRestored(Channel),
@@ -814,6 +826,8 @@ pub struct State {
 	pub profile: Option<profile::ProfileView>,
 	pub profile_request: u64,
 	pub profile_cache: profile::ProfileCache,
+	/// Opt-in public breach lookups; populated only by explicit profile views.
+	pub breach: breach::Breach,
 	/// Device preference for which profile cosmetics are shown and loaded.
 	pub profile_cosmetics: model::CosmeticPreferences,
 	pub own_profile: profile::OwnProfile,
@@ -1051,6 +1065,7 @@ impl Default for State {
 			profile: None,
 			profile_request: 0,
 			profile_cache: Default::default(),
+			breach: Default::default(),
 			profile_cosmetics: Default::default(),
 			own_profile: Default::default(),
 			badge_editor: Default::default(),
@@ -2499,6 +2514,10 @@ impl State {
 		if matches!(command, Command::CancelProfile) {
 			return;
 		}
+		if let Command::BreachCheck { user, .. } = command {
+			self.breach.cancel(user);
+			return;
+		}
 		if let Command::StreamPreview {
 			guild,
 			channel,
@@ -3158,6 +3177,13 @@ impl State {
 				result,
 			} => {
 				self.apply_profile(user, guild, request, result);
+				Ok(())
+			}
+			Event::BreachReports { user, results } => {
+				for (query, report) in results {
+					self.breach.record(user, query, report);
+				}
+				self.breach.finish(user, std::time::Instant::now());
 				Ok(())
 			}
 			Event::StreamPreview {

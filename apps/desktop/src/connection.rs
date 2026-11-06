@@ -408,6 +408,7 @@ impl Connection {
                 let mut search:Option<AbortTask>=None;
                 let mut gifs:Option<AbortTask>=None;
                 let mut gif_favorites:Option<AbortTask>=None;
+                let mut breach:Option<AbortTask>=None;
                 let mut emoji_frecency:Option<AbortTask>=None;
                 let mut application_commands:Option<AbortTask>=None;
                 let mut sticker_packs:Option<AbortTask>=None;
@@ -489,6 +490,17 @@ impl Connection {
                             let Some(command)=command else {break;};
                             if matches!(command,Command::CancelSearch) {drop(search.take());continue;}
                             if matches!(command,Command::CancelGifs) {drop(gifs.take());continue;}
+                            if matches!(command,Command::BreachCheck{..}) {
+                                drop(breach.take());
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                breach=Some(AbortTask(tokio::spawn(async move {
+                                    let event=api.execute(command).await;
+                                    let error=emit(event).err();
+                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                })));
+                                continue;
+                            }
                             if matches!(command,Command::Typing{..}) {
                                 let revision=write_order.invalidate_typing();
                                 // Optional signals never terminate the connection when the write queue is full.
