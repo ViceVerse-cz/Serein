@@ -4,6 +4,33 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## High-resolution attachment sources — November 6, 2026
+
+Offline comparison against `77bdddae` on Ubuntu 24.04.5 x86-64, an Intel i5-1235U,
+Rust 1.98.1 and locked dependencies. A standalone development wrapper compiled the production
+`platform::video` module and opened the same original one-frame 7680×4320 H.264 MOV on both
+revisions. The wrapper only checked decoder startup, output dimensions and frame validity;
+it did not run the desktop renderer or contact Discord.
+
+| Synthetic workload / output | Baseline | After |
+| --- | --- | --- |
+| Open the 8K source | Rejected with `TOO_LARGE` | Decodes at 3840×2160 |
+| Copied NV12 picture | No picture produced | 12,441,600 B |
+
+Generate that source with development-only FFmpeg 6.1.1:
+
+```sh
+ffmpeg -f lavfi -i color=c=blue:s=7680x4320:r=1 -frames:v 1 -c:v libx264 -threads 2 -preset ultrafast -crf 30 -pix_fmt yuv420p -movflags +faststart video-8k.mov
+```
+
+The Linux regression also decodes the committed 4096×64 fixture to 3840×60 and scales an
+oversized rotated raw source to 1920×3840. The optional FFmpeg filter was exercised separately:
+4096×64 becomes 3840×60, and 4096×4096 becomes 2880×2880. Each is one functional run,
+not a throughput measurement. Copied frames retain their existing pixel/byte ceilings;
+OS codec allocations, including full-resolution input surfaces, are additional. No whole-app
+RSS, CPU, GPU time, playback latency, sustained frame rate or native Windows/macOS runtime
+measurement was collected. Cross-compilation is not evidence of native playback.
+
 ## Window placement save after a move — November 5, 2026
 
 Baseline `2b593b1` (`main` after #893) and this branch were built with the pinned Rust 1.98.1
