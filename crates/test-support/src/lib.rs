@@ -809,8 +809,16 @@ pub fn voice_demo_state() -> State {
 		}),
 	})
 	.collect();
-	// Fern streams in the fixture so the LIVE pill and watch action render offline.
+	// Fern streams in the fixture so the LIVE pill and watch action render offline, and the
+	// synthetic own-stream roster gives the viewer badge two known watchers plus one unknown.
 	state.voice.roster[2].participant.streaming = true;
+	state.voice.audience = Some(client_core::voice::Audience {
+		stream_request: 0,
+		count: 3,
+		ids: vec![Id(2), Id(3), Id(9001)],
+		users: Vec::new(),
+		attempted: Vec::new(),
+	});
 	state.voice.active = Some(Call {
 		camera: false,
 		watching: None,

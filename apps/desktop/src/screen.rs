@@ -87,6 +87,7 @@ pub(super) struct Screen {
 	/// Outcome to state once as a toast on the next poll; the stage keeps no status line.
 	toast: Option<(ui::design::Level, &'static str)>,
 	/// Last viewer count Discord reported for the own stream, and a cue waiting for `poll`.
+	/// The IDs themselves are reduced into core, where the stage reads them.
 	viewers: Option<(Context, u16)>,
 	viewer_cue: bool,
 	share_cued: bool,
@@ -219,7 +220,7 @@ impl Screen {
 				}
 			}
 			screen::Event::Failed(message) => self.fail(message),
-			screen::Event::Viewers(count) => {
+			screen::Event::Viewers { count, .. } => {
 				// As in Discord: chime when this stream gains a viewer while it had at most 25.
 				let previous = self
 					.viewers

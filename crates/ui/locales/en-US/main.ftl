@@ -4993,3 +4993,23 @@ new-message-hint = Add friends to start a direct message or a group.
 new-message-no-people-found = No one matches that search.
 new-message-create = Create Message
 new-message-cancel = Cancel
+
+## crates/ui/src/voice.rs
+# Context: viewer_badge
+voice-audience-viewers =
+    { $count ->
+        [one] { $count } viewer
+       *[other] { $count } viewers
+    }
+# Context: viewer_badge
+voice-audience-no-viewers = No viewers
+# Context: viewer_roster
+voice-audience-header = Watching your stream
+# Context: viewer_roster
+voice-audience-unknown = Unknown viewer
+# Context: viewer_roster
+voice-audience-more =
+    { $count ->
+        [one] and { $count } more
+       *[other] and { $count } more
+    }

@@ -54,37 +54,119 @@ pub struct Deleted {
 	pub reason: Option<String>,
 }
 
-/// Viewer roster refresh for a stream; only the bounded viewer count is retained.
+/// Viewers retained from one `STREAM_UPDATE`; the rest of a longer list is counted only.
+pub const MAX_VIEWERS: usize = 64;
+
+/// Viewer roster refresh for a stream. Discord sends every viewer ID; only a bounded prefix
+/// is retained, while the count saturates so the join cue still sees a full roster.
 #[derive(Deserialize)]
 pub struct Update {
 	pub stream_key: String,
-	/// Number of `viewer_ids`, saturating at `u16::MAX`; the IDs themselves are skipped.
-	#[serde(default, rename = "viewer_ids", deserialize_with = "count")]
-	pub viewers: u16,
+	#[serde(default, rename = "viewer_ids", deserialize_with = "viewers")]
+	pub viewers: Viewers,
 }
 
-fn count<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u16, D::Error> {
-	struct Count;
-	impl<'de> serde::de::Visitor<'de> for Count {
-		type Value = u16;
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Viewers {
+	/// Number of `viewer_ids`, saturating at `u16::MAX`.
+	pub count: u16,
+	/// At most [`MAX_VIEWERS`] distinct, nonzero IDs, in the order Discord sent them.
+	pub ids: Vec<Id>,
+}
+
+fn viewers<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Viewers, D::Error> {
+	struct ViewersVisitor;
+	impl<'de> serde::de::Visitor<'de> for ViewersVisitor {
+		type Value = Viewers;
 		fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 			f.write_str("a viewer ID list or null")
 		}
-		fn visit_unit<E>(self) -> Result<u16, E> {
-			Ok(0)
+		fn visit_unit<E>(self) -> Result<Self::Value, E> {
+			Ok(Viewers::default())
 		}
-		fn visit_none<E>(self) -> Result<u16, E> {
-			Ok(0)
+		fn visit_none<E>(self) -> Result<Self::Value, E> {
+			Ok(Viewers::default())
 		}
-		fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<u16, A::Error> {
-			let mut count = 0u16;
-			while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {
-				count = count.saturating_add(1);
+		fn visit_seq<A: serde::de::SeqAccess<'de>>(
+			self,
+			mut seq: A,
+		) -> Result<Self::Value, A::Error> {
+			let mut viewers = Viewers::default();
+			while let Some(viewer) = seq.next_element::<Viewer>()? {
+				viewers.count = viewers.count.saturating_add(1);
+				let Some(id) = viewer.0 else { continue };
+				// Discord omits duplicates; a repeated ID must not spend another slot.
+				if viewers.ids.len() < MAX_VIEWERS && !viewers.ids.contains(&id) {
+					viewers.ids.push(id);
+				}
 			}
-			Ok(count)
+			Ok(viewers)
 		}
 	}
-	deserializer.deserialize_any(Count)
+	deserializer.deserialize_any(ViewersVisitor)
+}
+
+/// One `viewer_ids` entry. A malformed or null entry is skipped but still counted.
+struct Viewer(Option<Id>);
+impl<'de> serde::Deserialize<'de> for Viewer {
+	fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+		struct Element;
+		// The visitor declares its own `'de`; an anonymous `Visitor<'_>` cannot name the
+		// lifetime its `visit_some`/`visit_map`/`visit_seq` signatures need.
+		impl<'de> serde::de::Visitor<'de> for Element {
+			type Value = Viewer;
+			fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+				f.write_str("a Discord ID string")
+			}
+			fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Viewer, E> {
+				Ok(Viewer(value.parse().ok()))
+			}
+			fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<Viewer, E> {
+				Ok(Viewer((value != 0).then_some(Id(value))))
+			}
+			fn visit_unit<E: serde::de::Error>(self) -> Result<Viewer, E> {
+				Ok(Viewer(None))
+			}
+			fn visit_none<E: serde::de::Error>(self) -> Result<Viewer, E> {
+				Ok(Viewer(None))
+			}
+			fn visit_some<D: serde::Deserializer<'de>>(
+				self,
+				deserializer: D,
+			) -> Result<Viewer, D::Error> {
+				deserializer.deserialize_any(Element)
+			}
+			fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<Viewer, E> {
+				Ok(Viewer(None))
+			}
+			fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<Viewer, E> {
+				Ok(Viewer(
+					u64::try_from(value).ok().filter(|id| *id != 0).map(Id),
+				))
+			}
+			fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<Viewer, E> {
+				Ok(Viewer(None))
+			}
+			fn visit_map<A: serde::de::MapAccess<'de>>(
+				self,
+				mut map: A,
+			) -> Result<Viewer, A::Error> {
+				while map
+					.next_entry::<serde::de::IgnoredAny, serde::de::IgnoredAny>()?
+					.is_some()
+				{}
+				Ok(Viewer(None))
+			}
+			fn visit_seq<A: serde::de::SeqAccess<'de>>(
+				self,
+				mut seq: A,
+			) -> Result<Viewer, A::Error> {
+				while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {}
+				Ok(Viewer(None))
+			}
+		}
+		deserializer.deserialize_any(Element)
+	}
 }
 
 #[cfg(test)]
@@ -121,20 +203,38 @@ mod tests {
 	}
 
 	#[test]
-	fn viewer_count_skips_ids_and_tolerates_null() {
+	fn viewer_ids_are_bounded_and_malformed_entries_are_skipped() {
 		let update: Update = serde_json::from_str(
-			r#"{"stream_key":"guild:1:2:3","viewer_ids":["4","5"],"paused":false}"#,
+			r#"{"stream_key":"guild:1:2:3","viewer_ids":["4","x","5","4",null,"6"],"paused":false}"#,
 		)
 		.unwrap();
+		assert_eq!(update.stream_key, "guild:1:2:3");
 		assert_eq!(
-			(update.stream_key.as_str(), update.viewers),
-			("guild:1:2:3", 2)
+			update.viewers,
+			super::Viewers {
+				count: 6,
+				ids: vec![Id(4), Id(5), Id(6)],
+			}
 		);
 		for data in [
 			r#"{"stream_key":"k","viewer_ids":null}"#,
 			r#"{"stream_key":"k"}"#,
+			r#"{"stream_key":"k","viewer_ids":[]}"#,
 		] {
-			assert_eq!(serde_json::from_str::<Update>(data).unwrap().viewers, 0);
+			assert_eq!(
+				serde_json::from_str::<Update>(data).unwrap().viewers,
+				super::Viewers::default()
+			);
 		}
+		let many = (1..=100).map(|id| format!("\"{id}\"")).collect::<Vec<_>>();
+		let update: Update = serde_json::from_str(&format!(
+			r#"{{"stream_key":"k","viewer_ids":[{}]}}"#,
+			many.join(",")
+		))
+		.unwrap();
+		// The count still spans every ID so the join cue sees a complete roster.
+		assert_eq!(update.viewers.count, 100);
+		assert_eq!(update.viewers.ids.len(), super::MAX_VIEWERS);
+		assert_eq!(update.viewers.ids.last(), Some(&Id(64)));
 	}
 }

@@ -10,6 +10,18 @@ use std::{
 	time::{Duration, Instant},
 };
 
+/// A stream viewer whose base identity this device did not already know.
+///
+/// Only the display fields the roster row needs are retained, never a whole profile.
+#[derive(Clone)]
+pub struct StreamViewerUser {
+	pub id: Id,
+	pub name: String,
+	pub avatar: Option<String>,
+	/// Kept so the default-avatar fallback matches Discord's own choice.
+	pub discriminator: u16,
+}
+
 /// Recently viewed profiles stay in RAM so reopening a card does not repeat the request.
 pub const CACHE_ENTRIES: usize = 32;
 pub const CACHE_BYTES: usize = 1024 * 1024;

@@ -221,7 +221,7 @@ impl Watch {
 			screen::Event::Failed(message) => {
 				self.ended = Some((ui::design::Level::Warning, message));
 			}
-			screen::Event::Viewers(_) => {}
+			screen::Event::Viewers { .. } => {}
 		}
 	}
 	pub fn poll(
