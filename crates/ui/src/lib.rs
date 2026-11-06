@@ -490,6 +490,9 @@ pub struct MessagingUi {
 	voice_popout_minimized: bool,
 	/// The open profile card was opened from the call window, so that window draws it.
 	profile_in_popout: bool,
+	/// The profile card's dialogs (image viewer, contact editor, friend removal) belong to the
+	/// call window.
+	profile_dialogs_in_popout: bool,
 	/// The pending link confirmation was opened from the call window, so that window draws it.
 	popout_links: bool,
 	/// The pending file picker request came from the call window's composer.
@@ -4498,6 +4501,8 @@ impl MessagingUi {
 				&mut self.profile,
 			);
 			if let Some(action) = action {
+				// The window that owns the card also owns what its actions open.
+				self.profile_dialogs_in_popout = self.profile_in_popout;
 				self.profile_action(&ctx, state, commands, &user, profile_guild, action);
 			}
 			if self.drain_profile(state, commands)
@@ -4507,6 +4512,33 @@ impl MessagingUi {
 			}
 		} else {
 			self.profile_link = None;
+		}
+	}
+
+	/// The profile card's image viewer and contact editor, drawn by the window that owns them.
+	fn profile_dialogs(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		let ctx = ui.ctx().clone();
+		self.contact_editor.show(&ctx, state, commands);
+		if let Some(image) = &self.profile_image
+			&& (image.generation != state.generation
+				|| attachments::viewer(
+					ui,
+					std::slice::from_ref(&image.attachment),
+					image.attachment.id,
+					image.floor,
+					&mut self.avatars,
+					&mut self.timeline.download,
+					&mut self.timeline.opening,
+					state.demo,
+				)
+				.is_none())
+		{
+			self.profile_image = None;
 		}
 	}
 
@@ -4944,7 +4976,9 @@ impl MessagingUi {
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;
 		}
-		if self.timeline.show_fullscreen_video(ui.ctx(), state) {
+		if !self.timeline.video.fullscreen_in_popout()
+			&& self.timeline.show_fullscreen_video(ui.ctx(), state)
+		{
 			ui.painter()
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;
@@ -5021,7 +5055,9 @@ impl MessagingUi {
 			ui.disable();
 		}
 		// Foreground confirmation handles Escape before background search/archive shortcuts.
-		self.confirm_friend_removal(&ctx, state, &mut commands);
+		if !self.profile_dialogs_in_popout {
+			self.confirm_friend_removal(&ctx, state, &mut commands);
+		}
 		if let Some(link) = self
 			.timeline
 			.opening
@@ -5845,24 +5881,10 @@ impl MessagingUi {
 				commands.push(command);
 			}
 		}
-		self.contact_editor.show(&ctx, state, &mut commands);
-		self.drain_profile(state, &mut commands);
-		if let Some(image) = &self.profile_image
-			&& (image.generation != state.generation
-				|| attachments::viewer(
-					ui,
-					std::slice::from_ref(&image.attachment),
-					image.attachment.id,
-					image.floor,
-					&mut self.avatars,
-					&mut self.timeline.download,
-					&mut self.timeline.opening,
-					state.demo,
-				)
-				.is_none())
-		{
-			self.profile_image = None;
+		if !self.profile_dialogs_in_popout {
+			self.profile_dialogs(ui, state, &mut commands);
 		}
+		self.drain_profile(state, &mut commands);
 
 		self.reconcile_edit(state);
 		if !self.voice_popout_owns_chat(state) {

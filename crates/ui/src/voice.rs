@@ -95,6 +95,12 @@ impl MessagingUi {
 			self.profile.close();
 			self.profile_in_popout = false;
 		}
+		self.profile_dialogs_in_popout = false;
+		// A video made fullscreen from the call window leaves with it.
+		if self.timeline.video.fullscreen_in_popout() {
+			self.timeline.video.exit_fullscreen();
+			let _ = self.timeline.video.take_popout_fullscreen_request();
+		}
 		if self.popout_links {
 			self.timeline.opening = None;
 			self.timeline.browser_opening = None;
@@ -160,6 +166,15 @@ impl MessagingUi {
 			self.timeline.browser_opening.clone(),
 		);
 		let chat = self.voice_popout_owns_chat(state);
+		// A fullscreen video opened here owns this window until it closes; the dialog itself
+		// requests the native transition.
+		if self.timeline.video.fullscreen_in_popout()
+			&& self.timeline.show_fullscreen_video(ui.ctx(), state)
+		{
+			ui.painter()
+				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
+			return commands;
+		}
 		if chat {
 			let ctx = ui.ctx().clone();
 			self.poll_creator_overlay(&ctx, state, &mut commands);
@@ -170,7 +185,9 @@ impl MessagingUi {
 				.size_range(280.0..=(ui.available_width() * 0.6).max(280.0))
 				.frame(egui::Frame::new().fill(background.chat))
 				.show(ui, |ui| {
+					self.timeline.video.drawing_in_popout = true;
 					self.conversation(ui, state, channel, None, &mut commands);
+					self.timeline.video.drawing_in_popout = false;
 				});
 		}
 		egui::CentralPanel::default()
@@ -227,6 +244,19 @@ impl MessagingUi {
 		}
 		if self.profile_in_popout {
 			self.profile_overlay(ui, state, &mut commands);
+		}
+		if self.profile_dialogs_in_popout {
+			let ctx = ui.ctx().clone();
+			self.confirm_friend_removal(&ctx, state, &mut commands);
+			self.profile_dialogs(ui, state, &mut commands);
+			// Once the dialogs close, the main window draws the next ones again.
+			if self.profile_image.is_none()
+				&& !self.contact_editor.is_open()
+				&& self.friend_removal.is_none()
+				&& !self.profile_in_popout
+			{
+				self.profile_dialogs_in_popout = false;
+			}
 		}
 		if self.popout_links {
 			self.link_confirmations(ui.ctx());
