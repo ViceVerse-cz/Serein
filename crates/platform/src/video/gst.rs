@@ -657,7 +657,7 @@ mod tests {
 	}
 
 	#[test]
-	fn live_uhd_samples_copy_planes_but_inline_and_oversized_samples_stay_bounded() {
+	fn uhd_samples_copy_planes_and_oversized_samples_stay_bounded() {
 		gst::init().unwrap();
 		let info = gst_video::VideoInfo::builder(gst_video::VideoFormat::I420, 3840, 2160)
 			.build()
@@ -669,7 +669,8 @@ mod tests {
 			.caps(&info.to_caps().unwrap())
 			.buffer(&gst::Buffer::from_slice(bytes))
 			.build();
-		assert!(picture(&sample, super::super::check_dimensions).is_err());
+		// Inline playback shares the live 4K bound.
+		assert!(picture(&sample, super::super::check_dimensions).is_ok());
 		let decoded = picture(&sample, super::super::check_live_dimensions).unwrap();
 		assert_eq!((decoded.width, decoded.height), (3840, 2160));
 		assert!(decoded.is_valid());
@@ -686,6 +687,10 @@ mod tests {
 			assert_eq!(
 				picture(&sample, super::super::check_live_dimensions),
 				Err("Live playback supports videos up to 4K (3840×2160).")
+			);
+			assert_eq!(
+				picture(&sample, super::super::check_dimensions),
+				Err(super::super::TOO_LARGE)
 			);
 		}
 	}
