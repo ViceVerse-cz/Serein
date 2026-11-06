@@ -3045,7 +3045,7 @@ impl MessagingUi {
 			self.composer_edit = None;
 			self.mention_menu = mentions::Menu::default();
 			self.slash_commands.suspend(state, channel);
-			self.emoji_picker = emoji_picker::Picker::default();
+			self.emoji_picker.reset();
 			self.ime_active = false;
 			self.focus_switched_composer = false;
 			let gated = state
@@ -3113,7 +3113,7 @@ impl MessagingUi {
 			self.composer_edit = editing_key;
 			self.ime_active = false;
 			self.mention_menu = mentions::Menu::default();
-			self.emoji_picker = emoji_picker::Picker::default();
+			self.emoji_picker.reset();
 		}
 		let mut cancel_edit = false;
 		if ctx.input(|input| !input.raw.hovered_files.is_empty()) {
@@ -3636,8 +3636,6 @@ impl MessagingUi {
                             .add_enabled_ui(!application_command && !self.ime_active && !ime_this_frame, |ui| {
                                 self.emoji_picker.hide_nitro_emojis = self.hide_nitro_emojis;
                                 self.emoji_picker.preload = self.preload_on_hover;
-                                // One usage ranking for reactions and the composer.
-                                self.emoji_picker.share_frequent(&self.reaction_picker);
                                 self.emoji_picker
                                     .show(ui, state, channel, &mut self.avatars, commands)
                             })
@@ -3647,10 +3645,7 @@ impl MessagingUi {
                             self.reaction_picker.dismiss(state, commands);
                         }
                         let pick = match pick {
-                            Some(emoji_picker::Pick::Insert(text)) => {
-                                self.reaction_picker.share_frequent(&self.emoji_picker);
-                                Some(text)
-                            },
+                            Some(emoji_picker::Pick::Insert(text)) => Some(text),
                             Some(emoji_picker::Pick::React(_, _) | emoji_picker::Pick::Choose(_)) => None,
                             Some(emoji_picker::Pick::Sticker(sticker)) => {
                                 if editing_here { state.status = "Finish or cancel the edit before sending a sticker."; }
@@ -5253,7 +5248,7 @@ impl MessagingUi {
 							!self.reading_preferences.smooth_scrolling;
 						self.timeline.extension_actions = self.extensions.message_actions();
 						self.timeline.quick_reactions =
-							Some(self.reaction_picker.quick_reactions());
+							Some(self.reaction_picker.quick_reactions(state));
 						let mut seen = std::collections::BTreeSet::new();
 						let author_lookup: Vec<_> = state
 							.timeline
@@ -5647,7 +5642,7 @@ impl MessagingUi {
 			self.timeline.components.forget_message(id);
 		}
 		if let Some(text) = self.timeline.quick_reaction_used.take() {
-			self.reaction_picker.record(text);
+			self.reaction_picker.record(state, text, true);
 		}
 		if let Some((message, emoji)) = self.timeline.reaction.take() {
 			if let Some(emoji) = emoji {

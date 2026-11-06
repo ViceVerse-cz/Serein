@@ -40,6 +40,7 @@ impl Desktop {
 		self.uploads.forget_parked();
 		self.login = None;
 		self.state.interrupt_gif_favorites();
+		self.state.interrupt_emoji_frecency();
 		self.state.interrupt_preloads();
 		self.connection = None;
 		if let Some(worker) = self.avatars.take() {

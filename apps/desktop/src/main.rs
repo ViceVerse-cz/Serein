@@ -4321,6 +4321,11 @@ impl Desktop {
 				Command::GifFavorites { request, .. } => Event::GifFavorites {
 					request,
 					result: Ok(self.state.gifs.favorites.clone()),
+					frequent_emoji: self.state.emoji_frecency.ranking.clone(),
+				},
+				Command::EmojiFrecency { request, .. } => Event::EmojiFrecency {
+					request,
+					result: Ok(self.state.emoji_frecency.ranking.clone()),
 				},
 				Command::CreateGuild { sequence, .. } => Event::GuildCreated {
 					sequence,
@@ -5417,6 +5422,7 @@ impl Desktop {
 				}
 			}
 			self.state.interrupt_gif_favorites();
+			self.state.interrupt_emoji_frecency();
 			self.connection = None;
 			self.pending_save = None;
 			self.current_login = None;
@@ -6848,6 +6854,15 @@ impl eframe::App for Desktop {
 			}
 			if let Some(command) = self.state.take_gif_favorites_command() {
 				commands.push(command);
+			}
+			let now = std::time::Instant::now();
+			if let Some(command) = self.state.take_emoji_frecency_command(now) {
+				commands.push(command);
+			} else if let Some(due) = self.state.emoji_frecency_due()
+				&& due > now
+			{
+				// A save blocked past its time waits for the event that unblocks it.
+				ctx.request_repaint_after(due - now);
 			}
 			commands.extend(self.state.take_preload_retries());
 			for command in commands {

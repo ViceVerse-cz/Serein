@@ -2951,3 +2951,34 @@ a name arrives it shows only the thread glyph: the generic “Thread” label an
 button are gone, and a refused read leaves the card with whatever the channel list already
 carries. Synthetic tests cover admission, the bounded cache, the rejected answer, the refresh on
 a newer known message, and the card's rendered name, count, author and reply.
+
+## Frequently used emoji from frecency settings — November 6, 2026
+
+The emoji pickers' frequently used rows follow the account's synced rankings, as the official
+client's do: the composer uses `emoji_frecency` (field 6) and the reaction picker and hover bar
+use `emoji_reaction_frecency` (field 13) of the
+[primary FrecencyUserSettings schema](https://github.com/dolfies/discord-protos/blob/f5c06d6f5764a66302f7eede675fd703c31be08a/discord_protos/discord_users/v1/FrecencyUserSettings.proto).
+Both ride the unofficial `GET /users/@me/settings-proto/2` read that loads GIF favorites, now
+also made when the emoji picker opens. Entries are ranked by the stored `score`, then
+`total_uses`; at most 32 keys per ranking are kept, each at most 64 bytes, malformed entries
+are skipped, and an unreadable emoji record never blocks GIF favorites. This session's own picks
+stay first.
+
+Picks are saved back. Uses wait 15 seconds, then one batch makes a fresh read and a `PATCH` of
+only the touched subtrees with `required_data_version`, the same mechanism GIF favorites use;
+this is an account setting, not a telemetry route. Each used entry gets its `total_uses` raised,
+the newest ten `recent_uses` and a recomputed `score`; every other entry, the `frecency` field
+and unknown fields are kept byte for byte, and a subtree that could not be read is never
+replaced. An entry whose value this client cannot fully read, including a repeated value that
+the service would merge, is kept rather than rewritten, and a save is refused when an entry's
+key cannot be read. As on the service, a repeated key ranks by its last value. A save and a GIF star write never run together. A failed, conflicting or unconfirmed
+save is dropped rather than retried, and pending uses are lost on exit or sign-out. At most 64
+distinct emoji and ten use times each wait in memory.
+
+Unverified: the Unicode key format (Serein writes the primary Discord name, such as `joy`, and
+reads names, aliases or the emoji itself; a numeric key is a custom emoji only when one is
+loaded, so `100` still resolves to 💯), the score weights (an approximation of the official
+client by recency of the newest uses), and that other clients rank Serein's saves as their own.
+Picks count when chosen in a picker or the quick reaction bar, not when a message is sent.
+Synthetic tests cover parsing, untouched-entry preservation, batching and the rows' merge; no
+live account was used.

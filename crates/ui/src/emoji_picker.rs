@@ -144,6 +144,35 @@ pub(crate) fn discord_names() -> &'static [(&'static str, &'static str, &'static
 	})
 }
 
+/// Catalog index by Unicode text or Discord name, for frecency keys synced from the account.
+fn catalog_index(key: &str) -> Option<usize> {
+	static INDEX: OnceLock<std::collections::HashMap<&'static str, usize>> = OnceLock::new();
+	INDEX
+		.get_or_init(|| {
+			let mut index = std::collections::HashMap::new();
+			for (position, ((text, _), (_, primary, aliases))) in
+				standard().iter().zip(discord_names()).enumerate()
+			{
+				for key in [*text, *primary].into_iter().chain(aliases.split(',')) {
+					index.entry(key).or_insert(position);
+				}
+			}
+			index
+		})
+		.get(key)
+		.copied()
+}
+
+/// The account frecency key: a custom emoji id or, unverified, the Discord name.
+fn frecency_key(used: Used) -> Option<String> {
+	match used {
+		Used::Custom(id) => Some(id.0.to_string()),
+		Used::Unicode(index) => discord_names()
+			.get(index)
+			.map(|(_, name, _)| (*name).to_owned()),
+	}
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Tab {
 	Stickers,
@@ -752,15 +781,23 @@ impl Picker {
 		}
 	}
 
-	pub(crate) fn record(&mut self, text: &str) {
-		if let Some(index) = standard().iter().position(|(emoji, _)| *emoji == text) {
-			self.record_used(Used::Unicode(index));
-		}
+	/// Closes and clears the picker, keeping this session's usage ranking.
+	pub(crate) fn reset(&mut self) {
+		let frequent = std::mem::take(&mut self.frequent);
+		*self = Self {
+			frequent,
+			..Self::default()
+		};
 	}
 
-	/// Copies another picker's usage, so the composer offers what reactions use and back.
-	pub(crate) fn share_frequent(&mut self, from: &Self) {
-		self.frequent.clone_from(&from.frequent);
+	/// Counts a Unicode emoji used outside the picker, such as from the quick reaction bar.
+	pub(crate) fn record(&mut self, state: &mut State, text: &str, reaction: bool) {
+		if let Some(index) = standard().iter().position(|(emoji, _)| *emoji == text) {
+			self.record_used(Used::Unicode(index));
+			if let Some(key) = frecency_key(Used::Unicode(index)) {
+				state.record_emoji_use(&key, reaction);
+			}
+		}
 	}
 
 	fn record_used(&mut self, used: Used) {
@@ -779,17 +816,34 @@ impl Picker {
 			.sort_by_key(|entry| std::cmp::Reverse(entry.1));
 	}
 
-	/// The most used Unicode emoji first, filled with the hover bar defaults.
-	pub(crate) fn quick_reactions(&self) -> [&'static str; 3] {
+	/// The most used Unicode reactions first, this session's then the account's, filled with
+	/// the hover bar defaults.
+	pub(crate) fn quick_reactions(&self, state: &State) -> [&'static str; 3] {
 		let mut quick = crate::reactions::QUICK_DEFAULTS;
 		let mut filled = 0;
-		let unicode = self.frequent.iter().filter_map(|(used, _)| match used {
-			Used::Unicode(index) => Some(standard()[*index].0),
-			Used::Custom(_) => None,
-		});
-		for text in unicode.take(3) {
-			quick[filled] = text;
-			filled += 1;
+		let synced = state
+			.emoji_frecency
+			.ranking
+			.reactions
+			.iter()
+			.filter_map(|key| catalog_index(key));
+		let unicode = self
+			.frequent
+			.iter()
+			.filter_map(|(used, _)| match used {
+				Used::Unicode(index) => Some(*index),
+				Used::Custom(_) => None,
+			})
+			.chain(synced)
+			.map(|index| standard()[index].0);
+		for text in unicode {
+			if filled == 3 {
+				break;
+			}
+			if !quick[..filled].contains(&text) {
+				quick[filled] = text;
+				filled += 1;
+			}
 		}
 		for text in crate::reactions::QUICK_DEFAULTS {
 			if filled == 3 {
@@ -803,18 +857,38 @@ impl Picker {
 		quick
 	}
 
-	/// The most used emoji, custom ones still in a loaded server, filled with defaults.
+	/// This session's most used emoji, then the account's synced ranking for reactions or
+	/// messages, as Discord's frequently used row; custom ones only while their server is
+	/// loaded. Filled with defaults.
 	fn favorites(&self, state: &State) -> Vec<Used> {
-		let mut favorites: Vec<_> = self
-			.frequent
-			.iter()
-			.map(|(used, _)| *used)
-			.filter(|used| match used {
-				Used::Unicode(_) => true,
-				Used::Custom(id) => state.custom_emoji(*id).is_some(),
-			})
-			.take(FAVORITES)
-			.collect();
+		let ranking = &state.emoji_frecency.ranking;
+		let keys = if matches!(self.reaction, Some((Target::React(_), ..))) {
+			&ranking.reactions
+		} else {
+			&ranking.messages
+		};
+		// Numeric keys are custom emoji ids, except Unicode names such as `100`.
+		let synced = keys.iter().filter_map(|key| {
+			key.parse()
+				.ok()
+				.map(Id)
+				.filter(|id| state.custom_emoji(*id).is_some())
+				.map(Used::Custom)
+				.or_else(|| catalog_index(key).map(Used::Unicode))
+		});
+		let mut favorites = Vec::with_capacity(FAVORITES);
+		for used in self.frequent.iter().map(|(used, _)| *used).chain(synced) {
+			if favorites.len() == FAVORITES {
+				break;
+			}
+			if !favorites.contains(&used)
+				&& match used {
+					Used::Unicode(_) => true,
+					Used::Custom(id) => state.custom_emoji(id).is_some(),
+				} {
+				favorites.push(used);
+			}
+		}
 		for text in ["👍", "❤️", "😂", "🎉", "👀", "✅", "🙏", "😢"] {
 			if favorites.len() == FAVORITES {
 				break;
@@ -1066,7 +1140,8 @@ impl Picker {
 		}
 		// Remote requests happen before the popout borrows navigation state immutably.
 		let gif_mode = self.gif_mode(ui);
-		if gifs_tab
+		// The same settings read carries the account's frequently used emoji.
+		if (gifs_tab || self.tab == Tab::Emoji)
 			&& !state.gifs.sync_attempted
 			&& let Some(command) = state.request_gif_favorites()
 		{
@@ -1922,6 +1997,10 @@ impl Picker {
 			&& let Some(used) = used
 		{
 			self.record_used(used);
+			if let Some(key) = frecency_key(used) {
+				let reaction = matches!(self.reaction, Some((Target::React(_), ..)));
+				state.record_emoji_use(&key, reaction);
+			}
 		}
 		match gif_action {
 			Some(GifAction::Refresh) => {
@@ -2995,6 +3074,8 @@ mod tests {
 		let ctx = egui::Context::default();
 		crate::emoji::install(&ctx).unwrap();
 		let mut state = test_support::demo_state();
+		// The emoji tab's frecency settings read is not under test here.
+		state.gifs.sync_attempted = true;
 		let channel = state.selected.unwrap();
 		let message = Id(500);
 		state.drafts.insert(channel, "Keep my draft".into());
@@ -3115,6 +3196,7 @@ mod tests {
 		ctx.enable_accesskit();
 		crate::emoji::install(&ctx).unwrap();
 		let mut state = test_support::demo_state();
+		state.gifs.sync_attempted = true;
 		let message = Id(500);
 		let mut picker = Picker::default();
 		let mut avatars = Avatars::default();
@@ -3321,9 +3403,9 @@ mod tests {
 		};
 		assert_eq!(picker.favorites(&state).len(), 8);
 		assert_eq!(first(&picker), "👍");
-		picker.record("🚀");
-		picker.record("❤️");
-		picker.record("🚀");
+		picker.record_used(Used::Unicode(catalog_index("🚀").unwrap()));
+		picker.record_used(Used::Unicode(catalog_index("❤️").unwrap()));
+		picker.record_used(Used::Unicode(catalog_index("🚀").unwrap()));
 		assert_eq!(first(&picker), "🚀");
 		// Custom emoji from a server that is no longer loaded leave no hole in the row.
 		picker.record_used(Used::Custom(Id(404)));
@@ -3334,13 +3416,31 @@ mod tests {
 		}
 		assert_eq!(favorites.len(), 8);
 		for (text, _) in standard().iter().take(100) {
-			picker.record(text);
+			picker.record_used(Used::Unicode(catalog_index(text).unwrap()));
 		}
 		assert_eq!(picker.frequent.len(), 32);
 		assert_eq!(picker.frequent.capacity(), 32);
 		picker.frequent[0].1 = u32::MAX;
 		picker.record_used(picker.frequent[0].0);
 		assert_eq!(picker.frequent[0].1, u32::MAX);
+
+		// The account's synced ranking follows this session's picks; `100` is a Unicode name.
+		let mut picker = Picker::default();
+		let mut state = State::default();
+		state.emoji_frecency.ranking.messages = ["100", "1234567890123", "joy", "unknown", "🚀"]
+			.map(String::from)
+			.into();
+		picker.record_used(Used::Unicode(catalog_index("🚀").unwrap()));
+		let texts: Vec<_> = picker
+			.favorites(&state)
+			.into_iter()
+			.map(|used| match used {
+				Used::Unicode(index) => standard()[index].0,
+				Used::Custom(_) => panic!("no custom emoji are loaded"),
+			})
+			.collect();
+		assert_eq!(texts[..3], ["🚀", "💯", "😂"]);
+		assert_eq!(texts.iter().filter(|text| **text == "🚀").count(), 1);
 	}
 
 	#[test]
