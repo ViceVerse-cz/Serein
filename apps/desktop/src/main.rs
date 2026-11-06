@@ -535,6 +535,7 @@ fn main() -> eframe::Result {
 	);
 	let (
 		gpu_preference,
+		graphics_api,
 		transparency_available,
 		hide_window_decorations,
 		window_geometry,
@@ -545,6 +546,7 @@ fn main() -> eframe::Result {
 		let value = preferences.as_ref().unwrap_or(&defaults);
 		(
 			value.gpu_preference,
+			value.graphics_api,
 			value.transparency_blur,
 			value.hide_window_decorations || value.custom_title_bar,
 			value.window_geometry,
@@ -599,39 +601,11 @@ fn main() -> eframe::Result {
 		},
 		renderer: eframe::Renderer::Wgpu,
 		wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
-			wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(
-				eframe::egui_wgpu::WgpuSetupCreateNew {
-					// Avoid Intel Vulkan driver startup crashes; keep the diagnostic override.
-					#[cfg(target_os = "windows")]
-					instance_descriptor: {
-						let mut descriptor =
-							eframe::wgpu::InstanceDescriptor::new_without_display_handle_from_env();
-						// DX12 alone offers WARP on hardware that predates it and hides the GPU's
-						// OpenGL driver; ranking prefers a real GPU, so both are enumerated.
-						descriptor.backends = eframe::wgpu::Backends::from_env()
-							.unwrap_or(eframe::wgpu::Backends::DX12 | eframe::wgpu::Backends::GL);
-						// An HWND swapchain is always opaque; only a DirectComposition one carries
-						// alpha to the desktop and its acrylic backdrop. The env override still wins.
-						if transparency_available
-							&& eframe::wgpu::Dx12SwapchainKind::from_env().is_none()
-						{
-							descriptor.backend_options.dx12.presentation_system =
-								eframe::wgpu::Dx12SwapchainKind::DxgiFromVisual;
-						}
-						descriptor
-					},
-					// Only adapters that can present to this window are eligible; the saved
-					// preference just orders them. A power hint alone picks GPUs the display is
-					// not wired to, which fails outright on Wayland.
-					native_adapter_selector: Some(std::sync::Arc::new(
-						move |adapters: &[eframe::wgpu::Adapter],
-						      surface: Option<&eframe::wgpu::Surface<'_>>| {
-							gpu::select(gpu_preference, adapters, surface)
-						},
-					)),
-					..gpu::setup()
-				},
-			),
+			wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(gpu::setup(
+				gpu_preference,
+				graphics_api,
+				transparency_available,
+			)),
 			// Keep cursor-driven redraws synchronized even where AutoVsync selects FifoRelaxed.
 			surface: eframe::egui_wgpu::SurfaceConfig {
 				present_mode: eframe::wgpu::PresentMode::Fifo,
@@ -1875,6 +1849,8 @@ impl Desktop {
 			messaging.prepare_friends_sample();
 		}
 		messaging.tray_available = platform::tray::supported();
+		messaging.available_graphics_apis = gpu::available_apis();
+		messaging.graphics_api_env_override = eframe::wgpu::Backends::from_env().is_some();
 		// Name the adapter actually in use; a mismatch with the preference is the useful
 		// detail in a graphics bug report.
 		if let Some(render_state) = cc.wgpu_render_state.as_ref() {

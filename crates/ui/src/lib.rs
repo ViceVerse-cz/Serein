@@ -358,6 +358,11 @@ pub struct MessagingUi {
 	pub custom_font: fonts::Settings,
 	/// Which GPU renders the window; the running adapter only changes on restart.
 	pub gpu_preference: model::GpuPreference,
+	/// Preferred graphics API on next launch.
+	pub graphics_api: model::GraphicsApi,
+	/// APIs compiled for this platform, populated by the desktop without probing drivers.
+	pub available_graphics_apis: Vec<model::GraphicsApi>,
+	pub graphics_api_env_override: bool,
 	/// Device preference: repaint every display refresh while focused, so variable refresh rate
 	/// displays hold one rate instead of flickering.
 	pub steady_refresh_rate: bool,

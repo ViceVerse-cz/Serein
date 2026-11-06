@@ -44,6 +44,18 @@ available (for example, `dx12` or `vulkan`). Affected users confirmed that forci
 DX12 launches successfully; the new default still needs native Windows validation.
 macOS and Linux retain their existing backend defaults.
 
+General → Graphics now offers a **Graphics API** picker alongside the GPU preference.
+It lists Automatic and the APIs compiled for the current platform (Vulkan, DirectX 12,
+Metal or OpenGL); an installed driver and a presentable adapter are still required.
+The device-local choice is saved in SQLite and applies on the next launch. An explicit
+API is ranked before the GPU preference; when no adapter for it can present, selection
+falls back to the normal Automatic candidates and reports the fallback on stderr.
+Automatic retains the Windows DirectX 12 / OpenGL policy and other platform defaults.
+`WGPU_BACKEND` takes precedence over the saved API and disables the picker for that
+launch. The current adapter/backend remains visible in settings, and bug reports include
+the requested API and whether an environment override is active. Driver initialization
+crashes cannot be caught by this fallback; Windows Vulkan remains an explicit opt-in.
+
 Adapter selection prefers a real GPU over a software rasterizer whichever backend presents it.
 Windows offers WARP ("Microsoft Basic Render Driver") as its Direct3D adapter on hardware that
 predates DX12, and drawing the client on the CPU that way freezes a machine whose GPU still

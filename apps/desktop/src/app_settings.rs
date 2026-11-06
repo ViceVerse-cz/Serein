@@ -61,6 +61,7 @@ impl Settings {
 			hide_window_decorations: ui.hide_window_decorations,
 			custom_title_bar: ui.custom_title_bar,
 			gpu_preference: ui.gpu_preference,
+			graphics_api: ui.graphics_api,
 			steady_refresh_rate: ui.steady_refresh_rate,
 			primary_color: ui.primary_color,
 			transparency_blur: ui.transparency_blur,
@@ -115,6 +116,7 @@ impl Settings {
 		ui.hide_window_decorations = value.hide_window_decorations;
 		ui.custom_title_bar = value.custom_title_bar;
 		ui.gpu_preference = value.gpu_preference;
+		ui.graphics_api = value.graphics_api;
 		ui.steady_refresh_rate = value.steady_refresh_rate;
 		ui.primary_color = value.primary_color;
 		ui.transparency_blur = value.transparency_blur;
@@ -515,13 +517,19 @@ mod tests {
 
 		settings.current.language = Some("cs".into());
 		settings.current.notification_options.current_channel = true;
+		settings.current.graphics_api = model::GraphicsApi::OpenGl;
 		settings.loaded = true;
 		settings.apply(&mut ui);
 		settings.observe(&ui);
 		assert_eq!(ui.language, ui::i18n::Language::Czech);
 		assert!(ui.notification_options.current_channel);
+		assert_eq!(ui.graphics_api, model::GraphicsApi::OpenGl);
 		assert!(!settings.state.touched);
 		assert!(!settings.state.dirty);
+		ui.graphics_api = model::GraphicsApi::Vulkan;
+		settings.observe(&ui);
+		assert_eq!(settings.current.graphics_api, model::GraphicsApi::Vulkan);
+		assert!(settings.state.dirty);
 	}
 
 	#[test]
