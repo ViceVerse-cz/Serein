@@ -2008,6 +2008,12 @@ impl MessagingUi {
 		assert!(view.voice_switch.is_none());
 	}
 
+	pub(super) fn apply_voice_join(&mut self, state: &mut State, commands: &mut Vec<Command>) {
+		if let Some(channel) = self.voice_join.take() {
+			self.request_call(state, channel, false, commands);
+		}
+	}
+
 	pub(crate) fn request_call(
 		&mut self,
 		state: &mut State,
