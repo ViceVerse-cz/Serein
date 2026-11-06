@@ -3433,11 +3433,28 @@ impl TimelineView {
 									let body_spacing = ui.spacing().item_spacing.x;
 									ui.spacing_mut().item_spacing.x = 8.0;
 									let time = timestamp(id);
+									// The time column is as wide as the widest clock, so authors
+									// line up whatever the minutes are.
+									let column = crate::local_time::widest_clocks()
+										.into_iter()
+										.map(|clock| {
+											ui.painter()
+												.layout_no_wrap(
+													clock.to_owned(),
+													egui::FontId::proportional(12.0),
+													colors.muted,
+												)
+												.size()
+												.x
+										})
+										.fold(0.0, f32::max)
+										.ceil();
 									compact_header(
 										ui,
 										ui.available_width(),
 										egui::FontId::proportional(12.0),
 										|ui| {
+											ui.set_min_width(column);
 											let time = ui
 												.label(
 													RichText::new(crate::local_time::clock(time))
