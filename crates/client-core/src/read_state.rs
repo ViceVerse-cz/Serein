@@ -701,6 +701,7 @@ impl State {
 			}
 		}
 	}
+	/// Reconcile bounded service updates and HTTP results while preserving explicit manual ordering.
 	pub fn apply_read_state(&mut self, event: Event) -> Result<(), &'static str> {
 		let new_channel = match &event {
 			Event::Ack { channel, .. } | Event::Result { channel, .. } => Some(*channel),
@@ -995,6 +996,7 @@ impl State {
 		}
 		Ok(())
 	}
+	/// Confirm only channel epochs still belonging to this successful bulk request.
 	fn finish_bulk_ack(&mut self, channels: Vec<(Id, u64, Id)>, result: Result<(), Failure>) {
 		match result {
 			Ok(()) => {
@@ -1558,6 +1560,87 @@ mod navigation_tests {
 		}
 	}
 	#[test]
+	fn partial_read_does_not_subtract_excluded_or_unknown_service_mentions() {
+		for exclusion in 0..4 {
+			let mut state = state(Some(Id(100)));
+			let channel = Id(1);
+			state
+				.apply_user_action(crate::user_actions::Event::Relationships(
+					(exclusion != 3).then(|| {
+						if exclusion == 0 {
+							vec![(Id(999), true)]
+						} else {
+							vec![]
+						}
+					}),
+				))
+				.unwrap();
+			let mut author = message(500).author;
+			author.id = Id(999);
+			state
+				.apply_user_action(crate::user_actions::Event::Restrictions(Some(
+					if exclusion == 1 {
+						vec![(author, "synthetic".into(), true)]
+					} else {
+						vec![]
+					},
+				)))
+				.unwrap();
+			state
+				.apply_notification_preferences(crate::notifications::Event::Settings {
+					entries: if exclusion == 2 {
+						vec![crate::notifications::Setting {
+							overrides_known: true,
+							channels: vec![(channel, Some(true), Some(0))],
+							..Default::default()
+						}]
+					} else {
+						vec![]
+					},
+					replace: true,
+				})
+				.unwrap();
+			let Command::MarkRead {
+				message: cursor,
+				request,
+				..
+			} = state.prepare_mark_read(Id(500)).unwrap()
+			else {
+				panic!("read")
+			};
+			state.read_state.activity.forget(channel);
+			let mut old = message(500);
+			old.author.id = Id(999);
+			let mut new = message(501);
+			new.author.id = Id(998);
+			new.mentions.push(state.user.clone().unwrap());
+			apply(&mut state, CoreEvent::Message(old));
+			apply(&mut state, CoreEvent::Message(new));
+			state
+				.apply_read_state(Event::Ack {
+					channel,
+					message: Some(Id(100)),
+					manual: false,
+					mention_count: Some(1),
+					version: None,
+				})
+				.unwrap();
+			// The author may be unblocked later: contribution is fixed at observation time.
+			state
+				.apply_user_action(crate::user_actions::Event::Relationships(Some(vec![])))
+				.unwrap();
+			state
+				.apply_read_state(Event::Result {
+					channel,
+					message: cursor,
+					request,
+					result: Ok(()),
+				})
+				.unwrap();
+			assert_eq!(state.mention_count(channel), 1, "exclusion {exclusion}");
+		}
+	}
+	#[test]
 	fn racing_http_read_preserves_badges_and_activity_beyond_its_cursor() {
 		for newer in [false, true] {
 			let mut state = state(Some(Id(100)));
@@ -1585,6 +1668,12 @@ mod navigation_tests {
 				.apply_notification_preferences(crate::notifications::Event::Presence(Some(false)))
 				.unwrap();
 			assert!(state.notification_allowed(channel));
+			state
+				.apply_user_action(crate::user_actions::Event::Relationships(Some(vec![])))
+				.unwrap();
+			state
+				.apply_user_action(crate::user_actions::Event::Restrictions(Some(vec![])))
+				.unwrap();
 			state.read_state.activity.forget(channel);
 			apply(&mut state, CoreEvent::Message(incoming(500)));
 			if newer {

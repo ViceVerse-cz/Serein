@@ -49,8 +49,8 @@ pub(crate) struct Activity {
 	counts: BTreeMap<Id, u32>,
 	high_water: BTreeMap<Id, Id>,
 	observed_counts: BTreeMap<Id, (u32, u32)>,
-	/// Channel, message, mention, and whether the current service count already covers it.
-	observed: VecDeque<(Id, Id, bool, bool)>,
+	/// Channel, message, local mention, service coverage, and proven service contribution at creation.
+	observed: VecDeque<(Id, Id, bool, bool, bool)>,
 	notifications: VecDeque<Notification>,
 }
 impl Activity {
@@ -83,26 +83,29 @@ impl Activity {
 	pub(crate) fn set_count(&mut self, channel: Id, count: u32) {
 		self.counts.insert(channel, count);
 	}
-	fn retain_unread(&mut self, channel: Id, message: Option<Id>) {
+	/// Prune read observations/alerts and count only proven service contributions removed.
+	fn retain_unread(&mut self, channel: Id, message: Option<Id>) -> u32 {
+		let mut acknowledged = 0;
 		self.observed
-			.retain(|(c, id, ..)| *c != channel || message.is_none_or(|read| *id > read));
+			.retain(|(c, id, _, covered, service_mention)| {
+				let keep = *c != channel || message.is_none_or(|read| *id > read);
+				if !keep && *covered && *service_mention {
+					acknowledged += 1;
+				}
+				keep
+			});
 		self.notifications
 			.retain(|n| n.channel != channel || message.is_none_or(|read| n.message > read));
+		acknowledged
 	}
+
 	/// HTTP success removes known acknowledged mentions without discarding unknown service
 	/// activity. The monotonic high water prevents stale latest metadata clearing the baseline.
 	pub(crate) fn ack_local(&mut self, channel: Id, message: Id, latest: Option<Id>) {
-		let acknowledged = self
-			.observed
-			.iter()
-			.filter(|(c, id, mention, covered)| {
-				*c == channel && *id <= message && *mention && *covered
-			})
-			.count() as u32;
+		let acknowledged = self.retain_unread(channel, Some(message));
 		if let Some(count) = self.counts.get_mut(&channel) {
 			*count = count.saturating_sub(acknowledged);
 		}
-		self.retain_unread(channel, Some(message));
 		let latest = latest.max(self.high_water.get(&channel).copied());
 		if latest.is_some_and(|latest| latest <= message) {
 			self.counts.remove(&channel);
@@ -110,12 +113,13 @@ impl Activity {
 		self.recount(channel);
 	}
 
+	/// Apply a Gateway count while retaining bounded per-message evidence for later local reads.
 	pub(crate) fn ack(&mut self, channel: Id, message: Option<Id>, count: Option<u32>) {
 		self.retain_unread(channel, message);
 		// The service count includes messages after this ACK. Avoid counting those twice.
 		if let Some(count) = count {
 			self.counts.insert(channel, count);
-			for (c, _, _, covered) in &mut self.observed {
+			for (c, _, _, covered, _) in &mut self.observed {
 				if *c == channel {
 					*covered = true;
 				}
@@ -123,7 +127,7 @@ impl Activity {
 		} else {
 			// Without a refreshed service count, only retained observed messages are countable.
 			self.counts.remove(&channel);
-			for (c, _, _, covered) in &mut self.observed {
+			for (c, _, _, covered, _) in &mut self.observed {
 				if *c == channel {
 					*covered = false;
 				}
@@ -131,9 +135,10 @@ impl Activity {
 		}
 		self.recount(channel);
 	}
+	/// Count only activity not already represented by the current service baseline.
 	fn recount(&mut self, channel: Id) {
 		let mut counts = (0, 0);
-		for (c, _, mention, covered) in &self.observed {
+		for (c, _, mention, covered, _) in &self.observed {
 			if *c == channel && !covered {
 				counts.0 += 1;
 				counts.1 += u32::from(*mention);
@@ -534,6 +539,22 @@ impl State {
 			})
 			.unwrap_or_else(|| (self.demo || setting.muted.is_some()).then_some(false))
 	}
+	/// Service mute state without a pending optimistic toggle; missing partial overrides stay unknown.
+	fn confirmed_dm_muted(&self, channel: Id) -> Option<bool> {
+		let Some(setting) = self.notification_preferences.settings.get(&None) else {
+			return (self.demo || self.notification_preferences.complete).then_some(false);
+		};
+		match setting.channels.iter().find(|(id, ..)| *id == channel) {
+			Some((_, muted, _)) if *muted == Some(true) && setting.mute_expired(channel) => {
+				Some(false)
+			}
+			Some((_, muted, _)) => *muted,
+			None => {
+				(self.demo || setting.overrides_known || self.notification_preferences.complete)
+					.then_some(false)
+			}
+		}
+	}
 	pub(crate) fn confirm_dm_muted(
 		&mut self,
 		channel: Id,
@@ -810,9 +831,40 @@ impl State {
 		}
 		Ok(())
 	}
+	/// Only proven contributions are subtracted from an opaque service count. Capture this
+	/// while observing the message: later relationship, mute or role changes cannot rewrite it.
+	fn service_mention_at_creation(&self, message: &Message) -> bool {
+		if self.service_author_excluded(message.author.id) != Some(false)
+			|| !self.counts_toward_mention_badge(message)
+		{
+			return false;
+		}
+		let Some(channel) = self.channel(message.channel) else {
+			return false;
+		};
+		let direct = self
+			.user
+			.as_ref()
+			.is_some_and(|owner| message.mentions.iter().any(|u| u.id == owner.id));
+		if channel.guild.is_none() {
+			return direct || self.confirmed_dm_muted(channel.id) == Some(false);
+		}
+		// Positive ping matches use the admitted guild preferences/member roles. The global
+		// MENTION_ON_ALL_MESSAGES switch is not represented by the current settings model;
+		// non-ping contributions are therefore unknown, never guessed or subtracted.
+		self.mention_matches(
+			message.channel,
+			direct,
+			message.mention_everyone,
+			&message.mention_roles,
+		)
+	}
+	/// Classify local badges from current admitted state; service subtraction needs separate evidence.
 	pub(crate) fn counts_toward_mention_badge(&self, message: &Message) -> bool {
 		// Private recipient-remove rows are not mentions. Discord message type 2.
 		if message.kind == 2
+			|| self.user_blocked(message.author.id) == Some(true)
+			|| self.user_ignored(message.author.id) == Some(true)
 			|| !model::valid_mention_roles(&message.mention_roles)
 			|| self
 				.user
@@ -825,6 +877,14 @@ impl State {
 			.user
 			.as_ref()
 			.is_some_and(|owner| message.mentions.iter().any(|user| user.id == owner.id));
+		if !direct
+			&& self
+				.channel(message.channel)
+				.is_some_and(|c| c.guild.is_none())
+			&& self.dm_muted(message.channel) == Some(true)
+		{
+			return false;
+		}
 		self.mention_matches(
 			message.channel,
 			direct,
@@ -959,18 +1019,20 @@ impl State {
 		}
 		let direct = message.mentions.iter().any(|u| u.id == owner.id);
 		let mention = self.counts_toward_mention_badge(message);
+		let service_mention = self.service_mention_at_creation(message);
 		// Silent messages still contribute to badges, but never enqueue an OS alert.
 		let allowed = !message.suppress_notifications
 			&& self.user_blocked(message.author.id) != Some(true)
+			&& self.user_ignored(message.author.id) != Some(true)
 			&& self.notification_allowed_for(message.channel, mention);
 		{
 			let activity = &mut self.read_state.activity;
 			// ponytail: retain 4096 observed messages; counts become a lower bound after eviction.
 			while activity.observed.len() >= MAX_OBSERVED
-				|| (activity.observed.len() + 1) * size_of::<(Id, Id, bool, bool)>()
+				|| (activity.observed.len() + 1) * size_of::<(Id, Id, bool, bool, bool)>()
 					> MAX_OBSERVED_BYTES
 			{
-				if let Some((channel, _, mention, covered)) = activity.observed.pop_front()
+				if let Some((channel, _, mention, covered, _)) = activity.observed.pop_front()
 					&& !covered && let Some(counts) = activity.observed_counts.get_mut(&channel)
 				{
 					counts.0 -= 1;
@@ -980,9 +1042,13 @@ impl State {
 					}
 				}
 			}
-			activity
-				.observed
-				.push_back((message.channel, message.id, mention, false));
+			activity.observed.push_back((
+				message.channel,
+				message.id,
+				mention,
+				false,
+				service_mention,
+			));
 			let counts = activity.observed_counts.entry(message.channel).or_default();
 			counts.0 += 1;
 			counts.1 += u32::from(mention);
@@ -1751,7 +1817,9 @@ mod tests {
 		assert!(activity.observed_counts.is_empty());
 		assert!(activity.high_water.is_empty());
 		assert!(activity.counts.is_empty());
-		activity.observed.push_back((Id(1), Id(2), true, false));
+		activity
+			.observed
+			.push_back((Id(1), Id(2), true, false, true));
 		activity.recount(Id(1));
 		assert_eq!(activity.count(Id(1), true), 1);
 		activity.delete(Id(1), Id(2));

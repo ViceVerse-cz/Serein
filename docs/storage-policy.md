@@ -472,7 +472,9 @@ account does not evict its own decisions.
 Incoming read-state snapshot vectors use at most 131,072 entries / 16 MiB; retained
 read maps are bounded by account channels, with the existing separate activity/alert budgets.
 The activity ledger retains at most 4,096 rows / 128 KiB, including whether a row is already
-covered by a service badge count. Covered rows stay available for local HTTP read reconciliation
+covered by a service badge count and whether a service contribution was provable at message
+creation. Committed relationship/mute snapshots and admitted role/notification state are consulted
+then; optimistic toggles and later changes cannot rewrite this evidence. Covered rows stay available for local HTTP read reconciliation
 without double-counting later activity. Local reads prune acknowledged alerts and known mentions;
 unknown service counts remain conservative until refreshed. The existing monotonic activity high
 water prevents stale latest-message metadata from prematurely clearing that baseline.

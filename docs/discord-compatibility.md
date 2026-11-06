@@ -2996,3 +2996,15 @@ server id's snowflake time. Without a `banner`, the header shows the invite `spl
 `cdn.discordapp.com/splashes/`, and the server icon is painted from its validated hash with the
 usual rounded server-icon shape. No request, route or join behaviour changed, and these channel
 types in invite responses remain unverified against live Discord.
+
+### Conservative mention-count reconciliation — November 6, 2026
+
+The [unofficial read-state automation reference](https://docs.discord.food/topics/read-state#channel-read-state-automations)
+excludes blocked/ignored authors and applies private mute and ping rules at message creation.
+Serein snapshots proven contribution evidence from committed relationship/mute state and admitted
+guild preferences/member roles when observing a message. Unknown relationship lists, incomplete
+overrides, and non-ping guild contributions are not safe to subtract from an opaque service count.
+In particular, the current settings model does not represent `MENTION_ON_ALL_MESSAGES`; it is
+not assumed disabled. Contributions depending on that switch remain unknown until authoritative
+count reconciliation. This is conservative local behavior, not a verified service-equivalence claim.
+No new service setting, protocol request or Identify capability is introduced.

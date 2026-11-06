@@ -729,6 +729,26 @@ impl State {
 			.get(&user)
 			.map(|(_, name)| name.as_str())
 	}
+	/// Committed relationship snapshots only; optimistic toggles cannot prove server eligibility.
+	pub(crate) fn service_author_excluded(&self, user: Id) -> Option<bool> {
+		let blocked = self
+			.user_actions
+			.relationships
+			.get(&user)
+			.copied()
+			.or_else(|| (self.demo || self.user_actions.known).then_some(false));
+		let ignored = self
+			.user_actions
+			.restricted
+			.get(&user)
+			.map(|entry| entry.2)
+			.or_else(|| (self.demo || self.user_actions.restricted_known).then_some(false));
+		match (blocked, ignored) {
+			(Some(true), _) | (_, Some(true)) => Some(true),
+			(Some(false), Some(false)) => Some(false),
+			_ => None,
+		}
+	}
 	pub fn user_blocked(&self, user: Id) -> Option<bool> {
 		if let Some((
 			Action::Block {

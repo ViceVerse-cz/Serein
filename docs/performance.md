@@ -6,23 +6,30 @@ log and per-run evidence archive has been removed; the summaries below retain th
 
 ## Read ACK reconciliation — November 6, 2026
 
-Review follow-up against PR #908 head `449211db`, Ubuntu 24.04.5 x86-64 on an Intel i5-1235U,
-Rust 1.98.1 and locked dependencies. The standard synthetic reducer replay uses 100,000 events.
-Each release binary ran once for warmup, then five alternating before/after pairs. Release package
-compilation was active in the background, so these overlapping ranges are not evidence of a speedup.
+Baseline PR #908 head `449211db` versus the final Rust sources in the follow-up containing
+creation-time service-contribution evidence and the `--ack-reconciliation` replay mode.
+Ubuntu 24.04.5 x86-64, Intel i5-1235U, Rust 1.98.1, unchanged dependency versions, identical
+release settings and benchmark harness. The baseline's isolated workspace prunes unrelated
+lockfile entries; its dependency name/version/source triples were checked against the repository
+lockfile. Neither repository lockfile nor dependency versions change in this PR.
 
-| Metric | Before | After |
-| --- | ---: | ---: |
-| Median replay time | 70.850 ms | 64.602 ms |
-| Observed replay range | 65.061–71.345 ms | 63.864–74.138 ms |
-| Retained timeline estimate | 401,492–401,977 B | 401,492–401,977 B |
-| Retained timeline rows | 500 | 500 |
+Run `cargo replay --ack-reconciliation`. Each process constructs eight independent full ledgers
+for partial reads and eight for bulk reads, each with 4,096 observed messages across 1,024
+private channels. Timing includes only HTTP-result reduction, excluding fixture construction and
+request preparation. Each bulk result confirms all 1,024 channels. Warm each binary once, then
+run five alternating before/after pairs with no concurrent container builds or packaging.
 
-This workload does not isolate ACK reconciliation, process RSS, UI latency or Discord behavior.
-The activity ledger still admits at most 4,096 rows / 128 KiB. Each observed row now retains a
-service-coverage flag so partial local reads can reconcile known mentions without duplicate counts.
-Three synthetic read-state regressions fail against the original production code and pass after
-the changes; no live account data, OS notifications or Discord acknowledgements were used.
+| Timed work per process | Baseline median (range) | After median (range) | Median delta |
+| --- | ---: | ---: | ---: |
+| Eight partial confirmations | 0.246620 ms (0.224398–0.269145) | 0.250161 ms (0.240774–0.281407) | +0.003541 ms (+1.4%) |
+| Eight 1,024-channel bulk confirmations | 103.502 ms (95.428–112.245) | 110.542 ms (102.911–118.829) | +7.040 ms (+6.8%) |
+
+Ranges overlap. The bulk median difference is about 0.88 ms per maximal batch in this synthetic
+run; it is not a universal latency result. These workloads exercise the added ledger scans and
+bulk reconciliation, unlike the earlier message-only replay. No speedup, RSS, UI timing, live
+Discord compatibility, or message-creation classification throughput is established by them.
+The ledger keeps its 4,096-row / 128-KiB bound. The PR records the measured runtime commit;
+subsequent documentation-only changes do not affect these Rust sources.
 
 ## Window placement save after a move — November 5, 2026
 
