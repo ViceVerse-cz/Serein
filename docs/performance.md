@@ -4,36 +4,6 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
-## Read ACK reconciliation — November 6, 2026
-
-Baseline PR #908 head `449211db` versus the final Rust sources in the follow-up containing
-creation-time service-contribution evidence, profile-independent ignored status, and the
-`--ack-reconciliation` replay mode.
-Ubuntu 24.04.5 x86-64, Intel i5-1235U, Rust 1.98.1, unchanged dependency versions, identical
-release settings and benchmark harness. The baseline's isolated workspace prunes unrelated
-lockfile entries; its dependency name/version/source triples were checked against the repository
-lockfile. Neither repository lockfile nor dependency versions change in this PR.
-
-Run `cargo replay --ack-reconciliation`. Each process constructs eight independent full ledgers
-for partial reads and eight for bulk reads, each with 4,096 observed messages across 1,024
-private channels. Timing includes only HTTP-result reduction, excluding fixture construction and
-request preparation. Each bulk result confirms all 1,024 channels. Warm each binary once, then
-run five counterbalanced pairs (AB, BA, AB, BA, AB) with no concurrent container builds or
-packaging. Pilot runs showed substantial host timing noise; this final series uses the
-counterbalanced order rather than interpreting an A-first ordering bias as an improvement.
-
-| Timed work per process | Baseline median (range) | After median (range) | Median delta |
-| --- | ---: | ---: | ---: |
-| Eight partial confirmations | 0.115081 ms (0.111414–0.143944) | 0.117672 ms (0.111691–0.176175) | +0.002591 ms (+2.3%) |
-| Eight 1,024-channel bulk confirmations | 43.083 ms (40.419–64.171) | 42.706 ms (40.043–74.701) | −0.377 ms (−0.9%) |
-
-Ranges overlap substantially; neither a speedup nor an absence of regression is established.
-The values are not universal latency results. These workloads exercise the added ledger scans and
-bulk reconciliation, unlike the earlier message-only replay. No speedup, RSS, UI timing, live
-Discord compatibility, or message-creation classification throughput is established by them.
-The ledger keeps its 4,096-row / 128-KiB bound. The PR records the measured runtime commit;
-subsequent documentation-only changes do not affect these Rust sources.
-
 ## Window placement save after a move — November 5, 2026
 
 Baseline `2b593b1` (`main` after #893) and this branch were built with the pinned Rust 1.98.1
@@ -1717,3 +1687,33 @@ with aligned surface padding. The player still queues two decoded frames, at mos
 larger than the renderer's maximum texture side are refused by the CPU fallback. The
 FFmpeg transcode fallback still produces at most 1080p. No 4K playback CPU or memory
 measurement has been recorded yet.
+
+## Read ACK reconciliation — November 6, 2026
+
+Baseline PR #908 head `449211db` versus the final Rust sources in the follow-up containing
+creation-time service-contribution evidence, profile-independent ignored status, and the
+`--ack-reconciliation` replay mode.
+Ubuntu 24.04.5 x86-64, Intel i5-1235U, Rust 1.98.1, unchanged dependency versions, identical
+release settings and benchmark harness. The baseline's isolated workspace prunes unrelated
+lockfile entries; its dependency name/version/source triples were checked against the repository
+lockfile. Neither repository lockfile nor dependency versions change in this PR.
+
+Run `cargo replay --ack-reconciliation`. Each process constructs eight independent full ledgers
+for partial reads and eight for bulk reads, each with 4,096 observed messages across 1,024
+private channels. Timing includes only HTTP-result reduction, excluding fixture construction and
+request preparation. Each bulk result confirms all 1,024 channels. Warm each binary once, then
+run five counterbalanced pairs (AB, BA, AB, BA, AB) with no concurrent container builds or
+packaging. Pilot runs showed substantial host timing noise; this final series uses the
+counterbalanced order rather than interpreting an A-first ordering bias as an improvement.
+
+| Timed work per process | Baseline median (range) | After median (range) | Median delta |
+| --- | ---: | ---: | ---: |
+| Eight partial confirmations | 0.115081 ms (0.111414–0.143944) | 0.117672 ms (0.111691–0.176175) | +0.002591 ms (+2.3%) |
+| Eight 1,024-channel bulk confirmations | 43.083 ms (40.419–64.171) | 42.706 ms (40.043–74.701) | −0.377 ms (−0.9%) |
+
+Ranges overlap substantially; neither a speedup nor an absence of regression is established.
+The values are not universal latency results. These workloads exercise the added ledger scans and
+bulk reconciliation, unlike the earlier message-only replay. No speedup, RSS, UI timing, live
+Discord compatibility, or message-creation classification throughput is established by them.
+The ledger keeps its 4,096-row / 128-KiB bound. The PR records the measured runtime commit;
+subsequent documentation-only changes do not affect these Rust sources.
