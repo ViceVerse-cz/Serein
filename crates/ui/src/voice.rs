@@ -139,6 +139,21 @@ impl MessagingUi {
 		self.voice_popout_chat && self.voice_popout.is_some() && state.selected == self.voice_popout
 	}
 
+	/// Takes a link confirmation this window's draw opened, so the main window leaves it alone.
+	fn claim_popout_links(&mut self, before: &(Option<String>, Option<String>)) {
+		if (self.timeline.opening != before.0
+			&& self
+				.timeline
+				.opening
+				.as_deref()
+				.is_some_and(|link| crate::markdown::discord_chat_link(link).is_none()))
+			|| (self.timeline.browser_opening != before.1
+				&& self.timeline.browser_opening.is_some())
+		{
+			self.popout_links = true;
+		}
+	}
+
 	/// The call window's content: the stage and, when toggled on, the call channel's chat.
 	pub fn show_voice_popout(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		let mut commands = Vec::new();
@@ -171,6 +186,8 @@ impl MessagingUi {
 		if self.timeline.video.fullscreen_in_popout()
 			&& self.timeline.show_fullscreen_video(ui.ctx(), state)
 		{
+			// Opening the original here still belongs to this window's link confirmation.
+			self.claim_popout_links(&links_before);
 			ui.painter()
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;
@@ -228,17 +245,6 @@ impl MessagingUi {
 			}
 			self.profile_in_popout = true;
 		}
-		if (self.timeline.opening != links_before.0
-			&& self
-				.timeline
-				.opening
-				.as_deref()
-				.is_some_and(|link| crate::markdown::discord_chat_link(link).is_none()))
-			|| (self.timeline.browser_opening != links_before.1
-				&& self.timeline.browser_opening.is_some())
-		{
-			self.popout_links = true;
-		}
 		if chat {
 			self.conversation_overlays(ui, state, &mut commands);
 		}
@@ -249,6 +255,8 @@ impl MessagingUi {
 			let ctx = ui.ctx().clone();
 			self.confirm_friend_removal(&ctx, state, &mut commands);
 			self.profile_dialogs(ui, state, &mut commands);
+			// A viewer's original or link opens the confirmation in this window.
+			self.claim_popout_links(&links_before);
 			// Once the dialogs close, the main window draws the next ones again.
 			if self.profile_image.is_none()
 				&& !self.contact_editor.is_open()
