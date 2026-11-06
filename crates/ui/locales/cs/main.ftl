@@ -4162,8 +4162,6 @@ voice-device-combo-device-unavailable = Zařízení není k dispozici
 voice-device-default = Výchozí nastavení systému
 # Context: frame
 voice-frame-open-voice = Otevřený hlas
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% je původní úroveň. Vyšší úrovně mohou zkreslit.
 # Context: labels
 voice-labels-choose-camera = Vyberte fotoaparát
 # Context: live_badge
@@ -4268,12 +4266,6 @@ voice-voice-participant-microphone-muted = Mikrofon ztlumen
 voice-voice-participant-muted-by-server = Ztlumeno serverem
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Ztlumeno pro vás na tomto zařízení
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Vyberte si algoritmus ve všech nastaveních hlasu.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen vypne příchozí zvuk a ztlumí vám mikrofon.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Když chcete mluvit, podržte nakonfigurovanou zkratku.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Chcete-li používat tyto ovládací prvky, nainstalujte sestavení s podporou hlasu.
 # Context: voice_popup_content

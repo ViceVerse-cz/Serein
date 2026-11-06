@@ -2248,6 +2248,15 @@ pub enum ButtonKind {
 /// Compact inline button. Sizes, radius, focus ring and disabled styling are identical
 /// everywhere: dialog footers, settings toolbars and page headers all use this.
 pub fn button(ui: &mut egui::Ui, label: &str, kind: ButtonKind) -> egui::Response {
+	sized_button(ui, label, kind, false)
+}
+
+/// [`button`] stretched to the available width, for a popout's closing action.
+pub fn full_width_button(ui: &mut egui::Ui, label: &str, kind: ButtonKind) -> egui::Response {
+	sized_button(ui, label, kind, true)
+}
+
+fn sized_button(ui: &mut egui::Ui, label: &str, kind: ButtonKind, full: bool) -> egui::Response {
 	let label = crate::i18n::translate_if_key(label);
 	let p = palette(ui);
 	let (fill, stroke, text) = match kind {
@@ -2264,11 +2273,15 @@ pub fn button(ui: &mut egui::Ui, label: &str, kind: ButtonKind) -> egui::Respons
 	let galley = ui
 		.painter()
 		.layout_no_wrap(label.to_owned(), font, Color32::WHITE);
-	let width = (galley.size().x + 32.0).max(if kind == ButtonKind::Neutral {
-		72.0
+	let width = if full {
+		ui.available_width()
 	} else {
-		92.0
-	});
+		(galley.size().x + 32.0).max(if kind == ButtonKind::Neutral {
+			72.0
+		} else {
+			92.0
+		})
+	};
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(width, BUTTON_HEIGHT), egui::Sense::click());
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));

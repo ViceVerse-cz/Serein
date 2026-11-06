@@ -4144,8 +4144,6 @@ voice-device-combo-device-unavailable = Dispositivo non disponibile
 voice-device-default = Predefinito del sistema
 # Context: frame
 voice-frame-open-voice = Voce aperta
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% è il livello originale. Livelli più alti potrebbero distorcere.
 # Context: labels
 voice-labels-choose-camera = Scegli la fotocamera
 # Context: live_badge
@@ -4246,12 +4244,6 @@ voice-voice-participant-microphone-muted = Microfono disattivato
 voice-voice-participant-muted-by-server = Disattivato dal server
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Disattivato per te su questo dispositivo
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Scegli un algoritmo in tutte le impostazioni vocali.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen disattiva l'audio in entrata e disattiva il microfono.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Tieni premuta la scorciatoia configurata quando vuoi parlare.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Installa una build con attivazione vocale per utilizzare questi controlli.
 # Context: voice_popup_content

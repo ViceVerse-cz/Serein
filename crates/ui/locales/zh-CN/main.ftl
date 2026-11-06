@@ -4176,8 +4176,6 @@ voice-device-combo-device-unavailable = 设备不可用
 voice-device-default = 系统默认
 # Context: frame
 voice-frame-open-voice = 打开语音
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% 是原始音量，过高可能失真。
 # Context: labels
 voice-labels-choose-camera = 选择摄像头
 # Context: live_badge
@@ -4278,12 +4276,6 @@ voice-voice-participant-microphone-muted = 麦克风已静音
 voice-voice-participant-muted-by-server = 被服务器静音
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = 在你这台设备上已静音
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = 请在「所有语音设置」中选择算法。
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = 关掉扬声器会停止播放收到的音频，并同时让麦克风静音。
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = 想说话时，按住你设置的快捷键。
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = 请安装支持语音的版本以使用这些控件。
 # Context: voice_popup_content

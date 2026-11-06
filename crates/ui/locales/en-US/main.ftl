@@ -4161,8 +4161,6 @@ voice-device-combo-device-unavailable = Device unavailable
 voice-device-default = System default
 # Context: frame
 voice-frame-open-voice = Open voice
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% is the original level. Higher levels may distort.
 # Context: labels
 voice-labels-choose-camera = Choose camera
 # Context: live_badge
@@ -4267,12 +4265,6 @@ voice-voice-participant-microphone-muted = Microphone muted
 voice-voice-participant-muted-by-server = Muted by server
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Muted for you on this device
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Choose an algorithm in all voice settings.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen turns off incoming audio and mutes your microphone with it.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Hold your configured shortcut when you want to speak.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Install a voice-enabled build to use these controls.
 # Context: voice_popup_content
