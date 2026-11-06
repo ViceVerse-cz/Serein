@@ -700,56 +700,6 @@ mod tests {
 	}
 
 	#[test]
-	fn encoded_attachment_larger_than_the_texture_edge_decodes_to_a_bounded_picture() {
-		let bytes = include_bytes!("../../../../apps/desktop/tests/fixtures/video-wide.mov");
-		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(bytes.as_slice()))).unwrap();
-		assert_eq!((decoder.info().width, decoder.info().height), (3840, 60));
-		let Sample::Video { picture, .. } =
-			wait_for_sample(&mut decoder, Decoder::poll_video).unwrap()
-		else {
-			panic!("missing video picture");
-		};
-		assert_eq!((picture.width, picture.height), (3840, 60));
-		assert!(picture.is_valid());
-	}
-
-	#[test]
-	fn oversized_rotated_sources_are_scaled_before_reaching_the_frame_queue() {
-		gst::init().unwrap();
-		let pipeline = gst::Pipeline::new();
-		let _stop = StopOnError(Some(pipeline.clone()));
-		let source = make("videotestsrc").unwrap();
-		source.set_property("num-buffers", 1_i32);
-		let filter = make("capsfilter").unwrap();
-		let input = gst_video::VideoInfo::builder(gst_video::VideoFormat::I420, 4160, 2080)
-			.build()
-			.unwrap();
-		filter.set_property("caps", input.to_caps().unwrap());
-		pipeline.add_many([&source, &filter]).unwrap();
-		source.link(&filter).unwrap();
-		let sink = gst_app::AppSink::builder()
-			.sync(false)
-			.max_buffers(1)
-			.build();
-		sink.set_caps(Some(&planar_caps()));
-		link_branch(
-			&pipeline,
-			&filter.static_pad("src").unwrap(),
-			&["videoflip", "videoscale", "videoconvert", "queue"],
-			&[("videoflip", "video-direction", "90r")],
-			sink.upcast_ref(),
-		)
-		.unwrap();
-		pipeline.set_state(gst::State::Playing).unwrap();
-		let sample = sink
-			.try_pull_sample(gst::ClockTime::from_seconds(10))
-			.unwrap();
-		let decoded = picture(&sample, super::super::check_dimensions).unwrap();
-		assert_eq!((decoded.width, decoded.height), (1920, 3840));
-		assert!(decoded.is_valid());
-	}
-
-	#[test]
 	fn uhd_samples_copy_planes_and_oversized_samples_stay_bounded() {
 		gst::init().unwrap();
 		let info = gst_video::VideoInfo::builder(gst_video::VideoFormat::I420, 3840, 2160)
@@ -896,5 +846,54 @@ mod tests {
 		assert!(wait_for_sample(&mut decoder, Decoder::poll_audio).is_none());
 		assert!(wait_for_sample(&mut decoder, Decoder::poll_video).is_some());
 		assert!(Decoder::open(Box::new(std::io::Cursor::new(vec![0_u8; 64]))).is_err());
+	}
+	#[test]
+	fn encoded_attachment_larger_than_the_texture_edge_decodes_to_a_bounded_picture() {
+		let bytes = include_bytes!("../../../../apps/desktop/tests/fixtures/video-wide.mov");
+		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(bytes.as_slice()))).unwrap();
+		assert_eq!((decoder.info().width, decoder.info().height), (3840, 60));
+		let Sample::Video { picture, .. } =
+			wait_for_sample(&mut decoder, Decoder::poll_video).unwrap()
+		else {
+			panic!("missing video picture");
+		};
+		assert_eq!((picture.width, picture.height), (3840, 60));
+		assert!(picture.is_valid());
+	}
+
+	#[test]
+	fn oversized_rotated_sources_are_scaled_before_reaching_the_frame_queue() {
+		gst::init().unwrap();
+		let pipeline = gst::Pipeline::new();
+		let _stop = StopOnError(Some(pipeline.clone()));
+		let source = make("videotestsrc").unwrap();
+		source.set_property("num-buffers", 1_i32);
+		let filter = make("capsfilter").unwrap();
+		let input = gst_video::VideoInfo::builder(gst_video::VideoFormat::I420, 4160, 2080)
+			.build()
+			.unwrap();
+		filter.set_property("caps", input.to_caps().unwrap());
+		pipeline.add_many([&source, &filter]).unwrap();
+		source.link(&filter).unwrap();
+		let sink = gst_app::AppSink::builder()
+			.sync(false)
+			.max_buffers(1)
+			.build();
+		sink.set_caps(Some(&planar_caps()));
+		link_branch(
+			&pipeline,
+			&filter.static_pad("src").unwrap(),
+			&["videoflip", "videoscale", "videoconvert", "queue"],
+			&[("videoflip", "video-direction", "90r")],
+			sink.upcast_ref(),
+		)
+		.unwrap();
+		pipeline.set_state(gst::State::Playing).unwrap();
+		let sample = sink
+			.try_pull_sample(gst::ClockTime::from_seconds(10))
+			.unwrap();
+		let decoded = picture(&sample, super::super::check_dimensions).unwrap();
+		assert_eq!((decoded.width, decoded.height), (1920, 3840));
+		assert!(decoded.is_valid());
 	}
 }
