@@ -1807,6 +1807,7 @@ mod tests {
 			assert!(state.take_notification().is_none());
 		}
 	}
+	/// Checks pruning and recounting cannot grow channel state for unknown deletions or retain empty observations.
 	#[test]
 	fn unknown_deletes_and_empty_recounts_never_admit_channel_state() {
 		let mut activity = Activity::default();

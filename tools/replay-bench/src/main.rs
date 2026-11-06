@@ -2,6 +2,7 @@ use client_core::{Envelope, Event};
 use model::Id;
 use std::time::Instant;
 mod soak;
+/// Dispatch synthetic workloads; ACK mode isolates HTTP-result reduction from fixture preparation.
 fn main() {
 	if std::env::args().nth(1).as_deref() == Some("--soak") {
 		let seconds = std::env::args()

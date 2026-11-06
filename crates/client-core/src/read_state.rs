@@ -1404,6 +1404,7 @@ mod navigation_tests {
 			event,
 		});
 	}
+	/// Exercises both bulk request scopes: older automatic ACKs preserve completion, while manual unread invalidates it.
 	#[test]
 	fn bulk_reads_survive_older_automatic_acks_but_not_manual_updates() {
 		for guild in [false, true] {
@@ -1467,6 +1468,7 @@ mod navigation_tests {
 			}
 		}
 	}
+	/// Checks that stale and null channel metadata cannot erase a count established by newer observed activity.
 	#[test]
 	fn stale_latest_metadata_cannot_clear_a_newer_service_baseline() {
 		for latest in [Patch::Value(Id(500)), Patch::Null] {
@@ -1504,6 +1506,7 @@ mod navigation_tests {
 			assert_eq!(state.mention_count(channel), 2);
 		}
 	}
+	/// Delivers an older automatic ACK between request and HTTP completion to expose captured-epoch invalidation.
 	#[test]
 	fn automatic_ack_racing_read_result_does_not_restore_unread() {
 		for manual_unread in [false, true] {
@@ -1559,6 +1562,7 @@ mod navigation_tests {
 			assert_eq!(state.unread(channel), Some(manual_unread));
 		}
 	}
+	/// Covers profile-less confirmed ignores and Gateway updates through count refresh, partial read and subsequent unignore.
 	#[test]
 	fn profileless_ignored_authors_cannot_erase_later_unread_mentions() {
 		for written in [false, true] {
@@ -1650,6 +1654,7 @@ mod navigation_tests {
 			assert_eq!(state.mention_count(channel), 2);
 		}
 	}
+	/// Varies creation-time eligibility and later state changes so a partial read cannot subtract unproven contributions.
 	#[test]
 	fn partial_read_does_not_subtract_excluded_or_unknown_service_mentions() {
 		for exclusion in 0..4 {
@@ -1731,6 +1736,7 @@ mod navigation_tests {
 			assert_eq!(state.mention_count(channel), 1, "exclusion {exclusion}");
 		}
 	}
+	/// Checks count and queued-alert reconciliation together when new messages arrive during a pending read.
 	#[test]
 	fn racing_http_read_preserves_badges_and_activity_beyond_its_cursor() {
 		for newer in [false, true] {

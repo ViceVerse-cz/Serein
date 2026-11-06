@@ -2823,6 +2823,7 @@ mod tests {
 			assert!(state.add_profile_friend(Id(3)).is_none());
 		}
 	}
+	/// Fills the committed status index to exercise conservative eviction, then verifies logout removes retained exclusions.
 	#[test]
 	fn committed_ignore_capacity_eviction_becomes_unknown_and_logout_forgets_it() {
 		let mut state = state();
