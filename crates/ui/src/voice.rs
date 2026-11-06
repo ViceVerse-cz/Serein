@@ -2920,6 +2920,8 @@ impl MessagingUi {
 				(NoiseSuppression::WebRtc, "WebRTC"),
 				(NoiseSuppression::DeepFilterNet, "DeepFilterNet"),
 			];
+			// Builds without DeepFilterNet run RNNoise for it and do not offer it.
+			let suppression = processing.suppression.supported();
 			design::row(
 				ui,
 				"voice-voice-processing-controls-noise-suppression",
@@ -2931,12 +2933,15 @@ impl MessagingUi {
 						.selected_text(crate::i18n::translate_if_key(
 							choices
 								.iter()
-								.find(|(value, _)| *value == processing.suppression)
+								.find(|(value, _)| *value == suppression)
 								.map_or("voice-voice-processing-controls-off", |(_, label)| *label),
 						))
 						.width(ui.available_width().min(160.0))
 						.show_ui(ui, |ui| {
 							for (value, label) in choices {
+								if value.supported() != value {
+									continue;
+								}
 								ui.selectable_value(
 									&mut processing.suppression,
 									value,
@@ -2947,7 +2952,7 @@ impl MessagingUi {
 				},
 			);
 			if matches!(
-				processing.suppression,
+				suppression,
 				NoiseSuppression::WebRtc | NoiseSuppression::DeepFilterNet
 			) {
 				ui.add_space(6.0);

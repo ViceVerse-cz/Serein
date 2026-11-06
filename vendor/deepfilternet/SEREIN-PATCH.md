@@ -79,6 +79,12 @@ tract 0.21.4, used by the first version of this integration, rejected this model
 names in builds with debug assertions. tract 0.22.5 does not, so the workspace no longer
 disables debug assertions for `tract-core`.
 
+Windows on Arm builds do not compile this crate. tract-linalg's build script hands its
+arm64 kernels, GNU-syntax `.S` files, to the MSVC compiler, which ignores them, so the
+static library fails to link. `discord-voice` therefore depends on `deep_filter` only
+outside `target_os = "windows"` with `target_arch = "aarch64"`, and
+`NoiseSuppression::DEEP_FILTER_NET_AVAILABLE` hides the choice there.
+
 ## Maintenance
 
 Remove this directory when a crates.io `deep_filter` release ships the tract runtime and

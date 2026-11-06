@@ -452,7 +452,9 @@ worker snapshot and do not add a queue. Native PCM queues remain eight frames ea
 RNNoise uses bundled nnnoiseless 0.5.2. DeepFilterNet runs the bundled DeepFilterNet3
 model (48 kHz, 10 ms hops) from the DeepFilterNet Plus fork on the tract 0.22.5 CPU
 runtime, with the reference command-line stage thresholds (−15/35/35 dB local SNR). It is
-a separate Custom choice; Voice Isolation still uses RNNoise. Its strength caps the
+a separate Custom choice; Voice Isolation still uses RNNoise. Windows on Arm builds omit
+it because tract's arm64 kernels need a GNU-style assembler; a saved DeepFilterNet choice
+runs RNNoise there. Its strength caps the
 attenuation at 12 dB (Low) or 24 dB (Moderate), runs the full model (High, the default)
 or adds the model's post-filter, which attenuates very noisy sections further (Very
 high). Changing the strength does not reload the network. Its STFT overlap and two

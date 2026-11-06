@@ -1213,6 +1213,9 @@ pub fn debug_processing_check() {
 		NoiseSuppression::WebRtc,
 		NoiseSuppression::DeepFilterNet,
 	] {
+		if suppression.supported() != suppression {
+			continue;
+		}
 		dsp.configure_blocking(Processing {
 			suppression,
 			..Processing::default()
@@ -1248,6 +1251,7 @@ pub fn debug_processing_check() {
 mod tests {
 	use super::*;
 	#[test]
+	#[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
 	fn deepfilternet_loads_off_worker_caps_strength_and_resets_history() {
 		let mut dsp = echo::Echo::new();
 		let full = Processing {

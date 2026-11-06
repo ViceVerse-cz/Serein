@@ -65,6 +65,9 @@ fn main() {
 		model::voice_settings::NoiseSuppression::RnNoise,
 		model::voice_settings::NoiseSuppression::DeepFilterNet,
 	] {
+		if suppression.supported() != suppression {
+			continue;
+		}
 		let mut filtered = echo::Echo::new();
 		let mut unfiltered = echo::Echo::new();
 		filtered
