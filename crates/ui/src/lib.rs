@@ -3546,23 +3546,30 @@ impl MessagingUi {
                 // width. Last pass's visible draft height decides.
                 let stack_id = composer_id.with("stacked-actions");
                 let (stacked, draft_height) = ctx.data(|d| d.get_temp::<(bool, f32)>(stack_id)).unwrap_or_default();
-                let column = |ui: &mut egui::Ui, add: &mut dyn FnMut(&mut egui::Ui)| {
+                // A column shorter than its buttons would grow upward past the panel's clip, so
+                // each keeps at least the height its buttons took last pass.
+                let column = |ui: &mut egui::Ui, side: &str, add: &mut dyn FnMut(&mut egui::Ui)| {
                     if stacked {
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(28.0, draft_height),
+                        let id = stack_id.with(side);
+                        let buttons = ctx.data(|d| d.get_temp::<f32>(id)).unwrap_or_default();
+                        let height = ui.allocate_ui_with_layout(
+                            egui::vec2(28.0, draft_height.max(buttons)),
                             egui::Layout::bottom_up(egui::Align::Center),
                             |ui| {
                                 ui.spacing_mut().item_spacing.y = 4.0;
+                                let bottom = ui.cursor().bottom();
                                 add(ui);
+                                bottom - ui.min_rect().top()
                             },
-                        );
+                        ).inner;
+                        ctx.data_mut(|d| d.insert_temp(id, height));
                     } else {
                         add(ui);
                     }
                 };
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    column(ui, &mut |ui| {
+                    column(ui, "start", &mut |ui| {
                     // An active application command shows its app in place of the attach button.
                     let attach = if !editing_here && self.slash_commands.composer_badge(ui, state, &mut self.avatars) {
                         None
@@ -3606,7 +3613,7 @@ impl MessagingUi {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
                         let mut actions = None;
-                        column(ui, &mut |ui| {
+                        column(ui, "end", &mut |ui| {
                         let send_button = ui
                             .add_enabled_ui(can_send, |ui| {
                                 icons::button(
