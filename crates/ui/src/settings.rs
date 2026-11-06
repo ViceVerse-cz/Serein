@@ -393,7 +393,7 @@ impl MessagingUi {
 						if !wide {
 							ui.add_space(8.0);
 							self.settings_search(ui);
-							egui::ComboBox::from_id_salt("settings-page")
+							crate::design::Select::from_id_salt("settings-page")
 								.selected_text(self.settings.page.label(self.language))
 								.width(ui.available_width())
 								.show_ui(ui, |ui| {
@@ -817,7 +817,7 @@ impl MessagingUi {
 			let label = language.text("language-label");
 			let description = language.text("language-description");
 			design::row(ui, &label, Some(&description), |ui| {
-				egui::ComboBox::from_id_salt("display-language")
+				crate::design::Select::from_id_salt("display-language")
 					.selected_text(self.language.name(language))
 					.width(ui.available_width().min(220.0))
 					.show_ui(ui, |ui| {
@@ -948,7 +948,7 @@ impl MessagingUi {
 			};
 			let label = language.text("general-render-with");
 			design::row(ui, &label, Some(&detail), |ui| {
-				egui::ComboBox::from_id_salt("gpu-preference")
+				crate::design::Select::from_id_salt("gpu-preference")
 					.selected_text(gpu_label(language, self.gpu_preference))
 					.width(ui.available_width().min(220.0))
 					.show_ui(ui, |ui| {
@@ -1454,7 +1454,7 @@ fn preset_combo<T: Copy + PartialEq>(
 	presets: &[T],
 	label: impl Fn(&T) -> String,
 ) {
-	egui::ComboBox::from_id_salt(id)
+	crate::design::Select::from_id_salt(id)
 		.selected_text(label(value))
 		.width(ui.available_width().min(120.0))
 		.show_ui(ui, |ui| {

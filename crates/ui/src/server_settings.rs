@@ -1671,16 +1671,12 @@ fn channel_picker(
 		},
 		|channel| channel.name.clone(),
 	);
-	let mut label = egui::Atoms::new(label);
+	let mut select = crate::design::Select::from_id_salt(("server-channel", voice));
 	if let Some(channel) = current {
-		label.push_left(crate::icons::atom(
-			crate::icons::channel(channel.kind),
-			16.0,
-			muted,
-		));
+		select = select.icon(crate::icons::channel(channel.kind));
 	}
 	let empty = choices.is_empty();
-	let response = egui::ComboBox::from_id_salt(("server-channel", voice))
+	let response = select
 		.selected_text(label)
 		.width(PICKER_WIDTH.min(ui.available_width()))
 		.show_ui(ui, |ui| {
@@ -1708,7 +1704,7 @@ fn channel_picker(
 	}
 }
 fn timeout_picker(ui: &mut egui::Ui, timeout: &mut u32) {
-	egui::ComboBox::from_id_salt("server-afk-timeout")
+	crate::design::Select::from_id_salt("server-afk-timeout")
 		.selected_text(format!(
 			"{} {}",
 			*timeout / 60,

@@ -825,7 +825,7 @@ fn duration_select(ui: &mut egui::Ui, duration: &mut u16) {
 			widget.corner_radius = 8.into();
 			widget.expansion = 0.0;
 		}
-		egui::ComboBox::from_id_salt("poll-duration")
+		crate::design::Select::from_id_salt("poll-duration")
 			.width(ui.available_width().min(220.0))
 			.selected_text(RichText::new(duration_label(*duration)).color(p.text_strong))
 			.show_ui(ui, |ui| {
