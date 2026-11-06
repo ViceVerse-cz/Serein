@@ -4965,6 +4965,7 @@ time-format-12-hour = 12 小时制
 time-format-24-hour = 24 小时制
 profiles-status-edit = 编辑状态
 profiles-status-clear = 清除状态
+audio-playback-speed = 播放速度
 send-throttled-title = 哇，太辣了
 send-throttled-body = 你发送消息太快了！
 send-throttled-dismiss = 关闭提示
