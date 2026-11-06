@@ -6461,10 +6461,22 @@ mod tests {
 			assert!(!view.revealed[&message.id].media);
 			// Notification metadata changes must not conceal already revealed content.
 			message.flags |= 1 << 12;
-			message.suppress_notifications = false; // Cached history deliberately omits notification targeting.
+			message.suppress_notifications = true;
 			state.timeline.insert(message.clone(), true, false).unwrap();
 			state.revision += 1;
 			let labels = render(&mut view, &mut state, vec![]);
+			assert!(labels.iter().any(|(text, _)| text.contains("secret one")));
+			assert_eq!(view.revealed[&message.id].text, 1);
+			// Cached history keeps the wire flag but omits session notification targeting.
+			message.suppress_notifications = false;
+			state.timeline.insert(message.clone(), true, false).unwrap();
+			state.revision += 1;
+			let labels = render(&mut view, &mut state, vec![]);
+			assert!(
+				labels
+					.iter()
+					.any(|(text, _)| text == &crate::i18n::translate("message-silent-indicator"))
+			);
 			assert!(labels.iter().any(|(text, _)| text.contains("secret one")));
 			assert_eq!(view.revealed[&message.id].text, 1);
 			// Like Discord, there is no re-hide control; start the next case concealed.
