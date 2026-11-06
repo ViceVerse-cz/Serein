@@ -1529,14 +1529,18 @@ impl DiscordApi {
 					.buffered(FOREGROUND_PERMITS)
 					.collect()
 					.await;
-				if let Some(failure) = reads.iter().find_map(|(_, result)| {
-					result.as_ref().err().copied().filter(|failure| {
-						failure.ends_session() && *failure != Failure::Capacity
-					})
-				}) {
+				if let Some(failure) =
+					reads.iter().find_map(|(_, result)| {
+						result.as_ref().err().copied().filter(|failure| {
+							failure.ends_session() && *failure != Failure::Capacity
+						})
+					}) {
 					return Event::Failure(failure);
 				}
-				let results = reads.into_iter().map(|(user, result)| (user, result.ok())).collect();
+				let results = reads
+					.into_iter()
+					.map(|(user, result)| (user, result.ok()))
+					.collect();
 				Event::StreamViewerUsers { request, results }
 			}
 			Command::EditProfile {
@@ -3227,15 +3231,18 @@ mod tests {
 			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 			let mut api = DiscordApi::new(Arc::new(
 				SessionSecret::from_owner_input("SYNTHETIC_VIEWER_TOKEN".into()).unwrap(),
-			)).unwrap();
+			))
+			.unwrap();
 			api.base = format!("http://{}", listener.local_addr().unwrap());
 			let api = Arc::new(api);
 			let worker_api = api.clone();
 			let worker = tokio::spawn(async move {
-				worker_api.execute(Command::StreamViewerUsers {
-					request: 7,
-					users: (1..=8).map(Id).collect(),
-				}).await
+				worker_api
+					.execute(Command::StreamViewerUsers {
+						request: 7,
+						users: (1..=8).map(Id).collect(),
+					})
+					.await
 			});
 			// Keep the first reads pending; the rest of the roster must not take permits.
 			let mut sockets = Vec::new();
@@ -3248,7 +3255,9 @@ mod tests {
 			assert_eq!(api.requests.available_permits(), FOREGROUND_PERMITS);
 			worker.abort();
 			assert!(matches!(worker.await, Err(error) if error.is_cancelled()));
-		}).await.unwrap();
+		})
+		.await
+		.unwrap();
 	}
 
 	#[tokio::test]
@@ -3262,32 +3271,49 @@ mod tests {
 				let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 				let mut api = DiscordApi::new(Arc::new(
 					SessionSecret::from_owner_input("SYNTHETIC_VIEWER_TOKEN".into()).unwrap(),
-				)).unwrap();
+				))
+				.unwrap();
 				api.base = format!("http://{}", listener.local_addr().unwrap());
 				let server = tokio::spawn(async move {
 					let (mut socket, _) = listener.accept().await.unwrap();
 					let mut buffer = [0; 4096];
 					let n = socket.read(&mut buffer).await.unwrap();
-					assert!(std::str::from_utf8(&buffer[..n]).unwrap().starts_with("GET /users/5 HTTP/1.1"));
-					socket.write_all(format!(
-						"HTTP/1.1 {status}\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n"
-					).as_bytes()).await.unwrap();
+					assert!(
+						std::str::from_utf8(&buffer[..n])
+							.unwrap()
+							.starts_with("GET /users/5 HTTP/1.1")
+					);
+					socket
+						.write_all(
+							format!(
+								"HTTP/1.1 {status}\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n"
+							)
+							.as_bytes(),
+						)
+						.await
+						.unwrap();
 				});
-				let event = api.execute(Command::StreamViewerUsers {
-					request: 7,
-					users: vec![Id(5)],
-				}).await;
+				let event = api
+					.execute(Command::StreamViewerUsers {
+						request: 7,
+						users: vec![Id(5)],
+					})
+					.await;
 				if expired {
 					assert!(matches!(event, Event::Failure(Failure::Expired)));
 					assert!(api.stopped());
 				} else {
-					assert!(matches!(event, Event::StreamViewerUsers { request: 7, results }
-						if results.len() == 1 && results[0].0 == Id(5) && results[0].1.is_none()));
+					assert!(
+						matches!(event, Event::StreamViewerUsers { request: 7, results }
+						if results.len() == 1 && results[0].0 == Id(5) && results[0].1.is_none())
+					);
 					assert!(!api.stopped());
 				}
 				server.await.unwrap();
 			}
-		}).await.unwrap();
+		})
+		.await
+		.unwrap();
 	}
 
 	#[tokio::test]

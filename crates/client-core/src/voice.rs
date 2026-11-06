@@ -1316,14 +1316,11 @@ impl ClientState {
 				stream_request,
 				event: screen::Event::Viewers { count, ids },
 			} => {
-				if self
-					.voice
-					.active
-					.as_ref()
-					.is_some_and(|call| {
-						call.channel == channel && call.request == request && call.phase != Phase::Failed
-					})
-				{
+				if self.voice.active.as_ref().is_some_and(|call| {
+					call.channel == channel
+						&& call.request == request
+						&& call.phase != Phase::Failed
+				}) {
 					// The latest refresh wins even when it is empty: a stopped share reports no
 					// viewers. Identities already fetched for retained IDs carry over, so a
 					// repeated refresh does not re-request every watcher. A changed composition
@@ -2299,14 +2296,25 @@ mod tests {
 				channel: Id(20),
 				request,
 				stream_request: 7,
-				event: screen::Event::Viewers { count: 1, ids: vec![Id(2)] },
+				event: screen::Event::Viewers {
+					count: 1,
+					ids: vec![Id(2)],
+				},
 			};
 			state.apply_voice(viewers());
 			assert!(state.request_stream_viewer_users(&[Id(2)]).is_some());
 			state.apply_voice(if progress {
-				Event::Progress { channel: Id(20), request, phase: Phase::Failed }
+				Event::Progress {
+					channel: Id(20),
+					request,
+					phase: Phase::Failed,
+				}
 			} else {
-				Event::Failed { channel: Id(20), request, message: "Synthetic failure" }
+				Event::Failed {
+					channel: Id(20),
+					request,
+					message: "Synthetic failure",
+				}
 			});
 			assert!(state.voice.audience.is_none());
 			assert!(state.voice.viewer_fetch_request.is_none());
