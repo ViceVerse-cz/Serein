@@ -3622,7 +3622,8 @@ fn card_view(
 						// while the extended profile loads or when that optional request fails.
 						let clan = data
 							.map(|data| data.clan.as_ref())
-							.unwrap_or(user.primary_guild.as_deref());
+							.unwrap_or(user.primary_guild.as_deref())
+							.filter(|_| !avatars.cosmetics.hide_clan_tags);
 						let tag_width = clan.filter(|_| !full).map_or(0.0, |clan| {
 							ui.painter()
 								.layout_no_wrap(

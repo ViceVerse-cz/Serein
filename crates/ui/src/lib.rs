@@ -1845,7 +1845,11 @@ impl MessagingUi {
 										egui::Layout::left_to_right(egui::Align::Center),
 										|ui| {
 											ui.spacing_mut().item_spacing.x = 5.0;
-											let server_tag = member.user.primary_guild.as_deref();
+											let server_tag = member
+												.user
+												.primary_guild
+												.as_deref()
+												.filter(|_| !self.cosmetics.hide_clan_tags);
 											let trailing =
 												profiles::server_tag_width(ui, server_tag)
 													+ if server_tag.is_some() { 5.0 } else { 0.0 };

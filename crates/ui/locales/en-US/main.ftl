@@ -4974,6 +4974,8 @@ settings-cosmetics-all = Show all cosmetics
 settings-cosmetics-all-description = Everything below at once. Turning it off also paints gradient names in one colour.
 settings-cosmetics-gradient-names = Gradient names
 settings-cosmetics-gradient-names-description = Role and Nitro names that blend several colours. Off paints them in their first colour.
+settings-cosmetics-clan-tags = Server tags
+settings-cosmetics-clan-tags-description = The server tag a person wears beside their name.
 main-sign-in-rate-limited-detail = Discord is rate limiting this sign-in. Wait before trying again. Another attempt before that can make the wait longer.
 
 # Avatar badge while someone is typing.

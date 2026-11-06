@@ -50,6 +50,8 @@ pub struct CosmeticPreferences {
 	/// Paint gradient role and Nitro names in their first colour; older preferences keep the
 	/// gradients.
 	pub solid_names: bool,
+	/// Hide server tags beside names; older preferences keep them shown.
+	pub hide_clan_tags: bool,
 }
 impl CosmeticPreferences {
 	pub const SHOWN: Self = Self {
@@ -59,6 +61,7 @@ impl CosmeticPreferences {
 		frames: true,
 		name_styles: true,
 		solid_names: false,
+		hide_clan_tags: false,
 	};
 }
 

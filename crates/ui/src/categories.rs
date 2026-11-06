@@ -1199,7 +1199,10 @@ impl MessagingUi {
 									|ui| {
 										ui.spacing_mut().item_spacing.x = 5.0;
 										if let Some(user) = direct_user {
-											let server_tag = user.primary_guild.as_deref();
+											let server_tag = user
+												.primary_guild
+												.as_deref()
+												.filter(|_| !self.avatars.cosmetics.hide_clan_tags);
 											let trailing =
 												crate::profiles::server_tag_width(ui, server_tag)
 													+ if server_tag.is_some() { 5.0 } else { 0.0 };

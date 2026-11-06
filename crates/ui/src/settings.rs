@@ -1724,11 +1724,13 @@ pub(crate) fn cosmetic_switches(
 		} else {
 			model::CosmeticPreferences {
 				solid_names: true,
+				hide_clan_tags: true,
 				..Default::default()
 			}
 		};
 	}
 	let mut gradients = !cosmetics.solid_names;
+	let mut clan_tags = !cosmetics.hide_clan_tags;
 	let switches = [
 		(
 			"settings-cosmetics-decorations",
@@ -1760,6 +1762,11 @@ pub(crate) fn cosmetic_switches(
 			"settings-cosmetics-gradient-names-description",
 			&mut gradients,
 		),
+		(
+			"settings-cosmetics-clan-tags",
+			"settings-cosmetics-clan-tags-description",
+			&mut clan_tags,
+		),
 	];
 	if details {
 		for (label, detail, value) in switches {
@@ -1783,6 +1790,7 @@ pub(crate) fn cosmetic_switches(
 		}
 	}
 	cosmetics.solid_names = !gradients;
+	cosmetics.hide_clan_tags = !clan_tags;
 }
 
 pub(crate) fn theme_preference_cards(ui: &mut egui::Ui) {
