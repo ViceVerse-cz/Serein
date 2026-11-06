@@ -6070,6 +6070,52 @@ mod composer_tests {
 				}
 			}
 		}
+		// Real clicks press and release on separate frames; the release lands outside the
+		// field and used to leave it unfocused, dropping Select All and menu pastes (#865).
+		state = edit_state();
+		view = MessagingUi::default();
+		state.drafts.insert(channel, "draft".into());
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		let composer = ctx.memory(|memory| memory.focused()).unwrap();
+		let rect = ctx.read_response(composer).unwrap().rect;
+		let menu_click = |view: &mut MessagingUi, state: &mut State, label: &str| {
+			for (pos, button) in [
+				(Some(rect.center()), egui::PointerButton::Secondary),
+				(None, egui::PointerButton::Primary),
+			] {
+				let pos = pos.unwrap_or_else(|| {
+					frame(view, state, vec![]);
+					let labels = frame(view, state, vec![]);
+					labels
+						.into_iter()
+						.find(|(text, _)| text == label)
+						.unwrap()
+						.1
+						.center()
+				});
+				let mut events = click(pos, button);
+				let release = events.pop().unwrap();
+				frame(view, state, events);
+				frame(view, state, vec![release]);
+			}
+			frame(view, state, vec![]);
+		};
+		menu_click(&mut view, &mut state, "Select All");
+		assert!(ctx.memory(|memory| memory.has_focus(composer)));
+		let range = egui::TextEdit::load_state(&ctx, composer)
+			.unwrap()
+			.cursor
+			.char_range()
+			.unwrap();
+		assert_eq!(range.sorted_cursors().map(|cursor| cursor.index.0), [0, 5]);
+		menu_click(&mut view, &mut state, "Paste");
+		let request = view.attachment_paste_requested.take().unwrap();
+		view.upload_busy = false;
+		view.pasted_text = Some((channel, request.target, "pasted".into()));
+		frame(&mut view, &mut state, vec![]);
+		assert_eq!(state.drafts.get(&channel).unwrap(), "pasted");
 	}
 
 	#[test]
