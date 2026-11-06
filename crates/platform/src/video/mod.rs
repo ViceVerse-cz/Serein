@@ -80,7 +80,7 @@ pub const UNSUPPORTED: &str = "This video format or codec is not supported on th
 pub const INVALID: &str = "The video could not be decoded safely.";
 /// A live decoder queue is full; the access unit was not accepted but the decoder is healthy.
 pub const BUSY: &str = "The video decoder is falling behind.";
-pub const TOO_LARGE: &str = "Inline playback supports videos up to 4K (3840×2160).";
+pub const TOO_LARGE: &str = "This video could not be scaled for inline playback.";
 pub const TOO_LONG: &str = "Videos longer than two hours are not supported.";
 /// The system has no decoder for the video track; installing one fixes playback.
 pub const MISSING_HEVC: &str = "This video uses H.265 (HEVC), and no H.265 decoder is installed. Install one for GStreamer (for example gst-libav with a full FFmpeg) to play it here.";
@@ -132,6 +132,25 @@ pub fn check_dimensions(width: u32, height: u32) -> Result<(), &'static str> {
 	Ok(())
 }
 
+/// Fit a source of any nonzero dimensions into the bounded inline playback surface.
+/// Native decoders scale before frames enter application queues; source resolution is
+/// limited by the installed codec/device rather than the texture budget.
+pub fn playback_dimensions(width: u32, height: u32) -> Result<(u32, u32), &'static str> {
+	if width == 0 || height == 0 {
+		return Err(INVALID);
+	}
+	let (w, h) = (f64::from(width), f64::from(height));
+	let scale = (f64::from(MAX_LIVE_DIMENSION) / w.max(h))
+		.min((MAX_LIVE_PIXELS as f64 / (w * h)).sqrt())
+		.min(1.0);
+	let fitted = (
+		(w * scale).floor().max(1.0) as u32,
+		(h * scale).floor().max(1.0) as u32,
+	);
+	check_dimensions(fitted.0, fitted.1)?;
+	Ok(fitted)
+}
+
 /// Rotate a packed RGBA frame clockwise by a quarter-turn multiple; returns the new dimensions.
 pub(crate) fn rotate_rgba(
 	rgba: &[u8],
@@ -168,6 +187,30 @@ pub(crate) fn rotate_rgba(
 #[cfg(all(test, not(target_os = "windows")))]
 mod tests {
 	use super::*;
+	#[test]
+	fn source_resolution_is_fitted_without_expanding_the_frame_budget() {
+		assert_eq!(playback_dimensions(1920, 1080), Ok((1920, 1080)));
+		assert_eq!(playback_dimensions(7680, 4320), Ok((3840, 2160)));
+		assert_eq!(playback_dimensions(4320, 7680), Ok((2160, 3840)));
+		assert_eq!(playback_dimensions(4096, 4096), Ok((2880, 2880)));
+		// Extremely wide metadata must neither overflow nor round the short side to zero.
+		assert_eq!(playback_dimensions(u32::MAX, 1), Ok((3840, 1)));
+		assert_eq!(playback_dimensions(0, 1080), Err(INVALID));
+	}
+
+	#[cfg(target_os = "macos")]
+	#[test]
+	fn attachment_larger_than_the_texture_edge_decodes_to_a_bounded_picture() {
+		let bytes = include_bytes!("../../../../apps/desktop/tests/fixtures/video-wide.mov");
+		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(bytes.as_slice()))).unwrap();
+		assert_eq!((decoder.info().width, decoder.info().height), (3840, 60));
+		let Sample::Video { picture, .. } = decoder.read_video().unwrap().unwrap() else {
+			panic!("missing video picture");
+		};
+		assert_eq!((picture.width, picture.height), (3840, 60));
+		assert!(picture.is_valid());
+	}
+
 	#[test]
 	fn rotation_and_bounds() {
 		assert!(check_dimensions(3840, 2160).is_ok());

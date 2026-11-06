@@ -437,16 +437,30 @@ Both exclude Serein's playback and capture other applications even when sharing 
 window. There is no whole-output fallback. Hardware exclusion and receiving sound in
 an official client remain unverified.
 
+## High-resolution video attachments
+
+Inline playback accepts source resolutions supported by the installed native codec and device,
+including sources larger than 4K. Larger sources are fitted, without upscaling, into the existing
+playback surface: at most 3840 pixels per side and 3840×2160 pixels in total. Portrait and
+ultrawide aspect ratios are preserved to integer-pixel rounding. This is a playback surface
+budget, not a source-resolution rejection. Windows requests resized Media Foundation output,
+macOS scales into a bounded VideoToolbox pixel buffer, and Linux scales after applying rotation and
+before queuing decoded video. The original attachment is unchanged.
+
+Codec profiles, hardware capabilities, the 100 MiB encoded attachment limit and the two-hour
+duration limit still apply. Supporting a source does not promise native-resolution rendering
+or a particular frame rate. Live screen sharing has its separate existing limits.
+
 ## Additional macOS attachment codecs
 
 WebM, MOV and MP4 codecs unavailable in the native inline decoder can use an installed
 FFmpeg from `/opt/homebrew/bin`, `/usr/local/bin`, or `/usr/bin`. Nothing is installed
 automatically. The helper must include H.264 (`libx264`) and AAC encoding; converted
 video plays through the existing native controls. Conversion may take up to two
-minutes before playback and is limited to 100 MiB input/output, 1080p and two hours.
+minutes before playback and is limited to 100 MiB input/output, the same bounded playback surface and two hours.
 Native format failures during opening or playback retry conversion once, resuming at
-the last displayed position. Sources above the native 1080p limit also use this
-bounded downscaling path. AAC track timestamps need not use the audio sample rate
+the last displayed position. A decoder that cannot produce a bounded native picture can also use this
+downscaling path. AAC track timestamps need not use the audio sample rate
 as their timescale. Missing FFmpeg or conversion failures appear in the video card. Linux and Windows
 continue to use their installed native codecs. This optional fallback is not bundled
 in release packages; actual codec coverage depends on the local FFmpeg build.

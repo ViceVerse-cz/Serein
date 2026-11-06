@@ -221,7 +221,7 @@ impl Decoder {
 					.map_err(|_| UNSUPPORTED)?;
 			} else {
 				attributes
-					.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1)
+					.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1)
 					.map_err(|_| UNSUPPORTED)?;
 			}
 			let reader = MFCreateSourceReaderFromByteStream(&stream, &attributes)
@@ -230,7 +230,9 @@ impl Decoder {
 			let native = reader
 				.GetNativeMediaType(VIDEO, 0)
 				.map_err(|_| UNSUPPORTED)?;
-			let (width, height) = dimensions(&native)?;
+			let source_size = native.GetUINT64(&MF_MT_FRAME_SIZE).map_err(|_| INVALID)?;
+			let (width, height) =
+				super::playback_dimensions((source_size >> 32) as u32, source_size as u32)?;
 			let rotation = native.GetUINT32(&MF_MT_VIDEO_ROTATION).unwrap_or(0);
 			if !matches!(rotation, 0 | 90 | 180 | 270) {
 				return Err(UNSUPPORTED);
@@ -270,7 +272,7 @@ impl Decoder {
 			reader
 				.SetCurrentMediaType(VIDEO, None, &video)
 				.map_err(|_| UNSUPPORTED)?;
-			if manager.is_some() && rotation != 0 {
+			if rotation != 0 {
 				// Apply track rotation once in rgba_frame, without the GPU processor also
 				// correcting it. If its control is unavailable, use the software reader.
 				let extended = reader

@@ -1441,6 +1441,12 @@ Native video decoding is memory-only. One lazy worker handles the latest request
 with a replaceable pending request and cancellation fencing. The network source retains
 up to eight 256 KiB ranges (2 MiB, including an in-flight range); responses are checked for exact range/total/body lengths and reject
 redirects and content encoding. Encoded attachment size is capped at 100 MiB.
+Source resolution is negotiated separately from the playback surface: larger sources are scaled
+by the native backend before entering application queues. This does not increase the decoded
+frame budgets. macOS reuses one additional bounded NV12 destination for native scaling;
+native codec/device allocations are additional and can reject unsupported sizes.
+Linux's post-scale video branch queue is bounded to four buffers and 40 MiB, plus the existing
+four-buffer appsink. No unscaled video queue is inserted ahead of the scaler.
 The application queues at most two decoded frames (up to 4K, 3840×2160 worth of pixels in a
 3840-pixel square: NV12 on macOS and Linux, RGBA on Windows), one replaceable display frame, one GPU texture with its planes, one second of stereo float PCM (at most 768,000 bytes), and one decoded
 audio packet plus at most two seconds of timestamp-gap silence. Each native compressed or
