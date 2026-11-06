@@ -491,6 +491,8 @@ pub struct MessagingUi {
 	stream_preview_open: Option<((Id, Id, Id), u64)>,
 	stream_preview_request: Option<(Id, Id, Id)>,
 	stream_preview_watch: Option<(Id, Id)>,
+	/// Guild voice channel double-clicked in the channel list, joined after selection applies.
+	voice_join: Option<Id>,
 	pub voice_inputs: Vec<(String, String)>,
 	pub voice_outputs: Vec<(String, String)>,
 	pub voice_input: Option<String>,
@@ -2150,6 +2152,7 @@ impl MessagingUi {
 				{
 					commands.push(command);
 				}
+				self.apply_voice_join(state, commands);
 				if let Some(parent) = self.archive_parent.take()
 					&& let Some(command) =
 						state.request_archives(parent, model::archives::Kind::Public, None)
