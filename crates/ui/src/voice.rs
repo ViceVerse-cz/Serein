@@ -1401,7 +1401,7 @@ impl MessagingUi {
 		);
 		let response = ui.interact(
 			rect,
-			ui.id().with("voice-viewer-badge"),
+			ui.scope_id().with("voice-viewer-badge"),
 			egui::Sense::click(),
 		);
 		response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
@@ -4888,12 +4888,7 @@ fn resolve_member<'a>(
 ///
 /// Both the fetch decision and the drawn row use this, so they never disagree about which
 /// names are already known locally.
-fn viewer_user<'a>(
-	state: &'a State,
-	channel: Id,
-	guild: Option<Id>,
-	user: Id,
-) -> Option<&'a model::User> {
+fn viewer_user(state: &State, channel: Id, guild: Option<Id>, user: Id) -> Option<&model::User> {
 	// `participant_user` already covers self, DM recipients and roster members.
 	participant_user(state, channel, user).or_else(|| {
 		state
