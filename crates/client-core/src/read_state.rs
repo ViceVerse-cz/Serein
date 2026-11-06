@@ -1560,6 +1560,97 @@ mod navigation_tests {
 		}
 	}
 	#[test]
+	fn profileless_ignored_authors_cannot_erase_later_unread_mentions() {
+		for written in [false, true] {
+			let mut state = state(Some(Id(100)));
+			let channel = Id(1);
+			state
+				.apply_user_action(crate::user_actions::Event::Relationships(Some(vec![])))
+				.unwrap();
+			state
+				.apply_user_action(crate::user_actions::Event::Restrictions(Some(vec![])))
+				.unwrap();
+			state
+				.apply_notification_preferences(crate::notifications::Event::Settings {
+					entries: vec![],
+					replace: true,
+				})
+				.unwrap();
+			if written {
+				let Command::UserAction {
+					action, request, ..
+				} = state.set_user_ignored(Id(999), true).unwrap()
+				else {
+					panic!("ignore")
+				};
+				assert_eq!(state.service_author_excluded(Id(999)), None);
+				state
+					.apply_user_action(crate::user_actions::Event::Written {
+						action,
+						request,
+						result: Ok(()),
+					})
+					.unwrap();
+			}
+			// A profile-less Gateway update must work both alone and after a confirmed write.
+			state
+				.apply_user_action(crate::user_actions::Event::Restriction {
+					user: Id(999),
+					ignored: Some(true),
+					profile: None,
+				})
+				.unwrap();
+			assert_eq!(state.user_ignored(Id(999)), Some(true));
+			assert!(state.restricted_user(Id(999)).is_none());
+			let Command::MarkRead {
+				message: cursor,
+				request,
+				..
+			} = state.prepare_mark_read(Id(500)).unwrap()
+			else {
+				panic!("read")
+			};
+			state.read_state.activity.forget(channel);
+			let mut old = message(500);
+			old.author.id = Id(999);
+			let mut new = message(501);
+			new.author.id = Id(998);
+			apply(&mut state, CoreEvent::Message(old));
+			apply(&mut state, CoreEvent::Message(new));
+			state
+				.apply_read_state(Event::Ack {
+					channel,
+					message: Some(Id(100)),
+					manual: false,
+					mention_count: Some(1),
+					version: None,
+				})
+				.unwrap();
+			state
+				.apply_read_state(Event::Result {
+					channel,
+					message: cursor,
+					request,
+					result: Ok(()),
+				})
+				.unwrap();
+			assert_eq!(state.mention_count(channel), 1);
+			assert_eq!(state.unread(channel), Some(true));
+			state
+				.apply_user_action(crate::user_actions::Event::Restriction {
+					user: Id(999),
+					ignored: None,
+					profile: None,
+				})
+				.unwrap();
+			assert_eq!(state.user_ignored(Id(999)), Some(false));
+			let mut later = message(502);
+			later.author.id = Id(999);
+			apply(&mut state, CoreEvent::Message(later));
+			assert_eq!(state.mention_count(channel), 2);
+		}
+	}
+	#[test]
 	fn partial_read_does_not_subtract_excluded_or_unknown_service_mentions() {
 		for exclusion in 0..4 {
 			let mut state = state(Some(Id(100)));

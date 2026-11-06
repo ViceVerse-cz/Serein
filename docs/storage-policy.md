@@ -478,6 +478,10 @@ then; optimistic toggles and later changes cannot rewrite this evidence. Covered
 without double-counting later activity. Local reads prune acknowledged alerts and known mentions;
 unknown service counts remain conservative until refreshed. The existing monotonic activity high
 water prevents stale latest-message metadata from prematurely clearing that baseline.
+Committed ignore/unignore status has a profile-independent index bounded to 4,000 IDs / 512 KiB
+estimated allocation (including per-entry overhead). Replacements and logout clear it. Capacity
+eviction invalidates the complete-restriction fallback, so evicted profile-less users become
+unknown instead of implicitly unignored. Display profiles keep their existing separate bounds.
 Notification preferences
 use bounded account collections / 32 MiB. These are on-demand ceilings, not reservations
 or an RSS guarantee. This section supersedes the older account snapshot limits below.
