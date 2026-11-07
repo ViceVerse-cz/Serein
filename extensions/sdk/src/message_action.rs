@@ -23,7 +23,7 @@ pub struct MessageActionInvocation {
 	pub selected_message_ref: Option<SelectedMessageRef>,
 }
 
-/// The item a `user`, `channel` or `server` menu action was chosen on.
+/// The item a `user`, `channel`, `server` or `role` menu action was chosen on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MenuTarget {
@@ -41,6 +41,15 @@ pub enum MenuTarget {
 	},
 	Server {
 		guild_id: String,
+	},
+	/// A role in a member's profile, with the name and `0xRRGGBB` color shown on its chip.
+	Role {
+		guild_id: String,
+		role_id: String,
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		user_id: Option<String>,
+		name: String,
+		color: u32,
 	},
 }
 

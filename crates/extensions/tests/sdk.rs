@@ -14,7 +14,7 @@ fn manifest(action: &str, surface: Surface) -> Manifest {
 		Surface::MessageEvent => capabilities.push(Capability::MessageEvents),
 		Surface::AppEvent => capabilities.push(Capability::AppEvents),
 		Surface::Tick => capabilities.push(Capability::Appearance),
-		Surface::User | Surface::Channel | Surface::Server => {
+		Surface::User | Surface::Channel | Surface::Server | Surface::Role => {
 			capabilities.push(Capability::ContextMenus)
 		}
 	}
@@ -63,6 +63,7 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 		("user", Surface::User),
 		("channel", Surface::Channel),
 		("server", Surface::Server),
+		("role", Surface::Role),
 	] {
 		let manifest = manifest(action, surface);
 		let input = Invocation {
@@ -89,6 +90,13 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 				}),
 				Surface::Server => Some(extensions::MenuTarget::Server {
 					guild_id: "5".into(),
+				}),
+				Surface::Role => Some(extensions::MenuTarget::Role {
+					guild_id: "5".into(),
+					role_id: "6".into(),
+					user_id: Some("4".into()),
+					name: "Moderator".into(),
+					color: 0x3498db,
 				}),
 				_ => None,
 			}
@@ -245,6 +253,45 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 			output.validate(&manifest, &input).unwrap();
 			assert!(output.storage.is_some());
 		}
+	}
+}
+
+/// Checks that role targets reject a malformed ID in any field, an out-of-range color and an
+/// overlong or multi-line name.
+#[test]
+fn context_menu_targets_reject_malformed_role_fields() {
+	let manifest = manifest("role", Surface::Role);
+	let role = |guild: &str, role: &str, user: Option<&str>, name: &str, color: u32| Invocation {
+		action: "role".into(),
+		menu_target: Some(Box::new(extensions::MenuTarget::Role {
+			guild_id: guild.into(),
+			role_id: role.into(),
+			user_id: user.map(Into::into),
+			name: name.into(),
+			color,
+		})),
+		..Default::default()
+	};
+	let longest = "é".repeat(extensions::MAX_ROLE_NAME_CHARS);
+	assert!(
+		role("5", "6", Some("4"), "Mod", 0xff_ffff)
+			.validate(&manifest)
+			.is_ok()
+	);
+	assert!(
+		role("5", "6", None, &longest, 0)
+			.validate(&manifest)
+			.is_ok()
+	);
+	for bad in [
+		role("x", "6", None, "Mod", 0),
+		role("5", "", None, "Mod", 0),
+		role("5", "6", Some("-1"), "Mod", 0),
+		role("5", "6", None, "Mod", 0x100_0000),
+		role("5", "6", None, &format!("{longest}e"), 0),
+		role("5", "6", None, "Mod\nerator", 0),
+	] {
+		assert!(bad.validate(&manifest).is_err());
 	}
 }
 

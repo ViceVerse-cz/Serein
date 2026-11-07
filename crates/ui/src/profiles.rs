@@ -1994,7 +1994,9 @@ fn local_date(seconds: i64) -> Option<String> {
 		.map(|date| crate::local_time::local(date).date().to_string())
 }
 
-fn role_chips(
+/// Draws a member's role chips, collapsing overflow into a `+N` chip, with a plugin role
+/// menu on each chip when an enabled plugin offers role actions.
+pub(crate) fn role_chips(
 	ui: &mut egui::Ui,
 	theme: &Theme,
 	state: &State,
@@ -2068,7 +2070,16 @@ fn role_chips(
 				(*width - 21.0).max(0.0),
 			);
 			let size = vec2(*width, galley.size().y + 6.0);
-			let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
+			let menu =
+				crate::extensions_ui::has_context_actions(ui.ctx(), extensions::Surface::Role);
+			let (rect, response) = ui.allocate_exact_size(
+				size,
+				if menu {
+					egui::Sense::click()
+				} else {
+					egui::Sense::hover()
+				},
+			);
 			ui.painter().rect_filled(rect, 6, theme.chip);
 			let color = if role.color == 0 {
 				theme.muted
@@ -2082,7 +2093,17 @@ fn role_chips(
 				galley,
 				theme.text,
 			);
-			response.on_hover_text(&role.name);
+			let response = response.on_hover_text(&role.name);
+			if menu {
+				let target = extensions::MenuTarget::Role {
+					guild_id: guild.guild.to_string(),
+					role_id: role.id.to_string(),
+					user_id: Some(user.to_string()),
+					name: role.name.clone(),
+					color: role.color & 0xff_ffff,
+				};
+				response.context_menu(|ui| crate::extensions_ui::context_menu_entries(ui, &target));
+			}
 		}
 		let hidden = roles.len() - visible;
 		if hidden > 0 {

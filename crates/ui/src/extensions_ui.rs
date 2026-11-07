@@ -125,34 +125,46 @@ const CONTEXT_CHOICE: &str = "extension-context-choice";
 /// Adds an "Extensions" submenu for `target` to a user, channel or server menu, when any
 /// enabled plugin declares an action for that menu. The choice is dispatched next frame.
 pub(crate) fn context_menu_items(ui: &mut egui::Ui, target: extensions::MenuTarget) {
-	let surface = target.surface();
-	let actions = ui
-		.ctx()
-		.data(|data| {
-			data.get_temp::<Arc<Vec<(Surface, MenuAction)>>>(egui::Id::unique(CONTEXT_ACTIONS))
-		})
-		.unwrap_or_default();
-	if !actions.iter().any(|(s, _)| *s == surface) {
+	if !has_context_actions(ui.ctx(), target.surface()) {
 		return;
 	}
 	ui.menu_button(
 		crate::i18n::translate("timeline-message-actions-extensions"),
-		|ui| {
-			for (_, action) in actions.iter().filter(|(s, _)| *s == surface) {
-				if ui.button(&action.label).clicked() {
-					ui.ctx().data_mut(|data| {
-						data.insert_temp(
-							egui::Id::unique(CONTEXT_CHOICE),
-							Some((action.clone(), target.clone())),
-						);
-					});
-					ui.ctx().request_repaint();
-					ui.close();
-				}
-			}
-		},
+		|ui| context_menu_entries(ui, &target),
 	);
 	ui.separator();
+}
+
+fn context_actions(ctx: &egui::Context) -> Arc<Vec<(Surface, MenuAction)>> {
+	ctx.data(|data| {
+		data.get_temp::<Arc<Vec<(Surface, MenuAction)>>>(egui::Id::unique(CONTEXT_ACTIONS))
+	})
+	.unwrap_or_default()
+}
+
+/// Whether any enabled plugin offers an action in menus of this kind.
+pub(crate) fn has_context_actions(ctx: &egui::Context, surface: Surface) -> bool {
+	context_actions(ctx).iter().any(|(s, _)| *s == surface)
+}
+
+/// One button per enabled plugin action for `target`, for menus that hold nothing else.
+pub(crate) fn context_menu_entries(ui: &mut egui::Ui, target: &extensions::MenuTarget) {
+	let surface = target.surface();
+	for (_, action) in context_actions(ui.ctx())
+		.iter()
+		.filter(|(s, _)| *s == surface)
+	{
+		if ui.button(&action.label).clicked() {
+			ui.ctx().data_mut(|data| {
+				data.insert_temp(
+					egui::Id::unique(CONTEXT_CHOICE),
+					Some((action.clone(), target.clone())),
+				);
+			});
+			ui.ctx().request_repaint();
+			ui.close();
+		}
+	}
 }
 
 /// The message a menu action was chosen on.
@@ -210,7 +222,7 @@ pub struct ExtensionUi {
 	result: Option<ResultPanel>,
 	error: Option<String>,
 	message_actions: Arc<Vec<MenuAction>>,
-	/// User, channel and server menu entries, published to menus each frame.
+	/// User, channel, server and role menu entries, published to menus each frame.
 	context_actions: Arc<Vec<(Surface, MenuAction)>>,
 	themes: bool,
 	query: String,
@@ -2856,7 +2868,7 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::Appearance => "Customize app colors, typography and control styling",
 		Capability::MessageEvents => "Read live message events and text in the active conversation",
 		Capability::SelectedMessage => "Read the message I choose for an action",
-		Capability::ContextMenus => "Add actions to user, channel and server menus",
+		Capability::ContextMenus => "Add actions to user, channel, server and role menus",
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
 		Capability::AppContext => "Read my account and current conversation details",
@@ -3280,6 +3292,145 @@ mod tests {
 		// The choice is consumed: later frames do not invoke again.
 		context_frame(&ctx, &mut shop, &state, vec![], &user);
 		assert_eq!(shop.requests.len(), 1);
+	}
+
+	/// Checks that profile role chips open a menu only while a plugin offers a role action, and
+	/// that choosing it sends the role's IDs, name and color.
+	#[test]
+	fn role_chips_open_plugin_role_actions_only_when_offered() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = test_support::chat_demo_state();
+		let mut snapshot = test_support::permission_snapshot(&state);
+		let guild = snapshot.guilds[0].id;
+		snapshot.guilds[0]
+			.roles
+			.as_mut()
+			.unwrap()
+			.push(model::permissions::Role {
+				name: "Moderator".into(),
+				color: 0x3498db,
+				secondary_color: None,
+				tertiary_color: None,
+				position: 1,
+				hoist: false,
+				managed: false,
+				id: Id(77),
+				bits: 0,
+			});
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Permissions(client_core::permissions::Event::Snapshot(
+				snapshot,
+			)),
+		});
+		let profile = model::GuildProfile {
+			guild,
+			roles: vec![Id(77)],
+			nick: None,
+			avatar: None,
+			banner: None,
+			bio: String::new(),
+			pronouns: String::new(),
+			joined_at: None,
+		};
+		let mut shop = ExtensionUi::default();
+		let frame = |shop: &mut ExtensionUi, events: Vec<egui::Event>| {
+			let input = egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(400.0, 300.0),
+				)),
+				events,
+				..Default::default()
+			};
+			let mut output = ctx.run_ui(input, |ui| {
+				shop.context_menus(ui.ctx(), &state);
+				let theme = crate::profiles::Theme::new(&crate::design::palette(ui), None);
+				crate::profiles::role_chips(ui, &theme, &state, Id(42), &profile);
+			});
+			output.textures_delta.clear();
+			let mut texts = Vec::new();
+			for clipped in &output.shapes {
+				let mut stack = vec![&clipped.shape];
+				while let Some(shape) = stack.pop() {
+					match shape {
+						egui::Shape::Text(text) => {
+							texts.push((text.galley.job.text.clone(), text.visual_bounding_rect()))
+						}
+						egui::Shape::Vec(shapes) => stack.extend(shapes),
+						_ => {}
+					}
+				}
+			}
+			texts
+		};
+		let secondary = |at: egui::Pos2| {
+			[true, false]
+				.into_iter()
+				.map(|pressed| egui::Event::PointerButton {
+					pos: at,
+					button: egui::PointerButton::Secondary,
+					pressed,
+					modifiers: Default::default(),
+				})
+				.collect::<Vec<_>>()
+		};
+		let chip = |texts: &[(String, egui::Rect)]| {
+			texts
+				.iter()
+				.find(|(text, _)| text == "Moderator")
+				.expect("role chip is drawn")
+				.1
+				.center()
+		};
+		// Without a role action the chip keeps its plain hover behavior.
+		let texts = frame(&mut shop, vec![]);
+		let texts = frame(&mut shop, secondary(chip(&texts)));
+		assert_eq!(texts.len(), frame(&mut shop, vec![]).len(), "no menu opens");
+		let mut offered = entry();
+		offered.enabled = true;
+		offered.manifest.capabilities = vec![Capability::ContextMenus];
+		offered.manifest.actions = vec![extensions::Action {
+			id: "copy-color".into(),
+			label: "Copy role color".into(),
+			surface: Surface::Role,
+		}];
+		shop.set_entries(vec![offered]);
+		frame(&mut shop, vec![]);
+		let texts = frame(&mut shop, vec![]);
+		let mut texts = frame(&mut shop, secondary(chip(&texts)));
+		for _ in 0..3 {
+			if texts
+				.iter()
+				.any(|(text, _)| text.ends_with("Copy role color"))
+			{
+				break;
+			}
+			texts = frame(&mut shop, vec![]);
+		}
+		let item = texts
+			.iter()
+			.find(|(text, _)| text.ends_with("Copy role color"))
+			.expect("role menu lists the action")
+			.1
+			.center();
+		frame(&mut shop, press_at(item));
+		frame(&mut shop, vec![]);
+		let [ExtensionRequest::Invoke { invocation, .. }] = shop.requests.as_slice() else {
+			panic!("one invocation queued: {}", shop.requests.len())
+		};
+		assert_eq!(invocation.action, "copy-color");
+		assert_eq!(
+			invocation.menu_target.as_deref(),
+			Some(&extensions::MenuTarget::Role {
+				guild_id: guild.to_string(),
+				role_id: "77".into(),
+				user_id: Some("42".into()),
+				name: "Moderator".into(),
+				color: 0x3498db,
+			})
+		);
 	}
 
 	#[test]

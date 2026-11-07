@@ -144,7 +144,7 @@ pub enum Capability {
 	DataEvents,
 	MessageDetails,
 	Relationships,
-	/// Add entries to user, channel and server context menus.
+	/// Add entries to user, channel, server and role context menus.
 	ContextMenus,
 }
 
@@ -165,12 +165,14 @@ pub enum Surface {
 	Channel,
 	/// An entry in a server's context menu; the invocation names the server.
 	Server,
+	/// An entry in a role's context menu; the invocation names the role and its server.
+	Role,
 }
 
 impl Surface {
 	/// Context-menu surfaces whose invocation carries a [`MenuTarget`].
 	pub fn is_context_menu(self) -> bool {
-		matches!(self, Self::User | Self::Channel | Self::Server)
+		matches!(self, Self::User | Self::Channel | Self::Server | Self::Role)
 	}
 }
 
@@ -490,7 +492,21 @@ pub enum MenuTarget {
 	Server {
 		guild_id: String,
 	},
+	/// Besides IDs, a role carries the name and color shown on the chip that was clicked.
+	Role {
+		guild_id: String,
+		role_id: String,
+		/// The member whose role list the menu was opened from, if any.
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		user_id: Option<String>,
+		name: String,
+		/// `0xRRGGBB`; `0` when the role has no color.
+		color: u32,
+	},
 }
+
+/// Discord's role-name limit, in characters.
+pub const MAX_ROLE_NAME_CHARS: usize = 100;
 
 impl MenuTarget {
 	/// The menu surface whose actions may receive this target.
@@ -499,6 +515,7 @@ impl MenuTarget {
 			Self::User { .. } => Surface::User,
 			Self::Channel { .. } => Surface::Channel,
 			Self::Server { .. } => Surface::Server,
+			Self::Role { .. } => Surface::Role,
 		}
 	}
 	/// Every ID the target carries, required ones first.
@@ -514,15 +531,35 @@ impl MenuTarget {
 				guild_id,
 			} => (Some(channel_id), guild_id.as_ref(), None),
 			Self::Server { guild_id } => (Some(guild_id), None, None),
+			Self::Role {
+				guild_id,
+				role_id,
+				user_id,
+				..
+			} => (Some(guild_id), Some(role_id), user_id.as_ref()),
 		};
 		first.into_iter().chain(second).chain(third)
 	}
+	/// Checks the target's IDs and, for a role, that its color is `0xRRGGBB` and its name is at
+	/// most `MAX_ROLE_NAME_CHARS` characters without control characters.
 	pub fn validate(&self) -> Result<(), Error> {
-		self.ids().try_for_each(|id| app::entity_id(id))
+		self.ids().try_for_each(|id| app::entity_id(id))?;
+		if let Self::Role { name, color, .. } = self
+			&& (*color > 0xff_ffff
+				|| name.chars().count() > MAX_ROLE_NAME_CHARS
+				|| name.chars().any(char::is_control))
+		{
+			return Err(Error::Invalid);
+		}
+		Ok(())
 	}
-	/// Serialized ID bytes, for invocation size budgets.
+	/// Serialized ID and name bytes, for invocation size budgets.
 	pub fn bytes(&self) -> usize {
-		self.ids().map(String::len).sum()
+		let name = match self {
+			Self::Role { name, .. } => name.len(),
+			_ => 0,
+		};
+		self.ids().map(String::len).sum::<usize>() + name
 	}
 }
 
@@ -812,7 +849,7 @@ impl Manifest {
 				Surface::Message => Some(Capability::SelectedMessage),
 				Surface::Composer => Some(Capability::Composer),
 				Surface::Panel => None,
-				Surface::User | Surface::Channel | Surface::Server => {
+				Surface::User | Surface::Channel | Surface::Server | Surface::Role => {
 					Some(Capability::ContextMenus)
 				}
 				Surface::Activation => None,
