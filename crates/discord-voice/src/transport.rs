@@ -4273,7 +4273,8 @@ mod tests {
 		let udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
 		let udp_address = udp.local_addr().unwrap();
 
-		let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
+		let (op23_tx, op23_rx) = tokio::sync::oneshot::channel::<()>();
+		let (finish_tx, finish_rx) = tokio::sync::oneshot::channel::<()>();
 
 		let server = tokio::spawn(async move {
 			let (stream, _) = listener.accept().await.unwrap();
@@ -4376,7 +4377,8 @@ mod tests {
 					break;
 				}
 			}
-			let _ = ready_rx.await;
+			let _ = op23_tx.send(());
+			let _ = finish_rx.await;
 		});
 
 		let credentials = VoiceConnection {
@@ -4414,11 +4416,12 @@ mod tests {
 				if let Status::Ready { privacy_code } = status {
 					assert!(privacy_code.is_empty());
 					saw_ready = true;
-					let _ = ready_tx.send(());
 					break;
 				}
 			}
 			assert!(saw_ready);
+			op23_rx.await.unwrap();
+			let _ = finish_tx.send(());
 		});
 		test.await.unwrap();
 		drop(control_tx);

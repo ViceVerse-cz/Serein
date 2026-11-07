@@ -163,7 +163,6 @@ impl Settings {
 			let scaled = 8_000_000u64 * pixels / (1920 * 1080);
 			u32::try_from(scaled.min(12_000_000)).unwrap_or(12_000_000)
 		};
-		};
 		let scale = match self.fps {
 			120 => 4,
 			90 => 3,
@@ -210,7 +209,13 @@ mod tests {
 
 	#[test]
 	fn settings_validity_and_bitrate() {
-		for (w, h) in [(854, 480), (1280, 720), (1920, 1080), (2560, 1440)] {
+		for (w, h) in [
+			(854, 480),
+			(1280, 720),
+			(1920, 1080),
+			(2560, 1440),
+			(3840, 2160),
+		] {
 			let settings = Settings {
 				source: SourceId::Display(1),
 				width: w,
@@ -237,8 +242,19 @@ mod tests {
 		assert!(
 			!Settings {
 				source: SourceId::Display(1),
-				width: 3840,
+				width: 3842,
 				height: 2160,
+				fps: 30,
+				cursor: true,
+				audio: false,
+			}
+			.valid()
+		);
+		assert!(
+			!Settings {
+				source: SourceId::Display(1),
+				width: 1921,
+				height: 1080,
 				fps: 30,
 				cursor: true,
 				audio: false,
