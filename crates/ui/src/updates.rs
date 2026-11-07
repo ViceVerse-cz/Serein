@@ -426,7 +426,7 @@ impl MessagingUi {
 						"updates-update-settings-published-stable-releases-switching-channels-never-installs-an-older-ver"
 					}),
 					|ui| {
-						egui::ComboBox::from_id_salt("update-release-channel")
+						crate::design::Select::from_id_salt("update-release-channel")
 							.selected_text(crate::i18n::translate_if_key(
 								&(if self.updates.nightly {
 									crate::i18n::translate("updates-update-settings-nightly")
@@ -583,7 +583,7 @@ impl MessagingUi {
 						"updates-update-settings-timings-stages-and-failures-in-one-local-file-no-account-channel-or"
 					}),
 					|ui| {
-						egui::ComboBox::from_id_salt("diagnostic-log-level")
+						crate::design::Select::from_id_salt("diagnostic-log-level")
 							.selected_text(log_level_label(self.diagnostics_log))
 							.width(ui.available_width().min(160.0))
 							.show_ui(ui, |ui| {

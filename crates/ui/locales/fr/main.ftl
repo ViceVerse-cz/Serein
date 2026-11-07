@@ -1642,8 +1642,6 @@ main-restoring-screen-welcome-back = Content de te revoir
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Comptes enregistrés
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Je suis propriétaire de ce compte et j'autorise cette session.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Les mots de passe et 2FA restent sur la propre page de connexion de Discord ; seul le jeton de session est conservé dans le magasin d'informations d'identification de votre système d'exploitation.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = À propos de Serein
@@ -4146,8 +4144,6 @@ voice-device-combo-device-unavailable = Appareil indisponible
 voice-device-default = Valeur par défaut du système
 # Context: frame
 voice-frame-open-voice = Voix ouverte
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100 % est le niveau d'origine. Des niveaux plus élevés peuvent entraîner une distorsion.
 # Context: labels
 voice-labels-choose-camera = Choisir l'appareil photo
 # Context: live_badge
@@ -4248,12 +4244,6 @@ voice-voice-participant-microphone-muted = Microphone coupé
 voice-voice-participant-muted-by-server = Muet par le serveur
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Muet pour vous sur cet appareil
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Choisissez un algorithme dans tous les paramètres vocaux.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen désactive le son entrant et coupe votre microphone avec.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Maintenez votre raccourci configuré lorsque vous souhaitez parler.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Installez une version à commande vocale pour utiliser ces commandes.
 # Context: voice_popup_content

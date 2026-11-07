@@ -2387,8 +2387,13 @@ artwork — the second symptom reported in that issue.
 **Detection.** Games that never speak RPC are matched by executable name against Discord's
 public `/applications/detectable` list (about 24,000 applications, 10,451 of them detectable,
 12.7 MB). The list is reduced on download to id, name and non-launcher executable names
-(1.1 MB), cached for a day under the local data directory, and re-checked against the same
-bounds when read back. Matching compares path suffixes longest-first, plus `.app` bundle
+(1.1 MB when it held only the detectable entries; the size with title-only entries is
+unmeasured), cached for a day under the local data directory, and re-checked against the same
+bounds when read back. Entries without executables are kept as titles only: a manually added
+game whose name exactly matches one application, or whose process matches a detectable entry,
+publishes that application so both clients show its artwork. A title shared by several
+applications resolves to none. Discord itself detects some of these games by unknown means
+(unverified); Serein still cannot detect them from a process alone. Matching compares path suffixes longest-first, plus `.app` bundle
 components for macOS entries; an executable-name index keeps a full sweep at roughly 6 ms for
 900 processes instead of ~920 ms for a linear scan. Processes are enumerated read-only through
 `/proc` on Linux, `ps` on macOS and `tasklist` on Windows: executable paths only, never
@@ -2946,3 +2951,60 @@ a name arrives it shows only the thread glyph: the generic “Thread” label an
 button are gone, and a refused read leaves the card with whatever the channel list already
 carries. Synthetic tests cover admission, the bounded cache, the rejected answer, the refresh on
 a newer known message, and the card's rendered name, count, author and reply.
+
+## Frequently used emoji from frecency settings — November 6, 2026
+
+The emoji pickers' frequently used rows follow the account's synced rankings, as the official
+client's do: the composer uses `emoji_frecency` (field 6) and the reaction picker and hover bar
+use `emoji_reaction_frecency` (field 13) of the
+[primary FrecencyUserSettings schema](https://github.com/dolfies/discord-protos/blob/f5c06d6f5764a66302f7eede675fd703c31be08a/discord_protos/discord_users/v1/FrecencyUserSettings.proto).
+Both ride the unofficial `GET /users/@me/settings-proto/2` read that loads GIF favorites, now
+also made when the emoji picker opens. Entries are ranked by the stored `score`, then
+`total_uses`; at most 32 keys per ranking are kept, each at most 64 bytes, malformed entries
+are skipped, and an unreadable emoji record never blocks GIF favorites. This session's own picks
+stay first.
+
+Picks are saved back. Uses wait 15 seconds, then one batch makes a fresh read and a `PATCH` of
+only the touched subtrees with `required_data_version`, the same mechanism GIF favorites use;
+this is an account setting, not a telemetry route. Each used entry gets its `total_uses` raised,
+the newest ten `recent_uses` and a recomputed `score`; every other entry, the `frecency` field
+and unknown fields are kept byte for byte, and a subtree that could not be read is never
+replaced. An entry whose value this client cannot fully read, including a repeated value that
+the service would merge, is kept rather than rewritten, and a save is refused when an entry's
+key cannot be read. As on the service, a repeated key ranks by its last value. A save and a GIF star write never run together. A failed, conflicting or unconfirmed
+save is dropped rather than retried, and pending uses are lost on exit or sign-out. At most 64
+distinct emoji and ten use times each wait in memory.
+
+Unverified: the Unicode key format (Serein writes the primary Discord name, such as `joy`, and
+reads names, aliases or the emoji itself; a numeric key is a custom emoji only when one is
+loaded, so `100` still resolves to 💯), the score weights (an approximation of the official
+client by recency of the newest uses), and that other clients rank Serein's saves as their own.
+Picks count when chosen in a picker or the quick reaction bar, not when a message is sent.
+Synthetic tests cover parsing, untouched-entry preservation, batching and the rows' merge; no
+live account was used.
+
+## Invite cards — November 6, 2026
+
+Invite cards follow the official client's layout, compared from owner-supplied screenshots
+rather than wire observation. The existing invite read now also keeps the server's
+`description` (at most 1,024 bytes; longer or control-laden text is dropped rather than
+failing the card) and the invited channel's `type`. A voice (2) or stage (13) channel invite
+renders as a voice card naming the channel. Members see who the session's voice roster lists
+in that channel and join the call through the usual explicit call path; others see that only
+members can view the roster, and the action joins the server. "Est." dates come from the
+server id's snowflake time. Without a `banner`, the header shows the invite `splash` from
+`cdn.discordapp.com/splashes/`, and the server icon is painted from its validated hash with the
+usual rounded server-icon shape. No request, route or join behaviour changed, and these channel
+types in invite responses remain unverified against live Discord.
+
+### Conservative mention-count reconciliation — November 6, 2026
+
+The [unofficial read-state automation reference](https://docs.discord.food/topics/read-state#channel-read-state-automations)
+excludes blocked/ignored authors and applies private mute and ping rules at message creation.
+Serein snapshots proven contribution evidence from committed relationship/mute state and admitted
+guild preferences/member roles when observing a message. Unknown relationship lists, incomplete
+overrides, and non-ping guild contributions are not safe to subtract from an opaque service count.
+In particular, the current settings model does not represent `MENTION_ON_ALL_MESSAGES`; it is
+not assumed disabled. Contributions depending on that switch remain unknown until authoritative
+count reconciliation. This is conservative local behavior, not a verified service-equivalence claim.
+No new service setting, protocol request or Identify capability is introduced.

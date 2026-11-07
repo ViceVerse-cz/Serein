@@ -174,7 +174,9 @@ impl Calls {
 			clients: model::ClientPlatforms::default(),
 		})
 	}
-	pub(super) fn snapshot(&self, guild: &mut GuildDto, partial: bool) -> Result<Event, Failure> {
+	/// Passive roster for one guild. Rows past the count or byte bound are dropped rather than
+	/// failing sign-in; the roster is display-only and refreshes on reconnect.
+	pub(super) fn snapshot(&self, guild: &mut GuildDto, partial: bool) -> Event {
 		let members = self.members(std::mem::take(&mut guild.members));
 		let mut participants = Vec::new();
 		let mut bytes = 0;
@@ -187,9 +189,7 @@ impl Calls {
 				continue;
 			}
 			if participants.len() == voice::MAX_ROSTER {
-				return Err(Failure::CapacityAt(
-					"Voice roster participant limit exceeded",
-				));
+				break;
 			}
 			let participant = participant(&state);
 			let member = state
@@ -202,17 +202,17 @@ impl Calls {
 				participant,
 				member,
 			};
-			bytes += entry.bytes();
-			if bytes > voice::MAX_ROSTER_BYTES {
-				return Err(Failure::CapacityAt("Voice roster byte limit exceeded"));
+			if bytes + entry.bytes() > voice::MAX_ROSTER_BYTES {
+				continue;
 			}
+			bytes += entry.bytes();
 			participants.push(entry);
 		}
-		Ok(Event::Voice(voice::Event::Snapshot {
+		Event::Voice(voice::Event::Snapshot {
 			partial,
 			guild: Some(guild.id),
 			participants,
-		}))
+		})
 	}
 	pub(super) fn passive(
 		&mut self,
@@ -1266,7 +1266,7 @@ mod tests {
 				.voice_states
 				.push(decode(br#"{"channel_id":"20","user_id":"5000"}"#).unwrap());
 			let Event::Voice(voice::Event::Snapshot { participants, .. }) =
-				calls.snapshot(&mut guild, true).unwrap()
+				calls.snapshot(&mut guild, true)
 			else {
 				panic!()
 			};
@@ -2189,7 +2189,7 @@ mod tests {
 			};
 			let mut guild: GuildDto = decode(br#"{"id":"10","voice_states":[{"channel_id":"20","user_id":"2","mute":true,"deaf":true}],"members":[{"user":{"id":"2","username":"Synthetic","avatar":"0123456789abcdef0123456789abcdef"},"nick":"Room member"}]}"#).unwrap();
 			let Event::Voice(voice::Event::Snapshot { participants, .. }) =
-				calls.snapshot(&mut guild, false).unwrap()
+				calls.snapshot(&mut guild, false)
 			else {
 				panic!("roster");
 			};
@@ -2340,9 +2340,8 @@ mod tests {
 				.collect();
 			assert!(matches!(
 				calls.snapshot(&mut guild, false),
-				Err(Failure::CapacityAt(
-					"Voice roster participant limit exceeded"
-				))
+				Event::Voice(voice::Event::Snapshot { participants, .. })
+					if participants.len() == voice::MAX_ROSTER
 			));
 		}
 		{

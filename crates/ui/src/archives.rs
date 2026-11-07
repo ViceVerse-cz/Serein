@@ -94,7 +94,7 @@ impl ArchivesUi {
 							if supports_private {
 								let mut kind = view.kind;
 								ui.add_enabled_ui(allowed && !view.loading, |ui| {
-									egui::ComboBox::from_id_salt(("archive-kind", parent))
+									crate::design::Select::from_id_salt(("archive-kind", parent))
 										.width(112.0)
 										.selected_text(match kind {
 											Kind::Public => "Public",

@@ -95,7 +95,12 @@ pub struct RosterEntry {
 }
 impl RosterEntry {
 	pub fn bytes(&self) -> usize {
-		size_of::<Self>() + self.member.as_ref().map_or(0, Member::bytes)
+		// The member is stored inline, so only its heap counts beyond `Self`.
+		size_of::<Self>()
+			+ self
+				.member
+				.as_ref()
+				.map_or(0, |m| m.bytes() - size_of::<Member>())
 	}
 }
 

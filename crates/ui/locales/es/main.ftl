@@ -1642,8 +1642,6 @@ main-restoring-screen-welcome-back = Bienvenido de nuevo
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Cuentas guardadas
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Soy dueño de esta cuenta y autorizo ​​esta sesión.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Las contraseñas y 2FA permanecen en la página de inicio de sesión de Discord; solo se conserva el token de sesión en el almacén de credenciales de su sistema operativo.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = Sobre Serein
@@ -4146,8 +4144,6 @@ voice-device-combo-device-unavailable = Dispositivo no disponible
 voice-device-default = Valor predeterminado del sistema
 # Context: frame
 voice-frame-open-voice = voz abierta
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% es el nivel original. Los niveles más altos pueden distorsionar.
 # Context: labels
 voice-labels-choose-camera = Elige cámara
 # Context: live_badge
@@ -4248,12 +4244,6 @@ voice-voice-participant-microphone-muted = Micrófono silenciado
 voice-voice-participant-muted-by-server = Silenciado por el servidor
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Silenciado para ti en este dispositivo
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Elija un algoritmo en todas las configuraciones de voz.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen apaga el audio entrante y silencia el micrófono con él.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Mantenga presionado su acceso directo configurado cuando quiera hablar.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Instale una compilación habilitada por voz para usar estos controles.
 # Context: voice_popup_content

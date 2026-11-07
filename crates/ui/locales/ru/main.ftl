@@ -1643,8 +1643,6 @@ main-restoring-screen-welcome-back = Добро пожаловать
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Сохраненные аккаунты
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Я владею этой учетной записью и разрешаю этот сеанс.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Пароли и 2FA остаются на собственной странице входа в Discord; в хранилище учетных данных вашей ОС сохраняется только токен сеанса.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = О Серейн
@@ -4150,8 +4148,6 @@ voice-device-combo-device-unavailable = Устройство недоступн�
 voice-device-default = Система по умолчанию
 # Context: frame
 voice-frame-open-voice = Открытый голос
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% — это исходный уровень. Более высокие уровни могут искажать.
 # Context: labels
 voice-labels-choose-camera = Выберите камеру
 # Context: live_badge
@@ -4252,12 +4248,6 @@ voice-voice-participant-microphone-muted = Микрофон отключен
 voice-voice-participant-muted-by-server = Отключено сервером
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = На этом устройстве для вас отключен звук
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Выберите алгоритм во всех настройках голоса.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen отключает входящий звук и вместе с ним отключает звук вашего микрофона.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Удерживайте настроенный ярлык, когда хотите поговорить.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Установите сборку с голосовой поддержкой, чтобы использовать эти элементы управления.
 # Context: voice_popup_content

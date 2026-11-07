@@ -4,6 +4,7 @@ pub mod archives;
 pub mod auth;
 pub mod captcha;
 pub mod channel_actions;
+pub mod emoji_frecency;
 pub mod fingerprint;
 pub mod forum;
 pub mod game_mentions;
@@ -214,6 +215,11 @@ pub enum Command {
 	GifFavorites {
 		request: u64,
 		change: Option<(model::Gif, bool)>,
+	},
+	/// Saves batched emoji uses to the account's frecency settings (unofficial).
+	EmojiFrecency {
+		request: u64,
+		uses: Vec<emoji_frecency::EmojiUse>,
 	},
 	MarkRead {
 		channel: Id,
@@ -563,6 +569,12 @@ pub enum Event {
 	GifFavorites {
 		request: u64,
 		result: Result<Vec<model::Gif>, auth::Failure>,
+		/// The account's frequently used emoji, read with the favorites (unofficial).
+		frequent_emoji: emoji_frecency::Ranking,
+	},
+	EmojiFrecency {
+		request: u64,
+		result: Result<emoji_frecency::Ranking, auth::Failure>,
 	},
 	ReadState(read_state::Event),
 	NotificationPreferences(notifications::Event),
@@ -776,6 +788,7 @@ pub struct State {
 	pub search: Option<search::SearchView>,
 	pub search_request: u64,
 	pub gifs: gifs::Gifs,
+	pub emoji_frecency: emoji_frecency::EmojiFrecency,
 	/// A pin changed in this channel; the pins view should be reloaded once.
 	pub pins_changed: Option<Id>,
 	pub message_actions: message_actions::MessageActions,
@@ -1020,6 +1033,7 @@ impl Default for State {
 			search: None,
 			search_request: 0,
 			gifs: gifs::Gifs::default(),
+			emoji_frecency: emoji_frecency::EmojiFrecency::default(),
 			pins_changed: None,
 			message_actions: Default::default(),
 			polls: Default::default(),
@@ -2344,6 +2358,10 @@ impl State {
 			self.apply_gif_favorites(request, Err(auth::Failure::Capacity));
 			return;
 		}
+		if let Command::EmojiFrecency { request, .. } = command {
+			self.apply_emoji_frecency(request, Err(auth::Failure::Capacity));
+			return;
+		}
 		if let Command::Edit {
 			channel,
 			message,
@@ -3021,8 +3039,19 @@ impl State {
 				self.apply_gifs(request, result);
 				Ok(())
 			}
-			Event::GifFavorites { request, result } => {
+			Event::GifFavorites {
+				request,
+				result,
+				frequent_emoji,
+			} => {
+				if result.is_ok() && self.gifs.sync_pending == Some(request) {
+					self.apply_emoji_ranking(frequent_emoji);
+				}
 				self.apply_gif_favorites(request, result);
+				Ok(())
+			}
+			Event::EmojiFrecency { request, result } => {
+				self.apply_emoji_frecency(request, result);
 				Ok(())
 			}
 			Event::ReadState(event) => self.apply_read_state(event),
@@ -4552,15 +4581,22 @@ impl Event {
 					result: Ok(page), ..
 				} => page.bytes(),
 				Self::GifFavorites {
-					result: Ok(favorites),
+					result,
+					frequent_emoji,
 					..
 				} => {
-					favorites.capacity() * size_of::<model::Gif>()
-						+ favorites
-							.iter()
-							.map(|gif| gif.bytes() - size_of::<model::Gif>())
-							.sum::<usize>()
+					result.as_ref().map_or(0, |favorites| {
+						favorites.capacity() * size_of::<model::Gif>()
+							+ favorites
+								.iter()
+								.map(|gif| gif.bytes() - size_of::<model::Gif>())
+								.sum::<usize>()
+					}) + frequent_emoji.bytes()
 				}
+				Self::EmojiFrecency {
+					result: Ok(ranking),
+					..
+				} => ranking.bytes(),
 				Self::ReadState(read_state::Event::Snapshot { entries, .. }) => entries
 					.as_ref()
 					.map_or(0, |e| e.capacity() * size_of::<(Id, Option<Id>, u32)>()),

@@ -471,6 +471,17 @@ sub-budget the admitted metadata leaves free, so a full sidebar badge scan of a 
 account does not evict its own decisions.
 Incoming read-state snapshot vectors use at most 131,072 entries / 16 MiB; retained
 read maps are bounded by account channels, with the existing separate activity/alert budgets.
+The activity ledger retains at most 4,096 rows / 128 KiB, including whether a row is already
+covered by a service badge count and whether a service contribution was provable at message
+creation. Committed relationship/mute snapshots and admitted role/notification state are consulted
+then; optimistic toggles and later changes cannot rewrite this evidence. Covered rows stay available for local HTTP read reconciliation
+without double-counting later activity. Local reads prune acknowledged alerts and known mentions;
+unknown service counts remain conservative until refreshed. The existing monotonic activity high
+water prevents stale latest-message metadata from prematurely clearing that baseline.
+Committed ignore/unignore status has a profile-independent index bounded to 4,000 IDs / 512 KiB
+estimated allocation (including per-entry overhead). Replacements and logout clear it. Capacity
+eviction invalidates the complete-restriction fallback, so evicted profile-less users become
+unknown instead of implicitly unignored. Display profiles keep their existing separate bounds.
 Notification preferences
 use bounded account collections / 32 MiB. These are on-demand ceilings, not reservations
 or an RSS guarantee. This section supersedes the older account snapshot limits below.
@@ -1441,10 +1452,17 @@ Native video decoding is memory-only. One lazy worker handles the latest request
 with a replaceable pending request and cancellation fencing. The network source retains
 up to eight 256 KiB ranges (2 MiB, including an in-flight range); responses are checked for exact range/total/body lengths and reject
 redirects and content encoding. Encoded attachment size is capped at 100 MiB.
-The application queues at most two decoded frames (1080p NV12 on macOS and Linux,
-RGBA on Windows), one replaceable display frame, one GPU texture with its planes, one second of stereo float PCM (at most 768,000 bytes), and one decoded
-audio packet plus at most two seconds of timestamp-gap silence. Each native decoded
-sample is rejected above 16 MiB before copying. OS decoder/GPU allocations are additional
+Source resolution is negotiated separately from the playback surface: larger sources are scaled
+by the native backend before entering application queues. This does not increase the decoded
+frame budgets. macOS reuses one additional bounded NV12 destination for native scaling;
+native codec/device allocations are additional and can reject unsupported sizes.
+Linux's post-scale video branch queue is bounded to four buffers and 40 MiB, plus the existing
+four-buffer appsink. No unscaled video queue is inserted ahead of the scaler.
+The application queues at most two decoded frames (up to 4K, 3840×2160 worth of pixels in a
+3840-pixel square: NV12 on macOS and Linux, RGBA on Windows), one replaceable display frame, one GPU texture with its planes, one second of stereo float PCM (at most 768,000 bytes), and one decoded
+audio packet plus at most two seconds of timestamp-gap silence. Each native compressed or
+YUV sample is rejected above 16 MiB, and each Windows RGB frame above 40 MiB, before copying.
+At 4K the two queued frames are at most about 25 MiB as NV12 or 64 MiB as RGBA. OS decoder/GPU allocations are additional
 and are released with the player. No file cache or media URL/byte diagnostics are written.
 
 

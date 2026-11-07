@@ -124,6 +124,9 @@ ICONS = [
     ("device-mobile", "bold/device-mobile-bold.svg", "77a4a5ebcba16e37637e700381bc3858b92c9350730ecf1e207f5f40d524de03"),
     ("hard-drives", "fill/hard-drives-fill.svg", "16f26a807a05ded561ff3322879e698b70d77f07df5dabda451825ddd8f5ba28"),
     ("corners-out", "bold/corners-out-bold.svg", "df74ba3c2a496a344f98e80c0782f43aa3760ed4b8b6103a4c621bfc59575e16"),
+    ("scissors", "bold/scissors-bold.svg", "10d7c433d8284923caa353edbfa984be5c9b12aab331c36d3f250f3bd7656a1d"),
+    ("clipboard-text", "bold/clipboard-text-bold.svg", "3d1f047a9ea53283cada888642cc9427e3ec7ac766beeefee19581454b4b26b4"),
+    ("selection-all", "bold/selection-all-bold.svg", "a5db79d398382ba9c9bf0abe75290e46cf11c41464be439b66c8e3ee30a716a3"),
 ]
 LICENSE_SHA256 = "ddbe6082ec3cf979db47e5af549d2849c5d6182b3e005ef91ce1dbb9eb122f11"
 

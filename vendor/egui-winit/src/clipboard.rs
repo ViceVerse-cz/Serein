@@ -150,6 +150,29 @@ impl Clipboard {
         expect(clippy::needless_pass_by_ref_mut, clippy::unused_self)
     )]
     pub fn get_image(&mut self) -> Option<egui::ColorImage> {
+        // Serein: read through the focused surface first. arboard needs the privileged
+        // data-control protocol or an Xwayland bridge, which sandboxes and KWin may withhold.
+        #[cfg(all(
+            any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ),
+            feature = "smithay-clipboard"
+        ))]
+        if let Some(clipboard) = &mut self.smithay {
+            match clipboard.load_mime("image/png", MAX_PNG_BYTES) {
+                Ok(png) => match color_image_from_png(&png) {
+                    Some(image) => return Some(image),
+                    None => log::debug!("smithay paste-image: undecodable PNG"),
+                },
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => log::debug!("smithay paste-image error: {err}"),
+            }
+        }
+
         #[cfg(all(
             not(any(target_os = "android", target_os = "ios")),
             feature = "arboard",
@@ -339,6 +362,42 @@ fn init_arboard() -> Option<arboard::Clipboard> {
             None
         }
     }
+}
+
+/// Serein: bounds for a pasted `image/png` read through smithay-clipboard.
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ),
+    feature = "smithay-clipboard"
+))]
+const MAX_PNG_BYTES: usize = 32 * 1024 * 1024;
+
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ),
+    feature = "smithay-clipboard"
+))]
+fn color_image_from_png(png: &[u8]) -> Option<egui::ColorImage> {
+    let mut reader =
+        image::ImageReader::with_format(std::io::Cursor::new(png), image::ImageFormat::Png);
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader.decode().ok()?.into_rgba8();
+    Some(egui::ColorImage::from_rgba_unmultiplied(
+        [image.width() as usize, image.height() as usize],
+        image.as_raw(),
+    ))
 }
 
 /// # Safety

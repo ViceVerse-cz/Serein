@@ -1179,9 +1179,20 @@ impl DiscordApi {
 				result: self.gifs(query.as_deref()).await,
 			},
 			Command::CancelGifs => Event::Failure(Failure::Protocol),
-			Command::GifFavorites { request, change } => Event::GifFavorites {
+			Command::GifFavorites { request, change } => {
+				let (result, frequent_emoji) = match self.gif_favorites(change).await {
+					Ok((gifs, emoji)) => (Ok(gifs), emoji),
+					Err(failure) => (Err(failure), Default::default()),
+				};
+				Event::GifFavorites {
+					request,
+					result,
+					frequent_emoji,
+				}
+			}
+			Command::EmojiFrecency { request, uses } => Event::EmojiFrecency {
 				request,
-				result: self.gif_favorites(change).await,
+				result: self.emoji_frecency(uses).await,
 			},
 			Command::MarkRead {
 				channel,
@@ -2483,6 +2494,9 @@ mod tests {
 					std::time::Instant::now(),
 					Some(Ok(model::InvitePreview {
 						guild: Some(model::Id(2)),
+						about: None,
+						guild_icon: None,
+						voice_channel: None,
 						channel: None,
 						embed: Default::default(),
 					})),

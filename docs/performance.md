@@ -4,6 +4,56 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## High-resolution attachment sources — November 6, 2026
+
+Offline comparison against `77bdddae` on Ubuntu 24.04.5 x86-64, an Intel i5-1235U,
+Rust 1.98.1 and locked dependencies. A standalone development wrapper compiled the production
+`platform::video` module and opened the same original one-frame 7680×4320 H.264 MOV on both
+revisions. The wrapper only checked decoder startup, output dimensions and frame validity;
+it did not run the desktop renderer or contact Discord.
+
+| Synthetic workload / output | Baseline | After |
+| --- | --- | --- |
+| Open the 8K source | Rejected with `TOO_LARGE` | Decodes at 3840×2160 |
+| Copied NV12 picture | No picture produced | 12,441,600 B |
+
+Generate that source with development-only FFmpeg 6.1.1:
+
+```sh
+ffmpeg -f lavfi -i color=c=blue:s=7680x4320:r=1 -frames:v 1 -c:v libx264 -threads 2 -preset ultrafast -crf 30 -pix_fmt yuv420p -movflags +faststart video-8k.mov
+```
+
+The Linux regression also decodes the committed 4096×64 fixture to 3840×60 and scales an
+oversized rotated raw source to 1920×3840. The optional FFmpeg filter was exercised separately:
+4096×64 becomes 3840×60, and 4096×4096 becomes 2880×2880. Each is one functional run,
+not a throughput measurement. Copied frames retain their existing pixel/byte ceilings;
+OS codec allocations, including full-resolution input surfaces, are additional. No whole-app
+RSS, CPU, GPU time, playback latency, sustained frame rate or native Windows/macOS runtime
+measurement was collected. Cross-compilation is not evidence of native playback.
+
+## Window placement save after a move — November 5, 2026
+
+Baseline `2b593b1` (`main` after #893) and this branch were built with the pinned Rust 1.98.1
+toolchain and locked dependencies on Windows 11 x64 (build 26200). Standard release packages use
+`cargo xtask package` (voice included, demo and development data disabled), each from its own
+worktree.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,905,472 B | 92,905,472 B | 0 B |
+| `dist/` regular-file payload (233 files) | 97,265,351 B | 97,265,351 B | 0 B |
+| ZIP of `dist/` (`7z a -tzip -mx=9`) | 52,172,759 B | 52,172,071 B | −688 B (−0.001%) |
+
+Only `serein.exe` differs, at the same size; the ZIP difference is compression noise.
+
+Debug builds with default features and an empty `SEREIN_DATA_DIR` show the sign-in screen, which
+renders nothing while idle. After the window had been idle for 8 s, a script moved it with
+`SetWindowPos` (no input, activation or z-order change) while PresentMon 2.6.0 recorded the next
+4 s. The baseline presented no frame and kept the startup placement in `app_preferences`; this
+branch presented three frames about 1.0 s after the move and saved the new position. An idle window
+gains no frames, and while a placement is unsaved the wake adds at most one frame per 500 ms.
+Interactive drags were not re-measured.
+
 ## Window drags on Windows — November 5, 2026
 
 Review follow-up: the measurements below describe the original `1f664628` implementation.
@@ -1675,3 +1725,44 @@ then alternated after builds finished: one warmup and five samples per binary. T
 It is a general reducer check, not an avatar-burst, input-latency or camera benchmark.
 Background OS load is not controlled; no speed improvement is claimed. Process RSS,
 UI frame latency, physical audio/camera behavior and live Discord remain unmeasured.
+
+### UHD inline playback — November 6, 2026
+
+Inline attachment playback now shares the live bound: 3840×2160 worth of pixels within a
+3840-pixel square, so portrait and ultrawide videos fit as well. Compressed and YUV samples
+keep their 16 MiB cap; Windows' RGB frames get a separate 40 MiB cap covering a 4K frame
+with aligned surface padding. The player still queues two decoded frames, at most about
+25 MiB as 4K NV12 or 64 MiB as RGBA; 1080p and smaller videos allocate as before. Frames
+larger than the renderer's maximum texture side are refused by the CPU fallback. The
+FFmpeg transcode fallback still produces at most 1080p. No 4K playback CPU or memory
+measurement has been recorded yet.
+
+## Read ACK reconciliation — November 6, 2026
+
+Baseline PR #908 head `449211db` versus the final Rust sources in the follow-up containing
+creation-time service-contribution evidence, profile-independent ignored status, and the
+`--ack-reconciliation` replay mode.
+Ubuntu 24.04.5 x86-64, Intel i5-1235U, Rust 1.98.1, unchanged dependency versions, identical
+release settings and benchmark harness. The baseline's isolated workspace prunes unrelated
+lockfile entries; its dependency name/version/source triples were checked against the repository
+lockfile. Neither repository lockfile nor dependency versions change in this PR.
+
+Run `cargo replay --ack-reconciliation`. Each process constructs eight independent full ledgers
+for partial reads and eight for bulk reads, each with 4,096 observed messages across 1,024
+private channels. Timing includes only HTTP-result reduction, excluding fixture construction and
+request preparation. Each bulk result confirms all 1,024 channels. Warm each binary once, then
+run five counterbalanced pairs (AB, BA, AB, BA, AB) with no concurrent container builds or
+packaging. Pilot runs showed substantial host timing noise; this final series uses the
+counterbalanced order rather than interpreting an A-first ordering bias as an improvement.
+
+| Timed work per process | Baseline median (range) | After median (range) | Median delta |
+| --- | ---: | ---: | ---: |
+| Eight partial confirmations | 0.115081 ms (0.111414–0.143944) | 0.117672 ms (0.111691–0.176175) | +0.002591 ms (+2.3%) |
+| Eight 1,024-channel bulk confirmations | 43.083 ms (40.419–64.171) | 42.706 ms (40.043–74.701) | −0.377 ms (−0.9%) |
+
+Ranges overlap substantially; neither a speedup nor an absence of regression is established.
+The values are not universal latency results. These workloads exercise the added ledger scans and
+bulk reconciliation, unlike the earlier message-only replay. No speedup, RSS, UI timing, live
+Discord compatibility, or message-creation classification throughput is established by them.
+The ledger keeps its 4,096-row / 128-KiB bound. The PR records the measured runtime commit;
+subsequent documentation-only changes do not affect these Rust sources.
