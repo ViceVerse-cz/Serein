@@ -51,8 +51,10 @@ general-start-minimized = 最小化啟動
 general-start-minimized-description = 在背景啟動，不佔用你的畫面。
 general-startup-unavailable = 自動啟動僅支援 Windows 和 macOS。
 general-window = 視窗
-general-hide-decorations = 隱藏視窗裝飾
-general-hide-decorations-description = 拿掉系統標題列與邊框，改用視窗管理員來移動、調整大小或關閉 Serein。
+general-hide-decorations = 無標題列
+general-hide-decorations-description = 適用於平鋪式視窗管理員：移除所有標題列與邊框，包括 Serein 自己的標題列。請用視窗管理員移動、調整大小或關閉 Serein。
+general-custom-title-bar = 自訂標題列
+general-custom-title-bar-description = 以 Serein 自己的 GTK 4 風格標題列取代系統標題列。
 general-hide-title-bar = 隱藏 Serein 標題列
 general-hide-title-bar-description = 改用系統標題列與視窗按鈕。
 general-keep-menu-bar = 讓 Serein 留在選單列
@@ -65,6 +67,8 @@ general-graphics = 圖形
 general-render-with = 渲染方式
 general-gpu-restart = 下次啟動 Serein 時生效。
 general-gpu-current-prefix = 目前繪製使用
+general-steady-refresh-rate = 固定刷新率
+general-steady-refresh-rate-description = 當 Serein 是作用中視窗時，會以螢幕的刷新率繪製，讓可變刷新率（VRR、G-SYNC、FreeSync）螢幕可以維持同一刷新率而不會閃爍。會更耗電。
 gpu-automatic = 自動
 gpu-high-performance = 高效能
 gpu-power-saving = 省電
@@ -1654,8 +1658,6 @@ main-restoring-screen-welcome-back = 歡迎回來
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = 已儲存的帳戶
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = 這個帳戶為我本人所有，我授權此工作階段。
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = 密碼與 2FA 只留在 Discord 自己的登入頁；僅工作階段令牌會存進你的作業系統憑證儲存區。
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = 關於 Serein
@@ -2284,6 +2286,12 @@ screen-body-frame-rate = 影格率
 screen-body-include-the-pointer-in-the-shared-video = 分享畫面時包含滑鼠指標。
 # Context: body
 screen-body-quality = 品質
+# Context: body
+screen-body-source = 來源
+# Context: body
+screen-preview-paused-title = 你的直播仍在進行！
+# Context: body
+screen-preview-paused-body = 我們已暫停此預覽以節省資源。
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = 選擇品質不需要 Nitro。
 # Context: body
@@ -4168,8 +4176,6 @@ voice-device-combo-device-unavailable = 裝置無法使用
 voice-device-default = 系統預設
 # Context: frame
 voice-frame-open-voice = 開啟語音
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% 是原始音量，過高可能失真。
 # Context: labels
 voice-labels-choose-camera = 選擇攝影機
 # Context: live_badge
@@ -4270,12 +4276,6 @@ voice-voice-participant-microphone-muted = 麥克風已靜音
 voice-voice-participant-muted-by-server = 被伺服器靜音
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = 在你這台裝置上已靜音
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = 請在「所有語音設定」中選擇演算法。
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = 關掉喇叭會停止播放收到的音訊，並同時讓麥克風靜音。
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = 想說話時，按住你設定的快捷鍵。
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = 請安裝支援語音的版本以使用這些控件。
 # Context: voice_popup_content

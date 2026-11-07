@@ -59,7 +59,9 @@ impl Settings {
 			hide_title_bar: ui.hide_title_bar,
 			message_requests_collapsed: ui.message_requests_collapsed,
 			hide_window_decorations: ui.hide_window_decorations,
+			custom_title_bar: ui.custom_title_bar,
 			gpu_preference: ui.gpu_preference,
+			steady_refresh_rate: ui.steady_refresh_rate,
 			primary_color: ui.primary_color,
 			transparency_blur: ui.transparency_blur,
 			transparency: ui.transparency,
@@ -83,6 +85,7 @@ impl Settings {
 			time_format: ui.time_format,
 			plaintext_login: ui.plaintext_login,
 			diagnostics_log: ui.diagnostics_log,
+			setup_done: !ui.setup_pending,
 		};
 		if value != self.current {
 			self.state.touched = true;
@@ -110,7 +113,9 @@ impl Settings {
 		ui.hide_title_bar = value.hide_title_bar;
 		ui.message_requests_collapsed = value.message_requests_collapsed;
 		ui.hide_window_decorations = value.hide_window_decorations;
+		ui.custom_title_bar = value.custom_title_bar;
 		ui.gpu_preference = value.gpu_preference;
+		ui.steady_refresh_rate = value.steady_refresh_rate;
 		ui.primary_color = value.primary_color;
 		ui.transparency_blur = value.transparency_blur;
 		ui.transparency = value.transparency;
@@ -134,6 +139,8 @@ impl Settings {
 		ui.time_format = value.time_format;
 		ui.plaintext_login = value.plaintext_login;
 		ui.diagnostics_log = value.diagnostics_log;
+		// Unreadable preferences fall back to defaults; never nag with setup on every launch.
+		ui.setup_pending = self.loaded && !value.setup_done;
 		ui::local_time::set_format(ui.time_format, ui.language);
 	}
 }
@@ -243,6 +250,7 @@ pub fn maximize_after_show(window: &winit::window::Window) -> bool {
 pub fn update_window_minimum(
 	window: &winit::window::Window,
 	monitor: &winit::monitor::MonitorHandle,
+	applied: &mut Option<winit::dpi::PhysicalSize<u32>>,
 ) {
 	let available = monitor.size();
 	if available.width == 0 || available.height == 0 {
@@ -250,14 +258,103 @@ pub fn update_window_minimum(
 	}
 	let inner = window.inner_size();
 	let outer = window.outer_size();
-	window.set_min_inner_size(Some(window_minimum(
+	let minimum = window_minimum(
 		available,
 		[
 			outer.width.saturating_sub(inner.width),
 			outer.height.saturating_sub(inner.height),
 		],
 		monitor.scale_factor(),
-	)));
+	);
+	// Windows applies a minimum synchronously and invalidates the whole window, so a redundant
+	// call forces a frame; this runs whenever the window rectangle changes, including a drag.
+	if *applied == Some(minimum) {
+		return;
+	}
+	window.set_min_inner_size(Some(minimum));
+	*applied = Some(minimum);
+}
+
+/// A placement must stay put this long before it is saved; a drag samples a new one per frame.
+pub const GEOMETRY_REST_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Observation {
+	/// The saved placement already matches the sample.
+	Saved,
+	/// The placement has not yet stayed unchanged for the rest interval.
+	Pending,
+	/// The placement stayed unchanged for the rest interval and can be saved.
+	Commit,
+}
+
+/// Saves a window placement only after a full interval without a sampled change.
+#[derive(Default)]
+pub struct GeometryRest {
+	pending: Option<(local_store::WindowGeometry, std::time::Instant)>,
+	/// When a frame should sample the pending placement again, as of this frame's observation.
+	/// [`Self::begin_frame`] clears it, so a frame that samples nothing cannot re-arm it.
+	wake: Option<std::time::Duration>,
+}
+
+impl GeometryRest {
+	/// Starts a frame's sampling: only an observation in this frame schedules the next wake.
+	pub fn begin_frame(&mut self) {
+		self.wake = None;
+	}
+	/// Observe placement at a monotonic time; early frames do not shorten the rest interval.
+	pub fn observe(
+		&mut self,
+		sampled: local_store::WindowGeometry,
+		saved: Option<local_store::WindowGeometry>,
+		now: std::time::Instant,
+	) -> Observation {
+		self.wake = None;
+		if saved == Some(sampled) {
+			self.pending = None;
+			return Observation::Saved;
+		}
+		if let Some((pending, changed_at)) = self.pending
+			&& pending == sampled
+		{
+			let rested = now.saturating_duration_since(changed_at);
+			if rested < GEOMETRY_REST_DELAY {
+				self.wake = Some(GEOMETRY_REST_DELAY - rested);
+				return Observation::Pending;
+			}
+			self.pending = None;
+			return Observation::Commit;
+		}
+		self.pending = Some((sampled, now));
+		self.wake = Some(GEOMETRY_REST_DELAY);
+		Observation::Pending
+	}
+	/// How long until a frame should sample the pending placement again. Every pass of the
+	/// observing frame may request it, since a discarded pass's request is ignored.
+	pub fn wake(&self) -> Option<std::time::Duration> {
+		self.wake
+	}
+	/// Keep the latest normal placement when a maximize event interrupts its rest interval.
+	pub fn maximized_geometry(
+		&self,
+		saved: Option<local_store::WindowGeometry>,
+	) -> local_store::WindowGeometry {
+		let normal = self.pending.map(|(geometry, _)| geometry).or(saved);
+		local_store::WindowGeometry {
+			maximized: true,
+			..normal.unwrap_or(local_store::WindowGeometry {
+				size: DEFAULT_WINDOW_SIZE,
+				position: None,
+				maximized: true,
+			})
+		}
+	}
+
+	/// The last sample, for a window that closes or hides before it could rest.
+	pub fn take_pending(&mut self) -> Option<local_store::WindowGeometry> {
+		self.wake = None;
+		self.pending.take().map(|(geometry, _)| geometry)
+	}
 }
 
 fn window_minimum(
@@ -407,6 +504,8 @@ mod tests {
 		ui.blur = defaults.blur;
 		ui.preload_on_hover = defaults.preload_on_hover;
 		ui.auto_idle = defaults.auto_idle;
+		ui.custom_title_bar = defaults.custom_title_bar;
+		ui.setup_pending = !defaults.setup_done;
 		settings.observe(&ui);
 		assert!(
 			!settings.state.touched,
@@ -459,5 +558,75 @@ mod tests {
 			ui.voice_processing.effective().suppression,
 			model::voice_settings::NoiseSuppression::Off
 		);
+	}
+
+	#[test]
+	fn window_geometry_is_saved_only_after_it_rests() {
+		let mut rest = GeometryRest::default();
+		let now = std::time::Instant::now();
+		let placed = local_store::WindowGeometry {
+			size: [1120, 760],
+			position: Some([100, 100]),
+			maximized: false,
+		};
+		let mut moving = placed;
+		for step in 0..8 {
+			moving.position = Some([100 + step * 7, 100]);
+			assert_eq!(rest.observe(moving, None, now), Observation::Pending);
+		}
+		assert_eq!(rest.observe(placed, Some(placed), now), Observation::Saved);
+		assert_eq!(rest.take_pending(), None);
+
+		assert_eq!(rest.observe(placed, None, now), Observation::Pending);
+		assert_eq!(
+			rest.observe(placed, None, now + GEOMETRY_REST_DELAY / 2),
+			Observation::Pending
+		);
+		// Every pass of the observing frame may request the wake, so a discarded pass keeps it;
+		// the next frame that samples nothing drops it.
+		assert_eq!(rest.wake(), Some(GEOMETRY_REST_DELAY / 2));
+		assert_eq!(rest.wake(), Some(GEOMETRY_REST_DELAY / 2));
+		rest.begin_frame();
+		assert_eq!(rest.wake(), None);
+		assert_eq!(
+			rest.observe(moving, None, now + GEOMETRY_REST_DELAY / 2),
+			Observation::Pending
+		);
+		assert_eq!(
+			rest.observe(moving, None, now + GEOMETRY_REST_DELAY),
+			Observation::Pending
+		);
+		// A change restarts the interval, so the wake moves with it.
+		assert_eq!(rest.wake(), Some(GEOMETRY_REST_DELAY / 2));
+		assert_eq!(
+			rest.observe(moving, None, now + GEOMETRY_REST_DELAY * 2),
+			Observation::Commit
+		);
+		assert_eq!(rest.wake(), None);
+		assert_eq!(rest.observe(placed, Some(placed), now), Observation::Saved);
+		assert_eq!(rest.take_pending(), None);
+
+		assert_eq!(rest.observe(moving, None, now), Observation::Pending);
+		let maximized = rest.maximized_geometry(Some(placed));
+		assert_eq!(
+			maximized,
+			local_store::WindowGeometry {
+				maximized: true,
+				..moving
+			}
+		);
+		assert_eq!(
+			rest.observe(maximized, Some(placed), now),
+			Observation::Pending
+		);
+		assert_eq!(rest.maximized_geometry(Some(placed)), maximized);
+		assert_eq!(
+			rest.observe(maximized, Some(placed), now + GEOMETRY_REST_DELAY),
+			Observation::Commit
+		);
+		assert_eq!(rest.take_pending(), None);
+		assert_eq!(rest.observe(moving, None, now), Observation::Pending);
+		assert_eq!(rest.take_pending(), Some(moving));
+		assert_eq!(rest.take_pending(), None);
 	}
 }

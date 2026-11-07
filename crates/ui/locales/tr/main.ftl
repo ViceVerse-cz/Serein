@@ -51,8 +51,10 @@ general-start-minimized = Küçültülmüş başlangıç
 general-start-minimized-description = Arka planda başlayın, yolunuzdan çekilin.
 general-startup-unavailable = Otomatik başlatma Windows ve macOS'ta mevcuttur.
 general-window = Pencere
-general-hide-decorations = Pencere dekorasyonlarını gizle
-general-hide-decorations-description = Sistem başlık çubuğunu ve kenarlıklarını kaldırın. Serein'i taşımak, yeniden boyutlandırmak veya kapatmak için pencere yöneticinizi kullanın.
+general-hide-decorations = Başlık çubuğu yok
+general-hide-decorations-description = Döşemeli pencere yöneticileri için: Serein'in kendi başlık çubuğu dahil tüm başlık çubuklarını ve kenarlıkları kaldırır. Serein'i taşımak, yeniden boyutlandırmak veya kapatmak için pencere yöneticinizi kullanın.
+general-custom-title-bar = Özel başlık çubuğu
+general-custom-title-bar-description = Sistem başlık çubuğunu Serein'in GTK 4 tarzındaki kendi başlık çubuğuyla değiştirir.
 general-hide-title-bar = Serein başlık çubuğunu gizle
 general-hide-title-bar-description = Bunun yerine sistem başlık çubuğunu ve pencere düğmelerini kullanın.
 general-keep-menu-bar = Serein'i menü çubuğunda tutun
@@ -65,6 +67,8 @@ general-graphics = Grafik
 general-render-with = Şununla oluştur:
 general-gpu-restart = Serein'in bir sonraki başlangıcında etkili olur.
 general-gpu-current-prefix = Şu anda çizim yapıyorum
+general-steady-refresh-rate = Sabit yenileme hızı
+general-steady-refresh-rate-description = Serein etkin pencereyken ekranın yenileme hızında çizer; böylece değişken yenileme hızlı (VRR, G-SYNC, FreeSync) ekranlar titremek yerine tek bir hızda kalabilir. Daha fazla güç tüketir.
 gpu-automatic = Otomatik
 gpu-high-performance = Yüksek performans
 gpu-power-saving = Güç tasarrufu
@@ -1639,8 +1643,6 @@ main-restoring-screen-welcome-back = tekrar hoşgeldiniz
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Kayıtlı hesaplar
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Bu hesabın sahibiyim ve bu oturuma izin veriyorum.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Şifreler ve 2FA, Discord'un kendi giriş sayfasında kalır; İşletim sisteminizin kimlik bilgileri deposunda yalnızca oturum belirteci tutulur.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = Serein hakkında
@@ -2254,6 +2256,12 @@ screen-body-frame-rate = Kare hızı
 screen-body-include-the-pointer-in-the-shared-video = İşaretçiyi paylaşılan videoya ekleyin.
 # Context: body
 screen-body-quality = Kalite
+# Context: body
+screen-body-source = Kaynak
+# Context: body
+screen-preview-paused-title = Yayınınız hâlâ devam ediyor!
+# Context: body
+screen-preview-paused-body = Kaynaklarınızı korumak için bu önizlemeyi duraklattık.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = Kaliteli seçim Nitro gerektirmez.
 # Context: body
@@ -4130,8 +4138,6 @@ voice-device-combo-device-unavailable = Cihaz kullanılamıyor
 voice-device-default = Sistem varsayılanı
 # Context: frame
 voice-frame-open-voice = Sesi aç
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = %100 orijinal seviyedir. Daha yüksek seviyeler bozulabilir.
 # Context: labels
 voice-labels-choose-camera = Kamera seç
 # Context: live_badge
@@ -4232,12 +4238,6 @@ voice-voice-participant-microphone-muted = Mikrofonun sesi kapatıldı
 voice-voice-participant-muted-by-server = Sunucu tarafından sessize alındı
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Bu cihazda sizin için sessize alındı
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Tüm ses ayarlarında bir algoritma seçin.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen gelen sesi kapatır ve onunla mikrofonunuzun sesini kapatır.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Konuşmak istediğinizde yapılandırılmış kısayolunuzu basılı tutun.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Bu kontrolleri kullanmak için ses özellikli bir yapı yükleyin.
 # Context: voice_popup_content

@@ -51,8 +51,10 @@ general-start-minimized = Inizia minimizzato
 general-start-minimized-description = Inizia in background, fuori dai piedi.
 general-startup-unavailable = L'avvio automatico è disponibile su Windows e macOS.
 general-window = Finestra
-general-hide-decorations = Nascondi le decorazioni delle finestre
-general-hide-decorations-description = Rimuovere la barra del titolo e i bordi del sistema. Usa il tuo window manager per spostare, ridimensionare o chiudere Serein.
+general-hide-decorations = Nessuna barra del titolo
+general-hide-decorations-description = Per i window manager a tiling: rimuove tutte le barre del titolo e i bordi, inclusa quella di Serein. Sposta, ridimensiona o chiudi Serein con il tuo window manager.
+general-custom-title-bar = Barra del titolo personalizzata
+general-custom-title-bar-description = Sostituisce la barra del titolo del sistema con la barra di intestazione di Serein in stile GTK 4.
 general-hide-title-bar = Nascondi la barra del titolo Serein
 general-hide-title-bar-description = Utilizzare invece la barra del titolo del sistema e i pulsanti della finestra.
 general-keep-menu-bar = Mantieni Serein nella barra dei menu
@@ -65,6 +67,8 @@ general-graphics = Grafica
 general-render-with = Renderizzare con
 general-gpu-restart = Ha effetto al successivo avvio di Serein.
 general-gpu-current-prefix = Attualmente disegno con
+general-steady-refresh-rate = Frequenza di aggiornamento costante
+general-steady-refresh-rate-description = Finché Serein è la finestra attiva, disegna alla frequenza di aggiornamento del display, così i display a frequenza di aggiornamento variabile (VRR, G-SYNC, FreeSync) possono mantenere una sola frequenza invece di sfarfallare. Consuma più energia.
 gpu-automatic = Automatico
 gpu-high-performance = Prestazioni elevate
 gpu-power-saving = Risparmio energetico
@@ -1638,8 +1642,6 @@ main-restoring-screen-welcome-back = Bentornato
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Account salvati
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Possiedo questo account e autorizzo questa sessione.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Le password e la 2FA rimangono sulla pagina di accesso di Discord; viene conservato solo il token della sessione, nell'archivio delle credenziali del sistema operativo.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = A proposito di Serein
@@ -2253,6 +2255,12 @@ screen-body-frame-rate = Frequenza fotogrammi
 screen-body-include-the-pointer-in-the-shared-video = Includi il puntatore nel video condiviso.
 # Context: body
 screen-body-quality = Qualità
+# Context: body
+screen-body-source = Sorgente
+# Context: body
+screen-preview-paused-title = Il tuo stream è ancora attivo!
+# Context: body
+screen-preview-paused-body = Abbiamo messo in pausa questa anteprima per risparmiare risorse.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = La selezione della qualità non richiede Nitro.
 # Context: body
@@ -4136,8 +4144,6 @@ voice-device-combo-device-unavailable = Dispositivo non disponibile
 voice-device-default = Predefinito del sistema
 # Context: frame
 voice-frame-open-voice = Voce aperta
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% è il livello originale. Livelli più alti potrebbero distorcere.
 # Context: labels
 voice-labels-choose-camera = Scegli la fotocamera
 # Context: live_badge
@@ -4238,12 +4244,6 @@ voice-voice-participant-microphone-muted = Microfono disattivato
 voice-voice-participant-muted-by-server = Disattivato dal server
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Disattivato per te su questo dispositivo
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Scegli un algoritmo in tutte le impostazioni vocali.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen disattiva l'audio in entrata e disattiva il microfono.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Tieni premuta la scorciatoia configurata quando vuoi parlare.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Installa una build con attivazione vocale per utilizzare questi controlli.
 # Context: voice_popup_content

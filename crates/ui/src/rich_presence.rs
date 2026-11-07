@@ -166,7 +166,7 @@ fn form(
 			} => {
 				let label = design::label(ui, label);
 				let selected = values.entry(id.clone()).or_insert_with(|| value.clone());
-				egui::ComboBox::from_id_salt(id)
+				crate::design::Select::from_id_salt(id)
 					.width(ui.available_width())
 					.selected_text(selected.as_str())
 					.show_ui(ui, |ui| {

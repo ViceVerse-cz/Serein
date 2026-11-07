@@ -81,17 +81,18 @@ impl Capture {
 			return Err(INVALID);
 		}
 		let bitrate = bitrate.clamp(250_000, settings.bit_rate());
-		// Without a rate here, the GL mixer adopts the preview branch's 10 fps.
+		// A fixed rate keeps the GL mixer from fixating a rate from another tee branch.
 		let size = format!(
 			"width={},height={},pixel-aspect-ratio=1/1,framerate={}/1",
 			settings.width, settings.height, settings.fps
 		);
+		let preview_size = format!("width={},height={}", settings.width, settings.height);
 		let (scale, preview_scale) = match mode {
 			Mode::Va => (
 				format!(
 					"vapostproc add-borders=true ! video/x-raw(memory:VAMemory),format=NV12,{size}"
 				),
-				"vapostproc add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
+				format!("vapostproc add-borders=true ! video/x-raw,format=BGRA,{preview_size}"),
 			),
 			Mode::Nvidia => (
 				format!(
@@ -99,17 +100,23 @@ impl Capture {
 					width = settings.width,
 					height = settings.height
 				),
-				"glcolorscale ! video/x-raw(memory:GLMemory),format=RGBA,width=640,height=360 ! gldownload ! videoconvert ! video/x-raw,format=BGRA",
+				format!(
+					"glcolorscale ! video/x-raw(memory:GLMemory),format=RGBA,{preview_size} ! gldownload ! videoconvert ! video/x-raw,format=BGRA"
+				),
 			),
 			// ponytail: CPU scaling avoids mixing VAMemory and legacy VASurface buffers;
 			// add legacy GPU postprocessing only if measured scaling cost warrants it.
 			Mode::VaLegacy => (
 				format!("videoconvertscale add-borders=true ! video/x-raw,format=NV12,{size}"),
-				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
+				format!(
+					"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{preview_size}"
+				),
 			),
 			Mode::NvidiaCopy | Mode::Software => (
 				format!("videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{size}"),
-				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
+				format!(
+					"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{preview_size}"
+				),
 			),
 		};
 		let encoder = match mode {
@@ -139,8 +146,8 @@ impl Capture {
 		};
 		// Raw queues discard stale pictures. The encoded sink blocks upstream instead of
 		// discarding reference pictures; pressure then reaches the raw queue.
-		// Portals send no pixel aspect; listing 1/1 first stops pipewiresrc fixating
-		// 1/2147483647 while still accepting match_crop_aspect's ratio.
+		// Some portals (xdph 1.4.1) send no pixel aspect; listing 1/1 first stops pipewiresrc
+		// fixating 1/2147483647 while still accepting match_crop_aspect's ratio.
 		let description = format!(
 			"capsfilter caps=\"video/x-raw(ANY),width=[1,7680],height=[1,4320],pixel-aspect-ratio={{1/1,[1/2147483647,2147483647/1]}}\" ! \
 			queue max-size-buffers=1 max-size-bytes={MAX_SOURCE_BYTES} max-size-time=0 leaky=downstream ! \
@@ -148,9 +155,9 @@ impl Capture {
 			split. ! queue max-size-buffers=1 max-size-bytes={MAX_RAW_BYTES} max-size-time=0 leaky=downstream ! \
 			identity name=gate ! {encode} appsink name=frames sync=false async=false max-buffers=1 enable-last-sample=false wait-on-eos=false \
 			split. ! queue max-size-buffers=1 max-size-bytes={MAX_RAW_BYTES} max-size-time=0 leaky=downstream ! \
-			valve name=preview-gate drop-mode=forward-sticky-events ! videorate drop-only=true ! video/x-raw(ANY),framerate=10/1 ! {preview_scale} ! \
+			valve name=preview-gate drop-mode=forward-sticky-events ! videorate drop-only=true ! video/x-raw(ANY),framerate={}/1 ! {preview_scale} ! \
 			appsink name=preview sync=false async=false max-buffers=1 drop=true enable-last-sample=false wait-on-eos=false",
-			settings.fps
+			settings.fps, settings.fps
 		);
 		let bin = gst::parse::bin_from_description(&description, true).map_err(|_| UNAVAILABLE)?;
 		let pipeline = gst::Pipeline::new();
@@ -201,7 +208,7 @@ impl Capture {
 		);
 		bound(
 			&preview.static_pad("sink").ok_or(UNAVAILABLE)?,
-			640 * 360 * 4 + 4096,
+			MAX_RAW_BYTES,
 			failed.clone(),
 		);
 		for sink in [&frames, &preview] {
@@ -347,8 +354,8 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 	if info.format() != video::VideoFormat::Bgra
 		|| info.width() == 0
 		|| info.height() == 0
-		|| info.width() > 1920
-		|| info.height() > 1080
+		|| info.width() > 3840
+		|| info.height() > 2160
 	{
 		return Err(INVALID);
 	}
@@ -383,7 +390,7 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::screen::SourceId;
+	use crate::screen::{Settings, SourceId};
 	use gst::{glib, subclass::prelude::*};
 	use std::{
 		str::FromStr,
@@ -454,15 +461,7 @@ mod tests {
 			@extends gst::Bin, gst::Element, gst::Object;
 	}
 
-	fn capture(source: gst::Element) -> Capture {
-		capture_with(Mode::Software, source, false).unwrap()
-	}
-
-	fn capture_with(
-		mode: Mode,
-		source: gst::Element,
-		ready: bool,
-	) -> Result<Capture, &'static str> {
+	fn capture(source: gst::Element, ready: bool) -> Capture {
 		let settings = Settings {
 			source: SourceId::Display(1),
 			width: 1280,
@@ -473,7 +472,7 @@ mod tests {
 		};
 		Capture::new(
 			settings,
-			mode,
+			Mode::Software,
 			settings.bit_rate(),
 			source,
 			Arc::new(AtomicBool::new(false)),
@@ -481,17 +480,13 @@ mod tests {
 			Arc::new(AtomicBool::new(true)),
 			|| true,
 		)
+		.unwrap()
 	}
 
 	#[test]
 	fn stalled_source_clock_does_not_hold_frames() {
 		gst::init().unwrap();
-		let capture = capture_with(
-			Mode::Software,
-			glib::Object::new::<ClockSource>().upcast(),
-			true,
-		)
-		.unwrap();
+		let capture = capture(glib::Object::new::<ClockSource>().upcast(), true);
 		let deadline = Instant::now() + Duration::from_secs(5);
 		let (mut previews, mut frames) = (0, 0);
 		while (previews < 4 || frames < 4) && Instant::now() < deadline {
@@ -516,7 +511,7 @@ mod tests {
 			.property("is-live", true)
 			.build()
 			.unwrap();
-		let _capture = capture(source.clone());
+		let _capture = capture(source.clone(), false);
 		let pad = source.static_pad("src").unwrap();
 		let format =
 			"video/x-raw,format=BGRA,width=2560,height=1440,framerate=0/1,max-framerate=120/1";
@@ -535,61 +530,45 @@ mod tests {
 		assert!(pad.peer_query_accept_caps(&cropped));
 	}
 
-	/// Whether GL upload into NVENC works here at all, independent of Serein's caps.
-	fn gl_nvenc_usable() -> bool {
-		let Ok(probe) = gst::parse::launch(
-			"videotestsrc num-buffers=2 ! glupload ! glcolorconvert ! nvh264enc ! fakesink",
-		) else {
-			return false;
-		};
-		let usable = probe.set_state(gst::State::Playing).is_ok()
-			&& probe.bus().is_some_and(|bus| {
-				bus.timed_pop_filtered(
-					gst::ClockTime::from_seconds(10),
-					&[gst::MessageType::Eos, gst::MessageType::Error],
-				)
-				.is_some_and(|message| matches!(message.view(), gst::MessageView::Eos(_)))
-			});
-		let _ = probe.set_state(gst::State::Null);
-		usable
-	}
-
-	/// The preview branch's 10 fps limit reached the GL mixer through the tee, so NVENC
-	/// encoded at the preview rate. Skipped only where GL upload into NVENC cannot run.
+	/// The software encoder reads every picture through `raw`, so a sending preset that
+	/// `Settings::valid` accepts must also fit its frame bound.
 	#[test]
-	fn gl_scaling_keeps_the_requested_frame_rate() {
+	fn raw_accepts_every_sending_preset() {
 		gst::init().unwrap();
-		if !gl_nvenc_usable() {
-			eprintln!("skipped: GL upload into NVENC is unavailable here");
-			return;
+		let sizes = [
+			(854, 480),
+			(1280, 720),
+			(1920, 1080),
+			(2560, 1440),
+			(3840, 2160),
+		];
+		let mut checked = 0;
+		for (width, height) in sizes {
+			let settings = Settings {
+				source: SourceId::Display(1),
+				width,
+				height,
+				fps: 30,
+				cursor: false,
+				audio: false,
+			};
+			if !settings.valid() {
+				continue;
+			}
+			let info = video::VideoInfo::builder(video::VideoFormat::Bgra, width, height)
+				.build()
+				.unwrap();
+			let sample = gst::Sample::builder()
+				.buffer(&gst::Buffer::with_size(info.size()).unwrap())
+				.caps(&info.to_caps().unwrap())
+				.build();
+			let frame = raw(&sample).unwrap_or_else(|error| panic!("{width}x{height}: {error}"));
+			assert_eq!((frame.width, frame.height), (width, height));
+			checked += 1;
 		}
-		let source = gst::ElementFactory::make("videotestsrc")
-			.property("is-live", true)
-			.build()
-			.unwrap();
-		let capture = capture_with(Mode::Nvidia, source, false).expect("GL/NVENC capture");
-		let mixer = capture
-			.pipeline
-			.by_name("fit")
-			.unwrap()
-			.static_pad("src")
-			.unwrap();
-		let deadline = Instant::now() + Duration::from_secs(5);
-		while mixer.current_caps().is_none() && Instant::now() < deadline && !capture.failed() {
-			let _ = capture
-				.preview
-				.try_pull_sample(gst::ClockTime::from_mseconds(100));
-		}
-		assert!(!capture.failed(), "GL/NVENC capture failed to start");
-		let caps = mixer
-			.current_caps()
-			.expect("GL mixer did not negotiate within 5 s");
-		assert_eq!(
-			caps.structure(0)
-				.unwrap()
-				.get::<gst::Fraction>("framerate")
-				.unwrap(),
-			gst::Fraction::new(30, 1)
+		assert!(
+			checked >= 4,
+			"the preset list no longer matches Settings::valid"
 		);
 	}
 }

@@ -629,7 +629,7 @@ impl RolesUi {
 				{
 					selected = None;
 				}
-				egui::ComboBox::from_id_salt("compact-role-navigation")
+				crate::design::Select::from_id_salt("compact-role-navigation")
 					.selected_text(crate::i18n::translate("server-roles-editor-choose-role"))
 					.show_ui(ui, |ui| {
 						if let Some(catalog) = &state.server_admin.roles {

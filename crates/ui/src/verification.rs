@@ -157,6 +157,9 @@ mod tests {
 				std::time::Instant::now(),
 				Some(Ok(model::InvitePreview {
 					guild: Some(model::Id(42)),
+					about: None,
+					guild_icon: None,
+					voice_channel: None,
 					channel: None,
 					embed: model::Embed {
 						title: Some(

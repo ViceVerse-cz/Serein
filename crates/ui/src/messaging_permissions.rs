@@ -204,7 +204,7 @@ impl MessagingUi {
 						"messaging-permissions-messaging-permissions-settings-changes-apply-to-this-server-only"
 					}),
 					|ui| {
-						egui::ComboBox::from_id_salt("messaging-permissions-guild")
+						crate::design::Select::from_id_salt("messaging-permissions-guild")
 							.selected_text(label)
 							.width(ui.available_width().min(260.0))
 							.height(280.0)
