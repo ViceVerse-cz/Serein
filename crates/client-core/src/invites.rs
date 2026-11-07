@@ -152,6 +152,9 @@ mod tests {
 				"synthetic".into(),
 				Ok(model::InvitePreview {
 					guild: Some(model::Id(2)),
+					about: None,
+					guild_icon: None,
+					voice_channel: None,
 					channel: None,
 					embed: model::Embed::default(),
 				}),
@@ -178,6 +181,9 @@ mod tests {
 				code: "synthetic".into(),
 				result: Ok(Box::new(model::InvitePreview {
 					guild: Some(model::Id(2)),
+					about: None,
+					guild_icon: None,
+					voice_channel: None,
 					channel: None,
 					embed,
 				})),
@@ -430,6 +436,9 @@ mod join_tests {
 					Instant::now(),
 					Some(Ok(model::InvitePreview {
 						guild: Some(model::Id(2)),
+						about: None,
+						guild_icon: None,
+						voice_channel: None,
 						channel: None,
 						embed: model::Embed::default(),
 					})),

@@ -85,7 +85,7 @@ impl AuditLogUi {
 				.user
 				.map(|id| user_name(state.server_admin.audit_log.as_ref(), id))
 				.unwrap_or_else(|| crate::i18n::translate("server-audit-log-show-all-users"));
-			egui::ComboBox::from_id_salt("audit-user")
+			crate::design::Select::from_id_salt("audit-user")
 				.selected_text(selected)
 				.width(picker_width)
 				.truncate()
@@ -124,7 +124,7 @@ impl AuditLogUi {
 				.action
 				.map(|action| crate::i18n::translate_if_key(action_text(action)))
 				.unwrap_or_else(|| crate::i18n::translate("server-audit-log-show-all-actions"));
-			egui::ComboBox::from_id_salt("audit-action")
+			crate::design::Select::from_id_salt("audit-action")
 				.selected_text(selected)
 				.width(picker_width)
 				.truncate()

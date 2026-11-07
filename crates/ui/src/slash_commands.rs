@@ -1273,7 +1273,7 @@ fn argument(
 			.iter()
 			.find(|choice| value_text(&choice.value) == *value)
 			.map_or(value.as_str(), |choice| choice.name.as_str());
-		egui::ComboBox::from_id_salt(id)
+		crate::design::Select::from_id_salt(id)
 			.width(ui.available_width())
 			.selected_text(crate::i18n::translate_if_key(
 				&(if label.is_empty() {

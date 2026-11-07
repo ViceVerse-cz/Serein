@@ -81,16 +81,18 @@ impl Capture {
 			return Err(INVALID);
 		}
 		let bitrate = bitrate.clamp(250_000, settings.bit_rate());
+		// A fixed rate keeps the GL mixer from fixating a rate from another tee branch.
 		let size = format!(
-			"width={},height={},pixel-aspect-ratio=1/1",
-			settings.width, settings.height
+			"width={},height={},pixel-aspect-ratio=1/1,framerate={}/1",
+			settings.width, settings.height, settings.fps
 		);
+		let preview_size = format!("width={},height={}", settings.width, settings.height);
 		let (scale, preview_scale) = match mode {
 			Mode::Va => (
 				format!(
 					"vapostproc add-borders=true ! video/x-raw(memory:VAMemory),format=NV12,{size}"
 				),
-				"vapostproc add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
+				format!("vapostproc add-borders=true ! video/x-raw,format=BGRA,{preview_size}"),
 			),
 			Mode::Nvidia => (
 				format!(
@@ -98,17 +100,23 @@ impl Capture {
 					width = settings.width,
 					height = settings.height
 				),
-				"glcolorscale ! video/x-raw(memory:GLMemory),format=RGBA,width=640,height=360 ! gldownload ! videoconvert ! video/x-raw,format=BGRA",
+				format!(
+					"glcolorscale ! video/x-raw(memory:GLMemory),format=RGBA,{preview_size} ! gldownload ! videoconvert ! video/x-raw,format=BGRA"
+				),
 			),
 			// ponytail: CPU scaling avoids mixing VAMemory and legacy VASurface buffers;
 			// add legacy GPU postprocessing only if measured scaling cost warrants it.
 			Mode::VaLegacy => (
 				format!("videoconvertscale add-borders=true ! video/x-raw,format=NV12,{size}"),
-				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
+				format!(
+					"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{preview_size}"
+				),
 			),
 			Mode::NvidiaCopy | Mode::Software => (
 				format!("videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{size}"),
-				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
+				format!(
+					"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{preview_size}"
+				),
 			),
 		};
 		let encoder = match mode {
@@ -138,19 +146,24 @@ impl Capture {
 		};
 		// Raw queues discard stale pictures. The encoded sink blocks upstream instead of
 		// discarding reference pictures; pressure then reaches the raw queue.
+		// Some portals (xdph 1.4.1) send no pixel aspect; listing 1/1 first stops pipewiresrc
+		// fixating 1/2147483647 while still accepting match_crop_aspect's ratio.
 		let description = format!(
-			"capsfilter caps=\"video/x-raw(ANY),width=[1,7680],height=[1,4320]\" ! \
+			"capsfilter caps=\"video/x-raw(ANY),width=[1,7680],height=[1,4320],pixel-aspect-ratio={{1/1,[1/2147483647,2147483647/1]}}\" ! \
 			queue max-size-buffers=1 max-size-bytes={MAX_SOURCE_BYTES} max-size-time=0 leaky=downstream ! \
 			videorate drop-only=true ! video/x-raw(ANY),framerate={}/1 ! {scale} ! tee name=split \
 			split. ! queue max-size-buffers=1 max-size-bytes={MAX_RAW_BYTES} max-size-time=0 leaky=downstream ! \
 			identity name=gate ! {encode} appsink name=frames sync=false async=false max-buffers=1 enable-last-sample=false wait-on-eos=false \
 			split. ! queue max-size-buffers=1 max-size-bytes={MAX_RAW_BYTES} max-size-time=0 leaky=downstream ! \
-			valve name=preview-gate drop-mode=forward-sticky-events ! videorate drop-only=true ! video/x-raw(ANY),framerate=10/1 ! {preview_scale} ! \
+			valve name=preview-gate drop-mode=forward-sticky-events ! videorate drop-only=true ! video/x-raw(ANY),framerate={}/1 ! {preview_scale} ! \
 			appsink name=preview sync=false async=false max-buffers=1 drop=true enable-last-sample=false wait-on-eos=false",
-			settings.fps
+			settings.fps, settings.fps
 		);
 		let bin = gst::parse::bin_from_description(&description, true).map_err(|_| UNAVAILABLE)?;
 		let pipeline = gst::Pipeline::new();
+		// pipewiresrc's clock never advances on some portals (xdg-desktop-portal-hyprland),
+		// so GstBaseSrc would hold every live picture after the first.
+		pipeline.use_clock(Some(&gst::SystemClock::obtain()));
 		let failed = Arc::new(AtomicBool::new(false));
 		let changed = Arc::new(tokio::sync::Notify::new());
 		let bus = pipeline.bus().ok_or(UNAVAILABLE)?;
@@ -195,7 +208,7 @@ impl Capture {
 		);
 		bound(
 			&preview.static_pad("sink").ok_or(UNAVAILABLE)?,
-			640 * 360 * 4 + 4096,
+			MAX_RAW_BYTES,
 			failed.clone(),
 		);
 		for sink in [&frames, &preview] {
@@ -341,8 +354,8 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 	if info.format() != video::VideoFormat::Bgra
 		|| info.width() == 0
 		|| info.height() == 0
-		|| info.width() > 1920
-		|| info.height() > 1080
+		|| info.width() > 3840
+		|| info.height() > 2160
 	{
 		return Err(INVALID);
 	}
@@ -372,4 +385,190 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 		stride: row,
 		data: pixels,
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::screen::{Settings, SourceId};
+	use gst::{glib, subclass::prelude::*};
+	use std::{
+		str::FromStr,
+		sync::OnceLock,
+		time::{Duration, Instant},
+	};
+
+	/// Like the logged PipeWire clock (ticks=0), this measures only the time since the
+	/// producer's last cycle, so it never advances past one frame interval.
+	mod cycle_clock {
+		use super::*;
+		#[derive(Default)]
+		pub struct CycleClock;
+		#[glib::object_subclass]
+		impl ObjectSubclass for CycleClock {
+			const NAME: &'static str = "SereinTestCycleClock";
+			type Type = super::CycleClock;
+			type ParentType = gst::SystemClock;
+		}
+		impl ObjectImpl for CycleClock {}
+		impl GstObjectImpl for CycleClock {}
+		impl ClockImpl for CycleClock {
+			fn internal_time(&self) -> gst::ClockTime {
+				static ORIGIN: OnceLock<Instant> = OnceLock::new();
+				let elapsed = ORIGIN.get_or_init(Instant::now).elapsed().as_nanos();
+				gst::ClockTime::from_nseconds((elapsed % 33_000_000) as u64)
+			}
+		}
+		impl SystemClockImpl for CycleClock {}
+
+		/// A live source that offers that clock to the pipeline, as pipewiresrc does.
+		#[derive(Default)]
+		pub struct ClockSource;
+		#[glib::object_subclass]
+		impl ObjectSubclass for ClockSource {
+			const NAME: &'static str = "SereinTestClockSource";
+			type Type = super::ClockSource;
+			type ParentType = gst::Bin;
+		}
+		impl ObjectImpl for ClockSource {
+			fn constructed(&self) {
+				self.parent_constructed();
+				let source = gst::ElementFactory::make("videotestsrc")
+					.property("is-live", true)
+					.build()
+					.unwrap();
+				let bin = self.obj();
+				bin.add(&source).unwrap();
+				let pad = gst::GhostPad::with_target(&source.static_pad("src").unwrap()).unwrap();
+				bin.add_pad(&pad).unwrap();
+				bin.set_element_flags(gst::ElementFlags::PROVIDE_CLOCK);
+			}
+		}
+		impl GstObjectImpl for ClockSource {}
+		impl ElementImpl for ClockSource {
+			fn provide_clock(&self) -> Option<gst::Clock> {
+				Some(glib::Object::new::<super::CycleClock>().upcast())
+			}
+		}
+		impl BinImpl for ClockSource {}
+	}
+	glib::wrapper! {
+		pub struct CycleClock(ObjectSubclass<cycle_clock::CycleClock>)
+			@extends gst::SystemClock, gst::Clock, gst::Object;
+	}
+	glib::wrapper! {
+		pub struct ClockSource(ObjectSubclass<cycle_clock::ClockSource>)
+			@extends gst::Bin, gst::Element, gst::Object;
+	}
+
+	fn capture(source: gst::Element, ready: bool) -> Capture {
+		let settings = Settings {
+			source: SourceId::Display(1),
+			width: 1280,
+			height: 720,
+			fps: 30,
+			cursor: true,
+			audio: false,
+		};
+		Capture::new(
+			settings,
+			Mode::Software,
+			settings.bit_rate(),
+			source,
+			Arc::new(AtomicBool::new(false)),
+			Arc::new(AtomicBool::new(ready)),
+			Arc::new(AtomicBool::new(true)),
+			|| true,
+		)
+		.unwrap()
+	}
+
+	#[test]
+	fn stalled_source_clock_does_not_hold_frames() {
+		gst::init().unwrap();
+		let capture = capture(glib::Object::new::<ClockSource>().upcast(), true);
+		let deadline = Instant::now() + Duration::from_secs(5);
+		let (mut previews, mut frames) = (0, 0);
+		while (previews < 4 || frames < 4) && Instant::now() < deadline {
+			assert!(!capture.failed());
+			let wait = gst::ClockTime::from_mseconds(50);
+			previews += usize::from(capture.preview.try_pull_sample(wait).is_some());
+			frames += usize::from(capture.frames.try_pull_sample(wait).is_some());
+		}
+		assert!(previews >= 4, "only {previews} preview pictures arrived");
+		assert!(
+			frames >= 4,
+			"only {frames} pictures reached the encoder sink"
+		);
+	}
+
+	/// The logged Hyprland format had no pixel aspect, and pipewiresrc's fixation of the
+	/// downstream range produced 1/2147483647.
+	#[test]
+	fn portal_format_without_pixel_aspect_fixates_square_pixels() {
+		gst::init().unwrap();
+		let source = gst::ElementFactory::make("videotestsrc")
+			.property("is-live", true)
+			.build()
+			.unwrap();
+		let _capture = capture(source.clone(), false);
+		let pad = source.static_pad("src").unwrap();
+		let format =
+			"video/x-raw,format=BGRA,width=2560,height=1440,framerate=0/1,max-framerate=120/1";
+		let mut caps = gst::Caps::from_str(format)
+			.unwrap()
+			.intersect_with_mode(&pad.peer_query_caps(None), gst::CapsIntersectMode::First);
+		caps.fixate();
+		assert_eq!(
+			caps.structure(0)
+				.unwrap()
+				.get::<gst::Fraction>("pixel-aspect-ratio")
+				.unwrap(),
+			gst::Fraction::new(1, 1)
+		);
+		let cropped = gst::Caps::from_str(&format!("{format},pixel-aspect-ratio=4/3")).unwrap();
+		assert!(pad.peer_query_accept_caps(&cropped));
+	}
+
+	/// The software encoder reads every picture through `raw`, so a sending preset that
+	/// `Settings::valid` accepts must also fit its frame bound.
+	#[test]
+	fn raw_accepts_every_sending_preset() {
+		gst::init().unwrap();
+		let sizes = [
+			(854, 480),
+			(1280, 720),
+			(1920, 1080),
+			(2560, 1440),
+			(3840, 2160),
+		];
+		let mut checked = 0;
+		for (width, height) in sizes {
+			let settings = Settings {
+				source: SourceId::Display(1),
+				width,
+				height,
+				fps: 30,
+				cursor: false,
+				audio: false,
+			};
+			if !settings.valid() {
+				continue;
+			}
+			let info = video::VideoInfo::builder(video::VideoFormat::Bgra, width, height)
+				.build()
+				.unwrap();
+			let sample = gst::Sample::builder()
+				.buffer(&gst::Buffer::with_size(info.size()).unwrap())
+				.caps(&info.to_caps().unwrap())
+				.build();
+			let frame = raw(&sample).unwrap_or_else(|error| panic!("{width}x{height}: {error}"));
+			assert_eq!((frame.width, frame.height), (width, height));
+			checked += 1;
+		}
+		assert!(
+			checked >= 4,
+			"the preset list no longer matches Settings::valid"
+		);
+	}
 }

@@ -32,6 +32,7 @@ impl MessagingUi {
 			}
 			if let Some(game) = &running {
 				ui.horizontal(|ui| {
+					self.game_icon(ui, game.application, &game.name, demo);
 					ui.vertical(|ui| {
 						ui.spacing_mut().item_spacing.y = 2.0;
 						self.editable_name(ui, &game.executable, &game.name, game.application);
@@ -133,6 +134,7 @@ impl MessagingUi {
 				.is_some_and(|r| r.executable == game.executable);
 			design::card(ui, |ui| {
 				ui.horizontal(|ui| {
+					self.game_icon(ui, game.application, &game.name, demo);
 					ui.vertical(|ui| {
 						ui.spacing_mut().item_spacing.y = 2.0;
 						ui.set_max_width((ui.available_width() - 120.0).max(120.0));
@@ -193,6 +195,30 @@ impl MessagingUi {
 			} else {
 				self.registered_games.remove(index);
 			}
+		}
+	}
+
+	/// Discord's application artwork, as in the official list; a user-added game has no
+	/// application, so it keeps the controller glyph.
+	fn game_icon(
+		&mut self,
+		ui: &mut egui::Ui,
+		application: Option<model::Id>,
+		name: &str,
+		demo: bool,
+	) {
+		if let Some(id) = application {
+			let key = model::ActivityImage::Application(id).key();
+			self.avatars.show_icon(ui, Some(key), 40.0, demo, name);
+		} else {
+			let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(40.0), egui::Sense::hover());
+			let icon = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(24.0));
+			icons::paint(
+				ui.painter(),
+				icons::Icon::GameController,
+				icon,
+				design::palette(ui).muted,
+			);
 		}
 	}
 

@@ -2877,7 +2877,7 @@ pub(crate) fn render_elements(
 			} => {
 				let selected = values.entry(id.clone()).or_insert_with(|| value.clone());
 				let label = ui.label(label);
-				egui::ComboBox::from_id_salt(id)
+				crate::design::Select::from_id_salt(id)
 					.selected_text(selected.as_str())
 					.show_ui(ui, |ui| {
 						for option in options {

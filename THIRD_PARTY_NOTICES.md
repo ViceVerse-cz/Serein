@@ -92,6 +92,17 @@ egui_system_fonts/fontique and platform font discovery; see docs/dependency-vers
 for the exact added dependency versions and declared licenses. OS emoji fonts
 remain installed system resources and are not bundled or redistributed.
 
+The locally patched **egui-winit 0.36.2** (MIT OR Apache-2.0, upstream commit
+`4821fc54ae083ac516e137a61e70550330e55169`, source
+<https://github.com/emilk/egui/tree/4821fc54ae083ac516e137a61e70550330e55169/crates/egui-winit>)
+retains its licenses under `vendor/egui-winit`. Windows-only repaint changes (window
+moves and raw mouse motion), clipboard fallback/logging fixes, Wayland image paste and the de-workspaced manifest differ from upstream; see
+`vendor/egui-winit/SEREIN-PATCH.md` for provenance.
+
+The locally patched **smithay-clipboard 0.7.3** (MIT, crates.io release) retains its license
+under `vendor/smithay-clipboard`. It adds a bounded raw-MIME clipboard read for Wayland image
+paste; see `vendor/smithay-clipboard/SEREIN-PATCH.md` for provenance.
+
 Linux login uses gtk4 0.11.4, webkit6 0.6.1, javascriptcore6 0.6.0, glib 0.22.9 and soup3
 0.9.0 Rust bindings (MIT). Windows/macOS retain Wry 0.57.0 (MIT OR Apache-2.0) via a documented
 manifest/build patch excluding obsolete Linux dependencies; backend sources are unchanged.

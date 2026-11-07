@@ -6,6 +6,29 @@ use serde::Deserialize;
 pub struct Key {
 	pub stream_key: String,
 }
+impl Key {
+	/// The server, channel and user this stream key names.
+	///
+	/// Keys this client has seen are `guild:<guild>:<channel>:<user>` for a server channel and
+	/// `call:<channel>:<user>` for a private call. Any other shape names nothing.
+	pub fn target(&self) -> Option<(Option<Id>, Id, Id)> {
+		if self.stream_key.len() > 128 {
+			return None;
+		}
+		let mut parts = self.stream_key.split(':');
+		let guild = match parts.next()? {
+			"guild" => Some(parse_id(parts.next()?)?),
+			"call" => None,
+			_ => return None,
+		};
+		let channel = parse_id(parts.next()?)?;
+		let user = parse_id(parts.next()?)?;
+		parts.next().is_none().then_some((guild, channel, user))
+	}
+}
+fn parse_id(value: &str) -> Option<Id> {
+	value.parse::<u64>().ok().filter(|id| *id != 0).map(Id)
+}
 
 #[derive(Deserialize)]
 pub struct Created {
@@ -66,7 +89,36 @@ fn count<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u16, D::Er
 
 #[cfg(test)]
 mod tests {
-	use super::Update;
+	use super::{Key, Update};
+	use model::Id;
+
+	#[test]
+	fn stream_keys_name_their_server_or_call_channel_and_user() {
+		let target = |key: &str| {
+			Key {
+				stream_key: key.to_owned(),
+			}
+			.target()
+		};
+		assert_eq!(target("guild:1:2:3"), Some((Some(Id(1)), Id(2), Id(3))));
+		assert_eq!(target("call:2:3"), Some((None, Id(2), Id(3))));
+		for invalid in [
+			"",
+			"guild:1:2",
+			"guild:1:2:3:4",
+			"call:2",
+			"call:2:3:4",
+			"guild:0:2:3",
+			"call:2:0",
+			"guild:1:2:x",
+			"guild:-1:2:3",
+			"dm:2:3",
+		] {
+			assert_eq!(target(invalid), None, "{invalid}");
+		}
+		let long = format!("guild:1:2:{}", "3".repeat(120));
+		assert_eq!(target(&long), None, "overlong keys name nothing");
+	}
 
 	#[test]
 	fn viewer_count_skips_ids_and_tolerates_null() {

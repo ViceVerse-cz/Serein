@@ -701,6 +701,7 @@ impl State {
 			}
 		}
 	}
+	/// Reconcile bounded service updates and HTTP results while preserving explicit manual ordering.
 	pub fn apply_read_state(&mut self, event: Event) -> Result<(), &'static str> {
 		let new_channel = match &event {
 			Event::Ack { channel, .. } | Event::Result { channel, .. } => Some(*channel),
@@ -774,6 +775,13 @@ impl State {
 				{
 					return Ok(());
 				}
+				// Automatic ACKs may race an HTTP read acknowledgement. Keep that request
+				// eligible to advance the cursor, but never cross a manual-unread update.
+				let previous_epoch = self
+					.read_state
+					.entries
+					.get(&channel)
+					.map_or(0, |(_, epoch)| *epoch);
 				self.read_state.version = version.or(self.read_state.version);
 				self.read_state.revision = self.read_state.revision.wrapping_add(1);
 				let current = self
@@ -797,6 +805,38 @@ impl State {
 				self.read_state
 					.entries
 					.insert(channel, (message, self.read_state.revision));
+				if !manual {
+					let revision = self.read_state.revision;
+					let advance = |epoch: &mut u64, target: Id| {
+						if *epoch == previous_epoch && message.is_none_or(|id| id < target) {
+							*epoch = revision;
+						}
+					};
+					match &mut self.read_state.pending {
+						Some(Pending::Channel {
+							channel: pending,
+							message: target,
+							epoch,
+							manual: false,
+							..
+						}) if *pending == channel => advance(epoch, *target),
+						Some(Pending::Guild { channels, .. }) => {
+							for (pending, epoch, target) in channels {
+								if *pending == channel {
+									advance(epoch, *target);
+								}
+							}
+						}
+						Some(Pending::All { channels, .. }) => {
+							for (pending, epoch, target) in channels.iter_mut().flatten() {
+								if *pending == channel {
+									advance(epoch, *target);
+								}
+							}
+						}
+						_ => {}
+					}
+				}
 				if self.read_state.status(channel).is_some() {
 					self.read_state.status = None;
 				}
@@ -869,11 +909,12 @@ impl State {
 							} else {
 								Some(message).max(current)
 							};
-							self.read_state.activity.ack(
-								channel,
-								next,
-								if manual { mention_count } else { None },
-							);
+							if manual {
+								self.read_state.activity.ack(channel, next, mention_count);
+							} else {
+								let latest = self.channel(channel).and_then(|c| c.last_message);
+								self.read_state.activity.ack_local(channel, message, latest);
+							}
 							self.read_state
 								.entries
 								.insert(channel, (next, self.read_state.revision));
@@ -955,6 +996,7 @@ impl State {
 		}
 		Ok(())
 	}
+	/// Confirm only channel epochs still belonging to this successful bulk request.
 	fn finish_bulk_ack(&mut self, channels: Vec<(Id, u64, Id)>, result: Result<(), Failure>) {
 		match result {
 			Ok(()) => {
@@ -975,10 +1017,8 @@ impl State {
 					{
 						continue;
 					}
-					self.read_state
-						.activity
-						// Messages newer than this cursor keep their badge until the Gateway ACK.
-						.ack(channel, Some(message), None);
+					let latest = self.channel(channel).and_then(|c| c.last_message);
+					self.read_state.activity.ack_local(channel, message, latest);
 					self.read_state
 						.entries
 						.insert(channel, (Some(message), revision));
@@ -1363,6 +1403,423 @@ mod navigation_tests {
 			generation: state.generation,
 			event,
 		});
+	}
+	/// Exercises both bulk request scopes: older automatic ACKs preserve completion, while manual unread invalidates it.
+	#[test]
+	fn bulk_reads_survive_older_automatic_acks_but_not_manual_updates() {
+		for guild in [false, true] {
+			for manual in [false, true] {
+				let mut state = state(Some(Id(100)));
+				let Command::MarkAllRead { request, .. } = state.prepare_mark_all_read().unwrap()
+				else {
+					panic!("bulk read")
+				};
+				if guild {
+					let Some(Pending::All { channels, .. }) = state.read_state.pending.take()
+					else {
+						panic!("pending bulk")
+					};
+					state.read_state.pending = Some(Pending::Guild {
+						guild: Id(42),
+						request,
+						channels: channels.into_iter().flatten().collect(),
+					});
+				}
+				if manual {
+					state
+						.apply_read_state(Event::Ack {
+							channel: Id(1),
+							message: Some(Id(99)),
+							manual: true,
+							mention_count: None,
+							version: None,
+						})
+						.unwrap();
+				}
+				state
+					.apply_read_state(Event::Ack {
+						channel: Id(1),
+						message: Some(Id(100)),
+						manual: false,
+						mention_count: Some(1),
+						version: None,
+					})
+					.unwrap();
+				state
+					.apply_read_state(if guild {
+						Event::GuildAck {
+							guild: Id(42),
+							request,
+							result: Ok(()),
+						}
+					} else {
+						Event::AllAck {
+							request,
+							acked: 1,
+							result: Ok(()),
+						}
+					})
+					.unwrap();
+				assert_eq!(
+					state.read_marker(Id(1)),
+					Some(Some(Id(if manual { 100 } else { 500 })))
+				);
+				assert_eq!(state.unread(Id(1)), Some(manual));
+			}
+		}
+	}
+	/// Checks that stale and null channel metadata cannot erase a count established by newer observed activity.
+	#[test]
+	fn stale_latest_metadata_cannot_clear_a_newer_service_baseline() {
+		for latest in [Patch::Value(Id(500)), Patch::Null] {
+			let mut state = state(Some(Id(100)));
+			let Command::MarkRead {
+				channel,
+				message,
+				request,
+				..
+			} = state.prepare_mark_read(Id(500)).unwrap()
+			else {
+				panic!("read")
+			};
+			state.observe_last_message(channel, Id(600));
+			state
+				.apply_read_state(Event::Ack {
+					channel,
+					message: Some(Id(100)),
+					manual: false,
+					mention_count: Some(2),
+					version: None,
+				})
+				.unwrap();
+			state
+				.apply_read_state(Event::Latest(vec![(channel, latest)]))
+				.unwrap();
+			state
+				.apply_read_state(Event::Result {
+					channel,
+					message,
+					request,
+					result: Ok(()),
+				})
+				.unwrap();
+			assert_eq!(state.mention_count(channel), 2);
+		}
+	}
+	/// Delivers an older automatic ACK between request and HTTP completion to expose captured-epoch invalidation.
+	#[test]
+	fn automatic_ack_racing_read_result_does_not_restore_unread() {
+		for manual_unread in [false, true] {
+			let mut state = state(Some(Id(100)));
+			let mut other = state.channels[0].clone();
+			other.id = Id(2);
+			state.channels.push(other);
+			let Command::MarkRead {
+				channel,
+				message,
+				request,
+				..
+			} = state.prepare_mark_read(Id(500)).unwrap()
+			else {
+				panic!("expected read acknowledgement");
+			};
+			// An explicit unread action must still win over the pending request,
+			// even if another automatic ACK follows it.
+			if manual_unread {
+				state
+					.apply_read_state(Event::Ack {
+						channel,
+						message: Some(Id(99)),
+						manual: true,
+						mention_count: None,
+						version: None,
+					})
+					.unwrap();
+			}
+			state
+				.apply_read_state(Event::Ack {
+					channel,
+					message: Some(Id(100)),
+					manual: false,
+					mention_count: None,
+					version: None,
+				})
+				.unwrap();
+			state.select(Id(2));
+			state
+				.apply_read_state(Event::Result {
+					channel,
+					message,
+					request,
+					result: Ok(()),
+				})
+				.unwrap();
+			state.select(channel);
+			assert_eq!(
+				state.read_marker(channel),
+				Some(Some(Id(if manual_unread { 100 } else { 500 })))
+			);
+			assert_eq!(state.unread(channel), Some(manual_unread));
+		}
+	}
+	/// Covers profile-less confirmed ignores and Gateway updates through count refresh, partial read and subsequent unignore.
+	#[test]
+	fn profileless_ignored_authors_cannot_erase_later_unread_mentions() {
+		for written in [false, true] {
+			let mut state = state(Some(Id(100)));
+			let channel = Id(1);
+			state
+				.apply_user_action(crate::user_actions::Event::Relationships(Some(vec![])))
+				.unwrap();
+			state
+				.apply_user_action(crate::user_actions::Event::Restrictions(Some(vec![])))
+				.unwrap();
+			state
+				.apply_notification_preferences(crate::notifications::Event::Settings {
+					entries: vec![],
+					replace: true,
+				})
+				.unwrap();
+			if written {
+				let Command::UserAction {
+					action, request, ..
+				} = state.set_user_ignored(Id(999), true).unwrap()
+				else {
+					panic!("ignore")
+				};
+				assert_eq!(state.service_author_excluded(Id(999)), None);
+				state
+					.apply_user_action(crate::user_actions::Event::Written {
+						action,
+						request,
+						result: Ok(()),
+					})
+					.unwrap();
+			}
+			// A profile-less Gateway update must work both alone and after a confirmed write.
+			state
+				.apply_user_action(crate::user_actions::Event::Restriction {
+					user: Id(999),
+					ignored: Some(true),
+					profile: None,
+				})
+				.unwrap();
+			assert_eq!(state.user_ignored(Id(999)), Some(true));
+			assert!(state.restricted_user(Id(999)).is_none());
+			let Command::MarkRead {
+				message: cursor,
+				request,
+				..
+			} = state.prepare_mark_read(Id(500)).unwrap()
+			else {
+				panic!("read")
+			};
+			state.read_state.activity.forget(channel);
+			let mut old = message(500);
+			old.author.id = Id(999);
+			let mut new = message(501);
+			new.author.id = Id(998);
+			apply(&mut state, CoreEvent::Message(old));
+			apply(&mut state, CoreEvent::Message(new));
+			state
+				.apply_read_state(Event::Ack {
+					channel,
+					message: Some(Id(100)),
+					manual: false,
+					mention_count: Some(1),
+					version: None,
+				})
+				.unwrap();
+			state
+				.apply_read_state(Event::Result {
+					channel,
+					message: cursor,
+					request,
+					result: Ok(()),
+				})
+				.unwrap();
+			assert_eq!(state.mention_count(channel), 1);
+			assert_eq!(state.unread(channel), Some(true));
+			state
+				.apply_user_action(crate::user_actions::Event::Restriction {
+					user: Id(999),
+					ignored: None,
+					profile: None,
+				})
+				.unwrap();
+			assert_eq!(state.user_ignored(Id(999)), Some(false));
+			let mut later = message(502);
+			later.author.id = Id(999);
+			apply(&mut state, CoreEvent::Message(later));
+			assert_eq!(state.mention_count(channel), 2);
+		}
+	}
+	/// Varies creation-time eligibility and later state changes so a partial read cannot subtract unproven contributions.
+	#[test]
+	fn partial_read_does_not_subtract_excluded_or_unknown_service_mentions() {
+		for exclusion in 0..4 {
+			let mut state = state(Some(Id(100)));
+			let channel = Id(1);
+			state
+				.apply_user_action(crate::user_actions::Event::Relationships(
+					(exclusion != 3).then(|| {
+						if exclusion == 0 {
+							vec![(Id(999), true)]
+						} else {
+							vec![]
+						}
+					}),
+				))
+				.unwrap();
+			let mut author = message(500).author;
+			author.id = Id(999);
+			state
+				.apply_user_action(crate::user_actions::Event::Restrictions(Some(
+					if exclusion == 1 {
+						vec![(author, "synthetic".into(), true)]
+					} else {
+						vec![]
+					},
+				)))
+				.unwrap();
+			state
+				.apply_notification_preferences(crate::notifications::Event::Settings {
+					entries: if exclusion == 2 {
+						vec![crate::notifications::Setting {
+							overrides_known: true,
+							channels: vec![(channel, Some(true), Some(0))],
+							..Default::default()
+						}]
+					} else {
+						vec![]
+					},
+					replace: true,
+				})
+				.unwrap();
+			let Command::MarkRead {
+				message: cursor,
+				request,
+				..
+			} = state.prepare_mark_read(Id(500)).unwrap()
+			else {
+				panic!("read")
+			};
+			state.read_state.activity.forget(channel);
+			let mut old = message(500);
+			old.author.id = Id(999);
+			let mut new = message(501);
+			new.author.id = Id(998);
+			new.mentions.push(state.user.clone().unwrap());
+			apply(&mut state, CoreEvent::Message(old));
+			apply(&mut state, CoreEvent::Message(new));
+			state
+				.apply_read_state(Event::Ack {
+					channel,
+					message: Some(Id(100)),
+					manual: false,
+					mention_count: Some(1),
+					version: None,
+				})
+				.unwrap();
+			// The author may be unblocked later: contribution is fixed at observation time.
+			state
+				.apply_user_action(crate::user_actions::Event::Relationships(Some(vec![])))
+				.unwrap();
+			state
+				.apply_read_state(Event::Result {
+					channel,
+					message: cursor,
+					request,
+					result: Ok(()),
+				})
+				.unwrap();
+			assert_eq!(state.mention_count(channel), 1, "exclusion {exclusion}");
+		}
+	}
+	/// Checks count and queued-alert reconciliation together when new messages arrive during a pending read.
+	#[test]
+	fn racing_http_read_preserves_badges_and_activity_beyond_its_cursor() {
+		for newer in [false, true] {
+			let mut state = state(Some(Id(100)));
+			let Command::MarkRead {
+				channel,
+				message,
+				request,
+				..
+			} = state.prepare_mark_read(Id(500)).unwrap()
+			else {
+				panic!("expected read acknowledgement");
+			};
+			let incoming = |id| {
+				let mut row = self::message(id);
+				row.author.id = Id(999);
+				row
+			};
+			state
+				.apply_notification_preferences(crate::notifications::Event::Settings {
+					entries: vec![],
+					replace: true,
+				})
+				.unwrap();
+			state
+				.apply_notification_preferences(crate::notifications::Event::Presence(Some(false)))
+				.unwrap();
+			assert!(state.notification_allowed(channel));
+			state
+				.apply_user_action(crate::user_actions::Event::Relationships(Some(vec![])))
+				.unwrap();
+			state
+				.apply_user_action(crate::user_actions::Event::Restrictions(Some(vec![])))
+				.unwrap();
+			state.read_state.activity.forget(channel);
+			apply(&mut state, CoreEvent::Message(incoming(500)));
+			if newer {
+				apply(&mut state, CoreEvent::Message(incoming(501)));
+			}
+			state
+				.apply_read_state(Event::Ack {
+					channel,
+					message: Some(Id(100)),
+					manual: false,
+					mention_count: Some(if newer { 2 } else { 1 }),
+					version: None,
+				})
+				.unwrap();
+			// This activity is not included in the service count and must survive too.
+			if newer {
+				apply(&mut state, CoreEvent::Message(incoming(502)));
+			}
+			state
+				.apply_read_state(Event::Result {
+					channel,
+					message,
+					request,
+					result: Ok(()),
+				})
+				.unwrap();
+			let queued = state.take_notification().map(|n| n.message);
+			assert_eq!(queued, newer.then_some(Id(501)));
+			assert_eq!(
+				state.take_notification().map(|n| n.message),
+				newer.then_some(Id(502))
+			);
+			assert!(state.take_notification().is_none());
+			assert_eq!(state.read_marker(channel), Some(Some(Id(500))));
+			assert_eq!(state.unread(channel), Some(newer));
+			assert_eq!(state.unread_count(channel), if newer { 2 } else { 0 });
+			assert_eq!(state.mention_count(channel), if newer { 2 } else { 0 });
+			state
+				.apply_read_state(Event::Ack {
+					channel,
+					message: Some(Id(502)),
+					manual: false,
+					mention_count: Some(0),
+					version: None,
+				})
+				.unwrap();
+			assert_eq!(state.unread_count(channel), 0);
+			assert_eq!(state.mention_count(channel), 0);
+		}
 	}
 	#[test]
 	fn read_failure_is_scoped_and_service_ack_resolves_it_in_either_order() {
