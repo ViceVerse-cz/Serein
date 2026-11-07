@@ -56,7 +56,7 @@ fn main() {
 	}
 	messaging.voice_inputs = devices.inputs;
 	messaging.voice_outputs = devices.outputs;
-	messaging.voice_device_status = "Audio devices loaded";
+	messaging.voice_device_status = ui::VOICE_DEVICES_LOADED;
 	for _ in 0..3 {
 		frame(&ctx, &mut messaging, &mut state);
 	}

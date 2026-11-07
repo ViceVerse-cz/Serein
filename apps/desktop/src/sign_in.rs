@@ -40,6 +40,7 @@ impl Desktop {
 		self.uploads.forget_parked();
 		self.login = None;
 		self.state.interrupt_gif_favorites();
+		self.state.interrupt_emoji_frecency();
 		self.state.interrupt_preloads();
 		self.connection = None;
 		if let Some(worker) = self.avatars.take() {
@@ -195,7 +196,21 @@ impl Desktop {
 	}
 	/// Confirms first when work would be lost, then ends the session for `intent`.
 	pub(super) fn request_session_end(&mut self, ctx: &egui::Context, intent: SessionEnd) {
-		if self.state.has_unsent()
+		// Switching or adding keeps drafts the local cache has saved; logout removes them.
+		let drafts_kept = !intent.forgets()
+			&& !self.state.demo
+			&& !self.fixture_only
+			&& self.cache.is_some()
+			&& !self.cache_error;
+		let unsent = if drafts_kept {
+			self.state
+				.pending
+				.iter()
+				.any(|p| p.delivery != Delivery::Confirmed)
+		} else {
+			self.state.has_unsent()
+		};
+		if unsent
 			|| self.messaging.has_edit()
 			|| self.messaging.has_server_settings_changes()
 			|| self.messaging.extensions.theme_editor_dirty()
@@ -344,7 +359,6 @@ impl Desktop {
 		egui::CentralPanel::default()
 			.frame(egui::Frame::NONE.fill(ui::design::window_palette(ui).canvas))
 			.show(ui, |ui| {
-				accent_glow(ui);
 				ui::design::window_drag(ui, ui.max_rect());
 				egui::Frame::NONE
 					.inner_margin(egui::Margin {
@@ -384,25 +398,9 @@ impl Desktop {
 				let time = ui.input(|i| i.time) as f32;
 				ui.ctx().request_repaint();
 				ui.vertical_centered(|ui| {
-					ui.add_space((ui.available_height() * 0.5 - 150.0).max(12.0));
-					// App mark with a slow breathing halo; the only motion besides the bar.
-					let (rect, _) =
-						ui.allocate_exact_size(egui::vec2(72.0, 72.0), egui::Sense::hover());
-					let mark = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(56.0));
-					let pulse = 0.5 + 0.5 * (time * 1.6).sin();
-					ui.painter().rect_filled(
-						mark.expand(4.0 + 4.0 * pulse),
-						18,
-						p.accent.gamma_multiply(0.10 + 0.10 * pulse),
-					);
-					ui.painter().rect_filled(mark, 14, p.accent);
-					ui::icons::paint(
-						ui.painter(),
-						ui::icons::Icon::Serein,
-						mark.shrink(13.0),
-						p.accent_text,
-					);
-					ui.add_space(18.0);
+					ui.add_space((ui.available_height() * 0.5 - 140.0).max(12.0));
+					app_mark(ui, 48.0);
+					ui.add_space(20.0);
 					ui.label(
 						ui::design::semibold(
 							ui,
@@ -411,13 +409,13 @@ impl Desktop {
 						)
 						.color(p.text_strong),
 					);
-					ui.add_space(6.0);
+					ui.add_space(8.0);
 					ui.label(
 						egui::RichText::new(format!("{stage}…"))
 							.size(15.0)
 							.color(p.muted),
 					);
-					ui.add_space(22.0);
+					ui.add_space(24.0);
 					// Indeterminate track: progress is unknown, so a sweeping segment.
 					let width = ui.available_width().min(260.0);
 					let (track, _) =
@@ -437,7 +435,7 @@ impl Desktop {
 							p.accent,
 						);
 					}
-					ui.add_space(26.0);
+					ui.add_space(24.0);
 					ui.allocate_ui_with_layout(
 						egui::vec2(220.0, 0.0),
 						egui::Layout::top_down(egui::Align::Center),
@@ -479,7 +477,6 @@ impl Desktop {
 		egui::CentralPanel::default()
 			.frame(egui::Frame::NONE.fill(ui::design::window_palette(ui).canvas))
 			.show(ui, |ui| {
-				accent_glow(ui);
 				egui::Panel::top("sign-in-header")
 					.exact_size(SIGN_IN_HEADER_HEIGHT)
 					.show_separator_line(false)
@@ -489,49 +486,28 @@ impl Desktop {
 						ui::design::window_drag(ui, ui.max_rect());
 						ui.horizontal_centered(|ui| {
 							ui.add_space(16.0 + self.traffic_light_inset());
-							// Wordmark lockup: app mark, name, then a quiet outlined stage pill.
-							let (mark, _) = ui
-								.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
-							ui.painter().rect_filled(mark, 6, p.accent);
-							ui::icons::paint(
-								ui.painter(),
-								ui::icons::Icon::Serein,
-								mark.shrink(5.0),
-								p.accent_text,
-							);
+							app_mark(ui, 20.0);
 							ui.add_space(8.0);
 							ui.label(
 								ui::design::semibold(
 									ui,
 									ui::i18n::translate("main-sign-in-screen-serein"),
-									16.0,
+									15.0,
 								)
 								.color(p.text_strong),
 							);
 							ui.add_space(8.0);
-							// Painted rather than framed: the pill must hug the text, not the row height.
-							let stage = ui.painter().layout_no_wrap(
-								"Early preview".to_owned(),
-								egui::FontId::new(10.5, ui::design::medium_family(ui.ctx())),
-								p.muted,
+							ui.label(
+								egui::RichText::new("Early preview")
+									.size(13.0)
+									.color(p.muted),
 							);
-							let (pill, _) = ui.allocate_exact_size(
-								egui::vec2(stage.size().x + 16.0, 19.0),
-								egui::Sense::hover(),
-							);
-							ui.painter().rect_stroke(
-								pill,
-								9,
-								egui::Stroke::new(1.0, p.border),
-								egui::StrokeKind::Inside,
-							);
-							ui.painter()
-								.galley(pill.center() - stage.size() * 0.5, stage, p.muted);
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
 								|ui| {
-									if ui::design::WINDOW_CONTROLS_WIDTH > 0.0
-										&& !self.messaging.hide_title_bar
+									if (ui::design::WINDOW_CONTROLS_WIDTH > 0.0
+										&& !self.messaging.hide_title_bar)
+										|| self.messaging.uses_custom_title_bar()
 									{
 										ui::design::window_controls(ui);
 									} else {
@@ -561,7 +537,7 @@ impl Desktop {
 									))
 									.config(sticky())
 									.ui(ui, |ui| self.messaging.appearance_menu(ui));
-									ui.add_space(8.0);
+									ui.add_space(4.0);
 									let updates = &self.messaging.updates;
 									let (label, color) = if updates.ready {
 										("updates-shows-update-banner-restart-to-update", p.link)
@@ -583,21 +559,39 @@ impl Desktop {
 							);
 						});
 					});
+				// The independence note stays on the window's floor, apart from the form.
+				egui::Panel::bottom("sign-in-footer")
+					.exact_size(48.0)
+					.show_separator_line(false)
+					.frame(egui::Frame::NONE)
+					.show(ui, |ui| {
+						ui.vertical_centered(|ui| {
+							ui.add_space(12.0);
+							ui.label(
+								egui::RichText::new(ui::i18n::translate(
+									"main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord",
+								))
+								.size(12.0)
+								.color(p.muted),
+							);
+						});
+					});
 				egui::ScrollArea::vertical()
 					.id_salt("sign-in-scroll")
 					.show(ui, |ui| {
-						let card = if self.sign_in_height > 0.0 {
-							self.sign_in_height + 72.0
+						let form = if self.sign_in_height > 0.0 {
+							self.sign_in_height
 						} else {
-							560.0
+							480.0
 						};
-						ui.add_space(((ui.available_height() - card) * 0.4).max(16.0));
+						// A little above the middle, where the eye lands first.
+						ui.add_space(((ui.available_height() - form) * 0.42).max(16.0));
 						ui.vertical_centered(|ui| {
 							ui.allocate_ui_with_layout(
-								egui::vec2(ui.available_width().min(460.0), 0.0),
+								egui::vec2(ui.available_width().min(400.0), 0.0),
 								egui::Layout::top_down(egui::Align::Min),
 								|ui| {
-									self.sign_in_card(ui);
+									self.sign_in_form(ui);
 									#[cfg(feature = "demo")]
 									if self.fixture_only {
 										self.sign_in_preview(ui);
@@ -607,119 +601,77 @@ impl Desktop {
 									self.sign_in_height = ui.min_rect().height();
 								},
 							);
-							ui.add_space(18.0);
-							ui.label(
-								egui::RichText::new(ui::i18n::translate(
-									"main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord",
-								))
-								.size(12.0)
-								.color(p.muted),
-							);
 							ui.add_space(24.0);
 						});
 					});
 			});
 	}
-	/// Sign-in card: saved accounts first for returning owners, one clear primary action,
-	/// explicit consent, and everything else folded away until asked for.
-	fn sign_in_card(&mut self, ui: &mut egui::Ui) {
+	/// Sign-in form: saved accounts first for returning owners, one clear primary action,
+	/// explicit consent, and everything else folded away until asked for. It stands on the
+	/// window itself, without a card, so the one accent fill is the way in.
+	fn sign_in_form(&mut self, ui: &mut egui::Ui) {
 		let ctx = ui.ctx().clone();
 		let p = ui::design::palette(ui);
-		let shadow = egui::epaint::Shadow {
-			offset: [0, 16],
-			blur: 40,
-			spread: 0,
-			color: egui::Color32::from_black_alpha(if ui.visuals().dark_mode { 110 } else { 34 }),
+		let returning = !self.messaging.accounts.is_empty();
+		let waiting = self.state.auth == AuthState::Authenticating;
+		let idle = !waiting && !self.forgetting;
+		// Fixture builds render the enabled state for captures; the actions stay inert.
+		self.sign_in_header(ui, returning);
+		ui.add_space(32.0);
+		if returning {
+			self.sign_in_accounts(ui, idle);
+			ui.add_space(12.0);
+		}
+		let label = if waiting {
+			"Waiting for Discord…"
+		} else if returning {
+			"Use another account"
+		} else {
+			"Continue with Discord"
 		};
-		egui::Frame::NONE
-			.fill(p.surface)
-			.stroke(egui::Stroke::new(1.0, p.border))
-			.shadow(shadow)
-			.corner_radius(16)
-			.inner_margin(egui::Margin {
-				left: 28,
-				right: 28,
-				top: 24,
-				bottom: 14,
-			})
-			.show(ui, |ui| {
-				let returning = !self.messaging.accounts.is_empty();
-				let waiting = self.state.auth == AuthState::Authenticating;
-				let idle = !waiting && !self.forgetting;
-				// A new sign-in needs explicit authorization; a saved account was already
-				// authorized once and restores unattended on launch, so it only waits for idle.
-				// Fixture builds render the enabled state for captures; the actions stay inert.
-				let ready = self.authorized && idle;
-				self.sign_in_header(ui, returning);
-				ui.add_space(16.0);
+		let button = ui
+			.add_enabled_ui(idle, |ui| {
 				if returning {
-					self.sign_in_accounts(ui, idle);
-					ui.add_space(10.0);
-				}
-				let label = if waiting {
-					"Waiting for Discord…"
-				} else if returning {
-					"Use another account"
+					ui::design::secondary_icon_button(ui, ui::icons::Icon::Plus, label)
 				} else {
-					"Continue with Discord"
-				};
-				let button = ui
-					.add_enabled_ui(ready, |ui| {
-						if returning {
-							ui::design::secondary_icon_button(ui, ui::icons::Icon::Plus, label)
-						} else {
-							ui::design::primary_icon_button(ui, ui::icons::Icon::Serein, label)
-						}
-					})
-					.inner;
-				if button.clicked() && !self.fixture_only {
-					if let Some(store) = &mut self.store {
-						store.cancel_load();
-					}
-					self.credential_status = "Sign in through Discord; saved-login lookup stopped";
-					let wake = ctx.clone();
-					match platform::LoginView::open(self.window.clone(), move || {
-						wake.request_repaint()
-					}) {
-						Ok(login) => {
-							self.login = Some(login);
-							self.state.auth = AuthState::Authenticating;
-							self.state.status = "Waiting for Discord login";
-						}
-						Err(error) => {
-							self.state.auth = AuthState::Failed;
-							self.state.status = error.label();
-						}
-					}
+					ui::design::primary_button(ui, label)
 				}
-				ui.add_space(10.0);
-				self.sign_in_consent(ui);
-				self.sign_in_status(ui);
-				ui.add_space(12.0);
-				let (line, _) = ui.allocate_exact_size(
-					egui::vec2(ui.available_width(), 1.0),
-					egui::Sense::hover(),
-				);
-				ui.painter().rect_filled(line, 0, p.border);
-				ui.add_space(8.0);
-				self.sign_in_disclosures(ui, &ctx);
-			});
+			})
+			.inner;
+		if button.clicked() && !self.fixture_only {
+			if let Some(store) = &mut self.store {
+				store.cancel_load();
+			}
+			self.credential_status = "Sign in through Discord; saved-login lookup stopped";
+			let wake = ctx.clone();
+			match platform::LoginView::open(self.window.clone(), move || wake.request_repaint()) {
+				Ok(login) => {
+					self.login = Some(login);
+					self.state.auth = AuthState::Authenticating;
+					self.state.status = "Waiting for Discord login";
+				}
+				Err(error) => {
+					self.state.auth = AuthState::Failed;
+					self.state.status = error.label();
+				}
+			}
+		}
+		ui.add_space(16.0);
+		self.sign_in_credentials_note(ui);
+		self.sign_in_status(ui);
+		ui.add_space(24.0);
+		let (line, _) =
+			ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+		ui.painter().rect_filled(line, 0, p.border);
+		ui.add_space(8.0);
+		self.sign_in_disclosures(ui, &ctx);
 	}
 	/// App mark over a welcome line that adapts to whether this device already knows an account.
 	fn sign_in_header(&self, ui: &mut egui::Ui, returning: bool) {
 		let p = ui::design::palette(ui);
 		ui.vertical_centered(|ui| {
-			let (mark, _) = ui.allocate_exact_size(egui::vec2(44.0, 44.0), egui::Sense::hover());
-			ui.painter()
-				.rect_filled(mark.expand(6.0), 17, p.accent.gamma_multiply(0.16));
-			ui.painter().rect_filled(mark, 13, p.accent);
-			ui::icons::paint(
-				ui.painter(),
-				ui::icons::Icon::Serein,
-				mark.shrink(11.0),
-				p.accent_text,
-			);
-			ui.add_space(12.0);
+			app_mark(ui, 48.0);
+			ui.add_space(20.0);
 			ui.label(
 				ui::design::semibold(
 					ui,
@@ -728,11 +680,11 @@ impl Desktop {
 					} else {
 						"main-sign-in-header-welcome-to-serein"
 					}),
-					22.0,
+					24.0,
 				)
 				.color(p.text_strong),
 			);
-			ui.add_space(5.0);
+			ui.add_space(8.0);
 			ui.add(
 				egui::Label::new(
 					egui::RichText::new(ui::i18n::translate_if_key(if returning {
@@ -740,7 +692,7 @@ impl Desktop {
 					} else {
 						"main-sign-in-header-sign-in-with-your-discord-account-to-get-started"
 					}))
-					.size(14.0)
+					.size(15.0)
 					.color(p.muted),
 				)
 				.wrap(),
@@ -750,12 +702,15 @@ impl Desktop {
 	/// Accounts already signed in on this device: one tap restores their saved login.
 	fn sign_in_accounts(&mut self, ui: &mut egui::Ui, enabled: bool) {
 		let p = ui::design::palette(ui);
-		ui.label(ui::design::eyebrow(
-			ui,
-			ui::i18n::translate("main-sign-in-accounts-saved-accounts"),
-			p.muted,
-		));
-		ui.add_space(6.0);
+		ui.label(
+			ui::design::medium(
+				ui,
+				ui::i18n::translate("main-sign-in-accounts-saved-accounts"),
+				13.0,
+			)
+			.color(p.muted),
+		);
+		ui.add_space(8.0);
 		let saved: Vec<(model::Id, String, String)> = self
 			.messaging
 			.accounts
@@ -773,7 +728,7 @@ impl Desktop {
 			.collect();
 		// Four rows fit without crowding the card; the rest scroll inside the list.
 		let rows = saved.len().min(4) as f32;
-		let height = rows * 54.0 + (rows - 1.0) * 6.0;
+		let height = rows * 54.0 + (rows - 1.0) * 8.0;
 		let mut chosen = None;
 		let mut forget = None;
 		egui::ScrollArea::vertical()
@@ -781,7 +736,7 @@ impl Desktop {
 			.max_height(height)
 			.min_scrolled_height(height)
 			.show(ui, |ui| {
-				ui.spacing_mut().item_spacing.y = 6.0;
+				ui.spacing_mut().item_spacing.y = 8.0;
 				for (id, label, handle) in saved {
 					let (row, remove) = ui
 						.add_enabled_ui(enabled, |ui| {
@@ -839,38 +794,24 @@ impl Desktop {
 			None => {}
 		}
 	}
-	/// Owner authorization, with the token handling spelled out next to the checkbox.
-	fn sign_in_consent(&mut self, ui: &mut egui::Ui) {
+	/// Where the password and the token go, beside a lock.
+	fn sign_in_credentials_note(&self, ui: &mut egui::Ui) {
 		let p = ui::design::palette(ui);
-		egui::Frame::NONE
-			.fill(p.base)
-			.corner_radius(10)
-			.inner_margin(egui::Margin::symmetric(12, 9))
-			.show(ui, |ui| {
-				ui.set_width(ui.available_width());
-				ui.checkbox(
-					&mut self.authorized,
-					ui::design::medium(
-						ui,
-						ui::i18n::translate(
-							"main-sign-in-consent-i-own-this-account-and-authorize-this-session",
-						),
-						13.0,
-					)
-					.color(p.text_strong),
-				);
-				ui.add_space(4.0);
-				ui.add(
-					egui::Label::new(
-						egui::RichText::new(ui::i18n::translate(
-							"main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page",
-						))
-						.size(12.0)
-						.color(p.muted),
-					)
-					.wrap(),
-				);
-			});
+		ui.horizontal_top(|ui| {
+			ui.spacing_mut().item_spacing.x = 8.0;
+			let (icon, _) = ui.allocate_exact_size(egui::Vec2::splat(16.0), egui::Sense::hover());
+			ui::icons::paint(ui.painter(), ui::icons::Icon::Lock, icon, p.muted);
+			ui.add(
+				egui::Label::new(
+					egui::RichText::new(ui::i18n::translate(
+						"main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page",
+					))
+					.size(13.0)
+					.color(p.muted),
+				)
+				.wrap(),
+			);
+		});
 	}
 	/// One banner, only while something is happening or went wrong.
 	fn sign_in_status(&mut self, ui: &mut egui::Ui) {
@@ -891,7 +832,7 @@ impl Desktop {
 		if !show || (self.fixture_only && self.state.status == "Disconnected") {
 			return;
 		}
-		ui.add_space(14.0);
+		ui.add_space(16.0);
 		let (fill, stroke, color) = if attention {
 			(
 				p.warning.gamma_multiply(0.13),
@@ -909,7 +850,7 @@ impl Desktop {
 			.show(ui, |ui| {
 				ui.set_width(ui.available_width());
 				ui.horizontal_top(|ui| {
-					ui.spacing_mut().item_spacing.x = 9.0;
+					ui.spacing_mut().item_spacing.x = 8.0;
 					let (icon, _) =
 						ui.allocate_exact_size(egui::Vec2::splat(16.0), egui::Sense::hover());
 					if attention {
@@ -923,7 +864,7 @@ impl Desktop {
 						ui.put(icon, egui::Spinner::new().size(14.0).color(p.muted));
 					}
 					ui.vertical(|ui| {
-						ui.spacing_mut().item_spacing.y = 3.0;
+						ui.spacing_mut().item_spacing.y = 4.0;
 						if self.state.status != "Disconnected" || attention {
 							ui.add(
 								egui::Label::new(
@@ -1004,7 +945,7 @@ impl Desktop {
 	#[cfg(feature = "demo")]
 	fn sign_in_preview(&mut self, ui: &mut egui::Ui) {
 		let p = ui::design::palette(ui);
-		ui.add_space(18.0);
+		ui.add_space(24.0);
 		ui.horizontal(|ui| {
 			let y = ui.cursor().top() + 8.0;
 			let left = ui.cursor().left();
@@ -1033,7 +974,7 @@ impl Desktop {
 			);
 			ui.allocate_space(egui::vec2(width, 16.0));
 		});
-		ui.add_space(14.0);
+		ui.add_space(16.0);
 		if ui::design::secondary_button(
 			ui,
 			&ui::i18n::translate("main-sign-in-preview-explore-the-offline-preview"),
@@ -1059,7 +1000,7 @@ impl Desktop {
 		ui.add_space(8.0);
 		ui.vertical_centered(|ui| {
 			ui.label(
-				egui::RichText::new(&ui::i18n::translate(
+				egui::RichText::new(ui::i18n::translate(
 					"main-sign-in-preview-sample-conversations-no-discord-connection",
 				))
 				.size(12.0)
@@ -1153,7 +1094,7 @@ impl Desktop {
 					);
 					ui.add_space(8.0);
 					let connect = ui
-						.add_enabled_ui(self.authorized && !self.token_input.is_empty(), |ui| {
+						.add_enabled_ui(!self.token_input.is_empty(), |ui| {
 							ui::design::button(
 								ui,
 								&ui::i18n::translate(
@@ -1173,4 +1114,18 @@ impl Desktop {
 				});
 		}
 	}
+}
+
+/// The Serein mark on a solid accent tile; one shape at every size, no halo.
+fn app_mark(ui: &mut egui::Ui, size: f32) {
+	let p = ui::design::palette(ui);
+	let (mark, _) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
+	ui.painter()
+		.rect_filled(mark, (size * 0.25).round() as u8, p.accent);
+	ui::icons::paint(
+		ui.painter(),
+		ui::icons::Icon::Serein,
+		mark.shrink(size * 0.24),
+		p.accent_text,
+	);
 }

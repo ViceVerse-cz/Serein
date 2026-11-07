@@ -232,7 +232,7 @@ impl MessagingUi {
 				design::card_divider(ui);
 				let shown = self.idle_timeout();
 				design::row(ui, "settings-idle-after", None, |ui| {
-					egui::ComboBox::from_id_salt("settings-idle-after")
+					crate::design::Select::from_id_salt("settings-idle-after")
 						.selected_text(idle_label(shown))
 						.width(ui.available_width().min(160.0))
 						.show_ui(ui, |ui| {

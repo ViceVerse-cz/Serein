@@ -85,12 +85,13 @@ impl Capture {
 			"width={},height={},pixel-aspect-ratio=1/1",
 			settings.width, settings.height
 		);
+		let preview_size = format!("width={},height={}", settings.width, settings.height);
 		let (scale, preview_scale) = match mode {
 			Mode::Va => (
 				format!(
 					"vapostproc add-borders=true ! video/x-raw(memory:VAMemory),format=NV12,{size}"
 				),
-				"vapostproc add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
+				format!("vapostproc add-borders=true ! video/x-raw,format=BGRA,{preview_size}"),
 			),
 			Mode::Nvidia => (
 				format!(
@@ -98,17 +99,23 @@ impl Capture {
 					width = settings.width,
 					height = settings.height
 				),
-				"glcolorscale ! video/x-raw(memory:GLMemory),format=RGBA,width=640,height=360 ! gldownload ! videoconvert ! video/x-raw,format=BGRA",
+				format!(
+					"glcolorscale ! video/x-raw(memory:GLMemory),format=RGBA,{preview_size} ! gldownload ! videoconvert ! video/x-raw,format=BGRA"
+				),
 			),
 			// ponytail: CPU scaling avoids mixing VAMemory and legacy VASurface buffers;
 			// add legacy GPU postprocessing only if measured scaling cost warrants it.
 			Mode::VaLegacy => (
 				format!("videoconvertscale add-borders=true ! video/x-raw,format=NV12,{size}"),
-				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
+				format!(
+					"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{preview_size}"
+				),
 			),
 			Mode::NvidiaCopy | Mode::Software => (
 				format!("videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{size}"),
-				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
+				format!(
+					"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{preview_size}"
+				),
 			),
 		};
 		let encoder = match mode {
@@ -145,9 +152,9 @@ impl Capture {
 			split. ! queue max-size-buffers=1 max-size-bytes={MAX_RAW_BYTES} max-size-time=0 leaky=downstream ! \
 			identity name=gate ! {encode} appsink name=frames sync=false async=false max-buffers=1 enable-last-sample=false wait-on-eos=false \
 			split. ! queue max-size-buffers=1 max-size-bytes={MAX_RAW_BYTES} max-size-time=0 leaky=downstream ! \
-			valve name=preview-gate drop-mode=forward-sticky-events ! videorate drop-only=true ! video/x-raw(ANY),framerate=10/1 ! {preview_scale} ! \
+			valve name=preview-gate drop-mode=forward-sticky-events ! videorate drop-only=true ! video/x-raw(ANY),framerate={}/1 ! {preview_scale} ! \
 			appsink name=preview sync=false async=false max-buffers=1 drop=true enable-last-sample=false wait-on-eos=false",
-			settings.fps
+			settings.fps, settings.fps
 		);
 		let bin = gst::parse::bin_from_description(&description, true).map_err(|_| UNAVAILABLE)?;
 		let pipeline = gst::Pipeline::new();
@@ -195,7 +202,7 @@ impl Capture {
 		);
 		bound(
 			&preview.static_pad("sink").ok_or(UNAVAILABLE)?,
-			640 * 360 * 4 + 4096,
+			MAX_RAW_BYTES,
 			failed.clone(),
 		);
 		for sink in [&frames, &preview] {
@@ -341,8 +348,8 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 	if info.format() != video::VideoFormat::Bgra
 		|| info.width() == 0
 		|| info.height() == 0
-		|| info.width() > 1920
-		|| info.height() > 1080
+		|| info.width() > 3840
+		|| info.height() > 2160
 	{
 		return Err(INVALID);
 	}
@@ -372,4 +379,52 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 		stride: row,
 		data: pixels,
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::screen::{Settings, SourceId};
+
+	/// The software encoder reads every picture through `raw`, so a sending preset that
+	/// `Settings::valid` accepts must also fit its frame bound.
+	#[test]
+	fn raw_accepts_every_sending_preset() {
+		gst::init().unwrap();
+		let sizes = [
+			(854, 480),
+			(1280, 720),
+			(1920, 1080),
+			(2560, 1440),
+			(3840, 2160),
+		];
+		let mut checked = 0;
+		for (width, height) in sizes {
+			let settings = Settings {
+				source: SourceId::Display(1),
+				width,
+				height,
+				fps: 30,
+				cursor: false,
+				audio: false,
+			};
+			if !settings.valid() {
+				continue;
+			}
+			let info = video::VideoInfo::builder(video::VideoFormat::Bgra, width, height)
+				.build()
+				.unwrap();
+			let sample = gst::Sample::builder()
+				.buffer(&gst::Buffer::with_size(info.size()).unwrap())
+				.caps(&info.to_caps().unwrap())
+				.build();
+			let frame = raw(&sample).unwrap_or_else(|error| panic!("{width}x{height}: {error}"));
+			assert_eq!((frame.width, frame.height), (width, height));
+			checked += 1;
+		}
+		assert!(
+			checked >= 4,
+			"the preset list no longer matches Settings::valid"
+		);
+	}
 }

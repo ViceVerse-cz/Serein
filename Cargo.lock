@@ -1577,6 +1577,7 @@ dependencies = [
  "windows 0.61.3",
  "windows-capture",
  "windows-core 0.61.2",
+ "windows-future 0.2.1",
  "zbus",
  "zeroize",
 ]
@@ -1824,13 +1825,13 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "accesskit_winit",
  "arboard",
  "block2 0.6.2",
  "bytemuck",
  "egui",
+ "image",
  "log",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
@@ -5241,6 +5242,7 @@ name = "platform"
 version = "0.1.0"
 dependencies = [
  "ashpd",
+ "block2 0.6.2",
  "client-core",
  "cpal",
  "dirs",
@@ -5266,6 +5268,7 @@ dependencies = [
  "objc2-core-media",
  "objc2-core-video",
  "objc2-foundation 0.3.2",
+ "objc2-user-notifications 0.3.2",
  "objc2-video-toolbox",
  "rfd",
  "serde_json",
@@ -6638,8 +6641,6 @@ dependencies = [
 [[package]]
 name = "smithay-clipboard"
 version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71704c03f739f7745053bde45fa203a46c58d25bc5c4efba1d9a60e9dba81226"
 dependencies = [
  "libc",
  "smithay-client-toolkit 0.20.0",

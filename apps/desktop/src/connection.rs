@@ -408,10 +408,13 @@ impl Connection {
                 let mut search:Option<AbortTask>=None;
                 let mut gifs:Option<AbortTask>=None;
                 let mut gif_favorites:Option<AbortTask>=None;
+                let mut emoji_frecency:Option<AbortTask>=None;
                 let mut application_commands:Option<AbortTask>=None;
                 let mut sticker_packs:Option<AbortTask>=None;
                 let mut sticker_detail:Option<AbortTask>=None;
                 let mut reaction_read:Option<AbortTask>=None;
+                // A thread card's preview is a passive read; it must never wait behind sends.
+                let mut thread_preview:Option<AbortTask>=None;
                 let mut ringing:Option<AbortTask>=None;
                 let mut recipient_ringing:Option<(client_core::voice::Command,AbortTask)>=None;
                 let mut upload:Option<AbortTask>=None;
@@ -504,6 +507,19 @@ impl Connection {
                                 })));
                                 continue;
                             }
+                            // Core admits one save at a time, so a replaced task has already reported.
+                            if matches!(command,Command::EmojiFrecency{..}) {
+                                drop(emoji_frecency.take());
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                emoji_frecency=Some(AbortTask(tokio::spawn(async move {
+                                    let event=api.execute(command).await;
+                                    let failure=match &event {Event::EmojiFrecency{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
+                                    let error=emit(event).err().or(failure);
+                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                })));
+                                continue;
+                            }
                             if matches!(command,Command::ApplicationCommands{..}) {
                                 drop(application_commands.take());
                                 let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
@@ -559,6 +575,18 @@ impl Connection {
                                 reaction_read=Some(AbortTask(tokio::spawn(async move {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::Reactions(client_core::reactions::Event::Read{result:Err(f),..}) if f.ends_session()=>Some(*f),_=>None};
+                                    let error=emit(event).err().or(failure);
+                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                })));
+                                continue;
+                            }
+                            if matches!(command,Command::ThreadPreview{..}) {
+                                drop(thread_preview.take());
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                thread_preview=Some(AbortTask(tokio::spawn(async move {
+                                    let event=api.execute(command).await;
+                                    let failure=match &event {Event::ThreadPreview{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
                                     if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
                                     wake.request_repaint();

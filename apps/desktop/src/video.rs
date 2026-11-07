@@ -660,7 +660,7 @@ fn play_decoded(
 					_ => return Err("Unexpected video audio track"),
 				}
 			}
-			// Two frames ahead (<=6 MiB as 1080p NV12, 16 MiB as RGBA), plus one bounded
+			// Two frames ahead (<=25 MiB as 4K NV12, 64 MiB as RGBA), plus one bounded
 			// audio packet and one second of PCM.
 			if !video_ended && frames.len() < 2 {
 				let read_started = Instant::now();

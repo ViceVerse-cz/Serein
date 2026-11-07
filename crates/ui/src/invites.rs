@@ -1,4 +1,5 @@
-//! Fixed-height native invite cards; only visible cards request bounded metadata.
+//! Discord-style server and voice channel invite cards; only visible cards request bounded
+//! metadata.
 use crate::avatars::{Avatars, Surface};
 use client_core::invites::valid_code;
 use model::Message;
@@ -7,6 +8,8 @@ pub(crate) enum Action {
 	Join(String),
 	OpenGuild(model::Id),
 	OpenChannel(model::Id),
+	/// A member's voice channel invite: join the call there.
+	JoinVoice(model::Id),
 }
 fn code(raw: &str) -> Option<String> {
 	let normalized;
@@ -89,9 +92,19 @@ fn codes(message: &Message) -> Vec<String> {
 	}
 	found
 }
-const CARD_HEIGHT: f32 = 108.0;
+// Proportions measured from the official client's card.
+const CARD_WIDTH: f32 = 320.0;
+const CARD_RADIUS: u8 = 10;
+const BANNER: f32 = 76.0;
+const ICON: f32 = 64.0;
+/// How far the icon rises into the banner.
+const ICON_RISE: f32 = 37.0;
+/// Inset of the card's text and action.
+const PAD: f32 = 14.0;
+/// A typical server card with a one-line description; rows are remeasured once drawn.
+const ESTIMATED_CARD: f32 = 250.0;
 pub fn estimated_height(message: &Message) -> f32 {
-	codes(message).len() as f32 * (CARD_HEIGHT + 4.0)
+	codes(message).len() as f32 * (ESTIMATED_CARD + 4.0)
 }
 /// Splits the protocol's "● N online · M members" description into its two counts.
 pub(super) fn counts(description: &str) -> Option<(&str, &str)> {
@@ -118,6 +131,20 @@ pub(super) fn dot_stat(ui: &mut egui::Ui, color: egui::Color32, value: &str, lab
 		.selectable(false),
 	);
 }
+/// The card's single action.
+struct Button {
+	label: String,
+	enabled: bool,
+	fill: egui::Color32,
+	icon: Option<crate::icons::Icon>,
+}
+
+/// What the card says under its title while it cannot show the server's numbers.
+struct Status {
+	text: String,
+	color: egui::Color32,
+}
+
 pub fn show(
 	ui: &mut egui::Ui,
 	message: &Message,
@@ -130,7 +157,7 @@ pub fn show(
 	for code in codes(message) {
 		ui.push_id(("invite", &code), |ui| {
 			let colors = crate::design::palette(ui);
-			let width = ui.available_width().min(432.0);
+			let width = ui.available_width().min(CARD_WIDTH);
 			let entry = state
 				.invites
 				.get(&code)
@@ -142,7 +169,6 @@ pub fn show(
 				p.guild.is_some_and(|g| state.guild(g).is_some())
 					|| p.channel.is_some_and(|c| state.channel(c).is_some())
 			});
-			let embed = preview.map(|p| &p.embed);
 			let failed = entry.is_some_and(|(_, v)| matches!(v, Some(Err(_))));
 			if !demo && entry.is_none() && requests.len() < 8 && !requests.contains(&code) {
 				requests.push(code.clone());
@@ -155,228 +181,529 @@ pub fn show(
 				.then_some(state.invite_join.result.as_ref())
 				.flatten()
 				.and_then(|r| r.as_ref().err());
-
-			ui.allocate_ui_with_layout(
-				egui::vec2(width, CARD_HEIGHT),
-				egui::Layout::top_down(egui::Align::Min),
-				|ui| {
-					egui::Frame::new()
-						.fill(colors.raised)
-						.corner_radius(8)
-						.stroke(egui::Stroke::new(1.0, colors.border))
-						.inner_margin(16)
-						.show(ui, |ui| {
-							ui.set_width(width - 32.0);
-							ui.set_height(CARD_HEIGHT - 32.0);
-							ui.spacing_mut().item_spacing.y = 0.0;
-							let eyebrow = crate::i18n::translate_if_key(if member {
-								"invites-show-you-re-a-member-of"
+			let voice = preview.and_then(|p| p.voice_channel.as_deref());
+			// A member's voice invite joins the call; everything else joins or opens the server.
+			let voice_channel = preview
+				.and_then(|p| p.channel)
+				.filter(|&channel| voice.is_some() && member && state.channel(channel).is_some());
+			let enabled = member || verification || state.can_join_invite(&code);
+			let button = Button {
+				label: crate::i18n::translate_if_key(if voice_channel.is_some() {
+					"invites-show-join-voice"
+				} else if member {
+					"invites-show-go-to-server"
+				} else if verification {
+					"invites-show-verify"
+				} else if pending {
+					"invites-show-joining"
+				} else if accepted {
+					"invites-show-accepted"
+				} else {
+					"invites-show-join"
+				}),
+				enabled,
+				fill: colors.accent,
+				icon: voice_channel.map(|_| crate::icons::Icon::Speaker),
+			};
+			let status = if verification {
+				Some(Status {
+					text: crate::i18n::translate("invites-show-verification-required"),
+					color: colors.accent,
+				})
+			} else {
+				join_error.map(|error| Status {
+					text: error.label().to_owned(),
+					color: colors.danger,
+				})
+			};
+			let clicked = match voice {
+				Some(name) => voice_card(
+					ui,
+					width,
+					name,
+					preview.and_then(|p| p.channel).filter(|_| member),
+					state,
+					images,
+					status,
+					&button,
+				),
+				None => {
+					let embed = preview.map(|p| &p.embed);
+					let title = embed.and_then(|e| e.title.clone()).unwrap_or_else(|| {
+						crate::i18n::translate_if_key(if failed {
+							"invites-show-invite-expired-or-invalid"
+						} else if demo {
+							"invites-show-server-preview"
+						} else {
+							"invites-show-loading"
+						})
+					});
+					let status = status.or_else(|| {
+						let counted = embed
+							.and_then(|e| e.description.as_deref())
+							.and_then(counts)
+							.is_some();
+						(!counted).then(|| Status {
+							text: if let Some(d) = embed.and_then(|e| e.description.as_deref()) {
+								d.to_owned()
+							} else if demo {
+								crate::i18n::translate("invites-show-preview-unavailable-offline")
 							} else if failed {
-								"invites-show-invite-unavailable"
+								crate::i18n::translate("invites-show-this-invite-may-have-expired")
 							} else {
-								"invites-show-you-ve-been-invited-to-join-a-server"
-							});
-							ui.label(crate::design::eyebrow(ui, eyebrow, colors.muted));
-							ui.add_space(12.0);
-							ui.horizontal(|ui| {
-								ui.spacing_mut().item_spacing.x = 16.0;
-								let (icon_rect, _) = ui.allocate_exact_size(
-									egui::vec2(50.0, 50.0),
-									egui::Sense::hover(),
-								);
-								if let Some(icon) = embed.and_then(|e| e.thumbnail.as_ref()) {
-									let mut icon_ui =
-										ui.new_child(egui::UiBuilder::new().max_rect(icon_rect));
-									images.show_media(
-										&mut icon_ui,
-										icon,
-										icon_rect.size(),
-										demo,
-										Surface::Inline,
-									);
-								} else {
-									ui.painter().rect_filled(icon_rect, 16, colors.sidebar);
-									let initial = embed
-										.and_then(|e| e.title.as_deref())
-										.and_then(|t| t.chars().next())
-										.map(|c| c.to_uppercase().to_string());
-									ui.painter().text(
-										icon_rect.center(),
-										egui::Align2::CENTER_CENTER,
-										initial.as_deref().unwrap_or("?"),
-										egui::FontId::proportional(20.0),
-										colors.text_strong,
-									);
-								}
-
-								let label = crate::i18n::translate_if_key(if member {
-									"invites-show-go-to-server"
-								} else if verification {
-									"invites-show-verify"
-								} else if pending {
-									"invites-show-joining"
-								} else if accepted {
-									"invites-show-accepted"
-								} else {
-									"invites-show-join"
-								});
-								let enabled =
-									member || verification || state.can_join_invite(&code);
-								let fill = if verification {
-									colors.accent
-								} else if enabled {
-									colors.positive
-								} else {
-									colors.selected
-								};
-								let text = if enabled {
-									egui::Color32::WHITE
-								} else {
-									colors.muted
-								};
-								let button = egui::Button::new(
-									crate::design::semibold(ui, &label, 14.0).color(text),
-								)
-								.fill(fill)
-								.stroke(egui::Stroke::NONE)
-								.corner_radius(6)
-								.min_size(egui::vec2(72.0, 36.0));
-
-								let font_id = egui::FontId::new(
-									14.0,
-									crate::design::semibold_family(ui.ctx()),
-								);
-								let galley =
-									ui.painter().layout_no_wrap(label.clone(), font_id, text);
-								let button_padding = ui.spacing().button_padding.x * 2.0;
-								let button_width = (galley.size().x + button_padding).max(72.0);
-								let gap = ui.spacing().item_spacing.x + 12.0;
-								let text_width =
-									(ui.available_width() - button_width - gap).max(0.0);
-
-								ui.allocate_ui_with_layout(
-									egui::vec2(text_width, 50.0),
-									egui::Layout::top_down(egui::Align::Min),
-									|ui| {
-										ui.spacing_mut().item_spacing.y = 4.0;
-										ui.add_space(4.0);
-										let title = embed
-											.and_then(|e| e.title.clone())
-											.unwrap_or_else(|| {
-												crate::i18n::translate_if_key(if failed {
-													"invites-show-invite-expired-or-invalid"
-												} else if demo {
-													"invites-show-server-preview"
-												} else {
-													"invites-show-loading"
-												})
-											});
-										ui.add(
-											egui::Label::new(
-												crate::design::semibold(ui, title, 16.0)
-													.color(colors.text_strong),
-											)
-											.truncate()
-											.selectable(false),
-										);
-										ui.horizontal(|ui| {
-											ui.spacing_mut().item_spacing.x = 6.0;
-											match embed
-												.and_then(|e| e.description.as_deref())
-												.and_then(counts)
-												.filter(|_| join_error.is_none() && !verification)
-											{
-												Some((online, members)) => {
-													dot_stat(
-														ui,
-														colors.positive,
-														online,
-														"server-settings-preview-online",
-													);
-													ui.add_space(6.0);
-													dot_stat(
-														ui,
-														colors.muted,
-														members,
-														"server-settings-preview-members",
-													);
-												}
-												None => {
-													let text = if verification {
-														crate::i18n::translate(
-															"invites-show-verification-required",
-														)
-													} else if let Some(f) = join_error {
-														f.label().to_owned()
-													} else if let Some(d) =
-														embed.and_then(|e| e.description.as_deref())
-													{
-														d.to_owned()
-													} else if demo {
-														crate::i18n::translate(
-															"invites-show-preview-unavailable-offline",
-														)
-													} else if failed {
-														crate::i18n::translate(
-															"invites-show-this-invite-may-have-expired",
-														)
-													} else {
-														crate::i18n::translate(
-															"invites-show-fetching-server-details",
-														)
-													};
-													ui.add(
-														egui::Label::new(
-															egui::RichText::new(&text)
-																.size(13.0)
-																.color(if verification {
-																	colors.accent
-																} else if join_error.is_some() {
-																	colors.danger
-																} else {
-																	colors.muted
-																}),
-														)
-														.truncate()
-														.selectable(false),
-													)
-													.on_hover_text(&text);
-												}
-											}
-										});
-									},
-								);
-								ui.add_space(12.0);
-								ui.add_enabled_ui(enabled, |ui| {
-									if ui.add(button).clicked() {
-										*action = Some(
-											if let Some(preview) = preview.filter(|_| member) {
-												if let Some(guild) = preview
-													.guild
-													.filter(|&g| state.guild(g).is_some())
-												{
-													Action::OpenGuild(guild)
-												} else if let Some(channel) = preview
-													.channel
-													.filter(|&c| state.channel(c).is_some())
-												{
-													Action::OpenChannel(channel)
-												} else {
-													Action::Join(code.clone())
-												}
-											} else {
-												Action::Join(code.clone())
-											},
-										);
-									}
-								});
-							});
-						});
-				},
-			);
+								crate::i18n::translate("invites-show-fetching-server-details")
+							},
+							color: colors.muted,
+						})
+					});
+					server_card(ui, width, &title, preview, status, images, demo, &button)
+				}
+			};
+			if clicked {
+				*action = Some(if let Some(channel) = voice_channel {
+					Action::JoinVoice(channel)
+				} else if let Some(preview) = preview.filter(|_| member) {
+					if let Some(guild) = preview.guild.filter(|&g| state.guild(g).is_some()) {
+						Action::OpenGuild(guild)
+					} else if let Some(channel) =
+						preview.channel.filter(|&c| state.channel(c).is_some())
+					{
+						Action::OpenChannel(channel)
+					} else {
+						Action::Join(code.clone())
+					}
+				} else {
+					Action::Join(code.clone())
+				});
+			}
 			ui.add_space(4.0);
 		});
 	}
+}
+
+/// Discord's server invite: banner, an icon overlapping it, name, counts, age, description
+/// and one full-width action.
+#[allow(clippy::too_many_arguments)]
+fn server_card(
+	ui: &mut egui::Ui,
+	width: f32,
+	title: &str,
+	preview: Option<&model::InvitePreview>,
+	status: Option<Status>,
+	images: &mut Avatars,
+	demo: bool,
+	button: &Button,
+) -> bool {
+	let colors = crate::design::palette(ui);
+	let detail = colors.text.lerp_to_gamma(colors.muted, 0.4);
+	let embed = preview.map(|p| &p.embed);
+	let mut clicked = false;
+	egui::Frame::new()
+		.fill(colors.raised)
+		.corner_radius(CARD_RADIUS)
+		.stroke(egui::Stroke::new(1.0, colors.border))
+		.show(ui, |ui| {
+			ui.set_width(width);
+			ui.spacing_mut().item_spacing.y = 0.0;
+			let (banner, _) =
+				ui.allocate_exact_size(egui::vec2(width, BANNER), egui::Sense::hover());
+			let top = egui::CornerRadius {
+				nw: CARD_RADIUS,
+				ne: CARD_RADIUS,
+				sw: 0,
+				se: 0,
+			};
+			ui.painter()
+				.rect_filled(banner, top, colors.accent.gamma_multiply(0.35));
+			if let Some(image) = embed.and_then(|e| e.image.as_ref()) {
+				// Paint past the banner's bottom and clip it, so only the top corners round.
+				let mut child = ui.new_child(
+					egui::UiBuilder::new().max_rect(banner.with_max_y(banner.bottom() + 24.0)),
+				);
+				child.set_clip_rect(banner.intersect(ui.clip_rect()));
+				images.show_media(
+					&mut child,
+					image,
+					egui::vec2(width, BANNER + 24.0),
+					demo,
+					Surface::Banner,
+				);
+			}
+			let icon = egui::Rect::from_min_size(
+				egui::pos2(banner.left() + PAD, banner.bottom() - ICON_RISE),
+				egui::Vec2::splat(ICON),
+			);
+			// The card's own fill rings the icon where it overlaps the banner.
+			ui.painter()
+				.rect_filled(icon.expand(4.0), 22, colors.raised);
+			match (preview, preview.and_then(|p| p.guild)) {
+				(Some(preview), Some(guild)) if preview.guild_icon.is_some() => {
+					let guild = model::Guild {
+						default_message_notifications: None,
+						stickers: None,
+						emojis: None,
+						id: guild,
+						name: title.to_owned(),
+						icon: preview.guild_icon.clone(),
+					};
+					images.paint_guild(ui, &guild, icon, demo, 18);
+				}
+				_ => {
+					ui.painter().rect_filled(icon, 18, colors.sidebar);
+					let initial = title
+						.chars()
+						.next()
+						.map(|c| c.to_uppercase().to_string())
+						.unwrap_or_else(|| "?".into());
+					ui.painter().text(
+						icon.center(),
+						egui::Align2::CENTER_CENTER,
+						initial,
+						egui::FontId::proportional(24.0),
+						colors.text_strong,
+					);
+				}
+			}
+			ui.add_space(ICON - ICON_RISE + 10.0);
+			egui::Frame::new()
+				.inner_margin(egui::Margin {
+					left: PAD as i8,
+					right: PAD as i8,
+					top: 0,
+					bottom: PAD as i8,
+				})
+				.show(ui, |ui| {
+					ui.set_width(width - 2.0 * PAD);
+					ui.spacing_mut().item_spacing.y = 2.0;
+					ui.add(
+						egui::Label::new(
+							crate::design::semibold(ui, title, 16.0).color(colors.text_strong),
+						)
+						.truncate()
+						.selectable(false),
+					);
+					ui.add_space(2.0);
+					match status {
+						Some(status) => {
+							ui.add(
+								egui::Label::new(
+									egui::RichText::new(&status.text)
+										.size(13.0)
+										.color(status.color),
+								)
+								.truncate()
+								.selectable(false),
+							)
+							.on_hover_text(&status.text);
+						}
+						None => {
+							if let Some((online, members)) = embed
+								.and_then(|e| e.description.as_deref())
+								.and_then(counts)
+							{
+								ui.horizontal(|ui| {
+									ui.spacing_mut().item_spacing.x = 5.0;
+									stat(
+										ui,
+										colors.positive,
+										online,
+										"server-settings-preview-online",
+										detail,
+									);
+									ui.add_space(8.0);
+									stat(
+										ui,
+										detail,
+										members,
+										"server-settings-preview-members",
+										detail,
+									);
+								});
+							}
+							if let Some(established) =
+								preview.and_then(|p| p.guild).and_then(established)
+							{
+								ui.label(egui::RichText::new(established).size(13.0).color(detail));
+							}
+							if let Some(about) = preview.and_then(|p| p.about.as_deref()) {
+								ui.add_space(8.0);
+								let mut job = egui::text::LayoutJob::simple(
+									about.to_owned(),
+									egui::FontId::proportional(13.0),
+									detail,
+									width - 2.0 * PAD,
+								);
+								job.wrap.max_rows = 3;
+								job.wrap.overflow_character = Some('…');
+								ui.add(egui::Label::new(job).selectable(false));
+							}
+						}
+					}
+					ui.add_space(12.0);
+					clicked = action_button(ui, button).clicked();
+				});
+		});
+	clicked
+}
+
+/// One count beside its coloured dot, at the card's detail size.
+fn stat(ui: &mut egui::Ui, dot: egui::Color32, value: &str, label: &str, color: egui::Color32) {
+	let (rect, _) = ui.allocate_exact_size(egui::vec2(7.0, 16.0), egui::Sense::hover());
+	ui.painter().circle_filled(rect.center(), 3.5, dot);
+	ui.add(
+		egui::Label::new(
+			egui::RichText::new(format!("{value} {}", crate::i18n::translate_if_key(label)))
+				.size(13.0)
+				.color(color),
+		)
+		.truncate()
+		.selectable(false),
+	);
+}
+
+/// Discord's voice channel invite: the channel's name over who is in it and a join action.
+/// Only members can see the channel's roster.
+#[allow(clippy::too_many_arguments)]
+fn voice_card(
+	ui: &mut egui::Ui,
+	width: f32,
+	name: &str,
+	channel: Option<model::Id>,
+	state: &client_core::State,
+	images: &mut Avatars,
+	status: Option<Status>,
+	button: &Button,
+) -> bool {
+	let colors = crate::design::palette(ui);
+	let mut clicked = false;
+	egui::Frame::new()
+		.fill(colors.raised)
+		.corner_radius(CARD_RADIUS)
+		.stroke(egui::Stroke::new(1.0, colors.border))
+		.show(ui, |ui| {
+			ui.set_width(width);
+			ui.spacing_mut().item_spacing.y = 0.0;
+			let (header, _) = ui.allocate_exact_size(egui::vec2(width, 44.0), egui::Sense::hover());
+			let speaker = egui::Rect::from_center_size(
+				egui::pos2(header.left() + PAD + 9.0, header.center().y),
+				egui::Vec2::splat(18.0),
+			);
+			crate::icons::paint(
+				ui.painter(),
+				crate::icons::Icon::Speaker,
+				speaker,
+				colors.muted,
+			);
+			let galley = ui.painter().layout(
+				name.to_owned(),
+				egui::FontId::proportional(15.0),
+				colors.muted,
+				(header.right() - PAD - speaker.right() - 10.0).max(16.0),
+			);
+			let galley = if galley.rows.len() > 1 {
+				let mut job = egui::text::LayoutJob::simple_singleline(
+					name.to_owned(),
+					egui::FontId::proportional(15.0),
+					colors.muted,
+				);
+				job.wrap = egui::text::TextWrapping::truncate_at_width(
+					(header.right() - PAD - speaker.right() - 10.0).max(16.0),
+				);
+				ui.painter().layout_job(job)
+			} else {
+				galley
+			};
+			ui.painter().galley(
+				egui::pos2(
+					speaker.right() + 10.0,
+					header.center().y - galley.size().y / 2.0,
+				),
+				galley,
+				colors.muted,
+			);
+			egui::Frame::new()
+				.fill(colors.sidebar)
+				.corner_radius(egui::CornerRadius {
+					nw: 0,
+					ne: 0,
+					sw: CARD_RADIUS,
+					se: CARD_RADIUS,
+				})
+				.inner_margin(PAD)
+				.show(ui, |ui| {
+					ui.set_width(width - 2.0 * PAD);
+					ui.spacing_mut().item_spacing.y = 4.0;
+					let roster: Vec<_> = channel
+						.map(|channel| {
+							state
+								.voice
+								.roster
+								.iter()
+								.filter(|entry| entry.channel == channel)
+								.collect()
+						})
+						.unwrap_or_default();
+					if let Some(status) = status {
+						ui.add(
+							egui::Label::new(
+								egui::RichText::new(&status.text)
+									.size(13.0)
+									.color(status.color),
+							)
+							.truncate()
+							.selectable(false),
+						);
+					} else if roster.is_empty() {
+						ui.label(
+							egui::RichText::new(crate::i18n::translate(
+								"invites-show-no-one-in-voice",
+							))
+							.size(13.0)
+							.color(colors.muted),
+						);
+					} else {
+						ui.horizontal(|ui| {
+							ui.spacing_mut().item_spacing.x = 4.0;
+							for entry in roster.iter().take(8) {
+								match &entry.member {
+									Some(member) => {
+										images.show_quiet(ui, &member.user, 24.0, state.demo);
+									}
+									None => {
+										let (rect, _) = ui.allocate_exact_size(
+											egui::Vec2::splat(24.0),
+											egui::Sense::hover(),
+										);
+										ui.painter().circle_filled(
+											rect.center(),
+											12.0,
+											colors.hover,
+										);
+									}
+								}
+							}
+							ui.add_space(4.0);
+							ui.label(
+								egui::RichText::new(crate::i18n::translate_args(
+									"invites-show-in-voice",
+									&[("count", &roster.len().to_string())],
+								))
+								.size(12.0)
+								.color(colors.muted),
+							);
+						});
+					}
+					ui.add_space(12.0);
+					clicked = action_button(ui, button).clicked();
+				});
+		});
+	if channel.is_none() {
+		ui.add_space(4.0);
+		ui.horizontal(|ui| {
+			ui.spacing_mut().item_spacing.x = 4.0;
+			crate::icons::inline(ui, crate::icons::Icon::EyeSlash, 14.0, colors.muted);
+			ui.label(
+				egui::RichText::new(crate::i18n::translate("invites-show-members-see-voice"))
+					.size(12.0)
+					.color(colors.muted),
+			);
+		});
+	}
+	clicked
+}
+
+/// "Est. Sep 2026", from the server id's creation time.
+fn established(guild: model::Id) -> Option<String> {
+	let seconds = ((guild.0 >> 22) + 1_420_070_400_000) / 1000;
+	let date = time::OffsetDateTime::from_unix_timestamp(i64::try_from(seconds).ok()?).ok()?;
+	let month = date.month().to_string();
+	Some(crate::i18n::translate_args(
+		"invites-show-established",
+		&[(
+			"date",
+			&format!("{} {}", month.get(..3).unwrap_or(&month), date.year()),
+		)],
+	))
+}
+
+/// Full-width card action: filled, rounded, with an optional leading icon.
+fn action_button(ui: &mut egui::Ui, button: &Button) -> egui::Response {
+	let colors = crate::design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(
+		egui::vec2(ui.available_width(), 34.0),
+		if button.enabled {
+			egui::Sense::click()
+		} else {
+			egui::Sense::hover()
+		},
+	);
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(egui::Role::Button, button.enabled, &button.label)
+	});
+	let fill = if !button.enabled {
+		colors.selected
+	} else if response.is_pointer_button_down_on() {
+		button.fill.lerp_to_gamma(egui::Color32::BLACK, 0.22)
+	} else if response.hovered() || response.has_focus() {
+		button.fill.lerp_to_gamma(egui::Color32::BLACK, 0.12)
+	} else {
+		button.fill
+	};
+	let text = if button.enabled {
+		colors.accent_text
+	} else {
+		colors.muted
+	};
+	let painter = ui.painter();
+	painter.rect_filled(rect, 6, fill);
+	painter.rect_stroke(
+		rect,
+		6,
+		egui::Stroke::new(
+			1.0,
+			egui::Color32::from_white_alpha(if button.enabled { 24 } else { 0 }),
+		),
+		egui::StrokeKind::Inside,
+	);
+	if response.has_focus() {
+		painter.rect_stroke(
+			rect.expand(2.0),
+			10,
+			egui::Stroke::new(2.0, colors.accent),
+			egui::StrokeKind::Outside,
+		);
+	}
+	let galley = painter.layout_no_wrap(
+		button.label.clone(),
+		egui::FontId::new(14.0, crate::design::medium_family(ui.ctx())),
+		text,
+	);
+	let icon = if button.icon.is_some() {
+		18.0 + 6.0
+	} else {
+		0.0
+	};
+	let left = rect.center().x - (icon + galley.size().x) / 2.0;
+	if let Some(glyph) = button.icon {
+		crate::icons::paint(
+			painter,
+			glyph,
+			egui::Rect::from_center_size(
+				egui::pos2(left + 9.0, rect.center().y),
+				egui::Vec2::splat(18.0),
+			),
+			text,
+		);
+	}
+	painter.galley(
+		egui::pos2(left + icon, rect.center().y - galley.size().y / 2.0),
+		galley,
+		text,
+	);
+	if button.enabled && response.hovered() {
+		ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+	}
+	response
 }
 #[cfg(test)]
 mod tests {
@@ -403,6 +730,9 @@ mod tests {
 				std::time::Instant::now(),
 				Some(Ok(model::InvitePreview {
 					guild: Some(model::Id(999)),
+					about: None,
+					guild_icon: None,
+					voice_channel: None,
 					channel: None,
 					embed: model::Embed {
 						title: Some("Rust Server".into()),

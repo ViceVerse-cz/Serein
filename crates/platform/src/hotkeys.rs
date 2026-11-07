@@ -609,7 +609,16 @@ async fn portal(
 	let mut ids = Vec::with_capacity(triggers.len());
 	let mut shortcuts = Vec::with_capacity(triggers.len());
 	for (index, (trigger, action, group_chords)) in triggers.iter().enumerate() {
-		let id = format!("serein-{index}");
+		// Portals remember triggers by ID, so an ID must never move to another action when
+		// bindings change. Only an action's own extra triggers are numbered.
+		let earlier = triggers[..index]
+			.iter()
+			.filter(|(_, owner, _)| owner == action)
+			.count();
+		let id = match earlier {
+			0 => portal_id(*action).to_owned(),
+			n => format!("{}-{}", portal_id(*action), n + 1),
+		};
 		ids.push((id.clone(), *action, index as u32, group_chords.clone()));
 		shortcuts.push(
 			NewShortcut::new(id, portal_description(*action)).preferred_trigger(trigger.as_str()),
@@ -633,6 +642,23 @@ async fn portal(
 		.max_queued(16)
 		.build()
 		.await?;
+	// A host install has no portal app ID until this connection registers one; Flatpak skips
+	// it. Portals without the Registry interface, or without an installed
+	// cz.viceverse.serein.desktop entry, reject it, so the session request still proceeds.
+	if let Ok(app_id) = "cz.viceverse.serein".parse() {
+		match tokio::time::timeout(
+			std::time::Duration::from_secs(5),
+			ashpd::register_host_app_with_connection(connection.clone(), app_id),
+		)
+		.await
+		{
+			Ok(Ok(())) => {}
+			Ok(Err(error)) => {
+				eprintln!("Global shortcuts: portal app ID registration failed: {error}")
+			}
+			Err(_) => eprintln!("Global shortcuts: portal app ID registration timed out"),
+		}
+	}
 	let proxy = GlobalShortcuts::with_connection(connection).await?;
 	let session = proxy.create_session(Default::default()).await?;
 	let mut activated = proxy.receive_activated().await?;
@@ -722,6 +748,17 @@ async fn portal(
 				wake();
 			}
 		}
+	}
+}
+
+#[cfg(target_os = "linux")]
+fn portal_id(action: KeybindAction) -> &'static str {
+	match action {
+		KeybindAction::PushToTalk => "push-to-talk",
+		KeybindAction::PushToMute => "push-to-mute",
+		KeybindAction::ToggleMute => "toggle-mute",
+		KeybindAction::ToggleDeafen => "toggle-deafen",
+		_ => "voice-shortcut",
 	}
 }
 

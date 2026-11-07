@@ -51,8 +51,10 @@ general-start-minimized = Spustit minimalizovaně
 general-start-minimized-description = Spustí se na pozadí, aby vám nepřekážel.
 general-startup-unavailable = Automatické spuštění je dostupné ve Windows a macOS.
 general-window = Okno
-general-hide-decorations = Skrýt dekorace okna
-general-hide-decorations-description = Odebere systémový titulní pruh a okraje. K přesunu, změně velikosti nebo zavření použijte správce oken.
+general-hide-decorations = Bez záhlaví okna
+general-hide-decorations-description = Pro dlaždicové správce oken: odebere všechna záhlaví a okraje včetně záhlaví Serein. K přesunu, změně velikosti nebo zavření použijte správce oken.
+general-custom-title-bar = Vlastní záhlaví okna
+general-custom-title-bar-description = Nahradí systémový titulní pruh záhlavím Serein ve stylu GTK 4.
 general-hide-title-bar = Skrýt titulní pruh Sereinu
 general-hide-title-bar-description = Místo něj použije systémový titulní pruh a tlačítka okna.
 general-keep-menu-bar = Ponechat Serein v řádku nabídek
@@ -65,6 +67,8 @@ general-graphics = Grafika
 general-render-with = Vykreslovat pomocí
 general-gpu-restart = Projeví se při příštím spuštění Sereinu.
 general-gpu-current-prefix = Aktuálně vykresluje
+general-steady-refresh-rate = Stálá obnovovací frekvence
+general-steady-refresh-rate-description = Dokud je Serein aktivním oknem, vykresluje na obnovovací frekvenci displeje, takže monitory s proměnlivou obnovovací frekvencí (VRR, G-SYNC, FreeSync) mohou držet jednu frekvenci a neblikat. Spotřebovává více energie.
 gpu-automatic = Automaticky
 gpu-high-performance = Vysoký výkon
 gpu-power-saving = Úspora energie
@@ -1649,8 +1653,6 @@ main-restoring-screen-welcome-back = Vítejte zpět
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Uložené účty
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Vlastním tento účet a autorizuji tuto relaci.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Hesla a 2FA zůstávají na vlastní přihlašovací stránce Discordu; ve vašem úložišti pověření OS je zachován pouze token relace.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = O Serein
@@ -2264,6 +2266,12 @@ screen-body-frame-rate = Snímková frekvence
 screen-body-include-the-pointer-in-the-shared-video = Zahrnout ukazatel do sdíleného videa.
 # Context: body
 screen-body-quality = Kvalitní
+# Context: body
+screen-body-source = Zdroj
+# Context: body
+screen-preview-paused-title = Váš stream stále běží!
+# Context: body
+screen-preview-paused-body = Náhled jsme pozastavili, abychom šetřili prostředky.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = Výběr kvality nevyžaduje Nitro.
 # Context: body
@@ -4154,8 +4162,6 @@ voice-device-combo-device-unavailable = Zařízení není k dispozici
 voice-device-default = Výchozí nastavení systému
 # Context: frame
 voice-frame-open-voice = Otevřený hlas
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% je původní úroveň. Vyšší úrovně mohou zkreslit.
 # Context: labels
 voice-labels-choose-camera = Vyberte fotoaparát
 # Context: live_badge
@@ -4260,12 +4266,6 @@ voice-voice-participant-microphone-muted = Mikrofon ztlumen
 voice-voice-participant-muted-by-server = Ztlumeno serverem
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Ztlumeno pro vás na tomto zařízení
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Vyberte si algoritmus ve všech nastaveních hlasu.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen vypne příchozí zvuk a ztlumí vám mikrofon.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Když chcete mluvit, podržte nakonfigurovanou zkratku.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Chcete-li používat tyto ovládací prvky, nainstalujte sestavení s podporou hlasu.
 # Context: voice_popup_content
