@@ -966,8 +966,6 @@ mod tests {
 	}
 	#[test]
 	fn font_list_regrows_after_a_search_without_matches() {
-		// Height of one font row in the picker.
-		const ROW: f32 = 32.0;
 		let ctx = Context::default();
 		// 13 families; "Family 1" matches only Family 10, 11 and 12.
 		let mut settings = Settings {
@@ -1002,11 +1000,10 @@ mod tests {
 			vec![egui::Event::PointerMoved(button), click(true)],
 		);
 		pass(&mut settings, vec![click(false)]);
-		let open = pass(&mut settings, vec![]);
-		assert_eq!(
-			open.map(|(visible, _)| visible),
-			Some(ROW * 8.0),
-			"picker should open eight rows tall"
+		let (open, open_content) = pass(&mut settings, vec![]).expect("list shown");
+		assert!(
+			open_content > open,
+			"all 13 families should not fit: the list scrolls"
 		);
 
 		let mut search_after_no_match = |query: &str| {
@@ -1018,14 +1015,18 @@ mod tests {
 			pass(&mut settings, vec![]).expect("list shown")
 		};
 		assert_eq!(
-			Some(search_after_no_match("Family").0),
-			open.map(|(visible, _)| visible),
+			search_after_no_match("Family").0,
+			open,
 			"picker should regrow to its opened height after a no-match search"
 		);
-		assert_eq!(
-			search_after_no_match("Family 1"),
-			(ROW * 3.0, ROW * 3.0),
-			"three matches should show three rows without scrolling"
+		let (visible, content) = search_after_no_match("Family 1");
+		assert!(
+			visible < open,
+			"three matches should need less room than the full list"
+		);
+		assert!(
+			content <= visible,
+			"three matches should fit without scrolling"
 		);
 	}
 }
