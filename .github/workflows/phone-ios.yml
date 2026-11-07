@@ -20,7 +20,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
+    # Expo SDK 58 needs Swift 6.2, which the macOS 15 image does not ship.
+    runs-on: macos-26
     timeout-minutes: 45
     defaults:
       run:
