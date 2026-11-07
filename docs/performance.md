@@ -1744,3 +1744,37 @@ bulk reconciliation, unlike the earlier message-only replay. No speedup, RSS, UI
 Discord compatibility, or message-creation classification throughput is established by them.
 The ledger keeps its 4,096-row / 128-KiB bound. The PR records the measured runtime commit;
 subsequent documentation-only changes do not affect these Rust sources.
+
+## Lone side-modifier and controller voice keybinds (2026-11-03)
+
+Compared baseline `7e71af5` (main) with this branch on Windows 11 x64 (10.0.26300),
+AMD Ryzen 9 9900X3D, 32 GiB RAM, pinned Rust 1.98.1 and locked dependencies. Both standard
+`cargo xtask package` builds include voice and disable developer/default features, built in
+separate worktrees and target directories. NSIS is unavailable, so there is no installer.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 92,810,240 | 92,914,176 | +103,936 / +0.112% |
+| Installed payload bytes (233 / 234 files) | 97,169,437 | 97,274,783 | +105,346 / +0.108% |
+| ZIP bytes (.NET `ZipFile`, Optimal) | 53,173,457 | 53,214,241 | +40,784 / +0.077% |
+
+The extra installed file is the `hidapi` MIT license text.
+
+The input poller runs only while a voice action is bound to a lone side modifier or controller
+button, or while a binding is being recorded. A throwaway release harness constructed
+`platform::hotkeys::Hotkeys`, synced one Push to Talk binding while unfocused, and idled. Each
+mode had a 5 s warmup, then process CPU over 30 s. These are one sample per mode, so the
+differences are approximate.
+
+| Binding | CPU, one core | Threads |
+| --- | ---: | ---: |
+| None (default keybinds) | 0.000% | 1 |
+| Right Ctrl | 0.104% | 2 |
+| DualSense Cross (USB pad connected) | 0.312% | 3 |
+
+This measures the poller alone, not the full application, frame latency or live voice.
+The macOS poller and the Bluetooth/Edge pad paths were not measured.
+
+On Windows the poller also runs whenever global keybinds are on and a voice action uses
+Mouse 3, 4 or 5, since those buttons have no OS registrar there (pre-existing behavior, not
+part of this branch's measurements above).

@@ -188,6 +188,8 @@ fn shift_clicked(ui: &egui::Ui, response: &egui::Response) -> bool {
 	})
 }
 
+/// Member list rows for a thread pane: people first, then an optional group row before
+/// each offline or role block.
 fn thread_member_rows<'a>(
 	state: &'a State,
 	list: &'a model::MemberList,
@@ -515,6 +517,8 @@ pub struct MessagingUi {
 	/// Device-local application shortcuts; the desktop host mirrors the global binding.
 	pub keybinds: model::Keybinds,
 	keybind_capture: Option<crate::keybinds::CaptureTarget>,
+	/// Latest pad and side-modifier down mask from the native poller.
+	polled_down: u32,
 	pub global_keybind_status: &'static str,
 	/// Server folders the owner left open; restored from device preferences at startup.
 	pub expanded_folders: Vec<u64>,
@@ -692,6 +696,17 @@ impl MessagingUi {
 	/// Returns whether the configured push-to-talk chord is held in the focused window.
 	pub fn push_to_talk_down(&self, ctx: &egui::Context) -> bool {
 		self.voice_hold_down(ctx, model::KeybindAction::PushToTalk)
+	}
+
+	/// Stores the latest down mask from the native poller; its bits index
+	/// `model::keybinds::POLLED_KEYS`.
+	pub fn set_polled_down(&mut self, mask: u32) {
+		self.polled_down = mask;
+	}
+
+	/// Whether a settings row is recording its next key, pad button, or chord.
+	pub fn keybind_capturing(&self) -> bool {
+		self.keybind_capture.is_some()
 	}
 
 	/// Returns whether the configured push-to-mute chord is held in the focused window.
@@ -4396,6 +4411,8 @@ impl MessagingUi {
 		})
 	}
 
+	/// Keeps the profile panel pointed at the open user: webhooks close it, an unchanged
+	/// target is left alone, and demo state resolves locally instead of requesting.
 	fn sync_profile(
 		&mut self,
 		state: &mut State,
@@ -4443,7 +4460,19 @@ impl MessagingUi {
 		}
 	}
 
+	/// Draws the whole window for one frame and returns the commands the UI produced. A
+	/// capture whose recording row left the screen is cleared here, before it can keep the
+	/// polled voice shortcuts gated.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		// Recording keeps every polled voice shortcut gated, so a capture whose row has
+		// left the screen must not survive into the next frame.
+		if !self.settings.open
+			|| !matches!(
+				self.settings.page,
+				settings::Page::Keybinds | settings::Page::Voice
+			) {
+			self.keybind_capture = None;
+		}
 		self.avatars.cosmetics = self.cosmetics;
 		name_styles::set_enabled(self.cosmetics.name_styles);
 		role_names::set_gradients(!self.cosmetics.solid_names);
@@ -6227,6 +6256,8 @@ mod composer_tests {
 		);
 	}
 
+	/// The diagnostics shortcut copies an existing report and leaves the clipboard alone
+	/// while a chord is being recorded.
 	#[test]
 	fn diagnostics_shortcut_copies_existing_report_and_respects_key_capture() {
 		let ctx = egui::Context::default();
@@ -6250,6 +6281,9 @@ mod composer_tests {
 			view.keybind_capture = capturing.then_some(crate::keybinds::CaptureTarget::BuiltIn(
 				model::KeybindAction::ToggleMute,
 			));
+			// Capture only survives while its row is on screen.
+			view.settings.open = capturing;
+			view.settings.page = settings::Page::Keybinds;
 			view.ime_active = composing;
 			let expected = view.diagnostic_info(&ctx);
 			let output = ctx.run_ui(
@@ -6284,6 +6318,40 @@ mod composer_tests {
 		}
 	}
 
+	/// A capture is cleared once its recording row leaves the screen, so the polled voice
+	/// shortcuts are not gated forever.
+	#[test]
+	fn capture_cleared_once_the_recording_row_leaves_the_screen() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let mut view = MessagingUi::default();
+		let capture = || {
+			Some(crate::keybinds::CaptureTarget::BuiltIn(
+				model::KeybindAction::PushToTalk,
+			))
+		};
+		let frame = |view: &mut MessagingUi, state: &mut client_core::State| {
+			let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+				view.show(ui, state);
+			});
+			output.drop_without_applying_deltas();
+		};
+		for (open, page, remains) in [
+			(false, settings::Page::Keybinds, false),
+			(true, settings::Page::General, false),
+			(true, settings::Page::Keybinds, true),
+			(true, settings::Page::Voice, true),
+		] {
+			view.settings.open = open;
+			view.settings.page = page;
+			view.keybind_capture = capture();
+			frame(&mut view, &mut state);
+			assert_eq!(view.keybind_capture.is_some(), remains);
+			assert_eq!(view.keybind_capturing(), remains);
+		}
+	}
+
+	/// A mouse button bound to push-to-mute holds the mute instead of navigating back.
 	#[test]
 	fn a_bound_mouse_button_holds_push_to_mute_instead_of_navigating() {
 		let mut view = MessagingUi::default();

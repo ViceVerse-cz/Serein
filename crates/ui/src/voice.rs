@@ -2488,6 +2488,8 @@ impl MessagingUi {
 		}
 	}
 
+	/// Draws the shared voice settings body used by both the popup and the settings page.
+	/// `compact` tightens spacing; `active` reflects a connected call.
 	pub(super) fn voice_settings_content(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -2536,6 +2538,7 @@ impl MessagingUi {
 				ui,
 				&mut self.keybinds,
 				&mut self.keybind_capture,
+				self.polled_down,
 				self.global_keybind_status,
 			);
 		}

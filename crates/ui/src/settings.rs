@@ -7,7 +7,7 @@ use egui::RichText;
 #[derive(Default)]
 pub(super) struct Settings {
 	pub open: bool,
-	page: Page,
+	pub(super) page: Page,
 	query: String,
 	language_time_format: Option<(model::TimeFormat, Language)>,
 	pub(super) editor: crate::profile_edit::Editor,
@@ -17,7 +17,7 @@ pub(super) struct Settings {
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum Page {
+pub(super) enum Page {
 	Account,
 	Profile,
 	General,
@@ -309,6 +309,9 @@ impl MessagingUi {
 			self.settings.page = page;
 		}
 	}
+
+	/// Draws the settings modal at the size the window allows and returns nothing; page
+	/// state lives on `self.settings`.
 	pub(super) fn show_settings(
 		&mut self,
 		ctx: &egui::Context,
@@ -485,6 +488,7 @@ impl MessagingUi {
 										ui,
 										&mut self.keybinds,
 										&mut self.keybind_capture,
+										self.polled_down,
 										self.global_keybind_status,
 									),
 									Page::Extensions | Page::Themes => {
