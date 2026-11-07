@@ -24,6 +24,28 @@ history/cache and message transports are shared. Normal-account interoperability
 unofficial and live-unverified. The offline debug check is
 `cargo run --locked -p ui --example voice_chat`.
 
+**Pop Out** in the call control bar (an arrow-out-of-box button beside Fullscreen, guild and DM
+calls) moves the live stage into its own decorated, resizable window titled
+`<channel name> — Serein`, minimum 480×320, not always-on-top. It carries the same tiles, focus
+and stream overlay controls and the complete control bar; its own **Fullscreen** button works for
+any stage (not only an enlarged tile) and covers the popout's monitor only, with Escape to exit.
+Ending the call or logging out closes the popout; closing the window docks the stage back
+without navigating, and the main window shows "Call is in another window" with **Bring back**
+while the popout is open.
+
+The chat bubble at the popout's top right opens the call channel's timeline and composer in a
+resizable side panel. Opening it selects the call channel; while it is open the main window shows
+"Chat is open in the call window" instead of the timeline, so timeline and composer (with drafts,
+replies, pickers, paste and file drops) exist once per frame. Selecting another channel in the
+main window closes the popout chat and returns the composer to the main window. The docked
+Show chat / Hide chat split is separate and keeps working.
+
+Settings → Voice offers **Open calls in a separate window** (off by default): each guild join and
+each accepted or started DM/group call then opens popped out. Watch-Stream joins, reconnects and
+phase changes stay docked. Popout size, position and maximized flag are saved with the other
+device preferences and restored on the next popout; a position on a disconnected monitor reopens
+centred on the main window's monitor.
+
 The Audio menu provides saved Microphone gain and Speaker volume controls from 0% to
 200%, initially 100%. Reset levels restores both to 100%. Changes apply to the active call
 without reopening devices and survive restart/logout through device preferences. Demo edits

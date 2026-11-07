@@ -11,6 +11,10 @@ pub(super) struct ContactEditor {
 }
 
 impl ContactEditor {
+	/// Whether the editor still has a user to edit, so a window can decide where to draw it.
+	pub fn is_open(&self) -> bool {
+		self.user.is_some()
+	}
 	pub fn open(&mut self, user: User, nickname: bool, state: &mut State) -> Option<Command> {
 		self.draft = if nickname {
 			state.friend_nickname(user.id).unwrap_or("").to_owned()

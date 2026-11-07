@@ -2504,6 +2504,8 @@ pub struct ProfileSession {
 	hovered: Option<(Id, bool)>,
 	/// Badge customize menu and directory over the open card.
 	badges: crate::badges::BadgePanels,
+	/// Bumped by every request that opens or reopens a card, so the asking window can own it.
+	opens: u64,
 }
 
 pub enum ProfileEffect {
@@ -2574,6 +2576,11 @@ impl ProfileSession {
 		self.open.as_ref()
 	}
 
+	/// Changes whenever a card is opened or reopened, even for the same person.
+	pub fn open_requests(&self) -> u64 {
+		self.opens
+	}
+
 	/// Opens the centred full profile, as from the popout's "View Full Profile".
 	pub fn open_full(&mut self, user: User) {
 		self.command_open(user);
@@ -2602,6 +2609,11 @@ impl ProfileSession {
 		}
 	}
 
+	/// Forgets where the card was placed, so the next draw anchors at the current pointer.
+	pub fn reset_anchor(&mut self) {
+		self.anchor = None;
+	}
+
 	pub fn disarm(&mut self) {
 		self.trigger = None;
 	}
@@ -2611,6 +2623,7 @@ impl ProfileSession {
 		self.hovered.take()
 	}
 
+	/// Records the hovered person and toggles their card on a click of `primary` or `nested`.
 	pub fn person_click(
 		&mut self,
 		ui: &egui::Ui,
@@ -2647,8 +2660,11 @@ impl ProfileSession {
 		self.reset_card_input();
 		self.full = false;
 		self.open = Some(user.clone());
+		self.opens += 1;
 	}
 
+	/// Opens a person's card from a menu or command, keeping the loaded profile when it is the
+	/// same person.
 	pub fn command_open(&mut self, user: User) {
 		self.full = false;
 		if self.open.as_ref().is_none_or(|open| open.id != user.id) {
@@ -2659,13 +2675,16 @@ impl ProfileSession {
 			self.pending.push(ProfileEffect::ClearCore);
 		}
 		self.open = Some(user);
+		self.opens += 1;
 	}
 
+	/// Switches the card to another person from inside it, dropping the previous core.
 	pub fn navigate(&mut self, user: User) {
 		self.badges.close();
 		self.reset_card_input();
 		self.pending.push(ProfileEffect::ClearCore);
 		self.open = Some(user);
+		self.opens += 1;
 		self.anchor = None;
 	}
 

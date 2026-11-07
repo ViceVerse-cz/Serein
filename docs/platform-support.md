@@ -16,6 +16,16 @@ A changed placement is saved once sampled unchanged for at least 500 ms, so a dr
 write per frame. Maximizing retains the latest sampled normal placement for restoration; a placement sampled just before the window closes or hides is still saved.
 The offline `--demo` ignores saved geometry and does not save its window state.
 
+The voice call popout keeps the same three fields in the same preferences: logical inner size,
+physical outer position and the maximized flag (the last normal geometry is kept while maximized
+or fullscreen). It first opens at 960 × 640 centred on the main window's monitor and never below
+480 × 320, and a saved geometry is fitted with the same monitor rules, so a position on a
+disconnected display reopens centred on a visible one. Wayland exposes no global window position,
+so the popout restores its size only and the compositor places it. The popout is painted inside
+the main window's frame pass (an immediate eframe viewport), so a compositor that stops updating
+a hidden main window can stall the popout too. Native window placement, second-monitor and
+tray-hide behavior remain unverified.
+
 Wayland does not expose global window coordinates to ordinary clients, so window
 placement belongs to the compositor. Niri also controls tiled column sizes and can
 override the application's requested size. To allow Serein's saved width, add to

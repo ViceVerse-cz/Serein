@@ -72,6 +72,10 @@ pub struct AppPreferences {
 	pub voice_push_to_talk: bool,
 	pub voice_muted: bool,
 	pub voice_deafened: bool,
+	/// Open every call that starts in its own window; older preferences keep calls docked.
+	pub voice_popout_auto: bool,
+	/// Where the call popout last opened; `None` places it on first use.
+	pub voice_popout_geometry: Option<WindowGeometry>,
 	pub voice_input: Option<String>,
 	pub voice_output: Option<String>,
 	pub input_percent: u16,
@@ -130,6 +134,8 @@ impl Default for AppPreferences {
 			voice_push_to_talk: false,
 			voice_muted: false,
 			voice_deafened: false,
+			voice_popout_auto: false,
+			voice_popout_geometry: None,
 			voice_input: None,
 			voice_output: None,
 			input_percent: 100,
@@ -150,8 +156,13 @@ impl Default for AppPreferences {
 	}
 }
 impl AppPreferences {
+	/// Rejects window placements and bounded values a corrupted or older preferences file could
+	/// produce, so loading never poisons the session.
 	pub fn is_valid(&self) -> bool {
 		self.window_geometry.is_none_or(WindowGeometry::is_valid)
+			&& self
+				.voice_popout_geometry
+				.is_none_or(WindowGeometry::is_valid)
 			&& self.language.as_ref().is_none_or(|language| {
 				!language.is_empty()
 					&& language.len() <= 35
@@ -2177,6 +2188,40 @@ mod tests {
 			);
 		}
 		std::fs::remove_dir_all(root).unwrap();
+	}
+	#[test]
+	fn popout_preferences_round_trip_and_validate() {
+		let store =
+			super::LocalStore::initialize(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
+		let mut value = super::AppPreferences {
+			voice_popout_auto: true,
+			voice_popout_geometry: Some(super::WindowGeometry {
+				size: [960, 640],
+				position: Some([-1920, 0]),
+				maximized: true,
+			}),
+			..Default::default()
+		};
+		store.save_app_preferences(&value).unwrap();
+		assert_eq!(store.app_preferences().unwrap(), value);
+		value.voice_popout_geometry.as_mut().unwrap().size = [0, 640];
+		assert!(!value.is_valid());
+		assert_eq!(
+			store.save_app_preferences(&value),
+			Err(super::StoreError::Incompatible)
+		);
+		assert_eq!(
+			store.app_preferences().unwrap().voice_popout_geometry,
+			Some(super::WindowGeometry {
+				size: [960, 640],
+				position: Some([-1920, 0]),
+				maximized: true,
+			})
+		);
+		let legacy: super::AppPreferences =
+			serde_json::from_str(r#"{"notifications_enabled":true}"#).unwrap();
+		assert!(!legacy.voice_popout_auto);
+		assert_eq!(legacy.voice_popout_geometry, None);
 	}
 	#[test]
 	fn app_preferences_round_trip_and_reject_invalid_replacement() {

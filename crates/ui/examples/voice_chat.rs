@@ -1,12 +1,12 @@
 //! Offline debug check: cargo run --locked -p ui --example voice_chat
 use client_core::{Command, Envelope, Event, State};
 
-fn frame(
+/// Runs one UI pass and returns every text label with the rectangle it painted into.
+fn capture(
 	ctx: &egui::Context,
-	view: &mut ui::MessagingUi,
-	state: &mut State,
 	width: f32,
 	events: Vec<egui::Event>,
+	mut draw: impl FnMut(&mut egui::Ui),
 ) -> Vec<(String, egui::Rect)> {
 	let output = ctx.run_ui(
 		egui::RawInput {
@@ -17,11 +17,7 @@ fn frame(
 			events,
 			..Default::default()
 		},
-		|ui| {
-			// Commands are inspected locally, never dispatched to a service.
-			let commands = view.show(ui, state);
-			assert!(!commands.iter().any(|c| matches!(c, Command::Voice(_))));
-		},
+		|ui| draw(ui),
 	);
 	let mut labels: Vec<_> = output
 		.shapes
@@ -51,6 +47,238 @@ fn frame(
 	labels
 }
 
+/// One pass of the main window over a fixed width, with voice commands asserted empty.
+fn frame(
+	ctx: &egui::Context,
+	view: &mut ui::MessagingUi,
+	state: &mut State,
+	width: f32,
+	events: Vec<egui::Event>,
+) -> Vec<(String, egui::Rect)> {
+	capture(ctx, width, events, |ui| {
+		// Commands are inspected locally, never dispatched to a service.
+		let commands = view.show(ui, state);
+		assert!(!commands.iter().any(|c| matches!(c, Command::Voice(_))));
+	})
+}
+
+/// One pass of the call window, drawn by its own context like a separate viewport.
+fn popout_frame(
+	ctx: &egui::Context,
+	view: &mut ui::MessagingUi,
+	state: &mut State,
+	events: Vec<egui::Event>,
+) -> (Vec<(String, egui::Rect)>, Vec<Command>) {
+	let mut commands = vec![];
+	let labels = capture(ctx, 960.0, events, |ui| {
+		commands = view.show_voice_popout(ui, state);
+	});
+	assert!(!commands.iter().any(|c| matches!(c, Command::Voice(_))));
+	(labels, commands)
+}
+
+fn key(key: egui::Key) -> Vec<egui::Event> {
+	vec![egui::Event::Key {
+		key,
+		physical_key: None,
+		pressed: true,
+		repeat: false,
+		modifiers: egui::Modifiers::NONE,
+	}]
+}
+
+/// Tab through the frame until a widget with `label` takes focus; returns its centre.
+fn tab_to(
+	mut run: impl FnMut(Vec<egui::Event>) -> Vec<(String, egui::Rect)>,
+	label: &str,
+) -> egui::Pos2 {
+	for _ in 0..100 {
+		if let Some((_, rect)) = run(key(egui::Key::Tab))
+			.into_iter()
+			.find(|(text, _)| text == label)
+		{
+			return rect.center();
+		}
+	}
+	panic!("no focusable {label:?}");
+}
+
+fn has(labels: &[(String, egui::Rect)], label: &str) -> bool {
+	labels.iter().any(|(text, _)| text == label)
+}
+
+/// Composer hint for `channel`; Fluent may isolate the argument, so match its parts.
+fn composer_for(labels: &[(String, egui::Rect)], channel: &str) -> bool {
+	labels
+		.iter()
+		.any(|(text, _)| text.starts_with("Message #") && text.contains(channel))
+}
+
+/// Asserts the call window's chat, focus and dialog behavior with synthetic state.
+fn popout_checks() {
+	let mut state = test_support::voice_demo_state();
+	let channel = state.selected.unwrap();
+	let name = state.channel(channel).unwrap().name.clone();
+	let guild = state.channel(channel).unwrap().guild;
+	let (other, other_name) = state
+		.channels
+		.iter()
+		.find(|c| c.id != channel && c.guild == guild && c.supports_text() && c.kind == 0)
+		.map(|c| (c.id, c.name.clone()))
+		.unwrap();
+	let ctx = egui::Context::default();
+	let window = egui::Context::default();
+	ui::design::apply(&ctx);
+	ui::design::apply(&window);
+	let mut view = ui::MessagingUi::default();
+	view.language = ui::i18n::Language::English;
+	let width = 1400.0;
+	let main = |view: &mut ui::MessagingUi, state: &mut State, events| {
+		frame(&ctx, view, state, width, events)
+	};
+	let pop_out = tab_to(|events| main(&mut view, &mut state, events), "Pop Out");
+	let pop = |view: &mut ui::MessagingUi, state: &mut State| {
+		main(view, state, vec![]);
+		for pressed in [true, false] {
+			main(view, state, click(pop_out, pressed));
+		}
+		assert_eq!(view.voice_popout(), Some(channel), "Pop Out moves the call");
+	};
+	assert!(has(&main(&mut view, &mut state, vec![]), "Watch Stream"));
+	pop(&mut view, &mut state);
+	assert_eq!(view.take_voice_fullscreen_request(), None);
+	assert!(
+		!view.voice_popout_takes_drops(&state),
+		"a closed call-window chat takes no drops"
+	);
+	// With chat beside the stage the main window would draw the composer if it owned chat.
+	view.voice_chat_open = true;
+	let docked = main(&mut view, &mut state, vec![]);
+	assert!(has(&docked, "Call is in another window"));
+	assert!(
+		!has(&docked, "Watch Stream"),
+		"the stage renders in one window only"
+	);
+	assert!(has(
+		&popout_frame(&window, &mut view, &mut state, vec![]).0,
+		"Watch Stream"
+	));
+	// Fullscreen in the call window targets that window, never the main one.
+	let fullscreen = tab_to(
+		|events| popout_frame(&window, &mut view, &mut state, events).0,
+		"Fullscreen",
+	);
+	for pressed in [true, false] {
+		popout_frame(&window, &mut view, &mut state, click(fullscreen, pressed));
+	}
+	assert_eq!(view.take_voice_popout_fullscreen_request(), Some(true));
+	popout_frame(&window, &mut view, &mut state, key(egui::Key::Escape));
+	assert_eq!(view.take_voice_popout_fullscreen_request(), Some(false));
+	assert_eq!(view.take_voice_fullscreen_request(), None);
+	// Escape in a fullscreen call window leaves fullscreen and keeps the enlarged tile;
+	// only the next press restores the grid.
+	state.voice.active.as_mut().unwrap().watching = Some(model::Id(3));
+	let focus = Some(ui::StageFocus::Stream(model::Id(3)));
+	view.voice_focus = focus;
+	view.set_voice_popout_fullscreen(true);
+	popout_frame(&window, &mut view, &mut state, key(egui::Key::Escape));
+	assert_eq!(view.take_voice_popout_fullscreen_request(), Some(false));
+	assert_eq!(view.voice_focus, focus, "one Escape must not do two things");
+	popout_frame(&window, &mut view, &mut state, key(egui::Key::Escape));
+	assert_eq!(view.voice_focus, None);
+	state.voice.active.as_mut().unwrap().watching = None;
+	// The chat bubble selects the call channel and takes timeline and composer along.
+	let _ = state.select(other);
+	let bubble = tab_to(
+		|events| popout_frame(&window, &mut view, &mut state, events).0,
+		"Show chat",
+	);
+	for pressed in [true, false] {
+		popout_frame(&window, &mut view, &mut state, click(bubble, pressed));
+	}
+	assert_eq!(state.selected, Some(channel));
+	assert!(view.voice_popout_chat_open());
+	assert!(view.voice_popout_takes_drops(&state));
+	let docked = main(&mut view, &mut state, vec![]);
+	assert!(has(&docked, "Chat is open in the call window"));
+	assert!(!composer_for(&docked, &name), "one composer per frame");
+	assert!(composer_for(
+		&popout_frame(&window, &mut view, &mut state, vec![]).0,
+		&name
+	));
+	popout_frame(
+		&window,
+		&mut view,
+		&mut state,
+		vec![egui::Event::Text("hi".into())],
+	);
+	assert_eq!(state.drafts.get(&channel).map(String::as_str), Some("hi"));
+	// Choosing another conversation in the main window hands chat back to it.
+	let _ = state.select(other);
+	let docked = main(&mut view, &mut state, vec![]);
+	assert!(!view.voice_popout_chat_open());
+	assert!(!view.voice_popout_takes_drops(&state));
+	assert!(composer_for(&docked, &other_name));
+	// Bring back docks without navigating.
+	let _ = state.select(channel);
+	let labels = main(&mut view, &mut state, vec![]);
+	let back = labels
+		.iter()
+		.find(|(text, _)| text == "Bring back")
+		.unwrap()
+		.1
+		.center();
+	for pressed in [true, false] {
+		main(&mut view, &mut state, click(back, pressed));
+	}
+	assert_eq!(view.voice_popout(), None);
+	assert_eq!(state.selected, Some(channel));
+	assert!(has(&main(&mut view, &mut state, vec![]), "Watch Stream"));
+	// Signing out closes the call window.
+	view.voice_chat_open = false;
+	pop(&mut view, &mut state);
+	view.clear();
+	assert_eq!(view.voice_popout(), None);
+	view.language = ui::i18n::Language::English;
+	// So does the call ending, within the frame that sees it.
+	pop(&mut view, &mut state);
+	state.voice.active = None;
+	main(&mut view, &mut state, vec![]);
+	assert_eq!(view.voice_popout(), None);
+	assert!(
+		popout_frame(&window, &mut view, &mut state, vec![])
+			.1
+			.is_empty()
+	);
+}
+
+/// Browsing another populated voice channel must not clear the call's enlarged tile.
+fn browsing_keeps_call_focus() {
+	let mut state = test_support::voice_demo_state();
+	let channel = state.selected.unwrap();
+	let quiet = model::Id(26);
+	let mut visitor = state.voice.roster[1].clone();
+	visitor.channel = quiet;
+	visitor.participant.user = model::Id(9);
+	state.voice.roster.push(visitor);
+	state.voice.active.as_mut().unwrap().watching = Some(model::Id(3));
+	let ctx = egui::Context::default();
+	ui::design::apply(&ctx);
+	let mut view = ui::MessagingUi::default();
+	view.language = ui::i18n::Language::English;
+	let focus = Some(ui::StageFocus::Stream(model::Id(3)));
+	view.voice_focus = focus;
+	let _ = state.select(quiet);
+	frame(&ctx, &mut view, &mut state, 1400.0, vec![]);
+	assert_eq!(
+		view.voice_focus, focus,
+		"another channel's stage must not clear the call's focus"
+	);
+	let _ = state.select(channel);
+	frame(&ctx, &mut view, &mut state, 1400.0, vec![]);
+	assert_eq!(view.voice_focus, focus);
+}
+
 fn click(pos: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
 	vec![
 		egui::Event::PointerMoved(pos),
@@ -63,7 +291,11 @@ fn click(pos: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
 	]
 }
 
+/// Runs both offline check suites, then renders the fixed wide and narrow scenarios; the process
+/// exits non-zero if any assertion fails.
 fn main() {
+	popout_checks();
+	browsing_keeps_call_focus();
 	for (width, right_click) in [
 		(1400.0, false),
 		(800.0, false),
@@ -397,6 +629,6 @@ fn main() {
 		assert!(!state.can_compose(channel) && !state.can_read_history(channel));
 	}
 	println!(
-		"PASS: voice chat history, wide/narrow screen-share fullscreen and audio controls, stream mute, independent user volume, permission gates (offline egui)."
+		"PASS: voice chat history, call popout docking/chat/fullscreen, wide/narrow screen-share fullscreen and audio controls, stream mute, independent user volume, permission gates (offline egui)."
 	);
 }

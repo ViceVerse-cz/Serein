@@ -128,6 +128,7 @@ impl Page {
 	fn description(self, language: Language) -> String {
 		language.text(self.description_key())
 	}
+	/// Whether the search query matches this section's keywords, title or description.
 	fn matches(self, query: &str, language: Language) -> bool {
 		let keywords = match self {
 			Self::Account => "my account profile logout",
@@ -151,7 +152,7 @@ impl Page {
 				"game activity playing osu status presence sharing registered games added current game detection detected process program executable rename wrong add hide last played"
 			}
 			Self::Voice => {
-				"voice video camera preview audio microphone speakers devices volume gain noise suppression push to talk"
+				"voice video camera preview audio microphone speakers devices volume gain noise suppression push to talk popout separate window second monitor"
 			}
 			Self::LanguageTime => {
 				"language time clock 12 hour 24 hour am pm format locale translation"

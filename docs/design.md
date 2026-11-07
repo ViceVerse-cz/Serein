@@ -143,10 +143,17 @@ native shortcut adapter; unsupported global bindings continue to work while Sere
 
 Voice follows Discord's call screens: a black stage with 80px participant avatars (DM calls,
 above the conversation) or 16:9 tiles with name badges (guild channels), a bottom control bar
-of dark pills (mute with settings chevron, camera, screen share, activities, soundboard, more)
-and a red hang-up button, a green "In a call" badge in the header, mute/deafen toggles in the
-account card, and a "Voice Connected" panel above it while connected. Camera, screen share,
-activities and soundboard are shown disabled: Serein has no such features.
+of dark pills (mute and camera with settings chevrons, screen share, more) and a red hang-up
+button, a green "In a call" badge in the header, mute/deafen toggles in the account card, and a
+"Voice Connected" panel above it while connected. Camera and screen share work in calls; there
+is no activities or soundboard feature, so the bar has no buttons for them.
+
+**Pop Out** (the arrow-out-of-box button beside Fullscreen) moves the stage into a decorated
+OS window titled `<channel> — Serein`, minimum 480×320, with its own Fullscreen and a chat
+panel that owns the call channel's composer while open. The main window keeps its channel
+list and other conversations and shows "Call is in another window" with **Bring back** where
+the stage was; closing the window docks the stage back, and ending the call or logging out
+closes it.
 
 ## Verification notes
 

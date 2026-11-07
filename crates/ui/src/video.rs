@@ -78,10 +78,15 @@ pub struct VideoUi {
 	controls_focused: bool,
 	/// Volume to restore when the mute button is pressed again.
 	unmuted_volume: Option<f32>,
-	/// Keep the viewport's previous mode so leaving playback restores the window.
-	fullscreen: Option<(egui::Context, bool, egui::Id)>,
-	/// Native window transition for the desktop to apply after this UI frame.
-	pub(super) fullscreen_request: Option<bool>,
+	/// Keep the viewport's previous mode so leaving playback restores the window; the last
+	/// flag marks a fullscreen the call window opened.
+	fullscreen: Option<(egui::Context, bool, egui::Id, bool)>,
+	/// Native window transition for the desktop to apply after this UI frame, with the window
+	/// that asked for it.
+	pub(super) fullscreen_request: Option<(bool, bool)>,
+	/// Tiles are being drawn in the call window this frame, so a fullscreen started here
+	/// belongs to that window.
+	pub(super) drawing_in_popout: bool,
 }
 impl Default for VideoUi {
 	fn default() -> Self {
@@ -106,6 +111,7 @@ impl Default for VideoUi {
 			unmuted_volume: None,
 			fullscreen: None,
 			fullscreen_request: None,
+			drawing_in_popout: false,
 		}
 	}
 }
@@ -123,17 +129,38 @@ impl VideoUi {
 		self.command = Some(VideoCommand::Stop);
 	}
 	pub(super) fn exit_fullscreen(&mut self) {
-		if let Some((ctx, previous, focus)) = self.fullscreen.take() {
-			self.fullscreen_request = Some(previous);
+		if let Some((ctx, previous, focus, popout)) = self.fullscreen.take() {
+			self.fullscreen_request = Some((previous, popout));
 			ctx.memory_mut(|memory| memory.request_focus(focus));
 			ctx.request_repaint();
 		}
 	}
+	/// The main window's transition, leaving a call-window fullscreen for that window to apply.
 	pub fn take_fullscreen_request(&mut self) -> Option<bool> {
-		self.fullscreen_request.take()
+		match self.fullscreen_request {
+			Some((value, false)) => {
+				self.fullscreen_request = None;
+				Some(value)
+			}
+			_ => None,
+		}
+	}
+	/// The call window's transition, applied to that viewport by the desktop.
+	pub fn take_popout_fullscreen_request(&mut self) -> Option<bool> {
+		match self.fullscreen_request {
+			Some((value, true)) => {
+				self.fullscreen_request = None;
+				Some(value)
+			}
+			_ => None,
+		}
 	}
 	pub(super) fn is_fullscreen(&self) -> bool {
 		self.fullscreen.is_some()
+	}
+	/// Whether the current fullscreen was opened from the call window.
+	pub(super) fn fullscreen_in_popout(&self) -> bool {
+		matches!(self.fullscreen, Some((_, _, _, true)))
 	}
 	pub(super) fn show_fullscreen(
 		&mut self,
@@ -749,8 +776,9 @@ impl VideoUi {
 					self.exit_fullscreen();
 				} else {
 					let previous = ui.input(|i| i.viewport().fullscreen.unwrap_or(false));
-					self.fullscreen = Some((ui.ctx().clone(), previous, screen_id));
-					self.fullscreen_request = Some(true);
+					let popout = self.drawing_in_popout;
+					self.fullscreen = Some((ui.ctx().clone(), previous, screen_id, popout));
+					self.fullscreen_request = Some((true, popout));
 				}
 			}
 			response |= screen;
@@ -1112,6 +1140,16 @@ fn timestamp(seconds: f64) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn fullscreen_requests_go_to_the_window_that_asked() {
+		let mut video = VideoUi::default();
+		video.fullscreen_request = Some((true, true));
+		assert_eq!(video.take_fullscreen_request(), None);
+		assert_eq!(video.take_popout_fullscreen_request(), Some(true));
+		video.fullscreen_request = Some((false, false));
+		assert_eq!(video.take_popout_fullscreen_request(), None);
+		assert_eq!(video.take_fullscreen_request(), Some(false));
+	}
 	#[test]
 	fn video_controls_are_explicit_bounded_and_keyboard_operable() {
 		let mut message = test_support::message(1, Id(2));
