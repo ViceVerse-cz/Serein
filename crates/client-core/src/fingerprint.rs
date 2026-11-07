@@ -68,6 +68,53 @@ pub fn user_agent() -> String {
 	}
 }
 
+/// Client-hint headers (`sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`) Chrome sends on
+/// every same-origin fetch. Safari does not implement client hints, so it gets none.
+pub fn client_hints() -> Option<[(&'static str, String); 3]> {
+	if browser() != "Chrome" {
+		return None;
+	}
+	let platform = if cfg!(target_os = "windows") {
+		"Windows"
+	} else {
+		"Linux"
+	};
+	Some([
+		(
+			"sec-ch-ua",
+			format!(
+				"\"Chromium\";v=\"{CHROME_MAJOR}\", \"Not;A=Brand\";v=\"24\", \"Google Chrome\";v=\"{CHROME_MAJOR}\""
+			),
+		),
+		("sec-ch-ua-mobile", "?0".to_owned()),
+		("sec-ch-ua-platform", format!("\"{platform}\"")),
+	])
+}
+
+/// `Accept-Encoding` the advertised browser sends; Safari has no zstd.
+pub fn accept_encoding() -> &'static str {
+	if browser() == "Chrome" {
+		"gzip, deflate, br, zstd"
+	} else {
+		"gzip, deflate, br"
+	}
+}
+
+/// HTTP/2 flow-control windows the advertised browser announces in its SETTINGS and initial
+/// WINDOW_UPDATE frames, as `(stream, connection)` window sizes in bytes.
+pub fn http2_windows() -> (u32, u32) {
+	if browser() == "Chrome" {
+		(6_291_456, 15_728_640)
+	} else {
+		(2_097_152, 10_485_760)
+	}
+}
+
+/// HTTP/2 `SETTINGS_MAX_HEADER_LIST_SIZE` the advertised browser announces, if any.
+pub fn http2_max_header_list_size() -> Option<u32> {
+	(browser() == "Chrome").then_some(262_144)
+}
+
 /// Gateway `identify.d.properties` and the decoded `X-Super-Properties` payload.
 pub fn properties() -> String {
 	// Hand-built JSON keeps this crate free of a serde dependency; every value is a fixed

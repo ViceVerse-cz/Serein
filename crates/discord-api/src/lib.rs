@@ -200,7 +200,42 @@ fn fingerprint_headers() -> Result<reqwest::header::HeaderMap, Failure> {
 		reqwest::header::REFERER,
 		HeaderValue::from_static("https://discord.com/channels/@me"),
 	);
+	headers.insert(reqwest::header::ACCEPT, HeaderValue::from_static("*/*"));
+	headers.insert(
+		reqwest::header::ACCEPT_ENCODING,
+		HeaderValue::from_static(client_core::fingerprint::accept_encoding()),
+	);
+	headers.insert(
+		"x-debug-options",
+		HeaderValue::from_static("bugReporterEnabled"),
+	);
+	headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
+	headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
+	headers.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
+	if let Some(hints) = client_core::fingerprint::client_hints() {
+		for (name, value) in hints {
+			headers.insert(
+				name,
+				HeaderValue::from_str(&value).map_err(|_| Failure::Network)?,
+			);
+		}
+		headers.insert("priority", HeaderValue::from_static("u=1, i"));
+	}
 	Ok(headers)
+}
+/// Applies the advertised browser's user agent and HTTP/2 flow-control windows. rustls'
+/// TLS handshake cannot be shaped like a browser's, so this covers only what reqwest exposes.
+pub(crate) fn browser_transport(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+	let (stream, connection) = client_core::fingerprint::http2_windows();
+	let builder = builder
+		.user_agent(client_core::fingerprint::user_agent())
+		.http2_adaptive_window(false)
+		.http2_initial_stream_window_size(stream)
+		.http2_initial_connection_window_size(connection);
+	match client_core::fingerprint::http2_max_header_list_size() {
+		Some(size) => builder.http2_max_header_list_size(size),
+		None => builder,
+	}
 }
 fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 	let builder = Client::builder()
@@ -209,8 +244,8 @@ fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 		.retry(reqwest::retry::never())
 		.timeout(Duration::from_secs(20))
 		.connect_timeout(Duration::from_secs(10))
-		.user_agent(client_core::fingerprint::user_agent())
 		.default_headers(fingerprint_headers()?);
+	let builder = browser_transport(builder);
 	route
 		.client_builder(builder)
 		.map_err(Failure::ProtocolAt)?
