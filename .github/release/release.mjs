@@ -18,7 +18,9 @@ if (plan) assert.equal(channel, plan.channel, 'Release channel changed');
 const tapRepo = 'ViceVerse-cz/homebrew-serein';
 const caskPath = 'Casks/serein.rb';
 const tapToken = process.env.HOMEBREW_TAP_TOKEN;
-if (plan) assert(tapToken, 'HOMEBREW_TAP_TOKEN is required to publish the Homebrew cask');
+// Fork releases have no Homebrew tap; upstream never sets this, so its flow is unchanged.
+const skipCask = process.env.SEREIN_SKIP_CASK === '1';
+if (plan && !skipCask) assert(tapToken, 'HOMEBREW_TAP_TOKEN is required to publish the Homebrew cask');
 
 function checkTapAccess() {
   const push = execFileSync('gh', ['api', `repos/${tapRepo}`, '--jq', '.permissions.push'], {
@@ -37,7 +39,7 @@ function releaseExists() {
   }
 }
 const resumed = plan !== null && releaseExists();
-if (plan && !resumed) checkTapAccess();
+if (plan && !resumed && !skipCask) checkTapAccess();
 
 // The cask lives in its own tap repository so users do not clone this one. The tap file is the
 // single source of truth; releases only rewrite its version and checksum.
@@ -133,5 +135,5 @@ if (mode === 'plan') {
     execFileSync('gh', ['release', 'edit', plan.gitTag, '--draft=false', '--prerelease', '--latest=false'],
     { stdio: 'inherit' });
   }
-  publishCask();
+  if (!skipCask) publishCask();
 }
