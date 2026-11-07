@@ -1011,7 +1011,6 @@ mod tests {
 			pass(&mut settings, vec![]);
 			assert_eq!(pass(&mut settings, vec![]), None, "no list without matches");
 			settings.query = query.into();
-			pass(&mut settings, vec![]);
 			pass(&mut settings, vec![]).expect("list shown")
 		};
 		assert_eq!(
