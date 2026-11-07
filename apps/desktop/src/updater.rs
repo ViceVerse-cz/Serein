@@ -18,7 +18,9 @@ mod delta;
 #[path = "updater_install.rs"]
 mod install;
 
-const RELEASES: &str = "https://api.github.com/repos/ViceVerse-cz/Serein/releases";
+const RELEASES: &str = "https://api.github.com/repos/sudodc2/Serein/releases";
+const FEED: &str = "https://github.com/sudodc2/Serein/releases.atom";
+const REPO_DOWNLOADS: &str = "https://github.com/sudodc2/Serein/releases/download";
 const MAX_METADATA: usize = 2 * 1024 * 1024;
 const MAX_DOWNLOAD: u64 = 512 * 1024 * 1024;
 const CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
@@ -491,13 +493,11 @@ async fn response(client: &reqwest::Client, url: &str) -> Result<reqwest::Respon
 		_ => Err("GitHub could not provide the update. Try again later.".into()),
 	}
 }
-async fn bounded_body(
-	client: &reqwest::Client,
-	url: &str,
+async fn read_bounded(
+	mut response: reqwest::Response,
 	limit: usize,
 	cancel: &AtomicBool,
 ) -> Result<Vec<u8>, String> {
-	let mut response = response(client, url).await?;
 	if response
 		.content_length()
 		.is_some_and(|length| length > limit as u64)
@@ -519,6 +519,51 @@ async fn bounded_body(
 		body.extend_from_slice(&chunk);
 	}
 	Ok(body)
+}
+async fn bounded_body(
+	client: &reqwest::Client,
+	url: &str,
+	limit: usize,
+	cancel: &AtomicBool,
+) -> Result<Vec<u8>, String> {
+	read_bounded(response(client, url).await?, limit, cancel).await
+}
+/// The public releases atom feed: no API rate limit, but only the most recent entries
+/// and no draft/prerelease flags, so channel membership comes from the tag alone.
+async fn feed_body(client: &reqwest::Client, cancel: &AtomicBool) -> Result<Vec<u8>, String> {
+	let response = client
+		.get(FEED)
+		.header(reqwest::header::ACCEPT, "application/atom+xml")
+		.send()
+		.await
+		.map_err(|_| "Could not reach GitHub. Check your connection and try again.".to_owned())?;
+	match response.status().as_u16() {
+		200 => read_bounded(response, MAX_METADATA, cancel).await,
+		403 | 429 => Err("GitHub's update limit was reached. Try again later.".into()),
+		404 => Err("No published release feed is available.".into()),
+		_ => Err("GitHub could not provide the update. Try again later.".into()),
+	}
+}
+/// Asset sizes for the feed path come from HEAD requests on the deterministic
+/// release-download URLs, the same addresses the API would hand out.
+async fn asset_size(client: &reqwest::Client, name: &str, url: &str) -> Result<u64, String> {
+	if !url::Url::parse(url).is_ok_and(|url| trusted_url(&url)) {
+		return Err("The release contains an untrusted download address.".into());
+	}
+	let response =
+		client.head(url).send().await.map_err(|_| {
+			"Could not reach GitHub. Check your connection and try again.".to_owned()
+		})?;
+	match response.status().as_u16() {
+		200 => response
+			.content_length()
+			.ok_or_else(|| "GitHub did not report the asset size.".to_owned()),
+		403 | 429 => Err("GitHub's update limit was reached. Try again later.".into()),
+		404 => Err(format!(
+			"This release has no {name} package. Try a later release."
+		)),
+		_ => Err("GitHub could not provide the update. Try again later.".into()),
+	}
 }
 fn release_version(tag: &str) -> Option<semver::Version> {
 	if tag.len() > 96
@@ -687,7 +732,7 @@ fn select_release(
 			return Err("The release asset metadata is invalid.".into());
 		}
 		let expected = format!(
-			"https://github.com/ViceVerse-cz/Serein/releases/download/{}/{name}",
+			"https://github.com/sudodc2/Serein/releases/download/{}/{name}",
 			release.tag_name
 		);
 		if asset.browser_download_url != expected {
@@ -712,17 +757,254 @@ fn select_release(
 		zsync,
 	}))
 }
-async fn check_release(
+/// One entry of the releases atom feed.
+struct FeedRelease {
+	tag: String,
+	version: semver::Version,
+	date: String,
+	notes: String,
+}
+fn feed_on_channel(version: &semver::Version, nightly: bool) -> bool {
+	let is_nightly = version.pre.as_str().starts_with("nightly.");
+	(nightly && is_nightly) || (!nightly && version.pre.is_empty())
+}
+fn xml_entity(entity: &str) -> Option<char> {
+	match entity {
+		"&lt;" => Some('<'),
+		"&gt;" => Some('>'),
+		"&amp;" => Some('&'),
+		"&quot;" => Some('"'),
+		"&apos;" => Some('\''),
+		_ => {
+			let (digits, radix) = entity
+				.strip_prefix("&#x")
+				.or_else(|| entity.strip_prefix("&#X"))
+				.map(|d| (d, 16))
+				.or_else(|| entity.strip_prefix("&#").map(|d| (d, 10)))?;
+			u32::from_str_radix(digits.trim_end_matches(';'), radix)
+				.ok()
+				.and_then(char::from_u32)
+		}
+	}
+}
+fn xml_unescape(text: &str) -> String {
+	let mut out = String::with_capacity(text.len());
+	let mut rest = text;
+	while let Some(amp) = rest.find('&') {
+		out.push_str(&rest[..amp]);
+		rest = &rest[amp..];
+		let Some(semi) = rest.find(';') else { break };
+		let entity = &rest[..=semi];
+		match xml_entity(entity) {
+			Some(c) => out.push(c),
+			None => out.push_str(entity),
+		}
+		rest = &rest[semi + 1..];
+	}
+	out.push_str(rest);
+	out
+}
+fn strip_tags(text: &str) -> String {
+	let mut out = String::with_capacity(text.len());
+	let mut rest = text;
+	while let Some(open) = rest.find('<') {
+		out.push_str(&rest[..open]);
+		match rest[open..].find('>') {
+			Some(close) => rest = &rest[open + close + 1..],
+			None => return out,
+		}
+	}
+	out.push_str(rest);
+	out.trim().to_owned()
+}
+/// The feed escapes the rendered release body as HTML inside `<content>`; reshape it to
+/// the `### heading` / `* bullet` text that `release_notes` already parses.
+fn feed_notes(escaped_html: &str) -> String {
+	let html = xml_unescape(escaped_html);
+	let mut out = String::new();
+	let mut rest = html.as_str();
+	loop {
+		let Some(open) = rest.find('<') else {
+			out.push_str(rest);
+			break;
+		};
+		out.push_str(&rest[..open]);
+		let after = &rest[open + 1..];
+		let Some(close) = after.find('>') else {
+			out.push_str(&rest[open..]);
+			break;
+		};
+		let raw = after[..close].trim();
+		let name = raw
+			.split(|c: char| c.is_ascii_whitespace())
+			.next()
+			.unwrap_or_default();
+		rest = &after[close + 1..];
+		let marker = match name {
+			"h3" => "### ",
+			"li" => "* ",
+			_ => continue,
+		};
+		let end_tag = if name == "h3" { "</h3>" } else { "</li>" };
+		if let Some(end) = rest.find(end_tag) {
+			out.push('\n');
+			out.push_str(marker);
+			out.push_str(&strip_tags(&rest[..end]));
+			out.push('\n');
+			rest = &rest[end + end_tag.len()..];
+		}
+	}
+	out
+}
+fn feed_entries(xml: &str) -> Vec<FeedRelease> {
+	xml.split("<entry>")
+		.skip(1)
+		.filter_map(|chunk| {
+			let chunk = chunk.split("</entry>").next()?;
+			let href_start = chunk.find("href=\"")? + 6;
+			let href_end = chunk[href_start..].find('"')? + href_start;
+			let href = &chunk[href_start..href_end];
+			let tag = href.split("/releases/tag/").nth(1)?.to_owned();
+			let version = release_version(&tag)?;
+			let date = chunk
+				.split("<updated>")
+				.nth(1)?
+				.split("</updated>")
+				.next()
+				.and_then(|date| date.get(..10))
+				.filter(|date| date.bytes().all(|b| b.is_ascii_digit() || b == b'-'))
+				.unwrap_or_default()
+				.to_owned();
+			let notes = chunk
+				.find("<content")
+				.and_then(|start| {
+					let open = chunk[start..].find('>')? + start + 1;
+					let inner = &chunk[open..];
+					let end = inner.find("</content>")?;
+					Some(feed_notes(&inner[..end]))
+				})
+				.unwrap_or_default();
+			Some(FeedRelease {
+				tag,
+				version,
+				date,
+				notes,
+			})
+		})
+		.collect()
+}
+fn feed_log(
+	entries: &[FeedRelease],
+	nightly: bool,
+	current: &semver::Version,
+) -> Vec<ui::updates::LogEntry> {
+	let mut entries = entries
+		.iter()
+		.filter(|entry| entry.version > *current && feed_on_channel(&entry.version, nightly))
+		.collect::<Vec<_>>();
+	entries.sort_by(|a, b| b.version.cmp(&a.version));
+	entries
+		.into_iter()
+		.take(LOG_RELEASES)
+		.map(|entry| ui::updates::LogEntry {
+			version: entry.version.to_string(),
+			date: entry.date.clone(),
+			sections: release_notes(&entry.notes),
+		})
+		.collect()
+}
+async fn feed_package(client: &reqwest::Client, entry: &FeedRelease) -> Result<Package, String> {
+	// No in-app installer for this installation: still report the newer version.
+	let Some(wanted) = asset_name(&entry.tag) else {
+		return Ok(Package {
+			version: entry.version.to_string(),
+			archive: None,
+			checksums: None,
+			zsync: None,
+		});
+	};
+	let base = format!("{REPO_DOWNLOADS}/{}", entry.tag);
+	let archive_url = format!("{base}/{wanted}");
+	let archive_size = asset_size(client, &wanted, &archive_url).await?;
+	if archive_size == 0 || archive_size > MAX_DOWNLOAD {
+		return Err("The release asset metadata is invalid.".into());
+	}
+	let checksums_url = format!("{base}/SHA256SUMS.txt");
+	let checksums_size = asset_size(client, "SHA256SUMS.txt", &checksums_url).await?;
+	if checksums_size > 64 * 1024 {
+		return Err("The checksum list exceeds its size limit.".into());
+	}
+	let zsync = if wanted.ends_with(".AppImage") {
+		let url = format!("{archive_url}.zsync");
+		let name = format!("{wanted}.zsync");
+		asset_size(client, &name, &url)
+			.await
+			.ok()
+			.filter(|size| *size <= delta::MAX_CONTROL as u64)
+			.map(|size| Asset {
+				name,
+				browser_download_url: url,
+				size,
+			})
+	} else {
+		None
+	};
+	Ok(Package {
+		version: entry.version.to_string(),
+		archive: Some(Asset {
+			name: wanted,
+			browser_download_url: archive_url,
+			size: archive_size,
+		}),
+		checksums: Some(Asset {
+			name: "SHA256SUMS.txt".into(),
+			browser_download_url: checksums_url,
+			size: checksums_size,
+		}),
+		zsync,
+	})
+}
+async fn check_feed(
+	client: &reqwest::Client,
+	nightly: bool,
+	cancel: &AtomicBool,
+) -> Result<(Option<Package>, Vec<ui::updates::LogEntry>), String> {
+	let body = feed_body(client, cancel).await?;
+	let xml = std::str::from_utf8(&body)
+		.map_err(|_| "GitHub returned an invalid release feed.".to_owned())?;
+	let entries = feed_entries(xml);
+	if entries.is_empty() {
+		return Err("GitHub returned no releases in the feed.".into());
+	}
+	let current = semver::Version::parse(env!("CARGO_PKG_VERSION"))
+		.map_err(|_| "This build has an invalid version.".to_owned())?;
+	let log = feed_log(&entries, nightly, &current);
+	let candidate = entries
+		.iter()
+		.filter(|entry| feed_on_channel(&entry.version, nightly))
+		.max_by(|a, b| a.version.cmp(&b.version));
+	let Some(entry) = candidate else {
+		return Err("No published release is available on this channel yet.".into());
+	};
+	// Channel changes never silently downgrade an installed build.
+	if entry.version <= current {
+		return Ok((None, log));
+	}
+	feed_package(client, entry)
+		.await
+		.map(|package| (Some(package), log))
+}
+async fn api_check(
+	client: &reqwest::Client,
 	nightly: bool,
 	cancel: Arc<AtomicBool>,
 ) -> Result<(Option<Package>, Vec<ui::updates::LogEntry>), String> {
-	let client = client()?;
 	let endpoint = if nightly {
 		format!("{RELEASES}?per_page=100")
 	} else {
 		format!("{RELEASES}/latest")
 	};
-	let body = bounded_body(&client, &endpoint, MAX_METADATA, &cancel).await?;
+	let body = bounded_body(client, &endpoint, MAX_METADATA, &cancel).await?;
 	let releases = if nightly {
 		serde_json::from_slice::<Vec<Release>>(&body)
 	} else {
@@ -733,6 +1015,21 @@ async fn check_release(
 		.map_err(|_| "This build has an invalid version.".to_owned())?;
 	let log = release_log(&releases, nightly, &current);
 	select_release(releases, nightly, &current).map(|package| (package, log))
+}
+/// The atom feed has no API rate limit, so it is the primary source. The REST API stays
+/// as fallback for feed shapes it cannot express; a feed that parsed but found nothing
+/// newer is a definitive answer, not an error.
+async fn check_release(
+	nightly: bool,
+	cancel: Arc<AtomicBool>,
+) -> Result<(Option<Package>, Vec<ui::updates::LogEntry>), String> {
+	let client = client()?;
+	match check_feed(&client, nightly, &cancel).await {
+		Ok(result) => Ok(result),
+		Err(feed_error) => api_check(&client, nightly, cancel)
+			.await
+			.map_err(|api_error| format!("{feed_error} GitHub API fallback failed: {api_error}")),
+	}
 }
 fn demo_log() -> Vec<ui::updates::LogEntry> {
 	[
@@ -958,6 +1255,28 @@ pub fn debug_check() -> Result<(), String> {
 			vec!["voice: add preview by @a in #457".to_owned()],
 		)] {
 		return Err(format!("Release notes parsed as {notes:?}."));
+	}
+	let feed = concat!(
+		"<feed><entry>",
+		"<link rel=\"alternate\" type=\"text/html\" href=\"https://github.com/sudodc2/Serein/releases/tag/v9.9.9\"/>",
+		"<updated>2026-10-01T12:00:00Z</updated>",
+		"<content type=\"html\">&lt;h3&gt;Features&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;Add &lt;a href=&quot;https://x&quot;&gt;thing&lt;/a&gt; (abc1234)&lt;/li&gt;&lt;/ul&gt;</content>",
+		"</entry></feed>"
+	);
+	let entries = feed_entries(feed);
+	if entries.len() != 1
+		|| entries[0].version != semver::Version::new(9, 9, 9)
+		|| entries[0].date != "2026-10-01"
+	{
+		return Err("Release feed entries did not parse.".into());
+	}
+	let log = feed_log(&entries, false, &semver::Version::new(1, 0, 0));
+	if log.len() != 1 || log[0].sections != [("Features".to_owned(), vec!["Add thing".to_owned()])]
+	{
+		return Err(format!("Feed notes parsed as {log:?}."));
+	}
+	if feed_on_channel(&entries[0].version, true) || !feed_on_channel(&entries[0].version, false) {
+		return Err("Feed channel filter failed.".into());
 	}
 	install::debug_check()
 }
