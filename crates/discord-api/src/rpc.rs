@@ -1,9 +1,9 @@
 //! Credential-free, bounded public application metadata for local Rich Presence.
 use model::Id;
-use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
 use tokio::time::Instant;
+use wreq::Client;
 
 const MAX_METADATA: usize = 256 * 1024;
 const MAX_ASSETS: usize = 1024;
@@ -39,7 +39,7 @@ pub fn client() -> Result<Client, &'static str> {
 	Client::builder()
 		.https_only(true)
 		.no_proxy()
-		.redirect(reqwest::redirect::Policy::none())
+		.redirect(wreq::redirect::Policy::none())
 		.timeout(Duration::from_secs(10))
 		.connect_timeout(Duration::from_secs(5))
 		.pool_max_idle_per_host(1)
@@ -91,16 +91,16 @@ pub(crate) async fn download(
 	if Instant::now() < *cooldown {
 		return Err("Game application lookup is rate limited. Try again later.");
 	}
-	let mut response = client
+	let response = client
 		.get(url)
 		.timeout(Duration::from_secs(10))
 		.send()
 		.await
 		.map_err(|_| failure)?;
-	if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+	if response.status() == wreq::StatusCode::TOO_MANY_REQUESTS {
 		let seconds = response
 			.headers()
-			.get(reqwest::header::RETRY_AFTER)
+			.get(wreq::header::RETRY_AFTER)
 			.and_then(|v| v.to_str().ok())
 			.and_then(|v| v.parse::<f64>().ok())
 			.filter(|v| v.is_finite() && *v >= 0.0)
@@ -120,7 +120,12 @@ pub(crate) async fn download(
 		return Err(failure);
 	}
 	let mut bytes = Vec::new();
-	while let Some(chunk) = response.chunk().await.map_err(|_| failure)? {
+	let mut body = std::pin::pin!(response.bytes_stream());
+	while let Some(chunk) = futures_util::StreamExt::next(&mut body)
+		.await
+		.transpose()
+		.map_err(|_| failure)?
+	{
 		if bytes.len().saturating_add(chunk.len()) > limit {
 			return Err(failure);
 		}
@@ -188,7 +193,7 @@ mod tests {
 		});
 		let client = Client::builder()
 			.no_proxy()
-			.redirect(reqwest::redirect::Policy::none())
+			.redirect(wreq::redirect::Policy::none())
 			.timeout(Duration::from_secs(2))
 			.build()
 			.unwrap();

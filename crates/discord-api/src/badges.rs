@@ -5,7 +5,7 @@ use model::{
 	Id,
 	badges::{BadgeCatalog, BadgeSettings},
 };
-use reqwest::Method;
+use wreq::Method;
 
 impl DiscordApi {
 	/// Optional catalog beside a profile. Failures other than a lost session leave the

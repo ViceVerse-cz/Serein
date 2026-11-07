@@ -1241,10 +1241,10 @@ async fn run(
 	control.publish(&disks);
 	let client = (!bundled_only)
 		.then(|| {
-			reqwest::Client::builder()
+			wreq::Client::builder()
 				.https_only(true)
 				.no_proxy()
-				.redirect(reqwest::redirect::Policy::none())
+				.redirect(wreq::redirect::Policy::none())
 				.timeout(Duration::from_secs(15))
 				.connect_timeout(Duration::from_secs(5))
 				// Keep one warm connection per concurrent job so bursts skip new TLS handshakes.
@@ -1471,7 +1471,7 @@ struct Job {
 	budget: Budget,
 	cache: Option<DiskReader>,
 	error: Option<&'static str>,
-	client: Option<reqwest::Client>,
+	client: Option<wreq::Client>,
 	cooldown: Instant,
 	/// Animated sources post their first frame here while the remaining frames decode.
 	early: ResultSender,
@@ -1563,7 +1563,7 @@ async fn load(job: Job) -> Loaded {
 }
 
 async fn fetch(
-	client: &reqwest::Client,
+	client: &wreq::Client,
 	key: &str,
 	url: String,
 	until: &mut Instant,
@@ -1693,7 +1693,7 @@ fn render_lottie(bytes: &[u8]) -> Option<Vec<u8>> {
 }
 
 async fn download(
-	client: &reqwest::Client,
+	client: &wreq::Client,
 	url: &str,
 	cooldown: &mut Instant,
 	limit: usize,
@@ -1701,11 +1701,11 @@ async fn download(
 	if Instant::now() < *cooldown {
 		return None;
 	}
-	let mut response = client.get(url).send().await.ok()?;
-	if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+	let response = client.get(url).send().await.ok()?;
+	if response.status() == wreq::StatusCode::TOO_MANY_REQUESTS {
 		let seconds = response
 			.headers()
-			.get(reqwest::header::RETRY_AFTER)
+			.get(wreq::header::RETRY_AFTER)
 			.and_then(|value| value.to_str().ok())
 			.and_then(|value| value.parse::<f64>().ok())
 			.filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
@@ -1725,7 +1725,12 @@ async fn download(
 	}
 	let mut bytes =
 		Vec::with_capacity(response.content_length().unwrap_or(4096).min(limit as u64) as usize);
-	while let Some(chunk) = response.chunk().await.ok()? {
+	let mut response_body = std::pin::pin!(response.bytes_stream());
+	while let Some(chunk) = futures_util::StreamExt::next(&mut response_body)
+		.await
+		.transpose()
+		.ok()?
+	{
 		if bytes.len().checked_add(chunk.len())? > limit {
 			return None;
 		}
@@ -3503,9 +3508,9 @@ mod tests {
             }
 		});
 		// Only this private test seam accepts HTTP; production constructs fixed HTTPS CDN URLs.
-		let client = reqwest::Client::builder()
+		let client = wreq::Client::builder()
 			.no_proxy()
-			.redirect(reqwest::redirect::Policy::none())
+			.redirect(wreq::redirect::Policy::none())
 			.timeout(Duration::from_secs(2))
 			.build()
 			.unwrap();
