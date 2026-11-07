@@ -35,6 +35,9 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		return Ok(vec![Source {
 			id: SourceId::SystemPicker,
 			name: "Choose with the macOS system picker".into(),
+			width: 0,
+			height: 0,
+			refresh_hz: 0,
 		}]);
 	}
 	initialize();
@@ -55,6 +58,9 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		sources.push(Source {
 			id: SourceId::Display(u64::from(display.display_id)),
 			name: format!("Display {}", display.display_id),
+			width,
+			height,
+			refresh_hz: 0,
 		});
 		if sources.len() == MAX_SOURCES {
 			return Ok(sources);
@@ -82,9 +88,18 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 			.map(|app| app.application_name.trim())
 			.filter(|name| !name.is_empty());
 		let name = app.map_or(title.clone(), |app| format!("{app} — {title}"));
+		let (Ok(width), Ok(height)) = (
+			u32::try_from(window.frame.size.width.round() as i64),
+			u32::try_from(window.frame.size.height.round() as i64),
+		) else {
+			continue;
+		};
 		sources.push(Source {
 			id: SourceId::Window(u64::from(window.window_id)),
 			name: bounded_name(name),
+			width,
+			height,
+			refresh_hz: 0,
 		});
 		if sources.len() == MAX_SOURCES {
 			break;

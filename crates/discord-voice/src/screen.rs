@@ -99,11 +99,17 @@ pub fn sources() -> Result<Vec<Source>, &'static str> {
 		let mut sources = vec![Source {
 			id: SourceId::Portal,
 			name: "Choose in the system picker".into(),
+			width: 0,
+			height: 0,
+			refresh_hz: 0,
 		}];
 		if linux::x11_session() {
 			sources.push(Source {
 				id: SourceId::X11Desktop,
 				name: "Entire X11 desktop · all monitors · no portal".into(),
+				width: 0,
+				height: 0,
+				refresh_hz: 0,
 			});
 		}
 		Ok(sources)
@@ -120,6 +126,7 @@ pub struct Worker {
 	#[cfg(target_os = "linux")]
 	status: Arc<Mutex<&'static str>>,
 	preview_visible: Arc<AtomicBool>,
+	captured: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -145,6 +152,8 @@ impl Worker {
 		let worker_status = status.clone();
 		let preview_visible = Arc::new(AtomicBool::new(true));
 		let worker_preview_visible = preview_visible.clone();
+		let captured = Arc::new(AtomicBool::new(false));
+		let worker_captured = captured.clone();
 		// A few frames of slack absorbs send jitter without forcing keyframes on every hiccup.
 		let (send, frames) = tokio::sync::mpsc::channel(3);
 		let (complete, done) = mpsc::sync_channel(1);
@@ -178,6 +187,7 @@ impl Worker {
 					worker_preview,
 					worker_status,
 					worker_preview_visible,
+					worker_captured,
 					&wake,
 				);
 				#[cfg(not(target_os = "linux"))]
@@ -192,6 +202,7 @@ impl Worker {
 					worker_audio_epoch,
 					worker_preview,
 					worker_preview_visible,
+					worker_captured,
 					&wake,
 				);
 				finished_ready.store(false, Ordering::Release);
@@ -216,6 +227,7 @@ impl Worker {
 				#[cfg(target_os = "linux")]
 				status,
 				preview_visible,
+				captured,
 			},
 			Video {
 				settings,
@@ -233,6 +245,11 @@ impl Worker {
 		self.preview_visible.store(visible, Ordering::Release);
 	}
 
+	/// True after capture has produced one frame. Linux can be waiting on the system picker before that.
+	pub fn captured(&self) -> bool {
+		self.captured.load(Ordering::Acquire)
+	}
+
 	pub fn capture_status(&self) -> Option<&'static str> {
 		#[cfg(target_os = "linux")]
 		return self.status.try_lock().ok().map(|status| *status);
@@ -244,7 +261,7 @@ impl Worker {
 		self.done.as_ref()?.try_recv().ok()
 	}
 
-	/// One local RGBA image, bounded to 640 by 360 pixels and replaced at most ten times a second.
+	/// One local RGBA image at the captured size, replaced at the chosen frame rate while visible.
 	pub fn take_preview(&self) -> Option<image::RgbaImage> {
 		self.preview.try_lock().ok()?.take()
 	}
@@ -274,6 +291,7 @@ fn encode_loop(
 	audio_epoch: Arc<AtomicU64>,
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
 	preview_visible: Arc<AtomicBool>,
+	captured: Arc<AtomicBool>,
 	wake: &impl Fn(),
 ) -> Result<(), &'static str> {
 	if stop.load(Ordering::Acquire) || send.is_closed() {
@@ -309,8 +327,8 @@ fn encode_loop(
 	let mut encoding = None;
 	let mut first_frame_deadline = Some(Instant::now() + Duration::from_secs(15));
 	let mut next_frame = Instant::now();
-	let mut next_preview = Instant::now();
 	let mut latest_frame = None;
+	let mut preview_shown = preview_visible.load(Ordering::Acquire);
 
 	while !stop.load(Ordering::Acquire) && !send.is_closed() {
 		#[cfg(target_os = "windows")]
@@ -344,16 +362,32 @@ fn encode_loop(
 			break;
 		}
 		let now = Instant::now();
+		let visible = preview_visible.load(Ordering::Acquire);
+		let resumed = visible && !preview_shown;
+		preview_shown = visible;
 		if let Some(frame) = &frame {
-			first_frame_deadline = None;
-			if preview_visible.load(Ordering::Acquire) && now >= next_preview {
+			if first_frame_deadline.take().is_some() {
+				captured.store(true, Ordering::Release);
+			}
+			if !visible {
+				if let Ok(mut slot) = preview.try_lock() {
+					slot.take();
+				}
+			} else {
 				let image = preview_frame(frame)?;
 				if let Ok(mut slot) = preview.try_lock() {
 					*slot = Some(image);
 				}
-				next_preview = now + Duration::from_millis(100);
 				wake();
 			}
+		} else if resumed && let Some(frame) = &latest_frame {
+			// A change-driven capture does not emit again while the picture is still.
+			// The encode path already kept that frame.
+			let image = preview_frame(frame)?;
+			if let Ok(mut slot) = preview.try_lock() {
+				*slot = Some(image);
+			}
+			wake();
 		}
 		let encode = retain_screen_frame(
 			&mut latest_frame,
@@ -703,67 +737,17 @@ fn validate_frame(frame: &RawFrame) -> Result<(usize, usize), &'static str> {
 }
 
 pub(super) fn preview_frame(frame: &RawFrame) -> Result<image::RgbaImage, &'static str> {
-	validate_frame(frame)?;
-	let scale = (1280.0 / f64::from(frame.width))
-		.min(720.0 / f64::from(frame.height))
-		.min(1.0);
-	let width = (f64::from(frame.width) * scale).round().max(1.0) as u32;
-	let height = (f64::from(frame.height) * scale).round().max(1.0) as u32;
-	if width == frame.width && height == frame.height {
-		let mut img = image::RgbaImage::new(width, height);
-		let row_bytes = (width as usize) * 4;
-		for y in 0..height as usize {
-			let src_row = &frame.data[y * frame.stride..y * frame.stride + row_bytes];
-			let dst_row = &mut img.as_mut()[y * row_bytes..(y + 1) * row_bytes];
-			let (src_chunks, _) = src_row.as_chunks::<4>();
-			let (dst_chunks, _) = dst_row.as_chunks_mut::<4>();
-			for (chunk_in, chunk_out) in src_chunks.iter().zip(dst_chunks.iter_mut()) {
-				chunk_out[0] = chunk_in[2];
-				chunk_out[1] = chunk_in[1];
-				chunk_out[2] = chunk_in[0];
-				chunk_out[3] = 255;
-			}
+	let (row_bytes, _) = validate_frame(frame)?;
+	let mut image = image::RgbaImage::new(frame.width, frame.height);
+	for (y, row) in image.chunks_mut(frame.width as usize * 4).enumerate() {
+		let start = y * frame.stride;
+		let (dst_pixels, _) = row.as_chunks_mut::<4>();
+		let (src_pixels, _) = frame.data[start..start + row_bytes].as_chunks::<4>();
+		for (dst, src) in dst_pixels.iter_mut().zip(src_pixels) {
+			*dst = [src[2], src[1], src[0], 255];
 		}
-		return Ok(img);
 	}
-	let scale_x = f64::from(frame.width) / f64::from(width);
-	let scale_y = f64::from(frame.height) / f64::from(height);
-	Ok(image::RgbaImage::from_fn(width, height, |x, y| {
-		let gx = (f64::from(x) + 0.5) * scale_x - 0.5;
-		let gy = (f64::from(y) + 0.5) * scale_y - 0.5;
-		let gxi = gx.floor().max(0.0) as usize;
-		let gyi = gy.floor().max(0.0) as usize;
-		let x0 = gxi.min(frame.width as usize - 1);
-		let x1 = (x0 + 1).min(frame.width as usize - 1);
-		let y0 = gyi.min(frame.height as usize - 1);
-		let y1 = (y0 + 1).min(frame.height as usize - 1);
-		let fx = (gx - gxi as f64).clamp(0.0, 1.0) as f32;
-		let fy = (gy - gyi as f64).clamp(0.0, 1.0) as f32;
-		let w00 = (1.0 - fx) * (1.0 - fy);
-		let w10 = fx * (1.0 - fy);
-		let w01 = (1.0 - fx) * fy;
-		let w11 = fx * fy;
-		let off00 = y0 * frame.stride + x0 * 4;
-		let off10 = y0 * frame.stride + x1 * 4;
-		let off01 = y1 * frame.stride + x0 * 4;
-		let off11 = y1 * frame.stride + x1 * 4;
-		let b = (w00 * f32::from(frame.data[off00])
-			+ w10 * f32::from(frame.data[off10])
-			+ w01 * f32::from(frame.data[off01])
-			+ w11 * f32::from(frame.data[off11]))
-		.round() as u8;
-		let g = (w00 * f32::from(frame.data[off00 + 1])
-			+ w10 * f32::from(frame.data[off10 + 1])
-			+ w01 * f32::from(frame.data[off01 + 1])
-			+ w11 * f32::from(frame.data[off11 + 1]))
-		.round() as u8;
-		let r = (w00 * f32::from(frame.data[off00 + 2])
-			+ w10 * f32::from(frame.data[off10 + 2])
-			+ w01 * f32::from(frame.data[off01 + 2])
-			+ w11 * f32::from(frame.data[off11 + 2]))
-		.round() as u8;
-		image::Rgba([r, g, b, 255])
-	}))
+	Ok(image)
 }
 
 #[cfg(any(test, target_os = "macos"))]
@@ -854,6 +838,7 @@ mod tests {
 			#[cfg(target_os = "linux")]
 			status: Arc::new(Mutex::new("")),
 			preview_visible: Arc::new(AtomicBool::new(true)),
+			captured: Arc::new(AtomicBool::new(false)),
 		};
 		assert!(worker.take_preview().is_some());
 		assert!(worker.take_preview().is_none());
@@ -866,9 +851,8 @@ mod tests {
 				data: vec![0; width as usize * height as usize * 4],
 			};
 			let preview = preview_frame(&frame).unwrap();
-			assert!(preview.width() > 0 && preview.width() <= 1280);
-			assert!(preview.height() > 0 && preview.height() <= 720);
-			assert!(preview.as_raw().len() <= 1280 * 720 * 4);
+			assert_eq!((preview.width(), preview.height()), (width, height));
+			assert_eq!(preview.as_raw().len(), width as usize * height as usize * 4);
 		}
 		assert!(
 			preview_frame(&RawFrame {

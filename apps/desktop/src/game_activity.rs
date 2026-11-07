@@ -862,7 +862,14 @@ fn choose(
 					|| games.find(path).is_none_or(|(_, name)| name != game.name),
 				executable,
 				name: game.name.clone(),
-				application: game.application,
+				// A manually added game borrows Discord's application when the process or its
+				// exact title names one, so both clients show the game's artwork.
+				application: game.application.or_else(|| {
+					games
+						.find(path)
+						.map(|(id, _)| id)
+						.or_else(|| games.find_title(&game.name))
+				}),
 			},
 			None => {
 				let Some((id, name)) = games.find(path) else {
@@ -895,8 +902,12 @@ const MAX_CACHED_LIST: u64 = 8 * 1024 * 1024;
 fn list_path() -> Option<PathBuf> {
 	local_store::data_dir()
 		.ok()
-		.map(|root| root.join("detectable.json"))
+		.map(|root| root.join(LIST_FILE))
 }
+
+/// Renamed when the cached shape gains entries an older list lacks, so it refreshes at once.
+const LIST_FILE: &str = "detectable-games.json";
+const LEGACY_LIST_FILE: &str = "detectable.json";
 
 async fn detectable<A: Applications>(service: &A) -> Option<Vec<Game>> {
 	if let Some(games) = tokio::task::spawn_blocking(|| read_list(list_path()?))
@@ -924,7 +935,9 @@ fn write_list(path: Option<PathBuf>, games: &[Game]) -> Option<()> {
 	std::fs::create_dir_all(path.parent()?).ok()?;
 	let bytes = serde_json::to_vec(games).ok()?;
 	(bytes.len() as u64 <= MAX_CACHED_LIST).then_some(())?;
-	std::fs::write(&path, bytes).ok()
+	std::fs::write(&path, bytes).ok()?;
+	let _ = std::fs::remove_file(path.with_file_name(LEGACY_LIST_FILE));
+	Some(())
 }
 
 async fn read_frame(stream: &mut (impl AsyncRead + Unpin)) -> io::Result<(u32, Vec<u8>)> {

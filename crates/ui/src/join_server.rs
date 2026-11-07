@@ -994,6 +994,9 @@ mod tests {
 				"synthetic".into(),
 				Ok(model::InvitePreview {
 					guild: Some(model::Id(12)),
+					about: None,
+					guild_icon: None,
+					voice_channel: None,
 					channel: None,
 					embed: model::Embed {
 						title: Some("Synthetic server".into()),

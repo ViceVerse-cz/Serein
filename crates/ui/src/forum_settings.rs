@@ -655,7 +655,7 @@ pub(crate) fn slowmode(ui: &mut egui::Ui, salt: &str, seconds: &mut u32) {
 				|(_, key)| crate::i18n::translate_if_key(key),
 			)
 	};
-	egui::ComboBox::from_id_salt(salt)
+	crate::design::Select::from_id_salt(salt)
 		.width(ui.available_width().min(560.0))
 		.selected_text(label(*seconds))
 		.show_ui(ui, |ui| {
@@ -675,7 +675,7 @@ fn select<T: Copy + PartialEq>(
 		.iter()
 		.find(|(option, _)| option == value)
 		.map_or("", |(_, label)| label);
-	egui::ComboBox::from_id_salt(salt)
+	crate::design::Select::from_id_salt(salt)
 		.width(ui.available_width().min(560.0))
 		.selected_text(crate::i18n::translate_if_key(current))
 		.show_ui(ui, |ui| {

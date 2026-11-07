@@ -51,8 +51,10 @@ general-start-minimized = Start minimized
 general-start-minimized-description = Start in the background, out of your way.
 general-startup-unavailable = Automatic startup is available on Windows and macOS.
 general-window = Window
-general-hide-decorations = Hide window decorations
-general-hide-decorations-description = Remove the system title bar and borders. Use your window manager to move, resize or close Serein.
+general-hide-decorations = No title bar
+general-hide-decorations-description = For tiling window managers: remove every title bar and border, including Serein's own. Move, resize and close Serein with your window manager.
+general-custom-title-bar = Custom title bar
+general-custom-title-bar-description = Replace the system title bar with Serein's own GTK 4 style header bar.
 general-hide-title-bar = Hide Serein title bar
 general-hide-title-bar-description = Use the system title bar and window buttons instead.
 general-keep-menu-bar = Keep Serein in the menu bar
@@ -63,8 +65,13 @@ general-windows-tray-description = Closing the window keeps Serein in the notifi
 general-tray-unavailable = The tray is unavailable on this platform.
 general-graphics = Graphics
 general-render-with = Render with
+general-graphics-api = Graphics API
+general-graphics-api-description = Takes effect after restarting Serein. Uses Automatic if the selected API cannot draw this window.
+general-graphics-api-env-override = WGPU_BACKEND controls the API for this launch. Remove that environment override to use this setting.
 general-gpu-restart = Takes effect the next time Serein starts.
 general-gpu-current-prefix = Currently drawing with
+general-steady-refresh-rate = Steady refresh rate
+general-steady-refresh-rate-description = While Serein is the active window, draw at the display's refresh rate so variable refresh rate (VRR, G-SYNC, FreeSync) displays can hold one rate instead of flickering. Uses more power.
 gpu-automatic = Automatic
 gpu-high-performance = High performance
 gpu-power-saving = Power saving
@@ -317,6 +324,20 @@ attachments-viewer-cancel = Cancel
 attachments-viewer-downloads-are-disabled-for-synthetic-attachments = Downloads are disabled for synthetic attachments
 # Context: viewer
 attachments-viewer-open-in-browser = Open in browser
+# Context: viewer
+attachments-viewer-zoom-in = Zoom in
+# Context: viewer
+attachments-viewer-more = More
+# Context: viewer
+attachments-viewer-copy-media-link = Copy Media Link
+# Context: viewer
+attachments-viewer-view-details = View Details
+# Context: viewer
+attachments-viewer-filename = Filename
+# Context: viewer
+attachments-viewer-size = Size
+# Context: viewer
+attachments-viewer-copy-attachment-id = Copy Attachment ID
 # Context: viewer
 attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset = Scroll to zoom · Drag to pan · Double-click to reset
 
@@ -1448,13 +1469,18 @@ invites-show-accepted = Accepted
 # Context: show
 invites-show-fetching-server-details = Fetching server details…
 # Context: show
-invites-show-go-to-server = Go To Server
+invites-show-go-to-server = Go to Server
 # Context: show
 invites-show-invite-expired-or-invalid = Invite expired or invalid
 # Context: show
 invites-show-invite-unavailable = Invite unavailable
 # Context: show
 invites-show-join = Join
+invites-show-join-voice = Join Voice
+invites-show-no-one-in-voice = No one is currently in voice
+invites-show-in-voice = { $count } in voice
+invites-show-members-see-voice = Only server members can see who's in voice
+invites-show-established = Est. { $date }
 # Context: show
 invites-show-joining = Joining…
 # Context: show
@@ -1650,9 +1676,7 @@ main-restoring-screen-welcome-back = Welcome back
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Saved accounts
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = I own this account and authorize this session.
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Passwords and 2FA stay on Discord's own login page; only the session token is kept, in your OS credential store.
+main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Passwords and 2FA stay on Discord's own login page. Only the session token is kept, in your OS credential store.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = About Serein
 # Context: sign_in_disclosures
@@ -1666,9 +1690,9 @@ main-sign-in-disclosures-session-token = Session token
 # Context: sign_in_disclosures
 main-sign-in-disclosures-sign-in-with-a-session-token = Sign in with a session token
 # Context: sign_in_header
-main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Continue with a saved account, or sign in with another one.
+main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Continue with a saved account or sign in with another
 # Context: sign_in_header
-main-sign-in-header-sign-in-with-your-discord-account-to-get-started = Sign in with your Discord account to get started.
+main-sign-in-header-sign-in-with-your-discord-account-to-get-started = Sign in with your Discord account
 # Context: sign_in_header
 main-sign-in-header-welcome-back = Welcome back
 # Context: sign_in_header
@@ -1677,9 +1701,9 @@ main-sign-in-header-welcome-to-serein = Welcome to Serein
 main-sign-in-status-copy-failure-details = Copy failure details
 main-sign-in-preview-explore-the-offline-preview = Explore the offline preview
 # Context: sign_in_preview
-main-sign-in-preview-sample-conversations-no-discord-connection = Sample conversations. No Discord connection.
+main-sign-in-preview-sample-conversations-no-discord-connection = Sample conversations, no Discord connection
 # Context: sign_in_screen
-main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord = Independent and open source. Not affiliated with Discord.
+main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord = Independent and open source · Not affiliated with Discord
 # Context: sign_in_screen
 main-sign-in-screen-serein = Serein
 # Context: ui
@@ -2267,6 +2291,12 @@ screen-body-frame-rate = Frame rate
 screen-body-include-the-pointer-in-the-shared-video = Include the pointer in the shared video.
 # Context: body
 screen-body-quality = Quality
+# Context: body
+screen-body-source = Source
+# Context: body
+screen-preview-paused-title = Your stream is still running!
+# Context: body
+screen-preview-paused-body = We've paused this preview to save your resources.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = Quality selection does not require Nitro.
 # Context: body
@@ -4121,6 +4151,8 @@ video-show-player-seek-video = Seek video
 video-show-player-video = video
 # Context: show_player
 video-show-player-video-volume = Video volume
+video-show-player-mute = Mute
+video-show-player-unmute = Unmute
 
 ## crates/ui/src/voice.rs
 # Context: call_bar
@@ -4153,8 +4185,6 @@ voice-device-combo-device-unavailable = Device unavailable
 voice-device-default = System default
 # Context: frame
 voice-frame-open-voice = Open voice
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% is the original level. Higher levels may distort.
 # Context: labels
 voice-labels-choose-camera = Choose camera
 # Context: live_badge
@@ -4259,12 +4289,6 @@ voice-voice-participant-microphone-muted = Microphone muted
 voice-voice-participant-muted-by-server = Muted by server
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Muted for you on this device
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Choose an algorithm in all voice settings.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen turns off incoming audio and mutes your microphone with it.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Hold your configured shortcut when you want to speak.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Install a voice-enabled build to use these controls.
 # Context: voice_popup_content
@@ -4970,6 +4994,12 @@ profiles-private-profile = Private Profile
 profiles-private-notice = { $name }’s profile is private, so some info is hidden. Add them as a friend to see more.
 settings-cosmetics-name-styles = Name styles
 settings-cosmetics-name-styles-description = Nitro display name fonts, colours and effects.
+settings-cosmetics-all = Show all cosmetics
+settings-cosmetics-all-description = Everything below at once. Turning it off also paints gradient names in one colour.
+settings-cosmetics-gradient-names = Gradient names
+settings-cosmetics-gradient-names-description = Role and Nitro names that blend several colours. Off paints them in their first colour.
+settings-cosmetics-clan-tags = Server tags
+settings-cosmetics-clan-tags-description = The server tag a person wears beside their name.
 main-sign-in-rate-limited-detail = Discord is rate limiting this sign-in. Wait before trying again. Another attempt before that can make the wait longer.
 
 # Avatar badge while someone is typing.
@@ -4983,3 +5013,59 @@ new-message-hint = Add friends to start a direct message or a group.
 new-message-no-people-found = No one matches that search.
 new-message-create = Create Message
 new-message-cancel = Cancel
+
+## crates/ui/src/setup.rs
+setup-appearance-title = Make it yours
+setup-appearance-body = Mode and colours apply as you pick them
+setup-window-title = See through the window
+setup-window-body = Let your desktop show behind Serein's panels
+setup-window-transparency-description = Themes can tune the effect while it is on.
+setup-window-restart = Serein needs a restart before transparency turns on or off. Your choice is saved now.
+setup-desktop-title = On your desktop
+setup-desktop-body = Whether Serein opens with your computer, its title bar and the tray
+setup-profiles-title = Profile cosmetics
+setup-profiles-body = What this device draws around people and their names
+setup-chat-title = How chat reads
+setup-chat-body = Text size, message spacing and the clock on every message
+setup-notifications-title = What reaches you
+setup-notifications-body = What Serein does when a message arrives while you are elsewhere
+setup-notifications-desktop-description = Banners for direct messages and mentions. Fine-tune servers and channels from their menus.
+setup-notifications-sounds = Notification sounds
+setup-notifications-sounds-description = Message, call and voice sounds. Pick individual ones in Settings.
+setup-voice-title = Your microphone
+setup-voice-body = How you sound in calls. Devices and levels are in Settings.
+setup-voice-noise-description = Filter keyboards, fans and room noise before it leaves your microphone.
+setup-later-in-settings = All of this stays in Settings
+setup-back = Back
+setup-skip = Skip
+setup-continue = Continue
+setup-done = Done
+setup-run-again = Run first-time setup again
+setup-run-again-description = Walk through appearance, window, desktop, cosmetics, chat, notifications and voice again.
+setup-run-again-action = Start
+
+## Composer notification and timestamp shortcuts
+mention-shortcut-silent = @silent — send without push notifications
+mention-shortcut-time = @time — choose a timestamp
+message-silent-indicator = Silent
+message-silent-hint = Push and desktop notifications are suppressed. Mention badges still apply.
+timestamp-picker-title = Insert timestamp
+timestamp-picker-date = Date (YYYY-MM-DD)
+timestamp-picker-clock = Time (HH:MM:SS)
+timestamp-picker-offset = UTC offset (±HH:MM)
+timestamp-picker-offset-hint = Starts at your current local offset. Adjust for another time zone or daylight saving period.
+timestamp-picker-format = Display format
+timestamp-picker-invalid = Enter a valid date, time and UTC offset.
+timestamp-picker-rejected = The draft changed or the timestamp will not fit. Cancel and try again.
+timestamp-picker-cancel = Cancel
+timestamp-picker-insert = Insert
+timestamp-style-default = Default date and time
+timestamp-style-t = Short time
+timestamp-style-long-time = Time with seconds
+timestamp-style-d = Short date
+timestamp-style-long-date = Long date
+timestamp-style-f = Date and time
+timestamp-style-full = Full date and time
+timestamp-style-relative = Relative time
+timestamp-style-short-date-time = Short date and time
+timestamp-style-short-date-seconds = Short date and time with seconds

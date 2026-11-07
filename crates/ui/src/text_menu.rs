@@ -1,7 +1,21 @@
 //! Right-click menu for editable text: cut, copy, paste and select all, like Discord's.
+use crate::icons::{self, Icon};
 use egui::text::{CCursor, CCursorRange};
 
+fn refocus_id(id: egui::Id) -> egui::Id {
+	id.with("text-menu-refocus")
+}
+
+/// Call before showing the text edit `id`. Returns the selection a menu opening this frame keeps.
 pub(crate) fn selection_for_menu(ctx: &egui::Context, id: egui::Id) -> Option<CCursorRange> {
+	// The click on a menu item lands outside the field, which surrenders its focus that frame,
+	// so the field takes focus back here, before it is shown again.
+	if ctx
+		.data_mut(|data| data.remove_temp::<bool>(refocus_id(id)))
+		.is_some()
+	{
+		ctx.memory_mut(|memory| memory.request_focus(id));
+	}
 	(ctx.input(|input| input.pointer.button_pressed(egui::PointerButton::Secondary))
 		|| ctx
 			.read_response(id)
@@ -42,11 +56,22 @@ pub(crate) fn show(
 				byte(text, start.index.0)..byte(text, end.index.0)
 			})
 			.filter(|range| !range.is_empty());
-		let item = |ui: &mut egui::Ui, key: &str, enabled: bool| {
-			ui.add_enabled(enabled, egui::Button::new(crate::i18n::translate(key)))
-				.clicked()
+		// The glyph follows the row's text colour, so it dims when disabled.
+		let item = |ui: &mut egui::Ui, icon: Icon, key: &str, enabled: bool| {
+			let button = egui::Button::new((
+				egui::Atom::paint(egui::Vec2::splat(16.0), move |ui, args| {
+					icons::paint(ui.painter(), icon, args.rect, args.fallback_text_color);
+				}),
+				crate::i18n::translate(key),
+			));
+			ui.add_enabled(enabled, button).clicked()
 		};
-		if item(ui, "text-menu-cut", selected.is_some())
+		let refocus = |ui: &mut egui::Ui| {
+			ctx.memory_mut(|memory| memory.request_focus(id));
+			ctx.data_mut(|data| data.insert_temp(refocus_id(id), true));
+			ui.close();
+		};
+		if item(ui, Icon::Cut, "text-menu-cut", selected.is_some())
 			&& let Some(range) = selected.clone()
 		{
 			ctx.copy_text(text[range.clone()].to_owned());
@@ -57,29 +82,31 @@ pub(crate) fn show(
 				.cursor
 				.set_char_range(Some(CCursorRange::one(CCursor::new(start))));
 			state.clone().store(&ctx, id);
-			ctx.memory_mut(|memory| memory.request_focus(id));
-			ui.close();
+			refocus(ui);
 		}
-		if item(ui, "text-menu-copy", selected.is_some())
+		if item(ui, Icon::Copy, "text-menu-copy", selected.is_some())
 			&& let Some(range) = selected.clone()
 		{
 			ctx.copy_text(text[range].to_owned());
 			ui.close();
 		}
-		if item(ui, "text-menu-paste", paste_enabled) {
-			ctx.memory_mut(|memory| memory.request_focus(id));
+		if item(ui, Icon::Paste, "text-menu-paste", paste_enabled) {
 			paste = true;
-			ui.close();
+			refocus(ui);
 		}
 		ui.separator();
-		if item(ui, "text-menu-select-all", !text.is_empty()) {
+		if item(
+			ui,
+			Icon::SelectAll,
+			"text-menu-select-all",
+			!text.is_empty(),
+		) {
 			state.cursor.set_char_range(Some(CCursorRange::two(
 				CCursor::new(0),
 				CCursor::end_of_str(text),
 			)));
 			state.clone().store(&ctx, id);
-			ctx.memory_mut(|memory| memory.request_focus(id));
-			ui.close();
+			refocus(ui);
 		}
 	});
 	if changed {

@@ -11,6 +11,12 @@ use std::{
 
 const LIMIT: u64 = 100 * 1024 * 1024;
 const FAILED: &str = "This video could not be converted for playback";
+// Match the native playback surface: never upscale, retain aspect ratio, and use even
+// dimensions for H.264 while bounding both the longest edge and total pixel count.
+const SCALE: &str = concat!(
+	"scale=w='max(2,trunc(iw*min(1,min(3840/max(iw,ih),sqrt(8294400/(iw*ih))))/2)*2)'",
+	":h='max(2,trunc(ih*min(1,min(3840/max(iw,ih),sqrt(8294400/(iw*ih))))/2)*2)'",
+);
 
 /// Recoverable native format failures, including sources that need bounded downscaling.
 pub(super) fn eligible(error: &str) -> bool {
@@ -93,20 +99,70 @@ fn convert(
 	// The fixed shell applies a hard 128 MiB file ceiling before replacing itself.
 	// FFmpeg's smaller soft ceiling leaves room for the final MP4 sample tables.
 	let mut child = Command::new("/bin/sh")
-		.args(["-c", "ulimit -f 131072 || exit 1; exec \"$@\"", "serein-video", executable])
-		.args(["-nostdin", "-hide_banner", "-loglevel", "error", "-max_alloc", "16777216",
-			"-threads", "2", "-protocol_whitelist", "file", "-format_whitelist", "mov,matroska,webm",
-			"-i"])
+		.args([
+			"-c",
+			"ulimit -f 131072 || exit 1; exec \"$@\"",
+			"serein-video",
+			executable,
+		])
+		.args([
+			"-nostdin",
+			"-hide_banner",
+			"-loglevel",
+			"error",
+			"-max_alloc",
+			"16777216",
+			"-threads",
+			"2",
+			"-protocol_whitelist",
+			"file",
+			"-format_whitelist",
+			"mov,matroska,webm",
+			"-i",
+		])
 		.arg(&input)
-		.args(["-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn", "-map_metadata", "-1",
-			"-filter_threads", "1", "-vf", "scale=w='max(2,min(1920,iw))':h='max(2,min(1080,ih))':force_original_aspect_ratio=decrease:force_divisible_by=2",
-			"-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
-			"-threads", "2", "-c:a", "aac", "-ac", "2", "-ar", "48000", "-fs", "104857600",
-			"-movflags", "+faststart", "-n"])
+		.args([
+			"-map",
+			"0:v:0",
+			"-map",
+			"0:a:0?",
+			"-sn",
+			"-dn",
+			"-map_metadata",
+			"-1",
+			"-filter_threads",
+			"1",
+			"-vf",
+			SCALE,
+			"-c:v",
+			"libx264",
+			"-preset",
+			"veryfast",
+			"-crf",
+			"23",
+			"-pix_fmt",
+			"yuv420p",
+			"-threads",
+			"2",
+			"-c:a",
+			"aac",
+			"-ac",
+			"2",
+			"-ar",
+			"48000",
+			"-fs",
+			"104857600",
+			"-movflags",
+			"+faststart",
+			"-n",
+		])
 		.arg(&output)
-		.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+		.stdin(Stdio::null())
+		.stdout(Stdio::null())
+		.stderr(Stdio::null())
 		.env_clear()
-		.spawn().map_err(|_| FAILED)?;
+		.spawn()
+		.map_err(|_| FAILED)?;
 	let deadline = Instant::now() + Duration::from_secs(120);
 	let status = loop {
 		if cancelled.load(Ordering::Acquire) || Instant::now() >= deadline {

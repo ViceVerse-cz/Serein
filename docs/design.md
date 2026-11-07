@@ -106,6 +106,15 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
   a failed lookup. Empty or loading results leave Enter available to send the draft and
   Tab available for normal focus navigation. The catalog also resolves game references
   in messages and reply previews.
+  Leading `@silent` is offered in autocomplete for new messages and shows a quiet-send
+  indicator below the editor; confirmed messages carrying the suppression flag show the
+  same indicator. `@time` opens a native timestamp dialog without sending or changing the
+  draft. Date, time and an explicit UTC offset start from the current local clock. The
+  dialog offers the default timestamp format and all nine documented Discord styles, with a local
+  preview and raw syntax. Insert replaces only the original shortcut in the unchanged
+  draft; Cancel/Escape preserves it. Conversation, account or edit-target changes close
+  the dialog. The shortcut also works while editing a message; `@silent` remains literal
+  in edits and is not suggested there.
 - Member list (240px): ONLINE/OFFLINE eyebrows with counts; group DMs show a localized
   Members — N heading including the current account, updated with participant changes. 42px rows with
   presence dots, custom status and hover fill; opens a Members window on narrow layouts.

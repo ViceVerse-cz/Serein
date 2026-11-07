@@ -934,7 +934,7 @@ impl Voice {
 					}) {
 					Ok(_) => {
 						self.device_scan = Some(receive);
-						ui.voice_device_status = "Looking for audio devices…";
+						ui.voice_device_status = ui::VOICE_DEVICES_LOOKING;
 					}
 					Err(_) => ui.voice_device_status = "Could not start audio device discovery",
 				}
@@ -945,8 +945,7 @@ impl Voice {
 				Ok(Ok(devices)) => {
 					ui.voice_inputs = devices.inputs;
 					ui.voice_outputs = devices.outputs;
-					ui.voice_device_status =
-						"Audio devices loaded · headphones avoid microphone echo";
+					ui.voice_device_status = ui::VOICE_DEVICES_LOADED;
 					self.device_scan = None;
 				}
 				Ok(Err(error)) => {

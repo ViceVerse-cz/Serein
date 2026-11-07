@@ -1,6 +1,9 @@
 //! Converts UTC instants to the user's local zone for display.
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
+/// Coarse refresh for relative timestamps in messages and the composer preview.
+pub(crate) const TIMESTAMP_REFRESH: std::time::Duration = std::time::Duration::from_secs(20);
+
 /// Whether times of day use a 12-hour clock; set from Settings › Language & Time.
 static TWELVE_HOUR: AtomicBool = AtomicBool::new(false);
 /// The [`DateOrder`] of numeric dates; follows the display language or system locale.
@@ -109,6 +112,15 @@ pub fn clock(at: time::OffsetDateTime) -> String {
 	clock_with(at, false)
 }
 
+/// Stand-ins at least as wide as any [`clock`], so a column of times never shifts what follows.
+pub(crate) fn widest_clocks() -> [&'static str; 2] {
+	if TWELVE_HOUR.load(Ordering::Relaxed) {
+		["00:00 AM", "00:00 PM"]
+	} else {
+		["00:00", "00:00"]
+	}
+}
+
 /// [`clock`] with seconds: `14:05:09` or `2:05:09 PM`.
 pub fn clock_seconds(at: time::OffsetDateTime) -> String {
 	clock_with(at, true)
@@ -159,17 +171,34 @@ pub fn discord_timestamp(seconds: i64, style: u8) -> Option<String> {
 	if style == b'R' {
 		return Some(relative(instant - time::OffsetDateTime::now_utc()));
 	}
-	let at = local(instant);
+	Some(format_discord_timestamp(
+		local(instant),
+		style,
+		DateOrder::current(),
+		TWELVE_HOUR.load(Ordering::Relaxed),
+	))
+}
+
+fn format_discord_timestamp(
+	at: time::OffsetDateTime,
+	style: u8,
+	order: DateOrder,
+	twelve: bool,
+) -> String {
 	let date = at.date();
-	let clock = clock(at);
-	Some(match style {
+	let clock = format_clock(at, false, twelve);
+	match style {
 		b't' => clock,
-		b'T' => clock_seconds(at),
-		b'd' => format!(
-			"{:02}/{:02}/{}",
-			u8::from(date.month()),
-			date.day(),
-			date.year()
+		b'T' => format_clock(at, true, twelve),
+		b'd' => order.date(date),
+		b's' | b'S' => format!(
+			"{}, {}",
+			order.date(date),
+			if style == b'S' {
+				format_clock(at, true, twelve)
+			} else {
+				clock
+			}
 		),
 		b'D' => format!("{} {}, {}", date.month(), date.day(), date.year()),
 		b'F' => format!(
@@ -180,7 +209,7 @@ pub fn discord_timestamp(seconds: i64, style: u8) -> Option<String> {
 			date.year()
 		),
 		_ => format!("{} {}, {} {clock}", date.month(), date.day(), date.year()),
-	})
+	}
 }
 /// A message header's time as Discord writes it: just the time today, "Yesterday at 11:22", and
 /// older days as the locale's numeric date and time, e.g. `14/04/2025 11:22`.
@@ -505,13 +534,36 @@ mod tests {
 			(b't', "22:13"),
 			(b'T', "22:13:20"),
 			(b'd', "11/14/2023"),
+			(b's', "11/14/2023, 22:13"),
+			(b'S', "11/14/2023, 22:13:20"),
 			(b'D', "November 14, 2023"),
 			(b'f', "November 14, 2023 22:13"),
 			(b'F', "Tuesday, November 14, 2023 22:13"),
 		] {
 			assert_eq!(
-				super::discord_timestamp(at, style).as_deref(),
-				Some(expected)
+				super::format_discord_timestamp(
+					time::OffsetDateTime::from_unix_timestamp(at).unwrap(),
+					style,
+					super::DateOrder::MonthDayYear,
+					false
+				),
+				expected
+			);
+		}
+		let at = local_at("2026-11-06T15:04:05Z");
+		for (style, expected) in [
+			(b'd', "06.11.2026"),
+			(b's', "06.11.2026, 15:04"),
+			(b'S', "06.11.2026, 15:04:05"),
+		] {
+			assert_eq!(
+				super::format_discord_timestamp(
+					at,
+					style,
+					super::DateOrder::of_locale("cs-CZ"),
+					false
+				),
+				expected
 			);
 		}
 		assert_eq!(super::discord_timestamp(i64::MAX, b'f'), None);

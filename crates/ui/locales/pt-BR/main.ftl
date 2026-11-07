@@ -51,8 +51,10 @@ general-start-minimized = Iniciar minimizado
 general-start-minimized-description = Comece em segundo plano, fora do seu caminho.
 general-startup-unavailable = A inicialização automática está disponível no Windows e no macOS.
 general-window = Janela
-general-hide-decorations = Ocultar decorações de janelas
-general-hide-decorations-description = Remova a barra de título e as bordas do sistema. Use seu gerenciador de janelas para mover, redimensionar ou fechar o Serein.
+general-hide-decorations = Sem barra de título
+general-hide-decorations-description = Para gerenciadores de janelas lado a lado: remove todas as barras de título e bordas, incluindo a do próprio Serein. Mova, redimensione ou feche o Serein com seu gerenciador de janelas.
+general-custom-title-bar = Barra de título personalizada
+general-custom-title-bar-description = Substitui a barra de título do sistema pela barra de cabeçalho do próprio Serein, no estilo GTK 4.
 general-hide-title-bar = Ocultar barra de título do Serein
 general-hide-title-bar-description = Use a barra de título do sistema e os botões da janela.
 general-keep-menu-bar = Mantenha Serein na barra de menu
@@ -65,6 +67,8 @@ general-graphics = Gráficos
 general-render-with = Renderizar com
 general-gpu-restart = Entra em vigor na próxima vez que Serein for iniciado.
 general-gpu-current-prefix = Atualmente desenhando com
+general-steady-refresh-rate = Taxa de atualização estável
+general-steady-refresh-rate-description = Enquanto Serein é a janela ativa, desenha na taxa de atualização da tela, para que telas com taxa de atualização variável (VRR, G-SYNC, FreeSync) possam manter uma única taxa em vez de piscar. Consome mais energia.
 gpu-automatic = Automático
 gpu-high-performance = Alto desempenho
 gpu-power-saving = Economia de energia
@@ -1638,8 +1642,6 @@ main-restoring-screen-welcome-back = bem vindo de volta
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Contas salvas
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Eu possuo esta conta e autorizo ​​esta sessão.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = As senhas e 2FA permanecem na página de login do Discord; apenas o token da sessão é mantido no armazenamento de credenciais do seu sistema operacional.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = Sobre Serein
@@ -2253,6 +2255,12 @@ screen-body-frame-rate = Taxa de quadros
 screen-body-include-the-pointer-in-the-shared-video = Inclua o ponteiro no vídeo compartilhado.
 # Context: body
 screen-body-quality = Qualidade
+# Context: body
+screen-body-source = Fonte
+# Context: body
+screen-preview-paused-title = Sua transmissão ainda está ativa!
+# Context: body
+screen-preview-paused-body = Pausamos esta prévia para economizar recursos.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = A seleção de qualidade não requer Nitro.
 # Context: body
@@ -4136,8 +4144,6 @@ voice-device-combo-device-unavailable = Dispositivo indisponível
 voice-device-default = Padrão do sistema
 # Context: frame
 voice-frame-open-voice = Voz aberta
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% é o nível original. Níveis mais altos podem distorcer.
 # Context: labels
 voice-labels-choose-camera = Escolha a câmera
 # Context: live_badge
@@ -4238,12 +4244,6 @@ voice-voice-participant-microphone-muted = Microfone silenciado
 voice-voice-participant-muted-by-server = Silenciado pelo servidor
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Desativado para você neste dispositivo
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Escolha um algoritmo em todas as configurações de voz.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen desliga o áudio recebido e silencia o microfone com ele.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Segure o atalho configurado quando quiser falar.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Instale uma versão habilitada para voz para usar esses controles.
 # Context: voice_popup_content
