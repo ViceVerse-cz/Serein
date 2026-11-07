@@ -566,6 +566,8 @@ pub struct MessagingUi {
 	edit_sent: Option<SubmittedEdit>,
 	deleting: Option<(Id, Id)>,
 	ime_active: bool,
+	/// A composer picker pick returns focus to the draft next frame, once its click is over.
+	refocus_composer: bool,
 	/// Enter the input method passed on after finishing a composition, replayed next frame.
 	ime_enter: Option<egui::Event>,
 	/// The composer claimed Tab last frame, so egui left it in the input for a suggestion menu.
@@ -3293,17 +3295,26 @@ impl MessagingUi {
 			}
 			return;
 		}
+		let composer_id = ui.make_persistent_id(if editing_here {
+			"message-edit"
+		} else {
+			"message-input"
+		});
+		// Input methods write into the focused field; with Wayland text-input every key in
+		// another field, such as the picker search, arrives as a commit and is not composing here.
+		let composer_ime = ctx.memory(|memory| memory.focused().is_none_or(|id| id == composer_id));
 		// Wayland/Fcitx can repeatedly emit empty preedits while idle. Only real
 		// composition blocks shortcuts; dismissing an active composition still does.
 		let ime_this_frame = keyboard_enabled
-			&& (self.ime_active || ctx.input(|i| i.events.iter().any(ime_updates_text)));
+			&& (self.ime_active
+				|| (composer_ime && ctx.input(|i| i.events.iter().any(ime_updates_text))));
 		if keyboard_enabled {
 			ctx.input(|i| {
 				for event in &i.events {
 					if let egui::Event::Ime(event) = event {
 						match event {
 							egui::ImeEvent::Preedit { text, .. } => {
-								self.ime_active = !text.is_empty()
+								self.ime_active = composer_ime && !text.is_empty()
 							}
 							egui::ImeEvent::Commit(_) => self.ime_active = false,
 							_ => {}
@@ -3337,11 +3348,6 @@ impl MessagingUi {
 		} else {
 			self.ime_enter = None;
 		}
-		let composer_id = ui.make_persistent_id(if editing_here {
-			"message-edit"
-		} else {
-			"message-input"
-		});
 		if editing_here {
 			self.edit_widget_id = Some(composer_id);
 		}
@@ -3368,7 +3374,8 @@ impl MessagingUi {
 					_ => false,
 				})
 			});
-		if focus_composer || typed {
+		let refocus = std::mem::take(&mut self.refocus_composer) && keyboard_enabled;
+		if focus_composer || typed || refocus {
 			ctx.memory_mut(|m| m.request_focus(composer_id));
 		}
 		if focus_edit || (focus_composer && !editing_here) {
@@ -3670,6 +3677,7 @@ impl MessagingUi {
                                     .show(ui, state, channel, &mut self.avatars, commands)
                             })
                             .inner;
+                        let picked = pick.is_some() && !self.emoji_picker.is_open();
                         // A chosen GIF is its own message; the typed draft stays untouched.
                         if self.emoji_picker.is_open() {
                             self.reaction_picker.dismiss(state, commands);
@@ -3708,9 +3716,9 @@ impl MessagingUi {
                             }
                             None => None,
                         };
-                        actions = Some((send, pick));
+                        actions = Some((send, pick, picked));
                         });
-                        let (send, pick) = actions.expect("composer actions ran");
+                        let (send, pick, picked) = actions.expect("composer actions ran");
                         let edit = ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.vertical(|ui| {
                                 ui.set_width(ui.available_width());
@@ -3988,6 +3996,12 @@ impl MessagingUi {
                         edit.response
                             }).inner
                         }).inner;
+                        // The picker hands focus to its button and the click surrenders the
+                        // draft's, so return to the draft on the next frame.
+                        if picked {
+                            self.refocus_composer = true;
+                            ctx.request_repaint();
+                        }
                         // Stack once three buttons fit beside the draft; unstack only at one line,
                         // so the width gained by stacking cannot flip the layout back and forth.
                         // The text edit reports its full content height; the scroll area shows at most half the viewport.

@@ -1365,7 +1365,15 @@ impl Picker {
 											let search_id = ui.scope_id().with("picker-search");
 											// New Areas have an invisible sizing pass before they can take focus.
 											// Request before TextEdit runs so the first typed character is retained.
-											if self.focus
+											// The click that opened the picker landed outside the field and would
+											// take the focus straight back, so wait for it to finish.
+											let clicking = ui.input(|input| {
+												input.pointer.any_pressed()
+													|| input.pointer.any_released()
+											});
+											if self.focus && clicking {
+												ui.ctx().request_repaint();
+											} else if self.focus
 												&& !ui.is_sizing_pass() && ui.ctx().memory(
 												|memory| memory.allows_interaction(ui.layer_id()),
 											) {
@@ -2039,11 +2047,20 @@ impl Picker {
 						&& gif_trigger.is_none_or(|trigger| !trigger.rect.contains(pos))
 				})
 		});
-		self.open = !clicked_outside && selected.is_none();
+		// Shift keeps the popout open for another emoji or reaction, like Discord.
+		let keep = matches!(selected, Some(Pick::Insert(_) | Pick::React(..)))
+			&& ui.input(|i| i.modifiers.shift);
+		self.open = !clicked_outside && (selected.is_none() || keep);
 		if !self.open {
 			self.close_gifs(state, commands);
 		}
-		if selected.is_some() {
+		if keep {
+			self.focus = true;
+		} else if selected.is_some() {
+			if !self.query.is_empty() {
+				self.query.clear();
+				self.filter();
+			}
 			trigger.request_focus();
 		}
 		selected
