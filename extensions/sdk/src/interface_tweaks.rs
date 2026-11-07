@@ -17,6 +17,8 @@ pub enum InterfaceTweak {
 	/// A direct or group conversation alerts once until it is read, instead of for every
 	/// message.
 	OnePingPerDirectMessage,
+	/// Messages from users you blocked are left out of conversations.
+	HiddenBlockedMessages,
 }
 
 /// Activation or panel output that sets the plugin's interface tweaks, preserving `Output`

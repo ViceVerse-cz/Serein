@@ -306,6 +306,7 @@ fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
 			sdk::InterfaceTweak::ExpandedRoles,
 			sdk::InterfaceTweak::HiddenRequestCounts,
 			sdk::InterfaceTweak::OnePingPerDirectMessage,
+			sdk::InterfaceTweak::HiddenBlockedMessages,
 		]),
 		..Default::default()
 	};

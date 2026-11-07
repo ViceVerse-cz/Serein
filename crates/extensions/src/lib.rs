@@ -167,6 +167,8 @@ pub enum InterfaceTweak {
 	/// A direct or group conversation alerts once until it is read, instead of for every
 	/// message.
 	OnePingPerDirectMessage,
+	/// Messages from users you blocked are left out of conversations.
+	HiddenBlockedMessages,
 }
 
 impl InterfaceTweak {
@@ -177,6 +179,7 @@ impl InterfaceTweak {
 		Self::ExpandedRoles,
 		Self::HiddenRequestCounts,
 		Self::OnePingPerDirectMessage,
+		Self::HiddenBlockedMessages,
 	];
 }
 

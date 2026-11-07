@@ -133,6 +133,8 @@ pub struct TimelineView {
 	rows: Vec<(Id, f32)>,
 	revision: u64,
 	layout_fingerprint: u64,
+	/// Whether the last layout left out blocked users' messages.
+	hidden_blocked: bool,
 	channel: Option<Id>,
 	anchor: Option<(Id, f32)>,
 	scroll_offset: f32,
@@ -1252,8 +1254,12 @@ fn dm_intro(
 	action
 }
 
-/// Loaded and private (ephemeral) messages of the selected conversation in id order.
-fn display_rows<'a>(state: &'a State) -> impl Iterator<Item = &'a Message> + 'a {
+/// Loaded and private (ephemeral) messages of the selected conversation in id order, without
+/// blocked users' messages when `hide_blocked`.
+fn display_rows<'a>(
+	state: &'a State,
+	hide_blocked: bool,
+) -> impl Iterator<Item = &'a Message> + 'a {
 	let mut private: Vec<&Message> = state
 		.interactions
 		.ephemeral
@@ -1270,6 +1276,7 @@ fn display_rows<'a>(state: &'a State) -> impl Iterator<Item = &'a Message> + 'a 
 		(Some(_), _) => shared.next(),
 		(None, _) => private.next(),
 	})
+	.filter(move |message| !hide_blocked || state.user_blocked(message.author.id) != Some(true))
 }
 /// A row payload, including retained deleted bodies and private command responses.
 fn display_message(state: &State, id: Id) -> Option<&Message> {
@@ -2518,6 +2525,10 @@ impl TimelineView {
 		// A thread's starter joins the rows only once the whole thread history is loaded.
 		let starter = state.thread_starter().filter(|_| history_complete(state));
 		let starter_id = starter.map(|m| m.id);
+		let hide_blocked = crate::interface_tweaks::on(
+			ui.ctx(),
+			extensions::InterfaceTweak::HiddenBlockedMessages,
+		);
 		let intro_empty = state.timeline.display_iter().next().is_none()
 			&& !state
 				.pending
@@ -2531,7 +2542,7 @@ impl TimelineView {
 			// anchor or reintroduce estimates for already settled message geometry.
 			let mut fingerprint = DefaultHasher::new();
 			let mut previous = None;
-			for message in starter.into_iter().chain(display_rows(state)) {
+			for message in starter.into_iter().chain(display_rows(state, hide_blocked)) {
 				let deleted = state.timeline.is_deleted(message.id);
 				message.id.hash(&mut fingerprint);
 				row_key(message, previous, self.unread_boundary, state).hash(&mut fingerprint);
@@ -2544,6 +2555,7 @@ impl TimelineView {
 		}
 		let changed = self.revision == u64::MAX
 			|| layout_changed
+			|| self.hidden_blocked != hide_blocked
 			|| dimensions_changed
 			|| self.starter_row != starter_id
 			|| self.intro_row != intro.is_some()
@@ -2551,6 +2563,7 @@ impl TimelineView {
 				.is_some_and(|key| self.heights.get(&INTRO).is_some_and(|(old, _)| *old != key));
 		self.starter_row = starter_id;
 		self.intro_row = intro.is_some();
+		self.hidden_blocked = hide_blocked;
 		if changed || self.revision != state.revision || self.width != width {
 			self.measured_rows.clear();
 		}
@@ -2572,7 +2585,7 @@ impl TimelineView {
 				.map(|_| INTRO)
 				.into_iter()
 				.chain(starter_id)
-				.chain(display_rows(state).map(|message| message.id))
+				.chain(display_rows(state, hide_blocked).map(|message| message.id))
 				.collect();
 			self.heights
 				.retain(|id, _| row_ids.binary_search(id).is_ok());
@@ -2591,7 +2604,7 @@ impl TimelineView {
 			let mut stale_heights = Vec::new();
 			self.rows = starter
 				.into_iter()
-				.chain(display_rows(state))
+				.chain(display_rows(state, hide_blocked))
 				.map(|m| {
 					let prior = previous;
 					let deleted = state.timeline.is_deleted(m.id);
@@ -9166,6 +9179,109 @@ mod tests {
 		assert_eq!(anchor_offset(&neighbors, Id(3), -100.0), 0.0);
 		assert_eq!(anchor_offset(&neighbors, Id(3), 200.0), 140.0);
 		assert_eq!(anchor_offset(&[], Id(2), 25.0), 0.0);
+	}
+
+	/// Checks that the hidden-blocked-messages tweak leaves out a blocked user's messages,
+	/// keeps everyone else's, and restores them when the tweak is switched off.
+	#[test]
+	fn hidden_blocked_messages_tweak_leaves_out_blocked_authors() {
+		/// Collects the text of every painted shape, recursing into shape groups.
+		fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
+			match shape {
+				egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						texts(shape, out);
+					}
+				}
+				_ => {}
+			}
+		}
+		let mut state = test_support::demo_state();
+		state.read_state.reset();
+		state.timeline.clear();
+		let channel = state.selected.unwrap();
+		for (id, author, body) in [
+			(41, 701, "Visible synthetic body"),
+			(42, 777, "Blocked synthetic body"),
+			(43, 701, "Later synthetic body"),
+		] {
+			let mut message = text_message(id);
+			message.channel = channel;
+			message.author.id = Id(author);
+			message.author.name = format!("Synthetic author {author}");
+			message.content = body.into();
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::Relationship {
+				user: Id(777),
+				blocked: true,
+			}),
+		});
+		assert_eq!(state.user_blocked(Id(777)), Some(true));
+		let ctx = egui::Context::default();
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut render = |view: &mut TimelineView, state: &mut State, hide: bool| {
+			let mut labels = Vec::new();
+			for _ in 0..3 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(600.0, 600.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						crate::interface_tweaks::publish(
+							ui.ctx(),
+							&std::sync::Arc::new(
+								hide.then_some(extensions::InterfaceTweak::HiddenBlockedMessages)
+									.into_iter()
+									.collect(),
+							),
+						);
+						view.show(
+							ui,
+							state,
+							&mut None,
+							&mut None,
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
+							None,
+						);
+					},
+				);
+				labels.clear();
+				for shape in &output.shapes {
+					texts(&shape.shape, &mut labels);
+				}
+				output.drop_without_applying_deltas();
+			}
+			labels
+		};
+		let shown = |labels: &[String], body: &str| labels.iter().any(|text| text.contains(body));
+		let all = render(&mut view, &mut state, false);
+		assert!(
+			shown(&all, "Blocked synthetic body"),
+			"shown without the tweak"
+		);
+		let hidden = render(&mut view, &mut state, true);
+		assert!(
+			!shown(&hidden, "Blocked synthetic body"),
+			"hidden with the tweak"
+		);
+		assert!(shown(&hidden, "Visible synthetic body") && shown(&hidden, "Later synthetic body"));
+		let restored = render(&mut view, &mut state, false);
+		assert!(
+			shown(&restored, "Blocked synthetic body"),
+			"switching off restores it"
+		);
 	}
 
 	#[test]
