@@ -42,7 +42,14 @@ jobs:
         run: |
           set -o pipefail
           workspace=$(find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)
-          scheme=$(xcodebuild -workspace "$workspace" -list -json | jq -r '.workspace.schemes[0]')
+          # Pods adds a scheme per dependency; the app's own scheme matches the workspace name.
+          app=$(basename "$workspace" .xcworkspace)
+          scheme=$(xcodebuild -workspace "$workspace" -list -json \
+            | jq -r --arg app "$app" '.workspace.schemes[] | select(. == $app)')
+          if [ -z "$scheme" ]; then
+            scheme=$(xcodebuild -workspace "$workspace" -list -json \
+              | jq -r '.workspace.schemes[] | select(startswith("Pods-") | not)' | head -1)
+          fi
           echo "building $scheme from $workspace"
           xcodebuild \
             -workspace "$workspace" \
