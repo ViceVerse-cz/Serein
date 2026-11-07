@@ -321,6 +321,20 @@ attachments-viewer-downloads-are-disabled-for-synthetic-attachments = U syntetic
 # Context: viewer
 attachments-viewer-open-in-browser = Otevřít v prohlížeči
 # Context: viewer
+attachments-viewer-zoom-in = Přiblížit
+# Context: viewer
+attachments-viewer-more = Další
+# Context: viewer
+attachments-viewer-copy-media-link = Kopírovat odkaz na médium
+# Context: viewer
+attachments-viewer-view-details = Zobrazit podrobnosti
+# Context: viewer
+attachments-viewer-filename = Název souboru
+# Context: viewer
+attachments-viewer-size = Velikost
+# Context: viewer
+attachments-viewer-copy-attachment-id = Kopírovat ID přílohy
+# Context: viewer
 attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset = Posunutím zvětšíte · Přetažením posunete · Dvojitým kliknutím resetujete
 
 ## crates/ui/src/audio.rs

@@ -322,6 +322,20 @@ attachments-viewer-downloads-are-disabled-for-synthetic-attachments = Downloads 
 # Context: viewer
 attachments-viewer-open-in-browser = Open in browser
 # Context: viewer
+attachments-viewer-zoom-in = Zoom in
+# Context: viewer
+attachments-viewer-more = More
+# Context: viewer
+attachments-viewer-copy-media-link = Copy Media Link
+# Context: viewer
+attachments-viewer-view-details = View Details
+# Context: viewer
+attachments-viewer-filename = Filename
+# Context: viewer
+attachments-viewer-size = Size
+# Context: viewer
+attachments-viewer-copy-attachment-id = Copy Attachment ID
+# Context: viewer
 attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset = Scroll to zoom · Drag to pan · Double-click to reset
 
 ## crates/ui/src/audio.rs

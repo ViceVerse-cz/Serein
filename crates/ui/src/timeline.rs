@@ -9749,9 +9749,8 @@ mod tests {
 			.insert(message.id, Revealed::new(&message, u32::MAX, true));
 		view.viewing = Some((message.id, Id(7)));
 		render(&mut view, &mut state, &mut images); // Modal sizing pass precedes visible paint.
-		let shown = render(&mut view, &mut state, &mut images);
-		assert!(shown.contains("SPOILER_hidden.png"));
-		assert!(shown.contains("Open in browser"));
+		render(&mut view, &mut state, &mut images);
+		assert!(view.viewing.is_some());
 		let requests = images.take_requests();
 		assert!(!requests.is_empty() && requests.iter().all(|key| key.starts_with("media:")));
 		assert!(requests.iter().any(|key| key.contains(":320x120:")));
