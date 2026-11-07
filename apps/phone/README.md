@@ -39,3 +39,13 @@ XcodeGen is not used: `expo prebuild` generates the Xcode project together with 
 CocoaPods integration React Native needs, and a hand-written XcodeGen spec would have to
 reproduce those build phases. The workflow discovers the generated workspace and scheme
 instead of hardcoding them.
+
+## Installing the unsigned build on the phone (Windows, no Mac)
+
+1. `winget install Apple.AppleMobileDeviceSupport` (the Apple Mobile Device Service is what
+   talks to the phone; iTunes alone no longer installs it).
+2. Plug the iPhone in, unlock it, and tap **Trust**. If `ListDevices` on usbmuxd stays empty,
+   disable and re-enable the `USB\VID_05AC&PID_12A8\…` device in Device Manager.
+3. Install [Sideloadly](https://sideloadly.io/), open `SereinVoice-unsigned.ipa` with it, pick
+   the device, enter your own Apple ID and press **Start**. Sideloadly signs the bundle with a
+   free-account profile (valid 7 days) and installs it over USB.
