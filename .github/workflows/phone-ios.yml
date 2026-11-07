@@ -1,0 +1,66 @@
+name: phone-ios
+
+# Builds the phone app as an unsigned .ipa on a GitHub macOS runner. The artifact is
+# signed on the owner's Windows machine by Sideloadly with their own Apple ID, so no
+# signing secrets live in the repository.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "apps/phone/**"
+      - ".github/workflows/phone-ios.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/phone
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/phone/package-lock.json
+      - name: Install JavaScript dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Generate the Xcode project
+        run: npx expo prebuild --platform ios --no-install
+      - name: Install CocoaPods
+        run: pod install --project-directory=ios
+      - name: Build without signing
+        run: |
+          set -o pipefail
+          workspace=$(find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)
+          scheme=$(xcodebuild -workspace "$workspace" -list -json | jq -r '.workspace.schemes[0]')
+          echo "building $scheme from $workspace"
+          xcodebuild \
+            -workspace "$workspace" \
+            -scheme "$scheme" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+      - name: Package an unsigned .ipa
+        run: |
+          set -euo pipefail
+          app=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -print -quit)
+          test -n "$app"
+          mkdir -p Payload
+          cp -R "$app" Payload/
+          ditto -c -k --sequesterRsrc --keepParent Payload SereinVoice-unsigned.ipa
+          shasum -a 256 SereinVoice-unsigned.ipa
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: SereinVoice-unsigned-ipa
+          path: apps/phone/SereinVoice-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14

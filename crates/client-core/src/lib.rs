@@ -1938,6 +1938,47 @@ impl State {
 	pub fn prepare_send_with_attachments(&mut self, filenames: &[&str]) -> Option<Command> {
 		self.prepare_message(filenames, None, false)
 	}
+	/// Queues one message for `channel` without touching the open conversation or its draft.
+	/// The phone bridge uses it; permissions and the content budget still apply.
+	pub fn prepare_send_to(&mut self, channel: Id, content: &str) -> Option<(Command, String)> {
+		// The phone bridge may target a channel this client never opened, so the local
+		// permission and freshness gates do not apply; Discord enforces them on the send.
+		if !self
+			.channel(channel)
+			.is_some_and(|channel| channel.supports_text())
+			|| content.trim().is_empty()
+			|| content.len() > self.content_limit()
+			|| self.pending.len() >= 64
+		{
+			return None;
+		}
+		self.send_sequence += 1;
+		let epoch = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap_or_default()
+			.as_millis();
+		let nonce = fingerprint::nonce(epoch, self.send_sequence);
+		self.pending.push(Pending {
+			sticker: None,
+			channel,
+			content: content.to_owned(),
+			attachments: Vec::new(),
+			nonce: nonce.clone(),
+			delivery: Delivery::Sending,
+			confirmed: None,
+			reply: None,
+		});
+		Some((
+			Command::Send {
+				sticker: None,
+				channel,
+				content: content.to_owned(),
+				nonce: nonce.clone(),
+				reply: None,
+			},
+			nonce,
+		))
+	}
 	/// Send explicitly submitted artwork without consuming a newer text draft.
 	pub fn prepare_image_send(&mut self, filenames: &[&str]) -> Option<Command> {
 		self.prepare_message(filenames, None, true)

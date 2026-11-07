@@ -5262,18 +5262,42 @@ impl Desktop {
 			log_session_event(&event.event);
 			let forwarded = match &event.event {
 				Event::Message(message) => Some(message.clone()),
+				Event::SendResult {
+					result: Ok(message),
+					..
+				} => Some(message.clone()),
 				_ => None,
 			};
+			if let Event::SendResult { nonce, result } = &event.event {
+				let error = result.as_ref().err().map(|failure| failure.label());
+				self.bridge.acknowledge_client(nonce, error);
+			}
+			// A confirmed send can also arrive as the message itself, carrying its nonce.
+			if let Event::Message(message) = &event.event
+				&& let Some(nonce) = message.nonce.as_deref()
+			{
+				self.bridge.acknowledge_client(nonce, None);
+			}
 			let announce_all = matches!(
 				&event.event,
 				Event::Startup(_) | Event::Resumed | Event::Resync
 			);
+			// History the phone asked for, and messages the phone sent, reach it too.
+			let history = match &event.event {
+				Event::History { messages, .. } => Some(messages.clone()),
+				_ => None,
+			};
 			self.state.apply(event);
 			if announce_all {
 				self.bridge.announce_all(&self.state);
 			}
 			if let Some(message) = forwarded {
 				self.bridge.publish(&self.state, &message);
+			}
+			if let Some(messages) = history {
+				for message in &messages {
+					self.bridge.publish(&self.state, message);
+				}
 			}
 			if let Some(message) = takeover_notice {
 				self.messaging
@@ -5387,6 +5411,33 @@ impl Desktop {
 				}) {
 				let command = self.state.history(None);
 				self.command(command);
+			}
+		}
+		for request in self.bridge.take_requests() {
+			match request {
+				bridge::Request::Open { channel } => {
+					let channel = model::Id(channel);
+					let command = self.state.select(channel);
+					if let Some(command) = command {
+						self.command(command);
+					}
+				}
+				bridge::Request::Send {
+					channel,
+					nonce,
+					content,
+				} => {
+					let channel = model::Id(channel);
+					match self.state.prepare_send_to(channel, &content) {
+						Some((command, client_nonce)) => {
+							self.bridge.expect(&client_nonce, &nonce);
+							self.command(command);
+						}
+						None => self
+							.bridge
+							.acknowledge(&nonce, Some("Cannot send to this channel")),
+					}
+				}
 			}
 		}
 		if persist_timeline
@@ -6070,6 +6121,11 @@ impl eframe::App for Desktop {
 				token: self.messaging.bridge_token.clone(),
 			},
 		);
+		self.bridge.set_wake(ctx.clone());
+		if self.messaging.bridge_enabled {
+			// The pump drains phone requests; keep it ticking while the bridge is on.
+			ctx.request_repaint_after(std::time::Duration::from_millis(250));
+		}
 		self.messaging.bridge_status = self
 			.bridge
 			.port()

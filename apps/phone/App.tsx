@@ -36,7 +36,9 @@ type Message = {
 
 type Frame =
 	| { type: 'channel'; channel: Channel }
-	| { type: 'message'; channel: Channel | null; message: Omit<Message, 'channel'> };
+	| { type: 'message'; channel: Channel | null; message: Omit<Message, 'channel'> }
+	| { type: 'sent'; nonce: string }
+	| { type: 'send_failed'; nonce: string; error: string };
 
 type Connection = { host: string; port: string; token: string };
 
@@ -48,6 +50,9 @@ export default function App() {
 	const [status, setStatus] = useState('Not connected');
 	const [channels, setChannels] = useState<Record<string, Channel>>({});
 	const [messages, setMessages] = useState<Record<string, Message[]>>({});
+	const [pending, setPending] = useState<Record<string, string[]>>({});
+	const [draft, setDraft] = useState('');
+	const [sendError, setSendError] = useState('');
 	const [selected, setSelected] = useState<string | null>(null);
 	const socket = useRef<WebSocket | null>(null);
 
@@ -71,6 +76,25 @@ export default function App() {
 			}
 			if (frame.type === 'channel') {
 				setChannels((current) => ({ ...current, [frame.channel.id]: frame.channel }));
+			} else if (frame.type === 'sent') {
+				setPending((current) => {
+					const next: Record<string, string[]> = {};
+					for (const [channel, nonces] of Object.entries(current)) {
+						const kept = nonces.filter((nonce) => nonce !== frame.nonce);
+						if (kept.length > 0) next[channel] = kept;
+					}
+					return next;
+				});
+			} else if (frame.type === 'send_failed') {
+				setPending((current) => {
+					const next: Record<string, string[]> = {};
+					for (const [channel, nonces] of Object.entries(current)) {
+						const kept = nonces.filter((nonce) => nonce !== frame.nonce);
+						if (kept.length > 0) next[channel] = kept;
+					}
+					return next;
+				});
+				setSendError(frame.error);
 			} else if (frame.type === 'message') {
 				const channel = frame.channel;
 				if (!channel) return;
@@ -102,6 +126,25 @@ export default function App() {
 				channels: list.sort((left, right) => left.name.localeCompare(right.name)),
 			}));
 	}, [channels]);
+
+	const open = useCallback(
+		(channel: string) => {
+			setSelected(channel);
+			console.log('open', channel, socket.current?.readyState);
+			socket.current?.send(JSON.stringify({ type: 'open', channel }));
+		},
+		[],
+	);
+
+	const send = useCallback(() => {
+		const content = draft.trim();
+		if (!content || !selected || socket.current?.readyState !== WebSocket.OPEN) return;
+		const nonce = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+		socket.current.send(JSON.stringify({ type: 'send', channel: selected, nonce, content }));
+		setPending((current) => ({ ...current, [selected]: [...(current[selected] ?? []), nonce] }));
+		setDraft('');
+		setSendError('');
+	}, [draft, selected]);
 
 	const active = selected ? channels[selected] : undefined;
 	const thread = selected ? (messages[selected] ?? []) : [];
@@ -182,6 +225,24 @@ export default function App() {
 							</View>
 						)}
 					/>
+					{sendError ? <Text style={styles.error}>{sendError}</Text> : null}
+					<View style={styles.composer}>
+						<TextInput
+							style={styles.composerInput}
+							value={draft}
+							onChangeText={setDraft}
+							placeholder={`Message ${active.name}`}
+							placeholderTextColor="#6b7280"
+							multiline
+							onSubmitEditing={send}
+						/>
+						<Pressable style={styles.sendButton} onPress={send}>
+							<Text style={styles.buttonText}>Send</Text>
+						</Pressable>
+					</View>
+					{pending[selected ?? '']?.length ? (
+						<Text style={styles.hint}>Sending…</Text>
+					) : null}
 				</View>
 			) : (
 				<FlatList
@@ -203,7 +264,7 @@ export default function App() {
 									<Pressable
 										key={channel.id}
 										style={styles.row}
-										onPress={() => setSelected(channel.id)}
+										onPress={() => open(channel.id)}
 									>
 										<Text style={styles.rowTitle}>
 											{channel.voice ? '🔊 ' : '# '}
@@ -272,6 +333,31 @@ const styles = StyleSheet.create({
 	thread: { flex: 1 },
 	back: { paddingHorizontal: 16, paddingVertical: 10 },
 	message: { marginBottom: 12 },
+	composer: {
+		alignItems: 'flex-end',
+		borderTopColor: '#2a2e35',
+		borderTopWidth: StyleSheet.hairlineWidth,
+		flexDirection: 'row',
+		gap: 8,
+		padding: 12,
+	},
+	composerInput: {
+		backgroundColor: '#1e2126',
+		borderRadius: 18,
+		color: '#f2f3f5',
+		flex: 1,
+		fontSize: 15,
+		maxHeight: 120,
+		paddingHorizontal: 14,
+		paddingVertical: 10,
+	},
+	sendButton: {
+		backgroundColor: '#5865f2',
+		borderRadius: 18,
+		paddingHorizontal: 16,
+		paddingVertical: 10,
+	},
+	error: { color: '#f28b82', fontSize: 13, paddingHorizontal: 16, paddingBottom: 6 },
 	author: { color: '#8ab4f8', fontSize: 13, fontWeight: '600' },
 	content: { color: '#e3e5e8', fontSize: 15, marginTop: 2 },
 });

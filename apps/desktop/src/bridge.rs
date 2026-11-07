@@ -4,9 +4,10 @@
 //! it, requires a shared token, and never exposes anything but channel names, author
 //! display names and bounded message text. It never sends: the phone app is read-only.
 
+use eframe::egui;
 use model::{Channel, Guild, Id, Message};
 use std::{
-	collections::BTreeMap,
+	collections::{BTreeMap, VecDeque},
 	net::{Ipv4Addr, SocketAddr},
 	sync::{Arc, Mutex},
 	time::Duration,
@@ -15,7 +16,7 @@ use tokio::{
 	net::TcpListener,
 	sync::{broadcast, watch},
 };
-use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+use tokio_tungstenite::tungstenite::handshake::server::{Request as HandshakeRequest, Response};
 
 /// Bounded fan-out: a slow phone drops its oldest frames instead of growing memory.
 const FRAME_BACKLOG: usize = 128;
@@ -27,10 +28,46 @@ const MAX_NAME: usize = 96;
 /// Channels announced in one snapshot; the sidebar never holds more.
 const MAX_CHANNELS: usize = 200;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Cached messages replayed per channel, and across all channels, when a phone connects.
+const REPLAY_PER_CHANNEL: usize = 20;
+const REPLAY_TOTAL: usize = 400;
+/// Phone requests waiting for the client to act on them, and the longest message it may send.
+const MAX_REQUESTS: usize = 32;
+const MAX_SEND: usize = 2000;
+
+/// State every connection shares.
+#[derive(Clone)]
+struct Shared {
+	token: Arc<str>,
+	frames: broadcast::Sender<Arc<str>>,
+	channels: Arc<Mutex<BTreeMap<u64, String>>>,
+	account: Arc<Mutex<Option<u64>>>,
+	requests: Arc<Mutex<VecDeque<Request>>>,
+	wake: Arc<Mutex<Option<egui::Context>>>,
+}
+
+/// One thing the phone asked the client to do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Request {
+	/// Load and forward a channel's recent history.
+	Open { channel: u64 },
+	/// Post `content` into `channel`, acknowledged with `nonce`.
+	Send {
+		channel: u64,
+		nonce: String,
+		content: String,
+	},
+}
 
 #[derive(Default)]
 pub struct Bridge {
 	handle: Option<Handle>,
+	/// Requests the phone sent, drained by the client each frame.
+	requests: Arc<Mutex<VecDeque<Request>>>,
+	/// Wakes the interface so a request is drained without waiting for the next repaint.
+	wake: Arc<Mutex<Option<egui::Context>>>,
+	/// Client nonce -> phone nonce, so an acknowledgement names the phone's own request.
+	expected: Arc<Mutex<BTreeMap<String, String>>>,
 	/// Preferences the running listener was started with.
 	running: Option<Config>,
 }
@@ -48,6 +85,8 @@ struct Handle {
 	stop: watch::Sender<bool>,
 	/// Latest channel row per channel, replayed to each phone that connects.
 	channels: Arc<Mutex<BTreeMap<u64, String>>>,
+	/// Signed-in account whose cached history the replay reads.
+	account: Arc<Mutex<Option<u64>>>,
 }
 
 impl Bridge {
@@ -68,8 +107,21 @@ impl Bridge {
 		let sender = frames.clone();
 		let channels = Arc::new(Mutex::new(BTreeMap::new()));
 		let known = channels.clone();
+		let account = Arc::new(Mutex::new(None));
+		let signed_in = account.clone();
+		let requests = self.requests.clone();
+		let queue = requests.clone();
+		let wake = self.wake.clone();
 		runtime.spawn(async move {
-			if let Err(error) = serve(address, token, sender, known, stopped).await {
+			let shared = Shared {
+				token,
+				frames: sender,
+				channels: known,
+				account: signed_in,
+				requests: queue,
+				wake,
+			};
+			if let Err(error) = serve(address, shared, stopped).await {
 				diagnostics::record_fields(
 					diagnostics::Category::Session,
 					diagnostics::Level::Error,
@@ -83,6 +135,7 @@ impl Bridge {
 			frames,
 			stop,
 			channels,
+			account,
 		});
 	}
 
@@ -97,6 +150,62 @@ impl Bridge {
 		self.handle.as_ref().map(|handle| handle.address.port())
 	}
 
+	/// Gives the bridge a way to wake the interface when the phone asks for something.
+	pub fn set_wake(&mut self, ctx: egui::Context) {
+		if let Ok(mut wake) = self.wake.lock() {
+			*wake = Some(ctx);
+		}
+	}
+
+	/// Takes the requests the phone queued since the last frame.
+	pub fn take_requests(&self) -> Vec<Request> {
+		self.requests
+			.lock()
+			.map(|mut requests| requests.drain(..).collect())
+			.unwrap_or_default()
+	}
+
+	/// Remembers which phone request a queued send belongs to.
+	pub fn expect(&self, client_nonce: &str, phone_nonce: &str) {
+		if let Ok(mut expected) = self.expected.lock() {
+			if expected.len() >= MAX_REQUESTS {
+				expected.clear();
+			}
+			expected.insert(client_nonce.to_owned(), phone_nonce.to_owned());
+		}
+	}
+
+	/// Acknowledges the phone request that produced `client_nonce`.
+	pub fn acknowledge_client(&self, client_nonce: &str, error: Option<&str>) {
+		let phone_nonce = self
+			.expected
+			.lock()
+			.ok()
+			.and_then(|mut expected| expected.remove(client_nonce));
+		if let Some(phone_nonce) = phone_nonce {
+			self.acknowledge(&phone_nonce, error);
+		}
+	}
+
+	/// Tells the phone whether its message was accepted.
+	pub fn acknowledge(&self, nonce: &str, error: Option<&str>) {
+		let Some(handle) = &self.handle else {
+			return;
+		};
+		let frame = match error {
+			None => format!(
+				r#"{{"type":"sent","nonce":{}}}"#,
+				json_string(&bounded(nonce, MAX_NAME))
+			),
+			Some(error) => format!(
+				r#"{{"type":"send_failed","nonce":{},"error":{}}}"#,
+				json_string(&bounded(nonce, MAX_NAME)),
+				json_string(&bounded(error, MAX_NAME))
+			),
+		};
+		let _ = handle.frames.send(Arc::from(frame.as_str()));
+	}
+
 	/// Announces a channel so the phone can group messages by server or friend.
 	pub fn announce(&self, state: &client_core::State, channel: Id) {
 		let Some(handle) = &self.handle else {
@@ -105,17 +214,21 @@ impl Bridge {
 		let Some(channel) = state.channel(channel) else {
 			return;
 		};
-		let frame = channel_frame(state, channel);
+		let row = channel_row(state, channel);
+		let frame = channel_frame(&row);
 		if let Ok(mut channels) = handle.channels.lock() {
-			channels.insert(channel.id.0, frame.clone());
+			channels.insert(channel.id.0, row);
 		}
 		let _ = handle.frames.send(Arc::from(frame.as_str()));
 	}
 
 	/// Announces every channel the phone groups by, after a login or resync.
 	pub fn announce_all(&self, state: &client_core::State) {
-		if self.handle.is_none() {
+		let Some(handle) = &self.handle else {
 			return;
+		};
+		if let Ok(mut account) = handle.account.lock() {
+			*account = state.user.as_ref().map(|user| user.id.0);
 		}
 		for id in grouped_channels(state) {
 			self.announce(state, id);
@@ -127,8 +240,10 @@ impl Bridge {
 		let Some(handle) = &self.handle else {
 			return;
 		};
-		let channel = state.channel(message.channel);
-		let frame = message_frame(state, channel, message);
+		let channel = state
+			.channel(message.channel)
+			.map(|channel| channel_row(state, channel));
+		let frame = message_frame(channel.as_deref(), message);
 		let _ = handle.frames.send(Arc::from(frame.as_str()));
 	}
 }
@@ -145,7 +260,7 @@ fn bounded(text: &str, limit: usize) -> String {
 }
 
 /// A channel row: server channels carry their server, DMs carry the other person.
-fn channel_frame(state: &client_core::State, channel: &Channel) -> String {
+fn channel_row(state: &client_core::State, channel: &Channel) -> String {
 	let guild = channel
 		.guild
 		.and_then(|id| state.guild(id))
@@ -160,7 +275,7 @@ fn channel_frame(state: &client_core::State, channel: &Channel) -> String {
 		bounded(&channel.name, MAX_NAME)
 	};
 	format!(
-		r#"{{"type":"channel","channel":{{"id":"{}","kind":{},"name":{},"guild":{},"voice":{}}}}}"#,
+		r#"{{"id":"{}","kind":{},"name":{},"guild":{},"voice":{}}}"#,
 		channel.id.0,
 		channel.kind,
 		json_string(&name),
@@ -169,25 +284,24 @@ fn channel_frame(state: &client_core::State, channel: &Channel) -> String {
 	)
 }
 
-fn message_frame(
-	state: &client_core::State,
-	channel: Option<&Channel>,
-	message: &Message,
-) -> String {
+fn channel_frame(row: &str) -> String {
+	format!(r#"{{"type":"channel","channel":{row}}}"#)
+}
+
+fn message_frame(channel_row: Option<&str>, message: &Message) -> String {
 	let author = message
 		.author_nick
 		.as_deref()
 		.filter(|nick| !nick.is_empty())
 		.map(str::to_owned)
 		.unwrap_or_else(|| message.author.name.clone());
-	let channel_frame = channel.map(|channel| channel_frame(state, channel));
 	format!(
 		r#"{{"type":"message","channel":{channel},"message":{{"id":"{}","author":{},"content":{},"edited":{}}}}}"#,
 		message.id.0,
 		json_string(&bounded(&author, MAX_NAME)),
 		json_string(&bounded(&message.content, MAX_CONTENT)),
 		message.edited,
-		channel = channel_frame.unwrap_or_else(|| "null".into()),
+		channel = channel_row.unwrap_or("null"),
 	)
 }
 
@@ -214,22 +328,18 @@ fn json_string(value: &str) -> String {
 
 async fn serve(
 	address: SocketAddr,
-	token: Arc<str>,
-	frames: broadcast::Sender<Arc<str>>,
-	channels: Arc<Mutex<BTreeMap<u64, String>>>,
+	shared: Shared,
 	stop: watch::Receiver<bool>,
 ) -> Result<&'static str, &'static str> {
 	let listener = TcpListener::bind(address)
 		.await
 		.map_err(|_| "could not listen")?;
-	serve_on(listener, token, frames, channels, stop).await
+	serve_on(listener, shared, stop).await
 }
 
 async fn serve_on(
 	listener: TcpListener,
-	token: Arc<str>,
-	frames: broadcast::Sender<Arc<str>>,
-	channels: Arc<Mutex<BTreeMap<u64, String>>>,
+	shared: Shared,
 	mut stop: watch::Receiver<bool>,
 ) -> Result<&'static str, &'static str> {
 	let clients = Arc::new(tokio::sync::Semaphore::new(MAX_CLIENTS));
@@ -239,13 +349,11 @@ async fn serve_on(
 			accepted = listener.accept() => {
 				let Ok((stream, _)) = accepted else { continue };
 				let Ok(permit) = clients.clone().try_acquire_owned() else { continue };
-				let token = token.clone();
-				let frames = frames.clone();
+				let shared = shared.clone();
 				let stop = stop.clone();
-				let channels = channels.clone();
 				tokio::spawn(async move {
 					let _permit = permit;
-					let _ = client(stream, token, frames, channels, stop).await;
+					let _ = client(stream, shared, stop).await;
 				});
 			}
 		}
@@ -256,18 +364,16 @@ async fn serve_on(
 #[allow(clippy::result_large_err)]
 async fn client(
 	stream: tokio::net::TcpStream,
-	token: Arc<str>,
-	frames: broadcast::Sender<Arc<str>>,
-	channels: Arc<Mutex<BTreeMap<u64, String>>>,
+	shared: Shared,
 	mut stop: watch::Receiver<bool>,
 ) -> Result<(), &'static str> {
 	let _ = stream.set_nodelay(true);
-	let token_for_check = token.clone();
+	let token_for_check = shared.token.clone();
 	let handshake = tokio::time::timeout(
 		HANDSHAKE_TIMEOUT,
 		tokio_tungstenite::accept_hdr_async(
 			stream,
-			move |request: &Request, response: Response| {
+			move |request: &HandshakeRequest, response: Response| {
 				if authorized(request.uri().query(), &token_for_check) {
 					Ok(response)
 				} else {
@@ -285,12 +391,19 @@ async fn client(
 	.map_err(|_| "handshake rejected")?;
 	let (mut sink, mut source) = handshake.split();
 	use futures_util::{SinkExt, StreamExt};
-	// Replay the channels the phone missed before it connected.
-	let known: Vec<String> = channels
+	// Replay the channels and cached messages the phone missed before it connected.
+	let known: Vec<(u64, String)> = shared
+		.channels
 		.lock()
-		.map(|channels| channels.values().cloned().collect())
+		.map(|channels| {
+			channels
+				.iter()
+				.map(|(id, row)| (*id, row.clone()))
+				.collect()
+		})
 		.unwrap_or_default();
-	for frame in known {
+	for (_, row) in &known {
+		let frame = channel_frame(row);
 		if sink
 			.send(tokio_tungstenite::tungstenite::Message::Text(frame.into()))
 			.await
@@ -299,13 +412,43 @@ async fn client(
 			return Ok(());
 		}
 	}
-	let mut frames = frames.subscribe();
+	let signed_in = shared.account.lock().ok().and_then(|account| *account);
+	if let Some(account) = signed_in
+		&& let Ok(replay) = replay_frames(account, &known).await
+	{
+		for frame in replay {
+			if sink
+				.send(tokio_tungstenite::tungstenite::Message::Text(frame.into()))
+				.await
+				.is_err()
+			{
+				return Ok(());
+			}
+		}
+	}
+	let mut frames = shared.frames.subscribe();
 	loop {
 		tokio::select! {
 			_ = stop.changed() => return Ok(()),
-			// A phone that closes or sends anything is finished; the bridge is read-only.
 			incoming = source.next() => match incoming {
 				None | Some(Err(_)) | Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) => return Ok(()),
+				Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
+					if let Some(request) = parse_request(&text)
+						&& let Ok(mut queue) = shared.requests.lock()
+						&& queue.len() < MAX_REQUESTS
+					{
+						queue.push_back(request);
+						drop(queue);
+						if let Some(wake) = shared
+							.wake
+							.lock()
+							.ok()
+							.and_then(|wake| wake.clone())
+						{
+							wake.request_repaint();
+						}
+					}
+				}
 				Some(Ok(_)) => {}
 			},
 			frame = frames.recv() => match frame {
@@ -323,6 +466,56 @@ async fn client(
 			},
 		}
 	}
+}
+
+/// Reads one phone request. Unknown or malformed frames are ignored.
+fn parse_request(text: &str) -> Option<Request> {
+	let value: serde_json::Value = serde_json::from_str(text).ok()?;
+	let channel = value.get("channel")?.as_str()?.parse().ok()?;
+	match value.get("type")?.as_str()? {
+		"open" => Some(Request::Open { channel }),
+		"send" => {
+			let content = value.get("content")?.as_str()?.trim();
+			if content.is_empty() || content.len() > MAX_SEND {
+				return None;
+			}
+			let nonce = value.get("nonce")?.as_str()?.to_owned();
+			if nonce.is_empty() || nonce.len() > MAX_NAME {
+				return None;
+			}
+			Some(Request::Send {
+				channel,
+				nonce,
+				content: content.to_owned(),
+			})
+		}
+		_ => None,
+	}
+}
+
+/// Cached history for the channels the phone is about to see, oldest first.
+async fn replay_frames(account: u64, channels: &[(u64, String)]) -> Result<Vec<String>, ()> {
+	let channels = channels.to_vec();
+	tokio::task::spawn_blocking(move || {
+		let store = local_store::LocalStore::open_default().ok()?;
+		let mut frames = Vec::new();
+		for (id, row) in channels {
+			if frames.len() >= REPLAY_TOTAL {
+				break;
+			}
+			let Ok(messages) = store.load_channel(model::Id(account), model::Id(id)) else {
+				continue;
+			};
+			let start = messages.len().saturating_sub(REPLAY_PER_CHANNEL);
+			for message in &messages[start..] {
+				frames.push(message_frame(Some(&row), message));
+			}
+		}
+		Some(frames)
+	})
+	.await
+	.map_err(|_| ())?
+	.ok_or(())
 }
 
 /// `?token=<value>` must match exactly.
@@ -383,9 +576,14 @@ mod tests {
 		let channels = Arc::new(Mutex::new(BTreeMap::new()));
 		tokio::spawn(serve_on(
 			listener,
-			token.clone(),
-			frames.clone(),
-			channels,
+			Shared {
+				token: token.clone(),
+				frames: frames.clone(),
+				channels,
+				account: Arc::new(Mutex::new(None)),
+				requests: Arc::new(Mutex::new(VecDeque::new())),
+				wake: Arc::new(Mutex::new(None)),
+			},
 			stopped,
 		));
 		(address, token, frames, stop)
@@ -414,6 +612,35 @@ mod tests {
 		let url = format!("ws://{address}/?token=wrong");
 		assert!(tokio_tungstenite::connect_async(url).await.is_err());
 		let _ = stop.send(true);
+	}
+
+	#[test]
+	fn phone_requests_are_parsed_and_bounded() {
+		assert_eq!(
+			parse_request(r#"{"type":"open","channel":"42"}"#),
+			Some(Request::Open { channel: 42 })
+		);
+		assert_eq!(
+			parse_request(r#"{"type":"send","channel":"42","nonce":"n1","content":" hi "}"#),
+			Some(Request::Send {
+				channel: 42,
+				nonce: "n1".into(),
+				content: "hi".into()
+			})
+		);
+		assert_eq!(
+			parse_request(r#"{"type":"send","channel":"42","nonce":"n","content":"  "}"#),
+			None
+		);
+		assert_eq!(
+			parse_request(&format!(
+				r#"{{"type":"send","channel":"42","nonce":"n","content":"{}"}}"#,
+				"x".repeat(MAX_SEND + 1)
+			)),
+			None
+		);
+		assert_eq!(parse_request(r#"{"type":"delete","channel":"42"}"#), None);
+		assert_eq!(parse_request("not json"), None);
 	}
 
 	#[test]
@@ -450,9 +677,14 @@ mod tests {
 		let channels = Arc::new(Mutex::new(BTreeMap::new()));
 		tokio::spawn(serve_on(
 			listener,
-			token.clone(),
-			frames.clone(),
-			channels.clone(),
+			Shared {
+				token: token.clone(),
+				frames: frames.clone(),
+				channels: channels.clone(),
+				account: Arc::new(Mutex::new(None)),
+				requests: Arc::new(Mutex::new(VecDeque::new())),
+				wake: Arc::new(Mutex::new(None)),
+			},
 			stopped,
 		));
 		let bridge = Bridge {
@@ -461,7 +693,11 @@ mod tests {
 				frames,
 				stop,
 				channels,
+				account: Arc::new(Mutex::new(None)),
 			}),
+			requests: Arc::new(Mutex::new(VecDeque::new())),
+			wake: Arc::new(Mutex::new(None)),
+			expected: Arc::new(Mutex::new(BTreeMap::new())),
 			running: None,
 		};
 		let (mut socket, _) =
@@ -478,7 +714,7 @@ mod tests {
 			.into_text()
 			.unwrap();
 		assert!(
-			frame.starts_with(r#"{"type":"message","channel":{"type":"channel""#),
+			frame.starts_with(r#"{"type":"message","channel":{"id":"#),
 			"{frame}"
 		);
 		assert!(
@@ -495,7 +731,7 @@ mod tests {
 			.iter()
 			.find(|channel| channel.kind == 0)
 			.expect("fixture has a text channel");
-		let frame = channel_frame(&state, channel);
+		let frame = channel_frame(&channel_row(&state, channel));
 		assert!(
 			frame.starts_with(r#"{"type":"channel","channel":{"id":""#),
 			"{frame}"
@@ -508,9 +744,10 @@ mod tests {
 
 		let mut message = test_support::message(9, channel.id);
 		message.content = "x".repeat(MAX_CONTENT * 2);
-		let frame = message_frame(&state, Some(channel), &message);
+		let row = channel_row(&state, channel);
+		let frame = message_frame(Some(&row), &message);
 		assert!(
-			frame.starts_with(r#"{"type":"message","channel":{"type":"channel""#),
+			frame.starts_with(r#"{"type":"message","channel":{"id":"#),
 			"{frame}"
 		);
 		assert!(frame.contains(r#""author":"#), "{frame}");

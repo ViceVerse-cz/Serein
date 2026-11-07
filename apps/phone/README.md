@@ -27,3 +27,15 @@ which Expo Go avoids.
 The token must match exactly; a wrong token is rejected during the WebSocket handshake.
 Serein bounds the payloads: 512 characters of content, 96 characters of names, 200
 channels, four phones, and a 128-frame backlog per phone.
+
+## Building a real app icon (no Mac here)
+
+`.github/workflows/phone-ios.yml` builds an **unsigned** `.ipa` on a GitHub macOS
+runner (`workflow_dispatch`, or a push touching `apps/phone`). Download the
+`SereinVoice-unsigned-ipa` artifact and sign it for the device with Sideloadly and your
+own Apple ID; the repository holds no signing secrets.
+
+XcodeGen is not used: `expo prebuild` generates the Xcode project together with the
+CocoaPods integration React Native needs, and a hand-written XcodeGen spec would have to
+reproduce those build phases. The workflow discovers the generated workspace and scheme
+instead of hardcoding them.
