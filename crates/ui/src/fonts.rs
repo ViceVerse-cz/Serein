@@ -115,6 +115,12 @@ pub struct Settings {
 	focus: bool,
 }
 
+#[cfg(test)]
+thread_local! {
+	/// Visible and content height of the font list on the last pass, for tests.
+	static LIST: std::cell::Cell<Option<(f32, f32)>> = const { std::cell::Cell::new(None) };
+}
+
 impl Settings {
 	pub(super) fn show(&mut self, ui: &mut egui::Ui) {
 		use crate::design;
@@ -274,8 +280,10 @@ impl Settings {
 						.unwrap_or(0);
 					area = area.vertical_scroll_offset((index as f32 - 3.0).max(0.0) * ROW);
 				}
-				area.show_rows(ui, ROW, matches.len(), |ui, rows| {
-					ui.spacing_mut().item_spacing.y = 0.0;
+				// `show_rows` counts the spacing in the content height before the closure runs, so
+				// clear it first; otherwise a short list overflows its minimum height and scrolls.
+				ui.spacing_mut().item_spacing.y = 0.0;
+				let list = area.show_rows(ui, ROW, matches.len(), |ui, rows| {
 					for name in &matches[rows] {
 						let selected = name.map(String::as_str) == self.name.as_deref();
 						let (rect, response) = ui.allocate_exact_size(
@@ -324,6 +332,10 @@ impl Settings {
 						}
 					}
 				});
+				#[cfg(test)]
+				LIST.set(Some((list.inner_rect.height(), list.content_size.y)));
+				#[cfg(not(test))]
+				let _ = list;
 			});
 		match picked {
 			Some(Some(name)) => self.request = Some(Action::Select(name)),
@@ -954,14 +966,17 @@ mod tests {
 	}
 	#[test]
 	fn font_list_regrows_after_a_search_without_matches() {
+		// Height of one font row in the picker.
+		const ROW: f32 = 32.0;
 		let ctx = Context::default();
-		ctx.enable_accesskit();
+		// 13 families; "Family 1" matches only Family 10, 11 and 12.
 		let mut settings = Settings {
-			families: Some((0..60).map(|i| format!("Family {i:02}")).collect()),
+			families: Some((0..13).map(|i| format!("Family {i:02}")).collect()),
 			..Default::default()
 		};
 		// The picker button spans the top of the screen, below a 4 px gap.
 		let button = egui::pos2(200.0, 24.0);
+		// Returns the list's visible and content height.
 		let pass = |settings: &mut Settings, events: Vec<egui::Event>| {
 			let raw = egui::RawInput {
 				screen_rect: Some(egui::Rect::from_min_size(
@@ -973,17 +988,7 @@ mod tests {
 			};
 			let mut output = ctx.run_ui(raw, |ui| settings.family_list(ui));
 			output.textures_delta.clear();
-			// Visible font rows are the only buttons labelled "Family …".
-			output.platform_output.accesskit_update.map_or(0, |update| {
-				update
-					.nodes
-					.iter()
-					.filter(|(_, node)| {
-						node.label()
-							.is_some_and(|label| label.starts_with("Family"))
-					})
-					.count()
-			})
+			LIST.take()
 		};
 		pass(&mut settings, vec![]);
 		let click = |pressed| egui::Event::PointerButton {
@@ -998,22 +1003,29 @@ mod tests {
 		);
 		pass(&mut settings, vec![click(false)]);
 		let open = pass(&mut settings, vec![]);
-		assert!(
-			open >= 8,
-			"picker should show eight rows when opened, showed {open}"
+		assert_eq!(
+			open.map(|(visible, _)| visible),
+			Some(ROW * 8.0),
+			"picker should open eight rows tall"
 		);
 
-		pass(
-			&mut settings,
-			vec![egui::Event::Text("no such font".into())],
+		let mut search_after_no_match = |query: &str| {
+			settings.query = "no such font".into();
+			pass(&mut settings, vec![]);
+			assert_eq!(pass(&mut settings, vec![]), None, "no list without matches");
+			settings.query = query.into();
+			pass(&mut settings, vec![]);
+			pass(&mut settings, vec![]).expect("list shown")
+		};
+		assert_eq!(
+			Some(search_after_no_match("Family").0),
+			open.map(|(visible, _)| visible),
+			"picker should regrow to its opened height after a no-match search"
 		);
-		pass(&mut settings, vec![]);
-		settings.query = "Family".into();
-		pass(&mut settings, vec![]);
-		let regrown = pass(&mut settings, vec![]);
-		assert!(
-			regrown >= 8,
-			"picker should regrow to eight rows after a no-match search, showed {regrown}"
+		assert_eq!(
+			search_after_no_match("Family 1"),
+			(ROW * 3.0, ROW * 3.0),
+			"three matches should show three rows without scrolling"
 		);
 	}
 }
