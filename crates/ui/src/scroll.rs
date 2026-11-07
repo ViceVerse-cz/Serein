@@ -103,7 +103,8 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 			// For small or slow touchpad scrolls, deliver 100% immediately for crisp 1:1 tactile feel.
 			// Divide the thresholds by the speed factor so the applied delta respects them at every
 			// speed setting, and the per-frame cap still bounds the timeline overscan.
-			let immediate = 120.0 / speed;
+			let viewport_cap = page_height * 0.45 / speed;
+			let immediate = (120.0 / speed).min(viewport_cap);
 			if len <= immediate {
 				let d = state.accumulator;
 				state.accumulator = egui::Vec2::ZERO;
@@ -112,7 +113,11 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 				let frame_ratio = (dt_clamped / (1.0 / 60.0)).clamp(0.5, 1.5);
 				let max_step = (page_height * 0.25).clamp(120.0, 160.0) * frame_ratio / speed;
 				let decay = 1.0 - (-dt_clamped / 0.05).exp();
-				let step_len = (len * decay).max(120.0 / speed).min(max_step).min(len);
+				let step_len = (len * decay)
+					.max(120.0 / speed)
+					.min(max_step)
+					.min(viewport_cap)
+					.min(len);
 				let d = state.accumulator.normalized() * step_len;
 				state.accumulator -= d;
 				d
@@ -666,5 +671,40 @@ mod tests {
 			"a 300% speed factor must not push one frame past the cap, got {}",
 			delta.y
 		);
+	}
+
+	#[test]
+	fn touchpad_step_stays_within_a_short_viewport() {
+		// 0.9 lines stays under the immediate threshold; 10.25 lines takes the capped path.
+		for lines in [0.9, 10.25] {
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let raw = egui::RawInput {
+				time: Some(0.1),
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(900.0, 200.0),
+				)),
+				events: vec![egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, lines),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				}],
+				..Default::default()
+			};
+			let mut delta = egui::Vec2::ZERO;
+			ctx.run_ui(raw, |ui| {
+				apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+				delta = ui.input(|i| i.smooth_scroll_delta());
+			})
+			.drop_without_applying_deltas();
+			assert!(
+				delta.y > 0.0 && delta.y <= 90.0,
+				"{lines} lines moved a 200pt viewport by {}",
+				delta.y
+			);
+		}
 	}
 }
