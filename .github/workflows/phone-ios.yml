@@ -5,6 +5,10 @@ name: phone-ios
 # signing secrets live in the repository.
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "apps/phone/**"
+      - ".github/workflows/phone-ios.yml"
   push:
     branches: [main]
     paths:
