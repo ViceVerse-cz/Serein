@@ -187,6 +187,7 @@ pub use guild_folders::{
 	custom_folder_icons_enabled, set_custom_folder_icons_enabled,
 	server_search_enabled, set_server_search_enabled,
 	home_typing_enabled, set_home_typing_enabled,
+	server_counter_enabled, set_server_counter_enabled, server_counter_label,
 };
 pub use highlight::{set_shiki_codeblocks_enabled, shiki_codeblocks_enabled};
 pub use notifications::{server_list_indicators_enabled, set_server_list_indicators_enabled};
@@ -242,6 +243,7 @@ pub use categories::{
 	channel_tabs_enabled, set_channel_tabs_enabled,
 	show_resource_channels_enabled, set_show_resource_channels_enabled,
 	unread_badge_count_enabled, set_unread_badge_count_enabled,
+	member_count_enabled, set_member_count_enabled, guild_member_counts,
 };
 pub use switcher::{
 	command_palette_enabled, frequent_quick_switcher_enabled, recent_dm_switcher_enabled,
@@ -2402,6 +2404,29 @@ impl MessagingUi {
 				}
 				if let Some(command) = state.request_sidebar_forum_posts(self.guild) {
 					commands.push(command);
+				}
+				if let Some(guild) = self.guild
+					&& categories::member_count_enabled()
+					&& let Some((total, online)) = categories::guild_member_counts(state, guild)
+				{
+					let count_text = match online {
+						Some(on) => format!("{on} online · {total} members"),
+						None => format!("{total} members"),
+					};
+					ui.horizontal(|ui| {
+						ui.spacing_mut().item_spacing.x = 4.0;
+						ui.add(
+							egui::Label::new(
+								egui::RichText::new(format!("👥 {count_text}"))
+									.size(11.0)
+									.color(colors.muted),
+							)
+							.truncate()
+							.selectable(false),
+						)
+						.on_hover_text(format!("{total} total members"));
+					});
+					ui.add_space(4.0);
 				}
 				let select = self.channel_list(ui, state);
 				if let Some((guild, channel, user)) = self.stream_preview_request.take()
@@ -5036,6 +5061,12 @@ impl MessagingUi {
 							.map(|u| format!("mentions:{}", u.id.0))
 							.unwrap_or_default();
 						self.search.open_with_query(query);
+					}
+					switcher::CommandPaletteAction::ToggleMemberCount => {
+						categories::set_member_count_enabled(!categories::member_count_enabled());
+					}
+					switcher::CommandPaletteAction::ToggleServerCounter => {
+						guild_folders::set_server_counter_enabled(!guild_folders::server_counter_enabled());
 					}
 				},
 			}

@@ -114,6 +114,28 @@ pub fn set_home_typing_enabled(enabled: bool) {
 	HOME_TYPING_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// VenSerein (ServerCounter): Global toggle for showing the server count badge at the bottom of the server rail.
+pub static SERVER_COUNTER_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn server_counter_enabled() -> bool {
+	SERVER_COUNTER_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_server_counter_enabled(enabled: bool) {
+	SERVER_COUNTER_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn server_counter_label(count: usize) -> String {
+	if count > 100 {
+		format!("{count}/200")
+	} else {
+		format!("{count}/100")
+	}
+}
+
 #[derive(Default)]
 pub(super) struct FolderUi {
 	expanded: BTreeSet<u64>,
@@ -1795,6 +1817,14 @@ mod tests {
 		assert!(!home_typing_enabled());
 		set_home_typing_enabled(true);
 		assert!(home_typing_enabled());
+
+		assert!(server_counter_enabled());
+		set_server_counter_enabled(false);
+		assert!(!server_counter_enabled());
+		set_server_counter_enabled(true);
+		assert!(server_counter_enabled());
+		assert_eq!(server_counter_label(15), "15/100");
+		assert_eq!(server_counter_label(150), "150/200");
 	}
 }
 

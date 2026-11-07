@@ -66,6 +66,8 @@ pub enum CommandPaletteAction {
 	JumpToOldest,
 	OpenPins,
 	OpenMentions,
+	ToggleMemberCount,
+	ToggleServerCounter,
 }
 
 pub const COMMAND_ACTIONS: &[(CommandPaletteAction, &str, &str, &str)] = &[
@@ -77,6 +79,8 @@ pub const COMMAND_ACTIONS: &[(CommandPaletteAction, &str, &str, &str)] = &[
 	(CommandPaletteAction::JumpToOldest, "Jump to Oldest", "Jump to oldest message in channel", ">jump-oldest"),
 	(CommandPaletteAction::OpenPins, "Pinned Messages", "Open channel pinned messages", ">pins"),
 	(CommandPaletteAction::OpenMentions, "Mentions Inbox", "Open recent mentions and inbox", ">inbox"),
+	(CommandPaletteAction::ToggleMemberCount, "Toggle Member Count", "Show or hide member count in server sidebar", ">member-count"),
+	(CommandPaletteAction::ToggleServerCounter, "Toggle Server Counter", "Show or hide server counter badge on rail", ">server-count"),
 ];
 
 const QUERY_CHARS: usize = 128;

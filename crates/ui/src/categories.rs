@@ -184,6 +184,43 @@ pub fn set_unread_badge_count_enabled(enabled: bool) {
 	UNREAD_BADGE_COUNT_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
+/// VenSerein (MemberCount): Global toggle for showing the member count in the server channel sidebar header.
+pub static MEMBER_COUNT_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn member_count_enabled() -> bool {
+	MEMBER_COUNT_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_member_count_enabled(enabled: bool) {
+	MEMBER_COUNT_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (MemberCount): Returns (total, Option<online>) member counts for the given guild if available.
+pub fn guild_member_counts(state: &State, guild: Id) -> Option<(u64, Option<u64>)> {
+	let list = state.members.as_ref()?;
+	if list.guild != Some(guild) {
+		return None;
+	}
+	let total = list.total;
+	if total == 0 {
+		return None;
+	}
+	let online = if list.groups.is_empty() {
+		None
+	} else {
+		let on: u64 = list
+			.groups
+			.iter()
+			.filter(|(group_id, _)| group_id != "offline")
+			.map(|(_, count)| *count)
+			.sum();
+		Some(on)
+	};
+	Some((total, online))
+}
+
 /// Voice and stage channels keep a separate position list, drawn below other channels.
 fn voice_lane(kind: u8) -> bool {
 	matches!(kind, 2 | 13)
@@ -3121,5 +3158,28 @@ mod venserein_batch1_categories_tests {
 		assert!(!unread_badge_count_enabled());
 		set_unread_badge_count_enabled(true);
 		assert!(unread_badge_count_enabled());
+
+		assert!(member_count_enabled());
+		set_member_count_enabled(false);
+		assert!(!member_count_enabled());
+		set_member_count_enabled(true);
+		assert!(member_count_enabled());
+
+		let mut mock_state = State::default();
+		assert_eq!(guild_member_counts(&mock_state, Id(123)), None);
+		mock_state.members = Some(model::MemberList {
+			guild: Some(Id(123)),
+			channel: Id(456),
+			request: 1,
+			start: 0,
+			slots: vec![],
+			total: 50,
+			lazy: false,
+			freshness: model::Freshness::Fresh,
+			groups: vec![("online".to_string(), 12), ("offline".to_string(), 38)],
+			ranges: vec![],
+		});
+		assert_eq!(guild_member_counts(&mock_state, Id(123)), Some((50, Some(12))));
+		assert_eq!(guild_member_counts(&mock_state, Id(999)), None);
 	}
 }

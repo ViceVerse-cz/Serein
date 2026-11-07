@@ -478,6 +478,27 @@ impl MessagingUi {
 						if response.clicked() {
 							self.join_server.open_picker(state.generation);
 						}
+						if crate::guild_folders::server_counter_enabled() {
+							ui.add_space(4.0);
+							let count = state.guilds.len();
+							let (rect, response) = ui.allocate_exact_size(
+								egui::vec2(RAIL_TILE, 18.0),
+								egui::Sense::hover(),
+							);
+							ui.painter().rect_filled(
+								rect.shrink2(egui::vec2(4.0, 1.0)),
+								6,
+								colors.raised,
+							);
+							ui.painter().text(
+								rect.center(),
+								egui::Align2::CENTER_CENTER,
+								crate::guild_folders::server_counter_label(count),
+								egui::FontId::new(10.0, design::medium_family(ui.ctx())),
+								colors.muted,
+							);
+							response.on_hover_text(format!("{count} servers joined"));
+						}
 					});
 			});
 		if let Some(id) = selected
