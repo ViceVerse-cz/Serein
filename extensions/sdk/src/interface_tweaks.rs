@@ -11,6 +11,12 @@ pub enum InterfaceTweak {
 	PlainProfiles,
 	/// A member's roles show in full instead of collapsing into a `+N` chip.
 	ExpandedRoles,
+	/// Pending friend and message request counts stay off the Home button, the Pending tab
+	/// and the message-request list.
+	HiddenRequestCounts,
+	/// A direct or group conversation alerts once until it is read, instead of for every
+	/// message.
+	OnePingPerDirectMessage,
 }
 
 /// Activation or panel output that sets the plugin's interface tweaks, preserving `Output`

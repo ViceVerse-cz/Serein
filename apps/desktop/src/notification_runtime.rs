@@ -28,6 +28,30 @@ pub struct Runtime {
 	badge: Option<u32>,
 	badge_check: Option<Instant>,
 	badge_status: &'static str,
+	/// Direct conversations that alerted since they were last read, with the message that
+	/// alerted, for one ping per DM.
+	pinged_directs: std::collections::BTreeMap<Id, Id>,
+}
+
+/// With one ping per direct conversation, keeps a conversation quiet after its first alert
+/// until its read marker reaches that message; returns whether this notification stays
+/// silent. `read` gives a conversation's last read message, if known.
+fn quiet_repeat(
+	pinged: &mut std::collections::BTreeMap<Id, Id>,
+	(direct, channel, message): (bool, Id, Id),
+	read: impl Fn(Id) -> Option<Id>,
+) -> bool {
+	pinged.retain(|channel, first| read(*channel).is_none_or(|marker| marker < *first));
+	if !direct {
+		return false;
+	}
+	match pinged.entry(channel) {
+		std::collections::btree_map::Entry::Occupied(_) => true,
+		std::collections::btree_map::Entry::Vacant(slot) => {
+			slot.insert(message);
+			false
+		}
+	}
 }
 /// Push-to-talk edges: one start cue per press and one stop cue per release.
 #[derive(Default)]
@@ -125,7 +149,23 @@ impl Runtime {
 		});
 		let mut alert = None;
 		let mut sound = None;
+		let one_ping = ui.interface_tweak_on(extensions::InterfaceTweak::OnePingPerDirectMessage);
+		if !one_ping {
+			self.pinged_directs.clear();
+		}
 		while let Some(notification) = state.take_notification() {
+			if one_ping
+				&& quiet_repeat(
+					&mut self.pinged_directs,
+					(
+						notification.is_direct(),
+						notification.channel,
+						notification.message,
+					),
+					|id| state.read_marker(id).flatten(),
+				) {
+				continue;
+			}
 			let current = focused && ui.viewing_latest(notification.channel);
 			let cue = if current {
 				Sound::CurrentChannel
@@ -318,6 +358,55 @@ mod tests {
 	#[test]
 	fn muted_conversations_do_not_count_toward_native_badge() {
 		debug_badge_check();
+	}
+
+	/// Checks that one ping per DM silences repeats until the conversation is read through the
+	/// alerting message, leaves server channels alone and tracks each conversation separately.
+	#[test]
+	fn one_ping_per_direct_message_waits_for_read() {
+		let mut pinged = std::collections::BTreeMap::new();
+		let mut read = std::collections::BTreeMap::<Id, Id>::new();
+		let quiet = |pinged: &mut std::collections::BTreeMap<Id, Id>,
+		             read: &std::collections::BTreeMap<Id, Id>,
+		             direct,
+		             channel,
+		             message| {
+			let read = read.clone();
+			quiet_repeat(pinged, (direct, Id(channel), Id(message)), move |id| {
+				read.get(&id).copied()
+			})
+		};
+		assert!(
+			!quiet(&mut pinged, &read, true, 1, 100),
+			"first DM message alerts"
+		);
+		assert!(
+			quiet(&mut pinged, &read, true, 1, 101),
+			"repeat stays quiet"
+		);
+		assert!(
+			!quiet(&mut pinged, &read, true, 2, 102),
+			"another DM alerts"
+		);
+		assert!(
+			!quiet(&mut pinged, &read, false, 3, 103),
+			"server channel alerts"
+		);
+		assert!(
+			!quiet(&mut pinged, &read, false, 3, 104),
+			"server repeats alert"
+		);
+		read.insert(Id(1), Id(99));
+		assert!(
+			quiet(&mut pinged, &read, true, 1, 105),
+			"read before the alert keeps quiet"
+		);
+		read.insert(Id(1), Id(101));
+		assert!(
+			!quiet(&mut pinged, &read, true, 1, 106),
+			"reading through it resets"
+		);
+		assert!(quiet(&mut pinged, &read, true, 1, 107), "then quiet again");
 	}
 
 	#[test]

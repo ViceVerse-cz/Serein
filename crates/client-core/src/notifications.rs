@@ -20,6 +20,10 @@ pub struct Notification {
 	roles: Vec<Id>,
 }
 impl Notification {
+	/// Whether the message came from a direct or group conversation.
+	pub fn is_direct(&self) -> bool {
+		self.direct
+	}
 	fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ self.roles.capacity() * size_of::<Id>()

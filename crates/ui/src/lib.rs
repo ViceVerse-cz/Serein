@@ -4489,6 +4489,10 @@ impl MessagingUi {
 		}
 	}
 
+	/// Whether an enabled plugin switched `tweak` on.
+	pub fn interface_tweak_on(&self, tweak: extensions::InterfaceTweak) -> bool {
+		self.interface_tweaks.contains(&tweak)
+	}
 	/// Replaces the interface tweaks that enabled plugins switched on.
 	pub fn set_interface_tweaks(
 		&mut self,

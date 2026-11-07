@@ -117,7 +117,7 @@ can be inspected without decoding a newer capability/event enum.
 | `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
 | `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (55 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
 | `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
-| `interface_tweaks` | `Vec<String>` / array of strings, empty on older hosts | Interface tweak names this host honors: `static_typing_indicator`, `plain_profiles`, `expanded_roles`. | `host.supports_tweak("expanded_roles")` |
+| `interface_tweaks` | `Vec<String>` / array of strings, empty on older hosts | Interface tweak names this host honors: `static_typing_indicator`, `plain_profiles`, `expanded_roles`, `hidden_request_counts`, `one_ping_per_direct_message`. | `host.supports_tweak("expanded_roles")` |
 
 A supported capability still needs to be declared and explicitly granted. Older
 hosts reject unknown required manifest capabilities **before** a handler can run;

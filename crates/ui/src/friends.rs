@@ -403,6 +403,8 @@ impl MessagingUi {
 			commands.push(command);
 		}
 	}
+	/// Draws the Friends page: its tabs with the incoming request count on Pending, the selected
+	/// list and its actions.
 	pub(super) fn friends_page(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -442,7 +444,13 @@ impl MessagingUi {
 									.filter(|(_, _, incoming)| *incoming)
 									.count()
 							})
-							.filter(|count| *count > 0);
+							.filter(|count| {
+								*count > 0
+									&& !crate::interface_tweaks::on(
+										ui.ctx(),
+										extensions::InterfaceTweak::HiddenRequestCounts,
+									)
+							});
 						if header_tab(ui, &title, count, self.friends.tab == tab, tab == Tab::Add)
 							.clicked() && self.friends.tab != tab
 						{
