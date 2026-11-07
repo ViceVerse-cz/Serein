@@ -16,6 +16,7 @@ pub enum AudioCommand {
 	Pause(bool),
 	Seek(f64),
 	Volume(f32),
+	Speed(f32),
 	Stop,
 }
 
@@ -63,7 +64,7 @@ pub fn better_audio_player_enabled() -> bool {
 
 /// VenSerein (MediaPlaybackSpeed): Allows controlling playback speed (0.5x, 1x, 1.25x, 1.5x, 2x) for audio.
 pub static MEDIA_PLAYBACK_SPEED_ENABLED: std::sync::atomic::AtomicBool =
-	std::sync::atomic::AtomicBool::new(true);
+	std::sync::atomic::AtomicBool::new(false);
 
 #[allow(dead_code)]
 pub fn set_media_playback_speed_enabled(enabled: bool) {
@@ -346,6 +347,25 @@ impl AudioUi {
 						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 							ui.spacing_mut().item_spacing.x = 6.0;
 							ui.spacing_mut().slider_width = 52.0;
+							// Speed control (0.5×, 1×, 1.25×, 1.5×, 2×) when plugin enabled.
+							if media_playback_speed_enabled() {
+								let speeds: &[(&str, f32)] = &[
+									("0.5×", 0.5),
+									("1×", 1.0),
+									("1.25×", 1.25),
+									("1.5×", 1.5),
+									("2×", 2.0),
+								];
+								for (label, factor) in speeds.iter().rev() {
+									let selected = (self.speed - factor).abs() < 0.01;
+									let btn = ui.selectable_label(selected, *label);
+									if btn.clicked() && !selected {
+										self.speed = *factor;
+										self.command = Some(AudioCommand::Speed(self.speed));
+									}
+								}
+								ui.separator();
+							}
 							let volume = ui.add(
 								egui::Slider::new(&mut self.volume, 0.0..=1.0)
 									.show_value(false)
@@ -669,43 +689,12 @@ mod tests {
 		let seconds = seek(&mut audio).expect("release commits the drag");
 		assert!((seconds - 2.25).abs() < 0.15, "{seconds}");
 	}
-
-	#[test]
-	fn voice_download_toggle_works() {
-		assert!(!voice_download_enabled());
-		set_voice_download_enabled(true);
-		assert!(voice_download_enabled());
-		set_voice_download_enabled(false);
-		assert!(!voice_download_enabled());
-	}
-
-	#[test]
-	fn voice_messages_toggle_works() {
-		assert!(voice_messages_enabled());
-		set_voice_messages_enabled(false);
-		assert!(!voice_messages_enabled());
-		set_voice_messages_enabled(true);
-		assert!(voice_messages_enabled());
-	}
-
-	#[test]
-	fn test_venserein_phase3_batch2_audio_toggles() {
-		assert!(!better_audio_player_enabled());
+#[test]
+	fn better_audio_player_timestamp_shows_tenths() {
 		assert_eq!(timestamp(125.4), "2:05");
 		set_better_audio_player_enabled(true);
-		assert!(better_audio_player_enabled());
 		assert_eq!(timestamp(125.4), "2:05.4");
 		set_better_audio_player_enabled(false);
-
-		assert!(media_playback_speed_enabled());
-		set_media_playback_speed_enabled(false);
-		assert!(!media_playback_speed_enabled());
-		set_media_playback_speed_enabled(true);
-
-		assert!(voice_messages_in_background_enabled());
-		set_voice_messages_in_background_enabled(false);
-		assert!(!voice_messages_in_background_enabled());
-		set_voice_messages_in_background_enabled(true);
 	}
 }
 

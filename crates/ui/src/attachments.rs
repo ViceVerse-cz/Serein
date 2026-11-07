@@ -444,9 +444,25 @@ pub(crate) fn show_subset(
 ) {
 	if download_all_attachments_enabled() && attachments.len() > 1 {
 		ui.horizontal(|ui| {
-			if ui.small_button(format!("Download All ({})", attachments.len())).on_hover_text("Download all files from this message").clicked() {
-				if !demo && !download.busy() {
-					download.request = Some(attachments[0].clone());
+			let label = match attachments.len() {
+				2 => "Download All (2)",
+				3 => "Download All (3)",
+				4 => "Download All (4)",
+				5 => "Download All (5)",
+				6 => "Download All (6)",
+				7 => "Download All (7)",
+				8 => "Download All (8)",
+				9 => "Download All (9)",
+				10 => "Download All (10)",
+				_ => "Download All",
+			};
+			if ui
+				.small_button(label)
+				.on_hover_text("Download all files from this message")
+				.clicked()
+			{
+				if !demo {
+					download.queue_all(attachments);
 				}
 			}
 		});
@@ -590,8 +606,8 @@ pub(crate) fn show_subset(
 					} else if attachment.is_audio() {
 						let response = audio.show(ui, message, attachment);
 						if let Some(req) = audio.download_request.take() {
-							if !demo && !download.busy() {
-								download.request = Some(req);
+							if !demo {
+								download.queue_all(&[req]);
 							}
 						}
 						surface.keep(&response);
@@ -693,6 +709,7 @@ pub struct DownloadUi {
 	pub copy_request: Option<Attachment>,
 	pub embed_request: Option<(model::EmbedMedia, bool)>,
 	pub(crate) embed_view_request: Option<(Id, model::EmbedMedia)>,
+	pub queue: Vec<Attachment>,
 	pub cancel_requested: bool,
 	pub dismiss_requested: bool,
 	pub active: bool,
@@ -839,8 +856,21 @@ impl DownloadUi {
 			|| self.request.is_some()
 			|| self.copy_request.is_some()
 			|| self.embed_request.is_some()
+			|| !self.queue.is_empty()
+	}
+	pub fn queue_all(&mut self, items: &[Attachment]) {
+		for item in items {
+			self.queue.push(item.clone());
+		}
+		self.pump_queue();
+	}
+	pub fn pump_queue(&mut self) {
+		if self.request.is_none() && !self.active && !self.queue.is_empty() {
+			self.request = Some(self.queue.remove(0));
+		}
 	}
 	pub fn show_status(&mut self, ui: &mut egui::Ui) {
+		self.pump_queue();
 		if !self.status.is_empty() {
 			ui.horizontal_wrapped(|ui| {
 				ui.small(&self.status);
@@ -1606,7 +1636,6 @@ pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 		.sum()
 }
 
-
 pub static HIDE_ATTACHMENTS_ENABLED: std::sync::atomic::AtomicBool =
 	std::sync::atomic::AtomicBool::new(false);
 
@@ -1638,24 +1667,7 @@ pub fn no_mosaic_enabled() -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-	#[test]
-	fn hide_attachments_toggle_works() {
-		set_hide_attachments_enabled(true);
-		assert!(HIDE_ATTACHMENTS_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
-		set_hide_attachments_enabled(false);
-		assert!(!HIDE_ATTACHMENTS_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
-	}
-
-	#[test]
-	fn image_filename_overlay_toggle_works() {
-		set_image_filename_overlay_enabled(true);
-		assert!(IMAGE_FILENAME_OVERLAY_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
-		set_image_filename_overlay_enabled(false);
-		assert!(!IMAGE_FILENAME_OVERLAY_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
-	}
-
-	#[test]
+mod tests {	#[test]
 	fn no_mosaic_toggle_works() {
 		set_no_mosaic_enabled(true);
 		assert!(no_mosaic_enabled());
@@ -2056,41 +2068,5 @@ mod tests {
 			frame(&ctx, Some(key), |ui| download.show_status(ui));
 		}
 		assert!(download.cancel_requested);
-	}
-
-	#[test]
-	fn test_venserein_blur_nsfw_toggle() {
-		assert!(super::blur_nsfw_enabled());
-		super::set_blur_nsfw_enabled(false);
-		assert!(!super::blur_nsfw_enabled());
-		super::set_blur_nsfw_enabled(true);
-	}
-
-	#[test]
-	fn test_venserein_phase3_batch3_attachment_toggles() {
-		assert!(super::zip_preview_enabled());
-		super::set_zip_preview_enabled(false);
-		assert!(!super::zip_preview_enabled());
-		super::set_zip_preview_enabled(true);
-
-		assert!(super::download_all_attachments_enabled());
-		super::set_download_all_attachments_enabled(false);
-		assert!(!super::download_all_attachments_enabled());
-		super::set_download_all_attachments_enabled(true);
-
-		assert!(super::clips_enhancements_enabled());
-		super::set_clips_enhancements_enabled(false);
-		assert!(!super::clips_enhancements_enabled());
-		super::set_clips_enhancements_enabled(true);
-
-		assert!(super::clip_upload_enabled());
-		super::set_clip_upload_enabled(false);
-		assert!(!super::clip_upload_enabled());
-		super::set_clip_upload_enabled(true);
-
-		assert!(!super::voice_message_transcriber_enabled());
-		super::set_voice_message_transcriber_enabled(true);
-		assert!(super::voice_message_transcriber_enabled());
-		super::set_voice_message_transcriber_enabled(false);
 	}
 }

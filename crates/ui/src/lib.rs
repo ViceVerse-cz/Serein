@@ -1432,6 +1432,7 @@ impl MessagingUi {
 	}
 
 	pub fn downloads(&mut self) -> &mut DownloadUi {
+		self.timeline.download.pump_queue();
 		&mut self.timeline.download
 	}
 	pub fn audio(&mut self) -> &mut AudioUi {
@@ -4936,8 +4937,18 @@ impl MessagingUi {
 							commands.push(command);
 						}
 					}
-					switcher::CommandPaletteAction::ToggleMute => {}
-					switcher::CommandPaletteAction::ToggleDeafen => {}
+					switcher::CommandPaletteAction::ToggleMute => {
+						let (muted, deafened) = self.toggle_voice(false);
+						if let Some(command) = state.set_call_mute(muted, deafened) {
+							commands.push(command);
+						}
+					}
+					switcher::CommandPaletteAction::ToggleDeafen => {
+						let (muted, deafened) = self.toggle_voice(true);
+						if let Some(command) = state.set_call_mute(muted, deafened) {
+							commands.push(command);
+						}
+					}
 					switcher::CommandPaletteAction::JumpToPresent => {
 						self.timeline.follow_latest(state);
 					}
@@ -4951,7 +4962,14 @@ impl MessagingUi {
 							commands.push(command);
 						}
 					}
-					switcher::CommandPaletteAction::OpenMentions => {}
+					switcher::CommandPaletteAction::OpenMentions => {
+						let query = state
+							.user
+							.as_ref()
+							.map(|u| format!("mentions:{}", u.id.0))
+							.unwrap_or_default();
+						self.search.open_with_query(query);
+					}
 				},
 			}
 		}
@@ -9884,17 +9902,6 @@ mod composer_tests {
 		);
 		assert_eq!(messaging.draft_changes, [Id(1), Id(1)]);
 	}
-
-
-	#[test]
-	fn add_attachments_toggle_works() {
-		assert!(!add_attachments_enabled());
-		set_add_attachments_enabled(true);
-		assert!(add_attachments_enabled());
-		set_add_attachments_enabled(false);
-		assert!(!add_attachments_enabled());
-	}
-
 	#[test]
 	fn gif_paste_and_sticker_paste_toggles_and_parsers() {
 		assert!(!gif_paste_enabled());

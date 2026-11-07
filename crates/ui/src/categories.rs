@@ -60,11 +60,12 @@ pub fn set_clean_channel_name_enabled(enabled: bool) {
 	CLEAN_CHANNEL_NAME_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
-pub fn clean_channel_name(name: &str) -> String {
+pub fn clean_channel_name(name: &str) -> std::borrow::Cow<'_, str> {
 	if !clean_channel_name_enabled() {
-		return name.to_owned();
+		return std::borrow::Cow::Borrowed(name);
 	}
 	let mut cleaned = String::with_capacity(name.len());
+	let mut changed = false;
 	for ch in name.chars() {
 		let mapped = match ch {
 			'\u{1d00}' => 'a',
@@ -96,15 +97,23 @@ pub fn clean_channel_name(name: &str) -> String {
 			'\u{ff41}'..='\u{ff5a}' => (b'a' + (ch as u32 - 0xff41) as u8) as char,
 			_ => ch,
 		};
+		if mapped != ch {
+			changed = true;
+		}
 		if mapped.is_alphanumeric() || mapped == '-' || mapped == '_' || mapped == ' ' {
 			cleaned.push(mapped);
+		} else {
+			changed = true; // character was dropped
 		}
+	}
+	if !changed {
+		return std::borrow::Cow::Borrowed(name);
 	}
 	let trimmed = cleaned.trim().trim_matches('-').trim_matches('_').trim();
 	if !trimmed.is_empty() {
-		trimmed.to_owned()
+		std::borrow::Cow::Owned(trimmed.to_owned())
 	} else {
-		name.to_owned()
+		std::borrow::Cow::Borrowed(name)
 	}
 }
 
@@ -439,7 +448,7 @@ fn rows_at<'a>(
 	let category_ids: BTreeSet<_> = categories.iter().map(|c| c.id).collect();
 	let mut groups: BTreeMap<Option<Id>, Vec<&Channel>> = BTreeMap::new();
 	let admitted = |c: &Channel| {
-		scope.admits(c, state) && (show_hidden || show_resource_channels_enabled() || state.can_view(c.id)) && !roster.lifted(c.id)
+		scope.admits(c, state) && (show_hidden || state.can_view(c.id)) && !roster.lifted(c.id)
 	};
 	// Threads appear only beneath their parents, following Discord's relevance rules.
 	let mut threads = guild.map_or_else(BTreeMap::new, |guild| {
@@ -1572,11 +1581,7 @@ impl MessagingUi {
 							let response = response.on_hover_text_with(|| {
 								let has_draft = DRAFT_NAVIGATOR_ENABLED.load(Ordering::Relaxed)
 									&& state.drafts.get(&channel.id).is_some_and(|d| !d.trim().is_empty());
-								let display_name = if CLEAN_CHANNEL_NAME_ENABLED.load(Ordering::Relaxed) {
-									clean_channel_name(&channel.name)
-								} else {
-									channel.name.clone()
-								};
+								let display_name = clean_channel_name(&channel.name);
 								let badge_suffix = channel_badge_label(channel.kind).map_or(String::new(), |b| format!(" [{b}]"));
 								format!(
 									"{}{}{} · {}{}{}",
@@ -2964,6 +2969,14 @@ mod venserein_batch1_categories_tests {
 		assert!(clean_channel_name_enabled());
 		assert_eq!(clean_channel_name("💬・chat"), "chat");
 		assert_eq!(clean_channel_name("📢・ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛs"), "announcements");
+		// When disabled, function returns a borrowed slice (no allocation).
+		set_clean_channel_name_enabled(false);
+		assert!(matches!(clean_channel_name("general"), std::borrow::Cow::Borrowed("general")));
+		set_clean_channel_name_enabled(true);
+		// Plain ASCII without special chars: borrowed, no allocation.
+		assert!(matches!(clean_channel_name("general"), std::borrow::Cow::Borrowed("general")));
+		// Decorated name: owned (allocation happens only when needed).
+		assert!(matches!(clean_channel_name("💬・chat"), std::borrow::Cow::Owned(_)));
 
 		assert!(channel_badges_enabled());
 		set_channel_badges_enabled(false);

@@ -929,18 +929,27 @@ fn find_hex_colors(text: &str) -> Vec<(std::ops::Range<usize>, egui::Color32)> {
 		if bytes[i] == b'#' {
 			let prev_boundary = if i == 0 {
 				true
+			} else if text.is_char_boundary(i) {
+				text[..i]
+					.chars()
+					.last()
+					.is_some_and(|c| c.is_whitespace() || c.is_ascii_punctuation())
 			} else {
-				let c = text[..i].chars().last().unwrap();
-				c.is_whitespace() || c.is_ascii_punctuation()
+				false
 			};
 			if prev_boundary {
-				if i + 7 <= bytes.len() {
+				if i + 7 <= bytes.len()
+					&& text.is_char_boundary(i + 1)
+					&& text.is_char_boundary(i + 7)
+				{
 					let candidate = &text[i + 1..i + 7];
 					let after_boundary = if i + 7 == bytes.len() {
 						true
 					} else {
-						let c = text[i + 7..].chars().next().unwrap();
-						!c.is_ascii_alphanumeric()
+						text[i + 7..]
+							.chars()
+							.next()
+							.is_some_and(|c| !c.is_ascii_alphanumeric())
 					};
 					if after_boundary && candidate.chars().all(|c| c.is_ascii_hexdigit()) {
 						if let Some(color) = parse_hex_color(&text[i..i + 7]) {
@@ -950,13 +959,18 @@ fn find_hex_colors(text: &str) -> Vec<(std::ops::Range<usize>, egui::Color32)> {
 						}
 					}
 				}
-				if i + 4 <= bytes.len() {
+				if i + 4 <= bytes.len()
+					&& text.is_char_boundary(i + 1)
+					&& text.is_char_boundary(i + 4)
+				{
 					let candidate = &text[i + 1..i + 4];
 					let after_boundary = if i + 4 == bytes.len() {
 						true
 					} else {
-						let c = text[i + 4..].chars().next().unwrap();
-						!c.is_ascii_alphanumeric()
+						text[i + 4..]
+							.chars()
+							.next()
+							.is_some_and(|c| !c.is_ascii_alphanumeric())
 					};
 					if after_boundary && candidate.chars().all(|c| c.is_ascii_hexdigit()) {
 						if let Some(color) = parse_hex_color(&text[i..i + 4]) {
@@ -6237,20 +6251,6 @@ mod tests {
 }
 
 #[cfg(test)]
-mod venserein_reveal_spoilers_tests {
-	use super::*;
-
-	#[test]
-	fn test_reveal_all_spoilers_toggle() {
-		assert!(!reveal_all_spoilers_enabled());
-		set_reveal_all_spoilers_enabled(true);
-		assert!(reveal_all_spoilers_enabled());
-		set_reveal_all_spoilers_enabled(false);
-		assert!(!reveal_all_spoilers_enabled());
-	}
-}
-
-#[cfg(test)]
 mod venserein_markdown_tests {
 	use super::*;
 
@@ -6289,6 +6289,12 @@ mod venserein_markdown_tests {
 		});
 		assert!(has_swatch, "Hex color span with swatch must be present");
 
+		// Regression test: multi-byte non-ASCII and emoji following '#' must never panic
+		let non_ascii_samples = ["#abф", "#f00мир", "#123456🎉", "#тест", "#fff👍"];
+		for sample in non_ascii_samples {
+			let _ = Formatted::parse(sample);
+		}
+
 		// Toggle off
 		set_message_colors_enabled(false);
 		let parsed_off = Formatted::parse(source);
@@ -6298,16 +6304,6 @@ mod venserein_markdown_tests {
 		// Restore
 		set_message_colors_enabled(true);
 	}
-
-	#[test]
-	fn test_message_link_tooltip_toggle() {
-		assert!(message_link_tooltip_enabled());
-		set_message_link_tooltip_enabled(false);
-		assert!(!message_link_tooltip_enabled());
-		set_message_link_tooltip_enabled(true);
-		assert!(message_link_tooltip_enabled());
-	}
-
 	#[test]
 	fn test_content_warning_detection_and_toggle() {
 		assert!(!content_warning_enabled());

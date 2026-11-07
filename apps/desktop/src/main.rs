@@ -6332,6 +6332,7 @@ impl eframe::App for Desktop {
 						self.audio.seek(Duration::from_secs_f64(seconds))
 					}
 					ui::AudioCommand::Volume(volume) => self.audio.volume(volume),
+					ui::AudioCommand::Speed(speed) => self.audio.speed(speed),
 					ui::AudioCommand::Stop => self.audio.stop(),
 				}
 			}

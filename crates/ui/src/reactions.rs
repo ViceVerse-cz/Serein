@@ -447,11 +447,14 @@ pub fn show_users(
 							ui.label(crate::design::medium(ui, &user.name, 14.5));
 							let user_time = crate::timeline::timestamp(user.id);
 							let time_str = crate::local_time::full(user_time);
-							ui.label(
-								egui::RichText::new(time_str)
-									.size(11.0)
-									.color(ui.visuals().weak_text_color()),
-							);
+							ui.add(
+								egui::Label::new(
+									egui::RichText::new(format!("Joined: {time_str}"))
+										.size(11.0)
+										.color(ui.visuals().weak_text_color()),
+								)
+							)
+							.on_hover_text("Account registration timestamp derived from user snowflake ID");
 						});
 					} else {
 						ui.label(crate::design::medium(ui, &user.name, 15.0));
