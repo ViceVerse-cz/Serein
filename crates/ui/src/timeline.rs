@@ -40,7 +40,11 @@ pub struct TimelineView {
 	/// A private command response the reader dismissed this frame.
 	pub(super) dismiss_ephemeral: Option<Id>,
 	pub(super) extension_actions: std::sync::Arc<Vec<crate::extensions_ui::MenuAction>>,
-	pub(super) extension_request: Option<(crate::extensions_ui::MenuAction, String)>,
+	pub(super) extension_request: Option<(
+		crate::extensions_ui::MenuAction,
+		String,
+		crate::extensions_ui::MessageTarget,
+	)>,
 	pub(super) user_action: Option<crate::user_menu::Action>,
 	pub(super) restore_pending: Option<String>,
 	/// A failed own row the reader dismissed this frame.
@@ -1644,6 +1648,8 @@ fn deleted_message_actions(popup: egui::Popup<'_>, action: &mut Option<DeletedLo
 		}
 	});
 }
+/// Fills a message's action menu, including plugin message actions, and records the chosen
+/// plugin action with the message it applies to.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn message_actions(
 	popup: egui::Popup<'_>,
@@ -1651,7 +1657,11 @@ fn message_actions(
 		&Message,
 		Option<&str>,
 		&[crate::extensions_ui::MenuAction],
-		&mut Option<(crate::extensions_ui::MenuAction, String)>,
+		&mut Option<(
+			crate::extensions_ui::MenuAction,
+			String,
+			crate::extensions_ui::MessageTarget,
+		)>,
 	),
 	actions: (bool, bool, bool, bool),
 	selection: (
@@ -1682,8 +1692,15 @@ fn message_actions(
 				|ui| {
 					for action in extension_actions {
 						if ui.button(&action.label).clicked() {
-							*extension_request =
-								Some((action.clone(), message.display_text().into_owned()));
+							*extension_request = Some((
+								action.clone(),
+								message.display_text().into_owned(),
+								crate::extensions_ui::MessageTarget {
+									channel: message.channel,
+									message: message.id,
+									author: message.author.id,
+								},
+							));
 							ui.close();
 						}
 					}

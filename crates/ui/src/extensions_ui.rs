@@ -119,6 +119,14 @@ pub enum ExtensionRequest {
 	},
 }
 
+/// The message a menu action was chosen on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct MessageTarget {
+	pub channel: Id,
+	pub message: Id,
+	pub author: Id,
+}
+
 #[derive(Clone)]
 pub(crate) struct MenuAction {
 	pub plugin: String,
@@ -933,9 +941,13 @@ impl ExtensionUi {
 		&mut self,
 		action: MenuAction,
 		text: String,
+		target: MessageTarget,
 		state: &State,
 		ctx: &egui::Context,
 	) {
+		let guild = state
+			.channel(target.channel)
+			.and_then(|channel| channel.guild);
 		self.queue(
 			ctx,
 			ExtensionRequest::Invoke {
@@ -943,6 +955,12 @@ impl ExtensionUi {
 				invocation: Invocation {
 					action: action.action,
 					selected_message: Some(text),
+					selected_message_ref: Some(Box::new(extensions::SelectedMessageRef {
+						channel_id: target.channel.to_string(),
+						message_id: target.message.to_string(),
+						author_id: target.author.to_string(),
+						guild_id: guild.map(|guild| guild.to_string()),
+					})),
 					..Default::default()
 				},
 				context: ExtensionContext::capture(state, false),
@@ -2161,6 +2179,8 @@ impl ExtensionUi {
 			self.queue(ctx, ExtensionRequest::Disable { id });
 		}
 	}
+	/// Shows the result window of the last foreground plugin action: its panel, proposed draft
+	/// replacement and host effects, each applied only after the user confirms.
 	pub(crate) fn show_result(
 		&mut self,
 		ctx: &egui::Context,
@@ -2346,6 +2366,7 @@ impl ExtensionUi {
 			invocation.action = action;
 			invocation.composer = None;
 			invocation.selected_message = None;
+			invocation.selected_message_ref = None;
 			invocation.values = result.values.clone();
 			self.queue(
 				ctx,
@@ -2364,6 +2385,7 @@ impl ExtensionUi {
 		confirmed
 	}
 }
+/// Approximate heap and inline bytes a queued request holds, for the queue's memory budget.
 fn request_bytes(request: &ExtensionRequest) -> usize {
 	std::mem::size_of_val(request)
 		+ match request {
@@ -2412,10 +2434,14 @@ fn request_bytes(request: &ExtensionRequest) -> usize {
 				.flatten()
 				.map(String::len)
 				.sum::<usize>() + invocation
-					.values
-					.iter()
-					.map(|(key, value)| key.len() + value.len())
-					.sum::<usize>()
+					.selected_message_ref
+					.as_ref()
+					.map_or(0, |reference| reference.bytes())
+					+ invocation
+						.values
+						.iter()
+						.map(|(key, value)| key.len() + value.len())
+						.sum::<usize>()
 			}
 			ExtensionRequest::ActionResult {
 				id,

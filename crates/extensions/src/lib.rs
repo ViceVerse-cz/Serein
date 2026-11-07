@@ -370,6 +370,9 @@ pub struct Invocation {
 	pub action: String,
 	#[serde(default)]
 	pub selected_message: Option<String>,
+	/// IDs of the message whose menu action was chosen; sent with `selected_message`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub selected_message_ref: Option<Box<SelectedMessageRef>>,
 	#[serde(default)]
 	pub composer: Option<String>,
 	#[serde(default)]
@@ -413,6 +416,38 @@ pub struct MessageEvent {
 	pub author_id: Option<String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub content: Option<String>,
+}
+
+/// The message a `message` action was invoked on. These are the IDs the user just clicked,
+/// so they are granted with `selected_message`, like the text itself.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SelectedMessageRef {
+	pub channel_id: String,
+	pub message_id: String,
+	pub author_id: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub guild_id: Option<String>,
+}
+
+impl SelectedMessageRef {
+	/// Checks that every ID is a Discord snowflake.
+	pub fn validate(&self) -> Result<(), Error> {
+		for id in [&self.channel_id, &self.message_id, &self.author_id]
+			.into_iter()
+			.chain(self.guild_id.iter())
+		{
+			app::entity_id(id)?;
+		}
+		Ok(())
+	}
+	/// Serialized ID bytes, for invocation size budgets.
+	pub fn bytes(&self) -> usize {
+		self.channel_id.len()
+			+ self.message_id.len()
+			+ self.author_id.len()
+			+ self.guild_id.as_ref().map_or(0, String::len)
+	}
 }
 
 impl MessageEvent {
@@ -951,6 +986,8 @@ pub fn parse_catalog(bytes: &[u8]) -> Result<Catalog, Error> {
 }
 
 impl Invocation {
+	/// Checks the invocation against the plugin's manifest: the action exists, each optional
+	/// input is allowed for its surface and granted capability, and every field fits its limit.
 	pub fn validate(&self, manifest: &Manifest) -> Result<(), Error> {
 		let action = manifest
 			.actions
@@ -1030,6 +1067,13 @@ impl Invocation {
 					return Err(Error::Limit);
 				}
 			}
+		}
+		if let Some(reference) = &self.selected_message_ref {
+			// The IDs describe the selected text; they never travel without it.
+			if self.selected_message.is_none() {
+				return Err(Error::Invalid);
+			}
+			reference.validate()?;
 		}
 		if self.selected_message.is_some() && action.surface != Surface::Message
 			|| self.composer.is_some() && action.surface != Surface::Composer

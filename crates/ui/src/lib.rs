@@ -4486,6 +4486,8 @@ impl MessagingUi {
 		}
 	}
 
+	/// Draws one frame of the signed-in client and returns the commands it produced for the
+	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		self.avatars.cosmetics = self.cosmetics;
 		name_styles::set_enabled(self.cosmetics.name_styles);
@@ -5363,9 +5365,10 @@ impl MessagingUi {
 						{
 							commands.push(command);
 						}
-						if let Some((action, text)) = self.timeline.extension_request.take() {
+						if let Some((action, text, target)) = self.timeline.extension_request.take()
+						{
 							self.extensions
-								.invoke_message(action, text, state, ui.ctx());
+								.invoke_message(action, text, target, state, ui.ctx());
 						}
 						if let Some((message, anchor, trigger)) =
 							self.timeline.reaction_picker.take()
