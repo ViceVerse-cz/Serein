@@ -1128,8 +1128,14 @@ impl Playback {
 					self.gaps[1] += 1;
 					continue;
 				}
-				if let (Some(tag), Some(at)) = (frame.presentation, at) {
-					tag.played(at);
+				if let Some(at) = at {
+					for tag in frame
+						.presentation
+						.iter()
+						.chain(frame.additional_presentations.iter().flatten())
+					{
+						tag.played(at);
+					}
 				}
 				self.frame = frame.samples;
 				break;
@@ -1608,6 +1614,7 @@ mod tests {
 		let stream = || crate::PlaybackFrame {
 			samples: [0.3; 960],
 			presentation: Some(clock.stamp(now)),
+			additional_presentations: Default::default(),
 			mixed: false,
 		};
 		let (mut send, receive) = rtrb::RingBuffer::new(8);
@@ -1645,6 +1652,7 @@ mod tests {
 		let now = Instant::now();
 		let (mut send, receive) = rtrb::RingBuffer::new(8);
 		send.push(crate::PlaybackFrame {
+			additional_presentations: Default::default(),
 			mixed: false,
 			samples: [0.2; 960],
 			presentation: Some(clock.stamp(now)),
@@ -1662,6 +1670,7 @@ mod tests {
 		);
 		clock.reset();
 		send.push(crate::PlaybackFrame {
+			additional_presentations: Default::default(),
 			mixed: false,
 			samples: [0.8; 960],
 			presentation: Some(clock.stamp(now)),

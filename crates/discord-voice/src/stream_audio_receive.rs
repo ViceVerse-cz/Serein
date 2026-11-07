@@ -346,6 +346,7 @@ impl Audio {
 			.iter_mut()
 			.for_each(|sample| *sample = sample.clamp(-1.0, 1.0));
 		heard.then_some(crate::PlaybackFrame {
+			additional_presentations: Default::default(),
 			mixed: false,
 			samples: output,
 			presentation,

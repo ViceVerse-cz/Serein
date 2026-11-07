@@ -67,6 +67,9 @@ pub struct Presentation {
 	generation: u64,
 }
 impl Presentation {
+	pub(crate) fn same_source(&self, other: &Self) -> bool {
+		Arc::ptr_eq(&self.clock, &other.clock) && self.generation == other.generation
+	}
 	/// An independent presentation target, for sources without an audio master.
 	pub fn new(at: Instant) -> Self {
 		Arc::new(Clock::default()).stamp(at)
@@ -132,16 +135,19 @@ impl Presentation {
 pub struct PlaybackFrame {
 	pub samples: crate::Frame,
 	pub presentation: Option<Presentation>,
-	// Stream invalidation must not discard participant speech already mixed in.
+	pub(crate) additional_presentations:
+		[Option<Presentation>; client_core::voice::MAX_WATCHED_STREAMS - 1],
+	// Retiring one source must not discard participant speech or other streams already mixed in.
 	pub(crate) mixed: bool,
 }
 impl PlaybackFrame {
 	pub(crate) fn mix(call: Option<crate::Frame>, stream: Option<Self>) -> Option<Self> {
 		let stream = stream.filter(|frame| {
-			frame
-				.presentation
-				.as_ref()
-				.is_none_or(Presentation::is_current)
+			frame.mixed
+				|| frame
+					.presentation
+					.as_ref()
+					.is_none_or(Presentation::is_current)
 		});
 		match (call, stream) {
 			(Some(mut samples), Some(stream)) => {
@@ -151,6 +157,7 @@ impl PlaybackFrame {
 				Some(Self {
 					samples,
 					presentation: stream.presentation,
+					additional_presentations: stream.additional_presentations,
 					mixed: true,
 				})
 			}
@@ -164,6 +171,7 @@ impl From<crate::Frame> for PlaybackFrame {
 		Self {
 			samples,
 			presentation: None,
+			additional_presentations: Default::default(),
 			mixed: false,
 		}
 	}

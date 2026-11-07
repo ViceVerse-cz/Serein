@@ -1952,9 +1952,12 @@ impl Desktop {
 			let texture =
 				cc.egui_ctx
 					.load_texture("synthetic-stream", image, egui::TextureOptions::LINEAR);
-			messaging.voice_stream_view = Some(egui::load::SizedTexture::from_handle(&texture));
+			messaging.voice_stream_views.push(ui::StreamView {
+				user: peer,
+				texture: Some(egui::load::SizedTexture::from_handle(&texture)),
+				status: "Watching the stream",
+			});
 			demo_textures.push(texture);
-			messaging.voice_stream_status = "Watching the stream";
 			// `--demo-focus` additionally opens the enlarged stage layout.
 			if std::env::args().any(|arg| arg == "--demo-focus") {
 				messaging.voice_focus = Some(ui::StageFocus::Stream(peer));
