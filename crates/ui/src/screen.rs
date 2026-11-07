@@ -7,6 +7,7 @@ use client_core::{
 	voice::Phase,
 };
 use model::Id;
+use std::borrow::Cow;
 
 pub enum Request {
 	Start(Settings),
@@ -21,7 +22,8 @@ pub struct ScreenUi {
 	pub refresh_requested: bool,
 	pub request: Option<Request>,
 	pub busy: bool,
-	pub status: &'static str,
+	/// Owned when it carries a run-time detail such as a Windows error code.
+	pub status: Cow<'static, str>,
 	pub capture_status: Option<&'static str>,
 	pub supported: bool,
 	pub preview: Option<egui::TextureHandle>,
@@ -44,7 +46,7 @@ impl Default for ScreenUi {
 			refresh_requested: false,
 			request: None,
 			busy: false,
-			status: "",
+			status: Cow::Borrowed(""),
 			capture_status: None,
 			supported: false,
 			preview: None,
@@ -99,10 +101,10 @@ impl ScreenUi {
 				]
 			};
 			self.selected = self.sources.first().map(|source| source.id);
-			self.status = "Offline preview · no screen is captured";
+			self.status = "Offline preview · no screen is captured".into();
 		} else {
 			self.refresh_requested = true;
-			self.status = "Looking for screens and windows…";
+			self.status = "Looking for screens and windows…".into();
 		}
 	}
 	fn selected_source(&self) -> Option<&Source> {
@@ -238,7 +240,7 @@ impl ScreenUi {
 					self.quality_for = None;
 					self.sources.clear();
 					self.refresh_requested = true;
-					self.status = "Looking for screens and windows…";
+					self.status = "Looking for screens and windows…".into();
 				}
 			});
 		});
@@ -335,7 +337,7 @@ impl ScreenUi {
 					ui.set_width(ui.available_width());
 					ui.add(
 						egui::Label::new(
-							egui::RichText::new(self.status)
+							egui::RichText::new(&*self.status)
 								.size(12.0)
 								.color(colors.muted),
 						)
