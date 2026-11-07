@@ -15,13 +15,30 @@ pub enum NoiseSuppression {
 	#[default]
 	RnNoise,
 	WebRtc,
+	DeepFilterNet,
+}
+impl NoiseSuppression {
+	/// Windows on Arm builds omit DeepFilterNet: tract's arm64 kernels are GNU assembly, which
+	/// the MSVC toolchain cannot build.
+	pub const DEEP_FILTER_NET_AVAILABLE: bool =
+		!cfg!(all(target_os = "windows", target_arch = "aarch64"));
+
+	/// The suppressor this build runs for the setting; DeepFilterNet falls back to RNNoise
+	/// where it is unavailable.
+	pub fn supported(self) -> Self {
+		if self == Self::DeepFilterNet && !Self::DEEP_FILTER_NET_AVAILABLE {
+			Self::RnNoise
+		} else {
+			self
+		}
+	}
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Processing {
 	pub suppression: NoiseSuppression,
-	/// WebRTC suppression strength, from low (0) through very high (3).
+	/// WebRTC and DeepFilterNet suppression strength, from low (0) through very high (3).
 	pub suppression_level: u8,
 	pub echo_cancellation: bool,
 	pub automatic_gain: bool,
@@ -62,11 +79,13 @@ pub struct VoiceProcessing {
 }
 impl VoiceProcessing {
 	pub fn effective(self) -> Processing {
-		match self.profile {
+		let mut processing = match self.profile {
 			InputProfile::VoiceIsolation => Processing::default(),
 			InputProfile::Studio => Processing::studio(),
 			InputProfile::Custom => self.custom,
-		}
+		};
+		processing.suppression = processing.suppression.supported();
+		processing
 	}
 	pub fn from_legacy(noise_suppression: bool) -> Self {
 		Self {

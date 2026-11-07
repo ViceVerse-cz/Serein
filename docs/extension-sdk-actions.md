@@ -489,8 +489,8 @@ field, so JSON `null` is invalid.
 | `output_percent` | `Option<u16>` / integer or null | Output gain, 0-200 percent. |
 | `push_to_talk` | `Option<bool>` / boolean or null | Set the native push-to-talk preference. |
 | `input_profile` | `Option<String>` / string or null | `voice_isolation`, `studio` or `custom`. |
-| `suppression` | `Option<String>` / string or null | `off`, `rnnoise` or `webrtc`. |
-| `suppression_level` | `Option<u8>` / integer or null | Suppression level, 0-3. |
+| `suppression` | `Option<String>` / string or null | `off`, `rnnoise`, `webrtc` or `deepfilternet`. Windows on Arm builds have no DeepFilterNet; there `deepfilternet` is stored but runs, and reads back as, `rnnoise`. |
+| `suppression_level` | `Option<u8>` / integer or null | Suppression strength, 0-3 (low through very high). Applies to `webrtc` and `deepfilternet`; stored but unused with `off` or `rnnoise`. |
 | `echo_cancellation` | `Option<bool>` / boolean or null | Enable/disable echo cancellation. |
 | `automatic_gain` | `Option<bool>` / boolean or null | Enable/disable automatic gain. |
 | `sensitivity_db` | `Option<i16>` / integer or null | Microphone gate threshold, -80 through 0 dB. |

@@ -38,6 +38,10 @@ Native restart/resize behavior on Niri and other Linux desktops remains unverifi
 
 Target platforms are Windows, macOS and Linux. **macOS arm64, Windows x64 and Linux x64 have local build evidence.** The release workflow also targets Windows arm64 and Ubuntu 26.04 ARM64 on native GitHub Actions runners; build and runtime validation remain pending. macOS has native visual checks; Windows has offline tests and a process/window startup smoke check only. Minimum OS versions, other architectures, real screen-reader support and native login-method support are not certified.
 
+Windows arm64 builds omit DeepFilterNet noise suppression: tract's arm64 kernels are GNU
+assembly that the MSVC toolchain cannot build. They do not offer it, and a saved
+DeepFilterNet choice runs RNNoise there.
+
 Windows defaults to DirectX 12 to avoid reported startup access violations in Intel's
 Vulkan driver (`igvk64.dll`). The existing `WGPU_BACKEND` environment override remains
 available (for example, `dx12` or `vulkan`). Affected users confirmed that forcing

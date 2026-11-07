@@ -192,6 +192,23 @@ strength_reduce 0.2.4 and transpose 0.2.3. Their license declarations and retain
 texts/notices are recorded in docs/dependency-versions.md and
 assets/licenses/voice/PROVENANCE.md and staged by the existing voice packager.
 
+The optional DeepFilterNet microphone suppressor uses **DeepFilterNet Plus / deep_filter
+0.5.7-pre** (MIT OR Apache-2.0, Hendrik Schröter and contributors), vendored from
+[ismailivanov/DeepFilterNetPlus](https://github.com/ismailivanov/DeepFilterNetPlus) commit
+`2dc5273d16e1e3769527ad0740654c5ccde581cc`, a maintained fork of Rikorose/DeepFilterNet,
+with a trimmed manifest. Its `tract.rs` carries one Serein modification that lets the
+networks load on another thread; `vendor/deepfilternet/SEREIN-PATCH.md` describes it. The
+unmodified **DeepFilterNet3** ONNX model is embedded in the executable under the same
+license. Inference uses the **tract 0.22.5** crates (tract-core, tract-data, tract-hir,
+tract-linalg, tract-nnef, tract-onnx, tract-onnx-opl, tract-pulse, tract-pulse-opl; MIT OR
+Apache-2.0, Sonos) and **ndarray 0.16.1** (MIT OR Apache-2.0). This adds 59 locked
+packages: 45 linked into the executable, all MIT and/or Apache-2.0, and 14 compile-time
+proc-macros and build helpers, including **tiny-keccak 2.0.2** (CC0-1.0). The
+DeepFilterNet, tract and linked support-crate license texts are retained unmodified in
+`assets/licenses/voice/`; its `PROVENANCE.md` records their sources, hashes and three
+upstream gaps (nom-language ships no license file, liquid-lib only its MIT text and
+string-interner a short Apache-2.0 notice). No model or SDK is downloaded at runtime.
+
 Optional screen sharing adds **screencapturekit 10.0.3** (MIT OR Apache-2.0) on macOS, **windows-capture 2.0.1** (MIT) on Windows and **openh264 / openh264-sys2 0.9.8** (BSD-2-Clause) for source-built Cisco OpenH264 encoding. It reuses **image 0.25.10** (MIT OR Apache-2.0) for bounded scaling. Native frameworks are supplied by the OS. These dependencies stay behind the existing voice feature. Unmodified available license texts and source provenance are retained in `assets/licenses/voice/PROVENANCE.md`; the noted missing binding license text and existing full per-artifact redistribution review remain outstanding.
 
 Camera sending in the macOS build uses **openh264 0.9.8** and

@@ -130,3 +130,102 @@ no PulseAudio server is bundled.
 | enum-primitive-derive-0.3.0-LICENSE | [registry source](https://docs.rs/crate/enum-primitive-derive/0.3.0/source/LICENSE) | `819e0555b295079201b0670bb3302855303bdbbcc739f3819b13e1b3d2ec03bb` |
 | futures-0.3.34-LICENSE-MIT | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-MIT) | `6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd` |
 | futures-0.3.34-LICENSE-APACHE | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-APACHE) | `275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427` |
+
+## DeepFilterNet noise suppression — November 6, 2026
+
+DeepFilterNet source, the DeepFilterNet3 model and their licenses come from
+[ismailivanov/DeepFilterNetPlus](https://github.com/ismailivanov/DeepFilterNetPlus/tree/2dc5273d16e1e3769527ad0740654c5ccde581cc)
+commit `2dc5273d16e1e3769527ad0740654c5ccde581cc`, a maintained fork of Rikorose/DeepFilterNet
+whose root license files are unchanged from upstream commit
+`d375b2d8309e0935d165700c91da9de862a99c31`; `vendor/deepfilternet/SEREIN-PATCH.md` records
+the vendored files and manifest changes. The tract texts are unmodified from the tract-core
+0.22.5 registry archive; the other eight tract 0.22.5 workspace crates ship byte-identical
+texts. Support-crate files are unmodified from each pinned registry archive. Hashes are of
+the LF-normalized files.
+
+| File | Component(s) | Exact source | SHA-256 |
+|---|---|---|---|
+| deepfilternet-LICENSE-MIT.txt | DeepFilterNet Plus 2dc5273 | [pinned fork](https://github.com/ismailivanov/DeepFilterNetPlus/blob/2dc5273d16e1e3769527ad0740654c5ccde581cc/LICENSE-MIT) | `24e6bb09c928af8d8e56268082f87413247ce36b39dd5d33add2f9893968065e` |
+| deepfilternet-LICENSE-APACHE.txt | DeepFilterNet Plus 2dc5273 | [pinned fork](https://github.com/ismailivanov/DeepFilterNetPlus/blob/2dc5273d16e1e3769527ad0740654c5ccde581cc/LICENSE-APACHE) | `1eaee808c5fb6b4e895ba30425285a5cdc5dd25bba2cd230f264c2200c331aec` |
+| tract-LICENSE-MIT.txt | tract 0.22.5 workspace (nine crates) | [registry source](https://docs.rs/crate/tract-core/0.22.5/source/LICENSE-MIT) | `23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3` |
+| tract-LICENSE-APACHE.txt | tract 0.22.5 workspace (nine crates) | [registry source](https://docs.rs/crate/tract-core/0.22.5/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| anyhow-1.0.104-LICENSE-APACHE | anyhow 1.0.104 | [registry source](https://docs.rs/crate/anyhow/1.0.104/source/LICENSE-APACHE) | `62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a` |
+| anyhow-1.0.104-LICENSE-MIT | anyhow 1.0.104 | [registry source](https://docs.rs/crate/anyhow/1.0.104/source/LICENSE-MIT) | `23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3` |
+| anymap2-0.13.0-LICENSE-APACHE | anymap2 0.13.0 | [registry source](https://docs.rs/crate/anymap2/0.13.0/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| anymap2-0.13.0-LICENSE-MIT | anymap2 0.13.0 | [registry source](https://docs.rs/crate/anymap2/0.13.0/source/LICENSE-MIT) | `b85cb7b51c3f8d600bbac3fb8dbbfe64cde697e460a55fc80978eb0804ca1427` |
+| bit-set-0.5.3-LICENSE-APACHE | bit-set 0.5.3 | [registry source](https://docs.rs/crate/bit-set/0.5.3/source/LICENSE-APACHE) | `8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90` |
+| bit-set-0.5.3-LICENSE-MIT | bit-set 0.5.3 | [registry source](https://docs.rs/crate/bit-set/0.5.3/source/LICENSE-MIT) | `c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5` |
+| bit-vec-0.6.3-LICENSE-APACHE | bit-vec 0.6.3 | [registry source](https://docs.rs/crate/bit-vec/0.6.3/source/LICENSE-APACHE) | `8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90` |
+| bit-vec-0.6.3-LICENSE-MIT | bit-vec 0.6.3 | [registry source](https://docs.rs/crate/bit-vec/0.6.3/source/LICENSE-MIT) | `7b63ecd5f1902af1b63729947373683c32745c16a10e8e6292e2e2dcd7e90ae0` |
+| const-random-0.1.18-LICENSE-APACHE | const-random 0.1.18 | [registry source](https://docs.rs/crate/const-random/0.1.18/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| const-random-0.1.18-LICENSE-MIT | const-random 0.1.18 | [registry source](https://docs.rs/crate/const-random/0.1.18/source/LICENSE-MIT) | `ff8f68cb076caf8cefe7a6430d4ac086ce6af2ca8ce2c4e5a2004d4552ef52a2` |
+| dlv-list-0.5.2-LICENSE-APACHE | dlv-list 0.5.2 | [registry source](https://docs.rs/crate/dlv-list/0.5.2/source/LICENSE-APACHE) | `95bd3988beee069fa2848f648dab43cc6e0b2add2ad6bcb17360caf749802bcc` |
+| dlv-list-0.5.2-LICENSE-MIT | dlv-list 0.5.2 | [registry source](https://docs.rs/crate/dlv-list/0.5.2/source/LICENSE-MIT) | `77adcddfe9e50acd2df63ddbb8e566bb8d34b4d02a9d92e7a5c1b9c2225eda9f` |
+| dyn-clone-1.0.20-LICENSE-APACHE | dyn-clone 1.0.20 | [registry source](https://docs.rs/crate/dyn-clone/1.0.20/source/LICENSE-APACHE) | `62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a` |
+| dyn-clone-1.0.20-LICENSE-MIT | dyn-clone 1.0.20 | [registry source](https://docs.rs/crate/dyn-clone/1.0.20/source/LICENSE-MIT) | `23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3` |
+| dyn-hash-0.2.2-LICENSE-APACHE | dyn-hash 0.2.2 | [registry source](https://docs.rs/crate/dyn-hash/0.2.2/source/LICENSE-APACHE) | `62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a` |
+| dyn-hash-0.2.2-LICENSE-MIT | dyn-hash 0.2.2 | [registry source](https://docs.rs/crate/dyn-hash/0.2.2/source/LICENSE-MIT) | `23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3` |
+| filetime-0.2.29-LICENSE-APACHE | filetime 0.2.29 | [registry source](https://docs.rs/crate/filetime/0.2.29/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| filetime-0.2.29-LICENSE-MIT | filetime 0.2.29 | [registry source](https://docs.rs/crate/filetime/0.2.29/source/LICENSE-MIT) | `378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397` |
+| hashbrown-0.14.5-LICENSE-APACHE | hashbrown 0.14.5 | [registry source](https://docs.rs/crate/hashbrown/0.14.5/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| hashbrown-0.14.5-LICENSE-MIT | hashbrown 0.14.5 | [registry source](https://docs.rs/crate/hashbrown/0.14.5/source/LICENSE-MIT) | `ff8f68cb076caf8cefe7a6430d4ac086ce6af2ca8ce2c4e5a2004d4552ef52a2` |
+| itertools-0.12.1-LICENSE-APACHE | itertools 0.12.1 | [registry source](https://docs.rs/crate/itertools/0.12.1/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| itertools-0.12.1-LICENSE-MIT | itertools 0.12.1 | [registry source](https://docs.rs/crate/itertools/0.12.1/source/LICENSE-MIT) | `7576269ea71f767b99297934c0b2367532690f8c4badc695edf8e04ab6a1e545` |
+| itertools-0.14.0-LICENSE-APACHE | itertools 0.14.0 | [registry source](https://docs.rs/crate/itertools/0.14.0/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| itertools-0.14.0-LICENSE-MIT | itertools 0.14.0 | [registry source](https://docs.rs/crate/itertools/0.14.0/source/LICENSE-MIT) | `7576269ea71f767b99297934c0b2367532690f8c4badc695edf8e04ab6a1e545` |
+| liquid-0.26.11-LICENSE | liquid 0.26.11 | [registry source](https://docs.rs/crate/liquid/0.26.11/source/LICENSE) | `7b4b09e856fad3b9d6e480a9ec8ccaf85080c5ad8e536aade8fe30b2c533a779` |
+| liquid-0.26.11-LICENSE-APACHE | liquid 0.26.11 | [registry source](https://docs.rs/crate/liquid/0.26.11/source/LICENSE-APACHE) | `c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08` |
+| liquid-0.26.11-LICENSE-MIT | liquid 0.26.11 | [registry source](https://docs.rs/crate/liquid/0.26.11/source/LICENSE-MIT) | `6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6` |
+| liquid-core-0.26.11-LICENSE-APACHE | liquid-core 0.26.11 | [registry source](https://docs.rs/crate/liquid-core/0.26.11/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| liquid-core-0.26.11-LICENSE-MIT | liquid-core 0.26.11 | [registry source](https://docs.rs/crate/liquid-core/0.26.11/source/LICENSE-MIT) | `6a5dfb0adf37850239f4b2388a79355c77b625d6c5542dea7743ac5033efaba2` |
+| liquid-lib-0.26.11-LICENSE | liquid-lib 0.26.11 | [registry source](https://docs.rs/crate/liquid-lib/0.26.11/source/LICENSE) | `7b4b09e856fad3b9d6e480a9ec8ccaf85080c5ad8e536aade8fe30b2c533a779` |
+| maplit-1.0.2-LICENSE-APACHE | maplit 1.0.2 | [registry source](https://docs.rs/crate/maplit/1.0.2/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| maplit-1.0.2-LICENSE-MIT | maplit 1.0.2 | [registry source](https://docs.rs/crate/maplit/1.0.2/source/LICENSE-MIT) | `7576269ea71f767b99297934c0b2367532690f8c4badc695edf8e04ab6a1e545` |
+| matrixmultiply-0.3.11-LICENSE-APACHE | matrixmultiply 0.3.11 | [registry source](https://docs.rs/crate/matrixmultiply/0.3.11/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| matrixmultiply-0.3.11-LICENSE-MIT | matrixmultiply 0.3.11 | [registry source](https://docs.rs/crate/matrixmultiply/0.3.11/source/LICENSE-MIT) | `792d075c7bad6dac258a44e799eb64cbf465e24d9932d27669be08c5ec957e27` |
+| ndarray-0.16.1-LICENSE-APACHE | ndarray 0.16.1 | [registry source](https://docs.rs/crate/ndarray/0.16.1/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| ndarray-0.16.1-LICENSE-MIT | ndarray 0.16.1 | [registry source](https://docs.rs/crate/ndarray/0.16.1/source/LICENSE-MIT) | `1fd6747d2c8e80f9fa766f57c5888864774621deb85cc2838ccaed727db32d45` |
+| nom-language-0.1.0-LICENSE | nom-language 0.1.0 | [pinned upstream](https://raw.githubusercontent.com/rust-bakery/nom/2cec1b3e4c9ccac62c902d60c00de6d1549ccbe1/LICENSE) | `4dbda04344456f09a7a588140455413a9ac59b6b26a1ef7cdf9c800c012d87f0` |
+| ordered-multimap-0.7.3-LICENSE | ordered-multimap 0.7.3 | [registry source](https://docs.rs/crate/ordered-multimap/0.7.3/source/LICENSE) | `047c1d2f1c28c30ced89bd0740ff251d8f51512e81b142711f958a0551729ec4` |
+| pest-2.9.5-LICENSE-APACHE | pest 2.9.5 | [registry source](https://docs.rs/crate/pest/2.9.5/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| pest-2.9.5-LICENSE-MIT | pest 2.9.5 | [registry source](https://docs.rs/crate/pest/2.9.5/source/LICENSE-MIT) | `23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3` |
+| pest_stack_guard-1.0.1-LICENSE-APACHE | pest_stack_guard 1.0.1 | [registry source](https://docs.rs/crate/pest_stack_guard/1.0.1/source/LICENSE-APACHE) | `9b40875025d726c3e2f46fdd88c062462dd0f86d4e6e1deb8da067e0ef337cd8` |
+| pest_stack_guard-1.0.1-LICENSE-MIT | pest_stack_guard 1.0.1 | [registry source](https://docs.rs/crate/pest_stack_guard/1.0.1/source/LICENSE-MIT) | `23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3` |
+| prost-0.11.9-LICENSE | prost 0.11.9 | [registry source](https://docs.rs/crate/prost/0.11.9/source/LICENSE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| psm-0.1.32-LICENSE-APACHE | psm 0.1.32 | [registry source](https://docs.rs/crate/psm/0.1.32/source/LICENSE-APACHE) | `965a63a81d9a2fbeb5f9096954dabb49690f9dffcdac9825f675b25c807252a2` |
+| psm-0.1.32-LICENSE-MIT | psm 0.1.32 | [registry source](https://docs.rs/crate/psm/0.1.32/source/LICENSE-MIT) | `3e3714aa69bd874601741fd7d7ad5298740cece37778e279fc1ab4451c5a11af` |
+| rand_distr-0.4.3-LICENSE-APACHE | rand_distr 0.4.3 | [registry source](https://docs.rs/crate/rand_distr/0.4.3/source/LICENSE-APACHE) | `6df43f6f4b5d4587f3d8d71e45532c688fd168afa5fe89d571cb32fa09c4ef51` |
+| rand_distr-0.4.3-LICENSE-MIT | rand_distr 0.4.3 | [registry source](https://docs.rs/crate/rand_distr/0.4.3/source/LICENSE-MIT) | `a771e4354f6b3ad4c92da1a5c9a239b6c291527db869632ecea4f20e24ca1135` |
+| rawpointer-0.2.1-LICENSE-APACHE | rawpointer 0.2.1 | [registry source](https://docs.rs/crate/rawpointer/0.2.1/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| rawpointer-0.2.1-LICENSE-MIT | rawpointer 0.2.1 | [registry source](https://docs.rs/crate/rawpointer/0.2.1/source/LICENSE-MIT) | `7576269ea71f767b99297934c0b2367532690f8c4badc695edf8e04ab6a1e545` |
+| rubato-0.14.1-LICENSE.txt | rubato 0.14.1 | [registry source](https://docs.rs/crate/rubato/0.14.1/source/LICENSE.txt) | `36dbd32f27adb0d2477b3d3f6ecbde9ca9ad8d72e24766bebe3ea631d235a7ef` |
+| rust-ini-0.21.3-LICENSE | rust-ini 0.21.3 | [registry source](https://docs.rs/crate/rust-ini/0.21.3/source/LICENSE) | `ccf6244964385d34fef3799aa7792e9f8d35517de026f39a4f43f0e89b2079eb` |
+| safetensors-0.6.2-LICENSE | safetensors 0.6.2 | [registry source](https://docs.rs/crate/safetensors/0.6.2/source/LICENSE) | `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4` |
+| scan_fmt-0.2.6-LICENSE | scan_fmt 0.2.6 | [registry source](https://docs.rs/crate/scan_fmt/0.2.6/source/LICENSE) | `4d0814fe61e6458a52ce8c744f23c6e7fbdacd20f4f6452bc5f29b7790a98588` |
+| stacker-0.1.25-LICENSE-APACHE | stacker 0.1.25 | [registry source](https://docs.rs/crate/stacker/0.1.25/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| stacker-0.1.25-LICENSE-MIT | stacker 0.1.25 | [registry source](https://docs.rs/crate/stacker/0.1.25/source/LICENSE-MIT) | `378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397` |
+| string-interner-0.15.0-LICENSE-APACHE | string-interner 0.15.0 | [registry source](https://docs.rs/crate/string-interner/0.15.0/source/LICENSE-APACHE) | `1129d26272a056e37e5e7bd2985b8c72e6acd8f55c899c7a2bc136d13ee172b6` |
+| string-interner-0.15.0-LICENSE-MIT | string-interner 0.15.0 | [registry source](https://docs.rs/crate/string-interner/0.15.0/source/LICENSE-MIT) | `7f304506d28acecccba0e2ee0bb6aebdf46385d4a7cd602e18dd1a2f123bba75` |
+| tar-0.4.46-LICENSE-APACHE | tar 0.4.46 | [registry source](https://docs.rs/crate/tar/0.4.46/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| tar-0.4.46-LICENSE-MIT | tar 0.4.46 | [registry source](https://docs.rs/crate/tar/0.4.46/source/LICENSE-MIT) | `8ca6b96cea9e67c6c5c63f452c31bd396db8bd2406231fdea5d48ef462b48077` |
+| ucd-trie-0.1.7-LICENSE-APACHE | ucd-trie 0.1.7 | [registry source](https://docs.rs/crate/ucd-trie/0.1.7/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| ucd-trie-0.1.7-LICENSE-MIT | ucd-trie 0.1.7 | [registry source](https://docs.rs/crate/ucd-trie/0.1.7/source/LICENSE-MIT) | `0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f` |
+| xattr-1.6.1-LICENSE-APACHE | xattr 1.6.1 (Linux/macOS only) | [registry source](https://docs.rs/crate/xattr/1.6.1/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+| xattr-1.6.1-LICENSE-MIT | xattr 1.6.1 (Linux/macOS only) | [registry source](https://docs.rs/crate/xattr/1.6.1/source/LICENSE-MIT) | `8b427f5bc501764575e52ba4f9d95673cf8f6d80a86d0d06599852e1a9a20a36` |
+
+The embedded model `vendor/deepfilternet/models/DeepFilterNet3_onnx.tar.gz` has SHA-256
+`c94d91f70911001c946e0fabb4aa9adc37045f45a03b56008cb0c8244cb63616`, identical in the
+Plus fork. The compile-time-only additions — ar_archive_writer 0.5.3, const-random-macro
+0.1.16, derive-new 0.5.9, itertools 0.10.5, liquid-derive 0.26.10, object 0.39.1,
+pastey 0.1.1, pest_derive/pest_generator/pest_meta 2.9.5, prost-derive 0.11.9,
+syn 1.0.109, tiny-keccak 2.0.2 (CC0-1.0, already a `deny.toml` exception) and
+unicode-normalization 0.1.26 — are proc-macros, their dependencies and build helpers that
+are not linked into the executable; no texts are retained for them.
+
+Gaps: nom-language 0.1.0 ships no license file in its registry archive or its
+`nom-language/` VCS path; the workspace root MIT
+[`LICENSE`](https://raw.githubusercontent.com/rust-bakery/nom/2cec1b3e4c9ccac62c902d60c00de6d1549ccbe1/LICENSE)
+from the archive's pinned commit is retained instead. liquid-lib 0.26.11 declares
+MIT OR Apache-2.0 but ships only the MIT text, and string-interner 0.15.0 ships a short
+Apache-2.0 notice rather than the full license text; the shipped files are retained
+unmodified. No other runtime support crate is missing a license text.

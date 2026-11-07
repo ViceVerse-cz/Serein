@@ -20,6 +20,11 @@ ignore = [
     "RUSTSEC-2026-0383", # webpki-root-certs (transitive)
     "RUSTSEC-2026-0381", # webpki-roots (transitive)
     "RUSTSEC-2026-0386", # tokio (AsyncFd soundness advisory)
+    # anymap2 is unmaintained (informational, not a vulnerability). DeepFilterNet's tract 0.22
+    # reaches it through liquid -> liquid-core, used by tract-nnef and tract-linalg's build
+    # script; tract 0.23 drops liquid but changes internal APIs the vendored runtime uses.
+    # Re-check when tract moves.
+    "RUSTSEC-2026-0319",
 ]
 
 [yanked]
