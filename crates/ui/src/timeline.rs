@@ -185,6 +185,38 @@ pub fn valid_reply_enabled() -> bool {
 	VALID_REPLY_ENABLED.load(Ordering::Relaxed)
 }
 
+/// VenSerein (MessageDetails): Global toggle for showing rich message metadata (Snowflake IDs, exact edit time) in timestamp tooltips.
+pub static MESSAGE_DETAILS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn message_details_enabled() -> bool {
+	MESSAGE_DETAILS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_message_details_enabled(enabled: bool) {
+	MESSAGE_DETAILS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn message_details_tooltip(
+	id: Id,
+	author_id: Id,
+	time: time::OffsetDateTime,
+	edited_at: Option<i128>,
+) -> String {
+	let full_time = crate::local_time::full(time);
+	if !message_details_enabled() {
+		return full_time;
+	}
+	let mut s = format!("{full_time}\nMessage ID: {}\nAuthor ID: {}", id.0, author_id.0);
+	if let Some(nanos) = edited_at {
+		if let Ok(edit_dt) = time::OffsetDateTime::from_unix_timestamp_nanos(nanos) {
+			s.push_str(&format!("\nEdited: {}", crate::local_time::full(edit_dt)));
+		}
+	}
+	s
+}
+
 /// VenSerein (NoUnblockToJump): Bypasses unblock confirmation prompts when jumping to messages.
 pub static NO_UNBLOCK_TO_JUMP_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -3969,7 +4001,7 @@ impl TimelineView {
 														.color(colors.muted),
 													)
 													.on_hover_text_with(|| {
-														crate::local_time::full(time)
+														message_details_tooltip(id, message.author.id, time, message.edited_at)
 													});
 												surface.exclude(time.rect);
 												if pin_icon_enabled() && state.is_pinned(message.channel, id) {
@@ -4657,7 +4689,7 @@ impl TimelineView {
 								ui.scope_id().with("timestamp"),
 								egui::Sense::hover(),
 							)
-							.on_hover_text_with(|| crate::local_time::full(time));
+							.on_hover_text_with(|| message_details_tooltip(id, message.author.id, time, message.edited_at));
 						}
 						let own = state
 							.user
@@ -10858,5 +10890,26 @@ mod venserein_phase2_batch1_timeline_tests {
 		assert!(!dragify_enabled());
 		set_dragify_enabled(true);
 		assert!(dragify_enabled());
+
+		assert!(message_details_enabled());
+		set_message_details_enabled(false);
+		assert!(!message_details_enabled());
+		set_message_details_enabled(true);
+		assert!(message_details_enabled());
+
+		let test_time = time::OffsetDateTime::from_unix_timestamp(1700000000).unwrap();
+		let tooltip = message_details_tooltip(Id(111), Id(222), test_time, None);
+		assert!(tooltip.contains("Message ID: 111"));
+		assert!(tooltip.contains("Author ID: 222"));
+		assert!(!tooltip.contains("Edited:"));
+
+		let edit_nanos = 1700000500i128 * 1_000_000_000;
+		let tooltip_edited = message_details_tooltip(Id(111), Id(222), test_time, Some(edit_nanos));
+		assert!(tooltip_edited.contains("Edited:"));
+
+		set_message_details_enabled(false);
+		let plain_tooltip = message_details_tooltip(Id(111), Id(222), test_time, Some(edit_nanos));
+		assert!(!plain_tooltip.contains("Message ID:"));
+		set_message_details_enabled(true);
 	}
 }

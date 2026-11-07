@@ -112,6 +112,20 @@ pub fn set_timezones_enabled(enabled: bool) {
 	TIMEZONES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// VenSerein (ShowConnections): Global toggle for showing connected accounts in compact profile popouts as well as full profiles.
+pub static SHOW_CONNECTIONS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn show_connections_enabled() -> bool {
+	SHOW_CONNECTIONS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_show_connections_enabled(enabled: bool) {
+	SHOW_CONNECTIONS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn set_user_voice_show_enabled(enabled: bool) {
 	USER_VOICE_SHOW_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
@@ -4236,7 +4250,7 @@ fn card_view(
 											ui.label(RichText::new(since).size(body));
 										});
 									}
-									if full && !data.connections.is_empty() {
+									if (full || show_connections_enabled()) && !data.connections.is_empty() {
 										section(
 											ui,
 											&theme,
@@ -5965,6 +5979,12 @@ mod tests {
 		assert!(!friendship_ranks_enabled());
 		set_friendship_ranks_enabled(true);
 		assert!(friendship_ranks_enabled());
+
+		assert!(show_connections_enabled());
+		set_show_connections_enabled(false);
+		assert!(!show_connections_enabled());
+		set_show_connections_enabled(true);
+		assert!(show_connections_enabled());
 
 		let now = 1_000_000_000_000i64;
 		let two_years_ago = now - (2 * 365 * 86400 * 1000);

@@ -197,6 +197,7 @@ pub use profiles::{
 	set_platform_indicators_enabled, set_timezones_enabled, set_user_voice_show_enabled,
 	timezones_enabled, user_voice_show_enabled,
 	friendship_ranks_enabled, set_friendship_ranks_enabled, friendship_duration_text,
+	show_connections_enabled, set_show_connections_enabled,
 };
 pub use typing::{
 	set_typing_indicator_avatar_enabled, set_typing_tweaks_enabled,
@@ -235,6 +236,7 @@ pub use timeline::{
 	auto_jump_to_message_enabled, jump_to_enabled, set_auto_jump_to_message_enabled,
 	set_jump_to_enabled, set_sidebar_chat_enabled, sidebar_chat_enabled,
 	dragify_enabled, set_dragify_enabled,
+	message_details_enabled, set_message_details_enabled, message_details_tooltip,
 };
 pub use categories::{
 	draft_navigator_enabled, set_draft_navigator_enabled,
@@ -5067,6 +5069,12 @@ impl MessagingUi {
 					}
 					switcher::CommandPaletteAction::ToggleServerCounter => {
 						guild_folders::set_server_counter_enabled(!guild_folders::server_counter_enabled());
+					}
+					switcher::CommandPaletteAction::ToggleShowConnections => {
+						profiles::set_show_connections_enabled(!profiles::show_connections_enabled());
+					}
+					switcher::CommandPaletteAction::ToggleMessageDetails => {
+						timeline::set_message_details_enabled(!timeline::message_details_enabled());
 					}
 				},
 			}

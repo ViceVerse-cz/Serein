@@ -68,6 +68,8 @@ pub enum CommandPaletteAction {
 	OpenMentions,
 	ToggleMemberCount,
 	ToggleServerCounter,
+	ToggleShowConnections,
+	ToggleMessageDetails,
 }
 
 pub const COMMAND_ACTIONS: &[(CommandPaletteAction, &str, &str, &str)] = &[
@@ -81,6 +83,8 @@ pub const COMMAND_ACTIONS: &[(CommandPaletteAction, &str, &str, &str)] = &[
 	(CommandPaletteAction::OpenMentions, "Mentions Inbox", "Open recent mentions and inbox", ">inbox"),
 	(CommandPaletteAction::ToggleMemberCount, "Toggle Member Count", "Show or hide member count in server sidebar", ">member-count"),
 	(CommandPaletteAction::ToggleServerCounter, "Toggle Server Counter", "Show or hide server counter badge on rail", ">server-count"),
+	(CommandPaletteAction::ToggleShowConnections, "Toggle Show Connections", "Show connected accounts in user profile popouts", ">connections"),
+	(CommandPaletteAction::ToggleMessageDetails, "Toggle Message Details", "Show snowflake IDs and edit times in message timestamps", ">msg-details"),
 ];
 
 const QUERY_CHARS: usize = 128;
