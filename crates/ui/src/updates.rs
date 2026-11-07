@@ -265,7 +265,7 @@ impl MessagingUi {
 				"\n- **Graphics:** {} ({} preference; requested API: {}{})",
 				self.gpu_adapter,
 				self.gpu_preference.label(),
-				self.graphics_api.label(),
+				self.startup_graphics_api.label(),
 				if self.graphics_api_env_override {
 					"; WGPU_BACKEND override"
 				} else {

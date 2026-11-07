@@ -471,6 +471,17 @@ sub-budget the admitted metadata leaves free, so a full sidebar badge scan of a 
 account does not evict its own decisions.
 Incoming read-state snapshot vectors use at most 131,072 entries / 16 MiB; retained
 read maps are bounded by account channels, with the existing separate activity/alert budgets.
+The activity ledger retains at most 4,096 rows / 128 KiB, including whether a row is already
+covered by a service badge count and whether a service contribution was provable at message
+creation. Committed relationship/mute snapshots and admitted role/notification state are consulted
+then; optimistic toggles and later changes cannot rewrite this evidence. Covered rows stay available for local HTTP read reconciliation
+without double-counting later activity. Local reads prune acknowledged alerts and known mentions;
+unknown service counts remain conservative until refreshed. The existing monotonic activity high
+water prevents stale latest-message metadata from prematurely clearing that baseline.
+Committed ignore/unignore status has a profile-independent index bounded to 4,000 IDs / 512 KiB
+estimated allocation (including per-entry overhead). Replacements and logout clear it. Capacity
+eviction invalidates the complete-restriction fallback, so evicted profile-less users become
+unknown instead of implicitly unignored. Display profiles keep their existing separate bounds.
 Notification preferences
 use bounded account collections / 32 MiB. These are on-demand ceilings, not reservations
 or an RSS guarantee. This section supersedes the older account snapshot limits below.

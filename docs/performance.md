@@ -1751,3 +1751,65 @@ uncontrolled noise; display-server/compiler CPU and memory were not sampled.
 No release CPU/RSS, p95 frame/startup latency, physical GPU speed or affected
 Windows hardware behavior was measured. No Discord session or live media was used.
 See [the native evidence and reproduction procedure](pr-evidence/render-api-picker/README.md).
+
+## Read ACK reconciliation — November 6, 2026
+
+Baseline PR #908 head `449211db` versus the final Rust sources in the follow-up containing
+creation-time service-contribution evidence, profile-independent ignored status, and the
+`--ack-reconciliation` replay mode.
+Ubuntu 24.04.5 x86-64, Intel i5-1235U, Rust 1.98.1, unchanged dependency versions, identical
+release settings and benchmark harness. The baseline's isolated workspace prunes unrelated
+lockfile entries; its dependency name/version/source triples were checked against the repository
+lockfile. Neither repository lockfile nor dependency versions change in this PR.
+
+Run `cargo replay --ack-reconciliation`. Each process constructs eight independent full ledgers
+for partial reads and eight for bulk reads, each with 4,096 observed messages across 1,024
+private channels. Timing includes only HTTP-result reduction, excluding fixture construction and
+request preparation. Each bulk result confirms all 1,024 channels. Warm each binary once, then
+run five counterbalanced pairs (AB, BA, AB, BA, AB) with no concurrent container builds or
+packaging. Pilot runs showed substantial host timing noise; this final series uses the
+counterbalanced order rather than interpreting an A-first ordering bias as an improvement.
+
+| Timed work per process | Baseline median (range) | After median (range) | Median delta |
+| --- | ---: | ---: | ---: |
+| Eight partial confirmations | 0.115081 ms (0.111414–0.143944) | 0.117672 ms (0.111691–0.176175) | +0.002591 ms (+2.3%) |
+| Eight 1,024-channel bulk confirmations | 43.083 ms (40.419–64.171) | 42.706 ms (40.043–74.701) | −0.377 ms (−0.9%) |
+
+Ranges overlap substantially; neither a speedup nor an absence of regression is established.
+The values are not universal latency results. These workloads exercise the added ledger scans and
+bulk reconciliation, unlike the earlier message-only replay. No speedup, RSS, UI timing, live
+Discord compatibility, or message-creation classification throughput is established by them.
+The ledger keeps its 4,096-row / 128-KiB bound. The PR records the measured runtime commit;
+subsequent documentation-only changes do not affect these Rust sources.
+
+## Mention shortcuts — November 6, 2026
+
+Baseline `62df2c92f839c4329cc9e7d05052afa599a61bb5` and runtime source
+`363b7e6bf27ccb1b82a966aa81fe2f35e746cf05`, rebuilt in separate worktrees and output
+directories. Ubuntu 26.04.1 x86-64, Rust 1.98.1, pinned lockfile, release optimization,
+voice included, `--no-default-features`, `CARGO_BUILD_JOBS=1`, and
+`CARGO_PROFILE_RELEASE_LTO=false` on both revisions. Each build ran alone in a cgroup
+with `MemoryMax=8 GiB` and `MemorySwapMax=0`, respecting the owner's 16 GB system budget.
+
+One package per revision. Executable/archive sizes use `stat`; installed payload sums
+regular-file sizes from `dpkg-deb --fsys-tarfile`, and Installed-Size comes from Debian
+control metadata. Both packages passed the existing 245-file payload, metadata,
+ownership, desktop-entry and host shared-library closure checks. No packages were
+installed and no authenticated client was launched for these measurements.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable (bytes) | 96,549,240 | 96,608,376 | +59,136 (+0.061%) |
+| Installed payload (regular-file bytes) | 101,248,472 | 101,307,608 | +59,136 (+0.058%) |
+| Debian Installed-Size (KiB) | 99,077 | 99,135 | +58 (+0.059%) |
+| Compressed .deb (bytes) | 47,427,752 | 47,451,612 | +23,860 (+0.050%) |
+
+The standard fat-LTO attempt reached the enforced 8-GiB build cap and was stopped
+by the kernel. The successful local packages use the explicit LTO override above;
+these size results apply to that build setting. The source profile and dependency
+versions are unchanged. Later commits add tests/documentation only.
+
+Native computer use exposed no applications in this session. Native before/after
+screenshots, UI workload warmup/sampling, CPU/RSS, display scale/renderer observation,
+frame latency and live Discord verification remain unavailable. No UI speed or
+memory improvement is established by these package sizes.

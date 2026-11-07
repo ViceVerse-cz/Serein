@@ -336,6 +336,7 @@ fn layout_key(message: &Message) -> u64 {
 	message.author.kind.hash(&mut key);
 	message.author.webhook.hash(&mut key);
 	message.edited.hash(&mut key);
+	(message.flags & (1 << 12) != 0).hash(&mut key);
 	message.reply_to.hash(&mut key);
 	if let Some(interaction) = &message.interaction {
 		interaction.user.id.hash(&mut key);
@@ -3634,6 +3635,10 @@ impl TimelineView {
 											),
 										);
 									}
+									// Retained wire flags also cover cached history; notification targeting stays session-only.
+									if message.flags & (1 << 12) != 0 {
+										crate::timestamp_picker::silent_indicator(ui);
+									}
 									let body = egui::Frame::NONE
 										.inner_margin(egui::Margin {
 											left: if message.forwarded { 16 } else { 0 },
@@ -6454,6 +6459,26 @@ mod tests {
 			assert!(visible.contains("secret one") && !visible.contains("secret two"));
 			assert_eq!(view.revealed[&message.id].text, 1);
 			assert!(!view.revealed[&message.id].media);
+			// Notification metadata changes must not conceal already revealed content.
+			message.flags |= 1 << 12;
+			message.suppress_notifications = true;
+			state.timeline.insert(message.clone(), true, false).unwrap();
+			state.revision += 1;
+			let labels = render(&mut view, &mut state, vec![]);
+			assert!(labels.iter().any(|(text, _)| text.contains("secret one")));
+			assert_eq!(view.revealed[&message.id].text, 1);
+			// Cached history keeps the wire flag but omits session notification targeting.
+			message.suppress_notifications = false;
+			state.timeline.insert(message.clone(), true, false).unwrap();
+			state.revision += 1;
+			let labels = render(&mut view, &mut state, vec![]);
+			assert!(
+				labels
+					.iter()
+					.any(|(text, _)| text == &crate::i18n::translate("message-silent-indicator"))
+			);
+			assert!(labels.iter().any(|(text, _)| text.contains("secret one")));
+			assert_eq!(view.revealed[&message.id].text, 1);
 			// Like Discord, there is no re-hide control; start the next case concealed.
 			view.revealed.clear();
 			render(&mut view, &mut state, vec![]);

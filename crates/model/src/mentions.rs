@@ -113,7 +113,7 @@ pub fn channel_mention_prefix(text: &str) -> Option<(Id, usize)> {
 }
 /// Return one exact `<t:seconds[:style]>` timestamp reference: its instant, style and length.
 ///
-/// Discord accepts a single style letter from `tTdDfFR` and falls back to `f` when omitted;
+/// Discord accepts a single style letter from `tTdDfFsSR` and falls back to `f` when omitted;
 /// anything else stays literal text.
 pub fn timestamp_prefix(text: &str) -> Option<(i64, u8, usize)> {
 	let rest = text.strip_prefix("<t:")?;
@@ -126,7 +126,8 @@ pub fn timestamp_prefix(text: &str) -> Option<(i64, u8, usize)> {
 		Some((digits, style)) => {
 			let mut letters = style.chars();
 			let style = letters.next()?;
-			if letters.next().is_some() || !matches!(style, 't' | 'T' | 'd' | 'D' | 'f' | 'F' | 'R')
+			if letters.next().is_some()
+				|| !matches!(style, 't' | 'T' | 'd' | 'D' | 'f' | 'F' | 's' | 'S' | 'R')
 			{
 				return None;
 			}
@@ -198,6 +199,8 @@ mod tests {
 			Some((1_700_000_000, b'R', 16))
 		);
 		assert_eq!(timestamp_prefix("<t:0>"), Some((0, b'f', 5)));
+		assert_eq!(timestamp_prefix("<t:0:s>"), Some((0, b's', 7)));
+		assert_eq!(timestamp_prefix("<t:0:S>"), Some((0, b'S', 7)));
 		assert_eq!(timestamp_prefix("<t:-100:D>"), Some((-100, b'D', 10)));
 		for text in [
 			"<t:1700000000:z>",

@@ -1849,6 +1849,7 @@ impl Desktop {
 			messaging.prepare_friends_sample();
 		}
 		messaging.tray_available = platform::tray::supported();
+		messaging.startup_graphics_api = messaging.graphics_api;
 		messaging.available_graphics_apis = gpu::available_apis();
 		messaging.graphics_api_env_override = eframe::wgpu::Backends::from_env().is_some();
 		// Name the adapter actually in use; a mismatch with the preference is the useful

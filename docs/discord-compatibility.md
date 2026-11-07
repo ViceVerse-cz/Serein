@@ -2762,6 +2762,36 @@ eight-scalar marker allowance while the effective outgoing text retains its full
 literally. Existing per-draft byte ceilings and the session input budget remain
 in force. A quiet forwarding note affects only that separately sent note.
 
+### Composer shortcuts and timestamp references (November 6, 2026)
+
+New-message autocomplete offers `@silent` only at the beginning of the draft. The
+composer shows a quiet-send indicator while that prefix is active, and received
+messages show it when retained wire flags include `SUPPRESS_NOTIFICATIONS`, including
+cached history. Notification targeting remains session-only. These indicators
+describe intent/metadata; they do not establish notification delivery at a recipient.
+
+`@time` is a local Serein composer shortcut, including in message edits. Selecting it
+opens a bounded native dialog and does not send or modify the draft. Its date, time
+and explicit UTC offset initially represent the current local clock. The offset is
+editable, including for a different time zone or daylight saving period. Insert replaces
+the selected shortcut with the documented
+[`<t:UNIX_SECONDS[:STYLE]>` syntax](https://docs.discord.com/developers/reference#message-formatting),
+using no style suffix by default or one of `t`, `T`, `d`, `D`, `f`, `F`, `s`, `S`, `R`.
+The existing Markdown renderer resolves these references in message bodies and inline
+previews; escaped/code references and malformed syntax remain literal. Numeric date
+styles follow the selected locale’s date order. Relative formats
+refresh through the existing coarse repaint tick in messages and picker previews.
+Character and draft-byte budgets
+apply to replacement, and a changed draft or target cannot receive a stale insertion.
+Cancel/Escape leaves the original draft intact. No new service endpoint is used.
+
+The wire syntax and suppression flag are documented; normal-account acceptance remains
+unofficial and live-unverified. The `@time` shortcut is implemented locally without a
+claim of exact official-client picker parity. Synthetic tests cover composer keyboard
+routing, offset/calendar validation, stale insertion and budget rejection, plus body
+and preview rendering. Native screenshots and an owner-authorized live test could not
+be captured in this development session: computer use exposed no native applications.
+
 ## Public Catbox attachment links (October 2, 2026)
 
 Each staged message-composer file has a **Host file…** action. Selecting it shows
@@ -2996,3 +3026,15 @@ server id's snowflake time. Without a `banner`, the header shows the invite `spl
 `cdn.discordapp.com/splashes/`, and the server icon is painted from its validated hash with the
 usual rounded server-icon shape. No request, route or join behaviour changed, and these channel
 types in invite responses remain unverified against live Discord.
+
+### Conservative mention-count reconciliation — November 6, 2026
+
+The [unofficial read-state automation reference](https://docs.discord.food/topics/read-state#channel-read-state-automations)
+excludes blocked/ignored authors and applies private mute and ping rules at message creation.
+Serein snapshots proven contribution evidence from committed relationship/mute state and admitted
+guild preferences/member roles when observing a message. Unknown relationship lists, incomplete
+overrides, and non-ping guild contributions are not safe to subtract from an opaque service count.
+In particular, the current settings model does not represent `MENTION_ON_ALL_MESSAGES`; it is
+not assumed disabled. Contributions depending on that switch remain unknown until authoritative
+count reconciliation. This is conservative local behavior, not a verified service-equivalence claim.
+No new service setting, protocol request or Identify capability is introduced.
