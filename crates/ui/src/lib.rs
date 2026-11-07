@@ -4863,7 +4863,9 @@ impl MessagingUi {
 							commands.push(command);
 						}
 					}
-					Some(invites::Action::JoinVoice(channel)) if state.channel(channel).is_some() => {
+					Some(invites::Action::JoinVoice(channel))
+						if state.channel(channel).is_some() =>
+					{
 						// The invite's button cannot know every call condition; say why
 						// a join did not start instead of ignoring the click.
 						if let Err(reason) =
