@@ -19,6 +19,9 @@ pub(super) struct Blur {
 	queue: EventQueue<State>,
 	connection: Connection,
 	applied: bool,
+	/// Surface-local `[width, height, radius]` of a rounded window; `None` blurs every pixel.
+	shape: Option<[i32; 3]>,
+	applied_shape: Option<[i32; 3]>,
 }
 
 #[derive(Default)]
@@ -51,6 +54,8 @@ impl Blur {
 			queue,
 			connection,
 			applied: false,
+			shape: None,
+			applied_shape: None,
 		};
 		// Only two fixed globals are retained; initialization roundtrips never run in rendering.
 		let _registry = blur
@@ -78,6 +83,10 @@ impl Blur {
 		Some(blur)
 	}
 
+	pub(super) fn set_shape(&mut self, shape: Option<[i32; 3]>) {
+		self.shape = shape;
+	}
+
 	/// Dispatch only already-read events; winit owns socket reads and surface commits.
 	pub(super) fn set_enabled(&mut self, enabled: bool) -> bool {
 		if self.queue.dispatch_pending(&mut self.state).is_err() {
@@ -85,7 +94,7 @@ impl Blur {
 		}
 		let supported = self.state.blur_supported;
 		let enabled = enabled && supported;
-		if enabled != self.applied {
+		if enabled != self.applied || (enabled && self.shape != self.applied_shape) {
 			let effect = self.effect.as_ref().expect("initialized background effect");
 			if enabled {
 				let region = self
@@ -94,14 +103,28 @@ impl Blur {
 					.as_ref()
 					.expect("bound compositor")
 					.create_region(&self.queue.handle(), ());
-				// Surface-local region is clipped by the compositor, including after resizing.
-				region.add(0, 0, i32::MAX, i32::MAX);
+				if let Some([width, height, radius]) = self.shape {
+					// Rounded window: one scanline per corner row, so the blur stops at the edge.
+					let radius = radius.clamp(0, width.min(height) / 2);
+					for row in 0..radius {
+						let dy = f64::from(radius - row) - 0.5;
+						let dx = (f64::from(radius).powi(2) - dy * dy).max(0.0).sqrt();
+						let inset = radius - dx.round() as i32;
+						region.add(inset, row, width - 2 * inset, 1);
+						region.add(inset, height - 1 - row, width - 2 * inset, 1);
+					}
+					region.add(0, radius, width, height - 2 * radius);
+				} else {
+					// Surface-local region is clipped by the compositor, including after resizing.
+					region.add(0, 0, i32::MAX, i32::MAX);
+				}
 				effect.set_blur_region(Some(&region));
 				region.destroy();
 			} else {
 				effect.set_blur_region(None);
 			}
 			self.applied = enabled;
+			self.applied_shape = self.shape;
 			// Do not commit a winit-owned surface here; its next rendered frame applies this.
 			let _ = self.connection.flush();
 		}

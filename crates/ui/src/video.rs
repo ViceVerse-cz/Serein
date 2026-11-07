@@ -22,6 +22,9 @@ const CORNER: u8 = 8;
 const MAX_WIDTH: f32 = crate::avatars::media::MEDIA_MAX_WIDTH;
 const MAX_HEIGHT: f32 = crate::avatars::media::MEDIA_MAX_HEIGHT;
 const BAR_HEIGHT: f32 = 60.0;
+/// Decoded pictures share the platform's inline bound: 4K worth of pixels in a 3840 px square.
+const MAX_FRAME_EDGE: usize = 3840;
+const MAX_FRAME_PIXELS: usize = 3840 * 2160;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VideoState {
@@ -54,7 +57,7 @@ pub struct VideoUi {
 	managed: Option<egui::TextureHandle>,
 	/// Staging pixels for the current frame. The renderer drops its reference after the
 	/// upload, so the same allocation is refilled each frame instead of reallocating up to
-	/// 8 MB per frame (1080p at 60 fps churned ~500 MB/s through the allocator).
+	/// up to 33 MB per 4K frame (1080p at 60 fps alone churned ~500 MB/s through the allocator).
 	frame: Option<std::sync::Arc<egui::ColorImage>>,
 	/// Vertical transparent-to-black ramp behind the overlay controls.
 	shade: Option<egui::TextureHandle>,
@@ -73,6 +76,8 @@ pub struct VideoUi {
 	pub poster_queue: Vec<Attachment>,
 	/// Keyboard focus rested on an overlay control last frame, so keep the overlay visible.
 	controls_focused: bool,
+	/// Volume to restore when the mute button is pressed again.
+	unmuted_volume: Option<f32>,
 	/// Keep the viewport's previous mode so leaving playback restores the window.
 	fullscreen: Option<(egui::Context, bool, egui::Id)>,
 	/// Native window transition for the desktop to apply after this UI frame.
@@ -98,6 +103,7 @@ impl Default for VideoUi {
 			poster_seen: HashSet::new(),
 			poster_queue: Vec::new(),
 			controls_focused: false,
+			unmuted_volume: None,
 			fullscreen: None,
 			fullscreen_request: None,
 		}
@@ -176,9 +182,10 @@ impl VideoUi {
 		if self.active.is_none()
 			|| width == 0
 			|| height == 0
-			|| width > 1920
-			|| height > 1920
-			|| width * height > 1920 * 1080
+			|| width > MAX_FRAME_EDGE
+			|| height > MAX_FRAME_EDGE
+			|| width * height > MAX_FRAME_PIXELS
+			|| width.max(height) > ctx.input(|i| i.max_texture_side)
 			|| rgba.len() != width * height * 4
 		{
 			return false;
@@ -269,9 +276,10 @@ impl VideoUi {
 	) -> bool {
 		if width == 0
 			|| height == 0
-			|| width > 1920
-			|| height > 1920
-			|| width * height > 1920 * 1080
+			|| width > MAX_FRAME_EDGE
+			|| height > MAX_FRAME_EDGE
+			|| width * height > MAX_FRAME_PIXELS
+			|| width.max(height) > ctx.input(|i| i.max_texture_side)
 			|| rgba.len() != width * height * 4
 		{
 			return false;
@@ -574,204 +582,206 @@ impl VideoUi {
 			let can_seek = self.duration.is_finite()
 				&& self.duration > 0.0
 				&& matches!(state, VideoState::Playing | VideoState::Paused);
-			let inner = bar.shrink2(egui::vec2(10.0, 6.0));
-			ui.scope_builder(
-				egui::UiBuilder::new()
-					.max_rect(inner)
-					.layout(egui::Layout::top_down(egui::Align::Min)),
-				|ui| {
-					let visuals = ui.visuals_mut();
-					visuals.selection.bg_fill = colors.accent;
-					visuals.widgets.inactive.bg_fill = egui::Color32::from_white_alpha(70);
-					visuals.widgets.hovered.bg_fill = egui::Color32::from_white_alpha(110);
-					visuals.widgets.active.bg_fill = egui::Color32::from_white_alpha(140);
-					visuals.widgets.inactive.fg_stroke.color = white;
-					visuals.widgets.hovered.fg_stroke.color = white;
-					visuals.widgets.active.fg_stroke.color = white;
-					visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-					visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-					visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
-					ui.spacing_mut().item_spacing = egui::vec2(8.0, 2.0);
-					ui.spacing_mut().slider_rail_height = 4.0;
-					ui.spacing_mut().interact_size.y = 18.0;
-					ui.spacing_mut().slider_width = ui.available_width().max(16.0);
-					let mut position = self.position.max(0.0);
-					let seek = ui.add_enabled(
-						can_seek,
-						egui::Slider::new(&mut position, 0.0..=duration)
-							.show_value(false)
-							.trailing_fill(true),
-					);
-					seek.widget_info(|| {
-						egui::WidgetInfo::slider(
-							can_seek,
-							position,
-							crate::i18n::translate("video-show-player-seek-video"),
-						)
-					});
-					controls_focused |= seek.has_focus();
-					response |= seek.clone();
-					if seek
-						.on_hover_text(crate::i18n::translate("video-show-player-seek-video"))
-						.changed() && !context_click
-					{
-						self.command = Some(VideoCommand::Seek(position));
+			let id = response.id;
+			// Seek: the full-width track along the top of the bar.
+			let seek_rect = egui::Rect::from_min_max(
+				egui::pos2(bar.left() + 12.0, bar.top() + 6.0),
+				egui::pos2(bar.right() - 12.0, bar.top() + 22.0),
+			);
+			let seek = track(
+				ui,
+				seek_rect,
+				id.with("seek"),
+				(self.position.max(0.0), duration),
+				5.0,
+				can_seek,
+				colors.accent,
+				&crate::i18n::translate("video-show-player-seek-video"),
+			);
+			controls_focused |= seek.response.has_focus();
+			if let Some(pointer) = seek.response.hover_pos().filter(|_| can_seek) {
+				let at = f64::from((pointer.x - seek_rect.left()) / seek_rect.width())
+					.clamp(0.0, 1.0)
+					* duration;
+				let galley = ui.painter().layout_no_wrap(
+					timestamp(seek.preview.unwrap_or(at)),
+					egui::FontId::proportional(11.0),
+					white,
+				);
+				// Keep the tip inside the stage; one wider than a narrow stage centres on it.
+				let half = galley.size().x / 2.0 + 10.0;
+				let x = if stage.width() > 2.0 * half {
+					pointer.x.clamp(stage.left() + half, stage.right() - half)
+				} else {
+					stage.center().x
+				};
+				let tip = egui::Rect::from_center_size(
+					egui::pos2(x, seek_rect.top() - galley.size().y / 2.0 - 6.0),
+					galley.size() + egui::vec2(12.0, 6.0),
+				);
+				ui.painter()
+					.rect_filled(tip, 4, egui::Color32::from_black_alpha(200));
+				ui.painter()
+					.galley(tip.min + egui::vec2(6.0, 3.0), galley, white);
+			}
+			if let Some(position) = seek.commit
+				&& !context_click
+			{
+				self.command = Some(VideoCommand::Seek(position));
+				self.position = position;
+			}
+			response |= seek.response;
+			// One row of round buttons below the track.
+			let row = bar.top() + 38.0;
+			let slot =
+				|x: f32| egui::Rect::from_center_size(egui::pos2(x, row), egui::Vec2::splat(32.0));
+			let play_rect = slot(bar.left() + 22.0);
+			let play = round_button(
+				ui,
+				play_rect,
+				id.with("toggle"),
+				&label,
+				colors.accent,
+				|painter, rect, color| match state {
+					VideoState::Playing => glyph_pause(painter, rect, color),
+					VideoState::Paused | VideoState::Idle => glyph_play(painter, rect, color),
+					VideoState::Loading => {
+						crate::icons::paint(painter, crate::icons::Icon::Close, rect, color)
 					}
-					ui.horizontal(|ui| {
-						ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
-						let (glyph_rect, glyph) =
-							ui.allocate_exact_size(egui::Vec2::splat(22.0), egui::Sense::CLICK);
-						let glyph_color = if glyph.hovered() {
-							white
-						} else {
-							egui::Color32::from_white_alpha(220)
-						};
-						let c = glyph_rect.center();
-						match state {
-							VideoState::Playing => {
-								for x in [-3.5, 3.5] {
-									ui.painter().rect_filled(
-										egui::Rect::from_center_size(
-											c + egui::vec2(x, 0.0),
-											egui::vec2(3.5, 13.0),
-										),
-										1,
-										glyph_color,
-									);
-								}
-							}
-							VideoState::Paused | VideoState::Idle => {
-								ui.painter().add(egui::Shape::convex_polygon(
-									vec![
-										c + egui::vec2(-5.0, -7.0),
-										c + egui::vec2(7.0, 0.0),
-										c + egui::vec2(-5.0, 7.0),
-									],
-									glyph_color,
-									egui::Stroke::NONE,
-								));
-							}
-							VideoState::Loading => crate::icons::paint(
-								ui.painter(),
-								crate::icons::Icon::Close,
-								glyph_rect.shrink(4.0),
-								glyph_color,
-							),
-							VideoState::Ended | VideoState::Failed(_) => crate::icons::paint(
-								ui.painter(),
-								crate::icons::Icon::Reload,
-								glyph_rect.shrink(3.0),
-								glyph_color,
-							),
-						}
-						response |= glyph.clone();
-						if glyph.on_hover_text(label).clicked() {
-							self.toggle(message, attachment, state);
-						}
-						ui.label(
-							egui::RichText::new(format!(
-								"{} / {}",
-								timestamp(self.position),
-								if self.duration > 0.0 {
-									timestamp(self.duration)
-								} else {
-									"--:--".into()
-								}
-							))
-							.size(12.0)
-							.color(white),
-						);
-						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-							let (rect, button) = ui
-								.allocate_exact_size(egui::Vec2::splat(22.0), egui::Sense::click());
-							let label = if fullscreen {
-								"Exit fullscreen (Esc)"
-							} else {
-								"Fullscreen"
-							};
-							button.widget_info(|| {
-								egui::WidgetInfo::labeled(
-									egui::Role::Button,
-									ui.is_enabled(),
-									label,
-								)
-							});
-							if fullscreen {
-								crate::icons::paint(
-									ui.painter(),
-									crate::icons::Icon::Close,
-									rect.shrink(3.0),
-									white,
-								);
-							} else {
-								crate::icons::paint(
-									ui.painter(),
-									crate::icons::Icon::Fullscreen,
-									rect.shrink(1.0),
-									white,
-								);
-							}
-							controls_focused |= button.has_focus();
-							if button.has_focus() {
-								ui.painter().rect_stroke(
-									rect,
-									3,
-									egui::Stroke::new(2.0, colors.accent),
-									egui::StrokeKind::Inside,
-								);
-							}
-							response |= button.clone();
-							let button_id = button.id;
-							if button
-								.on_hover_text(label)
-								.on_hover_cursor(egui::CursorIcon::PointingHand)
-								.clicked()
-							{
-								if fullscreen {
-									self.exit_fullscreen();
-								} else {
-									let previous =
-										ui.input(|i| i.viewport().fullscreen.unwrap_or(false));
-									self.fullscreen = Some((ui.ctx().clone(), previous, button_id));
-									self.fullscreen_request = Some(true);
-								}
-							}
-							ui.spacing_mut().slider_width =
-								(ui.available_width() - 24.0).clamp(24.0, 56.0);
-							let mut volume_value = self.volume;
-							let volume = ui.add(
-								egui::Slider::new(&mut volume_value, 0.0..=1.0)
-									.show_value(false)
-									.trailing_fill(true),
-							);
-							volume.widget_info(|| {
-								egui::WidgetInfo::slider(
-									ui.is_enabled(),
-									volume_value as f64,
-									"Video volume",
-								)
-							});
-							controls_focused |= volume.has_focus();
-							response |= volume.clone();
-							if volume
-								.on_hover_text(crate::i18n::translate(
-									"video-show-player-video-volume",
-								))
-								.changed() && !context_click
-							{
-								self.volume = volume_value;
-								self.command = Some(VideoCommand::Volume(self.volume));
-							}
-							crate::icons::inline(
-								ui,
-								crate::icons::Icon::Speaker,
-								16.0,
-								egui::Color32::from_white_alpha(220),
-							);
-						});
-					});
+					VideoState::Ended | VideoState::Failed(_) => {
+						crate::icons::paint(painter, crate::icons::Icon::Reload, rect, color)
+					}
 				},
 			);
+			controls_focused |= play.has_focus();
+			if play.clicked() {
+				self.toggle(message, attachment, state);
+			}
+			response |= play;
+			let muted = self.volume <= 0.0;
+			let mute_label = crate::i18n::translate(if muted {
+				"video-show-player-unmute"
+			} else {
+				"video-show-player-mute"
+			});
+			let mute_rect = slot(play_rect.right() + 20.0);
+			let mute = round_button(
+				ui,
+				mute_rect,
+				id.with("mute"),
+				&mute_label,
+				colors.accent,
+				|painter, rect, color| {
+					crate::icons::paint(painter, crate::icons::Icon::Speaker, rect, color);
+					if muted {
+						painter.line_segment(
+							[
+								rect.left_top() + egui::vec2(1.0, 1.0),
+								rect.right_bottom() - egui::vec2(1.0, 1.0),
+							],
+							egui::Stroke::new(2.0, color),
+						);
+					}
+				},
+			);
+			controls_focused |= mute.has_focus();
+			if mute.clicked() && !context_click {
+				self.volume = if muted {
+					self.unmuted_volume
+						.filter(|volume| *volume > 0.0)
+						.unwrap_or(1.0)
+				} else {
+					self.unmuted_volume = Some(self.volume);
+					0.0
+				};
+				self.command = Some(VideoCommand::Volume(self.volume));
+			}
+			response |= mute;
+			let volume_width = (stage.width() * 0.16).clamp(40.0, 80.0);
+			let volume_rect = egui::Rect::from_min_size(
+				egui::pos2(mute_rect.right() + 2.0, row - 8.0),
+				egui::vec2(volume_width, 16.0),
+			);
+			let volume = track(
+				ui,
+				volume_rect,
+				id.with("volume"),
+				(f64::from(self.volume), 1.0),
+				0.05,
+				true,
+				white,
+				"Video volume",
+			);
+			controls_focused |= volume.response.has_focus();
+			if let Some(value) = volume.preview.or(volume.commit)
+				&& !context_click
+			{
+				self.volume = value as f32;
+				self.command = Some(VideoCommand::Volume(self.volume));
+			}
+			response |= volume
+				.response
+				.on_hover_text(crate::i18n::translate("video-show-player-video-volume"));
+			let screen_label = if fullscreen {
+				"Exit fullscreen (Esc)"
+			} else {
+				"Fullscreen"
+			};
+			let screen_rect = slot(bar.right() - 22.0);
+			let screen = round_button(
+				ui,
+				screen_rect,
+				id.with("fullscreen"),
+				screen_label,
+				colors.accent,
+				|painter, rect, color| {
+					if fullscreen {
+						glyph_exit_fullscreen(painter, rect, color);
+					} else {
+						crate::icons::paint(painter, crate::icons::Icon::Fullscreen, rect, color);
+					}
+				},
+			);
+			controls_focused |= screen.has_focus();
+			let screen_id = screen.id;
+			if screen.clicked() {
+				if fullscreen {
+					self.exit_fullscreen();
+				} else {
+					let previous = ui.input(|i| i.viewport().fullscreen.unwrap_or(false));
+					self.fullscreen = Some((ui.ctx().clone(), previous, screen_id));
+					self.fullscreen_request = Some(true);
+				}
+			}
+			response |= screen;
+			// Elapsed and total time between the volume and fullscreen controls; the total
+			// is dropped first when the bar is narrow.
+			let position = seek.preview.unwrap_or(self.position);
+			let total = if self.duration > 0.0 {
+				timestamp(self.duration)
+			} else {
+				"--:--".into()
+			};
+			let room = screen_rect.left() - volume_rect.right() - 20.0;
+			let font = egui::FontId::proportional(12.0);
+			let full = ui.painter().layout_no_wrap(
+				format!("{} / {total}", timestamp(position)),
+				font.clone(),
+				white,
+			);
+			let galley = if full.size().x <= room {
+				full
+			} else {
+				ui.painter()
+					.layout_no_wrap(timestamp(position), font, white)
+			};
+			if galley.size().x <= room {
+				ui.painter().galley(
+					egui::pos2(volume_rect.right() + 12.0, row - galley.size().y / 2.0),
+					galley,
+					white,
+				);
+			}
 		}
 		self.controls_focused = controls_focused;
 		// Download/open controls stay visible regardless of load state, unlike the bottom bar.
@@ -865,6 +875,235 @@ fn stage_size(attachment: &Attachment, width: f32) -> egui::Vec2 {
 pub(super) fn estimated_height(attachment: &Attachment, width: f32) -> f32 {
 	stage_size(attachment, width.clamp(1.0, MAX_WIDTH)).y + 6.0
 }
+/// A seek or volume track: thin and rounded, thicker with a knob while hovered, dragged or
+/// focused. Dragging previews; release, a click or an arrow key commits.
+struct Track {
+	response: egui::Response,
+	preview: Option<f64>,
+	commit: Option<f64>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn track(
+	ui: &mut egui::Ui,
+	rect: egui::Rect,
+	id: egui::Id,
+	(value, max): (f64, f64),
+	step: f64,
+	enabled: bool,
+	fill: egui::Color32,
+	label: &str,
+) -> Track {
+	let response = ui.interact(
+		rect,
+		id,
+		if enabled {
+			egui::Sense::click_and_drag()
+		} else {
+			egui::Sense::hover()
+		},
+	);
+	response.widget_info(|| egui::WidgetInfo::slider(enabled, value, label));
+	ui.ctx().accesskit_node_builder(id, |node| {
+		use egui::accesskit::Action;
+		node.set_min_numeric_value(0.0);
+		node.set_max_numeric_value(max);
+		node.set_numeric_value_step(step);
+		if enabled {
+			node.add_action(Action::SetValue);
+			if value < max {
+				node.add_action(Action::Increment);
+			}
+			if value > 0.0 {
+				node.add_action(Action::Decrement);
+			}
+		}
+	});
+	// A stage narrower than the bar's insets leaves no track; never divide by its width.
+	let at = |x: f32| f64::from((x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0) * max;
+	let mut preview = None;
+	let mut commit = None;
+	if enabled {
+		if response.has_focus() {
+			ui.memory_mut(|memory| {
+				memory.set_focus_lock_filter(
+					id,
+					egui::EventFilter {
+						horizontal_arrows: true,
+						..Default::default()
+					},
+				)
+			});
+		}
+		// Arrow keys and a screen reader's increment, decrement or set-value requests, as
+		// `egui::Slider` handles them.
+		let focused = response.has_focus();
+		let (delta, set) = ui.input(|i| {
+			use egui::accesskit::{Action, ActionData};
+			let keys = if focused {
+				f64::from(i8::from(i.key_pressed(egui::Key::ArrowRight)))
+					- f64::from(i8::from(i.key_pressed(egui::Key::ArrowLeft)))
+			} else {
+				0.0
+			};
+			let requested = i.num_accesskit_action_requests(id, Action::Increment) as f64
+				- i.num_accesskit_action_requests(id, Action::Decrement) as f64;
+			let set = i
+				.accesskit_action_requests(id, Action::SetValue)
+				.filter_map(|request| match request.data {
+					Some(ActionData::NumericValue(value)) => Some(value),
+					_ => None,
+				})
+				.last();
+			(keys + requested, set)
+		});
+		if let Some(value) = set.filter(|value| value.is_finite()) {
+			commit = Some(value.clamp(0.0, max));
+		} else if delta != 0.0 {
+			commit = Some((value + delta * step).clamp(0.0, max));
+		}
+		let pointer = response
+			.interact_pointer_pos()
+			.or_else(|| ui.input(|i| i.pointer.interact_pos()));
+		if let Some(pointer) = pointer {
+			if response.is_pointer_button_down_on() || response.dragged() {
+				preview = Some(at(pointer.x));
+			}
+			if response.drag_stopped() || response.clicked() {
+				commit = Some(at(pointer.x));
+			}
+		}
+	}
+	let hot = enabled && (response.hovered() || response.dragged() || response.has_focus());
+	let shown = preview.or(commit).unwrap_or(value).clamp(0.0, max);
+	let thickness = if hot { 6.0 } else { 4.0 };
+	let line = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), thickness));
+	let radius = (thickness / 2.0) as u8;
+	let painter = ui.painter();
+	painter.rect_filled(
+		line,
+		radius,
+		egui::Color32::from_white_alpha(if enabled { 64 } else { 32 }),
+	);
+	let knob = line.left() + line.width() * (shown / max.max(f64::EPSILON)) as f32;
+	painter.rect_filled(
+		egui::Rect::from_min_max(line.min, egui::pos2(knob, line.bottom())),
+		radius,
+		if enabled {
+			fill
+		} else {
+			fill.gamma_multiply(0.5)
+		},
+	);
+	if hot {
+		painter.circle_filled(egui::pos2(knob, line.center().y), 6.0, egui::Color32::WHITE);
+	}
+	if response.has_focus() {
+		painter.rect_stroke(
+			rect.expand(2.0),
+			4,
+			egui::Stroke::new(2.0, fill),
+			egui::StrokeKind::Outside,
+		);
+	}
+	if enabled && response.hovered() {
+		ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+	}
+
+	Track {
+		response,
+		preview,
+		commit,
+	}
+}
+
+/// A round overlay button: a soft disc on hover and an accent ring when focused.
+fn round_button(
+	ui: &mut egui::Ui,
+	rect: egui::Rect,
+	id: egui::Id,
+	label: &str,
+	focus: egui::Color32,
+	glyph: impl FnOnce(&egui::Painter, egui::Rect, egui::Color32),
+) -> egui::Response {
+	let response = ui.interact(rect, id, egui::Sense::click());
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
+	let hot = response.hovered() || response.has_focus();
+	let painter = ui.painter();
+	if hot {
+		painter.circle_filled(
+			rect.center(),
+			rect.width() / 2.0,
+			egui::Color32::from_white_alpha(36),
+		);
+	}
+	if response.has_focus() {
+		painter.circle_stroke(
+			rect.center(),
+			rect.width() / 2.0,
+			egui::Stroke::new(2.0, focus),
+		);
+	}
+	glyph(
+		painter,
+		egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(18.0)),
+		if hot {
+			egui::Color32::WHITE
+		} else {
+			egui::Color32::from_white_alpha(225)
+		},
+	);
+	response
+		.on_hover_text(label)
+		.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn glyph_play(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32) {
+	let (left, right) = (
+		rect.left() + rect.width() * 0.2,
+		rect.right() - rect.width() * 0.05,
+	);
+	painter.add(egui::Shape::convex_polygon(
+		vec![
+			egui::pos2(left, rect.top() + 1.0),
+			egui::pos2(right, rect.center().y),
+			egui::pos2(left, rect.bottom() - 1.0),
+		],
+		color,
+		egui::Stroke::new(1.5, color),
+	));
+}
+
+fn glyph_pause(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32) {
+	for x in [-0.22, 0.22] {
+		painter.rect_filled(
+			egui::Rect::from_center_size(
+				rect.center() + egui::vec2(rect.width() * x, 0.0),
+				egui::vec2(rect.width() * 0.22, rect.height() * 0.85),
+			),
+			1,
+			color,
+		);
+	}
+}
+
+/// Four corners turned inward, the reverse of the fullscreen icon.
+fn glyph_exit_fullscreen(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32) {
+	let stroke = egui::Stroke::new(2.0, color);
+	let arm = rect.width() * 0.3;
+	let inset = rect.shrink(rect.width() * 0.1);
+	for (corner, sx, sy) in [
+		(inset.left_top(), 1.0, 1.0),
+		(inset.right_top(), -1.0, 1.0),
+		(inset.left_bottom(), 1.0, -1.0),
+		(inset.right_bottom(), -1.0, -1.0),
+	] {
+		let elbow = corner + egui::vec2(sx * arm, sy * arm);
+		painter.line_segment([egui::pos2(corner.x, elbow.y), elbow], stroke);
+		painter.line_segment([egui::pos2(elbow.x, corner.y), elbow], stroke);
+	}
+}
+
 fn timestamp(seconds: f64) -> String {
 	let seconds = seconds.max(0.0) as u64;
 	format!("{}:{:02}", seconds / 60, seconds % 60)
@@ -955,12 +1194,14 @@ mod tests {
 				matches!(video.command.take(), Some(VideoCommand::Play(file)) if file == attachment)
 			);
 			assert!(video.seen);
-			assert!(!video.accept_frame(&ctx, 1921, 1080, &[]));
-			assert!(!video.accept_frame(&ctx, 1, 1921, &[]));
-			assert!(!video.accept_frame(&ctx, 1920, 1920, &[]));
+			assert!(!video.accept_frame(&ctx, 3841, 1080, &[]));
+			assert!(!video.accept_frame(&ctx, 1, 3841, &[]));
+			assert!(!video.accept_frame(&ctx, 3840, 3840, &[]));
 			assert!(!video.accept_frame(&ctx, usize::MAX, usize::MAX, &[]));
 			assert!(!video.accept_frame(&ctx, 1, 1, &[0]));
-			assert!(video.accept_frame(&ctx, 1, 1920, &vec![0; 1920 * 4]));
+			// Within the pixel bound, but taller than this renderer's largest texture.
+			assert!(!video.accept_frame(&ctx, 1, 3840, &vec![0; 3840 * 4]));
+			assert!(video.accept_frame(&ctx, 1, 2048, &vec![0; 2048 * 4]));
 			assert!(video.accept_frame(&ctx, 1, 1, &[0, 0, 0, 255]));
 			video.state = VideoState::Playing;
 			video.duration = 12.0;
@@ -983,7 +1224,13 @@ mod tests {
 			video.state = VideoState::Playing;
 			frame(&mut video, Some(egui::Key::ArrowRight));
 			assert!(matches!(video.command.take(), Some(VideoCommand::Seek(_))));
-			for key in [egui::Key::Tab, egui::Key::Tab, egui::Key::ArrowLeft] {
+			// Seek, then play/pause and mute, then the volume track.
+			for key in [
+				egui::Key::Tab,
+				egui::Key::Tab,
+				egui::Key::Tab,
+				egui::Key::ArrowLeft,
+			] {
 				frame(&mut video, Some(key));
 			}
 			assert!(

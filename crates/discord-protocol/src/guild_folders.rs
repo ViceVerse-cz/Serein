@@ -283,7 +283,7 @@ impl<'a> Field<'a> {
 		}
 	}
 }
-fn varint(input: &mut &[u8]) -> Result<u64, DecodeError> {
+pub(crate) fn varint(input: &mut &[u8]) -> Result<u64, DecodeError> {
 	let mut value = 0;
 	for shift in (0..70).step_by(7) {
 		let (&byte, rest) = input.split_first().ok_or(DecodeError)?;
@@ -338,7 +338,7 @@ pub(crate) fn fields(mut bytes: &[u8]) -> Result<Vec<Field<'_>>, DecodeError> {
 	}
 	Ok(result)
 }
-fn write_varint(mut value: u64, output: &mut Vec<u8>) {
+pub(crate) fn write_varint(mut value: u64, output: &mut Vec<u8>) {
 	while value >= 128 {
 		output.push(value as u8 | 0x80);
 		value >>= 7;

@@ -259,7 +259,11 @@ impl State {
 		})
 	}
 	/// One explicit star change, collected by the host after widgets have finished this frame.
+	/// Waits for an emoji frecency save, which writes the same versioned settings.
 	pub fn take_gif_favorites_command(&mut self) -> Option<Command> {
+		if self.emoji_frecency_saving() {
+			return None;
+		}
 		self.gifs
 			.sync_command
 			.take()

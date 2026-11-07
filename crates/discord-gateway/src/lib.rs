@@ -1768,11 +1768,12 @@ async fn run_recoverable(
 										let mut roster_bytes = 0;
 										for guild in &mut ready.guilds {
 											if guild.voice_states.is_empty() { continue; }
-											if let Event::Voice(client_core::voice::Event::Snapshot { participants: mut rows, .. }) = calls.snapshot(guild, false)? {
-												roster_bytes += rows.iter().map(client_core::voice::RosterEntry::bytes).sum::<usize>();
-												if participants.len() + rows.len() > client_core::voice::MAX_ROSTER { return Err(Failure::CapacityAt("Voice roster participant limit exceeded")); }
-												if roster_bytes > client_core::voice::MAX_ROSTER_BYTES { return Err(Failure::CapacityAt("Voice roster byte limit exceeded")); }
-												participants.append(&mut rows);
+											if let Event::Voice(client_core::voice::Event::Snapshot { participants: rows, .. }) = calls.snapshot(guild, false) {
+												for row in rows {
+													if participants.len() == client_core::voice::MAX_ROSTER || roster_bytes + row.bytes() > client_core::voice::MAX_ROSTER_BYTES { break; }
+													roster_bytes += row.bytes();
+													participants.push(row);
+												}
 											}
 										}
 										let mut message_requests = Vec::new();
@@ -1863,11 +1864,12 @@ async fn run_recoverable(
 										let mut roster_bytes = 0;
 										for (index, guild) in extra.guilds.iter_mut().enumerate() {
 											if let Some(members) = extra.merged_members.get_mut(index) { guild.members.append(members); }
-											if let Event::Voice(client_core::voice::Event::Snapshot { participants: mut rows, .. }) = calls.snapshot(guild, true)? {
-												roster_bytes += rows.iter().map(client_core::voice::RosterEntry::bytes).sum::<usize>();
-												if participants.len() + rows.len() > client_core::voice::MAX_ROSTER { return Err(Failure::CapacityAt("Voice roster participant limit exceeded")); }
-												if roster_bytes > client_core::voice::MAX_ROSTER_BYTES { return Err(Failure::CapacityAt("Voice roster byte limit exceeded")); }
-												participants.append(&mut rows);
+											if let Event::Voice(client_core::voice::Event::Snapshot { participants: rows, .. }) = calls.snapshot(guild, true) {
+												for row in rows {
+													if participants.len() == client_core::voice::MAX_ROSTER || roster_bytes + row.bytes() > client_core::voice::MAX_ROSTER_BYTES { break; }
+													roster_bytes += row.bytes();
+													participants.push(row);
+												}
 											}
 										}
 										if !participants.is_empty() { emit(Event::Voice(client_core::voice::Event::Snapshot { partial: true, guild: None, participants }))?; }
@@ -2092,7 +2094,7 @@ async fn run_recoverable(
 											}
 											emit(event)?;
 										}
-										emit(calls.snapshot(&mut guild, false)?)?;
+										emit(calls.snapshot(&mut guild, false))?;
 										if let Some(stickers) = guild.stickers { emit(Event::GuildStickers { guild: guild.id, stickers: discord_protocol::stickers::guild_catalog(stickers.0, guild.id).map_err(|_| Failure::Protocol)? })?; }
 										if let Some(emojis) = guild.emojis { emit(Event::GuildEmojis { guild: guild.id, emojis: emojis.0 })?; }
 									}

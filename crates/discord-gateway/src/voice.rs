@@ -174,7 +174,9 @@ impl Calls {
 			clients: model::ClientPlatforms::default(),
 		})
 	}
-	pub(super) fn snapshot(&self, guild: &mut GuildDto, partial: bool) -> Result<Event, Failure> {
+	/// Passive roster for one guild. Rows past the count or byte bound are dropped rather than
+	/// failing sign-in; the roster is display-only and refreshes on reconnect.
+	pub(super) fn snapshot(&self, guild: &mut GuildDto, partial: bool) -> Event {
 		let members = self.members(std::mem::take(&mut guild.members));
 		let mut participants = Vec::new();
 		let mut bytes = 0;
@@ -187,9 +189,7 @@ impl Calls {
 				continue;
 			}
 			if participants.len() == voice::MAX_ROSTER {
-				return Err(Failure::CapacityAt(
-					"Voice roster participant limit exceeded",
-				));
+				break;
 			}
 			let participant = participant(&state);
 			let member = state
@@ -202,17 +202,17 @@ impl Calls {
 				participant,
 				member,
 			};
-			bytes += entry.bytes();
-			if bytes > voice::MAX_ROSTER_BYTES {
-				return Err(Failure::CapacityAt("Voice roster byte limit exceeded"));
+			if bytes + entry.bytes() > voice::MAX_ROSTER_BYTES {
+				continue;
 			}
+			bytes += entry.bytes();
 			participants.push(entry);
 		}
-		Ok(Event::Voice(voice::Event::Snapshot {
+		Event::Voice(voice::Event::Snapshot {
 			partial,
 			guild: Some(guild.id),
 			participants,
-		}))
+		})
 	}
 	pub(super) fn passive(
 		&mut self,
@@ -713,6 +713,24 @@ impl Calls {
 		let Ok(key) = decode::<stream::Key>(data) else {
 			return Ok(());
 		};
+		// A stream in this call names its owner even when this device neither streams nor
+		// watches it; private calls give no `self_stream` on their participants. A creation
+		// needs the joined call, while a deletion also clears the retained membership of a
+		// call this device already left.
+		if let Some((guild, channel, user)) = key.target()
+			&& guild.is_none()
+			&& self.allowed.get(&channel) == Some(&None)
+			&& match kind {
+				"STREAM_CREATE" => self.active.is_some_and(|(active, _)| active == channel),
+				"STREAM_DELETE" => true,
+				_ => false,
+			} {
+			emit(Event::Voice(voice::Event::ParticipantStream {
+				channel,
+				user,
+				streaming: kind == "STREAM_CREATE",
+			}))?;
+		}
 		if let Some(watch) = &self.watch
 			&& (self.active != Some((watch.channel, watch.request))
 				|| self.allowed.get(&watch.channel) != Some(&self.active_guild))
@@ -1248,7 +1266,7 @@ mod tests {
 				.voice_states
 				.push(decode(br#"{"channel_id":"20","user_id":"5000"}"#).unwrap());
 			let Event::Voice(voice::Event::Snapshot { participants, .. }) =
-				calls.snapshot(&mut guild, true).unwrap()
+				calls.snapshot(&mut guild, true)
 			else {
 				panic!()
 			};
@@ -2171,7 +2189,7 @@ mod tests {
 			};
 			let mut guild: GuildDto = decode(br#"{"id":"10","voice_states":[{"channel_id":"20","user_id":"2","mute":true,"deaf":true}],"members":[{"user":{"id":"2","username":"Synthetic","avatar":"0123456789abcdef0123456789abcdef"},"nick":"Room member"}]}"#).unwrap();
 			let Event::Voice(voice::Event::Snapshot { participants, .. }) =
-				calls.snapshot(&mut guild, false).unwrap()
+				calls.snapshot(&mut guild, false)
 			else {
 				panic!("roster");
 			};
@@ -2322,9 +2340,8 @@ mod tests {
 				.collect();
 			assert!(matches!(
 				calls.snapshot(&mut guild, false),
-				Err(Failure::CapacityAt(
-					"Voice roster participant limit exceeded"
-				))
+				Event::Voice(voice::Event::Snapshot { participants, .. })
+					if participants.len() == voice::MAX_ROSTER
 			));
 		}
 		{
@@ -2570,5 +2587,102 @@ mod tests {
 			&emit,
 		).unwrap();
 		assert_eq!(events.lock().unwrap().len(), 4);
+	}
+
+	#[test]
+	fn a_private_call_stream_names_its_owner_for_the_sound_cue() {
+		let mut calls = Calls::default();
+		calls.allowed.insert(Id(20), None);
+		calls
+			.packet(Command::Join {
+				channel: Id(20),
+				request: 7,
+				ring: false,
+				mute: false,
+				deaf: false,
+			})
+			.unwrap();
+		let events = Mutex::new(Vec::new());
+		let emit = |event| {
+			events.lock().unwrap().push(event);
+			Ok(())
+		};
+		// Another participant's stream is announced by its key: private calls do not set
+		// `self_stream` on their participants, so the live badge and cue need this event.
+		calls
+			.dispatch(
+				"STREAM_CREATE",
+				br#"{"stream_key":"call:20:2","rtc_server_id":"30","rtc_channel_id":"31"}"#,
+				Some(Id(1)),
+				&emit,
+			)
+			.unwrap();
+		assert!(matches!(
+			events.lock().unwrap().pop().unwrap(),
+			Event::Voice(voice::Event::ParticipantStream {
+				channel: Id(20),
+				user: Id(2),
+				streaming: true,
+			})
+		));
+		// Another conversation's stream and a viewer refresh say nothing about this call.
+		for (kind, data) in [
+			("STREAM_CREATE", br#"{"stream_key":"call:21:2"}"#.as_slice()),
+			("STREAM_DELETE", br#"{"stream_key":"call:21:2"}"#.as_slice()),
+			(
+				"STREAM_UPDATE",
+				br#"{"stream_key":"call:20:2","viewer_ids":[]}"#.as_slice(),
+			),
+		] {
+			calls.dispatch(kind, data, Some(Id(1)), &emit).unwrap();
+			assert!(events.lock().unwrap().is_empty(), "{kind}");
+		}
+		calls
+			.dispatch(
+				"STREAM_DELETE",
+				br#"{"stream_key":"call:20:2"}"#,
+				Some(Id(1)),
+				&emit,
+			)
+			.unwrap();
+		assert!(matches!(
+			events.lock().unwrap().pop().unwrap(),
+			Event::Voice(voice::Event::ParticipantStream {
+				channel: Id(20),
+				user: Id(2),
+				streaming: false,
+			})
+		));
+		// Leaving the call keeps the channel as an allowed private conversation: a later
+		// deletion still clears the retained share, while a creation needs the joined call.
+		calls.active = None;
+		calls
+			.dispatch(
+				"STREAM_DELETE",
+				br#"{"stream_key":"call:20:2"}"#,
+				Some(Id(1)),
+				&emit,
+			)
+			.unwrap();
+		assert!(matches!(
+			events.lock().unwrap().pop().unwrap(),
+			Event::Voice(voice::Event::ParticipantStream {
+				channel: Id(20),
+				user: Id(2),
+				streaming: false,
+			})
+		));
+		calls
+			.dispatch(
+				"STREAM_CREATE",
+				br#"{"stream_key":"call:20:2","rtc_server_id":"30","rtc_channel_id":"31"}"#,
+				Some(Id(1)),
+				&emit,
+			)
+			.unwrap();
+		assert!(
+			events.lock().unwrap().is_empty(),
+			"a creation needs the joined call"
+		);
 	}
 }

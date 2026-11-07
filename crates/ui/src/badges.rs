@@ -586,7 +586,14 @@ fn directory_modal(
 								.max_height(height)
 								.auto_shrink([false, false])
 								.show(ui, |ui| {
-									directory_details(ui, directory, catalog, avatars, demo)
+									directory_details(
+										ui,
+										directory,
+										catalog,
+										avatars,
+										Some(height),
+										demo,
+									)
 								});
 						},
 					);
@@ -598,7 +605,7 @@ fn directory_modal(
 					.auto_shrink([false, false])
 					.show(ui, |ui| {
 						customize = directory_list(ui, directory, &view, avatars, demo);
-						directory_details(ui, directory, catalog, avatars, demo);
+						directory_details(ui, directory, catalog, avatars, None, demo);
 					});
 			}
 			let corner = ui.min_rect().right_top() + vec2(-40.0, 12.0);
@@ -702,11 +709,14 @@ fn directory_list(
 	customize
 }
 
+/// The selected badge. Beside the list it fills `fill` with its cards at the bottom, so the
+/// panel keeps one size from badge to badge.
 fn directory_details(
 	ui: &mut egui::Ui,
 	directory: &mut Directory,
 	catalog: &BadgeCatalog,
 	avatars: &mut Avatars,
+	fill: Option<f32>,
 	demo: bool,
 ) {
 	let Some(entry) = directory.selected.and_then(|id| catalog.get(id)) else {
@@ -723,7 +733,17 @@ fn directory_details(
 		.inner_margin(24)
 		.show(ui, |ui| {
 			ui.set_width(ui.available_width());
-			badge_details(ui, avatars, entry, &mut directory.levels, demo);
+			if let Some(height) = fill {
+				ui.set_min_height(height - 48.0);
+			}
+			badge_details(
+				ui,
+				avatars,
+				entry,
+				&mut directory.levels,
+				fill.is_some(),
+				demo,
+			);
 		});
 }
 
@@ -732,6 +752,7 @@ fn badge_details(
 	avatars: &mut Avatars,
 	entry: &CatalogBadge,
 	levels: &mut bool,
+	pin_cards: bool,
 	demo: bool,
 ) {
 	let colors = design::palette(ui);
@@ -751,6 +772,40 @@ fn badge_details(
 		}
 	});
 	ui.add_space(10.0);
+	// Pinned cards sit at the bottom: last pass's card height decides the gap above them.
+	let cards_id = ui.scope_id().with("badge-cards-height");
+	if pin_cards {
+		let cards = ui
+			.ctx()
+			.data(|d| d.get_temp::<f32>(cards_id))
+			.unwrap_or(0.0);
+		ui.add_space((ui.available_height() - cards).max(0.0));
+	}
+	let cards = ui
+		.scope(|ui| badge_cards(ui, avatars, entry, levels, demo))
+		.response
+		.rect
+		.height();
+	if pin_cards {
+		let previous = ui.ctx().data(|d| d.get_temp::<f32>(cards_id));
+		if previous.is_none_or(|previous| (previous - cards).abs() > 0.5) {
+			ui.ctx().data_mut(|d| d.insert_temp(cards_id, cards));
+			if !ui.ctx().will_discard() {
+				ui.ctx().request_discard("badge cards height");
+			}
+		}
+	}
+}
+
+/// Unlock date, rarity and the description or level progress under a badge.
+fn badge_cards(
+	ui: &mut egui::Ui,
+	avatars: &mut Avatars,
+	entry: &CatalogBadge,
+	levels: &mut bool,
+	demo: bool,
+) {
+	let colors = design::palette(ui);
 	let card = |ui: &mut egui::Ui, content: &mut dyn FnMut(&mut egui::Ui)| {
 		egui::Frame::new()
 			.fill(colors.raised)

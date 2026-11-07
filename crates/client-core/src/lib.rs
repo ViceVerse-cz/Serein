@@ -4,6 +4,7 @@ pub mod archives;
 pub mod auth;
 pub mod captcha;
 pub mod channel_actions;
+pub mod emoji_frecency;
 pub mod fingerprint;
 pub mod forum;
 pub mod game_mentions;
@@ -76,6 +77,7 @@ pub mod server_audit_log;
 pub mod server_integrations;
 pub mod server_roles;
 pub mod server_settings;
+pub mod thread_previews;
 mod thread_starter;
 mod threads;
 mod trail;
@@ -232,6 +234,13 @@ pub enum Command {
 		parent: Id,
 		request: u64,
 	},
+	/// The card under a thread's starter: its latest message, and its channel when unloaded.
+	ThreadPreview {
+		guild: Id,
+		thread: Id,
+		needs_channel: bool,
+		request: u64,
+	},
 	Gifs {
 		query: Option<String>,
 		request: u64,
@@ -240,6 +249,11 @@ pub enum Command {
 	GifFavorites {
 		request: u64,
 		change: Option<(model::Gif, bool)>,
+	},
+	/// Saves batched emoji uses to the account's frecency settings (unofficial).
+	EmojiFrecency {
+		request: u64,
+		uses: Vec<emoji_frecency::EmojiUse>,
 	},
 	MarkRead {
 		channel: Id,
@@ -562,6 +576,12 @@ pub enum Event {
 		request: u64,
 		result: Result<Message, auth::Failure>,
 	},
+	/// The latest message (and, for an unloaded thread, its channel) under a thread card.
+	ThreadPreview {
+		thread: Id,
+		request: u64,
+		result: Result<thread_previews::Loaded, auth::Failure>,
+	},
 	ForumSummaries {
 		request: u64,
 		results: Vec<(Id, Result<model::forum::Summary, auth::Failure>)>,
@@ -583,6 +603,12 @@ pub enum Event {
 	GifFavorites {
 		request: u64,
 		result: Result<Vec<model::Gif>, auth::Failure>,
+		/// The account's frequently used emoji, read with the favorites (unofficial).
+		frequent_emoji: emoji_frecency::Ranking,
+	},
+	EmojiFrecency {
+		request: u64,
+		result: Result<emoji_frecency::Ranking, auth::Failure>,
 	},
 	ReadState(read_state::Event),
 	NotificationPreferences(notifications::Event),
@@ -792,9 +818,11 @@ pub struct State {
 	pub forum_visit: Option<forum::Visit>,
 	pub archived_thread: Option<Id>,
 	pub thread_starter: thread_starter::Starter,
+	pub thread_previews: thread_previews::Previews,
 	pub search: Option<search::SearchView>,
 	pub search_request: u64,
 	pub gifs: gifs::Gifs,
+	pub emoji_frecency: emoji_frecency::EmojiFrecency,
 	/// A pin changed in this channel; the pins view should be reloaded once.
 	pub pins_changed: Option<Id>,
 	pub message_actions: message_actions::MessageActions,
@@ -1035,9 +1063,11 @@ impl Default for State {
 			forum_visit: None,
 			archived_thread: None,
 			thread_starter: Default::default(),
+			thread_previews: Default::default(),
 			search: None,
 			search_request: 0,
 			gifs: gifs::Gifs::default(),
+			emoji_frecency: emoji_frecency::EmojiFrecency::default(),
 			pins_changed: None,
 			message_actions: Default::default(),
 			polls: Default::default(),
@@ -2318,6 +2348,13 @@ impl State {
 			self.apply_thread_starter(thread, request, Err(auth::Failure::Capacity));
 			return;
 		}
+		if let Command::ThreadPreview {
+			thread, request, ..
+		} = command
+		{
+			self.apply_thread_preview(thread, request, Err(auth::Failure::Capacity));
+			return;
+		}
 		if let Command::ForumSummaries { channels, request } = command {
 			self.apply_forum_summaries(
 				request,
@@ -2354,6 +2391,10 @@ impl State {
 		}
 		if let Command::GifFavorites { request, .. } = command {
 			self.apply_gif_favorites(request, Err(auth::Failure::Capacity));
+			return;
+		}
+		if let Command::EmojiFrecency { request, .. } = command {
+			self.apply_emoji_frecency(request, Err(auth::Failure::Capacity));
 			return;
 		}
 		if let Command::Edit {
@@ -2952,6 +2993,14 @@ impl State {
 				self.apply_thread_starter(thread, request, result);
 				Ok(())
 			}
+			Event::ThreadPreview {
+				thread,
+				request,
+				result,
+			} => {
+				self.apply_thread_preview(thread, request, result);
+				Ok(())
+			}
 			Event::ForumSummaries { request, results } => {
 				self.apply_forum_summaries(request, results);
 				Ok(())
@@ -3025,8 +3074,19 @@ impl State {
 				self.apply_gifs(request, result);
 				Ok(())
 			}
-			Event::GifFavorites { request, result } => {
+			Event::GifFavorites {
+				request,
+				result,
+				frequent_emoji,
+			} => {
+				if result.is_ok() && self.gifs.sync_pending == Some(request) {
+					self.apply_emoji_ranking(frequent_emoji);
+				}
 				self.apply_gif_favorites(request, result);
+				Ok(())
+			}
+			Event::EmojiFrecency { request, result } => {
+				self.apply_emoji_frecency(request, result);
 				Ok(())
 			}
 			Event::ReadState(event) => self.apply_read_state(event),
@@ -3833,6 +3893,10 @@ impl State {
 					) {
 					self.message_actions.observe_content(p.channel, p.id);
 				}
+				// A card's cache holds a copy, so an edit must make it read the reply again.
+				if !matches!(p.content, Patch::Absent) || !matches!(p.edited, Patch::Absent) {
+					self.thread_previews.mark_stale(p.channel, p.id);
+				}
 				if self.selected == Some(p.channel)
 					&& self.reactions.invalidated(p.id)
 					&& !matches!(p.reactions, Patch::Absent)
@@ -3855,6 +3919,8 @@ impl State {
 				self.parked_replies.forget_targets(channel, &[id]);
 				self.read_state.activity.delete(channel, id);
 				self.forget_pending_replies(channel, &[id]);
+				// A card must never keep showing a reply that no longer exists.
+				self.thread_previews.forget(channel, &[id]);
 				if let Some(channel) = self
 					.channels
 					.iter_mut()
@@ -3894,6 +3960,7 @@ impl State {
 			}
 			Event::DeleteBulk { channel, ids } => {
 				self.parked_replies.forget_targets(channel, &ids);
+				self.thread_previews.forget(channel, &ids);
 				if ids.len() <= 100 {
 					for id in &ids {
 						self.read_state.activity.delete(channel, *id);
@@ -4524,6 +4591,9 @@ impl Event {
 					result.as_ref().map_or(0, model::archives::Page::bytes)
 				}
 				Self::ThreadStarter { result, .. } => result.as_ref().map_or(0, Message::bytes),
+				Self::ThreadPreview { result, .. } => {
+					result.as_ref().map_or(0, thread_previews::Loaded::bytes)
+				}
 				Self::ForumSummaries { results, .. } => {
 					results.capacity()
 						* size_of::<(Id, Result<model::forum::Summary, auth::Failure>)>()
@@ -4546,15 +4616,22 @@ impl Event {
 					result: Ok(page), ..
 				} => page.bytes(),
 				Self::GifFavorites {
-					result: Ok(favorites),
+					result,
+					frequent_emoji,
 					..
 				} => {
-					favorites.capacity() * size_of::<model::Gif>()
-						+ favorites
-							.iter()
-							.map(|gif| gif.bytes() - size_of::<model::Gif>())
-							.sum::<usize>()
+					result.as_ref().map_or(0, |favorites| {
+						favorites.capacity() * size_of::<model::Gif>()
+							+ favorites
+								.iter()
+								.map(|gif| gif.bytes() - size_of::<model::Gif>())
+								.sum::<usize>()
+					}) + frequent_emoji.bytes()
 				}
+				Self::EmojiFrecency {
+					result: Ok(ranking),
+					..
+				} => ranking.bytes(),
 				Self::ReadState(read_state::Event::Snapshot { entries, .. }) => entries
 					.as_ref()
 					.map_or(0, |e| e.capacity() * size_of::<(Id, Option<Id>, u32)>()),

@@ -621,7 +621,7 @@ impl Admin {
 				crate::i18n::translate("server-admin-members-newest-discord-accounts"),
 				crate::i18n::translate("server-admin-members-oldest-discord-accounts"),
 			];
-			egui::ComboBox::from_id_salt("member-sort")
+			crate::design::Select::from_id_salt("member-sort")
 				.selected_text(&sorts[usize::from(self.query.sort.saturating_sub(1)).min(3)])
 				.width(200.0)
 				.show_ui(ui, |ui| {
@@ -1217,7 +1217,7 @@ impl Admin {
 							30 => crate::i18n::translate("server-admin-dialog-30-days"),
 							_ => value.to_string(),
 						};
-						egui::ComboBox::from_id_salt("prune-days")
+						crate::design::Select::from_id_salt("prune-days")
 							.selected_text(label(*days))
 							.width(ui.available_width())
 							.show_ui(ui, |ui| {

@@ -430,11 +430,14 @@ unavailable. Unloaded archives, unknown channels and unsupported channel kinds r
 unavailable; navigation does not discover arbitrary channels, join servers, open unknown
 DMs, unarchive threads or join calls.
 
-A message the service flags as a thread starter whose thread this session has not loaded
-shows the thread card with a generic label instead of the thread's name; clicking it makes
-the same single read, and the thread's name and activity appear once it is admitted. Like an
-archive-opened thread it stays one transient conversation, retired when the user navigates
-elsewhere, so its card returns to the generic label on a later visit.
+A message the service flags as a thread starter shows the card Discord hangs under it: the
+thread's name and message count, then its latest author, reply and relative time, with the whole
+card as the open affordance. A thread this session has not loaded is named and previewed through
+the bounded card reads described under “Thread card previews” at the end of this document.
+Clicking the card makes the same single channel read the chat-link path uses, and the thread
+opens when it is admitted. Like an archive-opened thread it stays one transient conversation,
+retired when the user navigates elsewhere, so a later visit previews it again with one bounded
+read.
 
 Fresh loaded messages, including an eligible dormant resident window that holds the
 live target, scroll and highlight locally without recent-history or saved-cursor
@@ -2384,8 +2387,13 @@ artwork — the second symptom reported in that issue.
 **Detection.** Games that never speak RPC are matched by executable name against Discord's
 public `/applications/detectable` list (about 24,000 applications, 10,451 of them detectable,
 12.7 MB). The list is reduced on download to id, name and non-launcher executable names
-(1.1 MB), cached for a day under the local data directory, and re-checked against the same
-bounds when read back. Matching compares path suffixes longest-first, plus `.app` bundle
+(1.1 MB when it held only the detectable entries; the size with title-only entries is
+unmeasured), cached for a day under the local data directory, and re-checked against the same
+bounds when read back. Entries without executables are kept as titles only: a manually added
+game whose name exactly matches one application, or whose process matches a detectable entry,
+publishes that application so both clients show its artwork. A title shared by several
+applications resolves to none. Discord itself detects some of these games by unknown means
+(unverified); Serein still cannot detect them from a process alone. Matching compares path suffixes longest-first, plus `.app` bundle
 components for macOS entries; an executable-name index keeps a full sweep at roughly 6 ms for
 900 processes instead of ~920 ms for a linear scan. Processes are enumerated read-only through
 `/proc` on Linux, `ps` on macOS and `tasklist` on Windows: executable paths only, never
@@ -2892,13 +2900,111 @@ an unloaded or hidden parent stay unavailable. Nothing joins, unarchives, subscr
 opening remains a read.
 
 The thread card under a starter message follows the service's documented `HAS_THREAD` flag
-when the thread itself is not loaded, since the thread channel shares the starter's ID. It
-shows a generic label rather than inventing a name or activity, and its click performs the
-same single read; the real name and metadata appear once the service answers.
+when the thread itself is not loaded, since the thread channel shares the starter's ID. Its
+preview, name and count come from the bounded card reads described under “Thread card previews”
+below; its click still performs the same single channel read, and nothing is invented before the
+service answers.
 
 Synthetic tests cover the read request, its admission, the rejected answer, the newer message
 target and the cancellation on navigation. On October 26, 2026 the owner confirmed on a local
 release build that both the link and the starter card open this private thread. That is
 observation of one account, not a general normal-user guarantee: the read itself stays
-unofficial, and a later visit shows the generic card again because the admitted thread is one
+unofficial, and a later visit reads the card's preview again because the admitted thread is one
 transient conversation.
+
+## Private-call stream cues — November 4, 2026
+
+Issue #882 reported no sound when another participant started screen sharing in a group call,
+although the same cue played in a server voice channel. Server voice states carry `self_stream`;
+private calls announce a share through its stream key, and this client only read keys for its own
+stream or the one it watched. The voice state machine now reads the `STREAM_CREATE` and
+`STREAM_DELETE` key of the connected private call (`call:<channel>:<user>`) and marks that
+participant as streaming, which plays the cue, updates the live badge and ends a watch when the
+share stops. Guild calls keep using `self_stream`, so their events are unchanged. Keys for
+another conversation, a malformed key and a viewer refresh are ignored. Nothing joins,
+subscribes or sends; the stream path remains unofficial normal-user behavior.
+
+Stopping this device's own share now plays Discord's `stream_ended` cue. The existing screen-share
+sound switch governs both edges of the share. The bundled asset is `stream_ended` from Discord's
+public asset host, recorded with its source URL and SHA-256 in the sound assets README.
+## Thread card previews — November 3, 2026
+
+The card under a message that started a thread now follows the official client's layout: the
+thread's name and message count, then its latest author, the first line of that reply and its
+relative time, with the whole card as the one open affordance. It is a side-by-side comparison
+of the official client and Serein that the owner supplied, not a wire observation.
+
+The gateway's channel list carries a thread's name and count but no message body, so the last
+line needs a read. A visible card whose latest message this session does not know asks for one
+through two documented routes: `GET /channels/{id}` when the session has not loaded the thread,
+which also proves access and carries the name and count, and
+`GET /channels/{id}/messages?limit=1` for the newest message. Admission keeps to one answer in
+flight, at most twelve reads a minute, a 24-card cache whose entries are trusted for five
+minutes and refreshed when the service's latest message moves, and a thread whose read failed is
+not retried until that trust would have expired. Only a message the service flagged as a
+starter of a loaded, viewable parent channel is admitted, and an answer describing another
+thread or a message of another channel is rejected. Nothing joins, unarchives, subscribes, marks
+read or sends.
+
+The card keeps a fixed height while the read is in flight, so rows below it do not jump. Until
+a name arrives it shows only the thread glyph: the generic “Thread” label and the “View thread”
+button are gone, and a refused read leaves the card with whatever the channel list already
+carries. Synthetic tests cover admission, the bounded cache, the rejected answer, the refresh on
+a newer known message, and the card's rendered name, count, author and reply.
+
+## Frequently used emoji from frecency settings — November 6, 2026
+
+The emoji pickers' frequently used rows follow the account's synced rankings, as the official
+client's do: the composer uses `emoji_frecency` (field 6) and the reaction picker and hover bar
+use `emoji_reaction_frecency` (field 13) of the
+[primary FrecencyUserSettings schema](https://github.com/dolfies/discord-protos/blob/f5c06d6f5764a66302f7eede675fd703c31be08a/discord_protos/discord_users/v1/FrecencyUserSettings.proto).
+Both ride the unofficial `GET /users/@me/settings-proto/2` read that loads GIF favorites, now
+also made when the emoji picker opens. Entries are ranked by the stored `score`, then
+`total_uses`; at most 32 keys per ranking are kept, each at most 64 bytes, malformed entries
+are skipped, and an unreadable emoji record never blocks GIF favorites. This session's own picks
+stay first.
+
+Picks are saved back. Uses wait 15 seconds, then one batch makes a fresh read and a `PATCH` of
+only the touched subtrees with `required_data_version`, the same mechanism GIF favorites use;
+this is an account setting, not a telemetry route. Each used entry gets its `total_uses` raised,
+the newest ten `recent_uses` and a recomputed `score`; every other entry, the `frecency` field
+and unknown fields are kept byte for byte, and a subtree that could not be read is never
+replaced. An entry whose value this client cannot fully read, including a repeated value that
+the service would merge, is kept rather than rewritten, and a save is refused when an entry's
+key cannot be read. As on the service, a repeated key ranks by its last value. A save and a GIF star write never run together. A failed, conflicting or unconfirmed
+save is dropped rather than retried, and pending uses are lost on exit or sign-out. At most 64
+distinct emoji and ten use times each wait in memory.
+
+Unverified: the Unicode key format (Serein writes the primary Discord name, such as `joy`, and
+reads names, aliases or the emoji itself; a numeric key is a custom emoji only when one is
+loaded, so `100` still resolves to 💯), the score weights (an approximation of the official
+client by recency of the newest uses), and that other clients rank Serein's saves as their own.
+Picks count when chosen in a picker or the quick reaction bar, not when a message is sent.
+Synthetic tests cover parsing, untouched-entry preservation, batching and the rows' merge; no
+live account was used.
+
+## Invite cards — November 6, 2026
+
+Invite cards follow the official client's layout, compared from owner-supplied screenshots
+rather than wire observation. The existing invite read now also keeps the server's
+`description` (at most 1,024 bytes; longer or control-laden text is dropped rather than
+failing the card) and the invited channel's `type`. A voice (2) or stage (13) channel invite
+renders as a voice card naming the channel. Members see who the session's voice roster lists
+in that channel and join the call through the usual explicit call path; others see that only
+members can view the roster, and the action joins the server. "Est." dates come from the
+server id's snowflake time. Without a `banner`, the header shows the invite `splash` from
+`cdn.discordapp.com/splashes/`, and the server icon is painted from its validated hash with the
+usual rounded server-icon shape. No request, route or join behaviour changed, and these channel
+types in invite responses remain unverified against live Discord.
+
+### Conservative mention-count reconciliation — November 6, 2026
+
+The [unofficial read-state automation reference](https://docs.discord.food/topics/read-state#channel-read-state-automations)
+excludes blocked/ignored authors and applies private mute and ping rules at message creation.
+Serein snapshots proven contribution evidence from committed relationship/mute state and admitted
+guild preferences/member roles when observing a message. Unknown relationship lists, incomplete
+overrides, and non-ping guild contributions are not safe to subtract from an opaque service count.
+In particular, the current settings model does not represent `MENTION_ON_ALL_MESSAGES`; it is
+not assumed disabled. Contributions depending on that switch remain unknown until authoritative
+count reconciliation. This is conservative local behavior, not a verified service-equivalence claim.
+No new service setting, protocol request or Identify capability is introduced.

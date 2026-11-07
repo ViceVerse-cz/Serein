@@ -48,6 +48,8 @@ mod reading_settings;
 mod registered_games;
 #[cfg(feature = "demo")]
 mod rendering_demo;
+#[cfg(target_os = "linux")]
+mod round_corners;
 mod screen;
 #[cfg(feature = "demo")]
 mod server_settings_demo;
@@ -531,18 +533,24 @@ fn main() -> eframe::Result {
 			("arch", std::env::consts::ARCH.into()),
 		],
 	);
-	let (gpu_preference, transparency_available, hide_window_decorations, window_geometry) =
-		preferences
-			.as_ref()
-			.map(|value| {
-				(
-					value.gpu_preference,
-					value.transparency_blur,
-					value.hide_window_decorations,
-					value.window_geometry,
-				)
-			})
-			.unwrap_or_default();
+	let (
+		gpu_preference,
+		transparency_available,
+		hide_window_decorations,
+		window_geometry,
+		custom_title_bar,
+	) = {
+		// First launch has no saved preferences; use their defaults (custom title bar on).
+		let defaults = local_store::AppPreferences::default();
+		let value = preferences.as_ref().unwrap_or(&defaults);
+		(
+			value.gpu_preference,
+			value.transparency_blur,
+			value.hide_window_decorations || value.custom_title_bar,
+			value.window_geometry,
+			cfg!(target_os = "linux") && value.custom_title_bar,
+		)
+	};
 	#[cfg(feature = "demo")]
 	let transparency_available =
 		transparency_available || demo && std::env::args().any(|arg| arg == "--demo-transparency");
@@ -553,7 +561,8 @@ fn main() -> eframe::Result {
 	let options = eframe::NativeOptions {
 		viewport: {
 			let builder = egui::ViewportBuilder::default()
-				.with_transparent(transparency_available)
+				// The custom Linux title bar needs alpha for its rounded corners.
+				.with_transparent(transparency_available || custom_title_bar)
 				.with_inner_size(
 					window_geometry
 						.map_or(app_settings::DEFAULT_WINDOW_SIZE, |geometry| geometry.size)
@@ -1018,6 +1027,8 @@ impl SessionEnd {
 		self == Self::Logout
 	}
 }
+/// Window placement, scale, monitor size and focus; any change re-reads the monitor's refresh rate.
+type MonitorKey = (Option<egui::Rect>, Option<f32>, Option<egui::Vec2>, bool);
 struct Desktop {
 	proxy_auth: proxy_auth::Authentication,
 	api_proxy: tokio::sync::watch::Sender<Option<discord_api::proxy::ApiProxy>>,
@@ -1057,9 +1068,13 @@ struct Desktop {
 	cached_history_request: Option<(model::Id, u64)>,
 	/// The saved maximized state still has to be re-applied once the window is shown.
 	maximize_after_show: bool,
-	monitor_geometry: Option<(Option<egui::Rect>, Option<f32>, Option<egui::Vec2>)>,
+	monitor_geometry: Option<MonitorKey>,
 	monitor_period: Option<Duration>,
 	frame_metrics: FrameMetrics,
+	/// The minimum last handed to winit; applying an unchanged one forces a frame on Windows.
+	window_minimum: Option<winit::dpi::PhysicalSize<u32>>,
+	/// A sampled placement waiting to remain unchanged for the rest interval.
+	geometry_rest: app_settings::GeometryRest,
 	#[cfg(feature = "demo")]
 	rendering_demo: Option<rendering_demo::RenderingDemo>,
 	avatars: Option<avatars::AvatarWorker>,
@@ -1147,7 +1162,6 @@ struct Desktop {
 	roster_generation: Option<u64>,
 	close_approved: bool,
 	fixture_only: bool,
-	authorized: bool,
 	/// Sign-in screen disclosures, folded away until the owner opens them.
 	about_open: bool,
 	token_open: bool,
@@ -1340,28 +1354,6 @@ fn hydrate_cache_result(state: &mut State, safety: &cache::HistorySafety, outcom
 	}
 }
 
-/// Soft radial accent glow behind the pre-session screens instead of a flat canvas.
-fn accent_glow(ui: &egui::Ui) {
-	let accent = ui::design::palette(ui).accent;
-	let rect = ui.max_rect();
-	let glow = rect.center() - egui::vec2(0.0, rect.height() * 0.1);
-	let radius = rect.width().max(rect.height()) * 0.55;
-	let mut mesh = egui::Mesh::default();
-	let alpha = if ui.visuals().dark_mode { 0.22 } else { 0.12 };
-	mesh.colored_vertex(glow, accent.gamma_multiply(alpha));
-	const SEGMENTS: u32 = 48;
-	for i in 0..=SEGMENTS {
-		let angle = i as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
-		mesh.colored_vertex(
-			glow + egui::vec2(angle.cos(), angle.sin()) * radius,
-			egui::Color32::TRANSPARENT,
-		);
-	}
-	for i in 1..=SEGMENTS {
-		mesh.add_triangle(0, i, i + 1);
-	}
-	ui.painter().add(egui::Shape::mesh(mesh));
-}
 fn recovery_draft(state: &State, channel: model::Id) -> String {
 	state
 		.drafts
@@ -1857,6 +1849,16 @@ impl Desktop {
 		app_settings.apply(&mut messaging);
 		#[cfg(feature = "demo")]
 		if demo {
+			// Fixtures never show first-run setup unless a capture asks for it.
+			messaging.setup_pending = false;
+			messaging.reading_preferences.compact_messages =
+				std::env::args().any(|arg| arg == "--demo-compact");
+			if let Some(step) = std::env::args().find_map(|arg| {
+				arg.strip_prefix("--demo-setup")
+					.map(|rest| rest.trim_start_matches('=').parse().unwrap_or(0))
+			}) {
+				messaging.preview_setup(step);
+			}
 			messaging.transparency_blur = transparency_available;
 			// Robin stays pinned on home. #getting-started is the guild Favorites row.
 			let _ = messaging
@@ -1908,6 +1910,11 @@ impl Desktop {
 		if demo && std::env::args().any(|arg| arg == "--demo-game-activity") {
 			messaging.share_game_activity = true;
 			messaging.own_game = Some("Playing osu!".into());
+		}
+		// `--demo-steady-refresh`: the steady refresh setting starts on, for frame-cadence samples.
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-steady-refresh") {
+			messaging.steady_refresh_rate = true;
 		}
 		// `--demo-call-stream`: the direct-message peer shares a synthetic screen this device is
 		// watching, so the stream stage renders offline without any capture or network.
@@ -2261,9 +2268,6 @@ impl Desktop {
 			state.history_targeted = true;
 			state.status = "Offline fixture · unread strip and older-messages bar shown";
 		}
-		// Owner authorization for a new sign-in; fixture captures pre-tick it.
-		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
-		let mut authorized = false;
 		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
 		let mut sign_in_panels = false;
 		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
@@ -2286,9 +2290,9 @@ impl Desktop {
 					.map(|rest| rest.trim_start_matches('=').to_owned())
 			}) {
 			// Fixture-only: render the sign-in screen without a session. `--demo-login` shows the
-			// returning-owner layout with a synthetic roster and pre-ticked consent (the actions
-			// stay inert); `=new` shows the first-run layout, `=panels` the opened disclosures
-			// and `=failed` the attention banner.
+			// returning-owner layout with a synthetic roster (the actions stay inert); `=new`
+			// shows the first-run layout, `=panels` the opened disclosures and `=failed` the
+			// attention banner.
 			if !matches!(rest.as_str(), "new" | "panels") {
 				messaging.accounts = state
 					.user
@@ -2296,7 +2300,6 @@ impl Desktop {
 					.map(test_support::demo_accounts)
 					.unwrap_or_default();
 			}
-			authorized = true;
 			state.user = None;
 			state.status = "Disconnected";
 			sign_in_panels = rest == "panels";
@@ -2352,8 +2355,17 @@ impl Desktop {
 			.winit_window()
 			.ok_or("Native window unavailable")?
 			.clone();
-		messaging.hide_window_decorations = cfg!(target_os = "linux") && !window.is_decorated();
+		// The window starts undecorated for either "hide decorations" or the custom title bar;
+		// the saved preferences, not the live window, say which of the two it was.
+		// The custom bar wins if a hand-edited file enables both.
+		let undecorated = cfg!(target_os = "linux") && !window.is_decorated();
+		messaging.custom_title_bar = undecorated && app_settings.current.custom_title_bar;
+		messaging.hide_window_decorations = undecorated
+			&& app_settings.current.hide_window_decorations
+			&& !messaging.custom_title_bar;
+		let custom_title_bar = messaging.custom_title_bar;
 		app_settings.current.hide_window_decorations = messaging.hide_window_decorations;
+		app_settings.current.custom_title_bar = messaging.custom_title_bar;
 		#[cfg(target_os = "windows")]
 		{
 			use winit::platform::windows::{CornerPreference, WindowExtWindows as _};
@@ -2429,6 +2441,8 @@ impl Desktop {
 			monitor_geometry: None,
 			monitor_period: None,
 			frame_metrics: FrameMetrics::new(frame_sample),
+			window_minimum: None,
+			geometry_rest: app_settings::GeometryRest::default(),
 			#[cfg(feature = "demo")]
 			rendering_demo: (demo && std::env::args().any(|arg| arg == "--demo-rendering"))
 				.then(rendering_demo::RenderingDemo::default),
@@ -2447,7 +2461,7 @@ impl Desktop {
 			appearance: egui::ThemePreference::System,
 			appearance_changed: false,
 			transparency_available,
-			window_transparent: transparency_available,
+			window_transparent: transparency_available || custom_title_bar,
 			reading,
 			app_settings,
 			font_picker: None,
@@ -2506,7 +2520,6 @@ impl Desktop {
 			roster_generation: None,
 			close_approved: false,
 			fixture_only: demo,
-			authorized,
 			about_open: sign_in_panels,
 			token_open: sign_in_panels,
 			sign_in_height: 0.0,
@@ -4033,6 +4046,23 @@ impl Desktop {
 						result: Ok(message),
 					}
 				}
+				Command::ThreadPreview {
+					thread, request, ..
+				} => {
+					// The fixture card shows one synthetic latest reply; its channel is the
+					// state's when the demo loaded the thread.
+					let channel = self.state.channel(thread).cloned();
+					let mut message = test_support::message(thread.0 + 3, thread);
+					message.content = "The latest synthetic reply in this thread.".into();
+					Event::ThreadPreview {
+						thread,
+						request,
+						result: Ok(client_core::thread_previews::Loaded {
+							channel,
+							last: Some(message),
+						}),
+					}
+				}
 				Command::CreatePost {
 					parent,
 					guild,
@@ -4291,6 +4321,11 @@ impl Desktop {
 				Command::GifFavorites { request, .. } => Event::GifFavorites {
 					request,
 					result: Ok(self.state.gifs.favorites.clone()),
+					frequent_emoji: self.state.emoji_frecency.ranking.clone(),
+				},
+				Command::EmojiFrecency { request, .. } => Event::EmojiFrecency {
+					request,
+					result: Ok(self.state.emoji_frecency.ranking.clone()),
 				},
 				Command::CreateGuild { sequence, .. } => Event::GuildCreated {
 					sequence,
@@ -5387,6 +5422,7 @@ impl Desktop {
 				}
 			}
 			self.state.interrupt_gif_favorites();
+			self.state.interrupt_emoji_frecency();
 			self.connection = None;
 			self.pending_save = None;
 			self.current_login = None;
@@ -5472,18 +5508,62 @@ impl Desktop {
 			ctx.request_repaint();
 		}
 	}
+	/// Clip the finished frame to a rounded window shape for the custom Linux title bar.
+	#[cfg(target_os = "linux")]
+	fn round_window_corners(&self, ctx: &egui::Context, frame: &eframe::Frame) {
+		let square = ctx.input(|i| {
+			i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false)
+		});
+		if !self.messaging.uses_custom_title_bar() || square || !self.window_transparent {
+			return;
+		}
+		let Some(state) = frame.wgpu_render_state() else {
+			return;
+		};
+		// Debug is the topmost order, above popups and tooltips; a bare layer there is also
+		// drained after the Debug areas. The radius is in native pixels so it ignores the UI
+		// zoom, like the blur region, which is in surface (logical) pixels.
+		let radius = round_corners::RADIUS * self.window.scale_factor() as f32;
+		ctx.layer_painter(egui::LayerId::new(
+			egui::Order::Debug,
+			egui::Id::unique("serein-round-corners"),
+		))
+		.add(round_corners::Mask::callback(
+			ctx.viewport_rect(),
+			state.target_format,
+			radius,
+		));
+	}
 	fn sync_window_effects(&mut self) {
 		if !self.transparency_available {
 			return;
 		}
 		let effects = ui::design::window_effects();
-		let transparent = effects.0 && effects.1 > 0;
+		// The custom Linux title bar keeps alpha for its rounded corners.
+		let transparent = effects_transparent() || self.messaging.uses_custom_title_bar();
 		if transparent != self.window_transparent {
 			self.window.set_transparent(transparent);
 			self.window_transparent = transparent;
 		}
 		if let Some(window_blur) = &mut self.window_blur {
-			window_blur.set_enabled(transparent && effects.2 > 0);
+			#[cfg(target_os = "linux")]
+			{
+				let square = self.window.is_maximized() || self.window.fullscreen().is_some();
+				let shape = (self.messaging.uses_custom_title_bar() && !square).then(|| {
+					let size = self
+						.window
+						.inner_size()
+						.to_logical::<f64>(self.window.scale_factor());
+					[
+						size.width.round() as i32,
+						size.height.round() as i32,
+						round_corners::RADIUS as i32,
+					]
+				});
+				window_blur.set_rounded_shape(shape);
+			}
+			// Only the user's own effect settings enable blur, not the custom title bar's alpha.
+			window_blur.set_enabled(effects_transparent() && effects.2 > 0);
 		}
 	}
 	/// Frame period of the display the window is on; egui otherwise assumes 60 Hz.
@@ -5492,19 +5572,25 @@ impl Desktop {
 	}
 	fn refresh_monitor(&mut self) -> Option<Duration> {
 		let monitor = self.window.current_monitor()?;
-		app_settings::update_window_minimum(&self.window, &monitor);
+		app_settings::update_window_minimum(&self.window, &monitor, &mut self.window_minimum);
 		let millihertz = monitor.refresh_rate_millihertz()?;
 		(1_000..=1_000_000)
 			.contains(&millihertz)
 			.then(|| Duration::from_secs_f64(1000.0 / f64::from(millihertz)))
 	}
 }
+/// Whether the user's transparency settings, not just the rounded-corner mask, show through.
+fn effects_transparent() -> bool {
+	let (enabled, transparency, _) = ui::design::window_effects();
+	enabled && transparency > 0
+}
 impl eframe::App for Desktop {
 	fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
-		if self.window_transparent {
+		if self.window_transparent && effects_transparent() {
 			egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
 		} else {
-			// Opaque windows need opaque pixels too, including uncovered panel corners.
+			// Opaque windows need opaque pixels too, including uncovered panel corners. A
+			// window transparent only for the rounded-corner mask stays opaque inside it.
 			visuals.panel_fill.to_opaque().to_normalized_gamma_f32()
 		}
 	}
@@ -5518,6 +5604,8 @@ impl eframe::App for Desktop {
 			self.maximize_after_show = false;
 			self.window.set_maximized(true);
 		}
+		// Only this frame's sample may schedule the next placement wake.
+		self.geometry_rest.begin_frame();
 		// Read native size independently of viewport rectangles: Wayland has no global position,
 		// so egui-winit cannot supply either rectangle there. Native scale excludes egui zoom.
 		if !self.fixture_only
@@ -5532,16 +5620,8 @@ impl eframe::App for Desktop {
 		{
 			// While maximized, keep the normal geometry so un-maximizing after a restart returns to it.
 			let geometry = if viewport.maximized == Some(true) {
-				local_store::WindowGeometry {
-					maximized: true,
-					..self.app_settings.current.window_geometry.unwrap_or(
-						local_store::WindowGeometry {
-							size: app_settings::DEFAULT_WINDOW_SIZE,
-							position: None,
-							maximized: true,
-						},
-					)
-				}
+				self.geometry_rest
+					.maximized_geometry(self.app_settings.current.window_geometry)
 			} else {
 				let size = self
 					.window
@@ -5557,17 +5637,34 @@ impl eframe::App for Desktop {
 					maximized: false,
 				}
 			};
-			if geometry.is_valid() && self.app_settings.current.window_geometry != Some(geometry) {
+			if geometry.is_valid() {
+				match self.geometry_rest.observe(
+					geometry,
+					self.app_settings.current.window_geometry,
+					std::time::Instant::now(),
+				) {
+					app_settings::Observation::Saved | app_settings::Observation::Pending => {}
+					app_settings::Observation::Commit => {
+						self.app_settings.current.window_geometry = Some(geometry);
+						self.app_settings.state.dirty = true;
+					}
+				}
+			}
+		} else if !self.fixture_only && !self.state.demo && self.app_settings.loaded {
+			// A window that closes or hides before it rests still keeps its last placement.
+			if let Some(geometry) = self.geometry_rest.take_pending() {
 				self.app_settings.current.window_geometry = Some(geometry);
 				self.app_settings.state.dirty = true;
 			}
 		}
-		// Monitor size also detects Wayland moves without a global window position.
+		// Monitor size also detects Wayland moves without a global window position. A focus change
+		// re-reads the refresh rate as well: display settings change it without moving the window.
 		if let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id) {
 			let geometry = (
 				viewport.outer_rect,
 				viewport.native_pixels_per_point,
 				viewport.monitor_size,
+				raw_input.focused,
 			);
 			if self.monitor_geometry != Some(geometry) {
 				self.monitor_geometry = Some(geometry);
@@ -5613,6 +5710,12 @@ impl eframe::App for Desktop {
 	fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
 		// Last frame's shapes are painted; video textures retired since then can go.
 		gpu_video::collect();
+		// `raw_input_hook` samples placements before the pass begins, where a requested repaint
+		// can be dropped when the pass starts, so the frame that saves a resting one is asked here.
+		// Every pass asks: a discarded pass's request would arrive stale and be ignored.
+		if let Some(wake) = self.geometry_rest.wake() {
+			ctx.request_repaint_after(wake);
+		}
 		let search_focused = {
 			#[cfg(feature = "demo")]
 			{
@@ -5916,6 +6019,18 @@ impl eframe::App for Desktop {
 			// Speaking, notices, remote video, devices, hotkeys and deadlines each wake the UI
 			// themselves; this heartbeat only bounds a missed wake, so a call does not repaint at 20 Hz.
 			ctx.request_repaint_after(std::time::Duration::from_secs(1));
+		}
+		// Variable refresh rate displays follow the focused window's presents, so redrawing only on
+		// change swings them between their limits and flickers (#889). The opt-in steady rate asks
+		// for the next frame within half a refresh: a Fifo present blocks until the next refresh
+		// anyway, and a surface that stops blocking (locked or occluded) cannot spin a core.
+		if self.messaging.steady_refresh_rate
+			&& ctx.input(|input| {
+				input.focused
+					&& input.viewport().minimized != Some(true)
+					&& input.viewport().occluded != Some(true)
+			}) {
+			ctx.request_repaint_after(self.frame_period().unwrap_or(Duration::from_millis(16)) / 2);
 		}
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
@@ -6746,6 +6861,15 @@ impl eframe::App for Desktop {
 			if let Some(command) = self.state.take_gif_favorites_command() {
 				commands.push(command);
 			}
+			let now = std::time::Instant::now();
+			if let Some(command) = self.state.take_emoji_frecency_command(now) {
+				commands.push(command);
+			} else if let Some(due) = self.state.emoji_frecency_due()
+				&& due > now
+			{
+				// A save blocked past its time waits for the event that unblocks it.
+				ctx.request_repaint_after(due - now);
+			}
 			commands.extend(self.state.take_preload_retries());
 			for command in commands {
 				self.command(command);
@@ -6776,9 +6900,12 @@ impl eframe::App for Desktop {
 		}
 		let appearance = ctx.options(|options| options.theme_preference);
 		#[cfg(target_os = "linux")]
-		if self.window.is_decorated() == self.messaging.hide_window_decorations {
-			self.window
-				.set_decorations(!self.messaging.hide_window_decorations);
+		{
+			let undecorated =
+				self.messaging.hide_window_decorations || self.messaging.custom_title_bar;
+			if self.window.is_decorated() == undecorated {
+				self.window.set_decorations(!undecorated);
+			}
 		}
 		#[cfg(target_os = "windows")]
 		if self.window.is_decorated() != self.messaging.hide_title_bar {
@@ -6964,7 +7091,12 @@ impl eframe::App for Desktop {
 				None => {}
 			}
 		}
-		ui::design::window_resize(&ctx);
+		ui::design::window_resize_if(
+			&ctx,
+			cfg!(target_os = "windows") || self.messaging.uses_custom_title_bar(),
+		);
+		#[cfg(target_os = "linux")]
+		self.round_window_corners(&ctx, frame);
 		self.frame_metrics.reflows = self.messaging.timeline_reflows();
 		self.frame_metrics.finish();
 	}

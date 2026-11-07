@@ -15,19 +15,19 @@ use objc2_core_media::{
 	CMVideoFormatDescriptionCreateFromHEVCParameterSets, kCMBlockBufferAssureMemoryNowFlag,
 };
 use objc2_core_video::{
-	CVImageBuffer, CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRowOfPlane,
-	CVPixelBufferGetHeight, CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType,
-	CVPixelBufferGetPlaneCount, CVPixelBufferGetWidth, CVPixelBufferGetWidthOfPlane,
-	CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
-	kCVImageBufferYCbCrMatrix_ITU_R_601_4, kCVImageBufferYCbCrMatrix_ITU_R_709_2,
-	kCVImageBufferYCbCrMatrix_ITU_R_2020, kCVImageBufferYCbCrMatrix_SMPTE_240M_1995,
-	kCVImageBufferYCbCrMatrixKey, kCVPixelBufferPixelFormatTypeKey,
-	kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+	CVImageBuffer, CVPixelBuffer, CVPixelBufferCreate, CVPixelBufferGetBaseAddressOfPlane,
+	CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeight, CVPixelBufferGetHeightOfPlane,
+	CVPixelBufferGetPixelFormatType, CVPixelBufferGetPlaneCount, CVPixelBufferGetWidth,
+	CVPixelBufferGetWidthOfPlane, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
+	CVPixelBufferUnlockBaseAddress, kCVImageBufferYCbCrMatrix_ITU_R_601_4,
+	kCVImageBufferYCbCrMatrix_ITU_R_709_2, kCVImageBufferYCbCrMatrix_ITU_R_2020,
+	kCVImageBufferYCbCrMatrix_SMPTE_240M_1995, kCVImageBufferYCbCrMatrixKey,
+	kCVPixelBufferPixelFormatTypeKey, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
 	kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
 };
 use objc2_video_toolbox::{
 	VTDecodeFrameFlags, VTDecodeInfoFlags, VTDecompressionOutputCallbackRecord,
-	VTDecompressionSession, kVTVideoDecoderBadDataErr,
+	VTDecompressionSession, VTPixelTransferSession, kVTVideoDecoderBadDataErr,
 };
 use std::{
 	ffi::c_void,
@@ -68,7 +68,59 @@ struct Output {
 	timescale: u32,
 	rotation: u32,
 	frames: Vec<Decoded>,
+	scaler: Option<Scaler>,
 	error: Option<&'static str>,
+}
+
+/// One reusable, bounded native destination, serialized by Output's mutex.
+struct Scaler {
+	session: CFRetained<VTPixelTransferSession>,
+	buffer: CFRetained<CVPixelBuffer>,
+	size: (u32, u32),
+	format: u32,
+}
+// SAFETY: Output's mutex serializes all transfer operations and teardown across callbacks.
+unsafe impl Send for Scaler {}
+impl Drop for Scaler {
+	fn drop(&mut self) {
+		// SAFETY: No callback can access this session while Output's mutex is held/dropped.
+		unsafe { self.session.invalidate() };
+	}
+}
+impl Scaler {
+	fn new(size: (u32, u32), format: u32) -> Result<Self, &'static str> {
+		let mut session = null_mut();
+		let mut buffer = null_mut();
+		// SAFETY: Initialized out pointers; successful create calls return owned references.
+		unsafe {
+			if VTPixelTransferSession::create(None, NonNull::from(&mut session)) != 0 {
+				return Err(UNSUPPORTED);
+			}
+			let session = NonNull::new(session)
+				.map(|p| CFRetained::from_raw(p))
+				.ok_or(INVALID)?;
+			if CVPixelBufferCreate(
+				None,
+				size.0 as usize,
+				size.1 as usize,
+				format,
+				None,
+				NonNull::from(&mut buffer),
+			) != 0
+			{
+				return Err(UNSUPPORTED);
+			}
+			let buffer = NonNull::new(buffer)
+				.map(|p| CFRetained::from_raw(p))
+				.ok_or(INVALID)?;
+			Ok(Self {
+				session,
+				buffer,
+				size,
+				format,
+			})
+		}
+	}
 }
 
 pub(super) struct Session(pub(super) CFRetained<VTDecompressionSession>);
@@ -109,8 +161,10 @@ impl Decoder {
 			timescale: movie.video.track.timescale,
 			rotation: movie.video.rotation,
 			frames: Vec::new(),
+			scaler: None,
 			error: None,
 		}));
+		let fitted = super::playback_dimensions(movie.video.width, movie.video.height)?;
 		let session = create_session(
 			&format,
 			Arc::as_ptr(&output).cast_mut().cast::<c_void>(),
@@ -127,9 +181,9 @@ impl Decoder {
 			None => None,
 		};
 		let (width, height) = if matches!(movie.video.rotation, 90 | 270) {
-			(movie.video.height, movie.video.width)
+			(fitted.1, fitted.0)
 		} else {
-			(movie.video.width, movie.video.height)
+			fitted
 		};
 		let info = Info {
 			width,
@@ -514,7 +568,7 @@ unsafe extern "C-unwind" fn output_frame(
 		(pts.value as f64 / f64::from(pts.timescale) * f64::from(output.timescale)).round() as i64
 	};
 	// SAFETY: VideoToolbox keeps the image buffer alive for the duration of the callback.
-	match unsafe { copy_nv12(&*image, super::check_dimensions) } {
+	match unsafe { scaled_nv12(&mut output, &*image) } {
 		Ok(mut picture) => {
 			// The renderer applies the track rotation; the planes stay in coded orientation.
 			picture.rotation = output.rotation as u16;
@@ -525,6 +579,40 @@ unsafe extern "C-unwind" fn output_frame(
 		}
 		Err(error) => output.error = Some(error),
 	}
+}
+
+/// Scale on the callback's native surface before copying into the bounded frame queue.
+unsafe fn scaled_nv12(output: &mut Output, image: &CVImageBuffer) -> Result<Picture, &'static str> {
+	let source = (
+		u32::try_from(CVPixelBufferGetWidth(image)).map_err(|_| INVALID)?,
+		u32::try_from(CVPixelBufferGetHeight(image)).map_err(|_| INVALID)?,
+	);
+	let size = super::playback_dimensions(source.0, source.1)?;
+	if size == source {
+		output.scaler = None;
+		return unsafe { copy_nv12(image, super::check_dimensions) };
+	}
+	let format = CVPixelBufferGetPixelFormatType(image);
+	if !NV12_FORMATS.contains(&format) {
+		return Err(INVALID);
+	}
+	if output
+		.scaler
+		.as_ref()
+		.is_none_or(|s| s.size != size || s.format != format)
+	{
+		output.scaler = None;
+		output.scaler = Some(Scaler::new(size, format)?);
+	}
+	let scaler = output.scaler.as_ref().ok_or(INVALID)?;
+	// Match source colour attachments on every frame, including after colour metadata changes.
+	scaler.buffer.remove_all_attachments();
+	image.propagate_attachments(&scaler.buffer);
+	// SAFETY: Both buffers remain live and the mutex prevents concurrent transfer/reuse.
+	if unsafe { scaler.session.transfer_image(image, &scaler.buffer) } != 0 {
+		return Err(UNSUPPORTED);
+	}
+	unsafe { copy_nv12(&scaler.buffer, super::check_dimensions) }
 }
 
 /// Copy one bi-planar 4:2:0 picture into tightly packed NV12 after checking every bound.

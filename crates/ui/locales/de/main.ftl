@@ -51,8 +51,10 @@ general-start-minimized = Minimiert starten
 general-start-minimized-description = Beginnen Sie im Hintergrund, aus dem Weg.
 general-startup-unavailable = Der automatische Start ist unter Windows und macOS verfügbar.
 general-window = Fenster
-general-hide-decorations = Fensterdekorationen verstecken
-general-hide-decorations-description = Entfernen Sie die Titelleiste und die Ränder des Systems. Verwenden Sie Ihren Fenstermanager, um Serein zu verschieben, in der Größe zu ändern oder zu schließen.
+general-hide-decorations = Keine Titelleiste
+general-hide-decorations-description = Für Kachel-Fenstermanager: Entfernt alle Titelleisten und Ränder, auch Sereins eigene. Verschieben, skalieren und schließen Sie Serein mit Ihrem Fenstermanager.
+general-custom-title-bar = Eigene Titelleiste
+general-custom-title-bar-description = Ersetzt die Systemtitelleiste durch Sereins eigene Kopfleiste im GTK-4-Stil.
 general-hide-title-bar = Serein-Titelleiste ausblenden
 general-hide-title-bar-description = Verwenden Sie stattdessen die Systemtitelleiste und die Fensterschaltflächen.
 general-keep-menu-bar = Behalten Sie Serein in der Menüleiste
@@ -65,6 +67,8 @@ general-graphics = Grafik
 general-render-with = Rendern mit
 general-gpu-restart = Wird beim nächsten Start von Serein wirksam.
 general-gpu-current-prefix = Zeichne derzeit mit
+general-steady-refresh-rate = Konstante Bildwiederholrate
+general-steady-refresh-rate-description = Solange Serein das aktive Fenster ist, wird mit der Bildwiederholrate des Displays gezeichnet, sodass Displays mit variabler Bildwiederholrate (VRR, G-SYNC, FreeSync) eine Rate halten können, statt zu flackern. Verbraucht mehr Energie.
 gpu-automatic = Automatisch
 gpu-high-performance = Hohe Leistung
 gpu-power-saving = Energiesparend
@@ -1638,8 +1642,6 @@ main-restoring-screen-welcome-back = Willkommen zurück
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Gespeicherte Konten
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Ich besitze dieses Konto und autorisiere diese Sitzung.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Passwörter und 2FA bleiben auf Discords eigener Anmeldeseite; Nur das Sitzungstoken wird in Ihrem Betriebssystem-Anmeldeinformationsspeicher aufbewahrt.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = Über Serein
@@ -2253,6 +2255,12 @@ screen-body-frame-rate = Bildrate
 screen-body-include-the-pointer-in-the-shared-video = Fügen Sie den Zeiger in das geteilte Video ein.
 # Context: body
 screen-body-quality = Qualität
+# Context: body
+screen-body-source = Quelle
+# Context: body
+screen-preview-paused-title = Dein Stream läuft noch!
+# Context: body
+screen-preview-paused-body = Wir haben diese Vorschau pausiert, um Ressourcen zu sparen.
 # Context: body
 screen-body-quality-selection-does-not-require-nitro = Qualitätsauswahl erfordert kein Nitro.
 # Context: body
@@ -4139,8 +4147,6 @@ voice-device-combo-device-unavailable = Gerät nicht verfügbar
 voice-device-default = Systemstandard
 # Context: frame
 voice-frame-open-voice = Offene Stimme
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100 % ist das ursprüngliche Niveau. Höhere Werte können zu Verzerrungen führen.
 # Context: labels
 voice-labels-choose-camera = Wählen Sie eine Kamera
 # Context: live_badge
@@ -4241,12 +4247,6 @@ voice-voice-participant-microphone-muted = Mikrofon stummgeschaltet
 voice-voice-participant-muted-by-server = Vom Server stummgeschaltet
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Auf diesem Gerät für Sie stummgeschaltet
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Wählen Sie in allen Spracheinstellungen einen Algorithmus.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen schaltet eingehende Audiosignale ab und schaltet damit Ihr Mikrofon stumm.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Halten Sie die konfigurierte Tastenkombination gedrückt, wenn Sie sprechen möchten.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Installieren Sie einen sprachaktivierten Build, um diese Steuerelemente zu verwenden.
 # Context: voice_popup_content

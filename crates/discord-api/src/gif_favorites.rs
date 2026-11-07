@@ -1,5 +1,9 @@
 use crate::{DiscordApi, Failure};
-use discord_protocol::gif_favorites::{self, Decoded, MAX_RESPONSE};
+use client_core::emoji_frecency::{EmojiUse, Ranking};
+use discord_protocol::{
+	emoji_frecency::{self, Kind, Use},
+	gif_favorites::{self, Decoded, MAX_RESPONSE},
+};
 use model::Gif;
 use reqwest::Method;
 
@@ -16,17 +20,25 @@ impl DiscordApi {
 		gif_favorites::decode_response(&bytes)
 			.map_err(|_| Failure::ProtocolAt("gif-favorites-sync-unsupported"))
 	}
-	pub async fn gif_favorites(&self, change: Option<(Gif, bool)>) -> Result<Vec<Gif>, Failure> {
+	/// GIF favorites, plus the account's frequently used emoji from the same settings read.
+	pub async fn gif_favorites(
+		&self,
+		change: Option<(Gif, bool)>,
+	) -> Result<(Vec<Gif>, Ranking), Failure> {
 		if change.as_ref().is_some_and(|(gif, _)| !gif.valid()) {
 			return Err(Failure::Protocol);
 		}
 		let current = self.read_gif_favorites().await?;
 		let Some((gif, favorite)) = change else {
-			return current.favorites().map_err(|_| Failure::Protocol);
+			return current
+				.favorites()
+				.map(|gifs| (gifs, ranking(&current)))
+				.map_err(|_| Failure::Protocol);
 		};
 		if current.contains(&gif.url).map_err(|_| Failure::Protocol)? == favorite {
 			return current
 				.favorites_for(favorite.then_some(gif.url.as_str()))
+				.map(|gifs| (gifs, ranking(&current)))
 				.map_err(|_| Failure::Protocol);
 		}
 		let patch = gif_favorites::encode_patch(&current, &gif, favorite)
@@ -53,7 +65,54 @@ impl DiscordApi {
 		}
 		saved
 			.favorites_for(favorite.then_some(gif.url.as_str()))
+			.map(|gifs| (gifs, ranking(&saved)))
 			.map_err(|_| Failure::Protocol)
+	}
+}
+
+fn ranking(decoded: &Decoded) -> Ranking {
+	Ranking {
+		messages: decoded.frequent_emoji(Kind::Message),
+		reactions: decoded.frequent_emoji(Kind::Reaction),
+	}
+}
+
+impl DiscordApi {
+	/// Adds batched uses to the account's emoji rankings against a fresh read, rewriting only
+	/// the used entries. The caller never retries a failed or unconfirmed save.
+	pub async fn emoji_frecency(&self, uses: Vec<EmojiUse>) -> Result<Ranking, Failure> {
+		let current = self.read_gif_favorites().await?;
+		let uses: Vec<_> = uses
+			.iter()
+			.map(|used| Use {
+				key: &used.key,
+				kind: if used.reaction {
+					Kind::Reaction
+				} else {
+					Kind::Message
+				},
+				count: used.count,
+				times: &used.times,
+			})
+			.collect();
+		let now = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.map_or(0, |since| since.as_millis() as u64);
+		let patch = emoji_frecency::encode_uses(&current, &uses, now)
+			.map_err(|_| Failure::ProtocolAt("emoji-frecency-sync-unsupported"))?;
+		let bytes = self
+			.request_limited(
+				Method::PATCH,
+				"/users/@me/settings-proto/2",
+				Some(serde_json::json!({"settings":patch,"required_data_version":current.version})),
+				MAX_RESPONSE,
+			)
+			.await?;
+		let saved = gif_favorites::decode_response(&bytes)
+			.ok()
+			.filter(|saved| saved.version > current.version)
+			.ok_or(Failure::ProtocolAt("emoji-frecency-sync-unconfirmed"))?;
+		Ok(ranking(&saved))
 	}
 }
 
@@ -161,18 +220,20 @@ mod tests {
 						.unwrap();
 				}
 			});
-			assert_eq!(api.gif_favorites(None).await.unwrap().len(), 100);
+			assert_eq!(api.gif_favorites(None).await.unwrap().0.len(), 100);
 			let added = gif(1000);
 			let saved = api
 				.gif_favorites(Some((added.clone(), true)))
 				.await
-				.unwrap();
+				.unwrap()
+				.0;
 			assert_eq!(saved[0].url, added.url);
 			assert_eq!(saved.len(), 100);
 			assert_eq!(
 				api.gif_favorites(Some((added.clone(), false)))
 					.await
 					.unwrap()
+					.0
 					.len(),
 				100
 			);
@@ -182,7 +243,11 @@ mod tests {
 					.is_err()
 			);
 			assert_eq!(
-				api.gif_favorites(Some((gif(0), true))).await.unwrap().len(),
+				api.gif_favorites(Some((gif(0), true)))
+					.await
+					.unwrap()
+					.0
+					.len(),
 				100
 			);
 			assert!(api.gif_favorites(Some((added, true))).await.is_err());
