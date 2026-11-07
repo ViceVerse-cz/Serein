@@ -813,7 +813,7 @@ pub fn voice_demo_state() -> State {
 	state.voice.roster[2].participant.streaming = true;
 	state.voice.active = Some(Call {
 		camera: false,
-		watching: None,
+		watching: Vec::new(),
 		channel: Id(25),
 		guild: Some(Id(10)),
 		request: 0,
@@ -856,7 +856,7 @@ pub fn call_demo_state() -> State {
 	};
 	state.voice.active = Some(Call {
 		camera: false,
-		watching: None,
+		watching: Vec::new(),
 		channel: Id(22),
 		guild: None,
 		request: 0,

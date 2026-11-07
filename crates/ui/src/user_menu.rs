@@ -716,7 +716,7 @@ mod tests {
 					deafened: true,
 					participants: vec![],
 					camera: false,
-					watching: None,
+					watching: Vec::new(),
 					error: None,
 					reconnecting: None,
 				});

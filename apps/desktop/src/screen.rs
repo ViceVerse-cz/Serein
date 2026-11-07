@@ -24,6 +24,7 @@ fn note(event: &str, reason: &str) {
 	}
 }
 
+#[derive(Clone)]
 pub(super) struct Call<'a> {
 	pub generation: u64,
 	pub channel: Id,
@@ -730,7 +731,7 @@ mod tests {
 			error: None,
 			reconnecting: None,
 			camera: false,
-			watching: None,
+			watching: Vec::new(),
 		});
 		let mut screen = Screen {
 			pending: Some(Pending {

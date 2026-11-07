@@ -138,7 +138,7 @@ fn main() {
 			user: Id(900),
 		},
 	});
-	assert!(state.voice.active.as_ref().unwrap().watching.is_none());
+	assert!(state.voice.active.as_ref().unwrap().watching.is_empty());
 	assert!(
 		!state
 			.voice
