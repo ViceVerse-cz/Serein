@@ -49,6 +49,7 @@ mod recovery_demo;
 #[cfg(all(debug_assertions, feature = "demo"))]
 pub use recovery_demo::check as debug_resume_send_check;
 pub mod design;
+pub use design::LazyHover;
 mod embeds;
 mod extension_account_actions;
 mod extension_actions;
@@ -203,10 +204,6 @@ pub use typing::{
 	set_typing_indicator_avatar_enabled, set_typing_tweaks_enabled,
 	typing_indicator_avatar_enabled, typing_tweaks_enabled,
 };
-pub use categories::{
-	cleaner_channel_groups_enabled, message_peek_enabled,
-	set_cleaner_channel_groups_enabled, set_message_peek_enabled,
-};
 pub use markdown::{
 	content_warning_enabled, has_content_warning, markdown_tables_enabled,
 	message_colors_enabled, message_link_tooltip_enabled, set_content_warning_enabled,
@@ -239,6 +236,8 @@ pub use timeline::{
 	message_details_enabled, set_message_details_enabled, message_details_tooltip,
 };
 pub use categories::{
+	cleaner_channel_groups_enabled, message_peek_enabled,
+	set_cleaner_channel_groups_enabled, set_message_peek_enabled,
 	draft_navigator_enabled, set_draft_navigator_enabled,
 	clean_channel_name_enabled, set_clean_channel_name_enabled, clean_channel_name,
 	channel_badges_enabled, set_channel_badges_enabled, channel_badge_label,
@@ -2411,22 +2410,22 @@ impl MessagingUi {
 					&& categories::member_count_enabled()
 					&& let Some((total, online)) = categories::guild_member_counts(state, guild)
 				{
-					let count_text = match online {
-						Some(on) => format!("{on} online · {total} members"),
-						None => format!("{total} members"),
+					let label = match online {
+						Some(on) => format!("👥 {on} online · {total} members"),
+						None => format!("👥 {total} members"),
 					};
 					ui.horizontal(|ui| {
 						ui.spacing_mut().item_spacing.x = 4.0;
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new(format!("👥 {count_text}"))
+								egui::RichText::new(label)
 									.size(11.0)
 									.color(colors.muted),
 							)
 							.truncate()
 							.selectable(false),
 						)
-						.on_hover_text(format!("{total} total members"));
+						.on_hover_text_with(|| format!("{total} total members"));
 					});
 					ui.add_space(4.0);
 				}

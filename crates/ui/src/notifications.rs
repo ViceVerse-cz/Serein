@@ -1,4 +1,4 @@
-use crate::{MessagingUi, design};
+use crate::{MessagingUi, design::{self, LazyHover}};
 use client_core::{Command, State};
 use egui::{Align2, Color32, FontId};
 use model::Id;
@@ -497,7 +497,7 @@ impl MessagingUi {
 								egui::FontId::new(10.0, design::medium_family(ui.ctx())),
 								colors.muted,
 							);
-							response.on_hover_text(format!("{count} servers joined"));
+							response.on_hover_text_with(|| format!("{count} servers joined"));
 						}
 					});
 			});
