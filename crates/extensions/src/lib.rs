@@ -144,6 +144,8 @@ pub enum Capability {
 	DataEvents,
 	MessageDetails,
 	Relationships,
+	/// Add entries to user, channel and server context menus.
+	ContextMenus,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -157,6 +159,19 @@ pub enum Surface {
 	AppEvent,
 	/// Host-scheduled appearance update. Each call is a fresh Wasm invocation.
 	Tick,
+	/// An entry in a user's context menu; the invocation names the user.
+	User,
+	/// An entry in a channel's context menu; the invocation names the channel.
+	Channel,
+	/// An entry in a server's context menu; the invocation names the server.
+	Server,
+}
+
+impl Surface {
+	/// Context-menu surfaces whose invocation carries a [`MenuTarget`].
+	pub fn is_context_menu(self) -> bool {
+		matches!(self, Self::User | Self::Channel | Self::Server)
+	}
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -373,6 +388,9 @@ pub struct Invocation {
 	/// IDs of the message whose menu action was chosen; sent with `selected_message`.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub selected_message_ref: Option<Box<SelectedMessageRef>>,
+	/// What a `user`, `channel` or `server` menu action was chosen on.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub menu_target: Option<Box<MenuTarget>>,
 	#[serde(default)]
 	pub composer: Option<String>,
 	#[serde(default)]
@@ -447,6 +465,64 @@ impl SelectedMessageRef {
 			+ self.message_id.len()
 			+ self.author_id.len()
 			+ self.guild_id.as_ref().map_or(0, String::len)
+	}
+}
+
+/// The item a context-menu action was chosen on. IDs only: the plugin reads anything else
+/// through its own data grants.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum MenuTarget {
+	User {
+		user_id: String,
+		/// The server the menu was opened in, if any.
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		guild_id: Option<String>,
+		/// The conversation the menu was opened in, if any.
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		channel_id: Option<String>,
+	},
+	Channel {
+		channel_id: String,
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		guild_id: Option<String>,
+	},
+	Server {
+		guild_id: String,
+	},
+}
+
+impl MenuTarget {
+	/// The menu surface whose actions may receive this target.
+	pub fn surface(&self) -> Surface {
+		match self {
+			Self::User { .. } => Surface::User,
+			Self::Channel { .. } => Surface::Channel,
+			Self::Server { .. } => Surface::Server,
+		}
+	}
+	/// Every ID the target carries, required ones first.
+	fn ids(&self) -> impl Iterator<Item = &String> {
+		let (first, second, third) = match self {
+			Self::User {
+				user_id,
+				guild_id,
+				channel_id,
+			} => (Some(user_id), guild_id.as_ref(), channel_id.as_ref()),
+			Self::Channel {
+				channel_id,
+				guild_id,
+			} => (Some(channel_id), guild_id.as_ref(), None),
+			Self::Server { guild_id } => (Some(guild_id), None, None),
+		};
+		first.into_iter().chain(second).chain(third)
+	}
+	pub fn validate(&self) -> Result<(), Error> {
+		self.ids().try_for_each(|id| app::entity_id(id))
+	}
+	/// Serialized ID bytes, for invocation size budgets.
+	pub fn bytes(&self) -> usize {
+		self.ids().map(String::len).sum()
 	}
 }
 
@@ -647,6 +723,8 @@ pub fn valid_https_url(value: &str) -> bool {
 }
 
 impl Manifest {
+	/// Checks the manifest's version, identity, source URL, capabilities and actions, including
+	/// that each action's surface has the capability it requires.
 	pub fn validate(&self) -> Result<(), Error> {
 		if self.api_version != API_VERSION {
 			return Err(Error::Version);
@@ -734,6 +812,9 @@ impl Manifest {
 				Surface::Message => Some(Capability::SelectedMessage),
 				Surface::Composer => Some(Capability::Composer),
 				Surface::Panel => None,
+				Surface::User | Surface::Channel | Surface::Server => {
+					Some(Capability::ContextMenus)
+				}
 				Surface::Activation => None,
 				Surface::MessageEvent => Some(Capability::MessageEvents),
 				Surface::AppEvent => Some(Capability::AppEvents),
@@ -1067,6 +1148,12 @@ impl Invocation {
 					return Err(Error::Limit);
 				}
 			}
+		}
+		// Context-menu actions always name their item, and nothing else receives one.
+		match (&self.menu_target, action.surface.is_context_menu()) {
+			(Some(target), true) if target.surface() == action.surface => target.validate()?,
+			(None, false) => {}
+			_ => return Err(Error::Invalid),
 		}
 		if let Some(reference) = &self.selected_message_ref {
 			// The IDs describe the selected text; they never travel without it.

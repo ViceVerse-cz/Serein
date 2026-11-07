@@ -146,6 +146,7 @@ fn voice_available(ui: &egui::Ui) -> bool {
 	ui.data(|data| data.get_temp::<bool>(egui::Id::unique(VOICE_AVAILABLE))) == Some(true)
 }
 
+/// Fills a user's context menu, including plugin user actions for non-webhook users.
 pub(super) fn contents(
 	ui: &mut egui::Ui,
 	state: &State,
@@ -157,6 +158,17 @@ pub(super) fn contents(
 	let colors = crate::design::palette(ui);
 	ui.set_min_width(200.0);
 	ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
+	if !user.webhook {
+		let channel = state.selected.and_then(|id| state.channel(id));
+		crate::extensions_ui::context_menu_items(
+			ui,
+			extensions::MenuTarget::User {
+				user_id: user.id.to_string(),
+				guild_id: channel.and_then(|c| c.guild).map(|g| g.to_string()),
+				channel_id: channel.map(|c| c.id.to_string()),
+			},
+		);
+	}
 	if ui
 		.button(crate::i18n::translate("user-menu-contents-profile"))
 		.clicked()
