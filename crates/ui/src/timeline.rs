@@ -4664,8 +4664,9 @@ impl TimelineView {
 			if self.name_hover != name_hover {
 				ui.ctx().request_repaint();
 			}
-			let used: f32 = self.rows[..end].iter().map(|(_, height)| *height).sum();
-			ui.add_space((total - used).max(0.0));
+			// Rendered rows already took their new heights above; only unrendered rows remain.
+			let trailing: f32 = self.rows[end..].iter().map(|(_, height)| *height).sum();
+			ui.add_space(trailing);
 			for (index, (pending, height)) in pending_rows.iter().enumerate() {
 				let compact = index > 0
 					|| state.timeline.iter().next_back().is_some_and(|previous| {
@@ -4809,7 +4810,22 @@ impl TimelineView {
 		let was_following = self.following;
 		let timeline_scrolled_up =
 			output.state.clamped_offset().y < before_offset - 0.001 || autoscroll_delta > 0.0;
-		let dragged = ui.ctx().dragged_id().is_some();
+		// A pointer moved the timeline only when its press is on the scrollbar (a track click
+		// jumps before it counts as a drag) or a drag started inside the timeline (content or
+		// text selection). Drags elsewhere, like panel resizing, can coincide with a layout
+		// correction that lowers the offset.
+		let bar = output.id.with(1_usize);
+		let pressed_inside = ui
+			.input(|input| input.pointer.press_origin())
+			.is_some_and(|pos| output.inner_rect.contains(pos));
+		let dragged = ui
+			.ctx()
+			.dragged_id()
+			.is_some_and(|id| id == bar || pressed_inside)
+			|| ui
+				.ctx()
+				.read_response(bar)
+				.is_some_and(|response| response.is_pointer_button_down_on());
 		let dragged_up = dragged && timeline_scrolled_up;
 		let dragged_down = dragged && output.state.clamped_offset().y > before_offset + 0.001;
 		// Layout corrections also move the offset up while a jump settles. Only a wheel,
@@ -8492,6 +8508,10 @@ mod tests {
 			&state,
 		);
 		view.heights.insert(Id(1), (key, 76.0));
+		// An overestimated visible row shrinks on measurement; it must not leave a trailing gap.
+		let final_key = view.heights[&Id(4)].0;
+		// Far taller than the viewport, so a gap cannot hide behind the scroll clamp.
+		view.heights.insert(Id(4), (final_key, 5000.0));
 		view.following = false;
 		// The extra short row before the anchor also catches premature cutoff while
 		// the leading measurement cursor is still below the visible viewport.
@@ -8920,7 +8940,7 @@ mod tests {
 		assert!(view.following);
 		let live_edge = view.scroll_offset;
 		let bar = egui::pos2(895.0, 300.0);
-		frame(
+		let pressed = frame(
 			&mut view,
 			vec![
 				egui::Event::PointerMoved(bar),
@@ -8931,6 +8951,12 @@ mod tests {
 					modifiers: egui::Modifiers::NONE,
 				},
 			],
+		);
+		// A press on the track above the thumb jumps there before egui reports a drag.
+		assert!(pressed < live_edge);
+		assert!(
+			!view.following,
+			"a scrollbar track press must leave the live edge"
 		);
 		let offset = frame(
 			&mut view,
