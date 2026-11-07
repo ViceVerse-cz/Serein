@@ -683,7 +683,9 @@ Notification opt-in, hidden-channel visibility, primary RGB color, audio devices
 input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings (including up to 32
 extra custom bindings) and the global-keybind
 switch (enabled by default) are saved in the device-wide `app_preferences`
-SQLite singleton (16 KiB maximum), using the existing background worker. The Linux
+SQLite singleton (16 KiB maximum), using the existing background worker. The GPU preference
+and graphics API are fixed enum values in this same device-local record. Unknown API
+keys from newer builds fall back to Automatic without rejecting the other settings. The Linux
 hide-window-decorations boolean is stored in this same record and defaults to false. The home
 list's collapsed message requests section is another boolean in this record; closing it persists
 until the owner reopens it. These survive restart/logout; demo controls never read or write them.

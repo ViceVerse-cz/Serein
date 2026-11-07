@@ -359,6 +359,13 @@ pub struct MessagingUi {
 	pub custom_font: fonts::Settings,
 	/// Which GPU renders the window; the running adapter only changes on restart.
 	pub gpu_preference: model::GpuPreference,
+	/// Preferred graphics API on next launch.
+	pub graphics_api: model::GraphicsApi,
+	/// API requested when the running renderer started; reports name it, not a pending edit.
+	pub startup_graphics_api: model::GraphicsApi,
+	/// APIs compiled for this platform, populated by the desktop without probing drivers.
+	pub available_graphics_apis: Vec<model::GraphicsApi>,
+	pub graphics_api_env_override: bool,
 	/// Device preference: repaint every display refresh while focused, so variable refresh rate
 	/// displays hold one rate instead of flickering.
 	pub steady_refresh_rate: bool,
@@ -1248,6 +1255,11 @@ impl MessagingUi {
 			startup_busy: self.startup_busy,
 			startup_status: self.startup_status,
 			startup_disable_requested: self.startup_disable_requested,
+			// The renderer outlives the account; only startup knows its adapter and APIs.
+			gpu_adapter: std::mem::take(&mut self.gpu_adapter),
+			startup_graphics_api: self.startup_graphics_api,
+			available_graphics_apis: std::mem::take(&mut self.available_graphics_apis),
+			graphics_api_env_override: self.graphics_api_env_override,
 			..Self::default()
 		};
 		self.timeline.video.fullscreen_request = video_fullscreen_request;
