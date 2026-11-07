@@ -3,7 +3,33 @@ use std::time::Duration;
 /// Time since the last keyboard/mouse input anywhere on the system, `Duration::MAX` while the
 /// session is locked, or `None` when this desktop exposes no idle source. Blocking; call off
 /// the UI thread and async runtime.
+pub static DISABLE_CALL_IDLE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_disable_call_idle_enabled(enabled: bool) {
+	DISABLE_CALL_IDLE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (CustomIdle): Configurable idle timeout threshold in seconds.
+pub static CUSTOM_IDLE_SECS: std::sync::atomic::AtomicU64 =
+	std::sync::atomic::AtomicU64::new(0);
+
+#[allow(dead_code)]
+pub fn set_custom_idle_secs(secs: u64) {
+	CUSTOM_IDLE_SECS.store(secs, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn custom_idle_secs() -> Option<u64> {
+	let secs = CUSTOM_IDLE_SECS.load(std::sync::atomic::Ordering::Relaxed);
+	if secs > 0 { Some(secs) } else { None }
+}
+
 pub fn system_idle() -> Option<Duration> {
+	if DISABLE_CALL_IDLE_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+		return Some(Duration::ZERO);
+	}
 	if session_locked() {
 		return Some(Duration::MAX);
 	}
@@ -363,4 +389,26 @@ fn x11_idle() -> Option<Duration> {
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 fn input_idle() -> Option<Duration> {
 	None
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn disable_call_idle_toggle_works() {
+		set_disable_call_idle_enabled(true);
+		assert_eq!(system_idle(), Some(Duration::ZERO));
+		set_disable_call_idle_enabled(false);
+		assert!(!DISABLE_CALL_IDLE_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
+	#[test]
+	fn custom_idle_toggle_works() {
+		assert_eq!(custom_idle_secs(), None);
+		set_custom_idle_secs(300);
+		assert_eq!(custom_idle_secs(), Some(300));
+		set_custom_idle_secs(0);
+		assert_eq!(custom_idle_secs(), None);
+	}
 }

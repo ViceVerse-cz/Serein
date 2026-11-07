@@ -19,6 +19,41 @@ const MAX_RESPONSE: usize = 64 * 1024;
 const CANCELLED: &str = "Upload cancelled; no message was sent";
 const CHANGED: &str = "Selected file changed or disappeared; select it again";
 
+/// VenSerein (AnonymiseFileNames): Global toggle for anonymizing uploaded file names.
+static ANONYMISE_FILENAMES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// VenSerein: Enable or disable AnonymiseFileNames mode.
+pub fn set_anonymise_filenames(enable: bool) {
+	ANONYMISE_FILENAMES.store(enable, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein: Check if AnonymiseFileNames mode is enabled.
+pub fn anonymise_filenames() -> bool {
+	ANONYMISE_FILENAMES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein: Anonymise a filename while preserving its file extension.
+pub fn anonymise_filename(original: &str) -> String {
+	let (stem, ext) = match original.rsplit_once('.') {
+		Some((s, e)) => (s, Some(e)),
+		None => (original, None),
+	};
+	let mut hash = 0x811c9dc5u32;
+	for b in stem.as_bytes() {
+		hash ^= *b as u32;
+		hash = hash.wrapping_mul(0x01000193);
+	}
+	let now = std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.unwrap_or_default()
+		.as_millis();
+	hash ^= (now as u32) & 0xffff;
+	match ext {
+		Some(ext) => format!("upload_{:08x}.{ext}", hash),
+		None => format!("upload_{:08x}", hash),
+	}
+}
+
 // Deliberately neither Debug nor Serialize: local paths must not enter logs or session caches.
 #[derive(Clone)]
 pub struct Source {
@@ -55,9 +90,14 @@ impl Source {
 		if metadata.len() == 0 || metadata.len() > MAX_BYTES {
 			return Err("Choose a nonempty file up to Discord's 500 MB maximum");
 		}
+		let final_filename = if anonymise_filenames() {
+			anonymise_filename(filename)
+		} else {
+			filename.into()
+		};
 		Ok(Self {
 			bytes: None,
-			filename: filename.into(),
+			filename: final_filename,
 			path,
 			size: metadata.len(),
 			modified: metadata
@@ -625,6 +665,23 @@ async fn cancelled(cancel: &mut watch::Receiver<bool>) {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn test_venserein_anonymise_filenames() {
+		assert!(!super::anonymise_filenames());
+		super::set_anonymise_filenames(true);
+		assert!(super::anonymise_filenames());
+
+		let anon = super::anonymise_filename("Personal_Resume_2026.pdf");
+		assert!(anon.starts_with("upload_"));
+		assert!(anon.ends_with(".pdf"));
+		assert!(!anon.contains("Personal"));
+
+		let anon_no_ext = super::anonymise_filename("secret_notes");
+		assert!(anon_no_ext.starts_with("upload_"));
+		assert!(!anon_no_ext.contains("secret"));
+
+		super::set_anonymise_filenames(false);
+	}
 	#[test]
 	fn image_sources_only_accept_bounded_generated_raster_names() {
 		for name in ["emoji-7.gif", "sticker-8.png"] {

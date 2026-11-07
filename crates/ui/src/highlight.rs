@@ -2,6 +2,18 @@
 //! small per-language tables. No regex engine, grammar files, dynamic loading or recursion;
 //! every pass is a single forward scan over the (already size-limited) block text.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+pub static SHIKI_CODEBLOCKS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub fn shiki_codeblocks_enabled() -> bool {
+	SHIKI_CODEBLOCKS_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_shiki_codeblocks_enabled(enabled: bool) {
+	SHIKI_CODEBLOCKS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Token {
 	Plain,
@@ -2115,4 +2127,14 @@ mod tests {
 			tokens(language, "\u{1F600}");
 		}
 	}
+
+	#[test]
+	fn shiki_codeblocks_toggle_works() {
+		assert!(shiki_codeblocks_enabled());
+		set_shiki_codeblocks_enabled(false);
+		assert!(!shiki_codeblocks_enabled());
+		set_shiki_codeblocks_enabled(true);
+		assert!(shiki_codeblocks_enabled());
+	}
 }
+

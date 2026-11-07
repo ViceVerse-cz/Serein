@@ -11,6 +11,22 @@ use model::{
 	Id, ProfileBadge,
 	badges::{BadgeCatalog, BadgeRarity, BadgeSettings, CatalogBadge, hideable, pinned},
 };
+#[allow(unused_imports)]
+pub use model::badges::{
+	SHOW_HIDDEN_THINGS_ENABLED, set_show_hidden_things_enabled, show_hidden_things_enabled,
+};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// VenSerein (ShowBadgesInChat): Toggle to render author profile badges in chat messages.
+pub static SHOW_BADGES_IN_CHAT_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub fn show_badges_in_chat_enabled() -> bool {
+	SHOW_BADGES_IN_CHAT_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_show_badges_in_chat_enabled(enabled: bool) {
+	SHOW_BADGES_IN_CHAT_ENABLED.store(enabled, Ordering::Relaxed);
+}
 
 const TILE: f32 = 48.0;
 const DIRECTORY_TILE: f32 = 62.0;
@@ -1249,4 +1265,24 @@ mod tests {
 		panels.close_top();
 		assert!(!panels.is_open());
 	}
+
+	#[test]
+	fn show_hidden_things_ui_toggle_works() {
+		set_show_hidden_things_enabled(false);
+		assert!(!show_hidden_things_enabled());
+		set_show_hidden_things_enabled(true);
+		assert!(show_hidden_things_enabled());
+		set_show_hidden_things_enabled(false);
+		assert!(!show_hidden_things_enabled());
+	}
+
+	#[test]
+	fn test_show_badges_in_chat_toggle() {
+		assert!(show_badges_in_chat_enabled());
+		set_show_badges_in_chat_enabled(false);
+		assert!(!show_badges_in_chat_enabled());
+		set_show_badges_in_chat_enabled(true);
+		assert!(show_badges_in_chat_enabled());
+	}
 }
+

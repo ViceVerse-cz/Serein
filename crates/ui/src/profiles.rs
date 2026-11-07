@@ -11,6 +11,164 @@ use egui::{Color32, CornerRadius, Pos2, Rect, RichText, Stroke, UiBuilder, Vec2,
 use model::{Id, User};
 
 /// Voice presence follows the person across views, using only known, visible calls.
+pub static USER_VOICE_SHOW_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn user_voice_show_enabled() -> bool {
+	USER_VOICE_SHOW_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (FakeProfileThemes): Enables client-side custom profile gradient theme colors.
+pub static FAKE_PROFILE_THEMES_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_fake_profile_themes_enabled(enabled: bool) {
+	FAKE_PROFILE_THEMES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn fake_profile_themes_enabled() -> bool {
+	FAKE_PROFILE_THEMES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (SpotifyCrack): Unlocks full track preview and continuous Spotify listen-along.
+pub static SPOTIFY_CRACK_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_spotify_crack_enabled(enabled: bool) {
+	SPOTIFY_CRACK_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn spotify_crack_enabled() -> bool {
+	SPOTIFY_CRACK_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (AlwaysExpandProfiles): Always expands profile popouts directly to the full modal.
+pub static ALWAYS_EXPAND_PROFILES_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_always_expand_profiles_enabled(enabled: bool) {
+	ALWAYS_EXPAND_PROFILES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn always_expand_profiles_enabled() -> bool {
+	ALWAYS_EXPAND_PROFILES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (FriendshipRanks): Shows friendship duration badges on friend profiles.
+pub static FRIENDSHIP_RANKS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn friendship_ranks_enabled() -> bool {
+	FRIENDSHIP_RANKS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_friendship_ranks_enabled(enabled: bool) {
+	FRIENDSHIP_RANKS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn friendship_duration_text(since_timestamp_ms: i64, now_ms: i64) -> String {
+	let diff_sec = (now_ms - since_timestamp_ms).max(0) / 1000;
+	let days = diff_sec / 86400;
+	if days >= 365 {
+		let years = days / 365;
+		format!("Friend for {years}y")
+	} else if days >= 30 {
+		let months = days / 30;
+		format!("Friend for {months}mo")
+	} else if days >= 1 {
+		format!("Friend for {days}d")
+	} else {
+		"New Friend".to_owned()
+	}
+}
+
+/// VenSerein (BannersEverywhere): Global toggle for showing user banners in more UI surfaces.
+pub static BANNERS_EVERYWHERE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn banners_everywhere_enabled() -> bool {
+	BANNERS_EVERYWHERE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_banners_everywhere_enabled(enabled: bool) {
+	BANNERS_EVERYWHERE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (Timezones): Global toggle for showing user timezones and local time on profile cards.
+pub static TIMEZONES_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn timezones_enabled() -> bool {
+	TIMEZONES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_timezones_enabled(enabled: bool) {
+	TIMEZONES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (ShowConnections): Global toggle for showing connected accounts in compact profile popouts as well as full profiles.
+pub static SHOW_CONNECTIONS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn show_connections_enabled() -> bool {
+	SHOW_CONNECTIONS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_show_connections_enabled(enabled: bool) {
+	SHOW_CONNECTIONS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn set_user_voice_show_enabled(enabled: bool) {
+	USER_VOICE_SHOW_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub(crate) fn user_voice_channel_name(state: &State, user: Id) -> Option<String> {
+	if !state.gateway_connected {
+		return None;
+	}
+	for entry in &state.voice.roster {
+		if entry.participant.user == user && state.can_view(entry.channel) {
+			if let Some(ch) = state.channel(entry.channel) {
+				if let Some(guild) = state.guilds.iter().find(|g| g.id == entry.guild) {
+					return Some(format!("{} ({})", ch.name, guild.name));
+				}
+				return Some(ch.name.clone());
+			}
+		}
+	}
+	for (channel, participants) in state.voice.dm_call_participants() {
+		if state.can_view(channel) && participants.iter().any(|p| p.user == user) {
+			if let Some(ch) = state.channel(channel) {
+				if !ch.name.is_empty() {
+					return Some(ch.name.clone());
+				}
+				return Some("Direct message".to_owned());
+			}
+		}
+	}
+	if let Some(call) = &state.voice.active {
+		if call.guild.is_none() && state.can_view(call.channel) {
+			if call.participants.iter().any(|p| p.user == user) {
+				if let Some(ch) = state.channel(call.channel) {
+					if !ch.name.is_empty() {
+						return Some(ch.name.clone());
+					}
+					return Some("Direct message".to_owned());
+				}
+			}
+		}
+	}
+	None
+}
+
 pub(crate) fn voice_users(state: &State) -> std::collections::BTreeSet<Id> {
 	if !state.gateway_connected {
 		return Default::default();
@@ -1102,8 +1260,13 @@ pub(crate) fn presence_badge(
 		mobile,
 		(ring, ring_width),
 	);
+	let hover_text = if platform_indicators_enabled() && clients.any() {
+		format!("{} ({})", presence_label(status), platform_label(clients))
+	} else {
+		presence_label(status)
+	};
 	ui.allocate_rect(presence_badge_rect(rect, mobile), egui::Sense::hover())
-		.on_hover_text(presence_label(status));
+		.on_hover_text(hover_text);
 }
 
 /// Discord's typing badge: the status disc stretched leftward into a pill of the status
@@ -1171,22 +1334,24 @@ pub(crate) fn paint_status(
 	}
 	painter.circle_filled(center, radius + ring_width, ring);
 	painter.circle_filled(center, radius, color);
-	match status {
-		"idle" => {
-			// The crescent: a disc of the ring colour bites the upper left.
-			painter.circle_filled(center - Vec2::splat(radius * 0.45), radius * 0.72, ring);
-		}
-		"dnd" => {
-			painter.rect_filled(
-				Rect::from_center_size(center, vec2(radius * 1.25, radius * 0.5)),
-				radius * 0.25,
-				ring,
-			);
-		}
-		"online" => {}
-		// Offline and invisible are a hollow ring.
-		_ => {
-			painter.circle_filled(center, radius * 0.5, ring);
+	if !COLOR_SIGHTED_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+		match status {
+			"idle" => {
+				// The crescent: a disc of the ring colour bites the upper left.
+				painter.circle_filled(center - Vec2::splat(radius * 0.45), radius * 0.72, ring);
+			}
+			"dnd" => {
+				painter.rect_filled(
+					Rect::from_center_size(center, vec2(radius * 1.25, radius * 0.5)),
+					radius * 0.25,
+					ring,
+				);
+			}
+			"online" => {}
+			// Offline and invisible are a hollow ring.
+			_ => {
+				painter.circle_filled(center, radius * 0.5, ring);
+			}
 		}
 	}
 }
@@ -1363,6 +1528,13 @@ pub(crate) struct Theme {
 }
 impl Theme {
 	pub(crate) fn new(colors: &design::Palette, theme: Option<[u32; 2]>) -> Self {
+		let theme = theme.or_else(|| {
+			if fake_profile_themes_enabled() {
+				Some([0x1e1e2e, 0x11111b])
+			} else {
+				None
+			}
+		});
 		match theme {
 			Some([top, bottom]) => {
 				let bright = Self::bright([top, bottom]);
@@ -2026,7 +2198,8 @@ fn role_chips(
 		})
 		.collect();
 	let expanded_id = ui.make_persistent_id(("profile-roles-expanded", guild.guild, user));
-	let expanded = ui.data(|data| data.get_temp::<bool>(expanded_id).unwrap_or(false));
+	let expanded = ui.data(|data| data.get_temp::<bool>(expanded_id).unwrap_or(false))
+		|| ALWAYS_EXPAND_ROLES_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
 	let fits = |widths: &[f32]| {
 		let mut rows = 1;
 		let mut used = 0.0;
@@ -2645,12 +2818,12 @@ impl ProfileSession {
 			self.pending.push(ProfileEffect::ClearCore);
 		}
 		self.reset_card_input();
-		self.full = false;
+		self.full = always_expand_profiles_enabled();
 		self.open = Some(user.clone());
 	}
 
 	pub fn command_open(&mut self, user: User) {
-		self.full = false;
+		self.full = always_expand_profiles_enabled();
 		if self.open.as_ref().is_none_or(|open| open.id != user.id) {
 			self.badges.close();
 			self.reset_card_input();
@@ -3431,7 +3604,7 @@ fn card_view(
 					avatars.show(ui, user, avatar_size, state.demo)
 				}
 			});
-			let image_avatar = full || user.webhook;
+			let image_avatar = full || user.webhook || UNLOCKED_AVATAR_ZOOM_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
 			let label = crate::i18n::translate(if image_avatar {
 				"profiles-show-view-profile-picture"
 			} else {
@@ -3874,6 +4047,22 @@ fn card_view(
 								voice_badge(ui, in_voice, false);
 							});
 						}
+						if timezones_enabled() && !user.webhook {
+							ui.add_space(2.0);
+							ui.horizontal(|ui| {
+								let now = crate::local_time::clock(crate::local_time::now());
+								ui.label(RichText::new(format!("🕒 Local Time: {now}")).size(12.0).color(theme.muted));
+							});
+						}
+						if crate::user_menu::last_active_enabled()
+							&& let Some(last_id) = state.user_last_active_message(user.id)
+						{
+							let last_time = crate::timeline::timestamp(last_id);
+							ui.add_space(2.0);
+							ui.horizontal(|ui| {
+								ui.label(RichText::new(format!("🕒 Last active: {}", crate::local_time::header(last_time))).size(12.0).color(theme.muted));
+							});
+						}
 						if !user.webhook && view.map_or(data.is_none(), |v| v.loading) {
 							ui.add_space(4.0);
 							ui.horizontal(|ui| {
@@ -4061,7 +4250,7 @@ fn card_view(
 											ui.label(RichText::new(since).size(body));
 										});
 									}
-									if full && !data.connections.is_empty() {
+									if (full || show_connections_enabled()) && !data.connections.is_empty() {
 										section(
 											ui,
 											&theme,
@@ -4683,8 +4872,119 @@ fn synthetic_frame() -> model::ProfileFrame {
 	}
 }
 
+
+pub static COLOR_SIGHTED_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_color_sighted_enabled(enabled: bool) {
+	COLOR_SIGHTED_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub static UNLOCKED_AVATAR_ZOOM_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn unlocked_avatar_zoom_enabled() -> bool {
+	UNLOCKED_AVATAR_ZOOM_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_unlocked_avatar_zoom_enabled(enabled: bool) {
+	UNLOCKED_AVATAR_ZOOM_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub static PLATFORM_INDICATORS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn platform_indicators_enabled() -> bool {
+	PLATFORM_INDICATORS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_platform_indicators_enabled(enabled: bool) {
+	PLATFORM_INDICATORS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn platform_label(clients: model::ClientPlatforms) -> String {
+	let mut list = Vec::new();
+	if clients.desktop {
+		list.push("Desktop");
+	}
+	if clients.mobile {
+		list.push("Mobile");
+	}
+	if clients.web {
+		list.push("Web");
+	}
+	if clients.vr {
+		list.push("VR");
+	}
+	if list.is_empty() {
+		String::new()
+	} else {
+		list.join(", ")
+	}
+}
+
+pub static ALWAYS_EXPAND_ROLES_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_always_expand_roles_enabled(enabled: bool) {
+	ALWAYS_EXPAND_ROLES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn platform_indicators_toggle_and_label() {
+		assert!(platform_indicators_enabled());
+		let clients = model::ClientPlatforms {
+			desktop: true,
+			mobile: true,
+			web: false,
+			vr: false,
+		};
+		assert_eq!(platform_label(clients), "Desktop, Mobile");
+
+		set_platform_indicators_enabled(false);
+		assert!(!platform_indicators_enabled());
+		set_platform_indicators_enabled(true);
+	}
+
+	#[test]
+	fn user_voice_show_toggle_works() {
+		assert!(user_voice_show_enabled());
+		set_user_voice_show_enabled(false);
+		assert!(!user_voice_show_enabled());
+		set_user_voice_show_enabled(true);
+		assert!(user_voice_show_enabled());
+	}
+
+	#[test]
+	fn color_sighted_toggle_works() {
+		set_color_sighted_enabled(true);
+		assert!(COLOR_SIGHTED_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+		set_color_sighted_enabled(false);
+		assert!(!COLOR_SIGHTED_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
+	#[test]
+	fn unlocked_avatar_zoom_toggle_works() {
+		set_unlocked_avatar_zoom_enabled(true);
+		assert!(UNLOCKED_AVATAR_ZOOM_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+		set_unlocked_avatar_zoom_enabled(false);
+		assert!(!UNLOCKED_AVATAR_ZOOM_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
+	#[test]
+	fn always_expand_roles_toggle_works() {
+		set_always_expand_roles_enabled(true);
+		assert!(ALWAYS_EXPAND_ROLES_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+		set_always_expand_roles_enabled(false);
+		assert!(!ALWAYS_EXPAND_ROLES_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
 	use super::*;
 
 	#[test]
@@ -5609,5 +5909,90 @@ mod tests {
 				"{visible:?}"
 			);
 		}
+	}
+
+	#[test]
+	fn fake_profile_themes_and_spotify_crack_toggles() {
+		assert!(!fake_profile_themes_enabled());
+		assert!(!spotify_crack_enabled());
+		
+		let palette = design::colors(true, Default::default());
+		let default_theme = Theme::new(&palette, None);
+		assert!(default_theme.gradient.is_none());
+		
+		set_fake_profile_themes_enabled(true);
+		assert!(fake_profile_themes_enabled());
+		let fake_theme = Theme::new(&palette, None);
+		assert!(fake_theme.gradient.is_some());
+		
+		set_spotify_crack_enabled(true);
+		assert!(spotify_crack_enabled());
+		
+		set_fake_profile_themes_enabled(false);
+		set_spotify_crack_enabled(false);
+		assert!(!fake_profile_themes_enabled());
+		assert!(!spotify_crack_enabled());
+	}
+
+	#[test]
+	fn test_always_expand_profiles_toggle() {
+		assert!(!always_expand_profiles_enabled());
+		let user = model::User {
+			id: Id(123),
+			name: "TestUser".into(),
+			discriminator: 0,
+			avatar: None,
+			kind: model::AccountKind::Human,
+			webhook: false,
+			primary_guild: None,
+			cosmetics: None,
+		};
+		let mut session = ProfileSession::default();
+		session.command_open(user.clone());
+		assert!(!session.full);
+
+		set_always_expand_profiles_enabled(true);
+		assert!(always_expand_profiles_enabled());
+		session.command_open(user);
+		assert!(session.full);
+
+		set_always_expand_profiles_enabled(false);
+		assert!(!always_expand_profiles_enabled());
+	}
+
+	#[test]
+	fn test_banners_everywhere_and_timezones_toggles() {
+		assert!(banners_everywhere_enabled());
+		set_banners_everywhere_enabled(false);
+		assert!(!banners_everywhere_enabled());
+		set_banners_everywhere_enabled(true);
+		assert!(banners_everywhere_enabled());
+
+		assert!(timezones_enabled());
+		set_timezones_enabled(false);
+		assert!(!timezones_enabled());
+		set_timezones_enabled(true);
+		assert!(timezones_enabled());
+
+		assert!(friendship_ranks_enabled());
+		set_friendship_ranks_enabled(false);
+		assert!(!friendship_ranks_enabled());
+		set_friendship_ranks_enabled(true);
+		assert!(friendship_ranks_enabled());
+
+		assert!(show_connections_enabled());
+		set_show_connections_enabled(false);
+		assert!(!show_connections_enabled());
+		set_show_connections_enabled(true);
+		assert!(show_connections_enabled());
+
+		let now = 1_000_000_000_000i64;
+		let two_years_ago = now - (2 * 365 * 86400 * 1000);
+		assert_eq!(friendship_duration_text(two_years_ago, now), "Friend for 2y");
+		let two_months_ago = now - (60 * 86400 * 1000);
+		assert_eq!(friendship_duration_text(two_months_ago, now), "Friend for 2mo");
+		let five_days_ago = now - (5 * 86400 * 1000);
+		assert_eq!(friendship_duration_text(five_days_ago, now), "Friend for 5d");
+		assert_eq!(friendship_duration_text(now, now), "New Friend");
 	}
 }

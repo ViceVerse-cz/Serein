@@ -2,6 +2,17 @@
 //! the account's own display order and hidden set. Unofficial normal-client behavior; see
 //! docs/discord-compatibility.md. Never persisted.
 use crate::ProfileBadge;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+pub static SHOW_HIDDEN_THINGS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub fn show_hidden_things_enabled() -> bool {
+	SHOW_HIDDEN_THINGS_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_show_hidden_things_enabled(enabled: bool) {
+	SHOW_HIDDEN_THINGS_ENABLED.store(enabled, Ordering::Relaxed);
+}
 
 pub const MAX_CATALOG_BADGES: usize = 40;
 pub const MAX_BADGE_TIERS: usize = 12;
@@ -406,16 +417,18 @@ pub fn displayed_badges(
 	let Some(catalog) = catalog else {
 		return badges.to_vec();
 	};
+	let show_all = show_hidden_things_enabled();
 	let mut shown: Vec<ProfileBadge> = badges
 		.iter()
 		.filter(|badge| {
-			badge_number(&badge.id)
-				.and_then(|id| catalog.get(id))
-				.is_none_or(|entry| !entry.hidden)
+			show_all
+				|| badge_number(&badge.id)
+					.and_then(|id| catalog.get(id))
+					.is_none_or(|entry| !entry.hidden)
 		})
 		.cloned()
 		.collect();
-	for entry in catalog.owned().filter(|entry| !entry.hidden) {
+	for entry in catalog.owned().filter(|entry| show_all || !entry.hidden) {
 		if !shown
 			.iter()
 			.any(|badge| badge_number(&badge.id) == Some(entry.id))
@@ -434,7 +447,9 @@ pub fn displayed_badges(
 			.unwrap_or(usize::MAX)
 	};
 	shown.sort_by_key(rank);
-	shown.truncate(MAX_DISPLAYED_BADGES);
+	if !show_all {
+		shown.truncate(MAX_DISPLAYED_BADGES);
+	}
 	shown
 }
 
@@ -605,6 +620,40 @@ mod tests {
 		assert_eq!(ids, ["account_age", "premium", "hypesquad_house_1"]);
 		assert!(shown[0].art.is_some() && shown[0].icon.is_none());
 		assert_eq!(displayed_badges(&profile, None).len(), 3);
+	}
+
+	#[test]
+	fn show_hidden_things_reveals_hidden_badges() {
+		let profile = vec![
+			ProfileBadge {
+				id: "premium".into(),
+				description: "Subscriber".into(),
+				icon: Some("a".repeat(32)),
+				art: None,
+			},
+			ProfileBadge {
+				id: "quest_completed".into(),
+				description: "Quest".into(),
+				icon: Some("c".repeat(32)),
+				art: None,
+			},
+		];
+		let catalog = BadgeCatalog {
+			badges: vec![
+				badge(id::PREMIUM_TENURE, true, false),
+				badge(14, true, true),
+			],
+			limited: false,
+		};
+		set_show_hidden_things_enabled(false);
+		let normal = displayed_badges(&profile, Some(&catalog));
+		assert_eq!(normal.len(), 1);
+		assert_eq!(normal[0].id, "premium");
+
+		set_show_hidden_things_enabled(true);
+		let revealed = displayed_badges(&profile, Some(&catalog));
+		set_show_hidden_things_enabled(false);
+		assert_eq!(revealed.len(), 2);
 	}
 
 	#[test]

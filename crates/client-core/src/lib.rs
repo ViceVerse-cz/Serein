@@ -17,6 +17,40 @@ pub use permissions::ChannelAccess;
 #[cfg(test)]
 mod permissions_tests;
 
+/// VenSerein (KeepCurrentChannel): Persists and restores the active channel ID across sessions.
+pub static KEEP_CURRENT_CHANNEL_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_keep_current_channel_enabled(enabled: bool) {
+	KEEP_CURRENT_CHANNEL_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn keep_current_channel_enabled() -> bool {
+	KEEP_CURRENT_CHANNEL_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub static LAST_ACTIVE_CHANNEL: std::sync::atomic::AtomicU64 =
+	std::sync::atomic::AtomicU64::new(0);
+
+#[allow(dead_code)]
+pub fn record_active_channel(channel: Id) {
+	if KEEP_CURRENT_CHANNEL_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+		LAST_ACTIVE_CHANNEL.store(channel.0, std::sync::atomic::Ordering::Relaxed);
+	}
+}
+
+#[allow(dead_code)]
+pub fn restored_active_channel() -> Option<Id> {
+	if KEEP_CURRENT_CHANNEL_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+		let id = LAST_ACTIVE_CHANNEL.load(std::sync::atomic::Ordering::Relaxed);
+		if id > 0 { Some(Id(id)) } else { None }
+	} else {
+		None
+	}
+}
+
 mod forwarding;
 pub mod interactions;
 pub mod invites;
@@ -1391,6 +1425,7 @@ impl State {
 		}
 		self.member_search = Default::default();
 		self.selected = Some(channel);
+		record_active_channel(channel);
 		self.clear_search();
 		self.reset_thread_starter();
 		self.search_target = None;
@@ -4752,6 +4787,18 @@ impl Event {
 
 #[cfg(test)]
 mod tests {
+
+	#[test]
+	fn keep_current_channel_toggle_and_record_works() {
+		assert!(!keep_current_channel_enabled());
+		assert_eq!(restored_active_channel(), None);
+		set_keep_current_channel_enabled(true);
+		assert!(keep_current_channel_enabled());
+		record_active_channel(Id(12345));
+		assert_eq!(restored_active_channel(), Some(Id(12345)));
+		set_keep_current_channel_enabled(false);
+		assert_eq!(restored_active_channel(), None);
+	}
 
 	pub(crate) fn grant_permissions(state: &mut State) {
 		let Some(user) = &state.user else {

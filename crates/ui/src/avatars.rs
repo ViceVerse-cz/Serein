@@ -13,6 +13,20 @@ use std::{
 
 pub(crate) use media::{Quality, Surface};
 
+/// VenSerein (AlwaysAnimate): Always animates GIFs, emojis, banners and avatars without requiring cursor hover or focus.
+pub static ALWAYS_ANIMATE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_always_animate_enabled(enabled: bool) {
+	ALWAYS_ANIMATE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn always_animate_enabled() -> bool {
+	ALWAYS_ANIMATE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub type GifFrames = Vec<(Duration, std::sync::Arc<ColorImage>)>;
 const ANIMATIONS: usize = 128;
 const ANIMATION_BYTES: usize = 128 * 1024 * 1024;
@@ -708,7 +722,8 @@ impl Avatars {
 		size: f32,
 		demo: bool,
 	) -> Option<egui::Image<'static>> {
-		if let Some(key) = animated_emoji_key(id, animated && self.animate_gifs && !demo)
+		let always = always_animate_enabled();
+		if let Some(key) = animated_emoji_key(id, animated && (self.animate_gifs || always) && !demo)
 			&& !self.no_animations.contains(&key)
 		{
 			let frame = self.advance_animation(ctx, &key, false);
@@ -746,7 +761,7 @@ impl Avatars {
 		format_type: u8,
 		_demo: bool,
 	) -> String {
-		let prefix = if self.animate_gifs && matches!(format_type, 2 | 4) {
+		let prefix = if (self.animate_gifs || always_animate_enabled()) && matches!(format_type, 2 | 4) {
 			"anim"
 		} else {
 			"embed"
@@ -1003,8 +1018,16 @@ impl Avatars {
 		demo: bool,
 	) {
 		// A profile theme decides the banner, as on Discord; the legacy accent is a fallback.
-		let color = profile
-			.theme_colors
+		let theme_colors = profile.theme_colors.or_else(|| {
+			if crate::profiles::fake_profile_themes_enabled()
+				|| crate::profiles::banners_everywhere_enabled()
+			{
+				Some([0x1e1e2e, 0x11111b])
+			} else {
+				None
+			}
+		});
+		let color = theme_colors
 			.map(crate::profiles::Theme::banner)
 			.or(profile
 				.accent_color
@@ -1015,7 +1038,7 @@ impl Avatars {
 			&& let Some(key) = profile.banner_key()
 		{
 			let is_animated = is_animated_profile_or_avatar_key(&key);
-			if self.animate_gifs
+			if (self.animate_gifs || always_animate_enabled())
 				&& is_animated
 				&& !self.animations.contains_key(&key)
 				&& !self.no_animations.contains(&key)
@@ -1218,9 +1241,10 @@ impl Avatars {
 		key: &str,
 		hovered: bool,
 	) -> Option<TextureHandle> {
-		if !self.animate_gifs
-			|| !ctx.input(|input| input.focused)
-			|| !(hovered || self.avatar_animation || !is_animated_profile_or_avatar_key(key))
+		let always = always_animate_enabled();
+		if (!self.animate_gifs && !always)
+			|| (!always && !ctx.input(|input| input.focused))
+			|| !(always || hovered || self.avatar_animation || !is_animated_profile_or_avatar_key(key))
 		{
 			return None;
 		}
@@ -1282,8 +1306,9 @@ impl Avatars {
 		let mut animated_texture = None;
 		if ui.is_rect_visible(rect) {
 			let is_animated = key.starts_with("anim:") || is_animated_profile_or_avatar_key(key);
+			let always = always_animate_enabled();
 			if is_animated
-				&& self.animate_gifs
+				&& (self.animate_gifs || always)
 				&& !self.animations.contains_key(key)
 				&& !self.no_animations.contains(key)
 				&& !self.released.contains(key)
@@ -1291,7 +1316,7 @@ impl Avatars {
 				self.request(key.to_string());
 			}
 			animated_texture =
-				self.advance_animation(ui.ctx(), key, ui.rect_contains_pointer(rect));
+				self.advance_animation(ui.ctx(), key, always || ui.rect_contains_pointer(rect));
 		}
 		let animated = animated_texture.is_some();
 		let full = {
@@ -3162,5 +3187,14 @@ mod tests {
 			.collect();
 		avatars.accept_animation("effect-c-test".into(), frames);
 		assert!(avatars.animations.contains_key("effect-c-test"));
+	}
+
+	#[test]
+	fn always_animate_toggle_allows_animation_without_hover_or_focus() {
+		assert!(!always_animate_enabled());
+		set_always_animate_enabled(true);
+		assert!(always_animate_enabled());
+		set_always_animate_enabled(false);
+		assert!(!always_animate_enabled());
 	}
 }

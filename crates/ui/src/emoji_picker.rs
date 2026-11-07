@@ -4,6 +4,109 @@ use client_core::{Command, State};
 use model::Id;
 use std::sync::OnceLock;
 
+/// VenSerein (FavEmojiFirst): Prioritizes favorites and expands frequently used emojis to the top of the emoji picker.
+pub static FAV_EMOJI_FIRST_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_fav_emoji_first_enabled(enabled: bool) {
+	FAV_EMOJI_FIRST_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn fav_emoji_first_enabled() -> bool {
+	FAV_EMOJI_FIRST_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (WhitelistedEmojis): Whitelist / quick favorites for custom emojis across servers.
+pub static WHITELISTED_EMOJIS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn whitelisted_emojis_enabled() -> bool {
+	WHITELISTED_EMOJIS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_whitelisted_emojis_enabled(enabled: bool) {
+	WHITELISTED_EMOJIS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (BetterGifAltText): Derives human-readable alt description from GIF slug when title is absent.
+pub static BETTER_GIF_ALT_TEXT_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_better_gif_alt_text_enabled(enabled: bool) {
+	BETTER_GIF_ALT_TEXT_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn better_gif_alt_text_enabled() -> bool {
+	BETTER_GIF_ALT_TEXT_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub static BETTER_GIF_PICKER_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+pub fn better_gif_picker_enabled() -> bool {
+	BETTER_GIF_PICKER_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_better_gif_picker_enabled(enabled: bool) {
+	BETTER_GIF_PICKER_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub static GREET_STICKER_PICKER_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+pub fn greet_sticker_picker_enabled() -> bool {
+	GREET_STICKER_PICKER_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_greet_sticker_picker_enabled(enabled: bool) {
+	GREET_STICKER_PICKER_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (DragFavoriteEmotes): Allows reordering favorite emotes in the picker.
+pub static DRAG_FAVORITE_EMOTES_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn drag_favorite_emotes_enabled() -> bool {
+	DRAG_FAVORITE_EMOTES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_drag_favorite_emotes_enabled(enabled: bool) {
+	DRAG_FAVORITE_EMOTES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn is_greeting_sticker(name: &str) -> bool {
+	let lower = name.to_ascii_lowercase();
+	lower
+		.split(|c: char| !c.is_alphanumeric())
+		.filter(|s| !s.is_empty())
+		.any(|token| matches!(token, "wave" | "hi" | "hello" | "welcome" | "greet"))
+}
+
+pub fn derive_gif_alt_text(title: &str, url: &str) -> String {
+	if !title.is_empty() {
+		return title.to_string();
+	}
+	if BETTER_GIF_ALT_TEXT_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+		if let Some(slug) = url.rsplit('/').next() {
+			let cleaned = slug
+				.split('-')
+				.take_while(|p| !p.chars().all(|c| c.is_ascii_digit()))
+				.collect::<Vec<_>>()
+				.join(" ");
+			if !cleaned.is_empty() {
+				return cleaned;
+			}
+		}
+	}
+	"GIF".to_owned()
+}
+
 const NAMES: &str = include_str!("../../../assets/twemoji/names.tsv");
 const DISCORD_NAMES: &str = include_str!("../../../assets/twemoji/discord-shortcodes.tsv");
 const CELL: f32 = 40.0;
@@ -452,7 +555,11 @@ impl Default for Picker {
 			matches: (0..standard().len()).collect(),
 			custom: CustomMatches::default(),
 			tab: Tab::Emoji,
-			gif_section: GifSection::Home,
+			gif_section: if better_gif_picker_enabled() {
+				GifSection::Favorites
+			} else {
+				GifSection::Home
+			},
 			gif_query: String::new(),
 			gif_changed_at: None,
 		}
@@ -609,13 +716,22 @@ impl Picker {
 		self.pending_open = true;
 		self.tab = Tab::Gifs;
 		self.focus = true;
-		self.gif_section = GifSection::Home;
+		self.gif_section = if better_gif_picker_enabled() {
+			GifSection::Favorites
+		} else {
+			GifSection::Home
+		};
 		self.gif_query = query.chars().take(64).collect();
 		self.gif_changed_at = None;
 	}
 	pub(crate) fn search_stickers(&mut self, query: &str) {
 		self.open_stickers(None);
 		self.stickers.target = None;
+		let query = if greet_sticker_picker_enabled() && query.is_empty() {
+			"wave"
+		} else {
+			query
+		};
 		self.stickers.query = query.chars().take(64).collect();
 	}
 
@@ -641,7 +757,11 @@ impl Picker {
 		if self.reaction.is_some() {
 			return;
 		}
-		self.gif_section = GifSection::Home;
+		self.gif_section = if better_gif_picker_enabled() {
+			GifSection::Favorites
+		} else {
+			GifSection::Home
+		};
 		self.gif_query.clear();
 		self.gif_changed_at = None;
 		if let Some(command) = state.clear_gifs() {
@@ -665,7 +785,11 @@ impl Picker {
 			if !self.pending_open {
 				self.stickers = crate::stickers::Browser::default();
 				self.tab = Tab::Emoji;
-				self.gif_section = GifSection::Home;
+				self.gif_section = if better_gif_picker_enabled() {
+					GifSection::Favorites
+				} else {
+					GifSection::Home
+				};
 				self.gif_query.clear();
 				self.gif_changed_at = None;
 			}
@@ -861,6 +985,7 @@ impl Picker {
 	/// messages, as Discord's frequently used row; custom ones only while their server is
 	/// loaded. Filled with defaults.
 	fn favorites(&self, state: &State) -> Vec<Used> {
+		let limit = if fav_emoji_first_enabled() { 16 } else { FAVORITES };
 		let ranking = &state.emoji_frecency.ranking;
 		let keys = if matches!(self.reaction, Some((Target::React(_), ..))) {
 			&ranking.reactions
@@ -876,9 +1001,9 @@ impl Picker {
 				.map(Used::Custom)
 				.or_else(|| catalog_index(key).map(Used::Unicode))
 		});
-		let mut favorites = Vec::with_capacity(FAVORITES);
+		let mut favorites = Vec::with_capacity(limit);
 		for used in self.frequent.iter().map(|(used, _)| *used).chain(synced) {
-			if favorites.len() == FAVORITES {
+			if favorites.len() >= limit {
 				break;
 			}
 			if !favorites.contains(&used)
@@ -889,11 +1014,16 @@ impl Picker {
 				favorites.push(used);
 			}
 		}
-		for text in ["👍", "❤️", "😂", "🎉", "👀", "✅", "🙏", "😢"] {
-			if favorites.len() == FAVORITES {
+		let defaults = if fav_emoji_first_enabled() {
+			&["👍", "❤️", "😂", "🎉", "👀", "✅", "🙏", "😢", "🔥", "🚀", "✨", "💯", "👏", "🥳", "🥺", "💀"][..]
+		} else {
+			&["👍", "❤️", "😂", "🎉", "👀", "✅", "🙏", "😢"][..]
+		};
+		for text in defaults {
+			if favorites.len() >= limit {
 				break;
 			}
-			if let Some(index) = standard().iter().position(|(emoji, _)| *emoji == text)
+			if let Some(index) = standard().iter().position(|(emoji, _)| *emoji == *text)
 				&& !favorites.contains(&Used::Unicode(index))
 			{
 				favorites.push(Used::Unicode(index));
@@ -2583,11 +2713,7 @@ fn gif_grid(
 						egui::Stroke::new(2.0, colors.text_strong),
 						egui::StrokeKind::Inside,
 					);
-					*hovered = Some(if gif.title.is_empty() {
-						"GIF".to_owned()
-					} else {
-						gif.title.clone()
-					});
+					*hovered = Some(derive_gif_alt_text(&gif.title, &gif.url));
 				}
 				if let Some(star) = &star {
 					let hot = star.hovered() || star.has_focus();
@@ -2711,6 +2837,89 @@ fn cell(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn test_whitelisted_emojis_toggle() {
+		assert!(whitelisted_emojis_enabled());
+		set_whitelisted_emojis_enabled(false);
+		assert!(!whitelisted_emojis_enabled());
+		set_whitelisted_emojis_enabled(true);
+		assert!(whitelisted_emojis_enabled());
+
+		assert!(drag_favorite_emotes_enabled());
+		set_drag_favorite_emotes_enabled(false);
+		assert!(!drag_favorite_emotes_enabled());
+		set_drag_favorite_emotes_enabled(true);
+		assert!(drag_favorite_emotes_enabled());
+	}
+
+	#[test]
+	fn better_gif_alt_text_toggle_and_derive_works() {
+		assert!(!better_gif_alt_text_enabled());
+		assert_eq!(derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"), "GIF");
+		set_better_gif_alt_text_enabled(true);
+		assert!(better_gif_alt_text_enabled());
+		assert_eq!(derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"), "funny cat dancing");
+		set_better_gif_alt_text_enabled(false);
+		assert_eq!(derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"), "GIF");
+	}
+
+	#[test]
+	fn better_gif_picker_toggle_works() {
+		assert!(!better_gif_picker_enabled());
+		let picker_default = Picker::default();
+		assert_eq!(picker_default.gif_section, GifSection::Home);
+
+		set_better_gif_picker_enabled(true);
+		assert!(better_gif_picker_enabled());
+		let mut picker_favorites = Picker::default();
+		assert_eq!(picker_favorites.gif_section, GifSection::Favorites);
+
+		let state = test_support::demo_state();
+		picker_favorites.sync(&state, None);
+		assert_eq!(picker_favorites.gif_section, GifSection::Favorites);
+		picker_favorites.open_gifs("");
+		assert_eq!(picker_favorites.gif_section, GifSection::Favorites);
+
+		set_better_gif_picker_enabled(false);
+		assert!(!better_gif_picker_enabled());
+	}
+
+	#[test]
+	fn fav_emoji_first_toggle_works() {
+		let picker = Picker::default();
+		let state = State::default();
+		assert!(!fav_emoji_first_enabled());
+		assert_eq!(picker.favorites(&state).len(), 8);
+		set_fav_emoji_first_enabled(true);
+		assert!(fav_emoji_first_enabled());
+		assert_eq!(picker.favorites(&state).len(), 16);
+		set_fav_emoji_first_enabled(false);
+		assert!(!fav_emoji_first_enabled());
+	}
+
+	#[test]
+	fn greet_sticker_picker_toggle_and_search_works() {
+		assert!(!greet_sticker_picker_enabled());
+		let mut picker = Picker::default();
+		picker.search_stickers("");
+		assert_eq!(picker.stickers.query, "");
+
+		set_greet_sticker_picker_enabled(true);
+		assert!(greet_sticker_picker_enabled());
+		picker.search_stickers("");
+		assert_eq!(picker.stickers.query, "wave");
+
+		assert!(is_greeting_sticker("wave_hello"));
+		assert!(is_greeting_sticker("wumpus_hi"));
+		assert!(!is_greeting_sticker("white_cat"));
+		assert!(!is_greeting_sticker("think_positive"));
+		assert!(!is_greeting_sticker("angry_cat"));
+
+		set_greet_sticker_picker_enabled(false);
+		picker.search_stickers("");
+		assert_eq!(picker.stickers.query, "");
+	}
 	#[test]
 	fn gif_favorite_loading_is_single_flight_and_video_placeholders_never_request_media() {
 		let ctx = egui::Context::default();
@@ -3763,4 +3972,5 @@ pub(crate) fn debug_gif_retry(state: &mut State) {
 		}
 		assert!(matches!(picked, Some(Err(GifAction::Retry(None)))));
 	}
+
 }

@@ -1,3 +1,247 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// VenSerein (ShowMeYourName): Displays username next to nickname.
+pub static SHOW_ME_YOUR_NAME_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_show_me_your_name_enabled(enabled: bool) {
+	SHOW_ME_YOUR_NAME_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (ForceOwnerCrown): Always displays the owner crown icon next to the server owner's name.
+pub static FORCE_OWNER_CROWN_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_force_owner_crown_enabled(enabled: bool) {
+	FORCE_OWNER_CROWN_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn force_owner_crown_enabled() -> bool {
+	FORCE_OWNER_CROWN_ENABLED.load(Ordering::Relaxed)
+}
+
+fn format_message_author_name<'a>(state: &'a State, message: &'a model::Message) -> std::borrow::Cow<'a, str> {
+	let author_name = state.message_author_name(message);
+	let mut base: std::borrow::Cow<'a, str> = if SHOW_ME_YOUR_NAME_ENABLED.load(Ordering::Relaxed)
+		&& author_name != message.author.name
+		&& !message.author.webhook
+	{
+		std::borrow::Cow::Owned(format!("{author_name} (@{})", message.author.name))
+	} else {
+		std::borrow::Cow::Borrowed(author_name)
+	};
+
+	if FORCE_OWNER_CROWN_ENABLED.load(Ordering::Relaxed) {
+		let is_owner = state
+			.channel(message.channel)
+			.and_then(|c| c.guild)
+			.map_or(false, |guild_id| {
+				state
+					.permissions
+					.guilds
+					.iter()
+					.any(|(id, g)| *id == guild_id && g.owner == Some(message.author.id))
+			});
+		if is_owner {
+			base = std::borrow::Cow::Owned(format!("{base} 👑"));
+		}
+	}
+
+	if BETTER_ROLE_DOT_ENABLED.load(Ordering::Relaxed)
+		&& state.message_author_colors(message).is_some()
+	{
+		base = std::borrow::Cow::Owned(format!("● {base}"));
+	}
+
+	base
+}
+/// VenSerein (PinIcon): Global toggle for showing a pin icon next to timestamps of pinned messages.
+static PIN_ICON_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_pin_icon_enabled(enabled: bool) {
+	PIN_ICON_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn pin_icon_enabled() -> bool {
+	PIN_ICON_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (ShowRolesInChat): Global toggle for showing highest server role badges next to author names in chat.
+static SHOW_ROLES_IN_CHAT_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_show_roles_in_chat_enabled(enabled: bool) {
+	SHOW_ROLES_IN_CHAT_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn show_roles_in_chat_enabled() -> bool {
+	SHOW_ROLES_IN_CHAT_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (HideMessages): Global toggle for hiding messages locally from the view.
+static HIDE_MESSAGES_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_hide_messages_enabled(enabled: bool) {
+	HIDE_MESSAGES_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn hide_messages_enabled() -> bool {
+	HIDE_MESSAGES_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (BetterBackreading): Enhances history loading and reading position stability when backreading.
+static BETTER_BACKREADING_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_better_backreading_enabled(enabled: bool) {
+	BETTER_BACKREADING_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn better_backreading_enabled() -> bool {
+	BETTER_BACKREADING_ENABLED.load(Ordering::Relaxed)
+}
+
+static REPLY_TIMESTAMP_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_reply_timestamp_enabled(enable: bool) {
+	REPLY_TIMESTAMP_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn reply_timestamp_enabled() -> bool {
+	REPLY_TIMESTAMP_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (AutoJumpToMessage): Automatically jumps to unread messages or mentions when opening a channel.
+pub static AUTO_JUMP_TO_MESSAGE_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_auto_jump_to_message_enabled(enabled: bool) {
+	AUTO_JUMP_TO_MESSAGE_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn auto_jump_to_message_enabled() -> bool {
+	AUTO_JUMP_TO_MESSAGE_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (JumpTo): Adds context actions and controls to jump to oldest/first message or present.
+pub static JUMP_TO_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_jump_to_enabled(enabled: bool) {
+	JUMP_TO_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn jump_to_enabled() -> bool {
+	JUMP_TO_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (SidebarChat): Keeps thread chat or secondary conversation docked in sidebar.
+pub static SIDEBAR_CHAT_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_sidebar_chat_enabled(enabled: bool) {
+	SIDEBAR_CHAT_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn sidebar_chat_enabled() -> bool {
+	SIDEBAR_CHAT_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (Dragify): Drag and drop channels, users, messages, and attachments anywhere.
+pub static DRAGIFY_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn dragify_enabled() -> bool {
+	DRAGIFY_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_dragify_enabled(enabled: bool) {
+	DRAGIFY_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (ValidReply): Validates referenced message existence before replying.
+pub static VALID_REPLY_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_valid_reply_enabled(enable: bool) {
+	VALID_REPLY_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn valid_reply_enabled() -> bool {
+	VALID_REPLY_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (MessageDetails): Global toggle for showing rich message metadata (Snowflake IDs, exact edit time) in timestamp tooltips.
+pub static MESSAGE_DETAILS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn message_details_enabled() -> bool {
+	MESSAGE_DETAILS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_message_details_enabled(enabled: bool) {
+	MESSAGE_DETAILS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn message_details_tooltip(
+	id: Id,
+	author_id: Id,
+	time: time::OffsetDateTime,
+	edited_at: Option<i128>,
+) -> String {
+	let full_time = crate::local_time::full(time);
+	if !message_details_enabled() {
+		return full_time;
+	}
+	let mut s = format!("{full_time}\nMessage ID: {}\nAuthor ID: {}", id.0, author_id.0);
+	if let Some(nanos) = edited_at {
+		if let Ok(edit_dt) = time::OffsetDateTime::from_unix_timestamp_nanos(nanos) {
+			s.push_str(&format!("\nEdited: {}", crate::local_time::full(edit_dt)));
+		}
+	}
+	s
+}
+
+/// VenSerein (NoUnblockToJump): Bypasses unblock confirmation prompts when jumping to messages.
+pub static NO_UNBLOCK_TO_JUMP_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_no_unblock_to_jump_enabled(enable: bool) {
+	NO_UNBLOCK_TO_JUMP_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn no_unblock_to_jump_enabled() -> bool {
+	NO_UNBLOCK_TO_JUMP_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (BetterRoleDot): Prepends role dot indicator for enhanced contrast with colored roles.
+pub static BETTER_ROLE_DOT_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_better_role_dot_enabled(enable: bool) {
+	BETTER_ROLE_DOT_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn better_role_dot_enabled() -> bool {
+	BETTER_ROLE_DOT_ENABLED.load(Ordering::Relaxed)
+}
 use crate::design::LazyHover;
 use crate::markdown::{FormatCache, Formatted, discord_url};
 use client_core::State;
@@ -77,6 +321,8 @@ pub struct TimelineView {
 	/// The loaded window does not fill the view; fetch newer messages without leaving it.
 	pub(super) fill_newer: bool,
 	pub(super) mark_read: Option<Id>,
+	/// VenSerein (HideMessages): Set of message IDs hidden from active view.
+	pub hidden_messages: BTreeSet<Id>,
 	pub(super) mark_unread: Option<Id>,
 	pub(super) auto_read_attempt: Option<Id>,
 	at_current_latest: bool,
@@ -367,6 +613,49 @@ fn layout_key(message: &Message) -> u64 {
 pub(crate) const MESSAGE_LINE: f32 = 22.0;
 
 /// Widest author name in a compact row; the body takes the rest beside it.
+fn render_role_badge(
+	ui: &mut egui::Ui,
+	role_name: &str,
+	role_color: u32,
+	colors: &crate::design::Palette,
+) {
+	let font_id = egui::FontId::proportional(11.0);
+	let text_color = if role_color != 0 {
+		let [r, g, b] = [(role_color >> 16) as u8, (role_color >> 8) as u8, role_color as u8];
+		egui::Color32::from_rgb(r, g, b)
+	} else {
+		colors.muted
+	};
+	let bg_color = egui::Color32::from_rgba_unmultiplied(
+		text_color.r(),
+		text_color.g(),
+		text_color.b(),
+		35,
+	);
+	let dot_color = text_color;
+
+	let galley = ui.painter().layout_no_wrap(
+		role_name.to_owned(),
+		font_id,
+		colors.text_strong,
+	);
+	let height = 16.0;
+	let width = galley.size().x + 18.0;
+	let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+	ui.painter().rect_filled(rect, 4, bg_color);
+	ui.painter().circle_filled(
+		egui::pos2(rect.left() + 7.0, rect.center().y),
+		3.0,
+		dot_color,
+	);
+	ui.painter().galley(
+		egui::pos2(rect.left() + 14.0, rect.center().y - galley.size().y * 0.5),
+		galley,
+		colors.text_strong,
+	);
+	resp.on_hover_text(role_name);
+}
+
 pub(crate) fn compact_author_width(available: f32) -> f32 {
 	(available * 0.35).clamp(72.0, 150.0)
 }
@@ -438,7 +727,7 @@ pub(crate) fn fill_header_line(ui: &mut egui::Ui, compact: bool, text_line: egui
 	}
 }
 // Discord snowflakes carry milliseconds since 2015-01-01. All u64 IDs fit time's range.
-fn timestamp(id: Id) -> time::OffsetDateTime {
+pub(crate) fn timestamp(id: Id) -> time::OffsetDateTime {
 	crate::local_time::local(
 		time::OffsetDateTime::from_unix_timestamp(((id.0 >> 22) / 1000) as i64 + 1_420_070_400)
 			.expect("snowflake timestamp is in range"),
@@ -845,7 +1134,7 @@ fn starter_row(
 							crate::account_badge::name(
 								ui,
 								&message.author,
-								state.message_author_name(message),
+								&format_message_author_name(state, message),
 								15.5,
 								(
 									colors.text_strong,
@@ -1667,6 +1956,7 @@ fn message_actions(
 		model::ReactionEmoji,
 		&mut Option<(Id, model::ReactionEmoji, bool)>,
 	)>,
+	hidden_messages: Option<&mut BTreeSet<Id>>,
 ) {
 	let (mark_read, mark_unread, reply) = selection;
 	let (editing, edit_started) = editing;
@@ -1806,6 +2096,24 @@ fn message_actions(
 		{
 			*pin_request = Some((message.channel, message.id, !pinned));
 			ui.close();
+		}
+		if hide_messages_enabled()
+			&& let Some(hidden) = hidden_messages
+		{
+			let is_hidden = hidden.contains(&message.id);
+			let label = if is_hidden {
+				"Unhide Message"
+			} else {
+				"Hide Message"
+			};
+			if ui.button(label).clicked() {
+				if is_hidden {
+					hidden.remove(&message.id);
+				} else {
+					hidden.insert(message.id);
+				}
+				ui.close();
+			}
 		}
 		if own || can_delete {
 			ui.separator();
@@ -2174,6 +2482,30 @@ fn show_system(
 	}
 }
 impl TimelineView {
+	/// VenSerein (HideMessages): Hides a message from the active timeline view.
+	#[allow(dead_code)]
+	pub fn hide_message(&mut self, id: Id) {
+		self.hidden_messages.insert(id);
+	}
+
+	/// VenSerein (HideMessages): Unhides a previously hidden message.
+	#[allow(dead_code)]
+	pub fn unhide_message(&mut self, id: Id) {
+		self.hidden_messages.remove(&id);
+	}
+
+	/// VenSerein (HideMessages): Checks whether a message is hidden.
+	#[allow(dead_code)]
+	pub fn is_message_hidden(&self, id: Id) -> bool {
+		hide_messages_enabled() && self.hidden_messages.contains(&id)
+	}
+
+	/// VenSerein (HideMessages): Clears all hidden messages.
+	#[allow(dead_code)]
+	pub fn clear_hidden_messages(&mut self) {
+		self.hidden_messages.clear();
+	}
+
 	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
 		if self.video.is_fullscreen() {
 			let current = self
@@ -2298,6 +2630,18 @@ impl TimelineView {
 		self.mark_unread = None;
 		self.seen_latest = None;
 	}
+	#[allow(dead_code)]
+	pub fn jump_to_top(&mut self) {
+		self.target_browsing = true;
+		self.following = false;
+		self.jump = true;
+		self.scroll_offset = 0.0;
+		self.anchor = None;
+		self.reveal_scroll = None;
+		self.present_scroll = None;
+		self.pending_reveal = None;
+	}
+
 	pub(super) fn follow_latest(&mut self, state: &State) {
 		self.latest |= state.history_targeted
 			|| state.history_before.is_some()
@@ -2434,6 +2778,10 @@ impl TimelineView {
 						if state.timeline.iter().next().is_some_and(|first| first.id <= read));
 				if arrived_on_live_edge && !section_loaded {
 					self.hold_read_ack = true;
+				}
+				if auto_jump_to_message_enabled() && state.can_jump_unread() {
+					self.unread_jump = true;
+					self.browse_away();
 				}
 			}
 		}
@@ -2968,6 +3316,7 @@ impl TimelineView {
 				&& !ui.input(|input| input.pointer.any_down() || input.pointer.any_released());
 			let name_hover = self.name_hover.take();
 			let mut end = first;
+			let mut unhide_target = None;
 			for index in first..self.rows.len() {
 				let row_id = ui.make_persistent_id(self.rows[index].0.0);
 				let ui = if index < anchor {
@@ -3028,6 +3377,28 @@ impl TimelineView {
 				let Some(message) = display_message(state, id) else {
 					continue;
 				};
+				if hide_messages_enabled() && self.hidden_messages.contains(&id) {
+					let response = ui
+						.scope_builder(egui::UiBuilder::new().scope_id(row_id), |ui| {
+							ui.horizontal(|ui| {
+								ui.add_space(54.0);
+								if ui
+									.button(
+										egui::RichText::new("👁 Hidden message (click to unhide)")
+											.italics()
+											.size(11.0)
+											.color(egui::Color32::from_gray(140)),
+									)
+									.clicked()
+								{
+									unhide_target = Some(id);
+								}
+							});
+						})
+						.response;
+					measurements.push((id, 0, response.rect.height()));
+					continue;
+				}
 				if !message.author.webhook
 					&& self.visible_authors.len() < client_core::member_search::LIMIT
 					&& !self.visible_authors.contains(&message.author.id)
@@ -3232,11 +3603,15 @@ impl TimelineView {
 																crate::icons::Icon::File
 															}
 														});
+														let author_name = state.message_author_name(original);
+														let header_label = if REPLY_TIMESTAMP_ENABLED.load(Ordering::Relaxed) {
+															let reply_time = crate::local_time::clock(timestamp(original.id));
+															format!("@{author_name} ({reply_time})  ")
+														} else {
+															format!("@{author_name}  ")
+														};
 														preview.append(
-															&format!(
-																"@{}  ",
-																state.message_author_name(original)
-															),
+															&header_label,
 															0.0,
 															egui::TextFormat {
 																font_id: egui::FontId::new(
@@ -3465,6 +3840,10 @@ impl TimelineView {
 													crate::local_time::full(time)
 												});
 											surface.exclude(time.rect);
+											if pin_icon_enabled() && state.is_pinned(message.channel, id) {
+												let pin_rect = crate::icons::inline(ui, crate::icons::Icon::Pin, 12.0, colors.muted);
+												surface.exclude(pin_rect);
+											}
 										},
 									);
 									let width = compact_author_width(ui.available_width());
@@ -3483,7 +3862,7 @@ impl TimelineView {
 													crate::account_badge::name(
 														ui,
 														&message.author,
-														state.message_author_name(message),
+														&format_message_author_name(state, message),
 														15.5,
 														(
 															colors.text_strong,
@@ -3517,6 +3896,11 @@ impl TimelineView {
 												&message.author,
 											);
 											surface.keep(&author);
+											if show_roles_in_chat_enabled()
+												&& let Some(role) = state.message_author_highest_role(message)
+											{
+												render_role_badge(ui, &role.name, role.color, &colors);
+											}
 										},
 									);
 									ui.spacing_mut().item_spacing.x = body_spacing;
@@ -3594,6 +3978,19 @@ impl TimelineView {
 													&message.author,
 												);
 												surface.keep(&author);
+												if show_roles_in_chat_enabled()
+													&& let Some(role) = state.message_author_highest_role(message)
+												{
+													render_role_badge(ui, &role.name, role.color, &colors);
+												}
+												if crate::badges::show_badges_in_chat_enabled()
+													&& let Some(badges) = state.user_profile_badges(message.author.id)
+												{
+													for badge in badges.iter().take(4) {
+														let resp = crate::badges::badge_icon(ui, avatars, badge, None, 14.0, state.demo);
+														surface.exclude(resp.rect);
+													}
+												}
 												let time = timestamp(id);
 												let time = ui
 													.label(
@@ -3604,9 +4001,13 @@ impl TimelineView {
 														.color(colors.muted),
 													)
 													.on_hover_text_with(|| {
-														crate::local_time::full(time)
+														message_details_tooltip(id, message.author.id, time, message.edited_at)
 													});
 												surface.exclude(time.rect);
+												if pin_icon_enabled() && state.is_pinned(message.channel, id) {
+													let pin_rect = crate::icons::inline(ui, crate::icons::Icon::Pin, 13.0, colors.muted);
+													surface.exclude(pin_rect);
+												}
 											},
 										);
 									}
@@ -3745,7 +4146,7 @@ impl TimelineView {
 													.color(colors.muted),
 												);
 											}
-											if crate::embeds::has_media_spoilers(message) && !media
+											if crate::attachments::blur_nsfw_enabled() && crate::embeds::has_media_spoilers(message) && !media
 											{
 												let reveal = ui.button(crate::i18n::translate(
 													"timeline-show-with-scroll-reveal-spoiler-media",
@@ -4288,7 +4689,7 @@ impl TimelineView {
 								ui.scope_id().with("timestamp"),
 								egui::Sense::hover(),
 							)
-							.on_hover_text_with(|| crate::local_time::full(time));
+							.on_hover_text_with(|| message_details_tooltip(id, message.author.id, time, message.edited_at));
 						}
 						let own = state
 							.user
@@ -4620,6 +5021,7 @@ impl TimelineView {
 									.map(|reaction| {
 										(reaction.emoji.clone(), &mut self.reaction_users)
 									}),
+								Some(&mut self.hidden_messages),
 							);
 							self.toolbar = Some((id, toolbar_rect));
 						}
@@ -4707,6 +5109,9 @@ impl TimelineView {
 				if index >= anchor {
 					self.rows[index].1 = *height;
 				}
+			}
+			if let Some(target) = unhide_target {
+				self.hidden_messages.remove(&target);
 			}
 			viewport.min.y
 		});
@@ -4865,7 +5270,12 @@ impl TimelineView {
 		}
 		// Explicit upward input requests one page even when a short view cannot scroll.
 		// Idle layout still never drains history merely to fill the viewport.
-		self.load_older = output.state.clamped_offset().y < 160.0
+		let older_threshold = if better_backreading_enabled() {
+			600.0
+		} else {
+			160.0
+		};
+		self.load_older = output.state.clamped_offset().y < older_threshold
 			&& ui.input(|i| {
 				scroll_delta > 0.0
 					&& (session.holding()
@@ -5333,6 +5743,55 @@ pub fn debug_unread_navigation_check(state: &mut State) {
 mod pending_tests;
 #[cfg(test)]
 mod tests {
+
+	#[test]
+	fn jump_to_top_resets_following_and_anchors_first_message() {
+		let mut timeline = super::TimelineView::default();
+		timeline.following = true;
+		timeline.jump_to_top();
+		assert!(!timeline.following);
+		assert!(timeline.jump);
+		assert_eq!(timeline.anchor, None);
+		assert_eq!(timeline.scroll_offset, 0.0);
+	}
+
+	#[test]
+	fn show_me_your_name_toggle_works() {
+		set_show_me_your_name_enabled(true);
+		assert!(SHOW_ME_YOUR_NAME_ENABLED.load(Ordering::Relaxed));
+		set_show_me_your_name_enabled(false);
+		assert!(!SHOW_ME_YOUR_NAME_ENABLED.load(Ordering::Relaxed));
+	}
+
+	#[test]
+	fn force_owner_crown_toggle_works() {
+		set_force_owner_crown_enabled(true);
+		assert!(force_owner_crown_enabled());
+		set_force_owner_crown_enabled(false);
+		assert!(!force_owner_crown_enabled());
+	}
+
+	#[test]
+	fn valid_reply_and_jump_and_role_dot_toggles_work() {
+		assert!(!valid_reply_enabled());
+		set_valid_reply_enabled(true);
+		assert!(valid_reply_enabled());
+		set_valid_reply_enabled(false);
+		assert!(!valid_reply_enabled());
+
+		assert!(!no_unblock_to_jump_enabled());
+		set_no_unblock_to_jump_enabled(true);
+		assert!(no_unblock_to_jump_enabled());
+		set_no_unblock_to_jump_enabled(false);
+		assert!(!no_unblock_to_jump_enabled());
+
+		assert!(!better_role_dot_enabled());
+		set_better_role_dot_enabled(true);
+		assert!(better_role_dot_enabled());
+		set_better_role_dot_enabled(false);
+		assert!(!better_role_dot_enabled());
+	}
+
 	use super::*;
 
 	/// Text actually painted this frame, in painting order.
@@ -6233,6 +6692,7 @@ mod tests {
 							(false, false, &mut None),
 							(own, &mut thread_request),
 							(false, &mut None),
+							None,
 							None,
 						)
 					},
@@ -10329,5 +10789,127 @@ impl crate::MessagingUi {
 		);
 		println!("Immediate message labels and Shift menu checks passed.");
 		println!("Double-click uses the saved reaction independently of recommendations");
+	}
+}
+
+#[cfg(test)]
+mod venserein_reply_timestamp_tests {
+	use super::*;
+
+	#[test]
+	fn test_reply_timestamp_toggle() {
+		assert!(reply_timestamp_enabled());
+		set_reply_timestamp_enabled(false);
+		assert!(!reply_timestamp_enabled());
+		set_reply_timestamp_enabled(true);
+		assert!(reply_timestamp_enabled());
+	}
+}
+
+#[cfg(test)]
+mod venserein_batch1_timeline_tests {
+	use super::*;
+
+	#[test]
+	fn test_pin_icon_and_show_roles_toggles() {
+		assert!(pin_icon_enabled());
+		set_pin_icon_enabled(false);
+		assert!(!pin_icon_enabled());
+		set_pin_icon_enabled(true);
+		assert!(pin_icon_enabled());
+
+		assert!(!show_roles_in_chat_enabled());
+		set_show_roles_in_chat_enabled(true);
+		assert!(show_roles_in_chat_enabled());
+		set_show_roles_in_chat_enabled(false);
+		assert!(!show_roles_in_chat_enabled());
+	}
+}
+
+#[cfg(test)]
+mod venserein_batch2_timeline_tests {
+	use super::*;
+
+	#[test]
+	fn test_hide_messages_and_better_backreading_toggles() {
+		assert!(!hide_messages_enabled());
+		set_hide_messages_enabled(true);
+		assert!(hide_messages_enabled());
+
+		let mut view = TimelineView::default();
+		let id = Id(999);
+		assert!(!view.is_message_hidden(id));
+
+		view.hide_message(id);
+		assert!(view.is_message_hidden(id));
+
+		view.unhide_message(id);
+		assert!(!view.is_message_hidden(id));
+
+		view.hide_message(id);
+		view.clear_hidden_messages();
+		assert!(!view.is_message_hidden(id));
+
+		set_hide_messages_enabled(false);
+		assert!(!hide_messages_enabled());
+
+		assert!(better_backreading_enabled());
+		set_better_backreading_enabled(false);
+		assert!(!better_backreading_enabled());
+		set_better_backreading_enabled(true);
+		assert!(better_backreading_enabled());
+	}
+}
+
+#[cfg(test)]
+mod venserein_phase2_batch1_timeline_tests {
+	use super::*;
+
+	#[test]
+	fn test_auto_jump_and_jump_to_and_sidebar_chat_toggles() {
+		assert!(auto_jump_to_message_enabled());
+		set_auto_jump_to_message_enabled(false);
+		assert!(!auto_jump_to_message_enabled());
+		set_auto_jump_to_message_enabled(true);
+		assert!(auto_jump_to_message_enabled());
+
+		assert!(jump_to_enabled());
+		set_jump_to_enabled(false);
+		assert!(!jump_to_enabled());
+		set_jump_to_enabled(true);
+		assert!(jump_to_enabled());
+
+		assert!(sidebar_chat_enabled());
+		set_sidebar_chat_enabled(false);
+		assert!(!sidebar_chat_enabled());
+		set_sidebar_chat_enabled(true);
+		assert!(sidebar_chat_enabled());
+
+		assert!(dragify_enabled());
+		set_dragify_enabled(false);
+		assert!(!dragify_enabled());
+		set_dragify_enabled(true);
+		assert!(dragify_enabled());
+
+		assert!(message_details_enabled());
+		set_message_details_enabled(false);
+		assert!(!message_details_enabled());
+		set_message_details_enabled(true);
+		assert!(message_details_enabled());
+
+		let test_time = time::OffsetDateTime::from_unix_timestamp(1700000000).unwrap();
+		let tooltip = message_details_tooltip(Id(111), Id(222), test_time, None);
+		assert!(tooltip.contains("Message ID: 111"));
+		assert!(tooltip.contains("Author ID: 222"));
+		assert!(!tooltip.contains("Edited:"));
+
+		let edit_nanos = 1700000500i128 * 1_000_000_000;
+		let tooltip_edited = message_details_tooltip(Id(111), Id(222), test_time, Some(edit_nanos));
+		assert!(tooltip_edited.contains("Edited:"));
+
+		set_message_details_enabled(false);
+		let plain_tooltip = message_details_tooltip(Id(111), Id(222), test_time, Some(edit_nanos));
+		assert!(!plain_tooltip.contains("Message ID:"));
+		set_message_details_enabled(true);
 	}
 }

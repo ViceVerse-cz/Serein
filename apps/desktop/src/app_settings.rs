@@ -142,6 +142,9 @@ impl Settings {
 		// Unreadable preferences fall back to defaults; never nag with setup on every launch.
 		ui.setup_pending = self.loaded && !value.setup_done;
 		ui::local_time::set_format(ui.time_format, ui.language);
+		ui::set_gif_paste_enabled(true);
+		ui::set_sticker_paste_enabled(true);
+		ui::set_vc_narrator_enabled(true);
 	}
 }
 

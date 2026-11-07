@@ -1438,11 +1438,32 @@ fn date(millis: Option<i128>) -> String {
 			},
 		)
 }
+pub fn format_timeout_duration(remaining_millis: i128) -> String {
+	let total_secs = (remaining_millis / 1_000).max(0) as u64;
+	let days = total_secs / 86400;
+	let hours = (total_secs % 86400) / 3600;
+	let minutes = (total_secs % 3600) / 60;
+	let seconds = total_secs % 60;
+	if days > 0 {
+		format!("{days}d {hours}h")
+	} else if hours > 0 {
+		format!("{hours}h {minutes}m")
+	} else if minutes > 0 {
+		format!("{minutes}m {seconds}s")
+	} else {
+		format!("{seconds}s")
+	}
+}
+
 fn signals(member: &Member) -> String {
 	let now = time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
 	let mut signals = Vec::new();
-	if member.timeout_until.is_some_and(|until| until > now) {
-		signals.push(crate::i18n::translate("server-admin-signals-timed-out"));
+	if let Some(until) = member.timeout_until.filter(|&until| until > now) {
+		let remaining = format_timeout_duration(until - now);
+		signals.push(format!(
+			"{} ({remaining})",
+			crate::i18n::translate("server-admin-signals-timed-out")
+		));
 	}
 	if member.unusual_dm_until.is_some_and(|until| until > now) {
 		signals.push(crate::i18n::translate(
@@ -1465,4 +1486,17 @@ fn signals(member: &Member) -> String {
 		}
 	}
 	signals.join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn format_timeout_duration_scales_with_remaining_time() {
+		assert_eq!(format_timeout_duration(5_000), "5s");
+		assert_eq!(format_timeout_duration(65_000), "1m 5s");
+		assert_eq!(format_timeout_duration(3_665_000), "1h 1m");
+		assert_eq!(format_timeout_duration(90_000_000), "1d 1h");
+	}
 }

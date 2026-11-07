@@ -7,12 +7,25 @@ mod audio;
 mod badges;
 mod forwarding;
 mod role_names;
-pub use audio::{AudioCommand, AudioState, AudioUi};
+pub use audio::{
+	AudioCommand, AudioState, AudioUi,
+	better_audio_player_enabled, set_better_audio_player_enabled,
+	media_playback_speed_enabled, set_media_playback_speed_enabled,
+	voice_messages_in_background_enabled, set_voice_messages_in_background_enabled,
+};
 mod video;
 pub use video::{VideoCommand, VideoState, VideoUi};
 mod attachments;
 pub mod external_upload;
-pub use attachments::DownloadUi;
+pub use attachments::{
+	DownloadUi,
+	blur_nsfw_enabled, set_blur_nsfw_enabled,
+	zip_preview_enabled, set_zip_preview_enabled,
+	download_all_attachments_enabled, set_download_all_attachments_enabled,
+	clips_enhancements_enabled, set_clips_enhancements_enabled,
+	clip_upload_enabled, set_clip_upload_enabled,
+	voice_message_transcriber_enabled, set_voice_message_transcriber_enabled,
+};
 mod avatars;
 mod resample;
 #[cfg(feature = "demo")]
@@ -36,6 +49,7 @@ mod recovery_demo;
 #[cfg(all(debug_assertions, feature = "demo"))]
 pub use recovery_demo::check as debug_resume_send_check;
 pub mod design;
+pub use design::LazyHover;
 mod embeds;
 mod extension_account_actions;
 mod extension_actions;
@@ -139,7 +153,109 @@ use client_core::{Command, MAX_DRAFT_BYTES, NavStep, State};
 use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
-pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING};
+pub use voice::{
+	StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING, set_vc_narrator_enabled, vc_narrator_enabled,
+	full_vc_pfp_enabled, set_full_vc_pfp_enabled,
+	disable_cameras_enabled, set_disable_cameras_enabled,
+	vc_panel_settings_uncollapsed, set_vc_panel_settings_uncollapsed,
+	voice_buttons_enabled, set_voice_buttons_enabled,
+	voice_stats_enabled, set_voice_stats_enabled,
+	voice_rejoin_enabled, set_voice_rejoin_enabled, last_voice_channel, record_last_voice_channel,
+	wait_for_slot_enabled, set_wait_for_slot_enabled, waiting_voice_channel, set_waiting_voice_channel,
+	follow_voice_user_enabled, set_follow_voice_user_enabled, followed_voice_user, set_followed_voice_user,
+	random_voice_enabled, set_random_voice_enabled, pick_random_voice_channel,
+	custom_sounds_enabled, set_custom_sounds_enabled,
+	exit_sounds_enabled, set_exit_sounds_enabled,
+	voice_join_messages_enabled, set_voice_join_messages_enabled,
+	voice_chat_utilities_enabled, set_voice_chat_utilities_enabled,
+	mic_loopback_tester_enabled, set_mic_loopback_tester_enabled, mic_loopback_active, set_mic_loopback_active,
+	never_pause_previews_enabled, set_never_pause_previews_enabled,
+	streaming_codec_disabler_enabled, set_streaming_codec_disabler_enabled,
+};
+pub use account_menu::{account_panel_server_profile_enabled, set_account_panel_server_profile_enabled};
+pub use embeds::{
+	fix_spotify_embeds_enabled, fix_youtube_embeds_enabled, set_fix_spotify_embeds_enabled,
+	set_fix_youtube_embeds_enabled,
+};
+pub use emoji_picker::{
+	better_gif_picker_enabled, greet_sticker_picker_enabled, set_better_gif_picker_enabled,
+	set_greet_sticker_picker_enabled,
+};
+pub use guild_folders::{
+	better_folders_close_others_enabled, better_folders_enabled,
+	set_better_folders_close_others_enabled, set_better_folders_enabled,
+	hide_servers_enabled, set_hide_servers_enabled, hide_server, unhide_server, is_server_hidden,
+	custom_folder_icons_enabled, set_custom_folder_icons_enabled,
+	server_search_enabled, set_server_search_enabled,
+	home_typing_enabled, set_home_typing_enabled,
+	server_counter_enabled, set_server_counter_enabled, server_counter_label,
+};
+pub use highlight::{set_shiki_codeblocks_enabled, shiki_codeblocks_enabled};
+pub use notifications::{server_list_indicators_enabled, set_server_list_indicators_enabled};
+pub use profiles::{
+	always_expand_profiles_enabled, banners_everywhere_enabled, platform_indicators_enabled,
+	set_always_expand_profiles_enabled, set_banners_everywhere_enabled,
+	set_platform_indicators_enabled, set_timezones_enabled, set_user_voice_show_enabled,
+	timezones_enabled, user_voice_show_enabled,
+	friendship_ranks_enabled, set_friendship_ranks_enabled, friendship_duration_text,
+	show_connections_enabled, set_show_connections_enabled,
+};
+pub use typing::{
+	set_typing_indicator_avatar_enabled, set_typing_tweaks_enabled,
+	typing_indicator_avatar_enabled, typing_tweaks_enabled,
+};
+pub use markdown::{
+	content_warning_enabled, has_content_warning, markdown_tables_enabled,
+	message_colors_enabled, message_link_tooltip_enabled, set_content_warning_enabled,
+	set_markdown_tables_enabled, set_message_colors_enabled, set_message_link_tooltip_enabled,
+};
+pub use reactions::{reaction_timestamps_enabled, set_reaction_timestamps_enabled};
+pub use badges::{show_badges_in_chat_enabled, set_show_badges_in_chat_enabled};
+pub use local_time::{custom_timestamps_seconds_enabled, set_custom_timestamps_seconds_enabled};
+pub use embeds::{set_show_message_embeds_enabled, show_message_embeds_enabled};
+pub use emoji_picker::{
+	set_whitelisted_emojis_enabled, whitelisted_emojis_enabled,
+	drag_favorite_emotes_enabled, set_drag_favorite_emotes_enabled,
+};
+pub use user_menu::{
+	last_active_enabled, set_last_active_enabled,
+	copy_user_mention_enabled, set_copy_user_mention_enabled,
+	copy_profile_colors_enabled, set_copy_profile_colors_enabled,
+	copy_status_urls_enabled, set_copy_status_urls_enabled,
+	cancel_friend_request_enabled, set_cancel_friend_request_enabled,
+	custom_user_colors_enabled, set_custom_user_colors_enabled,
+	custom_user_color, set_custom_user_color,
+};
+pub use timeline::{
+	better_backreading_enabled, hide_messages_enabled, pin_icon_enabled,
+	set_better_backreading_enabled, set_hide_messages_enabled, set_pin_icon_enabled,
+	set_show_roles_in_chat_enabled, show_roles_in_chat_enabled,
+	auto_jump_to_message_enabled, jump_to_enabled, set_auto_jump_to_message_enabled,
+	set_jump_to_enabled, set_sidebar_chat_enabled, sidebar_chat_enabled,
+	dragify_enabled, set_dragify_enabled,
+	message_details_enabled, set_message_details_enabled, message_details_tooltip,
+};
+pub use categories::{
+	cleaner_channel_groups_enabled, message_peek_enabled,
+	set_cleaner_channel_groups_enabled, set_message_peek_enabled,
+	draft_navigator_enabled, set_draft_navigator_enabled,
+	clean_channel_name_enabled, set_clean_channel_name_enabled, clean_channel_name,
+	channel_badges_enabled, set_channel_badges_enabled, channel_badge_label,
+	channel_tabs_enabled, set_channel_tabs_enabled,
+	show_resource_channels_enabled, set_show_resource_channels_enabled,
+	unread_badge_count_enabled, set_unread_badge_count_enabled,
+	member_count_enabled, set_member_count_enabled, guild_member_counts,
+};
+pub use switcher::{
+	command_palette_enabled, frequent_quick_switcher_enabled, recent_dm_switcher_enabled,
+	set_command_palette_enabled, set_frequent_quick_switcher_enabled,
+	set_recent_dm_switcher_enabled, CommandPaletteAction,
+	friend_tags_enabled, set_friend_tags_enabled,
+};
+pub use keybinds::{
+	keyboard_navigation_enabled, set_keyboard_navigation_enabled,
+	toggle_video_bind_enabled, set_toggle_video_bind_enabled,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {
@@ -523,6 +639,8 @@ pub struct MessagingUi {
 	pub voice_privacy_code: Option<String>,
 	/// Latest media activity, capped at 64 IDs (512 bytes) by the voice host.
 	pub voice_speaking: Vec<Id>,
+	pub voice_narrator_cache: std::collections::HashMap<Id, (String, bool)>,
+	pub voice_narrator_channel: Option<Id>,
 	pub notifications_enabled: bool,
 	/// Show as Idle after the account's idle timeout of system inactivity, or on lock.
 	pub auto_idle: bool,
@@ -581,6 +699,142 @@ pub struct MessagingUi {
 	pub transparency_blur: bool,
 	pub transparency: u8,
 	pub blur: u8,
+}
+
+
+/// VenSerein (AddAttachments): Allows attaching files/images when editing an already sent message.
+pub static ADD_ATTACHMENTS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_add_attachments_enabled(enabled: bool) {
+	ADD_ATTACHMENTS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn add_attachments_enabled() -> bool {
+	ADD_ATTACHMENTS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+pub static FULL_USER_IN_CHATBOX_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn full_user_in_chatbox_enabled() -> bool {
+	FULL_USER_IN_CHATBOX_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (GifPaste): Normalizes pasted Tenor, Giphy, and direct GIF URLs into clean media links.
+pub static GIF_PASTE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_gif_paste_enabled(enabled: bool) {
+	GIF_PASTE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn gif_paste_enabled() -> bool {
+	GIF_PASTE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn normalize_gif_paste(text: &str) -> String {
+	if !gif_paste_enabled() {
+		return text.to_owned();
+	}
+	let trimmed = text.trim();
+	if trimmed.starts_with("https://tenor.com/view/")
+		|| trimmed.starts_with("https://media.tenor.com/")
+		|| trimmed.starts_with("https://giphy.com/gifs/")
+		|| trimmed.starts_with("https://media.giphy.com/")
+		|| (trimmed.starts_with("http") && trimmed.ends_with(".gif"))
+	{
+		trimmed.to_owned()
+	} else {
+		text.to_owned()
+	}
+}
+
+/// VenSerein (StickerPaste): Parses pasted Discord sticker URLs into sticker IDs and format types.
+pub static STICKER_PASTE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_sticker_paste_enabled(enabled: bool) {
+	STICKER_PASTE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn sticker_paste_enabled() -> bool {
+	STICKER_PASTE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn parse_sticker_paste(text: &str) -> Option<(u64, u8)> {
+	if !sticker_paste_enabled() {
+		return None;
+	}
+	let trimmed = text.trim();
+	if trimmed.contains(char::is_whitespace) {
+		return None;
+	}
+	if let Some(rest) = trimmed
+		.strip_prefix("https://media.discordapp.net/stickers/")
+		.or_else(|| trimmed.strip_prefix("https://cdn.discordapp.com/stickers/"))
+	{
+		let (path_and_query, _) = rest.split_once('#').unwrap_or((rest, ""));
+		let (path, _) = path_and_query.split_once('?').unwrap_or((path_and_query, ""));
+		let id_str = path.split(['.', '/']).next()?;
+		let id = id_str.parse::<u64>().ok()?;
+		let format_type = if path.ends_with(".gif") {
+			4
+		} else if path.ends_with(".json") {
+			3
+		} else {
+			1
+		};
+		Some((id, format_type))
+	} else {
+		None
+	}
+}
+
+pub fn set_full_user_in_chatbox_enabled(enabled: bool) {
+	FULL_USER_IN_CHATBOX_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub(crate) fn composer_placeholder(state: &State, channel: Id) -> String {
+	state.channel(channel).map_or_else(
+		|| crate::i18n::translate("composer-placeholder"),
+		|c| {
+			if c.guild.is_some() {
+				crate::i18n::translate_args(
+					"composer-placeholder-channel",
+					&[("channel", &c.name)],
+				)
+			} else if full_user_in_chatbox_enabled()
+				&& c.kind == 1
+				&& let Some(user) = c.recipients.first()
+			{
+				let tag = if user.discriminator != 0 {
+					format!("{}#{:04}", user.name, user.discriminator)
+				} else {
+					user.name.clone()
+				};
+				let display = state.friend_nickname(user.id);
+				let full_name = match display {
+					Some(nick) if nick != user.name => format!("{nick} (@{tag})"),
+					_ => tag,
+				};
+				crate::i18n::translate_args(
+					"composer-placeholder-direct",
+					&[("name", &full_name)],
+				)
+			} else {
+				crate::i18n::translate_args(
+					"composer-placeholder-direct",
+					&[("name", state.conversation_name(c))],
+				)
+			}
+		},
+	)
 }
 
 /// Context strip (reply/edit) drawn as the rounded top of the composer block.
@@ -1117,6 +1371,16 @@ impl MessagingUi {
 		let paste_enabled = allowed && (menu || ctx.memory(|m| m.has_focus(target)));
 		if let Some((paste_channel, pasted_target, text)) = pasted_text {
 			if paste_enabled && paste_channel == channel && pasted_target == target {
+				let text = if let Some((id, format_type)) = parse_sticker_paste(&text) {
+					let ext = match format_type {
+						4 => "gif",
+						3 => "json",
+						_ => "png",
+					};
+					format!("https://media.discordapp.net/stickers/{id}.{ext}")
+				} else {
+					normalize_gif_paste(&text)
+				};
 				ctx.input_mut(|i| i.events.push(egui::Event::Paste(text)));
 				self.pasted_text_frame = Some(ctx.cumulative_frame_nr());
 			} else {
@@ -1187,6 +1451,7 @@ impl MessagingUi {
 	}
 
 	pub fn downloads(&mut self) -> &mut DownloadUi {
+		self.timeline.download.pump_queue();
 		&mut self.timeline.download
 	}
 	pub fn audio(&mut self) -> &mut AudioUi {
@@ -2140,6 +2405,29 @@ impl MessagingUi {
 				}
 				if let Some(command) = state.request_sidebar_forum_posts(self.guild) {
 					commands.push(command);
+				}
+				if let Some(guild) = self.guild
+					&& categories::member_count_enabled()
+					&& let Some((total, online)) = categories::guild_member_counts(state, guild)
+				{
+					let label = match online {
+						Some(on) => format!("👥 {on} online · {total} members"),
+						None => format!("👥 {total} members"),
+					};
+					ui.horizontal(|ui| {
+						ui.spacing_mut().item_spacing.x = 4.0;
+						ui.add(
+							egui::Label::new(
+								egui::RichText::new(label)
+									.size(11.0)
+									.color(colors.muted),
+							)
+							.truncate()
+							.selectable(false),
+						)
+						.on_hover_text_with(|| format!("{total} total members"));
+					});
+					ui.add_space(4.0);
 				}
 				let select = self.channel_list(ui, state);
 				if let Some((guild, channel, user)) = self.stream_preview_request.take()
@@ -3500,22 +3788,7 @@ impl MessagingUi {
 					.chords(model::KeybindAction::SendMessage)
 					.any(|chord| crate::keybinds::pressed_exact(i, chord))
 			});
-		let placeholder = state.channel(channel).map_or_else(
-			|| crate::i18n::translate("composer-placeholder"),
-			|c| {
-				if c.guild.is_some() {
-					crate::i18n::translate_args(
-						"composer-placeholder-channel",
-						&[("channel", &c.name)],
-					)
-				} else {
-					crate::i18n::translate_args(
-						"composer-placeholder-direct",
-						&[("name", state.conversation_name(c))],
-					)
-				}
-			},
-		);
+		let placeholder = composer_placeholder(state, channel);
 		let can_attach = !editing_here
 			&& self.slash_commands.active.is_none()
 			&& state.can_attach(channel)
@@ -4552,6 +4825,12 @@ impl MessagingUi {
 		if back || forward {
 			self.navigate_history(state, &mut commands, back);
 		}
+		if state.voice.active.is_none() {
+			if !self.voice_narrator_cache.is_empty() {
+				self.voice_narrator_cache.clear();
+			}
+			self.voice_narrator_channel = None;
+		}
 		// Fullscreen media owns the whole client surface, including during native resizing.
 		if self.show_fullscreen_voice(ui.ctx(), state) {
 			ui.painter()
@@ -4677,6 +4956,43 @@ impl MessagingUi {
 		}) {
 			self.switcher.open(&ctx);
 		}
+		if switcher::recent_dm_switcher_enabled() {
+			let (ctrl_tab, ctrl_shift_tab) = ctx.input_mut(|input| {
+				(
+					input.consume_key(egui::Modifiers::COMMAND, egui::Key::Tab)
+						|| input.consume_key(egui::Modifiers::CTRL, egui::Key::Tab),
+					input.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Tab)
+						|| input.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::Tab),
+				)
+			});
+			if ctrl_tab || ctrl_shift_tab {
+				let dms: Vec<Id> = state
+					.channels
+					.iter()
+					.filter(|c| c.guild.is_none() && (c.kind == 1 || c.kind == 3) && state.can_view(c.id))
+					.map(|c| c.id)
+					.collect();
+				if !dms.is_empty() {
+					let current_idx = state.selected.and_then(|sel| dms.iter().position(|&id| id == sel));
+					let next_idx = match current_idx {
+						Some(idx) => {
+							if ctrl_shift_tab {
+								(idx + dms.len() - 1) % dms.len()
+							} else {
+								(idx + 1) % dms.len()
+							}
+						}
+						None => 0,
+					};
+					let target_dm = dms[next_idx];
+					if state.selected != Some(target_dm) {
+						if let Some(command) = state.select(target_dm) {
+							commands.push(command);
+						}
+					}
+				}
+			}
+		}
 		self.switcher_frame = self.switcher.is_open();
 		let direct_origin = (state.selected, state.request);
 		if let Some(command) = state.select_opened_dm() {
@@ -4705,6 +5021,61 @@ impl MessagingUi {
 						commands.push(command);
 					}
 				}
+				switcher::Target::Action(action) => match action {
+					switcher::CommandPaletteAction::OpenSettings => {
+						self.settings.open = true;
+					}
+					switcher::CommandPaletteAction::MarkAllRead => {
+						if let Some(command) = state.prepare_mark_all_read() {
+							commands.push(command);
+						}
+					}
+					switcher::CommandPaletteAction::ToggleMute => {
+						let (muted, deafened) = self.toggle_voice(false);
+						if let Some(command) = state.set_call_mute(muted, deafened) {
+							commands.push(command);
+						}
+					}
+					switcher::CommandPaletteAction::ToggleDeafen => {
+						let (muted, deafened) = self.toggle_voice(true);
+						if let Some(command) = state.set_call_mute(muted, deafened) {
+							commands.push(command);
+						}
+					}
+					switcher::CommandPaletteAction::JumpToPresent => {
+						self.timeline.follow_latest(state);
+					}
+					switcher::CommandPaletteAction::JumpToOldest => {
+						self.timeline.jump_to_top();
+					}
+					switcher::CommandPaletteAction::OpenPins => {
+						if self.search.toggle(true)
+							&& let Some(command) = state.request_pins()
+						{
+							commands.push(command);
+						}
+					}
+					switcher::CommandPaletteAction::OpenMentions => {
+						let query = state
+							.user
+							.as_ref()
+							.map(|u| format!("mentions:{}", u.id.0))
+							.unwrap_or_default();
+						self.search.open_with_query(query);
+					}
+					switcher::CommandPaletteAction::ToggleMemberCount => {
+						categories::set_member_count_enabled(!categories::member_count_enabled());
+					}
+					switcher::CommandPaletteAction::ToggleServerCounter => {
+						guild_folders::set_server_counter_enabled(!guild_folders::server_counter_enabled());
+					}
+					switcher::CommandPaletteAction::ToggleShowConnections => {
+						profiles::set_show_connections_enabled(!profiles::show_connections_enabled());
+					}
+					switcher::CommandPaletteAction::ToggleMessageDetails => {
+						timeline::set_message_details_enabled(!timeline::message_details_enabled());
+					}
+				},
 			}
 		}
 		if self.navigation_channel != state.selected {
@@ -4826,6 +5197,18 @@ impl MessagingUi {
 		self.sync_last_channels(state);
 		self.channel_menu
 			.show(&ctx, state, self.guild, &mut self.avatars, &mut commands);
+		if let Some((channel, to_present)) = self.channel_menu.jump_to_requested.take() {
+			if state.selected != Some(channel)
+				&& let Some(command) = state.select(channel)
+			{
+				commands.push(command);
+			}
+			if to_present {
+				self.timeline.follow_latest(state);
+			} else {
+				self.timeline.jump_to_top();
+			}
+		}
 		if let Some((guild, channel)) = self.channel_menu.invite_requested.take() {
 			self.server_menu.open_invite(state, guild, channel);
 		}
@@ -9683,6 +10066,80 @@ mod composer_tests {
 			"clearing at the slot limit must free capacity"
 		);
 		assert_eq!(messaging.draft_changes, [Id(1), Id(1)]);
+	}
+	#[test]
+	fn gif_paste_and_sticker_paste_toggles_and_parsers() {
+		assert!(!gif_paste_enabled());
+		set_gif_paste_enabled(true);
+		assert!(gif_paste_enabled());
+		let gif_url = "  https://tenor.com/view/funny-cat-12345  ";
+		assert_eq!(normalize_gif_paste(gif_url), "https://tenor.com/view/funny-cat-12345");
+		let non_gif = "Hello world";
+		assert_eq!(normalize_gif_paste(non_gif), "Hello world");
+		set_gif_paste_enabled(false);
+		assert_eq!(normalize_gif_paste(gif_url), gif_url);
+
+		assert!(!sticker_paste_enabled());
+		set_sticker_paste_enabled(true);
+		assert!(sticker_paste_enabled());
+		let sticker_url = "https://media.discordapp.net/stickers/123456789.png?size=160";
+		assert_eq!(parse_sticker_paste(sticker_url), Some((123456789, 1)));
+		// Query parameters like ?name=.gif must not change format from png (1) to gif (4)
+		assert_eq!(parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png?name=.gif"), Some((123456789, 1)));
+		// Fragment like #.gif must not change format from png (1) to gif (4)
+		assert_eq!(parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png#.gif"), Some((123456789, 1)));
+		// Text following the URL must not be dropped; it should return None
+		assert_eq!(parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png and caption"), None);
+		let animated_sticker = "https://cdn.discordapp.com/stickers/987654321.gif";
+		assert_eq!(parse_sticker_paste(animated_sticker), Some((987654321, 4)));
+		let invalid = "https://example.com/not_a_sticker";
+		assert_eq!(parse_sticker_paste(invalid), None);
+		set_sticker_paste_enabled(false);
+		assert_eq!(parse_sticker_paste(sticker_url), None);
+	}
+	#[test]
+	fn full_user_in_chatbox_toggle_and_placeholder_formatting() {
+		let user = model::User {
+			kind: model::AccountKind::Human,
+			webhook: false,
+			id: Id(42),
+			name: "Luna".into(),
+			avatar: None,
+			discriminator: 1337,
+			primary_guild: None,
+			cosmetics: None,
+		};
+		let channel = model::Channel {
+			last_message: None,
+			id: Id(100),
+			guild: None,
+			parent_id: None,
+			position: 0,
+			name: "Luna".into(),
+			kind: 1,
+			recipients: vec![user],
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+			icon: None,
+		};
+		let state = State {
+			channels: vec![channel],
+			..Default::default()
+		};
+
+		set_full_user_in_chatbox_enabled(true);
+		assert!(full_user_in_chatbox_enabled());
+		let placeholder_full = composer_placeholder(&state, Id(100));
+		assert!(placeholder_full.contains("Luna#1337"));
+
+		set_full_user_in_chatbox_enabled(false);
+		assert!(!full_user_in_chatbox_enabled());
+		let placeholder_simple = composer_placeholder(&state, Id(100));
+		assert!(placeholder_simple.contains("Luna"));
+		assert!(!placeholder_simple.contains("#1337"));
+
+		set_full_user_in_chatbox_enabled(true);
 	}
 }
 

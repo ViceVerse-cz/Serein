@@ -3,6 +3,30 @@
 //! Values are display-only and never persisted.
 use crate::{Id, valid_avatar_hash};
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// VenSerein (Decor): Enables custom avatar decoration and collectible cosmetics.
+pub static DECOR_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub fn decor_enabled() -> bool {
+	DECOR_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_decor_enabled(enabled: bool) {
+	DECOR_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (USRBG): Custom profile background and banner integration.
+pub static USRBG_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub fn usrbg_enabled() -> bool {
+	USRBG_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_usrbg_enabled(enabled: bool) {
+	USRBG_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
 /// Longest accepted nameplate asset path, such as `nameplates/nameplates_v3/bonsai/`.
 pub const MAX_NAMEPLATE_ASSET: usize = 128;
 pub const MAX_COSMETIC_LABEL: usize = 256;
@@ -554,4 +578,20 @@ mod tests {
 		assert!(decoration.valid() && decoration.animated());
 		assert!(decoration.active(99) && !decoration.active(100));
 	}
+
+	#[test]
+	fn decor_and_usrbg_toggles_work() {
+		assert!(decor_enabled());
+		set_decor_enabled(false);
+		assert!(!decor_enabled());
+		set_decor_enabled(true);
+		assert!(decor_enabled());
+
+		assert!(usrbg_enabled());
+		set_usrbg_enabled(false);
+		assert!(!usrbg_enabled());
+		set_usrbg_enabled(true);
+		assert!(usrbg_enabled());
+	}
 }
+
