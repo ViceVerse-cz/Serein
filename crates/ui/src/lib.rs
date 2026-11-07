@@ -83,6 +83,7 @@ mod profiles;
 mod slash_builtin;
 mod slash_commands;
 mod stickers;
+mod timestamp_picker;
 /// Synthetic global profile used exclusively by the desktop's offline command adapter.
 #[cfg(any(test, feature = "demo"))]
 pub fn synthetic_own_profile(user: &model::User) -> model::UserProfile {
@@ -570,6 +571,7 @@ pub struct MessagingUi {
 	/// The composer claimed Tab last frame, so egui left it in the input for a suggestion menu.
 	composer_claims_tab: bool,
 	mention_menu: mentions::Menu,
+	timestamp_picker: timestamp_picker::Picker,
 	slash_commands: slash_commands::Menu,
 	slash_direct: Option<slash_builtin::PendingMessage>,
 	mention_lookup: member_search::Search,
@@ -2995,7 +2997,9 @@ impl MessagingUi {
 			return;
 		}
 		let colors = crate::design::palette(ui);
-		let keyboard_enabled = !self.switcher_frame
+		let timestamp_blocked = self.timestamp_picker.is_open();
+		let keyboard_enabled = !timestamp_blocked
+			&& !self.switcher_frame
 			&& !self.switcher.is_open()
 			&& ctx.memory(|memory| memory.top_modal_layer().is_none());
 		fn ime_updates_text(event: &egui::Event) -> bool {
@@ -3035,6 +3039,13 @@ impl MessagingUi {
 			.filter(|(c, _, _)| *c == channel)
 			.map(|(c, id, _)| (*c, *id));
 		let editing_here = editing_key.is_some();
+		let timestamp_target = timestamp_picker::Target {
+			generation: state.generation,
+			channel,
+			editing: editing_key.map(|(_, id)| id),
+		};
+		let timestamp_pick = self.timestamp_picker.show(ctx, timestamp_target);
+
 		if let Some((_, id)) = editing_key {
 			if state.timeline.get(id).is_some() {
 				self.edit_undo_cleared = false;
@@ -3459,6 +3470,7 @@ impl MessagingUi {
 			.filter(|r| r.is_empty())
 			.map(|r| r.primary.index.0);
 		self.mention_menu.hide_nitro_emojis = self.hide_nitro_emojis;
+		self.mention_menu.editing = editing_here;
 		if std::mem::take(&mut self.mention_menu.retry_games) {
 			state.game_mentions.status = client_core::game_mentions::Status::Idle;
 		}
@@ -3475,11 +3487,13 @@ impl MessagingUi {
 			state.game_mentions.request();
 			ctx.request_repaint();
 		}
-		let mention_pick = if mention_enabled {
-			self.mention_menu.keys(ctx)
-		} else {
-			None
-		};
+		let mention_pick = timestamp_pick.or_else(|| {
+			if mention_enabled {
+				self.mention_menu.keys(ctx)
+			} else {
+				None
+			}
+		});
 		if std::mem::take(&mut self.composer_claims_tab) && ctx.memory(|m| m.has_focus(composer_id))
 		{
 			// A menu that closed this frame must not leave Tab for the editor to indent with.
@@ -3776,7 +3790,7 @@ impl MessagingUi {
                             mention_changed = true;
                         }
                         if let Some(pick) = mention_pick
-                            && let Some(cursor) = mentions::insert(draft, pick, editing_here)
+                            && let Some(cursor) = self.timestamp_picker.accept(draft, pick, timestamp_target, remaining)
                         {
                             let mut edit_state =
                                 egui::text_edit::TextEditState::load(ctx, composer_id).unwrap_or_default();
@@ -3908,7 +3922,7 @@ impl MessagingUi {
                         self.mention_menu
                             .refresh(state, channel, draft, mention_cursor, &mention_users);
                         if let Some(pick) = self.mention_menu.show(ui, composer_anchor, &mut self.avatars, demo)
-                            && let Some(cursor) = mentions::insert(draft, pick, editing_here)
+                            && let Some(cursor) = self.timestamp_picker.accept(draft, pick, timestamp_target, remaining)
                         {
                             output
                                 .state
@@ -4025,6 +4039,9 @@ impl MessagingUi {
                         }
                     });
                 });
+                if !editing_here && state.drafts.get(&channel).is_some_and(|draft| model::message_options::content(draft).1) {
+                    timestamp_picker::silent_indicator(ui);
+                }
                 if let Some((edit_channel, message)) = editing_key {
                     if state.freshness != Freshness::Fresh || !state.can_edit(edit_channel, message) { ui.weak(crate::i18n::translate("lib-ime-updates-text-editing-this-message-is-unavailable-your-text-is-kept-until")); }
                 } else if !state.can_send(channel) && !application_command {
@@ -4707,6 +4724,18 @@ impl MessagingUi {
 				}
 			}
 		}
+		// Home and other views without a composer must also invalidate its pending dialog.
+		self.timestamp_picker.retain(state.selected.map(|channel| {
+			timestamp_picker::Target {
+				generation: state.generation,
+				channel,
+				editing: self
+					.editing
+					.as_ref()
+					.filter(|(c, _, _)| *c == channel)
+					.map(|(_, id, _)| *id),
+			}
+		}));
 		if self.navigation_channel != state.selected {
 			// A retained footer draft keeps focus instead of moving it to the new composer.
 			let profile_keeps_focus = self.profile.open_user().is_some_and(|user| {
@@ -6787,7 +6816,7 @@ mod composer_tests {
 	}
 
 	#[test]
-	fn quiet_composer_paste_allows_full_payload_and_marker_only_enter_preserves_draft() {
+	fn quiet_composer_completion_rejects_empty_text_and_paste_allows_full_payload() {
 		let ctx = egui::Context::default();
 		let mut view = MessagingUi {
 			focus_switched_composer: true,
@@ -6806,7 +6835,15 @@ mod composer_tests {
 			vec![edit_key(egui::Key::Enter)],
 		);
 		assert!(!command.iter().any(|c| matches!(c, Command::Send { .. })));
-		assert_eq!(state.drafts[&channel], "@silent");
+		assert_eq!(state.drafts[&channel], "@silent ");
+		let command = edit_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![edit_key(egui::Key::Enter)],
+		);
+		assert!(!command.iter().any(|c| matches!(c, Command::Send { .. })));
+		assert_eq!(state.drafts[&channel], "@silent ");
 		assert!(state.pending.is_empty());
 		state.drafts.insert(channel, String::new());
 		let full = format!("@silent {}", "x".repeat(MAX_CONTENT));
