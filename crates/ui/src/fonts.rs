@@ -261,6 +261,10 @@ impl Settings {
 				let mut area = egui::ScrollArea::vertical()
 					.id_salt("installed-fonts")
 					.max_height(ROW * 8.0)
+					// The popup keeps last frame's size, so after a search with no match it is only as
+					// tall as the hint. Without this minimum the list would stay at egui's default
+					// 64 px (two rows) once results return.
+					.min_scrolled_height((matches.len() as f32 * ROW).min(ROW * 8.0))
 					.auto_shrink([false, true]);
 				if std::mem::take(&mut self.focus) {
 					search.request_focus();
@@ -947,5 +951,69 @@ mod tests {
 			});
 		});
 		output.drop_without_applying_deltas();
+	}
+	#[test]
+	fn font_list_regrows_after_a_search_without_matches() {
+		let ctx = Context::default();
+		ctx.enable_accesskit();
+		let mut settings = Settings {
+			families: Some((0..60).map(|i| format!("Family {i:02}")).collect()),
+			..Default::default()
+		};
+		// The picker button spans the top of the screen, below a 4 px gap.
+		let button = egui::pos2(200.0, 24.0);
+		let pass = |settings: &mut Settings, events: Vec<egui::Event>| {
+			let raw = egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(800.0, 900.0),
+				)),
+				events,
+				..Default::default()
+			};
+			let mut output = ctx.run_ui(raw, |ui| settings.family_list(ui));
+			output.textures_delta.clear();
+			// Visible font rows are the only buttons labelled "Family …".
+			output.platform_output.accesskit_update.map_or(0, |update| {
+				update
+					.nodes
+					.iter()
+					.filter(|(_, node)| {
+						node.label()
+							.is_some_and(|label| label.starts_with("Family"))
+					})
+					.count()
+			})
+		};
+		pass(&mut settings, vec![]);
+		let click = |pressed| egui::Event::PointerButton {
+			pos: button,
+			button: egui::PointerButton::Primary,
+			pressed,
+			modifiers: Default::default(),
+		};
+		pass(
+			&mut settings,
+			vec![egui::Event::PointerMoved(button), click(true)],
+		);
+		pass(&mut settings, vec![click(false)]);
+		let open = pass(&mut settings, vec![]);
+		assert!(
+			open >= 8,
+			"picker should show eight rows when opened, showed {open}"
+		);
+
+		pass(
+			&mut settings,
+			vec![egui::Event::Text("no such font".into())],
+		);
+		pass(&mut settings, vec![]);
+		settings.query = "Family".into();
+		pass(&mut settings, vec![]);
+		let regrown = pass(&mut settings, vec![]);
+		assert!(
+			regrown >= 8,
+			"picker should regrow to eight rows after a no-match search, showed {regrown}"
+		);
 	}
 }
