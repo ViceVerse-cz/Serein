@@ -995,7 +995,7 @@ impl Picker {
 		// Numeric keys are custom emoji ids, except Unicode names such as `100`.
 		let synced = keys.iter().filter_map(|key| {
 			key.parse()
-				ok()
+				.ok()
 				.map(Id)
 				.filter(|id| state.custom_emoji(*id).is_some())
 				.map(Used::Custom)
@@ -2888,11 +2888,12 @@ mod tests {
 	#[test]
 	fn fav_emoji_first_toggle_works() {
 		let picker = Picker::default();
+		let state = State::default();
 		assert!(!fav_emoji_first_enabled());
-		assert_eq!(picker.favorites().len(), 8);
+		assert_eq!(picker.favorites(&state).len(), 8);
 		set_fav_emoji_first_enabled(true);
 		assert!(fav_emoji_first_enabled());
-		assert_eq!(picker.favorites().len(), 16);
+		assert_eq!(picker.favorites(&state).len(), 16);
 		set_fav_emoji_first_enabled(false);
 		assert!(!fav_emoji_first_enabled());
 	}
