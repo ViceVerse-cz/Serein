@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "external-search-tools"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -179,7 +179,7 @@ dependencies = [
 
 [[package]]
 name = "offline-composer-tools"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "serein-extension-sdk",
  "url",

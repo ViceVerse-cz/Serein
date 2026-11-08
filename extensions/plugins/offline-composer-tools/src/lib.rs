@@ -295,9 +295,18 @@ fn convert_units(text: &str) -> String {
 }
 
 fn numeric_boundary(text: &str, index: usize) -> bool {
-	text[..index].chars().next_back().is_none_or(|previous| {
-		!previous.is_alphanumeric() && !matches!(previous, '_' | '.' | '+' | '-')
-	})
+	let mut previous = text[..index].chars().rev();
+	let Some(last) = previous.next() else {
+		return true;
+	};
+	// A comma directly after a digit can only belong to the same number. Never
+	// restart parsing inside a malformed group such as `1,00 km`.
+	if last == ',' {
+		return !previous
+			.next()
+			.is_some_and(|before| before.is_ascii_digit());
+	}
+	!last.is_alphanumeric() && !matches!(last, '_' | '.' | '+' | '-')
 }
 
 fn converted_at(text: &str, start: usize) -> Option<(usize, String)> {
@@ -339,6 +348,25 @@ fn parse_number(text: &str) -> Option<(f64, usize)> {
 	while bytes.get(index).is_some_and(u8::is_ascii_digit) {
 		index += 1;
 	}
+	let first_group_length = index - integer_start;
+	// Accept conventional comma grouping (`1,000`, `12,345,678`). If a comma is
+	// not followed by exactly three digits, parsing stops before it and the
+	// boundary check prevents the trailing group from being converted alone.
+	if (1..=3).contains(&first_group_length) {
+		loop {
+			if bytes.get(index) != Some(&b',') {
+				break;
+			}
+			let group_start = index + 1;
+			let Some(group) = bytes.get(group_start..group_start + 3) else {
+				break;
+			};
+			if !group.iter().all(u8::is_ascii_digit) {
+				break;
+			}
+			index = group_start + 3;
+		}
+	}
 	let mut has_digits = index > integer_start;
 	if bytes.get(index) == Some(&b'.') {
 		index += 1;
@@ -365,7 +393,8 @@ fn parse_number(text: &str) -> Option<(f64, usize)> {
 			index = exponent_start;
 		}
 	}
-	let value = text[..index].parse::<f64>().ok()?;
+	let token = text[..index].replace(',', "");
+	let value = token.parse::<f64>().ok()?;
 	value.is_finite().then_some((value, index))
 }
 
@@ -594,10 +623,19 @@ mod tests {
 			convert_units("20C 68F 10 km 5mi 2kg 4lb 10cm 12in 3m 6ft 20°C"),
 			"68F 20C 6.21 mi 8.05km 4.41lb 1.81kg 3.94in 30.48cm 9.84ft 1.83m 68°F"
 		);
+		assert_eq!(
+			convert_units("1,000 km 12,345.5 m 1,000,000 kg 1,234.5 km"),
+			"621.37 mi 40503.61 ft 2204622.62 lb 767.08 mi"
+		);
+		assert_eq!(convert_units("1,000 km, 2,000 mi"), "621.37 mi, 3218.69 km");
 		for unchanged in [
 			"20Celsius abc20kg 10cmx 12information NaNC 1e309m",
 			"1e308kg",
 			"10kg_name",
+			"1,00 km",
+			"1,0000 km",
+			"1,000,00 km",
+			"1,5 km",
 		] {
 			assert_eq!(convert_units(unchanged), unchanged);
 		}
