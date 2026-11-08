@@ -1813,15 +1813,35 @@ impl Formatted {
 									.forum_author_color(source.channel, id, false, roles)
 							});
 						let (text, background) = mention_colors(ui, role_color);
-						let response = crate::channel_pill::mention(
-							ui,
-							&label,
-							text,
-							background,
-							egui::Sense::click(),
-							render.line,
-							Some(&mut *render.surface),
-						)
+						// With the mention-avatars tweak, a known person's mention leads with
+						// their avatar.
+						let avatar = user.filter(|_| {
+							crate::interface_tweaks::on(
+								ui.ctx(),
+								extensions::InterfaceTweak::MentionAvatars,
+							)
+						});
+						let response = if let Some(avatar) = avatar {
+							crate::channel_pill::user_mention(
+								ui,
+								&label,
+								(text, background),
+								egui::Sense::click(),
+								render.line,
+								Some(&mut *render.surface),
+								(&mut *render.images, avatar, render.demo),
+							)
+						} else {
+							crate::channel_pill::mention(
+								ui,
+								&label,
+								text,
+								background,
+								egui::Sense::click(),
+								render.line,
+								Some(&mut *render.surface),
+							)
+						}
 						.on_hover_text(crate::i18n::translate(
 							"markdown-show-run-open-user-profile",
 						));
@@ -4936,6 +4956,62 @@ mod tests {
 			assert_eq!(images.take_requests().len(), usize::from(revealed));
 			output.drop_without_applying_deltas();
 		}
+	}
+
+	/// Checks that a user mention asks for the person's avatar only with the mention-avatars
+	/// tweak on.
+	#[test]
+	fn mention_avatars_tweak_leads_a_mention_with_the_avatar() {
+		let mut state = test_support::demo_state();
+		let channel = state.selected.expect("a channel is open");
+		let mut authored = test_support::message(9_000, channel);
+		authored.author.id = Id(4242);
+		authored.author.avatar = Some("a".repeat(32));
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Message(authored),
+		});
+		let parsed = Formatted::parse("hello <@4242>");
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let requests = |on: bool| {
+			crate::interface_tweaks::publish(
+				&ctx,
+				&std::sync::Arc::new(
+					on.then_some(extensions::InterfaceTweak::MentionAvatars)
+						.into_iter()
+						.collect(),
+				),
+			);
+			let source = crate::mentions::MentionSource {
+				state: &state,
+				channel,
+			};
+			let mut images = crate::avatars::Avatars::default();
+			ctx.run_ui(Default::default(), |ui| {
+				let mut surface = crate::select::Surface::new(ui, "mention-avatar");
+				parsed.show_references(
+					ui,
+					&mut None,
+					&[],
+					Some(&source),
+					&mut crate::profiles::ProfileSession::default(),
+					(&state.channels, &mut None, &state.guilds, &[]),
+					(&mut images, false, &mut 0),
+					&mut surface,
+					crate::design::MessageCardSurface::Opaque,
+				);
+				surface.finish(ui);
+			})
+			.drop_without_applying_deltas();
+			images.take_requests().len()
+		};
+		assert_eq!(requests(false), 0);
+		assert_eq!(
+			requests(true),
+			1,
+			"the mentioned person's avatar is requested"
+		);
 	}
 
 	/// Checks that a user mention keeps the mention palette by default and takes the

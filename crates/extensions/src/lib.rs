@@ -204,6 +204,8 @@ pub enum InterfaceTweak {
 	SingleOpenFolder,
 	/// Profiles also count and list the group conversations you share with the person.
 	MutualGroups,
+	/// A user mention leads with the person's avatar.
+	MentionAvatars,
 }
 
 impl InterfaceTweak {
@@ -228,6 +230,7 @@ impl InterfaceTweak {
 		Self::ForumSortByCreation,
 		Self::SingleOpenFolder,
 		Self::MutualGroups,
+		Self::MentionAvatars,
 	];
 }
 

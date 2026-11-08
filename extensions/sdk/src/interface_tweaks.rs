@@ -51,6 +51,8 @@ pub enum InterfaceTweak {
 	SingleOpenFolder,
 	/// Profiles also count and list the group conversations you share with the person.
 	MutualGroups,
+	/// A user mention leads with the person's avatar.
+	MentionAvatars,
 }
 
 /// Activation or panel output that sets the plugin's interface tweaks, preserving `Output`
