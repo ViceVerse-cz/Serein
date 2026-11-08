@@ -4545,6 +4545,40 @@ impl Desktop {
 					pinned,
 					result: Ok(()),
 				},
+				// Offline previews never contact the service; lookups report unavailable.
+				Command::Lookup(client_core::lookups::Command::User { user }) => {
+					Event::Lookup(client_core::lookups::Event::User {
+						user,
+						result: Err(Failure::ProtocolAt(
+							"Offline preview does not look up users",
+						)),
+					})
+				}
+				Command::Lookup(client_core::lookups::Command::Message { channel, message }) => {
+					Event::Lookup(client_core::lookups::Event::Message {
+						channel,
+						message,
+						result: Err(Failure::ProtocolAt("Offline preview does not read history")),
+					})
+				}
+				Command::FriendInvites(command) => {
+					use client_core::friend_invites::{Command as Invites, Event as Invited};
+					let offline = Failure::ProtocolAt("Offline preview has no friend invites");
+					Event::FriendInvites(match command {
+						Invites::Load { request } => Invited::Loaded {
+							request,
+							result: Ok(Vec::new()),
+						},
+						Invites::Create { request } => Invited::Created {
+							request,
+							result: Err(offline),
+						},
+						Invites::RevokeAll { request } => Invited::Revoked {
+							request,
+							result: Ok(()),
+						},
+					})
+				}
 			};
 			self.state.apply(Envelope {
 				generation: self.state.generation,
