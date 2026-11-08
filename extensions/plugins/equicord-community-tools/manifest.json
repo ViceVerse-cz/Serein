@@ -1,0 +1,56 @@
+{
+  "api_version": 1,
+  "id": "equicord-community-tools",
+  "name": "Equicord Community Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/equicord-community-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "app_context",
+    "channel_control",
+    "clipboard_write",
+    "external_navigation",
+    "selected_message",
+    "storage",
+    "voice_connect"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Open community tools",
+      "surface": "panel"
+    },
+    {
+      "id": "save-hopon",
+      "label": "Save HopOn triggers and HTTPS link",
+      "surface": "panel"
+    },
+    {
+      "id": "delete-channel",
+      "label": "Propose deleting the current channel",
+      "surface": "panel"
+    },
+    {
+      "id": "toggle-ignored-call",
+      "label": "Toggle the current conversation in the local call ignore list",
+      "surface": "panel"
+    },
+    {
+      "id": "decline-ignored-call",
+      "label": "Propose declining the call in an ignored conversation",
+      "surface": "panel"
+    },
+    {
+      "id": "export-message",
+      "label": "Copy the selected message as text",
+      "surface": "message"
+    },
+    {
+      "id": "hopon-message",
+      "label": "Check the selected message for a HopOn trigger",
+      "surface": "message"
+    }
+  ]
+}
