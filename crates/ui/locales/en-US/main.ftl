@@ -5086,3 +5086,5 @@ rail-counts-servers = { $count ->
     [one] { $count } server
    *[other] { $count } servers
 }
+name-marks-tag-admin = Admin
+name-marks-tag-moderator = Mod

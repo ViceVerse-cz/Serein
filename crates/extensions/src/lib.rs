@@ -209,6 +209,9 @@ pub enum InterfaceTweak {
 	/// The server rail lists how many friends are online and how many servers you are in
 	/// under the Home button.
 	RailCounts,
+	/// Message authors and member-list names carry an Admin or Mod tag from their roles'
+	/// permissions.
+	StaffTags,
 }
 
 impl InterfaceTweak {
@@ -235,6 +238,7 @@ impl InterfaceTweak {
 		Self::MutualGroups,
 		Self::MentionAvatars,
 		Self::RailCounts,
+		Self::StaffTags,
 	];
 }
 

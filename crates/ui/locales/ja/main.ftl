@@ -4875,3 +4875,5 @@ profiles-show-mutual-group = 共通のグループ
 profiles-show-mutual-groups = 共通のグループ
 rail-counts-online = { $count } 人オンライン
 rail-counts-servers = { $count } サーバー
+name-marks-tag-admin = 管理者
+name-marks-tag-moderator = モデレーター

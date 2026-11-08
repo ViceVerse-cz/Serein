@@ -4990,3 +4990,5 @@ profiles-show-mutual-group = 共同群组
 profiles-show-mutual-groups = 共同群组
 rail-counts-online = { $count } 人在线
 rail-counts-servers = { $count } 个服务器
+name-marks-tag-admin = 管理员
+name-marks-tag-moderator = 版主

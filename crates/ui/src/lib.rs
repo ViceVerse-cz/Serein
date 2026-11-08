@@ -1879,7 +1879,7 @@ impl MessagingUi {
 												state,
 												&member.user,
 												name,
-												guild,
+												(guild, &member.roles),
 											);
 											let trailing =
 												profiles::server_tag_width(ui, server_tag)

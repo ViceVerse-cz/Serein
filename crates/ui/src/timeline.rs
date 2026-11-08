@@ -3593,9 +3593,12 @@ impl TimelineView {
 												state,
 												&message.author,
 												state.message_author_name(message),
-												state
-													.channel(message.channel)
-													.and_then(|c| c.guild),
+												(
+													state
+														.channel(message.channel)
+														.and_then(|c| c.guild),
+													&message.author_roles,
+												),
 											)
 											.show(ui);
 										},
@@ -3682,9 +3685,12 @@ impl TimelineView {
 													state,
 													&message.author,
 													state.message_author_name(message),
-													state
-														.channel(message.channel)
-														.and_then(|c| c.guild),
+													(
+														state
+															.channel(message.channel)
+															.and_then(|c| c.guild),
+														&message.author_roles,
+													),
 												)
 												.show(ui);
 												let time = timestamp(id);

@@ -4878,3 +4878,5 @@ profiles-show-mutual-group = Ortak Grup
 profiles-show-mutual-groups = Ortak Gruplar
 rail-counts-online = { $count } çevrimiçi
 rail-counts-servers = { $count } sunucu
+name-marks-tag-admin = Yönetici
+name-marks-tag-moderator = Mod
