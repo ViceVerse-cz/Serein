@@ -4891,3 +4891,5 @@ name-marks-server-owner = Владелец сервера
 name-marks-online-desktop = В сети с компьютера
 name-marks-online-web = В сети в браузере
 name-marks-online-mobile = В сети с телефона
+profiles-show-mutual-group = Общая группа
+profiles-show-mutual-groups = Общие группы

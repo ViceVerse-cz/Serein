@@ -241,6 +241,8 @@ pub enum Action {
 	Profile(User),
 	/// Open a mutual server picked from the card.
 	Server(Id),
+	/// Open a mutual group conversation picked from the card.
+	Channel(Id),
 	Avatar {
 		media: model::EmbedMedia,
 		points: f32,
@@ -1592,6 +1594,25 @@ fn divider(ui: &mut egui::Ui, theme: &Theme) {
 enum Mutuals {
 	Servers,
 	Friends,
+	/// Group conversations you share with the person, shown with the mutual-groups tweak.
+	Groups,
+}
+
+/// Group conversations of the account that `user` is also in, from the loaded conversation
+/// list.
+fn mutual_groups(state: &State, user: Id) -> Vec<&model::Channel> {
+	state
+		.channels
+		.iter()
+		.filter(|channel| {
+			channel.guild.is_none()
+				&& channel.kind == 3
+				&& channel
+					.recipients
+					.iter()
+					.any(|recipient| recipient.id == user)
+		})
+		.collect()
 }
 const MUTUALS_WIDTH: f32 = 300.0;
 
@@ -1713,6 +1734,27 @@ fn mutual_rows(
 				}
 			}
 		}
+		Mutuals::Groups => {
+			for group in mutual_groups(state, data.user.id) {
+				let name = if group.name.trim().is_empty() {
+					group
+						.recipients
+						.iter()
+						.map(|recipient| state.user_display_name(recipient))
+						.collect::<Vec<_>>()
+						.join(", ")
+				} else {
+					group.name.clone()
+				};
+				let row = mutual_row(ui, theme, &name, |ui, rect| {
+					ui.painter().circle_filled(rect.center(), 16.0, theme.chip);
+					icons::paint(ui.painter(), Icon::People, rect.shrink(8.0), theme.text);
+				});
+				if row.clicked() {
+					action = Some(Action::Channel(group.id));
+				}
+			}
+		}
 	}
 	action
 }
@@ -1736,6 +1778,10 @@ fn mutuals_panel(
 	let (title, count) = match kind {
 		Mutuals::Servers => ("profiles-show-mutual-servers", data.mutual_guilds.len()),
 		Mutuals::Friends => ("profiles-show-mutual-friends", data.mutual_friends.len()),
+		Mutuals::Groups => (
+			"profiles-show-mutual-groups",
+			mutual_groups(state, data.user.id).len(),
+		),
 	};
 	let area = egui::Area::new(egui::Id::unique(("profile-mutuals-panel", user)))
 		.kind(egui::UiKind::Popup)
@@ -3904,10 +3950,21 @@ fn card_view(
 								}
 							});
 						}
+						// Shared groups come from the account's own conversation list, so they
+						// are counted locally, and only with the mutual-groups tweak.
+						let groups = if crate::interface_tweaks::on(
+							ui.ctx(),
+							extensions::InterfaceTweak::MutualGroups,
+						) {
+							mutual_groups(state, user.id).len()
+						} else {
+							0
+						};
 						if let Some(data) = data.filter(|data| {
 							!full
 								&& !own && (!data.mutual_guilds.is_empty()
-								|| !data.mutual_friends.is_empty())
+								|| !data.mutual_friends.is_empty()
+								|| groups > 0)
 						}) {
 							ui.add_space(4.0);
 							// Wrap: translated labels (e.g. Czech) can outgrow the fixed card width.
@@ -3927,6 +3984,13 @@ fn card_view(
 										Icon::People,
 										"profiles-show-mutual-friend",
 										"profiles-show-mutual-friends",
+									),
+									(
+										Mutuals::Groups,
+										groups,
+										Icon::People,
+										"profiles-show-mutual-group",
+										"profiles-show-mutual-groups",
 									),
 								] {
 									if count == 0 {
@@ -4773,6 +4837,41 @@ fn synthetic_frame() -> model::ProfileFrame {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	/// Checks that mutual groups are the group conversations the person is in, never a
+	/// one-to-one DM or a server channel.
+	#[test]
+	fn mutual_groups_are_shared_group_conversations_only() {
+		let mut state = test_support::demo_state();
+		let friend = test_support::message(1, Id(22)).author;
+		let mut group = state
+			.channels
+			.iter()
+			.find(|c| c.guild.is_none() && c.kind == 1)
+			.expect("demo DM")
+			.clone();
+		let mut direct = group.clone();
+		direct.id = Id(9_001);
+		direct.recipients = vec![friend.clone()];
+		group.id = Id(9_002);
+		group.kind = 3;
+		group.recipients = vec![friend.clone(), test_support::message(2, Id(22)).author];
+		let mut other = group.clone();
+		other.id = Id(9_003);
+		other.recipients.retain(|r| r.id != friend.id);
+		state.channels.extend([direct, group, other]);
+		let shared: Vec<_> = mutual_groups(&state, friend.id)
+			.iter()
+			.map(|c| c.id)
+			.collect();
+		assert!(shared.contains(&Id(9_002)), "{shared:?}");
+		assert!(!shared.contains(&Id(9_001)) && !shared.contains(&Id(9_003)));
+		assert!(
+			mutual_groups(&state, friend.id)
+				.iter()
+				.all(|c| c.kind == 3 && c.guild.is_none())
+		);
+	}
+
 	/// Checks that role names with control characters or past the role-name limit still
 	/// produce a role target the host accepts.
 	#[test]

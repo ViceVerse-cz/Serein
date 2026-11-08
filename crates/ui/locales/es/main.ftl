@@ -4891,3 +4891,5 @@ name-marks-server-owner = Propietario del servidor
 name-marks-online-desktop = En línea en escritorio
 name-marks-online-web = En línea en la web
 name-marks-online-mobile = En línea en el móvil
+profiles-show-mutual-group = Grupo en común
+profiles-show-mutual-groups = Grupos en común

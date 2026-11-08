@@ -4874,3 +4874,5 @@ name-marks-server-owner = Sunucu Sahibi
 name-marks-online-desktop = Masaüstünde çevrimiçi
 name-marks-online-web = Web'de çevrimiçi
 name-marks-online-mobile = Mobilde çevrimiçi
+profiles-show-mutual-group = Ortak Grup
+profiles-show-mutual-groups = Ortak Gruplar

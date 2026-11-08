@@ -5020,3 +5020,5 @@ name-marks-server-owner = Vlastník serveru
 name-marks-online-desktop = Online na počítači
 name-marks-online-web = Online na webu
 name-marks-online-mobile = Online na mobilu
+profiles-show-mutual-group = Společná skupina
+profiles-show-mutual-groups = Společné skupiny

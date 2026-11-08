@@ -5079,3 +5079,5 @@ name-marks-server-owner = Server Owner
 name-marks-online-desktop = Online on desktop
 name-marks-online-web = Online on the web
 name-marks-online-mobile = Online on mobile
+profiles-show-mutual-group = Mutual Group
+profiles-show-mutual-groups = Mutual Groups

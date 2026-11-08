@@ -4422,6 +4422,15 @@ impl MessagingUi {
 					}
 				}
 			}
+			profiles::Action::Channel(channel) => {
+				self.profile.close();
+				if self.server_settings.navigate_away(state) {
+					self.guild = None;
+					if let Some(command) = state.select(channel) {
+						commands.push(command);
+					}
+				}
+			}
 			profiles::Action::EditStatus => self.open_custom_status_editor(),
 			profiles::Action::ClearStatus => self.clear_custom_status(),
 			profiles::Action::Close => {

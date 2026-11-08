@@ -4986,3 +4986,5 @@ name-marks-server-owner = 伺服器擁有者
 name-marks-online-desktop = 桌面版上線
 name-marks-online-web = 網頁版上線
 name-marks-online-mobile = 行動裝置上線
+profiles-show-mutual-group = 共同群組
+profiles-show-mutual-groups = 共同群組

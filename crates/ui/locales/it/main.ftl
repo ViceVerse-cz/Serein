@@ -4888,3 +4888,5 @@ name-marks-server-owner = Proprietario del server
 name-marks-online-desktop = Online da desktop
 name-marks-online-web = Online dal web
 name-marks-online-mobile = Online da mobile
+profiles-show-mutual-group = Gruppo in comune
+profiles-show-mutual-groups = Gruppi in comune

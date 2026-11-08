@@ -202,6 +202,8 @@ pub enum InterfaceTweak {
 	ForumSortByCreation,
 	/// Opening a server folder closes the other open folders, so one is open at a time.
 	SingleOpenFolder,
+	/// Profiles also count and list the group conversations you share with the person.
+	MutualGroups,
 }
 
 impl InterfaceTweak {
@@ -225,6 +227,7 @@ impl InterfaceTweak {
 		Self::ForumSortByActivity,
 		Self::ForumSortByCreation,
 		Self::SingleOpenFolder,
+		Self::MutualGroups,
 	];
 }
 

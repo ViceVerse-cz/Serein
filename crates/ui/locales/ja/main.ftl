@@ -4871,3 +4871,5 @@ name-marks-server-owner = サーバーオーナー
 name-marks-online-desktop = デスクトップでオンライン
 name-marks-online-web = ウェブでオンライン
 name-marks-online-mobile = モバイルでオンライン
+profiles-show-mutual-group = 共通のグループ
+profiles-show-mutual-groups = 共通のグループ

@@ -49,6 +49,8 @@ pub enum InterfaceTweak {
 	ForumSortByCreation,
 	/// Opening a server folder closes the other open folders, so one is open at a time.
 	SingleOpenFolder,
+	/// Profiles also count and list the group conversations you share with the person.
+	MutualGroups,
 }
 
 /// Activation or panel output that sets the plugin's interface tweaks, preserving `Output`
