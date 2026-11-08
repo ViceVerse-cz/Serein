@@ -403,6 +403,17 @@ fn main() -> eframe::Result {
 		std::process::exit(2);
 	}
 	// Fixture runs may overlap; real launches show the running client instead of duplicating it.
+	let _session_lock = if demo {
+		None
+	} else {
+		match platform::session_lock::acquire() {
+			Ok(lock) => Some(lock),
+			Err(error) => {
+				eprintln!("{error}");
+				return Ok(());
+			}
+		}
+	};
 	let mut instance = if demo {
 		platform::single_instance::Instance::default()
 	} else {

@@ -7,6 +7,7 @@ mod interactions;
 mod login_tests;
 mod member_search;
 mod presence;
+mod recovery;
 #[cfg(test)]
 mod recovery_tests;
 mod thread_events;
@@ -19,8 +20,10 @@ use client_core::{
 };
 pub use discord_protocol::activity_sessions::Observation as ActivityObservation;
 use discord_protocol::*;
+#[cfg(test)]
 use futures_util::{SinkExt, StreamExt};
 use model::{Freshness, Id, Member, MemberList};
+use recovery::{CommandSocket, IdentifyBudget};
 use std::{
 	collections::BTreeMap,
 	sync::Arc,
@@ -1260,6 +1263,7 @@ async fn run_recoverable(
 			== Some(std::ffi::OsStr::new("1")),
 	);
 	let mut state = ResumeState::default();
+	let mut sessions = IdentifyBudget::default();
 	let mut was_ready = false;
 	let mut owner_id = None;
 	let mut attempt = 0;
@@ -1314,11 +1318,12 @@ async fn run_recoverable(
 			skip_backoff = true;
 			continue;
 		};
-		let Ok(Ok((mut socket, _))) = connection else {
+		let Ok(Ok((socket, _))) = connection else {
 			state.failed();
 			attempt = next_attempt(attempt, None);
 			continue;
 		};
+		let mut socket = CommandSocket::new(socket);
 		let mut compression = compression::Decoder::default();
 		let Some(hello) = recoverable_wait(
 			timeout(Duration::from_secs(10), async {
@@ -1367,8 +1372,9 @@ async fn run_recoverable(
 		let handshake = if let (Some(session), Some(sequence)) = (&state.session, state.sequence) {
 			serde_json::json!({"op":6,"d":{"token":secret.expose(),"session_id":session.as_str(),"seq":sequence}})
 		} else {
-			// Normal-user Identify with the same browser fingerprint as REST; a mismatched or
-			// custom identity is what gets the account quarantined as spam.
+			sessions.admit(Instant::now())?;
+			// Normal-user Identify remains live-unverified. Preserve the same identity on every
+			// transport rather than inventing per-connection device/session markers.
 			let properties: serde_json::Value =
 				serde_json::from_str(&client_core::fingerprint::properties()).unwrap_or_default();
 			serde_json::json!({"op":2,"d":{"token":secret.expose(),"compress":false,"properties":properties,"presence":outgoing_activity.identify_presence()}})

@@ -3071,3 +3071,30 @@ splitting use bounded local review/draft behavior rather than automatic incoming
 multi-send/edit automation. Each package README records its exact adaptation. No Equicord JavaScript
 runtime, Webpack patch API, generic network/filesystem bridge, raw credential/session access or
 unbounded account history was added; no live Discord extension interoperability was tested.
+
+## Session lifecycle hardening — November 8, 2026
+
+A comparison with Yapfast's bounded gateway loop at `76dc6090dbf540cce46b07f0d7aa1d04d28465bc`
+identified two concrete missing controls in Serein. A running client now admits at most ten fresh
+IDENTIFY handshakes per rolling hour; a rejected fresh burst stops with a visible capacity error
+instead of repeatedly creating replacement sessions. RESUME retains its existing sequence,
+resume URL and socket-recovery behavior and does not consume that budget. This is a local safety
+limit, not an anti-fraud bypass or proof that Discord accepts normal-user client access.
+
+Ordinary JSON gateway commands now share a 110-command rolling 60-second window per connection.
+Heartbeats, ping, pong and close control frames bypass it so a full command window cannot suppress
+liveness signaling. The command wait yields inside the gateway's select loop. The malformed-JSON,
+restart and command-window fixtures exercise the same guards used by the production write path.
+
+Real launches additionally hold an operating-system lock on `session-store.lock` in the selected
+application-data directory before authentication or SQLite work. Another real process using that
+store stops before opening a session rather than creating a parallel connection/cache. Desktop IPC
+show-window forwarding still applies. The lock is advisory metadata released by the OS on close or
+process crash; it does not encode an account ID, token or credential and does not prove that only one
+process can access data owned by the same OS user. Demo/offline fixtures continue to use isolated
+roots.
+
+Synthetic checks cover a rolling identify budget and age-out, command-window delay and heartbeat
+bypass, plus a rejected second store lock and successful acquisition after release. No live account
+was used for these checks. These changes do not establish gate fidelity with every official request,
+absence of gateway conflicts after a crash, or absence of suspicious-activity enforcement.
