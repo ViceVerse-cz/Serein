@@ -1620,7 +1620,9 @@ impl SearchUi {
 				}
 				ui.separator();
 			}
-			if crate::select::has_selection(ui.ctx())
+			// The selection Copy is offered only for a selection made in this result's text.
+			if readable
+				&& crate::select::has_selection_in(ui.ctx(), response.rect)
 				&& ui
 					.button(crate::i18n::translate("timeline-message-actions-copy"))
 					.clicked()

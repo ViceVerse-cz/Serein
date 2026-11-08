@@ -708,3 +708,58 @@ fn result_menu_withholds_text_actions_for_the_preview_notice() {
 		"plugins never receive the notice as message text"
 	);
 }
+
+/// Checks that a text selection dragged in a result counts as that result's selection, which
+/// its menu may copy, and not as a selection of any other item.
+#[test]
+fn a_selection_belongs_to_the_result_it_was_made_in() {
+	let ctx = egui::Context::default();
+	// The client's style installs the selection pointer that records where a range began.
+	crate::design::apply(&ctx);
+	let mut state = state();
+	let mut view = MessagingUi::default();
+	view.search
+		.open_extension(Id(10), false, Some("needle".into()));
+	state.request_search("needle".into(), None).unwrap();
+	page(&mut state, 1);
+	let mut labels = Vec::new();
+	for _ in 0..3 {
+		labels = pane_frame(&ctx, &mut view, &mut state, vec![]).0;
+	}
+	let text = labels
+		.iter()
+		.find(|(text, _)| text == "Synthetic result to revisit")
+		.expect("result is drawn")
+		.1;
+	let (start, end) = (
+		egui::pos2(text.left() + 1.0, text.center().y),
+		egui::pos2(text.right() - 1.0, text.center().y),
+	);
+	let button = |at: egui::Pos2, button, pressed| egui::Event::PointerButton {
+		pos: at,
+		button,
+		pressed,
+		modifiers: egui::Modifiers::NONE,
+	};
+	for events in [
+		vec![
+			egui::Event::PointerMoved(start),
+			button(start, egui::PointerButton::Primary, true),
+		],
+		vec![egui::Event::PointerMoved(text.center())],
+		vec![egui::Event::PointerMoved(end)],
+		vec![button(end, egui::PointerButton::Primary, false)],
+	] {
+		pane_frame(&ctx, &mut view, &mut state, events);
+	}
+	assert!(
+		crate::select::has_selection(&ctx),
+		"the result text is selected"
+	);
+	assert!(crate::select::has_selection_in(&ctx, text.expand(4.0)));
+	let elsewhere = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(4.0, 4.0));
+	assert!(
+		!crate::select::has_selection_in(&ctx, elsewhere),
+		"the selection does not belong to another item"
+	);
+}
