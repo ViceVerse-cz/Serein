@@ -525,7 +525,7 @@ async fn run_inner(
 			if encryption.is_none() || resume_attempts >= 2 {
 				return Err(reason);
 			}
-			video.clear();
+			video.restart();
 			video.announced = false;
 			resume_attempts += 1;
 			resuming = true;
@@ -856,7 +856,7 @@ async fn run_inner(
 										   if was_ready {
 											   dave.ready=true;
 										   } else {
-											   video.clear();
+											   video.restart();
 											   deadline=Some(Instant::now()+Duration::from_secs(90));
 											   capture_reset=true;
 											   mixer.clear();
@@ -869,7 +869,7 @@ async fn run_inner(
 									   let was_ready=dave.ready;
 									   if dave.disconnect(user)? {
 										   if dave.alone() {
-											   video.clear();
+											   video.restart();
 											   capture_reset=true;
 											   mixer.clear();
 											   dave.enter_sole_member_waiting()?;
@@ -882,7 +882,7 @@ async fn run_inner(
 											   dave.ready=true;
 											   deadline=None;
 										   } else if was_group_member {
-											   video.clear();
+											   video.restart();
 											   deadline=Some(Instant::now()+Duration::from_secs(30));
 											   capture_reset=true;
 											   mixer.clear();
@@ -890,7 +890,7 @@ async fn run_inner(
 									   }
 								   },
 								   21=>{
-									   video.clear();
+									   video.restart();
 									   if number(data,"protocol_version")?!=1 {return Err("Discord requested a voice encryption downgrade; call stopped");}
 									   capture_reset=true;
 									   let id = transition(data)?;
@@ -911,9 +911,9 @@ async fn run_inner(
 										   json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;
 									   }
 								   },
-								   22=>{video.clear();dave.execute(transition(data)?)?;},
+								   22=>{video.restart();dave.execute(transition(data)?)?;},
 								   24=>{
-									   video.clear();
+									   video.restart();
 									   if number(data,"protocol_version")?!=1 {return Err("Unsupported DAVE protocol version; call stopped");}
 									   if number(data,"epoch")?==1 {capture_reset=true;dave.reinitialize()?;deadline=Some(Instant::now()+Duration::from_secs(30));send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;}
 								   },
@@ -946,7 +946,7 @@ async fn run_inner(
 									   if let Some(response)=dave.proposals(data)? {send(&mut ws,Message::Binary(response.into())).await?;}
 								   },
 								   29|30=>{
-									   video.clear();
+									   video.restart();
 									   ready_announced=false;waiting_announced=false;
 									   match dave.group_changed(opcode,data){
 										   Ok(id)=>{if id!=0 {json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;}},

@@ -259,5 +259,12 @@ mod tests {
 		assert!(!sender.accepts(&frame(12, false)));
 		sender.restart();
 		assert!(!sender.accepts(&frame(13, false)));
+		// A DAVE group change while idle (e.g. someone joining) must still restart the
+		// chain: the new member has no reference for the next predicted picture.
+		assert!(sender.accepts(&frame(14, true)));
+		assert!(sender.is_empty());
+		sender.restart();
+		assert!(!sender.accepts(&frame(15, false)));
+		assert!(sender.accepts(&frame(16, true)));
 	}
 }

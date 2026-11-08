@@ -673,8 +673,9 @@ voice transport (it drains at most four per 20 ms tick), and at most 464 RTP pac
 while fewer than 160 packets wait, and the transport sends at most three camera packets
 every 2 ms. Every encoded picture is numbered. The transport sends a predicted picture
 only when it directly follows the last one sent; any gap (a full channel or backlog, a
-flush mid-frame, camera off or rekeying) drops pictures until the next IDR and asks the
-encoder for one, at most every 300 ms. RTCP PLI or NACK for the camera SSRC also requests
+flush mid-frame, camera off, a voice resume, or any DAVE rekey or group change such as
+a participant joining) drops pictures until the next IDR and asks the encoder for one,
+at most every 300 ms. RTCP PLI or NACK for the camera SSRC also requests
 an IDR, at most twice a second; the camera sender has no RTX history. DAVE H264 frame encryption precedes RTP fragmentation and the existing authenticated
 UDP transport. No camera recording or cache is created; the codec is included on supported platforms.
 
