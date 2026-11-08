@@ -37,6 +37,16 @@ pub enum InterfaceTweak {
 	PlatformIndicators,
 	/// A user mention takes the member's top colored role, as a role mention does.
 	RoleColoredMentions,
+	/// Forums open in list view on this client, whatever view the server set as default.
+	/// Takes precedence over `ForumGalleryView`.
+	ForumListView,
+	/// Forums open in gallery view on this client, whatever view the server set as default.
+	ForumGalleryView,
+	/// Forums list posts by recent activity on this client, whatever order the server set.
+	/// Takes precedence over `ForumSortByCreation`.
+	ForumSortByActivity,
+	/// Forums list the newest posts first on this client, whatever order the server set.
+	ForumSortByCreation,
 }
 
 /// Activation or panel output that sets the plugin's interface tweaks, preserving `Output`
