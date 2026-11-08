@@ -1,0 +1,44 @@
+{
+  "api_version": 1,
+  "id": "message-navigation-tools",
+  "name": "Message Navigation Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/message-navigation-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "app_context",
+    "timeline",
+    "channel_details",
+    "selected_message",
+    "navigation"
+  ],
+  "actions": [
+    {
+      "id": "jump-latest",
+      "label": "Jump to the latest message",
+      "surface": "panel"
+    },
+    {
+      "id": "jump-oldest-loaded",
+      "label": "Jump to the oldest loaded message",
+      "surface": "panel"
+    },
+    {
+      "id": "jump-me-latest",
+      "label": "Jump to my latest loaded message",
+      "surface": "panel"
+    },
+    {
+      "id": "jump-author-latest",
+      "label": "Jump to this author's latest loaded message",
+      "surface": "message"
+    },
+    {
+      "id": "jump-author-oldest",
+      "label": "Jump to this author's earliest loaded message",
+      "surface": "message"
+    }
+  ]
+}

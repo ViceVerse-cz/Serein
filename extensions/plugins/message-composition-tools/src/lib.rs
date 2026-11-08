@@ -14,7 +14,10 @@
  */
 
 use serde::{Deserialize, Serialize};
-use serein_extension_sdk::{Element, Invocation, MAX_IO_BYTES, Output};
+use serein_extension_sdk::{
+	AppAction, AppInvocation, AppOutput, Element, HostEffect, Invocation, MAX_IO_BYTES,
+	MessageDetailsSnapshot, Output,
+};
 
 /// The host's normal message limit, in Unicode scalar values.
 const MAX_SEGMENT_CHARS: usize = 2000;
@@ -29,6 +32,14 @@ const MAX_BURST_SEGMENTS: usize = 16;
 const MAX_STORAGE_BYTES: usize = 16 * 1024;
 const MAX_PANEL_SEGMENTS: usize = 12;
 const MAX_PANEL_TEXT_BYTES: usize = 4000;
+/// A recent-message merge must stay inside the ordinary message limits.
+const MAX_MERGED_CHARS: usize = MAX_SEGMENT_CHARS;
+const MAX_MERGED_BYTES: usize = MAX_DRAFT_BYTES;
+const MERGE_MISSING_APP: &str =
+	"Serein did not provide the current account and conversation, so no merge was proposed.";
+const MERGE_MISSING_TIMELINE: &str =
+	"Serein did not provide a loaded timeline for this conversation, so no merge was proposed.";
+const MERGE_STALE_CONTEXT: &str = "The loaded timeline no longer belongs to the selected conversation. Reopen the tool and try again.";
 const CORRUPT_STORAGE: &str =
 	"Saved settings are invalid or too large. Nothing was changed; original storage was preserved.";
 
@@ -97,6 +108,8 @@ struct Saved {
 	keyword_case_sensitive: bool,
 	burst_style: BurstStyle,
 	burst_max_segments: usize,
+	merge_with_attachment: bool,
+	merge_use_space: bool,
 }
 
 impl Default for Saved {
@@ -108,6 +121,8 @@ impl Default for Saved {
 			keyword_case_sensitive: false,
 			burst_style: BurstStyle::Lines,
 			burst_max_segments: 8,
+			merge_with_attachment: false,
+			merge_use_space: false,
 		}
 	}
 }
@@ -120,6 +135,8 @@ struct Fields {
 	split_limit: usize,
 	burst_style: BurstStyle,
 	burst_max_segments: usize,
+	merge_with_attachment: bool,
+	merge_use_space: bool,
 }
 
 impl Fields {
@@ -131,6 +148,8 @@ impl Fields {
 			split_limit: saved.split_limit,
 			burst_style: saved.burst_style,
 			burst_max_segments: saved.burst_max_segments,
+			merge_with_attachment: saved.merge_with_attachment,
+			merge_use_space: saved.merge_use_space,
 		}
 	}
 
@@ -173,6 +192,20 @@ impl Fields {
 				return Err("The burst segment count must be between 2 and 16. Nothing was saved.");
 			}
 			fields.burst_max_segments = segments;
+		}
+		if let Some(value) = input.value("merge-attachment") {
+			fields.merge_with_attachment = match value {
+				"true" => true,
+				"false" => false,
+				_ => return Err("The attachment-merge value is invalid. Nothing was saved."),
+			};
+		}
+		if let Some(value) = input.value("merge-space") {
+			fields.merge_use_space = match value {
+				"true" => true,
+				"false" => false,
+				_ => return Err("The merge-separator value is invalid. Nothing was saved."),
+			};
 		}
 		Ok(fields)
 	}
@@ -324,7 +357,21 @@ fn panel(saved: &Saved, fields: &Fields, notice: &str) -> Output {
 			value: fields.burst_max_segments as i32,
 		},
 		text(
-			"Burst review disperses a draft into candidate messages. It does not merge, edit or repeat already-sent messages and has no timing behavior.",
+			"Burst review disperses a draft into candidate messages; it never sends. The burst-merge composer action separately proposes editing your latest loaded own message, and only after Apply.",
+		),
+		heading("Burst merge"),
+		Element::Checkbox {
+			id: "merge-attachment".into(),
+			label: "Allow merging onto a message with attachments".into(),
+			checked: fields.merge_with_attachment,
+		},
+		Element::Checkbox {
+			id: "merge-space".into(),
+			label: "Join merged text with a space instead of a new line".into(),
+			checked: fields.merge_use_space,
+		},
+		text(
+			"Merging is an explicit foreground proposal. Serein has no plugin clock or send hook, so the upstream time window and reply-bar check are not simulated.",
 		),
 		Element::Row {
 			children: vec![button("save", "Save configuration")],
@@ -403,6 +450,8 @@ fn handle_panel(input: &Invocation) -> Output {
 				keyword_case_sensitive: fields.case_sensitive,
 				burst_style: fields.burst_style,
 				burst_max_segments: fields.burst_max_segments,
+				merge_with_attachment: fields.merge_with_attachment,
+				merge_use_space: fields.merge_use_space,
 			};
 			if let Err(error) = validate_saved(&updated) {
 				return panel(&saved, &fields, error);
@@ -701,6 +750,166 @@ fn composer_burst(draft: &str, saved: &Saved) -> Output {
 	)
 }
 
+/// Canonical nonzero decimal snowflake IDs only; malformed IDs are never guessed.
+fn canonical_id(value: &str) -> bool {
+	let Ok(id) = value.parse::<u64>() else {
+		return false;
+	};
+	id != 0
+		&& value.len() <= 20
+		&& value.bytes().all(|byte| byte.is_ascii_digit())
+		&& value == id.to_string()
+}
+
+fn is_ordinary(kind: u8) -> bool {
+	matches!(kind, 0 | 19)
+}
+
+struct MergeScope<'a> {
+	channel_id: &'a str,
+	own_id: &'a str,
+	timeline: &'a serein_extension_sdk::TimelineSnapshot,
+	details: &'a MessageDetailsSnapshot,
+	last_message_id: &'a str,
+}
+
+fn merge_scope(input: &AppInvocation) -> Result<MergeScope<'_>, &'static str> {
+	let app = input.app.as_ref().ok_or(MERGE_MISSING_APP)?;
+	let context = app.context.as_ref().ok_or(MERGE_MISSING_APP)?;
+	if !context.connected {
+		return Err(MERGE_MISSING_APP);
+	}
+	let user = context.user.as_ref().ok_or(MERGE_MISSING_APP)?;
+	let channel = context.channel.as_ref().ok_or(MERGE_MISSING_APP)?;
+	if !canonical_id(&user.id) || !canonical_id(&channel.id) {
+		return Err(MERGE_STALE_CONTEXT);
+	}
+	let timeline = app.timeline.as_ref().ok_or(MERGE_MISSING_TIMELINE)?;
+	if timeline.channel_id != channel.id || !canonical_id(&timeline.channel_id) {
+		return Err(MERGE_STALE_CONTEXT);
+	}
+	let details = app.message_details.as_ref().ok_or(
+		"Serein did not provide loaded message metadata, so the target cannot be verified.",
+	)?;
+	if details.channel_id != channel.id || !canonical_id(&details.channel_id) {
+		return Err(MERGE_STALE_CONTEXT);
+	}
+	let channel_details = app.channel_details.as_ref().ok_or(
+		"Serein did not provide loaded channel details, so it cannot verify that nobody spoke after this message.",
+	)?;
+	if channel_details.channel.id != channel.id {
+		return Err(MERGE_STALE_CONTEXT);
+	}
+	let last_message_id = channel_details.last_message_id.as_deref().ok_or(
+		"Serein did not report the conversation's latest message, so no merge was proposed.",
+	)?;
+	if !canonical_id(last_message_id) {
+		return Err(MERGE_STALE_CONTEXT);
+	}
+	Ok(MergeScope {
+		channel_id: &channel.id,
+		own_id: &user.id,
+		timeline,
+		details,
+		last_message_id,
+	})
+}
+
+fn merge_output(panel: Vec<Element>, effect: Option<HostEffect>) -> AppOutput {
+	AppOutput {
+		output: Output {
+			panel,
+			..Default::default()
+		},
+		effects: effect.into_iter().collect(),
+	}
+}
+
+fn merge_error(message: &str) -> AppOutput {
+	merge_output(vec![heading("Burst merge"), text(message)], None)
+}
+
+/// Explicit previous-message merge. Upstream edits during a send hook inside a
+/// short time window; this sandbox has no send hook or clock, so the user must
+/// invoke the composer action and confirm the exact edit.
+fn composer_burst_merge(input: &AppInvocation, draft: &str, saved: &Saved) -> AppOutput {
+	if draft.is_empty() {
+		return merge_error("The draft is empty; there is nothing to merge.");
+	}
+	if draft.len() > MAX_DRAFT_BYTES {
+		return merge_error("The draft exceeds 8,000 UTF-8 bytes. The draft was left unchanged.");
+	}
+	let scope = match merge_scope(input) {
+		Ok(scope) => scope,
+		Err(error) => return merge_error(error),
+	};
+	let Some(last) = scope.timeline.messages.last() else {
+		return merge_error(
+			"No message is present in the loaded window, so no merge was proposed.",
+		);
+	};
+	if !canonical_id(&last.id) || last.author.id != scope.own_id {
+		return merge_error(
+			"The latest loaded message was not authored by the current account. Nothing was merged.",
+		);
+	}
+	if last.id != scope.last_message_id {
+		return merge_error(
+			"A newer message exists in this conversation, so the loaded message is not your latest. Nothing was merged.",
+		);
+	}
+	let Some(detail) = scope.details.items.iter().find(|item| item.id == last.id) else {
+		return merge_error(
+			"The latest loaded message has no matching metadata window. Nothing was merged.",
+		);
+	};
+	if !is_ordinary(detail.kind) {
+		return merge_error(
+			"The latest loaded message is not an ordinary message. Nothing was merged.",
+		);
+	}
+	if !detail.attachments.is_empty() && !saved.merge_with_attachment {
+		return merge_error(
+			"The latest loaded message has attachments and attachment merging is disabled. Nothing was merged.",
+		);
+	}
+	let separator = if saved.merge_use_space { " " } else { "\n" };
+	let merged = if last.content.is_empty() {
+		draft.to_owned()
+	} else {
+		format!("{}{separator}{draft}", last.content)
+	};
+	if merged.trim().is_empty() {
+		return merge_error("The merged text would be empty. Nothing was merged.");
+	}
+	if merged.chars().count() > MAX_MERGED_CHARS || merged.len() > MAX_MERGED_BYTES {
+		return merge_error(
+			"The merged message would exceed 2,000 characters or 8,000 UTF-8 bytes. Nothing was merged.",
+		);
+	}
+	let mut panel = vec![
+		heading("Burst merge"),
+		text(format!(
+			"Proposes replacing your latest loaded message {} with the previous text plus this draft.",
+			last.id
+		)),
+		text(
+			"Serein requires the explicit Apply action. The draft is not cleared, sent or scheduled automatically.",
+		),
+	];
+	push_panel_text(&mut panel, &merged);
+	merge_output(
+		panel,
+		Some(HostEffect::AppAction {
+			action: AppAction::EditMessage {
+				channel_id: scope.channel_id.to_owned(),
+				message_id: last.id.clone(),
+				content: merged,
+			},
+		}),
+	)
+}
+
 fn composer_filter(draft: &str, saved: &Saved) -> Output {
 	if saved.keywords.is_empty() {
 		return Output {
@@ -763,22 +972,36 @@ fn composer_filter(draft: &str, saved: &Saved) -> Output {
 	}
 }
 
-fn handle(input: Invocation) -> Output {
-	if matches!(input.action.as_str(), "open" | "save") {
-		return handle_panel(&input);
+fn handle(input: AppInvocation) -> AppOutput {
+	let invocation = &input.invocation;
+	if matches!(invocation.action.as_str(), "open" | "save") {
+		return AppOutput {
+			output: handle_panel(invocation),
+			effects: Vec::new(),
+		};
 	}
-	let Some(draft) = input.composer.as_deref() else {
-		return Output::default();
+	let Some(draft) = invocation.composer.as_deref() else {
+		return AppOutput::default();
 	};
-	let saved = match load_saved(&input) {
+	let saved = match load_saved(invocation) {
 		Ok(saved) => saved,
-		Err(error) => return composer_error(error),
+		Err(error) => {
+			return AppOutput {
+				output: composer_error(error),
+				effects: Vec::new(),
+			};
+		}
 	};
-	match input.action.as_str() {
+	let output = match invocation.action.as_str() {
 		"split" => composer_split(draft, &saved),
 		"filter-keywords" => composer_filter(draft, &saved),
 		"burst-disperse" => composer_burst(draft, &saved),
+		"burst-merge" => return composer_burst_merge(&input, draft, &saved),
 		_ => Output::default(),
+	};
+	AppOutput {
+		output,
+		effects: Vec::new(),
 	}
 }
 
@@ -787,18 +1010,141 @@ serein_extension_sdk::export!(handle);
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use serein_extension_sdk::{
+		AppContextSnapshot, AppSnapshot, AttachmentSnapshot, ChannelDetailsSnapshot,
+		ChannelSnapshot, MessageDetailSnapshot, MessageSnapshot, TimelineSnapshot, UserSnapshot,
+	};
 
 	fn storage(saved: &Saved) -> String {
 		serde_json::to_string(saved).unwrap()
 	}
 
 	fn composer(action: &str, draft: &str, saved: &Saved) -> Output {
-		handle(Invocation {
+		run(Invocation {
 			action: action.into(),
 			composer: Some(draft.into()),
 			storage: Some(storage(saved)),
 			..Default::default()
 		})
+		.output
+	}
+
+	fn run(invocation: Invocation) -> AppOutput {
+		handle(AppInvocation {
+			invocation,
+			..Default::default()
+		})
+	}
+
+	fn user(id: u64) -> UserSnapshot {
+		UserSnapshot {
+			id: id.to_string(),
+			name: format!("user {id}"),
+		}
+	}
+
+	fn message(id: u64, author: u64, content: &str, attachments: u16) -> MessageSnapshot {
+		MessageSnapshot {
+			id: id.to_string(),
+			author: user(author),
+			content: content.into(),
+			attachment_count: attachments,
+			edited: false,
+		}
+	}
+
+	fn detail(id: u64, kind: u8, attachments: usize) -> MessageDetailSnapshot {
+		MessageDetailSnapshot {
+			id: id.to_string(),
+			kind,
+			reply_to: None,
+			mention_ids: Vec::new(),
+			mentions_truncated: false,
+			mention_everyone: false,
+			attachments: (0..attachments)
+				.map(|index| AttachmentSnapshot {
+					id: (id + index as u64).to_string(),
+					filename: "file.bin".into(),
+					size: 1,
+					content_type: None,
+					spoiler: false,
+				})
+				.collect(),
+			attachments_truncated: false,
+			reactions: None,
+			reactions_truncated: false,
+		}
+	}
+
+	fn merge_input(draft: &str, saved: &Saved, last: MessageSnapshot) -> AppInvocation {
+		AppInvocation {
+			invocation: Invocation {
+				action: "burst-merge".into(),
+				composer: Some(draft.into()),
+				storage: Some(storage(saved)),
+				..Default::default()
+			},
+			app: Some(AppSnapshot {
+				context: Some(AppContextSnapshot {
+					connected: true,
+					user: Some(user(1)),
+					channel: Some(ChannelSnapshot {
+						id: "20".into(),
+						guild_id: Some("2".into()),
+						name: "general".into(),
+						kind: 0,
+					}),
+				}),
+				timeline: Some(TimelineSnapshot {
+					channel_id: "20".into(),
+					messages: vec![last.clone()],
+					truncated: false,
+				}),
+				message_details: Some(MessageDetailsSnapshot {
+					channel_id: "20".into(),
+					items: vec![detail(
+						last.id.parse().unwrap(),
+						0,
+						usize::from(last.attachment_count),
+					)],
+					truncated: false,
+				}),
+				channel_details: Some(ChannelDetailsSnapshot {
+					channel: ChannelSnapshot {
+						id: "20".into(),
+						guild_id: Some("2".into()),
+						name: "general".into(),
+						kind: 0,
+					},
+					parent_id: None,
+					position: 0,
+					last_message_id: Some(last.id.clone()),
+					message_count: None,
+					recipients: Vec::new(),
+					recipients_truncated: false,
+					can_send: true,
+					can_read_history: true,
+				}),
+				..Default::default()
+			}),
+			..Default::default()
+		}
+	}
+
+	fn merged_edit(output: &AppOutput) -> Option<(&str, &str, &str)> {
+		match output.effects.as_slice() {
+			[
+				HostEffect::AppAction {
+					action:
+						AppAction::EditMessage {
+							channel_id,
+							message_id,
+							content,
+						},
+				},
+			] => Some((channel_id.as_str(), message_id.as_str(), content.as_str())),
+			_ => None,
+		}
 	}
 
 	fn has_text(output: &Output, needle: &str) -> bool {
@@ -897,20 +1243,22 @@ mod tests {
 			}),
 		];
 		for raw in corrupt {
-			let output = handle(Invocation {
+			let output = run(Invocation {
 				action: "open".into(),
 				storage: Some(raw.clone()),
 				..Default::default()
-			});
+			})
+			.output;
 			assert!(output.storage.is_none());
 			assert!(has_text(&output, "invalid or too large"));
 
-			let output = handle(Invocation {
+			let output = run(Invocation {
 				action: "split".into(),
 				composer: Some("unchanged".into()),
 				storage: Some(raw),
 				..Default::default()
-			});
+			})
+			.output;
 			assert!(output.replacement.is_none());
 			assert!(output.storage.is_none());
 			assert!(has_text(&output, "invalid or too large"));
@@ -919,11 +1267,12 @@ mod tests {
 
 	#[test]
 	fn saving_rejects_corrupt_storage_and_roundtrips_bounded_settings() {
-		let corrupt = handle(Invocation {
+		let corrupt = run(Invocation {
 			action: "save".into(),
 			storage: Some("{broken".into()),
 			..Default::default()
-		});
+		})
+		.output;
 		assert!(corrupt.storage.is_none());
 
 		let mut values = std::collections::BTreeMap::new();
@@ -934,14 +1283,17 @@ mod tests {
 			("split-limit", "1200"),
 			("burst-style", "Paragraphs"),
 			("burst-max-segments", "4"),
+			("merge-attachment", "true"),
+			("merge-space", "true"),
 		] {
 			values.insert(id.to_owned(), value.to_owned());
 		}
-		let output = handle(Invocation {
+		let output = run(Invocation {
 			action: "save".into(),
 			values,
 			..Default::default()
-		});
+		})
+		.output;
 		let saved: Saved = serde_json::from_str(output.storage.as_deref().unwrap()).unwrap();
 		assert_eq!(saved.split_mode, SplitMode::Spaces);
 		assert_eq!(saved.split_limit, 1200);
@@ -949,6 +1301,8 @@ mod tests {
 		assert!(saved.keyword_case_sensitive);
 		assert_eq!(saved.burst_style, BurstStyle::Paragraphs);
 		assert_eq!(saved.burst_max_segments, 4);
+		assert!(saved.merge_with_attachment);
+		assert!(saved.merge_use_space);
 	}
 
 	#[test]
@@ -986,5 +1340,113 @@ mod tests {
 		let all_filtered = composer("filter-keywords", "drop\r\ndrop", &saved);
 		assert!(all_filtered.replacement.is_none());
 		assert!(has_text(&all_filtered, "instead of clearing"));
+	}
+
+	#[test]
+	fn burst_merge_proposes_one_exact_edit_and_never_clears_or_sends() {
+		let newline = handle(merge_input(
+			"world",
+			&Saved::default(),
+			message(101, 1, "hello", 0),
+		));
+		assert_eq!(merged_edit(&newline), Some(("20", "101", "hello\nworld")));
+		assert!(newline.output.replacement.is_none());
+		assert!(newline.output.storage.is_none());
+
+		let space = handle(merge_input(
+			"world",
+			&Saved {
+				merge_use_space: true,
+				..Default::default()
+			},
+			message(101, 1, "hello", 0),
+		));
+		assert_eq!(merged_edit(&space), Some(("20", "101", "hello world")));
+
+		// An attachment-only previous message becomes just the draft rather than
+		// starting the merged body with a separator.
+		let empty = handle(merge_input(
+			"world",
+			&Saved::default(),
+			message(101, 1, "", 0),
+		));
+		assert_eq!(merged_edit(&empty), Some(("20", "101", "world")));
+	}
+
+	#[test]
+	fn burst_merge_rejects_foreign_attachment_nonordinary_and_over_limit_targets() {
+		let foreign = handle(merge_input(
+			"world",
+			&Saved::default(),
+			message(101, 3, "hello", 0),
+		));
+		assert!(merged_edit(&foreign).is_none());
+		assert!(has_text(
+			&foreign.output,
+			"not authored by the current account"
+		));
+
+		let attachment = handle(merge_input(
+			"world",
+			&Saved::default(),
+			message(101, 1, "hello", 1),
+		));
+		assert!(merged_edit(&attachment).is_none());
+		assert!(has_text(
+			&attachment.output,
+			"attachment merging is disabled"
+		));
+
+		let allowed = handle(merge_input(
+			"world",
+			&Saved {
+				merge_with_attachment: true,
+				..Default::default()
+			},
+			message(101, 1, "hello", 1),
+		));
+		assert_eq!(merged_edit(&allowed), Some(("20", "101", "hello\nworld")));
+
+		let mut system = merge_input("world", &Saved::default(), message(101, 1, "hello", 0));
+		system
+			.app
+			.as_mut()
+			.unwrap()
+			.message_details
+			.as_mut()
+			.unwrap()
+			.items[0]
+			.kind = 7;
+		assert!(merged_edit(&handle(system)).is_none());
+
+		let over = handle(merge_input(
+			&"x".repeat(MAX_MERGED_CHARS),
+			&Saved::default(),
+			message(101, 1, "hello", 0),
+		));
+		assert!(merged_edit(&over).is_none());
+		assert!(has_text(&over.output, "2,000 characters"));
+
+		let mut stale = merge_input("world", &Saved::default(), message(101, 1, "hello", 0));
+		stale
+			.app
+			.as_mut()
+			.unwrap()
+			.timeline
+			.as_mut()
+			.unwrap()
+			.channel_id = "21".into();
+		assert!(merged_edit(&handle(stale)).is_none());
+
+		let mut newer = merge_input("world", &Saved::default(), message(101, 1, "hello", 0));
+		newer
+			.app
+			.as_mut()
+			.unwrap()
+			.channel_details
+			.as_mut()
+			.unwrap()
+			.last_message_id = Some("102".into());
+		assert!(merged_edit(&handle(newer)).is_none());
 	}
 }

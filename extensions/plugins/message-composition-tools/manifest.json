@@ -2,14 +2,19 @@
   "api_version": 1,
   "id": "message-composition-tools",
   "name": "Message Composition Tools",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Equicord/Vencord contributors; Serein port contributors",
   "license": "GPL-3.0-or-later",
   "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/message-composition-tools",
   "kind": "plugin",
   "capabilities": [
     "composer",
-    "storage"
+    "storage",
+    "app_context",
+    "timeline",
+    "channel_details",
+    "message_details",
+    "message_manage"
   ],
   "actions": [
     {
@@ -35,6 +40,11 @@
     {
       "id": "burst-disperse",
       "label": "Review burst segments for draft",
+      "surface": "composer"
+    },
+    {
+      "id": "burst-merge",
+      "label": "Propose merging this draft into my latest loaded message",
       "surface": "composer"
     }
   ]
