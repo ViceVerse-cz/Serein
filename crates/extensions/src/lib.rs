@@ -220,6 +220,8 @@ pub enum InterfaceTweak {
 	GifFavoritesFirst,
 	/// Clicking the composer's attach button chooses files at once; its menu opens on a right click.
 	DirectUploadButton,
+	/// A Tenor or Giphy GIF reads and hovers with the words in its link as alt text.
+	GifAltText,
 }
 
 impl InterfaceTweak {
@@ -251,6 +253,7 @@ impl InterfaceTweak {
 		Self::AnonymousFileNames,
 		Self::GifFavoritesFirst,
 		Self::DirectUploadButton,
+		Self::GifAltText,
 	];
 }
 

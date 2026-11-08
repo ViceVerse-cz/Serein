@@ -142,6 +142,62 @@ pub fn standalone_media_links(message: &Message) -> bool {
 		})
 }
 
+/// Alt text for a Tenor or Giphy GIF from the words in its link, like `GIF: cat dance` for
+/// `https://tenor.com/view/cat-dance-gif-123`. Other links have no words worth reading.
+pub(crate) fn gif_alt_text(url: &str) -> Option<String> {
+	let url = url::Url::parse(url).ok()?;
+	let host = url
+		.host_str()?
+		.trim_start_matches("www.")
+		.trim_start_matches("media.");
+	let mut path = url.path_segments()?;
+	let slug = match (host, path.next()) {
+		("tenor.com", Some("view")) => path.next()?,
+		("giphy.com", Some("gifs")) => path.next()?,
+		_ => return None,
+	};
+	let mut words: Vec<&str> = slug.split('-').filter(|word| !word.is_empty()).collect();
+	// Tenor ends with `gif-<id>`, Giphy with an id of mixed letters and digits.
+	if host == "tenor.com" {
+		if words
+			.last()
+			.is_some_and(|w| w.bytes().all(|b| b.is_ascii_digit()))
+		{
+			words.pop();
+		}
+		if words.last() == Some(&"gif") {
+			words.pop();
+		}
+	} else if words.len() > 1 {
+		words.pop();
+	} else {
+		return None;
+	}
+	let words = words.join(" ");
+	let words: String = percent_decode(&words).chars().take(100).collect();
+	(!words.trim().is_empty()).then(|| format!("GIF: {words}"))
+}
+
+fn percent_decode(text: &str) -> String {
+	let bytes = text.as_bytes();
+	let mut out = Vec::with_capacity(bytes.len());
+	let mut index = 0;
+	while index < bytes.len() {
+		if bytes[index] == b'%'
+			&& let Some(byte) = text
+				.get(index + 1..index + 3)
+				.and_then(|hex| u8::from_str_radix(hex, 16).ok())
+		{
+			out.push(byte);
+			index += 3;
+		} else {
+			out.push(bytes[index]);
+			index += 1;
+		}
+	}
+	String::from_utf8_lossy(&out).into_owned()
+}
+
 fn inline_image(embed: &Embed) -> Option<&model::EmbedMedia> {
 	matches!(embed.kind.as_str(), "image" | "gifv")
 		.then(|| {
@@ -613,11 +669,20 @@ pub fn show(
 				);
 				let response =
 					ui.interact(painted.rect, painted.id.with("media"), egui::Sense::click());
+				// With the GIF alt text tweak, a GIF names itself from the words in its link.
+				let alt = (embed.kind == "gifv"
+					&& crate::interface_tweaks::on(
+						ui.ctx(),
+						extensions::InterfaceTweak::GifAltText,
+					))
+				.then(|| embed.url.as_deref().and_then(gif_alt_text))
+				.flatten();
 				response.widget_info(|| {
 					egui::WidgetInfo::labeled(
 						egui::Role::Button,
 						ui.is_enabled(),
-						crate::i18n::translate("embeds-show-open-image"),
+						alt.clone()
+							.unwrap_or_else(|| crate::i18n::translate("embeds-show-open-image")),
 					)
 				});
 				embed_context_menu(&response, image, download, demo);
@@ -634,7 +699,11 @@ pub fn show(
 					.as_ref()
 					.is_some_and(|star| star.hovered() || star.clicked())
 					&& response
-						.on_hover_text(crate::i18n::translate("embeds-show-open-image-2"))
+						.on_hover_text(
+							alt.unwrap_or_else(|| {
+								crate::i18n::translate("embeds-show-open-image-2")
+							}),
+						)
 						.clicked()
 				{
 					download.view_embed(message.id, image);
@@ -1008,6 +1077,31 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn gif_alt_text_reads_tenor_and_giphy_links_only() {
+		let alt = |url| gif_alt_text(url);
+		assert_eq!(
+			alt("https://tenor.com/view/cat-dance-funny-gif-12345").as_deref(),
+			Some("GIF: cat dance funny")
+		);
+		assert_eq!(
+			alt("https://giphy.com/gifs/happy-dog-xT9IgG50Fb7Mi0prBC").as_deref(),
+			Some("GIF: happy dog")
+		);
+		assert_eq!(
+			alt("https://tenor.com/view/caf%C3%A9-gif-1").as_deref(),
+			Some("GIF: café")
+		);
+		assert_eq!(alt("https://tenor.com/view/gif-12345"), None, "no words");
+		assert_eq!(
+			alt("https://giphy.com/gifs/xT9IgG50Fb7Mi0prBC"),
+			None,
+			"only an id"
+		);
+		assert_eq!(alt("https://example.com/view/cat-gif-1"), None);
+		assert_eq!(alt("not a link"), None);
+	}
 
 	/// A link that resolves to a hosted clip carries no poster; the card paints the clip.
 	#[test]

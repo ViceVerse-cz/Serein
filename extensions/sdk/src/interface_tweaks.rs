@@ -67,6 +67,8 @@ pub enum InterfaceTweak {
 	GifFavoritesFirst,
 	/// Clicking the composer's attach button chooses files at once; its menu opens on a right click.
 	DirectUploadButton,
+	/// A Tenor or Giphy GIF reads and hovers with the words in its link as alt text.
+	GifAltText,
 }
 
 /// Activation or panel output that sets the plugin's interface tweaks, preserving `Output`
