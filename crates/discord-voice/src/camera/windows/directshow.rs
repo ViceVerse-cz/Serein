@@ -593,7 +593,7 @@ mod tests {
 		let wide = rgb_frame(&vec![255; 16 * 3 * 9], 16, 9, false).unwrap();
 		assert_eq!(wide, vec![255; WIDTH * HEIGHT * 3]);
 		// 4:3 input is pillarboxed: 960 pixels centered, with black bars left and right.
-		let square = rgb_frame(&vec![255; 4 * 3 * 3], 4, 3, false).unwrap();
+		let square = rgb_frame(&[255; 4 * 3 * 3], 4, 3, false).unwrap();
 		let bar = (WIDTH - HEIGHT * 4 / 3) / 2;
 		for row in [0, HEIGHT / 2, HEIGHT - 1] {
 			let row = &square[row * WIDTH * 3..(row + 1) * WIDTH * 3];
