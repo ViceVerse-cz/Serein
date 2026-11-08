@@ -3903,6 +3903,10 @@ timeline-message-actions-delete-message = Smazat zprávu…
 timeline-message-actions-edit-message = Upravit zprávu
 # Context: message_actions
 timeline-message-actions-extensions = Rozšíření
+# Context: menu
+extensions-ui-menu-group-user = Uživatel
+# Context: menu
+extensions-ui-menu-group-conversation = Konverzace
 # Context: message_actions
 timeline-message-actions-forward = Přeposlat
 # Context: message_actions

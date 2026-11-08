@@ -3867,6 +3867,10 @@ timeline-message-actions-delete-message = Mesajı sil…
 timeline-message-actions-edit-message = Mesajı düzenle
 # Context: message_actions
 timeline-message-actions-extensions = Uzantılar
+# Context: menu
+extensions-ui-menu-group-user = Kullanıcı
+# Context: menu
+extensions-ui-menu-group-conversation = Sohbet
 # Context: message_actions
 timeline-message-actions-forward = İlet
 # Context: message_actions
