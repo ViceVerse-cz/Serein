@@ -7,6 +7,7 @@ pub mod channel_actions;
 pub mod emoji_frecency;
 pub mod fingerprint;
 pub mod forum;
+pub mod friend_invites;
 pub mod game_mentions;
 pub mod gifs;
 pub mod guild_creation;
@@ -246,6 +247,8 @@ pub enum Command {
 	Reactions(reactions::Command),
 	/// One unloaded person or message, read on demand.
 	Lookup(lookups::Command),
+	/// List, create or revoke the account's friend invite links.
+	FriendInvites(friend_invites::Command),
 	Profile {
 		user: Id,
 		guild: Option<Id>,
@@ -583,6 +586,7 @@ pub enum Event {
 	NotificationPreferences(notifications::Event),
 	Reactions(reactions::Event),
 	Lookup(lookups::Event),
+	FriendInvites(friend_invites::Event),
 	Profile {
 		user: Id,
 		guild: Option<Id>,
@@ -782,6 +786,8 @@ pub struct State {
 	pub typing: typing::Typing,
 	/// People and messages read on demand for unknown mentions and unloaded replies.
 	pub lookups: lookups::Lookups,
+	/// The account's friend invite links, shown on Add Friend.
+	pub friend_invites: friend_invites::FriendInvites,
 	pub permissions: permissions::Permissions,
 	pub archives: Option<archives::View>,
 	pub posting: forum::Posting,
@@ -1029,6 +1035,7 @@ impl Default for State {
 			group_actions: group_actions::Actions::default(),
 			typing: typing::Typing::default(),
 			lookups: lookups::Lookups::default(),
+			friend_invites: friend_invites::FriendInvites::default(),
 			permissions: permissions::Permissions::default(),
 			archives: None,
 			posting: forum::Posting::default(),
@@ -3171,6 +3178,10 @@ impl State {
 				self.apply_lookup(event);
 				Ok(())
 			}
+			Event::FriendInvites(event) => {
+				self.apply_friend_invites(event);
+				Ok(())
+			}
 			Event::StreamPreview {
 				guild,
 				channel,
@@ -4319,6 +4330,7 @@ impl State {
 	fn fail(&mut self, failure: auth::Failure) {
 		self.typing.clear_all();
 		self.lookups.release_pending();
+		self.friend_invites.release_pending();
 		self.status = failure.label();
 		match failure {
 			auth::Failure::Expired => self.auth = auth::AuthState::Expired,

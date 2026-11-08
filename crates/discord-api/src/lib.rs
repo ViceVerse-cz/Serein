@@ -1455,6 +1455,73 @@ impl DiscordApi {
 					}
 				})
 			}
+			Command::FriendInvites(command) => {
+				use client_core::friend_invites::{Command as F, Event as E, FriendInvite};
+				#[derive(serde::Deserialize)]
+				struct InviteDto {
+					code: String,
+					#[serde(default)]
+					expires_at: Option<String>,
+					#[serde(default)]
+					uses: u32,
+					#[serde(default)]
+					max_uses: u32,
+				}
+				fn invite(dto: InviteDto) -> Result<FriendInvite, Failure> {
+					// Codes become links; only plain invite codes are accepted.
+					if dto.code.is_empty()
+						|| dto.code.len() > 32
+						|| !dto
+							.code
+							.bytes()
+							.all(|b| b.is_ascii_alphanumeric() || b == b'-')
+						|| dto.expires_at.as_ref().is_some_and(|at| at.len() > 64)
+					{
+						return Err(Failure::Protocol);
+					}
+					Ok(FriendInvite {
+						code: dto.code,
+						expires_at: dto.expires_at,
+						uses: dto.uses,
+						max_uses: dto.max_uses,
+					})
+				}
+				const PATH: &str = "/users/@me/invites";
+				Event::FriendInvites(match command {
+					F::Load { request } => E::Loaded {
+						request,
+						result: self
+							.request_limited(Method::GET, PATH, None, 64 * 1024)
+							.await
+							.and_then(|bytes| {
+								decode::<Vec<InviteDto>>(&bytes)
+									.map_err(|_| Failure::Protocol)?
+									.into_iter()
+									.take(client_core::friend_invites::MAX_INVITES)
+									.map(invite)
+									.collect()
+							}),
+					},
+					F::Create { request } => E::Created {
+						request,
+						result: self
+							.request_limited(
+								Method::POST,
+								PATH,
+								Some(serde_json::json!({})),
+								16 * 1024,
+							)
+							.await
+							.and_then(|bytes| {
+								invite(decode::<InviteDto>(&bytes).map_err(|_| Failure::Protocol)?)
+							}),
+					},
+					F::RevokeAll { request } => E::Revoked {
+						request,
+						result: self.request(Method::DELETE, PATH, None).await.map(|_| ()),
+					},
+				})
+			}
 			Command::Lookup(command) => {
 				use client_core::lookups::{Command as L, Event as E};
 				Event::Lookup(match command {
@@ -3256,6 +3323,80 @@ mod tests {
 				Some("/channels/1/messages/2/reactions/%61%2F%62%3A%33?limit=100&after=4")
 			);
 		}
+	}
+
+	#[tokio::test]
+	async fn friend_invites_list_create_and_revoke_with_plain_codes_only() {
+		use client_core::friend_invites::{Command as F, Event as E};
+		tokio::time::timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_FRIEND_INVITE_TOKEN".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let replies = [
+				(
+					"GET /users/@me/invites",
+					r#"[{"code":"abc123","uses":1,"max_uses":5,"expires_at":"2026-01-01T00:00:00+00:00"}]"#,
+				),
+				("POST /users/@me/invites", r#"{"code":"new-1"}"#),
+				("POST /users/@me/invites", r#"{"code":"../x"}"#),
+				("DELETE /users/@me/invites", ""),
+			];
+			let server = tokio::spawn(async move {
+				for (expected, body) in replies {
+					let (mut socket, _) = listener.accept().await.unwrap();
+					let mut request = vec![];
+					while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+						let mut bytes = [0; 1024];
+						let n = socket.read(&mut bytes).await.unwrap();
+						assert!(n > 0 && request.len() < 4096);
+						request.extend_from_slice(&bytes[..n]);
+					}
+					let request = std::str::from_utf8(&request).unwrap();
+					assert!(
+						request.starts_with(&format!("{expected} HTTP/1.1\r\n")),
+						"{request}"
+					);
+					let response = if body.is_empty() {
+						"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".to_owned()
+					} else {
+						format!(
+							"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+							body.len()
+						)
+					};
+					socket.write_all(response.as_bytes()).await.unwrap();
+				}
+			});
+			assert!(matches!(
+				api.execute(Command::FriendInvites(F::Load { request: 1 })).await,
+				Event::FriendInvites(E::Loaded { request: 1, result: Ok(list) })
+					if list.len() == 1 && list[0].code == "abc123" && list[0].max_uses == 5
+			));
+			assert!(matches!(
+				api.execute(Command::FriendInvites(F::Create { request: 2 })).await,
+				Event::FriendInvites(E::Created { result: Ok(invite), .. })
+					if invite.link() == "https://discord.gg/new-1"
+			));
+			assert!(matches!(
+				api.execute(Command::FriendInvites(F::Create { request: 3 }))
+					.await,
+				Event::FriendInvites(E::Created {
+					result: Err(Failure::Protocol),
+					..
+				})
+			));
+			assert!(matches!(
+				api.execute(Command::FriendInvites(F::RevokeAll { request: 4 }))
+					.await,
+				Event::FriendInvites(E::Revoked { result: Ok(()), .. })
+			));
+			server.await.unwrap();
+		})
+		.await
+		.unwrap();
 	}
 
 	#[tokio::test]

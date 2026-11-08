@@ -211,6 +211,10 @@ impl MessagingUi {
 				language.text("friends-explore-servers"),
 				"https://discord.com/servers",
 			);
+			if !state.demo {
+				design::divider(ui);
+				friend_invite_links(ui, state, commands);
+			}
 		});
 	}
 	fn friend_requests_page(
@@ -1038,6 +1042,122 @@ fn search(ui: &mut egui::Ui, query: &mut String, id: egui::Id, hint: &str) -> eg
 		egui::StrokeKind::Inside,
 	);
 	edit
+}
+
+/// Add Friend's friend invite links: listed on first view, created and copied on demand,
+/// and revoked all at once.
+fn friend_invite_links(ui: &mut egui::Ui, state: &mut State, commands: &mut Vec<Command>) {
+	let colors = design::palette(ui);
+	let invites = &state.friend_invites;
+	if invites.invites().is_none()
+		&& !invites.busy()
+		&& invites.error.is_none()
+		&& let Some(command) = state.load_friend_invites()
+	{
+		commands.push(command);
+	}
+	ui.label(
+		design::semibold(ui, crate::i18n::translate("friends-invite-links"), 16.0)
+			.color(colors.text_strong),
+	);
+	ui.add(
+		egui::Label::new(
+			RichText::new(crate::i18n::translate("friends-invite-links-description"))
+				.size(14.0)
+				.color(colors.muted),
+		)
+		.wrap(),
+	);
+	ui.add_space(8.0);
+	let busy = state.friend_invites.busy();
+	let has_links = state
+		.friend_invites
+		.invites()
+		.is_some_and(|invites| !invites.is_empty());
+	let (mut create, mut revoke) = (false, false);
+	ui.horizontal(|ui| {
+		ui.spacing_mut().item_spacing.x = 8.0;
+		create = ui
+			.add_enabled_ui(!busy, |ui| {
+				design::button(
+					ui,
+					&crate::i18n::translate("friends-invite-create"),
+					design::ButtonKind::Outline,
+				)
+			})
+			.inner
+			.clicked();
+		revoke = ui
+			.add_enabled_ui(!busy && has_links, |ui| {
+				design::button(
+					ui,
+					&crate::i18n::translate("friends-invite-revoke-all"),
+					design::ButtonKind::Danger,
+				)
+			})
+			.inner
+			.clicked();
+	});
+	if create && let Some(command) = state.create_friend_invite() {
+		commands.push(command);
+	}
+	if revoke && let Some(command) = state.revoke_friend_invites() {
+		commands.push(command);
+	}
+	ui.add_space(8.0);
+	if state.friend_invites.error.is_some() {
+		design::hint(ui, &crate::i18n::translate("friends-invite-error"));
+		// A failed list is asked for again only on request, never in a loop.
+		if state.friend_invites.invites().is_none()
+			&& design::button(
+				ui,
+				&crate::i18n::translate("friends-invite-retry"),
+				design::ButtonKind::Neutral,
+			)
+			.clicked()
+			&& let Some(command) = state.load_friend_invites()
+		{
+			commands.push(command);
+		}
+	}
+	match state.friend_invites.invites() {
+		Some([]) => design::hint(ui, &crate::i18n::translate("friends-invite-none")),
+		Some(invites) => {
+			for invite in invites {
+				let link = invite.link();
+				let uses = invite.uses.to_string();
+				let max = invite.max_uses.to_string();
+				let usage = if invite.max_uses == 0 {
+					crate::i18n::translate_args("friends-invite-uses", &[("uses", &uses)])
+				} else {
+					crate::i18n::translate_args(
+						"friends-invite-uses-limited",
+						&[("uses", &uses), ("max", &max)],
+					)
+				};
+				ui.horizontal(|ui| {
+					ui.spacing_mut().item_spacing.x = 8.0;
+					ui.add(
+						egui::Label::new(
+							RichText::new(&link).monospace().color(colors.text_strong),
+						)
+						.selectable(true),
+					);
+					ui.label(RichText::new(usage).size(12.0).color(colors.muted));
+					if design::button(
+						ui,
+						&crate::i18n::translate("friends-invite-copy"),
+						design::ButtonKind::Outline,
+					)
+					.clicked()
+					{
+						ui.ctx().copy_text(link.clone());
+					}
+				});
+			}
+		}
+		None => {}
+	}
 }
 
 #[cfg(test)]
