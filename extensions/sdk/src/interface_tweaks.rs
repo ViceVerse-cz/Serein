@@ -69,6 +69,8 @@ pub enum InterfaceTweak {
 	DirectUploadButton,
 	/// A Tenor or Giphy GIF reads and hovers with the words in its link as alt text.
 	GifAltText,
+	/// Names in the typing indicator take their top colored role.
+	TypingRoleColors,
 }
 
 /// Activation or panel output that sets the plugin's interface tweaks, preserving `Output`

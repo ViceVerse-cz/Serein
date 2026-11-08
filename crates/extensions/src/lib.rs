@@ -222,6 +222,8 @@ pub enum InterfaceTweak {
 	DirectUploadButton,
 	/// A Tenor or Giphy GIF reads and hovers with the words in its link as alt text.
 	GifAltText,
+	/// Names in the typing indicator take their top colored role.
+	TypingRoleColors,
 }
 
 impl InterfaceTweak {
@@ -254,6 +256,7 @@ impl InterfaceTweak {
 		Self::GifFavoritesFirst,
 		Self::DirectUploadButton,
 		Self::GifAltText,
+		Self::TypingRoleColors,
 	];
 }
 

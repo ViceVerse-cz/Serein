@@ -61,8 +61,8 @@ fn name(state: &State, channel: Id, user: Id) -> Option<&str> {
 		})
 }
 
-/// Text runs for the indicator; `true` marks a typist name rendered in the strong weight.
-fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, bool)>> {
+/// Text runs for the indicator; `Some(user)` marks a typist name, rendered in the strong weight.
+fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, Option<Id>)>> {
 	if state.selected != Some(channel) {
 		return None;
 	}
@@ -79,7 +79,7 @@ fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, boo
 				.map(|c| if c.is_control() { ' ' } else { c })
 				.collect();
 			if !name.trim().is_empty() {
-				names.push(name);
+				names.push((name, user));
 			}
 		}
 	}
@@ -98,29 +98,57 @@ fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, boo
 			} else {
 				format!("{count} people are typing…")
 			},
-			false,
+			None,
 		)]);
 	}
 	let others = count - names.len();
-	let mut out: Vec<(String, bool)> = Vec::with_capacity(names.len() * 2 + 2);
+	let mut out: Vec<(String, Option<Id>)> = Vec::with_capacity(names.len() * 2 + 2);
 	let last_index = names.len() - 1 + usize::from(others > 0);
-	for (index, name) in names.into_iter().enumerate() {
+	for (index, (name, user)) in names.into_iter().enumerate() {
 		if index > 0 {
 			out.push((
 				if index == last_index { " and " } else { ", " }.into(),
-				false,
+				None,
 			));
 		}
-		out.push((name, true));
+		out.push((name, Some(user)));
 	}
 	if others > 0 {
 		out.push((
 			format!(" and {others} other{}", if others == 1 { "" } else { "s" }),
-			false,
+			None,
 		));
 	}
-	out.push((verb.into(), false));
+	out.push((verb.into(), None));
 	Some(out)
+}
+
+/// The RGB color of `user`'s top colored role in this conversation, from the roles their
+/// loaded member entry or latest loaded message carries.
+fn role_color(state: &State, channel: Id, user: Id) -> Option<u32> {
+	let member_roles = state
+		.members
+		.as_ref()
+		.filter(|members| members.channel == channel)
+		.and_then(|members| {
+			members.slots.iter().flatten().find_map(|slot| match slot {
+				model::MemberSlot::Person(member) if member.user.id == user => {
+					Some(member.roles.as_slice())
+				}
+				_ => None,
+			})
+		});
+	let roles = member_roles.unwrap_or_else(|| {
+		state
+			.timeline
+			.iter()
+			.rev()
+			.find(|message| message.channel == channel && message.author.id == user)
+			.map_or(&[][..], |message| message.author_roles.as_slice())
+	});
+	state
+		.forum_author_color(channel, user, false, roles)
+		.filter(|rgb| *rgb != 0)
 }
 
 #[cfg(test)]
@@ -192,24 +220,32 @@ pub(super) fn overlay(
 	job.wrap.max_rows = 1;
 	job.wrap.break_anywhere = true;
 	let strong = crate::design::semibold_family(ui.ctx());
-	for (text, is_name) in &segments {
+	// With the typing role colors tweak, each typist's name takes their top colored role.
+	let role_colors =
+		crate::interface_tweaks::on(ui.ctx(), extensions::InterfaceTweak::TypingRoleColors);
+	for (text, user) in &segments {
+		let color = match user {
+			Some(user) => role_colors
+				.then(|| role_color(state, channel, *user))
+				.flatten()
+				.map_or(colors.text_strong, |rgb| {
+					crate::design::role_name_color(rgb, ui.visuals().panel_fill, colors.text_strong)
+				}),
+			None => colors.muted,
+		};
 		job.append(
 			text,
 			0.0,
 			egui::TextFormat {
 				font_id: egui::FontId::new(
 					TEXT_SIZE,
-					if *is_name {
+					if user.is_some() {
 						strong.clone()
 					} else {
 						egui::FontFamily::Proportional
 					},
 				),
-				color: if *is_name {
-					colors.text_strong
-				} else {
-					colors.muted
-				},
+				color,
 				..Default::default()
 			},
 		);
@@ -301,6 +337,34 @@ mod tests {
 			}],
 			..Default::default()
 		}
+	}
+
+	#[test]
+	fn typist_names_carry_their_person_for_role_colors() {
+		let now = Instant::now();
+		let mut state = state();
+		for user in [1, 2] {
+			state.observe_typing_at(
+				Signal {
+					channel: Id(10),
+					user: Id(user),
+					timestamp: 1_000,
+				},
+				SystemTime::UNIX_EPOCH + Duration::from_secs(1_000),
+				now,
+			);
+		}
+		let people: Vec<_> = segments(&state, Id(10), now)
+			.unwrap()
+			.into_iter()
+			.filter_map(|(text, user)| user.map(|user| (text, user)))
+			.collect();
+		assert_eq!(people, [("Alex".into(), Id(1)), ("Robin".into(), Id(2))]);
+		assert_eq!(
+			role_color(&state, Id(10), Id(1)),
+			None,
+			"a direct message has no roles to color by"
+		);
 	}
 
 	#[test]

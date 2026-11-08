@@ -117,7 +117,7 @@ can be inspected without decoding a newer capability/event enum.
 | `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
 | `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (56 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
 | `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
-| `interface_tweaks` | `Vec<String>` / array of strings, empty on older hosts | Interface tweak names this host honors: `static_typing_indicator`, `plain_profiles`, `expanded_roles`, `hidden_request_counts`, `one_ping_per_direct_message`, `hidden_blocked_messages`, `hidden_profile_notes`, `large_stream_preview`, `double_click_reply_edit`, `username_beside_name`, `owner_crown`, `platform_indicators`, `role_colored_mentions`, `forum_list_view`, `forum_gallery_view`, `forum_sort_by_activity`, `forum_sort_by_creation`, `single_open_folder`, `mutual_groups`, `mention_avatars`, `rail_counts`, `staff_tags`, `silent_typing`, `anonymous_file_names`, `gif_favorites_first`, `direct_upload_button`, `gif_alt_text`. | `host.supports_tweak("expanded_roles")` |
+| `interface_tweaks` | `Vec<String>` / array of strings, empty on older hosts | Interface tweak names this host honors: `static_typing_indicator`, `plain_profiles`, `expanded_roles`, `hidden_request_counts`, `one_ping_per_direct_message`, `hidden_blocked_messages`, `hidden_profile_notes`, `large_stream_preview`, `double_click_reply_edit`, `username_beside_name`, `owner_crown`, `platform_indicators`, `role_colored_mentions`, `forum_list_view`, `forum_gallery_view`, `forum_sort_by_activity`, `forum_sort_by_creation`, `single_open_folder`, `mutual_groups`, `mention_avatars`, `rail_counts`, `staff_tags`, `silent_typing`, `anonymous_file_names`, `gif_favorites_first`, `direct_upload_button`, `gif_alt_text`, `typing_role_colors`. | `host.supports_tweak("expanded_roles")` |
 
 A supported capability still needs to be declared and explicitly granted. Older
 hosts reject unknown required manifest capabilities **before** a handler can run;
@@ -242,7 +242,8 @@ account snapshot or grant-dependent data:
       "anonymous_file_names",
       "gif_favorites_first",
       "direct_upload_button",
-      "gif_alt_text"
+      "gif_alt_text",
+      "typing_role_colors"
     ]
   }
 }
