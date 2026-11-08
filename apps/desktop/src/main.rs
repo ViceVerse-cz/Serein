@@ -5693,6 +5693,9 @@ impl eframe::App for Desktop {
 		if let Some(wake) = self.geometry_rest.wake() {
 			ctx.request_repaint_after(wake);
 		}
+		self.uploads.anonymise = self
+			.messaging
+			.interface_tweak_on(::extensions::InterfaceTweak::AnonymousFileNames);
 		let search_focused = {
 			#[cfg(feature = "demo")]
 			{

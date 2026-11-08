@@ -116,6 +116,34 @@ impl Source {
 	pub fn filename(&self) -> &str {
 		&self.filename
 	}
+	/// The same selection under a random seven-character name built from `random`.
+	///
+	/// The extension and a leading `SPOILER_` survive, so the file keeps its kind and
+	/// its blur; emoji and sticker artwork keep the names the host checks.
+	pub fn anonymised(mut self, random: [u8; 7]) -> Self {
+		const ALPHABET: &[u8; 62] =
+			b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+		if self.filename.starts_with("emoji-") || self.filename.starts_with("sticker-") {
+			return self;
+		}
+		let spoiler = if self.filename.starts_with("SPOILER_") {
+			"SPOILER_"
+		} else {
+			""
+		};
+		let extension = self
+			.filename
+			.strip_prefix(spoiler)
+			.and_then(|name| name.rsplit_once('.'))
+			.filter(|(stem, _)| !stem.is_empty())
+			.map_or(String::new(), |(_, extension)| format!(".{extension}"));
+		let stem: String = random
+			.iter()
+			.map(|byte| char::from(ALPHABET[usize::from(*byte) % ALPHABET.len()]))
+			.collect();
+		self.filename = format!("{spoiler}{stem}{extension}");
+		self
+	}
 	pub fn size(&self) -> u64 {
 		self.size
 	}
@@ -624,6 +652,24 @@ async fn cancelled(cancel: &mut watch::Receiver<bool>) {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn anonymised_names_keep_extension_spoiler_and_artwork() {
+		let named = |name: &str, random| {
+			let mut source = super::Source::pasted_text("x".into()).unwrap();
+			source.filename = name.into();
+			source.anonymised(random).filename().to_owned()
+		};
+		assert_eq!(
+			named("holiday photo.JPG", [0, 1, 2, 25, 26, 61, 62]),
+			"ABCZa9A.JPG"
+		);
+		assert_eq!(named("SPOILER_plot.mp4", [0; 7]), "SPOILER_AAAAAAA.mp4");
+		assert_eq!(named("README", [0; 7]), "AAAAAAA");
+		assert_eq!(named(".bashrc", [0; 7]), "AAAAAAA");
+		assert_eq!(named("archive.tar.gz", [0; 7]), "AAAAAAA.gz");
+		let artwork = super::Source::image_bytes("emoji-7.gif".into(), vec![1]).unwrap();
+		assert_eq!(artwork.anonymised([0; 7]).filename(), "emoji-7.gif");
+	}
 	#[test]
 	fn image_sources_only_accept_bounded_generated_raster_names() {
 		for name in ["emoji-7.gif", "sticker-8.png"] {

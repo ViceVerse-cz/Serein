@@ -31,7 +31,9 @@ impl Desktop {
 			pending.deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
 		}
 		let mut offset = 0;
+		let anonymise = self.uploads.anonymise;
 		for (custom_id, uploads) in &mut self.interaction_files.fields {
+			uploads.anonymise = anonymise;
 			uploads.poll(self.state.generation, self.state.selected, allowed, ctx);
 			let files = uploads.files();
 			let count = files.len();
@@ -88,7 +90,9 @@ impl Desktop {
 				.push((custom_id.clone(), Uploads::default()));
 			self.interaction_files.fields.len() - 1
 		};
+		let anonymise = self.uploads.anonymise;
 		let uploads = &mut self.interaction_files.fields[index].1;
+		uploads.anonymise = anonymise;
 		if uploads.busy() {
 			return;
 		}

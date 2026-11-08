@@ -59,6 +59,10 @@ pub enum InterfaceTweak {
 	/// Message authors and member-list names carry an Admin or Mod tag from their roles'
 	/// permissions.
 	StaffTags,
+	/// Typing in the composer no longer tells the conversation you are typing.
+	SilentTyping,
+	/// Files chosen for a message take a random name; the extension and a spoiler mark stay.
+	AnonymousFileNames,
 }
 
 /// Activation or panel output that sets the plugin's interface tweaks, preserving `Output`

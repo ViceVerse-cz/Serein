@@ -212,6 +212,10 @@ pub enum InterfaceTweak {
 	/// Message authors and member-list names carry an Admin or Mod tag from their roles'
 	/// permissions.
 	StaffTags,
+	/// Typing in the composer no longer tells the conversation you are typing.
+	SilentTyping,
+	/// Files chosen for a message take a random name; the extension and a spoiler mark stay.
+	AnonymousFileNames,
 }
 
 impl InterfaceTweak {
@@ -239,6 +243,8 @@ impl InterfaceTweak {
 		Self::MentionAvatars,
 		Self::RailCounts,
 		Self::StaffTags,
+		Self::SilentTyping,
+		Self::AnonymousFileNames,
 	];
 }
 

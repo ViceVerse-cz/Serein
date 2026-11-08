@@ -401,6 +401,9 @@ pub struct Uploads {
 	last: Option<Status>,
 	/// One problem, announced once. Drained by the caller into a toast.
 	notice: Option<&'static str>,
+	/// Whether newly chosen files take a random name; set each frame from the
+	/// anonymous-file-names interface tweak.
+	pub anonymise: bool,
 }
 impl Uploads {
 	#[allow(clippy::too_many_arguments)]
@@ -934,6 +937,12 @@ impl Uploads {
 	fn push(&mut self, source: Source, preview: Option<egui::ColorImage>) -> u64 {
 		let key = self.next_key;
 		self.next_key += 1;
+		let mut random = [0; 7];
+		let source = if self.anonymise && getrandom::fill(&mut random).is_ok() {
+			source.anonymised(random)
+		} else {
+			source
+		};
 		self.selected.push(Chosen {
 			key,
 			source,
@@ -1774,6 +1783,7 @@ mod tests {
 			uploading: None,
 			last: None,
 			notice: None,
+			anonymise: false,
 		};
 		uploads.poll(2, Some(Id(2)), true, &context);
 		assert!(cancelled.load(Ordering::Acquire));

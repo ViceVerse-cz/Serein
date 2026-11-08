@@ -4008,8 +4008,10 @@ impl MessagingUi {
                                 self.clear_draft(state, channel);
                             } else {
                                 self.draft_changes.push(channel);
-                                // Tell the conversation, as the official client does.
+                                // Tell the conversation, as the official client does, unless
+                                // the silent-typing tweak keeps it quiet.
                                 if edit.changed()
+                                    && !self.interface_tweak_on(extensions::InterfaceTweak::SilentTyping)
                                     && let Some(command) =
                                         state.prepare_typing(channel, std::time::Instant::now())
                                 {
@@ -6853,7 +6855,7 @@ mod composer_tests {
 			ctx.memory_mut(|m| m.request_focus(ui.make_persistent_id("message-input")));
 		})
 		.drop_without_applying_deltas();
-		let mut typed = |text: &str, state: &mut State| {
+		let typed = |text: &str, state: &mut State, view: &mut MessagingUi| {
 			let mut commands = vec![];
 			ctx.run_ui(
 				egui::RawInput {
@@ -6870,11 +6872,20 @@ mod composer_tests {
 				)
 				.count()
 		};
-		assert_eq!(typed("h", &mut state), 1);
+		assert_eq!(typed("h", &mut state, &mut view), 1);
 		assert_eq!(
-			typed("i", &mut state),
+			typed("i", &mut state, &mut view),
 			0,
 			"throttled while Discord still shows it"
+		);
+		// Silent typing keeps a fresh conversation uninformed, where the first key would tell it.
+		view.set_interface_tweaks([extensions::InterfaceTweak::SilentTyping].into());
+		let mut fresh = edit_state();
+		fresh.gateway_connected = true;
+		assert_eq!(
+			typed("!", &mut fresh, &mut view),
+			0,
+			"silent typing sends nothing"
 		);
 	}
 
