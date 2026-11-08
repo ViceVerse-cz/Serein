@@ -135,6 +135,8 @@ pub struct TimelineView {
 	layout_fingerprint: u64,
 	/// Whether the last layout left out blocked users' messages.
 	hidden_blocked: bool,
+	/// Relationship view the last layout filtered with; pending blocks change it too.
+	relationship_view: u64,
 	channel: Option<Id>,
 	anchor: Option<(Id, f32)>,
 	scroll_offset: f32,
@@ -2567,6 +2569,7 @@ impl TimelineView {
 		let changed = self.revision == u64::MAX
 			|| layout_changed
 			|| self.hidden_blocked != hide_blocked
+			|| hide_blocked && self.relationship_view != state.relationship_view()
 			|| dimensions_changed
 			|| self.starter_row != starter_id
 			|| self.intro_row != intro.is_some()
@@ -2575,6 +2578,7 @@ impl TimelineView {
 		self.starter_row = starter_id;
 		self.intro_row = intro.is_some();
 		self.hidden_blocked = hide_blocked;
+		self.relationship_view = state.relationship_view();
 		if changed || self.revision != state.revision || self.width != width {
 			self.measured_rows.clear();
 		}
@@ -4128,8 +4132,16 @@ impl TimelineView {
 														.and_then(|channel| channel.message_count)
 												})
 											});
-										let last =
-											preview.as_ref().and_then(|preview| preview.last);
+										// A blocked author's latest reply stays out of the card
+										// while the tweak hides their messages.
+										let last = preview
+											.as_ref()
+											.and_then(|preview| preview.last)
+											.filter(|reply| {
+												!self.hidden_blocked
+													|| state.user_blocked(reply.author.id)
+														!= Some(true)
+											});
 										let text = last.map(|reply| {
 											thread_preview_text(
 												ui,
