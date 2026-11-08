@@ -3921,6 +3921,8 @@ timeline-show-with-scroll-loading-messages = Загрузка сообщений
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Сообщение удалено
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Заблокированное сообщение
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = История сообщений недоступна с текущей информацией о разрешении.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Сообщений пока нет. Начните разговор ниже.

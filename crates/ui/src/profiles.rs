@@ -3255,8 +3255,10 @@ fn card_view(
 		.map(|c| c.id);
 	let mut action = None;
 	let menu_id = egui::Id::unique(("user-profile-more", user.id, docked));
-	// A menu that was already open owns Escape and clicks on its own items this frame.
-	let menu_open = egui::Popup::is_id_open(ui.ctx(), menu_id);
+	// A menu that was already open owns Escape and clicks on its own items this frame. Role
+	// chip menus may extend past the card, so any open popup keeps the card open too.
+	let menu_open =
+		egui::Popup::is_id_open(ui.ctx(), menu_id) || egui::Popup::is_any_open(ui.ctx());
 	// The mutuals side panel stays open across frames until toggled, dismissed or navigated.
 	let mutuals_id = egui::Id::unique(("profile-mutuals", user.id, docked));
 	let mut mutuals = ui.ctx().data(|d| d.get_temp::<Mutuals>(mutuals_id));

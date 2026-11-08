@@ -3952,6 +3952,8 @@ timeline-show-with-scroll-loading-messages = Načítání zpráv…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Zpráva smazána
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Blokovaná zpráva
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Historie zpráv není s aktuálními informacemi o oprávnění k dispozici.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Zatím žádné zprávy. Začněte konverzaci níže.

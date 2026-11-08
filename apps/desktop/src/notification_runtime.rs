@@ -122,6 +122,8 @@ impl Runtime {
 			let _ = platform::badge::set(window, 0);
 		}
 		self.badge = None;
+		// Another account may sign in next; its conversations start without alert history.
+		self.pinged_directs.clear();
 	}
 	/// Returns a coalesced desktop alert request. Sound is independent of desktop alerts.
 	pub fn poll(
@@ -154,40 +156,42 @@ impl Runtime {
 			self.pinged_directs.clear();
 		}
 		while let Some(notification) = state.take_notification() {
-			if one_ping
-				&& quiet_repeat(
-					&mut self.pinged_directs,
-					(
-						notification.is_direct(),
-						notification.channel,
-						notification.message,
-					),
-					|id| state.read_marker(id).flatten(),
-				) {
-				continue;
-			}
 			let current = focused && ui.viewing_latest(notification.channel);
 			let cue = if current {
 				Sound::CurrentChannel
 			} else {
 				Sound::Message
 			};
-			if audible {
-				if ui.notifications_enabled && !current {
-					let image_path = state.user.as_ref().and_then(|user| {
-						crate::avatars::notification_image_path(user.id, &notification.avatar_key)
-					});
-					alert = Some(Alert::Message {
-						channel: notification.channel,
-						title: notification.sender,
-						body: notification.preview,
-						avatar_key: notification.avatar_key,
-						image_path,
-					});
-				}
-				if options.allows(cue) {
-					sound = Some(cue);
-				}
+			let desktop = audible && ui.notifications_enabled && !current;
+			let audio = audible && options.allows(cue);
+			// Only a notification that would alert can use up a conversation's one ping.
+			if !(desktop || audio)
+				|| one_ping
+					&& quiet_repeat(
+						&mut self.pinged_directs,
+						(
+							notification.is_direct(),
+							notification.channel,
+							notification.message,
+						),
+						|id| state.read_marker(id).flatten(),
+					) {
+				continue;
+			}
+			if desktop {
+				let image_path = state.user.as_ref().and_then(|user| {
+					crate::avatars::notification_image_path(user.id, &notification.avatar_key)
+				});
+				alert = Some(Alert::Message {
+					channel: notification.channel,
+					title: notification.sender,
+					body: notification.preview,
+					avatar_key: notification.avatar_key,
+					image_path,
+				});
+			}
+			if audio {
+				sound = Some(cue);
 			}
 		}
 		let incoming = state.voice.incoming.filter(|id| {

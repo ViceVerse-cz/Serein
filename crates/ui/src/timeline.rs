@@ -2529,13 +2529,17 @@ impl TimelineView {
 		let dimensions_changed = width_changed || content_dimensions_changed;
 		self.applied_hide_media_links = self.hide_media_links;
 		self.applied_compact_messages = self.compact_messages;
-		// A thread's starter joins the rows only once the whole thread history is loaded.
-		let starter = state.thread_starter().filter(|_| history_complete(state));
-		let starter_id = starter.map(|m| m.id);
 		let hide_blocked = crate::interface_tweaks::on(
 			ui.ctx(),
 			extensions::InterfaceTweak::HiddenBlockedMessages,
 		);
+		// A thread's starter joins the rows only once the whole thread history is loaded, and
+		// like other rows is left out when its author is blocked and the tweak hides them.
+		let starter = state
+			.thread_starter()
+			.filter(|_| history_complete(state))
+			.filter(|m| !hide_blocked || state.user_blocked(m.author.id) != Some(true));
+		let starter_id = starter.map(|m| m.id);
 		let intro_empty = state.timeline.display_iter().next().is_none()
 			&& !state
 				.pending
@@ -3219,7 +3223,26 @@ impl TimelineView {
 							if let Some(reply) = message.reply_to.filter(|_| message.kind != 46) {
 								reference_row(ui, |ui| {
 									// Reuse only loaded content; never fetch a thread while painting.
-									if message.reply_deleted || state.timeline.is_deleted(reply) {
+									let blocked = self.hidden_blocked
+										&& state.timeline.get(reply).is_some_and(|original| {
+											state.user_blocked(original.author.id) == Some(true)
+										});
+									if blocked {
+										let label = ui.add(
+											egui::Label::new(
+												RichText::new(crate::i18n::translate(
+													"timeline-show-with-scroll-message-blocked",
+												))
+												.size(13.0)
+												.italics()
+												.color(colors.muted),
+											)
+											.truncate(),
+										);
+										surface.keep(&label);
+									} else if message.reply_deleted
+										|| state.timeline.is_deleted(reply)
+									{
 										let deleted = ui.add(
 											egui::Label::new(
 												RichText::new(crate::i18n::translate(
@@ -4223,6 +4246,7 @@ impl TimelineView {
 								.is_none_or(|(_, toolbar)| !toolbar.contains(*pos))
 							&& ui.ctx().layer_id_at(*pos) == Some(ui.layer_id())
 							&& !egui::Popup::is_any_open(ui.ctx())
+							&& ui.is_enabled()
 					});
 					if double_click.is_some()
 						&& crate::interface_tweaks::on(
@@ -6777,6 +6801,104 @@ mod tests {
 				"missing {label}: {painted:?}"
 			);
 		}
+	}
+	/// Checks that the hidden-blocked-messages tweak leaves a blocked author's thread starter out
+	/// of the rows, as it does their ordinary messages, and that it returns without the tweak.
+	#[test]
+	fn hidden_blocked_messages_tweak_leaves_out_a_blocked_thread_starter() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = test_support::chat_demo_state();
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		let (thread, parent) = state
+			.channels
+			.iter()
+			.find(|c| {
+				matches!(c.kind, 10..=12)
+					&& c.parent_id
+						.and_then(|id| state.channel(id))
+						.is_some_and(|p| matches!(p.kind, 0 | 5))
+			})
+			.map(|c| (c.id, c.parent_id.unwrap()))
+			.expect("fixture thread under a text channel");
+		state.select(thread);
+		state
+			.timeline
+			.insert(test_support::message(thread.0 + 10, thread), false, false)
+			.unwrap();
+		state.history_pending = false;
+		state.freshness = model::Freshness::Fresh;
+		state.older_exhausted = true;
+		let Some(client_core::Command::ThreadStarter { request, .. }) =
+			state.request_thread_starter()
+		else {
+			panic!("thread requests its starter");
+		};
+		let mut starter = test_support::message(thread.0, parent);
+		starter.author.id = Id(777);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::ThreadStarter {
+				thread,
+				request,
+				result: Ok(starter),
+			},
+		});
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::Relationship {
+				user: Id(777),
+				blocked: true,
+			}),
+		});
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut rows = |view: &mut TimelineView, state: &mut State, hide: bool| {
+			for _ in 0..4 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(900.0, 1400.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						crate::interface_tweaks::publish(
+							ui.ctx(),
+							&std::sync::Arc::new(
+								hide.then_some(extensions::InterfaceTweak::HiddenBlockedMessages)
+									.into_iter()
+									.collect(),
+							),
+						);
+						view.show(
+							ui,
+							state,
+							&mut None,
+							&mut None,
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
+							None,
+						);
+					},
+				);
+				output.drop_without_applying_deltas();
+			}
+			view.rows.iter().map(|(id, _)| *id).collect::<Vec<_>>()
+		};
+		assert!(rows(&mut view, &mut state, false).contains(&thread));
+		let hidden = rows(&mut view, &mut state, true);
+		assert!(
+			!hidden.contains(&thread),
+			"blocked starter left out: {hidden:?}"
+		);
+		assert!(hidden.contains(&Id(thread.0 + 10)), "other rows stay");
 	}
 	#[test]
 	fn an_unloaded_thread_starter_offers_its_thread_card() {

@@ -708,7 +708,7 @@ impl MessagingUi {
 	) {
 		let target = (entry.guild, entry.channel, entry.participant.user);
 		// A large-preview tweak doubles the image; the popup grows around it.
-		let scale = if crate::interface_tweaks::on(
+		let scale: f32 = if crate::interface_tweaks::on(
 			ui.ctx(),
 			extensions::InterfaceTweak::LargeStreamPreview,
 		) {
@@ -716,7 +716,13 @@ impl MessagingUi {
 		} else {
 			1.0
 		};
-		let image = egui::vec2(300.0, 169.0) * scale;
+		// The popup opens beside the row; a doubled image shrinks to fit the window's remaining
+		// width and keeps room below it for the title and the Watch button.
+		let viewport = ui.ctx().content_rect();
+		let fit = ((viewport.right() - row.rect.right() - 8.0 - 24.0) / 300.0)
+			.min((viewport.height() - 24.0 - 110.0) / 169.0)
+			.max(1.0);
+		let image = egui::vec2(300.0, 169.0) * scale.min(fit);
 		let mut tooltip = egui::Tooltip::for_enabled(row)
 			.gap(8.0)
 			.width(image.x + 24.0)

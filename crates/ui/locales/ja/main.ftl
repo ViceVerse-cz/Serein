@@ -3911,6 +3911,8 @@ timeline-show-with-scroll-loading-messages = メッセージを読み込んで�
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = メッセージが削除されました
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = ブロックしたユーザーのメッセージ
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 現在の権限情報ではメッセージ履歴を利用できません。
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = まだメッセージはありません。以下で会話を始めてください。
