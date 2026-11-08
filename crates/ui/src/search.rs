@@ -877,7 +877,9 @@ impl SearchUi {
 			ctx.input(|i| i.pointer.interact_pos())
 				.unwrap_or(anchor.center()),
 		);
-		if clicked_outside && !viewing {
+		// A result's menu and its submenus may extend past the popout; pressing an entry there
+		// must reach the menu instead of closing the popout under it.
+		if clicked_outside && !viewing && !egui::Popup::is_any_open(&ctx) {
 			self.open = false;
 		}
 		self.viewer(ui, state, avatars, media.download);
@@ -1571,6 +1573,8 @@ impl SearchUi {
 	}
 	/// Context menu of a result card, opened when `open`: copy its text, link or ID, and run
 	/// plugin message actions on it, as the same message's menu in the conversation offers.
+	/// A result shown only as the preview-limit notice offers no text actions, since its text
+	/// is not loaded.
 	fn result_menu(
 		&mut self,
 		response: &egui::Response,
@@ -1578,21 +1582,19 @@ impl SearchUi {
 		state: &State,
 		hit: &model::SearchHit,
 	) {
-		let mut popup = egui::Popup::menu(response)
+		// Only a secondary click opens the menu; a primary click jumps to the message.
+		let popup = egui::Popup::menu(response)
 			.id(egui::Id::unique(("search-result-menu", hit.id)))
-			.at_pointer_fixed();
-		if open {
-			popup = popup.open_memory(Some(egui::SetOpenCommand::Bool(true)));
-		}
+			.at_pointer_fixed()
+			.open_memory(open.then_some(egui::SetOpenCommand::Bool(true)));
+		let text = self.previews.get(&hit.id).map_or_else(
+			|| hit.excerpt.clone(),
+			|message| crate::i18n::message_text(message).into_owned(),
+		);
+		let readable = text != model::PREVIEW_LIMIT_NOTICE;
 		popup.show(|ui| {
 			ui.set_min_width(160.0);
-			let text = || {
-				self.previews.get(&hit.id).map_or_else(
-					|| hit.excerpt.clone(),
-					|message| crate::i18n::message_text(message).into_owned(),
-				)
-			};
-			if !self.extension_actions.is_empty() {
+			if readable && !self.extension_actions.is_empty() {
 				let mut chosen = None;
 				ui.menu_button(
 					crate::i18n::translate("timeline-message-actions-extensions"),
@@ -1608,7 +1610,7 @@ impl SearchUi {
 				if let Some(action) = chosen {
 					self.extension_request = Some((
 						action,
-						text(),
+						text.clone(),
 						crate::extensions_ui::MessageTarget {
 							channel: hit.channel,
 							message: hit.id,
@@ -1618,11 +1620,20 @@ impl SearchUi {
 				}
 				ui.separator();
 			}
-			if ui
-				.button(crate::i18n::translate("message-menu-copy"))
-				.clicked()
+			if crate::select::has_selection(ui.ctx())
+				&& ui
+					.button(crate::i18n::translate("timeline-message-actions-copy"))
+					.clicked()
 			{
-				ui.ctx().copy_text(text());
+				crate::select::request_copy(ui.ctx());
+				ui.close();
+			}
+			if readable
+				&& ui
+					.button(crate::i18n::translate("message-menu-copy"))
+					.clicked()
+			{
+				ui.ctx().copy_text(text.clone());
 				ui.close();
 			}
 			if let Some(link) = state

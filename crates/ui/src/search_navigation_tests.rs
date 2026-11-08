@@ -124,6 +124,9 @@ fn frame_with_width(
 	(commands, labels)
 }
 fn page(state: &mut State, total: u64) {
+	page_with(state, total, "Synthetic result to revisit");
+}
+fn page_with(state: &mut State, total: u64, excerpt: &str) {
 	let request = state.search.as_ref().unwrap().request;
 	state.apply_search(
 		Id(10),
@@ -134,7 +137,7 @@ fn page(state: &mut State, total: u64) {
 				channel: Id(10),
 				author: test_support::message(90, Id(10)).author,
 				mentions: vec![],
-				excerpt: "Synthetic result to revisit".into(),
+				excerpt: excerpt.into(),
 				attachments: vec![],
 				embeds: vec![],
 			}],
@@ -632,5 +635,76 @@ fn result_context_menu_copies_and_offers_plugin_message_actions() {
 	assert_eq!(
 		(target.channel, target.message, target.author),
 		(Id(10), Id(90), test_support::message(90, Id(10)).author.id)
+	);
+}
+
+/// Checks that a primary click on a result never opens its menu, and that a result shown only
+/// as the preview-limit notice offers its link and ID but no text copy or plugin actions.
+#[test]
+fn result_menu_withholds_text_actions_for_the_preview_notice() {
+	let ctx = egui::Context::default();
+	let mut state = state();
+	let mut view = MessagingUi::default();
+	view.search
+		.open_extension(Id(10), false, Some("needle".into()));
+	state.request_search("needle".into(), None).unwrap();
+	page_with(&mut state, 1, model::PREVIEW_LIMIT_NOTICE);
+	view.search.extension_actions = std::sync::Arc::new(vec![crate::extensions_ui::MenuAction {
+		plugin: "synthetic.words".into(),
+		action: "count".into(),
+		label: "Synthetic · Count words".into(),
+	}]);
+	let mut labels = Vec::new();
+	for _ in 0..3 {
+		labels = pane_frame(&ctx, &mut view, &mut state, vec![]).0;
+	}
+	let result = labels
+		.iter()
+		.find(|(text, _)| text == model::PREVIEW_LIMIT_NOTICE)
+		.expect("notice is drawn")
+		.1;
+	let card = egui::pos2(result.right() + 8.0, result.center().y);
+	let press = |button| {
+		let mut events = vec![egui::Event::PointerMoved(card)];
+		events.extend([true, false].map(|pressed| egui::Event::PointerButton {
+			pos: card,
+			button,
+			pressed,
+			modifiers: egui::Modifiers::NONE,
+		}));
+		events
+	};
+	let id_label = crate::i18n::translate("timeline-message-actions-copy-message-id");
+	let has = |labels: &[(String, egui::Rect)], key: &str| {
+		let label = crate::i18n::translate(key);
+		labels.iter().any(|(text, _)| *text == label)
+	};
+	pane_frame(
+		&ctx,
+		&mut view,
+		&mut state,
+		press(egui::PointerButton::Primary),
+	);
+	let labels = pane_frame(&ctx, &mut view, &mut state, vec![]).0;
+	assert!(
+		!labels.iter().any(|(text, _)| *text == id_label),
+		"a primary click does not open the menu"
+	);
+	pane_frame(
+		&ctx,
+		&mut view,
+		&mut state,
+		press(egui::PointerButton::Secondary),
+	);
+	let labels = pane_frame(&ctx, &mut view, &mut state, vec![]).0;
+	assert!(has(&labels, "timeline-message-actions-copy-message-id"));
+	assert!(has(&labels, "timeline-message-actions-copy-message-link"));
+	assert!(
+		!has(&labels, "message-menu-copy"),
+		"the notice is not copied as the message"
+	);
+	assert!(
+		!has(&labels, "timeline-message-actions-extensions"),
+		"plugins never receive the notice as message text"
 	);
 }
