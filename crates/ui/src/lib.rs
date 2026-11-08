@@ -3651,7 +3651,18 @@ impl MessagingUi {
                         self.extensions.composer_menu(ui, state);
                     }
                     if let Some(attach) = attach {
-                        egui::Popup::menu(&attach)
+                        // With the direct-upload-button tweak, a click chooses files at once and
+                        // the menu moves to a right click.
+                        let direct = can_attach
+                            && crate::interface_tweaks::on(ui.ctx(), extensions::InterfaceTweak::DirectUploadButton);
+                        if direct && attach.clicked() {
+                            self.attach_requested = true;
+                        }
+                        if direct {
+                            egui::Popup::context_menu(&attach)
+                        } else {
+                            egui::Popup::menu(&attach)
+                        }
                             .id(attach.id.with(("composer-add", state.generation, channel)))
                             .show(|ui| {
                                 ui.set_min_width(200.0);
@@ -9554,6 +9565,72 @@ mod composer_tests {
 		assert!(
 			ctx.memory(|memory| memory.focused().is_none()),
 			"the retained profile keeps focus instead of the destination composer"
+		);
+	}
+
+	#[test]
+	fn direct_upload_button_chooses_files_on_click_and_keeps_the_menu_otherwise() {
+		let clicked = |direct: bool| {
+			let ctx = egui::Context::default();
+			ctx.enable_accesskit();
+			let mut state = edit_state();
+			let channel = state.selected.unwrap();
+			let mut view = MessagingUi::default();
+			if direct {
+				view.set_interface_tweaks([extensions::InterfaceTweak::DirectUploadButton].into());
+			}
+			let mut frame = |view: &mut MessagingUi, events| {
+				let mut output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(800.0, 600.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| {
+						crate::interface_tweaks::publish(ui.ctx(), &view.interface_tweaks);
+						view.composer(ui, &mut state, channel, &ctx, &mut vec![]);
+					},
+				);
+				output.textures_delta.clear();
+				let label = crate::i18n::translate("lib-ime-updates-text-attach-files");
+				output
+					.platform_output
+					.accesskit_update
+					.as_ref()
+					.unwrap()
+					.nodes
+					.iter()
+					.filter(|(_, node)| node.label() == Some(label.as_str()))
+					.filter_map(|(_, node)| node.bounds())
+					.map(|b| egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32))
+					.collect::<Vec<_>>()
+			};
+			let pos = frame(&mut view, vec![])[0];
+			for pressed in [true, false] {
+				frame(
+					&mut view,
+					vec![
+						egui::Event::PointerMoved(pos),
+						egui::Event::PointerButton {
+							pos,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					],
+				);
+			}
+			let menu_open = frame(&mut view, vec![]).len() > 1;
+			(view.attach_requested, menu_open)
+		};
+		assert_eq!(clicked(false), (false, true), "a click opens the add menu");
+		assert_eq!(
+			clicked(true),
+			(true, false),
+			"a click chooses files at once"
 		);
 	}
 

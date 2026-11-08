@@ -216,6 +216,10 @@ pub enum InterfaceTweak {
 	SilentTyping,
 	/// Files chosen for a message take a random name; the extension and a spoiler mark stay.
 	AnonymousFileNames,
+	/// The GIF button opens the picker on saved GIFs instead of the category tiles.
+	GifFavoritesFirst,
+	/// Clicking the composer's attach button chooses files at once; its menu opens on a right click.
+	DirectUploadButton,
 }
 
 impl InterfaceTweak {
@@ -245,6 +249,8 @@ impl InterfaceTweak {
 		Self::StaffTags,
 		Self::SilentTyping,
 		Self::AnonymousFileNames,
+		Self::GifFavoritesFirst,
+		Self::DirectUploadButton,
 	];
 }
 

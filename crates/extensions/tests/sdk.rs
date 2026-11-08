@@ -325,6 +325,8 @@ fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
 			sdk::InterfaceTweak::StaffTags,
 			sdk::InterfaceTweak::SilentTyping,
 			sdk::InterfaceTweak::AnonymousFileNames,
+			sdk::InterfaceTweak::GifFavoritesFirst,
+			sdk::InterfaceTweak::DirectUploadButton,
 		]),
 		..Default::default()
 	};
