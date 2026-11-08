@@ -4647,6 +4647,7 @@ impl MessagingUi {
 		{
 			self.extensions.report_error(error);
 		}
+		self.apply_background_effects(&ctx, state, &mut commands);
 		self.keybinds_shortcut(&ctx);
 		self.theme_preview_navigation(ui);
 		let settings_open =

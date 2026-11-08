@@ -85,6 +85,8 @@ fn guild_anchor(state: &State, guild: Id, manage: bool) -> Option<Id> {
 }
 
 impl MessagingUi {
+	/// Applies an approved channel, server or notification action through the native admission
+	/// path, queueing its command or reporting why it is unavailable.
 	pub(crate) fn apply_extension_admin_action(
 		&mut self,
 		state: &mut State,
@@ -129,6 +131,21 @@ impl MessagingUi {
 					.ok_or("The server has no accessible channel")?;
 				state.request_channel_action(channel, Action::HideMuted(hide))
 			}
+			AppAction::SetServerNotifications {
+				guild_id,
+				level,
+				muted,
+				suppress_everyone,
+				suppress_roles,
+			} => state.update_server_notifications(
+				id(&guild_id)?,
+				client_core::server_actions::NotificationOptions {
+					level,
+					muted,
+					suppress_everyone,
+					suppress_roles,
+				},
+			),
 			AppAction::CreateChannel {
 				guild_id,
 				name,
@@ -237,6 +254,50 @@ mod tests {
 			.unwrap();
 		assert_eq!(commands.len(), 1);
 		(state, commands.pop().unwrap())
+	}
+
+	/// Checks that a server notification change becomes the native server notification
+	/// command with only the requested fields, and fails for an unknown server.
+	#[test]
+	fn server_notifications_use_the_native_server_action() {
+		let (_, command) = apply(AppAction::SetServerNotifications {
+			guild_id: "10".into(),
+			level: Some(1),
+			muted: None,
+			suppress_everyone: Some(true),
+			suppress_roles: None,
+		});
+		assert!(matches!(
+			command,
+			Command::ServerAction {
+				action: client_core::server_actions::Action::Notifications {
+					guild: Id(10),
+					options: client_core::server_actions::NotificationOptions {
+						level: Some(1),
+						muted: None,
+						suppress_everyone: Some(true),
+						suppress_roles: None,
+					},
+				},
+				..
+			}
+		));
+		let mut state = test_support::demo_state();
+		assert!(
+			MessagingUi::default()
+				.apply_extension_admin_action(
+					&mut state,
+					AppAction::SetServerNotifications {
+						guild_id: "999".into(),
+						level: Some(1),
+						muted: None,
+						suppress_everyone: None,
+						suppress_roles: None,
+					},
+					&mut Vec::new(),
+				)
+				.is_err()
+		);
 	}
 
 	#[test]

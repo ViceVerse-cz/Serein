@@ -789,6 +789,15 @@ pub enum AppAction {
 		guild_id: String,
 		hide: bool,
 	},
+	/// Your notification settings for one server; omitted fields stay unchanged.
+	SetServerNotifications {
+		guild_id: String,
+		/// 0 all messages, 1 only mentions, 2 nothing, 3 the server default.
+		level: Option<u8>,
+		muted: Option<bool>,
+		suppress_everyone: Option<bool>,
+		suppress_roles: Option<bool>,
+	},
 	CreateChannel {
 		guild_id: String,
 		name: String,

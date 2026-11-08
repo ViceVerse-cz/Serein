@@ -914,11 +914,13 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 	supported.validate().unwrap();
 	assert!(host.supports("rich_presence"));
 	assert!(host.supports("api_proxy"));
-	assert_eq!(caps.len(), 55);
+	assert_eq!(caps.len(), 56);
 	assert_eq!(HostInfo::current().app_events.len(), 21);
-	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 55);
+	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 56);
 }
 
+/// Checks that every app action round-trips between the SDK and the host, needs its capability,
+/// and is accepted only as one proposal from a foreground action.
 #[test]
 fn app_actions_round_trip_and_require_foreground_granted_confirmation() {
 	let actions = [
@@ -945,6 +947,7 @@ fn app_actions_round_trip_and_require_foreground_granted_confirmation() {
 		r#"{"type":"set_channel_mute","channel_id":"2","duration_seconds":3600}"#,
 		r#"{"type":"set_channel_notifications","channel_id":"2","level":2}"#,
 		r#"{"type":"set_guild_hide_muted","guild_id":"4","hide":true}"#,
+		r#"{"type":"set_server_notifications","guild_id":"4","level":1,"muted":null,"suppress_everyone":true,"suppress_roles":true}"#,
 		r#"{"type":"create_channel","guild_id":"4","name":"general","kind":"text"}"#,
 		r#"{"type":"create_category","guild_id":"4","name":"Topics"}"#,
 		r#"{"type":"duplicate_channel","channel_id":"2","name":"general-copy"}"#,

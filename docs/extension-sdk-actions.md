@@ -77,6 +77,7 @@ The Rust paths below are relative to `AppOutput`. When using the original
 | `preserve_deleted_messages` / `output.preserve_deleted_messages` | Boolean, default `false`; `deleted_messages` is required for `true`. | Only an `activation` action may enable host retention of already-loaded deleted messages. |
 | `image_sharing` / `output.image_sharing` | Boolean, default `false`; `image_sharing` is required for `true`. | Legacy compatibility field, validated only for an `activation` action with the grant. It no longer changes host behavior: emoji/sticker image fallback is built in. |
 | `effects` / `effects` | Array containing at most one `HostEffect`; its capability is checked separately. | The native result describes the action. It runs only after its **Apply** button is clicked and current access is rechecked. |
+| `background_effects` / `BackgroundEffectsOutput.background_effects` | Array containing at most one `HostEffect::AppAction`; `background_effects` grant plus the action's own capability. | Only `message_event` and `app_event` results. The action must be `set_server_notifications`, `set_channel_mute`, `set_channel_notifications`, `set_guild_hide_muted` or `set_conversation_muted`; the host applies it on the next frame without an Apply button, rechecks the grant and current access, and drops it if the account or conversation changed. A rejected change is reported in the extension status line. |
 
 Closing a result discards its pending app/draft proposal. It does not undo
 storage or appearance updates already accepted from that invocation. A panel's
@@ -305,6 +306,7 @@ native permissions and pending operations.
 | `set_channel_mute` / `SetChannelMute` | `channel_id`: ID; `duration_seconds`: `null` or integer | `channel_control`; `null` unmutes, `0` mutes until changed, or use 900, 3600, 10800, 28800 or 86400 seconds. |
 | `set_channel_notifications` / `SetChannelNotifications` | `channel_id`: ID; `level`: integer 0–3 | `channel_control`; set the native notification level for a channel or post. |
 | `set_guild_hide_muted` / `SetGuildHideMuted` | `guild_id`: ID; `hide`: boolean | `channel_control`; show or hide muted channels in a loaded server. |
+| `set_server_notifications` / `SetServerNotifications` | `guild_id`: ID; optional `level` (0 all, 1 mentions, 2 nothing, 3 server default), `muted`, `suppress_everyone`, `suppress_roles` booleans; at least one field | `channel_control`; change your own notification settings for a loaded server; omitted fields stay unchanged. |
 | `create_channel` / `CreateChannel` | `guild_id`: ID; `name`: string; `kind`: `"text"`, `"voice"` or `"forum"` | `channel_control`; create a server channel through a currently manageable server channel. |
 | `create_category` / `CreateCategory` | `guild_id`: ID; `name`: string | `channel_control`; create a category. |
 | `duplicate_channel` / `DuplicateChannel` | `channel_id`: ID; `name`: string | `channel_control`; duplicate a manageable channel with the supplied name. |

@@ -377,6 +377,101 @@ fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
 	assert!(!old.supports_tweak("plain_profiles"));
 }
 
+/// Checks that an SDK background effect reaches the host unchanged, that it needs the
+/// `background_effects` grant, an event surface, the action's own grant and an allowed
+/// notification or mute action, and that empty server notification changes are rejected.
+#[test]
+fn background_effects_are_granted_event_output_limited_to_allowed_actions() {
+	let notifications = |level| sdk::HostEffect::AppAction {
+		action: sdk::AppAction::SetServerNotifications {
+			guild_id: "42".into(),
+			level,
+			muted: None,
+			suppress_everyone: Some(true),
+			suppress_roles: Some(true),
+		},
+	};
+	let output = sdk::BackgroundEffectsOutput {
+		background_effects: vec![notifications(Some(1))],
+		..Default::default()
+	};
+	let host: extensions::Output =
+		serde_json::from_slice(&serde_json::to_vec(&output).unwrap()).unwrap();
+	assert_eq!(host.background_effects.len(), 1);
+	let with = |surface, capabilities: &[Capability]| {
+		let mut manifest = manifest("event", surface);
+		manifest.capabilities.extend_from_slice(capabilities);
+		let input = Invocation {
+			action: "event".into(),
+			selected_message: (surface == Surface::Message).then(|| "text".into()),
+			..Default::default()
+		};
+		(manifest, input)
+	};
+	let both = [Capability::BackgroundEffects, Capability::ChannelControl];
+	for (surface, allowed) in [
+		(Surface::AppEvent, true),
+		(Surface::MessageEvent, true),
+		(Surface::Activation, false),
+		(Surface::Panel, false),
+		(Surface::Message, false),
+	] {
+		let (manifest, input) = with(surface, &both);
+		assert_eq!(
+			host.validate(&manifest, &input).is_ok(),
+			allowed,
+			"{surface:?}"
+		);
+	}
+	for partial in [
+		&[Capability::BackgroundEffects][..],
+		&[Capability::ChannelControl][..],
+	] {
+		let (manifest, input) = with(Surface::AppEvent, partial);
+		assert!(host.validate(&manifest, &input).is_err(), "{partial:?}");
+	}
+	let (manifest, input) = with(
+		Surface::AppEvent,
+		&[Capability::BackgroundEffects, Capability::MessageSend],
+	);
+	let send = extensions::Output {
+		background_effects: vec![extensions::HostEffect::AppAction {
+			action: extensions::AppAction::SendMessage {
+				channel_id: "7".into(),
+				content: "hello".into(),
+			},
+		}],
+		..Default::default()
+	};
+	assert!(
+		send.validate(&manifest, &input).is_err(),
+		"sending is never a background change"
+	);
+	let (manifest, input) = with(Surface::AppEvent, &both);
+	for bad in [notifications(Some(4)), notifications(None)] {
+		let mut bad = serde_json::to_value(bad).unwrap();
+		if bad["action"]["level"].is_null() {
+			bad["action"]["suppress_everyone"] = serde_json::Value::Null;
+			bad["action"]["suppress_roles"] = serde_json::Value::Null;
+		}
+		let output = extensions::Output {
+			background_effects: vec![serde_json::from_value(bad).unwrap()],
+			..Default::default()
+		};
+		assert!(output.validate(&manifest, &input).is_err());
+	}
+	let twice = extensions::Output {
+		background_effects: vec![host.background_effects[0].clone(); 2],
+		..Default::default()
+	};
+	assert!(
+		twice.validate(&manifest, &input).is_err(),
+		"one change per result"
+	);
+	let info = extensions::HostInfo::current();
+	assert!(info.capabilities.contains(&Capability::BackgroundEffects));
+}
+
 #[test]
 fn every_sdk_panel_and_appearance_field_is_accepted_by_the_host() {
 	use sdk::Element::*;

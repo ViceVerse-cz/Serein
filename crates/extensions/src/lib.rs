@@ -148,6 +148,9 @@ pub enum Capability {
 	ContextMenus,
 	/// Switch on host-defined interface tweaks from activation and panel actions.
 	InterfaceTweaks,
+	/// Apply allowed notification and mute changes for your own account from message- and
+	/// app-event handlers, without an Apply button.
+	BackgroundEffects,
 }
 
 /// Host-defined interface behavior that a plugin may switch on for the whole client from
@@ -727,6 +730,10 @@ pub struct Output {
 	/// with `interface_tweaks` only.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub interface_tweaks: Option<Vec<InterfaceTweak>>,
+	/// One allowed notification or mute change applied without an Apply button. Message-event
+	/// and app-event actions with `background_effects` only.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub background_effects: Vec<HostEffect>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1342,6 +1349,18 @@ impl Output {
 				return Err(Error::Capability);
 			}
 			app::validate_effects(&self.effects, manifest)?;
+		}
+		if !self.background_effects.is_empty() {
+			if !manifest
+				.capabilities
+				.contains(&Capability::BackgroundEffects)
+				|| !matches!(surface, Surface::MessageEvent | Surface::AppEvent)
+				|| !self.background_effects.iter().all(
+					|effect| matches!(effect, HostEffect::AppAction { action } if action.runs_in_background()),
+				) {
+				return Err(Error::Capability);
+			}
+			app::validate_effects(&self.background_effects, manifest)?;
 		}
 		if let Some(appearance) = &self.appearance {
 			if !manifest.capabilities.contains(&Capability::Appearance) {

@@ -70,6 +70,7 @@ impl HostInfo {
 				Capability::Relationships,
 				Capability::ContextMenus,
 				Capability::InterfaceTweaks,
+				Capability::BackgroundEffects,
 			],
 			app_events: &[
 				AppEventKind::Ready,

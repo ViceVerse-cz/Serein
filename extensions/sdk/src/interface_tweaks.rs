@@ -40,3 +40,16 @@ pub struct InterfaceTweaksOutput {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub interface_tweaks: Option<Vec<InterfaceTweak>>,
 }
+
+/// Message- or app-event output that applies one allowed notification or mute change without
+/// an Apply button, preserving `Output` struct literals. Requires the `background_effects`
+/// capability and the action's own capability; only `HostEffect::AppAction` with
+/// `SetServerNotifications`, `SetChannelMute`, `SetChannelNotifications`, `SetGuildHideMuted`
+/// or `SetConversationMuted` is accepted.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackgroundEffectsOutput {
+	#[serde(flatten)]
+	pub output: crate::Output,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub background_effects: Vec<crate::HostEffect>,
+}

@@ -19,6 +19,7 @@ fn setting(lines: &mut Vec<String>, label: &str, value: Option<impl std::fmt::Di
 	}
 }
 
+/// The sentence shown for an app action in a plugin's proposal.
 fn app_action_description(action: &AppAction) -> String {
 	match action {
 		AppAction::RequestMessageSearch { query, .. } => {
@@ -332,6 +333,41 @@ fn app_action_description(action: &AppAction) -> String {
 			"{} muted channels in server {guild_id}",
 			if *hide { "Hide" } else { "Show" }
 		),
+		AppAction::SetServerNotifications {
+			guild_id,
+			level,
+			muted,
+			suppress_everyone,
+			suppress_roles,
+		} => {
+			let mut changes = Vec::new();
+			if let Some(level) = level {
+				changes.push(
+					match level {
+						0 => "notify for all messages",
+						1 => "notify only for mentions",
+						2 => "notify for nothing",
+						_ => "use the server's default notifications",
+					}
+					.to_owned(),
+				);
+			}
+			if let Some(muted) = muted {
+				changes.push(if *muted { "mute" } else { "unmute" }.to_owned());
+			}
+			for (value, name) in [
+				(suppress_everyone, "@everyone and @here"),
+				(suppress_roles, "role mentions"),
+			] {
+				if let Some(suppress) = value {
+					changes.push(format!(
+						"{} {name}",
+						if *suppress { "suppress" } else { "allow" }
+					));
+				}
+			}
+			format!("In server {guild_id}: {}", changes.join(", "))
+		}
 		AppAction::CreateChannel {
 			guild_id,
 			name,
@@ -629,6 +665,35 @@ impl MessagingUi {
 			user_join: settings.user_join,
 			user_leave: settings.user_leave,
 			volume: settings.volume,
+		}
+	}
+
+	/// Applies granted background changes queued by plugins, with the same checks as an
+	/// approved effect; a rejected change is reported in the extension status, not a dialog.
+	pub(crate) fn apply_background_effects(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		for effect in self.extensions.take_background_effects() {
+			let plugin = effect.plugin.clone();
+			let granted = self.extensions.entries.iter().any(|entry| {
+				entry.manifest.id == plugin
+					&& entry
+						.manifest
+						.capabilities
+						.contains(&extensions::Capability::BackgroundEffects)
+			}) && matches!(&effect.effect, HostEffect::AppAction { action } if action.runs_in_background());
+			let result = if granted {
+				self.apply_extension_effect(ctx, state, effect, commands)
+			} else {
+				Err("Background changes are not granted for this action".into())
+			};
+			if let Err(error) = result {
+				self.extensions.status =
+					format!("A background change from {plugin} was not applied: {error}");
+			}
 		}
 	}
 
@@ -1534,5 +1599,81 @@ mod tests {
 				.is_err()
 		);
 		assert_eq!(view.notification_options, applied);
+	}
+
+	/// Checks that a queued background change applies without any Apply step, that a change
+	/// captured before the account generation moved is rejected into the status line, and that
+	/// disabling the plugin drops its queued changes.
+	#[test]
+	fn background_effects_apply_without_confirmation_only_in_their_context() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let mut view = view(Capability::ChannelControl);
+		let change = HostEffect::AppAction {
+			action: AppAction::SetServerNotifications {
+				guild_id: "10".into(),
+				level: Some(1),
+				muted: None,
+				suppress_everyone: Some(true),
+				suppress_roles: Some(true),
+			},
+		};
+		let context = ExtensionContext::capture(&state, false);
+		view.extensions.queue_background_effects(
+			"synthetic.app",
+			&context,
+			std::slice::from_ref(&change),
+		);
+		let mut commands = Vec::new();
+		view.apply_background_effects(&ctx, &mut state, &mut commands);
+		assert!(
+			commands.is_empty(),
+			"the background grant is rechecked when applying"
+		);
+		view.extensions.entries[0]
+			.manifest
+			.capabilities
+			.push(Capability::BackgroundEffects);
+		view.extensions.queue_background_effects(
+			"synthetic.app",
+			&context,
+			std::slice::from_ref(&change),
+		);
+		view.apply_background_effects(&ctx, &mut state, &mut commands);
+		assert!(matches!(
+			commands.as_slice(),
+			[Command::ServerAction {
+				action: client_core::server_actions::Action::Notifications { guild: Id(10), .. },
+				..
+			}]
+		));
+		assert!(!view.extensions.has_result(), "no Apply panel is shown");
+		let mut state = test_support::demo_state();
+		let stale = ExtensionContext::capture(&state, false);
+		state.generation += 1;
+		view.extensions.queue_background_effects(
+			"synthetic.app",
+			&stale,
+			std::slice::from_ref(&change),
+		);
+		let mut commands = Vec::new();
+		view.apply_background_effects(&ctx, &mut state, &mut commands);
+		assert!(commands.is_empty());
+		assert!(
+			view.extensions
+				.status
+				.starts_with("A background change from synthetic.app was not applied"),
+			"{}",
+			view.extensions.status
+		);
+		let context = ExtensionContext::capture(&state, false);
+		view.extensions
+			.queue_background_effects("synthetic.app", &context, &[change]);
+		view.extensions.remove_runtime("synthetic.app");
+		view.apply_background_effects(&ctx, &mut state, &mut commands);
+		assert!(
+			commands.is_empty(),
+			"a disabled plugin's queued change is dropped"
+		);
 	}
 }

@@ -819,6 +819,15 @@ pub enum AppAction {
 		guild_id: String,
 		hide: bool,
 	},
+	/// Your notification settings for one server; omitted fields stay unchanged.
+	SetServerNotifications {
+		guild_id: String,
+		/// 0 all messages, 1 only mentions, 2 nothing, 3 the server default.
+		level: Option<u8>,
+		muted: Option<bool>,
+		suppress_everyone: Option<bool>,
+		suppress_roles: Option<bool>,
+	},
 	CreateChannel {
 		guild_id: String,
 		name: String,
@@ -1616,6 +1625,20 @@ fn role_patch(value: &RolePatch) -> Result<(), Error> {
 	Ok(())
 }
 impl AppAction {
+	/// Notification and mute changes for your own account, which a plugin granted
+	/// `background_effects` may apply without an Apply button.
+	pub fn runs_in_background(&self) -> bool {
+		matches!(
+			self,
+			Self::SetServerNotifications { .. }
+				| Self::SetChannelMute { .. }
+				| Self::SetChannelNotifications { .. }
+				| Self::SetGuildHideMuted { .. }
+				| Self::SetConversationMuted { .. }
+		)
+	}
+	/// The capability a plugin must hold for this action, whether proposed or applied in the
+	/// background.
 	pub fn required_capability(&self) -> Capability {
 		match self {
 			Self::SendMessage { .. }
@@ -1675,6 +1698,7 @@ impl AppAction {
 			Self::SetChannelMute { .. }
 			| Self::SetChannelNotifications { .. }
 			| Self::SetGuildHideMuted { .. }
+			| Self::SetServerNotifications { .. }
 			| Self::CreateChannel { .. }
 			| Self::CreateCategory { .. }
 			| Self::DuplicateChannel { .. }
@@ -1701,6 +1725,7 @@ impl AppAction {
 			| Self::SetMemberListVisible { .. } => Capability::ModerationControl,
 		}
 	}
+	/// Checks the action's IDs, text limits and value ranges before it can be proposed or applied.
 	pub fn validate(&self) -> Result<(), Error> {
 		match self {
 			Self::SendMessage {
@@ -1965,6 +1990,22 @@ impl AppAction {
 			}
 			Self::SetGuildHideMuted { guild_id, .. } | Self::LeaveServer { guild_id } => {
 				entity_id(guild_id)?
+			}
+			Self::SetServerNotifications {
+				guild_id,
+				level,
+				muted,
+				suppress_everyone,
+				suppress_roles,
+			} => {
+				entity_id(guild_id)?;
+				if level.is_some_and(|level| level > 3)
+					|| (level.is_none()
+						&& muted.is_none() && suppress_everyone.is_none()
+						&& suppress_roles.is_none())
+				{
+					return Err(Error::Invalid);
+				}
 			}
 			Self::CreateChannel {
 				guild_id,

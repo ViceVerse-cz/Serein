@@ -942,6 +942,13 @@ impl Bridge {
 							installed.api_proxy = Some(config.clone());
 							self.refresh_api_proxy();
 						}
+						if !output.background_effects.is_empty() {
+							messaging.extensions.queue_background_effects(
+								&id,
+								&context,
+								&output.background_effects,
+							);
+						}
 						if invocation.message_event.is_none() && invocation.app_event.is_none() {
 							messaging
 								.extensions

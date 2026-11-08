@@ -893,6 +893,11 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			{
 				return Err("Interface tweaks were not granted".into());
 			}
+			if !output.background_effects.is_empty()
+				&& !stored.grants.contains(&Capability::BackgroundEffects)
+			{
+				return Err("Background changes were not granted".into());
+			}
 			if let Some(data) = output.storage.take() {
 				if !stored.grants.contains(&Capability::Storage) || data.len() > MAX_STORAGE {
 					return Err("Plugin data exceeds its granted storage budget".into());
