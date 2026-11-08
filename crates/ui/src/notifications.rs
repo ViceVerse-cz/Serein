@@ -355,23 +355,48 @@ impl MessagingUi {
 				// how many servers the account is in under Home.
 				if crate::interface_tweaks::on(ui.ctx(), extensions::InterfaceTweak::RailCounts) {
 					let (online, servers) = rail_counts(state);
-					for (key, count) in [
-						("rail-counts-online", online),
-						("rail-counts-servers", servers),
+					let colors = design::palette(ui);
+					// The rail is narrow: each count is an icon and a number, named in full
+					// by its tooltip and accessible label.
+					for (key, count, icon) in [
+						("rail-counts-online", online, crate::icons::Icon::People),
+						("rail-counts-servers", servers, crate::icons::Icon::Servers),
 					] {
-						ui.add(
-							egui::Label::new(
-								egui::RichText::new(crate::i18n::translate_count(
-									key,
-									count,
-									&[("count", &count.to_string())],
-								))
-								.size(10.0)
-								.color(design::palette(ui).muted),
-							)
-							.truncate()
-							.selectable(false),
+						let label = crate::i18n::translate_count(
+							key,
+							count,
+							&[("count", &count.to_string())],
 						);
+						let number = count.to_string();
+						let galley = ui.painter().layout_no_wrap(
+							number,
+							egui::FontId::proportional(11.0),
+							colors.muted,
+						);
+						let width = 12.0 + 3.0 + galley.size().x;
+						let (row, response) = ui.allocate_exact_size(
+							egui::vec2(ui.available_width(), 14.0),
+							egui::Sense::hover(),
+						);
+						let left = row.center().x - width / 2.0;
+						crate::icons::paint(
+							ui.painter(),
+							icon,
+							egui::Rect::from_min_size(
+								egui::pos2(left, row.center().y - 6.0),
+								egui::vec2(12.0, 12.0),
+							),
+							colors.muted,
+						);
+						ui.painter().galley(
+							egui::pos2(left + 15.0, row.center().y - galley.size().y / 2.0),
+							galley,
+							colors.muted,
+						);
+						response.widget_info(|| {
+							egui::WidgetInfo::labeled(egui::Role::Label, true, label.clone())
+						});
+						response.on_hover_text(label);
 					}
 				}
 				self.scroll
