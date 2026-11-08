@@ -126,7 +126,7 @@ impl Screen {
 		// The share dialog already shows this reason; the log keeps it for a report too. The
 		// log takes fixed text only, so a reason built at run time is recorded by a label.
 		let reason: &'static str = match &message {
-			Cow::Borrowed(reason) => *reason,
+			Cow::Borrowed(reason) => reason,
 			Cow::Owned(_) => "Screen sharing stopped with a system error",
 		};
 		diagnostics::record_fields(
@@ -334,7 +334,8 @@ impl Screen {
 					self.status = if ui.screen.sources.is_empty() {
 						"No shareable screens or windows were found".into()
 					} else if cfg!(target_os = "linux") {
-						"Choose the system picker or, on X11, explicitly share the entire desktop".into()
+						"Choose the system picker or, on X11, explicitly share the entire desktop"
+							.into()
 					} else {
 						"Choose a screen or window".into()
 					};
@@ -463,14 +464,11 @@ impl Screen {
 				None => {}
 			}
 			if failure.is_none() {
-				failure = live
-					.worker
-					.result()
-					.map(|result| {
-						result
-							.err()
-							.unwrap_or(Cow::Borrowed("Screen capture stopped"))
-					});
+				failure = live.worker.result().map(|result| {
+					result
+						.err()
+						.unwrap_or(Cow::Borrowed("Screen capture stopped"))
+				});
 			}
 			if live.task.is_finished() && failure.is_none() {
 				failure = Some("Screen-share connection ended".into());

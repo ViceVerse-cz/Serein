@@ -566,7 +566,8 @@ handles discovery, capture and mixing outside video encoding and rendering. No a
 are moved between outputs and no virtual device is installed.
 
 Windows uses native process loopback. Sharing a window captures only that window's
-application; the rest of this paragraph is about sharing a screen. On build 20348+ one capture uses
+application; Store app windows belong to ApplicationFrameHost, so they capture like a screen
+instead. The rest of this paragraph is about sharing a screen. On build 20348+ one capture uses
 `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`, excluding Serein and its child
 processes across outputs. Older Windows 10 builds capture each application's audio session
 with `PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE`, skipping Serein, its children and

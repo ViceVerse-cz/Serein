@@ -149,8 +149,9 @@ mod native {
 					TH32CS_SNAPPROCESS,
 				},
 				Threading::{
-					CreateEventW, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-					QueryFullProcessImageNameW, WaitForSingleObject,
+					CreateEventW, OpenProcess, PROCESS_NAME_WIN32,
+					PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+					WaitForSingleObject,
 				},
 				Variant::VT_BLOB,
 			},
@@ -539,7 +540,9 @@ mod native {
 				return false;
 			}
 			self.packets.fetch_add(1, Ordering::Relaxed);
-			let loudest = data.iter().fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+			let loudest = data
+				.iter()
+				.fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
 			if loudest.is_finite() {
 				self.peak.fetch_max(loudest.to_bits(), Ordering::Relaxed);
 			}
@@ -633,7 +636,12 @@ mod native {
 	/// Whether a window's process can be captured alone: it is neither Serein, nor something
 	/// Serein runs under, nor inside Serein, so its tree cannot carry Serein's own playback. When
 	/// the process list cannot be read this is false and the share captures other applications.
+	/// Store apps' windows belong to ApplicationFrameHost, which plays nothing itself, so they
+	/// also capture other applications instead of sharing silence.
 	fn shareable_window(pid: u32) -> bool {
+		if image_name(pid).eq_ignore_ascii_case("ApplicationFrameHost.exe") {
+			return false;
+		}
 		let Ok(parents) = process_parents() else {
 			return false;
 		};
@@ -736,7 +744,8 @@ mod native {
 		let mut metrics = Metrics::new(Scope::ScreenAudio);
 		let mut frame = [0.0_f32; TICK_SAMPLES];
 		let mut next = Instant::now() + MIX_TICK;
-		let diagnostics = std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|value| value == "1");
+		let diagnostics =
+			std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|value| value == "1");
 		let mut ticks = 0_u32;
 		while !input.stopped() && !supervisor.is_finished() {
 			let now = Instant::now();
@@ -917,7 +926,8 @@ mod native {
 							*count += 1;
 							*count - 1
 						};
-						let wait = (LANE_RETRY_MIN * 2_u32.saturating_pow(streak.min(8))).min(LANE_RETRY_MAX);
+						let wait = (LANE_RETRY_MIN * 2_u32.saturating_pow(streak.min(8)))
+							.min(LANE_RETRY_MAX);
 						cooldown.insert(pid, Instant::now() + wait);
 					}
 				}
@@ -980,10 +990,8 @@ mod native {
 				let now = Instant::now();
 				cooldown.retain(|_, until| *until > now);
 				// Playing applications first, so idle sessions cannot hold every lane.
-				let mut order: Vec<(u32, bool)> = wanted
-					.iter()
-					.map(|(&pid, &active)| (pid, active))
-					.collect();
+				let mut order: Vec<(u32, bool)> =
+					wanted.iter().map(|(&pid, &active)| (pid, active)).collect();
 				order.sort_by_key(|&(pid, active)| (!active, pid));
 				let mut spawn_error = None;
 				for (pid, active) in order {
@@ -1012,7 +1020,8 @@ mod native {
 							// Every lane carries a playing application. This one is not captured, so
 							// say so in the opt-in report instead of leaving it silently out.
 							if over_capacity.insert(pid)
-								&& std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|value| value == "1")
+								&& std::env::var_os("SEREIN_VOICE_DIAGNOSTICS")
+									.is_some_and(|value| value == "1")
 							{
 								eprintln!(
 									"[Serein voice Screen] lane_limit={MAX_LANES} not_captured pid={pid} exe={}",
@@ -1059,7 +1068,8 @@ mod native {
 					over_capacity.remove(&pid);
 					running.insert(pid, Running { lane, thread });
 					if announced.insert(pid)
-						&& std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|value| value == "1")
+						&& std::env::var_os("SEREIN_VOICE_DIAGNOSTICS")
+							.is_some_and(|value| value == "1")
 					{
 						eprintln!(
 							"[Serein voice Screen] app_capture pid={pid} exe={} playing={active}",
@@ -1235,7 +1245,9 @@ mod native {
 			Some(loop {
 				match ACTIVATING.try_lock() {
 					Ok(guard) => break guard,
-					Err(std::sync::TryLockError::Poisoned(poisoned)) => break poisoned.into_inner(),
+					Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+						break poisoned.into_inner();
+					}
 					Err(std::sync::TryLockError::WouldBlock) => {
 						if sink.stopped() {
 							return Err(E_FAIL.into());
@@ -1404,7 +1416,11 @@ mod native {
 					&& (flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0
 						|| (!data.is_null() && data.align_offset(align_of::<f32>()) == 0));
 				// A lane that never restarts labels each packet with the generation current now.
-				let epoch = if sink.restarts_on_epoch() { epoch } else { sink.epoch() };
+				let epoch = if sink.restarts_on_epoch() {
+					epoch
+				} else {
+					sink.epoch()
+				};
 				if valid && count != 0 {
 					let start = metrics.start();
 					let queued = if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 {
@@ -1492,10 +1508,18 @@ mod native {
 		fn orphaned_descendants_stay_excluded() {
 			let mut known = HashSet::new();
 			// 10 is Serein; 11 its helper; 12 started by the helper; 4 is unrelated.
-			track_descendants(10, &parents(&[(10, 1), (11, 10), (12, 11), (4, 0)]), &mut known);
+			track_descendants(
+				10,
+				&parents(&[(10, 1), (11, 10), (12, 11), (4, 0)]),
+				&mut known,
+			);
 			assert_eq!(known, HashSet::from([11, 12]));
 			// The helper exits: 12 keeps its stale link to 11, and 13 starts under 12.
-			track_descendants(10, &parents(&[(10, 1), (12, 11), (13, 12), (4, 0)]), &mut known);
+			track_descendants(
+				10,
+				&parents(&[(10, 1), (12, 11), (13, 12), (4, 0)]),
+				&mut known,
+			);
 			assert_eq!(known, HashSet::from([12, 13]));
 			// An unrelated process never joins.
 			assert!(!known.contains(&4));
@@ -1555,6 +1579,7 @@ struct Samples {
 	epoch: Arc<AtomicU64>,
 	failed: Arc<AtomicBool>,
 	/// First Windows error code that ended capture, 0 when none.
+	#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 	code: Arc<AtomicI32>,
 }
 

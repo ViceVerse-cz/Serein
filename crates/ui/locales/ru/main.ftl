@@ -2275,6 +2275,8 @@ screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Дели�
 # Context: body
 screen-body-share-system-audio = Поделиться системным звуком
 # Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Передавайте звук общего приложения или, при показе экрана, звук всех остальных приложений. Собственный звук Serein не передаётся.
+# Context: body
 screen-body-show-cursor = Показать курсор
 # Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = Ваш микрофон вызова сохраняет текущие настройки.

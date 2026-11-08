@@ -2275,6 +2275,8 @@ screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Bir pence
 # Context: body
 screen-body-share-system-audio = Sistem sesini paylaş
 # Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Paylaşılan uygulamanın sesini veya ekran paylaşırken diğer tüm uygulamaların sesini paylaşın. Serein'in kendi sesi dahil edilmez.
+# Context: body
 screen-body-show-cursor = İmleci göster
 # Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = Çağrı mikrofonunuz mevcut ayarlarını korur.

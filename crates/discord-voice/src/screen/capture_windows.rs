@@ -245,7 +245,13 @@ impl Capture {
 			_ => return Err("The desktop screen picker is available only on Linux".into()),
 		}?;
 		if let Some(send) = audio {
-			capture.audio = Some(audio::Audio::start(send, stop, ready, audio_epoch, window_process)?);
+			capture.audio = Some(audio::Audio::start(
+				send,
+				stop,
+				ready,
+				audio_epoch,
+				window_process,
+			)?);
 		}
 		Ok(capture)
 	}
