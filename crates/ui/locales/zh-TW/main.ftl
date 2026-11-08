@@ -296,6 +296,10 @@ attachments-download-button-a-download-is-already-active = 已有下載進行中
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = 選擇這個檔案的儲存位置 · 上限 100 MiB
 # Context: download_button
 attachments-download-button-download = 下載
+# Context: file_card
+attachments-file-card-copy-text = 複製文字
+# Context: file_card
+attachments-file-card-copy-text-hint = 將此文字檔的內容複製到剪貼簿
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = 合成附件不開放下載
 # Context: media_menu

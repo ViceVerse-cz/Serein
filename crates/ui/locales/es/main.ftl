@@ -295,6 +295,10 @@ attachments-download-button-a-download-is-already-active = Ya hay una descarga a
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Elija dónde guardar este archivo · hasta 100 MiB
 # Context: download_button
 attachments-download-button-download = Descargar
+# Context: file_card
+attachments-file-card-copy-text = Copiar texto
+# Context: file_card
+attachments-file-card-copy-text-hint = Copia el contenido de este archivo de texto al portapapeles
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = Las descargas están deshabilitadas para archivos adjuntos sintéticos.
 # Context: media_menu

@@ -279,7 +279,24 @@ fn file_card(
 				icons::inline(ui, kind.icon(), 32.0, kind.tint(&colors));
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.spacing_mut().item_spacing.x = 6.0;
-					let download = download_button(ui, attachment, download, demo);
+					let download_response = download_button(ui, attachment, download, demo);
+					if attachment.is_text() {
+						let copy = ui
+							.add_enabled(
+								!demo && !download.busy(),
+								egui::Button::new(crate::i18n::translate(
+									"attachments-file-card-copy-text",
+								)),
+							)
+							.on_hover_text(crate::i18n::translate(
+								"attachments-file-card-copy-text-hint",
+							));
+						if copy.clicked() {
+							download.copy_request = Some(attachment.clone());
+						}
+						surface.keep(&copy);
+					}
+					let download = download_response;
 					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
 						ui.vertical(|ui| {
 							ui.spacing_mut().item_spacing.y = 0.0;

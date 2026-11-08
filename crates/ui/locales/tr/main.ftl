@@ -296,6 +296,10 @@ attachments-download-button-a-download-is-already-active = Bir indirme zaten etk
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Bu dosyanın nereye kaydedileceğini seçin · 100 MiB'a kadar
 # Context: download_button
 attachments-download-button-download = İndirmek
+# Context: file_card
+attachments-file-card-copy-text = Metni kopyala
+# Context: file_card
+attachments-file-card-copy-text-hint = Bu metin dosyasının içeriğini panoya kopyalar
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = Sentetik ekler için indirmeler devre dışı bırakıldı
 # Context: media_menu

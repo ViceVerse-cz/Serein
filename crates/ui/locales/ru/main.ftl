@@ -296,6 +296,10 @@ attachments-download-button-a-download-is-already-active = Загрузка уж
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Выберите, где сохранить этот файл · до 100 МБ
 # Context: download_button
 attachments-download-button-download = Скачать
+# Context: file_card
+attachments-file-card-copy-text = Копировать текст
+# Context: file_card
+attachments-file-card-copy-text-hint = Копирует содержимое этого текстового файла в буфер обмена
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = Загрузка отключена для синтетических вложений.
 # Context: media_menu

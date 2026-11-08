@@ -298,6 +298,10 @@ attachments-download-button-a-download-is-already-active = Stahování je již a
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Vyberte, kam chcete tento soubor uložit · až 100 MiB
 # Context: download_button
 attachments-download-button-download = Stáhnout
+# Context: file_card
+attachments-file-card-copy-text = Kopírovat text
+# Context: file_card
+attachments-file-card-copy-text-hint = Zkopíruje obsah tohoto textového souboru do schránky
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = U syntetických příloh je stahování zakázáno
 # Context: media_menu

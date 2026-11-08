@@ -296,6 +296,10 @@ attachments-download-button-a-download-is-already-active = ダウンロードは
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = このファイルを保存する場所を選択してください · 最大 100 MiB
 # Context: download_button
 attachments-download-button-download = ダウンロード
+# Context: file_card
+attachments-file-card-copy-text = テキストをコピー
+# Context: file_card
+attachments-file-card-copy-text-hint = このテキストファイルの内容をクリップボードにコピーします
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = 合成添付ファイルのダウンロードは無効になっています
 # Context: media_menu
