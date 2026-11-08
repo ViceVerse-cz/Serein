@@ -2094,8 +2094,12 @@ pub(crate) fn role_chips(
 			let size = vec2(*width, galley.size().y + 6.0);
 			let menu =
 				crate::extensions_ui::has_context_actions(ui.ctx(), extensions::Surface::Role);
-			let (rect, response) = ui.allocate_exact_size(
-				size,
+			let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+			// Keyed by role so an open menu stays on its chip when live updates reorder roles.
+			let id = egui::Id::unique(("profile-role-chip", guild.guild, user, role.id));
+			let response = ui.interact(
+				rect,
+				id,
 				if menu {
 					egui::Sense::click()
 				} else {
@@ -2124,7 +2128,8 @@ pub(crate) fn role_chips(
 					name: role.name.clone(),
 					color: role.color & 0xff_ffff,
 				};
-				response.context_menu(|ui| crate::extensions_ui::context_menu_entries(ui, &target));
+				crate::user_menu::popup(&response, id.with("menu"))
+					.show(|ui| crate::extensions_ui::context_menu_entries(ui, &target));
 			}
 		}
 		let hidden = roles.len() - visible;

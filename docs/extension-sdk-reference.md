@@ -135,6 +135,7 @@ account snapshot or grant-dependent data:
     "api_version": 1,
     "sdk_revision": 1,
     "capabilities": [
+      "api_proxy",
       "rich_presence",
       "relationship_control",
       "account_control",
@@ -186,7 +187,8 @@ account snapshot or grant-dependent data:
       "channel_details",
       "data_events",
       "message_details",
-      "relationships"
+      "relationships",
+      "context_menus"
     ],
     "app_events": [
       "ready",

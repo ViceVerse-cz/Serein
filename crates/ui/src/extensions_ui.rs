@@ -125,12 +125,26 @@ const CONTEXT_CHOICE: &str = "extension-context-choice";
 /// Adds an "Extensions" submenu for `target` to a user, channel or server menu, when any
 /// enabled plugin declares an action for that menu. The choice is dispatched next frame.
 pub(crate) fn context_menu_items(ui: &mut egui::Ui, target: extensions::MenuTarget) {
-	if !has_context_actions(ui.ctx(), target.surface()) {
+	context_menu_targets(ui, std::slice::from_ref(&target));
+}
+
+/// One "Extensions" submenu listing plugin actions for each of `targets` in order, for a row
+/// that is several things at once (a DM row is both a user and a channel). Absent when no
+/// enabled plugin offers an action for any of them.
+pub(crate) fn context_menu_targets(ui: &mut egui::Ui, targets: &[extensions::MenuTarget]) {
+	if !targets
+		.iter()
+		.any(|target| has_context_actions(ui.ctx(), target.surface()))
+	{
 		return;
 	}
 	ui.menu_button(
 		crate::i18n::translate("timeline-message-actions-extensions"),
-		|ui| context_menu_entries(ui, &target),
+		|ui| {
+			for target in targets {
+				context_menu_entries(ui, target);
+			}
+		},
 	);
 	ui.separator();
 }
@@ -3175,6 +3189,20 @@ mod tests {
 		events: Vec<egui::Event>,
 		target: &extensions::MenuTarget,
 	) -> Vec<(String, egui::Rect)> {
+		menu_frame(ctx, shop, state, events, |ui| {
+			context_menu_items(ui, target.clone())
+		})
+	}
+
+	/// Runs one frame that publishes context actions and then draws `menu`, and returns the
+	/// drawn text with its screen rectangles.
+	fn menu_frame(
+		ctx: &egui::Context,
+		shop: &mut ExtensionUi,
+		state: &State,
+		events: Vec<egui::Event>,
+		mut menu: impl FnMut(&mut egui::Ui),
+	) -> Vec<(String, egui::Rect)> {
 		let input = egui::RawInput {
 			screen_rect: Some(egui::Rect::from_min_size(
 				egui::Pos2::ZERO,
@@ -3185,7 +3213,7 @@ mod tests {
 		};
 		let mut output = ctx.run_ui(input, |ui| {
 			shop.context_menus(ui.ctx(), state);
-			context_menu_items(ui, target.clone());
+			menu(ui);
 		});
 		output.textures_delta.clear();
 		let mut texts = Vec::new();
@@ -3293,6 +3321,89 @@ mod tests {
 		// The choice is consumed: later frames do not invoke again.
 		context_frame(&ctx, &mut shop, &state, vec![], &user);
 		assert_eq!(shop.requests.len(), 1);
+	}
+
+	/// Checks that a DM row's menu lists plugin user and channel actions for that DM, and that
+	/// a user action receives the DM's IDs rather than those of the open server channel.
+	#[test]
+	fn dm_row_menu_targets_the_clicked_dm_not_the_open_conversation() {
+		let ctx = egui::Context::default();
+		let state = test_support::demo_state();
+		let dm = state
+			.channels
+			.iter()
+			.find(|c| c.guild.is_none() && c.kind == 1)
+			.expect("demo has a one-to-one DM");
+		assert_ne!(state.selected, Some(dm.id), "a server channel is open");
+		let user = dm.recipients[0].clone();
+		let mut shop = ExtensionUi::default();
+		let mut enabled = entry();
+		enabled.enabled = true;
+		enabled.manifest.capabilities = vec![Capability::ContextMenus];
+		enabled.manifest.actions = vec![
+			extensions::Action {
+				id: "copy".into(),
+				label: "Copy link".into(),
+				surface: Surface::User,
+			},
+			extensions::Action {
+				id: "archive".into(),
+				label: "Archive DM".into(),
+				surface: Surface::Channel,
+			},
+		];
+		shop.set_entries(vec![enabled]);
+		let (mut profile, mut action) = (crate::profiles::ProfileSession::default(), None);
+		let mut frame = |shop: &mut ExtensionUi, events| {
+			menu_frame(&ctx, shop, &state, events, |ui| {
+				crate::user_menu::contents(
+					ui,
+					&state,
+					&user,
+					crate::user_menu::Place::Conversation(dm.id),
+					&mut profile,
+					&mut action,
+					None,
+				)
+			})
+		};
+		frame(&mut shop, vec![]);
+		let texts = frame(&mut shop, vec![]);
+		let extensions_label = crate::i18n::translate("timeline-message-actions-extensions");
+		let (_, submenu) = texts
+			.iter()
+			.find(|(text, _)| *text == extensions_label)
+			.expect("DM row offers the plugin submenu")
+			.clone();
+		let mut texts = frame(&mut shop, press_at(submenu.center()));
+		for _ in 0..3 {
+			if texts.iter().any(|(text, _)| text.ends_with("Archive DM")) {
+				break;
+			}
+			texts = frame(&mut shop, vec![]);
+		}
+		assert!(
+			texts.iter().any(|(text, _)| text.ends_with("Archive DM")),
+			"channel actions for the DM sit beside user actions"
+		);
+		let (_, item) = texts
+			.iter()
+			.find(|(text, _)| text.ends_with("Copy link"))
+			.expect("user action listed")
+			.clone();
+		frame(&mut shop, press_at(item.center()));
+		frame(&mut shop, vec![]);
+		let [ExtensionRequest::Invoke { invocation, .. }] = shop.requests.as_slice() else {
+			panic!("one invocation queued: {:?}", shop.requests.len())
+		};
+		assert_eq!(
+			invocation.menu_target.as_deref(),
+			Some(&extensions::MenuTarget::User {
+				user_id: user.id.to_string(),
+				guild_id: None,
+				channel_id: Some(dm.id.to_string()),
+			})
+		);
 	}
 
 	/// Checks that profile role chips open a menu only while a plugin offers a role action, and

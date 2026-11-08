@@ -323,6 +323,7 @@ impl MessagingUi {
 									&response,
 									state,
 									user,
+									user_menu::Place::Nowhere,
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -652,6 +653,7 @@ impl MessagingUi {
 									&response,
 									state,
 									user,
+									user_menu::Place::Nowhere,
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -784,6 +786,7 @@ impl MessagingUi {
 										ui,
 										state,
 										user,
+										user_menu::Place::Nowhere,
 										&mut self.profile,
 										&mut self.user_action,
 										None,
