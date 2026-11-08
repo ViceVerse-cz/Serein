@@ -4700,6 +4700,13 @@ screen-macos-system-picker = Choose with the macOS system picker
 screen-macos-system-picker-kind = System content picker
 
 member-in-voice = In voice
+settings-chat-messaging = Messaging
+settings-share-typing = Let others see when you're typing
+settings-share-typing-description = Discord shows "typing…" while you write. Others still show here when they type.
+settings-mention-replies = Mention people you reply to
+settings-mention-replies-description = They get notified of your reply. Switch it for one reply with @ ON on the reply bar.
+settings-link-previews = Show link previews
+settings-link-previews-description = Cards for links, videos and bots under messages. Linked pictures and GIFs still show.
 settings-chat-box = Chat Box
 settings-convert-emoticons = Automatically convert emoticons in your messages to emoji
 settings-convert-emoticons-description = Convert standalone emoticons such as :) to 🙂 when sending or editing messages. Code and links stay unchanged.

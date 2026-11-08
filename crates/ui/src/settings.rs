@@ -139,7 +139,7 @@ impl Page {
 				"appearance customization font typography import ttf otf primary accent hex window effects transparency blur gradient names cosmetics decorations theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
 			}
 			Self::Chat => {
-				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset emoji emojis nitro fake suggestions autocomplete locked emoticons chat box automatically convert"
+				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset emoji emojis nitro fake suggestions autocomplete locked emoticons chat box automatically convert typing indicator privacy reply mention ping link previews embeds cards"
 			}
 			Self::MessagingPermissions => {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
@@ -1183,6 +1183,33 @@ impl MessagingUi {
 
 	/// Shows device-local reading, composer and channel-list preferences.
 	fn chat_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-chat-messaging"),
+			|ui| {
+				for (label, description, hidden) in [
+					(
+						"settings-share-typing",
+						"settings-share-typing-description",
+						&mut self.hide_own_typing,
+					),
+					(
+						"settings-mention-replies",
+						"settings-mention-replies-description",
+						&mut self.reply_without_mention,
+					),
+					(
+						"settings-link-previews",
+						"settings-link-previews-description",
+						&mut self.hide_link_previews,
+					),
+				] {
+					let mut shown = !*hidden;
+					design::switch(ui, label, Some(description), &mut shown);
+					*hidden = !shown;
+				}
+			},
+		);
 		self.chat_reading_settings(ui, demo);
 		design::group(ui, &crate::i18n::translate("settings-chat-box"), |ui| {
 			design::switch(

@@ -1753,6 +1753,7 @@ impl SearchUi {
 										state,
 										crate::design::MessageCardSurface::Opaque,
 										false,
+										false,
 									) {
 									media.download.gif_favorite_request = Some(gif);
 								}

@@ -259,6 +259,11 @@ pub struct MessagingUi {
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
 	pub convert_emoticons: bool,
+	/// Device preferences: send no typing indicator, start replies without the author ping,
+	/// and draw only image embeds under messages.
+	pub hide_own_typing: bool,
+	pub reply_without_mention: bool,
+	pub hide_link_previews: bool,
 	/// Device preference: request a conversation's page while the pointer rests on it.
 	pub preload_on_hover: bool,
 	preload: preload::Preload,
@@ -3993,6 +3998,7 @@ impl MessagingUi {
                                 self.draft_changes.push(channel);
                                 // Tell the conversation, as the official client does.
                                 if edit.changed()
+                                    && !self.hide_own_typing
                                     && let Some(command) =
                                         state.prepare_typing(channel, std::time::Instant::now())
                                 {
@@ -5312,6 +5318,7 @@ impl MessagingUi {
 					.show(ui, |ui| {
 						design::paint_chat_background(ui, ui.available_rect_before_wrap());
 						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
+						self.timeline.hide_link_previews = self.hide_link_previews;
 						self.timeline.compact_messages = self.reading_preferences.compact_messages;
 						self.timeline.double_click_reaction = self
 							.reading_preferences
@@ -5480,6 +5487,9 @@ impl MessagingUi {
 							self.edit_sent = None;
 						}
 						if std::mem::take(&mut self.timeline.reply_started) {
+							if let Some(reply) = &mut state.reply {
+								reply.mention = !self.reply_without_mention;
+							}
 							self.focus_switched_composer = true;
 							ctx.request_repaint();
 						}
