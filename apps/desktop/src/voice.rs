@@ -1752,7 +1752,8 @@ impl Voice {
 	) -> Result<(), &'static str> {
 		let (capture_send, capture) = mpsc::sync_channel(8);
 		// A few pictures of slack: every predicted picture lost here costs a keyframe.
-		let (camera_frames, camera_receive) = mpsc::sync_channel(4);
+		let (camera_frames, camera_receive) =
+			mpsc::sync_channel(discord_voice::camera_video::MAX_QUEUED_FRAMES);
 		let (stream_audio, stream_audio_receive) = mpsc::sync_channel(8);
 		let (playback, playback_receive) = mpsc::sync_channel(8);
 		let (send, events) = mpsc::sync_channel(8);

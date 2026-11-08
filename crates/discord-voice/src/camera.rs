@@ -37,9 +37,30 @@ pub const SUPPORTED: bool = cfg!(any(
 /// without video.
 const HARDWARE_STALL: u8 = (FPS * 2) as u8;
 const FRAME_INTERVAL: Duration = Duration::from_nanos(1_000_000_000 / format::FPS as u64);
-/// Pictures arriving this much early still pass the rate gate. Without it, a device running
-/// at exactly `FPS` loses every other picture to delivery jitter.
-const FRAME_GATE: Duration = Duration::from_nanos(FRAME_INTERVAL.as_nanos() as u64 * 3 / 4);
+/// How early a picture may arrive for its slot. Without it, a device running at exactly
+/// `FPS` loses every other picture to delivery jitter.
+const FRAME_SLACK: Duration = Duration::from_nanos(FRAME_INTERVAL.as_nanos() as u64 / 4);
+
+/// Admits at most `FPS` pictures per second on average. Each admission advances a schedule by
+/// one interval rather than restarting it from the arrival, so early pictures cannot
+/// accumulate into a higher rate. A schedule more than one interval behind restarts from the
+/// arrival, so a pause never banks credit for a burst.
+#[derive(Default)]
+struct FrameGate {
+	next: Option<std::time::Instant>,
+}
+
+impl FrameGate {
+	fn admit(&mut self, now: std::time::Instant) -> bool {
+		let base = match self.next {
+			Some(next) if now + FRAME_SLACK < next => return false,
+			Some(next) if now < next + FRAME_INTERVAL => next,
+			_ => now,
+		};
+		self.next = Some(base + FRAME_INTERVAL);
+		true
+	}
+}
 // Includes asynchronous teardown: rapid toggles cannot accumulate camera workers.
 static RUNNING: AtomicBool = AtomicBool::new(false);
 /// Set when a receiver, the network or the sender lost a picture of the predicted chain. At
@@ -483,7 +504,7 @@ mod macos {
 	struct DelegateState {
 		send: SyncSender<Result<Vec<u8>, &'static str>>,
 		shared: Arc<Shared>,
-		last: Mutex<Instant>,
+		gate: Mutex<FrameGate>,
 	}
 
 	define_class!(
@@ -506,13 +527,12 @@ mod macos {
 				if state.shared.stopped.load(Ordering::Acquire) {
 					return;
 				}
-				let Ok(mut last) = state.last.try_lock() else {
+				let Ok(mut gate) = state.gate.try_lock() else {
 					return;
 				};
-				if last.elapsed() < FRAME_GATE {
+				if !gate.admit(Instant::now()) {
 					return;
 				}
-				*last = Instant::now();
 				let _ = state.send.try_send(copy_bgra(sample));
 			}
 		}
@@ -722,7 +742,7 @@ mod macos {
 			let allocated = SereinCameraDelegate::alloc().set_ivars(DelegateState {
 				send,
 				shared: shared.clone(),
-				last: Mutex::new(Instant::now() - FRAME_INTERVAL),
+				gate: Mutex::new(FrameGate::default()),
 			});
 			let delegate: Retained<SereinCameraDelegate> = msg_send![super(allocated), init];
 			output.setSampleBufferDelegate_queue(
@@ -888,6 +908,37 @@ mod tests {
 			}
 			assert!(started);
 		}
+	}
+
+	#[test]
+	fn frame_gate_holds_the_average_rate_and_tolerates_jitter() {
+		let start = std::time::Instant::now();
+		let admitted = |period_us: u64, jitter_us: u64| {
+			let mut gate = FrameGate::default();
+			(0..300u64)
+				.filter(|index| {
+					// Alternate early and late deliveries around the nominal period.
+					let offset = if index % 2 == 0 { 0 } else { jitter_us };
+					gate.admit(start + Duration::from_micros(index * period_us + offset))
+				})
+				.count()
+		};
+		let interval = FRAME_INTERVAL.as_micros() as u64;
+		// A device at exactly `FPS` keeps every picture despite a few milliseconds of jitter.
+		assert_eq!(admitted(interval, 4_000), 300);
+		// Faster devices are held to `FPS`: 40 fps keeps three in four, 60 fps one in two.
+		assert!(
+			(224..=226).contains(&admitted(25_000, 0)),
+			"{}",
+			admitted(25_000, 0)
+		);
+		assert!((150..=151).contains(&admitted(interval / 2, 0)));
+		// A pause does not bank credit for a burst afterwards.
+		let mut gate = FrameGate::default();
+		assert!(gate.admit(start));
+		let resumed = start + Duration::from_secs(1);
+		assert!(gate.admit(resumed));
+		assert!(!gate.admit(resumed + Duration::from_millis(5)));
 	}
 
 	/// Flat pictures compress to almost nothing; vary one row so size checks bite.

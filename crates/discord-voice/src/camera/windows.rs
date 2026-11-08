@@ -3,7 +3,7 @@
 
 mod directshow;
 
-use super::{FRAME_GATE, FRAME_INTERVAL, HEIGHT, Shared, WIDTH, format};
+use super::{FRAME_INTERVAL, FrameGate, HEIGHT, Shared, WIDTH, format};
 use std::{
 	marker::PhantomData,
 	rc::Rc,

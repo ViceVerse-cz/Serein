@@ -556,6 +556,7 @@ async fn run_inner(
 							   // A dropped datagram leaves later predicted pictures without their
 							   // reference: discard the rest and restart from a keyframe.
 							   if !udp_failures.try_send(socket,&packet,"Camera UDP send failed")? {
+								   metrics.video(Video::CameraSendDrops,1);
 								   video.restart();
 								   let now=Instant::now();
 								   if now>=camera_keyframe_at {
@@ -623,7 +624,11 @@ async fn run_inner(
 					   }
 					   // Pictures predict from their predecessor: any frame dropped here breaks
 					   // the chain, and the camera is asked for a keyframe to restart it.
-					   while let Some(camera)=&camera && let Ok(frame)=camera.try_recv() {
+					   // Bounded per tick, so a producer that keeps refilling the channel cannot
+					   // starve audio, reception or signaling.
+					   for _ in 0..crate::camera_video::MAX_QUEUED_FRAMES {
+						   let Some(camera)=&camera else {break;};
+						   let Ok(frame)=camera.try_recv() else {break;};
 						   if !camera_enabled || frame.generation!=control.camera
 							   || frame.data.len()>crate::camera_video::MAX_FRAME_BYTES {continue;}
 						   if !video.accepts(&frame) {

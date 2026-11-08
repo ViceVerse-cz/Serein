@@ -148,8 +148,10 @@ pub(crate) enum Video {
 	TwccReported,
 	TwccMissing,
 	TwccDiscarded,
+	/// Outgoing camera datagrams the socket refused; each restarts the camera from a keyframe.
+	CameraSendDrops,
 }
-const VIDEO_SLOTS: usize = Video::TwccDiscarded as usize + 1;
+const VIDEO_SLOTS: usize = Video::CameraSendDrops as usize + 1;
 
 /// Opt-in only; media callbacks do no additional atomic work when diagnostics are off.
 pub(crate) fn enabled() -> bool {
@@ -715,6 +717,7 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 			twcc_reported,
 			twcc_missing,
 			twcc_discarded,
+			camera_send_drops,
 		] = report.video;
 		let encoded_bps = encoded_bytes
 			.saturating_mul(8000)
@@ -724,7 +727,7 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 			.saturating_mul(8000)
 			.checked_div(report.window_ms)
 			.unwrap_or(0);
-		line.push_str(&format!(" receive_transport: video_rtp_bytes={video_rtp_bytes} video_rtp_bps={video_rtp_bps} probe_packets={probe_packets} probe_bytes={probe_bytes} twcc_received={twcc_received} twcc_sent={twcc_sent} twcc_reported={twcc_reported} twcc_missing={twcc_missing} twcc_discarded={twcc_discarded}"));
+		line.push_str(&format!(" receive_transport: video_rtp_bytes={video_rtp_bytes} video_rtp_bps={video_rtp_bps} probe_packets={probe_packets} probe_bytes={probe_bytes} twcc_received={twcc_received} twcc_sent={twcc_sent} twcc_reported={twcc_reported} twcc_missing={twcc_missing} twcc_discarded={twcc_discarded} camera_send_drops={camera_send_drops}"));
 		line.push_str(&format!(
 			" av1_frames={av1_frames} av1_packets={av1_packets} session_av1={session_av1} repair: repair_expired={repair_expired} repair_late={repair_late} repair_response_ms={repair_response_ms} repair_budget_ms={repair_budget_ms}"
 		));

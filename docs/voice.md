@@ -651,8 +651,11 @@ V4L2 interval before ranking it and reapplies the selected interval after the fi
 format change. Drivers without interval metadata rank last at the same resolution.
 Capture is converted to 1280×720 (other aspect ratios keep black bars), capped at 30
 encoded frames/second, encoded on a worker with a 2.5 Mbit/s target (not a measured
-bandwidth guarantee). The capture rate gate admits pictures up to a quarter interval early,
-so a 30 fps device is not halved by delivery jitter. The worker prefers the platform
+bandwidth guarantee). The capture rate gate keeps a schedule
+that advances one interval per admitted picture and admits a picture up to a quarter
+interval before its slot, decided on arrival before decoding. A 30 fps device is therefore
+not halved by delivery jitter, while faster devices average at most 30 fps; a schedule
+more than one interval behind restarts, so pauses never allow a burst. The worker prefers the platform
 hardware H.264 encoder, the same VideoToolbox and Media Foundation encoders screen sharing
 uses, and VA-API or NVENC through a private GStreamer pipeline on Linux. OpenH264 remains
 the fallback when no hardware encoder is available and when one fails mid-capture, which
@@ -664,7 +667,7 @@ ceiling (including row padding), requests one source buffer and queues at most o
 2,764,800-byte RGB frame. Linux requests two mapped buffers, accepts at most four of
 4 MiB each, and decodes YUYV or MJPEG on the worker with a 4 MiB JPEG allocation limit.
 One RGB preview, one encoded frame (256 KiB), up to four encoded frames waiting for the
-voice transport, and at most 464 RTP packets are retained; a new frame is queued only
+voice transport (it drains at most four per 20 ms tick), and at most 464 RTP packets are retained; a new frame is queued only
 while fewer than 160 packets wait, and the transport sends at most three camera packets
 every 2 ms. Every encoded picture is numbered. The transport sends a predicted picture
 only when it directly follows the last one sent; any gap (a full channel or backlog, a
@@ -709,9 +712,9 @@ Allow desktop camera access in Windows
 Settings > Privacy & security > Camera; Windows N may require the Media Feature
 Pack. Linux tries `/dev/video0` through `/dev/video63` and uses the first accessible
 progressive, single-plane YUYV/MJPEG streaming camera at or below 1280×720.
-Linux fits nonmatching frames into 640×480 with black bars; temporary RGB
-allocations are bounded by one 2,764,800-byte native image, one 921,600-byte
-fitted image and one 921,600-byte output image. The session or sandbox
+Linux fits nonmatching frames into 1280×720 with black bars; temporary RGB
+allocations are bounded by one 2,764,800-byte native image, one 2,764,800-byte
+fitted image and one 2,764,800-byte output image. The session or sandbox
 must already permit access to its device node; this implementation does not request
 camera access through a desktop portal or change device permissions. Cameras
 with no supported mode within the input ceiling are rejected before streaming.
@@ -979,6 +982,8 @@ between the UDP socket and the display, so a frozen viewer is diagnosed from one
   violates multiple conditions; source/security changes still require normal recovery.
 - `av_timeline_rebases`: timestamp phase changes absorbed without rewinding local video.
 - `receiver_reports_sent`: authenticated RTCP reception reports sent while watching.
+- `camera_send_drops`: outgoing camera datagrams the socket refused; each one discards
+  the queued camera packets and requests a keyframe.
 - `av_audio_reports` / `av_video_reports` / `av_video_synced`: accepted sender timing reports
   and video deadlines mapped to an audio clock. Zero mapped deadlines means the receiver
   has not confirmed a usable cross-media clock and is using fallback pacing.

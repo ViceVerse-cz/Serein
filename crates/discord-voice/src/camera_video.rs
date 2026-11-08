@@ -6,6 +6,8 @@ use serde_json::{Value, json};
 use std::collections::VecDeque;
 
 pub const MAX_FRAME_BYTES: usize = crate::camera::MAX_ENCODED_BYTES;
+/// Encoded pictures the desktop channel holds for the transport, and the most it drains per tick.
+pub const MAX_QUEUED_FRAMES: usize = 4;
 const PAYLOAD: usize = 1100;
 /// Packets one queued frame may occupy, including DAVE and FU-A overhead.
 const MAX_FRAME_PACKETS: usize = (MAX_FRAME_BYTES + 1024).div_ceil(PAYLOAD - 2) + 64;

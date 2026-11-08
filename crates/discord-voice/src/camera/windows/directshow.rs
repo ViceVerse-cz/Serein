@@ -1,7 +1,7 @@
 //! Compatibility path for virtual cameras registered only with DirectShow.
 #![allow(non_snake_case)] // Custom COM interfaces preserve the Qedit.h method names.
 use super::super::format;
-use super::{FRAME_GATE, FRAME_INTERVAL, HEIGHT, INVALID, Shared, TIMEOUT, UNAVAILABLE, WIDTH};
+use super::{FrameGate, HEIGHT, INVALID, Shared, TIMEOUT, UNAVAILABLE, WIDTH};
 use std::{
 	ffi::c_void,
 	mem::ManuallyDrop,
@@ -48,7 +48,7 @@ unsafe trait ISampleGrabberCB: IUnknown {
 #[implement(ISampleGrabberCB)]
 struct Callback {
 	send: mpsc::SyncSender<Result<Vec<u8>, &'static str>>,
-	last: Mutex<(Instant, bool)>,
+	last: Mutex<(FrameGate, bool)>,
 	bytes: usize,
 	dimensions: (usize, usize, bool),
 }
@@ -81,10 +81,9 @@ impl ISampleGrabberCB_Impl for Callback_Impl {
 						return Err("Camera changed its video format; restart the camera");
 					}
 				}
-				if last.0.elapsed() < FRAME_GATE {
+				if !last.0.admit(Instant::now()) {
 					return Ok(None);
 				}
-				last.0 = Instant::now();
 				let pointer = sample.GetPointer().map_err(|_| INVALID)?;
 				if pointer.is_null() {
 					return Err(INVALID);
@@ -476,7 +475,7 @@ pub(super) fn run(
 		let (send, receive) = mpsc::sync_channel(1);
 		let callback: ISampleGrabberCB = Callback {
 			send,
-			last: Mutex::new((Instant::now() - FRAME_INTERVAL, false)),
+			last: Mutex::new((FrameGate::default(), false)),
 			bytes,
 			dimensions: (width, height, bottom_up),
 		}

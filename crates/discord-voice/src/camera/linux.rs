@@ -1,7 +1,7 @@
 //! Native V4L2 single-plane streaming; no capture helper process or recording.
 #![allow(unsafe_code)]
 
-use super::{DeviceList, FRAME_GATE, FRAME_INTERVAL, HEIGHT, Shared, WIDTH, format};
+use super::{DeviceList, FrameGate, HEIGHT, Shared, WIDTH, format};
 use image::{ImageDecoder, codecs::jpeg::JpegDecoder};
 use std::{
 	fs::{File, OpenOptions},
@@ -432,7 +432,7 @@ pub(super) fn run(
 		return Ok(());
 	};
 	let mut last_frame = Instant::now();
-	let mut last_emitted = Instant::now() - FRAME_INTERVAL;
+	let mut gate = FrameGate::default();
 	while !shared.stopped.load(Ordering::Acquire) {
 		if last_frame.elapsed() >= Duration::from_secs(5) {
 			return Err("Camera stopped delivering frames; check the device and try again");
@@ -474,7 +474,9 @@ pub(super) fn run(
 		if used == 0 || used > mapping.length || used > capture.pixels.size as usize {
 			return Err("Camera frame exceeds its native buffer bounds");
 		}
-		let rgb = if buffer.flags & 0x40 == 0 && last_emitted.elapsed() >= FRAME_GATE {
+		// Admission is decided on arrival, before decoding, so decode time cannot push the
+		// next picture outside its slot.
+		let rgb = if buffer.flags & 0x40 == 0 && gate.admit(Instant::now()) {
 			// SAFETY: DQBUF gives exclusive userspace access until QBUF. Length
 			// was checked against the retained mapping; decoding finishes first.
 			let bytes = unsafe { std::slice::from_raw_parts(mapping.address.cast::<u8>(), used) };
@@ -487,7 +489,6 @@ pub(super) fn run(
 		if let Some(rgb) = rgb {
 			last_frame = Instant::now();
 			if !shared.stopped.load(Ordering::Acquire) {
-				last_emitted = Instant::now();
 				emit(rgb)?;
 			}
 		}

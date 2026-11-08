@@ -1917,8 +1917,8 @@ at most 256 native media types; DirectShow retains one callback frame of at most
 8,294,400 bytes and validates at most eight driver buffers of that size. Linux
 probes two pixel formats without starting capture, retains at most two candidates,
 and preserves its existing four 4-MiB mapping ceiling and 4-MiB JPEG decode limit.
-Nonmatching Linux pictures add at most 2,764,800 native RGB bytes, 921,600 fitted
-RGB bytes and 921,600 output RGB bytes. No camera files or persistent metadata
+Nonmatching Linux pictures add at most 2,764,800 native RGB bytes, 2,764,800 fitted
+RGB bytes and 2,764,800 output RGB bytes. No camera files or persistent metadata
 are introduced. Native driver allocations remain outside these application limits.
 
 Linux system appearance retains one atomic preference and at most one portal
