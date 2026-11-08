@@ -223,6 +223,12 @@ enum Destination {
 		tags: Vec<model::Id>,
 		request: u64,
 	},
+	/// New files added to a sent message, which keeps the listed attachments.
+	Edit {
+		request: u64,
+		message: model::Id,
+		keep: Vec<model::Id>,
+	},
 }
 impl Destination {
 	/// Report a failure as the event the caller's flow expects; no write was accepted.
@@ -241,6 +247,14 @@ impl Destination {
 			Self::Post { request, .. } => Event::PostCreated {
 				parent: channel,
 				request,
+				result: Err(failure),
+			},
+			Self::Edit {
+				request, message, ..
+			} => Event::Edited {
+				request,
+				channel,
+				message,
 				result: Err(failure),
 			},
 		}
@@ -321,6 +335,21 @@ impl DiscordApi {
 					request,
 				},
 			),
+			Command::Edit {
+				request,
+				channel,
+				message,
+				content,
+				keep_attachments: Some(keep),
+			} => (
+				channel,
+				content,
+				Destination::Edit {
+					request,
+					message,
+					keep,
+				},
+			),
 			_ => {
 				progress.send_replace(Status::Failed("Invalid upload request"));
 				return Event::Failure(Failure::ProtocolAt("Invalid upload request"));
@@ -331,8 +360,12 @@ impl DiscordApi {
 			progress.send_replace(Status::Failed(failure.label()));
 			return target.failed(channel, failure);
 		}
+		let kept = match &target {
+			Destination::Edit { keep, .. } => keep.len(),
+			_ => 0,
+		};
 		if sources.is_empty()
-			|| sources.len() > MAX_FILES
+			|| sources.len() + kept > MAX_FILES
 			|| sources.iter().map(Source::size).sum::<u64>() > MAX_TOTAL_BYTES
 		{
 			let failure = Failure::ProtocolAt(
@@ -419,7 +452,58 @@ impl DiscordApi {
 					result,
 				}
 			}
+			Destination::Edit {
+				request,
+				message,
+				keep,
+			} => {
+				let result = tokio::select! {
+					biased;
+					_ = cancelled(&mut cancel) => Err(Failure::Ambiguous),
+					result = self.edit_with_attachments(channel, message, &content, &keep, attachment) => result,
+				};
+				progress.send_replace(status(&result));
+				Event::Edited {
+					request,
+					channel,
+					message,
+					result,
+				}
+			}
 		}
+	}
+
+	/// Replaces the message's text and attachment list: the kept attachments by ID, then
+	/// the uploaded ones. Discord removes any attachment the list leaves out.
+	async fn edit_with_attachments(
+		&self,
+		channel: model::Id,
+		message: model::Id,
+		content: &str,
+		keep: &[model::Id],
+		uploaded: Vec<serde_json::Value>,
+	) -> Result<model::Message, Failure> {
+		let attachments: Vec<serde_json::Value> = keep
+			.iter()
+			.map(|id| serde_json::json!({"id": id.to_string()}))
+			.chain(uploaded)
+			.collect();
+		let body = serde_json::json!({
+			"content": content,
+			"allowed_mentions": crate::allowed_mentions(content, None),
+			"attachments": attachments,
+		});
+		self.request(
+			reqwest::Method::PATCH,
+			&format!("/channels/{channel}/messages/{message}"),
+			Some(body),
+		)
+		.await
+		.and_then(|bytes| {
+			crate::decode::<crate::MessageDto>(&bytes)
+				.map(crate::MessageDto::into_model)
+				.map_err(|_| Failure::Ambiguous)
+		})
 	}
 
 	async fn upload_file(
@@ -886,6 +970,69 @@ mod tests {
 				assert!(api.upload_url(&url).is_err());
 			}
 		}
+	}
+
+	/// Checks that files added to an edit upload first and the PATCH lists the kept
+	/// attachments by ID before the new ones, and that the count limit includes kept files.
+	#[tokio::test]
+	async fn edit_uploads_keep_existing_attachments_and_patch_the_message() {
+		tokio::time::timeout(Duration::from_secs(10), async {
+			let fixture = Fixture::new(b"synthetic edit").await;
+			let source = Source::inspect(fixture.0.clone()).await.unwrap();
+			let filename = source.filename().to_owned();
+			let api_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let storage = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = api();
+			api.base = format!("http://{}", api_listener.local_addr().unwrap());
+			api.upload_origin = Some(storage.local_addr().unwrap());
+			let upload_url = format!(
+				"http://{}/signed?upload_id=synthetic",
+				storage.local_addr().unwrap()
+			);
+			let server = tokio::spawn(async move {
+				let (mut socket, _) = api_listener.accept().await.unwrap();
+				let (head, _) = request(&mut socket).await;
+				assert!(head.starts_with("POST /channels/1/attachments HTTP/1.1"));
+				respond(&mut socket, "200 OK", &serde_json::json!({"attachments":[{"id":0,"upload_url":upload_url,"upload_filename":"synthetic-upload/0/file.txt"}]}).to_string()).await;
+				let (mut socket, _) = storage.accept().await.unwrap();
+				let _ = request(&mut socket).await;
+				respond(&mut socket, "200 OK", "").await;
+				let (mut socket, _) = api_listener.accept().await.unwrap();
+				let (head, bytes) = request(&mut socket).await;
+				assert!(head.starts_with("PATCH /channels/1/messages/5 HTTP/1.1"), "{head}");
+				let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+				assert_eq!(body["content"], "edited");
+				assert_eq!(
+					body["attachments"],
+					serde_json::json!([{"id":"77"},{"id":"0","filename":filename,"uploaded_filename":"synthetic-upload/0/file.txt"}])
+				);
+				respond(&mut socket, "200 OK", r#"{"id":"5","channel_id":"1","author":{"id":"4","username":"Synthetic"},"content":"edited"}"#).await;
+			});
+			let edit = |keep: Vec<model::Id>| Command::Edit {
+				request: 9,
+				channel: model::Id(1),
+				message: model::Id(5),
+				content: "edited".into(),
+				keep_attachments: Some(keep),
+			};
+			let (progress, _status) = watch::channel(Status::Preparing);
+			let (_cancel, cancelled) = watch::channel(false);
+			let event = api
+				.upload_messages(edit(vec![model::Id(77)]), vec![source.clone()], progress, cancelled)
+				.await;
+			assert!(matches!(&event, Event::Edited { request: 9, message: model::Id(5), result: Ok(message), .. } if message.content == "edited"));
+			server.await.unwrap();
+			// Ten kept attachments leave no room; nothing is uploaded.
+			let (progress, _status) = watch::channel(Status::Preparing);
+			let (_cancel, cancelled) = watch::channel(false);
+			let full = (0..10).map(model::Id).collect();
+			assert!(matches!(
+				api.upload_messages(edit(full), vec![source], progress, cancelled).await,
+				Event::Edited { request: 9, result: Err(_), .. }
+			));
+		})
+		.await
+		.unwrap();
 	}
 
 	#[tokio::test]

@@ -65,6 +65,8 @@ pub const MAX_DRAFT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_CONTENT: usize = 2000;
 /// Nitro and Nitro Classic accounts may send longer messages.
 pub const MAX_PREMIUM_CONTENT: usize = 4000;
+/// Attachments one message may hold.
+pub const MAX_MESSAGE_ATTACHMENTS: usize = 10;
 /// Discord accepts at most ten attachments per message.
 pub const MAX_ATTACHMENTS: usize = 10;
 pub const MAX_NAV: usize = model::account::MAX_ENTRIES;
@@ -321,6 +323,9 @@ pub enum Command {
 		channel: Id,
 		message: Id,
 		content: String,
+		/// `Some` when the composer's staged files are uploaded with the edit: the existing
+		/// attachments the message keeps. `None` edits only the text.
+		keep_attachments: Option<Vec<Id>>,
 	},
 	Delete {
 		channel: Id,

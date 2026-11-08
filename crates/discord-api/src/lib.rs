@@ -1785,6 +1785,7 @@ impl DiscordApi {
 				channel,
 				message,
 				content,
+				..
 			} => {
 				if content.trim().is_empty()
 					|| content.chars().count() > client_core::MAX_PREMIUM_CONTENT

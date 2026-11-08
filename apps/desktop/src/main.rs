@@ -3539,6 +3539,57 @@ impl Desktop {
 			self.state.command_rejected(command);
 			return;
 		}
+		// Files added while editing upload first, then replace the message's attachment list.
+		if let Command::Edit {
+			channel,
+			message,
+			request,
+			keep_attachments: Some(_),
+			..
+		} = &command
+			&& !self.state.demo
+		{
+			let (channel, message, request) = (*channel, *message, *request);
+			let available = attachment_send_allowed(&self.state, channel)
+				&& !self.fixture_only
+				&& self.connection.is_some();
+			if available
+				&& let Some(source) = self.uploads.take_source(self.state.generation, channel)
+			{
+				let (progress, receive) =
+					tokio::sync::watch::channel(discord_api::upload::Status::Preparing);
+				let (cancel, _) = tokio::sync::watch::channel(false);
+				if self.uploads.begin_upload(receive, cancel.clone()).is_ok() {
+					let request = uploads::UploadRequest {
+						command,
+						source,
+						progress,
+						cancel,
+					};
+					self.messaging.attachment = None;
+					if let Err(error) = self.connection.as_ref().unwrap().uploads.try_send(request)
+					{
+						let request = error.into_inner();
+						request
+							.progress
+							.send_replace(discord_api::upload::Status::Failed(
+								"Upload queue full; reselect the file",
+							));
+						self.state.command_rejected(request.command);
+					}
+					return;
+				}
+			}
+			self.state.apply_edit_result(
+				channel,
+				message,
+				request,
+				Err(Failure::ProtocolAt(
+					"Files not added; check the connection and attachments, then save again",
+				)),
+			);
+			return;
+		}
 		if let Command::Send { channel, nonce, .. } = &command
 			&& self
 				.state
@@ -4509,6 +4560,7 @@ impl Desktop {
 					channel,
 					message,
 					content,
+					..
 				} => {
 					let result = self
 						.state

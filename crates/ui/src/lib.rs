@@ -576,6 +576,9 @@ pub struct MessagingUi {
 	pins_anchor: Option<egui::Rect>,
 	editing: Option<(Id, Id, String)>,
 	composer_edit: Option<(Id, Id)>,
+	/// The edit whose staged files are added to its message on save. Files staged before
+	/// the edit began stay with the next message instead.
+	edit_files: Option<(Id, Id)>,
 	edit_sent: Option<SubmittedEdit>,
 	deleting: Option<(Id, Id)>,
 	ime_active: bool,
@@ -3171,6 +3174,7 @@ impl MessagingUi {
 					&& (editing_here || self.composer_edit.is_some_and(|(c, _)| c == channel))));
 		if self.composer_edit != editing_key {
 			self.composer_edit = editing_key;
+			self.edit_files = None;
 			self.ime_active = false;
 			self.mention_menu = mentions::Menu::default();
 			self.emoji_picker.reset();
@@ -3568,7 +3572,12 @@ impl MessagingUi {
 				}
 			},
 		);
-		let can_attach = !editing_here
+		// While editing, files may be added once the tray holds only this edit's files.
+		let edit_adds_files = editing_here
+			&& editing_key.is_some()
+			&& (self.edit_files == editing_key
+				|| self.attachment.is_none() && self.attachment_loading == 0);
+		let can_attach = (!editing_here || edit_adds_files)
 			&& self.slash_commands.active.is_none()
 			&& state.can_attach(channel)
 			&& !self.attach_busy
@@ -3607,7 +3616,7 @@ impl MessagingUi {
                     egui::pos2(ui.max_rect().left() - 10.0, cap_top.unwrap_or(ui.max_rect().top() - 6.0)),
                     egui::pos2(ui.max_rect().right() + 10.0, ui.max_rect().top()),
                 );
-                if !editing_here && (self.attachment.is_some() || self.attachment_loading > 0) {
+                if (!editing_here || self.edit_files == editing_key) && (self.attachment.is_some() || self.attachment_loading > 0) {
                     self.attachment_tray(ui, state.can_send(channel), upload_limit);
                 }
                 // Tall drafts stack the actions in bottom-aligned columns so the text keeps the
@@ -3659,6 +3668,9 @@ impl MessagingUi {
                             && crate::interface_tweaks::on(ui.ctx(), extensions::InterfaceTweak::DirectUploadButton);
                         if direct && attach.clicked() {
                             self.attach_requested = true;
+                            if editing_here {
+                                self.edit_files = editing_key;
+                            }
                         }
                         if direct {
                             egui::Popup::context_menu(&attach)
@@ -3680,6 +3692,9 @@ impl MessagingUi {
                                 };
                                 if ui.add_enabled(can_attach, item(icons::Icon::File, "lib-ime-updates-text-attach-files")).clicked() {
                                     self.attach_requested = true;
+                                    if editing_here {
+                                        self.edit_files = editing_key;
+                                    }
                                     ui.close();
                                 }
                                 if ui.add_enabled(can_create_poll, item(icons::Icon::ChartBar, "lib-ime-updates-text-create-a-poll")).clicked() {
@@ -4067,9 +4082,17 @@ impl MessagingUi {
                             && self.slash_commands.can_submit(state, channel);
                         if (send || slash_run) && !cancel_edit {
                             if let Some((edit_channel, message, content)) = &editing {
-                                if state.freshness == Freshness::Fresh
-                                    && let Some(command) = state.prepare_edit(*edit_channel, *message,
-                                        if self.convert_emoticons { emoticons::convert(content) } else { content.clone() })
+                                let text = if self.convert_emoticons { emoticons::convert(content) } else { content.clone() };
+                                let with_files = self.edit_files == Some((*edit_channel, *message))
+                                    && !self.attachment_files.is_empty();
+                                if with_files && (self.upload_busy || self.attachment_loading > 0) {
+                                    state.status = "Wait for the files to finish loading or the current upload.";
+                                } else if state.freshness == Freshness::Fresh
+                                    && let Some(command) = if with_files {
+                                        state.prepare_edit_adding_files(*edit_channel, *message, text, self.attachment_files.len())
+                                    } else {
+                                        state.prepare_edit(*edit_channel, *message, text)
+                                    }
                                 {
                                     if let Command::Edit { content: submitted, .. } = &command {
                                         self.edit_sent = Some(SubmittedEdit {
