@@ -1,0 +1,58 @@
+{
+  "api_version": 1,
+  "id": "voice-and-chat-tools",
+  "name": "Voice & Chat Tools (bounded)",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/voice-and-chat-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "voice_state",
+    "app_events",
+    "storage",
+    "audio_settings",
+    "relationship_control",
+    "relationships",
+    "members",
+    "account_profile",
+    "composer"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Open bounded voice participant tools",
+      "surface": "panel"
+    },
+    {
+      "id": "apply-participant-audio",
+      "label": "Propose local volume or mute for the selected participant",
+      "surface": "panel"
+    },
+    {
+      "id": "open-participant-dm",
+      "label": "Propose opening a DM with the selected friend",
+      "surface": "panel"
+    },
+    {
+      "id": "voice-log",
+      "label": "View the current-call session voice log",
+      "surface": "panel"
+    },
+    {
+      "id": "clear-voice-log",
+      "label": "Clear the stored session voice log",
+      "surface": "panel"
+    },
+    {
+      "id": "mention-all-voice",
+      "label": "Mention all current voice participants in the draft",
+      "surface": "composer"
+    },
+    {
+      "id": "observe-voice",
+      "label": "Record current-call voice activity",
+      "surface": "app_event"
+    }
+  ]
+}
