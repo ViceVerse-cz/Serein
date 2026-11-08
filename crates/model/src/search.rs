@@ -4,6 +4,9 @@ pub const SEARCH_PAGE_SIZE: usize = 25;
 /// Maximum offset accepted by the unofficial normal-client search route.
 pub const MAX_SEARCH_OFFSET: u32 = 9_975;
 pub const MAX_SEARCH_BYTES: usize = 256 * 1024;
+/// Excerpt shown in place of a result whose text exceeds the search preview limit; it is not
+/// the message text, so text actions on such a result need the message itself.
+pub const PREVIEW_LIMIT_NOTICE: &str = "Message exceeds preview limit - open message to read";
 pub fn valid_search_query(query: &str) -> bool {
 	!query.trim().is_empty()
 		&& query.len() <= 1024
