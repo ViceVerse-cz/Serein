@@ -3870,6 +3870,10 @@ timeline-message-actions-delete-message = Удалить сообщение…
 timeline-message-actions-edit-message = Редактировать сообщение
 # Context: message_actions
 timeline-message-actions-extensions = Расширения
+# Context: menu
+extensions-ui-menu-group-user = Пользователь
+# Context: menu
+extensions-ui-menu-group-conversation = Беседа
 # Context: message_actions
 timeline-message-actions-forward = Переслать
 # Context: message_actions
