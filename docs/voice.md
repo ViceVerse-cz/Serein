@@ -675,6 +675,19 @@ bitrate or RTP retransmission. Physical
 permission/device behavior, delivery to the official client and network-loss performance
 require the owner-controlled live gate; an offline launch does not establish those results.
 
+While a call can decode video, Serein acknowledges incoming camera video the same way it
+acknowledges watched streams: one authenticated RTCP reception report per second for the
+video sources that have sent packets (an empty report before any have, so
+`receiver_reports_sent` counts reports, not received video), and at most two transport-wide arrival-feedback reports every
+100 ms for authenticated media carrying the transport sequence extension. Sender reports
+received in the call only update reception-report timing. Serein still generates no REMB
+or claimed available bitrate. Without this feedback, an official macOS client sending
+1280×720 camera video lowered its bitrate from about 1.8 Mbit/s to about 0.13 Mbit/s
+within 15 seconds; with it, the same call held about 2.34 Mbit/s at 30 fps for a minute
+(owner test, November 8, 2026). Diagnostics count these reports in `receiver_reports_sent`
+and `twcc_received/sent/reported/missing/discarded`, and authenticated call video and RTX
+datagrams, counted before RTX restoration, in `video_rtp_bytes/bps`.
+
 Windows, macOS and Linux expose a camera picker in Voice & Video settings and beside both call
 camera controls. Discovery runs on a worker without starting capture. macOS uses AVFoundation device discovery; Linux queries up to 64 V4L2 nodes without configuring or streaming them. Up to
 32 device IDs (4 KiB each) and names (256 bytes each) are retained. The selected

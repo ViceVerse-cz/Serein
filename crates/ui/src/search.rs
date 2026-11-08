@@ -56,6 +56,14 @@ pub struct SearchUi {
 	pub opening: Option<String>,
 	pub channel_reference: Option<Id>,
 	pub channel_reference_load: Option<Id>,
+	/// Plugin message actions offered in a result's context menu.
+	pub(crate) extension_actions: std::sync::Arc<Vec<crate::extensions_ui::MenuAction>>,
+	/// Plugin message action chosen on a result this frame, with the message it applies to.
+	pub(crate) extension_request: Option<(
+		crate::extensions_ui::MenuAction,
+		String,
+		crate::extensions_ui::MessageTarget,
+	)>,
 }
 
 impl SearchUi {
@@ -869,7 +877,9 @@ impl SearchUi {
 			ctx.input(|i| i.pointer.interact_pos())
 				.unwrap_or(anchor.center()),
 		);
-		if clicked_outside && !viewing {
+		// A result's menu and its submenus may extend past the popout; pressing an entry there
+		// must reach the menu instead of closing the popout under it.
+		if clicked_outside && !viewing && !egui::Popup::is_any_open(&ctx) {
 			self.open = false;
 		}
 		self.viewer(ui, state, avatars, media.download);
@@ -1561,6 +1571,96 @@ impl SearchUi {
 			preview.content.clone_from(&hit.excerpt);
 		}
 	}
+	/// Context menu of a result card, opened when `open`: copy its text, link or ID, and run
+	/// plugin message actions on it, as the same message's menu in the conversation offers.
+	/// A result shown only as the preview-limit notice offers no text actions, since its text
+	/// is not loaded.
+	fn result_menu(
+		&mut self,
+		response: &egui::Response,
+		open: bool,
+		state: &State,
+		hit: &model::SearchHit,
+	) {
+		// Only a secondary click opens the menu; a primary click jumps to the message.
+		let popup = egui::Popup::menu(response)
+			.id(egui::Id::unique(("search-result-menu", hit.id)))
+			.at_pointer_fixed()
+			.open_memory(open.then_some(egui::SetOpenCommand::Bool(true)));
+		let text = self.previews.get(&hit.id).map_or_else(
+			|| hit.excerpt.clone(),
+			|message| crate::i18n::message_text(message).into_owned(),
+		);
+		let readable = text != model::PREVIEW_LIMIT_NOTICE;
+		popup.show(|ui| {
+			ui.set_min_width(160.0);
+			if readable && !self.extension_actions.is_empty() {
+				let mut chosen = None;
+				ui.menu_button(
+					crate::i18n::translate("timeline-message-actions-extensions"),
+					|ui| {
+						for action in self.extension_actions.iter() {
+							if ui.button(&action.label).clicked() {
+								chosen = Some(action.clone());
+								ui.close();
+							}
+						}
+					},
+				);
+				if let Some(action) = chosen {
+					self.extension_request = Some((
+						action,
+						text.clone(),
+						crate::extensions_ui::MessageTarget {
+							channel: hit.channel,
+							message: hit.id,
+							author: hit.author.id,
+						},
+					));
+				}
+				ui.separator();
+			}
+			// The selection Copy is offered only for a selection made in this result's text.
+			if readable
+				&& crate::select::has_selection_in(ui.ctx(), response.rect)
+				&& ui
+					.button(crate::i18n::translate("timeline-message-actions-copy"))
+					.clicked()
+			{
+				crate::select::request_copy(ui.ctx());
+				ui.close();
+			}
+			if readable
+				&& ui
+					.button(crate::i18n::translate("message-menu-copy"))
+					.clicked()
+			{
+				ui.ctx().copy_text(text.clone());
+				ui.close();
+			}
+			if let Some(link) = state
+				.channel(hit.channel)
+				.and_then(|channel| crate::markdown::discord_url(channel, Some(hit.id)))
+				&& ui
+					.button(crate::i18n::translate(
+						"timeline-message-actions-copy-message-link",
+					))
+					.clicked()
+			{
+				ui.ctx().copy_text(link);
+				ui.close();
+			}
+			if ui
+				.button(crate::i18n::translate(
+					"timeline-message-actions-copy-message-id",
+				))
+				.clicked()
+			{
+				ui.ctx().copy_text(hit.id.to_string());
+				ui.close();
+			}
+		});
+	}
 	/// Render an individual search hit card with excerpt, author, attachments, and embeds.
 	#[allow(clippy::too_many_arguments)]
 	fn result_card(
@@ -1602,6 +1702,13 @@ impl SearchUi {
 			if response.clicked() && jumpable {
 				*target = Some(hit.id);
 			}
+			// Text and media inside the card take the pointer, so the menu opens from any
+			// secondary click within the card, as on a message in the conversation.
+			let open = ui.rect_contains_pointer(response.rect)
+				&& !egui::Popup::is_any_open(ui.ctx())
+				&& (ui.input(|i| i.pointer.secondary_clicked())
+					|| crate::select::open_menu(ui.ctx()));
+			self.result_menu(response, open, state, hit);
 		}
 		let frame = egui::Frame::new()
 			.fill(if hot { colors.raised } else { colors.base })
