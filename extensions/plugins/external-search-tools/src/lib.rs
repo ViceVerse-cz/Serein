@@ -344,7 +344,7 @@ fn settings_panel(config: Config, notice: &str) -> Vec<Element> {
 			value: config.provider.label().into(),
 		},
 		Element::Select {
-			id: "target_language".into(),
+			id: "target-language".into(),
 			label: "Target language code".into(),
 			options: TargetLanguage::ALL
 				.iter()
@@ -353,7 +353,7 @@ fn settings_panel(config: Config, notice: &str) -> Vec<Element> {
 			value: config.target_language.as_str().into(),
 		},
 		Element::Select {
-			id: "search_engine".into(),
+			id: "search-engine".into(),
 			label: "Search engine".into(),
 			options: SearchEngine::ALL
 				.iter()
@@ -485,7 +485,7 @@ fn panel_action(input: &MessageActionInvocation, save: bool) -> AppOutput {
 			},
 			None => saved.provider,
 		};
-		let target_language = match invocation.value("target_language") {
+		let target_language = match invocation.value("target-language") {
 			Some(value) => match TargetLanguage::from_panel(value) {
 				Some(language) => language,
 				None => {
@@ -500,7 +500,7 @@ fn panel_action(input: &MessageActionInvocation, save: bool) -> AppOutput {
 			},
 			None => saved.target_language,
 		};
-		let search_engine = match invocation.value("search_engine") {
+		let search_engine = match invocation.value("search-engine") {
 			Some(value) => match SearchEngine::from_panel(value) {
 				Some(engine) => engine,
 				None => {
@@ -647,8 +647,8 @@ mod tests {
 		let storage = r#"{"provider":"deepl","target_language":"ja","search_engine":"brave"}"#;
 		let opened = run(serde_json::json!({"action": "open", "storage": storage}));
 		assert_eq!(select_value(&opened, "provider"), Some("DeepL"));
-		assert_eq!(select_value(&opened, "target_language"), Some("ja"));
-		assert_eq!(select_value(&opened, "search_engine"), Some("Brave"));
+		assert_eq!(select_value(&opened, "target-language"), Some("ja"));
+		assert_eq!(select_value(&opened, "search-engine"), Some("Brave"));
 		assert!(opened.output.storage.is_none());
 		assert!(opened.effects.is_empty());
 
@@ -673,8 +673,8 @@ mod tests {
 			"storage": storage,
 			"values": {
 				"provider": "Google Translate",
-				"target_language": "cs",
-				"search_engine": "Wikipedia"
+				"target-language": "cs",
+				"search-engine": "Wikipedia"
 			}
 		}));
 		let stored: Config =
@@ -744,18 +744,18 @@ mod tests {
 			for values in [
 				serde_json::json!({
 					"provider": "Custom",
-					"target_language": "en",
-					"search_engine": "google"
+					"target-language": "en",
+					"search-engine": "google"
 				}),
 				serde_json::json!({
 					"provider": "google",
-					"target_language": "xx",
-					"search_engine": "google"
+					"target-language": "xx",
+					"search-engine": "google"
 				}),
 				serde_json::json!({
 					"provider": "google",
-					"target_language": "en",
-					"search_engine": "custom"
+					"target-language": "en",
+					"search-engine": "custom"
 				}),
 			] {
 				let rejected = run(serde_json::json!({
@@ -778,8 +778,8 @@ mod tests {
 			"storage": "{invalid",
 			"values": {
 				"provider": "deepl",
-				"target_language": "uk",
-				"search_engine": "bing"
+				"target-language": "uk",
+				"search-engine": "bing"
 			}
 		}));
 		let storage = saved.output.storage.as_deref().unwrap();
@@ -794,8 +794,8 @@ mod tests {
 	fn defaults_are_google_translate_english_and_duckduckgo() {
 		let opened = run(serde_json::json!({"action": "open"}));
 		assert_eq!(select_value(&opened, "provider"), Some("Google Translate"));
-		assert_eq!(select_value(&opened, "target_language"), Some("en"));
-		assert_eq!(select_value(&opened, "search_engine"), Some("DuckDuckGo"));
+		assert_eq!(select_value(&opened, "target-language"), Some("en"));
+		assert_eq!(select_value(&opened, "search-engine"), Some("DuckDuckGo"));
 
 		let searched = run(serde_json::json!({
 			"action": "search",
@@ -895,8 +895,8 @@ mod tests {
 				"action": "save",
 				"values": {
 					"provider": "google",
-					"target_language": "en",
-					"search_engine": engine
+					"target-language": "en",
+					"search-engine": engine
 				}
 			}));
 			let searched = run(serde_json::json!({

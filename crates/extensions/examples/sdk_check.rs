@@ -599,6 +599,19 @@ fn check_safe_ports(catalog_wasm_dir: &Path) -> Result<(), Box<dyn std::error::E
 		}
 		println!("{name}/rebuilt: {} Wasm bytes; real ABI behavior passed", package.wasm.len());
 	}
+	for module in [&external, &external_committed] {
+		let panel = invoke(
+			module,
+			&Invocation {
+				action: "open".into(),
+				..Default::default()
+			},
+		)?;
+		assert!(
+			!panel.panel.is_empty(),
+			"settings panel must validate and open"
+		);
+	}
 	Ok(())
 }
 
