@@ -1,0 +1,62 @@
+{
+  "api_version": 1,
+  "id": "account-navigation-tools",
+  "name": "Account & navigation tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/account-navigation-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "app_events",
+    "app_context",
+    "account_profile",
+    "channel_directory",
+    "account_control",
+    "navigation",
+    "voice_connect",
+    "storage"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Open account and navigation tools",
+      "surface": "panel"
+    },
+    {
+      "id": "save-profile",
+      "label": "Save profile preset",
+      "surface": "panel"
+    },
+    {
+      "id": "apply-profile",
+      "label": "Apply selected profile preset",
+      "surface": "panel"
+    },
+    {
+      "id": "delete-profile",
+      "label": "Delete selected profile preset",
+      "surface": "panel"
+    },
+    {
+      "id": "switch-dm",
+      "label": "Switch to previous direct message",
+      "surface": "panel"
+    },
+    {
+      "id": "clear-dm-history",
+      "label": "Clear recent direct-message history",
+      "surface": "panel"
+    },
+    {
+      "id": "join-voice",
+      "label": "Join next loaded voice channel",
+      "surface": "panel"
+    },
+    {
+      "id": "track",
+      "label": "Track recent direct messages",
+      "surface": "app_event"
+    }
+  ]
+}
