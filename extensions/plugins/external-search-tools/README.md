@@ -99,7 +99,8 @@ The package is a member of the `extensions` workspace. It declares the usual
 workspace dependencies (`serein-extension-sdk`, `url`, `serde`, `serde_json`)
 and exposes `handle(MessageActionInvocation) -> AppOutput` through
 `serein_extension_sdk::export!`. Installing it requires a matching Preview host
-with `external_navigation` support; older hosts reject the manifest. All
+with the Preview `external_navigation` API from PR #937; older hosts reject the manifest.
+This SDK change is not yet released. All
 validation in this repository is synthetic/offline and does not prove third-party
 site behavior.
 

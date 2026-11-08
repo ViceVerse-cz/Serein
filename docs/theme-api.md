@@ -105,7 +105,7 @@ The synthetic native preview can opt in without saved settings using
 
 `icon_size` scales shared icon glyphs relative to the 20-pixel baseline without changing
 button hit regions. Custom-painted glyphs and fixed atlas geometry may opt out. **Preview
-Theme API — this branch, not yet released.** Older hosts reject unknown `style` fields.
+SDK — PR #937, not yet released.** Older hosts reject unknown `style` fields.
 
 These metrics affect controls that inherit the shared native style. Custom
 painted elements, explicit text sizes, fixed-height rows and per-widget padding

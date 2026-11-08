@@ -636,7 +636,7 @@ after the user approves navigation.
 Returning this action from an activation, message-event or app-event result is
 rejected. Use a foreground `message`, `composer` or `panel` action; read grants
 such as `selected_message` remain separate. A result may contain only this one
-proposal and cannot also replace the draft. **Preview SDK — this branch, not yet
+proposal and cannot also replace the draft. **Preview SDK — PR #937, not yet
 released; older hosts reject the capability and nested action.**
 
 ### All 18 AppView values

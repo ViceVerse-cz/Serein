@@ -16,7 +16,7 @@
     "display": "X11 3840x2160; Xft.dpi 192",
     "rust": "1.98.1; locked dependencies",
     "baseline_revision": "21f8870b3849f24f9b0fb0bb17b9e3e272e2b93a",
-    "current_revision": "Task working branch before its first commit",
+    "current_revision": "678fdb5dcc6d8d81449263606e347d9cdc2c2f74",
     "baseline_has_hover": false,
     "current_has_hover": true,
     "identical_fixture_source": true,

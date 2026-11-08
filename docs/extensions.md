@@ -128,6 +128,7 @@ Unknown API versions and invalid packages are rejected before installation.
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
 supports 54 capabilities, with at most 64 distinct declarations per manifest.
+`external_navigation` and `style.icon_size` are Preview APIs from PR #937, not yet released.
 
 > **Preview SDK — PR #411, not yet released.** `channel_control`,
 > `server_control`, `role_control`, `moderation_control` and `media_control`, plus
