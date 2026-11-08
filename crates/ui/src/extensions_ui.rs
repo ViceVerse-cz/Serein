@@ -1075,6 +1075,8 @@ impl ExtensionUi {
 		}
 		invocation.storage = None;
 		invocation.app = None;
+		// Buttons in the result re-run the action; an old response would look new.
+		invocation.fetch_result = None;
 		output.storage = None;
 		self.result = Some(ResultPanel {
 			id,
@@ -2267,6 +2269,18 @@ impl ExtensionUi {
 								consent.grants.retain(|grant| grant != capability);
 							}
 						}
+						if *capability == Capability::Network {
+							ui.indent("network-hosts", |ui| {
+								for host in &consent.entry.manifest.network_hosts {
+									ui.label(
+										egui::RichText::new(host)
+											.monospace()
+											.size(12.0)
+											.color(colors.muted),
+									);
+								}
+							});
+						}
 					}
 				}
 				ui.label(
@@ -2945,6 +2959,7 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::BackgroundEffects => {
 			"Change my notification and mute settings without asking each time"
 		}
+		Capability::Network => "Send web requests to the sites listed below, with no Discord data",
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
 		Capability::AppContext => "Read my account and current conversation details",
@@ -3221,6 +3236,7 @@ mod tests {
 			theme_preview: None,
 			preview: None,
 			manifest: Manifest {
+				network_hosts: Vec::new(),
 				api_version: 1,
 				id: "synthetic.words".into(),
 				name: "Synthetic word tools".into(),

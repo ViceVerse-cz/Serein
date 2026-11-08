@@ -273,6 +273,7 @@ mod tests {
 	#[test]
 	fn rich_presence_is_opt_in_foreground_or_activation_and_sdk_wire_compatible() {
 		let mut manifest = Manifest {
+			network_hosts: Vec::new(),
 			api_version: crate::API_VERSION,
 			id: "custom-rpc".into(),
 			name: "Custom RPC".into(),

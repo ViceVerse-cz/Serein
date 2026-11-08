@@ -190,7 +190,8 @@ account snapshot or grant-dependent data:
       "relationships",
       "context_menus",
       "interface_tweaks",
-      "background_effects"
+      "background_effects",
+      "network"
     ],
     "app_events": [
       "ready",

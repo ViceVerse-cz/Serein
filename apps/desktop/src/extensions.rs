@@ -898,6 +898,9 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			{
 				return Err("Background changes were not granted".into());
 			}
+			if !output.fetches.is_empty() && !stored.grants.contains(&Capability::Network) {
+				return Err("Network access was not granted".into());
+			}
 			if let Some(data) = output.storage.take() {
 				if !stored.grants.contains(&Capability::Storage) || data.len() > MAX_STORAGE {
 					return Err("Plugin data exceeds its granted storage budget".into());
@@ -1206,6 +1209,7 @@ fn load(
 						local_theme: false,
 						active_theme: false,
 						manifest: Manifest {
+							network_hosts: Vec::new(),
 							api_version: extensions::API_VERSION,
 							id: id.clone(),
 							name: id,
@@ -1681,7 +1685,7 @@ async fn download_https(raw: &str, limit: usize, gate: &Gate) -> Result<Vec<u8>,
 	Err("Too many extension download redirects".into())
 }
 
-fn public_ip(ip: IpAddr) -> bool {
+pub(crate) fn public_ip(ip: IpAddr) -> bool {
 	match ip {
 		IpAddr::V4(ip) => {
 			let [a, b, _, _] = ip.octets();
@@ -1752,6 +1756,7 @@ mod tests {
 	fn theme(id: &str) -> Package {
 		Package {
 			manifest: Manifest {
+				network_hosts: Vec::new(),
 				api_version: 1,
 				id: id.into(),
 				name: id.into(),

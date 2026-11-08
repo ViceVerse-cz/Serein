@@ -105,6 +105,7 @@ fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validatio
 
 fn test_manifest(capabilities: Vec<Capability>) -> Manifest {
 	Manifest {
+		network_hosts: Vec::new(),
 		api_version: API_VERSION,
 		id: "app-check".into(),
 		name: "App contract".into(),
@@ -911,12 +912,13 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 		label: "Events".into(),
 		surface: Surface::AppEvent,
 	});
+	supported.network_hosts.push("api.example.com".into());
 	supported.validate().unwrap();
 	assert!(host.supports("rich_presence"));
 	assert!(host.supports("api_proxy"));
-	assert_eq!(caps.len(), 56);
+	assert_eq!(caps.len(), 57);
 	assert_eq!(HostInfo::current().app_events.len(), 21);
-	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 56);
+	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 57);
 }
 
 /// Checks that every app action round-trips between the SDK and the host, needs its capability,
@@ -1086,11 +1088,11 @@ fn tracked_actions_and_extended_inputs_preserve_v1_wire_compatibility() {
 	let input = Invocation {
 		action: "events".into(),
 		app_event: Some(AppEventKind::Context),
-		action_result: Some(ActionResult {
+		action_result: Some(Box::new(ActionResult {
 			request_id: "save-42".into(),
 			status: ActionResultStatus::Accepted,
 			code: ActionResultCode::Accepted,
-		}),
+		})),
 		..Default::default()
 	};
 	input.validate(&manifest).unwrap();
@@ -1350,4 +1352,110 @@ fn preference_snapshots_are_bounded_and_old_hosts_can_omit_them() {
 			.is_err()
 		);
 	}
+}
+
+/// Checks that a network plugin must declare its hosts, that SDK requests reach the host
+/// unchanged and only for declared hosts and never from ticks, and that responses return to
+/// the requesting action of a plugin granted `network`.
+#[test]
+fn network_requests_need_declared_hosts_and_answer_through_app_events() {
+	let mut manifest = test_manifest(vec![Capability::Network, Capability::Appearance]);
+	manifest.actions.push(Action {
+		id: "tick".into(),
+		label: "Tick".into(),
+		surface: Surface::Tick,
+	});
+	assert!(manifest.validate().is_err(), "network without hosts");
+	manifest.network_hosts = vec!["api.example.com".into()];
+	manifest.validate().unwrap();
+	for hosts in [
+		vec!["API.example.com"],
+		vec!["localhost"],
+		vec!["a.example.com", "a.example.com"],
+	] {
+		let mut bad = manifest.clone();
+		bad.network_hosts = hosts.iter().map(|host| (*host).to_owned()).collect();
+		assert!(bad.validate().is_err(), "{hosts:?}");
+	}
+	let mut undeclared = test_manifest(Vec::new());
+	undeclared.network_hosts = vec!["api.example.com".into()];
+	assert!(undeclared.validate().is_err(), "hosts without network");
+
+	let mut post = sdk::FetchRequest::get("translate", "https://api.example.com/v1?q=hola");
+	post.method = sdk::FetchMethod::Post;
+	post.headers
+		.insert("Authorization".into(), "Bearer plugin-key".into());
+	post.body = Some("{}".into());
+	let output = sdk::NetworkOutput {
+		fetches: vec![
+			post,
+			sdk::FetchRequest::get("other", "https://api.example.com/"),
+		],
+		..Default::default()
+	};
+	let host: Output = serde_json::from_slice(&serde_json::to_vec(&output).unwrap()).unwrap();
+	assert_eq!(host.fetches.len(), 2);
+	assert_eq!(host.fetches[0].method, FetchMethod::Post);
+	let panel = Invocation {
+		action: "run".into(),
+		..Default::default()
+	};
+	host.validate(&manifest, &panel).unwrap();
+	let mut elsewhere = host.clone();
+	elsewhere.fetches[1].url = "https://evil.example.com/".into();
+	assert!(elsewhere.validate(&manifest, &panel).is_err());
+	let mut duplicate = host.clone();
+	duplicate.fetches[1].request_id = "translate".into();
+	assert!(duplicate.validate(&manifest, &panel).is_err());
+	let mut many = host.clone();
+	many.fetches = (0..=MAX_FETCHES)
+		.map(|index| FetchRequest {
+			request_id: format!("r{index}"),
+			..host.fetches[1].clone()
+		})
+		.collect();
+	assert!(many.validate(&manifest, &panel).is_err());
+	assert!(host.validate(&test_manifest(Vec::new()), &panel).is_err());
+	let tick = Invocation {
+		action: "tick".into(),
+		tick_ms: Some(1),
+		..Default::default()
+	};
+	assert!(
+		host.validate(&manifest, &tick).is_err(),
+		"fetches from a tick"
+	);
+
+	let result = FetchResult {
+		request_id: "translate".into(),
+		status: Some(200),
+		content_type: Some("application/json".into()),
+		body: r#"{"text":"hello"}"#.into(),
+		error: None,
+	};
+	let delivered = Invocation {
+		action: "run".into(),
+		values: [("language".to_owned(), "en".to_owned())].into(),
+		fetch_result: Some(Box::new(result.clone())),
+		..Default::default()
+	};
+	delivered.validate(&manifest).unwrap();
+	let wire = serde_json::to_vec(&delivered).unwrap();
+	let plugin: sdk::NetworkInvocation<sdk::Invocation> = serde_json::from_slice(&wire).unwrap();
+	assert_eq!(plugin.invocation.value("language"), Some("en"));
+	let received = plugin.fetch_result.unwrap();
+	assert_eq!(received.request_id, "translate");
+	#[derive(serde::Deserialize)]
+	struct Translated {
+		text: String,
+	}
+	assert_eq!(received.json::<Translated>().unwrap().text, "hello");
+	let on_tick = Invocation {
+		fetch_result: Some(Box::new(result)),
+		..tick
+	};
+	assert!(on_tick.validate(&manifest).is_err());
+	let mut without_grant = test_manifest(vec![Capability::Appearance]);
+	without_grant.actions = manifest.actions.clone();
+	assert!(delivered.validate(&without_grant).is_err());
 }

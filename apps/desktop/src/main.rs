@@ -38,6 +38,7 @@ mod notification_runtime;
 mod notification_sounds;
 #[cfg(feature = "demo")]
 mod onboarding_demo;
+mod plugin_fetch;
 mod pointer;
 #[cfg(feature = "demo")]
 mod polls_demo;

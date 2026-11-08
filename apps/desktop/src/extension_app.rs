@@ -1272,6 +1272,7 @@ mod tests {
 	use super::*;
 	fn manifest(capabilities: Vec<Capability>) -> Manifest {
 		Manifest {
+			network_hosts: Vec::new(),
 			api_version: API_VERSION,
 			id: "snapshot-test".into(),
 			name: "Synthetic test".into(),

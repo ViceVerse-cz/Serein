@@ -135,6 +135,7 @@ impl ThemeEditor {
 		Self {
 			package: Box::new(Package {
 				manifest: Manifest {
+					network_hosts: Vec::new(),
 					api_version: extensions::API_VERSION,
 					id: identity(),
 					name: "My theme".into(),

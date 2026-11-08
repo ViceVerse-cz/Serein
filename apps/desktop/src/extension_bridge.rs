@@ -109,6 +109,8 @@ fn parse_rgb_hex(text: &str) -> Option<[u8; 3]> {
 
 const MAX_MESSAGE_EVENTS: usize = 32;
 const MAX_MESSAGE_EVENT_BYTES: usize = 64 * 1024;
+/// Queue budget while adding a web response, which alone may approach 192 KiB.
+const MAX_FETCH_EVENT_BYTES: usize = 1024 * 1024;
 const MESSAGE_EVENT_INTERVAL: Duration = Duration::from_millis(100);
 
 fn attach_app_data(
@@ -129,12 +131,16 @@ enum ReactiveEvent {
 	Message(MessageEvent),
 	App(AppEventKind),
 	ActionResult(ActionResult),
+	/// The requesting action's input, now carrying `fetch_result`.
+	Fetch(Box<Invocation>),
 }
 impl ReactiveEvent {
 	fn available(&self, state: &State) -> bool {
 		match self {
 			Self::Message(_) => crate::extension_events::available(state),
-			Self::App(_) | Self::ActionResult(_) => crate::extension_app::available(state),
+			Self::App(_) | Self::ActionResult(_) | Self::Fetch(_) => {
+				crate::extension_app::available(state)
+			}
 		}
 	}
 }
@@ -152,6 +158,9 @@ impl QueuedEvent {
 			+ match &self.event {
 				ReactiveEvent::App(_) => 0,
 				ReactiveEvent::ActionResult(result) => result.request_id.len(),
+				ReactiveEvent::Fetch(invocation) => {
+					serde_json::to_vec(invocation).map_or(usize::MAX, |wire| wire.len())
+				}
 				ReactiveEvent::Message(event) => {
 					event.channel_id.len()
 						+ event.message_id.len()
@@ -198,6 +207,8 @@ pub struct Bridge {
 	connection_interrupted: bool,
 	ticks: BTreeMap<String, TickSchedule>,
 	transitions: BTreeMap<String, Transition>,
+	fetches: crate::plugin_fetch::Fetcher<(Invocation, ExtensionContext)>,
+	fetches_dropped: bool,
 }
 impl Bridge {
 	fn tick_pending(&self, generation: u64, id: &str) -> bool {
@@ -614,6 +625,21 @@ impl Bridge {
 		{
 			installed.api_proxy = Some(config.clone());
 			self.refresh_api_proxy();
+		}
+		if !output.fetches.is_empty()
+			&& let Some(installed) = self.installed.iter().find(|entry| entry.manifest.id == id)
+		{
+			// Each response re-runs the requesting action with its original input and context.
+			let repaint = ctx.clone();
+			let mut origin = invocation.clone();
+			origin.fetch_result = None;
+			self.fetches.start(
+				&id,
+				&(origin, context.clone()),
+				&installed.manifest.network_hosts,
+				output.fetches.clone(),
+				move || repaint.request_repaint(),
+			);
 		}
 		if !output.background_effects.is_empty() {
 			messaging.extensions.queue_background_effects(
@@ -1373,6 +1399,7 @@ impl Bridge {
 			self.pending.retain(|_, pending| pending.cleanup);
 		}
 		self.app_events(state, messaging);
+		self.queue_fetch_results();
 		let available = self.scope_current(state);
 		let installed = &self.installed;
 		let disabled = &self.disabled;
@@ -1385,6 +1412,10 @@ impl Bridge {
 					.iter()
 					.any(|entry| entry.manifest.id == event.id && entry.error.is_none())
 		});
+		if std::mem::take(&mut self.fetches_dropped) {
+			messaging.extensions.status =
+				"A plugin web response was skipped because the event queue was full.".into();
+		}
 		if std::mem::take(&mut self.message_events_dropped) {
 			messaging.extensions.status =
 				"Some plugin events were skipped because the event queue was full.".into();
@@ -1415,9 +1446,10 @@ impl Bridge {
 								.manifest;
 							attach_app_data(&mut invocation, state, messaging, manifest);
 						}
+						ReactiveEvent::Fetch(requested) => invocation = *requested,
 						ReactiveEvent::ActionResult(result) => {
 							invocation.app_event = Some(AppEventKind::Context);
-							invocation.action_result = Some(result);
+							invocation.action_result = Some(Box::new(result));
 							let manifest = &self
 								.installed
 								.iter()
@@ -1454,6 +1486,50 @@ impl Bridge {
 			}
 		}
 		self.schedule_ticks(&account, state.generation, ctx, messaging);
+	}
+	/// Queues each finished plugin request to re-run the action that started it.
+	fn queue_fetch_results(&mut self) {
+		for done in self.fetches.finished() {
+			if !self.installed.iter().any(|entry| {
+				entry.manifest.id == done.id
+					&& entry.error.is_none()
+					&& entry.manifest.capabilities.contains(&Capability::Network)
+			}) || self.disabled.contains(&done.id)
+			{
+				continue;
+			}
+			let (mut invocation, context) = done.context;
+			let mut result = done.result;
+			invocation.fetch_result = Some(Box::new(result.clone()));
+			// The original input plus the body must still fit; otherwise report the size.
+			if !serde_json::to_vec(&invocation)
+				.is_ok_and(|wire| wire.len() <= extensions::MAX_IO_BYTES - 8 * 1024)
+			{
+				result.status = None;
+				result.content_type = None;
+				result.body.clear();
+				result.error = Some(extensions::FetchError::TooLarge);
+				invocation.fetch_result = Some(Box::new(result));
+			}
+			let queued = QueuedEvent {
+				id: done.id,
+				action: invocation.action.clone(),
+				context,
+				event: ReactiveEvent::Fetch(Box::new(invocation)),
+			};
+			if self.message_events.len() >= MAX_MESSAGE_EVENTS
+				|| self
+					.message_events
+					.iter()
+					.map(QueuedEvent::bytes)
+					.sum::<usize>() + queued.bytes()
+					> MAX_FETCH_EVENT_BYTES
+			{
+				self.fetches_dropped = true;
+			} else {
+				self.message_events.push_back(queued);
+			}
+		}
 	}
 	fn schedule_ticks(
 		&mut self,

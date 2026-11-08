@@ -19,6 +19,7 @@ fn manifest(action: &str, surface: Surface) -> Manifest {
 		}
 	}
 	let manifest = Manifest {
+		network_hosts: Vec::new(),
 		api_version: extensions::API_VERSION,
 		id: "sdk-check".into(),
 		name: "SDK compatibility check".into(),

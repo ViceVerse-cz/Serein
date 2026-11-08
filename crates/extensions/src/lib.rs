@@ -23,6 +23,8 @@ mod app;
 pub use app::*;
 mod extended;
 pub use extended::*;
+mod network;
+pub use network::*;
 
 pub const API_VERSION: u32 = 1;
 pub const MAX_PACKAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -151,6 +153,9 @@ pub enum Capability {
 	/// Apply allowed notification and mute changes for your own account from message- and
 	/// app-event handlers, without an Apply button.
 	BackgroundEffects,
+	/// Send HTTPS requests to the host names listed in the manifest's `network_hosts`;
+	/// each response re-runs the requesting action.
+	Network,
 }
 
 /// Host-defined interface behavior that a plugin may switch on for the whole client from
@@ -320,6 +325,9 @@ pub struct Manifest {
 	pub capabilities: Vec<Capability>,
 	#[serde(default)]
 	pub actions: Vec<Action>,
+	/// Exact HTTPS host names a `network` plugin may reach; no other host is reachable.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub network_hosts: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -527,7 +535,7 @@ pub struct Invocation {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub app_event: Option<AppEventKind>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub action_result: Option<ActionResult>,
+	pub action_result: Option<Box<ActionResult>>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub queries: Option<Box<QuerySnapshot>>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -537,6 +545,10 @@ pub struct Invocation {
 	/// Milliseconds elapsed since this plugin was enabled for the current session.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tick_ms: Option<u64>,
+	/// The response to one of this plugin's `fetches`, delivered by running the requesting
+	/// action again with its original input.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub fetch_result: Option<Box<FetchResult>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -806,6 +818,9 @@ pub struct Output {
 	/// and app-event actions with `background_effects` only.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub background_effects: Vec<HostEffect>,
+	/// HTTPS requests to the manifest's `network_hosts`. Requires `network`.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub fetches: Vec<FetchRequest>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -930,6 +945,20 @@ impl Manifest {
 			&& !capabilities.contains(&Capability::AppEvents)
 		{
 			return Err(Error::Capability);
+		}
+		if capabilities.contains(&Capability::Network) == self.network_hosts.is_empty() {
+			return Err(Error::Capability);
+		}
+		if self.network_hosts.len() > MAX_NETWORK_HOSTS {
+			return Err(Error::Limit);
+		}
+		let mut hosts = BTreeSet::new();
+		if self
+			.network_hosts
+			.iter()
+			.any(|host| !valid_network_host(host) || !hosts.insert(host))
+		{
+			return Err(Error::Invalid);
 		}
 		if capabilities.contains(&Capability::ActionFeedback)
 			&& (!capabilities.contains(&Capability::AppEvents)
@@ -1265,6 +1294,16 @@ impl Invocation {
 			}
 			result.validate()?;
 		}
+		// A response returns to the action that requested it, with that action's input.
+		if let Some(result) = &self.fetch_result {
+			if action.surface == Surface::Tick
+				|| self.action_result.is_some()
+				|| !manifest.capabilities.contains(&Capability::Network)
+			{
+				return Err(Error::Capability);
+			}
+			result.validate()?;
+		}
 		if let Some(queries) = &self.queries {
 			if !manifest.capabilities.contains(&Capability::DataQueries) {
 				return Err(Error::Capability);
@@ -1433,6 +1472,22 @@ impl Output {
 				return Err(Error::Capability);
 			}
 			app::validate_effects(&self.background_effects, manifest)?;
+		}
+		if !self.fetches.is_empty() {
+			// Ticks run unattended every few seconds; requests start from user or app events.
+			if !manifest.capabilities.contains(&Capability::Network) || surface == Surface::Tick {
+				return Err(Error::Capability);
+			}
+			if self.fetches.len() > MAX_FETCHES {
+				return Err(Error::Limit);
+			}
+			let mut ids = BTreeSet::new();
+			for fetch in &self.fetches {
+				if !ids.insert(&fetch.request_id) {
+					return Err(Error::Invalid);
+				}
+				fetch.validate(&manifest.network_hosts)?;
+			}
 		}
 		if let Some(appearance) = &self.appearance {
 			if !manifest.capabilities.contains(&Capability::Appearance) {
