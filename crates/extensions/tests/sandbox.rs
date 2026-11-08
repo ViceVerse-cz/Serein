@@ -135,6 +135,45 @@ fn diagnostics_distinguish_safe_runtime_input_and_output_failures() {
 	));
 }
 
+/// Checks that a menu action without its target, or with another kind of target, is
+/// rejected as bad input before the handler runs: the handler here traps if it is reached.
+#[test]
+fn menu_actions_reject_missing_or_mismatched_targets_before_running() {
+	let mut trap = plugin(
+		r#"(module (memory (export "memory") 1)
+        (func (export "serein_alloc") (param i32) (result i32) i32.const 0)
+        (func (export "serein_invoke") (param i32 i32) (result i64) unreachable))"#,
+	);
+	trap.manifest.capabilities = vec![Capability::ContextMenus];
+	trap.manifest.actions = vec![Action {
+		id: "run".into(),
+		label: "Run".into(),
+		surface: Surface::User,
+	}];
+	let user = MenuTarget::User {
+		user_id: "4".into(),
+		guild_id: None,
+		channel_id: None,
+	};
+	let request = |target: Option<MenuTarget>| Invocation {
+		action: "run".into(),
+		menu_target: target.map(Box::new),
+		..Default::default()
+	};
+	assert!(matches!(
+		invoke(&trap, &request(Some(user))),
+		Err(Error::Trap)
+	));
+	for target in [
+		None,
+		Some(MenuTarget::Server {
+			guild_id: "5".into(),
+		}),
+	] {
+		assert!(matches!(invoke(&trap, &request(target)), Err(Error::Input)));
+	}
+}
+
 #[test]
 fn rejects_oversized_or_invalid_pointers_and_json_responses() {
 	for packed in [MAX_IO_BYTES as u64 + 1, (u32::MAX as u64) << 32 | 4] {

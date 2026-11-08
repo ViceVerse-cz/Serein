@@ -1831,6 +1831,7 @@ impl MessagingUi {
 									&avatar,
 									state,
 									&member.user,
+									user_menu::Place::Open,
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -1956,6 +1957,7 @@ impl MessagingUi {
 									&response,
 									state,
 									&member.user,
+									user_menu::Place::Open,
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -2262,6 +2264,7 @@ impl MessagingUi {
 									&avatar,
 									state,
 									user,
+									user_menu::Place::Nowhere,
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -2490,6 +2493,7 @@ impl MessagingUi {
 								&avatar,
 								state,
 								user,
+								user_menu::Place::Conversation(c.id),
 								&mut self.profile,
 								&mut self.user_action,
 								Some(shortcuts::ShortcutView::new(
@@ -4617,6 +4621,7 @@ impl MessagingUi {
 		let ctx = ui.ctx().clone();
 		user_menu::set_voice_available(&ctx, self.voice_available);
 		self.extensions.reset_theme_shortcut(&ctx);
+		self.extensions.context_menus(&ctx, state);
 		if self.extensions.has_result() {
 			self.settings.open = false;
 		}
@@ -4943,6 +4948,7 @@ impl MessagingUi {
 			self.search.focus_conversation(channel, state);
 		}
 		self.search.sync(&ctx, state, &mut commands);
+		self.search.extension_actions = self.extensions.message_actions();
 		let search_open =
 			self.search.results_visible(state) && state.selected.is_some() && !selected_voice;
 		let show_members = !selected_voice
@@ -5583,6 +5589,10 @@ impl MessagingUi {
 		}
 		if let Some(link) = self.search.opening.take() {
 			self.timeline.opening = Some(link);
+		}
+		if let Some((action, text, target)) = self.search.extension_request.take() {
+			self.extensions
+				.invoke_message(action, text, target, state, &ctx);
 		}
 		if let Some(channel) = self.search.channel_reference.take() {
 			self.timeline.channel_reference = Some(channel);

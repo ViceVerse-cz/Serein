@@ -22,3 +22,42 @@ pub struct MessageActionInvocation {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub selected_message_ref: Option<SelectedMessageRef>,
 }
+
+/// The item a `user`, `channel`, `server` or `role` menu action was chosen on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MenuTarget {
+	User {
+		user_id: String,
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		guild_id: Option<String>,
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		channel_id: Option<String>,
+	},
+	Channel {
+		channel_id: String,
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		guild_id: Option<String>,
+	},
+	Server {
+		guild_id: String,
+	},
+	/// A role in a member's profile, with the name and `0xRRGGBB` color shown on its chip.
+	Role {
+		guild_id: String,
+		role_id: String,
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		user_id: Option<String>,
+		name: String,
+		color: u32,
+	},
+}
+
+/// Opt-in context-menu input: an `AppInvocation` plus the menu's target.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MenuInvocation {
+	#[serde(flatten)]
+	pub invocation: AppInvocation,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub menu_target: Option<MenuTarget>,
+}

@@ -379,6 +379,7 @@ impl MessagingUi {
 						ui,
 						state,
 						user,
+						crate::user_menu::Place::Conversation(entry.channel),
 						&mut self.profile,
 						&mut self.user_action,
 						None,
