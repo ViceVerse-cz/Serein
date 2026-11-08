@@ -2,7 +2,7 @@
  * Ported from Equicord/Vencord at commit
  * 200dba124066146a8f043de7fc8b05e3dc5e68e.
  *
- * baseDecoder:
+ * baseDecoder (composer `decode` and message `decode-message` actions):
  * Copyright (c) 2022 Vendicated and contributors
  *
  * writeUpperCase:
@@ -26,12 +26,23 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-use serein_extension_sdk::{Element, Invocation, Output};
+use serein_extension_sdk::{
+	AppOutput, Element, HostEffect, MessageActionInvocation, Output, serde_json,
+};
 
 // Serein's draft proposals are bounded before Apply. The UTF-8 byte bound also
 // leaves room for JSON escaping in the complete 256 KiB response.
 const MAX_DRAFT_BYTES: usize = 8_000;
 const MAX_DRAFT_CHARS: usize = 2_000;
+
+// The message action is bounded before it crosses the clipboard-effect limit.
+// Upstream lists every decoded string; here the count, each decoded string, the
+// displayed text and the clipboard effect all have explicit ceilings.
+const MAX_MESSAGE_MATCHES: usize = 8;
+const MAX_MATCH_BYTES: usize = 4_096;
+const MAX_DISPLAY_CHARS: usize = 1_024;
+const MAX_COPY_BYTES: usize = 6_144;
+const MAX_EFFECT_BYTES: usize = 8_000;
 
 // WriteUpperCase's default `blockedWords` setting, verbatim. The package has no
 // panel or storage action, so these defaults are intentionally not configurable.
@@ -50,11 +61,22 @@ fn panel(message: impl Into<String>) -> Output {
 	}
 }
 
-fn handle(input: Invocation) -> Output {
-	match input.action.as_str() {
-		"decode" => decode_action(input.composer),
-		"uppercase" => uppercase_action(input.composer),
-		_ => Output::default(),
+fn handle(input: MessageActionInvocation) -> AppOutput {
+	let action = input.invocation.invocation.action.clone();
+	match action.as_str() {
+		"decode" => composer_output(decode_action(input.invocation.invocation.composer)),
+		"uppercase" => composer_output(uppercase_action(input.invocation.invocation.composer)),
+		"decode-message" => decode_message(&input),
+		_ => AppOutput::default(),
+	}
+}
+
+/// Adapt a composer result to the effect-capable envelope. Composer actions
+/// never propose a host effect.
+fn composer_output(output: Output) -> AppOutput {
+	AppOutput {
+		output,
+		effects: Vec::new(),
 	}
 }
 
@@ -150,19 +172,25 @@ fn decode_base64_candidate(candidate: &str) -> Option<String> {
 	String::from_utf8(decoded).ok()
 }
 
+/// One replaceable standard-Base64 span in a larger text.
+struct DecodedSpan {
+	/// First byte of the token, excluding leading `+`/`/`.
+	start: usize,
+	/// First byte after the token, including consumed `=` padding.
+	consumed: usize,
+	decoded: String,
+}
+
 /// Port of the useful part of DecodeBase64's finder: a maximal standard Base64
 /// alphabet run, requiring at least four characters and word boundaries at its
 /// alphanumeric ends. `+` and `/` may occur inside the run but not at its edges.
 ///
-/// Decodable spans, including valid trailing `=` padding, are replaced in place.
 /// Every other byte, including invalid UTF-8 candidates and URL-safe Base64, is
-/// copied unchanged. Only one pass is made, as in the upstream modal.
-fn decode_base64_text(text: &str) -> (String, usize) {
+/// skipped. Only one pass is made, as in the upstream modal.
+fn scan_base64(text: &str) -> Vec<DecodedSpan> {
 	let bytes = text.as_bytes();
-	let mut output = String::with_capacity(text.len());
-	let mut copied_through = 0;
+	let mut spans = Vec::new();
 	let mut index = 0;
-	let mut decoded_count = 0;
 
 	while index < bytes.len() {
 		if !is_base64_byte(bytes[index]) {
@@ -213,15 +241,33 @@ fn decode_base64_text(text: &str) -> (String, usize) {
 			consumed += expected_padding;
 		}
 
-		output.push_str(&text[copied_through..start]);
-		output.push_str(&decoded);
-		copied_through = consumed;
+		spans.push(DecodedSpan {
+			start,
+			consumed,
+			decoded,
+		});
 		index = index.max(consumed);
-		decoded_count += 1;
 	}
 
+	spans
+}
+
+/// Replace every decodable span in place. Text outside a span is copied
+/// byte-for-byte. Returns the replacement and the number of spans decoded.
+fn decode_base64_text(text: &str) -> (String, usize) {
+	let spans = scan_base64(text);
+	if spans.is_empty() {
+		return (text.to_owned(), 0);
+	}
+	let mut output = String::with_capacity(text.len());
+	let mut copied_through = 0;
+	for span in &spans {
+		output.push_str(&text[copied_through..span.start]);
+		output.push_str(&span.decoded);
+		copied_through = span.consumed;
+	}
 	output.push_str(&text[copied_through..]);
-	(output, decoded_count)
+	(output, spans.len())
 }
 
 fn is_sentence_punctuation(character: char) -> bool {
@@ -310,19 +356,203 @@ fn uppercase_sentences(text: &str) -> String {
 	output
 }
 
+fn message_output(panel: Vec<Element>, effect: Option<HostEffect>) -> AppOutput {
+	AppOutput {
+		output: Output {
+			panel,
+			..Default::default()
+		},
+		effects: effect.into_iter().collect(),
+	}
+}
+
+fn excerpt(text: &str) -> String {
+	if text.chars().count() <= MAX_DISPLAY_CHARS {
+		return text.to_owned();
+	}
+	let mut shown: String = text.chars().take(MAX_DISPLAY_CHARS).collect();
+	shown.push('…');
+	shown
+}
+
+/// Port of DecodeBase64's message-popover action: decode standard Base64 spans
+/// found in the selected message text and propose copying the decoded content.
+///
+/// The upstream modal lists every decoded string and copies on a per-string
+/// button. Serein allows one reviewed effect per result, so this handler shows
+/// the bounded decoded matches and proposes one copy of the matches joined by a
+/// blank line. Nothing is copied before Apply, and the panel states exactly how
+/// many matches the copy contains.
+fn decode_message(input: &MessageActionInvocation) -> AppOutput {
+	let Some(message) = input.invocation.invocation.selected_message.as_deref() else {
+		return message_output(
+			vec![Element::Heading {
+				text: "Decode message Base64".into(),
+			}, Element::Text {
+				text: "The host did not provide the selected message text. Nothing was decoded or proposed."
+					.into(),
+			}],
+			None,
+		);
+	};
+
+	let spans = scan_base64(message);
+	if spans.is_empty() {
+		return message_output(
+			vec![
+				Element::Heading {
+					text: "Decode message Base64".into(),
+				},
+				Element::Text {
+					text: "No Base64 span decoding to valid UTF-8 was found in the selected message. Nothing was proposed."
+						.into(),
+				},
+			],
+			None,
+		);
+	}
+
+	let total = spans.len();
+	let mut matches: Vec<String> = Vec::new();
+	for span in spans {
+		if matches.len() == MAX_MESSAGE_MATCHES {
+			break;
+		}
+		if span.decoded.len() > MAX_MATCH_BYTES {
+			continue;
+		}
+		matches.push(span.decoded);
+	}
+	let omitted = total.saturating_sub(matches.len());
+
+	let mut copy = String::new();
+	let mut copied = 0;
+	for decoded in &matches {
+		let mut candidate = copy.clone();
+		if !candidate.is_empty() {
+			candidate.push_str("\n\n");
+		}
+		candidate.push_str(decoded);
+		if candidate.len() > MAX_COPY_BYTES
+			|| !serde_json::to_vec(&HostEffect::CopyText {
+				text: candidate.clone(),
+			})
+			.is_ok_and(|bytes| bytes.len() <= MAX_EFFECT_BYTES)
+		{
+			break;
+		}
+		copy = candidate;
+		copied += 1;
+	}
+
+	let mut panel = vec![
+		Element::Heading {
+			text: "Decode message Base64".into(),
+		},
+		Element::Text {
+			text: format!("Decoded {total} Base64 span(s) in the selected message."),
+		},
+	];
+	for (index, decoded) in matches.iter().enumerate() {
+		panel.push(Element::Text {
+			text: format!("Decoded match {}:", index + 1),
+		});
+		panel.push(Element::Text {
+			text: excerpt(decoded),
+		});
+	}
+	if omitted > 0 {
+		panel.push(Element::Text {
+			text: format!(
+				"{omitted} further decoded match(es) were omitted by the {MAX_MESSAGE_MATCHES}-match or {MAX_MATCH_BYTES}-byte-per-match bound."
+			),
+		});
+	}
+	if copied == 0 {
+		panel.push(Element::Text {
+			text: "No decoded match fits the reviewed clipboard bound, so nothing was proposed."
+				.into(),
+		});
+		return message_output(panel, None);
+	}
+	if copied < matches.len() {
+		panel.push(Element::Text {
+			text: format!(
+				"Only the first {copied} of {} decoded matches fit the reviewed clipboard bound.",
+				matches.len()
+			),
+		});
+	}
+	panel.push(Element::Text {
+		text: format!(
+			"Apply copies {copied} decoded match(es), separated by a blank line. Nothing was copied before Apply."
+		),
+	});
+	message_output(panel, Some(HostEffect::CopyText { text: copy }))
+}
+
 serein_extension_sdk::export!(handle);
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use serein_extension_sdk::{dispatch, dispatch_typed, serde_json};
+	use serein_extension_sdk::{dispatch_typed, serde_json};
+
+	fn dispatch_output(value: serde_json::Value) -> AppOutput {
+		let bytes = dispatch_typed(&serde_json::to_vec(&value).unwrap(), handle).unwrap();
+		serde_json::from_slice(&bytes).unwrap()
+	}
 
 	fn invoke(action: &str, composer: &str) -> Output {
-		handle(Invocation {
-			action: action.into(),
-			composer: Some(composer.into()),
-			..Default::default()
-		})
+		let output = dispatch_output(serde_json::json!({
+			"action": action,
+			"composer": composer
+		}));
+		assert!(output.effects.is_empty());
+		output.output
+	}
+
+	fn base64(bytes: &[u8]) -> String {
+		const ALPHABET: &[u8; 64] =
+			b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+		let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+		for chunk in bytes.chunks(3) {
+			let first = u32::from(chunk[0]);
+			let second = u32::from(*chunk.get(1).unwrap_or(&0));
+			let third = u32::from(*chunk.get(2).unwrap_or(&0));
+			let value = (first << 16) | (second << 8) | third;
+			encoded.push(ALPHABET[(value >> 18) as usize & 0x3f] as char);
+			encoded.push(ALPHABET[(value >> 12) as usize & 0x3f] as char);
+			encoded.push(if chunk.len() > 1 {
+				ALPHABET[(value >> 6) as usize & 0x3f] as char
+			} else {
+				'='
+			});
+			encoded.push(if chunk.len() > 2 {
+				ALPHABET[value as usize & 0x3f] as char
+			} else {
+				'='
+			});
+		}
+		encoded
+	}
+
+	fn decoded_message(message: &str) -> AppOutput {
+		dispatch_output(serde_json::json!({
+			"action": "decode-message",
+			"selected_message": message,
+			"selected_message_ref": {
+				"channel_id": "10", "message_id": "20", "author_id": "30"
+			}
+		}))
+	}
+
+	fn copied(output: &AppOutput) -> &str {
+		assert_eq!(output.effects.len(), 1);
+		match &output.effects[0] {
+			HostEffect::CopyText { text } => text,
+			other => panic!("unexpected effect: {other:?}"),
+		}
 	}
 
 	#[test]
@@ -385,21 +615,78 @@ mod tests {
 	fn typed_dispatch_routes_declared_actions_and_ignores_unknown_ones() {
 		let bytes =
 			dispatch_typed(br#"{"action":"decode","composer":"SGVsbG8="}"#, handle).unwrap();
-		let output: Output = serde_json::from_slice(&bytes).unwrap();
-		assert_eq!(output.replacement.as_deref(), Some("Hello"));
+		let output: AppOutput = serde_json::from_slice(&bytes).unwrap();
+		assert_eq!(output.output.replacement.as_deref(), Some("Hello"));
 
-		let bytes = dispatch(
+		let bytes = dispatch_typed(
 			br#"{"action":"uppercase","composer":"hello. next"}"#,
 			handle,
 		)
 		.unwrap();
-		let output: Output = serde_json::from_slice(&bytes).unwrap();
-		assert_eq!(output.replacement.as_deref(), Some("Hello. Next"));
+		let output: AppOutput = serde_json::from_slice(&bytes).unwrap();
+		assert_eq!(output.output.replacement.as_deref(), Some("Hello. Next"));
 
-		let bytes = dispatch(br#"{"action":"unknown","composer":"SGVsbG8="}"#, handle).unwrap();
+		let bytes =
+			dispatch_typed(br#"{"action":"unknown","composer":"SGVsbG8="}"#, handle).unwrap();
 		assert_eq!(
-			serde_json::from_slice::<Output>(&bytes).unwrap(),
-			Output::default()
+			serde_json::from_slice::<AppOutput>(&bytes).unwrap(),
+			AppOutput::default()
 		);
+	}
+
+	#[test]
+	fn message_action_proposes_one_reviewed_copy_and_never_the_source_text() {
+		let single = decoded_message("look: SGVsbG8= end");
+		assert_eq!(copied(&single), "Hello");
+		assert!(single.output.replacement.is_none());
+		assert!(single.output.storage.is_none());
+		assert!(single.output.panel.iter().any(|element| matches!(
+			element,
+			Element::Text { text } if text.contains("Nothing was copied before Apply")
+		)));
+		assert!(!serde_json::to_string(&single).unwrap().contains("look: "));
+
+		let multiple = decoded_message("SGVsbG8= and d29ybGQh");
+		assert_eq!(copied(&multiple), "Hello\n\nworld!");
+		assert!(multiple.output.panel.iter().any(|element| matches!(
+			element,
+			Element::Text { text } if text.contains("copies 2 decoded match")
+		)));
+
+		let invalid = decoded_message("AP8A is not UTF-8 text");
+		assert!(invalid.effects.is_empty());
+		let prose = decoded_message("no encoded spans here");
+		assert!(prose.effects.is_empty());
+		let missing = dispatch_output(serde_json::json!({"action": "decode-message"}));
+		assert!(missing.effects.is_empty());
+	}
+
+	#[test]
+	fn message_action_is_bounded_by_match_count_size_and_effect_bytes() {
+		let many = (0..10)
+			.map(|index| base64(format!("match-{index}").as_bytes()))
+			.collect::<Vec<_>>()
+			.join(" ");
+		let output = decoded_message(&many);
+		let text = copied(&output);
+		assert_eq!(text.matches("match-").count(), MAX_MESSAGE_MATCHES);
+		assert!(text.len() <= MAX_COPY_BYTES);
+		assert!(serde_json::to_vec(&output.effects[0]).unwrap().len() <= MAX_EFFECT_BYTES);
+		assert!(output.output.panel.iter().any(|element| matches!(
+			element,
+			Element::Text { text } if text.contains("2 further decoded match")
+		)));
+
+		let oversized_bytes = vec![b'A'; MAX_MATCH_BYTES + 1];
+		let oversized = base64(&oversized_bytes);
+		let mixed = decoded_message(&format!("{oversized} {small}", small = base64(b"ok")));
+		assert_eq!(copied(&mixed), "ok");
+		assert!(mixed.output.panel.iter().any(|element| matches!(
+			element,
+			Element::Text { text } if text.contains("1 further decoded match")
+		)));
+
+		let all_oversized = decoded_message(&oversized);
+		assert!(all_oversized.effects.is_empty());
 	}
 }

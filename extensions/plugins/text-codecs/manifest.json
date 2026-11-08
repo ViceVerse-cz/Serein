@@ -8,7 +8,9 @@
   "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/text-codecs",
   "kind": "plugin",
   "capabilities": [
-    "composer"
+    "composer",
+    "selected_message",
+    "clipboard_write"
   ],
   "actions": [
     {
@@ -20,6 +22,11 @@
       "id": "uppercase",
       "label": "Capitalize sentence starts",
       "surface": "composer"
+    },
+    {
+      "id": "decode-message",
+      "label": "Decode Base64 in message and copy",
+      "surface": "message"
     }
   ]
 }
