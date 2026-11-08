@@ -35,22 +35,24 @@ pub struct Runtime {
 
 /// With one ping per direct conversation, keeps a conversation quiet after its first alert
 /// until its read marker reaches that message; returns whether this notification stays
-/// silent. `read` gives a conversation's last read message, if known.
+/// silent. `read` gives a conversation's last read message, if known. Checking records
+/// nothing; [`record_ping`] does once an alert or sound was actually produced.
 fn quiet_repeat(
 	pinged: &mut std::collections::BTreeMap<Id, Id>,
-	(direct, channel, message): (bool, Id, Id),
+	(direct, channel): (bool, Id),
 	read: impl Fn(Id) -> Option<Id>,
 ) -> bool {
 	pinged.retain(|channel, first| read(*channel).is_none_or(|marker| marker < *first));
-	if !direct {
-		return false;
-	}
-	match pinged.entry(channel) {
-		std::collections::btree_map::Entry::Occupied(_) => true,
-		std::collections::btree_map::Entry::Vacant(slot) => {
-			slot.insert(message);
-			false
-		}
+	direct && pinged.contains_key(&channel)
+}
+
+/// Marks a direct conversation as having alerted with `message`, keeping its first alert.
+fn record_ping(
+	pinged: &mut std::collections::BTreeMap<Id, Id>,
+	(direct, channel, message): (bool, Id, Id),
+) {
+	if direct {
+		pinged.entry(channel).or_insert(message);
 	}
 }
 /// Push-to-talk edges: one start cue per press and one stop cue per release.
@@ -155,6 +157,9 @@ impl Runtime {
 		if !one_ping {
 			self.pinged_directs.clear();
 		}
+		// Alerts and sounds in one poll coalesce to the last eligible one of each; only the
+		// conversations behind those use up their one ping.
+		let (mut alerted, mut sounded) = (None, None);
 		while let Some(notification) = state.take_notification() {
 			let current = focused && ui.viewing_latest(notification.channel);
 			let cue = if current {
@@ -164,18 +169,16 @@ impl Runtime {
 			};
 			let desktop = audible && ui.notifications_enabled && !current;
 			let audio = audible && options.allows(cue);
-			// Only a notification that would alert can use up a conversation's one ping.
+			let key = (
+				notification.is_direct(),
+				notification.channel,
+				notification.message,
+			);
 			if !(desktop || audio)
 				|| one_ping
-					&& quiet_repeat(
-						&mut self.pinged_directs,
-						(
-							notification.is_direct(),
-							notification.channel,
-							notification.message,
-						),
-						|id| state.read_marker(id).flatten(),
-					) {
+					&& quiet_repeat(&mut self.pinged_directs, (key.0, key.1), |id| {
+						state.read_marker(id).flatten()
+					}) {
 				continue;
 			}
 			if desktop {
@@ -189,9 +192,16 @@ impl Runtime {
 					avatar_key: notification.avatar_key,
 					image_path,
 				});
+				alerted = Some(key);
 			}
 			if audio {
 				sound = Some(cue);
+				sounded = Some(key);
+			}
+		}
+		if one_ping {
+			for key in alerted.into_iter().chain(sounded) {
+				record_ping(&mut self.pinged_directs, key);
 			}
 		}
 		let incoming = state.voice.incoming.filter(|id| {
@@ -365,20 +375,38 @@ mod tests {
 	}
 
 	/// Checks that one ping per DM silences repeats until the conversation is read through the
-	/// alerting message, leaves server channels alone and tracks each conversation separately.
+	/// alerting message, leaves server channels alone, tracks each conversation separately and
+	/// records nothing for a notification that was checked but never alerted.
 	#[test]
 	fn one_ping_per_direct_message_waits_for_read() {
 		let mut pinged = std::collections::BTreeMap::new();
 		let mut read = std::collections::BTreeMap::<Id, Id>::new();
+		let check = |pinged: &mut std::collections::BTreeMap<Id, Id>,
+		             read: &std::collections::BTreeMap<Id, Id>,
+		             direct,
+		             channel| {
+			let read = read.clone();
+			quiet_repeat(pinged, (direct, Id(channel)), move |id| {
+				read.get(&id).copied()
+			})
+		};
+		// A checked notification that a later one replaced in the same poll leaves no mark.
+		assert!(!check(&mut pinged, &read, true, 1));
+		assert!(
+			!check(&mut pinged, &read, true, 1),
+			"an unalerted DM stays eligible"
+		);
+		// The rest of the scenario alerts every eligible notification.
 		let quiet = |pinged: &mut std::collections::BTreeMap<Id, Id>,
 		             read: &std::collections::BTreeMap<Id, Id>,
 		             direct,
 		             channel,
 		             message| {
-			let read = read.clone();
-			quiet_repeat(pinged, (direct, Id(channel), Id(message)), move |id| {
-				read.get(&id).copied()
-			})
+			let quiet = check(pinged, read, direct, channel);
+			if !quiet {
+				record_ping(pinged, (direct, Id(channel), Id(message)));
+			}
+			quiet
 		};
 		assert!(
 			!quiet(&mut pinged, &read, true, 1, 100),

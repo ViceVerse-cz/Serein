@@ -716,13 +716,14 @@ impl MessagingUi {
 		} else {
 			1.0
 		};
-		// The popup opens beside the row; a doubled image shrinks to fit the window's remaining
-		// width and keeps room below it for the title and the Watch button.
+		// The popup opens beside the row. With the tweak on, the image fits the window's
+		// remaining width and keeps room below for the title and the Watch button, shrinking
+		// below its usual size on a small or zoomed window; without it the size is unchanged.
 		let viewport = ui.ctx().content_rect();
 		let fit = ((viewport.right() - row.rect.right() - 8.0 - 24.0) / 300.0)
 			.min((viewport.height() - 24.0 - 110.0) / 169.0)
-			.max(1.0);
-		let image = egui::vec2(300.0, 169.0) * scale.min(fit);
+			.max(0.4);
+		let image = egui::vec2(300.0, 169.0) * if scale > 1.0 { scale.min(fit) } else { 1.0 };
 		let mut tooltip = egui::Tooltip::for_enabled(row)
 			.gap(8.0)
 			.width(image.x + 24.0)

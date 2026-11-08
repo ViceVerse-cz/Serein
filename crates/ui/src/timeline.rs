@@ -2210,6 +2210,9 @@ fn show_system(
 impl TimelineView {
 	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
 		if self.video.is_fullscreen() {
+			// Runs before the timeline lays out, so the tweak is read directly.
+			let hide_blocked =
+				crate::interface_tweaks::on(ctx, extensions::InterfaceTweak::HiddenBlockedMessages);
 			let current = self
 				.video
 				.active
@@ -2227,6 +2230,8 @@ impl TimelineView {
 						})
 						.filter(|message| {
 							state.selected == Some(*channel)
+								&& !(hide_blocked
+									&& state.user_blocked(message.author.id) == Some(true))
 								&& message.channel == *channel
 								&& message.attachments.contains(attachment)
 								&& (self.component_viewing
@@ -4134,14 +4139,16 @@ impl TimelineView {
 											});
 										// A blocked author's latest reply stays out of the card
 										// while the tweak hides their messages.
-										let last = preview
-											.as_ref()
-											.and_then(|preview| preview.last)
-											.filter(|reply| {
-												!self.hidden_blocked
-													|| state.user_blocked(reply.author.id)
-														!= Some(true)
-											});
+										let loaded =
+											preview.as_ref().and_then(|preview| preview.last);
+										let last = loaded.filter(|reply| {
+											!self.hidden_blocked
+												|| state.user_blocked(reply.author.id) != Some(true)
+										});
+										// The hidden reply's own ID is no fallback for the
+										// card's activity time either.
+										let hidden =
+											loaded.filter(|_| last.is_none()).map(|reply| reply.id);
 										let text = last.map(|reply| {
 											thread_preview_text(
 												ui,
@@ -4162,7 +4169,8 @@ impl TimelineView {
 														.channel
 														.and_then(|channel| channel.last_message)
 												})
-											});
+											})
+											.filter(|id| Some(*id) != hidden);
 										let (card, visible) = thread_card(
 											ui,
 											state,
@@ -5184,6 +5192,8 @@ impl TimelineView {
 			let allowed = !state.timeline.is_deleted(*message)
 				&& display_message(state, *message).is_some_and(|source| {
 					!source.embeds_suppressed
+						&& !(self.hidden_blocked
+							&& state.user_blocked(source.author.id) == Some(true))
 						&& Revealed::fingerprint(source) == *fingerprint
 						&& (!crate::embeds::has_media_spoilers(source)
 							|| self
@@ -5218,6 +5228,8 @@ impl TimelineView {
 						.iter()
 						.find(|message| message.id == message_id)
 				})
+				// A viewer closes with its row when the tweak hides a blocked author.
+				.filter(|m| !(self.hidden_blocked && state.user_blocked(m.author.id) == Some(true)))
 				.filter(|m| {
 					if let Some(identity) = self.component_viewing {
 						identity

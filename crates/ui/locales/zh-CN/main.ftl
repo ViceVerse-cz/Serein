@@ -3900,6 +3900,10 @@ timeline-message-actions-delete-message = 删除消息…
 timeline-message-actions-edit-message = 编辑消息
 # Context: message_actions
 timeline-message-actions-extensions = 扩展
+# Context: menu
+extensions-ui-menu-group-user = 用户
+# Context: menu
+extensions-ui-menu-group-conversation = 对话
 # Context: message_actions
 timeline-message-actions-forward = 转发
 # Context: message_actions

@@ -3869,6 +3869,10 @@ timeline-message-actions-delete-message = Usuń wiadomość…
 timeline-message-actions-edit-message = Edytuj wiadomość
 # Context: message_actions
 timeline-message-actions-extensions = Rozszerzenia
+# Context: menu
+extensions-ui-menu-group-user = Użytkownik
+# Context: menu
+extensions-ui-menu-group-conversation = Rozmowa
 # Context: message_actions
 timeline-message-actions-forward = Przekaż
 # Context: message_actions
