@@ -2,7 +2,7 @@
   "api_version": 1,
   "id": "view-raw-message",
   "name": "ViewRaw — safe message view",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Equicord/Vencord contributors; Serein port contributors",
   "license": "GPL-3.0-or-later",
   "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/view-raw-message",

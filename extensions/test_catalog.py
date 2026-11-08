@@ -2,6 +2,7 @@
 import json
 
 import catalog
+import pack
 
 theme = (catalog.ROOT / "themes/ocean.serein-extension").read_bytes()
 plugin = (catalog.ROOT / "plugins/packages/message-delete-protector.serein-extension").read_bytes()
@@ -30,6 +31,16 @@ for data, mutate in (
         pass
     else:
         raise AssertionError("invalid extension accepted")
+# Equicord-derived packages distribute both source and full GPL text in an inert
+# Wasm custom section. The section does not introduce imports or executable behavior.
+expected_gpl = (catalog.ROOT / "licenses/Equicord-GPL-3.0.txt").read_bytes()
+for stem in ["offline-composer-tools", "text-commands", "view-raw-message", "external-search-tools"]:
+    packaged = json.loads((catalog.ROOT / f"plugins/packages/{stem}.serein-extension").read_bytes())
+    wasm = bytes(packaged["wasm"])
+    licenses = [payload for name, payload in pack.custom_sections(wasm) if name == pack.LICENSE_SECTION]
+    assert licenses == [expected_gpl], stem
+    assert pack.embed_license(wasm, expected_gpl) == wasm
+
 # Pins are compared by content; a catalog pinned to another repository is always re-pinned.
 pinned = json.loads((catalog.ROOT / "catalog.json").read_bytes())
 for entry in pinned["entries"]:

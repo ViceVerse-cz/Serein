@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "external-search-tools"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -349,7 +349,7 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "view-raw-message"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "serein-extension-sdk",
 ]

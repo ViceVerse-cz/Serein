@@ -2,7 +2,7 @@
   "api_version": 1,
   "id": "external-search-tools",
   "name": "External Search Tools",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "Equicord/Vencord contributors; Serein port contributors",
   "license": "GPL-3.0-or-later",
   "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/external-search-tools",
