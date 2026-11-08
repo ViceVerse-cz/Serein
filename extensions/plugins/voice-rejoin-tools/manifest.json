@@ -1,0 +1,44 @@
+{
+  "api_version": 1,
+  "id": "voice-rejoin-tools",
+  "name": "Voice Rejoin Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/voice-rejoin-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "app_events",
+    "voice_state",
+    "channel_directory",
+    "voice_connect",
+    "storage"
+  ],
+  "actions": [
+    {
+      "id": "observe",
+      "label": "Remember the last voice channel",
+      "surface": "app_event"
+    },
+    {
+      "id": "show",
+      "label": "Show voice rejoin status",
+      "surface": "panel"
+    },
+    {
+      "id": "save-current",
+      "label": "Save the current voice channel",
+      "surface": "panel"
+    },
+    {
+      "id": "forget",
+      "label": "Forget the saved voice channel",
+      "surface": "panel"
+    },
+    {
+      "id": "rejoin",
+      "label": "Propose rejoining the saved voice channel",
+      "surface": "panel"
+    }
+  ]
+}
