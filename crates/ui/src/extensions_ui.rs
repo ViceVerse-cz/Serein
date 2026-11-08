@@ -3597,6 +3597,25 @@ mod tests {
 				color: 0x3498db,
 			})
 		);
+		// The chip is a button, so a primary activation opens the same menu.
+		frame(&mut shop, vec![]);
+		let texts = frame(&mut shop, vec![]);
+		let mut texts = frame(&mut shop, press_at(chip(&texts)));
+		for _ in 0..3 {
+			if texts
+				.iter()
+				.any(|(text, _)| text.ends_with("Copy role color"))
+			{
+				break;
+			}
+			texts = frame(&mut shop, vec![]);
+		}
+		assert!(
+			texts
+				.iter()
+				.any(|(text, _)| text.ends_with("Copy role color")),
+			"primary activation opens the role menu"
+		);
 	}
 
 	#[test]

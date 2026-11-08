@@ -2107,10 +2107,15 @@ pub(crate) fn role_chips(
 				},
 			);
 			// With plugin role actions the chip is a control: screen readers announce it as a
-			// button named after the role; it opens its menu like other menus.
+			// button named after the role and its color, so equal names stay distinguishable,
+			// and any activation opens its menu.
 			if menu {
 				response.widget_info(|| {
-					egui::WidgetInfo::labeled(egui::Role::Button, true, &role.name)
+					egui::WidgetInfo::labeled(
+						egui::Role::Button,
+						true,
+						format!("{}, #{:06X}", role.name, role.color & 0xff_ffff),
+					)
 				});
 			}
 			ui.painter().rect_filled(rect, 6, theme.chip);
@@ -2135,8 +2140,13 @@ pub(crate) fn role_chips(
 					name: role.name.clone(),
 					color: role.color & 0xff_ffff,
 				};
-				crate::user_menu::popup(&response, id.with("menu"))
-					.show(|ui| crate::extensions_ui::context_menu_entries(ui, &target));
+				let mut popup = crate::user_menu::popup(&response, id.with("menu"));
+				if response.clicked() {
+					popup = popup
+						.open_memory(Some(egui::SetOpenCommand::Bool(true)))
+						.at_position(response.rect.left_bottom());
+				}
+				popup.show(|ui| crate::extensions_ui::context_menu_entries(ui, &target));
 			}
 		}
 		let hidden = roles.len() - visible;
