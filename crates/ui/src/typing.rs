@@ -61,8 +61,12 @@ fn name(state: &State, channel: Id, user: Id) -> Option<&str> {
 		})
 }
 
+/// One text run in the indicator. A name carries its typist so the overlay can use that
+/// member's already-loaded role colour; separators and verbs carry none.
+type Segment = (String, bool, Option<Id>);
+
 /// Text runs for the indicator; `true` marks a typist name rendered in the strong weight.
-fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, bool)>> {
+fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<Segment>> {
 	if state.selected != Some(channel) {
 		return None;
 	}
@@ -79,7 +83,7 @@ fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, boo
 				.map(|c| if c.is_control() { ' ' } else { c })
 				.collect();
 			if !name.trim().is_empty() {
-				names.push(name);
+				names.push((name, user));
 			}
 		}
 	}
@@ -99,33 +103,44 @@ fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, boo
 				format!("{count} people are typing…")
 			},
 			false,
+			None,
 		)]);
 	}
 	let others = count - names.len();
-	let mut out: Vec<(String, bool)> = Vec::with_capacity(names.len() * 2 + 2);
-	let last_index = names.len() - 1 + usize::from(others > 0);
-	for (index, name) in names.into_iter().enumerate() {
+	let mut out: Vec<Segment> = Vec::with_capacity(names.len() * 2 + 2);
+	let name_count = names.len();
+	for (index, (name, user)) in names.into_iter().enumerate() {
 		if index > 0 {
-			out.push((
-				if index == last_index { " and " } else { ", " }.into(),
-				false,
-			));
+			// The last name takes "and" only when nobody else follows; otherwise every
+			// name but the first is comma-separated and the count takes "and N others".
+			let separator = if index + 1 == name_count && others == 0 {
+				" and "
+			} else {
+				", "
+			};
+			out.push((separator.into(), false, None));
 		}
-		out.push((name, true));
+		out.push((name, true, Some(user)));
 	}
 	if others > 0 {
 		out.push((
 			format!(" and {others} other{}", if others == 1 { "" } else { "s" }),
 			false,
+			None,
 		));
 	}
-	out.push((verb.into(), false));
+	out.push((verb.into(), false, None));
 	Some(out)
 }
 
 #[cfg(test)]
 fn label(state: &State, channel: Id, now: Instant) -> Option<String> {
-	segments(state, channel, now).map(|parts| parts.into_iter().map(|(text, _)| text).collect())
+	segments(state, channel, now).map(|parts| {
+		parts
+			.into_iter()
+			.map(|(text, _, _)| text)
+			.collect()
+	})
 }
 
 /// Height the timeline reserves for the indicator above the composer. The conversation keeps
@@ -187,7 +202,20 @@ pub(super) fn overlay(
 	job.wrap.max_rows = 1;
 	job.wrap.break_anywhere = true;
 	let strong = crate::design::semibold_family(ui.ctx());
-	for (text, is_name) in &segments {
+	for (text, is_name, user) in &segments {
+		let color = match user {
+			// Only member roles the session already loaded; no member or role is fetched.
+			Some(user) => crate::presentation::role_text_color(
+				state,
+				channel,
+				*user,
+				&[],
+				colors.chat,
+				colors.text_strong,
+			),
+			None if *is_name => colors.text_strong,
+			None => colors.muted,
+		};
 		job.append(
 			text,
 			0.0,
@@ -200,11 +228,7 @@ pub(super) fn overlay(
 						egui::FontFamily::Proportional
 					},
 				),
-				color: if *is_name {
-					colors.text_strong
-				} else {
-					colors.muted
-				},
+				color,
 				..Default::default()
 			},
 		);
@@ -213,7 +237,10 @@ pub(super) fn overlay(
 	let text_pos = egui::pos2(text_left, rect.center().y - galley.size().y / 2.0);
 	painter.galley(text_pos, galley, colors.muted);
 	response.widget_info(|| {
-		let text: String = segments.iter().map(|(text, _)| text.as_str()).collect();
+		let text: String = segments
+			.iter()
+			.map(|(text, _, _)| text.as_str())
+			.collect();
 		egui::WidgetInfo::labeled(egui::Role::Label, true, text)
 	});
 	if let Some(deadline) = state.typing_deadline(now) {
@@ -317,6 +344,10 @@ mod tests {
 		let text = label(&state, Id(10), now).unwrap();
 		assert!(text.starts_with("Alex, Robin, Long name"));
 		assert!(text.ends_with("and 5 others are typing…"));
+		// Three visible names plus a count use commas between names and one conjunction
+		// before the count, never "C and N others" chained after "and C".
+		assert_eq!(text.matches(" and ").count(), 1);
+		assert!(!text.contains(", and"));
 		assert!(!text.contains('\n'));
 		assert!(text.chars().count() < 160);
 		assert!(label(&state, Id(11), now).is_none());

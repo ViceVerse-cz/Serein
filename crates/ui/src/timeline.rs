@@ -495,6 +495,37 @@ fn message_badges(
 	}
 }
 
+/// Loaded profile pronouns for a human message author, formatted for the message header.
+/// Cache-only: it never requests a profile and never shows pronouns for bots, webhooks or
+/// service-generated rows. Controls are removed and the result is capped by UTF-8 bytes.
+fn loaded_pronouns(state: &State, message: &Message) -> Option<String> {
+	if message.author.id.0 == 0
+		|| message.author.webhook
+		|| message.author.kind != model::AccountKind::Human
+		|| message.is_system()
+	{
+		return None;
+	}
+	let mut text: String = state
+		.known_profile(message.author.id)?
+		.pronouns
+		.trim()
+		.chars()
+		.filter(|c| !c.is_control())
+		.collect::<String>()
+		.trim()
+		.to_lowercase();
+	const MAX_PRONOUN_BYTES: usize = 256;
+	if text.len() > MAX_PRONOUN_BYTES {
+		let mut end = MAX_PRONOUN_BYTES;
+		while !text.is_char_boundary(end) {
+			end -= 1;
+		}
+		text.truncate(end);
+	}
+	(!text.is_empty()).then_some(text)
+}
+
 pub(crate) fn fill_header_line(ui: &mut egui::Ui, compact: bool, text_line: egui::Rect) {
 	let slack = MESSAGE_LINE - text_line.height();
 	if !compact && slack > 0.0 && ui.min_rect().bottom() - text_line.bottom() < 1.0 {
@@ -3809,6 +3840,13 @@ impl TimelineView {
 												&message.author,
 											);
 											surface.keep(&author);
+											if let Some(pronouns) = loaded_pronouns(state, message) {
+												ui.label(
+													RichText::new(format!("• {pronouns}"))
+														.size(11.0)
+														.color(colors.muted),
+												);
+											}
 										},
 									);
 									message_badges(ui, state, message, &colors, &mut surface);
@@ -3900,6 +3938,13 @@ impl TimelineView {
 														crate::local_time::full(time)
 													});
 												surface.exclude(time.rect);
+												if let Some(pronouns) = loaded_pronouns(state, message) {
+													ui.label(
+														RichText::new(format!("• {pronouns}"))
+															.size(11.0)
+															.color(colors.muted),
+													);
+												}
 												message_badges(
 													ui,
 													state,
@@ -6594,6 +6639,46 @@ mod tests {
 			reactions: Some(vec![]),
 			embeds_suppressed: false,
 		}
+	}
+
+	#[test]
+	fn loaded_pronouns_are_cache_only_formatted_and_skip_bots_and_system_rows() {
+		let mut state = test_support::demo_state();
+		state.selected = Some(Id(20));
+		let mut message = text_message(1);
+		assert_eq!(loaded_pronouns(&state, &message), None);
+
+		let mut profile = crate::profiles::synthetic(&message.author, None);
+		profile.pronouns = "  They / Them\n".into();
+		state.profile = Some(client_core::profile::ProfileView {
+			user: message.author.id,
+			guild: None,
+			request: 0,
+			loading: false,
+			error: None,
+			data: Some(profile.clone()),
+		});
+		assert_eq!(
+			loaded_pronouns(&state, &message).as_deref(),
+			Some("they / them")
+		);
+
+		// Bots, webhooks and service rows never borrow a loaded profile pronoun.
+		message.author.kind = model::AccountKind::Bot;
+		assert_eq!(loaded_pronouns(&state, &message), None);
+		message.author.kind = model::AccountKind::Human;
+		message.author.webhook = true;
+		assert_eq!(loaded_pronouns(&state, &message), None);
+		message.author.webhook = false;
+		message.kind = 24;
+		assert_eq!(loaded_pronouns(&state, &message), None);
+		message.kind = 0;
+
+		// The header copy is bounded by UTF-8 bytes without splitting a scalar value.
+		profile.pronouns = "🦀".repeat(100);
+		state.profile.as_mut().unwrap().data = Some(profile);
+		let shown = loaded_pronouns(&state, &message).unwrap();
+		assert!(shown.len() <= 256 && shown.is_char_boundary(shown.len()));
 	}
 
 	#[test]
