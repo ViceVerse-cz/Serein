@@ -23,6 +23,7 @@ use windows_capture::{
 
 #[path = "audio_windows.rs"]
 mod audio;
+pub(crate) use audio::includes_own_audio as audio_includes_call;
 
 fn monitor_id(monitor: &Monitor) -> u64 {
 	u64::try_from(monitor.as_raw_hmonitor() as usize).unwrap_or(0)

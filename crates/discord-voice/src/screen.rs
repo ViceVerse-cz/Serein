@@ -82,6 +82,15 @@ pub fn audio_supported() -> bool {
 	supported()
 }
 
+/// Whether shared system audio also carries Serein's playback, so viewers hear the call.
+/// Only Windows builds before 20348 lack the process loopback that leaves Serein out.
+pub fn audio_includes_call() -> bool {
+	#[cfg(target_os = "windows")]
+	return capture::audio_includes_call();
+	#[cfg(not(target_os = "windows"))]
+	false
+}
+
 pub fn supported() -> bool {
 	cfg!(any(
 		target_os = "macos",

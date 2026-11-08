@@ -2277,6 +2277,8 @@ screen-body-share-system-audio = Поделиться системным зву�
 # Context: body
 screen-body-show-cursor = Показать курсор
 # Context: body
+screen-body-this-windows-version-cannot-leave-serein-out = Эта версия Windows не может исключить Serein, поэтому зрители услышат и ваш звонок. Чтобы этого избежать, выберите в Serein для вывода звука устройство, отличное от устройства Windows по умолчанию.
+# Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = Ваш микрофон вызова сохраняет текущие настройки.
 # Context: show
 screen-show-cancel = Отмена

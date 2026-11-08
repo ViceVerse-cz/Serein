@@ -2304,6 +2304,8 @@ screen-body-share-system-audio = Sdílejte systémový zvuk
 # Context: body
 screen-body-show-cursor = Zobrazit kurzor
 # Context: body
+screen-body-this-windows-version-cannot-leave-serein-out = Tato verze Windows nedokáže Serein vynechat, takže diváci uslyší i váš hovor. Abyste tomu předešli, nastavte v Serein Reproduktory na jiné zařízení, než je výchozí ve Windows.
+# Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = Váš mikrofon hovoru si zachová aktuální nastavení.
 # Context: show
 screen-show-cancel = Zrušit
