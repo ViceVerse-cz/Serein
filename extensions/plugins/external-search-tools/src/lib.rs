@@ -870,6 +870,54 @@ mod tests {
 	}
 
 	#[test]
+	fn fitting_url_matches_a_linear_longest_prefix_oracle() {
+		fn oracle(text: &str, build: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+			if let Some(url) = build(text)
+				&& url.len() <= MAX_URL_BYTES
+			{
+				return Some(url);
+			}
+			let mut best = None;
+			let mut boundaries = Vec::with_capacity(text.len() + 1);
+			boundaries.push(0);
+			boundaries.extend(
+				text.char_indices()
+					.map(|(offset, character)| offset + character.len_utf8()),
+			);
+			for end in boundaries.into_iter().skip(1) {
+				let candidate = text[..end].trim_end();
+				if candidate.is_empty() {
+					continue;
+				}
+				if let Some(url) = build(candidate)
+					&& url.len() <= MAX_URL_BYTES
+				{
+					best = Some(url);
+				}
+			}
+			best
+		}
+
+		// Mixed spaces, multibyte characters and percent-heavy bytes exercise
+		// boundaries that do not line up with the encoded URL length.
+		type BuildUrl<'a> = &'a dyn Fn(&str) -> Option<String>;
+		let text = "🦀 a %  b ".repeat(200);
+		let builds: [BuildUrl; 3] = [
+			&|candidate| search_url_once(SearchEngine::DuckDuckGo, candidate),
+			&|candidate| translate_url_once(Provider::Google, TargetLanguage::Ja, candidate),
+			&|candidate| translate_url_once(Provider::Deepl, TargetLanguage::De, candidate),
+		];
+		for build in builds {
+			let expected = oracle(&text, build);
+			let actual = fitting_url(&text, build);
+			assert_eq!(actual, expected);
+			if let Some(url) = actual {
+				assert!(url.len() <= MAX_URL_BYTES);
+			}
+		}
+	}
+
+	#[test]
 	fn fitting_url_uses_a_bounded_number_of_reconstructions() {
 		let calls = std::cell::Cell::new(0);
 		let text = "%".repeat(MAX_TEXT_BYTES);

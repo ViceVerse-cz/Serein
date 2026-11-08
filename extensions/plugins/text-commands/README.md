@@ -36,9 +36,11 @@ composer as:
 Argument values are trimmed and can contain spaces. With multiple values, a space followed
 by another not-yet-supplied placeholder's exact `key:` starts the next value; all other
 text remains in the current value. Placeholders use `{{arg}}` or `{{arg = default}}`.
-Names and defaults are trimmed, duplicate placeholder definitions use the first
-definition, and a supplied empty value is different from a missing value. Literal `\n` in
-the completed template becomes a newline. Expansion is single-pass, not recursive.
+Names may contain spaces when the supplied argument uses the same exact name, for example
+`{{first name}}` with `/name first name:Ada`. Names and defaults are trimmed, duplicate
+placeholder definitions use the first definition, and a supplied empty value is different
+from a missing value. Literal `\n` in the completed template becomes a newline. Expansion
+is single-pass, not recursive.
 
 Unknown or malformed command names and text not beginning with `/` receive no proposal.
 Unknown arguments, malformed arguments, an empty expansion, or missing required arguments
@@ -79,3 +81,13 @@ leave the draft untouched and explain the problem in a native result panel.
 Unit tests in `src/lib.rs` cover sequential rules, escaped newlines, corrupt-storage
 preservation, defaults, missing arguments, Unicode values, and unknown commands. Native
 handler tests are not Wasm sandbox or live-service compatibility evidence.
+
+## Packaging
+
+Package from `extensions/` with the license text embedded as an inert Wasm custom section:
+
+```sh
+python pack.py plugins/text-commands/manifest.json target/wasm32-unknown-unknown/release/text_commands.wasm plugins/packages/text-commands.serein-extension --license licenses/Equicord-GPL-3.0.txt
+```
+
+The host ignores custom sections, so this does not change the executable ABI.
