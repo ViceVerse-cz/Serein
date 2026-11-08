@@ -255,6 +255,18 @@ fn gallery(
 					.as_deref()
 					.or(media.proxy_url.as_deref())
 					.and_then(external_url);
+				let media_url = media
+					.url
+					.as_deref()
+					.or(media.proxy_url.as_deref())
+					.unwrap_or_default();
+				let gif_alt = if embed.kind == "gifv"
+					|| media_url.to_ascii_lowercase().ends_with(".gif")
+				{
+					crate::gif_alt::gif_alt_text(media_url)
+				} else {
+					None
+				};
 				let image = images
 					.show_media(ui, media, rect.size(), demo, Surface::Banner)
 					.response;
@@ -272,6 +284,16 @@ fn gallery(
 						star
 					});
 				response.widget_info(|| {
+					let mut label = format!(
+						"{} {} {} {}",
+						crate::i18n::translate("embeds-gallery-open-embed-image"),
+						index + 1,
+						crate::i18n::translate("embeds-gallery-of"),
+						embeds.len()
+					);
+					if let Some(alt) = &gif_alt {
+						label.push_str(&format!(" ({alt})"));
+					}
 					egui::WidgetInfo::labeled(
 						if target.is_some() {
 							egui::Role::Button
@@ -279,13 +301,7 @@ fn gallery(
 							egui::Role::Image
 						},
 						ui.is_enabled(),
-						format!(
-							"{} {} {} {}",
-							crate::i18n::translate("embeds-gallery-open-embed-image"),
-							index + 1,
-							crate::i18n::translate("embeds-gallery-of"),
-							embeds.len()
-						),
+						label,
 					)
 				});
 				if response.has_focus() {
@@ -301,7 +317,15 @@ fn gallery(
 						.as_ref()
 						.is_some_and(|star| star.hovered() || star.clicked())
 					&& response
-						.on_hover_text(crate::i18n::translate("embeds-gallery-open-image"))
+						.on_hover_text(gif_alt.as_ref().map_or_else(
+							|| crate::i18n::translate("embeds-gallery-open-image"),
+							|alt| {
+								format!(
+									"{} ({alt})",
+									crate::i18n::translate("embeds-gallery-open-image")
+								)
+							},
+						))
 						.clicked()
 				{
 					download.view_embed(message, media);
@@ -600,6 +624,18 @@ pub fn show(
 			}
 			if let Some(image) = inline_image(embed) {
 				let gif = gif_for_embed(embed, &state.gifs);
+				let media_url = image
+					.url
+					.as_deref()
+					.or(image.proxy_url.as_deref())
+					.unwrap_or_default();
+				let gif_alt = if embed.kind == "gifv"
+					|| media_url.to_ascii_lowercase().ends_with(".gif")
+				{
+					crate::gif_alt::gif_alt_text(media_url)
+				} else {
+					None
+				};
 				let painted = images.show_gif_embed(
 					ui,
 					embed,
@@ -613,12 +649,17 @@ pub fn show(
 				);
 				let response =
 					ui.interact(painted.rect, painted.id.with("media"), egui::Sense::click());
+				let label = gif_alt.as_ref().map_or_else(
+					|| crate::i18n::translate("embeds-show-open-image"),
+					|alt| {
+						format!(
+							"{} ({alt})",
+							crate::i18n::translate("embeds-show-open-image")
+						)
+					},
+				);
 				response.widget_info(|| {
-					egui::WidgetInfo::labeled(
-						egui::Role::Button,
-						ui.is_enabled(),
-						crate::i18n::translate("embeds-show-open-image"),
-					)
+					egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label.clone())
 				});
 				embed_context_menu(&response, image, download, demo);
 				let star = gif.map(|gif| {
@@ -634,7 +675,15 @@ pub fn show(
 					.as_ref()
 					.is_some_and(|star| star.hovered() || star.clicked())
 					&& response
-						.on_hover_text(crate::i18n::translate("embeds-show-open-image-2"))
+						.on_hover_text(gif_alt.as_ref().map_or_else(
+							|| crate::i18n::translate("embeds-show-open-image-2"),
+							|alt| {
+								format!(
+									"{} ({alt})",
+									crate::i18n::translate("embeds-show-open-image-2")
+								)
+							},
+						))
 						.clicked()
 				{
 					download.view_embed(message.id, image);

@@ -2057,12 +2057,42 @@ fn local_date(seconds: i64) -> Option<String> {
 		.map(|date| crate::local_time::local(date).date().to_string())
 }
 
+fn visible_role_chips(widths: &[f32], max_width: f32, expanded: bool) -> usize {
+	if expanded {
+		return widths.len();
+	}
+	let fits = |widths: &[f32]| {
+		let mut rows = 1;
+		let mut used = 0.0;
+		for width in widths {
+			if used > 0.0 && used + 4.0 + width > max_width {
+				rows += 1;
+				used = 0.0;
+			}
+			used += if used == 0.0 { *width } else { 4.0 + width };
+		}
+		rows <= 2
+	};
+	(0..=widths.len())
+		.rev()
+		.find(|&count| {
+			let hidden = widths.len() - count;
+			let mut row = widths[..count].to_vec();
+			if hidden > 0 {
+				row.push(25.0 + hidden.to_string().len() as f32 * 7.0);
+			}
+			fits(&row)
+		})
+		.unwrap_or(0)
+}
+
 fn role_chips(
 	ui: &mut egui::Ui,
 	theme: &Theme,
 	state: &State,
 	user: Id,
 	guild: &model::GuildProfile,
+	expand: bool,
 ) {
 	let Some(roles) = state.guild_roles(guild.guild) else {
 		return;
@@ -2089,34 +2119,8 @@ fn role_chips(
 		})
 		.collect();
 	let expanded_id = ui.make_persistent_id(("profile-roles-expanded", guild.guild, user));
-	let expanded = ui.data(|data| data.get_temp::<bool>(expanded_id).unwrap_or(false));
-	let fits = |widths: &[f32]| {
-		let mut rows = 1;
-		let mut used = 0.0;
-		for width in widths {
-			if used > 0.0 && used + 4.0 + width > max_width {
-				rows += 1;
-				used = 0.0;
-			}
-			used += if used == 0.0 { *width } else { 4.0 + width };
-		}
-		rows <= 2
-	};
-	let visible = if expanded {
-		roles.len()
-	} else {
-		(0..=roles.len())
-			.rev()
-			.find(|&count| {
-				let hidden = roles.len() - count;
-				let mut row = widths[..count].to_vec();
-				if hidden > 0 {
-					row.push(25.0 + hidden.to_string().len() as f32 * 7.0);
-				}
-				fits(&row)
-			})
-			.unwrap_or(0)
-	};
+	let expanded = expand || ui.data(|data| data.get_temp::<bool>(expanded_id).unwrap_or(false));
+	let visible = visible_role_chips(&widths, max_width, expanded);
 	ui.horizontal_wrapped(|ui| {
 		ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
 		for (role, width) in roles.iter().zip(&widths).take(visible) {
@@ -4075,7 +4079,14 @@ fn card_view(
 											"profiles-show-roles",
 											full,
 										);
-										role_chips(ui, &theme, state, data.user.id, guild);
+										role_chips(
+											ui,
+											&theme,
+											state,
+											data.user.id,
+											guild,
+											avatars.profile_presentation.expand_role_chips,
+										);
 									}
 									if !data.private {
 										section(
@@ -4782,6 +4793,14 @@ mod tests {
 		assert!(!full_profile(false, false, false, false));
 		assert!(!full_profile(false, true, true, false));
 		assert!(!full_profile(false, true, false, true));
+	}
+
+	#[test]
+	fn expanded_role_chips_ignore_the_two_row_collapse() {
+		let widths = [60.0, 60.0, 60.0];
+		assert_eq!(visible_role_chips(&widths, 100.0, false), 2);
+		assert_eq!(visible_role_chips(&widths, 100.0, true), 3);
+		assert_eq!(visible_role_chips(&[40.0, 40.0], 100.0, false), 2);
 	}
 
 	#[test]

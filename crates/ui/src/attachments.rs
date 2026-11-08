@@ -378,26 +378,41 @@ pub(crate) fn show_subset(
 									.response;
 								let response =
 									ui.interact(image.rect, image.id.with("media"), Sense::click());
+								let is_gif = crate::gif_alt::is_gif_media(
+									attachment.content_type.as_deref(),
+									&attachment.filename,
+								);
+								let gif_alt = if is_gif {
+									crate::gif_alt::gif_alt_text(
+										attachment
+											.media
+											.url
+											.as_deref()
+											.or(attachment.media.proxy_url.as_deref())
+											.unwrap_or(&attachment.filename),
+									)
+								} else {
+									None
+								};
+								let label = attachment
+									.description
+									.as_deref()
+									.or(gif_alt.as_deref())
+									.map_or_else(
+										|| format!("View image {}", attachment.filename),
+										|alt| {
+											format!("View image {} ({alt})", attachment.filename)
+										},
+									);
 								response.widget_info(|| {
 									egui::WidgetInfo::labeled(
 										egui::Role::Button,
 										ui.is_enabled(),
-										format!("View image {}", attachment.filename),
+										label.clone(),
 									)
 								});
 								media_context_menu(&response, attachment, download, opening, demo);
-								let gif = crate::embeds::gif_for_media(
-									&attachment.media,
-									None,
-									attachment.filename.to_ascii_lowercase().ends_with(".gif")
-										|| attachment.content_type.as_deref().is_some_and(|mime| {
-											mime.split(';')
-												.next()
-												.unwrap_or(mime)
-												.trim()
-												.eq_ignore_ascii_case("image/gif")
-										}),
-								);
+								let gif = crate::embeds::gif_for_media(&attachment.media, None, is_gif);
 								let star = gif.map(|gif| {
 									let favorite = download.gif_favorites.contains(&gif.url);
 									let star = crate::embeds::favorite_star(
@@ -420,6 +435,7 @@ pub(crate) fn show_subset(
 											attachment
 												.description
 												.as_deref()
+												.or(gif_alt.as_deref())
 												.unwrap_or("Enlarge image"),
 										)
 										.clicked()

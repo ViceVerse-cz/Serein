@@ -65,6 +65,7 @@ mod formatting;
 mod forum;
 mod forum_settings;
 mod friends;
+mod gif_alt;
 mod group_menu;
 mod guild_folders;
 mod highlight;
@@ -3976,29 +3977,32 @@ impl MessagingUi {
                         self.extensions.composer_menu(ui, state);
                     }
                     if let Some(attach) = attach {
-                        egui::Popup::menu(&attach)
-                            .id(attach.id.with(("composer-add", state.generation, channel)))
-                            .show(|ui| {
-                                ui.set_min_width(200.0);
-                                ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
-                                // Discord-style rows: the glyph follows the row's text colour, so it dims when disabled.
-                                let item = |icon: icons::Icon, key: &str| {
-                                    egui::Button::new((
-                                        egui::Atom::paint(egui::Vec2::splat(18.0), move |ui, args| {
-                                            icons::paint(ui.painter(), icon, args.rect, args.fallback_text_color);
-                                        }),
-                                        crate::i18n::translate(key),
-                                    ))
-                                };
-                                if ui.add_enabled(can_attach, item(icons::Icon::File, "lib-ime-updates-text-attach-files")).clicked() {
-                                    self.attach_requested = true;
-                                    ui.close();
-                                }
-                                if ui.add_enabled(can_create_poll, item(icons::Icon::ChartBar, "lib-ime-updates-text-create-a-poll")).clicked() {
-                                    self.poll_creator.open(state, channel);
-                                    ui.close();
-                                }
-                            });
+                        // BetterUploadButton: a primary click opens the file picker; the
+                        // attach/poll menu stays on the secondary click.
+                        if attach.clicked() && can_attach {
+                            self.attach_requested = true;
+                        }
+                        attach.context_menu(|ui| {
+                            ui.set_min_width(200.0);
+                            ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
+                            // Discord-style rows: the glyph follows the row's text colour, so it dims when disabled.
+                            let item = |icon: icons::Icon, key: &str| {
+                                egui::Button::new((
+                                    egui::Atom::paint(egui::Vec2::splat(18.0), move |ui, args| {
+                                        icons::paint(ui.painter(), icon, args.rect, args.fallback_text_color);
+                                    }),
+                                    crate::i18n::translate(key),
+                                ))
+                            };
+                            if ui.add_enabled(can_attach, item(icons::Icon::File, "lib-ime-updates-text-attach-files")).clicked() {
+                                self.attach_requested = true;
+                                ui.close();
+                            }
+                            if ui.add_enabled(can_create_poll, item(icons::Icon::ChartBar, "lib-ime-updates-text-create-a-poll")).clicked() {
+                                self.poll_creator.open(state, channel);
+                                ui.close();
+                            }
+                        });
                     }
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

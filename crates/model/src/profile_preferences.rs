@@ -6,6 +6,8 @@ pub struct ProfilePreferences {
 	pub always_expand: bool,
 	/// Hide other users' loaded profile theme colours; the account's own theme stays visible.
 	pub hide_other_themes: bool,
+	/// Show every loaded role chip in profiles instead of collapsing after two rows.
+	pub expand_role_chips: bool,
 	/// Show the cached desktop/mobile/web/VR client flags beside a user.
 	pub platform_indicators: bool,
 	/// Paint already-loaded profile banners behind member rows.

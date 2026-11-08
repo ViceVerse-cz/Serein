@@ -1204,6 +1204,13 @@ impl MessagingUi {
 				design::card_divider(ui);
 				design::switch(
 					ui,
+					"settings-profile-presentation-expand-role-chips",
+					Some("settings-profile-presentation-expand-role-chips-description"),
+					&mut self.profile_presentation.expand_role_chips,
+				);
+				design::card_divider(ui);
+				design::switch(
+					ui,
 					"settings-profile-presentation-platform-indicators",
 					Some("settings-profile-presentation-platform-indicators-description"),
 					&mut self.profile_presentation.platform_indicators,
