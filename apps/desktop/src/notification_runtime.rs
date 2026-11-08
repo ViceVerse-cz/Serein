@@ -209,8 +209,10 @@ impl Runtime {
 		let ringing = incoming
 			.map(|id| (id, Sound::IncomingRing))
 			.or_else(|| outgoing.map(|id| (id, Sound::OutgoingRing)));
+		// A ringtone or preview chosen below replaces the message sound and its attribution.
 		if let Some(cue) = self.ring_cue(ringing, Instant::now()) {
 			sound = Some(cue);
+			sounded = None;
 		}
 		if self.ring.is_some() {
 			ctx.request_repaint_after(Duration::from_millis(250));
@@ -218,14 +220,12 @@ impl Runtime {
 		// Explicit previews are allowed in the offline demo and intentionally ignore automatic mute choices.
 		if let Some(preview) = ui.notification_preview.take() {
 			sound = Some(preview);
+			sounded = None;
 		}
-		// Only the alert shown and a message sound that survived ringtone and preview
-		// selection use up a conversation's one ping.
+		// Only the alert shown and a message sound that actually plays use up a
+		// conversation's one ping.
 		if one_ping {
-			let heard = sounded
-				.filter(|(_, cue)| sound == Some(*cue))
-				.map(|(key, _)| key);
-			for key in alerted.into_iter().chain(heard) {
+			for key in alerted.into_iter().chain(sounded.map(|(key, _)| key)) {
 				record_ping(&mut self.pinged_directs, key);
 			}
 		}
