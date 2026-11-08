@@ -825,6 +825,8 @@ emoji-details-show-a-custom-emoji = カスタム絵文字。
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = デフォルトの絵文字。この絵文字は Discord のどこでも使用できます。
 # Context: show
 emoji-details-show-copy-emoji = 絵文字をコピーする
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = サーバーに追加
 # Context: show
 emoji-details-show-from = から
 # Context: show

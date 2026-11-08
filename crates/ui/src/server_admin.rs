@@ -20,10 +20,19 @@ enum Dialog {
 	Kick { user: Id, name: String },
 	Prune { days: u8, counted: Option<u8> },
 }
+/// A custom emoji from a message, to be added to another server.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EmojiClone {
+	pub id: Id,
+	pub name: String,
+	pub animated: bool,
+}
+
 #[derive(Default)]
 pub(super) struct Admin {
 	pub request: u64,
 	files: Option<Vec<std::path::PathBuf>>,
+	clone: Option<EmojiClone>,
 	preparing: bool,
 	uploads: Vec<Upload>,
 	uploading: bool,
@@ -64,6 +73,20 @@ impl Admin {
 	}
 	pub fn take_files(&mut self) -> Option<Vec<std::path::PathBuf>> {
 		self.files.take()
+	}
+	/// Prepares another server's custom emoji like a chosen file; uploading still needs the
+	/// usual confirmation on this page.
+	pub fn queue_clone(&mut self, emoji: EmojiClone) {
+		if self.preparing() || !self.uploads.is_empty() {
+			self.error = Some("Finish the current uploads first.");
+			return;
+		}
+		self.clone = Some(emoji);
+		self.preparing = true;
+		self.error = None;
+	}
+	pub fn take_clone(&mut self) -> Option<EmojiClone> {
+		self.clone.take()
 	}
 	pub fn navigation_error(&mut self) {
 		self.error =

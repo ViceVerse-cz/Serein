@@ -825,6 +825,8 @@ emoji-details-show-a-custom-emoji = Özel bir emoji.
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Varsayılan bir emoji. Bu emojiyi Discord'un her yerinde kullanabilirsiniz.
 # Context: show
 emoji-details-show-copy-emoji = Emojiyi kopyala
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = Sunucuya ekle
 # Context: show
 emoji-details-show-from = İtibaren
 # Context: show

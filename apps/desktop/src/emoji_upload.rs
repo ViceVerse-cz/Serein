@@ -83,6 +83,48 @@ impl EmojiUpload {
 		});
 		Ok(())
 	}
+	/// Downloads another server's custom emoji from Discord's CDN and prepares it like a
+	/// chosen file, keeping its name.
+	pub fn start_clone(
+		&mut self,
+		scope: Scope,
+		emoji: ui::EmojiClone,
+		runtime: &tokio::runtime::Handle,
+		context: &egui::Context,
+	) -> Result<(), &'static str> {
+		if self.choosing.is_some() {
+			return Err("Wait for the current emoji images to finish preparing");
+		}
+		let (send, result) = mpsc::sync_channel(1);
+		let cancelled = Arc::new(AtomicBool::new(false));
+		let flag = cancelled.clone();
+		let context = context.clone();
+		runtime.spawn(async move {
+			let result = match download(&emoji).await {
+				Ok(bytes) => {
+					let decode_flag = flag.clone();
+					tokio::task::spawn_blocking(move || {
+						prepare(bytes, &emoji.name, &decode_flag).map(|prepared| vec![prepared])
+					})
+					.await
+					.unwrap_or(Err("Emoji preparation interrupted; try again"))
+				}
+				Err(error) => Err(error),
+			};
+			let _ = send.send(if flag.load(Ordering::Acquire) {
+				Ok(Vec::new())
+			} else {
+				result
+			});
+			context.request_repaint();
+		});
+		self.choosing = Some(Choosing {
+			scope,
+			result,
+			cancelled,
+		});
+		Ok(())
+	}
 	pub fn cancel(&self) {
 		if let Some(job) = &self.choosing {
 			job.cancelled.store(true, Ordering::Release);
@@ -114,6 +156,47 @@ impl Drop for EmojiUpload {
 	}
 }
 
+/// Largest emoji image accepted from the CDN; Discord's own emoji limit is 256 KB.
+const MAX_CLONE_BYTES: usize = 256 * 1024;
+
+async fn download(emoji: &ui::EmojiClone) -> Result<Vec<u8>, &'static str> {
+	let url = format!(
+		"https://cdn.discordapp.com/emojis/{}.{}?size=128&quality=lossless",
+		emoji.id,
+		if emoji.animated { "gif" } else { "png" }
+	);
+	let client = reqwest::Client::builder()
+		.no_proxy()
+		.redirect(reqwest::redirect::Policy::none())
+		.timeout(std::time::Duration::from_secs(20))
+		.build()
+		.map_err(|_| "Emoji download unavailable")?;
+	let mut response = client
+		.get(url)
+		.send()
+		.await
+		.map_err(|_| "Could not download the emoji")?;
+	if !response.status().is_success()
+		|| response
+			.content_length()
+			.is_some_and(|size| size > MAX_CLONE_BYTES as u64)
+	{
+		return Err("Could not download the emoji");
+	}
+	let mut bytes = Vec::new();
+	while let Some(chunk) = response
+		.chunk()
+		.await
+		.map_err(|_| "Could not download the emoji")?
+	{
+		if bytes.len() + chunk.len() > MAX_CLONE_BYTES {
+			return Err("The emoji image is larger than Discord allows");
+		}
+		bytes.extend_from_slice(&chunk);
+	}
+	Ok(bytes)
+}
+
 fn read(path: &Path, cancelled: &AtomicBool) -> Result<Prepared, &'static str> {
 	const MAX_INPUT: u64 = 8 * 1024 * 1024;
 	if !path.is_absolute() || path.as_os_str().as_encoded_bytes().len() > 4096 {
@@ -137,6 +220,16 @@ fn read(path: &Path, cancelled: &AtomicBool) -> Result<Prepared, &'static str> {
 	if bytes.len() as u64 > MAX_INPUT {
 		return Err("Choose images up to 8 MB");
 	}
+	let name = path
+		.file_stem()
+		.and_then(|name| name.to_str())
+		.unwrap_or("emoji")
+		.to_owned();
+	prepare(bytes, &name, cancelled)
+}
+
+/// Checks and encodes emoji image bytes; `name` is reduced to Discord's emoji name rules.
+fn prepare(bytes: Vec<u8>, name: &str, cancelled: &AtomicBool) -> Result<Prepared, &'static str> {
 	let gif = bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a");
 	let (uri, preview) = if gif {
 		if bytes.len() > 256 * 1024 {
@@ -181,10 +274,7 @@ fn read(path: &Path, cancelled: &AtomicBool) -> Result<Prepared, &'static str> {
 	} else {
 		crate::group_icon::decode_image(&bytes, 128, false)?
 	};
-	let mut name: String = path
-		.file_stem()
-		.and_then(|name| name.to_str())
-		.unwrap_or("emoji")
+	let mut name: String = name
 		.chars()
 		.filter(|c| c.is_ascii_alphanumeric() || *c == '_')
 		.take(32)
@@ -193,4 +283,43 @@ fn read(path: &Path, cancelled: &AtomicBool) -> Result<Prepared, &'static str> {
 		name = "emoji".into();
 	}
 	Ok((name, uri, gif, preview))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// Checks that downloaded emoji bytes become a PNG data URI under the emoji's own name,
+	/// and that names are reduced to Discord's emoji name rules.
+	#[test]
+	fn cloned_emoji_bytes_prepare_like_chosen_files() {
+		let mut png = Cursor::new(Vec::new());
+		image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+			32,
+			32,
+			image::Rgba([200, 40, 60, 255]),
+		))
+		.write_to(&mut png, image::ImageFormat::Png)
+		.unwrap();
+		let cancelled = AtomicBool::new(false);
+		let (name, uri, gif, preview) =
+			prepare(png.into_inner(), "party_blob", &cancelled).unwrap();
+		assert_eq!(name, "party_blob");
+		assert!(uri.starts_with("data:image/png;base64,") && !gif);
+		assert_eq!(preview.size, [32, 32]);
+		let (name, ..) = prepare(
+			{
+				let mut png = Cursor::new(Vec::new());
+				image::DynamicImage::ImageRgba8(image::RgbaImage::new(8, 8))
+					.write_to(&mut png, image::ImageFormat::Png)
+					.unwrap();
+				png.into_inner()
+			},
+			"a-b",
+			&cancelled,
+		)
+		.unwrap();
+		assert_eq!(name, "ab");
+		assert!(prepare(b"not an image".to_vec(), "x", &cancelled).is_err());
+	}
 }

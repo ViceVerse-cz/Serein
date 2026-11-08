@@ -824,6 +824,8 @@ emoji-details-show-a-custom-emoji = Niestandardowy emoji.
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Domyślny emoji. Możesz używać tego emoji wszędzie na Discordzie.
 # Context: show
 emoji-details-show-copy-emoji = Skopiuj emotikony
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = Dodaj do serwera
 # Context: show
 emoji-details-show-from = Z
 # Context: show

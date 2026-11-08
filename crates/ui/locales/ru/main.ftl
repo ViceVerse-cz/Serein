@@ -825,6 +825,8 @@ emoji-details-show-a-custom-emoji = Пользовательский смайл�
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Смайлик по умолчанию. Вы можете использовать этот смайлик повсюду в Discord.
 # Context: show
 emoji-details-show-copy-emoji = Скопировать смайлик
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = Добавить на сервер
 # Context: show
 emoji-details-show-from = От
 # Context: show

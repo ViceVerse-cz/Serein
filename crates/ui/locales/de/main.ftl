@@ -824,6 +824,8 @@ emoji-details-show-a-custom-emoji = Ein benutzerdefiniertes Emoji.
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Ein Standard-Emoji. Du kannst dieses Emoji überall auf Discord verwenden.
 # Context: show
 emoji-details-show-copy-emoji = Emoji kopieren
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = Zum Server hinzufügen
 # Context: show
 emoji-details-show-from = Aus
 # Context: show

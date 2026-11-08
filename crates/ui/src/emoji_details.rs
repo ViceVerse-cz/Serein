@@ -4,6 +4,38 @@ use crate::{design, emoji, emoji_picker};
 /// Edge of the artwork in emoji and sticker hover cards.
 pub(crate) const HOVER_ART: f32 = 40.0;
 
+type CloneTargets = std::sync::Arc<Vec<(model::Id, String)>>;
+fn targets_id() -> egui::Id {
+	egui::Id::unique("emoji-clone-targets")
+}
+fn request_id() -> egui::Id {
+	egui::Id::unique("emoji-clone-request")
+}
+
+/// Servers where you may add emoji, for the "Add to server" menu of message emoji.
+pub(crate) fn publish_clone_targets(ctx: &egui::Context, targets: Vec<(model::Id, String)>) {
+	ctx.data_mut(|data| data.insert_temp(targets_id(), CloneTargets::new(targets)));
+}
+
+/// The server and emoji chosen in an "Add to server" menu since the last call.
+pub(crate) fn take_clone_request(
+	ctx: &egui::Context,
+) -> Option<(model::Id, crate::server_admin::EmojiClone)> {
+	type Request = Option<(model::Id, crate::server_admin::EmojiClone)>;
+	ctx.data_mut(|data| data.remove_temp::<Request>(request_id()).flatten())
+}
+
+/// The ID, name and animation of a `<:name:id>` or `<a:name:id>` custom emoji.
+fn custom_parts(text: &str) -> Option<crate::server_admin::EmojiClone> {
+	let (id, len) = emoji::custom_prefix(text)?;
+	let animated = text.starts_with("<a:");
+	let name = text[if animated { 3 } else { 2 }..len]
+		.split(':')
+		.next()?
+		.to_owned();
+	Some(crate::server_admin::EmojiClone { id, name, animated })
+}
+
 /// Discord-style `:name:` for a default emoji or a `<:name:id>` custom emoji. Text that is
 /// neither is returned unchanged.
 pub(crate) fn shortcode(text: &str) -> String {
@@ -177,5 +209,57 @@ pub(crate) fn show(
 			ui.ctx().copy_text(text.to_owned());
 			ui.close();
 		}
+		let targets: Option<CloneTargets> = ui.ctx().data(|data| data.get_temp(targets_id()));
+		if let Some(emoji) = custom_parts(text)
+			&& let Some(targets) = targets.filter(|targets| !targets.is_empty())
+		{
+			ui.menu_button(
+				crate::i18n::translate("emoji-details-add-to-server"),
+				|ui| {
+					egui::ScrollArea::vertical()
+						.max_height(320.0)
+						.show(ui, |ui| {
+							for (guild, name) in targets.iter() {
+								if ui.button(name).clicked() {
+									let request = Some((*guild, emoji.clone()));
+									ui.ctx()
+										.data_mut(|data| data.insert_temp(request_id(), request));
+									ui.close();
+								}
+							}
+						});
+				},
+			);
+		}
 	});
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// Checks that only custom emoji can be added to a server, with their name and animation,
+	/// and that a menu choice is handed over once.
+	#[test]
+	fn custom_emoji_parts_and_clone_requests_are_taken_once() {
+		assert_eq!(
+			custom_parts("<a:party_blob:123456789012345678>"),
+			Some(crate::server_admin::EmojiClone {
+				id: model::Id(123456789012345678),
+				name: "party_blob".into(),
+				animated: true,
+			})
+		);
+		assert_eq!(
+			custom_parts("<:ok:42>").map(|emoji| (emoji.name, emoji.animated)),
+			Some(("ok".into(), false))
+		);
+		assert_eq!(custom_parts("🙂"), None);
+		let ctx = egui::Context::default();
+		assert!(take_clone_request(&ctx).is_none());
+		let emoji = custom_parts("<:ok:42>").unwrap();
+		ctx.data_mut(|data| data.insert_temp(request_id(), Some((model::Id(7), emoji.clone()))));
+		assert_eq!(take_clone_request(&ctx), Some((model::Id(7), emoji)));
+		assert!(take_clone_request(&ctx).is_none());
+	}
 }

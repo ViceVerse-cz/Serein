@@ -834,6 +834,8 @@ emoji-details-show-a-custom-emoji = 自訂表情符號。
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = 預設表情符號。在 Discord 隨處都能使用。
 # Context: show
 emoji-details-show-copy-emoji = 複製表情符號
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = 新增至伺服器
 # Context: show
 emoji-details-show-from = 來自
 # Context: show

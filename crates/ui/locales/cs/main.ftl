@@ -849,6 +849,8 @@ emoji-details-show-a-custom-emoji = Vlastní emotikony.
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Výchozí emodži. Tento emotikon můžete použít všude na Discordu.
 # Context: show
 emoji-details-show-copy-emoji = Kopírovat emotikony
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = Přidat na server
 # Context: show
 emoji-details-show-from = Z
 # Context: show

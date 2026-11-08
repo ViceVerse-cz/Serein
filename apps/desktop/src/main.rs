@@ -6861,6 +6861,24 @@ impl eframe::App for Desktop {
 					self.messaging.accept_server_emojis(&ctx, scope, Err(error));
 				}
 			}
+			if let Some((generation, guild, request, emoji)) =
+				self.messaging.take_server_emoji_clone()
+			{
+				let scope = (generation, guild, request);
+				let result = if generation != self.state.generation
+					|| !self.state.can_create_guild_emoji(guild)
+				{
+					Err("You can no longer upload emoji to this server")
+				} else if self.state.demo || self.fixture_only {
+					Err("Offline preview does not download emoji")
+				} else {
+					self.emoji_upload
+						.start_clone(scope, emoji, self.runtime.handle(), &ctx)
+				};
+				if let Err(error) = result {
+					self.messaging.accept_server_emojis(&ctx, scope, Err(error));
+				}
+			}
 			if let Some((generation, guild, request)) = self.messaging.take_server_sticker_request()
 			{
 				let scope = (generation, guild, request);

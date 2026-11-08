@@ -850,6 +850,8 @@ emoji-details-show-a-custom-emoji = A custom emoji.
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = A default emoji. You can use this emoji everywhere on Discord.
 # Context: show
 emoji-details-show-copy-emoji = Copy emoji
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = Add to server
 # Context: show
 emoji-details-show-from = From
 # Context: show

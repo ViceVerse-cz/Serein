@@ -111,6 +111,7 @@ mod search;
 mod search_navigation_tests;
 pub mod select;
 mod server_admin;
+pub use server_admin::EmojiClone;
 mod server_audit_log;
 mod server_integrations;
 mod server_invite;
@@ -4662,6 +4663,21 @@ impl MessagingUi {
 		commands.extend(cosmetics_refresh);
 		// A server joined from an invite opens as soon as the Gateway delivers it.
 		commands.extend(state.navigate_after_join());
+		// "Add to server" on a message emoji opens that server's emoji page with it prepared.
+		if let Some((guild, emoji)) = emoji_details::take_clone_request(ui.ctx())
+			&& let Some(command) = self.clone_emoji(state, guild, emoji)
+		{
+			commands.push(command);
+		}
+		emoji_details::publish_clone_targets(
+			ui.ctx(),
+			state
+				.guilds
+				.iter()
+				.filter(|guild| state.can_create_guild_emoji(guild.id))
+				.map(|guild| (guild.id, guild.name.clone()))
+				.collect(),
+		);
 		// A chat link to an unloaded thread opens once its bounded channel read admits it.
 		commands.extend(state.resolve_pending_link());
 		if let Some(action) = self.poll_creator.show(ui.ctx(), state, &mut self.avatars)
