@@ -45,6 +45,8 @@ fn legacy_handler(input: sdk::Invocation) -> sdk::Output {
 		storage: input.storage,
 	}
 }
+/// Round-trips each surface's invocation through the SDK wire format and checks that legacy
+/// handlers and the host validator agree on which inputs each surface may carry.
 #[test]
 fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 	assert_eq!(sdk::API_VERSION, extensions::API_VERSION);
@@ -59,6 +61,14 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 		let input = Invocation {
 			action: action.into(),
 			selected_message: (action == "message").then(|| "Selected message".into()),
+			selected_message_ref: (action == "message").then(|| {
+				Box::new(extensions::SelectedMessageRef {
+					channel_id: "2".into(),
+					message_id: "3".into(),
+					author_id: "4".into(),
+					guild_id: None,
+				})
+			}),
 			composer: (action == "compose").then(|| "Draft".into()),
 			storage: Some(r#"{"size":16}"#.into()),
 			values: [("size".into(), "18".into())].into(),
@@ -83,6 +93,26 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 				values: input.values.clone(),
 			}
 		);
+		if let Some(target) = &input.selected_message_ref {
+			// Message plugins can identify the chosen message; legacy handlers still decode.
+			let message: sdk::MessageActionInvocation = serde_json::from_slice(&bytes).unwrap();
+			let decoded = message.selected_message_ref.unwrap();
+			assert_eq!(
+				(decoded.channel_id, decoded.message_id, decoded.author_id),
+				(
+					target.channel_id.clone(),
+					target.message_id.clone(),
+					target.author_id.clone()
+				)
+			);
+			// The IDs only travel with the selected text, and must be real IDs.
+			let mut detached = input.clone();
+			detached.selected_message = None;
+			assert!(detached.validate(&manifest).is_err());
+			let mut forged = input.clone();
+			forged.selected_message_ref.as_mut().unwrap().message_id = "not-an-id".into();
+			assert!(forged.validate(&manifest).is_err());
+		}
 		let response = sdk::dispatch(&bytes, legacy_handler).unwrap();
 		let output: Output = serde_json::from_slice(&response).unwrap();
 		output.validate(&manifest, &input).unwrap();

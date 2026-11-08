@@ -34,6 +34,8 @@ mod extended;
 pub use extended::*;
 mod manifest;
 pub use manifest::*;
+mod message_action;
+pub use message_action::*;
 
 /// Maximum serialized size of either ABI buffer, in UTF-8 bytes.
 pub const MAX_IO_BYTES: usize = 256 * 1024;

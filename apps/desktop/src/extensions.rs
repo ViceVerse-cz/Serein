@@ -589,6 +589,8 @@ impl Stored {
 	}
 }
 
+/// Rejects a job whose IDs, account or invocation fail the host's limits before it reaches
+/// the worker, so a malformed request never runs plugin code.
 fn validate_job(job: &Job) -> Result<(), String> {
 	match job {
 		Job::Invoke {
@@ -616,6 +618,12 @@ fn validate_job(job: &Job) -> Result<(), String> {
 					.action
 					.len()
 					.saturating_add(invocation.selected_message.as_ref().map_or(0, String::len))
+					.saturating_add(
+						invocation
+							.selected_message_ref
+							.as_ref()
+							.map_or(0, |reference| reference.bytes()),
+					)
 					.saturating_add(invocation.composer.as_ref().map_or(0, String::len))
 					.saturating_add(invocation.storage.as_ref().map_or(0, String::len))
 					.saturating_add(event_bytes)
