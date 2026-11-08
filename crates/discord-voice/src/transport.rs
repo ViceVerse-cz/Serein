@@ -122,15 +122,25 @@ impl UdpFailures {
 		data: &[u8],
 		outage: &'static str,
 	) -> Result<(), &'static str> {
+		self.try_send(socket, data, outage).map(|_| ())
+	}
+	/// Like `send`, but reports whether the datagram left; a dropped one is still tolerated
+	/// until the outage window expires.
+	fn try_send(
+		&mut self,
+		socket: &UdpSocket,
+		data: &[u8],
+		outage: &'static str,
+	) -> Result<bool, &'static str> {
 		if socket.try_send(data).is_ok() {
 			self.0 = None;
-			return Ok(());
+			return Ok(true);
 		}
 		let now = Instant::now();
 		if now.duration_since(*self.0.get_or_insert(now)) >= UDP_OUTAGE {
 			return Err(outage);
 		}
-		Ok(())
+		Ok(false)
 	}
 }
 /// Receive errors that describe one lost or rejected datagram rather than a dead socket.
@@ -543,7 +553,17 @@ async fn run_inner(
 						   // Three packets per tick keep a 720p keyframe to a fraction of a second.
 						   for _ in 0..3 {
 							   let Some(packet)=video.next() else {break;};
-							   udp_failures.send(socket,&packet,"Camera UDP send failed")?;
+							   // A dropped datagram leaves later predicted pictures without their
+							   // reference: discard the rest and restart from a keyframe.
+							   if !udp_failures.try_send(socket,&packet,"Camera UDP send failed")? {
+								   video.restart();
+								   let now=Instant::now();
+								   if now>=camera_keyframe_at {
+									   crate::camera::request_keyframe();
+									   camera_keyframe_at=now+Duration::from_millis(300);
+								   }
+								   break;
+							   }
 						   }
 					   }
 				   },

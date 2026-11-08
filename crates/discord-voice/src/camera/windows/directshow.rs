@@ -586,12 +586,21 @@ mod tests {
 		let end = (HEIGHT - 1) * WIDTH * 3 + center;
 		assert_eq!(&top[end..end + 3], &[6, 5, 4]);
 		assert_eq!(&top[..3], &[0, 0, 0]);
+		// 16:9 input fills the 16:9 encoder exactly.
 		let wide = rgb_frame(&vec![255; 16 * 3 * 9], 16, 9, false).unwrap();
-		assert_eq!(&wide[..WIDTH * 60 * 3], &vec![0; WIDTH * 60 * 3]);
-		assert_eq!(
-			&wide[WIDTH * 60 * 3..WIDTH * 420 * 3],
-			&vec![255; WIDTH * 360 * 3]
-		);
+		assert_eq!(wide, vec![255; WIDTH * HEIGHT * 3]);
+		// 4:3 input is pillarboxed: 960 pixels centered, with black bars left and right.
+		let square = rgb_frame(&vec![255; 4 * 3 * 3], 4, 3, false).unwrap();
+		let bar = (WIDTH - HEIGHT * 4 / 3) / 2;
+		for row in [0, HEIGHT / 2, HEIGHT - 1] {
+			let row = &square[row * WIDTH * 3..(row + 1) * WIDTH * 3];
+			assert_eq!(&row[..bar * 3], &vec![0; bar * 3]);
+			assert_eq!(
+				&row[bar * 3..(WIDTH - bar) * 3],
+				&vec![255; (WIDTH - 2 * bar) * 3]
+			);
+			assert_eq!(&row[(WIDTH - bar) * 3..], &vec![0; bar * 3]);
+		}
 		for (width, height) in [(0, 2), (1, 0), (1921, 1), (1, 1081), (usize::MAX, 1)] {
 			assert!(rgb_frame(&bytes, width, height, false).is_err());
 		}
