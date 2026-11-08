@@ -313,6 +313,7 @@ fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
 			sdk::InterfaceTweak::UsernameBesideName,
 			sdk::InterfaceTweak::OwnerCrown,
 			sdk::InterfaceTweak::PlatformIndicators,
+			sdk::InterfaceTweak::RoleColoredMentions,
 		]),
 		..Default::default()
 	};

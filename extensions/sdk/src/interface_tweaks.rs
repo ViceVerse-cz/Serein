@@ -35,6 +35,8 @@ pub enum InterfaceTweak {
 	/// Message authors and member-list names show which kinds of client (desktop, web,
 	/// mobile) the person is online from.
 	PlatformIndicators,
+	/// A user mention takes the member's top colored role, as a role mention does.
+	RoleColoredMentions,
 }
 
 /// Activation or panel output that sets the plugin's interface tweaks, preserving `Output`

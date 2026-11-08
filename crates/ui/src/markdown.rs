@@ -1788,14 +1788,36 @@ impl Formatted {
 					}
 					if let Some(id) = spans[start].1.mention {
 						reserve(ui);
-						let colors = crate::design::palette(ui);
 						let user = crate::mentions::find_user(id, render.users, render.source);
 						let label = crate::mentions::mention_label(id, render.users, render.source);
+						// With the role-colored mentions tweak, a server member's mention takes
+						// their top colored role, like a role mention.
+						let role_color = render
+							.source
+							.filter(|_| {
+								crate::interface_tweaks::on(
+									ui.ctx(),
+									extensions::InterfaceTweak::RoleColoredMentions,
+								)
+							})
+							.and_then(|source| {
+								let roles = source
+									.state
+									.timeline
+									.iter()
+									.rev()
+									.find(|message| message.author.id == id)
+									.map_or(&[][..], |message| message.author_roles.as_slice());
+								source
+									.state
+									.forum_author_color(source.channel, id, false, roles)
+							});
+						let (text, background) = mention_colors(ui, role_color);
 						let response = crate::channel_pill::mention(
 							ui,
 							&label,
-							colors.mention_text,
-							colors.mention_bg,
+							text,
+							background,
 							egui::Sense::click(),
 							render.line,
 							Some(&mut *render.surface),
@@ -4914,6 +4936,99 @@ mod tests {
 			assert_eq!(images.take_requests().len(), usize::from(revealed));
 			output.drop_without_applying_deltas();
 		}
+	}
+
+	/// Checks that a user mention keeps the mention palette by default and takes the
+	/// member's top colored role while the role-colored mentions tweak is on.
+	#[test]
+	fn role_colored_mentions_tweak_colors_a_member_mention() {
+		let mut state = test_support::chat_demo_state();
+		let mut snapshot = test_support::permission_snapshot(&state);
+		snapshot.guilds[0]
+			.roles
+			.get_or_insert_default()
+			.push(model::permissions::Role {
+				name: "Synthetic colored role".into(),
+				color: 0xe67e22,
+				secondary_color: None,
+				tertiary_color: None,
+				position: 1,
+				hoist: false,
+				managed: false,
+				id: Id(77),
+				bits: 0,
+			});
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Permissions(client_core::permissions::Event::Snapshot(
+				snapshot,
+			)),
+		});
+		let channel = state.selected.expect("a server channel is open");
+		let mut authored = test_support::message(9_000, channel);
+		authored.author.id = Id(4242);
+		authored.author_roles = vec![Id(77)];
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Message(authored),
+		});
+		let parsed = Formatted::parse("hello <@4242>");
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let fills = |on: bool| {
+			crate::interface_tweaks::publish(
+				&ctx,
+				&std::sync::Arc::new(
+					on.then_some(extensions::InterfaceTweak::RoleColoredMentions)
+						.into_iter()
+						.collect(),
+				),
+			);
+			let source = crate::mentions::MentionSource {
+				state: &state,
+				channel,
+			};
+			let mut images = crate::avatars::Avatars::default();
+			let mut fills = Vec::new();
+			let output = ctx.run_ui(Default::default(), |ui| {
+				let mut surface = crate::select::Surface::new(ui, "role-colored-mention");
+				parsed.show_references(
+					ui,
+					&mut None,
+					&[],
+					Some(&source),
+					&mut crate::profiles::ProfileSession::default(),
+					(&state.channels, &mut None, &state.guilds, &[]),
+					(&mut images, false, &mut 0),
+					&mut surface,
+					crate::design::MessageCardSurface::Opaque,
+				);
+				surface.finish(ui);
+			});
+			let mut stack: Vec<_> = output.shapes.iter().map(|clipped| &clipped.shape).collect();
+			while let Some(shape) = stack.pop() {
+				match shape {
+					egui::Shape::Rect(rect) => fills.push(rect.fill),
+					egui::Shape::Vec(shapes) => stack.extend(shapes),
+					_ => {}
+				}
+			}
+			output.drop_without_applying_deltas();
+			fills
+		};
+		let (mut default_background, mut role_background) = Default::default();
+		ctx.run_ui(Default::default(), |ui| {
+			default_background = crate::design::palette(ui).mention_bg;
+			role_background = mention_colors(ui, Some(0xe67e22)).1;
+		})
+		.drop_without_applying_deltas();
+		assert_ne!(default_background, role_background);
+		assert!(fills(false).contains(&default_background));
+		let colored = fills(true);
+		assert!(
+			colored.contains(&role_background),
+			"the mention takes the role's background: {colored:?}"
+		);
 	}
 
 	#[test]

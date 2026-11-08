@@ -188,6 +188,8 @@ pub enum InterfaceTweak {
 	/// Message authors and member-list names show which kinds of client (desktop, web,
 	/// mobile) the person is online from.
 	PlatformIndicators,
+	/// A user mention takes the member's top colored role, as a role mention does.
+	RoleColoredMentions,
 }
 
 impl InterfaceTweak {
@@ -205,6 +207,7 @@ impl InterfaceTweak {
 		Self::UsernameBesideName,
 		Self::OwnerCrown,
 		Self::PlatformIndicators,
+		Self::RoleColoredMentions,
 	];
 }
 
