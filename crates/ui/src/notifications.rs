@@ -546,8 +546,11 @@ mod tests {
 			.pending_friends()
 			.filter(|(_, _, incoming)| *incoming)
 			.count();
+		// Accessibility labels of the latest frame, which also carry the Home tooltip text.
+		let labels = std::cell::RefCell::new(Vec::<String>::new());
 		let drawn = |state: &mut State, hidden: bool| {
 			let ctx = egui::Context::default();
+			ctx.enable_accesskit();
 			let mut view = MessagingUi::default();
 			if hidden {
 				view.set_interface_tweaks([extensions::InterfaceTweak::HiddenRequestCounts].into());
@@ -579,6 +582,18 @@ mod tests {
 						_ => {}
 					}
 				}
+				*labels.borrow_mut() = output
+					.platform_output
+					.accesskit_update
+					.as_ref()
+					.map(|update| {
+						update
+							.nodes
+							.iter()
+							.filter_map(|(_, node)| node.label().map(str::to_owned))
+							.collect()
+					})
+					.unwrap_or_default();
 				output.drop_without_applying_deltas();
 			}
 			texts
@@ -595,6 +610,21 @@ mod tests {
 		assert_eq!(shown, 1, "Home shows 3 requests");
 		let hidden = rail_threes(&drawn(&mut state, true));
 		assert_eq!(hidden, 0, "Home hides the request count");
+		// The Home button's accessible name and tooltip leave the counts out with the badge.
+		let counted = home_request_label(2, 1);
+		let plain = home_request_label(0, 0);
+		assert_ne!(counted, plain);
+		drawn(&mut state, false);
+		assert!(
+			labels.borrow().contains(&counted),
+			"Home names its requests"
+		);
+		drawn(&mut state, true);
+		assert!(labels.borrow().contains(&plain), "{:?}", labels.borrow());
+		assert!(
+			!labels.borrow().contains(&counted),
+			"Home omits its requests"
+		);
 		// Friends view: the Pending tab carries the incoming count only without the tweak.
 		state.open_messages();
 		let label = pending.to_string();

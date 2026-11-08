@@ -2015,6 +2015,15 @@ fn local_date(seconds: i64) -> Option<String> {
 		.map(|date| crate::local_time::local(date).date().to_string())
 }
 
+/// The role name a plugin receives, held to the host's role-target rules: control
+/// characters dropped and at most Discord's role-name length.
+fn role_target_name(name: &str) -> String {
+	name.chars()
+		.filter(|c| !c.is_control())
+		.take(extensions::MAX_ROLE_NAME_CHARS)
+		.collect()
+}
+
 /// Draws a member's role chips, collapsing overflow into a `+N` chip, with a plugin role
 /// menu on each chip when an enabled plugin offers role actions.
 pub(crate) fn role_chips(
@@ -2106,14 +2115,7 @@ pub(crate) fn role_chips(
 					egui::Sense::hover()
 				},
 			);
-			// The name a plugin receives meets the host's role-target rules: no control
-			// characters and at most Discord's role-name length.
-			let target_name: String = role
-				.name
-				.chars()
-				.filter(|c| !c.is_control())
-				.take(extensions::MAX_ROLE_NAME_CHARS)
-				.collect();
+			let target_name = role_target_name(&role.name);
 			// With plugin role actions the chip is a control: screen readers announce it as a
 			// button named after the role, its color when it has one so equal names stay
 			// distinguishable, and the Extensions menu it opens on any activation.
@@ -2146,6 +2148,12 @@ pub(crate) fn role_chips(
 			);
 			let response = response.on_hover_text(&role.name);
 			if menu {
+				let mut popup = crate::user_menu::popup(&response, id.with("menu"));
+				if response.clicked() {
+					popup = popup
+						.open_memory(Some(egui::SetOpenCommand::Bool(true)))
+						.at_position(response.rect.left_bottom());
+				}
 				let target = extensions::MenuTarget::Role {
 					guild_id: guild.guild.to_string(),
 					role_id: role.id.to_string(),
@@ -2153,12 +2161,6 @@ pub(crate) fn role_chips(
 					name: target_name,
 					color: role.color & 0xff_ffff,
 				};
-				let mut popup = crate::user_menu::popup(&response, id.with("menu"));
-				if response.clicked() {
-					popup = popup
-						.open_memory(Some(egui::SetOpenCommand::Bool(true)))
-						.at_position(response.rect.left_bottom());
-				}
 				popup.show(|ui| crate::extensions_ui::context_menu_entries(ui, &target));
 			}
 		}
@@ -4771,6 +4773,36 @@ fn synthetic_frame() -> model::ProfileFrame {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	/// Checks that role names with control characters or past the role-name limit still
+	/// produce a role target the host accepts.
+	#[test]
+	fn role_target_names_always_pass_host_validation() {
+		let long = "x".repeat(extensions::MAX_ROLE_NAME_CHARS + 50);
+		for (name, expected) in [
+			("Mod\u{7}er\nator", "Moderator".to_owned()),
+			(long.as_str(), "x".repeat(extensions::MAX_ROLE_NAME_CHARS)),
+		] {
+			let sanitized = role_target_name(name);
+			assert_eq!(sanitized, expected);
+			extensions::MenuTarget::Role {
+				guild_id: "1".into(),
+				role_id: "2".into(),
+				user_id: Some("3".into()),
+				name: sanitized,
+				color: 0x3498db,
+			}
+			.validate()
+			.expect("sanitized role target is valid");
+			let raw = extensions::MenuTarget::Role {
+				guild_id: "1".into(),
+				role_id: "2".into(),
+				user_id: Some("3".into()),
+				name: name.into(),
+				color: 0x3498db,
+			};
+			assert!(raw.validate().is_err(), "the unsanitized name is rejected");
+		}
+	}
 
 	fn tweaks(ctx: &egui::Context, on: &[extensions::InterfaceTweak]) {
 		crate::interface_tweaks::publish(ctx, &std::sync::Arc::new(on.iter().copied().collect()));

@@ -6917,12 +6917,19 @@ mod tests {
 			view.rows.iter().map(|(id, _)| *id).collect::<Vec<_>>()
 		};
 		assert!(rows(&mut view, &mut state, false).contains(&thread));
+		assert_eq!(view.starter_row, Some(thread));
 		let hidden = rows(&mut view, &mut state, true);
 		assert!(
 			!hidden.contains(&thread),
 			"blocked starter left out: {hidden:?}"
 		);
+		assert_eq!(view.starter_row, None);
 		assert!(hidden.contains(&Id(thread.0 + 10)), "other rows stay");
+		// Turning the tweak off on the same view brings the starter back.
+		let shown = rows(&mut view, &mut state, false);
+		assert!(shown.contains(&thread), "starter restored: {shown:?}");
+		assert_eq!(view.starter_row, Some(thread));
+		assert!(shown.contains(&Id(thread.0 + 10)));
 	}
 	#[test]
 	fn an_unloaded_thread_starter_offers_its_thread_card() {

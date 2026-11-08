@@ -151,6 +151,74 @@ impl Runtime {
 				&& i.viewport().visible() != Some(false)
 				&& i.viewport().minimized != Some(true)
 		});
+		let incoming = state.voice.incoming.filter(|id| {
+			audible && state.notification_allowed(*id) && options.allows(Sound::IncomingRing)
+		});
+		// Dialing is explicit local feedback, like mute/camera cues; DND only silences alerts.
+		let outgoing = state
+			.outgoing_ring()
+			.filter(|_| live && options.allows(Sound::OutgoingRing));
+		let ringing = incoming
+			.map(|id| (id, Sound::IncomingRing))
+			.or_else(|| outgoing.map(|id| (id, Sound::OutgoingRing)));
+		let (alert, sound) = self.deliver(state, ui, audible, focused, ringing, Instant::now());
+		if self.ring.is_some() {
+			ctx.request_repaint_after(Duration::from_millis(250));
+		}
+		if let Some(sound) = sound {
+			self.sounds.play(sound, options.volume, ctx);
+		}
+		// Counts otherwise only change while frames run: a throttled frame schedules one
+		// follow-up recount, and then the window can sleep until the next mute expiry.
+		let since = self.badge_check.map(|time| time.elapsed());
+		if since.is_none_or(|since| since >= Duration::from_secs(1)) || !badges || !live {
+			self.badge_check = Some(Instant::now());
+			let pings = if live && badges {
+				badge_count(state)
+			} else {
+				0
+			};
+			if platform::badge::supported() && self.badge != Some(pings) {
+				self.badge_status = platform::badge::set(window, pings).err().unwrap_or("");
+				self.badge = Some(pings);
+			}
+			// A lapsing timed mute changes the count without any other activity.
+			if live
+				&& badges && let Some(expiry) = state.next_mute_expiry()
+			{
+				ctx.request_repaint_after(expiry);
+			}
+		} else if let Some(since) = since {
+			ctx.request_repaint_after(Duration::from_secs(1).saturating_sub(since));
+		}
+		let ptt_error = self.ptt_sounds.error();
+		let sound_status = if !ptt_error.is_empty() {
+			ptt_error
+		} else if self.sounds.status().is_empty() {
+			self.ptt_sounds.status()
+		} else {
+			self.sounds.status()
+		};
+		ui.notification_sound_status = if sound_status.is_empty() {
+			self.badge_status
+		} else {
+			sound_status
+		};
+		alert
+	}
+	/// Turns queued message notifications, the call ringtone and a settings preview into
+	/// at most one desktop alert and one sound, and records which direct conversations used
+	/// up their one ping.
+	fn deliver(
+		&mut self,
+		state: &mut State,
+		ui: &mut ui::MessagingUi,
+		audible: bool,
+		focused: bool,
+		ringing: Option<(Id, Sound)>,
+		now: Instant,
+	) -> (Option<Alert>, Option<Sound>) {
+		let options = ui.notification_options;
 		let mut alert = None;
 		let mut sound = None;
 		let one_ping = ui.interface_tweak_on(extensions::InterfaceTweak::OnePingPerDirectMessage);
@@ -199,23 +267,10 @@ impl Runtime {
 				sounded = Some((key, cue));
 			}
 		}
-		let incoming = state.voice.incoming.filter(|id| {
-			audible && state.notification_allowed(*id) && options.allows(Sound::IncomingRing)
-		});
-		// Dialing is explicit local feedback, like mute/camera cues; DND only silences alerts.
-		let outgoing = state
-			.outgoing_ring()
-			.filter(|_| live && options.allows(Sound::OutgoingRing));
-		let ringing = incoming
-			.map(|id| (id, Sound::IncomingRing))
-			.or_else(|| outgoing.map(|id| (id, Sound::OutgoingRing)));
 		// A ringtone or preview chosen below replaces the message sound and its attribution.
-		if let Some(cue) = self.ring_cue(ringing, Instant::now()) {
+		if let Some(cue) = self.ring_cue(ringing, now) {
 			sound = Some(cue);
 			sounded = None;
-		}
-		if self.ring.is_some() {
-			ctx.request_repaint_after(Duration::from_millis(250));
 		}
 		// Explicit previews are allowed in the offline demo and intentionally ignore automatic mute choices.
 		if let Some(preview) = ui.notification_preview.take() {
@@ -229,46 +284,7 @@ impl Runtime {
 				record_ping(&mut self.pinged_directs, key);
 			}
 		}
-		if let Some(sound) = sound {
-			self.sounds.play(sound, options.volume, ctx);
-		}
-		// Counts otherwise only change while frames run: a throttled frame schedules one
-		// follow-up recount, and then the window can sleep until the next mute expiry.
-		let since = self.badge_check.map(|time| time.elapsed());
-		if since.is_none_or(|since| since >= Duration::from_secs(1)) || !badges || !live {
-			self.badge_check = Some(Instant::now());
-			let pings = if live && badges {
-				badge_count(state)
-			} else {
-				0
-			};
-			if platform::badge::supported() && self.badge != Some(pings) {
-				self.badge_status = platform::badge::set(window, pings).err().unwrap_or("");
-				self.badge = Some(pings);
-			}
-			// A lapsing timed mute changes the count without any other activity.
-			if live
-				&& badges && let Some(expiry) = state.next_mute_expiry()
-			{
-				ctx.request_repaint_after(expiry);
-			}
-		} else if let Some(since) = since {
-			ctx.request_repaint_after(Duration::from_secs(1).saturating_sub(since));
-		}
-		let ptt_error = self.ptt_sounds.error();
-		let sound_status = if !ptt_error.is_empty() {
-			ptt_error
-		} else if self.sounds.status().is_empty() {
-			self.ptt_sounds.status()
-		} else {
-			self.sounds.status()
-		};
-		ui.notification_sound_status = if sound_status.is_empty() {
-			self.badge_status
-		} else {
-			sound_status
-		};
-		alert
+		(alert, sound)
 	}
 }
 
@@ -373,6 +389,139 @@ pub fn debug_badge_check() {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// Feeds real direct and server messages through delivery with one ping per DM: a DM
+	/// alerts once until read while a server mention alerts every time, a DM silenced by Do
+	/// Not Disturb does not use up its ping, and a settings preview that replaces a DM's
+	/// sound leaves the DM eligible.
+	#[test]
+	fn one_ping_delivery_follows_real_messages_dnd_and_previews() {
+		use client_core::{Envelope, Event, notifications, read_state};
+		let mut state = test_support::demo_state();
+		let owner = state.user.clone().unwrap();
+		let dm = state
+			.channels
+			.iter()
+			.find(|c| c.guild.is_none() && c.kind == 1)
+			.expect("demo has a one-to-one DM")
+			.clone();
+		let friend = dm.recipients[0].clone();
+		let server = state
+			.channels
+			.iter()
+			.find(|c| c.guild.is_some() && c.kind == 0)
+			.expect("demo has a server text channel")
+			.clone();
+		state
+			.apply_notification_preferences(notifications::Event::Settings {
+				entries: vec![notifications::Setting {
+					guild: server.guild,
+					muted: Some(false),
+					level: Some(1),
+					..Default::default()
+				}],
+				replace: true,
+			})
+			.unwrap();
+		state
+			.apply_notification_preferences(notifications::Event::Presence(Some(false)))
+			.unwrap();
+		let mut next = 9_000_000_000u64;
+		let mut send = |state: &mut State, channel: Id| {
+			next += 1;
+			let mut message = test_support::message(next, channel);
+			message.author = friend.clone();
+			if channel == server.id {
+				message.mentions = vec![owner.clone()];
+			}
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Message(message),
+			});
+			Id(next)
+		};
+		let mut ui = ui::MessagingUi::default();
+		ui.notifications_enabled = true;
+		ui.set_interface_tweaks([extensions::InterfaceTweak::OnePingPerDirectMessage].into());
+		let now = Instant::now();
+		let mut runtime = Runtime::default();
+		let deliver =
+			|runtime: &mut Runtime, state: &mut State, ui: &mut ui::MessagingUi, audible: bool| {
+				let (alert, sound) = runtime.deliver(state, ui, audible, false, None, now);
+				(alert.is_some(), sound)
+			};
+		let first = send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(true, Some(Sound::Message))
+		);
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(false, None),
+			"an unread DM stays quiet"
+		);
+		for _ in 0..2 {
+			send(&mut state, server.id);
+			assert_eq!(
+				deliver(&mut runtime, &mut state, &mut ui, true),
+				(true, Some(Sound::Message)),
+				"server mentions alert every time"
+			);
+		}
+		state
+			.apply_read_state(read_state::Event::Ack {
+				channel: dm.id,
+				message: Some(first),
+				manual: true,
+				mention_count: Some(0),
+				version: None,
+			})
+			.unwrap();
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(true, Some(Sound::Message)),
+			"reading the DM re-arms its ping"
+		);
+
+		// Do Not Disturb drops the alert without spending the DM's ping.
+		let mut runtime = Runtime::default();
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, false),
+			(false, None)
+		);
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(true, Some(Sound::Message)),
+			"the first audible DM after Do Not Disturb alerts"
+		);
+
+		// With desktop alerts off, a preview with the same cue replaces the DM's sound and
+		// leaves the DM eligible for its next message.
+		let mut runtime = Runtime::default();
+		ui.notifications_enabled = false;
+		ui.notification_preview = Some(Sound::Message);
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(false, Some(Sound::Message))
+		);
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(false, Some(Sound::Message)),
+			"the DM still sounds after the preview"
+		);
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(false, None),
+			"the DM's own sound used up its ping"
+		);
+	}
 
 	#[test]
 	fn muted_conversations_do_not_count_toward_native_badge() {
