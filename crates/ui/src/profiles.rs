@@ -2106,6 +2106,13 @@ pub(crate) fn role_chips(
 					egui::Sense::hover()
 				},
 			);
+			// With plugin role actions the chip is a control: screen readers announce it as a
+			// button named after the role; it opens its menu like other menus.
+			if menu {
+				response.widget_info(|| {
+					egui::WidgetInfo::labeled(egui::Role::Button, true, &role.name)
+				});
+			}
 			ui.painter().rect_filled(rect, 6, theme.chip);
 			let color = if role.color == 0 {
 				theme.muted
