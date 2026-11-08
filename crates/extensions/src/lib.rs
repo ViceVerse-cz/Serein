@@ -200,6 +200,8 @@ pub enum InterfaceTweak {
 	ForumSortByActivity,
 	/// Forums list the newest posts first on this client, whatever order the server set.
 	ForumSortByCreation,
+	/// Opening a server folder closes the other open folders, so one is open at a time.
+	SingleOpenFolder,
 }
 
 impl InterfaceTweak {
@@ -222,6 +224,7 @@ impl InterfaceTweak {
 		Self::ForumGalleryView,
 		Self::ForumSortByActivity,
 		Self::ForumSortByCreation,
+		Self::SingleOpenFolder,
 	];
 }
 

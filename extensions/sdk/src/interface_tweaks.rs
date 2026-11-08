@@ -47,6 +47,8 @@ pub enum InterfaceTweak {
 	ForumSortByActivity,
 	/// Forums list the newest posts first on this client, whatever order the server set.
 	ForumSortByCreation,
+	/// Opening a server folder closes the other open folders, so one is open at a time.
+	SingleOpenFolder,
 }
 
 /// Activation or panel output that sets the plugin's interface tweaks, preserving `Output`
