@@ -305,20 +305,20 @@ impl MessagingUi {
 					colors.text.lerp_to_gamma(colors.accent_text, lit),
 				);
 				rail_indicator(ui, response.id, rect, home, hovered, false);
-				let (friends, messages) = state.home_request_parts();
-				let requests = if crate::interface_tweaks::on(
+				let (friends, messages) = if crate::interface_tweaks::on(
 					ui.ctx(),
 					extensions::InterfaceTweak::HiddenRequestCounts,
 				) {
-					0
+					// The tooltip and accessible name omit the counts with the badge.
+					(0, 0)
 				} else {
-					friends.saturating_add(messages)
+					state.home_request_parts()
 				};
 				rail_badge(
 					ui,
 					response.id,
 					rect,
-					requests,
+					friends.saturating_add(messages),
 					design::window_palette(ui).base,
 				);
 				let label = home_request_label(friends, messages);
@@ -375,6 +375,7 @@ impl MessagingUi {
 									&response,
 									state,
 									user,
+									crate::user_menu::Place::Conversation(channel.id),
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -582,16 +583,18 @@ mod tests {
 			}
 			texts
 		};
-		// The Home button sits at the top of the server rail.
-		let home_badge = |texts: &[(String, egui::Rect)]| {
+		// The Home button's badge is the rail's only "3"; its vertical position depends on the
+		// platform's title bar, so the check counts rail badges rather than placing one.
+		let rail_threes = |texts: &[(String, egui::Rect)]| {
 			texts
 				.iter()
-				.any(|(text, rect)| text == "3" && rect.center().x < 72.0 && rect.center().y < 64.0)
+				.filter(|(text, rect)| text == "3" && rect.center().x < RAIL_WIDTH)
+				.count()
 		};
-		let shown = drawn(&mut state, false);
-		assert!(home_badge(&shown), "Home shows 3 requests");
-		let hidden = drawn(&mut state, true);
-		assert!(!home_badge(&hidden), "Home hides the request count");
+		let shown = rail_threes(&drawn(&mut state, false));
+		assert_eq!(shown, 1, "Home shows 3 requests");
+		let hidden = rail_threes(&drawn(&mut state, true));
+		assert_eq!(hidden, 0, "Home hides the request count");
 		// Friends view: the Pending tab carries the incoming count only without the tweak.
 		state.open_messages();
 		let label = pending.to_string();

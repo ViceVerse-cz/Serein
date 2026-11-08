@@ -2094,8 +2094,12 @@ pub(crate) fn role_chips(
 			let size = vec2(*width, galley.size().y + 6.0);
 			let menu =
 				crate::extensions_ui::has_context_actions(ui.ctx(), extensions::Surface::Role);
-			let (rect, response) = ui.allocate_exact_size(
-				size,
+			let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+			// Keyed by role so an open menu stays on its chip when live updates reorder roles.
+			let id = egui::Id::unique(("profile-role-chip", guild.guild, user, role.id));
+			let response = ui.interact(
+				rect,
+				id,
 				if menu {
 					egui::Sense::click()
 				} else {
@@ -2124,7 +2128,8 @@ pub(crate) fn role_chips(
 					name: role.name.clone(),
 					color: role.color & 0xff_ffff,
 				};
-				response.context_menu(|ui| crate::extensions_ui::context_menu_entries(ui, &target));
+				crate::user_menu::popup(&response, id.with("menu"))
+					.show(|ui| crate::extensions_ui::context_menu_entries(ui, &target));
 			}
 		}
 		let hidden = roles.len() - visible;
@@ -3250,8 +3255,10 @@ fn card_view(
 		.map(|c| c.id);
 	let mut action = None;
 	let menu_id = egui::Id::unique(("user-profile-more", user.id, docked));
-	// A menu that was already open owns Escape and clicks on its own items this frame.
-	let menu_open = egui::Popup::is_id_open(ui.ctx(), menu_id);
+	// A menu that was already open owns Escape and clicks on its own items this frame. Role
+	// chip menus may extend past the card, so any open popup keeps the card open too.
+	let menu_open =
+		egui::Popup::is_id_open(ui.ctx(), menu_id) || egui::Popup::is_any_open(ui.ctx());
 	// The mutuals side panel stays open across frames until toggled, dismissed or navigated.
 	let mutuals_id = egui::Id::unique(("profile-mutuals", user.id, docked));
 	let mut mutuals = ui.ctx().data(|d| d.get_temp::<Mutuals>(mutuals_id));

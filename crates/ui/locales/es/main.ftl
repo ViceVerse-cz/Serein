@@ -3917,6 +3917,8 @@ timeline-show-with-scroll-loading-messages = Cargando mensajes…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Mensaje eliminado
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Mensaje bloqueado
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = El historial de mensajes no está disponible con la información de permisos actual.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Aún no hay mensajes. Inicie la conversación a continuación.
