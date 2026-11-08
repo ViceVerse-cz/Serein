@@ -1,0 +1,32 @@
+{
+  "api_version": 1,
+  "id": "more-quick-reactions-tools",
+  "name": "More Quick Reactions Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/more-quick-reactions-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "timeline",
+    "reactions_control",
+    "storage"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Configure quick reactions",
+      "surface": "panel"
+    },
+    {
+      "id": "save",
+      "label": "Save quick reaction list",
+      "surface": "panel"
+    },
+    {
+      "id": "react",
+      "label": "Add selected quick reaction",
+      "surface": "panel"
+    }
+  ]
+}
