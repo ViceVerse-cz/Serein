@@ -256,6 +256,8 @@ mod tests {
 			tag(&[Id(501), Id(502)], &member),
 			Some("name-marks-tag-admin")
 		);
+		assert_eq!(tag(&[Id(502)], &user), Some("name-marks-tag-admin"));
+		tweaks(&[InterfaceTweak::StaffTags, InterfaceTweak::OwnerCrown]);
 		assert_eq!(
 			tag(&[Id(502)], &user),
 			None,
