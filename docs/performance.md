@@ -1869,12 +1869,12 @@ No live account, incoming message, network, microphone or audio playback was mea
 
 | Metric | Baseline | Current | Delta |
 | --- | ---: | ---: | ---: |
-| Release executable bytes | 95,117,576 | 95,954,568 | +836,992 (+0.880%) |
-| Installed `linux-root` bytes (245 files each) | 99,816,808 | 100,654,757 | +837,949 (+0.839%) |
-| Compressed `linux-root` (`tar.gz`) bytes | 57,188,160 | 57,552,013 | +363,853 (+0.636%) |
-| Optimized UI-fixture median process CPU | 9.66% | 10.66% | +1.00 percentage point; small, variable sample |
-| CPU range, five runs | 8.99–9.99% | 9.99–11.32% | not enough isolation for a neutral-cost claim |
-| Optimized UI-fixture median resident memory | 211.12 MiB | 211.42 MiB | +0.30 MiB (+0.14%) |
+| Release executable bytes | 95,117,576 | 95,986,696 | +869,120 (+0.914%) |
+| Installed `linux-root` bytes (245 files each) | 99,816,808 | 100,686,885 | +870,077 (+0.872%) |
+| Compressed `linux-root` (`tar.gz`) bytes | 57,188,160 | 57,569,522 | +381,362 (+0.667%) |
+| Optimized UI-fixture median process CPU | 6.99% | 7.66% | +0.67 percentage points; small, variable sample |
+| CPU range, five runs | 6.33–8.66% | 6.99–7.66% | not enough isolation for a neutral-cost claim |
+| Optimized UI-fixture median resident memory | 210.39 MiB | 210.59 MiB | +0.21 MiB (+0.10%) |
 
 The separate UI sampler used the same synthetic optimized `demo` profile/chat page at 1120x760
 with settings closed, private `xvfb-run` displays and `LIBGL_ALWAYS_SOFTWARE=1`. Five alternating runs
@@ -1886,9 +1886,9 @@ Discord service. A larger debug-build sample was not used for the release compar
 and memory deltas do not establish an improvement or neutral runtime cost; no FPS, p95 frame time,
 startup latency, voice quality or service latency was measured.
 
-Final executable SHA-256 is `c305d5f26580e1ead0dff14eaddeaf1132cc93e9e74d3775ff4a12919298889b`;
+Final executable SHA-256 is `cb45c8f592699f7adb1f6f92c511df162209869ea7e5e61d29580f41d4da4524`;
 the baseline hash is `cecd822fbd95c86c09cb91bf88fbf21fa240a7e57c389468f378e80ae28ddbbe`.
 The final compressed-tree SHA-256 is
-`8042deff45b486db0f51f66fe338bd2f68d021d40d6d46d06ff9ec23b3b6c1b2`. The reviewed 31-package development starter selection is debug-only, so release package deltas do
+`4e782b0a7e176370f59e38d560d51abfd4e8df2d3923563e914574415c87f54f`. The reviewed 31-package development starter selection is debug-only, so release package deltas do
 not imply that all 373 Equicord plugins are included or compatible. Packaging and measurements ran sequentially to avoid
 shared-worktree compiler pressure.
