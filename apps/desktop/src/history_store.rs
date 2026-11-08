@@ -242,12 +242,11 @@ pub fn export(
 	let mut exhausted = false;
 	let mut pending: std::collections::VecDeque<output::ExportRecord> =
 		std::collections::VecDeque::new();
-	let mut store_error = None;
 	let rows = std::iter::from_fn(|| {
 		loop {
 			if let Some(mut record) = pending.pop_front() {
 				record.account = account.0;
-				return Some(record);
+				return Some(Ok(record));
 			}
 			if exhausted {
 				return None;
@@ -255,9 +254,10 @@ pub fn export(
 			let page = match store.history_export_page(account, None, cursor, 500) {
 				Ok(page) => page,
 				Err(_) => {
-					store_error = Some(());
 					exhausted = true;
-					return None;
+					return Some(Err(output::ExportError::Io(
+						"Could not read the history snapshot",
+					)));
 				}
 			};
 			cursor = page.next;
@@ -267,28 +267,22 @@ pub fn export(
 	});
 	let next = export_path(&request.destination)?;
 	let options = output::ExportOptions { overwrite: false };
-	let result = match request.format {
-		ui::message_history::ExportFormat::Text => output::export_text(
+	match request.format {
+		ui::message_history::ExportFormat::Text => output::export_text_results(
 			&next,
 			output::ExportScope { account: account.0 },
 			rows,
 			options,
 			request.cancelled.as_ref(),
 		),
-		ui::message_history::ExportFormat::Json => output::export_json(
+		ui::message_history::ExportFormat::Json => output::export_json_results(
 			&next,
 			output::ExportScope { account: account.0 },
 			rows,
 			options,
 			request.cancelled.as_ref(),
 		),
-	};
-	if store_error.is_some() {
-		return Err(output::ExportError::Io(
-			"Could not read the history snapshot",
-		));
 	}
-	result
 }
 
 fn export_path(
@@ -504,5 +498,60 @@ mod tests {
 		assert!(!text.contains(path.to_string_lossy().as_ref()));
 		cleanup(&path);
 		let _ = std::fs::remove_file(destination);
+	}
+
+	#[test]
+	fn export_read_failure_never_publishes_a_partial_destination() {
+		let path = db_path("export-read-failure");
+		let mut store = local_store::LocalStore::open(&path).unwrap();
+		store
+			.save_history_settings(
+				Id(7),
+				&HistorySettings {
+					enabled: true,
+					..Default::default()
+				},
+			)
+			.unwrap();
+		let rows: Vec<Mutation> = (1..=501)
+			.map(|message| baseline(message, message as i64))
+			.collect();
+		apply_mutations(&mut store, Id(7), &rows).unwrap();
+		// The first 500-row page is valid. Corrupt only the second page with a
+		// type SQLite accepts when checks are explicitly disabled for this fixture.
+		let connection = rusqlite::Connection::open(&path).unwrap();
+		connection
+			.execute_batch("PRAGMA ignore_check_constraints=ON")
+			.unwrap();
+		connection
+			.execute(
+				"UPDATE history_messages SET revision='invalid'
+                 WHERE account='7' AND channel='10' AND id='501'",
+				[],
+			)
+			.unwrap();
+		drop(connection);
+		for (format, extension) in [
+			(ui::message_history::ExportFormat::Text, "txt"),
+			(ui::message_history::ExportFormat::Json, "json"),
+		] {
+			let destination = db_path("export-failed").with_extension(extension);
+			let result = export(
+				&store,
+				Id(7),
+				ExportRequest {
+					destination: destination.clone(),
+					format,
+					cancelled: std::sync::Arc::new(AtomicBool::new(false)),
+				},
+			);
+			assert!(matches!(
+				result,
+				Err(crate::message_history_export::ExportError::Io(message))
+					if message == "Could not read the history snapshot"
+			));
+			assert!(!destination.exists());
+		}
+		cleanup(&path);
 	}
 }

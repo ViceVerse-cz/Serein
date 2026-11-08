@@ -807,6 +807,7 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | Explicit attachment downloads | User-selected destination, 1 byte through 100 MiB per original file; one active dialog/transfer; randomized sibling partial while writing | Cancel/error removes the partial when possible; completed downloads remain user-owned outside cache cleanup |
 | Selected upload source | Up to ten session-only paths (4096 encoded bytes each), filenames (256 UTF-8 bytes each) and size/modified metadata; 500,000,000 bytes total, read in 64 KiB chunks | Removal, send completion/failure, cancellation or session teardown; sources are never copied to recovery/cache files or deleted |
 | Drafts | 64 globally, at most 2 MiB content; each draft at most 8192 UTF-8 bytes | Clear draft, confirmed send, or account logout |
+| Active-client store lock | Empty `session-store.lock` beside `client.sqlite3`, held by the OS for the real app's process lifetime to prevent concurrent authentication/store use by another real process | Released automatically on close/crash; the empty file itself may remain and contains no account, token, message or retry data |
 | Appearance | One application-wide SQLite row: Light or Dark; absent means System | Select System to remove the override; retained across account logout |
 | Reading/layout | One application-wide SQLite row with bounded scalar fields, including the double-click reaction opt-in and Unicode preset | Reset reading and layout removes only this override; retained across account logout |
 | Profile presentation | Booleans in the existing `app_preferences` singleton: expand profiles and loaded role chips, hide other users' theme colors, cached platform icons and cached row banners. Older preferences default off. Cached artwork/presence remains in its existing bounded memory/cache paths; no profile/body or per-user identity map is added. Those flags do not change what Discord receives. | Retained across restart/logout; disabling resets only the display behavior |
@@ -2080,10 +2081,12 @@ respectively, 256 MiB per account, 16 queued jobs / 32 MiB declared queue bytes,
 writes. Only the exact validated Discord CDN object is fetched without redirects/auth/cookies.
 Signed URLs never enter SQLite, exports or persisted filenames. The browser's data directory stores
 owner-only media under generated account/attachment paths. A database reservation precedes HTTP;
-completion or cancellation commits/releases it. Scope change cancels volatile requests, while full
-forget/logout cancels the active worker before asynchronously removing account files and reports
-failure instead of promising erasure. Unsupported types remain metadata-only. Filesystem errors or
-forced termination can leave artifacts; there is no forensic-erasure claim.
+completion or cancellation commits/releases it. Scope change cancels volatile requests. Account,
+channel and author purges, retention expiry and count/byte eviction cancel matching jobs and remove
+matching files before their attachment rows are discarded; failure rolls back the matching database
+purge rather than promising erasure. Full forget/logout additionally clears the account media
+directory asynchronously and reports any failure. Unsupported types remain metadata-only. Filesystem
+errors or forced termination can leave artifacts; there is no forensic-erasure claim.
 
 Text/JSON export is an explicit native action covering one account's retained rows, old versions
 and deleted bodies. It caps at 50,000 rows or 256 MiB with bounded 500-row read pages, uses an

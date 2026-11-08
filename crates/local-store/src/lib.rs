@@ -32,7 +32,10 @@ fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
 	}
 	Ok(roles)
 }
-pub struct LocalStore(Connection);
+pub struct LocalStore(
+	Connection,
+	Option<Box<message_history::HistoryMediaCleanup>>,
+);
 /// Device-local controls, bounded independently of account caches.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -675,7 +678,7 @@ impl LocalStore {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN author_nick TEXT;")?;
 		}
 		transaction.commit()?;
-		Ok(Self(connection))
+		Ok(Self(connection, None))
 	}
 	pub fn app_preferences(&self) -> Result<AppPreferences> {
 		let value: Option<String> = self.0.query_row(

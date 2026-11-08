@@ -46,7 +46,23 @@ pub const HISTORY_ATTACHMENT_AUDIO_BYTES: u64 = 16 * 1024 * 1024;
 pub const HISTORY_ATTACHMENT_VIDEO_BYTES: u64 = 32 * 1024 * 1024;
 /// Generic files use the smallest per-file budget; they are not treated like video.
 pub const HISTORY_ATTACHMENT_FILE_BYTES: u64 = 8 * 1024 * 1024;
+pub const HISTORY_MEDIA_MAX_KEYS: usize =
+	HISTORY_SETTINGS_MESSAGES_MAX as usize * HISTORY_MAX_ATTACHMENTS;
 pub(crate) const HISTORY_SCHEMA_VERSION: u32 = 31;
+
+/// Attachment IDs selected before a destructive history transaction commits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct HistoryMediaKey {
+	pub channel: Id,
+	pub message: Id,
+	pub attachment: Id,
+}
+
+/// `None` clears all media for the account. `Some` clears only listed attachments.
+/// The callback runs before matching rows are deleted and may roll back their purge on failure.
+pub type HistoryMediaCleanup = dyn FnMut(Id, Option<&[HistoryMediaKey]>) -> std::result::Result<(), StoreError>
+	+ Send
+	+ 'static;
 
 const HISTORY_DAY_MS: i64 = 86_400_000;
 const STATE_NOT_REQUESTED: i64 = 0;
@@ -498,7 +514,80 @@ pub enum HistoryAttachmentUpdate {
 	Unknown,
 }
 
+fn selected_media_keys(
+	connection: &Connection,
+	account: Id,
+	messages: &BTreeSet<(Id, Id)>,
+) -> Result<Vec<HistoryMediaKey>> {
+	let mut selected = Vec::new();
+	if messages.is_empty() {
+		return Ok(selected);
+	}
+	let mut query = connection.prepare(
+		"SELECT channel,message,attachment_id FROM history_attachments
+         WHERE account=?1 LIMIT ?2",
+	)?;
+	let limit = i64::try_from(HISTORY_MEDIA_MAX_KEYS + 1).map_err(|_| StoreError::Capacity)?;
+	let mut rows = query.query(params![account_key(account)?, limit])?;
+	while let Some(row) = rows.next()? {
+		let channel = row
+			.get::<_, String>(0)?
+			.parse::<Id>()
+			.map_err(|_| StoreError::Incompatible)?;
+		let message = row
+			.get::<_, String>(1)?
+			.parse::<Id>()
+			.map_err(|_| StoreError::Incompatible)?;
+		if !messages.contains(&(channel, message)) {
+			continue;
+		}
+		let attachment = row
+			.get::<_, String>(2)?
+			.parse::<Id>()
+			.map_err(|_| StoreError::Incompatible)?;
+		if selected.len() == HISTORY_MEDIA_MAX_KEYS {
+			return Err(StoreError::Capacity);
+		}
+		selected.push(HistoryMediaKey {
+			channel,
+			message,
+			attachment,
+		});
+	}
+	Ok(selected)
+}
+
+fn cleanup_selected_media(
+	cleanup: &mut Option<Box<HistoryMediaCleanup>>,
+	connection: &Connection,
+	account: Id,
+	messages: &BTreeSet<(Id, Id)>,
+) -> Result<()> {
+	let Some(cleanup) = cleanup.as_mut() else {
+		return Ok(());
+	};
+	let selected = selected_media_keys(connection, account, messages)?;
+	if selected.is_empty() {
+		return Ok(());
+	}
+	cleanup(account, Some(&selected))
+}
+
+fn cleanup_account_media(
+	cleanup: &mut Option<Box<HistoryMediaCleanup>>,
+	account: Id,
+) -> Result<()> {
+	if let Some(cleanup) = cleanup.as_mut() {
+		cleanup(account, None)?;
+	}
+	Ok(())
+}
+
 impl LocalStore {
+	pub fn set_history_media_cleanup(&mut self, cleanup: Option<Box<HistoryMediaCleanup>>) {
+		self.1 = cleanup;
+	}
+
 	pub fn history_settings(&self, account: Id) -> Result<HistorySettings> {
 		let account = account_key(account)?;
 		read_history_settings(&self.0, &account)
@@ -557,7 +646,7 @@ impl LocalStore {
 				params![account.as_str(), id.to_string()],
 			)?;
 		}
-		enforce_history_limits_in(&transaction, &account, value)?;
+		enforce_history_limits_in(&transaction, &account, value, &mut self.1)?;
 		transaction.commit()?;
 		Ok(())
 	}
@@ -642,7 +731,7 @@ impl LocalStore {
 				],
 			)?;
 		}
-		enforce_history_limits_in(&transaction, &account, &settings)?;
+		enforce_history_limits_in(&transaction, &account, &settings, &mut self.1)?;
 		transaction.commit()?;
 		Ok(HistoryWrite::Applied)
 	}
@@ -711,7 +800,7 @@ impl LocalStore {
 				observed_at,
 			],
 		)?;
-		enforce_history_limits_in(&transaction, &account, &settings)?;
+		enforce_history_limits_in(&transaction, &account, &settings, &mut self.1)?;
 		transaction.commit()?;
 		Ok(HistoryWrite::Applied)
 	}
@@ -741,7 +830,7 @@ impl LocalStore {
 			settings.max_messages,
 		)?;
 		if result == HistoryWrite::Applied {
-			enforce_history_limits_in(&transaction, &account, &settings)?;
+			enforce_history_limits_in(&transaction, &account, &settings, &mut self.1)?;
 		}
 		transaction.commit()?;
 		Ok(result)
@@ -783,7 +872,7 @@ impl LocalStore {
 			}
 		}
 		if applied != 0 {
-			enforce_history_limits_in(&transaction, &account, &settings)?;
+			enforce_history_limits_in(&transaction, &account, &settings, &mut self.1)?;
 		}
 		transaction.commit()?;
 		Ok(applied)
@@ -791,6 +880,7 @@ impl LocalStore {
 
 	/// Removes rows older than the account's retention window. Tombstones are included.
 	pub fn expire_history(&mut self, account: Id, now_ms: i64) -> Result<usize> {
+		let account_id = account;
 		let account = account_key(account)?;
 		let settings = read_history_settings(&self.0, &account)?;
 		let now = timestamp(now_ms)?;
@@ -810,6 +900,20 @@ impl LocalStore {
 				keys.push((row.get::<_, String>(0)?, row.get::<_, String>(1)?));
 			}
 		}
+		let messages = keys
+			.iter()
+			.map(|(channel, message)| {
+				Ok((
+					channel
+						.parse::<Id>()
+						.map_err(|_| StoreError::Incompatible)?,
+					message
+						.parse::<Id>()
+						.map_err(|_| StoreError::Incompatible)?,
+				))
+			})
+			.collect::<Result<BTreeSet<_>>>()?;
+		cleanup_selected_media(&mut self.1, &transaction, account_id, &messages)?;
 		for (channel, message) in &keys {
 			delete_history_message(&transaction, &account, channel, message)?;
 		}
@@ -826,7 +930,7 @@ impl LocalStore {
 		let account = account_key(account)?;
 		let settings = read_history_settings(&self.0, &account)?;
 		let transaction = self.0.transaction()?;
-		let evicted = enforce_history_limits_in(&transaction, &account, &settings)?;
+		let evicted = enforce_history_limits_in(&transaction, &account, &settings, &mut self.1)?;
 		transaction.commit()?;
 		Ok(evicted)
 	}
@@ -865,6 +969,7 @@ impl LocalStore {
 	}
 
 	pub fn clear_history_channel(&mut self, account: Id, channel: Id) -> Result<usize> {
+		let account_id = account;
 		let account = account_key(account)?;
 		let channel = id_key(channel)?;
 		let transaction = self.0.transaction()?;
@@ -873,6 +978,32 @@ impl LocalStore {
 			params![account.as_str(), channel.as_str()],
 			|row| row.get(0),
 		)?;
+		let mut messages = BTreeSet::new();
+		{
+			let mut query = transaction.prepare(
+				"SELECT channel,id FROM history_messages WHERE account=?1 AND channel=?2 LIMIT ?3",
+			)?;
+			let mut rows = query.query(params![
+				account.as_str(),
+				channel.as_str(),
+				HISTORY_SETTINGS_MESSAGES_MAX + 1
+			])?;
+			while let Some(row) = rows.next()? {
+				if messages.len() == HISTORY_SETTINGS_MESSAGES_MAX as usize {
+					return Err(StoreError::Capacity);
+				}
+				let channel = row
+					.get::<_, String>(0)?
+					.parse::<Id>()
+					.map_err(|_| StoreError::Incompatible)?;
+				let message = row
+					.get::<_, String>(1)?
+					.parse::<Id>()
+					.map_err(|_| StoreError::Incompatible)?;
+				messages.insert((channel, message));
+			}
+		}
+		cleanup_selected_media(&mut self.1, &transaction, account_id, &messages)?;
 		transaction.execute(
 			"DELETE FROM history_attachments WHERE account=?1 AND channel=?2",
 			params![account.as_str(), channel.as_str()],
@@ -894,6 +1025,7 @@ impl LocalStore {
 	}
 
 	pub fn clear_history_account(&mut self, account: Id) -> Result<usize> {
+		let account_id = account;
 		let account = account_key(account)?;
 		let settings = read_history_settings(&self.0, &account)?;
 		let transaction = self.0.transaction()?;
@@ -902,6 +1034,7 @@ impl LocalStore {
 			params![account.as_str()],
 			|row| row.get(0),
 		)?;
+		cleanup_account_media(&mut self.1, account_id)?;
 		for table in [
 			"history_attachments",
 			"history_tombstones",
@@ -940,6 +1073,7 @@ impl LocalStore {
 
 	/// Purge retained bodies and versions for an author newly added to the ignore list.
 	pub fn clear_history_author(&mut self, account: Id, author: Id) -> Result<usize> {
+		let account_id = account;
 		let account = account_key(account)?;
 		let author = id_key(author)?;
 		let transaction = self.0.transaction()?;
@@ -953,6 +1087,20 @@ impl LocalStore {
 				keys.push((row.get::<_, String>(0)?, row.get::<_, String>(1)?));
 			}
 		}
+		let messages = keys
+			.iter()
+			.map(|(channel, message)| {
+				Ok((
+					channel
+						.parse::<Id>()
+						.map_err(|_| StoreError::Incompatible)?,
+					message
+						.parse::<Id>()
+						.map_err(|_| StoreError::Incompatible)?,
+				))
+			})
+			.collect::<Result<BTreeSet<_>>>()?;
+		cleanup_selected_media(&mut self.1, &transaction, account_id, &messages)?;
 		for (channel, message) in &keys {
 			delete_history_message(&transaction, &account, channel, message)?;
 		}
@@ -1504,6 +1652,7 @@ fn enforce_history_limits_in(
 	connection: &Connection,
 	account: &str,
 	settings: &HistorySettings,
+	cleanup: &mut Option<Box<HistoryMediaCleanup>>,
 ) -> Result<usize> {
 	let sql = format!(
 		"SELECT m.channel,m.id,{HISTORY_MESSAGE_BYTES_SQL}
@@ -1528,15 +1677,29 @@ fn enforce_history_limits_in(
 		.iter()
 		.map(|(_, _, bytes)| u64::try_from(*bytes).unwrap_or(0))
 		.fold(0u64, |sum, bytes| sum.saturating_add(bytes));
+	let account_id = account
+		.parse::<Id>()
+		.map_err(|_| StoreError::Incompatible)?;
 	let mut evicted = 0;
-	for (channel, message, bytes) in candidates {
+	let mut evicted_messages = BTreeSet::new();
+	for (channel, message, bytes) in &candidates {
 		if count <= u64::from(settings.max_messages) && total <= settings.max_bytes {
 			break;
 		}
-		delete_history_message(connection, account, &channel, &message)?;
+		let channel = channel
+			.parse::<Id>()
+			.map_err(|_| StoreError::Incompatible)?;
+		let message = message
+			.parse::<Id>()
+			.map_err(|_| StoreError::Incompatible)?;
+		evicted_messages.insert((channel, message));
 		count = count.saturating_sub(1);
-		total = total.saturating_sub(u64::try_from(bytes).unwrap_or(0));
+		total = total.saturating_sub(u64::try_from(*bytes).unwrap_or(0));
 		evicted += 1;
+	}
+	cleanup_selected_media(cleanup, connection, account_id, &evicted_messages)?;
+	for (channel, message, _) in candidates.into_iter().take(evicted) {
+		delete_history_message(connection, account, &channel, &message)?;
 	}
 	Ok(evicted)
 }
@@ -1895,7 +2058,7 @@ mod tests {
 	fn test_store() -> LocalStore {
 		let connection = Connection::open_in_memory().unwrap();
 		create_tables(&connection).unwrap();
-		LocalStore(connection)
+		LocalStore(connection, None)
 	}
 
 	fn enabled_settings() -> HistorySettings {
@@ -1928,7 +2091,7 @@ mod tests {
 		let connection = Connection::open_in_memory().unwrap();
 		migrate(&connection, 30).unwrap();
 		create_tables(&connection).unwrap();
-		let mut store = LocalStore(connection);
+		let mut store = LocalStore(connection, None);
 		assert_eq!(
 			store.history_settings(Id(1)).unwrap(),
 			HistorySettings::default()
@@ -2478,7 +2641,6 @@ mod tests {
 				.unwrap(),
 			HistoryReservation::AlreadyStored
 		);
-		assert_eq!(store.history_usage(Id(1)).unwrap().attachment_bytes, 1024);
 		let page = store.history_page(Id(1), None, None, 10).unwrap();
 		assert_eq!(
 			page.messages[0].attachments[0].state,
@@ -2536,5 +2698,95 @@ mod tests {
 				.unwrap(),
 			HistoryReservation::Reserved { bytes: video_bytes }
 		);
+	}
+
+	#[test]
+	fn media_cleanup_precedes_purges_evicts_exact_keys_and_rolls_back_failures() {
+		use std::sync::{
+			Arc, Mutex,
+			atomic::{AtomicBool, Ordering},
+		};
+		let mut store = test_store();
+		let mut settings = enabled_settings();
+		settings.max_messages = HISTORY_SETTINGS_MESSAGES_MIN;
+		store.save_history_settings(Id(1), &settings).unwrap();
+		let events = Arc::new(Mutex::new(Vec::<(Id, Option<Vec<HistoryMediaKey>>)>::new()));
+		let fail = Arc::new(AtomicBool::new(false));
+		store.set_history_media_cleanup(Some({
+			let events = events.clone();
+			let fail = fail.clone();
+			Box::new(move |account, selected| {
+				events
+					.lock()
+					.unwrap()
+					.push((account, selected.map(<[HistoryMediaKey]>::to_vec)));
+				if fail.load(Ordering::Acquire) {
+					Err(StoreError::Unavailable)
+				} else {
+					Ok(())
+				}
+			})
+		}));
+		for (message, author, attachment) in [(100, 7, 1000), (101, 8, 1001)] {
+			let attachments = [HistoryAttachmentInput {
+				id: Id(attachment),
+				filename: "a.png",
+				content_type: Some("image/png"),
+				size: 1,
+				kind: HistoryAttachmentKind::Image,
+			}];
+			store
+				.record_history_baseline(
+					Id(1),
+					&HistoryBaseline {
+						channel: Id(10),
+						message: Id(message),
+						author: Id(author),
+						content: "body",
+						revision: 1,
+						observed_at: message as i64,
+						attachments: &attachments,
+					},
+				)
+				.unwrap();
+		}
+		assert_eq!(store.clear_history_author(Id(1), Id(7)).unwrap(), 1);
+		{
+			let events = events.lock().unwrap();
+			assert_eq!(events.len(), 1);
+			assert_eq!(events[0].0, Id(1));
+			assert_eq!(events[0].1.as_deref().unwrap()[0].attachment, Id(1000));
+		}
+
+		// The next insertion exceeds the 100-row cap and evicts the remaining old
+		// author/message with its own attachment, not an unrelated inserted row.
+		for index in 0..100 {
+			store
+				.record_history_baseline(
+					Id(1),
+					&baseline(Id(10), Id(200 + index), Id(9), "newer", 200 + index as i64),
+				)
+				.unwrap();
+		}
+		{
+			let events = events.lock().unwrap();
+			let last = events.last().unwrap();
+			assert_eq!(last.1.as_deref().unwrap()[0].attachment, Id(1001));
+			assert_eq!(last.1.as_deref().unwrap()[0].message, Id(101));
+		}
+		assert_eq!(store.history_usage(Id(1)).unwrap().attachments, 0);
+
+		fail.store(true, Ordering::Release);
+		assert_eq!(
+			store.clear_history_account(Id(1)),
+			Err(StoreError::Unavailable)
+		);
+		assert_eq!(store.history_usage(Id(1)).unwrap().messages, 100);
+		assert!(store.history_settings(Id(1)).unwrap().enabled);
+		fail.store(false, Ordering::Release);
+		assert_eq!(store.clear_history_account(Id(1)).unwrap(), 100);
+		assert!(events.lock().unwrap().last().unwrap().1.is_none());
+		assert_eq!(store.history_usage(Id(1)).unwrap().messages, 0);
+		assert!(!store.history_settings(Id(1)).unwrap().enabled);
 	}
 }

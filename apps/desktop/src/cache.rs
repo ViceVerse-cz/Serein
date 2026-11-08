@@ -190,11 +190,50 @@ pub enum Outcome {
 		history_cleanup: bool,
 	},
 }
+#[derive(Default)]
+pub struct HistoryMedia {
+	manager: Mutex<Option<Arc<crate::message_history_media::MediaManager>>>,
+}
+
+impl HistoryMedia {
+	pub fn manager(&self) -> Result<Arc<crate::message_history_media::MediaManager>, StoreError> {
+		let mut slot = self
+			.manager
+			.lock()
+			.unwrap_or_else(|error| error.into_inner());
+		if let Some(manager) = slot.as_ref() {
+			return Ok(manager.clone());
+		}
+		let manager = Arc::new(
+			crate::message_history_media::MediaManager::new(
+				crate::message_history_media::MediaConfig::new(local_store::data_dir()?),
+			)
+			.map_err(|_| StoreError::Unavailable)?,
+		);
+		*slot = Some(manager.clone());
+		Ok(manager)
+	}
+
+	fn clear(
+		&self,
+		account: Id,
+		selected: Option<&[local_store::message_history::HistoryMediaKey]>,
+	) -> Result<(), StoreError> {
+		let manager = self.manager()?;
+		match selected {
+			Some(selected) => manager.clear_attachments(account.0, selected),
+			None => manager.clear_account(account.0),
+		}
+		.map_err(|_| StoreError::Unavailable)
+	}
+}
+
 pub struct Cache {
 	send: SyncSender<(u64, Id, u64, Operation, Reservation)>,
 	pub receive: Receiver<(u64, Outcome, Reservation)>,
 	budget: Arc<Budget>,
 	pub history: Arc<HistorySafety>,
+	pub media: Arc<HistoryMedia>,
 }
 #[derive(Default)]
 pub struct HistorySafety {
@@ -396,9 +435,16 @@ impl Cache {
 		let (events, receive) = mpsc::sync_channel(16);
 		let budget = Arc::new(Budget::default());
 		let history = Arc::new(HistorySafety::default());
+		let media = Arc::new(HistoryMedia::default());
 		let worker_history = history.clone();
+		let worker_media = media.clone();
 		std::thread::spawn(move || {
-			let mut store = LocalStore::open_default();
+			let mut store = LocalStore::open_default().map(|mut store| {
+				store.set_history_media_cleanup(Some(Box::new(move |account, selected| {
+					worker_media.clear(account, selected)
+				})));
+				store
+			});
 			let results = Arc::new(Budget::default());
 			while let Ok((generation, account, epoch, operation, reservation)) = commands.recv() {
 				let outcome = execute(&mut store, &worker_history, account, epoch, operation);
@@ -448,6 +494,7 @@ impl Cache {
 			receive,
 			budget,
 			history,
+			media,
 		}
 	}
 }
@@ -911,6 +958,7 @@ pub fn debug_voice_preferences_check() {
 		receive,
 		budget: Arc::new(Budget::default()),
 		history: Arc::new(HistorySafety::default()),
+		media: Arc::new(HistoryMedia::default()),
 	};
 	let mut settings =
 		crate::app_settings::Settings::from_preferences(Ok(local_store::AppPreferences::default()));
@@ -987,6 +1035,7 @@ mod tests {
 			receive,
 			budget: Arc::new(Budget::default()),
 			history: Arc::new(HistorySafety::default()),
+			media: Arc::new(HistoryMedia::default()),
 		};
 		let mut view = ui::MessagingUi::default();
 		view.channel_preferences_reload = true;
@@ -1082,6 +1131,7 @@ mod tests {
 			receive,
 			budget: Arc::new(Budget::default()),
 			history: Arc::new(HistorySafety::default()),
+			media: Arc::new(HistoryMedia::default()),
 		};
 		let initial = LocalStore::open(&path)
 			.unwrap()
@@ -1458,6 +1508,7 @@ mod tests {
 			receive,
 			budget: Arc::new(Budget::default()),
 			history: Arc::new(HistorySafety::default()),
+			media: Arc::new(HistoryMedia::default()),
 		};
 		let account = Id(1);
 		let channel = Id(2);

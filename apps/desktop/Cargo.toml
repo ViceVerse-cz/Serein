@@ -74,6 +74,7 @@ find-msvc-tools = "=0.1.12"
 
 [dev-dependencies]
 test-support.workspace = true
+rusqlite.workspace = true
 
 [[example]]
 name = "profile_preview"

@@ -15,7 +15,10 @@ use std::{
 	fs::{self, File, OpenOptions},
 	io::Write,
 	path::{Path, PathBuf},
-	sync::{Arc, Condvar, Mutex, MutexGuard},
+	sync::{
+		Arc, Condvar, Mutex, MutexGuard,
+		atomic::{AtomicBool, Ordering},
+	},
 	thread::JoinHandle,
 	time::{Duration, Instant},
 };
@@ -199,6 +202,7 @@ struct Job {
 	attachment: u64,
 	epoch: u64,
 	notify: Arc<Notify>,
+	cancelled: Arc<AtomicBool>,
 	admitted: AdmittedMedia,
 }
 
@@ -337,6 +341,7 @@ impl MediaManager {
 			attachment: request.attachment,
 			epoch,
 			notify: Arc::new(Notify::new()),
+			cancelled: Arc::new(AtomicBool::new(false)),
 			admitted,
 		});
 		self.shared.wake.notify_one();
@@ -401,6 +406,72 @@ impl MediaManager {
 			account.bytes = 0;
 			account.scanned = true;
 			account.epoch = account.epoch.wrapping_add(1);
+		}
+		Ok(())
+	}
+
+	/// Stop exactly the selected downloads, then remove their completed files before the
+	/// caller discards their history records. Any failure aborts the database purge.
+	pub fn clear_attachments(
+		&self,
+		account: u64,
+		selected: &[local_store::message_history::HistoryMediaKey],
+	) -> Result<(), MediaFailure> {
+		if account == 0 || selected.len() > local_store::message_history::HISTORY_MEDIA_MAX_KEYS {
+			return Err("Media cleanup exceeds its bound");
+		}
+		if selected.is_empty() {
+			return Ok(());
+		}
+		let attachments: std::collections::BTreeSet<u64> = selected
+			.iter()
+			.map(|key| {
+				(key.channel.0 != 0 && key.message.0 != 0 && key.attachment.0 != 0)
+					.then_some(key.attachment.0)
+					.ok_or("Media cleanup identity is invalid")
+			})
+			.collect::<Result<_, _>>()?;
+		let mut state = lock_state(&self.shared);
+		ensure_account_scanned(&self.root, &mut state, account)?;
+		cancel_selected_locked(&mut state, account, &attachments);
+		while state.active.as_ref().is_some_and(|active| {
+			active.account == account && attachments.contains(&active.attachment)
+		}) && !state.worker_finished
+		{
+			state = self
+				.shared
+				.wake
+				.wait(state)
+				.unwrap_or_else(|poisoned| poisoned.into_inner());
+		}
+		if state.active.as_ref().is_some_and(|active| {
+			active.account == account && attachments.contains(&active.attachment)
+		}) {
+			return Err("Selected media download is still stopping");
+		}
+		drop(state);
+
+		let directory = self.root.join(account.to_string());
+		let mut removed_bytes = 0u64;
+		for attachment in attachments {
+			for extension in [
+				"png", "jpg", "jpeg", "gif", "webp", "mp3", "ogg", "wav", "mp4", "webm",
+			] {
+				let path = directory.join(format!("{attachment}.{extension}"));
+				match fs::symlink_metadata(&path) {
+					Ok(metadata) if metadata.is_file() => {
+						fs::remove_file(&path).map_err(|_| "Could not clear selected media")?;
+						removed_bytes = removed_bytes.saturating_add(metadata.len());
+					}
+					Ok(_) => return Err("Unexpected selected media entry"),
+					Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+					Err(_) => return Err("Could not inspect selected media"),
+				}
+			}
+		}
+		let mut state = lock_state(&self.shared);
+		if let Some(account) = state.accounts.get_mut(&account) {
+			account.bytes = account.bytes.saturating_sub(removed_bytes);
 		}
 		Ok(())
 	}
@@ -681,6 +752,44 @@ fn cancel_account_locked(state: &mut State, account: u64) {
 	}
 }
 
+fn cancel_selected_locked(
+	state: &mut State,
+	account: u64,
+	attachments: &std::collections::BTreeSet<u64>,
+) {
+	let mut remaining = VecDeque::with_capacity(state.queue.len());
+	while let Some(job) = state.queue.pop_front() {
+		if job.account == account && attachments.contains(&job.attachment) {
+			job.cancelled.store(true, Ordering::Release);
+			state.queued_bytes = state.queued_bytes.saturating_sub(job.admitted.declared);
+			if let Some(entry) = state.accounts.get_mut(&account) {
+				entry.bytes = entry.bytes.saturating_sub(job.admitted.declared);
+			}
+			push_completion(
+				state,
+				MediaCompletion {
+					job: job.id,
+					account: job.account,
+					channel: job.channel,
+					message: job.message,
+					attachment: job.attachment,
+					kind: job.admitted.kind,
+					outcome: MediaOutcome::Cancelled,
+				},
+			);
+		} else {
+			remaining.push_back(job);
+		}
+	}
+	state.queue = remaining;
+	if let Some(active) = &state.active
+		&& active.account == account
+		&& attachments.contains(&active.attachment)
+	{
+		active.notify.notify_waiters();
+	}
+}
+
 fn push_completion(state: &mut State, completion: MediaCompletion) {
 	if state.completions.len() >= MAX_COMPLETIONS {
 		state.completions.pop_front();
@@ -808,6 +917,7 @@ fn mark_worker_finished(shared: &Shared) {
 fn job_cancelled(shared: &Shared, job: &Job) -> bool {
 	let state = lock_state(shared);
 	state.shutdown
+		|| job.cancelled.load(Ordering::Acquire)
 		|| state
 			.accounts
 			.get(&job.account)
@@ -1191,6 +1301,40 @@ mod tests {
 		fs::write(directory.join("1.png"), vec![0; 10]).unwrap();
 		fs::write(directory.join(".1-x.partial"), vec![0; 5]).unwrap();
 		assert_eq!(account_owned_bytes(&root, 5).unwrap(), 15);
+		let _ = fs::remove_dir_all(root);
+	}
+
+	#[test]
+	fn selected_cleanup_removes_only_target_files_and_updates_account_usage() {
+		let root = std::env::temp_dir().join(format!("serein-media-clear-{}", std::process::id()));
+		let _ = fs::remove_dir_all(&root);
+		let manager = MediaManager::new(MediaConfig::new(&root)).unwrap();
+		let directory = manager.root.clone();
+		create_private_dir_all(&directory.join("7")).unwrap();
+		create_private_dir_all(&directory.join("8")).unwrap();
+		fs::write(directory.join("7/101.png"), b"remove").unwrap();
+		fs::write(directory.join("7/102.png"), b"keep").unwrap();
+		fs::write(directory.join("8/101.png"), b"other-account").unwrap();
+		manager
+			.clear_attachments(
+				7,
+				&[local_store::message_history::HistoryMediaKey {
+					channel: model::Id(20),
+					message: model::Id(30),
+					attachment: model::Id(101),
+				}],
+			)
+			.unwrap();
+		assert!(!directory.join("7/101.png").exists());
+		assert_eq!(fs::read(directory.join("7/102.png")).unwrap(), b"keep");
+		assert_eq!(
+			fs::read(directory.join("8/101.png")).unwrap(),
+			b"other-account"
+		);
+		let state = lock_state(&manager.shared);
+		assert_eq!(state.accounts.get(&7).unwrap().bytes, 4);
+		drop(state);
+		drop(manager);
 		let _ = fs::remove_dir_all(root);
 	}
 }

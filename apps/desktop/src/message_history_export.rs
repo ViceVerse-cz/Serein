@@ -120,6 +120,7 @@ impl std::fmt::Display for ExportError {
 impl std::error::Error for ExportError {}
 
 /// Stream human-readable text. `rows` must be a bounded single-account snapshot cursor.
+#[cfg(test)]
 pub fn export_text<I>(
 	destination: &Path,
 	scope: ExportScope,
@@ -129,6 +130,20 @@ pub fn export_text<I>(
 ) -> Result<ExportSummary, ExportError>
 where
 	I: Iterator<Item = ExportRecord>,
+{
+	export_text_results(destination, scope, rows.map(Ok), options, cancelled)
+}
+
+/// Fallible rows stop before the temporary export can be published.
+pub fn export_text_results<I>(
+	destination: &Path,
+	scope: ExportScope,
+	rows: I,
+	options: ExportOptions,
+	cancelled: &AtomicBool,
+) -> Result<ExportSummary, ExportError>
+where
+	I: Iterator<Item = Result<ExportRecord, ExportError>>,
 {
 	export(
 		destination,
@@ -142,6 +157,7 @@ where
 }
 
 /// Stream a JSON document with one object per row. No media URL is serialized.
+#[cfg(test)]
 pub fn export_json<I>(
 	destination: &Path,
 	scope: ExportScope,
@@ -151,6 +167,20 @@ pub fn export_json<I>(
 ) -> Result<ExportSummary, ExportError>
 where
 	I: Iterator<Item = ExportRecord>,
+{
+	export_json_results(destination, scope, rows.map(Ok), options, cancelled)
+}
+
+/// Fallible rows stop before the temporary export can be published.
+pub fn export_json_results<I>(
+	destination: &Path,
+	scope: ExportScope,
+	rows: I,
+	options: ExportOptions,
+	cancelled: &AtomicBool,
+) -> Result<ExportSummary, ExportError>
+where
+	I: Iterator<Item = Result<ExportRecord, ExportError>>,
 {
 	export(
 		destination,
@@ -194,7 +224,7 @@ fn export<I>(
 	limits: Limits,
 ) -> Result<ExportSummary, ExportError>
 where
-	I: Iterator<Item = ExportRecord>,
+	I: Iterator<Item = Result<ExportRecord, ExportError>>,
 {
 	if scope.account == 0 {
 		return Err(ExportError::InvalidRecord("account"));
@@ -236,7 +266,7 @@ fn write_text<I>(
 	limits: Limits,
 ) -> Result<u64, ExportError>
 where
-	I: Iterator<Item = ExportRecord>,
+	I: Iterator<Item = Result<ExportRecord, ExportError>>,
 {
 	write!(
 		writer,
@@ -246,6 +276,7 @@ where
 	.map_err(|_| ExportError::Io("Could not write the export file"))?;
 	let mut count = 0u64;
 	for row in rows {
+		let row = row?;
 		if cancelled.load(Ordering::Acquire) {
 			return Err(ExportError::Cancelled);
 		}
@@ -351,7 +382,7 @@ fn write_json<I>(
 	limits: Limits,
 ) -> Result<u64, ExportError>
 where
-	I: Iterator<Item = ExportRecord>,
+	I: Iterator<Item = Result<ExportRecord, ExportError>>,
 {
 	write!(
 		writer,
@@ -361,6 +392,7 @@ where
 	.map_err(|_| ExportError::Io("Could not write the export file"))?;
 	let mut count = 0u64;
 	for row in rows {
+		let row = row?;
 		if cancelled.load(Ordering::Acquire) {
 			return Err(ExportError::Cancelled);
 		}
@@ -760,7 +792,7 @@ mod tests {
 		let result = export(
 			&destination,
 			scope,
-			[record(7, 2, 10), record(7, 2, 11)].into_iter(),
+			[record(7, 2, 10), record(7, 2, 11)].into_iter().map(Ok),
 			ExportOptions::default(),
 			&AtomicBool::new(false),
 			Format::Json,
@@ -778,7 +810,7 @@ mod tests {
 		let result = export(
 			&destination,
 			scope,
-			[large].into_iter(),
+			[large].into_iter().map(Ok),
 			ExportOptions::default(),
 			&AtomicBool::new(false),
 			Format::Text,
@@ -797,7 +829,7 @@ mod tests {
 			if message == 2 {
 				flag.store(true, Ordering::Release);
 			}
-			record(7, 2, 10 + message)
+			Ok(record(7, 2, 10 + message))
 		});
 		let result = export(
 			&destination,

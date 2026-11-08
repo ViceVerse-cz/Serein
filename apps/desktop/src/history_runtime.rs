@@ -297,15 +297,25 @@ impl Runtime {
 		self.media_tickets.clear();
 	}
 
-	fn manager(&mut self) -> Result<Arc<crate::message_history_media::MediaManager>, &'static str> {
+	fn manager(
+		&mut self,
+		cache: Option<&cache::Cache>,
+	) -> Result<Arc<crate::message_history_media::MediaManager>, &'static str> {
 		if let Some(manager) = &self.media {
 			return Ok(manager.clone());
 		}
-		let root =
-			local_store::data_dir().map_err(|_| "Application data directory is unavailable")?;
-		let manager = Arc::new(crate::message_history_media::MediaManager::new(
-			crate::message_history_media::MediaConfig::new(root),
-		)?);
+		let manager = if let Some(cache) = cache {
+			cache
+				.media
+				.manager()
+				.map_err(|_| "Media worker unavailable")?
+		} else {
+			let root =
+				local_store::data_dir().map_err(|_| "Application data directory is unavailable")?;
+			Arc::new(crate::message_history_media::MediaManager::new(
+				crate::message_history_media::MediaConfig::new(root),
+			)?)
+		};
 		self.media = Some(manager.clone());
 		Ok(manager)
 	}
@@ -330,7 +340,7 @@ impl Runtime {
 				let Some(request) = ticket.request.take() else {
 					return effects;
 				};
-				let manager = match self.manager() {
+				let manager = match self.manager(cache) {
 					Ok(manager) => manager,
 					Err(error) => {
 						messaging.toasts.push(ui::design::Level::Warning, error);
