@@ -4205,14 +4205,34 @@ impl TimelineView {
 					// A group start's toolbar rises into the gap above it but stops short of the
 					// previous message, as in Discord.
 					let toolbar_top = rect.top() - if compact { 10.0 } else { 12.0 };
-					if let Some(pos) = double_click
+					let double_click = double_click.filter(|pos| {
+						!deleted
+							&& rect.contains(*pos)
+							&& self
+								.toolbar
+								.is_none_or(|(_, toolbar)| !toolbar.contains(*pos))
+							&& ui.ctx().layer_id_at(*pos) == Some(ui.layer_id())
+							&& !egui::Popup::is_any_open(ui.ctx())
+					});
+					if double_click.is_some()
+						&& crate::interface_tweaks::on(
+							ui.ctx(),
+							extensions::InterfaceTweak::DoubleClickReplyEdit,
+						) {
+						let own = state
+							.user
+							.as_ref()
+							.is_some_and(|u| u.id == message.author.id);
+						if own && !message.unsupported && state.can_edit(message.channel, id) {
+							crate::select::clear(ui.ctx());
+							*editing = Some((message.channel, id, message.content.clone()));
+							self.edit_started = true;
+						} else if !own && state.can_send(message.channel) && !message.ephemeral {
+							crate::select::clear(ui.ctx());
+							selected_reply = Some(id);
+						}
+					} else if double_click.is_some()
 						&& let Some(text) = self.double_click_reaction
-						&& !deleted && rect.contains(pos)
-						&& self
-							.toolbar
-							.is_none_or(|(_, toolbar)| !toolbar.contains(pos))
-						&& ui.ctx().layer_id_at(pos) == Some(ui.layer_id())
-						&& !egui::Popup::is_any_open(ui.ctx())
 					{
 						let (emoji, reacted, enabled) = quick_reaction(state, message, text);
 						if enabled {
@@ -9282,6 +9302,131 @@ mod tests {
 			shown(&restored, "Blocked synthetic body"),
 			"switching off restores it"
 		);
+	}
+
+	/// Checks that with the double-click tweak, double-clicking beside your own message starts
+	/// editing it and beside someone else's starts a reply, while the reaction preset stays idle.
+	#[test]
+	fn double_click_tweak_edits_own_message_and_replies_to_others() {
+		let mut state = test_support::demo_state();
+		state.read_state.reset();
+		state.timeline.clear();
+		let channel = state.selected.unwrap();
+		let me = state.user.as_ref().unwrap().clone();
+		for (id, author, body) in [
+			(51, Id(701), "Their synthetic body"),
+			(52, me.id, "Own synthetic body"),
+		] {
+			let mut message = text_message(id);
+			message.channel = channel;
+			message.author.id = author;
+			message.content = body.into();
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let ctx = egui::Context::default();
+		let mut view = TimelineView {
+			double_click_reaction: Some("🎉"),
+			..Default::default()
+		};
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut editing = None;
+		let mut time = 0.0;
+		let mut render = |view: &mut TimelineView,
+		                  state: &mut State,
+		                  editing: &mut Option<(Id, Id, String)>,
+		                  events: Vec<egui::Event>| {
+			time += 1.0 / 60.0;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(700.0, 600.0),
+					)),
+					time: Some(time),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					crate::interface_tweaks::publish(
+						ui.ctx(),
+						&std::sync::Arc::new(
+							[extensions::InterfaceTweak::DoubleClickReplyEdit].into(),
+						),
+					);
+					view.show(
+						ui,
+						state,
+						editing,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					);
+				},
+			);
+			let mut rows = Vec::new();
+			let mut stack: Vec<&egui::Shape> = output.shapes.iter().map(|s| &s.shape).collect();
+			while let Some(shape) = stack.pop() {
+				match shape {
+					egui::Shape::Text(text) => rows.push((
+						text.galley.job.text.clone(),
+						text.pos.y + text.galley.size().y * 0.5,
+					)),
+					egui::Shape::Vec(shapes) => stack.extend(shapes),
+					_ => {}
+				}
+			}
+			output.drop_without_applying_deltas();
+			rows
+		};
+		let mut double_click = |view: &mut TimelineView,
+		                        state: &mut State,
+		                        editing: &mut Option<(Id, Id, String)>,
+		                        body: &str| {
+			let mut rows = Vec::new();
+			for _ in 0..30 {
+				rows = render(view, state, editing, vec![]);
+			}
+			let y = rows
+				.iter()
+				.find_map(|(text, y)| (text == body).then_some(*y))
+				.expect("message laid out");
+			let pos = egui::pos2(650.0, y);
+			for _ in 0..2 {
+				for pressed in [true, false] {
+					render(
+						view,
+						state,
+						editing,
+						vec![
+							egui::Event::PointerMoved(pos),
+							egui::Event::PointerButton {
+								pos,
+								button: egui::PointerButton::Primary,
+								pressed,
+								modifiers: egui::Modifiers::NONE,
+							},
+						],
+					);
+				}
+			}
+		};
+		double_click(&mut view, &mut state, &mut editing, "Their synthetic body");
+		assert_eq!(state.reply_target(), Some(Id(51)));
+		assert!(editing.is_none(), "someone else's message is not edited");
+		state.reply = None;
+		double_click(&mut view, &mut state, &mut editing, "Own synthetic body");
+		assert_eq!(
+			editing.as_ref().map(|(_, id, text)| (*id, text.as_str())),
+			Some((Id(52), "Own synthetic body"))
+		);
+		assert!(
+			state.reply.is_none(),
+			"your own message is edited, not replied to"
+		);
+		assert!(view.reaction.is_none(), "the reaction preset stays idle");
 	}
 
 	#[test]

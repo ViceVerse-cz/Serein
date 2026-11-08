@@ -174,6 +174,9 @@ pub enum InterfaceTweak {
 	/// The stream preview shown on hovering a live participant is twice as large, up to the
 	/// preview image's own resolution.
 	LargeStreamPreview,
+	/// Double-clicking a message's blank space edits your own message or replies to someone
+	/// else's, in place of the double-click reaction.
+	DoubleClickReplyEdit,
 }
 
 impl InterfaceTweak {
@@ -187,6 +190,7 @@ impl InterfaceTweak {
 		Self::HiddenBlockedMessages,
 		Self::HiddenProfileNotes,
 		Self::LargeStreamPreview,
+		Self::DoubleClickReplyEdit,
 	];
 }
 

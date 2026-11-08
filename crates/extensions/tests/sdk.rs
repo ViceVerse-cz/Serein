@@ -309,6 +309,7 @@ fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
 			sdk::InterfaceTweak::HiddenBlockedMessages,
 			sdk::InterfaceTweak::HiddenProfileNotes,
 			sdk::InterfaceTweak::LargeStreamPreview,
+			sdk::InterfaceTweak::DoubleClickReplyEdit,
 		]),
 		..Default::default()
 	};
