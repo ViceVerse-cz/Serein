@@ -2084,16 +2084,29 @@ pub(crate) fn role_chips(
 					egui::Sense::hover()
 				},
 			);
+			// The name a plugin receives meets the host's role-target rules: no control
+			// characters and at most Discord's role-name length.
+			let target_name: String = role
+				.name
+				.chars()
+				.filter(|c| !c.is_control())
+				.take(extensions::MAX_ROLE_NAME_CHARS)
+				.collect();
 			// With plugin role actions the chip is a control: screen readers announce it as a
-			// button named after the role and its color, so equal names stay distinguishable,
-			// and any activation opens its menu.
+			// button named after the role, its color when it has one so equal names stay
+			// distinguishable, and the Extensions menu it opens on any activation.
 			if menu {
 				response.widget_info(|| {
-					egui::WidgetInfo::labeled(
-						egui::Role::Button,
-						true,
-						format!("{}, #{:06X}", role.name, role.color & 0xff_ffff),
-					)
+					let extensions = crate::i18n::translate("timeline-message-actions-extensions");
+					let label = if role.color == 0 {
+						format!("{target_name}, {extensions}")
+					} else {
+						format!(
+							"{target_name}, #{:06X}, {extensions}",
+							role.color & 0xff_ffff
+						)
+					};
+					egui::WidgetInfo::labeled(egui::Role::Button, true, label)
 				});
 			}
 			ui.painter().rect_filled(rect, 6, theme.chip);
@@ -2115,7 +2128,7 @@ pub(crate) fn role_chips(
 					guild_id: guild.guild.to_string(),
 					role_id: role.id.to_string(),
 					user_id: Some(user.to_string()),
-					name: role.name.clone(),
+					name: target_name,
 					color: role.color & 0xff_ffff,
 				};
 				let mut popup = crate::user_menu::popup(&response, id.with("menu"));
