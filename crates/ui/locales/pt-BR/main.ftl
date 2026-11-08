@@ -4890,3 +4890,8 @@ name-marks-online-web = Online na web
 name-marks-online-mobile = Online no celular
 profiles-show-mutual-group = Grupo em comum
 profiles-show-mutual-groups = Grupos em comum
+rail-counts-online = { $count } online
+rail-counts-servers = { $count ->
+    [one] { $count } servidor
+   *[other] { $count } servidores
+}

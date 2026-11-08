@@ -4876,3 +4876,5 @@ name-marks-online-web = Web'de çevrimiçi
 name-marks-online-mobile = Mobilde çevrimiçi
 profiles-show-mutual-group = Ortak Grup
 profiles-show-mutual-groups = Ortak Gruplar
+rail-counts-online = { $count } çevrimiçi
+rail-counts-servers = { $count } sunucu

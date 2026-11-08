@@ -4873,3 +4873,5 @@ name-marks-online-web = ウェブでオンライン
 name-marks-online-mobile = モバイルでオンライン
 profiles-show-mutual-group = 共通のグループ
 profiles-show-mutual-groups = 共通のグループ
+rail-counts-online = { $count } 人オンライン
+rail-counts-servers = { $count } サーバー

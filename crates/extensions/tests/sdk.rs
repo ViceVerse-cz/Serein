@@ -321,6 +321,7 @@ fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
 			sdk::InterfaceTweak::SingleOpenFolder,
 			sdk::InterfaceTweak::MutualGroups,
 			sdk::InterfaceTweak::MentionAvatars,
+			sdk::InterfaceTweak::RailCounts,
 		]),
 		..Default::default()
 	};

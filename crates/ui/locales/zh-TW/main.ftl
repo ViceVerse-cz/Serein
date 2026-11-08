@@ -4988,3 +4988,5 @@ name-marks-online-web = 網頁版上線
 name-marks-online-mobile = 行動裝置上線
 profiles-show-mutual-group = 共同群組
 profiles-show-mutual-groups = 共同群組
+rail-counts-online = { $count } 人上線
+rail-counts-servers = { $count } 個伺服器

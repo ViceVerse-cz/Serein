@@ -65,6 +65,20 @@ impl RailCache {
 		self.voice_guilds.binary_search(&guild).is_ok()
 	}
 }
+/// Friends online (including idle and Do Not Disturb) and servers joined, for the
+/// rail-counts tweak.
+fn rail_counts(state: &State) -> (usize, usize) {
+	let online = state
+		.friends()
+		.filter(|friend| {
+			crate::profiles::presence(state, friend.id, None)
+				.0
+				.is_some_and(|status| matches!(status, "online" | "idle" | "dnd"))
+		})
+		.count();
+	(online, state.guilds.len())
+}
+
 fn direct_call(state: &State) -> Option<Id> {
 	state
 		.voice
@@ -337,6 +351,29 @@ impl MessagingUi {
 					}
 					self.search.open = false;
 				}
+				// With the rail-counts tweak, the rail lists how many friends are online and
+				// how many servers the account is in under Home.
+				if crate::interface_tweaks::on(ui.ctx(), extensions::InterfaceTweak::RailCounts) {
+					let (online, servers) = rail_counts(state);
+					for (key, count) in [
+						("rail-counts-online", online),
+						("rail-counts-servers", servers),
+					] {
+						ui.add(
+							egui::Label::new(
+								egui::RichText::new(crate::i18n::translate_count(
+									key,
+									count,
+									&[("count", &count.to_string())],
+								))
+								.size(10.0)
+								.color(design::palette(ui).muted),
+							)
+							.truncate()
+							.selectable(false),
+						);
+					}
+				}
 				self.scroll
 					.attach(
 						ui,
@@ -485,6 +522,37 @@ impl MessagingUi {
 mod tests {
 	use super::*;
 	use client_core::{Envelope, Event, read_state};
+
+	/// Checks that the rail counts friends online, idle or in Do Not Disturb but not
+	/// offline ones, and every joined server.
+	#[test]
+	fn rail_counts_online_friends_and_servers() {
+		let mut state = test_support::demo_state();
+		let friends: Vec<_> = state.friends().map(|friend| friend.id).take(2).collect();
+		assert_eq!(friends.len(), 2, "demo has two friends");
+		state.direct_presences.clear();
+		for (user, status) in [(friends[0], "dnd"), (friends[1], "offline")] {
+			state.direct_presences.push(model::MemberPresence {
+				user,
+				status: Some(status.into()),
+				custom_status: None,
+				activities: vec![],
+				clients: model::ClientPlatforms::default(),
+			});
+		}
+		let (online, servers) = rail_counts(&state);
+		assert_eq!(servers, state.guilds.len());
+		let others = state
+			.friends()
+			.filter(|friend| !friends.contains(&friend.id))
+			.filter(|friend| {
+				crate::profiles::presence(&state, friend.id, None)
+					.0
+					.is_some_and(|status| status != "offline")
+			})
+			.count();
+		assert_eq!(online, 1 + others);
+	}
 
 	fn apply(state: &mut State, event: Event) {
 		state.apply(Envelope {

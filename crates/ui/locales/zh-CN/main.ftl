@@ -4988,3 +4988,5 @@ name-marks-online-web = 网页端在线
 name-marks-online-mobile = 移动端在线
 profiles-show-mutual-group = 共同群组
 profiles-show-mutual-groups = 共同群组
+rail-counts-online = { $count } 人在线
+rail-counts-servers = { $count } 个服务器

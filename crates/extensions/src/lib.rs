@@ -206,6 +206,9 @@ pub enum InterfaceTweak {
 	MutualGroups,
 	/// A user mention leads with the person's avatar.
 	MentionAvatars,
+	/// The server rail lists how many friends are online and how many servers you are in
+	/// under the Home button.
+	RailCounts,
 }
 
 impl InterfaceTweak {
@@ -231,6 +234,7 @@ impl InterfaceTweak {
 		Self::SingleOpenFolder,
 		Self::MutualGroups,
 		Self::MentionAvatars,
+		Self::RailCounts,
 	];
 }
 

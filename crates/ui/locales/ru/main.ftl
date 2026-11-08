@@ -4893,3 +4893,9 @@ name-marks-online-web = В сети в браузере
 name-marks-online-mobile = В сети с телефона
 profiles-show-mutual-group = Общая группа
 profiles-show-mutual-groups = Общие группы
+rail-counts-online = { $count } в сети
+rail-counts-servers = { $count ->
+    [one] { $count } сервер
+    [few] { $count } сервера
+   *[other] { $count } серверов
+}
