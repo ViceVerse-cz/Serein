@@ -1,0 +1,25 @@
+{
+  "api_version": 1,
+  "id": "better-search-tools",
+  "name": "Better Search Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/better-search-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "navigation"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Build an extended search",
+      "surface": "panel"
+    },
+    {
+      "id": "search",
+      "label": "Search with these filters",
+      "surface": "panel"
+    }
+  ]
+}

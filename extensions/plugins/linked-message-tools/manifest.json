@@ -1,0 +1,27 @@
+{
+  "api_version": 1,
+  "id": "linked-message-tools",
+  "name": "Linked Message Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/linked-message-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "selected_message",
+    "timeline",
+    "navigation"
+  ],
+  "actions": [
+    {
+      "id": "preview",
+      "label": "Preview linked messages",
+      "surface": "message"
+    },
+    {
+      "id": "jump",
+      "label": "Open selected linked message",
+      "surface": "panel"
+    }
+  ]
+}

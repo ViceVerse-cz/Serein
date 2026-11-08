@@ -1,0 +1,27 @@
+{
+  "api_version": 1,
+  "id": "greet-sticker-tools",
+  "name": "Greet Sticker Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/greet-sticker-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "selected_message",
+    "message_content",
+    "message_send"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Choose a sticker to re-send",
+      "surface": "message"
+    },
+    {
+      "id": "send",
+      "label": "Send selected sticker",
+      "surface": "panel"
+    }
+  ]
+}
