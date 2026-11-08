@@ -3308,10 +3308,8 @@ mod tests {
 					},
 					|ui| {
 						shop.context_menus(ui.ctx(), state);
-						egui::CentralPanel::default().show_inside(ui, |ui| {
-							context_menu_entries(ui, &target);
-							at = Some(ui.min_rect().left_top() + egui::vec2(20.0, 10.0));
-						});
+						context_menu_entries(ui, &target);
+						at = Some(ui.min_rect().left_top() + egui::vec2(20.0, 10.0));
 					},
 				)
 				.drop_without_applying_deltas();
