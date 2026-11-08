@@ -1,0 +1,26 @@
+{
+  "api_version": 1,
+  "id": "permissions-tools",
+  "name": "Loaded Permissions Viewer",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/permissions-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "channel_metadata",
+    "member_details"
+  ],
+  "actions": [
+    {
+      "id": "show",
+      "label": "Open the loaded permissions viewer",
+      "surface": "panel"
+    },
+    {
+      "id": "select-member",
+      "label": "Show one loaded member's role order",
+      "surface": "panel"
+    }
+  ]
+}
