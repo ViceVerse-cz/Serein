@@ -19,6 +19,11 @@ pub enum InterfaceTweak {
 	OnePingPerDirectMessage,
 	/// Messages from users you blocked are left out of conversations.
 	HiddenBlockedMessages,
+	/// Profiles leave out your private note about the member; the user menu still edits it.
+	HiddenProfileNotes,
+	/// The stream preview shown on hovering a live participant is twice as large, up to the
+	/// preview image's own resolution.
+	LargeStreamPreview,
 }
 
 /// Activation or panel output that sets the plugin's interface tweaks, preserving `Output`

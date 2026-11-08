@@ -4121,7 +4121,12 @@ fn card_view(
 										);
 									}
 									// Discord keeps the private note at the bottom of the profile.
-									if !own && !user.webhook && !data.private {
+									if !own
+										&& !user.webhook && !data.private
+										&& !crate::interface_tweaks::on(
+											ui.ctx(),
+											extensions::InterfaceTweak::HiddenProfileNotes,
+										) {
 										section(
 											ui,
 											&theme,
@@ -5675,6 +5680,75 @@ mod tests {
 		let public = painted(false);
 		assert!(!public.iter().any(|text| text == "Private Profile"));
 		assert!(public.iter().any(|text| text == "MEMBER SINCE"));
+	}
+
+	/// Checks that the hidden-profile-notes tweak leaves the note section out of profiles.
+	#[test]
+	fn hidden_profile_notes_tweak_leaves_out_the_note() {
+		let ctx = egui::Context::default();
+		let state = test_support::demo_state();
+		let user = state
+			.channels
+			.iter()
+			.find(|channel| channel.kind == 1)
+			.and_then(|channel| channel.recipients.first().cloned())
+			.unwrap();
+		let painted = |hidden: bool| {
+			let view = ProfileView {
+				user: user.id,
+				guild: None,
+				request: 0,
+				loading: false,
+				error: None,
+				data: Some(synthetic(&user, None)),
+			};
+			let mut session = ProfileSession::default();
+			let mut painted = Vec::new();
+			for _ in 0..2 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 900.0))),
+						..Default::default()
+					},
+					|ui| {
+						tweaks(
+							ui.ctx(),
+							if hidden {
+								&[extensions::InterfaceTweak::HiddenProfileNotes]
+							} else {
+								&[]
+							},
+						);
+						show_with_session(
+							ui,
+							&user,
+							Some(&view),
+							&state,
+							&mut Avatars::default(),
+							&mut None,
+							&mut FormatCache::default(),
+							true,
+							pos2(300.0, 60.0),
+							&mut session,
+						);
+					},
+				);
+				painted.clear();
+				let mut stack: Vec<_> =
+					output.shapes.iter().map(|clipped| &clipped.shape).collect();
+				while let Some(shape) = stack.pop() {
+					match shape {
+						egui::Shape::Text(text) => painted.push(text.galley.job.text.clone()),
+						egui::Shape::Vec(shapes) => stack.extend(shapes),
+						_ => {}
+					}
+				}
+				output.drop_without_applying_deltas();
+			}
+			painted
+		};
+		assert!(painted(false).iter().any(|text| text == "NOTE"));
+		assert!(!painted(true).iter().any(|text| text == "NOTE"));
 	}
 
 	#[test]

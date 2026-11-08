@@ -307,6 +307,8 @@ fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
 			sdk::InterfaceTweak::HiddenRequestCounts,
 			sdk::InterfaceTweak::OnePingPerDirectMessage,
 			sdk::InterfaceTweak::HiddenBlockedMessages,
+			sdk::InterfaceTweak::HiddenProfileNotes,
+			sdk::InterfaceTweak::LargeStreamPreview,
 		]),
 		..Default::default()
 	};
