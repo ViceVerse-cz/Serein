@@ -1117,6 +1117,9 @@ struct Desktop {
 	presence_load_pending: bool,
 	deferred_connect: Option<(SessionSecret, bool)>,
 	presence_authoritative: bool,
+	/// Do Not Disturb while playing: `Some(true)` while this tweak set the status for the running
+	/// game, `Some(false)` once the user picked another status during it, `None` with no game.
+	game_dnd: Option<bool>,
 	presence_saved: Option<(model::Id, model::OwnPresence)>,
 	/// Saved account awaiting the owner's confirmation before it is forgotten.
 	confirming_forget: Option<model::Id>,
@@ -2478,6 +2481,7 @@ impl Desktop {
 			presence_load_pending,
 			deferred_connect: None,
 			presence_authoritative: false,
+			game_dnd: None,
 			presence_saved: None,
 			confirming_forget: sign_in_forget,
 			sign_in_copied: None,
@@ -3138,6 +3142,32 @@ impl Desktop {
 		}
 		if let Some((secret, save)) = self.deferred_connect.take() {
 			self.connect(secret, save, ctx);
+		}
+	}
+	/// Switches Online to Do Not Disturb while a detected game runs, and back after it, unless the
+	/// user chose another status in between; the change publishes like a status menu edit.
+	fn sync_game_dnd(&mut self, ctx: &egui::Context) {
+		use model::PresenceStatus::{DoNotDisturb, Online};
+		let playing = self.messaging.own_game.is_some()
+			&& self
+				.messaging
+				.interface_tweak_on(::extensions::InterfaceTweak::DndWhilePlaying);
+		let status = self.messaging.own_presence.status;
+		let next = match (playing, self.game_dnd) {
+			(false, Some(true)) if status == DoNotDisturb => Some(Online),
+			(true, None) if status == Online => Some(DoNotDisturb),
+			_ => None,
+		};
+		self.game_dnd = match (playing, self.game_dnd) {
+			(false, _) => None,
+			(true, None) => Some(next.is_some()),
+			(true, Some(true)) => Some(status == DoNotDisturb),
+			(true, held) => held,
+		};
+		if let Some(next) = next {
+			self.messaging.own_presence.status = next;
+			self.messaging.own_presence_changed = true;
+			ctx.request_repaint();
 		}
 	}
 	fn sync_own_presence(&mut self, ctx: &egui::Context) {
@@ -7010,6 +7040,7 @@ impl eframe::App for Desktop {
 		self.save_app_preferences();
 		self.messaging.updates_save_failed = self.app_settings.state.failed;
 		self.save_reading_preferences(&ctx);
+		self.sync_game_dnd(&ctx);
 		self.sync_own_presence(&ctx);
 		self.sync_game_activity(&ctx);
 		let offline = self.fixture_only || self.state.demo;

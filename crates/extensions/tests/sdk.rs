@@ -333,6 +333,7 @@ fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
 			sdk::InterfaceTweak::ResolveUnknownMentions,
 			sdk::InterfaceTweak::ResolveUnloadedReplies,
 			sdk::InterfaceTweak::MessageLinkPreviews,
+			sdk::InterfaceTweak::DndWhilePlaying,
 		]),
 		..Default::default()
 	};

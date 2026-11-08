@@ -235,6 +235,10 @@ pub enum InterfaceTweak {
 	ResolveUnloadedReplies,
 	/// Shows a quoted card under a message for each Discord message link it contains.
 	MessageLinkPreviews,
+	/// While a detected game is running, sets your status to Do Not Disturb when you were Online,
+	/// and sets it back to Online when the game closes unless you changed it meanwhile.
+	/// Games are detected only while game activity sharing is on.
+	DndWhilePlaying,
 }
 
 impl InterfaceTweak {
@@ -271,6 +275,7 @@ impl InterfaceTweak {
 		Self::ResolveUnknownMentions,
 		Self::ResolveUnloadedReplies,
 		Self::MessageLinkPreviews,
+		Self::DndWhilePlaying,
 	];
 }
 
