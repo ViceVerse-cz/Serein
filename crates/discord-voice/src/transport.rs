@@ -179,6 +179,18 @@ fn id(data: &Value, key: &str) -> Result<u64, &'static str> {
 fn transition(data: &Value) -> Result<u16, &'static str> {
 	u16::try_from(number(data, "transition_id")?).map_err(|_| "Invalid voice transition")
 }
+/// Restarts the camera prediction chain for a DAVE transition, group change or resume,
+/// and asks the encoder for an IDR right away. The request bypasses the feedback
+/// throttle: an IDR requested just before may have been discarded by the restart.
+fn restart_camera(
+	video: &mut crate::camera_video::Sender,
+	keyframe_at: &mut Instant,
+	request_keyframe: impl FnOnce(),
+) {
+	video.restart();
+	request_keyframe();
+	*keyframe_at = Instant::now() + Duration::from_millis(300);
+}
 fn h264_negotiated(data: &Value) -> bool {
 	data["video_codec"]
 		.as_str()
@@ -525,7 +537,11 @@ async fn run_inner(
 			if encryption.is_none() || resume_attempts >= 2 {
 				return Err(reason);
 			}
-			video.restart();
+			restart_camera(
+				&mut video,
+				&mut camera_keyframe_at,
+				crate::camera::request_keyframe,
+			);
 			video.announced = false;
 			resume_attempts += 1;
 			resuming = true;
@@ -856,7 +872,7 @@ async fn run_inner(
 										   if was_ready {
 											   dave.ready=true;
 										   } else {
-											   video.restart();
+											   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 											   deadline=Some(Instant::now()+Duration::from_secs(90));
 											   capture_reset=true;
 											   mixer.clear();
@@ -869,7 +885,7 @@ async fn run_inner(
 									   let was_ready=dave.ready;
 									   if dave.disconnect(user)? {
 										   if dave.alone() {
-											   video.restart();
+											   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 											   capture_reset=true;
 											   mixer.clear();
 											   dave.enter_sole_member_waiting()?;
@@ -882,7 +898,7 @@ async fn run_inner(
 											   dave.ready=true;
 											   deadline=None;
 										   } else if was_group_member {
-											   video.restart();
+											   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 											   deadline=Some(Instant::now()+Duration::from_secs(30));
 											   capture_reset=true;
 											   mixer.clear();
@@ -890,7 +906,7 @@ async fn run_inner(
 									   }
 								   },
 								   21=>{
-									   video.restart();
+									   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 									   if number(data,"protocol_version")?!=1 {return Err("Discord requested a voice encryption downgrade; call stopped");}
 									   capture_reset=true;
 									   let id = transition(data)?;
@@ -911,9 +927,9 @@ async fn run_inner(
 										   json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;
 									   }
 								   },
-								   22=>{video.restart();dave.execute(transition(data)?)?;},
+								   22=>{restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);dave.execute(transition(data)?)?;},
 								   24=>{
-									   video.restart();
+									   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 									   if number(data,"protocol_version")?!=1 {return Err("Unsupported DAVE protocol version; call stopped");}
 									   if number(data,"epoch")?==1 {capture_reset=true;dave.reinitialize()?;deadline=Some(Instant::now()+Duration::from_secs(30));send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;}
 								   },
@@ -946,7 +962,7 @@ async fn run_inner(
 									   if let Some(response)=dave.proposals(data)? {send(&mut ws,Message::Binary(response.into())).await?;}
 								   },
 								   29|30=>{
-									   video.restart();
+									   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 									   ready_announced=false;waiting_announced=false;
 									   match dave.group_changed(opcode,data){
 										   Ok(id)=>{if id!=0 {json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;}},
@@ -1897,6 +1913,28 @@ mod tests {
 	use super::*;
 	use crate::video_receive::Receivers;
 	use opus2::Decoder;
+	#[test]
+	fn camera_transition_requests_a_keyframe_despite_the_feedback_throttle() {
+		let frame = |sequence, keyframe| crate::camera_video::Frame {
+			generation: 1,
+			sequence,
+			keyframe,
+			timestamp: 0,
+			data: Vec::new(),
+		};
+		let mut video = crate::camera_video::Sender::default();
+		assert!(video.accepts(&frame(1, true)));
+		assert!(video.accepts(&frame(2, false)));
+		// Feedback just requested an IDR, so the throttle would block another one.
+		let mut keyframe_at = Instant::now() + Duration::from_secs(60);
+		let mut requests = 0;
+		restart_camera(&mut video, &mut keyframe_at, || requests += 1);
+		assert_eq!(requests, 1);
+		assert!(keyframe_at <= Instant::now() + Duration::from_millis(300));
+		// Predicted pictures already in flight are still dropped until the new IDR.
+		assert!(!video.accepts(&frame(3, false)));
+		assert!(video.accepts(&frame(4, true)));
+	}
 	#[test]
 	fn stream_negotiation_advertises_only_available_receive_codecs_and_keeps_h264_senders() {
 		for (sending, receiving, available) in [
