@@ -642,14 +642,14 @@ viewing still require owner-operated validation.
 Native capture prefers the closest supported size to the 640×480 encoder, with
 a 1280×720 input ceiling (DirectShow preserves its existing 1920×1080 fallback).
 macOS and Windows rank native modes by dimension
-distance, then distance from 15 fps; macOS explicitly locks the device format
+distance, then distance from 30 fps; macOS explicitly locks the device format
 and supported frame duration; AVFoundation aspect fitting preserves nonmatching
 native ratios with black bars before the callback. Windows drivers without
 frame-rate metadata retain their bounded fallback and rank after known rates at
 the same resolution. Linux probes each candidate with its effective
 V4L2 interval before ranking it and reapplies the selected interval after the final
 format change. Drivers without interval metadata rank last at the same resolution.
-Capture is converted to 640×480, capped at 15 encoded frames/second, encoded on a worker with a
+Capture is converted to 640×480, capped at 30 encoded frames/second, encoded on a worker with a
 600 kbit/s target (not a measured bandwidth guarantee). The worker prefers the platform
 hardware H.264 encoder, the same VideoToolbox and Media Foundation encoders screen sharing
 uses, and VA-API or NVENC through a private GStreamer pipeline on Linux. OpenH264 remains

@@ -423,6 +423,17 @@ fn open(shared: &Shared, selected: Option<&str>) -> Result<Option<Capture>, &'st
 	Err(error)
 }
 
+fn frame_due(next: &mut Instant, now: Instant) -> bool {
+	let Some(lateness) = now.checked_duration_since(*next) else {
+		return false;
+	};
+	if lateness >= FRAME_INTERVAL * 2 {
+		*next = now;
+	}
+	*next += FRAME_INTERVAL;
+	true
+}
+
 pub(super) fn run(
 	shared: &Shared,
 	device: Option<&str>,
@@ -432,7 +443,7 @@ pub(super) fn run(
 		return Ok(());
 	};
 	let mut last_frame = Instant::now();
-	let mut last_emitted = Instant::now() - FRAME_INTERVAL;
+	let mut next_frame = Instant::now();
 	while !shared.stopped.load(Ordering::Acquire) {
 		if last_frame.elapsed() >= Duration::from_secs(5) {
 			return Err("Camera stopped delivering frames; check the device and try again");
@@ -474,7 +485,7 @@ pub(super) fn run(
 		if used == 0 || used > mapping.length || used > capture.pixels.size as usize {
 			return Err("Camera frame exceeds its native buffer bounds");
 		}
-		let rgb = if buffer.flags & 0x40 == 0 && last_emitted.elapsed() >= FRAME_INTERVAL {
+		let rgb = if buffer.flags & 0x40 == 0 && frame_due(&mut next_frame, Instant::now()) {
 			// SAFETY: DQBUF gives exclusive userspace access until QBUF. Length
 			// was checked against the retained mapping; decoding finishes first.
 			let bytes = unsafe { std::slice::from_raw_parts(mapping.address.cast::<u8>(), used) };
@@ -487,7 +498,6 @@ pub(super) fn run(
 		if let Some(rgb) = rgb {
 			last_frame = Instant::now();
 			if !shared.stopped.load(Ordering::Acquire) {
-				last_emitted = Instant::now();
 				emit(rgb)?;
 			}
 		}
@@ -580,6 +590,29 @@ fn fit_rgb(rgb: Vec<u8>, pixels: Pixels) -> Result<Vec<u8>, &'static str> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn pacing_handles_jitter_and_stalls() {
+		let start = Instant::now();
+		let mut next = start;
+		let accepted = (0..=90)
+			.filter(|index| frame_due(&mut next, start + Duration::from_micros(index * 33_300)))
+			.count();
+		assert!(accepted >= 89);
+
+		let mut next = start;
+		let limited = (0..60)
+			.filter(|index| frame_due(&mut next, start + Duration::from_micros(index * 16_666)))
+			.count();
+		assert_eq!(limited, 30);
+
+		let after_stall = start + Duration::from_secs(10);
+		assert!(frame_due(&mut next, after_stall));
+		assert!(!frame_due(
+			&mut next,
+			after_stall + Duration::from_millis(1)
+		));
+	}
 
 	#[test]
 	fn selected_camera_requires_a_canonical_bounded_device_path() {

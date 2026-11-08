@@ -244,7 +244,7 @@ mod tests {
 	const CAMERA: Config = Config {
 		width: 640,
 		height: 480,
-		fps: 15,
+		fps: crate::camera::FPS,
 		bit_rate: 600_000,
 		max_bytes: 128 * 1024,
 		profile: Profile::Baseline,

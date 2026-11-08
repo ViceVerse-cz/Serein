@@ -1,7 +1,7 @@
 //! Native capture selection follows the encoder within each adapter's bounded input ceiling.
 use super::{HEIGHT, WIDTH};
 
-pub(super) const FPS: u32 = 15;
+pub(super) const FPS: u32 = 30;
 pub(super) const MAX_WIDTH: usize = 1280;
 pub(super) const MAX_HEIGHT: usize = 720;
 
@@ -54,12 +54,12 @@ mod tests {
 			.unwrap()
 			.1;
 		assert_eq!(selected, (WIDTH, HEIGHT, f64::from(FPS)));
-		assert!(rank(640, 480, 15.0) < rank(640, 480, 30.0));
+		assert!(rank(640, 480, 30.0) < rank(640, 480, 15.0));
 		assert!(rank(800, 600, 15.0) < rank(320, 240, 15.0));
 		assert!(rank_with_ceiling(1920, 1080, 15.0, 1920, 1080).is_some());
 		assert!(rank_with_ceiling(3840, 2160, 15.0, 1920, 1080).is_none());
-		assert_eq!(nearest_fps(5.0, 30.0), Some(15.0));
-		assert_eq!(nearest_fps(24.0, 60.0), Some(24.0));
+		assert_eq!(nearest_fps(5.0, 30.0), Some(30.0));
+		assert_eq!(nearest_fps(24.0, 60.0), Some(30.0));
 		assert_eq!(nearest_fps(1.0, 10.0), Some(10.0));
 		for (width, height) in [
 			(0, HEIGHT),

@@ -22,17 +22,18 @@ mod windows;
 
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 480;
+pub(crate) const FPS: u32 = format::FPS;
 pub const MAX_ENCODED_BYTES: usize = 128 * 1024;
 pub const SUPPORTED: bool = cfg!(any(
 	target_os = "macos",
 	target_os = "windows",
 	target_os = "linux"
 ));
-/// Consecutive empty hardware outputs (two seconds at 15 fps) before falling back to
+/// Consecutive empty hardware outputs (two seconds at the target frame rate) before falling back to
 /// openh264, so a hardware encoder that accepts pictures but never returns them cannot
 /// leave the call without video.
-const HARDWARE_STALL: u8 = 30;
-const FRAME_INTERVAL: Duration = Duration::from_nanos(1_000_000_000 / format::FPS as u64);
+const HARDWARE_STALL: u8 = (FPS * 2) as u8;
+const FRAME_INTERVAL: Duration = Duration::from_nanos(1_000_000_000 / FPS as u64);
 // Includes asynchronous teardown: rapid toggles cannot accumulate camera workers.
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -186,7 +187,7 @@ impl CameraEncoder {
 		let config = crate::video_encode::Config {
 			width: WIDTH as u32,
 			height: HEIGHT as u32,
-			fps: 15,
+			fps: FPS,
 			bit_rate: 600_000,
 			max_bytes: MAX_ENCODED_BYTES,
 			profile: crate::video_encode::Profile::Baseline,
@@ -308,7 +309,7 @@ fn encoder() -> Result<Encoder, &'static str> {
 		OpenH264API::from_source(),
 		EncoderConfig::new()
 			.bitrate(BitRate::from_bps(600_000))
-			.max_frame_rate(FrameRate::from_hz(format::FPS as f32))
+			.max_frame_rate(FrameRate::from_hz(FPS as f32))
 			.profile(Profile::Baseline)
 			.num_threads(1)
 			.debug(false),
