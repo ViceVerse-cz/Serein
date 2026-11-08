@@ -5,11 +5,20 @@ use crate::crypto::Encryption;
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 
-pub const MAX_FRAME_BYTES: usize = 128 * 1024;
+pub const MAX_FRAME_BYTES: usize = crate::camera::MAX_ENCODED_BYTES;
 const PAYLOAD: usize = 1100;
+/// Packets one queued frame may occupy, including DAVE and FU-A overhead.
+const MAX_FRAME_PACKETS: usize = (MAX_FRAME_BYTES + 1024).div_ceil(PAYLOAD - 2) + 64;
+/// A new frame is queued only while the backlog stays below this many packets, which bounds
+/// added latency to roughly one keyframe at the paced send rate.
+const MAX_BACKLOG: usize = 160;
+const MAX_PACKETS: usize = MAX_BACKLOG + MAX_FRAME_PACKETS;
 
 pub struct Frame {
 	pub generation: u64,
+	/// Consecutive per encoded picture; a gap means a predicted picture lost its reference.
+	pub sequence: u64,
+	pub keyframe: bool,
 	pub timestamp: u32,
 	pub data: Vec<u8>,
 }
@@ -23,6 +32,9 @@ pub(crate) struct Sender {
 	pub generation: u64,
 	pub announced: bool,
 	packets: VecDeque<Vec<u8>>,
+	/// Sequence the next predicted frame must carry; `None` until a keyframe restarts the
+	/// chain after any picture was dropped or a queue was flushed mid-frame.
+	next: Option<u64>,
 }
 impl Sender {
 	pub fn configure(&mut self, data: &Value, audio: u32) {
@@ -50,11 +62,36 @@ impl Sender {
 	pub fn available(&self) -> bool {
 		self.negotiated && self.ssrc != 0
 	}
-	pub fn announcement(&self, audio: u32, enabled: bool) -> Value {
-		json!({"op":12,"d":{"audio_ssrc":audio,"video_ssrc":if enabled {self.ssrc} else {0},"rtx_ssrc":if enabled {self.rtx} else {0},"streams":if enabled {vec![json!({"type":"video","rid":"100","ssrc":self.ssrc,"rtx_ssrc":self.rtx,"active":true,"quality":100,"max_bitrate":600_000,"max_framerate":15,"max_resolution":{"type":"fixed","width":640,"height":480}})]}else{vec![]}}})
+	pub fn ssrc(&self) -> u32 {
+		self.ssrc
 	}
+	pub fn announcement(&self, audio: u32, enabled: bool) -> Value {
+		use crate::camera::{BIT_RATE, FPS, HEIGHT, WIDTH};
+		json!({"op":12,"d":{"audio_ssrc":audio,"video_ssrc":if enabled {self.ssrc} else {0},"rtx_ssrc":if enabled {self.rtx} else {0},"streams":if enabled {vec![json!({"type":"video","rid":"100","ssrc":self.ssrc,"rtx_ssrc":self.rtx,"active":true,"quality":100,"max_bitrate":BIT_RATE,"max_framerate":FPS,"max_resolution":{"type":"fixed","width":WIDTH,"height":HEIGHT}})]}else{vec![]}}})
+	}
+	/// Drops queued packets. A partly sent picture breaks the prediction chain.
 	pub fn clear(&mut self) {
+		if !self.packets.is_empty() {
+			self.next = None;
+		}
 		self.packets.clear();
+	}
+	/// Forgets the prediction chain, e.g. when the camera generation changes.
+	pub fn restart(&mut self) {
+		self.clear();
+		self.next = None;
+	}
+	/// Whether `frame` can be queued now without breaking what receivers decode. A `false`
+	/// answer means the frame is dropped, so the chain waits for a keyframe.
+	pub fn accepts(&mut self, frame: &Frame) -> bool {
+		let continues = frame.keyframe || self.next == Some(frame.sequence);
+		if continues && self.packets.len() < MAX_BACKLOG {
+			self.next = frame.sequence.checked_add(1);
+			true
+		} else {
+			self.next = None;
+			false
+		}
 	}
 	pub fn is_empty(&self) -> bool {
 		self.packets.is_empty()
@@ -68,7 +105,7 @@ impl Sender {
 		timestamp: u32,
 		encryption: &mut Encryption,
 	) -> Result<(), &'static str> {
-		if frame.len() > MAX_FRAME_BYTES + 1024 || !self.packets.is_empty() {
+		if frame.len() > MAX_FRAME_BYTES + 1024 || self.packets.len() >= MAX_BACKLOG {
 			return Err("Camera frame exceeds the media budget");
 		}
 		let nals = nal_units(frame)?;
@@ -101,7 +138,7 @@ impl Sender {
 		marker: bool,
 		encryption: &mut Encryption,
 	) -> Result<(), &'static str> {
-		if self.packets.len() >= 256 {
+		if self.packets.len() >= MAX_PACKETS {
 			return Err("Camera packet queue exceeds its budget");
 		}
 		let mut header = [0; 12];
@@ -175,5 +212,50 @@ mod tests {
 				.is_err()
 		);
 		assert!(nal_units(&[0, 0, 1]).is_err());
+		// The largest accepted frame still fits behind a full backlog.
+		let mut largest = vec![0, 0, 0, 1, 0x65];
+		largest.extend(vec![9; MAX_FRAME_BYTES]);
+		for _ in 0..MAX_BACKLOG {
+			sender.packets.push_back(Vec::new());
+		}
+		sender.packets.pop_back();
+		sender.packetize(&largest, 0, &mut crypto).unwrap();
+	}
+
+	#[test]
+	fn predicted_frames_follow_an_unbroken_chain_from_a_keyframe() {
+		let frame = |sequence, keyframe| Frame {
+			generation: 1,
+			sequence,
+			keyframe,
+			timestamp: 0,
+			data: Vec::new(),
+		};
+		let mut sender = Sender::default();
+		// Nothing predicted is sent before the first keyframe.
+		assert!(!sender.accepts(&frame(0, false)));
+		assert!(sender.accepts(&frame(1, true)));
+		assert!(sender.accepts(&frame(2, false)));
+		// A gap (a picture dropped before the transport) stops predictions until a keyframe.
+		assert!(!sender.accepts(&frame(4, false)));
+		assert!(!sender.accepts(&frame(5, false)));
+		assert!(sender.accepts(&frame(6, true)));
+		assert!(sender.accepts(&frame(7, false)));
+		// Flushing a partly sent picture breaks the chain too; an idle flush does not.
+		sender.clear();
+		assert!(sender.accepts(&frame(8, false)));
+		sender.packets.push_back(Vec::new());
+		sender.clear();
+		assert!(!sender.accepts(&frame(9, false)));
+		assert!(sender.accepts(&frame(10, true)));
+		// A full backlog drops the frame and the chain with it.
+		for _ in 0..MAX_BACKLOG {
+			sender.packets.push_back(Vec::new());
+		}
+		assert!(!sender.accepts(&frame(11, false)));
+		sender.packets.clear();
+		assert!(!sender.accepts(&frame(12, false)));
+		sender.restart();
+		assert!(!sender.accepts(&frame(13, false)));
 	}
 }

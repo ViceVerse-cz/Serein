@@ -3,7 +3,7 @@
 
 mod directshow;
 
-use super::{FRAME_INTERVAL, HEIGHT, Shared, WIDTH, format};
+use super::{FRAME_GATE, FRAME_INTERVAL, HEIGHT, Shared, WIDTH, format};
 use std::{
 	marker::PhantomData,
 	rc::Rc,
@@ -25,7 +25,7 @@ use windows::{
 
 const VIDEO: u32 = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
 const MAX_FRAME_BYTES: usize = (WIDTH * 4 + 4096) * HEIGHT;
-const INVALID: &str = "Camera did not provide a bounded 640×480 RGB frame";
+const INVALID: &str = "Camera did not provide a bounded RGB frame";
 const UNAVAILABLE: &str = "Camera is busy or unavailable. Check Windows Settings > Privacy & security > Camera and allow desktop apps to access your camera.";
 const TIMEOUT: &str = "Camera stopped delivering frames; check the device and try again";
 

@@ -639,38 +639,44 @@ Stop, source failure, permission loss, leaving and logout release the preview.
 These paths have synthetic coverage; native camera/screen capture and live Discord
 viewing still require owner-operated validation.
 
-Native capture prefers the closest supported size to the 640×480 encoder, with
+Native capture prefers the closest supported size to the 1280×720 encoder, with
 a 1280×720 input ceiling (DirectShow preserves its existing 1920×1080 fallback).
 macOS and Windows rank native modes by dimension
-distance, then distance from 15 fps; macOS explicitly locks the device format
+distance, then distance from 30 fps; macOS explicitly locks the device format
 and supported frame duration; AVFoundation aspect fitting preserves nonmatching
 native ratios with black bars before the callback. Windows drivers without
 frame-rate metadata retain their bounded fallback and rank after known rates at
 the same resolution. Linux probes each candidate with its effective
 V4L2 interval before ranking it and reapplies the selected interval after the final
 format change. Drivers without interval metadata rank last at the same resolution.
-Capture is converted to 640×480, capped at 15 encoded frames/second, encoded on a worker with a
-600 kbit/s target (not a measured bandwidth guarantee). The worker prefers the platform
+Capture is converted to 1280×720 (other aspect ratios keep black bars), capped at 30
+encoded frames/second, encoded on a worker with a 2.5 Mbit/s target (not a measured
+bandwidth guarantee). The capture rate gate admits pictures up to a quarter interval early,
+so a 30 fps device is not halved by delivery jitter. The worker prefers the platform
 hardware H.264 encoder, the same VideoToolbox and Media Foundation encoders screen sharing
 uses, and VA-API or NVENC through a private GStreamer pipeline on Linux. OpenH264 remains
 the fallback when no hardware encoder is available and when one fails mid-capture, which
 switches the remaining capture to software rather than ending it. Every path requests the
-Baseline profile and codes each picture as an IDR, so the wire format is unchanged; a
-hardware encoder whose output is not independently decodable is rejected in favor of the
-software one. macOS retains one pending
-BGRA frame (1,228,800 bytes). Windows validates each native buffer against a 3,194,880-byte
+Baseline profile and codes predicted pictures between IDRs, which are periodic (every four
+seconds) or requested. Each IDR carries its parameter sets. macOS retains one pending
+BGRA frame (3,686,400 bytes). Windows validates each native buffer against a 6,635,520-byte
 ceiling (including row padding), requests one source buffer and queues at most one
-921,600-byte RGB frame. Linux requests two mapped buffers, accepts at most four of
+2,764,800-byte RGB frame. Linux requests two mapped buffers, accepts at most four of
 4 MiB each, and decodes YUYV or MJPEG on the worker with a 4 MiB JPEG allocation limit.
-One RGB preview, one encoded frame (128 KiB), and up to 256 RTP
-packets from one bounded frame are retained. Frames are independently decodable to tolerate
-drops. DAVE H264 frame encryption precedes RTP fragmentation and the existing authenticated
+One RGB preview, one encoded frame (256 KiB), up to four encoded frames waiting for the
+voice transport, and at most 464 RTP packets are retained; a new frame is queued only
+while fewer than 160 packets wait, and the transport sends at most three camera packets
+every 2 ms. Every encoded picture is numbered. The transport sends a predicted picture
+only when it directly follows the last one sent; any gap (a full channel or backlog, a
+flush mid-frame, camera off or rekeying) drops pictures until the next IDR and asks the
+encoder for one, at most every 300 ms. RTCP PLI or NACK for the camera SSRC also requests
+an IDR, at most twice a second; the camera sender has no RTX history. DAVE H264 frame encryption precedes RTP fragmentation and the existing authenticated
 UDP transport. No camera recording or cache is created; the codec is included on supported platforms.
 
 Video SSRC assignment, H264 selection and opcode 12 announcements follow the
 [public interoperability implementation](https://github.com/dank074/Discord-video-stream/blob/master/src/client/voice/BaseMediaConnection.ts)
 (checked September 11, 2026); these normal-user video extensions remain unofficial and
-live-unverified. This initial sender has no adaptive
+live-unverified. The camera sender has no adaptive
 bitrate or RTP retransmission. Physical
 permission/device behavior, delivery to the official client and network-loss performance
 require the owner-controlled live gate; an offline launch does not establish those results.
@@ -690,11 +696,11 @@ call, settings show the existing call preview. Demo mode never opens a camera.
 Physical capture and native permission behavior still require owner verification.
 
 Media Foundation selects a native mode at or below 1280×720 and uses its
-video processor to resize/convert to 640×480 RGB32.
+video processor to resize/convert to 1280×720 RGB32.
 DirectShow discovery/capture additionally covers virtual cameras such as OBS and
 NVIDIA Broadcast, which may not appear in Media Foundation enumeration.
 Its native input is limited to 1920×1080, converted to RGB24 and fitted into
-640×480 with aspect-preserving nearest-neighbor scaling and black bars. It retains
+1280×720 with aspect-preserving nearest-neighbor scaling and black bars. It retains
 one callback frame (at most 8,294,400 bytes) and validates the negotiated input
 allocator against eight buffers of at most that size each. Vendor-driver and
 upstream decoder allocations remain separate from those application limits.

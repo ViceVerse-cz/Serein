@@ -1,7 +1,7 @@
 //! Native V4L2 single-plane streaming; no capture helper process or recording.
 #![allow(unsafe_code)]
 
-use super::{DeviceList, FRAME_INTERVAL, HEIGHT, Shared, WIDTH, format};
+use super::{DeviceList, FRAME_GATE, FRAME_INTERVAL, HEIGHT, Shared, WIDTH, format};
 use image::{ImageDecoder, codecs::jpeg::JpegDecoder};
 use std::{
 	fs::{File, OpenOptions},
@@ -474,7 +474,7 @@ pub(super) fn run(
 		if used == 0 || used > mapping.length || used > capture.pixels.size as usize {
 			return Err("Camera frame exceeds its native buffer bounds");
 		}
-		let rgb = if buffer.flags & 0x40 == 0 && last_emitted.elapsed() >= FRAME_INTERVAL {
+		let rgb = if buffer.flags & 0x40 == 0 && last_emitted.elapsed() >= FRAME_GATE {
 			// SAFETY: DQBUF gives exclusive userspace access until QBUF. Length
 			// was checked against the retained mapping; decoding finishes first.
 			let bytes = unsafe { std::slice::from_raw_parts(mapping.address.cast::<u8>(), used) };
@@ -676,22 +676,21 @@ mod tests {
 		assert_eq!(effective_fps(0, 15), None);
 		assert_eq!(effective_fps(1, 0), None);
 		let pixels = Pixels {
-			width: 1280,
-			height: 720,
+			width: 640,
+			height: 480,
 			format: MJPEG,
 			field: 1,
 			size: MAX_FRAME_BYTES as u32,
 			..Pixels::default()
 		};
 		assert!(validate_format(pixels).is_ok());
-		let rgb = fit_rgb(vec![255; 1280 * 720 * 3], pixels).unwrap();
+		let rgb = fit_rgb(vec![255; 640 * 480 * 3], pixels).unwrap();
 		assert_eq!(rgb.len(), WIDTH * HEIGHT * 3);
-		// 16:9 input is centered in the 4:3 encoder, keeping black bars above/below.
-		assert_eq!(&rgb[..WIDTH * 3], vec![0; WIDTH * 3]);
-		assert_eq!(
-			&rgb[(HEIGHT / 2) * WIDTH * 3..(HEIGHT / 2 + 1) * WIDTH * 3],
-			vec![255; WIDTH * 3]
-		);
+		// 4:3 input is centered in the 16:9 encoder, keeping black bars left and right.
+		let middle = &rgb[(HEIGHT / 2) * WIDTH * 3..(HEIGHT / 2 + 1) * WIDTH * 3];
+		assert_eq!(&middle[..3], [0; 3]);
+		assert_eq!(&middle[(WIDTH / 2) * 3..(WIDTH / 2 + 1) * 3], [255; 3]);
+		assert_eq!(&middle[(WIDTH - 1) * 3..], [0; 3]);
 	}
 
 	#[test]

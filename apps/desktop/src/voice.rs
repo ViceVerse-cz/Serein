@@ -1675,15 +1675,22 @@ impl Voice {
 			let preview = receive.clone();
 			let start = live.camera_clock;
 			let wake = ctx.clone();
+			// Numbers every encoded picture, so the transport sees any picture lost on the way.
+			let sequence = std::sync::atomic::AtomicU64::new(0);
 			let on_frame = std::sync::Arc::new(move |frame: discord_voice::camera::Frame| {
 				// Held or dropped pictures carry no H264 but still refresh the local preview.
 				let data = frame.h264;
-				if (1..=discord_voice::camera_video::MAX_FRAME_BYTES).contains(&data.len()) {
-					let _ = send.try_send(discord_voice::camera_video::Frame {
-						generation,
-						timestamp: (start.elapsed().as_micros() * 90 / 1000) as u32,
-						data,
-					});
+				if !data.is_empty() {
+					let sequence = sequence.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+					if data.len() <= discord_voice::camera_video::MAX_FRAME_BYTES {
+						let _ = send.try_send(discord_voice::camera_video::Frame {
+							generation,
+							sequence,
+							keyframe: frame.keyframe,
+							timestamp: (start.elapsed().as_micros() * 90 / 1000) as u32,
+							data,
+						});
+					}
 				}
 				if let Ok(mut slot) = preview.try_lock()
 					&& store_camera_frame(&mut slot, &frame.rgb)
@@ -1744,7 +1751,8 @@ impl Voice {
 		input_enabled: bool,
 	) -> Result<(), &'static str> {
 		let (capture_send, capture) = mpsc::sync_channel(8);
-		let (camera_frames, camera_receive) = mpsc::sync_channel(1);
+		// A few pictures of slack: every predicted picture lost here costs a keyframe.
+		let (camera_frames, camera_receive) = mpsc::sync_channel(4);
 		let (stream_audio, stream_audio_receive) = mpsc::sync_channel(8);
 		let (playback, playback_receive) = mpsc::sync_channel(8);
 		let (send, events) = mpsc::sync_channel(8);

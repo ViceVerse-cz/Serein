@@ -1811,7 +1811,7 @@ and cleanup still apply. Existing selected files take the regular composer send 
 ### Local camera settings preview
 
 The explicit settings preview shares the process-wide single camera-worker limit with
-calls. It retains one 640×480 RGBA picture (1,228,800 bytes), one UI texture and its
+calls. It retains one 1280×720 RGBA picture (3,686,400 bytes), one UI texture and its
 upload copy, alongside the existing bounded native capture/encoding buffers. It has
 no network sender, recording or persistent storage. Device choices stay session-local;
 discovery retains at most 32 IDs/names (136 KiB). Closing Voice & Audio, changing the
@@ -1911,7 +1911,7 @@ network or disk cache is used for this bundled artwork, including in offline dem
 
 Camera input selection is limited to 1280×720 except DirectShow, which preserves
 its existing bounded 1920×1080 fallback for virtual cameras, while
-encoded/preview output remains 640×480 at most 15 fps. macOS scans at most 256 native
+encoded/preview output is 1280×720 at most 30 fps. macOS scans at most 256 native
 formats and 256 frame-rate ranges per format on its camera worker. Windows scans
 at most 256 native media types; DirectShow retains one callback frame of at most
 8,294,400 bytes and validates at most eight driver buffers of that size. Linux

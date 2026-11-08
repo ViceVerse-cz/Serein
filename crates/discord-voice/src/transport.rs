@@ -422,6 +422,8 @@ async fn run_inner(
 	let mut discovery_deadline = Instant::now();
 	let mut ssrc = 0u32;
 	let mut video = crate::camera_video::Sender::default();
+	// Earliest moment the camera may be asked for another keyframe.
+	let mut camera_keyframe_at = Instant::now();
 	let mut video_tick = tokio::time::interval(Duration::from_millis(2));
 	video_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 	let mut mixer = crate::mixer::Mixer::default();
@@ -537,8 +539,12 @@ async fn run_inner(
 				   _=video_tick.tick(), if !video.is_empty()=>{
 					   let generation=controls.borrow().camera;
 					   if !dave.ready || resuming || generation==0 || generation!=video.generation {video.clear();}
-					   else if let Some(packet)=video.next() && let Some(socket)=&udp {
-						   udp_failures.send(socket,&packet,"Camera UDP send failed")?;
+					   else if let Some(socket)=&udp {
+						   // Three packets per tick keep a 720p keyframe to a fraction of a second.
+						   for _ in 0..3 {
+							   let Some(packet)=video.next() else {break;};
+							   udp_failures.send(socket,&packet,"Camera UDP send failed")?;
+						   }
 					   }
 				   },
 				   _=tick.tick()=>{
@@ -589,15 +595,24 @@ async fn run_inner(
 					   }
 					   let control=*controls.borrow();
 					   let camera_enabled=enabled && video.available() && control.camera!=0;
-					   if !camera_enabled || video.generation!=control.camera {video.clear();}
+					   if !camera_enabled || video.generation!=control.camera {video.restart();}
 					   video.generation=control.camera;
 					   if video.announced && !camera_enabled {
 						   json_send(&mut ws,video.announcement(ssrc,camera_enabled)).await?;
 						   video.announced=camera_enabled;
 					   }
-					   if let Some(camera)=&camera && let Ok(frame)=camera.try_recv()
-						   && camera_enabled && frame.generation==control.camera && video.is_empty()
-						   && frame.data.len()<=crate::camera_video::MAX_FRAME_BYTES {
+					   // Pictures predict from their predecessor: any frame dropped here breaks
+					   // the chain, and the camera is asked for a keyframe to restart it.
+					   while let Some(camera)=&camera && let Ok(frame)=camera.try_recv() {
+						   if !camera_enabled || frame.generation!=control.camera
+							   || frame.data.len()>crate::camera_video::MAX_FRAME_BYTES {continue;}
+						   if !video.accepts(&frame) {
+							   if now>=camera_keyframe_at {
+								   crate::camera::request_keyframe();
+								   camera_keyframe_at=now+Duration::from_millis(300);
+							   }
+							   continue;
+						   }
 						   if !video.announced {
 							   json_send(&mut ws,video.announcement(ssrc,true)).await?;
 							   video.announced=true;
@@ -681,6 +696,16 @@ async fn run_inner(
 						   discovering=false;continue;
 					   }
 					   let Some(crypto)=&encryption else{continue;};
+					   // A receiver that lost camera pictures (PLI) or packets (NACK, no RTX here)
+					   // stays frozen until the next keyframe, so request one at most twice a second.
+					   if video.announced && let Some(feedback)=crypto.feedback(&packet[..length],video.ssrc()) {
+						   let now=Instant::now();
+						   if (feedback.keyframe || !feedback.nacks.is_empty()) && now>=camera_keyframe_at {
+							   crate::camera::request_keyframe();
+							   camera_keyframe_at=now+Duration::from_millis(500);
+						   }
+						   continue;
+					   }
 					   let start = metrics.start();
 					   let Some(mut rtp)=crypto.open(&packet[..length]) else{metrics.video(Video::OpenFailed,1);continue;};
 					   if rtp.payload_type==102 {metrics.video(Video::Rtx,1);let Some((media,sequence))=receivers.restore_rtx(rtp.ssrc,&mut rtp.payload) else{continue;};rtp.ssrc=media;rtp.sequence=sequence;rtp.payload_type=101;}

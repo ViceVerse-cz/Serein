@@ -1,7 +1,7 @@
 //! Compatibility path for virtual cameras registered only with DirectShow.
 #![allow(non_snake_case)] // Custom COM interfaces preserve the Qedit.h method names.
 use super::super::format;
-use super::{FRAME_INTERVAL, HEIGHT, INVALID, Shared, TIMEOUT, UNAVAILABLE, WIDTH};
+use super::{FRAME_GATE, FRAME_INTERVAL, HEIGHT, INVALID, Shared, TIMEOUT, UNAVAILABLE, WIDTH};
 use std::{
 	ffi::c_void,
 	mem::ManuallyDrop,
@@ -81,7 +81,7 @@ impl ISampleGrabberCB_Impl for Callback_Impl {
 						return Err("Camera changed its video format; restart the camera");
 					}
 				}
-				if last.0.elapsed() < FRAME_INTERVAL {
+				if last.0.elapsed() < FRAME_GATE {
 					return Ok(None);
 				}
 				last.0 = Instant::now();
