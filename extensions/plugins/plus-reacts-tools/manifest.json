@@ -1,0 +1,22 @@
+{
+  "api_version": 1,
+  "id": "plus-reacts-tools",
+  "name": "Plus Reacts (loaded timeline)",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/plus-reacts-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "composer",
+    "timeline",
+    "reactions_control"
+  ],
+  "actions": [
+    {
+      "id": "plus-react",
+      "label": "React to an earlier loaded message using leading plus signs",
+      "surface": "composer"
+    }
+  ]
+}
