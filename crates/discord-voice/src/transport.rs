@@ -719,10 +719,11 @@ async fn run_inner(
 						   transport_feedback.receive(sequence,Instant::now().into_std());
 						   metrics.video(Video::TwccReceived,1);
 					   }
+					   // Count video and RTX datagrams before restoration, which drops unknown RTX.
+					   if rtp.payload_type==101 || rtp.payload_type==102 {metrics.video(Video::RtpBytes,length as u64);}
 					   if rtp.payload_type==102 {metrics.video(Video::Rtx,1);let Some((media,sequence))=receivers.restore_rtx(rtp.ssrc,&mut rtp.payload) else{continue;};rtp.ssrc=media;rtp.sequence=sequence;rtp.payload_type=101;}
 					   if rtp.payload_type==101 {
 						   metrics.video(Video::Packets,1);
-						   metrics.video(Video::RtpBytes,length as u64);
 						   let Some(decoder)=&decoder else{continue;};
 						   if !dave.ready {metrics.video(Video::NotReady,1);continue;}
 						   if receivers.has_source(rtp.ssrc) {receive_reports.receive(rtp.ssrc,rtp.sequence,rtp.timestamp,Instant::now().into_std());}
