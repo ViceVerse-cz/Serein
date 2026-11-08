@@ -180,6 +180,14 @@ pub enum InterfaceTweak {
 	/// Double-clicking a message's blank space edits your own message or replies to someone
 	/// else's, in place of the double-click reaction.
 	DoubleClickReplyEdit,
+	/// Message authors and member-list names show the account's username beside a differing
+	/// display name or server nickname.
+	UsernameBesideName,
+	/// The server owner carries a crown beside their name in messages and the member list.
+	OwnerCrown,
+	/// Message authors and member-list names show which kinds of client (desktop, web,
+	/// mobile) the person is online from.
+	PlatformIndicators,
 }
 
 impl InterfaceTweak {
@@ -194,6 +202,9 @@ impl InterfaceTweak {
 		Self::HiddenProfileNotes,
 		Self::LargeStreamPreview,
 		Self::DoubleClickReplyEdit,
+		Self::UsernameBesideName,
+		Self::OwnerCrown,
+		Self::PlatformIndicators,
 	];
 }
 

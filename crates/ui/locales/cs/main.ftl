@@ -5016,3 +5016,7 @@ timestamp-style-full = Úplné datum a čas
 timestamp-style-relative = Relativní čas
 timestamp-style-short-date-time = Krátké datum a čas
 timestamp-style-short-date-seconds = Krátké datum a čas se sekundami
+name-marks-server-owner = Vlastník serveru
+name-marks-online-desktop = Online na počítači
+name-marks-online-web = Online na webu
+name-marks-online-mobile = Online na mobilu

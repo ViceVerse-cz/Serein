@@ -4886,3 +4886,7 @@ new-message-hint = Dodaj znajomych, aby rozpocząć wiadomość prywatną lub gr
 new-message-no-people-found = Nikt nie pasuje do tego wyszukiwania.
 new-message-create = Utwórz wiadomość
 new-message-cancel = Anuluj
+name-marks-server-owner = Właściciel serwera
+name-marks-online-desktop = Online na komputerze
+name-marks-online-web = Online w przeglądarce
+name-marks-online-mobile = Online na telefonie

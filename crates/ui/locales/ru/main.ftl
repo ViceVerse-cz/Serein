@@ -4887,3 +4887,7 @@ new-message-hint = Добавьте друзей, чтобы начать лич
 new-message-no-people-found = Никто не найден.
 new-message-create = Создать сообщение
 new-message-cancel = Отмена
+name-marks-server-owner = Владелец сервера
+name-marks-online-desktop = В сети с компьютера
+name-marks-online-web = В сети в браузере
+name-marks-online-mobile = В сети с телефона

@@ -5075,3 +5075,7 @@ timestamp-style-full = Full date and time
 timestamp-style-relative = Relative time
 timestamp-style-short-date-time = Short date and time
 timestamp-style-short-date-seconds = Short date and time with seconds
+name-marks-server-owner = Server Owner
+name-marks-online-desktop = Online on desktop
+name-marks-online-web = Online on the web
+name-marks-online-mobile = Online on mobile

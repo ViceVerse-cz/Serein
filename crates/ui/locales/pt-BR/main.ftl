@@ -4884,3 +4884,7 @@ new-message-hint = Adicione amigos para iniciar uma mensagem direta ou um grupo.
 new-message-no-people-found = Ninguém corresponde a essa pesquisa.
 new-message-create = Criar mensagem
 new-message-cancel = Cancelar
+name-marks-server-owner = Dono do servidor
+name-marks-online-desktop = Online no computador
+name-marks-online-web = Online na web
+name-marks-online-mobile = Online no celular

@@ -4867,3 +4867,7 @@ new-message-hint = フレンドを追加して、DMまたはグループを開�
 new-message-no-people-found = 一致する相手はいません。
 new-message-create = メッセージを作成
 new-message-cancel = キャンセル
+name-marks-server-owner = サーバーオーナー
+name-marks-online-desktop = デスクトップでオンライン
+name-marks-online-web = ウェブでオンライン
+name-marks-online-mobile = モバイルでオンライン

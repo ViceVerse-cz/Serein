@@ -310,6 +310,9 @@ fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
 			sdk::InterfaceTweak::HiddenProfileNotes,
 			sdk::InterfaceTweak::LargeStreamPreview,
 			sdk::InterfaceTweak::DoubleClickReplyEdit,
+			sdk::InterfaceTweak::UsernameBesideName,
+			sdk::InterfaceTweak::OwnerCrown,
+			sdk::InterfaceTweak::PlatformIndicators,
 		]),
 		..Default::default()
 	};

@@ -3588,6 +3588,16 @@ impl TimelineView {
 												&message.author,
 											);
 											surface.keep(&author);
+											crate::name_marks::Marks::of(
+												ui.ctx(),
+												state,
+												&message.author,
+												state.message_author_name(message),
+												state
+													.channel(message.channel)
+													.and_then(|c| c.guild),
+											)
+											.show(ui);
 										},
 									);
 									ui.spacing_mut().item_spacing.x = body_spacing;
@@ -3667,6 +3677,16 @@ impl TimelineView {
 													&message.author,
 												);
 												surface.keep(&author);
+												crate::name_marks::Marks::of(
+													ui.ctx(),
+													state,
+													&message.author,
+													state.message_author_name(message),
+													state
+														.channel(message.channel)
+														.and_then(|c| c.guild),
+												)
+												.show(ui);
 												let time = timestamp(id);
 												let time = ui
 													.label(

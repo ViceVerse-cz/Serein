@@ -4892,3 +4892,7 @@ new-message-hint = Fügen Sie Freunde hinzu, um eine Direktnachricht oder eine G
 new-message-no-people-found = Niemand entspricht dieser Suche.
 new-message-create = Nachricht erstellen
 new-message-cancel = Abbrechen
+name-marks-server-owner = Serverbesitzer
+name-marks-online-desktop = Online am Desktop
+name-marks-online-web = Online im Web
+name-marks-online-mobile = Online am Handy

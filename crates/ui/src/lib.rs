@@ -44,6 +44,7 @@ mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
 mod interface_tweaks;
+mod name_marks;
 mod new_message;
 pub mod proxy_auth;
 mod rich_presence;
@@ -1873,9 +1874,17 @@ impl MessagingUi {
 												.primary_guild
 												.as_deref()
 												.filter(|_| !self.cosmetics.hide_clan_tags);
+											let marks = name_marks::Marks::of(
+												ui.ctx(),
+												state,
+												&member.user,
+												name,
+												guild,
+											);
 											let trailing =
 												profiles::server_tag_width(ui, server_tag)
-													+ if server_tag.is_some() { 5.0 } else { 0.0 };
+													+ if server_tag.is_some() { 5.0 } else { 0.0 }
+													+ marks.reserve();
 											crate::name_styles::in_row(
 												response.contains_pointer() || response.has_focus(),
 												|| {
@@ -1908,6 +1917,7 @@ impl MessagingUi {
 													state.demo,
 												);
 											}
+											marks.show(ui);
 										},
 									);
 								};

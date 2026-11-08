@@ -4982,3 +4982,7 @@ new-message-hint = 添加好友以开始私信或群组。
 new-message-no-people-found = 没有匹配的结果。
 new-message-create = 创建消息
 new-message-cancel = 取消
+name-marks-server-owner = 服务器所有者
+name-marks-online-desktop = 桌面端在线
+name-marks-online-web = 网页端在线
+name-marks-online-mobile = 移动端在线

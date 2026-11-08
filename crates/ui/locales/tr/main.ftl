@@ -4870,3 +4870,7 @@ new-message-hint = Bir doğrudan mesaj veya grup başlatmak için arkadaş ekley
 new-message-no-people-found = Bu aramayla eşleşen kimse yok.
 new-message-create = Mesaj Oluştur
 new-message-cancel = İptal
+name-marks-server-owner = Sunucu Sahibi
+name-marks-online-desktop = Masaüstünde çevrimiçi
+name-marks-online-web = Web'de çevrimiçi
+name-marks-online-mobile = Mobilde çevrimiçi
