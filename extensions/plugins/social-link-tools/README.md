@@ -21,6 +21,7 @@ send messages automatically, or make network requests.
 | `cancel` | panel | Proposes exactly one `ResolveFriendRequest { user_id, accept: false }` for the selected user, but only after rechecking that the same loaded relationship is still `outgoing_request`. |
 | `normalize-links` | message | Rewrites only the authority of exact `https://canary.discord.com` and `https://ptb.discord.com` links to `https://discord.com` and proposes one `CopyText` with the exact normalized message text. |
 | `repeat` | message | Proposes one `SendMessage` with the sanitized text for explicit **Apply**. Mentions are neutralized before sending; no attachments, stickers, reply target or alternate channel are added. |
+| `repeat-reply` | message | Proposes one `SendReply` to the selected message with the same sanitization and `mention: false`, so the reply cannot notify the original author merely because it is a reply. |
 
 Every action runs only when the user invokes it. Cancel, link copy and repeat
 all use the host's Apply confirmation. No invocation fetches, opens a link,
@@ -75,17 +76,21 @@ the explicit send but removes the automatic path and the extra payloads.
 
 - The action is a message action and requires a valid `selected_message_ref`
   plus nonblank selected text. Missing, invalid or zero IDs are inactive.
-- It returns exactly one `AppAction::SendMessage` using
-  `selected_message_ref.channel_id` and the reviewed sanitized text. The
-  ordinary **Apply** confirmation must be pressed before Serein sends anything.
+- `repeat` returns exactly one `AppAction::SendMessage` using
+  `selected_message_ref.channel_id` and the reviewed sanitized text;
+  `repeat-reply` returns exactly one `AppAction::SendReply` to
+  `selected_message_ref.message_id` with `mention: false`. The ordinary
+  **Apply** confirmation must be pressed before Serein sends anything.
 - Before Apply, user/role mentions `<@...`, `<@!...>` and `<@&...>` plus literal
   `@everyone`/`@here` are neutralized by inserting U+200B ZERO WIDTH SPACE after
   the `@`. This cannot notify those targets merely because the old message did.
   Fenced code, inline code, raw HTTP(S) URLs and non-mention text are copied
   unchanged. The panel explicitly says the payload is sanitized, not
   byte-identical, and displays the exact payload.
-- No attachment, sticker, reply target or alternate channel is constructed.
-  There is no retry, timer, background behavior or plugin network call.
+- No attachment, sticker or alternate channel is constructed. The optional
+  reply target is only the exact selected message, never auto-selected from
+  surrounding messages, and its reply mention is disabled. There is no retry,
+  timer, background behavior or plugin network call.
 - Empty or whitespace-only text, unsupported control characters, or text above
   2,000 Unicode scalar values / 8,000 UTF-8 bytes **after neutralization**
   produces a bounded panel and no effect.
@@ -138,6 +143,8 @@ guild, account, credential or network capability is requested.
   URLs, code and non-mention text unchanged;
 - exactly one `send_message` effect with the selected channel and exact sanitized
   payload, no replacement and no reply/sticker/reference output;
+- exactly one `send_reply` effect to the selected message with `mention: false`
+  and no `send_message` output;
 - repeat missing, empty, control-only, oversized or mention-expanded text
   remaining inactive.
 

@@ -1,0 +1,38 @@
+{
+  "api_version": 1,
+  "id": "message-inspector-tools",
+  "name": "Message Inspector Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/message-inspector-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "selected_message",
+    "member_details",
+    "clipboard_write",
+    "storage"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Configure role exclusions",
+      "surface": "panel"
+    },
+    {
+      "id": "save",
+      "label": "Save role exclusions",
+      "surface": "panel"
+    },
+    {
+      "id": "show-role",
+      "label": "Show author's highest loaded role",
+      "surface": "message"
+    },
+    {
+      "id": "copy-magnets",
+      "label": "Copy parsed magnet links",
+      "surface": "message"
+    }
+  ]
+}

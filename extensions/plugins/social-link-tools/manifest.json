@@ -34,6 +34,11 @@
       "id": "repeat",
       "label": "Send selected message with neutralized mentions",
       "surface": "message"
+    },
+    {
+      "id": "repeat-reply",
+      "label": "Reply with selected message and neutralized mentions",
+      "surface": "message"
     }
   ]
 }

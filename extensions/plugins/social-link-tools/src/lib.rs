@@ -13,7 +13,8 @@
  * with accept=false only for a currently loaded outgoing request. Message
  * link normalization only rewrites the authority of exact canary/ptb HTTPS
  * Discord message links and proposes a clipboard copy. Repeat proposes one
- * Apply-reviewed send with user/role and @everyone/@here mentions neutralized.
+ * Apply-reviewed send, optionally as a reply with reply mention disabled,
+ * with user/role and @everyone/@here mentions neutralized.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 3 or (at your
@@ -498,7 +499,7 @@ fn push_payload_text(panel: &mut Vec<Element>, payload: &str) {
 	}
 }
 
-fn repeat_message(input: &MessageActionInvocation) -> AppOutput {
+fn repeat_message(input: &MessageActionInvocation, reply: bool) -> AppOutput {
 	let reference = match selected_reference(input) {
 		Ok(reference) => reference,
 		Err(message) => return error_output("Repeat message", message),
@@ -531,27 +532,44 @@ fn repeat_message(input: &MessageActionInvocation) -> AppOutput {
 			"The selected text contains unsupported control characters. Nothing was proposed.",
 		);
 	}
-	let mut panel = vec![
-		heading("Repeat message"),
-		text(format!(
+	let destination = if reply {
+		format!(
+			"Apply sends this reviewed text as a reply to message {} in channel {}. Reply mention is disabled; no attachment or sticker is added.",
+			reference.message_id, reference.channel_id
+		)
+	} else {
+		format!(
 			"Apply sends this reviewed text to channel {}. No attachment, sticker or reply target is added.",
 			reference.channel_id
-		)),
+		)
+	};
+	let mut panel = vec![
+		heading(if reply {
+			"Repeat message and reply"
+		} else {
+			"Repeat message"
+		}),
+		text(destination),
 		text(
 			"Mentions are neutralized with U+200B ZERO WIDTH SPACE before sending so this repeat cannot notify users, roles, @everyone or @here merely because the old message did. The payload shown below is the exact text that would be sent, not a byte-identical copy of the original.",
 		),
 		text("Exact sanitized payload:".to_owned()),
 	];
 	push_payload_text(&mut panel, &sanitized);
-	panel_output(
-		panel,
-		Some(HostEffect::AppAction {
-			action: AppAction::SendMessage {
-				channel_id: reference.channel_id.clone(),
-				content: sanitized,
-			},
-		}),
-	)
+	let action = if reply {
+		AppAction::SendReply {
+			channel_id: reference.channel_id.clone(),
+			message_id: reference.message_id.clone(),
+			content: sanitized,
+			mention: false,
+		}
+	} else {
+		AppAction::SendMessage {
+			channel_id: reference.channel_id.clone(),
+			content: sanitized,
+		}
+	};
+	panel_output(panel, Some(HostEffect::AppAction { action }))
 }
 
 fn handle(input: MessageActionInvocation) -> AppOutput {
@@ -559,7 +577,8 @@ fn handle(input: MessageActionInvocation) -> AppOutput {
 		"open" => open_requests(&input),
 		"cancel" => cancel_request(&input),
 		"normalize-links" => normalize_links(&input),
-		"repeat" => repeat_message(&input),
+		"repeat" => repeat_message(&input, false),
+		"repeat-reply" => repeat_message(&input, true),
 		_ => AppOutput::default(),
 	}
 }
@@ -813,6 +832,38 @@ mod tests {
 		assert!(!wire.contains("send_reply"));
 		assert!(!wire.contains("send_sticker"));
 		assert!(!wire.contains("message_reference"));
+	}
+
+	#[test]
+	fn repeat_reply_proposes_one_typed_reply_with_mention_disabled() {
+		let source = "hello <@123> @everyone";
+		let (output, wire) = run(message("repeat-reply", source));
+		let expected = "hello <@\u{200B}123> @\u{200B}everyone";
+		assert_eq!(output.effects.len(), 1);
+		let HostEffect::AppAction {
+			action:
+				AppAction::SendReply {
+					channel_id,
+					message_id,
+					content,
+					mention,
+				},
+		} = &output.effects[0]
+		else {
+			panic!("expected send_reply");
+		};
+		assert_eq!(channel_id, "100");
+		assert_eq!(message_id, "200");
+		assert_eq!(content, expected);
+		assert!(!mention);
+		assert_eq!(wire["effects"][0]["action"]["type"], "send_reply");
+		assert_eq!(wire["effects"][0]["action"]["mention"], false);
+		assert!(!wire.to_string().contains("send_message"));
+		let (missing, _) = run(serde_json::json!({
+			"action": "repeat-reply",
+			"selected_message": "hello"
+		}));
+		assert!(missing.effects.is_empty());
 	}
 
 	#[test]
