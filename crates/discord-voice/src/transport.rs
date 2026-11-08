@@ -182,6 +182,9 @@ fn transition(data: &Value) -> Result<u16, &'static str> {
 /// Restarts the camera prediction chain for a DAVE transition, group change or resume,
 /// and asks the encoder for an IDR right away. The request bypasses the feedback
 /// throttle: an IDR requested just before may have been discarded by the restart.
+/// The throttle is also cleared, not armed: while the call is resuming or securing,
+/// pictures (including that IDR) are dropped before the chain sees them, so the first
+/// predicted picture rejected once sending resumes must be able to ask again at once.
 fn restart_camera(
 	video: &mut crate::camera_video::Sender,
 	keyframe_at: &mut Instant,
@@ -189,7 +192,7 @@ fn restart_camera(
 ) {
 	video.restart();
 	request_keyframe();
-	*keyframe_at = Instant::now() + Duration::from_millis(300);
+	*keyframe_at = Instant::now();
 }
 fn h264_negotiated(data: &Value) -> bool {
 	data["video_codec"]
@@ -1930,7 +1933,9 @@ mod tests {
 		let mut requests = 0;
 		restart_camera(&mut video, &mut keyframe_at, || requests += 1);
 		assert_eq!(requests, 1);
-		assert!(keyframe_at <= Instant::now() + Duration::from_millis(300));
+		// The throttle is cleared, so the first predicted picture rejected once sending
+		// resumes (its IDR may have been dropped mid-resume) asks again immediately.
+		assert!(keyframe_at <= Instant::now());
 		// Predicted pictures already in flight are still dropped until the new IDR.
 		assert!(!video.accepts(&frame(3, false)));
 		assert!(video.accepts(&frame(4, true)));
