@@ -1,0 +1,25 @@
+{
+  "api_version": 1,
+  "id": "voice-panel-tools",
+  "name": "Voice Panel Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/voice-panel-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "audio_settings"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Open voice panel tools",
+      "surface": "panel"
+    },
+    {
+      "id": "apply",
+      "label": "Review volume change",
+      "surface": "panel"
+    }
+  ]
+}
