@@ -1,0 +1,28 @@
+{
+  "api_version": 1,
+  "id": "server-info-tools",
+  "name": "Server Info Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/server-info-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "guild_directory",
+    "channel_directory",
+    "relationships",
+    "storage"
+  ],
+  "actions": [
+    {
+      "id": "show",
+      "label": "Show loaded server info",
+      "surface": "panel"
+    },
+    {
+      "id": "select-guild",
+      "label": "Use selected loaded server",
+      "surface": "panel"
+    }
+  ]
+}
