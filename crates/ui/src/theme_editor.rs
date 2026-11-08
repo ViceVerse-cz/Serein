@@ -863,6 +863,7 @@ impl ThemeEditor {
 									("Body text", &mut style.body_size, 15, 10, 28),
 									("Headings", &mut style.heading_size, 20, 12, 40),
 									("Buttons", &mut style.button_size, 14, 10, 28),
+									("Icons", &mut style.icon_size, 20, 16, 24),
 									("Small text", &mut style.small_size, 12, 10, 28),
 									("Code", &mut style.monospace_size, 14, 10, 28),
 									("Control height", &mut style.control_height, 32, 24, 56),

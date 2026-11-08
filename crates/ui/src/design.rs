@@ -411,6 +411,11 @@ pub fn default_window_effects() -> (bool, u8, u8) {
 	WINDOW_EFFECTS.get()
 }
 
+/// Relative glyph scale shared by standard icon controls. Custom paint/layout geometry is unchanged.
+pub fn icon_scale() -> f32 {
+	f32::from(EXTENSION_STYLE.get().icon_size.unwrap_or(20)) / 20.0
+}
+
 pub fn window_effects() -> (bool, u8, u8) {
 	let defaults = default_window_effects();
 	if !defaults.0 {

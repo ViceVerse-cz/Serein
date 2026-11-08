@@ -3916,6 +3916,7 @@ timeline-message-actions-mark-unread = Mark Unread
 timeline-message-actions-pin-message = Pin message
 # Context: message_actions
 timeline-message-actions-reply = Reply
+timeline-message-actions-translate = Translate (opens browser)
 # Context: message_actions
 timeline-message-actions-unpin-message = Unpin message
 # Context: message_actions

@@ -94,7 +94,13 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
   controls. A thin notice strip appears only for loading/stale/archive/history states.
 - Timeline: 16px gutters, 40px avatars, content at 72px, medium-weight author names, 12px muted
   timestamps, `hover` row highlight, date dividers with a centred label, red "New messages"
-  divider, floating hover toolbar (react, reply, edit, more) overlapping the row above.
+  divider, floating hover toolbar overlapping the row above. Normal hover follows quick
+  reactions → Translate → Add Reaction → Edit → Reply → More. Shift hides quick reactions and More
+  and exposes Copy ID/Link, Mark Unread, Pin, Reply, Translate, Add Reaction, Edit, Forward, then a
+  red Delete. Right-click and Shift+F10 retain the full menu in either mode. Copy message stays in
+  that menu. Translate hands at most 2 KiB of the selected text to the ordinary external-link
+  confirmation flow for Google Translate in the user's browser; Serein does not make a translation
+  request itself. A bookmark is not shown because Serein has no bookmark store/service path.
 - Composer: rounded `raised` bar with attach (+), placeholder `Message #channel`, emoji picker
   and send icons; a character counter appears within 200 characters of the limit.
   Typing `@game` offers a game-search option. Selecting it leaves an `@game` filter chip
@@ -142,8 +148,11 @@ fixture; `--demo-light` selects the light appearance.
 
 Icons are [Phosphor Icons](https://phosphoricons.com) 2.1.1 (MIT) in the fill/bold weights,
 rasterized once into `assets/icons/atlas.png` (37 white glyphs in 64px cells) and tinted at
-draw time by `crates/ui/src/icons.rs`; there is no icon font. Provenance and the regeneration
-command are in `assets/icons/README.md`. The profile popout keeps its 300px Discord-style card.
+draw time by `crates/ui/src/icons.rs`; there is no icon font. Standard icon buttons use a 70%
+glyph/hitbox ratio (20px on a 28px button), quick reactions use 22px idle/24px hovered glyphs,
+and Delete uses its semantic danger color. `style.icon_size` scales shared glyphs by a bounded
+16–24px baseline without resizing hit regions. Provenance and the regeneration command are in
+`assets/icons/README.md`. The profile popout keeps its 300px Discord-style card.
 
 Shortcut capture also accepts egui's browser, media and system keys, including Caps Lock,
 Pause and the macOS Fn key, when the OS delivers them to the focused window. These bindings

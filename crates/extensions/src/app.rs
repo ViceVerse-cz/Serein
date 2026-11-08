@@ -721,6 +721,9 @@ pub enum AppAction {
 	OpenGroupEditor {
 		channel_id: String,
 	},
+	OpenExternalLink {
+		url: String,
+	},
 
 	SendMessage {
 		channel_id: String,
@@ -1672,6 +1675,7 @@ impl AppAction {
 			| Self::SendServerInvite { .. }
 			| Self::OpenServerAdmin { .. } => Capability::ServerControl,
 			Self::OpenGroupEditor { .. } => Capability::ChannelControl,
+			Self::OpenExternalLink { .. } => Capability::ExternalNavigation,
 			Self::SetChannelMute { .. }
 			| Self::SetChannelNotifications { .. }
 			| Self::SetGuildHideMuted { .. }
@@ -1946,6 +1950,11 @@ impl AppAction {
 			}
 			Self::OpenServerAdmin { guild_id, .. } => entity_id(guild_id)?,
 			Self::OpenGroupEditor { channel_id } => entity_id(channel_id)?,
+			Self::OpenExternalLink { url } => {
+				if !crate::valid_https_url(url) {
+					return Err(Error::Invalid);
+				}
+			}
 			Self::SetChannelMute {
 				channel_id,
 				duration_seconds,

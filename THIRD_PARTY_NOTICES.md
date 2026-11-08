@@ -110,6 +110,15 @@ Provenance is in vendor/wry/SEREIN-PATCH.md. Component notices and hashes in ass
 are staged in licenses/login in both variants. Binding licenses do not relicense system
 GTK/WebKitGTK libraries, which remain external prerequisites under their own terms.
 
+The independent extension ports under `extensions/plugins/offline-composer-tools`,
+`text-commands`, `view-raw-message`, and `external-search-tools` adapt workflows from
+**Equicord/Vencord** at upstream `Equicord/Equicord` commit
+`200dba124066146a8f043fde7fc8b05e3dc5e68e`. They retain the original Vendicated/contributor
+notices and **GPL-3.0-or-later** terms; Serein's MIT/Apache source license does not replace those
+terms. The full GPL text is `extensions/licenses/Equicord-GPL-3.0.txt`, and each plugin README
+records its safe adaptations. No Equicord JavaScript monkey patches or remote downloads are bundled.
+The ports are separately distributed WebAssembly packages rather than linked host dependencies.
+
 Original Serein code is MIT OR Apache-2.0. Dependencies retain their own copyrights and licenses. The full resolved host dependency/license inventory is in [docs/dependency-versions.md](docs/dependency-versions.md), derived from Cargo metadata. Cargo.lock includes target-specific packages too; final distributors must ship the license texts/notices for the exact binaries they build.
 
 `cargo xtask licenses` enforces the declared-license policy in `deny.toml` with pinned

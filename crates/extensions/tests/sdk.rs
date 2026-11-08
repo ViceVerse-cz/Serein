@@ -220,6 +220,7 @@ fn every_sdk_panel_and_appearance_field_is_accepted_by_the_host() {
 				body_size: Some(16),
 				heading_size: Some(20),
 				button_size: Some(14),
+				icon_size: Some(20),
 				small_size: Some(12),
 				monospace_size: Some(14),
 				item_spacing: Some([8, 8]),

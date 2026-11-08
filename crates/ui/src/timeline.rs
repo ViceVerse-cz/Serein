@@ -1471,6 +1471,51 @@ fn action_button(ui: &mut egui::Ui, icon: crate::icons::Icon, label: &str) -> eg
 	crate::icons::button_immediate(ui, icon, 28.0, label)
 }
 
+/// Uses the existing reviewed external-link flow; no message text leaves Serein silently.
+/// Very large messages are bounded before constructing a browser URL.
+fn translation_url(message: &Message) -> Option<String> {
+	fn candidate(text: &str) -> Option<String> {
+		let mut url = url::Url::parse("https://translate.google.com/").ok()?;
+		url.query_pairs_mut()
+			.append_pair("sl", "auto")
+			.append_pair("tl", "en")
+			.append_pair("op", "translate")
+			.append_pair("text", text);
+		Some(url.into())
+	}
+	let text = crate::i18n::message_text(message);
+	let text = text.trim();
+	if text.is_empty() {
+		return None;
+	}
+	let mut high = text.len().min(2048);
+	while !text.is_char_boundary(high) {
+		high -= 1;
+	}
+	let mut boundaries: Vec<usize> = text
+		.char_indices()
+		.map(|(index, _)| index)
+		.filter(|index| *index <= high)
+		.chain(std::iter::once(high))
+		.collect();
+	boundaries.dedup();
+	high = boundaries.len() - 1;
+	let mut low = 0;
+	while low < high {
+		let middle = (low + high).div_ceil(2);
+		let end = boundaries[middle];
+		if candidate(&text[..end])?.len() <= 2048 {
+			low = middle;
+		} else {
+			high = middle - 1;
+		}
+	}
+	(low > 0).then(|| {
+		let end = boundaries[low];
+		candidate(&text[..end]).expect("validated translation URL")
+	})
+}
+
 /// One transient confirmation for all direct copy actions; never retains copied text.
 fn copy_action_button(
 	ui: &mut egui::Ui,
@@ -1528,7 +1573,10 @@ fn copy_action_button(
 	crate::icons::paint(
 		ui.painter(),
 		icon,
-		egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(16.8 * scale)),
+		egui::Rect::from_center_size(
+			rect.center(),
+			egui::Vec2::splat(crate::icons::button_glyph_size(28.0) * scale),
+		),
 		color,
 	);
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
@@ -4274,11 +4322,17 @@ impl TimelineView {
 					if hovered {
 						self.name_hover = Some(id);
 					}
-					let context_menu = (ui.rect_contains_pointer(rect) || toolbar_hover)
+					let pointer_menu = (ui.rect_contains_pointer(rect) || toolbar_hover)
 						&& !other_toolbar_hover
 						&& !reaction_menu && !egui::Popup::is_any_open(ui.ctx())
 						&& (ui.input(|i| i.pointer.secondary_clicked())
 							|| crate::select::open_menu(ui.ctx()));
+					let keyboard_menu = (focus.has_focus() || hovered)
+						&& !reaction_menu && !egui::Popup::is_any_open(ui.ctx())
+						&& ui.input_mut(|input| {
+							input.consume_key(egui::Modifiers::SHIFT, egui::Key::F10)
+						});
+					let context_menu = pointer_menu || keyboard_menu;
 					if context_menu
 						|| hovered || focus.has_focus()
 						|| keyboard_focus.as_ref().is_some_and(|r| r.id == focus.id)
@@ -4358,10 +4412,13 @@ impl TimelineView {
 							if context_menu {
 								popup = popup.open_memory(Some(egui::SetOpenCommand::Bool(true)));
 							}
-							if context_menu
-								|| (!menu.clicked()
-									&& egui::Popup::position_of_id(toolbar.ctx(), popup.get_id())
-										.is_some())
+							if pointer_menu
+								|| (!keyboard_menu
+									&& !menu.clicked() && egui::Popup::position_of_id(
+									toolbar.ctx(),
+									popup.get_id(),
+								)
+								.is_some())
 							{
 								popup = popup.at_pointer_fixed();
 							}
@@ -4386,20 +4443,23 @@ impl TimelineView {
 										.iter()
 										.any(|r| state.can_react(id, Some(&r.emoji), true))
 								});
-							// Holding Shift exposes direct actions alongside the menu.
+							// Holding Shift exposes direct utility actions and quick delete; More stays on normal hover.
 							let shift = ui.input(|input| input.modifiers.shift);
 							let can_pin = state.can_pin(message.channel, id);
 							let can_delete = state.can_delete(message.channel, id);
 							let link = state
 								.channel(message.channel)
 								.and_then(|channel| discord_url(channel, Some(id)));
-							let buttons = if react && !shift { 4 } else { 1 }
-								+ 3 + usize::from(own) + if shift {
-								2 + usize::from(link.is_some())
-									+ usize::from(can_delete) + usize::from(can_mark_unread)
-									+ usize::from(can_pin)
+							let translate = translation_url(message);
+							let buttons = if shift {
+								4 + usize::from(link.is_some())
+									+ usize::from(can_mark_unread)
+									+ usize::from(can_pin) + usize::from(translate.is_some())
+									+ usize::from(own) + usize::from(can_delete)
 							} else {
-								0
+								(if react { 4 } else { 1 })
+									+ 2 + usize::from(translate.is_some())
+									+ usize::from(own)
 							};
 							let width = buttons as f32 * 30.0;
 							let toolbar_rect = egui::Rect::from_min_size(
@@ -4428,6 +4488,77 @@ impl TimelineView {
 								egui::Stroke::new(1.0, colors.border),
 								egui::StrokeKind::Inside,
 							);
+							if shift {
+								copy_action_button(
+									&mut toolbar,
+									crate::icons::Icon::Hash,
+									"timeline-message-actions-copy-message-id",
+									egui::Id::unique(("copy-id", state.generation, id)),
+									&mut self.copy_feedback,
+									|| id.to_string(),
+								);
+								if let Some(link) = &link {
+									copy_action_button(
+										&mut toolbar,
+										crate::icons::Icon::Link,
+										"timeline-message-actions-copy-message-link",
+										egui::Id::unique(("copy-link", state.generation, id)),
+										&mut self.copy_feedback,
+										|| link.clone(),
+									);
+								}
+								if can_mark_unread
+									&& action_button(
+										&mut toolbar,
+										crate::icons::Icon::Inbox,
+										"timeline-message-actions-mark-unread",
+									)
+									.clicked()
+								{
+									self.mark_unread = Some(id);
+								}
+								let pinned = state.is_pinned(message.channel, id);
+								if can_pin
+									&& action_button(
+										&mut toolbar,
+										crate::icons::Icon::Pin,
+										if pinned {
+											"timeline-message-actions-unpin-message"
+										} else {
+											"timeline-message-actions-pin-message"
+										},
+									)
+									.clicked()
+								{
+									self.pin_request = Some((message.channel, id, !pinned));
+								}
+								if toolbar
+									.add_enabled_ui(
+										state.can_send(message.channel) && !message.ephemeral,
+										|ui| {
+											action_button(
+												ui,
+												crate::icons::Icon::Reply,
+												"timeline-message-actions-reply",
+											)
+										},
+									)
+									.inner
+									.clicked()
+								{
+									selected_reply = Some(id);
+								}
+								if translate.is_some()
+									&& action_button(
+										&mut toolbar,
+										crate::icons::Icon::Globe,
+										"timeline-message-actions-translate",
+									)
+									.clicked()
+								{
+									self.browser_opening = translate.clone();
+								}
+							}
 							if react && !shift {
 								let quick = self
 									.quick_reactions
@@ -4459,6 +4590,16 @@ impl TimelineView {
 									egui::Stroke::new(1.0, colors.border),
 								);
 							}
+							if !shift
+								&& translate.is_some() && action_button(
+								&mut toolbar,
+								crate::icons::Icon::Globe,
+								"timeline-message-actions-translate",
+							)
+							.clicked()
+							{
+								self.browser_opening = translate.clone();
+							}
 							if let Some((anchor, trigger)) = crate::reactions::add_button(
 								&mut toolbar,
 								react,
@@ -4469,32 +4610,6 @@ impl TimelineView {
 							let can_reply = state.can_send(message.channel) && !message.ephemeral;
 							let can_edit =
 								!message.unsupported && state.can_edit(message.channel, id);
-							if toolbar
-								.add_enabled_ui(can_reply, |ui| {
-									action_button(
-										ui,
-										crate::icons::Icon::Reply,
-										"timeline-message-actions-reply",
-									)
-								})
-								.inner
-								.clicked()
-							{
-								selected_reply = Some(id);
-							}
-							if toolbar
-								.add_enabled_ui(state.can_forward(id), |ui| {
-									action_button(
-										ui,
-										crate::icons::Icon::Forward,
-										"timeline-message-actions-forward",
-									)
-								})
-								.inner
-								.clicked()
-							{
-								self.forward_request = Some(id);
-							}
 							if own
 								&& toolbar
 									.add_enabled_ui(can_edit, |ui| {
@@ -4510,58 +4625,33 @@ impl TimelineView {
 								*editing = Some((message.channel, id, message.content.clone()));
 								self.edit_started = true;
 							}
-							if shift {
-								let pinned = state.is_pinned(message.channel, id);
-								if can_pin
-									&& action_button(
-										&mut toolbar,
-										crate::icons::Icon::Pin,
-										if pinned {
-											"timeline-message-actions-unpin-message"
-										} else {
-											"timeline-message-actions-pin-message"
-										},
-									)
+							if shift
+								&& toolbar
+									.add_enabled_ui(state.can_forward(id), |ui| {
+										action_button(
+											ui,
+											crate::icons::Icon::Forward,
+											"timeline-message-actions-forward",
+										)
+									})
+									.inner
 									.clicked()
-								{
-									self.pin_request = Some((message.channel, id, !pinned));
-								}
-								if can_mark_unread
-									&& action_button(
-										&mut toolbar,
-										crate::icons::Icon::Inbox,
-										"timeline-message-actions-mark-unread",
-									)
+							{
+								self.forward_request = Some(id);
+							}
+							if !shift
+								&& toolbar
+									.add_enabled_ui(can_reply, |ui| {
+										action_button(
+											ui,
+											crate::icons::Icon::Reply,
+											"timeline-message-actions-reply",
+										)
+									})
+									.inner
 									.clicked()
-								{
-									self.mark_unread = Some(id);
-								}
-								if let Some(link) = &link {
-									copy_action_button(
-										&mut toolbar,
-										crate::icons::Icon::Link,
-										"timeline-message-actions-copy-message-link",
-										egui::Id::unique(("copy-link", state.generation, id)),
-										&mut self.copy_feedback,
-										|| link.clone(),
-									);
-								}
-								copy_action_button(
-									&mut toolbar,
-									crate::icons::Icon::Copy,
-									"message-menu-copy",
-									egui::Id::unique(("copy-message", state.generation, id)),
-									&mut self.copy_feedback,
-									|| crate::i18n::message_text(message).into_owned(),
-								);
-								copy_action_button(
-									&mut toolbar,
-									crate::icons::Icon::Hash,
-									"timeline-message-actions-copy-message-id",
-									egui::Id::unique(("copy-id", state.generation, id)),
-									&mut self.copy_feedback,
-									|| id.to_string(),
-								);
+							{
+								selected_reply = Some(id);
 							}
 							if can_delete
 								&& shift && toolbar
@@ -4577,21 +4667,28 @@ impl TimelineView {
 							{
 								self.quick_delete = Some((message.channel, id));
 							}
-							let menu = action_button(
-								&mut toolbar,
-								crate::icons::Icon::More,
-								"profiles-show-more",
-							);
-							menu.widget_info(|| {
-								egui::WidgetInfo::labeled(
-									egui::Role::Button,
-									toolbar.is_enabled(),
-									crate::i18n::translate_args(
-										"timeline-message-actions-for",
-										&[("user", &message.author.name)],
-									),
+							let menu = if shift {
+								// Shift hides the More icon; right-click and Shift+F10 still use the row anchor.
+								focus.clone()
+							} else {
+								action_button(
+									&mut toolbar,
+									crate::icons::Icon::More,
+									"profiles-show-more",
 								)
-							});
+							};
+							if !shift {
+								menu.widget_info(|| {
+									egui::WidgetInfo::labeled(
+										egui::Role::Button,
+										toolbar.is_enabled(),
+										crate::i18n::translate_args(
+											"timeline-message-actions-for",
+											&[("user", &message.author.name)],
+										),
+									)
+								});
+							}
 							let mut popup = egui::Popup::menu(&menu).id(egui::Id::unique((
 								"message-menu",
 								state.generation,
@@ -4600,10 +4697,13 @@ impl TimelineView {
 							if context_menu {
 								popup = popup.open_memory(Some(egui::SetOpenCommand::Bool(true)));
 							}
-							if context_menu
-								|| (!menu.clicked()
-									&& egui::Popup::position_of_id(toolbar.ctx(), popup.get_id())
-										.is_some())
+							if pointer_menu
+								|| (!keyboard_menu
+									&& !menu.clicked() && egui::Popup::position_of_id(
+									toolbar.ctx(),
+									popup.get_id(),
+								)
+								.is_some())
 							{
 								popup = popup.at_pointer_fixed();
 							}
@@ -7338,6 +7438,7 @@ mod tests {
 			events.insert(0, egui::Event::ModifiersChanged(modifiers));
 			let output = ctx.run_ui(
 				egui::RawInput {
+					focused: true,
 					screen_rect: Some(egui::Rect::from_min_size(
 						egui::Pos2::ZERO,
 						egui::vec2(900.0, 600.0),
@@ -7414,7 +7515,20 @@ mod tests {
 		assert_eq!(view.reaction.take(), Some((id, Some(rocket.clone()))));
 		assert_eq!(view.quick_reaction_used.take(), Some("🚀"));
 
-		// Shift hides quick reactions, adds direct actions and swaps the menu for quick delete.
+		// Translate follows the three quick reactions and precedes Add Reaction.
+		for events in click(toolbar.left_center() + egui::vec2(104.0, 0.0), none) {
+			render(&mut view, &mut state, events, none);
+		}
+		let translate = view.browser_opening.take().expect("translation proposal");
+		let translate = url::Url::parse(&translate).unwrap();
+		assert_eq!(translate.host_str(), Some("translate.google.com"));
+		assert!(
+			translate
+				.query_pairs()
+				.any(|(key, value)| key == "text" && value == "Short")
+		);
+
+		// Shift hides quick reactions and More, adds direct utilities, and keeps Delete last.
 		let shift = egui::Modifiers::SHIFT;
 		render(
 			&mut view,
@@ -7423,17 +7537,24 @@ mod tests {
 			shift,
 		);
 		let toolbar = view.toolbar.unwrap().1;
-		assert!(toolbar.width() >= 150.0 + 2.0 * 30.0, "{toolbar:?}");
+		// This fixture grants link/edit/forward/delete, but not optional pin/mark-unread actions.
+		assert_eq!(toolbar.width(), 240.0);
 		let mut copied = vec![];
-		for events in click(toolbar.right_center() - egui::vec2(74.0, 0.0), shift) {
+		for events in click(toolbar.left_center() + egui::vec2(14.0, 0.0), shift) {
 			copied.extend(render(&mut view, &mut state, events, shift).1);
 		}
 		assert_eq!(copied, [id.to_string()]);
-		for events in click(toolbar.right_center() - egui::vec2(104.0, 0.0), shift) {
+		for events in click(toolbar.left_center() + egui::vec2(44.0, 0.0), shift) {
 			copied.extend(render(&mut view, &mut state, events, shift).1);
 		}
-		assert_eq!(copied, [id.to_string(), "Short".into()]);
-		for events in click(toolbar.right_center() - egui::vec2(44.0, 0.0), shift) {
+		assert_eq!(
+			copied,
+			[
+				id.to_string(),
+				discord_url(state.channel(Id(20)).unwrap(), Some(id)).unwrap()
+			]
+		);
+		for events in click(toolbar.right_center() - egui::vec2(14.0, 0.0), shift) {
 			render(&mut view, &mut state, events, shift);
 		}
 		assert_eq!(view.quick_delete.take(), Some((Id(20), id)));
@@ -7464,7 +7585,59 @@ mod tests {
 			);
 			render(&mut view, &mut state, vec![egui::Event::PointerGone], none);
 		}
+
+		// Shift hides More, but the focused row still opens its full menu from the keyboard.
+		view = TimelineView::default();
+		for _ in 0..5 {
+			render(&mut view, &mut state, vec![], none);
+		}
+		egui::Popup::close_all(&ctx);
+		let menu_id = egui::Id::unique(("message-menu", state.generation, id));
+		render(
+			&mut view,
+			&mut state,
+			vec![egui::Event::PointerMoved(text.center())],
+			none,
+		);
+		for pressed in [true, false] {
+			render(
+				&mut view,
+				&mut state,
+				vec![egui::Event::Key {
+					key: egui::Key::F10,
+					physical_key: None,
+					pressed,
+					repeat: false,
+					modifiers: shift,
+				}],
+				shift,
+			);
+		}
+		assert!(egui::Popup::is_id_open(&ctx, menu_id));
+		let (menu_items, _) = render(&mut view, &mut state, vec![], shift);
+		assert!(
+			menu_items
+				.iter()
+				.any(|(text, _)| text == &crate::i18n::translate("message-menu-copy")),
+			"the focused row anchor must actually paint menu content: {menu_items:?}"
+		);
 	}
+	#[test]
+	fn translation_urls_include_encoded_text_and_fit_native_external_link_limits() {
+		for content in ["x".repeat(4000), "🦀".repeat(1000)] {
+			let mut message = text_message(42);
+			message.content = content;
+			let target = translation_url(&message).expect("some text should fit");
+			assert!(target.len() <= 2048, "{} bytes", target.len());
+			let target = url::Url::parse(&target).unwrap();
+			assert!(
+				target
+					.query_pairs()
+					.any(|(key, value)| { key == "text" && value.chars().next().is_some() })
+			);
+		}
+	}
+
 	#[test]
 	fn reply_target_browsing_waits_for_success_and_explicit_latest_before_acknowledging() {
 		fn collect(shape: &egui::Shape, labels: &mut Vec<(String, egui::Rect)>) {
@@ -10033,12 +10206,12 @@ mod tests {
 		let mut avatars = crate::avatars::Avatars::default();
 		let output = ctx.run_ui(
 			egui::RawInput {
+				focused: true,
 				screen_rect: Some(egui::Rect::from_min_size(
 					egui::Pos2::ZERO,
 					egui::vec2(900.0, 600.0),
 				)),
 				time: Some(f64::from(frame) / 60.0),
-				focused: true,
 				..Default::default()
 			},
 			|ui| {
@@ -10328,9 +10501,9 @@ impl crate::MessagingUi {
 				})
 			))
 		);
-		modifiers.set(egui::Modifiers::SHIFT);
+		modifiers.set(egui::Modifiers::NONE);
 		render(&mut view, vec![egui::Event::PointerMoved(pos)]);
-		let more = view.toolbar.expect("Shift toolbar").1.right_center() - egui::vec2(14.0, 0.0);
+		let more = view.toolbar.expect("normal toolbar").1.right_center() - egui::vec2(14.0, 0.0);
 		render(&mut view, vec![egui::Event::PointerMoved(more)]);
 		render(&mut view, vec![]);
 		assert!(
@@ -10349,26 +10522,26 @@ impl crate::MessagingUi {
 					pos: more,
 					button: egui::PointerButton::Primary,
 					pressed,
-					modifiers: egui::Modifiers::SHIFT,
+					modifiers: egui::Modifiers::NONE,
 				}],
 			);
 		}
 		assert!(
 			egui::Popup::is_id_open(&ctx, menu_id),
-			"Shift-click opens More"
+			"Click opens More without Shift"
 		);
 		render(&mut view, vec![]);
 		assert!(
 			egui::Popup::is_id_open(&ctx, menu_id),
-			"More stays open with Shift held"
+			"More stays open without Shift"
 		);
-		modifiers.set(egui::Modifiers::NONE);
+		modifiers.set(egui::Modifiers::SHIFT);
 		render(&mut view, vec![]);
 		assert!(
 			egui::Popup::is_id_open(&ctx, menu_id),
-			"More stays open after releasing Shift"
+			"More stays open after pressing Shift and hiding its toolbar icon"
 		);
-		println!("Immediate message labels and Shift menu checks passed.");
+		println!("Immediate message labels and normal/Shift menu checks passed.");
 		println!("Double-click uses the saved reaction independently of recommendations");
 	}
 }

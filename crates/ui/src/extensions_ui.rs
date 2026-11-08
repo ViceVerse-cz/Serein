@@ -2840,6 +2840,9 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::DeletedMessages => {
 			"Keep loaded deleted messages in session memory while enabled"
 		}
+		Capability::ExternalNavigation => {
+			"Propose opening an external HTTPS link in the browser for approval"
+		}
 	}
 }
 pub(crate) fn render_elements(

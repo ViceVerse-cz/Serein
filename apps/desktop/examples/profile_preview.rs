@@ -26,6 +26,10 @@ struct Preview {
 	frames: u8,
 	/// Wheel distance and pointer position injected over the first frames, for pages below the fold.
 	scroll: Option<(f32, egui::Pos2)>,
+	/// Demo-only message hover position and whether Shift is held.
+	toolbar_hover: Option<(egui::Pos2, bool)>,
+	/// Close settings on the first frame before presenting the conversation.
+	close_settings: bool,
 	requested: bool,
 	screenshot: Option<std::sync::mpsc::Receiver<Arc<egui::ColorImage>>>,
 	writer: Option<JoinHandle<Result<(), String>>>,
@@ -39,6 +43,27 @@ impl eframe::App for Preview {
 	}
 
 	fn raw_input_hook(&mut self, _: &egui::Context, raw_input: &mut egui::RawInput) {
+		if self.close_settings && self.frames == 0 {
+			// The Chat settings page shares its route name with the timeline's semantic page.
+			// Close it first so this fixture reaches the conversation.
+			raw_input.events.push(egui::Event::Key {
+				key: egui::Key::Escape,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: egui::Modifiers::NONE,
+			});
+		}
+		if let Some((at, shift)) = self.toolbar_hover {
+			raw_input.events.push(egui::Event::PointerMoved(at));
+			raw_input
+				.events
+				.push(egui::Event::ModifiersChanged(if shift {
+					egui::Modifiers::SHIFT
+				} else {
+					egui::Modifiers::NONE
+				}));
+		}
 		if let Some((distance, at)) = self.scroll.filter(|_| (1..=3).contains(&self.frames)) {
 			raw_input.events.push(egui::Event::PointerMoved(at));
 			raw_input.events.push(egui::Event::MouseWheel {
@@ -690,7 +715,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|embeds|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|updates|general|chat|language|notifications|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--proxy-artwork] [--width=1120] [--height=760] [--scroll=PIXELS] [--keybinds-custom] [--light] [--toasts] [--compact] [--transparency=0..100]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|embeds|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|updates|general|chat|language|notifications|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--proxy-artwork] [--width=1120] [--height=760] [--scroll=PIXELS] [--toolbar-hover=normal|shift] [--close-settings] [--keybinds-custom] [--light] [--toasts] [--compact] [--transparency=0..100]".into());
 	}
 	let smoke = args.iter().any(|arg| arg == "--smoke");
 	let interactive = args.iter().any(|arg| arg == "--interactive");
@@ -699,7 +724,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			.or((smoke || interactive).then_some(""))
 			.ok_or("Missing --output=PATH.png")?,
 	);
-	let page = value("--page=").unwrap_or("profile").to_owned();
+	let mut page = value("--page=").unwrap_or("profile").to_owned();
 	if !matches!(
 		page.as_str(),
 		"profile"
@@ -757,6 +782,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	if !(500.0..=1920.0).contains(&width) || !(520.0..=1200.0).contains(&height) {
 		return Err("Viewport must be 500-1920 by 520-1200".into());
 	}
+	let toolbar_hover = value("--toolbar-hover=")
+		.map(|mode| {
+			let shift = match mode {
+				"normal" => false,
+				"shift" => true,
+				_ => return Err("Hover mode must be normal or shift"),
+			};
+			Ok((egui::pos2(width * 0.625, height * 0.525), shift))
+		})
+		.transpose()?;
+	if toolbar_hover.is_some() {
+		page = "chat".into();
+	}
+	let close_settings =
+		toolbar_hover.is_some() || args.iter().any(|arg| arg == "--close-settings");
 	let forum_tags: Vec<_> = value("--tags=")
 		.map(|list| {
 			list.split(',')
@@ -828,6 +868,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			} else {
 				test_support::demo_state()
 			};
+			if toolbar_hover.is_some() || close_settings {
+				state = test_support::chat_demo_state();
+			}
 			if activities {
 				prime_activities(&mut state, proxy_artwork);
 			}
@@ -1347,6 +1390,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				proxy_artwork,
 				frames: 0,
 				scroll,
+				toolbar_hover,
+				close_settings,
 				requested: false,
 				screenshot: None,
 				writer: None,

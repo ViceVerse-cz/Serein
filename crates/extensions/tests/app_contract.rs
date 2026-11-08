@@ -55,6 +55,7 @@ fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validatio
 		Capability::DataEvents,
 		Capability::MessageDetails,
 		Capability::Relationships,
+		Capability::ExternalNavigation,
 	]);
 	manifest.actions = [
 		Surface::Message,
@@ -912,9 +913,9 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 	supported.validate().unwrap();
 	assert!(host.supports("rich_presence"));
 	assert!(host.supports("api_proxy"));
-	assert_eq!(caps.len(), 53);
+	assert_eq!(caps.len(), 54);
 	assert_eq!(HostInfo::current().app_events.len(), 21);
-	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 53);
+	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 54);
 }
 
 #[test]
@@ -991,6 +992,7 @@ fn app_actions_round_trip_and_require_foreground_granted_confirmation() {
 		r#"{"type":"send_server_invite","guild_id":"4","user_id":"6"}"#,
 		r#"{"type":"open_server_admin","guild_id":"4","page":"audit_log"}"#,
 		r#"{"type":"open_group_editor","channel_id":"2"}"#,
+		r#"{"type":"open_external_link","url":"https://example.org/path?q=1"}"#,
 		r#"{"type":"update_server_settings","guild_id":"4","settings":{"name":"SDK server"}}"#,
 		r#"{"type":"create_role","guild_id":"4","role":{"name":"Readers"}}"#,
 		r#"{"type":"edit_role","guild_id":"4","role_id":"5","role":{"mentionable":true}}"#,
@@ -1055,6 +1057,95 @@ fn app_actions_round_trip_and_require_foreground_granted_confirmation() {
 			Err(Error::Limit)
 		));
 	}
+}
+
+#[test]
+fn external_navigation_accepts_only_bounded_credential_free_https_urls() {
+	let action = |url: &str| AppAction::OpenExternalLink { url: url.into() };
+	for url in [
+		"https://example.org/path?q=1#fragment",
+		"https://例え.jp/ok",
+		"https://example.org:443/ok",
+	] {
+		action(url).validate().unwrap();
+		let effect = HostEffect::AppAction {
+			action: action(url),
+		};
+		effect
+			.validate(&test_manifest(vec![Capability::ExternalNavigation]))
+			.unwrap();
+		assert!(matches!(
+			effect.validate(&test_manifest(vec![])),
+			Err(Error::Capability)
+		));
+	}
+	let oversized = format!("https://example.org/{}", "a".repeat(2048));
+	for url in [
+		"http://example.org/",
+		"javascript:alert(1)",
+		"data:text/html,hello",
+		"wss://example.org/socket",
+		"file:///etc/passwd",
+		"//example.org/path",
+		"https://",
+		"https://[::1",
+		"https://example.org:99999/",
+		"https://user:secret@example.org/",
+		"https://@example.org/",
+		"https://example.org:8443/",
+		"https://exa mple.org/",
+		"https://example.org\\@evil.test/",
+		"https://example.org/\n",
+		oversized.as_str(),
+	] {
+		assert!(action(url).validate().is_err(), "accepted {url:?}");
+	}
+}
+
+#[test]
+fn external_navigation_is_a_foreground_proposal_with_its_own_grant() {
+	let effect = HostEffect::AppAction {
+		action: AppAction::OpenExternalLink {
+			url: "https://example.org/path".into(),
+		},
+	};
+	let mut manifest = test_manifest(vec![
+		Capability::SelectedMessage,
+		Capability::ExternalNavigation,
+	]);
+	manifest.actions[0].surface = Surface::Message;
+	let input = Invocation {
+		action: "run".into(),
+		selected_message: Some("selected text".into()),
+		..Default::default()
+	};
+	input.validate(&manifest).unwrap();
+	let output = Output {
+		effects: vec![effect.clone()],
+		..Default::default()
+	};
+	output.validate(&manifest, &input).unwrap();
+	// The selected-message grant alone never authorizes external navigation.
+	manifest
+		.capabilities
+		.retain(|capability| *capability != Capability::ExternalNavigation);
+	assert!(matches!(
+		output.validate(&manifest, &input),
+		Err(Error::Capability)
+	));
+	// Background event results cannot carry the proposal.
+	let mut background = test_manifest(vec![Capability::AppEvents, Capability::ExternalNavigation]);
+	background.actions[0].surface = Surface::AppEvent;
+	let input = Invocation {
+		action: "run".into(),
+		app_event: Some(AppEventKind::Ready),
+		..Default::default()
+	};
+	input.validate(&background).unwrap();
+	assert!(matches!(
+		output.validate(&background, &input),
+		Err(Error::Capability)
+	));
 }
 
 #[test]

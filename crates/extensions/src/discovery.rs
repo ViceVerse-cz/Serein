@@ -67,6 +67,7 @@ impl HostInfo {
 				Capability::DataEvents,
 				Capability::MessageDetails,
 				Capability::Relationships,
+				Capability::ExternalNavigation,
 			],
 			app_events: &[
 				AppEventKind::Ready,
