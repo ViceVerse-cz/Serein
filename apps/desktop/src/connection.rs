@@ -413,6 +413,8 @@ impl Connection {
                 let mut sticker_packs:Option<AbortTask>=None;
                 let mut sticker_detail:Option<AbortTask>=None;
                 let mut reaction_read:Option<AbortTask>=None;
+                // Hover lookups of unknown people and unloaded replies; client-core bounds them.
+                let mut lookups:Vec<AbortTask>=Vec::new();
                 // A thread card's preview is a passive read; it must never wait behind sends.
                 let mut thread_preview:Option<AbortTask>=None;
                 let mut ringing:Option<AbortTask>=None;
@@ -575,6 +577,21 @@ impl Connection {
                                 reaction_read=Some(AbortTask(tokio::spawn(async move {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::Reactions(client_core::reactions::Event::Read{result:Err(f),..}) if f.ends_session()=>Some(*f),_=>None};
+                                    let error=emit(event).err().or(failure);
+                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                })));
+                                continue;
+                            }
+                            if matches!(command,Command::Lookup(_)) {
+                                lookups.retain(|task|!task.0.is_finished());
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                lookups.push(AbortTask(tokio::spawn(async move {
+                                    let event=api.execute(command).await;
+                                    let failure=match &event {
+                                        Event::Lookup(client_core::lookups::Event::User{result:Err(f),..}|client_core::lookups::Event::Message{result:Err(f),..}) if f.ends_session() && *f!=Failure::Capacity=>Some(*f),
+                                        _=>None,
+                                    };
                                     let error=emit(event).err().or(failure);
                                     if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
                                     wake.request_repaint();

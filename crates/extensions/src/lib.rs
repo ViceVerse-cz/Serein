@@ -224,6 +224,10 @@ pub enum InterfaceTweak {
 	GifAltText,
 	/// Names in the typing indicator take their top colored role.
 	TypingRoleColors,
+	/// Hovering a mention that shows only an ID reads that person once, so it shows their name.
+	ResolveUnknownMentions,
+	/// Hovering a reply whose original is outside the loaded history reads that message once and previews it.
+	ResolveUnloadedReplies,
 }
 
 impl InterfaceTweak {
@@ -257,6 +261,8 @@ impl InterfaceTweak {
 		Self::DirectUploadButton,
 		Self::GifAltText,
 		Self::TypingRoleColors,
+		Self::ResolveUnknownMentions,
+		Self::ResolveUnloadedReplies,
 	];
 }
 

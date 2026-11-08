@@ -329,6 +329,8 @@ fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
 			sdk::InterfaceTweak::DirectUploadButton,
 			sdk::InterfaceTweak::GifAltText,
 			sdk::InterfaceTweak::TypingRoleColors,
+			sdk::InterfaceTweak::ResolveUnknownMentions,
+			sdk::InterfaceTweak::ResolveUnloadedReplies,
 		]),
 		..Default::default()
 	};

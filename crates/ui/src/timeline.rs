@@ -3274,8 +3274,13 @@ impl TimelineView {
 														egui::text::LayoutJob::default();
 													let mut preview_emojis = Vec::new();
 													let mut attachment_icon = None;
-													if let Some(original) =
-														state.timeline.get(reply)
+													// A reply's original from loaded history, or read on demand.
+													let unloaded =
+														state.timeline.get(reply).is_none();
+													if let Some(original) = state
+														.timeline
+														.get(reply)
+														.or_else(|| state.lookups.message(reply))
 													{
 														let reply_avatar = avatars.show(
 															ui,
@@ -3457,6 +3462,22 @@ impl TimelineView {
 															),
 														);
 													surface.keep(&reply_preview);
+													// With the resolve-unloaded-replies tweak, hovering an unloaded
+													// reply reads its original once.
+													if unloaded
+														&& reply_preview.hovered()
+														&& crate::interface_tweaks::on(
+															ui.ctx(),
+															extensions::InterfaceTweak::ResolveUnloadedReplies,
+														) {
+														crate::lookups::request(
+															ui.ctx(),
+															crate::lookups::Request::Message {
+																channel: message.channel,
+																message: reply,
+															},
+														);
+													}
 													if reply_preview.clicked() {
 														self.request_reply_target(reply);
 													}

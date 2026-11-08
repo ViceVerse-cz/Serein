@@ -1455,6 +1455,60 @@ impl DiscordApi {
 					}
 				})
 			}
+			Command::Lookup(command) => {
+				use client_core::lookups::{Command as L, Event as E};
+				Event::Lookup(match command {
+					L::User { user } => {
+						let result = self
+							.request_limited(
+								Method::GET,
+								&format!("/users/{user}"),
+								None,
+								64 * 1024,
+							)
+							.await
+							.and_then(|bytes| {
+								let dto = decode::<discord_protocol::UserDto>(&bytes)
+									.map_err(|_| Failure::Protocol)?;
+								if dto.id != user {
+									return Err(Failure::Protocol);
+								}
+								Ok(dto.into_model())
+							});
+						E::User { user, result }
+					}
+					L::Message { channel, message } => {
+						let result = self
+							.request(
+								Method::GET,
+								&format!("/channels/{channel}/messages?limit=1&around={message}"),
+								None,
+							)
+							.await
+							.and_then(|bytes| {
+								// History around a deleted message returns a neighbor or
+								// nothing; that neighbor is never shown in its place.
+								let mut found = decode::<Vec<MessageDto>>(&bytes)
+									.map_err(|_| Failure::Protocol)?;
+								if found.len() > 1 {
+									return Err(Failure::Protocol);
+								}
+								let Some(dto) = found.pop() else {
+									return Ok(None);
+								};
+								if dto.channel_id != channel {
+									return Err(Failure::Protocol);
+								}
+								Ok((dto.id == message).then(|| Box::new(dto.into_model())))
+							});
+						E::Message {
+							channel,
+							message,
+							result,
+						}
+					}
+				})
+			}
 			Command::Profile {
 				user,
 				guild,
@@ -3202,6 +3256,107 @@ mod tests {
 				Some("/channels/1/messages/2/reactions/%61%2F%62%3A%33?limit=100&after=4")
 			);
 		}
+	}
+
+	#[tokio::test]
+	async fn lookups_read_one_person_and_never_show_a_neighbor_message() {
+		use client_core::lookups::{Command as L, Event as E};
+		use model::Id;
+		tokio::time::timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_LOOKUP_TOKEN".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let author = r#""author":{"id":"4","username":"Synthetic"}"#;
+			let replies = [
+				(
+					"GET /users/5",
+					r#"{"id":"5","username":"Found"}"#.to_owned(),
+				),
+				(
+					"GET /users/6",
+					r#"{"id":"7","username":"Other"}"#.to_owned(),
+				),
+				(
+					"GET /channels/1/messages?limit=1&around=2",
+					format!(r#"[{{"id":"2","channel_id":"1",{author},"content":"Original"}}]"#),
+				),
+				(
+					"GET /channels/1/messages?limit=1&around=2",
+					format!(r#"[{{"id":"9","channel_id":"1",{author}}}]"#),
+				),
+				("GET /channels/1/messages?limit=1&around=2", "[]".to_owned()),
+				(
+					"GET /channels/1/messages?limit=1&around=2",
+					format!(r#"[{{"id":"2","channel_id":"8",{author}}}]"#),
+				),
+			];
+			let server = tokio::spawn(async move {
+				for (expected, body) in replies {
+					let (mut socket, _) = listener.accept().await.unwrap();
+					let mut request = vec![];
+					while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+						let mut bytes = [0; 1024];
+						let n = socket.read(&mut bytes).await.unwrap();
+						assert!(n > 0 && request.len() < 4096);
+						request.extend_from_slice(&bytes[..n]);
+					}
+					let request = std::str::from_utf8(&request).unwrap();
+					assert!(
+						request.starts_with(&format!("{expected} HTTP/1.1\r\n")),
+						"{request}"
+					);
+					let response = format!(
+						"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+						body.len()
+					);
+					socket.write_all(response.as_bytes()).await.unwrap();
+				}
+			});
+			let user = |id| api.execute(Command::Lookup(L::User { user: Id(id) }));
+			assert!(matches!(
+				user(5).await,
+				Event::Lookup(E::User { result: Ok(found), .. }) if found.name == "Found"
+			));
+			assert!(matches!(
+				user(6).await,
+				Event::Lookup(E::User {
+					result: Err(Failure::Protocol),
+					..
+				})
+			));
+			let message = || {
+				api.execute(Command::Lookup(L::Message {
+					channel: Id(1),
+					message: Id(2),
+				}))
+			};
+			assert!(matches!(
+				message().await,
+				Event::Lookup(E::Message { result: Ok(Some(found)), .. }) if found.content == "Original"
+			));
+			for _ in 0..2 {
+				assert!(matches!(
+					message().await,
+					Event::Lookup(E::Message {
+						result: Ok(None),
+						..
+					})
+				));
+			}
+			assert!(matches!(
+				message().await,
+				Event::Lookup(E::Message {
+					result: Err(Failure::Protocol),
+					..
+				})
+			));
+			server.await.unwrap();
+		})
+		.await
+		.unwrap();
 	}
 
 	#[tokio::test]

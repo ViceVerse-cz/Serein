@@ -20,6 +20,7 @@ mod permissions_tests;
 mod forwarding;
 pub mod interactions;
 pub mod invites;
+pub mod lookups;
 pub mod member_search;
 pub mod message_actions;
 pub mod messaging_permissions;
@@ -243,6 +244,8 @@ pub enum Command {
 		channels: Vec<(Id, Id)>,
 	},
 	Reactions(reactions::Command),
+	/// One unloaded person or message, read on demand.
+	Lookup(lookups::Command),
 	Profile {
 		user: Id,
 		guild: Option<Id>,
@@ -579,6 +582,7 @@ pub enum Event {
 	ReadState(read_state::Event),
 	NotificationPreferences(notifications::Event),
 	Reactions(reactions::Event),
+	Lookup(lookups::Event),
 	Profile {
 		user: Id,
 		guild: Option<Id>,
@@ -776,6 +780,8 @@ pub struct State {
 	pub server_members_shortcuts: BTreeMap<Id, bool>,
 	pub group_actions: group_actions::Actions,
 	pub typing: typing::Typing,
+	/// People and messages read on demand for unknown mentions and unloaded replies.
+	pub lookups: lookups::Lookups,
 	pub permissions: permissions::Permissions,
 	pub archives: Option<archives::View>,
 	pub posting: forum::Posting,
@@ -1022,6 +1028,7 @@ impl Default for State {
 			server_members_shortcuts: BTreeMap::new(),
 			group_actions: group_actions::Actions::default(),
 			typing: typing::Typing::default(),
+			lookups: lookups::Lookups::default(),
 			permissions: permissions::Permissions::default(),
 			archives: None,
 			posting: forum::Posting::default(),
@@ -3160,6 +3167,10 @@ impl State {
 				self.apply_profile(user, guild, request, result);
 				Ok(())
 			}
+			Event::Lookup(event) => {
+				self.apply_lookup(event);
+				Ok(())
+			}
 			Event::StreamPreview {
 				guild,
 				channel,
@@ -4307,6 +4318,7 @@ impl State {
 	}
 	fn fail(&mut self, failure: auth::Failure) {
 		self.typing.clear_all();
+		self.lookups.release_pending();
 		self.status = failure.label();
 		match failure {
 			auth::Failure::Expired => self.auth = auth::AuthState::Expired,

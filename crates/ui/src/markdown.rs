@@ -1852,6 +1852,15 @@ impl Formatted {
 								format!("{label}, user profile"),
 							)
 						});
+						// With the resolve-unknown-mentions tweak, hovering a mention that names
+						// only an ID reads that person once.
+						if user.is_none()
+							&& response.hovered() && crate::interface_tweaks::on(
+							ui.ctx(),
+							extensions::InterfaceTweak::ResolveUnknownMentions,
+						) {
+							crate::lookups::request(ui.ctx(), crate::lookups::Request::User(id));
+						}
 						if response.clicked() || response.contains_pointer() {
 							let opened = user.cloned().unwrap_or(model::User {
 								id,

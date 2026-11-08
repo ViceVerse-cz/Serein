@@ -44,6 +44,7 @@ mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
 mod interface_tweaks;
+mod lookups;
 mod name_marks;
 mod new_message;
 pub mod proxy_auth;
@@ -6010,6 +6011,7 @@ impl MessagingUi {
 			profile_guild,
 			&mut commands,
 		);
+		lookups::drain(&ctx, state, &mut commands);
 		if !commands.is_empty() {
 			ctx.request_repaint();
 		}

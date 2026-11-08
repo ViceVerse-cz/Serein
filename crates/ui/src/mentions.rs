@@ -300,16 +300,21 @@ pub fn find_user<'a>(
 	{
 		return Some(&member.user);
 	}
-	state.timeline.iter().find_map(|message| {
-		if message.channel != source.channel {
-			return None;
-		}
-		if message.author.id == id {
-			Some(&message.author)
-		} else {
-			message.mentions.iter().find(|user| user.id == id)
-		}
-	})
+	state
+		.timeline
+		.iter()
+		.find_map(|message| {
+			if message.channel != source.channel {
+				return None;
+			}
+			if message.author.id == id {
+				Some(&message.author)
+			} else {
+				message.mentions.iter().find(|user| user.id == id)
+			}
+		})
+		// A person read on demand for an unknown mention.
+		.or_else(|| state.lookups.user(id))
 }
 
 pub fn mention_label(id: Id, mentions: &[User], source: Option<&MentionSource<'_>>) -> String {
