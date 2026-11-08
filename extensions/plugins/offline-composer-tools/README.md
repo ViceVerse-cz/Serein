@@ -1,7 +1,8 @@
 # Offline Composer Tools
 
 Five deterministic, user-invoked composer actions ported from Equicord/Vencord to
-Serein's sandboxed Rust extension API.
+Serein's sandboxed Rust extension API. The transform action also carries the safe,
+offline subset of Equicord's `moreCommands` described below.
 
 ## Upstream and deliberate differences
 
@@ -45,7 +46,20 @@ account, or message capabilities.
   - `/morse` maps ASCII letters, digits, and standard punctuation to Morse. It
     inserts one space between symbols and ` / ` between Unicode-whitespace-
     delimited words. Unsupported characters are copied literally; leading,
-    trailing, and repeated word-separating whitespace is normalized.
+    trailing, and repeated word-separating whitespace is normalized. When the
+    body contains only `.`, `-`, `/`, and ASCII spaces it is decoded instead,
+    matching upstream `moreCommands` auto-detection. Unknown codes and repeated
+    separators are dropped; the decoded text is lowercased and its first
+    character is capitalized.
+  - `/upper` and `/lower` apply Unicode uppercase/lowercase mapping, including
+    case expansions such as `ß` → `SS`.
+  - `/repeat N` repeats the remaining body 1–10 times. A missing, malformed or
+    overflowing count leaves the draft unchanged. Results whose allocation would
+    exceed the bounded SDK budget are rejected before allocating.
+  - `/uwuify` applies the deterministic upstream word replacements and the
+    `n`/`l`/`r` substitutions while leaving one-character tokens and
+    `http(s)://` links untouched. The upstream random catchphrase ending is
+    intentionally omitted.
   - `/wordcount` replaces the draft with the body's Unicode-whitespace-delimited
     word count as a decimal number.
 
@@ -58,6 +72,32 @@ account, or message capabilities.
 Processing is offline and linear in the bounded SDK input size. Unexpectedly
 large generated expansions fall back to the original draft; the SDK independently
 enforces its serialized ABI byte limit. No result is sent anywhere automatically.
+
+## Equicord `moreCommands` subset
+
+The transform action is the native-safe continuation of the mapped Equicord
+`moreCommands` workflow. Upstream files consulted:
+`src/equicordplugins/moreCommands/index.ts` and
+`src/equicordplugins/moreCommands/utils.ts` at the pinned commit above.
+
+Implemented as composer transforms: `/mock`, `/reverse`, `/morse` (encode and
+auto-detect decode), `/wordcount`, `/upper`, `/lower`, `/repeat`, and `/uwuify`.
+These are deterministic, local, bounded, and require an explicit composer action;
+the plugin never sends a message or opens a network request.
+
+Deliberately omitted from this package:
+
+- `/systeminfo`, `/getuptime`, and `/gettime` (device/system fingerprint or
+  non-deterministic host data).
+- `/randomanimal`, `/nekos`, `/anime-boys`, `/gifroulette`, and `/imgtogif`
+  (network media fetch, image/GIF generation, or upload).
+- `/countdown`, `/ping`, `/echo`, `/slap`, `/freaky`, `/friendcloud`, and the
+  emoji-face suffix commands (multi-message sending, current-user identity,
+  affinity data, or canvas rendering).
+- `/choose`, `/rolldice`, `/flipcoin`, `/ask`, and `/randomnumber` (random
+  responses; they do not map to a deterministic composer edit).
+- `/transform`'s Unicode `normalize` option, because adding a normalization
+  dependency is outside this package's dependency budget.
 
 Copyright Vendicated and contributors. Licensed under GPL-3.0-or-later; the Serein
 port retains those upstream notices in `src/lib.rs`.

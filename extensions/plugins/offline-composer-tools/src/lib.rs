@@ -458,15 +458,29 @@ fn format_number(value: f64) -> Option<String> {
 }
 
 fn transform_text(draft: &str) -> String {
-	for command in ["/mock", "/reverse", "/morse", "/wordcount"] {
+	for command in [
+		"/mock",
+		"/reverse",
+		"/morse",
+		"/wordcount",
+		"/upper",
+		"/lower",
+		"/repeat",
+		"/uwuify",
+	] {
 		let Some(body) = command_body(draft, command) else {
 			continue;
 		};
 		return match command {
 			"/mock" => mock(body),
 			"/reverse" => body.chars().rev().collect(),
-			"/morse" => morse(body),
+			// Upstream `moreCommands` treats an all-Morse body as a decode request.
+			"/morse" => morse_command(body),
 			"/wordcount" => word_count(body).to_string(),
+			"/upper" => body.to_uppercase(),
+			"/lower" => body.to_lowercase(),
+			"/repeat" => repeat(body),
+			"/uwuify" => uwuify(body),
 			_ => unreachable!(),
 		};
 	}
@@ -522,64 +536,181 @@ fn morse(text: &str) -> String {
 	output
 }
 
+fn morse_command(body: &str) -> String {
+	if is_morse(body) {
+		from_morse(body)
+	} else {
+		morse(body)
+	}
+}
+
+/// The same strict alphabet used by upstream `moreCommands`; only `.`, `-`, `/` and
+/// ASCII space form a Morse request. Any other character makes this an encode request.
+fn is_morse(text: &str) -> bool {
+	!text.is_empty()
+		&& text
+			.chars()
+			.all(|character| matches!(character, '.' | '-' | '/' | ' '))
+}
+
+fn from_morse(text: &str) -> String {
+	let mut decoded = String::new();
+	for token in text.split(' ').filter(|token| !token.is_empty()) {
+		if token == "/" {
+			if !decoded.is_empty() && !decoded.ends_with(' ') {
+				decoded.push(' ');
+			}
+		} else if let Some(character) = morse_decode_symbol(token) {
+			decoded.push(character);
+		}
+	}
+	// Upstream lowercases the decoded text and capitalizes its first character.
+	let mut characters = decoded.chars();
+	match characters.next() {
+		Some(first) => {
+			let mut output = first.to_uppercase().collect::<String>();
+			output.push_str(&characters.as_str().to_lowercase());
+			output
+		}
+		None => String::new(),
+	}
+}
+
+const MORSE: &[(char, &'static str)] = &[
+	('A', ".-"),
+	('B', "-..."),
+	('C', "-.-."),
+	('D', "-.."),
+	('E', "."),
+	('F', "..-."),
+	('G', "--."),
+	('H', "...."),
+	('I', ".."),
+	('J', ".---"),
+	('K', "-.-"),
+	('L', ".-.."),
+	('M', "--"),
+	('N', "-."),
+	('O', "---"),
+	('P', ".--."),
+	('Q', "--.-"),
+	('R', ".-."),
+	('S', "..."),
+	('T', "-"),
+	('U', "..-"),
+	('V', "...-"),
+	('W', ".--"),
+	('X', "-..-"),
+	('Y', "-.--"),
+	('Z', "--.."),
+	('0', "-----"),
+	('1', ".----"),
+	('2', "..---"),
+	('3', "...--"),
+	('4', "....-"),
+	('5', "....."),
+	('6', "-...."),
+	('7', "--..."),
+	('8', "---.."),
+	('9', "----."),
+	('.', ".-.-.-"),
+	(',', "--..--"),
+	('?', "..--.."),
+	('\'', ".----."),
+	('!', "-.-.--"),
+	('/', "-..-."),
+	('(', "-.--."),
+	(')', "-.--.-"),
+	('&', ".-..."),
+	(':', "---..."),
+	(';', "-.-.-."),
+	('=', "-...-"),
+	('+', ".-.-."),
+	('-', "-....-"),
+	('_', "..--.-"),
+	('"', ".-..-."),
+	('$', "...-..-"),
+	('@', ".--.-."),
+];
+
 fn morse_symbol(character: char) -> Option<&'static str> {
-	Some(match character.to_ascii_uppercase() {
-		'A' => ".-",
-		'B' => "-...",
-		'C' => "-.-.",
-		'D' => "-..",
-		'E' => ".",
-		'F' => "..-.",
-		'G' => "--.",
-		'H' => "....",
-		'I' => "..",
-		'J' => ".---",
-		'K' => "-.-",
-		'L' => ".-..",
-		'M' => "--",
-		'N' => "-.",
-		'O' => "---",
-		'P' => ".--.",
-		'Q' => "--.-",
-		'R' => ".-.",
-		'S' => "...",
-		'T' => "-",
-		'U' => "..-",
-		'V' => "...-",
-		'W' => ".--",
-		'X' => "-..-",
-		'Y' => "-.--",
-		'Z' => "--..",
-		'0' => "-----",
-		'1' => ".----",
-		'2' => "..---",
-		'3' => "...--",
-		'4' => "....-",
-		'5' => ".....",
-		'6' => "-....",
-		'7' => "--...",
-		'8' => "---..",
-		'9' => "----.",
-		'.' => ".-.-.-",
-		',' => "--..--",
-		'?' => "..--..",
-		'\'' => ".----.",
-		'!' => "-.-.--",
-		'/' => "-..-.",
-		'(' => "-.--.",
-		')' => "-.--.-",
-		'&' => ".-...",
-		':' => "---...",
-		';' => "-.-.-.",
-		'=' => "-...-",
-		'+' => ".-.-.",
-		'-' => "-....-",
-		'_' => "..--.-",
-		'"' => ".-..-.",
-		'$' => "...-..-",
-		'@' => ".--.-.",
-		_ => return None,
-	})
+	let character = character.to_ascii_uppercase();
+	MORSE
+		.iter()
+		.find_map(|(candidate, symbol)| (*candidate == character).then_some(*symbol))
+}
+
+fn morse_decode_symbol(code: &str) -> Option<char> {
+	MORSE
+		.iter()
+		.find_map(|(character, symbol)| (*symbol == code).then_some(*character))
+}
+
+fn repeat(body: &str) -> String {
+	let Some((count, text)) = body.split_once(char::is_whitespace) else {
+		return body.to_owned();
+	};
+	let Ok(count) = count.parse::<usize>() else {
+		return body.to_owned();
+	};
+	let count = count.clamp(1, 10);
+	let text = text.trim_start_matches(char::is_whitespace);
+	// Never allocate an oversized body just to discard it in `text_replacement`.
+	if text.len().saturating_mul(count) > serein_extension_sdk::MAX_IO_BYTES / 8 {
+		return body.to_owned();
+	}
+	text.repeat(count)
+}
+
+fn uwuify(text: &str) -> String {
+	let mut output = String::with_capacity(text.len());
+	let mut word_start = 0;
+	for (index, character) in text.char_indices() {
+		if character.is_whitespace() {
+			output.push_str(&uwuify_word(&text[word_start..index]));
+			output.push(character);
+			word_start = index + character.len_utf8();
+		}
+	}
+	output.push_str(&uwuify_word(&text[word_start..]));
+	output
+}
+
+fn uwuify_word(word: &str) -> String {
+	// Upstream leaves single-character tokens and links untouched.
+	if word.chars().count() <= 1 || word.starts_with("https://") || word.starts_with("http://") {
+		return word.to_owned();
+	}
+	let lower = word.to_ascii_lowercase();
+	for (source, replacement) in [
+		("small", "smol"),
+		("cute", "kawaii"),
+		("fluff", "floof"),
+		("love", "luv"),
+		("stupid", "baka"),
+		("what", "nani"),
+		("meow", "nya"),
+		("hello", "hewwo"),
+	] {
+		if lower == source {
+			return replacement.to_owned();
+		}
+	}
+	let mut output = String::with_capacity(word.len());
+	let mut characters = word.chars().peekable();
+	while let Some(character) = characters.next() {
+		match character {
+			'n' if characters
+				.peek()
+				.is_some_and(|next| matches!(*next, 'a' | 'e' | 'o')) =>
+			{
+				output.push_str("ny");
+			}
+			'l' | 'r' => output.push('w'),
+			_ => output.push(character),
+		}
+	}
+	output
 }
 
 fn word_count(text: &str) -> usize {
@@ -699,9 +830,32 @@ mod tests {
 		assert_eq!(transform_text("/reverse A🦀e\u{301}"), "\u{301}e🦀A");
 		assert_eq!(transform_text("/morse SOS 🦀"), "... --- ... / 🦀");
 		assert_eq!(transform_text("/morse a# b"), ".- # / -...");
+		assert_eq!(transform_text("/morse ... --- ..."), "Sos");
+		assert_eq!(
+			transform_text("/morse .... . .-.. .-.. --- / -.-- --- ..-"),
+			"Hello you"
+		);
+		assert_eq!(transform_text("/morse ..---"), "2");
 		assert_eq!(transform_text("/wordcount one\u{2003}two\nthree"), "3");
 		assert_eq!(transform_text("/mockery abc"), "/mockery abc");
 		assert_eq!(transform_text("prefix /mock abc"), "prefix /mock abc");
+		assert_eq!(transform_text("/upper straße"), "STRASSE");
+		assert_eq!(transform_text("/lower İSTANBUL"), "i̇stanbul");
+		assert_eq!(transform_text("/repeat 3 ab"), "ababab");
+		assert_eq!(transform_text("/repeat 0 ab"), "ab");
+		assert_eq!(
+			transform_text("/repeat 999999999999999999999 ab"),
+			"999999999999999999999 ab"
+		);
+		assert_eq!(transform_text("/repeat nope ab"), "nope ab");
+		let oversized = format!("/repeat 10 {}", "x".repeat(4_000));
+		assert_eq!(transform_text(&oversized), oversized);
+		assert_eq!(
+			transform_text("/uwuify hello small https://example.test/love"),
+			"hewwo smol https://example.test/love"
+		);
+		assert_eq!(transform_text("/uwuify l r nope"), "l r nyope");
+		assert_eq!(transform_text("/uwuify A♡ l"), "A♡ l");
 
 		let counts = Counts::new("A🦀e\u{301}\tβ γ");
 		assert_eq!(

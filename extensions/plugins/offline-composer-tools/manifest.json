@@ -2,7 +2,7 @@
   "api_version": 1,
   "id": "offline-composer-tools",
   "name": "Offline Composer Tools",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "author": "Equicord/Vencord contributors; Serein port contributors",
   "license": "GPL-3.0-or-later",
   "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/offline-composer-tools",
