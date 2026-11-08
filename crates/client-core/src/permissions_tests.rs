@@ -1640,6 +1640,32 @@ fn history_freshness_does_not_disable_authorized_sending() {
 }
 
 #[test]
+fn a_friend_nickname_can_precede_a_server_nickname_without_rewriting_webhooks() {
+	let mut state = state();
+	let mut message = state.timeline.get(Id(100)).unwrap().clone();
+	message.author.id = Id(3);
+	message.author.name = "Synthetic friend".into();
+	message.author_nick = Some("Server nick".into());
+	state
+		.apply_user_action(crate::user_actions::Event::Friends(Some(vec![(
+			message.author.clone(),
+			"synthetic.handle".into(),
+		)])))
+		.unwrap();
+	state
+		.apply_user_action(crate::user_actions::Event::Nickname {
+			user: message.author.id,
+			text: "Private name".into(),
+		})
+		.unwrap();
+	assert_eq!(state.message_author_name(&message), "Server nick");
+	state.set_prefer_friend_nickname(true);
+	assert_eq!(state.message_author_name(&message), "Private name");
+	message.author.webhook = true;
+	assert_eq!(state.message_author_name(&message), "Synthetic friend");
+}
+
+#[test]
 fn optimistic_edits_and_pins_roll_back_without_overwriting_newer_content() {
 	let mut state = state();
 	let original = state.timeline.get(Id(100)).unwrap().content.clone();

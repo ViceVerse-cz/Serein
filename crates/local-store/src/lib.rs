@@ -119,6 +119,10 @@ pub struct AppPreferences {
 	/// First-run setup finished or skipped; absent in older preferences, so existing installs
 	/// see it once too.
 	pub setup_done: bool,
+	/// This account's outbound typing indicators; local only, never sent to Discord.
+	pub silent_typing: model::SilentTyping,
+	/// Show a confirmed friend's private nickname before a server nickname where both exist.
+	pub prefer_friend_nickname: bool,
 }
 impl Default for AppPreferences {
 	fn default() -> Self {
@@ -171,6 +175,8 @@ impl Default for AppPreferences {
 			plaintext_login: false,
 			diagnostics_log: diagnostics::Level::Off,
 			setup_done: false,
+			silent_typing: Default::default(),
+			prefer_friend_nickname: false,
 		}
 	}
 }
@@ -201,6 +207,7 @@ impl AppPreferences {
 			&& self.keybinds.is_valid()
 			&& self.invite_defaults.valid()
 			&& self.image_cache.is_valid()
+			&& self.silent_typing.is_valid()
 			&& [&self.voice_input, &self.voice_output]
 				.into_iter()
 				.all(|value| value.as_ref().is_none_or(|value| value.len() <= 1024))
@@ -2308,6 +2315,15 @@ mod tests {
 		assert!(boosted.is_valid());
 		boosted.user_volumes[0].1 = 401;
 		assert!(!boosted.is_valid());
+		let mut silent = AppPreferences::default();
+		silent.silent_typing.locations = vec![Id(7), Id(7)];
+		assert!(!silent.is_valid());
+		silent.silent_typing.locations = (1..=model::SilentTyping::MAX_LOCATIONS as u64)
+			.map(Id)
+			.collect();
+		assert!(silent.is_valid());
+		silent.silent_typing.locations.push(Id(65));
+		assert!(!silent.is_valid());
 		let legacy: AppPreferences =
 			serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
 		assert!(legacy.voice_processing.is_none());

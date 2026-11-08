@@ -271,6 +271,12 @@ pub struct MessagingUi {
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
 	pub convert_emoticons: bool,
+	/// Device preference: suppress this account's outbound typing indicators where configured.
+	pub silent_typing: model::SilentTyping,
+	/// Editable comma-separated channel/guild IDs backing `silent_typing`.
+	pub silent_typing_locations: String,
+	/// Device preference: a confirmed friend's private nickname wins over a server nickname.
+	pub prefer_friend_nickname: bool,
 	/// Device preference: insert a picked GIF's provider link instead of sending it at once.
 	pub gif_insert: bool,
 	/// Device preference: defaults applied when opening invite creation.
@@ -4401,8 +4407,11 @@ impl MessagingUi {
                                 self.draft_changes.push(channel);
                                 // Tell the conversation, as the official client does.
                                 if edit.changed()
-                                    && let Some(command) =
-                                        state.prepare_typing(channel, std::time::Instant::now())
+                                    && let Some(command) = state.prepare_typing(
+                                        channel,
+                                        std::time::Instant::now(),
+                                        &self.silent_typing,
+                                    )
                                 {
                                     commands.push(command);
                                 }
@@ -5027,6 +5036,7 @@ impl MessagingUi {
 	/// Draws one frame of the signed-in client and returns the commands it produced for the
 	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		state.set_prefer_friend_nickname(self.prefer_friend_nickname);
 		self.avatars.cosmetics = self.cosmetics;
 		self.avatars.profile_presentation = self.profile_presentation;
 		name_styles::set_enabled(self.cosmetics.name_styles);

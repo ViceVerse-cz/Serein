@@ -139,7 +139,7 @@ impl Page {
 				"appearance customization font typography import ttf otf primary accent hex window effects transparency blur gradient names cosmetics decorations theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
 			}
 			Self::Chat => {
-				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset emoji emojis nitro fake suggestions autocomplete locked emoticons chat box automatically convert"
+				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset emoji emojis nitro fake suggestions autocomplete locked emoticons chat box automatically convert typing indicator silent privacy nickname friend server display name"
 			}
 			Self::MessagingPermissions => {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
@@ -1244,6 +1244,54 @@ impl MessagingUi {
 				&mut self.gif_insert,
 			);
 		});
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-silent-typing"),
+			|ui| {
+				design::switch(
+					ui,
+					"settings-silent-typing-enabled",
+					Some("settings-silent-typing-enabled-description"),
+					&mut self.silent_typing.enabled,
+				);
+				design::card_divider(ui);
+				design::switch(
+					ui,
+					"settings-silent-typing-default-hidden",
+					Some("settings-silent-typing-default-hidden-description"),
+					&mut self.silent_typing.default_hidden,
+				);
+				design::hint(
+					ui,
+					&crate::i18n::translate("settings-silent-typing-locations-description"),
+				);
+				let response = design::input(
+					ui,
+					egui::TextEdit::singleline(&mut self.silent_typing_locations)
+						.hint_text(crate::i18n::translate(
+							"settings-silent-typing-locations-hint",
+						)),
+				);
+				if response.changed() {
+					let mut candidate = self.silent_typing.clone();
+					if candidate.set_locations_text(&self.silent_typing_locations) {
+						self.silent_typing = candidate;
+					}
+				}
+			},
+		);
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-name-display"),
+			|ui| {
+				design::switch(
+					ui,
+					"settings-prefer-friend-nickname",
+					Some("settings-prefer-friend-nickname-description"),
+					&mut self.prefer_friend_nickname,
+				);
+			},
+		);
 		design::group(
 			ui,
 			&crate::i18n::translate("settings-invite-defaults"),

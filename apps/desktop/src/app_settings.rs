@@ -55,6 +55,8 @@ impl Settings {
 			channel_display: ui.channel_display.clone(),
 			hide_nitro_emojis: ui.hide_nitro_emojis,
 			convert_emoticons: ui.convert_emoticons,
+			silent_typing: ui.silent_typing.clone(),
+			prefer_friend_nickname: ui.prefer_friend_nickname,
 			gif_insert: ui.gif_insert,
 			invite_defaults: ui.invite_defaults,
 			preload_on_hover: ui.preload_on_hover,
@@ -117,6 +119,9 @@ impl Settings {
 		ui.channel_display = value.channel_display.clone();
 		ui.hide_nitro_emojis = value.hide_nitro_emojis;
 		ui.convert_emoticons = value.convert_emoticons;
+		ui.silent_typing = value.silent_typing.clone();
+		ui.silent_typing_locations = value.silent_typing.locations_text();
+		ui.prefer_friend_nickname = value.prefer_friend_nickname;
 		ui.gif_insert = value.gif_insert;
 		ui.invite_defaults = value.invite_defaults;
 		ui.preload_on_hover = value.preload_on_hover;
@@ -581,18 +586,31 @@ mod tests {
 			max_uses: 5,
 			temporary: true,
 		};
+		settings.current.silent_typing = model::SilentTyping {
+			enabled: true,
+			default_hidden: true,
+			locations: vec![model::Id(20), model::Id(10)],
+		};
+		settings.current.prefer_friend_nickname = true;
 		let mut ui = ui::MessagingUi::default();
 		settings.apply(&mut ui);
 		assert!(ui.gif_insert);
 		assert_eq!(ui.invite_defaults, settings.current.invite_defaults);
+		assert_eq!(ui.silent_typing, settings.current.silent_typing);
+		assert_eq!(ui.silent_typing_locations, "20, 10");
+		assert!(ui.prefer_friend_nickname);
 		settings.observe(&ui);
 		assert!(!settings.state.dirty);
 
 		ui.gif_insert = false;
 		ui.invite_defaults.max_uses = 10;
+		ui.silent_typing.enabled = false;
+		ui.prefer_friend_nickname = false;
 		settings.observe(&ui);
 		assert!(!settings.current.gif_insert);
 		assert_eq!(settings.current.invite_defaults.max_uses, 10);
+		assert!(!settings.current.silent_typing.enabled);
+		assert!(!settings.current.prefer_friend_nickname);
 		assert!(settings.state.dirty);
 	}
 

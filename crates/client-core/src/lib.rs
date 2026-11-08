@@ -821,6 +821,8 @@ pub struct State {
 	pub profile_cache: profile::ProfileCache,
 	/// Device preference for which profile cosmetics are shown and loaded.
 	pub profile_cosmetics: model::CosmeticPreferences,
+	/// Device preference: a confirmed friend's private nickname wins over a server nickname.
+	pub prefer_friend_nickname: bool,
 	pub own_profile: profile::OwnProfile,
 	pub badge_editor: profile::BadgeEditor,
 	pub invites: invites::Cache,
@@ -1061,6 +1063,7 @@ impl Default for State {
 			profile_request: 0,
 			profile_cache: Default::default(),
 			profile_cosmetics: Default::default(),
+			prefer_friend_nickname: false,
 			own_profile: Default::default(),
 			badge_editor: Default::default(),
 			invites: Default::default(),

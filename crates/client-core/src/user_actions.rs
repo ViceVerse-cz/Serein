@@ -314,9 +314,18 @@ impl State {
 	pub fn user_display_name<'a>(&'a self, user: &'a model::User) -> &'a str {
 		self.friend_nickname(user.id).unwrap_or(&user.name)
 	}
+	/// Device preference: a confirmed friend's private nickname wins over a server nickname.
+	pub fn set_prefer_friend_nickname(&mut self, prefer: bool) {
+		self.prefer_friend_nickname = prefer;
+	}
 	pub fn message_author_name<'a>(&'a self, message: &'a model::Message) -> &'a str {
 		if message.author.webhook {
 			return &message.author.name;
+		}
+		if self.prefer_friend_nickname
+			&& let Some(nick) = self.friend_nickname(message.author.id)
+		{
+			return nick;
 		}
 		if let Some(guild) = self
 			.channel(message.channel)

@@ -193,11 +193,17 @@ impl State {
 			.min()
 	}
 	/// This account's typing indicator for `channel`, at most once per `TYPING_RESEND`, and
-	/// only while it could send a message there.
-	pub fn prepare_typing(&mut self, channel: Id, now: Instant) -> Option<crate::Command> {
+	/// only while it could send a message there and the local preference allows it.
+	pub fn prepare_typing(
+		&mut self,
+		channel: Id,
+		now: Instant,
+		silent: &model::SilentTyping,
+	) -> Option<crate::Command> {
 		if !self.gateway_connected
 			|| self.freshness == Freshness::Unavailable
 			|| !self.can_send(channel)
+			|| !silent.allows(channel, self.channel(channel).and_then(|channel| channel.guild))
 		{
 			return None;
 		}
@@ -385,32 +391,56 @@ mod tests {
 		let mut state = state();
 		let now = Instant::now();
 		assert!(matches!(
-			state.prepare_typing(Id(10), now),
+			state.prepare_typing(Id(10), now, &model::SilentTyping::default()),
 			Some(crate::Command::Typing { channel: Id(10) })
 		));
 		assert!(
 			state
-				.prepare_typing(Id(10), now + Duration::from_secs(7))
+				.prepare_typing(
+					Id(10),
+					now + Duration::from_secs(7),
+					&model::SilentTyping::default(),
+				)
 				.is_none()
 		);
-		assert!(state.prepare_typing(Id(10), now + TYPING_RESEND).is_some());
+		assert!(
+			state
+				.prepare_typing(
+					Id(10),
+					now + TYPING_RESEND,
+					&model::SilentTyping::default(),
+				)
+				.is_some()
+		);
 		// Sending a message ends the indicator, so the next keystroke starts a new one.
 		state.typing_message(&message(1, 10));
 		assert!(
 			state
-				.prepare_typing(Id(10), now + Duration::from_secs(9))
+				.prepare_typing(
+					Id(10),
+					now + Duration::from_secs(9),
+					&model::SilentTyping::default(),
+				)
 				.is_some()
 		);
 		// Only for the open conversation, and only while connected.
 		assert!(
 			state
-				.prepare_typing(Id(11), now + Duration::from_secs(30))
+				.prepare_typing(
+					Id(11),
+					now + Duration::from_secs(30),
+					&model::SilentTyping::default(),
+				)
 				.is_none()
 		);
 		state.gateway_connected = false;
 		assert!(
 			state
-				.prepare_typing(Id(10), now + Duration::from_secs(60))
+				.prepare_typing(
+					Id(10),
+					now + Duration::from_secs(60),
+					&model::SilentTyping::default(),
+				)
 				.is_none()
 		);
 	}
@@ -419,13 +449,21 @@ mod tests {
 	fn switching_drafts_keeps_each_channels_outgoing_throttle() {
 		let mut state = state();
 		let now = Instant::now();
-		assert!(state.prepare_typing(Id(10), now).is_some());
+		assert!(
+			state
+				.prepare_typing(Id(10), now, &model::SilentTyping::default())
+				.is_some()
+		);
 		state.select(Id(11)).unwrap();
 		state.freshness = Freshness::Fresh;
 		state.history_pending = false;
 		assert!(
 			state
-				.prepare_typing(Id(11), now + Duration::from_secs(1))
+				.prepare_typing(
+					Id(11),
+					now + Duration::from_secs(1),
+					&model::SilentTyping::default(),
+				)
 				.is_some()
 		);
 		state.select(Id(10)).unwrap();
@@ -433,19 +471,51 @@ mod tests {
 		state.history_pending = false;
 		assert!(
 			state
-				.prepare_typing(Id(10), now + Duration::from_secs(2))
+				.prepare_typing(
+					Id(10),
+					now + Duration::from_secs(2),
+					&model::SilentTyping::default(),
+				)
 				.is_none()
 		);
-		assert!(state.prepare_typing(Id(10), now + TYPING_RESEND).is_some());
+		assert!(
+			state
+				.prepare_typing(
+					Id(10),
+					now + TYPING_RESEND,
+					&model::SilentTyping::default(),
+				)
+				.is_some()
+		);
 		// Only the channel whose own message arrived gets a fresh indicator immediately.
 		state.typing_message(&message(1, 11));
 		state.select(Id(11)).unwrap();
 		state.freshness = Freshness::Fresh;
 		state.history_pending = false;
-		assert!(state.prepare_typing(Id(11), now + TYPING_RESEND).is_some());
+		assert!(
+			state
+				.prepare_typing(
+					Id(11),
+					now + TYPING_RESEND,
+					&model::SilentTyping::default(),
+				)
+				.is_some()
+		);
 		state.typing.sent = [Some((Id(99), now)); SENT_TYPING];
-		assert!(state.prepare_typing(Id(11), now).is_none());
-		assert!(state.prepare_typing(Id(11), now + TYPING_RESEND).is_some());
+		assert!(
+			state
+				.prepare_typing(Id(11), now, &model::SilentTyping::default())
+				.is_none()
+		);
+		assert!(
+			state
+				.prepare_typing(
+					Id(11),
+					now + TYPING_RESEND,
+					&model::SilentTyping::default(),
+				)
+				.is_some()
+		);
 	}
 
 	#[test]
@@ -609,5 +679,46 @@ mod tests {
 			apply(&mut state, Event::Message(message(2, 10)));
 			assert_eq!(state.typing_users(now).collect::<Vec<_>>(), vec![Id(3)]);
 		}
+	}
+
+	#[test]
+	fn silent_typing_blocks_only_listed_locations_and_never_consumes_the_throttle() {
+		let mut state = state();
+		state.freshness = Freshness::Fresh;
+		state.history_pending = false;
+		let now = Instant::now();
+		let mut silent = model::SilentTyping {
+			enabled: true,
+			default_hidden: true,
+			..model::SilentTyping::default()
+		};
+		assert!(silent.set_locations_text("11"));
+		assert!(
+			state.prepare_typing(Id(10), now, &silent).is_none(),
+			"a hidden location produces no outbound indicator"
+		);
+		state.select(Id(11)).unwrap();
+		state.freshness = Freshness::Fresh;
+		state.history_pending = false;
+		assert!(
+			state.prepare_typing(Id(11), now, &silent).is_some(),
+			"an allowed location keeps typing"
+		);
+		// The hidden channel was not charged, so enabling it takes effect immediately.
+		state.select(Id(10)).unwrap();
+		state.freshness = Freshness::Fresh;
+		state.history_pending = false;
+		silent.enabled = false;
+		assert!(state.prepare_typing(Id(10), now, &silent).is_some());
+		// With the reverse default, only listed locations are hidden.
+		silent.enabled = true;
+		silent.default_hidden = false;
+		assert!(state.prepare_typing(Id(10), now + TYPING_RESEND, &silent).is_some());
+		assert!(silent.set_locations_text("10"));
+		assert!(
+			state
+				.prepare_typing(Id(10), now + TYPING_RESEND * 2, &silent)
+				.is_none()
+		);
 	}
 }
