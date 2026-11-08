@@ -121,6 +121,12 @@ pub enum ExtensionRequest {
 
 const CONTEXT_ACTIONS: &str = "extension-context-actions";
 const CONTEXT_CHOICE: &str = "extension-context-choice";
+/// The session the published menu entries belong to, stored with a choice so that a choice
+/// made before an account or connection change is dropped instead of run for the new one.
+const CONTEXT_SESSION: &str = "extension-context-session";
+
+/// A plugin menu action chosen this frame, with what it was chosen on and for which session.
+type MenuChoice = (MenuAction, extensions::MenuTarget, ExtensionContext);
 
 /// Adds an "Extensions" submenu for `target` to a user, channel or server menu, when any
 /// enabled plugin declares an action for that menu. The choice is dispatched next frame.
@@ -180,15 +186,21 @@ pub(crate) fn has_context_actions(ctx: &egui::Context, surface: Surface) -> bool
 /// One button per enabled plugin action for `target`, for menus that hold nothing else.
 pub(crate) fn context_menu_entries(ui: &mut egui::Ui, target: &extensions::MenuTarget) {
 	let surface = target.surface();
+	let session = ui
+		.ctx()
+		.data(|data| data.get_temp::<ExtensionContext>(egui::Id::unique(CONTEXT_SESSION)));
+	let Some(session) = session else {
+		return;
+	};
 	for (_, action) in context_actions(ui.ctx())
 		.iter()
 		.filter(|(s, _)| *s == surface)
 	{
 		if ui.button(&action.label).clicked() {
 			ui.ctx().data_mut(|data| {
-				data.insert_temp(
+				data.insert_temp::<Option<MenuChoice>>(
 					egui::Id::unique(CONTEXT_CHOICE),
-					Some((action.clone(), target.clone())),
+					Some((action.clone(), target.clone(), session.clone())),
 				);
 			});
 			ui.ctx().request_repaint();
@@ -627,24 +639,29 @@ impl ExtensionUi {
 				.collect(),
 		);
 	}
-	/// Publish this frame's context-menu entries and dispatch one chosen last frame.
+	/// Publish this frame's context-menu entries and dispatch one chosen last frame, unless
+	/// the account or connection it was chosen in has changed since.
 	pub(crate) fn context_menus(&mut self, ctx: &egui::Context, state: &State) {
 		let chosen = ctx.data_mut(|data| {
+			let chosen = data
+				.get_temp::<Option<MenuChoice>>(egui::Id::unique(CONTEXT_CHOICE))
+				.flatten();
+			data.remove::<Option<MenuChoice>>(egui::Id::unique(CONTEXT_CHOICE));
 			data.insert_temp(
 				egui::Id::unique(CONTEXT_ACTIONS),
 				self.context_actions.clone(),
 			);
-			data.get_temp::<Option<(MenuAction, extensions::MenuTarget)>>(egui::Id::unique(
-				CONTEXT_CHOICE,
-			))
-			.flatten()
-			.inspect(|_| {
-				data.remove::<Option<(MenuAction, extensions::MenuTarget)>>(egui::Id::unique(
-					CONTEXT_CHOICE,
-				))
-			})
+			data.insert_temp(
+				egui::Id::unique(CONTEXT_SESSION),
+				ExtensionContext::panel(state),
+			);
+			chosen
 		});
-		if let Some((action, target)) = chosen {
+		if let Some((action, target, context)) = chosen {
+			if !context.is_current(state) {
+				self.status = "Menu action discarded because the account changed.".into();
+				return;
+			}
 			self.queue(
 				ctx,
 				ExtensionRequest::Invoke {
@@ -654,7 +671,7 @@ impl ExtensionUi {
 						menu_target: Some(Box::new(target)),
 						..Default::default()
 					},
-					context: ExtensionContext::panel(state),
+					context,
 				},
 			);
 		}
@@ -3286,6 +3303,68 @@ mod tests {
 				modifiers: Default::default(),
 			})
 			.collect()
+	}
+
+	/// Checks that a menu choice runs with the session it was made in, and is dropped when
+	/// the account or connection changed before it was dispatched.
+	#[test]
+	fn context_menu_choice_is_bound_to_the_session_that_made_it() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let mut shop = ExtensionUi::default();
+		let mut enabled = entry();
+		enabled.enabled = true;
+		enabled.manifest.capabilities = vec![Capability::ContextMenus];
+		enabled.manifest.actions = vec![extensions::Action {
+			id: "copy".into(),
+			label: "Copy link".into(),
+			surface: Surface::Server,
+		}];
+		shop.set_entries(vec![enabled]);
+		let target = extensions::MenuTarget::Server {
+			guild_id: "10".into(),
+		};
+		// Each pass publishes the menu, draws the entry and clicks it when asked, then the
+		// next pass dispatches the choice.
+		let choose = |shop: &mut ExtensionUi, state: &State| {
+			let mut at = None;
+			for click in [false, true] {
+				let events = at.map(press_at).filter(|_| click).unwrap_or_default();
+				ctx.run_ui(
+					egui::RawInput {
+						events,
+						..Default::default()
+					},
+					|ui| {
+						shop.context_menus(ui.ctx(), state);
+						egui::CentralPanel::default().show_inside(ui, |ui| {
+							context_menu_entries(ui, &target);
+							at = Some(ui.min_rect().left_top() + egui::vec2(20.0, 10.0));
+						});
+					},
+				)
+				.drop_without_applying_deltas();
+			}
+		};
+		choose(&mut shop, &state);
+		ctx.run_ui(Default::default(), |ui| {
+			shop.context_menus(ui.ctx(), &state)
+		})
+		.drop_without_applying_deltas();
+		let [ExtensionRequest::Invoke { context, .. }] = shop.requests.as_slice() else {
+			panic!("one invocation queued: {}", shop.requests.len())
+		};
+		assert_eq!(context.generation, state.generation);
+		shop.requests.clear();
+		// A choice made before the session changed is not run for the new one.
+		choose(&mut shop, &state);
+		state.generation += 1;
+		ctx.run_ui(Default::default(), |ui| {
+			shop.context_menus(ui.ctx(), &state)
+		})
+		.drop_without_applying_deltas();
+		assert!(shop.requests.is_empty(), "stale choice dropped");
+		assert!(shop.status.contains("discarded"), "{}", shop.status);
 	}
 
 	/// Checks that only enabled plugins' actions for the clicked menu are listed and that choosing
