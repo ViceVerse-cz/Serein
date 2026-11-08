@@ -3865,6 +3865,10 @@ timeline-message-actions-delete-message = メッセージを削除…
 timeline-message-actions-edit-message = メッセージを編集する
 # Context: message_actions
 timeline-message-actions-extensions = 拡張機能
+# Context: menu
+extensions-ui-menu-group-user = ユーザー
+# Context: menu
+extensions-ui-menu-group-conversation = 会話
 # Context: message_actions
 timeline-message-actions-forward = 転送
 # Context: message_actions

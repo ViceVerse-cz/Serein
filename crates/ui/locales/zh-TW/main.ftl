@@ -3900,6 +3900,10 @@ timeline-message-actions-delete-message = 刪除訊息…
 timeline-message-actions-edit-message = 編輯訊息
 # Context: message_actions
 timeline-message-actions-extensions = 擴充功能
+# Context: menu
+extensions-ui-menu-group-user = 使用者
+# Context: menu
+extensions-ui-menu-group-conversation = 對話
 # Context: message_actions
 timeline-message-actions-forward = 轉發
 # Context: message_actions

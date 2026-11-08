@@ -129,19 +129,35 @@ pub(crate) fn context_menu_items(ui: &mut egui::Ui, target: extensions::MenuTarg
 }
 
 /// One "Extensions" submenu listing plugin actions for each of `targets` in order, for a row
-/// that is several things at once (a DM row is both a user and a channel). Absent when no
-/// enabled plugin offers an action for any of them.
+/// that is several things at once (a DM row is both a user and a channel). When more than one
+/// target has actions, each group is headed by what it acts on, so equal labels stay distinct.
+/// Absent when no enabled plugin offers an action for any of them.
 pub(crate) fn context_menu_targets(ui: &mut egui::Ui, targets: &[extensions::MenuTarget]) {
-	if !targets
+	let offered: Vec<_> = targets
 		.iter()
-		.any(|target| has_context_actions(ui.ctx(), target.surface()))
-	{
+		.filter(|target| has_context_actions(ui.ctx(), target.surface()))
+		.collect();
+	if offered.is_empty() {
 		return;
 	}
 	ui.menu_button(
 		crate::i18n::translate("timeline-message-actions-extensions"),
 		|ui| {
-			for target in targets {
+			for (index, target) in offered.iter().enumerate() {
+				if offered.len() > 1 {
+					if index > 0 {
+						ui.separator();
+					}
+					let heading = match target.surface() {
+						Surface::User => "extensions-ui-menu-group-user",
+						_ => "extensions-ui-menu-group-conversation",
+					};
+					ui.label(
+						egui::RichText::new(crate::i18n::translate(heading))
+							.small()
+							.color(crate::design::palette(ui).muted),
+					);
+				}
 				context_menu_entries(ui, target);
 			}
 		},
@@ -3385,6 +3401,16 @@ mod tests {
 			texts.iter().any(|(text, _)| text.ends_with("Archive DM")),
 			"channel actions for the DM sit beside user actions"
 		);
+		for heading in [
+			"extensions-ui-menu-group-user",
+			"extensions-ui-menu-group-conversation",
+		] {
+			let heading = crate::i18n::translate(heading);
+			assert!(
+				texts.iter().any(|(text, _)| *text == heading),
+				"{heading} heads its group"
+			);
+		}
 		let (_, item) = texts
 			.iter()
 			.find(|(text, _)| text.ends_with("Copy link"))
