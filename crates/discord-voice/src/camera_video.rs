@@ -50,8 +50,13 @@ impl Sender {
 	pub fn available(&self) -> bool {
 		self.negotiated && self.ssrc != 0
 	}
-	pub fn announcement(&self, audio: u32, enabled: bool) -> Value {
-		json!({"op":12,"d":{"audio_ssrc":audio,"video_ssrc":if enabled {self.ssrc} else {0},"rtx_ssrc":if enabled {self.rtx} else {0},"streams":if enabled {vec![json!({"type":"video","rid":"100","ssrc":self.ssrc,"rtx_ssrc":self.rtx,"active":true,"quality":100,"max_bitrate":600_000,"max_framerate":crate::camera::FPS,"max_resolution":{"type":"fixed","width":640,"height":480}})]}else{vec![]}}})
+	pub fn announcement(
+		&self,
+		audio: u32,
+		enabled: bool,
+		rate: model::voice_settings::CameraFrameRate,
+	) -> Value {
+		json!({"op":12,"d":{"audio_ssrc":audio,"video_ssrc":if enabled {self.ssrc} else {0},"rtx_ssrc":if enabled {self.rtx} else {0},"streams":if enabled {vec![json!({"type":"video","rid":"100","ssrc":self.ssrc,"rtx_ssrc":self.rtx,"active":true,"quality":100,"max_bitrate":600_000,"max_framerate":rate.fps(),"max_resolution":{"type":"fixed","width":640,"height":480}})]}else{vec![]}}})
 	}
 	pub fn clear(&mut self) {
 		self.packets.clear();
@@ -158,10 +163,15 @@ mod tests {
 	#[test]
 	fn camera_packetization_is_bounded_and_marks_only_the_last_fragment() {
 		let mut sender = Sender::default();
-		assert_eq!(
-			sender.announcement(1, true)["d"]["streams"][0]["max_framerate"].as_u64(),
-			Some(u64::from(crate::camera::FPS))
-		);
+		for rate in [
+			model::voice_settings::CameraFrameRate::Fps15,
+			model::voice_settings::CameraFrameRate::Fps30,
+		] {
+			assert_eq!(
+				sender.announcement(1, true, rate)["d"]["streams"][0]["max_framerate"].as_u64(),
+				Some(u64::from(rate.fps()))
+			);
+		}
 		let mut crypto = Encryption::new(&[7; 32]);
 		let mut frame = vec![0, 0, 0, 1, 0x65];
 		frame.extend(vec![9; 2400]);

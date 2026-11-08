@@ -589,17 +589,18 @@ async fn run_inner(
 					   }
 					   let control=*controls.borrow();
 					   let camera_enabled=enabled && video.available() && control.camera!=0;
-					   if !camera_enabled || video.generation!=control.camera {video.clear();}
-					   video.generation=control.camera;
-					   if video.announced && !camera_enabled {
-						   json_send(&mut ws,video.announcement(ssrc,camera_enabled)).await?;
-						   video.announced=camera_enabled;
+					   let camera_changed=video.generation!=control.camera;
+					   if !camera_enabled || camera_changed {video.clear();}
+					   if video.announced && (!camera_enabled || camera_changed) {
+						   json_send(&mut ws,video.announcement(ssrc,false,control.camera_rate)).await?;
+						   video.announced=false;
 					   }
+					   video.generation=control.camera;
 					   if let Some(camera)=&camera && let Ok(frame)=camera.try_recv()
 						   && camera_enabled && frame.generation==control.camera && video.is_empty()
 						   && frame.data.len()<=crate::camera_video::MAX_FRAME_BYTES {
 						   if !video.announced {
-							   json_send(&mut ws,video.announcement(ssrc,true)).await?;
+							   json_send(&mut ws,video.announcement(ssrc,true,control.camera_rate)).await?;
 							   video.announced=true;
 						   }
 						   let normalized=crate::video_sps::normalize(&frame.data)?;
@@ -731,7 +732,7 @@ async fn run_inner(
 									   ssrc=u32::try_from(number(data,"ssrc")?).map_err(|_|"Invalid voice SSRC")?;
 									   video.configure(data,ssrc);
 									   // Video-capable clients announce their audio SSRC even with the camera off.
-									   if camera.is_some() {json_send(&mut ws,video.announcement(ssrc,false)).await?;}
+										if camera.is_some() {json_send(&mut ws,video.announcement(ssrc,false,Default::default())).await?;}
 									   let address:IpAddr=data["ip"].as_str().ok_or("Missing voice server address")?.parse().map_err(|_|"Invalid voice server address")?;
 									   if !public_ip(address) && !(cfg!(test) && local_test && address.is_loopback()){return Err("Voice server advertised a nonpublic address");}
 									   let port=u16::try_from(number(data,"port")?).ok().filter(|p|*p>0).ok_or("Invalid voice server port")?;
@@ -833,7 +834,7 @@ async fn run_inner(
 								   },
 								   9=>{
 									   if !resuming{return Err("Unexpected voice resumption");}
-									   if camera.is_some(){json_send(&mut ws,video.announcement(ssrc,false)).await?;}
+										if camera.is_some(){json_send(&mut ws,video.announcement(ssrc,false,Default::default())).await?;}
 									   json_send(&mut ws,json!({"op":5,"d":{"speaking":0,"delay":0,"ssrc":ssrc}})).await?;
 									   speaking=false;silence=0;
 									   resuming=false;
