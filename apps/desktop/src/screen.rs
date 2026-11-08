@@ -260,7 +260,6 @@ impl Screen {
 			return None;
 		}
 		ui.screen.supported = discord_voice::screen::supported();
-		ui.screen.audio_includes_call = discord_voice::screen::audio_includes_call();
 		let cue = model::notification_preferences::Sound::ViewerJoin;
 		if std::mem::take(&mut self.viewer_cue) && ui.notification_options.allows(cue) {
 			ui.notification_preview = Some(cue);

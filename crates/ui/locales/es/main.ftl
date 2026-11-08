@@ -2276,8 +2276,6 @@ screen-body-share-system-audio = Compartir audio del sistema
 # Context: body
 screen-body-show-cursor = Mostrar cursor
 # Context: body
-screen-body-this-windows-version-cannot-leave-serein-out = Esta versión de Windows no puede excluir Serein, así que los espectadores también oirán tu llamada. Para evitarlo, elige para los Altavoces de Serein un dispositivo distinto del predeterminado de Windows.
-# Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = Su micrófono de llamadas mantiene su configuración actual.
 # Context: show
 screen-show-cancel = Cancelar

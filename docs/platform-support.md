@@ -453,11 +453,10 @@ PulseAudio or PipeWire's PulseAudio server. Source builds need the libpulse deve
 package (`libpulse-dev`, `pulseaudio-libs-devel`, `libpulse-devel` or Arch's `libpulse`).
 The existing Flatpak PulseAudio socket permission covers this access; the ScreenCast
 portal's PipeWire remote grants video only. Windows uses native process loopback on
-build 20348+ (Windows 11 / Server 2022). Both exclude Serein's playback and capture other
-applications even when sharing one window. Older Windows builds capture the default output
-device instead, so viewers also hear the call unless Serein plays elsewhere; the share picker
-warns before this opt-in. Hardware exclusion, the older-build path and receiving sound in an
-official client remain unverified.
+build 20348+ (Windows 11 / Server 2022), with a visible audio error on older systems.
+Both exclude Serein's playback and capture other applications even when sharing one
+window. There is no whole-output fallback. Hardware exclusion and receiving sound in
+an official client remain unverified.
 
 ## High-resolution video attachments
 

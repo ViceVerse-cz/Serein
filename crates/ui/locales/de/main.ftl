@@ -2276,8 +2276,6 @@ screen-body-share-system-audio = Teilen Sie Systemaudio
 # Context: body
 screen-body-show-cursor = Cursor anzeigen
 # Context: body
-screen-body-this-windows-version-cannot-leave-serein-out = Diese Windows-Version kann Serein nicht auslassen, daher hören Zuschauer auch Ihren Anruf. Um das zu vermeiden, stellen Sie Sereins Lautsprecher auf ein anderes Gerät als den Windows-Standard.
-# Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = Ihr Anrufmikrofon behält seine aktuellen Einstellungen.
 # Context: show
 screen-show-cancel = Stornieren

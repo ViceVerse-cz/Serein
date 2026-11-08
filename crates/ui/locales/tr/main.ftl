@@ -2277,8 +2277,6 @@ screen-body-share-system-audio = Sistem sesini paylaş
 # Context: body
 screen-body-show-cursor = İmleci göster
 # Context: body
-screen-body-this-windows-version-cannot-leave-serein-out = Bu Windows sürümü Serein'i dışarıda bırakamaz, bu yüzden izleyiciler aramanızı da duyar. Bunu önlemek için Serein'in Hoparlörler ayarını Windows varsayılanından farklı bir cihaza ayarlayın.
-# Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = Çağrı mikrofonunuz mevcut ayarlarını korur.
 # Context: show
 screen-show-cancel = İptal etmek

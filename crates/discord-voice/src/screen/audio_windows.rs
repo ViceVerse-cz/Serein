@@ -5,14 +5,6 @@ use std::sync::{
 };
 use tokio::sync::mpsc::Sender;
 
-/// Whether system audio also carries Serein's own playback, including the call.
-/// Builds before 20348 lack process loopback, so they capture the default output instead.
-#[cfg(target_os = "windows")]
-pub(crate) fn includes_own_audio() -> bool {
-	static OLD: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-	*OLD.get_or_init(|| native::build().is_some_and(|build| build < 20348))
-}
-
 #[cfg(target_os = "windows")]
 pub(super) struct Audio {
 	thread: Option<std::thread::JoinHandle<()>>,
@@ -37,11 +29,10 @@ impl Audio {
 			failed: failed.clone(),
 		};
 		let (started, result) = std::sync::mpsc::sync_channel(1);
-		let whole_output = includes_own_audio();
 		let thread = std::thread::Builder::new()
 			.name("screen-audio".into())
 			.spawn(move || {
-				if native::run(&input, whole_output, started).is_err() {
+				if native::run(&input, started).is_err() {
 					input.failed.store(true, Ordering::Release);
 					input.stop.store(true, Ordering::Release);
 				}
@@ -54,7 +45,9 @@ impl Audio {
 		};
 		result
 			.recv_timeout(std::time::Duration::from_secs(4))
-			.map_err(|_| "System audio could not start; share without audio to send video alone")?;
+			.map_err(
+				|_| "Echo-free system audio could not start; Windows build 20348 or newer is required",
+			)?;
 		Ok(audio)
 	}
 
@@ -90,36 +83,22 @@ mod native {
 		time::{Duration, Instant},
 	};
 	use windows::{
-		Wdk::System::SystemServices::RtlGetVersion,
 		Win32::{
 			Foundation::{E_FAIL, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
 			Media::Audio::*,
 			System::{
 				Com::{
-					BLOB, CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
-					CoUninitialize,
+					BLOB, COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize,
 					StructuredStorage::{
 						PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
 					},
 				},
-				SystemInformation::OSVERSIONINFOW,
 				Threading::{CreateEventW, WaitForSingleObject},
 				Variant::VT_BLOB,
 			},
 		},
 		core::{HRESULT, Interface, Ref, Result, implement},
 	};
-
-	/// The real build number; GetVersionExW depends on the executable's manifest.
-	pub(super) fn build() -> Option<u32> {
-		let mut info = OSVERSIONINFOW {
-			dwOSVersionInfoSize: size_of::<OSVERSIONINFOW>() as u32,
-			..Default::default()
-		};
-		unsafe { RtlGetVersion(&mut info) }
-			.is_ok()
-			.then_some(info.dwBuildNumber)
-	}
 
 	#[implement(IActivateAudioInterfaceCompletionHandler)]
 	struct Completion {
@@ -150,13 +129,13 @@ mod native {
 		}
 	}
 
-	pub(super) fn run(input: &Samples, whole_output: bool, started: SyncSender<()>) -> Result<()> {
+	pub(super) fn run(input: &Samples, started: SyncSender<()>) -> Result<()> {
 		// This dedicated thread initializes and releases all COM objects in one MTA.
 		unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok()? };
 		let result = (|| {
 			let mut started = Some(started);
 			while !input.stop.load(Ordering::Acquire) && !input.send.is_closed() {
-				capture(input, whole_output, &mut started)?;
+				capture(input, &mut started)?;
 			}
 			Ok(())
 		})();
@@ -164,8 +143,10 @@ mod native {
 		result
 	}
 
-	/// Everything playing except Serein's process tree, on build 20348 and newer.
-	fn process_loopback(input: &Samples) -> Result<IAudioClient> {
+	fn capture(input: &Samples, started: &mut Option<SyncSender<()>>) -> Result<()> {
+		if input.stop.load(Ordering::Acquire) {
+			return Err(E_FAIL.into());
+		}
 		let params = Arc::new(activation_params(std::process::id()));
 		let (send, done) = sync_channel(1);
 		let completion: IActivateAudioInterfaceCompletionHandler = Completion {
@@ -214,32 +195,13 @@ mod native {
 		unsafe { operation.GetActivateResult(&mut status, &mut activated)? };
 		drop(operation);
 		status.ok()?;
-		activated.ok_or(E_FAIL)?.cast()
-	}
-
-	fn capture(
-		input: &Samples,
-		whole_output: bool,
-		started: &mut Option<SyncSender<()>>,
-	) -> Result<()> {
-		if input.stop.load(Ordering::Acquire) {
+		if input.stop.load(Ordering::Acquire) || input.send.is_closed() {
 			return Err(E_FAIL.into());
 		}
 		let event = unsafe { CreateEventW(None, false, false, None)? };
 		// Created before the clients so it stays open until their COM references are released.
 		let event = unsafe { OwnedHandle::from_raw_handle(event.0) };
-		let client = if whole_output {
-			// Includes Serein's own playback unless it uses a non-default output device.
-			let devices: IMMDeviceEnumerator =
-				unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)? };
-			let device = unsafe { devices.GetDefaultAudioEndpoint(eRender, eConsole)? };
-			unsafe { device.Activate::<IAudioClient>(CLSCTX_ALL, None)? }
-		} else {
-			process_loopback(input)?
-		};
-		if input.stop.load(Ordering::Acquire) || input.send.is_closed() {
-			return Err(E_FAIL.into());
-		}
+		let client: IAudioClient = activated.ok_or(E_FAIL)?.cast()?;
 		let format = WAVEFORMATEX {
 			wFormatTag: 3, // WAVE_FORMAT_IEEE_FLOAT
 			nChannels: 2,
@@ -250,15 +212,13 @@ mod native {
 			cbSize: 0,
 		};
 		// Native conversion gives stereo 48 kHz independently of physical output formats.
-		// A 20 ms request keeps the buffer within one bounded chunk.
 		unsafe {
 			client.Initialize(
 				AUDCLNT_SHAREMODE_SHARED,
 				AUDCLNT_STREAMFLAGS_LOOPBACK
 					| AUDCLNT_STREAMFLAGS_EVENTCALLBACK
-					| AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
-					| AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-				200_000,
+					| AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+				0,
 				0,
 				&format,
 				None,

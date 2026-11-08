@@ -2312,8 +2312,6 @@ screen-body-share-system-audio = Share system audio
 # Context: body
 screen-body-show-cursor = Show cursor
 # Context: body
-screen-body-this-windows-version-cannot-leave-serein-out = This version of Windows can't leave Serein out, so viewers also hear your call. To avoid that, set Serein's Speakers to a device other than the Windows default.
-# Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = Your call microphone keeps its current settings.
 # Context: show
 screen-show-cancel = Cancel

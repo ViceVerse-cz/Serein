@@ -2277,8 +2277,6 @@ screen-body-share-system-audio = システムオーディオを共有する
 # Context: body
 screen-body-show-cursor = カーソルを表示
 # Context: body
-screen-body-this-windows-version-cannot-leave-serein-out = このバージョンの Windows では Serein の音声を除外できないため、視聴者には通話も聞こえます。避けるには、Serein のスピーカーを Windows の既定とは別のデバイスに設定してください。
-# Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = 通話マイクは現在の設定を維持します。
 # Context: show
 screen-show-cancel = キャンセル

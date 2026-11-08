@@ -109,7 +109,7 @@ call's ephemeral `Identity`, and enables outgoing media only after DAVE is ready
 `video` handles bounded Annex-B/FU-A RTP packetization after DAVE frame encryption.
 
 Optional system audio uses macOS ScreenCaptureKit, Windows process loopback excluding
-Serein's process tree (build 20348+; older builds capture the default output after a warning), or Linux PulseAudio/PipeWire per-application monitors
+Serein's process tree (build 20348+), or Linux PulseAudio/PipeWire per-application monitors
 excluding Serein and unknown identities. Windows/Linux still include other applications
 when sharing one window. Linux has a separate bounded audio worker so video encoding
 cannot delay its sampling. Audio reaches the existing
