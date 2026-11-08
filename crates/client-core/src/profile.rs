@@ -1681,4 +1681,57 @@ mod tests {
 			assert!(state.channels.iter().all(|channel| channel.id != Id(3)));
 		}
 	}
+
+	#[test]
+	fn own_guild_profile_uses_a_distinct_cache_key_and_session_clear_drops_it() {
+		let mut state = own_state();
+		state.guilds = vec![model::Guild {
+			default_message_notifications: None,
+			stickers: None,
+			emojis: None,
+			id: Id(9),
+			name: "Synthetic".into(),
+			icon: None,
+		}];
+		let own = state.user.as_ref().unwrap().id;
+		let Some(Command::Profile {
+			user,
+			guild,
+			with_mutuals,
+			..
+		}) = state.request_profile(own, Some(Id(9)))
+		else {
+			panic!("missing own server profile request")
+		};
+		assert_eq!((user, guild), (own, Some(Id(9))));
+		assert!(!with_mutuals, "the account's own profile needs no mutuals");
+		let mut data = own_data("Server profile");
+		data.guild = Some(model::GuildProfile {
+			guild: Id(9),
+			roles: vec![],
+			nick: Some("Server nickname".into()),
+			avatar: None,
+			banner: None,
+			bio: String::new(),
+			pronouns: String::new(),
+			joined_at: None,
+		});
+		let request = state.profile.as_ref().unwrap().request;
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Profile {
+				user: own,
+				guild: Some(Id(9)),
+				request,
+				result: Ok(data),
+			},
+		});
+		state.clear_profile();
+		// The guild-scoped view is cached separately from the global one.
+		assert!(state.request_profile(own, Some(Id(9))).is_none());
+		assert!(state.request_profile(own, None).is_some());
+		// Session cleanup drops both scopes rather than leaving one account's profile behind.
+		state.profile_cache.clear();
+		assert!(state.request_profile(own, Some(Id(9))).is_some());
+	}
 }

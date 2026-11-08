@@ -1,0 +1,25 @@
+{
+  "api_version": 1,
+  "id": "text-codecs",
+  "name": "Text Codecs",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/text-codecs",
+  "kind": "plugin",
+  "capabilities": [
+    "composer"
+  ],
+  "actions": [
+    {
+      "id": "decode",
+      "label": "Decode Base64 text",
+      "surface": "composer"
+    },
+    {
+      "id": "uppercase",
+      "label": "Capitalize sentence starts",
+      "surface": "composer"
+    }
+  ]
+}

@@ -161,6 +161,19 @@ impl QueuedEvent {
 			}
 	}
 }
+
+/// Host retention is active only while the reviewed message-history entry itself is enabled in
+/// the current account scope. A foreign package cannot keep it alive after that entry is disabled.
+fn message_history_active(
+	installed: &[InstalledExtension],
+	disabled: &BTreeSet<String>,
+	account: bool,
+) -> bool {
+	account
+		&& installed.iter().any(|entry| {
+			entry.error.is_none() && !disabled.contains(&entry.manifest.id) && entry.message_history
+		})
+}
 type PickedBackground = (Vec<u8>, Arc<egui::ColorImage>);
 
 enum ThemePickerResult {
@@ -200,6 +213,10 @@ pub struct Bridge {
 	transitions: BTreeMap<String, Transition>,
 }
 impl Bridge {
+	/// Exact reviewed-package consent for native history capture; retained rows stay native-only.
+	pub fn persistent_history_consent(&self, state: &State) -> bool {
+		message_history_active(&self.installed, &self.disabled, state.user.is_some())
+	}
 	fn tick_pending(&self, generation: u64, id: &str) -> bool {
 		self.pending
 			.values()
@@ -496,6 +513,7 @@ impl Bridge {
 		self.connection_interrupted = false;
 		for entry in &mut self.installed {
 			entry.preserve_deleted_messages = false;
+			entry.message_history = false;
 			entry.image_sharing = false;
 			entry.rich_presence = None;
 		}
@@ -531,6 +549,7 @@ impl Bridge {
 		}
 		Ok(())
 	}
+	#[allow(clippy::too_many_arguments)]
 	pub fn tick(
 		&mut self,
 		state: &mut State,
@@ -539,6 +558,7 @@ impl Bridge {
 		runtime: &tokio::runtime::Runtime,
 		window: &Arc<winit::window::Window>,
 		demo: bool,
+		persistent_allowed: bool,
 	) {
 		let account = state
 			.user
@@ -570,6 +590,7 @@ impl Bridge {
 			self.connection_interrupted = false;
 			self.message_events_dropped = false;
 			state.set_preserve_deleted_messages(false);
+			state.message_logger.set_session_enabled(false);
 			self.cancel_previews(messaging);
 			self.host.as_mut().unwrap().cancel();
 			self.pending.retain(|_, pending| pending.cleanup);
@@ -1288,6 +1309,12 @@ impl Bridge {
 						&& entry.preserve_deleted_messages
 				}),
 		);
+		let message_history =
+			message_history_active(&self.installed, &self.disabled, account.is_some());
+		state
+			.message_logger
+			.set_session_enabled(message_history && persistent_allowed);
+		state.expire_message_history(Instant::now());
 		let max_texture = ctx.input(|input| input.max_texture_side);
 		if self
 			.installed
@@ -1821,6 +1848,7 @@ mod tests {
 			download_bytes: 1,
 			error: None,
 			preserve_deleted_messages: false,
+			message_history: false,
 			image_sharing: false,
 			rich_presence: None,
 			api_proxy: None,
@@ -2135,6 +2163,35 @@ mod tests {
 		bridge.message_event(&state, event);
 		bridge.logout(&egui::Context::default()).unwrap();
 		assert!(bridge.message_events.is_empty());
+	}
+
+	#[test]
+	fn disabling_the_reviewed_history_package_cannot_be_overridden_by_a_foreign_lookalike() {
+		let (mut bridge, _, _) = message_events_fixture();
+		bridge.installed[0].manifest.id = "message-history".into();
+		bridge.installed[0].message_history = true;
+		let mut foreign = bridge.installed[0].clone();
+		foreign.manifest.id = "foreign-enable-history".into();
+		// Consent is identity-gated in the installer/loader, so a foreign lookalike never gets
+		// this flag even when it declares the same activation action.
+		foreign.message_history = false;
+		bridge.installed.push(foreign);
+		assert!(message_history_active(
+			&bridge.installed,
+			&bridge.disabled,
+			true
+		));
+		bridge.disabled.insert("message-history".into());
+		assert!(
+			!message_history_active(&bridge.installed, &bridge.disabled, true),
+			"the foreign package must not keep host retention alive after the reviewed one is disabled"
+		);
+		bridge.disabled.clear();
+		assert!(!message_history_active(
+			&bridge.installed,
+			&bridge.disabled,
+			false
+		));
 	}
 
 	#[test]

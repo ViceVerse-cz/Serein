@@ -61,3 +61,13 @@ enforces its serialized ABI byte limit. No result is sent anywhere automatically
 
 Copyright Vendicated and contributors. Licensed under GPL-3.0-or-later; the Serein
 port retains those upstream notices in `src/lib.rs`.
+
+## Packaging
+
+Package from `extensions/` with the license text embedded as an inert Wasm custom section:
+
+```sh
+python pack.py plugins/offline-composer-tools/manifest.json target/wasm32-unknown-unknown/release/offline_composer_tools.wasm plugins/packages/offline-composer-tools.serein-extension --license licenses/Equicord-GPL-3.0.txt
+```
+
+The host ignores custom sections, so this does not change the executable ABI.

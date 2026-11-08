@@ -1,0 +1,25 @@
+{
+  "api_version": 1,
+  "id": "message-history",
+  "name": "Message history",
+  "version": "0.2.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/message-history",
+  "kind": "plugin",
+  "capabilities": [
+    "message_events"
+  ],
+  "actions": [
+    {
+      "id": "enable-history",
+      "label": "Enable persistent local message history",
+      "surface": "activation"
+    },
+    {
+      "id": "observe",
+      "label": "Observe loaded message events",
+      "surface": "message_event"
+    }
+  ]
+}

@@ -71,6 +71,8 @@ pub(crate) struct Avatars {
 	pub animate_gifs: bool,
 	/// Hidden cosmetics are neither painted nor requested.
 	pub cosmetics: model::CosmeticPreferences,
+	/// Device-local profile presentation choices, mirrored from the app each frame.
+	pub profile_presentation: model::ProfilePreferences,
 	avatar_animation: bool,
 	animations: HashMap<String, Animation>,
 	no_animations: HashSet<String>,
@@ -1002,9 +1004,23 @@ impl Avatars {
 		corner: egui::CornerRadius,
 		demo: bool,
 	) {
+		self.paint_banner_with_theme(ui, profile, rect, corner, demo, true);
+	}
+	/// Paints a banner, optionally ignoring the loaded theme colours. The profile data itself
+	/// is never changed, so turning the preference back on restores the theme without a fetch.
+	pub fn paint_banner_with_theme(
+		&mut self,
+		ui: &mut egui::Ui,
+		profile: &model::UserProfile,
+		rect: egui::Rect,
+		corner: egui::CornerRadius,
+		demo: bool,
+		show_theme: bool,
+	) {
 		// A profile theme decides the banner, as on Discord; the legacy accent is a fallback.
 		let color = profile
 			.theme_colors
+			.filter(|_| show_theme)
 			.map(crate::profiles::Theme::banner)
 			.or(profile
 				.accent_color
@@ -1054,6 +1070,34 @@ impl Avatars {
 				self.request(key);
 			}
 		}
+	}
+	/// Paints only a banner texture that is already in the bounded working set. Rows use this
+	/// so a cached profile never starts a download merely because it scrolled into view.
+	pub fn paint_loaded_banner(
+		&mut self,
+		ui: &mut egui::Ui,
+		profile: &model::UserProfile,
+		rect: egui::Rect,
+		corner: egui::CornerRadius,
+	) -> bool {
+		let Some(key) = profile.banner_key() else {
+			return false;
+		};
+		if !ui.is_rect_visible(rect) {
+			return false;
+		}
+		let Some((_, texture)) = self.textures.get(&key) else {
+			return false;
+		};
+		let source = texture.size_vec2();
+		let scale = (rect.width() / source.x).max(rect.height() / source.y);
+		let uv_size = rect.size() / (source * scale);
+		let uv = egui::Rect::from_center_size(egui::pos2(0.5, 0.5), uv_size);
+		egui::Image::new(texture)
+			.uv(uv)
+			.corner_radius(corner)
+			.paint_at(ui, rect);
+		true
 	}
 	/// Small square artwork (badge or server tag). Falls back to a neutral disc until loaded.
 	pub fn show_icon(
@@ -3138,6 +3182,29 @@ mod tests {
 		);
 		avatars.request("x".repeat(2055));
 		assert!(avatars.attempts.keys().all(|key| key.len() <= 2054));
+	}
+
+	#[test]
+	fn row_banner_painting_never_requests_an_unloaded_asset() {
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		let user = test_support::message(1, model::Id(22)).author;
+		let profile = crate::profiles::synthetic(&user, None);
+		let mut painted = false;
+		let mut output = ctx.run_ui(Default::default(), |ui| {
+			painted = avatars.paint_loaded_banner(
+				ui,
+				&profile,
+				egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(240.0, 42.0)),
+				6.into(),
+			);
+		});
+		output.textures_delta.clear();
+		assert!(!painted);
+		assert!(
+			avatars.take_requests().is_empty(),
+			"a member row must not start a banner download"
+		);
 	}
 
 	#[test]

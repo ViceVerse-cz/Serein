@@ -75,12 +75,16 @@ fn main() {
 	invalid = theme.clone();
 	invalid.style.icon_size = Some(15);
 	assert!(invalid.validate().is_err());
+	// Rejecting an invalid size must not change the icon scale of the active theme.
+	assert!((ui::design::icon_scale() - 1.1).abs() < f32::EPSILON);
 	invalid = theme;
 	invalid.style.widget_radius = Some(255);
 	assert!(invalid.validate().is_err());
+	assert!((ui::design::icon_scale() - 1.1).abs() < f32::EPSILON);
 	// Invalid input must not leave the previously active theme partially applied.
 	ui::design::set_extension_theme(Some(&invalid));
 	ui::design::apply(&ctx);
+	assert_eq!(ui::design::icon_scale(), 1.0);
 	assert_eq!(
 		ctx.style_of(egui::Theme::Dark).text_styles[&egui::TextStyle::Body].size,
 		15.0

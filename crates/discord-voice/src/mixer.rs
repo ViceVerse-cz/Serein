@@ -93,7 +93,9 @@ impl Mixer {
 					.iter()
 					.take(64)
 					.find(|(user, _)| *user == speaker.user)
-					.map_or(100, |(_, percent)| (*percent).min(200)),
+					.map_or(100, |(_, percent)| {
+						model::voice_settings::clamp_local_volume_percent(*percent)
+					}),
 			) / 100.0;
 			let mut energy = 0.0;
 			let mut filled = 0;
@@ -213,7 +215,11 @@ mod tests {
 				(vec![(1, 200), (2, 0)], 0.2),
 				(vec![(1, 0), (2, 0)], 0.0),
 				(vec![(99, 0)], 0.3),
-				(vec![(1, u16::MAX)], 0.4),
+				// The local boost ceiling is 400; values above it clamp instead of overflowing.
+				(vec![(1, 300)], 0.5),
+				(vec![(1, 400)], 0.6),
+				(vec![(1, u16::MAX)], 0.6),
+				(vec![(1, 400), (2, 400)], 1.0),
 			] {
 				for speaker in &mut mixer.speakers {
 					speaker.pcm.fill(speaker.user as f32 * 0.1);

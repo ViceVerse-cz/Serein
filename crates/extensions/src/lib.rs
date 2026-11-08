@@ -30,6 +30,7 @@ pub const MAX_MODULE_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_BACKGROUND_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_PREVIEW_BYTES: usize = 256 * 1024;
 pub const MAX_CATALOG_BYTES: usize = 1024 * 1024;
+pub const MAX_CATALOG_ENTRIES: usize = 512;
 pub const MAX_IO_BYTES: usize = 256 * 1024;
 pub const MAX_EVENT_CONTENT_BYTES: usize = 16 * 1024;
 pub const MAX_STORAGE_BYTES: usize = 1024 * 1024;
@@ -970,7 +971,7 @@ pub fn parse_catalog(bytes: &[u8]) -> Result<Catalog, Error> {
 	if catalog.api_version != API_VERSION {
 		return Err(Error::Version);
 	}
-	if catalog.entries.len() > 256 {
+	if catalog.entries.len() > MAX_CATALOG_ENTRIES {
 		return Err(Error::Limit);
 	}
 	let mut ids = BTreeSet::new();

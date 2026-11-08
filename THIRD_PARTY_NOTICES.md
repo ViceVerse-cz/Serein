@@ -111,7 +111,10 @@ are staged in licenses/login in both variants. Binding licenses do not relicense
 GTK/WebKitGTK libraries, which remain external prerequisites under their own terms.
 
 The independent extension ports under `extensions/plugins/offline-composer-tools`,
-`text-commands`, `view-raw-message`, and `external-search-tools` adapt workflows from
+`text-commands`, `view-raw-message`, `external-search-tools`, `text-codecs`,
+`message-composition-tools`, `identity-tools`, `loaded-role-members`, `status-presets`,
+`message-history`, `message-reference-tools`, `draft-style-tools`, `command-palette`, `ingtoninator`, `own-message-sed`, and `social-link-tools`
+adapt workflows from
 **Equicord/Vencord** at upstream `Equicord/Equicord` commit
 `200dba124066146a8f043fde7fc8b05e3dc5e68e`. They retain the original Vendicated/contributor
 notices and **GPL-3.0-or-later** terms; Serein's MIT/Apache source license does not replace those

@@ -3038,3 +3038,26 @@ In particular, the current settings model does not represent `MENTION_ON_ALL_MES
 not assumed disabled. Contributions depending on that switch remain unknown until authoritative
 count reconciliation. This is conservative local behavior, not a verified service-equivalence claim.
 No new service setting, protocol request or Identify capability is introduced.
+
+## Equicord workflow coverage — November 8, 2026
+
+The complete upstream Equicord plugin-directory inventory (168 under `src/plugins` and 205 under
+`src/equicordplugins`, 373 total) is classified in
+[`extensions/equicord-workflows.json`](../extensions/equicord-workflows.json), pinned to upstream
+`Equicord/Equicord@200dba124066146a8f043de7fc8b05e3dc5e68e`. This is source/workflow audit
+metadata, not arbitrary JavaScript compatibility or service-behavior certification. Candidates are
+separated into existing native behavior, existing package ports, local safe candidates, bounded
+native-capability candidates and unsuitable workflows; internal Equicord patch loaders are not
+user-facing ports.
+
+Package mappings in that record cover 37 upstream workflows. They do not claim upstream feature
+parity: several are intentionally narrower native/alternative workflows. MessageLogger and
+MessageLoggerEnhanced are implemented as an explicitly reviewed, persistent, bounded native history
+covering subsequently loaded readable chats, per-account retention/clear and access-loss cleanup,
+attachment metadata with per-type opt-in CDN downloads, bounded text/JSON export, filters and
+rate-limited ghost alerts. Storage/restart, migration, ordering and safety are tested offline;
+real-Wasmi packaging checks do not prove live interoperability or deleted-before-load recovery. Keyword blocking, message burst and large-message
+splitting use bounded local review/draft behavior rather than automatic incoming suppression or
+multi-send/edit automation. Each package README records its exact adaptation. No Equicord JavaScript
+runtime, Webpack patch API, generic network/filesystem bridge, raw credential/session access or
+unbounded account history was added; no live Discord extension interoperability was tested.

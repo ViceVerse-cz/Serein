@@ -103,6 +103,25 @@ impl MessagingUi {
 				Some("reading-layout-settings-keep-the-member-list-open-in-direct-messages"),
 				&mut value.show_members_dms,
 			);
+			design::card_divider(ui);
+			design::switch(
+				ui,
+				"reading-layout-settings-one-folder-open",
+				Some("reading-layout-settings-one-folder-open-description"),
+				&mut self.one_folder_open,
+			);
+			design::switch(
+				ui,
+				"reading-layout-settings-close-folders-on-home",
+				Some("reading-layout-settings-close-folders-on-home-description"),
+				&mut self.close_folders_on_home,
+			);
+			design::switch(
+				ui,
+				"reading-layout-settings-close-folders-outside",
+				Some("reading-layout-settings-close-folders-outside-description"),
+				&mut self.close_folders_outside,
+			);
 		});
 		if reset {
 			let defaults = ReadingPreferences::default();

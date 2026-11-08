@@ -1,0 +1,41 @@
+{
+  "api_version": 1,
+  "id": "message-composition-tools",
+  "name": "Message Composition Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/message-composition-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "composer",
+    "storage"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Configure message composition tools",
+      "surface": "panel"
+    },
+    {
+      "id": "save",
+      "label": "Save message composition settings",
+      "surface": "panel"
+    },
+    {
+      "id": "split",
+      "label": "Review split draft segments",
+      "surface": "composer"
+    },
+    {
+      "id": "filter-keywords",
+      "label": "Filter keyword lines from draft",
+      "surface": "composer"
+    },
+    {
+      "id": "burst-disperse",
+      "label": "Review burst segments for draft",
+      "surface": "composer"
+    }
+  ]
+}

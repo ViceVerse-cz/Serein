@@ -1,0 +1,28 @@
+{
+  "api_version": 1,
+  "id": "own-message-sed",
+  "name": "Own message sed",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/own-message-sed",
+  "kind": "plugin",
+  "capabilities": [
+    "app_context",
+    "timeline",
+    "message_details",
+    "message_manage"
+  ],
+  "actions": [
+    {
+      "id": "show",
+      "label": "Open own-message sed editor",
+      "surface": "panel"
+    },
+    {
+      "id": "apply",
+      "label": "Review literal sed replacement",
+      "surface": "panel"
+    }
+  ]
+}

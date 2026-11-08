@@ -41,6 +41,8 @@ pub enum VideoCommand {
 	Pause(bool),
 	Seek(f64),
 	Volume(f32),
+	/// Playback rate; the desktop clamps it through [`crate::media`].
+	Speed(f32),
 	Stop,
 }
 pub struct VideoUi {
@@ -51,6 +53,8 @@ pub struct VideoUi {
 	pub command: Option<VideoCommand>,
 	pub seen: bool,
 	pub volume: f32,
+	/// Session-local rate for this media type; `1.0` unless the owner changes it.
+	pub rate: f32,
 	/// Latest frame; usually the desktop's GPU-converted texture, else [`Self::managed`].
 	texture: Option<egui::load::SizedTexture>,
 	/// CPU fallback texture behind [`VideoUi::accept_frame`].
@@ -93,6 +97,7 @@ impl Default for VideoUi {
 			command: None,
 			seen: false,
 			volume: 1.0,
+			rate: 1.0,
 			texture: None,
 			managed: None,
 			frame: None,
@@ -722,6 +727,42 @@ impl VideoUi {
 			response |= volume
 				.response
 				.on_hover_text(crate::i18n::translate("video-show-player-video-volume"));
+			let speed_rect = egui::Rect::from_min_size(
+				egui::pos2(volume_rect.right() + 8.0, row - 9.0),
+				egui::vec2(38.0, 18.0),
+			);
+			let speed = ui
+				.put(
+					speed_rect,
+					egui::Button::new(
+						egui::RichText::new(crate::media::rate_label(self.rate))
+							.size(11.0)
+							.color(white),
+					)
+					.frame(false)
+					.small(),
+				)
+				.on_hover_text(format!(
+					"{}: {}",
+					crate::i18n::translate("video-show-player-playback-speed"),
+					crate::media::rate_label(self.rate)
+				));
+			speed.widget_info(|| {
+				egui::WidgetInfo::labeled(
+					egui::Role::Button,
+					ui.is_enabled(),
+					format!(
+						"{}: {}",
+						crate::i18n::translate("video-show-player-playback-speed"),
+						crate::media::rate_label(self.rate)
+					),
+				)
+			});
+			controls_focused |= speed.has_focus();
+			if crate::audio::playback_speed_menu(&speed, &mut self.rate) {
+				self.command = Some(VideoCommand::Speed(self.rate));
+			}
+			response |= speed;
 			let screen_label = if fullscreen {
 				"Exit fullscreen (Esc)"
 			} else {
@@ -762,7 +803,7 @@ impl VideoUi {
 			} else {
 				"--:--".into()
 			};
-			let room = screen_rect.left() - volume_rect.right() - 20.0;
+			let room = screen_rect.left() - speed_rect.right() - 20.0;
 			let font = egui::FontId::proportional(12.0);
 			let full = ui.painter().layout_no_wrap(
 				format!("{} / {total}", timestamp(position)),
@@ -777,7 +818,7 @@ impl VideoUi {
 			};
 			if galley.size().x <= room {
 				ui.painter().galley(
-					egui::pos2(volume_rect.right() + 12.0, row - galley.size().y / 2.0),
+					egui::pos2(speed_rect.right() + 12.0, row - galley.size().y / 2.0),
 					galley,
 					white,
 				);

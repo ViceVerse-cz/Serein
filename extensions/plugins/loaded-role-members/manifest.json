@@ -1,0 +1,38 @@
+{
+  "api_version": 1,
+  "id": "loaded-role-members",
+  "name": "Loaded Role Members",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/loaded-role-members",
+  "kind": "plugin",
+  "capabilities": [
+    "member_details",
+    "storage",
+    "navigation",
+    "clipboard_write"
+  ],
+  "actions": [
+    {
+      "id": "show",
+      "label": "Show loaded role members",
+      "surface": "panel"
+    },
+    {
+      "id": "select-role",
+      "label": "Use selected loaded role",
+      "surface": "panel"
+    },
+    {
+      "id": "open-profile",
+      "label": "Propose opening a loaded member profile",
+      "surface": "panel"
+    },
+    {
+      "id": "copy-role-color",
+      "label": "Copy selected loaded role color",
+      "surface": "panel"
+    }
+  ]
+}

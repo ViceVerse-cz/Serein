@@ -2,9 +2,13 @@
 use client_core::{State, auth::AuthState};
 use model::{
 	Id, PresenceStatus,
+	message_logger::{GhostAlert, Kind as HistoryKind},
 	notification_preferences::{Device, Sound},
 };
-use std::time::{Duration, Instant};
+use std::{
+	collections::{BTreeMap, VecDeque},
+	time::{Duration, Instant},
+};
 
 pub enum Alert {
 	Message {
@@ -13,6 +17,10 @@ pub enum Alert {
 		body: String,
 		avatar_key: String,
 		image_path: Option<String>,
+	},
+	History {
+		activation: Id,
+		kind: HistoryKind,
 	},
 }
 #[derive(Default)]
@@ -28,6 +36,11 @@ pub struct Runtime {
 	badge: Option<u32>,
 	badge_check: Option<Instant>,
 	badge_status: &'static str,
+	history_scope: Option<(u64, Id)>,
+	history_activations: BTreeMap<Id, (Id, Id)>,
+	history_next: u64,
+	history_channels: VecDeque<(Id, Instant)>,
+	history_times: VecDeque<Instant>,
 }
 /// Push-to-talk edges: one start cue per press and one stop cue per release.
 #[derive(Default)]
@@ -52,6 +65,73 @@ impl PttCues {
 	}
 }
 impl Runtime {
+	const HISTORY_ACTIVATION: u64 = 1 << 63;
+
+	pub fn is_history_activation(id: Id) -> bool {
+		id.0 & Self::HISTORY_ACTIVATION != 0
+	}
+
+	pub fn take_history_activation(&mut self, id: Id) -> Option<(Id, Id)> {
+		self.history_activations.remove(&id)
+	}
+
+	fn history_target(&mut self, channel: Id, message: Id) -> Id {
+		self.history_next = self.history_next.wrapping_add(1) & !Self::HISTORY_ACTIVATION;
+		if self.history_next == 0 {
+			self.history_next = 1;
+		}
+		let activation = Id(Self::HISTORY_ACTIVATION | self.history_next);
+		self.history_activations
+			.insert(activation, (channel, message));
+		while self.history_activations.len() > 8 {
+			self.history_activations.pop_first();
+		}
+		activation
+	}
+
+	fn history_allowed(&mut self, alert: &GhostAlert, state: &State, now: Instant) -> bool {
+		let scope = (state.generation, alert.account);
+		if self.history_scope != Some(scope) {
+			self.history_scope = Some(scope);
+			self.history_activations.clear();
+			self.history_channels.clear();
+			self.history_times.clear();
+		}
+		if state.user.as_ref().map(|user| user.id) != Some(alert.account)
+			|| !state.notification_allowed(alert.channel)
+		{
+			return false;
+		}
+		self.history_rate_at(alert.channel, now)
+	}
+
+	fn history_rate_at(&mut self, channel: Id, now: Instant) -> bool {
+		self.history_channels
+			.retain(|entry| now.duration_since(entry.1) < Duration::from_secs(30));
+		if self.history_channels.iter().any(|(id, _)| *id == channel)
+			|| self
+				.history_times
+				.iter()
+				.filter(|at| now.duration_since(**at) < Duration::from_secs(60))
+				.count() >= 6
+		{
+			return false;
+		}
+		if self.history_channels.len() >= 16 {
+			self.history_channels.pop_front();
+		}
+		self.history_channels.push_back((channel, now));
+		self.history_times.push_back(now);
+		while self
+			.history_times
+			.front()
+			.is_some_and(|at| now.duration_since(*at) >= Duration::from_secs(60))
+		{
+			self.history_times.pop_front();
+		}
+		true
+	}
+
 	fn ring_cue(&mut self, ringing: Option<(Id, Sound)>, now: Instant) -> Option<Sound> {
 		if self.ring.map(|(key, _)| key) != ringing {
 			if self.ring.is_some() {
@@ -139,14 +219,46 @@ impl Runtime {
 					});
 					alert = Some(Alert::Message {
 						channel: notification.channel,
-						title: notification.sender,
-						body: notification.preview,
-						avatar_key: notification.avatar_key,
+						title: notification.title.clone(),
+						body: notification.preview.clone(),
+						avatar_key: notification.avatar_key.clone(),
 						image_path,
 					});
 				}
+				if state.notification_tools.toasts
+					&& !state
+						.notification_tools
+						.toast_ignore_users
+						.contains(&notification.author)
+				{
+					ui.toasts.push_target(
+						ui::design::Level::Info,
+						format!("{}: {}", notification.title, notification.preview),
+						notification.channel,
+					);
+				}
 				if options.allows(cue) {
 					sound = Some(cue);
+				}
+			}
+		}
+		if live && audible {
+			for ghost in state.message_logger.drain_ghost_alerts() {
+				if !self.history_allowed(&ghost, state, Instant::now()) {
+					continue;
+				}
+				let activation = self.history_target(ghost.channel, ghost.message);
+				let body = match ghost.kind {
+					HistoryKind::Edit => "A retained message was edited. Open local history.",
+					HistoryKind::Delete => "A retained message was deleted. Open local history.",
+				};
+				ui.toasts
+					.push_history(ui::design::Level::Info, body, ghost.channel, ghost.message);
+				if alert.is_none() && ui.notifications_enabled {
+					alert = Some(Alert::History {
+						activation,
+						kind: ghost.kind,
+					});
 				}
 			}
 		}
@@ -318,6 +430,23 @@ mod tests {
 	#[test]
 	fn muted_conversations_do_not_count_toward_native_badge() {
 		debug_badge_check();
+	}
+
+	#[test]
+	fn history_alerts_are_coalesced_by_channel_and_account_rate_limits() {
+		let mut runtime = Runtime::default();
+		let start = Instant::now();
+		assert!(runtime.history_rate_at(Id(1), start));
+		assert!(!runtime.history_rate_at(Id(1), start + Duration::from_secs(1)));
+		assert!(runtime.history_rate_at(Id(2), start + Duration::from_secs(1)));
+		for channel in 3..=5 {
+			assert!(runtime.history_rate_at(Id(channel), start + Duration::from_secs(2)));
+		}
+		assert!(runtime.history_rate_at(Id(7), start + Duration::from_secs(2)));
+		// Six accepted events in one account minute: neither a new channel nor a retry passes.
+		assert!(!runtime.history_rate_at(Id(8), start + Duration::from_secs(3)));
+		assert!(!runtime.history_rate_at(Id(1), start + Duration::from_secs(30)));
+		assert!(runtime.history_rate_at(Id(1), start + Duration::from_secs(60)));
 	}
 
 	#[test]

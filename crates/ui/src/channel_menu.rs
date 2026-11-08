@@ -64,6 +64,11 @@ impl ChannelMenu {
 		self.dialog.is_some()
 	}
 
+	/// The channel whose settings dialog is open, if any.
+	pub fn editing_channel(&self) -> Option<Id> {
+		self.dialog.as_ref().map(|dialog| dialog.channel)
+	}
+
 	/// Fixture-only: open the settings dialog for `channel`, as its context menu would.
 	#[cfg(feature = "demo")]
 	pub fn preview_settings(&mut self, channel: Id, generation: u64) {
@@ -92,7 +97,21 @@ impl ChannelMenu {
 		channel: &Channel,
 		view: ShortcutView<'_>,
 	) {
+		self.context_with_display(response, state, channel, view, None);
+	}
+
+	/// Channel context menu with the device display preferences that expose the
+	/// per-channel "Keep original name" toggle.
+	pub fn context_with_display(
+		&mut self,
+		response: &egui::Response,
+		state: &State,
+		channel: &Channel,
+		view: ShortcutView<'_>,
+		display: Option<&mut model::ChannelDisplayPreferences>,
+	) {
 		let Some(guild) = channel.guild else { return };
+		let mut display = display;
 		// Forum posts and text-channel threads both use the thread menu (close, rename, delete).
 		if matches!(channel.kind, 10..=12) && state.is_thread_channel(channel.id) {
 			self.posts.context(response, state, channel, view);
@@ -150,6 +169,18 @@ impl ChannelMenu {
 				self.shortcut_requested = Some(view.toggle(Shortcut::Favorite, channel.id));
 				self.generation = state.generation;
 				ui.close();
+			}
+			if let Some(display) = display.as_mut() {
+				let display = &mut **display;
+				if display.clean_names && channel.guild.is_some() {
+					let mut keep = display.ignored(channel.id);
+					if toggle_row(ui, "channel-menu-context-keep-original-name", &mut keep)
+						.changed()
+					{
+						display.set_ignored(channel.id, keep);
+						ui.close();
+					}
+				}
 			}
 			ui.separator();
 			if state.can_create_server_invite(guild, channel.id)

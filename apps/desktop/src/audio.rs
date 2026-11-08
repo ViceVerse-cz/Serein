@@ -52,6 +52,8 @@ struct Gate {
 	generation: AtomicU64,
 	paused: AtomicBool,
 	volume: AtomicU32,
+	/// Playback rate as `f32` bits; the output callback clamps it before resampling.
+	speed: AtomicU32,
 	seek_millis: AtomicU64,
 	position_frames: AtomicU64,
 	failed: AtomicBool,
@@ -66,6 +68,7 @@ impl Default for Gate {
 			generation: AtomicU64::new(0),
 			paused: AtomicBool::new(false),
 			volume: AtomicU32::new(1.0f32.to_bits()),
+			speed: AtomicU32::new(1.0f32.to_bits()),
 			seek_millis: AtomicU64::new(NO_SEEK),
 			position_frames: AtomicU64::new(0),
 			failed: AtomicBool::new(false),
@@ -237,6 +240,13 @@ impl Audio {
 				.volume
 				.store(volume.clamp(0.0, 1.0).to_bits(), Ordering::Release);
 		}
+	}
+	/// Changes the resampling rate without reopening the output device.
+	pub fn speed(&mut self, rate: f32) {
+		self.gate.speed.store(
+			ui::media::normalize_playback_rate(rate).to_bits(),
+			Ordering::Release,
+		);
 	}
 	pub fn stop(&mut self) {
 		if self.status.state == State::Idle {

@@ -107,10 +107,23 @@ fn find_url_start(text: &str, from: usize) -> Option<usize> {
 }
 
 fn url_candidate_end(text: &str, start: usize) -> usize {
+	// A URL that begins a Markdown link target ends at the parenthesis that closes
+	// the link, not at the first whitespace. Balanced parentheses inside the URL
+	// stay part of it.
+	let markdown_link = text[..start].ends_with("](");
+	let mut depth = 0usize;
 	let mut end = start;
 	for (offset, character) in text[start..].char_indices() {
 		if character.is_whitespace() || matches!(character, '<' | '>' | '"' | '`') {
 			break;
+		}
+		if markdown_link {
+			match character {
+				'(' => depth += 1,
+				')' if depth == 0 => break,
+				')' => depth -= 1,
+				_ => {}
+			}
 		}
 		end = start + offset + character.len_utf8();
 	}
@@ -118,17 +131,20 @@ fn url_candidate_end(text: &str, start: usize) -> usize {
 }
 
 fn trimmed_url_end(text: &str, start: usize, mut end: usize) -> usize {
+	let bytes = &text.as_bytes()[start..end];
+	let mut parens = bracket_counts(bytes, b'(', b')');
+	let mut brackets = bracket_counts(bytes, b'[', b']');
+	let mut braces = bracket_counts(bytes, b'{', b'}');
 	while end > start {
-		let candidate = &text[start..end];
-		let character = candidate
+		let character = text[start..end]
 			.chars()
 			.next_back()
 			.expect("nonempty URL candidate");
 		let trim = match character {
 			'.' | ',' | ';' | ':' | '!' | '?' | '\'' => true,
-			')' => has_unmatched_closer(candidate, b'(', b')'),
-			']' => has_unmatched_closer(candidate, b'[', b']'),
-			'}' => has_unmatched_closer(candidate, b'{', b'}'),
+			')' => trim_closer(&mut parens),
+			']' => trim_closer(&mut brackets),
+			'}' => trim_closer(&mut braces),
 			_ => false,
 		};
 		if !trim {
@@ -139,17 +155,21 @@ fn trimmed_url_end(text: &str, start: usize, mut end: usize) -> usize {
 	end
 }
 
-fn has_unmatched_closer(candidate: &str, opener: u8, closer: u8) -> bool {
-	candidate
-		.as_bytes()
-		.iter()
-		.filter(|&&byte| byte == closer)
-		.count()
-		> candidate
-			.as_bytes()
-			.iter()
-			.filter(|&&byte| byte == opener)
-			.count()
+fn bracket_counts(bytes: &[u8], opener: u8, closer: u8) -> (usize, usize) {
+	bytes.iter().fold((0, 0), |(open, close), &byte| {
+		(
+			open + usize::from(byte == opener),
+			close + usize::from(byte == closer),
+		)
+	})
+}
+
+fn trim_closer(counts: &mut (usize, usize)) -> bool {
+	if counts.1 <= counts.0 {
+		return false;
+	}
+	counts.1 -= 1;
+	true
 }
 
 fn clear_url(raw: &str) -> Option<String> {
@@ -256,7 +276,10 @@ fn opening_fence(line: &str) -> Option<(u8, usize)> {
 		return None;
 	}
 	let length = bytes.iter().take_while(|&&byte| byte == marker).count();
-	(length >= 3).then_some((marker, length))
+	// A backtick fence's info string may not contain a backtick; otherwise an
+	// inline code span such as ```inline``` would be mistaken for a fence opener.
+	(length >= 3 && (marker != b'`' || !content[length..].contains('`')))
+		.then_some((marker, length))
 }
 
 fn closing_fence(line: &str, marker: u8, minimum_length: usize) -> bool {
@@ -295,9 +318,19 @@ fn convert_units(text: &str) -> String {
 }
 
 fn numeric_boundary(text: &str, index: usize) -> bool {
-	text[..index].chars().next_back().is_none_or(|previous| {
-		!previous.is_alphanumeric() && !matches!(previous, '_' | '.' | '+' | '-')
-	})
+	let mut previous = text[..index].chars().rev();
+	let Some(last) = previous.next() else {
+		return true;
+	};
+	// A comma directly after a digit can only belong to the same number. Never
+	// restart parsing inside a malformed or repeated group such as `1,00 km` or
+	// `1,,000 km`; a comma run preceded by a digit is still part of that number.
+	if last == ',' {
+		return !previous
+			.next()
+			.is_some_and(|before| before.is_ascii_digit() || before == ',');
+	}
+	!last.is_alphanumeric() && !matches!(last, '_' | '.' | '+' | '-')
 }
 
 fn converted_at(text: &str, start: usize) -> Option<(usize, String)> {
@@ -339,6 +372,25 @@ fn parse_number(text: &str) -> Option<(f64, usize)> {
 	while bytes.get(index).is_some_and(u8::is_ascii_digit) {
 		index += 1;
 	}
+	let first_group_length = index - integer_start;
+	// Accept conventional comma grouping (`1,000`, `12,345,678`). If a comma is
+	// not followed by exactly three digits, parsing stops before it and the
+	// boundary check prevents the trailing group from being converted alone.
+	if (1..=3).contains(&first_group_length) {
+		loop {
+			if bytes.get(index) != Some(&b',') {
+				break;
+			}
+			let group_start = index + 1;
+			let Some(group) = bytes.get(group_start..group_start + 3) else {
+				break;
+			};
+			if !group.iter().all(u8::is_ascii_digit) {
+				break;
+			}
+			index = group_start + 3;
+		}
+	}
 	let mut has_digits = index > integer_start;
 	if bytes.get(index) == Some(&b'.') {
 		index += 1;
@@ -365,7 +417,8 @@ fn parse_number(text: &str) -> Option<(f64, usize)> {
 			index = exponent_start;
 		}
 	}
-	let value = text[..index].parse::<f64>().ok()?;
+	let token = text[..index].replace(',', "");
+	let value = token.parse::<f64>().ok()?;
 	value.is_finite().then_some((value, index))
 }
 
@@ -575,6 +628,23 @@ mod tests {
 	}
 
 	#[test]
+	fn url_cleaning_stops_at_markdown_link_closers_and_keeps_prose() {
+		let draft = "[docs](https://example.com/?utm_source=x),next and [x](https://e.test/a_(b)?utm_source=y) tail";
+		let expected = "[docs](https://example.com/),next and [x](https://e.test/a_(b)) tail";
+		let cleaned = clear_urls(draft);
+		assert_eq!(cleaned, expected);
+		assert_eq!(clear_urls(&cleaned), cleaned);
+
+		// A long run of unmatched closers is trimmed without rescanning the whole
+		// candidate for every removed byte.
+		let mut draft = String::from("https://example.com/?utm_source=x");
+		draft.push_str(&")".repeat(4096));
+		let cleaned = clear_urls(&draft);
+		assert_eq!(cleaned, format!("https://example.com/{}", ")".repeat(4096)));
+		assert_eq!(clear_urls(&cleaned), cleaned);
+	}
+
+	#[test]
 	fn unindent_changes_only_complete_fenced_bodies_and_preserves_crlf() {
 		let draft = "Before\tprose\r\n```rust\r\n\tfn main() {\r\n\t\tprintln!(\"x\");\t\r\n\t}\r\n```\r\nAfter\r\n";
 		let expected = "Before\tprose\r\n```rust\r\nfn main() {\r\n    println!(\"x\");    \r\n}\r\n```\r\nAfter\r\n";
@@ -586,6 +656,14 @@ mod tests {
 			unindent("```inline```\t\nprose\t"),
 			"```inline```\t\nprose\t"
 		);
+		// A backtick fence's info string may not contain a backtick, so this is
+		// inline code followed by prose, not an opener for the later fence.
+		let inline = "```inline```\n\tprose\n```\n";
+		assert_eq!(unindent(inline), inline);
+		// Tilde fences still accept backticks in their info string, and a fence
+		// shorter than three markers is not an opener.
+		assert_eq!(unindent("~~~ a`b\n\tbody\n~~~\n"), "~~~ a`b\nbody\n~~~\n");
+		assert_eq!(unindent("~~\n\tbody\n~~\n"), "~~\n\tbody\n~~\n");
 	}
 
 	#[test]
@@ -594,10 +672,21 @@ mod tests {
 			convert_units("20C 68F 10 km 5mi 2kg 4lb 10cm 12in 3m 6ft 20°C"),
 			"68F 20C 6.21 mi 8.05km 4.41lb 1.81kg 3.94in 30.48cm 9.84ft 1.83m 68°F"
 		);
+		assert_eq!(
+			convert_units("1,000 km 12,345.5 m 1,000,000 kg 1,234.5 km"),
+			"621.37 mi 40503.61 ft 2204622.62 lb 767.08 mi"
+		);
+		assert_eq!(convert_units("1,000 km, 2,000 mi"), "621.37 mi, 3218.69 km");
 		for unchanged in [
 			"20Celsius abc20kg 10cmx 12information NaNC 1e309m",
 			"1e308kg",
 			"10kg_name",
+			"1,00 km",
+			"1,0000 km",
+			"1,000,00 km",
+			"1,5 km",
+			"1,,000 km",
+			"1,,,000 kg",
 		] {
 			assert_eq!(convert_units(unchanged), unchanged);
 		}

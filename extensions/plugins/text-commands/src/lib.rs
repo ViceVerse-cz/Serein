@@ -64,6 +64,8 @@ struct Fields {
 	condition: String,
 	name: String,
 	message: String,
+	rule_selection: String,
+	tag_selection: String,
 }
 
 impl Fields {
@@ -79,17 +81,73 @@ impl Fields {
 				fields.name = tag.name.clone();
 				fields.message = tag.message.clone();
 			}
+			fields.normalize_selections(saved);
 			return fields;
 		}
 		let value = |id: &str| input.value(id).unwrap_or_default().to_owned();
-		Self {
+		let mut fields = Self {
 			find: value("find"),
 			replace: value("replace"),
 			condition: value("condition"),
 			name: value("name"),
 			message: value("message"),
+			rule_selection: value("rule-selection"),
+			tag_selection: value("tag-selection"),
+		};
+		fields.normalize_selections(saved);
+		fields
+	}
+
+	fn normalize_selections(&mut self, saved: &Saved) {
+		if self.rule_selection.is_empty() && !saved.rules.is_empty() {
+			self.rule_selection = rule_option(0, &saved.rules[0]);
+		}
+		if self.tag_selection.is_empty() && !saved.tags.is_empty() {
+			self.tag_selection = tag_option(0, &saved.tags[0]);
 		}
 	}
+}
+
+fn rule_option(index: usize, rule: &Rule) -> String {
+	format!(
+		"{}. Find: `{}`; replace: `{}`; condition: `{}`",
+		index + 1,
+		preview(&rule.find, 96),
+		preview(&rule.replace, 96),
+		preview(&rule.only_if_includes, 96),
+	)
+}
+
+fn tag_option(index: usize, tag: &Tag) -> String {
+	format!(
+		"{}. /{}: {}",
+		index + 1,
+		tag.name,
+		preview(&tag.message, 128)
+	)
+}
+
+fn selection_index(value: &str) -> Option<usize> {
+	let digits = value.split_once('.').map_or(value, |(prefix, _)| prefix);
+	digits
+		.trim()
+		.parse::<usize>()
+		.ok()
+		.and_then(|index| index.checked_sub(1))
+}
+
+fn selected_option(options: &[String], value: &str) -> String {
+	if let Some(index) = selection_index(value)
+		&& let Some(option) = options.get(index)
+	{
+		return option.clone();
+	}
+	options
+		.iter()
+		.find(|option| option.as_str() == value)
+		.or_else(|| options.first())
+		.cloned()
+		.unwrap_or_default()
 }
 
 fn valid_tag_name(name: &str) -> bool {
@@ -237,14 +295,22 @@ fn panel(saved: &Saved, fields: &Fields, notice: &str) -> Output {
 			],
 		},
 	]);
-	for (index, rule) in saved.rules.iter().enumerate() {
-		elements.push(text(format!(
-			"{}. Find: `{}`; replace: `{}`; condition: `{}`",
-			index + 1,
-			preview(&rule.find, 96),
-			preview(&rule.replace, 96),
-			preview(&rule.only_if_includes, 96),
-		)));
+	if !saved.rules.is_empty() {
+		let options: Vec<String> = saved
+			.rules
+			.iter()
+			.enumerate()
+			.map(|(index, rule)| rule_option(index, rule))
+			.collect();
+		elements.extend([
+			Element::Select {
+				id: "rule-selection".into(),
+				label: "Saved replacement rules".into(),
+				value: selected_option(&options, &fields.rule_selection),
+				options,
+			},
+			button("load-rule", "Load selected rule into fields"),
+		]);
 	}
 	elements.extend([
 		heading(format!("Tags ({}/{MAX_TAGS})", saved.tags.len())),
@@ -258,12 +324,22 @@ fn panel(saved: &Saved, fields: &Fields, notice: &str) -> Output {
 			],
 		},
 	]);
-	for tag in &saved.tags {
-		elements.push(text(format!(
-			"/{}: {}",
-			tag.name,
-			preview(&tag.message, 128),
-		)));
+	if !saved.tags.is_empty() {
+		let options: Vec<String> = saved
+			.tags
+			.iter()
+			.enumerate()
+			.map(|(index, tag)| tag_option(index, tag))
+			.collect();
+		elements.extend([
+			Element::Select {
+				id: "tag-selection".into(),
+				label: "Saved tags".into(),
+				value: selected_option(&options, &fields.tag_selection),
+				options,
+			},
+			button("load-tag", "Load selected tag into fields"),
+		]);
 	}
 	Output {
 		panel: elements,
@@ -271,26 +347,26 @@ fn panel(saved: &Saved, fields: &Fields, notice: &str) -> Output {
 	}
 }
 
-fn save_saved(saved: &Saved, fields: &Fields, notice: &str) -> Output {
+fn save_saved(previous: &Saved, saved: &Saved, fields: &Fields, notice: &str) -> Output {
 	let encoded = match serde_json::to_string(saved) {
 		Ok(encoded) => encoded,
 		Err(_) => {
 			return panel(
-				saved,
+				previous,
 				fields,
 				"Could not encode settings. Nothing was saved.",
 			);
 		}
 	};
 	if encoded.len() > MAX_STORAGE_BYTES {
-		return panel(saved, fields, STORAGE_LIMIT);
+		return panel(previous, fields, STORAGE_LIMIT);
 	}
 	let mut output = panel(saved, fields, notice);
 	output.storage = Some(encoded);
 	match serde_json::to_vec(&output) {
 		Ok(bytes) if bytes.len() <= MAX_IO_BYTES => output,
 		_ => panel(
-			saved,
+			previous,
 			fields,
 			"The saved response is too large. Nothing was saved.",
 		),
@@ -314,6 +390,7 @@ fn handle_panel(input: &Invocation) -> Output {
 			if let Err(error) = validate_rule(&rule) {
 				return panel(&saved, &fields, error);
 			}
+			let previous = saved.clone();
 			if let Some(existing) = saved.rules.iter_mut().find(|item| item.find == rule.find) {
 				*existing = rule;
 			} else if saved.rules.len() < MAX_RULES {
@@ -325,7 +402,7 @@ fn handle_panel(input: &Invocation) -> Output {
 					"Eight replacement rules already exist: delete one or replace an existing Find. Nothing was saved.",
 				);
 			}
-			save_saved(&saved, &fields, "Replacement rule saved.")
+			save_saved(&previous, &saved, &fields, "Replacement rule saved.")
 		}
 		"delete-rule" => {
 			let Some(index) = saved.rules.iter().position(|rule| rule.find == fields.find) else {
@@ -335,8 +412,9 @@ fn handle_panel(input: &Invocation) -> Output {
 					"No replacement rule has that exact Find value. Storage was not changed.",
 				);
 			};
+			let previous = saved.clone();
 			saved.rules.remove(index);
-			save_saved(&saved, &fields, "Replacement rule deleted.")
+			save_saved(&previous, &saved, &fields, "Replacement rule deleted.")
 		}
 		"save-tag" => {
 			let tag = Tag {
@@ -347,6 +425,7 @@ fn handle_panel(input: &Invocation) -> Output {
 				return panel(&saved, &fields, error);
 			}
 			fields.name = tag.name.clone();
+			let previous = saved.clone();
 			if let Some(existing) = saved.tags.iter_mut().find(|item| item.name == tag.name) {
 				*existing = tag;
 			} else if saved.tags.len() < MAX_TAGS {
@@ -358,7 +437,7 @@ fn handle_panel(input: &Invocation) -> Output {
 					"Eight tags already exist: delete one or replace an existing name. Nothing was saved.",
 				);
 			}
-			save_saved(&saved, &fields, "Tag saved.")
+			save_saved(&previous, &saved, &fields, "Tag saved.")
 		}
 		"delete-tag" => {
 			let name = fields.name.trim();
@@ -369,8 +448,36 @@ fn handle_panel(input: &Invocation) -> Output {
 					"No tag has that exact name. Storage was not changed.",
 				);
 			};
+			let previous = saved.clone();
 			saved.tags.remove(index);
-			save_saved(&saved, &fields, "Tag deleted.")
+			save_saved(&previous, &saved, &fields, "Tag deleted.")
+		}
+		"load-rule" => {
+			let Some(index) = selection_index(&fields.rule_selection) else {
+				return panel(&saved, &fields, "No saved replacement rule is selected.");
+			};
+			let Some(rule) = saved.rules.get(index) else {
+				return panel(&saved, &fields, "No saved replacement rule is selected.");
+			};
+			fields.find = rule.find.clone();
+			fields.replace = rule.replace.clone();
+			fields.condition = rule.only_if_includes.clone();
+			panel(
+				&saved,
+				&fields,
+				"Loaded the selected replacement rule into the fields.",
+			)
+		}
+		"load-tag" => {
+			let Some(index) = selection_index(&fields.tag_selection) else {
+				return panel(&saved, &fields, "No saved tag is selected.");
+			};
+			let Some(tag) = saved.tags.get(index) else {
+				return panel(&saved, &fields, "No saved tag is selected.");
+			};
+			fields.name = tag.name.clone();
+			fields.message = tag.message.clone();
+			panel(&saved, &fields, "Loaded the selected tag into the fields.")
 		}
 		_ => Output::default(),
 	}
@@ -386,6 +493,38 @@ fn push_bounded(output: &mut String, part: &str) -> Result<(), String> {
 	}
 	output.push_str(part);
 	Ok(())
+}
+
+/// Push text after decoding literal `\n` sequences, checking the decoded byte
+/// length without first allocating an encoded intermediate. A trailing backslash
+/// is carried into the next part so decoding matches the concatenated template.
+fn push_decoded_bounded(
+	output: &mut String,
+	part: &str,
+	pending_backslash: &mut bool,
+) -> Result<(), String> {
+	let mut rest = part;
+	if *pending_backslash {
+		match rest.chars().next() {
+			Some('n') => {
+				push_bounded(output, "\n")?;
+				rest = &rest[1..];
+			}
+			Some(_) => push_bounded(output, "\\")?,
+			None => return Ok(()),
+		}
+		*pending_backslash = false;
+	}
+	while let Some(index) = rest.find("\\n") {
+		push_bounded(output, &rest[..index])?;
+		push_bounded(output, "\n")?;
+		rest = &rest[index + 2..];
+	}
+	*pending_backslash = rest.ends_with('\\');
+	if *pending_backslash {
+		rest = &rest[..rest.len() - 1];
+	}
+	push_bounded(output, rest)
 }
 
 fn replace_literal(content: &str, find: &str, replace: &str) -> Result<String, String> {
@@ -421,9 +560,11 @@ fn apply_replacements(draft: &str, saved: &Saved) -> Result<String, String> {
 fn command_parts(draft: &str) -> Option<(&str, &str)> {
 	let body = draft.strip_prefix('/')?;
 	let (name, arguments) = body.split_once(' ').unwrap_or((body, ""));
-	if body.contains(' ') && arguments.trim().is_empty() {
-		return None;
-	}
+	let arguments = if arguments.trim().is_empty() {
+		""
+	} else {
+		arguments
+	};
 	valid_tag_name(name).then_some((name, arguments))
 }
 
@@ -481,11 +622,7 @@ fn next_argument_start(
 			continue;
 		};
 		let name = &candidate[..colon];
-		if name.is_empty()
-			|| name.bytes().any(|byte| byte.is_ascii_whitespace())
-			|| name == current
-			|| arguments.contains_key(name)
-		{
+		if name.is_empty() || name == current || arguments.contains_key(name) {
 			continue;
 		}
 		if definitions.contains_key(name) {
@@ -505,7 +642,7 @@ fn parse_arguments(
 			return Err("Use key:value tag arguments. The draft was left unchanged.");
 		};
 		let name = &rest[..colon];
-		if name.is_empty() || name.bytes().any(|byte| byte.is_ascii_whitespace()) {
+		if name.is_empty() {
 			return Err(
 				"Tag argument names must immediately precede ':'. The draft was left unchanged.",
 			);
@@ -539,24 +676,31 @@ fn render_tag(
 		}
 	}
 	let mut result = String::new();
+	let mut pending_backslash = false;
 	let mut cursor = 0;
 	let mut copied = 0;
 	while let Some((open, end, inner)) = next_placeholder(&tag.message, &mut cursor) {
-		push_bounded(&mut result, &tag.message[copied..open])?;
+		push_decoded_bounded(
+			&mut result,
+			&tag.message[copied..open],
+			&mut pending_backslash,
+		)?;
 		if let Some((name, _)) = parse_placeholder(inner) {
 			let value = arguments
 				.get(&name)
 				.or_else(|| definitions.get(&name).and_then(|default| default.as_ref()));
 			if let Some(value) = value {
-				push_bounded(&mut result, value)?;
+				push_decoded_bounded(&mut result, value, &mut pending_backslash)?;
 			}
 		} else {
-			push_bounded(&mut result, &tag.message[open..end])?;
+			push_decoded_bounded(&mut result, &tag.message[open..end], &mut pending_backslash)?;
 		}
 		copied = end;
 	}
-	push_bounded(&mut result, &tag.message[copied..])?;
-	let result = decode_newlines(&result);
+	push_decoded_bounded(&mut result, &tag.message[copied..], &mut pending_backslash)?;
+	if pending_backslash {
+		push_bounded(&mut result, "\\")?;
+	}
 	if result.trim().is_empty() {
 		return Err("Tag expansion is empty. The draft was left unchanged.".into());
 	}
@@ -587,7 +731,8 @@ fn composer_error(error: String) -> Output {
 
 fn handle(input: Invocation) -> Output {
 	match input.action.as_str() {
-		"open" | "save-rule" | "delete-rule" | "save-tag" | "delete-tag" => handle_panel(&input),
+		"open" | "save-rule" | "delete-rule" | "save-tag" | "delete-tag" | "load-rule"
+		| "load-tag" => handle_panel(&input),
 		"apply-replacements" | "expand-tag" => {
 			let Some(draft) = input.composer.as_deref() else {
 				return Output::default();
@@ -634,6 +779,40 @@ mod tests {
 			composer: Some(composer.into()),
 			storage: Some(serde_json::to_string(storage).unwrap()),
 			..Default::default()
+		})
+	}
+
+	fn invoke_panel(action: &str, storage: Option<&Saved>, values: &[(&str, &str)]) -> Output {
+		handle(Invocation {
+			action: action.into(),
+			storage: storage.map(|saved| serde_json::to_string(saved).unwrap()),
+			values: values
+				.iter()
+				.map(|(id, value)| ((*id).into(), (*value).into()))
+				.collect(),
+			..Default::default()
+		})
+	}
+
+	fn input_value<'a>(output: &'a Output, id: &str) -> Option<&'a str> {
+		output.panel.iter().find_map(|element| match element {
+			Element::TextInput {
+				id: element_id,
+				value,
+				..
+			} if element_id == id => Some(value.as_str()),
+			_ => None,
+		})
+	}
+
+	fn option_count(output: &Output, id: &str) -> Option<usize> {
+		output.panel.iter().find_map(|element| match element {
+			Element::Select {
+				id: element_id,
+				options,
+				..
+			} if element_id == id => Some(options.len()),
+			_ => None,
 		})
 	}
 
@@ -717,6 +896,165 @@ mod tests {
 			element,
 			Element::Text { text } if text.contains("Missing required argument `name`")
 		)));
+	}
+
+	#[test]
+	fn duplicate_rule_identity_updates_in_place_and_invalid_fields_are_rejected() {
+		let saved = Saved {
+			rules: vec![rule("brb", "old")],
+			tags: vec![],
+		};
+		let output = invoke_panel(
+			"save-rule",
+			Some(&saved),
+			&[("find", "brb"), ("replace", "new"), ("condition", "")],
+		);
+		let stored: Saved = serde_json::from_str(output.storage.as_deref().unwrap()).unwrap();
+		assert_eq!(stored.rules, vec![rule("brb", "new")]);
+
+		let rejected = invoke_panel(
+			"save-rule",
+			Some(&saved),
+			&[("find", "   "), ("replace", "new"), ("condition", "")],
+		);
+		assert!(rejected.storage.is_none());
+		assert!(rejected.panel.iter().any(|element| matches!(
+			element,
+			Element::Text { text } if text.contains("Find must not be blank")
+		)));
+	}
+
+	#[test]
+	fn a_condition_removed_by_an_earlier_rule_skips_the_later_rule() {
+		let mut second = rule("b", "c");
+		second.only_if_includes = "a".into();
+		let saved = Saved {
+			rules: vec![rule("a", "x"), second],
+			tags: vec![],
+		};
+		let output = invoke("apply-replacements", &saved, "a b");
+		assert_eq!(output.replacement.as_deref(), Some("x b"));
+	}
+
+	#[test]
+	fn storage_limit_failure_renders_previous_rules_and_keeps_entered_fields() {
+		let rules = (0..7)
+			.map(|index| Rule {
+				find: format!("{index}{}", "a".repeat(2900)),
+				replace: "b".repeat(2900),
+				only_if_includes: "c".repeat(2900),
+			})
+			.collect();
+		let saved = Saved {
+			rules,
+			tags: vec![],
+		};
+		let find = format!("new{}", "d".repeat(4000));
+		let replace = "e".repeat(4000);
+		let condition = "f".repeat(4000);
+		let output = invoke_panel(
+			"save-rule",
+			Some(&saved),
+			&[
+				("find", find.as_str()),
+				("replace", replace.as_str()),
+				("condition", condition.as_str()),
+			],
+		);
+		assert!(output.storage.is_none());
+		assert_eq!(option_count(&output, "rule-selection"), Some(7));
+		assert!(output.panel.iter().any(|element| matches!(
+			element,
+			Element::Heading { text } if text.contains("(7/8)")
+		)));
+		assert_eq!(input_value(&output, "find"), Some(find.as_str()));
+		assert_eq!(input_value(&output, "replace"), Some(replace.as_str()));
+	}
+
+	#[test]
+	fn loading_a_later_saved_entry_uses_full_values_and_keeps_earlier_entries() {
+		let long_find = format!("find-{}", "x".repeat(200));
+		let long_message = format!("Hello {{{{name}}}} {}", "y".repeat(300));
+		let saved = Saved {
+			rules: vec![rule("first", "one"), rule(&long_find, "two")],
+			tags: vec![
+				Tag {
+					name: "first".into(),
+					message: "one".into(),
+				},
+				Tag {
+					name: "second".into(),
+					message: long_message.clone(),
+				},
+			],
+		};
+		let rule_selection = rule_option(1, &saved.rules[1]);
+		let loaded_rule = invoke_panel(
+			"load-rule",
+			Some(&saved),
+			&[("rule-selection", rule_selection.as_str())],
+		);
+		assert_eq!(input_value(&loaded_rule, "find"), Some(long_find.as_str()));
+		assert_eq!(option_count(&loaded_rule, "rule-selection"), Some(2));
+
+		let tag_selection = tag_option(1, &saved.tags[1]);
+		let loaded_tag = invoke_panel(
+			"load-tag",
+			Some(&saved),
+			&[("tag-selection", tag_selection.as_str())],
+		);
+		assert_eq!(
+			input_value(&loaded_tag, "message"),
+			Some(long_message.as_str())
+		);
+		assert_eq!(input_value(&loaded_tag, "name"), Some("second"));
+		assert_eq!(option_count(&loaded_tag, "tag-selection"), Some(2));
+	}
+
+	#[test]
+	fn spaced_placeholder_names_expand_and_missing_values_do_not_replace() {
+		let saved = Saved {
+			rules: vec![],
+			tags: vec![Tag {
+				name: "greet".into(),
+				message: "Hello {{first name}}".into(),
+			}],
+		};
+		let output = invoke("expand-tag", &saved, "/greet first name:Ada");
+		assert_eq!(output.replacement.as_deref(), Some("Hello Ada"));
+
+		let missing = invoke("expand-tag", &saved, "/greet");
+		assert!(missing.replacement.is_none());
+		assert!(missing.panel.iter().any(|element| matches!(
+			element,
+			Element::Text { text } if text.contains("Missing required argument `first name`")
+		)));
+	}
+
+	#[test]
+	fn tag_output_limit_uses_decoded_bytes_and_trailing_space_is_no_arguments() {
+		let saved = Saved {
+			rules: vec![],
+			tags: vec![Tag {
+				name: "greet".into(),
+				message: "{{x}}{{x}}{{x}}{{x}}{{x}}{{x}}".into(),
+			}],
+		};
+		let argument = "a\\n".repeat(500);
+		let output = invoke("expand-tag", &saved, &format!("/greet x:{argument}"));
+		let replacement = output.replacement.expect("decoded output fits the limit");
+		assert_eq!(replacement.len(), 6000);
+		assert!(replacement.starts_with("a\n"));
+
+		let defaulted = Saved {
+			rules: vec![],
+			tags: vec![Tag {
+				name: "greet".into(),
+				message: "Hello {{name = world}}".into(),
+			}],
+		};
+		let output = invoke("expand-tag", &defaulted, "/greet ");
+		assert_eq!(output.replacement.as_deref(), Some("Hello world"));
 	}
 
 	#[test]

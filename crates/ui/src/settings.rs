@@ -1130,6 +1130,7 @@ impl MessagingUi {
 			},
 		);
 		self.cosmetic_settings(ui);
+		self.profile_presentation_settings(ui);
 		self.layout_settings(ui, demo);
 	}
 
@@ -1181,6 +1182,43 @@ impl MessagingUi {
 		});
 	}
 
+	/// Device-local profile presentation choices. None of these change what the service shares.
+	fn profile_presentation_settings(&mut self, ui: &mut egui::Ui) {
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-profile-presentation"),
+			|ui| {
+				design::switch(
+					ui,
+					"settings-profile-presentation-always-expand",
+					Some("settings-profile-presentation-always-expand-description"),
+					&mut self.profile_presentation.always_expand,
+				);
+				design::card_divider(ui);
+				design::switch(
+					ui,
+					"settings-profile-presentation-hide-other-themes",
+					Some("settings-profile-presentation-hide-other-themes-description"),
+					&mut self.profile_presentation.hide_other_themes,
+				);
+				design::card_divider(ui);
+				design::switch(
+					ui,
+					"settings-profile-presentation-platform-indicators",
+					Some("settings-profile-presentation-platform-indicators-description"),
+					&mut self.profile_presentation.platform_indicators,
+				);
+				design::card_divider(ui);
+				design::switch(
+					ui,
+					"settings-profile-presentation-row-banners",
+					Some("settings-profile-presentation-row-banners-description"),
+					&mut self.profile_presentation.row_banners,
+				);
+			},
+		);
+	}
+
 	/// Shows device-local reading, composer and channel-list preferences.
 	fn chat_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		self.chat_reading_settings(ui, demo);
@@ -1191,7 +1229,73 @@ impl MessagingUi {
 				Some("settings-convert-emoticons-description"),
 				&mut self.convert_emoticons,
 			);
+			design::card_divider(ui);
+			design::switch(
+				ui,
+				"settings-gif-insert",
+				Some("settings-gif-insert-description"),
+				&mut self.gif_insert,
+			);
 		});
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-invite-defaults"),
+			|ui| {
+				design::hint(
+					ui,
+					&crate::i18n::translate("settings-invite-defaults-description"),
+				);
+				ui.add_space(8.0);
+				ui.label(design::medium(
+					ui,
+					crate::i18n::translate("settings-invite-defaults-expire-after"),
+					14.0,
+				));
+				ui.add_space(6.0);
+				crate::server_invite::select(
+					ui,
+					"settings-invite-expiry",
+					&crate::server_invite::expiry_label(self.invite_defaults.max_age),
+					|ui| {
+						for seconds in [1800, 3600, 21600, 43200, 86400, 604800, 2592000, 0] {
+							ui.selectable_value(
+								&mut self.invite_defaults.max_age,
+								seconds,
+								crate::server_invite::expiry_label(seconds),
+							);
+						}
+					},
+				);
+				ui.add_space(12.0);
+				ui.label(design::medium(
+					ui,
+					crate::i18n::translate("settings-invite-defaults-max-uses"),
+					14.0,
+				));
+				ui.add_space(6.0);
+				crate::server_invite::select(
+					ui,
+					"settings-invite-uses",
+					&crate::server_invite::uses_label(self.invite_defaults.max_uses),
+					|ui| {
+						for uses in [0, 1, 5, 10, 25, 50, 100] {
+							ui.selectable_value(
+								&mut self.invite_defaults.max_uses,
+								uses,
+								crate::server_invite::uses_label(uses),
+							);
+						}
+					},
+				);
+				ui.add_space(12.0);
+				design::switch(
+					ui,
+					"settings-invite-defaults-temporary",
+					Some("settings-invite-defaults-temporary-description"),
+					&mut self.invite_defaults.temporary,
+				);
+			},
+		);
 		design::group(
 			ui,
 			&crate::i18n::translate("settings-chat-settings-channel-list"),
@@ -1201,6 +1305,24 @@ impl MessagingUi {
 					"settings-chat-settings-show-hidden-channels",
 					Some("settings-chat-settings-show-channels-you-cannot-currently-access"),
 					&mut self.show_hidden_channels,
+				);
+				design::switch(
+					ui,
+					"settings-chat-settings-clean-channel-names",
+					Some("settings-chat-settings-clean-channel-names-description"),
+					&mut self.channel_display.clean_names,
+				);
+				design::switch(
+					ui,
+					"settings-chat-settings-channel-type-badges",
+					Some("settings-chat-settings-channel-type-badges-description"),
+					&mut self.channel_display.type_badges,
+				);
+				design::switch(
+					ui,
+					"settings-chat-settings-hide-no-role-headers",
+					Some("settings-chat-settings-hide-no-role-headers-description"),
+					&mut self.channel_display.hide_no_role_headers,
 				);
 				design::switch(
 					ui,

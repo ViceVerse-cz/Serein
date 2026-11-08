@@ -10,6 +10,18 @@ members = [
 	"plugins/text-commands",
 	"plugins/view-raw-message",
 	"plugins/external-search-tools",
+	"plugins/text-codecs",
+	"plugins/message-composition-tools",
+	"plugins/identity-tools",
+	"plugins/loaded-role-members",
+	"plugins/status-presets",
+	"plugins/message-history",
+	"plugins/message-reference-tools",
+	"plugins/draft-style-tools",
+	"plugins/command-palette",
+	"plugins/ingtoninator",
+	"plugins/own-message-sed",
+	"plugins/social-link-tools",
 ]
 resolver = "3"
 

@@ -361,6 +361,21 @@ payloads. The optional `preserve_deleted_messages` activation output is accepted
 for package compatibility; successful activation with the granted capability enables
 retention, including existing protector packages with no-op activation. Input is
 restricted to the granted context and bounded form values.
+
+The Message History package uses an `enable-history` activation action, a live message-event action
+and the confirmed `message_events` grant as its explicit opt-in. Activation itself produces no
+output and logs nothing. On the enabled transition, the host seeds only ordinary messages already
+loaded in the selected conversation. Its native store records at most 256 messages, 1,024 changes,
+eight edit/delete records per message and 2 MiB, with each body/version capped at 16 KiB. Edit
+records retain bounded before/after text; deletes retain only the last loaded body. Older/newer
+pages are additive. Edit/delete events for unknown or evicted messages are discarded rather than
+reconstructing deleted-before-load content.
+The history viewer is native local UI in an ordinary message's context menu; retained history is
+never sent back to Wasm or written to plugin storage. Account/session/channel changes, disablement,
+logout, resync/access loss and real timeline capacity eviction release affected bodies. Thirty
+minutes without history activity also releases the store. This is not a durable/offline
+MessageLogger, attachment logger, audit export or complete-cross-channel message archive.
+
 Results can propose a composer replacement or return native headings, text, rows,
 separators, buttons, text inputs, checkboxes, dropdowns and integer sliders. Standalone
 panel actions are available from Settings > Extensions. Composer actions appear in the composer Tools menu. Composer proposals require Apply, retain
@@ -522,8 +537,9 @@ This is a connection plugin, available in Settings > Extensions before login.
 Consent applies across accounts on this device. Its package and bounded local
 storage live in `extensions/proxy-plugins`, survive account switching/logout, and
 are removed when explicitly disabled. Other plugins keep their account isolation.
-A manifest requesting `api_proxy` must be a plugin with only `api_proxy` and
-optional `storage`, and only panel/activation actions. It receives no account data,
+Rust authors declare the same grant with `Capability::ApiProxy` in the typed manifest mirror;
+its string form remains `api_proxy`. A manifest requesting `api_proxy` must be a plugin with
+only `api_proxy` and optional `storage`, and only panel/activation actions. It receives no account data,
 tokens or requests and has no networking API.
 
 Custom proxy origins must use HTTP or HTTPS, have a host, and be at most 2048 bytes.

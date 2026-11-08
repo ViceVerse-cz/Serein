@@ -1242,6 +1242,69 @@ pub(crate) fn presence(
 	with_local_activity(state, user, remote)
 }
 
+/// Whether a card uses the centred full layout. The preference only changes presentation;
+/// webhooks and the docked DM panel keep their existing surfaces.
+fn full_profile(session_full: bool, always_expand: bool, webhook: bool, docked: bool) -> bool {
+	(session_full || always_expand) && !webhook && !docked
+}
+
+/// A profile already retained for `user`: the open card or the recent global cache. Rows use
+/// this only for artwork that is already loaded; it never starts a profile request.
+pub(crate) fn loaded_profile(state: &State, user: Id) -> Option<&model::UserProfile> {
+	state
+		.profile
+		.as_ref()
+		.filter(|view| view.user == user)
+		.and_then(|view| view.data.as_ref())
+		.or_else(|| state.known_profile(user))
+}
+
+/// The theme colours a card may paint. Other users' loaded themes are hidden by preference,
+/// while the account's own theme and the underlying profile data stay intact.
+fn visible_theme_colors(
+	data: Option<&model::UserProfile>,
+	own: bool,
+	hide_other_themes: bool,
+) -> Option<[u32; 2]> {
+	data.and_then(|data| data.theme_colors)
+		.filter(|_| own || !hide_other_themes)
+}
+
+/// Cached client flags as icons. Only true booleans are drawn; nothing is inferred from status.
+fn platform_icon_entries(
+	clients: model::ClientPlatforms,
+) -> impl Iterator<Item = (Icon, &'static str)> {
+	[
+		(
+			clients.desktop,
+			Icon::Television,
+			"profiles-platform-desktop",
+		),
+		(
+			clients.mobile,
+			Icon::DeviceMobile,
+			"profiles-platform-mobile",
+		),
+		(clients.web, Icon::Globe, "profiles-platform-web"),
+		(clients.vr, Icon::GameController, "profiles-platform-vr"),
+	]
+	.into_iter()
+	.filter_map(|(present, icon, key)| present.then_some((icon, key)))
+}
+
+pub(crate) fn platform_indicators(
+	ui: &mut egui::Ui,
+	clients: model::ClientPlatforms,
+	size: f32,
+	color: egui::Color32,
+) {
+	for (icon, key) in platform_icon_entries(clients) {
+		let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
+		icons::paint(ui.painter(), icon, rect, color);
+		response.on_hover_text(crate::i18n::translate(key));
+	}
+}
+
 pub(crate) fn member_presence<'a>(
 	state: &'a State,
 	member: &'a model::Member,
@@ -3112,7 +3175,14 @@ fn card_view(
 	let colors = design::palette(ui);
 	let viewport = ui.ctx().content_rect();
 	let view = view.filter(|_| !user.webhook);
-	let full = session.full && !user.webhook && !docked;
+	// A device preference may open the full profile from any existing surface. Privacy is
+	// unchanged: this only expands the card, it never requests more than that card would.
+	let full = full_profile(
+		session.full,
+		avatars.profile_presentation.always_expand,
+		user.webhook,
+		docked,
+	);
 	let mut expand = full;
 	let bounds = viewport.shrink(if full { 32.0 } else { 8.0 });
 	let full_width = FULL_WIDTH.min(bounds.width());
@@ -3173,7 +3243,13 @@ fn card_view(
 		}
 		_ => bounds,
 	};
-	let theme = Theme::new(&colors, data.and_then(|d| d.theme_colors));
+	let own_card = state.user.as_ref().is_some_and(|own| own.id == user.id);
+	let theme_colors = visible_theme_colors(
+		data,
+		own_card,
+		avatars.profile_presentation.hide_other_themes,
+	);
+	let theme = Theme::new(&colors, theme_colors);
 	// The board column sits on the modal, not the profile theme, so it keeps app colors.
 	let panel_theme = Theme::new(&colors, None);
 	let guild = state
@@ -3233,7 +3309,6 @@ fn card_view(
 			ui.painter().add(egui::Shape::Noop),
 		)
 	});
-	let own_card = state.user.as_ref().is_some_and(|own| own.id == user.id);
 	let catalog = data.and_then(|d| d.badge_catalog.as_deref());
 	// A clicked badge: where to anchor the menu and which badge it was.
 	let mut badge_click: Option<(Pos2, Option<u32>)> = None;
@@ -3338,7 +3413,14 @@ fn card_view(
 			}
 		};
 		if let Some(data) = data {
-			avatars.paint_banner(ui, data, banner, top_corners, state.demo);
+			avatars.paint_banner_with_theme(
+				ui,
+				data,
+				banner,
+				top_corners,
+				state.demo,
+				theme_colors.is_some(),
+			);
 		} else {
 			ui.painter().rect_filled(banner, top_corners, colors.raised);
 		}
@@ -3767,6 +3849,12 @@ fn card_view(
 									}
 								});
 							}
+						}
+						if avatars.profile_presentation.platform_indicators && clients.any() {
+							ui.horizontal(|ui| {
+								ui.spacing_mut().item_spacing.x = 4.0;
+								platform_indicators(ui, clients, 14.0, theme.muted);
+							});
 						}
 
 						if full {
@@ -4686,6 +4774,51 @@ fn synthetic_frame() -> model::ProfileFrame {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn always_expand_keeps_webhooks_and_the_docked_panel_compact() {
+		assert!(full_profile(false, true, false, false));
+		assert!(full_profile(true, false, false, false));
+		assert!(!full_profile(false, false, false, false));
+		assert!(!full_profile(false, true, true, false));
+		assert!(!full_profile(false, true, false, true));
+	}
+
+	#[test]
+	fn hiding_other_profile_themes_keeps_own_theme_and_loaded_data() {
+		let user = test_support::message(1, Id(22)).author;
+		let data = synthetic(&user, None);
+		let loaded = data.theme_colors;
+		assert!(loaded.is_some());
+		assert_eq!(visible_theme_colors(Some(&data), false, true), None);
+		assert_eq!(visible_theme_colors(Some(&data), true, true), loaded);
+		assert_eq!(visible_theme_colors(Some(&data), false, false), loaded);
+		// The preference is a paint-time filter; the loaded profile is untouched.
+		assert_eq!(data.theme_colors, loaded);
+	}
+
+	#[test]
+	fn platform_indicators_draw_only_cached_true_flags() {
+		let clients = model::ClientPlatforms {
+			desktop: true,
+			mobile: false,
+			web: true,
+			vr: false,
+		};
+		let entries: Vec<_> = platform_icon_entries(clients).collect();
+		assert_eq!(
+			entries,
+			vec![
+				(Icon::Television, "profiles-platform-desktop"),
+				(Icon::Globe, "profiles-platform-web"),
+			]
+		);
+		assert!(
+			platform_icon_entries(model::ClientPlatforms::default())
+				.next()
+				.is_none()
+		);
+	}
 
 	#[test]
 	fn mixed_profile_gradients_keep_text_readable_at_and_between_endpoints() {

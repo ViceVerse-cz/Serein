@@ -586,7 +586,7 @@ reported and retried. Logout removes the account's plugin data. Imported
 original files and source repositories are never deleted. No credentials belong
 in plugin storage; it is not encrypted. Only bounded metadata may remain after
 successful disable. Shop descriptions and optional preview URLs/hashes belong to
-bounded catalog metadata (1 MiB / 256 entries). The validated, shared plugin/theme
+bounded catalog metadata (1 MiB / 512 entries). The validated, shared plugin/theme
 catalog is atomically saved to `extensions/catalog.json` within that same byte/item
 budget. A failed fetch/validation preserves the last valid catalog; malformed or
 oversized disk caches are ignored while installed themes still load. Opening
@@ -809,6 +809,8 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | Drafts | 64 globally, at most 2 MiB content; each draft at most 8192 UTF-8 bytes | Clear draft, confirmed send, or account logout |
 | Appearance | One application-wide SQLite row: Light or Dark; absent means System | Select System to remove the override; retained across account logout |
 | Reading/layout | One application-wide SQLite row with bounded scalar fields, including the double-click reaction opt-in and Unicode preset | Reset reading and layout removes only this override; retained across account logout |
+| Profile presentation | Booleans in the existing `app_preferences` singleton: expand profiles, hide other users' theme colors, cached platform icons and cached row banners. Older preferences default off. Cached artwork/presence remains in its existing bounded memory/cache paths; no profile/body or per-user identity map is added. Those flags do not change what Discord receives. | Retained across restart/logout; disabling resets only the display behavior |
+| Channel display and folders | One existing device preferences singleton with bounded booleans and at most 200 nonzero, deduplicated channel IDs that opt out of cleaned display names. Kind badges and unresolved pseudo-role headers are derived from loaded metadata only. The original service name is retained while its settings dialog opens. Folder preferences still bind expansion to at most 256 known folder IDs; no folder payload is enlarged. | Reset layout to restore native names and folder behavior; no server/channel rename or payload write occurs |
 | Theme preset | One application-wide SQLite row (`theme_variant`, ≤32-byte key such as `onyx`); absent means Default | Select Default to remove it; unknown keys are ignored; retained across account logout |
 | SQLite working files | DELETE journal mode, in-memory temporary tables, 2 MiB page cache; transaction journal may temporarily add disk usage | SQLite transaction completion; normal SQLite crash recovery |
 | Voice credentials, DAVE identities/keys and PCM/Opus audio | Session memory only; one call, bounded media queues; no recording or audio cache | Hangup, failure, logout and application teardown; no forensic-erasure claim |
@@ -1030,7 +1032,12 @@ When enabled, message alerts send a
 bounded sender name and message preview to the OS; an already-cached local avatar PNG may also
 be used. Other alert kinds remain generic. The OS may keep its own notification/permission history.
 Logout invalidates queued work and requests dismissal; this does not erase OS records.
-See notification limits and platform behavior. Composer artwork uses
+Account-local notification tools share the schema-30 `channel_preferences` row (16 KiB):
+64 watched authors, 32 literal keywords of 64 characters, 16 allow and 16 deny scopes, and 16
+toast-ignored authors. One-ping-per-DM markers (256 channels) and the 50 literal keyword hits
+remain transient RAM; changing tools, reading or opening the DM, and logout reset their applicable
+state. In-app toasts are capped at five cards. No regex, persistent keyword-history journal or
+extra network request is introduced. See notification limits and platform behavior. Composer artwork uses
 the existing Twemoji atlas and custom-image cache; saved drafts keep their original wire
 text, with no extra rendered-token storage.
 
@@ -1520,6 +1527,17 @@ excluded from normal message iteration, service actions and disk cache writes.
 Disabling the plugin, logout, lost channel access or eviction releases the payloads.
 The usual disk-cache deletion still runs when a deletion arrives.
 
+Message History is separately opt-in through its `enable-history` activation and confirmed
+`message_events` grant. It does not request plugin storage or serialize retained bodies. Its
+RAM-only store holds at most 256 selected-channel messages, 1,024 changes and 2 MiB, with eight
+changes per message and 16 KiB per body/version. Activation seeds only the currently loaded page;
+subsequent loaded pages and live accepted events update that baseline. A deleted or edited message
+whose original body was never loaded is not reconstructed. Native history UI keeps edit before and
+after text and the last loaded text before delete. Disabling, logout, account/session/channel
+changes, READY/resync resets, access loss and timeline capacity eviction drop affected entries.
+Thirty minutes without observed activity also clears them. No history page, background channel,
+attachment bytes, plugin storage, export, offline log or deleted-before-load recovery is provided.
+This store is independent of Message Delete Protector's deleted-row illustration.
 
 ### Server role editor
 
@@ -1651,9 +1669,12 @@ keeps startup changes in memory. OS login-item restrictions remain authoritative
 The UI lazily retains one fixed 64-slot table of user IDs and integer percentages
 (1,024 bytes of entry storage). The voice watch control holds one fixed table of the same
 size, copied by the transport for a tick; changes replace the existing control value without
-adding a queue. Values are clamped to 0–200 before mixing. A full UI table replaces its first
-retained entry; reset releases a slot. Logout/preview reset clears the table. No SQLite,
-credential-store, network setting write, or diagnostics payload is added.
+adding a queue. Local participant and stream boosts are clamped to 0–400 before mixing, with
+a visible clipping/hearing warning above 200; canonical service, extension and global-speaker
+volume stays capped at 200. Saved overrides occupy the existing bounded `user_volumes` list
+in `app_preferences`. A full UI table replaces its first retained entry; reset releases a slot.
+Logout/preview reset clears the table. No credential-store, network setting write, or
+diagnostics payload is added.
 Chat author role IDs travel with the cached message window (at most 512 IDs per
 message, 16 KiB JSON). They count toward the existing timeline and 48 MiB history
 budgets. Names use the current guild role catalog. Live member rows refresh the
@@ -2017,3 +2038,56 @@ the native projection retains its existing URL and allocated-byte limits.
 Schema 28 adds the device-wide double-click reaction preset to the reading settings singleton. The bounded index selects one of six Unicode emoji, defaults to ❤️, and persists independently of session emoji recommendations.
 
 Schema 29 adds a bounded boolean opt-in for double-click reactions, disabled for new and migrated settings. The selected Unicode preset is retained while disabled; Reset chat restores the disabled default.
+
+### Persistent native message history (schema 31)
+
+Schema 31 adds account-keyed `history_settings`, `history_filters`, `history_messages`,
+`history_changes`, `history_attachments` and ID-only `history_tombstones` tables, plus paging and
+retention indexes. It does not backfill the ordinary render cache: capture starts only after the
+reviewed Message History package is activated and its confirmed `message_events` grant is present.
+Saved policy is restored before activation. A first activation may create an enabled policy; an
+explicit saved opt-out cannot be silently re-enabled. No message bodies, versions, attachments,
+export records or signed media URLs are exposed to Wasm.
+
+Capture covers only subsequently loaded readable history/live events, including background chats;
+it does not trigger an account-wide harvest or another Discord request. Defaults are 30 days,
+10,000 messages and 32 MiB of bodies/versions/metadata per account. Retention is 1–365 days,
+100–50,000 messages and 4–64 MiB, with no unlimited zero value. Each body/version is 16 KiB,
+each message retains at most eight changes and ten attachment metadata rows, and old messages and
+changes evict first. Attached files sit outside SQLite and have a separate 256 MiB account cap. The SQLite page ceiling is
+128 MiB is the entire SQLite `max_page_count` ceiling, not an unlimited history allowance. The
+older volatile observation store remains separate at 512 messages, 2,048 changes and 4 MiB; the
+bounded worker mutation queue is 4,096 observations / 8 MiB. Timeline/channel eviction does not
+erase persistent rows.
+
+Known deletion keeps the last observed body and marks attachment metadata deleted. Unknown delete
+can create only a bounded `(channel, message)` tombstone, never an author/body, and never emits an
+alert. This prevents late pages from inventing deleted-before-load content. Tombstones share the
+account policy/count and clear/expiry lifecycle. Account/channel ignores hold 512 IDs each, purge
+newly ignored retained rows and prevent new matching observations.
+
+Optional ghost alerts are off by default and support mentions-only or all retained edit/delete
+transitions. They carry only account/channel/message IDs and event kind; lock-screen and toast text
+is generic. Final delivery rechecks authenticated account, access, mute, DND and notification
+settings, then admits at most one alert per channel per 30 seconds and six per account per minute.
+History activations open a native retained target; deleted rows never cause a service-message
+search. Startup/history hydration and unknown deletes do not alert.
+
+Attachment downloads require individual image/audio/video opt-ins. Supported exact MIME/extension
+pairs are PNG/JPEG/GIF/WebP, MP3/Ogg/WAV and MP4/WebM. Limits are 8, 16 and 32 MiB per file,
+respectively, 256 MiB per account, 16 queued jobs / 32 MiB declared queue bytes, and 64 KiB streaming
+writes. Only the exact validated Discord CDN object is fetched without redirects/auth/cookies.
+Signed URLs never enter SQLite, exports or persisted filenames. The browser's data directory stores
+owner-only media under generated account/attachment paths. A database reservation precedes HTTP;
+completion or cancellation commits/releases it. Scope change cancels volatile requests, while full
+forget/logout cancels the active worker before asynchronously removing account files and reports
+failure instead of promising erasure. Unsupported types remain metadata-only. Filesystem errors or
+forced termination can leave artifacts; there is no forensic-erasure claim.
+
+Text/JSON export is an explicit native action covering one account's retained rows, old versions
+and deleted bodies. It caps at 50,000 rows or 256 MiB with bounded 500-row read pages, uses an
+owner-only temporary sibling and atomically publishes only complete output. Cancellation or failure
+removes the partial. Exports omit signed URLs, local media paths, tokens, cookies and raw Gateway
+payloads. Import is not implemented. Clear deletes history and saves capture disabled, preserving
+bounded retention/filter choices; full Forget/logout additionally removes policy and media. Access
+loss purges only affected channels. Queue epochs separate old non-destructive work from purges.

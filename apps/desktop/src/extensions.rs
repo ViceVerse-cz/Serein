@@ -30,6 +30,9 @@ const MAX_STORAGE: usize = 1024 * 1024;
 const MAX_PER_SCOPE: usize = 8;
 const MAX_ACCOUNTS: usize = 8;
 const MAX_QUEUE: usize = 4;
+/// Manifest-level consent signal for the host-owned persistent, bounded message history. The shared ABI output
+/// lives elsewhere; this action ID plus the `message_events` grant is the typed opt-in.
+const MESSAGE_HISTORY_ACTIVATION: &str = "enable-history";
 
 pub(crate) fn trim_extended_input(invocation: &mut Invocation, limit: usize) -> bool {
 	for field in 0..=3 {
@@ -117,6 +120,104 @@ pub struct Starter {
 
 pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 	let packages: &[(&'static [u8], &'static str)] = &[
+		// Development builds surface the reviewed local artifacts even before the remote
+		// post-merge catalog pin exists. Test builds and release/demo behavior stay unchanged.
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!("../../../extensions/plugins/packages/command-palette.serein-extension"),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/draft-style-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/external-search-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!("../../../extensions/plugins/packages/identity-tools.serein-extension"),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!("../../../extensions/plugins/packages/ingtoninator.serein-extension"),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/loaded-role-members.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/message-composition-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!("../../../extensions/plugins/packages/message-history.serein-extension"),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/message-reference-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/offline-composer-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!("../../../extensions/plugins/packages/own-message-sed.serein-extension"),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/social-link-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!("../../../extensions/plugins/packages/status-presets.serein-extension"),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!("../../../extensions/plugins/packages/text-codecs.serein-extension"),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!("../../../extensions/plugins/packages/text-commands.serein-extension"),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/view-raw-message.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
 		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!(
@@ -317,6 +418,7 @@ pub struct InstalledExtension {
 	pub download_bytes: u64,
 	pub error: Option<String>,
 	pub preserve_deleted_messages: bool,
+	pub message_history: bool,
 	pub image_sharing: bool,
 	pub rich_presence: Option<Box<extensions::CustomRichPresence>>,
 	pub api_proxy: Option<extensions::ApiProxyConfig>,
@@ -502,6 +604,24 @@ struct Stored {
 	download_bytes: u64,
 }
 
+/// Explicit persistent-history consent: the reviewed `message-history` package itself, an
+/// `enable-history` activation action, a live message-event action, and a confirmed
+/// `message_events` grant. It never enables storage, and a foreign or imported lookalike with
+/// the same action name cannot opt the host into retention.
+fn message_history_consent(manifest: &Manifest, grants: &[Capability], reviewed: bool) -> bool {
+	reviewed
+		&& manifest.kind == ExtensionKind::Plugin
+		&& manifest.id == "message-history"
+		&& manifest.capabilities.contains(&Capability::MessageEvents)
+		&& grants.contains(&Capability::MessageEvents)
+		&& manifest.actions.iter().any(|action| {
+			action.surface == Surface::Activation && action.id == MESSAGE_HISTORY_ACTIVATION
+		}) && manifest
+		.actions
+		.iter()
+		.any(|action| action.surface == Surface::MessageEvent)
+}
+
 impl Stored {
 	fn summary(&self, gate: &Gate, storage: Option<String>, active: bool) -> InstalledExtension {
 		let activation = self
@@ -551,6 +671,9 @@ impl Stored {
 				None
 			}
 		};
+		let message_history = activation.is_some()
+			&& result.is_ok()
+			&& message_history_consent(&self.package.manifest, &self.grants, self.reviewed);
 		InstalledExtension {
 			background_image,
 			cover_image,
@@ -584,6 +707,7 @@ impl Stored {
 			preserve_deleted_messages: activation.is_some()
 				&& result.is_ok()
 				&& self.grants.contains(&Capability::DeletedMessages),
+			message_history,
 			error: result.err(),
 		}
 	}
@@ -1157,6 +1281,7 @@ fn load(
 							let mut summary = stored.summary(gate, None, false);
 							summary.theme = None;
 							summary.preserve_deleted_messages = false;
+							summary.message_history = false;
 							summary.image_sharing = false;
 							summary.rich_presence = None;
 							summary.error = Some(error);
@@ -1190,6 +1315,7 @@ fn load(
 						download_bytes: 0,
 						error: Some(error),
 						preserve_deleted_messages: false,
+						message_history: false,
 						image_sharing: false,
 						rich_presence: None,
 						api_proxy: None,
@@ -1709,6 +1835,58 @@ mod tests {
 			generation: Arc::new(AtomicU64::new(0)),
 			wake_cancel: Arc::new(tokio::sync::Notify::new()),
 		}
+	}
+
+	#[test]
+	fn message_history_consent_requires_the_action_and_a_granted_event_surface() {
+		let manifest: Manifest = serde_json::from_str(include_str!(
+			"../../../extensions/plugins/message-history/manifest.json"
+		))
+		.unwrap();
+		manifest.validate().unwrap();
+		assert!(manifest.capabilities.contains(&Capability::MessageEvents));
+		assert!(message_history_consent(
+			&manifest,
+			&manifest.capabilities,
+			true
+		));
+		assert!(!message_history_consent(&manifest, &[], true));
+		assert!(!message_history_consent(
+			&manifest,
+			&[Capability::Storage],
+			true
+		));
+		assert!(
+			!message_history_consent(&manifest, &manifest.capabilities, false),
+			"an imported or otherwise unreviewed copy must not enable host retention"
+		);
+
+		let mut foreign = manifest.clone();
+		foreign.id = "foreign-enable-history".into();
+		assert!(
+			!message_history_consent(&foreign, &foreign.capabilities, true),
+			"the exact reviewed package identity is part of consent"
+		);
+
+		let mut eventless = manifest.clone();
+		eventless
+			.actions
+			.retain(|action| action.surface != Surface::MessageEvent);
+		assert!(!message_history_consent(
+			&eventless,
+			&manifest.capabilities,
+			true
+		));
+
+		let mut unnamed = manifest.clone();
+		unnamed
+			.actions
+			.retain(|action| action.id != MESSAGE_HISTORY_ACTIVATION);
+		assert!(!message_history_consent(
+			&unnamed,
+			&manifest.capabilities,
+			true
+		));
 	}
 
 	fn theme(id: &str) -> Package {

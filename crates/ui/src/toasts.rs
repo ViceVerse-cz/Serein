@@ -9,6 +9,13 @@
 //! [`crate::design::notice`] read as the same message in two places.
 use crate::{design, icons};
 use egui::{Align2, Stroke};
+use model::Id;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Target {
+	Channel(Id),
+	History { channel: Id, message: Id },
+}
 
 /// How long a toast rests on screen once drawn. Problems outlast pleasantries.
 fn lifetime(level: design::Level) -> f64 {
@@ -24,7 +31,8 @@ const FADE: f64 = 0.45;
 const APPEAR: f64 = 0.18;
 const SLIDE: f32 = 10.0;
 /// Older notices are dropped past this. A stack of toasts is just a status line again.
-const MAX: usize = 3;
+/// Message toasts share this bound and never exceed five concurrent cards.
+const MAX: usize = 5;
 /// Longest line before the text wraps; shorter notices shrink the card to fit.
 const TEXT_WIDTH: f32 = 340.0;
 const BADGE: f32 = 24.0;
@@ -35,6 +43,8 @@ struct Toast {
 	id: u64,
 	level: design::Level,
 	text: String,
+	/// Optional local navigation target; clicking the card selects this channel.
+	target: Option<Target>,
 	/// Deadline, set on the first frame this toast is actually drawn so one pushed while
 	/// another view is up does not expire unseen.
 	deadline: Option<f64>,
@@ -52,11 +62,38 @@ impl Toasts {
 	/// States `text` briefly. Repeating a notice that is still on screen restarts its
 	/// deadline rather than stacking a copy, so a repeated failure reads as one event.
 	pub fn push(&mut self, level: design::Level, text: impl Into<String>) {
-		let text = text.into();
+		self.push_target(level, text, None);
+	}
+	/// States `text` briefly and makes the card select `target` when clicked.
+	pub fn push_target(
+		&mut self,
+		level: design::Level,
+		text: impl Into<String>,
+		target: impl Into<Option<Id>>,
+	) {
+		self.push_inner(level, text.into(), target.into().map(Target::Channel));
+	}
+
+	/// Open one retained target through the native local history browser.
+	pub fn push_history(
+		&mut self,
+		level: design::Level,
+		text: impl Into<String>,
+		channel: Id,
+		message: Id,
+	) {
+		self.push_inner(
+			level,
+			text.into(),
+			Some(Target::History { channel, message }),
+		);
+	}
+
+	fn push_inner(&mut self, level: design::Level, text: String, target: Option<Target>) {
 		if let Some(shown) = self
 			.items
 			.iter_mut()
-			.find(|toast| toast.level == level && toast.text == text)
+			.find(|toast| toast.level == level && toast.text == text && toast.target == target)
 		{
 			shown.deadline = None;
 			return;
@@ -65,6 +102,7 @@ impl Toasts {
 			id: self.next_id,
 			level,
 			text,
+			target,
 			deadline: None,
 			shown: None,
 		});
@@ -74,11 +112,12 @@ impl Toasts {
 		}
 	}
 	/// Draws the live toasts stacked under the window chrome. `top` is the inset that
-	/// clears whatever the caller draws above them.
-	pub fn show(&mut self, ctx: &egui::Context, top: f32) {
+	/// clears whatever the caller draws above them. Returns a clicked navigation target.
+	pub fn show(&mut self, ctx: &egui::Context, top: f32) -> Option<Target> {
 		if self.items.is_empty() {
-			return;
+			return None;
 		}
+		let mut clicked_target = None;
 		let now = ctx.input(|input| input.time);
 		let colors = design::palette_for(ctx);
 		let shadow = ctx.style_of(ctx.theme()).visuals.window_shadow;
@@ -157,8 +196,19 @@ impl Toasts {
 				})
 				.response;
 			offset += response.rect.height() + GAP;
+			let clicked = toast.target.is_some()
+				&& ctx.input(|input| {
+					input.pointer.primary_clicked()
+						&& input
+							.pointer
+							.interact_pos()
+							.is_some_and(|pos| response.rect.contains(pos))
+				});
 			// Reading is not a race: rest the pointer on a toast and it waits.
 			if dismissed {
+				toast.deadline = Some(now);
+			} else if clicked {
+				clicked_target = toast.target;
 				toast.deadline = Some(now);
 			} else if response.contains_pointer() {
 				toast.deadline = Some(now + lifetime(toast.level));
@@ -180,5 +230,6 @@ impl Toasts {
 		} else if fade_in.is_finite() {
 			ctx.request_repaint_after(std::time::Duration::from_secs_f64(fade_in));
 		}
+		clicked_target
 	}
 }

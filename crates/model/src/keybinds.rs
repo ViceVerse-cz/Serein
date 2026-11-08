@@ -59,6 +59,10 @@ pub enum KeybindAction {
 	SendMessage,
 	InsertNewLine,
 	EditLastMessage,
+	ReplyEarlier,
+	ReplyLater,
+	EditEarlier,
+	EditLater,
 	Bold,
 	Italic,
 	Underline,
@@ -74,7 +78,7 @@ pub enum KeybindAction {
 }
 
 impl KeybindAction {
-	pub const ALL: [Self; 19] = [
+	pub const ALL: [Self; 23] = [
 		Self::ShowShortcuts,
 		Self::SwitchConversation,
 		Self::SearchConversation,
@@ -82,6 +86,10 @@ impl KeybindAction {
 		Self::SendMessage,
 		Self::InsertNewLine,
 		Self::EditLastMessage,
+		Self::ReplyEarlier,
+		Self::ReplyLater,
+		Self::EditEarlier,
+		Self::EditLater,
 		Self::Bold,
 		Self::Italic,
 		Self::Underline,
@@ -105,6 +113,10 @@ impl KeybindAction {
 			Self::SendMessage => "Send Message",
 			Self::InsertNewLine => "Insert New Line",
 			Self::EditLastMessage => "Edit Last Editable Message",
+			Self::ReplyEarlier => "Reply to Earlier Message",
+			Self::ReplyLater => "Reply to Later Message",
+			Self::EditEarlier => "Edit Earlier Message",
+			Self::EditLater => "Edit Later Message",
 			Self::Bold => "Bold",
 			Self::Italic => "Italic",
 			Self::Underline => "Underline",
@@ -122,7 +134,15 @@ impl KeybindAction {
 
 	/// Actions that may stay unassigned, stored as an empty key.
 	pub const fn is_optional(self) -> bool {
-		matches!(self, Self::PushToMute | Self::CopyIssueDiagnostics)
+		matches!(
+			self,
+			Self::ReplyEarlier
+				| Self::ReplyLater
+				| Self::EditEarlier
+				| Self::EditLater
+				| Self::PushToMute
+				| Self::CopyIssueDiagnostics
+		)
 	}
 
 	pub const fn is_global(self) -> bool {
@@ -144,6 +164,11 @@ pub struct Keybinds {
 	pub send_message: KeyChord,
 	pub insert_new_line: KeyChord,
 	pub edit_last_message: KeyChord,
+	/// Unassigned by default so common text-navigation chords stay available.
+	pub reply_earlier: KeyChord,
+	pub reply_later: KeyChord,
+	pub edit_earlier: KeyChord,
+	pub edit_later: KeyChord,
 	pub bold: KeyChord,
 	pub italic: KeyChord,
 	pub underline: KeyChord,
@@ -219,6 +244,10 @@ impl Default for Keybinds {
 			send_message: KeyChord::new("Enter", 0),
 			insert_new_line: KeyChord::new("Enter", SHIFT),
 			edit_last_message: KeyChord::new("ArrowUp", 0),
+			reply_earlier: KeyChord::new("", 0),
+			reply_later: KeyChord::new("", 0),
+			edit_earlier: KeyChord::new("", 0),
+			edit_later: KeyChord::new("", 0),
 			bold: KeyChord::new("B", PRIMARY),
 			italic: KeyChord::new("I", PRIMARY),
 			underline: KeyChord::new("U", PRIMARY),
@@ -246,6 +275,10 @@ impl Keybinds {
 			KeybindAction::SendMessage => &self.send_message,
 			KeybindAction::InsertNewLine => &self.insert_new_line,
 			KeybindAction::EditLastMessage => &self.edit_last_message,
+			KeybindAction::ReplyEarlier => &self.reply_earlier,
+			KeybindAction::ReplyLater => &self.reply_later,
+			KeybindAction::EditEarlier => &self.edit_earlier,
+			KeybindAction::EditLater => &self.edit_later,
 			KeybindAction::Bold => &self.bold,
 			KeybindAction::Italic => &self.italic,
 			KeybindAction::Underline => &self.underline,
@@ -270,6 +303,10 @@ impl Keybinds {
 			KeybindAction::SendMessage => &mut self.send_message,
 			KeybindAction::InsertNewLine => &mut self.insert_new_line,
 			KeybindAction::EditLastMessage => &mut self.edit_last_message,
+			KeybindAction::ReplyEarlier => &mut self.reply_earlier,
+			KeybindAction::ReplyLater => &mut self.reply_later,
+			KeybindAction::EditEarlier => &mut self.edit_earlier,
+			KeybindAction::EditLater => &mut self.edit_later,
 			KeybindAction::Bold => &mut self.bold,
 			KeybindAction::Italic => &mut self.italic,
 			KeybindAction::Underline => &mut self.underline,
@@ -344,6 +381,15 @@ mod tests {
 		assert!(bindings.copy_issue_diagnostics.key.is_empty());
 		assert!(!KeybindAction::CopyIssueDiagnostics.is_global());
 		assert!(bindings.push_to_mute.key.is_empty());
+		for action in [
+			KeybindAction::ReplyEarlier,
+			KeybindAction::ReplyLater,
+			KeybindAction::EditEarlier,
+			KeybindAction::EditLater,
+		] {
+			assert!(action.is_optional());
+			assert!(bindings.chord(action).key.is_empty());
+		}
 		bindings.push_to_mute = KeyChord::new("MouseExtra1", 0);
 		assert!(bindings.is_valid());
 		bindings.copy_issue_diagnostics.modifiers = CTRL;

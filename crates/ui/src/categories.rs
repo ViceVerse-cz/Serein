@@ -832,11 +832,12 @@ impl MessagingUi {
 									model::PreferenceEdit::Unchanged => {}
 								}
 							}
-							self.channel_menu.context(
+							self.channel_menu.context_with_display(
 								&response,
 								state,
 								category,
 								ShortcutView::new(&self.channel_preferences, shortcuts_available),
+								Some(&mut self.channel_display),
 							);
 						}
 						CachedRow::Channel(channel, slot, nested) => {
@@ -894,7 +895,7 @@ impl MessagingUi {
 										rect: response.rect,
 									});
 								}
-								self.channel_menu.context(
+								self.channel_menu.context_with_display(
 									&response,
 									state,
 									channel,
@@ -902,6 +903,7 @@ impl MessagingUi {
 										&self.channel_preferences,
 										shortcuts_available,
 									),
+									Some(&mut self.channel_display),
 								);
 								self.preload.conversation(&response, || Some(channel.id));
 								if response.clicked() {
@@ -1043,13 +1045,28 @@ impl MessagingUi {
 								.map_or(if count > 0 { 34.0 } else { 0.0 }, |label| {
 									label.size().x + 12.0
 								});
+							let type_badge = self
+								.channel_display
+								.type_badges
+								.then(|| model::channel_display::channel_badge(channel.kind))
+								.flatten();
+							let type_badge_width = type_badge.map_or(0.0, |label| {
+								ui.painter()
+									.layout_no_wrap(
+										label.to_owned(),
+										egui::FontId::proportional(11.0),
+										colors.muted,
+									)
+									.size()
+									.x + 12.0
+							});
 							let request = slot == Slot::Request;
 							let trailing = badge_width
-								+ if external.is_some() || request {
-									30.0
-								} else {
-									0.0
-								} + channel_marks::trailing(access);
+								+ type_badge_width + if external.is_some() || request {
+								30.0
+							} else {
+								0.0
+							} + channel_marks::trailing(access);
 							let content = egui::Rect::from_min_max(
 								egui::pos2(highlight.left() + 8.0, row.top()),
 								egui::pos2(row.right() - 8.0 - trailing, row.bottom()),
@@ -1168,7 +1185,8 @@ impl MessagingUi {
 									),
 								);
 							}
-							let mut label = String::from(state.conversation_name(channel));
+							let display_name = self.display_channel_name(state, channel);
+							let mut label = display_name.to_string();
 							if !enabled && visible {
 								label.push_str(" · unavailable");
 							}
@@ -1315,6 +1333,26 @@ impl MessagingUi {
 										});
 								}
 							}
+							if let Some(label) = type_badge {
+								let galley = ui.painter().layout_no_wrap(
+									label.to_owned(),
+									egui::FontId::proportional(11.0),
+									colors.muted,
+								);
+								let rect = egui::Rect::from_min_size(
+									egui::pos2(
+										row.right() - 8.0 - trailing,
+										row.center().y - galley.size().y * 0.5 - 2.0,
+									),
+									egui::vec2(type_badge_width, galley.size().y + 4.0),
+								);
+								ui.painter().rect_filled(rect, 4, colors.raised);
+								ui.painter().galley(
+									rect.min + egui::vec2(6.0, 2.0),
+									galley,
+									colors.muted,
+								);
+							}
 							if let Some(label) = new_label {
 								let pos = row.right_center()
 									- egui::vec2(8.0 + lane + label.size().x, label.size().y * 0.5);
@@ -1349,7 +1387,7 @@ impl MessagingUi {
 							let response = response.on_hover_text_with(|| {
 								format!(
 									"{} · {}{}{}",
-									channel.name,
+									display_name,
 									crate::i18n::translate_if_key(kind_label(channel.kind)),
 									channel_marks::label(access),
 									if unread && !forum && state.channel_unread(channel).is_none() {
@@ -1369,7 +1407,7 @@ impl MessagingUi {
 									enabled,
 									format!(
 										"{}{}{}; {} {}",
-										channel.name,
+										display_name,
 										channel_marks::label(access),
 										if unread {
 											crate::i18n::translate("categories-channel-list-unread")
@@ -1404,7 +1442,13 @@ impl MessagingUi {
 								self.group_menu.context(&response, state, channel, view);
 							}
 							if channel.guild.is_some() {
-								self.channel_menu.context(&response, state, channel, view);
+								self.channel_menu.context_with_display(
+									&response,
+									state,
+									channel,
+									view,
+									Some(&mut self.channel_display),
+								);
 							}
 							if enabled {
 								self.preload.conversation(&response, || Some(channel.id));

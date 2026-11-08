@@ -1,0 +1,60 @@
+{
+  "api_version": 1,
+  "id": "command-palette",
+  "name": "Command Palette (bounded launcher)",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/command-palette",
+  "kind": "plugin",
+  "capabilities": [
+    "app_context",
+    "channel_directory",
+    "guild_directory",
+    "read_state",
+    "navigation",
+    "storage"
+  ],
+  "actions": [
+    {
+      "id": "show",
+      "label": "Open the bounded command palette",
+      "surface": "panel"
+    },
+    {
+      "id": "filter",
+      "label": "Filter loaded channels",
+      "surface": "panel"
+    },
+    {
+      "id": "navigate",
+      "label": "Propose opening the selected loaded channel",
+      "surface": "panel"
+    },
+    {
+      "id": "pin-channel",
+      "label": "Pin the selected loaded channel",
+      "surface": "panel"
+    },
+    {
+      "id": "unpin-channel",
+      "label": "Unpin the selected channel",
+      "surface": "panel"
+    },
+    {
+      "id": "go-destination",
+      "label": "Propose a fixed native destination",
+      "surface": "panel"
+    },
+    {
+      "id": "search",
+      "label": "Propose searching the current conversation",
+      "surface": "panel"
+    },
+    {
+      "id": "open-profile",
+      "label": "Propose opening your profile",
+      "surface": "panel"
+    }
+  ]
+}

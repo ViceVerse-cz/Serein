@@ -8,6 +8,7 @@ pub(super) enum Tab {
 	Overview,
 	Sounds,
 	Badges,
+	Tools,
 }
 
 impl MessagingUi {
@@ -162,14 +163,52 @@ mod tests {
 	}
 }
 impl Tab {
-	pub const ALL: [Self; 3] = [Self::Overview, Self::Sounds, Self::Badges];
+	pub const ALL: [Self; 4] = [Self::Overview, Self::Sounds, Self::Badges, Self::Tools];
 	pub fn label(self) -> &'static str {
 		match self {
 			Self::Overview => "notification-settings-tab-overview",
 			Self::Sounds => "notification-settings-tab-sounds",
 			Self::Badges => "notification-settings-tab-badges",
+			Self::Tools => "Tools",
 		}
 	}
+}
+
+fn id_list(ids: &[model::Id]) -> String {
+	ids.iter()
+		.map(ToString::to_string)
+		.collect::<Vec<_>>()
+		.join(", ")
+}
+
+fn parse_ids(text: &str, max: usize) -> Option<Vec<model::Id>> {
+	let mut ids = Vec::new();
+	for value in text
+		.split([',', ' ', '\n', '\t'])
+		.filter(|value| !value.is_empty())
+	{
+		let id = value.parse::<model::Id>().ok()?;
+		if id.0 == 0 || ids.contains(&id) || ids.len() >= max {
+			return None;
+		}
+		ids.push(id);
+	}
+	Some(ids)
+}
+
+fn parse_keywords(text: &str) -> Option<Vec<String>> {
+	let mut keywords = Vec::new();
+	for keyword in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+		if keyword.chars().count() > model::notification_tools::MAX_KEYWORD_CHARS
+			|| keyword.chars().any(char::is_control)
+			|| keywords.iter().any(|other| other == keyword)
+			|| keywords.len() >= model::notification_tools::MAX_KEYWORDS
+		{
+			return None;
+		}
+		keywords.push(keyword.to_owned());
+	}
+	Some(keywords)
 }
 #[derive(Default)]
 pub(super) struct Navigation {
@@ -407,5 +446,176 @@ impl MessagingUi {
 				);
 			});
 		});
+		self.settings.notifications.heading(ui, Tab::Tools);
+		if !self.notification_tools_drafts_loaded {
+			let tools = &self.channel_preferences.notification_tools;
+			self.notification_tools_watch = id_list(&tools.watch_users);
+			self.notification_tools_keywords = tools.keywords.join("\n");
+			self.notification_tools_allow = id_list(&tools.keyword_allow);
+			self.notification_tools_deny = id_list(&tools.keyword_deny);
+			self.notification_tools_toast_ignore = id_list(&tools.toast_ignore_users);
+			self.notification_tools_drafts_loaded = true;
+		}
+		let before = self.channel_preferences.notification_tools.clone();
+		design::card(ui, |ui| {
+			design::switch(
+				ui,
+				"One Ping Per DM",
+				Some(
+					"After one alert, later messages in an unread DM stay silent until you open or read it.",
+				),
+				&mut self.channel_preferences.notification_tools.one_ping_per_dm,
+			);
+			design::card_divider(ui);
+			design::switch(
+				ui,
+				"Show In-App Toasts",
+				Some("Transient message cards at most five at once; nothing is saved as history."),
+				&mut self.channel_preferences.notification_tools.toasts,
+			);
+			design::card_divider(ui);
+			ui.label(design::eyebrow(
+				ui,
+				"Watched Authors",
+				design::palette(ui).muted,
+			));
+			design::hint(ui, "Up to 64 user IDs, separated by commas.");
+			if design::input(
+				ui,
+				egui::TextEdit::singleline(&mut self.notification_tools_watch)
+					.hint_text("user IDs, comma separated"),
+			)
+			.changed()
+			{
+				match parse_ids(
+					&self.notification_tools_watch,
+					model::notification_tools::MAX_WATCH_USERS,
+				) {
+					Some(ids) => {
+						self.channel_preferences.notification_tools.watch_users = ids;
+						self.notification_tools_status = "";
+					}
+					None => {
+						self.notification_tools_status =
+							"Use at most 64 distinct numeric user IDs.";
+					}
+				}
+			}
+			design::card_divider(ui);
+			ui.label(design::eyebrow(ui, "Keywords", design::palette(ui).muted));
+			design::hint(
+				ui,
+				"One literal keyword per line, up to 32 lines and 64 characters each. No regular expressions.",
+			);
+			if design::input(
+				ui,
+				egui::TextEdit::multiline(&mut self.notification_tools_keywords)
+					.desired_rows(4)
+					.hint_text("release\nmaintenance"),
+			)
+			.changed()
+			{
+				match parse_keywords(&self.notification_tools_keywords) {
+					Some(keywords) => {
+						self.channel_preferences.notification_tools.keywords = keywords;
+						self.notification_tools_status = "";
+					}
+					None => {
+						self.notification_tools_status =
+							"Use at most 32 distinct keywords of 64 characters or fewer.";
+					}
+				}
+			}
+			design::card_divider(ui);
+			ui.label(design::eyebrow(
+				ui,
+				"Keyword Guild/Channel Scope",
+				design::palette(ui).muted,
+			));
+			design::hint(
+				ui,
+				"Allow list is empty by default. Deny always wins. Up to 16 numeric IDs each.",
+			);
+			ui.label("Allow");
+			if design::input(
+				ui,
+				egui::TextEdit::singleline(&mut self.notification_tools_allow)
+					.hint_text("guild or channel IDs"),
+			)
+			.changed()
+			{
+				match parse_ids(
+					&self.notification_tools_allow,
+					model::notification_tools::MAX_KEYWORD_SCOPES,
+				) {
+					Some(ids) => {
+						self.channel_preferences.notification_tools.keyword_allow = ids;
+						self.notification_tools_status = "";
+					}
+					None => {
+						self.notification_tools_status =
+							"Use at most 16 distinct allow-list guild or channel IDs.";
+					}
+				}
+			}
+			ui.label("Deny");
+			if design::input(
+				ui,
+				egui::TextEdit::singleline(&mut self.notification_tools_deny)
+					.hint_text("guild or channel IDs"),
+			)
+			.changed()
+			{
+				match parse_ids(
+					&self.notification_tools_deny,
+					model::notification_tools::MAX_KEYWORD_SCOPES,
+				) {
+					Some(ids) => {
+						self.channel_preferences.notification_tools.keyword_deny = ids;
+						self.notification_tools_status = "";
+					}
+					None => {
+						self.notification_tools_status =
+							"Use at most 16 distinct deny-list guild or channel IDs.";
+					}
+				}
+			}
+			ui.label("Toast Ignore");
+			if design::input(
+				ui,
+				egui::TextEdit::singleline(&mut self.notification_tools_toast_ignore)
+					.hint_text("toast ignore user IDs"),
+			)
+			.changed()
+			{
+				match parse_ids(
+					&self.notification_tools_toast_ignore,
+					model::notification_tools::MAX_TOAST_IGNORE_USERS,
+				) {
+					Some(ids) => {
+						self.channel_preferences
+							.notification_tools
+							.toast_ignore_users = ids;
+						self.notification_tools_status = "";
+					}
+					None => {
+						self.notification_tools_status =
+							"Use at most 16 distinct toast-ignore user IDs.";
+					}
+				}
+			}
+			design::card_divider(ui);
+			if design::text_action(ui, "Reset notification tools").clicked() {
+				self.channel_preferences.notification_tools = Default::default();
+				self.notification_tools_drafts_loaded = false;
+				self.notification_tools_status = "";
+			}
+			if !self.notification_tools_status.is_empty() {
+				design::notice(ui, design::Level::Warning, self.notification_tools_status);
+			}
+		});
+		if self.channel_preferences.notification_tools != before {
+			self.channel_preferences_changed = true;
+		}
 	}
 }

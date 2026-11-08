@@ -1,0 +1,35 @@
+{
+  "api_version": 1,
+  "id": "message-reference-tools",
+  "name": "Message Reference Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/message-reference-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "selected_message",
+    "timeline",
+    "message_details",
+    "navigation",
+    "external_navigation",
+    "reactions_control"
+  ],
+  "actions": [
+    {
+      "id": "find-reply",
+      "label": "Jump to loaded original or reply",
+      "surface": "message"
+    },
+    {
+      "id": "search",
+      "label": "Google That — search selected text in browser",
+      "surface": "message"
+    },
+    {
+      "id": "husk",
+      "label": "Add Husk reaction",
+      "surface": "message"
+    }
+  ]
+}

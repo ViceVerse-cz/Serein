@@ -20,6 +20,10 @@ const MESSAGES: &[KeybindAction] = &[
 	KeybindAction::SendMessage,
 	KeybindAction::InsertNewLine,
 	KeybindAction::EditLastMessage,
+	KeybindAction::ReplyEarlier,
+	KeybindAction::ReplyLater,
+	KeybindAction::EditEarlier,
+	KeybindAction::EditLater,
 ];
 const FORMATTING: &[KeybindAction] = &[
 	KeybindAction::Bold,
@@ -54,7 +58,7 @@ pub(super) fn show(
 	section(
 		ui,
 		"Messages",
-		"Composer shortcuts are only active while you are writing.",
+		"Composer shortcuts are only active while you are writing. Quick reply and edit navigation are unassigned by default; record any free key combination here.",
 		MESSAGES,
 		bindings,
 		capturing,

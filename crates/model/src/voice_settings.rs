@@ -1,6 +1,20 @@
 //! Device-local microphone processing. Profiles leave the user's custom settings intact.
 use serde::{Deserialize, Serialize};
 
+/// Canonical Discord participant and stream volume, also the extension API ceiling.
+pub const CANONICAL_VOLUME_PERCENT_MAX: u16 = 200;
+/// Explicit local-only boost ceiling for the device mixer; never sent to Discord.
+pub const LOCAL_BOOST_VOLUME_PERCENT_MAX: u16 = 400;
+
+/// Keeps a local mixer percentage inside the bounded boost range.
+pub const fn clamp_local_volume_percent(value: u16) -> u16 {
+	if value > LOCAL_BOOST_VOLUME_PERCENT_MAX {
+		LOCAL_BOOST_VOLUME_PERCENT_MAX
+	} else {
+		value
+	}
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InputProfile {
 	#[default]

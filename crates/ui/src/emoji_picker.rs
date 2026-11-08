@@ -952,19 +952,10 @@ impl Picker {
 		}
 	}
 
-	fn pick_sticker(&self, state: &State, sticker: model::Sticker) -> Pick {
-		if self.images() && !state.can_send_sticker(&sticker) {
-			Pick::Insert(
-				model::ImageShare::Sticker {
-					id: sticker.id,
-					format_type: sticker.format_type,
-				}
-				.markdown(&sticker.name)
-				.unwrap_or_default(),
-			)
-		} else {
-			Pick::Sticker(sticker)
-		}
+	fn pick_sticker(&self, _state: &State, sticker: model::Sticker) -> Pick {
+		// A sticker is either staged as a native sticker or rejected by the composer.
+		// It is never rewritten into text or another request.
+		Pick::Sticker(sticker)
 	}
 
 	/// The user opted out of emoji they cannot use natively without Nitro.
@@ -3088,7 +3079,7 @@ mod tests {
 		state.stickers.external_allowed = false;
 		assert!(matches!(
 			picker.pick_sticker(&state, external.clone()),
-			Pick::Insert(text) if model::ImageShare::markdown_only(&text).is_some()
+			Pick::Sticker(_)
 		));
 		state.stickers.external_allowed = true;
 		assert!(matches!(

@@ -47,6 +47,12 @@ impl Playback {
 			self.rebuffering = false;
 		}
 		let volume = f32::from_bits(gate.volume.load(Ordering::Acquire));
+		let speed = f32::from_bits(gate.speed.load(Ordering::Acquire));
+		let speed = if speed.is_finite() {
+			speed.clamp(0.25, 3.5)
+		} else {
+			1.0
+		};
 		for output in data.chunks_exact_mut(output_channels) {
 			// Observe EOF before reading the queue, so its final frames are visible before ending.
 			let eof = self.eof.load(Ordering::Acquire);
@@ -92,7 +98,7 @@ impl Playback {
 				output[0] = T::from_sample(stereo[0]);
 				output[1] = T::from_sample(stereo[1]);
 			}
-			let step = f64::from(self.rate) / f64::from(output_rate);
+			let step = f64::from(self.rate) / f64::from(output_rate) * f64::from(speed);
 			self.phase += step;
 			self.position += step;
 			gate.position_frames
@@ -393,5 +399,35 @@ mod tests {
 		assert!(!playback.rebuffering);
 		// The frame held across the underrun plays first, then the tail.
 		assert_eq!(output, [0.5, 0.5, 0.25, 0.25]);
+	}
+
+	#[test]
+	fn playback_speed_advances_the_media_clock_and_ignores_non_finite_values() {
+		let gate = Gate::default();
+		let (mut sender, frames) = RingBuffer::new(64);
+		for _ in 0..64 {
+			sender.push([0.5; 2]).unwrap();
+		}
+		let mut playback = Playback {
+			frames,
+			current: None,
+			phase: 0.0,
+			position: 0.0,
+			rate: 20,
+			eof: Arc::new(AtomicBool::new(false)),
+			finished: Arc::new(AtomicBool::new(false)),
+			rebuffering: false,
+		};
+		gate.speed.store(2.0f32.to_bits(), Ordering::Release);
+		let mut output = [0.0f32; 8];
+		playback.render(&mut output, 2, 20, &gate, 0);
+		let doubled = gate.position_frames.load(Ordering::Acquire);
+		assert!(doubled >= 6, "{doubled}");
+		gate.speed.store(f32::NAN.to_bits(), Ordering::Release);
+		gate.position_frames.store(0, Ordering::Release);
+		playback.position = 0.0;
+		playback.render(&mut output, 2, 20, &gate, 0);
+		let normal = gate.position_frames.load(Ordering::Acquire);
+		assert!((3..=4).contains(&normal), "{normal}");
 	}
 }

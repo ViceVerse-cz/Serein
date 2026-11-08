@@ -20,15 +20,19 @@ struct Session {
 	cancelled: Arc<AtomicBool>,
 	paused: Arc<AtomicBool>,
 	volume: Arc<AtomicU32>,
+	speed: Arc<AtomicU32>,
 	seek: Arc<AtomicU64>,
 	update: Mutex<Update>,
 }
 impl Session {
-	fn new(volume: f32) -> Self {
+	fn new(volume: f32, speed: f32) -> Self {
 		Self {
 			cancelled: Arc::new(AtomicBool::new(false)),
 			paused: Arc::new(AtomicBool::new(false)),
 			volume: Arc::new(AtomicU32::new(volume.to_bits())),
+			speed: Arc::new(AtomicU32::new(
+				ui::media::normalize_playback_rate(speed).to_bits(),
+			)),
 			seek: Arc::new(AtomicU64::new(u64::MAX)),
 			update: Mutex::new(Update {
 				state: VideoState::Loading,
@@ -139,7 +143,9 @@ impl Video {
 			VideoCommand::Stop => self.stop(),
 			VideoCommand::Play(attachment) => {
 				self.stop();
-				if let Err(error) = self.start(attachment, player.volume, runtime, ctx, demo) {
+				if let Err(error) =
+					self.start(attachment, player.volume, player.rate, runtime, ctx, demo)
+				{
 					player.state = VideoState::Failed(error);
 				}
 			}
@@ -156,6 +162,14 @@ impl Video {
 						.store(volume.clamp(0., 1.).to_bits(), Ordering::Release);
 				}
 			}
+			VideoCommand::Speed(rate) => {
+				if let Some(s) = &self.session {
+					s.speed.store(
+						ui::media::normalize_playback_rate(rate).to_bits(),
+						Ordering::Release,
+					);
+				}
+			}
 			VideoCommand::Seek(seconds) => {
 				if seconds.is_finite()
 					&& let Some(s) = &self.session
@@ -170,6 +184,7 @@ impl Video {
 		&mut self,
 		attachment: model::Attachment,
 		volume: f32,
+		speed: f32,
 		runtime: &tokio::runtime::Handle,
 		ctx: &eframe::egui::Context,
 		demo: bool,
@@ -215,7 +230,7 @@ impl Video {
 		if requests.is_closed() {
 			return Err("Video worker stopped; restart Serein");
 		}
-		let session = Arc::new(Session::new(volume));
+		let session = Arc::new(Session::new(volume, speed));
 		requests.send_replace(Some(Request {
 			session: session.clone(),
 			url,
@@ -508,6 +523,7 @@ fn play_decoded(
 					paused: session.paused.clone(),
 					seek: session.seek.clone(),
 					volume: session.volume.clone(),
+					speed: session.speed.clone(),
 					position: position.clone(),
 					eof: eof.clone(),
 					failed: failed.clone(),
@@ -552,8 +568,14 @@ fn play_decoded(
 			let elapsed = now.duration_since(last_tick).as_secs_f64();
 			last_tick = now;
 			let paused = session.paused.load(Ordering::Acquire);
+			let speed = f32::from_bits(session.speed.load(Ordering::Acquire));
+			let speed = if speed.is_finite() {
+				f64::from(speed.clamp(0.25, 3.5))
+			} else {
+				1.0
+			};
 			if !paused && !preview_needed {
-				wall += elapsed;
+				wall += elapsed * speed;
 			}
 			let audio_position = target
 				+ position.load(Ordering::Acquire) as f64 / f64::from(info.sample_rate.max(1));

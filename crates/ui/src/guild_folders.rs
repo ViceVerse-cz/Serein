@@ -95,6 +95,43 @@ impl FolderUi {
 		}
 		self.key = None;
 	}
+
+	/// Collapse every expanded folder, keeping the close animation.
+	fn collapse_all(&mut self) {
+		for id in std::mem::take(&mut self.expanded) {
+			self.closing.insert(id);
+		}
+		self.key = None;
+	}
+
+	/// Collapse every expanded folder except `keep`.
+	fn collapse_others(&mut self, keep: u64) {
+		let others: Vec<_> = self
+			.expanded
+			.iter()
+			.copied()
+			.filter(|id| *id != keep)
+			.collect();
+		let changed = !others.is_empty();
+		for id in others {
+			self.expanded.remove(&id);
+			self.closing.insert(id);
+		}
+		if changed {
+			self.key = None;
+		}
+	}
+}
+
+/// Whether `guild` belongs to any folder in the loaded layout. Servers joined after
+/// the layout loaded are outside folders and follow the same rule.
+fn guild_in_folder(settings: Option<&Settings>, guild: Id) -> bool {
+	settings.is_some_and(|settings| {
+		settings
+			.folders
+			.iter()
+			.any(|folder| folder.guild_ids.contains(&guild))
+	})
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Placement {
@@ -297,6 +334,12 @@ fn guild_voice(
 }
 
 impl MessagingUi {
+	/// Collapse expanded folders and persist the bounded device preference.
+	pub(crate) fn collapse_server_folders(&mut self) {
+		self.folder_ui.collapse_all();
+		self.expanded_folders = self.folder_ui.expanded.iter().copied().take(256).collect();
+	}
+
 	fn guild_rail_name(&mut self, response: &egui::Response, state: &State, guild: &model::Guild) {
 		let voice = guild_voice(state, guild.id, false);
 		if voice.clone().next().is_none() {
@@ -503,6 +546,11 @@ impl MessagingUi {
 								if let Some(command) = state.select_guild(id) {
 									commands.push(command);
 								}
+								if self.close_folders_outside
+									&& !guild_in_folder(state.guild_folders.as_ref(), id)
+								{
+									self.collapse_server_folders();
+								}
 							}
 							response
 						}
@@ -605,6 +653,9 @@ impl MessagingUi {
 								)
 							});
 							if response.clicked() {
+								if !open && self.one_folder_open {
+									self.folder_ui.collapse_others(id);
+								}
 								self.folder_ui.toggle(id);
 								self.expanded_folders =
 									self.folder_ui.expanded.iter().copied().take(256).collect();
@@ -621,7 +672,9 @@ impl MessagingUi {
 							ui.set_width(232.0);
 							// The invite dialog belongs to the active server, so choosing it
 							// from the rail also opens that server, like settings do.
-							let invite = self.server_menu.invite_item(ui, state, id);
+							let invite =
+								self.server_menu
+									.invite_item(ui, state, id, self.invite_defaults);
 							if invite {
 								self.guild = Some(id);
 							}
@@ -1528,5 +1581,30 @@ mod tests {
 			!has_voice_badge_failed,
 			"Collapsed folder must not render a voice badge when call phase is Failed"
 		);
+	}
+
+	#[test]
+	fn folder_preferences_collapse_only_the_requested_state() {
+		let mut ui = FolderUi::default();
+		ui.expanded.extend([7, 9]);
+		ui.closing.insert(3);
+		ui.collapse_others(7);
+		assert_eq!(ui.expanded, BTreeSet::from([7]));
+		assert_eq!(ui.closing, BTreeSet::from([3, 9]));
+		ui.collapse_all();
+		assert!(ui.expanded.is_empty());
+		assert_eq!(ui.closing, BTreeSet::from([3, 7, 9]));
+
+		let settings = Settings {
+			folders: vec![Folder {
+				id: Some(7),
+				guild_ids: vec![Id(10), Id(11)],
+				..Folder::default()
+			}],
+			..Settings::default()
+		};
+		assert!(guild_in_folder(Some(&settings), Id(10)));
+		assert!(!guild_in_folder(Some(&settings), Id(12)));
+		assert!(!guild_in_folder(None, Id(10)));
 	}
 }

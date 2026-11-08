@@ -421,11 +421,9 @@ fn layer(ctx: &egui::Context, cell: u32) -> TextureHandle {
 	let source = source_image();
 	let longest = source.size[0].max(source.size[1]) as u32;
 	let edge = (longest / CELL as u32) * cell;
-	let image = crate::resample::downscale_filter(
-		source,
-		edge.max(1),
-		image::imageops::FilterType::Triangle,
-	);
+	// Select the sharper Lanczos path for reductions larger than 2x. The old unconditional
+	// triangle pass made the small account-control glyphs unnecessarily soft.
+	let image = crate::resample::downscale(source, edge.max(1));
 	let texture = ctx.load_texture("Phosphor Icons 2.1.1", image, egui::TextureOptions::LINEAR);
 	ctx.data_mut(|data| {
 		let mut layers = data.get_temp::<AtlasLayers>(id).unwrap_or_default();
@@ -481,7 +479,7 @@ pub fn channel(kind: u8) -> Icon {
 
 /// Glyph size for one square standard button. The validated theme scale never changes its hitbox.
 pub(crate) fn button_glyph_size(size: f32) -> f32 {
-	(size * 0.70 * design::icon_scale()).min(size)
+	(size * 0.75 * design::icon_scale()).min(size)
 }
 
 /// Square icon button that highlights on hover and exposes `label` to accessibility.

@@ -77,6 +77,12 @@ pub(super) struct Editor {
 	audit_log: crate::server_audit_log::AuditLogUi,
 }
 
+impl Editor {
+	pub fn set_invite_defaults(&mut self, defaults: model::server_invites::InviteDefaults) {
+		self.invites.set_defaults(defaults);
+	}
+}
+
 impl MessagingUi {
 	/// Select the engagement page in the offline preview harness.
 	pub fn preview_server_engagement(&mut self) {

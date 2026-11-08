@@ -400,7 +400,16 @@ pub fn show_users(
 			for user in &details.users {
 				ui.horizontal(|ui| {
 					avatars.show_plain(ui, user, 36.0, state.demo);
-					ui.label(crate::design::medium(ui, &user.name, 15.0));
+					let colors = crate::design::palette(ui);
+					let color = crate::presentation::role_text_color(
+						state,
+						details.channel,
+						user.id,
+						&[],
+						colors.base,
+						colors.text,
+					);
+					ui.label(crate::design::medium(ui, &user.name, 15.0).color(color));
 				});
 			}
 			if details.users.len() >= client_core::reactions::MAX_REACTION_USERS {

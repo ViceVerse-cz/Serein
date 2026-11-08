@@ -1708,7 +1708,15 @@ impl Formatted {
 						}
 						render.surface.keep(&response);
 						if response.clicked() {
-							*render.revealed |= 1_u32 << region;
+							let (command, shift) =
+								ui.input(|input| (input.modifiers.command, input.modifiers.shift));
+							if command && shift {
+								crate::presentation::request_reveal_all(ui.ctx());
+							} else if command {
+								*render.revealed = u32::MAX;
+							} else {
+								*render.revealed |= 1_u32 << region;
+							}
 						}
 						start += count;
 						continue;
@@ -1791,10 +1799,27 @@ impl Formatted {
 						let colors = crate::design::palette(ui);
 						let user = crate::mentions::find_user(id, render.users, render.source);
 						let label = crate::mentions::mention_label(id, render.users, render.source);
+						let mention_text = render
+							.source
+							.and_then(|source| {
+								crate::presentation::role_colors(
+									source.state,
+									source.channel,
+									id,
+									&[],
+								)
+							})
+							.map_or(colors.mention_text, |role| {
+								crate::design::role_name_color(
+									role.primary,
+									colors.mention_bg,
+									colors.mention_text,
+								)
+							});
 						let response = crate::channel_pill::mention(
 							ui,
 							&label,
-							colors.mention_text,
+							mention_text,
 							colors.mention_bg,
 							egui::Sense::click(),
 							render.line,
@@ -2207,6 +2232,28 @@ impl Formatted {
 		let body = egui::TextStyle::Body.resolve(ui.style());
 		let mut job = LayoutJob::default();
 		let source: String = spans.iter().map(|(text, _)| text.as_str()).collect();
+		// Tone indicators are plain prose only: never code, links, mentions or hidden spoilers.
+		let mut tone_hits = Vec::new();
+		let mut tone_offset = 0;
+		for (text, style) in spans {
+			if !style.code
+				&& style.link.is_none()
+				&& style.mention.is_none()
+				&& style.game.is_none()
+				&& style.role.is_none()
+				&& !style.mass_mention
+				&& style.channel.is_none()
+				&& style.timestamp.is_none()
+				&& style.block.is_none()
+			{
+				for (range, description) in crate::presentation::tone_ranges(text) {
+					let start = tone_offset + text[..range.start].chars().count();
+					let end = tone_offset + text[..range.end].chars().count();
+					tone_hits.push((start, end, description));
+				}
+			}
+			tone_offset += text.chars().count();
+		}
 		let bidi = if shared.is_none() {
 			bidi_spans(spans)
 		} else {
@@ -2490,7 +2537,28 @@ impl Formatted {
 				response = hit;
 			}
 		}
+		let tone_rects = tone_hits
+			.into_iter()
+			.filter_map(|(start, end, description)| {
+				let start = galley
+					.pos_from_cursor(egui::text::CCursor::new(start))
+					.translate(pos.to_vec2());
+				let end = galley
+					.pos_from_cursor(egui::text::CCursor::new(end))
+					.translate(pos.to_vec2());
+				let rect = start.union(end);
+				(rect.is_positive() && ui.is_rect_visible(rect)).then_some((rect, description))
+			})
+			.collect::<Vec<_>>();
 		surface.run(ui, &response, pos, galley, artwork);
+		for (index, (rect, description)) in tone_rects.into_iter().enumerate() {
+			ui.interact(
+				rect,
+				response.id.with(("tone-indicator", index)),
+				egui::Sense::hover(),
+			)
+			.on_hover_text(description);
+		}
 		// The first break ends the run's row; every further one is a blank row of its own.
 		if trailing > 0 {
 			ui.end_row();

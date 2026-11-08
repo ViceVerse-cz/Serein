@@ -17,8 +17,22 @@ pub(super) struct InviteDialog {
 
 impl InviteDialog {
 	pub fn open(&mut self) {
+		self.open_with(model::server_invites::InviteDefaults::default());
+	}
+	/// Opens with the device's saved invite defaults; per-guild permissions still gate creation.
+	pub fn open_with(&mut self, defaults: model::server_invites::InviteDefaults) {
+		let defaults = if defaults.valid() {
+			defaults
+		} else {
+			model::server_invites::InviteDefaults::default()
+		};
 		*self = Self {
 			generate: true,
+			options: InviteOptions {
+				max_age: defaults.max_age,
+				max_uses: defaults.max_uses,
+				temporary: defaults.temporary,
+			},
 			..Self::default()
 		};
 	}
@@ -559,7 +573,7 @@ impl InviteDialog {
 		self.settings = if back { None } else { Some(options) };
 	}
 }
-fn expiry_label(seconds: u32) -> String {
+pub(super) fn expiry_label(seconds: u32) -> String {
 	crate::i18n::translate_if_key(match seconds {
 		0 => "server-invite-expiry-label-never",
 		1800 => "server-invite-expiry-label-30-minutes",
@@ -571,14 +585,19 @@ fn expiry_label(seconds: u32) -> String {
 		_ => "server-invite-expiry-label-30-days",
 	})
 }
-fn uses_label(uses: u16) -> String {
+pub(super) fn uses_label(uses: u16) -> String {
 	if uses == 0 {
 		crate::i18n::translate("server-invite-uses-label-no-limit")
 	} else {
 		uses.to_string()
 	}
 }
-fn select(ui: &mut egui::Ui, id: &str, label: &str, content: impl FnOnce(&mut egui::Ui)) {
+pub(super) fn select(
+	ui: &mut egui::Ui,
+	id: &str,
+	label: &str,
+	content: impl FnOnce(&mut egui::Ui),
+) {
 	ui.scope(|ui| {
 		ui.spacing_mut().button_padding = egui::vec2(12.0, 9.0);
 		ui.spacing_mut().interact_size.y = 38.0;
@@ -679,6 +698,30 @@ mod tests {
 			);
 		}
 	}
+	#[test]
+	fn opening_with_saved_defaults_applies_bounded_options() {
+		let mut dialog = InviteDialog::default();
+		dialog.open_with(model::server_invites::InviteDefaults {
+			max_age: 3600,
+			max_uses: 5,
+			temporary: true,
+		});
+		assert!(dialog.generate);
+		assert_eq!(
+			dialog.options,
+			InviteOptions {
+				max_age: 3600,
+				max_uses: 5,
+				temporary: true,
+			}
+		);
+		dialog.open_with(model::server_invites::InviteDefaults {
+			max_age: 30 * 86400 + 1,
+			..Default::default()
+		});
+		assert_eq!(dialog.options, InviteOptions::default());
+	}
+
 	#[test]
 	fn invite_picker_search_send_settings_and_failure() {
 		for (light, size) in [

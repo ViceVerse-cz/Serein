@@ -22,6 +22,7 @@ pub mod interactions;
 pub mod invites;
 pub mod member_search;
 pub mod message_actions;
+pub mod message_logger;
 pub mod messaging_permissions;
 pub mod notifications;
 pub mod polls;
@@ -54,9 +55,11 @@ pub mod user_actions;
 pub mod verification;
 mod view_revisions;
 pub mod voice;
+use message_logger::{EditedMessage, LoadedMessage};
 use model::*;
 use session_cache::Timeline;
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::Instant;
 use trail::Place;
 
 pub const MAX_DRAFT_BYTES: usize = 2 * 1024 * 1024;
@@ -810,6 +813,8 @@ pub struct State {
 	pub read_state: read_state::ReadState,
 	pub startup_warnings: model::account::Warnings,
 	pub notification_preferences: notifications::Preferences,
+	/// Account-local filters restored from the same bounded row as channel preferences.
+	pub notification_tools: model::NotificationTools,
 	pub reactions: reactions::Reactions,
 	pub profile: Option<profile::ProfileView>,
 	pub profile_request: u64,
@@ -858,6 +863,9 @@ pub struct State {
 	pub thread_info: BTreeMap<Id, model::threads::Info>,
 	pub timeline: Timeline,
 	pub preserve_deleted_messages: bool,
+	/// Bounded volatile observations for the explicitly enabled native persistent message log.
+	#[doc(hidden)]
+	pub message_logger: message_logger::MessageLogger,
 	pub resident: resident::Windows,
 	pub preload: preload::Preload,
 	pub freshness: Freshness,
@@ -1047,6 +1055,7 @@ impl Default for State {
 			read_state: read_state::ReadState::default(),
 			startup_warnings: Default::default(),
 			notification_preferences: notifications::Preferences::default(),
+			notification_tools: Default::default(),
 			reactions: reactions::Reactions::default(),
 			profile: None,
 			profile_request: 0,
@@ -1082,6 +1091,7 @@ impl Default for State {
 			thread_info: BTreeMap::new(),
 			timeline: Timeline::default(),
 			preserve_deleted_messages: false,
+			message_logger: message_logger::MessageLogger::default(),
 			resident: resident::Windows::default(),
 			preload: Default::default(),
 			freshness: Freshness::Stale,
@@ -1207,6 +1217,244 @@ impl State {
 			..Self::default()
 		};
 	}
+
+	/// A message body may enter the native history only when it is ordinary, public content.
+	fn history_public(message: &Message) -> bool {
+		!message.ephemeral && message.flags & 64 == 0 && message.author.id.0 != 0
+	}
+
+	/// Whether a channel can currently contribute readable messages. This is the only gate; the
+	/// selected conversation is not special.
+	fn history_readable(&self, channel: Id) -> bool {
+		self.can_view(channel)
+			&& self.can_read_history(channel)
+			&& self
+				.channel(channel)
+				.is_some_and(|channel| channel.supports_text())
+	}
+
+	fn message_mentions_self(&self, message: &Message) -> bool {
+		self.user
+			.as_ref()
+			.is_some_and(|user| message.mentions.iter().any(|mention| mention.id == user.id))
+	}
+
+	fn message_details<'a>(&self, message: &'a Message) -> message_logger::LoadedDetails<'a> {
+		message_logger::LoadedDetails {
+			attachments: &message.attachments,
+			mention_everyone: message.mention_everyone,
+			mentions_self: self.message_mentions_self(message),
+			edited_at: message.edited_at,
+		}
+	}
+
+	/// Align the history owner with the live account/session. A real scope change releases only
+	/// volatile RAM; durable rows remain and queued mutations carry the new epoch.
+	fn sync_message_history(&mut self) {
+		let account = self.user.as_ref().map(|user| user.id);
+		let changed = self.message_logger.set_scope(account, self.generation)
+			| self.message_logger.set_channel(self.selected);
+		if changed {
+			self.seed_message_history();
+		}
+	}
+
+	/// Seed already loaded rows from the active timeline. This deliberately does not request
+	/// history or scan another channel.
+	fn seed_message_history(&mut self) {
+		if !self.message_logger.enabled() {
+			return;
+		}
+		let now = Instant::now();
+		let revision = self.revision;
+		for message in self.timeline.iter() {
+			if !Self::history_public(message)
+				|| !self.history_readable(message.channel)
+				|| self
+					.message_logger
+					.get(message.channel, message.id)
+					.is_some()
+			{
+				continue;
+			}
+			let details = self.message_details(message);
+			self.message_logger.observe_loaded_with(
+				now,
+				LoadedMessage {
+					channel: message.channel,
+					message: message.id,
+					author: message.author.id,
+					content: &message.content,
+					revision,
+				},
+				details,
+			);
+		}
+	}
+
+	/// Observe a message that is already in the active timeline, for example a later history page.
+	fn observe_timeline_message(&mut self, channel: Id, id: Id) {
+		let Some(message) = self.timeline.get(id) else {
+			return;
+		};
+		if message.channel != channel
+			|| !Self::history_public(message)
+			|| !self.history_readable(channel)
+		{
+			return;
+		}
+		let now = Instant::now();
+		let revision = self.revision;
+		if let Some(entry) = self.message_logger.get(channel, id) {
+			if entry.deleted || entry.content == message.content {
+				return;
+			}
+			let before = entry.content.clone();
+			let edited_at = message.edited_at;
+			self.message_logger.observe_edited_at(
+				now,
+				EditedMessage {
+					channel,
+					message: id,
+					revision,
+					before: Some(&before),
+					after: Some(&message.content),
+				},
+				edited_at,
+			);
+		} else {
+			let details = self.message_details(message);
+			self.message_logger.observe_loaded_with(
+				now,
+				LoadedMessage {
+					channel,
+					message: id,
+					author: message.author.id,
+					content: &message.content,
+					revision,
+				},
+				details,
+			);
+		}
+	}
+
+	/// Observe a validated live full message in any readable channel, selected or background.
+	fn observe_live_message(&mut self, message: &Message, pending_observed: bool) {
+		if pending_observed
+			|| !Self::history_public(message)
+			|| !self.history_readable(message.channel)
+		{
+			return;
+		}
+		let now = Instant::now();
+		let revision = self.revision;
+		match self.message_logger.get(message.channel, message.id) {
+			Some(entry) if entry.deleted => {}
+			Some(_) => {
+				self.message_logger.observe_edited_at(
+					now,
+					EditedMessage {
+						channel: message.channel,
+						message: message.id,
+						revision,
+						before: None,
+						after: Some(&message.content),
+					},
+					message.edited_at,
+				);
+			}
+			None => {
+				let details = self.message_details(message);
+				self.message_logger.observe_loaded_with(
+					now,
+					LoadedMessage {
+						channel: message.channel,
+						message: message.id,
+						author: message.author.id,
+						content: &message.content,
+						revision,
+					},
+					details,
+				);
+			}
+		}
+	}
+
+	/// Observe a validated live patch in any readable channel. Partial patches advance ordering
+	/// without inventing a body; a known deleted row rejects a late edit.
+	fn observe_live_patch(
+		&mut self,
+		channel: Id,
+		message: Id,
+		after: Option<&str>,
+		edited_at: Option<i128>,
+		pending_observed: bool,
+	) {
+		if !self.history_readable(channel) {
+			return;
+		}
+		if pending_observed && after.is_some() {
+			return;
+		}
+		let known = self.message_logger.get(channel, message).is_some();
+		if !known && after.is_none() {
+			return;
+		}
+		let before = self
+			.message_logger
+			.get(channel, message)
+			.filter(|entry| !entry.deleted)
+			.map(|entry| entry.content.clone());
+		let now = Instant::now();
+		let revision = self.revision;
+		self.message_logger.observe_edited_at(
+			now,
+			EditedMessage {
+				channel,
+				message,
+				revision,
+				before: before.as_deref(),
+				after,
+			},
+			edited_at,
+		);
+	}
+
+	/// Explicit host opt-in driven by an installed, granted and enabled extension. Enabling seeds
+	/// the active timeline. Disabling releases RAM and queues durable consent revocation.
+	pub fn set_message_history_enabled(&mut self, enabled: bool) -> bool {
+		if !enabled {
+			return self.message_logger.set_enabled(false);
+		}
+		self.sync_message_history();
+		let turned_on = self.message_logger.set_enabled(true);
+		if turned_on {
+			self.seed_message_history();
+		}
+		turned_on
+	}
+
+	/// Retained across the process lifetime by the native store. This call is kept for host
+	/// compatibility but must not expire volatile history on idle.
+	pub fn expire_message_history(&mut self, _now: Instant) -> usize {
+		0
+	}
+
+	/// Dropping the loaded timeline must not delete durable observations. Only an explicit account
+	/// clear (logout or opt-out) removes persistent rows.
+	fn clear_timeline_and_history(&mut self) {
+		self.timeline.clear();
+	}
+
+	/// Revoke only channels that are demonstrably no longer readable after a permission snapshot.
+	fn reconcile_message_history(&mut self) {
+		let channels = self.message_logger.retained_channels();
+		for channel in channels {
+			if !self.history_readable(channel) {
+				self.message_logger.revoke_channel(channel);
+			}
+		}
+	}
 	pub fn has_unsent(&self) -> bool {
 		self.drafts.values().any(|s| !s.is_empty())
 			|| self
@@ -1309,6 +1557,20 @@ impl State {
 					.map(|c| c.id)
 			})
 	}
+	/// Normal navigation for a message still readable from the service. Retained deleted-history
+	/// targets deliberately do not call this helper.
+	pub fn open_message_target(&mut self, channel: Id, target: Id) -> Option<Command> {
+		if self.select_chat_link_channel(channel, target).is_err() {
+			return None;
+		}
+		if self.timeline.get(target).is_some() {
+			self.search_target = Some(target);
+			None
+		} else {
+			self.open_scrolled_window(target)
+		}
+	}
+
 	pub fn select(&mut self, channel: Id) -> Option<Command> {
 		self.cancel_invite_navigation(channel);
 		// Reselecting the open conversation is still the user's own navigation.
@@ -1391,6 +1653,9 @@ impl State {
 		}
 		self.member_search = Default::default();
 		self.selected = Some(channel);
+		// Opening the DM is an explicit read gesture even before the service ACK lands.
+		self.read_state.activity.reset_one_ping(channel);
+		self.sync_message_history();
 		self.clear_search();
 		self.reset_thread_starter();
 		self.search_target = None;
@@ -1490,6 +1755,7 @@ impl State {
 		self.last_viewed_dm = None;
 		self.application_commands.clear();
 		self.selected = None;
+		self.sync_message_history();
 		self.history_navigation.clear();
 		self.search_target = None;
 		self.restore_scroll = false;
@@ -1505,6 +1771,7 @@ impl State {
 			self.trail.drop_current();
 		}
 		self.selected = None;
+		self.sync_message_history();
 		self.link_resolution.clear();
 		self.history_navigation.clear();
 		self.search_target = None;
@@ -1538,6 +1805,7 @@ impl State {
 					self.park_reply();
 					self.application_commands.clear();
 					self.selected = None;
+					self.sync_message_history();
 					self.link_resolution.clear();
 					self.history_navigation.clear();
 					self.search_target = None;
@@ -1841,7 +2109,7 @@ impl State {
 			self.search_target = None;
 			self.reply = None;
 			self.invalidate_members();
-			self.timeline.clear();
+			self.clear_timeline_and_history();
 			self.cancel_history();
 			self.freshness = Freshness::Unavailable;
 			self.status = "Conversation no longer available in navigation";
@@ -1849,7 +2117,7 @@ impl State {
 		};
 		if !self.can_read_history(channel) {
 			self.cancel_history();
-			self.timeline.clear();
+			self.clear_timeline_and_history();
 			self.reply = None;
 			self.freshness = if self.can_view(channel) && self.gateway_connected {
 				Freshness::Fresh
@@ -2624,11 +2892,13 @@ impl State {
 		if envelope.generation != self.generation {
 			return;
 		}
+		self.sync_message_history();
 		if self.handle_private_message_event(&envelope.event) {
 			return;
 		}
 		if let Event::Startup(startup) = envelope.event {
 			if startup.bytes() > model::account::MAX_BYTES {
+				self.message_logger.clear();
 				self.cancel_history();
 				self.auth = auth::AuthState::Failed;
 				self.status = "Account startup exceeds safe capacity";
@@ -2751,6 +3021,11 @@ impl State {
 			self.navigation_index.bytes.set(None);
 		}
 		let access_changed = envelope.event.changes_access();
+		// Only a complete, known permission snapshot may revoke durable observations. RESYNC and
+		// PERMISSIONS_CHANGED temporarily have unknown permissions, so they keep rows until the
+		// authoritative snapshot arrives; ordinary events are judged per affected channel.
+		let reconcile_history_access =
+			matches!(&envelope.event, Event::Ready { .. } | Event::Permissions(_));
 		// Command permissions are evaluated live from `permissions`; member, role and channel
 		// updates keep the index. Only a lost bot conversation invalidates its own index.
 		if let Event::Unavailable(channel) = &envelope.event
@@ -3378,9 +3653,11 @@ impl State {
 					if self.selected == Some(self.channels[index].id)
 						&& !navigable(&self.channels[index])
 					{
+						let unavailable = self.channels[index].id;
 						self.arrived_home();
 						self.invalidate_members();
-						self.timeline.clear();
+						self.clear_timeline_and_history();
+						self.message_logger.revoke_channel(unavailable);
 						self.cancel_history();
 						self.freshness = Freshness::Unavailable;
 					}
@@ -3426,10 +3703,11 @@ impl State {
 					self.read_state.forget(channel);
 					self.forget_direct_inbox(channel);
 					self.channels.retain(|c| c.id != channel);
+					self.message_logger.revoke_channel(channel);
 					self.prune_direct_presence();
 					if self.selected == Some(channel) {
 						self.invalidate_members();
-						self.timeline.clear();
+						self.clear_timeline_and_history();
 						self.freshness = Freshness::Unavailable;
 						self.cancel_history();
 						self.status = "Conversation unavailable; account removed";
@@ -3552,6 +3830,7 @@ impl State {
 					.as_ref()
 					.is_some_and(|previous| previous.id != user.id)
 				{
+					self.message_logger.clear();
 					self.cancel_history();
 					self.auth = auth::AuthState::Failed;
 					self.status = "Different account rejected; log out before switching accounts";
@@ -3564,6 +3843,7 @@ impl State {
 				}) {
 					Ok(permissions) => permissions,
 					Err(status) => {
+						self.message_logger.clear();
 						self.cancel_history();
 						self.auth = auth::AuthState::Failed;
 						self.status = status;
@@ -3731,7 +4011,31 @@ impl State {
 				if self.older_exhausted {
 					self.timeline.mark_start_loaded();
 				}
+				// Older, newer and targeted pages are additive. Only a fresh recent page replaces
+				// the loaded window, and even then retained history is not discarded.
+				let page_ids: Vec<Id> = messages.iter().map(|message| message.id).collect();
+				let now = Instant::now();
+				let revision = self.revision;
 				let r = self.timeline.finish_page(messages, older);
+				if r.is_ok() {
+					for id in page_ids {
+						let Some(message) = self.timeline.get(id) else {
+							continue;
+						};
+						if message.channel != channel || !Self::history_public(message) {
+							continue;
+						}
+						if message.reply_deleted
+							&& let Some(target) = message
+								.reply_to
+								.filter(|target| target.0 != 0 && *target < message.id)
+						{
+							self.message_logger
+								.observe_deleted(now, channel, target, revision);
+						}
+						self.observe_timeline_message(channel, id);
+					}
+				}
 				if r.is_ok() && jump {
 					self.search_target = self.timeline.iter().next().map(|m| m.id);
 					if self.search_target.is_none() {
@@ -3789,7 +4093,8 @@ impl State {
 					self.clear_search();
 					self.application_commands.clear();
 					self.invalidate_members();
-					self.timeline.clear();
+					self.clear_timeline_and_history();
+					self.message_logger.revoke_channel(channel);
 					self.freshness = Freshness::Unavailable;
 					self.status = "Channel unavailable or permission denied";
 				} else {
@@ -3798,12 +4103,14 @@ impl State {
 				Ok(())
 			}
 			Event::Message(mut m) => {
-				if self.timeline.get(m.id).is_some_and(|old| {
+				let history_channel = m.channel;
+				let history_id = m.id;
+				let history_author = m.author.id;
+				let history_accept = self.timeline.get(m.id).is_some_and(|old| {
 					old.edited_at
 						.is_none_or(|at| m.edited_at.is_some_and(|new| new >= at))
-				}) {
-					self.message_actions.observe_content(m.channel, m.id);
-				}
+				});
+				let history_had_previous = self.timeline.get(m.id).is_some();
 				self.typing_message(&m);
 				if let Some(post) = self
 					.channel_index(m.channel)
@@ -3813,6 +4120,17 @@ impl State {
 					post.message_count = post.message_count.map(|n| n.saturating_add(1));
 				}
 				let deletion = if m.reply_deleted && self.accepts_reply_source(&m) {
+					if self.history_readable(m.channel)
+						&& let Some(target) =
+							m.reply_to.filter(|target| target.0 != 0 && *target < m.id)
+					{
+						self.message_logger.observe_deleted(
+							Instant::now(),
+							m.channel,
+							target,
+							self.revision,
+						);
+					}
 					self.record_reply_deletion(&m);
 					if self.selected == Some(m.channel) {
 						self.timeline.observe_deleted_reference(&m)
@@ -3837,6 +4155,21 @@ impl State {
 						.and_then(|old| old.reactions.clone());
 				}
 				self.confirm(&m);
+				// Strict gateway-before-REST ordering: record the first accepted gateway update
+				// against the optimistic transaction before the REST result arrives.
+				let pending_observed = deletion.is_ok()
+					&& self.selected == Some(history_channel)
+					&& self.can_view(history_channel)
+					&& self.freshness != Freshness::Unavailable
+					&& history_accept
+					&& history_had_previous
+					&& self.observe_optimistic_edit_update(
+						history_channel,
+						history_id,
+						Some(history_author),
+						&m.content,
+					);
+				self.observe_live_message(&m, pending_observed);
 				if deletion.is_err() {
 					deletion
 				} else if self.selected == Some(m.channel)
@@ -3852,12 +4185,32 @@ impl State {
 				}
 			}
 			Event::Patch(mut p) => {
-				if !matches!(p.content, Patch::Absent)
-					&& self.timeline.get(p.id).is_some_and(
-						|old| !matches!(p.edited, Patch::Value(at) if old.edited_at.is_some_and(|old| at < old)),
-					) {
-					self.message_actions.observe_content(p.channel, p.id);
-				}
+				let history_channel = p.channel;
+				let history_id = p.id;
+				let history_changed = !matches!(&p.content, Patch::Absent);
+				let history_after = match &p.content {
+					Patch::Value(content) => Some(content.clone()),
+					_ => None,
+				};
+				let history_edited_at = match p.edited {
+					Patch::Value(at) => Some(at),
+					_ => None,
+				};
+				let history_accept = history_changed && {
+					let old_edited = self
+						.timeline
+						.get(p.id)
+						.and_then(|old| old.edited_at)
+						.or_else(|| {
+							self.message_logger
+								.get(p.channel, p.id)
+								.and_then(|entry| entry.edited_at)
+						});
+					!matches!(
+						p.edited,
+						Patch::Value(at) if old_edited.is_some_and(|old| at < old)
+					)
+				};
 				// A card's cache holds a copy, so an edit must make it read the reply again.
 				if !matches!(p.content, Patch::Absent) || !matches!(p.edited, Patch::Absent) {
 					self.thread_previews.mark_stale(p.channel, p.id);
@@ -3871,16 +4224,45 @@ impl State {
 				if self.reactions.invalidated(p.id) {
 					p.reactions = Patch::Absent;
 				}
-				if self.selected == Some(p.channel)
+				let result = if self.selected == Some(p.channel)
 					&& self.can_view(p.channel)
 					&& self.freshness != Freshness::Unavailable
 				{
 					self.timeline.patch(p)
 				} else {
 					Ok(())
+				};
+				if result.is_ok() {
+					let pending_observed = result.is_ok()
+						&& history_changed && history_accept
+						&& self.selected == Some(history_channel)
+						&& self.can_view(history_channel)
+						&& self.freshness != Freshness::Unavailable
+						&& history_after.as_deref().is_some_and(|after| {
+							self.observe_optimistic_edit_update(
+								history_channel,
+								history_id,
+								None,
+								after,
+							)
+						});
+					if history_accept || !history_changed {
+						self.observe_live_patch(
+							history_channel,
+							history_id,
+							history_after.as_deref(),
+							history_edited_at,
+							pending_observed,
+						);
+					}
 				}
+				result
 			}
 			Event::Delete { channel, id } => {
+				if self.history_readable(channel) {
+					self.message_logger
+						.observe_deleted(Instant::now(), channel, id, self.revision);
+				}
 				self.parked_replies.forget_targets(channel, &[id]);
 				self.read_state.activity.delete(channel, id);
 				self.forget_pending_replies(channel, &[id]);
@@ -3924,6 +4306,13 @@ impl State {
 				Ok(())
 			}
 			Event::DeleteBulk { channel, ids } => {
+				if self.history_readable(channel) && ids.len() <= 100 {
+					let now = Instant::now();
+					for id in &ids {
+						self.message_logger
+							.observe_deleted(now, channel, *id, self.revision);
+					}
+				}
 				self.parked_replies.forget_targets(channel, &ids);
 				self.thread_previews.forget(channel, &ids);
 				if ids.len() <= 100 {
@@ -3983,6 +4372,17 @@ impl State {
 						}
 						let accepted_reference = correlated && self.accepts_reply_source(&m);
 						if accepted_reference {
+							if self.history_readable(m.channel)
+								&& let Some(target) =
+									m.reply_to.filter(|target| target.0 != 0 && *target < m.id)
+							{
+								self.message_logger.observe_deleted(
+									Instant::now(),
+									m.channel,
+									target,
+									self.revision,
+								);
+							}
 							self.record_reply_deletion(&m);
 						}
 						if let Some(p) = self.pending.iter_mut().find(|p| p.nonce == nonce) {
@@ -3994,6 +4394,9 @@ impl State {
 							&& let Err(status) = self.timeline.observe_deleted_reference(&m)
 						{
 							reconciliation = Err(status);
+						}
+						if reconciliation.is_ok() {
+							self.observe_live_message(&m, false);
 						}
 						if reconciliation.is_ok()
 							&& self.selected == Some(m.channel)
@@ -4120,7 +4523,7 @@ impl State {
 				);
 				self.member_search = Default::default();
 				self.members = None;
-				self.timeline.clear();
+				self.clear_timeline_and_history();
 				self.freshness = Freshness::Stale;
 				self.cancel_history();
 				self.status = "";
@@ -4160,7 +4563,7 @@ impl State {
 			self.clear_cached_history();
 			self.status = status;
 			self.freshness = Freshness::Stale;
-			self.timeline.clear();
+			self.clear_timeline_and_history();
 			self.cancel_history();
 		}
 		if self
@@ -4184,6 +4587,9 @@ impl State {
 			self.reconcile_notifications();
 			self.prune_resident();
 			self.prune_post_summaries();
+		}
+		if reconcile_history_access {
+			self.reconcile_message_history();
 		}
 		if self.search.is_some() && !self.can_search() {
 			self.clear_search();
@@ -4276,13 +4682,14 @@ impl State {
 			self.end_voice_channel(*id);
 			self.read_state.forget(*id);
 			self.forget_direct_inbox(*id);
+			self.message_logger.revoke_channel(*id);
 		}
 		if self.selected.is_some_and(|id| removed.contains(&id)) {
 			self.clear_search();
 			self.search_target = None;
 			self.reply = None;
 			self.invalidate_members();
-			self.timeline.clear();
+			self.clear_timeline_and_history();
 			self.freshness = Freshness::Unavailable;
 			self.cancel_history();
 			self.status = "Conversation no longer available in navigation";
@@ -4314,6 +4721,7 @@ impl State {
 			_ => {}
 		}
 		if failure.ends_session() {
+			self.message_logger.clear();
 			self.application_commands.clear();
 			self.interrupt_stickers();
 			self.interrupt_gif_favorites();
@@ -6786,5 +7194,584 @@ mod tests {
 			apply(&mut state, Event::Message(message(200)));
 			assert!(state.timeline.is_empty()); // queued live content cannot undo revocation
 		}
+	}
+
+	fn message_history_state() -> State {
+		let user = message(1).author;
+		State {
+			user: Some(user.clone()),
+			channels: vec![Channel {
+				id: Id(1),
+				guild: None,
+				parent_id: None,
+				kind: 1,
+				name: "Synthetic DM".into(),
+				position: 0,
+				recipients: vec![user],
+				last_message: None,
+				icon: None,
+				member_list_id: None,
+				tags: None,
+				message_count: None,
+			}],
+			selected: Some(Id(1)),
+			auth: auth::AuthState::Authenticated,
+			freshness: Freshness::Fresh,
+			gateway_connected: true,
+			..State::default()
+		}
+	}
+
+	fn load_history_page(state: &mut State, messages: Vec<Message>) {
+		state.history(None);
+		let request = state.request;
+		apply(
+			state,
+			Event::History {
+				channel: Id(1),
+				request,
+				older: false,
+				messages,
+			},
+		);
+	}
+
+	#[test]
+	fn message_history_needs_opt_in_then_keeps_loaded_edits_and_deletes() {
+		let mut state = message_history_state();
+		load_history_page(&mut state, vec![message(1), message(2)]);
+		assert!(
+			state.message_logger.is_empty(),
+			"loaded bodies are not retained before explicit enablement"
+		);
+		assert!(state.set_message_history_enabled(true));
+		assert_eq!(state.message_logger.entry_count(), 2);
+		assert_eq!(
+			state.message_logger.get(Id(1), Id(1)).unwrap().content,
+			"Synthetic history"
+		);
+
+		apply(
+			&mut state,
+			Event::Patch(MessagePatch {
+				poll: Patch::Absent,
+				sticker_items: Patch::Absent,
+				flags: Patch::Absent,
+				components: Patch::Absent,
+				application_id: Patch::Absent,
+				extra_content: Default::default(),
+				reactions: Patch::Absent,
+				id: Id(2),
+				channel: Id(1),
+				content: Patch::Value("Edited body".into()),
+				mentions: Patch::Absent,
+				edited: Patch::Value(1),
+				embeds: Patch::Absent,
+				embeds_suppressed: Patch::Absent,
+				attachments: Patch::Absent,
+			}),
+		);
+		let edited = state.message_logger.get(Id(1), Id(2)).unwrap();
+		assert_eq!(edited.content, "Edited body");
+		assert_eq!(edited.events.len(), 1);
+		assert_eq!(
+			edited.events[0].before.as_deref(),
+			Some("Synthetic history")
+		);
+		assert_eq!(edited.events[0].after.as_deref(), Some("Edited body"));
+
+		apply(
+			&mut state,
+			Event::Delete {
+				channel: Id(1),
+				id: Id(1),
+			},
+		);
+		let deleted = state.message_logger.get(Id(1), Id(1)).unwrap();
+		assert!(deleted.deleted);
+		assert_eq!(deleted.content, "Synthetic history");
+		assert_eq!(deleted.events[0].kind, model::message_logger::Kind::Delete);
+		// A deletion observed before that body was loaded stays unknowable.
+		apply(
+			&mut state,
+			Event::Delete {
+				channel: Id(1),
+				id: Id(99),
+			},
+		);
+		assert!(state.message_logger.get(Id(1), Id(99)).is_none());
+
+		assert!(state.set_message_history_enabled(false));
+		assert!(state.message_logger.is_empty());
+	}
+
+	#[test]
+	fn background_chat_messages_are_recorded_without_requesting_history() {
+		let mut state = message_history_state();
+		state.set_message_history_enabled(true);
+		let mut background = state.channels[0].clone();
+		background.id = Id(2);
+		background.name = "Background synthetic DM".into();
+		state.channels.push(background);
+		let request = state.request;
+		let mut live = message(5);
+		live.channel = Id(2);
+		apply(&mut state, Event::Message(live));
+		assert!(
+			state.message_logger.get(Id(2), Id(5)).is_some(),
+			"a readable background chat is recorded"
+		);
+		assert_eq!(
+			state.request, request,
+			"observing a live background message must not issue a history/search command"
+		);
+	}
+
+	#[test]
+	fn message_history_keeps_paged_rows_across_timeline_replacement_and_eviction() {
+		let mut state = message_history_state();
+		state.set_message_history_enabled(true);
+		load_history_page(&mut state, (51..=100).map(message).collect());
+		assert_eq!(state.message_logger.entry_count(), 50);
+		state.older_history().unwrap();
+		let request = state.request;
+		apply(
+			&mut state,
+			Event::History {
+				channel: Id(1),
+				request,
+				older: true,
+				messages: (1..=50).map(message).collect(),
+			},
+		);
+		assert_eq!(
+			state.message_logger.entry_count(),
+			100,
+			"older pages add rows instead of replacing the retained set"
+		);
+		// A fresh recent page replaces the timeline window but not the session log.
+		load_history_page(&mut state, vec![message(100)]);
+		assert_eq!(state.message_logger.entry_count(), 100);
+
+		// Live insertion evicts old timeline rows, but the persistent observation set keeps them.
+		for id in 1000..1600 {
+			apply(&mut state, Event::Message(message(id)));
+		}
+		assert!(state.message_logger.entry_count() <= model::message_logger::MAX_MESSAGES);
+		let rows: BTreeSet<_> = state.timeline.row_ids().collect();
+		assert!(
+			state
+				.message_logger
+				.channel_entries(Id(1))
+				.any(|entry| !rows.contains(&entry.message)),
+			"a timeline-evicted row stays available to the persistent log"
+		);
+
+		// A permission refresh with unknown inputs does not blanket-clear durable observations.
+		apply(&mut state, Event::PermissionsChanged);
+		assert!(!state.message_logger.is_empty());
+		// READY is authoritative: a channel missing from the new snapshot is revoked by itself.
+		let user = state.user.clone().unwrap();
+		apply(
+			&mut state,
+			Event::Ready {
+				user,
+				guilds: vec![],
+				channels: vec![],
+				permissions: Default::default(),
+			},
+		);
+		assert!(state.message_logger.is_empty());
+		// A conversation switch never releases another channel's observations.
+		state.selected = Some(Id(2));
+		state.set_message_history_enabled(true);
+		assert!(state.message_logger.is_empty());
+	}
+
+	#[test]
+	fn later_history_pages_refresh_live_rows_without_resurrecting_tombstones() {
+		let mut state = message_history_state();
+		state.set_message_history_enabled(true);
+		load_history_page(&mut state, vec![message(1)]);
+		apply(
+			&mut state,
+			Event::Patch(MessagePatch {
+				poll: Patch::Absent,
+				sticker_items: Patch::Absent,
+				flags: Patch::Absent,
+				components: Patch::Absent,
+				application_id: Patch::Absent,
+				extra_content: Default::default(),
+				reactions: Patch::Absent,
+				id: Id(1),
+				channel: Id(1),
+				content: Patch::Value("edited".into()),
+				mentions: Patch::Absent,
+				edited: Patch::Value(1),
+				embeds: Patch::Absent,
+				embeds_suppressed: Patch::Absent,
+				attachments: Patch::Absent,
+			}),
+		);
+		let mut refreshed = message(1);
+		refreshed.content = "page refresh".into();
+		refreshed.edited = true;
+		refreshed.edited_at = Some(2);
+		load_history_page(&mut state, vec![refreshed]);
+		let entry = state.message_logger.get(Id(1), Id(1)).unwrap();
+		assert_eq!(entry.content, "page refresh");
+		assert_eq!(entry.events.len(), 2);
+		assert_eq!(entry.events[1].before.as_deref(), Some("edited"));
+		assert_eq!(entry.events[1].after.as_deref(), Some("page refresh"));
+
+		apply(
+			&mut state,
+			Event::Delete {
+				channel: Id(1),
+				id: Id(1),
+			},
+		);
+		let mut resurrect = message(1);
+		resurrect.content = "must not return".into();
+		load_history_page(&mut state, vec![resurrect]);
+		let entry = state.message_logger.get(Id(1), Id(1)).unwrap();
+		assert!(entry.deleted);
+		assert_eq!(entry.content, "page refresh");
+		assert_eq!(
+			entry.events.last().unwrap().after.as_deref(),
+			None,
+			"a page cannot resurrect a deleted retained row"
+		);
+	}
+
+	#[test]
+	fn accepted_reply_deletions_mark_loaded_targets_only() {
+		let mut state = message_history_state();
+		state.set_message_history_enabled(true);
+		load_history_page(&mut state, vec![message(1), message(2)]);
+
+		let mut reply = message(100);
+		reply.kind = 19;
+		reply.reply_to = Some(Id(1));
+		reply.reply_deleted = true;
+		apply(&mut state, Event::Message(reply));
+		assert!(state.message_logger.get(Id(1), Id(1)).unwrap().deleted);
+		assert!(
+			state.message_logger.get(Id(1), Id(999)).is_none(),
+			"an unknown deleted reference creates no body"
+		);
+
+		let mut unknown = message(101);
+		unknown.kind = 19;
+		unknown.reply_to = Some(Id(99));
+		unknown.reply_deleted = true;
+		apply(&mut state, Event::Message(unknown));
+		assert!(state.message_logger.get(Id(1), Id(99)).is_none());
+
+		// The SendResult path observes the accepted target before reconciling its source.
+		assert!(
+			state.message_logger.get(Id(1), Id(2)).is_some(),
+			"the target must still be retained before the send result"
+		);
+		let mut source = message(200);
+		source.kind = 19;
+		source.reply_to = Some(Id(2));
+		source.nonce = Some("reply-source".into());
+		state.timeline.insert(source.clone(), false, false).unwrap();
+		source.reply_deleted = true;
+		apply(
+			&mut state,
+			Event::SendResult {
+				nonce: "reply-source".into(),
+				result: Ok(source),
+			},
+		);
+		assert!(state.message_logger.get(Id(1), Id(2)).unwrap().deleted);
+	}
+
+	#[test]
+	fn optimistic_edit_records_rest_success_once_and_never_failure_reverts() {
+		let mut state = message_history_state();
+		state.set_message_history_enabled(true);
+		load_history_page(&mut state, vec![message(1)]);
+		let request = state
+			.optimistic_edit(Id(1), Id(1), "optimistic text")
+			.expect("optimistic edit starts");
+		let mut updated = message(1);
+		updated.content = "server text".into();
+		updated.edited = true;
+		updated.edited_at = Some(1);
+		apply(
+			&mut state,
+			Event::Edited {
+				request,
+				channel: Id(1),
+				message: Id(1),
+				result: Ok(updated),
+			},
+		);
+		let entry = state.message_logger.get(Id(1), Id(1)).unwrap();
+		assert_eq!(entry.content, "server text");
+		assert_eq!(entry.events.len(), 1);
+		assert_eq!(entry.events[0].before.as_deref(), Some("Synthetic history"));
+		assert_eq!(entry.events[0].after.as_deref(), Some("server text"));
+
+		// A later gateway patch with the same accepted body is not a duplicate observation.
+		apply(
+			&mut state,
+			Event::Patch(MessagePatch {
+				poll: Patch::Absent,
+				sticker_items: Patch::Absent,
+				flags: Patch::Absent,
+				components: Patch::Absent,
+				application_id: Patch::Absent,
+				extra_content: Default::default(),
+				reactions: Patch::Absent,
+				id: Id(1),
+				channel: Id(1),
+				content: Patch::Value("server text".into()),
+				mentions: Patch::Absent,
+				edited: Patch::Value(1),
+				embeds: Patch::Absent,
+				embeds_suppressed: Patch::Absent,
+				attachments: Patch::Absent,
+			}),
+		);
+		assert_eq!(
+			state.message_logger.get(Id(1), Id(1)).unwrap().events.len(),
+			1
+		);
+
+		let request = state
+			.optimistic_edit(Id(1), Id(1), "failed optimistic text")
+			.expect("second optimistic edit starts");
+		apply(
+			&mut state,
+			Event::Edited {
+				request,
+				channel: Id(1),
+				message: Id(1),
+				result: Err(auth::Failure::Forbidden),
+			},
+		);
+		let entry = state.message_logger.get(Id(1), Id(1)).unwrap();
+		assert_eq!(entry.content, "server text");
+		assert_eq!(entry.events.len(), 1);
+	}
+
+	fn edit_history_patch(content: Patch<String>, edited: Patch<i128>) -> MessagePatch {
+		MessagePatch {
+			poll: Patch::Absent,
+			sticker_items: Patch::Absent,
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
+			extra_content: Default::default(),
+			reactions: Patch::Absent,
+			id: Id(1),
+			channel: Id(1),
+			content,
+			mentions: Patch::Absent,
+			edited,
+			embeds: Patch::Absent,
+			embeds_suppressed: Patch::Absent,
+			attachments: Patch::Absent,
+		}
+	}
+
+	fn assert_gateway_edit_before_rest_uses_original_body(patch_gateway: bool, same_body: bool) {
+		let mut state = message_history_state();
+		state.set_message_history_enabled(true);
+		load_history_page(&mut state, vec![message(1)]);
+		let request = state
+			.optimistic_edit(Id(1), Id(1), "optimistic text")
+			.expect("optimistic edit starts");
+		let server = if same_body {
+			"optimistic text"
+		} else {
+			"server text"
+		};
+		let mut updated = message(1);
+		updated.content = server.into();
+		updated.edited = true;
+		updated.edited_at = Some(2);
+		if patch_gateway {
+			apply(
+				&mut state,
+				Event::Patch(edit_history_patch(
+					Patch::Value(server.into()),
+					Patch::Value(2),
+				)),
+			);
+		} else {
+			apply(&mut state, Event::Message(updated.clone()));
+		}
+		let entry = state.message_logger.get(Id(1), Id(1)).unwrap();
+		assert_eq!(entry.content, server);
+		assert_eq!(entry.events.len(), 1);
+		assert_eq!(entry.events[0].before.as_deref(), Some("Synthetic history"));
+		assert_eq!(entry.events[0].after.as_deref(), Some(server));
+
+		// The REST result arrives after the gateway already supplied the accepted body.
+		apply(
+			&mut state,
+			Event::Edited {
+				request,
+				channel: Id(1),
+				message: Id(1),
+				result: Ok(updated),
+			},
+		);
+		let entry = state.message_logger.get(Id(1), Id(1)).unwrap();
+		assert_eq!(entry.content, server);
+		assert_eq!(
+			entry.events.len(),
+			1,
+			"a gateway update before REST must record exactly one original-to-accepted edit"
+		);
+		assert_eq!(entry.events[0].before.as_deref(), Some("Synthetic history"));
+		assert_eq!(entry.events[0].after.as_deref(), Some(server));
+	}
+
+	#[test]
+	fn gateway_message_before_rest_uses_original_body_once() {
+		for same_body in [false, true] {
+			assert_gateway_edit_before_rest_uses_original_body(false, same_body);
+		}
+	}
+
+	#[test]
+	fn gateway_patch_before_rest_uses_original_body_once() {
+		for same_body in [false, true] {
+			assert_gateway_edit_before_rest_uses_original_body(true, same_body);
+		}
+	}
+
+	#[test]
+	fn partial_gateway_patch_does_not_consume_the_rest_observation() {
+		let mut state = message_history_state();
+		state.set_message_history_enabled(true);
+		load_history_page(&mut state, vec![message(1)]);
+		let request = state
+			.optimistic_edit(Id(1), Id(1), "optimistic text")
+			.expect("optimistic edit starts");
+		apply(
+			&mut state,
+			Event::Patch(edit_history_patch(Patch::Absent, Patch::Value(2))),
+		);
+		assert_eq!(
+			state.message_logger.get(Id(1), Id(1)).unwrap().events.len(),
+			0,
+			"a partial gateway update has no accepted body and must not observe the transaction"
+		);
+		let mut updated = message(1);
+		updated.content = "server text".into();
+		updated.edited = true;
+		updated.edited_at = Some(2);
+		apply(
+			&mut state,
+			Event::Edited {
+				request,
+				channel: Id(1),
+				message: Id(1),
+				result: Ok(updated),
+			},
+		);
+		let entry = state.message_logger.get(Id(1), Id(1)).unwrap();
+		assert_eq!(entry.content, "server text");
+		assert_eq!(entry.events.len(), 1);
+		assert_eq!(entry.events[0].before.as_deref(), Some("Synthetic history"));
+		assert_eq!(entry.events[0].after.as_deref(), Some("server text"));
+	}
+
+	#[test]
+	fn session_failure_and_different_account_ready_clear_retained_bodies() {
+		let mut state = message_history_state();
+		state.set_message_history_enabled(true);
+		load_history_page(&mut state, vec![message(1)]);
+		apply(&mut state, Event::Failure(auth::Failure::Expired));
+		assert!(state.message_logger.is_empty());
+
+		let mut state = message_history_state();
+		state.set_message_history_enabled(true);
+		load_history_page(&mut state, vec![message(1)]);
+		let mut other = message(1).author;
+		other.id = Id(999);
+		apply(
+			&mut state,
+			Event::Ready {
+				user: other,
+				guilds: vec![],
+				channels: vec![],
+				permissions: Default::default(),
+			},
+		);
+		assert_eq!(state.auth, auth::AuthState::Failed);
+		assert!(state.message_logger.is_empty());
+
+		let mut state = message_history_state();
+		state.set_message_history_enabled(true);
+		load_history_page(&mut state, vec![message(1)]);
+		let user = state.user.clone().unwrap();
+		let mut channel = state.channels[0].clone();
+		channel.recipients = vec![user.clone(); 65];
+		apply(
+			&mut state,
+			Event::Ready {
+				user,
+				guilds: vec![],
+				channels: vec![channel],
+				permissions: Default::default(),
+			},
+		);
+		assert_eq!(state.auth, auth::AuthState::Failed);
+		assert!(state.message_logger.is_empty());
+	}
+
+	#[test]
+	fn benign_channel_change_keeps_history_while_protocol_errors_and_bulk_capacity_do_not() {
+		let mut state = message_history_state();
+		state.set_message_history_enabled(true);
+		load_history_page(&mut state, vec![message(1)]);
+		apply(
+			&mut state,
+			Event::ChannelChanged(ChannelPatch {
+				icon: Patch::Absent,
+				last_message: Patch::Absent,
+				id: Id(1),
+				name: Patch::Value("Renamed synthetic DM".into()),
+				parent_id: Patch::Absent,
+				position: Patch::Absent,
+				kind: Patch::Absent,
+				message_count: Patch::Absent,
+				tags: Patch::Absent,
+			}),
+		);
+		assert_eq!(
+			state.message_logger.entry_count(),
+			1,
+			"a topic/name/category refresh must not erase the loaded-session history"
+		);
+
+		apply(
+			&mut state,
+			Event::DeleteBulk {
+				channel: Id(1),
+				ids: (1000..=1100).map(Id).collect(),
+			},
+		);
+		assert!(state.timeline.is_empty());
+		assert!(
+			!state.message_logger.is_empty(),
+			"dropping the timeline must not delete durable observations"
+		);
+
+		state.set_message_history_enabled(true);
+		load_history_page(&mut state, vec![message(1)]);
+		apply(&mut state, Event::Resync);
+		assert!(
+			!state.message_logger.is_empty(),
+			"a resync with unknown permissions keeps durable observations"
+		);
 	}
 }

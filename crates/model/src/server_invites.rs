@@ -1,8 +1,33 @@
 //! Bounded guild invite administration; absent service metadata stays unknown.
 use crate::{Id, User};
+use serde::{Deserialize, Serialize};
 pub const MAX_ITEMS: usize = 1000;
 pub const MAX_BYTES: usize = 1024 * 1024;
 pub const PAUSED_FEATURE: &str = "INVITES_DISABLED";
+/// Device-local defaults for newly created invites. The service still enforces the
+/// account's per-guild permissions and its own limits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InviteDefaults {
+	pub max_age: u32,
+	pub max_uses: u16,
+	pub temporary: bool,
+}
+impl Default for InviteDefaults {
+	fn default() -> Self {
+		Self {
+			max_age: 30 * 86400,
+			max_uses: 0,
+			temporary: false,
+		}
+	}
+}
+impl InviteDefaults {
+	pub fn valid(self) -> bool {
+		// Normal-user 30-day invites exceed the public developer API's documented 7 days.
+		self.max_age <= 30 * 86400 && self.max_uses <= 100
+	}
+}
 #[derive(Clone)]
 pub struct Invite {
 	pub code: String,

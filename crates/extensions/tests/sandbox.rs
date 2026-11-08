@@ -278,9 +278,26 @@ fn validates_themes_catalog_and_path_safe_identifiers() {
 	};
 	let catalog = Catalog {
 		api_version: API_VERSION,
-		entries: vec![entry.clone(), entry],
+		entries: vec![entry.clone(), entry.clone()],
 	};
 	assert!(parse_catalog(&serde_json::to_vec(&catalog).unwrap()).is_err());
+	let mut bounded = Catalog {
+		api_version: API_VERSION,
+		entries: (0..MAX_CATALOG_ENTRIES)
+			.map(|index| {
+				let mut entry = entry.clone();
+				entry.manifest.id = format!("test-plugin-{index}");
+				entry
+			})
+			.collect(),
+	};
+	assert!(parse_catalog(&serde_json::to_vec(&bounded).unwrap()).is_ok());
+	bounded.entries.push(bounded.entries[0].clone());
+	bounded.entries[MAX_CATALOG_ENTRIES].manifest.id = "one-package-too-many".into();
+	assert!(matches!(
+		parse_catalog(&serde_json::to_vec(&bounded).unwrap()),
+		Err(Error::Limit)
+	));
 
 	{
 		let mut theme = Theme::default();

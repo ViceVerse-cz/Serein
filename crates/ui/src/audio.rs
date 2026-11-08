@@ -16,6 +16,8 @@ pub enum AudioCommand {
 	Pause(bool),
 	Seek(f64),
 	Volume(f32),
+	/// Playback rate; the desktop clamps it through [`crate::media`].
+	Speed(f32),
 	Stop,
 }
 pub struct AudioUi {
@@ -26,6 +28,8 @@ pub struct AudioUi {
 	pub command: Option<AudioCommand>,
 	pub seen: bool,
 	pub volume: f32,
+	/// Session-local rate for this media type; `1.0` unless the owner changes it.
+	pub rate: f32,
 }
 impl Default for AudioUi {
 	fn default() -> Self {
@@ -37,6 +41,7 @@ impl Default for AudioUi {
 			command: None,
 			seen: false,
 			volume: 1.0,
+			rate: 1.0,
 		}
 	}
 }
@@ -262,9 +267,9 @@ impl AudioUi {
 						.size(11.0)
 						.color(colors.muted),
 					);
-					if !voice {
-						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-							ui.spacing_mut().item_spacing.x = 6.0;
+					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+						ui.spacing_mut().item_spacing.x = 6.0;
+						if !voice {
 							ui.spacing_mut().slider_width = 52.0;
 							let volume = ui.add(
 								egui::Slider::new(&mut self.volume, 0.0..=1.0)
@@ -295,8 +300,11 @@ impl AudioUi {
 								16.0,
 								colors.muted,
 							);
-						});
-					}
+						}
+						if playback_speed_control(ui, &mut self.rate) {
+							self.command = Some(AudioCommand::Speed(self.rate));
+						}
+					});
 				});
 				match state {
 					AudioState::Loading => {
@@ -321,6 +329,52 @@ impl AudioUi {
 		card.response
 	}
 }
+/// Compact keyboard-operable rate menu shared by inline audio and video.
+pub(crate) fn playback_speed_control(ui: &mut egui::Ui, rate: &mut f32) -> bool {
+	let label = crate::i18n::translate("audio-show-playback-speed");
+	let button = ui
+		.add(
+			egui::Button::new(
+				egui::RichText::new(crate::media::rate_label(*rate))
+					.size(11.0)
+					.color(ui.visuals().text_color()),
+			)
+			.frame(false)
+			.small(),
+		)
+		.on_hover_text(format!("{label}: {}", crate::media::rate_label(*rate)));
+	button.widget_info(|| {
+		egui::WidgetInfo::labeled(
+			egui::Role::Button,
+			ui.is_enabled(),
+			format!("{label}: {}", crate::media::rate_label(*rate)),
+		)
+	});
+	playback_speed_menu(&button, rate)
+}
+
+/// Opens the preset menu for an existing rate button.
+pub(crate) fn playback_speed_menu(button: &egui::Response, rate: &mut f32) -> bool {
+	let mut changed = false;
+	egui::Popup::menu(button)
+		.close_behavior(egui::PopupCloseBehavior::CloseOnClick)
+		.show(|ui| {
+			ui.set_width(96.0);
+			for preset in crate::media::PLAYBACK_RATES {
+				let selected = (*rate - preset).abs() < 0.001;
+				if ui
+					.selectable_label(selected, crate::media::rate_label(preset))
+					.clicked()
+				{
+					*rate = preset;
+					changed = true;
+					ui.close();
+				}
+			}
+		});
+	changed
+}
+
 fn waveform(
 	ui: &mut egui::Ui,
 	samples: &[u8],

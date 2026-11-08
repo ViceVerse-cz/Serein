@@ -47,6 +47,14 @@ installation, and CI runs the committed packages through the same code.
 PNG previews share the package file stem and must fit 256 KiB. Full-size covers stay
 embedded in their packages.
 
+## Live owner development
+
+A non-release, non-demo `cargo run` loads the 16 reviewed Equicord development artifacts as local
+starters. Their exact package bytes and manifests retain reviewed identity, so Message History can
+exercise its real consent gate before the packages have a post-merge remote pin. Unreviewed imports
+still cannot enable that host retention. Release builds, demo fixtures and ordinary imports retain
+their existing catalog/consent flow; no development package is silently published by this path.
+
 ## History
 
 These packages were maintained in `ViceVerse-cz/Serein-extensions` until they moved
@@ -84,6 +92,16 @@ Package bytes and stable IDs are preserved from the existing client/theme reposi
   least-privilege packages with no JavaScript injection, no arbitrary network/filesystem access,
   and no automatic Discord sends. Browser-based search/translation additionally requires the
   separate `external_navigation` grant and native Apply/link confirmation.
+- Additional independent Rust adaptations cover BaseDecoder, WriteUpperCase, SplitLargeMessages,
+  BlockKeywords, MessageBurst, CopyUserURLs, CopyUserMention, ClickableRoles, InRole, MessageLogger,
+  GoogleThat, FindReply, Husk, TalkInReverse, Signature, PolishWording, StatusPresets,
+  CustomStatusTimeouts, CommandPalette, BetterRoleContext, BetterRoleDot, PendingFriendRequest,
+  NormalizeMessageLinks, RepeatMessages, Ingtoninator and SedEnhanced at the same upstream commit. Their package READMEs record
+  exact safe adaptations and omissions. Typed proposals replace JavaScript injection, arbitrary
+  network/filesystem access and automatic writes. Message History uses reviewed consent for bounded,
+  persistent, account-scoped capture of subsequently loaded readable chats, with native retention,
+  supported attachment opt-ins, ghost alerts and export; no deleted-before-load recovery is claimed. The 373-directory upstream inventory is not a claim that every plugin or unsafe
+  behavior is ported.
 - Forest Piano and Soft White retain supplied `CC0-1.0` metadata; this is not independent verification of image rights. Consult their original sources for artwork provenance.
 
 This repository does not relicense third-party artwork or assert additional redistribution rights.

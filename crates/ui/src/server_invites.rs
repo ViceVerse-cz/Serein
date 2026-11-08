@@ -10,6 +10,7 @@ use model::{
 #[derive(Default)]
 pub(super) struct InvitesUi {
 	create: Option<InviteDialog>,
+	defaults: model::server_invites::InviteDefaults,
 	channel: Option<Id>,
 	creation_pending: bool,
 	refresh: bool,
@@ -19,6 +20,9 @@ pub(super) struct InvitesUi {
 }
 
 impl InvitesUi {
+	pub fn set_defaults(&mut self, defaults: model::server_invites::InviteDefaults) {
+		self.defaults = defaults;
+	}
 	pub fn busy(&self) -> bool {
 		self.creation_pending
 	}
@@ -89,7 +93,7 @@ impl InvitesUi {
 				state.clear_server_action_result(guild);
 				self.channel = state.invite_channel(guild);
 				let mut dialog = InviteDialog::default();
-				dialog.open();
+				dialog.open_with(self.defaults);
 				self.create = Some(dialog);
 			}
 			if state.can_pause_guild_invites(guild)

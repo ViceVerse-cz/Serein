@@ -156,7 +156,13 @@ impl ServerMenu {
 		false
 	}
 	/// Create invite for `guild`, shown only where the account may create one.
-	pub fn invite_item(&mut self, ui: &mut egui::Ui, state: &mut State, guild: Id) -> bool {
+	pub fn invite_item(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		guild: Id,
+		defaults: model::server_invites::InviteDefaults,
+	) -> bool {
 		let Some(channel) = state.invite_channel(guild) else {
 			return false;
 		};
@@ -175,13 +181,19 @@ impl ServerMenu {
 			.inner
 			.clicked()
 		{
-			self.open_invite(state, guild, channel);
+			self.open_invite(state, guild, channel, defaults);
 			ui.close();
 			return true;
 		}
 		false
 	}
-	pub fn open_invite(&mut self, state: &mut State, guild: Id, channel: Id) {
+	pub fn open_invite(
+		&mut self,
+		state: &mut State,
+		guild: Id,
+		channel: Id,
+		defaults: model::server_invites::InviteDefaults,
+	) {
 		if !state.can_create_server_invite(guild, channel) {
 			return;
 		}
@@ -191,7 +203,7 @@ impl ServerMenu {
 			channel: Some(channel),
 		});
 		self.generation = state.generation;
-		self.invite.open();
+		self.invite.open_with(defaults);
 	}
 	pub fn header(
 		&mut self,

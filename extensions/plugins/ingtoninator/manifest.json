@@ -1,0 +1,20 @@
+{
+  "api_version": 1,
+  "id": "ingtoninator",
+  "name": "Ingtoninator",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/ingtoninator",
+  "kind": "plugin",
+  "capabilities": [
+    "composer"
+  ],
+  "actions": [
+    {
+      "id": "ingtoninate",
+      "label": "Append Ington suffix to a draft word",
+      "surface": "composer"
+    }
+  ]
+}

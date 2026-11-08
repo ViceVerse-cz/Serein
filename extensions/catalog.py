@@ -17,7 +17,27 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parent
 REPOSITORY = "ViceVerse-cz/Serein"
 PACKAGE_DIRS = ("themes", "plugins/packages")
-CAPABILITIES = {"selected_message", "composer", "storage", "deleted_messages", "image_sharing", "appearance", "rich_presence", "api_proxy", "external_navigation"}
+CAPABILITIES = {
+    "account_control", "account_profile", "action_feedback", "api_proxy", "app_context",
+    "app_events", "appearance", "audio_settings", "camera_control", "channel_control",
+    "channel_details", "channel_directory", "channel_metadata", "clipboard_write", "composer",
+    "conversation_activity", "data_events", "data_queries", "deleted_messages", "external_navigation",
+    "forum_data", "guild_directory", "guild_folders", "image_sharing", "local_notices",
+    "local_settings", "media_control", "member_details", "members", "message_content",
+    "message_details", "message_events", "message_manage", "message_send", "messaging_settings",
+    "moderation_control", "navigation", "notification_settings", "presence", "reactions_control",
+    "read_state", "read_state_control", "relationship_control", "relationships", "rich_presence",
+    "role_control", "selected_message", "server_control", "storage", "threads_control", "timeline",
+    "voice_connect", "voice_control", "voice_state",
+}
+SURFACE_CAPABILITIES = {
+    "message": "selected_message",
+    "composer": "composer",
+    "message_event": "message_events",
+    "app_event": "app_events",
+    "tick": "appearance",
+}
+UNIQUE_SURFACES = {"activation", "message_event", "app_event", "tick"}
 RESERVED = {"con", "prn", "aux", "nul"} | {f"{prefix}{n}" for prefix in ("com", "lpt") for n in range(1, 10)}
 MAX_PREVIEW = 256 * 1024
 
@@ -43,17 +63,22 @@ def validate(data):
     require(len(manifest["source"].encode()) <= 2048 and source.scheme == "https" and source.hostname and not source.username and source.password is None, "credential-free HTTPS source required")
     capabilities = manifest.get("capabilities", [])
     actions = manifest.get("actions", [])
-    require(isinstance(capabilities, list) and len(capabilities) <= 4 and len(set(capabilities)) == len(capabilities) and set(capabilities) <= CAPABILITIES, "invalid capabilities")
+    require(isinstance(capabilities, list) and len(capabilities) <= 64 and len(set(capabilities)) == len(capabilities) and set(capabilities) <= CAPABILITIES, "invalid capabilities")
     require(isinstance(actions, list) and len(actions) <= 16 and len({a["id"] for a in actions}) == len(actions), "invalid action list")
-    require(sum(a["surface"] == "activation" for a in actions) <= 1, "multiple activation actions")
+    for surface in UNIQUE_SURFACES:
+        require(sum(a["surface"] == surface for a in actions) <= 1, f"multiple {surface} actions")
     if "api_proxy" in capabilities:
         require(set(capabilities) <= {"api_proxy", "storage"} and all(a["surface"] in ("panel", "activation") for a in actions), "API proxy requires connection-only actions and capabilities")
+    if "data_events" in capabilities:
+        require("app_events" in capabilities, "data events require app events")
     for action in actions:
-        require(valid_id(action["id"]) and action["surface"] in ("message", "composer", "panel", "activation"), "invalid action")
+        require(valid_id(action["id"]) and action["surface"] in ("message", "composer", "panel", "activation", "message_event", "app_event", "tick"), "invalid action")
         label = action["label"]
         require(isinstance(label, str) and 0 < len(label.encode()) <= 128 and not any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in label), "invalid action label")
-        capability = {"message": "selected_message", "composer": "composer"}.get(action["surface"])
+        capability = SURFACE_CAPABILITIES.get(action["surface"])
         require(capability is None or capability in capabilities, "action lacks required capability")
+    if {"action_feedback", "data_queries"} & set(capabilities):
+        require("app_events" in capabilities and any(a["surface"] == "app_event" for a in actions), "feedback and queries require an app-event action")
     for field, limit in (("wasm", 4 * 1024 * 1024), ("background_image", 2 * 1024 * 1024), ("cover_image", 2 * 1024 * 1024)):
         values = package.get(field, [])
         require(isinstance(values, list) and len(values) <= limit and all(type(b) is int and 0 <= b <= 255 for b in values), f"invalid {field} bytes")
@@ -107,7 +132,7 @@ class WorkingTree:
 def entries(tree, base):
     """Validate every package, its source manifest and preview; return catalog entries."""
     paths = tree.packages()
-    require(0 < len(paths) <= 256, "catalog requires 1 to 256 packages")
+    require(0 < len(paths) <= 512, "catalog requires 1 to 512 packages")
     result, ids = [], set()
     for relative in paths:
         data = tree.read(relative)

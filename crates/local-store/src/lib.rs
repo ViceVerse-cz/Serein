@@ -1,6 +1,7 @@
 //! Account-isolated bounded SQLite cache. This is not Discord's authoritative state.
 mod account_presence;
 mod channel_preferences;
+pub mod message_history;
 use model::{Id, Message, ReadingPreferences, User};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{
@@ -11,8 +12,8 @@ use std::{
 
 const MAX_MEDIA_JSON: usize = 256 * 1024;
 const MAX_WINDOW_BYTES: usize = 4 * 1024 * 1024;
-const NATIVE_SCHEMA: u32 = 29;
-const READABLE_SCHEMA: u32 = 29;
+const NATIVE_SCHEMA: u32 = message_history::HISTORY_SCHEMA_VERSION;
+const READABLE_SCHEMA: u32 = NATIVE_SCHEMA;
 #[derive(serde::Deserialize)]
 struct CachedMentions(#[serde(deserialize_with = "model::deserialize_mentions")] Vec<User>);
 fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
@@ -44,10 +45,16 @@ pub struct AppPreferences {
 	pub update_nightly: bool,
 	pub notification_options: model::notification_preferences::Device,
 	pub show_hidden_channels: bool,
+	/// Channel-list names, badges and member group headers shown on this device.
+	pub channel_display: model::ChannelDisplayPreferences,
 	/// Keep custom emoji that need Nitro out of suggestions and lock them in the picker.
 	pub hide_nitro_emojis: bool,
 	/// Device-local opt-in; older saved preferences deserialize with conversion off.
 	pub convert_emoticons: bool,
+	/// Insert a picked GIF's provider link into the composer instead of sending it at once.
+	pub gif_insert: bool,
+	/// Defaults applied when opening invite creation; the service still enforces its limits.
+	pub invite_defaults: model::server_invites::InviteDefaults,
 	/// Request a conversation's page while the pointer rests on it; older preferences enable it.
 	pub preload_on_hover: bool,
 	/// Show as Idle after 10 minutes of system inactivity; older preferences enable it.
@@ -87,12 +94,20 @@ pub struct AppPreferences {
 	pub keybinds: model::Keybinds,
 	/// Expanded server folders, bounded so one device preference stays small.
 	pub expanded_folders: Vec<u64>,
+	/// Keep at most one server folder expanded in the rail.
+	pub one_folder_open: bool,
+	/// Collapse expanded server folders when Home is opened.
+	pub close_folders_on_home: bool,
+	/// Collapse expanded server folders when a server outside them is selected.
+	pub close_folders_outside: bool,
 	/// Per-user voice volume overrides, bounded so one device preference stays small.
 	pub user_volumes: Vec<(u64, u16)>,
 	/// Voice participants silenced on this device only, bounded like the volume overrides.
 	pub muted_users: Vec<u64>,
 	/// Profile cosmetics shown on this device; older preferences show all of them.
 	pub cosmetics: model::CosmeticPreferences,
+	/// Device-local profile presentation choices; older preferences keep the native defaults.
+	pub profile_presentation: model::ProfilePreferences,
 	/// Disk budgets and retention for downloaded images, from bounded presets.
 	pub image_cache: model::CachePreferences,
 	/// Clock style for message times; older preferences follow the language.
@@ -115,8 +130,11 @@ impl Default for AppPreferences {
 			update_nightly: true,
 			notification_options: Default::default(),
 			show_hidden_channels: false,
+			channel_display: Default::default(),
 			hide_nitro_emojis: false,
 			convert_emoticons: false,
+			gif_insert: false,
+			invite_defaults: Default::default(),
 			preload_on_hover: true,
 			auto_idle: true,
 			hide_title_bar: false,
@@ -141,9 +159,13 @@ impl Default for AppPreferences {
 			steady_refresh_rate: false,
 			keybinds: Default::default(),
 			expanded_folders: Vec::new(),
+			one_folder_open: false,
+			close_folders_on_home: false,
+			close_folders_outside: false,
 			user_volumes: Vec::new(),
 			muted_users: Vec::new(),
 			cosmetics: Default::default(),
+			profile_presentation: Default::default(),
 			image_cache: Default::default(),
 			time_format: Default::default(),
 			plaintext_login: false,
@@ -169,10 +191,15 @@ impl AppPreferences {
 				.voice_processing
 				.is_none_or(|value| value.custom.is_valid())
 			&& self.expanded_folders.len() <= 256
+			&& self.channel_display.is_valid()
 			&& self.user_volumes.len() <= 64
-			&& self.user_volumes.iter().all(|(_, volume)| *volume <= 200)
+			&& self
+				.user_volumes
+				.iter()
+				.all(|(_, volume)| *volume <= model::voice_settings::LOCAL_BOOST_VOLUME_PERCENT_MAX)
 			&& self.muted_users.len() <= 64
 			&& self.keybinds.is_valid()
+			&& self.invite_defaults.valid()
 			&& self.image_cache.is_valid()
 			&& [&self.voice_input, &self.voice_output]
 				.into_iter()
@@ -320,7 +347,7 @@ impl LocalStore {
 		if version > READABLE_SCHEMA {
 			return Err(StoreError::Incompatible);
 		}
-		connection.execute_batch("PRAGMA page_size=4096; PRAGMA max_page_count=16384; PRAGMA cache_size=-2048; PRAGMA temp_store=MEMORY; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=8388608; PRAGMA secure_delete=ON; PRAGMA auto_vacuum=INCREMENTAL;
+		connection.execute_batch("PRAGMA page_size=4096; PRAGMA max_page_count=32768; PRAGMA cache_size=-2048; PRAGMA temp_store=MEMORY; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=8388608; PRAGMA secure_delete=ON; PRAGMA auto_vacuum=INCREMENTAL;
             CREATE TABLE IF NOT EXISTS messages(account TEXT NOT NULL,channel TEXT NOT NULL,id TEXT NOT NULL,author TEXT NOT NULL,name TEXT NOT NULL,content TEXT NOT NULL,edited INTEGER NOT NULL,reply TEXT,unsupported INTEGER NOT NULL,PRIMARY KEY(account,channel,id));
             CREATE INDEX IF NOT EXISTS messages_channel_order ON messages(account,channel,length(id),id);
             CREATE TABLE IF NOT EXISTS channels(account TEXT NOT NULL,channel TEXT NOT NULL,touched INTEGER NOT NULL,PRIMARY KEY(account,channel));
@@ -507,7 +534,7 @@ impl LocalStore {
             );
             CREATE TABLE IF NOT EXISTS channel_preferences(
                 account TEXT PRIMARY KEY NOT NULL,
-                value TEXT NOT NULL CHECK(typeof(value)='text' AND length(CAST(value AS BLOB))<=8192)
+                value TEXT NOT NULL CHECK(typeof(value)='text' AND length(CAST(value AS BLOB))<=16384)
             );
             CREATE TABLE IF NOT EXISTS account_presence(
                 account TEXT PRIMARY KEY NOT NULL,
@@ -524,6 +551,15 @@ impl LocalStore {
                 touched INTEGER NOT NULL CHECK(typeof(touched)='integer'),
                 has_token INTEGER NOT NULL DEFAULT 0 CHECK(typeof(has_token)='integer' AND has_token IN (0,1))
             );")?;
+		if version < 30 {
+			// Notification filters share the account row, so its JSON bound grows with them.
+			transaction.execute_batch("CREATE TABLE channel_preferences_v30(
+                account TEXT PRIMARY KEY NOT NULL,
+                value TEXT NOT NULL CHECK(typeof(value)='text' AND length(CAST(value AS BLOB))<=16384));
+                INSERT OR IGNORE INTO channel_preferences_v30 SELECT account,value FROM channel_preferences;
+                DROP TABLE channel_preferences;
+                ALTER TABLE channel_preferences_v30 RENAME TO channel_preferences;")?;
+		}
 		let has_token_column: bool = transaction.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('accounts') WHERE name='has_token')",
 			[],
@@ -536,6 +572,7 @@ impl LocalStore {
 			// the next switch instead.
 			transaction.execute_batch("ALTER TABLE accounts ADD COLUMN has_token INTEGER NOT NULL DEFAULT 0 CHECK(typeof(has_token)='integer' AND has_token IN (0,1)); UPDATE accounts SET has_token=1;")?;
 		}
+		message_history::migrate(&transaction, version)?;
 		transaction.pragma_update(None, "user_version", version.max(NATIVE_SCHEMA))?;
 		let has_animate_gifs: bool = transaction.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='animate_gifs')",
@@ -1663,6 +1700,7 @@ impl LocalStore {
 				[account.to_string()],
 			)?;
 		}
+		message_history::forget_account_in(&transaction, account)?;
 		transaction.commit()?;
 		self.0
 			.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA incremental_vacuum(64);")?;
@@ -1671,6 +1709,83 @@ impl LocalStore {
 }
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn schema_31_adds_empty_message_history_without_backfilling_the_render_cache() {
+		let connection = rusqlite::Connection::open_in_memory().unwrap();
+		let mut store = super::LocalStore::initialize(connection).unwrap();
+		store
+			.save_draft(super::Id(7), super::Id(8), "preserve my draft")
+			.unwrap();
+		let connection = store.0;
+		connection
+			.execute_batch(
+				"DROP TABLE history_attachments; DROP TABLE history_changes;
+				 DROP TABLE history_messages; DROP TABLE history_filters; DROP TABLE history_settings;
+				 PRAGMA user_version=30;",
+			)
+			.unwrap();
+		let store = super::LocalStore::initialize(connection).unwrap();
+		assert_eq!(
+			store.load_drafts(super::Id(7)).unwrap()[&super::Id(8)],
+			"preserve my draft"
+		);
+		assert_eq!(
+			store
+				.0
+				.pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+				.unwrap(),
+			31
+		);
+		assert!(!store.history_settings(super::Id(7)).unwrap().enabled);
+		assert!(
+			store
+				.history_page(super::Id(7), None, None, 100)
+				.unwrap()
+				.messages
+				.is_empty()
+		);
+	}
+
+	#[test]
+	fn schema_31_failure_rolls_back_history_tables_and_version() {
+		let path = std::env::temp_dir().join(format!(
+			"serein-schema-31-rollback-{}.sqlite3",
+			std::process::id()
+		));
+		let _ = std::fs::remove_file(&path);
+		let store =
+			super::LocalStore::initialize(rusqlite::Connection::open(&path).unwrap()).unwrap();
+		store
+			.0
+			.execute_batch(
+				"DROP TABLE history_attachments; DROP TABLE history_tombstones;
+				 DROP TABLE history_changes; DROP TABLE history_filters; DROP TABLE history_settings;
+				 DROP TABLE history_messages; CREATE TABLE history_messages(account TEXT);
+				 PRAGMA user_version=30;",
+			)
+			.unwrap();
+		assert!(super::LocalStore::initialize(store.0).is_err());
+		let connection = rusqlite::Connection::open(&path).unwrap();
+		assert_eq!(
+			connection
+				.pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+				.unwrap(),
+			30
+		);
+		let history_settings_created: bool = connection
+			.query_row(
+				"SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='history_settings')",
+				[],
+				|row| row.get(0),
+			)
+			.unwrap();
+		connection.close().unwrap();
+		assert!(!history_settings_created);
+		for suffix in ["", "-wal", "-shm"] {
+			let _ = std::fs::remove_file(path.with_extension(format!("sqlite3{suffix}")));
+		}
+	}
+
 	#[test]
 	fn custom_font_migration_preserves_saved_data_and_accepts_cjk_sizes() {
 		let connection = rusqlite::Connection::open_in_memory().unwrap();
@@ -2185,6 +2300,14 @@ mod tests {
 	fn app_preferences_round_trip_and_reject_invalid_replacement() {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
 		assert_eq!(store.app_preferences().unwrap(), AppPreferences::default());
+		// Local participant boost is persisted up to 400, but never unbounded.
+		let mut boosted = AppPreferences {
+			user_volumes: vec![(7, 400)],
+			..Default::default()
+		};
+		assert!(boosted.is_valid());
+		boosted.user_volumes[0].1 = 401;
+		assert!(!boosted.is_valid());
 		let legacy: AppPreferences =
 			serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
 		assert!(legacy.voice_processing.is_none());

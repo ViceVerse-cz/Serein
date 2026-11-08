@@ -89,3 +89,7 @@ workspace = true
 [[example]]
 name = "double_click_settings"
 required-features = ["demo"]
+
+[[example]]
+name = "message_history_preview"
+required-features = ["demo"]

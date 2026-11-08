@@ -1,7 +1,8 @@
 //! Bounded optimistic edits and pin toggles; server events remain authoritative.
-use crate::{State, auth::Failure};
+use crate::{State, auth::Failure, message_logger::EditedMessage};
 use model::{Id, Message, MessagePatch, Patch};
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 #[derive(Default)]
 pub struct MessageActions {
@@ -41,13 +42,50 @@ impl MessageActions {
 				|| (!page.hits.iter().any(|hit| hit.id == *id) && !(first && !page.partial))
 		});
 	}
-	pub fn observe_content(&mut self, channel: Id, message: Id) {
-		if let Some(edit) = self.edits.get_mut(&(channel, message)) {
-			edit.observed = true;
-		}
-	}
 }
 impl State {
+	/// Record the first accepted gateway update of a pending optimistic edit before the REST
+	/// result arrives. The original body and the server's accepted body are authoritative here;
+	/// the optimistic body is never treated as the original. Partial updates do not call this,
+	/// so the REST result still records the original-to-accepted transition. Returns true only
+	/// when this call consumed the transaction's first accepted update; later or repeated
+	/// updates fall back to ordinary observation.
+	pub(crate) fn observe_optimistic_edit_update(
+		&mut self,
+		channel: Id,
+		message: Id,
+		author: Option<Id>,
+		after: &str,
+	) -> bool {
+		if author.is_some_and(|author| self.user.as_ref().map(|user| user.id) != Some(author)) {
+			return false;
+		}
+		let Some(edit) = self.message_actions.edits.get(&(channel, message)) else {
+			return false;
+		};
+		if edit.observed {
+			// A repeat is left to the ordinary observation path, which records nothing when the
+			// body is unchanged and can still record a genuinely newer accepted update.
+			return false;
+		}
+		let before = edit.before.clone();
+		if self.selected == Some(channel) && self.can_view(channel) {
+			self.message_logger.observe_edited(
+				Instant::now(),
+				EditedMessage {
+					channel,
+					message,
+					revision: self.revision,
+					before: Some(&before),
+					after: Some(after),
+				},
+			);
+		}
+		if let Some(edit) = self.message_actions.edits.get_mut(&(channel, message)) {
+			edit.observed = true;
+		}
+		true
+	}
 	pub(crate) fn cancel_message_actions(&mut self) {
 		self.polls.reset();
 		for ((channel, message), edit) in std::mem::take(&mut self.message_actions.edits) {
@@ -147,6 +185,16 @@ impl State {
 					&& session_cache::Timeline::valid_message(&updated) =>
 			{
 				if !edit.observed && self.selected == Some(channel) && self.can_view(channel) {
+					self.message_logger.observe_edited(
+						Instant::now(),
+						EditedMessage {
+							channel,
+							message,
+							revision: self.revision,
+							before: Some(&edit.before),
+							after: Some(&updated.content),
+						},
+					);
 					let mut patch = content_patch(channel, message, updated.content);
 					patch.edited = updated.edited_at.map_or(Patch::Null, Patch::Value);
 					patch.mentions = Patch::Value(updated.mentions);

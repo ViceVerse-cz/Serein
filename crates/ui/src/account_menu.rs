@@ -276,6 +276,7 @@ impl MessagingUi {
 			.show(ui, |ui| {
 				ui.set_width(ui.available_width());
 				self.account_identity_card(ui, state, commands);
+				self.account_server_profile_row(ui, state, commands);
 				if let Some(user) = &state.user {
 					let guild = state
 						.selected
@@ -563,6 +564,54 @@ impl MessagingUi {
 					}
 				}
 			});
+	}
+
+	/// Opens the signed-in account's profile in the current server. Only the account's own id
+	/// is requested, and the guild is part of the profile cache key.
+	fn account_server_profile_row(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		let Some(guild) = self.profile_guild(state) else {
+			return;
+		};
+		let Some(user) = state.user.clone() else {
+			return;
+		};
+		let colors = design::palette(ui);
+		let label = crate::i18n::translate("account-menu-account-server-profile-view");
+		let response = ui
+			.scope(|ui| {
+				let width = ui.available_width();
+				ui.spacing_mut().button_padding = vec2(34.0, 10.0);
+				ui.add(
+					egui::Button::new(())
+						.left_text(design::medium(ui, &label, 14.0).color(colors.text_strong))
+						.frame_when_inactive(false)
+						.corner_radius(6)
+						.min_size(vec2(width, 40.0)),
+				)
+			})
+			.inner;
+		icons::paint(
+			ui.painter(),
+			icons::Icon::Profile,
+			egui::Rect::from_center_size(
+				egui::pos2(response.rect.left() + 17.0, response.rect.center().y),
+				egui::Vec2::splat(17.0),
+			),
+			colors.muted,
+		);
+		response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+		if response.clicked() {
+			self.account_menu.close = true;
+			self.profile.command_open(user.clone());
+			if let Some(command) = state.request_profile(user.id, Some(guild)) {
+				commands.push(command);
+			}
+		}
 	}
 
 	/// Presence row: status dot, label and a chevron opening the status menu.
@@ -1202,6 +1251,36 @@ mod tests {
 			// The popout owns `open`; rows only ask it to close.
 			assert!(view.account_menu.close);
 		}
+	}
+
+	#[test]
+	fn account_menu_opens_only_the_own_guild_scoped_profile() {
+		let size = vec2(340.0, 900.0);
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let mut state = test_support::demo_state();
+		state.selected = Some(model::Id(20));
+		let own = state.user.as_ref().unwrap().clone();
+		state.own_profile.data = Some(profiles::synthetic(&own, None));
+		let mut view = MessagingUi::default();
+		view.preview_account_menu(state.generation);
+		for _ in 0..3 {
+			frame(&ctx, &mut view, &mut state, size, vec![]);
+		}
+		let text = frame(&ctx, &mut view, &mut state, size, vec![]);
+		click(
+			&ctx,
+			&mut view,
+			&mut state,
+			size,
+			locate(&text, "View Server Profile"),
+		);
+		let profile = state.profile.as_ref().expect("server profile view");
+		assert_eq!(profile.user, own.id);
+		assert_eq!(profile.guild, Some(model::Id(10)));
+		assert!(!view.account_menu.open);
+		// No unrelated user was requested; the account's own id is the only target.
+		assert_eq!(view.profile.open_user().map(|user| user.id), Some(own.id));
 	}
 
 	#[test]

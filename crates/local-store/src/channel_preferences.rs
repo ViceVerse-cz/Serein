@@ -5,7 +5,7 @@ use rusqlite::{OptionalExtension, params};
 impl LocalStore {
 	pub fn channel_preferences(&self, account: Id) -> Result<ChannelPreferences> {
 		let value: Option<Option<String>> = self.0.query_row(
-			"SELECT CASE WHEN typeof(value)='text' AND length(CAST(value AS BLOB))<=8192 THEN value ELSE NULL END FROM channel_preferences WHERE account=?1",
+			"SELECT CASE WHEN typeof(value)='text' AND length(CAST(value AS BLOB))<=16384 THEN value ELSE NULL END FROM channel_preferences WHERE account=?1",
 			[account.to_string()], |row| row.get(0)).optional()?;
 		let value = match value {
 			None => ChannelPreferences::default(),
@@ -141,6 +141,40 @@ mod tests {
 		assert_eq!(
 			store.channel_preferences(Id(2)),
 			Err(StoreError::Incompatible)
+		);
+	}
+
+	#[test]
+	fn notification_tools_share_the_account_row_but_never_leak_between_accounts() {
+		let mut store =
+			LocalStore::initialize(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
+		let mut value = ChannelPreferences::default();
+		value.notification_tools.one_ping_per_dm = true;
+		value.notification_tools.watch_users = vec![Id(7)];
+		value.notification_tools.keywords = vec!["release".into()];
+		value.notification_tools.keyword_allow = vec![Id(20)];
+		value.notification_tools.toasts = true;
+		value.notification_tools.toast_ignore_users = vec![Id(9)];
+		store.save_channel_preferences(Id(1), &value).unwrap();
+		assert_eq!(store.channel_preferences(Id(1)).unwrap(), value);
+		assert_eq!(
+			store.channel_preferences(Id(2)).unwrap().notification_tools,
+			Default::default()
+		);
+		value.notification_tools.keywords = vec!["x".repeat(65)];
+		value.notification_tools.watch_users.push(Id(0));
+		assert_eq!(
+			store.save_channel_preferences(Id(1), &value),
+			Err(StoreError::Capacity)
+		);
+		value.notification_tools = Default::default();
+		store.save_channel_preferences(Id(1), &value).unwrap();
+		value.notification_tools.keywords = vec!["release".into()];
+		store.save_channel_preferences(Id(1), &value).unwrap();
+		store.forget_account(Id(1)).unwrap();
+		assert_eq!(
+			store.channel_preferences(Id(1)).unwrap().notification_tools,
+			Default::default()
 		);
 	}
 }

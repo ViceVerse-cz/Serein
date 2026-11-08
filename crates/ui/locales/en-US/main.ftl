@@ -190,6 +190,7 @@ account-badge-webhook-description = Webhook author
 account-menu-account-identity-card-loading-profile = Loading profile…
 # Context: account_identity_card
 account-menu-account-identity-card-reload-profile = Reload profile
+account-menu-account-server-profile-view = View Server Profile
 # Context: account_menu
 account-menu-account-menu-custom-status = Custom status
 # Context: account_menu
@@ -343,6 +344,7 @@ attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset = Scroll to 
 
 ## crates/ui/src/audio.rs
 # Context: show
+audio-show-playback-speed = Playback speed
 audio-show-loading-audio = Loading audio…
 # Context: show
 audio-show-seek = Seek
@@ -420,6 +422,8 @@ message-request-title = Message request
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Add To Favorites
+# Context: context
+channel-menu-context-keep-original-name = Keep original channel name
 # Context: context
 channel-menu-context-copy-channel-id = Copy Channel ID
 # Context: context
@@ -2201,6 +2205,10 @@ profiles-show-server-tag = Server tag
 profiles-show-unable-to-load-parts-of-profile = Unable to load parts of profile
 # Context: show
 profiles-show-view-banner = View banner
+profiles-platform-desktop = Desktop
+profiles-platform-mobile = Mobile
+profiles-platform-web = Web
+profiles-platform-vr = VR
 # Context: show
 profiles-show-view-profile-picture = View profile picture
 
@@ -2275,6 +2283,18 @@ reading-layout-settings-reset-layout = Reset layout
 reading-layout-settings-show-people-in-servers = Show People in servers
 # Context: layout_settings
 reading-layout-settings-show-people-in-direct-messages = Show People in direct messages
+# Context: layout_settings
+reading-layout-settings-one-folder-open = Keep one server folder open
+# Context: layout_settings
+reading-layout-settings-one-folder-open-description = Close other server folders when one is expanded.
+# Context: layout_settings
+reading-layout-settings-close-folders-on-home = Close folders from Home
+# Context: layout_settings
+reading-layout-settings-close-folders-on-home-description = Collapse expanded server folders when Home is opened.
+# Context: layout_settings
+reading-layout-settings-close-folders-outside = Close folders outside them
+# Context: layout_settings
+reading-layout-settings-close-folders-outside-description = Collapse expanded server folders when a server that is not inside one is selected.
 # Context: layout_settings
 reading-layout-settings-sidebar-width = Sidebar width
 # Context: reading_save_notice
@@ -3539,6 +3559,18 @@ settings-chat-settings-show-channels-you-cannot-currently-access = Show channels
 # Context: chat_settings
 settings-chat-settings-show-hidden-channels = Show hidden channels
 # Context: chat_settings
+settings-chat-settings-clean-channel-names = Clean channel names
+# Context: chat_settings
+settings-chat-settings-clean-channel-names-description = Remove small caps, fullwidth letters, emoji and decoration from channel-list names. The original name returns while editing.
+# Context: chat_settings
+settings-chat-settings-channel-type-badges = Channel type badges
+# Context: chat_settings
+settings-chat-settings-channel-type-badges-description = Show a fixed badge for each loaded channel kind. Kinds without a truthful badge stay unlabelled.
+# Context: chat_settings
+settings-chat-settings-hide-no-role-headers = Hide no-role member headers
+# Context: chat_settings
+settings-chat-settings-hide-no-role-headers-description = Hide only member group headers that the loaded role list cannot resolve; Online, Offline and real roles stay visible.
+# Context: chat_settings
 settings-chat-settings-emoji = Emoji
 # Context: chat_settings
 settings-chat-settings-suggest-nitro-emojis = Suggest emojis that need Nitro
@@ -3584,6 +3616,15 @@ settings-cosmetics-frames = Profile frames
 settings-cosmetics-frames-description = Artwork around profile cards.
 # Context: cosmetic_settings
 settings-cosmetics-hidden-are-not-downloaded = Hidden cosmetics are not downloaded. This changes only what this device shows.
+settings-profile-presentation = Profile presentation
+settings-profile-presentation-always-expand = Always open full profiles
+settings-profile-presentation-always-expand-description = Open the full profile instead of the compact popout. Privacy and loaded details are unchanged.
+settings-profile-presentation-hide-other-themes = Hide other profile themes
+settings-profile-presentation-hide-other-themes-description = Keep your own theme, but show other people's profiles without their loaded theme colours.
+settings-profile-presentation-platform-indicators = Platform indicators
+settings-profile-presentation-platform-indicators-description = Show the desktop, mobile, web and VR clients already reported in presence. Nothing is inferred or fetched.
+settings-profile-presentation-row-banners = Banners in member rows
+settings-profile-presentation-row-banners-description = Paint profile banners that are already loaded behind member rows. This never starts a download.
 # Context: image_cache_settings
 settings-image-cache = Image cache
 # Context: image_cache_settings
@@ -3890,6 +3931,150 @@ timeline-channel-welcome-this-is-the-beginning-of-the-conversation = This is the
 timeline-deleted-message-actions-remove-message = Remove Message
 # Context: deleted_message_actions
 timeline-deleted-message-actions-toggle-deleted-highlight = Toggle Deleted Highlight
+# Context: message_history_window
+timeline-message-history-title = Message history
+# Context: message_history_window
+timeline-message-history-open = View Retained Message History
+# Context: message_history_window
+timeline-message-history-notice = Shows edit and delete history retained by this device's message log. It is not a recovery service: messages deleted before they were observed and bodies this device did not retain cannot be shown.
+# Context: message_history_window
+timeline-message-history-empty = No retained message history yet.
+# Context: message_history_window
+timeline-message-history-deleted = Deleted
+# Context: message_history_window
+timeline-message-history-edit = Edit
+# Context: message_history_window
+timeline-message-history-delete = Delete
+# Context: message_history
+message-history-title = Retained message history
+# Context: message_history
+message-history-notice = Edit and delete history retained by this device's native message log. Availability depends on what was observed and kept; nothing here is recovered from Discord.
+# Context: message_history
+message-history-cache-notice = The viewer keeps a bounded page cache. Rows leave this window as you page or filter; that release does not delete the native log.
+# Context: message_history
+message-history-browse-all = Browse all retained history
+# Context: native_history_preferences
+message-history-settings = Message history settings
+# Context: native_history_preferences
+message-history-settings-help = Stored only on this device with age, row, byte and attachment limits. Changes apply after saving.
+# Context: native_history_preferences
+message-history-enable-capture = Enable persistent message history
+# Context: native_history_preferences
+message-history-capture-enabled = Persistent capture is enabled. Messages deleted before they were observed cannot be reconstructed.
+# Context: native_history_preferences
+message-history-disable-capture = Disable capture and clear history…
+# Context: native_history_preferences
+message-history-package-required = Enable the reviewed Message History package and grant message events before enabling capture. Existing retained history remains viewable.
+# Context: native_history_preferences
+message-history-retention-days = Retention (days)
+# Context: native_history_preferences
+message-history-max-messages = Maximum retained messages
+# Context: native_history_preferences
+message-history-ghost-mode = Edit/delete ghost alerts
+# Context: native_history_preferences
+message-history-ghost-off = Off
+# Context: native_history_preferences
+message-history-ghost-mentions = Mentions only
+# Context: native_history_preferences
+message-history-ghost-all = All retained edits and deletions
+# Context: native_history_preferences
+message-history-download-note = Metadata is retained by default. Each download type is optional and uses separate file/account byte caps; signed URLs are not persisted.
+# Context: native_history_preferences
+message-history-download-images = Download supported images on deletion (8 MiB each)
+# Context: native_history_preferences
+message-history-download-audio = Download supported audio on deletion (16 MiB each)
+# Context: native_history_preferences
+message-history-download-video = Download supported video on deletion (32 MiB each)
+# Context: native_history_preferences
+message-history-ignore-users = Ignored user IDs (comma or space separated)
+# Context: native_history_preferences
+message-history-ignore-channels = Ignored channel IDs (comma or space separated)
+# Context: native_history_preferences
+message-history-apply = Apply history settings
+# Context: message_history
+message-history-filter-all = All
+# Context: message_history
+message-history-filter-edited = Edited
+# Context: message_history
+message-history-filter-deleted = Deleted
+# Context: message_history
+message-history-filter-channel = Channel ID
+# Context: message_history
+message-history-filter-author = Author ID
+# Context: message_history
+message-history-filter-id-hint = decimal ID
+# Context: message_history
+message-history-filter-invalid-id = Enter a positive decimal channel or author ID, or leave the field empty.
+# Context: message_history
+message-history-clear-channel = Clear selected channel
+# Context: message_history
+message-history-clear-account = Clear all account history
+# Context: message_history
+message-history-export-warning = Export includes deleted bodies and older versions.
+# Context: message_history
+message-history-export-text = Export text
+# Context: message_history
+message-history-export-json = Export JSON
+# Context: message_history
+message-history-status-clear-requested = Clear requested; waiting for the native log to confirm.
+# Context: message_history
+message-history-status-export-requested = Export requested; waiting for the native export to finish.
+# Context: message_history
+message-history-loading = Loading retained history…
+# Context: message_history
+message-history-empty = No retained rows match this view.
+# Context: message_history
+message-history-row-deleted = Deleted
+# Context: message_history
+message-history-row-edited = Edited
+# Context: message_history
+message-history-row-retained = Retained
+# Context: message_history
+message-history-column-channel = Channel
+# Context: message_history
+message-history-column-message = Message
+# Context: message_history
+message-history-column-author = Author
+# Context: message_history
+message-history-column-revision = Revision
+# Context: message_history
+message-history-deleted = Deleted
+# Context: message_history
+message-history-latest-content = Latest retained content
+# Context: message_history
+message-history-last-edited = Last edit:
+# Context: message_history
+message-history-versions = Versions
+# Context: message_history
+message-history-edit = Edit
+# Context: message_history
+message-history-delete = Delete
+# Context: message_history
+message-history-attachments = Attachment metadata
+# Context: message_history
+message-history-open-retained = Open retained message
+# Context: message_history
+message-history-open-target = Open in channel
+# Context: message_history
+message-history-select-row = Select a retained row to inspect its latest content and versions.
+# Context: message_history
+message-history-older = Older
+# Context: message_history
+message-history-newer = Newer
+# Context: message_history
+message-history-retry = Retry
+# Context: message_history
+message-history-cache-evicted = This row left the viewer's bounded page cache. It may still be in the native log; load the page again to inspect it.
+# Context: message_history
+message-history-clear-confirm-title = Clear retained history?
+# Context: message_history
+message-history-clear-confirm-channel = Clear every retained row for the selected channel?
+# Context: message_history
+message-history-clear-confirm-account = Clear every retained row for this account?
+# Context: message_history
+message-history-clear-confirm-action = Clear history
+# Context: message_history
+message-history-clear-warning = This removes the retained edit and delete history from this device. It does not delete any message from Discord.
 # Context: loading_messages
 timeline-loading-messages-loading-messages = Loading messages
 # Context: message_actions
@@ -3917,6 +4102,8 @@ timeline-message-actions-pin-message = Pin message
 # Context: message_actions
 timeline-message-actions-reply = Reply
 timeline-message-actions-translate = Translate (opens browser)
+timeline-message-actions-translate-truncated = Translate opened with shortened text because it is too long for a browser link.
+timeline-message-actions-translate-too-long = This text is too long to translate in a browser link.
 # Context: message_actions
 timeline-message-actions-unpin-message = Unpin message
 # Context: message_actions
@@ -4145,6 +4332,7 @@ video-show-player-replay = Replay
 # Context: show_player
 video-show-player-resume = Resume
 # Context: show_player
+video-show-player-playback-speed = Playback speed
 video-show-player-retry = Retry
 # Context: show_player
 video-show-player-seek-video = Seek video
@@ -4228,6 +4416,10 @@ voice-mute-toggle-with-settings-output-settings = Output settings
 voice-stream-audio-controls-mute-stream-audio = Mute stream audio
 # Context: stream_audio_controls
 voice-stream-audio-controls-stream-volume = Stream volume
+# Context: local_gain_slider
+voice-local-volume-boost-warning = Above 200% boosts locally; may clip or be loud
+# Context: local_gain_slider
+voice-local-volume-boost-warning-detail = Discord volume is unchanged. Lower it if audio distorts or hurts.
 # Context: stream_tile
 voice-stream-tile-stream-audio = Stream audio
 # Context: stream_tile
@@ -4704,6 +4896,14 @@ member-in-voice = In voice
 settings-chat-box = Chat Box
 settings-convert-emoticons = Automatically convert emoticons in your messages to emoji
 settings-convert-emoticons-description = Convert standalone emoticons such as :) to 🙂 when sending or editing messages. Code and links stay unchanged.
+settings-gif-insert = Insert GIF links instead of sending them
+settings-gif-insert-description = Picking a GIF adds its provider link to the composer, followed by a space, instead of sending it immediately. The picker closes either way.
+settings-invite-defaults = Invite defaults
+settings-invite-defaults-description = Applied when you open invite creation. Server permissions and the service's own limits still apply.
+settings-invite-defaults-expire-after = Default expiry
+settings-invite-defaults-max-uses = Default maximum uses
+settings-invite-defaults-temporary = Grant temporary membership by default
+settings-invite-defaults-temporary-description = Temporary members are kicked when they disconnect unless they are given a role.
 settings-preload-on-hover = Preload on hover
 settings-preload-on-hover-description = Load a conversation, a profile or the GIF picker while the pointer rests on it, so it opens instantly. Uses the same requests as opening it, at most 12 per minute for each kind.
 settings-auto-idle = Go idle when away

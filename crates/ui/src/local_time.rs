@@ -302,6 +302,10 @@ pub fn calendar(utc: time::OffsetDateTime) -> String {
 pub(crate) fn ago(instant: time::OffsetDateTime) -> String {
 	relative(instant - time::OffsetDateTime::now_utc())
 }
+/// Coarse "in …" text for an instant `seconds` in the future.
+pub(crate) fn future(seconds: i64) -> String {
+	relative(time::Duration::seconds(seconds))
+}
 /// Coarse "in …"/"… ago" phrasing with the same thresholds the web client's relative times use.
 fn relative(delta: time::Duration) -> String {
 	let seconds = delta.whole_seconds();

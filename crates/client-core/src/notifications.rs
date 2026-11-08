@@ -12,18 +12,23 @@ const MAX_SETTINGS_BYTES: usize = 32 * 1024 * 1024;
 pub struct Notification {
 	pub channel: Id,
 	pub message: Id,
+	pub author: Id,
 	pub sender: String,
+	pub title: String,
 	pub preview: String,
 	pub avatar_key: String,
 	direct: bool,
 	everyone: bool,
 	roles: Vec<Id>,
+	/// A watched-author or keyword alert bypasses the channel's message level, never mute/DND.
+	forced: bool,
 }
 impl Notification {
 	fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ self.roles.capacity() * size_of::<Id>()
 			+ self.sender.capacity()
+			+ self.title.capacity()
 			+ self.preview.capacity()
 			+ self.avatar_key.capacity()
 	}
@@ -44,6 +49,17 @@ fn alert_text(text: &str, chars: usize, bytes: usize) -> String {
 	}
 	output.trim().to_owned()
 }
+/// One transient keyword hit; never persisted and never a mention.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeywordMatch {
+	pub channel: Id,
+	pub message: Id,
+	pub author: Id,
+}
+
+const MAX_ONE_PING_CHANNELS: usize = 256;
+const MAX_KEYWORD_MATCHES: usize = 50;
+
 #[derive(Default)]
 pub(crate) struct Activity {
 	counts: BTreeMap<Id, u32>,
@@ -52,13 +68,21 @@ pub(crate) struct Activity {
 	/// Channel, message, local mention, service coverage, and proven service contribution at creation.
 	observed: VecDeque<(Id, Id, bool, bool, bool)>,
 	notifications: VecDeque<Notification>,
+	/// DMs that already produced one alert in the current unread run.
+	one_ping: BTreeSet<Id>,
+	/// Bounded transient keyword hits for local display; no persistent history.
+	keyword_matches: VecDeque<KeywordMatch>,
 }
 impl Activity {
 	pub(crate) fn clear_notifications(&mut self) {
 		self.notifications.clear();
+		self.one_ping.clear();
+		self.keyword_matches.clear();
 	}
 	pub(crate) fn forget(&mut self, channel: Id) {
 		self.high_water.remove(&channel);
+		self.one_ping.remove(&channel);
+		self.keyword_matches.retain(|hit| hit.channel != channel);
 		self.revoke(channel);
 	}
 	fn revoke(&mut self, channel: Id) {
@@ -66,6 +90,42 @@ impl Activity {
 		self.observed_counts.remove(&channel);
 		self.observed.retain(|(c, ..)| *c != channel);
 		self.notifications.retain(|n| n.channel != channel);
+	}
+	/// Returns false when this DM already alerted in the current unread run.
+	fn mark_one_ping(&mut self, channel: Id) -> bool {
+		if self.one_ping.contains(&channel) {
+			return false;
+		}
+		if self.one_ping.len() >= MAX_ONE_PING_CHANNELS
+			&& let Some(oldest) = self.one_ping.iter().next().copied()
+		{
+			self.one_ping.remove(&oldest);
+		}
+		self.one_ping.insert(channel);
+		true
+	}
+	pub(crate) fn reset_one_ping(&mut self, channel: Id) {
+		self.one_ping.remove(&channel);
+	}
+	fn record_keyword_match(&mut self, channel: Id, message: Id, author: Id) {
+		if self.keyword_matches.len() >= MAX_KEYWORD_MATCHES {
+			self.keyword_matches.pop_front();
+		}
+		if !self
+			.keyword_matches
+			.iter()
+			.any(|hit| hit.channel == channel && hit.message == message)
+		{
+			self.keyword_matches.push_back(KeywordMatch {
+				channel,
+				message,
+				author,
+			});
+		}
+	}
+	#[cfg(test)]
+	pub fn keyword_matches(&self) -> &VecDeque<KeywordMatch> {
+		&self.keyword_matches
 	}
 	pub(crate) fn delete(&mut self, channel: Id, message: Id) {
 		self.observed
@@ -85,6 +145,9 @@ impl Activity {
 	}
 	/// Prune read observations/alerts and count only proven service contributions removed.
 	fn retain_unread(&mut self, channel: Id, message: Option<Id>) -> u32 {
+		if message.is_some() {
+			self.one_ping.remove(&channel);
+		}
 		let mut acknowledged = 0;
 		self.observed
 			.retain(|(c, id, _, covered, service_mention)| {
@@ -660,13 +723,19 @@ impl State {
 	}
 	pub fn take_notification(&mut self) -> Option<Notification> {
 		while let Some(notification) = self.read_state.activity.notifications.pop_front() {
-			let mention = self.mention_matches(
-				notification.channel,
-				notification.direct,
-				notification.everyone,
-				&notification.roles,
-			);
-			if self.notification_allowed_for(notification.channel, mention) {
+			let allowed = if notification.forced {
+				self.selected != Some(notification.channel)
+					&& self.notification_delivery_allowed(notification.channel)
+			} else {
+				let mention = self.mention_matches(
+					notification.channel,
+					notification.direct,
+					notification.everyone,
+					&notification.roles,
+				);
+				self.notification_allowed_for(notification.channel, mention)
+			};
+			if allowed {
 				return Some(notification);
 			}
 		}
@@ -680,7 +749,8 @@ impl State {
 	pub fn notification_allowed(&self, channel: Id) -> bool {
 		self.notification_allowed_for(channel, true)
 	}
-	fn notification_allowed_for(&self, channel: Id, mention: bool) -> bool {
+	/// Mute, DND and access gate shared by normal and forced local alerts.
+	fn notification_delivery_allowed(&self, channel: Id) -> bool {
 		if !self.gateway_connected
 			|| !self.can_view(channel)
 			|| !self.notification_preferences_known()
@@ -717,21 +787,8 @@ impl State {
 		{
 			return false;
 		}
-		let mut level = setting
-			.level
-			.or_else(|| channel.guild.is_none().then_some(0));
-		if level == Some(3) {
-			level = match channel.guild {
-				Some(guild) => self
-					.guild(guild)
-					.and_then(|guild| guild.default_message_notifications),
-				None => Some(0),
-			};
-		}
 		for id in [channel.parent_id, Some(channel.id)].into_iter().flatten() {
-			if let Some((_, muted, override_level)) =
-				setting.channels.iter().find(|(c, ..)| *c == id)
-			{
+			if let Some((_, muted, _)) = setting.channels.iter().find(|(c, ..)| *c == id) {
 				let pending = if channel.guild.is_none() && id == channel.id {
 					self.pending_dm_muted(id)
 				} else {
@@ -745,6 +802,34 @@ impl State {
 				if muted == Some(true) || (channel.guild.is_some() && muted != Some(false)) {
 					return false;
 				}
+			}
+		}
+		true
+	}
+
+	fn notification_allowed_for(&self, channel: Id, mention: bool) -> bool {
+		if !self.notification_delivery_allowed(channel) {
+			return false;
+		}
+		let Some(channel) = self.channel(channel) else {
+			return false;
+		};
+		let Some(setting) = self.notification_preferences.setting(channel.guild) else {
+			return channel.guild.is_none();
+		};
+		let mut level = setting
+			.level
+			.or_else(|| channel.guild.is_none().then_some(0));
+		if level == Some(3) {
+			level = match channel.guild {
+				Some(guild) => self
+					.guild(guild)
+					.and_then(|guild| guild.default_message_notifications),
+				None => Some(0),
+			};
+		}
+		for id in [channel.parent_id, Some(channel.id)].into_iter().flatten() {
+			if let Some((_, _, override_level)) = setting.channels.iter().find(|(c, ..)| *c == id) {
 				if channel.guild.is_some() && override_level.is_none() {
 					return false;
 				}
@@ -755,6 +840,22 @@ impl State {
 		}
 		level == Some(0) || (mention && level == Some(1))
 	}
+	/// Applies bounded account-local filters. Any change clears transient alert state so a
+	/// previous one-ping run or keyword log cannot leak across settings edits.
+	pub fn set_notification_tools(
+		&mut self,
+		tools: model::NotificationTools,
+	) -> Result<(), &'static str> {
+		if !tools.is_valid() {
+			return Err("Notification tools exceed safe capacity or contain invalid entries");
+		}
+		if self.notification_tools != tools {
+			self.notification_tools = tools;
+			self.read_state.activity.clear_notifications();
+		}
+		Ok(())
+	}
+
 	pub fn apply_notification_preferences(&mut self, event: Event) -> Result<(), &'static str> {
 		self.observe_dm_settings(&event);
 		self.read_state.activity.clear_notifications();
@@ -976,6 +1077,44 @@ impl State {
 		alert_text(&output, 160, 512)
 	}
 
+	/// Uses only loaded author/channel/guild/reply rows; no extra reads or retained history.
+	fn notification_title(&self, message: &Message) -> String {
+		let sender = self.message_author_name(message);
+		let mut title = if let Some(reply) = message
+			.reply_to
+			.and_then(|id| self.timeline.get(id))
+			.filter(|reply| reply.channel == message.channel)
+		{
+			let replied = self.message_author_name(reply);
+			format!("{sender} replied to {replied}")
+		} else {
+			sender.to_owned()
+		};
+		if let Some(channel) = self
+			.channel(message.channel)
+			.filter(|channel| channel.guild.is_some())
+		{
+			if let Some(parent) = channel
+				.parent_id
+				.filter(|id| *id != channel.id)
+				.and_then(|id| self.channel(id))
+			{
+				title.push_str(&format!(" in #{} in #{}", channel.name, parent.name));
+			} else {
+				title.push_str(&format!(" in #{}", channel.name));
+			}
+			if let Some(guild) = channel.guild.and_then(|id| self.guild(id)) {
+				title.push_str(&format!(", {}", guild.name));
+			}
+		}
+		let title = alert_text(&title, 200, 200);
+		if title.is_empty() {
+			"Serein".to_owned()
+		} else {
+			title
+		}
+	}
+
 	/// Observe message notifications, updating notification badges and mention tracking.
 	pub(crate) fn observe_notification(&mut self, message: &Message) {
 		if !model::valid_mention_roles(&message.mention_roles) {
@@ -1025,6 +1164,33 @@ impl State {
 			&& self.user_blocked(message.author.id) != Some(true)
 			&& self.user_ignored(message.author.id) != Some(true)
 			&& self.notification_allowed_for(message.channel, mention);
+		let guild = self
+			.channel(message.channel)
+			.and_then(|channel| channel.guild);
+		let keyword = self.notification_tools.keyword_matches(
+			&message.content,
+			&message.embeds,
+			message.channel,
+			guild,
+		);
+		if keyword {
+			self.read_state.activity.record_keyword_match(
+				message.channel,
+				message.id,
+				message.author.id,
+			);
+		}
+		let forced = (keyword
+			|| (self
+				.notification_tools
+				.watch_users
+				.contains(&message.author.id)
+				&& message.kind == 0))
+			&& !message.suppress_notifications
+			&& self.user_blocked(message.author.id) != Some(true)
+			&& self.user_ignored(message.author.id) != Some(true)
+			&& self.selected != Some(message.channel)
+			&& self.notification_delivery_allowed(message.channel);
 		{
 			let activity = &mut self.read_state.activity;
 			// ponytail: retain 4096 observed messages; counts become a lower bound after eviction.
@@ -1053,7 +1219,16 @@ impl State {
 			counts.0 += 1;
 			counts.1 += u32::from(mention);
 		}
-		if !allowed {
+		if !allowed && !forced {
+			return;
+		}
+		// One alert per unread DM run. Watched/keyword alerts are explicit and stay exempt.
+		if allowed
+			&& !forced
+			&& self.notification_tools.one_ping_per_dm
+			&& guild.is_none()
+			&& !self.read_state.activity.mark_one_ping(message.channel)
+		{
 			return;
 		}
 		let sender = alert_text(self.message_author_name(message), 80, 256);
@@ -1082,12 +1257,15 @@ impl State {
 		let notification = Notification {
 			channel: message.channel,
 			message: message.id,
+			author: message.author.id,
 			sender,
+			title: self.notification_title(message),
 			preview,
 			avatar_key: message.author.avatar_key(),
 			direct,
 			everyone: message.mention_everyone,
 			roles: message.mention_roles.clone(),
+			forced,
 		};
 		let activity = &mut self.read_state.activity;
 		while activity.notifications.len() >= MAX_NOTIFICATIONS
@@ -1239,6 +1417,176 @@ mod tests {
 			.unwrap();
 		state
 	}
+	#[test]
+	fn one_ping_dm_alerts_once_until_read_and_never_replaces_unread_counts() {
+		let mut state = notification_state();
+		state.channels[0].guild = None;
+		state.channels[0].kind = 1;
+		let mut sender = message(100, 20).author;
+		sender.id = Id(3);
+		state.channels[0].recipients = vec![sender];
+		state.notification_tools.one_ping_per_dm = true;
+		let mut incoming = message(100, 20);
+		incoming.mentions.clear();
+		state.observe_notification(&incoming);
+		assert!(state.take_notification().is_some());
+		incoming.id = Id(101);
+		state.observe_notification(&incoming);
+		assert!(
+			state.take_notification().is_none(),
+			"a second unread DM message is a replayed cue"
+		);
+		assert_eq!(state.unread_count(Id(20)), 2, "badges keep every message");
+		state
+			.apply_read_state(crate::read_state::Event::Ack {
+				channel: Id(20),
+				message: Some(Id(101)),
+				manual: false,
+				mention_count: Some(0),
+				version: None,
+			})
+			.unwrap();
+		incoming.id = Id(102);
+		state.observe_notification(&incoming);
+		assert!(state.take_notification().is_some());
+		// The per-DM set is capped independently of unread state.
+		for id in 1..=400 {
+			state.read_state.activity.mark_one_ping(Id(id));
+		}
+		assert!(state.read_state.activity.one_ping.len() <= MAX_ONE_PING_CHANNELS);
+	}
+
+	#[test]
+	fn watched_authors_bypass_message_level_but_not_selected_mute_or_dnd() {
+		let mut state = notification_state();
+		state
+			.notification_preferences
+			.settings
+			.get_mut(&Some(Id(1)))
+			.unwrap()
+			.level = Some(1);
+		state.notification_tools.watch_users = vec![Id(3)];
+		let mut incoming = message(100, 20);
+		incoming.mentions.clear();
+		state.observe_notification(&incoming);
+		let alert = state.take_notification().expect("watched author alert");
+		assert_eq!(alert.author, Id(3));
+		assert_eq!(
+			state.mention_count(Id(20)),
+			0,
+			"watching never fabricates a mention"
+		);
+		state.selected = Some(Id(20));
+		incoming.id = Id(101);
+		state.observe_notification(&incoming);
+		assert!(state.take_notification().is_none(), "selected is skipped");
+		state.selected = None;
+		state
+			.confirm_channel_preferences(Id(1), Id(20), Some(true), None)
+			.unwrap();
+		incoming.id = Id(102);
+		state.observe_notification(&incoming);
+		assert!(state.take_notification().is_none(), "mute wins");
+		state
+			.confirm_channel_preferences(Id(1), Id(20), Some(false), None)
+			.unwrap();
+		state
+			.apply_notification_preferences(Event::Presence(Some(true)))
+			.unwrap();
+		incoming.id = Id(103);
+		state.observe_notification(&incoming);
+		assert!(state.take_notification().is_none(), "DND wins");
+	}
+
+	#[test]
+	fn keyword_alerts_scan_message_and_embeds_respect_scope_and_keep_a_bounded_log() {
+		let mut state = notification_state();
+		state
+			.notification_preferences
+			.settings
+			.get_mut(&Some(Id(1)))
+			.unwrap()
+			.level = Some(1);
+		state.notification_tools.keywords = vec!["release".into()];
+		let mut incoming = message(100, 20);
+		incoming.mentions.clear();
+		incoming.content = "A RELEASE is ready".into();
+		state.observe_notification(&incoming);
+		assert!(state.take_notification().is_some());
+		assert_eq!(state.mention_count(Id(20)), 0, "keywords are not mentions");
+		let mut embedded = message(101, 20);
+		embedded.mentions.clear();
+		embedded.content.clear();
+		embedded.embeds = vec![model::Embed {
+			title: Some("Release notes".into()),
+			..Default::default()
+		}];
+		state.observe_notification(&embedded);
+		assert!(state.take_notification().is_some());
+		state.notification_tools.keyword_deny = vec![Id(20)];
+		let mut denied = message(102, 20);
+		denied.mentions.clear();
+		denied.content = "release".into();
+		state.observe_notification(&denied);
+		assert!(state.take_notification().is_none());
+		state.notification_tools.keyword_deny.clear();
+		state.notification_tools.keyword_allow = vec![Id(99)];
+		let mut unscoped = message(103, 20);
+		unscoped.mentions.clear();
+		unscoped.content = "release".into();
+		state.observe_notification(&unscoped);
+		assert!(state.take_notification().is_none());
+		state.notification_tools.keyword_allow.clear();
+		for id in 104..170 {
+			let mut message = message(id, 20);
+			message.mentions.clear();
+			message.content = "release".into();
+			state.observe_notification(&message);
+		}
+		assert!(state.read_state.activity.keyword_matches().len() <= MAX_KEYWORD_MATCHES);
+	}
+
+	#[test]
+	fn titles_use_loaded_reply_channel_and_guild_within_two_hundred_bytes() {
+		let mut state = notification_state();
+		state.channels[0].name = "general".into();
+		state.guilds[0].name = "Synthetic Guild".into();
+		let mut reply = message(99, 20);
+		reply.author.name = "Alice".into();
+		reply.mentions.clear();
+		state.timeline.insert(reply, false, false).unwrap();
+		let mut incoming = message(100, 20);
+		incoming.author.name = "Bob".into();
+		incoming.reply_to = Some(Id(99));
+		state.observe_notification(&incoming);
+		let alert = state.take_notification().expect("admitted alert");
+		assert!(alert.title.contains("Bob replied to Alice"));
+		assert!(alert.title.contains("in #general"));
+		assert!(alert.title.contains("Synthetic Guild"));
+		assert!(alert.title.len() <= 200);
+		assert!(alert.title.is_char_boundary(alert.title.len()));
+	}
+
+	#[test]
+	fn changing_tools_clears_transient_one_ping_and_keyword_state() {
+		let mut state = notification_state();
+		assert!(state.read_state.activity.mark_one_ping(Id(20)));
+		state
+			.read_state
+			.activity
+			.record_keyword_match(Id(20), Id(100), Id(3));
+		let mut tools = state.notification_tools.clone();
+		tools.keywords = vec!["release".into()];
+		state.set_notification_tools(tools).unwrap();
+		assert!(state.read_state.activity.keyword_matches().is_empty());
+		assert!(
+			state.read_state.activity.mark_one_ping(Id(20)),
+			"settings change starts a fresh unread run"
+		);
+		state.read_state.activity.forget(Id(20));
+		assert!(state.read_state.activity.mark_one_ping(Id(20)));
+	}
+
 	#[test]
 	fn confirmed_dm_mute_and_block_suppress_notifications() {
 		{

@@ -191,48 +191,44 @@ fn bounded_text(text: &str) -> Option<String> {
 }
 
 fn translate_url(provider: Provider, target: TargetLanguage, text: &str) -> Option<String> {
-	let mut text = text;
-	loop {
-		let url = match provider {
-			Provider::Google => {
-				let mut url = Url::parse("https://translate.google.com/").ok()?;
-				url.query_pairs_mut()
-					.append_pair("sl", "auto")
-					.append_pair("tl", target.as_str())
-					.append_pair("text", text)
-					.append_pair("op", "translate");
-				url.to_string()
-			}
-			Provider::Deepl => {
-				// The fragment is public page state, never an API request. Encode it
-				// explicitly so '#', '%' and spaces cannot change the URL structure.
-				let encoded = url::form_urlencoded::byte_serialize(text.as_bytes())
-					.collect::<String>()
-					.replace('+', "%20");
-				Url::parse(&format!(
-					"https://www.deepl.com/translator#auto/{}/{}",
-					target.as_str(),
-					encoded
-				))
-				.ok()?
-				.to_string()
-			}
-		};
-		if url.len() <= MAX_URL_BYTES {
-			return Some(url);
+	fitting_url(text, |candidate| {
+		translate_url_once(provider, target, candidate)
+	})
+}
+
+fn translate_url_once(provider: Provider, target: TargetLanguage, text: &str) -> Option<String> {
+	match provider {
+		Provider::Google => {
+			let mut url = Url::parse("https://translate.google.com/").ok()?;
+			url.query_pairs_mut()
+				.append_pair("sl", "auto")
+				.append_pair("tl", target.as_str())
+				.append_pair("text", text)
+				.append_pair("op", "translate");
+			Some(url.to_string())
 		}
-		let mut end = text.len().checked_sub(1)?;
-		while !text.is_char_boundary(end) {
-			end -= 1;
-		}
-		text = text[..end].trim_end();
-		if text.is_empty() {
-			return None;
+		Provider::Deepl => {
+			// The fragment is public page state, never an API request. Encode it
+			// explicitly so '#', '%' and spaces cannot change the URL structure.
+			let encoded = url::form_urlencoded::byte_serialize(text.as_bytes())
+				.collect::<String>()
+				.replace('+', "%20");
+			Url::parse(&format!(
+				"https://www.deepl.com/translator#auto/{}/{}",
+				target.as_str(),
+				encoded
+			))
+			.ok()
+			.map(|url| url.to_string())
 		}
 	}
 }
 
 fn search_url(engine: SearchEngine, query: &str) -> Option<String> {
+	fitting_url(query, |candidate| search_url_once(engine, candidate))
+}
+
+fn search_url_once(engine: SearchEngine, query: &str) -> Option<String> {
 	let (base, parameter) = match engine {
 		SearchEngine::Google => ("https://www.google.com/search", "q"),
 		SearchEngine::DuckDuckGo => ("https://duckduckgo.com/", "q"),
@@ -240,23 +236,46 @@ fn search_url(engine: SearchEngine, query: &str) -> Option<String> {
 		SearchEngine::Bing => ("https://www.bing.com/search", "q"),
 		SearchEngine::Wikipedia => ("https://en.wikipedia.org/w/index.php", "search"),
 	};
-	let mut query = query;
-	loop {
-		let mut url = Url::parse(base).ok()?;
-		url.query_pairs_mut().append_pair(parameter, query);
-		let url = url.to_string();
-		if url.len() <= MAX_URL_BYTES {
-			return Some(url);
+	let mut url = Url::parse(base).ok()?;
+	url.query_pairs_mut().append_pair(parameter, query);
+	Some(url.to_string())
+}
+
+/// Return the longest nonempty UTF-8 prefix whose encoded URL fits the byte
+/// ceiling. A bounded binary search keeps very long, percent-heavy inputs from
+/// rebuilding the URL once per dropped character. Candidate trimming matches
+/// the previous character-by-character fallback exactly.
+fn fitting_url(text: &str, build: impl Fn(&str) -> Option<String>) -> Option<String> {
+	if let Some(url) = build(text)
+		&& url.len() <= MAX_URL_BYTES
+	{
+		return Some(url);
+	}
+	let mut boundaries = Vec::with_capacity(text.len() + 1);
+	boundaries.push(0);
+	boundaries.extend(
+		text.char_indices()
+			.map(|(offset, character)| offset + character.len_utf8()),
+	);
+	let mut best = None;
+	let mut low = 1;
+	let mut high = boundaries.len().saturating_sub(1);
+	while low <= high {
+		let middle = low + (high - low) / 2;
+		let candidate = text[..boundaries[middle]].trim_end();
+		if candidate.is_empty() {
+			low = middle + 1;
+			continue;
 		}
-		let mut end = query.len().saturating_sub(1);
-		while end > 0 && !query.is_char_boundary(end) {
-			end -= 1;
-		}
-		query = query[..end].trim_end();
-		if query.is_empty() {
-			return None;
+		match build(candidate) {
+			Some(url) if url.len() <= MAX_URL_BYTES => {
+				best = Some(url);
+				low = middle + 1;
+			}
+			_ => high = middle - 1,
 		}
 	}
+	best
 }
 
 fn open_external_link(url: String) -> HostEffect {
@@ -325,7 +344,7 @@ fn settings_panel(config: Config, notice: &str) -> Vec<Element> {
 			value: config.provider.label().into(),
 		},
 		Element::Select {
-			id: "target_language".into(),
+			id: "target-language".into(),
 			label: "Target language code".into(),
 			options: TargetLanguage::ALL
 				.iter()
@@ -334,7 +353,7 @@ fn settings_panel(config: Config, notice: &str) -> Vec<Element> {
 			value: config.target_language.as_str().into(),
 		},
 		Element::Select {
-			id: "search_engine".into(),
+			id: "search-engine".into(),
 			label: "Search engine".into(),
 			options: SearchEngine::ALL
 				.iter()
@@ -466,7 +485,7 @@ fn panel_action(input: &MessageActionInvocation, save: bool) -> AppOutput {
 			},
 			None => saved.provider,
 		};
-		let target_language = match invocation.value("target_language") {
+		let target_language = match invocation.value("target-language") {
 			Some(value) => match TargetLanguage::from_panel(value) {
 				Some(language) => language,
 				None => {
@@ -481,7 +500,7 @@ fn panel_action(input: &MessageActionInvocation, save: bool) -> AppOutput {
 			},
 			None => saved.target_language,
 		};
-		let search_engine = match invocation.value("search_engine") {
+		let search_engine = match invocation.value("search-engine") {
 			Some(value) => match SearchEngine::from_panel(value) {
 				Some(engine) => engine,
 				None => {
@@ -628,8 +647,8 @@ mod tests {
 		let storage = r#"{"provider":"deepl","target_language":"ja","search_engine":"brave"}"#;
 		let opened = run(serde_json::json!({"action": "open", "storage": storage}));
 		assert_eq!(select_value(&opened, "provider"), Some("DeepL"));
-		assert_eq!(select_value(&opened, "target_language"), Some("ja"));
-		assert_eq!(select_value(&opened, "search_engine"), Some("Brave"));
+		assert_eq!(select_value(&opened, "target-language"), Some("ja"));
+		assert_eq!(select_value(&opened, "search-engine"), Some("Brave"));
 		assert!(opened.output.storage.is_none());
 		assert!(opened.effects.is_empty());
 
@@ -654,8 +673,8 @@ mod tests {
 			"storage": storage,
 			"values": {
 				"provider": "Google Translate",
-				"target_language": "cs",
-				"search_engine": "Wikipedia"
+				"target-language": "cs",
+				"search-engine": "Wikipedia"
 			}
 		}));
 		let stored: Config =
@@ -725,18 +744,18 @@ mod tests {
 			for values in [
 				serde_json::json!({
 					"provider": "Custom",
-					"target_language": "en",
-					"search_engine": "google"
+					"target-language": "en",
+					"search-engine": "google"
 				}),
 				serde_json::json!({
 					"provider": "google",
-					"target_language": "xx",
-					"search_engine": "google"
+					"target-language": "xx",
+					"search-engine": "google"
 				}),
 				serde_json::json!({
 					"provider": "google",
-					"target_language": "en",
-					"search_engine": "custom"
+					"target-language": "en",
+					"search-engine": "custom"
 				}),
 			] {
 				let rejected = run(serde_json::json!({
@@ -759,8 +778,8 @@ mod tests {
 			"storage": "{invalid",
 			"values": {
 				"provider": "deepl",
-				"target_language": "uk",
-				"search_engine": "bing"
+				"target-language": "uk",
+				"search-engine": "bing"
 			}
 		}));
 		let storage = saved.output.storage.as_deref().unwrap();
@@ -775,8 +794,8 @@ mod tests {
 	fn defaults_are_google_translate_english_and_duckduckgo() {
 		let opened = run(serde_json::json!({"action": "open"}));
 		assert_eq!(select_value(&opened, "provider"), Some("Google Translate"));
-		assert_eq!(select_value(&opened, "target_language"), Some("en"));
-		assert_eq!(select_value(&opened, "search_engine"), Some("DuckDuckGo"));
+		assert_eq!(select_value(&opened, "target-language"), Some("en"));
+		assert_eq!(select_value(&opened, "search-engine"), Some("DuckDuckGo"));
 
 		let searched = run(serde_json::json!({
 			"action": "search",
@@ -797,6 +816,121 @@ mod tests {
 	}
 
 	#[test]
+	fn expansion_heavy_text_selects_a_bounded_prefix_through_dispatch() {
+		let heavy = "%".repeat(5000);
+
+		let searched = run(serde_json::json!({
+			"action": "search",
+			"selected_message": heavy
+		}));
+		let url = external_url(&searched);
+		assert_eq!(
+			url,
+			format!("https://duckduckgo.com/?q={}", "%25".repeat(332))
+		);
+		assert!(url.len() <= MAX_URL_BYTES);
+
+		let translated = run(serde_json::json!({
+			"action": "translate",
+			"selected_message": heavy
+		}));
+		let url = external_url(&translated);
+		assert_eq!(
+			url,
+			format!(
+				"https://translate.google.com/?sl=auto&tl=en&text={}&op=translate",
+				"%25".repeat(320)
+			)
+		);
+		assert!(url.len() <= MAX_URL_BYTES);
+
+		let deepl = run(serde_json::json!({
+			"action": "translate",
+			"selected_message": heavy,
+			"storage": r#"{"provider":"deepl","target_language":"en","search_engine":"google"}"#
+		}));
+		let url = external_url(&deepl);
+		assert_eq!(
+			url,
+			format!(
+				"https://www.deepl.com/translator#auto/en/{}",
+				"%25".repeat(327)
+			)
+		);
+		assert!(url.len() <= MAX_URL_BYTES);
+
+		let mixed = run(serde_json::json!({
+			"action": "search",
+			"selected_message": "🦀%".repeat(1000)
+		}));
+		let url = external_url(&mixed);
+		assert!(url.len() <= MAX_URL_BYTES);
+		assert!(url.ends_with("%25"));
+		Url::parse(url).expect("bounded mixed-width URL parses");
+	}
+
+	#[test]
+	fn fitting_url_matches_a_linear_longest_prefix_oracle() {
+		fn oracle(text: &str, build: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+			if let Some(url) = build(text)
+				&& url.len() <= MAX_URL_BYTES
+			{
+				return Some(url);
+			}
+			let mut best = None;
+			let mut boundaries = Vec::with_capacity(text.len() + 1);
+			boundaries.push(0);
+			boundaries.extend(
+				text.char_indices()
+					.map(|(offset, character)| offset + character.len_utf8()),
+			);
+			for end in boundaries.into_iter().skip(1) {
+				let candidate = text[..end].trim_end();
+				if candidate.is_empty() {
+					continue;
+				}
+				if let Some(url) = build(candidate)
+					&& url.len() <= MAX_URL_BYTES
+				{
+					best = Some(url);
+				}
+			}
+			best
+		}
+
+		// Mixed spaces, multibyte characters and percent-heavy bytes exercise
+		// boundaries that do not line up with the encoded URL length.
+		type BuildUrl<'a> = &'a dyn Fn(&str) -> Option<String>;
+		let text = "🦀 a %  b ".repeat(200);
+		let builds: [BuildUrl; 3] = [
+			&|candidate| search_url_once(SearchEngine::DuckDuckGo, candidate),
+			&|candidate| translate_url_once(Provider::Google, TargetLanguage::Ja, candidate),
+			&|candidate| translate_url_once(Provider::Deepl, TargetLanguage::De, candidate),
+		];
+		for build in builds {
+			let expected = oracle(&text, build);
+			let actual = fitting_url(&text, build);
+			assert_eq!(actual, expected);
+			if let Some(url) = actual {
+				assert!(url.len() <= MAX_URL_BYTES);
+			}
+		}
+	}
+
+	#[test]
+	fn fitting_url_uses_a_bounded_number_of_reconstructions() {
+		let calls = std::cell::Cell::new(0);
+		let text = "%".repeat(MAX_TEXT_BYTES);
+		let url = fitting_url(&text, |candidate| {
+			calls.set(calls.get() + 1);
+			search_url_once(SearchEngine::DuckDuckGo, candidate)
+		})
+		.expect("an expansion-heavy prefix fits");
+		assert!(url.len() <= MAX_URL_BYTES);
+		assert!(calls.get() <= 12, "{} URL reconstructions", calls.get());
+	}
+
+	#[test]
 	fn every_allowlisted_search_engine_builds_an_https_url() {
 		for (engine, host) in [
 			("Google", "www.google.com/search"),
@@ -809,8 +943,8 @@ mod tests {
 				"action": "save",
 				"values": {
 					"provider": "google",
-					"target_language": "en",
-					"search_engine": engine
+					"target-language": "en",
+					"search-engine": engine
 				}
 			}));
 			let searched = run(serde_json::json!({

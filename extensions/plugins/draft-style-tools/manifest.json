@@ -1,0 +1,41 @@
+{
+  "api_version": 1,
+  "id": "draft-style-tools",
+  "name": "Draft Style Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/draft-style-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "composer",
+    "storage"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Configure draft style tools",
+      "surface": "panel"
+    },
+    {
+      "id": "save",
+      "label": "Save draft style settings",
+      "surface": "panel"
+    },
+    {
+      "id": "reverse",
+      "label": "Reverse draft text safely",
+      "surface": "composer"
+    },
+    {
+      "id": "signature",
+      "label": "Append signature to draft",
+      "surface": "composer"
+    },
+    {
+      "id": "polish",
+      "label": "Polish draft wording locally",
+      "surface": "composer"
+    }
+  ]
+}

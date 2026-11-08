@@ -148,6 +148,27 @@ pub fn attachment_destination(
 	}
 }
 
+/// Explicit destination for the native account-scoped message-history export.
+/// The selected path grants access only to this export; no retained rows go to extensions.
+pub fn message_history_destination(
+	parent: Arc<winit::window::Window>,
+	format: &'static str,
+) -> impl std::future::Future<Output = Option<PathBuf>> + Send + 'static {
+	let extension = if format == "json" { "json" } else { "txt" };
+	let dialog = rfd::AsyncFileDialog::new()
+		.set_parent(parent.as_ref())
+		.set_title("Export message history")
+		.set_file_name(format!("message-history.{extension}"))
+		.add_filter("Message history", &[extension])
+		.add_filter("All files", &["*"])
+		.save_file();
+	async move {
+		let file = dialog.await?;
+		drop(parent);
+		Some(file.path().to_owned())
+	}
+}
+
 /// A save dialog for one text file the owner attaches to a bug report.
 pub fn text_destination(
 	parent: Arc<winit::window::Window>,

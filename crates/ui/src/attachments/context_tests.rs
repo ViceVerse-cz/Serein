@@ -152,6 +152,7 @@ fn select_media_menu(
 		match &video.command {
 			Some(crate::video::VideoCommand::Seek(_)) => "seek",
 			Some(crate::video::VideoCommand::Volume(_)) => "volume",
+			Some(crate::video::VideoCommand::Speed(_)) => "speed",
 			Some(crate::video::VideoCommand::Pause(_)) => "pause",
 			Some(crate::video::VideoCommand::Play(_)) => "play",
 			Some(crate::video::VideoCommand::Stop) => "stop",

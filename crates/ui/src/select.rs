@@ -271,6 +271,9 @@ struct Pointer {
 	menu: bool,
 	silent: bool,
 	cached: String,
+	/// Last settled label selection, retained for actions that run after a click
+	/// outside the label has already cleared the live selection.
+	selected: String,
 	#[cfg(target_os = "macos")]
 	control_primary: bool,
 }
@@ -387,6 +390,16 @@ impl egui::Plugin for Pointer {
 					.retain(|command| !matches!(command, egui::OutputCommand::CopyText(_)));
 			}
 		}
+		if let Some(text) = output
+			.platform_output
+			.commands
+			.iter()
+			.find_map(|command| match command {
+				egui::OutputCommand::TextSelectionSettled(text) => Some(text.clone()),
+				_ => None,
+			}) {
+			self.selected = text;
+		}
 		self.silent = false;
 		if output.platform_output.cursor_icon == CursorIcon::Text && !hovering_edit(ctx) {
 			output.platform_output.cursor_icon = CursorIcon::Default;
@@ -418,6 +431,18 @@ pub fn clear(ctx: &egui::Context) {
 pub fn open_menu(ctx: &egui::Context) -> bool {
 	ctx.plugin_opt::<Pointer>()
 		.is_some_and(|plugin| plugin.lock().menu)
+}
+
+/// The settled label text, while a selection is active. Retained across the click that
+/// ends the selection so an action on a hover toolbar can still use it.
+pub fn selected_text(ctx: &egui::Context) -> Option<String> {
+	has_selection(ctx)
+		.then(|| {
+			ctx.plugin_opt::<Pointer>()
+				.map(|plugin| plugin.lock().selected.clone())
+		})
+		.flatten()
+		.filter(|text| !text.is_empty())
 }
 
 /// Copy the text cached from the last selected range.

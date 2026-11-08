@@ -10,6 +10,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "command-palette"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
 name = "custom-rpc"
 version = "1.0.0"
 dependencies = [
@@ -30,8 +37,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "external-search-tools"
+name = "draft-style-tools"
 version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serein-extension-sdk",
+]
+
+[[package]]
+name = "external-search-tools"
+version = "1.0.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -132,6 +148,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "identity-tools"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
 name = "idna"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -153,6 +176,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ingtoninator"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -165,10 +195,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
+name = "loaded-role-members"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "message-composition-tools"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serein-extension-sdk",
+]
 
 [[package]]
 name = "message-delete-protector"
@@ -178,11 +224,33 @@ dependencies = [
 ]
 
 [[package]]
-name = "offline-composer-tools"
+name = "message-history"
+version = "0.2.0"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
+name = "message-reference-tools"
 version = "1.0.0"
 dependencies = [
  "serein-extension-sdk",
  "url",
+]
+
+[[package]]
+name = "offline-composer-tools"
+version = "1.0.2"
+dependencies = [
+ "serein-extension-sdk",
+ "url",
+]
+
+[[package]]
+name = "own-message-sed"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
 ]
 
 [[package]]
@@ -277,10 +345,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e"
 
 [[package]]
+name = "social-link-tools"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "status-presets"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serein-extension-sdk",
+]
 
 [[package]]
 name = "syn"
@@ -305,8 +388,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "text-commands"
+name = "text-codecs"
 version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
+name = "text-commands"
+version = "1.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -349,7 +439,7 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "view-raw-message"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "serein-extension-sdk",
 ]

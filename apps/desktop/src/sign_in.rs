@@ -131,6 +131,7 @@ impl Desktop {
 		let old_account = self.state.user.as_ref().filter(|_| !was_demo).map(|u| u.id);
 		self.switching = None;
 		self.roster_pending = false;
+		self.history.end_session(old_account, intent.forgets());
 		self.state.logout();
 		if intent.forgets()
 			&& let (Some(cache), Some(account)) = (&self.cache, old_account)
@@ -258,6 +259,7 @@ impl Desktop {
 			return;
 		}
 		self.messaging.accounts.retain(|saved| saved.id != account);
+		self.history.forget_account_media(account);
 		if let Some(store) = &self.store {
 			let _ = store.send.try_send((
 				self.state.generation,

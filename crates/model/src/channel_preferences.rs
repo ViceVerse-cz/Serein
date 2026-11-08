@@ -1,4 +1,4 @@
-use crate::{Channel, Id};
+use crate::{Channel, Id, NotificationTools};
 
 /// Which device-local shortcut list a channel belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -15,8 +15,9 @@ pub enum PreferenceEdit {
 	CapacityReached,
 }
 
-/// Device-local channel navigation preferences, isolated by account; never synchronized to Discord.
-/// At most 256 IDs (2 KiB of ID payload) across all lists.
+/// Device-local account preferences: channel navigation plus bounded notification filters.
+/// Isolated by account; never synchronized to Discord.
+/// At most 256 IDs (2 KiB of ID payload) across all navigation lists.
 /// Vec order is display order: index 0 is shown first, and a new entry goes to the front.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -26,11 +27,14 @@ pub struct ChannelPreferences {
 	pub collapsed_categories: Vec<Id>,
 	/// Last opened channel per server, oldest first; bounded separately from the lists above.
 	pub last_channels: Vec<(Id, Id)>,
+	/// Account-local notification filters; absent in older rows and therefore defaulted.
+	pub notification_tools: NotificationTools,
 }
 
 impl ChannelPreferences {
 	pub const MAX_ENTRIES: usize = 256;
-	pub const MAX_JSON_BYTES: usize = 8192;
+	/// Navigation lists plus the bounded notification filters share one account row.
+	pub const MAX_JSON_BYTES: usize = 16384;
 	/// Keeps the worst case (256 list IDs plus these pairs of 20-digit IDs) under the JSON cap.
 	pub const MAX_LAST_CHANNELS: usize = 32;
 
@@ -63,7 +67,7 @@ impl ChannelPreferences {
 				ids.iter()
 					.enumerate()
 					.all(|(index, id)| id.0 != 0 && !ids[..index].contains(id))
-			})
+			}) && self.notification_tools.is_valid()
 	}
 
 	fn list(&self, kind: Shortcut) -> &Vec<Id> {
@@ -161,6 +165,7 @@ impl ChannelPreferences {
 		self.pinned.retain(|id| *id != channel);
 		self.collapsed_categories.retain(|id| *id != channel);
 		self.last_channels.retain(|(_, id)| *id != channel);
-		before != count(self)
+		let tools = self.notification_tools.forget_channel(channel);
+		before != count(self) || tools
 	}
 }

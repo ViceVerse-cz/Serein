@@ -1,0 +1,39 @@
+{
+  "api_version": 1,
+  "id": "social-link-tools",
+  "name": "Social Link Tools",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/social-link-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "relationships",
+    "relationship_control",
+    "selected_message",
+    "clipboard_write",
+    "message_send"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Review outgoing friend requests",
+      "surface": "panel"
+    },
+    {
+      "id": "cancel",
+      "label": "Cancel selected outgoing friend request",
+      "surface": "panel"
+    },
+    {
+      "id": "normalize-links",
+      "label": "Copy normalized Discord message links",
+      "surface": "message"
+    },
+    {
+      "id": "repeat",
+      "label": "Send selected message with neutralized mentions",
+      "surface": "message"
+    }
+  ]
+}

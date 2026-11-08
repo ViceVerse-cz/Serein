@@ -1,0 +1,41 @@
+{
+  "api_version": 1,
+  "id": "status-presets",
+  "name": "Status presets",
+  "version": "1.0.0",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/status-presets",
+  "kind": "plugin",
+  "capabilities": [
+    "account_control",
+    "storage"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Manage status presets",
+      "surface": "panel"
+    },
+    {
+      "id": "list",
+      "label": "List saved status presets",
+      "surface": "panel"
+    },
+    {
+      "id": "save",
+      "label": "Save status preset",
+      "surface": "panel"
+    },
+    {
+      "id": "delete",
+      "label": "Delete selected status preset",
+      "surface": "panel"
+    },
+    {
+      "id": "apply",
+      "label": "Apply selected status preset",
+      "surface": "panel"
+    }
+  ]
+}

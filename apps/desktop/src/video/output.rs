@@ -11,6 +11,8 @@ pub struct Controls {
 	pub paused: Arc<AtomicBool>,
 	pub seek: Arc<AtomicU64>,
 	pub volume: Arc<AtomicU32>,
+	/// Playback rate as `f32` bits; the callback clamps it before resampling.
+	pub speed: Arc<AtomicU32>,
 	pub position: Arc<AtomicU64>,
 	pub eof: Arc<AtomicBool>,
 	pub failed: Arc<AtomicBool>,
@@ -47,6 +49,12 @@ impl Playback {
 		} else {
 			0.0
 		};
+		let speed = f32::from_bits(self.controls.speed.load(Ordering::Acquire));
+		let speed = if speed.is_finite() {
+			speed.clamp(0.25, 3.5)
+		} else {
+			1.0
+		};
 		for output in data.chunks_exact_mut(channels) {
 			// Acquire EOF before examining the queue to observe all final producer writes.
 			let eof = self.controls.eof.load(Ordering::Acquire);
@@ -71,7 +79,7 @@ impl Playback {
 				Err(_) if eof => left,
 				Err(_) => return,
 			};
-			let step = f64::from(self.rate) / f64::from(rate);
+			let step = f64::from(self.rate) / f64::from(rate) * f64::from(speed);
 			let available = 1.0 + self.frames.slots() as f64 - self.phase;
 			if !eof && step > available {
 				return;
@@ -176,6 +184,7 @@ mod tests {
 				paused: Arc::new(AtomicBool::new(false)),
 				seek: Arc::new(AtomicU64::new(u64::MAX)),
 				volume: Arc::new(AtomicU32::new(0.5f32.to_bits())),
+				speed: Arc::new(AtomicU32::new(1.0f32.to_bits())),
 				position: Arc::new(AtomicU64::new(0)),
 				eof: Arc::new(AtomicBool::new(false)),
 				failed: Arc::new(AtomicBool::new(false)),
@@ -246,5 +255,44 @@ mod tests {
 			assert_eq!(block, [0.0; 2048]);
 			assert_eq!(controls.position.load(Ordering::Acquire), total);
 		}
+	}
+
+	fn rendered_position(speed: f32) -> u64 {
+		let controls = Controls {
+			cancelled: Arc::new(AtomicBool::new(false)),
+			paused: Arc::new(AtomicBool::new(false)),
+			seek: Arc::new(AtomicU64::new(u64::MAX)),
+			volume: Arc::new(AtomicU32::new(1.0f32.to_bits())),
+			speed: Arc::new(AtomicU32::new(speed.to_bits())),
+			position: Arc::new(AtomicU64::new(0)),
+			eof: Arc::new(AtomicBool::new(false)),
+			failed: Arc::new(AtomicBool::new(false)),
+		};
+		let (mut producer, frames) = rtrb::RingBuffer::new(1024);
+		for _ in 0..1024 {
+			producer.push([0.5; 2]).unwrap();
+		}
+		let mut playback = Playback {
+			frames,
+			current: None,
+			phase: 0.0,
+			read_frames: 0,
+			rate: 48000,
+			controls: controls.clone(),
+		};
+		playback.render(&mut [0.0f32; 64], 2, 48000);
+		controls.position.load(Ordering::Acquire)
+	}
+
+	#[test]
+	fn playback_speed_scales_the_media_clock_and_rejects_non_finite_values() {
+		// 32 output frames at 2x consume about 64 source frames.
+		let doubled = rendered_position(2.0);
+		assert!((60..=64).contains(&doubled), "{doubled}");
+		let normal = rendered_position(f32::NAN);
+		assert!((30..=32).contains(&normal), "{normal}");
+		// The callback clamps to the same 3.5x ceiling as the UI.
+		let clamped = rendered_position(100.0);
+		assert!(clamped > doubled && clamped <= 112, "{clamped}");
 	}
 }

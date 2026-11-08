@@ -114,6 +114,30 @@ impl State {
 		}
 		self.prepare_message(&[], Some(sticker), false)
 	}
+	/// Sends a deliberately staged sticker together with the composer's text and reply
+	/// target. The draft and reply stay untouched when validation fails.
+	pub fn prepare_sticker_message_send(&mut self, sticker: &Sticker) -> Option<Command> {
+		if !self.can_send_sticker(sticker) {
+			self.status = if self.sticker_requires_nitro(sticker) {
+				"Nitro is required to use this sticker outside its server"
+			} else {
+				"This sticker is unavailable in this conversation"
+			};
+			return None;
+		}
+		let channel = self.selected?;
+		let content = self.drafts.get(&channel).cloned().unwrap_or_default();
+		let reply = self.reply;
+		let command =
+			self.prepare_message_content(&[], Some(sticker), false, Some(&content), reply);
+		if command.is_some() {
+			self.drafts.remove(&channel);
+			if self.reply == reply {
+				self.reply = None;
+			}
+		}
+		command
+	}
 	/// Resolve an SDK sticker id only from the bounded catalog already known to this session.
 	pub fn prepare_sticker_id_send(&mut self, id: Id) -> Option<Command> {
 		let sticker = self
@@ -286,5 +310,63 @@ mod tests {
 		assert!(!state.sticker_requires_nitro(&external));
 		state.channels[0].guild = Some(Id(100));
 		assert!(state.sticker_requires_nitro(&external));
+	}
+
+	#[test]
+	fn staged_sticker_send_keeps_caption_and_reply_until_explicit_send() {
+		let mut state = State {
+			channels: vec![model::Channel {
+				id: Id(1),
+				guild: None,
+				parent_id: None,
+				kind: 1,
+				name: "DM".into(),
+				position: 0,
+				recipients: vec![],
+				last_message: None,
+				icon: None,
+				member_list_id: None,
+				tags: None,
+				message_count: None,
+			}],
+			selected: Some(Id(1)),
+			auth: AuthState::Authenticated,
+			freshness: crate::Freshness::Fresh,
+			gateway_connected: true,
+			..State::default()
+		};
+		let sticker = Sticker {
+			id: Id(9),
+			name: "Wave 👋".into(),
+			description: String::new(),
+			tags: "hello".into(),
+			format_type: 1,
+			guild_id: None,
+			pack_id: Some(Id(8)),
+			available: true,
+		};
+		state.drafts.insert(Id(1), "前👩🏽‍💻後 caption".into());
+		state.reply = Some(crate::Reply::to(Id(77)));
+		let command = state.prepare_sticker_message_send(&sticker).unwrap();
+		assert!(matches!(
+			&command,
+			Command::Send {
+				sticker: Some(Id(9)),
+				content,
+				reply: Some(reply),
+				..
+			} if content == "前👩🏽‍💻後 caption" && reply.target() == Id(77)
+		));
+		assert!(!state.drafts.contains_key(&Id(1)));
+		assert!(state.reply.is_none());
+
+		// An unsupported sticker is never converted to text or another request.
+		state.drafts.insert(Id(1), "Keep me".into());
+		state.reply = Some(crate::Reply::to(Id(78)));
+		let mut unavailable = sticker;
+		unavailable.available = false;
+		assert!(state.prepare_sticker_message_send(&unavailable).is_none());
+		assert_eq!(state.drafts[&Id(1)], "Keep me");
+		assert_eq!(state.reply.map(crate::Reply::target), Some(Id(78)));
 	}
 }

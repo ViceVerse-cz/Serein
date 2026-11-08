@@ -495,10 +495,21 @@ impl State {
 		if message.author.webhook {
 			return None;
 		}
-		let guild = self.channel(message.channel)?.guild?;
+		self.role_colors(message.channel, message.author.id, &message.author_roles)
+	}
+	/// Role colours for a user in `channel`, preferring live member roles over the supplied
+	/// fallback. Only loaded role metadata is used; no member or role is fetched here.
+	pub fn role_colors(
+		&self,
+		channel: Id,
+		user: Id,
+		fallback_roles: &[Id],
+	) -> Option<model::server_roles::Colors> {
+		let guild = self.channel(channel)?.guild?;
 		let roles = self
-			.live_author_roles(guild, message.channel, message.author.id)
-			.unwrap_or(message.author_roles.as_slice());
+			.live_member_roles(guild, channel, user)
+			.filter(|roles| !roles.is_empty())
+			.unwrap_or(fallback_roles);
 		self.display_roles(guild, roles).1.map(p::Role::colors)
 	}
 	pub fn forum_author_color(

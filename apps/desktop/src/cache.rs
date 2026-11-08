@@ -1,5 +1,6 @@
+use crate::history_store::{ExportRequest, ViewPage};
 use eframe::egui;
-use local_store::{Appearance, LocalStore, StoreError};
+use local_store::{Appearance, LocalStore, StoreError, message_history::HistorySettings};
 use model::{Id, Message};
 use std::{
 	collections::{BTreeMap, BTreeSet},
@@ -70,6 +71,30 @@ pub enum Operation {
 	SaveGifFavorites(Vec<model::Gif>),
 	LoadChannelPreferences,
 	SaveChannelPreferences(model::ChannelPreferences),
+	ApplyHistoryMutations(Vec<model::message_logger::Mutation>),
+	LoadHistorySettings,
+	SaveHistorySettings(HistorySettings),
+	LoadHistoryPage(ViewPage),
+	ClearHistoryLog {
+		channel: Option<Id>,
+	},
+	ExportHistory(ExportRequest),
+	MaintainHistoryLog {
+		now_ms: i64,
+	},
+	ReserveHistoryAttachment {
+		request: u64,
+		channel: Id,
+		message: Id,
+		attachment: Id,
+		expected_bytes: u64,
+	},
+	FinishHistoryAttachment {
+		channel: Id,
+		message: Id,
+		attachment: Id,
+		actual: Result<u64, &'static str>,
+	},
 	LoadAccountPresences,
 	SaveAccountPresence(model::OwnPresence),
 	LoadAccounts,
@@ -121,6 +146,24 @@ pub enum Outcome {
 	GifFavorites(Vec<model::Gif>),
 	ChannelPreferences(Result<model::ChannelPreferences, StoreError>),
 	ChannelPreferencesSaved(Result<(), StoreError>),
+	HistoryMutationsSaved(Result<usize, StoreError>),
+	HistoryAttachmentReserved {
+		request: u64,
+		result: Result<local_store::message_history::HistoryReservation, StoreError>,
+	},
+	HistoryAttachmentFinished(
+		Result<local_store::message_history::HistoryAttachmentUpdate, StoreError>,
+	),
+	HistorySettings(Result<(HistorySettings, bool), StoreError>),
+	HistorySettingsSaved(Result<(), StoreError>),
+	HistoryPage(Result<ui::message_history::HistoryPage, StoreError>),
+	HistoryLogCleared(Result<usize, StoreError>),
+	HistoryExported(
+		Result<
+			crate::message_history_export::ExportSummary,
+			crate::message_history_export::ExportError,
+		>,
+	),
 	AccountPresences(Result<std::collections::BTreeMap<model::Id, model::OwnPresence>, StoreError>),
 	AccountPresenceSaved(Result<(), StoreError>),
 	/// The whole switcher roster, plus any accounts pruned to keep it bounded. Pruning is
@@ -236,7 +279,10 @@ impl Cache {
 		}
 	}
 	pub fn queue(&self, generation: u64, account: Id, operation: Operation) -> bool {
-		if matches!(&operation, Operation::SaveChannelPreferences(value) if !value.is_valid()) {
+		if matches!(&operation, Operation::SaveChannelPreferences(value) if !value.is_valid())
+			|| matches!(&operation, Operation::SaveHistorySettings(value) if !value.is_valid())
+			|| matches!(&operation, Operation::ExportHistory(request) if request.destination.as_os_str().len() > 1024)
+		{
 			return false;
 		}
 		let payload = match &operation {
@@ -264,6 +310,23 @@ impl Cache {
 				favorites.iter().map(model::Gif::bytes).sum::<usize>()
 					+ favorites.capacity() * size_of::<model::Gif>()
 			}
+			Operation::ApplyHistoryMutations(mutations) => {
+				if mutations.is_empty() || mutations.len() > model::message_logger::MAX_MUTATIONS {
+					return false;
+				}
+				let bytes = mutations
+					.iter()
+					.map(model::message_logger::Mutation::bytes)
+					.sum();
+				if bytes > model::message_logger::MAX_MUTATION_BYTES {
+					return false;
+				}
+				bytes
+			}
+			Operation::SaveHistorySettings(value) => {
+				(value.ignore_users.len() + value.ignore_channels.len()) * size_of::<Id>()
+			}
+			Operation::ExportHistory(request) => request.destination.as_os_str().len(),
 			Operation::SaveAppPreferences(value) => {
 				if !value.is_valid() {
 					return false;
@@ -346,6 +409,17 @@ impl Cache {
 					}
 					Outcome::Channel { messages, .. } => message_bytes(messages),
 					Outcome::Drafts(drafts) => drafts.values().map(String::capacity).sum(),
+					Outcome::HistoryPage(Ok(page)) => {
+						page.entries
+							.iter()
+							.map(model::message_logger::Entry::bytes)
+							.sum::<usize>() + page.entries.capacity()
+							* size_of::<model::message_logger::Entry>()
+					}
+					Outcome::HistorySettings(Ok((settings, _))) => {
+						(settings.ignore_users.len() + settings.ignore_channels.len())
+							* size_of::<Id>()
+					}
 					Outcome::GifFavorites(favorites) => {
 						favorites.iter().map(model::Gif::bytes).sum::<usize>()
 							+ favorites.capacity() * size_of::<model::Gif>()
@@ -383,8 +457,53 @@ fn execute(
 	history: &HistorySafety,
 	account: Id,
 	epoch: u64,
-	operation: Operation,
+	mut operation: Operation,
 ) -> Outcome {
+	// An account/session change fences old non-destructive history work. Explicit purges and
+	// retention continue even if scope changed just after the owner confirmed them.
+	if !history.allows(epoch) {
+		if let Operation::ApplyHistoryMutations(mutations) = &operation {
+			let destructive: Vec<_> = mutations
+				.iter()
+				.filter(|mutation| {
+					!matches!(
+						mutation,
+						model::message_logger::Mutation::Baseline { .. }
+							| model::message_logger::Mutation::Edit { .. }
+							| model::message_logger::Mutation::Delete { .. }
+					)
+				})
+				.cloned()
+				.collect();
+			if destructive.is_empty() {
+				return Outcome::HistoryMutationsSaved(Ok(0));
+			}
+			operation = Operation::ApplyHistoryMutations(destructive);
+		}
+		match &operation {
+			Operation::LoadHistorySettings => {
+				return Outcome::HistorySettings(Err(StoreError::Capacity));
+			}
+			Operation::SaveHistorySettings(_) => {
+				return Outcome::HistorySettingsSaved(Err(StoreError::Capacity));
+			}
+			Operation::LoadHistoryPage(_) => {
+				return Outcome::HistoryPage(Err(StoreError::Capacity));
+			}
+			Operation::ExportHistory(_) => {
+				return Outcome::HistoryExported(Err(
+					crate::message_history_export::ExportError::Cancelled,
+				));
+			}
+			Operation::ReserveHistoryAttachment { request, .. } => {
+				return Outcome::HistoryAttachmentReserved {
+					request: *request,
+					result: Err(StoreError::Capacity),
+				};
+			}
+			_ => {}
+		}
+	}
 	// Settings completions have their own pending/error state, independent of history.
 	match &operation {
 		Operation::LoadCustomFont => {
@@ -419,6 +538,104 @@ fn execute(
 		Operation::SaveChannelPreferences(value) => {
 			return Outcome::ChannelPreferencesSaved(match store {
 				Ok(store) => store.save_channel_preferences(account, value),
+				Err(error) => Err(*error),
+			});
+		}
+		Operation::ApplyHistoryMutations(mutations) => {
+			return Outcome::HistoryMutationsSaved(match store {
+				Ok(store) => crate::history_store::apply_mutations(store, account, mutations),
+				Err(error) => Err(*error),
+			});
+		}
+		Operation::LoadHistorySettings => {
+			return Outcome::HistorySettings(match store {
+				Ok(store) => store.history_settings(account).and_then(|settings| {
+					Ok((settings, store.history_settings_configured(account)?))
+				}),
+				Err(error) => Err(*error),
+			});
+		}
+		Operation::SaveHistorySettings(value) => {
+			return Outcome::HistorySettingsSaved(match store {
+				Ok(store) => store.save_history_settings(account, value),
+				Err(error) => Err(*error),
+			});
+		}
+		Operation::LoadHistoryPage(page) => {
+			return Outcome::HistoryPage(if page.account != account {
+				Err(StoreError::Capacity)
+			} else {
+				match store {
+					Ok(store) => crate::history_store::load_view_page(store, page.clone()),
+					Err(error) => Err(*error),
+				}
+			});
+		}
+		Operation::ClearHistoryLog { channel } => {
+			return Outcome::HistoryLogCleared(match store {
+				Ok(store) => match channel {
+					Some(channel) => store.clear_history_channel(account, *channel),
+					None => store.clear_history_account(account),
+				},
+				Err(error) => Err(*error),
+			});
+		}
+		Operation::ExportHistory(request) => {
+			return Outcome::HistoryExported(match store {
+				Ok(store) => crate::history_store::export(store, account, request.clone()),
+				Err(_) => Err(crate::message_history_export::ExportError::Io(
+					"Local history storage is unavailable",
+				)),
+			});
+		}
+		Operation::MaintainHistoryLog { now_ms } => {
+			return Outcome::HistoryMutationsSaved(match store {
+				Ok(store) => store
+					.maintain_history(account, *now_ms)
+					.map(|result| result.expired.saturating_add(result.evicted)),
+				Err(error) => Err(*error),
+			});
+		}
+		Operation::ReserveHistoryAttachment {
+			request,
+			channel,
+			message,
+			attachment,
+			expected_bytes,
+		} => {
+			return Outcome::HistoryAttachmentReserved {
+				request: *request,
+				result: match store {
+					Ok(store) => store.reserve_history_attachment(
+						account,
+						*channel,
+						*message,
+						*attachment,
+						*expected_bytes,
+					),
+					Err(error) => Err(*error),
+				},
+			};
+		}
+		Operation::FinishHistoryAttachment {
+			channel,
+			message,
+			attachment,
+			actual,
+		} => {
+			return Outcome::HistoryAttachmentFinished(match store {
+				Ok(store) => match actual {
+					Ok(bytes) => store.complete_history_attachment(
+						account,
+						*channel,
+						*message,
+						*attachment,
+						*bytes,
+					),
+					Err(_) => store
+						.release_history_attachment(account, *channel, *message, *attachment, true)
+						.map(|_| local_store::message_history::HistoryAttachmentUpdate::Released),
+				},
 				Err(error) => Err(*error),
 			});
 		}
@@ -567,6 +784,15 @@ fn execute(
 		| Operation::SaveGameActivity(_)
 		| Operation::LoadMinimizeToTray
 		| Operation::SaveMinimizeToTray(_)
+		| Operation::ApplyHistoryMutations(_)
+		| Operation::LoadHistorySettings
+		| Operation::SaveHistorySettings(_)
+		| Operation::LoadHistoryPage(_)
+		| Operation::ClearHistoryLog { .. }
+		| Operation::ExportHistory(_)
+		| Operation::MaintainHistoryLog { .. }
+		| Operation::ReserveHistoryAttachment { .. }
+		| Operation::FinishHistoryAttachment { .. }
 		| Operation::LoadAccountPresences
 		| Operation::SaveAccountPresence(_) => unreachable!(),
 	};
@@ -586,6 +812,15 @@ fn execute(
 			| Operation::SaveGameActivity(_)
 			| Operation::LoadMinimizeToTray
 			| Operation::SaveMinimizeToTray(_)
+			| Operation::ApplyHistoryMutations(_)
+			| Operation::LoadHistorySettings
+			| Operation::SaveHistorySettings(_)
+			| Operation::LoadHistoryPage(_)
+			| Operation::ClearHistoryLog { .. }
+			| Operation::ExportHistory(_)
+			| Operation::MaintainHistoryLog { .. }
+			| Operation::ReserveHistoryAttachment { .. }
+			| Operation::FinishHistoryAttachment { .. }
 			| Operation::LoadAccountPresences
 			| Operation::SaveAccountPresence(_) => {
 				unreachable!()
@@ -800,6 +1035,7 @@ mod tests {
 			pinned: vec![Id(20)],
 			collapsed_categories: vec![Id(21)],
 			last_channels: vec![(Id(22), Id(23))],
+			notification_tools: Default::default(),
 		};
 		store
 			.as_ref()

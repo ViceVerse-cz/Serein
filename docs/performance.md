@@ -1856,3 +1856,43 @@ Native computer use exposed no applications in this session. Native before/after
 screenshots, UI workload warmup/sampling, CPU/RSS, display scale/renderer observation,
 frame latency and live Discord verification remain unavailable. No UI speed or
 memory improvement is established by these package sizes.
+
+### Equicord ecosystem and persistent message history — November 8, 2026
+
+Measured on Ubuntu Linux x86_64, Rust 1.98.1, locked/default release plus the `demo` profile for the
+UI fixture. Baseline is `21f8870b3849f24f9b0fb0bb17b9e3e272e2b93a` installed to
+`target/ecosystem-baseline/dist/serein`; current source is the dirty ecosystem working tree at the
+time of packaging, installed to `dist/serein`. Both packages include voice and use
+`cargo xtask package --format dir`. No live account, incoming message, network, microphone or audio
+playback was measured. Debian `.deb` builds could not be produced because `dpkg` is absent.
+
+| Metric | Baseline | Current | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 95,117,576 | 95,887,624 | +770,048 (+0.810%) |
+| Installed staging-tree bytes | 199,279,452 | 200,821,462 | +1,542,010 (+0.774%) |
+| Compressed staging tree (`tar.gz`) bytes | 114,036,051 | 114,706,931 | +670,880 (+0.588%) |
+| Median process CPU, same profile fixture | 9.33% | 3.33% | not a reliable speedup claim |
+| CPU range, five runs | 9.33–11.33% | 0.00–12.33% | highly variable |
+| Median resident memory, five runs | 211.88 MiB | 215.75 MiB | +3.87 MiB (+1.83%) |
+
+The UI sampler ran one process at a time with the same synthetic 1120x760 profile/chat page,
+`DISPLAY=:99` (Xvfb), `LIBGL_ALWAYS_SOFTWARE=1`, a three-second warmup, then 12 RSS samples at
+250 ms intervals over three seconds. It was repeated five times per revision. CPU comes from
+`/proc/<pid>/stat` user+system ticks over that measured interval; RSS uses `/proc/<pid>/statm`
+and is not PSS or total system memory. No helper process was observed beyond that preview.
+These measurements isolate the UI fixture, not the Message History worker or Discord service.
+The small CPU median difference is not treated as a meaningful performance improvement because
+its measured range is much larger than a stable estimate. No FPS, p95 frame time, startup latency,
+voice quality or service latency was measured.
+
+Executable SHA-256: baseline `cecd822fbd95c86c09cb91bf88fbf21fa240a7e57c389468f378e80ae28ddbbe`;
+current `8a83b0c3f39ac6c22d76b425ebd33ad1adacccc172eed5667ba2040b1d1f844c`.
+The compressed tree hashes are `d719b8b7d58abd1723645c1511b40e5ff6ad5575168cc4d917dee64654093b34`
+and `ad4c5bd8b91c60b3f785e02c45f8a3ce61855b31f02d2868c89f9bf985685f3a` respectively.
+The reviewed development starter selection is debug-only, so these release package deltas do
+not imply that all 373 Equicord plugins are included or compatible.
+
+The detached baseline filled the 16 GiB `/tmp` tmpfs during its first package attempt. It was moved
+onto `/mnt/storage` and packaging resumed there without discarding its build cache or any user
+data. Repeated builds are sequential to avoid the concurrent
+worktree compiler pressure seen earlier.

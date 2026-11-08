@@ -33,7 +33,11 @@ mod game_mentions;
 mod gpu;
 mod gpu_video;
 mod group_icon;
+mod history_runtime;
+mod history_store;
 mod interaction_uploads;
+mod message_history_export;
+mod message_history_media;
 mod notification_runtime;
 mod notification_sounds;
 #[cfg(feature = "demo")]
@@ -1059,6 +1063,7 @@ struct Desktop {
 	runtime: tokio::runtime::Runtime,
 	store: Option<credentials::Store>,
 	cache: Option<cache::Cache>,
+	history: history_runtime::Runtime,
 	cache_pending: usize,
 	cache_clears: cache::HistoryClears,
 	cache_error: bool,
@@ -2431,6 +2436,7 @@ impl Desktop {
 			runtime,
 			store,
 			cache,
+			history: Default::default(),
 			cache_pending,
 			cache_clears: Default::default(),
 			cache_error: false,
@@ -4826,6 +4832,7 @@ impl Desktop {
 					self.roster_pending = false;
 					// Pruning is already committed, so clean up regardless of the re-read.
 					for account in pruned {
+						self.history.forget_account_media(*account);
 						if let Some(store) = &self.store {
 							let _ = store.send.try_send((
 								self.state.generation,
@@ -4907,6 +4914,51 @@ impl Desktop {
 					} else {
 						"Could not save channel preferences."
 					};
+				}
+				cache::Outcome::HistoryAttachmentReserved { request, result } => {
+					let followup = self.history.accept_reservation(
+						request,
+						result,
+						&self.state,
+						&mut self.messaging,
+						self.cache.as_ref(),
+					);
+					self.cache_pending =
+						self.cache_pending.saturating_add(followup.cache_operations);
+					for command in followup.commands {
+						self.command(command);
+					}
+					if followup.storage_failed {
+						self.cache_error = true;
+						self.cache_status = "Attachment storage follow-up could not be queued";
+					}
+				}
+				cache::Outcome::HistoryAttachmentFinished(result) => {
+					self.history
+						.accept_media_finished(generation, result, &mut self.messaging);
+				}
+				cache::Outcome::HistorySettings(result) => {
+					self.history
+						.accept_settings(result, &mut self.state, &mut self.messaging);
+				}
+				cache::Outcome::HistorySettingsSaved(result) => {
+					self.history
+						.accept_settings_saved(generation, result, &mut self.messaging);
+				}
+				cache::Outcome::HistoryPage(result) => {
+					self.history.accept_page(result, &mut self.messaging);
+				}
+				cache::Outcome::HistoryLogCleared(result) => {
+					self.history
+						.accept_clear(generation, result, &self.state, &mut self.messaging);
+				}
+				cache::Outcome::HistoryExported(result) => {
+					self.history
+						.accept_export(generation, result, &mut self.messaging);
+				}
+				cache::Outcome::HistoryMutationsSaved(result) => {
+					self.history
+						.accept_mutations(generation, result, &mut self.messaging);
 				}
 				cache::Outcome::GifFavorites(favorites) => {
 					self.state.restore_gif_favorites(favorites);
@@ -5802,6 +5854,24 @@ impl eframe::App for Desktop {
 			self.captcha.close();
 			self.messaging.verification.active = false;
 		}
+		let history_consent = self.extensions.persistent_history_consent(&self.state);
+		let history = self.history.tick(
+			&mut self.state,
+			&mut self.messaging,
+			self.cache.as_ref(),
+			&self.runtime,
+			&self.window,
+			history_consent,
+		);
+		self.cache_pending = self.cache_pending.saturating_add(history.cache_operations);
+		for command in history.commands {
+			self.command(command);
+		}
+		if history.storage_failed {
+			self.cache_error = true;
+			self.cache_status = "Message-history storage operation could not be queued";
+		}
+		let history_allowed = history.allowed;
 		self.extensions.tick(
 			&mut self.state,
 			&mut self.messaging,
@@ -5809,6 +5879,7 @@ impl eframe::App for Desktop {
 			&self.runtime,
 			&self.window,
 			self.fixture_only,
+			history_allowed,
 		);
 		if self.extensions.api_proxy_ready() {
 			let route = self.proxy_auth.tick(
@@ -5933,11 +6004,28 @@ impl eframe::App for Desktop {
 		if self.state.auth != AuthState::Authenticated && !self.state.demo {
 			self.notifications.clear();
 		}
-		if let Some(channel) = self.notifications.take_activation()
+		if let Some(activation) = self.notifications.take_activation()
 			&& self.state.auth == AuthState::Authenticated
 		{
 			self.tray_window.show(ctx);
-			if let Some(command) = self.state.select(channel) {
+			if notification_runtime::Runtime::is_history_activation(activation) {
+				if let Some((channel, message)) = self
+					.notification_runtime
+					.take_history_activation(activation)
+				{
+					let retained = self.state.message_logger.get(channel, message).cloned();
+					self.messaging.message_history_mut().open_target(
+						self.state.generation,
+						self.state.user.as_ref().map(|user| user.id),
+						channel,
+						message,
+						retained,
+					);
+					if let Some(command) = self.state.select(channel) {
+						self.command(command);
+					}
+				}
+			} else if let Some(command) = self.state.select(activation) {
 				self.command(command);
 			}
 		}
@@ -5963,6 +6051,19 @@ impl eframe::App for Desktop {
 					{
 						worker.request(avatar_key);
 					}
+				}
+				notification_runtime::Alert::History {
+					activation, kind, ..
+				} => {
+					self.notifications.notify_channel(
+						activation,
+						match kind {
+							model::message_logger::Kind::Edit => "Message edited".to_owned(),
+							model::message_logger::Kind::Delete => "Message deleted".to_owned(),
+						},
+						"Open local message history".to_owned(),
+						None,
+					);
 				}
 			}
 		}
@@ -6424,6 +6525,7 @@ impl eframe::App for Desktop {
 						self.audio.seek(Duration::from_secs_f64(seconds))
 					}
 					ui::AudioCommand::Volume(volume) => self.audio.volume(volume),
+					ui::AudioCommand::Speed(rate) => self.audio.speed(rate),
 					ui::AudioCommand::Stop => self.audio.stop(),
 				}
 			}
