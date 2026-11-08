@@ -4618,6 +4618,9 @@ impl MessagingUi {
 		if back || forward {
 			self.navigate_history(state, &mut commands, back);
 		}
+		// Granted background changes do not wait for the normal client surface; fullscreen
+		// media returns early below.
+		self.apply_background_effects(&ui.ctx().clone(), state, &mut commands);
 		// Fullscreen media owns the whole client surface, including during native resizing.
 		if self.show_fullscreen_voice(ui.ctx(), state) {
 			ui.painter()
@@ -4651,7 +4654,6 @@ impl MessagingUi {
 		{
 			self.extensions.report_error(error);
 		}
-		self.apply_background_effects(&ctx, state, &mut commands);
 		self.keybinds_shortcut(&ctx);
 		self.theme_preview_navigation(ui);
 		let settings_open =
