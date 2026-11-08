@@ -456,6 +456,9 @@ pub struct MessagingUi {
 	/// Last message reached by quick edit navigation, scoped to its session and channel.
 	quick_edit_cursor: Option<(u64, Id, Id)>,
 	pub attachment_files: Vec<(String, u64)>,
+	/// Local draft and attachment preview shown above the composer; never sends or uploads.
+	composer_preview: bool,
+	composer_preview_channel: Option<Id>,
 	pub remove_attachment_index: Option<usize>,
 	/// Downscaled pixels per selected file (`None` for non-images), produced off the render thread.
 	pub attachment_previews: Vec<Option<std::sync::Arc<egui::ColorImage>>>,
@@ -604,6 +607,10 @@ pub struct MessagingUi {
 	pub diagnostics_save_requested: bool,
 	/// The report file the host last wrote, shown under the button so it can be attached.
 	pub diagnostics_saved_path: Option<String>,
+	/// Bounded boot phases in milliseconds since the host began this launch.
+	pub startup_timings: Vec<(&'static str, u64)>,
+	/// Set by the host at launch; cleared after the first frame records its phase.
+	pub startup_started: Option<std::time::Instant>,
 	/// Set by the page's button; the host opens the folder and clears it.
 	pub open_log_folder_requested: bool,
 	/// Header pin button rect while the pins popout is open.
@@ -1013,6 +1020,33 @@ impl MessagingUi {
 		} else {
 			self.attachment_files.clone()
 		}
+	}
+	/// Record one bounded boot phase; the first frame ends the measurement.
+	pub fn startup_phase(&mut self, label: &'static str) {
+		let Some(started) = self.startup_started else {
+			return;
+		};
+		const MAX_PHASES: usize = 8;
+		if self.startup_timings.len() < MAX_PHASES {
+			let millis = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+			self.startup_timings.push((label, millis));
+		}
+		if label == "First frame" || self.startup_timings.len() >= MAX_PHASES {
+			self.startup_started = None;
+		}
+	}
+	/// Whether the local draft preview applies to this conversation right now.
+	fn composer_preview_open(&self, state: &State, channel: Id, editing: bool) -> bool {
+		!editing
+			&& self.composer_preview
+			&& self.composer_preview_channel == Some(channel)
+			&& (state
+				.drafts
+				.get(&channel)
+				.is_some_and(|draft| !draft.trim().is_empty())
+				|| self.attachment.is_some()
+				|| !self.attachment_files.is_empty()
+				|| self.staged_sticker(state, channel).is_some())
 	}
 	/// The staged sticker only applies to the session and conversation that staged it.
 	fn staged_sticker(&self, state: &State, channel: Id) -> Option<model::Sticker> {
@@ -3520,6 +3554,7 @@ impl MessagingUi {
 			ui.add_space(8.0);
 		}
 		// Reply/edit context sits flush on top of the input as one rounded block, like Discord.
+		self.composer_preview_panel(ui, state, channel);
 		let mut cap_top: Option<f32> = None;
 		if editing_here {
 			let unavailable = editing_key.is_some_and(|(_, id)| state.timeline.get(id).is_none());
@@ -3977,8 +4012,13 @@ impl MessagingUi {
                         self.extensions.composer_menu(ui, state);
                     }
                     if let Some(attach) = attach {
+                        let has_preview = !editing_here
+                            && (!composer_content.trim().is_empty()
+                                || self.attachment.is_some()
+                                || !self.attachment_files.is_empty()
+                                || self.staged_sticker(state, channel).is_some());
                         // BetterUploadButton: a primary click opens the file picker; the
-                        // attach/poll menu stays on the secondary click.
+                        // attach/poll/preview menu stays on the secondary click.
                         if attach.clicked() && can_attach {
                             self.attach_requested = true;
                         }
@@ -4000,6 +4040,12 @@ impl MessagingUi {
                             }
                             if ui.add_enabled(can_create_poll, item(icons::Icon::ChartBar, "lib-ime-updates-text-create-a-poll")).clicked() {
                                 self.poll_creator.open(state, channel);
+                                ui.close();
+                            }
+                            ui.separator();
+                            if ui.add_enabled(has_preview, item(icons::Icon::FileText, "composer-preview-open")).clicked() {
+                                self.composer_preview = true;
+                                self.composer_preview_channel = Some(channel);
                                 ui.close();
                             }
                         });
@@ -4498,6 +4544,103 @@ impl MessagingUi {
 		});
 		ui.add_space(6.0);
 	}
+	/// A bounded, local-only draft card. Attachments appear by name and size, never as a send.
+	fn composer_preview_panel(&mut self, ui: &mut egui::Ui, state: &State, channel: Id) {
+		let open = self.composer_preview_open(state, channel, self.editing.is_some());
+		if !open {
+			if self.composer_preview {
+				self.composer_preview = false;
+				self.composer_preview_channel = None;
+			}
+			return;
+		}
+		let colors = design::palette(ui);
+		let limit = state.content_limit();
+		let draft = state.drafts.get(&channel).map_or("", String::as_str);
+		let text: String = draft.chars().take(limit).collect();
+		let files = self.selected_files();
+		let sticker = self.staged_sticker(state, channel);
+		let mut close = false;
+		ui.add_space(6.0);
+		egui::Frame::new()
+			.fill(colors.raised)
+			.stroke(egui::Stroke::new(1.0, colors.border))
+			.corner_radius(8)
+			.inner_margin(egui::Margin::symmetric(12, 8))
+			.show(ui, |ui| {
+				ui.horizontal(|ui| {
+					ui.label(design::semibold(
+						ui,
+						&crate::i18n::translate("composer-preview-title"),
+						13.0,
+					));
+					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+						close = design::text_action(
+							ui,
+							&crate::i18n::translate("composer-preview-close"),
+						)
+						.clicked();
+					});
+				});
+				ui.add_space(4.0);
+				egui::ScrollArea::vertical()
+					.id_salt("composer-preview-scroll")
+					.max_height(160.0)
+					.show(ui, |ui| {
+						if text.trim().is_empty() {
+							design::hint(ui, &crate::i18n::translate("composer-preview-empty"));
+						} else {
+							ui.add(
+								egui::Label::new(
+									RichText::new(&text).size(14.0).color(colors.text_strong),
+								)
+								.wrap(),
+							);
+						}
+						if !files.is_empty() {
+							ui.add_space(6.0);
+							ui.label(design::eyebrow(
+								ui,
+								crate::i18n::translate("composer-preview-attachments"),
+								colors.muted,
+							));
+							for (name, bytes) in files.iter().take(10) {
+								ui.add(
+									egui::Label::new(
+										RichText::new(format!(
+											"{name} · {}",
+											attachments::format_size(*bytes)
+										))
+										.size(12.0)
+										.color(colors.muted),
+									)
+									.wrap(),
+								);
+							}
+						}
+						if let Some(sticker) = &sticker {
+							ui.add_space(6.0);
+							ui.label(
+								RichText::new(format!(
+									"{}: {}",
+									crate::i18n::translate("composer-preview-sticker"),
+									sticker.name
+								))
+								.size(12.0)
+								.color(colors.muted),
+							);
+						}
+					});
+				ui.add_space(2.0);
+				design::hint(ui, &crate::i18n::translate("composer-preview-hint"));
+			});
+		if close {
+			self.composer_preview = false;
+			self.composer_preview_channel = None;
+		}
+		ui.add_space(2.0);
+	}
+
 	/// Selected-file cards above the composer input, in the style of Discord's upload tray.
 	fn attachment_tray(&mut self, ui: &mut egui::Ui, can_host: bool, upload_limit: u64) {
 		let colors = design::palette(ui);
@@ -6824,6 +6967,25 @@ mod composer_tests {
 				.iter()
 				.any(|command| matches!(command, Command::Send { .. } | Command::Edit { .. }))
 		);
+	}
+
+	#[test]
+	fn startup_timings_stop_at_the_first_frame_and_keep_a_fixed_bound() {
+		let mut view = MessagingUi::default();
+		view.startup_started = Some(std::time::Instant::now());
+		view.startup_phase("Interface ready");
+		view.startup_phase("First frame");
+		assert_eq!(view.startup_timings.len(), 2);
+		assert!(view.startup_started.is_none(), "first frame closes the clock");
+		view.startup_phase("Later phase");
+		assert_eq!(view.startup_timings.len(), 2, "no phases after the first frame");
+
+		view.startup_started = Some(std::time::Instant::now());
+		for _ in 0..20 {
+			view.startup_phase("Bounded phase");
+		}
+		assert_eq!(view.startup_timings.len(), 8);
+		assert!(view.startup_started.is_none());
 	}
 
 	#[test]

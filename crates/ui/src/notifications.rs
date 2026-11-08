@@ -420,6 +420,7 @@ impl MessagingUi {
 							1,
 							colors.raised,
 						);
+						self.server_list_indicators(ui, state);
 						self.server_folders(ui, state, commands);
 						let (rect, response) = ui.allocate_exact_size(
 							egui::Vec2::splat(RAIL_TILE),

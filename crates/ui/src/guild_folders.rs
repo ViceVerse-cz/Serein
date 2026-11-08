@@ -20,6 +20,10 @@ pub(super) struct FolderUi {
 	generation: u64,
 	key: Option<(u64, u64)>,
 	rows: Box<[Row]>,
+	/// Bounded server-list indicator counts, recomputed only when their inputs change.
+	indicator_key: Option<(u64, u64, u64, bool, usize)>,
+	online_friends: u32,
+	guild_count: u32,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Item {
@@ -395,6 +399,70 @@ impl MessagingUi {
 					});
 				}
 			});
+	}
+
+	/// Counts only already-loaded friends, presences and guilds; a compact rail tile names both.
+	pub(super) fn server_list_indicators(&mut self, ui: &mut egui::Ui, state: &State) {
+		let key = (
+			state.generation,
+			state.relationship_view(),
+			state.direct_presence_epoch(),
+			state.gateway_connected,
+			state.guilds.len(),
+		);
+		if self.folder_ui.indicator_key != Some(key) {
+			let online = state
+				.friends()
+				.filter(|user| {
+					matches!(
+						crate::profiles::presence(state, user.id, None).0,
+						Some("online" | "idle" | "dnd")
+					)
+				})
+				.count()
+				.min(u32::MAX as usize) as u32;
+			self.folder_ui.online_friends = online;
+			self.folder_ui.guild_count = state.guilds.len().min(u32::MAX as usize) as u32;
+			self.folder_ui.indicator_key = Some(key);
+		}
+		let (online, guilds) = (self.folder_ui.online_friends, self.folder_ui.guild_count);
+		if online == 0 && guilds == 0 {
+			return;
+		}
+		let colors = design::palette(ui);
+		let (rect, response) =
+			ui.allocate_exact_size(egui::Vec2::splat(RAIL_TILE), Sense::hover());
+		ui.painter().rect_filled(rect, 12, colors.raised);
+		for (index, (icon, count)) in
+			[(Icon::People, online), (Icon::Servers, guilds)]
+				.into_iter()
+				.enumerate()
+		{
+			let y = rect.top() + 13.0 + index as f32 * 16.0;
+			let icon_rect = egui::Rect::from_center_size(
+				egui::pos2(rect.left() + 11.0, y),
+				egui::Vec2::splat(12.0),
+			);
+			icons::paint(ui.painter(), icon, icon_rect, colors.text);
+			ui.painter().text(
+				egui::pos2(rect.left() + 19.0, y),
+				egui::Align2::LEFT_CENTER,
+				count.to_string(),
+				egui::FontId::proportional(9.5),
+				colors.text_strong,
+			);
+		}
+		let tooltip = crate::i18n::translate_args(
+			"server-list-indicators-tooltip",
+			&[
+				("friends", &online.to_string()),
+				("servers", &guilds.to_string()),
+			],
+		);
+		response.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::Role::Label, true, tooltip.clone())
+		});
+		response.on_hover_text(tooltip);
 	}
 
 	pub(super) fn server_folders(

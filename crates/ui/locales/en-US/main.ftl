@@ -5272,3 +5272,17 @@ timestamp-style-full = Full date and time
 timestamp-style-relative = Relative time
 timestamp-style-short-date-time = Short date and time
 timestamp-style-short-date-seconds = Short date and time with seconds
+
+## Native Equicord-derived composer, rail and diagnostic tools
+composer-preview-open = Preview message
+composer-preview-title = Message preview
+composer-preview-close = Close preview
+composer-preview-empty = No text in this draft.
+composer-preview-attachments = Attachments
+composer-preview-sticker = Sticker
+composer-preview-hint = Local preview only. Nothing has been sent or uploaded.
+friends-added-date = Added {$date}
+server-list-indicators-tooltip = {$friends} friends online · {$servers} servers
+startup-timings-title = Startup timings
+startup-timings-description = Milliseconds since this launch began. Read-only; nothing is uploaded.
+startup-timings-empty = No startup phases were recorded.

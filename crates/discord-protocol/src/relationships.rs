@@ -95,6 +95,14 @@ impl Snapshot {
 			.filter_map(|r| Some((r.id, r.since?)))
 			.collect()
 	}
+	/// Receipt time of each pending incoming or outgoing request that reported one.
+	pub fn requests_since(&self) -> Vec<(Id, i64)> {
+		self.0
+			.iter()
+			.filter(|r| matches!(r.kind, 3 | 4) && r.id.0 != 0)
+			.filter_map(|r| Some((r.id, r.since?)))
+			.collect()
+	}
 	pub fn requests(
 		&self,
 		users: &[crate::UserDto],
@@ -219,6 +227,7 @@ mod tests {
 		.unwrap();
 		assert_eq!(rows.0.len(), 4, "A malformed timestamp never drops the row");
 		assert_eq!(rows.friends_since(), vec![(Id(2), 1_614_834_367)]);
+		assert_eq!(rows.requests_since(), vec![(Id(5), 1_614_834_367)]);
 		let malformed = crate::decode::<Snapshot>(br#"[{"id":"1"},{"id":"2","type":1}]"#).unwrap();
 		assert!(malformed.1 && malformed.0.len() == 1);
 		let large = format!(

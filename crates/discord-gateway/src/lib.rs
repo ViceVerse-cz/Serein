@@ -1821,11 +1821,13 @@ async fn run_recoverable(
 										let nicknames = ready.relationships.as_ref().map(|s| s.nicknames());
 										let spam_requests = ready.relationships.as_ref().map(|s| s.spam_incoming_ids());
 										let friends_since = ready.relationships.as_ref().map(|s| s.friends_since()).unwrap_or_default();
+										let requests_since = ready.relationships.as_ref().map(|s| s.requests_since()).unwrap_or_default();
 										emit(Event::UserAction(client_core::user_actions::Event::Relationships(ready.relationships.take().map(|s| s.entries()))))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Friends(friends)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::FriendsSince { entries: friends_since, replace: true }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Restrictions(restricted)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Requests(requests)))?;
+										emit(Event::UserAction(client_core::user_actions::Event::RequestsSince { entries: requests_since, replace: true }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::RequestSpams(spam_requests)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::MessageRequests(Some(message_requests))))?;
 										emit(Event::UserAction(client_core::user_actions::Event::MessageSpams(Some(message_spams))))?;
@@ -1952,6 +1954,9 @@ async fn run_recoverable(
 										let incoming = (packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && matches!(relationship.kind,3|4)).then_some(relationship.kind==3);
 										emit(Event::UserAction(client_core::user_actions::Event::Friend { user: relationship.id, friend, profile: profile.clone() }))?;
 										if friend && let Some(since) = relationship.since { emit(Event::UserAction(client_core::user_actions::Event::FriendsSince { entries: vec![(relationship.id, since)], replace: false }))?; }
+										if !friend && matches!(relationship.kind, 3 | 4) && let Some(since) = relationship.since {
+											emit(Event::UserAction(client_core::user_actions::Event::RequestsSince { entries: vec![(relationship.id, since)], replace: false }))?;
+										}
 										emit(Event::UserAction(client_core::user_actions::Event::Restriction { user: relationship.id, ignored, profile: profile.clone() }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Request { user: relationship.id, incoming, profile }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::RequestSpam { user: relationship.id, spam: packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && relationship.kind == 3 && relationship.is_spam_request }))?;
@@ -2978,6 +2983,14 @@ mod tests {
 								"onboarding"
 							}
 							Event::UserAction(client_core::user_actions::Event::FriendsSince {
+								entries,
+								replace,
+							}) => {
+								assert!(replace);
+								assert!(entries.is_empty());
+								return Ok(());
+							}
+							Event::UserAction(client_core::user_actions::Event::RequestsSince {
 								entries,
 								replace,
 							}) => {

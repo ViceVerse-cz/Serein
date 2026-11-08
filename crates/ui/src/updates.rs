@@ -621,6 +621,22 @@ impl MessagingUi {
 					);
 				}
 				design::card_divider(ui);
+				ui.label(design::eyebrow(
+					ui,
+					crate::i18n::translate("startup-timings-title"),
+					design::palette(ui).muted,
+				));
+				design::hint(ui, &crate::i18n::translate("startup-timings-description"));
+				if self.startup_timings.is_empty() {
+					design::hint(ui, &crate::i18n::translate("startup-timings-empty"));
+				} else {
+					for (label, millis) in &self.startup_timings {
+						design::row(ui, label, None, |ui| {
+							ui.label(design::medium(ui, &format!("{millis} ms"), 13.0));
+						});
+					}
+				}
+				design::card_divider(ui);
 				design::row(
 					ui,
 					"updates-update-settings-copy-recent-lines",

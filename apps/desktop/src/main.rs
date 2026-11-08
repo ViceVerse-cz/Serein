@@ -81,6 +81,7 @@ use zeroize::Zeroizing;
 
 /// Run explicit offline checks before native startup, or launch the configured desktop client.
 fn main() -> eframe::Result {
+	let boot = std::time::Instant::now();
 	let camera_gateway_check = std::env::args().any(|arg| arg == "--demo-check-camera-gateway");
 	let camera_gateway_capture = std::env::args().any(|arg| {
 		arg == "--demo-camera-gateway-evidence"
@@ -627,6 +628,8 @@ fn main() -> eframe::Result {
 		Box::new(move |cc| {
 			let mut desktop =
 				Desktop::new(cc, demo, frame_sample, transparency_available, preferences)?;
+			desktop.messaging.startup_started = Some(boot);
+			desktop.messaging.startup_phase("Interface ready");
 			let wake = cc.egui_ctx.clone();
 			instance.listen(
 				desktop.window.clone(),
@@ -5629,6 +5632,7 @@ impl eframe::App for Desktop {
 	fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
 		// Before the pass begins, so the whole frame resolves System to the same theme.
 		self.sync_system_theme(ctx);
+		self.messaging.startup_phase("First frame");
 		if self.maximize_after_show && self.window.is_visible() == Some(true) {
 			self.maximize_after_show = false;
 			self.window.set_maximized(true);

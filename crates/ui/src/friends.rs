@@ -36,6 +36,33 @@ enum Tab {
 	Restricted,
 	Add,
 }
+/// Pending requests with a receipt time come first, newest first; the rest stay alphabetical.
+fn sort_requests(
+	rows: &mut [(model::User, String, bool)],
+	since: impl Fn(model::Id) -> Option<i64>,
+) {
+	rows.sort_unstable_by(|a, b| {
+		match (since(a.0.id), since(b.0.id)) {
+			(Some(a), Some(b)) => b.cmp(&a),
+			(Some(_), None) => std::cmp::Ordering::Less,
+			(None, Some(_)) => std::cmp::Ordering::Greater,
+			(None, None) => std::cmp::Ordering::Equal,
+		}
+		.then_with(|| a.0.name.cmp(&b.0.name))
+		.then_with(|| a.0.id.cmp(&b.0.id))
+	});
+}
+/// Local date only, without the clock time a full timestamp would add to a request row.
+fn request_date(since: i64) -> Option<String> {
+	let at = crate::local_time::local(time::OffsetDateTime::from_unix_timestamp(since).ok()?);
+	let date = at.date();
+	Some(format!(
+		"{}/{}/{:02}",
+		u8::from(date.month()),
+		date.day(),
+		date.year().rem_euclid(100)
+	))
+}
 impl Friends {
 	fn matches(&self, state: &State, user: &model::User, query: &str) -> bool {
 		if self.tab == Tab::Online {
@@ -259,7 +286,7 @@ impl MessagingUi {
 								|| name.to_lowercase().contains(&query))
 					})
 					.collect();
-				rows.sort_unstable_by(|a, b| a.0.name.cmp(&b.0.name).then(a.0.id.cmp(&b.0.id)));
+				sort_requests(&mut rows, |id| state.friend_request_since(id));
 				if rows.is_empty() {
 					let title = if !state.friend_requests_known() {
 						language.text("friends-requests-unavailable")
@@ -345,19 +372,28 @@ impl MessagingUi {
 									)
 									.truncate(),
 								);
+								let mut subtext = format!(
+									"{name} · {}",
+									language.text(if *incoming {
+										"friends-incoming-request"
+									} else {
+										"friends-outgoing-request"
+									})
+								);
+								if let Some(date) =
+									state.friend_request_since(user.id).and_then(request_date)
+								{
+									subtext.push_str(&format!(
+										" · {}",
+										crate::i18n::translate_args(
+											"friends-added-date",
+											&[("date", &date)],
+										)
+									));
+								}
 								text.add(
 									egui::Label::new(
-										RichText::new(if *incoming {
-											format!(
-												"{name} · {}",
-												language.text("friends-incoming-request")
-											)
-										} else {
-											format!(
-												"{name} · {}",
-												language.text("friends-outgoing-request")
-											)
-										})
+										RichText::new(subtext)
 										.size(13.0)
 										.color(colors.muted),
 									)
@@ -1292,5 +1328,36 @@ mod tests {
 			assert_eq!(friends.list, restored);
 			check_cache(&mut friends, &state);
 		}
+	}
+
+	#[test]
+	fn requests_with_receipt_dates_sort_newest_first_and_unknown_dates_last() {
+		fn user(id: u64, name: &str) -> model::User {
+			model::User {
+				id: model::Id(id),
+				name: name.into(),
+				avatar: None,
+				discriminator: 0,
+				primary_guild: None,
+				cosmetics: None,
+				webhook: false,
+				kind: Default::default(),
+			}
+		}
+		let mut rows = vec![
+			(user(1, "Alex"), "alex".into(), true),
+			(user(2, "Sam"), "sam".into(), true),
+			(user(3, "Bea"), "bea".into(), false),
+			(user(4, "Cory"), "cory".into(), true),
+		];
+		sort_requests(&mut rows, |id| match id.0 {
+			1 => Some(100),
+			2 => Some(300),
+			_ => None,
+		});
+		assert_eq!(
+			rows.iter().map(|row| row.0.id).collect::<Vec<_>>(),
+			vec![model::Id(2), model::Id(1), model::Id(3), model::Id(4)]
+		);
 	}
 }

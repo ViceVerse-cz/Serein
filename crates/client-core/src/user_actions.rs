@@ -180,6 +180,11 @@ pub enum Event {
 		entries: Vec<(Id, i64)>,
 		replace: bool,
 	},
+	/// Pending-request receipt times in Unix seconds; same replace rule as friendship dates.
+	RequestsSince {
+		entries: Vec<(Id, i64)>,
+		replace: bool,
+	},
 	Nickname {
 		user: Id,
 		text: String,
@@ -245,6 +250,7 @@ pub struct Actions {
 	last_requested: Option<String>,
 	friends: BTreeMap<Id, (model::User, String)>,
 	friends_known: bool,
+	requests_since: BTreeMap<Id, i64>,
 	restricted: BTreeMap<Id, (model::User, String, bool)>,
 	restricted_known: bool,
 	/// Committed status survives missing display profiles; bounded independently.
@@ -297,6 +303,13 @@ impl State {
 	pub fn friend_since(&self, user: Id) -> Option<i64> {
 		self.friend(user)?;
 		self.user_actions.friends_since.get(&user).copied()
+	}
+	/// Receipt time of a pending request, if the service reported one and it is still pending.
+	pub fn friend_request_since(&self, user: Id) -> Option<i64> {
+		if !self.user_actions.requests.contains_key(&user) {
+			return None;
+		}
+		self.user_actions.requests_since.get(&user).copied()
 	}
 	pub fn user_display_name<'a>(&'a self, user: &'a model::User) -> &'a str {
 		self.friend_nickname(user.id).unwrap_or(&user.name)
@@ -1082,6 +1095,7 @@ impl State {
 				| Event::Restrictions(_)
 				| Event::Restriction { .. }
 				| Event::Relationships(_)
+				| Event::RequestsSince { .. }
 		) {
 			self.user_actions.bump_view();
 		}
@@ -1258,6 +1272,20 @@ impl State {
 					}
 				}
 			}
+			Event::RequestsSince { entries, replace } => {
+				if entries.len() > MAX_RELATIONSHIPS || entries.iter().any(|(id, _)| id.0 == 0) {
+					return Err("Invalid friend request dates");
+				}
+				if replace {
+					self.user_actions.requests_since.clear();
+				}
+				for (user, since) in entries {
+					let known = &mut self.user_actions.requests_since;
+					if known.contains_key(&user) || known.len() < MAX_RELATIONSHIPS {
+						known.insert(user, since);
+					}
+				}
+			}
 			Event::Nicknames(entries) => {
 				if entries.len() > MAX_RELATIONSHIPS
 					|| entries
@@ -1304,6 +1332,7 @@ impl State {
 				self.user_actions.requests.clear();
 				self.user_actions.requests_known = false;
 				if let Some(entries) = entries {
+					self.user_actions.requests_since.clear();
 					if entries.len() > MAX_RELATIONSHIPS
 						|| entries.capacity() * size_of::<(model::User, String, bool)>()
 							+ entries
@@ -1390,6 +1419,7 @@ impl State {
 					}
 				} else {
 					self.user_actions.spam_requests.remove(&user);
+					self.user_actions.requests_since.remove(&user);
 					if let Some((_, name, _)) = self.user_actions.requests.remove(&user)
 						&& self.user_actions.last_requested.as_deref() == Some(&name)
 					{
@@ -2642,6 +2672,14 @@ mod tests {
 				)])))
 				.unwrap();
 			assert_eq!(state.pending_friends().count(), 1);
+			state
+				.apply_user_action(Event::RequestsSince {
+					entries: vec![(user.id, 1_700_000_000)],
+					replace: true,
+				})
+				.unwrap();
+			assert_eq!(state.friend_request_since(user.id), Some(1_700_000_000));
+			assert_eq!(state.friend_request_since(Id(999)), None);
 			assert!(state.add_friend("../invalid").is_none());
 			let send = state.add_friend(" @new_friend ").unwrap();
 			assert!(state.add_friend("new_friend").is_none());
@@ -2716,6 +2754,11 @@ mod tests {
 			finish(&mut state, accept, Ok(()));
 			assert_eq!(state.friends().count(), 1);
 			assert_eq!(state.pending_friends().count(), 0);
+			assert_eq!(
+				state.friend_request_since(user.id),
+				None,
+				"a resolved request drops its receipt time"
+			);
 			assert!(
 				state
 					.apply_user_action(Event::Requests(Some(vec![(
