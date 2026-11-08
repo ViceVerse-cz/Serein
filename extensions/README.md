@@ -49,7 +49,7 @@ embedded in their packages.
 
 ## Live owner development
 
-A non-release, non-demo `cargo run` loads the 16 reviewed Equicord development artifacts as local
+A non-release, non-demo `cargo run` loads the 31 reviewed Equicord development artifacts as local
 starters. Their exact package bytes and manifests retain reviewed identity, so Message History can
 exercise its real consent gate before the packages have a post-merge remote pin. Unreviewed imports
 still cannot enable that host retention. Release builds, demo fixtures and ordinary imports retain
@@ -100,8 +100,11 @@ Package bytes and stable IDs are preserved from the existing client/theme reposi
   exact safe adaptations and omissions. Typed proposals replace JavaScript injection, arbitrary
   network/filesystem access and automatic writes. Message History uses reviewed consent for bounded,
   persistent, account-scoped capture of subsequently loaded readable chats, with native retention,
-  supported attachment opt-ins, ghost alerts and export; no deleted-before-load recovery is claimed. The 373-directory upstream inventory is not a claim that every plugin or unsafe
-  behavior is ported.
+  supported attachment opt-ins, ghost alerts and export; no deleted-before-load recovery is claimed.
+  Further independent package and native subsets are enumerated with their exact grants and
+  omissions in [plugins/README.md](plugins/README.md) and `equicord-workflows.json`, all guided by
+  the same pinned upstream commit. The 373-directory upstream inventory is not a claim that every
+  plugin or unsafe behavior is ported.
 - Forest Piano and Soft White retain supplied `CC0-1.0` metadata; this is not independent verification of image rights. Consult their original sources for artwork provenance.
 
 This repository does not relicense third-party artwork or assert additional redistribution rights.

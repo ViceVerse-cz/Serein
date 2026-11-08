@@ -430,13 +430,11 @@ impl MessagingUi {
 			return;
 		}
 		let colors = design::palette(ui);
-		let (rect, response) =
-			ui.allocate_exact_size(egui::Vec2::splat(RAIL_TILE), Sense::hover());
+		let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(RAIL_TILE), Sense::hover());
 		ui.painter().rect_filled(rect, 12, colors.raised);
-		for (index, (icon, count)) in
-			[(Icon::People, online), (Icon::Servers, guilds)]
-				.into_iter()
-				.enumerate()
+		for (index, (icon, count)) in [(Icon::People, online), (Icon::Servers, guilds)]
+			.into_iter()
+			.enumerate()
 		{
 			let y = rect.top() + 13.0 + index as f32 * 16.0;
 			let icon_rect = egui::Rect::from_center_size(
@@ -459,9 +457,8 @@ impl MessagingUi {
 				("servers", &guilds.to_string()),
 			],
 		);
-		response.widget_info(|| {
-			egui::WidgetInfo::labeled(egui::Role::Label, true, tooltip.clone())
-		});
+		response
+			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, tooltip.clone()));
 		response.on_hover_text(tooltip);
 	}
 

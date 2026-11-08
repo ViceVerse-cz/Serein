@@ -101,13 +101,9 @@ fn sticker_option(channel_id: &str, message_id: &str, sticker_id: &str, name: &s
 	)
 }
 
-fn selected_message<'a>(
-	input: &'a MessageActionInvocation,
-) -> Option<(
-	&'a str,
-	&'a str,
-	&'a serein_extension_sdk::MessageContentSnapshot,
-)> {
+fn selected_message(
+	input: &MessageActionInvocation,
+) -> Option<(&str, &str, &serein_extension_sdk::MessageContentSnapshot)> {
 	let reference = input.selected_message_ref.as_ref()?;
 	if !is_snowflake(&reference.channel_id) || !is_snowflake(&reference.message_id) {
 		return None;

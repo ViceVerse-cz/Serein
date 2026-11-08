@@ -679,8 +679,9 @@ mod tests {
 
 		let oversized_bytes = vec![b'A'; MAX_MATCH_BYTES + 1];
 		let oversized = base64(&oversized_bytes);
-		let mixed = decoded_message(&format!("{oversized} {small}", small = base64(b"ok")));
-		assert_eq!(copied(&mixed), "ok");
+		// The upstream-compatible scanner requires at least four non-padding bytes.
+		let mixed = decoded_message(&format!("{oversized} {small}", small = base64(b"okay")));
+		assert_eq!(copied(&mixed), "okay");
 		assert!(mixed.output.panel.iter().any(|element| matches!(
 			element,
 			Element::Text { text } if text.contains("1 further decoded match")

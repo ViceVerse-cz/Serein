@@ -3,7 +3,22 @@
 version = 4
 
 [[package]]
+name = "account-navigation-tools"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serein-extension-sdk",
+]
+
+[[package]]
 name = "api-proxy"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
+name = "better-search-tools"
 version = "1.0.0"
 dependencies = [
  "serein-extension-sdk",
@@ -46,6 +61,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "equicord-community-tools"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serein-extension-sdk",
+]
+
+[[package]]
 name = "external-search-tools"
 version = "1.0.3"
 dependencies = [
@@ -62,6 +85,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "greet-sticker-tools"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
 ]
 
 [[package]]
@@ -189,6 +219,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "linked-message-tools"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
 name = "litemap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -231,7 +268,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "message-inspector-tools"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serein-extension-sdk",
+]
+
+[[package]]
+name = "message-navigation-tools"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serein-extension-sdk",
+]
+
+[[package]]
 name = "message-reference-tools"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+ "url",
+]
+
+[[package]]
+name = "more-quick-reactions-tools"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serein-extension-sdk",
+]
+
+[[package]]
+name = "music-link-tools"
 version = "1.0.0"
 dependencies = [
  "serein-extension-sdk",
@@ -258,6 +330,20 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+
+[[package]]
+name = "permissions-tools"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
+name = "plus-reacts-tools"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+]
 
 [[package]]
 name = "potential_utf"
@@ -336,6 +422,13 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
+]
+
+[[package]]
+name = "server-info-tools"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
 ]
 
 [[package]]
@@ -440,6 +533,28 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 [[package]]
 name = "view-raw-message"
 version = "1.0.1"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
+name = "voice-and-chat-tools"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serein-extension-sdk",
+]
+
+[[package]]
+name = "voice-panel-tools"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
+name = "voice-rejoin-tools"
+version = "1.0.0"
 dependencies = [
  "serein-extension-sdk",
 ]

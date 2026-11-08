@@ -22,6 +22,21 @@ members = [
 	"plugins/ingtoninator",
 	"plugins/own-message-sed",
 	"plugins/social-link-tools",
+	"plugins/voice-panel-tools",
+	"plugins/server-info-tools",
+	"plugins/equicord-community-tools",
+	"plugins/plus-reacts-tools",
+	"plugins/permissions-tools",
+	"plugins/message-inspector-tools",
+	"plugins/voice-rejoin-tools",
+	"plugins/account-navigation-tools",
+	"plugins/message-navigation-tools",
+	"plugins/music-link-tools",
+	"plugins/more-quick-reactions-tools",
+	"plugins/linked-message-tools",
+	"plugins/greet-sticker-tools",
+	"plugins/better-search-tools",
+	"plugins/voice-and-chat-tools",
 ]
 resolver = "3"
 

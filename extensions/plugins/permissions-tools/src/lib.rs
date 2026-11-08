@@ -462,7 +462,12 @@ mod tests {
 		text
 	}
 
-	fn member_details(members: serde_json::Value, roles: serde_json::Value) -> serde_json::Value {
+	fn member_details(
+		members: impl Into<serde_json::Value>,
+		roles: impl Into<serde_json::Value>,
+	) -> serde_json::Value {
+		let members = members.into();
+		let roles = roles.into();
 		json!({
 			"member_details": {
 				"channel_id": "10",
@@ -506,17 +511,17 @@ mod tests {
 		let output = run(json!({
 			"action": "show",
 			"app": member_details(
-				[{
+				json!([{
 					"user": {"id": "100", "name": "ada"},
 					"display_name": "Ada",
 					"role_ids": ["1", "3", "5", "999"],
 					"roles_truncated": false
-				}],
-				[
+				}]),
+				json!([
 					{"id": "1", "name": "Low", "color": 0, "position": 1},
 					{"id": "3", "name": "High", "color": 0x112233, "position": 30},
 					{"id": "5", "name": "Mid", "color": 0xabcdef, "position": 5}
-				]
+				])
 			)
 		}));
 		let shown = panel_text(&output);
@@ -537,13 +542,13 @@ mod tests {
 			"action": "select-member",
 			"values": {"member": "Mallory [999]"},
 			"app": member_details(
-				[{
+				json!([{
 					"user": {"id": "100", "name": "ada"},
 					"display_name": "Ada",
 					"role_ids": ["1"],
 					"roles_truncated": false
-				}],
-				[{"id": "1", "name": "Low", "color": 0, "position": 1}]
+				}]),
+				json!([{"id": "1", "name": "Low", "color": 0, "position": 1}])
 			)
 		}));
 		let shown = panel_text(&output);
@@ -557,13 +562,13 @@ mod tests {
 		let output = run(json!({
 			"action": "show",
 			"app": member_details(
-				[{
+				json!([{
 					"user": {"id": "100", "name": "ada"},
 					"display_name": "Evil\nName",
 					"role_ids": ["1"],
 					"roles_truncated": false
-				}],
-				[{"id": "1", "name": "Role\nName", "color": 0, "position": 1}]
+				}]),
+				json!([{"id": "1", "name": "Role\nName", "color": 0, "position": 1}])
 			)
 		}));
 		for element in &output.output.panel {
@@ -593,7 +598,7 @@ mod tests {
 		let event = run(json!({
 			"action": "show",
 			"app_event": "presence",
-			"app": member_details([], [])
+			"app": member_details(json!([]), json!([]))
 		}));
 		assert!(event.output.panel.is_empty());
 	}

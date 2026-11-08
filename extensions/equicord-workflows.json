@@ -118,7 +118,7 @@
         "status": "packaged",
         "package": "text-codecs",
         "package_path": "extensions/plugins/packages/text-codecs.serein-extension",
-        "limitations": "Standard Base64 composer replacement; strict UTF-8 and Apply."
+        "limitations": "Selected-message standard Base64 decoding plus composer replacement; strict UTF-8, at most eight matches/4 KiB decoded each and one Apply-reviewed blank-line-separated copy. No React modal or per-match copy buttons."
       }
     },
     {
@@ -218,7 +218,13 @@
       "summary": "Uses leading plus signs before an emoji to target an earlier loaded message for the reaction.",
       "bounds": "Proposed 50-message lookback; one reaction proposal.",
       "target": "Bounded native capability: timeline + reactions_control.",
-      "audit_file": "equicord-000-029.json"
+      "audit_file": "equicord-000-029.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "plus-reacts-tools",
+        "package_path": "extensions/plugins/packages/plus-reacts-tools.serein-extension",
+        "limitations": "Composer plus-sign lookback over at most 50 loaded messages and one Apply-reviewed add reaction. No shortcode resolution, toggle/removal, draft clearing or raw store access."
+      }
     },
     {
       "path": "src/equicordplugins/blockKeywords",
@@ -609,7 +615,13 @@
       "summary": "B (bounded native capability): exports one message as text and optionally copies friend/blocked/request usernames. Safe subset is selected_message text plus clipboard_write; full file export needs a narrow save-file action. Do not expose attachment bytes or arbitrary message lookup.",
       "bounds": "1 selected message; 4 KiB clipboard; at most 100 relationships; no attachment URLs/bytes; 8 KiB effect proposal",
       "target": "native_capability + extension",
-      "audit_file": "equicord-060-089.json"
+      "audit_file": "equicord-060-089.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "equicord-community-tools",
+        "package_path": "extensions/plugins/packages/equicord-community-tools.serein-extension",
+        "limitations": "One selected message, text only, 4 KiB clipboard copy after Apply; no files, attachments, embeds or contact export."
+      }
     },
     {
       "path": "src/equicordplugins/fastDeleteChannels",
@@ -618,7 +630,13 @@
       "summary": "B (bounded native capability): permission-gated channel deletion from the channel row or keybind. Needs channel_control.delete_channel and the host's native MANAGE_CHANNELS and destructive-Apply checks; the upstream one-keypress delete must gain confirmation.",
       "bounds": "1 loaded channel per Apply; native permission check; destructive confirmation; no background or bulk deletion",
       "target": "native_capability + extension",
-      "audit_file": "equicord-060-089.json"
+      "audit_file": "equicord-060-089.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "equicord-community-tools",
+        "package_path": "extensions/plugins/packages/equicord-community-tools.serein-extension",
+        "limitations": "One current loaded server channel/thread per Apply with native permission recheck and destructive confirmation; no keybind, row icon or bulk deletion."
+      }
     },
     {
       "path": "src/equicordplugins/favoriteAnything",
@@ -837,7 +855,13 @@
       "summary": "B (bounded native capability): watches the active conversation for a configured regex and opens a URL. message_events supplies bounded text and external_navigation can propose an HTTPS URL, but every open needs Apply; automatic launch is not possible and the default custom launcher scheme is unsupported.",
       "bounds": "16 KiB message-event text; 2,048-byte HTTPS URL only; per-open Apply; no auto launch",
       "target": "native_capability + extension",
-      "audit_file": "equicord-060-089.json"
+      "audit_file": "equicord-060-089.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "equicord-community-tools",
+        "package_path": "extensions/plugins/packages/equicord-community-tools.serein-extension",
+        "limitations": "Up to eight case-insensitive literal triggers and one public HTTPS link; manual selected-message check and Apply-reviewed open. No regex, custom launcher, automatic events or launch."
+      }
     },
     {
       "path": "src/equicordplugins/husk",
@@ -888,7 +912,13 @@
       "summary": "B (bounded native capability): suppresses ringing from ignored users/group DMs. voice_state and voice_connect can decline a current call, but the ignore list must be local and each decline must go through Apply; upstream's automatic CALL_UPDATE rewrite is not available.",
       "bounds": "At most 64 voice participants; one current call per Apply; local ignore list; no background auto-decline",
       "target": "native_capability + extension",
-      "audit_file": "equicord-060-089.json"
+      "audit_file": "equicord-060-089.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "equicord-community-tools",
+        "package_path": "extensions/plugins/packages/equicord-community-tools.serein-extension",
+        "limitations": "At most 16 local DM/group-DM IDs and one explicit Apply-reviewed decline. No automatic ringing suppression or CALL_UPDATE rewriting."
+      }
     },
     {
       "path": "src/equicordplugins/inRole",
@@ -959,7 +989,13 @@
       "summary": "Channel, thread, user and message context-menu actions jump to the first/last channel message or a user's first/last message in the channel.",
       "bounds": "First/last uses one GET messages limit=1; user jump uses existing from:/in: search asc/desc with one page. Permission-checked, no paging loop.",
       "target": "crates/ui/src/search.rs and timeline navigation",
-      "audit_file": "equicord-090-119.json"
+      "audit_file": "equicord-090-119.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "message-navigation-tools",
+        "package_path": "extensions/plugins/packages/message-navigation-tools.serein-extension",
+        "limitations": "Latest/oldest only within loaded channel details and the 50-row window after Apply. No true first-message read, search fetch or native context-menu registration."
+      }
     },
     {
       "path": "src/equicordplugins/keyboardNavigation",
@@ -1000,7 +1036,13 @@
       "summary": "Context menus jump to the current user's or another user's last message in a channel or server via the existing search route.",
       "bounds": "Search author_id plus channel_id, sort desc, one page, permission-gated. Duplicates jumpTo user search; consider merging.",
       "target": "crates/ui/src/search.rs and timeline navigation",
-      "audit_file": "equicord-090-119.json"
+      "audit_file": "equicord-090-119.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "message-navigation-tools",
+        "package_path": "extensions/plugins/packages/message-navigation-tools.serein-extension",
+        "limitations": "Current/selected author earliest/latest message only within the loaded conversation window. No guild-wide or unloaded-history author search."
+      }
     },
     {
       "path": "src/equicordplugins/limitlessScreenshare",
@@ -1055,7 +1097,7 @@
         "status": "packaged",
         "package": "message-composition-tools",
         "package_path": "extensions/plugins/packages/message-composition-tools.serein-extension",
-        "limitations": "Review-only dispersion, not previous-message merge/edit timing."
+        "limitations": "Review-only dispersion plus Apply-reviewed editing of the latest loaded ordinary own message with bounded merged content, attachment opt-in and space/newline choice. No automatic send hook, time window, reply-bar check, draft clearing or automatic send."
       }
     },
     {
@@ -1162,7 +1204,7 @@
         "status": "packaged",
         "package": "offline-composer-tools",
         "package_path": "extensions/plugins/packages/offline-composer-tools.serein-extension",
-        "limitations": "Subset: mock/reverse/morse/wordcount; no external image/system commands."
+        "limitations": "Deterministic explicit composer subset includes mock, reverse, Morse encode/auto-detect decode, wordcount, upper, lower, repeat 1-10 and uwuify. No external/system/image/GIF, random-response, multi-message, mention/slap or Unicode-normalize commands."
       }
     },
     {
@@ -1367,7 +1409,13 @@
       "summary": "Captures and applies profile presets including avatar/banner, bio, pronouns, theme colors, and custom status; stores base64 profile images and profile fields in DataStore and applies them through Discord's pending-profile-change UI.",
       "bounds": "Sensitive profile bundle: encrypt at rest, bound preset count and image bytes, require explicit user apply; never auto-submit profile changes.",
       "target": "crates/local-store + crates/ui profile settings",
-      "audit_file": "equicord-120-149.json"
+      "audit_file": "equicord-120-149.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "account-navigation-tools",
+        "package_path": "extensions/plugins/packages/account-navigation-tools.serein-extension",
+        "limitations": "Up to 16 display-name/bio/pronouns presets with explicit save/apply/delete. No images, colors, guild profiles, import/export, image storage or automatic submission."
+      }
     },
     {
       "path": "src/equicordplugins/questify",
@@ -1403,7 +1451,13 @@
       "summary": "Chooses a random joinable voice channel and joins it, optionally applying mute/deafen/camera/stream and leaving empty channels.",
       "bounds": "Explicit user action or configured keybind; enforce CONNECT/STREAM permissions; no silent auto-join or unrequested media activation.",
       "target": "crates/discord-voice",
-      "audit_file": "equicord-120-149.json"
+      "audit_file": "equicord-120-149.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "account-navigation-tools",
+        "package_path": "extensions/plugins/packages/account-navigation-tools.serein-extension",
+        "limitations": "Deterministic rotation over loaded voice/stage channels with Apply-reviewed join, muted by default. Not random; no auto-join, keybind, leave-empty, friend/AFK filters, camera or stream."
+      }
     },
     {
       "path": "src/equicordplugins/reactionTimestamps",
@@ -1421,7 +1475,13 @@
       "summary": "Implements Ctrl+Tab MRU switching across DMs and group DMs, persists DM channel IDs, and shows an overlay or toast while cycling.",
       "bounds": "Local DM-ID history, bounded by configured count; no message content stored; clearable by the user.",
       "target": "crates/ui navigation + crates/local-store",
-      "audit_file": "equicord-120-149.json"
+      "audit_file": "equicord-120-149.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "account-navigation-tools",
+        "package_path": "extensions/plugins/packages/account-navigation-tools.serein-extension",
+        "limitations": "At most 20 DM/group-DM IDs and manual previous-loaded-DM navigation/clear. No hotkey, overlay, toast, avatars, message content or automatic navigation."
+      }
     },
     {
       "path": "src/equicordplugins/remix",
@@ -1444,7 +1504,7 @@
         "status": "packaged",
         "package": "social-link-tools",
         "package_path": "extensions/plugins/packages/social-link-tools.serein-extension",
-        "limitations": "One Apply-reviewed send with user/role/everyone/here neutralization; no attachments, stickers, alternate channel, retry or reply auto-selection."
+        "limitations": "Apply-reviewed repeat send or explicit reply with user/role/everyone/here neutralization and reply mention disabled. No attachments, stickers, alternate channel or retry."
       }
     },
     {
@@ -1463,7 +1523,13 @@
       "summary": "Renders magnet links in messages with a parsed display filename, similar to message links.",
       "bounds": "Link renderer only; no network request or automatic download.",
       "target": "crates/ui link renderer",
-      "audit_file": "equicord-120-149.json"
+      "audit_file": "equicord-120-149.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "message-inspector-tools",
+        "package_path": "extensions/plugins/packages/message-inspector-tools.serein-extension",
+        "limitations": "Magnet parsing/copying only; no inline link rendering, tokenizer patch or automatic open/download."
+      }
     },
     {
       "path": "src/equicordplugins/richPresence",
@@ -1586,7 +1652,13 @@
       "summary": "S - Shows a member's highest role icon next to their message name, with per-role hide/show.",
       "bounds": "Reads GuildMemberStore/GuildRoleStore for the current guild; excluded-role list in private settings; bot display toggle; no network or account mutation.",
       "target": "Native highest-role badge with local excluded-role preferences.",
-      "audit_file": "equicord-150-179.json"
+      "audit_file": "equicord-150-179.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "message-inspector-tools",
+        "package_path": "extensions/plugins/packages/message-inspector-tools.serein-extension",
+        "limitations": "Loaded-role inspection only; no inline author badge, bot toggle, role color/icon in chat or context-menu toggles."
+      }
     },
     {
       "path": "src/equicordplugins/showSongName",
@@ -1646,7 +1718,13 @@
       "summary": "B - Adds streaming-service buttons under song links using Songlink lookups and can open native app URIs.",
       "bounds": "Native fetch to api.song.link with track URL and user country; opens external URLs or provider native app URIs via openExternal; per-service toggles; no credential use.",
       "target": "Native music-link resolver with explicit external-open confirmation, provider allowlist, and no automatic native-scheme launch.",
-      "audit_file": "equicord-150-179.json"
+      "audit_file": "equicord-150-179.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "music-link-tools",
+        "package_path": "extensions/plugins/packages/music-link-tools.serein-extension",
+        "limitations": "Locally recognizes bounded provider URLs and proposes a Songlink/provider HTTPS page. No Songlink API lookup, metadata/inline cards, native URI launch, slash/bot post or automatic send."
+      }
     },
     {
       "path": "src/equicordplugins/songSpotlight.desktop",
@@ -1923,7 +2001,13 @@
       "summary": "Safe now: existing audio_settings and camera_control grants cover volume, processing, device and current-call camera controls.",
       "bounds": "Output 0-200%, input 0-100%, host-known device IDs, camera only in the current call; Apply and revalidate changes.",
       "target": "native voice panel/settings surface",
-      "audit_file": "equicord-180-204.json"
+      "audit_file": "equicord-180-204.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "voice-panel-tools",
+        "package_path": "extensions/plugins/packages/voice-panel-tools.serein-extension",
+        "limitations": "Apply-reviewed output gain 0-200% and input gain 0-100% only; changed fields only. No device/camera selectors, voice-panel injection, header toggles or uncollapse preference; input above 100% is preserved read-only."
+      }
     },
     {
       "path": "src/equicordplugins/voiceButtons",
@@ -1932,7 +2016,13 @@
       "summary": "Bounded native: participant-row DM and audio controls use set_participant_audio, voice_control and relationship_control; server mute/deafen needs a bounded extension with native permission checks.",
       "bounds": "<=64 participants, one target per Apply, no bulk or raw media.",
       "target": "native voice participant row",
-      "audit_file": "equicord-180-204.json"
+      "audit_file": "equicord-180-204.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "voice-and-chat-tools",
+        "package_path": "extensions/plugins/packages/voice-and-chat-tools.serein-extension",
+        "limitations": "Current-call remote-participant local volume/mute and loaded-friend DM shortcut, one proposal per Apply. No server mute/deafen, move/disconnect or arbitrary-channel controls."
+      }
     },
     {
       "path": "src/equicordplugins/voiceChannelLog",
@@ -1941,7 +2031,13 @@
       "summary": "Bounded native: app_events, data_events and voice_state plus a new voice_activity_events* group can feed a session log; exclude soundboard download/network.",
       "bounds": "<=256 entries per channel, 24 h, 64 participants; no sound download or CDN fetch.",
       "target": "native channel log panel/header",
-      "audit_file": "equicord-180-204.json"
+      "audit_file": "equicord-180-204.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "voice-and-chat-tools",
+        "package_path": "extensions/plugins/packages/voice-and-chat-tools.serein-extension",
+        "limitations": "Current-call session log only, capped at 256 entries/48 KiB and sequence-ordered without wall-clock timestamps. No other participant state changes, soundboard events or other channels."
+      }
     },
     {
       "path": "src/equicordplugins/voiceChatUtils",
@@ -1950,7 +2046,13 @@
       "summary": "Bounded native: extend voice_control/moderation_control for participant disconnect, mute and move with a previewed batch instead of arbitrary REST PATCH calls.",
       "bounds": "<=64 users, one explicit Apply per batch, native permission recheck, paced requests.",
       "target": "native channel context preview panel",
-      "audit_file": "equicord-180-204.json"
+      "audit_file": "equicord-180-204.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "voice-and-chat-tools",
+        "package_path": "extensions/plugins/packages/voice-and-chat-tools.serein-extension",
+        "limitations": "Mention-all-users only: appends deduplicated current-call mentions to the draft. No automatic send or batch mute/deafen/move/disconnect workflows."
+      }
     },
     {
       "path": "src/equicordplugins/voiceJoinMessages",
@@ -1986,7 +2088,13 @@
       "summary": "Bounded native: storage, app_events and voice_connect can support an explicit opt-in rejoin, but background auto-join remains a native behavior, not a plugin-emitted effect.",
       "bounds": "One saved channel, 30 s window, one attempt, no ring, empty/ended-call checks.",
       "target": "native activation/settings with explicit opt-in",
-      "audit_file": "equicord-180-204.json"
+      "audit_file": "equicord-180-204.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "voice-rejoin-tools",
+        "package_path": "extensions/plugins/packages/voice-rejoin-tools.serein-extension",
+        "limitations": "Remembers one active channel and offers a muted, no-ring Apply-reviewed rejoin. No automatic join, delay, retry/time window or empty/ended-call check."
+      }
     },
     {
       "path": "src/equicordplugins/voiceStats",
@@ -2123,7 +2231,12 @@
       "summary": "Profile role chips can start expanded instead of collapsing after two rows.",
       "bounds": "Existing role list, capped at 512 model roles; normal chip wrapping.",
       "target": "Native Appearance toggle for expanded profile role lists.",
-      "audit_file": "core-000-027.json"
+      "audit_file": "core-000-027.json",
+      "implementation": {
+        "status": "native",
+        "surface": "profile presentation preferences and role chips",
+        "limitations": "Device-local default expansion over the existing loaded role catalog; off retains two-row collapse and per-user reveal. No additional member/role fetch."
+      }
     },
     {
       "path": "src/plugins/alwaysTrust",
@@ -2182,7 +2295,12 @@
       "summary": "GIF labels and tooltips can include a sanitized filename or URL basename without new data.",
       "bounds": "300-character label; URL basename only; no fetch.",
       "target": "Native image accessibility label and hover text for GIF attachments and embeds.",
-      "audit_file": "core-000-027.json"
+      "audit_file": "core-000-027.json",
+      "implementation": {
+        "status": "native",
+        "surface": "GIF attachment/embed accessibility labels and hover text",
+        "limitations": "Derives GIF - <name> only when no author description exists; 2,048-byte source, 20 words and 300 characters plus ellipsis. No fetch, image decode or non-GIF labels."
+      }
     },
     {
       "path": "src/plugins/betterGifPicker",
@@ -2230,7 +2348,13 @@
       "summary": "Full parity needs additional native search tokens and autocomplete because no SDK grant exposes the search query.",
       "bounds": "256-character/byte query; 25-result pages; 256 KiB search page.",
       "target": "Native search-token parser extension; a reduced panel plus navigation search is possible now.",
-      "audit_file": "core-000-027.json"
+      "audit_file": "core-000-027.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "better-search-tools",
+        "package_path": "extensions/plugins/packages/better-search-tools.serein-extension",
+        "limitations": "Builds one 256-byte current-conversation query after Apply. Extra tokens are unverified pass-through text; no filter registry, autocomplete, parser patch or result-parity claim."
+      }
     },
     {
       "path": "src/plugins/betterSessions",
@@ -2257,7 +2381,12 @@
       "summary": "Primary click on Attach can open the file picker while secondary click opens the existing Attach/Poll menu.",
       "bounds": "Existing 10-file and channel upload limits; no new I/O.",
       "target": "Native composer attach-button click behaviour.",
-      "audit_file": "core-000-027.json"
+      "audit_file": "core-000-027.json",
+      "implementation": {
+        "status": "native",
+        "surface": "composer attach control",
+        "limitations": "Primary click opens the existing picker; secondary click retains the attach/poll/preview menu. Upload limits, permissions and busy behavior are unchanged."
+      }
     },
     {
       "path": "src/plugins/biggerStreamPreview",
@@ -2646,7 +2775,13 @@
       "summary": "Right-click the group-DM greet message to send any greet sticker instead of the random one.",
       "bounds": "One message send using at most 3 sticker IDs from the existing sticker catalog; context menu only on an eligible greet/welcome row.",
       "target": "crates/ui/src/timeline.rs, crates/ui/src/stickers.rs, crates/client-core",
-      "audit_file": "core-056-083.json"
+      "audit_file": "core-056-083.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "greet-sticker-tools",
+        "package_path": "extensions/plugins/packages/greet-sticker-tools.serein-extension",
+        "limitations": "Re-sends one sticker already loaded on the selected message after Apply. No fixed greet catalog, welcome-CTA patch, greet mode, multi-greet or automatic send."
+      }
     },
     {
       "path": "src/plugins/hideAttachments",
@@ -2790,7 +2925,13 @@
       "summary": "Render an inline preview card for messages that link another Discord message.",
       "bounds": "One permission-checked linked-message read per preview; at most 5 links per message; nesting depth at most 3; LRU cache at most 256 KiB; skip channels the user cannot view.",
       "target": "crates/client-core/src/replies.rs, crates/ui/src/embeds.rs, crates/discord-api",
-      "audit_file": "core-056-083.json"
+      "audit_file": "core-056-083.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "linked-message-tools",
+        "package_path": "extensions/plugins/packages/linked-message-tools.serein-extension",
+        "limitations": "Scans up to five links in selected text, previews only loaded-timeline targets and offers Apply-reviewed navigation. No linked-message fetch, inline accessory, media, cross-channel permission lookup or nesting."
+      }
     },
     {
       "path": "src/plugins/messageLogger",
@@ -2814,7 +2955,13 @@
       "summary": "Make the quick-reaction count configurable beyond the current fixed three, using existing frecency and favourite emoji.",
       "bounds": "Configurable 0-42 quick reactions with bounded rows and columns; hover bar and context menu only.",
       "target": "crates/ui/src/emoji_picker.rs, crates/ui/src/reactions.rs, crates/ui/src/timeline.rs, crates/model/src/reading_preferences.rs",
-      "audit_file": "core-056-083.json"
+      "audit_file": "core-056-083.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "more-quick-reactions-tools",
+        "package_path": "extensions/plugins/packages/more-quick-reactions-tools.serein-extension",
+        "limitations": "Explicit 0-42 reaction list, 20 loaded-message choices and one Apply-reviewed add. No hover bar, row/column picker UI, scrolling layout or emoji-frecency integration."
+      }
     },
     {
       "path": "src/plugins/musicRichPresence",
@@ -3058,7 +3205,13 @@
       "summary": "Shows a member's, channel's or server's effective permissions and role ordering in a read-only popout.",
       "bounds": "Reads already-loaded roles, members, overwrites and permission decisions; no fetch or write. Cap displayed roles and members and bound panel output.",
       "target": "permissions popout and role summary",
-      "audit_file": "core-084-111.json"
+      "audit_file": "core-084-111.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "permissions-tools",
+        "package_path": "extensions/plugins/packages/permissions-tools.serein-extension",
+        "limitations": "Read-only current-account channel decisions and one loaded member role order. No permission masks, other-member effective permissions, overwrite tables, fetches, context menus, copy-ID or edits."
+      }
     },
     {
       "path": "src/plugins/petpet",
@@ -3117,7 +3270,12 @@
       "summary": "Previews the current draft and pending attachments locally before sending.",
       "bounds": "Reads the draft and local attachments only; no send or upload. Bound preview text and attachment count, and release local preview resources.",
       "target": "composer preview panel",
-      "audit_file": "core-084-111.json"
+      "audit_file": "core-084-111.json",
+      "implementation": {
+        "status": "native",
+        "surface": "composer preview card",
+        "limitations": "Local plain-text draft, staged attachment names/sizes and sticker preview with bounded scrolling. No full Markdown/embed fidelity, upload, send or synthetic timeline message."
+      }
     },
     {
       "path": "src/plugins/quickMention",
@@ -3274,7 +3432,13 @@
       "summary": "Read-only guild info modal over already-loaded guild, channel, role, member, friend, blocked and ignored data.",
       "bounds": "Local stores; mutual-member tabs may issue bounded GUILD_MEMBERS_REQUEST chunks; cap visible rows and page size.",
       "target": "crates/ui/src/server_menu.rs and profiles",
-      "audit_file": "core-112-139.json"
+      "audit_file": "core-112-139.json",
+      "implementation": {
+        "status": "packaged",
+        "package": "server-info-tools",
+        "package_path": "extensions/plugins/packages/server-info-tools.serein-extension",
+        "limitations": "Read-only loaded guild/channel data and account-wide relationship counts. No owner, joined-at, vanity, locale, verification, boosts, roles, membership-filtered/mutual tabs, images or member fetches."
+      }
     },
     {
       "path": "src/plugins/serverListIndicators",
@@ -3283,7 +3447,12 @@
       "summary": "Server-list badge showing the online friend count and/or joined guild count.",
       "bounds": "Counts over already-loaded presences, relationships and guilds only; no fetch.",
       "target": "crates/ui/src/guild_folders.rs server list",
-      "audit_file": "core-112-139.json"
+      "audit_file": "core-112-139.json",
+      "implementation": {
+        "status": "native",
+        "surface": "server rail",
+        "limitations": "One compact tile for loaded online-friend and guild counts. Loaded data only; no upstream mode preference, pending joins or unloaded presences."
+      }
     },
     {
       "path": "src/plugins/shikiCodeblocks.desktop",
@@ -3337,7 +3506,12 @@
       "summary": "Compose custom, friend, server, display and username permutations across messages, replies, mentions, member list, typing, reactions and popouts.",
       "bounds": "Reads local user/member/relationship stores; custom nickname map kept in bounded local storage (id -> short string); display-only with no fetch.",
       "target": "crates/ui/src/name_styles.rs and member/user display",
-      "audit_file": "core-112-139.json"
+      "audit_file": "core-112-139.json",
+      "implementation": {
+        "status": "native",
+        "surface": "Chat preferences and message-author naming",
+        "limitations": "Optional private friend nickname precedence over server nickname through existing naming paths. No custom-name map or full per-surface permutations; webhook labels and other native surfaces remain unchanged."
+      }
     },
     {
       "path": "src/plugins/showTimeoutDuration",
@@ -3369,7 +3543,12 @@
       "summary": "Suppress outbound TYPING_START indicators with per-location consent lists, and optionally hide others' indicators.",
       "bounds": "Global/guild/channel allow or deny lists plus temporary-enable windows; inbound typing unchanged; existing typing state bounded at 16 direct and 16 sent entries.",
       "target": "crates/client-core/src/typing.rs and outbound typing dispatch",
-      "audit_file": "core-112-139.json"
+      "audit_file": "core-112-139.json",
+      "implementation": {
+        "status": "native",
+        "surface": "Chat preferences and outbound typing policy",
+        "limitations": "Device-local outbound suppression with normal/inverted behavior and at most 64 channel/guild exceptions. No temporary-enable windows or hiding incoming indicators."
+      }
     },
     {
       "path": "src/plugins/sortFriendRequests",
@@ -3378,7 +3557,12 @@
       "summary": "Sort friend requests by receipt date and optionally show the date label.",
       "bounds": "Local relationship since values only; formatting and ordering; no fetch.",
       "target": "crates/ui/src/friends.rs",
-      "audit_file": "core-112-139.json"
+      "audit_file": "core-112-139.json",
+      "implementation": {
+        "status": "native",
+        "surface": "Friends request rows plus relationship protocol/core",
+        "limitations": "Dated pending requests sort newest-first and show a local Added MM/DD/YY label; absent/malformed restricted since data falls back to alphabetical order. No fetch or display preference."
+      }
     },
     {
       "path": "src/plugins/spotifyCrack",
@@ -3405,7 +3589,12 @@
       "summary": "Developer settings page listing boot-phase timing deltas.",
       "bounds": "Local diagnostics only; read-only table; no network or extra persistence.",
       "target": "crates/diagnostics",
-      "audit_file": "core-112-139.json"
+      "audit_file": "core-112-139.json",
+      "implementation": {
+        "status": "native",
+        "surface": "Support & diagnostics",
+        "limitations": "Read-only process-relative phase list capped at eight entries and stopped after the first frame; not a complete profiler or persistent timing history."
+      }
     },
     {
       "path": "src/plugins/stickerPaste",
@@ -3489,7 +3678,12 @@
       "summary": "Adds avatars, role colours, alternate several-user formatting and am-I-typing to the typing indicator.",
       "bounds": "Use only already-loaded avatars, member roles and typing IDs; keep the existing three-name strip, selected-channel scope and bounded repaint schedule. No fetch.",
       "target": "crates/ui/src/typing.rs",
-      "audit_file": "core-140-167.json"
+      "audit_file": "core-140-167.json",
+      "implementation": {
+        "status": "native",
+        "surface": "typing indicator",
+        "limitations": "Already-loaded member role colors and corrected several-user conjunction formatting. No avatars or am-I-typing feature; the selected-channel bounded name strip remains."
+      }
     },
     {
       "path": "src/plugins/unindent",
@@ -3531,7 +3725,12 @@
       "summary": "Shows profile pronouns beside message timestamps or compact usernames.",
       "bounds": "Cache-only lookup of already-loaded profile pronouns; lowercase/capitalized and show-self settings; trim, strip controls, cap at 256 bytes; skip bots and system messages. No background profile fetch.",
       "target": "crates/ui/src/timeline.rs",
-      "audit_file": "core-140-167.json"
+      "audit_file": "core-140-167.json",
+      "implementation": {
+        "status": "native",
+        "surface": "message headers and compact rows",
+        "limitations": "Cache-only lowercase pronouns, trimmed/control-stripped and capped at 256 bytes for human non-webhook, non-system authors. No profile fetch or capitalization/show-self preferences."
+      }
     },
     {
       "path": "src/plugins/userVoiceShow",
@@ -3719,10 +3918,10 @@
   "implementation_note": "Package existence and offline checks do not imply complete upstream parity or live Discord compatibility. MessageLogger lifecycle review completed with synthetic tests; raw REST-vs-gateway subsequent body-application behavior remains outside this feature guarantee.",
   "coverage_totals": {
     "upstream_directories": 373,
-    "mapped_packages": 16,
+    "mapped_packages": 31,
     "review_pending_packages": 0,
-    "mapped_upstream_workflows": 37,
-    "native_workflows": 26,
-    "total_workflow_mappings": 63
+    "mapped_upstream_workflows": 61,
+    "native_workflows": 37,
+    "total_workflow_mappings": 98
   }
 }

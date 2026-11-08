@@ -2990,10 +2990,12 @@ mod tests {
 								assert!(entries.is_empty());
 								return Ok(());
 							}
-							Event::UserAction(client_core::user_actions::Event::RequestsSince {
-								entries,
-								replace,
-							}) => {
+							Event::UserAction(
+								client_core::user_actions::Event::RequestsSince {
+									entries,
+									replace,
+								},
+							) => {
 								assert!(replace);
 								assert!(entries.is_empty());
 								return Ok(());

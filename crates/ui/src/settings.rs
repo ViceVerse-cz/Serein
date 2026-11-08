@@ -1267,10 +1267,9 @@ impl MessagingUi {
 				);
 				let response = design::input(
 					ui,
-					egui::TextEdit::singleline(&mut self.silent_typing_locations)
-						.hint_text(crate::i18n::translate(
-							"settings-silent-typing-locations-hint",
-						)),
+					egui::TextEdit::singleline(&mut self.silent_typing_locations).hint_text(
+						crate::i18n::translate("settings-silent-typing-locations-hint"),
+					),
 				);
 				if response.changed() {
 					let mut candidate = self.silent_typing.clone();
@@ -1280,18 +1279,14 @@ impl MessagingUi {
 				}
 			},
 		);
-		design::group(
-			ui,
-			&crate::i18n::translate("settings-name-display"),
-			|ui| {
-				design::switch(
-					ui,
-					"settings-prefer-friend-nickname",
-					Some("settings-prefer-friend-nickname-description"),
-					&mut self.prefer_friend_nickname,
-				);
-			},
-		);
+		design::group(ui, &crate::i18n::translate("settings-name-display"), |ui| {
+			design::switch(
+				ui,
+				"settings-prefer-friend-nickname",
+				Some("settings-prefer-friend-nickname-description"),
+				&mut self.prefer_friend_nickname,
+			);
+		});
 		design::group(
 			ui,
 			&crate::i18n::translate("settings-invite-defaults"),

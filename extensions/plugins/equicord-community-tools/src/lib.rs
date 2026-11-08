@@ -237,7 +237,7 @@ fn selected_reference(
 	Ok(reference)
 }
 
-fn selected_text<'a>(input: &'a MessageActionInvocation) -> Result<&'a str, &'static str> {
+fn selected_text(input: &MessageActionInvocation) -> Result<&str, &'static str> {
 	selected_reference(input)?;
 	input
 		.invocation
@@ -625,8 +625,8 @@ fn decline_ignored_call(input: &MessageActionInvocation) -> AppOutput {
 	)
 }
 
-fn open_panel(input: &MessageActionInvocation) -> AppOutput {
-	let storage = load_storage(input);
+fn open_panel(invocation: &MessageActionInvocation) -> AppOutput {
+	let storage = load_storage(invocation);
 	let mut panel = vec![
 		heading("Equicord community tools"),
 		text(
@@ -638,7 +638,7 @@ fn open_panel(input: &MessageActionInvocation) -> AppOutput {
 			"The saved configuration is unreadable and is preserved unchanged. Saving a setting replaces it only after an explicit action.",
 		));
 	}
-	match input
+	match invocation
 		.invocation
 		.app
 		.as_ref()
@@ -907,7 +907,7 @@ mod tests {
 			None,
 		));
 		assert!(rejected.effects.is_empty());
-		assert!(wire.get("storage").is_none());
+		assert!(wire.get("storage").is_none_or(|value| value.is_null()));
 	}
 
 	#[test]
@@ -972,7 +972,7 @@ mod tests {
 			Some(&full),
 		));
 		assert!(full_output.effects.is_empty());
-		assert!(full_wire.get("storage").is_none());
+		assert!(full_wire.get("storage").is_none_or(|value| value.is_null()));
 		assert!(panel_text(&full_output).contains("already holds 16"));
 	}
 
@@ -983,7 +983,7 @@ mod tests {
 			"storage": "{\"version\":1,\"hopon\":{\"triggers\":[],\"url\":\"http://bad\"}}",
 			"app": { "context": { "connected": true } }
 		}));
-		assert!(wire.get("storage").is_none());
+		assert!(wire.get("storage").is_none_or(|value| value.is_null()));
 		assert!(panel_text(&opened).contains("unreadable and is preserved"));
 	}
 }

@@ -13,7 +13,8 @@
  */
 
 use serein_extension_sdk::{
-	AppInvocation, AppOutput, Element, HostEffect, MessageSnapshot, Output, TimelineSnapshot,
+	AppInvocation, AppOutput, Element, HostEffect, MessageActionInvocation, MessageSnapshot,
+	Output, TimelineSnapshot,
 };
 
 /// The host already caps the timeline snapshot; this is a defensive second cap.
@@ -147,12 +148,12 @@ fn jump(scope: &Scope<'_>, message_id: &str, detail: &str) -> AppOutput {
 	)
 }
 
-fn handle(input: AppInvocation) -> AppOutput {
-	let scope = match scope(&input) {
+fn handle(input: MessageActionInvocation) -> AppOutput {
+	let scope = match scope(&input.invocation) {
 		Ok(scope) => scope,
 		Err(error) => return no_effect(error),
 	};
-	match input.invocation.action.as_str() {
+	match input.invocation.invocation.action.as_str() {
 		"jump-latest" => {
 			let message_id = scope
 				.last_message_id
@@ -194,7 +195,7 @@ fn handle(input: AppInvocation) -> AppOutput {
 			if reference.channel_id != scope.channel_id || !canonical_id(&reference.author_id) {
 				return no_effect(STALE_CONTEXT);
 			}
-			let newest = input.invocation.action == "jump-author-latest";
+			let newest = input.invocation.invocation.action == "jump-author-latest";
 			match find_message(
 				&scope.timeline.messages,
 				Some(reference.author_id.as_str()),
@@ -239,49 +240,52 @@ mod tests {
 		}
 	}
 
-	fn invocation(action: &str) -> AppInvocation {
-		AppInvocation {
-			invocation: serein_extension_sdk::Invocation {
-				action: action.into(),
+	fn invocation(action: &str) -> MessageActionInvocation {
+		MessageActionInvocation {
+			invocation: AppInvocation {
+				invocation: serein_extension_sdk::Invocation {
+					action: action.into(),
+					..Default::default()
+				},
+				app: Some(AppSnapshot {
+					context: Some(AppContextSnapshot {
+						connected: true,
+						user: Some(UserSnapshot {
+							id: "1".into(),
+							name: "me".into(),
+						}),
+						channel: Some(ChannelSnapshot {
+							id: "20".into(),
+							guild_id: Some("2".into()),
+							name: "general".into(),
+							kind: 0,
+						}),
+					}),
+					timeline: Some(TimelineSnapshot {
+						channel_id: "20".into(),
+						messages: vec![message(100, 3), message(101, 1), message(102, 3)],
+						truncated: true,
+					}),
+					channel_details: Some(ChannelDetailsSnapshot {
+						channel: ChannelSnapshot {
+							id: "20".into(),
+							guild_id: Some("2".into()),
+							name: "general".into(),
+							kind: 0,
+						},
+						parent_id: None,
+						position: 0,
+						last_message_id: Some("103".into()),
+						message_count: None,
+						recipients: Vec::new(),
+						recipients_truncated: false,
+						can_send: true,
+						can_read_history: true,
+					}),
+					..Default::default()
+				}),
 				..Default::default()
 			},
-			app: Some(AppSnapshot {
-				context: Some(AppContextSnapshot {
-					connected: true,
-					user: Some(UserSnapshot {
-						id: "1".into(),
-						name: "me".into(),
-					}),
-					channel: Some(ChannelSnapshot {
-						id: "20".into(),
-						guild_id: Some("2".into()),
-						name: "general".into(),
-						kind: 0,
-					}),
-				}),
-				timeline: Some(TimelineSnapshot {
-					channel_id: "20".into(),
-					messages: vec![message(100, 3), message(101, 1), message(102, 3)],
-					truncated: true,
-				}),
-				channel_details: Some(ChannelDetailsSnapshot {
-					channel: ChannelSnapshot {
-						id: "20".into(),
-						guild_id: Some("2".into()),
-						name: "general".into(),
-						kind: 0,
-					},
-					parent_id: None,
-					position: 0,
-					last_message_id: Some("103".into()),
-					message_count: None,
-					recipients: Vec::new(),
-					recipients_truncated: false,
-					can_send: true,
-					can_read_history: true,
-				}),
-				..Default::default()
-			}),
 			..Default::default()
 		}
 	}
@@ -342,6 +346,7 @@ mod tests {
 	fn stale_or_mismatched_context_proposes_nothing() {
 		let mut stale = invocation("jump-me-latest");
 		stale
+			.invocation
 			.app
 			.as_mut()
 			.unwrap()
@@ -362,6 +367,7 @@ mod tests {
 
 		let mut malformed = invocation("jump-latest");
 		malformed
+			.invocation
 			.app
 			.as_mut()
 			.unwrap()

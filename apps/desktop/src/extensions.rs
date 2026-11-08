@@ -218,6 +218,111 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 			),
 			"Reviewed development Equicord workflow package.",
 		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/voice-panel-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/server-info-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/equicord-community-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/plus-reacts-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/permissions-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/message-inspector-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/voice-rejoin-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/account-navigation-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/message-navigation-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/music-link-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/more-quick-reactions-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/linked-message-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/greet-sticker-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/better-search-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
+		#[cfg(all(debug_assertions, not(test), not(feature = "demo")))]
+		(
+			include_bytes!(
+				"../../../extensions/plugins/packages/voice-and-chat-tools.serein-extension"
+			),
+			"Reviewed development Equicord workflow package.",
+		),
 		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!(

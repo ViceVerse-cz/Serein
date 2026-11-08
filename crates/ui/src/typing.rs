@@ -135,12 +135,7 @@ fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<Segment>> {
 
 #[cfg(test)]
 fn label(state: &State, channel: Id, now: Instant) -> Option<String> {
-	segments(state, channel, now).map(|parts| {
-		parts
-			.into_iter()
-			.map(|(text, _, _)| text)
-			.collect()
-	})
+	segments(state, channel, now).map(|parts| parts.into_iter().map(|(text, _, _)| text).collect())
 }
 
 /// Height the timeline reserves for the indicator above the composer. The conversation keeps
@@ -237,10 +232,7 @@ pub(super) fn overlay(
 	let text_pos = egui::pos2(text_left, rect.center().y - galley.size().y / 2.0);
 	painter.galley(text_pos, galley, colors.muted);
 	response.widget_info(|| {
-		let text: String = segments
-			.iter()
-			.map(|(text, _, _)| text.as_str())
-			.collect();
+		let text: String = segments.iter().map(|(text, _, _)| text.as_str()).collect();
 		egui::WidgetInfo::labeled(egui::Role::Label, true, text)
 	});
 	if let Some(deadline) = state.typing_deadline(now) {

@@ -20,7 +20,7 @@
 use serde::{Deserialize, Serialize};
 use serein_extension_sdk::{
 	AppAction, AppInvocation, AppOutput, Element, HostEffect, MAX_IO_BYTES, MessageSnapshot,
-	Output, TimelineSnapshot,
+	Output, TimelineSnapshot, serde_json,
 };
 
 /// Upstream's configured ceiling for the quick reaction count.
@@ -148,9 +148,17 @@ fn load(invocation: &AppInvocation) -> Loaded {
 	{
 		return Loaded::Corrupt;
 	}
-	match invocation.invocation.storage_json::<Settings>() {
+	match invocation.invocation.storage_json::<serde_json::Value>() {
 		Ok(None) => Loaded::Missing,
-		Ok(Some(settings)) => {
+		Ok(Some(value)) => {
+			// Structs can otherwise decode from JSON sequences, including `[]`.
+			// Persisted settings are always one object with exactly the declared fields.
+			if !value.is_object() {
+				return Loaded::Corrupt;
+			}
+			let Ok(settings) = serde_json::from_value::<Settings>(value) else {
+				return Loaded::Corrupt;
+			};
 			if settings.reactions.len() > MAX_REACTIONS
 				|| settings.reactions.iter().any(|emoji| {
 					emoji.len() > MAX_CUSTOM_EMOJI_BYTES
@@ -563,7 +571,10 @@ mod tests {
 			serde_json::from_str(output.output.storage.as_deref().unwrap()).unwrap();
 		assert_eq!(saved.reactions, vec!["👍".to_owned(), "❤️".to_owned()]);
 
-		let too_many = (0..43).map(|_| "👍").collect::<Vec<_>>().join(" ");
+		let too_many = (1..=43)
+			.map(|id| format!("{id}:aa"))
+			.collect::<Vec<_>>()
+			.join(" ");
 		let output = run(json!({
 			"action": "save",
 			"values": {"reactions": too_many}

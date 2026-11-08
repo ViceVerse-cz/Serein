@@ -37,11 +37,13 @@ enum Tab {
 	Add,
 }
 /// Pending requests with a receipt time come first, newest first; the rest stay alphabetical.
-fn sort_requests(
-	rows: &mut [(model::User, String, bool)],
-	since: impl Fn(model::Id) -> Option<i64>,
-) {
+fn sort_requests<T>(rows: &mut [T], since: impl Fn(model::Id) -> Option<i64>)
+where
+	T: std::borrow::Borrow<(model::User, String, bool)>,
+{
 	rows.sort_unstable_by(|a, b| {
+		let a = a.borrow();
+		let b = b.borrow();
 		match (since(a.0.id), since(b.0.id)) {
 			(Some(a), Some(b)) => b.cmp(&a),
 			(Some(_), None) => std::cmp::Ordering::Less,
@@ -393,9 +395,7 @@ impl MessagingUi {
 								}
 								text.add(
 									egui::Label::new(
-										RichText::new(subtext)
-										.size(13.0)
-										.color(colors.muted),
+										RichText::new(subtext).size(13.0).color(colors.muted),
 									)
 									.truncate(),
 								);

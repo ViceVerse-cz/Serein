@@ -260,13 +260,12 @@ fn gallery(
 					.as_deref()
 					.or(media.proxy_url.as_deref())
 					.unwrap_or_default();
-				let gif_alt = if embed.kind == "gifv"
-					|| media_url.to_ascii_lowercase().ends_with(".gif")
-				{
-					crate::gif_alt::gif_alt_text(media_url)
-				} else {
-					None
-				};
+				let gif_alt =
+					if embed.kind == "gifv" || media_url.to_ascii_lowercase().ends_with(".gif") {
+						crate::gif_alt::gif_alt_text(media_url)
+					} else {
+						None
+					};
 				let image = images
 					.show_media(ui, media, rect.size(), demo, Surface::Banner)
 					.response;
@@ -629,13 +628,12 @@ pub fn show(
 					.as_deref()
 					.or(image.proxy_url.as_deref())
 					.unwrap_or_default();
-				let gif_alt = if embed.kind == "gifv"
-					|| media_url.to_ascii_lowercase().ends_with(".gif")
-				{
-					crate::gif_alt::gif_alt_text(media_url)
-				} else {
-					None
-				};
+				let gif_alt =
+					if embed.kind == "gifv" || media_url.to_ascii_lowercase().ends_with(".gif") {
+						crate::gif_alt::gif_alt_text(media_url)
+					} else {
+						None
+					};
 				let painted = images.show_gif_embed(
 					ui,
 					embed,

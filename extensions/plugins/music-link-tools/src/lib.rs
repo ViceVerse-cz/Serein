@@ -430,6 +430,8 @@ fn handle(input: AppInvocation) -> AppOutput {
 	}
 }
 
+serein_extension_sdk::export!(handle);
+
 #[cfg(test)]
 mod tests {
 	use super::*;

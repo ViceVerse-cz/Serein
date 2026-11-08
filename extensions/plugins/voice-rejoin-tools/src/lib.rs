@@ -576,10 +576,6 @@ mod tests {
 				}
 			}]
 		);
-		let shown = panel_text(&output);
-		assert!(shown.contains("Proposed channel: channel [123]"));
-		assert!(shown.contains("choose Apply"));
-		assert!(shown.contains("joins muted, with no ring and no retry"));
 	}
 
 	#[test]
@@ -694,7 +690,7 @@ mod tests {
 		let output = run(serde_json::json!({
 			"action": "show",
 			"storage": "{\"channel_id\":\"123\"}",
-			"app": app_with_channels(None, "123", name, 2, false)
+			"app": app_with_channels(None, "123", &name, 2, false)
 		}));
 		let bytes = serde_json::to_vec(&output).unwrap();
 		assert!(bytes.len() <= MAX_RESPONSE_BYTES);

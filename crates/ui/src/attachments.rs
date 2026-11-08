@@ -400,9 +400,7 @@ pub(crate) fn show_subset(
 									.or(gif_alt.as_deref())
 									.map_or_else(
 										|| format!("View image {}", attachment.filename),
-										|alt| {
-											format!("View image {} ({alt})", attachment.filename)
-										},
+										|alt| format!("View image {} ({alt})", attachment.filename),
 									);
 								response.widget_info(|| {
 									egui::WidgetInfo::labeled(
@@ -412,7 +410,8 @@ pub(crate) fn show_subset(
 									)
 								});
 								media_context_menu(&response, attachment, download, opening, demo);
-								let gif = crate::embeds::gif_for_media(&attachment.media, None, is_gif);
+								let gif =
+									crate::embeds::gif_for_media(&attachment.media, None, is_gif);
 								let star = gif.map(|gif| {
 									let favorite = download.gif_favorites.contains(&gif.url);
 									let star = crate::embeds::favorite_star(

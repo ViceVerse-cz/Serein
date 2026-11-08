@@ -471,7 +471,7 @@ fn transform_text(draft: &str) -> String {
 		let Some(body) = command_body(draft, command) else {
 			continue;
 		};
-		return match command {
+		let transformed = match command {
 			"/mock" => mock(body),
 			"/reverse" => body.chars().rev().collect(),
 			// Upstream `moreCommands` treats an all-Morse body as a decode request.
@@ -479,9 +479,15 @@ fn transform_text(draft: &str) -> String {
 			"/wordcount" => word_count(body).to_string(),
 			"/upper" => body.to_uppercase(),
 			"/lower" => body.to_lowercase(),
-			"/repeat" => repeat(body),
+			"/repeat" => return repeat(body).unwrap_or_else(|| draft.to_owned()),
 			"/uwuify" => uwuify(body),
 			_ => unreachable!(),
+		};
+		let limit = draft.len().max(serein_extension_sdk::MAX_IO_BYTES / 8);
+		return if transformed.len() <= limit {
+			transformed
+		} else {
+			draft.to_owned()
 		};
 	}
 	draft.to_owned()
@@ -576,7 +582,7 @@ fn from_morse(text: &str) -> String {
 	}
 }
 
-const MORSE: &[(char, &'static str)] = &[
+const MORSE: &[(char, &str)] = &[
 	('A', ".-"),
 	('B', "-..."),
 	('C', "-.-."),
@@ -646,20 +652,20 @@ fn morse_decode_symbol(code: &str) -> Option<char> {
 		.find_map(|(character, symbol)| (*symbol == code).then_some(*character))
 }
 
-fn repeat(body: &str) -> String {
+fn repeat(body: &str) -> Option<String> {
 	let Some((count, text)) = body.split_once(char::is_whitespace) else {
-		return body.to_owned();
+		return Some(body.to_owned());
 	};
 	let Ok(count) = count.parse::<usize>() else {
-		return body.to_owned();
+		return Some(body.to_owned());
 	};
 	let count = count.clamp(1, 10);
 	let text = text.trim_start_matches(char::is_whitespace);
-	// Never allocate an oversized body just to discard it in `text_replacement`.
+	// Never allocate an oversized result just to discard it in `transform_text`.
 	if text.len().saturating_mul(count) > serein_extension_sdk::MAX_IO_BYTES / 8 {
-		return body.to_owned();
+		return None;
 	}
-	text.repeat(count)
+	Some(text.repeat(count))
 }
 
 fn uwuify(text: &str) -> String {

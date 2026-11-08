@@ -3840,7 +3840,8 @@ impl TimelineView {
 												&message.author,
 											);
 											surface.keep(&author);
-											if let Some(pronouns) = loaded_pronouns(state, message) {
+											if let Some(pronouns) = loaded_pronouns(state, message)
+											{
 												ui.label(
 													RichText::new(format!("• {pronouns}"))
 														.size(11.0)
@@ -3938,7 +3939,9 @@ impl TimelineView {
 														crate::local_time::full(time)
 													});
 												surface.exclude(time.rect);
-												if let Some(pronouns) = loaded_pronouns(state, message) {
+												if let Some(pronouns) =
+													loaded_pronouns(state, message)
+												{
 													ui.label(
 														RichText::new(format!("• {pronouns}"))
 															.size(11.0)

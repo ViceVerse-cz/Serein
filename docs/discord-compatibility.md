@@ -1134,7 +1134,10 @@ when full, new channels are suppressed until a timestamp expires. Typing shares 
 writer and an ordering guard with attachment sends. A newer indicator or send discards pending
 typing; started requests finish before a send can begin. Queued indicators older than two
 seconds are dropped. Failures other than session-ending ones are ignored, and the offline
-preview never sends it.
+preview never sends it. A device-local Silent Typing preference can suppress these outbound
+requests everywhere except listed channels/guilds, or only in listed channels/guilds. At most 64
+distinct nonzero locations are retained, suppression is decided before a throttle slot is consumed,
+and incoming indicators are unchanged. Temporary-enable windows and inbound hiding are not ported.
 Received typing now also tracks DMs and group DMs that are not selected, in a fixed sixteen
 entry store (channel, typist, deadline) with the same expiry and validation. The transport
 admits known private conversations alongside the selected channel, with eight coalesced
@@ -1990,9 +1993,10 @@ Shared user menus expose Add Note and Add/Edit Friend Nickname; the latter requi
 confirmed friend and never changes a server nickname. Notes load before editing,
 failed writes retain the draft, and clearing is explicit. Private names appear in
 Friends/search, DM navigation/header/composer, message author labels, profile cards
-and the typing indicator. A loaded server nickname still wins over a private name in
-a server, as it does for message authors. Public names, usernames and IDs remain
-unchanged.
+and the typing indicator. By default a loaded server nickname still wins over a private name in
+a server, as it does for message authors. The opt-in Prefer friend nicknames preference gives a
+confirmed friend's private nickname priority only for message-author labels; webhook labels and
+other naming surfaces are unchanged. Public names, usernames and IDs remain unchanged.
 
 These normal-user routes are **unofficial and live-unverified**:
 GET/PUT `/users/@me/notes/{id}` and PATCH `/users/@me/relationships/{id}`.
@@ -2103,7 +2107,11 @@ the unread rail or the Direct Messages sidebar. The unofficial relationship fiel
 The unofficial channel fields `is_message_request` and `is_spam`, plus channel
 flag `IS_SPAM` (`1 << 5`), come from the
 [docs.discord.food channel object](https://docs.discord.food/resources/channel#channel-object).
-READY, CHANNEL_CREATE, and CHANNEL_UPDATE fill the channel inbox sets.
+READY, CHANNEL_CREATE, and CHANNEL_UPDATE fill the channel inbox sets. Pending request rows also
+read the restricted, unofficial relationship `since` timestamp when supplied: dated requests sort
+newest-first and display a local `Added MM/DD/YY` label, while absent or malformed dates retain
+alphabetical ordering. Dates clear when requests resolve or account snapshots are replaced; no
+additional fetch or date-request preference is added, and live availability is unverified.
 RELATIONSHIP_ADD, RELATIONSHIP_UPDATE, and RELATIONSHIP_REMOVE update the
 incoming friend-request spam set. This change does not add a Message Requests
 or Spam inbox.
@@ -3050,8 +3058,10 @@ separated into existing native behavior, existing package ports, local safe cand
 native-capability candidates and unsuitable workflows; internal Equicord patch loaders are not
 user-facing ports.
 
-Package mappings in that record cover 37 upstream workflows. They do not claim upstream feature
-parity: several are intentionally narrower native/alternative workflows. MessageLogger and
+The record maps 61 upstream workflow subsets to 31 real-Wasm packages and another 37 subsets to
+native behavior, for 98 explicit workflow mappings. They do not claim upstream feature parity:
+several are intentionally narrower native/alternative workflows, and unported/blocked plugin
+directories do not count as coverage. MessageLogger and
 MessageLoggerEnhanced are implemented as an explicitly reviewed, persistent, bounded native history
 covering subsequently loaded readable chats, per-account retention/clear and access-loss cleanup,
 attachment metadata with per-type opt-in CDN downloads, bounded text/JSON export, filters and

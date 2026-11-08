@@ -945,6 +945,162 @@ fn check_safe_ports(catalog_wasm_dir: &Path) -> Result<(), Box<dyn std::error::E
 			[extensions::HostEffect::CopyText { text }] if text == "#12ab34"
 		));
 	}
+	// Every additional package crosses the real Wasm export/JSON boundary in both
+	// its rebuilt and committed forms. Their inline suites cover exact behavior;
+	// these no-data paths also verify graceful, bounded missing-snapshot handling.
+	let additional: &[(&str, &str, &str, &[u8])] = &[
+		(
+			"account-navigation-tools",
+			"open",
+			include_str!("../../../extensions/plugins/account-navigation-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/account-navigation-tools.serein-extension"
+			),
+		),
+		(
+			"better-search-tools",
+			"open",
+			include_str!("../../../extensions/plugins/better-search-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/better-search-tools.serein-extension"
+			),
+		),
+		(
+			"equicord-community-tools",
+			"open",
+			include_str!("../../../extensions/plugins/equicord-community-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/equicord-community-tools.serein-extension"
+			),
+		),
+		(
+			"greet-sticker-tools",
+			"open",
+			include_str!("../../../extensions/plugins/greet-sticker-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/greet-sticker-tools.serein-extension"
+			),
+		),
+		(
+			"linked-message-tools",
+			"preview",
+			include_str!("../../../extensions/plugins/linked-message-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/linked-message-tools.serein-extension"
+			),
+		),
+		(
+			"message-inspector-tools",
+			"copy-magnets",
+			include_str!("../../../extensions/plugins/message-inspector-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/message-inspector-tools.serein-extension"
+			),
+		),
+		(
+			"message-navigation-tools",
+			"jump-latest",
+			include_str!("../../../extensions/plugins/message-navigation-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/message-navigation-tools.serein-extension"
+			),
+		),
+		(
+			"more-quick-reactions-tools",
+			"open",
+			include_str!("../../../extensions/plugins/more-quick-reactions-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/more-quick-reactions-tools.serein-extension"
+			),
+		),
+		(
+			"music-link-tools",
+			"open",
+			include_str!("../../../extensions/plugins/music-link-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/music-link-tools.serein-extension"
+			),
+		),
+		(
+			"permissions-tools",
+			"show",
+			include_str!("../../../extensions/plugins/permissions-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/permissions-tools.serein-extension"
+			),
+		),
+		(
+			"plus-reacts-tools",
+			"plus-react",
+			include_str!("../../../extensions/plugins/plus-reacts-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/plus-reacts-tools.serein-extension"
+			),
+		),
+		(
+			"server-info-tools",
+			"show",
+			include_str!("../../../extensions/plugins/server-info-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/server-info-tools.serein-extension"
+			),
+		),
+		(
+			"voice-and-chat-tools",
+			"open",
+			include_str!("../../../extensions/plugins/voice-and-chat-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/voice-and-chat-tools.serein-extension"
+			),
+		),
+		(
+			"voice-panel-tools",
+			"open",
+			include_str!("../../../extensions/plugins/voice-panel-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/voice-panel-tools.serein-extension"
+			),
+		),
+		(
+			"voice-rejoin-tools",
+			"show",
+			include_str!("../../../extensions/plugins/voice-rejoin-tools/manifest.json"),
+			include_bytes!(
+				"../../../extensions/plugins/packages/voice-rejoin-tools.serein-extension"
+			),
+		),
+	];
+	for &(stem, action, manifest, committed_bytes) in additional {
+		let rebuilt_package = rebuilt(
+			manifest,
+			&catalog_wasm_dir.join(format!("{}.wasm", stem.replace('-', "_"))),
+		)?;
+		let committed_package = parse_package(committed_bytes)?;
+		let input: Invocation = serde_json::from_value(serde_json::json!({"action": action}))?;
+		let expected = invoke(&committed_package, &input)
+			.unwrap_or_else(|error| panic!("{stem}/committed: invocation failed: {error:?}"));
+		assert!(
+			!expected.panel.is_empty()
+				|| expected.replacement.is_some()
+				|| expected.storage.is_some()
+				|| !expected.effects.is_empty(),
+			"{stem}/committed: missing-snapshot path returned no bounded feedback"
+		);
+		let actual = invoke(&rebuilt_package, &input)
+			.unwrap_or_else(|error| panic!("{stem}/rebuilt: invocation failed: {error:?}"));
+		assert_eq!(
+			serde_json::to_value(&actual)?,
+			serde_json::to_value(&expected)?,
+			"{stem}: rebuilt and committed behavior differ"
+		);
+		for effect in &actual.effects {
+			effect.validate(&rebuilt_package.manifest)?;
+		}
+		println!(
+			"{stem}/committed+rebuilt: {} Wasm bytes; export and missing-snapshot behavior passed",
+			rebuilt_package.wasm.len()
+		);
+	}
 	Ok(())
 }
 

@@ -308,14 +308,14 @@ fn friend_ids(app: &AppSnapshot) -> BTreeSet<String> {
 		.collect()
 }
 
-fn user_label(app: &AppSnapshot, user_id: &str, names: &BTreeMap<String, String>) -> String {
+fn user_label(user_id: &str, names: &BTreeMap<String, String>) -> String {
 	names
 		.get(user_id)
 		.cloned()
 		.unwrap_or_else(|| format!("user {user_id}"))
 }
 
-fn option_label(app: &AppSnapshot, user_id: &str, names: &BTreeMap<String, String>) -> String {
+fn option_label(user_id: &str, names: &BTreeMap<String, String>) -> String {
 	let name = names
 		.get(user_id)
 		.cloned()
@@ -340,7 +340,7 @@ fn participant_options(app: &AppSnapshot) -> Vec<(String, String)> {
 		.filter(|id| Some(id.as_str()) != own)
 		.filter(|id| seen.insert(id.to_string()))
 		.take(MAX_SELECT_OPTIONS)
-		.map(|id| (id.clone(), option_label(app, id, &names)))
+		.map(|id| (id.clone(), option_label(id, &names)))
 		.collect()
 }
 
@@ -543,7 +543,7 @@ fn apply_participant_audio(input: &AppInvocation) -> AppOutput {
 		}
 	};
 	let names = user_names(app);
-	let label = user_label(app, &user_id, &names);
+	let label = user_label(&user_id, &names);
 	proposal(
 		"Participant audio",
 		format!(
@@ -578,7 +578,7 @@ fn open_participant_dm(input: &AppInvocation) -> AppOutput {
 		);
 	}
 	let names = user_names(app);
-	let label = user_label(app, &user_id, &names);
+	let label = user_label(&user_id, &names);
 	proposal(
 		"Open DM",
 		format!("Propose opening direct messages with {label}."),
@@ -705,11 +705,11 @@ fn observe_voice(input: &AppInvocation) -> AppOutput {
 	save_storage(AppOutput::default(), &saved)
 }
 
-fn log_kind_label(entry: &LogEntry, names: &BTreeMap<String, String>, app: &AppSnapshot) -> String {
+fn log_kind_label(entry: &LogEntry, names: &BTreeMap<String, String>) -> String {
 	let who = entry
 		.user_id
 		.as_deref()
-		.map(|id| user_label(app, id, names))
+		.map(|id| user_label(id, names))
 		.unwrap_or_else(|| "You".into());
 	match entry.kind {
 		LogKind::Join => format!("{who} joined channel {}", entry.channel_id),
@@ -762,13 +762,11 @@ fn voice_log_panel(input: &AppInvocation) -> AppOutput {
 	} else {
 		let app = input.app.as_ref();
 		let names = app.map(user_names).unwrap_or_default();
-		let empty_app = AppSnapshot::default();
-		let app = app.unwrap_or(&empty_app);
 		let lines = entries
 			.iter()
 			.rev()
 			.take(MAX_LOG_LINES)
-			.map(|entry| format!("#{} {}", entry.seq, log_kind_label(entry, &names, app)))
+			.map(|entry| format!("#{} {}", entry.seq, log_kind_label(entry, &names)))
 			.collect::<Vec<_>>()
 			.join("\n");
 		panel.push(Element::Separator);
@@ -1108,8 +1106,10 @@ mod tests {
 		});
 		assert!(too_many.validate().is_err());
 
-		let mut wrong_version = Saved::default();
-		wrong_version.version = STORAGE_VERSION + 1;
+		let wrong_version = Saved {
+			version: STORAGE_VERSION + 1,
+			..Default::default()
+		};
 		assert!(wrong_version.validate().is_err());
 
 		let mut invalid_id = Saved::default();

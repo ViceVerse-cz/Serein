@@ -1123,6 +1123,20 @@ impl MessagingUi {
 			self.upload_busy = true;
 		}
 	}
+	/// Synthetic composer-preview state only; it neither stages files nor submits commands.
+	#[cfg(feature = "demo")]
+	pub fn preview_composer_tools(&mut self, state: &mut State) {
+		let Some(channel) = state.selected else {
+			return;
+		};
+		state.drafts.insert(
+			channel,
+			"Synthetic composer preview\n\nMarkdown such as **bold** stays plain text here. This bounded draft demonstrates local wrapping without sending, uploading or fetching anything.\n\nPříliš žluťoučký kůň 🦀"
+				.into(),
+		);
+		self.composer_preview = true;
+		self.composer_preview_channel = Some(channel);
+	}
 	/// Synthetic pending state only; no command is dispatched or file uploaded.
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_sending(&mut self, ctx: &egui::Context, state: &mut State) {
@@ -3899,6 +3913,11 @@ impl MessagingUi {
 			// A menu that closed this frame must not leave Tab for the editor to indent with.
 			ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
 		}
+		let has_preview = !editing_here
+			&& (!composer_content.trim().is_empty()
+				|| self.attachment.is_some()
+				|| !self.attachment_files.is_empty()
+				|| self.staged_sticker(state, channel).is_some());
 		let mut editing = if editing_here {
 			self.editing.take()
 		} else {
@@ -4018,11 +4037,6 @@ impl MessagingUi {
                         self.extensions.composer_menu(ui, state);
                     }
                     if let Some(attach) = attach {
-                        let has_preview = !editing_here
-                            && (!composer_content.trim().is_empty()
-                                || self.attachment.is_some()
-                                || !self.attachment_files.is_empty()
-                                || self.staged_sticker(state, channel).is_some());
                         // BetterUploadButton: a primary click opens the file picker; the
                         // attach/poll/preview menu stays on the secondary click.
                         if attach.clicked() && can_attach {
@@ -4580,7 +4594,7 @@ impl MessagingUi {
 				ui.horizontal(|ui| {
 					ui.label(design::semibold(
 						ui,
-						&crate::i18n::translate("composer-preview-title"),
+						crate::i18n::translate("composer-preview-title"),
 						13.0,
 					));
 					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -6981,14 +6995,23 @@ mod composer_tests {
 
 	#[test]
 	fn startup_timings_stop_at_the_first_frame_and_keep_a_fixed_bound() {
-		let mut view = MessagingUi::default();
-		view.startup_started = Some(std::time::Instant::now());
+		let mut view = MessagingUi {
+			startup_started: Some(std::time::Instant::now()),
+			..Default::default()
+		};
 		view.startup_phase("Interface ready");
 		view.startup_phase("First frame");
 		assert_eq!(view.startup_timings.len(), 2);
-		assert!(view.startup_started.is_none(), "first frame closes the clock");
+		assert!(
+			view.startup_started.is_none(),
+			"first frame closes the clock"
+		);
 		view.startup_phase("Later phase");
-		assert_eq!(view.startup_timings.len(), 2, "no phases after the first frame");
+		assert_eq!(
+			view.startup_timings.len(),
+			2,
+			"no phases after the first frame"
+		);
 
 		view.startup_started = Some(std::time::Instant::now());
 		for _ in 0..20 {

@@ -1859,40 +1859,36 @@ memory improvement is established by these package sizes.
 
 ### Equicord ecosystem and persistent message history — November 8, 2026
 
-Measured on Ubuntu Linux x86_64, Rust 1.98.1, locked/default release plus the `demo` profile for the
-UI fixture. Baseline is `21f8870b3849f24f9b0fb0bb17b9e3e272e2b93a` installed to
-`target/ecosystem-baseline/dist/serein`; current source is the dirty ecosystem working tree at the
-time of packaging, installed to `dist/serein`. Both packages include voice and use
-`cargo xtask package --format dir`. No live account, incoming message, network, microphone or audio
-playback was measured. Debian `.deb` builds could not be produced because `dpkg` is absent.
+Measured on Ubuntu Linux x86_64 with Rust 1.98.1. Baseline is the detached
+`21f8870b3849f24f9b0fb0bb17b9e3e272e2b93a`; the final source is the integrated ecosystem working
+tree. Both standard packages include voice and use `cargo xtask package --format dir`. Package size
+measurements compare only the installed `linux-root` trees, not duplicate loose staging copies;
+earlier draft totals included those duplicates and are superseded by this normalized comparison.
+No live account, incoming message, network, microphone or audio playback was measured. Debian
+`.deb` builds could not be produced because `dpkg` is absent.
 
 | Metric | Baseline | Current | Delta |
 | --- | ---: | ---: | ---: |
-| Executable bytes | 95,117,576 | 95,887,624 | +770,048 (+0.810%) |
-| Installed staging-tree bytes | 199,279,452 | 200,821,462 | +1,542,010 (+0.774%) |
-| Compressed staging tree (`tar.gz`) bytes | 114,036,051 | 114,706,931 | +670,880 (+0.588%) |
-| Median process CPU, same profile fixture | 9.33% | 3.33% | not a reliable speedup claim |
-| CPU range, five runs | 9.33–11.33% | 0.00–12.33% | highly variable |
-| Median resident memory, five runs | 211.88 MiB | 215.75 MiB | +3.87 MiB (+1.83%) |
+| Release executable bytes | 95,117,576 | 95,954,568 | +836,992 (+0.880%) |
+| Installed `linux-root` bytes (245 files each) | 99,816,808 | 100,654,757 | +837,949 (+0.839%) |
+| Compressed `linux-root` (`tar.gz`) bytes | 57,188,160 | 57,552,013 | +363,853 (+0.636%) |
+| Optimized UI-fixture median process CPU | 9.66% | 10.66% | +1.00 percentage point; small, variable sample |
+| CPU range, five runs | 8.99–9.99% | 9.99–11.32% | not enough isolation for a neutral-cost claim |
+| Optimized UI-fixture median resident memory | 211.12 MiB | 211.42 MiB | +0.30 MiB (+0.14%) |
 
-The UI sampler ran one process at a time with the same synthetic 1120x760 profile/chat page,
-`DISPLAY=:99` (Xvfb), `LIBGL_ALWAYS_SOFTWARE=1`, a three-second warmup, then 12 RSS samples at
-250 ms intervals over three seconds. It was repeated five times per revision. CPU comes from
-`/proc/<pid>/stat` user+system ticks over that measured interval; RSS uses `/proc/<pid>/statm`
-and is not PSS or total system memory. No helper process was observed beyond that preview.
-These measurements isolate the UI fixture, not the Message History worker or Discord service.
-The small CPU median difference is not treated as a meaningful performance improvement because
-its measured range is much larger than a stable estimate. No FPS, p95 frame time, startup latency,
-voice quality or service latency was measured.
+The separate UI sampler used the same synthetic optimized `demo` profile/chat page at 1120x760
+with settings closed, private `xvfb-run` displays and `LIBGL_ALWAYS_SOFTWARE=1`. Five alternating runs
+per revision each used a three-second warmup, then 12 RSS samples at 250 ms intervals over three
+seconds. CPU is `/proc/<pid>/stat` user+system ticks over that interval; RSS is
+`/proc/<pid>/statm`, not PSS or total system memory. No child/helper process was observed for
+either preview. These results isolate the optimized UI fixture, not the Message History worker or
+Discord service. A larger debug-build sample was not used for the release comparison. The small CPU
+and memory deltas do not establish an improvement or neutral runtime cost; no FPS, p95 frame time,
+startup latency, voice quality or service latency was measured.
 
-Executable SHA-256: baseline `cecd822fbd95c86c09cb91bf88fbf21fa240a7e57c389468f378e80ae28ddbbe`;
-current `8a83b0c3f39ac6c22d76b425ebd33ad1adacccc172eed5667ba2040b1d1f844c`.
-The compressed tree hashes are `d719b8b7d58abd1723645c1511b40e5ff6ad5575168cc4d917dee64654093b34`
-and `ad4c5bd8b91c60b3f785e02c45f8a3ce61855b31f02d2868c89f9bf985685f3a` respectively.
-The reviewed development starter selection is debug-only, so these release package deltas do
-not imply that all 373 Equicord plugins are included or compatible.
-
-The detached baseline filled the 16 GiB `/tmp` tmpfs during its first package attempt. It was moved
-onto `/mnt/storage` and packaging resumed there without discarding its build cache or any user
-data. Repeated builds are sequential to avoid the concurrent
-worktree compiler pressure seen earlier.
+Final executable SHA-256 is `c305d5f26580e1ead0dff14eaddeaf1132cc93e9e74d3775ff4a12919298889b`;
+the baseline hash is `cecd822fbd95c86c09cb91bf88fbf21fa240a7e57c389468f378e80ae28ddbbe`.
+The final compressed-tree SHA-256 is
+`8042deff45b486db0f51f66fe338bd2f68d021d40d6d46d06ff9ec23b3b6c1b2`. The reviewed 31-package development starter selection is debug-only, so release package deltas do
+not imply that all 373 Equicord plugins are included or compatible. Packaging and measurements ran sequentially to avoid
+shared-worktree compiler pressure.

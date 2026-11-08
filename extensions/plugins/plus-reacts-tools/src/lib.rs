@@ -187,10 +187,10 @@ fn error_output(message: &str) -> AppOutput {
 
 /// The newest loaded message is one plus; every further plus walks one row back.
 /// This is a documented bounded interpretation of upstream's store-index math.
-fn target_for<'a>(
-	timeline: &'a TimelineSnapshot,
+fn target_for(
+	timeline: &TimelineSnapshot,
 	plus_count: usize,
-) -> Result<&'a serein_extension_sdk::MessageSnapshot, &'static str> {
+) -> Result<&serein_extension_sdk::MessageSnapshot, &'static str> {
 	if !is_snowflake(&timeline.channel_id) {
 		return Err("The loaded timeline has no usable channel ID.");
 	}
@@ -207,7 +207,6 @@ fn plus_react(input: &AppInvocation) -> Result<AppOutput, &'static str> {
 	let draft = input.invocation.composer.as_deref().ok_or(MISSING_DRAFT)?;
 	let parsed = parse_draft(draft)?;
 	let timeline = input
-		.invocation
 		.app
 		.as_ref()
 		.and_then(|app| app.timeline.as_ref())
@@ -251,7 +250,7 @@ fn plus_react(input: &AppInvocation) -> Result<AppOutput, &'static str> {
 }
 
 fn handle(input: AppInvocation) -> AppOutput {
-	let output = plus_react(&input).unwrap_or_else(|message| error_output(message));
+	let output = plus_react(&input).unwrap_or_else(error_output);
 	match serde_json::to_vec(&output) {
 		Ok(bytes) if bytes.len() <= MAX_IO_BYTES => output,
 		_ => error_output(

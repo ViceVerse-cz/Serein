@@ -385,7 +385,7 @@ fn chosen_guild(app: &AppSnapshot, selected: &str) -> Option<String> {
 }
 
 fn show(input: &AppInvocation) -> AppOutput {
-	let Some(app) = input.app.as_deref() else {
+	let Some(app) = input.app.as_ref() else {
 		return AppOutput {
 			output: serein_extension_sdk::Output {
 				panel: vec![text(
@@ -424,7 +424,7 @@ fn show(input: &AppInvocation) -> AppOutput {
 }
 
 fn select_guild(input: &AppInvocation) -> AppOutput {
-	let Some(app) = input.app.as_deref() else {
+	let Some(app) = input.app.as_ref() else {
 		return show(input);
 	};
 	let (_saved, saved_id) = saved_guild(&input.invocation);
@@ -436,8 +436,8 @@ fn select_guild(input: &AppInvocation) -> AppOutput {
 		let selected = saved_id
 			.as_deref()
 			.or_else(|| current_channel_guild(app))
-			.or_else(|| guild_options(app).first().map(|(_, id)| id.as_str()))
-			.map(str::to_owned);
+			.map(str::to_owned)
+			.or_else(|| guild_options(app).into_iter().next().map(|(_, id)| id));
 		return AppOutput {
 			output: serein_extension_sdk::Output {
 				panel: panel(

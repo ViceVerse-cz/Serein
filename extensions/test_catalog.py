@@ -57,6 +57,10 @@ for stem in [
     "text-codecs", "message-composition-tools", "identity-tools", "loaded-role-members",
     "status-presets", "message-history", "message-reference-tools", "draft-style-tools",
     "command-palette", "ingtoninator", "own-message-sed", "social-link-tools",
+    "voice-panel-tools", "server-info-tools", "equicord-community-tools", "permissions-tools",
+    "plus-reacts-tools", "message-inspector-tools", "voice-rejoin-tools", "account-navigation-tools",
+    "message-navigation-tools", "music-link-tools", "more-quick-reactions-tools", "linked-message-tools",
+    "greet-sticker-tools", "better-search-tools", "voice-and-chat-tools",
 ]:
     packaged = json.loads((catalog.ROOT / f"plugins/packages/{stem}.serein-extension").read_bytes())
     wasm = bytes(packaged["wasm"])
@@ -111,6 +115,9 @@ for row in coverage["plugins"]:
             assert (catalog.ROOT / implemented["package_path"].removeprefix("extensions/")).is_file(), row["path"]
 package_workflows = sum(row.get("implementation", {}).get("status") in {"packaged", "review_pending"} for row in coverage["plugins"])
 native_workflows = sum(row.get("implementation", {}).get("status") == "native" for row in coverage["plugins"])
+mapped = [row["implementation"] for row in coverage["plugins"] if row.get("implementation", {}).get("status") in {"packaged", "review_pending"}]
+assert coverage["coverage_totals"]["mapped_packages"] == len({item["package"] for item in mapped})
+assert coverage["coverage_totals"]["review_pending_packages"] == len({item["package"] for item in mapped if item["status"] == "review_pending"})
 assert coverage["coverage_totals"]["mapped_upstream_workflows"] == package_workflows
 assert coverage["coverage_totals"]["native_workflows"] == native_workflows
 assert coverage["coverage_totals"]["total_workflow_mappings"] == package_workflows + native_workflows

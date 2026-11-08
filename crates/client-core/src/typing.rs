@@ -203,8 +203,10 @@ impl State {
 		if !self.gateway_connected
 			|| self.freshness == Freshness::Unavailable
 			|| !self.can_send(channel)
-			|| !silent.allows(channel, self.channel(channel).and_then(|channel| channel.guild))
-		{
+			|| !silent.allows(
+				channel,
+				self.channel(channel).and_then(|channel| channel.guild),
+			) {
 			return None;
 		}
 		for slot in &mut self.typing.sent {
@@ -405,11 +407,7 @@ mod tests {
 		);
 		assert!(
 			state
-				.prepare_typing(
-					Id(10),
-					now + TYPING_RESEND,
-					&model::SilentTyping::default(),
-				)
+				.prepare_typing(Id(10), now + TYPING_RESEND, &model::SilentTyping::default(),)
 				.is_some()
 		);
 		// Sending a message ends the indicator, so the next keystroke starts a new one.
@@ -480,11 +478,7 @@ mod tests {
 		);
 		assert!(
 			state
-				.prepare_typing(
-					Id(10),
-					now + TYPING_RESEND,
-					&model::SilentTyping::default(),
-				)
+				.prepare_typing(Id(10), now + TYPING_RESEND, &model::SilentTyping::default(),)
 				.is_some()
 		);
 		// Only the channel whose own message arrived gets a fresh indicator immediately.
@@ -494,11 +488,7 @@ mod tests {
 		state.history_pending = false;
 		assert!(
 			state
-				.prepare_typing(
-					Id(11),
-					now + TYPING_RESEND,
-					&model::SilentTyping::default(),
-				)
+				.prepare_typing(Id(11), now + TYPING_RESEND, &model::SilentTyping::default(),)
 				.is_some()
 		);
 		state.typing.sent = [Some((Id(99), now)); SENT_TYPING];
@@ -509,11 +499,7 @@ mod tests {
 		);
 		assert!(
 			state
-				.prepare_typing(
-					Id(11),
-					now + TYPING_RESEND,
-					&model::SilentTyping::default(),
-				)
+				.prepare_typing(Id(11), now + TYPING_RESEND, &model::SilentTyping::default(),)
 				.is_some()
 		);
 	}
@@ -713,7 +699,11 @@ mod tests {
 		// With the reverse default, only listed locations are hidden.
 		silent.enabled = true;
 		silent.default_hidden = false;
-		assert!(state.prepare_typing(Id(10), now + TYPING_RESEND, &silent).is_some());
+		assert!(
+			state
+				.prepare_typing(Id(10), now + TYPING_RESEND, &silent)
+				.is_some()
+		);
 		assert!(silent.set_locations_text("10"));
 		assert!(
 			state

@@ -38,6 +38,7 @@ pub mod server_invites;
 pub mod server_roles;
 pub mod server_settings;
 pub use reading_preferences::ReadingPreferences;
+mod cache_preferences;
 /// Device-local suppression of this account's outbound typing indicators. `locations` holds
 /// channel or guild IDs whose behaviour differs from `default_hidden`; the list is capped and
 /// duplicate-free so one preference cannot grow without bound.
@@ -70,11 +71,7 @@ impl SilentTyping {
 		}
 		let listed = self.locations.contains(&channel)
 			|| guild.is_some_and(|guild| self.locations.contains(&guild));
-		if self.default_hidden {
-			listed
-		} else {
-			!listed
-		}
+		if self.default_hidden { listed } else { !listed }
 	}
 
 	/// Parse comma- or whitespace-separated location IDs. Any invalid, duplicate or oversized

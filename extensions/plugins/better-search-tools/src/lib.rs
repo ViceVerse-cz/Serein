@@ -75,23 +75,23 @@ fn open() -> AppOutput {
 			"Build a query with the extra token shapes Equicord's BetterSearch adds. Serein passes the exact reviewed query to native search. Discord server support for these extra tokens is unverified.",
 		),
 		input("query", "Search text"),
-		option("includeNsfw", "includeNsfw", &["any", "true", "false"]),
+		option("include-nsfw", "includeNsfw", &["any", "true", "false"]),
 		option(
-			"mentionEveryone",
+			"mention-everyone",
 			"mentionEveryone",
 			&["any", "true", "false"],
 		),
-		input("repliedToMessageId", "repliedToMessageId"),
-		input("repliedToUserId", "repliedToUserId"),
-		input("mentionsRoleId", "mentionsRoleId"),
+		input("replied-to-message-id", "repliedToMessageId"),
+		input("replied-to-user-id", "repliedToUserId"),
+		input("mentions-role-id", "mentionsRoleId"),
 		option(
-			"embedType",
+			"embed-type",
 			"embedType",
 			&["any", "image", "video", "gif", "sound", "article"],
 		),
-		input("embedProvider", "embedProvider"),
-		input("commandId", "commandId"),
-		input("commandName", "commandName"),
+		input("embed-provider", "embedProvider"),
+		input("command-id", "commandId"),
+		input("command-name", "commandName"),
 		input("slop", "slop (0-100)"),
 		Element::Button {
 			id: "search".into(),
@@ -126,8 +126,13 @@ fn is_word(value: &str) -> bool {
 		&& !has_control(value)
 }
 
-fn push_bool(parts: &mut Vec<String>, input: &AppInvocation, id: &str) -> Result<(), &'static str> {
-	let Some(value) = selected(input, id) else {
+fn push_bool(
+	parts: &mut Vec<String>,
+	input: &AppInvocation,
+	field: &str,
+	token: &str,
+) -> Result<(), &'static str> {
+	let Some(value) = selected(input, field) else {
 		return Ok(());
 	};
 	if value == "any" {
@@ -136,12 +141,17 @@ fn push_bool(parts: &mut Vec<String>, input: &AppInvocation, id: &str) -> Result
 	if value != "true" && value != "false" {
 		return Err("Boolean search filters accept only true or false.");
 	}
-	parts.push(format!("{id}:{value}"));
+	parts.push(format!("{token}:{value}"));
 	Ok(())
 }
 
-fn push_word(parts: &mut Vec<String>, input: &AppInvocation, id: &str) -> Result<(), &'static str> {
-	let Some(value) = selected(input, id) else {
+fn push_word(
+	parts: &mut Vec<String>,
+	input: &AppInvocation,
+	field: &str,
+	token: &str,
+) -> Result<(), &'static str> {
+	let Some(value) = selected(input, field) else {
 		return Ok(());
 	};
 	if !is_word(value) {
@@ -149,18 +159,23 @@ fn push_word(parts: &mut Vec<String>, input: &AppInvocation, id: &str) -> Result
 			"Embed provider and command name filters must be one non-control word of at most 64 UTF-8 bytes.",
 		);
 	}
-	parts.push(format!("{id}:{value}"));
+	parts.push(format!("{token}:{value}"));
 	Ok(())
 }
 
-fn push_id(parts: &mut Vec<String>, input: &AppInvocation, id: &str) -> Result<(), &'static str> {
-	let Some(value) = selected(input, id) else {
+fn push_id(
+	parts: &mut Vec<String>,
+	input: &AppInvocation,
+	field: &str,
+	token: &str,
+) -> Result<(), &'static str> {
+	let Some(value) = selected(input, field) else {
 		return Ok(());
 	};
 	if !is_search_id(value) {
 		return Err("ID filters must be canonical nonzero decimal Discord IDs of 17 to 20 digits.");
 	}
-	parts.push(format!("{id}:{value}"));
+	parts.push(format!("{token}:{value}"));
 	Ok(())
 }
 
@@ -172,12 +187,17 @@ fn compose(input: &AppInvocation) -> Result<String, &'static str> {
 		}
 		parts.push(query.to_owned());
 	}
-	push_bool(&mut parts, input, "includeNsfw")?;
-	push_bool(&mut parts, input, "mentionEveryone")?;
-	push_id(&mut parts, input, "repliedToMessageId")?;
-	push_id(&mut parts, input, "repliedToUserId")?;
-	push_id(&mut parts, input, "mentionsRoleId")?;
-	if let Some(value) = selected(input, "embedType")
+	push_bool(&mut parts, input, "include-nsfw", "includeNsfw")?;
+	push_bool(&mut parts, input, "mention-everyone", "mentionEveryone")?;
+	push_id(
+		&mut parts,
+		input,
+		"replied-to-message-id",
+		"repliedToMessageId",
+	)?;
+	push_id(&mut parts, input, "replied-to-user-id", "repliedToUserId")?;
+	push_id(&mut parts, input, "mentions-role-id", "mentionsRoleId")?;
+	if let Some(value) = selected(input, "embed-type")
 		&& value != "any"
 	{
 		if !EMBED_TYPES.contains(&value) {
@@ -185,9 +205,9 @@ fn compose(input: &AppInvocation) -> Result<String, &'static str> {
 		}
 		parts.push(format!("embedType:{value}"));
 	}
-	push_word(&mut parts, input, "embedProvider")?;
-	push_id(&mut parts, input, "commandId")?;
-	push_word(&mut parts, input, "commandName")?;
+	push_word(&mut parts, input, "embed-provider", "embedProvider")?;
+	push_id(&mut parts, input, "command-id", "commandId")?;
+	push_word(&mut parts, input, "command-name", "commandName")?;
 	if let Some(value) = selected(input, "slop") {
 		if !value.bytes().all(|byte| byte.is_ascii_digit()) {
 			return Err("slop must be a whole number from 0 to 100.");
@@ -257,15 +277,15 @@ mod tests {
 			"action": "search",
 			"values": {
 				"query": "hello world",
-				"includeNsfw": "true",
-				"mentionEveryone": "false",
-				"repliedToMessageId": "300000000000000001",
-				"repliedToUserId": "300000000000000002",
-				"mentionsRoleId": "300000000000000003",
-				"embedType": "image",
-				"embedProvider": "tenor",
-				"commandId": "300000000000000004",
-				"commandName": "ping",
+				"include-nsfw": "true",
+				"mention-everyone": "false",
+				"replied-to-message-id": "300000000000000001",
+				"replied-to-user-id": "300000000000000002",
+				"mentions-role-id": "300000000000000003",
+				"embed-type": "image",
+				"embed-provider": "tenor",
+				"command-id": "300000000000000004",
+				"command-name": "ping",
 				"slop": "25"
 			}
 		}));
@@ -316,16 +336,16 @@ mod tests {
 			serde_json::json!({"action": "search", "values": {"slop": "-1"}}),
 			serde_json::json!({"action": "search", "values": {"slop": "1.5"}}),
 			serde_json::json!({"action": "search", "values": {"slop": "+5"}}),
-			serde_json::json!({"action": "search", "values": {"embedType": "audio"}}),
-			serde_json::json!({"action": "search", "values": {"includeNsfw": "yes"}}),
-			serde_json::json!({"action": "search", "values": {"repliedToMessageId": "123"}}),
-			serde_json::json!({"action": "search", "values": {"repliedToMessageId": "0300000000000000001"}}),
-			serde_json::json!({"action": "search", "values": {"embedProvider": "two words"}}),
-			serde_json::json!({"action": "search", "values": {"commandName": "bad\u{7}name"}}),
+			serde_json::json!({"action": "search", "values": {"embed-type": "audio"}}),
+			serde_json::json!({"action": "search", "values": {"include-nsfw": "yes"}}),
+			serde_json::json!({"action": "search", "values": {"replied-to-message-id": "123"}}),
+			serde_json::json!({"action": "search", "values": {"replied-to-message-id": "0300000000000000001"}}),
+			serde_json::json!({"action": "search", "values": {"embed-provider": "two words"}}),
+			serde_json::json!({"action": "search", "values": {"command-name": "bad\u{7}name"}}),
 			serde_json::json!({"action": "search", "values": {"query": long}}),
 			serde_json::json!({"action": "search", "values": {}}),
 			serde_json::json!({"action": "search", "values": {
-				"embedType": "any", "includeNsfw": "any", "mentionEveryone": "any"
+				"embed-type": "any", "include-nsfw": "any", "mention-everyone": "any"
 			}}),
 		];
 		for case in cases {
@@ -341,8 +361,8 @@ mod tests {
 			"action": "search",
 			"values": {
 				"query": "only text",
-				"includeNsfw": "any",
-				"embedProvider": "  ",
+				"include-nsfw": "any",
+				"embed-provider": "  ",
 				"slop": ""
 			}
 		}));

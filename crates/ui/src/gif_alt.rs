@@ -43,7 +43,7 @@ pub(crate) fn gif_alt_text(source: &str) -> Option<String> {
 		.strip_suffix(".gif")
 		.unwrap_or(&without_digits);
 	let words = without_extension
-		.split(|character| matches!(character, ',' | '-' | '_' | ' '))
+		.split([',', '-', '_', ' '])
 		.filter(|word| !word.is_empty())
 		.take(MAX_WORDS);
 	let name = words.collect::<Vec<_>>().join(" ");
@@ -114,10 +114,11 @@ mod tests {
 			gif_alt_text("https://cdn.discordapp.com/attachments/1/2/Funny_Cat-01.gif").as_deref(),
 			Some("GIF - Funny Cat")
 		);
-		// decodeURI turns %20 into a delimiter, while an escaped slash stays encoded.
+		// decodeURI turns %20 into a delimiter and keeps %2F escaped; the following
+		// upstream digit-removal step then removes the escape's `2` as well.
 		assert_eq!(
 			gif_alt_text("https://cdn.discordapp.com/a/My%20Clip%2Fx.gif").as_deref(),
-			Some("GIF - My Clip%2Fx")
+			Some("GIF - My Clip%Fx")
 		);
 		// Unescaped lowercase .gif is removed; other suffixes are not.
 		assert_eq!(

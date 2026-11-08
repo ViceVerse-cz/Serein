@@ -632,7 +632,7 @@ impl MessagingUi {
 				} else {
 					for (label, millis) in &self.startup_timings {
 						design::row(ui, label, None, |ui| {
-							ui.label(design::medium(ui, &format!("{millis} ms"), 13.0));
+							ui.label(design::medium(ui, format!("{millis} ms"), 13.0));
 						});
 					}
 				}
