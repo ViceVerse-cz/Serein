@@ -104,7 +104,7 @@ impl Reply {
 impl Hit {
 	pub(crate) fn into_hit(self) -> SearchHit {
 		let excerpt = if self.content.len() > 8192 {
-			"Message exceeds preview limit - open message to read".into()
+			model::PREVIEW_LIMIT_NOTICE.into()
 		} else {
 			self.content
 		};
