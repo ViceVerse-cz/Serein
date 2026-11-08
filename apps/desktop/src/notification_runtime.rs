@@ -196,12 +196,7 @@ impl Runtime {
 			}
 			if audio {
 				sound = Some(cue);
-				sounded = Some(key);
-			}
-		}
-		if one_ping {
-			for key in alerted.into_iter().chain(sounded) {
-				record_ping(&mut self.pinged_directs, key);
+				sounded = Some((key, cue));
 			}
 		}
 		let incoming = state.voice.incoming.filter(|id| {
@@ -223,6 +218,16 @@ impl Runtime {
 		// Explicit previews are allowed in the offline demo and intentionally ignore automatic mute choices.
 		if let Some(preview) = ui.notification_preview.take() {
 			sound = Some(preview);
+		}
+		// Only the alert shown and a message sound that survived ringtone and preview
+		// selection use up a conversation's one ping.
+		if one_ping {
+			let heard = sounded
+				.filter(|(_, cue)| sound == Some(*cue))
+				.map(|(key, _)| key);
+			for key in alerted.into_iter().chain(heard) {
+				record_ping(&mut self.pinged_directs, key);
+			}
 		}
 		if let Some(sound) = sound {
 			self.sounds.play(sound, options.volume, ctx);
