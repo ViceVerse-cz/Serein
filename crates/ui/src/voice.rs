@@ -4912,7 +4912,7 @@ mod tests {
 					egui::pos2(10.0 + index as f32 * 180.0, 10.0),
 					egui::vec2(160.0, 90.0),
 				);
-				view.stream_tile(ui, &state, rect, channel, user, false);
+				view.tile(ui, &state, channel, &Tile::Stream(user), rect, false, false);
 			}
 		});
 		let primitives = ctx.tessellate(output.shapes.clone(), output.pixels_per_point);
@@ -4925,8 +4925,64 @@ mod tests {
 			})
 			.collect();
 		assert!(textures.iter().all(|texture| rendered.contains(texture)));
-		view.watch_request = Some((Id(3), false));
-		view.apply_watch_request(&mut state);
+		let render = |view: &mut MessagingUi, state: &State, events| {
+			ctx.run_ui(
+				egui::RawInput {
+					events,
+					..Default::default()
+				},
+				|ui| {
+					for (index, user) in [Id(3), Id(7)].into_iter().enumerate() {
+						let rect = egui::Rect::from_min_size(
+							egui::pos2(10.0 + index as f32 * 180.0, 10.0),
+							egui::vec2(160.0, 90.0),
+						);
+						view.tile(ui, state, channel, &Tile::Stream(user), rect, false, false);
+					}
+				},
+			)
+		};
+		let click = |pos, button, pressed| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		for pressed in [true, false] {
+			render(
+				&mut view,
+				&state,
+				click(
+					egui::pos2(70.0, 45.0),
+					egui::PointerButton::Secondary,
+					pressed,
+				),
+			)
+			.drop_without_applying_deltas();
+		}
+		let output = render(&mut view, &state, vec![]);
+		let stop = output.shapes.iter().find_map(|shape| match &shape.shape {
+			egui::Shape::Text(text) if text.galley.job.text == "Stop watching" => {
+				Some(text.galley.rect.translate(text.pos.to_vec2()).center())
+			}
+			_ => None,
+		});
+		output.drop_without_applying_deltas();
+		let stop = stop.expect("the selected stream exposes its stop control");
+		for pressed in [true, false] {
+			render(
+				&mut view,
+				&state,
+				click(stop, egui::PointerButton::Primary, pressed),
+			)
+			.drop_without_applying_deltas();
+			view.apply_watch_request(&mut state);
+		}
 		assert_eq!(state.voice.active.as_ref().unwrap().watching, vec![Id(7)]);
 	}
 

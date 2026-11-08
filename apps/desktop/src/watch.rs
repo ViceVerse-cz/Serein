@@ -165,6 +165,12 @@ impl Watch {
 			.as_ref()
 			.map(|call| call.watching.as_slice())
 			.unwrap_or_default();
+		if state.demo {
+			self.stop();
+			ui.voice_stream_views
+				.retain(|view| selected.contains(&view.user));
+			return None;
+		}
 		self.streams
 			.retain(|stream| stream.context().is_some() || selected.contains(&stream.view.user));
 		for user in selected.iter().take(voice::MAX_WATCHED_STREAMS) {
@@ -549,6 +555,43 @@ impl Drop for Stream {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn demo_poll_preserves_selected_synthetic_texture_until_stop() {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		let mut state = test_support::voice_demo_state();
+		state.demo = true;
+		state.watch_stream(Id(3)).unwrap();
+		let texture = egui::load::SizedTexture {
+			id: egui::TextureId::User(19),
+			size: egui::vec2(640.0, 360.0),
+		};
+		let mut ui = ui::MessagingUi::default();
+		ui.voice_stream_views = vec![ui::StreamView {
+			user: Id(3),
+			texture: Some(texture),
+			status: "Synthetic stream",
+		}];
+		let mut owner = Watch::default();
+		let ctx = egui::Context::default();
+		assert!(
+			owner
+				.poll(&runtime, &mut state, &mut ui, &ctx, None, None)
+				.is_none()
+		);
+		assert_eq!(ui.voice_stream_views[0].texture.unwrap().id, texture.id);
+		assert!(owner.streams.is_empty());
+		state.stop_watching();
+		assert!(
+			owner
+				.poll(&runtime, &mut state, &mut ui, &ctx, None, None)
+				.is_none()
+		);
+		assert!(ui.voice_stream_views.is_empty());
+	}
 
 	#[test]
 	fn one_stream_failure_and_late_events_leave_another_stream_running() {

@@ -5,7 +5,7 @@ use std::{collections::VecDeque, sync::mpsc::Receiver};
 const MAX_STREAMS: usize = client_core::voice::MAX_WATCHED_STREAMS;
 
 struct Source {
-	presentation: Option<crate::Presentation>,
+	session: Option<crate::Presentation>,
 	pending: VecDeque<PlaybackFrame>,
 	started: bool,
 }
@@ -27,33 +27,28 @@ impl Playout {
 	) -> Option<PlaybackFrame> {
 		self.sources.retain(|source| {
 			source
-				.presentation
+				.session
 				.as_ref()
 				.is_none_or(crate::Presentation::is_current)
 		});
 		for _ in 0..8 * MAX_STREAMS {
 			let Ok(frame) = source.try_recv() else { break };
-			if !enabled
-				|| stalled || volume == 0
-				|| frame
-					.presentation
-					.as_ref()
-					.is_some_and(|tag| !tag.is_current())
-			{
+			if !enabled || stalled || volume == 0 || !frame.is_current() {
 				continue;
 			}
-			let index = self.sources.iter().position(|source| {
-				match (&source.presentation, &frame.presentation) {
-					(Some(a), Some(b)) => a.same_source(b),
-					(None, None) => true,
-					_ => false,
-				}
-			});
+			let index =
+				self.sources
+					.iter()
+					.position(|source| match (&source.session, &frame.session) {
+						(Some(a), Some(b)) => a.same_source(b),
+						(None, None) => true,
+						_ => false,
+					});
 			let index = match index {
 				Some(index) => index,
 				None if self.sources.len() < MAX_STREAMS => {
 					self.sources.push(Source {
-						presentation: frame.presentation.clone(),
+						session: frame.session.clone(),
 						pending: VecDeque::new(),
 						started: false,
 					});
@@ -76,8 +71,8 @@ impl Playout {
 			return None;
 		}
 		let mut output: Option<PlaybackFrame> = None;
-		let mut count = 0;
 		for source in &mut self.sources {
+			source.pending.retain(PlaybackFrame::is_current);
 			// Each stream retains its own 40 ms scheduling headroom and sample order.
 			if !source.started && source.pending.len() < 3 {
 				continue;
@@ -92,8 +87,10 @@ impl Playout {
 				for (out, sample) in output.samples.iter_mut().zip(frame.samples) {
 					*out += if sample.is_finite() { sample } else { 0.0 };
 				}
-				output.additional_presentations[count - 1] = frame.presentation;
-				output.mixed = true;
+				for tag in frame.presentations() {
+					output.push_presentation(tag.clone());
+				}
+				output.session = None;
 			} else {
 				let mut frame = frame;
 				for sample in &mut frame.samples {
@@ -103,7 +100,6 @@ impl Playout {
 				}
 				output = Some(frame);
 			}
-			count += 1;
 		}
 		let gain = f32::from(volume.min(200)) / 100.0;
 		if let Some(output) = &mut output {
@@ -119,6 +115,54 @@ impl Playout {
 mod tests {
 	use super::*;
 	#[test]
+	fn session_queues_survive_alternating_participants_and_retired_mixes_expire() {
+		use std::{sync::Arc, time::Instant};
+		let sessions: Vec<_> = (0..MAX_STREAMS)
+			.map(|_| Arc::new(crate::presentation::Clock::default()))
+			.collect();
+		let participants: Vec<_> = (0..MAX_STREAMS * crate::presentation::MAX_SOURCES)
+			.map(|_| Arc::new(crate::presentation::Clock::default()))
+			.collect();
+		let (send, receive) = std::sync::mpsc::sync_channel(8 * MAX_STREAMS);
+		let mut playout = Playout::default();
+		let now = Instant::now();
+		for tick in 0..3 {
+			for (index, session) in sessions.iter().enumerate() {
+				let mut frame = PlaybackFrame::from([0.1; 960]);
+				frame.session = Some(session.stamp(now));
+				for offset in 0..crate::presentation::MAX_SOURCES {
+					frame.push_presentation(
+						participants[index * crate::presentation::MAX_SOURCES
+							+ (offset + tick) % crate::presentation::MAX_SOURCES]
+							.stamp(now),
+					);
+				}
+				send.send(frame).unwrap();
+			}
+		}
+		let mut mixed = None;
+		for _ in 0..3 {
+			let frame = playout.next(&receive, 100, true, false).unwrap();
+			assert!((frame.samples[0] - 0.4).abs() < 0.00001);
+			assert_eq!(
+				frame.presentations().count(),
+				MAX_STREAMS * crate::presentation::MAX_SOURCES
+			);
+			assert_eq!(playout.sources.len(), MAX_STREAMS);
+			mixed = Some(frame);
+		}
+		let mixed = mixed.unwrap();
+		let with_call = PlaybackFrame::mix(Some([0.2; 960]), Some(mixed.clone())).unwrap();
+		for clock in sessions.iter().chain(&participants) {
+			clock.reset();
+		}
+		assert!(!mixed.is_current());
+		assert!(PlaybackFrame::mix(None, Some(mixed)).is_none());
+		assert!(with_call.is_current());
+		assert!(PlaybackFrame::mix(None, Some(with_call)).is_some());
+	}
+
+	#[test]
 	fn concurrent_stream_audio_mixes_samples_and_preserves_independent_clocks() {
 		use std::{sync::Arc, time::Instant};
 		let clocks: Vec<_> = (0..MAX_STREAMS)
@@ -130,10 +174,11 @@ mod tests {
 		for n in 0..3 {
 			for (index, clock) in clocks.iter().enumerate() {
 				send.send(PlaybackFrame {
+					session: Some(clock.stamp(at)),
 					samples: [(index + n + 1) as f32 / 100.0; 960],
 					presentation: Some(clock.stamp(at)),
-					additional_presentations: Default::default(),
-					mixed: false,
+					additional_presentations: std::array::from_fn(|_| None),
+					has_call_audio: false,
 				})
 				.unwrap();
 			}
@@ -169,10 +214,11 @@ mod tests {
 		let mut playout = Playout::default();
 		for _ in 0..3 {
 			send.send(PlaybackFrame {
+				session: None,
 				samples: [0.8; 960],
 				presentation: Some(clock.stamp(std::time::Instant::now())),
-				additional_presentations: Default::default(),
-				mixed: false,
+				additional_presentations: std::array::from_fn(|_| None),
+				has_call_audio: false,
 			})
 			.unwrap();
 		}

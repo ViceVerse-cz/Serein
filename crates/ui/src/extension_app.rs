@@ -1441,7 +1441,7 @@ mod tests {
 		let ctx = egui::Context::default();
 		let mut state = test_support::call_demo_state();
 		let mut view = view(Capability::AudioSettings);
-		state.voice.active.as_mut().unwrap().watching = vec![Id(301)];
+		state.voice.active.as_mut().unwrap().watching = vec![Id(301), Id(302)];
 		let effect = proposal(
 			&state,
 			HostEffect::AppAction {
@@ -1451,7 +1451,7 @@ mod tests {
 				},
 			},
 		);
-		state.voice.active.as_mut().unwrap().watching = vec![Id(302)];
+		state.voice.active.as_mut().unwrap().watching = vec![Id(301), Id(303)];
 		assert!(
 			view.apply_extension_effect(&ctx, &mut state, effect, &mut Vec::new())
 				.is_err()

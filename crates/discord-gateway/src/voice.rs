@@ -35,6 +35,7 @@ struct WatchAttempt {
 	streamer: Id,
 	key: String,
 	created: Option<(Id, Id)>,
+	failed: bool,
 }
 
 #[derive(Default)]
@@ -542,6 +543,7 @@ impl Calls {
 					streamer,
 					key,
 					created: None,
+					failed: false,
 				};
 				if let Some(index) = existing {
 					self.watch[index] = attempt;
@@ -606,7 +608,7 @@ impl Calls {
 		}
 		Ok(())
 	}
-	/// Emit a watch outcome. A failure also releases the slot so the viewer can retry.
+	/// Retain failed attempts until their scoped stop can release the service subscription.
 	fn emit_watch(
 		&mut self,
 		index: usize,
@@ -624,7 +626,7 @@ impl Calls {
 			}))?;
 		}
 		if failed {
-			self.watch.remove(index);
+			self.watch[index].failed = true;
 		}
 		Ok(())
 	}
@@ -753,7 +755,11 @@ impl Calls {
 				.iter()
 				.position(|watch| watch.key == key.stream_key)
 		{
-			return self.watch_dispatch(index, kind, data, emit);
+			return if self.watch[index].failed {
+				Ok(())
+			} else {
+				self.watch_dispatch(index, kind, data, emit)
+			};
 		}
 		if let Some(stream) = &self.stream
 			&& (self.active != Some((stream.channel, stream.request))
@@ -1208,6 +1214,68 @@ pub fn debug_voice_state_retry_check() {
 mod tests {
 	use super::*;
 	use std::sync::Mutex;
+	#[test]
+	fn failed_watch_keeps_its_subscription_until_the_scoped_stop() {
+		let mut calls = Calls::default();
+		calls.allowed.insert(Id(20), Some(Id(10)));
+		calls
+			.packet(Command::Join {
+				channel: Id(20),
+				request: 7,
+				ring: false,
+				mute: false,
+				deaf: false,
+			})
+			.unwrap();
+		for user in [2, 3] {
+			calls
+				.stream_packet(
+					Command::WatchStream {
+						channel: Id(20),
+						request: 7,
+						stream_request: user,
+						streamer: Id(user),
+					},
+					Some(Id(1)),
+				)
+				.unwrap();
+		}
+		let events = Mutex::new(Vec::new());
+		let emit = |event| {
+			events.lock().unwrap().push(event);
+			Ok(())
+		};
+		calls
+			.dispatch(
+				"STREAM_SERVER_UPDATE",
+				br#"{"stream_key":"guild:10:20:2","token":"","endpoint":"example.invalid"}"#,
+				Some(Id(1)),
+				&emit,
+			)
+			.unwrap();
+		assert!(calls.watch[0].failed);
+		assert!(!calls.watch[1].failed);
+		let Frame::Text(stop) = calls
+			.stream_packet(
+				Command::StopWatching {
+					channel: Id(20),
+					request: 7,
+					stream_request: 2,
+				},
+				Some(Id(1)),
+			)
+			.unwrap()
+			.unwrap()
+		else {
+			panic!("expected cleanup");
+		};
+		let stop: serde_json::Value = serde_json::from_str(&stop).unwrap();
+		assert_eq!(stop["op"], 19);
+		assert_eq!(stop["d"]["stream_key"], "guild:10:20:2");
+		assert_eq!(calls.watch.len(), 1);
+		assert_eq!(calls.watch[0].streamer, Id(3));
+	}
+
 	#[test]
 	fn concurrent_watches_route_events_and_release_only_matching_attempts() {
 		let mut calls = Calls::default();

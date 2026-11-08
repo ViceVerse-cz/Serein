@@ -588,21 +588,27 @@ The native demo (`cargo run --locked -p serein -- --demo --demo-voice`) exposes 
 ## Simultaneous screen-share viewing
 
 The current source supports up to four explicitly selected remote screen shares in one
-connected call. Selecting another share retains the existing selections. Each share has
-an independent signaling attempt, media transport, decoder, status and display texture.
-The existing stage grid and participant strip display the selected shares.
+connected call. Selecting another share retains the existing selections. Each share has an
+independent signaling attempt, media transport, decoder, status and display texture. The
+existing stage grid and participant strip display the selected shares.
 
-A tile's
-Stop watching action stops only that share. Call departure, logout and loss of access
-release all selected shares. A participant departure or stream failure releases only
-the affected selection.
+A tile's Stop watching action stops only that share. Call departure, logout and loss of
+access release all selected shares. A participant departure or stream failure releases
+only the affected selection.
 
 Stream audio uses the existing shared volume and mute controls. Each source retains at
 most eight 20-millisecond frames before mixing, and the shared input queue holds at most
-32 frames. The output callback reports playback timing to each mixed source. Decoder
-scheduling retains its existing 128 mebibytes (MiB) per stream, at most 512 MiB across four
-streams, excluding codec allocations and display textures. Four simultaneous hardware
-decoders, physical playback and live Discord interoperability remain unverified on Windows.
+32 frames. The output callback reports playback timing to each mixed source.
+
+Queue identity follows the watched session when the active speaker changes. Mixed frames
+retain up to 64 contributing clocks across the four watched sessions. Audio frames without
+call speech expire when every contributing source retires. Frames containing call speech
+remain playable.
+
+Decoder scheduling retains its existing 128 mebibytes (MiB) per stream, at most 512 MiB
+across four streams, excluding codec allocations and display textures. Four simultaneous
+hardware decoders, physical playback and live Discord interoperability remain unverified
+on Windows.
 
 Offline regressions cover selection bounds, independent stop/failure handling, keyed
 Gateway events, stale attempt rejection, simultaneous audio mixing and independent

@@ -46,6 +46,7 @@ pub(crate) struct Stats {
 }
 #[derive(Default)]
 pub(crate) struct Sync {
+	session: Arc<Clock>,
 	tracks: Vec<Track>,
 	references: Vec<Reference>,
 	stats: Stats,
@@ -54,10 +55,15 @@ fn ticks(delta: i32, rate: u32) -> i128 {
 	i128::from(delta) * 1_000_000_000 / i128::from(rate)
 }
 impl Sync {
+	/// The queue identity remains stable when the active audio participant changes.
+	pub fn session(&self, now: Instant) -> crate::Presentation {
+		self.session.stamp(now)
+	}
 	pub fn take_stats(&mut self) -> Stats {
 		std::mem::take(&mut self.stats)
 	}
 	pub fn clear(&mut self) {
+		self.session.reset();
 		for track in &self.tracks {
 			track.output.reset();
 		}
