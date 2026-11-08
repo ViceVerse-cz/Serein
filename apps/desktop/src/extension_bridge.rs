@@ -549,6 +549,85 @@ impl Bridge {
 		}
 		Ok(())
 	}
+	/// Applies a plugin's finished invocation: host state such as its theme, presence, tweaks
+	/// and API routing, queued background changes, and the result panel for user-started
+	/// actions. Results for another plugin, a disabled or removed one, or without a matching
+	/// request are dropped.
+	fn receive_output(
+		&mut self,
+		id: String,
+		output: extensions::Output,
+		invocation: Option<(String, Invocation, ExtensionContext)>,
+		state: &mut State,
+		messaging: &mut ui::MessagingUi,
+		ctx: &egui::Context,
+	) {
+		let Some((requested, invocation, context)) = invocation else {
+			return;
+		};
+		if requested != id
+			|| self.disabled.contains(&id)
+			|| !self.installed.iter().any(|e| e.manifest.id == id)
+		{
+			return;
+		}
+		if context.is_current(state)
+			&& let Some(appearance) = &output.appearance
+		{
+			self.transitions.remove(&id);
+			if let Some(installed) = self
+				.installed
+				.iter_mut()
+				.find(|entry| entry.manifest.id == id)
+			{
+				installed.theme = Some(appearance.clone());
+			}
+			self.apply_theme(ctx);
+		}
+		if context.is_current(state)
+			&& let Some(update) = &output.rich_presence
+			&& let Some(installed) = self
+				.installed
+				.iter_mut()
+				.find(|entry| entry.manifest.id == id)
+		{
+			self.rich_presence_changed = true;
+			installed.rich_presence = match update {
+				extensions::RichPresenceUpdate::Set { presence } => Some(presence.clone()),
+				extensions::RichPresenceUpdate::Clear => None,
+			};
+		}
+		if let Some(tweaks) = &output.interface_tweaks
+			&& let Some(installed) = self
+				.installed
+				.iter_mut()
+				.find(|entry| entry.manifest.id == id)
+		{
+			installed.interface_tweaks.clone_from(tweaks);
+		}
+		if context.is_current(state)
+			&& let Some(config) = &output.api_proxy
+			&& let Some(installed) = self
+				.installed
+				.iter_mut()
+				.find(|entry| entry.manifest.id == id)
+		{
+			installed.api_proxy = Some(config.clone());
+			self.refresh_api_proxy();
+		}
+		if !output.background_effects.is_empty() {
+			messaging.extensions.queue_background_effects(
+				&id,
+				&context,
+				&output.background_effects,
+			);
+		}
+		if invocation.message_event.is_none() && invocation.app_event.is_none() {
+			messaging
+				.extensions
+				.present_output(id, invocation, context, output, state);
+		}
+	}
 	/// Runs one frame of plugin coordination: handles worker results and UI requests, publishes
 	/// host state such as interface tweaks, and schedules reactive events and ticks.
 	pub fn tick(
@@ -891,70 +970,8 @@ impl Bridge {
 					}
 				}
 				Ok(Event::Invoked { id, output }) => {
-					if let Some((requested, invocation, context)) =
-						pending.and_then(|p| p.invocation)
-						&& requested == id && !self.disabled.contains(&id)
-						&& self.installed.iter().any(|e| e.manifest.id == id)
-					{
-						if context.is_current(state)
-							&& let Some(appearance) = &output.appearance
-						{
-							self.transitions.remove(&id);
-							if let Some(installed) = self
-								.installed
-								.iter_mut()
-								.find(|entry| entry.manifest.id == id)
-							{
-								installed.theme = Some(appearance.clone());
-							}
-							self.apply_theme(ctx);
-						}
-						if context.is_current(state)
-							&& let Some(update) = &output.rich_presence
-							&& let Some(installed) = self
-								.installed
-								.iter_mut()
-								.find(|entry| entry.manifest.id == id)
-						{
-							self.rich_presence_changed = true;
-							installed.rich_presence = match update {
-								extensions::RichPresenceUpdate::Set { presence } => {
-									Some(presence.clone())
-								}
-								extensions::RichPresenceUpdate::Clear => None,
-							};
-						}
-						if let Some(tweaks) = &output.interface_tweaks
-							&& let Some(installed) = self
-								.installed
-								.iter_mut()
-								.find(|entry| entry.manifest.id == id)
-						{
-							installed.interface_tweaks.clone_from(tweaks);
-						}
-						if context.is_current(state)
-							&& let Some(config) = &output.api_proxy
-							&& let Some(installed) = self
-								.installed
-								.iter_mut()
-								.find(|entry| entry.manifest.id == id)
-						{
-							installed.api_proxy = Some(config.clone());
-							self.refresh_api_proxy();
-						}
-						if !output.background_effects.is_empty() {
-							messaging.extensions.queue_background_effects(
-								&id,
-								&context,
-								&output.background_effects,
-							);
-						}
-						if invocation.message_event.is_none() && invocation.app_event.is_none() {
-							messaging
-								.extensions
-								.present_output(id, invocation, context, output, state);
-						}
-					}
+					let invocation = pending.and_then(|p| p.invocation);
+					self.receive_output(id, output, invocation, state, messaging, ctx);
 				}
 				Ok(Event::EditTheme {
 					package,
@@ -1879,6 +1896,91 @@ mod tests {
 		};
 		assert!(bridge.has_message_events(&state));
 		(bridge, state, event)
+	}
+
+	/// Follows a reactive plugin's background change from the bridge receiving its output to
+	/// the client frame that sends it: the command goes out without an Apply panel, and the
+	/// same output from a disabled plugin is dropped.
+	#[test]
+	fn reactive_background_change_reaches_a_command_without_confirmation() {
+		let (mut bridge, mut state, event) = message_events_fixture();
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.extend([Capability::ChannelControl, Capability::BackgroundEffects]);
+		let mut messaging = ui::MessagingUi::default();
+		bridge.entries(&mut messaging);
+		let ctx = egui::Context::default();
+		let id = bridge.installed[0].manifest.id.clone();
+		let output = || extensions::Output {
+			background_effects: vec![extensions::HostEffect::AppAction {
+				action: extensions::AppAction::SetServerNotifications {
+					guild_id: "10".into(),
+					level: Some(1),
+					muted: None,
+					suppress_everyone: Some(true),
+					suppress_roles: Some(true),
+				},
+			}],
+			..Default::default()
+		};
+		let invocation = |state: &State| {
+			Some((
+				id.clone(),
+				Invocation {
+					action: "message-event".into(),
+					message_event: Some(Box::new(event.clone())),
+					..Default::default()
+				},
+				ExtensionContext::capture(state, false),
+			))
+		};
+		let frame = |messaging: &mut ui::MessagingUi, state: &mut State| {
+			let mut commands = Vec::new();
+			ctx.run_ui(egui::RawInput::default(), |ui| {
+				// A frame can run more than one pass; keep every pass's commands.
+				commands.extend(messaging.show(ui, state));
+			})
+			.drop_without_applying_deltas();
+			commands
+		};
+		let sent = |commands: &[client_core::Command]| {
+			commands.iter().any(|command| {
+				matches!(
+					command,
+					client_core::Command::ServerAction {
+						action: client_core::server_actions::Action::Notifications {
+							guild: model::Id(10),
+							..
+						},
+						..
+					}
+				)
+			})
+		};
+		let input = invocation(&state);
+		bridge.receive_output(
+			id.clone(),
+			output(),
+			input,
+			&mut state,
+			&mut messaging,
+			&ctx,
+		);
+		let commands = frame(&mut messaging, &mut state);
+		assert!(sent(&commands), "{}", messaging.extensions.status);
+		assert!(!sent(&frame(&mut messaging, &mut state)), "sent once");
+		bridge.disabled.insert(id.clone());
+		let input = invocation(&state);
+		bridge.receive_output(
+			id.clone(),
+			output(),
+			input,
+			&mut state,
+			&mut messaging,
+			&ctx,
+		);
+		assert!(!sent(&frame(&mut messaging, &mut state)), "disabled plugin");
 	}
 
 	#[test]
