@@ -24,6 +24,8 @@ pub struct ScreenUi {
 	pub status: &'static str,
 	pub capture_status: Option<&'static str>,
 	pub supported: bool,
+	/// Shared system audio would also carry the call; the switch says so before opting in.
+	pub audio_includes_call: bool,
 	pub preview: Option<egui::TextureHandle>,
 	/// The share is running and the local picture is intentionally not updating.
 	pub preview_paused: bool,
@@ -47,6 +49,7 @@ impl Default for ScreenUi {
 			status: "",
 			capture_status: None,
 			supported: false,
+			audio_includes_call: false,
 			preview: None,
 			preview_paused: false,
 			resolution: Resolution::Source,
@@ -308,6 +311,8 @@ impl ScreenUi {
 				"screen-body-share-system-audio",
 				Some(if cfg!(target_os = "macos") {
 					"screen-body-send-what-your-mac-plays-along-with-the-screen-serein"
+				} else if self.audio_includes_call {
+					"screen-body-this-windows-version-cannot-leave-serein-out"
 				} else {
 					"screen-body-share-sound-from-other-apps-even-when-sharing-one-window"
 				}),

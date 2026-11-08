@@ -2307,6 +2307,8 @@ screen-body-share-system-audio = 分享系統音訊
 # Context: body
 screen-body-show-cursor = 顯示游標
 # Context: body
+screen-body-this-windows-version-cannot-leave-serein-out = 此版本的 Windows 無法排除 Serein 的聲音，觀眾也會聽到你的通話。若要避免，請將 Serein 的喇叭設為 Windows 預設以外的裝置。
+# Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = 通話麥克風維持現有設定。
 # Context: show
 screen-show-cancel = 取消

@@ -567,9 +567,11 @@ are moved between outputs and no virtual device is installed.
 
 Windows uses native process loopback with `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`,
 excluding Serein and its child processes across outputs. This requires Windows build 20348+
-(Windows 11 or Windows Server 2022; ordinary Windows 10 22H2 is older). Unsupported systems
-or failed isolation report an audio error; turn audio off to share video alone. There is no
-whole-output fallback. Neither adapter records to disk.
+(Windows 11 or Windows Server 2022; ordinary Windows 10 22H2 is older). Older builds, detected
+with `RtlGetVersion`, instead loop back the default output device, which includes Serein's call
+and stream playback unless Serein's speakers use a different device. The share picker says so
+before the owner turns audio on; it stays off by default. Failed capture reports an audio error;
+turn audio off to share video alone. Neither adapter records to disk.
 
 Native contracts: [PulseAudio per-stream monitoring](https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/Developer/Clients/WritingVolumeControlUIs/)
 and [Microsoft process-loopback capture](https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/).
