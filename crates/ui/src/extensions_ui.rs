@@ -3430,6 +3430,40 @@ mod tests {
 				channel_id: Some(dm.id.to_string()),
 			})
 		);
+		// The channel action, chosen separately, targets the clicked DM too.
+		shop.requests.clear();
+		frame(&mut shop, vec![]);
+		let texts = frame(&mut shop, vec![]);
+		let (_, submenu) = texts
+			.iter()
+			.find(|(text, _)| *text == extensions_label)
+			.expect("DM row still offers the plugin submenu")
+			.clone();
+		let mut texts = frame(&mut shop, press_at(submenu.center()));
+		for _ in 0..3 {
+			if texts.iter().any(|(text, _)| text.ends_with("Archive DM")) {
+				break;
+			}
+			texts = frame(&mut shop, vec![]);
+		}
+		let (_, item) = texts
+			.iter()
+			.find(|(text, _)| text.ends_with("Archive DM"))
+			.expect("channel action listed")
+			.clone();
+		frame(&mut shop, press_at(item.center()));
+		frame(&mut shop, vec![]);
+		let [ExtensionRequest::Invoke { invocation, .. }] = shop.requests.as_slice() else {
+			panic!("one invocation queued: {:?}", shop.requests.len())
+		};
+		assert_eq!(invocation.action, "archive");
+		assert_eq!(
+			invocation.menu_target.as_deref(),
+			Some(&extensions::MenuTarget::Channel {
+				channel_id: dm.id.to_string(),
+				guild_id: None,
+			})
+		);
 	}
 
 	/// Checks that profile role chips open a menu only while a plugin offers a role action, and
@@ -3472,7 +3506,10 @@ mod tests {
 			pronouns: String::new(),
 			joined_at: None,
 		};
+		ctx.enable_accesskit();
 		let mut shop = ExtensionUi::default();
+		// Accessibility nodes of the latest frame: role and label.
+		let nodes = std::cell::RefCell::new(Vec::new());
 		let frame = |shop: &mut ExtensionUi, events: Vec<egui::Event>| {
 			let input = egui::RawInput {
 				screen_rect: Some(egui::Rect::from_min_size(
@@ -3488,6 +3525,18 @@ mod tests {
 				crate::profiles::role_chips(ui, &theme, &state, Id(42), &profile);
 			});
 			output.textures_delta.clear();
+			*nodes.borrow_mut() = output
+				.platform_output
+				.accesskit_update
+				.as_ref()
+				.map(|update| {
+					update
+						.nodes
+						.iter()
+						.map(|(_, node)| (node.role(), node.label().unwrap_or_default().to_owned()))
+						.collect()
+				})
+				.unwrap_or_default();
 			let mut texts = Vec::new();
 			for clipped in &output.shapes {
 				let mut stack = vec![&clipped.shape];
@@ -3522,10 +3571,22 @@ mod tests {
 				.1
 				.center()
 		};
-		// Without a role action the chip keeps its plain hover behavior.
+		let extensions_label = crate::i18n::translate("timeline-message-actions-extensions");
+		let chip_label = format!("Moderator, #3498DB, {extensions_label}");
+		let chip_id = egui::Id::unique(("profile-role-chip", guild, Id(42), Id(77)));
+		// Without a role action the chip keeps its plain hover behavior: no menu and no button.
 		let texts = frame(&mut shop, vec![]);
-		let texts = frame(&mut shop, secondary(chip(&texts)));
-		assert_eq!(texts.len(), frame(&mut shop, vec![]).len(), "no menu opens");
+		frame(&mut shop, secondary(chip(&texts)));
+		assert!(!egui::Popup::is_any_open(&ctx), "no menu opens");
+		frame(&mut shop, vec![]);
+		assert!(!egui::Popup::is_any_open(&ctx), "no menu opens later");
+		assert!(
+			!nodes
+				.borrow()
+				.iter()
+				.any(|(role, _)| *role == egui::Role::Button),
+			"a plain chip is not announced as a button"
+		);
 		let mut offered = entry();
 		offered.enabled = true;
 		offered.manifest.capabilities = vec![Capability::ContextMenus];
@@ -3537,16 +3598,28 @@ mod tests {
 		shop.set_entries(vec![offered]);
 		frame(&mut shop, vec![]);
 		let texts = frame(&mut shop, vec![]);
-		let mut texts = frame(&mut shop, secondary(chip(&texts)));
-		for _ in 0..3 {
-			if texts
+		assert!(
+			nodes
+				.borrow()
 				.iter()
-				.any(|(text, _)| text.ends_with("Copy role color"))
-			{
-				break;
+				.any(|(role, label)| *role == egui::Role::Button && *label == chip_label),
+			"the offered chip is a button named after the role: {:?}",
+			nodes.borrow()
+		);
+		let menu_open = |shop: &mut ExtensionUi, mut texts: Vec<(String, egui::Rect)>| {
+			for _ in 0..3 {
+				if texts
+					.iter()
+					.any(|(text, _)| text.ends_with("Copy role color"))
+				{
+					break;
+				}
+				texts = frame(shop, vec![]);
 			}
-			texts = frame(&mut shop, vec![]);
-		}
+			texts
+		};
+		let texts = frame(&mut shop, secondary(chip(&texts)));
+		let texts = menu_open(&mut shop, texts);
 		let item = texts
 			.iter()
 			.find(|(text, _)| text.ends_with("Copy role color"))
@@ -3558,36 +3631,92 @@ mod tests {
 		let [ExtensionRequest::Invoke { invocation, .. }] = shop.requests.as_slice() else {
 			panic!("one invocation queued: {}", shop.requests.len())
 		};
+		let expected = extensions::MenuTarget::Role {
+			guild_id: guild.to_string(),
+			role_id: "77".into(),
+			user_id: Some("42".into()),
+			name: "Moderator".into(),
+			color: 0x3498db,
+		};
 		assert_eq!(invocation.action, "copy-color");
-		assert_eq!(
-			invocation.menu_target.as_deref(),
-			Some(&extensions::MenuTarget::Role {
-				guild_id: guild.to_string(),
-				role_id: "77".into(),
-				user_id: Some("42".into()),
-				name: "Moderator".into(),
-				color: 0x3498db,
-			})
-		);
-		// The chip is a button, so a primary activation opens the same menu.
-		frame(&mut shop, vec![]);
-		let texts = frame(&mut shop, vec![]);
-		let mut texts = frame(&mut shop, press_at(chip(&texts)));
-		for _ in 0..3 {
-			if texts
-				.iter()
-				.any(|(text, _)| text.ends_with("Copy role color"))
-			{
-				break;
+		assert_eq!(invocation.menu_target.as_deref(), Some(&expected));
+		shop.requests.clear();
+		// The chip is a button, so a primary click, Enter or Space while focused, and a screen
+		// reader's click all open the same menu without running an action.
+		let key = |key: egui::Key| {
+			[true, false]
+				.into_iter()
+				.map(|pressed| egui::Event::Key {
+					key,
+					physical_key: None,
+					pressed,
+					repeat: false,
+					modifiers: Default::default(),
+				})
+				.collect::<Vec<_>>()
+		};
+		let accessible_click = vec![egui::Event::AccessKitActionRequest(
+			egui::accesskit::ActionRequest {
+				action: egui::accesskit::Action::Click,
+				target_tree: egui::accesskit::TreeId::ROOT,
+				target_node: chip_id.accesskit_id(),
+				data: None,
+			},
+		)];
+		for (input, activation) in [
+			("primary click", None),
+			("Enter", Some(key(egui::Key::Enter))),
+			("Space", Some(key(egui::Key::Space))),
+			("screen reader click", Some(accessible_click)),
+		] {
+			for _ in 0..3 {
+				if !egui::Popup::is_any_open(&ctx) {
+					break;
+				}
+				frame(&mut shop, key(egui::Key::Escape));
 			}
-			texts = frame(&mut shop, vec![]);
+			assert!(
+				!egui::Popup::is_any_open(&ctx),
+				"{input}: menu closed first"
+			);
+			let texts = frame(&mut shop, vec![]);
+			let events = match activation {
+				Some(events) => {
+					ctx.memory_mut(|memory| memory.request_focus(chip_id));
+					frame(&mut shop, vec![]);
+					events
+				}
+				None => press_at(chip(&texts)),
+			};
+			let texts = frame(&mut shop, events);
+			let texts = menu_open(&mut shop, texts);
+			assert!(
+				texts
+					.iter()
+					.any(|(text, _)| text.ends_with("Copy role color")),
+				"{input} opens the role menu"
+			);
+			frame(&mut shop, vec![]);
+			assert!(
+				shop.requests.is_empty(),
+				"{input}: opening the menu does not invoke the action"
+			);
 		}
-		assert!(
-			texts
-				.iter()
-				.any(|(text, _)| text.ends_with("Copy role color")),
-			"primary activation opens the role menu"
-		);
+		// Choosing the action from a menu opened by a primary click sends the same target.
+		let texts = frame(&mut shop, vec![]);
+		let item = texts
+			.iter()
+			.find(|(text, _)| text.ends_with("Copy role color"))
+			.expect("role menu stays open")
+			.1
+			.center();
+		frame(&mut shop, press_at(item));
+		frame(&mut shop, vec![]);
+		let [ExtensionRequest::Invoke { invocation, .. }] = shop.requests.as_slice() else {
+			panic!("one invocation queued: {}", shop.requests.len())
+		};
+		assert_eq!(invocation.action, "copy-color");
+		assert_eq!(invocation.menu_target.as_deref(), Some(&expected));
 	}
 
 	#[test]
