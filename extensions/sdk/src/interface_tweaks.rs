@@ -75,6 +75,8 @@ pub enum InterfaceTweak {
 	ResolveUnknownMentions,
 	/// Hovering a reply whose original is outside the loaded history reads that message once and previews it.
 	ResolveUnloadedReplies,
+	/// Shows a quoted card under a message for each Discord message link it contains.
+	MessageLinkPreviews,
 }
 
 /// Activation or panel output that sets the plugin's interface tweaks, preserving `Output`

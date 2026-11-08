@@ -44,6 +44,7 @@ mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
 mod interface_tweaks;
+mod link_previews;
 mod lookups;
 mod name_marks;
 mod new_message;

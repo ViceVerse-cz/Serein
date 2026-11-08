@@ -228,6 +228,8 @@ pub enum InterfaceTweak {
 	ResolveUnknownMentions,
 	/// Hovering a reply whose original is outside the loaded history reads that message once and previews it.
 	ResolveUnloadedReplies,
+	/// Shows a quoted card under a message for each Discord message link it contains.
+	MessageLinkPreviews,
 }
 
 impl InterfaceTweak {
@@ -263,6 +265,7 @@ impl InterfaceTweak {
 		Self::TypingRoleColors,
 		Self::ResolveUnknownMentions,
 		Self::ResolveUnloadedReplies,
+		Self::MessageLinkPreviews,
 	];
 }
 

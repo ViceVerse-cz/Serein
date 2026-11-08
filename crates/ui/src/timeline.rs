@@ -3942,6 +3942,7 @@ impl TimelineView {
 												) {
 													self.gif_favorite = Some(gif);
 												}
+												crate::link_previews::show(ui, message, state);
 												surface.exclude(egui::Rect::from_min_max(
 													egui::pos2(ui.max_rect().left(), embed_top),
 													egui::pos2(
