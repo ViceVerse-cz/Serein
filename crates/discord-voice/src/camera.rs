@@ -51,14 +51,29 @@ struct FrameGate {
 }
 
 impl FrameGate {
-	fn admit(&mut self, now: std::time::Instant) -> bool {
+	/// Whether a picture arriving at `now` fits the schedule; nothing is recorded.
+	fn ready(&self, now: std::time::Instant) -> bool {
+		self.next.is_none_or(|next| now + FRAME_SLACK >= next)
+	}
+
+	/// Records a picture that was actually handed on. Callers whose hand-off can fail call
+	/// this only on success, so a discarded picture does not use up a slot.
+	fn commit(&mut self, now: std::time::Instant) {
 		let base = match self.next {
-			Some(next) if now + FRAME_SLACK < next => return false,
 			Some(next) if now < next + FRAME_INTERVAL => next,
 			_ => now,
 		};
 		self.next = Some(base + FRAME_INTERVAL);
-		true
+	}
+
+	/// `ready` and `commit` together, for callers whose hand-off cannot fail.
+	#[cfg_attr(not(any(test, target_os = "linux")), allow(dead_code))]
+	fn admit(&mut self, now: std::time::Instant) -> bool {
+		let ready = self.ready(now);
+		if ready {
+			self.commit(now);
+		}
+		ready
 	}
 }
 // Includes asynchronous teardown: rapid toggles cannot accumulate camera workers.
@@ -530,10 +545,14 @@ mod macos {
 				let Ok(mut gate) = state.gate.try_lock() else {
 					return;
 				};
-				if !gate.admit(Instant::now()) {
+				let now = Instant::now();
+				if !gate.ready(now) {
 					return;
 				}
-				let _ = state.send.try_send(copy_bgra(sample));
+				// A picture the busy worker cannot take does not use up its slot.
+				if state.send.try_send(copy_bgra(sample)).is_ok() {
+					gate.commit(now);
+				}
 			}
 		}
 	);
@@ -933,6 +952,12 @@ mod tests {
 			admitted(25_000, 0)
 		);
 		assert!((150..=151).contains(&admitted(interval / 2, 0)));
+		// A slot is used only by a committed picture.
+		let mut gate = FrameGate::default();
+		assert!(gate.ready(start));
+		assert!(gate.ready(start));
+		gate.commit(start);
+		assert!(!gate.ready(start + Duration::from_millis(5)));
 		// A pause does not bank credit for a burst afterwards.
 		let mut gate = FrameGate::default();
 		assert!(gate.admit(start));

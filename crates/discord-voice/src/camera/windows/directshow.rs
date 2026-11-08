@@ -57,6 +57,7 @@ impl ISampleGrabberCB_Impl for Callback_Impl {
 		let Ok(mut last) = self.last.try_lock() else {
 			return HRESULT(0);
 		};
+		let now = Instant::now();
 		// SAFETY: Borrowed sample stays valid until this callback returns. Never
 		// retain COM samples or encode on the native streaming thread.
 		let result = unsafe {
@@ -81,7 +82,7 @@ impl ISampleGrabberCB_Impl for Callback_Impl {
 						return Err("Camera changed its video format; restart the camera");
 					}
 				}
-				if !last.0.admit(Instant::now()) {
+				if !last.0.ready(now) {
 					return Ok(None);
 				}
 				let pointer = sample.GetPointer().map_err(|_| INVALID)?;
@@ -96,7 +97,10 @@ impl ISampleGrabberCB_Impl for Callback_Impl {
 		// Exactly one frame, at most MAX_BYTES, waits for the worker.
 		match result {
 			Ok(Some(bytes)) => {
-				let _ = self.send.try_send(Ok(bytes));
+				// A picture the busy worker cannot take does not use up its slot.
+				if self.send.try_send(Ok(bytes)).is_ok() {
+					last.0.commit(now);
+				}
 			}
 			Ok(None) => {}
 			Err(error) => {
