@@ -75,7 +75,7 @@ class PreparationTest(unittest.TestCase):
             root.mkdir()
             (root / ".cargo").mkdir()
             (root / ".cargo/config.toml").write_text('[alias]\nxtask = "run -p xtask --"\n')
-            (root / "rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.98.1"\n')
+            (root / "rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.99.1"\n')
             (root / "Cargo.lock").write_text("locked fixture")
             (root / "private-untracked").write_text("must not copy")
             packaging = root / "packaging/flatpak"
@@ -111,8 +111,8 @@ class PreparationTest(unittest.TestCase):
                 if args[-2:] == ("--print", "sysroot"):
                     return str(compiler)
                 if args[-1] == "--version":
-                    return "rustc 1.98.1 (fixture)"
-                self.assertEqual(args, ("rustup", "run", "1.98.1", "cargo", "vendor", "--locked", "cargo-vendor"))
+                    return "rustc 1.99.1 (fixture)"
+                self.assertEqual(args, ("rustup", "run", "1.99.1", "cargo", "vendor", "--locked", "cargo-vendor"))
                 self.assertEqual(cwd, destination / "source")
                 return '[source.crates-io]\nreplace-with = "vendored-sources"\n[source.vendored-sources]\ndirectory = "cargo-vendor"'
 

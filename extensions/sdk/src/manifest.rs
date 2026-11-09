@@ -84,6 +84,7 @@ pub enum Capability {
 	DataEvents,
 	MessageDetails,
 	Relationships,
+	ExternalNavigation,
 	ContextMenus,
 	InterfaceTweaks,
 	/// Apply allowed notification and mute changes for your own account from message- and

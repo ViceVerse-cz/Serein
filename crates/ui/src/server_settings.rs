@@ -298,8 +298,8 @@ impl MessagingUi {
 		match result {
 			Ok(Some((data, image)))
 				if data.len() <= model::server_settings::MAX_ICON_DATA_URI
-					&& image.size[0] <= 512
-					&& image.size[1] <= 512 =>
+					&& image.resolution()[0] <= 512
+					&& image.resolution()[1] <= 512 =>
 			{
 				editor.icon = Patch::Value(data);
 				editor.icon_preview = Some(ctx.load_texture(

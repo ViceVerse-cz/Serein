@@ -1690,6 +1690,8 @@ markdown-confirm-external-link-open-external-link = Открыть внешню�
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Открыть в браузере
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = В ссылку помещается только начало этого сообщения; остальное не отправляется. Ссылка откроется в браузере по умолчанию.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Этот пункт назначения открывается в браузере по умолчанию.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Скопировать смайлик
@@ -2274,6 +2276,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Отправ
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Делитесь звуком из других приложений, даже если вы делитесь одним окном. Собственный звук Серейн не учитывается.
 # Context: body
 screen-body-share-system-audio = Поделиться системным звуком
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Передавайте звук общего приложения или, при показе экрана, звук всех остальных приложений. Собственный звук Serein не передаётся.
 # Context: body
 screen-body-show-cursor = Показать курсор
 # Context: body
@@ -4516,6 +4520,8 @@ voice-recipient-stop-ringing = Перестать звонить
 voice-recipient-ringing = Вызов…
 voice-recipient-not-in-call = Не в звонке
 reconnect-now = Переподключиться
+
+message-preview-limit = Это сообщение превышает ограничение нативной раскладки текста.
 
 voice-call-moved-to-another-client = Сеанс звонка на этом устройстве был заменён
 

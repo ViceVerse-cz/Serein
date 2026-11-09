@@ -691,6 +691,9 @@ pub enum AppAction {
 	OpenGroupEditor {
 		channel_id: String,
 	},
+	OpenExternalLink {
+		url: String,
+	},
 
 	SendMessage {
 		channel_id: String,

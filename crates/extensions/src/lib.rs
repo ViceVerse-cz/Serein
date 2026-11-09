@@ -144,6 +144,7 @@ pub enum Capability {
 	DataEvents,
 	MessageDetails,
 	Relationships,
+	ExternalNavigation,
 	/// Add entries to user, channel, server and role context menus.
 	ContextMenus,
 	/// Switch on host-defined interface tweaks from activation and panel actions.
@@ -399,6 +400,9 @@ pub struct ThemeStyle {
 	pub heading_size: Option<u8>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub button_size: Option<u8>,
+	/// Shared icon glyph size baseline in logical pixels; hit regions stay independent.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub icon_size: Option<u8>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub small_size: Option<u8>,
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -850,15 +854,28 @@ pub fn valid_id(value: &str) -> bool {
 		)
 }
 
-/// Metadata links never carry credentials and are opened only through an explicit host action.
+/// Metadata and extension links never carry credentials, control characters or non-default
+/// ports, and are opened only through an explicit host action.
 pub fn valid_https_url(value: &str) -> bool {
 	value.len() <= 2048
-		&& url::Url::parse(value).is_ok_and(|url| {
-			url.scheme() == "https"
+		&& !value
+			.chars()
+			.any(|c| c.is_control() || c.is_ascii_whitespace() || c == '\\')
+		&& value.split_once("://").is_some_and(|(_, rest)| {
+			!rest
+				.split(['/', '?', '#'])
+				.next()
+				.unwrap_or_default()
+				.contains('@')
+		}) && url::Url::parse(value).is_ok_and(|url| {
+		url.scheme() == "https"
 				&& url.host_str().is_some()
 				&& url.username().is_empty()
 				&& url.password().is_none()
-		})
+				// `url` reports the default HTTPS port as `None`, so this also rejects
+				// every explicit port except the implicit or explicit 443.
+				&& url.port().is_none()
+	})
 }
 
 impl Manifest {
@@ -1019,6 +1036,7 @@ impl Theme {
 		self.style.blur = other.style.blur.or(self.style.blur);
 		self.style.heading_size = other.style.heading_size.or(self.style.heading_size);
 		self.style.button_size = other.style.button_size.or(self.style.button_size);
+		self.style.icon_size = other.style.icon_size.or(self.style.icon_size);
 		self.style.small_size = other.style.small_size.or(self.style.small_size);
 		self.style.monospace_size = other.style.monospace_size.or(self.style.monospace_size);
 		self.style.item_spacing = other.style.item_spacing.or(self.style.item_spacing);
@@ -1047,6 +1065,9 @@ impl Theme {
 			|| style
 				.heading_size
 				.is_some_and(|size| !(12..=40).contains(&size))
+			|| style
+				.icon_size
+				.is_some_and(|size| !(16..=24).contains(&size))
 			|| style
 				.control_height
 				.is_some_and(|size| !(24..=56).contains(&size))

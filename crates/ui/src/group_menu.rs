@@ -168,9 +168,9 @@ impl GroupMenu {
 		match result {
 			Ok(Some((data, image))) => {
 				if data.len() > client_core::group_actions::MAX_ICON_DATA_URI
-					|| image.size[0] > 256
-					|| image.size[1] > 256
-					|| image.pixels.len() > 256 * 256
+					|| image.resolution()[0] > 256
+					|| image.resolution()[1] > 256
+					|| image.pixels().len() > 256 * 256
 				{
 					dialog.error = Some("Group icon exceeds the size limit");
 					return;

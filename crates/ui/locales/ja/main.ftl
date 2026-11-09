@@ -1690,6 +1690,8 @@ markdown-confirm-external-link-open-external-link = 外部リンクを開きま�
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = ブラウザで開く
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = リンクに収まるのはこのメッセージの先頭部分だけで、残りは送信されません。このリンク先は既定のブラウザーで開きます。
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = この宛先はデフォルトのブラウザで開きます。
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = 絵文字をコピーする
@@ -2274,6 +2276,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Mac で再�
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = 1 つのウィンドウを共有している場合でも、他のアプリのサウンドを共有します。 Serein 自身の音声は省略されています。
 # Context: body
 screen-body-share-system-audio = システムオーディオを共有する
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = 共有中のアプリの音声を共有します。画面を共有する場合は他のすべてのアプリの音声を共有します。Serein 自身の音声は含まれません。
 # Context: body
 screen-body-show-cursor = カーソルを表示
 # Context: body
@@ -4496,6 +4500,8 @@ voice-recipient-stop-ringing = 呼び出しを停止
 voice-recipient-ringing = 呼び出し中…
 voice-recipient-not-in-call = 通話に未参加
 reconnect-now = 今すぐ再接続
+
+message-preview-limit = このメッセージはネイティブテキストレイアウトの上限を超えています。
 
 voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました
 

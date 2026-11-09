@@ -422,6 +422,14 @@ async fn run_inner(
 	let mut discovery_deadline = Instant::now();
 	let mut ssrc = 0u32;
 	let mut video = crate::camera_video::Sender::default();
+	// Receiving cameras acknowledge what arrived, as watched streams do. Without reception
+	// reports and transport-wide feedback, a sender's congestion control sees no evidence
+	// of available bandwidth for this receiver.
+	let mut next_receive_report = Instant::now();
+	let mut next_transport_feedback = Instant::now();
+	let mut transport_feedback =
+		crate::transport_feedback::TransportFeedback::new(Instant::now().into_std());
+	let mut receive_reports = crate::video_feedback::ReceiveReports::new(Instant::now().into_std());
 	let mut video_tick = tokio::time::interval(Duration::from_millis(2));
 	video_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 	let mut mixer = crate::mixer::Mixer::default();
@@ -578,6 +586,25 @@ async fn run_inner(
 							   udp_failures.send(socket,&crypto.seal_rtcp(&header,&body)?,"Voice NACK send failed")?;
 							   metrics.video(Video::NacksSent,1);
 						   }
+						   if decoder.is_some() && now>=next_receive_report {
+							   receive_reports.retain(|source| receivers.has_source(source));
+							   let (header,body)=receive_reports.report(ssrc,now.into_std());
+							   udp_failures.send(socket,&crypto.seal_rtcp(&header,&body)?,"Voice reception report failed")?;
+							   metrics.video(Video::ReceiverReportsSent,1);
+							   next_receive_report=now+Duration::from_secs(1);
+						   }
+						   if decoder.is_some() && now>=next_transport_feedback {
+							   // Bound feedback rate, datagram size and work per tick.
+							   for _ in 0..2 {
+								   let Some(report)=transport_feedback.report(ssrc,now.into_std()) else {break;};
+								   udp_failures.send(socket,&crypto.seal_rtcp(&report.header,&report.body)?,"Voice transport feedback failed")?;
+								   metrics.video(Video::TwccSent,1);
+								   metrics.video(Video::TwccReported,report.received);
+								   metrics.video(Video::TwccMissing,report.missing);
+							   }
+							   metrics.video(Video::TwccDiscarded,transport_feedback.take_discarded());
+							   next_transport_feedback=now+Duration::from_millis(100);
+						   }
 					   }
 					   watch.tick(&mut metrics,&mut receivers,decoder.as_ref(),now);
 					   // Lost or stalled pictures stay frozen until the sender refreshes; ask twice a second at most.
@@ -681,13 +708,25 @@ async fn run_inner(
 						   discovering=false;continue;
 					   }
 					   let Some(crypto)=&encryption else{continue;};
+					   // RTCP only updates reception-report timing.
+					   if let Some(control)=crypto.open_rtcp(&packet[..length]) {
+						   let _=receive_reports.sender_reports(&control,Instant::now().into_std());
+						   continue;
+					   }
 					   let start = metrics.start();
 					   let Some(mut rtp)=crypto.open(&packet[..length]) else{metrics.video(Video::OpenFailed,1);continue;};
+					   if dave.ready && decoder.is_some() && let Some(sequence)=rtp.transport_sequence {
+						   transport_feedback.receive(sequence,Instant::now().into_std());
+						   metrics.video(Video::TwccReceived,1);
+					   }
+					   // Count video and RTX datagrams before restoration, which drops unknown RTX.
+					   if rtp.payload_type==101 || rtp.payload_type==102 {metrics.video(Video::RtpBytes,length as u64);}
 					   if rtp.payload_type==102 {metrics.video(Video::Rtx,1);let Some((media,sequence))=receivers.restore_rtx(rtp.ssrc,&mut rtp.payload) else{continue;};rtp.ssrc=media;rtp.sequence=sequence;rtp.payload_type=101;}
 					   if rtp.payload_type==101 {
 						   metrics.video(Video::Packets,1);
 						   let Some(decoder)=&decoder else{continue;};
 						   if !dave.ready {metrics.video(Video::NotReady,1);continue;}
+						   if receivers.has_source(rtp.ssrc) {receive_reports.receive(rtp.ssrc,rtp.sequence,rtp.timestamp,Instant::now().into_std());}
 						   let first=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload);
 						   receive_video(&mut receivers,decoder,&mut dave,&mut metrics,first)?;
 						   continue;

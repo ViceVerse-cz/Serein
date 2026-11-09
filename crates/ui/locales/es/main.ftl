@@ -1689,6 +1689,8 @@ markdown-confirm-external-link-open-external-link = ¿Abrir enlace externo?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Abrir en el navegador
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Solo el comienzo de este mensaje cabe en el enlace; el resto no se envía. Este destino se abre en tu navegador predeterminado.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Este destino se abre en su navegador predeterminado.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Copiar emojis
@@ -2273,6 +2275,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Envía lo qu
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Comparte sonido de otras aplicaciones, incluso cuando compartes una ventana. El audio del propio Serein queda fuera.
 # Context: body
 screen-body-share-system-audio = Compartir audio del sistema
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Comparte el sonido de la aplicación compartida, o el de todas las demás aplicaciones al compartir una pantalla. El audio propio de Serein se omite.
 # Context: body
 screen-body-show-cursor = Mostrar cursor
 # Context: body
@@ -4512,6 +4516,8 @@ voice-recipient-not-in-call = Fuera de la llamada
 
 
 reconnect-now = Reconectar ahora
+
+message-preview-limit = Este mensaje supera el límite del diseño de texto nativo.
 
 voice-call-moved-to-another-client = Se reemplazó la sesión de llamada de este dispositivo
 

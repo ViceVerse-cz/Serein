@@ -329,10 +329,10 @@ impl ExtensionUi {
 	}
 	pub fn receive_theme_image(&mut self, bytes: Vec<u8>, image: Arc<egui::ColorImage>) {
 		if bytes.len() > extensions::MAX_BACKGROUND_BYTES
-			|| image.size.contains(&0)
-			|| image.size.into_iter().any(|side| side > 4096)
-			|| image.pixels.len() > 4_000_000
-			|| image.pixels.len() != image.size[0] * image.size[1]
+			|| image.resolution().contains(&0)
+			|| image.resolution().into_iter().any(|side| side > 4096)
+			|| image.pixels().len() > 4_000_000
+			|| image.pixels().len() != image.resolution()[0] * image.resolution()[1]
 		{
 			return;
 		}
@@ -354,10 +354,10 @@ impl ExtensionUi {
 	}
 	pub fn receive_theme_cover(&mut self, bytes: Vec<u8>, image: Arc<egui::ColorImage>) {
 		if bytes.len() > extensions::MAX_BACKGROUND_BYTES
-			|| image.size.contains(&0)
-			|| image.size[0] > 640
-			|| image.size[1] > 360
-			|| image.pixels.len() != image.size[0] * image.size[1]
+			|| image.resolution().contains(&0)
+			|| image.resolution()[0] > 640
+			|| image.resolution()[1] > 360
+			|| image.pixels().len() != image.resolution()[0] * image.resolution()[1]
 		{
 			return;
 		}
@@ -695,11 +695,11 @@ impl ExtensionUi {
 		if let Some(preview) = self.previews.get_mut(&id) {
 			preview.loading = false;
 			preview.image = image.filter(|image| {
-				image.size[0] > 0
-					&& image.size[1] > 0
-					&& image.size[0] <= 640
-					&& image.size[1] <= 360
-					&& image.pixels.len() == image.size[0] * image.size[1]
+				image.resolution()[0] > 0
+					&& image.resolution()[1] > 0
+					&& image.resolution()[0] <= 640
+					&& image.resolution()[1] <= 360
+					&& image.pixels().len() == image.resolution()[0] * image.resolution()[1]
 			});
 		}
 	}
@@ -833,7 +833,7 @@ impl ExtensionUi {
 			if let Some(texture) = &preview.texture {
 				ui.painter().rect_filled(rect, radius, colors.base);
 				if entry.cover_image.is_some() {
-					let source = texture.size_vec2();
+					let source = texture.resolution_vec2();
 					let source_ratio = source.x / source.y;
 					let target_ratio = rect.width() / rect.height();
 					let uv = if source_ratio > target_ratio {
@@ -854,9 +854,9 @@ impl ExtensionUi {
 						.corner_radius(radius)
 						.paint_at(ui, rect);
 				} else {
-					let fit = texture.size_vec2()
-						* (rect.width() / texture.size_vec2().x)
-							.min(rect.height() / texture.size_vec2().y);
+					let fit = texture.resolution_vec2()
+						* (rect.width() / texture.resolution_vec2().x)
+							.min(rect.height() / texture.resolution_vec2().y);
 					egui::Image::new(texture)
 						.corner_radius(radius)
 						.paint_at(ui, egui::Rect::from_center_size(rect.center(), fit));
@@ -943,7 +943,7 @@ impl ExtensionUi {
 				.min((available.y * 16.0 / 9.0).max(1.0));
 			egui::vec2(width, width * 9.0 / 16.0)
 		} else if let Some(texture) = texture {
-			let source = texture.size_vec2().max(egui::vec2(1.0, 1.0));
+			let source = texture.resolution_vec2().max(egui::vec2(1.0, 1.0));
 			let bounds = available.max(egui::vec2(1.0, 1.0));
 			source * (bounds.x / source.x).min(bounds.y / source.y)
 		} else {
@@ -2580,7 +2580,7 @@ fn request_bytes(request: &ExtensionRequest) -> usize {
 			}
 			ExtensionRequest::PreviewTheme { theme, image } => {
 				usize::from(theme.is_some()) * 16384
-					+ image.as_ref().map_or(0, |image| image.pixels.len() * 4)
+					+ image.as_ref().map_or(0, |image| image.pixels().len() * 4)
 			}
 			ExtensionRequest::RefreshCatalog | ExtensionRequest::Import => 0,
 			ExtensionRequest::SelectTheme { id } => id.as_ref().map_or(0, String::len),
@@ -3029,6 +3029,9 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::AppEvents => "Receive app lifecycle and navigation events while enabled",
 		Capability::DeletedMessages => {
 			"Keep loaded deleted messages in session memory while enabled"
+		}
+		Capability::ExternalNavigation => {
+			"Propose opening an external HTTPS link in the browser for approval"
 		}
 	}
 }
@@ -4052,7 +4055,7 @@ mod tests {
 				shop.previews
 					.values()
 					.filter_map(|preview| preview.image.as_ref())
-					.map(|image| image.pixels.len() * 4)
+					.map(|image| image.pixels().len() * 4)
 					.sum::<usize>(),
 				22_118_400
 			);
