@@ -31,10 +31,11 @@ renderer overhead. Source files are bounded to 256 KiB each and 1 MiB total at b
 external SVG image references are disabled. The PNG atlas remains the fallback source; SVG
 regeneration does not require changing its pixels or cell indices.
 
-The custom `svg/headphones.svg` and `svg/headphones-slash.svg` retain their supplied colors and
-paths, fitted into a centered 49-unit area to match the original Phosphor headphones' visual
-size without clipping. The `headphones-slash` filename selects the deafened state; its current
-custom artwork distinguishes that state by color rather than a diagonal slash.
+The custom `svg/headphones.svg` retains its supplied path, fitted into a centered 49-unit area
+to match the original Phosphor headphones' visual size without clipping. The deafened
+`svg/headphones-slash.svg` uses the same shape with a round-capped diagonal slash and a transparent
+knockout gap. Both icons use white artwork so the caller supplies the theme's deafened or neutral
+tint without multiplying it by a hardcoded color.
 
 Ten brand marks Phosphor does not ship (PlayStation, Battle.net, Epic Games, League of Legends,
 Riot Games, Bungie, Roblox, Crunchyroll, eBay, Bluesky) come from
