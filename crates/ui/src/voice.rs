@@ -4747,12 +4747,16 @@ fn elapsed_label(call: &client_core::voice::Call) -> Option<String> {
 		.or(call.connected_at)?
 		.elapsed()
 		.as_secs();
-	Some(format!(
-		"{:02}:{:02}:{:02}",
-		seconds / 3600,
-		seconds / 60 % 60,
-		seconds % 60
-	))
+	Some(if seconds < 3600 {
+		format!("{:02}:{:02}", seconds / 60, seconds % 60)
+	} else {
+		format!(
+			"{:02}:{:02}:{:02}",
+			seconds / 3600,
+			seconds / 60 % 60,
+			seconds % 60
+		)
+	})
 }
 
 fn status_icon(ui: &mut egui::Ui, icon: crate::icons::Icon, color: egui::Color32, label: &str) {
@@ -5753,6 +5757,12 @@ mod tests {
 		call.connected_at = Some(std::time::Instant::now() - std::time::Duration::from_secs(3663));
 		call.phase = Phase::Waiting;
 		assert_eq!(elapsed_label(call).as_deref(), Some("01:01:03"));
+		call.connected_at = Some(std::time::Instant::now() - std::time::Duration::from_secs(65));
+		assert_eq!(elapsed_label(call).as_deref(), Some("01:05"));
+		call.connected_at = Some(std::time::Instant::now() - std::time::Duration::from_secs(3599));
+		assert_eq!(elapsed_label(call).as_deref(), Some("59:59"));
+		call.connected_at = Some(std::time::Instant::now() - std::time::Duration::from_secs(3600));
+		assert_eq!(elapsed_label(call).as_deref(), Some("01:00:00"));
 		call.channel_started_at =
 			Some(std::time::Instant::now() - std::time::Duration::from_secs(7540));
 		assert_eq!(elapsed_label(call).as_deref(), Some("02:05:40"));
