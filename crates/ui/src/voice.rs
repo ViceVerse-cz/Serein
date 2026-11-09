@@ -3493,7 +3493,7 @@ impl MessagingUi {
 					.unwrap_or(if self.screen.status.is_empty() {
 						label
 					} else {
-						self.screen.status
+						&*self.screen.status
 					})
 			} else {
 				"Screen sharing requires a connected call and video permission on a supported desktop."
