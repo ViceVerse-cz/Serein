@@ -3928,6 +3928,8 @@ timeline-show-with-scroll-loading-messages = Ładowanie wiadomości…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Wiadomość usunięta
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Zablokowana wiadomość
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Historia wiadomości jest niedostępna przy bieżących informacjach o uprawnieniach.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Nie ma jeszcze żadnych wiadomości. Rozpocznij rozmowę poniżej.
@@ -4890,3 +4892,17 @@ new-message-hint = Dodaj znajomych, aby rozpocząć wiadomość prywatną lub gr
 new-message-no-people-found = Nikt nie pasuje do tego wyszukiwania.
 new-message-create = Utwórz wiadomość
 new-message-cancel = Anuluj
+name-marks-server-owner = Właściciel serwera
+name-marks-online-desktop = Online na komputerze
+name-marks-online-web = Online w przeglądarce
+name-marks-online-mobile = Online na telefonie
+profiles-show-mutual-group = Wspólna grupa
+profiles-show-mutual-groups = Wspólne grupy
+rail-counts-online = { $count } online
+rail-counts-servers = { $count ->
+    [one] { $count } serwer
+    [few] { $count } serwery
+   *[other] { $count } serwerów
+}
+name-marks-tag-admin = Admin
+name-marks-tag-moderator = Mod

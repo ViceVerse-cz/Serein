@@ -85,6 +85,27 @@ enum Open {
 	Archived(Id),
 }
 
+/// The order and view a forum opens with: the server's defaults, unless a plugin chose this
+/// client's own. Members may change either afterwards.
+fn opening_view(ctx: &egui::Context, defaults: &model::forum::Tags) -> (Sort, Layout) {
+	let on = |tweak| crate::interface_tweaks::on(ctx, tweak);
+	let sort = if on(extensions::InterfaceTweak::ForumSortByActivity) {
+		Sort::Activity
+	} else if on(extensions::InterfaceTweak::ForumSortByCreation) {
+		Sort::Created
+	} else {
+		defaults.sort
+	};
+	let layout = if on(extensions::InterfaceTweak::ForumListView) {
+		Layout::List
+	} else if on(extensions::InterfaceTweak::ForumGalleryView) {
+		Layout::Gallery
+	} else {
+		defaults.layout
+	};
+	(sort, layout)
+}
+
 impl ForumUi {
 	pub fn show(
 		&mut self,
@@ -106,10 +127,8 @@ impl ForumUi {
 			self.forum = Some(forum);
 			self.query.clear();
 			self.tags.clear();
-			// Each forum opens the way its moderators set it up; members may change it.
 			let defaults = state.forum_defaults(forum).cloned().unwrap_or_default();
-			self.sort = defaults.sort;
-			self.layout = defaults.layout;
+			(self.sort, self.layout) = opening_view(ui.ctx(), &defaults);
 			self.match_all = defaults.match_all;
 			self.discard_draft(staged);
 		}
@@ -1989,6 +2008,36 @@ fn ago(id: Id, now: time::OffsetDateTime) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// Checks that a forum opens with the server's view and order unless a plugin chose
+	/// this client's own, and that list view and activity order win when both are chosen.
+	#[test]
+	fn plugin_forum_defaults_override_the_servers() {
+		use extensions::InterfaceTweak as T;
+		let ctx = egui::Context::default();
+		let server = model::forum::Tags {
+			sort: Sort::Created,
+			layout: Layout::Gallery,
+			..Default::default()
+		};
+		let open = |on: &[T]| {
+			crate::interface_tweaks::publish(
+				&ctx,
+				&std::sync::Arc::new(on.iter().copied().collect()),
+			);
+			opening_view(&ctx, &server)
+		};
+		assert_eq!(open(&[]), (Sort::Created, Layout::Gallery));
+		assert_eq!(
+			open(&[T::ForumListView, T::ForumSortByActivity]),
+			(Sort::Activity, Layout::List)
+		);
+		assert_eq!(
+			open(&[T::ForumGalleryView, T::ForumSortByCreation]),
+			(Sort::Created, Layout::Gallery)
+		);
+		assert_eq!(open(T::ALL), (Sort::Activity, Layout::List));
+	}
 
 	/// Nothing is staged in these fixtures; the tray lives in the messaging view.
 	#[derive(Default)]

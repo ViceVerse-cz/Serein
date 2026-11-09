@@ -3919,6 +3919,8 @@ timeline-show-with-scroll-loading-messages = メッセージを読み込んで�
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = メッセージが削除されました
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = ブロックしたユーザーのメッセージ
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 現在の権限情報ではメッセージ履歴を利用できません。
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = まだメッセージはありません。以下で会話を始めてください。
@@ -4871,3 +4873,13 @@ new-message-hint = フレンドを追加して、DMまたはグループを開�
 new-message-no-people-found = 一致する相手はいません。
 new-message-create = メッセージを作成
 new-message-cancel = キャンセル
+name-marks-server-owner = サーバーオーナー
+name-marks-online-desktop = デスクトップでオンライン
+name-marks-online-web = ウェブでオンライン
+name-marks-online-mobile = モバイルでオンライン
+profiles-show-mutual-group = 共通のグループ
+profiles-show-mutual-groups = 共通のグループ
+rail-counts-online = { $count } 人オンライン
+rail-counts-servers = { $count } サーバー
+name-marks-tag-admin = 管理者
+name-marks-tag-moderator = モデレーター

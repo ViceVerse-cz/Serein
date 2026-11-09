@@ -3919,6 +3919,8 @@ timeline-show-with-scroll-loading-messages = Mesajlar yükleniyor…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Mesaj silindi
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Engellenen mesaj
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Mesaj geçmişi mevcut izin bilgileriyle kullanılamaz.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Henüz mesaj yok. Aşağıdaki konuşmayı başlatın.
@@ -4874,3 +4876,13 @@ new-message-hint = Bir doğrudan mesaj veya grup başlatmak için arkadaş ekley
 new-message-no-people-found = Bu aramayla eşleşen kimse yok.
 new-message-create = Mesaj Oluştur
 new-message-cancel = İptal
+name-marks-server-owner = Sunucu Sahibi
+name-marks-online-desktop = Masaüstünde çevrimiçi
+name-marks-online-web = Web'de çevrimiçi
+name-marks-online-mobile = Mobilde çevrimiçi
+profiles-show-mutual-group = Ortak Grup
+profiles-show-mutual-groups = Ortak Gruplar
+rail-counts-online = { $count } çevrimiçi
+rail-counts-servers = { $count } sunucu
+name-marks-tag-admin = Yönetici
+name-marks-tag-moderator = Mod

@@ -72,6 +72,20 @@ impl RailCache {
 		self.voice_guilds.binary_search(&guild).is_ok()
 	}
 }
+/// Friends online (including idle and Do Not Disturb) and servers joined, for the
+/// rail-counts tweak.
+fn rail_counts(state: &State) -> (usize, usize) {
+	let online = state
+		.friends()
+		.filter(|friend| {
+			crate::profiles::presence(state, friend.id, None)
+				.0
+				.is_some_and(|status| matches!(status, "online" | "idle" | "dnd"))
+		})
+		.count();
+	(online, state.guilds.len())
+}
+
 fn direct_call(state: &State) -> Option<Id> {
 	state
 		.voice
@@ -256,6 +270,8 @@ impl MessagingUi {
 	pub fn viewing_latest(&self, channel: Id) -> bool {
 		self.timeline.viewing_latest(channel)
 	}
+	/// Draws the server rail: the Home button with its request badge, direct conversations with
+	/// unread messages, and servers and folders with their badges.
 	pub(super) fn notification_rail(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -310,13 +326,20 @@ impl MessagingUi {
 					colors.text.lerp_to_gamma(colors.accent_text, lit),
 				);
 				rail_indicator(ui, response.id, rect, home, hovered, false);
-				let (friends, messages) = state.home_request_parts();
-				let requests = friends.saturating_add(messages);
+				let (friends, messages) = if crate::interface_tweaks::on(
+					ui.ctx(),
+					extensions::InterfaceTweak::HiddenRequestCounts,
+				) {
+					// The tooltip and accessible name omit the counts with the badge.
+					(0, 0)
+				} else {
+					state.home_request_parts()
+				};
 				rail_badge(
 					ui,
 					response.id,
 					rect,
-					requests,
+					friends.saturating_add(messages),
 					design::window_palette(ui).base,
 				);
 				let label = home_request_label(friends, messages);
@@ -334,6 +357,54 @@ impl MessagingUi {
 						commands.push(command);
 					}
 					self.search.open = false;
+				}
+				// With the rail-counts tweak, the rail lists how many friends are online and
+				// how many servers the account is in under Home.
+				if crate::interface_tweaks::on(ui.ctx(), extensions::InterfaceTweak::RailCounts) {
+					let (online, servers) = rail_counts(state);
+					let colors = design::palette(ui);
+					// The rail is narrow: each count is an icon and a number, named in full
+					// by its tooltip and accessible label.
+					for (key, count, icon) in [
+						("rail-counts-online", online, crate::icons::Icon::People),
+						("rail-counts-servers", servers, crate::icons::Icon::Servers),
+					] {
+						let label = crate::i18n::translate_count(
+							key,
+							count,
+							&[("count", &count.to_string())],
+						);
+						let number = count.to_string();
+						let galley = ui.painter().layout_no_wrap(
+							number,
+							egui::FontId::proportional(11.0),
+							colors.muted,
+						);
+						let width = 12.0 + 3.0 + galley.size().x;
+						let (row, response) = ui.allocate_exact_size(
+							egui::vec2(ui.available_width(), 14.0),
+							egui::Sense::hover(),
+						);
+						let left = row.center().x - width / 2.0;
+						crate::icons::paint(
+							ui.painter(),
+							icon,
+							egui::Rect::from_min_size(
+								egui::pos2(left, row.center().y - 6.0),
+								egui::vec2(12.0, 12.0),
+							),
+							colors.muted,
+						);
+						ui.painter().galley(
+							egui::pos2(left + 15.0, row.center().y - galley.size().y / 2.0),
+							galley,
+							colors.muted,
+						);
+						response.widget_info(|| {
+							egui::WidgetInfo::labeled(egui::Role::Label, true, label.clone())
+						});
+						response.on_hover_text(label);
+					}
 				}
 				self.scroll
 					.attach(
@@ -484,6 +555,37 @@ mod tests {
 	use super::*;
 	use client_core::{Envelope, Event, read_state};
 
+	/// Checks that the rail counts friends online, idle or in Do Not Disturb but not
+	/// offline ones, and every joined server.
+	#[test]
+	fn rail_counts_online_friends_and_servers() {
+		let mut state = test_support::demo_state();
+		let friends: Vec<_> = state.friends().map(|friend| friend.id).take(2).collect();
+		assert_eq!(friends.len(), 2, "demo has two friends");
+		state.direct_presences.clear();
+		for (user, status) in [(friends[0], "dnd"), (friends[1], "offline")] {
+			state.direct_presences.push(model::MemberPresence {
+				user,
+				status: Some(status.into()),
+				custom_status: None,
+				activities: vec![],
+				clients: model::ClientPlatforms::default(),
+			});
+		}
+		let (online, servers) = rail_counts(&state);
+		assert_eq!(servers, state.guilds.len());
+		let others = state
+			.friends()
+			.filter(|friend| !friends.contains(&friend.id))
+			.filter(|friend| {
+				crate::profiles::presence(&state, friend.id, None)
+					.0
+					.is_some_and(|status| status != "offline")
+			})
+			.count();
+		assert_eq!(online, 1 + others);
+	}
+
 	fn apply(state: &mut State, event: Event) {
 		state.apply(Envelope {
 			generation: state.generation,
@@ -532,6 +634,135 @@ mod tests {
 		assert_eq!(view.guild, None);
 		assert_eq!(state.selected, None);
 		assert!(!view.search.open);
+	}
+
+	/// Checks that the hidden-request-counts tweak removes the request count from the Home
+	/// button and the Friends Pending tab.
+	#[test]
+	fn hidden_request_counts_tweak_clears_home_and_pending_badges() {
+		let mut state = test_support::notification_demo_state();
+		assert_eq!(state.home_request_parts(), (2, 1));
+		let pending = state
+			.pending_friends()
+			.filter(|(_, _, incoming)| *incoming)
+			.count();
+		// Accessibility labels of the latest frame, which also carry the Home tooltip text.
+		let labels = std::cell::RefCell::new(Vec::<String>::new());
+		let drawn = |state: &mut State, hidden: bool| {
+			let ctx = egui::Context::default();
+			ctx.enable_accesskit();
+			let mut view = MessagingUi::default();
+			if hidden {
+				view.set_interface_tweaks([extensions::InterfaceTweak::HiddenRequestCounts].into());
+			}
+			let mut texts = Vec::new();
+			for _ in 0..2 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(1200.0, 800.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						view.show(ui, state);
+					},
+				);
+				texts.clear();
+				let mut stack: Vec<_> =
+					output.shapes.iter().map(|clipped| &clipped.shape).collect();
+				while let Some(shape) = stack.pop() {
+					match shape {
+						egui::Shape::Text(text) => texts.push((
+							text.galley.text().to_owned(),
+							egui::Rect::from_min_size(text.pos, text.galley.size()),
+						)),
+						egui::Shape::Vec(shapes) => stack.extend(shapes),
+						_ => {}
+					}
+				}
+				*labels.borrow_mut() = output
+					.platform_output
+					.accesskit_update
+					.as_ref()
+					.map(|update| {
+						update
+							.nodes
+							.iter()
+							.filter_map(|(_, node)| node.label().map(str::to_owned))
+							.collect()
+					})
+					.unwrap_or_default();
+				output.drop_without_applying_deltas();
+			}
+			texts
+		};
+		// The Home button's badge is the rail's only "3"; its vertical position depends on the
+		// platform's title bar, so the check counts rail badges rather than placing one.
+		let rail_threes = |texts: &[(String, egui::Rect)]| {
+			texts
+				.iter()
+				.filter(|(text, rect)| text == "3" && rect.center().x < RAIL_WIDTH)
+				.count()
+		};
+		let shown = rail_threes(&drawn(&mut state, false));
+		assert_eq!(shown, 1, "Home shows 3 requests");
+		let hidden = rail_threes(&drawn(&mut state, true));
+		assert_eq!(hidden, 0, "Home hides the request count");
+		// The Home button's accessible name and tooltip leave the counts out with the badge.
+		let counted = home_request_label(2, 1);
+		let plain = home_request_label(0, 0);
+		assert_ne!(counted, plain);
+		drawn(&mut state, false);
+		assert!(
+			labels.borrow().contains(&counted),
+			"Home names its requests"
+		);
+		drawn(&mut state, true);
+		assert!(labels.borrow().contains(&plain), "{:?}", labels.borrow());
+		assert!(
+			!labels.borrow().contains(&counted),
+			"Home omits its requests"
+		);
+		// Friends view: the Pending tab carries the incoming count only without the tweak.
+		state.open_messages();
+		let label = pending.to_string();
+		let tab = |texts: &[(String, egui::Rect)]| {
+			let pending_tab = texts
+				.iter()
+				.find(|(text, _)| text == &crate::i18n::translate("friends-pending"))
+				.map(|(_, rect)| *rect)
+				.expect("Pending tab drawn");
+			texts.iter().any(|(text, rect)| {
+				*text == label
+					&& (rect.center().y - pending_tab.center().y).abs() < 8.0
+					&& rect.left() > pending_tab.left()
+					&& rect.left() < pending_tab.right() + 40.0
+			})
+		};
+		assert!(tab(&drawn(&mut state, false)), "Pending shows its count");
+		assert!(!tab(&drawn(&mut state, true)), "Pending hides its count");
+		// The message-request group in the conversation list keeps its count off as well.
+		let heading = crate::i18n::translate("channel-list-heading-message-requests");
+		let group = |texts: &[(String, egui::Rect)]| {
+			let row = texts
+				.iter()
+				.find(|(text, _)| text.eq_ignore_ascii_case(&heading))
+				.map(|(_, rect)| *rect)
+				.expect("message requests group drawn");
+			texts
+				.iter()
+				.any(|(text, rect)| text == "1" && (rect.center().y - row.center().y).abs() < 12.0)
+		};
+		assert!(
+			group(&drawn(&mut state, false)),
+			"request group shows its count"
+		);
+		assert!(
+			!group(&drawn(&mut state, true)),
+			"request group hides its count"
+		);
 	}
 
 	#[test]

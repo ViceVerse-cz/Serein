@@ -3929,6 +3929,8 @@ timeline-show-with-scroll-loading-messages = Загрузка сообщений
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Сообщение удалено
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Заблокированное сообщение
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = История сообщений недоступна с текущей информацией о разрешении.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Сообщений пока нет. Начните разговор ниже.
@@ -4891,3 +4893,17 @@ new-message-hint = Добавьте друзей, чтобы начать лич
 new-message-no-people-found = Никто не найден.
 new-message-create = Создать сообщение
 new-message-cancel = Отмена
+name-marks-server-owner = Владелец сервера
+name-marks-online-desktop = В сети с компьютера
+name-marks-online-web = В сети в браузере
+name-marks-online-mobile = В сети с телефона
+profiles-show-mutual-group = Общая группа
+profiles-show-mutual-groups = Общие группы
+rail-counts-online = { $count } в сети
+rail-counts-servers = { $count ->
+    [one] { $count } сервер
+    [few] { $count } сервера
+   *[other] { $count } серверов
+}
+name-marks-tag-admin = Админ
+name-marks-tag-moderator = Модер

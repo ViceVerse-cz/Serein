@@ -274,6 +274,9 @@ pub struct ExtensionUi {
 	theme_editor: Option<crate::theme_editor::ThemeEditor>,
 	theme_editor_visible: bool,
 	gallery_preview: Option<String>,
+	/// Granted notification and mute changes waiting for the next frame, applied without an
+	/// Apply button.
+	background: Vec<crate::extension_app::ConfirmedEffect>,
 }
 impl ExtensionUi {
 	pub fn editing_theme(&self) -> bool {
@@ -1028,6 +1031,7 @@ impl ExtensionUi {
 		self.previews.clear();
 		self.enlarged = None;
 	}
+	/// Forgets a removed plugin's open result, pending invocations and queued background changes.
 	pub fn remove_runtime(&mut self, id: &str) {
 		if self.result.as_ref().is_some_and(|result| result.id == id) {
 			self.result = None;
@@ -1035,6 +1039,27 @@ impl ExtensionUi {
 		self.requests.retain(
 			|request| !matches!(request, ExtensionRequest::Invoke { id: plugin, .. } if plugin == id),
 		);
+		self.background.retain(|effect| effect.plugin != id);
+	}
+	/// Queues a plugin's validated background effects; the next frame applies them through the
+	/// same checks as an approved effect, against the context the plugin ran in.
+	pub fn queue_background_effects(
+		&mut self,
+		id: &str,
+		context: &ExtensionContext,
+		effects: &[extensions::HostEffect],
+	) {
+		self.background.extend(effects.iter().map(|effect| {
+			crate::extension_app::ConfirmedEffect {
+				plugin: id.to_owned(),
+				context: context.clone(),
+				effect: effect.clone(),
+			}
+		}));
+	}
+	/// Takes the queued background effects in arrival order.
+	pub(crate) fn take_background_effects(&mut self) -> Vec<crate::extension_app::ConfirmedEffect> {
+		std::mem::take(&mut self.background)
 	}
 	pub fn present_output(
 		&mut self,
@@ -2916,6 +2941,10 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::MessageEvents => "Read live message events and text in the active conversation",
 		Capability::SelectedMessage => "Read the message I choose for an action",
 		Capability::ContextMenus => "Add actions to user, channel, server and role menus",
+		Capability::InterfaceTweaks => "Change how parts of the interface look or behave",
+		Capability::BackgroundEffects => {
+			"Change my notification and mute settings without asking each time"
+		}
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
 		Capability::AppContext => "Read my account and current conversation details",

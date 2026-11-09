@@ -3957,6 +3957,8 @@ timeline-show-with-scroll-loading-messages = 正在加载消息…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = 消息已删除
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = 已屏蔽的消息
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 依当前权限信息，无法查看消息历史。
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = 还没有消息。从下方开始聊天。
@@ -4985,3 +4987,13 @@ new-message-hint = 添加好友以开始私信或群组。
 new-message-no-people-found = 没有匹配的结果。
 new-message-create = 创建消息
 new-message-cancel = 取消
+name-marks-server-owner = 服务器所有者
+name-marks-online-desktop = 桌面端在线
+name-marks-online-web = 网页端在线
+name-marks-online-mobile = 移动端在线
+profiles-show-mutual-group = 共同群组
+profiles-show-mutual-groups = 共同群组
+rail-counts-online = { $count } 人在线
+rail-counts-servers = { $count } 个服务器
+name-marks-tag-admin = 管理员
+name-marks-tag-moderator = 版主

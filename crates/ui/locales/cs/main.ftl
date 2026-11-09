@@ -3960,6 +3960,8 @@ timeline-show-with-scroll-loading-messages = Načítání zpráv…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Zpráva smazána
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Blokovaná zpráva
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Historie zpráv není s aktuálními informacemi o oprávnění k dispozici.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Zatím žádné zprávy. Začněte konverzaci níže.
@@ -5019,3 +5021,17 @@ timestamp-style-full = Úplné datum a čas
 timestamp-style-relative = Relativní čas
 timestamp-style-short-date-time = Krátké datum a čas
 timestamp-style-short-date-seconds = Krátké datum a čas se sekundami
+name-marks-server-owner = Vlastník serveru
+name-marks-online-desktop = Online na počítači
+name-marks-online-web = Online na webu
+name-marks-online-mobile = Online na mobilu
+profiles-show-mutual-group = Společná skupina
+profiles-show-mutual-groups = Společné skupiny
+rail-counts-online = { $count } online
+rail-counts-servers = { $count ->
+    [one] { $count } server
+    [few] { $count } servery
+   *[other] { $count } serverů
+}
+name-marks-tag-admin = Admin
+name-marks-tag-moderator = Mod

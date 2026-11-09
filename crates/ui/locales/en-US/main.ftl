@@ -3965,6 +3965,8 @@ timeline-show-with-scroll-loading-messages = Loading messages…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Message deleted
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Blocked message
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Message history is unavailable with current permission information.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = No messages yet. Start the conversation below.
@@ -5079,3 +5081,16 @@ timestamp-style-full = Full date and time
 timestamp-style-relative = Relative time
 timestamp-style-short-date-time = Short date and time
 timestamp-style-short-date-seconds = Short date and time with seconds
+name-marks-server-owner = Server Owner
+name-marks-online-desktop = Online on desktop
+name-marks-online-web = Online on the web
+name-marks-online-mobile = Online on mobile
+profiles-show-mutual-group = Mutual Group
+profiles-show-mutual-groups = Mutual Groups
+rail-counts-online = { $count } online
+rail-counts-servers = { $count ->
+    [one] { $count } server
+   *[other] { $count } servers
+}
+name-marks-tag-admin = Admin
+name-marks-tag-moderator = Mod

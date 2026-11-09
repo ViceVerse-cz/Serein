@@ -3957,6 +3957,8 @@ timeline-show-with-scroll-loading-messages = 正在載入訊息…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = 訊息已刪除
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = 已封鎖的訊息
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 依目前權限資訊，無法檢視訊息歷史。
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = 還沒有訊息。從下方開始對話。
@@ -4985,3 +4987,13 @@ new-message-hint = 新增好友以開始私訊或群組。
 new-message-no-people-found = 沒有符合的結果。
 new-message-create = 建立訊息
 new-message-cancel = 取消
+name-marks-server-owner = 伺服器擁有者
+name-marks-online-desktop = 桌面版上線
+name-marks-online-web = 網頁版上線
+name-marks-online-mobile = 行動裝置上線
+profiles-show-mutual-group = 共同群組
+profiles-show-mutual-groups = 共同群組
+rail-counts-online = { $count } 人上線
+rail-counts-servers = { $count } 個伺服器
+name-marks-tag-admin = 管理員
+name-marks-tag-moderator = 版主

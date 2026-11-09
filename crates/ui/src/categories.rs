@@ -576,6 +576,8 @@ fn kind_label(kind: u8) -> &'static str {
 }
 
 impl MessagingUi {
+	/// Draws the conversation or channel sidebar for the current server or Home, with its
+	/// categories, request groups and voice participants, and returns a channel to open.
 	pub(super) fn channel_list(&mut self, ui: &mut egui::Ui, state: &mut State) -> Option<Id> {
 		let voice_users = crate::profiles::voice_users(state);
 		let language = self.language;
@@ -762,16 +764,22 @@ impl MessagingUi {
 								row_height,
 								false,
 							);
-							// The count stays visible while folded, so a hidden list still reports.
-							crate::notifications::badge(
-								ui,
-								egui::pos2(
-									response.rect.right() - 16.0,
-									response.rect.bottom() - 13.0,
-								),
-								u32::try_from(count).unwrap_or(u32::MAX),
-								colors.sidebar,
-							);
+							// The count stays visible while folded, so a hidden list still reports,
+							// unless a plugin hides request counts.
+							if !crate::interface_tweaks::on(
+								ui.ctx(),
+								extensions::InterfaceTweak::HiddenRequestCounts,
+							) {
+								crate::notifications::badge(
+									ui,
+									egui::pos2(
+										response.rect.right() - 16.0,
+										response.rect.bottom() - 13.0,
+									),
+									u32::try_from(count).unwrap_or(u32::MAX),
+									colors.sidebar,
+								);
+							}
 							if response.clicked() {
 								self.message_requests_collapsed = !collapsed;
 								self.channel_cache.key = None;
