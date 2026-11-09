@@ -485,18 +485,19 @@ impl MessagingUi {
 		let marks = channel_marks::trailing(access);
 		let elapsed_width = if elapsed.is_some() { 64.0 } else { 0.0 };
 		let badge_width = if count > 0 { 34.0 } else { 0.0 };
-		let name = ui.painter().layout(
+		let name_width = (row.width() - 40.0 - elapsed_width - badge_width - marks).max(10.0);
+		let mut name_job = egui::text::LayoutJob::simple_singleline(
 			channel.name.clone(),
 			egui::FontId::new(15.0, design::medium_family(ui.ctx())),
 			text_color,
-			(row.width() - 40.0 - elapsed_width - badge_width - marks).max(10.0),
 		);
+		name_job.wrap.max_width = name_width;
+		name_job.wrap.max_rows = 1;
+		name_job.wrap.break_anywhere = true;
+		let name = ui.painter().layout_job(name_job);
 		let name_rect = egui::Rect::from_min_size(
 			egui::pos2(row.left() + 34.0, row.center().y - name.size().y * 0.5),
-			egui::vec2(
-				row.width() - 40.0 - elapsed_width - badge_width - marks,
-				name.size().y,
-			),
+			egui::vec2(name_width, name.size().y),
 		);
 		ui.painter()
 			.with_clip_rect(name_rect)
@@ -569,9 +570,6 @@ impl MessagingUi {
 		state: &State,
 		entry: &RosterEntry,
 	) {
-		if !state.can_view(entry.channel) {
-			return;
-		}
 		let colors = design::palette(ui);
 		let (user, name) = resolve_member(state, entry);
 		ui.push_id(
@@ -962,48 +960,39 @@ impl MessagingUi {
 				.and_then(|c| c.error),
 			STAGE_TEXT,
 		);
-		if !state.can_view(channel) {
-			body_ui.label(
-				RichText::new(crate::i18n::translate(
-					"voice-voice-channel-participant-list-unavailable-with-the-current-access",
-				))
-				.color(STAGE_MUTED),
-			);
+
+		let entries = stage_participants(state, channel);
+		if entries.is_empty() {
+			body_ui.add_space((body_ui.available_height() * 0.4).max(0.0));
+			body_ui.vertical_centered(|ui| {
+				ui.label(
+					design::semibold(
+						ui,
+						crate::i18n::translate_if_key(if !state.demo && !state.gateway_connected {
+							"voice-voice-channel-participant-list-unavailable-while-disconnected"
+						} else {
+							"voice-voice-channel-no-one-s-here-yet"
+						}),
+						18.0,
+					)
+					.color(STAGE_TEXT),
+				);
+			});
 		} else {
-			let entries = stage_participants(state, channel);
-			if entries.is_empty() {
-				body_ui.add_space((body_ui.available_height() * 0.4).max(0.0));
-				body_ui.vertical_centered(|ui| {
-					ui.label(
-						design::semibold(
-							ui,
-							crate::i18n::translate_if_key(
-								if !state.demo && !state.gateway_connected {
-									"voice-voice-channel-participant-list-unavailable-while-disconnected"
-								} else {
-									"voice-voice-channel-no-one-s-here-yet"
-								},
-							),
-							18.0,
-						)
-						.color(STAGE_TEXT),
-					);
-				});
-			} else {
-				if !state.demo && !state.gateway_connected {
-					body_ui.label(
-						RichText::new(crate::i18n::translate(
-							"voice-voice-channel-last-known-participants-a-reconnect-to-refresh",
-						))
-						.small()
-						.color(STAGE_MUTED),
-					);
-				}
-				self.voice_chrome_hidden = 1.0 - reveal;
-				self.participant_tiles(&mut body_ui, state, channel, &entries, false);
-				self.voice_chrome_hidden = 0.0;
+			if !state.demo && !state.gateway_connected {
+				body_ui.label(
+					RichText::new(crate::i18n::translate(
+						"voice-voice-channel-last-known-participants-a-reconnect-to-refresh",
+					))
+					.small()
+					.color(STAGE_MUTED),
+				);
 			}
+			self.voice_chrome_hidden = 1.0 - reveal;
+			self.participant_tiles(&mut body_ui, state, channel, &entries, false);
+			self.voice_chrome_hidden = 0.0;
 		}
+
 		self.apply_watch_request(state);
 		let bar = egui::Rect::from_min_max(
 			egui::pos2(rect.left(), rect.bottom() - bottom),
@@ -1345,7 +1334,7 @@ impl MessagingUi {
 			.preview
 			.as_ref()
 			.map(|texture| {
-				let content = fit_rect(rect, texture.size_vec2());
+				let content = fit_rect(rect, texture.resolution_vec2());
 				ui.put(
 					content,
 					egui::Image::from_texture((texture.id(), content.size())).corner_radius(8),
@@ -1676,7 +1665,7 @@ impl MessagingUi {
 		let video = if own && call.is_some_and(|call| call.camera) {
 			self.voice_camera_preview
 				.as_ref()
-				.map(|texture| (texture.id(), texture.size_vec2(), true))
+				.map(|texture| (texture.id(), texture.resolution_vec2(), true))
 		} else if entry.participant.video {
 			self.remote_texture(entry.participant.user)
 				.map(|texture| (texture.id, texture.size, false))
@@ -2671,7 +2660,7 @@ impl MessagingUi {
 				.or(self.voice_camera_preview.as_ref());
 			let has_picture = texture.is_some();
 			if let Some(texture) = texture {
-				let size = texture.size_vec2();
+				let size = texture.resolution_vec2();
 				let scale = (rect.width() / size.x).min(rect.height() / size.y);
 				egui::Image::new(texture)
 					.uv(egui::Rect::from_min_max(
@@ -3511,7 +3500,7 @@ impl MessagingUi {
 					.unwrap_or(if self.screen.status.is_empty() {
 						label
 					} else {
-						self.screen.status
+						&*self.screen.status
 					})
 			} else {
 				"Screen sharing requires a connected call and video permission on a supported desktop."

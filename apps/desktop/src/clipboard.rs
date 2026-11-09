@@ -145,11 +145,11 @@ fn supplied_image(image: std::sync::Arc<egui::ColorImage>) -> Result<Read, &'sta
 		.width()
 		.checked_mul(image.height())
 		.ok_or("Image is too large")?;
-	if pixels == 0 || pixels > 4 * 1024 * 1024 || pixels != image.pixels.len() {
+	if pixels == 0 || pixels > 4 * 1024 * 1024 || pixels != image.pixels().len() {
 		return Err("Paste an image with at most 4 million pixels");
 	}
 	let bytes: Vec<u8> = image
-		.pixels
+		.pixels()
 		.iter()
 		.flat_map(|pixel| pixel.to_srgba_unmultiplied())
 		.collect();

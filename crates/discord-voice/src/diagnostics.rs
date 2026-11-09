@@ -223,7 +223,7 @@ impl VideoSizeCounters {
 		}
 		let _ = self
 			.min
-			.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |min| {
+			.try_update(Ordering::Relaxed, Ordering::Relaxed, |min| {
 				Some(if min == 0 { key } else { min.min(key) })
 			});
 		self.max.fetch_max(key, Ordering::Relaxed);

@@ -32,10 +32,10 @@
     alsa-lib,
     gst_all_1,
     pipewire,
-    libX11,
-    libXi,
-    libXrandr,
-    libXcursor,
+    libx11,
+    libxi,
+    libxrandr,
+    libxcursor,
     bubblewrap,
     xdg-dbus-proxy,
 }: let
@@ -66,10 +66,10 @@
     windowingDeps = [
         wayland
         libxkbcommon
-        libX11
-        libXi
-        libXrandr
-        libXcursor
+        libx11
+        libxi
+        libxrandr
+        libxcursor
     ];
 
     audioDeps = [

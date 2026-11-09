@@ -2340,7 +2340,10 @@ mod tests {
 		for format in [image::ImageFormat::Png, image::ImageFormat::Jpeg] {
 			let bytes = encoded(1280, 720, format);
 			let mut preview = metadata(&bytes);
-			assert_eq!(decode_preview(&bytes, &preview).unwrap().size, [640, 360]);
+			assert_eq!(
+				decode_preview(&bytes, &preview).unwrap().resolution(),
+				[640, 360]
+			);
 			preview.sha256 = "0".repeat(64);
 			assert!(decode_preview(&bytes, &preview).is_none());
 			preview = metadata(&bytes);
