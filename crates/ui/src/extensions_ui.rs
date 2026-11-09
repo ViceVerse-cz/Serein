@@ -186,11 +186,6 @@ impl ExtensionUi {
 					.manifest
 					.capabilities
 					.contains(&Capability::MediaPrivacy)
-				&& entry
-					.manifest
-					.actions
-					.iter()
-					.any(|action| action.surface == Surface::ComposerToggle)
 		})
 	}
 	/// Paint the plugin toggle beside the composer's emoji and GIF triggers.
@@ -216,10 +211,11 @@ impl ExtensionUi {
 				.manifest
 				.actions
 				.iter()
-				.find(|action| action.surface == Surface::Panel)?;
+				.find(|action| action.surface == Surface::Panel)
+				.map(|action| action.id.clone());
 			Some((
 				entry.manifest.id.clone(),
-				settings.id.clone(),
+				settings,
 				action.icon.clone(),
 				action.label.clone(),
 			))
@@ -237,7 +233,7 @@ impl ExtensionUi {
 		};
 		let response = icons::toggle(ui, icon, 28.0, active, &label);
 		// Secondary click opens the plugin's settings without changing the toggle.
-		if response.secondary_clicked() {
+		if let (true, Some(settings)) = (response.secondary_clicked(), settings) {
 			self.queue(
 				ui.ctx(),
 				ExtensionRequest::Invoke {
