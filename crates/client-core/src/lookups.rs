@@ -5,7 +5,10 @@
 //! bounded caches, and a failed read is remembered so it is never retried in a loop.
 use crate::{State, auth::Failure};
 use model::{Id, Message, User};
-use std::collections::{BTreeSet, VecDeque};
+use std::{
+	collections::{BTreeSet, VecDeque},
+	time::{Duration, Instant},
+};
 
 /// People and messages kept from lookups; the oldest leave first.
 const KEPT: usize = 256;
@@ -45,7 +48,13 @@ pub struct Lookups {
 	missing: VecDeque<Target>,
 	/// Messages edited or deleted while their lookup was in flight; that result is stale.
 	superseded: BTreeSet<Id>,
+	/// Targets whose last read failed for a passing reason, with when they may be read again,
+	/// so a card that stays on screen does not ask every frame.
+	retry_at: Vec<(Target, Instant)>,
 }
+
+/// How long a target whose read failed for a passing reason waits before another read.
+const RETRY_AFTER: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Target {
@@ -71,6 +80,10 @@ impl Lookups {
 		id_of(target).0 != 0
 			&& !kept && !self.pending.contains(&target)
 			&& !self.missing.contains(&target)
+			&& !self
+				.retry_at
+				.iter()
+				.any(|(waiting, at)| *waiting == target && Instant::now() < *at)
 			&& self.pending.len() < IN_FLIGHT
 	}
 	/// Ends a lookup without a result. Transient failures may be asked for again on a later
@@ -112,6 +125,14 @@ impl Lookups {
 					| Failure::CapacityAt(_)
 			)
 		}) {
+			// Asked again only after a pause, not on every frame the card stays visible.
+			let now = Instant::now();
+			self.retry_at
+				.retain(|(waiting, at)| *waiting != target && now < *at);
+			if self.retry_at.len() == KEPT {
+				self.retry_at.remove(0);
+			}
+			self.retry_at.push((target, now + RETRY_AFTER));
 			return;
 		}
 		if self.missing.len() == KEPT {
@@ -290,6 +311,12 @@ mod tests {
 			user: Id(9),
 			result: Err(Failure::RateLimited),
 		});
+		assert!(
+			state.prepare_user_lookup(Id(9)).is_none(),
+			"a transient failure waits before it is asked for again"
+		);
+		// Once its pause ends it is asked for again.
+		state.lookups.retry_at[0].1 = Instant::now() - Duration::from_secs(1);
 		assert!(
 			state.prepare_user_lookup(Id(9)).is_some(),
 			"a transient failure is asked for again later"

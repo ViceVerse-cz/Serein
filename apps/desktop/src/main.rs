@@ -3112,17 +3112,18 @@ impl Desktop {
 		}
 	}
 	fn persist_account_presence(&mut self) {
-		// Do Not Disturb set for a running game is temporary: the account keeps its Online.
-		if self.game_dnd == Some(true) {
-			return;
-		}
 		if !self.presence_authoritative || self.state.demo || self.fixture_only {
 			return;
 		}
 		let Some(account) = self.state.user.as_ref().map(|user| user.id) else {
 			return;
 		};
-		let snapshot = self.presence_snapshot();
+		let mut snapshot = self.presence_snapshot();
+		// Do Not Disturb set for a running game is temporary: custom-status edits made during
+		// the game are kept, but the saved status stays the Online it replaced.
+		if self.game_dnd == Some(true) {
+			snapshot.status = model::PresenceStatus::Online;
+		}
 		if !snapshot.valid() || self.presence_saved.as_ref() == Some(&(account, snapshot.clone())) {
 			return;
 		}

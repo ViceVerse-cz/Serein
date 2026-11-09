@@ -1523,59 +1523,66 @@ impl DiscordApi {
 					},
 				})
 			}
+			// Passive reads, like hover preloads: they take only spare capacity and give way
+			// with Capacity, so a send or click never waits behind them.
 			Command::Lookup(command) => {
-				use client_core::lookups::{Command as L, Event as E};
-				Event::Lookup(match command {
-					L::User { user } => {
-						let result = self
-							.request_limited(
-								Method::GET,
-								&format!("/users/{user}"),
-								None,
-								64 * 1024,
-							)
-							.await
-							.and_then(|bytes| {
-								let dto = decode::<discord_protocol::UserDto>(&bytes)
-									.map_err(|_| Failure::Protocol)?;
-								if dto.id != user {
-									return Err(Failure::Protocol);
-								}
-								Ok(dto.into_model())
-							});
-						E::User { user, result }
-					}
-					L::Message { channel, message } => {
-						let result = self
-							.request(
-								Method::GET,
-								&format!("/channels/{channel}/messages?limit=1&around={message}"),
-								None,
-							)
-							.await
-							.and_then(|bytes| {
-								// History around a deleted message returns a neighbor or
-								// nothing; that neighbor is never shown in its place.
-								let mut found = decode::<Vec<MessageDto>>(&bytes)
-									.map_err(|_| Failure::Protocol)?;
-								if found.len() > 1 {
-									return Err(Failure::Protocol);
-								}
-								let Some(dto) = found.pop() else {
-									return Ok(None);
-								};
-								if dto.channel_id != channel {
-									return Err(Failure::Protocol);
-								}
-								Ok((dto.id == message).then(|| Box::new(dto.into_model())))
-							});
-						E::Message {
-							channel,
-							message,
-							result,
+				Box::pin(SPECULATIVE.scope((), async {
+					use client_core::lookups::{Command as L, Event as E};
+					Event::Lookup(match command {
+						L::User { user } => {
+							let result = self
+								.request_limited(
+									Method::GET,
+									&format!("/users/{user}"),
+									None,
+									64 * 1024,
+								)
+								.await
+								.and_then(|bytes| {
+									let dto = decode::<discord_protocol::UserDto>(&bytes)
+										.map_err(|_| Failure::Protocol)?;
+									if dto.id != user {
+										return Err(Failure::Protocol);
+									}
+									Ok(dto.into_model())
+								});
+							E::User { user, result }
 						}
-					}
-				})
+						L::Message { channel, message } => {
+							let result = self
+								.request(
+									Method::GET,
+									&format!(
+										"/channels/{channel}/messages?limit=1&around={message}"
+									),
+									None,
+								)
+								.await
+								.and_then(|bytes| {
+									// History around a deleted message returns a neighbor or
+									// nothing; that neighbor is never shown in its place.
+									let mut found = decode::<Vec<MessageDto>>(&bytes)
+										.map_err(|_| Failure::Protocol)?;
+									if found.len() > 1 {
+										return Err(Failure::Protocol);
+									}
+									let Some(dto) = found.pop() else {
+										return Ok(None);
+									};
+									if dto.channel_id != channel {
+										return Err(Failure::Protocol);
+									}
+									Ok((dto.id == message).then(|| Box::new(dto.into_model())))
+								});
+							E::Message {
+								channel,
+								message,
+								result,
+							}
+						}
+					})
+				}))
+				.await
 			}
 			Command::Profile {
 				user,
