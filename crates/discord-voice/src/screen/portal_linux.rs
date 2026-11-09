@@ -36,7 +36,8 @@ pub(super) struct Portal {
 	closed_seen: bool,
 	pub(super) node_id: u32,
 	pub(super) pipewire_serial: Option<u64>,
-	/// The picked stream's size in pixels, when the portal backend reports one.
+	/// The picked stream's size in compositor (logical) coordinates, when the backend
+	/// reports one. Only a first guess: scaled outputs stream more pixels than this.
 	pub(super) size: Option<(u32, u32)>,
 }
 
