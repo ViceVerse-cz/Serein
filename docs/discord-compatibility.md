@@ -2853,9 +2853,13 @@ mapped context-menu Copy resolves current visible source before emitting text.
 Selection-popup drawing runs outside plugin locks; its button release keeps the
 menu open and its Copy action cannot reenter the rendering plugin.
 
-This slice covers rendered message text and search previews, not bidirectional
-TextEdit/IME, complete application RTL mirroring or screen-reader parity. An
-oversized or excessively narrow/multiline run shows the localized preview-limit
+The message composer lays out drafts with Arabic or Hebrew letters the same way:
+logical line breaks, bidi order per row, right alignment for right-to-left
+paragraphs, and its own caret, selection and pointer mapping, with arrow keys
+following the paragraph direction. The draft and sent text stay in logical order.
+Composition text from an input method uses the same layout; complete application
+RTL mirroring and screen-reader parity are not covered. An oversized or
+excessively narrow/multiline message run shows the localized preview-limit
 notice within the limits documented in the storage policy. Native platform/font
 coverage still depends on the installed font fallback; synthetic evidence is not
 normal-account or every-platform validation.

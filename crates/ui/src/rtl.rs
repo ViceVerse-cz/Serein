@@ -132,7 +132,7 @@ impl Prepared {
 /// R and AL can share one bidi level and one installed font face. Separate their
 /// strong-script transitions so the native shaper cannot infer Hebrew for Arabic
 /// joining (or Arabic for Hebrew) just from the first strong character.
-fn script_parts(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
+pub(crate) fn script_parts(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
 	let mut parts = Vec::new();
 	let mut start = range.start;
 	let mut previous = None;

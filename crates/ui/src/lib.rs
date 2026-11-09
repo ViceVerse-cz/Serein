@@ -3135,6 +3135,8 @@ impl MessagingUi {
 			design::glass_frame(ui, colors.raised, egui::Margin::symmetric(10, 6))
 				.corner_radius(8)
 				.show(ui, |ui| {
+					// The frame otherwise shrinks to the hint; span the composer row instead.
+					ui.set_min_width(ui.available_width());
 					let hint = "You don't have permission to send messages in this channel.";
 					ui.allocate_ui_with_layout(
 						egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
@@ -3881,6 +3883,27 @@ impl MessagingUi {
                             rich_layout.select_deleted_inline(ctx, composer_id);
                         }
                         let selection = text_menu::selection_for_menu(ctx, composer_id);
+                        // Right-to-left drafts are drawn in visual order, so arrows follow the
+                        // reading direction of the paragraph holding the caret.
+                        let bidi_draft = rich_layout.bidi_active(draft);
+                        if bidi_draft
+                            && ctx.memory(|m| m.has_focus(composer_id))
+                            && egui::text_edit::TextEditState::load(ctx, composer_id)
+                                .and_then(|state| state.cursor.char_range())
+                                .is_some_and(|range| composer_text::paragraph_rtl(draft, range.primary.index.0))
+                        {
+                            ctx.input_mut(|input| {
+                                for event in &mut input.events {
+                                    if let egui::Event::Key { key, .. } = event {
+                                        *key = match *key {
+                                            egui::Key::ArrowLeft => egui::Key::ArrowRight,
+                                            egui::Key::ArrowRight => egui::Key::ArrowLeft,
+                                            other => other,
+                                        };
+                                    }
+                                }
+                            });
+                        }
                         let mut output = egui::ScrollArea::vertical()
                             .id_salt((composer_id, channel, editing_key))
                             .max_height(ui.ctx().viewport_rect().height() * 0.5)
@@ -3914,7 +3937,15 @@ impl MessagingUi {
                                 } else {
                                     egui::WidgetText::default()
                                 };
-                                let output = TextEdit::multiline(draft)
+                                let selection_slot = ui.painter().add(egui::Shape::Noop);
+                                let mut output = ui.scope(|ui| {
+                                // The composer paints the caret and selection of visual-order drafts.
+                                if bidi_draft {
+                                    let visuals = ui.visuals_mut();
+                                    visuals.text_cursor.stroke.color = egui::Color32::TRANSPARENT;
+                                    visuals.selection.bg_fill = egui::Color32::TRANSPARENT;
+                                }
+                                TextEdit::multiline(draft)
                                     .interactive(keyboard_enabled)
                                     .layouter(&mut layouter)
                                     .id(composer_id)
@@ -3930,8 +3961,13 @@ impl MessagingUi {
                                     .align(egui::Align2::LEFT_CENTER)
                                     .frame(egui::Frame::NONE)
                                     .hint_text(hint)
-                                    .show(ui);
+                                    .show(ui)
+                                }).inner;
+                                rich_layout.bidi_pointer(&mut output, ctx);
                                 rich_layout.paint(ui, &output, &mut self.avatars);
+                                if bidi_draft {
+                                    rich_layout.paint_bidi(ui, &output, selection_slot);
+                                }
                                 output
                             }).inner;
                         if !self.ime_active && !ime_this_frame {
