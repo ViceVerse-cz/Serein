@@ -15,6 +15,39 @@ no message text is sent by that lookup. It does not access game processes, accou
 credentials or the microphone. Synthetic tests verify insertion, parsing and layout
 semantics only.
 
+## Account standing (Safety Hub) — November 9, 2026
+
+`GET /safety-hub/@me` is documented by
+[Userdoccers](https://docs.discord.food/resources/safety-hub) as the current user's Safety
+Hub. Serein uses the normal signed-in session and never a bot token. This is **unofficial
+and unverified**: the source is community documentation, not Discord's public bot API, and
+no live normal-account request was made while implementing this read. Discord may gate,
+change or remove the route.
+
+- **Explicit read.** Data & Privacy offers a clearly labelled read-only Account standing
+  panel. Opening the page sends nothing; the button starts one request, and a second
+  request cannot overlap the first. Closing the panel does not poll. Disconnecting,
+  resyncing or ending the session clears the answer and rejects an in-flight response
+  from an older request or generation.
+- **Standing.** Documented `account_standing.state` values are typed: 100 All Good,
+  200 Limited, 300 Very limited, 400 At risk and 500 Suspended. A missing, malformed,
+  unknown or failed response is shown as **Unavailable**, never as All Good. Serein does
+  not infer standing from flags, DMs, profile fields or local state.
+- **Classifications.** Serein retains at most 16 classifications: id, raw classification
+  type, description, HTTPS explainer link, up to 8 actions with up to 4 descriptions,
+  `max_expiration_time` parsed to Unix seconds, and the documented appeal status. Unknown
+  action or classification types fall back to bounded generic text. `flagged_content`,
+  message bodies and attachments are not parsed or retained. `guild_classifications`,
+  `username`, a full appeal form and the suspended-user token routes are outside this
+  read-only panel; Serein does not submit appeals or age verification.
+- **Bounds and links.** The response is capped at 128 KiB on the wire and 32 KiB retained,
+  with control characters removed and text/link lengths enforced. Explainer links must be
+  absolute HTTPS URLs without userinfo; the existing external-link confirmation still
+  shows the exact destination before opening it. Discord does not document a public Safety
+  Hub web URL, so the panel links its official
+  [warning-system support article](https://support.discord.com/hc/articles/18210965981847)
+  instead.
+
 ## Profile badges, badge directory and badge settings — October 12, 2026
 
 Newer badges include Account Age, Streaming, Game Time and Game Variety. They are tiered

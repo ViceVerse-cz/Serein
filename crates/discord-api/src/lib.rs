@@ -25,6 +25,7 @@ pub mod proxy;
 #[cfg(test)]
 mod proxy_tests;
 pub mod rpc;
+mod safety_hub;
 mod server_actions;
 mod server_admin;
 mod server_audit_log;
@@ -1877,6 +1878,10 @@ impl DiscordApi {
 			Command::BadgeSettings { request, settings } => Event::BadgeSettings {
 				request,
 				result: self.save_badge_settings(settings).await,
+			},
+			Command::SafetyHub { request } => Event::SafetyHub {
+				request,
+				result: self.safety_hub().await,
 			},
 			Command::StreamPreview {
 				guild,

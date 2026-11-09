@@ -103,6 +103,8 @@ mod profile_edit;
 mod reactions;
 mod reading;
 mod registered_games;
+pub(crate) mod rtl;
+mod safety_hub;
 pub mod screen;
 pub mod scroll;
 mod search;
