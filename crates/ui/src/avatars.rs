@@ -2455,7 +2455,7 @@ mod tests {
 		output.drop_without_applying_deltas();
 		assert!(images.take_requests().is_empty());
 		assert!(images.textures.is_empty());
-		assert_eq!(images.media.bytes(), (2 + 8) * 4);
+		assert_eq!(images.media.bytes(), 2 * (2 + 8) * 4);
 	}
 
 	#[test]
@@ -2727,7 +2727,7 @@ mod tests {
 			Some(ColorImage::filled([64, 32], egui::Color32::WHITE)),
 		);
 		frame(&mut images, true);
-		assert_eq!(images.media.bytes(), 64 * 32 * 4);
+		assert_eq!(images.media.bytes(), 2 * 64 * 32 * 4);
 		frame(&mut images, false);
 		assert_eq!(images.media.bytes(), 0);
 	}

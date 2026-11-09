@@ -1348,7 +1348,15 @@ impl Avatars {
 			..Default::default()
 		};
 		!matches!(
-			self.paint_media(ui, &media, rect, native, demo, Surface::Tile),
+			self.paint_media(
+				ui,
+				&media,
+				ui.scope_id().with("media-tile"),
+				rect,
+				native,
+				demo,
+				Surface::Tile
+			),
 			Quality::Placeholder { .. }
 		)
 	}
@@ -1419,7 +1427,7 @@ impl Avatars {
 		};
 		let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
 		let quality = if ui.is_rect_visible(rect) {
-			self.paint_media(ui, media, rect, native, demo, surface)
+			self.paint_media(ui, media, response.id, rect, native, demo, surface)
 		} else {
 			Quality::Placeholder { failed: false }
 		};
@@ -1433,10 +1441,12 @@ impl Avatars {
 		Shown { response, quality }
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	fn paint_media(
 		&mut self,
 		ui: &mut egui::Ui,
 		media: &model::EmbedMedia,
+		placement: egui::Id,
 		rect: egui::Rect,
 		native: Option<[u32; 2]>,
 		demo: bool,
@@ -1565,7 +1575,7 @@ impl Avatars {
 			&& let Some(painted) = painted
 		{
 			let reveal = ui.ctx().animate_bool_with_time(
-				ui.make_persistent_id(("media-privacy", source.as_str())),
+				placement.with("media-privacy"),
 				config.reveal_on_hover && ui.rect_contains_pointer(rect),
 				0.18,
 			);

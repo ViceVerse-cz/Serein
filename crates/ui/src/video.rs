@@ -82,8 +82,9 @@ pub struct VideoUi {
 	/// frame through its own queue so poster work never consumes the single
 	/// playback command slot (and a later click cannot strand a request).
 	pub poster_queue: Vec<Attachment>,
-	/// Keyboard focus rested on an overlay control last frame, so keep the overlay visible.
-	controls_focused: bool,
+	/// Attachment whose overlay control held keyboard focus last frame, so only that
+	/// video keeps its controls and mask reveal.
+	controls_focused: Option<Id>,
 	/// Keep the viewport's previous mode so leaving playback restores the window.
 	fullscreen: Option<(egui::Context, bool, egui::Id)>,
 	/// Native window transition for the desktop to apply after this UI frame.
@@ -111,7 +112,7 @@ impl Default for VideoUi {
 			poster_bytes: 0,
 			poster_seen: HashSet::new(),
 			poster_queue: Vec::new(),
-			controls_focused: false,
+			controls_focused: None,
 			fullscreen: None,
 			fullscreen_request: None,
 		}
@@ -506,7 +507,7 @@ impl VideoUi {
 		let clicked = self.privacy_revealed == Some(attachment.id);
 		let reveal_requested = privacy.is_some_and(|config| {
 			if config.reveal_on_hover {
-				hovered || focused || self.controls_focused
+				hovered || focused || self.controls_focused == Some(attachment.id)
 			} else {
 				clicked
 			}
@@ -566,7 +567,9 @@ impl VideoUi {
 		let show_controls = active
 			&& state != VideoState::Idle
 			&& !masked
-			&& (hovered || state != VideoState::Playing || self.controls_focused);
+			&& (hovered
+				|| state != VideoState::Playing
+				|| focused || self.controls_focused == Some(attachment.id));
 		// The controls are painted over the stage. Keep playback interaction out of both
 		// overlay bands so a control click cannot also become a play/pause click.
 		let action_top = (stage.top() + 44.0).min(stage.bottom());
@@ -928,7 +931,7 @@ impl VideoUi {
 				},
 			);
 		}
-		self.controls_focused = controls_focused;
+		self.controls_focused = controls_focused.then_some(attachment.id);
 		// Download/open controls stay visible regardless of load state, unlike the bottom bar.
 		// Added last so Tab order still reaches the playback controls first.
 		let overlay = egui::Rect::from_min_size(
@@ -1217,8 +1220,8 @@ mod tests {
 		// The decoded answer is cached and painted without further requests.
 		assert!(video.accept_poster(&ctx, Id(3), 2, 1, &[9, 9, 9, 255, 1, 1, 1, 255]));
 		assert_eq!(video.posters.len(), 1);
-		// Plugin disabled: poster pixels only, no coarse mask copy.
-		assert_eq!(video.poster_bytes, 8);
+		// Poster pixels plus the retained coarse mask copy share the same budget.
+		assert_eq!(video.poster_bytes, 16);
 		show(&mut video);
 		assert!(video.command.is_none());
 		assert_eq!(video.posters.len(), 1);
