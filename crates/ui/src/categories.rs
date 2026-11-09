@@ -2704,6 +2704,65 @@ mod tests {
 	}
 
 	#[test]
+	fn long_voice_channel_names_use_one_elided_row() {
+		fn find<'a>(shape: &'a egui::Shape, text: &str) -> Option<&'a egui::Galley> {
+			match shape {
+				egui::Shape::Text(text_shape) if text_shape.galley.job.text == text => {
+					Some(text_shape.galley.as_ref())
+				}
+				egui::Shape::Vec(children) => children.iter().find_map(|shape| find(shape, text)),
+				_ => None,
+			}
+		}
+
+		let long = "Quiet room with a deliberately long name that must not wrap";
+		let mut state = test_support::voice_demo_state();
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == Id(25))
+			.unwrap()
+			.name = long.into();
+		state.invalidate_navigation();
+		let mut view = MessagingUi {
+			guild: Some(Id(10)),
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(180.0, 1600.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				view.channel_list(ui, &mut state);
+			},
+		);
+		let galley = output
+			.shapes
+			.iter()
+			.find_map(|shape| find(&shape.shape, long))
+			.unwrap_or_else(|| {
+				let texts: Vec<_> = output
+					.shapes
+					.iter()
+					.filter_map(|shape| match &shape.shape {
+						egui::Shape::Text(text) => Some(text.galley.job.text.clone()),
+						_ => None,
+					})
+					.collect();
+				panic!("voice channel name missing; texts: {texts:?}");
+			});
+		let (elided, rows) = (galley.elided, galley.rows.len());
+		output.drop_without_applying_deltas();
+		assert!(elided, "long voice channel names should end in an ellipsis");
+		assert_eq!(rows, 1, "voice channel rows hold a single line");
+	}
+
+	#[test]
 	fn double_clicking_voice_row_joins_through_call_request() {
 		fn walk(shape: &egui::Shape, rows: &mut BTreeMap<String, egui::Pos2>) {
 			match shape {

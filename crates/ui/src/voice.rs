@@ -485,18 +485,19 @@ impl MessagingUi {
 		let marks = channel_marks::trailing(access);
 		let elapsed_width = if elapsed.is_some() { 64.0 } else { 0.0 };
 		let badge_width = if count > 0 { 34.0 } else { 0.0 };
-		let name = ui.painter().layout(
+		let name_width = (row.width() - 40.0 - elapsed_width - badge_width - marks).max(10.0);
+		let mut name_job = egui::text::LayoutJob::simple_singleline(
 			channel.name.clone(),
 			egui::FontId::new(15.0, design::medium_family(ui.ctx())),
 			text_color,
-			(row.width() - 40.0 - elapsed_width - badge_width - marks).max(10.0),
 		);
+		name_job.wrap.max_width = name_width;
+		name_job.wrap.max_rows = 1;
+		name_job.wrap.break_anywhere = true;
+		let name = ui.painter().layout_job(name_job);
 		let name_rect = egui::Rect::from_min_size(
 			egui::pos2(row.left() + 34.0, row.center().y - name.size().y * 0.5),
-			egui::vec2(
-				row.width() - 40.0 - elapsed_width - badge_width - marks,
-				name.size().y,
-			),
+			egui::vec2(name_width, name.size().y),
 		);
 		ui.painter()
 			.with_clip_rect(name_rect)
