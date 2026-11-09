@@ -86,6 +86,10 @@ pub enum Capability {
 	Relationships,
 	ExternalNavigation,
 	ContextMenus,
+	InterfaceTweaks,
+	/// Apply allowed notification and mute changes for your own account from message- and
+	/// app-event handlers, without an Apply button.
+	BackgroundEffects,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

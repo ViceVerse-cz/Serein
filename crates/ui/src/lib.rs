@@ -43,6 +43,7 @@ mod extension_admin_actions;
 mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
+mod interface_tweaks;
 mod new_message;
 pub mod proxy_auth;
 mod rich_presence;
@@ -256,6 +257,8 @@ pub const DEFAULT_IDLE_TIMEOUT_SECS: u32 = 10 * 60;
 
 #[derive(Default)]
 pub struct MessagingUi {
+	/// Interface tweaks switched on by enabled plugins.
+	interface_tweaks: std::sync::Arc<std::collections::BTreeSet<extensions::InterfaceTweak>>,
 	poll_creator: polls::Creator,
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
@@ -4529,9 +4532,23 @@ impl MessagingUi {
 		}
 	}
 
+	/// Whether an enabled plugin switched `tweak` on.
+	pub fn interface_tweak_on(&self, tweak: extensions::InterfaceTweak) -> bool {
+		self.interface_tweaks.contains(&tweak)
+	}
+	/// Replaces the interface tweaks that enabled plugins switched on.
+	pub fn set_interface_tweaks(
+		&mut self,
+		tweaks: std::collections::BTreeSet<extensions::InterfaceTweak>,
+	) {
+		if *self.interface_tweaks != tweaks {
+			self.interface_tweaks = std::sync::Arc::new(tweaks);
+		}
+	}
 	/// Draws one frame of the signed-in client and returns the commands it produced for the
 	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		interface_tweaks::publish(ui.ctx(), &self.interface_tweaks);
 		rtl::scope(
 			ui.ctx(),
 			state.generation,
@@ -4646,6 +4663,9 @@ impl MessagingUi {
 		if back || forward {
 			self.navigate_history(state, &mut commands, back);
 		}
+		// Granted background changes do not wait for the normal client surface; fullscreen
+		// media returns early below.
+		self.apply_background_effects(&ui.ctx().clone(), state, &mut commands);
 		// Fullscreen media owns the whole client surface, including during native resizing.
 		if self.show_fullscreen_voice(ui.ctx(), state) {
 			ui.painter()

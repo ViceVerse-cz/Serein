@@ -1,4 +1,4 @@
-use crate::{AppEventKind, Capability};
+use crate::{AppEventKind, Capability, InterfaceTweak};
 use serde::Serialize;
 /// Public host contract metadata; contains no account or installation information.
 #[derive(Serialize)]
@@ -7,6 +7,7 @@ pub struct HostInfo {
 	pub sdk_revision: u32,
 	pub capabilities: &'static [Capability],
 	pub app_events: &'static [AppEventKind],
+	pub interface_tweaks: &'static [InterfaceTweak],
 }
 impl HostInfo {
 	pub fn current() -> Self {
@@ -69,6 +70,8 @@ impl HostInfo {
 				Capability::Relationships,
 				Capability::ExternalNavigation,
 				Capability::ContextMenus,
+				Capability::InterfaceTweaks,
+				Capability::BackgroundEffects,
 			],
 			app_events: &[
 				AppEventKind::Ready,
@@ -93,6 +96,7 @@ impl HostInfo {
 				AppEventKind::Typing,
 				AppEventKind::Polls,
 			],
+			interface_tweaks: InterfaceTweak::ALL,
 		}
 	}
 }

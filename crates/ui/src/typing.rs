@@ -163,13 +163,18 @@ pub(super) fn overlay(
 	);
 	let painter = ui.painter_at(rect);
 	// Three pulsing dots, Discord style; the animation runs only while someone is typing and
-	// this window has focus. A background window paints them at rest and asks for no frames.
-	let focused = ui.input(|input| input.focused);
+	// this window has focus. A background window, or a static-indicator tweak, paints them at
+	// rest and asks for frames only at expiry.
+	let animate = ui.input(|input| input.focused)
+		&& !crate::interface_tweaks::on(
+			ui.ctx(),
+			extensions::InterfaceTweak::StaticTypingIndicator,
+		);
 	let time = ui.input(|input| input.time);
 	let dots_left = rect.left() + DOT_RADIUS + 2.0;
 	for index in 0..3 {
 		let phase = (time / DOT_PERIOD - f64::from(index) * 0.18).fract();
-		let pulse = if focused {
+		let pulse = if animate {
 			(0.5 - 0.5 * (phase * std::f64::consts::TAU).cos()) as f32
 		} else {
 			0.5
@@ -222,7 +227,7 @@ pub(super) fn overlay(
 		let frame = std::time::Duration::from_millis(80);
 		let delay = deadline.saturating_duration_since(now);
 		ui.ctx()
-			.request_repaint_after(if focused { delay.min(frame) } else { delay });
+			.request_repaint_after(if animate { delay.min(frame) } else { delay });
 	}
 }
 
@@ -382,6 +387,85 @@ mod tests {
 		state.selected = Some(Id(10));
 		state.freshness = Freshness::Stale;
 		assert!(label(&state, Id(10), now).is_none());
+	}
+
+	/// Checks that the static-indicator tweak keeps a focused window's dots still and asks
+	/// for no animation frames, in the chat indicator and the avatar typing badge.
+	#[test]
+	fn static_typing_tweak_stills_dots_without_animation_frames() {
+		let now = Instant::now();
+		let mut state = state();
+		state.observe_typing_at(
+			Signal {
+				channel: Id(10),
+				user: Id(1),
+				timestamp: 1_000,
+			},
+			SystemTime::UNIX_EPOCH + Duration::from_secs(1_000),
+			now,
+		);
+		let tweaks = |on: bool| {
+			std::sync::Arc::new(
+				on.then_some(extensions::InterfaceTweak::StaticTypingIndicator)
+					.into_iter()
+					.collect(),
+			)
+		};
+		let run = |ctx: &egui::Context, time: f64, on: bool| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(time),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(400.0, 100.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					crate::interface_tweaks::publish(ui.ctx(), &tweaks(on));
+					let rect = egui::Rect::from_min_size(
+						egui::pos2(0.0, 100.0 - OVERLAY_HEIGHT),
+						egui::vec2(400.0, OVERLAY_HEIGHT),
+					);
+					overlay(ui, rect, &state, Id(10), now);
+					crate::profiles::typing_badge(
+						ui,
+						egui::Rect::from_min_size(egui::pos2(300.0, 0.0), egui::vec2(40.0, 40.0)),
+						Some("online"),
+						egui::Color32::BLACK,
+					);
+				},
+			);
+			let delay = output.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+			let dots: Vec<String> = output
+				.shapes
+				.iter()
+				.filter(|shape| matches!(shape.shape, egui::Shape::Circle(_)))
+				.map(|shape| format!("{:?}", shape.shape))
+				.collect();
+			output.drop_without_applying_deltas();
+			(delay, dots)
+		};
+		for on in [false, true] {
+			let ctx = egui::Context::default();
+			// The first two frames always ask for another; later ones show the steady request.
+			run(&ctx, 0.0, on);
+			run(&ctx, 0.05, on);
+			let (_, first) = run(&ctx, 0.1, on);
+			let (delay, later) = run(&ctx, 0.5, on);
+			assert_eq!(first.len(), 6, "three chat dots and three badge dots");
+			if on {
+				assert_eq!(first, later, "still dots do not change over time");
+				assert!(
+					delay >= Duration::from_millis(1000),
+					"no animation frames: {delay:?}"
+				);
+			} else {
+				assert_ne!(first, later, "dots pulse without the tweak");
+				assert!(delay <= Duration::from_millis(80));
+			}
+		}
 	}
 
 	#[test]
