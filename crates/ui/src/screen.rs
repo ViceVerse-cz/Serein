@@ -27,6 +27,9 @@ pub struct ScreenUi {
 	pub preview: Option<egui::TextureHandle>,
 	/// The share is running and the local picture is intentionally not updating.
 	pub preview_paused: bool,
+	/// Connected monitors in physical pixels, kept current by the desktop while the dialog
+	/// is open. They bound presets for a source chosen later in a system picker.
+	pub monitors: Vec<(u32, u32)>,
 	resolution: Resolution,
 	/// Selection the current resolution was chosen for. `None` until sources arrive.
 	quality_for: Option<SourceId>,
@@ -49,6 +52,7 @@ impl Default for ScreenUi {
 			supported: false,
 			preview: None,
 			preview_paused: false,
+			monitors: Vec::new(),
 			resolution: Resolution::Source,
 			quality_for: None,
 			fps: 30,
@@ -119,7 +123,7 @@ impl ScreenUi {
 
 	fn align_quality(&mut self) {
 		let (width, height, refresh) = self.geometry();
-		let offered: Vec<_> = offered_resolutions(width, height).collect();
+		let offered: Vec<_> = offered_resolutions(width, height, &self.monitors).collect();
 		if offered.is_empty() {
 			return;
 		}
@@ -142,7 +146,8 @@ impl ScreenUi {
 
 	fn settings(&self) -> Option<Settings> {
 		let source = self.selected_source()?;
-		let (width, height) = picture(self.resolution, source.width, source.height)?;
+		let (width, height) =
+			picture(self.resolution, source.width, source.height, &self.monitors)?;
 		let settings = Settings {
 			source: source.id,
 			width,
@@ -258,7 +263,7 @@ impl ScreenUi {
 		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
-			for resolution in offered_resolutions(width, height) {
+			for resolution in offered_resolutions(width, height, &self.monitors) {
 				let label = match resolution {
 					Resolution::Source => "screen-body-source".to_owned(),
 					Resolution::Preset { height, .. } => format!("{height}p"),
@@ -466,9 +471,10 @@ fn preferred_resolution(offered: &[Resolution]) -> Resolution {
 			.iter()
 			.copied()
 			.find(|item| matches!(item, Resolution::Preset { height: 720, .. }))
-			.unwrap_or(offered[0])
+			.unwrap_or(offered[offered.len() - 1])
 	} else {
-		offered[0]
+		// Source when the size is known, otherwise the largest preset (listed last).
+		offered[offered.len() - 1]
 	}
 }
 
@@ -533,5 +539,66 @@ mod tests {
 		assert!(picker.settings().is_some());
 		picker.sources.clear();
 		assert!(picker.settings().is_none());
+	}
+
+	#[test]
+	fn quality_row_runs_from_480p_to_source() {
+		let offered: Vec<_> = offered_resolutions(2560, 1440, &[]).collect();
+		let labels: Vec<_> = offered
+			.iter()
+			.map(|resolution| match resolution {
+				Resolution::Source => 0,
+				Resolution::Preset { height, .. } => *height,
+			})
+			.collect();
+		assert_eq!(labels, [480, 720, 1080, 1440, 0]);
+		assert_eq!(
+			preferred_resolution(&offered),
+			if cfg!(target_os = "linux") {
+				Resolution::Preset {
+					width: 1280,
+					height: 720,
+				}
+			} else {
+				Resolution::Source
+			}
+		);
+	}
+
+	#[test]
+	fn system_picker_offers_presets_any_monitor_fits_without_a_fake_source() {
+		let mut picker = ScreenUi {
+			selected: Some(SourceId::Portal),
+			sources: vec![Source {
+				id: SourceId::Portal,
+				name: "Choose in the system picker".into(),
+				width: 0,
+				height: 0,
+				refresh_hz: 0,
+			}],
+			..Default::default()
+		};
+		let qhd = Resolution::Preset {
+			width: 2560,
+			height: 1440,
+		};
+		// No monitor known: the old 1080p cap.
+		picker.align_quality();
+		picker.resolution = qhd;
+		assert!(picker.settings().is_none());
+		// A wide 3840×1080 monitor must not hide 1440p offered by another one.
+		picker.monitors = vec![(3840, 1080), (2560, 1440)];
+		let offered: Vec<_> = offered_resolutions(0, 0, &picker.monitors).collect();
+		assert!(offered.contains(&qhd));
+		assert!(!offered.contains(&Resolution::Preset {
+			width: 3840,
+			height: 2160,
+		}));
+		// The picked display's native size is unknown, so Source stays hidden.
+		assert!(!offered.contains(&Resolution::Source));
+		picker.align_quality();
+		picker.resolution = qhd;
+		let settings = picker.settings().unwrap();
+		assert_eq!((settings.width, settings.height), (2560, 1440));
 	}
 }
