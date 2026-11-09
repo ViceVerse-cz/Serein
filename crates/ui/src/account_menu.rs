@@ -175,9 +175,7 @@ impl MessagingUi {
 		let colors = design::palette_for(&anchor.ctx);
 		let mut open = self.account_menu.open;
 		let id = anchor.id.with("account-menu");
-		// Use the whole footer card as the anchor so the popout sits above the section
-		// instead of overlapping the identity row.
-		const GAP: f32 = 8.0;
+		const GAP: f32 = 6.0;
 		let available_height = popup_anchor.rect(id, &anchor.ctx).map_or(620.0, |rect| {
 			(rect.top() - anchor.ctx.content_rect().top() - GAP - 8.0).max(180.0)
 		});
