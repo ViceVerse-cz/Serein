@@ -1685,6 +1685,7 @@ async fn download_https(raw: &str, limit: usize, gate: &Gate) -> Result<Vec<u8>,
 	Err("Too many extension download redirects".into())
 }
 
+/// Whether `ip` is a public address; private, loopback, link-local and other local ranges are not.
 pub(crate) fn public_ip(ip: IpAddr) -> bool {
 	match ip {
 		IpAddr::V4(ip) => {

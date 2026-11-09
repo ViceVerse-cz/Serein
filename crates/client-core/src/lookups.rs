@@ -99,6 +99,7 @@ impl Lookups {
 			self.missing.push_back(target);
 		}
 	}
+	/// Ends the lookup of `target`; a lasting failure is remembered so it is not asked for again.
 	fn fail(&mut self, target: Target, failure: Option<Failure>) {
 		self.pending.remove(&target);
 		if failure.is_some_and(|failure| {
@@ -120,6 +121,7 @@ impl Lookups {
 	}
 }
 
+/// The ID a lookup target names.
 fn id_of(target: Target) -> Id {
 	match target {
 		Target::User(id) | Target::Message(id) => id,
@@ -153,9 +155,11 @@ impl State {
 			message,
 		}))
 	}
+	/// Whether lookups may be sent: signed in and not a demo.
 	fn lookups_ready(&self) -> bool {
 		self.auth == crate::auth::AuthState::Authenticated && !self.demo
 	}
+	/// Keeps a finished lookup's result, or records why it failed.
 	pub(crate) fn apply_lookup(&mut self, event: Event) {
 		match event {
 			Event::User { user, result } => {
@@ -207,6 +211,7 @@ mod tests {
 	use super::*;
 	use crate::auth::AuthState;
 
+	/// A signed-in state with no lookups.
 	fn state() -> State {
 		let mut state = State {
 			auth: AuthState::Authenticated,
@@ -229,6 +234,7 @@ mod tests {
 		state
 	}
 
+	/// A user with `id` and a generated name.
 	fn user(id: u64) -> User {
 		User {
 			username: String::new(),

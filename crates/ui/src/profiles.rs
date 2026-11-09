@@ -4912,6 +4912,7 @@ mod tests {
 		}
 	}
 
+	/// Publishes `on` as the interface tweaks in effect.
 	fn tweaks(ctx: &egui::Context, on: &[extensions::InterfaceTweak]) {
 		crate::interface_tweaks::publish(ctx, &std::sync::Arc::new(on.iter().copied().collect()));
 	}

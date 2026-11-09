@@ -159,6 +159,7 @@ impl Drop for EmojiUpload {
 /// Largest emoji image accepted from the CDN; Discord's own emoji limit is 256 KB.
 const MAX_CLONE_BYTES: usize = 256 * 1024;
 
+/// Downloads a message emoji's image from Discord's CDN, refusing redirects and anything over [`MAX_CLONE_BYTES`].
 async fn download(emoji: &ui::EmojiClone) -> Result<Vec<u8>, &'static str> {
 	let url = format!(
 		"https://cdn.discordapp.com/emojis/{}.{}?size=128&quality=lossless",

@@ -34,6 +34,7 @@ pub struct Fetcher<C> {
 }
 
 impl<C> Default for Fetcher<C> {
+	/// A fetcher with nothing running.
 	fn default() -> Self {
 		let (send, receive) = mpsc::channel();
 		Self {
@@ -130,6 +131,7 @@ impl<C: Clone + Send + 'static> Fetcher<C> {
 	}
 }
 
+/// A result reporting `error` for `request_id`, with no status or body.
 fn failure(request_id: &str, error: FetchError) -> FetchResult {
 	FetchResult {
 		request_id: request_id.to_owned(),
@@ -140,6 +142,7 @@ fn failure(request_id: &str, error: FetchError) -> FetchResult {
 	}
 }
 
+/// Runs one plugin request to completion on this thread, stopping early when `cancelled` fires.
 fn run(
 	request: &FetchRequest,
 	hosts: &[String],
@@ -176,6 +179,7 @@ fn run(
 
 type Response = (u16, Option<String>, String);
 
+/// Sends the request, following at most [`MAX_REDIRECTS`] redirects within `hosts`, and reads a bounded body.
 async fn exchange(request: &FetchRequest, hosts: &[String]) -> Result<Response, FetchError> {
 	let mut url = url::Url::parse(&request.url).map_err(|_| FetchError::Blocked)?;
 	let mut method = request.method;
@@ -283,6 +287,7 @@ async fn exchange(request: &FetchRequest, hosts: &[String]) -> Result<Response, 
 mod tests {
 	use super::*;
 
+	/// A GET request for `url` with no headers or body.
 	fn request(url: &str) -> FetchRequest {
 		FetchRequest {
 			request_id: "r".into(),

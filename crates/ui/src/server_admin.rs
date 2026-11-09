@@ -85,6 +85,7 @@ impl Admin {
 		self.preparing = true;
 		self.error = None;
 	}
+	/// The emoji waiting to be cloned into this server, taken once.
 	pub fn take_clone(&mut self) -> Option<EmojiClone> {
 		self.clone.take()
 	}

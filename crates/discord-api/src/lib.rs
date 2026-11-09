@@ -1467,6 +1467,7 @@ impl DiscordApi {
 					#[serde(default)]
 					max_uses: u32,
 				}
+				/// Converts a listed invite, accepting only plain invite codes.
 				fn invite(dto: InviteDto) -> Result<FriendInvite, Failure> {
 					// Codes become links; only plain invite codes are accepted.
 					if dto.code.is_empty()
@@ -3338,6 +3339,7 @@ mod tests {
 		}
 	}
 
+	/// Checks listing, creating and revoking friend invites, and that only plain codes are kept.
 	#[tokio::test]
 	async fn friend_invites_list_create_and_revoke_with_plain_codes_only() {
 		use client_core::friend_invites::{Command as F, Event as E};
@@ -3412,6 +3414,7 @@ mod tests {
 		.unwrap();
 	}
 
+	/// Checks that lookups read one person and never return a neighboring message.
 	#[tokio::test]
 	async fn lookups_read_one_person_and_never_show_a_neighbor_message() {
 		use client_core::lookups::{Command as L, Event as E};

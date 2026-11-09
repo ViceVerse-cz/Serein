@@ -5,9 +5,11 @@ use crate::{design, emoji, emoji_picker};
 pub(crate) const HOVER_ART: f32 = 40.0;
 
 type CloneTargets = std::sync::Arc<Vec<(model::Id, String)>>;
+/// Where the servers that accept emoji are kept for the menu.
 fn targets_id() -> egui::Id {
 	egui::Id::unique("emoji-clone-targets")
 }
+/// Where an emoji chosen for "Add to server" waits for the app.
 fn request_id() -> egui::Id {
 	egui::Id::unique("emoji-clone-request")
 }

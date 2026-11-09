@@ -139,6 +139,7 @@ fn reserved_header(name: &str) -> bool {
 		|| name.starts_with("proxy-")
 }
 
+/// Whether `name` is a plain header name of at most 64 characters.
 fn valid_header_name(name: &str) -> bool {
 	!name.is_empty()
 		&& name.len() <= 64
@@ -148,6 +149,7 @@ fn valid_header_name(name: &str) -> bool {
 }
 
 impl FetchRequest {
+	/// Checks the request against the plugin's declared `hosts` and the size and header limits.
 	pub fn validate(&self, hosts: &[String]) -> Result<(), Error> {
 		crate::app::label(&self.request_id, 64)?;
 		let host = https_host(&self.url).ok_or(Error::Invalid)?;
@@ -175,6 +177,7 @@ impl FetchRequest {
 }
 
 impl FetchResult {
+	/// Checks that the result carries either a status or an error, within the size limits.
 	pub fn validate(&self) -> Result<(), Error> {
 		crate::app::label(&self.request_id, 64)?;
 		if self.status.is_some() == self.error.is_some()
@@ -202,6 +205,7 @@ impl FetchResult {
 mod tests {
 	use super::*;
 
+	/// A GET request for `url` with no headers or body.
 	fn request(url: &str) -> FetchRequest {
 		FetchRequest {
 			request_id: "r1".into(),

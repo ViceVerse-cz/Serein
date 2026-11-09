@@ -178,6 +178,7 @@ pub(crate) fn gif_alt_text(url: &str) -> Option<String> {
 	(!words.trim().is_empty()).then(|| format!("GIF: {words}"))
 }
 
+/// Decodes `%XX` escapes in `text`, leaving malformed ones as they are.
 fn percent_decode(text: &str) -> String {
 	let bytes = text.as_bytes();
 	let mut out = Vec::with_capacity(bytes.len());

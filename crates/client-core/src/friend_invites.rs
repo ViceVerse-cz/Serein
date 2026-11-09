@@ -80,6 +80,7 @@ impl FriendInvites {
 }
 
 impl State {
+	/// The next friend invite command, unless one is already running or the account is offline or a demo.
 	fn friend_invite_command(&mut self, make: fn(u64) -> Command) -> Option<crate::Command> {
 		if self.demo
 			|| self.auth != crate::auth::AuthState::Authenticated
@@ -113,6 +114,7 @@ impl State {
 		}
 		self.friend_invite_command(|request| Command::RevokeAll { request })
 	}
+	/// Applies a finished friend invite request; results for an older request are ignored.
 	pub(crate) fn apply_friend_invites(&mut self, event: Event) {
 		let invites = &mut self.friend_invites;
 		let request = match &event {
@@ -156,6 +158,7 @@ mod tests {
 	use super::*;
 	use crate::auth::AuthState;
 
+	/// An invite with `code` and no expiry or use limit.
 	fn invite(code: &str) -> FriendInvite {
 		FriendInvite {
 			code: code.into(),
@@ -165,6 +168,7 @@ mod tests {
 		}
 	}
 
+	/// The request number of a friend invite command.
 	fn request(command: Option<crate::Command>) -> u64 {
 		match command {
 			Some(crate::Command::FriendInvites(

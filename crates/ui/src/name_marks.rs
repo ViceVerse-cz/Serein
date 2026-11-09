@@ -86,6 +86,7 @@ impl Marks {
 			+ if self.username.is_some() { 72.0 } else { 0.0 }
 			+ if self.tag.is_some() { 44.0 } else { 0.0 }
 	}
+	/// Draws the marks after a name, the username first so it truncates before the rest.
 	pub(crate) fn show(&self, ui: &mut egui::Ui) {
 		if self.is_empty() {
 			return;

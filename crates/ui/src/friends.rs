@@ -126,6 +126,7 @@ impl MessagingUi {
 				self.add_friend_body(ui, state, commands, colors, language)
 			});
 	}
+	/// The Add Friend page's content, drawn inside its scroll area.
 	fn add_friend_body(
 		&mut self,
 		ui: &mut egui::Ui,

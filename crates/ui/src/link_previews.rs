@@ -72,6 +72,7 @@ fn targets(content: &str, own: Id) -> Vec<(Id, Id)> {
 	targets
 }
 
+/// Draws one linked message as a quoted card with its author and an excerpt.
 fn card(ui: &mut egui::Ui, found: &Message, state: &State) {
 	let colors = crate::design::palette(ui);
 	let name = found
@@ -123,6 +124,7 @@ fn card(ui: &mut egui::Ui, found: &Message, state: &State) {
 mod tests {
 	use super::*;
 
+	/// The texts `run` draws in one pass.
 	fn texts(ctx: &egui::Context, run: impl FnMut(&mut egui::Ui)) -> Vec<String> {
 		let mut output = ctx.run_ui(egui::RawInput::default(), run);
 		output.textures_delta.clear();
