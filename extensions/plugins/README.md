@@ -46,13 +46,14 @@ original plugins; they do not evaluate Equicord JavaScript or add automatic send
 
 Original Vencord notices and GPL-3.0-or-later terms are retained in the sources and
 `../licenses/Equicord-GPL-3.0.txt`. See each plugin README for exact behavior and source commit.
-Packaging is the same as above; substitute the matching lowercase ID, for example:
+Packaging is the same as above, plus `--license` so each package carries the GPL text that
+`test_catalog.py` requires:
 
 ```sh
-python pack.py plugins/offline-composer-tools/manifest.json target/wasm32-unknown-unknown/release/offline_composer_tools.wasm plugins/packages/offline-composer-tools.serein-extension
-python pack.py plugins/text-commands/manifest.json target/wasm32-unknown-unknown/release/text_commands.wasm plugins/packages/text-commands.serein-extension
-python pack.py plugins/view-raw-message/manifest.json target/wasm32-unknown-unknown/release/view_raw_message.wasm plugins/packages/view-raw-message.serein-extension
-python pack.py plugins/external-search-tools/manifest.json target/wasm32-unknown-unknown/release/external_search_tools.wasm plugins/packages/external-search-tools.serein-extension
+python pack.py plugins/offline-composer-tools/manifest.json target/wasm32-unknown-unknown/release/offline_composer_tools.wasm plugins/packages/offline-composer-tools.serein-extension --license licenses/Equicord-GPL-3.0.txt
+python pack.py plugins/text-commands/manifest.json target/wasm32-unknown-unknown/release/text_commands.wasm plugins/packages/text-commands.serein-extension --license licenses/Equicord-GPL-3.0.txt
+python pack.py plugins/view-raw-message/manifest.json target/wasm32-unknown-unknown/release/view_raw_message.wasm plugins/packages/view-raw-message.serein-extension --license licenses/Equicord-GPL-3.0.txt
+python pack.py plugins/external-search-tools/manifest.json target/wasm32-unknown-unknown/release/external_search_tools.wasm plugins/packages/external-search-tools.serein-extension --license licenses/Equicord-GPL-3.0.txt
 ```
 
 ## ABI and limits
