@@ -14,24 +14,6 @@ use std::{
 use tokio::{runtime::Runtime, sync::watch, task::JoinHandle};
 use zeroize::Zeroizing;
 
-/// Connected monitors in physical pixels, at most `screen::MAX_MONITORS`. Wayland can
-/// report the window's monitor before listing it, so that one is the fallback.
-pub(crate) fn monitor_sizes(window: &winit::window::Window) -> Vec<(u32, u32)> {
-	let usable = |monitor: winit::monitor::MonitorHandle| {
-		let size = monitor.size();
-		(size.width > 0 && size.height > 0).then_some((size.width, size.height))
-	};
-	let mut sizes: Vec<_> = window
-		.available_monitors()
-		.filter_map(usable)
-		.take(screen::MAX_MONITORS)
-		.collect();
-	if sizes.is_empty() {
-		sizes.extend(window.current_monitor().and_then(usable));
-	}
-	sizes
-}
-
 const SIGNAL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Names why a share ended, under the same opt-in variable as the voice reports. A share

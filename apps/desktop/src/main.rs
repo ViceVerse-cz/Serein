@@ -5648,14 +5648,6 @@ impl eframe::App for Desktop {
 				self.monitor_period = self.refresh_monitor();
 			}
 		}
-		// While the share dialog is open, monitors bound the presets of a system-picker
-		// source; re-reading them each frame picks up one connected meanwhile.
-		if self.messaging.screen.open || self.messaging.screen.refresh_requested {
-			let monitors = screen::monitor_sizes(&self.window);
-			if self.messaging.screen.monitors != monitors {
-				self.messaging.screen.monitors = monitors;
-			}
-		}
 		if let Some(period) = self.frame_period() {
 			raw_input.predicted_dt = period.as_secs_f32();
 		}

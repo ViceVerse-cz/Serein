@@ -36,6 +36,8 @@ pub(super) struct Portal {
 	closed_seen: bool,
 	pub(super) node_id: u32,
 	pub(super) pipewire_serial: Option<u64>,
+	/// The picked stream's size in pixels, when the portal backend reports one.
+	pub(super) size: Option<(u32, u32)>,
 }
 
 impl Portal {
@@ -182,6 +184,7 @@ impl Portal {
 			.map(u64::try_from)
 			.transpose()
 			.map_err(|_| INVALID)?;
+		let size = streams[0].1.get("size").and_then(stream_size);
 		drop(portal);
 		let mut result = Self {
 			connection: connection.clone(),
@@ -191,6 +194,7 @@ impl Portal {
 			closed_seen: false,
 			node_id,
 			pipewire_serial,
+			size,
 		};
 		if result.is_closed() {
 			return Err("The desktop stopped screen sharing.");
@@ -361,5 +365,29 @@ async fn wait<T>(
 			_ = &mut deadline => return Err("The screen-sharing portal timed out."),
 			result = &mut future => return Ok(result),
 		}
+	}
+}
+
+/// The portal's optional `size` stream property, `(ii)`; nonpositive sizes are ignored.
+fn stream_size(value: &OwnedValue) -> Option<(u32, u32)> {
+	let value: Value<'_> = value.try_clone().ok()?.into();
+	let (width, height) = <(i32, i32)>::try_from(value).ok()?;
+	Some((u32::try_from(width).ok()?, u32::try_from(height).ok()?))
+		.filter(|(width, height)| *width > 0 && *height > 0)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn stream_size_reads_the_portal_size_property() {
+		let size = |width: i32, height: i32| {
+			OwnedValue::try_from(Value::from((width, height))).expect("size value")
+		};
+		assert_eq!(stream_size(&size(2560, 1440)), Some((2560, 1440)));
+		assert_eq!(stream_size(&size(0, 1440)), None);
+		assert_eq!(stream_size(&size(-1, 1440)), None);
+		assert_eq!(stream_size(&OwnedValue::from(7u32)), None);
 	}
 }

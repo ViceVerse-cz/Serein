@@ -17,6 +17,15 @@ pub enum SourceId {
 	Window(u64),
 }
 
+impl SourceId {
+	/// The Linux portal reports the picked display's size before capture starts, so the
+	/// capture worker sizes the picture then ([`Settings::fitted_to`]). Other sources of
+	/// unknown size never learn it in time.
+	pub fn sized_after_pick(self) -> bool {
+		matches!(self, Self::Portal)
+	}
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Source {
 	pub id: SourceId,
@@ -62,50 +71,19 @@ const PRESETS: [Resolution; 5] = [
 	},
 ];
 
-/// At most this many monitors bound the presets of a source whose size is unknown.
-pub const MAX_MONITORS: usize = 16;
-
-/// Whether a preset fits a source. A known source must contain it. A source chosen
-/// later in a system picker (unknown size) accepts it when any connected monitor
-/// (`monitors`, physical pixels) could, and keeps 1080p and below when none is known.
-fn preset_fits(
-	preset_width: u32,
-	preset_height: u32,
-	width: u32,
-	height: u32,
-	monitors: &[(u32, u32)],
-) -> bool {
-	if width > 0 && height > 0 {
-		return width >= preset_width && height >= preset_height;
-	}
-	let mut monitors = monitors
-		.iter()
-		.take(MAX_MONITORS)
-		.filter(|(width, height)| *width > 0 && *height > 0)
-		.peekable();
-	if monitors.peek().is_none() {
-		return preset_height <= 1080;
-	}
-	monitors.any(|(width, height)| *width >= preset_width && *height >= preset_height)
-}
-
-/// Resolutions that fit a source, smallest first and Source (native size) last. Source
-/// needs a known size; `monitors` only bounds presets for a source of unknown size.
+/// Resolutions offered for a source, smallest first and Source last. Like Discord, a
+/// preset is an upper bound: a smaller source keeps its native size, never upscaled. A
+/// source of unknown size offers them all only when it is sized after the pick
+/// (`sized_after_pick`); otherwise it keeps 1080p, 720p, and 480p, without Source.
 pub fn offered_resolutions(
 	width: u32,
 	height: u32,
-	monitors: &[(u32, u32)],
-) -> impl Iterator<Item = Resolution> + '_ {
-	let source = fitted_source(width, height).map(|_| Resolution::Source);
+	sized_after_pick: bool,
+) -> impl Iterator<Item = Resolution> {
+	let all = (width > 0 && height > 0) || sized_after_pick;
+	let source = all.then_some(Resolution::Source);
 	let presets = PRESETS.into_iter().filter(move |preset| {
-		let Resolution::Preset {
-			width: preset_width,
-			height: preset_height,
-		} = *preset
-		else {
-			return false;
-		};
-		preset_fits(preset_width, preset_height, width, height, monitors)
+		all || matches!(preset, Resolution::Preset { height, .. } if *height <= 1080)
 	});
 	presets.chain(source)
 }
@@ -117,20 +95,36 @@ pub fn offered_frame_rates(refresh_hz: u32) -> impl Iterator<Item = u32> {
 		.filter(move |fps| *fps <= 60 || refresh_hz >= *fps)
 }
 
-/// Output size for a choice. `None` when that choice does not fit the source.
+/// Output size for a choice, `None` when the source cannot use it. For a source sized
+/// after the pick this is only the bound (Source: the largest share size), which the
+/// capture worker narrows with [`Settings::fitted_to`].
 pub fn picture(
 	resolution: Resolution,
 	width: u32,
 	height: u32,
-	monitors: &[(u32, u32)],
+	sized_after_pick: bool,
 ) -> Option<(u32, u32)> {
-	match resolution {
-		Resolution::Source => fitted_source(width, height),
-		Resolution::Preset {
-			width: preset_width,
-			height: preset_height,
-		} => preset_fits(preset_width, preset_height, width, height, monitors)
-			.then_some((preset_width, preset_height)),
+	let bound = match resolution {
+		Resolution::Source => (MAX_SHARE_WIDTH, MAX_SHARE_HEIGHT),
+		Resolution::Preset { width, height } => (width, height),
+	};
+	if width > 0 && height > 0 {
+		return match resolution {
+			Resolution::Source => fitted_source(width, height),
+			Resolution::Preset { .. } => Some(fit_within(bound, width, height)),
+		};
+	}
+	(sized_after_pick || matches!(resolution, Resolution::Preset { height, .. } if height <= 1080))
+		.then_some(bound)
+}
+
+/// A source that fits inside `bound` keeps its native (even) size; a larger one is scaled
+/// into `bound`, keeping its aspect ratio with borders.
+fn fit_within(bound: (u32, u32), width: u32, height: u32) -> (u32, u32) {
+	if width <= bound.0 && height <= bound.1 {
+		fitted_source(width, height).unwrap_or(bound)
+	} else {
+		bound
 	}
 }
 
@@ -163,6 +157,20 @@ pub struct Settings {
 	pub audio: bool,
 }
 impl Settings {
+	/// Narrows a bound chosen before the pick to the picked source's size, never upscaling.
+	pub fn fitted_to(self, width: u32, height: u32) -> Self {
+		if width == 0 || height == 0 {
+			return self;
+		}
+		let (width, height) = fit_within((self.width, self.height), width, height);
+		let fitted = Self {
+			width,
+			height,
+			..self
+		};
+		if fitted.valid() { fitted } else { self }
+	}
+
 	pub fn valid(self) -> bool {
 		!matches!(self.source, SourceId::Display(0) | SourceId::Window(0))
 			&& self.width >= 2

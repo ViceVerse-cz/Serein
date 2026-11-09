@@ -108,6 +108,13 @@ pub(super) fn run(
 		} else {
 			Some(Portal::open(settings.cursor, &stop).await?)
 		};
+		// The quality row chose a bound before the pick; size the picture to the picked
+		// display, never upscaling it. Backends such as xdg-desktop-portal-hyprland omit
+		// the stream size, so it is then read from the source's negotiated caps below.
+		let bound = settings;
+		let reported = portal.as_ref().and_then(|portal| portal.size);
+		let mut settings = reported.map_or(bound, |(width, height)| bound.fitted_to(width, height));
+		let mut sized = direct || reported.is_some();
 		let origin = Instant::now();
 		let mut metrics = crate::diagnostics::Metrics::new(crate::diagnostics::Scope::ScreenVideo);
 		let mut audio = None;
@@ -164,6 +171,7 @@ pub(super) fn run(
 				} else {
 					x11_source(settings.cursor)?
 				};
+				let probe = source.clone();
 				let capacity = send.clone();
 				keyframe.store(true, Ordering::Release);
 				let mut active_bitrate = bitrate
@@ -213,6 +221,17 @@ pub(super) fn run(
 					}
 					if pipeline.failed() {
 						break;
+					}
+					if !sized && let Some((width, height)) = negotiated_size(&probe) {
+						sized = true;
+						let fitted = bound.fitted_to(width, height);
+						if (fitted.width, fitted.height) != (settings.width, settings.height) {
+							// Reopen the same mode at the picked display's size, with a fresh
+							// PipeWire remote and the approved portal.
+							settings = fitted;
+							mode_index -= 1;
+							break;
+						}
 					}
 					let target = bitrate
 						.load(Ordering::Acquire)
@@ -429,4 +448,39 @@ pub(super) fn run(
 		drop(audio);
 		result
 	})
+}
+
+/// The pixel size a capture source negotiated, once its caps are set.
+fn negotiated_size(source: &gst::Element) -> Option<(u32, u32)> {
+	let caps = source.static_pad("src")?.current_caps()?;
+	let structure = caps.structure(0)?;
+	let width = u32::try_from(structure.get::<i32>("width").ok()?).ok()?;
+	let height = u32::try_from(structure.get::<i32>("height").ok()?).ok()?;
+	(width > 0 && height > 0).then_some((width, height))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn negotiated_size_reads_the_source_caps() {
+		gst::init().unwrap();
+		let pipeline = gst::parse::launch(
+			"videotestsrc name=source num-buffers=2 ! video/x-raw,width=1366,height=768 ! fakesink",
+		)
+		.unwrap()
+		.downcast::<gst::Pipeline>()
+		.unwrap();
+		let source = pipeline.by_name("source").unwrap();
+		assert_eq!(negotiated_size(&source), None);
+		pipeline.set_state(gst::State::Playing).unwrap();
+		let bus = pipeline.bus().unwrap();
+		let _ = bus.timed_pop_filtered(
+			gst::ClockTime::from_seconds(5),
+			&[gst::MessageType::Eos, gst::MessageType::Error],
+		);
+		assert_eq!(negotiated_size(&source), Some((1366, 768)));
+		pipeline.set_state(gst::State::Null).unwrap();
+	}
 }
