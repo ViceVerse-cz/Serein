@@ -2318,6 +2318,8 @@ screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Sdílejte
 # Context: body
 screen-body-share-system-audio = Sdílejte systémový zvuk
 # Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Sdílejte zvuk sdílené aplikace, nebo při sdílení obrazovky zvuk všech ostatních aplikací. Serein vlastní zvuk je vynechán.
+# Context: body
 screen-body-show-cursor = Zobrazit kurzor
 # Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = Váš mikrofon hovoru si zachová aktuální nastavení.

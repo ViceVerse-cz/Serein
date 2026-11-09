@@ -2291,6 +2291,8 @@ screen-body-share-sound-from-other-apps-even-when-sharing-one-window = 1 つの�
 # Context: body
 screen-body-share-system-audio = システムオーディオを共有する
 # Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = 共有中のアプリの音声を共有します。画面を共有する場合は他のすべてのアプリの音声を共有します。Serein 自身の音声は含まれません。
+# Context: body
 screen-body-show-cursor = カーソルを表示
 # Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = 通話マイクは現在の設定を維持します。

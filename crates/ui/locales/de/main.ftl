@@ -2290,6 +2290,8 @@ screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Teilen Si
 # Context: body
 screen-body-share-system-audio = Teilen Sie Systemaudio
 # Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Teilen Sie den Ton der geteilten App oder beim Teilen eines Bildschirms den Ton aller anderen Apps. Sereins eigener Ton wird weggelassen.
+# Context: body
 screen-body-show-cursor = Cursor anzeigen
 # Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = Ihr Anrufmikrofon behält seine aktuellen Einstellungen.

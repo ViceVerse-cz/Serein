@@ -8,6 +8,7 @@ use discord_voice::{Identity, Status, screen::Worker};
 use eframe::egui;
 use model::Id;
 use std::{
+	borrow::Cow,
 	sync::{Arc, mpsc},
 	time::{Duration, Instant},
 };
@@ -79,13 +80,14 @@ pub(super) struct Screen {
 	pending: Option<Pending>,
 	live: Option<Live>,
 	closing: Option<Closing>,
-	retiring: Option<mpsc::Receiver<Result<(), &'static str>>>,
+	retiring: Option<mpsc::Receiver<Result<(), Cow<'static, str>>>>,
 	source_scan: Option<SourceScan>,
 	command: Option<Command>,
 	sequence: u64,
-	status: &'static str,
+	/// Owned when it carries a run-time detail such as a Windows error code.
+	status: Cow<'static, str>,
 	/// Outcome to state once as a toast on the next poll; the stage keeps no status line.
-	toast: Option<(ui::design::Level, &'static str)>,
+	toast: Option<(ui::design::Level, Cow<'static, str>)>,
 	/// Last viewer count Discord reported for the own stream, and a cue waiting for `poll`.
 	viewers: Option<(Context, u16)>,
 	viewer_cue: bool,
@@ -100,7 +102,7 @@ impl Screen {
 		self.viewer_cue = false;
 		// Keep one in-flight OS enumeration tracked until it completes.
 		self.retire_live();
-		self.status = "Screen sharing stopped";
+		self.status = "Screen sharing stopped".into();
 	}
 
 	fn retire_live(&mut self) {
@@ -119,20 +121,28 @@ impl Screen {
 	}
 
 	/// Stops sharing because something went wrong, and says so once.
-	fn fail(&mut self, message: &'static str) {
-		// The share dialog already shows this reason; the log keeps it for a report too.
+	fn fail(&mut self, message: impl Into<Cow<'static, str>>) {
+		let message = message.into();
+		// The share dialog already shows this reason; the log keeps it for a report too. The
+		// log takes fixed text only, so a reason built at run time is recorded by a label.
+		let reason: &'static str = match &message {
+			Cow::Borrowed(reason) => reason,
+			Cow::Owned(_) => "Screen sharing stopped with a system error",
+		};
 		diagnostics::record_fields(
 			diagnostics::Category::Voice,
 			diagnostics::Level::Error,
 			"share_failed",
-			&[("reason", diagnostics::Value::Text(message))],
+			&[("reason", diagnostics::Value::Text(reason))],
 		);
-		self.toast = Some((ui::design::Level::Error, message));
+		self.toast = Some((ui::design::Level::Error, message.clone()));
 		self.request_stop(message);
 	}
 
-	fn request_stop(&mut self, message: &'static str) {
-		note("share_stopped", message);
+	/// Starts closing the share, or only records the reason when no call owns it.
+	fn request_stop(&mut self, message: impl Into<Cow<'static, str>>) {
+		let message = message.into();
+		note("share_stopped", &message);
 		let Some(context) = self.context() else {
 			self.status = message;
 			return;
@@ -140,7 +150,8 @@ impl Screen {
 		self.close(context, message);
 	}
 
-	fn close(&mut self, context: Context, message: &'static str) {
+	/// Retires the live share, asks Discord to stop the stream, and shows `message`.
+	fn close(&mut self, context: Context, message: impl Into<Cow<'static, str>>) {
 		self.pending = None;
 		self.retire_live();
 		if self.closing.is_none() {
@@ -155,7 +166,7 @@ impl Screen {
 				stream_request: context.stream_request,
 			}));
 		}
-		self.status = message;
+		self.status = message.into();
 	}
 
 	/// Take matching stream secrets before core reduction. Nothing is persisted.
@@ -213,12 +224,12 @@ impl Screen {
 				self.retire_live();
 				self.closing = None;
 				// A server-side end names its cause, so it is never mistaken for a local stop.
-				self.status = reason.unwrap_or("Screen sharing stopped");
+				self.status = reason.unwrap_or("Screen sharing stopped").into();
 				if let Some(reason) = reason {
-					self.toast = Some((ui::design::Level::Info, reason));
+					self.toast = Some((ui::design::Level::Info, (*reason).into()));
 				}
 			}
-			screen::Event::Failed(message) => self.fail(message),
+			screen::Event::Failed(message) => self.fail(*message),
 			screen::Event::Viewers(count) => {
 				// As in Discord: chime when this stream gains a viewer while it had at most 25.
 				let previous = self
@@ -275,7 +286,7 @@ impl Screen {
 			if !state.demo && self.source_scan.is_none() && ui.screen.supported {
 				let (send, receive) = mpsc::sync_channel(1);
 				let wake = ctx.clone();
-				self.status = "Looking for screens and windows…";
+				self.status = "Looking for screens and windows…".into();
 				match std::thread::Builder::new()
 					.name("screen-sources".into())
 					.spawn(move || {
@@ -289,10 +300,10 @@ impl Screen {
 							receive,
 						})
 					}
-					Err(_) => self.status = "Could not start screen source discovery",
+					Err(_) => self.status = "Could not start screen source discovery".into(),
 				}
 			} else if !ui.screen.supported {
-				self.status = "Screen sharing is unavailable on this platform";
+				self.status = "Screen sharing is unavailable on this platform".into();
 			}
 		}
 		if let Some(scan) = &self.source_scan {
@@ -321,20 +332,21 @@ impl Screen {
 						})
 						.or_else(|| ui.screen.sources.first().map(|source| source.id));
 					self.status = if ui.screen.sources.is_empty() {
-						"No shareable screens or windows were found"
+						"No shareable screens or windows were found".into()
 					} else if cfg!(target_os = "linux") {
 						"Choose the system picker or, on X11, explicitly share the entire desktop"
+							.into()
 					} else {
-						"Choose a screen or window"
+						"Choose a screen or window".into()
 					};
 					self.source_scan = None;
 				}
 				Ok(Err(error)) => {
-					self.status = error;
+					self.status = error.into();
 					self.source_scan = None;
 				}
 				Err(mpsc::TryRecvError::Disconnected) => {
-					self.status = "Screen source discovery stopped";
+					self.status = "Screen source discovery stopped".into();
 					self.source_scan = None;
 				}
 				Err(mpsc::TryRecvError::Empty) => {}
@@ -381,8 +393,8 @@ impl Screen {
 								})
 						});
 					if self.context().is_some() || self.retiring.is_some() {
-						self.status = "Previous screen share is still closing";
-						self.toast = Some((ui::design::Level::Warning, self.status));
+						self.status = "Previous screen share is still closing".into();
+						self.toast = Some((ui::design::Level::Warning, self.status.clone()));
 					} else if let Some(call) = valid {
 						self.sequence = self.sequence.wrapping_add(1).max(1);
 						let context = Context {
@@ -402,15 +414,15 @@ impl Screen {
 							server: None,
 							started: Instant::now(),
 						});
-						self.status = "Requesting screen-share connection…";
+						self.status = "Requesting screen-share connection…".into();
 						self.command = Some(Command::Voice(voice::Command::StartStream {
 							channel: context.channel,
 							request: context.request,
 							stream_request: context.stream_request,
 						}));
 					} else {
-						self.status = "Screen sharing requires the current connected call";
-						self.toast = Some((ui::design::Level::Error, self.status));
+						self.status = "Screen sharing requires the current connected call".into();
+						self.toast = Some((ui::design::Level::Error, self.status.clone()));
 					}
 				}
 				ui::screen::Request::Stop => {
@@ -444,21 +456,22 @@ impl Screen {
 			self.finish_start(runtime, ctx);
 		}
 
-		let mut failure = None;
+		let mut failure: Option<Cow<'static, str>> = None;
 		if let Some(live) = &mut self.live {
 			match *live.events.borrow_and_update() {
-				Some(Notice::Status(status)) => self.status = status,
-				Some(Notice::Failed(error)) => failure = Some(error),
+				Some(Notice::Status(status)) => self.status = status.into(),
+				Some(Notice::Failed(error)) => failure = Some(error.into()),
 				None => {}
 			}
 			if failure.is_none() {
-				failure = live
-					.worker
-					.result()
-					.map(|result| result.err().unwrap_or("Screen capture stopped"));
+				failure = live.worker.result().map(|result| {
+					result
+						.err()
+						.unwrap_or(Cow::Borrowed("Screen capture stopped"))
+				});
 			}
 			if live.task.is_finished() && failure.is_none() {
-				failure = Some("Screen-share connection ended");
+				failure = Some("Screen-share connection ended".into());
 			}
 		}
 		if let Some(error) = failure {
@@ -511,8 +524,8 @@ impl Screen {
 		if let Some(closing) = &mut self.closing {
 			if !closing.timed_out && closing.started.elapsed() >= SIGNAL_TIMEOUT {
 				closing.timed_out = true;
-				self.status = "Discord did not acknowledge stopping screen share; leave the call before sharing again";
-				self.toast = Some((ui::design::Level::Warning, self.status));
+				self.status = "Discord did not acknowledge stopping screen share; leave the call before sharing again".into();
+				self.toast = Some((ui::design::Level::Warning, self.status.clone()));
 			}
 			if !closing.timed_out {
 				ctx.request_repaint_after(SIGNAL_TIMEOUT.saturating_sub(closing.started.elapsed()));
@@ -525,7 +538,7 @@ impl Screen {
 		if let Some((level, message)) = self.toast.take() {
 			ui.toasts.push(level, message);
 		}
-		ui.screen.status = self.status;
+		ui.screen.status = self.status.clone();
 		ui.screen.capture_status = self
 			.live
 			.as_ref()
@@ -536,7 +549,7 @@ impl Screen {
 		let pending = self.pending.take().expect("complete screen negotiation");
 		let context = pending.context;
 		if let Err(error) = self.start(runtime, pending, ctx) {
-			self.toast = Some((ui::design::Level::Error, error));
+			self.toast = Some((ui::design::Level::Error, error.into()));
 			self.close(context, error);
 		}
 	}
@@ -593,7 +606,7 @@ impl Screen {
 			}
 			wake.request_repaint();
 		});
-		self.status = "Connecting screen-share transport…";
+		self.status = "Connecting screen-share transport…".into();
 		self.live = Some(Live {
 			context: pending.context,
 			worker,
