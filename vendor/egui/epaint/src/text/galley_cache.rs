@@ -191,7 +191,11 @@ impl GalleyCache {
                 // `start` and `end` are the byte range of the current paragraph.
                 // How does the current section overlap with the paragraph range?
 
-                if section_range.end <= ByteIndex(start) {
+                // An empty section at the start of this paragraph belongs to it: it may carry
+                // the first row's leading space, as `Label` sets on a wrapping job.
+                let empty_here =
+                    section_range.is_empty() && section_range.start == ByteIndex(start);
+                if section_range.end <= ByteIndex(start) && !empty_here {
                     // The section is behind us
                     current_section += 1;
                 } else if ByteIndex(end) < section_range.start {
@@ -366,6 +370,23 @@ mod tests {
                 let mut job = LayoutJob::default();
                 job.append("\n", 0.0, TextFormat::default());
                 job.append("", 0.0, TextFormat::default());
+                job
+            },
+            {
+                // Like `Label` in a wrapping layout: the first row's indentation is the leading
+                // space of an empty first section, which belongs to the first paragraph.
+                let mut job = LayoutJob::default();
+                job.append("", 60.0, TextFormat::default());
+                job.append(
+                    "A heading after an inline widget\n",
+                    0.0,
+                    TextFormat {
+                        font_id: FontId::new(20.0, FontFamily::Proportional),
+                        ..Default::default()
+                    },
+                );
+                job.append("and a smaller line below it", 0.0, TextFormat::default());
+                job.wrap.max_width = 200.0;
                 job
             },
         ]
