@@ -419,7 +419,7 @@ fn layer(ctx: &egui::Context, cell: u32) -> TextureHandle {
 		return texture.clone();
 	}
 	let source = source_image();
-	let longest = source.size[0].max(source.size[1]) as u32;
+	let longest = source.resolution()[0].max(source.resolution()[1]) as u32;
 	let edge = (longest / CELL as u32) * cell;
 	let image = crate::resample::downscale_filter(
 		source,
@@ -448,7 +448,7 @@ pub fn paint(painter: &egui::Painter, icon: Icon, rect: Rect, color: Color32) {
 	let index = icon.cell();
 	let col = (index % COLUMNS) as f32;
 	let row = (index / COLUMNS) as f32;
-	let rows = source_image().size[1] as f32 / CELL;
+	let rows = source_image().resolution()[1] as f32 / CELL;
 	let mut uv = Rect::from_min_max(
 		egui::pos2(col / COLUMNS as f32, row / rows),
 		egui::pos2((col + 1.0) / COLUMNS as f32, (row + 1.0) / rows),

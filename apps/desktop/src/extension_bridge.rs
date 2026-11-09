@@ -1293,7 +1293,7 @@ impl Bridge {
 			.installed
 			.iter()
 			.filter_map(|entry| entry.background_image.as_ref())
-			.any(|image| image.size.iter().any(|side| *side > max_texture))
+			.any(|image| image.resolution().iter().any(|side| *side > max_texture))
 		{
 			messaging.extensions.status = format!(
 				"This device supports background images up to {max_texture} pixels per edge. Choose a smaller image."

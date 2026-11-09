@@ -81,23 +81,26 @@ The native attachment video adapter also uses **symphonia-codec-aac 0.6.1**
 the other Symphonia codecs, and ship through the same package copy step.
 
 The egui main experiment pins the egui/eframe ecosystem to upstream commit
-`4821fc54ae083ac516e137a61e70550330e55169` (version 0.36.2, MIT OR Apache-2.0).
-It adds unicode-properties 0.1.4 (MIT/Apache-2.0) and updates glifo to 0.3.0 and
-vello_common/vello_cpu to 0.2.0 (Apache-2.0 OR MIT). Epaint bundled fonts and
-their separate license obligations are unchanged. Clipboard support is explicitly
-enabled through eframe's `clipboard` feature. This pin updates AccessKit to 0.25.1,
-its consumer to 0.39.1 and its winit adapter to 0.34.1 (MIT OR Apache-2.0), with
-platform adapters resolved in Cargo.lock. Native font fallback uses
-egui_system_fonts/fontique and platform font discovery; see docs/dependency-versions.md
-for the exact added dependency versions and declared licenses. OS emoji fonts
-remain installed system resources and are not bundled or redistributed.
+`cd5caec79c9e6683dd793e25b4e7b287ccdd7061` (version 0.37.0, MIT OR Apache-2.0).
+It adds unicode-properties 0.1.4 (MIT/Apache-2.0) and updates glifo to 0.4.0,
+vello_common/vello_cpu to 0.3.0 and fearless_simd to 0.7.0 (Apache-2.0 OR MIT). Epaint
+bundled fonts and their separate license obligations are unchanged. Clipboard support is
+explicitly enabled through eframe's `clipboard` feature (arboard 3.7.0, MIT OR Apache-2.0).
+This pin updates AccessKit to 0.25.1, its consumer to 0.39.1 and its winit adapter to 0.34.1
+(MIT OR Apache-2.0), with platform adapters resolved in Cargo.lock. Native font fallback
+uses egui_system_font_provider/fontique and platform font discovery; Cargo.lock lists the
+exact versions. OS emoji fonts remain installed system resources and are not bundled or
+redistributed.
 
-The locally patched **egui-winit 0.36.2** (MIT OR Apache-2.0, upstream commit
-`4821fc54ae083ac516e137a61e70550330e55169`, source
-<https://github.com/emilk/egui/tree/4821fc54ae083ac516e137a61e70550330e55169/crates/egui-winit>)
-retains its licenses under `vendor/egui-winit`. Windows-only repaint changes (window
-moves and raw mouse motion), clipboard fallback/logging fixes, Wayland image paste and the de-workspaced manifest differ from upstream; see
-`vendor/egui-winit/SEREIN-PATCH.md` for provenance.
+The locally patched **eframe, egui, egui-wgpu, egui-winit, egui_system_font_provider and
+epaint 0.37.0** (MIT OR Apache-2.0, upstream commit
+`cd5caec79c9e6683dd793e25b4e7b287ccdd7061`, source
+<https://github.com/emilk/egui/tree/cd5caec79c9e6683dd793e25b4e7b287ccdd7061/crates>)
+retain their licenses under `vendor/egui`. Unmerged upstream pull requests, Serein's
+Windows-only repaint changes (window moves and raw mouse motion), clipboard fallback/logging
+fixes, Wayland image paste, an opt-in epaint direction/cluster-map and layout-generation API
+for logical RTL message layout, and the packaged manifests differ from upstream; see
+`vendor/egui/SEREIN-PATCH.md` for provenance.
 
 The locally patched **smithay-clipboard 0.7.3** (MIT, crates.io release) retains its license
 under `vendor/smithay-clipboard`. It adds a bounded raw-MIME clipboard read for Wayland image

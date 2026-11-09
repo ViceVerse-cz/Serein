@@ -492,7 +492,7 @@ pub fn set_background_image(ctx: &egui::Context, image: Option<std::sync::Arc<eg
 		let mut current = current.borrow_mut();
 		if let Some(image) = image {
 			if image
-				.size
+				.resolution()
 				.iter()
 				.any(|side| *side > ctx.input(|input| input.max_texture_side))
 			{
@@ -769,7 +769,7 @@ pub fn paint_background_image(
 	if rect.width() <= 0.0 || rect.height() <= 0.0 || background.opacity == 0 {
 		return;
 	}
-	let size = texture.size_vec2();
+	let size = texture.resolution_vec2();
 	let ratio = rect.size() / size;
 	let scale = match background.fit {
 		extensions::BackgroundFit::Cover => ratio.x.max(ratio.y),

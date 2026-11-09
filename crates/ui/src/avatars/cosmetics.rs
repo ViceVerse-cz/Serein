@@ -368,7 +368,7 @@ impl Avatars {
 			let Some(texture) = self.cosmetic(ctx, &layer.key(frame.sku), demo) else {
 				continue;
 			};
-			let [w, h] = texture.size();
+			let [w, h] = texture.resolution();
 			if w == 0 || h == 0 {
 				continue;
 			}
@@ -449,12 +449,12 @@ fn synthetic_frame(key: &str, step: usize) -> ColorImage {
 		Color32::from(egui::ecolor::Hsva::new(h.rem_euclid(1.0), s, v, a))
 	};
 	let star = |image: &mut ColorImage, cx: f32, cy: f32, r: f32, color: Color32| {
-		let [w, h] = image.size;
+		let [w, h] = image.resolution();
 		for y in (cy - r).max(0.0) as usize..((cy + r) as usize).min(h) {
 			for x in (cx - r).max(0.0) as usize..((cx + r) as usize).min(w) {
 				let (dx, dy) = ((x as f32 - cx).abs(), (y as f32 - cy).abs());
 				if dx * dy * 4.0 < r * 0.6 && dx + dy < r {
-					image.pixels[y * w + x] = color;
+					image.pixels_mut()[y * w + x] = color;
 				}
 			}
 		}
@@ -471,7 +471,7 @@ fn synthetic_frame(key: &str, step: usize) -> ColorImage {
 				let angle = dy.atan2(dx);
 				let petal = (angle * 8.0).cos() * 3.0;
 				if (d - 42.0 - petal).abs() < 3.5 {
-					image.pixels[y * size + x] =
+					image.pixels_mut()[y * size + x] =
 						tint(hue + angle / std::f32::consts::TAU * 0.2, 0.55, 0.95, 1.0);
 				}
 			}
@@ -495,7 +495,8 @@ fn synthetic_frame(key: &str, step: usize) -> ColorImage {
 			for x in 0..w {
 				let u = x as f32 / w as f32;
 				let wave = ((u * 9.0 + y as f32 / h as f32 * 2.0).sin() * 0.5 + 0.5) * u;
-				image.pixels[y * w + x] = tint(hue + u * 0.15, 0.6, 0.55 + wave * 0.35, u * 0.85);
+				image.pixels_mut()[y * w + x] =
+					tint(hue + u * 0.15, 0.6, 0.55 + wave * 0.35, u * 0.85);
 			}
 		}
 		for index in 0..6 {
@@ -524,7 +525,7 @@ fn synthetic_frame(key: &str, step: usize) -> ColorImage {
 				} else {
 					y.min(h - 1)
 				};
-				image.pixels[y * w + x] = tint(hue + u * 0.1, 0.5, 0.8, 1.0);
+				image.pixels_mut()[y * w + x] = tint(hue + u * 0.1, 0.5, 0.8, 1.0);
 			}
 		}
 		for index in 0..7 {

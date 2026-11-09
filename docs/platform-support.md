@@ -90,7 +90,7 @@ excludes the caption buttons area so edge/corner resizing does not intercept cor
 Close. Caption buttons keep their own actions; Windows double-click maximize/restore remains
 available. Synthetic egui input tests check command dispatch, including corner hit testing.
 On Windows, dragging the strip runs the OS move loop, which paints synchronously and waits for
-vsync before the next move. Through a patched egui-winit (see `vendor/egui-winit/SEREIN-PATCH.md`)
+vsync before the next move. Through Serein's patched egui-winit (see `vendor/egui/SEREIN-PATCH.md`)
 Serein therefore ignores raw mouse motion and repaints for window moves at most once per 500 ms,
 enough to sample and save where the window comes to rest; it also reapplies the minimum size only
 when it changes. An otherwise idle window follows the cursor like a native one. Continuous

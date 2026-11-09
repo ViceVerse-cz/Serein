@@ -146,7 +146,8 @@ impl eframe::App for Preview {
 					for y in 0..64 {
 						for x in 0..64 {
 							if (x / 8 + y / 8) % 2 == 0 {
-								image.pixels[y * 64 + x] = egui::Color32::from_rgb(100, 205, 175);
+								image.pixels_mut()[y * 64 + x] =
+									egui::Color32::from_rgb(100, 205, 175);
 							}
 						}
 					}
@@ -193,17 +194,17 @@ impl eframe::App for Preview {
 				let output = self.output.clone();
 				let thumbnail = self.thumbnail;
 				self.writer = Some(std::thread::spawn(move || {
-					if image.size[0] > 4096 || image.size[1] > 4096 {
+					if image.resolution()[0] > 4096 || image.resolution()[1] > 4096 {
 						return Err("Screenshot exceeds the 4096-pixel dimension limit".into());
 					}
 					let pixels: Vec<u8> = image
-						.pixels
+						.pixels()
 						.iter()
 						.flat_map(|pixel| pixel.to_srgba_unmultiplied())
 						.collect();
 					let image = image::RgbaImage::from_raw(
-						image.size[0] as u32,
-						image.size[1] as u32,
+						image.resolution()[0] as u32,
+						image.resolution()[1] as u32,
 						pixels,
 					)
 					.ok_or("Invalid screenshot pixel count")?;

@@ -77,7 +77,7 @@ fn decode_atlas() -> Result<egui::ColorImage, image::ImageError> {
 		egui::Color32::TRANSPARENT,
 	);
 	decoder.read_image(image.as_raw_mut())?;
-	for pixel in &mut image.pixels {
+	for pixel in image.pixels_mut() {
 		let [r, g, b, a] = pixel.to_array();
 		*pixel = egui::Color32::from_rgba_unmultiplied(r, g, b, a);
 	}

@@ -21,9 +21,9 @@ discord-gateway = { path = "crates/discord-gateway" }
 session-cache = { path = "crates/session-cache" }
 ui = { path = "crates/ui" }
 test-support = { path = "crates/test-support" }
-eframe = { git = "https://github.com/emilk/egui", rev = "4821fc54ae083ac516e137a61e70550330e55169", default-features = false, features = ["wgpu", "default_fonts", "system_fonts", "accesskit", "wayland", "x11", "links", "clipboard"] }
-egui = { git = "https://github.com/emilk/egui", rev = "4821fc54ae083ac516e137a61e70550330e55169", default-features = false, features = ["default_fonts"] }
-egui-winit = { git = "https://github.com/emilk/egui", rev = "4821fc54ae083ac516e137a61e70550330e55169", default-features = false }
+eframe = { git = "https://github.com/emilk/egui", rev = "cd5caec79c9e6683dd793e25b4e7b287ccdd7061", default-features = false, features = ["wgpu", "default_fonts", "system_fonts", "accesskit", "wayland", "x11", "links", "clipboard"] }
+egui = { git = "https://github.com/emilk/egui", rev = "cd5caec79c9e6683dd793e25b4e7b287ccdd7061", default-features = false, features = ["default_fonts"] }
+egui-winit = { git = "https://github.com/emilk/egui", rev = "cd5caec79c9e6683dd793e25b4e7b287ccdd7061", default-features = false }
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
@@ -226,8 +226,13 @@ wry = { path = "vendor/wry" }
 smithay-clipboard = { path = "vendor/smithay-clipboard" }
 
 [patch."https://github.com/emilk/egui"]
-# Windows window drags must not wait for a repaint per move; see vendor/egui-winit/SEREIN-PATCH.md.
-egui-winit = { path = "vendor/egui-winit" }
+# Serein's egui fork: upstream PRs and local patches on the pinned rev; see vendor/egui/SEREIN-PATCH.md.
+eframe = { path = "vendor/egui/eframe" }
+egui = { path = "vendor/egui/egui" }
+egui-wgpu = { path = "vendor/egui/egui-wgpu" }
+egui-winit = { path = "vendor/egui/egui-winit" }
+egui_system_font_provider = { path = "vendor/egui/egui_system_font_provider" }
+epaint = { path = "vendor/egui/epaint" }
 
 [profile.dev.package.sonora-ns]
 opt-level = 3

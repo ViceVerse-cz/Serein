@@ -1315,7 +1315,7 @@ impl MessagingUi {
 			.preview
 			.as_ref()
 			.map(|texture| {
-				let content = fit_rect(rect, texture.size_vec2());
+				let content = fit_rect(rect, texture.resolution_vec2());
 				ui.put(
 					content,
 					egui::Image::from_texture((texture.id(), content.size())).corner_radius(8),
@@ -1646,7 +1646,7 @@ impl MessagingUi {
 		let video = if own && call.is_some_and(|call| call.camera) {
 			self.voice_camera_preview
 				.as_ref()
-				.map(|texture| (texture.id(), texture.size_vec2(), true))
+				.map(|texture| (texture.id(), texture.resolution_vec2(), true))
 		} else if entry.participant.video {
 			self.remote_texture(entry.participant.user)
 				.map(|texture| (texture.id, texture.size, false))
@@ -2641,7 +2641,7 @@ impl MessagingUi {
 				.or(self.voice_camera_preview.as_ref());
 			let has_picture = texture.is_some();
 			if let Some(texture) = texture {
-				let size = texture.size_vec2();
+				let size = texture.resolution_vec2();
 				let scale = (rect.width() / size.x).min(rect.height() / size.y);
 				egui::Image::new(texture)
 					.uv(egui::Rect::from_min_max(
