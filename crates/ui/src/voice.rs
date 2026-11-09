@@ -942,48 +942,42 @@ impl MessagingUi {
 				.and_then(|c| c.error),
 			STAGE_TEXT,
 		);
-		if false {
-			body_ui.label(
-				RichText::new(crate::i18n::translate(
-					"voice-voice-channel-participant-list-unavailable-with-the-current-access",
-				))
-				.color(STAGE_MUTED),
-			);
-		} else {
-			let entries = stage_participants(state, channel);
-			if entries.is_empty() {
-				body_ui.add_space((body_ui.available_height() * 0.4).max(0.0));
-				body_ui.vertical_centered(|ui| {
-					ui.label(
-						design::semibold(
-							ui,
-							crate::i18n::translate_if_key(
-								if !state.demo && !state.gateway_connected {
-									"voice-voice-channel-participant-list-unavailable-while-disconnected"
-								} else {
-									"voice-voice-channel-no-one-s-here-yet"
-								},
-							),
-							18.0,
-						)
+
+		let entries = stage_participants(state, channel);
+		if entries.is_empty() {
+			body_ui.add_space((body_ui.available_height() * 0.4).max(0.0));
+			body_ui.vertical_centered(|ui| {
+				ui.label(
+					design::semibold(
+						ui,
+						crate::i18n::translate_if_key(
+							if !state.demo && !state.gateway_connected {
+								"voice-voice-channel-participant-list-unavailable-while-disconnected"
+							} else {
+								"voice-voice-channel-no-one-s-here-yet"
+							},
+						),
+						18.0,
+					)
 						.color(STAGE_TEXT),
-					);
-				});
-			} else {
-				if !state.demo && !state.gateway_connected {
-					body_ui.label(
-						RichText::new(crate::i18n::translate(
-							"voice-voice-channel-last-known-participants-a-reconnect-to-refresh",
-						))
+				);
+			});
+		} else {
+			if !state.demo && !state.gateway_connected {
+				body_ui.label(
+					RichText::new(crate::i18n::translate(
+						"voice-voice-channel-last-known-participants-a-reconnect-to-refresh",
+					))
 						.small()
 						.color(STAGE_MUTED),
-					);
-				}
-				self.voice_chrome_hidden = 1.0 - reveal;
-				self.participant_tiles(&mut body_ui, state, channel, &entries, false);
-				self.voice_chrome_hidden = 0.0;
+				);
 			}
+			self.voice_chrome_hidden = 1.0 - reveal;
+			self.participant_tiles(&mut body_ui, state, channel, &entries, false);
+			self.voice_chrome_hidden = 0.0;
 		}
+
+
 		self.apply_watch_request(state);
 		let bar = egui::Rect::from_min_max(
 			egui::pos2(rect.left(), rect.bottom() - bottom),
