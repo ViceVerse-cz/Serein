@@ -613,9 +613,12 @@ impl MessagingUi {
 				} else {
 					colors.muted
 				};
+				// Keep the avatar and LIVE pill clear of the row's rounded hover edge while
+				// the row itself still spans the full width for hit testing.
+				let content = rect.shrink2(egui::vec2(8.0, 0.0));
 				let mut inner = ui.new_child(
 					egui::UiBuilder::new()
-						.max_rect(rect)
+						.max_rect(content)
 						.layout(egui::Layout::left_to_right(egui::Align::Center)),
 				);
 				inner.spacing_mut().item_spacing.x = 6.0;
