@@ -3685,7 +3685,7 @@ impl TimelineView {
 												&message.author,
 											);
 											surface.keep(&author);
-											crate::name_marks::Marks::of(
+											let marks = crate::name_marks::Marks::of(
 												ui.ctx(),
 												state,
 												&message.author,
@@ -3696,8 +3696,13 @@ impl TimelineView {
 														.and_then(|c| c.guild),
 													&message.author_roles,
 												),
-											)
-											.show(ui);
+											);
+											// Bounded to the marks' own reserve, so a long username
+											// never widens the author column into the message body.
+											ui.scope(|ui| {
+												ui.set_max_width(marks.reserve());
+												marks.show(ui);
+											});
 										},
 									);
 									ui.spacing_mut().item_spacing.x = body_spacing;
@@ -3735,6 +3740,20 @@ impl TimelineView {
 											egui::Layout::left_to_right(egui::Align::Center),
 											|ui| {
 												ui.spacing_mut().item_spacing.x = 8.0;
+												// Marks are known before the name, so it leaves them and the
+												// timestamp room instead of pushing them out of the row.
+												let marks = crate::name_marks::Marks::of(
+													ui.ctx(),
+													state,
+													&message.author,
+													state.message_author_name(message),
+													(
+														state
+															.channel(message.channel)
+															.and_then(|c| c.guild),
+														&message.author_roles,
+													),
+												);
 												let author = crate::name_styles::in_row(
 													name_hover == Some(message.id),
 													|| {
@@ -3749,7 +3768,7 @@ impl TimelineView {
 																colors.chat,
 															),
 															egui::Sense::click(),
-															48.0,
+															48.0 + marks.reserve(),
 														)
 													},
 												)
@@ -3777,19 +3796,13 @@ impl TimelineView {
 													&message.author,
 												);
 												surface.keep(&author);
-												crate::name_marks::Marks::of(
-													ui.ctx(),
-													state,
-													&message.author,
-													state.message_author_name(message),
-													(
-														state
-															.channel(message.channel)
-															.and_then(|c| c.guild),
-														&message.author_roles,
-													),
-												)
-												.show(ui);
+												// The timestamp keeps its room even after a long username.
+												ui.scope(|ui| {
+													ui.set_max_width(
+														(ui.available_width() - 48.0).max(0.0),
+													);
+													marks.show(ui);
+												});
 												let time = timestamp(id);
 												let time = ui
 													.label(

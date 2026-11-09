@@ -1,8 +1,10 @@
 //! Runs plugin HTTPS requests off the UI thread, limited to each manifest's declared hosts.
 //!
 //! Every request yields exactly one [`FetchResult`]: a response, a failure or `cancelled`
-//! when too many are already running.
-use std::{sync::mpsc, time::Duration};
+//! when too many are already running or the plugin's access ended.
+use std::{collections::BTreeMap, sync::mpsc, time::Duration};
+
+use tokio::sync::watch;
 
 use extensions::{FetchError, FetchMethod, FetchRequest, FetchResult, MAX_FETCH_RESPONSE_BYTES};
 
@@ -19,12 +21,16 @@ pub struct Finished<C> {
 	pub id: String,
 	pub context: C,
 	pub result: FetchResult,
+	/// Whether it held a running slot; requests refused for capacity never did.
+	counted: bool,
 }
 
 pub struct Fetcher<C> {
 	send: mpsc::Sender<Finished<C>>,
 	receive: mpsc::Receiver<Finished<C>>,
 	running: usize,
+	/// Per plugin, a signal its running exchanges watch; [`Fetcher::cancel`] fires it.
+	cancels: BTreeMap<String, watch::Sender<bool>>,
 }
 
 impl<C> Default for Fetcher<C> {
@@ -34,6 +40,7 @@ impl<C> Default for Fetcher<C> {
 			send,
 			receive,
 			running: 0,
+			cancels: BTreeMap::new(),
 		}
 	}
 }
@@ -54,6 +61,7 @@ impl<C: Clone + Send + 'static> Fetcher<C> {
 				id: id.to_owned(),
 				context: context.clone(),
 				result,
+				counted: false,
 			};
 			if self.running >= MAX_RUNNING {
 				let _ = self.send.send(finished(failure(
@@ -64,21 +72,28 @@ impl<C: Clone + Send + 'static> Fetcher<C> {
 				continue;
 			}
 			self.running += 1;
+			let cancelled = self
+				.cancels
+				.entry(id.to_owned())
+				.or_insert_with(|| watch::channel(false).0)
+				.subscribe();
 			let send = self.send.clone();
 			let hosts = hosts.to_vec();
 			let worker_wake = wake.clone();
 			let request_id = request.request_id.clone();
 			let mut done = finished(failure(&request_id, FetchError::Unavailable));
+			done.counted = true;
 			let worker_done = Finished {
 				id: done.id.clone(),
 				context: done.context.clone(),
 				result: done.result.clone(),
+				counted: true,
 			};
 			let spawned = std::thread::Builder::new()
 				.name("plugin-fetch".into())
 				.spawn(move || {
 					let mut done = worker_done;
-					done.result = run(&request, &hosts);
+					done.result = run(&request, &hosts, cancelled);
 					let _ = send.send(done);
 					worker_wake();
 				});
@@ -91,16 +106,26 @@ impl<C: Clone + Send + 'static> Fetcher<C> {
 		}
 	}
 
+	/// Stops `id`'s unfinished exchanges, before their next send or redirect, and drops their
+	/// request data; each still answers once as `cancelled`. Later requests start afresh.
+	pub fn cancel(&mut self, id: &str) {
+		if let Some(cancel) = self.cancels.remove(id) {
+			cancel.send_replace(true);
+		}
+	}
+	/// Stops every plugin's unfinished exchanges, as when the account changes.
+	pub fn cancel_all(&mut self) {
+		for (_, cancel) in std::mem::take(&mut self.cancels) {
+			cancel.send_replace(true);
+		}
+	}
+
 	/// Results that finished since the last call.
 	pub fn finished(&mut self) -> Vec<Finished<C>> {
 		let finished: Vec<_> = self.receive.try_iter().collect();
-		// Rejected requests never counted as running; saturate instead of tracking each kind.
-		self.running = self.running.saturating_sub(
-			finished
-				.iter()
-				.filter(|done| done.result.error != Some(FetchError::Cancelled))
-				.count(),
-		);
+		self.running = self
+			.running
+			.saturating_sub(finished.iter().filter(|done| done.counted).count());
 		finished
 	}
 }
@@ -115,16 +140,26 @@ fn failure(request_id: &str, error: FetchError) -> FetchResult {
 	}
 }
 
-fn run(request: &FetchRequest, hosts: &[String]) -> FetchResult {
+fn run(
+	request: &FetchRequest,
+	hosts: &[String],
+	mut cancelled: watch::Receiver<bool>,
+) -> FetchResult {
 	let outcome = tokio::runtime::Builder::new_current_thread()
 		.enable_all()
 		.build()
 		.map_err(|_| FetchError::Unavailable)
 		.and_then(|runtime| {
 			runtime.block_on(async {
-				tokio::time::timeout(TIMEOUT, exchange(request, hosts))
-					.await
-					.map_err(|_| FetchError::TimedOut)?
+				// Ending access drops the exchange at its next await, so no further send or
+				// redirect happens and its buffers are released.
+				tokio::select! {
+					biased;
+					_ = cancelled.wait_for(|cancelled| *cancelled) => Err(FetchError::Cancelled),
+					outcome = tokio::time::timeout(TIMEOUT, exchange(request, hosts)) => {
+						outcome.map_err(|_| FetchError::TimedOut)?
+					}
+				}
 			})
 		});
 	match outcome {
@@ -258,15 +293,49 @@ mod tests {
 		}
 	}
 
+	/// A cancellation signal that never fires.
+	fn live() -> watch::Receiver<bool> {
+		let (send, receive) = watch::channel(false);
+		std::mem::forget(send);
+		receive
+	}
+
+	#[test]
+	fn cancelling_a_plugin_stops_its_exchanges_and_only_its_own() {
+		let mut fetcher = Fetcher::<()>::default();
+		let first = fetcher
+			.cancels
+			.entry("first".into())
+			.or_insert_with(|| watch::channel(false).0)
+			.subscribe();
+		let other = fetcher
+			.cancels
+			.entry("other".into())
+			.or_insert_with(|| watch::channel(false).0)
+			.subscribe();
+		fetcher.cancel("first");
+		assert!(*first.borrow());
+		assert!(!*other.borrow());
+		// An exchange whose plugin was cancelled answers `cancelled` before any send.
+		let hosts = vec!["example.com".to_owned()];
+		assert_eq!(
+			run(&request("https://example.com/"), &hosts, first).error,
+			Some(FetchError::Cancelled)
+		);
+		fetcher.cancel_all();
+		assert!(*other.borrow());
+		assert!(fetcher.cancels.is_empty());
+	}
+
 	#[test]
 	fn undeclared_and_private_hosts_are_blocked_before_connecting() {
 		let hosts = vec!["localhost.localdomain".to_owned()];
 		assert_eq!(
-			run(&request("https://example.com/"), &hosts).error,
+			run(&request("https://example.com/"), &hosts, live()).error,
 			Some(FetchError::Blocked)
 		);
 		assert_eq!(
-			run(&request("http://localhost.localdomain/"), &hosts).error,
+			run(&request("http://localhost.localdomain/"), &hosts, live()).error,
 			Some(FetchError::Blocked)
 		);
 	}

@@ -224,8 +224,9 @@ impl MessagingUi {
 		if !state.can_create_guild_emoji(guild) {
 			return None;
 		}
-		// Reopening the editor would silently drop images still being prepared or uploaded.
-		if self.server_settings.scope.is_some() && self.server_settings.admin.has_changes() {
+		// Reopening the editor would silently drop any unsaved server, role, sticker or emoji
+		// work, including images still being prepared or uploaded.
+		if self.has_server_settings_changes() {
 			state.status = "Finish or discard the current emoji uploads first.";
 			return None;
 		}

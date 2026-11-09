@@ -996,10 +996,16 @@ impl LocalStore {
 		let mut insert = transaction.prepare_cached(
             "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions,verified_bot) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30)")?;
 		for message in messages {
-			if previous
-				.get(&message.id)
-				.is_some_and(|old| *old == *message)
-			{
+			// The author's username is not stored, so a loaded row never carries it; compare
+			// as if it matched, or every save would rewrite those rows.
+			if previous.get(&message.id).is_some_and(|old| {
+				*old == *message
+					|| (old.author.username != message.author.username && {
+						let mut stored = Message::clone(message);
+						stored.author.username.clone_from(&old.author.username);
+						**old == stored
+					})
+			}) {
 				continue;
 			}
 			let mentions =

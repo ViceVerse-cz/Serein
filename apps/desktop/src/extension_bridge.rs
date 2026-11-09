@@ -1511,6 +1511,7 @@ impl Bridge {
 	/// Responses to requests `id` already started are discarded instead of delivered.
 	fn retire_fetches(&mut self, id: &str) {
 		*self.fetch_epochs.entry(id.to_owned()).or_default() += 1;
+		self.fetches.cancel(id);
 	}
 	/// Queues each finished plugin request to re-run the action that started it.
 	fn queue_fetch_results(&mut self) {
@@ -1569,6 +1570,8 @@ impl Bridge {
 		messaging: &mut ui::MessagingUi,
 	) {
 		let Some(account) = account else {
+			// Signed out: no plugin keeps a request running for the old account.
+			self.fetches.cancel_all();
 			self.ticks.clear();
 			self.transitions.clear();
 			return;

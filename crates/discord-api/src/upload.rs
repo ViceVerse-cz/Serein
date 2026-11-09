@@ -143,7 +143,12 @@ impl Source {
 			.filename
 			.strip_prefix(spoiler)
 			.and_then(|name| name.rsplit_once('.'))
-			.filter(|(stem, _)| !stem.is_empty())
+			// Only a short alphanumeric suffix is a real extension; `2025.John Smith` is not.
+			.filter(|(stem, extension)| {
+				!stem.is_empty()
+					&& (1..=10).contains(&extension.len())
+					&& extension.bytes().all(|b| b.is_ascii_alphanumeric())
+			})
 			.map_or(String::new(), |(_, extension)| format!(".{extension}"));
 		let stem: String = random
 			.iter()
@@ -762,6 +767,7 @@ mod tests {
 		let artwork = super::Source::image_bytes("emoji-7.gif".into(), vec![1]).unwrap();
 		assert_eq!(artwork.anonymised([0; 7]).filename(), "emoji-7.gif");
 		assert_eq!(named("emoji-private-project.txt", [0; 7]), "AAAAAAA.txt");
+		assert_eq!(named("Invoice for 2025.John Smith", [0; 7]), "AAAAAAA");
 	}
 	#[test]
 	fn image_sources_only_accept_bounded_generated_raster_names() {

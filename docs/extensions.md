@@ -129,6 +129,8 @@ Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
 supports 58 capabilities, with at most 64 distinct declarations per manifest.
 `external_navigation` and `style.icon_size` are Preview APIs from PR #937, not yet released.
+`interface_tweaks`, `background_effects` and `network` are Preview capabilities from
+PRs #930, #931 and #944, not yet released; a released host rejects these manifest names.
 
 > **Preview SDK — PR #411, not yet released.** `channel_control`,
 > `server_control`, `role_control`, `moderation_control` and `media_control`, plus

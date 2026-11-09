@@ -83,12 +83,16 @@ impl Lookups {
 	/// Drops the kept copy of an edited or deleted message so it is never shown stale; an
 	/// edited one is read again on the next hover, a deleted one is remembered as missing.
 	pub(crate) fn forget_message(&mut self, id: Id, deleted: bool) {
+		let kept = self.messages.iter().any(|message| message.id == id);
 		self.messages.retain(|message| message.id != id);
 		let target = Target::Message(id);
-		if self.pending.contains(&target) {
+		let pending = self.pending.contains(&target);
+		if pending {
 			self.superseded.insert(id);
 		}
-		if deleted && !self.missing.contains(&target) {
+		// Only messages this cache knew are remembered, so unrelated deletions elsewhere
+		// never push real failures out of the bounded list.
+		if deleted && (kept || pending) && !self.missing.contains(&target) {
 			if self.missing.len() == KEPT {
 				self.missing.pop_front();
 			}

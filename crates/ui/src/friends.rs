@@ -1064,16 +1064,17 @@ fn search(ui: &mut egui::Ui, query: &mut String, id: egui::Id, hint: &str) -> eg
 /// and revoked all at once.
 fn friend_invite_links(ui: &mut egui::Ui, state: &mut State, commands: &mut Vec<Command>) {
 	let colors = design::palette(ui);
-	// A visit starts when the section was not drawn in the previous pass; links used,
-	// expired or revoked elsewhere then show their current state.
-	let pass = ui.ctx().cumulative_pass_nr();
-	let seen = egui::Id::unique("friend-invite-links-pass");
+	// A visit starts when the section was not drawn in the previous frame; links used,
+	// expired or revoked elsewhere then show their current state. Frames, not passes, so a
+	// discarded pass (a tooltip opening) does not look like leaving the page.
+	let frame = ui.ctx().cumulative_frame_nr();
+	let seen = egui::Id::unique("friend-invite-links-frame");
 	let last = ui.ctx().data_mut(|data| {
 		let last = data.get_temp::<u64>(seen);
-		data.insert_temp(seen, pass);
+		data.insert_temp(seen, frame);
 		last
 	});
-	let visit = last.is_none_or(|last: u64| last + 1 < pass);
+	let visit = last.is_none_or(|last: u64| last + 1 < frame);
 	let invites = &state.friend_invites;
 	if (visit || invites.invites().is_none())
 		&& !invites.busy()
