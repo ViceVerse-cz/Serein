@@ -108,23 +108,36 @@ impl Fields {
 	}
 }
 
+/// The host rejects a whole panel when any select option exceeds this many UTF-8 bytes.
+const MAX_OPTION_BYTES: usize = 128;
+
 fn rule_option(index: usize, rule: &Rule) -> String {
-	format!(
+	bounded_option(format!(
 		"{}. Find: `{}`; replace: `{}`; condition: `{}`",
 		index + 1,
-		preview(&rule.find, 96),
-		preview(&rule.replace, 96),
-		preview(&rule.only_if_includes, 96),
-	)
+		preview(&rule.find, 32),
+		preview(&rule.replace, 32),
+		preview(&rule.only_if_includes, 24),
+	))
 }
 
 fn tag_option(index: usize, tag: &Tag) -> String {
-	format!(
+	bounded_option(format!(
 		"{}. /{}: {}",
 		index + 1,
 		tag.name,
-		preview(&tag.message, 128)
-	)
+		preview(&tag.message, MAX_OPTION_BYTES)
+	))
+}
+
+/// Clips a complete option, numbered prefix included, to the host's limit. The prefix stays
+/// intact, so options remain unique and `selection_index` still finds the entry.
+fn bounded_option(option: String) -> String {
+	if option.len() <= MAX_OPTION_BYTES {
+		return option;
+	}
+	let clipped = truncate_utf8(&option, MAX_OPTION_BYTES - '…'.len_utf8());
+	format!("{clipped}…")
 }
 
 fn selection_index(value: &str) -> Option<usize> {
@@ -816,6 +829,22 @@ mod tests {
 		})
 	}
 
+	/// The host rejects the whole panel, and with it any storage update, when one select
+	/// option exceeds its byte limit.
+	fn assert_options_fit_host(output: &Output) {
+		for element in &output.panel {
+			if let Element::Select { options, .. } = element {
+				for option in options {
+					assert!(
+						option.len() <= MAX_OPTION_BYTES,
+						"{} bytes: {option}",
+						option.len()
+					);
+				}
+			}
+		}
+	}
+
 	#[test]
 	fn literal_rules_run_sequentially_and_check_current_conditions() {
 		let mut second = rule("b", "c");
@@ -973,7 +1002,7 @@ mod tests {
 
 	#[test]
 	fn loading_a_later_saved_entry_uses_full_values_and_keeps_earlier_entries() {
-		let long_find = format!("find-{}", "x".repeat(200));
+		let long_find = format!("find-{}", "é".repeat(200));
 		let long_message = format!("Hello {{{{name}}}} {}", "y".repeat(300));
 		let saved = Saved {
 			rules: vec![rule("first", "one"), rule(&long_find, "two")],
@@ -996,6 +1025,7 @@ mod tests {
 		);
 		assert_eq!(input_value(&loaded_rule, "find"), Some(long_find.as_str()));
 		assert_eq!(option_count(&loaded_rule, "rule-selection"), Some(2));
+		assert_options_fit_host(&loaded_rule);
 
 		let tag_selection = tag_option(1, &saved.tags[1]);
 		let loaded_tag = invoke_panel(
@@ -1008,6 +1038,7 @@ mod tests {
 			Some(long_message.as_str())
 		);
 		assert_eq!(input_value(&loaded_tag, "name"), Some("second"));
+		assert_options_fit_host(&loaded_tag);
 		assert_eq!(option_count(&loaded_tag, "tag-selection"), Some(2));
 	}
 

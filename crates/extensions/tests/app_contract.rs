@@ -1082,6 +1082,10 @@ fn external_navigation_accepts_only_bounded_credential_free_https_urls() {
 		));
 	}
 	let oversized = format!("https://example.org/{}", "a".repeat(2048));
+	// 700 two-byte characters fit raw but percent-encode to 4,200 bytes, which the
+	// confirmation dialog would otherwise drop silently.
+	let expands = format!("https://example.org/{}", "é".repeat(700));
+	assert!(expands.len() <= 2048);
 	for url in [
 		"http://example.org/",
 		"javascript:alert(1)",
@@ -1099,6 +1103,7 @@ fn external_navigation_accepts_only_bounded_credential_free_https_urls() {
 		"https://example.org\\@evil.test/",
 		"https://example.org/\n",
 		oversized.as_str(),
+		expands.as_str(),
 	] {
 		assert!(action(url).validate().is_err(), "accepted {url:?}");
 	}

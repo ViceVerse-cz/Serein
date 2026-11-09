@@ -1705,6 +1705,8 @@ markdown-confirm-external-link-open-external-link = 要打开外部链接吗？
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = 在浏览器中开启
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = 链接中只能放入此消息的开头部分，其余内容不会发送。此链接将在默认浏览器中打开。
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = 这个链接会用你的默认浏览器开启。
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = 复制表情符号

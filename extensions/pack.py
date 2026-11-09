@@ -6,6 +6,7 @@ from pathlib import Path
 
 WASM_HEADER = b"\0asm\x01\0\0\0"
 LICENSE_SECTION = "serein.license"
+MAX_WASM = 4 * 1024 * 1024
 
 
 def uleb128(value):
@@ -87,15 +88,19 @@ def main():
         help="append this exact file as an inert serein.license Wasm custom section",
     )
     args = parser.parse_args()
-    if args.manifest.stat().st_size > 16 * 1024 or args.wasm.stat().st_size > 4 * 1024 * 1024:
+    if args.manifest.stat().st_size > 16 * 1024 or args.wasm.stat().st_size > MAX_WASM:
         parser.error("manifest or Wasm exceeds the package limits")
     wasm = args.wasm.read_bytes()
     if args.license:
         try:
-            wasm = embed_license(wasm, args.license.read_bytes())
+            with args.license.open("rb") as license_file:
+                license_bytes = license_file.read(MAX_WASM + 1)
+            if len(wasm) + len(license_bytes) > MAX_WASM:
+                parser.error("Wasm with license exceeds the package limit")
+            wasm = embed_license(wasm, license_bytes)
         except (OSError, UnicodeError, ValueError) as error:
             parser.error(f"cannot embed license: {error}")
-    if len(wasm) > 4 * 1024 * 1024:
+    if len(wasm) > MAX_WASM:
         parser.error("Wasm with license exceeds the package limit")
     package = {"manifest": json.loads(args.manifest.read_text(encoding="utf-8")), "wasm": list(wasm)}
     data = json.dumps(package, separators=(",", ":"), ensure_ascii=False).encode("utf-8")

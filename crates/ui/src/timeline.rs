@@ -151,6 +151,12 @@ pub struct TimelineView {
 	pub(super) video: crate::video::VideoUi,
 	pub(super) opening: Option<String>,
 	pub(super) browser_opening: Option<String>,
+	/// The translation link whose message text was cut to fit. It applies only while it is
+	/// still the pending `browser_opening`, so any other link that replaces it drops the notice.
+	pub(super) truncated_translation: Option<String>,
+	/// Row whose menu Shift+F10 opened; it stays anchored to the row until it closes, even
+	/// after Shift is released and the More button returns.
+	keyboard_menu_row: Option<Id>,
 	text_size: f32,
 	font_revision: (usize, usize, u32),
 	scale: f32,
@@ -1471,9 +1477,16 @@ fn action_button(ui: &mut egui::Ui, icon: crate::icons::Icon, label: &str) -> eg
 	crate::icons::button_immediate(ui, icon, 28.0, label)
 }
 
+/// Whether Translate has text to send. The URL itself is built only when Translate is
+/// clicked, so hovering a message never serializes its text.
+fn translatable(message: &Message) -> bool {
+	!crate::i18n::message_text(message).trim().is_empty()
+}
+
 /// Uses the existing reviewed external-link flow; no message text leaves Serein silently.
-/// Very large messages are bounded before constructing a browser URL.
-fn translation_url(message: &Message) -> Option<String> {
+/// Very large messages are bounded before constructing a browser URL; the flag is true when
+/// only the start of the text fits, so the confirmation can say so.
+fn translation_url(message: &Message) -> Option<(String, bool)> {
 	fn candidate(text: &str) -> Option<String> {
 		let mut url = url::Url::parse("https://translate.google.com/").ok()?;
 		url.query_pairs_mut()
@@ -1512,7 +1525,10 @@ fn translation_url(message: &Message) -> Option<String> {
 	}
 	(low > 0).then(|| {
 		let end = boundaries[low];
-		candidate(&text[..end]).expect("validated translation URL")
+		(
+			candidate(&text[..end]).expect("validated translation URL"),
+			end < text.len(),
+		)
 	})
 }
 
@@ -2478,6 +2494,7 @@ impl TimelineView {
 				},
 				opening: self.opening.take(),
 				browser_opening: self.browser_opening.take(),
+				truncated_translation: self.truncated_translation.take(),
 				pending_viewer: self.pending_viewer.take(),
 				jump: following,
 				leave_read: self.channel.zip(self.seen_latest),
@@ -3034,6 +3051,12 @@ impl TimelineView {
 						.as_ref()
 						.is_some_and(|r| rect.contains_rect(r.rect))
 			});
+			// A row (or one of its controls) holding keyboard focus owns Shift+F10, so a row
+			// that is merely hovered never opens its menu in place of the focused one.
+			// `contains_rect` keeps a focused composer touching the timeline's edge out.
+			let timeline_keyboard_focus = keyboard_focus
+				.as_ref()
+				.is_some_and(|r| clip.contains_rect(r.rect));
 			let reuse_leading = keyboard_focus.is_none()
 				&& retained_toolbar.is_none()
 				&& !egui::Popup::is_any_open(ui.ctx())
@@ -4337,7 +4360,17 @@ impl TimelineView {
 						&& !reaction_menu && !egui::Popup::is_any_open(ui.ctx())
 						&& (ui.input(|i| i.pointer.secondary_clicked())
 							|| crate::select::open_menu(ui.ctx()));
-					let keyboard_menu = (focus.has_focus() || hovered)
+					// Focus on a control inside the row (a link, or this row's own toolbar) counts
+					// as the row's focus; a toolbar overlapping the row above stays with its row.
+					let focus_within = if retained_toolbar.is_some() {
+						retained && keyboard_focus.is_some()
+					} else {
+						keyboard_focus
+							.as_ref()
+							.is_some_and(|r| rect.contains(r.rect.center()))
+					};
+					let keyboard_menu = (focus.has_focus()
+						|| focus_within || (hovered && !timeline_keyboard_focus))
 						&& !reaction_menu && !egui::Popup::is_any_open(ui.ctx())
 						&& ui.input_mut(|input| {
 							input.consume_key(egui::Modifiers::SHIFT, egui::Key::F10)
@@ -4460,15 +4493,15 @@ impl TimelineView {
 							let link = state
 								.channel(message.channel)
 								.and_then(|channel| discord_url(channel, Some(id)));
-							let translate = translation_url(message);
+							let translate = translatable(message);
 							let buttons = if shift {
 								4 + usize::from(link.is_some())
 									+ usize::from(can_mark_unread)
-									+ usize::from(can_pin) + usize::from(translate.is_some())
+									+ usize::from(can_pin) + usize::from(translate)
 									+ usize::from(own) + usize::from(can_delete)
 							} else {
 								(if react { 4 } else { 1 })
-									+ 2 + usize::from(translate.is_some())
+									+ 2 + usize::from(translate)
 									+ usize::from(own)
 							};
 							let width = buttons as f32 * 30.0;
@@ -4558,15 +4591,17 @@ impl TimelineView {
 								{
 									selected_reply = Some(id);
 								}
-								if translate.is_some()
+								if translate
 									&& action_button(
 										&mut toolbar,
 										crate::icons::Icon::Globe,
 										"timeline-message-actions-translate",
 									)
-									.clicked()
+									.clicked() && let Some((url, truncated)) =
+									translation_url(message)
 								{
-									self.browser_opening = translate.clone();
+									self.truncated_translation = truncated.then(|| url.clone());
+									self.browser_opening = Some(url);
 								}
 							}
 							if react && !shift {
@@ -4601,14 +4636,15 @@ impl TimelineView {
 								);
 							}
 							if !shift
-								&& translate.is_some() && action_button(
+								&& translate && action_button(
 								&mut toolbar,
 								crate::icons::Icon::Globe,
 								"timeline-message-actions-translate",
 							)
-							.clicked()
+							.clicked() && let Some((url, truncated)) = translation_url(message)
 							{
-								self.browser_opening = translate.clone();
+								self.truncated_translation = truncated.then(|| url.clone());
+								self.browser_opening = Some(url);
 							}
 							if let Some((anchor, trigger)) = crate::reactions::add_button(
 								&mut toolbar,
@@ -4677,18 +4713,28 @@ impl TimelineView {
 							{
 								self.quick_delete = Some((message.channel, id));
 							}
-							let menu = if shift {
-								// Shift hides the More icon; right-click and Shift+F10 still use the row anchor.
-								focus.clone()
-							} else {
+							let popup_id = egui::Id::unique(("message-menu", state.generation, id));
+							if keyboard_menu {
+								self.keyboard_menu_row = Some(id);
+							} else if self.keyboard_menu_row == Some(id)
+								&& !egui::Popup::is_id_open(toolbar.ctx(), popup_id)
+							{
+								self.keyboard_menu_row = None;
+							}
+							// Shift hides the More icon; right-click and Shift+F10 still use the row anchor.
+							let more = (!shift).then(|| {
 								action_button(
 									&mut toolbar,
 									crate::icons::Icon::More,
 									"profiles-show-more",
 								)
+							});
+							let menu = match &more {
+								Some(more) if self.keyboard_menu_row != Some(id) => more.clone(),
+								_ => focus.clone(),
 							};
-							if !shift {
-								menu.widget_info(|| {
+							if let Some(more) = &more {
+								more.widget_info(|| {
 									egui::WidgetInfo::labeled(
 										egui::Role::Button,
 										toolbar.is_enabled(),
@@ -4699,11 +4745,7 @@ impl TimelineView {
 									)
 								});
 							}
-							let mut popup = egui::Popup::menu(&menu).id(egui::Id::unique((
-								"message-menu",
-								state.generation,
-								id,
-							)));
+							let mut popup = egui::Popup::menu(&menu).id(popup_id);
 							if context_menu {
 								popup = popup.open_memory(Some(egui::SetOpenCommand::Bool(true)));
 							}
@@ -7631,13 +7673,23 @@ mod tests {
 				.any(|(text, _)| text == &crate::i18n::translate("message-menu-copy")),
 			"the focused row anchor must actually paint menu content: {menu_items:?}"
 		);
+		// Releasing Shift brings More back, but the open menu stays on the row.
+		let anchored = ctx.memory(|memory| memory.area_rect(menu_id));
+		render(&mut view, &mut state, vec![], none);
+		render(&mut view, &mut state, vec![], none);
+		assert!(egui::Popup::is_id_open(&ctx, menu_id));
+		assert_eq!(ctx.memory(|memory| memory.area_rect(menu_id)), anchored);
 	}
 	#[test]
 	fn translation_urls_include_encoded_text_and_fit_native_external_link_limits() {
+		let mut short = text_message(42);
+		short.content = "hola".into();
+		assert!(!translation_url(&short).expect("short text fits").1);
 		for content in ["x".repeat(4000), "🦀".repeat(1000)] {
 			let mut message = text_message(42);
 			message.content = content;
-			let target = translation_url(&message).expect("some text should fit");
+			let (target, truncated) = translation_url(&message).expect("some text should fit");
+			assert!(truncated, "a shortened translation must be disclosed");
 			assert!(target.len() <= 2048, "{} bytes", target.len());
 			let target = url::Url::parse(&target).unwrap();
 			assert!(

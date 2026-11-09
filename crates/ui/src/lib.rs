@@ -4701,11 +4701,17 @@ impl MessagingUi {
 				Err(message) => state.status = message,
 			}
 		}
-		markdown::confirm_external_link(
+		let truncated = self.timeline.truncated_translation.is_some()
+			&& self.timeline.truncated_translation == self.timeline.browser_opening;
+		markdown::confirm_external_link_noting(
 			&ctx,
 			&mut self.timeline.browser_opening,
 			self.reading_preferences.confirm_external_links,
+			truncated,
 		);
+		if !truncated || self.timeline.browser_opening.is_none() {
+			self.timeline.truncated_translation = None;
+		}
 		markdown::confirm_external_link(
 			&ctx,
 			&mut self.timeline.opening,

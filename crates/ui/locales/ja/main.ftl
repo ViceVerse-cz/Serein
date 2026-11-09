@@ -1690,6 +1690,8 @@ markdown-confirm-external-link-open-external-link = 外部リンクを開きま�
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = ブラウザで開く
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = リンクに収まるのはこのメッセージの先頭部分だけで、残りは送信されません。このリンク先は既定のブラウザーで開きます。
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = この宛先はデフォルトのブラウザで開きます。
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = 絵文字をコピーする

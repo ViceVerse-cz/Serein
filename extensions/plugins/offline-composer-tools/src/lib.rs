@@ -109,9 +109,10 @@ fn find_url_start(text: &str, from: usize) -> Option<usize> {
 fn url_candidate_end(text: &str, start: usize) -> usize {
 	// A URL that begins a Markdown link target ends at the parenthesis that closes
 	// the link, not at the first whitespace. Balanced parentheses inside the URL
-	// stay part of it.
+	// stay part of it, and a Markdown-escaped `\(` or `\)` never changes the depth.
 	let markdown_link = text[..start].ends_with("](");
 	let mut depth = 0usize;
+	let mut escaped = false;
 	let mut end = start;
 	for (offset, character) in text[start..].char_indices() {
 		if character.is_whitespace() || matches!(character, '<' | '>' | '"' | '`') {
@@ -119,6 +120,8 @@ fn url_candidate_end(text: &str, start: usize) -> usize {
 		}
 		if markdown_link {
 			match character {
+				_ if escaped => escaped = false,
+				'\\' => escaped = true,
 				'(' => depth += 1,
 				')' if depth == 0 => break,
 				')' => depth -= 1,
@@ -140,7 +143,16 @@ fn trimmed_url_end(text: &str, start: usize, mut end: usize) -> usize {
 			.chars()
 			.next_back()
 			.expect("nonempty URL candidate");
+		// A Markdown-escaped closer belongs to the URL; an even run of backslashes escapes
+		// only itself, so `\\\\)` still ends with a real closer.
+		let escaped_closer = matches!(character, ')' | ']' | '}')
+			&& text.as_bytes()[start..end - 1]
+				.iter()
+				.rev()
+				.take_while(|&&byte| byte == b'\\')
+				.count() % 2 == 1;
 		let trim = match character {
+			_ if escaped_closer => false,
 			'.' | ',' | ';' | ':' | '!' | '?' | '\'' => true,
 			')' => trim_closer(&mut parens),
 			']' => trim_closer(&mut brackets),
@@ -634,6 +646,17 @@ mod tests {
 		let cleaned = clear_urls(draft);
 		assert_eq!(cleaned, expected);
 		assert_eq!(clear_urls(&cleaned), cleaned);
+
+		// An escaped parenthesis inside the target neither opens nor closes the link.
+		let draft =
+			r"[x](https://e.test/a_\(b?utm_source=y)next [y](https://e.test/c\)?utm_source=z) tail";
+		let expected = r"[x](https://e.test/a_\(b)next [y](https://e.test/c\)) tail";
+		assert_eq!(clear_urls(draft), expected);
+		// An escaped backslash leaves the following closer as prose.
+		assert_eq!(
+			clear_urls(r"(see https://e.test/a?utm_source=x\\)"),
+			r"(see https://e.test/a)"
+		);
 
 		// A long run of unmatched closers is trimmed without rescanning the whole
 		// candidate for every removed byte.

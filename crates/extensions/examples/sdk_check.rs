@@ -611,6 +611,47 @@ fn check_safe_ports(catalog_wasm_dir: &Path) -> Result<(), Box<dyn std::error::E
 			!panel.panel.is_empty(),
 			"settings panel must validate and open"
 		);
+		// Saving goes through the same host validation, so element IDs the host rejects
+		// would fail here even when the plugin's own tests pass.
+		let saved = invoke(
+			module,
+			&Invocation {
+				action: "save".into(),
+				values: [
+					("provider", "DeepL"),
+					("target-language", "cs"),
+					("search-engine", "Wikipedia"),
+				]
+				.into_iter()
+				.map(|(id, value)| (id.into(), value.into()))
+				.collect(),
+				..Default::default()
+			},
+		)?;
+		assert!(saved.storage.is_some(), "settings must save");
+	}
+	// A saved entry longer than one select option must still save and reopen the panel.
+	let long_tag = serde_json::json!({
+		"rules": [{"find": "é".repeat(200), "replace": "x", "only_if_includes": "y".repeat(200)}],
+		"tags": [{"name": "greet", "message": "m".repeat(128)}]
+	})
+	.to_string();
+	for module in [&text_commands, &text_committed] {
+		let panel = invoke(
+			module,
+			&Invocation {
+				action: "open".into(),
+				storage: Some(long_tag.clone()),
+				..Default::default()
+			},
+		)?;
+		assert!(
+			panel
+				.panel
+				.iter()
+				.any(|element| matches!(element, Element::Select { .. })),
+			"text-commands must list long saved entries"
+		);
 	}
 	Ok(())
 }
