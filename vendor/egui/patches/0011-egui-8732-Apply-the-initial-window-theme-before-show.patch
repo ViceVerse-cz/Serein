@@ -1,0 +1,170 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Mon, 9 Nov 2026 13:03:10 +0100
+Subject: [PATCH] egui#8732: Apply the initial window theme before showing all
+ viewports
+
+Squashed from https://github.com/emilk/egui/pull/8732 at 64be752c4f9d.
+---
+ crates/eframe/src/native/glow_integration.rs | 19 ++++++-
+ crates/eframe/src/native/wgpu_integration.rs | 11 ++++
+ crates/egui-winit/src/lib.rs                 | 53 +++++++++++++++-----
+ 3 files changed, 70 insertions(+), 13 deletions(-)
+
+diff --git a/crates/eframe/src/native/glow_integration.rs b/crates/eframe/src/native/glow_integration.rs
+index 098536f55..59567badd 100644
+--- a/crates/eframe/src/native/glow_integration.rs
++++ b/crates/eframe/src/native/glow_integration.rs
+@@ -225,6 +225,7 @@ fn create_window_for_viewport(
+             glutin_winit::finalize_window(event_loop, window_attributes, gl_config)?
+         }
+     };
++    egui_winit::set_window_theme_from_egui(egui_ctx, &window);
+     egui_winit::apply_viewport_builder_to_window(egui_ctx, &window, builder);
+ 
+     let mut viewport_info = ViewportInfo::default();
+@@ -408,13 +409,13 @@ impl<'app> GlowWinitApp<'app> {
+ 
+         crate::maybe_attach_inspection_plugin(&integration.egui_ctx, Some(self.app_name.clone()));
+ 
++        let window = glutin.window(ViewportId::ROOT);
+         let app: Box<dyn 'app + App> = {
+             // Use latest raw_window_handle for eframe compatibility
+             use raw_window_handle::{HasDisplayHandle as _, HasWindowHandle as _};
+ 
+             let gl_config = glutin.gl_config.clone();
+             let get_proc_address = move |addr: &_| gl_config.display().get_proc_address(addr);
+-            let window = glutin.window(ViewportId::ROOT);
+             let cc = CreationContext {
+                 egui_ctx: integration.egui_ctx.clone(),
+                 integration_info: integration.frame.info().clone(),
+@@ -431,6 +432,22 @@ impl<'app> GlowWinitApp<'app> {
+             app_creator(&cc).map_err(crate::Error::AppCreation)?
+         };
+ 
++        // Apply the app's initial theme before the hidden root window is first shown.
++        if integration
++            .egui_ctx
++            .options(|options| options.sync_window_theme)
++        {
++            let theme = integration
++                .egui_ctx
++                .options(|options| options.theme_preference);
++            let window_theme = match theme {
++                egui::ThemePreference::Dark => egui::SystemTheme::Dark,
++                egui::ThemePreference::Light => egui::SystemTheme::Light,
++                egui::ThemePreference::System => egui::SystemTheme::SystemDefault,
++            };
++            egui_winit::set_window_theme(&window, window_theme);
++        }
++
+         let glutin = Rc::new(RefCell::new(glutin));
+ 
+         {
+diff --git a/crates/eframe/src/native/wgpu_integration.rs b/crates/eframe/src/native/wgpu_integration.rs
+index 952f337ed..f58f30755 100644
+--- a/crates/eframe/src/native/wgpu_integration.rs
++++ b/crates/eframe/src/native/wgpu_integration.rs
+@@ -345,6 +345,17 @@ impl<'app> WgpuWinitApp<'app> {
+             app_creator(&cc).map_err(crate::Error::AppCreation)?
+         };
+ 
++        // Apply the app's initial theme before the hidden root window is first shown.
++        if egui_ctx.options(|options| options.sync_window_theme) {
++            let theme = egui_ctx.options(|options| options.theme_preference);
++            let window_theme = match theme {
++                egui::ThemePreference::Dark => egui::SystemTheme::Dark,
++                egui::ThemePreference::Light => egui::SystemTheme::Light,
++                egui::ThemePreference::System => egui::SystemTheme::SystemDefault,
++            };
++            egui_winit::set_window_theme(&window, window_theme);
++        }
++
+         let mut viewport_from_window = HashMap::default();
+         viewport_from_window.insert(window.id(), ViewportId::ROOT);
+ 
+diff --git a/crates/egui-winit/src/lib.rs b/crates/egui-winit/src/lib.rs
+index 159942407..92e8375be 100644
+--- a/crates/egui-winit/src/lib.rs
++++ b/crates/egui-winit/src/lib.rs
+@@ -2162,18 +2162,7 @@ fn process_viewport_command(
+                 }
+             });
+         }
+-        ViewportCommand::SetTheme(t) => {
+-            window.set_theme(match t {
+-                egui::SystemTheme::Light => Some(winit::window::Theme::Light),
+-                egui::SystemTheme::Dark => Some(winit::window::Theme::Dark),
+-                egui::SystemTheme::SystemDefault => None,
+-            });
+-
+-            #[cfg(target_os = "windows")]
+-            {
+-                refresh_windows_non_client_activation(window);
+-            }
+-        }
++        ViewportCommand::SetTheme(t) => set_window_theme(window, t),
+         ViewportCommand::ContentProtected(v) => window.set_content_protected(v),
+         ViewportCommand::CursorPosition(pos) => {
+             if let Err(err) = window.set_cursor_position(PhysicalPosition::new(
+@@ -2244,6 +2233,7 @@ pub fn create_window(
+     );
+ 
+     let window = event_loop.create_window(window_attributes)?;
++    set_window_theme_from_egui(egui_ctx, &window);
+     apply_viewport_builder_to_window(egui_ctx, &window, viewport_builder);
+     Ok(window)
+ }
+@@ -2365,6 +2355,14 @@ pub fn create_winit_window_attributes(
+         })
+         .with_active(active.unwrap_or(true));
+ 
++    if let Some(theme) = egui_window_theme(egui_ctx) {
++        window_attributes = window_attributes.with_theme(match theme {
++            egui::SystemTheme::Light => Some(winit::window::Theme::Light),
++            egui::SystemTheme::Dark => Some(winit::window::Theme::Dark),
++            egui::SystemTheme::SystemDefault => None,
++        });
++    }
++
+     // Here and below: we create `LogicalSize` / `LogicalPosition` taking
+     // zoom factor into account. We don't have a good way to get physical size here,
+     // and trying to do it anyway leads to weird bugs on Wayland, see:
+@@ -2630,6 +2628,37 @@ fn set_maximized_while_hidden(window: &winit::window::Window) {
+     }
+ }
+ 
++fn egui_window_theme(egui_ctx: &egui::Context) -> Option<egui::SystemTheme> {
++    egui_ctx.options(|options| {
++        options
++            .sync_window_theme
++            .then_some(match options.theme_preference {
++                egui::ThemePreference::Dark => egui::SystemTheme::Dark,
++                egui::ThemePreference::Light => egui::SystemTheme::Light,
++                egui::ThemePreference::System => egui::SystemTheme::SystemDefault,
++            })
++    })
++}
++
++/// Applies the current egui theme to a native window when theme synchronization is enabled.
++pub fn set_window_theme_from_egui(egui_ctx: &egui::Context, window: &winit::window::Window) {
++    if let Some(theme) = egui_window_theme(egui_ctx) {
++        set_window_theme(window, theme);
++    }
++}
++
++/// Applies an egui system theme to a native window, including the Windows non-client refresh.
++pub fn set_window_theme(window: &winit::window::Window, theme: egui::SystemTheme) {
++    window.set_theme(match theme {
++        egui::SystemTheme::Light => Some(winit::window::Theme::Light),
++        egui::SystemTheme::Dark => Some(winit::window::Theme::Dark),
++        egui::SystemTheme::SystemDefault => None,
++    });
++
++    #[cfg(target_os = "windows")]
++    refresh_windows_non_client_activation(window);
++}
++
+ #[cfg(target_os = "windows")]
+ fn refresh_windows_non_client_activation(window: &winit::window::Window) {
+     use raw_window_handle::{HasWindowHandle as _, RawWindowHandle};

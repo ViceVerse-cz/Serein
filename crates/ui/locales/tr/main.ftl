@@ -1690,6 +1690,8 @@ markdown-confirm-external-link-open-external-link = Harici bağlantı açılsın
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Tarayıcıda Aç
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Bağlantıya bu mesajın yalnızca başı sığıyor; geri kalanı gönderilmez. Bu hedef varsayılan tarayıcınızda açılır.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Bu hedef varsayılan tarayıcınızda açılır.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Emojiyi kopyala
@@ -2274,6 +2276,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Mac'inizin o
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Bir pencereyi paylaşırken bile diğer uygulamalardaki sesi paylaşın. Serein'in kendi sesi dışarıda bırakıldı.
 # Context: body
 screen-body-share-system-audio = Sistem sesini paylaş
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Paylaşılan uygulamanın sesini veya ekran paylaşırken diğer tüm uygulamaların sesini paylaşın. Serein'in kendi sesi dahil edilmez.
 # Context: body
 screen-body-show-cursor = İmleci göster
 # Context: body
@@ -4498,6 +4502,8 @@ voice-recipient-not-in-call = Aramada değil
 
 
 reconnect-now = Şimdi yeniden bağlan
+
+message-preview-limit = Bu mesaj, yerel metin düzeni sınırını aşıyor.
 
 voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi
 

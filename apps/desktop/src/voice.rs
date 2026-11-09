@@ -288,14 +288,12 @@ fn store_camera_frame(picture: &mut CameraPicture, rgb: &[u8]) -> bool {
 	}
 	let (image, dirty) =
 		picture.get_or_insert_with(|| (Arc::new(egui::ColorImage::default()), false));
-	if let Some(image) = Arc::get_mut(image) {
-		image.size = size;
-		image.source_size = egui::vec2(size[0] as f32, size[1] as f32);
-		image.pixels.clear();
-		image.pixels.extend(
-			rgb.chunks_exact(3)
-				.map(|pixel| egui::Color32::from_rgb(pixel[0], pixel[1], pixel[2])),
-		);
+	if let Some(image) = Arc::get_mut(image)
+		&& image.resolution() == size
+	{
+		for (pixel, rgb) in image.pixels_mut().iter_mut().zip(rgb.chunks_exact(3)) {
+			*pixel = egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+		}
 	} else {
 		*image = Arc::new(egui::ColorImage::from_rgb(size, rgb));
 	}

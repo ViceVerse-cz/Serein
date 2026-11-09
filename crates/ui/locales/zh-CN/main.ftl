@@ -1705,6 +1705,8 @@ markdown-confirm-external-link-open-external-link = 要打开外部链接吗？
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = 在浏览器中开启
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = 链接中只能放入此消息的开头部分，其余内容不会发送。此链接将在默认浏览器中打开。
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = 这个链接会用你的默认浏览器开启。
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = 复制表情符号
@@ -2304,6 +2306,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = 连同画面
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = 即使只分享一个窗口，也能送出其他应用程序的声音。不含 Serein 本身的音频。
 # Context: body
 screen-body-share-system-audio = 分享系统音频
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = 共享所共享应用的声音；共享屏幕时则共享其他所有应用的声音。Serein 自身的音频不会包含在内。
 # Context: body
 screen-body-show-cursor = 显示光标
 # Context: body
@@ -4709,6 +4713,7 @@ profiles-activity-empty = 暂无共享活动。
 profiles-mutuals-empty = 这里没有可显示的内容。
 
 reading-double-click-reaction = 双击回应
+message-preview-limit = 此消息超出原生文本排版的限制。
 
 ## crates/platform/src/app_menu.rs
 # Context: macos_menu_bar

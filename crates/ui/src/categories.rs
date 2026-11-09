@@ -406,7 +406,7 @@ fn category_header(
 		color,
 	);
 	let mut job = egui::text::LayoutJob::simple_singleline(
-		name.to_uppercase(),
+		crate::emoji::presentation(name).to_uppercase(),
 		egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx())),
 		color,
 	);
@@ -666,7 +666,7 @@ impl MessagingUi {
 			}
 			let mut participants = BTreeMap::<Id, Vec<_>>::new();
 			for entry in &state.voice.roster {
-				if Some(entry.guild) == self.guild && state.can_view(entry.channel) {
+				if Some(entry.guild) == self.guild {
 					participants.entry(entry.channel).or_default().push(entry);
 				}
 			}
@@ -1177,7 +1177,9 @@ impl MessagingUi {
 									),
 								);
 							}
-							let mut label = String::from(state.conversation_name(channel));
+							let mut label =
+								crate::emoji::presentation(state.conversation_name(channel))
+									.into_owned();
 							if !enabled && visible {
 								label.push_str(" · unavailable");
 							}
@@ -2707,6 +2709,65 @@ mod tests {
 				.any(|(rect, fill)| *fill == hover_color && rect.contains(egui::pos2(20.0, 66.0))),
 			"row highlight must be painted when pointer hovers over the avatar widget"
 		);
+	}
+
+	#[test]
+	fn long_voice_channel_names_use_one_elided_row() {
+		fn find<'a>(shape: &'a egui::Shape, text: &str) -> Option<&'a egui::Galley> {
+			match shape {
+				egui::Shape::Text(text_shape) if text_shape.galley.job.text == text => {
+					Some(text_shape.galley.as_ref())
+				}
+				egui::Shape::Vec(children) => children.iter().find_map(|shape| find(shape, text)),
+				_ => None,
+			}
+		}
+
+		let long = "Quiet room with a deliberately long name that must not wrap";
+		let mut state = test_support::voice_demo_state();
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == Id(25))
+			.unwrap()
+			.name = long.into();
+		state.invalidate_navigation();
+		let mut view = MessagingUi {
+			guild: Some(Id(10)),
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(180.0, 1600.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				view.channel_list(ui, &mut state);
+			},
+		);
+		let galley = output
+			.shapes
+			.iter()
+			.find_map(|shape| find(&shape.shape, long))
+			.unwrap_or_else(|| {
+				let texts: Vec<_> = output
+					.shapes
+					.iter()
+					.filter_map(|shape| match &shape.shape {
+						egui::Shape::Text(text) => Some(text.galley.job.text.clone()),
+						_ => None,
+					})
+					.collect();
+				panic!("voice channel name missing; texts: {texts:?}");
+			});
+		let (elided, rows) = (galley.elided, galley.rows.len());
+		output.drop_without_applying_deltas();
+		assert!(elided, "long voice channel names should end in an ellipsis");
+		assert_eq!(rows, 1, "voice channel rows hold a single line");
 	}
 
 	#[test]
