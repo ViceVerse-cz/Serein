@@ -4580,7 +4580,15 @@ fn paint_collectibles(
 			hovered,
 			0.2,
 		);
-		avatars.paint_effect(ui, effect, card, elapsed, 1.0 - 0.75 * fade, demo);
+		avatars.paint_effect(
+			ui,
+			effect,
+			card,
+			f32::from(RADIUS),
+			elapsed,
+			1.0 - 0.75 * fade,
+			demo,
+		);
 	}
 	let Some(frame) = data.frame.as_deref().filter(|_| avatars.cosmetics.frames) else {
 		return;

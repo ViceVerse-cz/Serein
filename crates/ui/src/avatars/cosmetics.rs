@@ -31,13 +31,13 @@ fn clipped(texture: &TextureHandle, rect: Rect, clip: Rect, tint: Color32) -> Op
 	Some(Shape::image(texture.id(), visible, uv, tint))
 }
 
-/// Rounded rectangle filled with a left-to-right gradient.
-fn horizontal_gradient(rect: Rect, radius: f32, left: Color32, right: Color32) -> Shape {
+/// Clockwise outline of `rect` with corners rounded by `radius`, starting at the top right.
+fn rounded_outline(rect: Rect, radius: f32) -> Vec<Pos2> {
 	let radius = radius
 		.min(rect.width() * 0.5)
 		.min(rect.height() * 0.5)
 		.max(0.0);
-	let mut outline: Vec<Pos2> = Vec::with_capacity(40);
+	let mut outline: Vec<Pos2> = Vec::with_capacity(36);
 	let corners = [
 		(pos2(rect.right() - radius, rect.top() + radius), -90.0_f32),
 		(pos2(rect.right() - radius, rect.bottom() - radius), 0.0),
@@ -50,6 +50,70 @@ fn horizontal_gradient(rect: Rect, radius: f32, left: Color32, right: Color32) -
 			outline.push(center + vec2(angle.cos(), angle.sin()) * radius);
 		}
 	}
+	outline
+}
+
+/// Image mesh showing only the part of `rect` inside `clip` and the rounded `card`, so effect
+/// artwork follows the card's corners. egui clips by rectangle alone.
+fn clipped_rounded(
+	texture: &TextureHandle,
+	rect: Rect,
+	clip: Rect,
+	(card, radius): (Rect, f32),
+	tint: Color32,
+) -> Option<Shape> {
+	let visible = rect.intersect(clip);
+	if !visible.is_positive() || !rect.is_positive() {
+		return None;
+	}
+	// Sutherland–Hodgman against the convex outline, which runs clockwise on screen.
+	let mut polygon = vec![
+		visible.left_top(),
+		visible.right_top(),
+		visible.right_bottom(),
+		visible.left_bottom(),
+	];
+	let outline = rounded_outline(card, radius);
+	for (index, &a) in outline.iter().enumerate() {
+		let b = outline[(index + 1) % outline.len()];
+		let edge = b - a;
+		let side = |p: Pos2| edge.x * (p.y - a.y) - edge.y * (p.x - a.x);
+		let input = std::mem::take(&mut polygon);
+		for (at, &p) in input.iter().enumerate() {
+			let q = input[(at + 1) % input.len()];
+			let (sp, sq) = (side(p), side(q));
+			if sp >= 0.0 {
+				polygon.push(p);
+			}
+			if (sp >= 0.0) != (sq >= 0.0) {
+				polygon.push(p + (q - p) * (sp / (sp - sq)));
+			}
+		}
+		if polygon.len() < 3 {
+			return None;
+		}
+	}
+	let mut mesh = egui::Mesh::with_texture(texture.id());
+	for point in &polygon {
+		let uv = pos2(
+			(point.x - rect.min.x) / rect.width(),
+			(point.y - rect.min.y) / rect.height(),
+		);
+		mesh.vertices.push(egui::epaint::Vertex {
+			pos: *point,
+			uv,
+			color: tint,
+		});
+	}
+	for index in 1..polygon.len() as u32 - 1 {
+		mesh.add_triangle(0, index, index + 1);
+	}
+	Some(Shape::mesh(mesh))
+}
+
+/// Rounded rectangle filled with a left-to-right gradient.
+fn horizontal_gradient(rect: Rect, radius: f32, left: Color32, right: Color32) -> Shape {
+	let outline = rounded_outline(rect, radius);
 	let color = |x: f32| {
 		let t = ((x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
 		left.lerp_to_gamma(right, t)
@@ -248,12 +312,15 @@ impl Avatars {
 	/// Effect layers over a card. `elapsed` counts from when the layers were ready; nothing shows
 	/// before then, so the still (the effect's end state) never flashes ahead of the animation.
 	/// Only disabled motion or a layerless effect shows the still. One-shot files hold their
-	/// last frame; `opacity` fades the effect while the card is hovered.
+	/// last frame; `opacity` fades the effect while the card is hovered. Layers stay inside the
+	/// card's `radius` corners.
+	#[allow(clippy::too_many_arguments)]
 	pub(crate) fn paint_effect(
 		&mut self,
 		ui: &egui::Ui,
 		effect: &ProfileEffect,
 		card: Rect,
+		radius: f32,
 		elapsed: Option<Duration>,
 		opacity: f32,
 		demo: bool,
@@ -274,9 +341,13 @@ impl Avatars {
 		if !self.animate_gifs || effect.layers.is_empty() {
 			if let Some(still) = &effect.still
 				&& let Some(texture) = self.cosmetic(ui.ctx(), &still.still_key(), demo)
-				&& let Some(shape) =
-					clipped(&texture, place([0, 0], model::EFFECT_CANVAS), clip, tint)
-			{
+				&& let Some(shape) = clipped_rounded(
+					&texture,
+					place([0, 0], model::EFFECT_CANVAS),
+					clip,
+					(card, radius),
+					tint,
+				) {
 				painter.add(shape);
 			}
 			return;
@@ -326,7 +397,8 @@ impl Avatars {
 				}
 			}
 			.unwrap_or(still);
-			if let Some(shape) = clipped(&texture, place(layer.position, layer.size), clip, tint) {
+			let rect = place(layer.position, layer.size);
+			if let Some(shape) = clipped_rounded(&texture, rect, clip, (card, radius), tint) {
 				painter.add(shape);
 			}
 		}
