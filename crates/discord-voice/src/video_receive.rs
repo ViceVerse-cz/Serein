@@ -866,7 +866,7 @@ fn record_decode_time(counters: &DecoderCounters, elapsed: std::time::Duration) 
 	let value = elapsed.as_micros().min(100_000) as u64;
 	let _ = counters
 		.decode_us
-		.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
+		.try_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
 			Some(value.max(old.saturating_mul(99) / 100))
 		});
 }
