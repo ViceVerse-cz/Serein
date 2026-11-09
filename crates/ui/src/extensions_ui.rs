@@ -3743,11 +3743,18 @@ mod tests {
 				data: None,
 			},
 		)];
-		for (input, activation) in [
-			("primary click", None),
-			("Enter", Some(key(egui::Key::Enter))),
-			("Space", Some(key(egui::Key::Space))),
-			("screen reader click", Some(accessible_click)),
+		// `true`: the keyboard focus is first moved onto the chip; `false`: it stays elsewhere,
+		// as when a screen reader clicks a control the user never tabbed to.
+		for (input, activation, focused) in [
+			("primary click", None, false),
+			("Enter", Some(key(egui::Key::Enter)), true),
+			("Space", Some(key(egui::Key::Space)), true),
+			("screen reader click", Some(accessible_click.clone()), true),
+			(
+				"unfocused screen reader click",
+				Some(accessible_click),
+				false,
+			),
 		] {
 			for _ in 0..3 {
 				if !egui::Popup::is_any_open(&ctx) {
@@ -3760,14 +3767,18 @@ mod tests {
 				"{input}: menu closed first"
 			);
 			let texts = frame(&mut shop, vec![]);
-			let events = match activation {
-				Some(events) => {
-					ctx.memory_mut(|memory| memory.request_focus(chip_id));
-					frame(&mut shop, vec![]);
-					events
-				}
-				None => press_at(chip(&texts)),
-			};
+			if focused {
+				ctx.memory_mut(|memory| memory.request_focus(chip_id));
+				frame(&mut shop, vec![]);
+			} else {
+				ctx.memory_mut(|memory| memory.surrender_focus(chip_id));
+				frame(&mut shop, vec![]);
+				assert!(
+					!ctx.memory(|memory| memory.has_focus(chip_id)),
+					"{input}: the chip is not focused"
+				);
+			}
+			let events = activation.unwrap_or_else(|| press_at(chip(&texts)));
 			let texts = frame(&mut shop, events);
 			let texts = menu_open(&mut shop, texts);
 			assert!(
