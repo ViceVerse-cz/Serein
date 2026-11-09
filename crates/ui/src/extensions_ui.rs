@@ -119,6 +119,96 @@ pub enum ExtensionRequest {
 	},
 }
 
+const CONTEXT_ACTIONS: &str = "extension-context-actions";
+const CONTEXT_CHOICE: &str = "extension-context-choice";
+/// The session the published menu entries belong to, stored with a choice so that a choice
+/// made before an account or connection change is dropped instead of run for the new one.
+const CONTEXT_SESSION: &str = "extension-context-session";
+
+/// A plugin menu action chosen this frame, with what it was chosen on and for which session.
+type MenuChoice = (MenuAction, extensions::MenuTarget, ExtensionContext);
+
+/// Adds an "Extensions" submenu for `target` to a user, channel or server menu, when any
+/// enabled plugin declares an action for that menu. The choice is dispatched next frame.
+pub(crate) fn context_menu_items(ui: &mut egui::Ui, target: extensions::MenuTarget) {
+	context_menu_targets(ui, std::slice::from_ref(&target));
+}
+
+/// One "Extensions" submenu listing plugin actions for each of `targets` in order, for a row
+/// that is several things at once (a DM row is both a user and a channel). When more than one
+/// target has actions, each group is headed by what it acts on, so equal labels stay distinct.
+/// Absent when no enabled plugin offers an action for any of them.
+pub(crate) fn context_menu_targets(ui: &mut egui::Ui, targets: &[extensions::MenuTarget]) {
+	let offered: Vec<_> = targets
+		.iter()
+		.filter(|target| has_context_actions(ui.ctx(), target.surface()))
+		.collect();
+	if offered.is_empty() {
+		return;
+	}
+	ui.menu_button(
+		crate::i18n::translate("timeline-message-actions-extensions"),
+		|ui| {
+			for (index, target) in offered.iter().enumerate() {
+				if offered.len() > 1 {
+					if index > 0 {
+						ui.separator();
+					}
+					let heading = match target.surface() {
+						Surface::User => "extensions-ui-menu-group-user",
+						_ => "extensions-ui-menu-group-conversation",
+					};
+					ui.label(
+						egui::RichText::new(crate::i18n::translate(heading))
+							.small()
+							.color(crate::design::palette(ui).muted),
+					);
+				}
+				context_menu_entries(ui, target);
+			}
+		},
+	);
+	ui.separator();
+}
+
+fn context_actions(ctx: &egui::Context) -> Arc<Vec<(Surface, MenuAction)>> {
+	ctx.data(|data| {
+		data.get_temp::<Arc<Vec<(Surface, MenuAction)>>>(egui::Id::unique(CONTEXT_ACTIONS))
+	})
+	.unwrap_or_default()
+}
+
+/// Whether any enabled plugin offers an action in menus of this kind.
+pub(crate) fn has_context_actions(ctx: &egui::Context, surface: Surface) -> bool {
+	context_actions(ctx).iter().any(|(s, _)| *s == surface)
+}
+
+/// One button per enabled plugin action for `target`, for menus that hold nothing else.
+pub(crate) fn context_menu_entries(ui: &mut egui::Ui, target: &extensions::MenuTarget) {
+	let surface = target.surface();
+	let session = ui
+		.ctx()
+		.data(|data| data.get_temp::<ExtensionContext>(egui::Id::unique(CONTEXT_SESSION)));
+	let Some(session) = session else {
+		return;
+	};
+	for (_, action) in context_actions(ui.ctx())
+		.iter()
+		.filter(|(s, _)| *s == surface)
+	{
+		if ui.button(&action.label).clicked() {
+			ui.ctx().data_mut(|data| {
+				data.insert_temp::<Option<MenuChoice>>(
+					egui::Id::unique(CONTEXT_CHOICE),
+					Some((action.clone(), target.clone(), session.clone())),
+				);
+			});
+			ui.ctx().request_repaint();
+			ui.close();
+		}
+	}
+}
+
 /// The message a menu action was chosen on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct MessageTarget {
@@ -174,6 +264,8 @@ pub struct ExtensionUi {
 	result: Option<ResultPanel>,
 	error: Option<String>,
 	message_actions: Arc<Vec<MenuAction>>,
+	/// User, channel, server and role menu entries, published to menus each frame.
+	context_actions: Arc<Vec<(Surface, MenuAction)>>,
 	themes: bool,
 	query: String,
 	previews: BTreeMap<String, PreviewImage>,
@@ -477,6 +569,8 @@ impl ExtensionUi {
 			self.theme_editor = Some(editor);
 		}
 	}
+	/// Replaces the gallery entries, dropping consent and previews they invalidated, and rebuilds
+	/// the plugin actions offered in message and context menus.
 	pub fn set_entries(&mut self, entries: Vec<ExtensionEntry>) {
 		if self.consent.as_ref().is_some_and(|consent| {
 			consent.entry.reviewed
@@ -518,6 +612,66 @@ impl ExtensionUi {
 				})
 				.collect(),
 		);
+		self.context_actions = Arc::new(
+			self.entries
+				.iter()
+				.filter(|entry| entry.enabled)
+				.flat_map(|entry| {
+					entry
+						.manifest
+						.actions
+						.iter()
+						.filter(|action| action.surface.is_context_menu())
+						.map(|action| {
+							(
+								action.surface,
+								MenuAction {
+									plugin: entry.manifest.id.clone(),
+									action: action.id.clone(),
+									label: format!("{} · {}", entry.manifest.name, action.label),
+								},
+							)
+						})
+				})
+				.collect(),
+		);
+	}
+	/// Publish this frame's context-menu entries and dispatch one chosen last frame, unless
+	/// the account or connection it was chosen in has changed since.
+	pub(crate) fn context_menus(&mut self, ctx: &egui::Context, state: &State) {
+		let chosen = ctx.data_mut(|data| {
+			let chosen = data
+				.get_temp::<Option<MenuChoice>>(egui::Id::unique(CONTEXT_CHOICE))
+				.flatten();
+			data.remove::<Option<MenuChoice>>(egui::Id::unique(CONTEXT_CHOICE));
+			data.insert_temp(
+				egui::Id::unique(CONTEXT_ACTIONS),
+				self.context_actions.clone(),
+			);
+			data.insert_temp(
+				egui::Id::unique(CONTEXT_SESSION),
+				ExtensionContext::panel(state),
+			);
+			chosen
+		});
+		if let Some((action, target, context)) = chosen {
+			if !context.is_current(state) {
+				self.status = "Menu action discarded because the account changed.".into();
+				return;
+			}
+			self.queue(
+				ctx,
+				ExtensionRequest::Invoke {
+					id: action.plugin,
+					invocation: Invocation {
+						action: action.action,
+						menu_target: Some(Box::new(target)),
+						..Default::default()
+					},
+					context,
+				},
+			);
+		}
 	}
 	/// Select the catalog tab in an offline native fixture.
 	#[cfg(any(test, feature = "demo"))]
@@ -2367,6 +2521,7 @@ impl ExtensionUi {
 			invocation.composer = None;
 			invocation.selected_message = None;
 			invocation.selected_message_ref = None;
+			invocation.menu_target = None;
 			invocation.values = result.values.clone();
 			self.queue(
 				ctx,
@@ -2437,6 +2592,10 @@ fn request_bytes(request: &ExtensionRequest) -> usize {
 					.selected_message_ref
 					.as_ref()
 					.map_or(0, |reference| reference.bytes())
+					+ invocation
+						.menu_target
+						.as_ref()
+						.map_or(0, |target| target.bytes())
 					+ invocation
 						.values
 						.iter()
@@ -2745,6 +2904,7 @@ fn badge(ui: &mut egui::Ui, text: &str, foreground: egui::Color32, background: e
 		.galley(rect.center() - galley.size() / 2.0, galley, foreground);
 }
 
+/// User-facing description of what granting a capability allows.
 fn capability_label(capability: Capability) -> &'static str {
 	match capability {
 		Capability::ApiProxy => {
@@ -2755,6 +2915,7 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::Appearance => "Customize app colors, typography and control styling",
 		Capability::MessageEvents => "Read live message events and text in the active conversation",
 		Capability::SelectedMessage => "Read the message I choose for an action",
+		Capability::ContextMenus => "Add actions to user, channel, server and role menus",
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
 		Capability::AppContext => "Read my account and current conversation details",
@@ -3054,6 +3215,589 @@ mod tests {
 			update_manifest: None,
 		}
 	}
+	/// Runs one frame that publishes context actions and draws `target`'s plugin entries, and
+	/// returns the drawn text with its screen rectangles.
+	fn context_frame(
+		ctx: &egui::Context,
+		shop: &mut ExtensionUi,
+		state: &State,
+		events: Vec<egui::Event>,
+		target: &extensions::MenuTarget,
+	) -> Vec<(String, egui::Rect)> {
+		menu_frame(ctx, shop, state, events, |ui| {
+			context_menu_items(ui, target.clone())
+		})
+	}
+
+	/// Runs one frame that publishes context actions and then draws `menu`, and returns the
+	/// drawn text with its screen rectangles.
+	fn menu_frame(
+		ctx: &egui::Context,
+		shop: &mut ExtensionUi,
+		state: &State,
+		events: Vec<egui::Event>,
+		mut menu: impl FnMut(&mut egui::Ui),
+	) -> Vec<(String, egui::Rect)> {
+		let input = egui::RawInput {
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(800.0, 600.0),
+			)),
+			events,
+			..Default::default()
+		};
+		let mut output = ctx.run_ui(input, |ui| {
+			shop.context_menus(ui.ctx(), state);
+			menu(ui);
+		});
+		output.textures_delta.clear();
+		let mut texts = Vec::new();
+		for clipped in &output.shapes {
+			let mut stack = vec![&clipped.shape];
+			while let Some(shape) = stack.pop() {
+				match shape {
+					egui::Shape::Text(text) => {
+						texts.push((text.galley.job.text.clone(), text.visual_bounding_rect()))
+					}
+					egui::Shape::Vec(shapes) => stack.extend(shapes),
+					_ => {}
+				}
+			}
+		}
+		texts
+	}
+
+	fn press_at(at: egui::Pos2) -> Vec<egui::Event> {
+		[true, false]
+			.into_iter()
+			.map(|pressed| egui::Event::PointerButton {
+				pos: at,
+				button: egui::PointerButton::Primary,
+				pressed,
+				modifiers: Default::default(),
+			})
+			.collect()
+	}
+
+	/// Checks that a menu choice runs with the session it was made in, and is dropped when
+	/// the account or connection changed before it was dispatched.
+	#[test]
+	fn context_menu_choice_is_bound_to_the_session_that_made_it() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let mut shop = ExtensionUi::default();
+		let mut enabled = entry();
+		enabled.enabled = true;
+		enabled.manifest.capabilities = vec![Capability::ContextMenus];
+		enabled.manifest.actions = vec![extensions::Action {
+			id: "copy".into(),
+			label: "Copy link".into(),
+			surface: Surface::Server,
+		}];
+		shop.set_entries(vec![enabled]);
+		let target = extensions::MenuTarget::Server {
+			guild_id: "10".into(),
+		};
+		// Each pass publishes the menu, draws the entry and clicks it when asked, then the
+		// next pass dispatches the choice.
+		let choose = |shop: &mut ExtensionUi, state: &State| {
+			let mut at = None;
+			for click in [false, true] {
+				let events = at.map(press_at).filter(|_| click).unwrap_or_default();
+				ctx.run_ui(
+					egui::RawInput {
+						events,
+						..Default::default()
+					},
+					|ui| {
+						shop.context_menus(ui.ctx(), state);
+						context_menu_entries(ui, &target);
+						at = Some(ui.min_rect().left_top() + egui::vec2(20.0, 10.0));
+					},
+				)
+				.drop_without_applying_deltas();
+			}
+		};
+		choose(&mut shop, &state);
+		ctx.run_ui(Default::default(), |ui| {
+			shop.context_menus(ui.ctx(), &state)
+		})
+		.drop_without_applying_deltas();
+		let [ExtensionRequest::Invoke { context, .. }] = shop.requests.as_slice() else {
+			panic!("one invocation queued: {}", shop.requests.len())
+		};
+		assert_eq!(context.generation, state.generation);
+		shop.requests.clear();
+		// A choice made before the session changed is not run for the new one.
+		choose(&mut shop, &state);
+		state.generation += 1;
+		ctx.run_ui(Default::default(), |ui| {
+			shop.context_menus(ui.ctx(), &state)
+		})
+		.drop_without_applying_deltas();
+		assert!(shop.requests.is_empty(), "stale choice dropped");
+		assert!(shop.status.contains("discarded"), "{}", shop.status);
+	}
+
+	/// Checks that only enabled plugins' actions for the clicked menu are listed and that choosing
+	/// one invokes the plugin once with the menu's target.
+	#[test]
+	fn context_menu_lists_enabled_actions_for_its_target_and_invokes_with_ids() {
+		let ctx = egui::Context::default();
+		let state = test_support::demo_state();
+		let mut shop = ExtensionUi::default();
+		let action = |id: &str, label: &str, surface| extensions::Action {
+			id: id.into(),
+			label: label.into(),
+			surface,
+		};
+		let mut enabled = entry();
+		enabled.enabled = true;
+		enabled.manifest.capabilities = vec![Capability::ContextMenus];
+		enabled.manifest.actions = vec![
+			action("copy", "Copy link", Surface::User),
+			action("server", "Server only", Surface::Server),
+		];
+		let mut disabled = entry();
+		disabled.manifest.id = "synthetic.off".into();
+		disabled.manifest.capabilities = vec![Capability::ContextMenus];
+		disabled.manifest.actions = vec![action("off", "Disabled thing", Surface::User)];
+		shop.set_entries(vec![enabled, disabled]);
+		let extensions_label = crate::i18n::translate("timeline-message-actions-extensions");
+		let user = extensions::MenuTarget::User {
+			user_id: "11".into(),
+			guild_id: Some("22".into()),
+			channel_id: None,
+		};
+		let channel = extensions::MenuTarget::Channel {
+			channel_id: "33".into(),
+			guild_id: None,
+		};
+		// Entries are published during the first frame and read by menus from then on.
+		context_frame(&ctx, &mut shop, &state, vec![], &channel);
+		let texts = context_frame(&ctx, &mut shop, &state, vec![], &channel);
+		assert!(
+			!texts.iter().any(|(text, _)| *text == extensions_label),
+			"no submenu without an action for this menu"
+		);
+		let texts = context_frame(&ctx, &mut shop, &state, vec![], &user);
+		let (_, submenu) = texts
+			.iter()
+			.find(|(text, _)| *text == extensions_label)
+			.expect("enabled user action adds the submenu");
+		let mut texts = context_frame(&ctx, &mut shop, &state, press_at(submenu.center()), &user);
+		for _ in 0..3 {
+			if texts.iter().any(|(text, _)| text.ends_with("Copy link")) {
+				break;
+			}
+			texts = context_frame(&ctx, &mut shop, &state, vec![], &user);
+		}
+		let (label, item) = texts
+			.iter()
+			.find(|(text, _)| text.ends_with("Copy link"))
+			.expect("submenu lists the user action")
+			.clone();
+		assert!(
+			!texts
+				.iter()
+				.any(|(text, _)| text.ends_with("Server only") || text.ends_with("Disabled thing")),
+			"only enabled actions for the clicked menu are listed"
+		);
+		assert_eq!(label, "Synthetic word tools · Copy link");
+		assert!(shop.requests.is_empty());
+		context_frame(&ctx, &mut shop, &state, press_at(item.center()), &user);
+		context_frame(&ctx, &mut shop, &state, vec![], &user);
+		let [ExtensionRequest::Invoke { id, invocation, .. }] = shop.requests.as_slice() else {
+			panic!("one invocation queued: {:?}", shop.requests.len())
+		};
+		assert_eq!(id, "synthetic.words");
+		assert_eq!(invocation.action, "copy");
+		assert_eq!(invocation.menu_target.as_deref(), Some(&user));
+		// The choice is consumed: later frames do not invoke again.
+		context_frame(&ctx, &mut shop, &state, vec![], &user);
+		assert_eq!(shop.requests.len(), 1);
+	}
+
+	/// Checks that a DM row's menu lists plugin user and channel actions for that DM, and that
+	/// a user action receives the DM's IDs rather than those of the open server channel.
+	#[test]
+	fn dm_row_menu_targets_the_clicked_dm_not_the_open_conversation() {
+		let ctx = egui::Context::default();
+		let state = test_support::demo_state();
+		let dm = state
+			.channels
+			.iter()
+			.find(|c| c.guild.is_none() && c.kind == 1)
+			.expect("demo has a one-to-one DM");
+		assert_ne!(state.selected, Some(dm.id), "a server channel is open");
+		let user = dm.recipients[0].clone();
+		let mut shop = ExtensionUi::default();
+		let mut enabled = entry();
+		enabled.enabled = true;
+		enabled.manifest.capabilities = vec![Capability::ContextMenus];
+		enabled.manifest.actions = vec![
+			extensions::Action {
+				id: "copy".into(),
+				label: "Copy link".into(),
+				surface: Surface::User,
+			},
+			extensions::Action {
+				id: "archive".into(),
+				label: "Archive DM".into(),
+				surface: Surface::Channel,
+			},
+		];
+		shop.set_entries(vec![enabled]);
+		let (mut profile, mut action) = (crate::profiles::ProfileSession::default(), None);
+		let mut frame = |shop: &mut ExtensionUi, events| {
+			menu_frame(&ctx, shop, &state, events, |ui| {
+				crate::user_menu::contents(
+					ui,
+					&state,
+					&user,
+					crate::user_menu::Place::Conversation(dm.id),
+					&mut profile,
+					&mut action,
+					None,
+				)
+			})
+		};
+		frame(&mut shop, vec![]);
+		let texts = frame(&mut shop, vec![]);
+		let extensions_label = crate::i18n::translate("timeline-message-actions-extensions");
+		let (_, submenu) = texts
+			.iter()
+			.find(|(text, _)| *text == extensions_label)
+			.expect("DM row offers the plugin submenu")
+			.clone();
+		let mut texts = frame(&mut shop, press_at(submenu.center()));
+		for _ in 0..3 {
+			if texts.iter().any(|(text, _)| text.ends_with("Archive DM")) {
+				break;
+			}
+			texts = frame(&mut shop, vec![]);
+		}
+		assert!(
+			texts.iter().any(|(text, _)| text.ends_with("Archive DM")),
+			"channel actions for the DM sit beside user actions"
+		);
+		for heading in [
+			"extensions-ui-menu-group-user",
+			"extensions-ui-menu-group-conversation",
+		] {
+			let heading = crate::i18n::translate(heading);
+			assert!(
+				texts.iter().any(|(text, _)| *text == heading),
+				"{heading} heads its group"
+			);
+		}
+		let (_, item) = texts
+			.iter()
+			.find(|(text, _)| text.ends_with("Copy link"))
+			.expect("user action listed")
+			.clone();
+		frame(&mut shop, press_at(item.center()));
+		frame(&mut shop, vec![]);
+		let [ExtensionRequest::Invoke { invocation, .. }] = shop.requests.as_slice() else {
+			panic!("one invocation queued: {:?}", shop.requests.len())
+		};
+		assert_eq!(
+			invocation.menu_target.as_deref(),
+			Some(&extensions::MenuTarget::User {
+				user_id: user.id.to_string(),
+				guild_id: None,
+				channel_id: Some(dm.id.to_string()),
+			})
+		);
+		// The channel action, chosen separately, targets the clicked DM too.
+		shop.requests.clear();
+		frame(&mut shop, vec![]);
+		let texts = frame(&mut shop, vec![]);
+		let (_, submenu) = texts
+			.iter()
+			.find(|(text, _)| *text == extensions_label)
+			.expect("DM row still offers the plugin submenu")
+			.clone();
+		let mut texts = frame(&mut shop, press_at(submenu.center()));
+		for _ in 0..3 {
+			if texts.iter().any(|(text, _)| text.ends_with("Archive DM")) {
+				break;
+			}
+			texts = frame(&mut shop, vec![]);
+		}
+		let (_, item) = texts
+			.iter()
+			.find(|(text, _)| text.ends_with("Archive DM"))
+			.expect("channel action listed")
+			.clone();
+		frame(&mut shop, press_at(item.center()));
+		frame(&mut shop, vec![]);
+		let [ExtensionRequest::Invoke { invocation, .. }] = shop.requests.as_slice() else {
+			panic!("one invocation queued: {:?}", shop.requests.len())
+		};
+		assert_eq!(invocation.action, "archive");
+		assert_eq!(
+			invocation.menu_target.as_deref(),
+			Some(&extensions::MenuTarget::Channel {
+				channel_id: dm.id.to_string(),
+				guild_id: None,
+			})
+		);
+	}
+
+	/// Checks that profile role chips open a menu only while a plugin offers a role action, and
+	/// that choosing it sends the role's IDs, name and color.
+	#[test]
+	fn role_chips_open_plugin_role_actions_only_when_offered() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = test_support::chat_demo_state();
+		let mut snapshot = test_support::permission_snapshot(&state);
+		let guild = snapshot.guilds[0].id;
+		snapshot.guilds[0]
+			.roles
+			.as_mut()
+			.unwrap()
+			.push(model::permissions::Role {
+				name: "Moderator".into(),
+				color: 0x3498db,
+				secondary_color: None,
+				tertiary_color: None,
+				position: 1,
+				hoist: false,
+				managed: false,
+				id: Id(77),
+				bits: 0,
+			});
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Permissions(client_core::permissions::Event::Snapshot(
+				snapshot,
+			)),
+		});
+		let profile = model::GuildProfile {
+			guild,
+			roles: vec![Id(77)],
+			nick: None,
+			avatar: None,
+			banner: None,
+			bio: String::new(),
+			pronouns: String::new(),
+			joined_at: None,
+		};
+		ctx.enable_accesskit();
+		let mut shop = ExtensionUi::default();
+		// Accessibility nodes of the latest frame: role and label.
+		let nodes = std::cell::RefCell::new(Vec::new());
+		let frame = |shop: &mut ExtensionUi, events: Vec<egui::Event>| {
+			let input = egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(400.0, 300.0),
+				)),
+				events,
+				..Default::default()
+			};
+			let mut output = ctx.run_ui(input, |ui| {
+				shop.context_menus(ui.ctx(), &state);
+				let theme = crate::profiles::Theme::new(&crate::design::palette(ui), None);
+				crate::profiles::role_chips(ui, &theme, &state, Id(42), &profile);
+			});
+			output.textures_delta.clear();
+			*nodes.borrow_mut() = output
+				.platform_output
+				.accesskit_update
+				.as_ref()
+				.map(|update| {
+					update
+						.nodes
+						.iter()
+						.map(|(_, node)| (node.role(), node.label().unwrap_or_default().to_owned()))
+						.collect()
+				})
+				.unwrap_or_default();
+			let mut texts = Vec::new();
+			for clipped in &output.shapes {
+				let mut stack = vec![&clipped.shape];
+				while let Some(shape) = stack.pop() {
+					match shape {
+						egui::Shape::Text(text) => {
+							texts.push((text.galley.job.text.clone(), text.visual_bounding_rect()))
+						}
+						egui::Shape::Vec(shapes) => stack.extend(shapes),
+						_ => {}
+					}
+				}
+			}
+			texts
+		};
+		let secondary = |at: egui::Pos2| {
+			[true, false]
+				.into_iter()
+				.map(|pressed| egui::Event::PointerButton {
+					pos: at,
+					button: egui::PointerButton::Secondary,
+					pressed,
+					modifiers: Default::default(),
+				})
+				.collect::<Vec<_>>()
+		};
+		let chip = |texts: &[(String, egui::Rect)]| {
+			texts
+				.iter()
+				.find(|(text, _)| text == "Moderator")
+				.expect("role chip is drawn")
+				.1
+				.center()
+		};
+		let extensions_label = crate::i18n::translate("timeline-message-actions-extensions");
+		let chip_label = format!("Moderator, #3498DB, {extensions_label}");
+		let chip_id = egui::Id::unique(("profile-role-chip", guild, Id(42), Id(77)));
+		// Without a role action the chip keeps its plain hover behavior: no menu and no button.
+		let texts = frame(&mut shop, vec![]);
+		frame(&mut shop, secondary(chip(&texts)));
+		assert!(!egui::Popup::is_any_open(&ctx), "no menu opens");
+		frame(&mut shop, vec![]);
+		assert!(!egui::Popup::is_any_open(&ctx), "no menu opens later");
+		assert!(
+			!nodes
+				.borrow()
+				.iter()
+				.any(|(role, _)| *role == egui::Role::Button),
+			"a plain chip is not announced as a button"
+		);
+		let mut offered = entry();
+		offered.enabled = true;
+		offered.manifest.capabilities = vec![Capability::ContextMenus];
+		offered.manifest.actions = vec![extensions::Action {
+			id: "copy-color".into(),
+			label: "Copy role color".into(),
+			surface: Surface::Role,
+		}];
+		shop.set_entries(vec![offered]);
+		frame(&mut shop, vec![]);
+		let texts = frame(&mut shop, vec![]);
+		assert!(
+			nodes
+				.borrow()
+				.iter()
+				.any(|(role, label)| *role == egui::Role::Button && *label == chip_label),
+			"the offered chip is a button named after the role: {:?}",
+			nodes.borrow()
+		);
+		let menu_open = |shop: &mut ExtensionUi, mut texts: Vec<(String, egui::Rect)>| {
+			for _ in 0..3 {
+				if texts
+					.iter()
+					.any(|(text, _)| text.ends_with("Copy role color"))
+				{
+					break;
+				}
+				texts = frame(shop, vec![]);
+			}
+			texts
+		};
+		let texts = frame(&mut shop, secondary(chip(&texts)));
+		let texts = menu_open(&mut shop, texts);
+		let item = texts
+			.iter()
+			.find(|(text, _)| text.ends_with("Copy role color"))
+			.expect("role menu lists the action")
+			.1
+			.center();
+		frame(&mut shop, press_at(item));
+		frame(&mut shop, vec![]);
+		let [ExtensionRequest::Invoke { invocation, .. }] = shop.requests.as_slice() else {
+			panic!("one invocation queued: {}", shop.requests.len())
+		};
+		let expected = extensions::MenuTarget::Role {
+			guild_id: guild.to_string(),
+			role_id: "77".into(),
+			user_id: Some("42".into()),
+			name: "Moderator".into(),
+			color: 0x3498db,
+		};
+		assert_eq!(invocation.action, "copy-color");
+		assert_eq!(invocation.menu_target.as_deref(), Some(&expected));
+		shop.requests.clear();
+		// The chip is a button, so a primary click, Enter or Space while focused, and a screen
+		// reader's click all open the same menu without running an action.
+		let key = |key: egui::Key| {
+			[true, false]
+				.into_iter()
+				.map(|pressed| egui::Event::Key {
+					key,
+					physical_key: None,
+					pressed,
+					repeat: false,
+					modifiers: Default::default(),
+				})
+				.collect::<Vec<_>>()
+		};
+		let accessible_click = vec![egui::Event::AccessKitActionRequest(
+			egui::accesskit::ActionRequest {
+				action: egui::accesskit::Action::Click,
+				target_tree: egui::accesskit::TreeId::ROOT,
+				target_node: chip_id.accesskit_id(),
+				data: None,
+			},
+		)];
+		for (input, activation) in [
+			("primary click", None),
+			("Enter", Some(key(egui::Key::Enter))),
+			("Space", Some(key(egui::Key::Space))),
+			("screen reader click", Some(accessible_click)),
+		] {
+			for _ in 0..3 {
+				if !egui::Popup::is_any_open(&ctx) {
+					break;
+				}
+				frame(&mut shop, key(egui::Key::Escape));
+			}
+			assert!(
+				!egui::Popup::is_any_open(&ctx),
+				"{input}: menu closed first"
+			);
+			let texts = frame(&mut shop, vec![]);
+			let events = match activation {
+				Some(events) => {
+					ctx.memory_mut(|memory| memory.request_focus(chip_id));
+					frame(&mut shop, vec![]);
+					events
+				}
+				None => press_at(chip(&texts)),
+			};
+			let texts = frame(&mut shop, events);
+			let texts = menu_open(&mut shop, texts);
+			assert!(
+				texts
+					.iter()
+					.any(|(text, _)| text.ends_with("Copy role color")),
+				"{input} opens the role menu"
+			);
+			frame(&mut shop, vec![]);
+			assert!(
+				shop.requests.is_empty(),
+				"{input}: opening the menu does not invoke the action"
+			);
+		}
+		// Choosing the action from a menu opened by a primary click sends the same target.
+		let texts = frame(&mut shop, vec![]);
+		let item = texts
+			.iter()
+			.find(|(text, _)| text.ends_with("Copy role color"))
+			.expect("role menu stays open")
+			.1
+			.center();
+		frame(&mut shop, press_at(item));
+		frame(&mut shop, vec![]);
+		let [ExtensionRequest::Invoke { invocation, .. }] = shop.requests.as_slice() else {
+			panic!("one invocation queued: {}", shop.requests.len())
+		};
+		assert_eq!(invocation.action, "copy-color");
+		assert_eq!(invocation.menu_target.as_deref(), Some(&expected));
+	}
+
 	#[test]
 	fn catalog_refresh_preserves_only_unchanged_reviewed_consent() {
 		let mut shop = ExtensionUi::default();

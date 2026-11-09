@@ -664,7 +664,7 @@ impl MessagingUi {
 			}
 			let mut participants = BTreeMap::<Id, Vec<_>>::new();
 			for entry in &state.voice.roster {
-				if Some(entry.guild) == self.guild && state.can_view(entry.channel) {
+				if Some(entry.guild) == self.guild {
 					participants.entry(entry.channel).or_default().push(entry);
 				}
 			}
@@ -1122,6 +1122,7 @@ impl MessagingUi {
 											&avatar,
 											state,
 											user,
+											crate::user_menu::Place::Conversation(channel.id),
 											&mut self.profile,
 											&mut self.user_action,
 											Some(ShortcutView::new(
@@ -1390,6 +1391,7 @@ impl MessagingUi {
 									&response,
 									state,
 									user,
+									crate::user_menu::Place::Conversation(channel.id),
 									&mut self.profile,
 									&mut self.user_action,
 									Some(ShortcutView::new(

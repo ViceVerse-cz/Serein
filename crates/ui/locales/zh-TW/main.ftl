@@ -2305,6 +2305,8 @@ screen-body-share-sound-from-other-apps-even-when-sharing-one-window = 即使只
 # Context: body
 screen-body-share-system-audio = 分享系統音訊
 # Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = 分享所分享應用程式的聲音；分享螢幕時則分享其他所有應用程式的聲音。Serein 本身的音訊不會包含在內。
+# Context: body
 screen-body-show-cursor = 顯示游標
 # Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = 通話麥克風維持現有設定。
@@ -3900,6 +3902,10 @@ timeline-message-actions-delete-message = 刪除訊息…
 timeline-message-actions-edit-message = 編輯訊息
 # Context: message_actions
 timeline-message-actions-extensions = 擴充功能
+# Context: menu
+extensions-ui-menu-group-user = 使用者
+# Context: menu
+extensions-ui-menu-group-conversation = 對話
 # Context: message_actions
 timeline-message-actions-forward = 轉發
 # Context: message_actions

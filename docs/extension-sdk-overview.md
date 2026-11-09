@@ -117,7 +117,7 @@ contract; they are not standalone packages.
 | Rust type | The corresponding type exported by `serein_extension_sdk` |
 | Capability | A manifest permission that must also be granted by the user |
 | Action ID | Your manifest's stable action name; received in `action` |
-| Surface | Where the host can invoke an action: `panel`, `message`, `composer`, `activation`, `message_event`, `app_event`, or preview `tick` |
+| Surface | Where the host can invoke an action: `panel`, `message`, `composer`, `activation`, `message_event`, `app_event`, preview `tick`, or the `user`, `channel`, `server` and `role` context menus |
 | Snapshot | Bounded app data captured for one invocation, not a live object or fetch API |
 | Effect | A validated proposal for an app operation; at most one per foreground result |
 | Partial / truncated | Some data was not loaded or did not fit the stated bound |

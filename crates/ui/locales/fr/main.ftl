@@ -2274,6 +2274,8 @@ screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Partagez 
 # Context: body
 screen-body-share-system-audio = Partager l'audio du système
 # Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Partagez le son de l'application partagée, ou celui de toutes les autres applications lors du partage d'un écran. Le son de Serein est exclu.
+# Context: body
 screen-body-show-cursor = Afficher le curseur
 # Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = Votre microphone d'appel conserve ses paramètres actuels.
@@ -3867,6 +3869,10 @@ timeline-message-actions-delete-message = Supprimer le message…
 timeline-message-actions-edit-message = Modifier le message
 # Context: message_actions
 timeline-message-actions-extensions = Rallonges
+# Context: menu
+extensions-ui-menu-group-user = Utilisateur
+# Context: menu
+extensions-ui-menu-group-conversation = Conversation
 # Context: message_actions
 timeline-message-actions-forward = Transférer
 # Context: message_actions

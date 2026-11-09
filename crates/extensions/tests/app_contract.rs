@@ -880,6 +880,8 @@ fn message_details_and_relationships_bound_nested_data() {
 	assert_eq!(sdk::MAX_RELATIONSHIPS, MAX_RELATIONSHIPS);
 }
 
+/// Checks that host discovery tolerates names it does not know, leaves legacy input unchanged
+/// and advertises the expected capability and app-event counts.
 #[test]
 fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 	let wire = serde_json::to_value(HostInfo::current()).unwrap();
@@ -913,9 +915,9 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 	supported.validate().unwrap();
 	assert!(host.supports("rich_presence"));
 	assert!(host.supports("api_proxy"));
-	assert_eq!(caps.len(), 54);
+	assert_eq!(caps.len(), 55);
 	assert_eq!(HostInfo::current().app_events.len(), 21);
-	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 54);
+	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 55);
 }
 
 #[test]
