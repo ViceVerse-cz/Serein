@@ -406,7 +406,7 @@ fn category_header(
 		color,
 	);
 	let mut job = egui::text::LayoutJob::simple_singleline(
-		name.to_uppercase(),
+		crate::emoji::presentation(name).to_uppercase(),
 		egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx())),
 		color,
 	);
@@ -1169,7 +1169,9 @@ impl MessagingUi {
 									),
 								);
 							}
-							let mut label = String::from(state.conversation_name(channel));
+							let mut label =
+								crate::emoji::presentation(state.conversation_name(channel))
+									.into_owned();
 							if !enabled && visible {
 								label.push_str(" · unavailable");
 							}
