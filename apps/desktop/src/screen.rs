@@ -8,11 +8,49 @@ use discord_voice::{Identity, Status, screen::Worker};
 use eframe::egui;
 use model::Id;
 use std::{
-	sync::{Arc, mpsc},
+	sync::{
+		Arc,
+		atomic::{AtomicU64, Ordering},
+		mpsc,
+	},
 	time::{Duration, Instant},
 };
 use tokio::{runtime::Runtime, sync::watch, task::JoinHandle};
 use zeroize::Zeroizing;
+
+/// Largest connected monitor in physical pixels, packed as `width << 32 | height`; zero
+/// when unknown. The Linux portal picks its source only after Share, so the dialog offers
+/// presets up to this size instead of capping an unknown source at 1080p.
+static LARGEST_MONITOR: AtomicU64 = AtomicU64::new(0);
+
+/// Records the largest monitor the window system reports, including on Wayland.
+pub(crate) fn note_monitors(window: &winit::window::Window) {
+	let largest = window
+		.available_monitors()
+		.map(|monitor| monitor.size())
+		.filter(|size| size.width > 0 && size.height > 0)
+		.max_by_key(|size| u64::from(size.width) * u64::from(size.height))
+		.map_or(0, |size| {
+			(u64::from(size.width) << 32) | u64::from(size.height)
+		});
+	LARGEST_MONITOR.store(largest, Ordering::Relaxed);
+}
+
+/// Gives a portal source of unknown size the largest monitor's size, so every preset up
+/// to that monitor is offered. A smaller monitor chosen in the picker is scaled to the
+/// preset like any other source.
+fn size_portal_sources(sources: &mut [screen::Source], largest: u64) {
+	let (width, height) = ((largest >> 32) as u32, largest as u32);
+	if width == 0 || height == 0 {
+		return;
+	}
+	for source in sources {
+		if source.id == screen::SourceId::Portal && (source.width == 0 || source.height == 0) {
+			source.width = width;
+			source.height = height;
+		}
+	}
+}
 
 const SIGNAL_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -308,7 +346,8 @@ impl Screen {
 						ctx.request_repaint();
 					}
 				}
-				Ok(Ok(sources)) => {
+				Ok(Ok(mut sources)) => {
+					size_portal_sources(&mut sources, LARGEST_MONITOR.load(Ordering::Relaxed));
 					ui.screen.sources = sources;
 					ui.screen.selected = ui
 						.screen
@@ -607,6 +646,37 @@ impl Screen {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn portal_source_offers_presets_up_to_the_largest_monitor() {
+		let source = |id, width, height| screen::Source {
+			id,
+			name: String::new(),
+			width,
+			height,
+			refresh_hz: 0,
+		};
+		let mut sources = vec![
+			source(screen::SourceId::Portal, 0, 0),
+			source(screen::SourceId::X11Desktop, 0, 0),
+		];
+		// Unknown monitors keep the old 1080p cap.
+		size_portal_sources(&mut sources, 0);
+		assert_eq!((sources[0].width, sources[0].height), (0, 0));
+		size_portal_sources(&mut sources, (2560 << 32) | 1440);
+		assert_eq!((sources[0].width, sources[0].height), (2560, 1440));
+		// The whole X11 desktop spans every monitor, so it keeps its own (unknown) size.
+		assert_eq!((sources[1].width, sources[1].height), (0, 0));
+		let offered: Vec<_> = screen::offered_resolutions(2560, 1440).collect();
+		assert!(offered.contains(&screen::Resolution::Preset {
+			width: 2560,
+			height: 1440
+		}));
+		assert!(!offered.contains(&screen::Resolution::Preset {
+			width: 3840,
+			height: 2160
+		}));
+	}
 
 	#[test]
 	fn waiting_dm_and_guild_calls_can_request_sharing_without_opening_capture() {
