@@ -569,7 +569,6 @@ impl MessagingUi {
 		state: &State,
 		entry: &RosterEntry,
 	) {
-		// PATCH: draw participants even without VIEW_CHANNEL
 		let colors = design::palette(ui);
 		let (user, name) = resolve_member(state, entry);
 		ui.push_id(
@@ -950,16 +949,14 @@ impl MessagingUi {
 				ui.label(
 					design::semibold(
 						ui,
-						crate::i18n::translate_if_key(
-							if !state.demo && !state.gateway_connected {
-								"voice-voice-channel-participant-list-unavailable-while-disconnected"
-							} else {
-								"voice-voice-channel-no-one-s-here-yet"
-							},
-						),
+						crate::i18n::translate_if_key(if !state.demo && !state.gateway_connected {
+							"voice-voice-channel-participant-list-unavailable-while-disconnected"
+						} else {
+							"voice-voice-channel-no-one-s-here-yet"
+						}),
 						18.0,
 					)
-						.color(STAGE_TEXT),
+					.color(STAGE_TEXT),
 				);
 			});
 		} else {
@@ -968,15 +965,14 @@ impl MessagingUi {
 					RichText::new(crate::i18n::translate(
 						"voice-voice-channel-last-known-participants-a-reconnect-to-refresh",
 					))
-						.small()
-						.color(STAGE_MUTED),
+					.small()
+					.color(STAGE_MUTED),
 				);
 			}
 			self.voice_chrome_hidden = 1.0 - reveal;
 			self.participant_tiles(&mut body_ui, state, channel, &entries, false);
 			self.voice_chrome_hidden = 0.0;
 		}
-
 
 		self.apply_watch_request(state);
 		let bar = egui::Rect::from_min_max(

@@ -1045,10 +1045,7 @@ impl State {
 			};
 			self.revision += 1;
 		}
-		// Roster access is independent of whether this account has joined a call.
-		let roster = std::mem::take(&mut self.voice.roster);
-		// PATCH: keep roster entries for channels without VIEW_CHANNEL
-		self.voice.roster = roster;
+		// The roster keeps participants of hidden channels; views decide whether to show them.
 		if self
 			.voice
 			.preview
