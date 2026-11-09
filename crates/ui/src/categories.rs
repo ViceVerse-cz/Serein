@@ -369,7 +369,8 @@ fn category_header(
 	ui: &mut egui::Ui,
 	id: impl egui::AsIdSalt,
 	name: &str,
-	count: usize,
+	// `None` leaves the count out of the tooltip and accessible label.
+	count: Option<usize>,
 	collapsed: bool,
 	row_height: f32,
 	draggable: bool,
@@ -421,11 +422,19 @@ fn category_header(
 	ui.painter()
 		.with_clip_rect(label_rect)
 		.galley(label_rect.min, label, color);
+	let counted = |separator: &str| {
+		count.map_or_else(String::new, |count| {
+			format!(
+				"{separator}{count} {}",
+				crate::i18n::translate("categories-category-header-channels")
+			)
+		})
+	};
 	let response = response.on_hover_text_with(|| {
 		format!(
-			"{name} {} · {count} {} · {}",
+			"{name} {}{} · {}",
 			crate::i18n::translate("categories-category-header-category"),
-			crate::i18n::translate("categories-category-header-channels"),
+			counted(" · "),
 			crate::i18n::translate_if_key(if collapsed {
 				"categories-category-header-expand"
 			} else {
@@ -438,14 +447,14 @@ fn category_header(
 			egui::Role::Button,
 			true,
 			format!(
-				"{name} {}, {}, {count} {}",
+				"{name} {}, {}{}",
 				crate::i18n::translate("categories-category-header-category"),
 				crate::i18n::translate_if_key(if collapsed {
 					"categories-category-header-collapsed"
 				} else {
 					"categories-category-header-expanded"
 				}),
-				crate::i18n::translate("categories-category-header-channels")
+				counted(", ")
 			),
 		)
 	});
@@ -755,21 +764,23 @@ impl MessagingUi {
 							}
 						}
 						CachedRow::Requests(count, collapsed) => {
+							// A plugin may hide request counts: badge, tooltip and label alike.
+							let hidden = crate::interface_tweaks::on(
+								ui.ctx(),
+								extensions::InterfaceTweak::HiddenRequestCounts,
+							);
 							let response = category_header(
 								ui,
 								"message-requests",
 								&crate::i18n::translate(Heading::MessageRequests.key()),
-								count,
+								(!hidden).then_some(count),
 								collapsed,
 								row_height,
 								false,
 							);
 							// The count stays visible while folded, so a hidden list still reports,
 							// unless a plugin hides request counts.
-							if !crate::interface_tweaks::on(
-								ui.ctx(),
-								extensions::InterfaceTweak::HiddenRequestCounts,
-							) {
+							if !hidden {
 								crate::notifications::badge(
 									ui,
 									egui::pos2(
@@ -809,7 +820,7 @@ impl MessagingUi {
 								ui,
 								category.id,
 								&category.name,
-								count,
+								Some(count),
 								collapsed,
 								row_height,
 								draggable,

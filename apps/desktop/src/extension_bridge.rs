@@ -684,6 +684,14 @@ impl Bridge {
 						if let Some(schedule) = self.ticks.get_mut(id) {
 							schedule.paused = true;
 						}
+						// A failed plugin's interface changes end with it, like any other error.
+						if let Some(entry) = self
+							.installed
+							.iter_mut()
+							.find(|entry| entry.manifest.id == *id)
+						{
+							entry.interface_tweaks.clear();
+						}
 						messaging.extensions.status = format!(
 							"{id} animation paused after a failed tick; disable and re-enable it to retry. {error}"
 						);
