@@ -227,7 +227,10 @@ impl MessagingUi {
 		// Reopening the editor would silently drop any unsaved server, role, sticker or emoji
 		// work, including images still being prepared or uploaded.
 		if self.has_server_settings_changes() {
-			state.status = "Finish or discard the current emoji uploads first.";
+			self.toasts.push(
+				crate::design::Level::Error,
+				"Save or discard your unsaved server settings first, then add the emoji again.",
+			);
 			return None;
 		}
 		let command = self.preview_server_admin(state, guild, "emoji");

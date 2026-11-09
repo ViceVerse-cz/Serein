@@ -705,6 +705,8 @@ impl Bridge {
 			self.picker = None;
 			self.theme_picker = None;
 			self.theme_preview = None;
+			// A new account scope never inherits the previous one's running requests.
+			self.fetches.cancel_all();
 			self.ticks.clear();
 			self.transitions.clear();
 			self.imported = None;
@@ -855,11 +857,14 @@ impl Bridge {
 					if let Some(error) = installed.iter().find_map(|e| e.error.as_ref()) {
 						messaging.extensions.status = error.clone();
 					}
-					for entry in self.installed.iter().chain(&installed) {
-						*self
-							.fetch_epochs
-							.entry(entry.manifest.id.clone())
-							.or_default() += 1;
+					let ids: Vec<_> = self
+						.installed
+						.iter()
+						.chain(&installed)
+						.map(|entry| entry.manifest.id.clone())
+						.collect();
+					for id in ids {
+						self.retire_fetches(&id);
 					}
 					self.installed = installed;
 					self.refresh_api_proxy();
