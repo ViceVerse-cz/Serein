@@ -1517,6 +1517,9 @@ impl Bridge {
 	fn retire_fetches(&mut self, id: &str) {
 		*self.fetch_epochs.entry(id.to_owned()).or_default() += 1;
 		self.fetches.cancel(id);
+		// Responses already queued belong to the retired instance too.
+		self.message_events
+			.retain(|event| event.id != id || !matches!(event.event, ReactiveEvent::Fetch(_)));
 	}
 	/// Queues each finished plugin request to re-run the action that started it.
 	fn queue_fetch_results(&mut self) {
