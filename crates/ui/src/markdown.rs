@@ -1610,7 +1610,12 @@ impl Formatted {
 				ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
 				ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
 				let reserve = |ui: &mut egui::Ui| {
-					if let Some(height) = line {
+					// A zero-width allocation never intersects egui's current row, so egui
+					// restarts the row at the reservation's height. On a taller row (a heading)
+					// that shrank it, and an inline item wrapping below rose into the heading.
+					if let Some(height) = line
+						&& ui.cursor().height() < height
+					{
 						ui.allocate_space(egui::vec2(0.0, height));
 					}
 				};
@@ -6099,12 +6104,18 @@ mod tests {
 			state: &state,
 			channel,
 		};
-		let parsed = Formatted::parse(
+		let bodies = [
 			"# SYNTHETIC HEADING\n**⚠️ READ [THE SYNTHETIC GUIDE](<https://example.com/guide#anchor>) BEFORE ANY OF THE ITEMS BELOW ⚠️**\n\n[First item](https://example.com/first.zip) for sending one thing.\n[Second item](https://example.com/second.zip) for sending another thing.\n[Third item](https://example.com/third.zip) for setting a third thing.\n[Fourth item](https://example.com/fourth.zip) for setting a fourth thing.\n[Fifth item](https://example.com/fifth.zip) for setting a fifth thing.\n\n-# Synthetic footer line.",
-		);
+			// A heading whose channel chip leaves the rest of the line to wrap after it.
+			"# ⚠️ READ THE PINNED MESSAGE IN <#21> TO FIX VOICE CHAT ⚠️\n-# Don't ask for support here, thanks.\n\n### Synthetic documentation\n<https://example.com/docs>\n\n-# This is an automated sticky message.",
+		];
 		let ctx = egui::Context::default();
 		crate::design::apply(&ctx);
-		for width in (300..=640).step_by(10) {
+		for (body, width) in bodies
+			.iter()
+			.flat_map(|body| (300..=900).step_by(10).map(move |width| (body, width)))
+		{
+			let parsed = Formatted::parse(body);
 			let width = width as f32;
 			let mut images = crate::avatars::Avatars::default();
 			let mut revealed = 0;
@@ -6138,7 +6149,19 @@ mod tests {
 			);
 			let mut rects = Vec::new();
 			for shape in &output.shapes {
-				if let egui::Shape::Text(text) = &shape.shape {
+				// Chips keep an invisible copy of their wire text under the label for selection.
+				if let egui::Shape::Text(text) = &shape.shape
+					&& text.opacity_factor > 0.0
+					&& text.galley.job.sections.iter().any(|section| {
+						let color = text.override_text_color.unwrap_or(
+							if section.format.color == egui::Color32::PLACEHOLDER {
+								text.fallback_color
+							} else {
+								section.format.color
+							},
+						);
+						color.a() > 0
+					}) {
 					for row in &text.galley.rows {
 						let rect = row
 							.rect_without_leading_space()
