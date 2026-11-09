@@ -1690,6 +1690,8 @@ markdown-confirm-external-link-open-external-link = Harici bağlantı açılsın
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Tarayıcıda Aç
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Bağlantıya bu mesajın yalnızca başı sığıyor; geri kalanı gönderilmez. Bu hedef varsayılan tarayıcınızda açılır.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Bu hedef varsayılan tarayıcınızda açılır.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Emojiyi kopyala

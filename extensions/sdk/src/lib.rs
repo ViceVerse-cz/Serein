@@ -409,6 +409,9 @@ pub struct ThemeStyle {
 	pub heading_size: Option<u8>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub button_size: Option<u8>,
+	/// Shared icon glyph size baseline in logical pixels; hit regions stay independent.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub icon_size: Option<u8>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub small_size: Option<u8>,
 	#[serde(skip_serializing_if = "Option::is_none")]

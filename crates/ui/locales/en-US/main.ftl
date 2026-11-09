@@ -1723,6 +1723,8 @@ markdown-confirm-external-link-open-external-link = Open external link?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Open in Browser
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Only the start of this message fits in the link; the rest is not sent. This destination opens in your default browser.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = This destination opens in your default browser.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Copy emoji
@@ -3922,6 +3924,7 @@ timeline-message-actions-mark-unread = Mark Unread
 timeline-message-actions-pin-message = Pin message
 # Context: message_actions
 timeline-message-actions-reply = Reply
+timeline-message-actions-translate = Translate (opens browser)
 # Context: message_actions
 timeline-message-actions-unpin-message = Unpin message
 # Context: message_actions

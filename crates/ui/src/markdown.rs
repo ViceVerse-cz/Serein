@@ -551,6 +551,17 @@ pub(super) fn confirm_external_link(
 	opening: &mut Option<String>,
 	confirm_links: bool,
 ) {
+	confirm_external_link_noting(ctx, opening, confirm_links, false);
+}
+
+/// Like [`confirm_external_link`]; `truncated` always asks first and says that only the start
+/// of the text fits in the destination, so a shortened translation is never sent silently.
+pub(super) fn confirm_external_link_noting(
+	ctx: &egui::Context,
+	opening: &mut Option<String>,
+	confirm_links: bool,
+	truncated: bool,
+) {
 	let Some(target) = opening.as_deref().and_then(external_url) else {
 		*opening = None;
 		return;
@@ -574,7 +585,7 @@ pub(super) fn confirm_external_link(
 				})
 			})
 	});
-	if !confirm_links || discord {
+	if !truncated && (!confirm_links || discord) {
 		ctx.open_url(egui::OpenUrl::new_tab(target));
 		*opening = None;
 		return;
@@ -585,9 +596,11 @@ pub(super) fn confirm_external_link(
 		"confirm-external-link",
 		crate::i18n::translate("markdown-confirm-external-link-open-external-link"),
 	)
-	.subtitle(crate::i18n::translate(
-		"markdown-confirm-external-link-this-destination-opens-in-your-default-browser",
-	))
+	.subtitle(crate::i18n::translate(if truncated {
+		"markdown-confirm-external-link-only-the-start-fits"
+	} else {
+		"markdown-confirm-external-link-this-destination-opens-in-your-default-browser"
+	}))
 	.width(460.0)
 	.show(ctx, |d| {
 		d.content(|ui| {

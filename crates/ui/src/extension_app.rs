@@ -54,6 +54,10 @@ fn app_action_description(action: &AppAction) -> String {
 		AppAction::OpenGroupEditor { channel_id } => {
 			format!("Open group conversation settings for channel {channel_id}")
 		}
+		AppAction::OpenExternalLink { url } => format!(
+			"Open this external URL in the browser:\n{}",
+			crate::markdown::external_url(url).unwrap_or_else(|| url.clone())
+		),
 		AppAction::SendMessage {
 			channel_id,
 			content,
@@ -547,6 +551,13 @@ pub(crate) fn effect_button(effect: &HostEffect) -> &'static str {
 		HostEffect::AppAction {
 			action: AppAction::SetCamera { enabled: true },
 		} => "Apply: Enable camera",
+		HostEffect::AppAction {
+			action: AppAction::OpenExternalLink { .. },
+		}
+		| HostEffect::TrackedAppAction {
+			action: AppAction::OpenExternalLink { .. },
+			..
+		} => "Apply: Open external link",
 		HostEffect::AppAction { .. } | HostEffect::TrackedAppAction { .. } => {
 			"Apply: Confirm action"
 		}
@@ -802,6 +813,14 @@ impl MessagingUi {
 									.ok_or("Camera controls are unavailable")?,
 							);
 						}
+					}
+					AppAction::OpenExternalLink { url } => {
+						// The frame after this proposal routes the tracked URL through the
+						// native external-link confirmation instead of opening it here.
+						self.timeline.browser_opening = Some(
+							crate::markdown::external_url(&url)
+								.ok_or("The external URL is invalid")?,
+						);
 					}
 					action => self.apply_extension_app_action(state, action, commands)?,
 				}
@@ -1162,6 +1181,88 @@ mod tests {
 			);
 			assert!(!view.extensions.has_result());
 		}
+	}
+
+	#[test]
+	fn external_navigation_apply_defers_to_native_link_confirmation() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let mut view = view(Capability::ExternalNavigation);
+		let action = AppAction::OpenExternalLink {
+			url: "https://example.org:443/path?q=1".into(),
+		};
+		assert_eq!(
+			app_action_description(&action),
+			"Open this external URL in the browser:\nhttps://example.org/path?q=1"
+		);
+		let effect = proposal(
+			&state,
+			HostEffect::AppAction {
+				action: action.clone(),
+			},
+		);
+		assert_eq!(effect_button(&effect.effect), "Apply: Open external link");
+		let mut effect = Some(effect);
+		let mut commands = Vec::new();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(900.0, 700.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				view.apply_extension_effect(
+					ui.ctx(),
+					&mut state,
+					effect.take().expect("one Apply"),
+					&mut commands,
+				)
+				.unwrap();
+			},
+		);
+		assert!(commands.is_empty());
+		assert!(
+			output
+				.platform_output
+				.commands
+				.iter()
+				.all(|command| !matches!(command, egui::OutputCommand::OpenUrl(_)))
+		);
+		assert_eq!(
+			view.timeline.browser_opening.as_deref(),
+			Some("https://example.org/path?q=1")
+		);
+		output.drop_without_applying_deltas();
+		view.extensions.entries[0].manifest.capabilities.clear();
+		let ungranted = proposal(
+			&state,
+			HostEffect::AppAction {
+				action: action.clone(),
+			},
+		);
+		assert!(
+			view.apply_extension_effect(&ctx, &mut state, ungranted, &mut commands)
+				.is_err()
+		);
+		view.extensions.entries[0].manifest.capabilities = vec![Capability::ExternalNavigation];
+		let invalid = proposal(
+			&state,
+			HostEffect::AppAction {
+				action: AppAction::OpenExternalLink {
+					url: "http://example.org/".into(),
+				},
+			},
+		);
+		assert!(
+			view.apply_extension_effect(&ctx, &mut state, invalid, &mut commands)
+				.is_err()
+		);
+		assert_eq!(
+			view.timeline.browser_opening.as_deref(),
+			Some("https://example.org/path?q=1")
+		);
 	}
 
 	#[test]

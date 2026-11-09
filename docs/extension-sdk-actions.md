@@ -144,6 +144,7 @@ Follow an operation for its fields, example and additional checks.
 | `open_profile` | `navigation` | [Open a known user's profile](extension-sdk-actions.md#open-conversations-profiles-and-search) |
 | `jump_to_message` | `navigation` | [Jump to a message](extension-sdk-actions.md#open-conversations-profiles-and-search) |
 | `search` | `navigation` | [Search the current conversation](extension-sdk-actions.md#open-conversations-profiles-and-search) |
+| `open_external_link` (nested in `app_action`) | `external_navigation` | [Open a reviewed external HTTPS URL](extension-sdk-actions.md#open-an-external-https-url-preview) |
 | `notice` | `local_notices` | [Show a local notice](extension-sdk-actions.md#show-a-local-notice-or-copy-text) |
 | `copy_text` | `clipboard_write` | [Copy text to the clipboard](extension-sdk-actions.md#show-a-local-notice-or-copy-text) |
 | `set_voice` | `voice_control` | [Set mute and deafen](extension-sdk-actions.md#control-the-current-call) |
@@ -610,6 +611,33 @@ Search the active conversation:
 Navigation, profile and search views may load ordinary service data after Apply.
 They do not give Wasm a network API or a search-results callback. Channel/Home
 navigation also respects the native guard for unfinished server-settings edits.
+
+### Open an external HTTPS URL (Preview)
+
+A plugin with the separate `external_navigation` grant can return
+`AppAction::OpenExternalLink { url: String }` nested in `app_action`. The
+complete JSON for a translation workflow could be:
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"open_external_link","url":"https://translate.google.com/?sl=auto&tl=en&op=translate&text=Synthetic%20text"}}]}
+```
+
+The URL is an absolute HTTPS URL, at most 2,048 UTF-8 bytes, with a host, no
+credentials, no backslashes or control characters, and no non-default port. An
+explicit `:443` is normalized away. Serein validates the URL before displaying
+the proposal and again at Apply. The complete URL
+is shown to the user. Apply hands it to the normal native external-link flow,
+including the user's confirmation setting; it never performs an HTTP request in
+Wasm or in the extension worker. The operating system and browser establish the
+connection, so this action does **not** provide Serein's catalog download
+public-IP/DNS pinning. Sensitive text included in the URL is shared with that site
+after the user approves navigation.
+
+Returning this action from an activation, message-event or app-event result is
+rejected. Use a foreground `message`, `composer` or `panel` action; read grants
+such as `selected_message` remain separate. A result may contain only this one
+proposal and cannot also replace the draft. **Preview SDK — PR #937, not yet
+released; older hosts reject the capability and nested action.**
 
 ### All 18 AppView values
 

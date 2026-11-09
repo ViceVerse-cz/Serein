@@ -1689,6 +1689,8 @@ markdown-confirm-external-link-open-external-link = Ouvrir le lien externe ?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Ouvrir dans le navigateur
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Seul le début de ce message tient dans le lien ; le reste n’est pas envoyé. Cette destination s’ouvre dans votre navigateur par défaut.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Cette destination s'ouvre dans votre navigateur par défaut.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Copier l'emoji
