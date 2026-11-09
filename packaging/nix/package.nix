@@ -99,9 +99,10 @@ in
         # Keep bundled symbols local so each copy stays consistent.
         env.RUSTFLAGS = lib.optionalString isLinux "-C link-arg=-Wl,--exclude-libs,ALL";
 
-        # nixpkgs asks aws-lc-sys to link a system AWS-LC, which this package does not
-        # provide; build the bundled copy with the CMake already in nativeBuildInputs.
-        env.AWS_LC_SYS_USE_SYSTEM = "0";
+        # nixpkgs now points -sys crates at system libraries before configuring (AWS-LC,
+        # SQLite, OpenSSL, ...). The package does not provide them and links the bundled
+        # copies, as it did before; keep that.
+        dontCargoUseSystemLibs = true;
 
         src = ../../.;
 
