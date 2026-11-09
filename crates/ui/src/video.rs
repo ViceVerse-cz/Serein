@@ -296,10 +296,11 @@ impl VideoUi {
 			source_size: egui::vec2(width as f32, height as f32),
 			pixels: video_pixels(rgba).to_vec(),
 		};
-		let mask_source = self
-			.media_privacy
-			.is_some()
-			.then(|| std::sync::Arc::new(crate::avatars::media::resize_box(&image, 128)));
+		// Keep the coarse copy unconditionally: posters cached before the privacy
+		// plugin is enabled must still be able to build a blur mask later.
+		let mask_source = Some(std::sync::Arc::new(crate::avatars::media::resize_box(
+			&image, 128,
+		)));
 		// Poster pixels plus the retained coarse mask copy share the same budget.
 		let bytes = rgba.len()
 			+ mask_source
@@ -505,7 +506,7 @@ impl VideoUi {
 		let clicked = self.privacy_revealed == Some(attachment.id);
 		let reveal_requested = privacy.is_some_and(|config| {
 			if config.reveal_on_hover {
-				hovered || focused
+				hovered || focused || self.controls_focused
 			} else {
 				clicked
 			}

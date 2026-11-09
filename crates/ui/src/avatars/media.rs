@@ -737,7 +737,7 @@ impl MediaLibrary {
 		ctx: &egui::Context,
 		rendition: Rendition,
 		image: Option<ColorImage>,
-		mask: bool,
+		_mask: bool,
 	) -> bool {
 		let Rendition {
 			source,
@@ -774,7 +774,9 @@ impl MediaLibrary {
 		if motion == Motion::Still {
 			slot.forget(motion, size);
 		}
-		let mask_source = mask.then(|| Arc::new(resize_box(&image, MASK_SOURCE_EDGE)));
+		// Always keep the coarse copy so media cached before the privacy plugin is
+		// enabled can still build a blur mask instead of falling back to a solid fill.
+		let mask_source = Some(Arc::new(resize_box(&image, MASK_SOURCE_EDGE)));
 		let texture = ctx.load_texture("service-image", image, egui::TextureOptions::LINEAR);
 		self.clock += 1;
 		let used = self.clock;
@@ -1558,7 +1560,7 @@ impl Avatars {
 			);
 			ui.ctx().request_repaint();
 		}
-		if matches!(surface, Surface::Inline | Surface::Banner)
+		if matches!(surface, Surface::Inline | Surface::Banner | Surface::Viewer)
 			&& let Some(config) = self.media_privacy.filter(|config| config.enabled)
 			&& let Some(painted) = painted
 		{
