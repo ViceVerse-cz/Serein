@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 12:43:53 +0100
-Subject: [PATCH 01/22] egui#8849: Fix missing fullwidth forms and CJK
- punctuation from system fonts
+Subject: [PATCH] egui#8849: Fix missing fullwidth forms and CJK punctuation
+ from system fonts
 
 Squashed from https://github.com/emilk/egui/pull/8849 at d4a882215ee7.
 ---

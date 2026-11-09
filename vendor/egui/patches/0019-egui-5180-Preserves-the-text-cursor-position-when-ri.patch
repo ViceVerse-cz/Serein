@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 13:03:24 +0100
-Subject: [PATCH 19/22] egui#5180: Preserves the text cursor position when
+Subject: [PATCH] egui#5180: Preserves the text cursor position when
  right-clicking in TextEdit
 
 Squashed from https://github.com/emilk/egui/pull/5180 at 1fcd4c358890.

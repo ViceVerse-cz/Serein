@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 12:43:55 +0100
-Subject: [PATCH 04/22] egui#8775: Fix accumulated drift when dragging window
- title bars
+Subject: [PATCH] egui#8775: Fix accumulated drift when dragging window title
+ bars
 
 Squashed from https://github.com/emilk/egui/pull/8775 at 71d68eef5ffd.
 ---

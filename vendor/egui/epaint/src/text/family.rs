@@ -32,6 +32,10 @@ pub(crate) struct Family {
     /// not on variation coordinates).
     face_cache: ahash::HashMap<char, FontFaceKey>,
 
+    /// Like [`Self::face_cache`], for clusters with emoji presentation (🆕, ♾️), which prefer
+    /// a face that draws the char in color over an earlier text-style face.
+    emoji_face_cache: ahash::HashMap<char, FontFaceKey>,
+
     /// Lazily calculated: every supported char, and the names of the faces that have it.
     characters: Option<BTreeMap<char, Vec<String>>>,
 }
@@ -69,6 +73,7 @@ impl Family {
             name: name.clone(),
             chain,
             face_cache: Default::default(),
+            emoji_face_cache: Default::default(),
             characters: None,
         }
     }
@@ -114,6 +119,9 @@ impl Family {
         let Some(base_char) = cluster.chars().next() else {
             return self.notdef_face();
         };
+        if super::has_emoji_presentation(cluster) {
+            return self.resolve_emoji(faces, providers, cluster, base_char);
+        }
         if let Some(font_key) = self.face_cache.get(&base_char) {
             return *font_key;
         }
@@ -144,6 +152,51 @@ impl Family {
                 self.notdef_face()
             });
         self.face_cache.insert(c, font_key);
+        font_key
+    }
+
+    /// Resolve an emoji-presentation cluster: the first face that draws `c` in color,
+    /// asking the providers for one if no installed face does, else the text-style face.
+    ///
+    /// Without this, a text font earlier in the chain with a monochrome glyph for `c`
+    /// (e.g. a math or symbol font with ♾) would win, so ♾️ would render as text.
+    #[cold]
+    fn resolve_emoji(
+        &mut self,
+        faces: &mut FaceStore,
+        providers: &mut FontProviders,
+        cluster: &str,
+        c: char,
+    ) -> FontFaceKey {
+        if let Some(font_key) = self.emoji_face_cache.get(&c) {
+            return *font_key;
+        }
+        let is_color = |faces: &mut FaceStore, key: FontFaceKey| {
+            faces
+                .get_mut(key)
+                .is_some_and(|face| face.has_color_glyph_for(c))
+        };
+        let in_chain = self.chain.iter().copied().find(|&key| is_color(faces, key));
+        let font_key = match in_chain {
+            Some(key) => key,
+            None => match self.discover(faces, providers, cluster) {
+                Some(key) if is_color(faces, key) => key,
+                // The discovered face is in the chain now, so this does not ask again:
+                Some(_) => match self.face_cache.get(&c) {
+                    Some(key) => *key,
+                    None => self.resolve_slow(faces, providers, cluster, c),
+                },
+                // The providers have nothing for `c`. Settle its text resolution from the
+                // installed faces, so they are not asked again for its text presentation.
+                None => {
+                    let notdef = self.notdef_face();
+                    *self.face_cache.entry(c).or_insert_with(|| {
+                        Self::find_face_for_char_in(&self.chain, c, faces).unwrap_or(notdef)
+                    })
+                }
+            },
+        };
+        self.emoji_face_cache.insert(c, font_key);
         font_key
     }
 

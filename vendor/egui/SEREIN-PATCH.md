@@ -40,6 +40,7 @@ requests are squashed from the PR head that was reviewed; all of them are unmerg
 | 0020 | [#8734](https://github.com/emilk/egui/pull/8734) | `egui` | A `ScrollArea` that cannot scroll on an axis passes that axis's scroll target to its parent. |
 | 0021 | [#8814](https://github.com/emilk/egui/pull/8814) | `egui` | Requesting focus for the widget that already has it no longer interrupts IME composition. |
 | 0022 | Serein | `egui` | Fixes 0019 for a right-click whose press and release arrive in one pass: it checked the button's state after the pass, so the cursor still moved. Adds `tests/text_edit_right_click.rs`; suggest upstream on #5180. |
+| 0023 | Serein | `epaint`, `egui_system_font_provider` | Emoji-presentation clusters (🆕, or ♾ with U+FE0F) use a face that draws them in color instead of an earlier text font's plain glyph, and the system font provider asks for the emoji font first. Text presentation is unchanged. Fixes #913. |
 
 ## Serein patch: RTL shaping metadata
 
@@ -91,7 +92,8 @@ inherited from the pinned upstream revision.
 2. Run `cargo package --no-verify -p eframe -p egui -p egui-wgpu -p egui-winit
    -p egui_system_font_provider -p epaint`, extract each `.crate` here without `Cargo.lock`
    or `.cargo_vcs_info.json`, copy `LICENSE-APACHE`/`LICENSE-MIT`, and add `git`/`rev` to each
-   `[*dependencies.<egui crate>]` table.
-3. Regenerate `patches/` with `git format-patch --zero-commit --no-signature`, update the
+   `[*dependencies.<egui crate>]` table. Packaging keeps only `.rs` files of `epaint`, so also copy
+   `src/text/test_fonts/` (fixtures for patch 0023's test).
+3. Regenerate `patches/` with `git format-patch -N --zero-commit --no-signature`, update the
    revision in the root `Cargo.toml`, `THIRD_PARTY_NOTICES.md` and license provenance, and
    remove a crate from this directory and the `[patch]` table once none of its patches remain.

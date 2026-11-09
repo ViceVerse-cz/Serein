@@ -1,8 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 13:03:23 +0100
-Subject: [PATCH 18/22] egui#8766: Treat Control-click as a secondary click on
- macOS
+Subject: [PATCH] egui#8766: Treat Control-click as a secondary click on macOS
 
 Squashed from https://github.com/emilk/egui/pull/8766 at f3abe4b0b9d2.
 ---

@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 12:43:54 +0100
-Subject: [PATCH 03/22] egui#8768: Let apps skip repaints for pointer motion
- they don't need
+Subject: [PATCH] egui#8768: Let apps skip repaints for pointer motion they
+ don't need
 
 Squashed from https://github.com/emilk/egui/pull/8768 at 48c1cebea9f6.
 ---

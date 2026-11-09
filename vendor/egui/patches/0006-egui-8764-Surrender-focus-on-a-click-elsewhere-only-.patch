@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 12:43:56 +0100
-Subject: [PATCH 06/22] egui#8764: Surrender focus on a click elsewhere only
- when the widget is shown
+Subject: [PATCH] egui#8764: Surrender focus on a click elsewhere only when the
+ widget is shown
 
 Squashed from https://github.com/emilk/egui/pull/8764 at 6eb460a2a6d5.
 ---

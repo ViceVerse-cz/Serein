@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 13:03:12 +0100
-Subject: [PATCH 15/22] egui#8799: Fix panel clip_rect shrinking past content
- minimum size during resize
+Subject: [PATCH] egui#8799: Fix panel clip_rect shrinking past content minimum
+ size during resize
 
 Squashed from https://github.com/emilk/egui/pull/8799 at 0b6477792756.
 ---

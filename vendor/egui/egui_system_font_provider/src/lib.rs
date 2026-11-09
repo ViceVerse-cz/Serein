@@ -115,7 +115,22 @@ impl FontProvider for SystemFontProvider {
             FontFamily::Proportional | FontFamily::Name(_) => GenericFamily::SansSerif,
         };
 
-        let font = if let Some(script) = script_of(base_char) {
+        let font = if epaint::text::has_emoji_presentation(cluster) {
+            // An emoji (🆕, ♾️): the color emoji font first, not a text font with a plain glyph.
+            let mut query = collection.query(source_cache);
+            query.set_families(
+                [
+                    GenericFamily::Emoji,
+                    generic,
+                    GenericFamily::SystemUi,
+                    GenericFamily::Math,
+                    GenericFamily::Serif,
+                    GenericFamily::Monospace,
+                ]
+                .map(QueryFamily::Generic),
+            );
+            find_font(&mut query, base_char)
+        } else if let Some(script) = script_of(base_char) {
             find_font_for_script(
                 collection,
                 source_cache,

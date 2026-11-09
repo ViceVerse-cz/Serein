@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 13:03:10 +0100
-Subject: [PATCH 10/22] egui#8774: Preserve image batching across invisible
- widget placeholders
+Subject: [PATCH] egui#8774: Preserve image batching across invisible widget
+ placeholders
 
 Squashed from https://github.com/emilk/egui/pull/8774 at 265afc37f374.
 ---

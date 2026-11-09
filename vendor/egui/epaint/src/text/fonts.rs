@@ -1017,6 +1017,42 @@ mod tests {
         }
     }
 
+    /// Emoji presentation (🆕, or ♾ with U+FE0F) prefers a face that draws the char in color,
+    /// even when an earlier face has a plain glyph for it. Text presentation keeps that face.
+    /// The fixtures are minimal fonts covering U+267E and U+1F195, the second with `COLR` glyphs.
+    #[cfg(feature = "color_fonts")]
+    #[test]
+    fn emoji_presentation_prefers_a_color_face() {
+        let mut definitions = FontDefinitions::empty();
+        for (name, data) in [
+            ("mono", include_bytes!("test_fonts/mono.ttf").as_slice()),
+            ("color", include_bytes!("test_fonts/color.ttf").as_slice()),
+        ] {
+            definitions.font_data.insert(
+                name.to_owned(),
+                Arc::new(crate::text::FontData::from_static(data)),
+            );
+            definitions
+                .families
+                .entry(FontFamily::Proportional)
+                .or_default()
+                .push(name.to_owned());
+        }
+        let mut fonts = FontsImpl::new(TextOptions::default(), definitions);
+        let family = fonts.family_key(&FontFamily::Proportional);
+        for (cluster, expected) in [
+            ("\u{267E}", "mono"),
+            ("\u{267E}\u{FE0F}", "color"),
+            ("\u{267E}\u{FE0E}", "mono"),
+            ("\u{1F195}", "color"),
+            ("\u{267E}", "mono"),
+        ] {
+            let key = fonts.resolve_cluster_face(family, cluster);
+            let face = fonts.face(key).map(|face| face.name().to_owned());
+            assert_eq!(face.as_deref(), Some(expected), "{cluster:?}");
+        }
+    }
+
     #[test]
     fn test_fallback_glyph_width() {
         let mut fonts = Fonts::new(TextOptions::default(), FontDefinitions::empty());

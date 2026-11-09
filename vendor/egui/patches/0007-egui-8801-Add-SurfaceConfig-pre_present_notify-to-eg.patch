@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 12:43:57 +0100
-Subject: [PATCH 07/22] egui#8801: Add `SurfaceConfig::pre_present_notify` to
+Subject: [PATCH] egui#8801: Add `SurfaceConfig::pre_present_notify` to
  egui-wgpu
 
 Squashed from https://github.com/emilk/egui/pull/8801 at a299c9799688.

@@ -1,8 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 12:43:54 +0100
-Subject: [PATCH 02/22] egui#8804: Place fallback-font glyphs on the row
- baseline
+Subject: [PATCH] egui#8804: Place fallback-font glyphs on the row baseline
 
 Squashed from https://github.com/emilk/egui/pull/8804 at 328448754e1d.
 ---

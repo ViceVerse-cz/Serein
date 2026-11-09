@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 13:03:11 +0100
-Subject: [PATCH 12/22] egui#8737: Honor initially hidden root windows after
- first paint
+Subject: [PATCH] egui#8737: Honor initially hidden root windows after first
+ paint
 
 Squashed from https://github.com/emilk/egui/pull/8737 at e4855c009b8d.
 ---

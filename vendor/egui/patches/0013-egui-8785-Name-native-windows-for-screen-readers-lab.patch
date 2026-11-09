@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 13:03:11 +0100
-Subject: [PATCH 13/22] egui#8785: Name native windows for screen readers:
- label the AccessKit root with the viewport title
+Subject: [PATCH] egui#8785: Name native windows for screen readers: label the
+ AccessKit root with the viewport title
 
 Squashed from https://github.com/emilk/egui/pull/8785 at d4b803b8ff96.
 ---

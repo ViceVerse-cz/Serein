@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 12:43:55 +0100
-Subject: [PATCH 05/22] egui#8710: Don't discard mouse button events when the
- pointer position is unknown
+Subject: [PATCH] egui#8710: Don't discard mouse button events when the pointer
+ position is unknown
 
 Squashed from https://github.com/emilk/egui/pull/8710 at 9aa14dfced51.
 ---

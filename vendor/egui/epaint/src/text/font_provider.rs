@@ -284,11 +284,21 @@ mod tests {
         assert!(!fonts.has_glyph(&FontId::proportional(14.0), HANGUL));
         assert!(!fonts.has_glyph(&FontId::proportional(14.0), HANGUL));
         assert!(!fonts.has_glyph(&FontId::monospace(14.0), HANGUL));
+
+        // An emoji is asked for once too, covering its text presentation:
+        let new_button = '\u{1F195}';
+        assert!(!fonts.has_glyph(&FontId::proportional(14.0), new_button));
+        fonts.with_pixels_per_point(1.0).layout_no_wrap(
+            format!("{new_button}\u{FE0E}"),
+            FontId::proportional(14.0),
+            Color32::WHITE,
+        );
         assert_eq!(
             *requests.lock(),
             vec![
                 (FontFamily::Proportional, HANGUL.to_string()),
                 (FontFamily::Monospace, HANGUL.to_string()),
+                (FontFamily::Proportional, new_button.to_string()),
             ]
         );
         assert!(fonts.discovered_fonts().is_empty());

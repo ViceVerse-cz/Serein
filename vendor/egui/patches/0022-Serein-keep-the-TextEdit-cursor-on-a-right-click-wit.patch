@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 13:08:53 +0100
-Subject: [PATCH 22/22] Serein: keep the TextEdit cursor on a right-click
- within one pass
+Subject: [PATCH] Serein: keep the TextEdit cursor on a right-click within one
+ pass
 
 egui#5180 checks secondary_down(), the button state after the pass, so a right-click whose press and release arrive in the same pass still moved the cursor. Check this pass's press instead.
 ---

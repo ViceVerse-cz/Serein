@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 13:03:23 +0100
-Subject: [PATCH 17/22] egui#8722: Preserve physical keypad Enter in native and
- web events
+Subject: [PATCH] egui#8722: Preserve physical keypad Enter in native and web
+ events
 
 Squashed from https://github.com/emilk/egui/pull/8722 at 01022f1e7661.
 ---

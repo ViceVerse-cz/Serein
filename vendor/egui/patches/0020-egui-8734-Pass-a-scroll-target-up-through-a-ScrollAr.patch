@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
 Date: Mon, 9 Nov 2026 13:03:24 +0100
-Subject: [PATCH 20/22] egui#8734: Pass a scroll target up through a
- `ScrollArea` that cannot scroll on that axis
+Subject: [PATCH] egui#8734: Pass a scroll target up through a `ScrollArea`
+ that cannot scroll on that axis
 
 Squashed from https://github.com/emilk/egui/pull/8734 at 44d734308880.
 ---
