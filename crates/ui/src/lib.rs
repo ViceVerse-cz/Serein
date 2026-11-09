@@ -80,6 +80,7 @@ mod pending;
 mod post_menu;
 mod preload;
 mod profiles;
+mod rtl;
 mod slash_builtin;
 mod slash_commands;
 mod stickers;
@@ -4495,6 +4496,12 @@ impl MessagingUi {
 	/// Draws one frame of the signed-in client and returns the commands it produced for the
 	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		rtl::scope(
+			ui.ctx(),
+			state.generation,
+			state.user.as_ref().map(|user| user.id),
+			state.selected,
+		);
 		self.avatars.cosmetics = self.cosmetics;
 		name_styles::set_enabled(self.cosmetics.name_styles);
 		role_names::set_gradients(!self.cosmetics.solid_names);
@@ -5933,6 +5940,7 @@ impl MessagingUi {
 				None => {}
 			}
 		}
+		select::show_menu(&ctx);
 		self.show_call_switch(&ctx, state, &mut commands);
 		self.apply_ring_request(state, &mut commands);
 		if let Some((guild, channel, user, change)) = self.voice_moderation.take()
