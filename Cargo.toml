@@ -37,7 +37,7 @@ thiserror = "2"
 url = "2"
 platform = { path = "crates/platform" }
 local-store = { path = "crates/local-store" }
-rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled", "cache"] }
+rusqlite = { version = "=0.41.1", default-features = false, features = ["bundled", "cache"] }
 dirs = "=7.0.0"
 getrandom = "0.4"
 time = { version = "0.3", features = ["parsing"] }

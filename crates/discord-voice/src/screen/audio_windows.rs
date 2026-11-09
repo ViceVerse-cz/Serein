@@ -767,7 +767,7 @@ mod native {
 					.mix_into(&mut frame, epoch, LANE_PRIME_SAMPLES);
 			}
 			ticks = ticks.wrapping_add(1);
-			if diagnostics && ticks % 500 == 0 {
+			if diagnostics && ticks.is_multiple_of(500) {
 				// Which application carried sound in the last 5 s, to find where a voice comes from.
 				for lane in &active {
 					let peak = f32::from_bits(lane.peak.swap(0, Ordering::Relaxed));
@@ -1307,7 +1307,7 @@ mod native {
 		unsafe { operation.GetActivateResult(&mut status, &mut activated)? };
 		drop(operation);
 		status.ok()?;
-		Ok(activated.ok_or(E_FAIL)?.cast()?)
+		activated.ok_or(E_FAIL)?.cast()
 	}
 
 	/// Captures one process loopback into the sink until the sink stops or its encryption
