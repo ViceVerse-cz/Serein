@@ -149,6 +149,7 @@ impl MessagingUi {
 	pub(super) fn account_menu(
 		&mut self,
 		anchor: &egui::Response,
+		popup_anchor: egui::PopupAnchor,
 		state: &mut State,
 		commands: &mut Vec<Command>,
 	) {
@@ -173,8 +174,17 @@ impl MessagingUi {
 		}
 		let colors = design::palette_for(&anchor.ctx);
 		let mut open = self.account_menu.open;
+		let id = anchor.id.with("account-menu");
+		// Use the whole footer card as the anchor so the popout sits above the section
+		// instead of overlapping the identity row.
+		const GAP: f32 = 8.0;
+		let available_height = popup_anchor.rect(id, &anchor.ctx).map_or(620.0, |rect| {
+			(rect.top() - anchor.ctx.content_rect().top() - GAP - 8.0).max(180.0)
+		});
 		egui::Popup::from_response(anchor)
-			.id(anchor.id.with("account-menu"))
+			.id(id)
+			.anchor(popup_anchor)
+			.gap(GAP)
 			.open_bool(&mut open)
 			.align(egui::RectAlign::TOP_START)
 			.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
@@ -187,7 +197,7 @@ impl MessagingUi {
 			)
 			.show(|ui| {
 				ui.set_width(340.0);
-				let height = (ui.ctx().content_rect().height() - 90.0).clamp(180.0, 620.0);
+				let height = available_height;
 				egui::ScrollArea::vertical()
 					.min_scrolled_height(height)
 					.max_height(height)
@@ -1314,5 +1324,104 @@ mod tests {
 				assert!(view.take_avatar_requests().is_empty());
 			}
 		}
+	}
+
+	#[test]
+	fn account_card_highlights_identity_when_hovering_avatar() {
+		let size = vec2(340.0, 400.0);
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let colors = design::palette_for(&ctx);
+		let mut state = test_support::demo_state();
+		let own = state.user.as_ref().unwrap().clone();
+		state.own_profile.data = Some(profiles::synthetic(&own, None));
+		let mut view = MessagingUi::default();
+
+		fn walk(shape: &egui::Shape, rects: &mut Vec<(Rect, egui::Color32)>) {
+			match shape {
+				egui::Shape::Rect(rect) => rects.push((rect.rect, rect.fill)),
+				egui::Shape::Vec(children) => {
+					for shape in children {
+						walk(shape, rects);
+					}
+				}
+				_ => {}
+			}
+		}
+		fn collect(shape: &egui::Shape, text: &mut Vec<(String, Rect)>) {
+			match shape {
+				egui::Shape::Text(t) => text.push((
+					t.galley.job.text.clone(),
+					Rect::from_min_size(t.pos, t.galley.size()),
+				)),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						collect(shape, text);
+					}
+				}
+				_ => {}
+			}
+		}
+
+		let mut run = |events: Vec<Event>| {
+			let mut text = vec![];
+			let mut rects = vec![];
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					egui::Panel::bottom("test-account-footer").show(ui, |ui| {
+						let mut commands = vec![];
+						view.account_card(ui, &mut state, &mut commands);
+						assert!(commands.is_empty());
+					});
+				},
+			);
+			for clipped in &output.shapes {
+				walk(&clipped.shape, &mut rects);
+				collect(&clipped.shape, &mut text);
+			}
+			output.drop_without_applying_deltas();
+			(text, rects)
+		};
+
+		let (text, idle) = run(vec![Event::PointerMoved(egui::pos2(-10.0, -10.0))]);
+		let name = locate(&text, "You (synthetic)");
+		let hover_color = crate::design::row_highlight(
+			&egui::Ui::new(ctx.clone(), egui::Id::NULL, egui::UiBuilder::new()),
+			colors.hover,
+			1.0,
+		);
+		assert!(
+			!idle.iter().any(|(_, fill)| *fill == hover_color),
+			"no identity highlight when the pointer is outside"
+		);
+
+		let (_, hovered) = run(vec![Event::PointerMoved(name)]);
+		let highlight = hovered
+			.iter()
+			.find(|(rect, fill)| *fill == hover_color && rect.contains(name))
+			.map(|(rect, _)| *rect)
+			.expect("the identity section should highlight under the pointer");
+		let tail = egui::pos2(highlight.right() - 4.0, highlight.center().y);
+		for pressed in [true, false] {
+			run(vec![
+				Event::PointerMoved(tail),
+				Event::PointerButton {
+					pos: tail,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]);
+		}
+		drop(run);
+		assert!(
+			view.account_menu.open,
+			"clicking the highlighted tail opens the account menu"
+		);
 	}
 }
