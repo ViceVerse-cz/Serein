@@ -1920,6 +1920,7 @@ mod tests {
 
 	fn user(id: u64, name: &str) -> User {
 		User {
+			username: String::new(),
 			id: Id(id),
 			name: name.into(),
 			avatar: None,

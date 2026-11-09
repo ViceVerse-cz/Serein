@@ -224,6 +224,11 @@ impl MessagingUi {
 		if !state.can_create_guild_emoji(guild) {
 			return None;
 		}
+		// Reopening the editor would silently drop images still being prepared or uploaded.
+		if self.server_settings.scope.is_some() && self.server_settings.admin.has_changes() {
+			state.status = "Finish or discard the current emoji uploads first.";
+			return None;
+		}
 		let command = self.preview_server_admin(state, guild, "emoji");
 		if self.server_settings.scope == Some((state.generation, guild)) {
 			self.server_settings.admin.queue_clone(emoji);

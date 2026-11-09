@@ -111,6 +111,7 @@ impl Snapshot {
 				} else {
 					(
 						model::User {
+							username: String::new(),
 							id: r.id,
 							name: "Unknown user".into(),
 							avatar: None,

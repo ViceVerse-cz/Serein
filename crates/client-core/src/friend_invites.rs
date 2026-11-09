@@ -133,13 +133,13 @@ impl State {
 				Err(failure) => invites.error = Some(failure),
 			},
 			Event::Created { result, .. } => match result {
-				// Before the first list, the new link arrives with the list that follows.
+				// A link created before any list is kept, so it can be copied even if listing
+				// fails; the next list on a visit to Add Friend fills in the rest.
 				Ok(invite) => {
-					if let Some(list) = &mut invites.invites {
-						list.retain(|known| known.code != invite.code);
-						list.insert(0, invite);
-						list.truncate(MAX_INVITES);
-					}
+					let list = invites.invites.get_or_insert_default();
+					list.retain(|known| known.code != invite.code);
+					list.insert(0, invite);
+					list.truncate(MAX_INVITES);
 				}
 				Err(failure) => invites.error = Some(failure),
 			},
@@ -231,6 +231,30 @@ mod tests {
 			result: Ok(()),
 		});
 		assert_eq!(state.friend_invites.invites(), Some(&[][..]));
+	}
+
+	#[test]
+	fn a_link_created_before_any_list_is_kept() {
+		let mut state = State {
+			auth: AuthState::Authenticated,
+			..Default::default()
+		};
+		let create = request(state.create_friend_invite());
+		state.apply_friend_invites(Event::Created {
+			request: create,
+			result: Ok(invite("first")),
+		});
+		assert_eq!(state.friend_invites.invites().unwrap()[0].code, "first");
+		let load = request(state.load_friend_invites());
+		state.apply_friend_invites(Event::Loaded {
+			request: load,
+			result: Err(Failure::Network),
+		});
+		assert_eq!(
+			state.friend_invites.invites().unwrap().len(),
+			1,
+			"still copyable"
+		);
 	}
 
 	#[test]

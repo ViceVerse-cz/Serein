@@ -118,6 +118,22 @@ impl MessagingUi {
 	) {
 		let colors = design::palette(ui);
 		let language = self.language;
+		// The page scrolls so invite links stay reachable in a short window.
+		egui::ScrollArea::vertical()
+			.id_salt("add-friend-page")
+			.auto_shrink([false, false])
+			.show(ui, |ui| {
+				self.add_friend_body(ui, state, commands, colors, language)
+			});
+	}
+	fn add_friend_body(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		colors: design::Palette,
+		language: crate::i18n::Language,
+	) {
 		egui::Frame::new().inner_margin(24).show(ui, |ui| {
 			ui.label(
 				design::semibold(ui, language.text("friends-add"), 20.0).color(colors.text_strong),
@@ -1044,14 +1060,24 @@ fn search(ui: &mut egui::Ui, query: &mut String, id: egui::Id, hint: &str) -> eg
 	edit
 }
 
-/// Add Friend's friend invite links: listed on first view, created and copied on demand,
+/// Add Friend's friend invite links: listed on each visit, created and copied on demand,
 /// and revoked all at once.
 fn friend_invite_links(ui: &mut egui::Ui, state: &mut State, commands: &mut Vec<Command>) {
 	let colors = design::palette(ui);
+	// A visit starts when the section was not drawn in the previous pass; links used,
+	// expired or revoked elsewhere then show their current state.
+	let pass = ui.ctx().cumulative_pass_nr();
+	let seen = egui::Id::unique("friend-invite-links-pass");
+	let last = ui.ctx().data_mut(|data| {
+		let last = data.get_temp::<u64>(seen);
+		data.insert_temp(seen, pass);
+		last
+	});
+	let visit = last.is_none_or(|last: u64| last + 1 < pass);
 	let invites = &state.friend_invites;
-	if invites.invites().is_none()
+	if (visit || invites.invites().is_none())
 		&& !invites.busy()
-		&& invites.error.is_none()
+		&& (visit || invites.error.is_none())
 		&& let Some(command) = state.load_friend_invites()
 	{
 		commands.push(command);

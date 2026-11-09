@@ -281,6 +281,7 @@ mod tests {
 			freshness: Freshness::Fresh,
 			selected: Some(Id(10)),
 			user: Some(User {
+				username: String::new(),
 				id: Id(99),
 				name: "You".into(),
 				avatar: None,
@@ -304,6 +305,7 @@ mod tests {
 				icon: None,
 				recipients: vec![
 					User {
+						username: String::new(),
 						id: Id(1),
 						name: "Alex".into(),
 						avatar: None,
@@ -314,6 +316,7 @@ mod tests {
 						cosmetics: None,
 					},
 					User {
+						username: String::new(),
 						id: Id(2),
 						name: "Robin".into(),
 						avatar: None,
@@ -324,6 +327,7 @@ mod tests {
 						cosmetics: None,
 					},
 					User {
+						username: String::new(),
 						id: Id(3),
 						name: "Long name\n".repeat(100),
 						avatar: None,

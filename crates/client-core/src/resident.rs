@@ -399,6 +399,7 @@ mod tests {
 			channel: Id(channel),
 			kind: 0,
 			author: User {
+				username: String::new(),
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(9),

@@ -3303,10 +3303,15 @@ impl TimelineView {
 							if let Some(reply) = message.reply_to.filter(|_| message.kind != 46) {
 								reference_row(ui, |ui| {
 									// Reuse only loaded content; never fetch a thread while painting.
+									// The same original the preview shows, loaded or looked up.
 									let blocked = self.hidden_blocked
-										&& state.timeline.get(reply).is_some_and(|original| {
-											state.user_blocked(original.author.id) == Some(true)
-										});
+										&& state
+											.timeline
+											.get(reply)
+											.or_else(|| state.lookups.message(reply))
+											.is_some_and(|original| {
+												state.user_blocked(original.author.id) == Some(true)
+											});
 									if blocked {
 										let label = ui.add(
 											egui::Label::new(
@@ -6452,6 +6457,7 @@ mod tests {
 			id: Id(id),
 			channel: Id(20),
 			author: model::User {
+				username: String::new(),
 				id: Id(2),
 				name: "Robin".into(),
 				avatar: None,
@@ -7339,6 +7345,7 @@ mod tests {
 		// A mention names its author instead of the raw token.
 		message.content = "Hi <@9>".into();
 		message.mentions = vec![model::User {
+			username: String::new(),
 			id: Id(9),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -8121,6 +8128,7 @@ mod tests {
 			auth: client_core::auth::AuthState::Authenticated,
 			gateway_connected: true,
 			user: Some(model::User {
+				username: String::new(),
 				id: Id(999),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -9991,6 +9999,7 @@ mod tests {
 			id: Id(1),
 			channel: Id(2),
 			author: model::User {
+				username: String::new(),
 				id: Id(3),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -10053,6 +10062,7 @@ mod tests {
 		});
 		// Channel names are shown only with view and read permission.
 		state.user = Some(model::User {
+			username: String::new(),
 			id: Id(9),
 			name: "Synthetic viewer".into(),
 			avatar: None,
@@ -10167,6 +10177,7 @@ mod tests {
 			id: Id(1),
 			channel: Id(2),
 			author: model::User {
+				username: String::new(),
 				id: Id(3),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -10269,6 +10280,7 @@ mod tests {
 			id: Id(1),
 			channel: Id(2),
 			author: model::User {
+				username: String::new(),
 				id: Id(3),
 				name: "Synthetic".into(),
 				avatar: None,

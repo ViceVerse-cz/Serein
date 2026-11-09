@@ -10,7 +10,8 @@ pub const MAX_PARTICIPANTS: usize = 64;
 pub const MAX_DM_CALLS: usize = 64;
 pub const MAX_DM_CALL_BYTES: usize = MAX_DM_CALLS * size_of::<Id>();
 pub const MAX_ROSTER: usize = 4096;
-pub const MAX_ROSTER_BYTES: usize = 1024 * 1024;
+/// A full roster of minimal entries must fit; each person now also carries a username.
+pub const MAX_ROSTER_BYTES: usize = MAX_ROSTER * 288;
 use std::fmt;
 use zeroize::Zeroizing;
 
@@ -1331,6 +1332,7 @@ mod tests {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
 			user: Some(User {
+				username: String::new(),
 				id: Id(1),
 				name: "Owner".into(),
 				avatar: None,
@@ -1566,6 +1568,7 @@ mod tests {
 				auth: AuthState::Authenticated,
 				gateway_connected: true,
 				user: Some(User {
+					username: String::new(),
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(1),
@@ -1727,6 +1730,7 @@ mod tests {
 			oversized.member = Some(Member {
 				roles: vec![],
 				user: User {
+					username: String::new(),
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(2),
@@ -1845,6 +1849,7 @@ mod tests {
 				auth: AuthState::Authenticated,
 				gateway_connected: true,
 				user: Some(User {
+					username: String::new(),
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(1),
@@ -1990,6 +1995,7 @@ mod tests {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
 			user: Some(User {
+				username: String::new(),
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(1),
@@ -2008,6 +2014,7 @@ mod tests {
 				position: 0,
 				kind: 1,
 				recipients: vec![User {
+					username: String::new(),
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(3),
@@ -2281,6 +2288,7 @@ mod tests {
 				auth: AuthState::Authenticated,
 				gateway_connected: true,
 				user: Some(User {
+					username: String::new(),
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(1),
@@ -2299,6 +2307,7 @@ mod tests {
 					position: 0,
 					kind: 1,
 					recipients: vec![User {
+						username: String::new(),
 						primary_guild: None,
 						cosmetics: None,
 						id: Id(3),

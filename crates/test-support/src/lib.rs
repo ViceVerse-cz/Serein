@@ -110,6 +110,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 		id: Id(id),
 		channel,
 		author: User {
+			username: String::new(),
 			avatar: None,
 			webhook: false,
 			kind: Default::default(),
@@ -215,6 +216,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 		suppress_notifications: false,
 		mentions: if id == 500 {
 			vec![User {
+				username: String::new(),
 				id: Id(2),
 				name: "Robin (synthetic)".into(),
 				avatar: None,
@@ -316,6 +318,7 @@ pub fn demo_state() -> State {
 		event: Event::Ready {
 			permissions: model::permissions::Snapshot::default(),
 			user: User {
+				username: String::new(),
 				avatar: None,
 				webhook: false,
 				kind: Default::default(),
@@ -415,6 +418,7 @@ pub fn demo_state() -> State {
 					name: "Message request (synthetic)".into(),
 					kind: 1,
 					recipients: vec![User {
+						username: String::new(),
 						id: Id(8004),
 						name: "Rowan (synthetic)".into(),
 						avatar: None,
@@ -438,6 +442,7 @@ pub fn demo_state() -> State {
 					name: "Spam request (synthetic)".into(),
 					kind: 1,
 					recipients: vec![User {
+						username: String::new(),
 						id: Id(8005),
 						name: "Spam (synthetic)".into(),
 						avatar: None,
@@ -463,6 +468,7 @@ pub fn demo_state() -> State {
 					recipients: vec![
 						message(1, Id(29)).author,
 						User {
+							username: String::new(),
 							id: Id(3),
 							name: "Casey (synthetic)".into(),
 							avatar: None,
@@ -650,6 +656,7 @@ pub fn demo_state() -> State {
 		event: Event::UserAction(client_core::user_actions::Event::Requests(Some(vec![
 			(
 				User {
+					username: String::new(),
 					id: Id(8001),
 					name: "Avery".into(),
 					avatar: None,
@@ -664,6 +671,7 @@ pub fn demo_state() -> State {
 			),
 			(
 				User {
+					username: String::new(),
 					id: Id(8003),
 					name: "Rowan".into(),
 					avatar: None,
@@ -702,6 +710,7 @@ pub fn demo_state() -> State {
 			.map(|(i, name)| {
 				(
 					User {
+						username: String::new(),
 						id: Id(1001 + i as u64),
 						name: name.into(),
 						avatar: None,
@@ -792,6 +801,7 @@ pub fn voice_demo_state() -> State {
 		member: Some(Member {
 			roles: vec![],
 			user: User {
+				username: String::new(),
 				id: Id(id),
 				name: name.into(),
 				avatar: None,
@@ -1144,6 +1154,7 @@ pub fn chat_demo_state() -> State {
 		m.author_roles = vec![Id(101)];
 		if i == 6 {
 			m.mentions = vec![User {
+				username: String::new(),
 				id: Id(2),
 				name: "𝖘𝖓𝖎𝖎𝖝. (synthetic)".into(),
 				avatar: None,
@@ -1326,6 +1337,7 @@ pub fn system_demo_state() -> State {
 		m.attachments.clear();
 		m.reactions = Some(vec![]);
 		m.mentions = vec![User {
+			username: String::new(),
 			id: Id(42),
 			name: "Casey (synthetic)".into(),
 			avatar: None,
@@ -1403,6 +1415,7 @@ pub fn friends_demo_state() -> State {
 		event: Event::UserAction(client_core::user_actions::Event::Restrictions(Some(vec![
 			(
 				User {
+					username: String::new(),
 					id: Id(8101),
 					name: "Blocked Example".into(),
 					avatar: None,
@@ -1417,6 +1430,7 @@ pub fn friends_demo_state() -> State {
 			),
 			(
 				User {
+					username: String::new(),
 					id: Id(8102),
 					name: "Ignored Example".into(),
 					avatar: None,
@@ -1436,6 +1450,7 @@ pub fn friends_demo_state() -> State {
 		event: Event::UserAction(client_core::user_actions::Event::Requests(Some(vec![
 			(
 				model::User {
+					username: String::new(),
 					id: Id(8001),
 					name: "Avery".into(),
 					avatar: None,
@@ -1450,6 +1465,7 @@ pub fn friends_demo_state() -> State {
 			),
 			(
 				model::User {
+					username: String::new(),
 					id: Id(8002),
 					name: "Morgan".into(),
 					avatar: None,

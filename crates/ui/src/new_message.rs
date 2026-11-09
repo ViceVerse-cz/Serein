@@ -212,6 +212,7 @@ mod tests {
 		let mut state = State {
 			demo: true,
 			user: Some(model::User {
+				username: String::new(),
 				id: Id(1),
 				name: "Signed in".into(),
 				avatar: None,
@@ -225,6 +226,7 @@ mod tests {
 		};
 		let people: Vec<model::User> = (0..2)
 			.map(|index| model::User {
+				username: String::new(),
 				id: Id(20 + index),
 				name: format!("Friend {index}"),
 				avatar: None,

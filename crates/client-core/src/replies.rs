@@ -552,6 +552,7 @@ mod tests {
 			id: Id(id),
 			channel: Id(1),
 			author: User {
+				username: String::new(),
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(9),
@@ -1645,6 +1646,7 @@ mod tests {
 						id: Id(50),
 						channel: Id(1),
 						author: model::User {
+							username: String::new(),
 							kind: model::AccountKind::Human,
 							webhook: false,
 							id: Id(7),

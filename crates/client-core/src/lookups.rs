@@ -43,6 +43,8 @@ pub struct Lookups {
 	pending: BTreeSet<Target>,
 	/// Targets that could not be read; never asked for again this session.
 	missing: VecDeque<Target>,
+	/// Messages edited or deleted while their lookup was in flight; that result is stale.
+	superseded: BTreeSet<Id>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -76,6 +78,22 @@ impl Lookups {
 	/// Forgets lookups in flight when the connection fails, so a later hover can ask again.
 	pub(crate) fn release_pending(&mut self) {
 		self.pending.clear();
+		self.superseded.clear();
+	}
+	/// Drops the kept copy of an edited or deleted message so it is never shown stale; an
+	/// edited one is read again on the next hover, a deleted one is remembered as missing.
+	pub(crate) fn forget_message(&mut self, id: Id, deleted: bool) {
+		self.messages.retain(|message| message.id != id);
+		let target = Target::Message(id);
+		if self.pending.contains(&target) {
+			self.superseded.insert(id);
+		}
+		if deleted && !self.missing.contains(&target) {
+			if self.missing.len() == KEPT {
+				self.missing.pop_front();
+			}
+			self.missing.push_back(target);
+		}
 	}
 	fn fail(&mut self, target: Target, failure: Option<Failure>) {
 		self.pending.remove(&target);
@@ -117,8 +135,9 @@ impl State {
 	/// Asks once for a reply's original message that the loaded history does not hold.
 	pub fn prepare_message_lookup(&mut self, channel: Id, message: Id) -> Option<crate::Command> {
 		let target = Target::Message(message);
+		// Reading around a message needs history access, not only channel visibility.
 		if !self.lookups_ready()
-			|| !self.can_view(channel)
+			|| !self.can_read_history(channel)
 			|| self.timeline.get(message).is_some()
 			|| !self.lookups.admits(target)
 		{
@@ -155,9 +174,17 @@ impl State {
 				result,
 			} => {
 				let target = Target::Message(message);
+				if self.lookups.superseded.remove(&message) {
+					self.lookups.pending.remove(&target);
+					return;
+				}
 				match result {
+					// A result arriving after history access ended is never kept.
 					Ok(Some(found)) if found.id == message && found.channel == channel => {
 						self.lookups.pending.remove(&target);
+						if !self.can_read_history(channel) {
+							return;
+						}
 						if self.lookups.messages.len() == KEPT {
 							self.lookups.messages.pop_front();
 						}
@@ -200,6 +227,7 @@ mod tests {
 
 	fn user(id: u64) -> User {
 		User {
+			username: String::new(),
 			id: Id(id),
 			name: format!("person-{id}"),
 			avatar: None,
@@ -329,5 +357,48 @@ mod tests {
 			state.prepare_message_lookup(Id(10), Id(51)).is_none(),
 			"deleted stays missing"
 		);
+	}
+
+	#[test]
+	fn edits_and_deletes_never_leave_a_stale_copy() {
+		let mut state = state();
+		let found = |id: u64| {
+			let mut found = crate::tests::message(id);
+			found.channel = Id(10);
+			Ok(Some(Box::new(found)))
+		};
+		state.prepare_message_lookup(Id(10), Id(50));
+		state.apply_lookup(Event::Message {
+			channel: Id(10),
+			message: Id(50),
+			result: found(50),
+		});
+		state.lookups.forget_message(Id(50), false);
+		assert!(
+			state.lookups.message(Id(50)).is_none(),
+			"edited copy dropped"
+		);
+		assert!(
+			state.prepare_message_lookup(Id(10), Id(50)).is_some(),
+			"an edited message is read again"
+		);
+		// Edited while in flight: that older result is discarded.
+		state.lookups.forget_message(Id(50), false);
+		state.apply_lookup(Event::Message {
+			channel: Id(10),
+			message: Id(50),
+			result: found(50),
+		});
+		assert!(state.lookups.message(Id(50)).is_none());
+		assert!(state.prepare_message_lookup(Id(10), Id(50)).is_some());
+		// Deleted: dropped and never asked for again.
+		state.apply_lookup(Event::Message {
+			channel: Id(10),
+			message: Id(50),
+			result: found(50),
+		});
+		state.lookups.forget_message(Id(50), true);
+		assert!(state.lookups.message(Id(50)).is_none());
+		assert!(state.prepare_message_lookup(Id(10), Id(50)).is_none());
 	}
 }

@@ -4756,6 +4756,7 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
 		mutual_friends: guild
 			.map(|_| {
 				vec![User {
+					username: String::new(),
 					id: Id(42),
 					name: "Mutual friend".into(),
 					avatar: None,

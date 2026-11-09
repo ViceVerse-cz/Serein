@@ -1124,6 +1124,7 @@ mod tests {
 	use model::{Channel, Guild, Patch, User, permissions as p};
 	fn notification_state() -> State {
 		let owner = User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(2),
@@ -1530,6 +1531,7 @@ mod tests {
 
 	fn message(id: u64, channel: u64) -> Message {
 		let owner = User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(2),

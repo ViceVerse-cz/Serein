@@ -712,6 +712,7 @@ mod tests {
 				name: format!("Room {id}"),
 				kind: 1,
 				recipients: vec![model::User {
+					username: String::new(),
 					id: Id(90),
 					name: "Žofie Example".into(),
 					avatar: None,

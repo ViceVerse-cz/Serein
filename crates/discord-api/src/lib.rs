@@ -1785,8 +1785,20 @@ impl DiscordApi {
 				channel,
 				message,
 				content,
-				..
+				keep_attachments,
 			} => {
+				// An edit that adds files goes through the upload worker; editing only the
+				// text here would report success without the files.
+				if keep_attachments.is_some() {
+					return Event::Edited {
+						request,
+						channel,
+						message,
+						result: Err(Failure::ProtocolAt(
+							"Files must be added through the upload worker",
+						)),
+					};
+				}
 				if content.trim().is_empty()
 					|| content.chars().count() > client_core::MAX_PREMIUM_CONTENT
 				{

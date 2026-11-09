@@ -267,6 +267,7 @@ pub fn check() {
 		request: author_request,
 		result: Ok(vec![model::Member {
 			user: model::User {
+				username: String::new(),
 				id: author_id,
 				name: "Synthetic forum author".into(),
 				kind: model::AccountKind::Human,

@@ -3594,7 +3594,10 @@ impl MessagingUi {
 		let can_send = if let Some((edit_channel, message)) = editing_key {
 			state.freshness == Freshness::Fresh
 				&& state.can_edit(edit_channel, message)
-				&& count_before > 0
+				// Files added in this edit can stand in for text.
+				&& (count_before > 0
+					|| (self.edit_files == Some((edit_channel, message))
+						&& !self.attachment_files.is_empty()))
 		} else if application_command {
 			self.slash_commands.can_submit(state, channel)
 		} else {
@@ -4123,9 +4126,10 @@ impl MessagingUi {
                         if (send || slash_run) && !cancel_edit {
                             if let Some((edit_channel, message, content)) = &editing {
                                 let text = if self.convert_emoticons { emoticons::convert(content) } else { content.clone() };
-                                let with_files = self.edit_files == Some((*edit_channel, *message))
-                                    && !self.attachment_files.is_empty();
-                                if with_files && (self.upload_busy || self.attachment_loading > 0) {
+                                // Files staged for this edit, including one still loading.
+                                let edit_files = self.edit_files == Some((*edit_channel, *message));
+                                let with_files = edit_files && !self.attachment_files.is_empty();
+                                if edit_files && (self.upload_busy || self.attachment_loading > 0) {
                                     state.status = "Wait for the files to finish loading or the current upload.";
                                 } else if state.freshness == Freshness::Fresh
                                     && let Some(command) = if with_files {
@@ -6867,6 +6871,7 @@ mod composer_tests {
 
 	fn edit_state() -> State {
 		let user = model::User {
+			username: String::new(),
 			id: Id(1),
 			name: "Alex".into(),
 			avatar: None,
@@ -8940,6 +8945,7 @@ mod composer_tests {
 					.map(|id| {
 						Some(model::MemberSlot::Person(model::Member {
 							user: model::User {
+								username: String::new(),
 								id: Id(id),
 								name: format!("Synthetic {id}"),
 								avatar: None,
@@ -9092,6 +9098,7 @@ mod composer_tests {
 			demo: true,
 			selected: Some(Id(1)),
 			user: Some(model::User {
+				username: String::new(),
 				id: Id(1),
 				name: "You".into(),
 				avatar: None,
@@ -9130,6 +9137,7 @@ mod composer_tests {
 					.map(|id| {
 						Some(model::MemberSlot::Person(model::Member {
 							user: model::User {
+								username: String::new(),
 								id: Id(id),
 								name: format!("Synthetic {id}"),
 								avatar: None,
@@ -9490,6 +9498,7 @@ mod composer_tests {
 	fn profile_uses_open_conversation_not_browsed_sidebar_server() {
 		for guild in [None, Some(Id(10))] {
 			let user = model::User {
+				username: String::new(),
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,

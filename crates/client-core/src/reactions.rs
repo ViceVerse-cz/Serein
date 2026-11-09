@@ -686,6 +686,7 @@ mod tests {
 			panic!()
 		};
 		let user = |id| User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(id),
@@ -1278,6 +1279,7 @@ mod tests {
 	#[test]
 	fn reaction_permissions_distinguish_existing_emoji_and_late_reads() {
 		let user = User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(2),

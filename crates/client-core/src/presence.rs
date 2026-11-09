@@ -513,6 +513,7 @@ mod tests {
 
 	fn state() -> State {
 		let user = User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(2),
@@ -682,6 +683,7 @@ mod tests {
 			Event::Ready {
 				permissions: model::permissions::Snapshot::default(),
 				user: User {
+					username: String::new(),
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(999),
@@ -1265,6 +1267,7 @@ mod tests {
 			slots: vec![Some(MemberSlot::Person(Member {
 				roles: vec![],
 				user: User {
+					username: String::new(),
 					id: Id(2),
 					name: "test".into(),
 					avatar: None,

@@ -1917,6 +1917,7 @@ impl Formatted {
 						}
 						if response.clicked() || response.contains_pointer() {
 							let opened = user.cloned().unwrap_or(model::User {
+								username: String::new(),
 								id,
 								name: format!("User {id}"),
 								avatar: None,
@@ -2641,6 +2642,7 @@ impl Formatted {
 					let user = crate::mentions::find_user(*id, render.users, render.source)
 						.cloned()
 						.unwrap_or(model::User {
+							username: String::new(),
 							id: *id,
 							name: format!("User {id}"),
 							avatar: None,
@@ -5806,6 +5808,7 @@ mod tests {
 		let mut profile = crate::profiles::ProfileSession::default();
 		let mut opening = None;
 		let users = vec![model::User {
+			username: String::new(),
 			id: Id(42),
 			name: "Synthetic Robin".into(),
 			avatar: None,
@@ -6995,6 +6998,7 @@ mod tests {
 			icon: None,
 		}];
 		let users = [model::User {
+			username: String::new(),
 			id: Id(42),
 			name: "Synthetic Robin".into(),
 			avatar: None,

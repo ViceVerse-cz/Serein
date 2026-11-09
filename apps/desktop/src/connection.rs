@@ -2954,6 +2954,7 @@ mod tests {
 		use client_core::{Envelope, Event, State, auth::AuthState, typing::Signal};
 		use model::{Channel, Freshness, Id, User};
 		let owner = User {
+			username: String::new(),
 			id: Id(1),
 			name: "Owner".into(),
 			avatar: None,

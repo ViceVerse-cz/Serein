@@ -995,6 +995,7 @@ mod tests {
 
 	fn user() -> User {
 		User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: model::Id(1),

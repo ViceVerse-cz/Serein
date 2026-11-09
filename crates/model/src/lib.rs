@@ -111,6 +111,10 @@ pub struct User {
 	pub webhook: bool,
 	pub id: Id,
 	pub name: String,
+	/// The account's unique username; `name` holds the display name when one is set. Empty
+	/// when the source did not provide it, as in older saved data.
+	#[serde(default)]
+	pub username: String,
 	pub avatar: Option<String>,
 	pub discriminator: u16,
 	/// Service-supplied server identity displayed beside this user's name.
@@ -132,6 +136,7 @@ impl User {
 	}
 	pub fn heap_bytes(&self) -> usize {
 		self.name.capacity()
+			+ self.username.capacity()
 			+ self.avatar.as_ref().map_or(0, String::capacity)
 			+ self.primary_guild.as_ref().map_or(0, |guild| {
 				std::mem::size_of::<ClanTag>()
@@ -260,6 +265,7 @@ impl SavedAccount {
 	/// Avatar lookups and name rows reuse the ordinary user widgets.
 	pub fn user(&self) -> User {
 		User {
+			username: String::new(),
 			kind: AccountKind::Human,
 			webhook: false,
 			id: self.id,
@@ -902,6 +908,8 @@ impl Member {
 	}
 }
 #[derive(Clone)]
+// Slots are mostly people; boxing each member would add an allocation per row.
+#[allow(clippy::large_enum_variant)]
 pub enum MemberSlot {
 	Person(Member),
 	/// Gateway group id: role snowflake, "online", or "offline".
@@ -1111,6 +1119,7 @@ mod roster_identity_tests {
 
 	fn user(name: &str) -> User {
 		User {
+			username: String::new(),
 			id: Id(2),
 			name: name.into(),
 			avatar: None,

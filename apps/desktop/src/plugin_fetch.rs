@@ -145,6 +145,9 @@ async fn exchange(request: &FetchRequest, hosts: &[String]) -> Result<Response, 
 	let mut url = url::Url::parse(&request.url).map_err(|_| FetchError::Blocked)?;
 	let mut method = request.method;
 	let mut body = request.body.clone();
+	// The host the plugin addressed; its headers, which can carry that service's credentials,
+	// are never sent to a different host a redirect points to.
+	let origin = extensions::https_host(&request.url);
 	for _ in 0..=MAX_REDIRECTS {
 		// Every hop must stay on a declared host and a public address.
 		let host = extensions::https_host(url.as_str())
@@ -181,8 +184,10 @@ async fn exchange(request: &FetchRequest, hosts: &[String]) -> Result<Response, 
 		let mut builder = client
 			.request(verb, url.clone())
 			.header(reqwest::header::ACCEPT_ENCODING, "identity");
-		for (name, value) in &request.headers {
-			builder = builder.header(name.as_str(), value.as_str());
+		if origin.as_deref() == Some(host.as_str()) {
+			for (name, value) in &request.headers {
+				builder = builder.header(name.as_str(), value.as_str());
+			}
 		}
 		if let Some(body) = &body {
 			builder = builder.body(body.clone());

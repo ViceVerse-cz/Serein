@@ -729,6 +729,7 @@ mod tests {
 	#[test]
 	fn draft_only_sends_changed_fields_and_can_clear_values() {
 		let user = model::User {
+			username: String::new(),
 			id: model::Id(1),
 			name: "Synthetic".into(),
 			avatar: None,

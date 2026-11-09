@@ -1120,6 +1120,8 @@ struct Desktop {
 	/// Do Not Disturb while playing: `Some(true)` while this tweak set the status for the running
 	/// game, `Some(false)` once the user picked another status during it, `None` with no game.
 	game_dnd: Option<bool>,
+	/// The pending status change came from the game tweak and must not be saved.
+	game_dnd_transient: bool,
 	presence_saved: Option<(model::Id, model::OwnPresence)>,
 	/// Saved account awaiting the owner's confirmation before it is forgotten.
 	confirming_forget: Option<model::Id>,
@@ -2470,6 +2472,7 @@ impl Desktop {
 			deferred_connect: None,
 			presence_authoritative: false,
 			game_dnd: None,
+			game_dnd_transient: false,
 			presence_saved: None,
 			confirming_forget: sign_in_forget,
 			sign_in_copied: None,
@@ -3109,6 +3112,10 @@ impl Desktop {
 		}
 	}
 	fn persist_account_presence(&mut self) {
+		// Do Not Disturb set for a running game is temporary: the account keeps its Online.
+		if self.game_dnd == Some(true) {
+			return;
+		}
 		if !self.presence_authoritative || self.state.demo || self.fixture_only {
 			return;
 		}
@@ -3133,10 +3140,20 @@ impl Desktop {
 		}
 	}
 	/// Switches Online to Do Not Disturb while a detected game runs, and back after it, unless the
-	/// user chose another status in between; the change publishes like a status menu edit.
+	/// user chose another status in between. The temporary status is shared with the session but
+	/// never saved as the account's status, so a restart during a game still starts Online.
 	fn sync_game_dnd(&mut self, ctx: &egui::Context) {
 		use model::PresenceStatus::{DoNotDisturb, Online};
-		let playing = self.messaging.own_game.is_some()
+		// A status changed elsewhere is adopted first, so it is not replaced by this tweak.
+		if self
+			.connection
+			.as_ref()
+			.is_some_and(|connection| connection.account_presence.has_changed().unwrap_or(false))
+		{
+			return;
+		}
+		// A detected game process, not any activity a plugin or local client publishes.
+		let playing = self.messaging.running_game.is_some()
 			&& self
 				.messaging
 				.interface_tweak_on(::extensions::InterfaceTweak::DndWhilePlaying);
@@ -3155,14 +3172,17 @@ impl Desktop {
 		if let Some(next) = next {
 			self.messaging.own_presence.status = next;
 			self.messaging.own_presence_changed = true;
+			self.game_dnd_transient = true;
 			ctx.request_repaint();
 		}
 	}
 	fn sync_own_presence(&mut self, ctx: &egui::Context) {
 		self.expire_own_status(ctx);
 		let changed = std::mem::take(&mut self.messaging.own_presence_changed);
+		// The game tweak's switch is shared live but is not the account's chosen status.
+		let transient = std::mem::take(&mut self.game_dnd_transient);
 		self.adopt_remote_presence(!changed);
-		if changed {
+		if changed && !transient {
 			self.presence_authoritative = true;
 		}
 		let published = self.presence_snapshot();
@@ -3175,7 +3195,7 @@ impl Desktop {
 			let save_error = *connection.presence_error.borrow();
 			let rejected = connection.own_presence.is_closed()
 				|| (changed && connection.own_presence.send(published.clone()).is_err());
-			if changed && !rejected {
+			if changed && !rejected && !transient {
 				connection.presence_edits.send_replace(Some(published));
 			}
 			if rejected {

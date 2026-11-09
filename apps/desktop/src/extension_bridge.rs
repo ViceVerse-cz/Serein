@@ -207,8 +207,11 @@ pub struct Bridge {
 	connection_interrupted: bool,
 	ticks: BTreeMap<String, TickSchedule>,
 	transitions: BTreeMap<String, Transition>,
-	fetches: crate::plugin_fetch::Fetcher<(Invocation, ExtensionContext)>,
+	fetches: crate::plugin_fetch::Fetcher<(Invocation, ExtensionContext, u64)>,
 	fetches_dropped: bool,
+	/// Per plugin, bumped whenever it is enabled, disabled, replaced or reloaded; a response
+	/// started under an older value belongs to an instance that no longer has access.
+	fetch_epochs: BTreeMap<String, u64>,
 }
 impl Bridge {
 	fn tick_pending(&self, generation: u64, id: &str) -> bool {
@@ -633,9 +636,10 @@ impl Bridge {
 			let repaint = ctx.clone();
 			let mut origin = invocation.clone();
 			origin.fetch_result = None;
+			let epoch = self.fetch_epochs.get(&id).copied().unwrap_or_default();
 			self.fetches.start(
 				&id,
-				&(origin, context.clone()),
+				&(origin, context.clone(), epoch),
 				&installed.manifest.network_hosts,
 				output.fetches.clone(),
 				move || repaint.request_repaint(),
@@ -803,6 +807,7 @@ impl Bridge {
 							self.api_proxy_loaded = false;
 						}
 						self.disabled.insert(id.clone());
+						self.retire_fetches(id);
 						self.refresh_api_proxy();
 						self.apply_theme(ctx);
 						self.entries(messaging);
@@ -849,6 +854,12 @@ impl Bridge {
 						.collect();
 					if let Some(error) = installed.iter().find_map(|e| e.error.as_ref()) {
 						messaging.extensions.status = error.clone();
+					}
+					for entry in self.installed.iter().chain(&installed) {
+						*self
+							.fetch_epochs
+							.entry(entry.manifest.id.clone())
+							.or_default() += 1;
 					}
 					self.installed = installed;
 					self.refresh_api_proxy();
@@ -929,6 +940,7 @@ impl Bridge {
 					self.installed
 						.retain(|old| old.manifest.id != installed.manifest.id);
 					self.disabled.remove(&installed.manifest.id);
+					self.retire_fetches(&installed.manifest.id);
 					self.installed.push(installed);
 					self.refresh_api_proxy();
 					self.imported = None;
@@ -944,6 +956,7 @@ impl Bridge {
 					});
 					self.installed.retain(|entry| entry.manifest.id != id);
 					self.disabled.remove(&id);
+					self.retire_fetches(&id);
 					self.refresh_api_proxy();
 					messaging.extensions.remove_runtime(&id);
 					self.apply_theme(ctx);
@@ -1244,6 +1257,7 @@ impl Bridge {
 						self.pending.retain(|_, pending| pending.cleanup);
 						messaging.extensions.remove_runtime(&id);
 						self.disabled.insert(id.clone());
+						self.retire_fetches(&id);
 						self.apply_theme(ctx);
 						self.entries(messaging);
 						self.submit(
@@ -1407,6 +1421,13 @@ impl Bridge {
 			available
 				&& event.event.available(state)
 				&& event.context.is_current(state)
+				// A response carries input saved when it was requested; it is not delivered
+				// once that conversation's history is no longer readable.
+				&& !(matches!(event.event, ReactiveEvent::Fetch(_))
+					&& event
+						.context
+						.channel
+						.is_some_and(|channel| !state.can_read_history(channel)))
 				&& !disabled.contains(&event.id)
 				&& installed
 					.iter()
@@ -1487,6 +1508,10 @@ impl Bridge {
 		}
 		self.schedule_ticks(&account, state.generation, ctx, messaging);
 	}
+	/// Responses to requests `id` already started are discarded instead of delivered.
+	fn retire_fetches(&mut self, id: &str) {
+		*self.fetch_epochs.entry(id.to_owned()).or_default() += 1;
+	}
 	/// Queues each finished plugin request to re-run the action that started it.
 	fn queue_fetch_results(&mut self) {
 		for done in self.fetches.finished() {
@@ -1498,7 +1523,12 @@ impl Bridge {
 			{
 				continue;
 			}
-			let (mut invocation, context) = done.context;
+			let (mut invocation, context, epoch) = done.context;
+			// Started by an earlier enable instance, or for a conversation whose history is
+			// no longer readable: the saved input must not reach the plugin.
+			if self.fetch_epochs.get(&done.id).copied().unwrap_or_default() != epoch {
+				continue;
+			}
 			let mut result = done.result;
 			invocation.fetch_result = Some(Box::new(result.clone()));
 			// The original input plus the body must still fit; otherwise report the size.

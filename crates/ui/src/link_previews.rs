@@ -11,13 +11,16 @@ const EXCERPT: usize = 240;
 
 /// Shows a card for each message link in `message` whose target is readable.
 pub(crate) fn show(ui: &mut egui::Ui, message: &Message, state: &State) {
-	if !message.content.contains("/channels/")
+	// Suppressed embeds also suppress these cards, like Discord's own link embeds.
+	if message.embeds_suppressed
+		|| !message.content.contains("/channels/")
 		|| !crate::interface_tweaks::on(ui.ctx(), extensions::InterfaceTweak::MessageLinkPreviews)
 	{
 		return;
 	}
 	for (channel, linked) in targets(&message.content, message.id) {
-		if !state.can_view(channel) {
+		// Viewing alone is not enough: a cached lookup must not outlive history access.
+		if !state.can_read_history(channel) {
 			continue;
 		}
 		let found = state
@@ -39,10 +42,20 @@ pub(crate) fn show(ui: &mut egui::Ui, message: &Message, state: &State) {
 }
 
 /// The distinct `(channel, message)` targets of the message links in `content`, never the
-/// message itself, at most [`PER_MESSAGE`].
+/// message itself and never a link hidden inside a spoiler, at most [`PER_MESSAGE`].
 fn targets(content: &str, own: Id) -> Vec<(Id, Id)> {
 	let mut targets = Vec::new();
+	let mut searched = 0;
 	for link in crate::markdown::Formatted::parse(content).links {
+		// Links appear in order; one after an odd number of `||` sits inside a spoiler.
+		let Some(offset) = content[searched..].find(link.as_str()) else {
+			continue;
+		};
+		let start = searched + offset;
+		searched = start + link.len();
+		if content[..start].matches("||").count() % 2 == 1 {
+			continue;
+		}
 		let Some(link) = crate::markdown::discord_chat_link(&link) else {
 			continue;
 		};
@@ -65,15 +78,21 @@ fn card(ui: &mut egui::Ui, found: &Message, state: &State) {
 		.author_nick
 		.clone()
 		.unwrap_or_else(|| found.author.name.clone());
-	let mut text: String = found.content.chars().take(EXCERPT).collect();
-	if text.len() < found.content.len() {
-		text.push('…');
-	}
-	if text.trim().is_empty()
-		&& let Some(file) = found.attachments.first()
-	{
-		text = file.filename.clone();
-	}
+	// Like reply previews, a linked message with any spoiler shows no excerpt or file name.
+	let text = if crate::embeds::has_spoilers(found) {
+		"Spoiler".to_owned()
+	} else {
+		let mut text: String = found.content.chars().take(EXCERPT).collect();
+		if text.len() < found.content.len() {
+			text.push('…');
+		}
+		if text.trim().is_empty()
+			&& let Some(file) = found.attachments.first()
+		{
+			text = file.filename.clone();
+		}
+		text
+	};
 	// Like replies, a blocked author's text is hidden only when that tweak hides them.
 	let blocked =
 		crate::interface_tweaks::on(ui.ctx(), extensions::InterfaceTweak::HiddenBlockedMessages)
@@ -118,7 +137,7 @@ mod tests {
 
 	#[test]
 	fn a_loaded_linked_message_shows_as_a_card_only_with_the_tweak() {
-		let state = test_support::message_links_demo_state();
+		let mut state = test_support::message_links_demo_state();
 		let target = state
 			.timeline
 			.iter()
@@ -155,6 +174,47 @@ mod tests {
 			shown.iter().any(|text| text.contains(&excerpt)),
 			"{shown:?}"
 		);
+
+		let tweaked = |ui: &mut egui::Ui| {
+			crate::interface_tweaks::publish(
+				ui.ctx(),
+				&std::sync::Arc::new([extensions::InterfaceTweak::MessageLinkPreviews].into()),
+			);
+		};
+
+		// Suppressed embeds hide the card.
+		let mut suppressed = linking.clone();
+		suppressed.embeds_suppressed = true;
+		let draw = |ui: &mut egui::Ui| {
+			tweaked(ui);
+			show(ui, &suppressed, &state);
+		};
+		assert!(
+			texts(&ctx, draw)
+				.iter()
+				.all(|text| !text.contains(&excerpt))
+		);
+
+		// A linked message with a spoiler shows no excerpt.
+		let mut hidden = target.clone();
+		hidden.id = Id(target.id.0 + 200_000);
+		hidden.content = format!("||{}||", target.content);
+		state.timeline.insert(hidden.clone(), true, false).unwrap();
+		let mut to_hidden = linking.clone();
+		to_hidden.content = format!(
+			"see https://discord.com/channels/@me/{}/{}",
+			hidden.channel.0, hidden.id.0
+		);
+		let draw = |ui: &mut egui::Ui| {
+			tweaked(ui);
+			show(ui, &to_hidden, &state);
+		};
+		let shown = texts(&ctx, draw);
+		assert!(shown.iter().any(|text| text == "Spoiler"), "{shown:?}");
+		assert!(
+			shown.iter().all(|text| !text.contains(&excerpt)),
+			"{shown:?}"
+		);
 	}
 	#[test]
 	fn targets_are_distinct_bounded_and_never_the_message_itself() {
@@ -167,5 +227,12 @@ mod tests {
 			[(Id(2), Id(3)), (Id(4), Id(5)), (Id(6), Id(7))]
 		);
 		assert!(targets("https://example.com/channels/1/2/3", Id(1)).is_empty());
+		assert_eq!(
+			targets(
+				"||https://discord.com/channels/1/2/3|| https://discord.com/channels/1/4/5",
+				Id(9)
+			),
+			[(Id(4), Id(5))]
+		);
 	}
 }

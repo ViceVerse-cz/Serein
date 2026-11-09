@@ -1554,4 +1554,49 @@ fn network_requests_need_declared_hosts_and_answer_through_app_events() {
 	let mut without_grant = test_manifest(vec![Capability::Appearance]);
 	without_grant.actions = manifest.actions.clone();
 	assert!(delivered.validate(&without_grant).is_err());
+
+	// Activation output only builds the installed entry; nothing would return its response.
+	let mut activated = manifest.clone();
+	activated.actions.push(Action {
+		id: "start".into(),
+		label: "Start".into(),
+		surface: Surface::Activation,
+	});
+	let activation = Invocation {
+		action: "start".into(),
+		..Default::default()
+	};
+	assert!(
+		host.validate(&activated, &activation).is_err(),
+		"fetches from activation"
+	);
+
+	// A response to a request made while handling action feedback keeps that feedback.
+	let mut feedback = manifest.clone();
+	feedback
+		.capabilities
+		.extend([Capability::ActionFeedback, Capability::AppEvents]);
+	feedback.actions.push(Action {
+		id: "events".into(),
+		label: "Events".into(),
+		surface: Surface::AppEvent,
+	});
+	let answered = Invocation {
+		action: "events".into(),
+		app_event: Some(AppEventKind::Context),
+		action_result: Some(Box::new(ActionResult {
+			request_id: "save-42".into(),
+			status: ActionResultStatus::Accepted,
+			code: ActionResultCode::Accepted,
+		})),
+		fetch_result: Some(Box::new(FetchResult {
+			request_id: "translate".into(),
+			status: Some(200),
+			content_type: None,
+			body: String::new(),
+			error: None,
+		})),
+		..Default::default()
+	};
+	answered.validate(&feedback).unwrap();
 }

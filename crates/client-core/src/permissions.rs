@@ -991,8 +991,19 @@ impl State {
 		})
 	}
 	pub fn prepare_edit(&mut self, channel: Id, message: Id, content: String) -> Option<Command> {
+		self.prepare_text_edit(channel, message, content, false)
+	}
+	/// An edit of `message`'s text. Empty text is allowed only when the edit also adds files,
+	/// so the message keeps something to show.
+	fn prepare_text_edit(
+		&mut self,
+		channel: Id,
+		message: Id,
+		content: String,
+		adds_files: bool,
+	) -> Option<Command> {
 		if !self.can_edit(channel, message)
-			|| content.trim().is_empty()
+			|| (content.trim().is_empty() && !adds_files)
 			|| content.chars().count() > self.content_limit()
 		{
 			self.status = "This message cannot be edited with the current access";
@@ -1036,7 +1047,7 @@ impl State {
 			self.status = "A message holds at most 10 files";
 			return None;
 		}
-		let mut command = self.prepare_edit(channel, message, content)?;
+		let mut command = self.prepare_text_edit(channel, message, content, true)?;
 		if let Command::Edit {
 			keep_attachments, ..
 		} = &mut command

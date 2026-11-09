@@ -4,8 +4,9 @@ use client_core::{Command, State};
 use model::Id;
 
 const KEY: &str = "lookup-requests";
-/// Requests kept per frame; more are dropped and asked for again on a later hover.
-const PER_FRAME: usize = 4;
+/// Requests kept per frame, only to bound memory. Most are already kept, failed or not
+/// readable, so the state's own in-flight limit, not this queue, decides what is asked for.
+const PER_FRAME: usize = 64;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Request {
@@ -53,14 +54,28 @@ mod tests {
 		drain(&ctx, &mut state, &mut commands);
 		assert_eq!(
 			commands.len(),
-			PER_FRAME,
-			"duplicates and overflow are dropped"
+			4,
+			"duplicates are dropped and at most four lookups are in flight"
 		);
-		drain(&ctx, &mut state, &mut commands);
-		assert_eq!(
-			commands.len(),
-			PER_FRAME,
-			"a frame's requests are drained once"
-		);
+		// Requests the state refuses never crowd out ones it still admits.
+		let mut state = State {
+			auth: client_core::auth::AuthState::Authenticated,
+			..Default::default()
+		};
+		for id in 0..PER_FRAME as u64 - 1 {
+			request(
+				&ctx,
+				Request::Message {
+					channel: Id(1),
+					message: Id(id + 1),
+				},
+			);
+		}
+		request(&ctx, Request::User(Id(5)));
+		let mut admitted = vec![];
+		drain(&ctx, &mut state, &mut admitted);
+		assert_eq!(admitted.len(), 1, "the readable request still runs");
+		drain(&ctx, &mut state, &mut admitted);
+		assert_eq!(admitted.len(), 1, "a frame's requests are drained once");
 	}
 }

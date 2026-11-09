@@ -434,6 +434,7 @@ mod tests {
 			generation: state.generation,
 			event: CoreEvent::Ready {
 				user: model::User {
+					username: String::new(),
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(1),

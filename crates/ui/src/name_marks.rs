@@ -34,11 +34,12 @@ impl Marks {
 		if user.webhook || user.id.0 == 0 {
 			return marks;
 		}
+		// The account username, never the display name `user.name` holds when one is set.
 		if on(InterfaceTweak::UsernameBesideName)
-			&& !user.name.is_empty()
-			&& !shown.eq_ignore_ascii_case(&user.name)
+			&& !user.username.is_empty()
+			&& !shown.eq_ignore_ascii_case(&user.username)
 		{
-			marks.username = Some(user.name.clone());
+			marks.username = Some(user.username.clone());
 		}
 		marks.owner = on(InterfaceTweak::OwnerCrown)
 			&& guild.is_some_and(|guild| {
@@ -91,11 +92,16 @@ impl Marks {
 		}
 		let colors = crate::design::palette(ui);
 		if let Some(username) = &self.username {
-			ui.add(
-				egui::Label::new(egui::RichText::new(username).size(12.0).color(colors.muted))
-					.truncate()
-					.selectable(false),
-			);
+			// The username truncates first, leaving room for the marks that follow it.
+			let rest = self.reserve() - 72.0;
+			ui.scope(|ui| {
+				ui.set_max_width((ui.available_width() - rest).max(24.0));
+				ui.add(
+					egui::Label::new(egui::RichText::new(username).size(12.0).color(colors.muted))
+						.truncate()
+						.selectable(false),
+				);
+			});
 		}
 		if self.owner {
 			let rect = icons::inline(ui, Icon::Crown, 14.0, colors.warning);
@@ -173,7 +179,9 @@ mod tests {
 		let ctx = egui::Context::default();
 		let mut state = test_support::demo_state();
 		let mut user = test_support::message(1, Id(22)).author;
-		user.name = "synthetic_handle".into();
+		// A display name in `name` must never stand in for the username.
+		user.name = "Synthetic Display".into();
+		user.username = "synthetic_handle".into();
 		state.direct_presences.push(model::MemberPresence {
 			user: user.id,
 			status: Some("online".into()),

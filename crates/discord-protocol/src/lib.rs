@@ -167,10 +167,11 @@ impl UserDto {
 			id: self.id,
 			name: self
 				.global_name
-				.unwrap_or(self.username)
+				.unwrap_or_else(|| self.username.clone())
 				.chars()
 				.take(128)
 				.collect(),
+			username: self.username.chars().take(128).collect(),
 			avatar: self.avatar.filter(|hash| model::valid_avatar_hash(hash)),
 			webhook: false,
 			discriminator: self

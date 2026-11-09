@@ -640,6 +640,7 @@ mod tests {
 					event: Event::Ready {
 						permissions: model::permissions::Snapshot::default(),
 						user: model::User {
+							username: String::new(),
 							id: model::Id(1),
 							name: "Synthetic".into(),
 							avatar: None,

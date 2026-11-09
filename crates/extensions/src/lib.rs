@@ -1320,10 +1320,10 @@ impl Invocation {
 			}
 			result.validate()?;
 		}
-		// A response returns to the action that requested it, with that action's input.
+		// A response returns to the action that requested it, with that action's input,
+		// including any action feedback that input carried.
 		if let Some(result) = &self.fetch_result {
 			if action.surface == Surface::Tick
-				|| self.action_result.is_some()
 				|| !manifest.capabilities.contains(&Capability::Network)
 			{
 				return Err(Error::Capability);
@@ -1501,7 +1501,10 @@ impl Output {
 		}
 		if !self.fetches.is_empty() {
 			// Ticks run unattended every few seconds; requests start from user or app events.
-			if !manifest.capabilities.contains(&Capability::Network) || surface == Surface::Tick {
+			// Activation only builds the installed entry, so nothing would deliver its result.
+			if !manifest.capabilities.contains(&Capability::Network)
+				|| matches!(surface, Surface::Tick | Surface::Activation)
+			{
 				return Err(Error::Capability);
 			}
 			if self.fetches.len() > MAX_FETCHES {

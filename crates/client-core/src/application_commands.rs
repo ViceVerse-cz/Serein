@@ -278,6 +278,7 @@ mod tests {
 	use model::{AccountKind, Channel, User};
 	fn bot_state() -> State {
 		let bot = User {
+			username: String::new(),
 			id: Id(3),
 			name: "Synthetic app".into(),
 			kind: AccountKind::Bot,

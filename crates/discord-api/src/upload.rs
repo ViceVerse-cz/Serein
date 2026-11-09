@@ -27,6 +27,8 @@ pub struct Source {
 	filename: String,
 	size: u64,
 	modified: SystemTime,
+	/// Built by [`Source::image_bytes`], so its `emoji-`/`sticker-` name was generated.
+	artwork: bool,
 }
 impl Source {
 	pub async fn inspect(path: PathBuf) -> Result<Self, &'static str> {
@@ -57,6 +59,7 @@ impl Source {
 		}
 		Ok(Self {
 			bytes: None,
+			artwork: false,
 			filename: filename.into(),
 			path,
 			size: metadata.len(),
@@ -73,6 +76,7 @@ impl Source {
 		Ok(Self {
 			path: PathBuf::new(),
 			filename: "pasted-image.png".into(),
+			artwork: false,
 			size: bytes.len() as u64,
 			modified: SystemTime::UNIX_EPOCH,
 			bytes: Some(bytes.into()),
@@ -86,6 +90,7 @@ impl Source {
 		Ok(Self {
 			path: PathBuf::new(),
 			filename: "message.txt".into(),
+			artwork: false,
 			size: text.len() as u64,
 			modified: SystemTime::UNIX_EPOCH,
 			bytes: Some(text.into_bytes().into()),
@@ -108,6 +113,7 @@ impl Source {
 		Ok(Self {
 			path: PathBuf::new(),
 			filename,
+			artwork: true,
 			size: bytes.len() as u64,
 			modified: SystemTime::UNIX_EPOCH,
 			bytes: Some(bytes.into()),
@@ -123,7 +129,9 @@ impl Source {
 	pub fn anonymised(mut self, random: [u8; 7]) -> Self {
 		const ALPHABET: &[u8; 62] =
 			b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-		if self.filename.starts_with("emoji-") || self.filename.starts_with("sticker-") {
+		// Only generated artwork keeps its checked name; any other file named like it,
+		// such as a chosen `emoji-private-project.txt`, is renamed like the rest.
+		if self.artwork {
 			return self;
 		}
 		let spoiler = if self.filename.starts_with("SPOILER_") {
@@ -753,6 +761,7 @@ mod tests {
 		assert_eq!(named("archive.tar.gz", [0; 7]), "AAAAAAA.gz");
 		let artwork = super::Source::image_bytes("emoji-7.gif".into(), vec![1]).unwrap();
 		assert_eq!(artwork.anonymised([0; 7]).filename(), "emoji-7.gif");
+		assert_eq!(named("emoji-private-project.txt", [0; 7]), "AAAAAAA.txt");
 	}
 	#[test]
 	fn image_sources_only_accept_bounded_generated_raster_names() {

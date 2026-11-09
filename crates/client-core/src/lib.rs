@@ -2139,6 +2139,44 @@ impl State {
 			});
 			return;
 		}
+		// A request that never left keeps nothing pending, so it can be asked for again.
+		match command {
+			Command::Lookup(lookup) => {
+				self.apply_lookup(match lookup {
+					lookups::Command::User { user } => lookups::Event::User {
+						user,
+						result: Err(auth::Failure::Network),
+					},
+					lookups::Command::Message { channel, message } => lookups::Event::Message {
+						channel,
+						message,
+						result: Err(auth::Failure::Network),
+					},
+				});
+				return;
+			}
+			Command::FriendInvites(invites) => {
+				let failure = auth::Failure::ProtocolAt("Friend invites were not queued");
+				self.apply_friend_invites(match invites {
+					friend_invites::Command::Load { request } => friend_invites::Event::Loaded {
+						request,
+						result: Err(failure),
+					},
+					friend_invites::Command::Create { request } => friend_invites::Event::Created {
+						request,
+						result: Err(failure),
+					},
+					friend_invites::Command::RevokeAll { request } => {
+						friend_invites::Event::Revoked {
+							request,
+							result: Err(failure),
+						}
+					}
+				});
+				return;
+			}
+			_ => {}
+		}
 		match &command {
 			Command::ApplicationCommands {
 				channel, request, ..
@@ -3888,6 +3926,7 @@ impl State {
 				// A card's cache holds a copy, so an edit must make it read the reply again.
 				if !matches!(p.content, Patch::Absent) || !matches!(p.edited, Patch::Absent) {
 					self.thread_previews.mark_stale(p.channel, p.id);
+					self.lookups.forget_message(p.id, false);
 				}
 				if self.selected == Some(p.channel)
 					&& self.reactions.invalidated(p.id)
@@ -3913,6 +3952,7 @@ impl State {
 				self.forget_pending_replies(channel, &[id]);
 				// A card must never keep showing a reply that no longer exists.
 				self.thread_previews.forget(channel, &[id]);
+				self.lookups.forget_message(id, true);
 				if let Some(channel) = self
 					.channels
 					.iter_mut()
@@ -3953,6 +3993,9 @@ impl State {
 			Event::DeleteBulk { channel, ids } => {
 				self.parked_replies.forget_targets(channel, &ids);
 				self.thread_previews.forget(channel, &ids);
+				for id in &ids {
+					self.lookups.forget_message(*id, true);
+				}
 				if ids.len() <= 100 {
 					for id in &ids {
 						self.read_state.activity.delete(channel, *id);
@@ -5915,6 +5958,7 @@ mod tests {
 				Event::Ready {
 					permissions: model::permissions::Snapshot::default(),
 					user: User {
+						username: String::new(),
 						primary_guild: None,
 						cosmetics: None,
 						id: Id(1),
@@ -6259,6 +6303,7 @@ mod tests {
 			id: Id(id),
 			channel: Id(1),
 			author: User {
+				username: String::new(),
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(2),
@@ -6337,6 +6382,7 @@ mod tests {
 			Event::RecipientAdded {
 				channel: Id(1),
 				user: User {
+					username: String::new(),
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(3),
@@ -6550,6 +6596,7 @@ mod tests {
 				message_count: None,
 			};
 			let user = || User {
+				username: String::new(),
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(2),
@@ -6681,6 +6728,7 @@ mod tests {
 				Event::Ready {
 					permissions: model::permissions::Snapshot::default(),
 					user: User {
+						username: String::new(),
 						primary_guild: None,
 						cosmetics: None,
 						id: Id(2),

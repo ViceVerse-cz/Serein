@@ -369,11 +369,8 @@ impl MessagingUi {
 						("rail-counts-online", online, crate::icons::Icon::People),
 						("rail-counts-servers", servers, crate::icons::Icon::Servers),
 					] {
-						let label = crate::i18n::translate_count(
-							key,
-							count,
-							&[("count", &count.to_string())],
-						);
+						// translate_count supplies the numeric `count`, so plural rules apply.
+						let label = crate::i18n::translate_count(key, count, &[]);
 						let number = count.to_string();
 						let galley = ui.painter().layout_no_wrap(
 							number,

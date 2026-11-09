@@ -967,6 +967,7 @@ mod tests {
 
 	fn users() -> Vec<User> {
 		vec![User {
+			username: String::new(),
 			id: model::Id(42),
 			name: "Zoë".into(),
 			avatar: None,
