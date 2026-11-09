@@ -569,9 +569,7 @@ impl MessagingUi {
 		state: &State,
 		entry: &RosterEntry,
 	) {
-		if !state.can_view(entry.channel) {
-			return;
-		}
+		// PATCH: draw participants even without VIEW_CHANNEL
 		let colors = design::palette(ui);
 		let (user, name) = resolve_member(state, entry);
 		ui.push_id(
@@ -944,7 +942,7 @@ impl MessagingUi {
 				.and_then(|c| c.error),
 			STAGE_TEXT,
 		);
-		if !state.can_view(channel) {
+		if false {
 			body_ui.label(
 				RichText::new(crate::i18n::translate(
 					"voice-voice-channel-participant-list-unavailable-with-the-current-access",

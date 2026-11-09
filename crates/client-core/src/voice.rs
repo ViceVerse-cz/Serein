@@ -1196,9 +1196,9 @@ impl ClientState {
 		}
 	}
 	fn update_roster(&mut self, entry: RosterEntry) -> bool {
-		if !self.can_view(entry.channel)
-			|| !self
-				.channels
+		// PATCH: roster no longer requires VIEW_CHANNEL
+		if !self
+			.channels
 				.iter()
 				.any(|c| c.id == entry.channel && c.guild == Some(entry.guild) && c.kind == 2)
 		{
