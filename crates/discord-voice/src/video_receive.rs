@@ -847,17 +847,34 @@ fn decode_when_ready<T>(
 	}
 }
 
-/// Skip a user's predictions until a keyframe and report the loss so a PLI gets sent.
-fn mark_broken(user: u64, broken: &mut Vec<u64>, lost: &Lost) {
-	if !broken.contains(&user) && broken.len() < MAX_SOURCES {
-		broken.push(user);
+/// One remote user's state on the decoder thread, dropped whole when their lifetime ends.
+struct Participant {
+	lifetime: Arc<AtomicBool>,
+	decoder: Option<Decoder>,
+	/// Codec of the last decoder built; another codec restarts from a keyframe.
+	codec: Option<Codec>,
+	/// The hardware decoder rejected an H.264 keyframe, so later decoders use software.
+	software_only: bool,
+	/// After a decode error, predictions are skipped until a keyframe rebuilds the references.
+	broken: bool,
+}
+impl Participant {
+	/// Skip predictions until a keyframe and report the loss so a PLI gets sent.
+	fn mark_broken(&mut self, user: u64, lost: &Lost) {
+		self.broken = true;
+		if let Ok(mut lost) = lost.lock()
+			&& !lost.contains(&user)
+			&& lost.len() < MAX_SOURCES
+		{
+			lost.push(user);
+		}
 	}
-	if let Ok(mut lost) = lost.lock()
-		&& !lost.contains(&user)
-		&& lost.len() < MAX_SOURCES
-	{
-		lost.push(user);
-	}
+}
+
+/// A decoder and the presentation stamps of the inputs it has not returned yet.
+struct Decoder {
+	backend: Backend,
+	timing: Arc<Mutex<Timings>>,
 }
 
 /// Hardware decoding where the OS offers it; the software decoder is the fallback and the
@@ -1067,49 +1084,112 @@ fn decode_loop(
 	counters: Arc<DecoderCounters>,
 	prefer_hardware: bool,
 ) {
-	let mut decoders: HashMap<u64, Backend> = HashMap::new();
-	let mut codecs: HashMap<u64, Codec> = HashMap::new();
-	let mut timings: HashMap<u64, Arc<Mutex<Timings>>> = HashMap::new();
-	let mut serial = 0u64;
-	let mut active: HashMap<u64, Arc<AtomicBool>> = HashMap::new();
-	// Users whose hardware decoder rejected the stream fall back to software.
-	let mut software_only: Vec<u64> = Vec::new();
-	// After a decode error, predictions are skipped until a keyframe rebuilds the references.
-	let mut broken: Vec<u64> = Vec::new();
-	let mut scratch = Vec::new();
+	let mut worker = Worker {
+		sink,
+		lost,
+		counters,
+		prefer_hardware,
+		participants: HashMap::new(),
+		serial: 0,
+		scratch: Vec::new(),
+	};
 	while let Ok(message) = receive.recv() {
-		let had_active = !active.is_empty();
-		active.retain(|user, lifetime| {
-			let retained = lifetime.load(Ordering::Acquire);
-			if !retained {
-				decoders.remove(user);
-				codecs.remove(user);
-				timings.remove(user);
-				software_only.retain(|known| known != user);
-				broken.retain(|known| known != user);
-			}
-			retained
-		});
-		// Only cancellation of the final lifetime releases scratch; decode errors keep reuse.
-		if had_active && active.is_empty() {
-			scratch = Vec::new();
-		}
-		decoder_counts(&decoders, &counters);
-		let (mut frame, _permit, queued, lifetime, presentation) = match message {
+		worker.release_cancelled();
+		let (frame, _permit, queued, lifetime, presentation) = match message {
 			Decode::Frame(frame, permit, queued, lifetime, presentation) => {
 				(frame, permit, queued, lifetime, presentation)
 			}
 			Decode::Wake => continue,
 			#[cfg(test)]
 			Decode::Barrier(done) => {
-				let _ = done.send(scratch.capacity());
+				let _ = done.send(worker.scratch.capacity());
 				continue;
 			}
 		};
-		if !lifetime.load(Ordering::Acquire) || frame.data.len() > MAX_FRAME_BYTES {
-			continue;
+		worker.decode(frame, queued, &lifetime, presentation);
+		worker.count_decoders();
+	}
+	// Hardware pictures still in flight must land before the sink goes away.
+	for participant in worker.participants.values() {
+		if let Some(Decoder {
+			backend: Backend::Hardware(decoder),
+			..
+		}) = &participant.decoder
+		{
+			decoder.flush();
 		}
-		active.insert(frame.user, lifetime.clone());
+	}
+}
+
+/// The decoder thread's state between queued frames.
+struct Worker {
+	sink: VideoSink,
+	lost: Lost,
+	counters: Arc<DecoderCounters>,
+	prefer_hardware: bool,
+	participants: HashMap<u64, Participant>,
+	/// Correlates native decoder outputs with their inputs' presentation stamps.
+	serial: u64,
+	/// Software pictures, shared across participants.
+	scratch: Vec<u8>,
+}
+impl Worker {
+	fn release_cancelled(&mut self) {
+		let had_participants = !self.participants.is_empty();
+		self.participants
+			.retain(|_, participant| participant.lifetime.load(Ordering::Acquire));
+		// Only cancellation of the final lifetime releases scratch; decode errors keep reuse.
+		if had_participants && self.participants.is_empty() {
+			self.scratch = Vec::new();
+		}
+		self.count_decoders();
+	}
+
+	fn count_decoders(&self) {
+		let (mut hardware, mut software) = (0, 0);
+		for decoder in self
+			.participants
+			.values()
+			.filter_map(|p| p.decoder.as_ref())
+		{
+			match decoder.backend {
+				Backend::Software(_) => software += 1,
+				_ => hardware += 1,
+			}
+		}
+		self.counters.hardware.store(hardware, Ordering::Relaxed);
+		self.counters.software.store(software, Ordering::Relaxed);
+	}
+
+	fn decode(
+		&mut self,
+		mut frame: Encoded,
+		queued: Instant,
+		lifetime: &Arc<AtomicBool>,
+		presentation: Option<crate::Presentation>,
+	) {
+		let counters = &self.counters;
+		let lost = &self.lost;
+		if !lifetime.load(Ordering::Acquire) || frame.data.len() > MAX_FRAME_BYTES {
+			return;
+		}
+		let user = frame.user;
+		let others = self
+			.participants
+			.iter()
+			.filter(|(other, participant)| **other != user && participant.decoder.is_some())
+			.count();
+		let participant = self
+			.participants
+			.entry(user)
+			.or_insert_with(|| Participant {
+				lifetime: lifetime.clone(),
+				decoder: None,
+				codec: None,
+				software_only: false,
+				broken: false,
+			});
+		participant.lifetime = lifetime.clone();
 		let age = queued.elapsed();
 		counters.queue_ms.fetch_max(
 			age.as_millis().min(u128::from(u64::MAX)) as u64,
@@ -1117,73 +1197,67 @@ fn decode_loop(
 		);
 		if age > MAX_DECODE_AGE {
 			counters.stale.fetch_add(1, Ordering::Relaxed);
-			decoders.remove(&frame.user);
-			decoder_counts(&decoders, &counters);
-			mark_broken(frame.user, &mut broken, &lost);
-			continue;
+			participant.decoder = None;
+			participant.mark_broken(user, lost);
+			return;
 		}
-		if codecs
-			.get(&frame.user)
-			.is_some_and(|codec| *codec != frame.codec)
-		{
-			decoders.remove(&frame.user);
-			timings.remove(&frame.user);
-			software_only.retain(|user| *user != frame.user);
-			mark_broken(frame.user, &mut broken, &lost);
+		if participant.codec.is_some_and(|codec| codec != frame.codec) {
+			participant.decoder = None;
+			participant.software_only = false;
+			participant.mark_broken(user, lost);
 		}
 		if frame.keyframe {
-			broken.retain(|user| *user != frame.user);
-		} else if broken.contains(&frame.user) {
-			continue;
+			participant.broken = false;
+		} else if participant.broken {
+			return;
 		}
 		if !frame.codec.bounded_parameters(&frame.data) {
 			counters.errors.fetch_add(1, Ordering::Relaxed);
-			decoders.remove(&frame.user);
-			mark_broken(frame.user, &mut broken, &lost);
-			continue;
+			participant.decoder = None;
+			participant.mark_broken(user, lost);
+			return;
 		}
 		// Inspect authenticated wire OBUs before native normalization adds framing.
-		if !decoders.contains_key(&frame.user)
+		if participant.decoder.is_none()
 			&& frame.codec != Codec::H264
 			&& (!frame.keyframe || !frame.codec.has_parameter_sets(&frame.data))
 		{
-			mark_broken(frame.user, &mut broken, &lost);
-			continue;
+			participant.mark_broken(user, lost);
+			return;
 		}
 		if frame.codec == Codec::Av1 {
 			let Some(data) = crate::video_av1::normalize(&frame.data) else {
 				counters.errors.fetch_add(1, Ordering::Relaxed);
-				decoders.remove(&frame.user);
-				mark_broken(frame.user, &mut broken, &lost);
-				continue;
+				participant.decoder = None;
+				participant.mark_broken(user, lost);
+				return;
 			};
 			frame.data = data;
 		}
-		if !decoders.contains_key(&frame.user) {
-			if decoders.len() >= MAX_DECODERS {
-				continue;
+		if participant.decoder.is_none() {
+			if others >= MAX_DECODERS {
+				return;
 			}
 			let timing = Arc::new(Mutex::new(Timings::default()));
-			let Some(decoder) = Backend::new_timed(
+			let Some(backend) = Backend::new_timed(
 				frame.codec,
-				prefer_hardware && !software_only.contains(&frame.user),
-				frame.user,
-				&sink,
-				&counters,
-				&lifetime,
+				self.prefer_hardware && !participant.software_only,
+				user,
+				&self.sink,
+				counters,
+				lifetime,
 				timing.clone(),
 			) else {
 				counters.errors.fetch_add(1, Ordering::Relaxed);
-				continue;
+				return;
 			};
-			decoders.insert(frame.user, decoder);
-			codecs.insert(frame.user, frame.codec);
-			timings.insert(frame.user, timing);
+			participant.decoder = Some(Decoder { backend, timing });
+			participant.codec = Some(frame.codec);
 		}
-		serial = serial.wrapping_add(1);
-		let timing = timings.get(&frame.user).expect("decoder timing inserted");
-		let decoder = decoders.get_mut(&frame.user).expect("decoder inserted");
-		let hardware = !matches!(decoder, Backend::Software(_));
+		self.serial = self.serial.wrapping_add(1);
+		let serial = self.serial;
+		let decoder = participant.decoder.as_mut().expect("decoder inserted");
+		let hardware = !matches!(decoder.backend, Backend::Software(_));
 		// Parameter-only inputs produce no software picture. Keep them out of the
 		// picture FIFO while retaining entries for slices buffered by the decoder.
 		let picture_input = hardware
@@ -1191,61 +1265,53 @@ fn decode_loop(
 				.nals(&frame.data)
 				.any(|nal| matches!(nal[0] & 31, 1..=5));
 		if picture_input
-			&& !timing
+			&& decoder
+				.timing
 				.lock()
 				.map(|mut timing| timing.insert(serial, presentation))
-				.is_ok()
+				.is_err()
 		{
-			mark_broken(frame.user, &mut broken, &lost);
-			continue;
+			participant.mark_broken(user, lost);
+			return;
 		}
+		let scratch = &mut self.scratch;
 		let Some(result) = decode_when_ready(
 			queued + MAX_DECODE_AGE,
-			&lifetime,
-			|| decoder.decode_timed(&frame.data, &mut scratch, serial),
+			lifetime,
+			|| decoder.backend.decode_timed(&frame.data, scratch, serial),
 			std::thread::sleep,
 		) else {
-			continue;
+			return;
 		};
-		let decoded = match result {
+		let (width, height) = match result {
 			Ok(Some(picture)) => picture,
-			Ok(None) => {
-				decoder_counts(&decoders, &counters);
-				continue;
-			}
+			Ok(None) => return,
 			Err(DecodeError::Busy) => {
 				// The retry budget expired: keep the decoder and its hardware path,
 				// and skip predictions until the requested keyframe arrives.
 				counters.stale.fetch_add(1, Ordering::Relaxed);
-				decoder_counts(&decoders, &counters);
-				mark_broken(frame.user, &mut broken, &lost);
-				continue;
+				participant.mark_broken(user, lost);
+				return;
 			}
 			Err(DecodeError::Failed) => {
 				// Corrupt or lost data: a fresh decoder waits for the next keyframe. A
 				// hardware decoder that fails on a keyframe is replaced by software.
 				counters.errors.fetch_add(1, Ordering::Relaxed);
-				decoders.remove(&frame.user);
-				decoder_counts(&decoders, &counters);
-				if hardware
-					&& frame.codec == Codec::H264
-					&& frame.keyframe
-					&& !software_only.contains(&frame.user)
-				{
-					software_only.push(frame.user);
+				participant.decoder = None;
+				if hardware && frame.codec == Codec::H264 && frame.keyframe {
+					participant.software_only = true;
 				}
-				mark_broken(frame.user, &mut broken, &lost);
-				continue;
+				participant.mark_broken(user, lost);
+				return;
 			}
 		};
-		decoder_counts(&decoders, &counters);
-		let (width, height) = decoded;
 		if !lifetime.load(Ordering::Acquire) {
-			continue;
+			return;
 		}
 		counters.sizes.record(width, height);
 		counters.pictures.fetch_add(1, Ordering::Relaxed);
-		let (presentation, elapsed) = timing
+		let (presentation, elapsed) = decoder
+			.timing
 			.lock()
 			.ok()
 			.and_then(|mut timing| {
@@ -1253,38 +1319,20 @@ fn decode_loop(
 				timing.take(tag)
 			})
 			.unwrap_or((None, std::time::Duration::ZERO));
-		record_decode_time(&counters, elapsed);
-		sink(RemoteFrame {
+		record_decode_time(counters, elapsed);
+		(self.sink)(RemoteFrame {
 			presentation,
-			user: frame.user,
+			user,
 			picture: platform::video::Picture {
 				width,
 				height,
 				layout: platform::video::Layout::I420,
 				color: platform::video::Color::WEBRTC,
 				rotation: 0,
-				data: &scratch,
+				data: scratch,
 			},
 		});
 	}
-	// Hardware pictures still in flight must land before the sink goes away.
-	for decoder in decoders.values() {
-		match decoder {
-			Backend::Hardware(decoder) => decoder.flush(),
-			Backend::Software(_) => {}
-		}
-	}
-}
-
-fn decoder_counts(decoders: &HashMap<u64, Backend>, counters: &DecoderCounters) {
-	let hardware = decoders
-		.values()
-		.filter(|decoder| !matches!(decoder, Backend::Software(_)))
-		.count();
-	counters.hardware.store(hardware as u64, Ordering::Relaxed);
-	counters
-		.software
-		.store((decoders.len() - hardware) as u64, Ordering::Relaxed);
 }
 
 fn bounded(width: usize, height: usize) -> Result<(u32, u32), ()> {
