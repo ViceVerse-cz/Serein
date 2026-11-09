@@ -485,18 +485,19 @@ impl MessagingUi {
 		let marks = channel_marks::trailing(access);
 		let elapsed_width = if elapsed.is_some() { 64.0 } else { 0.0 };
 		let badge_width = if count > 0 { 34.0 } else { 0.0 };
-		let name = ui.painter().layout(
+		let name_width = (row.width() - 40.0 - elapsed_width - badge_width - marks).max(10.0);
+		let mut name_job = egui::text::LayoutJob::simple_singleline(
 			channel.name.clone(),
 			egui::FontId::new(15.0, design::medium_family(ui.ctx())),
 			text_color,
-			(row.width() - 40.0 - elapsed_width - badge_width - marks).max(10.0),
 		);
+		name_job.wrap.max_width = name_width;
+		name_job.wrap.max_rows = 1;
+		name_job.wrap.break_anywhere = true;
+		let name = ui.painter().layout_job(name_job);
 		let name_rect = egui::Rect::from_min_size(
 			egui::pos2(row.left() + 34.0, row.center().y - name.size().y * 0.5),
-			egui::vec2(
-				row.width() - 40.0 - elapsed_width - badge_width - marks,
-				name.size().y,
-			),
+			egui::vec2(name_width, name.size().y),
 		);
 		ui.painter()
 			.with_clip_rect(name_rect)
@@ -1333,7 +1334,7 @@ impl MessagingUi {
 			.preview
 			.as_ref()
 			.map(|texture| {
-				let content = fit_rect(rect, texture.size_vec2());
+				let content = fit_rect(rect, texture.resolution_vec2());
 				ui.put(
 					content,
 					egui::Image::from_texture((texture.id(), content.size())).corner_radius(8),
@@ -1664,7 +1665,7 @@ impl MessagingUi {
 		let video = if own && call.is_some_and(|call| call.camera) {
 			self.voice_camera_preview
 				.as_ref()
-				.map(|texture| (texture.id(), texture.size_vec2(), true))
+				.map(|texture| (texture.id(), texture.resolution_vec2(), true))
 		} else if entry.participant.video {
 			self.remote_texture(entry.participant.user)
 				.map(|texture| (texture.id, texture.size, false))
@@ -2659,7 +2660,7 @@ impl MessagingUi {
 				.or(self.voice_camera_preview.as_ref());
 			let has_picture = texture.is_some();
 			if let Some(texture) = texture {
-				let size = texture.size_vec2();
+				let size = texture.resolution_vec2();
 				let scale = (rect.width() / size.x).min(rect.height() / size.y);
 				egui::Image::new(texture)
 					.uv(egui::Rect::from_min_max(

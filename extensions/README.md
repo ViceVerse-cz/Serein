@@ -11,6 +11,7 @@ covers writing your own.
 | `themes/` | Declarative theme packages |
 | `plugins/<id>/` | Plugin source and manifest ([build instructions](plugins/README.md)) |
 | `plugins/packages/` | Reviewed plugin packages clients install |
+| `licenses/` | Third-party extension license texts, including Equicord/Vencord GPL terms |
 | `previews/` | Catalog preview images ([provenance](previews/README.md)) |
 | `catalog.json` | Generated; never edit by hand |
 
@@ -55,7 +56,7 @@ package bytes and change only with a new package version.
 
 ## Imported plugin build evidence
 
-The remaining original plugin builds from the locked extension workspace with Rust 1.98.1 for `wasm32-unknown-unknown`.
+The remaining original plugin builds from the locked extension workspace with Rust 1.99.1 for `wasm32-unknown-unknown`.
 Emoji & Sticker Images has been retired; its behavior is built into the client.
 The imported Message delete protector contains 115,250 bytes of Wasm; the current source/SDK builds 70,629 bytes and does not reproduce that older artifact byte-for-byte.
 The existing distributed package is intentionally preserved. A future release should review and version a rebuilt artifact together with its source; this import is not a claim of reproducibility for that older package.
@@ -74,6 +75,15 @@ Package bytes and stable IDs are preserved from the existing client/theme reposi
 - Forest Piano and Soft White originate from the owner's desktop packages normalized for Serein import at `a217f86c56b13ee51c4eb956f235b13eafb7609f`.
 - All eleven theme packages are also recorded in `ViceVerse-cz/Serein-themes` at `6d2a97be4f8b0040aa9eada5648bceff55acb612`.
 - Existing authors, license labels, and source URLs remain in every manifest. Serein's MIT and Apache-2.0 notices are retained at the repository root and do not replace individual artwork terms.
+- Offline Composer Tools, Text Commands, ViewRaw — safe message view, and External Search Tools
+  are independent Rust adaptations of workflows from `Equicord/Equicord` at
+  `200dba124066146a8f043fde7fc8b05e3dc5e68e`, covering ClearURLs, Unindent, UnitConverter,
+  MoreCommands, CharacterCounter, TextReplace, CustomCommands, ViewRaw, Translate and
+  ReplaceGoogleSearch. Their upstream Vencord notices and `GPL-3.0-or-later` terms are retained in
+  each source and in `licenses/Equicord-GPL-3.0.txt`. The ports are intentionally user-invoked,
+  least-privilege packages with no JavaScript injection, no arbitrary network/filesystem access,
+  and no automatic Discord sends. Browser-based search/translation additionally requires the
+  separate `external_navigation` grant and native Apply/link confirmation.
 - Forest Piano and Soft White retain supplied `CC0-1.0` metadata; this is not independent verification of image rights. Consult their original sources for artwork provenance.
 
 This repository does not relicense third-party artwork or assert additional redistribution rights.

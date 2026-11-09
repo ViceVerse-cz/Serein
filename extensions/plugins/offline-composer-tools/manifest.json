@@ -1,0 +1,40 @@
+{
+  "api_version": 1,
+  "id": "offline-composer-tools",
+  "name": "Offline Composer Tools",
+  "version": "1.0.2",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/offline-composer-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "composer"
+  ],
+  "actions": [
+    {
+      "id": "clear-urls",
+      "label": "Clear URL trackers",
+      "surface": "composer"
+    },
+    {
+      "id": "unindent",
+      "label": "Unindent code blocks",
+      "surface": "composer"
+    },
+    {
+      "id": "convert-units",
+      "label": "Convert units",
+      "surface": "composer"
+    },
+    {
+      "id": "transform-text",
+      "label": "Transform text",
+      "surface": "composer"
+    },
+    {
+      "id": "character-count",
+      "label": "Character count",
+      "surface": "composer"
+    }
+  ]
+}

@@ -68,6 +68,7 @@ impl HostInfo {
 				Capability::DataEvents,
 				Capability::MessageDetails,
 				Capability::Relationships,
+				Capability::ExternalNavigation,
 				Capability::ContextMenus,
 				Capability::InterfaceTweaks,
 				Capability::BackgroundEffects,

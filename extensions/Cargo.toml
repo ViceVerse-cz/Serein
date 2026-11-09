@@ -6,6 +6,10 @@ members = [
 	"plugins/message-delete-protector",
 	"plugins/custom-rpc",
 	"plugins/api-proxy",
+	"plugins/offline-composer-tools",
+	"plugins/text-commands",
+	"plugins/view-raw-message",
+	"plugins/external-search-tools",
 ]
 resolver = "3"
 

@@ -306,7 +306,7 @@ mod tests {
 			prepare(png.into_inner(), "party_blob", &cancelled).unwrap();
 		assert_eq!(name, "party_blob");
 		assert!(uri.starts_with("data:image/png;base64,") && !gif);
-		assert_eq!(preview.size, [32, 32]);
+		assert_eq!(preview.resolution(), [32, 32]);
 		let (name, ..) = prepare(
 			{
 				let mut png = Cursor::new(Vec::new());

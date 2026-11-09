@@ -1705,6 +1705,8 @@ markdown-confirm-external-link-open-external-link = Aprire collegamento esterno?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Apri nel browser
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Nel link entra solo l’inizio di questo messaggio; il resto non viene inviato. Questa destinazione si apre nel browser predefinito.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Questa destinazione si apre nel browser predefinito.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Copia le emoji
@@ -4528,6 +4530,8 @@ voice-recipient-stop-ringing = Interrompi squillo
 voice-recipient-ringing = Sta squillando…
 voice-recipient-not-in-call = Non nella chiamata
 reconnect-now = Riconnetti ora
+
+message-preview-limit = Questo messaggio supera il limite del layout di testo nativo.
 
 voice-call-moved-to-another-client = La sessione di chiamata di questo dispositivo è stata sostituita
 

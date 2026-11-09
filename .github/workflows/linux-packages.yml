@@ -167,7 +167,7 @@ jobs:
         with:
           name: release-manifests
           path: .
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@1.99.1
       - name: Install Flatpak build environment
         run: |
           sudo apt-get update

@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Mon, 9 Nov 2026 14:13:07 +0100
+Subject: [PATCH] Serein: keep an empty leading section with the paragraph it
+ starts
+
+Laying out a multi-paragraph job paragraph by paragraph skipped every section ending at or before the paragraph start, including an empty one at that start. Label puts a wrapping row's indentation on such a section, so a label continuing a line after an inline widget lost it once its text spanned several paragraphs with different formats, and its first row was painted over the line. Adds the case to test_split_paragraphs.
+---
+ crates/epaint/src/text/galley_cache.rs | 23 ++++++++++++++++++++++-
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/crates/epaint/src/text/galley_cache.rs b/crates/epaint/src/text/galley_cache.rs
+index d59a27968..cec4cbedc 100644
+--- a/crates/epaint/src/text/galley_cache.rs
++++ b/crates/epaint/src/text/galley_cache.rs
+@@ -191,7 +191,11 @@ impl GalleyCache {
+                 // `start` and `end` are the byte range of the current paragraph.
+                 // How does the current section overlap with the paragraph range?
+ 
+-                if section_range.end <= ByteIndex(start) {
++                // An empty section at the start of this paragraph belongs to it: it may carry
++                // the first row's leading space, as `Label` sets on a wrapping job.
++                let empty_here =
++                    section_range.is_empty() && section_range.start == ByteIndex(start);
++                if section_range.end <= ByteIndex(start) && !empty_here {
+                     // The section is behind us
+                     current_section += 1;
+                 } else if ByteIndex(end) < section_range.start {
+@@ -368,6 +372,23 @@ mod tests {
+                 job.append("", 0.0, TextFormat::default());
+                 job
+             },
++            {
++                // Like `Label` in a wrapping layout: the first row's indentation is the leading
++                // space of an empty first section, which belongs to the first paragraph.
++                let mut job = LayoutJob::default();
++                job.append("", 60.0, TextFormat::default());
++                job.append(
++                    "A heading after an inline widget\n",
++                    0.0,
++                    TextFormat {
++                        font_id: FontId::new(20.0, FontFamily::Proportional),
++                        ..Default::default()
++                    },
++                );
++                job.append("and a smaller line below it", 0.0, TextFormat::default());
++                job.wrap.max_width = 200.0;
++                job
++            },
+         ]
+     }
+ 

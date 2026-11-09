@@ -1706,6 +1706,8 @@ markdown-confirm-external-link-open-external-link = 外部リンクを開きま�
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = ブラウザで開く
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = リンクに収まるのはこのメッセージの先頭部分だけで、残りは送信されません。このリンク先は既定のブラウザーで開きます。
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = この宛先はデフォルトのブラウザで開きます。
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = 絵文字をコピーする
@@ -4514,6 +4516,8 @@ voice-recipient-stop-ringing = 呼び出しを停止
 voice-recipient-ringing = 呼び出し中…
 voice-recipient-not-in-call = 通話に未参加
 reconnect-now = 今すぐ再接続
+
+message-preview-limit = このメッセージはネイティブテキストレイアウトの上限を超えています。
 
 voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました
 

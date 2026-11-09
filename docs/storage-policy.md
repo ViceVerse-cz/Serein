@@ -1,5 +1,40 @@
 # Local storage policy and audit
 
+## Logical RTL message layout (November 9, 2026)
+
+Arabic, Hebrew and mixed-direction message layout admits at most 8 KiB of visible
+UTF-8 source, 512 styled/inline-object spans and 128 physical or wrapped rows per
+run. Inputs exceeding those limits show a localized preview-limit notice. CRLF,
+Unicode line/paragraph separators and blank rows count toward the row limit; no
+source is silently truncated. Hidden spoiler source does not enter shaping,
+search highlights, hit targets, accessibility text or the logical copy buffer.
+
+The session-only layout cache retains at most 32 entries / 8 MiB, with a 4 MiB
+per-entry ceiling. Accounting uses owned span/string/vector capacities, native
+glyph/mesh capacities and row metadata. Layout scratch, the current frame's
+references, shared fonts/atlas/driver allocations and allocator overhead are
+additional; these ceilings are not a process-RSS guarantee. Cache keys include
+visible spans, width, scale and font revisions. Conversation/account/generation
+changes release cached source and selection; passes without RTL content release
+cached layouts while keeping only the two bounded logical endpoints.
+
+Mapped selection keeps two logical UTF-8 endpoints across virtualization. Copy
+passes admit at most 4,096 shared layout/galley references / 4 MiB, counting actual
+source, row, glyph, mesh and reference-vector capacities. References are released
+at the end of that pass; no extra text is retained between passes. A separate
+4 MiB allocated copy buffer is assembled only after both current endpoint IDs,
+hashes and visible orders resolve. Missing/deleted/changed endpoints and overflow
+suppress copying rather than returning partial text; copy requests never survive
+a pass. Source changes invalidate endpoints. An open context menu revalidates
+current visible sources before an explicit mapped Copy; clipped, edited or
+oversized selections cannot reuse a previous copied value. The existing native
+context-menu copy cache is separately capped at 4 MiB of allocated string
+capacity, clears on a new selection-menu request and on scope changes, and is
+never a fallback for mapped text. Copying explicitly
+hands text to the OS clipboard, whose retention is outside account cache cleanup.
+No disk record, schema, network request, log or telemetry is added. Existing
+message, draft, edit and persisted content remain in their original logical order.
+
 ## Typing indicators (October 23, 2026)
 
 Typing stays in session RAM: eight selected-channel typists, sixteen direct-conversation
@@ -861,7 +896,7 @@ SQLite work is serialized on a worker. Normal startup opens the database to load
 
 Saved recovery text prefers the current nonempty draft, otherwise the most recent unresolved send in that channel. Only a matching own-author/channel/nonce confirmation updates this recovery record. This is one recovery draft per channel, not a durable multi-message outbox; additional unresolved sends remain in RAM and the close prompt warns before discarding them. Incoming hidden-channel events do not rewrite the active cache; accepted active-view changes are coalesced into at most one snapshot per event-drain pass.
 
-Source checks verify disabled eframe persistence, disabled REST cookies, one renderer, and an ephemeral webview request. egui-wgpu 0.36.2 creates its render pipeline with `cache: None`. Avatar decoding and disk I/O run on a dedicated worker; egui receives bounded decoded results. These are chosen implementation settings, **not a renewed no-storage requirement**.
+Source checks verify disabled eframe persistence, disabled REST cookies, one renderer, and an ephemeral webview request. egui-wgpu 0.37.0 creates its render pipeline with `cache: None`. Avatar decoding and disk I/O run on a dedicated worker; egui receives bounded decoded results. These are chosen implementation settings, **not a renewed no-storage requirement**.
 
 Offline SQLite tests exercise real temporary-file reopen, schema upgrade, appearance reset, read-only failure, draft capacity rollback, account isolation, 20-channel eviction and atomic logout rollback/deletion. They remove their synthetic test files. OS credential-store and webview write tracing remain unverified. Windows WebView2 may create user-data/runtime artifacts even for InPrivate mode; this must be measured, and old WebView2 runtimes that ignore incognito must not be claimed ephemeral. No zero-byte storage claim is made.
 

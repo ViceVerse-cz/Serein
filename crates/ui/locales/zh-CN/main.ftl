@@ -1721,6 +1721,8 @@ markdown-confirm-external-link-open-external-link = 要打开外部链接吗？
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = 在浏览器中开启
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = 链接中只能放入此消息的开头部分，其余内容不会发送。此链接将在默认浏览器中打开。
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = 这个链接会用你的默认浏览器开启。
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = 复制表情符号
@@ -4727,6 +4729,7 @@ profiles-activity-empty = 暂无共享活动。
 profiles-mutuals-empty = 这里没有可显示的内容。
 
 reading-double-click-reaction = 双击回应
+message-preview-limit = 此消息超出原生文本排版的限制。
 
 ## crates/platform/src/app_menu.rs
 # Context: macos_menu_bar
