@@ -99,6 +99,11 @@ in
         # Keep bundled symbols local so each copy stays consistent.
         env.RUSTFLAGS = lib.optionalString isLinux "-C link-arg=-Wl,--exclude-libs,ALL";
 
+        # nixpkgs now points -sys crates at system libraries before configuring (AWS-LC,
+        # SQLite, OpenSSL, ...). The package does not provide them and links the bundled
+        # copies, as it did before; keep that.
+        dontCargoUseSystemLibs = true;
+
         src = ../../.;
 
         cargoLock = {

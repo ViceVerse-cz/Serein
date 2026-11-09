@@ -68,7 +68,7 @@ allow = ["MPL-2.0"]
 # Embedded font licenses remain separate from the application's code license.
 [[licenses.exceptions]]
 name = "epaint_default_fonts"
-version = "=0.36.2"
+version = "=0.37.0"
 allow = ["MIT", "Apache-2.0", "OFL-1.1", "Ubuntu-font-1.0"]
 
 # Development-only LLVM libFuzzer runtime; never part of an application package.
