@@ -149,7 +149,6 @@ impl MessagingUi {
 	pub(super) fn account_menu(
 		&mut self,
 		anchor: &egui::Response,
-		popup_anchor: egui::PopupAnchor,
 		state: &mut State,
 		commands: &mut Vec<Command>,
 	) {
@@ -175,6 +174,7 @@ impl MessagingUi {
 		let colors = design::palette_for(&anchor.ctx);
 		let mut open = self.account_menu.open;
 		let id = anchor.id.with("account-menu");
+		let popup_anchor = egui::PopupAnchor::from(anchor);
 		const GAP: f32 = 6.0;
 		let available_height = popup_anchor.rect(id, &anchor.ctx).map_or(620.0, |rect| {
 			(rect.top() - anchor.ctx.content_rect().top() - GAP - 8.0).max(180.0)

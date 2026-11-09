@@ -2455,12 +2455,7 @@ impl MessagingUi {
 		ui.painter()
 			.rect_stroke(card.response.rect, 8, card_edge, egui::StrokeKind::Inside);
 		if let Some(anchor) = anchor {
-			self.account_menu(
-				&anchor,
-				egui::PopupAnchor::from(&card.response),
-				state,
-				commands,
-			);
+			self.account_menu(&anchor, state, commands);
 		}
 	}
 	/// Conversation header: channel identity on the left, tools and search on the right.
