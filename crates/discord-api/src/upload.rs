@@ -31,6 +31,8 @@ pub struct Source {
 	artwork: bool,
 }
 impl Source {
+	/// Validates a picked file path and snapshots its size and modification time without reading it.
+	/// Rejects overlong paths, unsafe filenames, symlinks, non-regular files, and empty or >500 MB files.
 	pub async fn inspect(path: PathBuf) -> Result<Self, &'static str> {
 		if path.as_os_str().as_encoded_bytes().len() > 4096 {
 			return Err("Selected path is too long");
@@ -186,6 +188,8 @@ impl Source {
 			&& metadata.len() == self.size
 			&& metadata.modified().ok() == Some(self.modified)
 	}
+	/// Confirms a disk-backed attachment is unchanged since selection; in-memory bytes always pass.
+	/// Fails with `CHANGED` if the file is missing, a symlink, or differs in size or modification time.
 	async fn validate(&self) -> Result<(), Failure> {
 		if self.bytes.is_some() {
 			return Ok(());
@@ -273,6 +277,8 @@ impl Destination {
 		}
 	}
 }
+/// Maps an upload result to its reported status, treating a protocol failure at `CANCELLED` as a
+/// cancellation rather than an error.
 fn status<T>(result: &Result<T, Failure>) -> Status {
 	match result {
 		Ok(_) => Status::Finished,
@@ -293,6 +299,8 @@ impl DiscordApi {
 			.await
 	}
 
+	/// Uploads the sources as attachments for a send, forum post, edit, or modal interaction command.
+	/// Invalid modal uploads report a failed status and return a protocol failure without uploading.
 	pub async fn upload_messages(
 		&self,
 		command: Command,
@@ -738,6 +746,7 @@ fn content_type(filename: &str) -> &'static str {
 	}
 }
 
+/// Resolves once cancellation is requested or the sender is dropped; otherwise waits indefinitely.
 async fn cancelled(cancel: &mut watch::Receiver<bool>) {
 	loop {
 		let requested = *cancel.borrow_and_update();
@@ -749,6 +758,8 @@ async fn cancelled(cancel: &mut watch::Receiver<bool>) {
 
 #[cfg(test)]
 mod tests {
+	/// Anonymised filenames become seven random alphanumerics, keeping only the final short extension
+	/// and any spoiler prefix, while generated artwork names like emoji images are left unchanged.
 	#[test]
 	fn anonymised_names_keep_extension_spoiler_and_artwork() {
 		let named = |name: &str, random| {
@@ -895,6 +906,8 @@ mod tests {
 		failure
 	}
 
+	/// Verifies staged uploads PUT file bytes to storage without credentials, then post one message that
+	/// references every attachment; also checks that changed, missing, empty, or oversized sources are rejected.
 	#[tokio::test]
 	async fn staged_upload_streams_without_credentials_and_reconciles_message() {
 		{

@@ -36,6 +36,8 @@ impl Notification {
 	}
 }
 
+/// Replaces control and whitespace characters with spaces, then truncates to at most `chars`
+/// characters and `bytes` UTF-8 bytes without splitting a character, trimming the result.
 fn alert_text(text: &str, chars: usize, bytes: usize) -> String {
 	let mut output = String::new();
 	for character in text.chars().take(chars) {

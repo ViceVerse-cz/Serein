@@ -137,6 +137,8 @@ mod tests {
 		found
 	}
 
+	/// A link to a loaded message renders as an excerpt card only when the message-link-preview tweak
+	/// is enabled, and never when embeds are suppressed or the linked content is a spoiler.
 	#[test]
 	fn a_loaded_linked_message_shows_as_a_card_only_with_the_tweak() {
 		let mut state = test_support::message_links_demo_state();

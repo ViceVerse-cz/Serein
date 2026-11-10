@@ -40,6 +40,8 @@ pub(crate) fn drain(ctx: &egui::Context, state: &mut State, commands: &mut Vec<C
 mod tests {
 	use super::*;
 
+	/// Verifies duplicate lookups are dropped, in-flight lookups are capped, refused requests never
+	/// crowd out admitted ones, and each frame's requests are drained only once.
 	#[test]
 	fn requests_are_bounded_deduplicated_and_drained_once() {
 		let ctx = egui::Context::default();

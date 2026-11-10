@@ -120,6 +120,8 @@ pub(crate) fn hover_card(
 	})
 }
 
+/// Opens a details popup for the emoji when the response is clicked, showing its image, name, and
+/// source server; closes the popup instead when the UI is disabled.
 pub(crate) fn show(
 	ui: &mut egui::Ui,
 	response: &egui::Response,

@@ -1331,6 +1331,8 @@ fn app_action_patches_reject_invalid_ranges_conflicts_and_unbounded_text() {
 	.unwrap();
 }
 
+/// Preference snapshots reject out-of-range audio, presence, and scroll values, and payloads from
+/// older hosts that omit newer preference fields still deserialize with those fields unset.
 #[test]
 fn preference_snapshots_are_bounded_and_old_hosts_can_omit_them() {
 	let mut data = snapshot();

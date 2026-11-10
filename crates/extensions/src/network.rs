@@ -216,6 +216,8 @@ mod tests {
 		}
 	}
 
+	/// Verifies that only HTTPS URLs on the default port targeting an exact declared host are accepted,
+	/// rejecting other hosts, credentials, IP literals, fragments, and malformed URLs.
 	#[test]
 	fn requests_reach_only_declared_https_hosts() {
 		let hosts = vec!["api.example.com".to_owned()];
@@ -249,6 +251,8 @@ mod tests {
 		}
 	}
 
+	/// Extension requests may set auth and content headers but not host-owned or malformed ones, nor
+	/// send a body with GET or one over the byte limit.
 	#[test]
 	fn requests_cannot_set_host_owned_headers_or_a_get_body() {
 		let hosts = vec!["api.example.com".to_owned()];
@@ -280,6 +284,8 @@ mod tests {
 		assert!(matches!(get_body.validate(&hosts), Err(Error::Limit)));
 	}
 
+	/// Verifies hosts must be lowercase multi-label DNS names, rejecting IPs, wildcards, single labels,
+	/// and numeric TLDs.
 	#[test]
 	fn host_names_are_lowercase_dns_names() {
 		for host in ["api.example.com", "translate.googleapis.com", "a-b.c0.io"] {
@@ -298,6 +304,8 @@ mod tests {
 		}
 	}
 
+	/// Fetch results validate only with exactly one of a status or an error, a valid HTTP status code,
+	/// and a body within the response size limit.
 	#[test]
 	fn results_carry_either_a_status_or_an_error() {
 		let ok = FetchResult {

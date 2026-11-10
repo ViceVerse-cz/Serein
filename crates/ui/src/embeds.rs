@@ -126,6 +126,8 @@ fn text(
 		ui.small(crate::i18n::translate("embeds-text-text-display-limited"));
 	}
 }
+/// Returns true when the message content consists only of links that each match an inline-image
+/// embed's URL, image, or thumbnail, and embeds are neither suppressed nor hidden by spoilers.
 pub fn standalone_media_links(message: &Message) -> bool {
 	!message.embeds_suppressed
 		&& !has_spoilers(message)
@@ -599,6 +601,8 @@ fn clip_preview(ui: &mut egui::Ui, clip: &model::EmbedMedia, images: &mut Avatar
 	);
 }
 
+/// Renders a message's embeds in order, grouping consecutive images into galleries and skipping
+/// poll results; returns a GIF the user chose to favorite, or nothing when embeds are suppressed.
 #[allow(clippy::too_many_arguments)]
 pub fn show(
 	ui: &mut egui::Ui,
@@ -1006,6 +1010,8 @@ pub fn show(
 	}
 	favorite_action
 }
+/// Approximates the rendered height of the embeds without laying them out, grouping galleries
+/// together and capping each text embed at 664 pixels.
 pub fn estimated_height(embeds: &[Embed]) -> f32 {
 	let mut height = 0.0;
 	let mut index = 0;

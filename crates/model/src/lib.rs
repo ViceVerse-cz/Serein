@@ -88,6 +88,8 @@ impl Serialize for Id {
 	}
 }
 impl<'de> Deserialize<'de> for Id {
+	/// Parses an ID from its decimal string form, as Discord sends snowflakes in JSON.
+	/// Fails on non-string input or a string that is not a valid ID.
 	fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
 		struct IdVisitor;
 		impl serde::de::Visitor<'_> for IdVisitor {
@@ -95,6 +97,7 @@ impl<'de> Deserialize<'de> for Id {
 			fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 				f.write_str("a Discord ID string")
 			}
+			/// Parses a string-encoded snowflake, reporting malformed input as a deserializer error.
 			fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Id, E> {
 				value.parse().map_err(E::custom)
 			}
@@ -788,6 +791,8 @@ impl RichActivity {
 	}
 }
 
+/// Returns whether text is non-empty, at most 128 characters and 512 bytes, has no surrounding
+/// whitespace, and contains no control characters.
 fn valid_presence_text(text: &str) -> bool {
 	!text.is_empty()
 		&& text.len() <= 512

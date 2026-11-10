@@ -188,6 +188,8 @@ impl WriteOrder {
 		Some(guard)
 	}
 }
+/// Prunes finished prefetch tasks, then returns a capacity failure tagged with the command's own
+/// request id if `PREFETCHES` reads are still running; returns `None` when there is room.
 fn reject_prefetch_at_capacity(tasks: &mut Vec<AbortTask>, command: &Command) -> Option<Event> {
 	tasks.retain(|task| !task.0.is_finished());
 	if tasks.len() < PREFETCHES {
@@ -235,6 +237,8 @@ impl Connection {
 		self.typing_channel
 			.store(channel.map_or(0, |id| id.0), Ordering::Relaxed);
 	}
+	/// Spawns the session task on `runtime`: authenticates, rejects a mismatched expected user, then
+	/// runs the gateway with presence, activity, typing and upload channels wired to the returned handle.
 	pub fn start(
 		runtime: &Handle,
 		secret: Arc<SessionSecret>,
@@ -1904,6 +1908,8 @@ fn stream_preview_session_failure(event: &Event) -> Option<Failure> {
 }
 
 // Reads can finish after navigation/cancellation. Only a session-ending failure is global.
+/// Rescopes a non-session-ending history read failure to its channel and request, so a late
+/// failure cannot disrupt the session; unavailable channels are reported as forbidden.
 fn scope_history_failure(event: Event, channel: model::Id, request: u64) -> Event {
 	let failure = match event {
 		Event::Failure(failure) if !failure.ends_session() => failure,
@@ -2949,6 +2955,8 @@ mod tests {
 		assert!(!gate.accept(signal, 11, false, now));
 	}
 
+	/// Typing signals for unselected private channels pass the gate and reach state, while signals for
+	/// unknown channels are dropped.
 	#[test]
 	fn unselected_direct_typing_reaches_state_through_the_transport_gate() {
 		use client_core::{Envelope, Event, State, auth::AuthState, typing::Signal};

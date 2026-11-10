@@ -1845,6 +1845,8 @@ pub fn valid_username(name: &str) -> bool {
 			.bytes()
 			.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.'))
 }
+/// Accepts a friend entry only with a nonzero ID, a non-empty display name up to 512 bytes, a
+/// non-empty username up to 128 bytes, no control characters in either, and a valid avatar hash.
 fn valid_friend(user: &model::User, username: &str) -> bool {
 	user.id.0 != 0
 		&& !user.name.is_empty()

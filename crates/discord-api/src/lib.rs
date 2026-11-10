@@ -237,6 +237,8 @@ pub(crate) fn browser_transport(builder: reqwest::ClientBuilder) -> reqwest::Cli
 		None => builder,
 	}
 }
+/// Builds the API HTTP client routed through the given proxy, with redirects and retries disabled,
+/// a 20s request timeout, and browser fingerprint headers; fails if the proxy route is unusable.
 fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 	let builder = Client::builder()
 		.redirect(reqwest::redirect::Policy::none())
@@ -930,6 +932,8 @@ impl DiscordApi {
 		}
 		event
 	}
+	/// Runs a command against the Discord API and wraps its outcome in the matching event.
+	/// Failures are reported in the event's result rather than returned as errors.
 	pub async fn execute(&self, command: Command) -> Event {
 		match command {
 			Command::ApplicationCommands {
@@ -2338,6 +2342,8 @@ fn reaction_users_path(
 	}
 	Some(path)
 }
+/// Converts an optional retry delay in seconds into a duration, defaulting to one second.
+/// Rejects non-finite or out-of-range (0 to 86400) values and clamps the result to at least 50 ms.
 fn safe_delay(seconds: Option<f64>) -> Result<Duration, Failure> {
 	let seconds = seconds.unwrap_or(1.0);
 	if !seconds.is_finite() || !(0.0..=86400.0).contains(&seconds) {
@@ -3187,6 +3193,8 @@ mod tests {
             server.await.unwrap();
         }).await.unwrap();
 	}
+	/// Verifies reaction routes percent-encode the emoji as a single path segment, and that the count
+	/// read-back is rejected unless exactly one message with the requested ID and channel is returned.
 	#[tokio::test]
 	async fn reaction_routes_encode_one_component_and_read_back_scoped_counts() {
 		{

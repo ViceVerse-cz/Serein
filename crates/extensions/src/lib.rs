@@ -506,6 +506,8 @@ pub struct Preview {
 }
 
 impl Preview {
+	/// Requires an HTTPS URL, a 64-character hex SHA-256 digest, and a nonzero download size no larger
+	/// than `MAX_PREVIEW_BYTES`; otherwise returns `Error::Invalid`.
 	pub fn validate(&self) -> Result<(), Error> {
 		if !valid_https_url(&self.url)
 			|| self.sha256.len() != 64
@@ -760,6 +762,8 @@ impl<'de> Deserialize<'de> for ApiProxyConfig {
 	}
 }
 impl ApiProxyConfig {
+	/// Accepts only bare http(s) origins up to 2048 chars: no credentials, path, query, or fragment.
+	/// Non-URL variants always pass; any violation returns `Error::Invalid`.
 	pub fn validate(&self) -> Result<(), Error> {
 		if let Self::Url { url } = self {
 			if url.contains('@')
@@ -1243,6 +1247,8 @@ pub fn parse_package(bytes: &[u8]) -> Result<Package, Error> {
 	Ok(package)
 }
 
+/// Decodes a catalog document, enforcing size and entry limits, the API version, unique IDs,
+/// HTTPS URLs, hex digests and commits, and bounded descriptions; any violation rejects it whole.
 pub fn parse_catalog(bytes: &[u8]) -> Result<Catalog, Error> {
 	if bytes.len() > MAX_CATALOG_BYTES {
 		return Err(Error::Limit);

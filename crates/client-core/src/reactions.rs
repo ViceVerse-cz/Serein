@@ -594,6 +594,8 @@ impl State {
 	}
 }
 
+/// Applies one reaction add or remove, ignoring own echoes already reflected locally and dropping
+/// reactions whose count reaches zero. Fails on count overflow or when exceeding the reaction cap.
 fn apply_delta(
 	values: &mut Vec<Reaction>,
 	emoji: &ReactionEmoji,

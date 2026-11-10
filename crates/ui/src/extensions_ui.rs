@@ -1061,6 +1061,8 @@ impl ExtensionUi {
 	pub(crate) fn take_background_effects(&mut self) -> Vec<crate::extension_app::ConfirmedEffect> {
 		std::mem::take(&mut self.background)
 	}
+	/// Shows an extension's output in the result panel, discarding it with a status message if the
+	/// conversation or draft changed; strips storage, app, and stale fetch results before display.
 	pub fn present_output(
 		&mut self,
 		id: String,
@@ -2055,6 +2057,8 @@ impl ExtensionUi {
 			}
 		});
 	}
+	/// Shows the pending consent dialog listing everything the extension or theme may touch.
+	/// Does nothing when no consent request is pending.
 	fn consent_modal(&mut self, ctx: &egui::Context, colors: &design::Palette) {
 		let Some(mut consent) = self.consent.take() else {
 			return;
@@ -3147,6 +3151,8 @@ pub(crate) fn render_elements(
 		}
 	}
 }
+/// Replaces the selected channel's draft with an extension's proposal, removing it when empty.
+/// Rejects stale contexts and replacements exceeding the content or total draft byte limits.
 fn apply_proposal(state: &mut State, context: &ExtensionContext, replacement: &str) -> bool {
 	let Some(channel) = state.selected else {
 		return false;
