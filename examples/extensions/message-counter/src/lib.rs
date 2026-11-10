@@ -10,6 +10,8 @@ struct Counts {
 	delete: u64,
 }
 
+/// Counts message create, update, and delete events in plugin storage, saturating at the limit.
+/// Show and reset render a panel with the totals; unreadable stored counts show a reset prompt.
 fn handle(input: EventInvocation) -> Output {
 	let action = input.invocation.action.as_str();
 	if !matches!(action, "message-event" | "show" | "reset") {

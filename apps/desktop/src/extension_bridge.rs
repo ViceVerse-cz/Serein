@@ -467,6 +467,8 @@ impl Bridge {
 			&& crate::extension_events::available(state)
 			&& self.scope_current(state)
 	}
+	/// Queues the event for each subscribed plugin, sending `Shown` only to those with message alternatives.
+	/// Invalid events are ignored; events past the count or byte cap are dropped and the loss is flagged.
 	pub fn message_event(&mut self, state: &State, event: MessageEvent) {
 		if !self.has_message_events(state) || event.validate().is_err() {
 			return;

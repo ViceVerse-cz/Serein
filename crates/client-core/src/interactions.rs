@@ -411,6 +411,8 @@ impl State {
 		self.revision += 1;
 		true
 	}
+	/// Clears interaction state once interactions are disallowed, keeping only local ephemeral previews,
+	/// and drops pending or completed interactions past their deadline, reporting a timeout error.
 	pub fn expire_interaction(&mut self, now: Instant) {
 		if !self.interactions_allowed()
 			&& (self.interactions.busy()
