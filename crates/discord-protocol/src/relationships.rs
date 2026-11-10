@@ -20,6 +20,8 @@ pub struct Relationship {
 	#[serde(default, deserialize_with = "since")]
 	pub since: Option<i64>,
 }
+/// Accepts an RFC 3339 string of at most 64 bytes as Unix seconds; any other value, including
+/// numbers, null, arrays and objects, is consumed and yields `None` instead of an error.
 fn since<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
 	use serde::de::{IgnoredAny, MapAccess, SeqAccess, Visitor};
 	struct Since;
@@ -95,6 +97,8 @@ impl Snapshot {
 			.filter_map(|r| Some((r.id, r.since?)))
 			.collect()
 	}
+	/// Lists pending incoming and outgoing friend requests, using the embedded or supplied profile.
+	/// Missing or mismatched profiles become "Unknown user"; the flag is true for incoming requests.
 	pub fn requests(
 		&self,
 		users: &[crate::UserDto],

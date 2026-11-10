@@ -185,6 +185,8 @@ fn animated_emoji_key(id: model::Id, play: bool) -> Option<String> {
 	(play && id.0 != 0).then(|| format!("anim:emoji-{id}"))
 }
 
+/// Whether an image cache key names an animated avatar, banner, decoration, or nameplate asset.
+/// Detection relies on the `a_` hash prefix; unrecognized key shapes return `false`.
 fn is_animated_profile_or_avatar_key(key: &str) -> bool {
 	// Decorations and nameplates animate while hovered, like the avatar beside them.
 	if let Some(asset) = key.strip_prefix("decoration-") {

@@ -2281,6 +2281,8 @@ fn show_system(
 	}
 }
 impl TimelineView {
+	/// Draws the fullscreen video player if its message is still visible in the selected channel.
+	/// Stops playback when the message is gone, blocked, or spoiler-hidden; returns whether it drew.
 	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
 		if self.video.is_fullscreen() {
 			// Runs before the timeline lays out, so the tweak is read directly.
@@ -6979,6 +6981,8 @@ mod tests {
 			vec![INTRO, Id(1_000_000)]
 		);
 	}
+	/// Once older history is exhausted, a fetched thread starter message renders above the thread's
+	/// replies.
 	#[test]
 	fn thread_starter_renders_above_replies_once_history_is_exhausted() {
 		let ctx = egui::Context::default();
@@ -9677,6 +9681,8 @@ mod tests {
 		}
 	}
 
+	/// Verifies that mixed-height rows yield a small visible range and that anchor offsets
+	/// resolve missing IDs to neighbors and clamp to the content bounds.
 	#[test]
 	fn mixed_height_virtualization_visits_only_viewport() {
 		let rows: Vec<_> = (1..=500)
@@ -10045,6 +10051,8 @@ mod tests {
 		check_channel_rename_heights();
 	}
 
+	/// Checks that renaming a referenced channel invalidates cached heights of offscreen messages
+	/// mentioning it, so they are re-measured with the new name.
 	fn check_channel_rename_heights() {
 		let message = Message {
 			poll: None,
@@ -10313,8 +10321,12 @@ mod tests {
 			view.heights[&Id(1)].1
 		);
 	}
+	/// Verifies embed cards hide spoiler-marked text until revealed, and that an edit changing only the
+	/// embeds clears the prior reveal so the updated card is concealed again.
 	#[test]
 	fn embed_cards_conceal_spoilers_and_invalidate_reveals_on_embed_only_edits() {
+		/// Appends the text of every painted text shape to `text`, recursing into nested shape vectors.
+		/// Non-text shapes are ignored.
 		fn painted_text(shape: &egui::Shape, text: &mut String) {
 			match shape {
 				egui::Shape::Text(value) => text.push_str(&value.galley.job.text),

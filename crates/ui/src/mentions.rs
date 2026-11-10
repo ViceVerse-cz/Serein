@@ -266,6 +266,8 @@ fn member(state: &State, channel: Id, id: Id) -> Option<&model::Member> {
 		})
 }
 
+/// Resolves a mentioned user, checking the message's mentions first, then the current user,
+/// friends, channel recipients, members, member search, channel timeline, and on-demand lookups.
 pub fn find_user<'a>(
 	id: Id,
 	mentions: &'a [User],
@@ -945,6 +947,8 @@ impl Menu {
 		picked.and_then(|index| self.pick(index))
 	}
 }
+/// Paints one clickable suggestion row with its icon or avatar, label, and optional source tag.
+/// Skips painting when off-screen; selected or hovered rows get a highlighted background.
 fn row(
 	ui: &mut egui::Ui,
 	candidate: &Candidate,

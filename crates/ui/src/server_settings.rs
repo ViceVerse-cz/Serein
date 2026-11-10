@@ -207,6 +207,8 @@ impl MessagingUi {
 			self.server_settings.admin.queue_files(paths);
 		}
 	}
+	/// Drains queued emoji files into an upload request tagged with the settings scope and a new
+	/// sequence number; returns None when no server is open or no files are queued.
 	pub fn take_server_emoji_request(&mut self) -> Option<(u64, Id, u64, Vec<std::path::PathBuf>)> {
 		let (generation, guild) = self.server_settings.scope?;
 		let paths = self.server_settings.admin.take_files()?;

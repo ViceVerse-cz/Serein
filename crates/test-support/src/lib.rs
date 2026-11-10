@@ -79,6 +79,8 @@ pub fn gif_page(query: Option<&str>) -> model::GifPage {
 	}
 }
 
+/// Builds a deterministic synthetic message whose content, author, and decorations vary with `id`.
+/// Message 500 additionally carries mentions, a reaction, and attachments for rich-render fixtures.
 pub fn message(id: u64, channel: Id) -> Message {
 	let mut content = match id % 6 {
 		0 => "A short synthetic message.".into(),
@@ -308,6 +310,8 @@ fn forum_tags() -> model::forum::Tags {
 	}
 }
 
+/// Builds a demo-mode state seeded with a synthetic Ready event: one guild with custom emojis,
+/// its channels, and a placeholder current user, for tests and offline previews.
 pub fn demo_state() -> State {
 	let mut state = State {
 		demo: true,

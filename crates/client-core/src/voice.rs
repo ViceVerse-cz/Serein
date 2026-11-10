@@ -2135,6 +2135,8 @@ mod tests {
 		assert!(state.voice.ringing(Id(2)).is_empty());
 	}
 
+	/// Verifies incoming DM calls grant no media until accepted, and that stale-generation or
+	/// mismatched-request progress and rejections leave the active call state unchanged.
 	#[test]
 	fn dm_calls_require_gesture_and_reject_late_states() {
 		{

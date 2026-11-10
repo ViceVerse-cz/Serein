@@ -98,6 +98,8 @@ fn lerp_hex(from: &str, to: &str, t: f64) -> Option<String> {
 	))
 }
 
+/// Parses a `#rrggbb` color string into RGB channels, returning `None` without the leading `#`,
+/// with a length other than six digits, or with any non-hex character.
 fn parse_rgb_hex(text: &str) -> Option<[u8; 3]> {
 	let text = text.strip_prefix('#')?;
 	if text.len() != 6 || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -113,6 +115,8 @@ const MAX_MESSAGE_EVENT_BYTES: usize = 64 * 1024;
 const MAX_FETCH_EVENT_BYTES: usize = 1024 * 1024;
 const MESSAGE_EVENT_INTERVAL: Duration = Duration::from_millis(100);
 
+/// Fills the invocation with app, query, messaging-settings, and guild-folder snapshots scoped by
+/// the manifest, then trims extended input to leave 8 KiB of headroom under the I/O limit.
 fn attach_app_data(
 	invocation: &mut Invocation,
 	state: &State,
@@ -135,6 +139,8 @@ enum ReactiveEvent {
 	Fetch(Box<Invocation>),
 }
 impl ReactiveEvent {
+	/// Whether the extension subsystem that consumes this event is currently able to accept it.
+	/// Message events check the event bridge; app, action-result, and fetch events check the app host.
 	fn available(&self, state: &State) -> bool {
 		match self {
 			Self::Message(_) => crate::extension_events::available(state),
@@ -151,6 +157,8 @@ struct QueuedEvent {
 	event: ReactiveEvent,
 }
 impl QueuedEvent {
+	/// Estimates the memory held by this queued event: the struct itself plus its owned string data.
+	/// Fetch payloads are measured by serialized size, saturating to `usize::MAX` if encoding fails.
 	fn bytes(&self) -> usize {
 		std::mem::size_of::<Self>()
 			+ self.id.len()
@@ -1581,6 +1589,8 @@ impl Bridge {
 			}
 		}
 	}
+	/// Keeps tick schedules in sync with enabled, healthy tick plugins and dispatches at most one due tick
+	/// per frame when the host is idle; signing out cancels all fetches and clears every schedule.
 	fn schedule_ticks(
 		&mut self,
 		account: &Option<String>,
@@ -1949,6 +1959,8 @@ fn source_id(source: &InstallSource) -> &str {
 	}
 }
 
+/// Returns the expected SHA-256 digest of the extension package, regardless of where it is installed
+/// from.
 fn source_hash(source: &InstallSource) -> &str {
 	match source {
 		InstallSource::Catalog(entry) => &entry.sha256,

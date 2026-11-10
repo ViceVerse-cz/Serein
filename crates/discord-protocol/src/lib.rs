@@ -81,6 +81,8 @@ pub fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, DecodeE
 pub fn decode_gateway<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, DecodeError> {
 	decode_limited(bytes, MAX_GATEWAY_WIRE)
 }
+/// Deserializes JSON after rejecting inputs longer than `limit` bytes, so oversized payloads are
+/// never parsed; size and parse failures both yield `DecodeError`.
 fn decode_limited<T: serde::de::DeserializeOwned>(
 	bytes: &[u8],
 	limit: usize,
@@ -145,6 +147,8 @@ impl PrimaryGuildDto {
 	}
 }
 impl UserDto {
+	/// Converts the wire user, preferring `primary_guild` over the legacy `clan` tag and marking bots
+	/// verified via public flag bit 16. Names truncate to 128 chars; invalid discriminators become 0.
 	pub fn into_model(self) -> User {
 		let primary_guild = self
 			.primary_guild

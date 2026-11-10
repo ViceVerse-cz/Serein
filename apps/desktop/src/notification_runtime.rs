@@ -116,6 +116,8 @@ impl Runtime {
 			self.ptt_sounds.play(cue, options.volume, ctx);
 		}
 	}
+	/// Stops all notification and push-to-talk sounds, drops any active ring, and resets the badge.
+	/// Forgets which direct conversations were pinged so the next account starts with no alert history.
 	pub fn clear(&mut self, window: &winit::window::Window) {
 		self.sounds.stop();
 		self.ptt_sounds.stop();
@@ -314,6 +316,8 @@ fn badge_count(state: &State) -> u32 {
 		.unwrap_or(100)
 }
 
+/// Checks that the badge count honors guild and channel mutes, timed mute expiry, and unmutes,
+/// and caps at 100 on overflowing mention counts; panics on the first mismatch.
 #[cfg(any(test, all(debug_assertions, feature = "demo")))]
 pub fn debug_badge_check() {
 	use client_core::{Envelope, Event, notifications};
@@ -523,6 +527,7 @@ mod tests {
 		);
 	}
 
+	/// Muted conversations are excluded from the unread count shown on the native app badge.
 	#[test]
 	fn muted_conversations_do_not_count_toward_native_badge() {
 		debug_badge_check();

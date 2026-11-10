@@ -830,6 +830,8 @@ fn demo_check_extensions() {
 	);
 }
 
+/// Parses the `=WARMUP,SAMPLE` suffix of the frame-sample flag into whole-second durations.
+/// Fails with a usage message unless demo mode is on and both values are within 1..=600.
 fn parse_frame_sample(demo: bool, value: &str) -> Result<(Duration, Duration), &'static str> {
 	let invalid = "Use --demo --demo-friends --demo-frame-sample=WARMUP,SAMPLE (whole seconds, warmup 1..600, sample 1..600)";
 	let (warmup, sample) = value
@@ -1523,6 +1525,8 @@ fn demo_members(
 	}
 }
 
+/// Disables winit's undecorated shadow so the custom-chrome client area is not shifted by 1px
+/// when the window is restored.
 #[cfg(target_os = "windows")]
 fn align_undecorated_surface(window: &winit::window::Window) {
 	use winit::platform::windows::WindowExtWindows as _;
@@ -1532,6 +1536,8 @@ fn align_undecorated_surface(window: &winit::window::Window) {
 }
 
 impl Desktop {
+	/// Builds the desktop app: installs fonts, emoji, icons and theme, then starts the runtime and stores.
+	/// Demo mode skips credentials and cache and seeds fixture state; fails if emoji or runtime setup fails.
 	fn new(
 		cc: &eframe::CreationContext<'_>,
 		demo: bool,
@@ -3111,6 +3117,8 @@ impl Desktop {
 			ctx.options_mut(|options| options.fallback_theme = theme);
 		}
 	}
+	/// Queues the current account's presence for saving when it is authoritative, valid, and changed.
+	/// Game-triggered Do Not Disturb is saved as Online; skipped in demo and fixture-only modes.
 	fn persist_account_presence(&mut self) {
 		if !self.presence_authoritative || self.state.demo || self.fixture_only {
 			return;
@@ -3132,6 +3140,8 @@ impl Desktop {
 			self.presence_saved = Some((account, snapshot));
 		}
 	}
+	/// Starts a connection that was postponed until account presence finished loading.
+	/// Does nothing while the presence load is still pending; the deferred request is consumed once.
 	fn flush_deferred_connect(&mut self, ctx: &egui::Context) {
 		if self.presence_load_pending {
 			return;
@@ -3177,6 +3187,8 @@ impl Desktop {
 			ctx.request_repaint();
 		}
 	}
+	/// Publishes pending own-presence edits to the connection and refreshes the user-facing status line.
+	/// Game-driven DND switches are shared live but never saved as the account's chosen status.
 	fn sync_own_presence(&mut self, ctx: &egui::Context) {
 		self.expire_own_status(ctx);
 		let changed = std::mem::take(&mut self.messaging.own_presence_changed);
@@ -6144,6 +6156,8 @@ impl eframe::App for Desktop {
 			ctx.request_repaint_after(self.frame_period().unwrap_or(Duration::from_millis(16)) / 2);
 		}
 	}
+	/// Draws one frame: title bar, tray window and backdrop, then routes clipboard pastes and dropped
+	/// files to the composer or uploads, sending oversized pasted text as a `message.txt` attachment.
 	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
 		let title_bar_height = if self.login.is_some() {

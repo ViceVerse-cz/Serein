@@ -251,6 +251,8 @@ mod tests {
 	use crate::{Envelope, Event, auth::AuthState};
 	use model::{Freshness, Guild, Message, User};
 
+	/// Verifies that a thread snapshot for one scope keeps threads from other guilds and parents intact,
+	/// and cancels pending history loads for threads it removes.
 	#[test]
 	fn thread_snapshots_preserve_other_scopes_and_cancel_removed_history() {
 		let channel = |id, guild, parent_id: Option<u64>, kind| Channel {

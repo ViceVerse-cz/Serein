@@ -68,6 +68,7 @@ impl RailCache {
 			.map(|index| self.guild_badges[index].1)
 			.unwrap_or_default()
 	}
+	/// Returns whether the user currently has an active voice connection in the given guild.
 	pub(super) fn guild_voice(&self, guild: Id) -> bool {
 		self.voice_guilds.binary_search(&guild).is_ok()
 	}
@@ -261,6 +262,8 @@ fn speaker_badge(ui: &egui::Ui, rect: egui::Rect, fill: Color32, glyph: Color32)
 		glyph,
 	);
 }
+/// Draws the rail pill indicator and mention badge for an entry, treating keyboard focus as hover.
+/// The pill reflects unread state and is never shown as selected.
 fn indicator(ui: &egui::Ui, id: egui::Id, response: &egui::Response, unread: bool, count: u32) {
 	let hovered = response.hovered() || response.has_focus();
 	rail_indicator(ui, id, response.rect, false, hovered, unread);
@@ -590,6 +593,8 @@ mod tests {
 		});
 	}
 
+	/// Clicking the home rail button while viewing a guild channel clears the guild and channel
+	/// selection and closes the open search panel.
 	#[test]
 	fn home_rail_opens_friends_from_a_guild_channel() {
 		let ctx = egui::Context::default();

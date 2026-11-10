@@ -1584,6 +1584,8 @@ fn server_settings_patch(value: &ServerSettingsPatch) -> Result<(), Error> {
 	}
 	Ok(())
 }
+/// Validates a role patch: it must change at least one field, keep color and permission fields
+/// consistent, use 24-bit colors, and carry bounded names, emojis, and numeric permission bits.
 fn role_patch(value: &RolePatch) -> Result<(), Error> {
 	if value.name.is_none()
 		&& value.primary_color.is_none()

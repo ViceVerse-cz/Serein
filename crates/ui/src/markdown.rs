@@ -801,6 +801,8 @@ fn mention_colors(ui: &egui::Ui, role_color: Option<u32>) -> (egui::Color32, egu
 	}
 }
 
+/// Resolves a channel mention's display name, preferring the mention source's state and falling
+/// back to guild text-like, thread, forum, or media channels in `channels`; `None` if unresolved.
 fn channel_reference_name<'a>(
 	id: Id,
 	channels: &'a [model::Channel],
@@ -5350,6 +5352,8 @@ mod tests {
 		}
 	}
 
+	/// Spoiler-concealed channel and message-link pills keep destination names out of painted text and
+	/// accessibility labels, and skip guild icon requests, until the spoiler is revealed.
 	#[test]
 	fn concealed_reference_pills_hide_destination_labels_and_guild_artwork_requests() {
 		let mut state = test_support::demo_state();
@@ -5784,6 +5788,8 @@ mod tests {
 		output.drop_without_applying_deltas();
 	}
 
+	/// Verifies only real user mentions become profile links, keeping code, escaped, entity, link, and
+	/// role forms literal, and that keyboard activation opens the native profile without URL commands.
 	#[test]
 	fn user_mentions_preserve_literals_and_open_native_profiles() {
 		let parsed = Formatted::parse(
@@ -6975,6 +6981,8 @@ mod tests {
 		assert_eq!(mask, 1);
 	}
 
+	/// RTL text containing a message jump pill, user and channel mentions, a masked link, and a spoiler
+	/// keeps native accessibility actions on each interactive element.
 	#[test]
 	fn rtl_message_jump_pill_and_mentions_keep_native_accessibility_actions() {
 		let ctx = egui::Context::default();

@@ -195,6 +195,8 @@ fn shift_clicked(ui: &egui::Ui, response: &egui::Response) -> bool {
 	})
 }
 
+/// Regroups thread members into online role sections by hierarchy, then online, then offline,
+/// prefixing each section with a header row carrying its member count.
 fn thread_member_rows<'a>(
 	state: &'a State,
 	list: &'a model::MemberList,
@@ -637,6 +639,8 @@ fn composer_cap(
 	.rect
 }
 
+/// Draws a clickable "@ ON"/"@ OFF" toggle that flips whether a reply pings the original author.
+/// Sized to the wider "@ OFF" label so the widget doesn't shift when toggled.
 fn mention_switch(ui: &mut egui::Ui, colors: &design::Palette, on: &mut bool) {
 	let font = egui::FontId::new(12.0, design::semibold_family(ui.ctx()));
 	let padding = egui::vec2(6.0, 3.0);
@@ -1613,6 +1617,8 @@ impl MessagingUi {
 			commands.push(command);
 		}
 	}
+	/// Renders the member list for the selected conversation, with status text while loading, empty,
+	/// or unavailable; lazy lists show at most 250,000 rows and reset scrolling when the list changes.
 	fn member_rows(&mut self, ui: &mut egui::Ui, state: &mut State, commands: &mut Vec<Command>) {
 		let colors = design::palette(ui);
 		let language = self.language;
@@ -3016,6 +3022,8 @@ impl MessagingUi {
 			});
 		ui.add_space(8.0);
 	}
+	/// Draws the message composer for a channel, switching to inline edit mode when one is active.
+	/// Edit-last-message only fires on an empty, focused draft with no open popup, modal, or IME input.
 	fn composer(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -3042,6 +3050,8 @@ impl MessagingUi {
 			&& !self.switcher_frame
 			&& !self.switcher.is_open()
 			&& ctx.memory(|memory| memory.top_modal_layer().is_none());
+		/// Returns whether an IME event changes the composer text: non-empty preedit or commit text, or a
+		/// surrounding-text deletion. All other events, including empty preedits, return false.
 		fn ime_updates_text(event: &egui::Event) -> bool {
 			match event {
 				egui::Event::Ime(
@@ -4552,6 +4562,8 @@ impl MessagingUi {
 		})
 	}
 
+	/// Points the profile view at the given user and guild, requesting it unless already shown.
+	/// Webhook users clear any open profile; demo mode fills in local data without a request.
 	fn sync_profile(
 		&mut self,
 		state: &mut State,
@@ -6977,6 +6989,8 @@ mod composer_tests {
 		commands
 	}
 
+	/// Typing into the composer sends one typing indicator, stays throttled while it is still shown,
+	/// and sends nothing at all when silent typing is enabled.
 	#[test]
 	fn typing_a_draft_sends_one_typing_indicator_until_it_lapses() {
 		let ctx = egui::Context::default();
@@ -8901,8 +8915,11 @@ mod composer_tests {
 		}
 	}
 
+	/// Verifies the member pane renders only visible rows of a large list and that previewing members
+	/// never issues network requests.
 	#[test]
 	fn member_pane_virtualizes_and_preview_never_requests_network() {
+		/// Recursively gathers the text of every text shape, descending into nested shape lists.
 		fn collect_text(shape: &egui::Shape, text: &mut Vec<String>) {
 			match shape {
 				egui::Shape::Text(shape) => text.push(shape.galley.job.text.clone()),
@@ -9085,8 +9102,12 @@ mod composer_tests {
 		output.drop_without_applying_deltas();
 	}
 
+	/// Verifies that shift-clicking a member in the member list inserts a mention into the composer
+	/// rather than opening that member's profile.
 	#[test]
 	fn shift_clicking_a_member_queues_a_mention_instead_of_opening_the_profile() {
+		/// Finds the screen-space center of the text shape whose content exactly matches `wanted`,
+		/// searching nested shape lists depth-first; returns `None` when no such text is painted.
 		fn text_point(shape: &egui::Shape, wanted: &str) -> Option<egui::Pos2> {
 			match shape {
 				egui::Shape::Text(text) if text.galley.job.text == wanted => {
@@ -9499,6 +9520,8 @@ mod composer_tests {
 		}
 	}
 
+	/// Profiles opened from a message resolve their guild from the open conversation, not the server
+	/// currently browsed in the sidebar, for both DM and guild channels.
 	#[test]
 	fn profile_uses_open_conversation_not_browsed_sidebar_server() {
 		for guild in [None, Some(Id(10))] {
@@ -9695,6 +9718,8 @@ mod composer_tests {
 		);
 	}
 
+	/// With the direct upload tweak, clicking the attach button requests files immediately; without
+	/// it, the click opens the add menu instead.
 	#[test]
 	fn direct_upload_button_chooses_files_on_click_and_keeps_the_menu_otherwise() {
 		let clicked = |direct: bool| {

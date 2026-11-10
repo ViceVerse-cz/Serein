@@ -1554,6 +1554,8 @@ pub fn viewer(
 	});
 	result
 }
+/// Approximates the rendered height of the attachment list without laying it out, grouping
+/// consecutive images into grid rows and using fixed heights for audio, voice, and file cards.
 pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 	attachments
 		.chunk_by(|a, b| a.is_image() == b.is_image())
@@ -1826,8 +1828,12 @@ mod tests {
 		assert!(opening.is_none() && download.request.is_none());
 	}
 
+	/// Verifies a non-image attachment downloads only via an explicit keyboard action, and that a
+	/// pending download blocks further requests until the single active job is cleared or cancelled.
 	#[test]
 	fn nonimage_download_requires_keyboard_action_and_respects_single_job_controls() {
+		/// Runs one 640x480 UI frame, optionally injecting a single unmodified key press, and asserts the
+		/// frame emitted no platform commands before discarding its output.
 		fn frame(ctx: &egui::Context, key: Option<egui::Key>, draw: impl FnMut(&mut egui::Ui)) {
 			let output = ctx.run_ui(
 				egui::RawInput {
