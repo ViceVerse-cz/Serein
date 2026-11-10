@@ -1818,6 +1818,8 @@ mod tests {
 		}
 	}
 
+	/// Verifies API proxy plugins install globally before login, load for every account, reject
+	/// account-scoped invocation, and keep their directory when an account logs out.
 	#[test]
 	fn proxy_plugins_are_prelogin_global_and_survive_account_logout() {
 		let profile = Profile::new();
