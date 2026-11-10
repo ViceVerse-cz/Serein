@@ -30,7 +30,7 @@ pub struct ExtensionContext {
 	pub draft: Option<String>,
 	/// The call at invocation time; only voice proposals use this guard.
 	pub voice_request: Option<(Id, u64)>,
-	pub watched_stream: Option<Id>,
+	pub watched_streams: Vec<Id>,
 }
 impl ExtensionContext {
 	pub fn capture(state: &State, composer: bool) -> Self {
@@ -38,7 +38,12 @@ impl ExtensionContext {
 			app_wide: false,
 			generation: state.generation,
 			channel: state.selected,
-			watched_stream: state.voice.active.as_ref().and_then(|call| call.watching),
+			watched_streams: state
+				.voice
+				.active
+				.as_ref()
+				.map(|call| call.watching.clone())
+				.unwrap_or_default(),
 			voice_request: state
 				.voice
 				.active

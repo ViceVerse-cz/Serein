@@ -1774,7 +1774,8 @@ impl Voice {
 	) -> Result<(), &'static str> {
 		let (capture_send, capture) = mpsc::sync_channel(8);
 		let (camera_frames, camera_receive) = mpsc::sync_channel(1);
-		let (stream_audio, stream_audio_receive) = mpsc::sync_channel(8);
+		let (stream_audio, stream_audio_receive) =
+			mpsc::sync_channel(8 * voice::MAX_WATCHED_STREAMS);
 		let (playback, playback_receive) = mpsc::sync_channel(8);
 		let (send, events) = mpsc::sync_channel(8);
 		let failure = Arc::new(OnceLock::new());

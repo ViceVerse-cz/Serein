@@ -141,7 +141,7 @@ use client_core::{Command, MAX_DRAFT_BYTES, NavStep, State};
 use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
-pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING};
+pub use voice::{StageFocus, StreamView, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {
@@ -478,9 +478,8 @@ pub struct MessagingUi {
 	pub camera_test_texture: Option<egui::TextureHandle>,
 	/// Decoded remote cameras by user; the desktop owns, bounds and replaces the textures.
 	pub voice_remote_video: Vec<(Id, egui::load::SizedTexture)>,
-	/// Latest picture of the screen share this device chose to watch; desktop-owned texture.
-	pub voice_stream_view: Option<egui::load::SizedTexture>,
-	pub voice_stream_status: &'static str,
+	/// Selected screen shares, with independent pictures and statuses owned by the desktop.
+	pub voice_stream_views: Vec<StreamView>,
 	/// Session-only stream playback level; unset is 100%. Mute preserves the level.
 	voice_stream_volume: Option<u16>,
 	voice_stream_muted: bool,
@@ -496,8 +495,8 @@ pub struct MessagingUi {
 	voice_chrome_hidden: f32,
 	/// Session-only visibility of the selected guild voice channel's chat.
 	pub voice_chat_open: bool,
-	/// Tile click to start (`Some(user)`) or stop (`None`) watching, applied by the stage.
-	watch_request: Option<Option<Id>>,
+	/// Tile click to start (`true`) or stop (`false`) one stream, applied by the stage.
+	watch_request: Option<(Id, bool)>,
 	ring_request: Option<(Id, u64, Id, bool)>,
 	voice_moderation: Option<(Id, Id, Id, model::server_admin::VoiceChange)>,
 	stream_preview_open: Option<((Id, Id, Id), u64)>,

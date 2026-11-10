@@ -268,7 +268,7 @@ impl MessagingUi {
 					.voice
 					.active
 					.as_ref()
-					.is_none_or(|call| call.watching.is_none())
+					.is_none_or(|call| call.watching.is_empty())
 				{
 					return Err("There is no watched stream".into());
 				}
@@ -342,7 +342,7 @@ impl MessagingUi {
 					.voice
 					.active
 					.as_ref()
-					.is_none_or(|call| call.watching.is_none())
+					.is_none_or(|call| call.watching.is_empty())
 				{
 					return Err("There is no watched stream".into());
 				}

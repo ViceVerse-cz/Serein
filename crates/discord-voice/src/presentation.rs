@@ -8,6 +8,9 @@ use std::{
 	time::{Duration, Instant},
 };
 
+/// Maximum authenticated media sources retained per watched session.
+pub const MAX_SOURCES: usize = 16;
+
 pub(crate) const INITIAL: Duration = Duration::from_millis(100);
 pub(crate) const MAX_AHEAD: Duration = Duration::from_millis(500);
 pub(crate) const MAX_LATE: Duration = Duration::from_millis(250);
@@ -67,6 +70,9 @@ pub struct Presentation {
 	generation: u64,
 }
 impl Presentation {
+	pub(crate) fn same_source(&self, other: &Self) -> bool {
+		Arc::ptr_eq(&self.clock, &other.clock) && self.generation == other.generation
+	}
 	/// An independent presentation target, for sources without an audio master.
 	pub fn new(at: Instant) -> Self {
 		Arc::new(Clock::default()).stamp(at)
@@ -130,19 +136,47 @@ impl Presentation {
 /// while mixed with the call, queued to the device and resampled for its output rate.
 #[derive(Clone, Debug)]
 pub struct PlaybackFrame {
+	pub(crate) session: Option<Presentation>,
 	pub samples: crate::Frame,
 	pub presentation: Option<Presentation>,
-	// Stream invalidation must not discard participant speech already mixed in.
-	pub(crate) mixed: bool,
+	pub(crate) additional_presentations:
+		[Option<Presentation>; client_core::voice::MAX_WATCHED_STREAMS * MAX_SOURCES - 1],
+	// Retiring one source must not discard participant speech or other streams already mixed in.
+	pub(crate) has_call_audio: bool,
 }
 impl PlaybackFrame {
+	/// Call speech survives stream retirement; stream-only PCM needs a current source.
+	pub(crate) fn is_current(&self) -> bool {
+		self.has_call_audio
+			|| (self.session.as_ref().is_none_or(Presentation::is_current)
+				&& (self.presentations().next().is_none()
+					|| self.presentations().any(Presentation::is_current)))
+	}
+	/// Device feedback includes non-primary speakers in a mixed stream.
+	pub(crate) fn presentations(&self) -> impl Iterator<Item = &Presentation> {
+		self.presentation
+			.iter()
+			.chain(self.additional_presentations.iter().flatten())
+	}
+	/// The watch and roster bounds keep these tags allocation-free at the output device.
+	pub(crate) fn push_presentation(&mut self, tag: Presentation) {
+		if self.presentation.is_none() {
+			self.presentation = Some(tag);
+		} else if let Some(slot) = self
+			.additional_presentations
+			.iter_mut()
+			.find(|slot| slot.is_none())
+		{
+			*slot = Some(tag);
+		} else {
+			debug_assert!(
+				false,
+				"audio presentation count exceeds the bounded source roster"
+			);
+		}
+	}
 	pub(crate) fn mix(call: Option<crate::Frame>, stream: Option<Self>) -> Option<Self> {
-		let stream = stream.filter(|frame| {
-			frame
-				.presentation
-				.as_ref()
-				.is_none_or(Presentation::is_current)
-		});
+		let stream = stream.filter(Self::is_current);
 		match (call, stream) {
 			(Some(mut samples), Some(stream)) => {
 				for (out, sample) in samples.iter_mut().zip(stream.samples) {
@@ -150,8 +184,10 @@ impl PlaybackFrame {
 				}
 				Some(Self {
 					samples,
+					session: stream.session,
 					presentation: stream.presentation,
-					mixed: true,
+					additional_presentations: stream.additional_presentations,
+					has_call_audio: true,
 				})
 			}
 			(Some(samples), None) => Some(samples.into()),
@@ -163,8 +199,10 @@ impl From<crate::Frame> for PlaybackFrame {
 	fn from(samples: crate::Frame) -> Self {
 		Self {
 			samples,
+			session: None,
 			presentation: None,
-			mixed: false,
+			additional_presentations: std::array::from_fn(|_| None),
+			has_call_audio: false,
 		}
 	}
 }

@@ -311,7 +311,8 @@ fn discovery(packet: &[u8], ssrc: u32) -> Result<(IpAddr, u16), &'static str> {
 }
 
 /// Drop the control sender or abort this future to stop the socket, UDP, codecs and ephemeral keys.
-/// PCM queues must contain at most eight 20ms mono48k frames each. No audio device opens here.
+/// Capture/playback queues contain at most eight 20ms mono48k frames each. The shared
+/// stream input holds at most eight frames per watched source. No audio device opens here.
 #[allow(clippy::too_many_arguments)] // Every media input of one call.
 pub async fn run(
 	credentials: VoiceConnection,

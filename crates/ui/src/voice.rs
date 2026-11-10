@@ -16,6 +16,14 @@ use model::{
 /// Local mutes share the 64 per-user volume slots sent to the mixer.
 const MAX_USER_MUTES: usize = 64;
 
+/// Latest picture and connection status for one explicitly selected screen share.
+#[derive(Clone, Copy)]
+pub struct StreamView {
+	pub user: Id,
+	pub texture: Option<egui::load::SizedTexture>,
+	pub status: &'static str,
+}
+
 pub(super) struct VoiceDrag(pub Id, pub Id, pub Id);
 
 pub(super) struct CallSwitch {
@@ -56,7 +64,7 @@ impl MessagingUi {
 								&& self.screen.busy && (self.screen.preview.is_some()
 								|| self.screen.preview_paused)
 						}
-						StageFocus::Stream(user) => call.watching == Some(*user),
+						StageFocus::Stream(user) => call.watching.contains(user),
 						StageFocus::Participant(_) => false,
 					}
 			})
@@ -787,14 +795,19 @@ impl MessagingUi {
 				}
 			}
 			let watching = state.voice.active.as_ref().is_some_and(|call| {
-				call.channel == entry.channel && call.watching == Some(entry.participant.user)
+				call.channel == entry.channel && call.watching.contains(&entry.participant.user)
 			});
 			let connected = state.voice.active.as_ref().is_some_and(|call| {
 				call.channel == entry.channel
 					&& matches!(call.phase, Phase::Connected | Phase::Waiting)
 			});
+			let at_limit =
+				state.voice.active.as_ref().is_some_and(|call| {
+					call.watching.len() >= client_core::voice::MAX_WATCHED_STREAMS
+				});
 			let can_watch = !watching
-				&& (connected || (state.voice.active.is_none() && state.can_call(entry.channel)))
+				&& !at_limit && (connected
+				|| (state.voice.active.is_none() && state.can_call(entry.channel)))
 				&& state
 					.user
 					.as_ref()
@@ -810,6 +823,8 @@ impl MessagingUi {
 				.inner
 				.on_disabled_hover_text(if watching {
 					"Already watching this stream"
+				} else if at_limit {
+					"The four-stream viewing limit is reached"
 				} else {
 					"Join this voice channel before watching"
 				});
@@ -875,12 +890,22 @@ impl MessagingUi {
 			}
 			Some((_, Phase::Connected | Phase::Waiting)) => {
 				self.stream_preview_watch = None;
-				if state.voice.active.as_ref().and_then(|call| call.watching) == Some(user)
+				if state
+					.voice
+					.active
+					.as_ref()
+					.is_some_and(|call| call.watching.contains(&user))
 					|| state.watch_stream(user).is_some()
 				{
 					self.voice_focus = Some(StageFocus::Stream(user));
 				} else {
-					state.status = "This stream is not available in the connected voice channel";
+					state.status = if state.voice.active.as_ref().is_some_and(|call| {
+						call.watching.len() >= client_core::voice::MAX_WATCHED_STREAMS
+					}) {
+						"The four-stream viewing limit is reached"
+					} else {
+						"This stream is not available in the connected voice channel"
+					};
 				}
 			}
 			Some((_, Phase::Failed)) => {
@@ -1017,18 +1042,15 @@ impl MessagingUi {
 		}) {
 			tiles.push(Tile::LocalScreen);
 		}
-		// Like Discord, every remote share gets its own box beside its streamer's tile; the
-		// watched one leads, the rest stay previews until someone clicks to watch.
-		let watching = call.and_then(|call| call.watching);
-		if let Some(streamer) = watching {
-			tiles.push(Tile::Stream(streamer));
-		}
+		// Selected shares lead; other shares stay previews until explicitly selected.
+		let watching = call.map_or(&[][..], |call| call.watching.as_slice());
+		tiles.extend(watching.iter().copied().map(Tile::Stream));
 		let own = state.user.as_ref().map(|user| user.id);
 		tiles.extend(
 			entries
 				.iter()
 				.map(|entry| entry.participant.user)
-				.filter(|user| Some(*user) != watching && Some(*user) != own)
+				.filter(|user| !watching.contains(user) && Some(*user) != own)
 				.filter(|user| {
 					entries
 						.iter()
@@ -1173,7 +1195,7 @@ impl MessagingUi {
 		state.voice.active.as_ref().is_some_and(|call| {
 			call.channel == channel
 				&& call.phase != Phase::Failed
-				&& call.watching == Some(streamer)
+				&& call.watching.contains(&streamer)
 		})
 	}
 
@@ -1246,7 +1268,7 @@ impl MessagingUi {
 						self.stream_audio_controls(ui);
 						ui.separator();
 						if ui.button("Stop watching").clicked() {
-							self.watch_request = Some(None);
+							self.watch_request = Some((*streamer, false));
 							ui.close();
 						}
 					});
@@ -1267,7 +1289,7 @@ impl MessagingUi {
 						.as_ref()
 						.is_some_and(|call| call.channel == channel)
 					{
-						self.watch_request = Some(Some(*streamer));
+						self.watch_request = Some((*streamer, true));
 					} else {
 						self.stream_preview_watch = Some((channel, *streamer));
 					}
@@ -1276,7 +1298,13 @@ impl MessagingUi {
 					response.on_hover_cursor(egui::CursorIcon::PointingHand);
 					return None;
 				}
-				"Join this voice channel before watching"
+				if state.voice.active.as_ref().is_some_and(|call| {
+					call.watching.len() >= client_core::voice::MAX_WATCHED_STREAMS
+				}) {
+					"The four-stream viewing limit is reached"
+				} else {
+					"Join this voice channel before watching"
+				}
 			}
 			Tile::Participant(entry) => {
 				self.participant_tile(ui, state, entry, rect, frameless, compact);
@@ -1376,7 +1404,11 @@ impl MessagingUi {
 	) {
 		let name = participant_user(state, channel, streamer)
 			.map_or_else(|| "Participant".to_owned(), |user| user.name.clone());
-		let content = match &self.voice_stream_view {
+		let view = self
+			.voice_stream_views
+			.iter()
+			.find(|view| view.user == streamer);
+		let content = match view.and_then(|view| view.texture.as_ref()) {
 			Some(texture) => {
 				let content = fit_rect(rect, texture.size);
 				ui.put(
@@ -1388,11 +1420,7 @@ impl MessagingUi {
 			None => {
 				ui.painter().rect_filled(rect, 8, TILE_FILL);
 				if rect.height() >= 132.0 {
-					let status = if self.voice_stream_status.is_empty() {
-						"Connecting to the stream…"
-					} else {
-						self.voice_stream_status
-					};
+					let status = view.map_or("Connecting to the stream…", |view| view.status);
 					let spinner = egui::Rect::from_center_size(
 						rect.center() - egui::vec2(0.0, 18.0),
 						egui::Vec2::splat(24.0),
@@ -1421,12 +1449,12 @@ impl MessagingUi {
 		}
 		// Fullscreen has no call bar, so it keeps its own small audio and stop actions.
 		if overlay {
-			self.stream_overlay_controls(ui, content);
+			self.stream_overlay_controls(ui, content, streamer);
 		}
 	}
 
 	/// Bottom-right actions over a fullscreen share: stream audio and Stop watching.
-	fn stream_overlay_controls(&mut self, ui: &mut egui::Ui, content: egui::Rect) {
+	fn stream_overlay_controls(&mut self, ui: &mut egui::Ui, content: egui::Rect, streamer: Id) {
 		let height = 40.0;
 		let stop_label = "Stop watching";
 		let font = egui::FontId::new(13.0, design::medium_family(ui.ctx()));
@@ -1483,7 +1511,7 @@ impl MessagingUi {
 			.on_hover_text("Stop receiving this screen share")
 			.clicked()
 		{
-			self.watch_request = Some(None);
+			self.watch_request = Some((streamer, false));
 		}
 	}
 
@@ -1493,6 +1521,11 @@ impl MessagingUi {
 			call.channel == channel && matches!(call.phase, Phase::Connected | Phase::Waiting)
 		});
 		(connected || (state.voice.active.is_none() && state.can_call(channel)))
+			&& state
+				.voice
+				.active
+				.as_ref()
+				.is_none_or(|call| call.watching.len() < client_core::voice::MAX_WATCHED_STREAMS)
 			&& state.user.as_ref().is_none_or(|user| user.id != streamer)
 	}
 
@@ -1603,12 +1636,12 @@ impl MessagingUi {
 	pub(super) fn apply_watch_request(&mut self, state: &mut State) {
 		match self.watch_request.take() {
 			// Like Discord, a share opens enlarged as soon as you choose to watch it.
-			Some(Some(user)) => {
+			Some((user, true)) => {
 				if state.watch_stream(user).is_some() {
 					self.voice_focus = Some(StageFocus::Stream(user));
 				}
 			}
-			Some(None) => state.stop_watching(),
+			Some((user, false)) => state.stop_watching_stream(user),
 			None => {}
 		}
 	}
@@ -3176,7 +3209,7 @@ impl MessagingUi {
 		// Discord's call bar: microphone and camera with their device menus, then share and
 		// more, then the red action; view actions sit at the right edge.
 		let watched = match self.voice_focus {
-			Some(StageFocus::Stream(user)) if call.watching == Some(user) => Some(user),
+			Some(StageFocus::Stream(user)) if call.watching.contains(&user) => Some(user),
 			_ => None,
 		};
 		let bar = ui.max_rect();
@@ -3442,7 +3475,7 @@ impl MessagingUi {
 				.show(|ui| self.stream_audio_controls(ui));
 		}
 		if stop_watching {
-			self.watch_request = Some(None);
+			self.watch_request = watched.map(|user| (user, false));
 			self.voice_focus = None;
 		}
 		if camera_clicked && let Some(command) = state.set_call_camera(!camera) {
@@ -4861,6 +4894,109 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn selected_shares_render_distinct_textures_and_stop_independently() {
+		let mut state = test_support::voice_demo_state();
+		let call = state.voice.active.as_mut().unwrap();
+		let channel = call.channel;
+		call.watching = vec![Id(3), Id(7)];
+		let textures = [egui::TextureId::User(31), egui::TextureId::User(71)];
+		let mut view = MessagingUi {
+			voice_stream_views: [Id(3), Id(7)]
+				.into_iter()
+				.zip(textures)
+				.map(|(user, id)| StreamView {
+					user,
+					texture: Some(egui::load::SizedTexture {
+						id,
+						size: egui::vec2(160.0, 90.0),
+					}),
+					status: "Watching the stream",
+				})
+				.collect(),
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			for (index, user) in [Id(3), Id(7)].into_iter().enumerate() {
+				let rect = egui::Rect::from_min_size(
+					egui::pos2(10.0 + index as f32 * 180.0, 10.0),
+					egui::vec2(160.0, 90.0),
+				);
+				view.tile(ui, &state, channel, &Tile::Stream(user), rect, false, false);
+			}
+		});
+		let primitives = ctx.tessellate(output.shapes.clone(), output.pixels_per_point);
+		output.drop_without_applying_deltas();
+		let rendered: Vec<_> = primitives
+			.iter()
+			.filter_map(|primitive| match &primitive.primitive {
+				egui::epaint::Primitive::Mesh(mesh) => Some(mesh.texture_id),
+				_ => None,
+			})
+			.collect();
+		assert!(textures.iter().all(|texture| rendered.contains(texture)));
+		let render = |view: &mut MessagingUi, state: &State, events| {
+			ctx.run_ui(
+				egui::RawInput {
+					events,
+					..Default::default()
+				},
+				|ui| {
+					for (index, user) in [Id(3), Id(7)].into_iter().enumerate() {
+						let rect = egui::Rect::from_min_size(
+							egui::pos2(10.0 + index as f32 * 180.0, 10.0),
+							egui::vec2(160.0, 90.0),
+						);
+						view.tile(ui, state, channel, &Tile::Stream(user), rect, false, false);
+					}
+				},
+			)
+		};
+		let click = |pos, button, pressed| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		for pressed in [true, false] {
+			render(
+				&mut view,
+				&state,
+				click(
+					egui::pos2(70.0, 45.0),
+					egui::PointerButton::Secondary,
+					pressed,
+				),
+			)
+			.drop_without_applying_deltas();
+		}
+		let output = render(&mut view, &state, vec![]);
+		let stop = output.shapes.iter().find_map(|shape| match &shape.shape {
+			egui::Shape::Text(text) if text.galley.job.text == "Stop watching" => {
+				Some(text.galley.rect.translate(text.pos.to_vec2()).center())
+			}
+			_ => None,
+		});
+		output.drop_without_applying_deltas();
+		let stop = stop.expect("the selected stream exposes its stop control");
+		for pressed in [true, false] {
+			render(
+				&mut view,
+				&state,
+				click(stop, egui::PointerButton::Primary, pressed),
+			)
+			.drop_without_applying_deltas();
+			view.apply_watch_request(&mut state);
+		}
+		assert_eq!(state.voice.active.as_ref().unwrap().watching, vec![Id(7)]);
+	}
+
+	#[test]
 	fn explicit_join_audio_waits_for_call_switch_and_survives_teardown() {
 		let mut state = test_support::call_demo_state();
 		state.demo = false;
@@ -5952,7 +6088,7 @@ mod tests {
 				assert!(messaging.stream_preview_watch.is_none());
 				assert_eq!(
 					state.voice.active.as_ref().unwrap().watching,
-					present.then_some(Id(3))
+					if present { vec![Id(3)] } else { vec![] }
 				);
 				assert!(commands.is_empty());
 				if !present {

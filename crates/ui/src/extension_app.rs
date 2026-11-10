@@ -276,7 +276,7 @@ fn app_action_description(action: &AppAction) -> String {
 		AppAction::WatchStream { user_id } => {
 			format!("Watch the current stream from participant {user_id}")
 		}
-		AppAction::StopWatching => "Stop watching the current stream".into(),
+		AppAction::StopWatching => "Stop watching all selected streams".into(),
 		AppAction::DeclineCall { channel_id } => {
 			format!("Decline the incoming call in channel {channel_id}")
 		}
@@ -764,8 +764,13 @@ impl MessagingUi {
 				if matches!(
 					action,
 					AppAction::SetStreamAudio { .. } | AppAction::StopWatching
-				) && state.voice.active.as_ref().and_then(|call| call.watching)
-					!= confirmed.context.watched_stream
+				) && state
+					.voice
+					.active
+					.as_ref()
+					.map(|call| call.watching.as_slice())
+					.unwrap_or_default()
+					!= confirmed.context.watched_streams.as_slice()
 				{
 					return Err("The watched stream changed; run the extension again.".into());
 				}
@@ -1537,7 +1542,7 @@ mod tests {
 		let ctx = egui::Context::default();
 		let mut state = test_support::call_demo_state();
 		let mut view = view(Capability::AudioSettings);
-		state.voice.active.as_mut().unwrap().watching = Some(Id(301));
+		state.voice.active.as_mut().unwrap().watching = vec![Id(301), Id(302)];
 		let effect = proposal(
 			&state,
 			HostEffect::AppAction {
@@ -1547,7 +1552,7 @@ mod tests {
 				},
 			},
 		);
-		state.voice.active.as_mut().unwrap().watching = Some(Id(302));
+		state.voice.active.as_mut().unwrap().watching = vec![Id(301), Id(303)];
 		assert!(
 			view.apply_extension_effect(&ctx, &mut state, effect, &mut Vec::new())
 				.is_err()

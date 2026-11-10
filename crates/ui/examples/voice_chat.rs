@@ -173,7 +173,7 @@ fn main() {
 		}
 		assert_eq!(
 			state.voice.active.as_ref().unwrap().watching,
-			Some(model::Id(3)),
+			vec![model::Id(3)],
 			"clicking the stream box must start watching"
 		);
 		assert_eq!(
@@ -181,9 +181,13 @@ fn main() {
 			Some(ui::StageFocus::Stream(model::Id(3))),
 			"watching must enlarge the stream at once"
 		);
-		state.voice.active.as_mut().unwrap().watching = Some(model::Id(7));
+		state.voice.active.as_mut().unwrap().watching = vec![model::Id(7)];
 		if right_click {
-			view.voice_stream_view = Some(stream_view);
+			view.voice_stream_views = vec![ui::StreamView {
+				user: model::Id(7),
+				texture: Some(stream_view),
+				status: "Watching the stream",
+			}];
 		}
 		assert_eq!(view.voice_stream_volume(), 100);
 		for expanded in [true, false] {
@@ -313,17 +317,20 @@ fn main() {
 				for pressed in [true, false] {
 					frame(&ctx, &mut view, &mut state, width, click(stop, pressed));
 				}
-				assert_eq!(state.voice.active.as_ref().unwrap().watching, None);
+				assert_eq!(
+					state.voice.active.as_ref().unwrap().watching,
+					Vec::<model::Id>::new()
+				);
 				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
 				// A share that ends while fullscreen restores the window on its own.
-				state.voice.active.as_mut().unwrap().watching = Some(model::Id(7));
+				state.voice.active.as_mut().unwrap().watching = vec![model::Id(7)];
 				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
 				frame(&ctx, &mut view, &mut state, width, vec![]);
 				enter(&mut view, &mut state);
-				state.voice.active.as_mut().unwrap().watching = None;
+				state.voice.active.as_mut().unwrap().watching.clear();
 				frame(&ctx, &mut view, &mut state, width, vec![]);
 				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
-				state.voice.active.as_mut().unwrap().watching = Some(model::Id(7));
+				state.voice.active.as_mut().unwrap().watching = vec![model::Id(7)];
 				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
 				// Signing out while fullscreen still hands the desktop a restore request.
 				enter(&mut view, &mut state);
@@ -332,7 +339,11 @@ fn main() {
 				view.language = ui::i18n::Language::English;
 				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
 				if right_click {
-					view.voice_stream_view = Some(stream_view);
+					view.voice_stream_views = vec![ui::StreamView {
+						user: model::Id(7),
+						texture: Some(stream_view),
+						status: "Watching the stream",
+					}];
 				}
 			}
 		}

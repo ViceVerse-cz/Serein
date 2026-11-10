@@ -328,12 +328,13 @@ impl Audio {
 	pub fn pop_timed(&mut self, clock: &mut Sync, now: Instant) -> Option<crate::PlaybackFrame> {
 		let mut output = [0.0; 960];
 		let mut heard = false;
-		let mut presentation = None;
+		let mut result = crate::PlaybackFrame::from([0.0; 960]);
+		result.session = Some(clock.session(now));
 		for source in &mut self.sources {
 			if let Some(frame) = source.pop(clock, now) {
 				heard = true;
-				if presentation.is_none() {
-					presentation = source.presentation.clone();
+				if let Some(presentation) = source.presentation.clone() {
+					result.push_presentation(presentation);
 				}
 				for (mixed, sample) in output.iter_mut().zip(frame) {
 					if sample.is_finite() {
@@ -345,11 +346,8 @@ impl Audio {
 		output
 			.iter_mut()
 			.for_each(|sample| *sample = sample.clamp(-1.0, 1.0));
-		heard.then_some(crate::PlaybackFrame {
-			mixed: false,
-			samples: output,
-			presentation,
-		})
+		result.samples = output;
+		heard.then_some(result)
 	}
 }
 
@@ -358,6 +356,43 @@ mod tests {
 	use super::*;
 	use opus2::{Application, Encoder};
 	use std::time::Duration;
+	#[test]
+	fn a_session_mix_keeps_all_contributing_participant_clocks() {
+		let start = Instant::now();
+		let mut sync = Sync::default();
+		let mut audio = Audio::default();
+		for user in [2, 7] {
+			audio.announce(user, user as u32 * 10).unwrap();
+			for tick in 0..8 {
+				audio.push(
+					user as u32 * 10,
+					tick,
+					u32::from(tick) * 960,
+					vec![0xf8, 0xff, 0xfe],
+					&mut sync,
+					start,
+				);
+			}
+		}
+		let frame = (0..20)
+			.find_map(|tick| {
+				let frame = audio.pop_timed(&mut sync, start + Duration::from_millis(tick * 20))?;
+				(frame.presentations().count() == 2).then_some(frame)
+			})
+			.expect("both participant clocks accompany mixed PCM");
+		let tags: Vec<_> = frame.presentations().cloned().collect();
+		for tag in &tags {
+			tag.played(tag.at + Duration::from_millis(73));
+		}
+		assert!(
+			tags.iter()
+				.all(|tag| tag.deadline(tag.at + Duration::from_millis(74))
+					== tag.at + Duration::from_millis(73))
+		);
+		sync.clear();
+		assert!(!frame.is_current());
+	}
+
 	#[test]
 	fn audio_rebuffering_keeps_video_and_queued_pcm_current_until_the_session_changes() {
 		let start = Instant::now();

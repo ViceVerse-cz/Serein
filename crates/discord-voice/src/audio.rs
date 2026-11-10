@@ -1119,17 +1119,14 @@ impl Playback {
 					self.gaps[0] += 1;
 					break;
 				};
-				if !frame.mixed
-					&& frame
-						.presentation
-						.as_ref()
-						.is_some_and(|tag| !tag.is_current())
-				{
+				if !frame.is_current() {
 					self.gaps[1] += 1;
 					continue;
 				}
-				if let (Some(tag), Some(at)) = (frame.presentation, at) {
-					tag.played(at);
+				if let Some(at) = at {
+					for tag in frame.presentations() {
+						tag.played(at);
+					}
 				}
 				self.frame = frame.samples;
 				break;
@@ -1606,9 +1603,11 @@ mod tests {
 		let clock = Arc::new(crate::presentation::Clock::default());
 		let now = Instant::now();
 		let stream = || crate::PlaybackFrame {
+			session: None,
 			samples: [0.3; 960],
 			presentation: Some(clock.stamp(now)),
-			mixed: false,
+			additional_presentations: std::array::from_fn(|_| None),
+			has_call_audio: false,
 		};
 		let (mut send, receive) = rtrb::RingBuffer::new(8);
 		let mixed = crate::PlaybackFrame::mix(Some([0.2; 960]), Some(stream())).unwrap();
@@ -1642,10 +1641,15 @@ mod tests {
 				.acknowledge(audio.gate.revision.load(Ordering::Acquire))
 		);
 		let clock = Arc::new(crate::presentation::Clock::default());
+		let additional = Arc::new(crate::presentation::Clock::default());
 		let now = Instant::now();
 		let (mut send, receive) = rtrb::RingBuffer::new(8);
 		send.push(crate::PlaybackFrame {
-			mixed: false,
+			session: None,
+			additional_presentations: std::array::from_fn(|index| {
+				(index == 0).then(|| additional.stamp(now))
+			}),
+			has_call_audio: false,
 			samples: [0.2; 960],
 			presentation: Some(clock.stamp(now)),
 		})
@@ -1660,9 +1664,17 @@ mod tests {
 				.deadline(now + Duration::from_millis(74)),
 			now + Duration::from_millis(93)
 		);
+		assert_eq!(
+			additional
+				.stamp(now + Duration::from_millis(20))
+				.deadline(now + Duration::from_millis(74)),
+			now + Duration::from_millis(93)
+		);
 		clock.reset();
 		send.push(crate::PlaybackFrame {
-			mixed: false,
+			session: None,
+			additional_presentations: std::array::from_fn(|_| None),
+			has_call_audio: false,
 			samples: [0.8; 960],
 			presentation: Some(clock.stamp(now)),
 		})
