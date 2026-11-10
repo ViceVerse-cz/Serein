@@ -54,6 +54,8 @@ impl Settings {
 			show_hidden_channels: ui.show_hidden_channels,
 			hide_nitro_emojis: ui.hide_nitro_emojis,
 			convert_emoticons: ui.convert_emoticons,
+			hide_blocked_messages: ui.hide_blocked_messages,
+			hide_ignored_messages: ui.hide_ignored_messages,
 			preload_on_hover: ui.preload_on_hover,
 			auto_idle: ui.auto_idle,
 			hide_title_bar: ui.hide_title_bar,
@@ -109,6 +111,8 @@ impl Settings {
 		ui.show_hidden_channels = value.show_hidden_channels;
 		ui.hide_nitro_emojis = value.hide_nitro_emojis;
 		ui.convert_emoticons = value.convert_emoticons;
+		ui.hide_blocked_messages = value.hide_blocked_messages;
+		ui.hide_ignored_messages = value.hide_ignored_messages;
 		ui.preload_on_hover = value.preload_on_hover;
 		ui.auto_idle = value.auto_idle;
 		ui.hide_title_bar = value.hide_title_bar;
@@ -549,6 +553,27 @@ mod tests {
 		ui.message_requests_collapsed = false;
 		settings.observe(&ui);
 		assert!(!settings.current.message_requests_collapsed);
+		assert!(settings.state.dirty);
+	}
+
+	#[test]
+	fn blocked_and_ignored_filter_restores_and_tracks_user_changes() {
+		let mut settings = Settings {
+			loaded: true,
+			..Default::default()
+		};
+		settings.current.hide_blocked_messages = true;
+		settings.current.hide_ignored_messages = true;
+		let mut ui = ui::MessagingUi::default();
+		settings.apply(&mut ui);
+		assert!(ui.hide_blocked_messages && ui.hide_ignored_messages);
+		settings.observe(&ui);
+		assert!(!settings.state.dirty);
+
+		ui.hide_ignored_messages = false;
+		settings.observe(&ui);
+		assert!(settings.current.hide_blocked_messages);
+		assert!(!settings.current.hide_ignored_messages);
 		assert!(settings.state.dirty);
 	}
 
