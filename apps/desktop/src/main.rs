@@ -56,6 +56,7 @@ mod server_settings_demo;
 mod sign_in;
 #[cfg(feature = "demo")]
 mod slash_demo;
+mod soundboard;
 mod spotify;
 mod startup;
 mod sticker_upload;
@@ -1612,7 +1613,8 @@ impl Desktop {
 					matches!(
 						arg.as_str(),
 						"--demo-voice" | "--demo-voice-failed" | "--demo-voice-video"
-					)
+					) || (arg == "--demo-soundboard"
+						&& !std::env::args().any(|arg| arg == "--demo-call"))
 				}) {
 					test_support::voice_demo_state()
 				} else if std::env::args().any(|arg| arg == "--demo-existing-call") {
@@ -1935,6 +1937,12 @@ impl Desktop {
 			if std::env::args().any(|arg| arg == "--demo-focus") {
 				messaging.voice_focus = Some(ui::StageFocus::Stream(peer));
 			}
+		}
+		// `--demo-soundboard`: synthetic catalogs with the in-call soundboard already open.
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-soundboard") {
+			test_support::seed_soundboard(&mut state);
+			ui::MessagingUi::open_soundboard(&cc.egui_ctx);
 		}
 		// `--demo-voice-video`: Robin's camera is a synthetic gradient and starts enlarged, so the
 		// focused stage layout renders offline without any capture or network.
@@ -3995,7 +4003,9 @@ impl Desktop {
 					})
 				}
 				// The offline fixture has nothing to preload.
+				// The offline soundboard is seeded and never plays or downloads.
 				Command::Voice(_)
+				| Command::Soundboard(_)
 				| Command::CancelProfile
 				| Command::CancelSearch
 				| Command::Prefetch(_) => return,

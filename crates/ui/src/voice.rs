@@ -3824,6 +3824,7 @@ impl MessagingUi {
 		commands: &mut Vec<Command>,
 	) {
 		let Some(call) = state.voice.active.as_ref() else {
+			Self::close_soundboard(ui.ctx());
 			return;
 		};
 		let colors = design::palette(ui);
@@ -3979,9 +3980,13 @@ impl MessagingUi {
 				let processing = !state.demo && self.voice_available;
 				let mut camera_clicked = false;
 				let mut share_clicked = false;
+				let mut soundboard_trigger = None;
+				// Server, private and group calls all have a soundboard. The offline preview opens
+				// the panel with synthetic sounds; playing stays blocked there.
+				let soundboard = (controls || state.demo) && connected;
 				ui.horizontal(|ui| {
 					ui.spacing_mut().item_spacing.x = 8.0;
-					let width = ((ui.available_width() - 3.0 * 8.0 - 24.0) / 3.0).max(24.0);
+					let width = ((ui.available_width() - 4.0 * 8.0 - 24.0) / 4.0).max(24.0);
 					camera_clicked = card_action(
 						ui,
 						width,
@@ -4068,7 +4073,25 @@ impl MessagingUi {
 							NoiseSuppression::default()
 						};
 					}
+					soundboard_trigger = Some(card_action(
+						ui,
+						width,
+						crate::icons::Icon::MusicNotes,
+						soundboard,
+						self.soundboard_open(ui.ctx()),
+						"Open Soundboard",
+						if soundboard {
+							"Play a sound for everyone in this call"
+						} else {
+							"The soundboard is available once the call connects"
+						},
+					));
 				});
+				if !soundboard {
+					Self::close_soundboard(ui.ctx());
+				} else if let Some(trigger) = soundboard_trigger {
+					self.soundboard_popup(&trigger, state, commands);
+				}
 				if camera_clicked && let Some(command) = state.set_call_camera(!camera) {
 					self.voice_camera_status = "";
 					commands.push(command);

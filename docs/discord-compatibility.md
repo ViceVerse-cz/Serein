@@ -1,5 +1,51 @@
 # Discord compatibility — checked 2026-09-10
 
+## Soundboard — November 10, 2026
+
+Checked against Discord's [Soundboard resource](https://docs.discord.com/developers/resources/soundboard)
+and [Gateway events](https://docs.discord.com/developers/events/gateway-events) on November 9, 2026.
+
+- **Received sounds (documented).** Soundboard audio is not part of any participant's RTP/Opus
+  stream. `VOICE_CHANNEL_EFFECT_SEND` names `channel_id`, `guild_id`, `user_id`, `sound_id`
+  (a snowflake string, or an integer for default sounds) and `sound_volume` (0–1); a soundboard
+  effect may also carry the sound's `emoji`. Each client downloads
+  `https://cdn.discordapp.com/soundboard-sounds/{sound_id}` and plays it locally. Events without
+  `sound_id` are emoji reactions and are ignored.
+- **Sound files (documented, partly unverified).** Discord documents MP3 and Ogg for soundboard
+  sounds. Which codec an Ogg file uses, and whether the CDN serves the uploaded file unchanged,
+  is not documented; Serein sniffs the container and codec from the bytes and accepts MP3, Ogg
+  Vorbis, Ogg Opus, WAV, FLAC and MP4 rather than trusting the extension or `Content-Type`.
+- **Catalog (documented).** `GET /soundboard-default-sounds` (bare array); Gateway opcode 31
+  `{guild_ids}` answered by one `SOUNDBOARD_SOUNDS` per server; `GUILD_SOUNDBOARD_SOUND_CREATE`,
+  `_UPDATE`, `_DELETE` and `GUILD_SOUNDBOARD_SOUNDS_UPDATE` keep it current.
+  `GET /guilds/{id}/soundboard-sounds` is not used; opcode 31 covers every server in one batch.
+- **Playing (documented).** `POST /channels/{id}/send-soundboard-sound` with `sound_id` and,
+  for another server's sound, `source_guild_id`. Discord requires Speak and Use Soundboard
+  (bit 42), Use External Sounds (bit 45) for other servers' sounds, and a voice state in the
+  channel that is not deafened, self-deafened, server-muted or suppressed. Nothing requires
+  other people in the channel.
+- **Replays after a resume (documented).** After a resume handshake Discord replays the
+  dispatches missed while disconnected, then sends `RESUMED`. Serein drops replayed
+  `VOICE_CHANNEL_EFFECT_SEND` events, which already played for everyone else; other replayed
+  dispatches are applied as before.
+- **Sender playback (unofficial).** The documentation does not say whether the sender receives
+  its own `VOICE_CHANNEL_EFFECT_SEND`. Serein tracks each send until its REST reply and any
+  echo have arrived and plays it once, from whichever comes first, also with several sends in
+  flight. Previews never contact Discord.
+- **Observed live (owner-reported).** The owner tested the earlier revision of this soundboard
+  work on a normal account: sounds were sent and heard by the other participants,
+  sounds others played were received and played, sounds played while alone in a call, and the
+  sender heard its own sound. Effect delivery to a normal account is therefore observed; which
+  path played the sender's sound (echo or REST reply) was not isolated.
+- **Unverified.** Whether the sender receives its own event; the Nitro requirement for other
+  servers' sounds (Serein reuses the external-sticker entitlement); the send endpoint in private
+  and group calls, where Serein treats every server sound as another server's and sends
+  `source_guild_id` (default sounds need neither); and the changes made after that live test:
+  dropping replayed effects, overlapping sends, per-server catalog requests and their retry.
+  Malformed soundboard dispatches are skipped without ending the Gateway session. Local tests
+  use synthetic Gateway frames, local HTTP servers and the bundled MP3 and Ogg Opus fixtures with
+  injected defects.
+
 ## Game mentions (October 14, 2026)
 
 The native composer offers `@game`, a searchable game catalog and application references

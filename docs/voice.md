@@ -25,7 +25,7 @@ unofficial and live-unverified. The offline debug check is
 `cargo run --locked -p ui --example voice_chat`.
 
 The Audio menu provides saved Microphone gain and Speaker volume controls from 0% to
-200%, initially 100%. Reset levels restores both to 100%. Changes apply to the active call
+200%, initially 100%. Reset levels restores both, and Soundboard volume, to 100%. Changes apply to the active call
 without reopening devices and survive restart/logout through device preferences. Demo edits
 remain session-only. Zero silences that signal; values above 100% boost and may clip.
 These are software levels, not system mixer settings or automatic gain control. Existing mute,
@@ -1032,6 +1032,11 @@ between the UDP socket and the display, so a frozen viewer is diagnosed from one
   by silence because the device ring was empty, and frames rejected after source/security
   generation changes. Empty frames are expected during silence; compare against active
   stream production/bridge counters before treating them as underruns.
+- `device_frames` / `device_gated_frames` in `Audio`: 20 ms playback frames from the
+  transport that entered the device ring, and frames discarded because the speaker gate was
+  closed (not ready, deafened or stopped). Frames a full ring refused count in `drops` only. The transport only sends frames that carry audio,
+  so both stay at zero in a silent call. The Audio report's `mix` and `receive` stages are
+  always zero; mixing and packet receipt are timed in the `Transport` report.
 - `open_failed`: packets of any payload rejected by the transport AEAD.
 - `not_ready`: video packets received before the DAVE session was ready or from a
   user outside the group; expected briefly after joining or an epoch change.
@@ -1153,6 +1158,140 @@ Start-Process .\dist\serein.exe -RedirectStandardError "$PWD\stream-debug-retest
 
 Start sharing promptly after launch so the bounded diagnostic budget covers the test.
 Keep these local logs out of commits.
+
+## Soundboard
+
+Discord does not mix soundboard audio into anyone's RTP stream. When someone plays a sound,
+every client in the channel receives `VOICE_CHANNEL_EFFECT_SEND` with the sound ID and volume,
+downloads the clip from Discord's CDN and plays it locally. See the
+[compatibility notes](discord-compatibility.md#soundboard--november-10-2026) for the protocol.
+
+Three things put a sound on this device's speaker, and they share one playback path:
+
+- **Received:** someone else's effect, or this account's from another device. The Gateway
+  relays only effects that carry a `sound_id`; emoji reactions and malformed effects are
+  skipped, and so are effects Discord replays between a resume handshake and `RESUMED`, which
+  already played for everyone else. Core queues at most eight sounds, only for the call this
+  device has media for (Connected or Waiting, not deafened), and treats the same sender, sound
+  and channel inside 400 ms as one repeated event.
+- **Own:** a sound this device sent. Each send is tracked until both its REST reply and its
+  echo (if Discord sends one) have arrived, and plays exactly once, from whichever comes first.
+  Echoes pair with sends of the same sound oldest first, so several sends in flight, of
+  different sounds or the same one, each play once. A send waits ten seconds after its reply
+  for its echo; at most 16 sends are tracked. A refused send plays nothing.
+- **Preview:** the speaker button on each sound. Nothing is sent to Discord and no Gateway
+  event is involved. It needs a connected, undeafened call but no permission or Nitro, so
+  locked sounds can be previewed too.
+
+Every sound then goes through the same steps:
+
+- A lazy `serein-soundboard` worker downloads `cdn.discordapp.com/soundboard-sounds/{id}`
+  (HTTPS only, at most 1 MiB, 10-second timeout, no compression; up to three redirects, and only
+  to Discord's CDN hosts). A response shorter than its `Content-Length` is rejected.
+- The format comes from the file's own bytes, never from the extension or `Content-Type`: MP3
+  (after any ID3v2 tags and encoder padding, confirmed by two consecutive frame headers), Ogg
+  Vorbis, Ogg Opus (channel mapping family 0, or family 1 describing one plain stream), WAV,
+  FLAC and MP4 (AAC/ALAC). Anything else is reported as an unrecognized format.
+- Decoding is more tolerant than for attachments, because one bad frame should not silence a
+  five-second clip: up to 64 damaged packets, packets whose sample rate or channel layout differs
+  from the track, a trailing ID3v1 tag, an Ogg stream without its end-of-stream page and a
+  cut-off final page are skipped. The result is downmixed to mono, converted to 48 kHz
+  (linear) and cut at six seconds.
+- Decoded sounds are cached in RAM (32 sounds, 16 MiB, least recently used first), so replays
+  and previews reuse the download. A sound Discord refused or that cannot be decoded is not
+  retried for 60 seconds; a network failure or a 429/5xx response is retried after five
+  seconds. A received or own sound that takes more than four seconds to arrive is cached but
+  not played late; a preview waits up to twelve.
+- Clips go to the call's voice transport over a bounded channel. On each 20 ms tick up to eight
+  sounds are added after per-user volumes and before the speaker volume, so the selected output
+  device, Speaker volume and deafen apply. This runs whenever the call has media, including
+  while this account is alone and DAVE is waiting for a peer. Deafening, a security reset or
+  leaving drops sounds that are playing. Soundboard audio never enters capture, echo processing,
+  noise suppression or the Opus encoder, so it is never sent to Discord.
+- Gain is the sound's volume multiplied by **Soundboard volume** (0–200%, default 100%, saved in
+  device preferences). Per-user volume does not apply to sounds.
+
+Playing:
+
+- The music-note button next to noise suppression in the Voice Connected card opens the
+  soundboard: a search field, Default sounds, the call's server, then other servers with sounds,
+  plus the Soundboard volume slider. Opening it loads default sounds by REST and requests server
+  catalogs with opcode 31, tracked per server: the first request of a Gateway connection covers
+  every known server, and a server joined later is requested on its own. A sound update for a
+  server whose catalog has not arrived starts that catalog; the full reply replaces it. If the
+  voice queue cannot take a request, the desktop reports it back and core retries two seconds
+  later, so no request is lost silently. A resume asks again only for catalogs that never
+  arrived; a fresh session asks for all of them. Catalogs are session-only (256 servers, 2 MiB).
+- Clicking a sound sends `POST /channels/{id}/send-soundboard-sound` through the shared REST
+  limiter; another server's sound includes `source_guild_id`. Up to three sends can be in
+  flight; each runs as its own task, so a new sound never cancels an earlier one.
+  Sounds are disabled with a reason when the call is not connected, the account is deafened or
+  server-muted, lacks Speak or Use Soundboard, or lacks Nitro or Use External Sounds for another
+  server's sound. Being the only person in the channel does not disable anything.
+- The soundboard works in server voice channels and in private and group calls. A private call
+  has no server, so every server sound counts as another server's and needs Nitro; default
+  sounds need nothing extra. A Gateway resume does not affect sends in flight: their REST replies
+  still arrive and play. A fresh session abandons them and says the sound may not have played;
+  a send with no reply after 30 seconds is released the same way.
+- The offline preview (`cargo run --locked --features demo -- --demo --demo-soundboard`, or add
+  `--demo-call` for a private call) shows synthetic catalogs and never downloads or plays anything.
+
+### Tracing a sound
+
+With `SEREIN_VOICE_DIAGNOSTICS=1` (see [capturing diagnostics](#diagnosing-a-call-that-never-opens-audio) for how to save stderr),
+every playback attempt gets a number and one `[Serein voice Soundboard]` line per stage:
+
+| Stage | Tells you |
+| --- | --- |
+| `request` | The sound was received (`source=effect`), sent (`own`) or previewed (`preview`), its sound ID, volume and resulting gain; or why core ignored an effect (`other-channel`, `deafened`, `duplicate`, `own-echo`, `no-live-media`, …). |
+| `cache` | `hit`, `miss`, or `failed reason=recent-failure` with the earlier error. |
+| `download` | HTTP status, `Content-Type`, byte count and time, or the exact failure. |
+| `format` | Detected container and codec and where the audio starts. |
+| `decode` | Source sample rate, channels, frames, skipped packets, 48 kHz length and peak level, or the decoder error. |
+| `queue` | Handed to the call's mixer, or dropped as late, because the mixer queue was full, or because the call ended. |
+| `mix` | The transport mixer started the clip, or discarded it because the speaker gate was closed. |
+| `device` | When the clip ends: 20 ms frames delivered to the audio device worker and frames its full queue refused. |
+
+The `Audio` report's `device_frames` and `device_gated_frames` then show whether those frames
+reached the output ring or were discarded by a closed speaker gate. Lines are bounded (2,048
+per process, 240 bytes each) and name only sound IDs, formats, sizes, timings and outcomes: no
+tokens, user or channel IDs, URLs beyond the sound ID, or audio.
+
+Synthetic tests cover effect parsing (string and integer IDs, emoji-only and malformed effects),
+opcode 31 batching over a local WebSocket, catalog updates and budgets, scoping and
+deduplication, replayed effects before `RESUMED`, overlapping own sends in both reply/echo
+orders, sends across a resume and a fresh session, per-server catalog requests and their retry
+after a full voice queue, permission and voice-state gates, the REST payloads and refusals,
+bounded downloads, format detection, MP3 and Ogg files with real-world defects, caching,
+mixing and device-ring accounting. The owner tested the earlier revision live (sending,
+receiving, playing alone and hearing one's own sound); the later robustness changes are
+covered by local tests only.
+
+Owner-controlled live check (requires the developer-session gate and a private test server):
+
+1. Join a server voice channel alone with Serein. Preview a sound, then play one: both should
+   be heard once, and only the played one should reach the channel.
+2. Join with the official client on another account. Repeat the steps below in a private call
+   and a group call.
+3. In the official client play several server sounds, including ones that were silent before,
+   then a default sound. Serein should play each once, at a level that follows Soundboard
+   volume and Speaker volume; deafening silences them.
+4. In Serein play a server sound and a default sound. The official client should hear each, and
+   Serein should play its own sound once.
+5. Preview a sound in Serein: only Serein should hear it; the official client should not.
+6. Talk while sounds play: the official client should hear speech without the sound mixed in
+   (it plays the sound itself), and Serein's microphone indicator should be unaffected.
+7. Leave and rejoin, switch channels, and play sounds during each: only the current call plays.
+8. Click three sounds (two of them the same) in quick succession: the channel hears all three
+   and Serein plays each exactly once.
+9. Drop the network for a few seconds while the official client plays a sound, then restore it.
+   After the Gateway resumes, that sound must not play late; new sounds play normally, and a
+   sound sent just before the drop still plays once.
+10. Join another server while connected, open the soundboard: its sounds appear, and a sound
+    added there afterwards appears too.
+11. Force a fresh session (sign out and in, or wait out an invalid session): catalogs reload
+    and sending and receiving work again.
+12. If a sound stays silent, capture a diagnostics log and find its attempt's last stage.
 
 ## Local microphone preview
 

@@ -33,6 +33,7 @@ pub use teardown::wait_for_media_threads;
 pub use transport::{DISCONNECTED_BY_DISCORD, run, run_stream, run_with_identity, watch_stream};
 pub use video_receive::{RemoteFrame, VideoSink};
 pub mod camera_video;
+pub mod soundboard;
 
 pub use presentation::{PlaybackFrame, Presentation};
 

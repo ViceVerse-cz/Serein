@@ -77,6 +77,7 @@ impl Settings {
 			voice_output: ui.voice_output.clone(),
 			input_percent: ui.voice_gain.input_percent,
 			output_percent: ui.voice_gain.output_percent,
+			soundboard_percent: ui.voice_gain.soundboard_percent,
 			keybinds: ui.keybinds.clone(),
 			expanded_folders: ui.expanded_folders.clone(),
 			user_volumes: ui.voice_user_volume_overrides(),
@@ -132,6 +133,7 @@ impl Settings {
 		ui.voice_output.clone_from(&value.voice_output);
 		ui.voice_gain.input_percent = value.input_percent;
 		ui.voice_gain.output_percent = value.output_percent;
+		ui.voice_gain.soundboard_percent = value.soundboard_percent;
 		ui.keybinds = value.keybinds.clone();
 		ui.expanded_folders.clone_from(&value.expanded_folders);
 		ui.set_voice_user_volume_overrides(&value.user_volumes);

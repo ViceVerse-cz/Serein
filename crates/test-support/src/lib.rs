@@ -838,6 +838,38 @@ pub fn voice_demo_state() -> State {
 	state.status = "Offline voice fixture · no microphone or network access";
 	state
 }
+/// Synthetic soundboard catalogs for the offline voice fixture; nothing is downloaded or played.
+pub fn seed_soundboard(state: &mut State) {
+	use client_core::soundboard::Event as Sound;
+	let sound = |id: u64, name: &str, emoji: &str, guild: Option<u64>| model::soundboard::Sound {
+		id: Id(id),
+		name: name.into(),
+		volume: 1.0,
+		emoji_id: None,
+		emoji_name: Some(emoji.into()),
+		guild: guild.map(Id),
+		available: true,
+	};
+	state.apply_soundboard(Sound::Defaults(Ok(vec![
+		sound(1, "Quack", "\u{1f986}", None),
+		sound(2, "Airhorn", "\u{1f4ef}", None),
+		sound(3, "Cricket", "\u{1f997}", None),
+		sound(4, "Golf clap", "\u{1f44f}", None),
+		sound(5, "Sad horn", "\u{1f3ba}", None),
+		sound(6, "Drum roll", "\u{1f941}", None),
+	])));
+	let guild = state.guilds[0].id.0;
+	let mut unavailable = sound(9003, "Lost boost", "\u{1f4a4}", Some(guild));
+	unavailable.available = false;
+	state.apply_soundboard(Sound::Guild {
+		guild: Id(guild),
+		sounds: vec![
+			sound(9001, "Synthetic chime", "\u{1f514}", Some(guild)),
+			sound(9002, "Door knock", "\u{1f6aa}", Some(guild)),
+			unavailable,
+		],
+	});
+}
 /// Synthetic direct-message call: two participants, connected for a while. Never live audio.
 pub fn call_demo_state() -> State {
 	use client_core::voice::{Call, Participant, Phase};
@@ -1250,6 +1282,7 @@ pub fn permission_snapshot(state: &State) -> model::permissions::Snapshot {
 		| p::CONNECT
 		| p::SPEAK
 		| p::USE_VAD
+		| p::USE_SOUNDBOARD
 		| p::MANAGE_THREADS
 		| p::CREATE_PUBLIC_THREADS
 		| p::MANAGE_CHANNELS;
