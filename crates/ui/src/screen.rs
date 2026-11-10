@@ -14,6 +14,14 @@ pub enum Request {
 	Stop,
 }
 
+/// The selected source and quality shown while this device's share is live.
+pub(crate) struct LiveShare<'a> {
+	/// `None` when the platform picker exposes only a placeholder source name.
+	pub title: Option<&'a str>,
+	pub height: u32,
+	pub fps: u32,
+}
+
 pub struct ScreenUi {
 	pub context: Option<(u64, Id, u64)>,
 	pub open: bool,
@@ -22,6 +30,8 @@ pub struct ScreenUi {
 	pub refresh_requested: bool,
 	pub request: Option<Request>,
 	pub busy: bool,
+	/// Capture has produced a frame for this device's live share.
+	pub sharing: bool,
 	/// Owned when it carries a run-time detail such as a Windows error code.
 	pub status: Cow<'static, str>,
 	pub capture_status: Option<&'static str>,
@@ -46,6 +56,7 @@ impl Default for ScreenUi {
 			refresh_requested: false,
 			request: None,
 			busy: false,
+			sharing: false,
 			status: Cow::Borrowed(""),
 			capture_status: None,
 			supported: false,
@@ -166,6 +177,19 @@ impl ScreenUi {
 		};
 		settings.valid().then_some(settings)
 	}
+
+	/// Details for the stream bar once capture is live. Platform pickers report a
+	/// placeholder name until the OS chooses a source, so the caller supplies a fallback.
+	pub(crate) fn live_share(&self) -> Option<LiveShare<'_>> {
+		let source = self.selected_source()?;
+		let settings = self.settings()?;
+		Some(LiveShare {
+			title: (!matches!(source.id, SourceId::SystemPicker | SourceId::Portal))
+				.then_some(source.name.as_str()),
+			height: settings.height,
+			fps: settings.fps,
+		})
+	}
 	pub(super) fn show(&mut self, ctx: &egui::Context, state: &State) {
 		let current = state
 			.voice
@@ -181,6 +205,7 @@ impl ScreenUi {
 			self.quality_for = None;
 			self.request = None;
 			self.refresh_requested = false;
+			self.sharing = false;
 		}
 		if !self.open {
 			return;
@@ -549,6 +574,39 @@ mod tests {
 		assert!(picker.settings().is_some());
 		picker.sources.clear();
 		assert!(picker.settings().is_none());
+	}
+
+	#[test]
+	fn live_share_reports_the_chosen_quality_and_hides_picker_placeholders() {
+		let mut picker = ScreenUi {
+			selected: Some(SourceId::Window(7)),
+			sources: vec![Source {
+				id: SourceId::Window(7),
+				name: "Synthetic window".into(),
+				width: 2560,
+				height: 1440,
+				refresh_hz: 60,
+			}],
+			resolution: Resolution::Preset {
+				width: 1280,
+				height: 720,
+			},
+			fps: 60,
+			..Default::default()
+		};
+		let share = picker.live_share().unwrap();
+		assert_eq!(share.title, Some("Synthetic window"));
+		assert_eq!((share.height, share.fps), (720, 60));
+
+		picker.selected = Some(SourceId::SystemPicker);
+		picker.sources = vec![Source {
+			id: SourceId::SystemPicker,
+			name: "Choose with the macOS system picker".into(),
+			width: 2560,
+			height: 1440,
+			refresh_hz: 60,
+		}];
+		assert_eq!(picker.live_share().unwrap().title, None);
 	}
 
 	#[test]

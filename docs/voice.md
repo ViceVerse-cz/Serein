@@ -649,6 +649,11 @@ the local camera preview for an established call; new camera activation still re
 connected Gateway. Demo mode never requests camera or microphone access.
 
 An explicitly started screen share also shows a separate local tile while alone.
+Once capture is producing frames, a dark stream bar above **Voice Connected** shows the
+selected source and chosen height/frame rate, with a control that stops the share through
+the existing stop path. The bar represents this device's local capture only; a remote
+participant's stream never triggers it. Platform pickers that hide the picked source name
+use the call identity as the title.
 The worker retains at most one RGBA preview at the captured size, up to 3840×2160
 (33,177,600 bytes), updated at the chosen frame rate while the preview is showing, plus the bounded UI
 texture and upload copy. Color conversion runs on the capture worker and does not
