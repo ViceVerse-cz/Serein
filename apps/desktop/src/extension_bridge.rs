@@ -155,20 +155,23 @@ struct QueuedEvent {
 	action: String,
 	context: ExtensionContext,
 	event: ReactiveEvent,
+	/// Serialized size of a web response, measured once when it is queued; zero for other events.
+	fetch_bytes: usize,
 }
 impl QueuedEvent {
-	/// Estimates the memory held by this queued event: the struct itself plus its owned string data.
-	/// Fetch payloads are measured by serialized size, saturating to `usize::MAX` if encoding fails.
+	/// Memory a message, app or action-result event holds against `MAX_MESSAGE_EVENT_BYTES`.
+	/// Web responses count only against `MAX_FETCH_EVENT_BYTES`, through `fetch_bytes`.
 	fn bytes(&self) -> usize {
+		if matches!(self.event, ReactiveEvent::Fetch(_)) {
+			return 0;
+		}
 		std::mem::size_of::<Self>()
 			+ self.id.len()
 			+ self.action.len()
 			+ match &self.event {
 				ReactiveEvent::App(_) => 0,
 				ReactiveEvent::ActionResult(result) => result.request_id.len(),
-				ReactiveEvent::Fetch(invocation) => {
-					serde_json::to_vec(invocation).map_or(usize::MAX, |wire| wire.len())
-				}
+				ReactiveEvent::Fetch(_) => 0,
 				ReactiveEvent::Message(event) => {
 					event.channel_id.len()
 						+ event.message_id.len()
@@ -433,6 +436,7 @@ impl Bridge {
 					action: action.id.clone(),
 					context: ExtensionContext::capture(state, false),
 					event: ReactiveEvent::App(kind),
+					fetch_bytes: 0,
 				};
 				if self.message_events.len() >= MAX_MESSAGE_EVENTS
 					|| self
@@ -496,6 +500,7 @@ impl Bridge {
 				action: action.id.clone(),
 				context: ExtensionContext::capture(state, false),
 				event: ReactiveEvent::Message(event.clone()),
+				fetch_bytes: 0,
 			};
 			if self.message_events.len() >= MAX_MESSAGE_EVENTS
 				|| self
@@ -1466,6 +1471,7 @@ impl Bridge {
 						action: action.id.clone(),
 						context,
 						event: ReactiveEvent::ActionResult(result),
+						fetch_bytes: 0,
 					};
 					if self.message_events.len() >= MAX_MESSAGE_EVENTS
 						|| self
@@ -1656,18 +1662,21 @@ impl Bridge {
 				result.error = Some(extensions::FetchError::TooLarge);
 				invocation.fetch_result = Some(Box::new(result));
 			}
+			let fetch_bytes = serde_json::to_vec(&invocation).map_or(usize::MAX, |wire| wire.len());
 			let queued = QueuedEvent {
 				id: done.id,
 				action: invocation.action.clone(),
 				context,
 				event: ReactiveEvent::Fetch(Box::new(invocation)),
+				fetch_bytes,
 			};
 			if self.message_events.len() >= MAX_MESSAGE_EVENTS
 				|| self
 					.message_events
 					.iter()
-					.map(QueuedEvent::bytes)
-					.sum::<usize>() + queued.bytes()
+					.map(|queued| queued.fetch_bytes)
+					.fold(0usize, usize::saturating_add)
+					.saturating_add(queued.fetch_bytes)
 					> MAX_FETCH_EVENT_BYTES
 			{
 				self.fetches_dropped = true;
@@ -2508,6 +2517,22 @@ mod tests {
 		assert!(
 			matches!(&bridge.message_events.front().unwrap().event, ReactiveEvent::Message(value) if *value == event)
 		);
+	}
+
+	/// A queued web response counts only against the fetch budget, so message events still queue.
+	#[test]
+	fn a_large_web_response_does_not_crowd_out_message_events() {
+		let (mut bridge, state, event) = message_events_fixture();
+		bridge.message_events.push_back(QueuedEvent {
+			id: "message-counter".into(),
+			action: "fetched".into(),
+			context: ExtensionContext::capture(&state, false),
+			event: ReactiveEvent::Fetch(Box::default()),
+			fetch_bytes: 200 * 1024,
+		});
+		bridge.message_event(&state, event);
+		assert_eq!(bridge.message_events.len(), 2);
+		assert!(!bridge.message_events_dropped);
 	}
 
 	#[test]
