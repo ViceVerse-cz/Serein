@@ -4100,6 +4100,8 @@ mod tests {
 		}
 	}
 
+	/// Edits pass through registered send hooks with the Edit hook and save the hook's rewritten text,
+	/// while edits with no hooks registered save immediately.
 	#[test]
 	fn edits_run_send_hooks_and_save_the_rewritten_text() {
 		let ctx = egui::Context::default();

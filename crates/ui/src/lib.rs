@@ -2933,6 +2933,8 @@ impl MessagingUi {
 			}
 		}
 	}
+	/// Sends the selected channel's draft and attachments once uploads, plugin send hooks, and
+	/// permissions allow; restores the unconverted draft if nothing could be sent.
 	fn submit_composer(
 		&mut self,
 		state: &mut State,
