@@ -36,7 +36,7 @@ impl Metadata {
 
 /// One client per sharing session; no credentials, proxy, redirects, persistence or retries.
 pub fn client() -> Result<Client, &'static str> {
-	Client::builder()
+	crate::browser_transport(Client::builder())
 		.https_only(true)
 		.no_proxy()
 		.redirect(wreq::redirect::Policy::none())
