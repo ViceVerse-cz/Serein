@@ -31,7 +31,8 @@
         "env": {
           "CARGO_NET_OFFLINE": "true",
           "CARGO_HOME": "/run/build/serein/flatpak-cargo-home",
-          "LIBCLANG_PATH": "/usr/lib/sdk/llvm22/lib"
+          "LIBCLANG_PATH": "/usr/lib/sdk/llvm22/lib",
+          "CLANG_PATH": "/usr/lib/sdk/llvm22/bin/clang"
         }
       },
       "build-commands": [
