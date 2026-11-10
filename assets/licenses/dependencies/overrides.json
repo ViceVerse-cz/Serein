@@ -91,11 +91,11 @@
       "source_archives": []
     },
     {
-      "name": "aws-lc-sys",
-      "version": "0.45.0",
+      "name": "btls-sys",
+      "version": "0.5.6",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "files": [
-        "assets/licenses/dependencies/aws-lc-fiat-LICENSE"
+        "assets/licenses/dependencies/boringssl-LICENSE"
       ],
       "source_archives": []
     },

@@ -16,7 +16,7 @@ members = ["."]
 [dependencies]
 libfuzzer-sys = "=0.4.13"
 discord-protocol = { path = "../crates/discord-protocol" }
-client-core = { path = "../crates/client-core" }
+client-core = { path = "../crates/client-core", default-features = false }
 model = { path = "../crates/model" }
 session-cache = { path = "../crates/session-cache" }
 

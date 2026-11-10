@@ -16,9 +16,11 @@ The canonical MPL text already retained for hpke-rs is also used for its two reg
 whose exact upstream release tree omits a standalone license file.
 
 Nested egui font notices supplement its workspace MIT/Apache texts. The egui icon subset
-provenance describes its upstream modification; bundled OS fonts are not claimed. AWS-LC's
-fiat notice supplements its composite root LICENSE, which the collector obtains from the
-registry package. Existing direct-component notices are reused where their provenance applies.
+provenance describes its upstream modification; bundled OS fonts are not claimed. BoringSSL's
+root LICENSE is copied from the btls-sys 0.5.6 registry archive (checksum
+`9b1b8638a2e1c38a5ae4efa90ae57e643baec35a30d03fc5b399b893adc4954b` in `Cargo.lock`, checked
+November 10, 2026), which bundles the BoringSSL source that wreq links statically; that archive
+ships no separate `third_party/fiat` license file. Existing direct-component notices are reused where their provenance applies.
 
 `objc2-*-LICENSE.md` files are upstream licensing/SDK notices containing external links,
 not complete license grants by themselves. Their presence must not close a missing-text
@@ -35,7 +37,7 @@ check. Older `objc2-*-LICENSE.txt` files contain the upstream MIT text.
 | `egui-fonts-UFL.txt` | epaint_default_fonts 0.36.2 | [upstream](https://github.com/emilk/egui/blob/cd5caec79c9e6683dd793e25b4e7b287ccdd7061/crates/epaint_default_fonts/fonts/UFL.txt) | `2f0015108d68627bd788d313f529c21ff4da2c2c42a5e1f3883acc83480f9002` |
 | `egui-fonts-emoji-icon-font-mit-license.txt` | epaint_default_fonts 0.36.2 | [upstream](https://github.com/emilk/egui/blob/cd5caec79c9e6683dd793e25b4e7b287ccdd7061/crates/epaint_default_fonts/fonts/emoji-icon-font-mit-license.txt) | `b9d2c1d909aa149996fd4c91dcb92b2362a04431640c1d200959da94caf8cde1` |
 | `egui-fonts-egui-icons.txt` | epaint_default_fonts 0.36.2 | [upstream](https://github.com/emilk/egui/blob/cd5caec79c9e6683dd793e25b4e7b287ccdd7061/crates/epaint_default_fonts/fonts/egui-icons.txt) | `36dbbfd79d73974f864116879c17dd11559e1340277385f1ac52d8d29a5f5c79` |
-| `aws-lc-fiat-LICENSE` | aws-lc-sys 0.45.0 | [upstream](https://docs.rs/crate/aws-lc-sys/0.45.0/source/aws-lc/third_party/fiat/LICENSE) | `43e358d7b6eb109d0f51f7b3a090fd82607965767c25fadee39e922475de2061` |
+| `boringssl-LICENSE` | BoringSSL as bundled by btls-sys 0.5.6 | [upstream](https://docs.rs/crate/btls-sys/0.5.6/source/deps/boringssl/LICENSE) | `827c8d8fc207c2392794eef9e00fe246f9f61fdcc132556c275be3dd8c3cd97f` |
 | `option-ext-0.2.0.crate` | option-ext 0.2.0 | [upstream](https://static.crates.io/crates/option-ext/option-ext-0.2.0.crate) | `04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d` |
 | `hpke-rs-crypto-0.6.1.crate` | hpke-rs-crypto 0.6.1 | [upstream](https://static.crates.io/crates/hpke-rs-crypto/hpke-rs-crypto-0.6.1.crate) | `0a73a99d9008010d73289f41335a3f6e14fb8c04eaf60e9111b450463b1bbc7f` |
 | `hpke-rs-rust-crypto-0.6.1.crate` | hpke-rs-rust-crypto 0.6.1 | [upstream](https://static.crates.io/crates/hpke-rs-rust-crypto/hpke-rs-rust-crypto-0.6.1.crate) | `14b28be6cba9081c7feda2651d51c2a900029798e78b4c1e093e792f4571a870` |

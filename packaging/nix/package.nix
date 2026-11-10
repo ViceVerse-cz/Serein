@@ -4,6 +4,7 @@
     rustPlatform,
     pkg-config,
     cmake,
+    git,
     makeWrapper,
     swift,
     swiftpm,
@@ -121,6 +122,10 @@ in
                 pkg-config
                 cmake
                 makeWrapper
+                # BoringSSL (wreq's TLS): btls-sys patches its bundled source with
+                # `git apply` and generates bindings through libclang.
+                git
+                rustPlatform.bindgenHook
             ]
             ++ lib.optionals isLinux [
                 wrapGAppsHook4

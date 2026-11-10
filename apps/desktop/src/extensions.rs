@@ -1619,24 +1619,24 @@ async fn download_https(raw: &str, limit: usize, gate: &Gate) -> Result<Vec<u8>,
 			return Err("Extension downloads cannot access private networks".into());
 		}
 		// Pin the validated DNS result; redirects receive a fresh validation and client.
-		let client = reqwest::Client::builder()
+		let client = wreq::Client::builder()
 			.no_proxy()
 			.no_gzip()
-			.redirect(reqwest::redirect::Policy::none())
-			.resolve_to_addrs(host, &addresses)
+			.redirect(wreq::redirect::Policy::none())
+			.resolve_to_addrs(host.to_owned(), addresses.iter().copied())
 			.timeout(Duration::from_secs(30))
 			.build()
 			.map_err(|_| "Extension downloader unavailable")?;
-		let mut response = client
-			.get(url.clone())
-			.header(reqwest::header::ACCEPT_ENCODING, "identity")
+		let response = client
+			.get(url.as_str())
+			.header(wreq::header::ACCEPT_ENCODING, "identity")
 			.send()
 			.await
 			.map_err(|_| "Extension download failed")?;
 		if response.status().is_redirection() {
 			let location = response
 				.headers()
-				.get(reqwest::header::LOCATION)
+				.get(wreq::header::LOCATION)
 				.and_then(|v| v.to_str().ok())
 				.ok_or("Invalid extension redirect")?;
 			url = url
@@ -1644,7 +1644,7 @@ async fn download_https(raw: &str, limit: usize, gate: &Gate) -> Result<Vec<u8>,
 				.map_err(|_| "Invalid extension redirect")?;
 			continue;
 		}
-		if response.status() != reqwest::StatusCode::OK {
+		if response.status() != wreq::StatusCode::OK {
 			return Err(
 				"Extension download unavailable; refresh the catalog or use a local package".into(),
 			);
@@ -1654,15 +1654,16 @@ async fn download_https(raw: &str, limit: usize, gate: &Gate) -> Result<Vec<u8>,
 			.is_some_and(|size| size > limit as u64)
 			|| response
 				.headers()
-				.get(reqwest::header::CONTENT_ENCODING)
+				.get(wreq::header::CONTENT_ENCODING)
 				.is_some_and(|encoding| encoding != "identity")
 		{
 			return Err("Extension download size or encoding is unsupported".into());
 		}
 		let mut bytes = Vec::new();
-		while let Some(chunk) = response
-			.chunk()
+		let mut response_body = std::pin::pin!(response.bytes_stream());
+		while let Some(chunk) = futures_util::StreamExt::next(&mut response_body)
 			.await
+			.transpose()
 			.map_err(|_| "Extension download interrupted")?
 		{
 			gate.check()?;

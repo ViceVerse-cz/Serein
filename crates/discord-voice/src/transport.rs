@@ -22,16 +22,16 @@ use std::{
 	time::Duration,
 };
 use tokio::{
-	net::{TcpStream, UdpSocket},
+	net::UdpSocket,
 	sync::watch,
 	time::{Instant, MissedTickBehavior, timeout},
 };
 use tokio_tungstenite::{
-	MaybeTlsStream, WebSocketStream,
+	WebSocketStream,
 	tungstenite::{Message, protocol::WebSocketConfig},
 };
 use zeroize::Zeroizing;
-type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type Socket = WebSocketStream<wreq::Upgraded>;
 /// Time a sole member gives the roster announcement before waiting for a peer.
 const PEER_GRACE: Duration = Duration::from_millis(500);
 
@@ -420,9 +420,9 @@ async fn run_inner(
 		.max_frame_size(Some(MAX_SIGNAL))
 		.write_buffer_size(0)
 		.max_write_buffer_size(MAX_SIGNAL * 2);
-	let (mut ws, _) = timeout(
+	let mut ws = timeout(
 		Duration::from_secs(15),
-		tokio_tungstenite::connect_async_with_config(&url, Some(config), false),
+		client_core::fingerprint::websocket(&url, config),
 	)
 	.await
 	.map_err(|_| "Voice connection timed out")?
@@ -561,9 +561,9 @@ async fn run_inner(
 				.max_frame_size(Some(MAX_SIGNAL))
 				.write_buffer_size(0)
 				.max_write_buffer_size(MAX_SIGNAL * 2);
-			let (replacement, _) = timeout(
+			let replacement = timeout(
 				Duration::from_secs(15),
-				tokio_tungstenite::connect_async_with_config(&url, Some(config), false),
+				client_core::fingerprint::websocket(&url, config),
 			)
 			.await
 			.map_err(|_| "Voice resume timed out; rejoin the call")?
@@ -1458,9 +1458,9 @@ async fn run_stream_inner(
 		.max_frame_size(Some(MAX_SIGNAL))
 		.write_buffer_size(0)
 		.max_write_buffer_size(MAX_SIGNAL * 2);
-	let (mut ws, _) = timeout(
+	let mut ws = timeout(
 		Duration::from_secs(15),
-		tokio_tungstenite::connect_async_with_config(&url, Some(config), false),
+		client_core::fingerprint::websocket(&url, config),
 	)
 	.await
 	.map_err(|_| "Stream connection timed out")?

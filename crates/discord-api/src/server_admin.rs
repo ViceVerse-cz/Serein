@@ -5,8 +5,8 @@ use model::{
 	Id,
 	server_admin::{Action, Result as Outcome, VoiceChange},
 };
-use reqwest::Method;
 use serde_json::json;
+use wreq::Method;
 
 impl DiscordApi {
 	pub(super) async fn server_admin(&self, guild: Id, request: u64, action: &Action) -> Event {

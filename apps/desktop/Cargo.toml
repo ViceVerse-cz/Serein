@@ -33,7 +33,7 @@ zeroize.workspace = true
 platform.workspace = true
 local-store.workspace = true
 winit.workspace = true
-reqwest.workspace = true
+wreq.workspace = true
 rasterlottie.workspace = true
 getrandom.workspace = true
 url.workspace = true
@@ -53,7 +53,7 @@ resvg = { version = "=0.48.1", default-features = false }
 arboard = "=3.7.0"
 # Already built for eframe's system-font fallback; lists installed families for font settings.
 fontique = { version = "=0.11.1", default-features = false, features = ["system", "fontconfig-dlopen"] }
-# Serein never installs a `log` logger, so dependency log calls (wgpu, winit, reqwest, ...)
+# Serein never installs a `log` logger, so dependency log calls (wgpu, winit, wreq, ...)
 # are dead code; this feature compiles them out of release builds instead of shipping them.
 log = { version = "=0.4.34", features = ["release_max_level_off"] }
 

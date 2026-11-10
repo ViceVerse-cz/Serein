@@ -56,7 +56,7 @@ fn policy() -> Result<(), String> {
 		for feature in features {
 			let feature = feature.as_str().unwrap_or("");
 			if (id.contains("#eframe@") || id.contains("#egui@")) && feature == "persistence"
-				|| (id.contains("#reqwest@") && feature == "cookies")
+				|| (id.contains("#wreq@") && feature == "cookies")
 			{
 				return Err(format!("Forbidden runtime feature: {id} / {feature}"));
 			}

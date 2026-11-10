@@ -27,9 +27,12 @@ egui-winit = { git = "https://github.com/emilk/egui", rev = "cd5caec79c9e6683dd7
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
-reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "http2", "json", "stream", "gzip", "deflate", "brotli", "zstd"] }
+# Browser TLS/HTTP2 fingerprint matching the advertised client identity on every transport.
+wreq = { version = "=6.0.0-rc.31", features = ["json", "stream", "gzip", "deflate", "brotli", "zstd", "ws"] }
+wreq-util = { version = "=3.0.0-rc.14", default-features = false, features = ["emulation"] }
 rasterlottie = { version = "=0.2.2", default-features = false }
-tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+# Same release as wreq's `ws`, so one tungstenite is built; TLS comes from wreq.
+tokio-tungstenite = { version = "=0.29.0", default-features = false, features = ["connect"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 flate2 = "1"
 zeroize = "1.8"
