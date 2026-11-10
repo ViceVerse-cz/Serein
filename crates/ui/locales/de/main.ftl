@@ -1642,8 +1642,6 @@ main-restoring-screen-welcome-back = Willkommen zurück
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Gespeicherte Konten
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Ich besitze dieses Konto und autorisiere diese Sitzung.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Passwörter und 2FA bleiben auf Discords eigener Anmeldeseite; Nur das Sitzungstoken wird in Ihrem Betriebssystem-Anmeldeinformationsspeicher aufbewahrt.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = Über Serein
@@ -1690,6 +1688,8 @@ markdown-confirm-external-link-cancel = Stornieren
 markdown-confirm-external-link-open-external-link = Externen Link öffnen?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Im Browser öffnen
+# Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Nur der Anfang dieser Nachricht passt in den Link; der Rest wird nicht gesendet. Das Ziel öffnet sich in deinem Standardbrowser.
 # Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Dieses Ziel wird in Ihrem Standardbrowser geöffnet.
 # Context: show_emoji
@@ -2275,6 +2275,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Senden Sie z
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Teilen Sie Sound von anderen Apps, auch wenn Sie ein Fenster teilen. Sereins eigener Ton wird weggelassen.
 # Context: body
 screen-body-share-system-audio = Teilen Sie Systemaudio
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Teilen Sie den Ton der geteilten App oder beim Teilen eines Bildschirms den Ton aller anderen Apps. Sereins eigener Ton wird weggelassen.
 # Context: body
 screen-body-show-cursor = Cursor anzeigen
 # Context: body
@@ -3872,6 +3874,10 @@ timeline-message-actions-delete-message = Nachricht löschen…
 timeline-message-actions-edit-message = Nachricht bearbeiten
 # Context: message_actions
 timeline-message-actions-extensions = Erweiterungen
+# Context: menu
+extensions-ui-menu-group-user = Benutzer
+# Context: menu
+extensions-ui-menu-group-conversation = Unterhaltung
 # Context: message_actions
 timeline-message-actions-forward = Weiterleiten
 # Context: message_actions
@@ -3921,6 +3927,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = Nachrichten werden geladen…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Nachricht gelöscht
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Blockierte Nachricht
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Der Nachrichtenverlauf ist mit den aktuellen Berechtigungsinformationen nicht verfügbar.
 # Context: show_with_scroll
@@ -4149,8 +4157,6 @@ voice-device-combo-device-unavailable = Gerät nicht verfügbar
 voice-device-default = Systemstandard
 # Context: frame
 voice-frame-open-voice = Offene Stimme
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100 % ist das ursprüngliche Niveau. Höhere Werte können zu Verzerrungen führen.
 # Context: labels
 voice-labels-choose-camera = Wählen Sie eine Kamera
 # Context: live_badge
@@ -4251,12 +4257,6 @@ voice-voice-participant-microphone-muted = Mikrofon stummgeschaltet
 voice-voice-participant-muted-by-server = Vom Server stummgeschaltet
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Auf diesem Gerät für Sie stummgeschaltet
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Wählen Sie in allen Spracheinstellungen einen Algorithmus.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen schaltet eingehende Audiosignale ab und schaltet damit Ihr Mikrofon stumm.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Halten Sie die konfigurierte Tastenkombination gedrückt, wenn Sie sprechen möchten.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Installieren Sie einen sprachaktivierten Build, um diese Steuerelemente zu verwenden.
 # Context: voice_popup_content
@@ -4517,6 +4517,8 @@ voice-recipient-stop-ringing = Klingeln beenden
 voice-recipient-ringing = Klingelt…
 voice-recipient-not-in-call = Nicht im Anruf
 reconnect-now = Jetzt neu verbinden
+
+message-preview-limit = Diese Nachricht überschreitet das Limit für das native Textlayout.
 
 voice-call-moved-to-another-client = Die Anrufsitzung dieses Geräts wurde ersetzt
 

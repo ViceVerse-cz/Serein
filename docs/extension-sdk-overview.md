@@ -44,6 +44,7 @@ for state that survives invocations.
 | Inspect channels, members or roles | [Channel metadata](extension-sdk-reference.md#channelmetadatasnapshot-loaded-channel-settings-threads-and-permissions) and [member details](extension-sdk-reference.md#memberdetailssnapshot-loaded-guild-members-and-role-labels) | `channel_metadata` and/or `member_details` |
 | Format the current draft | [Composer input](extension-sdk-reference.md#common-input-fields) and [replacement output](extension-sdk-actions.md#every-output-field) | `composer` and a `composer` action |
 | Open a conversation or native settings page | [Navigation actions](extension-sdk-actions.md#open-conversations-profiles-and-search) | `navigation`; read grants remain separate |
+| Open a reviewed external HTTPS URL in the browser | [External navigation (Preview)](extension-sdk-actions.md#open-an-external-https-url-preview) | `external_navigation`; exact URL and native Apply/link confirmation required |
 | Change scrolling or sound preferences | [Reading settings](extension-sdk-actions.md#change-local-reading-settings) and [notification settings](extension-sdk-actions.md#change-device-local-notification-settings) | `local_settings` or `notification_settings`; each change requires Apply |
 | Send/edit messages, react, or manage threads | [App actions](extension-sdk-actions.md#app-actions) | Separate write grants; native permissions and Apply |
 | Manage channels, server settings, roles or members | [Channel/server actions](extension-sdk-actions.md#channels-conversations-and-servers) and [roles/moderation](extension-sdk-actions.md#roles-and-moderation) | `channel_control`, `server_control`, `role_control` or `moderation_control`; native permissions and Apply |
@@ -116,7 +117,7 @@ contract; they are not standalone packages.
 | Rust type | The corresponding type exported by `serein_extension_sdk` |
 | Capability | A manifest permission that must also be granted by the user |
 | Action ID | Your manifest's stable action name; received in `action` |
-| Surface | Where the host can invoke an action: `panel`, `message`, `composer`, `activation`, `message_event`, `app_event`, or preview `tick` |
+| Surface | Where the host can invoke an action: `panel`, `message`, `composer`, `activation`, `message_event`, `app_event`, preview `tick`, or the `user`, `channel`, `server` and `role` context menus |
 | Snapshot | Bounded app data captured for one invocation, not a live object or fetch API |
 | Effect | A validated proposal for an app operation; at most one per foreground result |
 | Partial / truncated | Some data was not loaded or did not fit the stated bound |

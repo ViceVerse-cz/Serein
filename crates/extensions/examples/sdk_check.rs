@@ -505,6 +505,157 @@ fn check_app_actions(package: &Package) {
 	);
 }
 
+fn check_safe_ports(catalog_wasm_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+	let offline = rebuilt(
+		include_str!("../../../extensions/plugins/offline-composer-tools/manifest.json"),
+		&catalog_wasm_dir.join("offline_composer_tools.wasm"),
+	)?;
+	let text_commands = rebuilt(
+		include_str!("../../../extensions/plugins/text-commands/manifest.json"),
+		&catalog_wasm_dir.join("text_commands.wasm"),
+	)?;
+	let view_raw = rebuilt(
+		include_str!("../../../extensions/plugins/view-raw-message/manifest.json"),
+		&catalog_wasm_dir.join("view_raw_message.wasm"),
+	)?;
+	let external = rebuilt(
+		include_str!("../../../extensions/plugins/external-search-tools/manifest.json"),
+		&catalog_wasm_dir.join("external_search_tools.wasm"),
+	)?;
+	let offline_committed = parse_package(include_bytes!(
+		"../../../extensions/plugins/packages/offline-composer-tools.serein-extension"
+	))?;
+	let text_committed = parse_package(include_bytes!(
+		"../../../extensions/plugins/packages/text-commands.serein-extension"
+	))?;
+	let raw_committed = parse_package(include_bytes!(
+		"../../../extensions/plugins/packages/view-raw-message.serein-extension"
+	))?;
+	let external_committed = parse_package(include_bytes!(
+		"../../../extensions/plugins/packages/external-search-tools.serein-extension"
+	))?;
+	for (name, package, committed, input, check) in [
+		(
+			"offline-composer-tools",
+			&offline,
+			&offline_committed,
+			Invocation {
+				action: "clear-urls".into(),
+				composer: Some("https://example.org/?utm_source=test&keep=1".into()),
+				..Default::default()
+			},
+			(|output: &Output| output.replacement.as_deref() == Some("https://example.org/?keep=1"))
+				as fn(&Output) -> bool,
+		),
+		(
+			"text-commands",
+			&text_commands,
+			&text_committed,
+			Invocation {
+				action: "apply-replacements".into(),
+				composer: Some("brb".into()),
+				storage: Some(r#"{"rules":[{"find":"brb","replace":"be right back","only_if_includes":""}],"tags":[]}"#.into()),
+				..Default::default()
+			},
+			(|output: &Output| output.replacement.as_deref() == Some("be right back"))
+				as fn(&Output) -> bool,
+		),
+		(
+			"view-raw-message",
+			&view_raw,
+			&raw_committed,
+			Invocation {
+				action: "view-raw".into(),
+				selected_message: Some("**synthetic raw text**".into()),
+				..Default::default()
+			},
+			(|output: &Output| output.effects.is_empty()
+				&& output.panel.iter().any(|element| {
+					matches!(element, Element::Text { text } if text == "**synthetic raw text**")
+				})) as fn(&Output) -> bool,
+		),
+		(
+			"external-search-tools",
+			&external,
+			&external_committed,
+			Invocation {
+				action: "translate".into(),
+				selected_message: Some("Synthetic translation".into()),
+				..Default::default()
+			},
+			(|output: &Output| output.effects.len() == 1
+				&& output.effects[0].required_capability() == extensions::Capability::ExternalNavigation)
+				as fn(&Output) -> bool,
+		),
+	] {
+		package.validate()?;
+		committed.validate()?;
+		let output = invoke(committed, &input)?;
+		assert!(check(&output), "{name}/committed: behavior failed");
+		let output = invoke(package, &input)?;
+		assert!(check(&output), "{name}/rebuilt: behavior failed");
+		for effect in &output.effects {
+			effect.validate(&package.manifest)?;
+		}
+		println!("{name}/rebuilt: {} Wasm bytes; real ABI behavior passed", package.wasm.len());
+	}
+	for module in [&external, &external_committed] {
+		let panel = invoke(
+			module,
+			&Invocation {
+				action: "open".into(),
+				..Default::default()
+			},
+		)?;
+		assert!(
+			!panel.panel.is_empty(),
+			"settings panel must validate and open"
+		);
+		// Saving goes through the same host validation, so element IDs the host rejects
+		// would fail here even when the plugin's own tests pass.
+		let saved = invoke(
+			module,
+			&Invocation {
+				action: "save".into(),
+				values: [
+					("provider", "DeepL"),
+					("target-language", "cs"),
+					("search-engine", "Wikipedia"),
+				]
+				.into_iter()
+				.map(|(id, value)| (id.into(), value.into()))
+				.collect(),
+				..Default::default()
+			},
+		)?;
+		assert!(saved.storage.is_some(), "settings must save");
+	}
+	// A saved entry longer than one select option must still save and reopen the panel.
+	let long_tag = serde_json::json!({
+		"rules": [{"find": "é".repeat(200), "replace": "x", "only_if_includes": "y".repeat(200)}],
+		"tags": [{"name": "greet", "message": "m".repeat(128)}]
+	})
+	.to_string();
+	for module in [&text_commands, &text_committed] {
+		let panel = invoke(
+			module,
+			&Invocation {
+				action: "open".into(),
+				storage: Some(long_tag.clone()),
+				..Default::default()
+			},
+		)?;
+		assert!(
+			panel
+				.panel
+				.iter()
+				.any(|element| matches!(element, Element::Select { .. })),
+			"text-commands must list long saved entries"
+		);
+	}
+	Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut args = std::env::args_os().skip(1);
 	let wasm_dir = PathBuf::from(args.next().expect("usage: sdk_check <wasm-directory>"));
@@ -516,6 +667,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		args.next().is_none(),
 		"usage: sdk_check <wasm-directory> <catalog-wasm-directory>"
 	);
+	check_safe_ports(&catalog_wasm_dir)?;
 	check_app_actions(&rebuilt(
 		include_str!("../../../examples/extensions/app-actions/manifest.json"),
 		&wasm_dir.join("app_actions.wasm"),

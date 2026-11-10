@@ -3,6 +3,7 @@ use super::{
 	MAX_SOURCES, bounded_name,
 };
 use crate::screen::{AudioChunk, RawFrame, Settings as CaptureSettings, Source, SourceId};
+use std::borrow::Cow;
 use std::sync::{
 	Arc,
 	atomic::{AtomicBool, AtomicU64, Ordering},
@@ -198,6 +199,8 @@ pub(crate) struct Capture {
 }
 
 impl Capture {
+	/// Starts capturing the selected source and, when asked, system audio. A failure carries the
+	/// reason shown to the person, including the Windows error code when audio reported one.
 	#[allow(clippy::too_many_arguments)] // One capture's output, stop, readiness, audio and consent flags.
 	pub(crate) fn start(
 		settings: CaptureSettings,
@@ -209,15 +212,17 @@ impl Capture {
 		pending: Arc<AtomicBool>,
 		// The worker's cancellation: a stopped share gives up a pending consent wait.
 		cancel: Arc<AtomicBool>,
-	) -> Result<Self, &'static str> {
+	) -> Result<Self, Cow<'static, str>> {
 		if settings.width == 0
 			|| settings.height == 0
 			|| settings.width > MAX_FRAME_WIDTH
 			|| settings.height > MAX_FRAME_HEIGHT
 			|| settings.fps == 0
 		{
-			return Err("Invalid screen capture settings");
+			return Err("Invalid screen capture settings".into());
 		}
+		// The shared window's process, so a window share captures only that application's audio.
+		let mut window_process = None;
 		let mut capture = match settings.source {
 			SourceId::Display(id) => {
 				let monitor = Monitor::enumerate()
@@ -233,19 +238,37 @@ impl Capture {
 					.into_iter()
 					.find(|window| window_id(window) == id)
 					.ok_or("Selected window is no longer available")?;
+				window_process = window.process_id().ok();
 				start_item(settings, window, frames, stop.clone(), pending, cancel)
 			}
 			#[allow(unreachable_patterns)] // Portal may be absent from platform-scoped models.
-			_ => return Err("The desktop screen picker is available only on Linux"),
+			_ => return Err("The desktop screen picker is available only on Linux".into()),
 		}?;
 		if let Some(send) = audio {
-			capture.audio = Some(audio::Audio::start(send, stop, ready, audio_epoch)?);
+			capture.audio = Some(audio::Audio::start(
+				send,
+				stop,
+				ready,
+				audio_epoch,
+				window_process,
+			)?);
 		}
 		Ok(capture)
 	}
 
+	/// Whether system audio capture has failed or its worker has ended.
 	pub(crate) fn failed(&self) -> bool {
 		self.audio.as_ref().is_some_and(audio::Audio::failed)
+	}
+
+	/// The status text for a stopped audio capture, with the Windows error code when known.
+	pub(crate) fn failure(&self) -> Cow<'static, str> {
+		self.audio.as_ref().map_or(
+			Cow::Borrowed(
+				"System audio capture stopped; check your output device or share without audio",
+			),
+			audio::Audio::failure,
+		)
 	}
 }
 

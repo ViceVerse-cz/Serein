@@ -1035,9 +1035,11 @@ measured performance, packaging or live Discord interoperability.
 System audio extension (September 15, 2026): Linux PulseAudio/PipeWire application monitors
 and Windows process loopback feed the existing stereo Opus/DAVE stream audio sender.
 Both are opt-in and exclude Serein's playback, including received call and stream audio.
-Other applications are included even for a single-window share. macOS ScreenCaptureKit
-continues excluding the current process. Windows requires build 20348+ and uses native
-process-tree exclusion; unsupported systems fail visibly without whole-output fallback.
+Other applications are included even for a single-window share, except on Windows, where a
+window share carries only that window's application. macOS ScreenCaptureKit
+continues excluding the current process. Windows uses native process-tree exclusion on build
+20348+ and per-application inclusion on older Windows 10 builds; a capture that fails reports
+its error visibly, without whole-output fallback.
 Linux uses `pa_stream_set_monitor_stream` before connecting each recording stream,
 rejects Serein/unknown application identities and disables recording-stream movement.
 Audio access is separate from portal-approved video, using the existing PulseAudio socket.
@@ -1217,7 +1219,7 @@ Server identity tags (September 19): Discord's documented [User object](https://
 | Realtime, resume | Normal session; [Gateway](https://docs.discord.com/developers/events/gateway), Abaddon Identify/READY | Documented lifecycle; normal-user Identify and dispatch differences unofficial | Bounded JSON transport; no compression requested; incompatible snapshots fail |
 | Rate limits | Credential-specific response headers/body; [rate limits](https://docs.discord.com/developers/topics/rate-limits) | Documented; do not assume bot quotas | Conservative shared cooldown; a message send rejected with 429 (documented as not processed) stays pending and is resent with its nonce after the service's wait, at most 30 times, with the official client's "sending too quickly" notice. No other write is retried. Idempotent reads wait out up to two short JSON 429 responses. An HTML or plain-text 429 from `discord.com` (a Cloudflare block, unofficial) moves this process to `ptb.discord.com` and retries one idempotent read there; whether every Cloudflare ban is limited to one hostname is unverified |
 | Nonce correlation | Message nonce; message resource | Documented finite deduplication; user applicability unverified | Correlate confirmations only; no automatic ambiguous resend or indefinite idempotency claim |
-| Native message formatting | Existing message content; [pulldown-cmark source](https://github.com/pulldown-cmark/pulldown-cmark) and [egui LayoutJob](https://docs.rs/egui/0.36.2/egui/text/struct.LayoutJob.html) | Local rendering; no additional service capability | Bounded emphasis/code/quotes/lists/strike, inert HTML, explicit HTTP(S) link confirmation, up to 32 inline text spoilers with separate media reveal; CommonMark differs from Discord Markdown; no automatic previews |
+| Native message formatting | Existing message content; [pulldown-cmark source](https://github.com/pulldown-cmark/pulldown-cmark) and [egui LayoutJob](https://docs.rs/egui/0.37.0/egui/text/struct.LayoutJob.html) | Local rendering; no additional service capability | Bounded emphasis/code/quotes/lists/strike, inert HTML, explicit HTTP(S) link confirmation, up to 32 inline text spoilers with separate media reveal; CommonMark differs from Discord Markdown; no automatic previews |
 | Read markers | Normal session; [discord.py-self HTTP](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) and [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py) | Unofficial and unstable | Explicit per-message acknowledgement, optional manual mark-unread (`ack_message(manual=True)` plus the previous snowflake), guild `POST /guilds/{id}/ack`, bounded READY read state, MESSAGE_ACK and PASSIVE_UPDATE_V2; synthetic checks only, actual cross-device behavior unverified |
 | Relationships | Normal session or restricted Social SDK scopes; OAuth scope table and Abaddon | Unofficial / restricted | Unsupported |
 | Reactions | Normal session; [message reaction resource](https://docs.discord.com/developers/resources/message#reaction-object) and [Gateway reaction events](https://docs.discord.com/developers/events/gateway-events#message-reaction-add), rechecked September 10 | Documented routes/shapes; normal-user acceptance live-unverified | Native counts, eight-emoji picker, existing Unicode/custom emoji toggles, normal own-reaction PUT/DELETE and bounded message readback. Synthetic HTTP/Gateway/keyboard tests pass; no live validation |
@@ -1306,7 +1308,7 @@ Path and open-file size/modification metadata are checked before transfer and ag
 
 Synthetic tests cover actual loopback HTTP, credential isolation, redirects, file bounds/changes, cancellation during PUT and cancellation during message creation. They do not establish normal-user interoperability: an owner-controlled developer-session test with an official-client recipient remains required. Multiple attachments, tier-dependent larger files and remote staging cleanup remain unimplemented.
 
-File selection also accepts one native file dropped into the active conversation window. The pinned egui 0.36.2 DroppedFileHandle exposes a path; Serein moves the event handles, accepts only one absolute path within the existing path limit, and never invokes their whole-file bytes API. Drops reuse the picker validation and cancellation slot. They cannot replace an existing selection or active operation and never start an upload themselves. Unsupported/multiple drops and unavailable conversation states report an error. A composer hover hint explains the limit and explicit Send behavior. Native OS drag/drop delivery remains unverified; synthetic handle admission and late-result isolation are tested.
+File selection also accepts one native file dropped into the active conversation window. The pinned egui 0.37.0 DroppedFileHandle exposes a path; Serein moves the event handles, accepts only one absolute path within the existing path limit, and never invokes their whole-file bytes API. Drops reuse the picker validation and cancellation slot. They cannot replace an existing selection or active operation and never start an upload themselves. Unsupported/multiple drops and unavailable conversation states report an error. A composer hover hint explains the limit and explicit Send behavior. Native OS drag/drop delivery remains unverified; synthetic handle admission and late-result isolation are tested.
 
 Archived-thread browsing (September 10): [Discord public/private/joined-private archive endpoints](https://docs.discord.com/developers/resources/channel#list-public-archived-threads) describe public and private pages ordered by archive timestamp with an ISO8601 before cursor; joined-private pages use descending thread IDs and a snowflake cursor. The primary normal-user implementation exposes the [same three HTTP routes](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) and [channel archive selection](https://github.com/dolfies/discord.py-self/blob/master/discord/channel.py). These sources supply wire evidence, not live account acceptance. Serein makes only explicit GET requests, limits each page to 25 entries, checks archived metadata, guild/parent/type, duplicates and cursor progress, and ignores member summaries. Public/private timestamps preserve nanoseconds. Private archive enumeration requires the service permissions described by Discord, including MANAGE_THREADS; joined-private is a separate choice. Open loads history without a join/reopen mutation. No live account was used to validate these routes.
 
@@ -2762,6 +2764,36 @@ eight-scalar marker allowance while the effective outgoing text retains its full
 literally. Existing per-draft byte ceilings and the session input budget remain
 in force. A quiet forwarding note affects only that separately sent note.
 
+### Composer shortcuts and timestamp references (November 6, 2026)
+
+New-message autocomplete offers `@silent` only at the beginning of the draft. The
+composer shows a quiet-send indicator while that prefix is active, and received
+messages show it when retained wire flags include `SUPPRESS_NOTIFICATIONS`, including
+cached history. Notification targeting remains session-only. These indicators
+describe intent/metadata; they do not establish notification delivery at a recipient.
+
+`@time` is a local Serein composer shortcut, including in message edits. Selecting it
+opens a bounded native dialog and does not send or modify the draft. Its date, time
+and explicit UTC offset initially represent the current local clock. The offset is
+editable, including for a different time zone or daylight saving period. Insert replaces
+the selected shortcut with the documented
+[`<t:UNIX_SECONDS[:STYLE]>` syntax](https://docs.discord.com/developers/reference#message-formatting),
+using no style suffix by default or one of `t`, `T`, `d`, `D`, `f`, `F`, `s`, `S`, `R`.
+The existing Markdown renderer resolves these references in message bodies and inline
+previews; escaped/code references and malformed syntax remain literal. Numeric date
+styles follow the selected locale’s date order. Relative formats
+refresh through the existing coarse repaint tick in messages and picker previews.
+Character and draft-byte budgets
+apply to replacement, and a changed draft or target cannot receive a stale insertion.
+Cancel/Escape leaves the original draft intact. No new service endpoint is used.
+
+The wire syntax and suppression flag are documented; normal-account acceptance remains
+unofficial and live-unverified. The `@time` shortcut is implemented locally without a
+claim of exact official-client picker parity. Synthetic tests cover composer keyboard
+routing, offset/calendar validation, stale insertion and budget rejection, plus body
+and preview rendering. Native screenshots and an owner-authorized live test could not
+be captured in this development session: computer use exposed no native applications.
+
 ## Public Catbox attachment links (October 2, 2026)
 
 Each staged message-composer file has a **Host file…** action. Selecting it shows
@@ -2803,6 +2835,34 @@ whose original compression request is not implemented. Synthetic localhost tests
 `--features demo -- --demo --demo-chat --demo-attachment=file --demo-external-upload`
 verify local behavior without any real hosted upload or Discord session. Live service
 acceptance, link embedding and other-platform native interaction remain unverified.
+
+### Arabic, Hebrew and mixed-direction message rendering
+
+Message paragraphs choose line breaks in logical order, apply Unicode bidi rules
+to each resulting line, and use the pinned native shaper's exact cluster ranges
+for painting and partial selection. Arabic joining/marks, Hebrew, Latin words,
+digits and inline objects share one bounded layout. Links, mentions, spoiler
+reveal, emoji details and search highlights retain their explicit native actions;
+unavailable custom artwork shows its bounded `:name:` label with original wire
+selection/copy, and offscreen runs do not request the image;
+copy, drafts, edits and stored service content keep logical text. No protocol
+capability or service endpoint changes. Serein's epaint patch (`vendor/egui`) exposes only
+opt-in direction and cluster metadata; ordinary native labels keep their default
+layout/selection behavior. macOS Control-click keeps logical RTL selection, and
+mapped context-menu Copy resolves current visible source before emitting text.
+Selection-popup drawing runs outside plugin locks; its button release keeps the
+menu open and its Copy action cannot reenter the rendering plugin.
+
+The message composer lays out drafts with Arabic or Hebrew letters the same way:
+logical line breaks, bidi order per row, right alignment for right-to-left
+paragraphs, and its own caret, selection and pointer mapping, with arrow keys
+following the paragraph direction. The draft and sent text stay in logical order.
+Composition text from an input method uses the same layout; complete application
+RTL mirroring and screen-reader parity are not covered. An oversized or
+excessively narrow/multiline message run shows the localized preview-limit
+notice within the limits documented in the storage policy. Native platform/font
+coverage still depends on the installed font fallback; synthetic evidence is not
+normal-account or every-platform validation.
 
 ## GIF favorites admission — October 6, 2026
 
@@ -2951,3 +3011,60 @@ a name arrives it shows only the thread glyph: the generic “Thread” label an
 button are gone, and a refused read leaves the card with whatever the channel list already
 carries. Synthetic tests cover admission, the bounded cache, the rejected answer, the refresh on
 a newer known message, and the card's rendered name, count, author and reply.
+
+## Frequently used emoji from frecency settings — November 6, 2026
+
+The emoji pickers' frequently used rows follow the account's synced rankings, as the official
+client's do: the composer uses `emoji_frecency` (field 6) and the reaction picker and hover bar
+use `emoji_reaction_frecency` (field 13) of the
+[primary FrecencyUserSettings schema](https://github.com/dolfies/discord-protos/blob/f5c06d6f5764a66302f7eede675fd703c31be08a/discord_protos/discord_users/v1/FrecencyUserSettings.proto).
+Both ride the unofficial `GET /users/@me/settings-proto/2` read that loads GIF favorites, now
+also made when the emoji picker opens. Entries are ranked by the stored `score`, then
+`total_uses`; at most 32 keys per ranking are kept, each at most 64 bytes, malformed entries
+are skipped, and an unreadable emoji record never blocks GIF favorites. This session's own picks
+stay first.
+
+Picks are saved back. Uses wait 15 seconds, then one batch makes a fresh read and a `PATCH` of
+only the touched subtrees with `required_data_version`, the same mechanism GIF favorites use;
+this is an account setting, not a telemetry route. Each used entry gets its `total_uses` raised,
+the newest ten `recent_uses` and a recomputed `score`; every other entry, the `frecency` field
+and unknown fields are kept byte for byte, and a subtree that could not be read is never
+replaced. An entry whose value this client cannot fully read, including a repeated value that
+the service would merge, is kept rather than rewritten, and a save is refused when an entry's
+key cannot be read. As on the service, a repeated key ranks by its last value. A save and a GIF star write never run together. A failed, conflicting or unconfirmed
+save is dropped rather than retried, and pending uses are lost on exit or sign-out. At most 64
+distinct emoji and ten use times each wait in memory.
+
+Unverified: the Unicode key format (Serein writes the primary Discord name, such as `joy`, and
+reads names, aliases or the emoji itself; a numeric key is a custom emoji only when one is
+loaded, so `100` still resolves to 💯), the score weights (an approximation of the official
+client by recency of the newest uses), and that other clients rank Serein's saves as their own.
+Picks count when chosen in a picker or the quick reaction bar, not when a message is sent.
+Synthetic tests cover parsing, untouched-entry preservation, batching and the rows' merge; no
+live account was used.
+
+## Invite cards — November 6, 2026
+
+Invite cards follow the official client's layout, compared from owner-supplied screenshots
+rather than wire observation. The existing invite read now also keeps the server's
+`description` (at most 1,024 bytes; longer or control-laden text is dropped rather than
+failing the card) and the invited channel's `type`. A voice (2) or stage (13) channel invite
+renders as a voice card naming the channel. Members see who the session's voice roster lists
+in that channel and join the call through the usual explicit call path; others see that only
+members can view the roster, and the action joins the server. "Est." dates come from the
+server id's snowflake time. Without a `banner`, the header shows the invite `splash` from
+`cdn.discordapp.com/splashes/`, and the server icon is painted from its validated hash with the
+usual rounded server-icon shape. No request, route or join behaviour changed, and these channel
+types in invite responses remain unverified against live Discord.
+
+### Conservative mention-count reconciliation — November 6, 2026
+
+The [unofficial read-state automation reference](https://docs.discord.food/topics/read-state#channel-read-state-automations)
+excludes blocked/ignored authors and applies private mute and ping rules at message creation.
+Serein snapshots proven contribution evidence from committed relationship/mute state and admitted
+guild preferences/member roles when observing a message. Unknown relationship lists, incomplete
+overrides, and non-ping guild contributions are not safe to subtract from an opaque service count.
+In particular, the current settings model does not represent `MENTION_ON_ALL_MESSAGES`; it is
+not assumed disabled. Contributions depending on that switch remain unknown until authoritative
+count reconciliation. This is conservative local behavior, not a verified service-equivalence claim.
+No new service setting, protocol request or Identify capability is introduced.

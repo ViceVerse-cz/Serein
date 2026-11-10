@@ -57,3 +57,12 @@ pillow_heif.from_pillow(Image.new("RGB", (6000, 4000), (64, 128, 192))).save(
 
 Neither generation dependency is installed by Cargo or bundled with Serein.
 The successful Windows decode check requires the installed HEIF/HEVC codecs.
+
+`video-wide.mov` is an original two-frame, 4096×64 solid blue H.264 movie without
+sound, under the same MIT OR Apache-2.0 license. It checks native decoding of a source
+wider than the playback texture edge, fitted to 3840×60. It contains no account media
+and is embedded only in decoder tests. Generated with FFmpeg 6.1.1:
+
+```sh
+ffmpeg -f lavfi -i color=c=blue:s=4096x64:r=1 -frames:v 2 -c:v libx264 -threads 2 -preset ultrafast -crf 30 -pix_fmt yuv420p -movflags +faststart video-wide.mov
+```

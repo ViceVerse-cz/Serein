@@ -716,7 +716,7 @@ fn select(
 		.collect::<Vec<_>>()
 		.join(", ");
 	let width = ui.available_width().min(400.0);
-	egui::ComboBox::from_id_salt("selection")
+	crate::design::Select::from_id_salt("selection")
 		.width(width)
 		.height(360.0)
 		.selected_text(crate::i18n::translate_if_key(

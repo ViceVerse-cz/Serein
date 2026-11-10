@@ -1,5 +1,40 @@
 # Local storage policy and audit
 
+## Logical RTL message layout (November 9, 2026)
+
+Arabic, Hebrew and mixed-direction message layout admits at most 8 KiB of visible
+UTF-8 source, 512 styled/inline-object spans and 128 physical or wrapped rows per
+run. Inputs exceeding those limits show a localized preview-limit notice. CRLF,
+Unicode line/paragraph separators and blank rows count toward the row limit; no
+source is silently truncated. Hidden spoiler source does not enter shaping,
+search highlights, hit targets, accessibility text or the logical copy buffer.
+
+The session-only layout cache retains at most 32 entries / 8 MiB, with a 4 MiB
+per-entry ceiling. Accounting uses owned span/string/vector capacities, native
+glyph/mesh capacities and row metadata. Layout scratch, the current frame's
+references, shared fonts/atlas/driver allocations and allocator overhead are
+additional; these ceilings are not a process-RSS guarantee. Cache keys include
+visible spans, width, scale and font revisions. Conversation/account/generation
+changes release cached source and selection; passes without RTL content release
+cached layouts while keeping only the two bounded logical endpoints.
+
+Mapped selection keeps two logical UTF-8 endpoints across virtualization. Copy
+passes admit at most 4,096 shared layout/galley references / 4 MiB, counting actual
+source, row, glyph, mesh and reference-vector capacities. References are released
+at the end of that pass; no extra text is retained between passes. A separate
+4 MiB allocated copy buffer is assembled only after both current endpoint IDs,
+hashes and visible orders resolve. Missing/deleted/changed endpoints and overflow
+suppress copying rather than returning partial text; copy requests never survive
+a pass. Source changes invalidate endpoints. An open context menu revalidates
+current visible sources before an explicit mapped Copy; clipped, edited or
+oversized selections cannot reuse a previous copied value. The existing native
+context-menu copy cache is separately capped at 4 MiB of allocated string
+capacity, clears on a new selection-menu request and on scope changes, and is
+never a fallback for mapped text. Copying explicitly
+hands text to the OS clipboard, whose retention is outside account cache cleanup.
+No disk record, schema, network request, log or telemetry is added. Existing
+message, draft, edit and persisted content remain in their original logical order.
+
 ## Typing indicators (October 23, 2026)
 
 Typing stays in session RAM: eight selected-channel typists, sixteen direct-conversation
@@ -471,6 +506,17 @@ sub-budget the admitted metadata leaves free, so a full sidebar badge scan of a 
 account does not evict its own decisions.
 Incoming read-state snapshot vectors use at most 131,072 entries / 16 MiB; retained
 read maps are bounded by account channels, with the existing separate activity/alert budgets.
+The activity ledger retains at most 4,096 rows / 128 KiB, including whether a row is already
+covered by a service badge count and whether a service contribution was provable at message
+creation. Committed relationship/mute snapshots and admitted role/notification state are consulted
+then; optimistic toggles and later changes cannot rewrite this evidence. Covered rows stay available for local HTTP read reconciliation
+without double-counting later activity. Local reads prune acknowledged alerts and known mentions;
+unknown service counts remain conservative until refreshed. The existing monotonic activity high
+water prevents stale latest-message metadata from prematurely clearing that baseline.
+Committed ignore/unignore status has a profile-independent index bounded to 4,000 IDs / 512 KiB
+estimated allocation (including per-entry overhead). Replacements and logout clear it. Capacity
+eviction invalidates the complete-restriction fallback, so evicted profile-less users become
+unknown instead of implicitly unignored. Display profiles keep their existing separate bounds.
 Notification preferences
 use bounded account collections / 32 MiB. These are on-demand ceilings, not reservations
 or an RSS guarantee. This section supersedes the older account snapshot limits below.
@@ -672,7 +718,9 @@ Notification opt-in, hidden-channel visibility, primary RGB color, audio devices
 input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings (including up to 32
 extra custom bindings) and the global-keybind
 switch (enabled by default) are saved in the device-wide `app_preferences`
-SQLite singleton (16 KiB maximum), using the existing background worker. The Linux
+SQLite singleton (16 KiB maximum), using the existing background worker. The GPU preference
+and graphics API are fixed enum values in this same device-local record. Unknown API
+keys from newer builds fall back to Automatic without rejecting the other settings. The Linux
 hide-window-decorations boolean is stored in this same record and defaults to false. The home
 list's collapsed message requests section is another boolean in this record; closing it persists
 until the owner reopens it. These survive restart/logout; demo controls never read or write them.
@@ -848,7 +896,7 @@ SQLite work is serialized on a worker. Normal startup opens the database to load
 
 Saved recovery text prefers the current nonempty draft, otherwise the most recent unresolved send in that channel. Only a matching own-author/channel/nonce confirmation updates this recovery record. This is one recovery draft per channel, not a durable multi-message outbox; additional unresolved sends remain in RAM and the close prompt warns before discarding them. Incoming hidden-channel events do not rewrite the active cache; accepted active-view changes are coalesced into at most one snapshot per event-drain pass.
 
-Source checks verify disabled eframe persistence, disabled REST cookies, one renderer, and an ephemeral webview request. egui-wgpu 0.36.2 creates its render pipeline with `cache: None`. Avatar decoding and disk I/O run on a dedicated worker; egui receives bounded decoded results. These are chosen implementation settings, **not a renewed no-storage requirement**.
+Source checks verify disabled eframe persistence, disabled REST cookies, one renderer, and an ephemeral webview request. egui-wgpu 0.37.0 creates its render pipeline with `cache: None`. Avatar decoding and disk I/O run on a dedicated worker; egui receives bounded decoded results. These are chosen implementation settings, **not a renewed no-storage requirement**.
 
 Offline SQLite tests exercise real temporary-file reopen, schema upgrade, appearance reset, read-only failure, draft capacity rollback, account isolation, 20-channel eviction and atomic logout rollback/deletion. They remove their synthetic test files. OS credential-store and webview write tracing remain unverified. Windows WebView2 may create user-data/runtime artifacts even for InPrivate mode; this must be measured, and old WebView2 runtimes that ignore incognito must not be claimed ephemeral. No zero-byte storage claim is made.
 
@@ -1441,10 +1489,17 @@ Native video decoding is memory-only. One lazy worker handles the latest request
 with a replaceable pending request and cancellation fencing. The network source retains
 up to eight 256 KiB ranges (2 MiB, including an in-flight range); responses are checked for exact range/total/body lengths and reject
 redirects and content encoding. Encoded attachment size is capped at 100 MiB.
-The application queues at most two decoded frames (1080p NV12 on macOS and Linux,
-RGBA on Windows), one replaceable display frame, one GPU texture with its planes, one second of stereo float PCM (at most 768,000 bytes), and one decoded
-audio packet plus at most two seconds of timestamp-gap silence. Each native decoded
-sample is rejected above 16 MiB before copying. OS decoder/GPU allocations are additional
+Source resolution is negotiated separately from the playback surface: larger sources are scaled
+by the native backend before entering application queues. This does not increase the decoded
+frame budgets. macOS reuses one additional bounded NV12 destination for native scaling;
+native codec/device allocations are additional and can reject unsupported sizes.
+Linux's post-scale video branch queue is bounded to four buffers and 40 MiB, plus the existing
+four-buffer appsink. No unscaled video queue is inserted ahead of the scaler.
+The application queues at most two decoded frames (up to 4K, 3840×2160 worth of pixels in a
+3840-pixel square: NV12 on macOS and Linux, RGBA on Windows), one replaceable display frame, one GPU texture with its planes, one second of stereo float PCM (at most 768,000 bytes), and one decoded
+audio packet plus at most two seconds of timestamp-gap silence. Each native compressed or
+YUV sample is rejected above 16 MiB, and each Windows RGB frame above 40 MiB, before copying.
+At 4K the two queued frames are at most about 25 MiB as NV12 or 64 MiB as RGBA. OS decoder/GPU allocations are additional
 and are released with the player. No file cache or media URL/byte diagnostics are written.
 
 
@@ -1791,7 +1846,7 @@ and cleanup still apply. Existing selected files take the regular composer send 
 ### Local camera settings preview
 
 The explicit settings preview shares the process-wide single camera-worker limit with
-calls. It retains one 640×480 RGBA picture (1,228,800 bytes), one UI texture and its
+calls. It retains one 1280×720 RGBA picture (3,686,400 bytes), one UI texture and its
 upload copy, alongside the existing bounded native capture/encoding buffers. It has
 no network sender, recording or persistent storage. Device choices stay session-local;
 discovery retains at most 32 IDs/names (136 KiB). Closing Voice & Audio, changing the
@@ -1891,14 +1946,14 @@ network or disk cache is used for this bundled artwork, including in offline dem
 
 Camera input selection is limited to 1280×720 except DirectShow, which preserves
 its existing bounded 1920×1080 fallback for virtual cameras, while
-encoded/preview output remains 640×480 at most 15 fps. macOS scans at most 256 native
+encoded/preview output is 1280×720 at most 30 fps. macOS scans at most 256 native
 formats and 256 frame-rate ranges per format on its camera worker. Windows scans
 at most 256 native media types; DirectShow retains one callback frame of at most
 8,294,400 bytes and validates at most eight driver buffers of that size. Linux
 probes two pixel formats without starting capture, retains at most two candidates,
 and preserves its existing four 4-MiB mapping ceiling and 4-MiB JPEG decode limit.
-Nonmatching Linux pictures add at most 2,764,800 native RGB bytes, 921,600 fitted
-RGB bytes and 921,600 output RGB bytes. No camera files or persistent metadata
+Nonmatching Linux pictures add at most 2,764,800 native RGB bytes, 2,764,800 fitted
+RGB bytes and 2,764,800 output RGB bytes. No camera files or persistent metadata
 are introduced. Native driver allocations remain outside these application limits.
 
 Linux system appearance retains one atomic preference and at most one portal

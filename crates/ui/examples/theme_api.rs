@@ -15,6 +15,7 @@ fn main() {
 		body_size: Some(18),
 		heading_size: Some(26),
 		button_size: Some(17),
+		icon_size: Some(22),
 		small_size: Some(13),
 		monospace_size: Some(16),
 		item_spacing: Some([10, 6]),
@@ -35,6 +36,7 @@ fn main() {
 	let mut merged = theme.clone();
 	merged.overlay(&overlay);
 	assert_eq!(merged.style.button_size, Some(19));
+	assert_eq!(merged.style.icon_size, Some(22));
 	assert_eq!(merged.style.body_size, Some(18));
 	assert_eq!(merged.style.transparency_blur, Some(true));
 	assert_eq!(merged.style.transparency, Some(30));
@@ -56,6 +58,7 @@ fn main() {
 		] {
 			assert_eq!(style.text_styles[&kind].size, size);
 		}
+		assert!((ui::design::icon_scale() - 1.1).abs() < f32::EPSILON);
 		assert_eq!(style.spacing.item_spacing, egui::vec2(10.0, 6.0));
 		assert_eq!(style.spacing.button_padding, egui::vec2(16.0, 8.0));
 		assert_eq!(style.spacing.interact_size.y, 40.0);
@@ -68,6 +71,9 @@ fn main() {
 	assert!(invalid.validate().is_err());
 	invalid.style.transparency = Some(30);
 	invalid.style.body_size = Some(0);
+	assert!(invalid.validate().is_err());
+	invalid = theme.clone();
+	invalid.style.icon_size = Some(15);
 	assert!(invalid.validate().is_err());
 	invalid = theme;
 	invalid.style.widget_radius = Some(255);
@@ -99,5 +105,6 @@ fn main() {
 		ctx.style_of(egui::Theme::Dark).spacing.button_padding,
 		egui::vec2(12.0, 6.0)
 	);
+	assert_eq!(ui::design::icon_scale(), 1.0);
 	println!("Theme API debug check passed: legacy package, both appearances, bounds and reset.");
 }

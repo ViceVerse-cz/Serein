@@ -44,6 +44,7 @@ impl GroupMenu {
 			submitted: None,
 		});
 	}
+	/// Fills a group DM's context menu, including plugin channel actions.
 	fn menu(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -55,6 +56,13 @@ impl GroupMenu {
 			return;
 		}
 		ui.set_width(224.0);
+		crate::extensions_ui::context_menu_items(
+			ui,
+			extensions::MenuTarget::Channel {
+				channel_id: channel.id.to_string(),
+				guild_id: None,
+			},
+		);
 		let colors = design::palette(ui);
 		let enabled = (state.demo || state.gateway_connected)
 			&& !state.group_action_pending()
@@ -160,9 +168,9 @@ impl GroupMenu {
 		match result {
 			Ok(Some((data, image))) => {
 				if data.len() > client_core::group_actions::MAX_ICON_DATA_URI
-					|| image.size[0] > 256
-					|| image.size[1] > 256
-					|| image.pixels.len() > 256 * 256
+					|| image.resolution()[0] > 256
+					|| image.resolution()[1] > 256
+					|| image.pixels().len() > 256 * 256
 				{
 					dialog.error = Some("Group icon exceeds the size limit");
 					return;

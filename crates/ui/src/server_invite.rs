@@ -108,19 +108,10 @@ impl InviteDialog {
 							|| crate::i18n::translate("server-invite-picker-no-eligible-channel"),
 							|channel| channel.name.clone(),
 						);
-						egui::ComboBox::from_id_salt("invite-channel")
-							.selected_text((
-								crate::icons::atom(
-									crate::icons::channel(current.map_or(0, |c| c.kind)),
-									16.0,
-									colors.muted,
-								),
-								egui::RichText::new(name)
-									.color(colors.text_strong)
-									.size(14.0),
-							))
+						crate::design::Select::from_id_salt("invite-channel")
+							.icon(crate::icons::channel(current.map_or(0, |c| c.kind)))
+							.selected_text(name)
 							.width(ui.available_width().min(260.0))
-							.wrap_mode(egui::TextWrapMode::Truncate)
 							.height(220.0)
 							.show_ui(ui, |ui| {
 								for c in state
@@ -591,7 +582,7 @@ fn select(ui: &mut egui::Ui, id: &str, label: &str, content: impl FnOnce(&mut eg
 	ui.scope(|ui| {
 		ui.spacing_mut().button_padding = egui::vec2(12.0, 9.0);
 		ui.spacing_mut().interact_size.y = 38.0;
-		egui::ComboBox::from_id_salt(id)
+		crate::design::Select::from_id_salt(id)
 			.selected_text(egui::RichText::new(label).size(15.0))
 			.width(ui.available_width())
 			.show_ui(ui, content);

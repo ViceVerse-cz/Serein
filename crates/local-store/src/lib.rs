@@ -78,6 +78,8 @@ pub struct AppPreferences {
 	pub output_percent: u16,
 	/// Which GPU renders the window; applied on the next start.
 	pub gpu_preference: model::GpuPreference,
+	/// Preferred graphics API; applied on restart, with Automatic as a driver fallback.
+	pub graphics_api: model::GraphicsApi,
 	/// Repaint every display refresh while the window is focused, so variable refresh rate
 	/// displays hold one rate; older preferences deserialize with it off.
 	pub steady_refresh_rate: bool,
@@ -99,6 +101,9 @@ pub struct AppPreferences {
 	pub plaintext_login: bool,
 	/// Owner opt-in diagnostic log; older preferences deserialize with logging off.
 	pub diagnostics_log: diagnostics::Level,
+	/// First-run setup finished or skipped; absent in older preferences, so existing installs
+	/// see it once too.
+	pub setup_done: bool,
 }
 impl Default for AppPreferences {
 	fn default() -> Self {
@@ -132,6 +137,7 @@ impl Default for AppPreferences {
 			input_percent: 100,
 			output_percent: 100,
 			gpu_preference: Default::default(),
+			graphics_api: Default::default(),
 			steady_refresh_rate: false,
 			keybinds: Default::default(),
 			expanded_folders: Vec::new(),
@@ -142,6 +148,7 @@ impl Default for AppPreferences {
 			time_format: Default::default(),
 			plaintext_login: false,
 			diagnostics_log: diagnostics::Level::Off,
+			setup_done: false,
 		}
 	}
 }
@@ -2182,6 +2189,8 @@ mod tests {
 			serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
 		assert!(legacy.voice_processing.is_none());
 		assert!(legacy.voice_noise_suppression);
+		// Existing installs run first-run setup once, like a fresh one.
+		assert!(!legacy.setup_done);
 		// Existing serialized bindings omit the newly optional diagnostics shortcut.
 		let mut old_bindings = serde_json::to_value(model::Keybinds::default()).unwrap();
 		old_bindings
@@ -2257,6 +2266,7 @@ mod tests {
 			voice_input: Some("synthetic microphone".into()),
 			output_percent: 75,
 			gpu_preference: model::GpuPreference::PowerSaving,
+			graphics_api: model::GraphicsApi::OpenGl,
 			steady_refresh_rate: true,
 			..Default::default()
 		};
@@ -2307,6 +2317,7 @@ mod tests {
 		);
 		// Older rows show no cosmetics (they are opt-in) and keep the historical budgets.
 		let legacy: AppPreferences = serde_json::from_str("{}").unwrap();
+		assert_eq!(legacy.graphics_api, model::GraphicsApi::Automatic);
 		assert_eq!(legacy.cosmetics, model::CosmeticPreferences::default());
 		assert_eq!(legacy.image_cache, model::CachePreferences::default());
 		assert_eq!(legacy.time_format, model::TimeFormat::Auto);
@@ -2349,13 +2360,18 @@ mod tests {
 				.0
 				.execute(
 					"INSERT INTO app_preferences VALUES(1,?1)",
-					[r#"{"gpu_preference":"quantum-gpu"}"#],
+					[
+						r#"{"gpu_preference":"quantum-gpu","graphics_api":"future-api","steady_refresh_rate":true}"#,
+					],
 				)
 				.unwrap();
 			assert_eq!(
 				store.app_preferences().unwrap().gpu_preference,
 				model::GpuPreference::Automatic
 			);
+			let saved = store.app_preferences().unwrap();
+			assert_eq!(saved.graphics_api, model::GraphicsApi::Automatic);
+			assert!(saved.steady_refresh_rate);
 		}
 	}
 	use super::*;

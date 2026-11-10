@@ -136,7 +136,7 @@ impl Page {
 				"general windows macos linux login menu bar startup autostart automatically open minimized minimize close tray background title bar caption window buttons decorations borderless tiling graphics gpu adapter render discrete integrated hardware acceleration performance battery vrr variable refresh rate steady refresh rate g-sync gsync freesync adaptive sync flicker flickering steady frame rate fps vsync"
 			}
 			Self::Appearance => {
-				"appearance customization font typography import ttf otf primary accent hex window effects transparency blur theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
+				"appearance customization font typography import ttf otf primary accent hex window effects transparency blur gradient names cosmetics decorations theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
 			}
 			Self::Chat => {
 				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset emoji emojis nitro fake suggestions autocomplete locked emoticons chat box automatically convert"
@@ -178,6 +178,14 @@ fn gpu_label(language: Language, preference: model::GpuPreference) -> String {
 		model::GpuPreference::HighPerformance => "gpu-high-performance",
 		model::GpuPreference::PowerSaving => "gpu-power-saving",
 	})
+}
+
+fn graphics_api_label(language: Language, api: model::GraphicsApi) -> String {
+	if api == model::GraphicsApi::Automatic {
+		language.text("gpu-automatic")
+	} else {
+		api.label().to_owned()
+	}
 }
 
 fn gpu_description(language: Language, preference: model::GpuPreference) -> String {
@@ -393,7 +401,7 @@ impl MessagingUi {
 						if !wide {
 							ui.add_space(8.0);
 							self.settings_search(ui);
-							egui::ComboBox::from_id_salt("settings-page")
+							crate::design::Select::from_id_salt("settings-page")
 								.selected_text(self.settings.page.label(self.language))
 								.width(ui.available_width())
 								.show_ui(ui, |ui| {
@@ -817,7 +825,7 @@ impl MessagingUi {
 			let label = language.text("language-label");
 			let description = language.text("language-description");
 			design::row(ui, &label, Some(&description), |ui| {
-				egui::ComboBox::from_id_salt("display-language")
+				crate::design::Select::from_id_salt("display-language")
 					.selected_text(self.language.name(language))
 					.width(ui.available_width().min(220.0))
 					.show_ui(ui, |ui| {
@@ -852,87 +860,95 @@ impl MessagingUi {
 		}
 	}
 
+	/// Open at login and start minimised; shared by Settings > General and setup.
+	pub(crate) fn startup_switches(&mut self, ui: &mut egui::Ui) {
+		let language = self.language;
+		ui.add_enabled_ui(self.startup_available && !self.startup_busy, |ui| {
+			let label = language.text("general-open-at-startup");
+			let description = language.text("general-open-at-startup-description");
+			design::switch(ui, &label, Some(&description), &mut self.startup_enabled);
+			design::card_divider(ui);
+			ui.add_enabled_ui(self.startup_enabled, |ui| {
+				let label = language.text("general-start-minimized");
+				let description = language.text("general-start-minimized-description");
+				design::switch(ui, &label, Some(&description), &mut self.startup_minimized);
+			});
+		});
+		if !self.startup_available {
+			design::hint(ui, &language.text("general-startup-unavailable"));
+		} else if !self.startup_status.is_empty() {
+			design::hint(ui, self.startup_status);
+		}
+	}
+
+	/// Title bar and tray switches; shared by Settings > General and setup.
+	pub(crate) fn window_switches(&mut self, ui: &mut egui::Ui) {
+		let language = self.language;
+		#[cfg(target_os = "linux")]
+		{
+			// Hiding every decoration and drawing Serein's own bar contradict each other:
+			// whichever switch was just turned on wins. The "no title bar" switch is at the
+			// bottom of this group, since it is only for tiling window managers.
+			let label = language.text("general-custom-title-bar");
+			let description = language.text("general-custom-title-bar-description");
+			if design::switch(ui, &label, Some(&description), &mut self.custom_title_bar).changed()
+				&& self.custom_title_bar
+			{
+				self.hide_window_decorations = false;
+			}
+			design::card_divider(ui);
+		}
+		#[cfg(any(target_os = "windows", target_os = "macos"))]
+		{
+			let label = language.text("general-hide-title-bar");
+			let description = language.text("general-hide-title-bar-description");
+			design::switch(ui, &label, Some(&description), &mut self.hide_title_bar);
+			design::card_divider(ui);
+		}
+		ui.add_enabled_ui(self.tray_available, |ui| {
+			let label = language.text(if cfg!(target_os = "macos") {
+				"general-keep-menu-bar"
+			} else {
+				"general-keep-system-tray"
+			});
+			let description = language.text(if cfg!(target_os = "macos") {
+				"general-menu-bar-description"
+			} else if cfg!(target_os = "linux") {
+				"general-linux-tray-description"
+			} else {
+				"general-windows-tray-description"
+			});
+			design::switch(ui, &label, Some(&description), &mut self.minimize_to_tray);
+		});
+		if !self.tray_available {
+			design::hint(ui, &language.text("general-tray-unavailable"));
+		} else if !self.tray_status.is_empty() {
+			design::hint(ui, self.tray_status);
+		}
+		#[cfg(target_os = "linux")]
+		{
+			design::card_divider(ui);
+			let label = language.text("general-hide-decorations");
+			let description = language.text("general-hide-decorations-description");
+			if design::switch(
+				ui,
+				&label,
+				Some(&description),
+				&mut self.hide_window_decorations,
+			)
+			.changed() && self.hide_window_decorations
+			{
+				self.custom_title_bar = false;
+			}
+		}
+	}
+
 	fn general_settings(&mut self, ui: &mut egui::Ui, _demo: bool) {
 		let language = self.language;
 		let title = language.text("general-startup");
-		design::group(ui, &title, |ui| {
-			ui.add_enabled_ui(self.startup_available && !self.startup_busy, |ui| {
-				let label = language.text("general-open-at-startup");
-				let description = language.text("general-open-at-startup-description");
-				design::switch(ui, &label, Some(&description), &mut self.startup_enabled);
-				design::card_divider(ui);
-				ui.add_enabled_ui(self.startup_enabled, |ui| {
-					let label = language.text("general-start-minimized");
-					let description = language.text("general-start-minimized-description");
-					design::switch(ui, &label, Some(&description), &mut self.startup_minimized);
-				});
-			});
-			if !self.startup_available {
-				design::hint(ui, &language.text("general-startup-unavailable"));
-			} else if !self.startup_status.is_empty() {
-				design::hint(ui, self.startup_status);
-			}
-		});
+		design::group(ui, &title, |ui| self.startup_switches(ui));
 		let title = language.text("general-window");
-		design::group(ui, &title, |ui| {
-			#[cfg(target_os = "linux")]
-			{
-				// Hiding every decoration and drawing Serein's own bar contradict each other:
-				// whichever switch was just turned on wins. The "no title bar" switch is at the
-				// bottom of this group, since it is only for tiling window managers.
-				let label = language.text("general-custom-title-bar");
-				let description = language.text("general-custom-title-bar-description");
-				if design::switch(ui, &label, Some(&description), &mut self.custom_title_bar)
-					.changed() && self.custom_title_bar
-				{
-					self.hide_window_decorations = false;
-				}
-				design::card_divider(ui);
-			}
-			#[cfg(any(target_os = "windows", target_os = "macos"))]
-			{
-				let label = language.text("general-hide-title-bar");
-				let description = language.text("general-hide-title-bar-description");
-				design::switch(ui, &label, Some(&description), &mut self.hide_title_bar);
-				design::card_divider(ui);
-			}
-			ui.add_enabled_ui(self.tray_available, |ui| {
-				let label = language.text(if cfg!(target_os = "macos") {
-					"general-keep-menu-bar"
-				} else {
-					"general-keep-system-tray"
-				});
-				let description = language.text(if cfg!(target_os = "macos") {
-					"general-menu-bar-description"
-				} else if cfg!(target_os = "linux") {
-					"general-linux-tray-description"
-				} else {
-					"general-windows-tray-description"
-				});
-				design::switch(ui, &label, Some(&description), &mut self.minimize_to_tray);
-			});
-			if !self.tray_available {
-				design::hint(ui, &language.text("general-tray-unavailable"));
-			} else if !self.tray_status.is_empty() {
-				design::hint(ui, self.tray_status);
-			}
-			#[cfg(target_os = "linux")]
-			{
-				design::card_divider(ui);
-				let label = language.text("general-hide-decorations");
-				let description = language.text("general-hide-decorations-description");
-				if design::switch(
-					ui,
-					&label,
-					Some(&description),
-					&mut self.hide_window_decorations,
-				)
-				.changed() && self.hide_window_decorations
-				{
-					self.custom_title_bar = false;
-				}
-			}
-		});
+		design::group(ui, &title, |ui| self.window_switches(ui));
 		let title = language.text("general-graphics");
 		design::group(ui, &title, |ui| {
 			let restart = language.text("general-gpu-restart");
@@ -948,7 +964,7 @@ impl MessagingUi {
 			};
 			let label = language.text("general-render-with");
 			design::row(ui, &label, Some(&detail), |ui| {
-				egui::ComboBox::from_id_salt("gpu-preference")
+				crate::design::Select::from_id_salt("gpu-preference")
 					.selected_text(gpu_label(language, self.gpu_preference))
 					.width(ui.available_width().min(220.0))
 					.show_ui(ui, |ui| {
@@ -963,6 +979,34 @@ impl MessagingUi {
 					});
 			});
 			design::card_divider(ui);
+			let label = language.text("general-graphics-api");
+			let description = language.text(if self.graphics_api_env_override {
+				"general-graphics-api-env-override"
+			} else {
+				"general-graphics-api-description"
+			});
+			design::row(ui, &label, Some(&description), |ui| {
+				ui.add_enabled_ui(!self.graphics_api_env_override, |ui| {
+					crate::design::Select::from_id_salt("graphics-api")
+						.selected_text(graphics_api_label(language, self.graphics_api))
+						.width(ui.available_width().min(220.0))
+						.show_ui(ui, |ui| {
+							for api in std::iter::once(model::GraphicsApi::Automatic).chain(
+								self.available_graphics_apis
+									.iter()
+									.copied()
+									.filter(|api| *api != model::GraphicsApi::Automatic),
+							) {
+								ui.selectable_value(
+									&mut self.graphics_api,
+									api,
+									graphics_api_label(language, api),
+								);
+							}
+						});
+				});
+			});
+			design::card_divider(ui);
 			let label = language.text("general-steady-refresh-rate");
 			let description = language.text("general-steady-refresh-rate-description");
 			design::switch(
@@ -970,6 +1014,21 @@ impl MessagingUi {
 				&label,
 				Some(&description),
 				&mut self.steady_refresh_rate,
+			);
+		});
+		design::card(ui, |ui| {
+			design::row(
+				ui,
+				"setup-run-again",
+				Some("setup-run-again-description"),
+				|ui| {
+					if design::button(ui, "setup-run-again-action", design::ButtonKind::Outline)
+						.clicked()
+					{
+						self.preview_setup(0);
+						self.settings.open = false;
+					}
+				},
 			);
 		});
 	}
@@ -1035,39 +1094,7 @@ impl MessagingUi {
 			ui,
 			&crate::i18n::translate("settings-appearance-settings-accent"),
 			|ui| {
-				let themed_accent = design::theme_sets_accent(ui.visuals().dark_mode);
-				design::row(
-					ui,
-					"settings-appearance-settings-primary-color",
-					Some(if themed_accent {
-						"settings-appearance-settings-the-active-theme-brings-its-own-accent-it-takes-over"
-					} else {
-						"settings-appearance-settings-used-for-buttons-selection-and-message-highlights"
-					}),
-					|ui| {
-						ui.add_enabled_ui(!themed_accent, |ui| {
-							if self.primary_color.is_some()
-								&& design::text_action(
-									ui,
-									&crate::i18n::translate("settings-appearance-settings-reset"),
-								)
-								.clicked()
-							{
-								self.primary_color = None;
-							}
-							let mut color =
-								self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
-							if design::color_edit(ui, &mut color)
-								.on_hover_text(crate::i18n::translate(
-									"settings-appearance-settings-choose-primary-color",
-								))
-								.changed()
-							{
-								self.primary_color = Some(color);
-							}
-						});
-					},
-				);
+				self.primary_color_row(ui);
 			},
 		);
 		design::group(
@@ -1106,45 +1133,46 @@ impl MessagingUi {
 		self.layout_settings(ui, demo);
 	}
 
+	/// Primary colour picker with its reset; shared by Settings > Appearance and setup.
+	pub(crate) fn primary_color_row(&mut self, ui: &mut egui::Ui) {
+		let themed_accent = design::theme_sets_accent(ui.visuals().dark_mode);
+		design::row(
+			ui,
+			"settings-appearance-settings-primary-color",
+			Some(if themed_accent {
+				"settings-appearance-settings-the-active-theme-brings-its-own-accent-it-takes-over"
+			} else {
+				"settings-appearance-settings-used-for-buttons-selection-and-message-highlights"
+			}),
+			|ui| {
+				ui.add_enabled_ui(!themed_accent, |ui| {
+					if self.primary_color.is_some()
+						&& design::text_action(
+							ui,
+							&crate::i18n::translate("settings-appearance-settings-reset"),
+						)
+						.clicked()
+					{
+						self.primary_color = None;
+					}
+					let mut color = self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
+					if design::color_edit(ui, &mut color)
+						.on_hover_text(crate::i18n::translate(
+							"settings-appearance-settings-choose-primary-color",
+						))
+						.changed()
+					{
+						self.primary_color = Some(color);
+					}
+				});
+			},
+		);
+	}
+
 	/// Device-local switches for profile cosmetics. Hidden ones are neither drawn nor loaded.
 	fn cosmetic_settings(&mut self, ui: &mut egui::Ui) {
 		design::group(ui, &crate::i18n::translate("settings-cosmetics"), |ui| {
-			let cosmetics = &mut self.cosmetics;
-			for (index, (label, detail, value)) in [
-				(
-					"settings-cosmetics-decorations",
-					"settings-cosmetics-decorations-description",
-					&mut cosmetics.decorations,
-				),
-				(
-					"settings-cosmetics-nameplates",
-					"settings-cosmetics-nameplates-description",
-					&mut cosmetics.nameplates,
-				),
-				(
-					"settings-cosmetics-effects",
-					"settings-cosmetics-effects-description",
-					&mut cosmetics.effects,
-				),
-				(
-					"settings-cosmetics-frames",
-					"settings-cosmetics-frames-description",
-					&mut cosmetics.frames,
-				),
-				(
-					"settings-cosmetics-name-styles",
-					"settings-cosmetics-name-styles-description",
-					&mut cosmetics.name_styles,
-				),
-			]
-			.into_iter()
-			.enumerate()
-			{
-				if index > 0 {
-					design::card_divider(ui);
-				}
-				design::switch(ui, label, Some(detail), value);
-			}
+			cosmetic_switches(ui, &mut self.cosmetics, true);
 			design::card_divider(ui);
 			design::hint(
 				ui,
@@ -1199,7 +1227,7 @@ impl MessagingUi {
 	}
 
 	/// Built-in presets plus enabled community themes, one swatch each.
-	fn colour_preset_settings(&mut self, ui: &mut egui::Ui) {
+	pub(crate) fn colour_preset_settings(&mut self, ui: &mut egui::Ui) {
 		let current = design::variant();
 		let mut presets: Vec<_> = design::Variant::ALL
 			.into_iter()
@@ -1474,7 +1502,7 @@ fn preset_combo<T: Copy + PartialEq>(
 	presets: &[T],
 	label: impl Fn(&T) -> String,
 ) {
-	egui::ComboBox::from_id_salt(id)
+	crate::design::Select::from_id_salt(id)
 		.selected_text(label(value))
 		.width(ui.available_width().min(120.0))
 		.show_ui(ui, |ui| {
@@ -1711,7 +1739,97 @@ fn gradient_circle(
 	painter.add(egui::Shape::mesh(mesh));
 }
 
-fn theme_preference_cards(ui: &mut egui::Ui) {
+/// One switch per cosmetic under a master that shows everything or nothing; Settings and
+/// first-run setup share it; setup leaves out the per-cosmetic `details` to fit one screen.
+pub(crate) fn cosmetic_switches(
+	ui: &mut egui::Ui,
+	cosmetics: &mut model::CosmeticPreferences,
+	details: bool,
+) {
+	let mut all = *cosmetics == model::CosmeticPreferences::SHOWN;
+	if design::switch(
+		ui,
+		"settings-cosmetics-all",
+		Some("settings-cosmetics-all-description"),
+		&mut all,
+	)
+	.changed()
+	{
+		*cosmetics = if all {
+			model::CosmeticPreferences::SHOWN
+		} else {
+			model::CosmeticPreferences {
+				solid_names: true,
+				hide_clan_tags: true,
+				..Default::default()
+			}
+		};
+	}
+	let mut gradients = !cosmetics.solid_names;
+	let mut clan_tags = !cosmetics.hide_clan_tags;
+	let switches = [
+		(
+			"settings-cosmetics-decorations",
+			"settings-cosmetics-decorations-description",
+			&mut cosmetics.decorations,
+		),
+		(
+			"settings-cosmetics-nameplates",
+			"settings-cosmetics-nameplates-description",
+			&mut cosmetics.nameplates,
+		),
+		(
+			"settings-cosmetics-effects",
+			"settings-cosmetics-effects-description",
+			&mut cosmetics.effects,
+		),
+		(
+			"settings-cosmetics-frames",
+			"settings-cosmetics-frames-description",
+			&mut cosmetics.frames,
+		),
+		(
+			"settings-cosmetics-name-styles",
+			"settings-cosmetics-name-styles-description",
+			&mut cosmetics.name_styles,
+		),
+		(
+			"settings-cosmetics-gradient-names",
+			"settings-cosmetics-gradient-names-description",
+			&mut gradients,
+		),
+		(
+			"settings-cosmetics-clan-tags",
+			"settings-cosmetics-clan-tags-description",
+			&mut clan_tags,
+		),
+	];
+	if details {
+		for (label, detail, value) in switches {
+			design::card_divider(ui);
+			design::switch(ui, label, Some(detail), value);
+		}
+	} else {
+		// Labels alone fit two to a row; each row is its own pair so a wrapped label keeps
+		// its neighbour level with it.
+		design::card_divider(ui);
+		ui.spacing_mut().item_spacing.x = 24.0;
+		let mut switches = switches.into_iter();
+		while let Some((label, _, value)) = switches.next() {
+			let next = switches.next();
+			ui.columns(2, |columns| {
+				design::switch(&mut columns[0], label, None, value);
+				if let Some((label, _, value)) = next {
+					design::switch(&mut columns[1], label, None, value);
+				}
+			});
+		}
+	}
+	cosmetics.solid_names = !gradients;
+	cosmetics.hide_clan_tags = !clan_tags;
+}
+
+pub(crate) fn theme_preference_cards(ui: &mut egui::Ui) {
 	let colors = design::palette(ui);
 	let current = ui.ctx().options(|options| options.theme_preference);
 	let mut chosen = None;

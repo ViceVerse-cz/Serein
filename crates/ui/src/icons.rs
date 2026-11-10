@@ -419,7 +419,7 @@ fn layer(ctx: &egui::Context, cell: u32) -> TextureHandle {
 		return texture.clone();
 	}
 	let source = source_image();
-	let longest = source.size[0].max(source.size[1]) as u32;
+	let longest = source.resolution()[0].max(source.resolution()[1]) as u32;
 	let edge = (longest / CELL as u32) * cell;
 	let image = crate::resample::downscale_filter(
 		source,
@@ -448,7 +448,7 @@ pub fn paint(painter: &egui::Painter, icon: Icon, rect: Rect, color: Color32) {
 	let index = icon.cell();
 	let col = (index % COLUMNS) as f32;
 	let row = (index / COLUMNS) as f32;
-	let rows = source_image().size[1] as f32 / CELL;
+	let rows = source_image().resolution()[1] as f32 / CELL;
 	let mut uv = Rect::from_min_max(
 		egui::pos2(col / COLUMNS as f32, row / rows),
 		egui::pos2((col + 1.0) / COLUMNS as f32, (row + 1.0) / rows),
@@ -477,6 +477,11 @@ pub fn channel(kind: u8) -> Icon {
 		15 | 16 => Icon::Forum,
 		_ => Icon::Hash,
 	}
+}
+
+/// Glyph size for one square standard button. The validated theme scale never changes its hitbox.
+pub(crate) fn button_glyph_size(size: f32) -> f32 {
+	(size * 0.70 * design::icon_scale()).min(size)
 }
 
 /// Square icon button that highlights on hover and exposes `label` to accessibility.
@@ -516,12 +521,25 @@ fn button_with_tooltip(
 	}
 	let color = if !ui.is_enabled() {
 		colors.muted.gamma_multiply(0.5)
+	} else if icon == Icon::Trash {
+		colors
+			.danger
+			.gamma_multiply(if response.hovered() || response.has_focus() {
+				1.0
+			} else {
+				0.8
+			})
 	} else if response.hovered() || response.has_focus() {
 		colors.text_strong
 	} else {
 		colors.muted
 	};
-	paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
+	paint(
+		ui.painter(),
+		icon,
+		Rect::from_center_size(rect.center(), Vec2::splat(button_glyph_size(size))),
+		color,
+	);
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
 	if immediate {
 		immediate_tooltip(response, &label)
@@ -543,7 +561,12 @@ pub fn toggle(ui: &mut egui::Ui, icon: Icon, size: f32, active: bool, label: &st
 	} else {
 		colors.muted
 	};
-	paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
+	paint(
+		ui.painter(),
+		icon,
+		Rect::from_center_size(rect.center(), Vec2::splat(button_glyph_size(size))),
+		color,
+	);
 	response.widget_info(|| {
 		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), active, &label)
 	});

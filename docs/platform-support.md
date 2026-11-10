@@ -44,6 +44,18 @@ available (for example, `dx12` or `vulkan`). Affected users confirmed that forci
 DX12 launches successfully; the new default still needs native Windows validation.
 macOS and Linux retain their existing backend defaults.
 
+General → Graphics now offers a **Graphics API** picker alongside the GPU preference.
+It lists Automatic and the APIs compiled for the current platform (Vulkan, DirectX 12,
+Metal or OpenGL); an installed driver and a presentable adapter are still required.
+The device-local choice is saved in SQLite and applies on the next launch. An explicit
+API is ranked before the GPU preference; when no adapter for it can present, selection
+falls back to the normal Automatic candidates and reports the fallback on stderr.
+Automatic retains the Windows DirectX 12 / OpenGL policy and other platform defaults.
+`WGPU_BACKEND` takes precedence over the saved API and disables the picker for that
+launch. The current adapter/backend remains visible in settings, and bug reports include
+the requested API and whether an environment override is active. Driver initialization
+crashes cannot be caught by this fallback; Windows Vulkan remains an explicit opt-in.
+
 Adapter selection prefers a real GPU over a software rasterizer whichever backend presents it.
 Windows offers WARP ("Microsoft Basic Render Driver") as its Direct3D adapter on hardware that
 predates DX12, and drawing the client on the CPU that way freezes a machine whose GPU still
@@ -78,9 +90,10 @@ excludes the caption buttons area so edge/corner resizing does not intercept cor
 Close. Caption buttons keep their own actions; Windows double-click maximize/restore remains
 available. Synthetic egui input tests check command dispatch, including corner hit testing.
 On Windows, dragging the strip runs the OS move loop, which paints synchronously and waits for
-vsync before the next move. Serein therefore skips repaints for window moves and raw mouse motion
-(a patched egui-winit; see `vendor/egui-winit/SEREIN-PATCH.md`) and reapplies the minimum size
-only when it changes, so an otherwise idle window follows the cursor like a native one. Continuous
+vsync before the next move. Through Serein's patched egui-winit (see `vendor/egui/SEREIN-PATCH.md`)
+Serein therefore ignores raw mouse motion and repaints for window moves at most once per 500 ms,
+enough to sample and save where the window comes to rest; it also reapplies the minimum size only
+when it changes. An otherwise idle window follows the cursor like a native one. Continuous
 rendering, such as an animation or playing video, still paces a drag to the display refresh rate.
 Synthetic `SendInput` drags on Windows 11 are measured in `docs/performance.md`; physical-mouse
 behavior on other machines and native macOS/Linux window movement remain unverified.
@@ -97,7 +110,7 @@ requests are honored; native X11/Wayland verification of this toggle remains pen
 
 | Platform | Build/runtime requirements | Status |
 |---|---|---|
-| macOS | Rust 1.98.1, Xcode command-line tools; Metal/wgpu, system WKWebView, Keychain | Local arm64 build and native synthetic window tested on macOS 27.0 beta, Apple M1 Pro / 16 GiB |
+| macOS | Rust 1.99.1, Xcode command-line tools; Metal/wgpu, system WKWebView, Keychain | Local arm64 build and native synthetic window tested on macOS 27.0 beta, Apple M1 Pro / 16 GiB |
 | Windows | Rust MSVC toolchain, Visual Studio C++ build tools, system graphics drivers, WebView2 Runtime 101+ (current supported runtime recommended), Credential Manager | Local x64 checks and unsigned release packaging on Windows 11 build 26200; synthetic process/window startup passed. Visual interaction, InPrivate behavior, IME and accessibility unverified |
 | Linux | Rust, C compiler, pkg-config, GTK >=4.10, WebKitGTK 6.0, fontconfig, libxkbcommon, X11/Wayland development packages, Vulkan-compatible GPU/driver, Secret Service session bus/keyring | Ubuntu 26.04 x64 / WSL2 text and voice releases and Debian package smoke passed; X11/Wayland rendering and login window unverified |
 
@@ -220,7 +233,16 @@ registration without joining voice, enable global keybinds, approve the desktop
 dialog, move focus to another application and use Toggle Mute/Toggle Deafen.
 The mute/deafen intent should change when returning to Serein. Flatpak needs a host
 portal backend implementing GlobalShortcuts; the encoding regression test does not
-verify compositor approval or delivery on a particular desktop.
+verify compositor approval or delivery on a particular desktop. Outside Flatpak, Serein
+registers the portal app ID `cz.viceverse.serein` through the host Registry
+(xdg-desktop-portal 1.19+), which needs the installed `cz.viceverse.serein.desktop` entry;
+source runs and unintegrated AppImages without it fall back to focused input. Shortcut IDs
+are stable per action (`toggle-mute`, `toggle-deafen`, `push-to-talk`, `push-to-mute`);
+extra triggers for one action are numbered, such as `toggle-mute-2`. Hyprland only delivers
+portal shortcuts to keys bound in its config and does not apply the suggested trigger, so
+the check above needs a bind such as
+`bind = CTRL SHIFT, M, global, cz.viceverse.serein:toggle-mute`. Update existing binds that
+used the earlier `cz.viceverse.serein:serein-N` IDs.
 
 Native emoji use eframe system-font fallback and installed OS color fonts. macOS
 Apple Color Emoji was visually checked with a synthetic moon status on September
@@ -233,7 +255,7 @@ Apple Color Emoji was visually checked with a synthetic moon status on September
 Outgoing in-call capture uses AVFoundation on macOS, Media Foundation and DirectShow on Windows,
 and V4L2 on Linux. The existing camera button becomes available after the voice
 server negotiates H264; capture starts only after an explicit click in a connected
-call. All adapters send 640×480 video at most 15 encoded frames/s. Native capture now
+call. All adapters send 640×480 video at a selectable 15 or 30 encoded frames/s. Native capture now
 selects the closest supported dimensions/rate within a 1280×720 input ceiling
 (DirectShow preserves its existing 1920×1080 fallback) and
 converts to the existing encoder size; hardware negotiation remains unverified.
@@ -430,11 +452,25 @@ Optional Linux stream audio uses native `libpulse` per-application monitoring on
 PulseAudio or PipeWire's PulseAudio server. Source builds need the libpulse development
 package (`libpulse-dev`, `pulseaudio-libs-devel`, `libpulse-devel` or Arch's `libpulse`).
 The existing Flatpak PulseAudio socket permission covers this access; the ScreenCast
-portal's PipeWire remote grants video only. Windows uses native process loopback on
-build 20348+ (Windows 11 / Server 2022), with a visible audio error on older systems.
-Both exclude Serein's playback and capture other applications even when sharing one
-window. There is no whole-output fallback. Hardware exclusion and receiving sound in
-an official client remain unverified.
+portal's PipeWire remote grants video only. Windows uses native process loopback: one
+exclude-Serein capture on build 20348+ (Windows 11 / Server 2022), and per-application
+captures on older Windows 10 builds. Both exclude Serein's playback. Sharing a window captures
+only that window's application, as Discord does; sharing a screen captures other applications. There is no whole-output fallback. Hardware
+exclusion and receiving sound in an official client remain unverified.
+
+## High-resolution video attachments
+
+Inline playback accepts source resolutions supported by the installed native codec and device,
+including sources larger than 4K. Larger sources are fitted, without upscaling, into the existing
+playback surface: at most 3840 pixels per side and 3840×2160 pixels in total. Portrait and
+ultrawide aspect ratios are preserved to integer-pixel rounding. This is a playback surface
+budget, not a source-resolution rejection. Windows requests resized Media Foundation output,
+macOS scales into a bounded VideoToolbox pixel buffer, and Linux scales after applying rotation and
+before queuing decoded video. The original attachment is unchanged.
+
+Codec profiles, hardware capabilities, the 100 MiB encoded attachment limit and the two-hour
+duration limit still apply. Supporting a source does not promise native-resolution rendering
+or a particular frame rate. Live screen sharing has its separate existing limits.
 
 ## Additional macOS attachment codecs
 
@@ -442,10 +478,10 @@ WebM, MOV and MP4 codecs unavailable in the native inline decoder can use an ins
 FFmpeg from `/opt/homebrew/bin`, `/usr/local/bin`, or `/usr/bin`. Nothing is installed
 automatically. The helper must include H.264 (`libx264`) and AAC encoding; converted
 video plays through the existing native controls. Conversion may take up to two
-minutes before playback and is limited to 100 MiB input/output, 1080p and two hours.
+minutes before playback and is limited to 100 MiB input/output, the same bounded playback surface and two hours.
 Native format failures during opening or playback retry conversion once, resuming at
-the last displayed position. Sources above the native 1080p limit also use this
-bounded downscaling path. AAC track timestamps need not use the audio sample rate
+the last displayed position. A decoder that cannot produce a bounded native picture can also use this
+downscaling path. AAC track timestamps need not use the audio sample rate
 as their timescale. Missing FFmpeg or conversion failures appear in the video card. Linux and Windows
 continue to use their installed native codecs. This optional fallback is not bundled
 in release packages; actual codec coverage depends on the local FFmpeg build.

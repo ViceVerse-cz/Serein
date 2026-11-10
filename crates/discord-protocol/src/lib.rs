@@ -8,6 +8,7 @@ pub mod badges;
 pub mod collectibles;
 mod diagnostics;
 mod embeds;
+pub mod emoji_frecency;
 mod extra_content;
 pub mod forum;
 pub mod gif_favorites;

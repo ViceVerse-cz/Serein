@@ -1,4 +1,5 @@
 //! Unofficial FrecencyUserSettings interoperability. Never replace a truncated favorites map.
+//! The emoji frecency subtrees ride along for [`crate::emoji_frecency`].
 use crate::{
 	DecodeError,
 	guild_folders::{fields, message},
@@ -9,12 +10,15 @@ use serde::Deserialize;
 use std::collections::HashSet;
 
 pub const MAX_RESPONSE: usize = 6 * 1024 * 1024;
-const MAX_SUBTREE: usize = 512 * 1024;
-const MAX_ENTRIES: usize = 2048;
+pub(crate) const MAX_SUBTREE: usize = 512 * 1024;
+pub(crate) const MAX_ENTRIES: usize = 2048;
 
 pub struct Decoded {
 	pub version: u32,
 	subtree: Vec<u8>,
+	/// Raw `emoji_frecency` (6) and `emoji_reaction_frecency` (13) subtrees; `None` when
+	/// present but unreadable, so a save never replaces what could not be read.
+	pub(crate) emoji: [Option<Vec<u8>>; 2],
 }
 
 #[derive(Deserialize)]
@@ -102,6 +106,8 @@ pub fn decode_response(bytes: &[u8]) -> Result<Decoded, DecodeError> {
 		.map_err(|_| DecodeError)?;
 	let mut version = None;
 	let mut subtree = None;
+	let mut emoji = [Some(Vec::new()), Some(Vec::new())];
+	let mut emoji_seen = [false; 2];
 	for field in fields(&wire)? {
 		match field.number {
 			1 if version.is_none() => {
@@ -124,6 +130,16 @@ pub fn decode_response(bytes: &[u8]) -> Result<Decoded, DecodeError> {
 				}
 				subtree = Some(value.to_vec());
 			}
+			// Emoji ranking is optional: an unreadable record never blocks GIF favorites.
+			6 | 13 => {
+				let slot = usize::from(field.number == 13);
+				// A repeated subtree would merge on the service; treat it as unreadable.
+				emoji[slot] = (!std::mem::replace(&mut emoji_seen[slot], true))
+					.then(|| field.message().ok())
+					.flatten()
+					.filter(|value| value.len() <= MAX_SUBTREE)
+					.map(<[u8]>::to_vec);
+			}
 			1 | 2 => return Err(DecodeError),
 			_ => {}
 		}
@@ -132,6 +148,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Decoded, DecodeError> {
 		// Versions is optional in FrecencyUserSettings (including an empty initial proto).
 		version: version.unwrap_or(0),
 		subtree: subtree.unwrap_or_default(),
+		emoji,
 	};
 	let mut keys = HashSet::new();
 	for field in fields(&decoded.subtree)? {

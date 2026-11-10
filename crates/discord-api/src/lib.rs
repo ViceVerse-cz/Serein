@@ -200,48 +200,44 @@ fn fingerprint_headers() -> Result<wreq::header::HeaderMap, Failure> {
 		wreq::header::REFERER,
 		HeaderValue::from_static("https://discord.com/channels/@me"),
 	);
-	// Same-origin fetch() metadata; the emulation's own headers describe a page navigation.
 	headers.insert(wreq::header::ACCEPT, HeaderValue::from_static("*/*"));
+	headers.insert(
+		wreq::header::ACCEPT_ENCODING,
+		HeaderValue::from_static(client_core::fingerprint::accept_encoding()),
+	);
+	headers.insert(
+		"x-debug-options",
+		HeaderValue::from_static("bugReporterEnabled"),
+	);
+	// Same-origin fetch() metadata; the emulation's own headers describe a page navigation.
 	headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
 	headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
 	headers.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
-	if let Some(platform) = client_core::fingerprint::client_hint_platform() {
-		headers.insert(
-			"sec-ch-ua",
-			HeaderValue::from_static(client_core::fingerprint::CHROME_SEC_CH_UA),
-		);
-		headers.insert("sec-ch-ua-mobile", HeaderValue::from_static("?0"));
-		headers.insert("sec-ch-ua-platform", HeaderValue::from_static(platform));
+	if let Some(hints) = client_core::fingerprint::client_hints() {
+		for (name, value) in hints {
+			headers.insert(
+				name,
+				HeaderValue::from_str(&value).map_err(|_| Failure::Network)?,
+			);
+		}
+		headers.insert("priority", HeaderValue::from_static("u=1, i"));
 	}
 	Ok(headers)
 }
-/// TLS and HTTP/2 handshake of the browser named by `client_core::fingerprint`, so the
-/// transport agrees with the advertised user agent. Bump with `CHROME_MAJOR`/`SAFARI_VERSION`.
-pub(crate) fn browser_emulation() -> wreq_util::Emulation {
-	use wreq_util::{Platform, Profile};
-	let (profile, platform) = if cfg!(target_os = "macos") {
-		(Profile::Safari18_5, Platform::MacOS)
-	} else if cfg!(windows) {
-		(Profile::Chrome128, Platform::Windows)
-	} else {
-		(Profile::Chrome128, Platform::Linux)
-	};
-	wreq_util::Emulation::builder()
-		.profile(profile)
-		.platform(platform)
-		.headers(false)
-		.build()
+/// Applies the advertised browser's TLS and HTTP/2 handshake and its user agent. Emulation
+/// resets TLS/HTTP options, so this must wrap the builder before any other option is set.
+pub(crate) fn browser_transport(builder: wreq::ClientBuilder) -> wreq::ClientBuilder {
+	builder
+		.emulation(client_core::fingerprint::emulation())
+		.user_agent(client_core::fingerprint::user_agent())
 }
 fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
-	let builder = Client::builder()
-		// Emulation resets TLS/HTTP options, so it must precede every other builder call.
-		.emulation(browser_emulation())
+	let builder = browser_transport(Client::builder())
 		.redirect(wreq::redirect::Policy::none())
 		// Keep writes single-attempt, including attachment slot allocation.
 		.retry(wreq::retry::Policy::never())
 		.timeout(Duration::from_secs(20))
 		.connect_timeout(Duration::from_secs(10))
-		.user_agent(client_core::fingerprint::user_agent())
 		.default_headers(fingerprint_headers()?);
 	route
 		.client_builder(builder)
@@ -1215,9 +1211,20 @@ impl DiscordApi {
 				result: self.gifs(query.as_deref()).await,
 			},
 			Command::CancelGifs => Event::Failure(Failure::Protocol),
-			Command::GifFavorites { request, change } => Event::GifFavorites {
+			Command::GifFavorites { request, change } => {
+				let (result, frequent_emoji) = match self.gif_favorites(change).await {
+					Ok((gifs, emoji)) => (Ok(gifs), emoji),
+					Err(failure) => (Err(failure), Default::default()),
+				};
+				Event::GifFavorites {
+					request,
+					result,
+					frequent_emoji,
+				}
+			}
+			Command::EmojiFrecency { request, uses } => Event::EmojiFrecency {
 				request,
-				result: self.gif_favorites(change).await,
+				result: self.emoji_frecency(uses).await,
 			},
 			Command::MarkRead {
 				channel,
@@ -2519,6 +2526,9 @@ mod tests {
 					std::time::Instant::now(),
 					Some(Ok(model::InvitePreview {
 						guild: Some(model::Id(2)),
+						about: None,
+						guild_icon: None,
+						voice_channel: None,
 						channel: None,
 						embed: Default::default(),
 					})),

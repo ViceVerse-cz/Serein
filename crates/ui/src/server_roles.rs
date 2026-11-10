@@ -121,9 +121,9 @@ impl RolesUi {
 		match result {
 			Ok(Some((data, image)))
 				if data.len() <= server_admin::MAX_IMAGE_URI
-					&& (1..=128).contains(&image.size[0])
-					&& (1..=128).contains(&image.size[1])
-					&& image.pixels.len() == image.size[0] * image.size[1] =>
+					&& (1..=128).contains(&image.resolution()[0])
+					&& (1..=128).contains(&image.resolution()[1])
+					&& image.pixels().len() == image.resolution()[0] * image.resolution()[1] =>
 			{
 				self.icon = Patch::Value(data);
 				self.icon_texture =
@@ -629,7 +629,7 @@ impl RolesUi {
 				{
 					selected = None;
 				}
-				egui::ComboBox::from_id_salt("compact-role-navigation")
+				crate::design::Select::from_id_salt("compact-role-navigation")
 					.selected_text(crate::i18n::translate("server-roles-editor-choose-role"))
 					.show_ui(ui, |ui| {
 						if let Some(catalog) = &state.server_admin.roles {

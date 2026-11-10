@@ -61,6 +61,7 @@ impl Settings {
 			hide_window_decorations: ui.hide_window_decorations,
 			custom_title_bar: ui.custom_title_bar,
 			gpu_preference: ui.gpu_preference,
+			graphics_api: ui.graphics_api,
 			steady_refresh_rate: ui.steady_refresh_rate,
 			primary_color: ui.primary_color,
 			transparency_blur: ui.transparency_blur,
@@ -85,6 +86,7 @@ impl Settings {
 			time_format: ui.time_format,
 			plaintext_login: ui.plaintext_login,
 			diagnostics_log: ui.diagnostics_log,
+			setup_done: !ui.setup_pending,
 		};
 		if value != self.current {
 			self.state.touched = true;
@@ -114,6 +116,7 @@ impl Settings {
 		ui.hide_window_decorations = value.hide_window_decorations;
 		ui.custom_title_bar = value.custom_title_bar;
 		ui.gpu_preference = value.gpu_preference;
+		ui.graphics_api = value.graphics_api;
 		ui.steady_refresh_rate = value.steady_refresh_rate;
 		ui.primary_color = value.primary_color;
 		ui.transparency_blur = value.transparency_blur;
@@ -138,6 +141,8 @@ impl Settings {
 		ui.time_format = value.time_format;
 		ui.plaintext_login = value.plaintext_login;
 		ui.diagnostics_log = value.diagnostics_log;
+		// Unreadable preferences fall back to defaults; never nag with setup on every launch.
+		ui.setup_pending = self.loaded && !value.setup_done;
 		ui::local_time::set_format(ui.time_format, ui.language);
 	}
 }
@@ -289,9 +294,16 @@ pub enum Observation {
 #[derive(Default)]
 pub struct GeometryRest {
 	pending: Option<(local_store::WindowGeometry, std::time::Instant)>,
+	/// When a frame should sample the pending placement again, as of this frame's observation.
+	/// [`Self::begin_frame`] clears it, so a frame that samples nothing cannot re-arm it.
+	wake: Option<std::time::Duration>,
 }
 
 impl GeometryRest {
+	/// Starts a frame's sampling: only an observation in this frame schedules the next wake.
+	pub fn begin_frame(&mut self) {
+		self.wake = None;
+	}
 	/// Observe placement at a monotonic time; early frames do not shorten the rest interval.
 	pub fn observe(
 		&mut self,
@@ -299,6 +311,7 @@ impl GeometryRest {
 		saved: Option<local_store::WindowGeometry>,
 		now: std::time::Instant,
 	) -> Observation {
+		self.wake = None;
 		if saved == Some(sampled) {
 			self.pending = None;
 			return Observation::Saved;
@@ -306,14 +319,22 @@ impl GeometryRest {
 		if let Some((pending, changed_at)) = self.pending
 			&& pending == sampled
 		{
-			if now.saturating_duration_since(changed_at) < GEOMETRY_REST_DELAY {
+			let rested = now.saturating_duration_since(changed_at);
+			if rested < GEOMETRY_REST_DELAY {
+				self.wake = Some(GEOMETRY_REST_DELAY - rested);
 				return Observation::Pending;
 			}
 			self.pending = None;
 			return Observation::Commit;
 		}
 		self.pending = Some((sampled, now));
+		self.wake = Some(GEOMETRY_REST_DELAY);
 		Observation::Pending
+	}
+	/// How long until a frame should sample the pending placement again. Every pass of the
+	/// observing frame may request it, since a discarded pass's request is ignored.
+	pub fn wake(&self) -> Option<std::time::Duration> {
+		self.wake
 	}
 	/// Keep the latest normal placement when a maximize event interrupts its rest interval.
 	pub fn maximized_geometry(
@@ -333,6 +354,7 @@ impl GeometryRest {
 
 	/// The last sample, for a window that closes or hides before it could rest.
 	pub fn take_pending(&mut self) -> Option<local_store::WindowGeometry> {
+		self.wake = None;
 		self.pending.take().map(|(geometry, _)| geometry)
 	}
 }
@@ -485,6 +507,7 @@ mod tests {
 		ui.preload_on_hover = defaults.preload_on_hover;
 		ui.auto_idle = defaults.auto_idle;
 		ui.custom_title_bar = defaults.custom_title_bar;
+		ui.setup_pending = !defaults.setup_done;
 		settings.observe(&ui);
 		assert!(
 			!settings.state.touched,
@@ -494,13 +517,19 @@ mod tests {
 
 		settings.current.language = Some("cs".into());
 		settings.current.notification_options.current_channel = true;
+		settings.current.graphics_api = model::GraphicsApi::OpenGl;
 		settings.loaded = true;
 		settings.apply(&mut ui);
 		settings.observe(&ui);
 		assert_eq!(ui.language, ui::i18n::Language::Czech);
 		assert!(ui.notification_options.current_channel);
+		assert_eq!(ui.graphics_api, model::GraphicsApi::OpenGl);
 		assert!(!settings.state.touched);
 		assert!(!settings.state.dirty);
+		ui.graphics_api = model::GraphicsApi::Vulkan;
+		settings.observe(&ui);
+		assert_eq!(settings.current.graphics_api, model::GraphicsApi::Vulkan);
+		assert!(settings.state.dirty);
 	}
 
 	#[test]
@@ -561,6 +590,12 @@ mod tests {
 			rest.observe(placed, None, now + GEOMETRY_REST_DELAY / 2),
 			Observation::Pending
 		);
+		// Every pass of the observing frame may request the wake, so a discarded pass keeps it;
+		// the next frame that samples nothing drops it.
+		assert_eq!(rest.wake(), Some(GEOMETRY_REST_DELAY / 2));
+		assert_eq!(rest.wake(), Some(GEOMETRY_REST_DELAY / 2));
+		rest.begin_frame();
+		assert_eq!(rest.wake(), None);
 		assert_eq!(
 			rest.observe(moving, None, now + GEOMETRY_REST_DELAY / 2),
 			Observation::Pending
@@ -569,10 +604,13 @@ mod tests {
 			rest.observe(moving, None, now + GEOMETRY_REST_DELAY),
 			Observation::Pending
 		);
+		// A change restarts the interval, so the wake moves with it.
+		assert_eq!(rest.wake(), Some(GEOMETRY_REST_DELAY / 2));
 		assert_eq!(
 			rest.observe(moving, None, now + GEOMETRY_REST_DELAY * 2),
 			Observation::Commit
 		);
+		assert_eq!(rest.wake(), None);
 		assert_eq!(rest.observe(placed, Some(placed), now), Observation::Saved);
 		assert_eq!(rest.take_pending(), None);
 

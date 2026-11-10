@@ -1658,8 +1658,6 @@ main-restoring-screen-welcome-back = 歡迎回來
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = 已儲存的帳戶
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = 這個帳戶為我本人所有，我授權此工作階段。
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = 密碼與 2FA 只留在 Discord 自己的登入頁；僅工作階段令牌會存進你的作業系統憑證儲存區。
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = 關於 Serein
@@ -1706,6 +1704,8 @@ markdown-confirm-external-link-cancel = 取消
 markdown-confirm-external-link-open-external-link = 要開啟外部連結嗎？
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = 在瀏覽器中開啟
+# Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = 連結中只能放入此訊息的開頭部分，其餘內容不會傳送。此連結會在預設瀏覽器中開啟。
 # Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = 這個連結會用你的預設瀏覽器開啟。
 # Context: show_emoji
@@ -2306,6 +2306,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = 連同畫面
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = 即使只分享一個視窗，也能送出其他應用程式的聲音。不含 Serein 本身的音訊。
 # Context: body
 screen-body-share-system-audio = 分享系統音訊
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = 分享所分享應用程式的聲音；分享螢幕時則分享其他所有應用程式的聲音。Serein 本身的音訊不會包含在內。
 # Context: body
 screen-body-show-cursor = 顯示游標
 # Context: body
@@ -3902,6 +3904,10 @@ timeline-message-actions-delete-message = 刪除訊息…
 timeline-message-actions-edit-message = 編輯訊息
 # Context: message_actions
 timeline-message-actions-extensions = 擴充功能
+# Context: menu
+extensions-ui-menu-group-user = 使用者
+# Context: menu
+extensions-ui-menu-group-conversation = 對話
 # Context: message_actions
 timeline-message-actions-forward = 轉發
 # Context: message_actions
@@ -3950,6 +3956,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = 正在載入訊息…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = 訊息已刪除
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = 已封鎖的訊息
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 依目前權限資訊，無法檢視訊息歷史。
 # Context: show_with_scroll
@@ -4178,8 +4186,6 @@ voice-device-combo-device-unavailable = 裝置無法使用
 voice-device-default = 系統預設
 # Context: frame
 voice-frame-open-voice = 開啟語音
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% 是原始音量，過高可能失真。
 # Context: labels
 voice-labels-choose-camera = 選擇攝影機
 # Context: live_badge
@@ -4280,12 +4286,6 @@ voice-voice-participant-microphone-muted = 麥克風已靜音
 voice-voice-participant-muted-by-server = 被伺服器靜音
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = 在你這台裝置上已靜音
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = 請在「所有語音設定」中選擇演算法。
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = 關掉喇叭會停止播放收到的音訊，並同時讓麥克風靜音。
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = 想說話時，按住你設定的快捷鍵。
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = 請安裝支援語音的版本以使用這些控件。
 # Context: voice_popup_content
@@ -4713,6 +4713,7 @@ profiles-activity-empty = 尚無分享的活動。
 profiles-mutuals-empty = 這裡沒有可顯示的內容。
 
 reading-double-click-reaction = 雙擊回應
+message-preview-limit = 此訊息超過原生文字排版的限制。
 
 ## crates/platform/src/app_menu.rs
 # Context: macos_menu_bar

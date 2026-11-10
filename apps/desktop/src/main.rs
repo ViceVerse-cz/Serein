@@ -535,6 +535,7 @@ fn main() -> eframe::Result {
 	);
 	let (
 		gpu_preference,
+		graphics_api,
 		transparency_available,
 		hide_window_decorations,
 		window_geometry,
@@ -545,6 +546,7 @@ fn main() -> eframe::Result {
 		let value = preferences.as_ref().unwrap_or(&defaults);
 		(
 			value.gpu_preference,
+			value.graphics_api,
 			value.transparency_blur,
 			value.hide_window_decorations || value.custom_title_bar,
 			value.window_geometry,
@@ -599,39 +601,11 @@ fn main() -> eframe::Result {
 		},
 		renderer: eframe::Renderer::Wgpu,
 		wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
-			wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(
-				eframe::egui_wgpu::WgpuSetupCreateNew {
-					// Avoid Intel Vulkan driver startup crashes; keep the diagnostic override.
-					#[cfg(target_os = "windows")]
-					instance_descriptor: {
-						let mut descriptor =
-							eframe::wgpu::InstanceDescriptor::new_without_display_handle_from_env();
-						// DX12 alone offers WARP on hardware that predates it and hides the GPU's
-						// OpenGL driver; ranking prefers a real GPU, so both are enumerated.
-						descriptor.backends = eframe::wgpu::Backends::from_env()
-							.unwrap_or(eframe::wgpu::Backends::DX12 | eframe::wgpu::Backends::GL);
-						// An HWND swapchain is always opaque; only a DirectComposition one carries
-						// alpha to the desktop and its acrylic backdrop. The env override still wins.
-						if transparency_available
-							&& eframe::wgpu::Dx12SwapchainKind::from_env().is_none()
-						{
-							descriptor.backend_options.dx12.presentation_system =
-								eframe::wgpu::Dx12SwapchainKind::DxgiFromVisual;
-						}
-						descriptor
-					},
-					// Only adapters that can present to this window are eligible; the saved
-					// preference just orders them. A power hint alone picks GPUs the display is
-					// not wired to, which fails outright on Wayland.
-					native_adapter_selector: Some(std::sync::Arc::new(
-						move |adapters: &[eframe::wgpu::Adapter],
-						      surface: Option<&eframe::wgpu::Surface<'_>>| {
-							gpu::select(gpu_preference, adapters, surface)
-						},
-					)),
-					..gpu::setup()
-				},
-			),
+			wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(gpu::setup(
+				gpu_preference,
+				graphics_api,
+				transparency_available,
+			)),
 			// Keep cursor-driven redraws synchronized even where AutoVsync selects FifoRelaxed.
 			surface: eframe::egui_wgpu::SurfaceConfig {
 				present_mode: eframe::wgpu::PresentMode::Fifo,
@@ -1162,7 +1136,6 @@ struct Desktop {
 	roster_generation: Option<u64>,
 	close_approved: bool,
 	fixture_only: bool,
-	authorized: bool,
 	/// Sign-in screen disclosures, folded away until the owner opens them.
 	about_open: bool,
 	token_open: bool,
@@ -1355,28 +1328,6 @@ fn hydrate_cache_result(state: &mut State, safety: &cache::HistorySafety, outcom
 	}
 }
 
-/// Soft radial accent glow behind the pre-session screens instead of a flat canvas.
-fn accent_glow(ui: &egui::Ui) {
-	let accent = ui::design::palette(ui).accent;
-	let rect = ui.max_rect();
-	let glow = rect.center() - egui::vec2(0.0, rect.height() * 0.1);
-	let radius = rect.width().max(rect.height()) * 0.55;
-	let mut mesh = egui::Mesh::default();
-	let alpha = if ui.visuals().dark_mode { 0.22 } else { 0.12 };
-	mesh.colored_vertex(glow, accent.gamma_multiply(alpha));
-	const SEGMENTS: u32 = 48;
-	for i in 0..=SEGMENTS {
-		let angle = i as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
-		mesh.colored_vertex(
-			glow + egui::vec2(angle.cos(), angle.sin()) * radius,
-			egui::Color32::TRANSPARENT,
-		);
-	}
-	for i in 1..=SEGMENTS {
-		mesh.add_triangle(0, i, i + 1);
-	}
-	ui.painter().add(egui::Shape::mesh(mesh));
-}
 fn recovery_draft(state: &State, channel: model::Id) -> String {
 	state
 		.drafts
@@ -1872,6 +1823,16 @@ impl Desktop {
 		app_settings.apply(&mut messaging);
 		#[cfg(feature = "demo")]
 		if demo {
+			// Fixtures never show first-run setup unless a capture asks for it.
+			messaging.setup_pending = false;
+			messaging.reading_preferences.compact_messages =
+				std::env::args().any(|arg| arg == "--demo-compact");
+			if let Some(step) = std::env::args().find_map(|arg| {
+				arg.strip_prefix("--demo-setup")
+					.map(|rest| rest.trim_start_matches('=').parse().unwrap_or(0))
+			}) {
+				messaging.preview_setup(step);
+			}
 			messaging.transparency_blur = transparency_available;
 			// Robin stays pinned on home. #getting-started is the guild Favorites row.
 			let _ = messaging
@@ -1888,6 +1849,9 @@ impl Desktop {
 			messaging.prepare_friends_sample();
 		}
 		messaging.tray_available = platform::tray::supported();
+		messaging.startup_graphics_api = messaging.graphics_api;
+		messaging.available_graphics_apis = gpu::available_apis();
+		messaging.graphics_api_env_override = eframe::wgpu::Backends::from_env().is_some();
 		// Name the adapter actually in use; a mismatch with the preference is the useful
 		// detail in a graphics bug report.
 		if let Some(render_state) = cc.wgpu_render_state.as_ref() {
@@ -1957,11 +1921,7 @@ impl Desktop {
 					)
 				})
 				.collect();
-			let image = egui::ColorImage {
-				size: [width, height],
-				source_size: egui::vec2(width as f32, height as f32),
-				pixels,
-			};
+			let image = egui::ColorImage::new([width, height], pixels);
 			let texture =
 				cc.egui_ctx
 					.load_texture("synthetic-stream", image, egui::TextureOptions::LINEAR);
@@ -2000,11 +1960,7 @@ impl Desktop {
 					egui::Color32::from_rgb((90.0 + 120.0 * x) as u8, (60.0 + 90.0 * y) as u8, 140)
 				})
 				.collect();
-			let image = egui::ColorImage {
-				size: [width, height],
-				source_size: egui::vec2(width as f32, height as f32),
-				pixels,
-			};
+			let image = egui::ColorImage::new([width, height], pixels);
 			let texture = cc.egui_ctx.load_texture(
 				"synthetic-remote-camera",
 				image,
@@ -2210,11 +2166,7 @@ impl Desktop {
 						}
 					})
 					.collect();
-				egui::ColorImage {
-					size: [width, height],
-					source_size: egui::vec2(width as f32, height as f32),
-					pixels,
-				}
+				egui::ColorImage::new([width, height], pixels)
 			};
 			messaging.preview_attachment(
 				"synthetic-holiday.png",
@@ -2281,9 +2233,6 @@ impl Desktop {
 			state.history_targeted = true;
 			state.status = "Offline fixture · unread strip and older-messages bar shown";
 		}
-		// Owner authorization for a new sign-in; fixture captures pre-tick it.
-		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
-		let mut authorized = false;
 		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
 		let mut sign_in_panels = false;
 		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
@@ -2306,9 +2255,9 @@ impl Desktop {
 					.map(|rest| rest.trim_start_matches('=').to_owned())
 			}) {
 			// Fixture-only: render the sign-in screen without a session. `--demo-login` shows the
-			// returning-owner layout with a synthetic roster and pre-ticked consent (the actions
-			// stay inert); `=new` shows the first-run layout, `=panels` the opened disclosures
-			// and `=failed` the attention banner.
+			// returning-owner layout with a synthetic roster (the actions stay inert); `=new`
+			// shows the first-run layout, `=panels` the opened disclosures and `=failed` the
+			// attention banner.
 			if !matches!(rest.as_str(), "new" | "panels") {
 				messaging.accounts = state
 					.user
@@ -2316,7 +2265,6 @@ impl Desktop {
 					.map(test_support::demo_accounts)
 					.unwrap_or_default();
 			}
-			authorized = true;
 			state.user = None;
 			state.status = "Disconnected";
 			sign_in_panels = rest == "panels";
@@ -2537,7 +2485,6 @@ impl Desktop {
 			roster_generation: None,
 			close_approved: false,
 			fixture_only: demo,
-			authorized,
 			about_open: sign_in_panels,
 			token_open: sign_in_panels,
 			sign_in_height: 0.0,
@@ -4339,6 +4286,11 @@ impl Desktop {
 				Command::GifFavorites { request, .. } => Event::GifFavorites {
 					request,
 					result: Ok(self.state.gifs.favorites.clone()),
+					frequent_emoji: self.state.emoji_frecency.ranking.clone(),
+				},
+				Command::EmojiFrecency { request, .. } => Event::EmojiFrecency {
+					request,
+					result: Ok(self.state.emoji_frecency.ranking.clone()),
 				},
 				Command::CreateGuild { sequence, .. } => Event::GuildCreated {
 					sequence,
@@ -5435,6 +5387,7 @@ impl Desktop {
 				}
 			}
 			self.state.interrupt_gif_favorites();
+			self.state.interrupt_emoji_frecency();
 			self.connection = None;
 			self.pending_save = None;
 			self.current_login = None;
@@ -5609,6 +5562,11 @@ impl eframe::App for Desktop {
 	fn persist_egui_memory(&self) -> bool {
 		false
 	}
+	fn repaint_on_device_event(&mut self, event: &winit::event::DeviceEvent) -> Option<bool> {
+		// Raw motion duplicates the window's cursor events, which still repaint for hover;
+		// Serein never reads it (`PointerState::motion`).
+		matches!(event, winit::event::DeviceEvent::MouseMotion { .. }).then_some(false)
+	}
 	fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
 		// Before the pass begins, so the whole frame resolves System to the same theme.
 		self.sync_system_theme(ctx);
@@ -5616,6 +5574,8 @@ impl eframe::App for Desktop {
 			self.maximize_after_show = false;
 			self.window.set_maximized(true);
 		}
+		// Only this frame's sample may schedule the next placement wake.
+		self.geometry_rest.begin_frame();
 		// Read native size independently of viewport rectangles: Wayland has no global position,
 		// so egui-winit cannot supply either rectangle there. Native scale excludes egui zoom.
 		if !self.fixture_only
@@ -5653,10 +5613,7 @@ impl eframe::App for Desktop {
 					self.app_settings.current.window_geometry,
 					std::time::Instant::now(),
 				) {
-					app_settings::Observation::Saved => {}
-					app_settings::Observation::Pending => {
-						ctx.request_repaint_after(app_settings::GEOMETRY_REST_DELAY);
-					}
+					app_settings::Observation::Saved | app_settings::Observation::Pending => {}
 					app_settings::Observation::Commit => {
 						self.app_settings.current.window_geometry = Some(geometry);
 						self.app_settings.state.dirty = true;
@@ -5723,6 +5680,12 @@ impl eframe::App for Desktop {
 	fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
 		// Last frame's shapes are painted; video textures retired since then can go.
 		gpu_video::collect();
+		// `raw_input_hook` samples placements before the pass begins, where a requested repaint
+		// can be dropped when the pass starts, so the frame that saves a resting one is asked here.
+		// Every pass asks: a discarded pass's request would arrive stale and be ignored.
+		if let Some(wake) = self.geometry_rest.wake() {
+			ctx.request_repaint_after(wake);
+		}
 		let search_focused = {
 			#[cfg(feature = "demo")]
 			{
@@ -6866,6 +6829,15 @@ impl eframe::App for Desktop {
 			}
 			if let Some(command) = self.state.take_gif_favorites_command() {
 				commands.push(command);
+			}
+			let now = std::time::Instant::now();
+			if let Some(command) = self.state.take_emoji_frecency_command(now) {
+				commands.push(command);
+			} else if let Some(due) = self.state.emoji_frecency_due()
+				&& due > now
+			{
+				// A save blocked past its time waits for the event that unblocks it.
+				ctx.request_repaint_after(due - now);
 			}
 			commands.extend(self.state.take_preload_retries());
 			for command in commands {

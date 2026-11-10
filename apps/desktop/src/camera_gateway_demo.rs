@@ -211,17 +211,20 @@ impl eframe::App for EvidenceApp {
 		{
 			let output = self.output.clone();
 			self.writer = Some(std::thread::spawn(move || {
-				if image.size[0] > 4096 || image.size[1] > 4096 {
+				if image.resolution()[0] > 4096 || image.resolution()[1] > 4096 {
 					return Err("Screenshot exceeds the 4096-pixel dimension limit".into());
 				}
 				let bytes: Vec<u8> = image
-					.pixels
+					.pixels()
 					.iter()
 					.flat_map(|pixel| pixel.to_srgba_unmultiplied())
 					.collect();
-				let image =
-					image::RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, bytes)
-						.ok_or("Invalid screenshot pixel count")?;
+				let image = image::RgbaImage::from_raw(
+					image.resolution()[0] as u32,
+					image.resolution()[1] as u32,
+					bytes,
+				)
+				.ok_or("Invalid screenshot pixel count")?;
 				image
 					.save_with_format(&output, image::ImageFormat::Png)
 					.map_err(|error| error.to_string())?;

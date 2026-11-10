@@ -7,12 +7,12 @@
 //! web client. Nothing here carries account data; it is the same for every user.
 
 /// Chrome version advertised on Windows, where verification runs in Chromium WebView2.
-const CHROME_MAJOR: &str = "128";
+const CHROME_MAJOR: &str = "149";
 /// Safari version advertised on macOS and Linux, where verification runs in WebKit.
-const SAFARI_VERSION: &str = "18.5";
-/// `sec-ch-ua` brand list sent by [`CHROME_MAJOR`]; Safari sends no client hints.
-pub const CHROME_SEC_CH_UA: &str =
-	r#""Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128""#;
+const SAFARI_VERSION: &str = "26.4";
+/// `sec-ch-ua` brand list of [`CHROME_MAJOR`]; the GREASE brand changes with every major.
+const CHROME_SEC_CH_UA: &str =
+	r#""Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24""#;
 /// Build number of the official web client this fingerprint mirrors.
 pub const CLIENT_BUILD_NUMBER: u64 = 634_304;
 pub const LOCALE: &str = "en-US";
@@ -45,11 +45,6 @@ pub fn browser() -> &'static str {
 	if WEBKIT { "Safari" } else { "Chrome" }
 }
 
-/// `sec-ch-ua-platform` value, or `None` when the advertised browser sends no client hints.
-pub fn client_hint_platform() -> Option<&'static str> {
-	(!WEBKIT).then_some("\"Windows\"")
-}
-
 /// Browser version paired with [`browser`].
 pub fn browser_version() -> String {
 	if WEBKIT {
@@ -75,81 +70,36 @@ pub fn user_agent() -> String {
 	}
 }
 
-/// TLS and HTTP/2 handshake of [`browser`], so every transport agrees with [`user_agent`].
-/// Bump the profile with `CHROME_MAJOR`/`SAFARI_VERSION`.
-pub fn emulation() -> wreq_util::Emulation {
-	use wreq_util::{Platform, Profile};
-	let platform = match std::env::consts::OS {
-		"macos" => Platform::MacOS,
-		"windows" => Platform::Windows,
-		_ => Platform::Linux,
+#[cfg(feature = "transport")]
+mod transport;
+#[cfg(feature = "transport")]
+pub use transport::{emulation, websocket};
+
+/// Client-hint headers (`sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`) Chrome sends on
+/// every same-origin fetch. Safari does not implement client hints, so it gets none.
+pub fn client_hints() -> Option<[(&'static str, String); 3]> {
+	if browser() != "Chrome" {
+		return None;
+	}
+	let platform = if cfg!(target_os = "windows") {
+		"Windows"
+	} else {
+		"Linux"
 	};
-	wreq_util::Emulation::builder()
-		.profile(if WEBKIT {
-			Profile::Safari18_5
-		} else {
-			Profile::Chrome128
-		})
-		.platform(platform)
-		// Its headers describe a page navigation; each transport sends its own.
-		.headers(false)
-		.build()
+	Some([
+		("sec-ch-ua", CHROME_SEC_CH_UA.to_owned()),
+		("sec-ch-ua-mobile", "?0".to_owned()),
+		("sec-ch-ua-platform", format!("\"{platform}\"")),
+	])
 }
 
-/// Header names, in order, as a browser writes its HTTP/1.1 WebSocket upgrade. Cloudflare
-/// answers the Gateway upgrade with 403 when `Origin` arrives lowercased, as hyper sends it.
-const WEBSOCKET_HEADER_ORDER: [&str; 12] = [
-	"Host",
-	"Connection",
-	"Pragma",
-	"Cache-Control",
-	"User-Agent",
-	"Upgrade",
-	"Origin",
-	"Sec-WebSocket-Version",
-	"Accept-Encoding",
-	"Accept-Language",
-	"Sec-WebSocket-Key",
-	"Sec-WebSocket-Extensions",
-];
-
-/// Opens a WebSocket from discord.com's page origin with the browser TLS handshake.
-/// Proxies are not used, matching the previous direct Gateway and voice dialing.
-pub async fn websocket(
-	url: &str,
-	config: tokio_tungstenite::tungstenite::protocol::WebSocketConfig,
-) -> Result<tokio_tungstenite::WebSocketStream<wreq::Upgraded>, &'static str> {
-	let mut casing = wreq::header::OrigHeaderMap::new();
-	for name in WEBSOCKET_HEADER_ORDER {
-		casing.insert(name);
+/// `Accept-Encoding` the advertised browser sends; Safari has no zstd.
+pub fn accept_encoding() -> &'static str {
+	if browser() == "Chrome" {
+		"gzip, deflate, br, zstd"
+	} else {
+		"gzip, deflate, br"
 	}
-	let socket = wreq::Client::builder()
-		.emulation(emulation())
-		.no_proxy()
-		.redirect(wreq::redirect::Policy::none())
-		.retry(wreq::retry::Policy::never())
-		.build()
-		.map_err(|_| "WebSocket client unavailable")?
-		.websocket(url)
-		.header(wreq::header::USER_AGENT, user_agent())
-		.header(wreq::header::ORIGIN, "https://discord.com")
-		.header(wreq::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
-		.header(wreq::header::CACHE_CONTROL, "no-cache")
-		.header(wreq::header::PRAGMA, "no-cache")
-		.orig_headers(casing)
-		.send()
-		.await
-		.map_err(|_| "WebSocket connection failed")?
-		.into_websocket()
-		.await
-		.map_err(|_| "WebSocket handshake rejected")?;
-	// Hand the upgraded stream to the caller's tungstenite with its own frame limits.
-	Ok(tokio_tungstenite::WebSocketStream::from_raw_socket(
-		socket.into_inner(),
-		tokio_tungstenite::tungstenite::protocol::Role::Client,
-		Some(config),
-	)
-	.await)
 }
 
 /// Gateway `identify.d.properties` and the decoded `X-Super-Properties` payload.

@@ -469,8 +469,7 @@ impl DiscordApi {
 		let client = self
 			.upload_client
 			.get_or_try_init(|| async {
-				wreq::Client::builder()
-					.emulation(crate::browser_emulation())
+				crate::browser_transport(wreq::Client::builder())
 					.redirect(wreq::redirect::Policy::none())
 					.retry(wreq::retry::Policy::never())
 					.no_proxy()
@@ -479,7 +478,6 @@ impl DiscordApi {
 					.timeout(Duration::from_secs(300))
 					.pool_max_idle_per_host(1)
 					.pool_idle_timeout(Duration::from_secs(30))
-					.user_agent(client_core::fingerprint::user_agent())
 					.build()
 					.map_err(|_| Failure::Network)
 			})

@@ -1643,8 +1643,6 @@ main-restoring-screen-welcome-back = おかえり
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = 保存されたアカウント
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = 私はこのアカウントを所有しており、このセッションを承認しています。
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = パスワードと 2FA は Discord 自体のログイン ページに残ります。セッション トークンのみが OS 資格情報ストアに保持されます。
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = セレインについて
@@ -1691,6 +1689,8 @@ markdown-confirm-external-link-cancel = キャンセル
 markdown-confirm-external-link-open-external-link = 外部リンクを開きますか?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = ブラウザで開く
+# Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = リンクに収まるのはこのメッセージの先頭部分だけで、残りは送信されません。このリンク先は既定のブラウザーで開きます。
 # Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = この宛先はデフォルトのブラウザで開きます。
 # Context: show_emoji
@@ -2276,6 +2276,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Mac で再�
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = 1 つのウィンドウを共有している場合でも、他のアプリのサウンドを共有します。 Serein 自身の音声は省略されています。
 # Context: body
 screen-body-share-system-audio = システムオーディオを共有する
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = 共有中のアプリの音声を共有します。画面を共有する場合は他のすべてのアプリの音声を共有します。Serein 自身の音声は含まれません。
 # Context: body
 screen-body-show-cursor = カーソルを表示
 # Context: body
@@ -3867,6 +3869,10 @@ timeline-message-actions-delete-message = メッセージを削除…
 timeline-message-actions-edit-message = メッセージを編集する
 # Context: message_actions
 timeline-message-actions-extensions = 拡張機能
+# Context: menu
+extensions-ui-menu-group-user = ユーザー
+# Context: menu
+extensions-ui-menu-group-conversation = 会話
 # Context: message_actions
 timeline-message-actions-forward = 転送
 # Context: message_actions
@@ -3912,6 +3918,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = メッセージを読み込んでいます…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = メッセージが削除されました
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = ブロックしたユーザーのメッセージ
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 現在の権限情報ではメッセージ履歴を利用できません。
 # Context: show_with_scroll
@@ -4140,8 +4148,6 @@ voice-device-combo-device-unavailable = デバイスが使用不可
 voice-device-default = システムのデフォルト
 # Context: frame
 voice-frame-open-voice = オープンな声
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% が元のレベルです。レベルを高くすると歪む可能性があります。
 # Context: labels
 voice-labels-choose-camera = カメラを選択してください
 # Context: live_badge
@@ -4242,12 +4248,6 @@ voice-voice-participant-microphone-muted = マイクがミュートされまし�
 voice-voice-participant-muted-by-server = サーバーによってミュートされています
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = このデバイスではミュートされています
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = すべての音声設定でアルゴリズムを選択します。
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen は受信音声をオフにし、マイクをミュートします。
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = 話したいときは、設定したショートカットを長押しします。
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = これらのコントロールを使用するには、音声対応ビルドをインストールします。
 # Context: voice_popup_content
@@ -4500,6 +4500,8 @@ voice-recipient-stop-ringing = 呼び出しを停止
 voice-recipient-ringing = 呼び出し中…
 voice-recipient-not-in-call = 通話に未参加
 reconnect-now = 今すぐ再接続
+
+message-preview-limit = このメッセージはネイティブテキストレイアウトの上限を超えています。
 
 voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました
 

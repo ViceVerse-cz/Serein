@@ -578,7 +578,7 @@ impl ThemeEditor {
 						}
 						changed |= row(ui, "Image fit", |ui| {
 							let mut changed = false;
-							egui::ComboBox::from_id_salt("image-fit")
+							crate::design::Select::from_id_salt("image-fit")
 								.selected_text(crate::i18n::translate_if_key(
 									&(match background.fit {
 										BackgroundFit::Cover => {
@@ -863,6 +863,7 @@ impl ThemeEditor {
 									("Body text", &mut style.body_size, 15, 10, 28),
 									("Headings", &mut style.heading_size, 20, 12, 40),
 									("Buttons", &mut style.button_size, 14, 10, 28),
+									("Icons", &mut style.icon_size, 20, 16, 24),
 									("Small text", &mut style.small_size, 12, 10, 28),
 									("Code", &mut style.monospace_size, 14, 10, 28),
 									("Control height", &mut style.control_height, 32, 24, 56),
@@ -1029,7 +1030,7 @@ impl ThemeEditor {
 		if self.cover_thumbnail.is_none()
 			&& let Some(image) = &self.cover
 			&& image
-				.size
+				.resolution()
 				.iter()
 				.all(|side| *side <= ui.ctx().input(|input| input.max_texture_side))
 		{
@@ -1122,7 +1123,7 @@ impl ThemeEditor {
 		if self.thumbnail.is_none()
 			&& let Some(image) = &self.image
 			&& image
-				.size
+				.resolution()
 				.iter()
 				.all(|side| *side <= ui.ctx().input(|input| input.max_texture_side))
 		{
@@ -1173,8 +1174,8 @@ impl ThemeEditor {
 							ui,
 							&format!(
 								"{} × {} {}",
-								image.size[0],
-								image.size[1],
+								image.resolution()[0],
+								image.resolution()[1],
 								crate::i18n::translate("theme-editor-image-card-pixels")
 							),
 						);
@@ -1311,7 +1312,7 @@ fn section_controls(
 			crate::i18n::translate("theme-editor-section-controls-selected-section"),
 			13.0,
 		));
-		egui::ComboBox::from_id_salt("background-section")
+		crate::design::Select::from_id_salt("background-section")
 			.width(ui.available_width())
 			.selected_text(crate::i18n::translate_if_key(selected.label_key()))
 			.show_ui(ui, |ui| {
