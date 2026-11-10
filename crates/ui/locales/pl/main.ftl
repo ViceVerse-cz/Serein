@@ -931,6 +931,12 @@ extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Zako
 # Context: card_body
 extensions-ui-card-body-open-tool = Otwórz narzędzie
 # Context: card_body
+extensions-ui-card-body-ungrouped = Pokaż pozycje bez grupowania
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = Umieść pozycje tej wtyczki bezpośrednio w menu, pasku wiadomości i pasku pisania zamiast pod jej nazwą w Extensions lub Tools.
+# Context: settings
+extensions-ui-plugin-bar-left = Przyciski wtyczek po lewej
+# Context: card_body
 extensions-ui-card-body-plugin = Wtyczka
 # Context: card_body
 extensions-ui-card-body-remove = Usunąć

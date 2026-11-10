@@ -114,6 +114,13 @@ impl GroupMenu {
 				self.mute = Some((channel.id, !muted));
 				ui.close();
 			}
+			crate::extensions_ui::context_menu_bottom(
+				ui,
+				&[extensions::MenuTarget::Channel {
+					channel_id: channel.id.to_string(),
+					guild_id: None,
+				}],
+			);
 			ui.separator();
 			if row(ui, "group-menu-menu-leave-group", colors.danger).clicked() {
 				self.open(state, channel, false);

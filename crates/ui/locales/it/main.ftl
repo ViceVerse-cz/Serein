@@ -931,6 +931,12 @@ extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Comp
 # Context: card_body
 extensions-ui-card-body-open-tool = Strumento aperto
 # Context: card_body
+extensions-ui-card-body-ungrouped = Mostra voci non raggruppate
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = Metti le voci di questo plugin direttamente nei menu, nella barra del messaggio e in quella di scrittura invece che sotto il suo nome in Extensions o Tools.
+# Context: settings
+extensions-ui-plugin-bar-left = Pulsanti dei plugin a sinistra
+# Context: card_body
 extensions-ui-card-body-plugin = Collegare
 # Context: card_body
 extensions-ui-card-body-remove = Rimuovere

@@ -931,6 +931,12 @@ extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Schl
 # Context: card_body
 extensions-ui-card-body-open-tool = Werkzeug öffnen
 # Context: card_body
+extensions-ui-card-body-ungrouped = Einträge einzeln anzeigen
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = Die Einträge dieses Plugins direkt in Menüs, der Nachrichtenleiste und der Eingabeleiste zeigen statt unter seinem Namen in Extensions oder Tools.
+# Context: settings
+extensions-ui-plugin-bar-left = Plugin-Schaltflächen links im Eingabefeld
+# Context: card_body
 extensions-ui-card-body-plugin = Plugin
 # Context: card_body
 extensions-ui-card-body-remove = Entfernen

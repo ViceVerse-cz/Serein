@@ -263,6 +263,8 @@ pub const DEFAULT_IDLE_TIMEOUT_SECS: u32 = 10 * 60;
 pub struct MessagingUi {
 	/// Interface tweaks switched on by enabled plugins.
 	interface_tweaks: std::sync::Arc<std::collections::BTreeSet<extensions::InterfaceTweak>>,
+	/// Set while resubmitting a send whose plugin hooks already ran.
+	send_hooks_ran: bool,
 	poll_creator: polls::Creator,
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
@@ -2893,6 +2895,38 @@ impl MessagingUi {
 			.filter(|(id, _)| *id == target)
 			.map_or_else(|| "an earlier message".to_owned(), |(_, name)| name.clone())
 	}
+	/// Saves an edit whose text plugins' send hooks rewrote, as the composer's own save does.
+	fn save_hooked_edit(
+		&mut self,
+		state: &mut State,
+		channel: Id,
+		message: Id,
+		text: String,
+		commands: &mut Vec<Command>,
+	) {
+		let Some(draft) = self.editing.as_ref().map(|(_, _, draft)| draft.clone()) else {
+			return;
+		};
+		match (state.freshness == Freshness::Fresh)
+			.then(|| state.prepare_edit(channel, message, text))
+			.flatten()
+		{
+			Some(command) => {
+				if let Command::Edit { content, .. } = &command {
+					self.edit_sent = Some(SubmittedEdit {
+						channel,
+						message,
+						draft,
+						content: content.clone(),
+					});
+				}
+				commands.push(command);
+			}
+			None => {
+				state.status = "Edit kept. Wait for your current message and connection, and enter nonempty text.";
+			}
+		}
+	}
 	fn submit_composer(
 		&mut self,
 		state: &mut State,
@@ -2903,6 +2937,12 @@ impl MessagingUi {
 			return;
 		};
 		if self.upload_busy || self.image_share_requested.is_some() || !state.can_send(channel) {
+			return;
+		}
+		// Plugins' send hooks see the text first; the send resumes when they finish.
+		if !self.send_hooks_ran
+			&& (self.extensions.sending() || self.extensions.hold_send(ctx, state))
+		{
 			return;
 		}
 		let draft = state.drafts.get(&channel).map_or("", String::as_str);
@@ -3669,6 +3709,7 @@ impl MessagingUi {
                     };
                     if !editing_here {
                         self.extensions.composer_menu(ui, state);
+                        self.extensions.composer_bar(ui, state, true);
                     }
                     if let Some(attach) = attach {
                         // With the direct-upload-button tweak, a click chooses files at once and
@@ -3747,6 +3788,10 @@ impl MessagingUi {
                         // A chosen GIF is its own message; the typed draft stays untouched.
                         if self.emoji_picker.is_open() {
                             self.reaction_picker.dismiss(state, commands);
+                        }
+                        // Plugin buttons sit left of GIF and emoji, as in Discord.
+                        if !editing_here {
+                            self.extensions.composer_bar(ui, state, false);
                         }
                         let pick = match pick {
                             Some(emoji_picker::Pick::Insert(text)) => Some(text),
@@ -3991,7 +4036,7 @@ impl MessagingUi {
                                     visuals.selection.bg_fill = egui::Color32::TRANSPARENT;
                                 }
                                 TextEdit::multiline(draft)
-                                    .interactive(keyboard_enabled)
+                                    .interactive(keyboard_enabled && !self.extensions.sending())
                                     .layouter(&mut layouter)
                                     .id(composer_id)
                                     .event_filter(egui::EventFilter {
@@ -4068,6 +4113,16 @@ impl MessagingUi {
                             self.menu_paste = Some(composer_id);
                         }
                         let edit = output.response;
+                        // Plugins' composer status sits at the box's lower right, like a count.
+                        if !editing_here && let Some(status) = self.extensions.composer_status() {
+                            ui.painter().text(
+                                edit.rect.right_bottom() + egui::vec2(-2.0, 10.0),
+                                egui::Align2::RIGHT_BOTTOM,
+                                status,
+                                egui::FontId::proportional(11.0),
+                                design::palette(ui).muted,
+                            );
+                        }
                         let cleared = draft.is_empty();
                         if edit.changed() || mention_changed {
                             if editing_here && let Some((_, _, modified)) = &mut self.edit_modified {
@@ -4131,6 +4186,11 @@ impl MessagingUi {
                                 let with_files = edit_files && !self.attachment_files.is_empty();
                                 if edit_files && (self.upload_busy || self.attachment_loading > 0) {
                                     state.status = "Wait for the files to finish loading or the current upload.";
+                                } else if !with_files && !self.send_hooks_ran
+                                    && (self.extensions.sending()
+                                        || self.extensions.hold_edit(ctx, state, *edit_channel, *message, text.clone())) {
+                                    // Plugins' send hooks see the edited text first; the save
+                                    // resumes once they finish.
                                 } else if state.freshness == Freshness::Fresh
                                     && let Some(command) = if with_files {
                                         state.prepare_edit_adding_files(*edit_channel, *message, text, self.attachment_files.len())
@@ -4598,6 +4658,11 @@ impl MessagingUi {
 	pub fn interface_tweak_on(&self, tweak: extensions::InterfaceTweak) -> bool {
 		self.interface_tweaks.contains(&tweak)
 	}
+	/// Text messages of the open conversation drawn last frame, for plugins that follow
+	/// messages coming into view.
+	pub fn take_shown_messages(&mut self) -> Vec<Id> {
+		std::mem::take(&mut self.timeline.shown)
+	}
 	/// Replaces the interface tweaks that enabled plugins switched on.
 	pub fn set_interface_tweaks(
 		&mut self,
@@ -4762,6 +4827,26 @@ impl MessagingUi {
 		user_menu::set_voice_available(&ctx, self.voice_available);
 		self.extensions.reset_theme_shortcut(&ctx);
 		self.extensions.context_menus(&ctx, state);
+		self.extensions.run_draft_hooks(&ctx, state);
+		// A send held for plugins' send hooks goes out once they finished.
+		match self.extensions.take_ready_send(state) {
+			Some((channel, None, text)) if state.selected == Some(channel) => {
+				state.drafts.insert(channel, text);
+				self.send_hooks_ran = true;
+				self.submit_composer(state, &ctx, &mut commands);
+				self.send_hooks_ran = false;
+			}
+			// An edit is saved with the hooks' text if it is still the one being edited.
+			Some((channel, Some(message), text))
+				if self
+					.editing
+					.as_ref()
+					.is_some_and(|(c, m, _)| *c == channel && *m == message) =>
+			{
+				self.save_hooked_edit(state, channel, message, text, &mut commands);
+			}
+			_ => {}
+		}
 		if self.extensions.has_result() {
 			self.settings.open = false;
 		}
@@ -5488,6 +5573,7 @@ impl MessagingUi {
 						self.timeline.instant_scrolling =
 							!self.reading_preferences.smooth_scrolling;
 						self.timeline.extension_actions = self.extensions.message_actions();
+						self.timeline.alternatives = self.extensions.alternatives();
 						self.timeline.quick_reactions =
 							Some(self.reaction_picker.quick_reactions(state));
 						let mut seen = std::collections::BTreeSet::new();
@@ -5532,6 +5618,9 @@ impl MessagingUi {
 							state.request_author_members(&self.timeline.visible_authors)
 						{
 							commands.push(command);
+						}
+						if let Some(id) = self.timeline.alternative_toggle.take() {
+							self.extensions.toggle_alternative(id);
 						}
 						if let Some((action, text, target)) = self.timeline.extension_request.take()
 						{

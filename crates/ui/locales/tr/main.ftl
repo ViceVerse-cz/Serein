@@ -932,6 +932,12 @@ extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Bu u
 # Context: card_body
 extensions-ui-card-body-open-tool = Aracı aç
 # Context: card_body
+extensions-ui-card-body-ungrouped = Girişleri gruplamadan göster
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = Bu eklentinin girişlerini Extensions veya Tools altındaki adı yerine doğrudan menülere, mesaj araç çubuğuna ve yazma çubuğuna koy.
+# Context: settings
+extensions-ui-plugin-bar-left = Eklenti düğmeleri solda
+# Context: card_body
 extensions-ui-card-body-plugin = Eklenti
 # Context: card_body
 extensions-ui-card-body-remove = Kaldırmak

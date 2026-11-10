@@ -956,6 +956,12 @@ extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Doko
 # Context: card_body
 extensions-ui-card-body-open-tool = Otevřete nástroj
 # Context: card_body
+extensions-ui-card-body-ungrouped = Zobrazit položky bez seskupení
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = Umístit položky tohoto pluginu přímo do nabídek, panelu zprávy a lišty psaní místo pod jeho názvem v Extensions nebo Tools.
+# Context: settings
+extensions-ui-plugin-bar-left = Tlačítka pluginů v psaní vlevo
+# Context: card_body
 extensions-ui-card-body-plugin = Plugin
 # Context: card_body
 extensions-ui-card-body-remove = Odstranit

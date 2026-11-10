@@ -932,6 +932,12 @@ extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = こ�
 # Context: card_body
 extensions-ui-card-body-open-tool = ツールを開く
 # Context: card_body
+extensions-ui-card-body-ungrouped = 項目をグループ化せずに表示
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = このプラグインの項目を Extensions や Tools の下ではなく、メニュー、メッセージのツールバー、入力バーに直接置きます。
+# Context: settings
+extensions-ui-plugin-bar-left = プラグインのボタンを入力欄の左に置く
+# Context: card_body
 extensions-ui-card-body-plugin = プラグイン
 # Context: card_body
 extensions-ui-card-body-remove = 取り除く

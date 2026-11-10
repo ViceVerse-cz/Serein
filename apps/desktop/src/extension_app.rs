@@ -1286,6 +1286,12 @@ mod tests {
 				id: "show".into(),
 				label: "Show".into(),
 				surface: Surface::Panel,
+				icon: None,
+				placement: None,
+				menu: None,
+				toggle: false,
+				icon_on: None,
+				needs_draft: false,
 			}],
 		}
 	}

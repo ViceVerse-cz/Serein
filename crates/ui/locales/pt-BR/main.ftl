@@ -931,6 +931,12 @@ extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Term
 # Context: card_body
 extensions-ui-card-body-open-tool = Ferramenta aberta
 # Context: card_body
+extensions-ui-card-body-ungrouped = Mostrar itens sem agrupar
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = Colocar os itens deste plug-in diretamente nos menus, na barra da mensagem e na barra de escrita em vez de sob o nome dele em Extensions ou Tools.
+# Context: settings
+extensions-ui-plugin-bar-left = Botões de plug-ins à esquerda
+# Context: card_body
 extensions-ui-card-body-plugin = Plug-in
 # Context: card_body
 extensions-ui-card-body-remove = Remover

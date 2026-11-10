@@ -1594,32 +1594,17 @@ impl SearchUi {
 		let readable = text != model::PREVIEW_LIMIT_NOTICE;
 		popup.show(|ui| {
 			ui.set_min_width(160.0);
-			if readable && !self.extension_actions.is_empty() {
-				let mut chosen = None;
-				ui.menu_button(
-					crate::i18n::translate("timeline-message-actions-extensions"),
-					|ui| {
-						for action in self.extension_actions.iter() {
-							if ui.button(&action.label).clicked() {
-								chosen = Some(action.clone());
-								ui.close();
-							}
-						}
-					},
-				);
-				if let Some(action) = chosen {
-					self.extension_request = Some((
-						action,
-						text.clone(),
-						crate::extensions_ui::MessageTarget {
-							channel: hit.channel,
-							message: hit.id,
-							author: hit.author.id,
-						},
-					));
-				}
-				ui.separator();
-			}
+			let actions = if readable {
+				self.extension_actions.clone()
+			} else {
+				Default::default()
+			};
+			let mut chosen = crate::extensions_ui::message_menu_group(ui, &actions);
+			chosen = chosen.or(crate::extensions_ui::message_menu_slot(
+				ui,
+				&actions,
+				extensions::Placement::Top,
+			));
 			// The selection Copy is offered only for a selection made in this result's text.
 			if readable
 				&& crate::select::has_selection_in(ui.ctx(), response.rect)
@@ -1638,6 +1623,11 @@ impl SearchUi {
 				ui.ctx().copy_text(text.clone());
 				ui.close();
 			}
+			chosen = chosen.or(crate::extensions_ui::message_menu_slot(
+				ui,
+				&actions,
+				extensions::Placement::AfterCopy,
+			));
 			if let Some(link) = state
 				.channel(hit.channel)
 				.and_then(|channel| crate::markdown::discord_url(channel, Some(hit.id)))
@@ -1658,6 +1648,28 @@ impl SearchUi {
 			{
 				ui.ctx().copy_text(hit.id.to_string());
 				ui.close();
+			}
+			if actions
+				.iter()
+				.any(|action| action.slot == Some(extensions::Placement::Bottom))
+			{
+				ui.separator();
+				chosen = chosen.or(crate::extensions_ui::message_menu_slot(
+					ui,
+					&actions,
+					extensions::Placement::Bottom,
+				));
+			}
+			if let Some(action) = chosen {
+				self.extension_request = Some((
+					action,
+					text.clone(),
+					crate::extensions_ui::MessageTarget {
+						channel: hit.channel,
+						message: hit.id,
+						author: hit.author.id,
+					},
+				));
 			}
 		});
 	}

@@ -26,6 +26,7 @@ sys-locale = "=0.3.2"
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 ruzstd = { version = "0.9.1", default-features = false, features = ["std"] }
 skrifa = { version = "=0.44.0", default-features = false, features = ["std"] }
+resvg = { version = "=0.48.1", default-features = false }
 
 [dev-dependencies]
 test-support.workspace = true

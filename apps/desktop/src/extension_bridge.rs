@@ -26,9 +26,9 @@ struct Pending {
 }
 impl Pending {
 	fn reactive(&self) -> bool {
-		self.invocation
-			.as_ref()
-			.is_some_and(|(_, input, _)| input.message_event.is_some() || input.app_event.is_some())
+		self.invocation.as_ref().is_some_and(|(_, input, _)| {
+			input.message_event.is_some() || input.app_event.is_some() || input.hook.is_some()
+		})
 	}
 }
 
@@ -198,6 +198,9 @@ pub struct Bridge {
 	message_events: VecDeque<QueuedEvent>,
 	message_event_at: Option<Instant>,
 	message_events_dropped: bool,
+	/// Messages already reported as shown in the open conversation, with their revision.
+	shown_seen: BTreeMap<model::Id, u64>,
+	shown_channel: Option<model::Id>,
 	app_key: Option<crate::extension_app::ChangeKey>,
 	extended_key: Option<u64>,
 	app_context_changed: bool,
@@ -490,6 +493,34 @@ impl Bridge {
 			self.message_events.push_back(queued);
 		}
 	}
+	/// Reports each text message of the open conversation once as it comes into view, and
+	/// again after an edit, to plugins that follow messages (an automatic translation).
+	fn shown_events(&mut self, state: &State, messaging: &mut ui::MessagingUi) {
+		let shown = messaging.take_shown_messages();
+		if self.shown_channel != state.selected {
+			self.shown_seen.clear();
+			self.shown_channel = state.selected;
+		}
+		if shown.is_empty() || !self.has_message_events(state) {
+			return;
+		}
+		for id in shown {
+			let Some(revision) = state.timeline.get(id).map(|message| message.revision) else {
+				continue;
+			};
+			if self.shown_seen.get(&id) == Some(&revision) {
+				continue;
+			}
+			let Some(event) = crate::extension_events::shown(state, id) else {
+				continue;
+			};
+			if self.shown_seen.len() >= 4096 {
+				self.shown_seen.clear();
+			}
+			self.shown_seen.insert(id, revision);
+			self.message_event(state, event);
+		}
+	}
 	pub fn cancel_stale_message_events(&mut self, state: &State) {
 		let available = self.scope_current(state);
 		self.message_events.retain(|event| {
@@ -652,7 +683,40 @@ impl Bridge {
 				&output.background_effects,
 			);
 		}
-		if invocation.message_event.is_none() && invocation.app_event.is_none() {
+		if !output.alternatives.is_empty() {
+			messaging
+				.extensions
+				.set_alternatives(&id, &output.alternatives);
+		}
+		if let Some(local) = &output.local_message
+			&& let Some(channel) = if local.channel_id.is_empty() {
+				state.selected
+			} else {
+				local.channel_id.parse::<u64>().ok().map(model::Id)
+			} {
+			state.push_local_message(channel, local.content.clone());
+		}
+		if let Some(status) = &output.composer_status {
+			messaging.extensions.set_composer_status(&id, status);
+		}
+		// A send hook's last answer carries the text to send; a request means more is coming.
+		if matches!(
+			invocation.hook,
+			Some(extensions::Hook::Send | extensions::Hook::Edit)
+		) && output.fetches.is_empty()
+		{
+			messaging
+				.extensions
+				.send_hook_done(&id, output.replacement.clone(), ctx, state);
+		}
+		// Results that only changed the conversation or a setting need no window.
+		let shows_something =
+			!output.panel.is_empty() || output.replacement.is_some() || !output.effects.is_empty();
+		if invocation.message_event.is_none()
+			&& invocation.app_event.is_none()
+			&& invocation.hook.is_none()
+			&& shows_something
+		{
 			messaging
 				.extensions
 				.present_output(id, invocation, context, output, state);
@@ -795,9 +859,32 @@ impl Bridge {
 						if let Some(schedule) = self.ticks.get_mut(id) {
 							schedule.paused = true;
 						}
+						// A failed plugin's interface changes end with it, like any other error.
+						if let Some(entry) = self
+							.installed
+							.iter_mut()
+							.find(|entry| entry.manifest.id == *id)
+						{
+							entry.interface_tweaks.clear();
+						}
 						messaging.extensions.status = format!(
 							"{id} animation paused after a failed tick; disable and re-enable it to retry. {error}"
 						);
+						continue;
+					}
+					if let Some((id, input, _)) =
+						pending.as_ref().and_then(|p| p.invocation.as_ref())
+						&& input.hook.is_some()
+					{
+						// A failed hook never blocks sending (the text goes out as it stands) and,
+						// running unasked, never disables its plugin or interrupts with a dialog.
+						if matches!(
+							input.hook,
+							Some(extensions::Hook::Send | extensions::Hook::Edit)
+						) {
+							messaging.extensions.send_hook_done(id, None, ctx, state);
+						}
+						messaging.extensions.status = format!("{id}: {error}");
 						continue;
 					}
 					if let Some((id, _, _)) = pending.as_ref().and_then(|p| p.invocation.as_ref()) {
@@ -1418,6 +1505,7 @@ impl Bridge {
 			self.pending.retain(|_, pending| pending.cleanup);
 		}
 		self.app_events(state, messaging);
+		self.shown_events(state, messaging);
 		self.queue_fetch_results();
 		let available = self.scope_current(state);
 		let installed = &self.installed;
@@ -2193,6 +2281,12 @@ mod tests {
 				id: "app-event".into(),
 				label: "Observe".into(),
 				surface: Surface::AppEvent,
+				icon: None,
+				placement: None,
+				menu: None,
+				toggle: false,
+				icon_on: None,
+				needs_draft: false,
 			});
 		bridge.app_events(&state, &messaging);
 		assert_eq!(bridge.message_events.len(), 1);
@@ -2246,6 +2340,12 @@ mod tests {
 			id: "data-event".into(),
 			label: "Observe".into(),
 			surface: Surface::AppEvent,
+			icon: None,
+			placement: None,
+			menu: None,
+			toggle: false,
+			icon_on: None,
+			needs_draft: false,
 		});
 		bridge.app_events(&state, &messaging);
 		bridge.message_events.clear();
@@ -2318,6 +2418,12 @@ mod tests {
 			id: "data-event".into(),
 			label: "Observe".into(),
 			surface: Surface::AppEvent,
+			icon: None,
+			placement: None,
+			menu: None,
+			toggle: false,
+			icon_on: None,
+			needs_draft: false,
 		});
 		let channel = state.selected.unwrap();
 		state

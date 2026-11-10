@@ -944,6 +944,12 @@ extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = 完�
 # Context: card_body
 extensions-ui-card-body-open-tool = 開啟工具
 # Context: card_body
+extensions-ui-card-body-ungrouped = 不分組顯示項目
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = 將此擴充功能的項目直接放在選單、訊息工具列和輸入列中，而不是放在 Extensions 或 Tools 中它的名稱下。
+# Context: settings
+extensions-ui-plugin-bar-left = 擴充功能按鈕放在輸入列左側
+# Context: card_body
 extensions-ui-card-body-plugin = 擴充功能
 # Context: card_body
 extensions-ui-card-body-remove = 移除

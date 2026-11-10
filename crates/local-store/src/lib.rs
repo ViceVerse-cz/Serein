@@ -104,6 +104,13 @@ pub struct AppPreferences {
 	/// First-run setup finished or skipped; absent in older preferences, so existing installs
 	/// see it once too.
 	pub setup_done: bool,
+	/// Plugin IDs whose entries sit where the plugin placed them instead of grouped under the
+	/// plugin's name; bounded like the plugin limit.
+	pub grouped_plugins: Vec<String>,
+	/// Composer toggle buttons that are on, as (plugin ID, action ID).
+	pub plugin_toggles: Vec<(String, String)>,
+	/// Plugin composer bar buttons sit next to the attach button instead of GIF and emoji.
+	pub plugin_bar_left: bool,
 }
 impl Default for AppPreferences {
 	fn default() -> Self {
@@ -149,6 +156,9 @@ impl Default for AppPreferences {
 			plaintext_login: false,
 			diagnostics_log: diagnostics::Level::Off,
 			setup_done: false,
+			grouped_plugins: Vec::new(),
+			plugin_toggles: Vec::new(),
+			plugin_bar_left: false,
 		}
 	}
 }
@@ -172,6 +182,16 @@ impl AppPreferences {
 			&& self.user_volumes.len() <= 64
 			&& self.user_volumes.iter().all(|(_, volume)| *volume <= 200)
 			&& self.muted_users.len() <= 64
+			&& self.grouped_plugins.len() <= 64
+			&& self
+				.grouped_plugins
+				.iter()
+				.all(|id| !id.is_empty() && id.len() <= 128)
+			&& self.plugin_toggles.len() <= 64
+			&& self
+				.plugin_toggles
+				.iter()
+				.all(|(plugin, action)| plugin.len() <= 128 && action.len() <= 128)
 			&& self.keybinds.is_valid()
 			&& self.image_cache.is_valid()
 			&& [&self.voice_input, &self.voice_output]

@@ -957,6 +957,12 @@ extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Fini
 # Context: card_body
 extensions-ui-card-body-open-tool = Open tool
 # Context: card_body
+extensions-ui-card-body-ungrouped = Show entries ungrouped
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = Place this plugin's entries directly in menus, the message toolbar and the composer bar instead of under its name in Extensions or Tools.
+# Context: settings
+extensions-ui-plugin-bar-left = Plugin composer buttons on the left
+# Context: card_body
 extensions-ui-card-body-plugin = Plugin
 # Context: card_body
 extensions-ui-card-body-remove = Remove

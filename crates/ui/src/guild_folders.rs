@@ -652,6 +652,12 @@ impl MessagingUi {
 							if settings || notifications || leave {
 								self.guild = Some(id);
 							}
+							crate::extensions_ui::context_menu_bottom(
+								ui,
+								&[extensions::MenuTarget::Server {
+									guild_id: id.to_string(),
+								}],
+							);
 							ui.separator();
 						}
 						if let Item::Folder(id) = item {

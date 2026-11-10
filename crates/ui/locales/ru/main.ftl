@@ -932,6 +932,12 @@ extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = За
 # Context: card_body
 extensions-ui-card-body-open-tool = Открыть инструмент
 # Context: card_body
+extensions-ui-card-body-ungrouped = Показывать пункты отдельно
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = Размещать пункты этого плагина прямо в меню, панели сообщения и строке ввода, а не под его именем в Extensions или Tools.
+# Context: settings
+extensions-ui-plugin-bar-left = Кнопки плагинов слева
+# Context: card_body
 extensions-ui-card-body-plugin = Плагин
 # Context: card_body
 extensions-ui-card-body-remove = Удалять

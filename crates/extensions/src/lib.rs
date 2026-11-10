@@ -157,6 +157,16 @@ pub enum Capability {
 	/// Send HTTPS requests to the host names listed in the manifest's `network_hosts`;
 	/// each response re-runs the requesting action.
 	Network,
+	/// Show text in place of loaded messages' content, with the plugin's icon beside the
+	/// author's name to switch back, like a translation.
+	MessageAlternatives,
+	/// Add a message only you can see to the open conversation, rendered like your own
+	/// message and dismissible, like a message preview.
+	LocalMessages,
+	/// Show a short status beside the composer while you type, like a character count.
+	ComposerStatus,
+	/// Change the text of your messages and edits just before they are sent.
+	SendHooks,
 }
 
 /// Host-defined interface behavior that a plugin may switch on for the whole client from
@@ -299,6 +309,61 @@ pub enum Surface {
 	Server,
 	/// An entry in a role's context menu; the invocation names the role and its server.
 	Role,
+	/// Runs shortly after the draft changes, with the draft; may return composer status.
+	Draft,
+	/// Runs when you send or save an edit, with the text; its `replacement` is what is sent.
+	Send,
+}
+
+/// Why the host ran a `draft` or `send` action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Hook {
+	/// The draft changed.
+	Draft,
+	/// A new message is about to be sent.
+	Send,
+	/// An edited message is about to be saved.
+	Edit,
+}
+
+/// Text shown in place of a loaded message's content, with the plugin's icon beside the
+/// author's name to switch between it and the original.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageAlternative {
+	pub channel_id: String,
+	pub message_id: String,
+	pub text: String,
+	/// The icon's tooltip, such as "Translated from Romanian".
+	pub note: String,
+	/// Show the alternative now; false keeps the original with the switch beside the name.
+	#[serde(default)]
+	pub show: bool,
+}
+
+/// A message only you can see, added to the open conversation and authored by you.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalMessage {
+	/// The conversation; empty means the open one.
+	#[serde(default)]
+	pub channel_id: String,
+	pub content: String,
+}
+
+/// Most alternatives one output may set.
+pub const MAX_ALTERNATIVES: usize = 32;
+/// Longest composer status text, in UTF-8 bytes.
+pub const MAX_COMPOSER_STATUS_BYTES: usize = 64;
+/// Longest alternative or local message text, in UTF-8 bytes.
+pub const MAX_CHAT_TEXT_BYTES: usize = 8 * 1024;
+
+impl Surface {
+	/// Surfaces the host runs without a click, so their calls never block other actions.
+	pub fn is_hook(self) -> bool {
+		matches!(self, Self::Draft | Self::Send)
+	}
 }
 
 impl Surface {
@@ -308,12 +373,70 @@ impl Surface {
 	}
 }
 
+/// Where an action sits. A plugin the user keeps grouped shows its actions under its name
+/// in "Extensions" (menus) or "Tools" (composer) instead.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Placement {
+	/// Menus: first entries, above Serein's own.
+	Top,
+	/// Message menu: right after the copy entries, where Discord places Translate. The
+	/// default for message actions; other menus treat it as `top`.
+	#[default]
+	AfterCopy,
+	/// Menus: last entries, below Serein's own.
+	Bottom,
+	/// Message actions: a button in the toolbar shown while hovering a message. Needs an icon.
+	Toolbar,
+	/// Composer actions: a button in the composer bar. Needs an icon.
+	Bar,
+	/// Composer actions: an entry in the composer's "Tools" menu.
+	Tools,
+}
+
+impl Placement {
+	/// Whether `surface` can show an action placed here.
+	pub fn fits(self, surface: Surface) -> bool {
+		match self {
+			Self::Top | Self::AfterCopy | Self::Bottom => {
+				surface == Surface::Message || surface.is_context_menu()
+			}
+			Self::Toolbar => surface == Surface::Message,
+			Self::Bar | Self::Tools => surface == Surface::Composer,
+		}
+	}
+}
+
+/// Largest SVG accepted as an action icon.
+pub const MAX_ACTION_ICON_BYTES: usize = 8 * 1024;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Action {
 	pub id: String,
 	pub label: String,
 	pub surface: Surface,
+	/// The plugin's own SVG glyph, drawn beside the label and as toolbar and composer buttons;
+	/// Serein uses only its shape and tints it like its own icons.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub icon: Option<String>,
+	/// Where the action sits once the plugin may place its own entries.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub placement: Option<Placement>,
+	/// Groups the action under the plugin's own submenu with this name, as
+	/// "Privacy Pruning ›" does in Discord.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub menu: Option<String>,
+	/// A composer button that stays on or off; Serein keeps the state and passes it to the
+	/// action as the `on` value ("true" or "false").
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub toggle: bool,
+	/// A toggle's icon while it is on, such as a crossed-out keyboard.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub icon_on: Option<String>,
+	/// A composer bar button shown only while the draft has text, like Preview.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub needs_draft: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -558,6 +681,9 @@ pub struct Invocation {
 	/// action again with its original input.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub fetch_result: Option<Box<FetchResult>>,
+	/// Why a `draft` or `send` action ran; absent for every other call.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub hook: Option<Hook>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -566,6 +692,9 @@ pub enum MessageEventKind {
 	Create,
 	Update,
 	Delete,
+	/// A loaded message came into view in the open conversation. Each message is shown once
+	/// per content change; carries the author and content like `create`.
+	Shown,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -721,7 +850,9 @@ impl MessageEvent {
 			return Err(Error::Limit);
 		}
 		match self.kind {
-			MessageEventKind::Create if self.author_id.is_none() || self.content.is_none() => {
+			MessageEventKind::Create | MessageEventKind::Shown
+				if self.author_id.is_none() || self.content.is_none() =>
+			{
 				Err(Error::Invalid)
 			}
 			MessageEventKind::Delete if self.author_id.is_some() || self.content.is_some() => {
@@ -830,6 +961,15 @@ pub struct Output {
 	/// HTTPS requests to the manifest's `network_hosts`. Requires `network`.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub fetches: Vec<FetchRequest>,
+	/// Text shown in place of loaded messages. Requires `message_alternatives`.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub alternatives: Vec<MessageAlternative>,
+	/// A message only you can see in the open conversation. Requires `local_messages`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub local_message: Option<LocalMessage>,
+	/// Short text shown beside the composer; empty clears it. Requires `composer_status`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub composer_status: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1005,6 +1145,8 @@ impl Manifest {
 			Surface::MessageEvent,
 			Surface::AppEvent,
 			Surface::Tick,
+			Surface::Draft,
+			Surface::Send,
 		] {
 			if self
 				.actions
@@ -1022,6 +1164,23 @@ impl Manifest {
 				|| action.label.is_empty()
 				|| action.label.len() > 128
 				|| action.label.chars().any(char::is_control)
+				|| action.icon.as_deref().is_some_and(|svg| {
+					svg.len() > MAX_ACTION_ICON_BYTES || !svg.trim_start().starts_with("<svg")
+				}) || action.placement.is_some_and(|placement| {
+				!placement.fits(action.surface)
+					|| (matches!(placement, Placement::Toolbar | Placement::Bar)
+						&& action.icon.is_none())
+			}) || action.menu.as_deref().is_some_and(|menu| {
+				menu.is_empty()
+					|| menu.len() > 64
+					|| menu.chars().any(char::is_control)
+					|| !(action.surface == Surface::Message || action.surface.is_context_menu())
+			}) || (action.toggle && action.surface != Surface::Composer)
+				|| action.icon_on.as_deref().is_some_and(|svg| {
+					!action.toggle
+						|| svg.len() > MAX_ACTION_ICON_BYTES
+						|| !svg.trim_start().starts_with("<svg")
+				}) || (action.needs_draft && action.surface != Surface::Composer)
 			{
 				return Err(Error::Invalid);
 			}
@@ -1036,6 +1195,8 @@ impl Manifest {
 				Surface::MessageEvent => Some(Capability::MessageEvents),
 				Surface::AppEvent => Some(Capability::AppEvents),
 				Surface::Tick => Some(Capability::Appearance),
+				Surface::Draft => Some(Capability::Composer),
+				Surface::Send => Some(Capability::SendHooks),
 			};
 			if required.is_some_and(|c| !capabilities.contains(&c)) {
 				return Err(Error::Capability);
@@ -1394,11 +1555,23 @@ impl Invocation {
 			reference.validate()?;
 		}
 		if self.selected_message.is_some() && action.surface != Surface::Message
-			|| self.composer.is_some() && action.surface != Surface::Composer
-			|| self.tick_ms.is_some() && action.surface != Surface::Tick
+			|| self.composer.is_some()
+				&& !matches!(
+					action.surface,
+					Surface::Composer | Surface::Draft | Surface::Send
+				) || self.tick_ms.is_some() && action.surface != Surface::Tick
 			|| self.tick_ms.is_none() && action.surface == Surface::Tick
 		{
 			return Err(Error::Capability);
+		}
+		// Hooks run only their own surface, and those surfaces run only as hooks.
+		let expected = match self.hook {
+			None => !action.surface.is_hook(),
+			Some(Hook::Draft) => action.surface == Surface::Draft,
+			Some(Hook::Send | Hook::Edit) => action.surface == Surface::Send,
+		};
+		if !expected {
+			return Err(Error::Invalid);
 		}
 		if action.surface == Surface::Tick
 			&& (!self.values.is_empty()
@@ -1436,7 +1609,8 @@ impl Output {
 			.surface;
 		if let Some(tweaks) = &self.interface_tweaks {
 			if !manifest.capabilities.contains(&Capability::InterfaceTweaks)
-				|| !matches!(surface, Surface::Activation | Surface::Panel)
+				|| !(matches!(surface, Surface::Activation | Surface::Panel)
+					|| surface == Surface::Composer && action_toggle(manifest, input))
 			{
 				return Err(Error::Capability);
 			}
@@ -1542,8 +1716,67 @@ impl Output {
 		{
 			return Err(Error::Capability);
 		}
+		if !self.alternatives.is_empty() {
+			if !manifest
+				.capabilities
+				.contains(&Capability::MessageAlternatives)
+				|| !matches!(surface, Surface::Message | Surface::MessageEvent)
+			{
+				return Err(Error::Capability);
+			}
+			if self.alternatives.len() > MAX_ALTERNATIVES {
+				return Err(Error::Limit);
+			}
+			for alternative in &self.alternatives {
+				app::entity_id(&alternative.channel_id)?;
+				app::entity_id(&alternative.message_id)?;
+				if alternative.text.len() > MAX_CHAT_TEXT_BYTES
+					|| alternative.note.len() > 128
+					|| alternative.note.chars().any(char::is_control)
+				{
+					return Err(Error::Limit);
+				}
+			}
+		}
+		if let Some(local) = &self.local_message {
+			if !manifest.capabilities.contains(&Capability::LocalMessages)
+				|| !matches!(
+					surface,
+					Surface::Composer | Surface::Message | Surface::Panel
+				) {
+				return Err(Error::Capability);
+			}
+			// Empty means the open conversation, which composer actions cannot name.
+			if !local.channel_id.is_empty() {
+				app::entity_id(&local.channel_id)?;
+			}
+			if local.content.trim().is_empty() || local.content.len() > MAX_CHAT_TEXT_BYTES {
+				return Err(Error::Limit);
+			}
+		}
+		if let Some(status) = &self.composer_status {
+			if !manifest.capabilities.contains(&Capability::ComposerStatus)
+				|| surface != Surface::Draft
+			{
+				return Err(Error::Capability);
+			}
+			if status.len() > MAX_COMPOSER_STATUS_BYTES || status.chars().any(char::is_control) {
+				return Err(Error::Limit);
+			}
+		}
+		// Hooks run unattended: they answer with text, never panels or proposals.
+		if surface.is_hook()
+			&& (!self.panel.is_empty()
+				|| !self.effects.is_empty()
+				|| self.local_message.is_some()
+				|| self.appearance.is_some())
+		{
+			return Err(Error::Capability);
+		}
 		if self.replacement.is_some()
-			&& (input.composer.is_none() || !manifest.capabilities.contains(&Capability::Composer))
+			&& (input.composer.is_none()
+				|| !manifest.capabilities.contains(&Capability::Composer)
+				|| surface == Surface::Draft)
 		{
 			return Err(Error::Capability);
 		}
@@ -1565,6 +1798,14 @@ impl Output {
 		let mut ids = BTreeSet::new();
 		validate_elements(&self.panel, 0, &mut count, &mut ids, manifest)
 	}
+}
+
+/// Whether the invoked action is a composer toggle, which may switch interface tweaks.
+fn action_toggle(manifest: &Manifest, input: &Invocation) -> bool {
+	manifest
+		.actions
+		.iter()
+		.any(|action| action.id == input.action && action.toggle)
 }
 
 fn validate_elements(

@@ -17,6 +17,8 @@ fn manifest(action: &str, surface: Surface) -> Manifest {
 		Surface::User | Surface::Channel | Surface::Server | Surface::Role => {
 			capabilities.push(Capability::ContextMenus)
 		}
+		Surface::Draft => capabilities.push(Capability::Composer),
+		Surface::Send => capabilities.extend([Capability::SendHooks, Capability::Composer]),
 	}
 	let manifest = Manifest {
 		network_hosts: Vec::new(),
@@ -33,6 +35,12 @@ fn manifest(action: &str, surface: Surface) -> Manifest {
 			id: action.into(),
 			label: action.into(),
 			surface,
+			icon: None,
+			placement: None,
+			menu: None,
+			toggle: false,
+			icon_on: None,
+			needs_draft: false,
 		}],
 	};
 	manifest.validate().unwrap();

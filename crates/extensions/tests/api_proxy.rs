@@ -18,6 +18,12 @@ fn manifest() -> Manifest {
 			id: "apply".into(),
 			label: "Apply".into(),
 			surface: Surface::Panel,
+			icon: None,
+			placement: None,
+			menu: None,
+			toggle: false,
+			icon_on: None,
+			needs_draft: false,
 		}],
 	}
 }

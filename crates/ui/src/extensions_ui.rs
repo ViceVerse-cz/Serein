@@ -1,7 +1,9 @@
 //! Native community extensions UI. The desktop owns all package IO and execution.
 use crate::{design, icons};
 use client_core::{MAX_CONTENT, MAX_DRAFT_BYTES, State};
-use extensions::{Capability, Element, ExtensionKind, Invocation, Manifest, Output, Surface};
+use extensions::{
+	Capability, Element, ExtensionKind, Invocation, Manifest, Output, Placement, Surface,
+};
 use model::Id;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -128,47 +130,100 @@ const CONTEXT_SESSION: &str = "extension-context-session";
 /// A plugin menu action chosen this frame, with what it was chosen on and for which session.
 type MenuChoice = (MenuAction, extensions::MenuTarget, ExtensionContext);
 
-/// Adds an "Extensions" submenu for `target` to a user, channel or server menu, when any
-/// enabled plugin declares an action for that menu. The choice is dispatched next frame.
+/// Adds plugin actions for `target` to a user, channel or server menu: the "Extensions"
+/// group first, then entries placed at the top. The choice is dispatched next frame.
 pub(crate) fn context_menu_items(ui: &mut egui::Ui, target: extensions::MenuTarget) {
 	context_menu_targets(ui, std::slice::from_ref(&target));
 }
 
-/// One "Extensions" submenu listing plugin actions for each of `targets` in order, for a row
-/// that is several things at once (a DM row is both a user and a channel). When more than one
-/// target has actions, each group is headed by what it acts on, so equal labels stay distinct.
-/// Absent when no enabled plugin offers an action for any of them.
+/// The top of a menu for a row that is one or several things at once (a DM row is both a
+/// user and a channel). Plugins that keep their entries grouped sit under their own name in
+/// an "Extensions" submenu; when more than one target has grouped actions, each group is
+/// headed by what it acts on, so equal labels stay distinct. Plugins allowed to place their
+/// own entries follow with those placed at the top. Absent when no plugin offers anything.
 pub(crate) fn context_menu_targets(ui: &mut egui::Ui, targets: &[extensions::MenuTarget]) {
-	let offered: Vec<_> = targets
+	let actions = context_actions(ui.ctx());
+	let for_target = |target: &extensions::MenuTarget, grouped: bool| -> Vec<MenuAction> {
+		actions
+			.iter()
+			.filter(|(surface, action)| {
+				*surface == target.surface() && action.slot.is_none() == grouped
+			})
+			.map(|(_, action)| action.clone())
+			.collect()
+	};
+	let grouped: Vec<_> = targets
 		.iter()
-		.filter(|target| has_context_actions(ui.ctx(), target.surface()))
+		.map(|target| (target, for_target(target, true)))
+		.filter(|(_, list)| !list.is_empty())
 		.collect();
-	if offered.is_empty() {
-		return;
-	}
-	ui.menu_button(
-		crate::i18n::translate("timeline-message-actions-extensions"),
-		|ui| {
-			for (index, target) in offered.iter().enumerate() {
-				if offered.len() > 1 {
-					if index > 0 {
-						ui.separator();
+	let mut shown = false;
+	if !grouped.is_empty() {
+		shown = true;
+		ui.menu_button(
+			crate::i18n::translate("timeline-message-actions-extensions"),
+			|ui| {
+				for (index, (target, list)) in grouped.iter().enumerate() {
+					if grouped.len() > 1 {
+						if index > 0 {
+							ui.separator();
+						}
+						let heading = match target.surface() {
+							Surface::User => "extensions-ui-menu-group-user",
+							_ => "extensions-ui-menu-group-conversation",
+						};
+						ui.label(
+							egui::RichText::new(crate::i18n::translate(heading))
+								.small()
+								.color(crate::design::palette(ui).muted),
+						);
 					}
-					let heading = match target.surface() {
-						Surface::User => "extensions-ui-menu-group-user",
-						_ => "extensions-ui-menu-group-conversation",
-					};
-					ui.label(
-						egui::RichText::new(crate::i18n::translate(heading))
-							.small()
-							.color(crate::design::palette(ui).muted),
-					);
+					plugin_groups(ui, list, &mut |ui, action| {
+						choose_context(ui, action, target);
+					});
 				}
-				context_menu_entries(ui, target);
-			}
-		},
-	);
-	ui.separator();
+			},
+		);
+	}
+	for target in targets {
+		let own = for_target(target, false);
+		shown |= slot_entries(
+			ui,
+			&own,
+			&[Placement::Top, Placement::AfterCopy],
+			&mut |ui, action| {
+				choose_context(ui, action, target);
+			},
+		);
+	}
+	if shown {
+		ui.separator();
+	}
+}
+
+/// The bottom of the same menus: entries plugins placed last, after a separator.
+pub(crate) fn context_menu_bottom(ui: &mut egui::Ui, targets: &[extensions::MenuTarget]) {
+	let actions = context_actions(ui.ctx());
+	let mut separated = false;
+	for target in targets {
+		let own: Vec<_> = actions
+			.iter()
+			.filter(|(surface, action)| {
+				*surface == target.surface() && action.slot == Some(Placement::Bottom)
+			})
+			.map(|(_, action)| action.clone())
+			.collect();
+		if own.is_empty() {
+			continue;
+		}
+		if !separated {
+			ui.separator();
+			separated = true;
+		}
+		slot_entries(ui, &own, &[Placement::Bottom], &mut |ui, action| {
+			choose_context(ui, action, target);
+		});
+	}
 }
 
 fn context_actions(ctx: &egui::Context) -> Arc<Vec<(Surface, MenuAction)>> {
@@ -183,30 +238,301 @@ pub(crate) fn has_context_actions(ctx: &egui::Context, surface: Surface) -> bool
 	context_actions(ctx).iter().any(|(s, _)| *s == surface)
 }
 
-/// One button per enabled plugin action for `target`, for menus that hold nothing else.
-pub(crate) fn context_menu_entries(ui: &mut egui::Ui, target: &extensions::MenuTarget) {
-	let surface = target.surface();
+/// Records `action` on `target` as this frame's choice, for dispatch next frame.
+fn choose_context(ui: &mut egui::Ui, action: &MenuAction, target: &extensions::MenuTarget) {
 	let session = ui
 		.ctx()
 		.data(|data| data.get_temp::<ExtensionContext>(egui::Id::unique(CONTEXT_SESSION)));
 	let Some(session) = session else {
 		return;
 	};
+	ui.ctx().data_mut(|data| {
+		data.insert_temp::<Option<MenuChoice>>(
+			egui::Id::unique(CONTEXT_CHOICE),
+			Some((action.clone(), target.clone(), session)),
+		);
+	});
+	ui.ctx().request_repaint();
+	ui.close();
+}
+
+/// Every enabled plugin action for `target` as plain entries, for menus that hold nothing
+/// else (a role chip's menu).
+pub(crate) fn context_menu_entries(ui: &mut egui::Ui, target: &extensions::MenuTarget) {
+	let surface = target.surface();
 	for (_, action) in context_actions(ui.ctx())
 		.iter()
 		.filter(|(s, _)| *s == surface)
 	{
-		if ui.button(&action.label).clicked() {
-			ui.ctx().data_mut(|data| {
-				data.insert_temp::<Option<MenuChoice>>(
-					egui::Id::unique(CONTEXT_CHOICE),
-					Some((action.clone(), target.clone(), session.clone())),
-				);
-			});
-			ui.ctx().request_repaint();
-			ui.close();
+		if action_button(ui, action).clicked() {
+			choose_context(ui, action, target);
 		}
 	}
+}
+
+/// Grouped actions: one submenu per plugin, named after it, holding its actions in order.
+pub(crate) fn plugin_groups(
+	ui: &mut egui::Ui,
+	actions: &[MenuAction],
+	chosen: &mut dyn FnMut(&mut egui::Ui, &MenuAction),
+) {
+	let mut plugins: Vec<&str> = Vec::new();
+	for action in actions {
+		if !plugins.contains(&action.plugin.as_str()) {
+			plugins.push(&action.plugin);
+		}
+	}
+	for plugin in plugins {
+		// One entry per label: the same command placed in a menu and in the toolbar is one
+		// command once grouped.
+		let mut own: Vec<&MenuAction> = Vec::new();
+		for action in actions.iter().filter(|a| a.plugin == plugin) {
+			if !own.iter().any(|known| known.label == action.label) {
+				own.push(action);
+			}
+		}
+		ui.menu_button(own[0].plugin_name.clone(), |ui| {
+			for action in own {
+				if action_button(ui, action).clicked() {
+					chosen(ui, action);
+				}
+			}
+		});
+	}
+}
+
+/// Entries placed in one of `slots`: plain entries in order, with actions that name a
+/// submenu gathered under it at the position of its first action. Returns whether any showed.
+pub(crate) fn slot_entries(
+	ui: &mut egui::Ui,
+	actions: &[MenuAction],
+	slots: &[Placement],
+	chosen: &mut dyn FnMut(&mut egui::Ui, &MenuAction),
+) -> bool {
+	let placed: Vec<&MenuAction> = actions
+		.iter()
+		.filter(|action| action.slot.is_some_and(|slot| slots.contains(&slot)))
+		.collect();
+	let mut menus: Vec<&str> = Vec::new();
+	for action in &placed {
+		match action.menu.as_deref() {
+			None => {
+				if action_button(ui, action).clicked() {
+					chosen(ui, action);
+				}
+			}
+			Some(menu) if !menus.contains(&menu) => {
+				menus.push(menu);
+				ui.menu_button(menu, |ui| {
+					for inner in placed.iter().filter(|a| a.menu.as_deref() == Some(menu)) {
+						if action_button(ui, inner).clicked() {
+							chosen(ui, inner);
+						}
+					}
+				});
+			}
+			Some(_) => {}
+		}
+	}
+	!placed.is_empty()
+}
+
+/// The message menu's "Extensions" submenu for plugins that keep their entries grouped,
+/// with a separator after it. Returns the action chosen this frame.
+pub(crate) fn message_menu_group(ui: &mut egui::Ui, actions: &[MenuAction]) -> Option<MenuAction> {
+	let grouped: Vec<MenuAction> = actions
+		.iter()
+		.filter(|a| a.slot.is_none())
+		.cloned()
+		.collect();
+	if grouped.is_empty() {
+		return None;
+	}
+	let mut chosen = None;
+	ui.menu_button(
+		crate::i18n::translate("timeline-message-actions-extensions"),
+		|ui| {
+			plugin_groups(ui, &grouped, &mut |ui, action| {
+				chosen = Some(action.clone());
+				ui.close();
+			});
+		},
+	);
+	ui.separator();
+	chosen
+}
+
+/// Message menu entries plugins placed in `slot`. Returns the action chosen this frame.
+pub(crate) fn message_menu_slot(
+	ui: &mut egui::Ui,
+	actions: &[MenuAction],
+	slot: Placement,
+) -> Option<MenuAction> {
+	let mut chosen = None;
+	slot_entries(ui, actions, &[slot], &mut |ui, action| {
+		chosen = Some(action.clone());
+		ui.close();
+	});
+	chosen
+}
+
+/// A menu entry for `action`: its icon, when it has one, beside its label.
+pub(crate) fn action_button(ui: &mut egui::Ui, action: &MenuAction) -> egui::Response {
+	match action
+		.icon
+		.as_ref()
+		.and_then(|svg| icon_texture(ui.ctx(), svg))
+	{
+		Some(texture) => ui.add(egui::Button::new((
+			egui::Atom::paint(egui::Vec2::splat(18.0), move |ui, args| {
+				ui.painter()
+					.image(texture.id(), args.rect, full_uv(), args.fallback_text_color);
+			}),
+			action.label.clone(),
+		))),
+		None => ui.button(&action.label),
+	}
+}
+
+/// A square icon button for `action` in the message toolbar or composer bar. `on` keeps a
+/// toggle's icon in the strong text colour.
+pub(crate) fn action_icon_button(
+	ui: &mut egui::Ui,
+	action: &MenuAction,
+	size: f32,
+	on: bool,
+) -> egui::Response {
+	let colors = design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click());
+	let hot = response.hovered() || response.has_focus();
+	if hot {
+		ui.painter().rect_filled(rect, 6, colors.hover);
+	}
+	let color = if !ui.is_enabled() {
+		colors.muted.gamma_multiply(0.5)
+	} else if on || hot {
+		colors.text_strong
+	} else {
+		colors.muted
+	};
+	let icon = if on {
+		action.icon_on.as_ref().or(action.icon.as_ref())
+	} else {
+		action.icon.as_ref()
+	};
+	if let Some(texture) = icon.and_then(|svg| icon_texture(ui.ctx(), svg)) {
+		ui.painter()
+			.image(texture.id(), rect.shrink(size * 0.2), full_uv(), color);
+	}
+	response.widget_info(|| {
+		if action.toggle {
+			egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), on, &action.label)
+		} else {
+			egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &action.label)
+		}
+	});
+	icons::immediate_tooltip(response, &action.label)
+}
+
+/// The switch beside a message's author for a plugin's alternative text: the plugin's icon,
+/// strong while the alternative shows, muted while the original does.
+pub(crate) fn alternative_switch(ui: &mut egui::Ui, view: &AltView) -> egui::Response {
+	let colors = design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(18.0), egui::Sense::click());
+	let color = if view.show || response.hovered() {
+		colors.text_strong
+	} else {
+		colors.muted
+	};
+	match view
+		.icon
+		.as_ref()
+		.and_then(|svg| icon_texture(ui.ctx(), svg))
+	{
+		Some(texture) => {
+			ui.painter()
+				.image(texture.id(), rect.shrink(1.0), full_uv(), color);
+		}
+		None => {
+			ui.painter().circle_filled(rect.center(), 4.0, color);
+		}
+	}
+	let label = if view.show {
+		format!("{}. Click to show the original", view.note)
+	} else {
+		format!("Original. Click to show: {}", view.note)
+	};
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), view.show, &label)
+	});
+	icons::immediate_tooltip(
+		response.on_hover_cursor(egui::CursorIcon::PointingHand),
+		&label,
+	)
+}
+
+fn full_uv() -> egui::Rect {
+	egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0))
+}
+
+type IconCache = Arc<std::sync::Mutex<std::collections::HashMap<u64, Option<egui::TextureHandle>>>>;
+
+/// A plugin's SVG icon as a white glyph texture, rasterized once per distinct SVG; `None`
+/// when it does not parse, so the entry falls back to its label alone.
+fn icon_texture(ctx: &egui::Context, svg: &Arc<str>) -> Option<egui::TextureHandle> {
+	use std::hash::{Hash, Hasher};
+	let mut hasher = std::collections::hash_map::DefaultHasher::new();
+	svg.hash(&mut hasher);
+	let key = hasher.finish();
+	let cache = ctx.data_mut(|data| {
+		data.get_temp_mut_or_default::<IconCache>(egui::Id::unique("plugin-action-icons"))
+			.clone()
+	});
+	let mut cache = cache
+		.lock()
+		.unwrap_or_else(std::sync::PoisonError::into_inner);
+	cache
+		.entry(key)
+		.or_insert_with(|| {
+			rasterize_icon(svg).map(|image| {
+				ctx.load_texture(
+					format!("plugin-icon-{key:x}"),
+					image,
+					egui::TextureOptions::LINEAR,
+				)
+			})
+		})
+		.clone()
+}
+
+/// Renders `svg` into a 48 px square and keeps only its coverage, as a white glyph that the
+/// painter tints like Serein's own icons.
+fn rasterize_icon(svg: &str) -> Option<egui::ColorImage> {
+	use resvg::{tiny_skia, usvg};
+	const SIZE: u32 = 48;
+	let tree = usvg::Tree::from_str(svg, &usvg::Options::default()).ok()?;
+	let size = tree.size();
+	let scale = SIZE as f32 / size.width().max(size.height());
+	if !scale.is_finite() || scale <= 0.0 {
+		return None;
+	}
+	let mut pixmap = tiny_skia::Pixmap::new(SIZE, SIZE)?;
+	let dx = (SIZE as f32 - size.width() * scale) / 2.0;
+	let dy = (SIZE as f32 - size.height() * scale) / 2.0;
+	resvg::render(
+		&tree,
+		tiny_skia::Transform::from_row(scale, 0.0, 0.0, scale, dx, dy),
+		&mut pixmap.as_mut(),
+	);
+	let rgba: Vec<u8> = pixmap
+		.pixels()
+		.iter()
+		.flat_map(|pixel| [255, 255, 255, pixel.alpha()])
+		.collect();
+	Some(egui::ColorImage::from_rgba_unmultiplied(
+		[SIZE as usize, SIZE as usize],
+		&rgba,
+	))
 }
 
 /// The message a menu action was chosen on.
@@ -217,11 +543,99 @@ pub(crate) struct MessageTarget {
 	pub author: Id,
 }
 
+/// One enabled plugin action as menus, the message toolbar and the composer show it.
 #[derive(Clone)]
 pub(crate) struct MenuAction {
 	pub plugin: String,
+	/// The plugin's name, which titles its group in "Extensions" or "Tools".
+	pub plugin_name: String,
 	pub action: String,
 	pub label: String,
+	pub icon: Option<Arc<str>>,
+	/// Where the plugin placed it; `None` keeps it grouped under the plugin's name.
+	pub slot: Option<Placement>,
+	pub menu: Option<String>,
+	pub toggle: bool,
+	/// A toggle's icon while it is on.
+	pub icon_on: Option<Arc<str>>,
+	/// A composer bar button shown only while the draft has text.
+	pub needs_draft: bool,
+}
+
+/// A plugin's text shown in place of a loaded message, and whether it is showing.
+#[derive(Clone, PartialEq)]
+pub(crate) struct AltView {
+	pub plugin: String,
+	pub icon: Option<Arc<str>>,
+	pub text: String,
+	pub note: String,
+	pub show: bool,
+}
+
+/// A send waiting for plugins' `send` hooks, which run one after another on its text.
+struct SendHold {
+	channel: Id,
+	/// The message being edited; `None` for a new message.
+	edit: Option<Id>,
+	generation: u64,
+	/// What the hooks have made of the text so far.
+	text: String,
+	/// Hooks still to run, in plugin order.
+	remaining: std::collections::VecDeque<(String, String)>,
+	/// The hook running now.
+	running: Option<String>,
+	/// After this, the text as it stands is sent; a slow or failed hook never blocks sending.
+	deadline: std::time::Instant,
+}
+
+/// How long all send hooks together may take before the text is sent as it stands.
+const SEND_HOOK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
+/// How long the draft must stay unchanged before `draft` hooks run.
+const DRAFT_HOOK_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+/// Most alternatives kept; the oldest go first.
+const MAX_ALTERNATIVES_KEPT: usize = 500;
+
+impl MenuAction {
+	/// Each action sits where the plugin placed it, or by default after the copy entries
+	/// (message), at the top (other menus) or as a composer bar button. A plugin the user
+	/// keeps grouped shows its actions under its name in "Extensions" or "Tools" instead.
+	/// Toolbar and composer bar buttons need an icon; without one they fall back to a menu.
+	fn new(entry: &ExtensionEntry, action: &extensions::Action, placed: bool) -> Self {
+		let default = match action.surface {
+			Surface::Composer => Placement::Bar,
+			Surface::Message => Placement::AfterCopy,
+			_ => Placement::Top,
+		};
+		let slot = placed
+			.then(|| action.placement.unwrap_or(default))
+			.map(|slot| match slot {
+				Placement::Toolbar | Placement::Bar if action.icon.is_none() => {
+					default_without_icon(action.surface)
+				}
+				slot => slot,
+			});
+		Self {
+			plugin: entry.manifest.id.clone(),
+			plugin_name: entry.manifest.name.clone(),
+			action: action.id.clone(),
+			label: action.label.clone(),
+			icon: action.icon.as_deref().map(Arc::from),
+			slot,
+			menu: action.menu.clone(),
+			toggle: action.toggle,
+			icon_on: action.icon_on.as_deref().map(Arc::from),
+			needs_draft: action.needs_draft,
+		}
+	}
+}
+
+/// Where an icon-less action that asked for a button goes instead.
+fn default_without_icon(surface: Surface) -> Placement {
+	if surface == Surface::Composer {
+		Placement::Tools
+	} else {
+		Placement::AfterCopy
+	}
 }
 
 struct Consent {
@@ -266,6 +680,30 @@ pub struct ExtensionUi {
 	message_actions: Arc<Vec<MenuAction>>,
 	/// User, channel, server and role menu entries, published to menus each frame.
 	context_actions: Arc<Vec<(Surface, MenuAction)>>,
+	/// Composer actions: grouped in "Tools", in it directly, or as composer bar buttons.
+	composer_actions: Arc<Vec<MenuAction>>,
+	/// Composer toggle buttons that are on, by plugin and action.
+	toggles: std::collections::BTreeSet<(String, String)>,
+	/// Plugins the user keeps grouped: their entries stay under the plugin's name.
+	grouped: std::collections::BTreeSet<String>,
+	/// Composer bar plugin buttons sit on the left, next to the attach button, instead of the
+	/// right, next to GIF and emoji.
+	pub bar_left: bool,
+	/// `draft` and `send` hook actions of enabled plugins, as (plugin, action).
+	draft_hooks: Vec<(String, String)>,
+	send_hooks: Vec<(String, String)>,
+	/// Plugins' text shown in place of loaded messages, by message.
+	alternatives: Arc<std::collections::HashMap<Id, AltView>>,
+	alternative_order: std::collections::VecDeque<Id>,
+	/// Plugins' composer status text, by plugin.
+	composer_status: BTreeMap<String, String>,
+	/// The draft last seen, and when it last changed, for `draft` hooks.
+	draft_seen: Option<(Id, String)>,
+	draft_changed: Option<std::time::Instant>,
+	send_hold: Option<SendHold>,
+	/// A held send whose hooks finished: the channel, the edited message if any, and the
+	/// text to send.
+	send_ready: Option<(Id, Option<Id>, u64, String)>,
 	themes: bool,
 	query: String,
 	previews: BTreeMap<String, PreviewImage>,
@@ -597,7 +1035,50 @@ impl ExtensionUi {
 						== new.cover_image.as_ref().map(Arc::as_ptr))
 		});
 		self.entries = entries;
-		self.message_actions = Arc::new(
+		self.rebuild_actions();
+	}
+	/// Plugins the user keeps grouped under their name, by ID. Every other plugin's entries
+	/// sit where it placed them.
+	pub fn grouped(&self) -> &std::collections::BTreeSet<String> {
+		&self.grouped
+	}
+	/// Restores or changes which plugins keep their entries grouped under their name.
+	pub fn set_grouped(&mut self, grouped: std::collections::BTreeSet<String>) {
+		if self.grouped != grouped {
+			self.grouped = grouped;
+			self.rebuild_actions();
+		}
+	}
+	/// Composer toggle buttons that are on, by plugin and action; saved with the device
+	/// preferences.
+	pub fn toggles(&self) -> &std::collections::BTreeSet<(String, String)> {
+		&self.toggles
+	}
+	pub fn set_toggles(&mut self, toggles: std::collections::BTreeSet<(String, String)>) {
+		self.toggles = toggles;
+	}
+	/// Recomputes the menu, toolbar and composer entries of enabled plugins.
+	fn rebuild_actions(&mut self) {
+		let grouped = &self.grouped;
+		let actions = |pick: &dyn Fn(Surface) -> bool| -> Vec<(Surface, MenuAction)> {
+			self.entries
+				.iter()
+				.filter(|entry| entry.enabled)
+				.flat_map(|entry| {
+					let loose = !grouped.contains(&entry.manifest.id);
+					entry
+						.manifest
+						.actions
+						.iter()
+						.filter(|action| pick(action.surface))
+						.map(move |action| (action.surface, MenuAction::new(entry, action, loose)))
+				})
+				.collect()
+		};
+		let message = actions(&|surface| surface == Surface::Message);
+		let context = actions(&|surface| surface.is_context_menu());
+		let composer = actions(&|surface| surface == Surface::Composer);
+		let hooks = |surface: Surface| -> Vec<(String, String)> {
 			self.entries
 				.iter()
 				.filter(|entry| entry.enabled)
@@ -606,38 +1087,291 @@ impl ExtensionUi {
 						.manifest
 						.actions
 						.iter()
-						.filter(|action| action.surface == Surface::Message)
-						.map(|action| MenuAction {
-							plugin: entry.manifest.id.clone(),
-							action: action.id.clone(),
-							label: format!("{} · {}", entry.manifest.name, action.label),
-						})
+						.filter(move |action| action.surface == surface)
+						.map(|action| (entry.manifest.id.clone(), action.id.clone()))
 				})
-				.collect(),
+				.collect()
+		};
+		self.draft_hooks = hooks(Surface::Draft);
+		self.send_hooks = hooks(Surface::Send);
+		let enabled: std::collections::BTreeSet<_> = self
+			.entries
+			.iter()
+			.filter(|entry| entry.enabled)
+			.map(|entry| entry.manifest.id.clone())
+			.collect();
+		self.composer_status
+			.retain(|plugin, _| enabled.contains(plugin));
+		if self
+			.alternatives
+			.values()
+			.any(|alt| !enabled.contains(&alt.plugin))
+		{
+			let mut kept = (*self.alternatives).clone();
+			kept.retain(|_, alt| enabled.contains(&alt.plugin));
+			self.alternative_order.retain(|id| kept.contains_key(id));
+			self.alternatives = Arc::new(kept);
+		}
+		self.message_actions = Arc::new(message.into_iter().map(|(_, a)| a).collect());
+		self.context_actions = Arc::new(context);
+		self.composer_actions = Arc::new(composer.into_iter().map(|(_, a)| a).collect());
+	}
+
+	/// Plugins' text shown in place of loaded messages, by message.
+	pub(crate) fn alternatives(&self) -> Arc<std::collections::HashMap<Id, AltView>> {
+		self.alternatives.clone()
+	}
+	/// Records a plugin's alternatives. Republishing the same text keeps the user's choice
+	/// of which version shows, as switching back must survive a refresh.
+	pub fn set_alternatives(&mut self, plugin: &str, list: &[extensions::MessageAlternative]) {
+		let icon = self
+			.entries
+			.iter()
+			.find(|entry| entry.manifest.id == plugin)
+			.and_then(|entry| {
+				entry
+					.manifest
+					.actions
+					.iter()
+					.find_map(|action| action.icon.as_deref())
+			})
+			.map(Arc::from);
+		let mut map = (*self.alternatives).clone();
+		for alternative in list {
+			let Ok(id) = alternative.message_id.parse::<u64>().map(Id) else {
+				continue;
+			};
+			let show = match map.get(&id) {
+				Some(previous) if previous.text == alternative.text => previous.show,
+				_ => alternative.show,
+			};
+			if map
+				.insert(
+					id,
+					AltView {
+						plugin: plugin.to_owned(),
+						icon: icon.clone(),
+						text: alternative.text.clone(),
+						note: alternative.note.clone(),
+						show,
+					},
+				)
+				.is_none()
+			{
+				self.alternative_order.push_back(id);
+			}
+		}
+		while self.alternative_order.len() > MAX_ALTERNATIVES_KEPT {
+			if let Some(oldest) = self.alternative_order.pop_front() {
+				map.remove(&oldest);
+			}
+		}
+		self.alternatives = Arc::new(map);
+	}
+	/// Switches a message between its alternative and its original text.
+	pub(crate) fn toggle_alternative(&mut self, id: Id) {
+		let mut map = (*self.alternatives).clone();
+		if let Some(view) = map.get_mut(&id) {
+			view.show = !view.show;
+			self.alternatives = Arc::new(map);
+		}
+	}
+
+	/// Records a plugin's composer status; empty clears it.
+	pub fn set_composer_status(&mut self, plugin: &str, status: &str) {
+		if status.is_empty() {
+			self.composer_status.remove(plugin);
+		} else {
+			self.composer_status
+				.insert(plugin.to_owned(), status.to_owned());
+		}
+	}
+	/// All plugins' composer status, joined.
+	pub(crate) fn composer_status(&self) -> Option<String> {
+		(!self.composer_status.is_empty()).then(|| {
+			self.composer_status
+				.values()
+				.cloned()
+				.collect::<Vec<_>>()
+				.join(" · ")
+		})
+	}
+
+	/// Runs `draft` hooks once the selected conversation's draft has stayed unchanged for a
+	/// moment. Their status clears when the conversation changes.
+	pub(crate) fn run_draft_hooks(&mut self, ctx: &egui::Context, state: &State) {
+		let Some(channel) = state.selected else {
+			self.draft_seen = None;
+			self.composer_status.clear();
+			return;
+		};
+		let draft = state.drafts.get(&channel).cloned().unwrap_or_default();
+		let now = std::time::Instant::now();
+		match &self.draft_seen {
+			Some((seen_channel, seen)) if *seen_channel == channel && *seen == draft => {}
+			Some((seen_channel, _)) if *seen_channel != channel => {
+				self.composer_status.clear();
+				self.draft_seen = Some((channel, draft));
+				self.draft_changed = Some(now);
+			}
+			_ => {
+				self.draft_seen = Some((channel, draft));
+				self.draft_changed = Some(now);
+			}
+		}
+		let Some(changed) = self.draft_changed else {
+			return;
+		};
+		if self.draft_hooks.is_empty() {
+			self.draft_changed = None;
+			return;
+		}
+		let due = changed + DRAFT_HOOK_DELAY;
+		if now < due {
+			ctx.request_repaint_after(due - now);
+			return;
+		}
+		self.draft_changed = None;
+		// Hooks follow the conversation, not the draft: typing on must not void the run.
+		let context = ExtensionContext::capture(state, false);
+		let draft = state.drafts.get(&channel).cloned().unwrap_or_default();
+		for (plugin, action) in self.draft_hooks.clone() {
+			self.queue(
+				ctx,
+				ExtensionRequest::Invoke {
+					id: plugin,
+					invocation: Invocation {
+						action,
+						composer: Some(draft.clone()),
+						hook: Some(extensions::Hook::Draft),
+						..Default::default()
+					},
+					context: context.clone(),
+				},
+			);
+		}
+	}
+
+	/// Holds sending the selected conversation's draft while plugins' `send` hooks rewrite
+	/// it. Returns false, sending at once, when no hook applies.
+	pub(crate) fn hold_send(&mut self, ctx: &egui::Context, state: &State) -> bool {
+		let Some(channel) = state.selected else {
+			return false;
+		};
+		let text = state.drafts.get(&channel).cloned().unwrap_or_default();
+		if self.send_hooks.is_empty() || text.trim().is_empty() || self.send_hold.is_some() {
+			return false;
+		}
+		self.send_hold = Some(SendHold {
+			channel,
+			edit: None,
+			generation: state.generation,
+			text,
+			remaining: self.send_hooks.iter().cloned().collect(),
+			running: None,
+			deadline: std::time::Instant::now() + SEND_HOOK_TIMEOUT,
+		});
+		self.advance_send(ctx, state);
+		true
+	}
+	/// Holds saving an edit of `message` while plugins' `send` hooks rewrite `text`, as for a
+	/// new message. Returns false, saving at once, when no hook applies.
+	pub(crate) fn hold_edit(
+		&mut self,
+		ctx: &egui::Context,
+		state: &State,
+		channel: Id,
+		message: Id,
+		text: String,
+	) -> bool {
+		if self.send_hooks.is_empty() || text.trim().is_empty() || self.send_hold.is_some() {
+			return false;
+		}
+		self.send_hold = Some(SendHold {
+			channel,
+			edit: Some(message),
+			generation: state.generation,
+			text,
+			remaining: self.send_hooks.iter().cloned().collect(),
+			running: None,
+			deadline: std::time::Instant::now() + SEND_HOOK_TIMEOUT,
+		});
+		self.advance_send(ctx, state);
+		true
+	}
+	/// Starts the next send hook, or marks the held text ready once none remain.
+	fn advance_send(&mut self, ctx: &egui::Context, state: &State) {
+		let Some(hold) = &mut self.send_hold else {
+			return;
+		};
+		let Some((plugin, action)) = hold.remaining.pop_front() else {
+			let hold = self.send_hold.take().unwrap();
+			self.send_ready = Some((hold.channel, hold.edit, hold.generation, hold.text));
+			ctx.request_repaint();
+			return;
+		};
+		let hook = if hold.edit.is_some() {
+			extensions::Hook::Edit
+		} else {
+			extensions::Hook::Send
+		};
+		hold.running = Some(plugin.clone());
+		let text = hold.text.clone();
+		let context = ExtensionContext::capture(state, false);
+		let invocation = Invocation {
+			action,
+			composer: Some(text),
+			hook: Some(hook),
+			..Default::default()
+		};
+		self.queue(
+			ctx,
+			ExtensionRequest::Invoke {
+				id: plugin,
+				invocation,
+				context,
+			},
 		);
-		self.context_actions = Arc::new(
-			self.entries
-				.iter()
-				.filter(|entry| entry.enabled)
-				.flat_map(|entry| {
-					entry
-						.manifest
-						.actions
-						.iter()
-						.filter(|action| action.surface.is_context_menu())
-						.map(|action| {
-							(
-								action.surface,
-								MenuAction {
-									plugin: entry.manifest.id.clone(),
-									action: action.id.clone(),
-									label: format!("{} · {}", entry.manifest.name, action.label),
-								},
-							)
-						})
-				})
-				.collect(),
-		);
+		ctx.request_repaint_after(SEND_HOOK_TIMEOUT);
+	}
+	/// A send hook finished: its replacement, if any, becomes the text the next hook sees.
+	pub fn send_hook_done(
+		&mut self,
+		plugin: &str,
+		replacement: Option<String>,
+		ctx: &egui::Context,
+		state: &State,
+	) {
+		let Some(hold) = &mut self.send_hold else {
+			return;
+		};
+		if hold.running.as_deref() != Some(plugin) {
+			return;
+		}
+		hold.running = None;
+		if let Some(text) = replacement.filter(|text| !text.trim().is_empty()) {
+			hold.text = text;
+		}
+		self.advance_send(ctx, state);
+	}
+	/// Whether a send is waiting for plugins; the composer stays locked meanwhile.
+	pub(crate) fn sending(&self) -> bool {
+		self.send_hold.is_some() || self.send_ready.is_some()
+	}
+	/// The held text to send now, once hooks finished or ran out of time: the channel, the
+	/// edited message for an edit, and the text. A hold from another account or session is
+	/// dropped.
+	pub(crate) fn take_ready_send(&mut self, state: &State) -> Option<(Id, Option<Id>, String)> {
+		if self
+			.send_hold
+			.as_ref()
+			.is_some_and(|hold| std::time::Instant::now() >= hold.deadline)
+		{
+			let hold = self.send_hold.take().unwrap();
+			self.send_ready = Some((hold.channel, hold.edit, hold.generation, hold.text));
+		}
+		let (channel, edit, generation, text) = self.send_ready.take()?;
+		(generation == state.generation).then_some((channel, edit, text))
 	}
 	/// Publish this frame's context-menu entries and dispatch one chosen last frame, unless
 	/// the account or connection it was chosen in has changed since.
@@ -1148,69 +1882,120 @@ impl ExtensionUi {
 			},
 		);
 	}
+	/// The composer's "Tools" menu: plugins grouped under their names, then entries plugins
+	/// placed directly in it. Absent when no composer action lives there.
 	pub(crate) fn composer_menu(&mut self, ui: &mut egui::Ui, state: &State) {
-		if !self.entries.iter().any(|entry| {
-			entry.enabled
-				&& entry
-					.manifest
-					.actions
-					.iter()
-					.any(|action| action.surface == Surface::Composer)
-		}) {
+		let actions = self.composer_actions.clone();
+		let grouped: Vec<MenuAction> = actions
+			.iter()
+			.filter(|a| a.slot.is_none())
+			.cloned()
+			.collect();
+		let direct: Vec<MenuAction> = actions
+			.iter()
+			.filter(|a| a.slot == Some(Placement::Tools))
+			.cloned()
+			.collect();
+		if grouped.is_empty() && direct.is_empty() {
 			return;
 		}
 		let mut selected = None;
-		ui.menu_button(
-			crate::i18n::translate("extensions-ui-composer-menu-tools"),
-			|ui| {
-				for entry in self.entries.iter().filter(|entry| entry.enabled) {
-					for action in entry
-						.manifest
-						.actions
-						.iter()
-						.filter(|action| action.surface == Surface::Composer)
-					{
-						if ui
-							.add_enabled(
-								!self.busy,
-								egui::Button::new(format!(
-									"{} · {}",
-									entry.manifest.name, action.label
-								)),
-							)
-							.clicked()
-						{
-							selected = Some((
-								entry.manifest.id.clone(),
-								action.id.clone(),
-								action.surface == Surface::Composer,
-							));
-							ui.close();
-						}
+		ui.add_enabled_ui(!self.busy, |ui| {
+			ui.menu_button(
+				crate::i18n::translate("extensions-ui-composer-menu-tools"),
+				|ui| {
+					plugin_groups(ui, &grouped, &mut |ui, action| {
+						selected = Some(action.clone());
+						ui.close();
+					});
+					if !grouped.is_empty() && !direct.is_empty() {
+						ui.separator();
 					}
-				}
-			},
-		);
-		if let Some((id, action, composer)) = selected {
-			let context = if composer {
-				ExtensionContext::capture(state, true)
-			} else {
-				ExtensionContext::panel(state)
-			};
-			let invocation = Invocation {
-				action,
-				composer: context.draft.clone(),
-				..Default::default()
-			};
-			self.queue(
-				ui.ctx(),
-				ExtensionRequest::Invoke {
-					id,
-					invocation,
-					context,
+					slot_entries(ui, &direct, &[Placement::Tools], &mut |ui, action| {
+						selected = Some(action.clone());
+						ui.close();
+					});
 				},
 			);
+		});
+		if let Some(action) = selected {
+			self.invoke_composer(ui.ctx(), state, &action, false);
 		}
+	}
+
+	/// Composer bar buttons plugins placed on the side `left` names (the attach side when
+	/// true, the GIF and emoji side otherwise), in manifest order.
+	pub(crate) fn composer_bar(&mut self, ui: &mut egui::Ui, state: &State, left: bool) {
+		if self.bar_left != left {
+			return;
+		}
+		let actions = self.composer_actions.clone();
+		let mut selected = None;
+		let has_draft = state
+			.selected
+			.and_then(|channel| state.drafts.get(&channel))
+			.is_some_and(|draft| !draft.trim().is_empty());
+		ui.add_enabled_ui(!self.busy && !self.sending(), |ui| {
+			for action in actions
+				.iter()
+				.filter(|a| a.slot == Some(Placement::Bar) && (has_draft || !a.needs_draft))
+			{
+				let key = (action.plugin.clone(), action.action.clone());
+				let on = self.toggles.contains(&key);
+				let response = action_icon_button(ui, action, 28.0, on);
+				let secondary = response.secondary_clicked()
+					|| response.clicked() && ui.input(|input| input.modifiers.shift);
+				if response.clicked() && !secondary {
+					if action.toggle {
+						if on {
+							self.toggles.remove(&key);
+						} else {
+							self.toggles.insert(key);
+						}
+					}
+					selected = Some((action.clone(), false));
+				} else if secondary && !action.toggle {
+					selected = Some((action.clone(), true));
+				}
+			}
+		});
+		if let Some((action, secondary)) = selected {
+			self.invoke_composer(ui.ctx(), state, &action, secondary);
+		}
+	}
+
+	/// Runs a composer action with the current draft. A toggle also receives its new state as
+	/// the `on` value; a right or Shift click arrives as the `click` value `secondary`.
+	fn invoke_composer(
+		&mut self,
+		ctx: &egui::Context,
+		state: &State,
+		action: &MenuAction,
+		secondary: bool,
+	) {
+		let context = ExtensionContext::capture(state, true);
+		let mut invocation = Invocation {
+			action: action.action.clone(),
+			composer: context.draft.clone(),
+			..Default::default()
+		};
+		if secondary {
+			invocation.values.insert("click".into(), "secondary".into());
+		}
+		if action.toggle {
+			let on = self
+				.toggles
+				.contains(&(action.plugin.clone(), action.action.clone()));
+			invocation.values.insert("on".into(), on.to_string());
+		}
+		self.queue(
+			ctx,
+			ExtensionRequest::Invoke {
+				id: action.plugin.clone(),
+				invocation,
+				context,
+			},
+		);
 	}
 	fn toolbar(&mut self, ui: &mut egui::Ui, colors: &design::Palette) {
 		let height = 38.0;
@@ -1435,6 +2220,13 @@ impl ExtensionUi {
 
 		let colors = design::palette(ui);
 		self.toolbar(ui, &colors);
+		if !self.themes {
+			ui.add_space(8.0);
+			ui.checkbox(
+				&mut self.bar_left,
+				crate::i18n::translate("extensions-ui-plugin-bar-left"),
+			);
+		}
 		ui.add_space(14.0);
 		let mut enable = None;
 		let mut disable = None;
@@ -1986,8 +2778,14 @@ impl ExtensionUi {
 				.iter()
 				.filter(|action| action.surface == Surface::Panel)
 				.collect();
-			let count =
-				1 + usize::from(entry.update_available) + usize::from(!panel_actions.is_empty());
+			// Plugins with menu, toolbar or composer entries can be kept grouped instead.
+			let placeable = entry.manifest.actions.iter().any(|action| {
+				action.surface == Surface::Message
+					|| action.surface == Surface::Composer
+					|| action.surface.is_context_menu()
+			});
+			let tools = !panel_actions.is_empty() || placeable;
+			let count = 1 + usize::from(entry.update_available) + usize::from(tools);
 			let each = ((ui.available_width() - 8.0 * (count - 1) as f32) / count as f32).max(1.0);
 			if entry.update_available
 				&& ui
@@ -2014,7 +2812,7 @@ impl ExtensionUi {
 				}
 				*enable = Some(update);
 			}
-			if !panel_actions.is_empty() {
+			if tools {
 				ui.scope(|ui| {
 					let visuals = ui.visuals_mut();
 					visuals.widgets.inactive.weak_bg_fill = neutral;
@@ -2025,6 +2823,29 @@ impl ExtensionUi {
 					ui.menu_button(
 						crate::i18n::translate("extensions-ui-card-body-open-tool"),
 						|ui| {
+							if placeable {
+								let mut loose = !self.grouped.contains(&entry.manifest.id);
+								if ui
+									.checkbox(
+										&mut loose,
+										crate::i18n::translate("extensions-ui-card-body-ungrouped"),
+									)
+									.on_hover_text(crate::i18n::translate(
+										"extensions-ui-card-body-ungrouped-hint",
+									))
+									.changed()
+								{
+									if loose {
+										self.grouped.remove(&entry.manifest.id);
+									} else {
+										self.grouped.insert(entry.manifest.id.clone());
+									}
+									self.rebuild_actions();
+								}
+								if !panel_actions.is_empty() {
+									ui.separator();
+								}
+							}
 							for action in &panel_actions {
 								if ui
 									.add_enabled(!self.busy, egui::Button::new(&action.label))
@@ -2962,6 +3783,12 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::Network => {
 			"Send web requests to the sites listed below, including any data granted to this plugin (never my login)"
 		}
+		Capability::MessageAlternatives => {
+			"Show text in place of messages, such as translations, with a switch back"
+		}
+		Capability::LocalMessages => "Add messages only I can see to the open conversation",
+		Capability::ComposerStatus => "Show a short status beside the message box",
+		Capability::SendHooks => "Change my messages and edits just before they are sent",
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
 		Capability::AppContext => "Read my account and current conversation details",
@@ -3262,6 +4089,119 @@ mod tests {
 			update_manifest: None,
 		}
 	}
+
+	#[test]
+	fn edits_run_send_hooks_and_save_the_rewritten_text() {
+		let ctx = egui::Context::default();
+		let state = State::default();
+		let mut shop = ExtensionUi::default();
+		assert!(
+			!shop.hold_edit(&ctx, &state, Id(1), Id(2), "text".into()),
+			"without hooks an edit saves at once"
+		);
+		shop.send_hooks = vec![("synthetic.clean".into(), "clean".into())];
+		assert!(shop.hold_edit(
+			&ctx,
+			&state,
+			Id(1),
+			Id(2),
+			"see https://x.test/?utm=1".into()
+		));
+		assert!(shop.sending());
+		let [ExtensionRequest::Invoke { id, invocation, .. }] = shop.requests.as_slice() else {
+			panic!("one hook invocation: {}", shop.requests.len())
+		};
+		assert_eq!(id, "synthetic.clean");
+		assert_eq!(invocation.hook, Some(extensions::Hook::Edit));
+		assert_eq!(
+			invocation.composer.as_deref(),
+			Some("see https://x.test/?utm=1")
+		);
+		shop.send_hook_done(
+			"synthetic.clean",
+			Some("see https://x.test/".into()),
+			&ctx,
+			&state,
+		);
+		assert_eq!(
+			shop.take_ready_send(&state),
+			Some((Id(1), Some(Id(2)), "see https://x.test/".into()))
+		);
+		assert!(!shop.sending());
+	}
+
+	#[test]
+	fn plugins_use_their_placement_unless_kept_grouped() {
+		let icon = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\"/></svg>";
+		let mut plugin = entry();
+		plugin.enabled = true;
+		plugin.manifest.capabilities = vec![Capability::SelectedMessage, Capability::Composer];
+		plugin.manifest.actions = vec![
+			extensions::Action {
+				id: "translate".into(),
+				label: "Translate".into(),
+				surface: Surface::Message,
+				icon: Some(icon.into()),
+				placement: None,
+				menu: None,
+				toggle: false,
+				icon_on: None,
+				needs_draft: false,
+			},
+			extensions::Action {
+				id: "hover".into(),
+				label: "Translate".into(),
+				surface: Surface::Message,
+				icon: None,
+				placement: Some(Placement::Toolbar),
+				menu: None,
+				toggle: false,
+				icon_on: None,
+				needs_draft: false,
+			},
+			extensions::Action {
+				id: "silent".into(),
+				label: "Silent typing".into(),
+				surface: Surface::Composer,
+				icon: Some(icon.into()),
+				placement: Some(Placement::Bar),
+				menu: None,
+				toggle: true,
+				icon_on: None,
+				needs_draft: false,
+			},
+		];
+		let mut shop = ExtensionUi::default();
+		shop.set_entries(vec![plugin]);
+		let slots: Vec<_> = shop
+			.message_actions
+			.iter()
+			.map(|a| (a.action.as_str(), a.slot))
+			.collect();
+		assert_eq!(
+			slots,
+			[
+				("translate", Some(Placement::AfterCopy)),
+				// A toolbar button needs an icon; without one it falls back to the menu.
+				("hover", Some(Placement::AfterCopy)),
+			]
+		);
+		assert_eq!(shop.composer_actions[0].slot, Some(Placement::Bar));
+		assert!(shop.composer_actions[0].toggle);
+		shop.set_grouped(["synthetic.words".to_string()].into());
+		assert!(
+			shop.message_actions
+				.iter()
+				.chain(shop.composer_actions.iter())
+				.all(|a| a.slot.is_none()),
+			"a plugin kept grouped shows its entries under its name"
+		);
+		assert!(rasterize_icon(icon).is_some(), "the plugin's SVG renders");
+		assert!(
+			rasterize_icon("<svg").is_none(),
+			"a broken SVG falls back to the label"
+		);
+	}
 	/// Runs one frame that publishes context actions and draws `target`'s plugin entries, and
 	/// returns the drawn text with its screen rectangles.
 	fn context_frame(
@@ -3340,6 +4280,12 @@ mod tests {
 			id: "copy".into(),
 			label: "Copy link".into(),
 			surface: Surface::Server,
+			icon: None,
+			placement: None,
+			menu: None,
+			toggle: false,
+			icon_on: None,
+			needs_draft: false,
 		}];
 		shop.set_entries(vec![enabled]);
 		let target = extensions::MenuTarget::Server {
@@ -3397,6 +4343,12 @@ mod tests {
 			id: id.into(),
 			label: label.into(),
 			surface,
+			icon: None,
+			placement: None,
+			menu: None,
+			toggle: false,
+			icon_on: None,
+			needs_draft: false,
 		};
 		let mut enabled = entry();
 		enabled.enabled = true;
@@ -3410,6 +4362,8 @@ mod tests {
 		disabled.manifest.capabilities = vec![Capability::ContextMenus];
 		disabled.manifest.actions = vec![action("off", "Disabled thing", Surface::User)];
 		shop.set_entries(vec![enabled, disabled]);
+		// Kept grouped, the plugin's entries sit in the "Extensions" submenu.
+		shop.set_grouped(["synthetic.words".to_string()].into());
 		let extensions_label = crate::i18n::translate("timeline-message-actions-extensions");
 		let user = extensions::MenuTarget::User {
 			user_id: "11".into(),
@@ -3434,15 +4388,28 @@ mod tests {
 			.expect("enabled user action adds the submenu");
 		let mut texts = context_frame(&ctx, &mut shop, &state, press_at(submenu.center()), &user);
 		for _ in 0..3 {
-			if texts.iter().any(|(text, _)| text.ends_with("Copy link")) {
+			if texts.iter().any(|(text, _)| text == "Synthetic word tools") {
+				break;
+			}
+			texts = context_frame(&ctx, &mut shop, &state, vec![], &user);
+		}
+		// Grouped plugins sit under their own name inside "Extensions".
+		let (_, plugin) = texts
+			.iter()
+			.find(|(text, _)| text == "Synthetic word tools")
+			.expect("Extensions lists the plugin by name")
+			.clone();
+		texts = context_frame(&ctx, &mut shop, &state, press_at(plugin.center()), &user);
+		for _ in 0..3 {
+			if texts.iter().any(|(text, _)| text == "Copy link") {
 				break;
 			}
 			texts = context_frame(&ctx, &mut shop, &state, vec![], &user);
 		}
 		let (label, item) = texts
 			.iter()
-			.find(|(text, _)| text.ends_with("Copy link"))
-			.expect("submenu lists the user action")
+			.find(|(text, _)| text == "Copy link")
+			.expect("the plugin's submenu lists the user action")
 			.clone();
 		assert!(
 			!texts
@@ -3450,7 +4417,7 @@ mod tests {
 				.any(|(text, _)| text.ends_with("Server only") || text.ends_with("Disabled thing")),
 			"only enabled actions for the clicked menu are listed"
 		);
-		assert_eq!(label, "Synthetic word tools · Copy link");
+		assert_eq!(label, "Copy link");
 		assert!(shop.requests.is_empty());
 		context_frame(&ctx, &mut shop, &state, press_at(item.center()), &user);
 		context_frame(&ctx, &mut shop, &state, vec![], &user);
@@ -3487,14 +4454,28 @@ mod tests {
 				id: "copy".into(),
 				label: "Copy link".into(),
 				surface: Surface::User,
+				icon: None,
+				placement: None,
+				menu: None,
+				toggle: false,
+				icon_on: None,
+				needs_draft: false,
 			},
 			extensions::Action {
 				id: "archive".into(),
 				label: "Archive DM".into(),
 				surface: Surface::Channel,
+				icon: None,
+				placement: None,
+				menu: None,
+				toggle: false,
+				icon_on: None,
+				needs_draft: false,
 			},
 		];
 		shop.set_entries(vec![enabled]);
+		// Kept grouped, the plugin's entries sit in the "Extensions" submenu.
+		shop.set_grouped(["synthetic.words".to_string()].into());
 		let (mut profile, mut action) = (crate::profiles::ProfileSession::default(), None);
 		let mut frame = |shop: &mut ExtensionUi, events| {
 			menu_frame(&ctx, shop, &state, events, |ui| {
@@ -3519,15 +4500,11 @@ mod tests {
 			.clone();
 		let mut texts = frame(&mut shop, press_at(submenu.center()));
 		for _ in 0..3 {
-			if texts.iter().any(|(text, _)| text.ends_with("Archive DM")) {
+			if texts.iter().any(|(text, _)| text == "Synthetic word tools") {
 				break;
 			}
 			texts = frame(&mut shop, vec![]);
 		}
-		assert!(
-			texts.iter().any(|(text, _)| text.ends_with("Archive DM")),
-			"channel actions for the DM sit beside user actions"
-		);
 		for heading in [
 			"extensions-ui-menu-group-user",
 			"extensions-ui-menu-group-conversation",
@@ -3538,9 +4515,28 @@ mod tests {
 				"{heading} heads its group"
 			);
 		}
+		// One plugin submenu under each group: user actions, then the DM's channel actions.
+		let mut plugins: Vec<egui::Rect> = texts
+			.iter()
+			.filter(|(text, _)| text == "Synthetic word tools")
+			.map(|(_, rect)| *rect)
+			.collect();
+		plugins.sort_by(|a, b| a.top().total_cmp(&b.top()));
+		assert_eq!(
+			plugins.len(),
+			2,
+			"channel actions for the DM sit beside user actions"
+		);
+		let mut texts = frame(&mut shop, press_at(plugins[0].center()));
+		for _ in 0..3 {
+			if texts.iter().any(|(text, _)| text == "Copy link") {
+				break;
+			}
+			texts = frame(&mut shop, vec![]);
+		}
 		let (_, item) = texts
 			.iter()
-			.find(|(text, _)| text.ends_with("Copy link"))
+			.find(|(text, _)| text == "Copy link")
 			.expect("user action listed")
 			.clone();
 		frame(&mut shop, press_at(item.center()));
@@ -3566,6 +4562,23 @@ mod tests {
 			.expect("DM row still offers the plugin submenu")
 			.clone();
 		let mut texts = frame(&mut shop, press_at(submenu.center()));
+		for _ in 0..3 {
+			if texts
+				.iter()
+				.filter(|(text, _)| text == "Synthetic word tools")
+				.count() == 2
+			{
+				break;
+			}
+			texts = frame(&mut shop, vec![]);
+		}
+		let mut plugins: Vec<egui::Rect> = texts
+			.iter()
+			.filter(|(text, _)| text == "Synthetic word tools")
+			.map(|(_, rect)| *rect)
+			.collect();
+		plugins.sort_by(|a, b| a.top().total_cmp(&b.top()));
+		let mut texts = frame(&mut shop, press_at(plugins[1].center()));
 		for _ in 0..3 {
 			if texts.iter().any(|(text, _)| text.ends_with("Archive DM")) {
 				break;
@@ -3720,6 +4733,12 @@ mod tests {
 			id: "copy-color".into(),
 			label: "Copy role color".into(),
 			surface: Surface::Role,
+			icon: None,
+			placement: None,
+			menu: None,
+			toggle: false,
+			icon_on: None,
+			needs_draft: false,
 		}];
 		shop.set_entries(vec![offered]);
 		frame(&mut shop, vec![]);
