@@ -54,6 +54,8 @@ fn edit(value: ChannelEditInput) -> Result<Edit, String> {
 	})
 }
 
+/// Picks a channel in the guild to anchor admin actions, preferring the selected channel if it
+/// qualifies; requires manage or view permission per `manage`, and returns None for unknown guilds.
 fn guild_anchor(state: &State, guild: Id, manage: bool) -> Option<Id> {
 	state.guild(guild)?;
 	state
@@ -85,6 +87,8 @@ fn guild_anchor(state: &State, guild: Id, manage: bool) -> Option<Id> {
 }
 
 impl MessagingUi {
+	/// Applies an approved channel, server or notification action through the native admission
+	/// path, queueing its command or reporting why it is unavailable.
 	pub(crate) fn apply_extension_admin_action(
 		&mut self,
 		state: &mut State,
@@ -129,6 +133,21 @@ impl MessagingUi {
 					.ok_or("The server has no accessible channel")?;
 				state.request_channel_action(channel, Action::HideMuted(hide))
 			}
+			AppAction::SetServerNotifications {
+				guild_id,
+				level,
+				muted,
+				suppress_everyone,
+				suppress_roles,
+			} => state.update_server_notifications(
+				id(&guild_id)?,
+				client_core::server_actions::NotificationOptions {
+					level,
+					muted,
+					suppress_everyone,
+					suppress_roles,
+				},
+			),
 			AppAction::CreateChannel {
 				guild_id,
 				name,
@@ -229,6 +248,8 @@ impl MessagingUi {
 mod tests {
 	use super::*;
 
+	/// Applies an extension admin action to the demo state, asserting it emits exactly one command.
+	/// Panics if the action fails or produces zero or multiple commands.
 	fn apply(action: AppAction) -> (State, Command) {
 		let mut state = test_support::demo_state();
 		let mut commands = Vec::new();
@@ -237,6 +258,50 @@ mod tests {
 			.unwrap();
 		assert_eq!(commands.len(), 1);
 		(state, commands.pop().unwrap())
+	}
+
+	/// Checks that a server notification change becomes the native server notification
+	/// command with only the requested fields, and fails for an unknown server.
+	#[test]
+	fn server_notifications_use_the_native_server_action() {
+		let (_, command) = apply(AppAction::SetServerNotifications {
+			guild_id: "10".into(),
+			level: Some(1),
+			muted: None,
+			suppress_everyone: Some(true),
+			suppress_roles: None,
+		});
+		assert!(matches!(
+			command,
+			Command::ServerAction {
+				action: client_core::server_actions::Action::Notifications {
+					guild: Id(10),
+					options: client_core::server_actions::NotificationOptions {
+						level: Some(1),
+						muted: None,
+						suppress_everyone: Some(true),
+						suppress_roles: None,
+					},
+				},
+				..
+			}
+		));
+		let mut state = test_support::demo_state();
+		assert!(
+			MessagingUi::default()
+				.apply_extension_admin_action(
+					&mut state,
+					AppAction::SetServerNotifications {
+						guild_id: "999".into(),
+						level: Some(1),
+						muted: None,
+						suppress_everyone: None,
+						suppress_roles: None,
+					},
+					&mut Vec::new(),
+				)
+				.is_err()
+		);
 	}
 
 	#[test]

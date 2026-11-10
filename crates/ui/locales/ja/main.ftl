@@ -131,6 +131,16 @@ friends-notes-unsupported = パーソナライズされたリクエストのメ�
 friends-other-places = 友達を作るその他の場所
 friends-discover-description = Don't have a username? Discord で公開コミュニティを見つけてください。
 friends-explore-servers = 検出可能なサーバーを探索する ↗
+friends-invite-links = フレンド招待リンク
+friends-invite-links-description = これらのリンクを持っている人は誰でも、追加の承認なしであなたのフレンドになれます。
+friends-invite-create = リンクを作成
+friends-invite-revoke-all = すべて取り消す
+friends-invite-copy = コピー
+friends-invite-none = フレンド招待リンクはまだありません。
+friends-invite-uses = { $uses } 回使用
+friends-invite-uses-limited = { $uses } / { $max } 回使用
+friends-invite-error = 現在フレンド招待リンクを利用できません。
+friends-invite-retry = リトライ
 friends-incoming = 着信
 friends-outgoing = 発信
 friends-search-requests = 検索リクエスト
@@ -286,6 +296,10 @@ attachments-download-button-a-download-is-already-active = ダウンロードは
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = このファイルを保存する場所を選択してください · 最大 100 MiB
 # Context: download_button
 attachments-download-button-download = ダウンロード
+# Context: file_card
+attachments-file-card-copy-text = テキストをコピー
+# Context: file_card
+attachments-file-card-copy-text-hint = このテキストファイルの内容をクリップボードにコピーします
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = 合成添付ファイルのダウンロードは無効になっています
 # Context: media_menu
@@ -811,6 +825,8 @@ emoji-details-show-a-custom-emoji = カスタム絵文字。
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = デフォルトの絵文字。この絵文字は Discord のどこでも使用できます。
 # Context: show
 emoji-details-show-copy-emoji = 絵文字をコピーする
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = サーバーに追加
 # Context: show
 emoji-details-show-from = から
 # Context: show
@@ -915,6 +931,12 @@ extensions-ui-card-body-enabled = 有効
 extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = この拡張機能とそのローカル データの削除を完了します。
 # Context: card_body
 extensions-ui-card-body-open-tool = ツールを開く
+# Context: card_body
+extensions-ui-card-body-ungrouped = 項目をグループ化せずに表示
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = このプラグインの項目を Extensions や Tools の下ではなく、メニュー、メッセージのツールバー、入力バーに直接置きます。
+# Context: settings
+extensions-ui-plugin-bar-left = プラグインのボタンを入力欄の左に置く
 # Context: card_body
 extensions-ui-card-body-plugin = プラグイン
 # Context: card_body
@@ -3919,6 +3941,8 @@ timeline-show-with-scroll-loading-messages = メッセージを読み込んで�
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = メッセージが削除されました
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = ブロックしたユーザーのメッセージ
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 現在の権限情報ではメッセージ履歴を利用できません。
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = まだメッセージはありません。以下で会話を始めてください。
@@ -4871,3 +4895,13 @@ new-message-hint = フレンドを追加して、DMまたはグループを開�
 new-message-no-people-found = 一致する相手はいません。
 new-message-create = メッセージを作成
 new-message-cancel = キャンセル
+name-marks-server-owner = サーバーオーナー
+name-marks-online-desktop = デスクトップでオンライン
+name-marks-online-web = ウェブでオンライン
+name-marks-online-mobile = モバイルでオンライン
+profiles-show-mutual-group = 共通のグループ
+profiles-show-mutual-groups = 共通のグループ
+rail-counts-online = { $count } 人オンライン
+rail-counts-servers = { $count } サーバー
+name-marks-tag-admin = 管理者
+name-marks-tag-moderator = モデレーター

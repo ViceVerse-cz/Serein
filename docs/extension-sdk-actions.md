@@ -73,9 +73,12 @@ The Rust paths below are relative to `AppOutput`. When using the original
 | `panel` / `output.panel` | Array of native `Element` values; no separate panel capability. | A foreground result displays it. Message/app event handlers must return no elements. Activation does not display returned panels. |
 | `storage` / `output.storage` | Optional opaque UTF-8 string; `storage`. | A valid foreground or event result replaces the plugin's saved value before result approval. Activation can read storage but this build does not persist its returned storage. |
 | `appearance` / `output.appearance` | Optional `Theme` object; `appearance`. | An accepted result updates the plugin's appearance overlay immediately, including activation and event results. Preview `tick` results are eased from the currently displayed colors. No Apply button is involved. |
+| `interface_tweaks` / `InterfaceTweaksOutput.interface_tweaks` | Optional array of `InterfaceTweak` names, each at most once; `interface_tweaks` grant. | An `activation` or `panel` result replaces the plugin's tweaks; omission leaves them unchanged and an empty array turns them off. The host applies a tweak while any enabled plugin requests it. `static_typing_indicator` stills typing dots, `plain_profiles` ignores members' profile theme colors, `expanded_roles` lists every role in profiles, `hidden_request_counts` keeps pending friend and message request counts off the Home button, the Pending tab and the message-request group, `one_ping_per_direct_message` alerts once per direct or group conversation until you read through that message, `hidden_blocked_messages` leaves blocked users' messages out of conversations, `hidden_profile_notes` leaves your private note out of profiles (the user menu still edits it) and `large_stream_preview` doubles the stream preview shown on hovering a live participant, `double_click_reply_edit` makes double-clicking a message's blank space edit your own message or reply to someone else's, in place of the double-click reaction, `username_beside_name` shows the account's username beside a differing display name or nickname in messages and the member list, `owner_crown` puts a crown beside the server owner's name there, `platform_indicators` shows the desktop, web and mobile clients someone is online from, `role_colored_mentions` colors a user mention with the member's top colored role, and `forum_list_view` or `forum_gallery_view` with `forum_sort_by_activity` or `forum_sort_by_creation` open every forum in that view and order on this client instead of the server's defaults (list view and activity order win when both of a pair are on), `single_open_folder` closes the other server folders when one is opened, `mutual_groups` adds the group conversations you share with someone to their profile's mutuals, `mention_avatars` leads a user mention with the person's avatar, `rail_counts` shows how many friends are online and how many servers you are in under the rail's Home button, `staff_tags` tags message authors and member-list names as Admin or Mod from their roles' permissions, `silent_typing` stops the composer from telling a conversation you are typing, `anonymous_file_names` gives files chosen for a message a random seven-character name that keeps the extension and a leading `SPOILER_`, `gif_favorites_first` opens the GIF picker on saved GIFs, `direct_upload_button` makes a click on the composer's attach button choose files at once and moves its menu to a right click, `gif_alt_text` names a Tenor or Giphy GIF from the words in its link for screen readers and hover, `typing_role_colors` colors the names in the typing indicator by their top colored role, `resolve_unknown_mentions` reads the person behind a mention that shows only an ID when you hover it, `resolve_unloaded_replies` reads a reply's original from outside the loaded history when you hover the reply, `message_link_previews` shows a quoted card for each linked message, and `dnd_while_playing` switches you to Do Not Disturb while a detected game runs and back to Online after it. Save the user's choice in `storage` and return it again from activation, which runs each time the plugin loads. |
 | `preserve_deleted_messages` / `output.preserve_deleted_messages` | Boolean, default `false`; `deleted_messages` is required for `true`. | Only an `activation` action may enable host retention of already-loaded deleted messages. |
 | `image_sharing` / `output.image_sharing` | Boolean, default `false`; `image_sharing` is required for `true`. | Legacy compatibility field, validated only for an `activation` action with the grant. It no longer changes host behavior: emoji/sticker image fallback is built in. |
 | `effects` / `effects` | Array containing at most one `HostEffect`; its capability is checked separately. | The native result describes the action. It runs only after its **Apply** button is clicked and current access is rechecked. |
+| `background_effects` / `BackgroundEffectsOutput.background_effects` | Array containing at most one `HostEffect::AppAction`; `background_effects` grant plus the action's own capability. | Only `message_event` and `app_event` results. The action must be `set_server_notifications`, `set_channel_mute`, `set_channel_notifications`, `set_guild_hide_muted` or `set_conversation_muted`; the host applies it on the next frame without an Apply button, rechecks the grant and current access, and drops it if the account or conversation changed. A rejected change is reported in the extension status line. |
+| `fetches` / `NetworkOutput.fetches` | At most 4 `FetchRequest`s with unique `request_id`s; `network` grant; every URL is `https` on a host in the manifest's `network_hosts`. | Any result except a tick or activation. The host runs the requests off the UI thread and answers each one exactly once by running the same action again with its original input plus `fetch_result` (`NetworkInvocation<T>`): an HTTP `status`, `content_type` and UTF-8 `body`, or an `error` (`unavailable`, `timed_out`, `too_large`, `not_text`, `blocked`, `cancelled`). |
 
 Closing a result discards its pending app/draft proposal. It does not undo
 storage or appearance updates already accepted from that invocation. A panel's
@@ -305,6 +308,7 @@ native permissions and pending operations.
 | `set_channel_mute` / `SetChannelMute` | `channel_id`: ID; `duration_seconds`: `null` or integer | `channel_control`; `null` unmutes, `0` mutes until changed, or use 900, 3600, 10800, 28800 or 86400 seconds. |
 | `set_channel_notifications` / `SetChannelNotifications` | `channel_id`: ID; `level`: integer 0–3 | `channel_control`; set the native notification level for a channel or post. |
 | `set_guild_hide_muted` / `SetGuildHideMuted` | `guild_id`: ID; `hide`: boolean | `channel_control`; show or hide muted channels in a loaded server. |
+| `set_server_notifications` / `SetServerNotifications` | `guild_id`: ID; optional `level` (0 all, 1 mentions, 2 nothing, 3 server default), `muted`, `suppress_everyone`, `suppress_roles` booleans; at least one field | `channel_control`; change your own notification settings for a loaded server; omitted fields stay unchanged. |
 | `create_channel` / `CreateChannel` | `guild_id`: ID; `name`: string; `kind`: `"text"`, `"voice"` or `"forum"` | `channel_control`; create a server channel through a currently manageable server channel. |
 | `create_category` / `CreateCategory` | `guild_id`: ID; `name`: string | `channel_control`; create a category. |
 | `duplicate_channel` / `DuplicateChannel` | `channel_id`: ID; `name`: string | `channel_control`; duplicate a manageable channel with the supplied name. |
@@ -990,6 +994,63 @@ masked form and OS credential store; it never enters Wasm input or plugin storag
 SOCKS and PAC are unsupported. Saved invalid configuration should trap during
 activation rather than silently return Direct; the host then blocks initial API
 routing and preserves an already configured route during reload.
+
+### Where menu, toolbar and composer actions appear
+
+After install, every action of a plugin sits under the plugin's name: menu actions
+(`message`, `user`, `channel`, `server`, `role`) inside the menu's **Extensions**
+submenu, `composer` actions inside the composer's **Tools** menu. This keeps new
+plugins easy to find. On the plugin's card, the user can switch on **Show entries
+ungrouped**; from then on each action appears where the plugin placed it. These
+optional action fields describe that place:
+
+| Field | Values | Effect once ungrouped |
+| --- | --- | --- |
+| `icon` | An SVG document, at most 8 KiB | Drawn beside the label, and as the button in the message toolbar or composer bar. Only its shape is used; Serein tints it like its own icons. |
+| `placement` | `top`, `after_copy`, `bottom`, `toolbar`, `bar`, `tools` | `top` / `bottom`: first or last entries of the menu (bottom entries sit above Copy ID). `after_copy` (message actions' default): right after the copy entries. `toolbar`: a button in the bar shown while hovering a message. `bar` (composer actions' default): a composer bar button, next to GIF and emoji or, by the user's choice, next to the attach button. `tools`: an entry directly in Tools. `toolbar` and `bar` need an icon; without one the action falls back to the menu. |
+| `menu` | Nonempty text, at most 64 bytes | Gathers the action under the plugin's own submenu with this name, like "Privacy Pruning ›". Menu actions only. |
+| `toggle` | `true` | A composer button that stays on or off. Serein keeps its state and passes the new one to the action as the `on` value, `"true"` or `"false"`. Composer actions only. |
+
+```json
+{"id":"translate","label":"Translate","surface":"message",
+ "icon":"<svg …>…</svg>","placement":"after_copy"}
+```
+
+
+### Results in the conversation and the draft and send hooks
+
+Some plugins answer in the conversation itself rather than in a result window.
+An output that only carries these fields opens no window. Rust plugins use
+`ChatOutput`, which flattens `NetworkOutput`, and read the hook through
+`HookInvocation`.
+
+| Output field | Capability | From | Effect |
+| --- | --- | --- | --- |
+| `alternatives`: up to 32 `{channel_id, message_id, text, note, show}` | `message_alternatives` | `message`, `message_event` actions | `text` (at most 8 KiB) is shown in place of the loaded message; the plugin's icon beside the author's name switches between it and the original, with `note` as its tooltip (for example "Translated from Romanian"). `show: false` keeps the original until the reader switches. Republishing the same text keeps the reader's choice. |
+| `local_message`: `{channel_id, content}` | `local_messages` | `composer`, `message`, `panel` actions | Adds a message only you can see to the conversation, rendered like your own message and marked "Only you can see this · Dismiss". An empty `channel_id` means the open conversation. Nothing is sent. |
+| `composer_status`: text, at most 64 bytes | `composer_status` | `draft` actions | Shown at the composer's lower right; an empty string clears it. |
+
+Two hook surfaces run without a click; at most one action of each per plugin:
+
+- `draft` (requires `composer`) runs a quarter second after the draft stops
+  changing, with `composer` holding the draft and `hook: "draft"`. It may
+  return `composer_status`, never a replacement or a window.
+- `send` (requires `send_hooks` and `composer`) runs when you send, with
+  `composer` holding the text and `hook: "send"`. Its `replacement` is what is
+  sent; hooks of several plugins run in turn, each on the previous result. A
+  hook may start `fetches`; the send waits for the final answer. A failed hook,
+  or hooks taking more than six seconds together, never block sending: the text
+  goes out as it stands. The composer is locked meanwhile.
+
+`message_event` actions also receive `kind: "shown"` for each loaded text
+message of the open conversation as it comes into view, once per content
+change, with author and content like `create`.
+
+Composer actions with `toggle: true` may also return `interface_tweaks`, and
+may set `icon_on` for their switched-on state. A right or Shift click on a
+composer bar button that is not a toggle arrives with the `click` value
+`secondary`. `needs_draft: true` shows a composer bar button only while the
+draft has text.
 
 ## Panels and storage
 

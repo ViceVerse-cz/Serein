@@ -25,6 +25,7 @@ const LOST: Duration = Duration::from_secs(30);
 /// Preload request ids carry this bit, so they never equal a click's own request id.
 const REQUEST_BIT: u64 = 1 << 63;
 
+/// Reports whether a request id was issued by the preloader rather than by a click.
 pub(crate) fn is_preload(request: u64) -> bool {
 	request & REQUEST_BIT != 0
 }
@@ -337,6 +338,7 @@ mod tests {
 			channel: Id(1),
 			kind: 0,
 			author: User {
+				username: String::new(),
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(9),

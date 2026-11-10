@@ -57,15 +57,17 @@ impl Downloads {
 			.inspect_err(|&error| self.status = Status::Failed(error))?;
 		self.start_job(attachment, url, runtime, context, Some(parent))
 	}
+	/// Starts downloading an image, video or text attachment for copying to the clipboard.
+	/// Rejects other kinds or attachments without a download URL, recording the failure in the status.
 	pub fn start_copy(
 		&mut self,
 		attachment: Attachment,
 		runtime: &tokio::runtime::Handle,
 		context: &eframe::egui::Context,
 	) -> Result<(), &'static str> {
-		if !attachment.is_image() && !attachment.is_video() {
-			self.status = Status::Failed("Copy supports images and videos");
-			return Err("Copy supports images and videos");
+		if !attachment.is_image() && !attachment.is_video() && !attachment.is_text() {
+			self.status = Status::Failed("Copy supports images, videos and text files");
+			return Err("Copy supports images, videos and text files");
 		}
 		let url = original_url(&attachment)
 			.ok_or("Attachment download unavailable")
@@ -104,6 +106,8 @@ impl Downloads {
 		};
 		self.start_job(image, url, runtime, context, (!copy).then_some(parent))
 	}
+	/// Starts a save-to-disk or copy-to-clipboard job on a dedicated thread, opening a save dialog
+	/// when a parent window is given. Fails if another download or clipboard cleanup is active.
 	fn start_job(
 		&mut self,
 		attachment: Attachment,
@@ -208,8 +212,16 @@ impl Downloads {
 					)
 					.await?;
 					if copying {
-						clipboard = Some(copy_media(&path, attachment.is_image(), &cancelled)?);
-						if attachment.is_image() {
+						let kind = if attachment.is_image() {
+							CopyKind::Image
+						} else if attachment.is_text() {
+							CopyKind::Text
+						} else {
+							CopyKind::File
+						};
+						clipboard = Some(copy_media(&path, kind, &cancelled)?);
+						// Images and text are copied as values; only a file paste needs the file.
+						if kind != CopyKind::File {
 							copied.take();
 						}
 					}
@@ -352,6 +364,8 @@ fn clear_copied_file(clipboard: &mut arboard::Clipboard, path: &Path) -> Result<
 	}
 }
 
+/// Decodes the downloaded image for the clipboard, capped at 4096px per side, 32 MiB of allocation,
+/// and 4 million pixels; images over a limit or that fail to decode return an error message.
 fn clipboard_image(path: &Path) -> Result<image::RgbaImage, &'static str> {
 	use image::ImageDecoder;
 	let mut reader = image::ImageReader::open(path)
@@ -373,13 +387,27 @@ fn clipboard_image(path: &Path) -> Result<image::RgbaImage, &'static str> {
 		.map(|image| image.into_rgba8())
 		.map_err(|_| "Image could not be decoded")
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CopyKind {
+	Image,
+	Text,
+	File,
+}
+/// Copies the file at `path` to the clipboard as decoded image pixels, UTF-8 text, or a file reference.
+/// Returns the clipboard handle to keep contents alive; fails if cancelled before copying.
 fn copy_media(
 	path: &Path,
-	image: bool,
+	kind: CopyKind,
 	cancelled: &AtomicBool,
 ) -> Result<arboard::Clipboard, &'static str> {
-	let pixels = if image {
+	let pixels = if kind == CopyKind::Image {
 		Some(clipboard_image(path)?)
+	} else {
+		None
+	};
+	let text = if kind == CopyKind::Text {
+		let bytes = fs::read(path).map_err(|_| "File could not be read")?;
+		Some(String::from_utf8(bytes).map_err(|_| "File is not UTF-8 text")?)
 	} else {
 		None
 	};
@@ -387,7 +415,9 @@ fn copy_media(
 		return Err("Cancelled");
 	}
 	let mut clipboard = arboard::Clipboard::new().map_err(|_| "Clipboard unavailable")?;
-	if let Some(pixels) = pixels {
+	if let Some(text) = text {
+		clipboard.set_text(text)
+	} else if let Some(pixels) = pixels {
 		clipboard.set_image(arboard::ImageData {
 			width: pixels.width() as usize,
 			height: pixels.height() as usize,
@@ -712,7 +742,7 @@ mod tests {
 		assert!(clipboard_image(&file.path).is_err());
 		fs::write(&file.path, b"not an image").unwrap();
 		assert!(clipboard_image(&file.path).is_err());
-		assert!(copy_media(&file.path, false, &AtomicBool::new(true)).is_err());
+		assert!(copy_media(&file.path, CopyKind::File, &AtomicBool::new(true)).is_err());
 		drop(file);
 		assert!(!root.exists());
 		assert!(!failed.load(Ordering::Acquire));
@@ -727,14 +757,14 @@ mod tests {
 			.save_with_format(&file.path, image::ImageFormat::Png)
 			.unwrap();
 		let cancelled = AtomicBool::new(false);
-		let mut clipboard = copy_media(&file.path, true, &cancelled).unwrap();
+		let mut clipboard = copy_media(&file.path, CopyKind::Image, &cancelled).unwrap();
 		let pixels = clipboard.get_image().unwrap();
 		assert_eq!((pixels.width, pixels.height), (2, 1));
 		assert_eq!(pixels.bytes.as_ref(), &[20, 40, 60, 255, 20, 40, 60, 255]);
 		drop(clipboard);
 		let video = CopyFile::create("synthetic.mp4", failed.clone()).unwrap();
 		fs::write(&video.path, b"synthetic video file clipboard payload").unwrap();
-		let mut clipboard = copy_media(&video.path, false, &cancelled).unwrap();
+		let mut clipboard = copy_media(&video.path, CopyKind::File, &cancelled).unwrap();
 		assert_eq!(
 			clipboard.get().file_list().unwrap(),
 			vec![video.path.clone()]
@@ -744,11 +774,18 @@ mod tests {
 			clipboard.get().file_list(),
 			Err(arboard::Error::ContentNotAvailable)
 		));
+		let text = CopyFile::create("synthetic.txt", failed.clone()).unwrap();
+		fs::write(&text.path, "synthetic text ✓\nline two").unwrap();
+		let mut clipboard = copy_media(&text.path, CopyKind::Text, &cancelled).unwrap();
+		assert_eq!(clipboard.get_text().unwrap(), "synthetic text ✓\nline two");
+		fs::write(&text.path, [0xff, 0xfe, 0x00]).unwrap();
+		assert!(copy_media(&text.path, CopyKind::Text, &cancelled).is_err());
 		clipboard.set_text("synthetic newer clipboard").unwrap();
 		clear_copied_file(&mut clipboard, &video.path).unwrap();
 		assert_eq!(clipboard.get_text().unwrap(), "synthetic newer clipboard");
 		clipboard.clear().unwrap();
 		drop(clipboard);
+		drop(text);
 		drop(video);
 		drop(file);
 		assert!(!failed.load(Ordering::Acquire));

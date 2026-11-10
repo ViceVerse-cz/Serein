@@ -279,6 +279,14 @@ impl ChannelMenu {
 					}
 				}
 			}
+			// Plugin entries placed last sit above the ID, as View Raw does in Discord.
+			crate::extensions_ui::context_menu_bottom(
+				ui,
+				&[extensions::MenuTarget::Channel {
+					channel_id: channel.id.to_string(),
+					guild_id: Some(guild.to_string()),
+				}],
+			);
 			ui.separator();
 			if row(ui, "channel-menu-context-copy-channel-id", true, false).clicked() {
 				ui.ctx().copy_text(channel.id.to_string());
@@ -363,6 +371,12 @@ impl ChannelMenu {
 				self.generation = state.generation;
 				ui.close();
 			}
+			crate::extensions_ui::context_menu_bottom(
+				ui,
+				&[extensions::MenuTarget::Server {
+					guild_id: guild.to_string(),
+				}],
+			);
 		});
 	}
 

@@ -137,6 +137,28 @@ impl Candidate {
 	}
 }
 
+/// A `shown` event for a loaded text message of the open conversation that came into view,
+/// under the same rules as live events: public, attributed and within the content limit.
+pub fn shown(state: &State, id: model::Id) -> Option<MessageEvent> {
+	let message = state.timeline.get(id)?;
+	if !available(state)
+		|| state.selected != Some(message.channel)
+		|| !public(message)
+		|| message.author.id.0 == 0
+		|| message.content.is_empty()
+		|| message.content.len() > MAX_EVENT_CONTENT_BYTES
+	{
+		return None;
+	}
+	Some(MessageEvent {
+		kind: MessageEventKind::Shown,
+		channel_id: message.channel.0.to_string(),
+		message_id: id.0.to_string(),
+		author_id: Some(message.author.id.0.to_string()),
+		content: Some(message.content.clone()),
+	})
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

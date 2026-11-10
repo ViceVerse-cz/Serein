@@ -17,6 +17,9 @@ pub struct Manifest {
 	pub capabilities: Vec<Capability>,
 	#[serde(default)]
 	pub actions: Vec<Action>,
+	/// Exact HTTPS host names a `network` plugin may reach; no other host is reachable.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub network_hosts: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +89,22 @@ pub enum Capability {
 	Relationships,
 	ExternalNavigation,
 	ContextMenus,
+	InterfaceTweaks,
+	/// Apply allowed notification and mute changes for your own account from message- and
+	/// app-event handlers, without an Apply button.
+	BackgroundEffects,
+	/// Send HTTPS requests to the host names listed in the manifest's `network_hosts`;
+	/// each response re-runs the requesting action.
+	Network,
+	/// Show text in place of loaded messages, with the plugin's icon beside the name to
+	/// switch back (a translation).
+	MessageAlternatives,
+	/// Add a message only you can see to the open conversation (a message preview).
+	LocalMessages,
+	/// Show a short status beside the composer while you type (a character count).
+	ComposerStatus,
+	/// Change the text of your messages and edits just before they are sent.
+	SendHooks,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +121,29 @@ pub enum Surface {
 	Channel,
 	Server,
 	Role,
+	/// Runs shortly after the draft changes, with the draft; may return `composer_status`.
+	Draft,
+	/// Runs when you send or save an edit; its `replacement` is what is sent.
+	Send,
+}
+
+/// Where an action sits once the user shows its plugin ungrouped.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Placement {
+	/// Menus: first entries.
+	Top,
+	/// Message menu: right after the copy entries (the default for message actions).
+	#[default]
+	AfterCopy,
+	/// Menus: last entries.
+	Bottom,
+	/// Message actions: a toolbar button while hovering a message. Needs an icon.
+	Toolbar,
+	/// Composer actions: a composer bar button. Needs an icon.
+	Bar,
+	/// Composer actions: an entry in the composer's "Tools" menu.
+	Tools,
 }
 
 /// Declared entry point; its ID arrives in `Invocation::action`.
@@ -111,4 +153,22 @@ pub struct Action {
 	pub id: String,
 	pub label: String,
 	pub surface: Surface,
+	/// The plugin's own SVG glyph, at most 8 KiB; only its shape is drawn.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub icon: Option<String>,
+	/// Where the action sits once the user shows its plugin ungrouped.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub placement: Option<Placement>,
+	/// The plugin's own submenu for this action, e.g. "Privacy Pruning".
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub menu: Option<String>,
+	/// A composer button that stays on or off; its state arrives as the `on` value.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub toggle: bool,
+	/// A toggle's icon while it is on.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub icon_on: Option<String>,
+	/// A composer bar button shown only while the draft has text.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub needs_draft: bool,
 }

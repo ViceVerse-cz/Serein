@@ -88,6 +88,8 @@ impl Serialize for Id {
 	}
 }
 impl<'de> Deserialize<'de> for Id {
+	/// Parses an ID from its decimal string form, as Discord sends snowflakes in JSON.
+	/// Fails on non-string input or a string that is not a valid ID.
 	fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
 		struct IdVisitor;
 		impl serde::de::Visitor<'_> for IdVisitor {
@@ -95,6 +97,7 @@ impl<'de> Deserialize<'de> for Id {
 			fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 				f.write_str("a Discord ID string")
 			}
+			/// Parses a string-encoded snowflake, reporting malformed input as a deserializer error.
 			fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Id, E> {
 				value.parse().map_err(E::custom)
 			}
@@ -111,6 +114,10 @@ pub struct User {
 	pub webhook: bool,
 	pub id: Id,
 	pub name: String,
+	/// The account's unique username; `name` holds the display name when one is set. Empty
+	/// when the source did not provide it, as in older saved data.
+	#[serde(default)]
+	pub username: String,
 	pub avatar: Option<String>,
 	pub discriminator: u16,
 	/// Service-supplied server identity displayed beside this user's name.
@@ -132,6 +139,7 @@ impl User {
 	}
 	pub fn heap_bytes(&self) -> usize {
 		self.name.capacity()
+			+ self.username.capacity()
 			+ self.avatar.as_ref().map_or(0, String::capacity)
 			+ self.primary_guild.as_ref().map_or(0, |guild| {
 				std::mem::size_of::<ClanTag>()
@@ -260,6 +268,7 @@ impl SavedAccount {
 	/// Avatar lookups and name rows reuse the ordinary user widgets.
 	pub fn user(&self) -> User {
 		User {
+			username: String::new(),
 			kind: AccountKind::Human,
 			webhook: false,
 			id: self.id,
@@ -782,6 +791,8 @@ impl RichActivity {
 	}
 }
 
+/// Returns whether text is non-empty, at most 128 characters and 512 bytes, has no surrounding
+/// whitespace, and contains no control characters.
 fn valid_presence_text(text: &str) -> bool {
 	!text.is_empty()
 		&& text.len() <= 512
@@ -902,6 +913,8 @@ impl Member {
 	}
 }
 #[derive(Clone)]
+// Slots are mostly people; boxing each member would add an allocation per row.
+#[allow(clippy::large_enum_variant)]
 pub enum MemberSlot {
 	Person(Member),
 	/// Gateway group id: role snowflake, "online", or "offline".
@@ -1111,6 +1124,7 @@ mod roster_identity_tests {
 
 	fn user(name: &str) -> User {
 		User {
+			username: String::new(),
 			id: Id(2),
 			name: name.into(),
 			avatar: None,

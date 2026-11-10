@@ -175,6 +175,7 @@ pub(super) fn contents(
 	let colors = crate::design::palette(ui);
 	ui.set_min_width(200.0);
 	ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
+	let mut targets = Vec::new();
 	if !user.webhook {
 		let channel = match place {
 			Place::Open => state.selected,
@@ -182,11 +183,11 @@ pub(super) fn contents(
 			Place::Nowhere => None,
 		}
 		.and_then(|id| state.channel(id));
-		let mut targets = vec![extensions::MenuTarget::User {
+		targets.push(extensions::MenuTarget::User {
 			user_id: user.id.to_string(),
 			guild_id: channel.and_then(|c| c.guild).map(|g| g.to_string()),
 			channel_id: channel.map(|c| c.id.to_string()),
-		}];
+		});
 		if let Place::Conversation(_) = place
 			&& let Some(dm) = channel.filter(|c| c.guild.is_none() && c.kind == 1)
 		{
@@ -408,6 +409,7 @@ pub(super) fn contents(
 			"user-menu-contents-no-open-direct-message-with-this-user",
 		));
 	}
+	crate::extensions_ui::context_menu_bottom(ui, &targets);
 	ui.separator();
 	if let Some(ignore) = crate::profiles::ignore_button(ui, state, user, enabled) {
 		*action = Some(ignore);

@@ -15,11 +15,18 @@ pub struct Notification {
 	pub sender: String,
 	pub preview: String,
 	pub avatar_key: String,
+	/// The account owner is mentioned by ID; notification admission matches on it.
 	direct: bool,
+	/// The message came from a direct or group conversation rather than a server.
+	conversation: bool,
 	everyone: bool,
 	roles: Vec<Id>,
 }
 impl Notification {
+	/// Whether the message came from a direct or group conversation.
+	pub fn is_direct(&self) -> bool {
+		self.conversation
+	}
 	fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ self.roles.capacity() * size_of::<Id>()
@@ -29,6 +36,8 @@ impl Notification {
 	}
 }
 
+/// Replaces control and whitespace characters with spaces, then truncates to at most `chars`
+/// characters and `bytes` UTF-8 bytes without splitting a character, trimming the result.
 fn alert_text(text: &str, chars: usize, bytes: usize) -> String {
 	let mut output = String::new();
 	for character in text.chars().take(chars) {
@@ -1086,6 +1095,9 @@ impl State {
 			preview,
 			avatar_key: message.author.avatar_key(),
 			direct,
+			conversation: self
+				.channel(message.channel)
+				.is_some_and(|channel| channel.guild.is_none()),
 			everyone: message.mention_everyone,
 			roles: message.mention_roles.clone(),
 		};
@@ -1114,6 +1126,7 @@ mod tests {
 	use model::{Channel, Guild, Patch, User, permissions as p};
 	fn notification_state() -> State {
 		let owner = User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(2),
@@ -1520,6 +1533,7 @@ mod tests {
 
 	fn message(id: u64, channel: u64) -> Message {
 		let owner = User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(2),

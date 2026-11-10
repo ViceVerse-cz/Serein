@@ -26,9 +26,9 @@ struct Pending {
 }
 impl Pending {
 	fn reactive(&self) -> bool {
-		self.invocation
-			.as_ref()
-			.is_some_and(|(_, input, _)| input.message_event.is_some() || input.app_event.is_some())
+		self.invocation.as_ref().is_some_and(|(_, input, _)| {
+			input.message_event.is_some() || input.app_event.is_some() || input.hook.is_some()
+		})
 	}
 }
 
@@ -98,6 +98,8 @@ fn lerp_hex(from: &str, to: &str, t: f64) -> Option<String> {
 	))
 }
 
+/// Parses a `#rrggbb` color string into RGB channels, returning `None` without the leading `#`,
+/// with a length other than six digits, or with any non-hex character.
 fn parse_rgb_hex(text: &str) -> Option<[u8; 3]> {
 	let text = text.strip_prefix('#')?;
 	if text.len() != 6 || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -109,8 +111,12 @@ fn parse_rgb_hex(text: &str) -> Option<[u8; 3]> {
 
 const MAX_MESSAGE_EVENTS: usize = 32;
 const MAX_MESSAGE_EVENT_BYTES: usize = 64 * 1024;
+/// Queue budget while adding a web response, which alone may approach 192 KiB.
+const MAX_FETCH_EVENT_BYTES: usize = 1024 * 1024;
 const MESSAGE_EVENT_INTERVAL: Duration = Duration::from_millis(100);
 
+/// Fills the invocation with app, query, messaging-settings, and guild-folder snapshots scoped by
+/// the manifest, then trims extended input to leave 8 KiB of headroom under the I/O limit.
 fn attach_app_data(
 	invocation: &mut Invocation,
 	state: &State,
@@ -129,12 +135,18 @@ enum ReactiveEvent {
 	Message(MessageEvent),
 	App(AppEventKind),
 	ActionResult(ActionResult),
+	/// The requesting action's input, now carrying `fetch_result`.
+	Fetch(Box<Invocation>),
 }
 impl ReactiveEvent {
+	/// Whether the extension subsystem that consumes this event is currently able to accept it.
+	/// Message events check the event bridge; app, action-result, and fetch events check the app host.
 	fn available(&self, state: &State) -> bool {
 		match self {
 			Self::Message(_) => crate::extension_events::available(state),
-			Self::App(_) | Self::ActionResult(_) => crate::extension_app::available(state),
+			Self::App(_) | Self::ActionResult(_) | Self::Fetch(_) => {
+				crate::extension_app::available(state)
+			}
 		}
 	}
 }
@@ -143,15 +155,23 @@ struct QueuedEvent {
 	action: String,
 	context: ExtensionContext,
 	event: ReactiveEvent,
+	/// Serialized size of a web response, measured once when it is queued; zero for other events.
+	fetch_bytes: usize,
 }
 impl QueuedEvent {
+	/// Memory a message, app or action-result event holds against `MAX_MESSAGE_EVENT_BYTES`.
+	/// Web responses count only against `MAX_FETCH_EVENT_BYTES`, through `fetch_bytes`.
 	fn bytes(&self) -> usize {
+		if matches!(self.event, ReactiveEvent::Fetch(_)) {
+			return 0;
+		}
 		std::mem::size_of::<Self>()
 			+ self.id.len()
 			+ self.action.len()
 			+ match &self.event {
 				ReactiveEvent::App(_) => 0,
 				ReactiveEvent::ActionResult(result) => result.request_id.len(),
+				ReactiveEvent::Fetch(_) => 0,
 				ReactiveEvent::Message(event) => {
 					event.channel_id.len()
 						+ event.message_id.len()
@@ -189,6 +209,9 @@ pub struct Bridge {
 	message_events: VecDeque<QueuedEvent>,
 	message_event_at: Option<Instant>,
 	message_events_dropped: bool,
+	/// Messages already reported as shown in the open conversation, with their revision.
+	shown_seen: BTreeMap<model::Id, u64>,
+	shown_channel: Option<model::Id>,
 	app_key: Option<crate::extension_app::ChangeKey>,
 	extended_key: Option<u64>,
 	app_context_changed: bool,
@@ -198,6 +221,11 @@ pub struct Bridge {
 	connection_interrupted: bool,
 	ticks: BTreeMap<String, TickSchedule>,
 	transitions: BTreeMap<String, Transition>,
+	fetches: crate::plugin_fetch::Fetcher<(Invocation, ExtensionContext, u64)>,
+	fetches_dropped: bool,
+	/// Per plugin, bumped whenever it is enabled, disabled, replaced or reloaded; a response
+	/// started under an older value belongs to an instance that no longer has access.
+	fetch_epochs: BTreeMap<String, u64>,
 }
 impl Bridge {
 	fn tick_pending(&self, generation: u64, id: &str) -> bool {
@@ -223,6 +251,21 @@ impl Bridge {
 			.filter(|entry| entry.rich_presence.is_some())
 			.min_by_key(|entry| &entry.manifest.id)
 			.and_then(|entry| entry.rich_presence.as_deref())
+	}
+
+	/// Interface tweaks requested by enabled, working plugins that declare the capability.
+	pub fn interface_tweaks(&self) -> BTreeSet<extensions::InterfaceTweak> {
+		self.installed
+			.iter()
+			.filter(|entry| entry.error.is_none() && !self.disabled.contains(&entry.manifest.id))
+			.filter(|entry| {
+				entry
+					.manifest
+					.capabilities
+					.contains(&Capability::InterfaceTweaks)
+			})
+			.flat_map(|entry| entry.interface_tweaks.iter().copied())
+			.collect()
 	}
 
 	pub fn api_proxy_ready(&self) -> bool {
@@ -393,6 +436,7 @@ impl Bridge {
 					action: action.id.clone(),
 					context: ExtensionContext::capture(state, false),
 					event: ReactiveEvent::App(kind),
+					fetch_bytes: 0,
 				};
 				if self.message_events.len() >= MAX_MESSAGE_EVENTS
 					|| self
@@ -427,12 +471,22 @@ impl Bridge {
 			&& crate::extension_events::available(state)
 			&& self.scope_current(state)
 	}
+	/// Queues the event for each subscribed plugin, sending `Shown` only to those with message alternatives.
+	/// Invalid events are ignored; events past the count or byte cap are dropped and the loss is flagged.
 	pub fn message_event(&mut self, state: &State, event: MessageEvent) {
 		if !self.has_message_events(state) || event.validate().is_err() {
 			return;
 		}
 		for entry in &self.installed {
-			if !self.subscribes(entry) {
+			// `shown` is new: only plugins that show alternatives ask for it, so plugins built
+			// against an older SDK never receive a kind they cannot read.
+			if !self.subscribes(entry)
+				|| event.kind == extensions::MessageEventKind::Shown
+					&& !entry
+						.manifest
+						.capabilities
+						.contains(&Capability::MessageAlternatives)
+			{
 				continue;
 			}
 			let action = entry
@@ -446,6 +500,7 @@ impl Bridge {
 				action: action.id.clone(),
 				context: ExtensionContext::capture(state, false),
 				event: ReactiveEvent::Message(event.clone()),
+				fetch_bytes: 0,
 			};
 			if self.message_events.len() >= MAX_MESSAGE_EVENTS
 				|| self
@@ -459,6 +514,34 @@ impl Bridge {
 				continue;
 			}
 			self.message_events.push_back(queued);
+		}
+	}
+	/// Reports each text message of the open conversation once as it comes into view, and
+	/// again after an edit, to plugins that follow messages (an automatic translation).
+	fn shown_events(&mut self, state: &State, messaging: &mut ui::MessagingUi) {
+		let shown = messaging.take_shown_messages();
+		if self.shown_channel != state.selected {
+			self.shown_seen.clear();
+			self.shown_channel = state.selected;
+		}
+		if shown.is_empty() || !self.has_message_events(state) {
+			return;
+		}
+		for id in shown {
+			let Some(revision) = state.timeline.get(id).map(|message| message.revision) else {
+				continue;
+			};
+			if self.shown_seen.get(&id) == Some(&revision) {
+				continue;
+			}
+			let Some(event) = crate::extension_events::shown(state, id) else {
+				continue;
+			};
+			if self.shown_seen.len() >= 4096 {
+				self.shown_seen.clear();
+			}
+			self.shown_seen.insert(id, revision);
+			self.message_event(state, event);
 		}
 	}
 	pub fn cancel_stale_message_events(&mut self, state: &State) {
@@ -486,6 +569,8 @@ impl Bridge {
 	pub fn cleanup_pending(&self) -> bool {
 		self.pending.values().any(|pending| pending.cleanup)
 	}
+	/// Drops account-scoped plugin state, including queued events, presence and interface tweaks,
+	/// and logs the plugin host out of the account's data.
 	pub fn logout(&mut self, ctx: &egui::Context) -> Result<(), String> {
 		self.message_events.clear();
 		self.app_key = None;
@@ -498,6 +583,7 @@ impl Bridge {
 			entry.preserve_deleted_messages = false;
 			entry.image_sharing = false;
 			entry.rich_presence = None;
+			entry.interface_tweaks.clear();
 		}
 		self.picker = None;
 		self.theme_picker = None;
@@ -531,6 +617,136 @@ impl Bridge {
 		}
 		Ok(())
 	}
+	/// Applies a plugin's finished invocation: host state such as its theme, presence, tweaks
+	/// and API routing, queued background changes, and the result panel for user-started
+	/// actions. Results for another plugin, a disabled or removed one, or without a matching
+	/// request are dropped.
+	fn receive_output(
+		&mut self,
+		id: String,
+		output: extensions::Output,
+		invocation: Option<(String, Invocation, ExtensionContext)>,
+		state: &mut State,
+		messaging: &mut ui::MessagingUi,
+		ctx: &egui::Context,
+	) {
+		let Some((requested, invocation, context)) = invocation else {
+			return;
+		};
+		if requested != id
+			|| self.disabled.contains(&id)
+			|| !self.installed.iter().any(|e| e.manifest.id == id)
+		{
+			return;
+		}
+		if context.is_current(state)
+			&& let Some(appearance) = &output.appearance
+		{
+			self.transitions.remove(&id);
+			if let Some(installed) = self
+				.installed
+				.iter_mut()
+				.find(|entry| entry.manifest.id == id)
+			{
+				installed.theme = Some(appearance.clone());
+			}
+			self.apply_theme(ctx);
+		}
+		if context.is_current(state)
+			&& let Some(update) = &output.rich_presence
+			&& let Some(installed) = self
+				.installed
+				.iter_mut()
+				.find(|entry| entry.manifest.id == id)
+		{
+			self.rich_presence_changed = true;
+			installed.rich_presence = match update {
+				extensions::RichPresenceUpdate::Set { presence } => Some(presence.clone()),
+				extensions::RichPresenceUpdate::Clear => None,
+			};
+		}
+		if let Some(tweaks) = &output.interface_tweaks
+			&& let Some(installed) = self
+				.installed
+				.iter_mut()
+				.find(|entry| entry.manifest.id == id)
+		{
+			installed.interface_tweaks.clone_from(tweaks);
+		}
+		if context.is_current(state)
+			&& let Some(config) = &output.api_proxy
+			&& let Some(installed) = self
+				.installed
+				.iter_mut()
+				.find(|entry| entry.manifest.id == id)
+		{
+			installed.api_proxy = Some(config.clone());
+			self.refresh_api_proxy();
+		}
+		if !output.fetches.is_empty()
+			&& let Some(installed) = self.installed.iter().find(|entry| entry.manifest.id == id)
+		{
+			// Each response re-runs the requesting action with its original input and context.
+			let repaint = ctx.clone();
+			let mut origin = invocation.clone();
+			origin.fetch_result = None;
+			let epoch = self.fetch_epochs.get(&id).copied().unwrap_or_default();
+			self.fetches.start(
+				&id,
+				&(origin, context.clone(), epoch),
+				&installed.manifest.network_hosts,
+				output.fetches.clone(),
+				move || repaint.request_repaint(),
+			);
+		}
+		if !output.background_effects.is_empty() {
+			messaging.extensions.queue_background_effects(
+				&id,
+				&context,
+				&output.background_effects,
+			);
+		}
+		if !output.alternatives.is_empty() {
+			messaging
+				.extensions
+				.set_alternatives(&id, &output.alternatives);
+		}
+		if let Some(local) = &output.local_message
+			&& let Some(channel) = if local.channel_id.is_empty() {
+				state.selected
+			} else {
+				local.channel_id.parse::<u64>().ok().map(model::Id)
+			} {
+			state.push_local_message(channel, local.content.clone());
+		}
+		if let Some(status) = &output.composer_status {
+			messaging.extensions.set_composer_status(&id, status);
+		}
+		// A send hook's last answer carries the text to send; a request means more is coming.
+		if matches!(
+			invocation.hook,
+			Some(extensions::Hook::Send | extensions::Hook::Edit)
+		) && output.fetches.is_empty()
+		{
+			messaging
+				.extensions
+				.send_hook_done(&id, output.replacement.clone(), ctx, state);
+		}
+		// Results that only changed the conversation or a setting need no window.
+		let shows_something =
+			!output.panel.is_empty() || output.replacement.is_some() || !output.effects.is_empty();
+		if invocation.message_event.is_none()
+			&& invocation.app_event.is_none()
+			&& invocation.hook.is_none()
+			&& shows_something
+		{
+			messaging
+				.extensions
+				.present_output(id, invocation, context, output, state);
+		}
+	}
+	/// Runs one frame of plugin coordination: handles worker results and UI requests, publishes
+	/// host state such as interface tweaks, and schedules reactive events and ticks.
 	pub fn tick(
 		&mut self,
 		state: &mut State,
@@ -576,6 +792,8 @@ impl Bridge {
 			self.picker = None;
 			self.theme_picker = None;
 			self.theme_preview = None;
+			// A new account scope never inherits the previous one's running requests.
+			self.fetches.cancel_all();
 			self.ticks.clear();
 			self.transitions.clear();
 			self.imported = None;
@@ -664,9 +882,32 @@ impl Bridge {
 						if let Some(schedule) = self.ticks.get_mut(id) {
 							schedule.paused = true;
 						}
+						// A failed plugin's interface changes end with it, like any other error.
+						if let Some(entry) = self
+							.installed
+							.iter_mut()
+							.find(|entry| entry.manifest.id == *id)
+						{
+							entry.interface_tweaks.clear();
+						}
 						messaging.extensions.status = format!(
 							"{id} animation paused after a failed tick; disable and re-enable it to retry. {error}"
 						);
+						continue;
+					}
+					if let Some((id, input, _)) =
+						pending.as_ref().and_then(|p| p.invocation.as_ref())
+						&& input.hook.is_some()
+					{
+						// A failed hook never blocks sending (the text goes out as it stands) and,
+						// running unasked, never disables its plugin or interrupts with a dialog.
+						if matches!(
+							input.hook,
+							Some(extensions::Hook::Send | extensions::Hook::Edit)
+						) {
+							messaging.extensions.send_hook_done(id, None, ctx, state);
+						}
+						messaging.extensions.status = format!("{id}: {error}");
 						continue;
 					}
 					if let Some((id, _, _)) = pending.as_ref().and_then(|p| p.invocation.as_ref()) {
@@ -678,6 +919,7 @@ impl Bridge {
 							self.api_proxy_loaded = false;
 						}
 						self.disabled.insert(id.clone());
+						self.retire_fetches(id);
 						self.refresh_api_proxy();
 						self.apply_theme(ctx);
 						self.entries(messaging);
@@ -724,6 +966,15 @@ impl Bridge {
 						.collect();
 					if let Some(error) = installed.iter().find_map(|e| e.error.as_ref()) {
 						messaging.extensions.status = error.clone();
+					}
+					let ids: Vec<_> = self
+						.installed
+						.iter()
+						.chain(&installed)
+						.map(|entry| entry.manifest.id.clone())
+						.collect();
+					for id in ids {
+						self.retire_fetches(&id);
 					}
 					self.installed = installed;
 					self.refresh_api_proxy();
@@ -804,6 +1055,7 @@ impl Bridge {
 					self.installed
 						.retain(|old| old.manifest.id != installed.manifest.id);
 					self.disabled.remove(&installed.manifest.id);
+					self.retire_fetches(&installed.manifest.id);
 					self.installed.push(installed);
 					self.refresh_api_proxy();
 					self.imported = None;
@@ -819,6 +1071,7 @@ impl Bridge {
 					});
 					self.installed.retain(|entry| entry.manifest.id != id);
 					self.disabled.remove(&id);
+					self.retire_fetches(&id);
 					self.refresh_api_proxy();
 					messaging.extensions.remove_runtime(&id);
 					self.apply_theme(ctx);
@@ -871,55 +1124,8 @@ impl Bridge {
 					}
 				}
 				Ok(Event::Invoked { id, output }) => {
-					if let Some((requested, invocation, context)) =
-						pending.and_then(|p| p.invocation)
-						&& requested == id && !self.disabled.contains(&id)
-						&& self.installed.iter().any(|e| e.manifest.id == id)
-					{
-						if context.is_current(state)
-							&& let Some(appearance) = &output.appearance
-						{
-							self.transitions.remove(&id);
-							if let Some(installed) = self
-								.installed
-								.iter_mut()
-								.find(|entry| entry.manifest.id == id)
-							{
-								installed.theme = Some(appearance.clone());
-							}
-							self.apply_theme(ctx);
-						}
-						if context.is_current(state)
-							&& let Some(update) = &output.rich_presence
-							&& let Some(installed) = self
-								.installed
-								.iter_mut()
-								.find(|entry| entry.manifest.id == id)
-						{
-							self.rich_presence_changed = true;
-							installed.rich_presence = match update {
-								extensions::RichPresenceUpdate::Set { presence } => {
-									Some(presence.clone())
-								}
-								extensions::RichPresenceUpdate::Clear => None,
-							};
-						}
-						if context.is_current(state)
-							&& let Some(config) = &output.api_proxy
-							&& let Some(installed) = self
-								.installed
-								.iter_mut()
-								.find(|entry| entry.manifest.id == id)
-						{
-							installed.api_proxy = Some(config.clone());
-							self.refresh_api_proxy();
-						}
-						if invocation.message_event.is_none() && invocation.app_event.is_none() {
-							messaging
-								.extensions
-								.present_output(id, invocation, context, output, state);
-						}
-					}
+					let invocation = pending.and_then(|p| p.invocation);
+					self.receive_output(id, output, invocation, state, messaging, ctx);
 				}
 				Ok(Event::EditTheme {
 					package,
@@ -1166,6 +1372,7 @@ impl Bridge {
 						self.pending.retain(|_, pending| pending.cleanup);
 						messaging.extensions.remove_runtime(&id);
 						self.disabled.insert(id.clone());
+						self.retire_fetches(&id);
 						self.apply_theme(ctx);
 						self.entries(messaging);
 						self.submit(
@@ -1264,6 +1471,7 @@ impl Bridge {
 						action: action.id.clone(),
 						context,
 						event: ReactiveEvent::ActionResult(result),
+						fetch_bytes: 0,
 					};
 					if self.message_events.len() >= MAX_MESSAGE_EVENTS
 						|| self
@@ -1288,6 +1496,7 @@ impl Bridge {
 						&& entry.preserve_deleted_messages
 				}),
 		);
+		messaging.set_interface_tweaks(self.interface_tweaks());
 		let max_texture = ctx.input(|input| input.max_texture_side);
 		if self
 			.installed
@@ -1320,6 +1529,8 @@ impl Bridge {
 			self.pending.retain(|_, pending| pending.cleanup);
 		}
 		self.app_events(state, messaging);
+		self.shown_events(state, messaging);
+		self.queue_fetch_results();
 		let available = self.scope_current(state);
 		let installed = &self.installed;
 		let disabled = &self.disabled;
@@ -1327,11 +1538,22 @@ impl Bridge {
 			available
 				&& event.event.available(state)
 				&& event.context.is_current(state)
+				// A response carries input saved when it was requested; it is not delivered
+				// once that conversation's history is no longer readable.
+				&& !(matches!(event.event, ReactiveEvent::Fetch(_))
+					&& event
+						.context
+						.channel
+						.is_some_and(|channel| !state.can_read_history(channel)))
 				&& !disabled.contains(&event.id)
 				&& installed
 					.iter()
 					.any(|entry| entry.manifest.id == event.id && entry.error.is_none())
 		});
+		if std::mem::take(&mut self.fetches_dropped) {
+			messaging.extensions.status =
+				"A plugin web response was skipped because the event queue was full.".into();
+		}
 		if std::mem::take(&mut self.message_events_dropped) {
 			messaging.extensions.status =
 				"Some plugin events were skipped because the event queue was full.".into();
@@ -1362,9 +1584,10 @@ impl Bridge {
 								.manifest;
 							attach_app_data(&mut invocation, state, messaging, manifest);
 						}
+						ReactiveEvent::Fetch(requested) => invocation = *requested,
 						ReactiveEvent::ActionResult(result) => {
 							invocation.app_event = Some(AppEventKind::Context);
-							invocation.action_result = Some(result);
+							invocation.action_result = Some(Box::new(result));
 							let manifest = &self
 								.installed
 								.iter()
@@ -1402,6 +1625,68 @@ impl Bridge {
 		}
 		self.schedule_ticks(&account, state.generation, ctx, messaging);
 	}
+	/// Responses to requests `id` already started are discarded instead of delivered.
+	fn retire_fetches(&mut self, id: &str) {
+		*self.fetch_epochs.entry(id.to_owned()).or_default() += 1;
+		self.fetches.cancel(id);
+		// Responses already queued belong to the retired instance too.
+		self.message_events
+			.retain(|event| event.id != id || !matches!(event.event, ReactiveEvent::Fetch(_)));
+	}
+	/// Queues each finished plugin request to re-run the action that started it.
+	fn queue_fetch_results(&mut self) {
+		for done in self.fetches.finished() {
+			if !self.installed.iter().any(|entry| {
+				entry.manifest.id == done.id
+					&& entry.error.is_none()
+					&& entry.manifest.capabilities.contains(&Capability::Network)
+			}) || self.disabled.contains(&done.id)
+			{
+				continue;
+			}
+			let (mut invocation, context, epoch) = done.context;
+			// Started by an earlier enable instance, or for a conversation whose history is
+			// no longer readable: the saved input must not reach the plugin.
+			if self.fetch_epochs.get(&done.id).copied().unwrap_or_default() != epoch {
+				continue;
+			}
+			let mut result = done.result;
+			invocation.fetch_result = Some(Box::new(result.clone()));
+			// The original input plus the body must still fit; otherwise report the size.
+			if !serde_json::to_vec(&invocation)
+				.is_ok_and(|wire| wire.len() <= extensions::MAX_IO_BYTES - 8 * 1024)
+			{
+				result.status = None;
+				result.content_type = None;
+				result.body.clear();
+				result.error = Some(extensions::FetchError::TooLarge);
+				invocation.fetch_result = Some(Box::new(result));
+			}
+			let fetch_bytes = serde_json::to_vec(&invocation).map_or(usize::MAX, |wire| wire.len());
+			let queued = QueuedEvent {
+				id: done.id,
+				action: invocation.action.clone(),
+				context,
+				event: ReactiveEvent::Fetch(Box::new(invocation)),
+				fetch_bytes,
+			};
+			if self.message_events.len() >= MAX_MESSAGE_EVENTS
+				|| self
+					.message_events
+					.iter()
+					.map(|queued| queued.fetch_bytes)
+					.fold(0usize, usize::saturating_add)
+					.saturating_add(queued.fetch_bytes)
+					> MAX_FETCH_EVENT_BYTES
+			{
+				self.fetches_dropped = true;
+			} else {
+				self.message_events.push_back(queued);
+			}
+		}
+	}
+	/// Keeps tick schedules in sync with enabled, healthy tick plugins and dispatches at most one due tick
+	/// per frame when the host is idle; signing out cancels all fetches and clears every schedule.
 	fn schedule_ticks(
 		&mut self,
 		account: &Option<String>,
@@ -1410,6 +1695,8 @@ impl Bridge {
 		messaging: &mut ui::MessagingUi,
 	) {
 		let Some(account) = account else {
+			// Signed out: no plugin keeps a request running for the old account.
+			self.fetches.cancel_all();
 			self.ticks.clear();
 			self.transitions.clear();
 			return;
@@ -1768,6 +2055,8 @@ fn source_id(source: &InstallSource) -> &str {
 	}
 }
 
+/// Returns the expected SHA-256 digest of the extension package, regardless of where it is installed
+/// from.
 fn source_hash(source: &InstallSource) -> &str {
 	match source {
 		InstallSource::Catalog(entry) => &entry.sha256,
@@ -1824,6 +2113,7 @@ mod tests {
 			image_sharing: false,
 			rich_presence: None,
 			api_proxy: None,
+			interface_tweaks: Vec::new(),
 		};
 		let bridge = Bridge {
 			scope: Some((
@@ -1842,6 +2132,91 @@ mod tests {
 		};
 		assert!(bridge.has_message_events(&state));
 		(bridge, state, event)
+	}
+
+	/// Follows a reactive plugin's background change from the bridge receiving its output to
+	/// the client frame that sends it: the command goes out without an Apply panel, and the
+	/// same output from a disabled plugin is dropped.
+	#[test]
+	fn reactive_background_change_reaches_a_command_without_confirmation() {
+		let (mut bridge, mut state, event) = message_events_fixture();
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.extend([Capability::ChannelControl, Capability::BackgroundEffects]);
+		let mut messaging = ui::MessagingUi::default();
+		bridge.entries(&mut messaging);
+		let ctx = egui::Context::default();
+		let id = bridge.installed[0].manifest.id.clone();
+		let output = || extensions::Output {
+			background_effects: vec![extensions::HostEffect::AppAction {
+				action: extensions::AppAction::SetServerNotifications {
+					guild_id: "10".into(),
+					level: Some(1),
+					muted: None,
+					suppress_everyone: Some(true),
+					suppress_roles: Some(true),
+				},
+			}],
+			..Default::default()
+		};
+		let invocation = |state: &State| {
+			Some((
+				id.clone(),
+				Invocation {
+					action: "message-event".into(),
+					message_event: Some(Box::new(event.clone())),
+					..Default::default()
+				},
+				ExtensionContext::capture(state, false),
+			))
+		};
+		let frame = |messaging: &mut ui::MessagingUi, state: &mut State| {
+			let mut commands = Vec::new();
+			ctx.run_ui(egui::RawInput::default(), |ui| {
+				// A frame can run more than one pass; keep every pass's commands.
+				commands.extend(messaging.show(ui, state));
+			})
+			.drop_without_applying_deltas();
+			commands
+		};
+		let sent = |commands: &[client_core::Command]| {
+			commands.iter().any(|command| {
+				matches!(
+					command,
+					client_core::Command::ServerAction {
+						action: client_core::server_actions::Action::Notifications {
+							guild: model::Id(10),
+							..
+						},
+						..
+					}
+				)
+			})
+		};
+		let input = invocation(&state);
+		bridge.receive_output(
+			id.clone(),
+			output(),
+			input,
+			&mut state,
+			&mut messaging,
+			&ctx,
+		);
+		let commands = frame(&mut messaging, &mut state);
+		assert!(sent(&commands), "{}", messaging.extensions.status);
+		assert!(!sent(&frame(&mut messaging, &mut state)), "sent once");
+		bridge.disabled.insert(id.clone());
+		let input = invocation(&state);
+		bridge.receive_output(
+			id.clone(),
+			output(),
+			input,
+			&mut state,
+			&mut messaging,
+			&ctx,
+		);
+		assert!(!sent(&frame(&mut messaging, &mut state)), "disabled plugin");
 	}
 
 	#[test]
@@ -1895,6 +2270,35 @@ mod tests {
 		assert!(bridge.rich_presence().is_none());
 	}
 
+	/// Checks that plugin tweaks need the capability and switch off when the plugin is
+	/// disabled, fails or the account logs out.
+	#[test]
+	fn interface_tweaks_require_capability_and_clear_with_disable_error_and_logout() {
+		use extensions::InterfaceTweak;
+		let (mut bridge, _, _) = message_events_fixture();
+		bridge.installed[0].interface_tweaks = vec![InterfaceTweak::ExpandedRoles];
+		assert!(bridge.interface_tweaks().is_empty());
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.push(Capability::InterfaceTweaks);
+		assert_eq!(
+			bridge.interface_tweaks(),
+			[InterfaceTweak::ExpandedRoles].into()
+		);
+		let id = bridge.installed[0].manifest.id.clone();
+		bridge.disabled.insert(id.clone());
+		assert!(bridge.interface_tweaks().is_empty());
+		bridge.disabled.remove(&id);
+		bridge.installed[0].error = Some("Failed".into());
+		assert!(bridge.interface_tweaks().is_empty());
+		bridge.installed[0].error = None;
+		let _ = bridge.logout(&egui::Context::default());
+		assert!(bridge.interface_tweaks().is_empty());
+	}
+
+	/// Verifies app events replace one another in a single queued slot, count toward the shared
+	/// message-event cap, and are cleared once the extension is disabled.
 	#[test]
 	fn extension_app_events_coalesce_and_share_message_queue_limits() {
 		let (mut bridge, mut state, event) = message_events_fixture();
@@ -1910,6 +2314,12 @@ mod tests {
 				id: "app-event".into(),
 				label: "Observe".into(),
 				surface: Surface::AppEvent,
+				icon: None,
+				placement: None,
+				menu: None,
+				toggle: false,
+				icon_on: None,
+				needs_draft: false,
 			});
 		bridge.app_events(&state, &messaging);
 		assert_eq!(bridge.message_events.len(), 1);
@@ -1949,6 +2359,8 @@ mod tests {
 		assert!(bridge.message_events.is_empty());
 	}
 
+	/// Data change events reach an extension only after it declares DataEvents, are dropped for kinds it
+	/// lacks capabilities for, and repeated changes coalesce into one event per kind.
 	#[test]
 	fn data_events_are_opt_in_granted_and_coalesce_per_kind() {
 		let (mut bridge, state, _) = message_events_fixture();
@@ -1963,6 +2375,12 @@ mod tests {
 			id: "data-event".into(),
 			label: "Observe".into(),
 			surface: Surface::AppEvent,
+			icon: None,
+			placement: None,
+			menu: None,
+			toggle: false,
+			icon_on: None,
+			needs_draft: false,
 		});
 		bridge.app_events(&state, &messaging);
 		bridge.message_events.clear();
@@ -2035,6 +2453,12 @@ mod tests {
 			id: "data-event".into(),
 			label: "Observe".into(),
 			surface: Surface::AppEvent,
+			icon: None,
+			placement: None,
+			menu: None,
+			toggle: false,
+			icon_on: None,
+			needs_draft: false,
 		});
 		let channel = state.selected.unwrap();
 		state
@@ -2093,6 +2517,22 @@ mod tests {
 		assert!(
 			matches!(&bridge.message_events.front().unwrap().event, ReactiveEvent::Message(value) if *value == event)
 		);
+	}
+
+	/// A queued web response counts only against the fetch budget, so message events still queue.
+	#[test]
+	fn a_large_web_response_does_not_crowd_out_message_events() {
+		let (mut bridge, state, event) = message_events_fixture();
+		bridge.message_events.push_back(QueuedEvent {
+			id: "message-counter".into(),
+			action: "fetched".into(),
+			context: ExtensionContext::capture(&state, false),
+			event: ReactiveEvent::Fetch(Box::default()),
+			fetch_bytes: 200 * 1024,
+		});
+		bridge.message_event(&state, event);
+		assert_eq!(bridge.message_events.len(), 2);
+		assert!(!bridge.message_events_dropped);
 	}
 
 	#[test]

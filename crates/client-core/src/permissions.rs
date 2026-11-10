@@ -991,8 +991,19 @@ impl State {
 		})
 	}
 	pub fn prepare_edit(&mut self, channel: Id, message: Id, content: String) -> Option<Command> {
+		self.prepare_text_edit(channel, message, content, false)
+	}
+	/// An edit of `message`'s text. Empty text is allowed only when the edit also adds files,
+	/// so the message keeps something to show.
+	fn prepare_text_edit(
+		&mut self,
+		channel: Id,
+		message: Id,
+		content: String,
+		adds_files: bool,
+	) -> Option<Command> {
 		if !self.can_edit(channel, message)
-			|| content.trim().is_empty()
+			|| (content.trim().is_empty() && !adds_files)
 			|| content.chars().count() > self.content_limit()
 		{
 			self.status = "This message cannot be edited with the current access";
@@ -1004,7 +1015,46 @@ impl State {
 			channel,
 			message,
 			content,
+			keep_attachments: None,
 		})
+	}
+	/// An edit that also uploads `new_files` staged files, keeping the message's attachments.
+	/// Discord allows ten attachments per message in total.
+	pub fn prepare_edit_adding_files(
+		&mut self,
+		channel: Id,
+		message: Id,
+		content: String,
+		new_files: usize,
+	) -> Option<Command> {
+		let keep: Vec<Id> = self
+			.timeline
+			.get(message)
+			.filter(|loaded| loaded.channel == channel)
+			.map(|loaded| {
+				loaded
+					.attachments
+					.iter()
+					.map(|attachment| attachment.id)
+					.collect()
+			})
+			.unwrap_or_default();
+		if new_files == 0 || !self.can_attach(channel) {
+			self.status = "Files cannot be added to this message with the current access";
+			return None;
+		}
+		if keep.len() + new_files > crate::MAX_MESSAGE_ATTACHMENTS {
+			self.status = "A message holds at most 10 files";
+			return None;
+		}
+		let mut command = self.prepare_text_edit(channel, message, content, true)?;
+		if let Command::Edit {
+			keep_attachments, ..
+		} = &mut command
+		{
+			*keep_attachments = Some(keep);
+		}
+		Some(command)
 	}
 	pub fn prepare_delete(&mut self, channel: Id, message: Id) -> Option<Command> {
 		if !self.can_delete(channel, message) {

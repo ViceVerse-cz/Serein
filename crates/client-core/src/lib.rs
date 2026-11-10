@@ -7,6 +7,7 @@ pub mod channel_actions;
 pub mod emoji_frecency;
 pub mod fingerprint;
 pub mod forum;
+pub mod friend_invites;
 pub mod game_mentions;
 pub mod gifs;
 pub mod guild_creation;
@@ -20,6 +21,7 @@ mod permissions_tests;
 mod forwarding;
 pub mod interactions;
 pub mod invites;
+pub mod lookups;
 pub mod member_search;
 pub mod message_actions;
 pub mod messaging_permissions;
@@ -63,6 +65,8 @@ pub const MAX_DRAFT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_CONTENT: usize = 2000;
 /// Nitro and Nitro Classic accounts may send longer messages.
 pub const MAX_PREMIUM_CONTENT: usize = 4000;
+/// Attachments one message may hold.
+pub const MAX_MESSAGE_ATTACHMENTS: usize = 10;
 /// Discord accepts at most ten attachments per message.
 pub const MAX_ATTACHMENTS: usize = 10;
 pub const MAX_NAV: usize = model::account::MAX_ENTRIES;
@@ -243,6 +247,10 @@ pub enum Command {
 		channels: Vec<(Id, Id)>,
 	},
 	Reactions(reactions::Command),
+	/// One unloaded person or message, read on demand.
+	Lookup(lookups::Command),
+	/// List, create or revoke the account's friend invite links.
+	FriendInvites(friend_invites::Command),
 	Profile {
 		user: Id,
 		guild: Option<Id>,
@@ -315,6 +323,9 @@ pub enum Command {
 		channel: Id,
 		message: Id,
 		content: String,
+		/// `Some` when the composer's staged files are uploaded with the edit: the existing
+		/// attachments the message keeps. `None` edits only the text.
+		keep_attachments: Option<Vec<Id>>,
 	},
 	Delete {
 		channel: Id,
@@ -410,6 +421,8 @@ impl std::ops::Deref for PreparedStartup {
 		&self.data
 	}
 }
+/// Validates navigation data against capacity and integrity limits, then builds permission state.
+/// Fails on oversized input, duplicate or zero IDs, or channels referencing unknown guilds.
 fn prepare_navigation(
 	user: &User,
 	guilds: &[Guild],
@@ -579,6 +592,8 @@ pub enum Event {
 	ReadState(read_state::Event),
 	NotificationPreferences(notifications::Event),
 	Reactions(reactions::Event),
+	Lookup(lookups::Event),
+	FriendInvites(friend_invites::Event),
 	Profile {
 		user: Id,
 		guild: Option<Id>,
@@ -776,6 +791,10 @@ pub struct State {
 	pub server_members_shortcuts: BTreeMap<Id, bool>,
 	pub group_actions: group_actions::Actions,
 	pub typing: typing::Typing,
+	/// People and messages read on demand for unknown mentions and unloaded replies.
+	pub lookups: lookups::Lookups,
+	/// The account's friend invite links, shown on Add Friend.
+	pub friend_invites: friend_invites::FriendInvites,
 	pub permissions: permissions::Permissions,
 	pub archives: Option<archives::View>,
 	pub posting: forum::Posting,
@@ -1022,6 +1041,8 @@ impl Default for State {
 			server_members_shortcuts: BTreeMap::new(),
 			group_actions: group_actions::Actions::default(),
 			typing: typing::Typing::default(),
+			lookups: lookups::Lookups::default(),
+			friend_invites: friend_invites::FriendInvites::default(),
 			permissions: permissions::Permissions::default(),
 			archives: None,
 			posting: forum::Posting::default(),
@@ -2120,6 +2141,44 @@ impl State {
 			});
 			return;
 		}
+		// A request that never left keeps nothing pending, so it can be asked for again.
+		match command {
+			Command::Lookup(lookup) => {
+				self.apply_lookup(match lookup {
+					lookups::Command::User { user } => lookups::Event::User {
+						user,
+						result: Err(auth::Failure::Network),
+					},
+					lookups::Command::Message { channel, message } => lookups::Event::Message {
+						channel,
+						message,
+						result: Err(auth::Failure::Network),
+					},
+				});
+				return;
+			}
+			Command::FriendInvites(invites) => {
+				let failure = auth::Failure::ProtocolAt("Friend invites were not queued");
+				self.apply_friend_invites(match invites {
+					friend_invites::Command::Load { request } => friend_invites::Event::Loaded {
+						request,
+						result: Err(failure),
+					},
+					friend_invites::Command::Create { request } => friend_invites::Event::Created {
+						request,
+						result: Err(failure),
+					},
+					friend_invites::Command::RevokeAll { request } => {
+						friend_invites::Event::Revoked {
+							request,
+							result: Err(failure),
+						}
+					}
+				});
+				return;
+			}
+			_ => {}
+		}
 		match &command {
 			Command::ApplicationCommands {
 				channel, request, ..
@@ -3160,6 +3219,14 @@ impl State {
 				self.apply_profile(user, guild, request, result);
 				Ok(())
 			}
+			Event::Lookup(event) => {
+				self.apply_lookup(event);
+				Ok(())
+			}
+			Event::FriendInvites(event) => {
+				self.apply_friend_invites(event);
+				Ok(())
+			}
 			Event::StreamPreview {
 				guild,
 				channel,
@@ -3861,6 +3928,7 @@ impl State {
 				// A card's cache holds a copy, so an edit must make it read the reply again.
 				if !matches!(p.content, Patch::Absent) || !matches!(p.edited, Patch::Absent) {
 					self.thread_previews.mark_stale(p.channel, p.id);
+					self.lookups.forget_message(p.id, false);
 				}
 				if self.selected == Some(p.channel)
 					&& self.reactions.invalidated(p.id)
@@ -3886,6 +3954,7 @@ impl State {
 				self.forget_pending_replies(channel, &[id]);
 				// A card must never keep showing a reply that no longer exists.
 				self.thread_previews.forget(channel, &[id]);
+				self.lookups.forget_message(id, true);
 				if let Some(channel) = self
 					.channels
 					.iter_mut()
@@ -3926,6 +3995,9 @@ impl State {
 			Event::DeleteBulk { channel, ids } => {
 				self.parked_replies.forget_targets(channel, &ids);
 				self.thread_previews.forget(channel, &ids);
+				for id in &ids {
+					self.lookups.forget_message(*id, true);
+				}
 				if ids.len() <= 100 {
 					for id in &ids {
 						self.read_state.activity.delete(channel, *id);
@@ -4305,8 +4377,12 @@ impl State {
 				.retain(|p| !(p.nonce == *nonce && p.channel == message.channel));
 		}
 	}
+	/// Applies an authentication failure: clears typing and pending lookups, sets the status label, and
+	/// marks data stale; session-ending failures also cancel all in-flight actions and drop session state.
 	fn fail(&mut self, failure: auth::Failure) {
 		self.typing.clear_all();
+		self.lookups.release_pending();
+		self.friend_invites.release_pending();
 		self.status = failure.label();
 		match failure {
 			auth::Failure::Expired => self.auth = auth::AuthState::Expired,
@@ -5782,6 +5858,8 @@ mod tests {
 		assert!(state.next_reaction_read().is_none());
 	}
 
+	/// Verifies guild emoji events replace the catalog, ignore future-generation envelopes, and clear
+	/// the catalog when the update exceeds the byte or count limits.
 	#[test]
 	fn guild_emoji_updates_replace_catalog_and_reject_stale_or_oversized_data() {
 		{
@@ -5886,6 +5964,7 @@ mod tests {
 				Event::Ready {
 					permissions: model::permissions::Snapshot::default(),
 					user: User {
+						username: String::new(),
 						primary_guild: None,
 						cosmetics: None,
 						id: Id(1),
@@ -6230,6 +6309,7 @@ mod tests {
 			id: Id(id),
 			channel: Id(1),
 			author: User {
+				username: String::new(),
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(2),
@@ -6266,6 +6346,8 @@ mod tests {
 			embeds_suppressed: false,
 		}
 	}
+	/// Member lists stay cleared after closing, permission changes, or resumes even when stale
+	/// responses arrive, while recipient additions and removals update an open DM list in place.
 	#[test]
 	fn members_reject_late_requests_and_permission_invalidations() {
 		let user = message(1).author;
@@ -6308,6 +6390,7 @@ mod tests {
 			Event::RecipientAdded {
 				channel: Id(1),
 				user: User {
+					username: String::new(),
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(3),
@@ -6503,6 +6586,8 @@ mod tests {
 		assert!(state.start_call(Id(1), false).is_some());
 	}
 
+	/// Verifies a Ready that drops or retypes the selected channel clears selection, timeline, and reply,
+	/// keeps the draft, and stops reloads or stale history responses from restoring the timeline.
 	#[test]
 	fn ready_replacement_and_removed_reload_cannot_restore_unavailable_history() {
 		{
@@ -6521,6 +6606,7 @@ mod tests {
 				message_count: None,
 			};
 			let user = || User {
+				username: String::new(),
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(2),
@@ -6652,6 +6738,7 @@ mod tests {
 				Event::Ready {
 					permissions: model::permissions::Snapshot::default(),
 					user: User {
+						username: String::new(),
 						primary_guild: None,
 						cosmetics: None,
 						id: Id(2),

@@ -87,6 +87,9 @@ impl Settings {
 			plaintext_login: ui.plaintext_login,
 			diagnostics_log: ui.diagnostics_log,
 			setup_done: !ui.setup_pending,
+			grouped_plugins: ui.extensions.grouped().iter().cloned().collect(),
+			plugin_toggles: ui.extensions.toggles().iter().cloned().collect(),
+			plugin_bar_left: ui.extensions.bar_left,
 		};
 		if value != self.current {
 			self.state.touched = true;
@@ -141,6 +144,11 @@ impl Settings {
 		ui.time_format = value.time_format;
 		ui.plaintext_login = value.plaintext_login;
 		ui.diagnostics_log = value.diagnostics_log;
+		ui.extensions
+			.set_grouped(value.grouped_plugins.iter().cloned().collect());
+		ui.extensions
+			.set_toggles(value.plugin_toggles.iter().cloned().collect());
+		ui.extensions.bar_left = value.plugin_bar_left;
 		// Unreadable preferences fall back to defaults; never nag with setup on every launch.
 		ui.setup_pending = self.loaded && !value.setup_done;
 		ui::local_time::set_format(ui.time_format, ui.language);

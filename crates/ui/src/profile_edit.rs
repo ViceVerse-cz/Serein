@@ -557,6 +557,8 @@ fn field(
 	.labelled_by(label_id);
 }
 
+/// Paints the profile card as others see it, using the profile's theme colors and banner.
+/// Returns the avatar action chosen when the avatar is clickable and the user interacts with it.
 #[allow(clippy::too_many_arguments)]
 fn preview(
 	ui: &mut egui::Ui,
@@ -729,6 +731,7 @@ mod tests {
 	#[test]
 	fn draft_only_sends_changed_fields_and_can_clear_values() {
 		let user = model::User {
+			username: String::new(),
 			id: model::Id(1),
 			name: "Synthetic".into(),
 			avatar: None,

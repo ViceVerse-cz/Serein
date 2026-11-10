@@ -3,6 +3,7 @@ use extensions::*;
 fn plugin(wasm: &str) -> Package {
 	Package {
 		manifest: Manifest {
+			network_hosts: Vec::new(),
 			api_version: API_VERSION,
 			id: "test-plugin".into(),
 			name: "Test plugin".into(),
@@ -16,6 +17,12 @@ fn plugin(wasm: &str) -> Package {
 				id: "run".into(),
 				label: "Run".into(),
 				surface: Surface::Composer,
+				icon: None,
+				placement: None,
+				menu: None,
+				toggle: false,
+				icon_on: None,
+				needs_draft: false,
 			}],
 		},
 		theme: None,
@@ -149,6 +156,12 @@ fn menu_actions_reject_missing_or_mismatched_targets_before_running() {
 		id: "run".into(),
 		label: "Run".into(),
 		surface: Surface::User,
+		icon: None,
+		placement: None,
+		menu: None,
+		toggle: false,
+		icon_on: None,
+		needs_draft: false,
 	}];
 	let user = MenuTarget::User {
 		user_id: "4".into(),
@@ -242,6 +255,8 @@ fn tick_requires_elapsed_time_and_only_returns_appearance() {
 	}
 }
 
+/// Panel output fails validation when it exceeds the element limit, nests too deeply, repeats an
+/// element id, or references an action the manifest does not declare.
 #[test]
 fn rejects_panel_complexity_duplicate_ids_and_unknown_actions() {
 	let mut package = returning("{}");
@@ -249,6 +264,12 @@ fn rejects_panel_complexity_duplicate_ids_and_unknown_actions() {
 		id: "panel".into(),
 		label: "Panel".into(),
 		surface: Surface::Panel,
+		icon: None,
+		placement: None,
+		menu: None,
+		toggle: false,
+		icon_on: None,
+		needs_draft: false,
 	});
 	for panel in [
 		vec![Element::Text { text: "x".into() }; MAX_PANEL_ELEMENTS + 1],
@@ -521,6 +542,8 @@ fn message_event_payloads_bound_ids_content_and_partial_fields() {
 	}
 }
 
+/// Message-event actions require the granted capability, a single message-event action, the
+/// message-event surface, and an invocation carrying only the event with no other context.
 #[test]
 fn message_events_require_a_unique_granted_surface_without_other_context() {
 	let mut package = event_package("{}");
@@ -549,6 +572,12 @@ fn message_events_require_a_unique_granted_surface_without_other_context() {
 		id: "second".into(),
 		label: "Second".into(),
 		surface: Surface::MessageEvent,
+		icon: None,
+		placement: None,
+		menu: None,
+		toggle: false,
+		icon_on: None,
+		needs_draft: false,
 	});
 	assert!(matches!(package.manifest.validate(), Err(Error::Invalid)));
 	package.manifest.actions.pop();

@@ -582,6 +582,7 @@ mod tests {
 	fn state() -> State {
 		let mut state = State {
 			user: Some(model::User {
+				username: String::new(),
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(1),
@@ -778,6 +779,7 @@ mod tests {
 	fn server_invites_options_friends_acknowledgement_and_cancellation() {
 		let mut state = state();
 		let friend = model::User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(8),

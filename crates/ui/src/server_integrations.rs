@@ -980,6 +980,7 @@ fn webhook_name(webhook: &Webhook) -> &str {
 fn webhook_identity(ui: &mut egui::Ui, state: &State, webhook: &Webhook, avatars: &mut Avatars) {
 	ui.horizontal(|ui| {
 		let user = model::User {
+			username: String::new(),
 			kind: model::AccountKind::Bot,
 			webhook: true,
 			id: webhook.id,
