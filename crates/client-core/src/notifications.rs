@@ -614,8 +614,9 @@ impl State {
 					&& !self.message_request_pending(channel.id)
 					&& !self.spam_direct(channel.id)
 					&& (Some(channel.id) == call
-						|| self.channel_unread(channel) == Some(true)
-						|| self.unread_count(channel.id) > 0)
+						|| (self.dm_muted(channel.id) != Some(true)
+							&& (self.channel_unread(channel) == Some(true)
+								|| self.unread_count(channel.id) > 0)))
 			})
 			.map(|channel| (self.channel_activity(channel), channel.id))
 			.collect();

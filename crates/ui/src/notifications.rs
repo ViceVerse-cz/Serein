@@ -101,6 +101,10 @@ fn home_request_label(friends: u32, messages: u32) -> String {
 }
 
 pub(super) fn row_activity(state: &State, channel: &model::Channel, visible: bool) -> (bool, u32) {
+	// Muted conversations stay quiet, like Discord's dimmed rows.
+	if channel.guild.is_none() && state.dm_muted(channel.id) == Some(true) {
+		return (false, 0);
+	}
 	let forum = channel.guild.is_some() && matches!(channel.kind, 15 | 16);
 	// A forum lights only for posts the account has not seen, never its own boundary.
 	let unread = visible
@@ -387,8 +391,7 @@ impl MessagingUi {
 									&mut self.user_action,
 								);
 							}
-							let count = state.unread_count(channel.id);
-							let unread = state.channel_unread(channel) == Some(true) || count > 0;
+							let (unread, count) = row_activity(state, channel, true);
 							// Keyed by channel: auto ids shift as unread conversations come and go.
 							let id = ui.scope_id().with(("rail-direct", channel.id));
 							indicator(ui, id, &response, unread, count);
