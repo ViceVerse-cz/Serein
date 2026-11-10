@@ -248,6 +248,19 @@ impl Spelling {
 		}
 	}
 
+	/// Time until the next detection retry is due, while checking is on and one lies ahead.
+	fn retry_wakeup(&self) -> Option<std::time::Duration> {
+		if !(self.loaded && self.settings.enabled) {
+			return None;
+		}
+		let now = std::time::Instant::now();
+		self.retry
+			.values()
+			.filter(|at| **at > now)
+			.min()
+			.map(|at| at.saturating_duration_since(now))
+	}
+
 	/// Byte ranges of misspelled words in `text`. The word still being typed at `caret`
 	/// (a char index) is left alone until the user moves past it, as Chromium does.
 	pub fn misspelled(&mut self, text: &str, caret: Option<usize>) -> Vec<Range<usize>> {
@@ -307,10 +320,10 @@ impl Spelling {
 			.then(|| output.cursor_range.map(|range| range.primary.index.0))
 			.flatten();
 		let ranges = self.misspelled(text, caret);
-		// Wake up when a failed detected language may be asked for again.
-		if let Some(at) = self.retry.values().min() {
-			ui.ctx()
-				.request_repaint_after(at.saturating_duration_since(std::time::Instant::now()));
+		// Wake up when a failed detected language may be asked for again; only while checking
+		// runs and for deadlines still ahead, so a passed deadline never repaints every frame.
+		if let Some(delay) = self.retry_wakeup() {
+			ui.ctx().request_repaint_after(delay);
 		}
 		if ranges.is_empty() {
 			return;
@@ -752,6 +765,28 @@ mod tests {
 		// Once the deadline passes, the unchanged draft is checked again despite the cache.
 		spelling.misspelled(text, None);
 		assert_eq!(spelling.take_detected(), ["ron"]);
+	}
+
+	/// A pending retry wakes the composer only while checking is on and before its deadline.
+	#[test]
+	fn retry_wakeups_stop_while_disabled_or_once_due() {
+		let mut spelling = spelling(&["the"]);
+		let later = std::time::Instant::now() + std::time::Duration::from_secs(30);
+		spelling.retry.insert("ron".into(), later);
+		assert!(spelling.retry_wakeup().is_some());
+		spelling.set_enabled(false);
+		assert!(
+			spelling.retry_wakeup().is_none(),
+			"disabled spelling schedules nothing"
+		);
+		spelling.set_enabled(true);
+		spelling
+			.retry
+			.insert("ron".into(), std::time::Instant::now());
+		assert!(
+			spelling.retry_wakeup().is_none(),
+			"a passed deadline is not a wakeup"
+		);
 	}
 
 	#[test]

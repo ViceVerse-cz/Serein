@@ -12,6 +12,7 @@ directory, at most 16 MiB per file. Only codes from the fixed table are download
 LibreOffice/dictionaries at a pinned commit, without redirects. System Hunspell
 dictionaries are read in place and never copied. Loaded dictionaries stay in memory while
 their language is checked: the chosen languages plus the ones detected in written text.
+Unchecking a language releases it in the UI and in the background worker.
 The UI caches one list of misspelled ranges for the current draft. Draft text is never
 written to the spelling files or sent anywhere.
 

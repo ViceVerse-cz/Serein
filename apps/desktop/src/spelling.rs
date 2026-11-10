@@ -5,11 +5,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use ui::spelling::{Detection, Dictionary, Language, Settings};
 
 const FILE: &str = "spelling.json";
 const MAX_FILE: u64 = 1024 * 1024;
+/// How long a detected language whose dictionary failed to load is answered as failed
+/// without trying again; the UI asks more often than this.
+const DETECTION_BACKOFF: Duration = Duration::from_secs(10 * 60);
 /// The largest offered dictionary is about 10 MiB.
 const MAX_DICTIONARY: usize = 16 * 1024 * 1024;
 /// LibreOffice's dictionaries, pinned so a download is the file this table describes.
@@ -141,6 +144,9 @@ fn worker(
 	// checking one again retries it.
 	let mut failed = BTreeSet::new();
 	let mut automatic: BTreeMap<String, Arc<Dictionary>> = BTreeMap::new();
+	// Detected languages whose dictionary failed to load, and until when they are not tried
+	// again, so a language that cannot load does not hold the worker in repeated downloads.
+	let mut detect_failed: BTreeMap<String, Instant> = BTreeMap::new();
 	loop {
 		for code in &current.languages {
 			if loaded.contains(code) || failed.contains(code) {
@@ -168,21 +174,39 @@ fn worker(
 		};
 		for request in std::iter::once(first).chain(requests.try_iter()) {
 			match request {
-				Request::Settings(settings) => next = Some(settings),
+				Request::Settings(settings) => {
+					// Each snapshot clears what it unchecked, so uncheck-then-recheck within
+					// one batch still retries a failed language.
+					failed.retain(|code| settings.languages.contains(code));
+					automatic.retain(|code, _| !settings.excluded.contains(code));
+					next = Some(settings);
+				}
 				Request::Detect(language) => {
+					let excluded = &next.as_ref().unwrap_or(&current).excluded;
 					let found = match dictionary_for(&language, &system_dictionaries()) {
 						None => Detection::Unsupported,
-						Some(code) if current.excluded.contains(&code) => Detection::Unsupported,
+						Some(code) if excluded.contains(&code) => Detection::Unsupported,
+						Some(code)
+							if detect_failed
+								.get(&code)
+								.is_some_and(|until| Instant::now() < *until) =>
+						{
+							Detection::Failed
+						}
 						Some(code) => match automatic
 							.get(&code)
 							.cloned()
 							.or_else(|| load(&code, dictionaries.as_deref()).map(Arc::new))
 						{
 							Some(dictionary) => {
+								detect_failed.remove(&code);
 								automatic.insert(code.clone(), dictionary.clone());
 								Detection::Loaded(code, dictionary)
 							}
-							None => Detection::Failed,
+							None => {
+								detect_failed.insert(code, Instant::now() + DETECTION_BACKOFF);
+								Detection::Failed
+							}
 						},
 					};
 					send(Update::Detected(language, found));
@@ -197,6 +221,7 @@ fn worker(
 		}
 		loaded.retain(|code| next.languages.contains(code));
 		failed.retain(|code| next.languages.contains(code));
+		automatic.retain(|code, _| !next.excluded.contains(code));
 		current = next;
 	}
 }
