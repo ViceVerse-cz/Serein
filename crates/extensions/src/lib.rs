@@ -837,6 +837,8 @@ impl MenuTarget {
 }
 
 impl MessageEvent {
+	/// Checks entity ids, caps content at `MAX_EVENT_CONTENT_BYTES`, and enforces per-kind fields:
+	/// create/shown events need author and content, while delete events must carry neither.
 	pub fn validate(&self) -> Result<(), Error> {
 		for id in [&self.channel_id, &self.message_id]
 			.into_iter()

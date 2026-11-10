@@ -255,6 +255,8 @@ fn tick_requires_elapsed_time_and_only_returns_appearance() {
 	}
 }
 
+/// Panel output fails validation when it exceeds the element limit, nests too deeply, repeats an
+/// element id, or references an action the manifest does not declare.
 #[test]
 fn rejects_panel_complexity_duplicate_ids_and_unknown_actions() {
 	let mut package = returning("{}");
@@ -540,6 +542,8 @@ fn message_event_payloads_bound_ids_content_and_partial_fields() {
 	}
 }
 
+/// Message-event actions require the granted capability, a single message-event action, the
+/// message-event surface, and an invocation carrying only the event with no other context.
 #[test]
 fn message_events_require_a_unique_granted_surface_without_other_context() {
 	let mut package = event_package("{}");
