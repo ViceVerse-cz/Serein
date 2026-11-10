@@ -109,6 +109,8 @@ pub(crate) struct ThemeEditor {
 	cover_thumbnail: Option<egui::TextureHandle>,
 }
 
+/// Generates a locally unique theme ID from the current time in nanoseconds plus a process-wide
+/// counter, so IDs stay distinct even when the clock is unavailable or repeats.
 fn identity() -> String {
 	static NEXT: AtomicU64 = AtomicU64::new(0);
 	let now = std::time::SystemTime::now()

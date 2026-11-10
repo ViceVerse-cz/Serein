@@ -483,6 +483,7 @@ struct Gate {
 	wake_cancel: Arc<tokio::sync::Notify>,
 }
 impl Gate {
+	/// Fails with a cancellation error if the extension generation has advanced past this gate's epoch.
 	fn check(&self) -> Result<(), String> {
 		if self.epoch == self.generation.load(Ordering::Acquire) {
 			Ok(())
@@ -1122,6 +1123,7 @@ fn account_key(account: &str) -> Result<String, String> {
 	Ok(digest(account.as_bytes()))
 }
 
+/// Rejects extension identifiers that fail the shared validation rules with a user-facing error.
 fn valid_id(id: &str) -> Result<(), String> {
 	if !extensions::valid_id(id) {
 		return Err("Invalid extension identifier".into());
@@ -1624,6 +1626,8 @@ fn download(raw: &str, limit: usize, gate: &Gate, timeout: Duration) -> Result<V
 		})
 }
 
+/// Fetches a public HTTPS URL into memory, revalidating DNS and pinning addresses on each of up to
+/// six redirects; rejects private hosts, non-identity encodings, and bodies over `limit` bytes.
 async fn download_https(raw: &str, limit: usize, gate: &Gate) -> Result<Vec<u8>, String> {
 	let mut url = url::Url::parse(raw).map_err(|_| "Invalid extension download URL")?;
 	for _ in 0..6 {

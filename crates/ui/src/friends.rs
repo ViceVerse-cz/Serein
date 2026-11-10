@@ -234,6 +234,8 @@ impl MessagingUi {
 			}
 		});
 	}
+	/// Renders pending friend requests with an incoming/outgoing toggle and a case-insensitive search,
+	/// sorted by name; shows an empty state when requests are unknown or nothing matches.
 	fn friend_requests_page(
 		&mut self,
 		ui: &mut egui::Ui,

@@ -132,6 +132,8 @@ impl State {
 	}
 }
 
+/// Reports whether a snapshot reflects the completed outcome of an action, such as a deleted item
+/// being absent or an edited webhook carrying its new channel and name; copy actions never match.
 pub(crate) fn expected(action: &Action, page: &Snapshot) -> bool {
 	if !page.matches_action(action) {
 		return false;

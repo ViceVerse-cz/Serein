@@ -356,6 +356,8 @@ pub(crate) fn game(
 	)
 }
 
+/// Lays out a wrapping mention pill with a rounded background per row and an optional leading icon
+/// or avatar sized to the text height; returns the merged row response, falling back to the label.
 #[allow(clippy::too_many_arguments)]
 fn mention_art(
 	ui: &mut egui::Ui,

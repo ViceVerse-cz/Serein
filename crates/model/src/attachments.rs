@@ -91,6 +91,8 @@ impl Attachment {
 			+ self.media.proxy_url.as_ref().map_or(0, String::capacity)
 			+ self.media.placeholder.capacity()
 	}
+	/// Treats audio and video as non-images; HEIC/HEIF filenames always count, otherwise the MIME type
+	/// decides, falling back to the file extension when no content type is present.
 	pub fn is_image(&self) -> bool {
 		if self.is_audio() || self.is_video() {
 			return false;

@@ -8,6 +8,8 @@ pub(crate) struct Files {
 	fields: Vec<(String, Uploads)>,
 }
 impl Desktop {
+	/// Advances modal file uploads, resetting them when the modal, channel, or generation changes.
+	/// Extends the pending interaction deadline by 30s while any upload is busy and surfaces upload errors.
 	pub(crate) fn poll_interaction_files(&mut self, ctx: &eframe::egui::Context) {
 		let scope = self.state.interactions.modal.as_ref().and_then(|modal| {
 			self.state
@@ -51,6 +53,8 @@ impl Desktop {
 			}
 		}
 	}
+	/// Opens the file picker for a pending modal file field, replacing its previous selection.
+	/// Ignored when stale, busy, offline, or past five fields; picker failures set the modal error.
 	pub(crate) fn choose_interaction_files(&mut self, ctx: &eframe::egui::Context) {
 		let Some(custom_id) = self.messaging.interaction_file_request.take() else {
 			return;

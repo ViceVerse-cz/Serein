@@ -611,6 +611,8 @@ mod tests {
 			..State::default()
 		}
 	}
+	/// A new session drops pending favorite reads and queued writes, keeps local favorites, and ignores
+	/// results from the previous session's requests; an expired write clears the sync state.
 	#[test]
 	fn gif_favorites_session_reset_releases_reads_and_writes_and_rejects_old_results() {
 		for queued_write in [false, true] {

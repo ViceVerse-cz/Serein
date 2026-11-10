@@ -630,6 +630,8 @@ impl Picker {
 		self.stickers.query = query.chars().take(64).collect();
 	}
 
+	/// Rebuilds the match list from standard emoji whose name, glyph, or any Discord alias contains
+	/// the trimmed, lowercased query; an empty query matches every emoji.
 	fn filter(&mut self) {
 		let query = self.query.trim().to_lowercase();
 		self.matches.clear();
@@ -1024,6 +1026,8 @@ impl Picker {
 		}
 	}
 
+	/// Draws the emoji and GIF tray toggles and, while open, the picker popup anchored to them.
+	/// Returns the chosen emoji or GIF, or `None` when closed or nothing was picked this frame.
 	pub fn show(
 		&mut self,
 		ui: &mut egui::Ui,

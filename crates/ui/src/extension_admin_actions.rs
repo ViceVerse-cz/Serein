@@ -54,6 +54,8 @@ fn edit(value: ChannelEditInput) -> Result<Edit, String> {
 	})
 }
 
+/// Picks a channel in the guild to anchor admin actions, preferring the selected channel if it
+/// qualifies; requires manage or view permission per `manage`, and returns None for unknown guilds.
 fn guild_anchor(state: &State, guild: Id, manage: bool) -> Option<Id> {
 	state.guild(guild)?;
 	state
@@ -246,6 +248,8 @@ impl MessagingUi {
 mod tests {
 	use super::*;
 
+	/// Applies an extension admin action to the demo state, asserting it emits exactly one command.
+	/// Panics if the action fails or produces zero or multiple commands.
 	fn apply(action: AppAction) -> (State, Command) {
 		let mut state = test_support::demo_state();
 		let mut commands = Vec::new();

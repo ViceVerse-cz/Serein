@@ -25,6 +25,8 @@ pub struct EmojiUpload {
 	choosing: Option<Choosing>,
 }
 impl EmojiUpload {
+	/// Prepares up to 10 emoji images in the background, opening a file picker when no paths are given.
+	/// Fails immediately if a previous selection is still pending or too many paths are supplied.
 	pub fn start(
 		&mut self,
 		scope: Scope,
@@ -198,6 +200,8 @@ async fn download(emoji: &ui::EmojiClone) -> Result<Vec<u8>, &'static str> {
 	Ok(bytes)
 }
 
+/// Reads a local emoji image, rejecting relative or overlong paths, symlinks, and files over 8 MB.
+/// Uses the file stem as the emoji name and returns a user-facing message on any failure.
 fn read(path: &Path, cancelled: &AtomicBool) -> Result<Prepared, &'static str> {
 	const MAX_INPUT: u64 = 8 * 1024 * 1024;
 	if !path.is_absolute() || path.as_os_str().as_encoded_bytes().len() > 4096 {

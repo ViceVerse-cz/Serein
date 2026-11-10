@@ -1292,6 +1292,8 @@ mod tests {
 			assert_eq!(with_mutuals, expected);
 		}
 	}
+	/// Verifies profile requests need an authenticated, connected session and that superseded,
+	/// stale-generation, or post-clear responses never update the displayed profile.
 	#[test]
 	fn profiles_require_explicit_request_and_reject_late_views() {
 		{
@@ -1351,6 +1353,7 @@ mod tests {
 			assert!(state.request_profile(Id(1), None).is_none());
 		}
 		{
+			/// Builds a minimal synthetic profile for the given user, with every optional field empty or unset.
 			fn profile(user: Id) -> Box<UserProfile> {
 				Box::new(UserProfile {
 					user: model::User {

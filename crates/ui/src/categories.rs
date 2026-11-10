@@ -568,6 +568,8 @@ fn paint_shelf_rule(ui: &egui::Ui, rect: egui::Rect, rows: &[CachedRow], index: 
 	);
 }
 
+/// Maps a Discord channel type code to the localization key for its shelf rule label.
+/// Thread types 10-12 share one key; unrecognized codes fall back to an "unknown type" key.
 fn kind_label(kind: u8) -> &'static str {
 	match kind {
 		0 => "categories-paint-shelf-rule-text-channel",
@@ -2110,6 +2112,8 @@ mod tests {
 		state.channels.retain(|c| c.guild.is_some());
 		assert!(order(&state).is_empty());
 	}
+	/// Activating an unsupported channel by keyboard opens the browser confirmation only when
+	/// permitted, never selects it, and clearing the view discards the pending confirmation.
 	#[test]
 	fn unsupported_channel_opens_confirmation_by_keyboard_without_selecting() {
 		let mut state = State {
@@ -2185,6 +2189,8 @@ mod tests {
 		assert!(view.timeline.browser_opening.is_none());
 	}
 
+	/// Collapsed categories hide their children while channels and threads keep service order, and
+	/// orphaned, cyclic, self-parented, or cross-guild threads still list without breaking the tree.
 	#[test]
 	fn collapsed_categories_follow_service_order_selection_and_buttons() {
 		let channels = vec![
@@ -2205,6 +2211,7 @@ mod tests {
 				})
 				.collect::<Vec<_>>()
 		};
+		/// Builds the guild 100 rows with an empty roster, honoring the given collapsed categories.
 		fn tree(state: &State, collapsed: BTreeSet<Id>) -> Vec<Row<'_>> {
 			rows(
 				state,

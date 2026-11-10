@@ -111,6 +111,8 @@ impl Edit {
 			+ self.forum.as_deref().map_or(0, ForumEdit::bytes)
 	}
 }
+/// Accepts names that are non-blank, at most 100 characters and 400 bytes, and free of control
+/// characters.
 pub fn valid_name(name: &str) -> bool {
 	!name.trim().is_empty()
 		&& name.chars().count() <= 100

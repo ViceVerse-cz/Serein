@@ -57,6 +57,8 @@ impl Downloads {
 			.inspect_err(|&error| self.status = Status::Failed(error))?;
 		self.start_job(attachment, url, runtime, context, Some(parent))
 	}
+	/// Starts downloading an image, video or text attachment for copying to the clipboard.
+	/// Rejects other kinds or attachments without a download URL, recording the failure in the status.
 	pub fn start_copy(
 		&mut self,
 		attachment: Attachment,
@@ -104,6 +106,8 @@ impl Downloads {
 		};
 		self.start_job(image, url, runtime, context, (!copy).then_some(parent))
 	}
+	/// Starts a save-to-disk or copy-to-clipboard job on a dedicated thread, opening a save dialog
+	/// when a parent window is given. Fails if another download or clipboard cleanup is active.
 	fn start_job(
 		&mut self,
 		attachment: Attachment,
@@ -360,6 +364,8 @@ fn clear_copied_file(clipboard: &mut arboard::Clipboard, path: &Path) -> Result<
 	}
 }
 
+/// Decodes the downloaded image for the clipboard, capped at 4096px per side, 32 MiB of allocation,
+/// and 4 million pixels; images over a limit or that fail to decode return an error message.
 fn clipboard_image(path: &Path) -> Result<image::RgbaImage, &'static str> {
 	use image::ImageDecoder;
 	let mut reader = image::ImageReader::open(path)
@@ -387,6 +393,8 @@ enum CopyKind {
 	Text,
 	File,
 }
+/// Copies the file at `path` to the clipboard as decoded image pixels, UTF-8 text, or a file reference.
+/// Returns the clipboard handle to keep contents alive; fails if cancelled before copying.
 fn copy_media(
 	path: &Path,
 	kind: CopyKind,
