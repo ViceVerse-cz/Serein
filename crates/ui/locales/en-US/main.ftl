@@ -940,6 +940,8 @@ extensions-ui-card-body-by = by
 # Context: card_body
 extensions-ui-card-body-cleanup-pending = Cleanup pending
 # Context: card_body
+extensions-ui-card-body-details = Details
+# Context: card_body
 extensions-ui-card-body-enabled = Enabled
 # Context: card_body
 extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Finish removing this extension and its local data.
@@ -987,6 +989,34 @@ extensions-ui-consent-modal-unreviewed = Unreviewed
 extensions-ui-consent-modal-unreviewed-package-its-source-has-not-been-reviewed-for-the = Unreviewed package — its source has not been reviewed for the catalog.
 # Context: consent_modal
 extensions-ui-consent-modal-view-source = View source
+# Context: details_modal
+extensions-ui-details-modal-author = Author
+# Context: details_modal
+extensions-ui-details-modal-capabilities = Capabilities
+# Context: details_modal
+extensions-ui-details-modal-disable = Disable extension
+# Context: details_modal
+extensions-ui-details-modal-enable-to-use-tools = Enable this extension to use its settings and tools.
+# Context: details_modal
+extensions-ui-details-modal-license = License
+# Context: details_modal
+extensions-ui-details-modal-no-capabilities = No capabilities requested.
+# Context: details_modal
+extensions-ui-details-modal-no-description = No description provided.
+# Context: details_modal
+extensions-ui-details-modal-no-panel-actions = This extension declares no panel settings or tools.
+# Context: details_modal
+extensions-ui-details-modal-package-information-and-native-tools = Package details and native settings.
+# Context: details_modal
+extensions-ui-details-modal-plugin-id = Plugin ID
+# Context: details_modal
+extensions-ui-details-modal-review-enable = Review & enable
+# Context: details_modal
+extensions-ui-details-modal-retry-cleanup = Retry cleanup
+# Context: details_modal
+extensions-ui-details-modal-settings-and-tools = Settings & tools
+# Context: details_modal
+extensions-ui-details-modal-version = Version
 # Context: preview_image
 extensions-ui-preview-image-preview = Preview
 # Context: preview_image
