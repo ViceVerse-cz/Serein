@@ -1,7 +1,8 @@
 name: Linux packages
 
 on:
-  pull_request:
+  push:
+    branches: [main]
     paths: ['packaging/aur/**', 'packaging/linux/**', 'packaging/appimage/**', 'packaging/flatpak/**', 'packaging/repositories/**', 'tools/xtask/**', '.github/workflows/linux-packages.yml', '.github/workflows/package-repositories.yml']
   workflow_call:
     inputs:
