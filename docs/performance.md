@@ -1893,3 +1893,26 @@ Native computer use exposed no applications in this session. Native before/after
 screenshots, UI workload warmup/sampling, CPU/RSS, display scale/renderer observation,
 frame latency and live Discord verification remain unavailable. No UI speed or
 memory improvement is established by these package sizes.
+
+## Browser transport identity (PR #904) — November 10, 2026
+
+Baseline `6e6f18b0` (main, reqwest 0.13.5 over rustls/AWS-LC) and source `1ab16ae0`
+(wreq 6.0.0-rc.31 over BoringSSL), each built once with `cargo xtask package` in its own
+worktree and a new target directory. macOS 27.2 arm64, Apple M5 Pro / 24 GiB, Homebrew Rust
+1.99.1, pinned lockfile, standard release profile including voice.
+
+Executable and archive sizes use `stat`; the bundle size is `du -sk dist/Serein.app`; the
+archive is `ditto -c -k --keepParent dist/Serein.app`. No client was launched and nothing
+contacted Discord.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable (bytes) | 76,200,032 | 75,296,368 | −903,664 (−1.19%) |
+| `Serein.app` on disk (KiB) | 81,072 | 80,200 | −872 (−1.08%) |
+| Zipped bundle (bytes) | 52,158,053 | 51,734,674 | −423,379 (−0.81%) |
+| Clean `cargo xtask package` (s, one sample) | 282 | 275 | −7 |
+
+The build times are single samples and other work ran on the machine during the baseline,
+so they show only that the BoringSSL build does not lengthen a clean macOS package build
+noticeably. Linux, Windows and Windows ARM64 (BoringSSL without assembly) sizes were not
+measured. Connection setup time, TLS throughput and memory were not measured.
