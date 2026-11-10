@@ -73,6 +73,8 @@ impl HostInfo {
 				Capability::InterfaceTweaks,
 				Capability::BackgroundEffects,
 				Capability::Network,
+				Capability::MessageAlternatives,
+				Capability::LocalMessages,
 			],
 			app_events: &[
 				AppEventKind::Ready,

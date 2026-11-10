@@ -96,6 +96,11 @@ pub enum Capability {
 	/// Send HTTPS requests to the host names listed in the manifest's `network_hosts`;
 	/// each response re-runs the requesting action.
 	Network,
+	/// Show text in place of loaded messages, with the plugin's icon beside the name to
+	/// switch back (a translation).
+	MessageAlternatives,
+	/// Add a message only you can see to the open conversation (a message preview).
+	LocalMessages,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -1017,6 +1017,22 @@ the place:
 ```
 
 
+### Results in the conversation
+
+Some plugins answer in the conversation itself rather than in a result window.
+An output that only carries these fields opens no window. Rust plugins use
+`ChatOutput`, which flattens `NetworkOutput`.
+
+| Output field | Capability | From | Effect |
+| --- | --- | --- | --- |
+| `alternatives`: up to 32 `{channel_id, message_id, text, note, show}` | `message_alternatives` | `message`, `message_event` actions | `text` (at most 8 KiB) is shown in place of the loaded message; the plugin's icon beside the author's name switches between it and the original, with `note` as its tooltip (for example "Translated from Romanian"). `show: false` keeps the original until the reader switches. Republishing the same text keeps the reader's choice. |
+| `local_message`: `{channel_id, content}` | `local_messages` | `composer`, `message`, `panel` actions | Adds a message only you can see to the conversation, rendered like your own message and marked "Only you can see this · Dismiss". An empty `channel_id` means the open conversation. Nothing is sent. |
+
+Plugins with `message_alternatives` and a `message_event` action also receive
+`kind: "shown"` for each loaded text message of the open conversation as it comes
+into view, once per content change, with author and content like `create`. Other
+plugins never receive it, so plugins built against an older SDK keep working.
+
 Composer actions with `toggle: true` may also return `interface_tweaks`, and
 may set `icon_on` for their switched-on state. A right or Shift click on a
 composer bar button that is not a toggle arrives with the `click` value

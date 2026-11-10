@@ -4603,6 +4603,11 @@ impl MessagingUi {
 	pub fn interface_tweak_on(&self, tweak: extensions::InterfaceTweak) -> bool {
 		self.interface_tweaks.contains(&tweak)
 	}
+	/// Text messages of the open conversation drawn last frame, for plugins that follow
+	/// messages coming into view.
+	pub fn take_shown_messages(&mut self) -> Vec<Id> {
+		std::mem::take(&mut self.timeline.shown)
+	}
 	/// Replaces the interface tweaks that enabled plugins switched on.
 	pub fn set_interface_tweaks(
 		&mut self,
@@ -5493,6 +5498,7 @@ impl MessagingUi {
 						self.timeline.instant_scrolling =
 							!self.reading_preferences.smooth_scrolling;
 						self.timeline.extension_actions = self.extensions.message_actions();
+						self.timeline.alternatives = self.extensions.alternatives();
 						self.timeline.quick_reactions =
 							Some(self.reaction_picker.quick_reactions(state));
 						let mut seen = std::collections::BTreeSet::new();
@@ -5537,6 +5543,9 @@ impl MessagingUi {
 							state.request_author_members(&self.timeline.visible_authors)
 						{
 							commands.push(command);
+						}
+						if let Some(id) = self.timeline.alternative_toggle.take() {
+							self.extensions.toggle_alternative(id);
 						}
 						if let Some((action, text, target)) = self.timeline.extension_request.take()
 						{

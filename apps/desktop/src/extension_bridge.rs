@@ -198,6 +198,9 @@ pub struct Bridge {
 	message_events: VecDeque<QueuedEvent>,
 	message_event_at: Option<Instant>,
 	message_events_dropped: bool,
+	/// Messages already reported as shown in the open conversation, with their revision.
+	shown_seen: BTreeMap<model::Id, u64>,
+	shown_channel: Option<model::Id>,
 	app_key: Option<crate::extension_app::ChangeKey>,
 	extended_key: Option<u64>,
 	app_context_changed: bool,
@@ -461,7 +464,15 @@ impl Bridge {
 			return;
 		}
 		for entry in &self.installed {
-			if !self.subscribes(entry) {
+			// `shown` is new: only plugins that show alternatives ask for it, so plugins built
+			// against an older SDK never receive a kind they cannot read.
+			if !self.subscribes(entry)
+				|| event.kind == extensions::MessageEventKind::Shown
+					&& !entry
+						.manifest
+						.capabilities
+						.contains(&Capability::MessageAlternatives)
+			{
 				continue;
 			}
 			let action = entry
@@ -488,6 +499,34 @@ impl Bridge {
 				continue;
 			}
 			self.message_events.push_back(queued);
+		}
+	}
+	/// Reports each text message of the open conversation once as it comes into view, and
+	/// again after an edit, to plugins that follow messages (an automatic translation).
+	fn shown_events(&mut self, state: &State, messaging: &mut ui::MessagingUi) {
+		let shown = messaging.take_shown_messages();
+		if self.shown_channel != state.selected {
+			self.shown_seen.clear();
+			self.shown_channel = state.selected;
+		}
+		if shown.is_empty() || !self.has_message_events(state) {
+			return;
+		}
+		for id in shown {
+			let Some(revision) = state.timeline.get(id).map(|message| message.revision) else {
+				continue;
+			};
+			if self.shown_seen.get(&id) == Some(&revision) {
+				continue;
+			}
+			let Some(event) = crate::extension_events::shown(state, id) else {
+				continue;
+			};
+			if self.shown_seen.len() >= 4096 {
+				self.shown_seen.clear();
+			}
+			self.shown_seen.insert(id, revision);
+			self.message_event(state, event);
 		}
 	}
 	pub fn cancel_stale_message_events(&mut self, state: &State) {
@@ -651,6 +690,19 @@ impl Bridge {
 				&context,
 				&output.background_effects,
 			);
+		}
+		if !output.alternatives.is_empty() {
+			messaging
+				.extensions
+				.set_alternatives(&id, &output.alternatives);
+		}
+		if let Some(local) = &output.local_message
+			&& let Some(channel) = if local.channel_id.is_empty() {
+				state.selected
+			} else {
+				local.channel_id.parse::<u64>().ok().map(model::Id)
+			} {
+			state.push_local_message(channel, local.content.clone());
 		}
 		// Results that only changed the conversation or a setting need no window.
 		let shows_something =
@@ -1429,6 +1481,7 @@ impl Bridge {
 			self.pending.retain(|_, pending| pending.cleanup);
 		}
 		self.app_events(state, messaging);
+		self.shown_events(state, messaging);
 		self.queue_fetch_results();
 		let available = self.scope_current(state);
 		let installed = &self.installed;

@@ -434,6 +434,43 @@ pub(crate) fn action_icon_button(
 	icons::immediate_tooltip(response, &action.label)
 }
 
+/// The switch beside a message's author for a plugin's alternative text: the plugin's icon,
+/// strong while the alternative shows, muted while the original does.
+pub(crate) fn alternative_switch(ui: &mut egui::Ui, view: &AltView) -> egui::Response {
+	let colors = design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(18.0), egui::Sense::click());
+	let color = if view.show || response.hovered() {
+		colors.text_strong
+	} else {
+		colors.muted
+	};
+	match view
+		.icon
+		.as_ref()
+		.and_then(|svg| icon_texture(ui.ctx(), svg))
+	{
+		Some(texture) => {
+			ui.painter()
+				.image(texture.id(), rect.shrink(1.0), full_uv(), color);
+		}
+		None => {
+			ui.painter().circle_filled(rect.center(), 4.0, color);
+		}
+	}
+	let label = if view.show {
+		format!("{}. Click to show the original", view.note)
+	} else {
+		format!("Original. Click to show: {}", view.note)
+	};
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), view.show, &label)
+	});
+	icons::immediate_tooltip(
+		response.on_hover_cursor(egui::CursorIcon::PointingHand),
+		&label,
+	)
+}
+
 fn full_uv() -> egui::Rect {
 	egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0))
 }
@@ -524,6 +561,19 @@ pub(crate) struct MenuAction {
 	/// A composer bar button shown only while the draft has text.
 	pub needs_draft: bool,
 }
+
+/// A plugin's text shown in place of a loaded message, and whether it is showing.
+#[derive(Clone, PartialEq)]
+pub(crate) struct AltView {
+	pub plugin: String,
+	pub icon: Option<Arc<str>>,
+	pub text: String,
+	pub note: String,
+	pub show: bool,
+}
+
+/// Most alternatives kept; the oldest go first.
+const MAX_ALTERNATIVES_KEPT: usize = 500;
 
 impl MenuAction {
 	/// Each action sits where the plugin placed it, or by default after the copy entries
@@ -619,6 +669,9 @@ pub struct ExtensionUi {
 	/// Composer bar plugin buttons sit on the left, next to the attach button, instead of the
 	/// right, next to GIF and emoji.
 	pub bar_left: bool,
+	/// Plugins' text shown in place of loaded messages, by message.
+	alternatives: Arc<std::collections::HashMap<Id, AltView>>,
+	alternative_order: std::collections::VecDeque<Id>,
 	themes: bool,
 	query: String,
 	previews: BTreeMap<String, PreviewImage>,
@@ -993,9 +1046,85 @@ impl ExtensionUi {
 		let message = actions(&|surface| surface == Surface::Message);
 		let context = actions(&|surface| surface.is_context_menu());
 		let composer = actions(&|surface| surface == Surface::Composer);
+		let enabled: std::collections::BTreeSet<_> = self
+			.entries
+			.iter()
+			.filter(|entry| entry.enabled)
+			.map(|entry| entry.manifest.id.clone())
+			.collect();
+		if self
+			.alternatives
+			.values()
+			.any(|alt| !enabled.contains(&alt.plugin))
+		{
+			let mut kept = (*self.alternatives).clone();
+			kept.retain(|_, alt| enabled.contains(&alt.plugin));
+			self.alternative_order.retain(|id| kept.contains_key(id));
+			self.alternatives = Arc::new(kept);
+		}
 		self.message_actions = Arc::new(message.into_iter().map(|(_, a)| a).collect());
 		self.context_actions = Arc::new(context);
 		self.composer_actions = Arc::new(composer.into_iter().map(|(_, a)| a).collect());
+	}
+
+	/// Plugins' text shown in place of loaded messages, by message.
+	pub(crate) fn alternatives(&self) -> Arc<std::collections::HashMap<Id, AltView>> {
+		self.alternatives.clone()
+	}
+	/// Records a plugin's alternatives. Republishing the same text keeps the user's choice
+	/// of which version shows, as switching back must survive a refresh.
+	pub fn set_alternatives(&mut self, plugin: &str, list: &[extensions::MessageAlternative]) {
+		let icon = self
+			.entries
+			.iter()
+			.find(|entry| entry.manifest.id == plugin)
+			.and_then(|entry| {
+				entry
+					.manifest
+					.actions
+					.iter()
+					.find_map(|action| action.icon.as_deref())
+			})
+			.map(Arc::from);
+		let mut map = (*self.alternatives).clone();
+		for alternative in list {
+			let Ok(id) = alternative.message_id.parse::<u64>().map(Id) else {
+				continue;
+			};
+			let show = match map.get(&id) {
+				Some(previous) if previous.text == alternative.text => previous.show,
+				_ => alternative.show,
+			};
+			if map
+				.insert(
+					id,
+					AltView {
+						plugin: plugin.to_owned(),
+						icon: icon.clone(),
+						text: alternative.text.clone(),
+						note: alternative.note.clone(),
+						show,
+					},
+				)
+				.is_none()
+			{
+				self.alternative_order.push_back(id);
+			}
+		}
+		while self.alternative_order.len() > MAX_ALTERNATIVES_KEPT {
+			if let Some(oldest) = self.alternative_order.pop_front() {
+				map.remove(&oldest);
+			}
+		}
+		self.alternatives = Arc::new(map);
+	}
+	/// Switches a message between its alternative and its original text.
+	pub(crate) fn toggle_alternative(&mut self, id: Id) {
+		let mut map = (*self.alternatives).clone();
+		if let Some(view) = map.get_mut(&id) {
+			view.show = !view.show;
+			self.alternatives = Arc::new(map);
+		}
 	}
 
 	/// Publish this frame's context-menu entries and dispatch one chosen last frame, unless
@@ -3408,6 +3537,10 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::Network => {
 			"Send web requests to the sites listed below, including any data granted to this plugin (never my login)"
 		}
+		Capability::MessageAlternatives => {
+			"Show text in place of messages, such as translations, with a switch back"
+		}
+		Capability::LocalMessages => "Add messages only I can see to the open conversation",
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
 		Capability::AppContext => "Read my account and current conversation details",

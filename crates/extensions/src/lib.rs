@@ -157,6 +157,12 @@ pub enum Capability {
 	/// Send HTTPS requests to the host names listed in the manifest's `network_hosts`;
 	/// each response re-runs the requesting action.
 	Network,
+	/// Show text in place of loaded messages' content, with the plugin's icon beside the
+	/// author's name to switch back, like a translation.
+	MessageAlternatives,
+	/// Add a message only you can see to the open conversation, rendered like your own
+	/// message and dismissible, like a message preview.
+	LocalMessages,
 }
 
 /// Host-defined interface behavior that a plugin may switch on for the whole client from
@@ -301,6 +307,36 @@ pub enum Surface {
 	Role,
 }
 
+/// Text shown in place of a loaded message's content, with the plugin's icon beside the
+/// author's name to switch between it and the original.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageAlternative {
+	pub channel_id: String,
+	pub message_id: String,
+	pub text: String,
+	/// The icon's tooltip, such as "Translated from Romanian".
+	pub note: String,
+	/// Show the alternative now; false keeps the original with the switch beside the name.
+	#[serde(default)]
+	pub show: bool,
+}
+
+/// A message only you can see, added to the open conversation and authored by you.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalMessage {
+	/// The conversation; empty means the open one.
+	#[serde(default)]
+	pub channel_id: String,
+	pub content: String,
+}
+
+/// Most alternatives one output may set.
+pub const MAX_ALTERNATIVES: usize = 32;
+/// Longest alternative or local message text, in UTF-8 bytes.
+pub const MAX_CHAT_TEXT_BYTES: usize = 8 * 1024;
+
 impl Surface {
 	/// Context-menu surfaces whose invocation carries a [`MenuTarget`].
 	pub fn is_context_menu(self) -> bool {
@@ -355,7 +391,7 @@ pub struct Action {
 	/// Serein uses only its shape and tints it like its own icons.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub icon: Option<String>,
-	/// Where the action sits, unless the user keeps its plugin grouped under its name.
+	/// Where the action sits once the plugin may place its own entries.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub placement: Option<Placement>,
 	/// Groups the action under the plugin's own submenu with this name, as
@@ -624,6 +660,9 @@ pub enum MessageEventKind {
 	Create,
 	Update,
 	Delete,
+	/// A loaded message came into view in the open conversation. Each message is shown once
+	/// per content change; carries the author and content like `create`.
+	Shown,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -779,7 +818,9 @@ impl MessageEvent {
 			return Err(Error::Limit);
 		}
 		match self.kind {
-			MessageEventKind::Create if self.author_id.is_none() || self.content.is_none() => {
+			MessageEventKind::Create | MessageEventKind::Shown
+				if self.author_id.is_none() || self.content.is_none() =>
+			{
 				Err(Error::Invalid)
 			}
 			MessageEventKind::Delete if self.author_id.is_some() || self.content.is_some() => {
@@ -888,6 +929,12 @@ pub struct Output {
 	/// HTTPS requests to the manifest's `network_hosts`. Requires `network`.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub fetches: Vec<FetchRequest>,
+	/// Text shown in place of loaded messages. Requires `message_alternatives`.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub alternatives: Vec<MessageAlternative>,
+	/// A message only you can see in the open conversation. Requires `local_messages`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub local_message: Option<LocalMessage>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1617,6 +1664,44 @@ impl Output {
 					.any(|a| a.id == input.action && a.surface == Surface::Activation))
 		{
 			return Err(Error::Capability);
+		}
+		if !self.alternatives.is_empty() {
+			if !manifest
+				.capabilities
+				.contains(&Capability::MessageAlternatives)
+				|| !matches!(surface, Surface::Message | Surface::MessageEvent)
+			{
+				return Err(Error::Capability);
+			}
+			if self.alternatives.len() > MAX_ALTERNATIVES {
+				return Err(Error::Limit);
+			}
+			for alternative in &self.alternatives {
+				app::entity_id(&alternative.channel_id)?;
+				app::entity_id(&alternative.message_id)?;
+				if alternative.text.len() > MAX_CHAT_TEXT_BYTES
+					|| alternative.note.len() > 128
+					|| alternative.note.chars().any(char::is_control)
+				{
+					return Err(Error::Limit);
+				}
+			}
+		}
+		if let Some(local) = &self.local_message {
+			if !manifest.capabilities.contains(&Capability::LocalMessages)
+				|| !matches!(
+					surface,
+					Surface::Composer | Surface::Message | Surface::Panel
+				) {
+				return Err(Error::Capability);
+			}
+			// Empty means the open conversation, which composer actions cannot name.
+			if !local.channel_id.is_empty() {
+				app::entity_id(&local.channel_id)?;
+			}
+			if local.content.trim().is_empty() || local.content.len() > MAX_CHAT_TEXT_BYTES {
+				return Err(Error::Limit);
+			}
 		}
 		if self.replacement.is_some()
 			&& (input.composer.is_none() || !manifest.capabilities.contains(&Capability::Composer))

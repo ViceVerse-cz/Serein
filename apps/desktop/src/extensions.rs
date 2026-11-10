@@ -901,6 +901,17 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			if !output.fetches.is_empty() && !stored.grants.contains(&Capability::Network) {
 				return Err("Network access was not granted".into());
 			}
+			for (used, capability) in [
+				(
+					!output.alternatives.is_empty(),
+					Capability::MessageAlternatives,
+				),
+				(output.local_message.is_some(), Capability::LocalMessages),
+			] {
+				if used && !stored.grants.contains(&capability) {
+					return Err("Plugin access was not granted".into());
+				}
+			}
 			if let Some(data) = output.storage.take() {
 				if !stored.grants.contains(&Capability::Storage) || data.len() > MAX_STORAGE {
 					return Err("Plugin data exceeds its granted storage budget".into());

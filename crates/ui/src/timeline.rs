@@ -45,6 +45,16 @@ pub struct TimelineView {
 		String,
 		crate::extensions_ui::MessageTarget,
 	)>,
+	/// Plugins' text shown in place of messages, published each frame.
+	pub(super) alternatives:
+		std::sync::Arc<std::collections::HashMap<Id, crate::extensions_ui::AltView>>,
+	/// The alternatives the cached row heights were measured with.
+	alternatives_measured:
+		std::sync::Arc<std::collections::HashMap<Id, crate::extensions_ui::AltView>>,
+	/// A message whose alternative the reader switched this frame.
+	pub(super) alternative_toggle: Option<Id>,
+	/// Text messages drawn this frame, for plugins that follow messages coming into view.
+	pub(super) shown: Vec<Id>,
 	pub(super) user_action: Option<crate::user_menu::Action>,
 	pub(super) restore_pending: Option<String>,
 	/// A failed own row the reader dismissed this frame.
@@ -3021,6 +3031,27 @@ impl TimelineView {
 			scroll = scroll.vertical_scroll_offset(offset);
 		}
 		self.visible_authors.clear();
+		self.shown.clear();
+		if !std::sync::Arc::ptr_eq(&self.alternatives, &self.alternatives_measured) {
+			// Rows whose shown text changed are measured again.
+			let changed: Vec<Id> = self
+				.alternatives
+				.iter()
+				.filter(|(id, view)| self.alternatives_measured.get(id) != Some(view))
+				.map(|(id, _)| *id)
+				.chain(
+					self.alternatives_measured
+						.keys()
+						.filter(|id| !self.alternatives.contains_key(id))
+						.copied(),
+				)
+				.collect();
+			for id in changed {
+				self.heights.remove(&id);
+				self.measured_rows.remove(&id);
+			}
+			self.alternatives_measured = self.alternatives.clone();
+		}
 		#[cfg(test)]
 		{
 			self.leading_rendered = 0;
@@ -3165,6 +3196,9 @@ impl TimelineView {
 				{
 					self.visible_authors.push(message.author.id);
 				}
+				if !message.content.is_empty() && !message.ephemeral && self.shown.len() < 64 {
+					self.shown.push(id);
+				}
 				let previous = index
 					.checked_sub(1)
 					.and_then(|i| display_message(state, self.rows[i].0));
@@ -3188,6 +3222,7 @@ impl TimelineView {
 						.display(message)
 						.is_some_and(<[_]>::is_empty)
 					&& state.interactions.pending.is_none()
+					&& !self.alternatives.contains_key(&id)
 					&& let Some(&(key, height)) = self.heights.get(&id)
 					&& key
 						== row_height_key(message, previous, self.unread_boundary, state, deleted)
@@ -3812,6 +3847,19 @@ impl TimelineView {
 													);
 													marks.show(ui);
 												});
+												// A plugin's alternative text switches here, beside the name.
+												if let Some(view) =
+													self.alternatives.get(&id).cloned()
+												{
+													let switch =
+														crate::extensions_ui::alternative_switch(
+															ui, &view,
+														);
+													surface.keep(&switch);
+													if switch.clicked() {
+														self.alternative_toggle = Some(id);
+													}
+												}
 												let time = timestamp(id);
 												let time = ui
 													.label(
@@ -3880,8 +3928,30 @@ impl TimelineView {
 											} else {
 												None
 											};
-											let formatted =
-												self.formatted.get(id, &message.content);
+											// Rows without a header carry the switch above the text.
+											if compact
+												&& let Some(view) =
+													self.alternatives.get(&id).cloned()
+											{
+												let switch =
+													crate::extensions_ui::alternative_switch(
+														ui, &view,
+													);
+												surface.keep(&switch);
+												if switch.clicked() {
+													self.alternative_toggle = Some(id);
+												}
+											}
+											let alternative = self
+												.alternatives
+												.get(&id)
+												.filter(|view| view.show)
+												.map(|view| view.text.clone());
+											// A separate cache key keeps both versions formatted.
+											let formatted = match &alternative {
+												Some(text) => self.formatted.get(Id(!id.0), text),
+												None => self.formatted.get(id, &message.content),
+											};
 											let reveal = self
 												.revealed
 												.get(&id)
