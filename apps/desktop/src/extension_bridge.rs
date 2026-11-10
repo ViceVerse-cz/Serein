@@ -464,7 +464,15 @@ impl Bridge {
 			return;
 		}
 		for entry in &self.installed {
-			if !self.subscribes(entry) {
+			// `shown` is new: only plugins that show alternatives ask for it, so plugins built
+			// against an older SDK never receive a kind they cannot read.
+			if !self.subscribes(entry)
+				|| event.kind == extensions::MessageEventKind::Shown
+					&& !entry
+						.manifest
+						.capabilities
+						.contains(&Capability::MessageAlternatives)
+			{
 				continue;
 			}
 			let action = entry
