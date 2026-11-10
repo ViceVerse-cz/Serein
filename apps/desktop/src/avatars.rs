@@ -1701,7 +1701,10 @@ async fn download(
 	if Instant::now() < *cooldown {
 		return None;
 	}
-	let response = client.get(url).send().await.ok()?;
+	let response = client_core::fingerprint::discord_request(client.get(url), url)
+		.send()
+		.await
+		.ok()?;
 	if response.status() == wreq::StatusCode::TOO_MANY_REQUESTS {
 		let seconds = response
 			.headers()

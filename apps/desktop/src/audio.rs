@@ -331,12 +331,12 @@ async fn fetch(
 		.build()
 		.map_err(|_| "Audio download unavailable")?;
 	let transfer = async {
-		let response = client
-			.get(url.as_str())
-			.header(wreq::header::ACCEPT_ENCODING, "identity")
-			.send()
-			.await
-			.map_err(|_| "Audio download failed")?;
+		let response =
+			client_core::fingerprint::discord_request(client.get(url.as_str()), url.as_str())
+				.header(wreq::header::ACCEPT_ENCODING, "identity")
+				.send()
+				.await
+				.map_err(|_| "Audio download failed")?;
 		if response.status() != wreq::StatusCode::OK {
 			return Err("Audio unavailable; reload the conversation");
 		}

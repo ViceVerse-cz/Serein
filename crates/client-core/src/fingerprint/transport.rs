@@ -30,6 +30,38 @@ pub fn emulation() -> wreq_util::Emulation {
 		.build()
 }
 
+/// Domains the official web client reaches with the page's own handshake.
+const DISCORD_DOMAINS: [&str; 5] = [
+	"discord.com",
+	"discord.gg",
+	"discord.media",
+	"discordapp.com",
+	"discordapp.net",
+];
+
+fn discord_host(host: &str) -> bool {
+	DISCORD_DOMAINS.iter().any(|domain| {
+		host.strip_suffix(domain)
+			.is_some_and(|rest| rest.is_empty() || rest.ends_with('.'))
+	})
+}
+
+/// Gives a request bound for a Discord host, such as the CDN, the browser handshake and user
+/// agent. Requests to other hosts keep the client's own identity.
+pub fn discord_request(request: wreq::RequestBuilder, url: &str) -> wreq::RequestBuilder {
+	let discord = url
+		.parse::<wreq::Uri>()
+		.ok()
+		.and_then(|uri| uri.host().map(discord_host))
+		.unwrap_or(false);
+	if !discord {
+		return request;
+	}
+	request
+		.emulation(emulation())
+		.header(wreq::header::USER_AGENT, super::user_agent())
+}
+
 /// Header names, in order, as a browser writes its HTTP/1.1 WebSocket upgrade. Cloudflare
 /// answers the Gateway upgrade with 403 when `Origin` arrives lowercased, as hyper sends it.
 const WEBSOCKET_HEADER_ORDER: [&str; 12] = [
@@ -115,5 +147,21 @@ mod tests {
 			header("sec-ch-ua"),
 			crate::fingerprint::client_hints().map(|[(_, brands), ..]| brands)
 		);
+	}
+
+	/// Look-alike hosts must keep the plain identity; Discord's subdomains must not.
+	#[test]
+	fn only_discord_hosts_take_the_browser_identity() {
+		for host in ["cdn.discordapp.com", "media.discordapp.net", "discord.com"] {
+			assert!(discord_host(host), "{host}");
+		}
+		for host in [
+			"evildiscord.com",
+			"discord.com.example",
+			"discordapp.net.evil",
+			"tenor.com",
+		] {
+			assert!(!discord_host(host), "{host}");
+		}
 	}
 }

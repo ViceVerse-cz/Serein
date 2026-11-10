@@ -170,13 +170,13 @@ async fn fetch(
 		while gate.paused.load(Ordering::Acquire) {
 			wake.notified().await;
 		}
-		let response = client
-			.get(url.as_str())
-			.header(wreq::header::ACCEPT_ENCODING, "identity")
-			.header(wreq::header::RANGE, format!("bytes={start}-{end}"))
-			.send()
-			.await
-			.map_err(|_| invalid())?;
+		let response =
+			client_core::fingerprint::discord_request(client.get(url.as_str()), url.as_str())
+				.header(wreq::header::ACCEPT_ENCODING, "identity")
+				.header(wreq::header::RANGE, format!("bytes={start}-{end}"))
+				.send()
+				.await
+				.map_err(|_| invalid())?;
 		if response.status() == wreq::StatusCode::PARTIAL_CONTENT {
 			let range = format!("bytes {start}-{end}/{total}");
 			if response

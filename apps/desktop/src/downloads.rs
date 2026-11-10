@@ -548,7 +548,7 @@ async fn download(
 	let response = tokio::select! {
 		biased;
 		_ = wake_cancel.notified() => return Err("Cancelled"),
-		response = client.get(url.as_str()).header(wreq::header::ACCEPT_ENCODING, "identity").send() => response.map_err(|_| "Attachment download failed")?,
+		response = client_core::fingerprint::discord_request(client.get(url.as_str()), url.as_str()).header(wreq::header::ACCEPT_ENCODING, "identity").send() => response.map_err(|_| "Attachment download failed")?,
 	};
 	if response.status() != wreq::StatusCode::OK {
 		return Err("Attachment unavailable; reload the conversation and try again");

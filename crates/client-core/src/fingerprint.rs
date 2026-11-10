@@ -73,7 +73,7 @@ pub fn user_agent() -> String {
 #[cfg(feature = "transport")]
 mod transport;
 #[cfg(feature = "transport")]
-pub use transport::{emulation, websocket};
+pub use transport::{discord_request, emulation, websocket};
 
 /// Client-hint headers (`sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`) Chrome sends on
 /// every same-origin fetch. Safari does not implement client hints, so it gets none.

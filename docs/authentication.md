@@ -43,14 +43,15 @@ everywhere, since hCaptcha detects the WebKit engine from script whatever the us
 every Discord connection, chosen in `client_core::fingerprint` to match the engine of the
 platform webview: Safari 26.4 on macOS and Linux (WebKit), Chrome 149 on Windows (WebView2).
 The user agent, super-properties, client hints (Chrome only) and the TLS/HTTP2 handshake of
-REST, uploads, the Gateway and voice WebSockets all come from that one source; the handshake
+REST, uploads, the Gateway and voice WebSockets, and Discord CDN downloads (avatars, images,
+attachments, audio and video) all come from that one source; the handshake
 is wreq's emulation profile for the same browser version over BoringSSL. This removes a
 mismatch between the advertised browser and the previous rustls handshake; it does not
 impersonate the official desktop client, and it is not evidence that Discord accepts the
 client or that enforcement actions stop. The profiles are wreq-util's and were not compared
 with captures of the real browsers. The web client build number is unchanged and may be
-stale. Hosts other than Discord (updater, extension downloads, external uploads) get a
-`Serein/x.y` user agent and no emulation. Certificates are verified against the Mozilla
+stale. Hosts other than Discord (updater, extension downloads, external uploads, third-party
+media) get no emulation; the updater and external uploads send a `Serein/x.y` user agent. Certificates are verified against the Mozilla
 roots bundled with wreq, not the operating system trust store, so a TLS-inspecting proxy
 whose root is installed only in the OS is rejected.
 
