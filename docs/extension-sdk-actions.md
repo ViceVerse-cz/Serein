@@ -892,7 +892,7 @@ The user must also enable Serein's activity-sharing preference. A saved Set is
 pending while sharing is off; the extension grant does not enable that preference.
 Account changes, revocation, disable and logout retire the contribution. Among
 enabled plugins with valid contributions, the first plugin in ascending ID order
-wins, within the existing eight-plugin limit. Custom presence takes priority over
+wins, within the existing sixteen-plugin limit. Custom presence takes priority over
 detected game/IPC activity; clearing it lets the current detected activity resume.
 Invisible/offline visibility and Gateway readiness still gate publication.
 The Gateway presence payload is capped at 4 KiB. If combining Spotify with the
