@@ -105,7 +105,8 @@ pub(crate) fn complete_shortcode(
 		return None;
 	}
 	let name = &prefix[start + 1..];
-	if !(2..=64).contains(&name.chars().count()) {
+	// Discord's one-letter names (`:x:`, `:v:`, `:m:`) convert like any other.
+	if !(1..=64).contains(&name.chars().count()) {
 		return None;
 	}
 	let emoji =
@@ -3494,6 +3495,9 @@ mod tests {
 		let cursor = shortcode.chars().count();
 		assert!(complete_shortcode(&mut shortcode, cursor, 64, false).is_some());
 		assert!(shortcode.ends_with("❤️"));
+		let mut single = "no :x:".to_owned();
+		assert!(complete_shortcode(&mut single, 6, 64, false).is_some());
+		assert_eq!(single, "no ❌");
 		assert!(model::message_options::valid(
 			&shortcode,
 			client_core::MAX_CONTENT,

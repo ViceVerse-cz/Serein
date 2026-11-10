@@ -8,7 +8,7 @@ supports it (including Linux X11); disconnected-monitor positions are ignored.
 Restoration fits the complete outer window to the selected monitor's dimensions,
 shrinking it and moving it inward when the display has become smaller. The normal
 minimum size is relaxed if necessary to fit that display and recalculated when
-the window moves or its native scale changes, restoring 760 × 520 logical pixels
+the window moves or its native scale changes, restoring 600 × 520 logical pixels
 when the current display can accommodate the window and its decorations.
 Minimized, hidden, maximized and fullscreen states do not replace normal geometry.
 Closing frames do not overwrite the saved geometry.

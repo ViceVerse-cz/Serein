@@ -684,7 +684,10 @@ fn demo_check_updates() {
 	assert!(!messaging.updates.auto_update && messaging.updates.nightly);
 	messaging.open_update_settings();
 	let mut state = test_support::demo_state();
-	for size in [[1120.0, 760.0], [760.0, 520.0]] {
+	for size in [
+		[1120.0, 760.0],
+		app_settings::MIN_WINDOW_SIZE.map(|size| size as f32),
+	] {
 		for theme in [egui::ThemePreference::Dark, egui::ThemePreference::Light] {
 			ctx.set_theme(theme);
 			let output = ctx.run_ui(

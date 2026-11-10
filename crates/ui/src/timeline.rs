@@ -2306,7 +2306,7 @@ impl TimelineView {
 											&message.attachments,
 										))
 										.value(),
-									)) || !crate::embeds::has_media_spoilers(message)
+									)) || !crate::embeds::attachment_spoiler(attachment)
 									|| self.revealed.get(id).is_some_and(|reveal| {
 										reveal.media && reveal.matches(message)
 									}))
@@ -3893,21 +3893,24 @@ impl TimelineView {
 													.color(colors.muted),
 												);
 											}
-											if crate::embeds::has_media_spoilers(message) && !media
-											{
-												let reveal = ui.button(crate::i18n::translate(
-													"timeline-show-with-scroll-reveal-spoiler-media",
-												));
-												surface.keep(&reveal);
-												if reveal.clicked() {
-													media = true;
-												}
-											} else {
-												if !message.extra_content.components_v2 {
-													let previous_view = self.viewing;
-													crate::attachments::show(
+											let concealed =
+												crate::embeds::has_media_spoilers(message)
+													&& !media;
+											if !message.extra_content.components_v2 {
+												let previous_view = self.viewing;
+												// Unmarked attachments stay visible; only spoilered ones wait for the reveal.
+												for run in message
+													.attachments
+													.split(|a| {
+														concealed
+															&& crate::embeds::attachment_spoiler(a)
+													})
+													.filter(|run| !run.is_empty())
+												{
+													crate::attachments::show_subset(
 														ui,
 														message,
+														run,
 														avatars,
 														&mut self.viewing,
 														&mut self.opening,
@@ -3918,11 +3921,24 @@ impl TimelineView {
 														&mut surface,
 														crate::design::MessageCardSurface::Conversation,
 													);
-													if self.viewing != previous_view {
-														self.component_viewing = None;
-														self.embed_viewing = None;
-													}
 												}
+												if self.viewing != previous_view {
+													self.component_viewing = None;
+													self.embed_viewing = None;
+												}
+											}
+											if concealed {
+												let reveal = ui.button(crate::i18n::translate(
+													"timeline-show-with-scroll-reveal-spoiler-media",
+												));
+												surface.keep(&reveal);
+												if reveal.clicked() {
+													media = true;
+												}
+											}
+											if !concealed
+												|| !crate::embeds::has_embed_spoilers(message)
+											{
 												let invite_top = ui.cursor().top();
 												crate::invites::show(
 													ui,
@@ -5337,7 +5353,7 @@ impl TimelineView {
 						&& !(self.hidden_blocked
 							&& state.user_blocked(source.author.id) == Some(true))
 						&& Revealed::fingerprint(source) == *fingerprint
-						&& (!crate::embeds::has_media_spoilers(source)
+						&& (!crate::embeds::has_embed_spoilers(source)
 							|| self
 								.revealed
 								.get(message)
@@ -5360,6 +5376,11 @@ impl TimelineView {
 			}
 		}
 		if let Some((message_id, attachment_id)) = self.viewing {
+			let revealed = |m: &Message| {
+				self.revealed
+					.get(&m.id)
+					.is_some_and(|reveal| reveal.media && reveal.matches(m))
+			};
 			let message = state
 				.timeline
 				.get(message_id)
@@ -5380,14 +5401,22 @@ impl TimelineView {
 								egui::Id::unique((&m.components, &m.attachments)).value(),
 							)
 					} else {
-						!crate::embeds::has_media_spoilers(m)
-							|| self
-								.revealed
-								.get(&m.id)
-								.is_some_and(|reveal| reveal.media && reveal.matches(m))
+						revealed(m)
+							|| m.attachments.iter().any(|a| {
+								a.id == attachment_id && !crate::embeds::attachment_spoiler(a)
+							})
 					}
 				});
 			self.viewing = message.and_then(|m| {
+				// Paging an unrevealed message never steps onto a spoilered attachment.
+				let gallery = if revealed(m) {
+					&m.attachments[..]
+				} else {
+					m.attachments
+						.split(crate::embeds::attachment_spoiler)
+						.find(|run| run.iter().any(|a| a.id == attachment_id))
+						.unwrap_or(&[])
+				};
 				crate::attachments::viewer(
 					ui,
 					if self.component_viewing.is_some() {
@@ -5397,7 +5426,7 @@ impl TimelineView {
 							.map(std::slice::from_ref)
 							.unwrap_or(&[])
 					} else {
-						&m.attachments
+						gallery
 					},
 					attachment_id,
 					crate::attachments::Floor::Fit,
@@ -10429,6 +10458,46 @@ mod tests {
 		assert!(view.viewing.is_none() && view.revealed.is_empty());
 		assert!(!hidden_again.contains("SPOILER_hidden.png"));
 		assert!(images.take_requests().is_empty());
+		// One spoiler conceals only itself: its unmarked neighbours show and open.
+		let mut message = state.timeline.get(Id(1)).unwrap().clone();
+		let spoiler = message.attachments[0].clone();
+		let plain = |id: u64| model::Attachment {
+			id: Id(id),
+			filename: format!("plain-{id}.png"),
+			description: None,
+			spoiler: false,
+			media: model::EmbedMedia {
+				url: Some(format!(
+					"https://cdn.discordapp.com/attachments/2/{id}/plain.png"
+				)),
+				..spoiler.media.clone()
+			},
+			..spoiler.clone()
+		};
+		message.attachments = vec![plain(6), spoiler.clone(), plain(8)];
+		state.timeline.insert(message.clone(), true, false).unwrap();
+		state.revision += 1;
+		render(&mut view, &mut state, &mut images);
+		let requests = images.take_requests();
+		assert!(requests.iter().any(|key| key.contains("/2/6/")));
+		assert!(requests.iter().any(|key| key.contains("/2/8/")));
+		assert!(requests.iter().all(|key| !key.contains("/2/7/")));
+		view.viewing = Some((message.id, Id(7)));
+		render(&mut view, &mut state, &mut images);
+		assert!(
+			view.viewing.is_none(),
+			"the spoiler cannot open before its reveal"
+		);
+		view.viewing = Some((message.id, Id(6)));
+		render(&mut view, &mut state, &mut images);
+		render(&mut view, &mut state, &mut images);
+		assert_eq!(view.viewing, Some((message.id, Id(6))));
+		assert!(
+			images
+				.take_requests()
+				.iter()
+				.all(|key| !key.contains("/2/7/"))
+		);
 	}
 
 	fn label_ys(output: &egui::FullOutput) -> BTreeMap<String, f32> {
