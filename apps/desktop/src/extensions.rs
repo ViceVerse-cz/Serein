@@ -1799,6 +1799,12 @@ mod tests {
 			scope_bytes(&root.join("themes"), Some("theme-0")).unwrap() < used,
 			"an update does not count its own record twice"
 		);
+		// Updating an installed extension replaces it in place, and every one still loads.
+		let update = theme("theme-0");
+		enable(&root, source(&profile, &update), Vec::new(), None, &gate()).unwrap();
+		assert_eq!(count_directories(&root.join("themes")).unwrap(), 20);
+		assert_eq!(scope_bytes(&root.join("themes"), None).unwrap(), used);
+		assert_eq!(load(&root, None, &gate()).unwrap().len(), 20);
 	}
 	fn message_event_job() -> Job {
 		Job::Invoke {
