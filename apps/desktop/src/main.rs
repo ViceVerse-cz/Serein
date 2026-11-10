@@ -56,6 +56,7 @@ mod server_settings_demo;
 mod sign_in;
 #[cfg(feature = "demo")]
 mod slash_demo;
+mod spelling;
 mod spotify;
 mod startup;
 mod sticker_upload;
@@ -1076,6 +1077,7 @@ struct Desktop {
 	game_activity: toggle_setting::Settings,
 	game_mentions: game_mentions::Loader,
 	registered_games: registered_games::Registered,
+	spelling: spelling::Spelling,
 	tray_setting: toggle_setting::Settings,
 	startup: startup::Startup,
 	tray: Option<platform::tray::Tray>,
@@ -2439,6 +2441,11 @@ impl Desktop {
 			} else {
 				registered_games::Registered::load()
 			},
+			spelling: if demo {
+				spelling::Spelling::default()
+			} else {
+				spelling::Spelling::start(&cc.egui_ctx)
+			},
 			tray_setting,
 			startup,
 			tray: None,
@@ -3247,6 +3254,7 @@ impl Desktop {
 			return;
 		}
 		self.registered_games.sync(&mut self.messaging, ctx);
+		self.spelling.sync(&mut self.messaging);
 		self.messaging.running_game = None;
 		self.game_activity
 			.observe(self.messaging.share_game_activity);

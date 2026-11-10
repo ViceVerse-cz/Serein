@@ -4892,6 +4892,14 @@ text-menu-cut = 剪切
 text-menu-copy = 复制
 text-menu-paste = 粘贴
 text-menu-select-all = 全选
+# Context: text_menu
+spelling-no-suggestions = 没有拼写建议
+# Context: text_menu
+spelling-add-to-dictionary = 添加到词典
+# Context: text_menu
+spelling-check-spelling = 拼写检查
+# Context: text_menu
+spelling-languages = 语言
 # Context: media_box
 forum-composer-attached-files = 已附加 { $count } 个文件
 forum-composer-remove-file = 移除 { $file }

@@ -4792,6 +4792,14 @@ text-menu-cut = Taglia
 text-menu-copy = Copia
 text-menu-paste = Incolla
 text-menu-select-all = Seleziona tutto
+# Context: text_menu
+spelling-no-suggestions = Nessun suggerimento
+# Context: text_menu
+spelling-add-to-dictionary = Aggiungi al dizionario
+# Context: text_menu
+spelling-check-spelling = Controllo ortografico
+# Context: text_menu
+spelling-languages = Lingue
 # Context: media_box
 forum-composer-attached-files = { $count ->
     [one] { $count } file allegato

@@ -122,6 +122,7 @@ mod server_stickers;
 mod settings;
 mod setup;
 mod shortcuts;
+pub mod spelling;
 mod switcher;
 mod text_menu;
 mod thumbhash;
@@ -398,6 +399,8 @@ pub struct MessagingUi {
 	/// Set by "Add it!"; the desktop app answers in `running_processes`.
 	pub running_processes_request: bool,
 	pub running_processes: Option<Vec<String>>,
+	/// Spell checking of the composer; the desktop app loads dictionaries and saves settings.
+	pub spelling: spelling::Spelling,
 	reading_sidebar_applied: Option<u16>,
 	reading_sidebar_constrained: bool,
 	reading_zoom_pending: bool,
@@ -3967,6 +3970,10 @@ impl MessagingUi {
                                 rich_layout.paint(ui, &output, &mut self.avatars);
                                 if bidi_draft {
                                     rich_layout.paint_bidi(ui, &output, selection_slot);
+                                } else {
+                                    // Visual-order drafts move glyphs away from their chars.
+                                    self.spelling.paint(ui, &output, draft);
+                                    self.spelling.track_pointer(ctx, composer_id, &output, draft);
                                 }
                                 output
                             }).inner;
@@ -4019,7 +4026,7 @@ impl MessagingUi {
                                 tab: true, horizontal_arrows: true, vertical_arrows: true, escape: editing_here,
                             }));
                         }
-                        if text_menu::show(&mut output.response, composer_id, draft, paste_allowed, selection) {
+                        if text_menu::show(&mut output.response, composer_id, draft, paste_allowed, selection, Some(&mut self.spelling)) {
                             self.menu_paste = Some(composer_id);
                         }
                         let edit = output.response;

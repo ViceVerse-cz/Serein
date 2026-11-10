@@ -4797,6 +4797,14 @@ text-menu-cut = Wytnij
 text-menu-copy = Kopiuj
 text-menu-paste = Wklej
 text-menu-select-all = Zaznacz wszystko
+# Context: text_menu
+spelling-no-suggestions = Brak sugestii
+# Context: text_menu
+spelling-add-to-dictionary = Dodaj do słownika
+# Context: text_menu
+spelling-check-spelling = Sprawdzanie pisowni
+# Context: text_menu
+spelling-languages = Języki
 # Context: media_box
 forum-composer-attached-files = Załączone pliki: { $count }
 forum-composer-remove-file = Usuń { $file }
