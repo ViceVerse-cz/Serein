@@ -339,6 +339,9 @@ pub struct MessagingUi {
 	dm_profile_link: Option<String>,
 	profile_formatted: markdown::FormatCache,
 	pub reading_preferences: model::ReadingPreferences,
+	/// Local render filters only; neither changes relationships nor service-side read state.
+	pub hide_blocked_messages: bool,
+	pub hide_ignored_messages: bool,
 	pub show_hidden_channels: bool,
 	/// Folds the home list's message requests away; the device preference restores it.
 	pub message_requests_collapsed: bool,
@@ -5487,6 +5490,8 @@ impl MessagingUi {
 					.show(ui, |ui| {
 						design::paint_chat_background(ui, ui.available_rect_before_wrap());
 						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
+						self.timeline.hide_blocked_messages = self.hide_blocked_messages;
+						self.timeline.hide_ignored_messages = self.hide_ignored_messages;
 						self.timeline.compact_messages = self.reading_preferences.compact_messages;
 						self.timeline.double_click_reaction = self
 							.reading_preferences
