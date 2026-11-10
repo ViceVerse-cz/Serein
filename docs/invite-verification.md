@@ -34,9 +34,10 @@ identity is Safari, because the widget runs in WebKit and a Chrome-fingerprinted
 of a WebKit-solved passcode was observed to trigger phone verification on September 13, 2026.
 Linux presented Chrome until November 2026; account bans after Linux invite verification
 were reported in #874 (unverified cause). REST, upload and Gateway connections use the
-matching browser TLS/HTTP2 handshake (unofficial; wreq emulation), not rustls.
+matching browser TLS/HTTP2 handshake (unofficial and live-unverified; wreq emulation of the
+same browser version), as do voice WebSockets; see [authentication](authentication.md).
 It receives no Discord account token and uses no solver, browser-profile access, origin
-spoofing, fingerprint override or backend.
+spoofing, per-attempt fingerprint override or backend.
 The widget's generated passcode is not saved to SQLite or diagnostics. The browser
 engine and hCaptcha necessarily process the user's interaction; this is not a claim
 that a third-party widget or OS leaves no traces.
