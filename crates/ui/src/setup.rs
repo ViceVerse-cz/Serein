@@ -1,6 +1,10 @@
 //! First-run setup: the settings people change most, one step at a time, over the app so each
 //! choice shows behind it as it is made. Everything here is also in Settings.
-use crate::{MessagingUi, design, dialog, i18n::translate, icons};
+use crate::{
+	MessagingUi, design, dialog,
+	i18n::{translate, translate_args},
+	icons,
+};
 use egui::{Color32, FontId, Stroke};
 
 /// Title and body keys per step; the order is the flow.
@@ -145,6 +149,38 @@ impl MessagingUi {
 		if finish {
 			self.setup_pending = false;
 			self.setup_step = 0;
+		}
+	}
+
+	/// Offers the steady refresh rate once setup is out of the way, when the desktop found a
+	/// G-SYNC display. Either answer is kept, so the question is asked once per device.
+	pub(super) fn show_steady_refresh_prompt(&mut self, ctx: &egui::Context) {
+		// Turning the setting on by hand answers the question as well.
+		self.steady_refresh_prompted |= self.steady_refresh_rate;
+		if !self.gsync_detected || self.steady_refresh_prompted {
+			return;
+		}
+		let choice = dialog::Confirm::new(
+			"steady-refresh-prompt",
+			translate("steady-refresh-prompt-title"),
+			"steady-refresh-prompt-body",
+		)
+		.confirm_label("steady-refresh-prompt-turn-on")
+		.cancel_label("steady-refresh-prompt-keep-off")
+		.note(
+			dialog::Level::Info,
+			translate_args(
+				"steady-refresh-prompt-settings",
+				&[
+					("page", &translate("page-general")),
+					("group", &translate("general-graphics")),
+				],
+			),
+		)
+		.show(ctx);
+		if let Some(choice) = choice {
+			self.steady_refresh_rate = choice == dialog::Choice::Confirmed;
+			self.steady_refresh_prompted = true;
 		}
 	}
 

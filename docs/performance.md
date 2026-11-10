@@ -4,6 +4,30 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## G-SYNC steady refresh offer — November 10, 2026
+
+Baseline `09bee5a` and this branch were built with the pinned Rust 1.99.1 toolchain and locked
+dependencies on Windows 11 x64 (build 26200). Standard release packages use `cargo xtask package`
+(voice included, demo and development data disabled), each revision from its own worktree.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 98,454,528 B | 98,438,144 B | -16,384 B (-0.017%) |
+| `dist/` regular-file payload (233 files) | 102,828,189 B | 102,811,805 B | -16,384 B (-0.017%) |
+| ZIP of `dist/` (`7z a -tzip -mx=9`) | 53,784,480 B | 53,791,915 B | +7,435 B (+0.014%) |
+
+The executable is the only `dist/` file that differs. The smaller executable and larger archive
+are one build each and are not an improvement or a regression.
+
+The G-SYNC check ran on an RTX PRO 6000 (driver 32.0.16.2114) driving one 3440×1440 240 Hz
+display with G-SYNC on. Three concurrent checks in a debug build each reported within 27–28 ms
+of being started, including the worker thread, loading `nvapi64.dll` and unloading it again.
+In a debug `--features demo` build temporarily changed to run the check, the dialog appeared and
+`nvapi64.dll` was no longer among the process modules 8 s after launch. The check runs once per
+launch until the offer is answered or the setting is on, and never afterwards. Demo fixtures skip
+it, so their idle CPU and memory were not sampled; release-build timing, a display with G-SYNC
+off and a computer without an NVIDIA driver were not measured.
+
 ## Discord message toolbar and safe extension ports — November 8, 2026
 
 Baseline `21f8870b` and this branch were built with pinned Rust 1.98.1 and locked dependencies on

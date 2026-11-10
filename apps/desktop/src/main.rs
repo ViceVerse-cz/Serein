@@ -1081,6 +1081,8 @@ struct Desktop {
 	registered_games: registered_games::Registered,
 	tray_setting: toggle_setting::Settings,
 	startup: startup::Startup,
+	/// Set by the startup G-SYNC check; taken once to offer the steady refresh rate.
+	gsync: std::sync::Arc<std::sync::atomic::AtomicBool>,
 	tray: Option<platform::tray::Tray>,
 	hotkeys: platform::hotkeys::Hotkeys,
 	/// Linux desktop light/dark preference; winit reports it everywhere else.
@@ -1862,6 +1864,20 @@ impl Desktop {
 			gpu_video::install(render_state);
 		}
 		let startup = startup::Startup::new(&cc.egui_ctx, &runtime, &mut messaging, demo);
+		// A G-SYNC display follows this window's uneven presents and can flicker (#889), so the
+		// interface offers the steady refresh rate once. An answered offer never loads the driver
+		// library again, and fixtures ask only with `--demo-gsync-prompt`.
+		let gsync = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+		if !demo && !messaging.steady_refresh_rate && !messaging.steady_refresh_prompted {
+			let (found, wake) = (gsync.clone(), cc.egui_ctx.clone());
+			platform::gsync::detect(move |enabled| {
+				if enabled {
+					eprintln!("[Serein] G-SYNC display detected");
+					found.store(true, std::sync::atomic::Ordering::Relaxed);
+					wake.request_repaint();
+				}
+			});
+		}
 		// `--demo-update`: a pending release without any network check. The system title bar
 		// comes with it, since that is when the sidebar prompt stands in for the title strip.
 		#[cfg(feature = "demo")]
@@ -1895,6 +1911,14 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-steady-refresh") {
 			messaging.steady_refresh_rate = true;
+		}
+		// `--demo-gsync-prompt`: the one-time steady refresh offer, without asking any driver.
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-gsync-prompt") {
+			messaging.gsync_detected = true;
+			// Saved or unreadable preferences may already count as an answer.
+			messaging.steady_refresh_rate = false;
+			messaging.steady_refresh_prompted = false;
 		}
 		// `--demo-call-stream`: the direct-message peer shares a synthetic screen this device is
 		// watching, so the stream stage renders offline without any capture or network.
@@ -2444,6 +2468,7 @@ impl Desktop {
 			},
 			tray_setting,
 			startup,
+			gsync,
 			tray: None,
 			tray_window,
 			#[cfg(target_os = "macos")]
@@ -5992,6 +6017,9 @@ impl eframe::App for Desktop {
 			// Speaking, notices, remote video, devices, hotkeys and deadlines each wake the UI
 			// themselves; this heartbeat only bounds a missed wake, so a call does not repaint at 20 Hz.
 			ctx.request_repaint_after(std::time::Duration::from_secs(1));
+		}
+		if self.gsync.swap(false, std::sync::atomic::Ordering::Relaxed) {
+			self.messaging.gsync_detected = true;
 		}
 		// Variable refresh rate displays follow the focused window's presents, so redrawing only on
 		// change swings them between their limits and flickers (#889). The opt-in steady rate asks
