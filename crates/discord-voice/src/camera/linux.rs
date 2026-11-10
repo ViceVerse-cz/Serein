@@ -1,7 +1,7 @@
 //! Native V4L2 single-plane streaming; no capture helper process or recording.
 #![allow(unsafe_code)]
 
-use super::{DeviceList, HEIGHT, Shared, WIDTH, format, frame_due, frame_interval};
+use super::{DeviceList, FrameGate, HEIGHT, Shared, WIDTH, format};
 use image::{ImageDecoder, codecs::jpeg::JpegDecoder};
 use std::{
 	fs::{File, OpenOptions},
@@ -433,8 +433,7 @@ pub(super) fn run(
 		return Ok(());
 	};
 	let mut last_frame = Instant::now();
-	let mut next_frame = Instant::now();
-	let interval = frame_interval(shared.rate);
+	let mut gate = FrameGate::new(shared.rate);
 	while !shared.stopped.load(Ordering::Acquire) {
 		if last_frame.elapsed() >= Duration::from_secs(5) {
 			return Err("Camera stopped delivering frames; check the device and try again");
@@ -476,9 +475,9 @@ pub(super) fn run(
 		if used == 0 || used > mapping.length || used > capture.pixels.size as usize {
 			return Err("Camera frame exceeds its native buffer bounds");
 		}
-		let rgb = if buffer.flags & 0x40 == 0
-			&& frame_due(&mut next_frame, Instant::now(), interval)
-		{
+		// Admission is decided on arrival, before decoding, so decode time cannot push the
+		// next picture outside its slot.
+		let rgb = if buffer.flags & 0x40 == 0 && gate.admit(Instant::now()) {
 			// SAFETY: DQBUF gives exclusive userspace access until QBUF. Length
 			// was checked against the retained mapping; decoding finishes first.
 			let bytes = unsafe { std::slice::from_raw_parts(mapping.address.cast::<u8>(), used) };
@@ -588,51 +587,21 @@ mod tests {
 	#[test]
 	fn pacing_handles_jitter_and_stalls() {
 		let start = Instant::now();
-		let interval = frame_interval(CameraFrameRate::Fps30);
-		let mut next = start;
-		let accepted = (0..=90)
-			.filter(|index| {
-				frame_due(
-					&mut next,
-					start + Duration::from_micros(index * 33_300),
-					interval,
-				)
-			})
-			.count();
-		assert!(accepted >= 89);
+		let admitted = |rate, period_us: u64, count: u64| {
+			let mut gate = FrameGate::new(rate);
+			(0..count)
+				.filter(|index| gate.admit(start + Duration::from_micros(index * period_us)))
+				.count()
+		};
+		assert!(admitted(CameraFrameRate::Fps30, 33_300, 91) >= 89);
+		assert_eq!(admitted(CameraFrameRate::Fps30, 16_666, 60), 30);
+		assert_eq!(admitted(CameraFrameRate::Fps15, 33_333, 60), 30);
 
-		let mut next = start;
-		let limited = (0..60)
-			.filter(|index| {
-				frame_due(
-					&mut next,
-					start + Duration::from_micros(index * 16_666),
-					interval,
-				)
-			})
-			.count();
-		assert_eq!(limited, 30);
-
-		let mut next = start;
-		let slower = frame_interval(CameraFrameRate::Fps15);
-		let limited = (0..60)
-			.filter(|index| {
-				frame_due(
-					&mut next,
-					start + Duration::from_micros(index * 33_333),
-					slower,
-				)
-			})
-			.count();
-		assert_eq!(limited, 30);
-
+		let mut gate = FrameGate::new(CameraFrameRate::Fps15);
+		assert!(gate.admit(start));
 		let after_stall = start + Duration::from_secs(10);
-		assert!(frame_due(&mut next, after_stall, slower));
-		assert!(!frame_due(
-			&mut next,
-			after_stall + Duration::from_millis(1),
-			slower
-		));
+		assert!(gate.admit(after_stall));
+		assert!(!gate.admit(after_stall + Duration::from_millis(1)));
 	}
 
 	#[test]
@@ -730,22 +699,21 @@ mod tests {
 		assert_eq!(effective_fps(0, 15), None);
 		assert_eq!(effective_fps(1, 0), None);
 		let pixels = Pixels {
-			width: 1280,
-			height: 720,
+			width: 640,
+			height: 480,
 			format: MJPEG,
 			field: 1,
 			size: MAX_FRAME_BYTES as u32,
 			..Pixels::default()
 		};
 		assert!(validate_format(pixels).is_ok());
-		let rgb = fit_rgb(vec![255; 1280 * 720 * 3], pixels).unwrap();
+		let rgb = fit_rgb(vec![255; 640 * 480 * 3], pixels).unwrap();
 		assert_eq!(rgb.len(), WIDTH * HEIGHT * 3);
-		// 16:9 input is centered in the 4:3 encoder, keeping black bars above/below.
-		assert_eq!(&rgb[..WIDTH * 3], vec![0; WIDTH * 3]);
-		assert_eq!(
-			&rgb[(HEIGHT / 2) * WIDTH * 3..(HEIGHT / 2 + 1) * WIDTH * 3],
-			vec![255; WIDTH * 3]
-		);
+		// 4:3 input is centered in the 16:9 encoder, keeping black bars left and right.
+		let middle = &rgb[(HEIGHT / 2) * WIDTH * 3..(HEIGHT / 2 + 1) * WIDTH * 3];
+		assert_eq!(&middle[..3], [0; 3]);
+		assert_eq!(&middle[(WIDTH / 2) * 3..(WIDTH / 2 + 1) * 3], [255; 3]);
+		assert_eq!(&middle[(WIDTH - 1) * 3..], [0; 3]);
 	}
 
 	#[test]

@@ -122,15 +122,25 @@ impl UdpFailures {
 		data: &[u8],
 		outage: &'static str,
 	) -> Result<(), &'static str> {
+		self.try_send(socket, data, outage).map(|_| ())
+	}
+	/// Like `send`, but reports whether the datagram left; a dropped one is still tolerated
+	/// until the outage window expires.
+	fn try_send(
+		&mut self,
+		socket: &UdpSocket,
+		data: &[u8],
+		outage: &'static str,
+	) -> Result<bool, &'static str> {
 		if socket.try_send(data).is_ok() {
 			self.0 = None;
-			return Ok(());
+			return Ok(true);
 		}
 		let now = Instant::now();
 		if now.duration_since(*self.0.get_or_insert(now)) >= UDP_OUTAGE {
 			return Err(outage);
 		}
-		Ok(())
+		Ok(false)
 	}
 }
 /// Receive errors that describe one lost or rejected datagram rather than a dead socket.
@@ -168,6 +178,21 @@ fn id(data: &Value, key: &str) -> Result<u64, &'static str> {
 }
 fn transition(data: &Value) -> Result<u16, &'static str> {
 	u16::try_from(number(data, "transition_id")?).map_err(|_| "Invalid voice transition")
+}
+/// Restarts the camera prediction chain for a DAVE transition, group change or resume,
+/// and asks the encoder for an IDR right away. The request bypasses the feedback
+/// throttle: an IDR requested just before may have been discarded by the restart.
+/// The throttle is also cleared, not armed: while the call is resuming or securing,
+/// pictures (including that IDR) are dropped before the chain sees them, so the first
+/// predicted picture rejected once sending resumes must be able to ask again at once.
+fn restart_camera(
+	video: &mut crate::camera_video::Sender,
+	keyframe_at: &mut Instant,
+	request_keyframe: impl FnOnce(),
+) {
+	video.restart();
+	request_keyframe();
+	*keyframe_at = Instant::now();
 }
 fn h264_negotiated(data: &Value) -> bool {
 	data["video_codec"]
@@ -422,6 +447,8 @@ async fn run_inner(
 	let mut discovery_deadline = Instant::now();
 	let mut ssrc = 0u32;
 	let mut video = crate::camera_video::Sender::default();
+	// Earliest moment the camera may be asked for another keyframe.
+	let mut camera_keyframe_at = Instant::now();
 	// Receiving cameras acknowledge what arrived, as watched streams do. Without reception
 	// reports and transport-wide feedback, a sender's congestion control sees no evidence
 	// of available bandwidth for this receiver.
@@ -513,7 +540,11 @@ async fn run_inner(
 			if encryption.is_none() || resume_attempts >= 2 {
 				return Err(reason);
 			}
-			video.clear();
+			restart_camera(
+				&mut video,
+				&mut camera_keyframe_at,
+				crate::camera::request_keyframe,
+			);
 			video.announced = false;
 			resume_attempts += 1;
 			resuming = true;
@@ -545,8 +576,23 @@ async fn run_inner(
 				   _=video_tick.tick(), if !video.is_empty()=>{
 					   let generation=controls.borrow().camera;
 					   if !dave.ready || resuming || generation==0 || generation!=video.generation {video.clear();}
-					   else if let Some(packet)=video.next() && let Some(socket)=&udp {
-						   udp_failures.send(socket,&packet,"Camera UDP send failed")?;
+					   else if let Some(socket)=&udp {
+						   // Three packets per tick keep a 720p keyframe to a fraction of a second.
+						   for _ in 0..3 {
+							   let Some(packet)=video.next() else {break;};
+							   // A dropped datagram leaves later predicted pictures without their
+							   // reference: discard the rest and restart from a keyframe.
+							   if !udp_failures.try_send(socket,&packet,"Camera UDP send failed")? {
+								   metrics.video(Video::CameraSendDrops,1);
+								   video.restart();
+								   let now=Instant::now();
+								   if now>=camera_keyframe_at {
+									   crate::camera::request_keyframe();
+									   camera_keyframe_at=now+Duration::from_millis(300);
+								   }
+								   break;
+							   }
+						   }
 					   }
 				   },
 				   _=tick.tick()=>{
@@ -617,15 +663,30 @@ async fn run_inner(
 					   let control=*controls.borrow();
 					   let camera_enabled=enabled && video.available() && control.camera!=0;
 					   let camera_changed=video.generation!=control.camera;
-					   if !camera_enabled || camera_changed {video.clear();}
+					   if !camera_enabled || camera_changed {video.restart();}
+					   // A new camera generation may run at another frame rate: withdraw the old
+					   // announcement so the next picture announces the current one.
 					   if video.announced && (!camera_enabled || camera_changed) {
 						   json_send(&mut ws,video.announcement(ssrc,false,control.camera_rate)).await?;
 						   video.announced=false;
 					   }
 					   video.generation=control.camera;
-					   if let Some(camera)=&camera && let Ok(frame)=camera.try_recv()
-						   && camera_enabled && frame.generation==control.camera && video.is_empty()
-						   && frame.data.len()<=crate::camera_video::MAX_FRAME_BYTES {
+					   // Pictures predict from their predecessor: any frame dropped here breaks
+					   // the chain, and the camera is asked for a keyframe to restart it.
+					   // Bounded per tick, so a producer that keeps refilling the channel cannot
+					   // starve audio, reception or signaling.
+					   for _ in 0..crate::camera_video::MAX_QUEUED_FRAMES {
+						   let Some(camera)=&camera else {break;};
+						   let Ok(frame)=camera.try_recv() else {break;};
+						   if !camera_enabled || frame.generation!=control.camera
+							   || frame.data.len()>crate::camera_video::MAX_FRAME_BYTES {continue;}
+						   if !video.accepts(&frame) {
+							   if now>=camera_keyframe_at {
+								   crate::camera::request_keyframe();
+								   camera_keyframe_at=now+Duration::from_millis(300);
+							   }
+							   continue;
+						   }
 						   if !video.announced {
 							   json_send(&mut ws,video.announcement(ssrc,true,control.camera_rate)).await?;
 							   video.announced=true;
@@ -709,9 +770,16 @@ async fn run_inner(
 						   discovering=false;continue;
 					   }
 					   let Some(crypto)=&encryption else{continue;};
-					   // RTCP only updates reception-report timing.
+					   // RTCP updates reception-report timing. A receiver that lost camera pictures
+					   // (PLI) or packets (NACK, no RTX here) stays frozen until the next keyframe,
+					   // so request one at most twice a second.
 					   if let Some(control)=crypto.open_rtcp(&packet[..length]) {
-						   let _=receive_reports.sender_reports(&control,Instant::now().into_std());
+						   let now=Instant::now();
+						   let _=receive_reports.sender_reports(&control,now.into_std());
+						   if video.announced && let Some(feedback)=crate::crypto::Encryption::parse_feedback(&control,video.ssrc()) && (feedback.keyframe || !feedback.nacks.is_empty()) && now>=camera_keyframe_at {
+							   crate::camera::request_keyframe();
+							   camera_keyframe_at=now+Duration::from_millis(500);
+						   }
 						   continue;
 					   }
 					   let start = metrics.start();
@@ -810,7 +878,7 @@ async fn run_inner(
 										   if was_ready {
 											   dave.ready=true;
 										   } else {
-											   video.clear();
+											   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 											   deadline=Some(Instant::now()+Duration::from_secs(90));
 											   capture_reset=true;
 											   mixer.clear();
@@ -823,7 +891,7 @@ async fn run_inner(
 									   let was_ready=dave.ready;
 									   if dave.disconnect(user)? {
 										   if dave.alone() {
-											   video.clear();
+											   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 											   capture_reset=true;
 											   mixer.clear();
 											   dave.enter_sole_member_waiting()?;
@@ -836,7 +904,7 @@ async fn run_inner(
 											   dave.ready=true;
 											   deadline=None;
 										   } else if was_group_member {
-											   video.clear();
+											   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 											   deadline=Some(Instant::now()+Duration::from_secs(30));
 											   capture_reset=true;
 											   mixer.clear();
@@ -844,7 +912,7 @@ async fn run_inner(
 									   }
 								   },
 								   21=>{
-									   video.clear();
+									   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 									   if number(data,"protocol_version")?!=1 {return Err("Discord requested a voice encryption downgrade; call stopped");}
 									   capture_reset=true;
 									   let id = transition(data)?;
@@ -865,9 +933,9 @@ async fn run_inner(
 										   json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;
 									   }
 								   },
-								   22=>{video.clear();dave.execute(transition(data)?)?;},
+								   22=>{restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);dave.execute(transition(data)?)?;},
 								   24=>{
-									   video.clear();
+									   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 									   if number(data,"protocol_version")?!=1 {return Err("Unsupported DAVE protocol version; call stopped");}
 									   if number(data,"epoch")?==1 {capture_reset=true;dave.reinitialize()?;deadline=Some(Instant::now()+Duration::from_secs(30));send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;}
 								   },
@@ -900,7 +968,7 @@ async fn run_inner(
 									   if let Some(response)=dave.proposals(data)? {send(&mut ws,Message::Binary(response.into())).await?;}
 								   },
 								   29|30=>{
-									   video.clear();
+									   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 									   ready_announced=false;waiting_announced=false;
 									   match dave.group_changed(opcode,data){
 										   Ok(id)=>{if id!=0 {json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;}},
@@ -1851,6 +1919,30 @@ mod tests {
 	use super::*;
 	use crate::video_receive::Receivers;
 	use opus2::Decoder;
+	#[test]
+	fn camera_transition_requests_a_keyframe_despite_the_feedback_throttle() {
+		let frame = |sequence, keyframe| crate::camera_video::Frame {
+			generation: 1,
+			sequence,
+			keyframe,
+			timestamp: 0,
+			data: Vec::new(),
+		};
+		let mut video = crate::camera_video::Sender::default();
+		assert!(video.accepts(&frame(1, true)));
+		assert!(video.accepts(&frame(2, false)));
+		// Feedback just requested an IDR, so the throttle would block another one.
+		let mut keyframe_at = Instant::now() + Duration::from_secs(60);
+		let mut requests = 0;
+		restart_camera(&mut video, &mut keyframe_at, || requests += 1);
+		assert_eq!(requests, 1);
+		// The throttle is cleared, so the first predicted picture rejected once sending
+		// resumes (its IDR may have been dropped mid-resume) asks again immediately.
+		assert!(keyframe_at <= Instant::now());
+		// Predicted pictures already in flight are still dropped until the new IDR.
+		assert!(!video.accepts(&frame(3, false)));
+		assert!(video.accepts(&frame(4, true)));
+	}
 	#[test]
 	fn stream_negotiation_advertises_only_available_receive_codecs_and_keeps_h264_senders() {
 		for (sending, receiving, available) in [
