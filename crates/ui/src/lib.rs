@@ -1266,6 +1266,9 @@ impl MessagingUi {
 			startup_graphics_api: self.startup_graphics_api,
 			available_graphics_apis: std::mem::take(&mut self.available_graphics_apis),
 			graphics_api_env_override: self.graphics_api_env_override,
+			// Spelling settings and loaded dictionaries belong to the device; the worker
+			// loads them once and would not send them again.
+			spelling: std::mem::take(&mut self.spelling),
 			..Self::default()
 		};
 		self.timeline.video.fullscreen_request = video_fullscreen_request;
@@ -6811,6 +6814,9 @@ mod composer_tests {
 				.count();
 		}
 		assert_eq!(red, 1, "one squiggle under \"helo\"");
+		// Logging out keeps the device's spelling settings and dictionaries.
+		view.clear();
+		assert_eq!(view.spelling.misspelled("helo world ", None).len(), 1);
 	}
 
 	fn edit_state() -> State {

@@ -137,10 +137,13 @@ fn worker(
 	send(Update::Loaded(current.clone()));
 	send(Update::Available(available(&system_dictionaries())));
 	let mut loaded = BTreeSet::new();
+	// Languages that failed to load are not tried again on every request; unchecking and
+	// checking one again retries it.
+	let mut failed = BTreeSet::new();
 	let mut automatic: BTreeMap<String, Arc<Dictionary>> = BTreeMap::new();
 	loop {
 		for code in &current.languages {
-			if loaded.contains(code) {
+			if loaded.contains(code) || failed.contains(code) {
 				continue;
 			}
 			match load(code, dictionaries.as_deref()) {
@@ -154,6 +157,7 @@ fn worker(
 						diagnostics::Level::Warn,
 						"spelling dictionary unavailable",
 					);
+					failed.insert(code.clone());
 					send(Update::Failed(code.clone()));
 				}
 			}
@@ -192,6 +196,7 @@ fn worker(
 			write(root, &next);
 		}
 		loaded.retain(|code| next.languages.contains(code));
+		failed.retain(|code| next.languages.contains(code));
 		current = next;
 	}
 }
