@@ -1,6 +1,8 @@
 use extensions::*;
 use serein_extension_sdk as sdk;
 
+/// Verifies that a manifest declaring every capability and an action on every surface survives an
+/// SDK serialization round trip and passes host validation unchanged.
 #[test]
 fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validation() {
 	let mut manifest = test_manifest(vec![
@@ -566,6 +568,8 @@ fn local_effects_require_matching_grants_and_cannot_run_in_background() {
 	}
 }
 
+/// App-event actions must be unique and capability-granted, may update storage and appearance but
+/// not panels, and reject invocations with draft, message, or value context.
 #[test]
 fn app_events_are_unique_granted_and_have_no_direct_conversation_context() {
 	let mut manifest = test_manifest(vec![

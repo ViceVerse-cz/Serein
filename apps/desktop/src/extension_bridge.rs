@@ -2201,6 +2201,8 @@ mod tests {
 		assert!(bridge.interface_tweaks().is_empty());
 	}
 
+	/// Verifies app events replace one another in a single queued slot, count toward the shared
+	/// message-event cap, and are cleared once the extension is disabled.
 	#[test]
 	fn extension_app_events_coalesce_and_share_message_queue_limits() {
 		let (mut bridge, mut state, event) = message_events_fixture();
@@ -2261,6 +2263,8 @@ mod tests {
 		assert!(bridge.message_events.is_empty());
 	}
 
+	/// Data change events reach an extension only after it declares DataEvents, are dropped for kinds it
+	/// lacks capabilities for, and repeated changes coalesce into one event per kind.
 	#[test]
 	fn data_events_are_opt_in_granted_and_coalesce_per_kind() {
 		let (mut bridge, state, _) = message_events_fixture();

@@ -1837,6 +1837,8 @@ impl ExtensionUi {
 			}
 		}
 	}
+	/// Renders the plugin or theme gallery as a responsive card grid filtered by the search query,
+	/// or the theme editor when one is open; culled rows keep placeholders so scroll extent stays stable.
 	pub(crate) fn settings(&mut self, ui: &mut egui::Ui, state: &State) {
 		self.theme_editor_visible = self.themes;
 		if self.themes && self.theme_editor.is_some() {
@@ -2066,6 +2068,8 @@ impl ExtensionUi {
 		}
 		self.consent_modal(ui.ctx(), &colors);
 	}
+	/// Draws one extension card's contents, recording enable, disable, or command requests in the
+	/// out-parameters for the caller to apply after the frame instead of mutating state mid-render.
 	fn card_body(
 		&mut self,
 		ui: &mut egui::Ui,
