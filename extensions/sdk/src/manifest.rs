@@ -96,15 +96,6 @@ pub enum Capability {
 	/// Send HTTPS requests to the host names listed in the manifest's `network_hosts`;
 	/// each response re-runs the requesting action.
 	Network,
-	/// Show text in place of loaded messages, with the plugin's icon beside the name to
-	/// switch back (a translation).
-	MessageAlternatives,
-	/// Add a message only you can see to the open conversation (a message preview).
-	LocalMessages,
-	/// Show a short status beside the composer while you type (a character count).
-	ComposerStatus,
-	/// Change the text of your messages and edits just before they are sent.
-	SendHooks,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,13 +112,9 @@ pub enum Surface {
 	Channel,
 	Server,
 	Role,
-	/// Runs shortly after the draft changes, with the draft; may return `composer_status`.
-	Draft,
-	/// Runs when you send or save an edit; its `replacement` is what is sent.
-	Send,
 }
 
-/// Where an action sits once the user shows its plugin ungrouped.
+/// Where an action sits, unless the user keeps its plugin grouped under its name.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Placement {
@@ -156,7 +143,7 @@ pub struct Action {
 	/// The plugin's own SVG glyph, at most 8 KiB; only its shape is drawn.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub icon: Option<String>,
-	/// Where the action sits once the user shows its plugin ungrouped.
+	/// Where the action sits, unless the user keeps its plugin grouped under its name.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub placement: Option<Placement>,
 	/// The plugin's own submenu for this action, e.g. "Privacy Pruning".

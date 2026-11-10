@@ -27,8 +27,7 @@ const MAX_PACKAGE: usize = 16 * 1024 * 1024;
 const MAX_RECORD: usize = MAX_PACKAGE + 64 * 1024;
 const MAX_CATALOG: usize = 1024 * 1024;
 const MAX_STORAGE: usize = 1024 * 1024;
-// The Vencord ports ship as more than eight focused plugins per account.
-const MAX_PER_SCOPE: usize = 16;
+const MAX_PER_SCOPE: usize = 8;
 const MAX_ACCOUNTS: usize = 8;
 const MAX_QUEUE: usize = 4;
 
@@ -879,7 +878,6 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 				return Err("Plugin input exceeds 256 KiB".into());
 			}
 			gate.check()?;
-			let invocation_hook = invocation.hook;
 			let mut output =
 				extensions::invoke(&stored.package, &invocation).map_err(|e| e.to_string())?;
 			gate.check()?;
@@ -902,23 +900,6 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			}
 			if !output.fetches.is_empty() && !stored.grants.contains(&Capability::Network) {
 				return Err("Network access was not granted".into());
-			}
-			for (used, capability) in [
-				(
-					!output.alternatives.is_empty(),
-					Capability::MessageAlternatives,
-				),
-				(output.local_message.is_some(), Capability::LocalMessages),
-				(output.composer_status.is_some(), Capability::ComposerStatus),
-				(
-					invocation_hook == Some(extensions::Hook::Send)
-						|| invocation_hook == Some(extensions::Hook::Edit),
-					Capability::SendHooks,
-				),
-			] {
-				if used && !stored.grants.contains(&capability) {
-					return Err("Plugin access was not granted".into());
-				}
 			}
 			if let Some(data) = output.storage.take() {
 				if !stored.grants.contains(&Capability::Storage) || data.len() > MAX_STORAGE {
@@ -1034,7 +1015,7 @@ fn install_stored(
 	}
 	if !directory.exists() && count_directories(&parent)? >= MAX_PER_SCOPE {
 		return Err(
-			"Disable an extension first; each scope allows sixteen installed extensions".into(),
+			"Disable an extension first; each scope allows eight installed extensions".into(),
 		);
 	}
 	if stored.package.manifest.kind == ExtensionKind::Plugin

@@ -434,43 +434,6 @@ pub(crate) fn action_icon_button(
 	icons::immediate_tooltip(response, &action.label)
 }
 
-/// The switch beside a message's author for a plugin's alternative text: the plugin's icon,
-/// strong while the alternative shows, muted while the original does.
-pub(crate) fn alternative_switch(ui: &mut egui::Ui, view: &AltView) -> egui::Response {
-	let colors = design::palette(ui);
-	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(18.0), egui::Sense::click());
-	let color = if view.show || response.hovered() {
-		colors.text_strong
-	} else {
-		colors.muted
-	};
-	match view
-		.icon
-		.as_ref()
-		.and_then(|svg| icon_texture(ui.ctx(), svg))
-	{
-		Some(texture) => {
-			ui.painter()
-				.image(texture.id(), rect.shrink(1.0), full_uv(), color);
-		}
-		None => {
-			ui.painter().circle_filled(rect.center(), 4.0, color);
-		}
-	}
-	let label = if view.show {
-		format!("{}. Click to show the original", view.note)
-	} else {
-		format!("Original. Click to show: {}", view.note)
-	};
-	response.widget_info(|| {
-		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), view.show, &label)
-	});
-	icons::immediate_tooltip(
-		response.on_hover_cursor(egui::CursorIcon::PointingHand),
-		&label,
-	)
-}
-
 fn full_uv() -> egui::Rect {
 	egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0))
 }
@@ -561,39 +524,6 @@ pub(crate) struct MenuAction {
 	/// A composer bar button shown only while the draft has text.
 	pub needs_draft: bool,
 }
-
-/// A plugin's text shown in place of a loaded message, and whether it is showing.
-#[derive(Clone, PartialEq)]
-pub(crate) struct AltView {
-	pub plugin: String,
-	pub icon: Option<Arc<str>>,
-	pub text: String,
-	pub note: String,
-	pub show: bool,
-}
-
-/// A send waiting for plugins' `send` hooks, which run one after another on its text.
-struct SendHold {
-	channel: Id,
-	/// The message being edited; `None` for a new message.
-	edit: Option<Id>,
-	generation: u64,
-	/// What the hooks have made of the text so far.
-	text: String,
-	/// Hooks still to run, in plugin order.
-	remaining: std::collections::VecDeque<(String, String)>,
-	/// The hook running now.
-	running: Option<String>,
-	/// After this, the text as it stands is sent; a slow or failed hook never blocks sending.
-	deadline: std::time::Instant,
-}
-
-/// How long all send hooks together may take before the text is sent as it stands.
-const SEND_HOOK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
-/// How long the draft must stay unchanged before `draft` hooks run.
-const DRAFT_HOOK_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
-/// Most alternatives kept; the oldest go first.
-const MAX_ALTERNATIVES_KEPT: usize = 500;
 
 impl MenuAction {
 	/// Each action sits where the plugin placed it, or by default after the copy entries
@@ -689,21 +619,6 @@ pub struct ExtensionUi {
 	/// Composer bar plugin buttons sit on the left, next to the attach button, instead of the
 	/// right, next to GIF and emoji.
 	pub bar_left: bool,
-	/// `draft` and `send` hook actions of enabled plugins, as (plugin, action).
-	draft_hooks: Vec<(String, String)>,
-	send_hooks: Vec<(String, String)>,
-	/// Plugins' text shown in place of loaded messages, by message.
-	alternatives: Arc<std::collections::HashMap<Id, AltView>>,
-	alternative_order: std::collections::VecDeque<Id>,
-	/// Plugins' composer status text, by plugin.
-	composer_status: BTreeMap<String, String>,
-	/// The draft last seen, and when it last changed, for `draft` hooks.
-	draft_seen: Option<(Id, String)>,
-	draft_changed: Option<std::time::Instant>,
-	send_hold: Option<SendHold>,
-	/// A held send whose hooks finished: the channel, the edited message if any, and the
-	/// text to send.
-	send_ready: Option<(Id, Option<Id>, u64, String)>,
 	themes: bool,
 	query: String,
 	previews: BTreeMap<String, PreviewImage>,
@@ -1078,301 +993,11 @@ impl ExtensionUi {
 		let message = actions(&|surface| surface == Surface::Message);
 		let context = actions(&|surface| surface.is_context_menu());
 		let composer = actions(&|surface| surface == Surface::Composer);
-		let hooks = |surface: Surface| -> Vec<(String, String)> {
-			self.entries
-				.iter()
-				.filter(|entry| entry.enabled)
-				.flat_map(|entry| {
-					entry
-						.manifest
-						.actions
-						.iter()
-						.filter(move |action| action.surface == surface)
-						.map(|action| (entry.manifest.id.clone(), action.id.clone()))
-				})
-				.collect()
-		};
-		self.draft_hooks = hooks(Surface::Draft);
-		self.send_hooks = hooks(Surface::Send);
-		let enabled: std::collections::BTreeSet<_> = self
-			.entries
-			.iter()
-			.filter(|entry| entry.enabled)
-			.map(|entry| entry.manifest.id.clone())
-			.collect();
-		self.composer_status
-			.retain(|plugin, _| enabled.contains(plugin));
-		if self
-			.alternatives
-			.values()
-			.any(|alt| !enabled.contains(&alt.plugin))
-		{
-			let mut kept = (*self.alternatives).clone();
-			kept.retain(|_, alt| enabled.contains(&alt.plugin));
-			self.alternative_order.retain(|id| kept.contains_key(id));
-			self.alternatives = Arc::new(kept);
-		}
 		self.message_actions = Arc::new(message.into_iter().map(|(_, a)| a).collect());
 		self.context_actions = Arc::new(context);
 		self.composer_actions = Arc::new(composer.into_iter().map(|(_, a)| a).collect());
 	}
 
-	/// Plugins' text shown in place of loaded messages, by message.
-	pub(crate) fn alternatives(&self) -> Arc<std::collections::HashMap<Id, AltView>> {
-		self.alternatives.clone()
-	}
-	/// Records a plugin's alternatives. Republishing the same text keeps the user's choice
-	/// of which version shows, as switching back must survive a refresh.
-	pub fn set_alternatives(&mut self, plugin: &str, list: &[extensions::MessageAlternative]) {
-		let icon = self
-			.entries
-			.iter()
-			.find(|entry| entry.manifest.id == plugin)
-			.and_then(|entry| {
-				entry
-					.manifest
-					.actions
-					.iter()
-					.find_map(|action| action.icon.as_deref())
-			})
-			.map(Arc::from);
-		let mut map = (*self.alternatives).clone();
-		for alternative in list {
-			let Ok(id) = alternative.message_id.parse::<u64>().map(Id) else {
-				continue;
-			};
-			let show = match map.get(&id) {
-				Some(previous) if previous.text == alternative.text => previous.show,
-				_ => alternative.show,
-			};
-			if map
-				.insert(
-					id,
-					AltView {
-						plugin: plugin.to_owned(),
-						icon: icon.clone(),
-						text: alternative.text.clone(),
-						note: alternative.note.clone(),
-						show,
-					},
-				)
-				.is_none()
-			{
-				self.alternative_order.push_back(id);
-			}
-		}
-		while self.alternative_order.len() > MAX_ALTERNATIVES_KEPT {
-			if let Some(oldest) = self.alternative_order.pop_front() {
-				map.remove(&oldest);
-			}
-		}
-		self.alternatives = Arc::new(map);
-	}
-	/// Switches a message between its alternative and its original text.
-	pub(crate) fn toggle_alternative(&mut self, id: Id) {
-		let mut map = (*self.alternatives).clone();
-		if let Some(view) = map.get_mut(&id) {
-			view.show = !view.show;
-			self.alternatives = Arc::new(map);
-		}
-	}
-
-	/// Records a plugin's composer status; empty clears it.
-	pub fn set_composer_status(&mut self, plugin: &str, status: &str) {
-		if status.is_empty() {
-			self.composer_status.remove(plugin);
-		} else {
-			self.composer_status
-				.insert(plugin.to_owned(), status.to_owned());
-		}
-	}
-	/// All plugins' composer status, joined.
-	pub(crate) fn composer_status(&self) -> Option<String> {
-		(!self.composer_status.is_empty()).then(|| {
-			self.composer_status
-				.values()
-				.cloned()
-				.collect::<Vec<_>>()
-				.join(" · ")
-		})
-	}
-
-	/// Runs `draft` hooks once the selected conversation's draft has stayed unchanged for a
-	/// moment. Their status clears when the conversation changes.
-	pub(crate) fn run_draft_hooks(&mut self, ctx: &egui::Context, state: &State) {
-		let Some(channel) = state.selected else {
-			self.draft_seen = None;
-			self.composer_status.clear();
-			return;
-		};
-		let draft = state.drafts.get(&channel).cloned().unwrap_or_default();
-		let now = std::time::Instant::now();
-		match &self.draft_seen {
-			Some((seen_channel, seen)) if *seen_channel == channel && *seen == draft => {}
-			Some((seen_channel, _)) if *seen_channel != channel => {
-				self.composer_status.clear();
-				self.draft_seen = Some((channel, draft));
-				self.draft_changed = Some(now);
-			}
-			_ => {
-				self.draft_seen = Some((channel, draft));
-				self.draft_changed = Some(now);
-			}
-		}
-		let Some(changed) = self.draft_changed else {
-			return;
-		};
-		if self.draft_hooks.is_empty() {
-			self.draft_changed = None;
-			return;
-		}
-		let due = changed + DRAFT_HOOK_DELAY;
-		if now < due {
-			ctx.request_repaint_after(due - now);
-			return;
-		}
-		self.draft_changed = None;
-		// Hooks follow the conversation, not the draft: typing on must not void the run.
-		let context = ExtensionContext::capture(state, false);
-		let draft = state.drafts.get(&channel).cloned().unwrap_or_default();
-		for (plugin, action) in self.draft_hooks.clone() {
-			self.queue(
-				ctx,
-				ExtensionRequest::Invoke {
-					id: plugin,
-					invocation: Invocation {
-						action,
-						composer: Some(draft.clone()),
-						hook: Some(extensions::Hook::Draft),
-						..Default::default()
-					},
-					context: context.clone(),
-				},
-			);
-		}
-	}
-
-	/// Holds sending the selected conversation's draft while plugins' `send` hooks rewrite
-	/// it. Returns false, sending at once, when no hook applies.
-	pub(crate) fn hold_send(&mut self, ctx: &egui::Context, state: &State) -> bool {
-		let Some(channel) = state.selected else {
-			return false;
-		};
-		let text = state.drafts.get(&channel).cloned().unwrap_or_default();
-		if self.send_hooks.is_empty() || text.trim().is_empty() || self.send_hold.is_some() {
-			return false;
-		}
-		self.send_hold = Some(SendHold {
-			channel,
-			edit: None,
-			generation: state.generation,
-			text,
-			remaining: self.send_hooks.iter().cloned().collect(),
-			running: None,
-			deadline: std::time::Instant::now() + SEND_HOOK_TIMEOUT,
-		});
-		self.advance_send(ctx, state);
-		true
-	}
-	/// Holds saving an edit of `message` while plugins' `send` hooks rewrite `text`, as for a
-	/// new message. Returns false, saving at once, when no hook applies.
-	pub(crate) fn hold_edit(
-		&mut self,
-		ctx: &egui::Context,
-		state: &State,
-		channel: Id,
-		message: Id,
-		text: String,
-	) -> bool {
-		if self.send_hooks.is_empty() || text.trim().is_empty() || self.send_hold.is_some() {
-			return false;
-		}
-		self.send_hold = Some(SendHold {
-			channel,
-			edit: Some(message),
-			generation: state.generation,
-			text,
-			remaining: self.send_hooks.iter().cloned().collect(),
-			running: None,
-			deadline: std::time::Instant::now() + SEND_HOOK_TIMEOUT,
-		});
-		self.advance_send(ctx, state);
-		true
-	}
-	/// Starts the next send hook, or marks the held text ready once none remain.
-	fn advance_send(&mut self, ctx: &egui::Context, state: &State) {
-		let Some(hold) = &mut self.send_hold else {
-			return;
-		};
-		let Some((plugin, action)) = hold.remaining.pop_front() else {
-			let hold = self.send_hold.take().unwrap();
-			self.send_ready = Some((hold.channel, hold.edit, hold.generation, hold.text));
-			ctx.request_repaint();
-			return;
-		};
-		let hook = if hold.edit.is_some() {
-			extensions::Hook::Edit
-		} else {
-			extensions::Hook::Send
-		};
-		hold.running = Some(plugin.clone());
-		let text = hold.text.clone();
-		let context = ExtensionContext::capture(state, false);
-		let invocation = Invocation {
-			action,
-			composer: Some(text),
-			hook: Some(hook),
-			..Default::default()
-		};
-		self.queue(
-			ctx,
-			ExtensionRequest::Invoke {
-				id: plugin,
-				invocation,
-				context,
-			},
-		);
-		ctx.request_repaint_after(SEND_HOOK_TIMEOUT);
-	}
-	/// A send hook finished: its replacement, if any, becomes the text the next hook sees.
-	pub fn send_hook_done(
-		&mut self,
-		plugin: &str,
-		replacement: Option<String>,
-		ctx: &egui::Context,
-		state: &State,
-	) {
-		let Some(hold) = &mut self.send_hold else {
-			return;
-		};
-		if hold.running.as_deref() != Some(plugin) {
-			return;
-		}
-		hold.running = None;
-		if let Some(text) = replacement.filter(|text| !text.trim().is_empty()) {
-			hold.text = text;
-		}
-		self.advance_send(ctx, state);
-	}
-	/// Whether a send is waiting for plugins; the composer stays locked meanwhile.
-	pub(crate) fn sending(&self) -> bool {
-		self.send_hold.is_some() || self.send_ready.is_some()
-	}
-	/// The held text to send now, once hooks finished or ran out of time: the channel, the
-	/// edited message for an edit, and the text. A hold from another account or session is
-	/// dropped.
-	pub(crate) fn take_ready_send(&mut self, state: &State) -> Option<(Id, Option<Id>, String)> {
-		if self
-			.send_hold
-			.as_ref()
-			.is_some_and(|hold| std::time::Instant::now() >= hold.deadline)
-		{
-			let hold = self.send_hold.take().unwrap();
-			self.send_ready = Some((hold.channel, hold.edit, hold.generation, hold.text));
-		}
-		let (channel, edit, generation, text) = self.send_ready.take()?;
-		(generation == state.generation).then_some((channel, edit, text))
-	}
 	/// Publish this frame's context-menu entries and dispatch one chosen last frame, unless
 	/// the account or connection it was chosen in has changed since.
 	pub(crate) fn context_menus(&mut self, ctx: &egui::Context, state: &State) {
@@ -1935,7 +1560,7 @@ impl ExtensionUi {
 			.selected
 			.and_then(|channel| state.drafts.get(&channel))
 			.is_some_and(|draft| !draft.trim().is_empty());
-		ui.add_enabled_ui(!self.busy && !self.sending(), |ui| {
+		ui.add_enabled_ui(!self.busy, |ui| {
 			for action in actions
 				.iter()
 				.filter(|a| a.slot == Some(Placement::Bar) && (has_draft || !a.needs_draft))
@@ -3783,12 +3408,6 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::Network => {
 			"Send web requests to the sites listed below, including any data granted to this plugin (never my login)"
 		}
-		Capability::MessageAlternatives => {
-			"Show text in place of messages, such as translations, with a switch back"
-		}
-		Capability::LocalMessages => "Add messages only I can see to the open conversation",
-		Capability::ComposerStatus => "Show a short status beside the message box",
-		Capability::SendHooks => "Change my messages and edits just before they are sent",
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
 		Capability::AppContext => "Read my account and current conversation details",
@@ -4088,46 +3707,6 @@ mod tests {
 			update_available: false,
 			update_manifest: None,
 		}
-	}
-
-	#[test]
-	fn edits_run_send_hooks_and_save_the_rewritten_text() {
-		let ctx = egui::Context::default();
-		let state = State::default();
-		let mut shop = ExtensionUi::default();
-		assert!(
-			!shop.hold_edit(&ctx, &state, Id(1), Id(2), "text".into()),
-			"without hooks an edit saves at once"
-		);
-		shop.send_hooks = vec![("synthetic.clean".into(), "clean".into())];
-		assert!(shop.hold_edit(
-			&ctx,
-			&state,
-			Id(1),
-			Id(2),
-			"see https://x.test/?utm=1".into()
-		));
-		assert!(shop.sending());
-		let [ExtensionRequest::Invoke { id, invocation, .. }] = shop.requests.as_slice() else {
-			panic!("one hook invocation: {}", shop.requests.len())
-		};
-		assert_eq!(id, "synthetic.clean");
-		assert_eq!(invocation.hook, Some(extensions::Hook::Edit));
-		assert_eq!(
-			invocation.composer.as_deref(),
-			Some("see https://x.test/?utm=1")
-		);
-		shop.send_hook_done(
-			"synthetic.clean",
-			Some("see https://x.test/".into()),
-			&ctx,
-			&state,
-		);
-		assert_eq!(
-			shop.take_ready_send(&state),
-			Some((Id(1), Some(Id(2)), "see https://x.test/".into()))
-		);
-		assert!(!shop.sending());
 	}
 
 	#[test]

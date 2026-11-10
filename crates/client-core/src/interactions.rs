@@ -221,14 +221,6 @@ pub fn valid_modal_values(source: &[Component], values: &[Component]) -> bool {
 			}
 		})
 }
-/// Marks a [`State::push_local_message`] message, which only this device shows.
-pub const LOCAL_MESSAGE_NONCE: &str = "serein-local";
-
-/// Whether `message` is a local message, which no service reply replaces.
-pub fn is_local_message(message: &Message) -> bool {
-	message.ephemeral && message.nonce.as_deref() == Some(LOCAL_MESSAGE_NONCE)
-}
-
 impl State {
 	pub(crate) fn interactions_allowed(&self) -> bool {
 		self.auth == AuthState::Authenticated
@@ -354,82 +346,13 @@ impl State {
 	pub fn dismiss_ephemeral(&mut self, id: Id) {
 		self.interactions.ephemeral.retain(|m| m.id != id);
 	}
-	/// Adds a message only this device shows to the selected conversation, authored by the
-	/// signed-in user and dismissible like a private command reply (a plugin's message
-	/// preview). Nothing is sent. Returns whether it was added.
-	pub fn push_local_message(&mut self, channel: Id, content: String) -> bool {
-		let Some(author) = self.user.clone() else {
-			return false;
-		};
-		if Some(channel) != self.selected || content.trim().is_empty() || content.len() > 8 * 1024 {
-			return false;
-		}
-		const DISCORD_EPOCH_MS: u64 = 1_420_070_400_000;
-		let now = SystemTime::now()
-			.duration_since(UNIX_EPOCH)
-			.map_or(0, |elapsed| elapsed.as_millis() as u64)
-			.saturating_sub(DISCORD_EPOCH_MS);
-		// Low bits keep IDs from one millisecond distinct and away from real messages.
-		let sequence = self.interactions.ephemeral.len() as u64 & 0xfff;
-		let message = Message {
-			poll: None,
-			sticker_items: vec![],
-			flags: 64,
-			ephemeral: true,
-			components: vec![],
-			application_id: None,
-			reactions: Some(vec![]),
-			id: Id((now << 22) | (0x3ff << 12) | sequence),
-			channel,
-			author,
-			author_roles: vec![],
-			author_nick: None,
-			content,
-			mentions: vec![],
-			mention_roles: vec![],
-			mention_everyone: false,
-			suppress_notifications: false,
-			edited: false,
-			edited_at: None,
-			revision: 0,
-			nonce: Some(LOCAL_MESSAGE_NONCE.into()),
-			reply_to: None,
-			kind: 0,
-			reply_deleted: false,
-			forwarded: false,
-			interaction: None,
-			unsupported: false,
-			extra_content: Default::default(),
-			embeds: vec![],
-			embeds_suppressed: false,
-			attachments: vec![],
-		};
-		while self.interactions.ephemeral.len() >= 16 {
-			self.interactions.ephemeral.remove(0);
-		}
-		self.interactions.ephemeral.push(message);
-		self.revision += 1;
-		true
-	}
 	pub fn expire_interaction(&mut self, now: Instant) {
 		if !self.interactions_allowed()
 			&& (self.interactions.busy()
 				|| self.interactions.modal.is_some()
-				|| self
-					.interactions
-					.ephemeral
-					.iter()
-					.any(|message| !is_local_message(message)))
+				|| !self.interactions.ephemeral.is_empty())
 		{
-			// Local previews are this device's own; they stay until dismissed.
-			let local: Vec<_> = self
-				.interactions
-				.ephemeral
-				.drain(..)
-				.filter(is_local_message)
-				.collect();
 			self.interactions.reset();
-			self.interactions.ephemeral = local;
 		}
 		if self
 			.interactions
