@@ -6778,6 +6778,39 @@ mod composer_tests {
 		}
 	}
 
+	#[test]
+	fn misspelled_composer_words_are_underlined() {
+		let ctx = egui::Context::default();
+		let mut state = edit_state();
+		state.drafts.insert(Id(10), "helo world ".into());
+		let mut view = MessagingUi::default();
+		view.spelling.load(spelling::Settings {
+			enabled: true,
+			languages: vec!["en".into()],
+			words: Default::default(),
+		});
+		view.spelling.install(
+			"en".into(),
+			std::sync::Arc::new(
+				spelling::Dictionary::new("SET UTF-8\n", "2\nhello\nworld\n").unwrap(),
+			),
+		);
+		let mut red = 0;
+		for _ in 0..3 {
+			let mut output = ctx.run_ui(Default::default(), |ui| {
+				view.composer(ui, &mut state, Id(10), &ctx, &mut vec![]);
+			});
+			output.textures_delta.clear();
+			red = output
+				.shapes
+				.iter()
+				.filter(|clipped| matches!(&clipped.shape,
+					egui::Shape::Path(path) if path.stroke.color == egui::epaint::ColorMode::Solid(egui::Color32::from_rgb(0xf2, 0x3f, 0x43))))
+				.count();
+		}
+		assert_eq!(red, 1, "one squiggle under \"helo\"");
+	}
+
 	fn edit_state() -> State {
 		let user = model::User {
 			id: Id(1),

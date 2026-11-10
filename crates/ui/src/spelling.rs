@@ -64,6 +64,17 @@ pub struct Spelling {
 	cache: Option<(u64, u64, Vec<Range<usize>>)>,
 	generation: u64,
 	target: Option<Target>,
+	/// Languages detected in written text, as ISO 639-3 codes: their dictionaries are loaded
+	/// on top of the chosen ones, as Discord follows the language being written.
+	detected: BTreeSet<String>,
+	/// Detected languages not yet sent to the desktop app.
+	detect_requests: Vec<String>,
+	/// Detected languages whose dictionary is still loading; their text is not marked yet,
+	/// or every word would turn red for a moment.
+	detecting: BTreeSet<String>,
+	/// Language of the last checked text, and the dictionaries detection added, by code.
+	text_language: Option<String>,
+	automatic: BTreeMap<String, String>,
 }
 
 impl Spelling {
@@ -98,6 +109,20 @@ impl Spelling {
 			self.generation += 1;
 		}
 	}
+	/// Detected languages to load, once each, as ISO 639-3 codes.
+	pub fn take_detected(&mut self) -> Vec<String> {
+		std::mem::take(&mut self.detect_requests)
+	}
+	/// Installs the dictionary for a detected language; `None` when it has none.
+	pub fn install_detected(&mut self, language: &str, loaded: Option<(String, Arc<Dictionary>)>) {
+		self.detecting.remove(language);
+		if let Some((code, dictionary)) = loaded {
+			self.pending.remove(&code);
+			self.automatic.insert(language.to_owned(), code.clone());
+			self.dictionaries.entry(code).or_insert(dictionary);
+		}
+		self.generation += 1;
+	}
 	pub fn loaded_languages(&self) -> impl Iterator<Item = &str> {
 		self.dictionaries.keys().map(String::as_str)
 	}
@@ -113,7 +138,9 @@ impl Spelling {
 	fn toggle_language(&mut self, code: &str) {
 		if let Some(index) = self.settings.languages.iter().position(|c| c == code) {
 			self.settings.languages.remove(index);
-			self.dictionaries.remove(code);
+			if !self.automatic.values().any(|auto| auto == code) {
+				self.dictionaries.remove(code);
+			}
 			self.pending.remove(code);
 		} else {
 			self.settings.languages.push(code.to_owned());
@@ -162,10 +189,24 @@ impl Spelling {
 			.collect()
 	}
 
+	/// Notes the language `text` is written in; a new one asks the desktop app for its
+	/// dictionary.
+	fn detect(&mut self, text: &str) {
+		self.text_language = whatlang::detect(text)
+			.filter(|info| info.is_reliable() && words(text).nth(2).is_some())
+			.map(|info| info.lang().code().to_owned());
+		if let Some(language) = &self.text_language
+			&& self.detected.insert(language.clone())
+		{
+			self.detecting.insert(language.clone());
+			self.detect_requests.push(language.clone());
+		}
+	}
+
 	/// Byte ranges of misspelled words in `text`. The word still being typed at `caret`
 	/// (a char index) is left alone until the user moves past it, as Chromium does.
 	pub fn misspelled(&mut self, text: &str, caret: Option<usize>) -> Vec<Range<usize>> {
-		if !self.active() {
+		if !(self.loaded && self.settings.enabled) {
 			return Vec::new();
 		}
 		let hash = {
@@ -181,6 +222,7 @@ impl Spelling {
 				ranges.clone()
 			}
 			_ => {
+				self.detect(text);
 				let ranges: Vec<_> = words(text)
 					.filter(|range| !self.check(&text[range.clone()]))
 					.collect();
@@ -188,6 +230,14 @@ impl Spelling {
 				ranges
 			}
 		};
+		if self.dictionaries.is_empty()
+			|| self
+				.text_language
+				.as_ref()
+				.is_some_and(|language| self.detecting.contains(language))
+		{
+			return Vec::new();
+		}
 		let caret = caret.map(|chars| byte(text, chars));
 		all.into_iter()
 			.filter(|range| caret != Some(range.end))
@@ -563,6 +613,34 @@ mod tests {
 		};
 		assert!(first("casa este mare cas").contains(&"casa".to_owned()));
 		assert!(first("the house cas").contains(&"case".to_owned()));
+	}
+
+	#[test]
+	fn the_language_being_written_is_detected_and_its_dictionary_used() {
+		let mut spelling = spelling(&["the", "house"]);
+		let text = "Astăzi este o zi frumoasă și mergem la munte cu prietenii noștri";
+		// Nothing turns red while the detected language's dictionary loads.
+		assert!(spelling.misspelled(text, None).is_empty());
+		assert_eq!(spelling.take_detected(), ["ron"]);
+		assert!(
+			spelling.take_detected().is_empty(),
+			"each language is asked for once"
+		);
+		let words: Vec<&str> = text.split(' ').filter(|word| *word != "frumoasă").collect();
+		let dic = format!("{}\n{}\n", words.len(), words.join("\n"));
+		spelling.install_detected(
+			"ron",
+			Some((
+				"ro_RO".into(),
+				Arc::new(Dictionary::new("SET UTF-8\n", &dic).unwrap()),
+			)),
+		);
+		let marked: Vec<_> = spelling
+			.misspelled(text, None)
+			.into_iter()
+			.map(|range| &text[range])
+			.collect();
+		assert_eq!(marked, ["frumoasă"]);
 	}
 
 	#[test]

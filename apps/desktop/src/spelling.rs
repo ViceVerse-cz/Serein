@@ -2,7 +2,7 @@
 //! the box and downloads other Hunspell dictionaries when picked; this does the same with the
 //! system's Hunspell dictionaries and LibreOffice's. File and network work run on one
 //! background thread, never during rendering.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
@@ -14,32 +14,33 @@ const MAX_FILE: u64 = 1024 * 1024;
 const MAX_DICTIONARY: usize = 16 * 1024 * 1024;
 /// LibreOffice's dictionaries, pinned so a download is the file this table describes.
 const SOURCE: &str = "https://raw.githubusercontent.com/LibreOffice/dictionaries/c0865a85eb67dc377f2cf8e8fe2c4fa9e53f0dcb";
-/// Code, path in the repository without the extension, and the language's own name.
-const DOWNLOADS: &[(&str, &str, &str)] = &[
-	("bg_BG", "bg_BG/bg_BG", "Български"),
-	("cs_CZ", "cs_CZ/cs_CZ", "Čeština"),
-	("da_DK", "da_DK/da_DK", "Dansk"),
-	("de_DE", "de/de_DE_frami", "Deutsch"),
-	("en_GB", "en/en_GB", "English (United Kingdom)"),
-	("en_US", "en/en_US", "English (United States)"),
-	("es_ES", "es/es_ES", "Español"),
-	("he_IL", "he_IL/he_IL", "עברית"),
-	("hr_HR", "hr_HR/hr_HR", "Hrvatski"),
-	("hu_HU", "hu_HU/hu_HU", "Magyar"),
-	("id_ID", "id/id_ID", "Bahasa Indonesia"),
-	("it_IT", "it_IT/it_IT", "Italiano"),
-	("lt_LT", "lt_LT/lt", "Lietuvių"),
-	("lv_LV", "lv_LV/lv_LV", "Latviešu"),
-	("nb_NO", "no/nb_NO", "Norsk bokmål"),
-	("nl_NL", "nl_NL/nl_NL", "Nederlands"),
-	("pt_BR", "pt_BR/pt_BR", "Português (Brasil)"),
-	("pt_PT", "pt_PT/pt_PT", "Português (Portugal)"),
-	("ro_RO", "ro/ro_RO", "Română"),
-	("ru_RU", "ru_RU/ru_RU", "Русский"),
-	("sk_SK", "sk_SK/sk_SK", "Slovenčina"),
-	("sr_Latn", "sr/sr-Latn", "Srpski (latinica)"),
-	("uk_UA", "uk_UA/uk_UA", "Українська"),
-	("vi_VN", "vi/vi_VN", "Tiếng Việt"),
+/// Code, path in the repository without the extension, the language's own name, and its
+/// ISO 639-3 code as language detection reports it.
+const DOWNLOADS: &[(&str, &str, &str, &str)] = &[
+	("bg_BG", "bg_BG/bg_BG", "Български", "bul"),
+	("cs_CZ", "cs_CZ/cs_CZ", "Čeština", "ces"),
+	("da_DK", "da_DK/da_DK", "Dansk", "dan"),
+	("de_DE", "de/de_DE_frami", "Deutsch", "deu"),
+	("en_GB", "en/en_GB", "English (United Kingdom)", "eng"),
+	("en_US", "en/en_US", "English (United States)", "eng"),
+	("es_ES", "es/es_ES", "Español", "spa"),
+	("he_IL", "he_IL/he_IL", "עברית", "heb"),
+	("hr_HR", "hr_HR/hr_HR", "Hrvatski", "hrv"),
+	("hu_HU", "hu_HU/hu_HU", "Magyar", "hun"),
+	("id_ID", "id/id_ID", "Bahasa Indonesia", "ind"),
+	("it_IT", "it_IT/it_IT", "Italiano", "ita"),
+	("lt_LT", "lt_LT/lt", "Lietuvių", "lit"),
+	("lv_LV", "lv_LV/lv_LV", "Latviešu", "lav"),
+	("nb_NO", "no/nb_NO", "Norsk bokmål", "nob"),
+	("nl_NL", "nl_NL/nl_NL", "Nederlands", "nld"),
+	("pt_BR", "pt_BR/pt_BR", "Português (Brasil)", "por"),
+	("pt_PT", "pt_PT/pt_PT", "Português (Portugal)", "por"),
+	("ro_RO", "ro/ro_RO", "Română", "ron"),
+	("ru_RU", "ru_RU/ru_RU", "Русский", "rus"),
+	("sk_SK", "sk_SK/sk_SK", "Slovenčina", "slk"),
+	("sr_Latn", "sr/sr-Latn", "Srpski (latinica)", "srp"),
+	("uk_UA", "uk_UA/uk_UA", "Українська", "ukr"),
+	("vi_VN", "vi/vi_VN", "Tiếng Việt", "vie"),
 ];
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -54,23 +55,30 @@ enum Update {
 	Available(Vec<Language>),
 	Installed(String, Arc<Dictionary>),
 	Failed(String),
+	/// A detected language and its dictionary, if one could be loaded.
+	Detected(String, Option<(String, Arc<Dictionary>)>),
+}
+
+enum Request {
+	Settings(Settings),
+	Detect(String),
 }
 
 #[derive(Default)]
 pub struct Spelling {
 	updates: Option<mpsc::Receiver<Update>>,
-	settings: Option<mpsc::Sender<Settings>>,
+	requests: Option<mpsc::Sender<Request>>,
 }
 
 impl Spelling {
 	pub fn start(ctx: &eframe::egui::Context) -> Self {
 		let (update, updates) = mpsc::channel();
-		let (settings, receive) = mpsc::channel();
+		let (requests, receive) = mpsc::channel();
 		let wake = ctx.clone();
 		std::thread::spawn(move || worker(&update, &receive, &wake));
 		Self {
 			updates: Some(updates),
-			settings: Some(settings),
+			requests: Some(requests),
 		}
 	}
 
@@ -89,20 +97,27 @@ impl Spelling {
 					Update::Available(languages) => spelling.set_available(languages),
 					Update::Installed(code, dictionary) => spelling.install(code, dictionary),
 					Update::Failed(code) => spelling.set_pending(&code, false),
+					Update::Detected(language, loaded) => {
+						spelling.install_detected(&language, loaded)
+					}
 				}
 			}
 		}
-		if let Some(changed) = messaging.spelling.take_changed()
-			&& let Some(settings) = &self.settings
-		{
-			let _ = settings.send(changed);
+		let Some(requests) = &self.requests else {
+			return;
+		};
+		if let Some(changed) = messaging.spelling.take_changed() {
+			let _ = requests.send(Request::Settings(changed));
+		}
+		for language in messaging.spelling.take_detected() {
+			let _ = requests.send(Request::Detect(language));
 		}
 	}
 }
 
 fn worker(
 	update: &mpsc::Sender<Update>,
-	settings: &mpsc::Receiver<Settings>,
+	requests: &mpsc::Receiver<Request>,
 	wake: &eframe::egui::Context,
 ) {
 	let send = |message| {
@@ -118,6 +133,7 @@ fn worker(
 	send(Update::Loaded(current.clone()));
 	send(Update::Available(available(&system_dictionaries())));
 	let mut loaded = BTreeSet::new();
+	let mut automatic: BTreeMap<String, Arc<Dictionary>> = BTreeMap::new();
 	loop {
 		for code in &current.languages {
 			if loaded.contains(code) {
@@ -138,12 +154,30 @@ fn worker(
 				}
 			}
 		}
-		let Ok(mut next) = settings.recv() else {
+		let mut next = None;
+		let Ok(first) = requests.recv() else {
 			return;
 		};
-		while let Ok(newer) = settings.try_recv() {
-			next = newer;
+		for request in std::iter::once(first).chain(requests.try_iter()) {
+			match request {
+				Request::Settings(settings) => next = Some(settings),
+				Request::Detect(language) => {
+					let found =
+						dictionary_for(&language, &system_dictionaries()).and_then(|code| {
+							let dictionary = match automatic.get(&code) {
+								Some(dictionary) => dictionary.clone(),
+								None => Arc::new(load(&code, dictionaries.as_deref())?),
+							};
+							automatic.insert(code.clone(), dictionary.clone());
+							Some((code, dictionary))
+						});
+					send(Update::Detected(language, found));
+				}
+			}
 		}
+		let Some(next) = next else {
+			continue;
+		};
 		if let Some(root) = &root {
 			write(root, &next);
 		}
@@ -232,6 +266,25 @@ fn system_dictionaries() -> BTreeSet<String> {
 	out
 }
 
+/// The dictionary for a language detected in written text: the system's own variant of it
+/// when there is one, else the first offered.
+fn dictionary_for(language: &str, installed: &BTreeSet<String>) -> Option<String> {
+	let offered: Vec<&str> = DOWNLOADS
+		.iter()
+		.filter(|(.., iso)| *iso == language)
+		.map(|(code, ..)| *code)
+		.collect();
+	let locale = sys_locale::get_locale()
+		.unwrap_or_default()
+		.replace('-', "_");
+	offered
+		.iter()
+		.find(|code| locale.starts_with(**code))
+		.or_else(|| offered.iter().find(|code| installed.contains(**code)))
+		.or_else(|| offered.first())
+		.map(|code| (*code).to_owned())
+}
+
 /// The system language first, as Discord checks it without being asked, then English.
 fn default_languages(installed: &BTreeSet<String>) -> Vec<String> {
 	let mut out = Vec::new();
@@ -269,7 +322,7 @@ fn default_languages(installed: &BTreeSet<String>) -> Vec<String> {
 fn available(installed: &BTreeSet<String>) -> Vec<Language> {
 	let mut out: Vec<Language> = DOWNLOADS
 		.iter()
-		.map(|(code, _, name)| Language {
+		.map(|(code, _, name, _)| Language {
 			code: (*code).to_owned(),
 			name: (*name).to_owned(),
 		})
@@ -300,7 +353,7 @@ fn load(code: &str, downloads: Option<&Path>) -> Option<Dictionary> {
 		}
 	}
 	let downloads = downloads?;
-	let (_, path, _) = DOWNLOADS.iter().find(|(known, ..)| *known == code)?;
+	let (_, path, ..) = DOWNLOADS.iter().find(|(known, ..)| *known == code)?;
 	let aff = download(&format!("{SOURCE}/{path}.aff"))?;
 	let dic = download(&format!("{SOURCE}/{path}.dic"))?;
 	let dictionary = parse(&aff, &dic)?;
@@ -381,6 +434,18 @@ mod tests {
 		let utf8 = parse("SET UTF-8\n".as_bytes(), "1\nștiință\n".as_bytes()).unwrap();
 		assert!(utf8.check("știință"));
 		assert!(parse(b"SET ISO8859-2\n", b"1\nx\n").is_none());
+	}
+
+	#[test]
+	fn detected_languages_map_to_an_offered_dictionary() {
+		assert_eq!(
+			dictionary_for("ron", &BTreeSet::new()).as_deref(),
+			Some("ro_RO")
+		);
+		assert!(
+			dictionary_for("eng", &BTreeSet::new()).is_some_and(|code| code.starts_with("en_"))
+		);
+		assert_eq!(dictionary_for("xyz", &BTreeSet::new()), None);
 	}
 
 	#[test]
