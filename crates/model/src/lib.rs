@@ -12,6 +12,7 @@ pub mod keybinds;
 pub mod messaging_permissions;
 pub mod notification_preferences;
 pub mod onboarding;
+pub mod soundboard;
 pub mod voice_settings;
 pub use channel_preferences::{ChannelPreferences, PreferenceEdit, Shortcut};
 pub use keybinds::{CustomBinding, KeyChord, KeybindAction, Keybinds};

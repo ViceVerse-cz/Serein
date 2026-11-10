@@ -159,6 +159,46 @@ pub(crate) fn enabled() -> bool {
 	*ENABLED.get_or_init(|| std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|v| v == "1"))
 }
 
+/// Soundboard trace lines the writer accepts before going quiet; each line is at most
+/// `MAX_TRACE_LINE` bytes and names only sound IDs, formats, sizes and outcomes.
+const MAX_TRACE_LINES: usize = 2048;
+const MAX_TRACE_LINE: usize = 240;
+
+/// One soundboard pipeline event. Callers format a short line off the audio callbacks; a full
+/// queue drops the line rather than wait. Nothing is formatted when diagnostics are off.
+pub(crate) fn trace(line: std::fmt::Arguments) {
+	static WRITER: OnceLock<Option<mpsc::SyncSender<String>>> = OnceLock::new();
+	let Some(send) = WRITER.get_or_init(|| {
+		if !enabled() {
+			return None;
+		}
+		let (send, receive) = mpsc::sync_channel::<String>(32);
+		std::thread::Builder::new()
+			.name("soundboard-diagnostics".into())
+			.spawn(move || {
+				for line in receive.iter().take(MAX_TRACE_LINES) {
+					let _ = writeln!(std::io::stderr(), "{line}");
+				}
+			})
+			.ok()?;
+		Some(send)
+	}) else {
+		return;
+	};
+	let mut text = format!(
+		"[Serein voice Soundboard] at_ms={} {line}",
+		started().elapsed().as_millis()
+	);
+	if text.len() > MAX_TRACE_LINE {
+		let mut end = MAX_TRACE_LINE;
+		while !text.is_char_boundary(end) {
+			end -= 1;
+		}
+		text.truncate(end);
+	}
+	let _ = send.try_send(text);
+}
+
 /// Dimensions of delivered pictures only. The packed key sorts by pixel count and retains
 /// both dimensions; live pictures have already passed the shared UHD bound.
 #[derive(Clone, Copy, Default)]
@@ -358,7 +398,7 @@ struct Report {
 	video: [u64; VIDEO_SLOTS],
 	video_sizes: VideoSizes,
 	stream_audio: [u64; 10],
-	device_playback: [u64; 2],
+	device_playback: [u64; 4],
 	signal: [u64; SIGNAL_SLOTS],
 	/// Application-audio capture (Linux): inputs allowed, captures started, applications
 	/// excluded after a failure, and mixed 20 ms chunks handed to the stream.
@@ -423,7 +463,7 @@ impl Metrics {
 				video: [0; VIDEO_SLOTS],
 				video_sizes: VideoSizes::default(),
 				stream_audio: [0; 10],
-				device_playback: [0; 2],
+				device_playback: [0; 4],
 				signal: [0; SIGNAL_SLOTS],
 				capture: [0; 6],
 				stages: [[0; 3]; 11],
@@ -438,7 +478,9 @@ impl Metrics {
 		}
 	}
 
-	pub fn device_playback(&mut self, values: [u64; 2]) {
+	/// Add one pass of device counters: empty and stale ring reads, frames delivered to the
+	/// ring, and frames a closed speaker gate discarded.
+	pub fn device_playback(&mut self, values: [u64; 4]) {
 		if self.send.is_none() {
 			return;
 		}
@@ -596,7 +638,7 @@ impl Metrics {
 		self.report.video = [0; VIDEO_SLOTS];
 		self.report.video_sizes = VideoSizes::default();
 		self.report.stream_audio = [0; 10];
-		self.report.device_playback = [0; 2];
+		self.report.device_playback = [0; 4];
 		self.report.signal = [0; SIGNAL_SLOTS];
 		self.report.capture = [0; 6];
 	}
@@ -736,9 +778,9 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 		));
 	}
 	if report.device_playback.iter().any(|value| *value != 0) {
-		let [empty_frames, stale_frames] = report.device_playback;
+		let [empty_frames, stale_frames, frames, gated_frames] = report.device_playback;
 		line.push_str(&format!(
-			" device_playback: device_empty_frames={empty_frames} device_stale_frames={stale_frames}"
+			" device_playback: device_empty_frames={empty_frames} device_stale_frames={stale_frames} device_frames={frames} device_gated_frames={gated_frames}"
 		));
 	}
 	if report.stream_audio.iter().any(|value| *value != 0) {

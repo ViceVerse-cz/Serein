@@ -437,21 +437,20 @@ impl Audio {
 							}
 						}
 					}
-					for _ in 0..8 {
-						let Ok(frame) = playback.try_recv() else {
-							break;
-						};
-						if worker_gate.playback() {
-							drops += u64::from(active.output.push(frame).is_err());
-						}
-					}
+					let forwarded =
+						forward_playback(&playback, &mut active.output, worker_gate.playback());
+					drops += forwarded.dropped;
 					if worker_gate.diagnostics {
-						metrics.device_playback(
-							worker_gate
-								.output_gaps
-								.each_ref()
-								.map(|value| value.swap(0, Ordering::Relaxed)),
-						);
+						let [empty, stale] = worker_gate
+							.output_gaps
+							.each_ref()
+							.map(|value| value.swap(0, Ordering::Relaxed));
+						metrics.device_playback([
+							empty,
+							stale,
+							forwarded.delivered,
+							forwarded.gated,
+						]);
 					}
 					metrics.poll(reset, drops, false, noise_frames);
 					std::thread::park_timeout(Duration::from_millis(5));
@@ -583,6 +582,41 @@ const MAX_RECOVERY_ATTEMPTS: u8 = 24;
 const RECOVERY_DELAY: Duration = Duration::from_millis(250);
 /// How long a live call waits between attempts while its devices stay away.
 const RECOVERY_PATIENCE: Duration = Duration::from_secs(5);
+
+/// Outcome of one pass moving transport frames into the device ring; every frame taken is
+/// counted exactly once.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Forwarded {
+	/// Frames that entered the device ring.
+	delivered: u64,
+	/// Frames the full device ring refused.
+	dropped: u64,
+	/// Frames discarded because the speaker gate was closed.
+	gated: u64,
+}
+
+/// Move up to eight queued playback frames into the device ring when `open` (the speaker
+/// gate) allows it, discarding them otherwise. Never blocks.
+fn forward_playback(
+	playback: &mpsc::Receiver<crate::PlaybackFrame>,
+	output: &mut rtrb::Producer<crate::PlaybackFrame>,
+	open: bool,
+) -> Forwarded {
+	let mut forwarded = Forwarded::default();
+	for _ in 0..8 {
+		let Ok(frame) = playback.try_recv() else {
+			break;
+		};
+		if !open {
+			forwarded.gated += 1;
+		} else if output.push(frame).is_ok() {
+			forwarded.delivered += 1;
+		} else {
+			forwarded.dropped += 1;
+		}
+	}
+	forwarded
+}
 
 struct Streams {
 	// Reuse the connection that owns these streams for polling and microphone retries.
@@ -1237,6 +1271,40 @@ pub fn debug_processing_check() {
 
 #[cfg(test)]
 mod tests {
+	/// Regression: frames a full device ring refused were counted as both dropped and delivered.
+	#[test]
+	fn a_full_device_ring_counts_frames_as_dropped_not_delivered() {
+		let (send, receive) = mpsc::sync_channel(8);
+		let (mut ring, mut device) = rtrb::RingBuffer::new(2);
+		for _ in 0..5 {
+			send.send([0.25; 960].into()).unwrap();
+		}
+		assert_eq!(
+			super::forward_playback(&receive, &mut ring, true),
+			super::Forwarded {
+				delivered: 2,
+				dropped: 3,
+				gated: 0
+			}
+		);
+		// Once the device drains, frames are delivered again; a closed gate discards them.
+		while device.pop().is_ok() {}
+		send.send([0.25; 960].into()).unwrap();
+		send.send([0.25; 960].into()).unwrap();
+		assert_eq!(
+			super::forward_playback(&receive, &mut ring, true).delivered,
+			2
+		);
+		send.send([0.25; 960].into()).unwrap();
+		assert_eq!(
+			super::forward_playback(&receive, &mut ring, false),
+			super::Forwarded {
+				gated: 1,
+				..Default::default()
+			}
+		);
+	}
+
 	use super::*;
 	fn audio_without_devices() -> Audio {
 		let (settings, _) = tokio::sync::watch::channel(Devices::default());

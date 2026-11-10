@@ -41,6 +41,7 @@ fn ready() -> Event {
 				recipients: vec![],
 				last_message: None,
 				message_count: None,
+				user_limit: None,
 				member_list_id: None,
 				tags: None,
 			})

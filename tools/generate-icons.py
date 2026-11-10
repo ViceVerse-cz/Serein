@@ -127,7 +127,9 @@ ICONS = [
     ("corners-out", "bold/corners-out-bold.svg", "df74ba3c2a496a344f98e80c0782f43aa3760ed4b8b6103a4c621bfc59575e16"),
     ("scissors", "bold/scissors-bold.svg", "10d7c433d8284923caa353edbfa984be5c9b12aab331c36d3f250f3bd7656a1d"),
     ("clipboard-text", "bold/clipboard-text-bold.svg", "3d1f047a9ea53283cada888642cc9427e3ec7ac766beeefee19581454b4b26b4"),
-    ("selection-all", "bold/selection-all-bold.svg", "a5db79d398382ba9c9bf0abe75290e46cf11c41464be439b66c8e3ee30a716a3"),    ("monitor-x", "repo:assets/icons/monitor-x.svg", "5850e9e31daefe53ac6e117abd690e5171c055b40cbdd9337948bd2fbbfc11a9"),
+    ("selection-all", "bold/selection-all-bold.svg", "a5db79d398382ba9c9bf0abe75290e46cf11c41464be439b66c8e3ee30a716a3"),
+    ("monitor-x", "repo:assets/icons/monitor-x.svg", "5850e9e31daefe53ac6e117abd690e5171c055b40cbdd9337948bd2fbbfc11a9"),
+    ("music-notes", "fill/music-notes-fill.svg", "ddfa03bf39856870a4898b830525136583179dc019aa0ab8689eb5b7a65bc50d"),
 ]
 LICENSE_SHA256 = "ddbe6082ec3cf979db47e5af549d2849c5d6182b3e005ef91ce1dbb9eb122f11"
 
@@ -199,7 +201,8 @@ def main():
     for cell, (name, asset, sha256, simple) in enumerate(sources):
         local = asset.startswith("repo:")
         if local:
-            svg = (root / asset.removeprefix("repo:")).read_bytes()
+            # Pinned repository hashes use Git's LF bytes, including on CRLF checkouts.
+            svg = (root / asset.removeprefix("repo:")).read_bytes().replace(b"\r\n", b"\n")
         else:
             svg = fetch(asset, SIMPLE_BASE) if simple else fetch(f"assets/{asset}")
         digest = hashlib.sha256(svg).hexdigest()
@@ -245,7 +248,7 @@ def main():
         subprocess.run(["oxipng", "-o", "max", "--strip", "all", "-q", destination / "atlas.png"], check=True)
     else:
         print("oxipng not found; atlas.png left at resvg compression", file=sys.stderr)
-    (destination / "index.tsv").write_text("".join(f"{name}\t{cell}\n" for name, cell in index), encoding="utf-8")
+    (destination / "index.tsv").write_bytes("".join(f"{name}\t{cell}\n" for name, cell in index).encode("utf-8"))
     (destination / "LICENSE").write_bytes(license_text)
     (destination / "LICENSE-SIMPLE-ICONS").write_bytes(simple_license)
     print(f"{len(sources)} icons; {width}x{height}; atlas {(destination / 'atlas.png').stat().st_size} bytes")

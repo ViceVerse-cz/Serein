@@ -431,6 +431,44 @@ pub(super) fn decode_stream(
 	current: &impl Fn() -> bool,
 	emit: &mut impl FnMut(&[f32], usize, u32, Option<Duration>) -> Result<(), &'static str>,
 ) -> Result<(), &'static str> {
+	decode_packets(source, current, emit, false).map(|_| ())
+}
+
+/// Damaged packets a lenient decode skips before giving up on the file.
+const MAX_SKIPPED_PACKETS: u32 = 64;
+
+/// Like `decode_stream`, but for short clips that must not fall silent over one bad frame:
+/// up to `MAX_SKIPPED_PACKETS` undecodable packets, packets whose rate or layout differs from
+/// the track, and trailing data the demuxer cannot read after audio was decoded are skipped
+/// instead of failing the file. Returns how many packets were skipped.
+pub(super) fn decode_stream_lenient(
+	source: Box<dyn MediaSource>,
+	current: &impl Fn() -> bool,
+	emit: &mut impl FnMut(&[f32], usize, u32, Option<Duration>) -> Result<(), &'static str>,
+) -> Result<u32, &'static str> {
+	decode_packets(source, current, emit, true)
+}
+
+/// Shared body of `decode_stream` and `decode_stream_lenient`: probes the container, admits
+/// one bounded mono or stereo track (Opus through libopus, everything else through Symphonia)
+/// and emits interleaved PCM per packet. Returns how many damaged packets `lenient` skipped.
+fn decode_packets(
+	source: Box<dyn MediaSource>,
+	current: &impl Fn() -> bool,
+	emit: &mut impl FnMut(&[f32], usize, u32, Option<Duration>) -> Result<(), &'static str>,
+	lenient: bool,
+) -> Result<u32, &'static str> {
+	let mut skipped = 0;
+	// A damaged packet ends a strict decode; a lenient one skips a bounded number of them.
+	macro_rules! damaged {
+		() => {{
+			if lenient && skipped < MAX_SKIPPED_PACKETS {
+				skipped += 1;
+				continue;
+			}
+			return Err(INVALID);
+		}};
+	}
 	let source = MediaSourceStream::new(source, Default::default());
 	let metadata = MetadataOptions::default()
 		.limit_tag_bytes(Limit::Maximum(0))
@@ -470,12 +508,26 @@ pub(super) fn decode_stream(
 	let track_id = track.id;
 	let mut opus = if parameters.codec == CODEC_ID_OPUS {
 		let header = parameters.extra_data.as_deref().ok_or(INVALID)?;
-		// Family 0 is the mono/stereo voice-message mapping. Reject multistream mappings.
+		// Family 0 is the mono/stereo voice-message mapping. Family 1 is accepted only when it
+		// describes the same single stream; real multistream layouts are rejected.
+		let single_stream = match header.get(18) {
+			Some(0) => true,
+			Some(1) => {
+				header.len() >= 21 + channels
+					&& header[19] == 1
+					&& usize::from(header[20]) == channels - 1
+					&& header[21..21 + channels]
+						.iter()
+						.enumerate()
+						.all(|(index, slot)| usize::from(*slot) == index)
+			}
+			_ => false,
+		};
 		if header.len() < 19
 			|| &header[..8] != b"OpusHead"
 			|| header[8] > 15
 			|| usize::from(header[9]) != channels
-			|| header[18] != 0
+			|| !single_stream
 			|| rate != 48000
 		{
 			return Err(INVALID);
@@ -515,25 +567,29 @@ pub(super) fn decode_stream(
 		if !current() {
 			return Err("Cancelled");
 		}
-		let Some(packet) = format.next_packet().map_err(|_| INVALID)? else {
-			break;
+		let packet = match format.next_packet() {
+			Ok(Some(packet)) => packet,
+			Ok(None) => break,
+			// Trailing tags or a cut-off final frame after real audio end a lenient decode.
+			Err(_) if lenient && total_samples > 0 => break,
+			Err(_) => return Err(INVALID),
 		};
 		packets += 1;
 		if packets > 100_000 || packet.data.len() > 1024 * 1024 {
 			return Err(TOO_LARGE);
 		}
 		if packet.track_id != track_id {
-			return Err(INVALID);
+			damaged!();
 		}
 		let decoded = if let Some((decoder, pre_skip)) = &mut opus {
 			// Opus packets decode to at most 120 ms at 48 kHz.
 			buffer.resize(5760 * channels, 0.0);
 			if packet.data.is_empty() {
-				return Err(INVALID);
+				damaged!();
 			}
-			let frames = decoder
-				.decode_float(&packet.data, &mut buffer, false)
-				.map_err(|_| INVALID)?;
+			let Ok(frames) = decoder.decode_float(&packet.data, &mut buffer, false) else {
+				damaged!();
+			};
 			// Symphonia 0.6.1 exposes Opus pre-skip in OpusHead, but only applies end trim.
 			let skip = (*pre_skip).min(frames);
 			*pre_skip -= skip;
@@ -546,16 +602,14 @@ pub(super) fn decode_stream(
 				.ok_or(INVALID)?;
 			&buffer[start * channels..end * channels]
 		} else {
-			let decoded = decoder
-				.as_mut()
-				.ok_or(INVALID)?
-				.decode(&packet)
-				.map_err(|_| INVALID)?;
-			if decoded.spec().rate() != rate
-				|| decoded.spec().channels().count() != channels
-				|| decoded.frames() > 65536
-			{
+			let Ok(decoded) = decoder.as_mut().ok_or(INVALID)?.decode(&packet) else {
+				damaged!();
+			};
+			if decoded.frames() > 65536 {
 				return Err(INVALID);
+			}
+			if decoded.spec().rate() != rate || decoded.spec().channels().count() != channels {
+				damaged!();
 			}
 			buffer.resize(decoded.samples_interleaved(), 0.0);
 			decoded.copy_to_slice_interleaved(&mut buffer);
@@ -573,12 +627,12 @@ pub(super) fn decode_stream(
 	if total_samples == 0 {
 		return Err(INVALID);
 	}
-	Ok(())
+	Ok(skipped)
 }
 
-// Skip metadata without decoding attacker-provided tag lengths/artwork. Compact in-place:
-// only bounded PCM fmt/data chunks reach the WAV demuxer; ID3 parsing is disabled entirely.
-fn prepare_media(bytes: &mut Vec<u8>) -> Result<(), &'static str> {
+/// Skip metadata without decoding attacker-provided tag lengths/artwork. Compact in-place:
+/// only bounded PCM fmt/data chunks reach the WAV demuxer; ID3 parsing is disabled entirely.
+pub(super) fn prepare_media(bytes: &mut Vec<u8>) -> Result<(), &'static str> {
 	if bytes.starts_with(b"OggS") {
 		// Preflight bounded the headers; Symphonia handles demuxing and CRC verification.
 		return Ok(());
@@ -725,11 +779,37 @@ fn prepare_media(bytes: &mut Vec<u8>) -> Result<(), &'static str> {
 	Ok(())
 }
 
-// Symphonia's Ogg comments do not honor MetadataOptions. Bound header allocation before probing;
-// this only checks page framing/header sizes, leaving CRCs and stream decoding to Symphonia.
+/// Symphonia's Ogg comments do not honor MetadataOptions. Bound header allocation before probing;
+/// this only checks page framing/header sizes, leaving CRCs and stream decoding to Symphonia.
 #[cfg(any(test, all(debug_assertions, feature = "demo")))]
-fn check_ogg_headers(bytes: &[u8], current: &impl Fn() -> bool) -> Result<(), &'static str> {
+pub(super) fn check_ogg_headers(
+	bytes: &[u8],
+	current: &impl Fn() -> bool,
+) -> Result<(), &'static str> {
+	scan_ogg_pages(bytes, current, false).map(|_| ())
+}
+
+/// The same header bounds for a downloaded clip, accepting a stream whose encoder never set
+/// the end-of-stream flag or whose final page was cut off. Returns the length of the complete
+/// pages; the caller decodes only those.
+pub(super) fn check_ogg_headers_lenient(
+	bytes: &[u8],
+	current: &impl Fn() -> bool,
+) -> Result<usize, &'static str> {
+	scan_ogg_pages(bytes, current, true)
+}
+
+/// Walk every Ogg page, bounding header packets and comment counts. A strict scan requires
+/// one logical stream that ends with an end-of-stream page; a lenient one stops at the last
+/// complete page instead. Returns the byte length worth decoding.
+fn scan_ogg_pages(
+	bytes: &[u8],
+	current: &impl Fn() -> bool,
+	lenient: bool,
+) -> Result<usize, &'static str> {
 	let mut offset = 0;
+	// End of the last complete page and the packet count when it ended.
+	let mut complete = (0, 0);
 	let mut serial = None;
 	let mut packet = Vec::new();
 	let mut packet_len = 0usize;
@@ -740,7 +820,16 @@ fn check_ogg_headers(bytes: &[u8], current: &impl Fn() -> bool) -> Result<(), &'
 		if !current() {
 			return Err("Cancelled");
 		}
-		let page = bytes.get(offset..offset + 27).ok_or(INVALID)?;
+		// Bytes after the end-of-stream page are not part of a lenient clip.
+		let Some(page) = bytes
+			.get(offset..offset + 27)
+			.filter(|_| !(lenient && ended))
+		else {
+			if lenient {
+				break;
+			}
+			return Err(INVALID);
+		};
 		if &page[..4] != b"OggS" || page[4] != 0 || ended {
 			return Err(INVALID);
 		}
@@ -754,9 +843,16 @@ fn check_ogg_headers(bytes: &[u8], current: &impl Fn() -> bool) -> Result<(), &'
 		}
 		serial = Some(page_serial);
 		ended = page[5] & 4 != 0;
-		let lacing = bytes
-			.get(offset + 27..offset + 27 + usize::from(page[26]))
-			.ok_or(INVALID)?;
+		let Some(lacing) = bytes.get(offset + 27..offset + 27 + usize::from(page[26])) else {
+			if lenient {
+				break;
+			}
+			return Err(INVALID);
+		};
+		let page_data = lacing.iter().map(|lace| usize::from(*lace)).sum::<usize>();
+		if lenient && bytes.len() < offset + 27 + lacing.len() + page_data {
+			break;
+		}
 		offset += 27 + lacing.len();
 		for &lace in lacing {
 			let len = usize::from(lace);
@@ -822,11 +918,22 @@ fn check_ogg_headers(bytes: &[u8], current: &impl Fn() -> bool) -> Result<(), &'
 				packet_len = 0;
 			}
 		}
+		if packet_len == 0 {
+			complete = (offset, packets);
+		}
+	}
+	if lenient {
+		// Decode up to the last page that closed a packet, if it holds any audio.
+		return if complete.1 > headers {
+			Ok(complete.0)
+		} else {
+			Err(INVALID)
+		};
 	}
 	if !ended || packet_len != 0 || packets <= headers {
 		return Err(INVALID);
 	}
-	Ok(())
+	Ok(bytes.len())
 }
 
 #[cfg(any(test, feature = "demo"))]

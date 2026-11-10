@@ -33,6 +33,7 @@ pub use teardown::wait_for_media_threads;
 pub use transport::{DISCONNECTED_BY_DISCORD, run, run_stream, run_with_identity, watch_stream};
 pub use video_receive::{RemoteFrame, VideoSink};
 pub mod camera_video;
+pub mod soundboard;
 
 pub use presentation::{PlaybackFrame, Presentation};
 
@@ -50,6 +51,8 @@ pub struct Controls {
 	pub user_volumes: [(u64, u16); 64],
 	/// Watched stream playback percentage, independently muted with zero.
 	pub stream_volume: u16,
+	/// Current soundboard playback percentage (0–200), applied on every mix tick.
+	pub soundboard_volume: u16,
 }
 impl Default for Controls {
 	fn default() -> Self {
@@ -61,6 +64,7 @@ impl Default for Controls {
 			deafened: false,
 			user_volumes: [(0, 100); 64],
 			stream_volume: 100,
+			soundboard_volume: 100,
 		}
 	}
 }
