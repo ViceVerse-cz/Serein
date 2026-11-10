@@ -304,6 +304,35 @@ pub(crate) fn mention(
 	mention_art(ui, text, color, background, sense, line, copy, None)
 }
 
+/// A user mention led by the person's avatar, as the mention-avatars tweak shows it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn user_mention(
+	ui: &mut egui::Ui,
+	text: &str,
+	(color, background): (egui::Color32, egui::Color32),
+	sense: egui::Sense,
+	line: Option<f32>,
+	copy: Option<&mut Surface>,
+	(images, user, demo): (&mut Avatars, &model::User, bool),
+) -> egui::Response {
+	mention_art(
+		ui,
+		text,
+		color,
+		background,
+		sense,
+		line,
+		copy,
+		Some((images, Art::User(user), demo)),
+	)
+}
+
+/// The picture leading a mention: an application icon by key, or a person's avatar.
+enum Art<'a> {
+	Icon(String),
+	User(&'a model::User),
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn game(
 	ui: &mut egui::Ui,
@@ -323,10 +352,12 @@ pub(crate) fn game(
 		egui::Sense::hover(),
 		line,
 		Some(copy),
-		Some((images, key, demo)),
+		Some((images, Art::Icon(key), demo)),
 	)
 }
 
+/// Lays out a wrapping mention pill with a rounded background per row and an optional leading icon
+/// or avatar sized to the text height; returns the merged row response, falling back to the label.
 #[allow(clippy::too_many_arguments)]
 fn mention_art(
 	ui: &mut egui::Ui,
@@ -336,7 +367,7 @@ fn mention_art(
 	sense: egui::Sense,
 	line: Option<f32>,
 	copy: Option<&mut Surface>,
-	art: Option<(&mut Avatars, String, bool)>,
+	art: Option<(&mut Avatars, Art<'_>, bool)>,
 ) -> egui::Response {
 	let font_id = egui::TextStyle::Body.resolve(ui.style());
 	let text_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
@@ -371,7 +402,7 @@ fn mention_art(
 		for rect in rows {
 			ui.painter().rect_filled(rect, RADIUS, fill);
 		}
-		if let Some((images, key, demo)) = art {
+		if let Some((images, art, demo)) = art {
 			let position = galley
 				.pos_from_cursor(egui::text::CCursor::new(0))
 				.translate(pos.to_vec2());
@@ -380,7 +411,14 @@ fn mention_art(
 				egui::Vec2::splat(text_height),
 			);
 			let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
-			images.show_icon(&mut child, Some(key), text_height, demo, text);
+			match art {
+				Art::Icon(key) => {
+					images.show_icon(&mut child, Some(key), text_height, demo, text);
+				}
+				Art::User(user) => {
+					images.show_plain(&mut child, user, text_height, demo);
+				}
+			}
 		}
 		ui.painter()
 			.add(egui::epaint::TextShape::new(pos, galley, color));

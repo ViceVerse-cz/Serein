@@ -38,6 +38,7 @@ mod notification_runtime;
 mod notification_sounds;
 #[cfg(feature = "demo")]
 mod onboarding_demo;
+mod plugin_fetch;
 mod pointer;
 #[cfg(feature = "demo")]
 mod polls_demo;
@@ -829,6 +830,8 @@ fn demo_check_extensions() {
 	);
 }
 
+/// Parses the `=WARMUP,SAMPLE` suffix of the frame-sample flag into whole-second durations.
+/// Fails with a usage message unless demo mode is on and both values are within 1..=600.
 fn parse_frame_sample(demo: bool, value: &str) -> Result<(Duration, Duration), &'static str> {
 	let invalid = "Use --demo --demo-friends --demo-frame-sample=WARMUP,SAMPLE (whole seconds, warmup 1..600, sample 1..600)";
 	let (warmup, sample) = value
@@ -1116,6 +1119,11 @@ struct Desktop {
 	presence_load_pending: bool,
 	deferred_connect: Option<(SessionSecret, bool)>,
 	presence_authoritative: bool,
+	/// Do Not Disturb while playing: `Some(true)` while this tweak set the status for the running
+	/// game, `Some(false)` once the user picked another status during it, `None` with no game.
+	game_dnd: Option<bool>,
+	/// The pending status change came from the game tweak and must not be saved.
+	game_dnd_transient: bool,
 	presence_saved: Option<(model::Id, model::OwnPresence)>,
 	/// Saved account awaiting the owner's confirmation before it is forgotten.
 	confirming_forget: Option<model::Id>,
@@ -1517,6 +1525,8 @@ fn demo_members(
 	}
 }
 
+/// Disables winit's undecorated shadow so the custom-chrome client area is not shifted by 1px
+/// when the window is restored.
 #[cfg(target_os = "windows")]
 fn align_undecorated_surface(window: &winit::window::Window) {
 	use winit::platform::windows::WindowExtWindows as _;
@@ -1526,6 +1536,8 @@ fn align_undecorated_surface(window: &winit::window::Window) {
 }
 
 impl Desktop {
+	/// Builds the desktop app: installs fonts, emoji, icons and theme, then starts the runtime and stores.
+	/// Demo mode skips credentials and cache and seeds fixture state; fails if emoji or runtime setup fails.
 	fn new(
 		cc: &eframe::CreationContext<'_>,
 		demo: bool,
@@ -2465,6 +2477,8 @@ impl Desktop {
 			presence_load_pending,
 			deferred_connect: None,
 			presence_authoritative: false,
+			game_dnd: None,
+			game_dnd_transient: false,
 			presence_saved: None,
 			confirming_forget: sign_in_forget,
 			sign_in_copied: None,
@@ -3103,6 +3117,8 @@ impl Desktop {
 			ctx.options_mut(|options| options.fallback_theme = theme);
 		}
 	}
+	/// Queues the current account's presence for saving when it is authoritative, valid, and changed.
+	/// Game-triggered Do Not Disturb is saved as Online; skipped in demo and fixture-only modes.
 	fn persist_account_presence(&mut self) {
 		if !self.presence_authoritative || self.state.demo || self.fixture_only {
 			return;
@@ -3110,7 +3126,12 @@ impl Desktop {
 		let Some(account) = self.state.user.as_ref().map(|user| user.id) else {
 			return;
 		};
-		let snapshot = self.presence_snapshot();
+		let mut snapshot = self.presence_snapshot();
+		// Do Not Disturb set for a running game is temporary: custom-status edits made during
+		// the game are kept, but the saved status stays the Online it replaced.
+		if self.game_dnd == Some(true) {
+			snapshot.status = model::PresenceStatus::Online;
+		}
 		if !snapshot.valid() || self.presence_saved.as_ref() == Some(&(account, snapshot.clone())) {
 			return;
 		}
@@ -3119,6 +3140,8 @@ impl Desktop {
 			self.presence_saved = Some((account, snapshot));
 		}
 	}
+	/// Starts a connection that was postponed until account presence finished loading.
+	/// Does nothing while the presence load is still pending; the deferred request is consumed once.
 	fn flush_deferred_connect(&mut self, ctx: &egui::Context) {
 		if self.presence_load_pending {
 			return;
@@ -3127,11 +3150,52 @@ impl Desktop {
 			self.connect(secret, save, ctx);
 		}
 	}
+	/// Switches Online to Do Not Disturb while a detected game runs, and back after it, unless the
+	/// user chose another status in between. The temporary status is shared with the session but
+	/// never saved as the account's status, so a restart during a game still starts Online.
+	fn sync_game_dnd(&mut self, ctx: &egui::Context) {
+		use model::PresenceStatus::{DoNotDisturb, Online};
+		// A status changed elsewhere is adopted first, so it is not replaced by this tweak.
+		if self
+			.connection
+			.as_ref()
+			.is_some_and(|connection| connection.account_presence.has_changed().unwrap_or(false))
+		{
+			return;
+		}
+		// A detected game process, not any activity a plugin or local client publishes.
+		let playing = self.messaging.running_game.is_some()
+			&& self
+				.messaging
+				.interface_tweak_on(::extensions::InterfaceTweak::DndWhilePlaying);
+		let status = self.messaging.own_presence.status;
+		let next = match (playing, self.game_dnd) {
+			(false, Some(true)) if status == DoNotDisturb => Some(Online),
+			(true, None) if status == Online => Some(DoNotDisturb),
+			_ => None,
+		};
+		self.game_dnd = match (playing, self.game_dnd) {
+			(false, _) => None,
+			(true, None) => Some(next.is_some()),
+			(true, Some(true)) => Some(status == DoNotDisturb),
+			(true, held) => held,
+		};
+		if let Some(next) = next {
+			self.messaging.own_presence.status = next;
+			self.messaging.own_presence_changed = true;
+			self.game_dnd_transient = true;
+			ctx.request_repaint();
+		}
+	}
+	/// Publishes pending own-presence edits to the connection and refreshes the user-facing status line.
+	/// Game-driven DND switches are shared live but never saved as the account's chosen status.
 	fn sync_own_presence(&mut self, ctx: &egui::Context) {
 		self.expire_own_status(ctx);
 		let changed = std::mem::take(&mut self.messaging.own_presence_changed);
+		// The game tweak's switch is shared live but is not the account's chosen status.
+		let transient = std::mem::take(&mut self.game_dnd_transient);
 		self.adopt_remote_presence(!changed);
-		if changed {
+		if changed && !transient {
 			self.presence_authoritative = true;
 		}
 		let published = self.presence_snapshot();
@@ -3144,7 +3208,7 @@ impl Desktop {
 			let save_error = *connection.presence_error.borrow();
 			let rejected = connection.own_presence.is_closed()
 				|| (changed && connection.own_presence.send(published.clone()).is_err());
-			if changed && !rejected {
+			if changed && !rejected && !transient {
 				connection.presence_edits.send_replace(Some(published));
 			}
 			if rejected {
@@ -3524,6 +3588,57 @@ impl Desktop {
 				.server_settings_command_allowed(*guild, *request, edit)
 		{
 			self.state.command_rejected(command);
+			return;
+		}
+		// Files added while editing upload first, then replace the message's attachment list.
+		if let Command::Edit {
+			channel,
+			message,
+			request,
+			keep_attachments: Some(_),
+			..
+		} = &command
+			&& !self.state.demo
+		{
+			let (channel, message, request) = (*channel, *message, *request);
+			let available = attachment_send_allowed(&self.state, channel)
+				&& !self.fixture_only
+				&& self.connection.is_some();
+			if available
+				&& let Some(source) = self.uploads.take_source(self.state.generation, channel)
+			{
+				let (progress, receive) =
+					tokio::sync::watch::channel(discord_api::upload::Status::Preparing);
+				let (cancel, _) = tokio::sync::watch::channel(false);
+				if self.uploads.begin_upload(receive, cancel.clone()).is_ok() {
+					let request = uploads::UploadRequest {
+						command,
+						source,
+						progress,
+						cancel,
+					};
+					self.messaging.attachment = None;
+					if let Err(error) = self.connection.as_ref().unwrap().uploads.try_send(request)
+					{
+						let request = error.into_inner();
+						request
+							.progress
+							.send_replace(discord_api::upload::Status::Failed(
+								"Upload queue full; reselect the file",
+							));
+						self.state.command_rejected(request.command);
+					}
+					return;
+				}
+			}
+			self.state.apply_edit_result(
+				channel,
+				message,
+				request,
+				Err(Failure::ProtocolAt(
+					"Files not added; check the connection and attachments, then save again",
+				)),
+			);
 			return;
 		}
 		if let Command::Send { channel, nonce, .. } = &command
@@ -4496,6 +4611,7 @@ impl Desktop {
 					channel,
 					message,
 					content,
+					..
 				} => {
 					let result = self
 						.state
@@ -4533,6 +4649,40 @@ impl Desktop {
 					pinned,
 					result: Ok(()),
 				},
+				// Offline previews never contact the service; lookups report unavailable.
+				Command::Lookup(client_core::lookups::Command::User { user }) => {
+					Event::Lookup(client_core::lookups::Event::User {
+						user,
+						result: Err(Failure::ProtocolAt(
+							"Offline preview does not look up users",
+						)),
+					})
+				}
+				Command::Lookup(client_core::lookups::Command::Message { channel, message }) => {
+					Event::Lookup(client_core::lookups::Event::Message {
+						channel,
+						message,
+						result: Err(Failure::ProtocolAt("Offline preview does not read history")),
+					})
+				}
+				Command::FriendInvites(command) => {
+					use client_core::friend_invites::{Command as Invites, Event as Invited};
+					let offline = Failure::ProtocolAt("Offline preview has no friend invites");
+					Event::FriendInvites(match command {
+						Invites::Load { request } => Invited::Loaded {
+							request,
+							result: Ok(Vec::new()),
+						},
+						Invites::Create { request } => Invited::Created {
+							request,
+							result: Err(offline),
+						},
+						Invites::RevokeAll { request } => Invited::Revoked {
+							request,
+							result: Ok(()),
+						},
+					})
+				}
 			};
 			self.state.apply(Envelope {
 				generation: self.state.generation,
@@ -5686,6 +5836,9 @@ impl eframe::App for Desktop {
 		if let Some(wake) = self.geometry_rest.wake() {
 			ctx.request_repaint_after(wake);
 		}
+		self.uploads.anonymise = self
+			.messaging
+			.interface_tweak_on(::extensions::InterfaceTweak::AnonymousFileNames);
 		let search_focused = {
 			#[cfg(feature = "demo")]
 			{
@@ -6003,6 +6156,8 @@ impl eframe::App for Desktop {
 			ctx.request_repaint_after(self.frame_period().unwrap_or(Duration::from_millis(16)) / 2);
 		}
 	}
+	/// Draws one frame: title bar, tray window and backdrop, then routes clipboard pastes and dropped
+	/// files to the composer or uploads, sending oversized pasted text as a `message.txt` attachment.
 	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
 		let title_bar_height = if self.login.is_some() {
@@ -6764,6 +6919,24 @@ impl eframe::App for Desktop {
 					self.messaging.accept_server_emojis(&ctx, scope, Err(error));
 				}
 			}
+			if let Some((generation, guild, request, emoji)) =
+				self.messaging.take_server_emoji_clone()
+			{
+				let scope = (generation, guild, request);
+				let result = if generation != self.state.generation
+					|| !self.state.can_create_guild_emoji(guild)
+				{
+					Err("You can no longer upload emoji to this server")
+				} else if self.state.demo || self.fixture_only {
+					Err("Offline preview does not download emoji")
+				} else {
+					self.emoji_upload
+						.start_clone(scope, emoji, self.runtime.handle(), &ctx)
+				};
+				if let Err(error) = result {
+					self.messaging.accept_server_emojis(&ctx, scope, Err(error));
+				}
+			}
 			if let Some((generation, guild, request)) = self.messaging.take_server_sticker_request()
 			{
 				let scope = (generation, guild, request);
@@ -6895,6 +7068,7 @@ impl eframe::App for Desktop {
 		self.save_app_preferences();
 		self.messaging.updates_save_failed = self.app_settings.state.failed;
 		self.save_reading_preferences(&ctx);
+		self.sync_game_dnd(&ctx);
 		self.sync_own_presence(&ctx);
 		self.sync_game_activity(&ctx);
 		let offline = self.fixture_only || self.state.demo;

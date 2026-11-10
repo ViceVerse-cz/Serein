@@ -391,6 +391,8 @@ mod tests {
 			assert_eq!(state.channels[0].name, name);
 		}
 	}
+	/// Verifies leaving is refused while messages are pending or offline, a rejoined channel survives a
+	/// finished leave, and session resets (Ready, logout) discard in-flight group action results.
 	#[test]
 	fn group_leave_guards_rejoined_channel_pending_messages_and_session_reset() {
 		let mut state = state();
@@ -434,6 +436,7 @@ mod tests {
 			generation: state.generation,
 			event: CoreEvent::Ready {
 				user: model::User {
+					username: String::new(),
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(1),

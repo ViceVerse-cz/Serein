@@ -630,6 +630,8 @@ impl Picker {
 		self.stickers.query = query.chars().take(64).collect();
 	}
 
+	/// Rebuilds the match list from standard emoji whose name, glyph, or any Discord alias contains
+	/// the trimmed, lowercased query; an empty query matches every emoji.
 	fn filter(&mut self) {
 		let query = self.query.trim().to_lowercase();
 		self.matches.clear();
@@ -647,6 +649,20 @@ impl Picker {
 				})
 				.map(|(index, _)| index),
 		);
+	}
+	/// Opens the popup on `tab` from its composer button. With `favorites_first`, the GIF
+	/// tab skips the category tiles for saved GIFs unless the user is mid-browse.
+	fn open_tab(&mut self, tab: Tab, favorites_first: bool) {
+		self.open = true;
+		self.tab = tab;
+		self.focus = true;
+		if favorites_first
+			&& tab == Tab::Gifs
+			&& self.gif_section == GifSection::Home
+			&& self.gif_query.is_empty()
+		{
+			self.gif_section = GifSection::Favorites;
+		}
 	}
 	fn close_gifs(&mut self, state: &mut State, commands: &mut Vec<Command>) {
 		if self.reaction.is_some() {
@@ -1010,6 +1026,8 @@ impl Picker {
 		}
 	}
 
+	/// Draws the emoji and GIF tray toggles and, while open, the picker popup anchored to them.
+	/// Returns the chosen emoji or GIF, or `None` when closed or nothing was picked this frame.
 	pub fn show(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -1039,14 +1057,14 @@ impl Picker {
 			self.open && self.tab == Tab::Gifs,
 			&crate::i18n::translate("emoji-picker-show-send-a-gif"),
 		);
+		let favorites_first =
+			crate::interface_tweaks::on(ui.ctx(), extensions::InterfaceTweak::GifFavoritesFirst);
 		for (response, tab) in [(&trigger, Tab::Emoji), (&gif_trigger, Tab::Gifs)] {
 			if response.clicked() {
 				if self.open && self.tab == tab {
 					self.open = false;
 				} else {
-					self.open = true;
-					self.tab = tab;
-					self.focus = true;
+					self.open_tab(tab, favorites_first);
 				}
 			}
 		}
@@ -2739,6 +2757,34 @@ fn cell(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn gif_button_opens_on_saved_gifs_only_with_the_tweak_and_a_fresh_browse() {
+		let opened = |favorites_first, section, query: &str| {
+			let mut picker = Picker {
+				gif_section: section,
+				gif_query: query.into(),
+				..Picker::default()
+			};
+			picker.open_tab(Tab::Gifs, favorites_first);
+			assert!(picker.open && picker.tab == Tab::Gifs);
+			picker.gif_section
+		};
+		assert_eq!(opened(false, GifSection::Home, ""), GifSection::Home);
+		assert_eq!(opened(true, GifSection::Home, ""), GifSection::Favorites);
+		assert_eq!(
+			opened(true, GifSection::Trending, ""),
+			GifSection::Trending,
+			"an ongoing browse is kept"
+		);
+		assert_eq!(
+			opened(true, GifSection::Home, "cats"),
+			GifSection::Home,
+			"a typed search is kept"
+		);
+		let mut emoji = Picker::default();
+		emoji.open_tab(Tab::Emoji, true);
+		assert_eq!(emoji.gif_section, GifSection::Home);
+	}
 	#[test]
 	fn gif_favorite_loading_is_single_flight_and_video_placeholders_never_request_media() {
 		let ctx = egui::Context::default();

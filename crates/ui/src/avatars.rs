@@ -185,6 +185,8 @@ fn animated_emoji_key(id: model::Id, play: bool) -> Option<String> {
 	(play && id.0 != 0).then(|| format!("anim:emoji-{id}"))
 }
 
+/// Whether an image cache key names an animated avatar, banner, decoration, or nameplate asset.
+/// Detection relies on the `a_` hash prefix; unrecognized key shapes return `false`.
 fn is_animated_profile_or_avatar_key(key: &str) -> bool {
 	// Decorations and nameplates animate while hovered, like the avatar beside them.
 	if let Some(asset) = key.strip_prefix("decoration-") {
@@ -1009,8 +1011,7 @@ impl Avatars {
 		demo: bool,
 	) {
 		// A profile theme decides the banner, as on Discord; the legacy accent is a fallback.
-		let color = profile
-			.theme_colors
+		let color = crate::profiles::shown_theme_colors(ui.ctx(), profile)
 			.map(crate::profiles::Theme::banner)
 			.or(profile
 				.accent_color

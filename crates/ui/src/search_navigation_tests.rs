@@ -515,8 +515,15 @@ fn result_context_menu_copies_and_offers_plugin_message_actions() {
 	page(&mut state, 1);
 	let plugin = crate::extensions_ui::MenuAction {
 		plugin: "synthetic.words".into(),
+		plugin_name: "Synthetic".into(),
 		action: "count".into(),
-		label: "Synthetic · Count words".into(),
+		label: "Count words".into(),
+		icon: None,
+		slot: None,
+		menu: None,
+		toggle: false,
+		icon_on: None,
+		needs_draft: false,
 	};
 	view.search.extension_actions = std::sync::Arc::new(vec![plugin.clone()]);
 	let mut labels = Vec::new();
@@ -584,6 +591,22 @@ fn result_context_menu_copies_and_offers_plugin_message_actions() {
 	let mut events = vec![egui::Event::PointerMoved(submenu)];
 	events.extend(press(egui::PointerButton::Primary, submenu));
 	let mut labels = pane_frame(&ctx, &mut view, &mut state, events).0;
+	// Grouped plugins sit under their own name inside "Extensions".
+	for _ in 0..3 {
+		if labels.iter().any(|(text, _)| *text == plugin.plugin_name) {
+			break;
+		}
+		labels = pane_frame(&ctx, &mut view, &mut state, vec![]).0;
+	}
+	let group = labels
+		.iter()
+		.find(|(text, _)| *text == plugin.plugin_name)
+		.expect("plugin listed by name")
+		.1
+		.center();
+	let mut events = vec![egui::Event::PointerMoved(group)];
+	events.extend(press(egui::PointerButton::Primary, group));
+	labels = pane_frame(&ctx, &mut view, &mut state, events).0;
 	for _ in 0..3 {
 		if labels.iter().any(|(text, _)| *text == plugin.label) {
 			break;
@@ -651,8 +674,15 @@ fn result_menu_withholds_text_actions_for_the_preview_notice() {
 	page_with(&mut state, 1, model::PREVIEW_LIMIT_NOTICE);
 	view.search.extension_actions = std::sync::Arc::new(vec![crate::extensions_ui::MenuAction {
 		plugin: "synthetic.words".into(),
+		plugin_name: "Synthetic".into(),
 		action: "count".into(),
-		label: "Synthetic · Count words".into(),
+		label: "Count words".into(),
+		icon: None,
+		slot: None,
+		menu: None,
+		toggle: false,
+		icon_on: None,
+		needs_draft: false,
 	}]);
 	let mut labels = Vec::new();
 	for _ in 0..3 {

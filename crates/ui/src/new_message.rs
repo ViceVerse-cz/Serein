@@ -208,10 +208,13 @@ mod tests {
 	use super::*;
 	use client_core::{Envelope, Event, user_actions};
 
+	/// Builds a demo state signed in as user 1 with two friends (ids 20 and 21) applied through
+	/// relationship and friend events, returning the state alongside those friends.
 	fn fixture() -> (State, Vec<model::User>) {
 		let mut state = State {
 			demo: true,
 			user: Some(model::User {
+				username: String::new(),
 				id: Id(1),
 				name: "Signed in".into(),
 				avatar: None,
@@ -225,6 +228,7 @@ mod tests {
 		};
 		let people: Vec<model::User> = (0..2)
 			.map(|index| model::User {
+				username: String::new(),
 				id: Id(20 + index),
 				name: format!("Friend {index}"),
 				avatar: None,

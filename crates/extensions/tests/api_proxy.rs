@@ -4,6 +4,7 @@ use extensions::{
 
 fn manifest() -> Manifest {
 	Manifest {
+		network_hosts: Vec::new(),
 		api_version: 1,
 		id: "api-proxy".into(),
 		name: "API proxy".into(),
@@ -17,6 +18,12 @@ fn manifest() -> Manifest {
 			id: "apply".into(),
 			label: "Apply".into(),
 			surface: Surface::Panel,
+			icon: None,
+			placement: None,
+			menu: None,
+			toggle: false,
+			icon_on: None,
+			needs_draft: false,
 		}],
 	}
 }

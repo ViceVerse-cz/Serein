@@ -1357,6 +1357,7 @@ mod tests {
 			id: Id(id),
 			channel: Id(1),
 			author: model::User {
+				username: String::new(),
 				primary_guild: None,
 				cosmetics: None,
 				avatar: None,

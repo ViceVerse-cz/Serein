@@ -305,6 +305,13 @@ impl PostMenu {
 						intent = Some(Intent::Delete);
 					}
 				}
+				crate::extensions_ui::context_menu_bottom(
+					ui,
+					&[extensions::MenuTarget::Channel {
+						channel_id: post.id.to_string(),
+						guild_id: post.guild.map(|guild| guild.to_string()),
+					}],
+				);
 				ui.separator();
 				if row(ui, "post-menu-context-copy-thread-id", true, false).clicked() {
 					ui.ctx().copy_text(post.id.to_string());

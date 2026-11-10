@@ -23,6 +23,8 @@ mod app;
 pub use app::*;
 mod extended;
 pub use extended::*;
+mod network;
+pub use network::*;
 
 pub const API_VERSION: u32 = 1;
 pub const MAX_PACKAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -147,6 +149,135 @@ pub enum Capability {
 	ExternalNavigation,
 	/// Add entries to user, channel, server and role context menus.
 	ContextMenus,
+	/// Switch on host-defined interface tweaks from activation and panel actions.
+	InterfaceTweaks,
+	/// Apply allowed notification and mute changes for your own account from message- and
+	/// app-event handlers, without an Apply button.
+	BackgroundEffects,
+	/// Send HTTPS requests to the host names listed in the manifest's `network_hosts`;
+	/// each response re-runs the requesting action.
+	Network,
+}
+
+/// Host-defined interface behavior that a plugin may switch on for the whole client from
+/// its activation or panel actions. Each tweak stays on while any enabled plugin requests it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InterfaceTweak {
+	/// Typing indicators show still dots instead of animating.
+	StaticTypingIndicator,
+	/// Profiles use the client's colors instead of the member's profile theme.
+	PlainProfiles,
+	/// A member's roles show in full instead of collapsing into a `+N` chip.
+	ExpandedRoles,
+	/// Pending friend and message request counts stay off the Home button, the Pending tab
+	/// and the message-request list.
+	HiddenRequestCounts,
+	/// A direct or group conversation alerts once until it is read, instead of for every
+	/// message.
+	OnePingPerDirectMessage,
+	/// Messages from users you blocked are left out of conversations.
+	HiddenBlockedMessages,
+	/// Profiles leave out your private note about the member; the user menu still edits it.
+	HiddenProfileNotes,
+	/// The stream preview shown on hovering a live participant is twice as large, up to the
+	/// preview image's own resolution.
+	LargeStreamPreview,
+	/// Double-clicking a message's blank space edits your own message or replies to someone
+	/// else's, in place of the double-click reaction.
+	DoubleClickReplyEdit,
+	/// Message authors and member-list names show the account's username beside a differing
+	/// display name or server nickname.
+	UsernameBesideName,
+	/// The server owner carries a crown beside their name in messages and the member list.
+	OwnerCrown,
+	/// Message authors and member-list names show which kinds of client (desktop, web,
+	/// mobile) the person is online from.
+	PlatformIndicators,
+	/// A user mention takes the member's top colored role, as a role mention does.
+	RoleColoredMentions,
+	/// Forums open in list view on this client, whatever view the server set as default.
+	/// Takes precedence over `ForumGalleryView`.
+	ForumListView,
+	/// Forums open in gallery view on this client, whatever view the server set as default.
+	ForumGalleryView,
+	/// Forums list posts by recent activity on this client, whatever order the server set.
+	/// Takes precedence over `ForumSortByCreation`.
+	ForumSortByActivity,
+	/// Forums list the newest posts first on this client, whatever order the server set.
+	ForumSortByCreation,
+	/// Opening a server folder closes the other open folders, so one is open at a time.
+	SingleOpenFolder,
+	/// Profiles also count and list the group conversations you share with the person.
+	MutualGroups,
+	/// A user mention leads with the person's avatar.
+	MentionAvatars,
+	/// The server rail lists how many friends are online and how many servers you are in
+	/// under the Home button.
+	RailCounts,
+	/// Message authors and member-list names carry an Admin or Mod tag from their roles'
+	/// permissions.
+	StaffTags,
+	/// Typing in the composer no longer tells the conversation you are typing.
+	SilentTyping,
+	/// Files chosen for a message take a random name; the extension and a spoiler mark stay.
+	AnonymousFileNames,
+	/// The GIF button opens the picker on saved GIFs instead of the category tiles.
+	GifFavoritesFirst,
+	/// Clicking the composer's attach button chooses files at once; its menu opens on a right click.
+	DirectUploadButton,
+	/// A Tenor or Giphy GIF reads and hovers with the words in its link as alt text.
+	GifAltText,
+	/// Names in the typing indicator take their top colored role.
+	TypingRoleColors,
+	/// Hovering a mention that shows only an ID reads that person once, so it shows their name.
+	ResolveUnknownMentions,
+	/// Hovering a reply whose original is outside the loaded history reads that message once and previews it.
+	ResolveUnloadedReplies,
+	/// Shows a quoted card under a message for each Discord message link it contains.
+	MessageLinkPreviews,
+	/// While a detected game is running, sets your status to Do Not Disturb when you were Online,
+	/// and sets it back to Online when the game closes unless you changed it meanwhile.
+	/// Games are detected only while game activity sharing is on.
+	DndWhilePlaying,
+}
+
+impl InterfaceTweak {
+	/// Every tweak this host supports.
+	pub const ALL: &'static [Self] = &[
+		Self::StaticTypingIndicator,
+		Self::PlainProfiles,
+		Self::ExpandedRoles,
+		Self::HiddenRequestCounts,
+		Self::OnePingPerDirectMessage,
+		Self::HiddenBlockedMessages,
+		Self::HiddenProfileNotes,
+		Self::LargeStreamPreview,
+		Self::DoubleClickReplyEdit,
+		Self::UsernameBesideName,
+		Self::OwnerCrown,
+		Self::PlatformIndicators,
+		Self::RoleColoredMentions,
+		Self::ForumListView,
+		Self::ForumGalleryView,
+		Self::ForumSortByActivity,
+		Self::ForumSortByCreation,
+		Self::SingleOpenFolder,
+		Self::MutualGroups,
+		Self::MentionAvatars,
+		Self::RailCounts,
+		Self::StaffTags,
+		Self::SilentTyping,
+		Self::AnonymousFileNames,
+		Self::GifFavoritesFirst,
+		Self::DirectUploadButton,
+		Self::GifAltText,
+		Self::TypingRoleColors,
+		Self::ResolveUnknownMentions,
+		Self::ResolveUnloadedReplies,
+		Self::MessageLinkPreviews,
+		Self::DndWhilePlaying,
+	];
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -177,12 +308,70 @@ impl Surface {
 	}
 }
 
+/// Where an action sits. A plugin the user keeps grouped shows its actions under its name
+/// in "Extensions" (menus) or "Tools" (composer) instead.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Placement {
+	/// Menus: first entries, above Serein's own.
+	Top,
+	/// Message menu: right after the copy entries, where Discord places Translate. The
+	/// default for message actions; other menus treat it as `top`.
+	#[default]
+	AfterCopy,
+	/// Menus: last entries, below Serein's own.
+	Bottom,
+	/// Message actions: a button in the toolbar shown while hovering a message. Needs an icon.
+	Toolbar,
+	/// Composer actions: a button in the composer bar. Needs an icon.
+	Bar,
+	/// Composer actions: an entry in the composer's "Tools" menu.
+	Tools,
+}
+
+impl Placement {
+	/// Whether `surface` can show an action placed here.
+	pub fn fits(self, surface: Surface) -> bool {
+		match self {
+			Self::Top | Self::AfterCopy | Self::Bottom => {
+				surface == Surface::Message || surface.is_context_menu()
+			}
+			Self::Toolbar => surface == Surface::Message,
+			Self::Bar | Self::Tools => surface == Surface::Composer,
+		}
+	}
+}
+
+/// Largest SVG accepted as an action icon.
+pub const MAX_ACTION_ICON_BYTES: usize = 8 * 1024;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Action {
 	pub id: String,
 	pub label: String,
 	pub surface: Surface,
+	/// The plugin's own SVG glyph, drawn beside the label and as toolbar and composer buttons;
+	/// Serein uses only its shape and tints it like its own icons.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub icon: Option<String>,
+	/// Where the action sits, unless the user keeps its plugin grouped under its name.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub placement: Option<Placement>,
+	/// Groups the action under the plugin's own submenu with this name, as
+	/// "Privacy Pruning ›" does in Discord.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub menu: Option<String>,
+	/// A composer button that stays on or off; Serein keeps the state and passes it to the
+	/// action as the `on` value ("true" or "false").
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub toggle: bool,
+	/// A toggle's icon while it is on, such as a crossed-out keyboard.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub icon_on: Option<String>,
+	/// A composer bar button shown only while the draft has text, like Preview.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub needs_draft: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -200,6 +389,9 @@ pub struct Manifest {
 	pub capabilities: Vec<Capability>,
 	#[serde(default)]
 	pub actions: Vec<Action>,
+	/// Exact HTTPS host names a `network` plugin may reach; no other host is reachable.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub network_hosts: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -372,6 +564,8 @@ pub struct Preview {
 }
 
 impl Preview {
+	/// Requires an HTTPS URL, a 64-character hex SHA-256 digest, and a nonzero download size no larger
+	/// than `MAX_PREVIEW_BYTES`; otherwise returns `Error::Invalid`.
 	pub fn validate(&self) -> Result<(), Error> {
 		if !valid_https_url(&self.url)
 			|| self.sha256.len() != 64
@@ -410,7 +604,7 @@ pub struct Invocation {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub app_event: Option<AppEventKind>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub action_result: Option<ActionResult>,
+	pub action_result: Option<Box<ActionResult>>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub queries: Option<Box<QuerySnapshot>>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -420,6 +614,10 @@ pub struct Invocation {
 	/// Milliseconds elapsed since this plugin was enabled for the current session.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tick_ms: Option<u64>,
+	/// The response to one of this plugin's `fetches`, delivered by running the requesting
+	/// action again with its original input.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub fetch_result: Option<Box<FetchResult>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -622,6 +820,8 @@ impl<'de> Deserialize<'de> for ApiProxyConfig {
 	}
 }
 impl ApiProxyConfig {
+	/// Accepts only bare http(s) origins up to 2048 chars: no credentials, path, query, or fragment.
+	/// Non-URL variants always pass; any violation returns `Error::Invalid`.
 	pub fn validate(&self) -> Result<(), Error> {
 		if let Self::Url { url } = self {
 			if url.contains('@')
@@ -681,6 +881,17 @@ pub struct Output {
 	pub storage: Option<String>,
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub effects: Vec<HostEffect>,
+	/// Replaces the plugin's interface tweaks; absent keeps them. Activation and panel actions
+	/// with `interface_tweaks` only.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub interface_tweaks: Option<Vec<InterfaceTweak>>,
+	/// One allowed notification or mute change applied without an Apply button. Message-event
+	/// and app-event actions with `background_effects` only.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub background_effects: Vec<HostEffect>,
+	/// HTTPS requests to the manifest's `network_hosts`. Requires `network`.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub fetches: Vec<FetchRequest>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -819,6 +1030,20 @@ impl Manifest {
 		{
 			return Err(Error::Capability);
 		}
+		if capabilities.contains(&Capability::Network) == self.network_hosts.is_empty() {
+			return Err(Error::Capability);
+		}
+		if self.network_hosts.len() > MAX_NETWORK_HOSTS {
+			return Err(Error::Limit);
+		}
+		let mut hosts = BTreeSet::new();
+		if self
+			.network_hosts
+			.iter()
+			.any(|host| !valid_network_host(host) || !hosts.insert(host))
+		{
+			return Err(Error::Invalid);
+		}
 		if capabilities.contains(&Capability::ActionFeedback)
 			&& (!capabilities.contains(&Capability::AppEvents)
 				|| !self
@@ -859,6 +1084,23 @@ impl Manifest {
 				|| action.label.is_empty()
 				|| action.label.len() > 128
 				|| action.label.chars().any(char::is_control)
+				|| action.icon.as_deref().is_some_and(|svg| {
+					svg.len() > MAX_ACTION_ICON_BYTES || !svg.trim_start().starts_with("<svg")
+				}) || action.placement.is_some_and(|placement| {
+				!placement.fits(action.surface)
+					|| (matches!(placement, Placement::Toolbar | Placement::Bar)
+						&& action.icon.is_none())
+			}) || action.menu.as_deref().is_some_and(|menu| {
+				menu.is_empty()
+					|| menu.len() > 64
+					|| menu.chars().any(char::is_control)
+					|| !(action.surface == Surface::Message || action.surface.is_context_menu())
+			}) || (action.toggle && action.surface != Surface::Composer)
+				|| action.icon_on.as_deref().is_some_and(|svg| {
+					!action.toggle
+						|| svg.len() > MAX_ACTION_ICON_BYTES
+						|| !svg.trim_start().starts_with("<svg")
+				}) || (action.needs_draft && action.surface != Surface::Composer)
 			{
 				return Err(Error::Invalid);
 			}
@@ -1080,6 +1322,8 @@ pub fn parse_package(bytes: &[u8]) -> Result<Package, Error> {
 	Ok(package)
 }
 
+/// Decodes a catalog document, enforcing size and entry limits, the API version, unique IDs,
+/// HTTPS URLs, hex digests and commits, and bounded descriptions; any violation rejects it whole.
 pub fn parse_catalog(bytes: &[u8]) -> Result<Catalog, Error> {
 	if bytes.len() > MAX_CATALOG_BYTES {
 		return Err(Error::Limit);
@@ -1152,6 +1396,16 @@ impl Invocation {
 			if action.surface != Surface::AppEvent
 				|| self.app_event != Some(AppEventKind::Context)
 				|| !manifest.capabilities.contains(&Capability::ActionFeedback)
+			{
+				return Err(Error::Capability);
+			}
+			result.validate()?;
+		}
+		// A response returns to the action that requested it, with that action's input,
+		// including any action feedback that input carried.
+		if let Some(result) = &self.fetch_result {
+			if action.surface == Surface::Tick
+				|| !manifest.capabilities.contains(&Capability::Network)
 			{
 				return Err(Error::Capability);
 			}
@@ -1252,6 +1506,8 @@ impl Invocation {
 }
 
 impl Output {
+	/// Checks the output against the action's surface and the manifest's capabilities: which
+	/// fields that surface may return, each field's limits and that host effects are allowed.
 	pub fn validate(&self, manifest: &Manifest, input: &Invocation) -> Result<(), Error> {
 		let surface = manifest
 			.actions
@@ -1259,6 +1515,18 @@ impl Output {
 			.find(|action| action.id == input.action)
 			.ok_or(Error::Invalid)?
 			.surface;
+		if let Some(tweaks) = &self.interface_tweaks {
+			if !manifest.capabilities.contains(&Capability::InterfaceTweaks)
+				|| !(matches!(surface, Surface::Activation | Surface::Panel)
+					|| surface == Surface::Composer && action_toggle(manifest, input))
+			{
+				return Err(Error::Capability);
+			}
+			let unique: std::collections::BTreeSet<_> = tweaks.iter().collect();
+			if unique.len() != tweaks.len() {
+				return Err(Error::Invalid);
+			}
+		}
 		if surface == Surface::Tick
 			&& (self.rich_presence.is_some()
 				|| self.image_sharing
@@ -1300,6 +1568,37 @@ impl Output {
 				return Err(Error::Capability);
 			}
 			app::validate_effects(&self.effects, manifest)?;
+		}
+		if !self.background_effects.is_empty() {
+			if !manifest
+				.capabilities
+				.contains(&Capability::BackgroundEffects)
+				|| !matches!(surface, Surface::MessageEvent | Surface::AppEvent)
+				|| !self.background_effects.iter().all(
+					|effect| matches!(effect, HostEffect::AppAction { action } if action.runs_in_background()),
+				) {
+				return Err(Error::Capability);
+			}
+			app::validate_effects(&self.background_effects, manifest)?;
+		}
+		if !self.fetches.is_empty() {
+			// Ticks run unattended every few seconds; requests start from user or app events.
+			// Activation only builds the installed entry, so nothing would deliver its result.
+			if !manifest.capabilities.contains(&Capability::Network)
+				|| matches!(surface, Surface::Tick | Surface::Activation)
+			{
+				return Err(Error::Capability);
+			}
+			if self.fetches.len() > MAX_FETCHES {
+				return Err(Error::Limit);
+			}
+			let mut ids = BTreeSet::new();
+			for fetch in &self.fetches {
+				if !ids.insert(&fetch.request_id) {
+					return Err(Error::Invalid);
+				}
+				fetch.validate(&manifest.network_hosts)?;
+			}
 		}
 		if let Some(appearance) = &self.appearance {
 			if !manifest.capabilities.contains(&Capability::Appearance) {
@@ -1348,6 +1647,14 @@ impl Output {
 		let mut ids = BTreeSet::new();
 		validate_elements(&self.panel, 0, &mut count, &mut ids, manifest)
 	}
+}
+
+/// Whether the invoked action is a composer toggle, which may switch interface tweaks.
+fn action_toggle(manifest: &Manifest, input: &Invocation) -> bool {
+	manifest
+		.actions
+		.iter()
+		.any(|action| action.id == input.action && action.toggle)
 }
 
 fn validate_elements(

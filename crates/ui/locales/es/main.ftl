@@ -131,6 +131,16 @@ friends-notes-unsupported = Las notas de solicitud personalizadas aún no son co
 friends-other-places = Otros lugares para hacer amigos
 friends-discover-description = ¿No tienes un nombre de usuario? Descubre comunidades públicas en Discord.
 friends-explore-servers = Explorar servidores detectables ↗
+friends-invite-links = Enlaces de invitación de amistad
+friends-invite-links-description = Cualquiera con uno de estos enlaces puede convertirse en tu amigo sin otra aprobación.
+friends-invite-create = Crear enlace
+friends-invite-revoke-all = Revocar todos
+friends-invite-copy = Copiar
+friends-invite-none = Aún no hay enlaces de invitación de amistad.
+friends-invite-uses = { $uses } usos
+friends-invite-uses-limited = { $uses } de { $max } usos
+friends-invite-error = Los enlaces de invitación de amistad no están disponibles ahora.
+friends-invite-retry = Reintentar
 friends-incoming = Entrante
 friends-outgoing = Extrovertido
 friends-search-requests = Solicitudes de búsqueda
@@ -285,6 +295,10 @@ attachments-download-button-a-download-is-already-active = Ya hay una descarga a
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Elija dónde guardar este archivo · hasta 100 MiB
 # Context: download_button
 attachments-download-button-download = Descargar
+# Context: file_card
+attachments-file-card-copy-text = Copiar texto
+# Context: file_card
+attachments-file-card-copy-text-hint = Copia el contenido de este archivo de texto al portapapeles
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = Las descargas están deshabilitadas para archivos adjuntos sintéticos.
 # Context: media_menu
@@ -810,6 +824,8 @@ emoji-details-show-a-custom-emoji = Un emoji personalizado.
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Un emoji predeterminado. Puedes usar este emoji en todas partes en Discord.
 # Context: show
 emoji-details-show-copy-emoji = Copiar emojis
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = Añadir al servidor
 # Context: show
 emoji-details-show-from = De
 # Context: show
@@ -914,6 +930,12 @@ extensions-ui-card-body-enabled = Activado
 extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Termina de eliminar esta extensión y sus datos locales.
 # Context: card_body
 extensions-ui-card-body-open-tool = Abrir herramienta
+# Context: card_body
+extensions-ui-card-body-ungrouped = Mostrar entradas sin agrupar
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = Colocar las entradas de este complemento directamente en los menús, la barra del mensaje y la barra de escritura en lugar de bajo su nombre en Extensions o Tools.
+# Context: settings
+extensions-ui-plugin-bar-left = Botones de complementos a la izquierda
 # Context: card_body
 extensions-ui-card-body-plugin = Complemento
 # Context: card_body
@@ -3925,6 +3947,8 @@ timeline-show-with-scroll-loading-messages = Cargando mensajes…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Mensaje eliminado
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Mensaje bloqueado
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = El historial de mensajes no está disponible con la información de permisos actual.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Aún no hay mensajes. Inicie la conversación a continuación.
@@ -4891,3 +4915,16 @@ new-message-hint = Añade amigos para iniciar un mensaje directo o un grupo.
 new-message-no-people-found = Nadie coincide con esa búsqueda.
 new-message-create = Crear mensaje
 new-message-cancel = Cancelar
+name-marks-server-owner = Propietario del servidor
+name-marks-online-desktop = En línea en escritorio
+name-marks-online-web = En línea en la web
+name-marks-online-mobile = En línea en el móvil
+profiles-show-mutual-group = Grupo en común
+profiles-show-mutual-groups = Grupos en común
+rail-counts-online = { $count } en línea
+rail-counts-servers = { $count ->
+    [one] { $count } servidor
+   *[other] { $count } servidores
+}
+name-marks-tag-admin = Admin
+name-marks-tag-moderator = Mod

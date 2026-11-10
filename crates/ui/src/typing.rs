@@ -61,8 +61,8 @@ fn name(state: &State, channel: Id, user: Id) -> Option<&str> {
 		})
 }
 
-/// Text runs for the indicator; `true` marks a typist name rendered in the strong weight.
-fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, bool)>> {
+/// Text runs for the indicator; `Some(user)` marks a typist name, rendered in the strong weight.
+fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, Option<Id>)>> {
 	if state.selected != Some(channel) {
 		return None;
 	}
@@ -79,7 +79,7 @@ fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, boo
 				.map(|c| if c.is_control() { ' ' } else { c })
 				.collect();
 			if !name.trim().is_empty() {
-				names.push(name);
+				names.push((name, user));
 			}
 		}
 	}
@@ -98,29 +98,57 @@ fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, boo
 			} else {
 				format!("{count} people are typing…")
 			},
-			false,
+			None,
 		)]);
 	}
 	let others = count - names.len();
-	let mut out: Vec<(String, bool)> = Vec::with_capacity(names.len() * 2 + 2);
+	let mut out: Vec<(String, Option<Id>)> = Vec::with_capacity(names.len() * 2 + 2);
 	let last_index = names.len() - 1 + usize::from(others > 0);
-	for (index, name) in names.into_iter().enumerate() {
+	for (index, (name, user)) in names.into_iter().enumerate() {
 		if index > 0 {
 			out.push((
 				if index == last_index { " and " } else { ", " }.into(),
-				false,
+				None,
 			));
 		}
-		out.push((name, true));
+		out.push((name, Some(user)));
 	}
 	if others > 0 {
 		out.push((
 			format!(" and {others} other{}", if others == 1 { "" } else { "s" }),
-			false,
+			None,
 		));
 	}
-	out.push((verb.into(), false));
+	out.push((verb.into(), None));
 	Some(out)
+}
+
+/// The RGB color of `user`'s top colored role in this conversation, from the roles their
+/// loaded member entry or latest loaded message carries.
+fn role_color(state: &State, channel: Id, user: Id) -> Option<u32> {
+	let member_roles = state
+		.members
+		.as_ref()
+		.filter(|members| members.channel == channel)
+		.and_then(|members| {
+			members.slots.iter().flatten().find_map(|slot| match slot {
+				model::MemberSlot::Person(member) if member.user.id == user => {
+					Some(member.roles.as_slice())
+				}
+				_ => None,
+			})
+		});
+	let roles = member_roles.unwrap_or_else(|| {
+		state
+			.timeline
+			.iter()
+			.rev()
+			.find(|message| message.channel == channel && message.author.id == user)
+			.map_or(&[][..], |message| message.author_roles.as_slice())
+	});
+	state
+		.forum_author_color(channel, user, false, roles)
+		.filter(|rgb| *rgb != 0)
 }
 
 #[cfg(test)]
@@ -163,13 +191,18 @@ pub(super) fn overlay(
 	);
 	let painter = ui.painter_at(rect);
 	// Three pulsing dots, Discord style; the animation runs only while someone is typing and
-	// this window has focus. A background window paints them at rest and asks for no frames.
-	let focused = ui.input(|input| input.focused);
+	// this window has focus. A background window, or a static-indicator tweak, paints them at
+	// rest and asks for frames only at expiry.
+	let animate = ui.input(|input| input.focused)
+		&& !crate::interface_tweaks::on(
+			ui.ctx(),
+			extensions::InterfaceTweak::StaticTypingIndicator,
+		);
 	let time = ui.input(|input| input.time);
 	let dots_left = rect.left() + DOT_RADIUS + 2.0;
 	for index in 0..3 {
 		let phase = (time / DOT_PERIOD - f64::from(index) * 0.18).fract();
-		let pulse = if focused {
+		let pulse = if animate {
 			(0.5 - 0.5 * (phase * std::f64::consts::TAU).cos()) as f32
 		} else {
 			0.5
@@ -187,24 +220,32 @@ pub(super) fn overlay(
 	job.wrap.max_rows = 1;
 	job.wrap.break_anywhere = true;
 	let strong = crate::design::semibold_family(ui.ctx());
-	for (text, is_name) in &segments {
+	// With the typing role colors tweak, each typist's name takes their top colored role.
+	let role_colors =
+		crate::interface_tweaks::on(ui.ctx(), extensions::InterfaceTweak::TypingRoleColors);
+	for (text, user) in &segments {
+		let color = match user {
+			Some(user) => role_colors
+				.then(|| role_color(state, channel, *user))
+				.flatten()
+				.map_or(colors.text_strong, |rgb| {
+					crate::design::role_name_color(rgb, ui.visuals().panel_fill, colors.text_strong)
+				}),
+			None => colors.muted,
+		};
 		job.append(
 			text,
 			0.0,
 			egui::TextFormat {
 				font_id: egui::FontId::new(
 					TEXT_SIZE,
-					if *is_name {
+					if user.is_some() {
 						strong.clone()
 					} else {
 						egui::FontFamily::Proportional
 					},
 				),
-				color: if *is_name {
-					colors.text_strong
-				} else {
-					colors.muted
-				},
+				color,
 				..Default::default()
 			},
 		);
@@ -222,7 +263,7 @@ pub(super) fn overlay(
 		let frame = std::time::Duration::from_millis(80);
 		let delay = deadline.saturating_duration_since(now);
 		ui.ctx()
-			.request_repaint_after(if focused { delay.min(frame) } else { delay });
+			.request_repaint_after(if animate { delay.min(frame) } else { delay });
 	}
 }
 
@@ -240,6 +281,7 @@ mod tests {
 			freshness: Freshness::Fresh,
 			selected: Some(Id(10)),
 			user: Some(User {
+				username: String::new(),
 				id: Id(99),
 				name: "You".into(),
 				avatar: None,
@@ -263,6 +305,7 @@ mod tests {
 				icon: None,
 				recipients: vec![
 					User {
+						username: String::new(),
 						id: Id(1),
 						name: "Alex".into(),
 						avatar: None,
@@ -273,6 +316,7 @@ mod tests {
 						cosmetics: None,
 					},
 					User {
+						username: String::new(),
 						id: Id(2),
 						name: "Robin".into(),
 						avatar: None,
@@ -283,6 +327,7 @@ mod tests {
 						cosmetics: None,
 					},
 					User {
+						username: String::new(),
 						id: Id(3),
 						name: "Long name\n".repeat(100),
 						avatar: None,
@@ -298,6 +343,38 @@ mod tests {
 		}
 	}
 
+	/// Typing indicator segments tag each typist's name with their user id, so names can be role-colored,
+	/// and a direct message yields no role color.
+	#[test]
+	fn typist_names_carry_their_person_for_role_colors() {
+		let now = Instant::now();
+		let mut state = state();
+		for user in [1, 2] {
+			state.observe_typing_at(
+				Signal {
+					channel: Id(10),
+					user: Id(user),
+					timestamp: 1_000,
+				},
+				SystemTime::UNIX_EPOCH + Duration::from_secs(1_000),
+				now,
+			);
+		}
+		let people: Vec<_> = segments(&state, Id(10), now)
+			.unwrap()
+			.into_iter()
+			.filter_map(|(text, user)| user.map(|user| (text, user)))
+			.collect();
+		assert_eq!(people, [("Alex".into(), Id(1)), ("Robin".into(), Id(2))]);
+		assert_eq!(
+			role_color(&state, Id(10), Id(1)),
+			None,
+			"a direct message has no roles to color by"
+		);
+	}
+
+	/// Eight typists collapse to a single bounded line scoped to their channel, keep a fixed row height,
+	/// and stop rendering and repainting once expired, with animation frames only while focused.
 	#[test]
 	fn bounded_names_and_expiry_render_without_idle_repaints_or_scope_leaks() {
 		let now = Instant::now();
@@ -382,6 +459,85 @@ mod tests {
 		state.selected = Some(Id(10));
 		state.freshness = Freshness::Stale;
 		assert!(label(&state, Id(10), now).is_none());
+	}
+
+	/// Checks that the static-indicator tweak keeps a focused window's dots still and asks
+	/// for no animation frames, in the chat indicator and the avatar typing badge.
+	#[test]
+	fn static_typing_tweak_stills_dots_without_animation_frames() {
+		let now = Instant::now();
+		let mut state = state();
+		state.observe_typing_at(
+			Signal {
+				channel: Id(10),
+				user: Id(1),
+				timestamp: 1_000,
+			},
+			SystemTime::UNIX_EPOCH + Duration::from_secs(1_000),
+			now,
+		);
+		let tweaks = |on: bool| {
+			std::sync::Arc::new(
+				on.then_some(extensions::InterfaceTweak::StaticTypingIndicator)
+					.into_iter()
+					.collect(),
+			)
+		};
+		let run = |ctx: &egui::Context, time: f64, on: bool| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(time),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(400.0, 100.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					crate::interface_tweaks::publish(ui.ctx(), &tweaks(on));
+					let rect = egui::Rect::from_min_size(
+						egui::pos2(0.0, 100.0 - OVERLAY_HEIGHT),
+						egui::vec2(400.0, OVERLAY_HEIGHT),
+					);
+					overlay(ui, rect, &state, Id(10), now);
+					crate::profiles::typing_badge(
+						ui,
+						egui::Rect::from_min_size(egui::pos2(300.0, 0.0), egui::vec2(40.0, 40.0)),
+						Some("online"),
+						egui::Color32::BLACK,
+					);
+				},
+			);
+			let delay = output.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+			let dots: Vec<String> = output
+				.shapes
+				.iter()
+				.filter(|shape| matches!(shape.shape, egui::Shape::Circle(_)))
+				.map(|shape| format!("{:?}", shape.shape))
+				.collect();
+			output.drop_without_applying_deltas();
+			(delay, dots)
+		};
+		for on in [false, true] {
+			let ctx = egui::Context::default();
+			// The first two frames always ask for another; later ones show the steady request.
+			run(&ctx, 0.0, on);
+			run(&ctx, 0.05, on);
+			let (_, first) = run(&ctx, 0.1, on);
+			let (delay, later) = run(&ctx, 0.5, on);
+			assert_eq!(first.len(), 6, "three chat dots and three badge dots");
+			if on {
+				assert_eq!(first, later, "still dots do not change over time");
+				assert!(
+					delay >= Duration::from_millis(1000),
+					"no animation frames: {delay:?}"
+				);
+			} else {
+				assert_ne!(first, later, "dots pulse without the tweak");
+				assert!(delay <= Duration::from_millis(80));
+			}
+		}
 	}
 
 	#[test]

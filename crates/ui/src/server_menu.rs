@@ -277,6 +277,12 @@ impl ServerMenu {
 						self.invite.open();
 						ui.close();
 					}
+					crate::extensions_ui::context_menu_bottom(
+						ui,
+						&[extensions::MenuTarget::Server {
+							guild_id: guild.to_string(),
+						}],
+					);
 					ui.separator();
 					self.leave_item(ui, state, guild);
 					if !available {

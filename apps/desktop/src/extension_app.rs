@@ -1157,6 +1157,7 @@ fn conversation_activity(state: &State) -> Option<ConversationActivitySnapshot> 
 	Some(group)
 }
 
+/// Maps a voice connection phase to its stable snake_case name exposed to extensions.
 fn phase(phase: client_core::voice::Phase) -> &'static str {
 	use client_core::voice::Phase::*;
 	match phase {
@@ -1272,6 +1273,7 @@ mod tests {
 	use super::*;
 	fn manifest(capabilities: Vec<Capability>) -> Manifest {
 		Manifest {
+			network_hosts: Vec::new(),
 			api_version: API_VERSION,
 			id: "snapshot-test".into(),
 			name: "Synthetic test".into(),
@@ -1285,6 +1287,12 @@ mod tests {
 				id: "show".into(),
 				label: "Show".into(),
 				surface: Surface::Panel,
+				icon: None,
+				placement: None,
+				menu: None,
+				toggle: false,
+				icon_on: None,
+				needs_draft: false,
 			}],
 		}
 	}
