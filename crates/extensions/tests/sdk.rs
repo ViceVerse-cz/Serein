@@ -295,6 +295,88 @@ fn context_menu_targets_reject_malformed_role_fields() {
 	}
 }
 
+/// Checks that SDK interface-tweak output reaches the host unchanged, that only granted
+/// activation and panel actions may set tweaks, and that a tweak listed twice is rejected.
+#[test]
+fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
+	let output = sdk::InterfaceTweaksOutput {
+		interface_tweaks: Some(vec![
+			sdk::InterfaceTweak::StaticTypingIndicator,
+			sdk::InterfaceTweak::PlainProfiles,
+			sdk::InterfaceTweak::ExpandedRoles,
+			sdk::InterfaceTweak::HiddenRequestCounts,
+			sdk::InterfaceTweak::OnePingPerDirectMessage,
+			sdk::InterfaceTweak::HiddenBlockedMessages,
+			sdk::InterfaceTweak::HiddenProfileNotes,
+			sdk::InterfaceTweak::LargeStreamPreview,
+			sdk::InterfaceTweak::DoubleClickReplyEdit,
+		]),
+		..Default::default()
+	};
+	let wire = serde_json::to_vec(&output).unwrap();
+	let host: extensions::Output = serde_json::from_slice(&wire).unwrap();
+	assert_eq!(
+		host.interface_tweaks.as_deref(),
+		Some(extensions::InterfaceTweak::ALL)
+	);
+	let names: Vec<String> = extensions::InterfaceTweak::ALL
+		.iter()
+		.map(|tweak| {
+			serde_json::to_value(tweak)
+				.unwrap()
+				.as_str()
+				.unwrap()
+				.to_owned()
+		})
+		.collect();
+	let info: sdk::HostInfo =
+		serde_json::from_value(serde_json::to_value(extensions::HostInfo::current()).unwrap())
+			.unwrap();
+	assert!(names.iter().all(|name| info.supports_tweak(name)));
+	let with = |action: &str, surface, capabilities: Vec<Capability>| {
+		let mut manifest = manifest(action, surface);
+		manifest.capabilities.extend(capabilities);
+		let input = Invocation {
+			action: action.into(),
+			selected_message: (surface == Surface::Message).then(|| "text".into()),
+			..Default::default()
+		};
+		(manifest, input)
+	};
+	let tweaks = vec![Capability::InterfaceTweaks];
+	for (surface, action, allowed) in [
+		(Surface::Activation, "activate", true),
+		(Surface::Panel, "apply", true),
+		(Surface::Message, "message", false),
+	] {
+		let (granted, input) = with(action, surface, tweaks.clone());
+		assert_eq!(host.validate(&granted, &input).is_ok(), allowed, "{action}");
+		let (ungranted, input) = with(action, surface, vec![]);
+		assert!(
+			host.validate(&ungranted, &input).is_err(),
+			"{action} without grant"
+		);
+	}
+	let (panel, panel_input) = with("apply", Surface::Panel, tweaks);
+	let off = extensions::Output {
+		interface_tweaks: Some(Vec::new()),
+		..Default::default()
+	};
+	assert!(off.validate(&panel, &panel_input).is_ok());
+	let mut twice = host.clone();
+	twice
+		.interface_tweaks
+		.as_mut()
+		.unwrap()
+		.push(extensions::InterfaceTweak::PlainProfiles);
+	assert!(twice.validate(&panel, &panel_input).is_err());
+	let old: sdk::HostInfo = serde_json::from_value(serde_json::json!({
+		"api_version": 1, "sdk_revision": 1, "capabilities": [], "app_events": []
+	}))
+	.unwrap();
+	assert!(!old.supports_tweak("plain_profiles"));
+}
+
 #[test]
 fn every_sdk_panel_and_appearance_field_is_accepted_by_the_host() {
 	use sdk::Element::*;
