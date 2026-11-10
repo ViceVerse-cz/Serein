@@ -90,7 +90,7 @@ excludes the caption buttons area so edge/corner resizing does not intercept cor
 Close. Caption buttons keep their own actions; Windows double-click maximize/restore remains
 available. Synthetic egui input tests check command dispatch, including corner hit testing.
 On Windows, dragging the strip runs the OS move loop, which paints synchronously and waits for
-vsync before the next move. Through a patched egui-winit (see `vendor/egui-winit/SEREIN-PATCH.md`)
+vsync before the next move. Through Serein's patched egui-winit (see `vendor/egui/SEREIN-PATCH.md`)
 Serein therefore ignores raw mouse motion and repaints for window moves at most once per 500 ms,
 enough to sample and save where the window comes to rest; it also reapplies the minimum size only
 when it changes. An otherwise idle window follows the cursor like a native one. Continuous
@@ -110,7 +110,7 @@ requests are honored; native X11/Wayland verification of this toggle remains pen
 
 | Platform | Build/runtime requirements | Status |
 |---|---|---|
-| macOS | Rust 1.98.1, Xcode command-line tools; Metal/wgpu, system WKWebView, Keychain | Local arm64 build and native synthetic window tested on macOS 27.0 beta, Apple M1 Pro / 16 GiB |
+| macOS | Rust 1.99.1, Xcode command-line tools; Metal/wgpu, system WKWebView, Keychain | Local arm64 build and native synthetic window tested on macOS 27.0 beta, Apple M1 Pro / 16 GiB |
 | Windows | Rust MSVC toolchain, Visual Studio C++ build tools, system graphics drivers, WebView2 Runtime 101+ (current supported runtime recommended), Credential Manager | Local x64 checks and unsigned release packaging on Windows 11 build 26200; synthetic process/window startup passed. Visual interaction, InPrivate behavior, IME and accessibility unverified |
 | Linux | Rust, C compiler, pkg-config, GTK >=4.10, WebKitGTK 6.0, fontconfig, libxkbcommon, X11/Wayland development packages, Vulkan-compatible GPU/driver, Secret Service session bus/keyring | Ubuntu 26.04 x64 / WSL2 text and voice releases and Debian package smoke passed; X11/Wayland rendering and login window unverified |
 
@@ -255,7 +255,7 @@ Apple Color Emoji was visually checked with a synthetic moon status on September
 Outgoing in-call capture uses AVFoundation on macOS, Media Foundation and DirectShow on Windows,
 and V4L2 on Linux. The existing camera button becomes available after the voice
 server negotiates H264; capture starts only after an explicit click in a connected
-call. All adapters send 640×480 video at most 15 encoded frames/s. Native capture now
+call. All adapters send 640×480 video at a selectable 15 or 30 encoded frames/s. Native capture now
 selects the closest supported dimensions/rate within a 1280×720 input ceiling
 (DirectShow preserves its existing 1920×1080 fallback) and
 converts to the existing encoder size; hardware negotiation remains unverified.
@@ -452,12 +452,11 @@ Optional Linux stream audio uses native `libpulse` per-application monitoring on
 PulseAudio or PipeWire's PulseAudio server. Source builds need the libpulse development
 package (`libpulse-dev`, `pulseaudio-libs-devel`, `libpulse-devel` or Arch's `libpulse`).
 The existing Flatpak PulseAudio socket permission covers this access; the ScreenCast
-portal's PipeWire remote grants video only. Windows uses native process loopback on
-build 20348+ (Windows 11 / Server 2022). Both exclude Serein's playback and capture other
-applications even when sharing one window. Older Windows builds capture the default output
-device instead, so viewers also hear the call unless Serein plays elsewhere; the share picker
-warns before this opt-in. Hardware exclusion, the older-build path and receiving sound in an
-official client remain unverified.
+portal's PipeWire remote grants video only. Windows uses native process loopback: one
+exclude-Serein capture on build 20348+ (Windows 11 / Server 2022), and per-application
+captures on older Windows 10 builds. Both exclude Serein's playback. Sharing a window captures
+only that window's application, as Discord does; sharing a screen captures other applications. There is no whole-output fallback. Hardware
+exclusion and receiving sound in an official client remain unverified.
 
 ## High-resolution video attachments
 

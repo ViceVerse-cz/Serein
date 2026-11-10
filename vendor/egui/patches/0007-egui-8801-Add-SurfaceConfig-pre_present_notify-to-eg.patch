@@ -1,0 +1,77 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Mon, 9 Nov 2026 12:43:57 +0100
+Subject: [PATCH] egui#8801: Add `SurfaceConfig::pre_present_notify` to
+ egui-wgpu
+
+Squashed from https://github.com/emilk/egui/pull/8801 at a299c9799688.
+---
+ crates/egui-wgpu/src/lib.rs   | 17 +++++++++++++++++
+ crates/egui-wgpu/src/winit.rs |  5 ++++-
+ 2 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/crates/egui-wgpu/src/lib.rs b/crates/egui-wgpu/src/lib.rs
+index cb2b3a422..4bcc6dca0 100644
+--- a/crates/egui-wgpu/src/lib.rs
++++ b/crates/egui-wgpu/src/lib.rs
+@@ -78,6 +78,21 @@ pub struct SurfaceConfig {
+     ///
+     /// `None` => Let `wgpu` pick a default (currently `2`).
+     pub desired_maximum_frame_latency: Option<u32>,
++
++    /// Call `winit::window::Window::pre_present_notify` before presenting.
++    ///
++    /// On Wayland, winit then holds back the window's next redraw until the compositor
++    /// sends a frame callback, which paces frames to the display and keeps dragging
++    /// and resizing smooth.
++    ///
++    /// But compositors send no frame callbacks to a window they hide, e.g. one that is
++    /// fully covered by another window. Such a window stops redrawing, and so do the
++    /// immediate viewports shown from it (<https://github.com/emilk/egui/issues/5145>).
++    /// Apps with immediate viewports can turn this off and pace their frames themselves,
++    /// e.g. with a non-blocking [`Self::present_mode`].
++    ///
++    /// Default: `true`.
++    pub pre_present_notify: bool,
+ }
+ 
+ impl SurfaceConfig {
+@@ -90,6 +105,7 @@ impl SurfaceConfig {
+         } else {
+             Some(1)
+         },
++        pre_present_notify: true,
+     };
+ 
+     /// Good default for GUIs with a lot of extra GPU work,
+@@ -97,6 +113,7 @@ impl SurfaceConfig {
+     pub const HIGH_THROUGHPUT: Self = Self {
+         present_mode: wgpu::PresentMode::AutoVsync,
+         desired_maximum_frame_latency: Some(2), // High-throughput.
++        pre_present_notify: true,
+     };
+ }
+ 
+diff --git a/crates/egui-wgpu/src/winit.rs b/crates/egui-wgpu/src/winit.rs
+index 37cb7dd08..14503ccc1 100644
+--- a/crates/egui-wgpu/src/winit.rs
++++ b/crates/egui-wgpu/src/winit.rs
+@@ -117,6 +117,7 @@ impl Painter {
+         let SurfaceConfig {
+             present_mode,
+             desired_maximum_frame_latency,
++            pre_present_notify: _,
+         } = *config;
+ 
+         // Transaction presentation can hold a drawable during AppKit live resize. Keep the
+@@ -784,7 +785,9 @@ impl Painter {
+         }
+ 
+         if let Some(output_frame) = output_frame {
+-            window.pre_present_notify();
++            if self.config.surface.pre_present_notify {
++                window.pre_present_notify();
++            }
+ 
+             profiling::scope!("present");
+             // wgpu doesn't document where vsync can happen. Maybe here?

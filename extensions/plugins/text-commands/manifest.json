@@ -1,0 +1,61 @@
+{
+  "api_version": 1,
+  "id": "text-commands",
+  "name": "Text Commands",
+  "version": "1.0.1",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/text-commands",
+  "kind": "plugin",
+  "capabilities": [
+    "composer",
+    "storage"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Edit text replacements and tags",
+      "surface": "panel"
+    },
+    {
+      "id": "save-rule",
+      "label": "Save replacement rule",
+      "surface": "panel"
+    },
+    {
+      "id": "delete-rule",
+      "label": "Delete replacement rule",
+      "surface": "panel"
+    },
+    {
+      "id": "save-tag",
+      "label": "Save tag",
+      "surface": "panel"
+    },
+    {
+      "id": "delete-tag",
+      "label": "Delete tag",
+      "surface": "panel"
+    },
+    {
+      "id": "load-rule",
+      "label": "Load selected replacement rule",
+      "surface": "panel"
+    },
+    {
+      "id": "load-tag",
+      "label": "Load selected tag",
+      "surface": "panel"
+    },
+    {
+      "id": "apply-replacements",
+      "label": "Apply replacement rules",
+      "surface": "composer"
+    },
+    {
+      "id": "expand-tag",
+      "label": "Expand tag in draft",
+      "surface": "composer"
+    }
+  ]
+}

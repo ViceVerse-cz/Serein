@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parent
 REPOSITORY = "ViceVerse-cz/Serein"
 PACKAGE_DIRS = ("themes", "plugins/packages")
-CAPABILITIES = {"selected_message", "composer", "storage", "deleted_messages", "image_sharing", "appearance", "rich_presence", "api_proxy"}
+CAPABILITIES = {"selected_message", "composer", "storage", "deleted_messages", "image_sharing", "appearance", "rich_presence", "api_proxy", "external_navigation"}
 RESERVED = {"con", "prn", "aux", "nul"} | {f"{prefix}{n}" for prefix in ("com", "lpt") for n in range(1, 10)}
 MAX_PREVIEW = 256 * 1024
 
@@ -31,6 +31,21 @@ def valid_id(value):
     return isinstance(value, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", value) and value not in RESERVED
 
 
+def valid_https_url(value):
+    """Mirrors the host's `valid_https_url`, so a published source never fails host import."""
+    if not isinstance(value, str) or len(value.encode()) > 2048 or any(ord(c) < 32 or 127 <= ord(c) <= 159 or c.isspace() or c == "\\" for c in value):
+        return False
+    authority = value.split("://", 1)[1] if "://" in value else ""
+    if "@" in re.split(r"[/?#]", authority, maxsplit=1)[0]:
+        return False
+    url = urlsplit(value)
+    try:
+        port = url.port
+    except ValueError:
+        return False
+    return url.scheme == "https" and bool(url.hostname) and port in (None, 443)
+
+
 def validate(data):
     require(0 < len(data) <= 16 * 1024 * 1024, "package exceeds 16 MiB")
     package = json.loads(data)
@@ -39,8 +54,7 @@ def validate(data):
     for key in ("name", "version", "author", "license"):
         value = manifest[key]
         require(isinstance(value, str) and 0 < len(value.encode()) <= 128 and not any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in value), f"invalid {key}")
-    source = urlsplit(manifest["source"])
-    require(len(manifest["source"].encode()) <= 2048 and source.scheme == "https" and source.hostname and not source.username and source.password is None, "credential-free HTTPS source required")
+    require(valid_https_url(manifest["source"]), "credential-free HTTPS source on the default port required")
     capabilities = manifest.get("capabilities", [])
     actions = manifest.get("actions", [])
     require(isinstance(capabilities, list) and len(capabilities) <= 4 and len(set(capabilities)) == len(capabilities) and set(capabilities) <= CAPABILITIES, "invalid capabilities")

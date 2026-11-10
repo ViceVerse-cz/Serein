@@ -1705,6 +1705,8 @@ markdown-confirm-external-link-open-external-link = 要打开外部链接吗？
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = 在浏览器中开启
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = 链接中只能放入此消息的开头部分，其余内容不会发送。此链接将在默认浏览器中打开。
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = 这个链接会用你的默认浏览器开启。
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = 复制表情符号
@@ -2305,9 +2307,9 @@ screen-body-share-sound-from-other-apps-even-when-sharing-one-window = 即使只
 # Context: body
 screen-body-share-system-audio = 分享系统音频
 # Context: body
-screen-body-show-cursor = 显示光标
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = 共享所共享应用的声音；共享屏幕时则共享其他所有应用的声音。Serein 自身的音频不会包含在内。
 # Context: body
-screen-body-this-windows-version-cannot-leave-serein-out = 此版本的 Windows 无法排除 Serein 的声音，观众也会听到你的通话。为避免这种情况，请将 Serein 的扬声器设为 Windows 默认设备以外的设备。
+screen-body-show-cursor = 显示光标
 # Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = 通话麦克风维持现有设置。
 # Context: show
@@ -3902,6 +3904,10 @@ timeline-message-actions-delete-message = 删除消息…
 timeline-message-actions-edit-message = 编辑消息
 # Context: message_actions
 timeline-message-actions-extensions = 扩展
+# Context: menu
+extensions-ui-menu-group-user = 用户
+# Context: menu
+extensions-ui-menu-group-conversation = 对话
 # Context: message_actions
 timeline-message-actions-forward = 转发
 # Context: message_actions
@@ -3950,6 +3956,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = 正在加载消息…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = 消息已删除
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = 已屏蔽的消息
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 依当前权限信息，无法查看消息历史。
 # Context: show_with_scroll
@@ -4705,6 +4713,7 @@ profiles-activity-empty = 暂无共享活动。
 profiles-mutuals-empty = 这里没有可显示的内容。
 
 reading-double-click-reaction = 双击回应
+message-preview-limit = 此消息超出原生文本排版的限制。
 
 ## crates/platform/src/app_menu.rs
 # Context: macos_menu_bar

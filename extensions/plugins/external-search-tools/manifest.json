@@ -1,0 +1,37 @@
+{
+  "api_version": 1,
+  "id": "external-search-tools",
+  "name": "External Search Tools",
+  "version": "1.0.3",
+  "author": "Equicord/Vencord contributors; Serein port contributors",
+  "license": "GPL-3.0-or-later",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/external-search-tools",
+  "kind": "plugin",
+  "capabilities": [
+    "selected_message",
+    "external_navigation",
+    "storage"
+  ],
+  "actions": [
+    {
+      "id": "translate",
+      "label": "Translate message in browser",
+      "surface": "message"
+    },
+    {
+      "id": "search",
+      "label": "Search message text in browser",
+      "surface": "message"
+    },
+    {
+      "id": "open",
+      "label": "Configure external search tools",
+      "surface": "panel"
+    },
+    {
+      "id": "save",
+      "label": "Save external search tools",
+      "surface": "panel"
+    }
+  ]
+}

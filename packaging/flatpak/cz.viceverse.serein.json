@@ -29,7 +29,7 @@
         "env": {"CARGO_NET_OFFLINE": "true", "CARGO_HOME": "/run/build/serein/flatpak-cargo-home"}
       },
       "build-commands": [
-        "test \"$(rustc --version | cut -d ' ' -f 2)\" = 1.98.1",
+        "test \"$(rustc --version | cut -d ' ' -f 2)\" = 1.99.1",
         "cargo xtask package --format dir",
         "cp -a dist/linux-root/usr/. /app/",
         "rm -f /app/share/icons/hicolor/1024x1024/apps/serein.png",

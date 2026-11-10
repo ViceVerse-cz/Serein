@@ -127,7 +127,8 @@ For unchanged repository examples, build their Wasm and run the host sandbox che
 
 ```powershell
 cargo build --manifest-path examples/extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
-cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release
+cargo build --manifest-path extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
+cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release extensions/target/wasm32-unknown-unknown/release
 ```
 
 If `CARGO_TARGET_DIR` is set, pass its actual `wasm32-unknown-unknown/release`

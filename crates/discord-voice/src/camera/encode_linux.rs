@@ -61,8 +61,16 @@ impl Encoder {
 	fn assemble(config: Config, encoder: gst::Element) -> Result<Self, &'static str> {
 		// Both spellings of each knob are offered; only the ones this element declares apply.
 		set_number(&encoder, "bitrate", i64::from(config.bit_rate / 1000));
-		set_number(&encoder, "key-int-max", i64::from(super::KEYFRAME_INTERVAL));
-		set_number(&encoder, "gop-size", i64::from(super::KEYFRAME_INTERVAL));
+		set_number(
+			&encoder,
+			"key-int-max",
+			i64::from(super::keyframe_interval(config.fps)),
+		);
+		set_number(
+			&encoder,
+			"gop-size",
+			i64::from(super::keyframe_interval(config.fps)),
+		);
 		set_number(&encoder, "b-frames", 0);
 		set_number(&encoder, "bframes", 0);
 		set_number(&encoder, "rc-lookahead", 0);
@@ -250,7 +258,7 @@ mod tests {
 	const CAMERA: Config = Config {
 		width: WIDTH as u32,
 		height: HEIGHT as u32,
-		fps: crate::camera::FPS,
+		fps: model::voice_settings::CameraFrameRate::Fps30.fps(),
 		bit_rate: crate::camera::BIT_RATE,
 		max_bytes: crate::camera::MAX_ENCODED_BYTES,
 		profile: Profile::Baseline,

@@ -3,6 +3,18 @@ use crate::shortcuts::{Intent, ShortcutView};
 use client_core::{Command, State};
 use model::{Shortcut, User};
 
+/// The conversation a user row belongs to. Plugin user actions receive it with the user, so
+/// a row outside the open conversation never reports that conversation's IDs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Place {
+	/// A row inside the open conversation, such as a message author or a member.
+	Open,
+	/// A row for a specific conversation, such as a sidebar DM or a voice channel.
+	Conversation(model::Id),
+	/// A row with no conversation, such as the friends list or your own account panel.
+	Nowhere,
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub enum Action {
 	Note(User),
@@ -112,14 +124,16 @@ pub(super) fn popup(response: &egui::Response, id: egui::Id) -> egui::Popup<'_> 
 	popup
 }
 
+/// Opens a user's context menu from `response`; `place` is the conversation of that row.
 pub(super) fn show(
 	response: &egui::Response,
 	state: &State,
 	user: &User,
+	place: Place,
 	profile: &mut crate::profiles::ProfileSession,
 	action: &mut Option<Action>,
 ) {
-	show_with_pin(response, state, user, profile, action, None);
+	show_with_pin(response, state, user, place, profile, action, None);
 }
 
 /// `view` is `Some` only where the row is a direct message, so Pin DM stays off member lists.
@@ -127,12 +141,13 @@ pub(super) fn show_with_pin(
 	response: &egui::Response,
 	state: &State,
 	user: &User,
+	place: Place,
 	profile: &mut crate::profiles::ProfileSession,
 	action: &mut Option<Action>,
 	view: Option<ShortcutView<'_>>,
 ) {
 	popup(response, egui::Popup::default_response_id(response))
-		.show(|ui| contents(ui, state, user, profile, action, view));
+		.show(|ui| contents(ui, state, user, place, profile, action, view));
 }
 
 const VOICE_AVAILABLE: &str = "user-menu-voice-available";
@@ -146,10 +161,13 @@ fn voice_available(ui: &egui::Ui) -> bool {
 	ui.data(|data| data.get_temp::<bool>(egui::Id::unique(VOICE_AVAILABLE))) == Some(true)
 }
 
+/// Fills a user's context menu, including plugin user actions for non-webhook users. On a
+/// one-to-one DM row, plugin channel actions for that DM are offered alongside them.
 pub(super) fn contents(
 	ui: &mut egui::Ui,
 	state: &State,
 	user: &User,
+	place: Place,
 	profile: &mut crate::profiles::ProfileSession,
 	action: &mut Option<Action>,
 	view: Option<ShortcutView<'_>>,
@@ -157,6 +175,28 @@ pub(super) fn contents(
 	let colors = crate::design::palette(ui);
 	ui.set_min_width(200.0);
 	ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
+	if !user.webhook {
+		let channel = match place {
+			Place::Open => state.selected,
+			Place::Conversation(id) => Some(id),
+			Place::Nowhere => None,
+		}
+		.and_then(|id| state.channel(id));
+		let mut targets = vec![extensions::MenuTarget::User {
+			user_id: user.id.to_string(),
+			guild_id: channel.and_then(|c| c.guild).map(|g| g.to_string()),
+			channel_id: channel.map(|c| c.id.to_string()),
+		}];
+		if let Place::Conversation(_) = place
+			&& let Some(dm) = channel.filter(|c| c.guild.is_none() && c.kind == 1)
+		{
+			targets.push(extensions::MenuTarget::Channel {
+				channel_id: dm.id.to_string(),
+				guild_id: None,
+			});
+		}
+		crate::extensions_ui::context_menu_targets(ui, &targets);
+	}
 	if ui
 		.button(crate::i18n::translate("user-menu-contents-profile"))
 		.clicked()
@@ -487,7 +527,7 @@ mod tests {
 			},
 			|ui| {
 				let row = ui.button(&user.name);
-				show(&row, state, user, profile, action);
+				show(&row, state, user, Place::Open, profile, action);
 				response = Some(row);
 			},
 		);
@@ -510,7 +550,15 @@ mod tests {
 		let ctx = egui::Context::default();
 		let (mut profile, mut action) = (crate::profiles::ProfileSession::default(), None);
 		let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-			contents(ui, state, user, &mut profile, &mut action, None);
+			contents(
+				ui,
+				state,
+				user,
+				Place::Open,
+				&mut profile,
+				&mut action,
+				None,
+			);
 		});
 		let mut text = vec![];
 		for shape in &output.shapes {

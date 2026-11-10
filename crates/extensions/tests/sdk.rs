@@ -1,6 +1,7 @@
 use extensions::{Action, Capability, ExtensionKind, Invocation, Manifest, Output, Surface};
 use serein_extension_sdk as sdk;
 
+/// Builds a one-action plugin manifest whose capabilities are those the action's surface needs.
 fn manifest(action: &str, surface: Surface) -> Manifest {
 	let mut capabilities = vec![Capability::Storage];
 	match surface {
@@ -13,6 +14,9 @@ fn manifest(action: &str, surface: Surface) -> Manifest {
 		Surface::MessageEvent => capabilities.push(Capability::MessageEvents),
 		Surface::AppEvent => capabilities.push(Capability::AppEvents),
 		Surface::Tick => capabilities.push(Capability::Appearance),
+		Surface::User | Surface::Channel | Surface::Server | Surface::Role => {
+			capabilities.push(Capability::ContextMenus)
+		}
 	}
 	let manifest = Manifest {
 		api_version: extensions::API_VERSION,
@@ -56,6 +60,10 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 		("compose", Surface::Composer),
 		("apply", Surface::Panel),
 		("activate", Surface::Activation),
+		("user", Surface::User),
+		("channel", Surface::Channel),
+		("server", Surface::Server),
+		("role", Surface::Role),
 	] {
 		let manifest = manifest(action, surface);
 		let input = Invocation {
@@ -70,6 +78,29 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 				})
 			}),
 			composer: (action == "compose").then(|| "Draft".into()),
+			menu_target: match surface {
+				Surface::User => Some(extensions::MenuTarget::User {
+					user_id: "4".into(),
+					guild_id: Some("5".into()),
+					channel_id: None,
+				}),
+				Surface::Channel => Some(extensions::MenuTarget::Channel {
+					channel_id: "2".into(),
+					guild_id: None,
+				}),
+				Surface::Server => Some(extensions::MenuTarget::Server {
+					guild_id: "5".into(),
+				}),
+				Surface::Role => Some(extensions::MenuTarget::Role {
+					guild_id: "5".into(),
+					role_id: "6".into(),
+					user_id: Some("4".into()),
+					name: "Moderator".into(),
+					color: 0x3498db,
+				}),
+				_ => None,
+			}
+			.map(Box::new),
 			storage: Some(r#"{"size":16}"#.into()),
 			values: [("size".into(), "18".into())].into(),
 			..Default::default()
@@ -93,6 +124,35 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 				values: input.values.clone(),
 			}
 		);
+		if let Some(target) = &input.menu_target {
+			// Menu plugins read the target; a menu action never runs without one or with another kind.
+			let menu: sdk::MenuInvocation = serde_json::from_slice(&bytes).unwrap();
+			assert_eq!(
+				serde_json::to_value(menu.menu_target.unwrap()).unwrap(),
+				serde_json::to_value(target).unwrap()
+			);
+			let mut missing = input.clone();
+			missing.menu_target = None;
+			assert!(missing.validate(&manifest).is_err());
+			let mut other = input.clone();
+			other.menu_target = Some(Box::new(match surface {
+				Surface::Server => extensions::MenuTarget::User {
+					user_id: "4".into(),
+					guild_id: None,
+					channel_id: None,
+				},
+				_ => extensions::MenuTarget::Server {
+					guild_id: "5".into(),
+				},
+			}));
+			assert!(other.validate(&manifest).is_err());
+		} else {
+			let mut stray = input.clone();
+			stray.menu_target = Some(Box::new(extensions::MenuTarget::Server {
+				guild_id: "5".into(),
+			}));
+			assert!(stray.validate(&manifest).is_err());
+		}
 		if let Some(target) = &input.selected_message_ref {
 			// Message plugins can identify the chosen message; legacy handlers still decode.
 			let message: sdk::MessageActionInvocation = serde_json::from_slice(&bytes).unwrap();
@@ -196,6 +256,127 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 	}
 }
 
+/// Checks that role targets reject a malformed ID in any field, an out-of-range color and an
+/// overlong or multi-line name.
+#[test]
+fn context_menu_targets_reject_malformed_role_fields() {
+	let manifest = manifest("role", Surface::Role);
+	let role = |guild: &str, role: &str, user: Option<&str>, name: &str, color: u32| Invocation {
+		action: "role".into(),
+		menu_target: Some(Box::new(extensions::MenuTarget::Role {
+			guild_id: guild.into(),
+			role_id: role.into(),
+			user_id: user.map(Into::into),
+			name: name.into(),
+			color,
+		})),
+		..Default::default()
+	};
+	let longest = "é".repeat(extensions::MAX_ROLE_NAME_CHARS);
+	assert!(
+		role("5", "6", Some("4"), "Mod", 0xff_ffff)
+			.validate(&manifest)
+			.is_ok()
+	);
+	assert!(
+		role("5", "6", None, &longest, 0)
+			.validate(&manifest)
+			.is_ok()
+	);
+	for bad in [
+		role("x", "6", None, "Mod", 0),
+		role("5", "", None, "Mod", 0),
+		role("5", "6", Some("-1"), "Mod", 0),
+		role("5", "6", None, "Mod", 0x100_0000),
+		role("5", "6", None, &format!("{longest}e"), 0),
+		role("5", "6", None, "Mod\nerator", 0),
+	] {
+		assert!(bad.validate(&manifest).is_err());
+	}
+}
+
+/// Checks that SDK interface-tweak output reaches the host unchanged, that only granted
+/// activation and panel actions may set tweaks, and that a tweak listed twice is rejected.
+#[test]
+fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
+	let output = sdk::InterfaceTweaksOutput {
+		interface_tweaks: Some(vec![
+			sdk::InterfaceTweak::StaticTypingIndicator,
+			sdk::InterfaceTweak::PlainProfiles,
+			sdk::InterfaceTweak::ExpandedRoles,
+			sdk::InterfaceTweak::HiddenRequestCounts,
+			sdk::InterfaceTweak::OnePingPerDirectMessage,
+			sdk::InterfaceTweak::HiddenBlockedMessages,
+			sdk::InterfaceTweak::HiddenProfileNotes,
+			sdk::InterfaceTweak::LargeStreamPreview,
+			sdk::InterfaceTweak::DoubleClickReplyEdit,
+		]),
+		..Default::default()
+	};
+	let wire = serde_json::to_vec(&output).unwrap();
+	let host: extensions::Output = serde_json::from_slice(&wire).unwrap();
+	assert_eq!(
+		host.interface_tweaks.as_deref(),
+		Some(extensions::InterfaceTweak::ALL)
+	);
+	let names: Vec<String> = extensions::InterfaceTweak::ALL
+		.iter()
+		.map(|tweak| {
+			serde_json::to_value(tweak)
+				.unwrap()
+				.as_str()
+				.unwrap()
+				.to_owned()
+		})
+		.collect();
+	let info: sdk::HostInfo =
+		serde_json::from_value(serde_json::to_value(extensions::HostInfo::current()).unwrap())
+			.unwrap();
+	assert!(names.iter().all(|name| info.supports_tweak(name)));
+	let with = |action: &str, surface, capabilities: Vec<Capability>| {
+		let mut manifest = manifest(action, surface);
+		manifest.capabilities.extend(capabilities);
+		let input = Invocation {
+			action: action.into(),
+			selected_message: (surface == Surface::Message).then(|| "text".into()),
+			..Default::default()
+		};
+		(manifest, input)
+	};
+	let tweaks = vec![Capability::InterfaceTweaks];
+	for (surface, action, allowed) in [
+		(Surface::Activation, "activate", true),
+		(Surface::Panel, "apply", true),
+		(Surface::Message, "message", false),
+	] {
+		let (granted, input) = with(action, surface, tweaks.clone());
+		assert_eq!(host.validate(&granted, &input).is_ok(), allowed, "{action}");
+		let (ungranted, input) = with(action, surface, vec![]);
+		assert!(
+			host.validate(&ungranted, &input).is_err(),
+			"{action} without grant"
+		);
+	}
+	let (panel, panel_input) = with("apply", Surface::Panel, tweaks);
+	let off = extensions::Output {
+		interface_tweaks: Some(Vec::new()),
+		..Default::default()
+	};
+	assert!(off.validate(&panel, &panel_input).is_ok());
+	let mut twice = host.clone();
+	twice
+		.interface_tweaks
+		.as_mut()
+		.unwrap()
+		.push(extensions::InterfaceTweak::PlainProfiles);
+	assert!(twice.validate(&panel, &panel_input).is_err());
+	let old: sdk::HostInfo = serde_json::from_value(serde_json::json!({
+		"api_version": 1, "sdk_revision": 1, "capabilities": [], "app_events": []
+	}))
+	.unwrap();
+	assert!(!old.supports_tweak("plain_profiles"));
+}
+
 #[test]
 fn every_sdk_panel_and_appearance_field_is_accepted_by_the_host() {
 	use sdk::Element::*;
@@ -220,6 +401,7 @@ fn every_sdk_panel_and_appearance_field_is_accepted_by_the_host() {
 				body_size: Some(16),
 				heading_size: Some(20),
 				button_size: Some(14),
+				icon_size: Some(20),
 				small_size: Some(12),
 				monospace_size: Some(14),
 				item_spacing: Some([8, 8]),

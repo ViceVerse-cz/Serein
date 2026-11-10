@@ -1689,6 +1689,8 @@ markdown-confirm-external-link-open-external-link = Ouvrir le lien externe ?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Ouvrir dans le navigateur
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Seul le début de ce message tient dans le lien ; le reste n’est pas envoyé. Cette destination s’ouvre dans votre navigateur par défaut.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Cette destination s'ouvre dans votre navigateur par défaut.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Copier l'emoji
@@ -2274,9 +2276,9 @@ screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Partagez 
 # Context: body
 screen-body-share-system-audio = Partager l'audio du système
 # Context: body
-screen-body-show-cursor = Afficher le curseur
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Partagez le son de l'application partagée, ou celui de toutes les autres applications lors du partage d'un écran. Le son de Serein est exclu.
 # Context: body
-screen-body-this-windows-version-cannot-leave-serein-out = Cette version de Windows ne peut pas exclure Serein : les spectateurs entendront aussi votre appel. Pour l'éviter, choisissez pour les Haut-parleurs de Serein un autre appareil que celui par défaut de Windows.
+screen-body-show-cursor = Afficher le curseur
 # Context: body
 screen-body-your-call-microphone-keeps-its-current-settings = Votre microphone d'appel conserve ses paramètres actuels.
 # Context: show
@@ -3869,6 +3871,10 @@ timeline-message-actions-delete-message = Supprimer le message…
 timeline-message-actions-edit-message = Modifier le message
 # Context: message_actions
 timeline-message-actions-extensions = Rallonges
+# Context: menu
+extensions-ui-menu-group-user = Utilisateur
+# Context: menu
+extensions-ui-menu-group-conversation = Conversation
 # Context: message_actions
 timeline-message-actions-forward = Transférer
 # Context: message_actions
@@ -3918,6 +3924,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = Chargement des messages…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Message supprimé
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Message bloqué
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = L'historique des messages n'est pas disponible avec les informations d'autorisation actuelles.
 # Context: show_with_scroll
@@ -4506,6 +4514,8 @@ voice-recipient-stop-ringing = Arrêter la sonnerie
 voice-recipient-ringing = Sonnerie…
 voice-recipient-not-in-call = Absent de l’appel
 reconnect-now = Se reconnecter
+
+message-preview-limit = Ce message dépasse la limite de mise en page du texte natif.
 
 voice-call-moved-to-another-client = La session d’appel de cet appareil a été remplacée
 

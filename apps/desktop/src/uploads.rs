@@ -358,7 +358,7 @@ struct Parked {
 impl Parked {
 	/// Session memory this selection keeps; a still-decoding thumbnail counts at its largest.
 	fn bytes(&self) -> u64 {
-		let thumbnail = |image: &egui::ColorImage| image.pixels.len() as u64 * 4;
+		let thumbnail = |image: &egui::ColorImage| image.pixels().len() as u64 * 4;
 		self.selected
 			.iter()
 			.map(|chosen| {
@@ -1817,13 +1817,13 @@ pub(crate) fn debug_heic_check() {
 		let fixture = include_bytes!("../tests/fixtures/heic-large.heic");
 		let pixels = decode_preview(fixture)
 			.expect("synthetic HEIC must decode with installed HEIF/HEVC codecs");
-		assert_eq!(pixels.size, [320, 213]);
-		assert!(pixels.pixels.len() * 4 < PREVIEW_ALLOC as usize);
+		assert_eq!(pixels.resolution(), [320, 213]);
+		assert!(pixels.pixels().len() * 4 < PREVIEW_ALLOC as usize);
 		println!(
 			"WIC thumbnail first pixel: {:?}",
-			pixels.pixels[0].to_array()
+			pixels.pixels()[0].to_array()
 		);
-		for pixel in pixels.pixels.iter().step_by(1000) {
+		for pixel in pixels.pixels().iter().step_by(1000) {
 			for (actual, expected) in pixel.to_array().into_iter().zip([64, 128, 192, 255]) {
 				assert!(actual.abs_diff(expected) <= 4, "{actual} != {expected}");
 			}

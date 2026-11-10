@@ -1196,11 +1196,10 @@ impl ClientState {
 		}
 	}
 	fn update_roster(&mut self, entry: RosterEntry) -> bool {
-		if !self.can_view(entry.channel)
-			|| !self
-				.channels
-				.iter()
-				.any(|c| c.id == entry.channel && c.guild == Some(entry.guild) && c.kind == 2)
+		if !self
+			.channels
+			.iter()
+			.any(|c| c.id == entry.channel && c.guild == Some(entry.guild) && c.kind == 2)
 		{
 			return true;
 		}
@@ -1947,7 +1946,7 @@ mod tests {
 					}]),
 				})
 			};
-			// Losing CONNECT does not hide a roster that the account may still view.
+			// Losing CONNECT or VIEW_CHANNEL keeps the roster; the sidebar hides hidden rows.
 			state.apply(Envelope {
 				generation: state.generation,
 				event: access(p::CONNECT),
@@ -1958,13 +1957,7 @@ mod tests {
 				event: access(p::VIEW_CHANNEL),
 			});
 			assert!(!state.can_view(Id(20)));
-			assert_eq!(state.voice.roster.len(), 1);
-			assert_eq!(state.voice.roster[0].channel, Id(21));
-			state.apply_voice(Event::Snapshot {
-				guild: None,
-				partial: true,
-				participants: vec![entry(20)],
-			});
+			assert_eq!(state.voice.roster.len(), 2);
 			state.apply_voice(Event::State {
 				guild: Some(Id(10)),
 				channel: Some(Id(20)),
@@ -1973,30 +1966,22 @@ mod tests {
 				session: None,
 				negotiation_revision: None,
 				member: None,
-				muted: false,
+				muted: true,
 				deafened: false,
 				server_muted: false,
 				server_deafened: false,
 				video: false,
 				streaming: false,
 			});
-			assert_eq!(state.voice.roster.len(), 1);
-			state.apply(Envelope {
-				generation: state.generation,
-				event: access(0),
-			});
-			assert!(state.can_view(Id(20)));
-			assert_eq!(
-				state.voice.roster.len(),
-				1,
-				"Restoring access cannot restore discarded participants"
-			);
-			state.apply_voice(Event::Snapshot {
-				guild: None,
-				partial: true,
-				participants: vec![entry(20)],
-			});
 			assert_eq!(state.voice.roster.len(), 2);
+			assert!(
+				state
+					.voice
+					.roster
+					.iter()
+					.any(|entry| entry.channel == Id(20) && entry.participant.muted),
+				"Hidden channels still receive participant updates"
+			);
 		}
 	}
 

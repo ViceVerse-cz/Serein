@@ -127,7 +127,8 @@ Unknown API versions and invalid packages are rejected before installation.
 
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
-supports 53 capabilities, with at most 64 distinct declarations per manifest.
+supports 56 capabilities, with at most 64 distinct declarations per manifest.
+`external_navigation` and `style.icon_size` are Preview APIs from PR #937, not yet released.
 
 > **Preview SDK — PR #411, not yet released.** `channel_control`,
 > `server_control`, `role_control`, `moderation_control` and `media_control`, plus
@@ -166,10 +167,13 @@ supports 53 capabilities, with at most 64 distinct declarations per manifest.
 | `local_settings` | Read and propose changing seven local reading preferences | Zoom/sidebar/member list/GIFs/media links/smooth scrolling/scroll speed; changes require Apply |
 | `notification_settings` | Read and propose changing device-local notification preferences | Sound volume, sound toggles and unread badge; changes require Apply; no Discord notification settings |
 | `navigation` | Propose channel, Home, view, profile, message or search navigation | Existing native paths; each command requires Apply |
+| `external_navigation` | Propose opening one reviewed absolute HTTPS URL in the browser | Preview; full 2,048-byte maximum URL shown and revalidated at Apply; native link-confirmation setting applies; no plugin networking |
 | `local_notices` | Propose an in-app toast | At most 1,024 text bytes; requires Apply |
 | `clipboard_write` | Propose replacing clipboard text | At most 4,096 bytes; requires Apply; no clipboard read |
 | `voice_control` | Propose mute/deafen, leaving or watching/stopping a participant stream | Each command requires Apply and the same current call |
 | `app_events` | Observe ready/navigation/context/connection/voice/settings changes | Other grants control accompanying data; no background commands |
+| `context_menus` | Add actions to user, channel, server and role context menus | The invocation names the clicked item by ID (a role adds its name and color); results follow the action's other grants |
+| `interface_tweaks` | Switch on host-defined interface tweaks such as still typing dots, plain profiles, always-expanded roles, hidden request counts, one alert per direct conversation until read, hidden messages from blocked users, hidden profile notes, a larger stream preview or double-click to reply or edit | Activation and panel results only; a tweak stays on while any enabled plugin requests it and switches off when that plugin is disabled, fails or the account logs out |
 | `message_send` | Propose sending text, replies, loaded stickers, a loaded-message forward, or opening the native attachment picker | Apply; selected accessible targets; picker discloses no file path/bytes to Wasm; preserves existing composition |
 | `message_manage` | Propose editing, deleting or pinning a loaded message | Apply; native ownership/moderation checks |
 | `reactions_control` | Propose adding/removing your reaction | Apply; known message and current reaction state |
@@ -261,7 +265,9 @@ values and waits for **Apply**. Closing it does nothing. Apply rechecks the plug
 grants, account/conversation, permissions and the specific voice call before using
 the existing UI path. Navigation/search may then load ordinary service data, but
 the plugin never receives a generic Discord command API. Clipboard writes never
-read the clipboard; local notices are in-app toasts, not OS notifications.
+read the clipboard; local notices are in-app toasts, not OS notifications. External-navigation
+proposals show and revalidate one absolute HTTPS URL before handing it to the native browser flow;
+they do not expose an HTTP client or DNS/public-IP pinning because the OS browser owns that request.
 
 Supported local preference patches are zoom 50–150%, sidebar width 190–360 logical
 pixels, member-list visibility, GIF animation, hiding media links, smooth scrolling
@@ -283,7 +289,7 @@ Four opt-in additions extend the same ABI without changing existing SDK structs:
 - `messaging_settings` adds the loaded account privacy snapshot and approved updates
   for DM, message-request, friend-source and game-DM preferences.
 - `guild_folders` adds the loaded server-folder layout and an approved whole-layout
-  update through the existing versioned, 200-folder/200-server native path. Updates
+  update through the existing versioned, 1,000-folder/1,000-server native path. Updates
   carry the snapshot's `base_version` and reject stale full-layout replacements.
 - `action_feedback` adds `tracked_app_action`. Supply a unique `request_id`; after
   **Apply**, the app-event handler receives `action_result` with `accepted` or
@@ -478,7 +484,7 @@ invocation input/output, panel complexity, queues and plugin storage.
 | Execution fuel | 10,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
 | Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
 | Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
-| Manifest actions / capabilities | 16 / 64 distinct | Only the 53 supported capability names are currently accepted. |
+| Manifest actions / capabilities | 16 / 64 distinct | Only the 56 supported capability names are currently accepted. |
 | Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
 | Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
 | App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |

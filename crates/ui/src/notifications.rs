@@ -47,7 +47,14 @@ impl RailCache {
 		}
 		self.guild_badges = badges.into_iter().collect();
 		// Voice states advance the rail revision, so this runs per roster change, not per frame.
-		let mut voice: Vec<Id> = state.voice.roster.iter().map(|r| r.guild).collect();
+		// Hidden-channel participants stay off the rail like their sidebar rows.
+		let mut voice: Vec<Id> = state
+			.voice
+			.roster
+			.iter()
+			.filter(|r| state.can_view(r.channel))
+			.map(|r| r.guild)
+			.collect();
 		voice.sort_unstable();
 		voice.dedup();
 		self.voice_guilds = voice.into_boxed_slice();
@@ -249,6 +256,8 @@ impl MessagingUi {
 	pub fn viewing_latest(&self, channel: Id) -> bool {
 		self.timeline.viewing_latest(channel)
 	}
+	/// Draws the server rail: the Home button with its request badge, direct conversations with
+	/// unread messages, and servers and folders with their badges.
 	pub(super) fn notification_rail(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -303,13 +312,20 @@ impl MessagingUi {
 					colors.text.lerp_to_gamma(colors.accent_text, lit),
 				);
 				rail_indicator(ui, response.id, rect, home, hovered, false);
-				let (friends, messages) = state.home_request_parts();
-				let requests = friends.saturating_add(messages);
+				let (friends, messages) = if crate::interface_tweaks::on(
+					ui.ctx(),
+					extensions::InterfaceTweak::HiddenRequestCounts,
+				) {
+					// The tooltip and accessible name omit the counts with the badge.
+					(0, 0)
+				} else {
+					state.home_request_parts()
+				};
 				rail_badge(
 					ui,
 					response.id,
 					rect,
-					requests,
+					friends.saturating_add(messages),
 					design::window_palette(ui).base,
 				);
 				let label = home_request_label(friends, messages);
@@ -366,6 +382,7 @@ impl MessagingUi {
 									&response,
 									state,
 									user,
+									crate::user_menu::Place::Conversation(channel.id),
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -524,6 +541,135 @@ mod tests {
 		assert_eq!(view.guild, None);
 		assert_eq!(state.selected, None);
 		assert!(!view.search.open);
+	}
+
+	/// Checks that the hidden-request-counts tweak removes the request count from the Home
+	/// button and the Friends Pending tab.
+	#[test]
+	fn hidden_request_counts_tweak_clears_home_and_pending_badges() {
+		let mut state = test_support::notification_demo_state();
+		assert_eq!(state.home_request_parts(), (2, 1));
+		let pending = state
+			.pending_friends()
+			.filter(|(_, _, incoming)| *incoming)
+			.count();
+		// Accessibility labels of the latest frame, which also carry the Home tooltip text.
+		let labels = std::cell::RefCell::new(Vec::<String>::new());
+		let drawn = |state: &mut State, hidden: bool| {
+			let ctx = egui::Context::default();
+			ctx.enable_accesskit();
+			let mut view = MessagingUi::default();
+			if hidden {
+				view.set_interface_tweaks([extensions::InterfaceTweak::HiddenRequestCounts].into());
+			}
+			let mut texts = Vec::new();
+			for _ in 0..2 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(1200.0, 800.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						view.show(ui, state);
+					},
+				);
+				texts.clear();
+				let mut stack: Vec<_> =
+					output.shapes.iter().map(|clipped| &clipped.shape).collect();
+				while let Some(shape) = stack.pop() {
+					match shape {
+						egui::Shape::Text(text) => texts.push((
+							text.galley.text().to_owned(),
+							egui::Rect::from_min_size(text.pos, text.galley.size()),
+						)),
+						egui::Shape::Vec(shapes) => stack.extend(shapes),
+						_ => {}
+					}
+				}
+				*labels.borrow_mut() = output
+					.platform_output
+					.accesskit_update
+					.as_ref()
+					.map(|update| {
+						update
+							.nodes
+							.iter()
+							.filter_map(|(_, node)| node.label().map(str::to_owned))
+							.collect()
+					})
+					.unwrap_or_default();
+				output.drop_without_applying_deltas();
+			}
+			texts
+		};
+		// The Home button's badge is the rail's only "3"; its vertical position depends on the
+		// platform's title bar, so the check counts rail badges rather than placing one.
+		let rail_threes = |texts: &[(String, egui::Rect)]| {
+			texts
+				.iter()
+				.filter(|(text, rect)| text == "3" && rect.center().x < RAIL_WIDTH)
+				.count()
+		};
+		let shown = rail_threes(&drawn(&mut state, false));
+		assert_eq!(shown, 1, "Home shows 3 requests");
+		let hidden = rail_threes(&drawn(&mut state, true));
+		assert_eq!(hidden, 0, "Home hides the request count");
+		// The Home button's accessible name and tooltip leave the counts out with the badge.
+		let counted = home_request_label(2, 1);
+		let plain = home_request_label(0, 0);
+		assert_ne!(counted, plain);
+		drawn(&mut state, false);
+		assert!(
+			labels.borrow().contains(&counted),
+			"Home names its requests"
+		);
+		drawn(&mut state, true);
+		assert!(labels.borrow().contains(&plain), "{:?}", labels.borrow());
+		assert!(
+			!labels.borrow().contains(&counted),
+			"Home omits its requests"
+		);
+		// Friends view: the Pending tab carries the incoming count only without the tweak.
+		state.open_messages();
+		let label = pending.to_string();
+		let tab = |texts: &[(String, egui::Rect)]| {
+			let pending_tab = texts
+				.iter()
+				.find(|(text, _)| text == &crate::i18n::translate("friends-pending"))
+				.map(|(_, rect)| *rect)
+				.expect("Pending tab drawn");
+			texts.iter().any(|(text, rect)| {
+				*text == label
+					&& (rect.center().y - pending_tab.center().y).abs() < 8.0
+					&& rect.left() > pending_tab.left()
+					&& rect.left() < pending_tab.right() + 40.0
+			})
+		};
+		assert!(tab(&drawn(&mut state, false)), "Pending shows its count");
+		assert!(!tab(&drawn(&mut state, true)), "Pending hides its count");
+		// The message-request group in the conversation list keeps its count off as well.
+		let heading = crate::i18n::translate("channel-list-heading-message-requests");
+		let group = |texts: &[(String, egui::Rect)]| {
+			let row = texts
+				.iter()
+				.find(|(text, _)| text.eq_ignore_ascii_case(&heading))
+				.map(|(_, rect)| *rect)
+				.expect("message requests group drawn");
+			texts
+				.iter()
+				.any(|(text, rect)| text == "1" && (rect.center().y - row.center().y).abs() < 12.0)
+		};
+		assert!(
+			group(&drawn(&mut state, false)),
+			"request group shows its count"
+		);
+		assert!(
+			!group(&drawn(&mut state, true)),
+			"request group hides its count"
+		);
 	}
 
 	#[test]

@@ -459,7 +459,7 @@ In a connected call, select **Share your screen**, choose a display/window, then
 
 Starting this device's share plays Discord's screen-share cue. Selecting **Stop sharing** plays the stop cue. Ending the share by leaving the call or logging out does not. The single screen-share sound switch governs both cues.
 
-When the selected display or window reports a pixel size, the quality row offers Source plus every preset that fits inside that size: 2160p (3840×2160), 1440p (2560×1440), 1080p (1920×1080), 720p (1280×720), and 480p (854×480). Source is the native size, rounded down to even pixels and limited to 3840×2160. A size that has not been reported yet keeps 1080p, 720p, and 480p. Frame rate is 15, 30, or 60. 90 and 120 appear only when that monitor's refresh rate is at least 90 Hz or 120 Hz. Windows reads the refresh rate with the current display mode. macOS and the Linux portal do not report it, so those paths keep 15/30/60.
+Like Discord, the quality row offers every choice, smallest first: 480p (854×480), 720p (1280×720), 1080p (1920×1080), 1440p (2560×1440), 2160p (3840×2160), and Source. A preset is an upper bound: a source that fits inside it keeps its native size, rounded down to even pixels, and is never upscaled; a larger source is scaled into the preset. Source is the native size, limited to 3840×2160. The Linux portal picks its display only after Share, so the choice is sent as a bound and the capture worker narrows it to the picked stream's pixel size. The portal's optional `size` is only a first guess, because it is in logical coordinates and xdg-desktop-portal-hyprland omits it; the `pipewiresrc` negotiated caps decide, and the worker reopens the same encoder at the fitted size. A shared window that is resized is re-fitted once its new size holds for 500 ms, so a smaller window is not upscaled. An encoder that fails on the provisional bound before the size is known is retried at the fitted size rather than skipped. Other sources of unknown size (the macOS picker, the whole X11 desktop) keep 1080p, 720p, and 480p without Source. Frame rate is 15, 30, or 60. 90 and 120 appear only when that monitor's refresh rate is at least 90 Hz or 120 Hz. Windows reads the refresh rate with the current display mode. macOS and the Linux portal do not report it, so those paths keep 15/30/60.
 
 Target bitrate is 2 Mbps at 480p, 4 Mbps at 720p, and 8 Mbps at 1080p for 15 and 30 fps. 60 fps doubles that, 90 fps triples it, and 120 fps quadruples it, with a ceiling of 16 Mbps. Above 1080p the 8 Mbps base scales with pixel count, up to 12 Mbps before the frame-rate multiplier; 2160p uses a 16 Mbps base. Encoder support for these sizes depends on the installed hardware and plugins, and the software fallback costs substantially more CPU.
 
@@ -565,13 +565,25 @@ audio access, including Flatpak's PulseAudio socket permission. A separate bound
 handles discovery, capture and mixing outside video encoding and rendering. No applications
 are moved between outputs and no virtual device is installed.
 
-Windows uses native process loopback with `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`,
-excluding Serein and its child processes across outputs. This requires Windows build 20348+
-(Windows 11 or Windows Server 2022; ordinary Windows 10 22H2 is older). Older builds, detected
-with `RtlGetVersion`, instead loop back the default output device, which includes Serein's call
-and stream playback unless Serein's speakers use a different device. The share picker says so
-before the owner turns audio on; it stays off by default. Failed capture reports an audio error;
-turn audio off to share video alone. Neither adapter records to disk.
+Windows uses native process loopback. Sharing a window captures only that window's
+application; Store app windows belong to ApplicationFrameHost, so they capture like a screen
+instead. The rest of this paragraph is about sharing a screen. On build 20348+ one capture uses
+`PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`, excluding Serein and its child
+processes across outputs. Older Windows 10 builds capture each application's audio session
+with `PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE`, skipping Serein, its children and
+its ancestors, and mix the results; no exclude attempt is made on those builds, so audio starts
+as soon as the sessions are listed. Playing applications are captured first and idle ones start
+once those are up, and one may take the lane of an idle one when all 16 are in use.
+Applications are activated in parallel, so one that is slow to start does not delay the others,
+and a lane that receives nothing for four seconds while its application is playing is restarted.
+Failed isolation reports an audio error that
+names the Windows error code when there is one; so do a process list that cannot be read in
+full, audio sessions that cannot be inspected, worker threads that cannot be created, and
+capture of every playing application failing for eight seconds (45 when Windows only reports
+a timeout) with none working. Idle or access-denied
+applications and a single lane that restarts while others work are not failures.
+With diagnostics on, the mixer reports 10 ms chunks the stream could not take as `drops`,
+apart from per-application lane writes. Turn audio off to share video alone. There is no whole-output fallback. Neither adapter records to disk.
 
 Native contracts: [PulseAudio per-stream monitoring](https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/Developer/Clients/WritingVolumeControlUIs/)
 and [Microsoft process-loopback capture](https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/).
@@ -644,20 +656,21 @@ viewing still require owner-operated validation.
 Native capture prefers the closest supported size to the 1280×720 encoder, with
 a 1280×720 input ceiling (DirectShow preserves its existing 1920×1080 fallback).
 macOS and Windows rank native modes by dimension
-distance, then distance from 30 fps; macOS explicitly locks the device format
+distance, then distance from the selected 15 or 30 fps; macOS explicitly locks the device format
 and supported frame duration; AVFoundation aspect fitting preserves nonmatching
 native ratios with black bars before the callback. Windows drivers without
 frame-rate metadata retain their bounded fallback and rank after known rates at
 the same resolution. Linux probes each candidate with its effective
 V4L2 interval before ranking it and reapplies the selected interval after the final
 format change. Drivers without interval metadata rank last at the same resolution.
-Capture is converted to 1280×720 (other aspect ratios keep black bars), capped at 30
-encoded frames/second, encoded on a worker with a 2.5 Mbit/s target (not a measured
-bandwidth guarantee). The capture rate gate keeps a schedule
+Capture is converted to 1280×720 (other aspect ratios keep black bars), capped at the
+selected 15 or 30 encoded frames/second, encoded on a worker with a 2.5 Mbit/s target (not
+a measured bandwidth guarantee). The capture rate gate keeps a schedule
 that advances one interval per admitted picture and admits a picture up to a quarter
-interval before its slot, decided on arrival before decoding. A 30 fps device is therefore
-not halved by delivery jitter, while faster devices average at most 30 fps; a schedule
-more than one interval behind restarts, so pauses never allow a burst. The worker prefers the platform
+interval before its slot, decided on arrival before decoding. A device at the selected rate
+is therefore not halved by delivery jitter, while faster devices average at most that rate;
+a schedule more than one interval behind restarts, so pauses never allow a burst. The
+periodic IDR comes every four seconds at either rate. The worker prefers the platform
 hardware H.264 encoder, the same VideoToolbox and Media Foundation encoders screen sharing
 uses, and VA-API or NVENC through a private GStreamer pipeline on Linux. OpenH264 remains
 the fallback when no hardware encoder is available and when one fails mid-capture, which
@@ -706,7 +719,10 @@ camera controls. Discovery runs on a worker without starting capture. macOS uses
 32 device IDs (4 KiB each) and names (256 bytes each) are retained. The selected
 ID is session-local. Refresh discovers added/removed devices; a missing selected
 device is reported rather than silently opening another camera. Changing selection
-stops active capture and requires another camera-on click.
+stops active capture and requires another camera-on click. The camera settings menu
+also offers **15 fps** and **30 fps**, defaulting to 30 for each session. Changing
+the rate during a call restarts camera capture at the selected rate; changing it
+during a local preview stops that preview.
 
 Voice & Video also offers an explicit **Preview camera / Stop preview** control outside
 calls. It reuses the bounded camera worker and latest-frame texture; frames have no

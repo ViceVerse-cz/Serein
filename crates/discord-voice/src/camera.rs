@@ -1,5 +1,6 @@
 //! User-started, ephemeral camera capture. No capture stream starts before `start`.
 
+use model::voice_settings::CameraFrameRate;
 use openh264::{
 	OpenH264API,
 	encoder::{BitRate, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, Profile},
@@ -9,7 +10,10 @@ use std::sync::{
 	Arc, Mutex,
 	atomic::{AtomicBool, Ordering},
 };
-use std::{thread, time::Duration};
+use std::{
+	thread,
+	time::{Duration, Instant},
+};
 
 #[cfg(target_os = "linux")]
 #[path = "camera/encode_linux.rs"]
@@ -22,53 +26,66 @@ mod windows;
 
 pub const WIDTH: usize = 1280;
 pub const HEIGHT: usize = 720;
-pub const FPS: u32 = format::FPS;
 pub const BIT_RATE: u32 = 2_500_000;
 pub const MAX_ENCODED_BYTES: usize = 256 * 1024;
-/// Pictures between periodic IDR refreshes; feedback and sender drops request one sooner.
-const KEYFRAME_INTERVAL: u32 = FPS * 4;
+/// Empty hardware outputs for this long fall back to openh264, so a hardware encoder that
+/// accepts pictures but never returns them cannot leave the call without video.
+const HARDWARE_STALL: Duration = Duration::from_secs(2);
+/// Pictures between periodic IDR refreshes (four seconds); feedback and sender drops request
+/// one sooner.
+const fn keyframe_interval(fps: u32) -> u32 {
+	fps * 4
+}
 pub const SUPPORTED: bool = cfg!(any(
 	target_os = "macos",
 	target_os = "windows",
 	target_os = "linux"
 ));
-/// Consecutive empty hardware outputs (two seconds) before falling back to openh264, so a
-/// hardware encoder that accepts pictures but never returns them cannot leave the call
-/// without video.
-const HARDWARE_STALL: u8 = (FPS * 2) as u8;
-const FRAME_INTERVAL: Duration = Duration::from_nanos(1_000_000_000 / format::FPS as u64);
-/// How early a picture may arrive for its slot. Without it, a device running at exactly
-/// `FPS` loses every other picture to delivery jitter.
-const FRAME_SLACK: Duration = Duration::from_nanos(FRAME_INTERVAL.as_nanos() as u64 / 4);
+fn frame_interval(rate: CameraFrameRate) -> Duration {
+	Duration::from_nanos(1_000_000_000 / u64::from(rate.fps()))
+}
+fn hardware_stalled(since: Instant, now: Instant) -> bool {
+	now.checked_duration_since(since)
+		.is_some_and(|elapsed| elapsed >= HARDWARE_STALL)
+}
 
-/// Admits at most `FPS` pictures per second on average. Each admission advances a schedule by
-/// one interval rather than restarting it from the arrival, so early pictures cannot
-/// accumulate into a higher rate. A schedule more than one interval behind restarts from the
-/// arrival, so a pause never banks credit for a burst.
-#[derive(Default)]
+/// Admits at most the selected rate's pictures per second on average. Each admission advances
+/// a schedule by one interval rather than restarting it from the arrival, so early pictures
+/// cannot accumulate into a higher rate. A schedule more than one interval behind restarts
+/// from the arrival, so a pause never banks credit for a burst.
 struct FrameGate {
-	next: Option<std::time::Instant>,
+	interval: Duration,
+	next: Option<Instant>,
 }
 
 impl FrameGate {
-	/// Whether a picture arriving at `now` fits the schedule; nothing is recorded.
-	fn ready(&self, now: std::time::Instant) -> bool {
-		self.next.is_none_or(|next| now + FRAME_SLACK >= next)
+	fn new(rate: CameraFrameRate) -> Self {
+		Self {
+			interval: frame_interval(rate),
+			next: None,
+		}
+	}
+
+	/// Whether a picture arriving at `now` fits the schedule; nothing is recorded. A picture
+	/// may arrive a quarter interval early: without that slack, a device running at exactly
+	/// the selected rate loses every other picture to delivery jitter.
+	fn ready(&self, now: Instant) -> bool {
+		self.next.is_none_or(|next| now + self.interval / 4 >= next)
 	}
 
 	/// Records a picture that was actually handed on. Callers whose hand-off can fail call
 	/// this only on success, so a discarded picture does not use up a slot.
-	fn commit(&mut self, now: std::time::Instant) {
+	fn commit(&mut self, now: Instant) {
 		let base = match self.next {
-			Some(next) if now < next + FRAME_INTERVAL => next,
+			Some(next) if now < next + self.interval => next,
 			_ => now,
 		};
-		self.next = Some(base + FRAME_INTERVAL);
+		self.next = Some(base + self.interval);
 	}
 
 	/// `ready` and `commit` together, for callers whose hand-off cannot fail.
 	#[cfg_attr(not(any(test, target_os = "linux")), allow(dead_code))]
-	fn admit(&mut self, now: std::time::Instant) -> bool {
+	fn admit(&mut self, now: Instant) -> bool {
 		let ready = self.ready(now);
 		if ready {
 			self.commit(now);
@@ -99,6 +116,7 @@ pub struct Frame {
 
 #[derive(Default)]
 struct Shared {
+	rate: CameraFrameRate,
 	stopped: AtomicBool,
 	active: AtomicBool,
 	finished: AtomicBool,
@@ -139,6 +157,16 @@ impl Camera {
 		on_frame: Arc<dyn Fn(Frame) + Send + Sync>,
 		wake: Arc<dyn Fn() + Send + Sync>,
 	) -> Result<Self, &'static str> {
+		Self::start_with_frame_rate(device, CameraFrameRate::default(), on_frame, wake)
+	}
+
+	/// Start capture using the requested native and encoded frame rate.
+	pub fn start_with_frame_rate(
+		device: Option<String>,
+		rate: CameraFrameRate,
+		on_frame: Arc<dyn Fn(Frame) + Send + Sync>,
+		wake: Arc<dyn Fn() + Send + Sync>,
+	) -> Result<Self, &'static str> {
 		if !SUPPORTED {
 			return Err("Camera capture is unavailable on this platform");
 		}
@@ -155,7 +183,10 @@ impl Camera {
 			return Err("Previous camera session is still closing; try again shortly");
 		}
 		request_keyframe();
-		let shared = Arc::new(Shared::default());
+		let shared = Arc::new(Shared {
+			rate,
+			..Shared::default()
+		});
 		let worker = shared.clone();
 		let teardown = crate::teardown::Thread::start();
 		if thread::Builder::new()
@@ -189,8 +220,8 @@ impl Camera {
 				{
 					*slot = Some(error);
 				}
-				worker.finished.store(true, Ordering::Release);
 				RUNNING.store(false, Ordering::Release);
+				worker.finished.store(true, Ordering::Release);
 				wake();
 			})
 			.is_err()
@@ -217,6 +248,11 @@ impl Camera {
 	pub fn active(&self) -> bool {
 		!self.shared.stopped.load(Ordering::Acquire) && self.shared.active.load(Ordering::Acquire)
 	}
+
+	/// Return the frame rate selected when this camera worker started.
+	pub fn frame_rate(&self) -> CameraFrameRate {
+		self.shared.rate
+	}
 }
 
 /// Camera encoder preferring the platform hardware H.264 encoder (VideoToolbox on macOS,
@@ -224,6 +260,7 @@ impl Camera {
 /// to openh264 when it is unavailable or fails mid-stream. Baseline profile either way, with
 /// predicted pictures between IDRs that are periodic or requested through [`request_keyframe`].
 struct CameraEncoder {
+	rate: CameraFrameRate,
 	diagnostics: crate::diagnostics::EncoderRegistration,
 	software: Option<Encoder>,
 	yuv: YUVBuffer,
@@ -232,16 +269,16 @@ struct CameraEncoder {
 	#[cfg(target_os = "linux")]
 	hardware: Option<encode_linux::Encoder>,
 	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-	empty_run: u8,
+	hardware_empty_since: Option<Instant>,
 }
 
 impl CameraEncoder {
-	fn new() -> Result<Self, &'static str> {
+	fn new(rate: CameraFrameRate) -> Result<Self, &'static str> {
 		#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 		let config = crate::video_encode::Config {
 			width: WIDTH as u32,
 			height: HEIGHT as u32,
-			fps: FPS,
+			fps: rate.fps(),
 			bit_rate: BIT_RATE,
 			max_bytes: MAX_ENCODED_BYTES,
 			profile: crate::video_encode::Profile::Baseline,
@@ -260,18 +297,19 @@ impl CameraEncoder {
 		let software = if hardware.is_some() {
 			None
 		} else {
-			Some(encoder()?)
+			Some(encoder(rate)?)
 		};
 		#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-		let software = Some(encoder()?);
+		let software = Some(encoder(rate)?);
 		Ok(Self {
+			rate,
 			diagnostics: crate::diagnostics::EncoderRegistration::new(false, software.is_none()),
 			software,
 			yuv: YUVBuffer::new(WIDTH, HEIGHT),
 			#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 			hardware,
 			#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-			empty_run: 0,
+			hardware_empty_since: None,
 		})
 	}
 
@@ -286,7 +324,7 @@ impl CameraEncoder {
 		if let Some(hardware) = self.hardware.as_mut() {
 			match hardware.encode(&rgb, keyframe) {
 				Ok(Some(h264)) => {
-					self.empty_run = 0;
+					self.hardware_empty_since = None;
 					return frame(rgb, h264);
 				}
 				// The encoder is still holding this picture; the next one returns it. A forced
@@ -313,7 +351,7 @@ impl CameraEncoder {
 			};
 			match encoded {
 				Ok((h264, _)) if !h264.is_empty() => {
-					self.empty_run = 0;
+					self.hardware_empty_since = None;
 					return frame(rgb, h264);
 				}
 				// Dropped to hold the rate; a run of these means the encoder is stuck. The
@@ -338,11 +376,12 @@ impl CameraEncoder {
 		encode_rgb(software, &mut self.yuv, rgb, keyframe)
 	}
 
-	/// Counts one empty hardware output; false once the run says the encoder is stuck.
+	/// Starts the hardware fallback deadline on the first consecutive empty output.
 	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 	fn note_empty(&mut self) -> bool {
-		self.empty_run = self.empty_run.saturating_add(1);
-		self.empty_run < HARDWARE_STALL
+		let now = Instant::now();
+		let since = self.hardware_empty_since.get_or_insert(now);
+		!hardware_stalled(*since, now)
 	}
 
 	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -350,21 +389,23 @@ impl CameraEncoder {
 		// openh264 starts with an IDR; receivers still hold the hardware encoder's references.
 		request_keyframe();
 		self.hardware = None;
-		self.empty_run = 0;
+		self.hardware_empty_since = None;
 		self.diagnostics.set(None);
-		self.software = Some(encoder()?);
+		self.software = Some(encoder(self.rate)?);
 		self.diagnostics.set(Some(false));
 		Ok(())
 	}
 }
 
-fn encoder() -> Result<Encoder, &'static str> {
+fn encoder(rate: CameraFrameRate) -> Result<Encoder, &'static str> {
 	Encoder::with_api_config(
 		OpenH264API::from_source(),
 		EncoderConfig::new()
 			.bitrate(BitRate::from_bps(BIT_RATE))
-			.max_frame_rate(FrameRate::from_hz(FPS as f32))
-			.intra_frame_period(IntraFramePeriod::from_num_frames(KEYFRAME_INTERVAL))
+			.max_frame_rate(FrameRate::from_hz(rate.fps() as f32))
+			.intra_frame_period(IntraFramePeriod::from_num_frames(keyframe_interval(
+				rate.fps(),
+			)))
 			.profile(Profile::Baseline)
 			.num_threads(1)
 			.debug(false),
@@ -431,7 +472,7 @@ fn run(
 	on_frame: &Arc<dyn Fn(Frame) + Send + Sync>,
 	wake: &Arc<dyn Fn() + Send + Sync>,
 ) -> Result<(), &'static str> {
-	let mut encoder = CameraEncoder::new()?;
+	let mut encoder = CameraEncoder::new(shared.rate)?;
 	let mut emit = |rgb| {
 		if shared.stopped.load(Ordering::Acquire) {
 			return Ok(());
@@ -638,7 +679,7 @@ mod macos {
 	/// Largest native mode accepted when a camera offers nothing at or below 1280×720.
 	const FALLBACK: (usize, usize) = (3840, 2160);
 
-	fn configure(device: &AVCaptureDevice) -> Result<(), &'static str> {
+	fn configure(device: &AVCaptureDevice, rate: CameraFrameRate) -> Result<(), &'static str> {
 		// SAFETY: Formats/ranges come from this device. Only this worker changes it,
 		// while locked, before capture starts. Endpoint durations stay exact.
 		unsafe {
@@ -647,15 +688,20 @@ mod macos {
 				let size = CMVideoFormatDescriptionGetDimensions(&native.formatDescription());
 				for range in native.videoSupportedFrameRateRanges().iter().take(256) {
 					let (min, max) = (range.minFrameRate(), range.maxFrameRate());
-					let Some(fps) = format::nearest_fps(min, max) else {
+					let Some(fps) = format::nearest_fps_for(min, max, rate.fps()) else {
 						continue;
 					};
 					let (width, height) = (size.width as usize, size.height as usize);
 					// Prefer modes within the usual ceiling; cameras that only offer larger
 					// ones still work, since AVFoundation scales to the encoder size before delivery.
-					let Some(rank) =
-						format::rank_with_ceiling(width, height, fps, FALLBACK.0, FALLBACK.1)
-					else {
+					let Some(rank) = format::rank_with_ceiling_for(
+						width,
+						height,
+						fps,
+						FALLBACK.0,
+						FALLBACK.1,
+						rate.fps(),
+					) else {
 						continue;
 					};
 					let rank = (
@@ -667,7 +713,7 @@ mod macos {
 					} else if fps == max {
 						range.minFrameDuration()
 					} else {
-						CMTime::new(1, format::FPS as i32)
+						CMTime::new(1, rate.fps() as i32)
 					};
 					if selected.as_ref().is_none_or(|(best, _, _)| rank < *best) {
 						selected = Some((rank, native.clone(), duration));
@@ -707,7 +753,7 @@ mod macos {
 		if shared.stopped.load(Ordering::Acquire) {
 			return Ok(());
 		}
-		let mut encoder = CameraEncoder::new()?;
+		let mut encoder = CameraEncoder::new(shared.rate)?;
 		let (send, receive) = mpsc::sync_channel(1);
 		let queue = DispatchQueue::new("serein.camera.frames", None);
 		// SAFETY: Only this worker configures/owns the session. Delegate lives until
@@ -737,7 +783,7 @@ mod macos {
 			}
 			session.beginConfiguration();
 			session.setSessionPreset(AVCaptureSessionPresetInputPriority);
-			let configured = configure(&device);
+			let configured = configure(&device, shared.rate);
 			session.commitConfiguration();
 			configured?;
 			let format = NSNumber::new_u32(kCVPixelFormatType_32BGRA);
@@ -761,7 +807,7 @@ mod macos {
 			let allocated = SereinCameraDelegate::alloc().set_ivars(DelegateState {
 				send,
 				shared: shared.clone(),
-				gate: Mutex::new(FrameGate::default()),
+				gate: Mutex::new(FrameGate::new(shared.rate)),
 			});
 			let delegate: Retained<SereinCameraDelegate> = msg_send![super(allocated), init];
 			output.setSampleBufferDelegate_queue(
@@ -831,6 +877,17 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn hardware_stall_deadline_is_elapsed_time_based() {
+		let start = Instant::now();
+		assert!(!hardware_stalled(
+			start,
+			start + HARDWARE_STALL - Duration::from_millis(1)
+		));
+		assert!(hardware_stalled(start, start + HARDWARE_STALL));
+		assert!(!hardware_stalled(start + HARDWARE_STALL, start));
+	}
+
+	#[test]
 	fn camera_rejects_unbounded_or_nul_device_ids_before_starting_worker() {
 		for id in ["x".repeat(4097), "dshow:bad\0id".into()] {
 			let error = Camera::start(
@@ -850,7 +907,7 @@ mod tests {
 
 	#[test]
 	fn camera_frames_are_bounded_predicted_and_stop_is_immediate() {
-		let mut encoder = encoder().unwrap();
+		let mut encoder = encoder(CameraFrameRate::Fps30).unwrap();
 		let mut yuv = YUVBuffer::new(WIDTH, HEIGHT);
 		for length in [0, WIDTH * HEIGHT * 3 - 1, WIDTH * HEIGHT * 3 + 1] {
 			assert!(encode_rgb(&mut encoder, &mut yuv, vec![0; length], false).is_err());
@@ -897,8 +954,8 @@ mod tests {
 		camera.shared.finished.store(true, Ordering::Release);
 		assert!(camera.stopped());
 
-		{
-			let mut encoder = CameraEncoder::new().unwrap();
+		for rate in [CameraFrameRate::Fps15, CameraFrameRate::Fps30] {
+			let mut encoder = CameraEncoder::new(rate).unwrap();
 			// Exactly one encoder is live: hardware when the machine offers it, openh264 otherwise.
 			#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 			assert_eq!(encoder.hardware.is_some(), encoder.software.is_none());
@@ -933,7 +990,7 @@ mod tests {
 	fn frame_gate_holds_the_average_rate_and_tolerates_jitter() {
 		let start = std::time::Instant::now();
 		let admitted = |period_us: u64, jitter_us: u64| {
-			let mut gate = FrameGate::default();
+			let mut gate = FrameGate::new(CameraFrameRate::Fps30);
 			(0..300u64)
 				.filter(|index| {
 					// Alternate early and late deliveries around the nominal period.
@@ -942,10 +999,10 @@ mod tests {
 				})
 				.count()
 		};
-		let interval = FRAME_INTERVAL.as_micros() as u64;
-		// A device at exactly `FPS` keeps every picture despite a few milliseconds of jitter.
+		let interval = frame_interval(CameraFrameRate::Fps30).as_micros() as u64;
+		// A device at exactly the selected rate keeps every picture despite a few milliseconds of jitter.
 		assert_eq!(admitted(interval, 4_000), 300);
-		// Faster devices are held to `FPS`: 40 fps keeps three in four, 60 fps one in two.
+		// Faster devices are held to 30 fps: 40 fps keeps three in four, 60 fps one in two.
 		assert!(
 			(224..=226).contains(&admitted(25_000, 0)),
 			"{}",
@@ -953,17 +1010,23 @@ mod tests {
 		);
 		assert!((150..=151).contains(&admitted(interval / 2, 0)));
 		// A slot is used only by a committed picture.
-		let mut gate = FrameGate::default();
+		let mut gate = FrameGate::new(CameraFrameRate::Fps30);
 		assert!(gate.ready(start));
 		assert!(gate.ready(start));
 		gate.commit(start);
 		assert!(!gate.ready(start + Duration::from_millis(5)));
 		// A pause does not bank credit for a burst afterwards.
-		let mut gate = FrameGate::default();
+		let mut gate = FrameGate::new(CameraFrameRate::Fps30);
 		assert!(gate.admit(start));
 		let resumed = start + Duration::from_secs(1);
 		assert!(gate.admit(resumed));
 		assert!(!gate.admit(resumed + Duration::from_millis(5)));
+		// The 15 fps mode keeps one in two pictures from a 30 fps device.
+		let mut gate = FrameGate::new(CameraFrameRate::Fps15);
+		let kept = (0..300u64)
+			.filter(|index| gate.admit(start + Duration::from_micros(index * interval)))
+			.count();
+		assert_eq!(kept, 150);
 	}
 
 	/// Flat pictures compress to almost nothing; vary one row so size checks bite.

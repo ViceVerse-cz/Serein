@@ -267,7 +267,11 @@ fn rgb_dimensions(media: &AM_MEDIA_TYPE) -> Result<(usize, usize, bool), &'stati
 	Ok(dimensions)
 }
 
-fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<(), &'static str> {
+fn configure(
+	builder: &ICaptureGraphBuilder2,
+	source: &IBaseFilter,
+	rate: u32,
+) -> Result<(), &'static str> {
 	// SAFETY: Owned worker graph, only bounded native formats may be selected.
 	unsafe {
 		let mut pointer = std::ptr::null_mut();
@@ -320,9 +324,10 @@ fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<()
 						.as_ptr()
 						.cast::<VIDEO_STREAM_CONFIG_CAPS>()
 						.read_unaligned();
-					if let Some(fps) = format::nearest_fps(
+					if let Some(fps) = format::nearest_fps_for(
 						10_000_000.0 / caps.MaxFrameInterval as f64,
 						10_000_000.0 / caps.MinFrameInterval as f64,
+						rate,
 					) {
 						interval.write_unaligned(
 							((10_000_000.0 / fps).round() as i64)
@@ -332,12 +337,13 @@ fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<()
 				}
 				let duration = interval.read_unaligned();
 				let fps = (duration > 0).then(|| 10_000_000.0 / duration as f64);
-				if let Some(mut rank) = format::rank_with_ceiling(
+				if let Some(mut rank) = format::rank_with_ceiling_for(
 					width,
 					height,
-					fps.unwrap_or(f64::from(format::FPS)),
+					fps.unwrap_or(f64::from(rate)),
 					MAX_WIDTH,
 					MAX_HEIGHT,
+					rate,
 				) {
 					// Preserve the existing bounded fallback when the driver omits timing.
 					// Unknown rates follow measured ones at the same native resolution.
@@ -399,7 +405,7 @@ pub(super) fn run(
 		graph
 			.AddFilter(&source, w!("Camera"))
 			.map_err(|_| UNAVAILABLE)?;
-		configure(&builder, &source)?;
+		configure(&builder, &source, shared.rate.fps())?;
 		let filter: IBaseFilter = CoCreateInstance(&SAMPLE_GRABBER, None, CLSCTX_INPROC_SERVER)
 			.map_err(|_| UNAVAILABLE)?;
 		let grabber: ISampleGrabber = filter.cast().map_err(|_| UNAVAILABLE)?;
@@ -479,7 +485,7 @@ pub(super) fn run(
 		let (send, receive) = mpsc::sync_channel(1);
 		let callback: ISampleGrabberCB = Callback {
 			send,
-			last: Mutex::new((FrameGate::default(), false)),
+			last: Mutex::new((FrameGate::new(shared.rate), false)),
 			bytes,
 			dimensions: (width, height, bottom_up),
 		}

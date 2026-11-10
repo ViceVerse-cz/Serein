@@ -193,6 +193,7 @@ impl ServerMenu {
 		self.generation = state.generation;
 		self.invite.open();
 	}
+	/// Draws the server name header and its dropdown menu, including plugin server actions.
 	pub fn header(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -245,6 +246,12 @@ impl ServerMenu {
 					let available = !state.server_action_pending()
 						&& !state.server_invite_pending()
 						&& (state.demo || state.gateway_connected);
+					crate::extensions_ui::context_menu_items(
+						ui,
+						extensions::MenuTarget::Server {
+							guild_id: guild.to_string(),
+						},
+					);
 					self.read_item(ui, state, guild);
 					ui.separator();
 					self.settings_item(ui, state, guild);

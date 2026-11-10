@@ -33,6 +33,7 @@ pub(super) struct PostMenu {
 }
 
 impl PostMenu {
+	/// Shows the context menu of a forum post or thread, including plugin channel actions.
 	pub fn context(
 		&mut self,
 		response: &egui::Response,
@@ -68,6 +69,13 @@ impl PostMenu {
 				let details = state.post_details(post.id);
 				let ready = available && details.is_some() && self.load.is_none();
 				let mut intent = None;
+				crate::extensions_ui::context_menu_items(
+					ui,
+					extensions::MenuTarget::Channel {
+						channel_id: post.id.to_string(),
+						guild_id: post.guild.map(|guild| guild.to_string()),
+					},
+				);
 				if row(
 					ui,
 					"post-menu-context-mark-as-read",

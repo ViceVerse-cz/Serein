@@ -67,9 +67,14 @@ impl Sender {
 	pub fn ssrc(&self) -> u32 {
 		self.ssrc
 	}
-	pub fn announcement(&self, audio: u32, enabled: bool) -> Value {
-		use crate::camera::{BIT_RATE, FPS, HEIGHT, WIDTH};
-		json!({"op":12,"d":{"audio_ssrc":audio,"video_ssrc":if enabled {self.ssrc} else {0},"rtx_ssrc":if enabled {self.rtx} else {0},"streams":if enabled {vec![json!({"type":"video","rid":"100","ssrc":self.ssrc,"rtx_ssrc":self.rtx,"active":true,"quality":100,"max_bitrate":BIT_RATE,"max_framerate":FPS,"max_resolution":{"type":"fixed","width":WIDTH,"height":HEIGHT}})]}else{vec![]}}})
+	pub fn announcement(
+		&self,
+		audio: u32,
+		enabled: bool,
+		rate: model::voice_settings::CameraFrameRate,
+	) -> Value {
+		use crate::camera::{BIT_RATE, HEIGHT, WIDTH};
+		json!({"op":12,"d":{"audio_ssrc":audio,"video_ssrc":if enabled {self.ssrc} else {0},"rtx_ssrc":if enabled {self.rtx} else {0},"streams":if enabled {vec![json!({"type":"video","rid":"100","ssrc":self.ssrc,"rtx_ssrc":self.rtx,"active":true,"quality":100,"max_bitrate":BIT_RATE,"max_framerate":rate.fps(),"max_resolution":{"type":"fixed","width":WIDTH,"height":HEIGHT}})]}else{vec![]}}})
 	}
 	/// Drops queued packets. A partly sent picture breaks the prediction chain.
 	pub fn clear(&mut self) {
@@ -197,6 +202,15 @@ mod tests {
 	#[test]
 	fn camera_packetization_is_bounded_and_marks_only_the_last_fragment() {
 		let mut sender = Sender::default();
+		for rate in [
+			model::voice_settings::CameraFrameRate::Fps15,
+			model::voice_settings::CameraFrameRate::Fps30,
+		] {
+			assert_eq!(
+				sender.announcement(1, true, rate)["d"]["streams"][0]["max_framerate"].as_u64(),
+				Some(u64::from(rate.fps()))
+			);
+		}
 		let mut crypto = Encryption::new(&[7; 32]);
 		let mut frame = vec![0, 0, 0, 1, 0x65];
 		frame.extend(vec![9; 2400]);
