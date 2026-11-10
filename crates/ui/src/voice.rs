@@ -3627,7 +3627,11 @@ impl MessagingUi {
 		let plate = ui.painter().add(egui::Shape::Noop);
 		let response = control(
 			ui,
-			crate::icons::Icon::ScreenShare,
+			if self.screen.busy {
+				crate::icons::Icon::StopScreenShare
+			} else {
+				crate::icons::Icon::ScreenShare
+			},
 			48.0,
 			enabled,
 			color,
@@ -4216,7 +4220,11 @@ impl MessagingUi {
 					share_clicked = card_action(
 						ui,
 						width,
-						crate::icons::Icon::ScreenShare,
+						if self.screen.busy {
+							crate::icons::Icon::StopScreenShare
+						} else {
+							crate::icons::Icon::ScreenShare
+						},
 						can_share,
 						self.screen.busy,
 						if self.screen.busy {
