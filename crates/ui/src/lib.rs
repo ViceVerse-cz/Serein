@@ -2385,8 +2385,11 @@ impl MessagingUi {
 												.map_or(identity.rect.left(), |rect| rect.left());
 											let height = union.height().max(32.0) + 8.0;
 											let full_left = left - 4.0;
-											let hover_right =
-												full_left + (identity_right - full_left) * 0.9;
+											// Leave a gap before the voice controls, but never stop under long text.
+											let hover_right = (full_left
+												+ (identity_right - full_left) * 0.9)
+												.max(identity.rect.right() + 4.0)
+												.min(identity_right);
 											let hover_rect = egui::Rect::from_min_max(
 												egui::pos2(
 													full_left,
@@ -2399,16 +2402,17 @@ impl MessagingUi {
 											);
 											let focused = identity.has_focus() || avatar_focused;
 											// The empty tail of the hover rectangle joins the identity's click
-											// target without covering the avatar's own context menu.
+											// target without covering the avatar's own context menu. It spans
+											// the unpadded row so the menu anchor does not move up.
 											let space =
 												(identity.rect.right() < hover_right).then(|| {
 													ui.interact(
 														egui::Rect::from_min_max(
 															egui::pos2(
 																identity.rect.right(),
-																hover_rect.top(),
+																union.top(),
 															),
-															hover_rect.right_bottom(),
+															egui::pos2(hover_right, union.bottom()),
 														),
 														ui.scope_id()
 															.with("account-identity-space"),
