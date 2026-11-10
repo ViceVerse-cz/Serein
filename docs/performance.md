@@ -97,6 +97,61 @@ branch presented three frames about 1.0 s after the move and saved the new posit
 gains no frames, and while a placement is unsaved the wake adds at most one frame per 500 ms.
 Interactive drags were not re-measured.
 
+## DeepFilterNet Plus runtime — November 6, 2026
+
+This continues the DeepFilterNet suppressor first proposed in PR #581, whose October 7
+measurements used its tract 0.21.4 runtime on another machine; the numbers below replace
+them. Windows 11 x64 (build 26200), Ryzen 5 7600X, 32 GB RAM, pinned Rust 1.98.1, locked
+dependencies. Both packages come from `cargo xtask package` (voice included, demo and
+development data disabled), stamped with the same version string, from separate worktrees
+and target directories. NSIS is unavailable, so neither has an installer.
+
+| Metric / method | Baseline main `7ecb7619` | This branch | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,946,432 B | 118,854,144 B | +25,907,712 B (+27.87%) |
+| `dist/` regular-file payload (233 / 300 files) | 97,306,328 B | 123,591,752 B | +26,285,424 B (+27.01%) |
+| ZIP of `dist/` (Python `ZIP_DEFLATED` level 9, sorted paths) | 53,146,168 B | 67,202,034 B | +14,055,866 B (+26.45%) |
+
+The growth is the tract runtime and the embedded 7,983,136-byte DeepFilterNet3 archive,
+paid by every build whether or not the suppressor is selected; the 67 extra files are
+license texts.
+
+A throwaway harness, not committed, timed `Echo::capture` in release builds over 529
+20 ms frames of the upstream DeepFilterNet sample speech mixed with a recorded noise at
+5 dB SNR, with echo cancellation and automatic gain on and no gate. Runs of PR #581's
+runtime (DeepFilterNet `d375b2d` on tract 0.21.4) and this branch's runtime (DeepFilterNet
+Plus `2dc5273` on tract 0.22.5) alternated in four rounds of three runs each:
+
+| Metric | PR #581 runtime | DeepFilterNet Plus, tract 0.22.5 | Delta |
+| --- | ---: | ---: | ---: |
+| Per-frame median, median of 12 runs (range) | 1.22 ms (0.98–1.65) | 1.40 ms (1.23–1.54) | +0.19 ms (+15%) |
+| Per-frame p99, median of 12 runs | 2.85 ms | 3.62 ms | +0.77 ms |
+| Network decode and optimization, median of 12 (range) | 286 ms (257–407) | 247 ms (193–349) | −38 ms (−13%) |
+
+With the final branch, three runs took 221–233 ms to load the networks on the helper
+thread; the longest single `Echo::configure` call on the worker while it polled was
+0.40–0.52 ms, where PR #581 blocked the worker for the whole load. Per-frame medians were
+1.12–1.46 ms (5.6–7.3% of real time) and resets took 0.33–0.39 ms; RNNoise measured
+0.19–0.23 ms per frame in the same runs.
+
+Quality used DeepFilterNet alone (no echo cancellation or gain) and SI-SDR against the
+clean speech after removing the measured 1,440-sample (30 ms) delay. Both runtimes gave
+identical results to two decimals at High. Input SI-SDR was 0.07/5.04/10.02 dB for the
+0/5/10 dB mixtures; the noise-only runs multiply each noise signal by 0.05:
+
+| Strength | Noise-only attenuation (rec. 2530 / rec. 573577 / white) | SI-SDR at 0/5/10 dB SNR, rec. 2530 | Clean speech energy change |
+| --- | ---: | ---: | ---: |
+| Low (12 dB cap) | 11.4 / 12.0 / 12.0 dB | 8.20 / 12.86 / 17.09 dB | −0.14 dB |
+| Moderate (24 dB cap) | 20.4 / 24.0 / 23.8 dB | 10.30 / 14.51 / 18.33 dB | −0.18 dB |
+| High (default, no cap) | 24.6 / 92.9 / 43.3 dB | 10.35 / 14.54 / 18.36 dB | −0.19 dB |
+| Very high (post-filter) | 25.9 / 151.7 / 46.7 dB | 10.24 / 14.45 / 18.34 dB | −0.19 dB |
+
+The sample recordings (freesound 33711, CC BY-NC 3.0 speech; 2530, CC BY 3.0; 573577, CC0)
+come from the upstream repository's `assets/` and are not redistributed. Timings are
+elapsed single-thread component times on a desktop whose background load was not
+controlled, not process CPU. Process memory, whole-app CPU, other CPUs, macOS and Linux,
+physical microphones, perceived quality and live calls are unmeasured.
+
 ## Window drags on Windows — November 5, 2026
 
 Review follow-up: the measurements below describe the original `1f664628` implementation.

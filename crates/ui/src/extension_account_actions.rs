@@ -37,6 +37,7 @@ impl MessagingUi {
 				NoiseSuppression::Off => "off",
 				NoiseSuppression::RnNoise => "rnnoise",
 				NoiseSuppression::WebRtc => "webrtc",
+				NoiseSuppression::DeepFilterNet => "deepfilternet",
 			}
 			.into(),
 			suppression_level: effective.suppression_level,
@@ -199,6 +200,7 @@ impl MessagingUi {
 							"off" => NoiseSuppression::Off,
 							"rnnoise" => NoiseSuppression::RnNoise,
 							"webrtc" => NoiseSuppression::WebRtc,
+							"deepfilternet" => NoiseSuppression::DeepFilterNet,
 							_ => return Err("Invalid suppression mode".into()),
 						};
 					}

@@ -1997,6 +1997,12 @@ impl Desktop {
 			messaging.preview_settings(&page);
 		}
 		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-deepfilternet") {
+			// Preview voice controls are read-only, so show this Custom suppressor preselected.
+			messaging.voice_processing.edit().suppression =
+				model::voice_settings::NoiseSuppression::DeepFilterNet;
+		}
+		#[cfg(feature = "demo")]
 		if demo
 			&& let Some(tab) = std::env::args().find_map(|arg| {
 				arg.strip_prefix("--demo-theme-maker")
