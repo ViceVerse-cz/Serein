@@ -5,7 +5,7 @@
 use crate::design;
 use egui::emath::GuiRounding;
 use egui::{Color32, ColorImage, Rect, Response, Sense, TextureHandle, Vec2};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 const ATLAS: &[u8] = include_bytes!("../../../assets/icons/atlas.png");
 const INDEX: &str = include_str!("../../../assets/icons/index.tsv");
@@ -396,8 +396,7 @@ fn decoded() -> egui::ColorImage {
 
 /// Prepare every bounded raster layer during application creation, outside rendering.
 pub fn install(ctx: &egui::Context) {
-	let id = egui::Id::unique(TEXTURE_KEY);
-	if ctx.data(|data| data.get_temp::<AtlasLayers>(id).is_some()) {
+	if installed(ctx).is_some() {
 		return;
 	}
 	let trees = svg_trees(SVG_SOURCES);
@@ -413,7 +412,12 @@ pub fn install(ctx: &egui::Context) {
 			(cell, texture)
 		})
 		.collect();
-	ctx.data_mut(|data| data.insert_temp(id, AtlasLayers { cells }));
+	ctx.data_mut(|data| data.insert_temp(egui::Id::unique(TEXTURE_KEY), AtlasLayers { cells }));
+}
+
+/// Cloning the shared list bumps one reference count; it never touches texture handles.
+fn installed(ctx: &egui::Context) -> Option<AtlasLayers> {
+	ctx.data(|data| data.get_temp::<AtlasLayers>(egui::Id::unique(TEXTURE_KEY)))
 }
 
 fn svg_trees(sources: &[(&str, &[u8])]) -> Vec<(usize, resvg::usvg::Tree)> {
@@ -435,9 +439,9 @@ fn svg_trees(sources: &[(&str, &[u8])]) -> Vec<(usize, resvg::usvg::Tree)> {
 		.collect()
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct AtlasLayers {
-	cells: Vec<(u32, TextureHandle)>,
+	cells: Arc<[(u32, TextureHandle)]>,
 }
 
 fn source_image() -> &'static ColorImage {
@@ -478,16 +482,20 @@ fn raster_layer(cell: u32, trees: &[(usize, resvg::usvg::Tree)]) -> ColorImage {
 			cell as f32 / tree.size().height(),
 		);
 		resvg::render(tree, transform, &mut pixels.as_mut());
-		let x = (index % COLUMNS) * cell as usize;
-		let y = (index / COLUMNS) * cell as usize;
-		for (offset, pixel) in pixels.pixels().iter().enumerate() {
-			layer.pixels_mut()[(y + offset / cell as usize) * width + x + offset % cell as usize] =
-				Color32::from_rgba_premultiplied(
+		let side = cell as usize;
+		let x = (index % COLUMNS) * side;
+		let y = (index / COLUMNS) * side;
+		let target = layer.pixels_mut();
+		for (row, source) in pixels.pixels().chunks_exact(side).enumerate() {
+			let start = (y + row) * width + x;
+			for (out, pixel) in target[start..start + side].iter_mut().zip(source) {
+				*out = Color32::from_rgba_premultiplied(
 					pixel.red(),
 					pixel.green(),
 					pixel.blue(),
 					pixel.alpha(),
 				);
+			}
 		}
 	}
 	layer
@@ -495,17 +503,17 @@ fn raster_layer(cell: u32, trees: &[(usize, resvg::usvg::Tree)]) -> ColorImage {
 
 fn layer(ctx: &egui::Context, cell: u32) -> TextureHandle {
 	// Normal desktop startup installs explicitly; headless consumers may initialize lazily.
-	install(ctx);
-	ctx.data(|data| {
-		data.get_temp::<AtlasLayers>(egui::Id::unique(TEXTURE_KEY))
-			.expect("installed icon layers")
-			.cells
-			.iter()
-			.find(|(stored, _)| *stored == cell)
-			.expect("bounded icon raster size")
-			.1
-			.clone()
-	})
+	let layers = installed(ctx).unwrap_or_else(|| {
+		install(ctx);
+		installed(ctx).expect("installed icon layers")
+	});
+	layers
+		.cells
+		.iter()
+		.find(|(stored, _)| *stored == cell)
+		.expect("bounded icon raster size")
+		.1
+		.clone()
 }
 
 #[cfg(test)]
