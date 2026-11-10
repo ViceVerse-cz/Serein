@@ -26,9 +26,9 @@ struct Pending {
 }
 impl Pending {
 	fn reactive(&self) -> bool {
-		self.invocation
-			.as_ref()
-			.is_some_and(|(_, input, _)| input.message_event.is_some() || input.app_event.is_some())
+		self.invocation.as_ref().is_some_and(|(_, input, _)| {
+			input.message_event.is_some() || input.app_event.is_some() || input.hook.is_some()
+		})
 	}
 }
 
@@ -704,10 +704,27 @@ impl Bridge {
 			} {
 			state.push_local_message(channel, local.content.clone());
 		}
+		if let Some(status) = &output.composer_status {
+			messaging.extensions.set_composer_status(&id, status);
+		}
+		// A send hook's last answer carries the text to send; a request means more is coming.
+		if matches!(
+			invocation.hook,
+			Some(extensions::Hook::Send | extensions::Hook::Edit)
+		) && output.fetches.is_empty()
+		{
+			messaging
+				.extensions
+				.send_hook_done(&id, output.replacement.clone(), ctx, state);
+		}
 		// Results that only changed the conversation or a setting need no window.
 		let shows_something =
 			!output.panel.is_empty() || output.replacement.is_some() || !output.effects.is_empty();
-		if invocation.message_event.is_none() && invocation.app_event.is_none() && shows_something {
+		if invocation.message_event.is_none()
+			&& invocation.app_event.is_none()
+			&& invocation.hook.is_none()
+			&& shows_something
+		{
 			messaging
 				.extensions
 				.present_output(id, invocation, context, output, state);
@@ -861,6 +878,21 @@ impl Bridge {
 						messaging.extensions.status = format!(
 							"{id} animation paused after a failed tick; disable and re-enable it to retry. {error}"
 						);
+						continue;
+					}
+					if let Some((id, input, _)) =
+						pending.as_ref().and_then(|p| p.invocation.as_ref())
+						&& input.hook.is_some()
+					{
+						// A failed hook never blocks sending (the text goes out as it stands) and,
+						// running unasked, never disables its plugin or interrupts with a dialog.
+						if matches!(
+							input.hook,
+							Some(extensions::Hook::Send | extensions::Hook::Edit)
+						) {
+							messaging.extensions.send_hook_done(id, None, ctx, state);
+						}
+						messaging.extensions.status = format!("{id}: {error}");
 						continue;
 					}
 					if let Some((id, _, _)) = pending.as_ref().and_then(|p| p.invocation.as_ref()) {

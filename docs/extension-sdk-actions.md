@@ -997,14 +997,14 @@ routing and preserves an already configured route during reload.
 
 ### Where menu, toolbar and composer actions appear
 
-Each action sits where the plugin placed it, beside Serein's own entries. On the
-plugin's card the user can switch off **Show entries ungrouped**; from then on that
-plugin's actions sit under its name instead: menu actions (`message`, `user`,
-`channel`, `server`, `role`) inside the menu's **Extensions** submenu, `composer`
-actions inside the composer's **Tools** menu. These optional action fields describe
-the place:
+After install, every action of a plugin sits under the plugin's name: menu actions
+(`message`, `user`, `channel`, `server`, `role`) inside the menu's **Extensions**
+submenu, `composer` actions inside the composer's **Tools** menu. This keeps new
+plugins easy to find. On the plugin's card, the user can switch on **Show entries
+ungrouped**; from then on each action appears where the plugin placed it. These
+optional action fields describe that place:
 
-| Field | Values | Effect |
+| Field | Values | Effect once ungrouped |
 | --- | --- | --- |
 | `icon` | An SVG document, at most 8 KiB | Drawn beside the label, and as the button in the message toolbar or composer bar. Only its shape is used; Serein tints it like its own icons. |
 | `placement` | `top`, `after_copy`, `bottom`, `toolbar`, `bar`, `tools` | `top` / `bottom`: first or last entries of the menu (bottom entries sit above Copy ID). `after_copy` (message actions' default): right after the copy entries. `toolbar`: a button in the bar shown while hovering a message. `bar` (composer actions' default): a composer bar button, next to GIF and emoji or, by the user's choice, next to the attach button. `tools`: an entry directly in Tools. `toolbar` and `bar` need an icon; without one the action falls back to the menu. |
@@ -1017,21 +1017,34 @@ the place:
 ```
 
 
-### Results in the conversation
+### Results in the conversation and the draft and send hooks
 
 Some plugins answer in the conversation itself rather than in a result window.
 An output that only carries these fields opens no window. Rust plugins use
-`ChatOutput`, which flattens `NetworkOutput`.
+`ChatOutput`, which flattens `NetworkOutput`, and read the hook through
+`HookInvocation`.
 
 | Output field | Capability | From | Effect |
 | --- | --- | --- | --- |
 | `alternatives`: up to 32 `{channel_id, message_id, text, note, show}` | `message_alternatives` | `message`, `message_event` actions | `text` (at most 8 KiB) is shown in place of the loaded message; the plugin's icon beside the author's name switches between it and the original, with `note` as its tooltip (for example "Translated from Romanian"). `show: false` keeps the original until the reader switches. Republishing the same text keeps the reader's choice. |
 | `local_message`: `{channel_id, content}` | `local_messages` | `composer`, `message`, `panel` actions | Adds a message only you can see to the conversation, rendered like your own message and marked "Only you can see this · Dismiss". An empty `channel_id` means the open conversation. Nothing is sent. |
+| `composer_status`: text, at most 64 bytes | `composer_status` | `draft` actions | Shown at the composer's lower right; an empty string clears it. |
 
-Plugins with `message_alternatives` and a `message_event` action also receive
-`kind: "shown"` for each loaded text message of the open conversation as it comes
-into view, once per content change, with author and content like `create`. Other
-plugins never receive it, so plugins built against an older SDK keep working.
+Two hook surfaces run without a click; at most one action of each per plugin:
+
+- `draft` (requires `composer`) runs a quarter second after the draft stops
+  changing, with `composer` holding the draft and `hook: "draft"`. It may
+  return `composer_status`, never a replacement or a window.
+- `send` (requires `send_hooks` and `composer`) runs when you send, with
+  `composer` holding the text and `hook: "send"`. Its `replacement` is what is
+  sent; hooks of several plugins run in turn, each on the previous result. A
+  hook may start `fetches`; the send waits for the final answer. A failed hook,
+  or hooks taking more than six seconds together, never block sending: the text
+  goes out as it stands. The composer is locked meanwhile.
+
+`message_event` actions also receive `kind: "shown"` for each loaded text
+message of the open conversation as it comes into view, once per content
+change, with author and content like `create`.
 
 Composer actions with `toggle: true` may also return `interface_tweaks`, and
 may set `icon_on` for their switched-on state. A right or Shift click on a

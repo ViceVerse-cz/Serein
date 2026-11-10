@@ -1,7 +1,7 @@
-//! In-conversation outputs: each needs its capability and its surface.
+//! In-conversation outputs and hooks: each needs its capability and its surface.
 use extensions::{
-	Action, Capability, ExtensionKind, Invocation, LocalMessage, Manifest, MessageAlternative,
-	Output, Surface,
+	Action, Capability, Element, ExtensionKind, Hook, Invocation, LocalMessage, Manifest,
+	MessageAlternative, Output, Surface,
 };
 
 fn action(id: &str, surface: Surface) -> Action {
@@ -50,6 +50,47 @@ fn alternative() -> MessageAlternative {
 		note: "Translated from Romanian".into(),
 		show: true,
 	}
+}
+
+#[test]
+fn hooks_need_their_capabilities_and_appear_once() {
+	assert!(
+		manifest(
+			vec![Capability::Composer],
+			vec![action("count", Surface::Draft)]
+		)
+		.validate()
+		.is_ok()
+	);
+	assert!(
+		manifest(vec![], vec![action("count", Surface::Draft)])
+			.validate()
+			.is_err()
+	);
+	assert!(
+		manifest(
+			vec![Capability::Composer],
+			vec![action("send", Surface::Send)]
+		)
+		.validate()
+		.is_err()
+	);
+	assert!(
+		manifest(
+			vec![Capability::Composer, Capability::SendHooks],
+			vec![action("send", Surface::Send)]
+		)
+		.validate()
+		.is_ok()
+	);
+	assert!(
+		manifest(
+			vec![Capability::Composer],
+			vec![action("a", Surface::Draft), action("b", Surface::Draft)]
+		)
+		.validate()
+		.is_err()
+	);
 }
 
 #[test]
@@ -102,6 +143,37 @@ fn alternatives_need_their_capability_and_a_message_surface() {
 }
 
 #[test]
+fn composer_status_comes_only_from_draft_hooks_and_hooks_never_open_windows() {
+	let draft = manifest(
+		vec![Capability::Composer, Capability::ComposerStatus],
+		vec![action("count", Surface::Draft)],
+	);
+	let status = Output {
+		composer_status: Some("4/2000".into()),
+		..Default::default()
+	};
+	assert!(status.validate(&draft, &call("count")).is_ok());
+	let window = Output {
+		panel: vec![Element::Text { text: "no".into() }],
+		..Default::default()
+	};
+	assert!(window.validate(&draft, &call("count")).is_err());
+	let proposal = Output {
+		replacement: Some("x".into()),
+		..Default::default()
+	};
+	assert!(
+		proposal.validate(&draft, &call("count")).is_err(),
+		"a draft hook cannot rewrite the draft"
+	);
+	let composer = manifest(
+		vec![Capability::Composer, Capability::ComposerStatus],
+		vec![action("button", Surface::Composer)],
+	);
+	assert!(status.validate(&composer, &call("button")).is_err());
+}
+
+#[test]
 fn local_messages_need_their_capability_and_text() {
 	let granted = manifest(
 		vec![Capability::Composer, Capability::LocalMessages],
@@ -125,4 +197,48 @@ fn local_messages_need_their_capability_and_text() {
 			.validate(&ungranted, &call("preview"))
 			.is_err()
 	);
+}
+
+#[test]
+fn send_hooks_answer_with_text() {
+	let send = manifest(
+		vec![Capability::Composer, Capability::SendHooks],
+		vec![action("send", Surface::Send)],
+	);
+	let mut input = call("send");
+	input.hook = Some(Hook::Send);
+	assert!(
+		Output {
+			replacement: Some("Hello".into()),
+			..Default::default()
+		}
+		.validate(&send, &input)
+		.is_ok()
+	);
+}
+
+#[test]
+fn hook_inputs_carry_the_draft_and_match_their_surface() {
+	let plugin = manifest(
+		vec![Capability::Composer, Capability::SendHooks],
+		vec![
+			action("count", Surface::Draft),
+			action("send", Surface::Send),
+			action("button", Surface::Composer),
+		],
+	);
+	let mut draft = call("count");
+	assert!(
+		draft.validate(&plugin).is_err(),
+		"a draft action runs only as the draft hook"
+	);
+	draft.hook = Some(Hook::Draft);
+	assert!(draft.validate(&plugin).is_ok());
+	let mut send = call("send");
+	send.hook = Some(Hook::Edit);
+	assert!(send.validate(&plugin).is_ok());
+	let mut click = call("button");
+	assert!(click.validate(&plugin).is_ok());
+	click.hook = Some(Hook::Send);
+	assert!(click.validate(&plugin).is_err(), "a click is never a hook");
 }

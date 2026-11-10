@@ -878,6 +878,7 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 				return Err("Plugin input exceeds 256 KiB".into());
 			}
 			gate.check()?;
+			let invocation_hook = invocation.hook;
 			let mut output =
 				extensions::invoke(&stored.package, &invocation).map_err(|e| e.to_string())?;
 			gate.check()?;
@@ -907,6 +908,12 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 					Capability::MessageAlternatives,
 				),
 				(output.local_message.is_some(), Capability::LocalMessages),
+				(output.composer_status.is_some(), Capability::ComposerStatus),
+				(
+					invocation_hook == Some(extensions::Hook::Send)
+						|| invocation_hook == Some(extensions::Hook::Edit),
+					Capability::SendHooks,
+				),
 			] {
 				if used && !stored.grants.contains(&capability) {
 					return Err("Plugin access was not granted".into());

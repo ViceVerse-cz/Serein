@@ -163,6 +163,10 @@ pub enum Capability {
 	/// Add a message only you can see to the open conversation, rendered like your own
 	/// message and dismissible, like a message preview.
 	LocalMessages,
+	/// Show a short status beside the composer while you type, like a character count.
+	ComposerStatus,
+	/// Change the text of your messages and edits just before they are sent.
+	SendHooks,
 }
 
 /// Host-defined interface behavior that a plugin may switch on for the whole client from
@@ -305,6 +309,22 @@ pub enum Surface {
 	Server,
 	/// An entry in a role's context menu; the invocation names the role and its server.
 	Role,
+	/// Runs shortly after the draft changes, with the draft; may return composer status.
+	Draft,
+	/// Runs when you send or save an edit, with the text; its `replacement` is what is sent.
+	Send,
+}
+
+/// Why the host ran a `draft` or `send` action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Hook {
+	/// The draft changed.
+	Draft,
+	/// A new message is about to be sent.
+	Send,
+	/// An edited message is about to be saved.
+	Edit,
 }
 
 /// Text shown in place of a loaded message's content, with the plugin's icon beside the
@@ -334,8 +354,17 @@ pub struct LocalMessage {
 
 /// Most alternatives one output may set.
 pub const MAX_ALTERNATIVES: usize = 32;
+/// Longest composer status text, in UTF-8 bytes.
+pub const MAX_COMPOSER_STATUS_BYTES: usize = 64;
 /// Longest alternative or local message text, in UTF-8 bytes.
 pub const MAX_CHAT_TEXT_BYTES: usize = 8 * 1024;
+
+impl Surface {
+	/// Surfaces the host runs without a click, so their calls never block other actions.
+	pub fn is_hook(self) -> bool {
+		matches!(self, Self::Draft | Self::Send)
+	}
+}
 
 impl Surface {
 	/// Context-menu surfaces whose invocation carries a [`MenuTarget`].
@@ -652,6 +681,9 @@ pub struct Invocation {
 	/// action again with its original input.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub fetch_result: Option<Box<FetchResult>>,
+	/// Why a `draft` or `send` action ran; absent for every other call.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub hook: Option<Hook>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -935,6 +967,9 @@ pub struct Output {
 	/// A message only you can see in the open conversation. Requires `local_messages`.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub local_message: Option<LocalMessage>,
+	/// Short text shown beside the composer; empty clears it. Requires `composer_status`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub composer_status: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1110,6 +1145,8 @@ impl Manifest {
 			Surface::MessageEvent,
 			Surface::AppEvent,
 			Surface::Tick,
+			Surface::Draft,
+			Surface::Send,
 		] {
 			if self
 				.actions
@@ -1158,6 +1195,8 @@ impl Manifest {
 				Surface::MessageEvent => Some(Capability::MessageEvents),
 				Surface::AppEvent => Some(Capability::AppEvents),
 				Surface::Tick => Some(Capability::Appearance),
+				Surface::Draft => Some(Capability::Composer),
+				Surface::Send => Some(Capability::SendHooks),
 			};
 			if required.is_some_and(|c| !capabilities.contains(&c)) {
 				return Err(Error::Capability);
@@ -1516,11 +1555,23 @@ impl Invocation {
 			reference.validate()?;
 		}
 		if self.selected_message.is_some() && action.surface != Surface::Message
-			|| self.composer.is_some() && action.surface != Surface::Composer
-			|| self.tick_ms.is_some() && action.surface != Surface::Tick
+			|| self.composer.is_some()
+				&& !matches!(
+					action.surface,
+					Surface::Composer | Surface::Draft | Surface::Send
+				) || self.tick_ms.is_some() && action.surface != Surface::Tick
 			|| self.tick_ms.is_none() && action.surface == Surface::Tick
 		{
 			return Err(Error::Capability);
+		}
+		// Hooks run only their own surface, and those surfaces run only as hooks.
+		let expected = match self.hook {
+			None => !action.surface.is_hook(),
+			Some(Hook::Draft) => action.surface == Surface::Draft,
+			Some(Hook::Send | Hook::Edit) => action.surface == Surface::Send,
+		};
+		if !expected {
+			return Err(Error::Invalid);
 		}
 		if action.surface == Surface::Tick
 			&& (!self.values.is_empty()
@@ -1703,8 +1754,29 @@ impl Output {
 				return Err(Error::Limit);
 			}
 		}
+		if let Some(status) = &self.composer_status {
+			if !manifest.capabilities.contains(&Capability::ComposerStatus)
+				|| surface != Surface::Draft
+			{
+				return Err(Error::Capability);
+			}
+			if status.len() > MAX_COMPOSER_STATUS_BYTES || status.chars().any(char::is_control) {
+				return Err(Error::Limit);
+			}
+		}
+		// Hooks run unattended: they answer with text, never panels or proposals.
+		if surface.is_hook()
+			&& (!self.panel.is_empty()
+				|| !self.effects.is_empty()
+				|| self.local_message.is_some()
+				|| self.appearance.is_some())
+		{
+			return Err(Error::Capability);
+		}
 		if self.replacement.is_some()
-			&& (input.composer.is_none() || !manifest.capabilities.contains(&Capability::Composer))
+			&& (input.composer.is_none()
+				|| !manifest.capabilities.contains(&Capability::Composer)
+				|| surface == Surface::Draft)
 		{
 			return Err(Error::Capability);
 		}

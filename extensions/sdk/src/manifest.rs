@@ -101,6 +101,10 @@ pub enum Capability {
 	MessageAlternatives,
 	/// Add a message only you can see to the open conversation (a message preview).
 	LocalMessages,
+	/// Show a short status beside the composer while you type (a character count).
+	ComposerStatus,
+	/// Change the text of your messages and edits just before they are sent.
+	SendHooks,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,9 +121,13 @@ pub enum Surface {
 	Channel,
 	Server,
 	Role,
+	/// Runs shortly after the draft changes, with the draft; may return `composer_status`.
+	Draft,
+	/// Runs when you send or save an edit; its `replacement` is what is sent.
+	Send,
 }
 
-/// Where an action sits, unless the user keeps its plugin grouped under its name.
+/// Where an action sits once the user shows its plugin ungrouped.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Placement {
@@ -148,7 +156,7 @@ pub struct Action {
 	/// The plugin's own SVG glyph, at most 8 KiB; only its shape is drawn.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub icon: Option<String>,
-	/// Where the action sits, unless the user keeps its plugin grouped under its name.
+	/// Where the action sits once the user shows its plugin ungrouped.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub placement: Option<Placement>,
 	/// The plugin's own submenu for this action, e.g. "Privacy Pruning".
