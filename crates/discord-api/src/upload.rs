@@ -27,8 +27,12 @@ pub struct Source {
 	filename: String,
 	size: u64,
 	modified: SystemTime,
+	/// Built by [`Source::image_bytes`], so its `emoji-`/`sticker-` name was generated.
+	artwork: bool,
 }
 impl Source {
+	/// Validates a picked file path and snapshots its size and modification time without reading it.
+	/// Rejects overlong paths, unsafe filenames, symlinks, non-regular files, and empty or >500 MB files.
 	pub async fn inspect(path: PathBuf) -> Result<Self, &'static str> {
 		if path.as_os_str().as_encoded_bytes().len() > 4096 {
 			return Err("Selected path is too long");
@@ -57,6 +61,7 @@ impl Source {
 		}
 		Ok(Self {
 			bytes: None,
+			artwork: false,
 			filename: filename.into(),
 			path,
 			size: metadata.len(),
@@ -73,6 +78,7 @@ impl Source {
 		Ok(Self {
 			path: PathBuf::new(),
 			filename: "pasted-image.png".into(),
+			artwork: false,
 			size: bytes.len() as u64,
 			modified: SystemTime::UNIX_EPOCH,
 			bytes: Some(bytes.into()),
@@ -86,6 +92,7 @@ impl Source {
 		Ok(Self {
 			path: PathBuf::new(),
 			filename: "message.txt".into(),
+			artwork: false,
 			size: text.len() as u64,
 			modified: SystemTime::UNIX_EPOCH,
 			bytes: Some(text.into_bytes().into()),
@@ -108,6 +115,7 @@ impl Source {
 		Ok(Self {
 			path: PathBuf::new(),
 			filename,
+			artwork: true,
 			size: bytes.len() as u64,
 			modified: SystemTime::UNIX_EPOCH,
 			bytes: Some(bytes.into()),
@@ -115,6 +123,41 @@ impl Source {
 	}
 	pub fn filename(&self) -> &str {
 		&self.filename
+	}
+	/// The same selection under a random seven-character name built from `random`.
+	///
+	/// The extension and a leading `SPOILER_` survive, so the file keeps its kind and
+	/// its blur; emoji and sticker artwork keep the names the host checks.
+	pub fn anonymised(mut self, random: [u8; 7]) -> Self {
+		const ALPHABET: &[u8; 62] =
+			b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+		// Only generated artwork keeps its checked name; any other file named like it,
+		// such as a chosen `emoji-private-project.txt`, is renamed like the rest.
+		if self.artwork {
+			return self;
+		}
+		let spoiler = if self.filename.starts_with("SPOILER_") {
+			"SPOILER_"
+		} else {
+			""
+		};
+		let extension = self
+			.filename
+			.strip_prefix(spoiler)
+			.and_then(|name| name.rsplit_once('.'))
+			// Only a short alphanumeric suffix is a real extension; `2025.John Smith` is not.
+			.filter(|(stem, extension)| {
+				!stem.is_empty()
+					&& (1..=10).contains(&extension.len())
+					&& extension.bytes().all(|b| b.is_ascii_alphanumeric())
+			})
+			.map_or(String::new(), |(_, extension)| format!(".{extension}"));
+		let stem: String = random
+			.iter()
+			.map(|byte| char::from(ALPHABET[usize::from(*byte) % ALPHABET.len()]))
+			.collect();
+		self.filename = format!("{spoiler}{stem}{extension}");
+		self
 	}
 	pub fn size(&self) -> u64 {
 		self.size
@@ -145,6 +188,8 @@ impl Source {
 			&& metadata.len() == self.size
 			&& metadata.modified().ok() == Some(self.modified)
 	}
+	/// Confirms a disk-backed attachment is unchanged since selection; in-memory bytes always pass.
+	/// Fails with `CHANGED` if the file is missing, a symlink, or differs in size or modification time.
 	async fn validate(&self) -> Result<(), Failure> {
 		if self.bytes.is_some() {
 			return Ok(());
@@ -195,6 +240,12 @@ enum Destination {
 		tags: Vec<model::Id>,
 		request: u64,
 	},
+	/// New files added to a sent message, which keeps the listed attachments.
+	Edit {
+		request: u64,
+		message: model::Id,
+		keep: Vec<model::Id>,
+	},
 }
 impl Destination {
 	/// Report a failure as the event the caller's flow expects; no write was accepted.
@@ -215,9 +266,19 @@ impl Destination {
 				request,
 				result: Err(failure),
 			},
+			Self::Edit {
+				request, message, ..
+			} => Event::Edited {
+				request,
+				channel,
+				message,
+				result: Err(failure),
+			},
 		}
 	}
 }
+/// Maps an upload result to its reported status, treating a protocol failure at `CANCELLED` as a
+/// cancellation rather than an error.
 fn status<T>(result: &Result<T, Failure>) -> Status {
 	match result {
 		Ok(_) => Status::Finished,
@@ -238,6 +299,8 @@ impl DiscordApi {
 			.await
 	}
 
+	/// Uploads the sources as attachments for a send, forum post, edit, or modal interaction command.
+	/// Invalid modal uploads report a failed status and return a protocol failure without uploading.
 	pub async fn upload_messages(
 		&self,
 		command: Command,
@@ -293,6 +356,21 @@ impl DiscordApi {
 					request,
 				},
 			),
+			Command::Edit {
+				request,
+				channel,
+				message,
+				content,
+				keep_attachments: Some(keep),
+			} => (
+				channel,
+				content,
+				Destination::Edit {
+					request,
+					message,
+					keep,
+				},
+			),
 			_ => {
 				progress.send_replace(Status::Failed("Invalid upload request"));
 				return Event::Failure(Failure::ProtocolAt("Invalid upload request"));
@@ -303,8 +381,12 @@ impl DiscordApi {
 			progress.send_replace(Status::Failed(failure.label()));
 			return target.failed(channel, failure);
 		}
+		let kept = match &target {
+			Destination::Edit { keep, .. } => keep.len(),
+			_ => 0,
+		};
 		if sources.is_empty()
-			|| sources.len() > MAX_FILES
+			|| sources.len() + kept > MAX_FILES
 			|| sources.iter().map(Source::size).sum::<u64>() > MAX_TOTAL_BYTES
 		{
 			let failure = Failure::ProtocolAt(
@@ -391,7 +473,58 @@ impl DiscordApi {
 					result,
 				}
 			}
+			Destination::Edit {
+				request,
+				message,
+				keep,
+			} => {
+				let result = tokio::select! {
+					biased;
+					_ = cancelled(&mut cancel) => Err(Failure::Ambiguous),
+					result = self.edit_with_attachments(channel, message, &content, &keep, attachment) => result,
+				};
+				progress.send_replace(status(&result));
+				Event::Edited {
+					request,
+					channel,
+					message,
+					result,
+				}
+			}
 		}
+	}
+
+	/// Replaces the message's text and attachment list: the kept attachments by ID, then
+	/// the uploaded ones. Discord removes any attachment the list leaves out.
+	async fn edit_with_attachments(
+		&self,
+		channel: model::Id,
+		message: model::Id,
+		content: &str,
+		keep: &[model::Id],
+		uploaded: Vec<serde_json::Value>,
+	) -> Result<model::Message, Failure> {
+		let attachments: Vec<serde_json::Value> = keep
+			.iter()
+			.map(|id| serde_json::json!({"id": id.to_string()}))
+			.chain(uploaded)
+			.collect();
+		let body = serde_json::json!({
+			"content": content,
+			"allowed_mentions": crate::allowed_mentions(content, None),
+			"attachments": attachments,
+		});
+		self.request(
+			reqwest::Method::PATCH,
+			&format!("/channels/{channel}/messages/{message}"),
+			Some(body),
+		)
+		.await
+		.and_then(|bytes| {
+			crate::decode::<crate::MessageDto>(&bytes)
+				.map(crate::MessageDto::into_model)
+				.map_err(|_| Failure::Ambiguous)
+		})
 	}
 
 	async fn upload_file(
@@ -613,6 +746,7 @@ fn content_type(filename: &str) -> &'static str {
 	}
 }
 
+/// Resolves once cancellation is requested or the sender is dropped; otherwise waits indefinitely.
 async fn cancelled(cancel: &mut watch::Receiver<bool>) {
 	loop {
 		let requested = *cancel.borrow_and_update();
@@ -624,6 +758,28 @@ async fn cancelled(cancel: &mut watch::Receiver<bool>) {
 
 #[cfg(test)]
 mod tests {
+	/// Anonymised filenames become seven random alphanumerics, keeping only the final short extension
+	/// and any spoiler prefix, while generated artwork names like emoji images are left unchanged.
+	#[test]
+	fn anonymised_names_keep_extension_spoiler_and_artwork() {
+		let named = |name: &str, random| {
+			let mut source = super::Source::pasted_text("x".into()).unwrap();
+			source.filename = name.into();
+			source.anonymised(random).filename().to_owned()
+		};
+		assert_eq!(
+			named("holiday photo.JPG", [0, 1, 2, 25, 26, 61, 62]),
+			"ABCZa9A.JPG"
+		);
+		assert_eq!(named("SPOILER_plot.mp4", [0; 7]), "SPOILER_AAAAAAA.mp4");
+		assert_eq!(named("README", [0; 7]), "AAAAAAA");
+		assert_eq!(named(".bashrc", [0; 7]), "AAAAAAA");
+		assert_eq!(named("archive.tar.gz", [0; 7]), "AAAAAAA.gz");
+		let artwork = super::Source::image_bytes("emoji-7.gif".into(), vec![1]).unwrap();
+		assert_eq!(artwork.anonymised([0; 7]).filename(), "emoji-7.gif");
+		assert_eq!(named("emoji-private-project.txt", [0; 7]), "AAAAAAA.txt");
+		assert_eq!(named("Invoice for 2025.John Smith", [0; 7]), "AAAAAAA");
+	}
 	#[test]
 	fn image_sources_only_accept_bounded_generated_raster_names() {
 		for name in ["emoji-7.gif", "sticker-8.png"] {
@@ -750,6 +906,8 @@ mod tests {
 		failure
 	}
 
+	/// Verifies staged uploads PUT file bytes to storage without credentials, then post one message that
+	/// references every attachment; also checks that changed, missing, empty, or oversized sources are rejected.
 	#[tokio::test]
 	async fn staged_upload_streams_without_credentials_and_reconciles_message() {
 		{
@@ -840,6 +998,69 @@ mod tests {
 				assert!(api.upload_url(&url).is_err());
 			}
 		}
+	}
+
+	/// Checks that files added to an edit upload first and the PATCH lists the kept
+	/// attachments by ID before the new ones, and that the count limit includes kept files.
+	#[tokio::test]
+	async fn edit_uploads_keep_existing_attachments_and_patch_the_message() {
+		tokio::time::timeout(Duration::from_secs(10), async {
+			let fixture = Fixture::new(b"synthetic edit").await;
+			let source = Source::inspect(fixture.0.clone()).await.unwrap();
+			let filename = source.filename().to_owned();
+			let api_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let storage = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = api();
+			api.base = format!("http://{}", api_listener.local_addr().unwrap());
+			api.upload_origin = Some(storage.local_addr().unwrap());
+			let upload_url = format!(
+				"http://{}/signed?upload_id=synthetic",
+				storage.local_addr().unwrap()
+			);
+			let server = tokio::spawn(async move {
+				let (mut socket, _) = api_listener.accept().await.unwrap();
+				let (head, _) = request(&mut socket).await;
+				assert!(head.starts_with("POST /channels/1/attachments HTTP/1.1"));
+				respond(&mut socket, "200 OK", &serde_json::json!({"attachments":[{"id":0,"upload_url":upload_url,"upload_filename":"synthetic-upload/0/file.txt"}]}).to_string()).await;
+				let (mut socket, _) = storage.accept().await.unwrap();
+				let _ = request(&mut socket).await;
+				respond(&mut socket, "200 OK", "").await;
+				let (mut socket, _) = api_listener.accept().await.unwrap();
+				let (head, bytes) = request(&mut socket).await;
+				assert!(head.starts_with("PATCH /channels/1/messages/5 HTTP/1.1"), "{head}");
+				let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+				assert_eq!(body["content"], "edited");
+				assert_eq!(
+					body["attachments"],
+					serde_json::json!([{"id":"77"},{"id":"0","filename":filename,"uploaded_filename":"synthetic-upload/0/file.txt"}])
+				);
+				respond(&mut socket, "200 OK", r#"{"id":"5","channel_id":"1","author":{"id":"4","username":"Synthetic"},"content":"edited"}"#).await;
+			});
+			let edit = |keep: Vec<model::Id>| Command::Edit {
+				request: 9,
+				channel: model::Id(1),
+				message: model::Id(5),
+				content: "edited".into(),
+				keep_attachments: Some(keep),
+			};
+			let (progress, _status) = watch::channel(Status::Preparing);
+			let (_cancel, cancelled) = watch::channel(false);
+			let event = api
+				.upload_messages(edit(vec![model::Id(77)]), vec![source.clone()], progress, cancelled)
+				.await;
+			assert!(matches!(&event, Event::Edited { request: 9, message: model::Id(5), result: Ok(message), .. } if message.content == "edited"));
+			server.await.unwrap();
+			// Ten kept attachments leave no room; nothing is uploaded.
+			let (progress, _status) = watch::channel(Status::Preparing);
+			let (_cancel, cancelled) = watch::channel(false);
+			let full = (0..10).map(model::Id).collect();
+			assert!(matches!(
+				api.upload_messages(edit(full), vec![source], progress, cancelled).await,
+				Event::Edited { request: 9, result: Err(_), .. }
+			));
+		})
+		.await
+		.unwrap();
 	}
 
 	#[tokio::test]

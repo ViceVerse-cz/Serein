@@ -134,6 +134,16 @@ friends-notes-unsupported = Personalized request notes are not supported yet.
 friends-other-places = Other Places to Make Friends
 friends-discover-description = Don't have a username? Discover public communities in Discord.
 friends-explore-servers = Explore Discoverable Servers ↗
+friends-invite-links = Friend Invite Links
+friends-invite-links-description = Anyone with one of these links can become your friend without further approval.
+friends-invite-create = Create Link
+friends-invite-revoke-all = Revoke All
+friends-invite-copy = Copy
+friends-invite-none = No friend invite links yet.
+friends-invite-uses = { $uses } uses
+friends-invite-uses-limited = { $uses } of { $max } uses
+friends-invite-error = Friend invite links are unavailable right now.
+friends-invite-retry = Retry
 friends-incoming = Incoming
 friends-outgoing = Outgoing
 friends-search-requests = Search requests
@@ -289,6 +299,10 @@ attachments-download-button-a-download-is-already-active = A download is already
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Choose where to save this file · up to 100 MiB
 # Context: download_button
 attachments-download-button-download = Download
+# Context: file_card
+attachments-file-card-copy-text = Copy text
+# Context: file_card
+attachments-file-card-copy-text-hint = Copy this text file's contents to the clipboard
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = Downloads are disabled for synthetic attachments
 # Context: media_menu
@@ -836,6 +850,8 @@ emoji-details-show-a-custom-emoji = A custom emoji.
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = A default emoji. You can use this emoji everywhere on Discord.
 # Context: show
 emoji-details-show-copy-emoji = Copy emoji
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = Add to server
 # Context: show
 emoji-details-show-from = From
 # Context: show
@@ -940,6 +956,12 @@ extensions-ui-card-body-enabled = Enabled
 extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Finish removing this extension and its local data.
 # Context: card_body
 extensions-ui-card-body-open-tool = Open tool
+# Context: card_body
+extensions-ui-card-body-ungrouped = Show entries ungrouped
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = Place this plugin's entries directly in menus, the message toolbar and the composer bar instead of under its name in Extensions or Tools.
+# Context: settings
+extensions-ui-plugin-bar-left = Plugin composer buttons on the left
 # Context: card_body
 extensions-ui-card-body-plugin = Plugin
 # Context: card_body
@@ -3965,6 +3987,8 @@ timeline-show-with-scroll-loading-messages = Loading messages…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Message deleted
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Blocked message
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Message history is unavailable with current permission information.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = No messages yet. Start the conversation below.
@@ -5079,3 +5103,16 @@ timestamp-style-full = Full date and time
 timestamp-style-relative = Relative time
 timestamp-style-short-date-time = Short date and time
 timestamp-style-short-date-seconds = Short date and time with seconds
+name-marks-server-owner = Server Owner
+name-marks-online-desktop = Online on desktop
+name-marks-online-web = Online on the web
+name-marks-online-mobile = Online on mobile
+profiles-show-mutual-group = Mutual Group
+profiles-show-mutual-groups = Mutual Groups
+rail-counts-online = { $count } online
+rail-counts-servers = { $count ->
+    [one] { $count } server
+   *[other] { $count } servers
+}
+name-marks-tag-admin = Admin
+name-marks-tag-moderator = Mod

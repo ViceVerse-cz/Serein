@@ -10,6 +10,8 @@ struct Counts {
 	delete: u64,
 }
 
+/// Counts message create, update, and delete events in plugin storage, saturating at the limit.
+/// Show and reset render a panel with the totals; unreadable stored counts show a reset prompt.
 fn handle(input: EventInvocation) -> Output {
 	let action = input.invocation.action.as_str();
 	if !matches!(action, "message-event" | "show" | "reset") {
@@ -34,6 +36,8 @@ fn handle(input: EventInvocation) -> Output {
 					MessageEventKind::Create => &mut counts.create,
 					MessageEventKind::Update => &mut counts.update,
 					MessageEventKind::Delete => &mut counts.delete,
+					// Sent only to plugins with `message_alternatives`, which this one lacks.
+					MessageEventKind::Shown => return output,
 				};
 				*count = count.saturating_add(1);
 			}

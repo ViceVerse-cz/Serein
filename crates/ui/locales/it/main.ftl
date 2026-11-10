@@ -131,6 +131,16 @@ friends-notes-unsupported = Le note di richiesta personalizzate non sono ancora 
 friends-other-places = Altri posti per fare amicizia
 friends-discover-description = Non hai un nome utente? Scopri le comunità pubbliche in Discord.
 friends-explore-servers = Esplora i server rilevabili ↗
+friends-invite-links = Link di invito amicizia
+friends-invite-links-description = Chiunque abbia uno di questi link può diventare tuo amico senza ulteriore approvazione.
+friends-invite-create = Crea link
+friends-invite-revoke-all = Revoca tutti
+friends-invite-copy = Copia
+friends-invite-none = Nessun link di invito amicizia.
+friends-invite-uses = { $uses } utilizzi
+friends-invite-uses-limited = { $uses } di { $max } utilizzi
+friends-invite-error = I link di invito amicizia non sono disponibili ora.
+friends-invite-retry = Riprova
 friends-incoming = In arrivo
 friends-outgoing = In uscita
 friends-search-requests = Richieste di ricerca
@@ -285,6 +295,10 @@ attachments-download-button-a-download-is-already-active = Un download è già a
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Scegli dove salvare questo file · fino a 100 MiB
 # Context: download_button
 attachments-download-button-download = Scaricamento
+# Context: file_card
+attachments-file-card-copy-text = Copia testo
+# Context: file_card
+attachments-file-card-copy-text-hint = Copia il contenuto di questo file di testo negli appunti
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = I download sono disabilitati per gli allegati sintetici
 # Context: media_menu
@@ -810,6 +824,8 @@ emoji-details-show-a-custom-emoji = Un'emoji personalizzata.
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Un'emoji predefinita. Puoi usare questa emoji ovunque su Discord.
 # Context: show
 emoji-details-show-copy-emoji = Copia le emoji
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = Aggiungi al server
 # Context: show
 emoji-details-show-from = Da
 # Context: show
@@ -914,6 +930,12 @@ extensions-ui-card-body-enabled = Abilitato
 extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Completa la rimozione di questa estensione e dei relativi dati locali.
 # Context: card_body
 extensions-ui-card-body-open-tool = Strumento aperto
+# Context: card_body
+extensions-ui-card-body-ungrouped = Mostra voci non raggruppate
+# Context: card_body
+extensions-ui-card-body-ungrouped-hint = Metti le voci di questo plugin direttamente nei menu, nella barra del messaggio e in quella di scrittura invece che sotto il suo nome in Extensions o Tools.
+# Context: settings
+extensions-ui-plugin-bar-left = Pulsanti dei plugin a sinistra
 # Context: card_body
 extensions-ui-card-body-plugin = Collegare
 # Context: card_body
@@ -3925,6 +3947,8 @@ timeline-show-with-scroll-loading-messages = Caricamento messaggi...
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Messaggio eliminato
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Messaggio bloccato
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = La cronologia dei messaggi non è disponibile con le informazioni sulle autorizzazioni correnti.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Nessun messaggio ancora. Inizia la conversazione qui sotto.
@@ -4888,3 +4912,16 @@ new-message-hint = Aggiungi amici per avviare un messaggio diretto o un gruppo.
 new-message-no-people-found = Nessuno corrisponde a questa ricerca.
 new-message-create = Crea messaggio
 new-message-cancel = Annulla
+name-marks-server-owner = Proprietario del server
+name-marks-online-desktop = Online da desktop
+name-marks-online-web = Online dal web
+name-marks-online-mobile = Online da mobile
+profiles-show-mutual-group = Gruppo in comune
+profiles-show-mutual-groups = Gruppi in comune
+rail-counts-online = { $count } online
+rail-counts-servers = { $count ->
+    [one] { $count } server
+   *[other] { $count } server
+}
+name-marks-tag-admin = Admin
+name-marks-tag-moderator = Mod

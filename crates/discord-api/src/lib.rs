@@ -237,6 +237,8 @@ pub(crate) fn browser_transport(builder: reqwest::ClientBuilder) -> reqwest::Cli
 		None => builder,
 	}
 }
+/// Builds the API HTTP client routed through the given proxy, with redirects and retries disabled,
+/// a 20s request timeout, and browser fingerprint headers; fails if the proxy route is unusable.
 fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 	let builder = Client::builder()
 		.redirect(reqwest::redirect::Policy::none())
@@ -930,6 +932,8 @@ impl DiscordApi {
 		}
 		event
 	}
+	/// Runs a command against the Discord API and wraps its outcome in the matching event.
+	/// Failures are reported in the event's result rather than returned as errors.
 	pub async fn execute(&self, command: Command) -> Event {
 		match command {
 			Command::ApplicationCommands {
@@ -1455,6 +1459,135 @@ impl DiscordApi {
 					}
 				})
 			}
+			Command::FriendInvites(command) => {
+				use client_core::friend_invites::{Command as F, Event as E, FriendInvite};
+				#[derive(serde::Deserialize)]
+				struct InviteDto {
+					code: String,
+					#[serde(default)]
+					expires_at: Option<String>,
+					#[serde(default)]
+					uses: u32,
+					#[serde(default)]
+					max_uses: u32,
+				}
+				/// Converts a listed invite, accepting only plain invite codes.
+				fn invite(dto: InviteDto) -> Result<FriendInvite, Failure> {
+					// Codes become links; only plain invite codes are accepted.
+					if dto.code.is_empty()
+						|| dto.code.len() > 32
+						|| !dto
+							.code
+							.bytes()
+							.all(|b| b.is_ascii_alphanumeric() || b == b'-')
+						|| dto.expires_at.as_ref().is_some_and(|at| at.len() > 64)
+					{
+						return Err(Failure::Protocol);
+					}
+					Ok(FriendInvite {
+						code: dto.code,
+						expires_at: dto.expires_at,
+						uses: dto.uses,
+						max_uses: dto.max_uses,
+					})
+				}
+				const PATH: &str = "/users/@me/invites";
+				Event::FriendInvites(match command {
+					F::Load { request } => E::Loaded {
+						request,
+						result: self
+							.request_limited(Method::GET, PATH, None, 64 * 1024)
+							.await
+							.and_then(|bytes| {
+								decode::<Vec<InviteDto>>(&bytes)
+									.map_err(|_| Failure::Protocol)?
+									.into_iter()
+									.take(client_core::friend_invites::MAX_INVITES)
+									.map(invite)
+									.collect()
+							}),
+					},
+					F::Create { request } => E::Created {
+						request,
+						result: self
+							.request_limited(
+								Method::POST,
+								PATH,
+								Some(serde_json::json!({})),
+								16 * 1024,
+							)
+							.await
+							.and_then(|bytes| {
+								invite(decode::<InviteDto>(&bytes).map_err(|_| Failure::Protocol)?)
+							}),
+					},
+					F::RevokeAll { request } => E::Revoked {
+						request,
+						result: self.request(Method::DELETE, PATH, None).await.map(|_| ()),
+					},
+				})
+			}
+			// Passive reads, like hover preloads: they take only spare capacity and give way
+			// with Capacity, so a send or click never waits behind them.
+			Command::Lookup(command) => {
+				Box::pin(SPECULATIVE.scope((), async {
+					use client_core::lookups::{Command as L, Event as E};
+					Event::Lookup(match command {
+						L::User { user } => {
+							let result = self
+								.request_limited(
+									Method::GET,
+									&format!("/users/{user}"),
+									None,
+									64 * 1024,
+								)
+								.await
+								.and_then(|bytes| {
+									let dto = decode::<discord_protocol::UserDto>(&bytes)
+										.map_err(|_| Failure::Protocol)?;
+									if dto.id != user {
+										return Err(Failure::Protocol);
+									}
+									Ok(dto.into_model())
+								});
+							E::User { user, result }
+						}
+						L::Message { channel, message } => {
+							let result = self
+								.request(
+									Method::GET,
+									&format!(
+										"/channels/{channel}/messages?limit=1&around={message}"
+									),
+									None,
+								)
+								.await
+								.and_then(|bytes| {
+									// History around a deleted message returns a neighbor or
+									// nothing; that neighbor is never shown in its place.
+									let mut found = decode::<Vec<MessageDto>>(&bytes)
+										.map_err(|_| Failure::Protocol)?;
+									if found.len() > 1 {
+										return Err(Failure::Protocol);
+									}
+									let Some(dto) = found.pop() else {
+										return Ok(None);
+									};
+									if dto.channel_id != channel {
+										return Err(Failure::Protocol);
+									}
+									Ok((dto.id == message).then(|| Box::new(dto.into_model())))
+								});
+							E::Message {
+								channel,
+								message,
+								result,
+							}
+						}
+					})
+				}))
+				.await
+			}
 			Command::Profile {
 				user,
 				guild,
@@ -1664,7 +1797,20 @@ impl DiscordApi {
 				channel,
 				message,
 				content,
+				keep_attachments,
 			} => {
+				// An edit that adds files goes through the upload worker; editing only the
+				// text here would report success without the files.
+				if keep_attachments.is_some() {
+					return Event::Edited {
+						request,
+						channel,
+						message,
+						result: Err(Failure::ProtocolAt(
+							"Files must be added through the upload worker",
+						)),
+					};
+				}
 				if content.trim().is_empty()
 					|| content.chars().count() > client_core::MAX_PREMIUM_CONTENT
 				{
@@ -2196,6 +2342,8 @@ fn reaction_users_path(
 	}
 	Some(path)
 }
+/// Converts an optional retry delay in seconds into a duration, defaulting to one second.
+/// Rejects non-finite or out-of-range (0 to 86400) values and clamps the result to at least 50 ms.
 fn safe_delay(seconds: Option<f64>) -> Result<Duration, Failure> {
 	let seconds = seconds.unwrap_or(1.0);
 	if !seconds.is_finite() || !(0.0..=86400.0).contains(&seconds) {
@@ -3045,6 +3193,8 @@ mod tests {
             server.await.unwrap();
         }).await.unwrap();
 	}
+	/// Verifies reaction routes percent-encode the emoji as a single path segment, and that the count
+	/// read-back is rejected unless exactly one message with the requested ID and channel is returned.
 	#[tokio::test]
 	async fn reaction_routes_encode_one_component_and_read_back_scoped_counts() {
 		{
@@ -3202,6 +3352,183 @@ mod tests {
 				Some("/channels/1/messages/2/reactions/%61%2F%62%3A%33?limit=100&after=4")
 			);
 		}
+	}
+
+	/// Checks listing, creating and revoking friend invites, and that only plain codes are kept.
+	#[tokio::test]
+	async fn friend_invites_list_create_and_revoke_with_plain_codes_only() {
+		use client_core::friend_invites::{Command as F, Event as E};
+		tokio::time::timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_FRIEND_INVITE_TOKEN".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let replies = [
+				(
+					"GET /users/@me/invites",
+					r#"[{"code":"abc123","uses":1,"max_uses":5,"expires_at":"2026-01-01T00:00:00+00:00"}]"#,
+				),
+				("POST /users/@me/invites", r#"{"code":"new-1"}"#),
+				("POST /users/@me/invites", r#"{"code":"../x"}"#),
+				("DELETE /users/@me/invites", ""),
+			];
+			let server = tokio::spawn(async move {
+				for (expected, body) in replies {
+					let (mut socket, _) = listener.accept().await.unwrap();
+					let mut request = vec![];
+					while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+						let mut bytes = [0; 1024];
+						let n = socket.read(&mut bytes).await.unwrap();
+						assert!(n > 0 && request.len() < 4096);
+						request.extend_from_slice(&bytes[..n]);
+					}
+					let request = std::str::from_utf8(&request).unwrap();
+					assert!(
+						request.starts_with(&format!("{expected} HTTP/1.1\r\n")),
+						"{request}"
+					);
+					let response = if body.is_empty() {
+						"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".to_owned()
+					} else {
+						format!(
+							"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+							body.len()
+						)
+					};
+					socket.write_all(response.as_bytes()).await.unwrap();
+				}
+			});
+			assert!(matches!(
+				api.execute(Command::FriendInvites(F::Load { request: 1 })).await,
+				Event::FriendInvites(E::Loaded { request: 1, result: Ok(list) })
+					if list.len() == 1 && list[0].code == "abc123" && list[0].max_uses == 5
+			));
+			assert!(matches!(
+				api.execute(Command::FriendInvites(F::Create { request: 2 })).await,
+				Event::FriendInvites(E::Created { result: Ok(invite), .. })
+					if invite.link() == "https://discord.gg/new-1"
+			));
+			assert!(matches!(
+				api.execute(Command::FriendInvites(F::Create { request: 3 }))
+					.await,
+				Event::FriendInvites(E::Created {
+					result: Err(Failure::Protocol),
+					..
+				})
+			));
+			assert!(matches!(
+				api.execute(Command::FriendInvites(F::RevokeAll { request: 4 }))
+					.await,
+				Event::FriendInvites(E::Revoked { result: Ok(()), .. })
+			));
+			server.await.unwrap();
+		})
+		.await
+		.unwrap();
+	}
+
+	/// Checks that lookups read one person and never return a neighboring message.
+	#[tokio::test]
+	async fn lookups_read_one_person_and_never_show_a_neighbor_message() {
+		use client_core::lookups::{Command as L, Event as E};
+		use model::Id;
+		tokio::time::timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_LOOKUP_TOKEN".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let author = r#""author":{"id":"4","username":"Synthetic"}"#;
+			let replies = [
+				(
+					"GET /users/5",
+					r#"{"id":"5","username":"Found"}"#.to_owned(),
+				),
+				(
+					"GET /users/6",
+					r#"{"id":"7","username":"Other"}"#.to_owned(),
+				),
+				(
+					"GET /channels/1/messages?limit=1&around=2",
+					format!(r#"[{{"id":"2","channel_id":"1",{author},"content":"Original"}}]"#),
+				),
+				(
+					"GET /channels/1/messages?limit=1&around=2",
+					format!(r#"[{{"id":"9","channel_id":"1",{author}}}]"#),
+				),
+				("GET /channels/1/messages?limit=1&around=2", "[]".to_owned()),
+				(
+					"GET /channels/1/messages?limit=1&around=2",
+					format!(r#"[{{"id":"2","channel_id":"8",{author}}}]"#),
+				),
+			];
+			let server = tokio::spawn(async move {
+				for (expected, body) in replies {
+					let (mut socket, _) = listener.accept().await.unwrap();
+					let mut request = vec![];
+					while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+						let mut bytes = [0; 1024];
+						let n = socket.read(&mut bytes).await.unwrap();
+						assert!(n > 0 && request.len() < 4096);
+						request.extend_from_slice(&bytes[..n]);
+					}
+					let request = std::str::from_utf8(&request).unwrap();
+					assert!(
+						request.starts_with(&format!("{expected} HTTP/1.1\r\n")),
+						"{request}"
+					);
+					let response = format!(
+						"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+						body.len()
+					);
+					socket.write_all(response.as_bytes()).await.unwrap();
+				}
+			});
+			let user = |id| api.execute(Command::Lookup(L::User { user: Id(id) }));
+			assert!(matches!(
+				user(5).await,
+				Event::Lookup(E::User { result: Ok(found), .. }) if found.name == "Found"
+			));
+			assert!(matches!(
+				user(6).await,
+				Event::Lookup(E::User {
+					result: Err(Failure::Protocol),
+					..
+				})
+			));
+			let message = || {
+				api.execute(Command::Lookup(L::Message {
+					channel: Id(1),
+					message: Id(2),
+				}))
+			};
+			assert!(matches!(
+				message().await,
+				Event::Lookup(E::Message { result: Ok(Some(found)), .. }) if found.content == "Original"
+			));
+			for _ in 0..2 {
+				assert!(matches!(
+					message().await,
+					Event::Lookup(E::Message {
+						result: Ok(None),
+						..
+					})
+				));
+			}
+			assert!(matches!(
+				message().await,
+				Event::Lookup(E::Message {
+					result: Err(Failure::Protocol),
+					..
+				})
+			));
+			server.await.unwrap();
+		})
+		.await
+		.unwrap();
 	}
 
 	#[tokio::test]

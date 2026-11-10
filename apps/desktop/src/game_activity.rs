@@ -961,6 +961,8 @@ async fn read_frame(stream: &mut (impl AsyncRead + Unpin)) -> io::Result<(u32, V
 	.await
 	.map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
 }
+/// Writes one RPC frame (little-endian opcode and length header plus payload) in a single write,
+/// failing with InvalidData if oversized or TimedOut if not flushed within 5 seconds.
 async fn write_frame(
 	stream: &mut (impl AsyncWrite + Unpin),
 	opcode: u32,
@@ -993,8 +995,11 @@ mod tests {
 	};
 	use tokio::sync::Notify;
 
+	/// Builds a minimal synthetic user with a fixed ID of 1 and no avatar, guild, or cosmetics.
+	/// Test fixture for exercising game activity logic without real account data.
 	fn user() -> User {
 		User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: model::Id(1),

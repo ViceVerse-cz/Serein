@@ -118,6 +118,23 @@ impl MessagingUi {
 	) {
 		let colors = design::palette(ui);
 		let language = self.language;
+		// The page scrolls so invite links stay reachable in a short window.
+		egui::ScrollArea::vertical()
+			.id_salt("add-friend-page")
+			.auto_shrink([false, false])
+			.show(ui, |ui| {
+				self.add_friend_body(ui, state, commands, colors, language)
+			});
+	}
+	/// The Add Friend page's content, drawn inside its scroll area.
+	fn add_friend_body(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		colors: design::Palette,
+		language: crate::i18n::Language,
+	) {
 		egui::Frame::new().inner_margin(24).show(ui, |ui| {
 			ui.label(
 				design::semibold(ui, language.text("friends-add"), 20.0).color(colors.text_strong),
@@ -211,8 +228,14 @@ impl MessagingUi {
 				language.text("friends-explore-servers"),
 				"https://discord.com/servers",
 			);
+			if !state.demo {
+				design::divider(ui);
+				friend_invite_links(ui, state, commands);
+			}
 		});
 	}
+	/// Renders pending friend requests with an incoming/outgoing toggle and a case-insensitive search,
+	/// sorted by name; shows an empty state when requests are unknown or nothing matches.
 	fn friend_requests_page(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -404,6 +427,8 @@ impl MessagingUi {
 			commands.push(command);
 		}
 	}
+	/// Draws the Friends page: its tabs with the incoming request count on Pending, the selected
+	/// list and its actions.
 	pub(super) fn friends_page(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -443,7 +468,13 @@ impl MessagingUi {
 									.filter(|(_, _, incoming)| *incoming)
 									.count()
 							})
-							.filter(|count| *count > 0);
+							.filter(|count| {
+								*count > 0
+									&& !crate::interface_tweaks::on(
+										ui.ctx(),
+										extensions::InterfaceTweak::HiddenRequestCounts,
+									)
+							});
 						if header_tab(ui, &title, count, self.friends.tab == tab, tab == Tab::Add)
 							.clicked() && self.friends.tab != tab
 						{
@@ -1030,6 +1061,133 @@ fn search(ui: &mut egui::Ui, query: &mut String, id: egui::Id, hint: &str) -> eg
 		egui::StrokeKind::Inside,
 	);
 	edit
+}
+
+/// Add Friend's friend invite links: listed on each visit, created and copied on demand,
+/// and revoked all at once.
+fn friend_invite_links(ui: &mut egui::Ui, state: &mut State, commands: &mut Vec<Command>) {
+	let colors = design::palette(ui);
+	// A visit starts when the section was not drawn in the previous frame; links used,
+	// expired or revoked elsewhere then show their current state. Frames, not passes, so a
+	// discarded pass (a tooltip opening) does not look like leaving the page.
+	let frame = ui.ctx().cumulative_frame_nr();
+	let seen = egui::Id::unique("friend-invite-links-frame");
+	let last = ui.ctx().data_mut(|data| {
+		let last = data.get_temp::<u64>(seen);
+		data.insert_temp(seen, frame);
+		last
+	});
+	let visit = last.is_none_or(|last: u64| last + 1 < frame);
+	let invites = &state.friend_invites;
+	if (visit || invites.invites().is_none())
+		&& !invites.busy()
+		&& (visit || invites.error.is_none())
+		&& let Some(command) = state.load_friend_invites()
+	{
+		commands.push(command);
+	}
+	ui.label(
+		design::semibold(ui, crate::i18n::translate("friends-invite-links"), 16.0)
+			.color(colors.text_strong),
+	);
+	ui.add(
+		egui::Label::new(
+			RichText::new(crate::i18n::translate("friends-invite-links-description"))
+				.size(14.0)
+				.color(colors.muted),
+		)
+		.wrap(),
+	);
+	ui.add_space(8.0);
+	let busy = state.friend_invites.busy();
+	let has_links = state
+		.friend_invites
+		.invites()
+		.is_some_and(|invites| !invites.is_empty());
+	let (mut create, mut revoke) = (false, false);
+	ui.horizontal(|ui| {
+		ui.spacing_mut().item_spacing.x = 8.0;
+		create = ui
+			.add_enabled_ui(!busy, |ui| {
+				design::button(
+					ui,
+					&crate::i18n::translate("friends-invite-create"),
+					design::ButtonKind::Outline,
+				)
+			})
+			.inner
+			.clicked();
+		revoke = ui
+			.add_enabled_ui(!busy && has_links, |ui| {
+				design::button(
+					ui,
+					&crate::i18n::translate("friends-invite-revoke-all"),
+					design::ButtonKind::Danger,
+				)
+			})
+			.inner
+			.clicked();
+	});
+	if create && let Some(command) = state.create_friend_invite() {
+		commands.push(command);
+	}
+	if revoke && let Some(command) = state.revoke_friend_invites() {
+		commands.push(command);
+	}
+	ui.add_space(8.0);
+	if state.friend_invites.error.is_some() {
+		design::hint(ui, &crate::i18n::translate("friends-invite-error"));
+		// A failed list is asked for again only on request, never in a loop.
+		if state.friend_invites.invites().is_none()
+			&& design::button(
+				ui,
+				&crate::i18n::translate("friends-invite-retry"),
+				design::ButtonKind::Neutral,
+			)
+			.clicked()
+			&& let Some(command) = state.load_friend_invites()
+		{
+			commands.push(command);
+		}
+	}
+	match state.friend_invites.invites() {
+		Some([]) => design::hint(ui, &crate::i18n::translate("friends-invite-none")),
+		Some(invites) => {
+			for invite in invites {
+				let link = invite.link();
+				let uses = invite.uses.to_string();
+				let max = invite.max_uses.to_string();
+				let usage = if invite.max_uses == 0 {
+					crate::i18n::translate_args("friends-invite-uses", &[("uses", &uses)])
+				} else {
+					crate::i18n::translate_args(
+						"friends-invite-uses-limited",
+						&[("uses", &uses), ("max", &max)],
+					)
+				};
+				ui.horizontal(|ui| {
+					ui.spacing_mut().item_spacing.x = 8.0;
+					ui.add(
+						egui::Label::new(
+							RichText::new(&link).monospace().color(colors.text_strong),
+						)
+						.selectable(true),
+					);
+					ui.label(RichText::new(usage).size(12.0).color(colors.muted));
+					if design::button(
+						ui,
+						&crate::i18n::translate("friends-invite-copy"),
+						design::ButtonKind::Outline,
+					)
+					.clicked()
+					{
+						ui.ctx().copy_text(link.clone());
+					}
+				});
+			}
+		}
+		None => {}
+	}
 }
 
 #[cfg(test)]

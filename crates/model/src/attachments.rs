@@ -91,6 +91,8 @@ impl Attachment {
 			+ self.media.proxy_url.as_ref().map_or(0, String::capacity)
 			+ self.media.placeholder.capacity()
 	}
+	/// Treats audio and video as non-images; HEIC/HEIF filenames always count, otherwise the MIME type
+	/// decides, falling back to the file extension when no content type is present.
 	pub fn is_image(&self) -> bool {
 		if self.is_audio() || self.is_video() {
 			return false;
@@ -123,7 +125,61 @@ impl Attachment {
 				})
 		}
 	}
+	/// A small file that is plain text by type or name, whose contents can be copied as text.
+	pub fn is_text(&self) -> bool {
+		if self.size == 0
+			|| self.size > MAX_TEXT_COPY
+			|| self.is_image()
+			|| self.is_audio()
+			|| self.is_video()
+		{
+			return false;
+		}
+		let typed =
+			self.content_type.as_deref().is_some_and(|kind| {
+				let kind = kind
+					.split(';')
+					.next()
+					.unwrap_or(kind)
+					.trim()
+					.to_ascii_lowercase();
+				kind.starts_with("text/")
+					|| matches!(
+						kind.as_str(),
+						"application/json"
+							| "application/xml" | "application/javascript"
+							| "application/toml" | "application/x-yaml"
+							| "application/x-sh"
+					)
+			});
+		typed
+			|| self
+				.filename
+				.rsplit_once('.')
+				.is_some_and(|(_, extension)| {
+					matches!(
+						extension.to_ascii_lowercase().as_str(),
+						"txt"
+							| "md" | "log" | "csv"
+							| "tsv" | "json" | "jsonc"
+							| "xml" | "yml" | "yaml"
+							| "toml" | "ini" | "cfg"
+							| "conf" | "rs" | "py"
+							| "js" | "mjs" | "cjs"
+							| "ts" | "tsx" | "jsx"
+							| "c" | "h" | "cpp" | "hpp"
+							| "cs" | "go" | "java"
+							| "kt" | "lua" | "rb" | "php"
+							| "sh" | "bash" | "zsh"
+							| "ps1" | "sql" | "css"
+							| "scss" | "html" | "diff"
+							| "patch"
+					)
+				})
+	}
 }
+/// Largest text file whose contents are copied to the clipboard.
+pub const MAX_TEXT_COPY: u64 = 1024 * 1024;
 pub fn attachment_bytes(attachments: &[Attachment]) -> usize {
 	attachments.iter().map(Attachment::bytes).sum()
 }

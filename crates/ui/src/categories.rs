@@ -369,7 +369,8 @@ fn category_header(
 	ui: &mut egui::Ui,
 	id: impl egui::AsIdSalt,
 	name: &str,
-	count: usize,
+	// `None` leaves the count out of the tooltip and accessible label.
+	count: Option<usize>,
 	collapsed: bool,
 	row_height: f32,
 	draggable: bool,
@@ -421,11 +422,19 @@ fn category_header(
 	ui.painter()
 		.with_clip_rect(label_rect)
 		.galley(label_rect.min, label, color);
+	let counted = |separator: &str| {
+		count.map_or_else(String::new, |count| {
+			format!(
+				"{separator}{count} {}",
+				crate::i18n::translate("categories-category-header-channels")
+			)
+		})
+	};
 	let response = response.on_hover_text_with(|| {
 		format!(
-			"{name} {} · {count} {} · {}",
+			"{name} {}{} · {}",
 			crate::i18n::translate("categories-category-header-category"),
-			crate::i18n::translate("categories-category-header-channels"),
+			counted(" · "),
 			crate::i18n::translate_if_key(if collapsed {
 				"categories-category-header-expand"
 			} else {
@@ -438,14 +447,14 @@ fn category_header(
 			egui::Role::Button,
 			true,
 			format!(
-				"{name} {}, {}, {count} {}",
+				"{name} {}, {}{}",
 				crate::i18n::translate("categories-category-header-category"),
 				crate::i18n::translate_if_key(if collapsed {
 					"categories-category-header-collapsed"
 				} else {
 					"categories-category-header-expanded"
 				}),
-				crate::i18n::translate("categories-category-header-channels")
+				counted(", ")
 			),
 		)
 	});
@@ -559,6 +568,8 @@ fn paint_shelf_rule(ui: &egui::Ui, rect: egui::Rect, rows: &[CachedRow], index: 
 	);
 }
 
+/// Maps a Discord channel type code to the localization key for its shelf rule label.
+/// Thread types 10-12 share one key; unrecognized codes fall back to an "unknown type" key.
 fn kind_label(kind: u8) -> &'static str {
 	match kind {
 		0 => "categories-paint-shelf-rule-text-channel",
@@ -576,6 +587,8 @@ fn kind_label(kind: u8) -> &'static str {
 }
 
 impl MessagingUi {
+	/// Draws the conversation or channel sidebar for the current server or Home, with its
+	/// categories, request groups and voice participants, and returns a channel to open.
 	pub(super) fn channel_list(&mut self, ui: &mut egui::Ui, state: &mut State) -> Option<Id> {
 		let voice_users = crate::profiles::voice_users(state);
 		let language = self.language;
@@ -753,25 +766,33 @@ impl MessagingUi {
 							}
 						}
 						CachedRow::Requests(count, collapsed) => {
+							// A plugin may hide request counts: badge, tooltip and label alike.
+							let hidden = crate::interface_tweaks::on(
+								ui.ctx(),
+								extensions::InterfaceTweak::HiddenRequestCounts,
+							);
 							let response = category_header(
 								ui,
 								"message-requests",
 								&crate::i18n::translate(Heading::MessageRequests.key()),
-								count,
+								(!hidden).then_some(count),
 								collapsed,
 								row_height,
 								false,
 							);
-							// The count stays visible while folded, so a hidden list still reports.
-							crate::notifications::badge(
-								ui,
-								egui::pos2(
-									response.rect.right() - 16.0,
-									response.rect.bottom() - 13.0,
-								),
-								u32::try_from(count).unwrap_or(u32::MAX),
-								colors.sidebar,
-							);
+							// The count stays visible while folded, so a hidden list still reports,
+							// unless a plugin hides request counts.
+							if !hidden {
+								crate::notifications::badge(
+									ui,
+									egui::pos2(
+										response.rect.right() - 16.0,
+										response.rect.bottom() - 13.0,
+									),
+									u32::try_from(count).unwrap_or(u32::MAX),
+									colors.sidebar,
+								);
+							}
 							if response.clicked() {
 								self.message_requests_collapsed = !collapsed;
 								self.channel_cache.key = None;
@@ -801,7 +822,7 @@ impl MessagingUi {
 								ui,
 								category.id,
 								&category.name,
-								count,
+								Some(count),
 								collapsed,
 								row_height,
 								draggable,
@@ -2091,10 +2112,13 @@ mod tests {
 		state.channels.retain(|c| c.guild.is_some());
 		assert!(order(&state).is_empty());
 	}
+	/// Activating an unsupported channel by keyboard opens the browser confirmation only when
+	/// permitted, never selects it, and clearing the view discards the pending confirmation.
 	#[test]
 	fn unsupported_channel_opens_confirmation_by_keyboard_without_selecting() {
 		let mut state = State {
 			user: Some(model::User {
+				username: String::new(),
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -2165,6 +2189,8 @@ mod tests {
 		assert!(view.timeline.browser_opening.is_none());
 	}
 
+	/// Collapsed categories hide their children while channels and threads keep service order, and
+	/// orphaned, cyclic, self-parented, or cross-guild threads still list without breaking the tree.
 	#[test]
 	fn collapsed_categories_follow_service_order_selection_and_buttons() {
 		let channels = vec![
@@ -2185,6 +2211,7 @@ mod tests {
 				})
 				.collect::<Vec<_>>()
 		};
+		/// Builds the guild 100 rows with an empty roster, honoring the given collapsed categories.
 		fn tree(state: &State, collapsed: BTreeSet<Id>) -> Vec<Row<'_>> {
 			rows(
 				state,
@@ -2264,6 +2291,7 @@ mod tests {
 		);
 		let mut state = State {
 			user: Some(model::User {
+				username: String::new(),
 				id: Id(2),
 				name: "Synthetic member".into(),
 				avatar: None,

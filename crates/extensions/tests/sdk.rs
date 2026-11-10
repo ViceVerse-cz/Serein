@@ -19,6 +19,7 @@ fn manifest(action: &str, surface: Surface) -> Manifest {
 		}
 	}
 	let manifest = Manifest {
+		network_hosts: Vec::new(),
 		api_version: extensions::API_VERSION,
 		id: "sdk-check".into(),
 		name: "SDK compatibility check".into(),
@@ -32,6 +33,12 @@ fn manifest(action: &str, surface: Surface) -> Manifest {
 			id: action.into(),
 			label: action.into(),
 			surface,
+			icon: None,
+			placement: None,
+			menu: None,
+			toggle: false,
+			icon_on: None,
+			needs_draft: false,
 		}],
 	};
 	manifest.validate().unwrap();
@@ -293,6 +300,206 @@ fn context_menu_targets_reject_malformed_role_fields() {
 	] {
 		assert!(bad.validate(&manifest).is_err());
 	}
+}
+
+/// Checks that SDK interface-tweak output reaches the host unchanged, that only granted
+/// activation and panel actions may set tweaks, and that a tweak listed twice is rejected.
+#[test]
+fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
+	let output = sdk::InterfaceTweaksOutput {
+		interface_tweaks: Some(vec![
+			sdk::InterfaceTweak::StaticTypingIndicator,
+			sdk::InterfaceTweak::PlainProfiles,
+			sdk::InterfaceTweak::ExpandedRoles,
+			sdk::InterfaceTweak::HiddenRequestCounts,
+			sdk::InterfaceTweak::OnePingPerDirectMessage,
+			sdk::InterfaceTweak::HiddenBlockedMessages,
+			sdk::InterfaceTweak::HiddenProfileNotes,
+			sdk::InterfaceTweak::LargeStreamPreview,
+			sdk::InterfaceTweak::DoubleClickReplyEdit,
+			sdk::InterfaceTweak::UsernameBesideName,
+			sdk::InterfaceTweak::OwnerCrown,
+			sdk::InterfaceTweak::PlatformIndicators,
+			sdk::InterfaceTweak::RoleColoredMentions,
+			sdk::InterfaceTweak::ForumListView,
+			sdk::InterfaceTweak::ForumGalleryView,
+			sdk::InterfaceTweak::ForumSortByActivity,
+			sdk::InterfaceTweak::ForumSortByCreation,
+			sdk::InterfaceTweak::SingleOpenFolder,
+			sdk::InterfaceTweak::MutualGroups,
+			sdk::InterfaceTweak::MentionAvatars,
+			sdk::InterfaceTweak::RailCounts,
+			sdk::InterfaceTweak::StaffTags,
+			sdk::InterfaceTweak::SilentTyping,
+			sdk::InterfaceTweak::AnonymousFileNames,
+			sdk::InterfaceTweak::GifFavoritesFirst,
+			sdk::InterfaceTweak::DirectUploadButton,
+			sdk::InterfaceTweak::GifAltText,
+			sdk::InterfaceTweak::TypingRoleColors,
+			sdk::InterfaceTweak::ResolveUnknownMentions,
+			sdk::InterfaceTweak::ResolveUnloadedReplies,
+			sdk::InterfaceTweak::MessageLinkPreviews,
+			sdk::InterfaceTweak::DndWhilePlaying,
+		]),
+		..Default::default()
+	};
+	let wire = serde_json::to_vec(&output).unwrap();
+	let host: extensions::Output = serde_json::from_slice(&wire).unwrap();
+	assert_eq!(
+		host.interface_tweaks.as_deref(),
+		Some(extensions::InterfaceTweak::ALL)
+	);
+	let names: Vec<String> = extensions::InterfaceTweak::ALL
+		.iter()
+		.map(|tweak| {
+			serde_json::to_value(tweak)
+				.unwrap()
+				.as_str()
+				.unwrap()
+				.to_owned()
+		})
+		.collect();
+	let info: sdk::HostInfo =
+		serde_json::from_value(serde_json::to_value(extensions::HostInfo::current()).unwrap())
+			.unwrap();
+	assert!(names.iter().all(|name| info.supports_tweak(name)));
+	let with = |action: &str, surface, capabilities: Vec<Capability>| {
+		let mut manifest = manifest(action, surface);
+		manifest.capabilities.extend(capabilities);
+		let input = Invocation {
+			action: action.into(),
+			selected_message: (surface == Surface::Message).then(|| "text".into()),
+			..Default::default()
+		};
+		(manifest, input)
+	};
+	let tweaks = vec![Capability::InterfaceTweaks];
+	for (surface, action, allowed) in [
+		(Surface::Activation, "activate", true),
+		(Surface::Panel, "apply", true),
+		(Surface::Message, "message", false),
+	] {
+		let (granted, input) = with(action, surface, tweaks.clone());
+		assert_eq!(host.validate(&granted, &input).is_ok(), allowed, "{action}");
+		let (ungranted, input) = with(action, surface, vec![]);
+		assert!(
+			host.validate(&ungranted, &input).is_err(),
+			"{action} without grant"
+		);
+	}
+	let (panel, panel_input) = with("apply", Surface::Panel, tweaks);
+	let off = extensions::Output {
+		interface_tweaks: Some(Vec::new()),
+		..Default::default()
+	};
+	assert!(off.validate(&panel, &panel_input).is_ok());
+	let mut twice = host.clone();
+	twice
+		.interface_tweaks
+		.as_mut()
+		.unwrap()
+		.push(extensions::InterfaceTweak::PlainProfiles);
+	assert!(twice.validate(&panel, &panel_input).is_err());
+	let old: sdk::HostInfo = serde_json::from_value(serde_json::json!({
+		"api_version": 1, "sdk_revision": 1, "capabilities": [], "app_events": []
+	}))
+	.unwrap();
+	assert!(!old.supports_tweak("plain_profiles"));
+}
+
+/// Checks that an SDK background effect reaches the host unchanged, that it needs the
+/// `background_effects` grant, an event surface, the action's own grant and an allowed
+/// notification or mute action, and that empty server notification changes are rejected.
+#[test]
+fn background_effects_are_granted_event_output_limited_to_allowed_actions() {
+	let notifications = |level| sdk::HostEffect::AppAction {
+		action: sdk::AppAction::SetServerNotifications {
+			guild_id: "42".into(),
+			level,
+			muted: None,
+			suppress_everyone: Some(true),
+			suppress_roles: Some(true),
+		},
+	};
+	let output = sdk::BackgroundEffectsOutput {
+		background_effects: vec![notifications(Some(1))],
+		..Default::default()
+	};
+	let host: extensions::Output =
+		serde_json::from_slice(&serde_json::to_vec(&output).unwrap()).unwrap();
+	assert_eq!(host.background_effects.len(), 1);
+	let with = |surface, capabilities: &[Capability]| {
+		let mut manifest = manifest("event", surface);
+		manifest.capabilities.extend_from_slice(capabilities);
+		let input = Invocation {
+			action: "event".into(),
+			selected_message: (surface == Surface::Message).then(|| "text".into()),
+			..Default::default()
+		};
+		(manifest, input)
+	};
+	let both = [Capability::BackgroundEffects, Capability::ChannelControl];
+	for (surface, allowed) in [
+		(Surface::AppEvent, true),
+		(Surface::MessageEvent, true),
+		(Surface::Activation, false),
+		(Surface::Panel, false),
+		(Surface::Message, false),
+	] {
+		let (manifest, input) = with(surface, &both);
+		assert_eq!(
+			host.validate(&manifest, &input).is_ok(),
+			allowed,
+			"{surface:?}"
+		);
+	}
+	for partial in [
+		&[Capability::BackgroundEffects][..],
+		&[Capability::ChannelControl][..],
+	] {
+		let (manifest, input) = with(Surface::AppEvent, partial);
+		assert!(host.validate(&manifest, &input).is_err(), "{partial:?}");
+	}
+	let (manifest, input) = with(
+		Surface::AppEvent,
+		&[Capability::BackgroundEffects, Capability::MessageSend],
+	);
+	let send = extensions::Output {
+		background_effects: vec![extensions::HostEffect::AppAction {
+			action: extensions::AppAction::SendMessage {
+				channel_id: "7".into(),
+				content: "hello".into(),
+			},
+		}],
+		..Default::default()
+	};
+	assert!(
+		send.validate(&manifest, &input).is_err(),
+		"sending is never a background change"
+	);
+	let (manifest, input) = with(Surface::AppEvent, &both);
+	for bad in [notifications(Some(4)), notifications(None)] {
+		let mut bad = serde_json::to_value(bad).unwrap();
+		if bad["action"]["level"].is_null() {
+			bad["action"]["suppress_everyone"] = serde_json::Value::Null;
+			bad["action"]["suppress_roles"] = serde_json::Value::Null;
+		}
+		let output = extensions::Output {
+			background_effects: vec![serde_json::from_value(bad).unwrap()],
+			..Default::default()
+		};
+		assert!(output.validate(&manifest, &input).is_err());
+	}
+	let twice = extensions::Output {
+		background_effects: vec![host.background_effects[0].clone(); 2],
+		..Default::default()
+	};
+	assert!(
+		twice.validate(&manifest, &input).is_err(),
+		"one change per result"
+	);
+	let info = extensions::HostInfo::current();
+	assert!(info.capabilities.contains(&Capability::BackgroundEffects));
 }
 
 #[test]

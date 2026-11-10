@@ -1,6 +1,8 @@
 use extensions::*;
 use serein_extension_sdk as sdk;
 
+/// Verifies that a manifest declaring every capability and an action on every surface survives an
+/// SDK serialization round trip and passes host validation unchanged.
 #[test]
 fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validation() {
 	let mut manifest = test_manifest(vec![
@@ -71,6 +73,12 @@ fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validatio
 		id: format!("action-{index}"),
 		label: "Example".into(),
 		surface,
+		icon: None,
+		placement: None,
+		menu: None,
+		toggle: false,
+		icon_on: None,
+		needs_draft: false,
 	})
 	.collect();
 	manifest.validate().unwrap();
@@ -106,6 +114,7 @@ fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validatio
 
 fn test_manifest(capabilities: Vec<Capability>) -> Manifest {
 	Manifest {
+		network_hosts: Vec::new(),
 		api_version: API_VERSION,
 		id: "app-check".into(),
 		name: "App contract".into(),
@@ -119,6 +128,12 @@ fn test_manifest(capabilities: Vec<Capability>) -> Manifest {
 			id: "run".into(),
 			label: "Run".into(),
 			surface: Surface::Panel,
+			icon: None,
+			placement: None,
+			menu: None,
+			toggle: false,
+			icon_on: None,
+			needs_draft: false,
 		}],
 	}
 }
@@ -553,6 +568,8 @@ fn local_effects_require_matching_grants_and_cannot_run_in_background() {
 	}
 }
 
+/// App-event actions must be unique and capability-granted, may update storage and appearance but
+/// not panels, and reject invocations with draft, message, or value context.
 #[test]
 fn app_events_are_unique_granted_and_have_no_direct_conversation_context() {
 	let mut manifest = test_manifest(vec![
@@ -599,6 +616,12 @@ fn app_events_are_unique_granted_and_have_no_direct_conversation_context() {
 		id: "second".into(),
 		label: "Second".into(),
 		surface: Surface::AppEvent,
+		icon: None,
+		placement: None,
+		menu: None,
+		toggle: false,
+		icon_on: None,
+		needs_draft: false,
 	});
 	assert!(manifest.validate().is_err());
 	manifest.actions.pop();
@@ -911,15 +934,24 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 		id: "events".into(),
 		label: "Events".into(),
 		surface: Surface::AppEvent,
+		icon: None,
+		placement: None,
+		menu: None,
+		toggle: false,
+		icon_on: None,
+		needs_draft: false,
 	});
+	supported.network_hosts.push("api.example.com".into());
 	supported.validate().unwrap();
 	assert!(host.supports("rich_presence"));
 	assert!(host.supports("api_proxy"));
-	assert_eq!(caps.len(), 55);
+	assert_eq!(caps.len(), 60);
 	assert_eq!(HostInfo::current().app_events.len(), 21);
-	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 55);
+	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 60);
 }
 
+/// Checks that every app action round-trips between the SDK and the host, needs its capability,
+/// and is accepted only as one proposal from a foreground action.
 #[test]
 fn app_actions_round_trip_and_require_foreground_granted_confirmation() {
 	let actions = [
@@ -946,6 +978,7 @@ fn app_actions_round_trip_and_require_foreground_granted_confirmation() {
 		r#"{"type":"set_channel_mute","channel_id":"2","duration_seconds":3600}"#,
 		r#"{"type":"set_channel_notifications","channel_id":"2","level":2}"#,
 		r#"{"type":"set_guild_hide_muted","guild_id":"4","hide":true}"#,
+		r#"{"type":"set_server_notifications","guild_id":"4","level":1,"muted":null,"suppress_everyone":true,"suppress_roles":true}"#,
 		r#"{"type":"create_channel","guild_id":"4","name":"general","kind":"text"}"#,
 		r#"{"type":"create_category","guild_id":"4","name":"Topics"}"#,
 		r#"{"type":"duplicate_channel","channel_id":"2","name":"general-copy"}"#,
@@ -1169,6 +1202,12 @@ fn tracked_actions_and_extended_inputs_preserve_v1_wire_compatibility() {
 		id: "events".into(),
 		label: "Events".into(),
 		surface: Surface::AppEvent,
+		icon: None,
+		placement: None,
+		menu: None,
+		toggle: false,
+		icon_on: None,
+		needs_draft: false,
 	});
 	manifest.validate().unwrap();
 	let effect = HostEffect::TrackedAppAction {
@@ -1179,11 +1218,11 @@ fn tracked_actions_and_extended_inputs_preserve_v1_wire_compatibility() {
 	let input = Invocation {
 		action: "events".into(),
 		app_event: Some(AppEventKind::Context),
-		action_result: Some(ActionResult {
+		action_result: Some(Box::new(ActionResult {
 			request_id: "save-42".into(),
 			status: ActionResultStatus::Accepted,
 			code: ActionResultCode::Accepted,
-		}),
+		})),
 		..Default::default()
 	};
 	input.validate(&manifest).unwrap();
@@ -1326,6 +1365,8 @@ fn app_action_patches_reject_invalid_ranges_conflicts_and_unbounded_text() {
 	.unwrap();
 }
 
+/// Preference snapshots reject out-of-range audio, presence, and scroll values, and payloads from
+/// older hosts that omit newer preference fields still deserialize with those fields unset.
 #[test]
 fn preference_snapshots_are_bounded_and_old_hosts_can_omit_them() {
 	let mut data = snapshot();
@@ -1443,4 +1484,173 @@ fn preference_snapshots_are_bounded_and_old_hosts_can_omit_them() {
 			.is_err()
 		);
 	}
+}
+
+/// Checks that a network plugin must declare its hosts, that SDK requests reach the host
+/// unchanged and only for declared hosts and never from ticks, and that responses return to
+/// the requesting action of a plugin granted `network`.
+#[test]
+fn network_requests_need_declared_hosts_and_answer_through_app_events() {
+	let mut manifest = test_manifest(vec![Capability::Network, Capability::Appearance]);
+	manifest.actions.push(Action {
+		id: "tick".into(),
+		label: "Tick".into(),
+		surface: Surface::Tick,
+		icon: None,
+		placement: None,
+		menu: None,
+		toggle: false,
+		icon_on: None,
+		needs_draft: false,
+	});
+	assert!(manifest.validate().is_err(), "network without hosts");
+	manifest.network_hosts = vec!["api.example.com".into()];
+	manifest.validate().unwrap();
+	for hosts in [
+		vec!["API.example.com"],
+		vec!["localhost"],
+		vec!["a.example.com", "a.example.com"],
+	] {
+		let mut bad = manifest.clone();
+		bad.network_hosts = hosts.iter().map(|host| (*host).to_owned()).collect();
+		assert!(bad.validate().is_err(), "{hosts:?}");
+	}
+	let mut undeclared = test_manifest(Vec::new());
+	undeclared.network_hosts = vec!["api.example.com".into()];
+	assert!(undeclared.validate().is_err(), "hosts without network");
+
+	let mut post = sdk::FetchRequest::get("translate", "https://api.example.com/v1?q=hola");
+	post.method = sdk::FetchMethod::Post;
+	post.headers
+		.insert("Authorization".into(), "Bearer plugin-key".into());
+	post.body = Some("{}".into());
+	let output = sdk::NetworkOutput {
+		fetches: vec![
+			post,
+			sdk::FetchRequest::get("other", "https://api.example.com/"),
+		],
+		..Default::default()
+	};
+	let host: Output = serde_json::from_slice(&serde_json::to_vec(&output).unwrap()).unwrap();
+	assert_eq!(host.fetches.len(), 2);
+	assert_eq!(host.fetches[0].method, FetchMethod::Post);
+	let panel = Invocation {
+		action: "run".into(),
+		..Default::default()
+	};
+	host.validate(&manifest, &panel).unwrap();
+	let mut elsewhere = host.clone();
+	elsewhere.fetches[1].url = "https://evil.example.com/".into();
+	assert!(elsewhere.validate(&manifest, &panel).is_err());
+	let mut duplicate = host.clone();
+	duplicate.fetches[1].request_id = "translate".into();
+	assert!(duplicate.validate(&manifest, &panel).is_err());
+	let mut many = host.clone();
+	many.fetches = (0..=MAX_FETCHES)
+		.map(|index| FetchRequest {
+			request_id: format!("r{index}"),
+			..host.fetches[1].clone()
+		})
+		.collect();
+	assert!(many.validate(&manifest, &panel).is_err());
+	assert!(host.validate(&test_manifest(Vec::new()), &panel).is_err());
+	let tick = Invocation {
+		action: "tick".into(),
+		tick_ms: Some(1),
+		..Default::default()
+	};
+	assert!(
+		host.validate(&manifest, &tick).is_err(),
+		"fetches from a tick"
+	);
+
+	let result = FetchResult {
+		request_id: "translate".into(),
+		status: Some(200),
+		content_type: Some("application/json".into()),
+		body: r#"{"text":"hello"}"#.into(),
+		error: None,
+	};
+	let delivered = Invocation {
+		action: "run".into(),
+		values: [("language".to_owned(), "en".to_owned())].into(),
+		fetch_result: Some(Box::new(result.clone())),
+		..Default::default()
+	};
+	delivered.validate(&manifest).unwrap();
+	let wire = serde_json::to_vec(&delivered).unwrap();
+	let plugin: sdk::NetworkInvocation<sdk::Invocation> = serde_json::from_slice(&wire).unwrap();
+	assert_eq!(plugin.invocation.value("language"), Some("en"));
+	let received = plugin.fetch_result.unwrap();
+	assert_eq!(received.request_id, "translate");
+	#[derive(serde::Deserialize)]
+	struct Translated {
+		text: String,
+	}
+	assert_eq!(received.json::<Translated>().unwrap().text, "hello");
+	let on_tick = Invocation {
+		fetch_result: Some(Box::new(result)),
+		..tick
+	};
+	assert!(on_tick.validate(&manifest).is_err());
+	let mut without_grant = test_manifest(vec![Capability::Appearance]);
+	without_grant.actions = manifest.actions.clone();
+	assert!(delivered.validate(&without_grant).is_err());
+
+	// Activation output only builds the installed entry; nothing would return its response.
+	let mut activated = manifest.clone();
+	activated.actions.push(Action {
+		id: "start".into(),
+		label: "Start".into(),
+		surface: Surface::Activation,
+		icon: None,
+		placement: None,
+		menu: None,
+		toggle: false,
+		icon_on: None,
+		needs_draft: false,
+	});
+	let activation = Invocation {
+		action: "start".into(),
+		..Default::default()
+	};
+	assert!(
+		host.validate(&activated, &activation).is_err(),
+		"fetches from activation"
+	);
+
+	// A response to a request made while handling action feedback keeps that feedback.
+	let mut feedback = manifest.clone();
+	feedback
+		.capabilities
+		.extend([Capability::ActionFeedback, Capability::AppEvents]);
+	feedback.actions.push(Action {
+		id: "events".into(),
+		label: "Events".into(),
+		surface: Surface::AppEvent,
+		icon: None,
+		placement: None,
+		menu: None,
+		toggle: false,
+		icon_on: None,
+		needs_draft: false,
+	});
+	let answered = Invocation {
+		action: "events".into(),
+		app_event: Some(AppEventKind::Context),
+		action_result: Some(Box::new(ActionResult {
+			request_id: "save-42".into(),
+			status: ActionResultStatus::Accepted,
+			code: ActionResultCode::Accepted,
+		})),
+		fetch_result: Some(Box::new(FetchResult {
+			request_id: "translate".into(),
+			status: Some(200),
+			content_type: None,
+			body: String::new(),
+			error: None,
+		})),
+		..Default::default()
+	};
+	answered.validate(&feedback).unwrap();
 }

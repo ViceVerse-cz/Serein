@@ -45,6 +45,16 @@ pub struct TimelineView {
 		String,
 		crate::extensions_ui::MessageTarget,
 	)>,
+	/// Plugins' text shown in place of messages, published each frame.
+	pub(super) alternatives:
+		std::sync::Arc<std::collections::HashMap<Id, crate::extensions_ui::AltView>>,
+	/// The alternatives the cached row heights were measured with.
+	alternatives_measured:
+		std::sync::Arc<std::collections::HashMap<Id, crate::extensions_ui::AltView>>,
+	/// A message whose alternative the reader switched this frame.
+	pub(super) alternative_toggle: Option<Id>,
+	/// Text messages drawn this frame, for plugins that follow messages coming into view.
+	pub(super) shown: Vec<Id>,
 	pub(super) user_action: Option<crate::user_menu::Action>,
 	pub(super) restore_pending: Option<String>,
 	/// A failed own row the reader dismissed this frame.
@@ -133,6 +143,10 @@ pub struct TimelineView {
 	rows: Vec<(Id, f32)>,
 	revision: u64,
 	layout_fingerprint: u64,
+	/// Whether the last layout left out blocked users' messages.
+	hidden_blocked: bool,
+	/// Relationship view the last layout filtered with; pending blocks change it too.
+	relationship_view: u64,
 	channel: Option<Id>,
 	anchor: Option<(Id, f32)>,
 	scroll_offset: f32,
@@ -1258,8 +1272,12 @@ fn dm_intro(
 	action
 }
 
-/// Loaded and private (ephemeral) messages of the selected conversation in id order.
-fn display_rows<'a>(state: &'a State) -> impl Iterator<Item = &'a Message> + 'a {
+/// Loaded and private (ephemeral) messages of the selected conversation in id order, without
+/// blocked users' messages when `hide_blocked`.
+fn display_rows<'a>(
+	state: &'a State,
+	hide_blocked: bool,
+) -> impl Iterator<Item = &'a Message> + 'a {
 	let mut private: Vec<&Message> = state
 		.interactions
 		.ephemeral
@@ -1276,6 +1294,7 @@ fn display_rows<'a>(state: &'a State) -> impl Iterator<Item = &'a Message> + 'a 
 		(Some(_), _) => shared.next(),
 		(None, _) => private.next(),
 	})
+	.filter(move |message| !hide_blocked || state.user_blocked(message.author.id) != Some(true))
 }
 /// A row payload, including retained deleted bodies and private command responses.
 fn display_message(state: &State, id: Id) -> Option<&Message> {
@@ -1750,28 +1769,17 @@ fn message_actions(
 	let (can_thread, thread_request) = thread;
 	popup.show(|ui| {
 		ui.set_min_width(160.0);
-		if !extension_actions.is_empty() {
-			ui.menu_button(
-				crate::i18n::translate("timeline-message-actions-extensions"),
-				|ui| {
-					for action in extension_actions {
-						if ui.button(&action.label).clicked() {
-							*extension_request = Some((
-								action.clone(),
-								message.display_text().into_owned(),
-								crate::extensions_ui::MessageTarget {
-									channel: message.channel,
-									message: message.id,
-									author: message.author.id,
-								},
-							));
-							ui.close();
-						}
-					}
-				},
-			);
-			ui.separator();
-		}
+		let target = crate::extensions_ui::MessageTarget {
+			channel: message.channel,
+			message: message.id,
+			author: message.author.id,
+		};
+		let mut chosen = crate::extensions_ui::message_menu_group(ui, extension_actions);
+		chosen = chosen.or(crate::extensions_ui::message_menu_slot(
+			ui,
+			extension_actions,
+			extensions::Placement::Top,
+		));
 		if crate::select::has_selection(ui.ctx())
 			&& ui
 				.button(crate::i18n::translate("timeline-message-actions-copy"))
@@ -1788,6 +1796,12 @@ fn message_actions(
 				.copy_text(crate::i18n::message_text(message).into_owned());
 			ui.close();
 		}
+		// Plugin entries placed after the copy entries, where Discord places Translate.
+		chosen = chosen.or(crate::extensions_ui::message_menu_slot(
+			ui,
+			extension_actions,
+			extensions::Placement::AfterCopy,
+		));
 		if let Some(link) = link
 			&& ui
 				.button(crate::i18n::translate(
@@ -1918,6 +1932,20 @@ fn message_actions(
 		{
 			*deleting = Some((message.channel, message.id));
 			ui.close();
+		}
+		if extension_actions
+			.iter()
+			.any(|action| action.slot == Some(extensions::Placement::Bottom))
+		{
+			ui.separator();
+			chosen = chosen.or(crate::extensions_ui::message_menu_slot(
+				ui,
+				extension_actions,
+				extensions::Placement::Bottom,
+			));
+		}
+		if let Some(action) = chosen {
+			*extension_request = Some((action, message.display_text().into_owned(), target));
 		}
 	});
 }
@@ -2263,8 +2291,13 @@ fn show_system(
 	}
 }
 impl TimelineView {
+	/// Draws the fullscreen video player if its message is still visible in the selected channel.
+	/// Stops playback when the message is gone, blocked, or spoiler-hidden; returns whether it drew.
 	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
 		if self.video.is_fullscreen() {
+			// Runs before the timeline lays out, so the tweak is read directly.
+			let hide_blocked =
+				crate::interface_tweaks::on(ctx, extensions::InterfaceTweak::HiddenBlockedMessages);
 			let current = self
 				.video
 				.active
@@ -2282,6 +2315,8 @@ impl TimelineView {
 						})
 						.filter(|message| {
 							state.selected == Some(*channel)
+								&& !(hide_blocked
+									&& state.user_blocked(message.author.id) == Some(true))
 								&& message.channel == *channel
 								&& message.attachments.contains(attachment)
 								&& (self.component_viewing
@@ -2587,8 +2622,16 @@ impl TimelineView {
 		let dimensions_changed = width_changed || content_dimensions_changed;
 		self.applied_hide_media_links = self.hide_media_links;
 		self.applied_compact_messages = self.compact_messages;
-		// A thread's starter joins the rows only once the whole thread history is loaded.
-		let starter = state.thread_starter().filter(|_| history_complete(state));
+		let hide_blocked = crate::interface_tweaks::on(
+			ui.ctx(),
+			extensions::InterfaceTweak::HiddenBlockedMessages,
+		);
+		// A thread's starter joins the rows only once the whole thread history is loaded, and
+		// like other rows is left out when its author is blocked and the tweak hides them.
+		let starter = state
+			.thread_starter()
+			.filter(|_| history_complete(state))
+			.filter(|m| !hide_blocked || state.user_blocked(m.author.id) != Some(true));
 		let starter_id = starter.map(|m| m.id);
 		let intro_empty = state.timeline.display_iter().next().is_none()
 			&& !state
@@ -2603,7 +2646,7 @@ impl TimelineView {
 			// anchor or reintroduce estimates for already settled message geometry.
 			let mut fingerprint = DefaultHasher::new();
 			let mut previous = None;
-			for message in starter.into_iter().chain(display_rows(state)) {
+			for message in starter.into_iter().chain(display_rows(state, hide_blocked)) {
 				let deleted = state.timeline.is_deleted(message.id);
 				message.id.hash(&mut fingerprint);
 				row_key(message, previous, self.unread_boundary, state).hash(&mut fingerprint);
@@ -2616,6 +2659,8 @@ impl TimelineView {
 		}
 		let changed = self.revision == u64::MAX
 			|| layout_changed
+			|| self.hidden_blocked != hide_blocked
+			|| hide_blocked && self.relationship_view != state.relationship_view()
 			|| dimensions_changed
 			|| self.starter_row != starter_id
 			|| self.intro_row != intro.is_some()
@@ -2623,6 +2668,8 @@ impl TimelineView {
 				.is_some_and(|key| self.heights.get(&INTRO).is_some_and(|(old, _)| *old != key));
 		self.starter_row = starter_id;
 		self.intro_row = intro.is_some();
+		self.hidden_blocked = hide_blocked;
+		self.relationship_view = state.relationship_view();
 		if changed || self.revision != state.revision || self.width != width {
 			self.measured_rows.clear();
 		}
@@ -2644,7 +2691,7 @@ impl TimelineView {
 				.map(|_| INTRO)
 				.into_iter()
 				.chain(starter_id)
-				.chain(display_rows(state).map(|message| message.id))
+				.chain(display_rows(state, hide_blocked).map(|message| message.id))
 				.collect();
 			self.heights
 				.retain(|id, _| row_ids.binary_search(id).is_ok());
@@ -2663,7 +2710,7 @@ impl TimelineView {
 			let mut stale_heights = Vec::new();
 			self.rows = starter
 				.into_iter()
-				.chain(display_rows(state))
+				.chain(display_rows(state, hide_blocked))
 				.map(|m| {
 					let prior = previous;
 					let deleted = state.timeline.is_deleted(m.id);
@@ -2986,6 +3033,27 @@ impl TimelineView {
 			scroll = scroll.vertical_scroll_offset(offset);
 		}
 		self.visible_authors.clear();
+		self.shown.clear();
+		if !std::sync::Arc::ptr_eq(&self.alternatives, &self.alternatives_measured) {
+			// Rows whose shown text changed are measured again.
+			let changed: Vec<Id> = self
+				.alternatives
+				.iter()
+				.filter(|(id, view)| self.alternatives_measured.get(id) != Some(view))
+				.map(|(id, _)| *id)
+				.chain(
+					self.alternatives_measured
+						.keys()
+						.filter(|id| !self.alternatives.contains_key(id))
+						.copied(),
+				)
+				.collect();
+			for id in changed {
+				self.heights.remove(&id);
+				self.measured_rows.remove(&id);
+			}
+			self.alternatives_measured = self.alternatives.clone();
+		}
 		#[cfg(test)]
 		{
 			self.leading_rendered = 0;
@@ -3130,6 +3198,9 @@ impl TimelineView {
 				{
 					self.visible_authors.push(message.author.id);
 				}
+				if !message.content.is_empty() && !message.ephemeral && self.shown.len() < 64 {
+					self.shown.push(id);
+				}
 				let previous = index
 					.checked_sub(1)
 					.and_then(|i| display_message(state, self.rows[i].0));
@@ -3153,6 +3224,7 @@ impl TimelineView {
 						.display(message)
 						.is_some_and(<[_]>::is_empty)
 					&& state.interactions.pending.is_none()
+					&& !self.alternatives.contains_key(&id)
 					&& let Some(&(key, height)) = self.heights.get(&id)
 					&& key
 						== row_height_key(message, previous, self.unread_boundary, state, deleted)
@@ -3277,7 +3349,31 @@ impl TimelineView {
 							if let Some(reply) = message.reply_to.filter(|_| message.kind != 46) {
 								reference_row(ui, |ui| {
 									// Reuse only loaded content; never fetch a thread while painting.
-									if message.reply_deleted || state.timeline.is_deleted(reply) {
+									// The same original the preview shows, loaded or looked up.
+									let blocked = self.hidden_blocked
+										&& state
+											.timeline
+											.get(reply)
+											.or_else(|| state.lookups.message(reply))
+											.is_some_and(|original| {
+												state.user_blocked(original.author.id) == Some(true)
+											});
+									if blocked {
+										let label = ui.add(
+											egui::Label::new(
+												RichText::new(crate::i18n::translate(
+													"timeline-show-with-scroll-message-blocked",
+												))
+												.size(13.0)
+												.italics()
+												.color(colors.muted),
+											)
+											.truncate(),
+										);
+										surface.keep(&label);
+									} else if message.reply_deleted
+										|| state.timeline.is_deleted(reply)
+									{
 										let deleted = ui.add(
 											egui::Label::new(
 												RichText::new(crate::i18n::translate(
@@ -3300,8 +3396,13 @@ impl TimelineView {
 														egui::text::LayoutJob::default();
 													let mut preview_emojis = Vec::new();
 													let mut attachment_icon = None;
-													if let Some(original) =
-														state.timeline.get(reply)
+													// A reply's original from loaded history, or read on demand.
+													let unloaded =
+														state.timeline.get(reply).is_none();
+													if let Some(original) = state
+														.timeline
+														.get(reply)
+														.or_else(|| state.lookups.message(reply))
 													{
 														let reply_avatar = avatars.show(
 															ui,
@@ -3483,6 +3584,22 @@ impl TimelineView {
 															),
 														);
 													surface.keep(&reply_preview);
+													// With the resolve-unloaded-replies tweak, hovering an unloaded
+													// reply reads its original once.
+													if unloaded
+														&& reply_preview.hovered()
+														&& crate::interface_tweaks::on(
+															ui.ctx(),
+															extensions::InterfaceTweak::ResolveUnloadedReplies,
+														) {
+														crate::lookups::request(
+															ui.ctx(),
+															crate::lookups::Request::Message {
+																channel: message.channel,
+																message: reply,
+															},
+														);
+													}
 													if reply_preview.clicked() {
 														self.request_reply_target(reply);
 													}
@@ -3614,6 +3731,24 @@ impl TimelineView {
 												&message.author,
 											);
 											surface.keep(&author);
+											let marks = crate::name_marks::Marks::of(
+												ui.ctx(),
+												state,
+												&message.author,
+												state.message_author_name(message),
+												(
+													state
+														.channel(message.channel)
+														.and_then(|c| c.guild),
+													&message.author_roles,
+												),
+											);
+											// Bounded to the marks' own reserve, so a long username
+											// never widens the author column into the message body.
+											ui.scope(|ui| {
+												ui.set_max_width(marks.reserve());
+												marks.show(ui);
+											});
 										},
 									);
 									ui.spacing_mut().item_spacing.x = body_spacing;
@@ -3651,6 +3786,20 @@ impl TimelineView {
 											egui::Layout::left_to_right(egui::Align::Center),
 											|ui| {
 												ui.spacing_mut().item_spacing.x = 8.0;
+												// Marks are known before the name, so it leaves them and the
+												// timestamp room instead of pushing them out of the row.
+												let marks = crate::name_marks::Marks::of(
+													ui.ctx(),
+													state,
+													&message.author,
+													state.message_author_name(message),
+													(
+														state
+															.channel(message.channel)
+															.and_then(|c| c.guild),
+														&message.author_roles,
+													),
+												);
 												let author = crate::name_styles::in_row(
 													name_hover == Some(message.id),
 													|| {
@@ -3665,7 +3814,7 @@ impl TimelineView {
 																colors.chat,
 															),
 															egui::Sense::click(),
-															48.0,
+															48.0 + marks.reserve(),
 														)
 													},
 												)
@@ -3693,6 +3842,26 @@ impl TimelineView {
 													&message.author,
 												);
 												surface.keep(&author);
+												// The timestamp keeps its room even after a long username.
+												ui.scope(|ui| {
+													ui.set_max_width(
+														(ui.available_width() - 48.0).max(0.0),
+													);
+													marks.show(ui);
+												});
+												// A plugin's alternative text switches here, beside the name.
+												if let Some(view) =
+													self.alternatives.get(&id).cloned()
+												{
+													let switch =
+														crate::extensions_ui::alternative_switch(
+															ui, &view,
+														);
+													surface.keep(&switch);
+													if switch.clicked() {
+														self.alternative_toggle = Some(id);
+													}
+												}
 												let time = timestamp(id);
 												let time = ui
 													.label(
@@ -3761,8 +3930,30 @@ impl TimelineView {
 											} else {
 												None
 											};
-											let formatted =
-												self.formatted.get(id, &message.content);
+											// Rows without a header carry the switch above the text.
+											if compact
+												&& let Some(view) =
+													self.alternatives.get(&id).cloned()
+											{
+												let switch =
+													crate::extensions_ui::alternative_switch(
+														ui, &view,
+													);
+												surface.keep(&switch);
+												if switch.clicked() {
+													self.alternative_toggle = Some(id);
+												}
+											}
+											let alternative = self
+												.alternatives
+												.get(&id)
+												.filter(|view| view.show)
+												.map(|view| view.text.clone());
+											// A separate cache key keeps both versions formatted.
+											let formatted = match &alternative {
+												Some(text) => self.formatted.get(Id(!id.0), text),
+												None => self.formatted.get(id, &message.content),
+											};
 											let reveal = self
 												.revealed
 												.get(&id)
@@ -3921,6 +4112,7 @@ impl TimelineView {
 												) {
 													self.gif_favorite = Some(gif);
 												}
+												crate::link_previews::show(ui, message, state);
 												surface.exclude(egui::Rect::from_min_max(
 													egui::pos2(ui.max_rect().left(), embed_top),
 													egui::pos2(
@@ -4163,8 +4355,18 @@ impl TimelineView {
 														.and_then(|channel| channel.message_count)
 												})
 											});
-										let last =
+										// A blocked author's latest reply stays out of the card
+										// while the tweak hides their messages.
+										let loaded =
 											preview.as_ref().and_then(|preview| preview.last);
+										let last = loaded.filter(|reply| {
+											!self.hidden_blocked
+												|| state.user_blocked(reply.author.id) != Some(true)
+										});
+										// The hidden reply's own ID is no fallback for the
+										// card's activity time either.
+										let hidden =
+											loaded.filter(|_| last.is_none()).map(|reply| reply.id);
 										let text = last.map(|reply| {
 											thread_preview_text(
 												ui,
@@ -4185,7 +4387,8 @@ impl TimelineView {
 														.channel
 														.and_then(|channel| channel.last_message)
 												})
-											});
+											})
+											.filter(|id| Some(*id) != hidden);
 										let (card, visible) = thread_card(
 											ui,
 											state,
@@ -4273,14 +4476,42 @@ impl TimelineView {
 					// A group start's toolbar rises into the gap above it but stops short of the
 					// previous message, as in Discord.
 					let toolbar_top = rect.top() - if compact { 10.0 } else { 12.0 };
-					if let Some(pos) = double_click
+					let double_click = double_click.filter(|pos| {
+						!deleted
+							&& rect.contains(*pos)
+							&& self
+								.toolbar
+								.is_none_or(|(_, toolbar)| !toolbar.contains(*pos))
+							&& ui.ctx().layer_id_at(*pos) == Some(ui.layer_id())
+							&& !egui::Popup::is_any_open(ui.ctx())
+							&& ui.is_enabled()
+					});
+					// Edit or reply takes the double-click when the tweak is on and one can start;
+					// otherwise the reaction preset still gets it.
+					let mut handled = false;
+					if double_click.is_some()
+						&& crate::interface_tweaks::on(
+							ui.ctx(),
+							extensions::InterfaceTweak::DoubleClickReplyEdit,
+						) {
+						let own = state
+							.user
+							.as_ref()
+							.is_some_and(|u| u.id == message.author.id);
+						if own && !message.unsupported && state.can_edit(message.channel, id) {
+							crate::select::clear(ui.ctx());
+							*editing = Some((message.channel, id, message.content.clone()));
+							self.edit_started = true;
+							handled = true;
+						} else if !own && state.can_send(message.channel) && !message.ephemeral {
+							crate::select::clear(ui.ctx());
+							selected_reply = Some(id);
+							handled = true;
+						}
+					}
+					if !handled
+						&& double_click.is_some()
 						&& let Some(text) = self.double_click_reaction
-						&& !deleted && rect.contains(pos)
-						&& self
-							.toolbar
-							.is_none_or(|(_, toolbar)| !toolbar.contains(pos))
-						&& ui.ctx().layer_id_at(pos) == Some(ui.layer_id())
-						&& !egui::Popup::is_any_open(ui.ctx())
 					{
 						let (emoji, reacted, enabled) = quick_reaction(state, message, text);
 						if enabled {
@@ -4493,6 +4724,11 @@ impl TimelineView {
 							let link = state
 								.channel(message.channel)
 								.and_then(|channel| discord_url(channel, Some(id)));
+							let plugin_buttons = self
+								.extension_actions
+								.iter()
+								.filter(|a| a.slot == Some(extensions::Placement::Toolbar))
+								.count();
 							let translate = translatable(message);
 							let buttons = if shift {
 								4 + usize::from(link.is_some())
@@ -4503,7 +4739,7 @@ impl TimelineView {
 								(if react { 4 } else { 1 })
 									+ 2 + usize::from(translate)
 									+ usize::from(own)
-							};
+							} + plugin_buttons;
 							let width = buttons as f32 * 30.0;
 							let toolbar_rect = egui::Rect::from_min_size(
 								egui::pos2(
@@ -4698,6 +4934,32 @@ impl TimelineView {
 									.clicked()
 							{
 								selected_reply = Some(id);
+							}
+							// Plugin buttons placed in the toolbar, after Reply as in Discord.
+							for action in self
+								.extension_actions
+								.iter()
+								.filter(|a| a.slot == Some(extensions::Placement::Toolbar))
+							{
+								if toolbar
+									.push_id(("plugin", &action.plugin, &action.action), |ui| {
+										crate::extensions_ui::action_icon_button(
+											ui, action, 28.0, false,
+										)
+									})
+									.inner
+									.clicked()
+								{
+									self.extension_request = Some((
+										action.clone(),
+										message.display_text().into_owned(),
+										crate::extensions_ui::MessageTarget {
+											channel: message.channel,
+											message: id,
+											author: message.author.id,
+										},
+									));
+								}
 							}
 							if can_delete
 								&& shift && toolbar
@@ -5257,6 +5519,8 @@ impl TimelineView {
 			let allowed = !state.timeline.is_deleted(*message)
 				&& display_message(state, *message).is_some_and(|source| {
 					!source.embeds_suppressed
+						&& !(self.hidden_blocked
+							&& state.user_blocked(source.author.id) == Some(true))
 						&& Revealed::fingerprint(source) == *fingerprint
 						&& (!crate::embeds::has_media_spoilers(source)
 							|| self
@@ -5291,6 +5555,8 @@ impl TimelineView {
 						.iter()
 						.find(|message| message.id == message_id)
 				})
+				// A viewer closes with its row when the tweak hides a blocked author.
+				.filter(|m| !(self.hidden_blocked && state.user_blocked(m.author.id) == Some(true)))
 				.filter(|m| {
 					if let Some(identity) = self.component_viewing {
 						identity
@@ -6323,6 +6589,7 @@ mod tests {
 			id: Id(id),
 			channel: Id(20),
 			author: model::User {
+				username: String::new(),
 				id: Id(2),
 				name: "Robin".into(),
 				avatar: None,
@@ -6791,6 +7058,8 @@ mod tests {
 			vec![INTRO, Id(1_000_000)]
 		);
 	}
+	/// Once older history is exhausted, a fetched thread starter message renders above the thread's
+	/// replies.
 	#[test]
 	fn thread_starter_renders_above_replies_once_history_is_exhausted() {
 		let ctx = egui::Context::default();
@@ -6886,6 +7155,111 @@ mod tests {
 				"missing {label}: {painted:?}"
 			);
 		}
+	}
+	/// Checks that the hidden-blocked-messages tweak leaves a blocked author's thread starter out
+	/// of the rows, as it does their ordinary messages, and that it returns without the tweak.
+	#[test]
+	fn hidden_blocked_messages_tweak_leaves_out_a_blocked_thread_starter() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = test_support::chat_demo_state();
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		let (thread, parent) = state
+			.channels
+			.iter()
+			.find(|c| {
+				matches!(c.kind, 10..=12)
+					&& c.parent_id
+						.and_then(|id| state.channel(id))
+						.is_some_and(|p| matches!(p.kind, 0 | 5))
+			})
+			.map(|c| (c.id, c.parent_id.unwrap()))
+			.expect("fixture thread under a text channel");
+		state.select(thread);
+		state
+			.timeline
+			.insert(test_support::message(thread.0 + 10, thread), false, false)
+			.unwrap();
+		state.history_pending = false;
+		state.freshness = model::Freshness::Fresh;
+		state.older_exhausted = true;
+		let Some(client_core::Command::ThreadStarter { request, .. }) =
+			state.request_thread_starter()
+		else {
+			panic!("thread requests its starter");
+		};
+		let mut starter = test_support::message(thread.0, parent);
+		starter.author.id = Id(777);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::ThreadStarter {
+				thread,
+				request,
+				result: Ok(starter),
+			},
+		});
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::Relationship {
+				user: Id(777),
+				blocked: true,
+			}),
+		});
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut rows = |view: &mut TimelineView, state: &mut State, hide: bool| {
+			for _ in 0..4 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(900.0, 1400.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						crate::interface_tweaks::publish(
+							ui.ctx(),
+							&std::sync::Arc::new(
+								hide.then_some(extensions::InterfaceTweak::HiddenBlockedMessages)
+									.into_iter()
+									.collect(),
+							),
+						);
+						view.show(
+							ui,
+							state,
+							&mut None,
+							&mut None,
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
+							None,
+						);
+					},
+				);
+				output.drop_without_applying_deltas();
+			}
+			view.rows.iter().map(|(id, _)| *id).collect::<Vec<_>>()
+		};
+		assert!(rows(&mut view, &mut state, false).contains(&thread));
+		assert_eq!(view.starter_row, Some(thread));
+		let hidden = rows(&mut view, &mut state, true);
+		assert!(
+			!hidden.contains(&thread),
+			"blocked starter left out: {hidden:?}"
+		);
+		assert_eq!(view.starter_row, None);
+		assert!(hidden.contains(&Id(thread.0 + 10)), "other rows stay");
+		// Turning the tweak off on the same view brings the starter back.
+		let shown = rows(&mut view, &mut state, false);
+		assert!(shown.contains(&thread), "starter restored: {shown:?}");
+		assert_eq!(view.starter_row, Some(thread));
+		assert!(shown.contains(&Id(thread.0 + 10)));
 	}
 	#[test]
 	fn an_unloaded_thread_starter_offers_its_thread_card() {
@@ -7105,6 +7479,7 @@ mod tests {
 		// A mention names its author instead of the raw token.
 		message.content = "Hi <@9>".into();
 		message.mentions = vec![model::User {
+			username: String::new(),
 			id: Id(9),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -7887,6 +8262,7 @@ mod tests {
 			auth: client_core::auth::AuthState::Authenticated,
 			gateway_connected: true,
 			user: Some(model::User {
+				username: String::new(),
 				id: Id(999),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -9382,6 +9758,8 @@ mod tests {
 		}
 	}
 
+	/// Verifies that mixed-height rows yield a small visible range and that anchor offsets
+	/// resolve missing IDs to neighbors and clamp to the content bounds.
 	#[test]
 	fn mixed_height_virtualization_visits_only_viewport() {
 		let rows: Vec<_> = (1..=500)
@@ -9401,6 +9779,245 @@ mod tests {
 		assert_eq!(anchor_offset(&neighbors, Id(3), -100.0), 0.0);
 		assert_eq!(anchor_offset(&neighbors, Id(3), 200.0), 140.0);
 		assert_eq!(anchor_offset(&[], Id(2), 25.0), 0.0);
+	}
+
+	/// Checks that the hidden-blocked-messages tweak leaves out a blocked user's messages,
+	/// keeps everyone else's, and restores them when the tweak is switched off.
+	#[test]
+	fn hidden_blocked_messages_tweak_leaves_out_blocked_authors() {
+		/// Collects the text of every painted shape, recursing into shape groups.
+		fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
+			match shape {
+				egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						texts(shape, out);
+					}
+				}
+				_ => {}
+			}
+		}
+		let mut state = test_support::demo_state();
+		state.read_state.reset();
+		state.timeline.clear();
+		let channel = state.selected.unwrap();
+		for (id, author, body) in [
+			(41, 701, "Visible synthetic body"),
+			(42, 777, "Blocked synthetic body"),
+			(43, 701, "Later synthetic body"),
+		] {
+			let mut message = text_message(id);
+			message.channel = channel;
+			message.author.id = Id(author);
+			message.author.name = format!("Synthetic author {author}");
+			message.content = body.into();
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::Relationship {
+				user: Id(777),
+				blocked: true,
+			}),
+		});
+		assert_eq!(state.user_blocked(Id(777)), Some(true));
+		let ctx = egui::Context::default();
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut render = |view: &mut TimelineView, state: &mut State, hide: bool| {
+			let mut labels = Vec::new();
+			for _ in 0..3 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(600.0, 600.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						crate::interface_tweaks::publish(
+							ui.ctx(),
+							&std::sync::Arc::new(
+								hide.then_some(extensions::InterfaceTweak::HiddenBlockedMessages)
+									.into_iter()
+									.collect(),
+							),
+						);
+						view.show(
+							ui,
+							state,
+							&mut None,
+							&mut None,
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
+							None,
+						);
+					},
+				);
+				labels.clear();
+				for shape in &output.shapes {
+					texts(&shape.shape, &mut labels);
+				}
+				output.drop_without_applying_deltas();
+			}
+			labels
+		};
+		let shown = |labels: &[String], body: &str| labels.iter().any(|text| text.contains(body));
+		let all = render(&mut view, &mut state, false);
+		assert!(
+			shown(&all, "Blocked synthetic body"),
+			"shown without the tweak"
+		);
+		let hidden = render(&mut view, &mut state, true);
+		assert!(
+			!shown(&hidden, "Blocked synthetic body"),
+			"hidden with the tweak"
+		);
+		assert!(shown(&hidden, "Visible synthetic body") && shown(&hidden, "Later synthetic body"));
+		let restored = render(&mut view, &mut state, false);
+		assert!(
+			shown(&restored, "Blocked synthetic body"),
+			"switching off restores it"
+		);
+	}
+
+	/// Checks that with the double-click tweak, double-clicking beside your own message starts
+	/// editing it and beside someone else's starts a reply, while the reaction preset stays idle.
+	#[test]
+	fn double_click_tweak_edits_own_message_and_replies_to_others() {
+		let mut state = test_support::demo_state();
+		state.read_state.reset();
+		state.timeline.clear();
+		let channel = state.selected.unwrap();
+		let me = state.user.as_ref().unwrap().clone();
+		for (id, author, body) in [
+			(51, Id(701), "Their synthetic body"),
+			(52, me.id, "Own synthetic body"),
+			(53, me.id, "Own unsupported body"),
+		] {
+			let mut message = text_message(id);
+			message.channel = channel;
+			message.author.id = author;
+			message.content = body.into();
+			// An unsupported message of your own can be neither edited nor replied to.
+			message.unsupported = id == 53;
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let ctx = egui::Context::default();
+		let mut view = TimelineView {
+			double_click_reaction: Some("🎉"),
+			..Default::default()
+		};
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut editing = None;
+		let mut time = 0.0;
+		let mut render = |view: &mut TimelineView,
+		                  state: &mut State,
+		                  editing: &mut Option<(Id, Id, String)>,
+		                  events: Vec<egui::Event>| {
+			time += 1.0 / 60.0;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(700.0, 600.0),
+					)),
+					time: Some(time),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					crate::interface_tweaks::publish(
+						ui.ctx(),
+						&std::sync::Arc::new(
+							[extensions::InterfaceTweak::DoubleClickReplyEdit].into(),
+						),
+					);
+					view.show(
+						ui,
+						state,
+						editing,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					);
+				},
+			);
+			let mut rows = Vec::new();
+			let mut stack: Vec<&egui::Shape> = output.shapes.iter().map(|s| &s.shape).collect();
+			while let Some(shape) = stack.pop() {
+				match shape {
+					egui::Shape::Text(text) => rows.push((
+						text.galley.job.text.clone(),
+						text.pos.y + text.galley.size().y * 0.5,
+					)),
+					egui::Shape::Vec(shapes) => stack.extend(shapes),
+					_ => {}
+				}
+			}
+			output.drop_without_applying_deltas();
+			rows
+		};
+		let mut double_click = |view: &mut TimelineView,
+		                        state: &mut State,
+		                        editing: &mut Option<(Id, Id, String)>,
+		                        body: &str| {
+			let mut rows = Vec::new();
+			for _ in 0..30 {
+				rows = render(view, state, editing, vec![]);
+			}
+			let y = rows
+				.iter()
+				.find_map(|(text, y)| (text == body).then_some(*y))
+				.expect("message laid out");
+			let pos = egui::pos2(650.0, y);
+			for _ in 0..2 {
+				for pressed in [true, false] {
+					render(
+						view,
+						state,
+						editing,
+						vec![
+							egui::Event::PointerMoved(pos),
+							egui::Event::PointerButton {
+								pos,
+								button: egui::PointerButton::Primary,
+								pressed,
+								modifiers: egui::Modifiers::NONE,
+							},
+						],
+					);
+				}
+			}
+		};
+		double_click(&mut view, &mut state, &mut editing, "Their synthetic body");
+		assert_eq!(state.reply_target(), Some(Id(51)));
+		assert!(editing.is_none(), "someone else's message is not edited");
+		state.reply = None;
+		double_click(&mut view, &mut state, &mut editing, "Own synthetic body");
+		assert_eq!(
+			editing.as_ref().map(|(_, id, text)| (*id, text.as_str())),
+			Some((Id(52), "Own synthetic body"))
+		);
+		assert!(
+			state.reply.is_none(),
+			"your own message is edited, not replied to"
+		);
+		assert!(view.reaction.is_none(), "the reaction preset stays idle");
+		editing = None;
+		double_click(&mut view, &mut state, &mut editing, "Own unsupported body");
+		assert!(editing.is_none() && state.reply.is_none());
+		assert_eq!(
+			view.reaction.as_ref().map(|(id, _)| *id),
+			Some(Id(53)),
+			"with neither edit nor reply available, the reaction preset runs"
+		);
 	}
 
 	#[test]
@@ -9522,6 +10139,8 @@ mod tests {
 		check_channel_rename_heights();
 	}
 
+	/// Checks that renaming a referenced channel invalidates cached heights of offscreen messages
+	/// mentioning it, so they are re-measured with the new name.
 	fn check_channel_rename_heights() {
 		let message = Message {
 			poll: None,
@@ -9529,6 +10148,7 @@ mod tests {
 			id: Id(1),
 			channel: Id(2),
 			author: model::User {
+				username: String::new(),
 				id: Id(3),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -9591,6 +10211,7 @@ mod tests {
 		});
 		// Channel names are shown only with view and read permission.
 		state.user = Some(model::User {
+			username: String::new(),
 			id: Id(9),
 			name: "Synthetic viewer".into(),
 			avatar: None,
@@ -9705,6 +10326,7 @@ mod tests {
 			id: Id(1),
 			channel: Id(2),
 			author: model::User {
+				username: String::new(),
 				id: Id(3),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -9787,8 +10409,12 @@ mod tests {
 			view.heights[&Id(1)].1
 		);
 	}
+	/// Verifies embed cards hide spoiler-marked text until revealed, and that an edit changing only the
+	/// embeds clears the prior reveal so the updated card is concealed again.
 	#[test]
 	fn embed_cards_conceal_spoilers_and_invalidate_reveals_on_embed_only_edits() {
+		/// Appends the text of every painted text shape to `text`, recursing into nested shape vectors.
+		/// Non-text shapes are ignored.
 		fn painted_text(shape: &egui::Shape, text: &mut String) {
 			match shape {
 				egui::Shape::Text(value) => text.push_str(&value.galley.job.text),
@@ -9807,6 +10433,7 @@ mod tests {
 			id: Id(1),
 			channel: Id(2),
 			author: model::User {
+				username: String::new(),
 				id: Id(3),
 				name: "Synthetic".into(),
 				avatar: None,

@@ -7,6 +7,7 @@ use std::hash::{Hash, Hasher};
 
 fn user() -> User {
 	User {
+		username: String::new(),
 		webhook: false,
 		kind: Default::default(),
 		id: Id(2),

@@ -36,6 +36,12 @@ mod manifest;
 pub use manifest::*;
 mod message_action;
 pub use message_action::*;
+mod interface_tweaks;
+pub use interface_tweaks::*;
+mod network;
+pub use network::*;
+mod chat;
+pub use chat::*;
 
 /// Maximum serialized size of either ABI buffer, in UTF-8 bytes.
 pub const MAX_IO_BYTES: usize = 256 * 1024;
@@ -85,6 +91,8 @@ pub enum MessageEventKind {
 	Create,
 	Update,
 	Delete,
+	/// A loaded message came into view; carries author and content like `create`.
+	Shown,
 }
 
 /// Bounded, live message metadata. Delete events contain IDs only; updates may be partial.

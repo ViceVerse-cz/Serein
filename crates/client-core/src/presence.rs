@@ -106,6 +106,8 @@ fn online(presence: &MemberPresence) -> bool {
 	matches!(presence.status.as_deref(), Some("online" | "idle" | "dnd"))
 }
 
+/// Estimates the row's byte footprint after applying the presence update, without mutating it.
+/// Returns the current size unchanged when the update matches the row's presence fields.
 pub fn projected_row_bytes(row: &model::Member, update: &MemberPresence) -> usize {
 	if row.status == update.status
 		&& row.custom_status == update.custom_status
@@ -513,6 +515,7 @@ mod tests {
 
 	fn state() -> State {
 		let user = User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(2),
@@ -623,6 +626,8 @@ mod tests {
 		person(&state.members.as_ref().unwrap().slots[0])
 	}
 
+	/// Verifies local game activity dedupes identical updates, rejects oversized names, needs a live
+	/// session or demo mode, and clears on disconnect, resync, auth failure, or account switch.
 	#[test]
 	fn local_game_activity_is_bounded_coalesced_and_cleared_at_session_boundaries() {
 		let game = RichActivity {
@@ -682,6 +687,7 @@ mod tests {
 			Event::Ready {
 				permissions: model::permissions::Snapshot::default(),
 				user: User {
+					username: String::new(),
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(999),
@@ -1254,6 +1260,8 @@ mod tests {
 			clients: Patch::Absent,
 		}
 	}
+	/// A direct presence avatar patch sets and then clears the avatar on both the DM recipient and the
+	/// matching member list entry.
 	#[test]
 	fn direct_presence_updates_recipient_and_member_avatar() {
 		let mut state = direct_state();
@@ -1265,6 +1273,7 @@ mod tests {
 			slots: vec![Some(MemberSlot::Person(Member {
 				roles: vec![],
 				user: User {
+					username: String::new(),
 					id: Id(2),
 					name: "test".into(),
 					avatar: None,

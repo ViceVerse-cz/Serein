@@ -322,6 +322,7 @@ fn large_startup_retains_permissions_read_state_and_subsequent_channel_threads()
 
 fn user() -> User {
 	User {
+		username: String::new(),
 		primary_guild: None,
 		cosmetics: None,
 		id: Id(2),
@@ -1637,6 +1638,75 @@ fn history_freshness_does_not_disable_authorized_sending() {
 	state.freshness = Freshness::Loading;
 	state.permissions.guilds.clear();
 	assert!(!state.can_send(Id(20)) && !state.can_attach(Id(20)));
+}
+
+/// Checks that an edit adding files keeps the message's attachments, respects the ten-file
+/// limit and attach access, and that a plain edit never touches attachments.
+#[test]
+fn edits_adding_files_keep_existing_attachments_within_the_limit() {
+	let mut state = state();
+	let mut message = state.timeline.get(Id(100)).unwrap().clone();
+	let attachment = |id| model::Attachment {
+		id: Id(id),
+		filename: format!("{id}.txt"),
+		description: None,
+		content_type: None,
+		size: 1,
+		media: Default::default(),
+		spoiler: false,
+		duration_ms: None,
+		waveform: Vec::new(),
+	};
+	message.attachments = vec![attachment(7), attachment(8)];
+	apply(&mut state, Event::Message(message));
+	let Some(Command::Edit {
+		keep_attachments,
+		content,
+		request,
+		..
+	}) = state.prepare_edit_adding_files(Id(20), Id(100), "With files".into(), 8)
+	else {
+		panic!()
+	};
+	assert_eq!(keep_attachments, Some(vec![Id(7), Id(8)]));
+	assert_eq!(content, "With files");
+	state.apply_edit_result(
+		Id(20),
+		Id(100),
+		request,
+		Err(crate::auth::Failure::Forbidden),
+	);
+	let Some(Command::Edit {
+		keep_attachments,
+		request,
+		..
+	}) = state.prepare_edit(Id(20), Id(100), "Text only".into())
+	else {
+		panic!()
+	};
+	assert_eq!(keep_attachments, None);
+	state.apply_edit_result(
+		Id(20),
+		Id(100),
+		request,
+		Err(crate::auth::Failure::Forbidden),
+	);
+	assert!(
+		state
+			.prepare_edit_adding_files(Id(20), Id(100), "Too many".into(), 9)
+			.is_none()
+	);
+	assert!(
+		state
+			.prepare_edit_adding_files(Id(20), Id(100), "No files".into(), 0)
+			.is_none()
+	);
+	state.gateway_connected = false;
+	assert!(
+		state
+			.prepare_edit_adding_files(Id(20), Id(100), "Offline".into(), 1)
+			.is_none()
+	);
 }
 
 #[test]

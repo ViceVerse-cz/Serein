@@ -320,6 +320,8 @@ pub struct InstalledExtension {
 	pub image_sharing: bool,
 	pub rich_presence: Option<Box<extensions::CustomRichPresence>>,
 	pub api_proxy: Option<extensions::ApiProxyConfig>,
+	/// Interface tweaks the granted activation action switched on.
+	pub interface_tweaks: Vec<extensions::InterfaceTweak>,
 }
 
 pub enum Event {
@@ -481,6 +483,7 @@ struct Gate {
 	wake_cancel: Arc<tokio::sync::Notify>,
 }
 impl Gate {
+	/// Fails with a cancellation error if the extension generation has advanced past this gate's epoch.
 	fn check(&self) -> Result<(), String> {
 		if self.epoch == self.generation.load(Ordering::Acquire) {
 			Ok(())
@@ -503,6 +506,8 @@ struct Stored {
 }
 
 impl Stored {
+	/// Builds the installed entry by running the activation action, if any, with saved storage,
+	/// and records what its granted output switched on.
 	fn summary(&self, gate: &Gate, storage: Option<String>, active: bool) -> InstalledExtension {
 		let activation = self
 			.package
@@ -530,6 +535,11 @@ impl Stored {
 			}
 			if output.image_sharing && !self.grants.contains(&Capability::ImageSharing) {
 				return Err("Image sharing access was not granted".into());
+			}
+			if output.interface_tweaks.is_some()
+				&& !self.grants.contains(&Capability::InterfaceTweaks)
+			{
+				return Err("Interface tweaks were not granted".into());
 			}
 			Ok(output)
 		});
@@ -580,6 +590,11 @@ impl Stored {
 					}
 					_ => None,
 				}),
+			interface_tweaks: result
+				.as_ref()
+				.ok()
+				.and_then(|output| output.interface_tweaks.clone())
+				.unwrap_or_default(),
 			// Current protector packages have a no-op activation; consent still opts in.
 			preserve_deleted_messages: activation.is_some()
 				&& result.is_ok()
@@ -874,6 +889,30 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			{
 				return Err("Rich presence access was not granted".into());
 			}
+			if output.interface_tweaks.is_some()
+				&& !stored.grants.contains(&Capability::InterfaceTweaks)
+			{
+				return Err("Interface tweaks were not granted".into());
+			}
+			if !output.background_effects.is_empty()
+				&& !stored.grants.contains(&Capability::BackgroundEffects)
+			{
+				return Err("Background changes were not granted".into());
+			}
+			if !output.fetches.is_empty() && !stored.grants.contains(&Capability::Network) {
+				return Err("Network access was not granted".into());
+			}
+			for (used, capability) in [
+				(
+					!output.alternatives.is_empty(),
+					Capability::MessageAlternatives,
+				),
+				(output.local_message.is_some(), Capability::LocalMessages),
+			] {
+				if used && !stored.grants.contains(&capability) {
+					return Err("Plugin access was not granted".into());
+				}
+			}
 			if let Some(data) = output.storage.take() {
 				if !stored.grants.contains(&Capability::Storage) || data.len() > MAX_STORAGE {
 					return Err("Plugin data exceeds its granted storage budget".into());
@@ -1077,6 +1116,7 @@ fn account_key(account: &str) -> Result<String, String> {
 	Ok(digest(account.as_bytes()))
 }
 
+/// Rejects extension identifiers that fail the shared validation rules with a user-facing error.
 fn valid_id(id: &str) -> Result<(), String> {
 	if !extensions::valid_id(id) {
 		return Err("Invalid extension identifier".into());
@@ -1084,6 +1124,8 @@ fn valid_id(id: &str) -> Result<(), String> {
 	Ok(())
 }
 
+/// Loads every installed theme and plugin for the account, retrying unfinished cleanup and
+/// recording a per-extension error instead of failing the whole load.
 fn load(
 	root: &Path,
 	account: Option<&str>,
@@ -1169,6 +1211,7 @@ fn load(
 							summary.preserve_deleted_messages = false;
 							summary.image_sharing = false;
 							summary.rich_presence = None;
+							summary.interface_tweaks.clear();
 							summary.error = Some(error);
 							summary
 						}
@@ -1179,6 +1222,7 @@ fn load(
 						local_theme: false,
 						active_theme: false,
 						manifest: Manifest {
+							network_hosts: Vec::new(),
 							api_version: extensions::API_VERSION,
 							id: id.clone(),
 							name: id,
@@ -1203,6 +1247,7 @@ fn load(
 						image_sharing: false,
 						rich_presence: None,
 						api_proxy: None,
+						interface_tweaks: Vec::new(),
 					},
 				});
 			}
@@ -1574,6 +1619,8 @@ fn download(raw: &str, limit: usize, gate: &Gate, timeout: Duration) -> Result<V
 		})
 }
 
+/// Fetches a public HTTPS URL into memory, revalidating DNS and pinning addresses on each of up to
+/// six redirects; rejects private hosts, non-identity encodings, and bodies over `limit` bytes.
 async fn download_https(raw: &str, limit: usize, gate: &Gate) -> Result<Vec<u8>, String> {
 	let mut url = url::Url::parse(raw).map_err(|_| "Invalid extension download URL")?;
 	for _ in 0..6 {
@@ -1653,7 +1700,8 @@ async fn download_https(raw: &str, limit: usize, gate: &Gate) -> Result<Vec<u8>,
 	Err("Too many extension download redirects".into())
 }
 
-fn public_ip(ip: IpAddr) -> bool {
+/// Whether `ip` is a public address; private, loopback, link-local and other local ranges are not.
+pub(crate) fn public_ip(ip: IpAddr) -> bool {
 	match ip {
 		IpAddr::V4(ip) => {
 			let [a, b, _, _] = ip.octets();
@@ -1724,6 +1772,7 @@ mod tests {
 	fn theme(id: &str) -> Package {
 		Package {
 			manifest: Manifest {
+				network_hosts: Vec::new(),
 				api_version: 1,
 				id: id.into(),
 				name: id.into(),
@@ -1769,6 +1818,8 @@ mod tests {
 		}
 	}
 
+	/// Verifies API proxy plugins install globally before login, load for every account, reject
+	/// account-scoped invocation, and keep their directory when an account logs out.
 	#[test]
 	fn proxy_plugins_are_prelogin_global_and_survive_account_logout() {
 		let profile = Profile::new();
@@ -1784,6 +1835,12 @@ mod tests {
 			id: "settings".into(),
 			label: "Settings".into(),
 			surface: Surface::Panel,
+			icon: None,
+			placement: None,
+			menu: None,
+			toggle: false,
+			icon_on: None,
+			needs_draft: false,
 		}];
 		let installed = enable(
 			&root,
