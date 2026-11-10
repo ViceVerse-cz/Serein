@@ -179,6 +179,7 @@ impl State {
 		self.typing_entries()
 			.filter(move |(_, deadline)| *deadline > now)
 			.map(|(user, _)| user)
+			.take(self.typing.users.len())
 	}
 	pub fn typing_deadline(&self, now: Instant) -> Option<Instant> {
 		self.typing_entries()
