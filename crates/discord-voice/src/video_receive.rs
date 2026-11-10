@@ -105,7 +105,6 @@ enum Decode {
 
 /// True when the cleartext Annex-B access unit carries both an SPS and a PPS, so a freshly
 /// created decoder can start from it.
-#[cfg(any(test, target_os = "linux"))]
 pub(crate) fn has_parameter_sets(frame: &[u8]) -> bool {
 	Codec::H264.has_parameter_sets(frame)
 }

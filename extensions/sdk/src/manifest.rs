@@ -86,6 +86,7 @@ pub enum Capability {
 	Relationships,
 	ExternalNavigation,
 	ContextMenus,
+	InterfaceTweaks,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
