@@ -65,6 +65,52 @@ pub(crate) fn user_in_voice(state: &State, user: Id) -> bool {
 		}))
 }
 
+/// The server voice channel someone is in, for the profile's "In voice" card.
+pub(crate) struct VoiceSpot<'a> {
+	pub(crate) guild: &'a model::Guild,
+	pub(crate) channel: &'a model::Channel,
+	/// The person's own roster entry first, then up to two others, for the avatar tile.
+	pub(crate) shown: Vec<&'a client_core::voice::RosterEntry>,
+	/// Everyone in the channel, the person included.
+	pub(crate) count: usize,
+}
+
+/// Where `user` is in voice, under the voice badge's visibility rules. Server channels only:
+/// a private call is already offered from its own conversation.
+pub(crate) fn voice_spot(state: &State, user: Id) -> Option<VoiceSpot<'_>> {
+	if !state.gateway_connected {
+		return None;
+	}
+	let own = state
+		.voice
+		.roster
+		.iter()
+		.find(|entry| entry.participant.user == user && state.can_view(entry.channel))?;
+	let guild = state.guild(own.guild)?;
+	let channel = state
+		.channel(own.channel)
+		.filter(|channel| channel.guild == Some(guild.id))?;
+	let mut shown = vec![own];
+	let mut count = 0;
+	for entry in state
+		.voice
+		.roster
+		.iter()
+		.filter(|e| e.channel == own.channel)
+	{
+		count += 1;
+		if shown.len() < 3 && entry.participant.user != user {
+			shown.push(entry);
+		}
+	}
+	Some(VoiceSpot {
+		guild,
+		channel,
+		shown,
+		count,
+	})
+}
+
 /// The custom status as Discord's thought bubble: a small dot off the avatar, then a rounded
 /// bubble of at most three lines, always below the banner. On the account's own card, hovering
 /// it or focusing its controls offers edit and clear. Returns its bounds and any action picked.
@@ -241,6 +287,11 @@ pub enum Action {
 	Profile(User),
 	/// Open a mutual server picked from the card.
 	Server(Id),
+	/// Join the server voice channel shown in the card's "In voice" section.
+	JoinVoice {
+		guild: Id,
+		channel: Id,
+	},
 	Avatar {
 		media: model::EmbedMedia,
 		points: f32,
@@ -446,6 +497,200 @@ pub(crate) fn activity_list(
 		if index != main && activity_row(ui, activity, avatars, demo, (fill, muted)).clicked() {
 			ui.data_mut(|data| data.insert_temp(id, key(activity)));
 		}
+	}
+}
+
+/// Discord's "In voice" card: who is there, the channel and its server, and a Join button.
+fn voice_card(
+	ui: &mut egui::Ui,
+	state: &State,
+	user: &User,
+	spot: &VoiceSpot,
+	avatars: &mut Avatars,
+	(theme, fill): (&Theme, Color32),
+) -> Option<Action> {
+	let mut action = None;
+	egui::Frame::new()
+		.fill(fill)
+		.corner_radius(RADIUS)
+		.inner_margin(10)
+		.show(ui, |ui| {
+			ui.set_width(ui.available_width());
+			let heading = crate::i18n::translate("member-in-voice");
+			ui.label(design::semibold(ui, heading, 12.0).color(theme.muted));
+			ui.add_space(4.0);
+			ui.horizontal_top(|ui| {
+				ui.spacing_mut().item_spacing.x = 10.0;
+				voice_tile(ui, state, user, spot, avatars, (theme, fill));
+				ui.vertical(|ui| {
+					ui.set_width(ui.available_width());
+					ui.spacing_mut().item_spacing.y = 2.0;
+					ui.horizontal(|ui| {
+						ui.spacing_mut().item_spacing.x = 4.0;
+						icons::inline(ui, Icon::Speaker, 14.0, theme.muted);
+						let name = &spot.channel.name;
+						ui.add(
+							egui::Label::new(design::semibold(ui, name, 14.0).color(theme.text))
+								.truncate(),
+						)
+						.on_hover_text(name);
+					});
+					let server = crate::i18n::translate_args(
+						"profiles-in-voice-server",
+						&[("server", spot.guild.name.as_str())],
+					);
+					ui.add(
+						egui::Label::new(RichText::new(&server).size(12.0).color(theme.muted))
+							.truncate(),
+					)
+					.on_hover_text(&server);
+					ui.add_space(6.0);
+					// A failed call is replaceable, so only a live one counts as already joined.
+					let joined = state.voice.active.as_ref().is_some_and(|call| {
+						call.channel == spot.channel.id
+							&& call.phase != client_core::voice::Phase::Failed
+					});
+					let enabled = !joined && state.can_call(spot.channel.id);
+					let join = ui
+						.add_enabled_ui(enabled, |ui| join_button(ui, theme, fill))
+						.inner
+						.on_disabled_hover_text(crate::i18n::translate(if joined {
+							"profiles-in-voice-joined"
+						} else {
+							"profiles-in-voice-unavailable"
+						}));
+					if join.clicked() {
+						action = Some(Action::JoinVoice {
+							guild: spot.guild.id,
+							channel: spot.channel.id,
+						});
+					}
+				});
+			});
+		});
+	action
+}
+
+/// Up to three of the channel's people on a rounded tile, the profile's owner first. A larger
+/// crowd gives its last place to a "+N" count; hovering the tile names who is shown.
+fn voice_tile(
+	ui: &mut egui::Ui,
+	state: &State,
+	user: &User,
+	spot: &VoiceSpot,
+	avatars: &mut Avatars,
+	(theme, fill): (&Theme, Color32),
+) {
+	const TILE: f32 = 72.0;
+	let (rect, response) = ui.allocate_exact_size(Vec2::splat(TILE), egui::Sense::hover());
+	let crowd = spot.count > spot.shown.len();
+	let drawn = if crowd { 2 } else { spot.shown.len() };
+	fn person<'a>(
+		state: &'a State,
+		user: &'a User,
+		entry: &'a client_core::voice::RosterEntry,
+	) -> (Option<&'a User>, &'a str) {
+		if entry.participant.user == user.id {
+			(Some(user), state.user_display_name(user))
+		} else {
+			crate::voice::resolve_member(state, entry)
+		}
+	}
+	if ui.is_rect_visible(rect) {
+		let tile = fill.lerp_to_gamma(theme.text, 0.08);
+		ui.painter().rect_filled(rect, 10, tile);
+		let (size, places): (f32, &[(f32, f32)]) = match spot.shown.len() {
+			// Centres at least an avatar apart, so faces never cover each other.
+			1 => (40.0, &[(0.5, 0.5)]),
+			2 => (30.0, &[(0.32, 0.32), (0.68, 0.68)]),
+			_ => (28.0, &[(0.3, 0.3), (0.7, 0.47), (0.33, 0.72)]),
+		};
+		for (index, &(x, y)) in places.iter().enumerate() {
+			let center = rect.min + vec2(x, y) * TILE;
+			// A ring in the tile's colour separates overlapping avatars.
+			ui.painter().circle_filled(center, size * 0.5 + 2.0, tile);
+			if index >= drawn {
+				ui.painter().circle_filled(center, size * 0.5, theme.chip);
+				ui.painter().text(
+					center,
+					egui::Align2::CENTER_CENTER,
+					format!("+{}", spot.count - drawn),
+					egui::FontId::new(11.0, design::semibold_family(ui.ctx())),
+					theme.text,
+				);
+				continue;
+			}
+			let place = Rect::from_center_size(center, Vec2::splat(size));
+			match spot
+				.shown
+				.get(index)
+				.and_then(|entry| person(state, user, entry).0)
+			{
+				Some(shown) => {
+					// A child, not a scope: the tile already holds this space in the row.
+					let mut child = ui.new_child(UiBuilder::new().max_rect(place));
+					avatars.show_quiet(&mut child, shown, size, state.demo);
+				}
+				None => {
+					ui.painter()
+						.circle_filled(center, size * 0.5, theme.muted.gamma_multiply(0.5));
+				}
+			}
+		}
+	}
+	response.on_hover_ui(|ui| {
+		let mut names = spot.shown[..drawn]
+			.iter()
+			.map(|entry| person(state, user, entry).1)
+			.collect::<Vec<_>>()
+			.join(", ");
+		if crowd {
+			names.push_str(&format!(", +{}", spot.count - drawn));
+		}
+		ui.label(names);
+	});
+}
+
+/// The card's Join button, filled from the card's own colours so profile themes keep contrast.
+fn join_button(ui: &mut egui::Ui, theme: &Theme, fill: Color32) -> egui::Response {
+	let label = crate::i18n::translate("profiles-in-voice-join");
+	let galley = ui.painter().layout_no_wrap(
+		label.clone(),
+		egui::FontId::new(14.0, design::medium_family(ui.ctx())),
+		theme.text,
+	);
+	let (rect, response) =
+		ui.allocate_exact_size(vec2(galley.size().x + 32.0, 32.0), egui::Sense::click());
+	let enabled = ui.is_enabled();
+	let hot = enabled && (response.hovered() || response.has_focus());
+	let painter = ui.painter();
+	painter.rect_filled(
+		rect,
+		8,
+		fill.lerp_to_gamma(theme.text, if hot { 0.2 } else { 0.12 }),
+	);
+	if response.has_focus() {
+		painter.rect_stroke(
+			rect.expand(2.0),
+			10,
+			Stroke::new(2.0, theme.text),
+			egui::StrokeKind::Outside,
+		);
+	}
+	painter.galley_with_override_text_color(
+		rect.center() - galley.size() * 0.5,
+		galley,
+		if enabled {
+			theme.text
+		} else {
+			theme.muted.gamma_multiply(0.6)
+		},
+	);
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &label));
+	if enabled {
+		response.on_hover_cursor(egui::CursorIcon::PointingHand)
+	} else {
+		response
 	}
 }
 
@@ -2319,6 +2564,7 @@ pub(crate) fn debug_activity_panel(state: &State) {
 				None,
 				state,
 				activities,
+				None,
 				&mut avatars,
 				&theme,
 			);
@@ -2363,6 +2609,7 @@ fn full_panel(
 	view: Option<&ProfileView>,
 	state: &State,
 	activities: &[model::RichActivity],
+	voice: Option<(&User, &VoiceSpot)>,
 	avatars: &mut Avatars,
 	theme: &Theme,
 ) -> Option<Action> {
@@ -2519,7 +2766,13 @@ fn full_panel(
 					state.demo,
 					(theme.panel, theme.muted),
 				);
-				if activities.is_empty() {
+				if let Some((user, spot)) = voice
+					&& let Some(picked) =
+						voice_card(ui, state, user, spot, avatars, (theme, theme.panel))
+				{
+					action = Some(picked);
+				}
+				if activities.is_empty() && voice.is_none() {
 					ui.label(
 						RichText::new(crate::i18n::translate("profiles-activity-empty"))
 							.color(theme.muted),
@@ -3280,6 +3533,7 @@ fn card_view(
 		)
 	};
 	let in_voice = !user.webhook && user_in_voice(state, user.id);
+	let spot = in_voice.then(|| voice_spot(state, user.id)).flatten();
 	let dm_channel = state
 		.channels
 		.iter()
@@ -3297,6 +3551,7 @@ fn card_view(
 	let mut mutual_anchor = None;
 	let mut mutual_links = Vec::new();
 	let mut full_tab = session.full_tab;
+	let voice_card_shown = spot.is_some() && (!full || full_tab == FullTab::Activity);
 	let mut panel_action = None;
 	let mut close = false;
 	// Docked, the card's surface, frame and effect stay fixed at the panel's size while
@@ -3949,7 +4204,8 @@ fn card_view(
 								}
 							});
 						}
-						if in_voice {
+						// The "In voice" card says it already when it is on screen.
+						if in_voice && !voice_card_shown {
 							ui.add_space(4.0);
 							ui.horizontal(|ui| {
 								ui.spacing_mut().item_spacing.x = 4.0;
@@ -3979,7 +4235,7 @@ fn card_view(
 								action = Some(Action::Retry);
 							}
 						}
-						if data.is_some() || !activities.is_empty() {
+						if data.is_some() || !activities.is_empty() || spot.is_some() {
 							if full {
 								ui.add_space(8.0);
 							} else {
@@ -4008,6 +4264,22 @@ fn card_view(
 										state.demo,
 										(theme.chip, theme.muted),
 									);
+								}
+								if !full && let Some(spot) = &spot {
+									if !activities.is_empty() {
+										ui.add_space(4.0);
+									}
+									sections += 1;
+									if let Some(picked) = voice_card(
+										ui,
+										state,
+										user,
+										spot,
+										avatars,
+										(&theme, theme.chip),
+									) {
+										action = Some(picked);
+									}
 								}
 								if let Some(data) = data.filter(|d| d.private) {
 									// The service withheld the rest; say so, like Discord.
@@ -4349,6 +4621,7 @@ fn card_view(
 											view,
 											state,
 											activities,
+											spot.as_ref().map(|spot| (user, spot)),
 											avatars,
 											&panel_theme,
 										);
@@ -4370,6 +4643,7 @@ fn card_view(
 								view,
 								state,
 								activities,
+								spot.as_ref().map(|spot| (user, spot)),
 								avatars,
 								&panel_theme,
 							);

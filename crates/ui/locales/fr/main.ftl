@@ -4611,6 +4611,10 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = Aucune activité partagée.
+profiles-in-voice-server = dans { $server }
+profiles-in-voice-join = Rejoindre
+profiles-in-voice-joined = Vous êtes déjà dans ce salon vocal.
+profiles-in-voice-unavailable = Vous ne pouvez pas rejoindre ce salon vocal pour le moment.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction

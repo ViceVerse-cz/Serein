@@ -4719,6 +4719,10 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = Žádná sdílená aktivita.
+profiles-in-voice-server = na serveru { $server }
+profiles-in-voice-join = Připojit se
+profiles-in-voice-joined = V tomto hlasovém kanálu už jste.
+profiles-in-voice-unavailable = K tomuto hlasovému kanálu se teď nemůžete připojit.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction

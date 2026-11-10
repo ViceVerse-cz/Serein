@@ -187,7 +187,7 @@ Want to Play display service-supplied entries, comments and tags. Missing or
 restricted boards remain unavailable; failed metadata lookups retain the game ID
 without substituting another game's title or artwork. Application-provided stats
 widgets and board editing are not supported. The Activity tab uses current
-presence, including while profile metadata is loading; an empty presence snapshot shows “No activity shared.” Selected-user historical activity is not yet loaded. Optional board and collectible enrichment run together, each with a 600 ms deadline, so a slow read cannot hold the card; without it the card still opens complete, just without those names or artwork.
+presence, including while profile metadata is loading; an empty presence snapshot shows “No activity shared.” When the person is in a server voice channel that this account can view, the Activity tab and the compact card add an “In voice” card. It is built only from the voice states the Gateway already delivered (unofficial `READY` guild `voice_states` and `VOICE_STATE_UPDATE`), with no extra request. Its Join button uses the existing guild voice join, which never rings, asks before leaving another live call, and is disabled without `CONNECT`, offline or in the preview. Private calls are not listed there because their conversation already offers them. Selected-user historical activity is not yet loaded. Optional board and collectible enrichment run together, each with a 600 ms deadline, so a slow read cannot hold the card; without it the card still opens complete, just without those names or artwork.
 
 The primary reverse-engineering references are the Userdoccers
 [profile response](https://docs.discord.food/resources/user#get-user-profile),

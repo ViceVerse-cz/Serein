@@ -4710,6 +4710,10 @@ profiles-board-empty = 这个看板目前还没有游戏。
 profiles-board-show-more = 查看更多
 profiles-board-show-less = 收起
 profiles-activity-empty = 暂无共享活动。
+profiles-in-voice-server = 位于 { $server }
+profiles-in-voice-join = 加入
+profiles-in-voice-joined = 你已在此语音频道中。
+profiles-in-voice-unavailable = 你现在无法加入此语音频道。
 profiles-mutuals-empty = 这里没有可显示的内容。
 
 reading-double-click-reaction = 双击回应

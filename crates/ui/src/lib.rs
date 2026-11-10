@@ -4519,6 +4519,22 @@ impl MessagingUi {
 					}
 				}
 			}
+			profiles::Action::JoinVoice { guild, channel } => {
+				if let Some(reason) = self.call_unavailable(state, channel) {
+					state.status = reason;
+				} else {
+					self.profile.close();
+					// Never rings: this joins a server channel. Another live call asks first.
+					self.request_call(state, channel, false, commands);
+					// Like Discord, joining from a profile opens the channel that was joined.
+					if self.server_settings.navigate_away(state) {
+						self.guild = Some(guild);
+						if let Some(command) = state.select(channel) {
+							commands.push(command);
+						}
+					}
+				}
+			}
 			profiles::Action::EditStatus => self.open_custom_status_editor(),
 			profiles::Action::ClearStatus => self.clear_custom_status(),
 			profiles::Action::Close => {
@@ -9563,6 +9579,74 @@ mod composer_tests {
 				.iter()
 				.any(|command| matches!(command, Command::Send { .. }))
 		);
+	}
+
+	#[test]
+	fn in_voice_card_joins_a_visible_server_channel_without_ringing() {
+		use model::permissions as p;
+		let mut state = test_support::voice_demo_state();
+		state.demo = false;
+		state.gateway_connected = true;
+		state.voice.active = None;
+		state.select(Id(20));
+		// Robin shares room 25 with Fern and the account.
+		let user = test_support::message(1, Id(20)).author;
+		let spot = profiles::voice_spot(&state, user.id).expect("Robin is in a visible room");
+		assert_eq!(
+			(spot.guild.id, spot.channel.id, spot.count),
+			(Id(10), Id(25), 3)
+		);
+		assert_eq!(
+			spot.shown[0].participant.user, user.id,
+			"the owner leads the tile"
+		);
+		let mut view = MessagingUi {
+			voice_available: true,
+			..Default::default()
+		};
+		view.profile.command_open(user.clone());
+		let mut commands = vec![];
+		view.profile_action(
+			&egui::Context::default(),
+			&mut state,
+			&mut commands,
+			&user,
+			None,
+			profiles::Action::JoinVoice {
+				guild: Id(10),
+				channel: Id(25),
+			},
+		);
+		let joins: Vec<_> = commands
+			.iter()
+			.filter_map(|command| match command {
+				Command::Voice(client_core::voice::Command::Join { channel, ring, .. }) => {
+					Some((*channel, *ring))
+				}
+				_ => None,
+			})
+			.collect();
+		assert_eq!(joins, [(Id(25), false)], "one join, never a ring");
+		assert_eq!(state.selected, Some(Id(25)), "the joined room opens");
+		assert!(view.profile.open_user().is_none());
+		// Discord may report rosters for rooms this account cannot see; those stay hidden.
+		let mut snapshot = test_support::permission_snapshot(&state);
+		// The voice fixture reuses id 26 for its quiet room; a snapshot lists each id once.
+		let mut seen = std::collections::BTreeSet::new();
+		snapshot.channels.retain(|channel| seen.insert(channel.id));
+		snapshot
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(25))
+			.unwrap()
+			.overwrites = Some(vec![p::Overwrite {
+			id: Id(10),
+			kind: 0,
+			allow: 0,
+			deny: p::VIEW_CHANNEL,
+		}]);
+		state.permissions.replace(snapshot).unwrap();
+		assert!(profiles::voice_spot(&state, user.id).is_none());
 	}
 
 	#[test]
