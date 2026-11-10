@@ -203,7 +203,7 @@ while retaining the last applied fields. **Disable** removes the package and its
 saved settings under the ordinary extension lifecycle. Account changes and logout
 also revoke pending/current contributions. When several plugins contribute an
 activity, the first in ascending plugin-ID order wins, within the existing limit
-of eight installed plugins. Custom activity takes precedence over detected game
+of sixteen installed plugins. Custom activity takes precedence over detected game
 activity, which can resume when it is cleared.
 Custom configurations and resolved activities each have a 3-KiB serialized limit.
 The complete Gateway presence payload has a 4-KiB cap; when adding Spotify would
