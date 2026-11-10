@@ -27,8 +27,11 @@ const MAX_PACKAGE: usize = 16 * 1024 * 1024;
 const MAX_RECORD: usize = MAX_PACKAGE + 64 * 1024;
 const MAX_CATALOG: usize = 1024 * 1024;
 const MAX_STORAGE: usize = 1024 * 1024;
-// Single-purpose plugins, one per feature, need more than eight slots per account.
-const MAX_PER_SCOPE: usize = 16;
+/// Installed package records one scope may hold. The number of extensions follows from their
+/// size, so many small single-purpose plugins fit where a few large themes would.
+const MAX_SCOPE_BYTES: u64 = 128 * 1024 * 1024;
+/// Directory entries read per scope: a bound on scanning, not on how many extensions fit.
+const MAX_SCOPE_ENTRIES: usize = 1024;
 const MAX_ACCOUNTS: usize = 8;
 const MAX_QUEUE: usize = 4;
 
@@ -987,11 +990,6 @@ fn install_stored(
 	if parent.with_extension("disabled").exists() {
 		return Err("Account extension cleanup is incomplete; reopen Extensions to retry".into());
 	}
-	if !directory.exists() && count_directories(&parent)? >= MAX_PER_SCOPE {
-		return Err(
-			"Disable an extension first; each scope allows sixteen installed extensions".into(),
-		);
-	}
 	if stored.package.manifest.kind == ExtensionKind::Plugin
 		&& !is_proxy(&stored.package.manifest)
 		&& !parent.exists()
@@ -1016,6 +1014,11 @@ fn install_stored(
 	let record = serde_json::to_vec(&stored).map_err(|_| "Cannot encode extension package")?;
 	if record.len() > MAX_RECORD {
 		return Err("Extension package exceeds storage budget".into());
+	}
+	// An update replaces its own record, so only the others count against the budget.
+	let others = scope_bytes(&parent, Some(&stored.package.manifest.id))?;
+	if others + record.len() as u64 > MAX_SCOPE_BYTES {
+		return Err("Extension storage is full; remove an extension first".into());
 	}
 	gate.check()?;
 	fs::create_dir_all(&directory).map_err(|_| "Cannot create extension directory")?;
@@ -1090,7 +1093,7 @@ fn load(
 	account: Option<&str>,
 	gate: &Gate,
 ) -> Result<Vec<InstalledExtension>, String> {
-	cleanup(&root.join("accounts"), MAX_ACCOUNTS, gate)?;
+	cleanup(&root.join("accounts"), MAX_ACCOUNTS * 4 + 1, gate)?;
 	let mut scopes = vec![
 		(root.join("themes"), ExtensionKind::Theme),
 		(root.join("proxy-plugins"), ExtensionKind::Plugin),
@@ -1103,7 +1106,7 @@ fn load(
 	}
 	let mut installed = Vec::new();
 	for (parent, kind) in scopes {
-		let cleanup_error = cleanup(&parent, MAX_PER_SCOPE, gate).err();
+		let cleanup_error = cleanup(&parent, MAX_SCOPE_ENTRIES + 1, gate).err();
 		let mut active_theme = None;
 		if kind == ExtensionKind::Theme && parent.join("active.json").exists() {
 			let active = String::from_utf8(read_bounded(&parent.join("active.json"), 64)?)
@@ -1116,7 +1119,7 @@ fn load(
 		}
 		for entry in fs::read_dir(&parent)
 			.map_err(|_| "Cannot read extensions")?
-			.take(MAX_PER_SCOPE * 4 + 1)
+			.take(MAX_SCOPE_ENTRIES + 1)
 		{
 			let entry = entry.map_err(|_| "Cannot read extension entry")?;
 			if entry
@@ -1124,7 +1127,7 @@ fn load(
 				.map_err(|_| "Cannot read extension entry")?
 				.is_dir()
 			{
-				if installed.len() >= MAX_PER_SCOPE * 3 {
+				if installed.len() >= MAX_SCOPE_ENTRIES {
 					return Err("Too many installed extensions".into());
 				}
 				let id = entry.file_name().to_string_lossy().into_owned();
@@ -1255,13 +1258,14 @@ fn disable(parent: &Path, id: &str, gate: &Gate) -> Result<(), String> {
 	remove_file(&directory.with_extension("disabled"))
 }
 
-fn cleanup(parent: &Path, max: usize, gate: &Gate) -> Result<(), String> {
+/// Finishes removals and drops partial writes in `parent`, reading at most `entries` entries.
+fn cleanup(parent: &Path, entries: usize, gate: &Gate) -> Result<(), String> {
 	if !parent.exists() {
 		return Ok(());
 	}
 	for entry in fs::read_dir(parent)
 		.map_err(|_| "Cannot inspect extension cleanup")?
-		.take(max * 4 + 1)
+		.take(entries)
 	{
 		gate.check()?;
 		let entry = entry.map_err(|_| "Cannot inspect extension cleanup")?;
@@ -1290,6 +1294,27 @@ fn cleanup(parent: &Path, max: usize, gate: &Gate) -> Result<(), String> {
 	Ok(())
 }
 
+/// Bytes of the package records installed in `parent`, leaving out `except`.
+fn scope_bytes(parent: &Path, except: Option<&str>) -> Result<u64, String> {
+	if !parent.exists() {
+		return Ok(0);
+	}
+	let mut total = 0;
+	for entry in fs::read_dir(parent)
+		.map_err(|_| "Cannot inspect extension budget")?
+		.take(MAX_SCOPE_ENTRIES + 1)
+	{
+		let entry = entry.map_err(|_| "Cannot inspect extension budget")?;
+		if except.is_some_and(|id| entry.file_name() == id) {
+			continue;
+		}
+		if let Ok(metadata) = entry.path().join("package.json").metadata() {
+			total += metadata.len();
+		}
+	}
+	Ok(total)
+}
+
 fn count_directories(path: &Path) -> Result<usize, String> {
 	if !path.exists() {
 		return Ok(0);
@@ -1297,7 +1322,7 @@ fn count_directories(path: &Path) -> Result<usize, String> {
 	let mut count = 0;
 	for entry in fs::read_dir(path)
 		.map_err(|_| "Cannot inspect extension budget")?
-		.take(MAX_PER_SCOPE * 4 + 1)
+		.take(MAX_SCOPE_ENTRIES + 1)
 	{
 		if entry
 			.map_err(|_| "Cannot inspect extension budget")?
@@ -1751,6 +1776,23 @@ mod tests {
 			sha256: digest(&bytes),
 			manifest: package.manifest.clone(),
 		}
+	}
+	#[test]
+	fn the_number_of_extensions_follows_their_size() {
+		let profile = Profile::new();
+		let root = profile.0.join("extensions");
+		// Well beyond the old fixed limit of eight per scope.
+		for index in 0..20 {
+			let package = theme(&format!("theme-{index}"));
+			enable(&root, source(&profile, &package), Vec::new(), None, &gate()).unwrap();
+		}
+		assert_eq!(count_directories(&root.join("themes")).unwrap(), 20);
+		let used = scope_bytes(&root.join("themes"), None).unwrap();
+		assert!(used > 0 && used < MAX_SCOPE_BYTES);
+		assert!(
+			scope_bytes(&root.join("themes"), Some("theme-0")).unwrap() < used,
+			"an update does not count its own record twice"
+		);
 	}
 	fn message_event_job() -> Job {
 		Job::Invoke {
@@ -2253,7 +2295,7 @@ mod tests {
 		fs::write(first.join("plugin/data.json"), b"private-one").unwrap();
 		fs::write(second.join("plugin/data.json"), b"private-two").unwrap();
 		fs::write(first.with_extension("disabled"), b"").unwrap();
-		cleanup(&root.join("accounts"), MAX_ACCOUNTS, &gate()).unwrap();
+		cleanup(&root.join("accounts"), MAX_ACCOUNTS * 4 + 1, &gate()).unwrap();
 		assert!(!first.exists());
 		assert_eq!(
 			fs::read(second.join("plugin/data.json")).unwrap(),
@@ -2261,7 +2303,7 @@ mod tests {
 		);
 		fs::write(second.join("plugin.disabled"), b"").unwrap();
 		fs::write(second.join("orphan.partial"), b"unfinished").unwrap();
-		cleanup(&second, MAX_PER_SCOPE, &gate()).unwrap();
+		cleanup(&second, MAX_SCOPE_ENTRIES + 1, &gate()).unwrap();
 		assert!(!second.join("plugin").exists());
 		assert!(!second.join("orphan.partial").exists());
 		assert_eq!(
