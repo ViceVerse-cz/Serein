@@ -196,7 +196,12 @@ An authenticated empty room displays “Connected · waiting for others”; audi
 
 Hovering a participant marked LIVE opens a compact still preview when Discord supplies one.
 **Watch Stream** joins that voice channel when no call is active, then starts the existing
-receive-only stream path after the call connects. It never silently switches an active call;
+receive-only stream path after the call connects. Starting to watch also opens that channel's
+stage with the share enlarged, so the stream is visible instead of playing behind another
+conversation. The preview card keeps its anchor while the image loads, and the preview frame
+itself is a watch target with a hover label. Your own live share is labelled “You’re streaming”
+with its action disabled. Multiple live participants in the same channel keep independent cards,
+and moving the pointer into a card keeps it open. It never silently switches an active call;
 hidden or unavailable previews remain explicit. The preview request requires current roster
 state plus VIEW_CHANNEL and CONNECT. This normal-user route remains unofficial and live-unverified.
 
