@@ -978,6 +978,8 @@ fn encode_theme(package: &Package) -> Result<Vec<u8>, String> {
 	Ok(bytes)
 }
 
+/// Writes a reviewed package into its scope (themes, or the account's plugins) and activates
+/// it. Fails when the account limit is reached or the scope's byte budget would be exceeded.
 fn install_stored(
 	root: &Path,
 	stored: Stored,
@@ -1088,6 +1090,8 @@ fn valid_id(id: &str) -> Result<(), String> {
 	Ok(())
 }
 
+/// Lists the extensions installed for the themes scope and the account's plugins, finishing
+/// interrupted removals first. Directory scans read at most `MAX_SCOPE_ENTRIES` entries.
 fn load(
 	root: &Path,
 	account: Option<&str>,
@@ -1315,6 +1319,7 @@ fn scope_bytes(parent: &Path, except: Option<&str>) -> Result<u64, String> {
 	Ok(total)
 }
 
+/// Counts the subdirectories of `path`, reading a bounded number of entries.
 fn count_directories(path: &Path) -> Result<usize, String> {
 	if !path.exists() {
 		return Ok(0);
@@ -1777,6 +1782,7 @@ mod tests {
 			manifest: package.manifest.clone(),
 		}
 	}
+	/// Twenty extensions fit in one scope: the limit comes from their size, not their number.
 	#[test]
 	fn the_number_of_extensions_follows_their_size() {
 		let profile = Profile::new();
