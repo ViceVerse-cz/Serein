@@ -2240,6 +2240,9 @@ impl MessagingUi {
 					divider(ui);
 				}
 				if in_call {
+					if self.voice_stream_section(ui, state) {
+						divider(ui);
+					}
 					self.voice_card_section(ui, state, commands);
 					divider(ui);
 				}

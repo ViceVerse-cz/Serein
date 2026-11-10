@@ -3936,6 +3936,81 @@ impl MessagingUi {
 		}
 	}
 
+	/// Discord's live strip above "Voice Connected" while this device's own share is
+	/// capturing: source, chosen quality and a stop control. Returns whether it drew.
+	pub(super) fn voice_stream_section(&mut self, ui: &mut egui::Ui, state: &State) -> bool {
+		let Some(call) = state
+			.voice
+			.active
+			.as_ref()
+			.filter(|call| call.phase != Phase::Failed)
+		else {
+			return false;
+		};
+		if !self.screen.sharing
+			|| !self.screen.busy
+			|| self.screen.context != Some((state.generation, call.channel, call.request))
+		{
+			return false;
+		}
+		let Some(share) = self.screen.started.clone() else {
+			return false;
+		};
+		let colors = design::palette(ui);
+		let title = share.title.as_deref().unwrap_or("Your screen");
+		let quality = format!("{}p {}FPS", share.height, share.fps);
+		let mut stop = false;
+		egui::Frame::new()
+			.inner_margin(egui::Margin::same(8))
+			.show(ui, |ui| {
+				ui.set_width(ui.available_width());
+				ui.horizontal(|ui| {
+					ui.spacing_mut().item_spacing.x = 10.0;
+					let (tile, _) =
+						ui.allocate_exact_size(egui::Vec2::splat(40.0), egui::Sense::hover());
+					ui.painter().rect_filled(tile, 8, colors.base);
+					crate::icons::paint(
+						ui.painter(),
+						crate::icons::Icon::ScreenShare,
+						tile.shrink(10.0),
+						colors.text_strong,
+					);
+					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+						stop = crate::icons::button(
+							ui,
+							crate::icons::Icon::ScreenShare,
+							32.0,
+							"Stop streaming",
+						)
+						.clicked();
+						ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+							ui.vertical(|ui| {
+								ui.spacing_mut().item_spacing.y = 0.0;
+								ui.add(
+									egui::Label::new(
+										design::semibold(ui, title, 15.0).color(colors.text_strong),
+									)
+									.truncate()
+									.selectable(false),
+								);
+								ui.add(
+									egui::Label::new(
+										RichText::new(quality).size(12.0).color(colors.accent),
+									)
+									.truncate()
+									.selectable(false),
+								);
+							});
+						});
+					});
+				});
+			});
+		if stop {
+			self.screen.launch(state);
+		}
+		true
+	}
+
 	/// Call details drawn inside the account card while connected: Discord's "Voice
 	/// Connected" header, then a row of quick actions above the identity row.
 	pub(super) fn voice_card_section(
@@ -6273,6 +6348,44 @@ mod tests {
 			Some(second),
 			"the second card stays open once the pointer enters it"
 		);
+	}
+
+	#[test]
+	fn live_stream_section_shows_only_this_devices_capturing_share_in_the_active_call() {
+		let mut state = test_support::voice_demo_state();
+		state.demo = false;
+		let call = state.voice.active.as_ref().unwrap();
+		let context = (state.generation, call.channel, call.request);
+		let mut messaging = MessagingUi::default();
+		messaging.screen.context = Some(context);
+		messaging.screen.busy = true;
+		messaging.screen.sharing = true;
+		messaging.screen.started = Some(crate::screen::LiveShare {
+			title: None,
+			height: 720,
+			fps: 60,
+		});
+		let ctx = egui::Context::default();
+		let drawn = |messaging: &mut MessagingUi| {
+			let mut shown = false;
+			ctx.run_ui(egui::RawInput::default(), |ui| {
+				shown = messaging.voice_stream_section(ui, &state);
+			})
+			.textures_delta
+			.clear();
+			shown
+		};
+		assert!(drawn(&mut messaging));
+		// Capture has not produced a frame yet, e.g. the system picker is still open.
+		messaging.screen.sharing = false;
+		assert!(!drawn(&mut messaging));
+		messaging.screen.sharing = true;
+		// A share left over from an earlier call never labels this one.
+		messaging.screen.context = Some((context.0, context.1, context.2 + 1));
+		assert!(!drawn(&mut messaging));
+		messaging.screen.context = Some(context);
+		messaging.screen.busy = false;
+		assert!(!drawn(&mut messaging));
 	}
 
 	#[test]

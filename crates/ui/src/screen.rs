@@ -14,6 +14,15 @@ pub enum Request {
 	Stop,
 }
 
+/// The source and quality chosen when this device's share started.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LiveShare {
+	/// `None` when the platform picker exposes only a placeholder source name.
+	pub title: Option<String>,
+	pub height: u32,
+	pub fps: u32,
+}
+
 pub struct ScreenUi {
 	pub context: Option<(u64, Id, u64)>,
 	pub open: bool,
@@ -22,6 +31,10 @@ pub struct ScreenUi {
 	pub refresh_requested: bool,
 	pub request: Option<Request>,
 	pub busy: bool,
+	/// Capture has produced a frame for this device's live share.
+	pub sharing: bool,
+	/// Kept apart from the dialog so later picker changes do not relabel a running share.
+	pub(crate) started: Option<LiveShare>,
 	/// Owned when it carries a run-time detail such as a Windows error code.
 	pub status: Cow<'static, str>,
 	pub capture_status: Option<&'static str>,
@@ -46,6 +59,8 @@ impl Default for ScreenUi {
 			refresh_requested: false,
 			request: None,
 			busy: false,
+			sharing: false,
+			started: None,
 			status: Cow::Borrowed(""),
 			capture_status: None,
 			supported: false,
@@ -181,6 +196,8 @@ impl ScreenUi {
 			self.quality_for = None;
 			self.request = None;
 			self.refresh_requested = false;
+			self.sharing = false;
+			self.started = None;
 		}
 		if !self.open {
 			return;
@@ -219,8 +236,17 @@ impl ScreenUi {
 			});
 		});
 		cancel |= response.close;
-		if share && !cancel {
-			self.request = self.settings().map(Request::Start);
+		if share
+			&& !cancel
+			&& let Some(settings) = self.settings()
+		{
+			self.started = self.selected_source().map(|source| LiveShare {
+				title: (!matches!(source.id, SourceId::SystemPicker | SourceId::Portal))
+					.then(|| source.name.clone()),
+				height: settings.height,
+				fps: settings.fps,
+			});
+			self.request = Some(Request::Start(settings));
 		}
 		if cancel || share {
 			self.open = false;
