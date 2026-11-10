@@ -197,6 +197,8 @@ pub(crate) fn server_tag_width(ui: &egui::Ui, tag: Option<&model::ClanTag>) -> f
 	})
 }
 
+/// Draws a compact pill with the clan tag text and its badge icon when present.
+/// Hovering shows a tooltip naming the guild the tag belongs to.
 pub(crate) fn server_tag(
 	ui: &mut egui::Ui,
 	tag: &model::ClanTag,
@@ -4706,6 +4708,8 @@ fn paint_collectibles(
 }
 
 // Explicit offline-only data; never a fallback for a failed service request.
+/// Builds a fixed preview profile for `user` with fake badges, games, and connections.
+/// Mutual guild, mutual friend, and guild member data are populated only when `guild` is given.
 #[cfg(any(test, feature = "demo"))]
 pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
 	let hash = |c: char| c.to_string().repeat(32);
@@ -5778,6 +5782,8 @@ mod tests {
 		}
 	}
 
+	/// Private profiles paint the "Private Profile" lock strip and privacy notice, and omit sections
+	/// the server withholds.
 	#[test]
 	fn private_profiles_show_the_lock_strip_and_notice_and_hide_withheld_sections() {
 		let ctx = egui::Context::default();
@@ -5823,6 +5829,8 @@ mod tests {
 					},
 				);
 				painted.clear();
+				/// Collects the text of every text shape, descending recursively into nested shape lists.
+				/// Shapes of any other kind are skipped.
 				fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
 					match shape {
 						egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),

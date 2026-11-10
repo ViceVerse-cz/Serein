@@ -29,6 +29,8 @@ enum Item {
 type Row = (Item, Option<(u64, u32)>);
 
 impl FolderUi {
+	/// Rebuilds sidebar rows when the state generation or catalog revision changed, returning whether
+	/// it did; unfoldered guilds lead, and stale expanded or closing folder ids are pruned.
 	fn sync_rows(&mut self, state: &State) -> bool {
 		let key = (state.generation, state.catalog_revision());
 		if self.key == Some(key) {
@@ -289,6 +291,8 @@ fn paint_folder_tile(
 	}
 }
 
+/// Yields voice roster entries in the guild, limited to participants currently streaming when
+/// `streaming` is set.
 fn guild_voice(
 	state: &State,
 	guild: Id,
@@ -1270,6 +1274,8 @@ mod tests {
 		assert!(state.continue_mark_all_read().is_none());
 	}
 
+	/// Message events leave folder rows and their allocation untouched, while revision bumps,
+	/// navigation invalidation, folder toggles, and settings edits rebuild them.
 	#[test]
 	fn folder_rows_reuse_the_catalog_during_message_churn() {
 		let mut state = test_support::demo_state();

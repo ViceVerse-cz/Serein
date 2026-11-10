@@ -293,6 +293,8 @@ mod tests {
 		);
 	}
 
+	/// Verifies that protocol failures are never retried, transient failures retry only after their
+	/// pause ends, and a response for a different user is discarded rather than cached.
 	#[test]
 	fn failures_and_mismatches_are_not_retried() {
 		let mut state = state();
@@ -333,6 +335,8 @@ mod tests {
 		assert!(state.prepare_user_lookup(Id(7)).is_none());
 	}
 
+	/// Verifies user lookups cap in-flight requests, evict the oldest cached users beyond the kept
+	/// limit, and are refused when no session is active.
 	#[test]
 	fn lookups_are_bounded_and_wait_for_a_session() {
 		let mut state = state();
@@ -396,6 +400,8 @@ mod tests {
 		);
 	}
 
+	/// Edits drop the cached copy and allow a refetch, discarding results still in flight, while a
+	/// deleted message is dropped and never requested again.
 	#[test]
 	fn edits_and_deletes_never_leave_a_stale_copy() {
 		let mut state = state();

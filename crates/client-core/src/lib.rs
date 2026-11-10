@@ -421,6 +421,8 @@ impl std::ops::Deref for PreparedStartup {
 		&self.data
 	}
 }
+/// Validates navigation data against capacity and integrity limits, then builds permission state.
+/// Fails on oversized input, duplicate or zero IDs, or channels referencing unknown guilds.
 fn prepare_navigation(
 	user: &User,
 	guilds: &[Guild],
@@ -4375,6 +4377,8 @@ impl State {
 				.retain(|p| !(p.nonce == *nonce && p.channel == message.channel));
 		}
 	}
+	/// Applies an authentication failure: clears typing and pending lookups, sets the status label, and
+	/// marks data stale; session-ending failures also cancel all in-flight actions and drop session state.
 	fn fail(&mut self, failure: auth::Failure) {
 		self.typing.clear_all();
 		self.lookups.release_pending();
@@ -5854,6 +5858,8 @@ mod tests {
 		assert!(state.next_reaction_read().is_none());
 	}
 
+	/// Verifies guild emoji events replace the catalog, ignore future-generation envelopes, and clear
+	/// the catalog when the update exceeds the byte or count limits.
 	#[test]
 	fn guild_emoji_updates_replace_catalog_and_reject_stale_or_oversized_data() {
 		{
@@ -6340,6 +6346,8 @@ mod tests {
 			embeds_suppressed: false,
 		}
 	}
+	/// Member lists stay cleared after closing, permission changes, or resumes even when stale
+	/// responses arrive, while recipient additions and removals update an open DM list in place.
 	#[test]
 	fn members_reject_late_requests_and_permission_invalidations() {
 		let user = message(1).author;
@@ -6578,6 +6586,8 @@ mod tests {
 		assert!(state.start_call(Id(1), false).is_some());
 	}
 
+	/// Verifies a Ready that drops or retypes the selected channel clears selection, timeline, and reply,
+	/// keeps the draft, and stops reloads or stale history responses from restoring the timeline.
 	#[test]
 	fn ready_replacement_and_removed_reload_cannot_restore_unavailable_history() {
 		{

@@ -343,6 +343,8 @@ mod tests {
 		}
 	}
 
+	/// Typing indicator segments tag each typist's name with their user id, so names can be role-colored,
+	/// and a direct message yields no role color.
 	#[test]
 	fn typist_names_carry_their_person_for_role_colors() {
 		let now = Instant::now();
@@ -371,6 +373,8 @@ mod tests {
 		);
 	}
 
+	/// Eight typists collapse to a single bounded line scoped to their channel, keep a fixed row height,
+	/// and stop rendering and repainting once expired, with animation frames only while focused.
 	#[test]
 	fn bounded_names_and_expiry_render_without_idle_repaints_or_scope_leaks() {
 		let now = Instant::now();

@@ -564,6 +564,8 @@ impl MessagingUi {
 		})
 	}
 
+	/// Draws one voice roster row with avatar, speaking ring, and hover highlight. The row can be
+	/// dragged to move the participant only when the session is live and the user may moderate them.
 	pub(super) fn voice_participant(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -4824,6 +4826,8 @@ fn device_problem(status: &'static str) -> Option<&'static str> {
 		.then_some(status)
 }
 
+/// Shows a full-width device picker with a "default" entry plus at most 32 devices, writing the choice
+/// into `selected`; a selected id missing from `devices` is labeled as unavailable.
 fn device_combo(
 	ui: &mut egui::Ui,
 	id: &str,
@@ -5721,6 +5725,8 @@ mod tests {
 		}
 	}
 
+	/// Verifies selecting a guild voice channel only loads history, joining requires a keyboard press on
+	/// the call button, elapsed labels format correctly, and demo mode never emits voice media commands.
 	#[test]
 	fn guild_voice_requires_explicit_keyboard_join_and_demo_never_emits_media() {
 		let mut state = test_support::demo_state();

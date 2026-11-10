@@ -1623,6 +1623,8 @@ mod tests {
 		}
 	}
 
+	/// Opening a search or pin hit loads a history window that keeps previously deleted messages
+	/// deleted, even when the fetched page still contains them.
 	#[test]
 	fn search_and_pin_target_windows_preserve_prior_deletions() {
 		for pins in [false, true] {

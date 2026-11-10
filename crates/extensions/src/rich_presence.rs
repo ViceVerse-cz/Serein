@@ -162,6 +162,8 @@ fn text(value: &str, max: usize) -> Result<(), crate::Error> {
 	Ok(())
 }
 
+/// Validates a rich presence link: at most 2048 bytes, a valid HTTPS URL, and free of backslashes,
+/// whitespace, and control characters. Returns `Limit` when too long and `Invalid` otherwise.
 fn link(value: &str) -> Result<(), crate::Error> {
 	if value.len() > 2048 {
 		return Err(crate::Error::Limit);
@@ -270,6 +272,8 @@ mod tests {
 		assert!(activity.validate().is_err());
 	}
 
+	/// Verifies SDK-serialized presence output round-trips, validates only from panel or activation
+	/// actions, and that both set and clear updates are rejected without the rich presence capability.
 	#[test]
 	fn rich_presence_is_opt_in_foreground_or_activation_and_sdk_wire_compatible() {
 		let mut manifest = Manifest {

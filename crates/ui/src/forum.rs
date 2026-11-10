@@ -107,6 +107,8 @@ fn opening_view(ctx: &egui::Context, defaults: &model::forum::Tags) -> (Sort, La
 }
 
 impl ForumUi {
+	/// Renders the forum's post browser, resetting filters and draft when a different forum is opened.
+	/// Queues fetches for posts, archives, summaries and authors as the visible list requires.
 	pub fn show(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -1990,6 +1992,8 @@ fn archive_footer(
 }
 
 // Discord snowflakes carry milliseconds since 2015-01-01; all u64 IDs fit time's range.
+/// Formats the age of a snowflake relative to `now` as a coarse label like "5m ago" or "2y ago".
+/// Future timestamps clamp to "just now"; months and years use fixed 30- and 365-day spans.
 fn ago(id: Id, now: time::OffsetDateTime) -> String {
 	let created =
 		time::OffsetDateTime::from_unix_timestamp(((id.0 >> 22) / 1000) as i64 + 1_420_070_400)

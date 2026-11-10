@@ -499,6 +499,8 @@ mod tests {
 		assert!(output.platform_output.commands.is_empty());
 		output.drop_without_applying_deltas();
 	}
+	/// Verifies in both light and dark themes that a forum archive opens via keyboard, paginates with a
+	/// single request per page, and opening an archived thread only loads history without selecting it.
 	#[test]
 	fn forum_archive_is_keyboard_accessible_paginates_and_opens_only_history() {
 		for dark in [false, true] {

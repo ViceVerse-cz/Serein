@@ -13,6 +13,7 @@ pub(crate) struct ConfirmedEffect {
 	pub effect: HostEffect,
 }
 
+/// Appends a `label: value` line when a value is present; does nothing for `None`.
 fn setting(lines: &mut Vec<String>, label: &str, value: Option<impl std::fmt::Display>) {
 	if let Some(value) = value {
 		lines.push(format!("{label}: {value}"));
@@ -631,6 +632,8 @@ fn view_label(view: AppView) -> &'static str {
 	}
 }
 
+/// Returns the selected channel only if its history is readable, data is available, and it accepts
+/// text; otherwise yields a user-facing error explaining the conversation is inaccessible.
 fn active_channel(state: &State) -> Result<Id, &'static str> {
 	state
 		.selected
@@ -1639,6 +1642,8 @@ mod tests {
 		assert_eq!(view.voice_gain.input_percent, before);
 	}
 
+	/// Notification patches merge only provided fields onto apply-time values, while out-of-range,
+	/// empty, or capability-revoked patches are rejected without changing settings.
 	#[test]
 	fn notification_patch_revalidates_grant_and_preserves_apply_time_values() {
 		use extensions::NotificationSettingsPatch;
