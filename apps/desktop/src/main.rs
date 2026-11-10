@@ -1528,6 +1528,8 @@ fn align_undecorated_surface(window: &winit::window::Window) {
 }
 
 impl Desktop {
+	/// Installs fonts, emoji, icons, and the design theme, then starts the runtime and background stores.
+	/// In demo mode it loads fixture state instead; fails if emoji assets or the runtime cannot load.
 	fn new(
 		cc: &eframe::CreationContext<'_>,
 		demo: bool,
@@ -3198,6 +3200,8 @@ impl Desktop {
 			.toasts
 			.push(ui::design::Level::Info, "Custom status cleared");
 	}
+	/// Refreshes the local game activity and sharing state, queuing a cache save when the preference
+	/// changes. Demo mode substitutes a fixed preview activity; repaints only when visible state changes.
 	fn sync_game_activity(&mut self, ctx: &egui::Context) {
 		let previous_sharing = (
 			self.messaging.discord_activity_sharing,

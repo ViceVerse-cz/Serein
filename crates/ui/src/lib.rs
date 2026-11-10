@@ -3003,6 +3003,8 @@ impl MessagingUi {
 			});
 		ui.add_space(8.0);
 	}
+	/// Renders the message composer for a channel, or the inline editor when a message is being edited.
+	/// Starts editing the last editable message on the keybind when the draft is empty and input free.
 	fn composer(
 		&mut self,
 		ui: &mut egui::Ui,

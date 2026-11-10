@@ -260,9 +260,12 @@ impl Spelling {
 			text.hash(&mut hasher);
 			hasher.finish()
 		};
+		// A detection retry that came due must run even when the draft has not changed.
+		let now = std::time::Instant::now();
+		let retry_due = self.retry.values().any(|at| *at <= now);
 		let all = match &self.cache {
 			Some((cached, generation, ranges))
-				if *cached == hash && *generation == self.generation =>
+				if *cached == hash && *generation == self.generation && !retry_due =>
 			{
 				ranges.clone()
 			}
@@ -304,6 +307,11 @@ impl Spelling {
 			.then(|| output.cursor_range.map(|range| range.primary.index.0))
 			.flatten();
 		let ranges = self.misspelled(text, caret);
+		// Wake up when a failed detected language may be asked for again.
+		if let Some(at) = self.retry.values().min() {
+			ui.ctx()
+				.request_repaint_after(at.saturating_duration_since(std::time::Instant::now()));
+		}
 		if ranges.is_empty() {
 			return;
 		}
@@ -741,7 +749,7 @@ mod tests {
 		spelling
 			.retry
 			.insert("ron".into(), std::time::Instant::now());
-		spelling.cache = None;
+		// Once the deadline passes, the unchanged draft is checked again despite the cache.
 		spelling.misspelled(text, None);
 		assert_eq!(spelling.take_detected(), ["ron"]);
 	}
