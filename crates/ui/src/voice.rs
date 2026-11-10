@@ -3978,7 +3978,7 @@ impl MessagingUi {
 					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 						stop = crate::icons::button(
 							ui,
-							crate::icons::Icon::ScreenShare,
+							crate::icons::Icon::StopScreenShare,
 							32.0,
 							"Stop streaming",
 						)
