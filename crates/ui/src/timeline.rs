@@ -4486,6 +4486,9 @@ impl TimelineView {
 							&& !egui::Popup::is_any_open(ui.ctx())
 							&& ui.is_enabled()
 					});
+					// Edit or reply takes the double-click when the tweak is on and one can start;
+					// otherwise the reaction preset still gets it.
+					let mut handled = false;
 					if double_click.is_some()
 						&& crate::interface_tweaks::on(
 							ui.ctx(),
@@ -4499,11 +4502,15 @@ impl TimelineView {
 							crate::select::clear(ui.ctx());
 							*editing = Some((message.channel, id, message.content.clone()));
 							self.edit_started = true;
+							handled = true;
 						} else if !own && state.can_send(message.channel) && !message.ephemeral {
 							crate::select::clear(ui.ctx());
 							selected_reply = Some(id);
+							handled = true;
 						}
-					} else if double_click.is_some()
+					}
+					if !handled
+						&& double_click.is_some()
 						&& let Some(text) = self.double_click_reaction
 					{
 						let (emoji, reacted, enabled) = quick_reaction(state, message, text);
@@ -9889,11 +9896,14 @@ mod tests {
 		for (id, author, body) in [
 			(51, Id(701), "Their synthetic body"),
 			(52, me.id, "Own synthetic body"),
+			(53, me.id, "Own unsupported body"),
 		] {
 			let mut message = text_message(id);
 			message.channel = channel;
 			message.author.id = author;
 			message.content = body.into();
+			// An unsupported message of your own can be neither edited nor replied to.
+			message.unsupported = id == 53;
 			state.timeline.insert(message, false, false).unwrap();
 		}
 		let ctx = egui::Context::default();
@@ -10000,6 +10010,14 @@ mod tests {
 			"your own message is edited, not replied to"
 		);
 		assert!(view.reaction.is_none(), "the reaction preset stays idle");
+		editing = None;
+		double_click(&mut view, &mut state, &mut editing, "Own unsupported body");
+		assert!(editing.is_none() && state.reply.is_none());
+		assert_eq!(
+			view.reaction.as_ref().map(|(id, _)| *id),
+			Some(Id(53)),
+			"with neither edit nor reply available, the reaction preset runs"
+		);
 	}
 
 	#[test]
