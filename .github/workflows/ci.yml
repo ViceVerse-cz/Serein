@@ -4,6 +4,7 @@ on:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
 concurrency:
   group: native-client-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -11,7 +12,7 @@ permissions:
   contents: read
 jobs:
   native:
-    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
       matrix:
@@ -54,11 +55,16 @@ jobs:
           - name: Linux package regression
             if: runner.os == 'Linux'
             run: PYTHONDONTWRITEBYTECODE=1 python3 packaging/linux/test_package.py
-      - run: cargo replay
-      - run: cargo replay --soak 5
+      # Release builds run on main and on manual dispatch; pull requests stop at the checks above.
+      - if: github.event_name != 'pull_request'
+        run: cargo replay
+      - if: github.event_name != 'pull_request'
+        run: cargo replay --soak 5
       - name: Package app without demo or developer features
+        if: github.event_name != 'pull_request'
         run: cargo xtask package
-      - uses: actions/upload-artifact@v7.0.1
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: serein-${{ runner.os }}-${{ runner.arch }}-unsigned
           path: dist/
@@ -102,7 +108,7 @@ jobs:
         run: cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release extensions/target/wasm32-unknown-unknown/release
       - run: cargo run --locked --release -p extensions --example legacy_sdk_check
   security:
-    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
@@ -116,7 +122,7 @@ jobs:
       - run: cargo install cargo-audit --version 0.22.2 --locked --no-default-features
       - run: cargo audit --deny warnings
   licenses:
-    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
@@ -137,7 +143,7 @@ jobs:
           - run: cargo xtask licenses
           - run: bun tests/license-policy.cjs
   fuzz:
-    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
