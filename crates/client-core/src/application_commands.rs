@@ -9,6 +9,8 @@ use model::{Freshness, Id, application_commands as schema};
 // The account command index supplies the current user's override, role overrides,
 // and channel overrides. Threads inherit the parent channel's command rules.
 // https://docs.discord.com/developers/interactions/application-commands#permissions
+/// Resolves the member override (user first, else any allowing role, else @everyone) and the
+/// channel override (channel first, else the all-channels entry at guild ID minus one).
 fn overrides(
 	permissions: &schema::CommandPermissions,
 	roles: &[Id],
@@ -278,6 +280,7 @@ mod tests {
 	use model::{AccountKind, Channel, User};
 	fn bot_state() -> State {
 		let bot = User {
+			username: String::new(),
 			id: Id(3),
 			name: "Synthetic app".into(),
 			kind: AccountKind::Bot,

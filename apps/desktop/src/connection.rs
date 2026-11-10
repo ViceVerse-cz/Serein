@@ -188,6 +188,8 @@ impl WriteOrder {
 		Some(guard)
 	}
 }
+/// Prunes finished prefetch tasks, then returns a capacity failure tagged with the command's own
+/// request id if `PREFETCHES` reads are still running; returns `None` when there is room.
 fn reject_prefetch_at_capacity(tasks: &mut Vec<AbortTask>, command: &Command) -> Option<Event> {
 	tasks.retain(|task| !task.0.is_finished());
 	if tasks.len() < PREFETCHES {
@@ -235,6 +237,8 @@ impl Connection {
 		self.typing_channel
 			.store(channel.map_or(0, |id| id.0), Ordering::Relaxed);
 	}
+	/// Spawns the session task on `runtime`: authenticates, rejects a mismatched expected user, then
+	/// runs the gateway with presence, activity, typing and upload channels wired to the returned handle.
 	pub fn start(
 		runtime: &Handle,
 		secret: Arc<SessionSecret>,
@@ -413,6 +417,8 @@ impl Connection {
                 let mut sticker_packs:Option<AbortTask>=None;
                 let mut sticker_detail:Option<AbortTask>=None;
                 let mut reaction_read:Option<AbortTask>=None;
+                // Hover lookups of unknown people and unloaded replies; client-core bounds them.
+                let mut lookups:Vec<AbortTask>=Vec::new();
                 // A thread card's preview is a passive read; it must never wait behind sends.
                 let mut thread_preview:Option<AbortTask>=None;
                 let mut ringing:Option<AbortTask>=None;
@@ -575,6 +581,21 @@ impl Connection {
                                 reaction_read=Some(AbortTask(tokio::spawn(async move {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::Reactions(client_core::reactions::Event::Read{result:Err(f),..}) if f.ends_session()=>Some(*f),_=>None};
+                                    let error=emit(event).err().or(failure);
+                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                })));
+                                continue;
+                            }
+                            if matches!(command,Command::Lookup(_)) {
+                                lookups.retain(|task|!task.0.is_finished());
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                lookups.push(AbortTask(tokio::spawn(async move {
+                                    let event=api.execute(command).await;
+                                    let failure=match &event {
+                                        Event::Lookup(client_core::lookups::Event::User{result:Err(f),..}|client_core::lookups::Event::Message{result:Err(f),..}) if f.ends_session() && *f!=Failure::Capacity=>Some(*f),
+                                        _=>None,
+                                    };
                                     let error=emit(event).err().or(failure);
                                     if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
                                     wake.request_repaint();
@@ -1887,6 +1908,8 @@ fn stream_preview_session_failure(event: &Event) -> Option<Failure> {
 }
 
 // Reads can finish after navigation/cancellation. Only a session-ending failure is global.
+/// Rescopes a non-session-ending history read failure to its channel and request, so a late
+/// failure cannot disrupt the session; unavailable channels are reported as forbidden.
 fn scope_history_failure(event: Event, channel: model::Id, request: u64) -> Event {
 	let failure = match event {
 		Event::Failure(failure) if !failure.ends_session() => failure,
@@ -2932,11 +2955,14 @@ mod tests {
 		assert!(!gate.accept(signal, 11, false, now));
 	}
 
+	/// Typing signals for unselected private channels pass the gate and reach state, while signals for
+	/// unknown channels are dropped.
 	#[test]
 	fn unselected_direct_typing_reaches_state_through_the_transport_gate() {
 		use client_core::{Envelope, Event, State, auth::AuthState, typing::Signal};
 		use model::{Channel, Freshness, Id, User};
 		let owner = User {
+			username: String::new(),
 			id: Id(1),
 			name: "Owner".into(),
 			avatar: None,

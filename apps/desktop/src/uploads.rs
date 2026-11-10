@@ -318,6 +318,8 @@ async fn preview(source: &Source) -> Option<egui::ColorImage> {
 		.ok()
 		.flatten()
 }
+/// Decodes an upload (including HEIC) into a thumbnail no larger than `PREVIEW_EDGE` on each side.
+/// Rejects images over 8192px per side or `PREVIEW_ALLOC` bytes, returning `None` on any failure.
 fn decode_preview(bytes: &[u8]) -> Option<egui::ColorImage> {
 	if platform::heic::is_heic(bytes) {
 		let (width, height, rgba) =
@@ -401,6 +403,9 @@ pub struct Uploads {
 	last: Option<Status>,
 	/// One problem, announced once. Drained by the caller into a toast.
 	notice: Option<&'static str>,
+	/// Whether newly chosen files take a random name; set each frame from the
+	/// anonymous-file-names interface tweak.
+	pub anonymise: bool,
 }
 impl Uploads {
 	#[allow(clippy::too_many_arguments)]
@@ -931,9 +936,17 @@ impl Uploads {
 			context.request_repaint_after(std::time::Duration::from_millis(100));
 		}
 	}
+	/// Adds a source to the selection and returns its unique key; when anonymising is enabled the
+	/// source is renamed randomly, falling back to the original name if randomness is unavailable.
 	fn push(&mut self, source: Source, preview: Option<egui::ColorImage>) -> u64 {
 		let key = self.next_key;
 		self.next_key += 1;
+		let mut random = [0; 7];
+		let source = if self.anonymise && getrandom::fill(&mut random).is_ok() {
+			source.anonymised(random)
+		} else {
+			source
+		};
 		self.selected.push(Chosen {
 			key,
 			source,
@@ -1752,6 +1765,8 @@ mod tests {
 		assert!(uploads.selection().is_none());
 		tokio::fs::remove_file(path).await.unwrap();
 	}
+	/// Verifies that cancelled choosers and uploads stay busy until their workers report back, while an
+	/// active upload still accepts files for the next message.
 	#[test]
 	fn cancelled_chooser_and_upload_keep_the_single_slot_until_the_worker_finishes() {
 		let context = egui::Context::default();
@@ -1774,6 +1789,7 @@ mod tests {
 			uploading: None,
 			last: None,
 			notice: None,
+			anonymise: false,
 		};
 		uploads.poll(2, Some(Id(2)), true, &context);
 		assert!(cancelled.load(Ordering::Acquire));

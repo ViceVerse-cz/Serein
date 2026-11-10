@@ -944,6 +944,8 @@ impl LocalStore {
 			start,
 		)
 	}
+	/// Replaces a channel's stored window with `messages`, deleting rows absent from it and rewriting
+	/// only changed ones; rejects oversized or invalid windows with `StoreError::Capacity`.
 	fn save_channel_loaded(
 		&mut self,
 		account: Id,
@@ -996,10 +998,16 @@ impl LocalStore {
 		let mut insert = transaction.prepare_cached(
             "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions,verified_bot) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30)")?;
 		for message in messages {
-			if previous
-				.get(&message.id)
-				.is_some_and(|old| *old == *message)
-			{
+			// The author's username is not stored, so a loaded row never carries it; compare
+			// as if it matched, or every save would rewrite those rows.
+			if previous.get(&message.id).is_some_and(|old| {
+				*old == *message
+					|| (old.author.username != message.author.username && {
+						let mut stored = Message::clone(message);
+						stored.author.username.clone_from(&old.author.username);
+						**old == stored
+					})
+			}) {
 				continue;
 			}
 			let mentions =
@@ -1186,6 +1194,8 @@ impl LocalStore {
 			.optional()?;
 		Ok(saved.is_some_and(|saved| saved == first.to_string()))
 	}
+	/// Loads up to 500 cached messages for a channel in ascending ID order, validating every field.
+	/// Fails with `Incompatible` on malformed rows and `Capacity` when a field exceeds its size limit.
 	pub fn load_channel(&self, account: Id, channel: Id) -> Result<Vec<Message>> {
 		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions,verified_bot FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
 		let mut rows = query.query(params![account.to_string(), channel.to_string()])?;
@@ -1369,6 +1379,7 @@ impl LocalStore {
 				id: parse(row.get(0)?)?,
 				channel,
 				author: User {
+					username: String::new(),
 					primary_guild: None,
 					cosmetics: None,
 					id: parse(row.get(1)?)?,
@@ -3305,6 +3316,8 @@ mod tests {
 		drop(store);
 		std::fs::remove_dir_all(root).unwrap();
 	}
+	/// Verifies that migrating a schema-five store adds empty mentions while keeping drafts, that saved
+	/// mentions round-trip, and that over-101-entry or over-128 KiB mention data fails to load.
 	#[test]
 	fn schema_five_mentions_round_trip_and_reject_oversized_metadata() {
 		let mut store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
@@ -3320,6 +3333,7 @@ mod tests {
 		assert!(messages[0].mentions.is_empty());
 		assert_eq!(store.load_drafts(Id(1)).unwrap()[&Id(2)], "kept draft");
 		messages[0].mentions = vec![User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(5),
@@ -3463,6 +3477,8 @@ mod tests {
 			Err(StoreError::Capacity)
 		));
 	}
+	/// Verifies legacy schema upgrade, appearance persistence, per-account draft isolation and capacity,
+	/// read-only failure handling, channel eviction on reopen, and data removal on logout.
 	#[test]
 	fn account_isolation_draft_reopen_eviction_and_logout() {
 		let root =
@@ -3526,6 +3542,7 @@ mod tests {
 				id: Id(100),
 				channel: Id(channel),
 				author: User {
+					username: String::new(),
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(1),

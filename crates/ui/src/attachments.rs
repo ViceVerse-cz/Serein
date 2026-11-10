@@ -279,7 +279,24 @@ fn file_card(
 				icons::inline(ui, kind.icon(), 32.0, kind.tint(&colors));
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.spacing_mut().item_spacing.x = 6.0;
-					let download = download_button(ui, attachment, download, demo);
+					let download_response = download_button(ui, attachment, download, demo);
+					if attachment.is_text() {
+						let copy = ui
+							.add_enabled(
+								!demo && !download.busy(),
+								egui::Button::new(crate::i18n::translate(
+									"attachments-file-card-copy-text",
+								)),
+							)
+							.on_hover_text(crate::i18n::translate(
+								"attachments-file-card-copy-text-hint",
+							));
+						if copy.clicked() {
+							download.copy_request = Some(attachment.clone());
+						}
+						surface.keep(&copy);
+					}
+					let download = download_response;
 					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
 						ui.vertical(|ui| {
 							ui.spacing_mut().item_spacing.y = 0.0;
@@ -1537,6 +1554,8 @@ pub fn viewer(
 	});
 	result
 }
+/// Approximates the rendered height of the attachment list without laying it out, grouping
+/// consecutive images into grid rows and using fixed heights for audio, voice, and file cards.
 pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 	attachments
 		.chunk_by(|a, b| a.is_image() == b.is_image())
@@ -1809,8 +1828,12 @@ mod tests {
 		assert!(opening.is_none() && download.request.is_none());
 	}
 
+	/// Verifies a non-image attachment downloads only via an explicit keyboard action, and that a
+	/// pending download blocks further requests until the single active job is cleared or cancelled.
 	#[test]
 	fn nonimage_download_requires_keyboard_action_and_respects_single_job_controls() {
+		/// Runs one 640x480 UI frame, optionally injecting a single unmodified key press, and asserts the
+		/// frame emitted no platform commands before discarding its output.
 		fn frame(ctx: &egui::Context, key: Option<egui::Key>, draw: impl FnMut(&mut egui::Ui)) {
 			let output = ctx.run_ui(
 				egui::RawInput {
@@ -1855,6 +1878,7 @@ mod tests {
 			id: Id(1),
 			channel: Id(2),
 			author: model::User {
+				username: String::new(),
 				id: Id(4),
 				name: "Synthetic".into(),
 				avatar: None,

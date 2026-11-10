@@ -134,6 +134,16 @@ friends-notes-unsupported = Osobní poznámky k žádostem zatím nejsou podporo
 friends-other-places = Další místa, kde najít přátele
 friends-discover-description = Neznáte uživatelské jméno? Objevte veřejné komunity na Discordu.
 friends-explore-servers = Prozkoumat veřejné servery ↗
+friends-invite-links = Pozvánky do přátel
+friends-invite-links-description = Kdokoli s jedním z těchto odkazů se může stát tvým přítelem bez dalšího schválení.
+friends-invite-create = Vytvořit odkaz
+friends-invite-revoke-all = Zrušit vše
+friends-invite-copy = Kopírovat
+friends-invite-none = Zatím žádné pozvánky do přátel.
+friends-invite-uses = Použito: { $uses }
+friends-invite-uses-limited = Použito: { $uses } z { $max }
+friends-invite-error = Pozvánky do přátel teď nejsou dostupné.
+friends-invite-retry = Zkuste to znovu
 friends-incoming = Příchozí
 friends-outgoing = Odchozí
 friends-search-requests = Hledat žádosti
@@ -288,6 +298,10 @@ attachments-download-button-a-download-is-already-active = Stahování je již a
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Vyberte, kam chcete tento soubor uložit · až 100 MiB
 # Context: download_button
 attachments-download-button-download = Stáhnout
+# Context: file_card
+attachments-file-card-copy-text = Kopírovat text
+# Context: file_card
+attachments-file-card-copy-text-hint = Zkopíruje obsah tohoto textového souboru do schránky
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = U syntetických příloh je stahování zakázáno
 # Context: media_menu
@@ -835,6 +849,8 @@ emoji-details-show-a-custom-emoji = Vlastní emotikony.
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Výchozí emodži. Tento emotikon můžete použít všude na Discordu.
 # Context: show
 emoji-details-show-copy-emoji = Kopírovat emotikony
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = Přidat na server
 # Context: show
 emoji-details-show-from = Z
 # Context: show
@@ -3960,6 +3976,8 @@ timeline-show-with-scroll-loading-messages = Načítání zpráv…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Zpráva smazána
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Blokovaná zpráva
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Historie zpráv není s aktuálními informacemi o oprávnění k dispozici.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Zatím žádné zprávy. Začněte konverzaci níže.
@@ -5019,3 +5037,17 @@ timestamp-style-full = Úplné datum a čas
 timestamp-style-relative = Relativní čas
 timestamp-style-short-date-time = Krátké datum a čas
 timestamp-style-short-date-seconds = Krátké datum a čas se sekundami
+name-marks-server-owner = Vlastník serveru
+name-marks-online-desktop = Online na počítači
+name-marks-online-web = Online na webu
+name-marks-online-mobile = Online na mobilu
+profiles-show-mutual-group = Společná skupina
+profiles-show-mutual-groups = Společné skupiny
+rail-counts-online = { $count } online
+rail-counts-servers = { $count ->
+    [one] { $count } server
+    [few] { $count } servery
+   *[other] { $count } serverů
+}
+name-marks-tag-admin = Admin
+name-marks-tag-moderator = Mod

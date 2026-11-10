@@ -99,6 +99,8 @@ pub fn check_sidebar() {
 	);
 }
 
+/// Runs a headless check of the forum post context menu with a synthetic owner and colored role,
+/// including mention notification previews, mention counts, and forum read-state handling.
 pub fn check() {
 	let ctx = egui::Context::default();
 	ui::design::apply(&ctx);
@@ -267,6 +269,7 @@ pub fn check() {
 		request: author_request,
 		result: Ok(vec![model::Member {
 			user: model::User {
+				username: String::new(),
 				id: author_id,
 				name: "Synthetic forum author".into(),
 				kind: model::AccountKind::Human,

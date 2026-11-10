@@ -274,6 +274,9 @@ pub struct ExtensionUi {
 	theme_editor: Option<crate::theme_editor::ThemeEditor>,
 	theme_editor_visible: bool,
 	gallery_preview: Option<String>,
+	/// Granted notification and mute changes waiting for the next frame, applied without an
+	/// Apply button.
+	background: Vec<crate::extension_app::ConfirmedEffect>,
 }
 impl ExtensionUi {
 	pub fn editing_theme(&self) -> bool {
@@ -1028,6 +1031,7 @@ impl ExtensionUi {
 		self.previews.clear();
 		self.enlarged = None;
 	}
+	/// Forgets a removed plugin's open result, pending invocations and queued background changes.
 	pub fn remove_runtime(&mut self, id: &str) {
 		if self.result.as_ref().is_some_and(|result| result.id == id) {
 			self.result = None;
@@ -1035,7 +1039,30 @@ impl ExtensionUi {
 		self.requests.retain(
 			|request| !matches!(request, ExtensionRequest::Invoke { id: plugin, .. } if plugin == id),
 		);
+		self.background.retain(|effect| effect.plugin != id);
 	}
+	/// Queues a plugin's validated background effects; the next frame applies them through the
+	/// same checks as an approved effect, against the context the plugin ran in.
+	pub fn queue_background_effects(
+		&mut self,
+		id: &str,
+		context: &ExtensionContext,
+		effects: &[extensions::HostEffect],
+	) {
+		self.background.extend(effects.iter().map(|effect| {
+			crate::extension_app::ConfirmedEffect {
+				plugin: id.to_owned(),
+				context: context.clone(),
+				effect: effect.clone(),
+			}
+		}));
+	}
+	/// Takes the queued background effects in arrival order.
+	pub(crate) fn take_background_effects(&mut self) -> Vec<crate::extension_app::ConfirmedEffect> {
+		std::mem::take(&mut self.background)
+	}
+	/// Shows an extension's output in the result panel, discarding it with a status message if the
+	/// conversation or draft changed; strips storage, app, and stale fetch results before display.
 	pub fn present_output(
 		&mut self,
 		id: String,
@@ -1050,6 +1077,8 @@ impl ExtensionUi {
 		}
 		invocation.storage = None;
 		invocation.app = None;
+		// Buttons in the result re-run the action; an old response would look new.
+		invocation.fetch_result = None;
 		output.storage = None;
 		self.result = Some(ResultPanel {
 			id,
@@ -2028,6 +2057,8 @@ impl ExtensionUi {
 			}
 		});
 	}
+	/// Shows the pending consent dialog listing everything the extension or theme may touch.
+	/// Does nothing when no consent request is pending.
 	fn consent_modal(&mut self, ctx: &egui::Context, colors: &design::Palette) {
 		let Some(mut consent) = self.consent.take() else {
 			return;
@@ -2241,6 +2272,18 @@ impl ExtensionUi {
 							} else {
 								consent.grants.retain(|grant| grant != capability);
 							}
+						}
+						if *capability == Capability::Network {
+							ui.indent("network-hosts", |ui| {
+								for host in &consent.entry.manifest.network_hosts {
+									ui.label(
+										egui::RichText::new(host)
+											.monospace()
+											.size(12.0)
+											.color(colors.muted),
+									);
+								}
+							});
 						}
 					}
 				}
@@ -2916,6 +2959,13 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::MessageEvents => "Read live message events and text in the active conversation",
 		Capability::SelectedMessage => "Read the message I choose for an action",
 		Capability::ContextMenus => "Add actions to user, channel, server and role menus",
+		Capability::InterfaceTweaks => "Change how parts of the interface look or behave",
+		Capability::BackgroundEffects => {
+			"Change my notification and mute settings without asking each time"
+		}
+		Capability::Network => {
+			"Send web requests to the sites listed below, including any data granted to this plugin (never my login)"
+		}
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
 		Capability::AppContext => "Read my account and current conversation details",
@@ -3101,6 +3151,8 @@ pub(crate) fn render_elements(
 		}
 	}
 }
+/// Replaces the selected channel's draft with an extension's proposal, removing it when empty.
+/// Rejects stale contexts and replacements exceeding the content or total draft byte limits.
 fn apply_proposal(state: &mut State, context: &ExtensionContext, replacement: &str) -> bool {
 	let Some(channel) = state.selected else {
 		return false;
@@ -3195,6 +3247,7 @@ mod tests {
 			theme_preview: None,
 			preview: None,
 			manifest: Manifest {
+				network_hosts: Vec::new(),
 				api_version: 1,
 				id: "synthetic.words".into(),
 				name: "Synthetic word tools".into(),

@@ -266,6 +266,8 @@ fn member(state: &State, channel: Id, id: Id) -> Option<&model::Member> {
 		})
 }
 
+/// Resolves a mentioned user, checking the message's mentions first, then the current user,
+/// friends, channel recipients, members, member search, channel timeline, and on-demand lookups.
 pub fn find_user<'a>(
 	id: Id,
 	mentions: &'a [User],
@@ -300,16 +302,21 @@ pub fn find_user<'a>(
 	{
 		return Some(&member.user);
 	}
-	state.timeline.iter().find_map(|message| {
-		if message.channel != source.channel {
-			return None;
-		}
-		if message.author.id == id {
-			Some(&message.author)
-		} else {
-			message.mentions.iter().find(|user| user.id == id)
-		}
-	})
+	state
+		.timeline
+		.iter()
+		.find_map(|message| {
+			if message.channel != source.channel {
+				return None;
+			}
+			if message.author.id == id {
+				Some(&message.author)
+			} else {
+				message.mentions.iter().find(|user| user.id == id)
+			}
+		})
+		// A person read on demand for an unknown mention.
+		.or_else(|| state.lookups.user(id))
 }
 
 pub fn mention_label(id: Id, mentions: &[User], source: Option<&MentionSource<'_>>) -> String {
@@ -940,6 +947,8 @@ impl Menu {
 		picked.and_then(|index| self.pick(index))
 	}
 }
+/// Paints one clickable suggestion row with its icon or avatar, label, and optional source tag.
+/// Skips painting when off-screen; selected or hovered rows get a highlighted background.
 fn row(
 	ui: &mut egui::Ui,
 	candidate: &Candidate,
@@ -1915,6 +1924,7 @@ mod tests {
 
 	fn user(id: u64, name: &str) -> User {
 		User {
+			username: String::new(),
 			id: Id(id),
 			name: name.into(),
 			avatar: None,

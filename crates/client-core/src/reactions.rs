@@ -594,6 +594,8 @@ impl State {
 	}
 }
 
+/// Applies one reaction add or remove, ignoring own echoes already reflected locally and dropping
+/// reactions whose count reaches zero. Fails on count overflow or when exceeding the reaction cap.
 fn apply_delta(
 	values: &mut Vec<Reaction>,
 	emoji: &ReactionEmoji,
@@ -686,6 +688,7 @@ mod tests {
 			panic!()
 		};
 		let user = |id| User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(id),
@@ -1278,6 +1281,7 @@ mod tests {
 	#[test]
 	fn reaction_permissions_distinguish_existing_emoji_and_late_reads() {
 		let user = User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(2),

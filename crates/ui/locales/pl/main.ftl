@@ -131,6 +131,16 @@ friends-notes-unsupported = Spersonalizowane notatki do żądań nie są jeszcze
 friends-other-places = Inne miejsca do zawierania przyjaźni
 friends-discover-description = Nie masz nazwy użytkownika? Odkryj społeczności publiczne w Discord.
 friends-explore-servers = Poznaj wykrywalne serwery ↗
+friends-invite-links = Linki zaproszeń do znajomych
+friends-invite-links-description = Każdy, kto ma jeden z tych linków, może zostać twoim znajomym bez dodatkowej zgody.
+friends-invite-create = Utwórz link
+friends-invite-revoke-all = Unieważnij wszystkie
+friends-invite-copy = Kopiuj
+friends-invite-none = Brak linków zaproszeń do znajomych.
+friends-invite-uses = Użycia: { $uses }
+friends-invite-uses-limited = Użycia: { $uses } z { $max }
+friends-invite-error = Linki zaproszeń do znajomych są teraz niedostępne.
+friends-invite-retry = Spróbować ponownie
 friends-incoming = Przybywający
 friends-outgoing = Towarzyski
 friends-search-requests = Żądania wyszukiwania
@@ -285,6 +295,10 @@ attachments-download-button-a-download-is-already-active = Pobieranie jest już 
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Wybierz miejsce zapisania tego pliku · do 100 MiB
 # Context: download_button
 attachments-download-button-download = Pobierać
+# Context: file_card
+attachments-file-card-copy-text = Kopiuj tekst
+# Context: file_card
+attachments-file-card-copy-text-hint = Kopiuje zawartość tego pliku tekstowego do schowka
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = Pobieranie jest wyłączone w przypadku załączników syntetycznych
 # Context: media_menu
@@ -810,6 +824,8 @@ emoji-details-show-a-custom-emoji = Niestandardowy emoji.
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Domyślny emoji. Możesz używać tego emoji wszędzie na Discordzie.
 # Context: show
 emoji-details-show-copy-emoji = Skopiuj emotikony
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = Dodaj do serwera
 # Context: show
 emoji-details-show-from = Z
 # Context: show
@@ -3928,6 +3944,8 @@ timeline-show-with-scroll-loading-messages = Ładowanie wiadomości…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Wiadomość usunięta
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Zablokowana wiadomość
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Historia wiadomości jest niedostępna przy bieżących informacjach o uprawnieniach.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Nie ma jeszcze żadnych wiadomości. Rozpocznij rozmowę poniżej.
@@ -4890,3 +4908,17 @@ new-message-hint = Dodaj znajomych, aby rozpocząć wiadomość prywatną lub gr
 new-message-no-people-found = Nikt nie pasuje do tego wyszukiwania.
 new-message-create = Utwórz wiadomość
 new-message-cancel = Anuluj
+name-marks-server-owner = Właściciel serwera
+name-marks-online-desktop = Online na komputerze
+name-marks-online-web = Online w przeglądarce
+name-marks-online-mobile = Online na telefonie
+profiles-show-mutual-group = Wspólna grupa
+profiles-show-mutual-groups = Wspólne grupy
+rail-counts-online = { $count } online
+rail-counts-servers = { $count ->
+    [one] { $count } serwer
+    [few] { $count } serwery
+   *[other] { $count } serwerów
+}
+name-marks-tag-admin = Admin
+name-marks-tag-moderator = Mod

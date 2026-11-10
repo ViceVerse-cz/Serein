@@ -28,6 +28,32 @@ pub struct Runtime {
 	badge: Option<u32>,
 	badge_check: Option<Instant>,
 	badge_status: &'static str,
+	/// Direct conversations that alerted since they were last read, with the message that
+	/// alerted, for one ping per DM.
+	pinged_directs: std::collections::BTreeMap<Id, Id>,
+}
+
+/// With one ping per direct conversation, keeps a conversation quiet after its first alert
+/// until its read marker reaches that message; returns whether this notification stays
+/// silent. `read` gives a conversation's last read message, if known. Checking records
+/// nothing; [`record_ping`] does once an alert or sound was actually produced.
+fn quiet_repeat(
+	pinged: &mut std::collections::BTreeMap<Id, Id>,
+	(direct, channel): (bool, Id),
+	read: impl Fn(Id) -> Option<Id>,
+) -> bool {
+	pinged.retain(|channel, first| read(*channel).is_none_or(|marker| marker < *first));
+	direct && pinged.contains_key(&channel)
+}
+
+/// Marks a direct conversation as having alerted with `message`, keeping its first alert.
+fn record_ping(
+	pinged: &mut std::collections::BTreeMap<Id, Id>,
+	(direct, channel, message): (bool, Id, Id),
+) {
+	if direct {
+		pinged.entry(channel).or_insert(message);
+	}
 }
 /// Push-to-talk edges: one start cue per press and one stop cue per release.
 #[derive(Default)]
@@ -90,6 +116,8 @@ impl Runtime {
 			self.ptt_sounds.play(cue, options.volume, ctx);
 		}
 	}
+	/// Stops all notification and push-to-talk sounds, drops any active ring, and resets the badge.
+	/// Forgets which direct conversations were pinged so the next account starts with no alert history.
 	pub fn clear(&mut self, window: &winit::window::Window) {
 		self.sounds.stop();
 		self.ptt_sounds.stop();
@@ -98,6 +126,8 @@ impl Runtime {
 			let _ = platform::badge::set(window, 0);
 		}
 		self.badge = None;
+		// Another account may sign in next; its conversations start without alert history.
+		self.pinged_directs.clear();
 	}
 	/// Returns a coalesced desktop alert request. Sound is independent of desktop alerts.
 	pub fn poll(
@@ -123,33 +153,6 @@ impl Runtime {
 				&& i.viewport().visible() != Some(false)
 				&& i.viewport().minimized != Some(true)
 		});
-		let mut alert = None;
-		let mut sound = None;
-		while let Some(notification) = state.take_notification() {
-			let current = focused && ui.viewing_latest(notification.channel);
-			let cue = if current {
-				Sound::CurrentChannel
-			} else {
-				Sound::Message
-			};
-			if audible {
-				if ui.notifications_enabled && !current {
-					let image_path = state.user.as_ref().and_then(|user| {
-						crate::avatars::notification_image_path(user.id, &notification.avatar_key)
-					});
-					alert = Some(Alert::Message {
-						channel: notification.channel,
-						title: notification.sender,
-						body: notification.preview,
-						avatar_key: notification.avatar_key,
-						image_path,
-					});
-				}
-				if options.allows(cue) {
-					sound = Some(cue);
-				}
-			}
-		}
 		let incoming = state.voice.incoming.filter(|id| {
 			audible && state.notification_allowed(*id) && options.allows(Sound::IncomingRing)
 		});
@@ -160,15 +163,9 @@ impl Runtime {
 		let ringing = incoming
 			.map(|id| (id, Sound::IncomingRing))
 			.or_else(|| outgoing.map(|id| (id, Sound::OutgoingRing)));
-		if let Some(cue) = self.ring_cue(ringing, Instant::now()) {
-			sound = Some(cue);
-		}
+		let (alert, sound) = self.deliver(state, ui, audible, focused, ringing, Instant::now());
 		if self.ring.is_some() {
 			ctx.request_repaint_after(Duration::from_millis(250));
-		}
-		// Explicit previews are allowed in the offline demo and intentionally ignore automatic mute choices.
-		if let Some(preview) = ui.notification_preview.take() {
-			sound = Some(preview);
 		}
 		if let Some(sound) = sound {
 			self.sounds.play(sound, options.volume, ctx);
@@ -211,6 +208,86 @@ impl Runtime {
 		};
 		alert
 	}
+	/// Turns queued message notifications, the call ringtone and a settings preview into
+	/// at most one desktop alert and one sound, and records which direct conversations used
+	/// up their one ping.
+	fn deliver(
+		&mut self,
+		state: &mut State,
+		ui: &mut ui::MessagingUi,
+		audible: bool,
+		focused: bool,
+		ringing: Option<(Id, Sound)>,
+		now: Instant,
+	) -> (Option<Alert>, Option<Sound>) {
+		let options = ui.notification_options;
+		let mut alert = None;
+		let mut sound = None;
+		let one_ping = ui.interface_tweak_on(extensions::InterfaceTweak::OnePingPerDirectMessage);
+		if !one_ping {
+			self.pinged_directs.clear();
+		}
+		// Alerts and sounds in one poll coalesce to the last eligible one of each; only the
+		// conversations behind those use up their one ping.
+		let (mut alerted, mut sounded) = (None, None);
+		while let Some(notification) = state.take_notification() {
+			let current = focused && ui.viewing_latest(notification.channel);
+			let cue = if current {
+				Sound::CurrentChannel
+			} else {
+				Sound::Message
+			};
+			let desktop = audible && ui.notifications_enabled && !current;
+			let audio = audible && options.allows(cue);
+			let key = (
+				notification.is_direct(),
+				notification.channel,
+				notification.message,
+			);
+			if !(desktop || audio)
+				|| one_ping
+					&& quiet_repeat(&mut self.pinged_directs, (key.0, key.1), |id| {
+						state.read_marker(id).flatten()
+					}) {
+				continue;
+			}
+			if desktop {
+				let image_path = state.user.as_ref().and_then(|user| {
+					crate::avatars::notification_image_path(user.id, &notification.avatar_key)
+				});
+				alert = Some(Alert::Message {
+					channel: notification.channel,
+					title: notification.sender,
+					body: notification.preview,
+					avatar_key: notification.avatar_key,
+					image_path,
+				});
+				alerted = Some(key);
+			}
+			if audio {
+				sound = Some(cue);
+				sounded = Some((key, cue));
+			}
+		}
+		// A ringtone or preview chosen below replaces the message sound and its attribution.
+		if let Some(cue) = self.ring_cue(ringing, now) {
+			sound = Some(cue);
+			sounded = None;
+		}
+		// Explicit previews are allowed in the offline demo and intentionally ignore automatic mute choices.
+		if let Some(preview) = ui.notification_preview.take() {
+			sound = Some(preview);
+			sounded = None;
+		}
+		// Only the alert shown and a message sound that actually plays use up a
+		// conversation's one ping.
+		if one_ping {
+			for key in alerted.into_iter().chain(sounded.map(|(key, _)| key)) {
+				record_ping(&mut self.pinged_directs, key);
+			}
+		}
+		(alert, sound)
+	}
 }
 
 fn badge_count(state: &State) -> u32 {
@@ -239,6 +316,8 @@ fn badge_count(state: &State) -> u32 {
 		.unwrap_or(100)
 }
 
+/// Checks that the badge count honors guild and channel mutes, timed mute expiry, and unmutes,
+/// and caps at 100 on overflowing mention counts; panics on the first mismatch.
 #[cfg(any(test, all(debug_assertions, feature = "demo")))]
 pub fn debug_badge_check() {
 	use client_core::{Envelope, Event, notifications};
@@ -315,9 +394,210 @@ pub fn debug_badge_check() {
 mod tests {
 	use super::*;
 
+	/// Feeds real direct and server messages through delivery with one ping per DM: a DM
+	/// alerts once until read while a server mention alerts every time, a DM silenced by Do
+	/// Not Disturb does not use up its ping, and a settings preview that replaces a DM's
+	/// sound leaves the DM eligible.
+	#[test]
+	fn one_ping_delivery_follows_real_messages_dnd_and_previews() {
+		use client_core::{Envelope, Event, notifications, read_state};
+		let mut state = test_support::demo_state();
+		let owner = state.user.clone().unwrap();
+		let dm = state
+			.channels
+			.iter()
+			.find(|c| c.guild.is_none() && c.kind == 1)
+			.expect("demo has a one-to-one DM")
+			.clone();
+		let friend = dm.recipients[0].clone();
+		let server = state
+			.channels
+			.iter()
+			.find(|c| c.guild.is_some() && c.kind == 0)
+			.expect("demo has a server text channel")
+			.clone();
+		state
+			.apply_notification_preferences(notifications::Event::Settings {
+				entries: vec![notifications::Setting {
+					guild: server.guild,
+					muted: Some(false),
+					level: Some(1),
+					..Default::default()
+				}],
+				replace: true,
+			})
+			.unwrap();
+		state
+			.apply_notification_preferences(notifications::Event::Presence(Some(false)))
+			.unwrap();
+		let mut next = 9_000_000_000u64;
+		let mut send = |state: &mut State, channel: Id| {
+			next += 1;
+			let mut message = test_support::message(next, channel);
+			message.author = friend.clone();
+			if channel == server.id {
+				message.mentions = vec![owner.clone()];
+			}
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Message(message),
+			});
+			Id(next)
+		};
+		let mut ui = ui::MessagingUi::default();
+		ui.notifications_enabled = true;
+		ui.set_interface_tweaks([extensions::InterfaceTweak::OnePingPerDirectMessage].into());
+		let now = Instant::now();
+		let mut runtime = Runtime::default();
+		let deliver =
+			|runtime: &mut Runtime, state: &mut State, ui: &mut ui::MessagingUi, audible: bool| {
+				let (alert, sound) = runtime.deliver(state, ui, audible, false, None, now);
+				(alert.is_some(), sound)
+			};
+		let first = send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(true, Some(Sound::Message))
+		);
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(false, None),
+			"an unread DM stays quiet"
+		);
+		for _ in 0..2 {
+			send(&mut state, server.id);
+			assert_eq!(
+				deliver(&mut runtime, &mut state, &mut ui, true),
+				(true, Some(Sound::Message)),
+				"server mentions alert every time"
+			);
+		}
+		state
+			.apply_read_state(read_state::Event::Ack {
+				channel: dm.id,
+				message: Some(first),
+				manual: true,
+				mention_count: Some(0),
+				version: None,
+			})
+			.unwrap();
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(true, Some(Sound::Message)),
+			"reading the DM re-arms its ping"
+		);
+
+		// Do Not Disturb drops the alert without spending the DM's ping.
+		let mut runtime = Runtime::default();
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, false),
+			(false, None)
+		);
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(true, Some(Sound::Message)),
+			"the first audible DM after Do Not Disturb alerts"
+		);
+
+		// With desktop alerts off, a preview with the same cue replaces the DM's sound and
+		// leaves the DM eligible for its next message.
+		let mut runtime = Runtime::default();
+		ui.notifications_enabled = false;
+		ui.notification_preview = Some(Sound::Message);
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(false, Some(Sound::Message))
+		);
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(false, Some(Sound::Message)),
+			"the DM still sounds after the preview"
+		);
+		send(&mut state, dm.id);
+		assert_eq!(
+			deliver(&mut runtime, &mut state, &mut ui, true),
+			(false, None),
+			"the DM's own sound used up its ping"
+		);
+	}
+
+	/// Muted conversations are excluded from the unread count shown on the native app badge.
 	#[test]
 	fn muted_conversations_do_not_count_toward_native_badge() {
 		debug_badge_check();
+	}
+
+	/// Checks that one ping per DM silences repeats until the conversation is read through the
+	/// alerting message, leaves server channels alone, tracks each conversation separately and
+	/// records nothing for a notification that was checked but never alerted.
+	#[test]
+	fn one_ping_per_direct_message_waits_for_read() {
+		let mut pinged = std::collections::BTreeMap::new();
+		let mut read = std::collections::BTreeMap::<Id, Id>::new();
+		let check = |pinged: &mut std::collections::BTreeMap<Id, Id>,
+		             read: &std::collections::BTreeMap<Id, Id>,
+		             direct,
+		             channel| {
+			let read = read.clone();
+			quiet_repeat(pinged, (direct, Id(channel)), move |id| {
+				read.get(&id).copied()
+			})
+		};
+		// A checked notification that a later one replaced in the same poll leaves no mark.
+		assert!(!check(&mut pinged, &read, true, 1));
+		assert!(
+			!check(&mut pinged, &read, true, 1),
+			"an unalerted DM stays eligible"
+		);
+		// The rest of the scenario alerts every eligible notification.
+		let quiet = |pinged: &mut std::collections::BTreeMap<Id, Id>,
+		             read: &std::collections::BTreeMap<Id, Id>,
+		             direct,
+		             channel,
+		             message| {
+			let quiet = check(pinged, read, direct, channel);
+			if !quiet {
+				record_ping(pinged, (direct, Id(channel), Id(message)));
+			}
+			quiet
+		};
+		assert!(
+			!quiet(&mut pinged, &read, true, 1, 100),
+			"first DM message alerts"
+		);
+		assert!(
+			quiet(&mut pinged, &read, true, 1, 101),
+			"repeat stays quiet"
+		);
+		assert!(
+			!quiet(&mut pinged, &read, true, 2, 102),
+			"another DM alerts"
+		);
+		assert!(
+			!quiet(&mut pinged, &read, false, 3, 103),
+			"server channel alerts"
+		);
+		assert!(
+			!quiet(&mut pinged, &read, false, 3, 104),
+			"server repeats alert"
+		);
+		read.insert(Id(1), Id(99));
+		assert!(
+			quiet(&mut pinged, &read, true, 1, 105),
+			"read before the alert keeps quiet"
+		);
+		read.insert(Id(1), Id(101));
+		assert!(
+			!quiet(&mut pinged, &read, true, 1, 106),
+			"reading through it resets"
+		);
+		assert!(quiet(&mut pinged, &read, true, 1, 107), "then quiet again");
 	}
 
 	#[test]

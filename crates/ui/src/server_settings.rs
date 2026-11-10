@@ -207,12 +207,49 @@ impl MessagingUi {
 			self.server_settings.admin.queue_files(paths);
 		}
 	}
+	/// Drains queued emoji files into an upload request tagged with the settings scope and a new
+	/// sequence number; returns None when no server is open or no files are queued.
 	pub fn take_server_emoji_request(&mut self) -> Option<(u64, Id, u64, Vec<std::path::PathBuf>)> {
 		let (generation, guild) = self.server_settings.scope?;
 		let paths = self.server_settings.admin.take_files()?;
 		self.server_emoji_sequence = self.server_emoji_sequence.wrapping_add(1);
 		self.server_settings.admin.request = self.server_emoji_sequence;
 		Some((generation, guild, self.server_emoji_sequence, paths))
+	}
+	/// Opens `guild`'s emoji settings with `emoji` prepared for upload.
+	pub fn clone_emoji(
+		&mut self,
+		state: &mut State,
+		guild: Id,
+		emoji: crate::server_admin::EmojiClone,
+	) -> Option<Command> {
+		if !state.can_create_guild_emoji(guild) {
+			return None;
+		}
+		// Reopening the editor would silently drop any unsaved server, role, sticker or emoji
+		// work, including images still being prepared or uploaded.
+		if self.has_server_settings_changes() {
+			self.toasts.push(
+				crate::design::Level::Error,
+				"Save or discard your unsaved server settings first, then add the emoji again.",
+			);
+			return None;
+		}
+		let command = self.preview_server_admin(state, guild, "emoji");
+		if self.server_settings.scope == Some((state.generation, guild)) {
+			self.server_settings.admin.queue_clone(emoji);
+		}
+		command
+	}
+	/// The emoji to download for the open emoji settings, with the request it answers.
+	pub fn take_server_emoji_clone(
+		&mut self,
+	) -> Option<(u64, Id, u64, crate::server_admin::EmojiClone)> {
+		let (generation, guild) = self.server_settings.scope?;
+		let emoji = self.server_settings.admin.take_clone()?;
+		self.server_emoji_sequence = self.server_emoji_sequence.wrapping_add(1);
+		self.server_settings.admin.request = self.server_emoji_sequence;
+		Some((generation, guild, self.server_emoji_sequence, emoji))
 	}
 	pub fn accept_server_emojis(
 		&mut self,

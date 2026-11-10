@@ -1349,6 +1349,7 @@ impl State {
 						(!self.user_actions.requests.contains_key(&user)).then(|| {
 							(
 								model::User {
+									username: String::new(),
 									id: user,
 									name: "Unknown user".into(),
 									avatar: None,
@@ -1844,6 +1845,8 @@ pub fn valid_username(name: &str) -> bool {
 			.bytes()
 			.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.'))
 }
+/// Accepts a friend entry only with a nonzero ID, a non-empty display name up to 512 bytes, a
+/// non-empty username up to 128 bytes, no control characters in either, and a valid avatar hash.
 fn valid_friend(user: &model::User, username: &str) -> bool {
 	user.id.0 != 0
 		&& !user.name.is_empty()
@@ -2853,6 +2856,7 @@ mod tests {
 	/// Synthetic authenticated state for user-action tests.
 	fn state() -> State {
 		let user = |id| model::User {
+			username: String::new(),
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(id),

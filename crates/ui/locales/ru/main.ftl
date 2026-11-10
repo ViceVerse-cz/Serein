@@ -131,6 +131,16 @@ friends-notes-unsupported = Персонализированные примеч�
 friends-other-places = Другие места, где можно завести друзей
 friends-discover-description = У вас нет имени пользователя? Откройте для себя публичные сообщества в Discord.
 friends-explore-servers = Изучите доступные для обнаружения серверы ↗
+friends-invite-links = Ссылки-приглашения в друзья
+friends-invite-links-description = Любой, у кого есть одна из этих ссылок, может стать вашим другом без дополнительного подтверждения.
+friends-invite-create = Создать ссылку
+friends-invite-revoke-all = Отозвать все
+friends-invite-copy = Копировать
+friends-invite-none = Ссылок-приглашений в друзья пока нет.
+friends-invite-uses = Использований: { $uses }
+friends-invite-uses-limited = Использований: { $uses } из { $max }
+friends-invite-error = Ссылки-приглашения в друзья сейчас недоступны.
+friends-invite-retry = Повторить попытку
 friends-incoming = Входящий
 friends-outgoing = Исходящий
 friends-search-requests = Поисковые запросы
@@ -286,6 +296,10 @@ attachments-download-button-a-download-is-already-active = Загрузка уж
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Выберите, где сохранить этот файл · до 100 МБ
 # Context: download_button
 attachments-download-button-download = Скачать
+# Context: file_card
+attachments-file-card-copy-text = Копировать текст
+# Context: file_card
+attachments-file-card-copy-text-hint = Копирует содержимое этого текстового файла в буфер обмена
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = Загрузка отключена для синтетических вложений.
 # Context: media_menu
@@ -811,6 +825,8 @@ emoji-details-show-a-custom-emoji = Пользовательский смайл�
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Смайлик по умолчанию. Вы можете использовать этот смайлик повсюду в Discord.
 # Context: show
 emoji-details-show-copy-emoji = Скопировать смайлик
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = Добавить на сервер
 # Context: show
 emoji-details-show-from = От
 # Context: show
@@ -3929,6 +3945,8 @@ timeline-show-with-scroll-loading-messages = Загрузка сообщений
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Сообщение удалено
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Заблокированное сообщение
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = История сообщений недоступна с текущей информацией о разрешении.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Сообщений пока нет. Начните разговор ниже.
@@ -4891,3 +4909,17 @@ new-message-hint = Добавьте друзей, чтобы начать лич
 new-message-no-people-found = Никто не найден.
 new-message-create = Создать сообщение
 new-message-cancel = Отмена
+name-marks-server-owner = Владелец сервера
+name-marks-online-desktop = В сети с компьютера
+name-marks-online-web = В сети в браузере
+name-marks-online-mobile = В сети с телефона
+profiles-show-mutual-group = Общая группа
+profiles-show-mutual-groups = Общие группы
+rail-counts-online = { $count } в сети
+rail-counts-servers = { $count ->
+    [one] { $count } сервер
+    [few] { $count } сервера
+   *[other] { $count } серверов
+}
+name-marks-tag-admin = Админ
+name-marks-tag-moderator = Модер

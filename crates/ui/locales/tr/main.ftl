@@ -131,6 +131,16 @@ friends-notes-unsupported = Kişiselleştirilmiş istek notları henüz destekle
 friends-other-places = Arkadaş Edinebileceğiniz Diğer Yerler
 friends-discover-description = Kullanıcı adınız yok mu? Discord'daki herkese açık toplulukları keşfedin.
 friends-explore-servers = Keşfedilebilir Sunucuları Keşfedin ↗
+friends-invite-links = Arkadaşlık Davet Bağlantıları
+friends-invite-links-description = Bu bağlantılardan birine sahip olan herkes ek onay olmadan arkadaşın olabilir.
+friends-invite-create = Bağlantı Oluştur
+friends-invite-revoke-all = Tümünü İptal Et
+friends-invite-copy = Kopyala
+friends-invite-none = Henüz arkadaşlık davet bağlantısı yok.
+friends-invite-uses = { $uses } kullanım
+friends-invite-uses-limited = { $uses } / { $max } kullanım
+friends-invite-error = Arkadaşlık davet bağlantıları şu anda kullanılamıyor.
+friends-invite-retry = Yeniden dene
 friends-incoming = Gelen
 friends-outgoing = Dışa dönük
 friends-search-requests = Arama istekleri
@@ -286,6 +296,10 @@ attachments-download-button-a-download-is-already-active = Bir indirme zaten etk
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Bu dosyanın nereye kaydedileceğini seçin · 100 MiB'a kadar
 # Context: download_button
 attachments-download-button-download = İndirmek
+# Context: file_card
+attachments-file-card-copy-text = Metni kopyala
+# Context: file_card
+attachments-file-card-copy-text-hint = Bu metin dosyasının içeriğini panoya kopyalar
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = Sentetik ekler için indirmeler devre dışı bırakıldı
 # Context: media_menu
@@ -811,6 +825,8 @@ emoji-details-show-a-custom-emoji = Özel bir emoji.
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Varsayılan bir emoji. Bu emojiyi Discord'un her yerinde kullanabilirsiniz.
 # Context: show
 emoji-details-show-copy-emoji = Emojiyi kopyala
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = Sunucuya ekle
 # Context: show
 emoji-details-show-from = İtibaren
 # Context: show
@@ -3919,6 +3935,8 @@ timeline-show-with-scroll-loading-messages = Mesajlar yükleniyor…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Mesaj silindi
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Engellenen mesaj
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Mesaj geçmişi mevcut izin bilgileriyle kullanılamaz.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Henüz mesaj yok. Aşağıdaki konuşmayı başlatın.
@@ -4874,3 +4892,13 @@ new-message-hint = Bir doğrudan mesaj veya grup başlatmak için arkadaş ekley
 new-message-no-people-found = Bu aramayla eşleşen kimse yok.
 new-message-create = Mesaj Oluştur
 new-message-cancel = İptal
+name-marks-server-owner = Sunucu Sahibi
+name-marks-online-desktop = Masaüstünde çevrimiçi
+name-marks-online-web = Web'de çevrimiçi
+name-marks-online-mobile = Mobilde çevrimiçi
+profiles-show-mutual-group = Ortak Grup
+profiles-show-mutual-groups = Ortak Gruplar
+rail-counts-online = { $count } çevrimiçi
+rail-counts-servers = { $count } sunucu
+name-marks-tag-admin = Yönetici
+name-marks-tag-moderator = Mod

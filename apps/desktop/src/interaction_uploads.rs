@@ -8,6 +8,8 @@ pub(crate) struct Files {
 	fields: Vec<(String, Uploads)>,
 }
 impl Desktop {
+	/// Advances modal file uploads, resetting them when the modal, channel, or generation changes.
+	/// Extends the pending interaction deadline by 30s while any upload is busy and surfaces upload errors.
 	pub(crate) fn poll_interaction_files(&mut self, ctx: &eframe::egui::Context) {
 		let scope = self.state.interactions.modal.as_ref().and_then(|modal| {
 			self.state
@@ -31,7 +33,9 @@ impl Desktop {
 			pending.deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
 		}
 		let mut offset = 0;
+		let anonymise = self.uploads.anonymise;
 		for (custom_id, uploads) in &mut self.interaction_files.fields {
+			uploads.anonymise = anonymise;
 			uploads.poll(self.state.generation, self.state.selected, allowed, ctx);
 			let files = uploads.files();
 			let count = files.len();
@@ -49,6 +53,8 @@ impl Desktop {
 			}
 		}
 	}
+	/// Opens the file picker for a pending modal file field, replacing its previous selection.
+	/// Ignored when stale, busy, offline, or past five fields; picker failures set the modal error.
 	pub(crate) fn choose_interaction_files(&mut self, ctx: &eframe::egui::Context) {
 		let Some(custom_id) = self.messaging.interaction_file_request.take() else {
 			return;
@@ -88,7 +94,9 @@ impl Desktop {
 				.push((custom_id.clone(), Uploads::default()));
 			self.interaction_files.fields.len() - 1
 		};
+		let anonymise = self.uploads.anonymise;
 		let uploads = &mut self.interaction_files.fields[index].1;
+		uploads.anonymise = anonymise;
 		if uploads.busy() {
 			return;
 		}

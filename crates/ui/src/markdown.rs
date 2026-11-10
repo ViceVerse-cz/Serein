@@ -801,6 +801,8 @@ fn mention_colors(ui: &egui::Ui, role_color: Option<u32>) -> (egui::Color32, egu
 	}
 }
 
+/// Resolves a channel mention's display name, preferring the mention source's state and falling
+/// back to guild text-like, thread, forum, or media channels in `channels`; `None` if unresolved.
 fn channel_reference_name<'a>(
 	id: Id,
 	channels: &'a [model::Channel],
@@ -1842,18 +1844,60 @@ impl Formatted {
 					}
 					if let Some(id) = spans[start].1.mention {
 						reserve(ui);
-						let colors = crate::design::palette(ui);
 						let user = crate::mentions::find_user(id, render.users, render.source);
 						let label = crate::mentions::mention_label(id, render.users, render.source);
-						let response = crate::channel_pill::mention(
-							ui,
-							&label,
-							colors.mention_text,
-							colors.mention_bg,
-							egui::Sense::click(),
-							render.line,
-							Some(&mut *render.surface),
-						)
+						// With the role-colored mentions tweak, a server member's mention takes
+						// their top colored role, like a role mention.
+						let role_color = render
+							.source
+							.filter(|_| {
+								crate::interface_tweaks::on(
+									ui.ctx(),
+									extensions::InterfaceTweak::RoleColoredMentions,
+								)
+							})
+							.and_then(|source| {
+								let roles = source
+									.state
+									.timeline
+									.iter()
+									.rev()
+									.find(|message| message.author.id == id)
+									.map_or(&[][..], |message| message.author_roles.as_slice());
+								source
+									.state
+									.forum_author_color(source.channel, id, false, roles)
+							});
+						let (text, background) = mention_colors(ui, role_color);
+						// With the mention-avatars tweak, a known person's mention leads with
+						// their avatar.
+						let avatar = user.filter(|_| {
+							crate::interface_tweaks::on(
+								ui.ctx(),
+								extensions::InterfaceTweak::MentionAvatars,
+							)
+						});
+						let response = if let Some(avatar) = avatar {
+							crate::channel_pill::user_mention(
+								ui,
+								&label,
+								(text, background),
+								egui::Sense::click(),
+								render.line,
+								Some(&mut *render.surface),
+								(&mut *render.images, avatar, render.demo),
+							)
+						} else {
+							crate::channel_pill::mention(
+								ui,
+								&label,
+								text,
+								background,
+								egui::Sense::click(),
+								render.line,
+								Some(&mut *render.surface),
+							)
+						}
 						.on_hover_text(crate::i18n::translate(
 							"markdown-show-run-open-user-profile",
 						));
@@ -1864,8 +1908,18 @@ impl Formatted {
 								format!("{label}, user profile"),
 							)
 						});
+						// With the resolve-unknown-mentions tweak, hovering a mention that names
+						// only an ID reads that person once.
+						if user.is_none()
+							&& response.hovered() && crate::interface_tweaks::on(
+							ui.ctx(),
+							extensions::InterfaceTweak::ResolveUnknownMentions,
+						) {
+							crate::lookups::request(ui.ctx(), crate::lookups::Request::User(id));
+						}
 						if response.clicked() || response.contains_pointer() {
 							let opened = user.cloned().unwrap_or(model::User {
+								username: String::new(),
 								id,
 								name: format!("User {id}"),
 								avatar: None,
@@ -2590,6 +2644,7 @@ impl Formatted {
 					let user = crate::mentions::find_user(*id, render.users, render.source)
 						.cloned()
 						.unwrap_or(model::User {
+							username: String::new(),
 							id: *id,
 							name: format!("User {id}"),
 							avatar: None,
@@ -5297,6 +5352,8 @@ mod tests {
 		}
 	}
 
+	/// Spoiler-concealed channel and message-link pills keep destination names out of painted text and
+	/// accessibility labels, and skip guild icon requests, until the spoiler is revealed.
 	#[test]
 	fn concealed_reference_pills_hide_destination_labels_and_guild_artwork_requests() {
 		let mut state = test_support::demo_state();
@@ -5365,6 +5422,155 @@ mod tests {
 			assert_eq!(images.take_requests().len(), usize::from(revealed));
 			output.drop_without_applying_deltas();
 		}
+	}
+
+	/// Checks that a user mention asks for the person's avatar only with the mention-avatars
+	/// tweak on.
+	#[test]
+	fn mention_avatars_tweak_leads_a_mention_with_the_avatar() {
+		let mut state = test_support::demo_state();
+		let channel = state.selected.expect("a channel is open");
+		let mut authored = test_support::message(9_000, channel);
+		authored.author.id = Id(4242);
+		authored.author.avatar = Some("a".repeat(32));
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Message(authored),
+		});
+		let parsed = Formatted::parse("hello <@4242>");
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let requests = |on: bool| {
+			crate::interface_tweaks::publish(
+				&ctx,
+				&std::sync::Arc::new(
+					on.then_some(extensions::InterfaceTweak::MentionAvatars)
+						.into_iter()
+						.collect(),
+				),
+			);
+			let source = crate::mentions::MentionSource {
+				state: &state,
+				channel,
+			};
+			let mut images = crate::avatars::Avatars::default();
+			ctx.run_ui(Default::default(), |ui| {
+				let mut surface = crate::select::Surface::new(ui, "mention-avatar");
+				parsed.show_references(
+					ui,
+					&mut None,
+					&[],
+					Some(&source),
+					&mut crate::profiles::ProfileSession::default(),
+					(&state.channels, &mut None, &state.guilds, &[]),
+					(&mut images, false, &mut 0),
+					&mut surface,
+					crate::design::MessageCardSurface::Opaque,
+				);
+				surface.finish(ui);
+			})
+			.drop_without_applying_deltas();
+			images.take_requests().len()
+		};
+		assert_eq!(requests(false), 0);
+		assert_eq!(
+			requests(true),
+			1,
+			"the mentioned person's avatar is requested"
+		);
+	}
+
+	/// Checks that a user mention keeps the mention palette by default and takes the
+	/// member's top colored role while the role-colored mentions tweak is on.
+	#[test]
+	fn role_colored_mentions_tweak_colors_a_member_mention() {
+		let mut state = test_support::chat_demo_state();
+		let mut snapshot = test_support::permission_snapshot(&state);
+		snapshot.guilds[0]
+			.roles
+			.get_or_insert_default()
+			.push(model::permissions::Role {
+				name: "Synthetic colored role".into(),
+				color: 0xe67e22,
+				secondary_color: None,
+				tertiary_color: None,
+				position: 1,
+				hoist: false,
+				managed: false,
+				id: Id(77),
+				bits: 0,
+			});
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Permissions(client_core::permissions::Event::Snapshot(
+				snapshot,
+			)),
+		});
+		let channel = state.selected.expect("a server channel is open");
+		let mut authored = test_support::message(9_000, channel);
+		authored.author.id = Id(4242);
+		authored.author_roles = vec![Id(77)];
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Message(authored),
+		});
+		let parsed = Formatted::parse("hello <@4242>");
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let fills = |on: bool| {
+			crate::interface_tweaks::publish(
+				&ctx,
+				&std::sync::Arc::new(
+					on.then_some(extensions::InterfaceTweak::RoleColoredMentions)
+						.into_iter()
+						.collect(),
+				),
+			);
+			let source = crate::mentions::MentionSource {
+				state: &state,
+				channel,
+			};
+			let mut images = crate::avatars::Avatars::default();
+			let mut fills = Vec::new();
+			let output = ctx.run_ui(Default::default(), |ui| {
+				let mut surface = crate::select::Surface::new(ui, "role-colored-mention");
+				parsed.show_references(
+					ui,
+					&mut None,
+					&[],
+					Some(&source),
+					&mut crate::profiles::ProfileSession::default(),
+					(&state.channels, &mut None, &state.guilds, &[]),
+					(&mut images, false, &mut 0),
+					&mut surface,
+					crate::design::MessageCardSurface::Opaque,
+				);
+				surface.finish(ui);
+			});
+			let mut stack: Vec<_> = output.shapes.iter().map(|clipped| &clipped.shape).collect();
+			while let Some(shape) = stack.pop() {
+				match shape {
+					egui::Shape::Rect(rect) => fills.push(rect.fill),
+					egui::Shape::Vec(shapes) => stack.extend(shapes),
+					_ => {}
+				}
+			}
+			output.drop_without_applying_deltas();
+			fills
+		};
+		let (mut default_background, mut role_background) = Default::default();
+		ctx.run_ui(Default::default(), |ui| {
+			default_background = crate::design::palette(ui).mention_bg;
+			role_background = mention_colors(ui, Some(0xe67e22)).1;
+		})
+		.drop_without_applying_deltas();
+		assert_ne!(default_background, role_background);
+		assert!(fills(false).contains(&default_background));
+		let colored = fills(true);
+		assert!(
+			colored.contains(&role_background),
+			"the mention takes the role's background: {colored:?}"
+		);
 	}
 
 	#[test]
@@ -5582,6 +5788,8 @@ mod tests {
 		output.drop_without_applying_deltas();
 	}
 
+	/// Verifies only real user mentions become profile links, keeping code, escaped, entity, link, and
+	/// role forms literal, and that keyboard activation opens the native profile without URL commands.
 	#[test]
 	fn user_mentions_preserve_literals_and_open_native_profiles() {
 		let parsed = Formatted::parse(
@@ -5606,6 +5814,7 @@ mod tests {
 		let mut profile = crate::profiles::ProfileSession::default();
 		let mut opening = None;
 		let users = vec![model::User {
+			username: String::new(),
 			id: Id(42),
 			name: "Synthetic Robin".into(),
 			avatar: None,
@@ -6772,6 +6981,8 @@ mod tests {
 		assert_eq!(mask, 1);
 	}
 
+	/// RTL text containing a message jump pill, user and channel mentions, a masked link, and a spoiler
+	/// keeps native accessibility actions on each interactive element.
 	#[test]
 	fn rtl_message_jump_pill_and_mentions_keep_native_accessibility_actions() {
 		let ctx = egui::Context::default();
@@ -6795,6 +7006,7 @@ mod tests {
 			icon: None,
 		}];
 		let users = [model::User {
+			username: String::new(),
 			id: Id(42),
 			name: "Synthetic Robin".into(),
 			avatar: None,

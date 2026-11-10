@@ -29,6 +29,8 @@ enum Item {
 type Row = (Item, Option<(u64, u32)>);
 
 impl FolderUi {
+	/// Rebuilds sidebar rows when the state generation or catalog revision changed, returning whether
+	/// it did; unfoldered guilds lead, and stale expanded or closing folder ids are pruned.
 	fn sync_rows(&mut self, state: &State) -> bool {
 		let key = (state.generation, state.catalog_revision());
 		if self.key == Some(key) {
@@ -86,10 +88,15 @@ impl FolderUi {
 		self.key = Some(key);
 		true
 	}
-	fn toggle(&mut self, id: u64) {
+	/// Opens or closes folder `id`. With `only_one`, opening it closes every other open
+	/// folder, which then animates closed.
+	fn toggle(&mut self, id: u64, only_one: bool) {
 		if self.expanded.remove(&id) {
 			self.closing.insert(id);
 		} else {
+			if only_one {
+				self.closing.append(&mut self.expanded);
+			}
 			self.expanded.insert(id);
 			self.closing.remove(&id);
 		}
@@ -284,6 +291,8 @@ fn paint_folder_tile(
 	}
 }
 
+/// Yields voice roster entries in the guild, limited to participants currently streaming when
+/// `streaming` is set.
 fn guild_voice(
 	state: &State,
 	guild: Id,
@@ -607,7 +616,13 @@ impl MessagingUi {
 								)
 							});
 							if response.clicked() {
-								self.folder_ui.toggle(id);
+								self.folder_ui.toggle(
+									id,
+									crate::interface_tweaks::on(
+										ui.ctx(),
+										extensions::InterfaceTweak::SingleOpenFolder,
+									),
+								);
 								self.expanded_folders =
 									self.folder_ui.expanded.iter().copied().take(256).collect();
 							}
@@ -984,6 +999,22 @@ mod tests {
 	use client_core::read_state::Event as ReadEvent;
 	use model::{Channel, permissions as perms};
 
+	/// Checks that folders open independently by default, and that with one open folder at a
+	/// time opening a folder closes the others, which keep animating closed.
+	#[test]
+	fn opening_a_folder_closes_the_others_only_when_asked() {
+		let mut folders = FolderUi::default();
+		folders.toggle(1, false);
+		folders.toggle(2, false);
+		assert_eq!(folders.expanded, [1, 2].into());
+		folders.toggle(3, true);
+		assert_eq!(folders.expanded, [3].into());
+		assert_eq!(folders.closing, [1, 2].into());
+		folders.toggle(3, true);
+		assert!(folders.expanded.is_empty());
+		assert_eq!(folders.closing, [1, 2, 3].into());
+	}
+
 	fn readable_guild_state() -> State {
 		let mut state = test_support::demo_state();
 		test_support::seed_demo_folder_mosaic(&mut state);
@@ -1237,6 +1268,8 @@ mod tests {
 		assert!(state.continue_mark_all_read().is_none());
 	}
 
+	/// Message events leave folder rows and their allocation untouched, while revision bumps,
+	/// navigation invalidation, folder toggles, and settings edits rebuild them.
 	#[test]
 	fn folder_rows_reuse_the_catalog_during_message_churn() {
 		let mut state = test_support::demo_state();
@@ -1296,7 +1329,7 @@ mod tests {
 			for _ in 0..10 {
 				assert!(!folders.sync_rows(&state));
 			}
-			folders.toggle(7);
+			folders.toggle(7, false);
 			assert!(folders.sync_rows(&state));
 			assert_eq!(
 				&*folders.rows,

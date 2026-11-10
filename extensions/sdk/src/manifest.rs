@@ -17,6 +17,9 @@ pub struct Manifest {
 	pub capabilities: Vec<Capability>,
 	#[serde(default)]
 	pub actions: Vec<Action>,
+	/// Exact HTTPS host names a `network` plugin may reach; no other host is reachable.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub network_hosts: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +89,13 @@ pub enum Capability {
 	Relationships,
 	ExternalNavigation,
 	ContextMenus,
+	InterfaceTweaks,
+	/// Apply allowed notification and mute changes for your own account from message- and
+	/// app-event handlers, without an Apply button.
+	BackgroundEffects,
+	/// Send HTTPS requests to the host names listed in the manifest's `network_hosts`;
+	/// each response re-runs the requesting action.
+	Network,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

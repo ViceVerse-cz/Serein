@@ -131,6 +131,16 @@ friends-notes-unsupported = 尚未支援個人化的邀請備註。
 friends-other-places = 其他交朋友的地方
 friends-discover-description = 沒有使用者名稱？到 Discord 探索公開社群。
 friends-explore-servers = 探索公開伺服器 ↗
+friends-invite-links = 好友邀請連結
+friends-invite-links-description = 任何擁有這些連結的人都可以直接成為你的好友，無需再次確認。
+friends-invite-create = 建立連結
+friends-invite-revoke-all = 全部撤銷
+friends-invite-copy = 複製
+friends-invite-none = 還沒有好友邀請連結。
+friends-invite-uses = 已使用 { $uses } 次
+friends-invite-uses-limited = 已使用 { $uses } / { $max } 次
+friends-invite-error = 好友邀請連結暫時無法使用。
+friends-invite-retry = 重試
 friends-incoming = 收到的
 friends-outgoing = 發出的
 friends-search-requests = 搜尋邀請
@@ -286,6 +296,10 @@ attachments-download-button-a-download-is-already-active = 已有下載進行中
 attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = 選擇這個檔案的儲存位置 · 上限 100 MiB
 # Context: download_button
 attachments-download-button-download = 下載
+# Context: file_card
+attachments-file-card-copy-text = 複製文字
+# Context: file_card
+attachments-file-card-copy-text-hint = 將此文字檔的內容複製到剪貼簿
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = 合成附件不開放下載
 # Context: media_menu
@@ -820,6 +834,8 @@ emoji-details-show-a-custom-emoji = 自訂表情符號。
 emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = 預設表情符號。在 Discord 隨處都能使用。
 # Context: show
 emoji-details-show-copy-emoji = 複製表情符號
+# Context: emoji context menu; submenu lists servers where the emoji can be added
+emoji-details-add-to-server = 新增至伺服器
 # Context: show
 emoji-details-show-from = 來自
 # Context: show
@@ -3957,6 +3973,8 @@ timeline-show-with-scroll-loading-messages = 正在載入訊息…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = 訊息已刪除
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = 已封鎖的訊息
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 依目前權限資訊，無法檢視訊息歷史。
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = 還沒有訊息。從下方開始對話。
@@ -4985,3 +5003,13 @@ new-message-hint = 新增好友以開始私訊或群組。
 new-message-no-people-found = 沒有符合的結果。
 new-message-create = 建立訊息
 new-message-cancel = 取消
+name-marks-server-owner = 伺服器擁有者
+name-marks-online-desktop = 桌面版上線
+name-marks-online-web = 網頁版上線
+name-marks-online-mobile = 行動裝置上線
+profiles-show-mutual-group = 共同群組
+profiles-show-mutual-groups = 共同群組
+rail-counts-online = { $count } 人上線
+rail-counts-servers = { $count } 個伺服器
+name-marks-tag-admin = 管理員
+name-marks-tag-moderator = 版主

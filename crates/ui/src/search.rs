@@ -2394,6 +2394,8 @@ mod tests {
 			);
 		}
 	}
+	/// Verifies that pressing Enter on the pins reload control at 420px width, in light and dark
+	/// themes, issues exactly one pins request and leaves the pins view active.
 	#[test]
 	fn pins_reload_is_keyboard_operable_and_close_cancels_at_narrow_width() {
 		for dark in [false, true] {
@@ -2502,6 +2504,7 @@ mod tests {
 						id: Id(10),
 						channel: Id(1),
 						author: model::User {
+							username: String::new(),
 							kind: model::AccountKind::Human,
 							webhook: false,
 							id: Id(7),
@@ -2775,6 +2778,8 @@ mod tests {
 			assert!(state.search.is_none());
 		}
 	}
+	/// Verifies that a search result card renders user mentions by display name from the hit payload
+	/// and queues unknown channel mentions for lookup.
 	#[test]
 	fn search_results_resolve_payload_mentions_and_queue_unknown_channels() {
 		let channel = model::Channel {
@@ -2792,6 +2797,7 @@ mod tests {
 			last_message: None,
 		};
 		let user = model::User {
+			username: String::new(),
 			kind: model::AccountKind::Human,
 			webhook: false,
 			id: Id(42),
