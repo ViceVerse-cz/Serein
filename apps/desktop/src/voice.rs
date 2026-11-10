@@ -360,6 +360,7 @@ pub struct Voice {
 	camera: Option<discord_voice::camera::Camera>,
 	camera_device: Option<String>,
 	camera_generation: u64,
+	camera_restart_deadline: Option<Instant>,
 	camera_preview: Option<std::sync::Arc<std::sync::Mutex<CameraPicture>>>,
 	pending: Option<Pending>,
 	live: Option<Live>,
@@ -402,6 +403,7 @@ impl Voice {
 		self.stop();
 	}
 	pub fn stop_camera(&mut self) {
+		self.camera_restart_deadline = None;
 		if let Some(camera) = &self.camera {
 			camera.stop();
 		}
@@ -1493,12 +1495,14 @@ impl Voice {
 			ui.camera_test_status = "";
 		}
 		if let Some(preview) = &self.camera_test {
-			if preview.device != ui.voice_camera_device {
+			if preview.device != ui.voice_camera_device
+				|| preview.camera.frame_rate() != ui.voice_camera_rate
+			{
 				ui.camera_test_requested = false;
 				ui.camera_test_status = "";
 				ui.toasts.push(
 					ui::design::Level::Info,
-					"Camera changed. Click Preview camera to use it.",
+					"Camera settings changed. Click Preview camera to use them.",
 				);
 			} else if let Some(error) = preview.camera.error() {
 				ui.camera_test_requested = false;
@@ -1524,8 +1528,9 @@ impl Voice {
 				}
 			});
 			let wake = ctx.clone();
-			match discord_voice::camera::Camera::start(
+			match discord_voice::camera::Camera::start_with_frame_rate(
 				ui.voice_camera_device.clone(),
+				ui.voice_camera_rate,
 				on_frame,
 				Arc::new(move || wake.request_repaint()),
 			) {
@@ -1636,6 +1641,20 @@ impl Voice {
 			);
 			return state.set_call_camera(false);
 		}
+		if requested
+			&& self.camera_preview.is_some()
+			&& self
+				.camera
+				.as_ref()
+				.is_some_and(|camera| camera.frame_rate() != ui.voice_camera_rate)
+		{
+			self.stop_camera();
+			self.camera_restart_deadline = Some(Instant::now() + Duration::from_secs(5));
+			ui.voice_camera_preview = None;
+			ui.voice_camera_status = "Updating camera frame rate…";
+			ctx.request_repaint_after(Duration::from_millis(50));
+			return None;
+		}
 		let preview_allowed = camera_preview_allowed(state);
 		let error = self.camera.as_ref().and_then(|camera| camera.error());
 		if !requested || !preview_allowed || !ui.voice_camera_available || error.is_some() {
@@ -1653,6 +1672,14 @@ impl Voice {
 		}
 		if self.camera_preview.is_none() {
 			if self.camera.is_some() {
+				if self
+					.camera_restart_deadline
+					.is_some_and(|deadline| Instant::now() < deadline)
+				{
+					ctx.request_repaint_after(Duration::from_millis(50));
+					return None;
+				}
+				self.camera_restart_deadline = None;
 				ui.voice_camera_status = "";
 				ui.toasts.push(
 					ui::design::Level::Warning,
@@ -1660,6 +1687,7 @@ impl Voice {
 				);
 				return state.set_call_camera(false);
 			}
+			self.camera_restart_deadline = None;
 			// An existing preview can survive a Gateway outage, but a new capture must wait.
 			let call = state.voice.active.as_ref()?;
 			if !state.can_camera(call.channel) {
@@ -1690,8 +1718,9 @@ impl Voice {
 				}
 			});
 			let wake = ctx.clone();
-			match discord_voice::camera::Camera::start(
+			match discord_voice::camera::Camera::start_with_frame_rate(
 				ui.voice_camera_device.clone(),
+				ui.voice_camera_rate,
 				on_frame,
 				std::sync::Arc::new(move || wake.request_repaint()),
 			) {
@@ -1700,8 +1729,10 @@ impl Voice {
 					self.camera = Some(camera);
 					self.camera_preview = Some(receive);
 					ui.voice_camera_status = "Opening camera…";
-					live.controls
-						.send_modify(|controls| controls.camera = generation);
+					live.controls.send_modify(|controls| {
+						controls.camera_rate = ui.voice_camera_rate;
+						controls.camera = generation;
+					});
 				}
 				Err(error) => {
 					ui.voice_camera_status = "";
@@ -1779,6 +1810,7 @@ impl Voice {
 				.unwrap_or(-70),
 			muted: listen_only || ui.voice_push_to_talk,
 			camera: 0,
+			camera_rate: ui.voice_camera_rate,
 			deafened: false,
 			user_volumes: ui.voice_user_volumes(),
 			stream_volume: ui.voice_stream_volume(),

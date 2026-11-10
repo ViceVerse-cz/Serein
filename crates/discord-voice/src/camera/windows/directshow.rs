@@ -1,7 +1,7 @@
 //! Compatibility path for virtual cameras registered only with DirectShow.
 #![allow(non_snake_case)] // Custom COM interfaces preserve the Qedit.h method names.
 use super::super::format;
-use super::{FRAME_INTERVAL, HEIGHT, INVALID, Shared, TIMEOUT, UNAVAILABLE, WIDTH};
+use super::{HEIGHT, INVALID, Shared, TIMEOUT, UNAVAILABLE, WIDTH, frame_due, frame_interval};
 use std::{
 	ffi::c_void,
 	mem::ManuallyDrop,
@@ -49,6 +49,7 @@ unsafe trait ISampleGrabberCB: IUnknown {
 struct Callback {
 	send: mpsc::SyncSender<Result<Vec<u8>, &'static str>>,
 	last: Mutex<(Instant, bool)>,
+	interval: Duration,
 	bytes: usize,
 	dimensions: (usize, usize, bool),
 }
@@ -81,10 +82,9 @@ impl ISampleGrabberCB_Impl for Callback_Impl {
 						return Err("Camera changed its video format; restart the camera");
 					}
 				}
-				if last.0.elapsed() < FRAME_INTERVAL {
+				if !frame_due(&mut last.0, Instant::now(), self.interval) {
 					return Ok(None);
 				}
-				last.0 = Instant::now();
 				let pointer = sample.GetPointer().map_err(|_| INVALID)?;
 				if pointer.is_null() {
 					return Err(INVALID);
@@ -264,7 +264,11 @@ fn rgb_dimensions(media: &AM_MEDIA_TYPE) -> Result<(usize, usize, bool), &'stati
 	Ok(dimensions)
 }
 
-fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<(), &'static str> {
+fn configure(
+	builder: &ICaptureGraphBuilder2,
+	source: &IBaseFilter,
+	rate: u32,
+) -> Result<(), &'static str> {
 	// SAFETY: Owned worker graph, only bounded native formats may be selected.
 	unsafe {
 		let mut pointer = std::ptr::null_mut();
@@ -317,9 +321,10 @@ fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<()
 						.as_ptr()
 						.cast::<VIDEO_STREAM_CONFIG_CAPS>()
 						.read_unaligned();
-					if let Some(fps) = format::nearest_fps(
+					if let Some(fps) = format::nearest_fps_for(
 						10_000_000.0 / caps.MaxFrameInterval as f64,
 						10_000_000.0 / caps.MinFrameInterval as f64,
+						rate,
 					) {
 						interval.write_unaligned(
 							((10_000_000.0 / fps).round() as i64)
@@ -329,12 +334,13 @@ fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<()
 				}
 				let duration = interval.read_unaligned();
 				let fps = (duration > 0).then(|| 10_000_000.0 / duration as f64);
-				if let Some(mut rank) = format::rank_with_ceiling(
+				if let Some(mut rank) = format::rank_with_ceiling_for(
 					width,
 					height,
-					fps.unwrap_or(f64::from(format::FPS)),
+					fps.unwrap_or(f64::from(rate)),
 					MAX_WIDTH,
 					MAX_HEIGHT,
+					rate,
 				) {
 					// Preserve the existing bounded fallback when the driver omits timing.
 					// Unknown rates follow measured ones at the same native resolution.
@@ -396,7 +402,7 @@ pub(super) fn run(
 		graph
 			.AddFilter(&source, w!("Camera"))
 			.map_err(|_| UNAVAILABLE)?;
-		configure(&builder, &source)?;
+		configure(&builder, &source, shared.rate.fps())?;
 		let filter: IBaseFilter = CoCreateInstance(&SAMPLE_GRABBER, None, CLSCTX_INPROC_SERVER)
 			.map_err(|_| UNAVAILABLE)?;
 		let grabber: ISampleGrabber = filter.cast().map_err(|_| UNAVAILABLE)?;
@@ -476,7 +482,8 @@ pub(super) fn run(
 		let (send, receive) = mpsc::sync_channel(1);
 		let callback: ISampleGrabberCB = Callback {
 			send,
-			last: Mutex::new((Instant::now() - FRAME_INTERVAL, false)),
+			last: Mutex::new((Instant::now(), false)),
+			interval: frame_interval(shared.rate),
 			bytes,
 			dimensions: (width, height, bottom_up),
 		}

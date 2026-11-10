@@ -1,7 +1,7 @@
 //! Native V4L2 single-plane streaming; no capture helper process or recording.
 #![allow(unsafe_code)]
 
-use super::{DeviceList, FRAME_INTERVAL, HEIGHT, Shared, WIDTH, format};
+use super::{DeviceList, HEIGHT, Shared, WIDTH, format, frame_due, frame_interval};
 use image::{ImageDecoder, codecs::jpeg::JpegDecoder};
 use std::{
 	fs::{File, OpenOptions},
@@ -169,12 +169,8 @@ impl Drop for Capture {
 }
 
 fn validate_format(pixels: Pixels) -> Result<Pixels, &'static str> {
-	if format::rank(
-		pixels.width as usize,
-		pixels.height as usize,
-		f64::from(format::FPS),
-	)
-	.is_none()
+	if !(1..=format::MAX_WIDTH).contains(&(pixels.width as usize))
+		|| !(1..=format::MAX_HEIGHT).contains(&(pixels.height as usize))
 		|| pixels.field != 1
 		|| pixels.size == 0
 		|| pixels.size as usize > MAX_FRAME_BYTES
@@ -210,13 +206,13 @@ fn capabilities(file: &File) -> Result<Capability, &'static str> {
 }
 
 /// Ask the driver for its closest rate; read its effective interval on fixed-rate devices.
-fn configure_interval(file: &File) -> Result<Option<f64>, &'static str> {
+fn configure_interval(file: &File, rate: u32) -> Result<Option<f64>, &'static str> {
 	let mut timing = StreamParameters {
 		kind: CAPTURE,
 		capability: 0,
 		mode: 0,
 		numerator: 1,
-		denominator: format::FPS,
+		denominator: rate,
 		rest: [0; 46],
 	};
 	if let Err(error) = control(file, 22, &mut timing) {
@@ -236,7 +232,7 @@ fn effective_fps(numerator: u32, denominator: u32) -> Option<f64> {
 	(numerator != 0 && denominator != 0).then(|| f64::from(denominator) / f64::from(numerator))
 }
 
-fn configure(file: File) -> Result<Capture, &'static str> {
+fn configure(file: File, rate: u32) -> Result<Capture, &'static str> {
 	capabilities(&file)?;
 	let mut choices = Vec::with_capacity(2);
 	for format in [YUYV, MJPEG] {
@@ -257,13 +253,16 @@ fn configure(file: File) -> Result<Capture, &'static str> {
 		}
 		// SAFETY: CAPTURE selects the pixels member, including driver adjustments.
 		if let Ok(pixels) = validate_format(unsafe { request.data.pixels }) {
-			let Ok(fps) = configure_interval(&file) else {
+			let Ok(fps) = configure_interval(&file, rate) else {
 				continue;
 			};
-			if let Some(mut rank) = format::rank(
+			if let Some(mut rank) = format::rank_with_ceiling_for(
 				pixels.width as usize,
 				pixels.height as usize,
-				fps.unwrap_or(f64::from(format::FPS)),
+				fps.unwrap_or(f64::from(rate)),
+				format::MAX_WIDTH,
+				format::MAX_HEIGHT,
+				rate,
 			) {
 				// Drivers without interval metadata rank after measured rates at the same size.
 				if fps.is_none() {
@@ -281,7 +280,7 @@ fn configure(file: File) -> Result<Capture, &'static str> {
 			negotiated = validate_format(unsafe { request.data.pixels });
 			if negotiated.is_ok() {
 				// S_FMT may reset timing. A rejected rate invalidates only this candidate.
-				if let Err(error) = configure_interval(&file) {
+				if let Err(error) = configure_interval(&file, rate) {
 					negotiated = Err(error);
 					continue;
 				}
@@ -414,7 +413,9 @@ fn open(shared: &Shared, selected: Option<&str>) -> Result<Option<Capture>, &'st
 		if shared.stopped.load(Ordering::Acquire) {
 			return Ok(None);
 		}
-		match device_file(&format!("/dev/video{index}")).and_then(configure) {
+		match device_file(&format!("/dev/video{index}"))
+			.and_then(|file| configure(file, shared.rate.fps()))
+		{
 			Ok(capture) => return Ok(Some(capture)),
 			Err(reason) if error != DENIED => error = reason,
 			Err(_) => {}
@@ -432,7 +433,8 @@ pub(super) fn run(
 		return Ok(());
 	};
 	let mut last_frame = Instant::now();
-	let mut last_emitted = Instant::now() - FRAME_INTERVAL;
+	let mut next_frame = Instant::now();
+	let interval = frame_interval(shared.rate);
 	while !shared.stopped.load(Ordering::Acquire) {
 		if last_frame.elapsed() >= Duration::from_secs(5) {
 			return Err("Camera stopped delivering frames; check the device and try again");
@@ -474,7 +476,9 @@ pub(super) fn run(
 		if used == 0 || used > mapping.length || used > capture.pixels.size as usize {
 			return Err("Camera frame exceeds its native buffer bounds");
 		}
-		let rgb = if buffer.flags & 0x40 == 0 && last_emitted.elapsed() >= FRAME_INTERVAL {
+		let rgb = if buffer.flags & 0x40 == 0
+			&& frame_due(&mut next_frame, Instant::now(), interval)
+		{
 			// SAFETY: DQBUF gives exclusive userspace access until QBUF. Length
 			// was checked against the retained mapping; decoding finishes first.
 			let bytes = unsafe { std::slice::from_raw_parts(mapping.address.cast::<u8>(), used) };
@@ -487,7 +491,6 @@ pub(super) fn run(
 		if let Some(rgb) = rgb {
 			last_frame = Instant::now();
 			if !shared.stopped.load(Ordering::Acquire) {
-				last_emitted = Instant::now();
 				emit(rgb)?;
 			}
 		}
@@ -580,6 +583,57 @@ fn fit_rgb(rgb: Vec<u8>, pixels: Pixels) -> Result<Vec<u8>, &'static str> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use model::voice_settings::CameraFrameRate;
+
+	#[test]
+	fn pacing_handles_jitter_and_stalls() {
+		let start = Instant::now();
+		let interval = frame_interval(CameraFrameRate::Fps30);
+		let mut next = start;
+		let accepted = (0..=90)
+			.filter(|index| {
+				frame_due(
+					&mut next,
+					start + Duration::from_micros(index * 33_300),
+					interval,
+				)
+			})
+			.count();
+		assert!(accepted >= 89);
+
+		let mut next = start;
+		let limited = (0..60)
+			.filter(|index| {
+				frame_due(
+					&mut next,
+					start + Duration::from_micros(index * 16_666),
+					interval,
+				)
+			})
+			.count();
+		assert_eq!(limited, 30);
+
+		let mut next = start;
+		let slower = frame_interval(CameraFrameRate::Fps15);
+		let limited = (0..60)
+			.filter(|index| {
+				frame_due(
+					&mut next,
+					start + Duration::from_micros(index * 33_333),
+					slower,
+				)
+			})
+			.count();
+		assert_eq!(limited, 30);
+
+		let after_stall = start + Duration::from_secs(10);
+		assert!(frame_due(&mut next, after_stall, slower));
+		assert!(!frame_due(
+			&mut next,
+			after_stall + Duration::from_millis(1),
+			slower
+		));
+	}
 
 	#[test]
 	fn selected_camera_requires_a_canonical_bounded_device_path() {

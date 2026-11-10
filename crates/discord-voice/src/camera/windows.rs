@@ -3,7 +3,7 @@
 
 mod directshow;
 
-use super::{FRAME_INTERVAL, HEIGHT, Shared, WIDTH, format};
+use super::{HEIGHT, Shared, WIDTH, format, frame_due, frame_interval};
 use std::{
 	marker::PhantomData,
 	rc::Rc,
@@ -173,10 +173,13 @@ pub(super) fn run(
 			let rate = native.GetUINT64(&MF_MT_FRAME_RATE).unwrap_or(0);
 			let fps = ((rate >> 32) != 0 && rate as u32 != 0)
 				.then(|| (rate >> 32) as f64 / (rate as u32) as f64);
-			if let Some(mut rank) = format::rank(
+			if let Some(mut rank) = format::rank_with_ceiling_for(
 				(size >> 32) as usize,
 				(size as u32) as usize,
-				fps.unwrap_or(f64::from(format::FPS)),
+				fps.unwrap_or(f64::from(shared.rate.fps())),
+				format::MAX_WIDTH,
+				format::MAX_HEIGHT,
+				shared.rate.fps(),
 			) {
 				// Some drivers omit timing; preserve their existing bounded fallback.
 				if fps.is_none() {
@@ -253,7 +256,7 @@ pub(super) fn run(
 				emit(rgb)?;
 			}
 		}
-		if let Some(remaining) = FRAME_INTERVAL.checked_sub(requested.elapsed()) {
+		if let Some(remaining) = frame_interval(shared.rate).checked_sub(requested.elapsed()) {
 			thread::sleep(remaining);
 		}
 	}

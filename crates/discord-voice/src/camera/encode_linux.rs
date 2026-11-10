@@ -244,7 +244,7 @@ mod tests {
 	const CAMERA: Config = Config {
 		width: 640,
 		height: 480,
-		fps: 15,
+		fps: model::voice_settings::CameraFrameRate::Fps30.fps(),
 		bit_rate: 600_000,
 		max_bytes: 128 * 1024,
 		profile: Profile::Baseline,

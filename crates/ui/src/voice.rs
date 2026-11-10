@@ -10,7 +10,7 @@ use egui::RichText;
 use model::{
 	Id,
 	server_admin::VoiceChange,
-	voice_settings::{InputProfile, NoiseSuppression},
+	voice_settings::{CameraFrameRate, InputProfile, NoiseSuppression},
 };
 
 /// Local mutes share the 64 per-user volume slots sent to the mixer.
@@ -2598,6 +2598,20 @@ impl MessagingUi {
 			&mut self.voice_camera_device,
 		)
 		.labelled_by(label.id);
+		ui.add_space(8.0);
+		ui.label(design::medium(
+			ui,
+			crate::i18n::translate("screen-body-frame-rate"),
+			15.0,
+		));
+		let selected = usize::from(self.voice_camera_rate == CameraFrameRate::Fps30);
+		if let Some(selected) = design::segmented(ui, &["15 fps", "30 fps"], selected) {
+			self.voice_camera_rate = if selected == 0 {
+				CameraFrameRate::Fps15
+			} else {
+				CameraFrameRate::Fps30
+			};
+		}
 		ui.horizontal(|ui| {
 			ui.spacing_mut().item_spacing.x = 4.0;
 			ui.add_enabled_ui(!demo && !self.voice_camera_devices_loading, |ui| {
@@ -5491,6 +5505,25 @@ mod tests {
 				.any(|(text, _)| text == "Camera device"),
 			"Selecting a device keeps the parent camera popup open"
 		);
+		let text = frame(&mut messaging, vec![]);
+		let fifteen = text
+			.iter()
+			.find(|(text, _)| text == "15 fps")
+			.expect("Missing 15 fps option")
+			.1
+			.center();
+		click(&mut messaging, fifteen);
+		assert_eq!(messaging.voice_camera_rate, CameraFrameRate::Fps15);
+		assert!(messaging.voice_camera_preview.is_none());
+		let text = frame(&mut messaging, vec![]);
+		let thirty = text
+			.iter()
+			.find(|(text, _)| text == "30 fps")
+			.expect("Missing 30 fps option")
+			.1
+			.center();
+		click(&mut messaging, thirty);
+		assert_eq!(messaging.voice_camera_rate, CameraFrameRate::Fps30);
 	}
 
 	#[test]

@@ -44,6 +44,7 @@ pub struct Controls {
 	pub activity_threshold_db: i16,
 	/// Zero means off; a new value invalidates frames from the previous camera instance.
 	pub camera: u64,
+	pub camera_rate: model::voice_settings::CameraFrameRate,
 	pub deafened: bool,
 	/// Session-only playback percentages (0–200); zero user IDs are unused.
 	pub user_volumes: [(u64, u16); 64],
@@ -56,6 +57,7 @@ impl Default for Controls {
 			muted: false,
 			activity_threshold_db: -45,
 			camera: 0,
+			camera_rate: model::voice_settings::CameraFrameRate::default(),
 			deafened: false,
 			user_volumes: [(0, 100); 64],
 			stream_volume: 100,
