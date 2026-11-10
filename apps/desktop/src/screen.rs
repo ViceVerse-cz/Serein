@@ -264,7 +264,6 @@ impl Screen {
 			ui.screen.refresh_requested = false;
 			ui.screen.request = None;
 			ui.screen.busy = false;
-			ui.screen.sharing = false;
 			ui.screen.supported = false;
 			ui.screen.preview = None;
 			ui.screen.preview_paused = false;
@@ -536,10 +535,6 @@ impl Screen {
 			|| self.live.is_some()
 			|| self.closing.is_some()
 			|| self.retiring.is_some();
-		ui.screen.sharing = self
-			.live
-			.as_ref()
-			.is_some_and(|live| live.worker.captured());
 		if let Some((level, message)) = self.toast.take() {
 			ui.toasts.push(level, message);
 		}

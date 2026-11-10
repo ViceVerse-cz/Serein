@@ -3936,65 +3936,6 @@ impl MessagingUi {
 		}
 	}
 
-	/// A dark strip above "Voice Connected" while this device's own share is live.
-	fn self_stream_bar(
-		&mut self,
-		ui: &mut egui::Ui,
-		state: &State,
-		fallback: &str,
-		context: (u64, Id, u64),
-	) {
-		if !self.screen.sharing || !self.screen.busy || self.screen.context != Some(context) {
-			return;
-		}
-		let Some(share) = self.screen.live_share() else {
-			return;
-		};
-		let title = share.title.unwrap_or(fallback);
-		let quality = format!("{}p {}FPS", share.height, share.fps);
-		let colors = design::palette(ui);
-		let mut stop = false;
-		egui::Frame::new()
-			.fill(colors.base)
-			.stroke(egui::Stroke::new(1.0, colors.border))
-			.corner_radius(8)
-			.inner_margin(egui::Margin::symmetric(10, 8))
-			.show(ui, |ui| {
-				ui.set_width(ui.available_width());
-				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-					stop = crate::icons::button(
-						ui,
-						crate::icons::Icon::ScreenShare,
-						28.0,
-						"Stop sharing your screen",
-					)
-					.clicked();
-					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-						ui.vertical(|ui| {
-							ui.spacing_mut().item_spacing.y = 0.0;
-							ui.add(
-								egui::Label::new(
-									design::semibold(ui, title, 13.0).color(colors.text_strong),
-								)
-								.truncate()
-								.selectable(false),
-							);
-							ui.add(
-								egui::Label::new(
-									egui::RichText::new(quality).size(11.0).color(colors.muted),
-								)
-								.truncate()
-								.selectable(false),
-							);
-						});
-					});
-				});
-			});
-		if stop {
-			self.screen.launch(state);
-		}
-	}
-
 	/// Call details drawn inside the account card while connected: Discord's "Voice
 	/// Connected" header, then a row of quick actions above the identity row.
 	pub(super) fn voice_card_section(
@@ -4009,7 +3950,6 @@ impl MessagingUi {
 		let colors = design::palette(ui);
 		let phase = call.phase;
 		let channel_id = call.channel;
-		let request = call.request;
 		let guild_id = call.guild;
 		let camera = call.camera;
 		let connected = matches!(phase, Phase::Connected | Phase::Waiting);
@@ -4057,14 +3997,6 @@ impl MessagingUi {
 			.show(ui, |ui| {
 				ui.set_width(ui.available_width());
 				ui.spacing_mut().item_spacing.y = 8.0;
-				if phase != Phase::Failed {
-					self.self_stream_bar(
-						ui,
-						state,
-						&detail,
-						(state.generation, channel_id, request),
-					);
-				}
 				if self.voice_microphone_unavailable {
 					ui.label(
 						RichText::new(crate::i18n::translate(
@@ -6340,99 +6272,6 @@ mod tests {
 			messaging.stream_preview_hover.map(|(target, _)| target),
 			Some(second),
 			"the second card stays open once the pointer enters it"
-		);
-	}
-
-	#[test]
-	fn self_stream_bar_requires_a_live_local_share_in_the_active_call() {
-		let mut state = test_support::voice_demo_state();
-		state.demo = false;
-		let call = state.voice.active.as_ref().unwrap();
-		let context = (state.generation, call.channel, call.request);
-		let mut messaging = MessagingUi::default();
-		messaging.screen.context = Some(context);
-		messaging.screen.busy = true;
-		messaging.screen.sharing = true;
-		messaging.screen.sources = vec![client_core::screen::Source {
-			id: client_core::screen::SourceId::Window(7),
-			name: "Synthetic stream window".into(),
-			width: 1280,
-			height: 720,
-			refresh_hz: 60,
-		}];
-		messaging.screen.selected = Some(client_core::screen::SourceId::Window(7));
-		let ctx = egui::Context::default();
-		fn render(
-			ctx: &egui::Context,
-			messaging: &mut MessagingUi,
-			state: &mut State,
-		) -> Vec<(String, egui::Rect)> {
-			let mut commands = vec![];
-			let mut output = ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(240.0, 640.0),
-					)),
-					..Default::default()
-				},
-				|ui| {
-					ui.set_width(240.0);
-					messaging.voice_card_section(ui, state, &mut commands);
-				},
-			);
-			output.textures_delta.clear();
-			let mut labels = vec![];
-			let mut stack: Vec<_> = output.shapes.iter().map(|clipped| &clipped.shape).collect();
-			while let Some(shape) = stack.pop() {
-				match shape {
-					egui::Shape::Vec(shapes) => stack.extend(shapes),
-					egui::Shape::Text(text) => labels.push((
-						text.galley.job.text.clone(),
-						text.galley.rect.translate(text.pos.to_vec2()),
-					)),
-					_ => {}
-				}
-			}
-			assert!(commands.is_empty());
-			labels
-		}
-		let labels = render(&ctx, &mut messaging, &mut state);
-		let title = labels
-			.iter()
-			.find(|(label, _)| label == "Synthetic stream window")
-			.expect("the selected source titles the bar");
-		assert!(labels.iter().any(|(label, _)| label == "720p 30FPS"));
-		let connected = labels
-			.iter()
-			.find(|(label, _)| label == "Voice Connected")
-			.expect("the voice card still renders");
-		assert!(
-			title.1.top() < connected.1.top(),
-			"the stream bar must sit above Voice Connected"
-		);
-
-		messaging.screen.sharing = false;
-		assert!(
-			!render(&ctx, &mut messaging, &mut state)
-				.iter()
-				.any(|(label, _)| label == "Synthetic stream window")
-		);
-
-		messaging.screen.sharing = true;
-		messaging.screen.context = Some((state.generation, Id(25), context.2 + 1));
-		assert!(
-			!render(&ctx, &mut messaging, &mut state)
-				.iter()
-				.any(|(label, _)| label == "Synthetic stream window")
-		);
-
-		messaging.screen.context = Some(context);
-		messaging.screen.busy = false;
-		assert!(
-			!render(&ctx, &mut messaging, &mut state)
-				.iter()
-				.any(|(label, _)| label == "Synthetic stream window")
 		);
 	}
 
