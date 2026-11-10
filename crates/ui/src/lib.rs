@@ -6778,6 +6778,7 @@ mod composer_tests {
 		}
 	}
 
+	/// A composer frame paints exactly one squiggle, under the one misspelled word.
 	#[test]
 	fn misspelled_composer_words_are_underlined() {
 		let ctx = egui::Context::default();
@@ -6788,6 +6789,7 @@ mod composer_tests {
 			enabled: true,
 			languages: vec!["en".into()],
 			words: Default::default(),
+			excluded: Default::default(),
 		});
 		view.spelling.install(
 			"en".into(),

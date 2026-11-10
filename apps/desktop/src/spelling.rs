@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
-use ui::spelling::{Dictionary, Language, Settings};
+use ui::spelling::{Detection, Dictionary, Language, Settings};
 
 const FILE: &str = "spelling.json";
 const MAX_FILE: u64 = 1024 * 1024;
@@ -48,6 +48,8 @@ struct Stored {
 	enabled: bool,
 	languages: Vec<String>,
 	words: BTreeSet<String>,
+	#[serde(default)]
+	excluded: BTreeSet<String>,
 }
 
 enum Update {
@@ -55,8 +57,8 @@ enum Update {
 	Available(Vec<Language>),
 	Installed(String, Arc<Dictionary>),
 	Failed(String),
-	/// A detected language and its dictionary, if one could be loaded.
-	Detected(String, Option<(String, Arc<Dictionary>)>),
+	/// A detected language and what loading its dictionary found.
+	Detected(String, Detection),
 }
 
 enum Request {
@@ -115,6 +117,8 @@ impl Spelling {
 	}
 }
 
+/// Background thread: reads the stored settings, loads the chosen dictionaries, then answers
+/// settings changes and detected languages until the app drops its sender.
 fn worker(
 	update: &mpsc::Sender<Update>,
 	requests: &mpsc::Receiver<Request>,
@@ -162,15 +166,21 @@ fn worker(
 			match request {
 				Request::Settings(settings) => next = Some(settings),
 				Request::Detect(language) => {
-					let found =
-						dictionary_for(&language, &system_dictionaries()).and_then(|code| {
-							let dictionary = match automatic.get(&code) {
-								Some(dictionary) => dictionary.clone(),
-								None => Arc::new(load(&code, dictionaries.as_deref())?),
-							};
-							automatic.insert(code.clone(), dictionary.clone());
-							Some((code, dictionary))
-						});
+					let found = match dictionary_for(&language, &system_dictionaries()) {
+						None => Detection::Unsupported,
+						Some(code) if current.excluded.contains(&code) => Detection::Unsupported,
+						Some(code) => match automatic
+							.get(&code)
+							.cloned()
+							.or_else(|| load(&code, dictionaries.as_deref()).map(Arc::new))
+						{
+							Some(dictionary) => {
+								automatic.insert(code.clone(), dictionary.clone());
+								Detection::Loaded(code, dictionary)
+							}
+							None => Detection::Failed,
+						},
+					};
 					send(Update::Detected(language, found));
 				}
 			}
@@ -186,6 +196,7 @@ fn worker(
 	}
 }
 
+/// Reads `spelling.json`, dropping invalid codes and over-long or excess words.
 fn read(root: &Path) -> Option<Settings> {
 	let path = root.join(FILE);
 	(std::fs::metadata(&path).ok()?.len() <= MAX_FILE).then_some(())?;
@@ -203,6 +214,11 @@ fn read(root: &Path) -> Option<Settings> {
 			.filter(|word| word.len() <= ui::spelling::MAX_WORD_BYTES)
 			.take(ui::spelling::MAX_WORDS)
 			.collect(),
+		excluded: stored
+			.excluded
+			.into_iter()
+			.filter(|code| valid_code(code))
+			.collect(),
 	})
 }
 
@@ -211,6 +227,7 @@ fn write(root: &Path, settings: &Settings) {
 		enabled: settings.enabled,
 		languages: settings.languages.clone(),
 		words: settings.words.clone(),
+		excluded: settings.excluded.clone(),
 	};
 	let Ok(bytes) = serde_json::to_vec(&stored) else {
 		return;
@@ -319,6 +336,8 @@ fn default_languages(installed: &BTreeSet<String>) -> Vec<String> {
 	out
 }
 
+/// The languages offered in the menu: the downloadable table plus system dictionaries,
+/// sorted by name.
 fn available(installed: &BTreeSet<String>) -> Vec<Language> {
 	let mut out: Vec<Language> = DOWNLOADS
 		.iter()
@@ -368,6 +387,7 @@ fn load(code: &str, downloads: Option<&Path>) -> Option<Dictionary> {
 	Some(dictionary)
 }
 
+/// Reads a dictionary file no larger than `MAX_DICTIONARY`.
 fn read_bounded(path: &Path) -> Option<Vec<u8>> {
 	(std::fs::metadata(path).ok()?.len() <= MAX_DICTIONARY as u64).then_some(())?;
 	std::fs::read(path).ok()
@@ -397,6 +417,8 @@ fn parse(aff: &[u8], dic: &[u8]) -> Option<Dictionary> {
 	.ok()
 }
 
+/// Downloads one dictionary file over HTTPS without redirects, refusing more than
+/// `MAX_DICTIONARY` bytes.
 fn download(url: &str) -> Option<Vec<u8>> {
 	let runtime = tokio::runtime::Builder::new_current_thread()
 		.enable_all()
@@ -464,6 +486,7 @@ mod tests {
 			enabled: false,
 			languages: vec!["ro_RO".into(), "../bad".into()],
 			words: ["Serein".to_owned()].into(),
+			excluded: ["en_US".to_owned(), "../bad".to_owned()].into(),
 		};
 		write(&root, &settings);
 		let read = read(&root).unwrap();
@@ -471,5 +494,6 @@ mod tests {
 		assert!(!read.enabled);
 		assert_eq!(read.languages, ["ro_RO"]);
 		assert!(read.words.contains("Serein"));
+		assert_eq!(read.excluded, ["en_US".to_owned()].into());
 	}
 }

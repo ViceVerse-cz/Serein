@@ -80,6 +80,15 @@ The native attachment video adapter also uses **symphonia-codec-aac 0.6.1**
 `assets/licenses/audio/source` and `assets/licenses/audio/PROVENANCE.md`, alongside
 the other Symphonia codecs, and ship through the same package copy step.
 
+Composer spell checking uses **spellbook 0.4.2** (MPL-2.0), a Hunspell-compatible checker, and
+**whatlang 0.18.0** (MIT) for language detection. The unmodified spellbook source archive and its
+MPL text are in `assets/licenses/files/spellbook-0.4.2.crate` and
+`assets/licenses/files/spellbook-0.4.2-LICENSE`. That source remains under its original MPL-2.0
+terms, separately from Serein source. The whatlang MIT text, from its v0.18.0 tag, is in
+`assets/licenses/files/whatlang-0.18.0-LICENSE`; `Cargo.lock` records both archive checksums.
+Dictionaries are not bundled: system Hunspell files are read in place, and LibreOffice
+dictionaries are downloaded at runtime under their own licenses.
+
 The egui main experiment pins the egui/eframe ecosystem to upstream commit
 `cd5caec79c9e6683dd793e25b4e7b287ccdd7061` (version 0.37.0, MIT OR Apache-2.0).
 It adds unicode-properties 0.1.4 (MIT/Apache-2.0) and updates glifo to 0.4.0,

@@ -22,17 +22,33 @@ pub struct Settings {
 	pub languages: Vec<String>,
 	/// The personal dictionary.
 	pub words: BTreeSet<String>,
+	/// Dictionary codes the user unchecked; detection does not bring them back.
+	pub excluded: BTreeSet<String>,
 }
 
 impl Default for Settings {
+	/// Checking on, with no chosen languages or words until the desktop app loads them.
 	fn default() -> Self {
 		Self {
 			enabled: true,
 			languages: Vec::new(),
 			words: BTreeSet::new(),
+			excluded: BTreeSet::new(),
 		}
 	}
 }
+
+/// What the desktop app found for a detected language.
+pub enum Detection {
+	Loaded(String, Arc<Dictionary>),
+	/// No dictionary is offered for it, or the user unchecked it.
+	Unsupported,
+	/// Loading or downloading failed; detection asks again later.
+	Failed,
+}
+
+/// How long a detected language whose dictionary failed to load waits before asking again.
+const DETECTION_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// A dictionary the user can pick, installed on the system or offered for download.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,6 +91,8 @@ pub struct Spelling {
 	/// Language of the last checked text, and the dictionaries detection added, by code.
 	text_language: Option<String>,
 	automatic: BTreeMap<String, String>,
+	/// Detected languages whose dictionary failed to load, and when to ask again.
+	retry: BTreeMap<String, std::time::Instant>,
 }
 
 impl Spelling {
@@ -84,6 +102,7 @@ impl Spelling {
 		self.loaded = true;
 		self.generation += 1;
 	}
+	/// The current settings, as the desktop app last saved or loaded them plus local edits.
 	pub fn settings(&self) -> &Settings {
 		&self.settings
 	}
@@ -91,9 +110,11 @@ impl Spelling {
 	pub fn take_changed(&mut self) -> Option<Settings> {
 		std::mem::take(&mut self.dirty).then(|| self.settings.clone())
 	}
+	/// Replaces the languages offered in the menu.
 	pub fn set_available(&mut self, languages: Vec<Language>) {
 		self.available = languages;
 	}
+	/// Marks a language as loading, or done, for the "…" shown beside it in the menu.
 	pub fn set_pending(&mut self, code: &str, pending: bool) {
 		if pending {
 			self.pending.insert(code.to_owned());
@@ -113,13 +134,24 @@ impl Spelling {
 	pub fn take_detected(&mut self) -> Vec<String> {
 		std::mem::take(&mut self.detect_requests)
 	}
-	/// Installs the dictionary for a detected language; `None` when it has none.
-	pub fn install_detected(&mut self, language: &str, loaded: Option<(String, Arc<Dictionary>)>) {
+	/// Installs the dictionary for a detected language. A failed load is asked for again
+	/// after `DETECTION_RETRY`; a language the user unchecked is never installed.
+	pub fn install_detected(&mut self, language: &str, detection: Detection) {
 		self.detecting.remove(language);
-		if let Some((code, dictionary)) = loaded {
-			self.pending.remove(&code);
-			self.automatic.insert(language.to_owned(), code.clone());
-			self.dictionaries.entry(code).or_insert(dictionary);
+		match detection {
+			Detection::Loaded(code, dictionary) if !self.settings.excluded.contains(&code) => {
+				self.pending.remove(&code);
+				self.automatic.insert(language.to_owned(), code.clone());
+				self.dictionaries.entry(code).or_insert(dictionary);
+			}
+			Detection::Loaded(..) | Detection::Unsupported => {}
+			Detection::Failed => {
+				self.detected.remove(language);
+				self.retry.insert(
+					language.to_owned(),
+					std::time::Instant::now() + DETECTION_RETRY,
+				);
+			}
 		}
 		self.generation += 1;
 	}
@@ -135,19 +167,29 @@ impl Spelling {
 		self.settings.enabled = enabled;
 		self.changed();
 	}
+	/// Checks or unchecks a language. Unchecking also stops detection from using it, so a
+	/// language the user turned off is not checked again behind their back.
 	fn toggle_language(&mut self, code: &str) {
-		if let Some(index) = self.settings.languages.iter().position(|c| c == code) {
-			self.settings.languages.remove(index);
-			if !self.automatic.values().any(|auto| auto == code) {
-				self.dictionaries.remove(code);
-			}
+		if self.checked(code) {
+			self.settings.languages.retain(|c| c != code);
+			self.settings.excluded.insert(code.to_owned());
+			self.dictionaries.remove(code);
+			self.automatic.retain(|_, auto| auto != code);
 			self.pending.remove(code);
 		} else {
+			self.settings.excluded.remove(code);
 			self.settings.languages.push(code.to_owned());
-			self.pending.insert(code.to_owned());
+			if !self.dictionaries.contains_key(code) {
+				self.pending.insert(code.to_owned());
+			}
 		}
 		self.changed();
 	}
+	/// Whether `code` is checked: chosen by the user, or loaded because it was detected.
+	fn checked(&self, code: &str) -> bool {
+		self.settings.languages.iter().any(|c| c == code) || self.dictionaries.contains_key(code)
+	}
+	/// Adds `word` to the personal dictionary, unless it is full or the word is too long.
 	fn add_word(&mut self, word: &str) {
 		if self.settings.words.len() < MAX_WORDS && word.len() <= MAX_WORD_BYTES {
 			self.settings.words.insert(word.to_owned());
@@ -195,7 +237,10 @@ impl Spelling {
 		self.text_language = whatlang::detect(text)
 			.filter(|info| info.is_reliable() && words(text).nth(2).is_some())
 			.map(|info| info.lang().code().to_owned());
+		let now = std::time::Instant::now();
+		self.retry.retain(|_, at| *at > now);
 		if let Some(language) = &self.text_language
+			&& !self.retry.contains_key(language)
 			&& self.detected.insert(language.clone())
 		{
 			self.detecting.insert(language.clone());
@@ -238,9 +283,10 @@ impl Spelling {
 		{
 			return Vec::new();
 		}
+		// The word being edited, wherever the caret sits in it, is left alone.
 		let caret = caret.map(|chars| byte(text, chars));
 		all.into_iter()
-			.filter(|range| caret != Some(range.end))
+			.filter(|range| !caret.is_some_and(|at| range.start <= at && at <= range.end))
 			.collect()
 	}
 
@@ -377,7 +423,7 @@ impl Spelling {
 			ui.set_max_height(ui.ctx().viewport_rect().height() * 0.6);
 			egui::ScrollArea::vertical().show(ui, |ui| {
 				for language in self.available.clone() {
-					let mut checked = self.settings.languages.contains(&language.code);
+					let mut checked = self.checked(&language.code);
 					let label = if self.pending.contains(&language.code) {
 						format!("{} …", language.name)
 					} else {
@@ -493,8 +539,16 @@ fn byte(text: &str, chars: usize) -> usize {
 fn rows(galley: &egui::Galley, start: usize, end: usize) -> Vec<(f32, f32, f32)> {
 	let mut out: Vec<(f32, f32, f32)> = Vec::new();
 	for index in start..end {
-		let rect = galley.pos_from_cursor(egui::text::CCursor::new(index));
-		let next = galley.pos_from_cursor(egui::text::CCursor::new(index + 1));
+		// A char's start belongs to the row it is drawn on, which at a soft wrap is the next
+		// one; its end stays on that same row.
+		let rect = galley.pos_from_cursor(egui::text::CCursor {
+			index: egui::text::CharIndex(index),
+			prefer_next_row: true,
+		});
+		let next = galley.pos_from_cursor(egui::text::CCursor {
+			index: egui::text::CharIndex(index + 1),
+			prefer_next_row: false,
+		});
 		let right = if (next.min.y - rect.min.y).abs() < 0.5 {
 			next.min.x
 		} else {
@@ -508,6 +562,7 @@ fn rows(galley: &egui::Galley, start: usize, end: usize) -> Vec<(f32, f32, f32)>
 	out
 }
 
+/// Draws a red zigzag from `left` to `right` just above `bottom`.
 fn squiggle(painter: &egui::Painter, left: f32, right: f32, bottom: f32, stroke: egui::Stroke) {
 	const STEP: f32 = 2.0;
 	let y = bottom - 1.0;
@@ -559,6 +614,7 @@ mod tests {
 			enabled: true,
 			languages: vec!["xx".into()],
 			words: BTreeSet::new(),
+			excluded: BTreeSet::new(),
 		});
 		spelling.install("xx".into(), Arc::new(Dictionary::new(aff, &dic).unwrap()));
 		spelling
@@ -592,6 +648,7 @@ mod tests {
 		assert!(spelling.misspelled(text, None).is_empty());
 	}
 
+	/// The same misspelling gets Romanian corrections in Romanian text and English ones in English.
 	#[test]
 	fn corrections_come_from_the_language_the_text_is_written_in() {
 		let mut spelling = Spelling::default();
@@ -599,6 +656,7 @@ mod tests {
 			enabled: true,
 			languages: vec!["en".into(), "ro".into()],
 			words: BTreeSet::new(),
+			excluded: BTreeSet::new(),
 		});
 		let dictionary = |words: &[&str]| {
 			let dic = format!("{}\n{}\n", words.len(), words.join("\n"));
@@ -615,6 +673,8 @@ mod tests {
 		assert!(first("the house cas").contains(&"case".to_owned()));
 	}
 
+	/// Romanian text asks for its dictionary once, stays unmarked while it loads, then only
+	/// the misspelled word is marked.
 	#[test]
 	fn the_language_being_written_is_detected_and_its_dictionary_used() {
 		let mut spelling = spelling(&["the", "house"]);
@@ -630,10 +690,10 @@ mod tests {
 		let dic = format!("{}\n{}\n", words.len(), words.join("\n"));
 		spelling.install_detected(
 			"ron",
-			Some((
+			Detection::Loaded(
 				"ro_RO".into(),
 				Arc::new(Dictionary::new("SET UTF-8\n", &dic).unwrap()),
-			)),
+			),
 		);
 		let marked: Vec<_> = spelling
 			.misspelled(text, None)
@@ -641,6 +701,58 @@ mod tests {
 			.map(|range| &text[range])
 			.collect();
 		assert_eq!(marked, ["frumoasă"]);
+	}
+
+	#[test]
+	fn an_unchecked_language_stops_being_checked_even_after_detection() {
+		let mut spelling = spelling(&["the", "house"]);
+		let text = "Astăzi este o zi frumoasă și mergem la munte cu prietenii noștri";
+		spelling.misspelled(text, None);
+		assert_eq!(spelling.take_detected(), ["ron"]);
+		let ro = || Arc::new(Dictionary::new("SET UTF-8\n", "2\nAstăzi\neste\n").unwrap());
+		spelling.install_detected("ron", Detection::Loaded("ro_RO".into(), ro()));
+		assert!(spelling.check("este"));
+		spelling.toggle_language("ro_RO");
+		assert!(
+			!spelling.check("este"),
+			"unchecking removes a detected dictionary"
+		);
+		assert!(spelling.take_changed().unwrap().excluded.contains("ro_RO"));
+		spelling.install_detected("ron", Detection::Loaded("ro_RO".into(), ro()));
+		assert!(!spelling.check("este"), "detection does not bring it back");
+		spelling.toggle_language("ro_RO");
+		let settings = spelling.take_changed().unwrap();
+		assert!(settings.languages.contains(&"ro_RO".to_owned()));
+		assert!(!settings.excluded.contains("ro_RO"));
+	}
+
+	#[test]
+	fn a_failed_detected_dictionary_is_asked_for_again_later() {
+		let mut spelling = spelling(&["the"]);
+		let text = "Astăzi este o zi frumoasă și mergem la munte cu prietenii noștri";
+		spelling.misspelled(text, None);
+		assert_eq!(spelling.take_detected(), ["ron"]);
+		spelling.install_detected("ron", Detection::Failed);
+		spelling.misspelled(text, None);
+		assert!(
+			spelling.take_detected().is_empty(),
+			"not before the retry delay"
+		);
+		spelling
+			.retry
+			.insert("ron".into(), std::time::Instant::now());
+		spelling.cache = None;
+		spelling.misspelled(text, None);
+		assert_eq!(spelling.take_detected(), ["ron"]);
+	}
+
+	#[test]
+	fn the_word_holding_the_caret_is_not_marked_anywhere_in_it() {
+		let mut spelling = spelling(&["hello"]);
+		let text = "wrold hello";
+		assert!(spelling.misspelled(text, Some(2)).is_empty());
+		assert!(spelling.misspelled(text, Some(0)).is_empty());
+		assert_eq!(spelling.misspelled(text, Some(8)).len(), 1);
 	}
 
 	#[test]

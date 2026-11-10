@@ -1,5 +1,20 @@
 # Local storage policy and audit
 
+## Composer spell checking (November 10, 2026)
+
+`spelling.json` in the application data directory stores the switch, the chosen dictionary
+codes, the codes the user unchecked and the personal dictionary: at most 10,000 words of
+64 bytes each, and a 1 MiB file. Larger or malformed files are ignored, and invalid codes are
+dropped on read. Writes go through a `.partial` file and a rename.
+
+Downloaded dictionaries are cached as `dictionaries/<code>.aff` and `.dic` in the same
+directory, at most 16 MiB per file. Only codes from the fixed table are downloaded, from
+LibreOffice/dictionaries at a pinned commit, without redirects. System Hunspell
+dictionaries are read in place and never copied. Loaded dictionaries stay in memory while
+their language is checked: the chosen languages plus the ones detected in written text.
+The UI caches one list of misspelled ranges for the current draft. Draft text is never
+written to the spelling files or sent anywhere.
+
 ## Logical RTL message layout (November 9, 2026)
 
 Arabic, Hebrew and mixed-direction message layout admits at most 8 KiB of visible
