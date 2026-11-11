@@ -1271,6 +1271,8 @@ impl MessagingUi {
 			startup_graphics_api: self.startup_graphics_api,
 			available_graphics_apis: std::mem::take(&mut self.available_graphics_apis),
 			graphics_api_env_override: self.graphics_api_env_override,
+			// G-SYNC belongs to the device, and the desktop hands its finding over only once.
+			gsync_detected: self.gsync_detected,
 			..Self::default()
 		};
 		self.timeline.video.fullscreen_request = video_fullscreen_request;

@@ -343,6 +343,22 @@ impl MessagingUi {
 	}
 }
 
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn steady_refresh_offer_survives_a_session_end() {
+		// Logging out or switching accounts before answering must not drop the offer.
+		let mut ui = MessagingUi {
+			gsync_detected: true,
+			..Default::default()
+		};
+		ui.clear();
+		assert!(ui.gsync_detected);
+	}
+}
+
 /// Where in the flow this is: the current step a short bar, the rest dots.
 fn dots(ui: &mut egui::Ui, step: usize) {
 	let p = design::palette(ui);
