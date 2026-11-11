@@ -263,14 +263,19 @@ impl MessagingUi {
 		{
 			// Opening the original here still belongs to this window's link confirmation.
 			self.claim_popout_links(&links_before);
-			// The chat is not drawn this frame, so this window does not bind the session.
-			self.scroll.clear_if_unbound(ui.ctx());
+			// The chat is not drawn this frame, so this window does not bind its session.
+			self.popout_scroll.clear_if_unbound(ui.ctx());
 			ui.painter()
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;
 		}
 		if chat {
-			self.middle_button(popout_middle(ui.ctx()));
+			let middle = if self.button_claimed(egui::PointerButton::Middle) {
+				crate::scroll::Middle::default()
+			} else {
+				popout_middle(ui.ctx())
+			};
+			self.popout_scroll.middle(middle);
 			let ctx = ui.ctx().clone();
 			self.poll_creator_overlay(&ctx, state, &mut commands);
 			let background = design::window_palette(ui);
@@ -350,13 +355,10 @@ impl MessagingUi {
 			self.voice_popout_fullscreen = false;
 			self.voice_popout_fullscreen_request = Some(false);
 		}
-		// This window draws the chat, so it also finishes the shared autoscroll session and
-		// draws its copy menu; the docked pass leaves both alone while the call window owns chat.
-		if chat {
-			crate::select::show_menu(ui.ctx());
-			self.scroll.clear_if_unbound(ui.ctx());
-			self.scroll.paint(ui.ctx());
-		}
+		// Selectable stage text (a call failure) can request the copy menu with chat hidden too.
+		crate::select::show_menu(ui.ctx());
+		self.popout_scroll.clear_if_unbound(ui.ctx());
+		self.popout_scroll.paint(ui.ctx());
 		self.voice_popout_toasts.show(ui.ctx(), 12.0);
 		commands
 	}

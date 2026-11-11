@@ -320,6 +320,9 @@ pub struct MessagingUi {
 	new_message: new_message::NewMessageUi,
 	forum: forum::ForumUi,
 	scroll: scroll::Session,
+	/// The call window's own autoscroll session; its frame numbers and input are separate from
+	/// the main window's, so sharing one session let either window cancel the other's drive.
+	popout_scroll: scroll::Session,
 	side_press: scroll::SidePress,
 	timeline: timeline::TimelineView,
 	edit_modified: Option<(Id, Id, bool)>,
@@ -4943,7 +4946,11 @@ impl MessagingUi {
 					&mut self.deleting,
 					(&mut self.avatars, &mut self.profile),
 					self.pending_upload.as_ref(),
-					&mut self.scroll,
+					if ui.ctx().viewport_id() == voice::popout_viewport_id() {
+						&mut self.popout_scroll
+					} else {
+						&mut self.scroll
+					},
 				);
 				if let Some((id, action)) = self.timeline.poll_action.take()
 					&& let Some(command) = state.prepare_poll(Some(id), action)
@@ -6247,11 +6254,8 @@ impl MessagingUi {
 		if self.setup_pending {
 			self.show_setup(&ctx);
 		}
-		// While the call window draws the chat, it owns the shared autoscroll session too.
-		if !self.voice_popout_owns_chat(state) {
-			self.scroll.clear_if_unbound(&ctx);
-			self.scroll.paint(&ctx);
-		}
+		self.scroll.clear_if_unbound(&ctx);
+		self.scroll.paint(&ctx);
 		// Clear the title bar and channel header so a notice never sits on the chrome.
 		self.toasts
 			.show(&ctx, if self.shows_title_bar() { 96.0 } else { 60.0 });
