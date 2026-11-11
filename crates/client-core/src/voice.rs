@@ -7,6 +7,8 @@ use crate::{
 use model::{Id, Member};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub const MAX_PARTICIPANTS: usize = 64;
+/// Why a join into a room already holding [`MAX_PARTICIPANTS`] people is refused.
+pub const CALL_FULL: &str = "Voice channel exceeds the 64 participant limit";
 pub const MAX_DM_CALLS: usize = 64;
 pub const MAX_DM_CALL_BYTES: usize = MAX_DM_CALLS * size_of::<Id>();
 pub const MAX_ROSTER: usize = 4096;
@@ -513,6 +515,20 @@ impl ClientState {
 			&& self.gateway_connected
 			&& self.has_voice_access(channel)
 	}
+	/// Whether `channel` already holds as many people as a call can, so joining is refused.
+	pub fn call_full(&self, channel: Id) -> bool {
+		let count = match self.channel(channel).map(|c| c.guild) {
+			Some(Some(_)) => self
+				.voice
+				.roster
+				.iter()
+				.filter(|r| r.channel == channel)
+				.count(),
+			Some(None) => self.voice.dm_participants(channel).len(),
+			None => 0,
+		};
+		count >= MAX_PARTICIPANTS
+	}
 	pub(crate) fn has_voice_access(&self, channel: Id) -> bool {
 		self.permission(
 			channel,
@@ -555,8 +571,20 @@ impl ClientState {
 		muted: bool,
 		deafened: bool,
 	) -> Option<crate::Command> {
+		self.try_start_call(channel, ring, muted, deafened).ok()
+	}
+	/// [`Self::start_call_with_mute`] with the reason a join was refused, for callers that
+	/// report it. A full room also leaves its reason in the status line.
+	pub fn try_start_call(
+		&mut self,
+		channel: Id,
+		ring: bool,
+		muted: bool,
+		deafened: bool,
+	) -> Result<crate::Command, &'static str> {
+		const UNAVAILABLE: &str = "Joining this call is no longer available";
 		if !self.can_call(channel) {
-			return None;
+			return Err(UNAVAILABLE);
 		}
 		// A failed call is not a live one: joining again replaces it instead of being refused.
 		if self
@@ -565,9 +593,13 @@ impl ClientState {
 			.as_ref()
 			.is_some_and(|call| call.phase != Phase::Failed)
 		{
-			return None;
+			return Err("You are already in another call");
 		}
-		let guild = self.channel(channel)?.guild;
+		let guild = self.channel(channel).ok_or(UNAVAILABLE)?.guild;
+		if self.call_full(channel) {
+			self.status = CALL_FULL;
+			return Err(CALL_FULL);
+		}
 		let ring = ring && guild.is_none() && !self.voice.has_dm_call(channel);
 		let participants: Vec<_> = if guild.is_some() {
 			self.voice
@@ -579,10 +611,6 @@ impl ClientState {
 		} else {
 			self.voice.dm_participants(channel).to_vec()
 		};
-		if participants.len() >= MAX_PARTICIPANTS {
-			self.status = "Voice channel exceeds the 64 participant limit";
-			return None;
-		}
 		let own = participants
 			.iter()
 			.find(|p| self.user.as_ref().is_some_and(|u| u.id == p.user));
@@ -615,7 +643,7 @@ impl ClientState {
 		if self.voice.incoming == Some(channel) {
 			self.voice.incoming = None;
 		}
-		Some(crate::Command::Voice(Command::Join {
+		Ok(crate::Command::Voice(Command::Join {
 			channel,
 			request,
 			ring,

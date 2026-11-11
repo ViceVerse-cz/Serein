@@ -4372,6 +4372,7 @@ impl MessagingUi {
 			.is_none()
 			.then(|| state.known_profile(recipient.id))
 			.flatten();
+		self.dm_profile.calls_blocked = self.calls_unavailable(state);
 		let mut action = None;
 		// The panel shares the conversation surface, so the card floats on the chat itself.
 		egui::Panel::right("dm-profile-pane")
@@ -4520,14 +4521,10 @@ impl MessagingUi {
 				}
 			}
 			profiles::Action::JoinVoice { guild, channel } => {
-				if let Some(reason) = self.call_unavailable(state, channel) {
-					state.status = reason;
-				} else {
-					match self.join_from_profile(state, guild, channel, commands) {
-						Ok(()) => self.profile.close(),
-						// The card stays open beside the reason.
-						Err(reason) => self.toasts.push(design::Level::Error, reason),
-					}
+				match self.join_from_profile(state, guild, channel, commands) {
+					Ok(()) => self.profile.close(),
+					// The card stays open beside the reason.
+					Err(reason) => self.toasts.push(design::Level::Error, reason),
 				}
 			}
 			profiles::Action::EditStatus => self.open_custom_status_editor(),
@@ -5992,6 +5989,7 @@ impl MessagingUi {
 				.clone_from(&self.own_presence.custom_status);
 			let anchor = self.profile.anchor_or_place(&ctx, user.id);
 			self.profile.ingest_opener_rect(&ctx);
+			self.profile.calls_blocked = self.calls_unavailable(state);
 			let action = profiles::show_with_session(
 				ui,
 				&user,
@@ -9586,7 +9584,7 @@ mod composer_tests {
 		state.select(Id(20));
 		// Robin shares room 25 with Fern and the account.
 		let user = test_support::message(1, Id(20)).author;
-		let spot = profiles::voice_spot(&state, user.id).expect("Robin is in a visible room");
+		let spot = profiles::voice_spot(&state, user.id, None).expect("Robin is in a visible room");
 		assert_eq!(
 			(spot.guild.id, spot.channel.id, spot.count),
 			(Id(10), Id(25), 3)
@@ -9602,7 +9600,7 @@ mod composer_tests {
 		view.profile.command_open(user.clone());
 		// The card's Join is enabled exactly when the join path would accept it.
 		let agree = |view: &MessagingUi, state: &State| {
-			let blocked = profiles::join_blocked(state, Id(25));
+			let blocked = profiles::join_blocked(state, Id(25), view.calls_unavailable(state));
 			assert_eq!(
 				blocked.is_none(),
 				view.call_unavailable(state, Id(25)).is_none()
@@ -9610,6 +9608,13 @@ mod composer_tests {
 			blocked
 		};
 		assert_eq!(agree(&view, &state), None);
+		// Session-wide refusals disable Join too, with the reason the call buttons give.
+		view.voice_available = false;
+		assert_eq!(
+			agree(&view, &state).as_deref(),
+			view.calls_unavailable(&state)
+		);
+		view.voice_available = true;
 		let mut commands = vec![];
 		// A refused join (here a full room) keeps the card open and goes nowhere.
 		let mut crowd = state.voice.roster[2].clone();
@@ -9617,6 +9622,10 @@ mod composer_tests {
 			crowd.participant.user = Id(id);
 			state.voice.roster.push(crowd.clone());
 		}
+		assert_eq!(
+			agree(&view, &state).as_deref(),
+			Some(client_core::voice::CALL_FULL)
+		);
 		let join = profiles::Action::JoinVoice {
 			guild: Id(10),
 			channel: Id(25),
@@ -9632,6 +9641,11 @@ mod composer_tests {
 		assert!(commands.is_empty() && state.voice.active.is_none());
 		assert_eq!(state.selected, Some(Id(20)));
 		assert!(view.profile.open_user().is_some());
+		// Asking again still says why, although the status line already holds that reason.
+		assert_eq!(
+			view.join_from_profile(&mut state, Id(10), Id(25), &mut commands),
+			Err(client_core::voice::CALL_FULL.to_owned())
+		);
 		state.voice.roster.truncate(3);
 		view.profile_action(
 			&egui::Context::default(),
@@ -9656,11 +9670,17 @@ mod composer_tests {
 		assert_eq!(joins, [(Id(25), false)], "one join, never a ring");
 		assert_eq!(state.selected, Some(Id(25)), "the joined room opens");
 		assert!(view.profile.open_user().is_none());
-		assert_eq!(agree(&view, &state), Some("profiles-in-voice-joined"));
+		assert_eq!(
+			agree(&view, &state),
+			Some(crate::i18n::translate("profiles-in-voice-joined"))
+		);
 		// A failed call is dismissed from its call card first; Join must not offer a retry
 		// that the join path then refuses.
 		state.voice.active.as_mut().unwrap().phase = client_core::voice::Phase::Failed;
-		assert_eq!(agree(&view, &state), Some("profiles-in-voice-failed"));
+		assert_eq!(
+			agree(&view, &state),
+			Some(crate::i18n::translate("profiles-in-voice-failed"))
+		);
 		// Discord may report rosters for rooms this account cannot see; those stay hidden.
 		let mut snapshot = test_support::permission_snapshot(&state);
 		// The voice fixture reuses id 26 for its quiet room; a snapshot lists each id once.
@@ -9678,7 +9698,7 @@ mod composer_tests {
 			deny: p::VIEW_CHANNEL,
 		}]);
 		state.permissions.replace(snapshot).unwrap();
-		assert!(profiles::voice_spot(&state, user.id).is_none());
+		assert!(profiles::voice_spot(&state, user.id, None).is_none());
 	}
 
 	#[test]

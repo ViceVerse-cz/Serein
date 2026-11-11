@@ -73,11 +73,18 @@ pub(crate) struct VoiceSpot<'a> {
 	pub(crate) shown: Vec<&'a client_core::voice::RosterEntry>,
 	/// Everyone in the channel, the person included.
 	pub(crate) count: usize,
+	/// Why Join is disabled, ready to show; `None` when it is offered.
+	pub(crate) blocked: Option<String>,
 }
 
 /// Where `user` is in voice, under the voice badge's visibility rules. Server channels only:
-/// a private call is already offered from its own conversation.
-pub(crate) fn voice_spot(state: &State, user: Id) -> Option<VoiceSpot<'_>> {
+/// a private call is already offered from its own conversation. `calls_blocked` is the
+/// session-wide reason no call can start, from [`ProfileSession::calls_blocked`].
+pub(crate) fn voice_spot<'a>(
+	state: &'a State,
+	user: Id,
+	calls_blocked: Option<&'static str>,
+) -> Option<VoiceSpot<'a>> {
 	if !state.gateway_connected {
 		return None;
 	}
@@ -108,6 +115,7 @@ pub(crate) fn voice_spot(state: &State, user: Id) -> Option<VoiceSpot<'_>> {
 		channel,
 		shown,
 		count,
+		blocked: join_blocked(state, channel.id, calls_blocked),
 	})
 }
 
@@ -545,12 +553,12 @@ fn voice_card(
 					)
 					.on_hover_text(&server);
 					ui.add_space(6.0);
-					let blocked = join_blocked(state, spot.channel.id);
+					let blocked = spot.blocked.as_deref();
 					let mut join = ui
 						.add_enabled_ui(blocked.is_none(), |ui| join_button(ui, theme, fill))
 						.inner;
 					if let Some(reason) = blocked {
-						join = join.on_disabled_hover_text(crate::i18n::translate(reason));
+						join = join.on_disabled_hover_text(reason);
 					}
 					if join.clicked() {
 						action = Some(Action::JoinVoice {
@@ -564,11 +572,20 @@ fn voice_card(
 	action
 }
 
-/// Why the card's Join is disabled, as a translation key. It refuses whatever the join path
-/// refuses: any call this device holds in that channel, failed ones included (those are
-/// dismissed from the call card first), and channels it cannot call.
-pub(crate) fn join_blocked(state: &State, channel: Id) -> Option<&'static str> {
-	match state
+/// Why the card's Join is disabled, ready to show. It refuses whatever the join path refuses:
+/// the session-wide reasons in `calls_blocked` (shown as the call buttons show them), any call
+/// this device holds in that channel, failed ones included (those are dismissed from the call
+/// card first), channels it cannot call and full rooms, in `MessagingUi::call_unavailable`'s
+/// order.
+pub(crate) fn join_blocked(
+	state: &State,
+	channel: Id,
+	calls_blocked: Option<&'static str>,
+) -> Option<String> {
+	if let Some(reason) = calls_blocked {
+		return Some(reason.to_owned());
+	}
+	let key = match state
 		.voice
 		.active
 		.as_ref()
@@ -579,7 +596,12 @@ pub(crate) fn join_blocked(state: &State, channel: Id) -> Option<&'static str> {
 		}
 		Some(_) => Some("profiles-in-voice-joined"),
 		None => (!state.can_call(channel)).then_some("profiles-in-voice-unavailable"),
-	}
+	};
+	key.map(crate::i18n::translate).or_else(|| {
+		state
+			.call_full(channel)
+			.then(|| client_core::voice::CALL_FULL.to_owned())
+	})
 }
 
 /// Up to three of the channel's people on a rounded tile, the profile's owner first. A larger
@@ -2827,6 +2849,8 @@ pub(crate) fn profile_opener_id() -> egui::Id {
 pub struct ProfileSession {
 	/// This account's own custom status, which presence updates never carry for itself.
 	pub(crate) own_status: String,
+	/// Why no call can start this frame, whichever channel; set by the view before drawing.
+	pub(crate) calls_blocked: Option<&'static str>,
 	open: Option<User>,
 	anchor: Option<(Id, Pos2)>,
 	trigger: Option<Rect>,
@@ -3544,7 +3568,9 @@ fn card_view(
 		)
 	};
 	let in_voice = !user.webhook && user_in_voice(state, user.id);
-	let spot = in_voice.then(|| voice_spot(state, user.id)).flatten();
+	let spot = in_voice
+		.then(|| voice_spot(state, user.id, session.calls_blocked))
+		.flatten();
 	let dm_channel = state
 		.channels
 		.iter()
