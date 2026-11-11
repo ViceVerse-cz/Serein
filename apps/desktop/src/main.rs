@@ -5547,6 +5547,26 @@ impl Desktop {
 			.then(|| Duration::from_secs_f64(1000.0 / f64::from(millihertz)))
 	}
 }
+/// Which players a logic pass stops. Signing out, hiding to the tray and closing
+/// end every player; minimizing ends only video, whose frames nobody sees, while
+/// attachment audio keeps playing like a call does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MediaStop {
+	Everything,
+	VideoOnly,
+	Nothing,
+}
+
+fn media_stop(active: bool, hidden_or_closing: bool, minimized: bool) -> MediaStop {
+	if !active || hidden_or_closing {
+		MediaStop::Everything
+	} else if minimized {
+		MediaStop::VideoOnly
+	} else {
+		MediaStop::Nothing
+	}
+}
+
 /// Whether the user's transparency settings, not just the rounded-corner mask, show through.
 fn effects_transparent() -> bool {
 	let (enabled, transparency, _) = ui::design::window_effects();
@@ -5900,18 +5920,27 @@ impl eframe::App for Desktop {
 		// The hide command lands after this frame, so the flag leads reported visibility.
 		// Occlusion can occur during macOS fullscreen transitions; it is not a request
 		// to stop playback (which would also restore the window out of fullscreen).
-		let hidden_or_closing = self.tray_window.hidden
-			|| ctx.input(|input| {
-				input.viewport().minimized == Some(true) || input.viewport().close_requested()
-			});
-		if self.state.user.is_none()
-			|| (!self.state.demo && self.state.auth != AuthState::Authenticated)
-			|| hidden_or_closing
-		{
-			self.audio.stop();
-			self.messaging.audio().stop();
-			self.video.stop();
-			self.messaging.video().stop();
+		let hidden_or_closing =
+			self.tray_window.hidden || ctx.input(|input| input.viewport().close_requested());
+		let minimized = ctx.input(|input| input.viewport().minimized == Some(true));
+		let active = self.state.user.is_some()
+			&& (self.state.demo || self.state.auth == AuthState::Authenticated);
+		match media_stop(active, hidden_or_closing, minimized) {
+			MediaStop::Everything => {
+				self.audio.stop();
+				self.messaging.audio().stop();
+				self.video.stop();
+				self.messaging.video().stop();
+			}
+			// Minimizing keeps attachment audio playing, like a call does: the output
+			// stream and its decode worker run without a visible window, and restoring
+			// shows the indicator where the output clock reached. Video stops: its
+			// frames are only useful on screen.
+			MediaStop::VideoOnly => {
+				self.video.stop();
+				self.messaging.video().stop();
+			}
+			MediaStop::Nothing => {}
 		}
 		self.video.poll(self.messaging.video(), ctx);
 		let audio = self.audio.poll();
@@ -7084,6 +7113,16 @@ fn plaintext_login_dir() -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn minimizing_keeps_attachment_audio_playing() {
+		use MediaStop::{Everything, Nothing, VideoOnly};
+		// A signed-in session keeps audio through minimize; video has no audience.
+		assert_eq!(media_stop(true, false, true), VideoOnly);
+		assert_eq!(media_stop(true, false, false), Nothing);
+		// Hiding to the tray, closing and sign-out still end every player.
+		assert_eq!(media_stop(true, true, false), Everything);
+		assert_eq!(media_stop(false, false, true), Everything);
+	}
 	#[cfg(feature = "demo")]
 	#[test]
 	fn group_demo_loads_history_before_observing_typing() {
