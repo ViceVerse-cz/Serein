@@ -463,8 +463,9 @@ a click would send, earlier, for a conversation the pointer rests on for 120 ms 
 It is not a crawl: one request in flight, at most twelve per minute, no repeat within five minutes
 for an unchanged conversation, no pagination. It uses only spare REST capacity and gives up
 during the shared cooldown instead of waiting, so it never delays a click. Hovers that never become
-clicks still cost requests, which the official client may not make; the owner can turn it off
-in Settings › Chat › Channel list. Resting on a person for 300 ms requests the same
+clicks still cost requests, which the official client does not make, so it is off by default
+since November 11, 2026; the owner can turn it on in Settings › Chat › Channel list, and a
+previously saved choice is kept. Resting on a person for 300 ms requests the same
 **unofficial** extended-profile route a card opens, with the same query and server context,
 under its own one-in-flight and twelve-per-minute limits; that route is rate-limit sensitive,
 so this is the preload most likely to meet a cooldown. Resting on the GIF button requests the
@@ -1216,8 +1217,8 @@ Server identity tags (September 19): Discord's documented [User object](https://
 | User mentions | [Message formatting](https://docs.discord.com/developers/reference#message-formatting) | Documented syntax; normal-user notification behavior unverified | Local @ autocomplete, clickable names/profile cards, exact user allowlists, bounded SQLite metadata; tests and limits |
 | User profile cards | Normal session `/users/{id}/profile`; documented [User object](https://docs.discord.com/developers/resources/user#user-object); [public implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) | Base server identity shape documented; extended route and normal-session delivery unofficial/live-unverified | Anchored popout with banner/avatar/bio/pronouns/badge artwork/server tag/theme colors/connections/mutual servers and retained presence/custom status, cancellable requests and visible failures. Bounded base-user identity supplies compact badge/tag chips in profile, member and direct-message rows while the extended profile is unavailable; badge CDN paths are observed, not documented; evidence |
 | History, send, edit, delete, replies | Normal session; [message resource](https://docs.discord.com/developers/resources/message) and Abaddon | Documented bot-facing resource; user compatibility unofficial | Experimental text adapter; owner permissions remain server-authoritative |
-| Realtime, resume | Normal session; [Gateway](https://docs.discord.com/developers/events/gateway), Abaddon Identify/READY | Documented lifecycle; normal-user Identify and dispatch differences unofficial | Bounded JSON transport; no compression requested; incompatible snapshots fail |
-| Rate limits | Credential-specific response headers/body; [rate limits](https://docs.discord.com/developers/topics/rate-limits) | Documented; do not assume bot quotas | Conservative shared cooldown; a message send rejected with 429 (documented as not processed) stays pending and is resent with its nonce after the service's wait, at most 30 times, with the official client's "sending too quickly" notice. No other write is retried. Idempotent reads wait out up to two short JSON 429 responses. An HTML or plain-text 429 from `discord.com` (a Cloudflare block, unofficial) moves this process to `ptb.discord.com` and retries one idempotent read there; whether every Cloudflare ban is limited to one hostname is unverified |
+| Realtime, resume | Normal session; [Gateway](https://docs.discord.com/developers/events/gateway), Abaddon Identify/READY | Documented lifecycle; normal-user Identify and dispatch differences unofficial | Bounded JSON transport; incompatible snapshots fail. The Gateway address is the fixed `wss://gateway.discord.gg` (unofficial: the web client's page config), not a `GET /gateway` answer, and READY supplies the account identity instead of `GET /users/@me` |
+| Rate limits | Credential-specific response headers/body; [rate limits](https://docs.discord.com/developers/topics/rate-limits) | Documented; do not assume bot quotas | Conservative shared cooldown; a message send rejected with 429 (documented as not processed) stays pending and is resent with its nonce after the service's wait, at most 30 times, with the official client's "sending too quickly" notice. No other write is retried. Idempotent reads wait out up to two short JSON 429 responses. An HTML or plain-text 429 (a Cloudflare block page, unofficial) never changes host and is never retried at once: it starts the shared cooldown from `Retry-After`, the reset header or a 60-second default and fails the request as rate limited. Documented JSON error codes 40002, 40003 and 50007 hold back only the affected kind of write; see "Flagging-risk corrections" below |
 | Nonce correlation | Message nonce; message resource | Documented finite deduplication; user applicability unverified | Correlate confirmations only; no automatic ambiguous resend or indefinite idempotency claim |
 | Native message formatting | Existing message content; [pulldown-cmark source](https://github.com/pulldown-cmark/pulldown-cmark) and [egui LayoutJob](https://docs.rs/egui/0.37.0/egui/text/struct.LayoutJob.html) | Local rendering; no additional service capability | Bounded emphasis/code/quotes/lists/strike, inert HTML, explicit HTTP(S) link confirmation, up to 32 inline text spoilers with separate media reveal; CommonMark differs from Discord Markdown; no automatic previews |
 | Read markers | Normal session; [discord.py-self HTTP](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) and [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py) | Unofficial and unstable | Explicit per-message acknowledgement, optional manual mark-unread (`ack_message(manual=True)` plus the previous snowflake), guild `POST /guilds/{id}/ack`, bounded READY read state, MESSAGE_ACK and PASSIVE_UPDATE_V2; synthetic checks only, actual cross-device behavior unverified |
@@ -1303,6 +1304,57 @@ Only `https://discord-attachments-uploads-prd.storage.googleapis.com` on effecti
 The local limit is **up to ten nonempty regular files totaling at most 500,000,000 bytes**, Discord's published Nitro maximum. Discord's [File Attachments FAQ](https://support.discord.com/hc/en-us/articles/25444343291031-File-Attachments-FAQ), updated August 13, 2026, states a 20 MB free limit, 50 MB Nitro Basic limit and 500 MB Nitro limit; server permissions, experiments and rejections remain authoritative. Serein does not infer the account tier or compress/rewrite files, so Discord may reject a selection below the local ceiling.
 
 Application chunks are at most 64 KiB; negotiation and storage responses at most 64 KiB, signed URLs 4096 bytes, server upload names 1024 bytes, local paths 4096 encoded bytes and filenames 256 UTF-8 bytes. One upload job uses latest-value progress, not an expanding event queue. The PUT has a 300-second overall deadline, 10-second connection timeout and 30-second read timeout. Filesystem work stays outside rendering.
+
+### Flagging-risk corrections - November 11
+
+**Unofficial unless marked documented; observed in Discord's public web bundle fetched
+2026-11-11 (main file plus about 360 chunks). Nothing here was exercised against a live
+account, and no claim is made about how Discord classifies clients.**
+
+- **No host change on a block (unverified cause).** Serein used to move every request to
+  `ptb.discord.com` after an HTML or plain-text 429 and retry there. It now stays on
+  `discord.com`, sends nothing further until the cooldown has passed and reports the request as
+  rate limited.
+- **No REST requests to learn the account or the Gateway address.** The web client reads the
+  Gateway address from its page config (`GATEWAY_ENDPOINT`) and the account from READY. Serein
+  no longer sends `GET /users/@me` and `GET /gateway` before connecting. A saved login is
+  compared with READY's user id, a bot account is refused from READY, and a rejected token ends
+  the session through Gateway close 4004 (documented). A sign-in without a remembered status
+  still reads the account's status settings before Identify, as before; that read is not
+  something the web client was observed doing.
+- **Real locale and timezone.** `X-Discord-Timezone` is the operating system's IANA zone and
+  super-properties `system_locale` its BCP 47 locale, in place of fixed `UTC` and `en-US`.
+  `Accept-Language` on REST and the Gateway WebSocket lists the OS language preferences the way
+  the web client writes `navigator.languages` (first tag bare, then `;q=0.9` downwards).
+  `X-Discord-Locale` is the [documented Discord locale](https://docs.discord.com/developers/reference#locales)
+  nearest to the OS locale; the web client sends its interface language there, and Serein's own
+  interface-language setting is not sent. A value the OS does not report, or one that is not a
+  plain tag or zone name, falls back to `en-US` / `UTC`. The login and verification webviews
+  take their language from the same OS settings through the platform web engine.
+- **Account-restriction error codes (documented codes, local reactions).** 40003 (opening DMs
+  too fast) refuses further DM and group-DM creation locally for the response's `retry_after`,
+  capped at one hour, or ten minutes when none is given. 40002 (account verification required)
+  refuses the same kind of write for five minutes and tells the owner to verify in the official
+  client. 50007 (cannot message this user) refuses further messages to that conversation until
+  the next connection. These periods are Serein's choices, not Discord's. None of them ends the
+  session, none is retried automatically, and at most 16 held routes and 64 conversations are
+  remembered in RAM.
+- **Forwards are ordinary message creates.** A forward's body now has the same fixed fields
+  as a typed message (`mobile_network_type`, empty `content`, `tts:false`, `flags:0`, `nonce`)
+  beside its type-1 `message_reference`; `allowed_mentions` stays the explicit empty allowlist.
+  A captcha on a forward still fails locally with a bounded reason; it is never replayed as text.
+- **`X-Context-Properties`.** The web client's request helper sends its `context` option as
+  base64 JSON in this header, and its message location enum includes `chat_input` and
+  `forwarding`. Serein sends `{"location":"chat_input"}` on message creates (text, sticker and
+  attachment sends) and `{"location":"forwarding"}` on forwards. The call sites that pass these
+  two locations are in on-demand chunks that were not fetched, so which sends carry them is
+  unverified; a third-party client's protocol notes describe the same two values.
+- **`X-Failed-Requests` is not sent.** In the bundle this header counts the request helper's
+  own retries after a network error or one of the statuses 502, 504, 507, 522, 523, 524, 598
+  and 599. A 429 on message create is handled by the send queue, which builds a fresh request
+  without it. Serein never retries a write after a network error or 5xx (the outcome is
+  ambiguous), so it has no request that would carry the header, and its 429 resends match the
+  web client by omitting it.
 
 ### Web-client request shapes and upload challenges - November 11
 
@@ -2485,7 +2537,9 @@ The offline debug command is `cargo run --locked -p serein --features demo -- --
 ### Outgoing message forwarding
 
 The message toolbar and context menu open a native searchable destination picker for up to
-five already-loaded, writable conversations. Forward creation uses the documented
+five already-loaded, writable conversations. Five is a local bound: the web client's forward
+dialog is loaded on demand and was not in the bundle chunks fetched on 2026-11-11, so its own
+destination limit is unverified. Forward creation uses the documented
 [`message_reference` type 1](https://github.com/discord/discord-api-docs/blob/main/developers/resources/message.mdx),
 including the source channel/message and guild when known. The service captures the snapshot;
 Serein does not download and re-upload source attachments. Basic supported message types are

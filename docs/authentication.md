@@ -42,6 +42,10 @@ everywhere, since hCaptcha detects the WebKit engine from script whatever the us
 **Transport identity (unofficial, live-unverified).** Serein presents one browser identity on
 every Discord connection, chosen in `client_core::fingerprint` to match the engine of the
 platform webview: Safari 26.4 on macOS and Linux (WebKit), Chrome 149 on Windows (WebView2).
+Locale and timezone are not part of that choice: they are read from the operating system
+(falling back to `en-US` / `UTC`) and sent as they are on REST and the Gateway. Startup sends
+no `GET /users/@me` or `GET /gateway`; READY names the account, and a saved login whose READY
+names another account is refused as an invalid credential.
 The user agent, super-properties, client hints (Chrome only) and the TLS/HTTP2 handshake of
 REST, uploads, the Gateway and voice WebSockets, and Discord CDN downloads (avatars, images,
 attachments, audio and video) all come from that one source; the handshake
