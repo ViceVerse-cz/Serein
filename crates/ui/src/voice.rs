@@ -4742,6 +4742,24 @@ fn inactive_recipient(state: &State, channel: Id, user: Id) -> bool {
 	})
 }
 
+fn resolve_member<'a>(
+	state: &'a State,
+	entry: &'a RosterEntry,
+) -> (Option<&'a model::User>, &'a str) {
+	let member = entry
+		.member
+		.as_ref()
+		.or_else(|| listed_member(state, entry.guild, entry.participant.user));
+	let user = member
+		.map(|m| &m.user)
+		.or_else(|| participant_user(state, entry.channel, entry.participant.user));
+	let name = member
+		.and_then(|m| m.nick.as_deref())
+		.or_else(|| user.map(|u| u.name.as_str()))
+		.unwrap_or("Participant");
+	(user, name)
+}
+
 /// `user`'s row in `guild`'s member list, when that server's list is the one loaded.
 fn listed_member(state: &State, guild: Id, user: Id) -> Option<&model::Member> {
 	state
@@ -4790,24 +4808,6 @@ pub fn call_participant<'a>(
 		.filter(|nick| !nick.is_empty())
 		.unwrap_or(&found.name);
 	Some((found, name))
-}
-
-fn resolve_member<'a>(
-	state: &'a State,
-	entry: &'a RosterEntry,
-) -> (Option<&'a model::User>, &'a str) {
-	let member = entry
-		.member
-		.as_ref()
-		.or_else(|| listed_member(state, entry.guild, entry.participant.user));
-	let user = member
-		.map(|m| &m.user)
-		.or_else(|| participant_user(state, entry.channel, entry.participant.user));
-	let name = member
-		.and_then(|m| m.nick.as_deref())
-		.or_else(|| user.map(|u| u.name.as_str()))
-		.unwrap_or("Participant");
-	(user, name)
 }
 
 /// Find a call participant's user from self, DM recipients or the roster.
