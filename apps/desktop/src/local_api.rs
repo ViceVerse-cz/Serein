@@ -849,16 +849,25 @@ impl<S: KeyStore> Keys<S> {
 		self.key.insert(fresh_key()).clone()
 	}
 
-	/// Saves the key in force, or failing that removes the key it replaced. If the store
-	/// takes neither, its key stays revoked: never loaded, and retried later.
+	/// Saves the key in force, or failing that removes whatever the store holds instead. If
+	/// the store takes neither, or never confirms the write, its key is revoked: never
+	/// loaded, and retried later.
 	async fn persist(&mut self) {
 		let (Some(store), Some(key)) = (&self.store, &self.key) else {
 			return;
 		};
-		if store.save(key).await.is_ok() {
-			self.saved = true;
-			self.revoked = false;
-		} else if self.revoked && store.forget().await.is_ok() {
+		match store.save(key).await {
+			Ok(()) => {
+				self.saved = true;
+				self.revoked = false;
+				return;
+			}
+			// A write that outlives its deadline may still land. Until a later call settles
+			// it the store is not trusted, so the key cannot outlast what Settings says.
+			Err(CredentialError::TimedOut) => self.revoked = true,
+			Err(_) => {}
+		}
+		if self.revoked && store.forget().await.is_ok() {
 			self.revoked = false;
 		}
 	}
@@ -1570,12 +1579,14 @@ mod tests {
 		assert!(!unmute.still_applies(&state));
 	}
 
-	/// A credential store that can be made to refuse writes, deletions or both.
+	/// A credential store that can be made to refuse writes or deletions, or to take a
+	/// write only after its caller has stopped waiting.
 	#[derive(Default)]
 	struct Vault {
 		entry: Mutex<Option<String>>,
 		refuse_save: AtomicBool,
 		refuse_forget: AtomicBool,
+		save_lands_late: AtomicBool,
 	}
 
 	impl KeyStore for Arc<Vault> {
@@ -1587,6 +1598,9 @@ mod tests {
 				return Err(CredentialError::Unavailable);
 			}
 			*self.entry.lock().unwrap() = Some(key.to_owned());
+			if self.save_lands_late.load(Ordering::SeqCst) {
+				return Err(CredentialError::TimedOut);
+			}
 			Ok(())
 		}
 		async fn forget(&self) -> Result<(), CredentialError> {
@@ -1635,6 +1649,19 @@ mod tests {
 		next.persist().await;
 		assert_eq!(next.status(), LocalApiKey::SessionOnly);
 		assert_eq!(saved(&vault), None);
+
+		// A first save that outlives its deadline still lands. The store is not trusted
+		// after that, so the next launch does not load a key Settings called unsaved.
+		let vault = Arc::new(Vault::default());
+		vault.save_lands_late.store(true, Ordering::SeqCst);
+		vault.refuse_forget.store(true, Ordering::SeqCst);
+		let mut keys = Keys::new(Some(vault.clone()));
+		let first = keys.open(false).await;
+		assert_eq!(saved(&vault).as_deref(), Some(first.as_str()));
+		assert_eq!(keys.status(), LocalApiKey::Revoked);
+		vault.save_lands_late.store(false, Ordering::SeqCst);
+		let mut next = Keys::new(Some(vault.clone()));
+		assert_ne!(next.open(true).await, first);
 	}
 
 	#[test]

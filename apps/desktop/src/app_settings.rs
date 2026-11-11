@@ -42,6 +42,19 @@ impl Settings {
 		self.state.failed = !accepted;
 		accepted
 	}
+	/// A save finished. A change observed while it ran is still waiting, and is sent now
+	/// rather than on the next UI pass, which a window hidden in the tray does not have.
+	/// Returns whether another save was queued.
+	pub fn saved(
+		&mut self,
+		result: Result<(), local_store::StoreError>,
+		cache: Option<&crate::cache::Cache>,
+		generation: u64,
+	) -> bool {
+		self.state.saving = false;
+		self.state.failed = result.is_err();
+		self.save(cache, generation)
+	}
 	/// Marks changed, valid device preferences for asynchronous persistence.
 	pub fn observe(&mut self, ui: &ui::MessagingUi) {
 		let value = AppPreferences {

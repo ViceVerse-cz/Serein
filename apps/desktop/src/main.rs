@@ -4822,8 +4822,12 @@ impl Desktop {
 					continue;
 				}
 				cache::Outcome::AppPreferencesSaved(result) => {
-					self.app_settings.state.saving = false;
-					self.app_settings.state.failed = result.is_err();
+					let queued = self.app_settings.saved(
+						*result,
+						self.cache.as_ref(),
+						self.state.generation,
+					);
+					self.cache_pending += usize::from(queued);
 					continue;
 				}
 				cache::Outcome::MinimizeToTray(result) => {

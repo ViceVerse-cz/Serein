@@ -15,8 +15,8 @@ The access key is 32 random bytes as hex, stored as one OS credential-store entr
 preferences, logs or plain files. If no credential store accepts it, the key lives in
 process memory until the app closes, including while the API is switched off, so an
 off and on switch does not change it. **Reset key** overwrites the entry, or deletes it
-when the new key cannot be saved. If the store takes neither, one boolean device
-preference (`local_api_key_revoked`) records that the saved entry is revoked; while it is
+when the new key cannot be saved. If the store takes neither, or a write passes its
+time limit without an answer and so may still land, one boolean device preference (`local_api_key_revoked`) records that the saved entry is revoked; while it is
 set the entry is never read, and it is cleared once a later switch-on or reset replaces
 or deletes the entry. The preference holds no key material. Every credential-store call
 runs on one ordered worker with a five-second limit, and a call whose caller gave up

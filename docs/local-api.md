@@ -30,7 +30,8 @@ until Serein closes, through any number of off and on switches, and Settings say
 
 **Reset key** puts a new key in force at once and disconnects every app before the store
 is touched. The store then gets the new key, or failing that has the old one removed. If
-it accepts neither, Serein records on this device that the saved key is revoked: it is
+it accepts neither, or never confirms a write, Serein records on this device that the
+saved key is revoked: it is
 never loaded again, here or after a restart, Settings says the keyring could not be
 updated, and the next switch-on or reset tries again. Every credential-store call is
 limited to five seconds, so a provider that stops answering cannot keep the API on, keep

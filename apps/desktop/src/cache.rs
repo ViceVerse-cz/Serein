@@ -744,6 +744,43 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn a_preference_changed_during_a_save_is_sent_when_that_save_finishes() {
+		let (send, commands) = mpsc::sync_channel(16);
+		let (_, receive) = mpsc::sync_channel(16);
+		let cache = Cache {
+			send,
+			receive,
+			budget: Arc::new(Budget::default()),
+			history: Arc::new(HistorySafety::default()),
+		};
+		let mut settings = crate::app_settings::Settings::from_preferences(Ok(
+			local_store::AppPreferences::default(),
+		));
+		let mut view = ui::MessagingUi::default();
+		settings.apply(&mut view);
+		view.set_voice_user_volume_overrides(&[(7, 35)]);
+		settings.observe(&view);
+		assert!(settings.save(Some(&cache), 1));
+
+		// A second change arrives while the first save is running, so it is not queued yet.
+		view.set_voice_user_volume_overrides(&[(7, 80)]);
+		settings.observe(&view);
+		assert!(!settings.save(Some(&cache), 1));
+
+		// The first save finishing sends it, without another pass having to ask.
+		assert!(settings.saved(Ok(()), Some(&cache), 1));
+		let volumes: Vec<_> = commands
+			.try_iter()
+			.filter_map(|(_, _, _, operation, _)| match operation {
+				Operation::SaveAppPreferences(value) => Some(value.user_volumes.clone()),
+				_ => None,
+			})
+			.collect();
+		assert_eq!(volumes, [vec![(7, 35)], vec![(7, 80)]]);
+		assert!(!settings.saved(Ok(()), Some(&cache), 1));
+	}
+
+	#[test]
 	fn shortcut_restore_waits_for_queue_space_without_losing_or_duplicating_the_request() {
 		let (send, commands) = mpsc::sync_channel(16);
 		let (_, receive) = mpsc::sync_channel(16);
