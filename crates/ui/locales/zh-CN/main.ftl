@@ -5020,6 +5020,8 @@ settings-local-api-key-description = 应用无需发送密钥即可证明自己�
 # Context: local_api_settings
 settings-local-api-key-session = 此密钥未保存到系统密钥环，因此仅在 Serein 关闭前有效。重置后所有应用都会断开连接。
 # Context: local_api_settings
+settings-local-api-key-revoked = 无法更新系统密钥环，因此其中保存的密钥会被忽略，而此密钥仅在 Serein 关闭前有效。要重试，请关闭再开启 API，或再次重置密钥。
+# Context: local_api_settings
 settings-local-api-copy-key = 复制密钥
 # Context: local_api_settings
 settings-local-api-reset-key = 重置密钥

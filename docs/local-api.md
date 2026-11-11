@@ -19,15 +19,22 @@ runtime directory, which a program outside the sandbox may not be able to reach.
 | --- | --- |
 | Opt-in | Nothing is bound until the owner enables it. Turning it off closes the address and every connection. |
 | No network | A named pipe on Windows and a Unix socket elsewhere. There is no TCP port, so web pages and other computers cannot connect. |
-| Same user only | The pipe's access list names only the current Windows user and refuses remote clients. The socket has mode `0600`, sits in a directory other users cannot write, and each peer's user ID is checked. |
+| Same user only | The pipe's access list names only the current Windows user and refuses remote clients. The socket has mode `0600` and each peer's user ID is checked. Its directory must be owned by the user or root and not writable by others; the one exception is a root-owned sticky directory such as the `/tmp` fallback, where another user could claim the name first and leave the API **Unavailable**, but still could not connect to it or pose as Serein. |
 | Access key | A random 256-bit key. A client proves it holds the key with HMAC-SHA256; the key itself never crosses the connection. Serein proves it too, so a program squatting on the address cannot pose as Serein. |
 | Least data | Clients get the signed-in account's ID, name and avatar hash, and the current call's members and voice flags. Never the login, messages, audio or anything about other servers. |
 | Control is separate | Changing mute, deafen or a person's playback needs a second switch, **Allow apps to control voice**. |
 | Bounds | Eight connections, 4 KiB requests, a five-second handshake, and no per-client queue. |
 
-The access key is kept in the OS credential store. When no store is available the key
-lasts until Serein closes, and Settings says so. **Reset key** replaces it and disconnects
-every app.
+The access key is kept in the OS credential store. When no store takes it the key lasts
+until Serein closes, through any number of off and on switches, and Settings says so.
+
+**Reset key** puts a new key in force at once and disconnects every app before the store
+is touched. The store then gets the new key, or failing that has the old one removed. If
+it accepts neither, Serein records on this device that the saved key is revoked: it is
+never loaded again, here or after a restart, Settings says the keyring could not be
+updated, and the next switch-on or reset tries again. Every credential-store call is
+limited to five seconds, so a provider that stops answering cannot keep the API on, keep
+old apps connected or hold up closing Serein.
 
 This does not protect against malware already running as the same user: such a program
 can read the credential store or the app's memory. Give the key only to apps you trust.
@@ -66,9 +73,16 @@ serein-local-api/1 client <hello nonce> <auth nonce>     the client's proof
 serein-local-api/1 server <hello nonce> <auth nonce>     Serein's proof
 ```
 
-A client should check Serein's proof before trusting anything it receives. A wrong proof
-gets `{"op":"error","code":"unauthorized"}` and the connection closes. Nothing about the
-session is sent before the proof is accepted.
+A client should check Serein's proof before trusting anything it receives. Nothing about
+the session is sent before the proof is accepted. A handshake that fails gets
+`{"op":"error","code":"<code>"}` and the connection closes:
+
+| Code | Meaning |
+| --- | --- |
+| `unauthorized` | The proof does not match the access key. |
+| `bad_request` | The first frame is not an `auth` message, or its `nonce` is not 64 hex characters. |
+| `bad_frame` | The frame is longer than 4096 bytes or is not JSON. |
+| `timeout` | The handshake did not finish within five seconds. |
 
 Test vector: key `0123456789abcdef` repeated four times, hello nonce `11` repeated 32
 times, auth nonce `22` repeated 32 times.
@@ -131,8 +145,10 @@ connection closes.
 `mute` and `deaf` are the owner's own state; deafened always reads as muted. `members`
 lists up to 64 people in the call, the owner included, sorted by ID. `volume` is that
 person's playback on this device from 0 to 200, and `muted` is the device-only mute.
-`self_mute` and `self_deaf` are what that person set. Outside a call `connected` is
-false, both IDs are `null` and `members` is empty.
+`self_mute` and `self_deaf` are what that person set. `name` is the person's nickname in
+the call's own server, else their username; a nickname from another server is never
+used, and it is empty when Serein has no name for them yet. Outside a call `connected`
+is false, both IDs are `null` and `members` is empty.
 
 Events arrive as `{"op":"event","topic":"voice","type":"<type>","data":{...}}`:
 
@@ -161,6 +177,11 @@ result itself arrives as events.
 
 Neither starts or leaves a call or opens a microphone. Per-person volume and mute are
 device preferences and are not sent to Discord.
+
+A change is accepted for the call the client was looking at and is applied a moment
+later. If the owner has left that call, joined another, switched account or withdrawn
+control by then, or the person has left, the change is dropped silently rather than
+landing somewhere else. Treat the events, not `ok`, as the result.
 
 ## Example (Node.js)
 

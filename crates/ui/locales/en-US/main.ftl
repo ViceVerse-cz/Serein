@@ -5114,6 +5114,8 @@ settings-local-api-key-description = Apps prove they hold this key without sendi
 # Context: local_api_settings
 settings-local-api-key-session = This key is not saved in a system keyring, so it only lasts until Serein closes. Resetting it disconnects every app.
 # Context: local_api_settings
+settings-local-api-key-revoked = The system keyring could not be updated, so the key saved there is ignored and this one lasts until Serein closes. Turn the API off and on, or reset again, to retry.
+# Context: local_api_settings
 settings-local-api-copy-key = Copy key
 # Context: local_api_settings
 settings-local-api-reset-key = Reset key

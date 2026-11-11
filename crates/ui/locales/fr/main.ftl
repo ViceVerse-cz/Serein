@@ -4923,6 +4923,8 @@ settings-local-api-key-description = Les applications prouvent qu'elles détienn
 # Context: local_api_settings
 settings-local-api-key-session = Cette clé n'est pas enregistrée dans un trousseau système : elle ne dure que jusqu'à la fermeture de Serein. La réinitialiser déconnecte toutes les applications.
 # Context: local_api_settings
+settings-local-api-key-revoked = Le trousseau système n'a pas pu être mis à jour : la clé qui y est enregistrée est ignorée et celle-ci ne dure que jusqu'à la fermeture de Serein. Désactivez puis réactivez l'API, ou réinitialisez de nouveau la clé, pour réessayer.
+# Context: local_api_settings
 settings-local-api-copy-key = Copier la clé
 # Context: local_api_settings
 settings-local-api-reset-key = Réinitialiser la clé

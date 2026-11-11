@@ -4925,6 +4925,8 @@ settings-local-api-key-description = Aplikacje dowodzą, że mają ten klucz, be
 # Context: local_api_settings
 settings-local-api-key-session = Ten klucz nie jest zapisany w systemowym pęku kluczy, więc działa tylko do zamknięcia Serein. Zresetowanie rozłącza wszystkie aplikacje.
 # Context: local_api_settings
+settings-local-api-key-revoked = Nie udało się zaktualizować systemowego pęku kluczy, więc zapisany tam klucz jest ignorowany, a ten działa tylko do zamknięcia Serein. Wyłącz i włącz API albo zresetuj klucz ponownie, aby spróbować jeszcze raz.
+# Context: local_api_settings
 settings-local-api-copy-key = Kopiuj klucz
 # Context: local_api_settings
 settings-local-api-reset-key = Zresetuj klucz

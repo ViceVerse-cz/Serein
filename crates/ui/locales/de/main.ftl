@@ -4931,6 +4931,8 @@ settings-local-api-key-description = Apps weisen nach, dass sie diesen Schlüsse
 # Context: local_api_settings
 settings-local-api-key-session = Dieser Schlüssel ist in keinem Systemschlüsselbund gespeichert und gilt daher nur, bis Serein geschlossen wird. Beim Zurücksetzen werden alle Apps getrennt.
 # Context: local_api_settings
+settings-local-api-key-revoked = Der Systemschlüsselbund konnte nicht aktualisiert werden. Der dort gespeicherte Schlüssel wird ignoriert, und dieser gilt nur, bis Serein geschlossen wird. Schalten Sie die API aus und wieder ein oder setzen Sie den Schlüssel erneut zurück, um es noch einmal zu versuchen.
+# Context: local_api_settings
 settings-local-api-copy-key = Schlüssel kopieren
 # Context: local_api_settings
 settings-local-api-reset-key = Schlüssel zurücksetzen

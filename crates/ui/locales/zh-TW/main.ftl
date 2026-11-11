@@ -5020,6 +5020,8 @@ settings-local-api-key-description = 應用程式不需傳送金鑰即可證明�
 # Context: local_api_settings
 settings-local-api-key-session = 此金鑰未儲存到系統鑰匙圈，因此僅在 Serein 關閉前有效。重設後所有應用程式都會中斷連線。
 # Context: local_api_settings
+settings-local-api-key-revoked = 無法更新系統鑰匙圈，因此其中儲存的金鑰會被忽略，而此金鑰僅在 Serein 關閉前有效。若要重試，請關閉再開啟 API，或再次重設金鑰。
+# Context: local_api_settings
 settings-local-api-copy-key = 複製金鑰
 # Context: local_api_settings
 settings-local-api-reset-key = 重設金鑰

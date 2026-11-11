@@ -4742,26 +4742,64 @@ fn inactive_recipient(state: &State, channel: Id, user: Id) -> bool {
 	})
 }
 
+/// `user`'s row in `guild`'s member list, when that server's list is the one loaded.
+fn listed_member(state: &State, guild: Id, user: Id) -> Option<&model::Member> {
+	state
+		.members
+		.as_ref()
+		.filter(|list| list.guild == Some(guild))
+		.and_then(|list| {
+			list.slots
+				.iter()
+				.flatten()
+				.filter_map(|slot| match slot {
+					model::MemberSlot::Person(m) => Some(m),
+					_ => None,
+				})
+				.find(|m| m.user.id == user)
+		})
+}
+
+/// Who `user` is in `call`, read from the same places as the call view: this call's own
+/// roster entry, its server's loaded member list, then the account itself or the
+/// conversation's recipients. A nickname is only ever the call's own server's. `None` when
+/// nothing is known about them yet.
+pub fn call_participant<'a>(
+	state: &'a State,
+	call: &client_core::voice::Call,
+	user: Id,
+) -> Option<(&'a model::User, &'a str)> {
+	let member = call.guild.and_then(|guild| {
+		state
+			.voice
+			.roster
+			.iter()
+			.find(|entry| {
+				entry.guild == guild
+					&& entry.channel == call.channel
+					&& entry.participant.user == user
+			})
+			.and_then(|entry| entry.member.as_ref())
+			.or_else(|| listed_member(state, guild, user))
+	});
+	let found = member
+		.map(|member| &member.user)
+		.or_else(|| participant_user(state, call.channel, user))?;
+	let name = member
+		.and_then(|member| member.nick.as_deref())
+		.filter(|nick| !nick.is_empty())
+		.unwrap_or(&found.name);
+	Some((found, name))
+}
+
 fn resolve_member<'a>(
 	state: &'a State,
 	entry: &'a RosterEntry,
 ) -> (Option<&'a model::User>, &'a str) {
-	let member = entry.member.as_ref().or_else(|| {
-		state
-			.members
-			.as_ref()
-			.filter(|list| list.guild == Some(entry.guild))
-			.and_then(|list| {
-				list.slots
-					.iter()
-					.flatten()
-					.filter_map(|slot| match slot {
-						model::MemberSlot::Person(m) => Some(m),
-						_ => None,
-					})
-					.find(|m| m.user.id == entry.participant.user)
-			})
-	});
+	let member = entry
+		.member
+		.as_ref()
+		.or_else(|| listed_member(state, entry.guild, entry.participant.user));
 	let user = member
 		.map(|m| &m.user)
 		.or_else(|| participant_user(state, entry.channel, entry.participant.user));

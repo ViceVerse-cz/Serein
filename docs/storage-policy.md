@@ -13,8 +13,14 @@ any change.
 The access key is 32 random bytes as hex, stored as one OS credential-store entry
 (`discord-session.local-api`, or the `.development` variant) and never in SQLite,
 preferences, logs or plain files. If no credential store accepts it, the key lives in
-process memory for that run only. **Reset key** overwrites the entry, or deletes it when
-the new key cannot be saved, so a replaced key does not return. The `--demo` fixture
+process memory until the app closes, including while the API is switched off, so an
+off and on switch does not change it. **Reset key** overwrites the entry, or deletes it
+when the new key cannot be saved. If the store takes neither, one boolean device
+preference (`local_api_key_revoked`) records that the saved entry is revoked; while it is
+set the entry is never read, and it is cleared once a later switch-on or reset replaces
+or deletes the entry. The preference holds no key material. Every credential-store call
+runs on one ordered worker with a five-second limit, and a call whose caller gave up
+while it was queued is skipped, so a reset key is not written late. The `--demo` fixture
 never reads or writes the entry. Copying the key hands it to the OS clipboard, whose
 retention is outside Serein's control.
 
@@ -22,9 +28,10 @@ Everything else stays in process memory and is dropped when the listener stops: 
 shared view of the signed-in account's ID, name and avatar hash and at most 64 call
 members (64-character names), up to eight connections with a 4 KiB request buffer and a
 32-character app name each, and a queue of 32 pending voice changes. There is no
-per-client event backlog. Diagnostics records three fixed lines: listening, stopped and
-a refused client. Per-person volumes and local mutes changed through the API use the
-existing bounded device-preference fields, and only for people in the current call.
+per-client event backlog. Diagnostics records four fixed lines: listening, stopped, a
+refused client and a key reset the store did not take. Per-person volumes and local
+mutes changed through the API use the existing bounded device-preference fields, and
+only for people still in the call the change was accepted for.
 
 ## Logical RTL message layout (November 9, 2026)
 

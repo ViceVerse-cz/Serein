@@ -23,6 +23,9 @@ pub enum LocalApiKey {
 	Saved,
 	/// No credential store took it, so it lasts until Serein closes.
 	SessionOnly,
+	/// Like `SessionOnly`, and the credential store may still hold a key the owner reset.
+	/// That key is never loaded; the desktop keeps trying to replace or remove it.
+	Revoked,
 }
 
 /// What the desktop's listener reports.
@@ -138,10 +141,10 @@ impl MessagingUi {
 		design::row(
 			ui,
 			"settings-local-api-key",
-			Some(if status.key == LocalApiKey::SessionOnly {
-				"settings-local-api-key-session"
-			} else {
-				"settings-local-api-key-description"
+			Some(match status.key {
+				LocalApiKey::SessionOnly => "settings-local-api-key-session",
+				LocalApiKey::Revoked => "settings-local-api-key-revoked",
+				LocalApiKey::Pending | LocalApiKey::Saved => "settings-local-api-key-description",
 			}),
 			|ui| {
 				ui.add_enabled_ui(status.key != LocalApiKey::Pending, |ui| {

@@ -24,11 +24,13 @@ computer. It listens only on a named pipe or Unix socket restricted to the curre
 user, never a TCP port, so web pages, other users and other machines cannot reach it.
 A client must prove a 256-bit access key by HMAC challenge-response, and Serein proves
 the key back, so a program that takes the address first learns nothing it can replay.
-The key stays in the OS credential store. Clients see only the signed-in account's
+The key stays in the OS credential store; a reset the store refuses is remembered so
+the old key is never loaded again. Clients see only the signed-in account's
 identity and the current call's members and voice flags; credentials, messages, audio
 and other servers are never exposed. Voice changes need a second owner opt-in, are
-limited to mute, deafen and the playback of people already in the call, and are applied
-on the UI thread through the same paths as the owner's own controls. Frames, connections,
+limited to mute, deafen and the playback of people already in the call, are bound to the
+session and call they were accepted for, and are applied on the UI thread through the
+same paths as the owner's own controls. Frames, connections,
 handshake time and queues are bounded. Not addressed: software already running as the
 same user, which can read the credential store or process memory, and an app the owner
 gave the key to misusing what it is allowed to see or change.

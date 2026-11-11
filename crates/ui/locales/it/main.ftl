@@ -4923,6 +4923,8 @@ settings-local-api-key-description = Le app dimostrano di avere questa chiave se
 # Context: local_api_settings
 settings-local-api-key-session = Questa chiave non è salvata in un portachiavi di sistema, quindi dura solo fino alla chiusura di Serein. Reimpostandola tutte le app vengono scollegate.
 # Context: local_api_settings
+settings-local-api-key-revoked = Non è stato possibile aggiornare il portachiavi di sistema, quindi la chiave salvata lì viene ignorata e questa dura solo fino alla chiusura di Serein. Disattiva e riattiva l'API, oppure reimposta di nuovo la chiave, per riprovare.
+# Context: local_api_settings
 settings-local-api-copy-key = Copia chiave
 # Context: local_api_settings
 settings-local-api-reset-key = Reimposta chiave

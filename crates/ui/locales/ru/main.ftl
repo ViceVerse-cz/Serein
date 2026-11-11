@@ -4926,6 +4926,8 @@ settings-local-api-key-description = Приложения доказывают, 
 # Context: local_api_settings
 settings-local-api-key-session = Этот ключ не сохранен в системном хранилище ключей, поэтому действует только до закрытия Serein. Сброс отключает все приложения.
 # Context: local_api_settings
+settings-local-api-key-revoked = Не удалось обновить системное хранилище ключей, поэтому сохраненный там ключ игнорируется, а этот действует только до закрытия Serein. Выключите и снова включите API или сбросьте ключ еще раз, чтобы повторить попытку.
+# Context: local_api_settings
 settings-local-api-copy-key = Копировать ключ
 # Context: local_api_settings
 settings-local-api-reset-key = Сбросить ключ

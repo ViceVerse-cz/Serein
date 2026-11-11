@@ -144,7 +144,7 @@ use client_core::{Command, MAX_DRAFT_BYTES, NavStep, State};
 use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
-pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING};
+pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING, call_participant};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {
@@ -356,6 +356,9 @@ pub struct MessagingUi {
 	pub local_api: bool,
 	/// Second opt-in: those apps may also mute, deafen and set per-person playback.
 	pub local_api_control: bool,
+	/// A key reset never reached the credential store, so the key saved there must not be
+	/// loaded. The desktop sets it from the listener and persists it across launches.
+	pub local_api_key_revoked: bool,
 	/// What the desktop's listener reports, for the settings page.
 	pub local_api_status: LocalApiStatus,
 	/// A key action the owner asked for; the desktop consumes it.

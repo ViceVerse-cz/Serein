@@ -58,9 +58,12 @@ with the page's own Copy key button.
 | **Allow apps to control voice** switched off | A `session` event with `control: false` |
 | **Enable the local API** switched off | The connection closes and the pipe no longer exists |
 | Connected app | Listed by name in the group while connected |
+| API switched off and on again | The pipe goes and returns; the unsaved key is the same |
+| **Reset key** | A new key is accepted; the old one no longer connects |
 
 This found one defect, fixed before delivery: switching the API off first told subscribers
-the owner had signed out. The end-to-end test now covers it.
+the owner had signed out. The end-to-end test now covers it. The last two rows, and the
+control rows again, were run on the review follow-up commit.
 
 ## Measurements
 

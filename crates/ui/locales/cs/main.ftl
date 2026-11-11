@@ -5054,6 +5054,8 @@ settings-local-api-key-description = Aplikace prokazují, že tento klíč mají
 # Context: local_api_settings
 settings-local-api-key-session = Tento klíč není uložen v systémové klíčence, takže platí jen do zavření Sereinu. Obnovením se odpojí všechny aplikace.
 # Context: local_api_settings
+settings-local-api-key-revoked = Systémovou klíčenku se nepodařilo aktualizovat, takže klíč v ní uložený se ignoruje a tento platí jen do zavření Sereinu. Chcete-li to zkusit znovu, vypněte a zapněte API nebo klíč znovu obnovte.
+# Context: local_api_settings
 settings-local-api-copy-key = Kopírovat klíč
 # Context: local_api_settings
 settings-local-api-reset-key = Obnovit klíč

@@ -4909,6 +4909,8 @@ settings-local-api-key-description = Uygulamalar bu anahtara sahip olduklarını
 # Context: local_api_settings
 settings-local-api-key-session = Bu anahtar bir sistem anahtarlığına kaydedilmediğinden yalnızca Serein kapanana kadar geçerlidir. Sıfırlamak tüm uygulamaların bağlantısını keser.
 # Context: local_api_settings
+settings-local-api-key-revoked = Sistem anahtarlığı güncellenemedi; bu yüzden orada kayıtlı anahtar yok sayılıyor ve bu anahtar yalnızca Serein kapanana kadar geçerli. Yeniden denemek için API'yi kapatıp açın veya anahtarı tekrar sıfırlayın.
+# Context: local_api_settings
 settings-local-api-copy-key = Anahtarı kopyala
 # Context: local_api_settings
 settings-local-api-reset-key = Anahtarı sıfırla

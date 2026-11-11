@@ -7,15 +7,17 @@
 //! mute and deafen an active call already reports.
 
 use client_core::State;
-use client_core::voice::{Participant, Phase};
+use client_core::voice::{Call, Participant, Phase};
 use diagnostics::{Category, Level};
 use hmac::{Hmac, Mac};
 use model::Id;
+use platform::CredentialError;
 use platform::game_activity::{Listener, Stream, private_endpoint};
 use serde::{Serialize, Serializer};
 use serde_json::{Value, json};
 use sha2::Sha256;
 use std::{
+	future::Future,
 	io,
 	sync::{Arc, Mutex, PoisonError},
 	time::Duration,
@@ -89,9 +91,45 @@ fn optional_id(id: u64) -> Option<String> {
 	(id != 0).then(|| id.to_string())
 }
 
+/// The session and call a view describes. A voice change is accepted for one scope and
+/// dropped if the owner has moved on by the time it is applied.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Scope {
+	generation: u64,
+	/// The active call's request number; `None` while not in a call.
+	call: Option<u64>,
+}
+
+impl Scope {
+	fn of(state: &State) -> Self {
+		Self {
+			generation: state.generation,
+			call: active_call(state).map(|call| call.request),
+		}
+	}
+}
+
+fn signed_in(state: &State) -> Option<&model::User> {
+	state
+		.user
+		.as_ref()
+		.filter(|_| state.demo || state.auth == client_core::auth::AuthState::Authenticated)
+}
+
+/// A failed call reads as no call, so a client drops its room instead of keeping a stale one.
+fn active_call(state: &State) -> Option<&Call> {
+	state
+		.voice
+		.active
+		.as_ref()
+		.filter(|call| call.phase != Phase::Failed)
+}
+
 /// Everything the API may show. Nothing else in the session can be read through it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Snapshot {
+	/// Never sent; stamps the changes a client asks for while looking at this view.
+	scope: Scope,
 	user: Option<Identity>,
 	/// The owner's second opt-in: clients may change voice.
 	control: bool,
@@ -105,19 +143,12 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-	/// Builds the view from the signed-in session. A failed call and a signed-out window both
-	/// read as not in a call, so a client drops its room instead of keeping a stale one.
+	/// Builds the view from the signed-in session. A signed-out window shows nothing.
 	pub fn capture(state: &State, ui: &ui::MessagingUi) -> Self {
-		let signed_in = state.user.is_some()
-			&& (state.demo || state.auth == client_core::auth::AuthState::Authenticated);
-		let Some(own) = state.user.as_ref().filter(|_| signed_in) else {
+		let Some(own) = signed_in(state) else {
 			return Self::default();
 		};
-		let call = state
-			.voice
-			.active
-			.as_ref()
-			.filter(|call| call.phase != Phase::Failed);
+		let call = active_call(state);
 		// Discord's indicator, and what the call sends: deafening always reads as muted.
 		let (mute, deaf) = call.map_or(
 			(ui.voice_muted || ui.voice_deafened, ui.voice_deafened),
@@ -132,12 +163,20 @@ impl Snapshot {
 				if members.len() == MAX_MEMBERS {
 					break;
 				}
-				members.push(member_of(state, ui, own.id, (mute, deaf), participant));
+				members.push(member_of(
+					state,
+					ui,
+					call,
+					own.id,
+					(mute, deaf),
+					participant,
+				));
 			}
 			members.sort_by_key(|member| member.user_id);
 			members.dedup_by_key(|member| member.user_id);
 		}
 		Self {
+			scope: Scope::of(state),
 			user: Some(Identity {
 				id: own.id.0,
 				name: bounded_name(&own.name),
@@ -178,11 +217,16 @@ impl Snapshot {
 fn member_of(
 	state: &State,
 	ui: &ui::MessagingUi,
+	call: &Call,
 	own: Id,
 	(own_mute, own_deaf): (bool, bool),
 	participant: &Participant,
 ) -> Member {
-	let (name, avatar) = lookup(state, participant.user);
+	// The call view's own lookup, so a client never shows a name the owner does not see.
+	let (name, avatar) = ui::call_participant(state, call, participant.user)
+		.map_or((String::new(), None), |(user, name)| {
+			(bounded_name(name), avatar_hash(user))
+		});
 	let is_own = participant.user == own;
 	Member {
 		user_id: participant.user.0,
@@ -204,36 +248,6 @@ fn member_of(
 	}
 }
 
-fn lookup(state: &State, user: Id) -> (String, Option<String>) {
-	if let Some(entry) = state
-		.voice
-		.roster
-		.iter()
-		.find(|entry| entry.participant.user == user)
-		.and_then(|entry| entry.member.as_ref())
-	{
-		let name = entry
-			.nick
-			.as_deref()
-			.filter(|nick| !nick.is_empty())
-			.unwrap_or(&entry.user.name);
-		return (bounded_name(name), avatar_hash(&entry.user));
-	}
-	if let Some(channel) = state.voice.active.as_ref().map(|call| call.channel)
-		&& let Some(person) = state
-			.channels
-			.iter()
-			.find(|row| row.id == channel)
-			.and_then(|row| row.recipients.iter().find(|person| person.id == user))
-	{
-		return (bounded_name(&person.name), avatar_hash(person));
-	}
-	if let Some(own) = state.user.as_ref().filter(|own| own.id == user) {
-		return (bounded_name(&own.name), avatar_hash(own));
-	}
-	(String::new(), None)
-}
-
 fn avatar_hash(user: &model::User) -> Option<String> {
 	user.avatar
 		.as_deref()
@@ -245,7 +259,28 @@ fn bounded_name(value: &str) -> String {
 	value.chars().take(NAME_CHARS).collect()
 }
 
-/// A voice change a client asked for; the UI thread applies it. Volume is a percent, 0–200.
+/// A voice change a client asked for, stamped with the view it was accepted against.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Change {
+	scope: Scope,
+	pub command: Command,
+}
+
+impl Change {
+	/// The queue is drained on a later frame. A change must not land in the next call, in
+	/// another session, or on someone who has left since the client asked.
+	pub fn still_applies(&self, state: &State) -> bool {
+		signed_in(state).is_some()
+			&& self.scope == Scope::of(state)
+			&& match self.command {
+				Command::SelfVoice { .. } => true,
+				Command::User { id, .. } => active_call(state)
+					.is_some_and(|call| call.participants.iter().any(|person| person.user.0 == id)),
+			}
+	}
+}
+
+/// What a [`Change`] does; the UI thread applies it. Volume is a percent, 0–200.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
 	SelfVoice {
@@ -425,7 +460,7 @@ impl Input {
 struct Shared {
 	enabled: watch::Receiver<bool>,
 	snapshots: watch::Receiver<Arc<Snapshot>>,
-	commands: mpsc::Sender<Command>,
+	commands: mpsc::Sender<Change>,
 	wake: Wake,
 }
 
@@ -663,7 +698,11 @@ fn call(request: &Value, state: &Snapshot, shared: &Shared) -> Result<(), &'stat
 		}
 		Command::User { id, volume, mute }
 	};
-	match shared.commands.try_send(command) {
+	let change = Change {
+		scope: state.scope,
+		command,
+	};
+	match shared.commands.try_send(change) {
 		Ok(()) => {
 			(shared.wake)();
 			Ok(())
@@ -716,47 +755,132 @@ impl Drop for Seat {
 	}
 }
 
-/// The saved key, or a new one. `false` means it could not be saved and lasts for this run.
-async fn stored_key(store: bool) -> (Key, bool) {
-	if !store {
-		return (fresh_key(), false);
-	}
-	tokio::task::spawn_blocking(|| match platform::local_api_key::load() {
-		Ok(Some(key)) => (Arc::new(key), true),
-		Ok(None) => {
-			let key = fresh_key();
-			let saved = platform::local_api_key::save(&key).is_ok();
-			(key, saved)
-		}
-		// A store that cannot be read is left as it is.
-		Err(_) => (fresh_key(), false),
-	})
-	.await
-	.unwrap_or_else(|_| (fresh_key(), false))
+/// Where the key is kept between runs: the OS credential store, or a stand-in in tests.
+/// Every call is bounded by the implementation, so a stalled provider cannot hold the
+/// listener or the app's exit.
+trait KeyStore: Send + Sync + 'static {
+	fn load(
+		&self,
+	) -> impl Future<Output = Result<Option<Zeroizing<String>>, CredentialError>> + Send;
+	fn save(&self, key: &str) -> impl Future<Output = Result<(), CredentialError>> + Send;
+	fn forget(&self) -> impl Future<Output = Result<(), CredentialError>> + Send;
 }
 
-async fn replaced_key(store: bool) -> (Key, bool) {
-	let key = fresh_key();
-	if !store {
-		return (key, false);
+struct OsStore;
+
+impl KeyStore for OsStore {
+	async fn load(&self) -> Result<Option<Zeroizing<String>>, CredentialError> {
+		platform::local_api_key::load().await
 	}
-	let saving = key.clone();
-	let saved = tokio::task::spawn_blocking(move || {
-		let saved = platform::local_api_key::save(&saving).is_ok();
-		if !saved {
-			// The key being replaced must not come back on the next launch.
-			let _ = platform::local_api_key::forget();
+	async fn save(&self, key: &str) -> Result<(), CredentialError> {
+		platform::local_api_key::save(key).await
+	}
+	async fn forget(&self) -> Result<(), CredentialError> {
+		platform::local_api_key::forget().await
+	}
+}
+
+/// The key in force and what the credential store is known to hold. It outlives the
+/// listener, so switching the API off and on never changes a key that could not be saved.
+struct Keys<S> {
+	/// `None` for the fixture, which never touches the credential store.
+	store: Option<S>,
+	key: Option<Key>,
+	/// The store holds exactly `key`.
+	saved: bool,
+	/// The store may still hold a key the owner reset. It is never loaded, and is replaced
+	/// or deleted at the next chance.
+	revoked: bool,
+}
+
+impl<S: KeyStore> Keys<S> {
+	fn new(store: Option<S>) -> Self {
+		Self {
+			store,
+			key: None,
+			saved: false,
+			revoked: false,
 		}
-		saved
-	})
-	.await
-	.unwrap_or(false);
-	(key, saved)
+	}
+
+	fn status(&self) -> LocalApiKey {
+		if self.saved {
+			LocalApiKey::Saved
+		} else if self.revoked {
+			LocalApiKey::Revoked
+		} else {
+			LocalApiKey::SessionOnly
+		}
+	}
+
+	/// The key to serve with: the one already in force, else the saved one, else a new one.
+	/// `revoked` is the owner's saved record that an earlier reset never reached the store.
+	async fn open(&mut self, revoked: bool) -> Key {
+		self.revoked |= revoked && self.store.is_some();
+		if let Some(key) = self.key.clone() {
+			if self.revoked {
+				self.persist().await;
+			}
+			return key;
+		}
+		if let Some(store) = &self.store
+			&& !self.revoked
+		{
+			match store.load().await {
+				Ok(Some(key)) => {
+					self.saved = true;
+					return self.key.insert(Arc::new(key)).clone();
+				}
+				Ok(None) => {}
+				// A store that cannot be read is left as it is; this run uses a key of its own.
+				Err(_) => return self.key.insert(fresh_key()).clone(),
+			}
+		}
+		let key = self.key.insert(fresh_key()).clone();
+		self.persist().await;
+		key
+	}
+
+	/// Puts a new key in force at once. Whatever the store holds is revoked from here on,
+	/// until [`Self::persist`] replaces or removes it.
+	fn replace(&mut self) -> Key {
+		self.saved = false;
+		self.revoked = self.store.is_some();
+		self.key.insert(fresh_key()).clone()
+	}
+
+	/// Saves the key in force, or failing that removes the key it replaced. If the store
+	/// takes neither, its key stays revoked: never loaded, and retried later.
+	async fn persist(&mut self) {
+		let (Some(store), Some(key)) = (&self.store, &self.key) else {
+			return;
+		};
+		if store.save(key).await.is_ok() {
+			self.saved = true;
+			self.revoked = false;
+		} else if self.revoked && store.forget().await.is_ok() {
+			self.revoked = false;
+		}
+	}
+}
+
+/// Waits for `work` unless the owner switches the API off first, so a slow credential
+/// store never delays turning it off.
+async fn until_off<T>(
+	enabled: &mut watch::Receiver<bool>,
+	work: impl Future<Output = T>,
+) -> Option<T> {
+	tokio::select! {
+		done = work => Some(done),
+		_ = enabled.wait_for(|enabled| !*enabled) => None,
+	}
 }
 
 /// The listener's side of the channels [`LocalApi`] holds.
 struct Link {
 	enabled: watch::Receiver<bool>,
+	/// The owner's saved record that a key reset never reached the credential store.
+	revoked: watch::Receiver<bool>,
 	reset: mpsc::Receiver<()>,
 	status: watch::Sender<LocalApiStatus>,
 	key: watch::Sender<Option<Key>>,
@@ -778,10 +902,11 @@ impl Link {
 	}
 }
 
-async fn supervise(endpoint: String, store: bool, mut link: Link) {
-	// Off: nothing is bound and no key is held.
+async fn supervise<S: KeyStore>(endpoint: String, store: Option<S>, mut link: Link) {
+	let mut keys = Keys::new(store);
+	// Off: nothing is bound. The key stays in memory so switching on again serves the same one.
 	while link.enabled.wait_for(|enabled| *enabled).await.is_ok() {
-		let running = listen(&endpoint, store, &mut link).await;
+		let running = listen(&endpoint, &mut keys, &mut link).await;
 		link.key.send_replace(None);
 		link.report(LocalApiStatus::default());
 		if !running {
@@ -798,14 +923,17 @@ async fn accept(listener: &mut Option<Listener>) -> io::Result<Stream> {
 }
 
 /// Serves until the owner turns the API off. Returns false once the app itself is closing.
-async fn listen(endpoint: &str, store: bool, link: &mut Link) -> bool {
+async fn listen<S: KeyStore>(endpoint: &str, keys: &mut Keys<S>, link: &mut Link) -> bool {
 	let address = private_endpoint(endpoint).unwrap_or_default();
 	link.report(LocalApiStatus {
 		state: LocalApiState::Starting,
 		endpoint: address.clone(),
 		..LocalApiStatus::default()
 	});
-	let (mut key, mut saved) = stored_key(store).await;
+	let revoked = *link.revoked.borrow();
+	let Some(mut key) = until_off(&mut link.enabled, keys.open(revoked)).await else {
+		return true;
+	};
 	link.key.send_replace(Some(key.clone()));
 	let roster = Arc::new(Roster::default());
 	let mut clients = JoinSet::new();
@@ -829,11 +957,7 @@ async fn listen(endpoint: &str, store: bool, link: &mut Link) -> bool {
 			},
 			endpoint: address.clone(),
 			clients: roster.names(),
-			key: if saved {
-				LocalApiKey::Saved
-			} else {
-				LocalApiKey::SessionOnly
-			},
+			key: keys.status(),
 		});
 		tokio::select! {
 			changed = link.enabled.changed() => {
@@ -845,10 +969,17 @@ async fn listen(endpoint: &str, store: bool, link: &mut Link) -> bool {
 				}
 			}
 			Some(()) = link.reset.recv() => {
-				(key, saved) = replaced_key(store).await;
+				key = keys.replace();
 				link.key.send_replace(Some(key.clone()));
-				// Every connected app proved the old key; each must return with the new one.
+				// Every connected app proved the old key. They go before the credential store
+				// is touched, so a slow provider cannot keep them connected.
 				clients.shutdown().await;
+				if until_off(&mut link.enabled, keys.persist()).await.is_none() {
+					break;
+				}
+				if keys.status() == LocalApiKey::Revoked {
+					diagnostics::record(Category::App, Level::Warn, "local api key reset not stored");
+				}
 			}
 			accepted = accept(&mut listener), if clients.len() < MAX_CLIENTS => match accepted {
 				Ok(stream) => {
@@ -873,8 +1004,9 @@ async fn listen(endpoint: &str, store: bool, link: &mut Link) -> bool {
 /// The UI thread's handle. Dropping it closes the endpoint and every connection.
 pub struct LocalApi {
 	enabled: watch::Sender<bool>,
+	revoked: watch::Sender<bool>,
 	snapshot: watch::Sender<Arc<Snapshot>>,
-	commands: mpsc::Receiver<Command>,
+	commands: mpsc::Receiver<Change>,
 	reset: mpsc::Sender<()>,
 	status: watch::Receiver<LocalApiStatus>,
 	key: watch::Receiver<Option<Key>>,
@@ -883,22 +1015,24 @@ pub struct LocalApi {
 
 impl LocalApi {
 	/// Starts idle: nothing is bound until [`Self::publish`] is told the owner enabled it.
-	/// `store` keeps the key in the OS credential store; without it the key lasts one run.
+	/// `store` keeps the key in the OS credential store; without it the key lasts until the
+	/// app closes.
 	pub fn start(
 		handle: &tokio::runtime::Handle,
 		store: bool,
 		wake: impl Fn() + Send + Sync + 'static,
 	) -> Self {
-		Self::spawn(handle, ENDPOINT.into(), store, wake)
+		Self::spawn(handle, ENDPOINT.into(), store.then_some(OsStore), wake)
 	}
 
-	fn spawn(
+	fn spawn<S: KeyStore>(
 		handle: &tokio::runtime::Handle,
 		endpoint: String,
-		store: bool,
+		store: Option<S>,
 		wake: impl Fn() + Send + Sync + 'static,
 	) -> Self {
 		let (enabled, enabled_rx) = watch::channel(false);
+		let (revoked, revoked_rx) = watch::channel(false);
 		let (snapshot, snapshots) = watch::channel(Arc::new(Snapshot::default()));
 		let (commands_tx, commands) = mpsc::channel(32);
 		let (reset, reset_rx) = mpsc::channel(1);
@@ -906,6 +1040,7 @@ impl LocalApi {
 		let (key_tx, key) = watch::channel(None);
 		let link = Link {
 			enabled: enabled_rx.clone(),
+			revoked: revoked_rx,
 			reset: reset_rx,
 			status: status_tx,
 			key: key_tx,
@@ -918,6 +1053,7 @@ impl LocalApi {
 		};
 		Self {
 			enabled,
+			revoked,
 			snapshot,
 			commands,
 			reset,
@@ -929,7 +1065,11 @@ impl LocalApi {
 
 	/// Follows the owner's switch. While it is on, `capture` supplies the newest view and
 	/// clients hear about it only if it changed; while it is off, nothing is captured.
-	pub fn publish(&self, enabled: bool, capture: impl FnOnce() -> Snapshot) {
+	/// `key_revoked` is the saved record that a key reset never reached the credential store.
+	pub fn publish(&self, enabled: bool, key_revoked: bool, capture: impl FnOnce() -> Snapshot) {
+		// Before the switch, so the listener sees it when the switch wakes it.
+		self.revoked
+			.send_if_modified(|current| std::mem::replace(current, key_revoked) != key_revoked);
 		let switched = self
 			.enabled
 			.send_if_modified(|current| std::mem::replace(current, enabled) != enabled);
@@ -949,8 +1089,8 @@ impl LocalApi {
 		});
 	}
 
-	/// The next voice change a client asked for.
-	pub fn poll(&mut self) -> Option<Command> {
+	/// The next voice change a client asked for. Check [`Change::still_applies`] first.
+	pub fn poll(&mut self) -> Option<Change> {
 		self.commands.try_recv().ok()
 	}
 
@@ -978,8 +1118,9 @@ impl Drop for LocalApi {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use client_core::voice::{Call, RosterEntry};
+	use client_core::voice::RosterEntry;
 	use model::{AccountKind, ClientPlatforms, Member as RosterMember, User};
+	use std::sync::atomic::{AtomicBool, Ordering};
 	use std::time::Instant;
 	use tokio::time::timeout;
 
@@ -1021,7 +1162,7 @@ mod tests {
 		state.user = Some(person(10, "Mina"));
 		state.voice.active = Some(Call {
 			channel: Id(50),
-			guild: None,
+			guild: Some(Id(7)),
 			connected_at: Some(Instant::now()),
 			channel_started_at: None,
 			server_muted: false,
@@ -1119,7 +1260,7 @@ mod tests {
 
 	struct Rig {
 		snapshots: watch::Sender<Arc<Snapshot>>,
-		commands: mpsc::Receiver<Command>,
+		commands: mpsc::Receiver<Change>,
 		shared: Shared,
 	}
 
@@ -1285,7 +1426,7 @@ mod tests {
 		rig.snapshots.send_replace(Arc::new(allowed));
 		assert_eq!(ask("voice.set_self", json!({ "mute": true })).await, "ok");
 		assert_eq!(
-			rig.commands.try_recv().unwrap(),
+			rig.commands.try_recv().unwrap().command,
 			Command::SelfVoice {
 				mute: Some(true),
 				deaf: None
@@ -1295,7 +1436,7 @@ mod tests {
 		let loud = json!({ "user_id": "20", "volume": 250.4 });
 		assert_eq!(ask("voice.set_user", loud).await, "ok");
 		assert_eq!(
-			rig.commands.try_recv().unwrap(),
+			rig.commands.try_recv().unwrap().command,
 			Command::User {
 				id: 20,
 				volume: Some(200),
@@ -1339,6 +1480,25 @@ mod tests {
 	#[test]
 	fn capture_shows_the_call_and_nothing_once_it_fails_or_the_owner_signs_out() {
 		let (mut state, mut ui) = signed_in();
+		// Ada also has a roster entry in another server, under another nickname, and this
+		// call's own entry has no member yet: her name comes from this server's member list.
+		let mut elsewhere = state.voice.roster[0].clone();
+		(elsewhere.guild, elsewhere.channel) = (Id(99), Id(77));
+		elsewhere.member.as_mut().unwrap().nick = Some("Elsewhere".into());
+		let listed = state.voice.roster[0].member.take().unwrap();
+		state.voice.roster.insert(0, elsewhere);
+		state.members = Some(model::MemberList {
+			guild: Some(Id(7)),
+			channel: Id(50),
+			request: 0,
+			start: 0,
+			slots: vec![Some(model::MemberSlot::Person(listed))],
+			total: 1,
+			lazy: false,
+			freshness: model::Freshness::Fresh,
+			groups: Vec::new(),
+			ranges: Vec::new(),
+		});
 		ui.apply_local_api_user(Id(20), Some(150), Some(true));
 		ui.voice_speaking.push(Id(20));
 		let snapshot = Snapshot::capture(&state, &ui);
@@ -1354,6 +1514,14 @@ mod tests {
 		);
 		assert!(ada.self_mute && ada.speaking);
 
+		// A private call reads no server's roster or member list, so no nickname follows her
+		// into it. Nothing else names her here, so she has no name yet.
+		let call = state.voice.active.as_mut().unwrap();
+		(call.guild, call.channel) = (None, Id(60));
+		let private = Snapshot::capture(&state, &ui);
+		assert_eq!(private.members[1].name, "");
+		assert_eq!(private.members[0].name, "Mina");
+
 		state.voice.active.as_mut().unwrap().phase = Phase::Failed;
 		let failed = Snapshot::capture(&state, &ui);
 		assert_eq!(failed.channel_id, 0);
@@ -1361,6 +1529,112 @@ mod tests {
 
 		state.user = None;
 		assert_eq!(Snapshot::capture(&state, &ui), Snapshot::default());
+	}
+
+	#[test]
+	fn a_queued_change_is_dropped_once_the_call_or_the_person_is_gone() {
+		let (mut state, ui) = signed_in();
+		let scope = Snapshot::capture(&state, &ui).scope;
+		let unmute = Change {
+			scope,
+			command: Command::SelfVoice {
+				mute: Some(false),
+				deaf: None,
+			},
+		};
+		let ada = Change {
+			scope,
+			command: Command::User {
+				id: 20,
+				volume: Some(150),
+				mute: None,
+			},
+		};
+		assert!(unmute.still_applies(&state) && ada.still_applies(&state));
+
+		// Ada leaves: her change is dropped, the owner's own still applies.
+		state.voice.active.as_mut().unwrap().participants.pop();
+		assert!(unmute.still_applies(&state) && !ada.still_applies(&state));
+
+		// A new call, even in the same channel, is not the call the client saw.
+		state.voice.active.as_mut().unwrap().request = 2;
+		assert!(!unmute.still_applies(&state));
+		state.voice.active.as_mut().unwrap().request = 1;
+		assert!(unmute.still_applies(&state));
+
+		// Neither is another session, nor no call at all.
+		state.generation += 1;
+		assert!(!unmute.still_applies(&state));
+		state.generation -= 1;
+		state.voice.active = None;
+		assert!(!unmute.still_applies(&state));
+	}
+
+	/// A credential store that can be made to refuse writes, deletions or both.
+	#[derive(Default)]
+	struct Vault {
+		entry: Mutex<Option<String>>,
+		refuse_save: AtomicBool,
+		refuse_forget: AtomicBool,
+	}
+
+	impl KeyStore for Arc<Vault> {
+		async fn load(&self) -> Result<Option<Zeroizing<String>>, CredentialError> {
+			Ok(self.entry.lock().unwrap().clone().map(Zeroizing::new))
+		}
+		async fn save(&self, key: &str) -> Result<(), CredentialError> {
+			if self.refuse_save.load(Ordering::SeqCst) {
+				return Err(CredentialError::Unavailable);
+			}
+			*self.entry.lock().unwrap() = Some(key.to_owned());
+			Ok(())
+		}
+		async fn forget(&self) -> Result<(), CredentialError> {
+			if self.refuse_forget.load(Ordering::SeqCst) {
+				return Err(CredentialError::TimedOut);
+			}
+			*self.entry.lock().unwrap() = None;
+			Ok(())
+		}
+	}
+
+	#[tokio::test]
+	async fn a_reset_the_store_refuses_is_never_undone_by_the_saved_key() {
+		let vault = Arc::new(Vault::default());
+		*vault.entry.lock().unwrap() = Some(KEY.into());
+		let saved = |vault: &Vault| vault.entry.lock().unwrap().clone();
+		let mut keys = Keys::new(Some(vault.clone()));
+		assert_eq!(keys.open(false).await.as_str(), KEY);
+		assert_eq!(keys.status(), LocalApiKey::Saved);
+
+		// The store takes neither the replacement nor the deletion.
+		vault.refuse_save.store(true, Ordering::SeqCst);
+		vault.refuse_forget.store(true, Ordering::SeqCst);
+		let replaced = keys.replace();
+		keys.persist().await;
+		assert_ne!(replaced.as_str(), KEY);
+		assert_eq!(keys.status(), LocalApiKey::Revoked);
+		// Switching off and on keeps the replacement; the saved key is not read back.
+		assert_eq!(keys.open(false).await, replaced);
+		assert_eq!(saved(&vault).as_deref(), Some(KEY));
+
+		// The next launch knows only the owner's record of the failed reset. The saved key
+		// is still not loaded, and is replaced now that the store works again.
+		vault.refuse_save.store(false, Ordering::SeqCst);
+		let mut next = Keys::new(Some(vault.clone()));
+		let key = next.open(true).await;
+		assert_ne!(key.as_str(), KEY);
+		assert_eq!(next.status(), LocalApiKey::Saved);
+		assert_eq!(saved(&vault).as_deref(), Some(key.as_str()));
+
+		// A store that refuses the replacement but allows the deletion is left empty: the key
+		// is unsaved, and nothing revoked remains to come back.
+		vault.refuse_save.store(true, Ordering::SeqCst);
+		vault.refuse_forget.store(false, Ordering::SeqCst);
+		next.replace();
+		next.persist().await;
+		assert_eq!(next.status(), LocalApiKey::SessionOnly);
+		assert_eq!(saved(&vault), None);
 	}
 
 	#[test]
@@ -1382,6 +1656,11 @@ mod tests {
 		assert_eq!(
 			ui.apply_local_api_self_voice(None, Some(false)),
 			(true, false)
+		);
+		// Asking for both at once keeps the deafen it asked for.
+		assert_eq!(
+			ui.apply_local_api_self_voice(Some(false), Some(true)),
+			(false, true)
 		);
 	}
 
@@ -1412,13 +1691,14 @@ mod tests {
 			getrandom::u64().unwrap()
 		);
 		let endpoint = private_endpoint(&name).unwrap();
-		let api = LocalApi::spawn(&tokio::runtime::Handle::current(), name, false, || {});
+		let runtime = tokio::runtime::Handle::current();
+		let api = LocalApi::spawn(&runtime, name, None::<OsStore>, || {});
 		let mut status = api.status.clone();
 		let mut keys = api.key.clone();
 		// Off by default: nothing is bound until the owner enables it.
 		assert!(open(&endpoint).await.is_err());
 
-		api.publish(true, room);
+		api.publish(true, false, room);
 		timeout(
 			WAIT,
 			status.wait_for(|status| status.state == LocalApiState::Listening),
@@ -1464,7 +1744,7 @@ mod tests {
 		);
 
 		// Switching off hangs up; a subscriber is not told the owner signed out first.
-		api.publish(false, room);
+		api.publish(false, false, room);
 		closed(&mut client).await;
 		timeout(
 			WAIT,
@@ -1482,5 +1762,17 @@ mod tests {
 		})
 		.await
 		.expect("the endpoint is gone");
+
+		// Switching back on serves the same key: one that was never saved lasts until the
+		// app closes, not until the next toggle.
+		api.publish(true, false, room);
+		timeout(
+			WAIT,
+			status.wait_for(|status| status.state == LocalApiState::Listening),
+		)
+		.await
+		.expect("the endpoint binds again")
+		.unwrap();
+		assert_eq!(api.key().unwrap(), second);
 	}
 }

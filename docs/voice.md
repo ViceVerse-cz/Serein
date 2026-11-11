@@ -43,10 +43,11 @@ At most 64 custom levels are retained; a full table replaces its first retained 
 Nothing is sent to Discord. Boosting may clip; physical listening and
 native slider interaction remain unverified.
 
-With **Settings → Data & Privacy → Local API** enabled and **Allow apps to control voice**
-on (both off by default), a program holding the owner's access key can read the call's members, speaking
-and mute state and set the same per-person levels and local mutes, plus this client's
-mute and deafen, for people in the current call only. Mute and deafen follow Discord's
+With **Settings → Data & Privacy → Local API** enabled (off by default), a program
+holding the owner's access key can read the call's members, speaking and mute state.
+Only if **Allow apps to control voice** is also on (a separate switch, off by default)
+can it set the same per-person levels and local mutes, plus this client's mute and
+deafen, for people in the current call only. Mute and deafen follow Discord's
 rules: deafened reads as muted, and unmuting while deafened also undeafens. It cannot
 start or leave a call or open a microphone. See [the local API](local-api.md).
 

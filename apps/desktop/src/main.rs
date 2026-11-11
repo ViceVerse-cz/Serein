@@ -4700,15 +4700,20 @@ impl Desktop {
 	}
 	/// Applies the voice changes local API clients asked for, and the owner's key actions.
 	fn drain_local_api(&mut self, ctx: &egui::Context) {
+		let mut applied = false;
 		for _ in 0..32 {
-			let Some(command) = self.local_api.poll() else {
+			let Some(change) = self.local_api.poll() else {
 				break;
 			};
-			// A change queued just before the owner withdrew control is dropped.
-			if !(self.messaging.local_api && self.messaging.local_api_control) {
+			// A change queued just before the owner withdrew control, left the call or
+			// switched account is dropped, as is one for a person who has since left.
+			if !(self.messaging.local_api && self.messaging.local_api_control)
+				|| !change.still_applies(&self.state)
+			{
 				continue;
 			}
-			match command {
+			applied = true;
+			match change.command {
 				local_api::Command::SelfVoice { mute, deaf } => {
 					let (muted, deafened) = self.messaging.apply_local_api_self_voice(mute, deaf);
 					if let Some(command) = self.state.set_call_mute(muted, deafened)
@@ -4724,6 +4729,11 @@ impl Desktop {
 				}
 			}
 		}
+		if applied {
+			// Preferences are otherwise saved by the UI pass, which a window hidden in the
+			// tray does not run; these changes arrive without anyone looking at the window.
+			self.save_app_preferences();
+		}
 		match self.messaging.local_api_request.take() {
 			Some(ui::LocalApiRequest::CopyKey) => {
 				if let Some(key) = self.local_api.key() {
@@ -4736,12 +4746,26 @@ impl Desktop {
 	}
 	/// Hands local API clients the newest view. Nothing is captured while the API is off.
 	fn publish_local_api(&mut self) {
-		self.local_api.publish(self.messaging.local_api, || {
-			local_api::Snapshot::capture(&self.state, &self.messaging)
-		});
+		self.local_api.publish(
+			self.messaging.local_api,
+			self.messaging.local_api_key_revoked,
+			|| local_api::Snapshot::capture(&self.state, &self.messaging),
+		);
 		let status = self.local_api.status();
 		if *status != self.messaging.local_api_status {
 			self.messaging.local_api_status = status.clone();
+		}
+		// Only the listener knows whether a key reset reached the credential store; the
+		// device preference remembers that across launches.
+		let revoked = match status.key {
+			ui::LocalApiKey::Pending => self.messaging.local_api_key_revoked,
+			key => key == ui::LocalApiKey::Revoked,
+		};
+		drop(status);
+		if revoked != self.messaging.local_api_key_revoked {
+			self.messaging.local_api_key_revoked = revoked;
+			// Saved here, not left to the UI pass: a hidden window does not run one.
+			self.save_app_preferences();
 		}
 	}
 	fn poll_voice(&mut self, ctx: &egui::Context) {

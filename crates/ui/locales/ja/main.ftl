@@ -4906,6 +4906,8 @@ settings-local-api-key-description = アプリはこのキーを送信せずに�
 # Context: local_api_settings
 settings-local-api-key-session = このキーはシステムのキーリングに保存されていないため、Serein を閉じるまでしか有効ではありません。リセットするとすべてのアプリが切断されます。
 # Context: local_api_settings
+settings-local-api-key-revoked = システムのキーリングを更新できなかったため、そこに保存されているキーは無視され、このキーは Serein を閉じるまでしか有効ではありません。再試行するには、API をオフにしてからオンにするか、もう一度キーをリセットしてください。
+# Context: local_api_settings
 settings-local-api-copy-key = キーをコピー
 # Context: local_api_settings
 settings-local-api-reset-key = キーをリセット

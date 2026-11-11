@@ -87,6 +87,7 @@ impl Settings {
 			plaintext_login: ui.plaintext_login,
 			local_api: ui.local_api,
 			local_api_control: ui.local_api_control,
+			local_api_key_revoked: ui.local_api_key_revoked,
 			diagnostics_log: ui.diagnostics_log,
 			setup_done: !ui.setup_pending,
 		};
@@ -144,6 +145,7 @@ impl Settings {
 		ui.plaintext_login = value.plaintext_login;
 		ui.local_api = value.local_api;
 		ui.local_api_control = value.local_api_control;
+		ui.local_api_key_revoked = value.local_api_key_revoked;
 		ui.diagnostics_log = value.diagnostics_log;
 		// Unreadable preferences fall back to defaults; never nag with setup on every launch.
 		ui.setup_pending = self.loaded && !value.setup_done;
