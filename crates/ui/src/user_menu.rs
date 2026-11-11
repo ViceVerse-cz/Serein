@@ -172,17 +172,19 @@ pub(super) fn contents(
 	action: &mut Option<Action>,
 	view: Option<ShortcutView<'_>>,
 ) {
-	contents_in(ui, state, user, profile, action, view, None);
+	contents_in(ui, state, user, place, profile, action, view, None);
 }
 
 /// [`contents`] for a menu opened outside the main window's selection.
 ///
 /// `channel` is the channel the menu was opened from. Roles and mentions then follow that
 /// channel's server instead of whichever one the main window happens to show.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn contents_in(
 	ui: &mut egui::Ui,
 	state: &State,
 	user: &User,
+	place: Place,
 	profile: &mut crate::profiles::ProfileSession,
 	action: &mut Option<Action>,
 	view: Option<ShortcutView<'_>>,

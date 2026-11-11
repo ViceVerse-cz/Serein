@@ -5587,7 +5587,7 @@ impl Desktop {
 		let Some(geometry) = self.popout_geometry else {
 			return Vec::new();
 		};
-		let id = egui::ViewportId::from_hash_of("serein-voice-popout");
+		let id = ui::popout_viewport_id();
 		let name = self
 			.state
 			.channel(channel)

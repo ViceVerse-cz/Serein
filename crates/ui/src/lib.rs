@@ -142,7 +142,7 @@ use client_core::{Command, MAX_DRAFT_BYTES, NavStep, State};
 use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
-pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING};
+pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING, popout_viewport_id};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {
@@ -5118,6 +5118,10 @@ impl MessagingUi {
 		);
 		// The call window never outlives its call, and chat returns once another opens here.
 		self.sync_voice_popout(state);
+		// The call window's input bypasses `raw_input_hook`, so its own filter must know
+		// whether a binding owns the middle button before that window's pass begins.
+		voice::install_middle_button(ui.ctx());
+		voice::set_middle_claimed(ui.ctx(), self.button_claimed(egui::PointerButton::Middle));
 		self.avatars.cosmetics = self.cosmetics;
 		name_styles::set_enabled(self.cosmetics.name_styles);
 		role_names::set_gradients(!self.cosmetics.solid_names);
@@ -6243,8 +6247,11 @@ impl MessagingUi {
 		if self.setup_pending {
 			self.show_setup(&ctx);
 		}
-		self.scroll.clear_if_unbound(&ctx);
-		self.scroll.paint(&ctx);
+		// While the call window draws the chat, it owns the shared autoscroll session too.
+		if !self.voice_popout_owns_chat(state) {
+			self.scroll.clear_if_unbound(&ctx);
+			self.scroll.paint(&ctx);
+		}
 		// Clear the title bar and channel header so a notice never sits on the chrome.
 		self.toasts
 			.show(&ctx, if self.shows_title_bar() { 96.0 } else { 60.0 });

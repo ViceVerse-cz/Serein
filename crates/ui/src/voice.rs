@@ -16,6 +16,80 @@ use model::{
 /// Local mutes share the 64 per-user volume slots sent to the mixer.
 const MAX_USER_MUTES: usize = 64;
 
+/// The call window's viewport. The desktop creates it with this id.
+pub fn popout_viewport_id() -> egui::ViewportId {
+	egui::ViewportId::from_hash_of("serein-voice-popout")
+}
+
+fn middle_claimed_id() -> egui::Id {
+	egui::Id::unique("voice-popout-middle-claimed")
+}
+
+fn middle_claimed(ctx: &egui::Context) -> bool {
+	ctx.data(|data| data.get_temp::<bool>(middle_claimed_id()).unwrap_or(false))
+}
+
+/// Publish whether a binding claims the middle button, so the call window's filter leaves it
+/// for the binding instead of starting autoscroll.
+pub(crate) fn set_middle_claimed(ctx: &egui::Context, claimed: bool) {
+	ctx.data_mut(|data| data.insert_temp(middle_claimed_id(), claimed));
+}
+
+/// Middle-button input for the call window, which eframe never gives to `App::raw_input_hook`:
+/// immediate viewports are drawn inside the parent's pass. Like the main window's host filter,
+/// this keeps the button out of egui's pointer state so it cannot start a text selection.
+#[derive(Default)]
+pub(crate) struct MiddleButton {
+	middle: crate::scroll::Middle,
+	down: bool,
+}
+
+impl egui::Plugin for MiddleButton {
+	fn debug_name(&self) -> &'static str {
+		"Call window middle button"
+	}
+
+	fn input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
+		if input.viewport_id != popout_viewport_id() || middle_claimed(ctx) {
+			self.middle = Default::default();
+			return;
+		}
+		let mut middle = crate::scroll::Middle::default();
+		input.events.retain(|event| match event {
+			egui::Event::MiddleClickPaste { .. } => false,
+			egui::Event::PointerButton {
+				pos,
+				button: egui::PointerButton::Middle,
+				pressed,
+				..
+			} => {
+				if *pressed {
+					middle.pressed.get_or_insert(*pos);
+				}
+				self.down = *pressed;
+				// Releases stay, like the main window's filter, so egui cannot hold a button
+				// whose claim changed while it was down.
+				!*pressed
+			}
+			_ => true,
+		});
+		middle.down = self.down;
+		self.middle = middle;
+	}
+}
+
+/// Register the call window's middle-button filter; adding the same type twice is ignored.
+pub(crate) fn install_middle_button(ctx: &egui::Context) {
+	if ctx.plugin_opt::<MiddleButton>().is_none() {
+		ctx.add_plugin(MiddleButton::default());
+	}
+}
+
+fn popout_middle(ctx: &egui::Context) -> crate::scroll::Middle {
+	ctx.plugin_opt::<MiddleButton>()
+		.map_or_default(|plugin| plugin.lock().middle)
+}
+
 pub(super) struct VoiceDrag(pub Id, pub Id, pub Id);
 
 pub(super) struct CallSwitch {
@@ -157,6 +231,7 @@ impl MessagingUi {
 	/// The call window's content: the stage and, when toggled on, the call channel's chat.
 	pub fn show_voice_popout(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		let mut commands = Vec::new();
+		install_middle_button(ui.ctx());
 		self.sync_voice_popout(state);
 		let Some(channel) = self.voice_popout else {
 			return commands;
@@ -188,11 +263,14 @@ impl MessagingUi {
 		{
 			// Opening the original here still belongs to this window's link confirmation.
 			self.claim_popout_links(&links_before);
+			// The chat is not drawn this frame, so this window does not bind the session.
+			self.scroll.clear_if_unbound(ui.ctx());
 			ui.painter()
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;
 		}
 		if chat {
+			self.middle_button(popout_middle(ui.ctx()));
 			let ctx = ui.ctx().clone();
 			self.poll_creator_overlay(&ctx, state, &mut commands);
 			let background = design::window_palette(ui);
@@ -271,6 +349,13 @@ impl MessagingUi {
 		{
 			self.voice_popout_fullscreen = false;
 			self.voice_popout_fullscreen_request = Some(false);
+		}
+		// This window draws the chat, so it also finishes the shared autoscroll session and
+		// draws its copy menu; the docked pass leaves both alone while the call window owns chat.
+		if chat {
+			crate::select::show_menu(ui.ctx());
+			self.scroll.clear_if_unbound(ui.ctx());
+			self.scroll.paint(ui.ctx());
 		}
 		self.voice_popout_toasts.show(ui.ctx(), 12.0);
 		commands
@@ -5250,6 +5335,30 @@ fn device_combo(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn popout_middle_is_kept_out_of_egui_and_fed_to_autoscroll() {
+		let ctx = egui::Context::default();
+		let mut plugin = MiddleButton::default();
+		let pos = egui::pos2(10.0, 20.0);
+		let mut input = egui::RawInput {
+			viewport_id: popout_viewport_id(),
+			..Default::default()
+		};
+		input.events.push(egui::Event::PointerButton {
+			pos,
+			button: egui::PointerButton::Middle,
+			pressed: true,
+			modifiers: egui::Modifiers::NONE,
+		});
+		egui::Plugin::input_hook(&mut plugin, &ctx, &mut input);
+		assert!(
+			input.events.is_empty(),
+			"egui must not see the middle press"
+		);
+		assert_eq!(plugin.middle.pressed, Some(pos));
+		assert!(plugin.middle.down);
+	}
 
 	#[test]
 	fn explicit_join_audio_waits_for_call_switch_and_survives_teardown() {
