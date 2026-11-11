@@ -455,17 +455,23 @@ fn download(url: &str) -> Option<Vec<u8>> {
 		.build()
 		.ok()?;
 	runtime.block_on(async {
-		let client = reqwest::Client::builder()
-			.redirect(reqwest::redirect::Policy::none())
+		let client = wreq::Client::builder()
+			.no_proxy()
+			.redirect(wreq::redirect::Policy::none())
 			.timeout(Duration::from_secs(60))
 			.build()
 			.ok()?;
-		let mut response = client.get(url).send().await.ok()?;
-		if response.status() != reqwest::StatusCode::OK {
+		let response = client.get(url).send().await.ok()?;
+		if response.status() != wreq::StatusCode::OK {
 			return None;
 		}
 		let mut bytes = Vec::new();
-		while let Some(chunk) = response.chunk().await.ok()? {
+		let mut response_body = std::pin::pin!(response.bytes_stream());
+		while let Some(chunk) = futures_util::StreamExt::next(&mut response_body)
+			.await
+			.transpose()
+			.ok()?
+		{
 			bytes.extend_from_slice(&chunk);
 			if bytes.len() > MAX_DICTIONARY {
 				return None;
