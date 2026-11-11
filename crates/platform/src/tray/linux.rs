@@ -199,7 +199,8 @@ fn native_symbolic_icon_installed() -> bool {
 		{
 			dirs.push(home.join(".local/share"));
 		}
-		match std::env::var_os("XDG_DATA_DIRS") {
+		// XDG treats an empty XDG_DATA_DIRS like an unset one.
+		match std::env::var_os("XDG_DATA_DIRS").filter(|list| !list.is_empty()) {
 			Some(list) => {
 				dirs.extend(std::env::split_paths(&list).filter(|path| path.is_absolute()))
 			}
