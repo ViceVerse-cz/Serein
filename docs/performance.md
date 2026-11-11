@@ -4,6 +4,49 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Discord message toolbar and safe extension ports — November 8, 2026
+
+Baseline `21f8870b` and this branch were built with pinned Rust 1.98.1 and locked dependencies on
+Linux x86-64 (kernel 7.3.1-1-cachyos), Ryzen 9 9900X with 30 GiB RAM and an NVIDIA RTX 4070 using
+Vulkan. The host display was X11 at 3840×2160 with Xft.dpi 192. Package measurements use the standard
+voice-enabled `cargo xtask package --format dir` method on separate worktrees. The host has no `dpkg`,
+so the default `.deb` command failed for that external reason; the supported directory package was
+used for both revisions. Compression uses the same Python `tarfile` gzip method and sorted source order.
+
+| Metric / method | Baseline `21f8870b` | After this branch | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 95,117,576 B | 95,126,280 B | +8,704 B (+0.009%) |
+| Regular-file payload, 477 files each | 199,279,452 B | 199,298,284 B | +18,832 B (+0.009%) |
+| Compressed package (`tar.gz`) | 113,557,397 B | 113,566,452 B | +9,055 B (+0.008%) |
+
+The native `profile_preview` interactive fixture was built in release `--features demo` mode. The
+identical example source was copied into the baseline worktree solely to produce the same close-
+settings capture path; no baseline production code was edited. Baseline runs have no hover. Current
+runs add `--toolbar-hover=normal`, which injects pointer movement and `ModifiersChanged` through
+`RawInput` every frame. Both use `--demo --page=chat --interactive --close-settings` at 1120×760
+logical pixels and `chat_demo_state()` with no account, network, voice call or helper process.
+
+Three runs per revision alternated baseline/current order. Each run had a 15-second warmup followed
+by 20 one-second samples of `/proc/<pid>/stat` and `/proc/<pid>/status`. Reported CPU sums user and
+system ticks converted to a percentage of one logical core for the actual sample interval. Memory is
+resident-set size (VmRSS in KiB), with main and helper processes summed separately when present.
+No helpers existed, so combined equals main-process RSS. Peak uses each run's maximum; settled is
+its final sample. No cargo build or source edit ran during sampling.
+
+| Runtime metric, three runs | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Idle CPU, median | 9.396% of one core | 9.696% of one core | +0.300 percentage points (+3.19% relative) |
+| Peak combined RSS, maximum | 235,040 KiB | 234,244 KiB | −796 KiB (−0.34%) |
+| Settled combined RSS, median | 234,416 KiB | 233,768 KiB | −648 KiB (−0.28%) |
+
+Per-run values and package figures are retained in
+[the measurement record](pr-evidence/discord-message-toolbar/measurements.json), and both hover
+images and their reproduction commands are in
+[the capture guide](pr-evidence/discord-message-toolbar/README.md). The fixture intentionally
+represents missing-hover versus active-hover, so the CPU delta is not an isolated implementation
+regression estimate. Small memory differences are treated as noise, not an improvement. Frame time,
+startup latency and live Discord performance were not measured.
+
 ## High-resolution attachment sources — November 6, 2026
 
 Offline comparison against `77bdddae` on Ubuntu 24.04.5 x86-64, an Intel i5-1235U,
@@ -1355,6 +1398,43 @@ allocation limit) instead of up to the 500 MB upload limit plus a second copy.
 Standard no-default-features macOS packages built from both revisions: executable 68,509,584 B in
 both, installed app 74,547,919 B in both, `ditto` ZIP 48,179,547 vs 48,179,867 B (+320 B).
 
+## Native camera 15/30 fps selection (2026-11-08)
+
+Compared the upstream `21f8870` camera implementation (fixed 15 fps) with this PR's
+selectable-rate implementation using the same Logitech C270 at 640×480 on Nobara Linux 44
+x86-64. The host used Rust 1.98.1, GNOME SDK 51 and an AMD Radeon RX 9070 XT. Each camera
+run lasted eight seconds with a one-second warmup. The local probe counted frames and encoded
+outputs only; it did not save video or connect to a call.
+
+| Camera probe | Baseline | PR head | Change |
+| --- | ---: | ---: | ---: |
+| Selected 15 fps | 10.00 fps (68/69 encoded) | 14.86 fps (103/104 encoded) | +4.86 fps |
+| Selected 30 fps | Not available | 29.66 fps (208/208 encoded) | New mode |
+
+These are single local measurements, not sustained multi-run statistics or a guarantee of
+network delivery. The optional physical probe is `crates/discord-voice/examples/camera_fps_probe.rs`.
+Build it with:
+
+```sh
+cargo build --locked -p discord-voice -p platform --features winit/wayland --example camera_fps_probe
+```
+
+Then explicitly run `target/debug/examples/camera_fps_probe 15` and
+`target/debug/examples/camera_fps_probe 30` on a machine where `/dev/video0` is the camera to
+test. It starts local capture only, counts frames and encoded outputs, and saves or sends nothing.
+It needs direct access to the camera device; Flatpak's default sandbox does not provide it.
+
+Matching standard directory-format release packages were built separately from upstream `21f8870`
+and the PR with `cargo xtask package --format dir`, Rust 1.98.1, GNOME SDK 51 and x86-64:
+
+| Metric | Baseline | PR head | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 95,345,224 B | 95,346,760 B | +1,536 B |
+| Installed directory payload | 100,044,456 B | 100,045,992 B | +1,536 B |
+
+Compressed distribution size and camera CPU/RSS were not measured. The physical capture probe
+does not test Discord call signaling or remote presentation; those remain owner-controlled live checks.
+
 ## Camera continuity during Gateway resume (2026-10-29)
 
 Compared clean baseline `d93a8415406f7f36de5dc8b14e12ad0fc7134bb4` with runtime
@@ -1737,6 +1817,43 @@ larger than the renderer's maximum texture side are refused by the CPU fallback.
 FFmpeg transcode fallback still produces at most 1080p. No 4K playback CPU or memory
 measurement has been recorded yet.
 
+## Graphics API picker — November 6, 2026
+
+Baseline `354d033b31e89079e50c16684852fd2b039c225a` versus the picker implementation in
+this PR. Ubuntu 24.04 x86_64 in Docker, pinned Rust 1.98.1 and lockfile, unchanged
+standard voice-enabled fat-LTO release profile. Both `cargo xtask package` runs
+passed the DEB smoke checks: executable, metadata, ownership, contents and host
+shared-library closure. Workspace artifacts were cleared for the relevant build
+profile before switching source worktrees; third-party artifacts were reused.
+
+| Metric / method | Baseline | Picker | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 93,979,096 B | 94,000,216 B | +21,120 B (+0.022%) |
+| Installed regular files (245 files) | 98,678,328 B | 98,699,448 B | +21,120 B (+0.021%) |
+| Compressed DEB | 47,292,820 B | 47,296,900 B | +4,080 B (+0.009%) |
+
+Installed bytes sum regular files extracted from the unsigned DEB; they are not
+filesystem allocation or RAM. One release package was built per revision. These
+small byte changes establish no runtime performance improvement.
+
+Supplementary native X11/Xvfb samples use **debug demo builds**, not the standard
+release binaries. Intel Core i5-1235U, 30 GiB visible RAM, llvmpipe (LLVM 20.1.2)
+through Vulkan, scale 1.0, 1280 × 950 window, General scrolled to its bottom with
+Automatic selected and the picker closed. One 10-second warmup and one 20-sample
+run per revision, one-second sampling.
+
+| Native debug demo metric | Baseline | Picker | Delta |
+| --- | ---: | ---: | ---: |
+| Idle CPU (100% = one core) | 0.10% | 0.10% | Below 0.01 percentage-point reporting precision |
+| Peak / settled sampled process RSS | 349,192,192 B | 349,691,904 B | +499,712 B (+0.143%) |
+
+CPU uses process user/system tick deltas over elapsed time; RSS uses `/proc`'s
+`VmRSS`. Both runs lasted about 20.007 seconds. Concurrent compilation is
+uncontrolled noise; display-server/compiler CPU and memory were not sampled.
+No release CPU/RSS, p95 frame/startup latency, physical GPU speed or affected
+Windows hardware behavior was measured. No Discord session or live media was used.
+See [the native evidence and reproduction procedure](pr-evidence/render-api-picker/README.md).
+
 ## Read ACK reconciliation — November 6, 2026
 
 Baseline PR #908 head `449211db` versus the final Rust sources in the follow-up containing
@@ -1766,3 +1883,58 @@ bulk reconciliation, unlike the earlier message-only replay. No speedup, RSS, UI
 Discord compatibility, or message-creation classification throughput is established by them.
 The ledger keeps its 4,096-row / 128-KiB bound. The PR records the measured runtime commit;
 subsequent documentation-only changes do not affect these Rust sources.
+
+## Mention shortcuts — November 6, 2026
+
+Baseline `62df2c92f839c4329cc9e7d05052afa599a61bb5` and runtime source
+`363b7e6bf27ccb1b82a966aa81fe2f35e746cf05`, rebuilt in separate worktrees and output
+directories. Ubuntu 26.04.1 x86-64, Rust 1.98.1, pinned lockfile, release optimization,
+voice included, `--no-default-features`, `CARGO_BUILD_JOBS=1`, and
+`CARGO_PROFILE_RELEASE_LTO=false` on both revisions. Each build ran alone in a cgroup
+with `MemoryMax=8 GiB` and `MemorySwapMax=0`, respecting the owner's 16 GB system budget.
+
+One package per revision. Executable/archive sizes use `stat`; installed payload sums
+regular-file sizes from `dpkg-deb --fsys-tarfile`, and Installed-Size comes from Debian
+control metadata. Both packages passed the existing 245-file payload, metadata,
+ownership, desktop-entry and host shared-library closure checks. No packages were
+installed and no authenticated client was launched for these measurements.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable (bytes) | 96,549,240 | 96,608,376 | +59,136 (+0.061%) |
+| Installed payload (regular-file bytes) | 101,248,472 | 101,307,608 | +59,136 (+0.058%) |
+| Debian Installed-Size (KiB) | 99,077 | 99,135 | +58 (+0.059%) |
+| Compressed .deb (bytes) | 47,427,752 | 47,451,612 | +23,860 (+0.050%) |
+
+The standard fat-LTO attempt reached the enforced 8-GiB build cap and was stopped
+by the kernel. The successful local packages use the explicit LTO override above;
+these size results apply to that build setting. The source profile and dependency
+versions are unchanged. Later commits add tests/documentation only.
+
+Native computer use exposed no applications in this session. Native before/after
+screenshots, UI workload warmup/sampling, CPU/RSS, display scale/renderer observation,
+frame latency and live Discord verification remain unavailable. No UI speed or
+memory improvement is established by these package sizes.
+
+## Browser transport identity (PR #904) — November 10, 2026
+
+Baseline `6e6f18b0` (main, reqwest 0.13.5 over rustls/AWS-LC) and source `1ab16ae0`
+(wreq 6.0.0-rc.31 over BoringSSL), each built once with `cargo xtask package` in its own
+worktree and a new target directory. macOS 27.2 arm64, Apple M5 Pro / 24 GiB, Homebrew Rust
+1.99.1, pinned lockfile, standard release profile including voice.
+
+Executable and archive sizes use `stat`; the bundle size is `du -sk dist/Serein.app`; the
+archive is `ditto -c -k --keepParent dist/Serein.app`. No client was launched and nothing
+contacted Discord.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable (bytes) | 76,200,032 | 75,296,368 | −903,664 (−1.19%) |
+| `Serein.app` on disk (KiB) | 81,072 | 80,200 | −872 (−1.08%) |
+| Zipped bundle (bytes) | 52,158,053 | 51,734,674 | −423,379 (−0.81%) |
+| Clean `cargo xtask package` (s, one sample) | 282 | 275 | −7 |
+
+The build times are single samples and other work ran on the machine during the baseline,
+so they show only that the BoringSSL build does not lengthen a clean macOS package build
+noticeably. Linux, Windows and Windows ARM64 (BoringSSL without assembly) sizes were not
+measured. Connection setup time, TLS throughput and memory were not measured.

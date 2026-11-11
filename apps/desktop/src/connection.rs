@@ -1,6 +1,6 @@
 use client_core::{
 	COMMAND_SLOTS, Command, EVENT_SLOTS, Envelope, Event, MAX_EVENT_BYTES,
-	auth::{AuthProvider, Failure, SessionSecret},
+	auth::{Failure, SessionSecret},
 };
 use discord_api::DiscordApi;
 use eframe::egui;
@@ -294,10 +294,13 @@ impl Connection {
                 emit_event(&send, &typing_send, Envelope {generation,event}, &ctx)
             };
             let result=async {
-                let mut api=DiscordApi::with_proxy(secret.clone(), api_proxy)?;
-                let user=api.authenticate().await?;
+                let api=DiscordApi::with_proxy(secret.clone(), api_proxy)?;
+                // Discovery does not depend on the account check, so they share one round trip.
+                // The account error wins: a rejected token fails both.
+                let (user,gateway)=tokio::join!(api.current_user(),api.gateway_url());
+                let user=user?;
                 if expected_user.is_some_and(|id|id!=user.id){return Err(Failure::InvalidCredential);}
-                let gateway=api.gateway_url().await?;
+                let gateway=gateway?;
                 let api=Arc::new(api);
 				let cached = cached_presence.get(&user.id).cloned().filter(|presence| presence.valid());
 				let account_presence_send = Arc::new(account_presence_send);
@@ -311,7 +314,35 @@ impl Connection {
 					finished: finished.clone(),
 					wake: wake.clone(),
 				})));
-				let chosen = resolve_account_presence(&api, &presence_send, cached, &idle_timeout_send).await;
+				// With a remembered status the gateway identifies with it right away and Discord's
+				// answer corrects it afterwards. Without one, identify waits so an account set to
+				// invisible is never announced as online.
+				let _presence_resolve = if let Some(remembered) = cached.clone() {
+					let baseline = presence_send.borrow().clone();
+					presence_send.send_if_modified(|slot| {
+						let unedited = *slot == baseline;
+						if unedited {
+							slot.clone_from(&remembered);
+						}
+						unedited
+					});
+					let fallback = remembered.clone();
+					let _ = account_presence_send.send_replace(Some(remembered));
+					wake.request_repaint();
+					let (api, presence, idle_timeout, account, wake) = (api.clone(), presence_send.clone(), idle_timeout_send.clone(), account_presence_send.clone(), wake.clone());
+					Some(AbortTask(tokio::spawn(async move {
+						let chosen = resolve_account_presence(&api, &presence, Some(fallback), &idle_timeout).await;
+						let _ = account.send_replace(chosen);
+						wake.request_repaint();
+					})))
+				} else {
+					None
+				};
+				let chosen = if cached.is_some() {
+					None
+				} else {
+					resolve_account_presence(&api, &presence_send, cached, &idle_timeout_send).await
+				};
 				let _idle_timeout_task = AbortTask(tokio::spawn(run_idle_timeout_sync(
 					api.clone(),
 					idle_timeout_edit_events,
@@ -320,8 +351,8 @@ impl Connection {
 				)));
 				if chosen.is_some() {
 					wake.request_repaint();
+					let _ = account_presence_send.send_replace(chosen);
 				}
-				let _ = account_presence_send.send_replace(chosen);
                 let emit=Arc::new(emit);
                 let (member_send,member_receive)=watch::channel(None);
                 let (voice_send,voice_receive)=mpsc::channel(8);

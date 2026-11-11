@@ -37,10 +37,6 @@ use client_core::{
 };
 use discord_protocol::*;
 use model::{Id, User};
-use reqwest::{
-	Client, Method, StatusCode,
-	header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue},
-};
 use std::{
 	sync::{
 		Arc,
@@ -51,6 +47,10 @@ use std::{
 use tokio::{
 	sync::{Mutex, Semaphore},
 	time::{Instant, sleep_until},
+};
+use wreq::{
+	Client, Method, StatusCode,
+	header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue},
 };
 
 tokio::task_local! {
@@ -176,8 +176,8 @@ fn invite_captcha(bytes: &[u8]) -> Option<client_core::captcha::Challenge> {
 }
 /// Headers Discord's web client sends on every REST call; without them a normal-user
 /// session is classified as automated and quarantined (spam flag, attachment limits).
-fn fingerprint_headers() -> Result<reqwest::header::HeaderMap, Failure> {
-	let mut headers = reqwest::header::HeaderMap::new();
+fn fingerprint_headers() -> Result<wreq::header::HeaderMap, Failure> {
+	let mut headers = wreq::header::HeaderMap::new();
 	headers.insert(
 		"x-super-properties",
 		HeaderValue::from_str(&client_core::fingerprint::super_properties())
@@ -189,27 +189,55 @@ fn fingerprint_headers() -> Result<reqwest::header::HeaderMap, Failure> {
 	);
 	headers.insert("x-discord-timezone", HeaderValue::from_static("UTC"));
 	headers.insert(
-		reqwest::header::ACCEPT_LANGUAGE,
+		wreq::header::ACCEPT_LANGUAGE,
 		HeaderValue::from_static("en-US,en;q=0.9"),
 	);
 	headers.insert(
-		reqwest::header::ORIGIN,
+		wreq::header::ORIGIN,
 		HeaderValue::from_static("https://discord.com"),
 	);
 	headers.insert(
-		reqwest::header::REFERER,
+		wreq::header::REFERER,
 		HeaderValue::from_static("https://discord.com/channels/@me"),
 	);
+	headers.insert(wreq::header::ACCEPT, HeaderValue::from_static("*/*"));
+	headers.insert(
+		wreq::header::ACCEPT_ENCODING,
+		HeaderValue::from_static(client_core::fingerprint::accept_encoding()),
+	);
+	headers.insert(
+		"x-debug-options",
+		HeaderValue::from_static("bugReporterEnabled"),
+	);
+	// Same-origin fetch() metadata; the emulation's own headers describe a page navigation.
+	headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
+	headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
+	headers.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
+	if let Some(hints) = client_core::fingerprint::client_hints() {
+		for (name, value) in hints {
+			headers.insert(
+				name,
+				HeaderValue::from_str(&value).map_err(|_| Failure::Network)?,
+			);
+		}
+		headers.insert("priority", HeaderValue::from_static("u=1, i"));
+	}
 	Ok(headers)
 }
+/// Applies the advertised browser's TLS and HTTP/2 handshake and its user agent. Emulation
+/// resets TLS/HTTP options, so this must wrap the builder before any other option is set.
+pub(crate) fn browser_transport(builder: wreq::ClientBuilder) -> wreq::ClientBuilder {
+	builder
+		.emulation(client_core::fingerprint::emulation())
+		.user_agent(client_core::fingerprint::user_agent())
+}
 fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
-	let builder = Client::builder()
-		.redirect(reqwest::redirect::Policy::none())
+	let builder = browser_transport(Client::builder())
+		.redirect(wreq::redirect::Policy::none())
 		// Keep writes single-attempt, including attachment slot allocation.
-		.retry(reqwest::retry::never())
+		.retry(wreq::retry::Policy::never())
 		.timeout(Duration::from_secs(20))
 		.connect_timeout(Duration::from_secs(10))
-		.user_agent(client_core::fingerprint::user_agent())
 		.default_headers(fingerprint_headers()?);
 	route
 		.client_builder(builder)
@@ -465,7 +493,7 @@ impl DiscordApi {
 						.body(body),
 				};
 			}
-			let mut response = request.send().await.map_err(|_| {
+			let response = request.send().await.map_err(|_| {
 				if write {
 					Failure::Ambiguous
 				} else {
@@ -512,13 +540,17 @@ impl DiscordApi {
 			let mut bytes = zeroize::Zeroizing::new(Vec::with_capacity(
 				response.content_length().unwrap_or(0).min(max_bytes as u64) as usize,
 			));
-			while let Some(chunk) = response.chunk().await.map_err(|_| {
-				if write {
-					Failure::Ambiguous
-				} else {
-					Failure::Network
-				}
-			})? {
+			let mut body = std::pin::pin!(response.bytes_stream());
+			while let Some(chunk) = futures_util::StreamExt::next(&mut body)
+				.await
+				.transpose()
+				.map_err(|_| {
+					if write {
+						Failure::Ambiguous
+					} else {
+						Failure::Network
+					}
+				})? {
 				if bytes.len() + chunk.len() > max_bytes {
 					return Err(Failure::Capacity);
 				}

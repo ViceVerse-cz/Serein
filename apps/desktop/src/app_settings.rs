@@ -1,6 +1,6 @@
 use local_store::AppPreferences;
 
-pub const MIN_WINDOW_SIZE: [u32; 2] = [760, 520];
+pub const MIN_WINDOW_SIZE: [u32; 2] = [600, 520];
 pub const DEFAULT_WINDOW_SIZE: [u32; 2] = [1120, 760];
 pub const MIN_POPOUT_SIZE: [u32; 2] = [480, 320];
 pub const DEFAULT_POPOUT_SIZE: [u32; 2] = [960, 640];
@@ -66,6 +66,7 @@ impl Settings {
 			hide_window_decorations: ui.hide_window_decorations,
 			custom_title_bar: ui.custom_title_bar,
 			gpu_preference: ui.gpu_preference,
+			graphics_api: ui.graphics_api,
 			steady_refresh_rate: ui.steady_refresh_rate,
 			primary_color: ui.primary_color,
 			transparency_blur: ui.transparency_blur,
@@ -122,6 +123,7 @@ impl Settings {
 		ui.hide_window_decorations = value.hide_window_decorations;
 		ui.custom_title_bar = value.custom_title_bar;
 		ui.gpu_preference = value.gpu_preference;
+		ui.graphics_api = value.graphics_api;
 		ui.steady_refresh_rate = value.steady_refresh_rate;
 		ui.primary_color = value.primary_color;
 		ui.transparency_blur = value.transparency_blur;
@@ -786,8 +788,8 @@ pub fn debug_window_geometry_check() {
 		([0, 0], MIN_WINDOW_SIZE)
 	);
 	assert_eq!(
-		fit_window_geometry([0, 0], [229, 70], [0, 0], [640, 480], MIN_WINDOW_SIZE),
-		([0, 0], [640, 480])
+		fit_window_geometry([0, 0], [229, 70], [0, 0], [560, 480], MIN_WINDOW_SIZE),
+		([0, 0], [560, 480])
 	);
 	let mut random = [0_u8; 16];
 	getrandom::fill(&mut random).unwrap();
@@ -888,13 +890,19 @@ mod tests {
 
 		settings.current.language = Some("cs".into());
 		settings.current.notification_options.current_channel = true;
+		settings.current.graphics_api = model::GraphicsApi::OpenGl;
 		settings.loaded = true;
 		settings.apply(&mut ui);
 		settings.observe(&ui);
 		assert_eq!(ui.language, ui::i18n::Language::Czech);
 		assert!(ui.notification_options.current_channel);
+		assert_eq!(ui.graphics_api, model::GraphicsApi::OpenGl);
 		assert!(!settings.state.touched);
 		assert!(!settings.state.dirty);
+		ui.graphics_api = model::GraphicsApi::Vulkan;
+		settings.observe(&ui);
+		assert_eq!(settings.current.graphics_api, model::GraphicsApi::Vulkan);
+		assert!(settings.state.dirty);
 	}
 
 	#[test]

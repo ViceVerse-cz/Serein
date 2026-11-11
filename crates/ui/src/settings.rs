@@ -181,6 +181,14 @@ fn gpu_label(language: Language, preference: model::GpuPreference) -> String {
 	})
 }
 
+fn graphics_api_label(language: Language, api: model::GraphicsApi) -> String {
+	if api == model::GraphicsApi::Automatic {
+		language.text("gpu-automatic")
+	} else {
+		api.label().to_owned()
+	}
+}
+
 fn gpu_description(language: Language, preference: model::GpuPreference) -> String {
 	language.text(match preference {
 		model::GpuPreference::Automatic => "gpu-automatic-description",
@@ -970,6 +978,34 @@ impl MessagingUi {
 							.on_hover_text(gpu_description(language, preference));
 						}
 					});
+			});
+			design::card_divider(ui);
+			let label = language.text("general-graphics-api");
+			let description = language.text(if self.graphics_api_env_override {
+				"general-graphics-api-env-override"
+			} else {
+				"general-graphics-api-description"
+			});
+			design::row(ui, &label, Some(&description), |ui| {
+				ui.add_enabled_ui(!self.graphics_api_env_override, |ui| {
+					crate::design::Select::from_id_salt("graphics-api")
+						.selected_text(graphics_api_label(language, self.graphics_api))
+						.width(ui.available_width().min(220.0))
+						.show_ui(ui, |ui| {
+							for api in std::iter::once(model::GraphicsApi::Automatic).chain(
+								self.available_graphics_apis
+									.iter()
+									.copied()
+									.filter(|api| *api != model::GraphicsApi::Automatic),
+							) {
+								ui.selectable_value(
+									&mut self.graphics_api,
+									api,
+									graphics_api_label(language, api),
+								);
+							}
+						});
+				});
 			});
 			design::card_divider(ui);
 			let label = language.text("general-steady-refresh-rate");

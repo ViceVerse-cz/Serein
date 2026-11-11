@@ -1705,6 +1705,8 @@ markdown-confirm-external-link-open-external-link = 要開啟外部連結嗎？
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = 在瀏覽器中開啟
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = 連結中只能放入此訊息的開頭部分，其餘內容不會傳送。此連結會在預設瀏覽器中開啟。
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = 這個連結會用你的預設瀏覽器開啟。
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = 複製表情符號
@@ -2304,6 +2306,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = 連同畫面
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = 即使只分享一個視窗，也能送出其他應用程式的聲音。不含 Serein 本身的音訊。
 # Context: body
 screen-body-share-system-audio = 分享系統音訊
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = 分享所分享應用程式的聲音；分享螢幕時則分享其他所有應用程式的聲音。Serein 本身的音訊不會包含在內。
 # Context: body
 screen-body-show-cursor = 顯示游標
 # Context: body
@@ -3900,6 +3904,10 @@ timeline-message-actions-delete-message = 刪除訊息…
 timeline-message-actions-edit-message = 編輯訊息
 # Context: message_actions
 timeline-message-actions-extensions = 擴充功能
+# Context: menu
+extensions-ui-menu-group-user = 使用者
+# Context: menu
+extensions-ui-menu-group-conversation = 對話
 # Context: message_actions
 timeline-message-actions-forward = 轉發
 # Context: message_actions
@@ -3948,6 +3956,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = 正在載入訊息…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = 訊息已刪除
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = 已封鎖的訊息
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 依目前權限資訊，無法檢視訊息歷史。
 # Context: show_with_scroll
@@ -4703,6 +4713,7 @@ profiles-activity-empty = 尚無分享的活動。
 profiles-mutuals-empty = 這裡沒有可顯示的內容。
 
 reading-double-click-reaction = 雙擊回應
+message-preview-limit = 此訊息超過原生文字排版的限制。
 
 ## crates/platform/src/app_menu.rs
 # Context: macos_menu_bar

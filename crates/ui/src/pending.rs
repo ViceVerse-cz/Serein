@@ -290,7 +290,7 @@ fn files(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>) {
 		for row in images.chunks(columns) {
 			ui.horizontal_top(|ui| {
 				for (filename, texture) in row {
-					let source = texture.size_vec2();
+					let source = texture.resolution_vec2();
 					let scale = (size.x / source.x).min(size.y / source.y);
 					let artwork = attachments::artwork_edge(filename);
 					let fitted = if let Some(edge) = artwork {

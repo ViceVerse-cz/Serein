@@ -6,13 +6,21 @@
 //! browser-shaped identity on every transport keeps the session classified as an ordinary
 //! web client. Nothing here carries account data; it is the same for every user.
 
-/// Chrome version advertised on Windows and Linux; bump together when refreshing.
-const CHROME_MAJOR: &str = "128";
-/// Safari version advertised on macOS, where the verification widget runs in WebKit.
-const SAFARI_VERSION: &str = "18.5";
+/// Chrome version advertised on Windows, where verification runs in Chromium WebView2.
+const CHROME_MAJOR: &str = "149";
+/// Safari version advertised on macOS and Linux, where verification runs in WebKit.
+const SAFARI_VERSION: &str = "26.4";
+/// `sec-ch-ua` brand list of [`CHROME_MAJOR`]; the GREASE brand changes with every major.
+const CHROME_SEC_CH_UA: &str =
+	r#""Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24""#;
 /// Build number of the official web client this fingerprint mirrors.
 pub const CLIENT_BUILD_NUMBER: u64 = 634_304;
 pub const LOCALE: &str = "en-US";
+/// The embedded hCaptcha widget runs in WKWebView or WebKitGTK everywhere except Windows.
+/// hCaptcha reads the real engine from script, so the advertised browser must follow it: a
+/// passcode solved in WebKit but submitted with a Chrome fingerprint reads as a relayed
+/// captcha and triggers phone verification or an account ban.
+const WEBKIT: bool = !cfg!(windows);
 
 /// Discord's spelling of the host operating system.
 pub fn os_name() -> &'static str {
@@ -32,20 +40,14 @@ fn platform_token() -> &'static str {
 	}
 }
 
-/// Browser name Discord expects in super-properties, matched to the engine the embedded
-/// hCaptcha widget actually runs in. A passcode solved in WebKit but submitted with a Chrome
-/// fingerprint reads as a relayed captcha and triggers phone verification.
+/// Browser name Discord expects in super-properties, matched to the verification engine.
 pub fn browser() -> &'static str {
-	if cfg!(target_os = "macos") {
-		"Safari"
-	} else {
-		"Chrome"
-	}
+	if WEBKIT { "Safari" } else { "Chrome" }
 }
 
 /// Browser version paired with [`browser`].
 pub fn browser_version() -> String {
-	if cfg!(target_os = "macos") {
+	if WEBKIT {
 		SAFARI_VERSION.to_owned()
 	} else {
 		format!("{CHROME_MAJOR}.0.0.0")
@@ -55,7 +57,7 @@ pub fn browser_version() -> String {
 /// `User-Agent` header value shared by REST, uploads, the Gateway identify and the
 /// embedded verification webview.
 pub fn user_agent() -> String {
-	if cfg!(target_os = "macos") {
+	if WEBKIT {
 		format!(
 			"Mozilla/5.0 ({}) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{SAFARI_VERSION} Safari/605.1.15",
 			platform_token()
@@ -65,6 +67,38 @@ pub fn user_agent() -> String {
 			"Mozilla/5.0 ({}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{CHROME_MAJOR}.0.0.0 Safari/537.36",
 			platform_token()
 		)
+	}
+}
+
+#[cfg(feature = "transport")]
+mod transport;
+#[cfg(feature = "transport")]
+pub use transport::{discord_request, emulation, websocket};
+
+/// Client-hint headers (`sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`) Chrome sends on
+/// every same-origin fetch. Safari does not implement client hints, so it gets none.
+pub fn client_hints() -> Option<[(&'static str, String); 3]> {
+	if browser() != "Chrome" {
+		return None;
+	}
+	let platform = if cfg!(target_os = "windows") {
+		"Windows"
+	} else {
+		"Linux"
+	};
+	Some([
+		("sec-ch-ua", CHROME_SEC_CH_UA.to_owned()),
+		("sec-ch-ua-mobile", "?0".to_owned()),
+		("sec-ch-ua-platform", format!("\"{platform}\"")),
+	])
+}
+
+/// `Accept-Encoding` the advertised browser sends; Safari has no zstd.
+pub fn accept_encoding() -> &'static str {
+	if browser() == "Chrome" {
+		"gzip, deflate, br, zstd"
+	} else {
+		"gzip, deflate, br"
 	}
 }
 

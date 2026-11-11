@@ -35,13 +35,24 @@ pub(crate) fn insert(
 	remaining: usize,
 	editing: bool,
 ) -> Option<usize> {
+	let limit = composer_limit(draft, editing);
+	insert_with_limit(draft, text, range, remaining, limit)
+}
+
+pub(crate) fn insert_with_limit(
+	draft: &mut String,
+	text: &str,
+	range: Option<egui::text::CCursorRange>,
+	remaining: usize,
+	limit: usize,
+) -> Option<usize> {
 	let count = draft.chars().count();
 	let (start, end) = range.map_or((count, count), |range| {
 		let range = range.as_sorted_char_range();
 		(range.start.0.min(count), range.end.0.min(count))
 	});
 	let inserted = text.chars().count();
-	if count - (end - start) + inserted > composer_limit(draft, editing) {
+	if count - (end - start) + inserted > limit {
 		return None;
 	}
 	let byte_start = draft
@@ -94,7 +105,8 @@ pub(crate) fn complete_shortcode(
 		return None;
 	}
 	let name = &prefix[start + 1..];
-	if !(2..=64).contains(&name.chars().count()) {
+	// Discord's one-letter names (`:x:`, `:v:`, `:m:`) convert like any other.
+	if !(1..=64).contains(&name.chars().count()) {
 		return None;
 	}
 	let emoji =
@@ -1354,7 +1366,15 @@ impl Picker {
 											let search_id = ui.scope_id().with("picker-search");
 											// New Areas have an invisible sizing pass before they can take focus.
 											// Request before TextEdit runs so the first typed character is retained.
-											if self.focus
+											// The click that opened the picker landed outside the field and would
+											// take the focus straight back, so wait for it to finish.
+											let clicking = ui.input(|input| {
+												input.pointer.any_pressed()
+													|| input.pointer.any_released()
+											});
+											if self.focus && clicking {
+												ui.ctx().request_repaint();
+											} else if self.focus
 												&& !ui.is_sizing_pass() && ui.ctx().memory(
 												|memory| memory.allows_interaction(ui.layer_id()),
 											) {
@@ -2028,11 +2048,20 @@ impl Picker {
 						&& gif_trigger.is_none_or(|trigger| !trigger.rect.contains(pos))
 				})
 		});
-		self.open = !clicked_outside && selected.is_none();
+		// Shift keeps the popout open for another emoji or reaction, like Discord.
+		let keep = matches!(selected, Some(Pick::Insert(_) | Pick::React(..)))
+			&& ui.input(|i| i.modifiers.shift);
+		self.open = !clicked_outside && (selected.is_none() || keep);
 		if !self.open {
 			self.close_gifs(state, commands);
 		}
-		if selected.is_some() {
+		if keep {
+			self.focus = true;
+		} else if selected.is_some() {
+			if !self.query.is_empty() {
+				self.query.clear();
+				self.filter();
+			}
 			trigger.request_focus();
 		}
 		selected
@@ -3466,6 +3495,9 @@ mod tests {
 		let cursor = shortcode.chars().count();
 		assert!(complete_shortcode(&mut shortcode, cursor, 64, false).is_some());
 		assert!(shortcode.ends_with("❤️"));
+		let mut single = "no :x:".to_owned();
+		assert!(complete_shortcode(&mut single, 6, 64, false).is_some());
+		assert_eq!(single, "no ❌");
 		assert!(model::message_options::valid(
 			&shortcode,
 			client_core::MAX_CONTENT,

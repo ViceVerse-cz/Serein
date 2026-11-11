@@ -2,7 +2,7 @@
 use crate::{DiscordApi, Failure};
 use discord_protocol::messaging_permissions::{self as wire, MAX_SETTINGS_RESPONSE};
 use model::messaging_permissions::{Change, Snapshot};
-use reqwest::Method;
+use wreq::Method;
 impl DiscordApi {
 	pub async fn account_messaging_permissions(
 		&self,

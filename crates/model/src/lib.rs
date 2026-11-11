@@ -19,7 +19,7 @@ pub mod forum;
 pub mod gifs;
 mod graphics;
 pub mod threads;
-pub use graphics::GpuPreference;
+pub use graphics::{GpuPreference, GraphicsApi};
 mod time_format;
 pub use time_format::TimeFormat;
 pub mod guild_folders;

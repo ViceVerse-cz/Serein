@@ -32,6 +32,7 @@ pub struct Menu {
 	follow: bool,
 	/// Leave custom emoji that need Nitro out of `:` suggestions.
 	pub hide_nitro_emojis: bool,
+	pub editing: bool,
 }
 pub struct Pick {
 	range: Range<usize>,
@@ -47,6 +48,13 @@ enum Kind {
 #[derive(Clone, PartialEq, Eq)]
 enum Candidate {
 	GameSearch,
+	Silent,
+	Time,
+	Timestamp {
+		token: String,
+		expected: String,
+		fingerprint: u64,
+	},
 	Game(model::GameMention),
 	Role {
 		id: Id,
@@ -85,7 +93,10 @@ impl Candidate {
 	fn id(&self) -> Id {
 		match self {
 			Candidate::Game(game) => game.id,
-			Candidate::GameSearch => Id(0),
+			Candidate::GameSearch
+			| Candidate::Silent
+			| Candidate::Time
+			| Candidate::Timestamp { .. } => Id(0),
 			Candidate::User { user, .. } => user.id,
 			Candidate::Role { id, .. }
 			| Candidate::Channel { id, .. }
@@ -96,6 +107,9 @@ impl Candidate {
 	fn token(&self) -> String {
 		match self {
 			Candidate::GameSearch => "@game ".into(),
+			Candidate::Silent => "@silent ".into(),
+			Candidate::Time => "@time".into(),
+			Candidate::Timestamp { token, .. } => format!("{token} "),
 			Candidate::Game(game) => format!("<@${}> ", game.id),
 			Candidate::Role { id, .. } => format!("<@&{id}> "),
 			Candidate::User { user, .. } => user_mention_token(user.id),
@@ -122,6 +136,26 @@ impl Candidate {
 				}
 				format!("<{}:{name}:{id}> ", if *animated { "a" } else { "" })
 			}
+		}
+	}
+}
+impl Pick {
+	pub(crate) fn time_range(&self) -> Option<Range<usize>> {
+		matches!(self.candidate, Candidate::Time).then(|| self.range.clone())
+	}
+	pub(crate) fn timestamp(
+		range: Range<usize>,
+		expected: String,
+		fingerprint: u64,
+		token: String,
+	) -> Self {
+		Self {
+			range,
+			candidate: Candidate::Timestamp {
+				token,
+				expected,
+				fingerprint,
+			},
 		}
 	}
 }
@@ -392,22 +426,31 @@ fn query(draft: &str, cursor: usize) -> Option<(Range<usize>, &str, Kind)> {
 	}
 	Some((start..end, query, kind))
 }
-pub fn insert(draft: &mut String, pick: Pick, editing: bool) -> Option<usize> {
-	if pick.range.end > draft.len()
-		|| !draft.is_char_boundary(pick.range.start)
-		|| !draft.is_char_boundary(pick.range.end)
+pub fn insert(draft: &mut String, pick: Pick, editing: bool, remaining: usize) -> Option<usize> {
+	let replaced = draft.get(pick.range.clone())?;
+	if matches!(&pick.candidate, Candidate::Timestamp { expected, fingerprint, .. } if replaced != expected || crate::timestamp_picker::fingerprint(draft) != *fingerprint)
 	{
 		return None;
 	}
-	let token = pick.candidate.token();
-	if draft.chars().count() - draft[pick.range.clone()].chars().count() + token.chars().count()
-		> crate::emoji_picker::composer_limit(draft, editing)
-	{
-		return None;
-	}
-	let cursor = draft[..pick.range.start].chars().count() + token.chars().count();
-	draft.replace_range(pick.range, &token);
-	Some(cursor)
+	let start = draft[..pick.range.start].chars().count();
+	let end = start + replaced.chars().count();
+	let range = egui::text::CCursorRange::two(
+		egui::text::CCursor::new(start),
+		egui::text::CCursor::new(end),
+	);
+	let leading_silent =
+		!editing && pick.range.start == 0 && matches!(pick.candidate, Candidate::Silent);
+	let limit = crate::emoji_picker::composer_limit(
+		if leading_silent { "@silent " } else { draft },
+		editing,
+	);
+	crate::emoji_picker::insert_with_limit(
+		draft,
+		&pick.candidate.token(),
+		Some(range),
+		remaining,
+		limit,
+	)
 }
 /// Rank a name against the typed query: prefix hits first, then substrings, then snowflakes.
 fn rank(query: &str, name: &str, id: Id) -> Option<u8> {
@@ -499,6 +542,7 @@ impl Menu {
 		let Some((range, query, kind)) = cursor.and_then(|cursor| query(draft, cursor)) else {
 			*self = Self {
 				hide_nitro_emojis: self.hide_nitro_emojis,
+				editing: self.editing,
 				..Self::default()
 			};
 			return;
@@ -606,6 +650,14 @@ impl Menu {
 						(0, if query == "game" { 0 } else { 2 }, 0),
 						Candidate::GameSearch,
 					));
+				}
+				for (name, candidate) in [("time", Candidate::Time), ("silent", Candidate::Silent)]
+				{
+					if (name != "silent" || (!self.editing && self.range.start == 0))
+						&& let Some(rank) = rank(&query, name, Id(0))
+					{
+						ranked.push(((rank, if query == name { 0 } else { 2 }, 0), candidate));
+					}
 				}
 				ranked
 			}
@@ -923,6 +975,15 @@ fn row(
 		_ => None,
 	};
 	let primary = match candidate {
+		Candidate::Silent | Candidate::Time | Candidate::Timestamp { .. } => {
+			let (icon_kind, label) = if matches!(candidate, Candidate::Silent) {
+				(crate::icons::Icon::Bell, "mention-shortcut-silent")
+			} else {
+				(crate::icons::Icon::Calendar, "mention-shortcut-time")
+			};
+			crate::icons::paint(ui.painter(), icon_kind, icon.shrink(2.0), colors.muted);
+			crate::i18n::translate(label)
+		}
 		Candidate::GameSearch => {
 			crate::icons::paint(
 				ui.painter(),
@@ -1036,6 +1097,10 @@ fn row(
 			selected,
 			match candidate {
 				Candidate::GameSearch => "@game, search games".into(),
+				Candidate::Silent => crate::i18n::translate("mention-shortcut-silent"),
+				Candidate::Time | Candidate::Timestamp { .. } => {
+					crate::i18n::translate("mention-shortcut-time")
+				}
 				Candidate::Game(game) => format!("{}, game", game.name),
 				Candidate::User { name, .. } => name.clone(),
 				Candidate::Mass { name } => format!("@{name}"),
@@ -1053,6 +1118,81 @@ fn row(
 mod tests {
 	use super::*;
 	use model::Channel;
+
+	#[test]
+	fn composer_shortcuts_respect_position_edits_and_conversation_identity() {
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let mut menu = Menu::default();
+		for (draft, editing, offered) in [
+			("@si", false, true),
+			("hi @si", false, false),
+			("@si", true, false),
+		] {
+			menu.editing = editing;
+			menu.refresh(&state, channel, draft, Some(draft.chars().count()), &[]);
+			assert_eq!(
+				menu.candidates
+					.iter()
+					.any(|c| matches!(c, Candidate::Silent)),
+				offered
+			);
+		}
+		let draft = "hi @ti";
+		menu.refresh(&state, channel, draft, Some(draft.chars().count()), &[]);
+		let at = menu
+			.candidates
+			.iter()
+			.position(|c| matches!(c, Candidate::Time))
+			.unwrap();
+		let mut picker = crate::timestamp_picker::Picker::default();
+		let target = crate::timestamp_picker::Target {
+			generation: state.generation,
+			channel,
+			editing: None,
+		};
+		let mut draft = draft.to_owned();
+		assert!(
+			picker
+				.accept(&mut draft, menu.pick(at).unwrap(), target, 64)
+				.is_none()
+		);
+		assert_eq!(draft, "hi @ti");
+		assert!(picker.is_open());
+		let ctx = egui::Context::default();
+		assert!(
+			picker
+				.show(
+					&ctx,
+					crate::timestamp_picker::Target {
+						generation: target.generation + 1,
+						..target
+					}
+				)
+				.is_none()
+		);
+		assert!(!picker.is_open());
+		let mut view = crate::MessagingUi {
+			navigation_channel: Some(channel),
+			..Default::default()
+		};
+		view.timestamp_picker
+			.accept(&mut draft, menu.pick(at).unwrap(), target, 64);
+		state.drafts.insert(channel, draft.clone());
+		state.open_home();
+		ctx.run_ui(Default::default(), |ui| {
+			let _ = view.show(ui, &mut state);
+		})
+		.drop_without_applying_deltas();
+		assert!(!view.timestamp_picker.is_open());
+		let _ = state.select(channel);
+		ctx.run_ui(Default::default(), |ui| {
+			let _ = view.show(ui, &mut state);
+		})
+		.drop_without_applying_deltas();
+		assert!(!view.timestamp_picker.is_open());
+		assert_eq!(state.drafts[&channel], draft);
+	}
 
 	#[test]
 	fn self_sent_messages_never_mention_viewer() {
@@ -1153,7 +1293,7 @@ mod tests {
 		let mut draft = "Play @game".to_owned();
 		menu.refresh(&state, channel, &draft, Some(draft.chars().count()), &[]);
 		assert!(matches!(menu.candidates[0], Candidate::GameSearch));
-		let cursor = insert(&mut draft, menu.pick(0).unwrap(), false).unwrap();
+		let cursor = insert(&mut draft, menu.pick(0).unwrap(), false, 4096).unwrap();
 		assert_eq!(draft, "Play @game ");
 		menu.refresh(&state, channel, &draft, Some(cursor), &[]);
 		assert!(menu.needs_games());
@@ -1161,7 +1301,7 @@ mod tests {
 		draft = "Play @game dea tonight".into();
 		menu.refresh(&state, channel, &draft, Some("Play @game dea".len()), &[]);
 		assert_eq!(menu.candidates[0].id(), Id(42));
-		insert(&mut draft, menu.pick(0).unwrap(), false).unwrap();
+		insert(&mut draft, menu.pick(0).unwrap(), false, 4096).unwrap();
 		assert_eq!(draft, "Play <@$42>  tonight");
 		assert!(model::mentioned_role_ids(&draft).is_empty());
 	}
@@ -1497,7 +1637,7 @@ mod tests {
 			ids
 		);
 		let mut draft = ":same".into();
-		insert(&mut draft, menu.pick(0).unwrap(), true).unwrap();
+		insert(&mut draft, menu.pick(0).unwrap(), true, 4096).unwrap();
 		assert_eq!(
 			draft,
 			r"[same\_wave](https://cdn.discordapp.com/emojis/10001.gif?size=64) "
@@ -1528,6 +1668,8 @@ mod tests {
 			("@Zo", "<@42> ", None, 1),
 			("#Zo", "<#42> ", Some(Id(9)), 0),
 			("@eve", "@everyone ", Some(Id(9)), 0),
+			("@si", "@silent ", None, 1),
+			("@time", "@time", None, 1),
 		] {
 			let ctx = egui::Context::default();
 			let mut state = State {
@@ -1627,11 +1769,125 @@ mod tests {
 			output.textures_delta.clear();
 			assert!(commands.is_empty());
 			assert_eq!(state.drafts[&Id(1)], expected);
-			assert!(view.draft_changes.contains(&Id(1)));
+			if draft == "@time" {
+				assert!(view.timestamp_picker.is_open());
+				for key in [egui::Key::Enter, egui::Key::Escape] {
+					ctx.run_ui(
+						egui::RawInput {
+							events: vec![egui::Event::Key {
+								key,
+								physical_key: None,
+								pressed: true,
+								repeat: false,
+								modifiers: egui::Modifiers::NONE,
+							}],
+							..Default::default()
+						},
+						|ui| view.composer(ui, &mut state, Id(1), &ctx, &mut commands),
+					)
+					.drop_without_applying_deltas();
+					assert!(commands.is_empty());
+					assert_eq!(state.drafts[&Id(1)], draft);
+				}
+				assert!(!view.timestamp_picker.is_open());
+				// Reopen and activate the actual Insert button, exercising the modal-to-composer handoff.
+				let mut menu = Menu::default();
+				menu.refresh(&state, Id(1), draft, Some(draft.chars().count()), &[]);
+				let index = menu
+					.candidates
+					.iter()
+					.position(|c| matches!(c, Candidate::Time))
+					.unwrap();
+				view.timestamp_picker.accept(
+					state.drafts.get_mut(&Id(1)).unwrap(),
+					menu.pick(index).unwrap(),
+					crate::timestamp_picker::Target {
+						generation: state.generation,
+						channel: Id(1),
+						editing: None,
+					},
+					4096,
+				);
+				view.draft_changes.clear();
+				let mut button = None;
+				let screen = Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1000.0, 700.0),
+				));
+				for _ in 0..3 {
+					let output = ctx.run_ui(
+						egui::RawInput {
+							screen_rect: screen,
+							..Default::default()
+						},
+						|ui| view.composer(ui, &mut state, Id(1), &ctx, &mut commands),
+					);
+					button = output.shapes.iter().find_map(|shape| match &shape.shape {
+						egui::Shape::Text(text)
+							if text.galley.text()
+								== crate::i18n::translate("timestamp-picker-insert") =>
+						{
+							Some(text.visual_bounding_rect().center())
+						}
+						_ => None,
+					});
+					output.drop_without_applying_deltas();
+				}
+				let button = button.expect("timestamp Insert control");
+				for pressed in [true, false] {
+					ctx.run_ui(
+						egui::RawInput {
+							screen_rect: screen,
+							events: vec![
+								egui::Event::PointerMoved(button),
+								egui::Event::PointerButton {
+									pos: button,
+									button: egui::PointerButton::Primary,
+									pressed,
+									modifiers: egui::Modifiers::NONE,
+								},
+							],
+							..Default::default()
+						},
+						|ui| view.composer(ui, &mut state, Id(1), &ctx, &mut commands),
+					)
+					.drop_without_applying_deltas();
+				}
+				assert!(!view.timestamp_picker.is_open());
+				let inserted = &state.drafts[&Id(1)];
+				let (_, style, len) =
+					model::timestamp_prefix(inserted).expect("inserted timestamp syntax");
+				assert_eq!(style, b'f');
+				assert_eq!(&inserted[len..], " ");
+				let cursor = egui::text_edit::TextEditState::load(&ctx, editor)
+					.unwrap()
+					.cursor
+					.char_range()
+					.unwrap();
+				assert_eq!(cursor.primary.index.0, inserted.chars().count());
+				assert!(view.draft_changes.contains(&Id(1)));
+				assert!(!commands.iter().any(|c| matches!(
+					c,
+					client_core::Command::Send { .. } | client_core::Command::Edit { .. }
+				)));
+			} else {
+				assert!(view.draft_changes.contains(&Id(1)));
+			}
 		}
 	}
 	#[test]
 	fn quiet_mention_replacement_uses_effective_budget_and_edits_remain_literal() {
+		let mut draft = format!("@si{}", "x".repeat(client_core::MAX_CONTENT - 3));
+		let completion = Pick {
+			range: 0..3,
+			candidate: Candidate::Silent,
+		};
+		assert!(insert(&mut draft, completion, false, 64).is_some());
+		assert!(model::message_options::valid(
+			&draft,
+			client_core::MAX_CONTENT,
+			false
+		));
 		for editing in [false, true] {
 			let mut draft = format!("@silent {}@s", "x".repeat(client_core::MAX_CONTENT - 5));
 			let original = draft.clone();
@@ -1643,7 +1899,7 @@ mod tests {
 					name: "Sam".into(),
 				},
 			};
-			assert_eq!(insert(&mut draft, pick, editing).is_some(), !editing);
+			assert_eq!(insert(&mut draft, pick, editing, 4096).is_some(), !editing);
 			if editing {
 				assert_eq!(draft, original);
 			} else {
@@ -1710,7 +1966,7 @@ mod tests {
 		);
 		output.textures_delta.clear();
 		let mut draft = "čau @Zo".into();
-		assert_eq!(insert(&mut draft, chosen.unwrap(), true), Some(9));
+		assert_eq!(insert(&mut draft, chosen.unwrap(), true, 4096), Some(9));
 		assert_eq!(draft, "čau <@2> ");
 		let users = (1..=1000).map(|id| user(id, "User")).collect::<Vec<_>>();
 		menu.refresh(&State::default(), Id(1), "@", Some(1), &users);
@@ -1780,7 +2036,7 @@ mod tests {
 		)
 		.drop_without_applying_deltas();
 		let mut draft = "čau #Žl".into();
-		assert_eq!(insert(&mut draft, pick.unwrap(), true), Some(9));
+		assert_eq!(insert(&mut draft, pick.unwrap(), true, 4096), Some(9));
 		assert_eq!(draft, "čau <#6> ");
 		menu.refresh(&state, Id(3), "#", Some(1), &[]);
 		assert!(menu.candidates.is_empty());
@@ -1792,7 +2048,7 @@ mod tests {
 		assert!(menu.candidates.iter().all(|c| c.token().len() <= 40));
 		let mut full = format!("{} #", "x".repeat(client_core::MAX_CONTENT - 2));
 		menu.refresh(&state, Id(1), &full, Some(client_core::MAX_CONTENT), &[]);
-		assert!(insert(&mut full, menu.pick(0).unwrap(), true).is_none());
+		assert!(insert(&mut full, menu.pick(0).unwrap(), true, 4096).is_none());
 	}
 	#[test]
 	fn emoji_shortcodes_need_two_characters_and_include_usable_server_emoji() {
@@ -1857,7 +2113,7 @@ mod tests {
 		let expected =
 			r"hi [heart\_hands\_custom](https://cdn.discordapp.com/emojis/9001.gif?size=64) ";
 		assert_eq!(
-			insert(&mut draft, menu.pick(0).unwrap(), true),
+			insert(&mut draft, menu.pick(0).unwrap(), true, 4096),
 			Some(expected.chars().count())
 		);
 		assert_eq!(draft, expected);
@@ -1867,7 +2123,7 @@ mod tests {
 			.position(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":heart:"))
 			.unwrap();
 		let mut draft = "hi :he".to_owned();
-		insert(&mut draft, menu.pick(unicode).unwrap(), true).unwrap();
+		insert(&mut draft, menu.pick(unicode).unwrap(), true, 4096).unwrap();
 		assert_eq!(draft, "hi ❤️ ");
 		// Opting out of Nitro-only suggestions drops the animated, other-server emoji only.
 		menu.hide_nitro_emojis = true;
@@ -1940,7 +2196,7 @@ pub(crate) fn debug_image_completion(state: &mut State) -> String {
 							let mut draft = query.to_owned();
 							let pick = menu.keys(&ctx).expect("emoji completion");
 							assert_eq!(
-								insert(&mut draft, pick, false),
+								insert(&mut draft, pick, false, 4096),
 								Some(expected.chars().count())
 							);
 							assert_eq!(draft, expected);
@@ -1967,7 +2223,7 @@ pub(crate) fn debug_member_search_check(state: &State, channel: Id) {
 		.pick(0)
 		.expect("remote nickname must appear in mentions");
 	let mut draft = "@Outside".to_owned();
-	insert(&mut draft, pick, true).unwrap();
+	insert(&mut draft, pick, true, 4096).unwrap();
 	assert_eq!(draft, "<@987654321> ");
 }
 
@@ -2143,7 +2399,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 			assert!(
 				matches!(&menu.candidates[0], Candidate::User { name, .. } if name == expected)
 			);
-			insert(&mut draft, menu.pick(0).unwrap(), true).unwrap();
+			insert(&mut draft, menu.pick(0).unwrap(), true, 4096).unwrap();
 			assert_eq!(draft, user_mention_token(user.id));
 			let original = format!("@{}", user.name.split_whitespace().next().unwrap());
 			menu.refresh(
@@ -2224,7 +2480,13 @@ pub fn debug_role_mentions_check(state: &mut State) {
 			..Default::default()
 		},
 		|_| {
-			insert(&mut draft, menu.keys(&ctx).expect("role completion"), true).unwrap();
+			insert(
+				&mut draft,
+				menu.keys(&ctx).expect("role completion"),
+				true,
+				4096,
+			)
+			.unwrap();
 		},
 	)
 	.drop_without_applying_deltas();
@@ -2259,6 +2521,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		&mut thread_draft,
 		menu.pick(0).expect("thread with spaces"),
 		true,
+		4096,
 	)
 	.unwrap();
 	assert_eq!(thread_draft, "<#1549042875830898709> ");

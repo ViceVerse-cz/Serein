@@ -22,16 +22,16 @@ use std::{
 	time::Duration,
 };
 use tokio::{
-	net::{TcpStream, UdpSocket},
+	net::UdpSocket,
 	sync::watch,
 	time::{Instant, MissedTickBehavior, timeout},
 };
 use tokio_tungstenite::{
-	MaybeTlsStream, WebSocketStream,
+	WebSocketStream,
 	tungstenite::{Message, protocol::WebSocketConfig},
 };
 use zeroize::Zeroizing;
-type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type Socket = WebSocketStream<wreq::Upgraded>;
 /// Time a sole member gives the roster announcement before waiting for a peer.
 const PEER_GRACE: Duration = Duration::from_millis(500);
 
@@ -122,15 +122,25 @@ impl UdpFailures {
 		data: &[u8],
 		outage: &'static str,
 	) -> Result<(), &'static str> {
+		self.try_send(socket, data, outage).map(|_| ())
+	}
+	/// Like `send`, but reports whether the datagram left; a dropped one is still tolerated
+	/// until the outage window expires.
+	fn try_send(
+		&mut self,
+		socket: &UdpSocket,
+		data: &[u8],
+		outage: &'static str,
+	) -> Result<bool, &'static str> {
 		if socket.try_send(data).is_ok() {
 			self.0 = None;
-			return Ok(());
+			return Ok(true);
 		}
 		let now = Instant::now();
 		if now.duration_since(*self.0.get_or_insert(now)) >= UDP_OUTAGE {
 			return Err(outage);
 		}
-		Ok(())
+		Ok(false)
 	}
 }
 /// Receive errors that describe one lost or rejected datagram rather than a dead socket.
@@ -168,6 +178,21 @@ fn id(data: &Value, key: &str) -> Result<u64, &'static str> {
 }
 fn transition(data: &Value) -> Result<u16, &'static str> {
 	u16::try_from(number(data, "transition_id")?).map_err(|_| "Invalid voice transition")
+}
+/// Restarts the camera prediction chain for a DAVE transition, group change or resume,
+/// and asks the encoder for an IDR right away. The request bypasses the feedback
+/// throttle: an IDR requested just before may have been discarded by the restart.
+/// The throttle is also cleared, not armed: while the call is resuming or securing,
+/// pictures (including that IDR) are dropped before the chain sees them, so the first
+/// predicted picture rejected once sending resumes must be able to ask again at once.
+fn restart_camera(
+	video: &mut crate::camera_video::Sender,
+	keyframe_at: &mut Instant,
+	request_keyframe: impl FnOnce(),
+) {
+	video.restart();
+	request_keyframe();
+	*keyframe_at = Instant::now();
 }
 fn h264_negotiated(data: &Value) -> bool {
 	data["video_codec"]
@@ -395,9 +420,9 @@ async fn run_inner(
 		.max_frame_size(Some(MAX_SIGNAL))
 		.write_buffer_size(0)
 		.max_write_buffer_size(MAX_SIGNAL * 2);
-	let (mut ws, _) = timeout(
+	let mut ws = timeout(
 		Duration::from_secs(15),
-		tokio_tungstenite::connect_async_with_config(&url, Some(config), false),
+		client_core::fingerprint::websocket(&url, config),
 	)
 	.await
 	.map_err(|_| "Voice connection timed out")?
@@ -422,6 +447,16 @@ async fn run_inner(
 	let mut discovery_deadline = Instant::now();
 	let mut ssrc = 0u32;
 	let mut video = crate::camera_video::Sender::default();
+	// Earliest moment the camera may be asked for another keyframe.
+	let mut camera_keyframe_at = Instant::now();
+	// Receiving cameras acknowledge what arrived, as watched streams do. Without reception
+	// reports and transport-wide feedback, a sender's congestion control sees no evidence
+	// of available bandwidth for this receiver.
+	let mut next_receive_report = Instant::now();
+	let mut next_transport_feedback = Instant::now();
+	let mut transport_feedback =
+		crate::transport_feedback::TransportFeedback::new(Instant::now().into_std());
+	let mut receive_reports = crate::video_feedback::ReceiveReports::new(Instant::now().into_std());
 	let mut video_tick = tokio::time::interval(Duration::from_millis(2));
 	video_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 	let mut mixer = crate::mixer::Mixer::default();
@@ -505,7 +540,11 @@ async fn run_inner(
 			if encryption.is_none() || resume_attempts >= 2 {
 				return Err(reason);
 			}
-			video.clear();
+			restart_camera(
+				&mut video,
+				&mut camera_keyframe_at,
+				crate::camera::request_keyframe,
+			);
 			video.announced = false;
 			resume_attempts += 1;
 			resuming = true;
@@ -522,9 +561,9 @@ async fn run_inner(
 				.max_frame_size(Some(MAX_SIGNAL))
 				.write_buffer_size(0)
 				.max_write_buffer_size(MAX_SIGNAL * 2);
-			let (replacement, _) = timeout(
+			let replacement = timeout(
 				Duration::from_secs(15),
-				tokio_tungstenite::connect_async_with_config(&url, Some(config), false),
+				client_core::fingerprint::websocket(&url, config),
 			)
 			.await
 			.map_err(|_| "Voice resume timed out; rejoin the call")?
@@ -537,8 +576,23 @@ async fn run_inner(
 				   _=video_tick.tick(), if !video.is_empty()=>{
 					   let generation=controls.borrow().camera;
 					   if !dave.ready || resuming || generation==0 || generation!=video.generation {video.clear();}
-					   else if let Some(packet)=video.next() && let Some(socket)=&udp {
-						   udp_failures.send(socket,&packet,"Camera UDP send failed")?;
+					   else if let Some(socket)=&udp {
+						   // Three packets per tick keep a 720p keyframe to a fraction of a second.
+						   for _ in 0..3 {
+							   let Some(packet)=video.next() else {break;};
+							   // A dropped datagram leaves later predicted pictures without their
+							   // reference: discard the rest and restart from a keyframe.
+							   if !udp_failures.try_send(socket,&packet,"Camera UDP send failed")? {
+								   metrics.video(Video::CameraSendDrops,1);
+								   video.restart();
+								   let now=Instant::now();
+								   if now>=camera_keyframe_at {
+									   crate::camera::request_keyframe();
+									   camera_keyframe_at=now+Duration::from_millis(300);
+								   }
+								   break;
+							   }
+						   }
 					   }
 				   },
 				   _=tick.tick()=>{
@@ -578,6 +632,25 @@ async fn run_inner(
 							   udp_failures.send(socket,&crypto.seal_rtcp(&header,&body)?,"Voice NACK send failed")?;
 							   metrics.video(Video::NacksSent,1);
 						   }
+						   if decoder.is_some() && now>=next_receive_report {
+							   receive_reports.retain(|source| receivers.has_source(source));
+							   let (header,body)=receive_reports.report(ssrc,now.into_std());
+							   udp_failures.send(socket,&crypto.seal_rtcp(&header,&body)?,"Voice reception report failed")?;
+							   metrics.video(Video::ReceiverReportsSent,1);
+							   next_receive_report=now+Duration::from_secs(1);
+						   }
+						   if decoder.is_some() && now>=next_transport_feedback {
+							   // Bound feedback rate, datagram size and work per tick.
+							   for _ in 0..2 {
+								   let Some(report)=transport_feedback.report(ssrc,now.into_std()) else {break;};
+								   udp_failures.send(socket,&crypto.seal_rtcp(&report.header,&report.body)?,"Voice transport feedback failed")?;
+								   metrics.video(Video::TwccSent,1);
+								   metrics.video(Video::TwccReported,report.received);
+								   metrics.video(Video::TwccMissing,report.missing);
+							   }
+							   metrics.video(Video::TwccDiscarded,transport_feedback.take_discarded());
+							   next_transport_feedback=now+Duration::from_millis(100);
+						   }
 					   }
 					   watch.tick(&mut metrics,&mut receivers,decoder.as_ref(),now);
 					   // Lost or stalled pictures stay frozen until the sender refreshes; ask twice a second at most.
@@ -589,17 +662,33 @@ async fn run_inner(
 					   }
 					   let control=*controls.borrow();
 					   let camera_enabled=enabled && video.available() && control.camera!=0;
-					   if !camera_enabled || video.generation!=control.camera {video.clear();}
-					   video.generation=control.camera;
-					   if video.announced && !camera_enabled {
-						   json_send(&mut ws,video.announcement(ssrc,camera_enabled)).await?;
-						   video.announced=camera_enabled;
+					   let camera_changed=video.generation!=control.camera;
+					   if !camera_enabled || camera_changed {video.restart();}
+					   // A new camera generation may run at another frame rate: withdraw the old
+					   // announcement so the next picture announces the current one.
+					   if video.announced && (!camera_enabled || camera_changed) {
+						   json_send(&mut ws,video.announcement(ssrc,false,control.camera_rate)).await?;
+						   video.announced=false;
 					   }
-					   if let Some(camera)=&camera && let Ok(frame)=camera.try_recv()
-						   && camera_enabled && frame.generation==control.camera && video.is_empty()
-						   && frame.data.len()<=crate::camera_video::MAX_FRAME_BYTES {
+					   video.generation=control.camera;
+					   // Pictures predict from their predecessor: any frame dropped here breaks
+					   // the chain, and the camera is asked for a keyframe to restart it.
+					   // Bounded per tick, so a producer that keeps refilling the channel cannot
+					   // starve audio, reception or signaling.
+					   for _ in 0..crate::camera_video::MAX_QUEUED_FRAMES {
+						   let Some(camera)=&camera else {break;};
+						   let Ok(frame)=camera.try_recv() else {break;};
+						   if !camera_enabled || frame.generation!=control.camera
+							   || frame.data.len()>crate::camera_video::MAX_FRAME_BYTES {continue;}
+						   if !video.accepts(&frame) {
+							   if now>=camera_keyframe_at {
+								   crate::camera::request_keyframe();
+								   camera_keyframe_at=now+Duration::from_millis(300);
+							   }
+							   continue;
+						   }
 						   if !video.announced {
-							   json_send(&mut ws,video.announcement(ssrc,true)).await?;
+							   json_send(&mut ws,video.announcement(ssrc,true,control.camera_rate)).await?;
 							   video.announced=true;
 						   }
 						   let normalized=crate::video_sps::normalize(&frame.data)?;
@@ -681,13 +770,32 @@ async fn run_inner(
 						   discovering=false;continue;
 					   }
 					   let Some(crypto)=&encryption else{continue;};
+					   // RTCP updates reception-report timing. A receiver that lost camera pictures
+					   // (PLI) or packets (NACK, no RTX here) stays frozen until the next keyframe,
+					   // so request one at most twice a second.
+					   if let Some(control)=crypto.open_rtcp(&packet[..length]) {
+						   let now=Instant::now();
+						   let _=receive_reports.sender_reports(&control,now.into_std());
+						   if video.announced && let Some(feedback)=crate::crypto::Encryption::parse_feedback(&control,video.ssrc()) && (feedback.keyframe || !feedback.nacks.is_empty()) && now>=camera_keyframe_at {
+							   crate::camera::request_keyframe();
+							   camera_keyframe_at=now+Duration::from_millis(500);
+						   }
+						   continue;
+					   }
 					   let start = metrics.start();
 					   let Some(mut rtp)=crypto.open(&packet[..length]) else{metrics.video(Video::OpenFailed,1);continue;};
+					   if dave.ready && decoder.is_some() && let Some(sequence)=rtp.transport_sequence {
+						   transport_feedback.receive(sequence,Instant::now().into_std());
+						   metrics.video(Video::TwccReceived,1);
+					   }
+					   // Count video and RTX datagrams before restoration, which drops unknown RTX.
+					   if rtp.payload_type==101 || rtp.payload_type==102 {metrics.video(Video::RtpBytes,length as u64);}
 					   if rtp.payload_type==102 {metrics.video(Video::Rtx,1);let Some((media,sequence))=receivers.restore_rtx(rtp.ssrc,&mut rtp.payload) else{continue;};rtp.ssrc=media;rtp.sequence=sequence;rtp.payload_type=101;}
 					   if rtp.payload_type==101 {
 						   metrics.video(Video::Packets,1);
 						   let Some(decoder)=&decoder else{continue;};
 						   if !dave.ready {metrics.video(Video::NotReady,1);continue;}
+						   if receivers.has_source(rtp.ssrc) {receive_reports.receive(rtp.ssrc,rtp.sequence,rtp.timestamp,Instant::now().into_std());}
 						   let first=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload);
 						   receive_video(&mut receivers,decoder,&mut dave,&mut metrics,first)?;
 						   continue;
@@ -731,7 +839,7 @@ async fn run_inner(
 									   ssrc=u32::try_from(number(data,"ssrc")?).map_err(|_|"Invalid voice SSRC")?;
 									   video.configure(data,ssrc);
 									   // Video-capable clients announce their audio SSRC even with the camera off.
-									   if camera.is_some() {json_send(&mut ws,video.announcement(ssrc,false)).await?;}
+										if camera.is_some() {json_send(&mut ws,video.announcement(ssrc,false,Default::default())).await?;}
 									   let address:IpAddr=data["ip"].as_str().ok_or("Missing voice server address")?.parse().map_err(|_|"Invalid voice server address")?;
 									   if !public_ip(address) && !(cfg!(test) && local_test && address.is_loopback()){return Err("Voice server advertised a nonpublic address");}
 									   let port=u16::try_from(number(data,"port")?).ok().filter(|p|*p>0).ok_or("Invalid voice server port")?;
@@ -770,7 +878,7 @@ async fn run_inner(
 										   if was_ready {
 											   dave.ready=true;
 										   } else {
-											   video.clear();
+											   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 											   deadline=Some(Instant::now()+Duration::from_secs(90));
 											   capture_reset=true;
 											   mixer.clear();
@@ -783,7 +891,7 @@ async fn run_inner(
 									   let was_ready=dave.ready;
 									   if dave.disconnect(user)? {
 										   if dave.alone() {
-											   video.clear();
+											   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 											   capture_reset=true;
 											   mixer.clear();
 											   dave.enter_sole_member_waiting()?;
@@ -796,7 +904,7 @@ async fn run_inner(
 											   dave.ready=true;
 											   deadline=None;
 										   } else if was_group_member {
-											   video.clear();
+											   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 											   deadline=Some(Instant::now()+Duration::from_secs(30));
 											   capture_reset=true;
 											   mixer.clear();
@@ -804,7 +912,7 @@ async fn run_inner(
 									   }
 								   },
 								   21=>{
-									   video.clear();
+									   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 									   if number(data,"protocol_version")?!=1 {return Err("Discord requested a voice encryption downgrade; call stopped");}
 									   capture_reset=true;
 									   let id = transition(data)?;
@@ -825,15 +933,15 @@ async fn run_inner(
 										   json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;
 									   }
 								   },
-								   22=>{video.clear();dave.execute(transition(data)?)?;},
+								   22=>{restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);dave.execute(transition(data)?)?;},
 								   24=>{
-									   video.clear();
+									   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 									   if number(data,"protocol_version")?!=1 {return Err("Unsupported DAVE protocol version; call stopped");}
 									   if number(data,"epoch")?==1 {capture_reset=true;dave.reinitialize()?;deadline=Some(Instant::now()+Duration::from_secs(30));send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;}
 								   },
 								   9=>{
 									   if !resuming{return Err("Unexpected voice resumption");}
-									   if camera.is_some(){json_send(&mut ws,video.announcement(ssrc,false)).await?;}
+										if camera.is_some(){json_send(&mut ws,video.announcement(ssrc,false,Default::default())).await?;}
 									   json_send(&mut ws,json!({"op":5,"d":{"speaking":0,"delay":0,"ssrc":ssrc}})).await?;
 									   speaking=false;silence=0;
 									   resuming=false;
@@ -860,7 +968,7 @@ async fn run_inner(
 									   if let Some(response)=dave.proposals(data)? {send(&mut ws,Message::Binary(response.into())).await?;}
 								   },
 								   29|30=>{
-									   video.clear();
+									   restart_camera(&mut video,&mut camera_keyframe_at,crate::camera::request_keyframe);
 									   ready_announced=false;waiting_announced=false;
 									   match dave.group_changed(opcode,data){
 										   Ok(id)=>{if id!=0 {json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;}},
@@ -1350,9 +1458,9 @@ async fn run_stream_inner(
 		.max_frame_size(Some(MAX_SIGNAL))
 		.write_buffer_size(0)
 		.max_write_buffer_size(MAX_SIGNAL * 2);
-	let (mut ws, _) = timeout(
+	let mut ws = timeout(
 		Duration::from_secs(15),
-		tokio_tungstenite::connect_async_with_config(&url, Some(config), false),
+		client_core::fingerprint::websocket(&url, config),
 	)
 	.await
 	.map_err(|_| "Stream connection timed out")?
@@ -1811,6 +1919,30 @@ mod tests {
 	use super::*;
 	use crate::video_receive::Receivers;
 	use opus2::Decoder;
+	#[test]
+	fn camera_transition_requests_a_keyframe_despite_the_feedback_throttle() {
+		let frame = |sequence, keyframe| crate::camera_video::Frame {
+			generation: 1,
+			sequence,
+			keyframe,
+			timestamp: 0,
+			data: Vec::new(),
+		};
+		let mut video = crate::camera_video::Sender::default();
+		assert!(video.accepts(&frame(1, true)));
+		assert!(video.accepts(&frame(2, false)));
+		// Feedback just requested an IDR, so the throttle would block another one.
+		let mut keyframe_at = Instant::now() + Duration::from_secs(60);
+		let mut requests = 0;
+		restart_camera(&mut video, &mut keyframe_at, || requests += 1);
+		assert_eq!(requests, 1);
+		// The throttle is cleared, so the first predicted picture rejected once sending
+		// resumes (its IDR may have been dropped mid-resume) asks again immediately.
+		assert!(keyframe_at <= Instant::now());
+		// Predicted pictures already in flight are still dropped until the new IDR.
+		assert!(!video.accepts(&frame(3, false)));
+		assert!(video.accepts(&frame(4, true)));
+	}
 	#[test]
 	fn stream_negotiation_advertises_only_available_receive_codecs_and_keeps_h264_senders() {
 		for (sending, receiving, available) in [

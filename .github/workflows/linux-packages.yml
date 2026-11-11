@@ -1,7 +1,8 @@
 name: Linux packages
 
 on:
-  pull_request:
+  push:
+    branches: [main]
     paths: ['packaging/aur/**', 'packaging/linux/**', 'packaging/appimage/**', 'packaging/flatpak/**', 'packaging/repositories/**', 'tools/xtask/**', '.github/workflows/linux-packages.yml', '.github/workflows/package-repositories.yml']
   workflow_call:
     inputs:
@@ -167,13 +168,13 @@ jobs:
         with:
           name: release-manifests
           path: .
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@1.99.1
       - name: Install Flatpak build environment
         run: |
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user --noninteractive --no-related flathub org.gnome.Sdk//51 org.gnome.Platform//51
+          flatpak install --user --noninteractive --no-related flathub org.gnome.Sdk//51 org.gnome.Platform//51 org.freedesktop.Sdk.Extension.llvm22//26.08
       - name: Build locked offline Flatpak
         run: |
           python3 -m unittest discover -s packaging/flatpak -p 'test_*.py'

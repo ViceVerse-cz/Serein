@@ -1689,6 +1689,8 @@ markdown-confirm-external-link-open-external-link = Aprire collegamento esterno?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Apri nel browser
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Nel link entra solo l’inizio di questo messaggio; il resto non viene inviato. Questa destinazione si apre nel browser predefinito.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Questa destinazione si apre nel browser predefinito.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Copia le emoji
@@ -2273,6 +2275,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Invia ciò c
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Condividi l'audio da altre app, anche quando condividi una finestra. L'audio di Serein è omesso.
 # Context: body
 screen-body-share-system-audio = Condividi l'audio del sistema
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Condividi l'audio dell'app condivisa, o quello di tutte le altre app quando condividi uno schermo. L'audio di Serein viene escluso.
 # Context: body
 screen-body-show-cursor = Mostra cursore
 # Context: body
@@ -3867,6 +3871,10 @@ timeline-message-actions-delete-message = Elimina messaggio...
 timeline-message-actions-edit-message = Modifica messaggio
 # Context: message_actions
 timeline-message-actions-extensions = Estensioni
+# Context: menu
+extensions-ui-menu-group-user = Utente
+# Context: menu
+extensions-ui-menu-group-conversation = Conversazione
 # Context: message_actions
 timeline-message-actions-forward = Inoltra
 # Context: message_actions
@@ -3916,6 +3924,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = Caricamento messaggi...
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Messaggio eliminato
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Messaggio bloccato
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = La cronologia dei messaggi non è disponibile con le informazioni sulle autorizzazioni correnti.
 # Context: show_with_scroll
@@ -4504,6 +4514,8 @@ voice-recipient-stop-ringing = Interrompi squillo
 voice-recipient-ringing = Sta squillando…
 voice-recipient-not-in-call = Non nella chiamata
 reconnect-now = Riconnetti ora
+
+message-preview-limit = Questo messaggio supera il limite del layout di testo nativo.
 
 voice-call-moved-to-another-client = La sessione di chiamata di questo dispositivo è stata sostituita
 

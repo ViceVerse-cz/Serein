@@ -1689,6 +1689,8 @@ markdown-confirm-external-link-open-external-link = Otworzyć link zewnętrzny?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Otwórz w przeglądarce
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = W linku mieści się tylko początek tej wiadomości; reszta nie zostanie wysłana. Ten adres otworzy się w domyślnej przeglądarce.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = To miejsce docelowe otwiera się w Twojej domyślnej przeglądarce.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Skopiuj emotikony
@@ -2273,6 +2275,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Wysyłaj zaw
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Udostępniaj dźwięk z innych aplikacji, nawet jeśli udostępniasz jedno okno. Własny dźwięk Sereina został pominięty.
 # Context: body
 screen-body-share-system-audio = Udostępnij dźwięk systemowy
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Udostępnij dźwięk udostępnianej aplikacji lub, przy udostępnianiu ekranu, dźwięk wszystkich innych aplikacji. Własny dźwięk Serein jest pomijany.
 # Context: body
 screen-body-show-cursor = Pokaż kursor
 # Context: body
@@ -3869,6 +3873,10 @@ timeline-message-actions-delete-message = Usuń wiadomość…
 timeline-message-actions-edit-message = Edytuj wiadomość
 # Context: message_actions
 timeline-message-actions-extensions = Rozszerzenia
+# Context: menu
+extensions-ui-menu-group-user = Użytkownik
+# Context: menu
+extensions-ui-menu-group-conversation = Rozmowa
 # Context: message_actions
 timeline-message-actions-forward = Przekaż
 # Context: message_actions
@@ -3919,6 +3927,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = Ładowanie wiadomości…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Wiadomość usunięta
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Zablokowana wiadomość
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Historia wiadomości jest niedostępna przy bieżących informacjach o uprawnieniach.
 # Context: show_with_scroll
@@ -4509,6 +4519,8 @@ voice-recipient-stop-ringing = Zatrzymaj dzwonienie
 voice-recipient-ringing = Dzwoni…
 voice-recipient-not-in-call = Poza rozmową
 reconnect-now = Połącz ponownie
+
+message-preview-limit = Ta wiadomość przekracza limit natywnego układu tekstu.
 
 voice-call-moved-to-another-client = Sesja połączenia na tym urządzeniu została zastąpiona
 

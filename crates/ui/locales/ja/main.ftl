@@ -1690,6 +1690,8 @@ markdown-confirm-external-link-open-external-link = 外部リンクを開きま�
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = ブラウザで開く
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = リンクに収まるのはこのメッセージの先頭部分だけで、残りは送信されません。このリンク先は既定のブラウザーで開きます。
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = この宛先はデフォルトのブラウザで開きます。
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = 絵文字をコピーする
@@ -2274,6 +2276,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Mac で再�
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = 1 つのウィンドウを共有している場合でも、他のアプリのサウンドを共有します。 Serein 自身の音声は省略されています。
 # Context: body
 screen-body-share-system-audio = システムオーディオを共有する
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = 共有中のアプリの音声を共有します。画面を共有する場合は他のすべてのアプリの音声を共有します。Serein 自身の音声は含まれません。
 # Context: body
 screen-body-show-cursor = カーソルを表示
 # Context: body
@@ -3865,6 +3869,10 @@ timeline-message-actions-delete-message = メッセージを削除…
 timeline-message-actions-edit-message = メッセージを編集する
 # Context: message_actions
 timeline-message-actions-extensions = 拡張機能
+# Context: menu
+extensions-ui-menu-group-user = ユーザー
+# Context: menu
+extensions-ui-menu-group-conversation = 会話
 # Context: message_actions
 timeline-message-actions-forward = 転送
 # Context: message_actions
@@ -3910,6 +3918,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = メッセージを読み込んでいます…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = メッセージが削除されました
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = ブロックしたユーザーのメッセージ
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 現在の権限情報ではメッセージ履歴を利用できません。
 # Context: show_with_scroll
@@ -4490,6 +4500,8 @@ voice-recipient-stop-ringing = 呼び出しを停止
 voice-recipient-ringing = 呼び出し中…
 voice-recipient-not-in-call = 通話に未参加
 reconnect-now = 今すぐ再接続
+
+message-preview-limit = このメッセージはネイティブテキストレイアウトの上限を超えています。
 
 voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました
 

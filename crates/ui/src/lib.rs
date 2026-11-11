@@ -43,6 +43,7 @@ mod extension_admin_actions;
 mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
+mod interface_tweaks;
 mod new_message;
 pub mod proxy_auth;
 mod rich_presence;
@@ -80,9 +81,11 @@ mod pending;
 mod post_menu;
 mod preload;
 mod profiles;
+mod rtl;
 mod slash_builtin;
 mod slash_commands;
 mod stickers;
+mod timestamp_picker;
 /// Synthetic global profile used exclusively by the desktop's offline command adapter.
 #[cfg(any(test, feature = "demo"))]
 pub fn synthetic_own_profile(user: &model::User) -> model::UserProfile {
@@ -254,6 +257,8 @@ pub const DEFAULT_IDLE_TIMEOUT_SECS: u32 = 10 * 60;
 
 #[derive(Default)]
 pub struct MessagingUi {
+	/// Interface tweaks switched on by enabled plugins.
+	interface_tweaks: std::sync::Arc<std::collections::BTreeSet<extensions::InterfaceTweak>>,
 	poll_creator: polls::Creator,
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
@@ -360,6 +365,13 @@ pub struct MessagingUi {
 	pub custom_font: fonts::Settings,
 	/// Which GPU renders the window; the running adapter only changes on restart.
 	pub gpu_preference: model::GpuPreference,
+	/// Preferred graphics API on next launch.
+	pub graphics_api: model::GraphicsApi,
+	/// API requested when the running renderer started; reports name it, not a pending edit.
+	pub startup_graphics_api: model::GraphicsApi,
+	/// APIs compiled for this platform, populated by the desktop without probing drivers.
+	pub available_graphics_apis: Vec<model::GraphicsApi>,
+	pub graphics_api_env_override: bool,
 	/// Device preference: repaint every display refresh while focused, so variable refresh rate
 	/// displays hold one rate instead of flickering.
 	pub steady_refresh_rate: bool,
@@ -446,6 +458,8 @@ pub struct MessagingUi {
 	pub external_upload: external_upload::ExternalUpload,
 	/// Transient problem and progress notices. Nothing here outlives its deadline.
 	pub toasts: toasts::Toasts,
+	/// Session generation and startup warnings already stated in a toast.
+	startup_warnings_toasted: (u64, model::account::Warnings),
 	pending_upload: Option<pending::Upload>,
 	pub clear_cache_requested: bool,
 	pub voice_available: bool,
@@ -456,6 +470,7 @@ pub struct MessagingUi {
 	pub voice_camera_status: &'static str,
 	pub voice_cameras: Vec<(String, String)>,
 	pub voice_camera_device: Option<String>,
+	pub voice_camera_rate: model::voice_settings::CameraFrameRate,
 	pub voice_refresh_cameras: bool,
 	pub voice_camera_device_status: &'static str,
 	pub voice_camera_devices_loading: bool,
@@ -591,11 +606,14 @@ pub struct MessagingUi {
 	edit_sent: Option<SubmittedEdit>,
 	deleting: Option<(Id, Id)>,
 	ime_active: bool,
+	/// A composer picker pick returns focus to the draft next frame, once its click is over.
+	refocus_composer: bool,
 	/// Enter the input method passed on after finishing a composition, replayed next frame.
 	ime_enter: Option<egui::Event>,
 	/// The composer claimed Tab last frame, so egui left it in the input for a suggestion menu.
 	composer_claims_tab: bool,
 	mention_menu: mentions::Menu,
+	timestamp_picker: timestamp_picker::Picker,
 	slash_commands: slash_commands::Menu,
 	slash_direct: Option<slash_builtin::PendingMessage>,
 	mention_lookup: member_search::Search,
@@ -1206,7 +1224,7 @@ impl MessagingUi {
 				} else if request
 					.image
 					.as_ref()
-					.is_some_and(|image| image.pixels.len() > 4 * 1024 * 1024)
+					.is_some_and(|image| image.pixels().len() > 4 * 1024 * 1024)
 				{
 					state.status = "Paste an image with at most 4 million pixels";
 				} else {
@@ -1278,6 +1296,11 @@ impl MessagingUi {
 			startup_busy: self.startup_busy,
 			startup_status: self.startup_status,
 			startup_disable_requested: self.startup_disable_requested,
+			// The renderer outlives the account; only startup knows its adapter and APIs.
+			gpu_adapter: std::mem::take(&mut self.gpu_adapter),
+			startup_graphics_api: self.startup_graphics_api,
+			available_graphics_apis: std::mem::take(&mut self.available_graphics_apis),
+			graphics_api_env_override: self.graphics_api_env_override,
 			..Self::default()
 		};
 		self.timeline.video.fullscreen_request = video_fullscreen_request;
@@ -1847,6 +1870,7 @@ impl MessagingUi {
 									&avatar,
 									state,
 									&member.user,
+									user_menu::Place::Open,
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -1972,6 +1996,7 @@ impl MessagingUi {
 									&response,
 									state,
 									&member.user,
+									user_menu::Place::Open,
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -2251,6 +2276,11 @@ impl MessagingUi {
 					self.voice_card_section(ui, state, commands);
 					divider(ui);
 				}
+				// Reserved before the avatar so the identity hover fill stays behind it.
+				let highlight = ui.painter().add(egui::Shape::Noop);
+				let mut identity_hover = None;
+				let mut avatar_rect = None;
+				let mut avatar_focused = false;
 				egui::Frame::new()
 					.inner_margin(egui::Margin::symmetric(8, 6))
 					.show(ui, |ui| {
@@ -2259,6 +2289,8 @@ impl MessagingUi {
 							ui.spacing_mut().item_spacing.x = 8.0;
 							if let Some(user) = &state.user {
 								let avatar = self.avatars.show(ui, user, 32.0, state.demo);
+								avatar_rect = Some(avatar.rect);
+								avatar_focused = avatar.has_focus();
 								avatar.widget_info(|| {
 									egui::WidgetInfo::labeled(
 										egui::Role::Button,
@@ -2278,6 +2310,7 @@ impl MessagingUi {
 									&avatar,
 									state,
 									user,
+									user_menu::Place::Nowhere,
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -2310,6 +2343,7 @@ impl MessagingUi {
 									ui.with_layout(
 										egui::Layout::left_to_right(egui::Align::Center),
 										|ui| {
+											let identity_right = ui.max_rect().right();
 											let identity = ui
 												.vertical(|ui| {
 													ui.spacing_mut().item_spacing.y = 0.0;
@@ -2382,6 +2416,47 @@ impl MessagingUi {
 													language.text("profile-and-status"),
 												)
 											});
+											let union = avatar_rect.map_or(identity.rect, |rect| {
+												rect.union(identity.rect)
+											});
+											let left = avatar_rect
+												.map_or(identity.rect.left(), |rect| rect.left());
+											let height = union.height().max(32.0) + 8.0;
+											let full_left = left - 4.0;
+											// Leave a gap before the voice controls, but never stop under long text.
+											let hover_right = (full_left
+												+ (identity_right - full_left) * 0.9)
+												.max(identity.rect.right() + 4.0)
+												.min(identity_right);
+											let hover_rect = egui::Rect::from_min_max(
+												egui::pos2(
+													full_left,
+													union.center().y - height * 0.5,
+												),
+												egui::pos2(
+													hover_right,
+													union.center().y + height * 0.5,
+												),
+											);
+											let focused = identity.has_focus() || avatar_focused;
+											// The empty tail of the hover rectangle joins the identity's click
+											// target without covering the avatar's own context menu. It spans
+											// the unpadded row so the menu anchor does not move up.
+											let space =
+												(identity.rect.right() < hover_right).then(|| {
+													ui.interact(
+														egui::Rect::from_min_max(
+															egui::pos2(
+																identity.rect.right(),
+																union.top(),
+															),
+															egui::pos2(hover_right, union.bottom()),
+														),
+														ui.scope_id()
+															.with("account-identity-space"),
+														egui::Sense::CLICK,
+													)
+												});
 											if let Some(avatar) = anchor.take() {
 												if identity.has_focus() {
 													ui.painter().rect_stroke(
@@ -2391,14 +2466,32 @@ impl MessagingUi {
 														egui::StrokeKind::Inside,
 													);
 												}
-												anchor = Some(avatar.union(identity));
+												let click = if let Some(space) = space {
+													identity.union(space)
+												} else {
+													identity
+												};
+												anchor = Some(avatar.union(click));
 											}
+											identity_hover = Some((hover_rect, focused));
 										},
 									);
 								},
 							);
 						});
 					});
+				if let Some((rect, focused)) = identity_hover
+					&& (focused || ui.rect_contains_pointer(rect))
+				{
+					ui.painter().set(
+						highlight,
+						egui::Shape::rect_filled(
+							rect,
+							6,
+							design::row_highlight(ui, colors.hover, 1.0),
+						),
+					);
+				}
 			});
 		// Painted over the frame rather than as its stroke, so the card keeps the composer's height.
 		ui.painter()
@@ -2506,6 +2599,7 @@ impl MessagingUi {
 								&avatar,
 								state,
 								user,
+								user_menu::Place::Conversation(c.id),
 								&mut self.profile,
 								&mut self.user_action,
 								Some(shortcuts::ShortcutView::new(
@@ -3029,7 +3123,9 @@ impl MessagingUi {
 			return;
 		}
 		let colors = crate::design::palette(ui);
-		let keyboard_enabled = !self.switcher_frame
+		let timestamp_blocked = self.timestamp_picker.is_open();
+		let keyboard_enabled = !timestamp_blocked
+			&& !self.switcher_frame
 			&& !self.switcher.is_open()
 			&& ctx.memory(|memory| memory.top_modal_layer().is_none());
 		fn ime_updates_text(event: &egui::Event) -> bool {
@@ -3069,6 +3165,13 @@ impl MessagingUi {
 			.filter(|(c, _, _)| *c == channel)
 			.map(|(c, id, _)| (*c, *id));
 		let editing_here = editing_key.is_some();
+		let timestamp_target = timestamp_picker::Target {
+			generation: state.generation,
+			channel,
+			editing: editing_key.map(|(_, id)| id),
+		};
+		let timestamp_pick = self.timestamp_picker.show(ctx, timestamp_target);
+
 		if let Some((_, id)) = editing_key {
 			if state.timeline.get(id).is_some() {
 				self.edit_undo_cleared = false;
@@ -3137,6 +3240,8 @@ impl MessagingUi {
 			design::glass_frame(ui, colors.raised, egui::Margin::symmetric(10, 6))
 				.corner_radius(8)
 				.show(ui, |ui| {
+					// The frame otherwise shrinks to the hint; span the composer row instead.
+					ui.set_min_width(ui.available_width());
 					let hint = "You don't have permission to send messages in this channel.";
 					ui.allocate_ui_with_layout(
 						egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
@@ -3316,17 +3421,26 @@ impl MessagingUi {
 			}
 			return;
 		}
+		let composer_id = ui.make_persistent_id(if editing_here {
+			"message-edit"
+		} else {
+			"message-input"
+		});
+		// Input methods write into the focused field; with Wayland text-input every key in
+		// another field, such as the picker search, arrives as a commit and is not composing here.
+		let composer_ime = ctx.memory(|memory| memory.focused().is_none_or(|id| id == composer_id));
 		// Wayland/Fcitx can repeatedly emit empty preedits while idle. Only real
 		// composition blocks shortcuts; dismissing an active composition still does.
 		let ime_this_frame = keyboard_enabled
-			&& (self.ime_active || ctx.input(|i| i.events.iter().any(ime_updates_text)));
+			&& (self.ime_active
+				|| (composer_ime && ctx.input(|i| i.events.iter().any(ime_updates_text))));
 		if keyboard_enabled {
 			ctx.input(|i| {
 				for event in &i.events {
 					if let egui::Event::Ime(event) = event {
 						match event {
 							egui::ImeEvent::Preedit { text, .. } => {
-								self.ime_active = !text.is_empty()
+								self.ime_active = composer_ime && !text.is_empty()
 							}
 							egui::ImeEvent::Commit(_) => self.ime_active = false,
 							_ => {}
@@ -3360,11 +3474,6 @@ impl MessagingUi {
 		} else {
 			self.ime_enter = None;
 		}
-		let composer_id = ui.make_persistent_id(if editing_here {
-			"message-edit"
-		} else {
-			"message-input"
-		});
 		if editing_here {
 			self.edit_widget_id = Some(composer_id);
 		}
@@ -3391,7 +3500,8 @@ impl MessagingUi {
 					_ => false,
 				})
 			});
-		if focus_composer || typed {
+		let refocus = std::mem::take(&mut self.refocus_composer) && keyboard_enabled;
+		if focus_composer || typed || refocus {
 			ctx.memory_mut(|m| m.request_focus(composer_id));
 		}
 		if focus_edit || (focus_composer && !editing_here) {
@@ -3493,6 +3603,7 @@ impl MessagingUi {
 			.filter(|r| r.is_empty())
 			.map(|r| r.primary.index.0);
 		self.mention_menu.hide_nitro_emojis = self.hide_nitro_emojis;
+		self.mention_menu.editing = editing_here;
 		if std::mem::take(&mut self.mention_menu.retry_games) {
 			state.game_mentions.status = client_core::game_mentions::Status::Idle;
 		}
@@ -3509,11 +3620,13 @@ impl MessagingUi {
 			state.game_mentions.request();
 			ctx.request_repaint();
 		}
-		let mention_pick = if mention_enabled {
-			self.mention_menu.keys(ctx)
-		} else {
-			None
-		};
+		let mention_pick = timestamp_pick.or_else(|| {
+			if mention_enabled {
+				self.mention_menu.keys(ctx)
+			} else {
+				None
+			}
+		});
 		if std::mem::take(&mut self.composer_claims_tab) && ctx.memory(|m| m.has_focus(composer_id))
 		{
 			// A menu that closed this frame must not leave Tab for the editor to indent with.
@@ -3690,6 +3803,7 @@ impl MessagingUi {
                                     .show(ui, state, channel, &mut self.avatars, commands)
                             })
                             .inner;
+                        let picked = pick.is_some() && !self.emoji_picker.is_open();
                         // A chosen GIF is its own message; the typed draft stays untouched.
                         if self.emoji_picker.is_open() {
                             self.reaction_picker.dismiss(state, commands);
@@ -3728,9 +3842,9 @@ impl MessagingUi {
                             }
                             None => None,
                         };
-                        actions = Some((send, pick));
+                        actions = Some((send, pick, picked));
                         });
-                        let (send, pick) = actions.expect("composer actions ran");
+                        let (send, pick, picked) = actions.expect("composer actions ran");
                         let edit = ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.vertical(|ui| {
                                 ui.set_width(ui.available_width());
@@ -3810,7 +3924,7 @@ impl MessagingUi {
                             mention_changed = true;
                         }
                         if let Some(pick) = mention_pick
-                            && let Some(cursor) = mentions::insert(draft, pick, editing_here)
+                            && let Some(cursor) = self.timestamp_picker.accept(draft, pick, timestamp_target, remaining)
                         {
                             let mut edit_state =
                                 egui::text_edit::TextEditState::load(ctx, composer_id).unwrap_or_default();
@@ -3874,6 +3988,27 @@ impl MessagingUi {
                             rich_layout.select_deleted_inline(ctx, composer_id);
                         }
                         let selection = text_menu::selection_for_menu(ctx, composer_id);
+                        // Right-to-left drafts are drawn in visual order, so arrows follow the
+                        // reading direction of the paragraph holding the caret.
+                        let bidi_draft = rich_layout.bidi_active(draft);
+                        if bidi_draft
+                            && ctx.memory(|m| m.has_focus(composer_id))
+                            && egui::text_edit::TextEditState::load(ctx, composer_id)
+                                .and_then(|state| state.cursor.char_range())
+                                .is_some_and(|range| composer_text::paragraph_rtl(draft, range.primary.index.0))
+                        {
+                            ctx.input_mut(|input| {
+                                for event in &mut input.events {
+                                    if let egui::Event::Key { key, .. } = event {
+                                        *key = match *key {
+                                            egui::Key::ArrowLeft => egui::Key::ArrowRight,
+                                            egui::Key::ArrowRight => egui::Key::ArrowLeft,
+                                            other => other,
+                                        };
+                                    }
+                                }
+                            });
+                        }
                         let mut output = egui::ScrollArea::vertical()
                             .id_salt((composer_id, channel, editing_key))
                             .max_height(ui.ctx().viewport_rect().height() * 0.5)
@@ -3907,7 +4042,15 @@ impl MessagingUi {
                                 } else {
                                     egui::WidgetText::default()
                                 };
-                                let output = TextEdit::multiline(draft)
+                                let selection_slot = ui.painter().add(egui::Shape::Noop);
+                                let mut output = ui.scope(|ui| {
+                                // The composer paints the caret and selection of visual-order drafts.
+                                if bidi_draft {
+                                    let visuals = ui.visuals_mut();
+                                    visuals.text_cursor.stroke.color = egui::Color32::TRANSPARENT;
+                                    visuals.selection.bg_fill = egui::Color32::TRANSPARENT;
+                                }
+                                TextEdit::multiline(draft)
                                     .interactive(keyboard_enabled)
                                     .layouter(&mut layouter)
                                     .id(composer_id)
@@ -3923,8 +4066,13 @@ impl MessagingUi {
                                     .align(egui::Align2::LEFT_CENTER)
                                     .frame(egui::Frame::NONE)
                                     .hint_text(hint)
-                                    .show(ui);
+                                    .show(ui)
+                                }).inner;
+                                rich_layout.bidi_pointer(&mut output, ctx);
                                 rich_layout.paint(ui, &output, &mut self.avatars);
+                                if bidi_draft {
+                                    rich_layout.paint_bidi(ui, &output, selection_slot);
+                                }
                                 output
                             }).inner;
                         if !self.ime_active && !ime_this_frame {
@@ -3942,7 +4090,7 @@ impl MessagingUi {
                         self.mention_menu
                             .refresh(state, channel, draft, mention_cursor, &mention_users);
                         if let Some(pick) = self.mention_menu.show(ui, composer_anchor, &mut self.avatars, demo)
-                            && let Some(cursor) = mentions::insert(draft, pick, editing_here)
+                            && let Some(cursor) = self.timestamp_picker.accept(draft, pick, timestamp_target, remaining)
                         {
                             output
                                 .state
@@ -4008,6 +4156,12 @@ impl MessagingUi {
                         edit.response
                             }).inner
                         }).inner;
+                        // The picker hands focus to its button and the click surrenders the
+                        // draft's, so return to the draft on the next frame.
+                        if picked {
+                            self.refocus_composer = true;
+                            ctx.request_repaint();
+                        }
                         // Stack once three buttons fit beside the draft; unstack only at one line,
                         // so the width gained by stacking cannot flip the layout back and forth.
                         // The text edit reports its full content height; the scroll area shows at most half the viewport.
@@ -4059,6 +4213,9 @@ impl MessagingUi {
                         }
                     });
                 });
+                if !editing_here && state.drafts.get(&channel).is_some_and(|draft| model::message_options::content(draft).1) {
+                    timestamp_picker::silent_indicator(ui);
+                }
                 if let Some((edit_channel, message)) = editing_key {
                     if state.freshness != Freshness::Fresh || !state.can_edit(edit_channel, message) { ui.weak(crate::i18n::translate("lib-ime-updates-text-editing-this-message-is-unavailable-your-text-is-kept-until")); }
                 } else if !state.can_send(channel) && !application_command {
@@ -4493,11 +4650,17 @@ impl MessagingUi {
 
 	/// External link confirmations; drawn by the window whose link asked for them.
 	fn link_confirmations(&mut self, ctx: &egui::Context) {
-		markdown::confirm_external_link(
+		let truncated = self.timeline.truncated_translation.is_some()
+			&& self.timeline.truncated_translation == self.timeline.browser_opening;
+		markdown::confirm_external_link_noting(
 			ctx,
 			&mut self.timeline.browser_opening,
 			self.reading_preferences.confirm_external_links,
+			truncated,
 		);
+		if !truncated || self.timeline.browser_opening.is_none() {
+			self.timeline.truncated_translation = None;
+		}
 		markdown::confirm_external_link(
 			ctx,
 			&mut self.timeline.opening,
@@ -4802,9 +4965,9 @@ impl MessagingUi {
 				{
 					commands.push(command);
 				}
-				if let Some((action, text)) = self.timeline.extension_request.take() {
+				if let Some((action, text, target)) = self.timeline.extension_request.take() {
 					self.extensions
-						.invoke_message(action, text, state, ui.ctx());
+						.invoke_message(action, text, target, state, ui.ctx());
 				}
 				if let Some((message, anchor, trigger)) = self.timeline.reaction_picker.take() {
 					self.emoji_picker.dismiss(state, commands);
@@ -4930,7 +5093,29 @@ impl MessagingUi {
 			});
 	}
 
+	/// Whether an enabled plugin switched `tweak` on.
+	pub fn interface_tweak_on(&self, tweak: extensions::InterfaceTweak) -> bool {
+		self.interface_tweaks.contains(&tweak)
+	}
+	/// Replaces the interface tweaks that enabled plugins switched on.
+	pub fn set_interface_tweaks(
+		&mut self,
+		tweaks: std::collections::BTreeSet<extensions::InterfaceTweak>,
+	) {
+		if *self.interface_tweaks != tweaks {
+			self.interface_tweaks = std::sync::Arc::new(tweaks);
+		}
+	}
+	/// Draws one frame of the signed-in client and returns the commands it produced for the
+	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		interface_tweaks::publish(ui.ctx(), &self.interface_tweaks);
+		rtl::scope(
+			ui.ctx(),
+			state.generation,
+			state.user.as_ref().map(|user| user.id),
+			state.selected,
+		);
 		// The call window never outlives its call, and chat returns once another opens here.
 		self.sync_voice_popout(state);
 		self.avatars.cosmetics = self.cosmetics;
@@ -5066,6 +5251,7 @@ impl MessagingUi {
 		let ctx = ui.ctx().clone();
 		user_menu::set_voice_available(&ctx, self.voice_available);
 		self.extensions.reset_theme_shortcut(&ctx);
+		self.extensions.context_menus(&ctx, state);
 		if self.extensions.has_result() {
 			self.settings.open = false;
 		}
@@ -5198,6 +5384,18 @@ impl MessagingUi {
 				}
 			}
 		}
+		// Home and other views without a composer must also invalidate its pending dialog.
+		self.timestamp_picker.retain(state.selected.map(|channel| {
+			timestamp_picker::Target {
+				generation: state.generation,
+				channel,
+				editing: self
+					.editing
+					.as_ref()
+					.filter(|(c, _, _)| *c == channel)
+					.map(|(_, id, _)| *id),
+			}
+		}));
 		if self.navigation_channel != state.selected {
 			// A retained footer draft keeps focus instead of moving it to the new composer.
 			let profile_keeps_focus = self.profile.open_user().is_some_and(|user| {
@@ -5375,6 +5573,7 @@ impl MessagingUi {
 			self.search.focus_conversation(channel, state);
 		}
 		self.search.sync(&ctx, state, &mut commands);
+		self.search.extension_actions = self.extensions.message_actions();
 		let search_open =
 			self.search.results_visible(state) && state.selected.is_some() && !selected_voice;
 		let show_members = !selected_voice
@@ -5523,30 +5722,44 @@ impl MessagingUi {
 				if !warnings.presence {
 					self.friends.presence_warning_dismissed = None;
 				}
+				// Say once per connection what failed to load instead of keeping a banner up;
+				// a later category failing in the same session gets its own toast.
+				let (generation, toasted) = self.startup_warnings_toasted;
+				let toasted = if generation == state.generation {
+					toasted
+				} else {
+					Default::default()
+				};
 				let unavailable: Vec<_> = [
-					(warnings.read_state, "read status"),
-					(warnings.notifications, "notification settings"),
-					(warnings.sessions, "session status"),
-					(warnings.emojis, "some server emoji"),
-					(warnings.stickers, "some server stickers"),
-					(warnings.entries, "some malformed channels, DMs or contacts"),
+					(warnings.read_state && !toasted.read_state, "read status"),
+					(
+						warnings.notifications && !toasted.notifications,
+						"notification settings",
+					),
+					(warnings.sessions && !toasted.sessions, "session status"),
+					(warnings.emojis && !toasted.emojis, "some server emoji"),
+					(
+						warnings.stickers && !toasted.stickers,
+						"some server stickers",
+					),
+					(
+						warnings.entries && !toasted.entries,
+						"some channels or contacts",
+					),
 				]
 				.into_iter()
 				.filter_map(|(unavailable, label)| unavailable.then_some(label))
 				.collect();
 				if !unavailable.is_empty() {
-					egui::Frame::new()
-						.inner_margin(egui::Margin::symmetric(16, 6))
-						.show(ui, |ui| {
-							ui.colored_label(
-								colors.warning,
-								format!(
-									"Connected with some data unavailable: {}. Reconnect to retry.",
-									unavailable.join(", ")
-								),
-							);
-						});
+					self.toasts.push(
+						design::Level::Warning,
+						format!(
+							"Couldn't load {}. Reconnect to retry.",
+							unavailable.join(", ")
+						),
+					);
 				}
+				self.startup_warnings_toasted = (state.generation, warnings);
 				if state.selected.is_none() && self.guild.is_none() {
 					self.call_bar(ui, state, &mut commands, None);
 					self.timeline.download.show_status(ui);
@@ -5730,6 +5943,10 @@ impl MessagingUi {
 		}
 		if let Some(link) = self.search.opening.take() {
 			self.timeline.opening = Some(link);
+		}
+		if let Some((action, text, target)) = self.search.extension_request.take() {
+			self.extensions
+				.invoke_message(action, text, target, state, &ctx);
 		}
 		if let Some(channel) = self.search.channel_reference.take() {
 			self.timeline.channel_reference = Some(channel);
@@ -5987,6 +6204,7 @@ impl MessagingUi {
 		if !self.profile_in_popout {
 			self.profile_overlay(ui, state, &mut commands);
 		}
+		select::show_menu(&ctx);
 		self.show_call_switch(&ctx, state, &mut commands);
 		self.apply_ring_request(state, &mut commands);
 		if let Some((guild, channel, user, change)) = self.voice_moderation.take()
@@ -7016,7 +7234,7 @@ mod composer_tests {
 	}
 
 	#[test]
-	fn quiet_composer_paste_allows_full_payload_and_marker_only_enter_preserves_draft() {
+	fn quiet_composer_completion_rejects_empty_text_and_paste_allows_full_payload() {
 		let ctx = egui::Context::default();
 		let mut view = MessagingUi {
 			focus_switched_composer: true,
@@ -7035,7 +7253,15 @@ mod composer_tests {
 			vec![edit_key(egui::Key::Enter)],
 		);
 		assert!(!command.iter().any(|c| matches!(c, Command::Send { .. })));
-		assert_eq!(state.drafts[&channel], "@silent");
+		assert_eq!(state.drafts[&channel], "@silent ");
+		let command = edit_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![edit_key(egui::Key::Enter)],
+		);
+		assert!(!command.iter().any(|c| matches!(c, Command::Send { .. })));
+		assert_eq!(state.drafts[&channel], "@silent ");
 		assert!(state.pending.is_empty());
 		state.drafts.insert(channel, String::new());
 		let full = format!("@silent {}", "x".repeat(MAX_CONTENT));

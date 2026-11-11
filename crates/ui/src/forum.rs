@@ -1015,7 +1015,7 @@ fn media_tile(ui: &egui::Ui, rect: egui::Rect, staged: &Staged<'_>, index: usize
 	let colors = design::palette(ui);
 	match staged.textures.get(index).and_then(Option::as_ref) {
 		Some(texture) => {
-			crate::emoji_picker::paint_cover(ui, rect, (texture.id(), texture.size()), 10);
+			crate::emoji_picker::paint_cover(ui, rect, (texture.id(), texture.resolution()), 10);
 		}
 		None => {
 			ui.painter().rect(

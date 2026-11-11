@@ -3,7 +3,7 @@ use model::{
 	Id,
 	archives::{Cursor, Kind, Page},
 };
-use reqwest::Method;
+use wreq::Method;
 
 impl DiscordApi {
 	pub(super) async fn archives(

@@ -1,0 +1,11 @@
+[package]
+name = "view-raw-message"
+version = "1.0.1"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serein-extension-sdk = { workspace = true }
