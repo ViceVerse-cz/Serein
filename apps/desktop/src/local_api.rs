@@ -803,6 +803,16 @@ impl<S: KeyStore> Keys<S> {
 		}
 	}
 
+	/// What to report while the listener is off. A pending revocation is still reported, so
+	/// the owner's saved record of it does not depend on the API staying on.
+	fn resting(&self) -> LocalApiKey {
+		if self.revoked {
+			LocalApiKey::Revoked
+		} else {
+			LocalApiKey::Pending
+		}
+	}
+
 	fn status(&self) -> LocalApiKey {
 		if self.saved {
 			LocalApiKey::Saved
@@ -856,16 +866,19 @@ impl<S: KeyStore> Keys<S> {
 		let (Some(store), Some(key)) = (&self.store, &self.key) else {
 			return;
 		};
+		// From here until the store answers, what it holds is unknown: a write can land after
+		// its deadline, or after this call is dropped because the API was switched off. The
+		// store stays untrusted through both, so a key never outlasts what Settings says.
+		let revoked = std::mem::replace(&mut self.revoked, true);
 		match store.save(key).await {
 			Ok(()) => {
 				self.saved = true;
 				self.revoked = false;
 				return;
 			}
-			// A write that outlives its deadline may still land. Until a later call settles
-			// it the store is not trusted, so the key cannot outlast what Settings says.
-			Err(CredentialError::TimedOut) => self.revoked = true,
-			Err(_) => {}
+			Err(CredentialError::TimedOut) => {}
+			// Refused outright: nothing was written, so nothing changed.
+			Err(_) => self.revoked = revoked,
 		}
 		if self.revoked && store.forget().await.is_ok() {
 			self.revoked = false;
@@ -917,10 +930,26 @@ async fn supervise<S: KeyStore>(endpoint: String, store: Option<S>, mut link: Li
 	while link.enabled.wait_for(|enabled| *enabled).await.is_ok() {
 		let running = listen(&endpoint, &mut keys, &mut link).await;
 		link.key.send_replace(None);
-		link.report(LocalApiStatus::default());
+		link.report(LocalApiStatus {
+			key: keys.resting(),
+			..LocalApiStatus::default()
+		});
 		if !running {
 			return;
 		}
+	}
+}
+
+fn serving(listening: bool, address: &str, roster: &Roster, key: LocalApiKey) -> LocalApiStatus {
+	LocalApiStatus {
+		state: if listening {
+			LocalApiState::Listening
+		} else {
+			LocalApiState::Unavailable
+		},
+		endpoint: address.to_owned(),
+		clients: roster.names(),
+		key,
 	}
 }
 
@@ -958,16 +987,12 @@ async fn listen<S: KeyStore>(endpoint: &str, keys: &mut Keys<S>, link: &mut Link
 			diagnostics::record(Category::App, Level::Info, "local api listening");
 			listener = Some(bound);
 		}
-		link.report(LocalApiStatus {
-			state: if listener.is_some() {
-				LocalApiState::Listening
-			} else {
-				LocalApiState::Unavailable
-			},
-			endpoint: address.clone(),
-			clients: roster.names(),
-			key: keys.status(),
-		});
+		link.report(serving(
+			listener.is_some(),
+			&address,
+			&roster,
+			keys.status(),
+		));
 		tokio::select! {
 			changed = link.enabled.changed() => {
 				if changed.is_err() {
@@ -983,6 +1008,15 @@ async fn listen<S: KeyStore>(endpoint: &str, keys: &mut Keys<S>, link: &mut Link
 				// Every connected app proved the old key. They go before the credential store
 				// is touched, so a slow provider cannot keep them connected.
 				clients.shutdown().await;
+				// Reported before the store is asked, so the owner's record of the revocation
+				// is written even if the app closes or the API is switched off while a slow
+				// provider is still thinking.
+				link.report(serving(
+					listener.is_some(),
+					&address,
+					&roster,
+					keys.status(),
+				));
 				if until_off(&mut link.enabled, keys.persist()).await.is_none() {
 					break;
 				}
@@ -1587,6 +1621,8 @@ mod tests {
 		refuse_save: AtomicBool,
 		refuse_forget: AtomicBool,
 		save_lands_late: AtomicBool,
+		/// Writes never answer, like a provider waiting for its owner.
+		stall: AtomicBool,
 	}
 
 	impl KeyStore for Arc<Vault> {
@@ -1594,6 +1630,9 @@ mod tests {
 			Ok(self.entry.lock().unwrap().clone().map(Zeroizing::new))
 		}
 		async fn save(&self, key: &str) -> Result<(), CredentialError> {
+			if self.stall.load(Ordering::SeqCst) {
+				std::future::pending::<()>().await;
+			}
 			if self.refuse_save.load(Ordering::SeqCst) {
 				return Err(CredentialError::Unavailable);
 			}
@@ -1662,6 +1701,52 @@ mod tests {
 		vault.save_lands_late.store(false, Ordering::SeqCst);
 		let mut next = Keys::new(Some(vault.clone()));
 		assert_ne!(next.open(true).await, first);
+	}
+
+	#[tokio::test]
+	async fn a_reset_cut_short_by_switching_off_is_still_recorded() {
+		let name = format!(
+			"serein-api-test-{}-{}",
+			std::process::id(),
+			getrandom::u64().unwrap()
+		);
+		let vault = Arc::new(Vault::default());
+		*vault.entry.lock().unwrap() = Some(KEY.into());
+		let runtime = tokio::runtime::Handle::current();
+		let api = LocalApi::spawn(&runtime, name, Some(vault.clone()), || {});
+		let mut status = api.status.clone();
+		api.publish(true, false, room);
+		timeout(
+			WAIT,
+			status.wait_for(|status| status.key == LocalApiKey::Saved),
+		)
+		.await
+		.expect("the saved key loads")
+		.unwrap();
+
+		// The store stops answering. The owner resets the key, then switches the API off
+		// before the store has said anything.
+		vault.stall.store(true, Ordering::SeqCst);
+		api.reset_key();
+		timeout(
+			WAIT,
+			status.wait_for(|status| status.key == LocalApiKey::Revoked),
+		)
+		.await
+		.expect("the reset is recorded before the store answers")
+		.unwrap();
+		api.publish(false, false, room);
+		timeout(
+			WAIT,
+			status.wait_for(|status| status.state == LocalApiState::Off),
+		)
+		.await
+		.expect("the listener stops")
+		.unwrap();
+
+		// The old key is still in the store, so the record has to outlive the listener.
+		assert_eq!(api.status().key, LocalApiKey::Revoked);
+		assert_eq!(vault.entry.lock().unwrap().as_deref(), Some(KEY));
 	}
 
 	#[test]
