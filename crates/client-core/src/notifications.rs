@@ -15,11 +15,18 @@ pub struct Notification {
 	pub sender: String,
 	pub preview: String,
 	pub avatar_key: String,
+	/// The account owner is mentioned by ID; notification admission matches on it.
 	direct: bool,
+	/// The message came from a direct or group conversation rather than a server.
+	conversation: bool,
 	everyone: bool,
 	roles: Vec<Id>,
 }
 impl Notification {
+	/// Whether the message came from a direct or group conversation.
+	pub fn is_direct(&self) -> bool {
+		self.conversation
+	}
 	fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ self.roles.capacity() * size_of::<Id>()
@@ -607,8 +614,9 @@ impl State {
 					&& !self.message_request_pending(channel.id)
 					&& !self.spam_direct(channel.id)
 					&& (Some(channel.id) == call
-						|| self.channel_unread(channel) == Some(true)
-						|| self.unread_count(channel.id) > 0)
+						|| (self.dm_muted(channel.id) != Some(true)
+							&& (self.channel_unread(channel) == Some(true)
+								|| self.unread_count(channel.id) > 0)))
 			})
 			.map(|channel| (self.channel_activity(channel), channel.id))
 			.collect();
@@ -1086,6 +1094,9 @@ impl State {
 			preview,
 			avatar_key: message.author.avatar_key(),
 			direct,
+			conversation: self
+				.channel(message.channel)
+				.is_some_and(|channel| channel.guild.is_none()),
 			everyone: message.mention_everyone,
 			roles: message.mention_roles.clone(),
 		};

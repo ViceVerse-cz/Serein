@@ -4,12 +4,13 @@ pub mod external;
 
 use crate::{DiscordApi, Failure};
 use client_core::{Command, Event};
-use reqwest::{Method, Url};
 use std::{
 	path::PathBuf,
 	time::{Duration, SystemTime},
 };
 use tokio::{fs::File, io::AsyncReadExt, sync::watch};
+use url::Url;
+use wreq::Method;
 
 pub const MAX_BYTES: u64 = 500_000_000;
 pub const MAX_FILES: usize = 10;
@@ -468,16 +469,15 @@ impl DiscordApi {
 		let client = self
 			.upload_client
 			.get_or_try_init(|| async {
-				reqwest::Client::builder()
-					.redirect(reqwest::redirect::Policy::none())
-					.retry(reqwest::retry::never())
+				crate::browser_transport(wreq::Client::builder())
+					.redirect(wreq::redirect::Policy::none())
+					.retry(wreq::retry::Policy::never())
 					.no_proxy()
 					.connect_timeout(Duration::from_secs(10))
 					.read_timeout(Duration::from_secs(30))
 					.timeout(Duration::from_secs(300))
 					.pool_max_idle_per_host(1)
 					.pool_idle_timeout(Duration::from_secs(30))
-					.user_agent(client_core::fingerprint::user_agent())
 					.build()
 					.map_err(|_| Failure::Network)
 			})
@@ -506,14 +506,11 @@ impl DiscordApi {
 				Ok(Some((bytes, (file, sent))))
 			}
 		});
-		let mut response = client
-			.put(url)
-			.header(
-				reqwest::header::CONTENT_TYPE,
-				content_type(source.filename()),
-			)
-			.header(reqwest::header::CONTENT_LENGTH, total)
-			.body(reqwest::Body::wrap_stream(stream))
+		let response = client
+			.put(url.as_str())
+			.header(wreq::header::CONTENT_TYPE, content_type(source.filename()))
+			.header(wreq::header::CONTENT_LENGTH, total)
+			.body(wreq::Body::wrap_stream(stream))
 			.send()
 			.await
 			.map_err(|_| Failure::ProtocolAt("File upload failed; no message was sent"))?;
@@ -538,7 +535,12 @@ impl DiscordApi {
 			return Err(Failure::ProtocolAt("Upload response exceeded its limit"));
 		}
 		let mut received = 0;
-		while let Some(chunk) = response.chunk().await.map_err(|_| Failure::Network)? {
+		let mut body = std::pin::pin!(response.bytes_stream());
+		while let Some(chunk) = futures_util::StreamExt::next(&mut body)
+			.await
+			.transpose()
+			.map_err(|_| Failure::Network)?
+		{
 			received += chunk.len();
 			if received > MAX_RESPONSE {
 				return Err(Failure::ProtocolAt("Upload response exceeded its limit"));

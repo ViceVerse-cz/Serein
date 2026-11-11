@@ -1106,6 +1106,16 @@ pub(crate) fn presence_badge(
 		.on_hover_text(presence_label(status));
 }
 
+/// A member's profile theme colors, unless a plain-profiles tweak hides them.
+pub(crate) fn shown_theme_colors(
+	ctx: &egui::Context,
+	profile: &model::UserProfile,
+) -> Option<[u32; 2]> {
+	profile
+		.theme_colors
+		.filter(|_| !crate::interface_tweaks::on(ctx, extensions::InterfaceTweak::PlainProfiles))
+}
+
 /// Discord's typing badge: the status disc stretched leftward into a pill of the status
 /// colour holding three dots that pulse in turn. A group has no status, so `None` is grey.
 pub(crate) fn typing_badge(ui: &mut egui::Ui, rect: Rect, status: Option<&str>, ring: Color32) {
@@ -1118,10 +1128,16 @@ pub(crate) fn typing_badge(ui: &mut egui::Ui, rect: Rect, status: Option<&str>, 
 	painter.rect_filled(pill.expand(ring_width), radius + ring_width, ring);
 	painter.rect_filled(pill, radius, presence_color(status.unwrap_or("offline")));
 	let time = ui.input(|input| input.time);
+	let animate =
+		!crate::interface_tweaks::on(ui.ctx(), extensions::InterfaceTweak::StaticTypingIndicator);
 	for dot in 0..3 {
 		// Each dot brightens a third of a 1.2 s cycle after the previous one.
 		let phase = (time / 1.2 - f64::from(dot) / 3.0).rem_euclid(1.0);
-		let pulse = (1.0 - (phase * std::f64::consts::TAU).cos()) as f32 / 2.0;
+		let pulse = if animate {
+			(1.0 - (phase * std::f64::consts::TAU).cos()) as f32 / 2.0
+		} else {
+			1.0
+		};
 		painter.circle_filled(
 			pos2(
 				pill.center().x + (dot as f32 - 1.0) * radius * 1.15,
@@ -1131,9 +1147,14 @@ pub(crate) fn typing_badge(ui: &mut egui::Ui, rect: Rect, status: Option<&str>, 
 			Color32::WHITE.gamma_multiply(0.45 + 0.55 * pulse),
 		);
 	}
-	// Animates only while someone is typing; indicators expire within ten seconds.
+	// Animates only while someone is typing; indicators expire within ten seconds, so still
+	// dots still need a slow frame to disappear on time.
 	ui.ctx()
-		.request_repaint_after(std::time::Duration::from_millis(50));
+		.request_repaint_after(std::time::Duration::from_millis(if animate {
+			50
+		} else {
+			1000
+		}));
 	ui.allocate_rect(pill.expand(ring_width), egui::Sense::hover())
 		.on_hover_text(crate::i18n::translate("typing-badge-typing"));
 }
@@ -1994,7 +2015,18 @@ fn local_date(seconds: i64) -> Option<String> {
 		.map(|date| crate::local_time::local(date).date().to_string())
 }
 
-fn role_chips(
+/// The role name a plugin receives, held to the host's role-target rules: control
+/// characters dropped and at most Discord's role-name length.
+fn role_target_name(name: &str) -> String {
+	name.chars()
+		.filter(|c| !c.is_control())
+		.take(extensions::MAX_ROLE_NAME_CHARS)
+		.collect()
+}
+
+/// Draws a member's role chips, collapsing overflow into a `+N` chip, with a plugin role
+/// menu on each chip when an enabled plugin offers role actions.
+pub(crate) fn role_chips(
 	ui: &mut egui::Ui,
 	theme: &Theme,
 	state: &State,
@@ -2026,7 +2058,8 @@ fn role_chips(
 		})
 		.collect();
 	let expanded_id = ui.make_persistent_id(("profile-roles-expanded", guild.guild, user));
-	let expanded = ui.data(|data| data.get_temp::<bool>(expanded_id).unwrap_or(false));
+	let expanded = crate::interface_tweaks::on(ui.ctx(), extensions::InterfaceTweak::ExpandedRoles)
+		|| ui.data(|data| data.get_temp::<bool>(expanded_id).unwrap_or(false));
 	let fits = |widths: &[f32]| {
 		let mut rows = 1;
 		let mut used = 0.0;
@@ -2068,7 +2101,38 @@ fn role_chips(
 				(*width - 21.0).max(0.0),
 			);
 			let size = vec2(*width, galley.size().y + 6.0);
-			let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
+			let menu =
+				crate::extensions_ui::has_context_actions(ui.ctx(), extensions::Surface::Role);
+			let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+			// Keyed by role so an open menu stays on its chip when live updates reorder roles.
+			let id = egui::Id::unique(("profile-role-chip", guild.guild, user, role.id));
+			let response = ui.interact(
+				rect,
+				id,
+				if menu {
+					egui::Sense::click()
+				} else {
+					egui::Sense::hover()
+				},
+			);
+			let target_name = role_target_name(&role.name);
+			// With plugin role actions the chip is a control: screen readers announce it as a
+			// button named after the role, its color when it has one so equal names stay
+			// distinguishable, and the Extensions menu it opens on any activation.
+			if menu {
+				response.widget_info(|| {
+					let extensions = crate::i18n::translate("timeline-message-actions-extensions");
+					let label = if role.color == 0 {
+						format!("{target_name}, {extensions}")
+					} else {
+						format!(
+							"{target_name}, #{:06X}, {extensions}",
+							role.color & 0xff_ffff
+						)
+					};
+					egui::WidgetInfo::labeled(egui::Role::Button, true, label)
+				});
+			}
 			ui.painter().rect_filled(rect, 6, theme.chip);
 			let color = if role.color == 0 {
 				theme.muted
@@ -2082,7 +2146,23 @@ fn role_chips(
 				galley,
 				theme.text,
 			);
-			response.on_hover_text(&role.name);
+			let response = response.on_hover_text(&role.name);
+			if menu {
+				let mut popup = crate::user_menu::popup(&response, id.with("menu"));
+				if response.clicked() {
+					popup = popup
+						.open_memory(Some(egui::SetOpenCommand::Bool(true)))
+						.at_position(response.rect.left_bottom());
+				}
+				let target = extensions::MenuTarget::Role {
+					guild_id: guild.guild.to_string(),
+					role_id: role.id.to_string(),
+					user_id: Some(user.to_string()),
+					name: target_name,
+					color: role.color & 0xff_ffff,
+				};
+				popup.show(|ui| crate::extensions_ui::context_menu_entries(ui, &target));
+			}
 		}
 		let hidden = roles.len() - visible;
 		if hidden > 0 {
@@ -3173,7 +3253,7 @@ fn card_view(
 		}
 		_ => bounds,
 	};
-	let theme = Theme::new(&colors, data.and_then(|d| d.theme_colors));
+	let theme = Theme::new(&colors, data.and_then(|d| shown_theme_colors(ui.ctx(), d)));
 	// The board column sits on the modal, not the profile theme, so it keeps app colors.
 	let panel_theme = Theme::new(&colors, None);
 	let guild = state
@@ -3207,8 +3287,10 @@ fn card_view(
 		.map(|c| c.id);
 	let mut action = None;
 	let menu_id = egui::Id::unique(("user-profile-more", user.id, docked));
-	// A menu that was already open owns Escape and clicks on its own items this frame.
-	let menu_open = egui::Popup::is_id_open(ui.ctx(), menu_id);
+	// A menu that was already open owns Escape and clicks on its own items this frame. Role
+	// chip menus may extend past the card, so any open popup keeps the card open too.
+	let menu_open =
+		egui::Popup::is_id_open(ui.ctx(), menu_id) || egui::Popup::is_any_open(ui.ctx());
 	// The mutuals side panel stays open across frames until toggled, dismissed or navigated.
 	let mutuals_id = egui::Id::unique(("profile-mutuals", user.id, docked));
 	let mut mutuals = ui.ctx().data(|d| d.get_temp::<Mutuals>(mutuals_id));
@@ -4078,7 +4160,12 @@ fn card_view(
 										);
 									}
 									// Discord keeps the private note at the bottom of the profile.
-									if !own && !user.webhook && !data.private {
+									if !own
+										&& !user.webhook && !data.private
+										&& !crate::interface_tweaks::on(
+											ui.ctx(),
+											extensions::InterfaceTweak::HiddenProfileNotes,
+										) {
 										section(
 											ui,
 											&theme,
@@ -4522,7 +4609,15 @@ fn paint_collectibles(
 			hovered,
 			0.2,
 		);
-		avatars.paint_effect(ui, effect, card, elapsed, 1.0 - 0.75 * fade, demo);
+		avatars.paint_effect(
+			ui,
+			effect,
+			card,
+			f32::from(RADIUS),
+			elapsed,
+			1.0 - 0.75 * fade,
+			demo,
+		);
 	}
 	let Some(frame) = data.frame.as_deref().filter(|_| avatars.cosmetics.frames) else {
 		return;
@@ -4686,6 +4781,140 @@ fn synthetic_frame() -> model::ProfileFrame {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	/// Checks that role names with control characters or past the role-name limit still
+	/// produce a role target the host accepts.
+	#[test]
+	fn role_target_names_always_pass_host_validation() {
+		let long = "x".repeat(extensions::MAX_ROLE_NAME_CHARS + 50);
+		for (name, expected) in [
+			("Mod\u{7}er\nator", "Moderator".to_owned()),
+			(long.as_str(), "x".repeat(extensions::MAX_ROLE_NAME_CHARS)),
+		] {
+			let sanitized = role_target_name(name);
+			assert_eq!(sanitized, expected);
+			extensions::MenuTarget::Role {
+				guild_id: "1".into(),
+				role_id: "2".into(),
+				user_id: Some("3".into()),
+				name: sanitized,
+				color: 0x3498db,
+			}
+			.validate()
+			.expect("sanitized role target is valid");
+			let raw = extensions::MenuTarget::Role {
+				guild_id: "1".into(),
+				role_id: "2".into(),
+				user_id: Some("3".into()),
+				name: name.into(),
+				color: 0x3498db,
+			};
+			assert!(raw.validate().is_err(), "the unsanitized name is rejected");
+		}
+	}
+
+	fn tweaks(ctx: &egui::Context, on: &[extensions::InterfaceTweak]) {
+		crate::interface_tweaks::publish(ctx, &std::sync::Arc::new(on.iter().copied().collect()));
+	}
+
+	/// Checks that the plain-profiles tweak hides a member's profile theme colors.
+	#[test]
+	fn plain_profiles_tweak_hides_member_theme_colors() {
+		let ctx = egui::Context::default();
+		let user = test_support::message(1, Id(10)).author;
+		let profile = synthetic(&user, None);
+		assert!(profile.theme_colors.is_some());
+		tweaks(&ctx, &[]);
+		assert_eq!(shown_theme_colors(&ctx, &profile), profile.theme_colors);
+		tweaks(&ctx, &[extensions::InterfaceTweak::PlainProfiles]);
+		assert_eq!(shown_theme_colors(&ctx, &profile), None);
+	}
+
+	/// Checks that the expanded-roles tweak lists every role instead of a `+N` overflow chip.
+	#[test]
+	fn expanded_roles_tweak_shows_every_role() {
+		let mut state = test_support::chat_demo_state();
+		let mut snapshot = test_support::permission_snapshot(&state);
+		let guild = snapshot.guilds[0].id;
+		let roles: Vec<Id> = (0..12).map(|i| Id(500 + i)).collect();
+		for (index, id) in roles.iter().enumerate() {
+			snapshot.guilds[0]
+				.roles
+				.as_mut()
+				.unwrap()
+				.push(model::permissions::Role {
+					name: format!("Synthetic role {index}"),
+					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
+					position: index as i32 + 1,
+					hoist: false,
+					managed: false,
+					id: *id,
+					bits: 0,
+				});
+		}
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Permissions(client_core::permissions::Event::Snapshot(
+				snapshot,
+			)),
+		});
+		let member = model::GuildProfile {
+			guild,
+			roles,
+			nick: None,
+			avatar: None,
+			banner: None,
+			bio: String::new(),
+			pronouns: String::new(),
+			joined_at: None,
+		};
+		let drawn = |on: &[extensions::InterfaceTweak]| {
+			let ctx = egui::Context::default();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						vec2(300.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					tweaks(ui.ctx(), on);
+					let theme = Theme::new(&design::palette(ui), None);
+					role_chips(ui, &theme, &state, Id(42), &member);
+				},
+			);
+			let mut texts = Vec::new();
+			let mut stack: Vec<_> = output.shapes.iter().map(|clipped| &clipped.shape).collect();
+			while let Some(shape) = stack.pop() {
+				match shape {
+					egui::Shape::Text(text) => texts.push(text.galley.text().to_owned()),
+					egui::Shape::Vec(shapes) => stack.extend(shapes),
+					_ => {}
+				}
+			}
+			output.drop_without_applying_deltas();
+			texts
+		};
+		let collapsed = drawn(&[]);
+		assert!(
+			collapsed.iter().any(|text| text.starts_with('+')),
+			"{collapsed:?}"
+		);
+		let expanded = drawn(&[extensions::InterfaceTweak::ExpandedRoles]);
+		assert!(
+			!expanded.iter().any(|text| text.starts_with('+')),
+			"{expanded:?}"
+		);
+		assert_eq!(
+			expanded
+				.iter()
+				.filter(|text| text.starts_with("Synthetic role"))
+				.count(),
+			12
+		);
+	}
 
 	#[test]
 	fn mixed_profile_gradients_keep_text_readable_at_and_between_endpoints() {
@@ -5528,6 +5757,75 @@ mod tests {
 		let public = painted(false);
 		assert!(!public.iter().any(|text| text == "Private Profile"));
 		assert!(public.iter().any(|text| text == "MEMBER SINCE"));
+	}
+
+	/// Checks that the hidden-profile-notes tweak leaves the note section out of profiles.
+	#[test]
+	fn hidden_profile_notes_tweak_leaves_out_the_note() {
+		let ctx = egui::Context::default();
+		let state = test_support::demo_state();
+		let user = state
+			.channels
+			.iter()
+			.find(|channel| channel.kind == 1)
+			.and_then(|channel| channel.recipients.first().cloned())
+			.unwrap();
+		let painted = |hidden: bool| {
+			let view = ProfileView {
+				user: user.id,
+				guild: None,
+				request: 0,
+				loading: false,
+				error: None,
+				data: Some(synthetic(&user, None)),
+			};
+			let mut session = ProfileSession::default();
+			let mut painted = Vec::new();
+			for _ in 0..2 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 900.0))),
+						..Default::default()
+					},
+					|ui| {
+						tweaks(
+							ui.ctx(),
+							if hidden {
+								&[extensions::InterfaceTweak::HiddenProfileNotes]
+							} else {
+								&[]
+							},
+						);
+						show_with_session(
+							ui,
+							&user,
+							Some(&view),
+							&state,
+							&mut Avatars::default(),
+							&mut None,
+							&mut FormatCache::default(),
+							true,
+							pos2(300.0, 60.0),
+							&mut session,
+						);
+					},
+				);
+				painted.clear();
+				let mut stack: Vec<_> =
+					output.shapes.iter().map(|clipped| &clipped.shape).collect();
+				while let Some(shape) = stack.pop() {
+					match shape {
+						egui::Shape::Text(text) => painted.push(text.galley.job.text.clone()),
+						egui::Shape::Vec(shapes) => stack.extend(shapes),
+						_ => {}
+					}
+				}
+				output.drop_without_applying_deltas();
+			}
+			painted
+		};
+		assert!(painted(false).iter().any(|text| text == "NOTE"));
+		assert!(!painted(true).iter().any(|text| text == "NOTE"));
 	}
 
 	#[test]

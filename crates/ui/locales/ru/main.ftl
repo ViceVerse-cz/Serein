@@ -1690,6 +1690,8 @@ markdown-confirm-external-link-open-external-link = Открыть внешню�
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Открыть в браузере
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = В ссылку помещается только начало этого сообщения; остальное не отправляется. Ссылка откроется в браузере по умолчанию.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Этот пункт назначения открывается в браузере по умолчанию.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Скопировать смайлик
@@ -2274,6 +2276,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Отправ
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Делитесь звуком из других приложений, даже если вы делитесь одним окном. Собственный звук Серейн не учитывается.
 # Context: body
 screen-body-share-system-audio = Поделиться системным звуком
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Передавайте звук общего приложения или, при показе экрана, звук всех остальных приложений. Собственный звук Serein не передаётся.
 # Context: body
 screen-body-show-cursor = Показать курсор
 # Context: body
@@ -3870,6 +3874,10 @@ timeline-message-actions-delete-message = Удалить сообщение…
 timeline-message-actions-edit-message = Редактировать сообщение
 # Context: message_actions
 timeline-message-actions-extensions = Расширения
+# Context: menu
+extensions-ui-menu-group-user = Пользователь
+# Context: menu
+extensions-ui-menu-group-conversation = Беседа
 # Context: message_actions
 timeline-message-actions-forward = Переслать
 # Context: message_actions
@@ -3920,6 +3928,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = Загрузка сообщений…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Сообщение удалено
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Заблокированное сообщение
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = История сообщений недоступна с текущей информацией о разрешении.
 # Context: show_with_scroll
@@ -4510,6 +4520,8 @@ voice-recipient-stop-ringing = Перестать звонить
 voice-recipient-ringing = Вызов…
 voice-recipient-not-in-call = Не в звонке
 reconnect-now = Переподключиться
+
+message-preview-limit = Это сообщение превышает ограничение нативной раскладки текста.
 
 voice-call-moved-to-another-client = Сеанс звонка на этом устройстве был заменён
 

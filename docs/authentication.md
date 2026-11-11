@@ -34,9 +34,26 @@ Queries are at least 100 ms apart, with one cancellable evaluation and one secre
 frame can only request a query of the main frame. The Linux login and verification webviews
 disable HTML media and Web Audio: a machine without a GStreamer audio sink otherwise crashes
 the web process right after login, which surfaces as a distinct "stopped unexpectedly" status.
-The Linux login webview presents the same browser identity as `client_core::fingerprint`;
-WebKitGTK's default "Safari on Linux" user agent made hCaptcha and Discord reject solved
-login challenges.
+The Linux login webview presents the same browser identity as `client_core::fingerprint`.
+A login webview left on WebKitGTK's default user agent while REST presented Chrome made
+hCaptcha and Discord reject solved login challenges. Linux now advertises Safari (WebKit)
+everywhere, since hCaptcha detects the WebKit engine from script whatever the user agent says.
+
+**Transport identity (unofficial, live-unverified).** Serein presents one browser identity on
+every Discord connection, chosen in `client_core::fingerprint` to match the engine of the
+platform webview: Safari 26.4 on macOS and Linux (WebKit), Chrome 149 on Windows (WebView2).
+The user agent, super-properties, client hints (Chrome only) and the TLS/HTTP2 handshake of
+REST, uploads, the Gateway and voice WebSockets, and Discord CDN downloads (avatars, images,
+attachments, audio and video) all come from that one source; the handshake
+is wreq's emulation profile for the same browser version over BoringSSL. This removes a
+mismatch between the advertised browser and the previous rustls handshake; it does not
+impersonate the official desktop client, and it is not evidence that Discord accepts the
+client or that enforcement actions stop. The profiles are wreq-util's and were not compared
+with captures of the real browsers. The web client build number is unchanged and may be
+stale. Hosts other than Discord (updater, extension downloads, external uploads, third-party
+media) get no emulation; the updater and external uploads send a `Serein/x.y` user agent. Certificates are verified against the Mozilla
+roots bundled with wreq, not the operating system trust store, so a TLS-inspecting proxy
+whose root is installed only in the OS is rejected.
 
 Close/drop invalidates pending results, clears the secret/scripts/handler, cancels evaluation,
 stops loading, terminates the ephemeral web process and destroys the GTK window. GLib pumping
@@ -54,7 +71,7 @@ These are implemented limits, not measured teardown/storage or live login compat
 Serein uses Discord’s official login page in a temporary platform webview, not OAuth. The credential handoff is unofficial and live-unverified; see the compatibility matrix. Complete authentication yourself, in the application. Never send passwords, tokens, MFA codes, QR screenshots, or private message contents to the coding agent, issues, logs, or CI.
 
 1. Build `cargo run --locked` on a supported platform. Use a private conversation controlled by the account owner. The owner enables the private-test acknowledgment and presses **Sign in with Discord**.
-2. Complete one of the real login methods available in Discord’s page. Do not bypass a challenge or spoof a fingerprint if Discord rejects the engine. Cancel if the page or handoff is unsupported. The webview expires after ten minutes and closes when it supplies a candidate token.
+2. Complete one of the real login methods available in Discord’s page. Do not bypass a challenge, and do not change the webview's engine identity or the identity described above to get past a rejection. Cancel if the page or handoff is unsupported. The webview expires after ten minutes and closes when it supplies a candidate token.
 3. Native REST verifies `/users/@me`, rejects a bot account, retrieves the gateway location, and waits for normal-user READY. A socket opening is not authentication success. The token is saved in the OS credential store only after readiness; if saving fails, the UI reports session-only login unless the owner explicitly enabled the plaintext fallback in Settings › Storage. That opt-in saves bounded, unencrypted login files and warns about local access; see [storage policy](storage-policy.md). On a desktop without any OS credential store (Linux with no Secret Service provider such as GNOME Keyring, KWallet or KeePassXC), sign-in still works session-only: startup and the post-login notice say to install a keyring, and expiry cleanup does not report a removal failure for a store that does not exist. When no Secret Service answers, Serein D-Bus-activates `org.kde.kwalletd6`/`kwalletd5` (KWallet is often not activatable as `org.freedesktop.secrets` outside Plasma) and retries the store at most every 15 seconds rather than for the rest of the run; KWallet's Secret Service integration must be enabled (unverified on a live KDE desktop). `AUTH_SESSION_CHANGE` only updates the auth-session hash and does not end the session; revocation is HTTP 401 or Gateway close 4004.
 4. Choose the existing private channel/DM. Load one 50-message page. Deliberately compose and send one short test message. Verify it appears in an official Discord client. Reply from that official client and verify the reply appears natively through Gateway. Do not count an offline fixture, matching text, or a bot reply as success.
 5. In the same conversation, verify an edit, deletion, HTTP/Gateway confirmation ordering, permission rejection if available, disconnect/resume and non-resumable reload. Keep traffic small; run stress tests only against synthetic transports.

@@ -65,6 +65,9 @@ general-windows-tray-description = Zavřením okna zůstane Serein v oznamovací
 general-tray-unavailable = Oznamovací oblast není na této platformě dostupná.
 general-graphics = Grafika
 general-render-with = Vykreslovat pomocí
+general-graphics-api = Grafické API
+general-graphics-api-description = Projeví se po restartu Sereinu. Pokud vybrané API nedokáže vykreslit okno, použije se automatický výběr.
+general-graphics-api-env-override = API pro toto spuštění určuje WGPU_BACKEND. Pro použití tohoto nastavení odeberte proměnnou prostředí.
 general-gpu-restart = Projeví se při příštím spuštění Sereinu.
 general-gpu-current-prefix = Aktuálně vykresluje
 general-steady-refresh-rate = Stálá obnovovací frekvence
@@ -320,6 +323,20 @@ attachments-viewer-cancel = Zrušit
 attachments-viewer-downloads-are-disabled-for-synthetic-attachments = U syntetických příloh je stahování zakázáno
 # Context: viewer
 attachments-viewer-open-in-browser = Otevřít v prohlížeči
+# Context: viewer
+attachments-viewer-zoom-in = Přiblížit
+# Context: viewer
+attachments-viewer-more = Další
+# Context: viewer
+attachments-viewer-copy-media-link = Kopírovat odkaz na médium
+# Context: viewer
+attachments-viewer-view-details = Zobrazit podrobnosti
+# Context: viewer
+attachments-viewer-filename = Název souboru
+# Context: viewer
+attachments-viewer-size = Velikost
+# Context: viewer
+attachments-viewer-copy-attachment-id = Kopírovat ID přílohy
 # Context: viewer
 attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset = Posunutím zvětšíte · Přetažením posunete · Dvojitým kliknutím resetujete
 
@@ -1700,6 +1717,8 @@ markdown-confirm-external-link-open-external-link = Otevřít externí odkaz?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Otevřít v prohlížeči
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Do odkazu se vejde jen začátek této zprávy; zbytek se neodešle. Cíl se otevře ve výchozím prohlížeči.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Tento cíl se otevře ve vašem výchozím prohlížeči.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Kopírovat emotikony
@@ -2284,6 +2303,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Odesílejte,
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Sdílejte zvuk z jiných aplikací, i když sdílíte jedno okno. Serein vlastní zvuk je vynechán.
 # Context: body
 screen-body-share-system-audio = Sdílejte systémový zvuk
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Sdílejte zvuk sdílené aplikace, nebo při sdílení obrazovky zvuk všech ostatních aplikací. Serein vlastní zvuk je vynechán.
 # Context: body
 screen-body-show-cursor = Zobrazit kurzor
 # Context: body
@@ -3884,6 +3905,10 @@ timeline-message-actions-delete-message = Smazat zprávu…
 timeline-message-actions-edit-message = Upravit zprávu
 # Context: message_actions
 timeline-message-actions-extensions = Rozšíření
+# Context: menu
+extensions-ui-menu-group-user = Uživatel
+# Context: menu
+extensions-ui-menu-group-conversation = Konverzace
 # Context: message_actions
 timeline-message-actions-forward = Přeposlat
 # Context: message_actions
@@ -3934,6 +3959,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = Načítání zpráv…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Zpráva smazána
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Blokovaná zpráva
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Historie zpráv není s aktuálními informacemi o oprávnění k dispozici.
 # Context: show_with_scroll
@@ -4586,6 +4613,7 @@ public-upload-error-conversation = Před veřejným nahráním se vraťte do pů
 public-upload-error-selection = Výběr se změnil; před veřejným nahráním znovu zkontrolujte soubor
 public-upload-error-missing = Před veřejným nahráním znovu vyberte soubor
 
+message-preview-limit = Tato zpráva překračuje limit nativního rozvržení textu.
 voice-call-moved-to-another-client = Relace hovoru na tomto zařízení byla nahrazena
 
 # Synchronizované oblíbené GIFy (neoficiální nastavení účtu).
@@ -4967,3 +4995,29 @@ new-message-hint = Přidejte přátele a začněte přímou zprávu nebo skupinu
 new-message-no-people-found = Nikdo neodpovídá hledání.
 new-message-create = Vytvořit zprávu
 new-message-cancel = Zrušit
+
+## Zkratky pro oznámení a časové značky v editoru zpráv
+mention-shortcut-silent = @silent — odeslat bez push oznámení
+mention-shortcut-time = @time — vybrat časovou značku
+message-silent-indicator = Tichá zpráva
+message-silent-hint = Push oznámení a oznámení na ploše jsou potlačena. Odznaky zmínek zůstávají.
+timestamp-picker-title = Vložit časovou značku
+timestamp-picker-date = Datum (RRRR-MM-DD)
+timestamp-picker-clock = Čas (HH:MM:SS)
+timestamp-picker-offset = Posun vůči UTC (±HH:MM)
+timestamp-picker-offset-hint = Výchozí hodnota je váš aktuální místní posun. Upravte ji pro jiné časové pásmo nebo změnu letního času.
+timestamp-picker-format = Formát zobrazení
+timestamp-picker-invalid = Zadejte platné datum, čas a posun vůči UTC.
+timestamp-picker-rejected = Koncept se změnil nebo se časová značka nevejde. Zrušte dialog a zkuste to znovu.
+timestamp-picker-cancel = Zrušit
+timestamp-picker-insert = Vložit
+timestamp-style-default = Výchozí datum a čas
+timestamp-style-t = Krátký čas
+timestamp-style-long-time = Čas se sekundami
+timestamp-style-d = Krátké datum
+timestamp-style-long-date = Dlouhé datum
+timestamp-style-f = Datum a čas
+timestamp-style-full = Úplné datum a čas
+timestamp-style-relative = Relativní čas
+timestamp-style-short-date-time = Krátké datum a čas
+timestamp-style-short-date-seconds = Krátké datum a čas se sekundami

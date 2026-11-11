@@ -354,6 +354,8 @@ impl MessagingUi {
 			});
 	}
 
+	/// Draws the server rail with its folders, drag-and-drop ordering and each server's context
+	/// menu, including plugin server actions.
 	pub(super) fn server_folders(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -619,6 +621,12 @@ impl MessagingUi {
 					response.context_menu(|ui| {
 						if let Item::Server(id) = item {
 							ui.set_width(232.0);
+							crate::extensions_ui::context_menu_items(
+								ui,
+								extensions::MenuTarget::Server {
+									guild_id: id.to_string(),
+								},
+							);
 							// The invite dialog belongs to the active server, so choosing it
 							// from the rail also opens that server, like settings do.
 							let invite = self.server_menu.invite_item(ui, state, id);

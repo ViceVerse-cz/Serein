@@ -49,6 +49,7 @@ font sizes are whole logical pixels, before the user's display scale.
 | `body_size` | 15 | 10–28 |
 | `heading_size` | 20 | 12–40 |
 | `button_size` | 14 | 10–28 |
+| `icon_size` | 20 | 16–24 |
 | `small_size` | 12 | 10–28 |
 | `monospace_size` | 14 | 10–28 |
 | `item_spacing` | [8, 8] | Each axis 0–24 |
@@ -66,6 +67,7 @@ For example, this `theme` value provides a flatter, roomier appearance:
   "dark": {"colors": {"chat": "#15252A", "accent": "#55CBD7", "accent_text": "#15252A"}},
   "style": {
     "body_size": 16,
+    "icon_size": 20,
     "button_padding": [16, 8],
     "control_height": 36,
     "widget_radius": 2,
@@ -100,6 +102,10 @@ hint where supported; only restarting with the Appearance switch off releases th
 alpha-capable GPU surface. X11 cannot change its native hint after window creation.
 The synthetic native preview can opt in without saved settings using
 `cargo run --locked -p serein --features demo -- --demo --demo-transparency`.
+
+`icon_size` scales shared icon glyphs relative to the 20-pixel baseline without changing
+button hit regions. Custom-painted glyphs and fixed atlas geometry may opt out. **Preview
+SDK — PR #937, not yet released.** Older hosts reject unknown `style` fields.
 
 These metrics affect controls that inherit the shared native style. Custom
 painted elements, explicit text sizes, fixed-height rows and per-widget padding

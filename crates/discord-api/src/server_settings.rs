@@ -5,7 +5,7 @@ use model::{
 	Id, Patch,
 	server_settings::{Edit, Settings},
 };
-use reqwest::Method;
+use wreq::Method;
 
 impl DiscordApi {
 	async fn load_server_settings(&self, guild: Id) -> Result<Box<Settings>, Failure> {

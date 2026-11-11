@@ -178,9 +178,15 @@ impl State {
 		} else {
 			// Nobody can close a window they cannot see: a hidden window's close comes from the
 			// session ending (Plasma closes every window at logout), so exit instead of blocking it.
-			self.system_close |= !self.exiting && unseen;
+			let system_close = !self.exiting && unseen;
+			self.system_close |= system_close;
 			// Registration can finish while the existing exit dialog is open.
 			self.exiting = true;
+			// A hidden window runs only logic passes, and KWin does not show it again while the
+			// session ends, so let this close through instead of waiting for a ui pass.
+			if system_close {
+				return;
+			}
 			if unseen || self.close_after_show {
 				self.close_after_show = true;
 				self.show(ctx);

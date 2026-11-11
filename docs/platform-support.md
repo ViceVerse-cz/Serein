@@ -8,7 +8,7 @@ supports it (including Linux X11); disconnected-monitor positions are ignored.
 Restoration fits the complete outer window to the selected monitor's dimensions,
 shrinking it and moving it inward when the display has become smaller. The normal
 minimum size is relaxed if necessary to fit that display and recalculated when
-the window moves or its native scale changes, restoring 760 × 520 logical pixels
+the window moves or its native scale changes, restoring 600 × 520 logical pixels
 when the current display can accommodate the window and its decorations.
 Minimized, hidden, maximized and fullscreen states do not replace normal geometry.
 Closing frames do not overwrite the saved geometry.
@@ -44,6 +44,18 @@ available (for example, `dx12` or `vulkan`). Affected users confirmed that forci
 DX12 launches successfully; the new default still needs native Windows validation.
 macOS and Linux retain their existing backend defaults.
 
+General → Graphics now offers a **Graphics API** picker alongside the GPU preference.
+It lists Automatic and the APIs compiled for the current platform (Vulkan, DirectX 12,
+Metal or OpenGL); an installed driver and a presentable adapter are still required.
+The device-local choice is saved in SQLite and applies on the next launch. An explicit
+API is ranked before the GPU preference; when no adapter for it can present, selection
+falls back to the normal Automatic candidates and reports the fallback on stderr.
+Automatic retains the Windows DirectX 12 / OpenGL policy and other platform defaults.
+`WGPU_BACKEND` takes precedence over the saved API and disables the picker for that
+launch. The current adapter/backend remains visible in settings, and bug reports include
+the requested API and whether an environment override is active. Driver initialization
+crashes cannot be caught by this fallback; Windows Vulkan remains an explicit opt-in.
+
 Adapter selection prefers a real GPU over a software rasterizer whichever backend presents it.
 Windows offers WARP ("Microsoft Basic Render Driver") as its Direct3D adapter on hardware that
 predates DX12, and drawing the client on the CPU that way freezes a machine whose GPU still
@@ -78,7 +90,7 @@ excludes the caption buttons area so edge/corner resizing does not intercept cor
 Close. Caption buttons keep their own actions; Windows double-click maximize/restore remains
 available. Synthetic egui input tests check command dispatch, including corner hit testing.
 On Windows, dragging the strip runs the OS move loop, which paints synchronously and waits for
-vsync before the next move. Through a patched egui-winit (see `vendor/egui-winit/SEREIN-PATCH.md`)
+vsync before the next move. Through Serein's patched egui-winit (see `vendor/egui/SEREIN-PATCH.md`)
 Serein therefore ignores raw mouse motion and repaints for window moves at most once per 500 ms,
 enough to sample and save where the window comes to rest; it also reapplies the minimum size only
 when it changes. An otherwise idle window follows the cursor like a native one. Continuous
@@ -98,11 +110,13 @@ requests are honored; native X11/Wayland verification of this toggle remains pen
 
 | Platform | Build/runtime requirements | Status |
 |---|---|---|
-| macOS | Rust 1.98.1, Xcode command-line tools; Metal/wgpu, system WKWebView, Keychain | Local arm64 build and native synthetic window tested on macOS 27.0 beta, Apple M1 Pro / 16 GiB |
-| Windows | Rust MSVC toolchain, Visual Studio C++ build tools, system graphics drivers, WebView2 Runtime 101+ (current supported runtime recommended), Credential Manager | Local x64 checks and unsigned release packaging on Windows 11 build 26200; synthetic process/window startup passed. Visual interaction, InPrivate behavior, IME and accessibility unverified |
-| Linux | Rust, C compiler, pkg-config, GTK >=4.10, WebKitGTK 6.0, fontconfig, libxkbcommon, X11/Wayland development packages, Vulkan-compatible GPU/driver, Secret Service session bus/keyring | Ubuntu 26.04 x64 / WSL2 text and voice releases and Debian package smoke passed; X11/Wayland rendering and login window unverified |
+| macOS | Rust 1.99.1, Xcode command-line tools, CMake; Metal/wgpu, system WKWebView, Keychain | Local arm64 build and native synthetic window tested on macOS 27.0 beta, Apple M1 Pro / 16 GiB |
+| Windows | Rust MSVC toolchain, Visual Studio C++ build tools, CMake, Git, LLVM (libclang), NASM on x64, system graphics drivers, WebView2 Runtime 101+ (current supported runtime recommended), Credential Manager | Local x64 checks and unsigned release packaging on Windows 11 build 26200; synthetic process/window startup passed. Visual interaction, InPrivate behavior, IME and accessibility unverified |
+| Linux | Rust, C/C++ compiler, CMake, Git, libclang, binutils, pkg-config, GTK >=4.10, WebKitGTK 6.0, fontconfig, libxkbcommon, X11/Wayland development packages, Vulkan-compatible GPU/driver, Secret Service session bus/keyring | Ubuntu 26.04 x64 / WSL2 text and voice releases and Debian package smoke passed; X11/Wayland rendering and login window unverified |
 
-Debian/Ubuntu development packages typically include `build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libvulkan-dev`. Package names vary by distribution. SQLite is bundled through rusqlite; it is an embedded client cache, with no database service.
+Debian/Ubuntu development packages typically include `build-essential cmake git libclang-dev pkg-config libgtk-4-dev libwebkitgtk-6.0-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libvulkan-dev`. Package names vary by distribution. SQLite is bundled through rusqlite; it is an embedded client cache, with no database service.
+
+TLS is BoringSSL, built from the source bundled in `btls-sys` (through wreq) on every platform; no system OpenSSL is used. Its build script needs CMake, Git (it applies its patches with `git apply`) and libclang (bindgen); set `LIBCLANG_PATH` when libclang is not on the default search path. On Linux the BoringSSL symbols are prefixed with `nm`/`objcopy` so they cannot collide with an OpenSSL loaded by WebKitGTK or GStreamer plugins. Windows x64 assembles BoringSSL with NASM; Windows ARM64 builds it without assembly (`packaging/windows/boringssl-arm64-msvc.cmake`, selected in `.cargo/config.toml`) because MSBuild cannot assemble BoringSSL's ARM64 sources, so TLS ciphers there use the portable C implementations.
 
 Linux packaging uses the target distribution's native tools: `dpkg-dev` for Debian,
 `rpm-build` for Fedora/openSUSE, or `makepkg` for Arch, plus Python 3 and
@@ -243,7 +257,7 @@ Apple Color Emoji was visually checked with a synthetic moon status on September
 Outgoing in-call capture uses AVFoundation on macOS, Media Foundation and DirectShow on Windows,
 and V4L2 on Linux. The existing camera button becomes available after the voice
 server negotiates H264; capture starts only after an explicit click in a connected
-call. All adapters send 640×480 video at most 15 encoded frames/s. Native capture now
+call. All adapters send 640×480 video at a selectable 15 or 30 encoded frames/s. Native capture now
 selects the closest supported dimensions/rate within a 1280×720 input ceiling
 (DirectShow preserves its existing 1920×1080 fallback) and
 converts to the existing encoder size; hardware negotiation remains unverified.
@@ -440,11 +454,11 @@ Optional Linux stream audio uses native `libpulse` per-application monitoring on
 PulseAudio or PipeWire's PulseAudio server. Source builds need the libpulse development
 package (`libpulse-dev`, `pulseaudio-libs-devel`, `libpulse-devel` or Arch's `libpulse`).
 The existing Flatpak PulseAudio socket permission covers this access; the ScreenCast
-portal's PipeWire remote grants video only. Windows uses native process loopback on
-build 20348+ (Windows 11 / Server 2022), with a visible audio error on older systems.
-Both exclude Serein's playback and capture other applications even when sharing one
-window. There is no whole-output fallback. Hardware exclusion and receiving sound in
-an official client remain unverified.
+portal's PipeWire remote grants video only. Windows uses native process loopback: one
+exclude-Serein capture on build 20348+ (Windows 11 / Server 2022), and per-application
+captures on older Windows 10 builds. Both exclude Serein's playback. Sharing a window captures
+only that window's application, as Discord does; sharing a screen captures other applications. There is no whole-output fallback. Hardware
+exclusion and receiving sound in an official client remain unverified.
 
 ## High-resolution video attachments
 

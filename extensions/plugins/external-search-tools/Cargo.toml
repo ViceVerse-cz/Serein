@@ -1,0 +1,14 @@
+[package]
+name = "external-search-tools"
+version = "1.0.3"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serein-extension-sdk.workspace = true
+url.workspace = true
+serde.workspace = true
+serde_json.workspace = true

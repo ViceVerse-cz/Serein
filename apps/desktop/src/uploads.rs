@@ -95,10 +95,10 @@ fn image_share_source(
 }
 
 async fn download_image_share(url: &str, cancelled: &AtomicBool) -> Result<Vec<u8>, &'static str> {
-	let client = reqwest::Client::builder()
+	let client = wreq::Client::builder()
 		.https_only(true)
 		.no_proxy()
-		.redirect(reqwest::redirect::Policy::none())
+		.redirect(wreq::redirect::Policy::none())
 		.timeout(std::time::Duration::from_secs(15))
 		.connect_timeout(std::time::Duration::from_secs(5))
 		.build()
@@ -106,7 +106,7 @@ async fn download_image_share(url: &str, cancelled: &AtomicBool) -> Result<Vec<u
 	if cancelled.load(Ordering::Acquire) {
 		return Err("Image selection cancelled");
 	}
-	let mut response = client
+	let response = client
 		.get(url)
 		.send()
 		.await
@@ -124,9 +124,10 @@ async fn download_image_share(url: &str, cancelled: &AtomicBool) -> Result<Vec<u
 			.unwrap_or(4096)
 			.min(SHARE_BYTES as u64) as usize,
 	);
-	while let Some(chunk) = response
-		.chunk()
+	let mut response_body = std::pin::pin!(response.bytes_stream());
+	while let Some(chunk) = futures_util::StreamExt::next(&mut response_body)
 		.await
+		.transpose()
 		.map_err(|_| "Image download interrupted")?
 	{
 		if cancelled.load(Ordering::Acquire) {
@@ -358,7 +359,7 @@ struct Parked {
 impl Parked {
 	/// Session memory this selection keeps; a still-decoding thumbnail counts at its largest.
 	fn bytes(&self) -> u64 {
-		let thumbnail = |image: &egui::ColorImage| image.pixels.len() as u64 * 4;
+		let thumbnail = |image: &egui::ColorImage| image.pixels().len() as u64 * 4;
 		self.selected
 			.iter()
 			.map(|chosen| {
@@ -1817,13 +1818,13 @@ pub(crate) fn debug_heic_check() {
 		let fixture = include_bytes!("../tests/fixtures/heic-large.heic");
 		let pixels = decode_preview(fixture)
 			.expect("synthetic HEIC must decode with installed HEIF/HEVC codecs");
-		assert_eq!(pixels.size, [320, 213]);
-		assert!(pixels.pixels.len() * 4 < PREVIEW_ALLOC as usize);
+		assert_eq!(pixels.resolution(), [320, 213]);
+		assert!(pixels.pixels().len() * 4 < PREVIEW_ALLOC as usize);
 		println!(
 			"WIC thumbnail first pixel: {:?}",
-			pixels.pixels[0].to_array()
+			pixels.pixels()[0].to_array()
 		);
-		for pixel in pixels.pixels.iter().step_by(1000) {
+		for pixel in pixels.pixels().iter().step_by(1000) {
 			for (actual, expected) in pixel.to_array().into_iter().zip([64, 128, 192, 255]) {
 				assert!(actual.abs_diff(expected) <= 4, "{actual} != {expected}");
 			}

@@ -262,9 +262,15 @@ impl MessagingUi {
 			String::new()
 		} else {
 			format!(
-				"\n- **Graphics:** {} ({} preference)",
+				"\n- **Graphics:** {} ({} preference; requested API: {}{})",
 				self.gpu_adapter,
-				self.gpu_preference.label()
+				self.gpu_preference.label(),
+				self.startup_graphics_api.label(),
+				if self.graphics_api_env_override {
+					"; WGPU_BACKEND override"
+				} else {
+					""
+				}
 			)
 		};
 

@@ -26,6 +26,83 @@ pub(crate) struct Layout {
 	inlines: Vec<Inline>,
 	cache: Option<(u64, Arc<egui::Galley>)>,
 	demo: bool,
+	bidi: Option<Bidi>,
+	/// The pointer gesture in progress over a right-to-left draft.
+	bidi_gesture: Option<Gesture>,
+}
+
+/// A press selects from a char; a double-click selects whole words while the button is held.
+#[derive(Clone)]
+enum Gesture {
+	Chars(usize),
+	Words(Range<usize>),
+}
+
+/// The word (or space/punctuation run) holding char `index`, as a char range.
+fn word_at(text: &str, index: usize) -> Range<usize> {
+	let byte = text
+		.char_indices()
+		.nth(index)
+		.map_or(text.len(), |(byte, _)| byte);
+	let chars = |byte: usize| text[..byte].chars().count();
+	text.split_word_bound_indices()
+		.find(|(from, word)| (*from..from + word.len()).contains(&byte))
+		.map_or(index..index, |(from, word)| {
+			chars(from)..chars(from + word.len())
+		})
+}
+
+/// The bidi paragraph holding byte `byte`; the end of the text belongs to the last one.
+fn paragraph_at<'a>(
+	bidi: &'a unicode_bidi::BidiInfo<'_>,
+	byte: usize,
+) -> Option<&'a unicode_bidi::ParagraphInfo> {
+	bidi.paragraphs
+		.iter()
+		.find(|paragraph| paragraph.range.contains(&byte))
+		.or_else(|| bidi.paragraphs.last().filter(|p| p.range.end == byte))
+}
+
+/// Visual placement of a draft with right-to-left text. egui's editor assumes glyphs run left
+/// to right in logical order, so for these drafts the composer reorders each row, paints its
+/// own caret and selection, and maps the pointer back to logical characters.
+struct Bidi {
+	/// Per source char: its visual cell within its row.
+	cells: Vec<Cell>,
+	rows: Vec<BidiRow>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct Cell {
+	left: f32,
+	width: f32,
+	rtl: bool,
+}
+
+struct BidiRow {
+	chars: Range<usize>,
+	rect: egui::Rect,
+	rtl: bool,
+}
+
+/// True when `text` has right-to-left letters, so the composer lays it out in visual order.
+pub(crate) fn has_rtl(text: &str) -> bool {
+	text.chars().any(|chr| {
+		matches!(
+			unicode_bidi::bidi_class(chr),
+			unicode_bidi::BidiClass::R | unicode_bidi::BidiClass::AL
+		)
+	})
+}
+
+/// Whether the paragraph holding char `index` of `text` reads right to left.
+pub(crate) fn paragraph_rtl(text: &str, index: usize) -> bool {
+	let byte = text
+		.char_indices()
+		.nth(index)
+		.map_or(text.len(), |(byte, _)| byte);
+	let bidi = unicode_bidi::BidiInfo::new(text, None);
+	paragraph_at(&bidi, byte).is_some_and(|paragraph| paragraph.level.is_rtl())
 }
 
 impl Layout {
@@ -251,12 +328,15 @@ impl Layout {
 			byte += length;
 			source += count;
 		}
+		let mut galley = ui.fonts_mut(|f| f.layout_job(job));
+		let reordered = has_rtl(text)
+			.then(|| reorder(ui, &mut galley, width))
+			.flatten();
 		if self.inlines.is_empty() {
-			let galley = ui.fonts_mut(|f| f.layout_job(job));
+			self.bidi = reordered.map(|(cells, rtl)| Bidi::new(cells, &rtl, &galley, &[]));
 			self.cache = Some((key, galley.clone()));
 			return galley;
 		}
-		let mut galley = ui.fonts_mut(|f| f.layout_job(job));
 		let galley_mut = Arc::make_mut(&mut galley);
 		let chars: Vec<_> = text.chars().collect();
 		let mut projected = 0;
@@ -285,6 +365,7 @@ impl Layout {
 		}
 		// TextEdit's galley and TextBuffer must expose exactly the same original characters.
 		galley_mut.job = Arc::new(LayoutJob::simple(text.to_owned(), font, colors.text, width));
+		self.bidi = reordered.map(|(cells, rtl)| Bidi::new(cells, &rtl, &galley, &self.inlines));
 		self.cache = Some((key, galley.clone()));
 		galley
 	}
@@ -443,6 +524,443 @@ impl Layout {
 	}
 }
 
+/// Lay out a draft holding right-to-left text in visual order. Lines break in logical order
+/// (wrapping at spaces by measured cluster advances), then Unicode bidi rules L1/L2 apply per
+/// row and each row is shaped once as a directional line. egui's own rows cannot be reordered:
+/// it emits one glyph per shaped glyph, so an Arabic letter drawn as a base and a dot becomes two.
+/// Each row here has one glyph per char, in logical order at its visual position, and rows of
+/// right-to-left paragraphs are right-aligned. Returns each projected char's cell and each
+/// row's paragraph direction.
+fn reorder(
+	ui: &egui::Ui,
+	galley: &mut Arc<egui::Galley>,
+	width: f32,
+) -> Option<(Vec<Cell>, Vec<bool>)> {
+	use egui::epaint::text::PlacedRow;
+	let job = galley.job.clone();
+	let text = job.text.as_str();
+	let bidi = unicode_bidi::BidiInfo::new(text, None);
+	if !bidi.has_rtl() || text.contains('\r') {
+		return None;
+	}
+	let offsets: Vec<usize> = text
+		.char_indices()
+		.map(|(byte, _)| byte)
+		.chain([text.len()])
+		.collect();
+	let char_at = |byte: usize| offsets.partition_point(|offset| *offset < byte);
+	let mut cells = vec![Cell::default(); offsets.len() - 1];
+	let mut directions = Vec::new();
+	let mut rows = Vec::new();
+	let mut y = 0.0;
+	let mut place = |row: egui::epaint::text::Row, rtl: bool, ends_with_newline: bool| {
+		let x = if rtl && width.is_finite() {
+			(width - row.size.x).max(0.0)
+		} else {
+			0.0
+		};
+		let height = row.size.y;
+		rows.push(PlacedRow {
+			pos: egui::pos2(x, y),
+			row: Arc::new(row),
+			ends_with_newline,
+		});
+		directions.push(rtl);
+		y += height;
+	};
+	let mut hard_start = 0;
+	for hard in text.split('\n') {
+		let line = hard_start..hard_start + hard.len();
+		hard_start = line.end + 1;
+		let ends_with_newline = line.end < text.len();
+		let paragraph = paragraph_at(&bidi, line.start)?;
+		let rtl = paragraph.level.is_rtl();
+		if line.is_empty() {
+			let (row, _) = shape_line(ui, &job, &bidi, paragraph, line);
+			place(row, rtl, ends_with_newline);
+			continue;
+		}
+		// Advances of the whole hard line choose the logical breaks; rows are shaped again.
+		let (_, measured) = shape_line(ui, &job, &bidi, paragraph, line.clone());
+		let mut advances: Vec<(Range<usize>, f32)> = measured
+			.into_iter()
+			.map(|(range, rect, _)| (range, rect.width()))
+			.collect();
+		advances.sort_by_key(|(range, _)| range.start);
+		let mut start = line.start;
+		while start < line.end {
+			let mut end = start;
+			let mut used = 0.0;
+			let mut word = None;
+			for (range, advance) in advances.iter().filter(|(range, _)| range.start >= start) {
+				if used + advance > width && end > start {
+					break;
+				}
+				used += advance;
+				end = range.end;
+				if text[start..end].ends_with(char::is_whitespace) {
+					word = Some(end);
+				}
+			}
+			if end < line.end
+				&& let Some(word) = word
+			{
+				end = word;
+			}
+			if end <= start {
+				// A cluster wider than the composer still gets its own row.
+				end = text[start..]
+					.chars()
+					.next()
+					.map_or(line.end, |c| start + c.len_utf8());
+			}
+			let (mut row, clusters) = shape_line(ui, &job, &bidi, paragraph, start..end);
+			for (range, rect, rtl) in clusters {
+				let chars = char_at(range.start)..char_at(range.end);
+				let share = rect.width() / chars.len().max(1) as f32;
+				for (index, char) in chars.enumerate() {
+					let left = if rtl {
+						rect.max.x - share * (index + 1) as f32
+					} else {
+						rect.min.x + share * index as f32
+					};
+					cells[char] = Cell {
+						left,
+						width: share,
+						rtl,
+					};
+				}
+			}
+			let template = row.glyphs.first().copied();
+			let glyph_end = row.visuals.glyph_vertex_range.end as u32;
+			row.glyphs = template
+				.map(|template| {
+					text[start..end]
+						.chars()
+						.zip(&cells[char_at(start)..char_at(end)])
+						.map(|(chr, cell)| {
+							let mut glyph = template;
+							glyph.chr = chr;
+							glyph.pos.x = cell.left;
+							glyph.advance_width = cell.width;
+							// egui recolours selected glyphs by vertex order; the composer
+							// paints the selection itself.
+							glyph.first_vertex = glyph_end;
+							glyph
+						})
+						.collect()
+				})
+				.unwrap_or_default();
+			start = end;
+			place(row, rtl, ends_with_newline && start >= line.end);
+		}
+	}
+	let galley_mut = Arc::make_mut(galley);
+	galley_mut.rect = rows.iter().fold(egui::Rect::NOTHING, |rect, placed| {
+		rect.union(egui::Rect::from_min_size(placed.pos, placed.row.size))
+	});
+	galley_mut.mesh_bounds = rows.iter().fold(egui::Rect::NOTHING, |rect, placed| {
+		rect.union(
+			placed
+				.row
+				.visuals
+				.mesh_bounds
+				.translate(placed.pos.to_vec2()),
+		)
+	});
+	galley_mut.num_vertices = rows.iter().map(|p| p.row.visuals.mesh.vertices.len()).sum();
+	galley_mut.num_indices = rows.iter().map(|p| p.row.visuals.mesh.indices.len()).sum();
+	galley_mut.elided = false;
+	galley_mut.rows = rows;
+	Some((cells, directions))
+}
+
+/// Shape `line` (job bytes inside one bidi paragraph) as one visual-order line. Returns its row
+/// and each native cluster's job bytes, row-local rect and direction.
+fn shape_line(
+	ui: &egui::Ui,
+	job: &LayoutJob,
+	bidi: &unicode_bidi::BidiInfo<'_>,
+	paragraph: &unicode_bidi::ParagraphInfo,
+	line: Range<usize>,
+) -> (
+	egui::epaint::text::Row,
+	Vec<(Range<usize>, egui::Rect, bool)>,
+) {
+	use egui::text::{ByteIndex, LayoutSection};
+	let text = job.text.as_str();
+	let mut shaped = LayoutJob::default();
+	let mut pieces = Vec::new();
+	let mut directions = Vec::new();
+	if line.is_empty() {
+		// An empty row still takes the height of the text around it.
+		let format = job
+			.sections
+			.first()
+			.map(|section| section.format.clone())
+			.unwrap_or_default();
+		shaped.sections.push(LayoutSection {
+			leading_space: 0.0,
+			byte_range: ByteIndex(0)..ByteIndex(0),
+			format,
+		});
+		directions.push(paragraph.level.is_rtl());
+	} else {
+		let (levels, runs) = bidi.visual_runs(paragraph, line);
+		for run in runs {
+			let rtl = levels[run.start].is_rtl();
+			let mut parts: Vec<_> = job
+				.sections
+				.iter()
+				.filter_map(|section| {
+					let from = run.start.max(section.byte_range.start.0);
+					let to = run.end.min(section.byte_range.end.0);
+					(from < to).then_some((from..to, &section.format))
+				})
+				.flat_map(|(range, format)| {
+					crate::rtl::script_parts(text, range)
+						.into_iter()
+						.map(move |range| (range, format))
+				})
+				.collect();
+			if rtl {
+				parts.reverse();
+			}
+			for (range, format) in parts {
+				let from = shaped.text.len();
+				shaped.text.push_str(&text[range.clone()]);
+				// append() merges equal formats and would erase a bidi boundary.
+				shaped.sections.push(LayoutSection {
+					leading_space: 0.0,
+					byte_range: ByteIndex(from)..ByteIndex(shaped.text.len()),
+					format: format.clone(),
+				});
+				directions.push(rtl);
+				pieces.push((range, from, rtl));
+			}
+		}
+	}
+	let native = ui.fonts_mut(|fonts| fonts.layout_single_line_with_clusters(shaped, &directions));
+	let placed = &native.galley.rows[0];
+	let origin = placed.pos.to_vec2();
+	let clusters = native
+		.clusters
+		.iter()
+		.filter_map(|cluster| {
+			let (range, from, rtl) = pieces.iter().find(|(range, from, _)| {
+				(*from..from + range.len()).contains(&cluster.bytes.start)
+			})?;
+			let bytes =
+				range.start + cluster.bytes.start - from..range.start + cluster.bytes.end - from;
+			Some((bytes, cluster.rect.translate(-origin), *rtl))
+		})
+		.collect();
+	((*placed.row).clone(), clusters)
+}
+
+impl Bidi {
+	/// Expand projected cells to source chars: an inline object's wire text shares its slot.
+	fn new(projected: Vec<Cell>, rtl: &[bool], galley: &egui::Galley, inlines: &[Inline]) -> Self {
+		let mut cells = Vec::with_capacity(projected.len());
+		let mut next = inlines.iter().peekable();
+		for (index, cell) in projected.into_iter().enumerate() {
+			match next.peek() {
+				Some(inline) if inline.projected == index => {
+					cells.extend(std::iter::repeat_n(cell, inline.source.len()));
+					next.next();
+				}
+				_ => cells.push(cell),
+			}
+		}
+		let mut rows = Vec::with_capacity(galley.rows.len());
+		let mut start = 0;
+		for (placed, rtl) in galley.rows.iter().zip(rtl) {
+			let end = start + placed.row.glyphs.len();
+			rows.push(BidiRow {
+				chars: start..end,
+				rect: egui::Rect::from_min_size(placed.pos, placed.row.size),
+				rtl: *rtl,
+			});
+			start = end + usize::from(placed.ends_with_newline);
+		}
+		Self { cells, rows }
+	}
+
+	/// The caret's x for logical position `index`, on the side of the char it touches.
+	fn caret(&self, index: usize) -> Option<(egui::Rect, f32)> {
+		let row = self
+			.rows
+			.iter()
+			.find(|row| row.chars.contains(&index) || row.chars.end == index)?;
+		let x = if index < row.chars.end {
+			let cell = self.cells.get(index)?;
+			if cell.rtl {
+				cell.left + cell.width
+			} else {
+				cell.left
+			}
+		} else if index > row.chars.start {
+			let cell = self.cells.get(index - 1)?;
+			if cell.rtl {
+				cell.left
+			} else {
+				cell.left + cell.width
+			}
+		} else if row.rtl {
+			row.rect.width()
+		} else {
+			0.0
+		};
+		Some((row.rect, row.rect.left() + x))
+	}
+
+	/// The logical position nearest `pos` (galley coordinates), on the visual side clicked.
+	fn index_at(&self, pos: egui::Pos2) -> usize {
+		let Some(row) = self.rows.iter().min_by(|a, b| {
+			let distance =
+				|row: &BidiRow| (pos.y - pos.y.clamp(row.rect.top(), row.rect.bottom())).abs();
+			distance(a).total_cmp(&distance(b))
+		}) else {
+			return 0;
+		};
+		let x = pos.x - row.rect.left();
+		let Some((index, cell)) = row
+			.chars
+			.clone()
+			.map(|i| (i, self.cells[i]))
+			.min_by(|a, b| {
+				let distance = |cell: &Cell| (x - x.clamp(cell.left, cell.left + cell.width)).abs();
+				distance(&a.1).total_cmp(&distance(&b.1))
+			})
+		else {
+			return row.chars.start;
+		};
+		let before = (x < cell.left + cell.width / 2.0) != cell.rtl;
+		if before { index } else { index + 1 }
+	}
+}
+
+impl Layout {
+	/// Whether `text` is laid out in visual order, so the composer draws its caret and selection.
+	pub fn bidi_active(&self, text: &str) -> bool {
+		self.bidi.is_some()
+			&& self
+				.cache
+				.as_ref()
+				.is_some_and(|(_, galley)| galley.job.text == text)
+	}
+
+	/// Map the pointer to logical characters for a right-to-left draft. egui hit-tests its
+	/// galley assuming glyphs grow left to right, which picks the wrong char once rows reorder.
+	pub fn bidi_pointer(
+		&mut self,
+		output: &mut egui::text_edit::TextEditOutput,
+		ctx: &egui::Context,
+	) {
+		let Some(bidi) = &self.bidi else {
+			self.bidi_gesture = None;
+			return;
+		};
+		let response = &output.response;
+		let Some(pointer) = response
+			.interact_pointer_pos()
+			.filter(|_| ctx.input(|i| i.pointer.primary_down() || i.pointer.primary_released()))
+		else {
+			self.bidi_gesture = None;
+			return;
+		};
+		let index = bidi.index_at((pointer - output.galley_pos).to_pos2());
+		let text = output.galley.job.text.as_str();
+		let (pressed, shift) = ctx.input(|i| (i.pointer.primary_pressed(), i.modifiers.shift));
+		if response.triple_clicked() {
+			let chars: Vec<char> = text.chars().collect();
+			let start = chars[..index.min(chars.len())]
+				.iter()
+				.rposition(|c| *c == '\n')
+				.map_or(0, |i| i + 1);
+			let end = chars[index.min(chars.len())..]
+				.iter()
+				.position(|c| *c == '\n')
+				.map_or(chars.len(), |i| index + i);
+			self.bidi_gesture = Some(Gesture::Words(start..end));
+		} else if response.double_clicked() {
+			self.bidi_gesture = Some(Gesture::Words(word_at(text, index)));
+		} else if pressed || self.bidi_gesture.is_none() {
+			self.bidi_gesture = Some(Gesture::Chars(match output.state.cursor.char_range() {
+				Some(range) if shift => range.secondary.index.0,
+				_ => index,
+			}));
+		}
+		let range = match self.bidi_gesture.clone() {
+			Some(Gesture::Words(words)) => {
+				// Dragging after a double-click extends by whole words in either direction.
+				let under = word_at(text, index.min(text.chars().count().saturating_sub(1)));
+				if under.start < words.start {
+					(words.end, under.start)
+				} else if under.end > words.end {
+					(words.start, under.end)
+				} else {
+					(words.start, words.end)
+				}
+			}
+			Some(Gesture::Chars(anchor)) => (anchor, index),
+			None => (index, index),
+		};
+		let range = egui::text::CCursorRange::two(CCursor::new(range.0), CCursor::new(range.1));
+		if output.cursor_range != Some(range) {
+			output.cursor_range = Some(range);
+			output.state.cursor.set_char_range(Some(range));
+			output.state.clone().store(ctx, output.response.id);
+		}
+	}
+
+	/// Paint the caret and selection of a right-to-left draft; `slot` is reserved behind the text.
+	pub fn paint_bidi(
+		&self,
+		ui: &egui::Ui,
+		output: &egui::text_edit::TextEditOutput,
+		slot: egui::layers::ShapeIdx,
+	) {
+		let Some(bidi) = &self.bidi else {
+			return;
+		};
+		if !output.response.has_focus() {
+			return;
+		}
+		let Some(range) = output.cursor_range else {
+			return;
+		};
+		let origin = output.galley_pos.to_vec2();
+		let clip = output.text_clip_rect.intersect(ui.clip_rect());
+		let visuals = ui.visuals();
+		let [min, max] = range.sorted_cursors();
+		let selection: Vec<egui::Shape> = (min.index.0..max.index.0)
+			.filter_map(|index| {
+				let row = bidi.rows.iter().find(|row| row.chars.contains(&index))?;
+				let cell = bidi.cells.get(index)?;
+				let rect = egui::Rect::from_min_size(
+					egui::pos2(row.rect.left() + cell.left, row.rect.top()),
+					egui::vec2(cell.width, row.rect.height()),
+				)
+				.translate(origin)
+				.intersect(clip);
+				rect.is_positive()
+					.then(|| egui::Shape::rect_filled(rect, 0.0, visuals.selection.bg_fill))
+			})
+			.collect();
+		ui.painter().set(slot, selection);
+		if let Some((row, x)) = bidi.caret(range.primary.index.0) {
+			let top = egui::pos2(x, row.top()) + origin;
+			let bottom = egui::pos2(x, row.bottom()) + origin;
+			if clip.contains(top) || clip.contains(bottom) {
+				ui.painter()
+					.with_clip_rect(clip)
+					.line_segment([top, bottom], visuals.text_cursor.stroke);
+			}
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -458,6 +976,148 @@ mod tests {
 			primary_guild: None,
 			cosmetics: None,
 		}]
+	}
+
+	/// #918: right-to-left drafts read in visual order, and the caret and pointer follow it.
+	#[test]
+	fn rtl_drafts_are_drawn_in_visual_order_with_logical_hit_testing() {
+		let ctx = egui::Context::default();
+		crate::fonts::install(&ctx);
+		let mut avatars = Avatars::default();
+		let mut layout = Layout::default();
+		let mut check = |text: &str, rtl_paragraph: bool| {
+			let mut galley = None;
+			ctx.run_ui(Default::default(), |ui| {
+				galley =
+					Some(layout.galley(ui, text, 300.0, &[], &[], &[], false, &mut avatars, true));
+			})
+			.drop_without_applying_deltas();
+			let galley = galley.unwrap();
+			let bidi = layout.bidi.as_ref().expect("RTL draft uses visual order");
+			let row = &galley.rows[0];
+			assert_eq!(
+				row.row.glyphs.len(),
+				text.chars().count(),
+				"one glyph per char"
+			);
+			assert_eq!(
+				row.pos.x > 0.0,
+				rtl_paragraph,
+				"only RTL paragraphs align right"
+			);
+			let x = |index: usize| bidi.caret(index).unwrap().1;
+			let len = text.chars().count();
+			if rtl_paragraph {
+				assert!(x(0) > x(len), "reading starts at the right");
+				assert_eq!(bidi.index_at(egui::pos2(x(0) + 20.0, 5.0)), 0);
+				assert_eq!(bidi.index_at(egui::pos2(x(len) - 20.0, 5.0)), len);
+			} else {
+				// "abc שלום": Latin first on the left, then Hebrew right to left.
+				assert!(x(0) < x(4), "Latin precedes the Hebrew word");
+				assert!(x(4) > x(8), "the Hebrew word reads right to left");
+				assert_eq!(bidi.index_at(egui::pos2(x(4) - 1.0, 5.0)), 4);
+			}
+		};
+		check("مرحبا بك", true);
+		check("abc שלום", false);
+		// Wrapped and multi-line drafts: egui maps the cursor through one glyph per char.
+		let text = "مرحبا بك في سيرين مرحبا بك في سيرين\n\nabc שלום";
+		let mut galley = None;
+		ctx.run_ui(Default::default(), |ui| {
+			galley = Some(layout.galley(ui, text, 60.0, &[], &[], &[], false, &mut avatars, true));
+		})
+		.drop_without_applying_deltas();
+		let galley = galley.unwrap();
+		assert!(galley.rows.len() > 4, "the Arabic paragraph wraps");
+		let mapped: usize = galley
+			.rows
+			.iter()
+			.map(|row| row.row.glyphs.len() + usize::from(row.ends_with_newline))
+			.sum();
+		assert_eq!(mapped, text.chars().count());
+		// A line after a right-to-left paragraph keeps its own direction.
+		let text = "مرحبا\nabc";
+		let mut galley = None;
+		ctx.run_ui(Default::default(), |ui| {
+			galley = Some(layout.galley(ui, text, 300.0, &[], &[], &[], false, &mut avatars, true));
+		})
+		.drop_without_applying_deltas();
+		let rows = &galley.unwrap().rows;
+		assert!(rows[0].pos.x > 0.0 && rows[1].pos.x == 0.0);
+		assert!(paragraph_rtl(text, 0) && !paragraph_rtl(text, 6));
+		ctx.run_ui(Default::default(), |ui| {
+			layout.galley(ui, "plain", 300.0, &[], &[], &[], false, &mut avatars, true);
+		})
+		.drop_without_applying_deltas();
+		assert!(
+			layout.bidi.is_none(),
+			"left-to-right drafts keep egui's own caret"
+		);
+	}
+
+	/// A double-click selects the whole Arabic word, and the release frames keep it.
+	#[test]
+	fn rtl_double_click_keeps_the_whole_word() {
+		let ctx = egui::Context::default();
+		crate::fonts::install(&ctx);
+		let mut avatars = Avatars::default();
+		let mut layout = Layout::default();
+		let mut text = "مرحبا بك".to_owned();
+		let id = egui::Id::unique("rtl-double-click");
+		let point = std::cell::Cell::new(egui::Pos2::ZERO);
+		let mut frame = |time: f64, events: Vec<egui::Event>| {
+			ctx.run_ui(
+				egui::RawInput {
+					time: Some(time),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
+						layout.galley(
+							ui,
+							buffer.as_str(),
+							width,
+							&[],
+							&[],
+							&[],
+							false,
+							&mut avatars,
+							true,
+						)
+					};
+					let mut output = egui::TextEdit::multiline(&mut text)
+						.id(id)
+						.layouter(&mut layouter)
+						.show(ui);
+					layout.bidi_pointer(&mut output, ui.ctx());
+					// Inside the first word "مرحبا", between its second and third letters.
+					let (row, x) = layout.bidi.as_ref().unwrap().caret(2).unwrap();
+					point.set(egui::pos2(x, row.center().y) + output.galley_pos.to_vec2());
+				},
+			)
+			.drop_without_applying_deltas();
+		};
+		frame(0.0, vec![]);
+		let button = |pressed| egui::Event::PointerButton {
+			pos: point.get(),
+			button: egui::PointerButton::Primary,
+			pressed,
+			modifiers: egui::Modifiers::NONE,
+		};
+		frame(
+			1.0,
+			vec![egui::Event::PointerMoved(point.get()), button(true)],
+		);
+		for (time, pressed) in [(1.05, false), (1.1, true), (1.15, false)] {
+			frame(time, vec![button(pressed)]);
+		}
+		frame(1.2, vec![]);
+		let range = egui::text_edit::TextEditState::load(&ctx, id)
+			.and_then(|state| state.cursor.char_range())
+			.unwrap();
+		let [min, max] = range.sorted_cursors();
+		assert_eq!((min.index.0, max.index.0), (0, 5), "the whole first word");
 	}
 
 	#[test]

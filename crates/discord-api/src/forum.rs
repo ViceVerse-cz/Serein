@@ -1,6 +1,6 @@
 use crate::{DiscordApi, Failure};
 use model::{Id, forum::Page};
-use reqwest::Method;
+use wreq::Method;
 
 const FORUM_MESSAGE_LIMIT: usize = 50;
 
