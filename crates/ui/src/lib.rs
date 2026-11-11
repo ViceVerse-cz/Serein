@@ -727,6 +727,12 @@ impl MessagingUi {
 		self.keybind_capture.is_some()
 	}
 
+	/// Ends an in-progress chord recording, so a hidden or minimized window cannot keep
+	/// the polled voice shortcuts gated.
+	pub fn cancel_keybind_capture(&mut self) {
+		self.keybind_capture = None;
+	}
+
 	/// Returns whether the configured push-to-mute chord is held in the focused window.
 	pub fn push_to_mute_down(&self, ctx: &egui::Context) -> bool {
 		self.voice_hold_down(ctx, model::KeybindAction::PushToMute)

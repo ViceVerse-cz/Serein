@@ -5746,6 +5746,14 @@ impl eframe::App for Desktop {
 			.as_ref()
 			.is_some_and(|connection| *connection.afk.borrow());
 		self.sync_fonts(ctx);
+		// A hidden, minimized, or closing window has no settings page to finish a
+		// recording; keeping it would gate every polled voice shortcut.
+		if self.tray_window.hidden
+			|| ctx.input(|input| {
+				input.viewport().minimized == Some(true) || input.viewport().close_requested()
+			}) {
+			self.messaging.cancel_keybind_capture();
+		}
 		let capturing = self.messaging.keybind_capturing();
 		self.hotkeys.set_focused(ctx.input(|input| input.focused));
 		self.hotkeys.set_capturing(capturing);
@@ -5970,9 +5978,10 @@ impl eframe::App for Desktop {
 				}
 			}
 		}
+		let typing = ctx.egui_wants_keyboard_input();
 		self.messaging.voice_ptt_active = self.messaging.voice_push_to_talk
 			&& self.state.voice.active.is_some()
-			&& (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down());
+			&& (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down(typing));
 		self.notification_runtime.ptt(
 			self.messaging.voice_push_to_talk,
 			!self.fixture_only
@@ -5989,7 +5998,7 @@ impl eframe::App for Desktop {
 			ctx,
 		);
 		self.messaging.voice_ptm_active = self.state.voice.active.is_some()
-			&& (self.messaging.push_to_mute_down(ctx) || self.hotkeys.push_to_mute_down());
+			&& (self.messaging.push_to_mute_down(ctx) || self.hotkeys.push_to_mute_down(typing));
 		if self.state.auth == AuthState::Authenticated || self.state.demo {
 			self.poll_voice(ctx);
 		} else {

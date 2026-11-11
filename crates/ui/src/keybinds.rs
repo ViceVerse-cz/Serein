@@ -247,12 +247,16 @@ fn capture(
 					polled.armed = bit;
 				}
 			}
+			// egui-winit turns a clipboard shortcut into `Copy`/`Cut`/`Paste` instead of
+			// a key-down, so those must disarm a lone modifier before its release records.
 			let pressed = ui.input(|input| {
 				input.events.iter().any(|event| {
 					matches!(
 						event,
 						Event::Key { pressed: true, .. }
 							| Event::PointerButton { pressed: true, .. }
+							| Event::Copy | Event::Cut
+							| Event::Paste(_) | Event::PasteImage(_)
 					)
 				})
 			});
@@ -1379,6 +1383,28 @@ mod tests {
 			bindings.chord(KeybindAction::PushToTalk),
 			&KeyChord::new("V", 0)
 		);
+
+		// Clipboard shortcuts arrive as their own events, never as a key-down, so they
+		// must disarm the side modifier before its release would record a lone Ctrl.
+		for shortcut in [Event::Copy, Event::Cut, Event::Paste(String::new())] {
+			capture_frame(&ctx, vec![], right_ctrl, &mut bindings, &mut capturing);
+			capture_frame(
+				&ctx,
+				vec![shortcut],
+				right_ctrl,
+				&mut bindings,
+				&mut capturing,
+			);
+			assert_eq!(
+				capturing,
+				Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk))
+			);
+			capture_frame(&ctx, vec![], 0, &mut bindings, &mut capturing);
+			assert_eq!(
+				bindings.chord(KeybindAction::PushToTalk),
+				&KeyChord::new("V", 0)
+			);
+		}
 	}
 
 	#[test]

@@ -1,7 +1,7 @@
 //! Native global voice bindings, using the desktop portal on Wayland.
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::HotKey};
-#[cfg(target_os = "windows")]
-use model::keybinds::is_pad_button;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use model::keybinds::{POLLED_KEYS, is_pad_button};
 use model::{
 	KeyChord, KeybindAction, Keybinds,
 	keybinds::{is_mouse_button, polled_key_bit},
@@ -110,15 +110,30 @@ impl NativeInput {
 		)
 	}
 
-	/// Whether any key currently held triggers `action`.
-	fn push_down(&self, action: KeybindAction) -> bool {
+	/// Whether any key currently held triggers `action`, keeping only holds `keep` accepts.
+	fn push_down_where(&self, action: KeybindAction, keep: impl Fn(u32) -> bool) -> bool {
 		self.state
 			.lock()
 			.expect("native hotkey state poisoned")
 			.held
 			.iter()
-			.any(|(_, held)| *held == action)
+			.any(|(id, held)| *held == action && keep(*id))
 	}
+
+	/// Whether any key currently held triggers `action`.
+	#[cfg(test)]
+	fn push_down(&self, action: KeybindAction) -> bool {
+		self.push_down_where(action, |_| true)
+	}
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+/// Whether this held identity is a polled keyboard key, which focused typing may suppress.
+/// Pad buttons are physical, not typing.
+fn polled_keyboard_hold(id: u32) -> bool {
+	id.checked_sub(POLLED_ID)
+		.and_then(|index| POLLED_KEYS.get(index as usize))
+		.is_some_and(|name| !is_pad_button(name))
 }
 
 /// Fans a global-hotkey event out to every live [`NativeInput`]; dead handles are skipped.
@@ -524,20 +539,40 @@ impl Hotkeys {
 		mask
 	}
 
-	pub fn push_to_talk_down(&self) -> bool {
-		let native = self.native.push_down(KeybindAction::PushToTalk);
+	/// Whether push-to-talk is held. `typing` drops polled lone keyboard keys while global
+	/// bindings are off, so holding one to type capitals cannot open the microphone.
+	pub fn push_to_talk_down(&self, typing: bool) -> bool {
+		self.voice_hold_down(KeybindAction::PushToTalk, typing)
+	}
+
+	pub fn push_to_mute_down(&self, typing: bool) -> bool {
+		self.voice_hold_down(KeybindAction::PushToMute, typing)
+	}
+
+	/// A polled keyboard key never counts while a text field has the keyboard and global
+	/// bindings are off; a registered global hotkey or a pad hold still does.
+	fn voice_hold_down(&self, action: KeybindAction, typing: bool) -> bool {
+		let native = self
+			.native
+			.push_down_where(action, |id| !self.typing_suppresses(id, typing));
 		#[cfg(target_os = "linux")]
-		return native || self.portal_ptt_held.load(Ordering::Relaxed) != 0;
+		return native
+			|| match action {
+				KeybindAction::PushToTalk => self.portal_ptt_held.load(Ordering::Relaxed) != 0,
+				_ => self.portal_ptm_held.load(Ordering::Relaxed) != 0,
+			};
 		#[cfg(not(target_os = "linux"))]
 		native
 	}
 
-	pub fn push_to_mute_down(&self) -> bool {
-		let native = self.native.push_down(KeybindAction::PushToMute);
-		#[cfg(target_os = "linux")]
-		return native || self.portal_ptm_held.load(Ordering::Relaxed) != 0;
-		#[cfg(not(target_os = "linux"))]
-		native
+	fn typing_suppresses(&self, id: u32, typing: bool) -> bool {
+		#[cfg(any(target_os = "windows", target_os = "macos"))]
+		return typing && !self.shared.global.load(Ordering::Relaxed) && polled_keyboard_hold(id);
+		#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+		{
+			let _ = (id, typing);
+			false
+		}
 	}
 
 	pub fn status(&self) -> &'static str {
@@ -1995,6 +2030,19 @@ mod tests {
 		assert!(native_hotkey(&KeyChord::new("F24", 0)).is_some());
 		// Mouse buttons have no native hotkey code.
 		assert!(native_hotkey(&KeyChord::new("MouseExtra1", 0)).is_none());
+	}
+
+	/// A focused text field may suppress polled keyboard keys, but never a pad hold.
+	#[cfg(any(target_os = "windows", target_os = "macos"))]
+	#[test]
+	fn polled_keyboard_holds_exclude_pad_buttons() {
+		let id =
+			|name: &str| POLLED_ID + polled_key_bit(name).expect("polled key").trailing_zeros();
+		assert!(polled_keyboard_hold(id("ShiftLeft")));
+		assert!(polled_keyboard_hold(id("ControlRight")));
+		assert!(!polled_keyboard_hold(id("PadSouth")));
+		// Registered native hotkeys use unrelated small identities.
+		assert!(!polled_keyboard_hold(3));
 	}
 
 	#[test]
