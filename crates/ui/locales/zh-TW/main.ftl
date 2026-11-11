@@ -4987,3 +4987,41 @@ new-message-hint = 新增好友以開始私訊或群組。
 new-message-no-people-found = 沒有符合的結果。
 new-message-create = 建立訊息
 new-message-cancel = 取消
+# Context: local_api_settings
+settings-local-api = 本機 API
+# Context: local_api_settings
+settings-local-api-enable = 啟用本機 API
+# Context: local_api_settings
+settings-local-api-enable-description = 這台電腦上持有存取金鑰的應用程式可以看到登入的帳號以及通話中的成員。在你開啟之前保持關閉。
+# Context: local_api_settings
+settings-local-api-control = 允許應用程式控制語音
+# Context: local_api_settings
+settings-local-api-control-description = 已連線的應用程式還可以將你靜音或拒聽，並變更這台裝置上每個人的音量和本機靜音。
+# Context: local_api_settings
+settings-local-api-starting = 正在啟動…
+# Context: local_api_settings
+settings-local-api-listening = 正在監聽
+# Context: local_api_settings
+settings-local-api-unavailable = 無法使用
+# Context: local_api_settings
+settings-local-api-unavailable-detail = 另一個程式正在使用此位址，或系統拒絕了它。Serein 會繼續嘗試。
+# Context: local_api_settings
+settings-local-api-no-apps = 沒有已連線的應用程式。
+# Context: local_api_settings
+settings-local-api-connected = 已連線：{ $apps }
+# Context: local_api_settings
+settings-local-api-unnamed-app = 未命名的應用程式
+# Context: local_api_settings
+settings-local-api-endpoint = 位址
+# Context: local_api_settings
+settings-local-api-key = 存取金鑰
+# Context: local_api_settings
+settings-local-api-key-description = 應用程式不需傳送金鑰即可證明自己持有它。請像對待密碼一樣保管。重設後所有應用程式都會中斷連線。
+# Context: local_api_settings
+settings-local-api-key-session = 此金鑰未儲存到系統鑰匙圈，因此僅在 Serein 關閉前有效。重設後所有應用程式都會中斷連線。
+# Context: local_api_settings
+settings-local-api-copy-key = 複製金鑰
+# Context: local_api_settings
+settings-local-api-reset-key = 重設金鑰
+# Context: local_api_settings
+settings-local-api-security-detail = 只有在這台電腦上以你的使用者身分執行的程式才能連線，而且必須持有存取金鑰。網頁和其他裝置無法存取。應用程式永遠不會收到你的登入憑證、訊息或音訊。

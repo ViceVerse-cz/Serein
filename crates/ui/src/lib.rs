@@ -56,6 +56,8 @@ mod emoji_picker;
 mod emoticons;
 pub mod fonts;
 pub mod i18n;
+mod local_api;
+pub use local_api::{LocalApiKey, LocalApiRequest, LocalApiState, LocalApiStatus};
 #[cfg(all(debug_assertions, feature = "demo"))]
 pub fn debug_channel_creation(state: client_core::State) {
 	channel_menu::debug_creation(state);
@@ -350,6 +352,16 @@ pub struct MessagingUi {
 	pub time_format: model::TimeFormat,
 	/// Saved logins may fall back to plain files when no OS keyring works.
 	pub plaintext_login: bool,
+	/// Owner opt-in: serve the local API to apps on this computer that hold the access key.
+	pub local_api: bool,
+	/// Second opt-in: those apps may also mute, deafen and set per-person playback.
+	pub local_api_control: bool,
+	/// What the desktop's listener reports, for the settings page.
+	pub local_api_status: LocalApiStatus,
+	/// A key action the owner asked for; the desktop consumes it.
+	pub local_api_request: Option<LocalApiRequest>,
+	/// Which Copy button (`true` for the key) reads "Copied", and until when.
+	local_api_copied: Option<(bool, f64)>,
 	/// First-run setup still to show; the desktop restores and persists it.
 	pub setup_pending: bool,
 	setup_step: usize,

@@ -4890,3 +4890,41 @@ new-message-hint = Ajoutez des amis pour démarrer un message privé ou un group
 new-message-no-people-found = Personne ne correspond à cette recherche.
 new-message-create = Créer un message
 new-message-cancel = Annuler
+# Context: local_api_settings
+settings-local-api = API locale
+# Context: local_api_settings
+settings-local-api-enable = Activer l'API locale
+# Context: local_api_settings
+settings-local-api-enable-description = Les applications de cet ordinateur qui détiennent votre clé d'accès peuvent voir quel compte est connecté et qui participe à votre appel. Désactivée tant que vous ne l'activez pas.
+# Context: local_api_settings
+settings-local-api-control = Autoriser les applications à contrôler la voix
+# Context: local_api_settings
+settings-local-api-control-description = Les applications connectées peuvent aussi vous rendre muet ou sourd et modifier le volume et la sourdine locale de chaque personne sur cet appareil.
+# Context: local_api_settings
+settings-local-api-starting = Démarrage…
+# Context: local_api_settings
+settings-local-api-listening = À l'écoute
+# Context: local_api_settings
+settings-local-api-unavailable = Indisponible
+# Context: local_api_settings
+settings-local-api-unavailable-detail = Un autre programme utilise cette adresse, ou le système l'a refusée. Serein continue d'essayer.
+# Context: local_api_settings
+settings-local-api-no-apps = Aucune application connectée.
+# Context: local_api_settings
+settings-local-api-connected = Connectées : { $apps }
+# Context: local_api_settings
+settings-local-api-unnamed-app = Application sans nom
+# Context: local_api_settings
+settings-local-api-endpoint = Adresse
+# Context: local_api_settings
+settings-local-api-key = Clé d'accès
+# Context: local_api_settings
+settings-local-api-key-description = Les applications prouvent qu'elles détiennent cette clé sans l'envoyer. Traitez-la comme un mot de passe. La réinitialiser déconnecte toutes les applications.
+# Context: local_api_settings
+settings-local-api-key-session = Cette clé n'est pas enregistrée dans un trousseau système : elle ne dure que jusqu'à la fermeture de Serein. La réinitialiser déconnecte toutes les applications.
+# Context: local_api_settings
+settings-local-api-copy-key = Copier la clé
+# Context: local_api_settings
+settings-local-api-reset-key = Réinitialiser la clé
+# Context: local_api_settings
+settings-local-api-security-detail = Seuls les programmes exécutés sous votre compte sur cet ordinateur peuvent se connecter, et uniquement avec la clé d'accès. Les pages web et les autres appareils n'y ont pas accès. Les applications ne reçoivent jamais vos identifiants, vos messages ni votre audio.

@@ -4873,3 +4873,41 @@ new-message-hint = フレンドを追加して、DMまたはグループを開�
 new-message-no-people-found = 一致する相手はいません。
 new-message-create = メッセージを作成
 new-message-cancel = キャンセル
+# Context: local_api_settings
+settings-local-api = ローカル API
+# Context: local_api_settings
+settings-local-api-enable = ローカル API を有効にする
+# Context: local_api_settings
+settings-local-api-enable-description = アクセスキーを持つこのコンピューター上のアプリは、サインイン中のアカウントと通話の参加者を確認できます。有効にするまではオフです。
+# Context: local_api_settings
+settings-local-api-control = アプリによる音声の操作を許可
+# Context: local_api_settings
+settings-local-api-control-description = 接続中のアプリは、あなたのミュートやスピーカーミュート、このデバイスでの各参加者の音量とローカルミュートも変更できます。
+# Context: local_api_settings
+settings-local-api-starting = 起動中…
+# Context: local_api_settings
+settings-local-api-listening = 待機中
+# Context: local_api_settings
+settings-local-api-unavailable = 利用できません
+# Context: local_api_settings
+settings-local-api-unavailable-detail = 別のプログラムがこのアドレスを使用しているか、システムに拒否されました。Serein は再試行を続けます。
+# Context: local_api_settings
+settings-local-api-no-apps = 接続中のアプリはありません。
+# Context: local_api_settings
+settings-local-api-connected = 接続中: { $apps }
+# Context: local_api_settings
+settings-local-api-unnamed-app = 名前のないアプリ
+# Context: local_api_settings
+settings-local-api-endpoint = アドレス
+# Context: local_api_settings
+settings-local-api-key = アクセスキー
+# Context: local_api_settings
+settings-local-api-key-description = アプリはこのキーを送信せずに、持っていることを証明します。パスワードと同じように扱ってください。リセットするとすべてのアプリが切断されます。
+# Context: local_api_settings
+settings-local-api-key-session = このキーはシステムのキーリングに保存されていないため、Serein を閉じるまでしか有効ではありません。リセットするとすべてのアプリが切断されます。
+# Context: local_api_settings
+settings-local-api-copy-key = キーをコピー
+# Context: local_api_settings
+settings-local-api-reset-key = キーをリセット
+# Context: local_api_settings
+settings-local-api-security-detail = 接続できるのは、このコンピューター上であなたのユーザーとして実行されているプログラムだけで、アクセスキーも必要です。ウェブページや他のデバイスからは接続できません。アプリがログイン情報、メッセージ、音声を受け取ることはありません。

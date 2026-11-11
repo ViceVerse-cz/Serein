@@ -156,7 +156,9 @@ impl Page {
 			Self::LanguageTime => {
 				"language time clock 12 hour 24 hour am pm format locale translation"
 			}
-			Self::Storage => "data privacy local storage clear cache drafts credentials",
+			Self::Storage => {
+				"data privacy local storage clear cache drafts credentials local api stream deck plugin integration automation apps access key"
+			}
 			Self::Updates => {
 				"updates auto update release channel production stable nightly download restart version check diagnostics issue bug system info debug"
 			}
@@ -1379,6 +1381,7 @@ impl MessagingUi {
 				);
 			});
 		});
+		self.local_api_settings(ui);
 		design::group(
 			ui,
 			&crate::i18n::translate("settings-storage-page-your-privacy"),

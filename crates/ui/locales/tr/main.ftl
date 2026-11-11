@@ -4876,3 +4876,41 @@ new-message-hint = Bir doğrudan mesaj veya grup başlatmak için arkadaş ekley
 new-message-no-people-found = Bu aramayla eşleşen kimse yok.
 new-message-create = Mesaj Oluştur
 new-message-cancel = İptal
+# Context: local_api_settings
+settings-local-api = Yerel API
+# Context: local_api_settings
+settings-local-api-enable = Yerel API'yi etkinleştir
+# Context: local_api_settings
+settings-local-api-enable-description = Bu bilgisayarda erişim anahtarınıza sahip uygulamalar hangi hesabın oturum açtığını ve aramanızda kimlerin olduğunu görebilir. Siz açana kadar kapalıdır.
+# Context: local_api_settings
+settings-local-api-control = Uygulamaların sesi kontrol etmesine izin ver
+# Context: local_api_settings
+settings-local-api-control-description = Bağlı uygulamalar ayrıca sizi susturabilir veya sağırlaştırabilir ve bu cihazda her kişinin ses düzeyini ve yerel susturmasını değiştirebilir.
+# Context: local_api_settings
+settings-local-api-starting = Başlatılıyor…
+# Context: local_api_settings
+settings-local-api-listening = Dinleniyor
+# Context: local_api_settings
+settings-local-api-unavailable = Kullanılamıyor
+# Context: local_api_settings
+settings-local-api-unavailable-detail = Başka bir program bu adresi kullanıyor veya sistem adresi reddetti. Serein denemeye devam ediyor.
+# Context: local_api_settings
+settings-local-api-no-apps = Bağlı uygulama yok.
+# Context: local_api_settings
+settings-local-api-connected = Bağlı: { $apps }
+# Context: local_api_settings
+settings-local-api-unnamed-app = Adsız uygulama
+# Context: local_api_settings
+settings-local-api-endpoint = Adres
+# Context: local_api_settings
+settings-local-api-key = Erişim anahtarı
+# Context: local_api_settings
+settings-local-api-key-description = Uygulamalar bu anahtara sahip olduklarını anahtarı göndermeden kanıtlar. Onu bir parola gibi koruyun. Sıfırlamak tüm uygulamaların bağlantısını keser.
+# Context: local_api_settings
+settings-local-api-key-session = Bu anahtar bir sistem anahtarlığına kaydedilmediğinden yalnızca Serein kapanana kadar geçerlidir. Sıfırlamak tüm uygulamaların bağlantısını keser.
+# Context: local_api_settings
+settings-local-api-copy-key = Anahtarı kopyala
+# Context: local_api_settings
+settings-local-api-reset-key = Anahtarı sıfırla
+# Context: local_api_settings
+settings-local-api-security-detail = Yalnızca bu bilgisayarda sizin kullanıcınızla çalışan programlar ve yalnızca erişim anahtarıyla bağlanabilir. Web sayfaları ve diğer cihazlar erişemez. Uygulamalar oturum bilgilerinizi, mesajlarınızı veya sesinizi asla almaz.

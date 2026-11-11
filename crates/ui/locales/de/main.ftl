@@ -4898,3 +4898,41 @@ new-message-hint = Fügen Sie Freunde hinzu, um eine Direktnachricht oder eine G
 new-message-no-people-found = Niemand entspricht dieser Suche.
 new-message-create = Nachricht erstellen
 new-message-cancel = Abbrechen
+# Context: local_api_settings
+settings-local-api = Lokale API
+# Context: local_api_settings
+settings-local-api-enable = Lokale API aktivieren
+# Context: local_api_settings
+settings-local-api-enable-description = Apps auf diesem Computer, die Ihren Zugriffsschlüssel kennen, sehen, welches Konto angemeldet ist und wer in Ihrem Anruf ist. Aus, bis Sie es einschalten.
+# Context: local_api_settings
+settings-local-api-control = Apps dürfen die Sprache steuern
+# Context: local_api_settings
+settings-local-api-control-description = Verbundene Apps können Sie außerdem stumm- oder taubschalten und die Lautstärke sowie die lokale Stummschaltung jeder Person auf diesem Gerät ändern.
+# Context: local_api_settings
+settings-local-api-starting = Wird gestartet …
+# Context: local_api_settings
+settings-local-api-listening = Bereit
+# Context: local_api_settings
+settings-local-api-unavailable = Nicht verfügbar
+# Context: local_api_settings
+settings-local-api-unavailable-detail = Ein anderes Programm verwendet diese Adresse, oder das System hat sie abgelehnt. Serein versucht es weiter.
+# Context: local_api_settings
+settings-local-api-no-apps = Keine Apps verbunden.
+# Context: local_api_settings
+settings-local-api-connected = Verbunden: { $apps }
+# Context: local_api_settings
+settings-local-api-unnamed-app = Unbenannte App
+# Context: local_api_settings
+settings-local-api-endpoint = Adresse
+# Context: local_api_settings
+settings-local-api-key = Zugriffsschlüssel
+# Context: local_api_settings
+settings-local-api-key-description = Apps weisen nach, dass sie diesen Schlüssel kennen, ohne ihn zu senden. Behandeln Sie ihn wie ein Passwort. Beim Zurücksetzen werden alle Apps getrennt.
+# Context: local_api_settings
+settings-local-api-key-session = Dieser Schlüssel ist in keinem Systemschlüsselbund gespeichert und gilt daher nur, bis Serein geschlossen wird. Beim Zurücksetzen werden alle Apps getrennt.
+# Context: local_api_settings
+settings-local-api-copy-key = Schlüssel kopieren
+# Context: local_api_settings
+settings-local-api-reset-key = Schlüssel zurücksetzen
+# Context: local_api_settings
+settings-local-api-security-detail = Nur Programme, die unter Ihrem Benutzerkonto auf diesem Computer laufen, können sich verbinden, und nur mit dem Zugriffsschlüssel. Webseiten und andere Geräte erreichen die API nicht. Apps erhalten niemals Ihre Anmeldung, Nachrichten oder Audio.

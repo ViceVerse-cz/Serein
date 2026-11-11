@@ -1,5 +1,31 @@
 # Local storage policy and audit
 
+## Local API (November 11, 2026)
+
+Only with the owner's **Enable the local API** device preference (off by default, and off
+for preferences saved before it existed), the desktop process serves
+[the local API](local-api.md) on one private address: the `\\.\pipe\serein-api` named
+pipe on Windows, or `serein-api.sock` in the runtime directory elsewhere. No TCP port is
+opened. Turning the preference off closes the address and every connection. A second
+preference, **Allow apps to control voice**, is also off by default and is required for
+any change.
+
+The access key is 32 random bytes as hex, stored as one OS credential-store entry
+(`discord-session.local-api`, or the `.development` variant) and never in SQLite,
+preferences, logs or plain files. If no credential store accepts it, the key lives in
+process memory for that run only. **Reset key** overwrites the entry, or deletes it when
+the new key cannot be saved, so a replaced key does not return. The `--demo` fixture
+never reads or writes the entry. Copying the key hands it to the OS clipboard, whose
+retention is outside Serein's control.
+
+Everything else stays in process memory and is dropped when the listener stops: one
+shared view of the signed-in account's ID, name and avatar hash and at most 64 call
+members (64-character names), up to eight connections with a 4 KiB request buffer and a
+32-character app name each, and a queue of 32 pending voice changes. There is no
+per-client event backlog. Diagnostics records three fixed lines: listening, stopped and
+a refused client. Per-person volumes and local mutes changed through the API use the
+existing bounded device-preference fields, and only for people in the current call.
+
 ## Logical RTL message layout (November 9, 2026)
 
 Arabic, Hebrew and mixed-direction message layout admits at most 8 KiB of visible

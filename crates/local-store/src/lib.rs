@@ -99,6 +99,10 @@ pub struct AppPreferences {
 	pub time_format: model::TimeFormat,
 	/// Owner opt-in: keep saved logins in private plain files when no OS keyring works.
 	pub plaintext_login: bool,
+	/// Owner opt-in: serve the local API; older preferences deserialize with it off.
+	pub local_api: bool,
+	/// Second opt-in: local API clients may change voice; off in older preferences.
+	pub local_api_control: bool,
 	/// Owner opt-in diagnostic log; older preferences deserialize with logging off.
 	pub diagnostics_log: diagnostics::Level,
 	/// First-run setup finished or skipped; absent in older preferences, so existing installs
@@ -147,6 +151,8 @@ impl Default for AppPreferences {
 			image_cache: Default::default(),
 			time_format: Default::default(),
 			plaintext_login: false,
+			local_api: false,
+			local_api_control: false,
 			diagnostics_log: diagnostics::Level::Off,
 			setup_done: false,
 		}

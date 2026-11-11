@@ -4892,3 +4892,41 @@ new-message-hint = Dodaj znajomych, aby rozpocząć wiadomość prywatną lub gr
 new-message-no-people-found = Nikt nie pasuje do tego wyszukiwania.
 new-message-create = Utwórz wiadomość
 new-message-cancel = Anuluj
+# Context: local_api_settings
+settings-local-api = Lokalne API
+# Context: local_api_settings
+settings-local-api-enable = Włącz lokalne API
+# Context: local_api_settings
+settings-local-api-enable-description = Aplikacje na tym komputerze, które mają Twój klucz dostępu, widzą, które konto jest zalogowane i kto uczestniczy w Twojej rozmowie. Wyłączone, dopóki tego nie włączysz.
+# Context: local_api_settings
+settings-local-api-control = Pozwól aplikacjom sterować głosem
+# Context: local_api_settings
+settings-local-api-control-description = Połączone aplikacje mogą też wyciszać i wygłuszać Ciebie oraz zmieniać głośność i lokalne wyciszenie każdej osoby na tym urządzeniu.
+# Context: local_api_settings
+settings-local-api-starting = Uruchamianie…
+# Context: local_api_settings
+settings-local-api-listening = Nasłuchiwanie
+# Context: local_api_settings
+settings-local-api-unavailable = Niedostępne
+# Context: local_api_settings
+settings-local-api-unavailable-detail = Inny program używa tego adresu albo system go odrzucił. Serein próbuje dalej.
+# Context: local_api_settings
+settings-local-api-no-apps = Brak połączonych aplikacji.
+# Context: local_api_settings
+settings-local-api-connected = Połączone: { $apps }
+# Context: local_api_settings
+settings-local-api-unnamed-app = Aplikacja bez nazwy
+# Context: local_api_settings
+settings-local-api-endpoint = Adres
+# Context: local_api_settings
+settings-local-api-key = Klucz dostępu
+# Context: local_api_settings
+settings-local-api-key-description = Aplikacje dowodzą, że mają ten klucz, bez wysyłania go. Traktuj go jak hasło. Zresetowanie rozłącza wszystkie aplikacje.
+# Context: local_api_settings
+settings-local-api-key-session = Ten klucz nie jest zapisany w systemowym pęku kluczy, więc działa tylko do zamknięcia Serein. Zresetowanie rozłącza wszystkie aplikacje.
+# Context: local_api_settings
+settings-local-api-copy-key = Kopiuj klucz
+# Context: local_api_settings
+settings-local-api-reset-key = Zresetuj klucz
+# Context: local_api_settings
+settings-local-api-security-detail = Połączyć mogą się tylko programy uruchomione na Twoim koncie użytkownika na tym komputerze i tylko z kluczem dostępu. Strony internetowe i inne urządzenia nie mają do niego dostępu. Aplikacje nigdy nie otrzymują Twoich danych logowania, wiadomości ani dźwięku.

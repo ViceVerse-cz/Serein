@@ -4893,3 +4893,41 @@ new-message-hint = Añade amigos para iniciar un mensaje directo o un grupo.
 new-message-no-people-found = Nadie coincide con esa búsqueda.
 new-message-create = Crear mensaje
 new-message-cancel = Cancelar
+# Context: local_api_settings
+settings-local-api = API local
+# Context: local_api_settings
+settings-local-api-enable = Activar la API local
+# Context: local_api_settings
+settings-local-api-enable-description = Las apps de este equipo que tengan tu clave de acceso pueden ver qué cuenta ha iniciado sesión y quién está en tu llamada. Desactivada hasta que la actives.
+# Context: local_api_settings
+settings-local-api-control = Permitir que las apps controlen la voz
+# Context: local_api_settings
+settings-local-api-control-description = Las apps conectadas también pueden silenciarte o ensordecerte y cambiar el volumen y el silencio local de cada persona en este dispositivo.
+# Context: local_api_settings
+settings-local-api-starting = Iniciando…
+# Context: local_api_settings
+settings-local-api-listening = Escuchando
+# Context: local_api_settings
+settings-local-api-unavailable = No disponible
+# Context: local_api_settings
+settings-local-api-unavailable-detail = Otro programa está usando esta dirección o el sistema la rechazó. Serein sigue intentándolo.
+# Context: local_api_settings
+settings-local-api-no-apps = No hay apps conectadas.
+# Context: local_api_settings
+settings-local-api-connected = Conectadas: { $apps }
+# Context: local_api_settings
+settings-local-api-unnamed-app = App sin nombre
+# Context: local_api_settings
+settings-local-api-endpoint = Dirección
+# Context: local_api_settings
+settings-local-api-key = Clave de acceso
+# Context: local_api_settings
+settings-local-api-key-description = Las apps demuestran que tienen esta clave sin enviarla. Trátala como una contraseña. Al restablecerla se desconectan todas las apps.
+# Context: local_api_settings
+settings-local-api-key-session = Esta clave no está guardada en un llavero del sistema, así que solo dura hasta que cierres Serein. Al restablecerla se desconectan todas las apps.
+# Context: local_api_settings
+settings-local-api-copy-key = Copiar clave
+# Context: local_api_settings
+settings-local-api-reset-key = Restablecer clave
+# Context: local_api_settings
+settings-local-api-security-detail = Solo pueden conectarse los programas que se ejecutan con tu usuario en este equipo, y solo con la clave de acceso. Las páginas web y otros dispositivos no pueden acceder. Las apps nunca reciben tu inicio de sesión, tus mensajes ni tu audio.
