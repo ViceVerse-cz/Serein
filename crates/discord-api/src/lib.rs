@@ -81,6 +81,8 @@ pub struct DiscordApi {
 	client: Client,
 	proxy: Mutex<ProxyState>,
 	upload_client: tokio::sync::OnceCell<Client>,
+	/// At most one attachment send waits on a user-solved challenge.
+	upload_verification: std::sync::Mutex<Option<upload::Waiting>>,
 	secret: Arc<SessionSecret>,
 	cooldown: Mutex<Instant>,
 	requests: Semaphore,
@@ -264,6 +266,7 @@ impl DiscordApi {
 		Ok(Self {
 			interaction_session: std::sync::Mutex::new(None),
 			upload_client: tokio::sync::OnceCell::new(),
+			upload_verification: std::sync::Mutex::new(None),
 			ack_token: Mutex::new(zeroize::Zeroizing::new(None)),
 			client,
 			proxy: Mutex::new(ProxyState {
@@ -1656,6 +1659,14 @@ impl DiscordApi {
 					}
 				}
 			}
+			// Only `resume_upload` may consume this solution: the files are held by the upload
+			// that was challenged, and a text resend here would post the caption without them.
+			Command::VerifiedUpload { nonce, .. } => Event::SendResult {
+				nonce,
+				result: Err(Failure::ProtocolAt(
+					"Verification expired; retry the message",
+				)),
+			},
 			Command::Edit {
 				request,
 				channel,
@@ -2065,10 +2076,15 @@ impl DiscordApi {
 		if sticker.is_some_and(|id| id.0 == 0) {
 			return Err(Failure::Protocol);
 		}
-		let mut body = serde_json::json!({"content":content,"nonce":nonce,"allowed_mentions":allowed_mentions(content, reply)});
-		if silent {
-			body["flags"] = serde_json::json!(message_options::SUPPRESS_NOTIFICATIONS);
-		}
+		// Unofficial: the web client's message create always carries these three fields.
+		let mut body = serde_json::json!({
+			"mobile_network_type": "unknown",
+			"content": content,
+			"nonce": nonce,
+			"tts": false,
+			"flags": if silent { message_options::SUPPRESS_NOTIFICATIONS } else { 0 },
+			"allowed_mentions": allowed_mentions(content, reply),
+		});
 		if let Some(sticker) = sticker {
 			body["sticker_ids"] = serde_json::json!([sticker]);
 		}

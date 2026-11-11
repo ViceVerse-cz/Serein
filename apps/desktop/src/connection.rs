@@ -499,7 +499,11 @@ impl Connection {
                             upload=Some(AbortTask(tokio::spawn(async move {
                                 let _order=upload_order.begin(None).await;
                                 let mut updates=request.progress.subscribe();
-                                let operation=api.upload_messages(request.command,request.source,request.progress,request.cancel.subscribe());
+                                // A challenged send shows the existing verification panel and waits here,
+                                // holding its staged files, for `Command::VerifiedUpload`.
+                                let challenge_emit=emit.clone();let challenge_wake=wake.clone();
+                                let challenged=move |event:Event| {let shown=challenge_emit(event).is_ok();challenge_wake.request_repaint();shown};
+                                let operation=api.upload_messages(request.command,request.source,request.progress,request.cancel.subscribe(),Some(&challenged));
                                 tokio::pin!(operation);
                                 let mut observing=true;
                                 let event=loop {
@@ -518,6 +522,15 @@ impl Connection {
                             // Select can admit a queued command before the changed-watch branch.
                             if release_taken_over(&mut voice_request,*takeover_receive.borrow()) {drop(ringing.take());drop(recipient_ringing.take());recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;}
                             let Some(command)=command else {break;};
+                            // A solved attachment challenge belongs to the upload holding the staged
+                            // files; the text writer would post the caption without them.
+                            let command=match command {
+                                Command::VerifiedUpload{channel,nonce,captcha}=>{
+                                    if let Some(event)=api.resume_upload(channel,nonce,captcha) {emit(event)?;wake.request_repaint();}
+                                    continue;
+                                }
+                                command=>command,
+                            };
                             if matches!(command,Command::CancelSearch) {drop(search.take());continue;}
                             if matches!(command,Command::CancelGifs) {drop(gifs.take());continue;}
                             if matches!(command,Command::Typing{..}) {
