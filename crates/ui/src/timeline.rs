@@ -2847,17 +2847,21 @@ impl TimelineView {
 			offset = Some(live_edge_offset);
 			jumped_to = Some(live_edge_offset);
 		}
-		if self.following {
-			// egui sticks after painting; use this frame's height while the call panel resizes.
-			offset = Some(live_edge_offset);
-		}
 		let wheel = ui.input(|input| input.smooth_scroll_delta());
 		let user_scroll = wheel.y + autoscroll_delta;
 		if user_scroll != 0.0 && self.reveal_scroll.take().is_some() {
 			offset = None;
 		}
-		if user_scroll != 0.0 {
-			self.present_scroll = None;
+		// Cancel Jump to Present before the live-edge snap. Snapping first would make
+		// this wheel start at the bottom instead of the glide's current place.
+		if user_scroll != 0.0 && self.present_scroll.take().is_some() {
+			self.following = false;
+			self.left_live_edge = true;
+			offset = None;
+		}
+		if self.following {
+			// egui sticks after painting; use this frame's height while the call panel resizes.
+			offset = Some(live_edge_offset);
 		}
 		// Jump to present glides back to the live edge instead of teleporting there.
 		if let Some((from, elapsed)) = &mut self.present_scroll {
@@ -4810,29 +4814,40 @@ impl TimelineView {
 		let was_following = self.following;
 		let timeline_scrolled_up =
 			output.state.clamped_offset().y < before_offset - 0.001 || autoscroll_delta > 0.0;
-		// A pointer moved the timeline only when its press is on the scrollbar (a track click
-		// jumps before it counts as a drag) or a drag started inside the timeline (content or
-		// text selection). Drags elsewhere, like panel resizing, can coincide with a layout
-		// correction that lowers the offset.
+		// A pointer moved the timeline only when it dragged the scrollbar (a track click
+		// jumps before it counts as a drag) or dragged the content itself. A text selection
+		// or a resize elsewhere can coincide with a layout correction that lowers the offset.
 		let bar = output.id.with(1_usize);
-		let pressed_inside = ui
-			.input(|input| input.pointer.press_origin())
-			.is_some_and(|pos| output.inner_rect.contains(pos));
+		let content_drag = output.id.with("area");
 		let dragged = ui
 			.ctx()
 			.dragged_id()
-			.is_some_and(|id| id == bar || pressed_inside)
+			.is_some_and(|id| id == bar || id == content_drag)
 			|| ui
 				.ctx()
 				.read_response(bar)
 				.is_some_and(|response| response.is_pointer_button_down_on());
 		let dragged_up = dragged && timeline_scrolled_up;
 		let dragged_down = dragged && output.state.clamped_offset().y > before_offset + 0.001;
-		// Layout corrections also move the offset up while a jump settles. Only a wheel,
-		// autoscroll or scrollbar drag that actually moved the timeline counts as leaving
-		// the live edge.
-		let user_scrolled_up = user_scroll > 0.0 && timeline_scrolled_up;
-		if user_scrolled_up || dragged_up {
+		// Layout corrections also move the offset up while a jump settles. Only a wheel
+		// the timeline received, autoscroll, a scrollbar or content drag, or a selection
+		// scroll that actually moved up counts as leaving it.
+		let pointer_on_timeline = ui.input(|input| {
+			input
+				.pointer
+				.hover_pos()
+				.is_some_and(|pos| output.inner_rect.contains(pos))
+		});
+		let user_scrolled_up =
+			user_scroll > 0.0 && timeline_scrolled_up && (session.holding() || pointer_on_timeline);
+		// Keyboard selection asks the scroll area to reveal the cursor. That moves the
+		// offset with no wheel or drag. A layout clamp while still at the bottom does not.
+		let selection_scrolled_up = timeline_scrolled_up
+			&& !at_bottom
+			&& user_scroll == 0.0
+			&& !dragged
+			&& crate::select::has_selection(ui.ctx());
+		if user_scrolled_up || dragged_up || selection_scrolled_up {
 			self.left_live_edge = true;
 		}
 		if scrolled_toward_bottom || dragged_down {
@@ -4840,7 +4855,7 @@ impl TimelineView {
 		}
 		self.following = !self.target_browsing
 			&& (whole_conversation_visible
-				|| (was_following && !user_scrolled_up && !dragged_up)
+				|| (was_following && !user_scrolled_up && !dragged_up && !selection_scrolled_up)
 				|| self.present_scroll.is_some()
 				|| (at_bottom && !self.left_live_edge));
 		if self.following
@@ -9047,6 +9062,241 @@ mod tests {
 		let off = frame(&mut view, egui::pos2(-20.0, -20.0), 1.0);
 		assert!(view.following);
 		assert_eq!(off, live_edge);
+
+		// A layout shrink while that outside wheel is active is still not a timeline scroll.
+		let (id, key) = view
+			.heights
+			.iter()
+			.next()
+			.map(|(id, (key, _))| (*id, *key))
+			.unwrap();
+		view.heights.insert(id, (key, 4_000.0));
+		view.revision = u64::MAX;
+		let shrunk = frame(&mut view, egui::pos2(-20.0, -20.0), 1.0);
+		assert!(
+			view.following,
+			"an outside wheel plus a shorter row must stay on the live edge, offset {shrunk}"
+		);
+	}
+
+	#[test]
+	fn wheel_during_jump_to_present_keeps_the_current_place() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=200 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let mut frame = |view: &mut TimelineView, events: Vec<egui::Event>| {
+			frame_number += 1;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					crate::scroll::apply_preferences(
+						ui.ctx(),
+						model::ReadingPreferences::default(),
+					);
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			output.drop_without_applying_deltas();
+			view.scroll_offset
+		};
+		for _ in 0..8 {
+			frame(&mut view, vec![]);
+		}
+		assert!(view.following);
+		let live_edge = view.scroll_offset;
+		let away = view.rows.iter().map(|(_, height)| height).sum::<f32>() - 600.0 - 4_200.0;
+		let (index, _, top) = visible_range(&view.rows, away.max(0.0), away.max(0.0));
+		view.following = false;
+		view.left_live_edge = true;
+		view.jump = false;
+		view.anchor = Some((view.rows[index].0, away.max(0.0) - top));
+		view.revision = u64::MAX;
+		let parked = frame(&mut view, vec![]);
+		assert!(!view.following);
+		assert!(
+			live_edge - parked > 1_000.0,
+			"parked {parked} should sit well above the live edge {live_edge}"
+		);
+		view.left_live_edge = false;
+		view.target_browsing = false;
+		view.present_scroll = Some((view.scroll_offset, 0.0));
+		let gliding = frame(&mut view, vec![]);
+		assert!(view.present_scroll.is_some() && view.following);
+		assert!(
+			gliding < live_edge - 500.0,
+			"the glide started from the parked place, at {gliding} vs {live_edge}"
+		);
+		let interrupted = frame(
+			&mut view,
+			vec![
+				egui::Event::PointerMoved(egui::pos2(150.0, 200.0)),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, 1.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				},
+			],
+		);
+		assert!(!view.following && view.present_scroll.is_none());
+		assert!(
+			interrupted < live_edge - 500.0,
+			"the wheel jumped to the live edge: {interrupted} vs {live_edge}"
+		);
+	}
+
+	fn message_texts(shape: &egui::Shape, labels: &mut Vec<(String, egui::Rect)>) {
+		match shape {
+			egui::Shape::Text(text) => labels.push((
+				text.galley.text().to_string(),
+				text.galley.rect.translate(text.pos.to_vec2()),
+			)),
+			egui::Shape::Vec(shapes) => {
+				for shape in shapes {
+					message_texts(shape, labels);
+				}
+			}
+			_ => {}
+		}
+	}
+
+	#[test]
+	fn keyboard_selection_scrolling_up_stops_following() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=80 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let mut frame = |view: &mut TimelineView, events: Vec<egui::Event>| {
+			frame_number += 1;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			let mut labels = Vec::new();
+			for shape in &output.shapes {
+				message_texts(&shape.shape, &mut labels);
+			}
+			output.drop_without_applying_deltas();
+			(view.scroll_offset, labels)
+		};
+		for _ in 0..8 {
+			frame(&mut view, vec![]);
+		}
+		assert!(view.following);
+		let live_edge = view.scroll_offset;
+		let (_, labels) = frame(&mut view, vec![]);
+		let body = labels
+			.iter()
+			.filter(|(text, rect)| text.contains("Synthetic text") && rect.min.y < 80.0)
+			.min_by(|(_, a), (_, b)| a.min.y.total_cmp(&b.min.y))
+			.map(|(_, rect)| *rect)
+			.expect("a message body near the top of the timeline");
+		let pos = egui::pos2(body.center().x.clamp(40.0, 700.0), body.center().y.max(8.0));
+		let click = |pressed| egui::Event::PointerButton {
+			pos,
+			button: egui::PointerButton::Primary,
+			pressed,
+			modifiers: egui::Modifiers::NONE,
+		};
+		frame(&mut view, vec![egui::Event::PointerMoved(pos), click(true)]);
+		frame(
+			&mut view,
+			vec![egui::Event::PointerMoved(pos), click(false)],
+		);
+		assert!(
+			crate::select::has_selection(&ctx),
+			"clicking the message body must select its text"
+		);
+		let arrow = |pressed| egui::Event::Key {
+			key: egui::Key::ArrowUp,
+			physical_key: None,
+			pressed,
+			repeat: false,
+			modifiers: egui::Modifiers::SHIFT,
+		};
+		for _ in 0..6 {
+			frame(&mut view, vec![arrow(true)]);
+			frame(&mut view, vec![arrow(false)]);
+		}
+		let mut offset = view.scroll_offset;
+		for _ in 0..30 {
+			offset = frame(&mut view, vec![]).0;
+		}
+		assert!(
+			!view.following,
+			"keyboard selection still stuck to the live edge at {offset}, started at {live_edge}"
+		);
+		assert!(
+			offset < live_edge - 8.0,
+			"selection scroll stayed at the live edge: {offset} vs {live_edge}"
+		);
 	}
 	#[test]
 	fn native_layout_virtualizes_preserves_anchor_and_jumps_after_scrolling() {
