@@ -5567,6 +5567,20 @@ fn media_stop(active: bool, hidden_or_closing: bool, minimized: bool) -> MediaSt
 	}
 }
 
+/// Whether the audio player's message still renders its attachment card the way
+/// the timeline would: a retained deleted message keeps its card and playback,
+/// while a removed row or an edited-away attachment does not.
+fn audio_attachment_rendered(
+	state: &State,
+	channel: model::Id,
+	id: model::Id,
+	attachment: &model::Attachment,
+) -> bool {
+	state.timeline.get_display(id).is_some_and(|message| {
+		message.channel == channel && message.attachments.iter().any(|a| a == attachment)
+	})
+}
+
 /// Whether the user's transparency settings, not just the rounded-corner mask, show through.
 fn effects_transparent() -> bool {
 	let (enabled, transparency, _) = ui::design::window_effects();
@@ -5920,9 +5934,12 @@ impl eframe::App for Desktop {
 		// The hide command lands after this frame, so the flag leads reported visibility.
 		// Occlusion can occur during macOS fullscreen transitions; it is not a request
 		// to stop playback (which would also restore the window out of fullscreen).
-		let hidden_or_closing =
-			self.tray_window.hidden || ctx.input(|input| input.viewport().close_requested());
-		let minimized = ctx.input(|input| input.viewport().minimized == Some(true));
+		// The tray's Minimize action parks the window where minimization does not
+		// exist (Hyprland); it counts as minimized, not as hiding to the tray.
+		let hidden_or_closing = (self.tray_window.hidden && !self.tray_window.tray_minimized)
+			|| ctx.input(|input| input.viewport().close_requested());
+		let minimized = self.tray_window.tray_minimized
+			|| ctx.input(|input| input.viewport().minimized == Some(true));
 		let active = self.state.user.is_some()
 			&& (self.state.demo || self.state.auth == AuthState::Authenticated);
 		match media_stop(active, hidden_or_closing, minimized) {
@@ -5941,6 +5958,20 @@ impl eframe::App for Desktop {
 				self.messaging.video().stop();
 			}
 			MediaStop::Nothing => {}
+		}
+		// A deletion or eviction applied in this logic pass must stop the audio the
+		// same way a rendered card leaving view does; a minimized window runs no ui
+		// pass to notice it. A retained deleted message keeps its card and playback.
+		if self
+			.messaging
+			.audio()
+			.active
+			.as_ref()
+			.is_some_and(|(channel, id, attachment)| {
+				!audio_attachment_rendered(&self.state, *channel, *id, attachment)
+			}) {
+			self.audio.stop();
+			self.messaging.audio().stop();
 		}
 		self.video.poll(self.messaging.video(), ctx);
 		let audio = self.audio.poll();
@@ -7122,6 +7153,52 @@ mod tests {
 		// Hiding to the tray, closing and sign-out still end every player.
 		assert_eq!(media_stop(true, true, false), Everything);
 		assert_eq!(media_stop(false, false, true), Everything);
+	}
+	#[test]
+	fn deleted_audio_keeps_playing_only_while_its_card_is_retained() {
+		let mut state = test_support::audio_demo_state();
+		let channel = state.selected.unwrap();
+		let cards: Vec<_> = state
+			.timeline
+			.iter()
+			.filter(|message| !message.attachments.is_empty())
+			.cloned()
+			.collect();
+		let message = cards[0].id;
+		let attachment = cards[0].attachments[0].clone();
+		let other = cards[1].attachments[0].clone();
+		assert!(audio_attachment_rendered(
+			&state,
+			channel,
+			message,
+			&attachment
+		));
+		// Another message's attachment never keeps the player alive.
+		assert!(!audio_attachment_rendered(&state, channel, message, &other));
+		// A retained deleted message keeps its card, so playback continues.
+		state.set_preserve_deleted_messages(true);
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Delete {
+				channel,
+				id: message,
+			},
+		});
+		assert!(state.timeline.is_deleted(message));
+		assert!(audio_attachment_rendered(
+			&state,
+			channel,
+			message,
+			&attachment
+		));
+		// Dropping the retained payload removes the card with it.
+		state.set_preserve_deleted_messages(false);
+		assert!(!audio_attachment_rendered(
+			&state,
+			channel,
+			message,
+			&attachment
+		));
 	}
 	#[cfg(feature = "demo")]
 	#[test]
