@@ -295,14 +295,13 @@ impl Connection {
             };
             let result=async {
                 let api=DiscordApi::with_proxy(secret.clone(), api_proxy)?;
-                // Discovery does not depend on the account check, so they share one round trip.
-                // The account error wins: a rejected token fails both.
-                let (user,gateway)=tokio::join!(api.current_user(),api.gateway_url());
-                let user=user?;
-                if expected_user.is_some_and(|id|id!=user.id){return Err(Failure::InvalidCredential);}
-                let gateway=gateway?;
+                // Like the web client (unofficial), nothing asks REST who this is or where the
+                // Gateway lives: the address is fixed and READY names the account. A rejected
+                // token ends the session through Gateway close 4004, a bot through READY.
+                let (identity_send,identity)=watch::channel(None::<model::User>);
                 let api=Arc::new(api);
-				let cached = cached_presence.get(&user.id).cloned().filter(|presence| presence.valid());
+				// Only a saved login knows its account before READY.
+				let cached = expected_user.and_then(|id| cached_presence.get(&id)).cloned().filter(|presence| presence.valid());
 				let account_presence_send = Arc::new(account_presence_send);
 				let _presence_edits = AbortTask(tokio::spawn(run_presence_sync(PresenceSync {
 					api: api.clone(),
@@ -353,14 +352,22 @@ impl Connection {
 					wake.request_repaint();
 					let _ = account_presence_send.send_replace(chosen);
 				}
+				// The status read above already learned that the token was rejected.
+				if api.stopped() {return Err(Failure::Expired);}
                 let emit=Arc::new(emit);
                 let (member_send,member_receive)=watch::channel(None);
                 let (voice_send,voice_receive)=mpsc::channel(8);
 				let (activity_send,activity_receive)=watch::channel(None);
 				let (member_query_send, member_query_receive) = watch::channel([None, None]);
 				let _sharing_task=AbortTask(tokio::spawn(run_activity_sharing(api.clone(),share_receive.clone(),sharing_requests,sharing_report,finished.clone(),wake.clone())));
-				let _activity_task=AbortTask(tokio::spawn(crate::game_activity::run((share_receive,custom_receive,crate::game_activity::Registered{games:registered_receive,current:running_send}),activity_send,game_report,invite_send,wake.clone(),user.clone(),api.clone())));
-				let _spotify_task=AbortTask(tokio::spawn(crate::spotify::run(api.clone(),user.id,presence_receive.clone(),spotify_send,wake.clone())));
+				let _activity_task=AbortTask(tokio::spawn({let (identity,wake,api)=(identity.clone(),wake.clone(),api.clone());async move {
+					let Some(user)=identified(identity).await else {return;};
+					crate::game_activity::run((share_receive,custom_receive,crate::game_activity::Registered{games:registered_receive,current:running_send}),activity_send,game_report,invite_send,wake,user,api).await
+				}}));
+				let _spotify_task=AbortTask(tokio::spawn({let (identity,wake,api,presence)=(identity.clone(),wake.clone(),api.clone(),presence_receive.clone());async move {
+					let Some(user)=identified(identity).await else {return;};
+					crate::spotify::run(api,user.id,presence,spotify_send,wake).await
+				}}));
 				let _idle_task=AbortTask(tokio::spawn(run_auto_idle(auto_idle_receive,afk,wake.clone(),platform::idle::system_idle)));
                 let (recipient_scope,mut recipient_scope_changed)=watch::channel(0u64);
                 let recipient_call=Arc::new(Mutex::new(RecipientCalls::default()));
@@ -373,14 +380,18 @@ impl Connection {
                 let gateway_wake=wake.clone();
                 let activity_wake=wake.clone();
                 let mut gateway_task=AbortTask(tokio::spawn(async move {
-                    let error=discord_gateway::run_with_activity_recovery(secret,gateway,member_receive,voice_receive,gateway_reconnect,(activity_receive,presence_receive,member_query_receive,spotify_receive,afk_receive),move |observation| {
+                    let error=discord_gateway::run_with_activity_recovery(secret,discord_gateway::GATEWAY_URL.to_owned(),member_receive,voice_receive,gateway_reconnect,(activity_receive,presence_receive,member_query_receive,spotify_receive,afk_receive),move |observation| {
                         if activity_observed.send_if_modified(|current| { if *current == observation { false } else { *current = observation; true } }) { activity_wake.request_repaint(); }
                         Ok(())
                     },|event|{
                         if let Event::Interaction(client_core::interactions::Event::Session(session)) = event { return gateway_api.interaction_session(Some(session)); }
                         if matches!(&event,Event::Disconnected|Event::Resync) { gateway_api.interaction_session(None)?; }
                         if let Some((ready_user,_,channels))=event.ready_navigation() {
-                            if ready_user.id!=user.id {return Err(Failure::InvalidCredential);}
+                            // A saved login must still be its account, and no later READY of
+                            // this connection may name another one.
+                            let known=identity_send.borrow().as_ref().map(|user|user.id).or(expected_user);
+                            if known.is_some_and(|id|id!=ready_user.id) {return Err(Failure::InvalidCredential);}
+                            identity_send.send_if_modified(|slot|slot.is_none() && {*slot=Some(ready_user.clone());true});
                             *gateway_channels.lock().map_err(|_|Failure::Protocol)?=channels.iter().filter(|c|private_call(c)).take(client_core::MAX_NAV).map(|c|(c.id,recipient_ids(c))).collect();
                         }
                         if let Event::ChannelCreated(channel)=&event {
@@ -389,9 +400,10 @@ impl Connection {
                             if private_call(channel) && channels.len()<client_core::MAX_NAV {channels.insert(channel.id,recipient_ids(channel));}
                         }
                         if let Event::Unavailable(channel)=&event {gateway_channels.lock().map_err(|_|Failure::Protocol)?.remove(channel);}
+                        let own=own_id(&identity_send.borrow());
                         if let Event::RecipientRemoved {channel,user:removed}=&event {
                             let mut channels=gateway_channels.lock().map_err(|_|Failure::Protocol)?;
-                            if *removed==user.id {channels.remove(channel);}
+                            if *removed==own {channels.remove(channel);}
                             else if let Some(recipients)=channels.get_mut(channel) {recipients.retain(|id|id!=removed);}
                         }
                         if let Event::RecipientAdded {channel,user:added}=&event && let Some(recipients)=gateway_channels.lock().map_err(|_|Failure::Protocol)?.get_mut(channel) && !recipients.contains(&added.id) {
@@ -400,7 +412,7 @@ impl Connection {
                         let invalidates_recipient = {
                             let channels=gateway_channels.lock().map_err(|_|Failure::Protocol)?;
                             let mut calls=gateway_recipient_call.lock().map_err(|_|Failure::Protocol)?;
-                            calls.observe(&event,user.id,&channels)
+                            calls.observe(&event,own,&channels)
                         };
                         if invalidates_recipient {
                             recipient_scope.send_modify(|revision|*revision=revision.wrapping_add(1));
@@ -497,13 +509,16 @@ impl Connection {
                             let upload_order=write_order.clone();
                             let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
                             upload=Some(AbortTask(tokio::spawn(async move {
-                                let _order=upload_order.begin(None).await;
+                                let order=Mutex::new(upload_order.begin(None).await);
                                 let mut updates=request.progress.subscribe();
                                 // A challenged send shows the existing verification panel and waits here,
-                                // holding its staged files, for `Command::VerifiedUpload`.
+                                // holding its staged files, for `Command::VerifiedUpload`. The user may take
+                                // minutes, so other writes go ahead meanwhile instead of filling the write
+                                // queue; the send takes its turn back before its request is replayed.
                                 let challenge_emit=emit.clone();let challenge_wake=wake.clone();
-                                let challenged=move |event:Event| {let shown=challenge_emit(event).is_ok();challenge_wake.request_repaint();shown};
-                                let operation=api.upload_messages(request.command,request.source,request.progress,request.cancel.subscribe(),Some(&challenged));
+                                let show=|event:Event| {let shown=challenge_emit(event).is_ok();challenge_wake.request_repaint();if shown && let Ok(mut order)=order.lock() {order.take();}shown};
+                                let resume=|| -> std::pin::Pin<Box<dyn std::future::Future<Output=()>+Send+'_>> {Box::pin(async {let turn=upload_order.begin(None).await;if let Ok(mut order)=order.lock() {*order=turn;}})};
+                                let operation=api.upload_messages(request.command,request.source,request.progress,request.cancel.subscribe(),Some(discord_api::upload::Challenged{show:&show,resume:&resume}));
                                 tokio::pin!(operation);
                                 let mut observing=true;
                                 let event=loop {
@@ -684,7 +699,7 @@ impl Connection {
                                 let (channel,request,recipient,stop)=(*channel,*request,*recipient,*stop);
                                 // Consume prior invalidations before starting a write for the current revision.
                                 recipient_scope_changed.borrow_and_update();
-                                let eligible=recipient_action(channel,request,recipient,user.id,voice_request,dm_channels.lock().map_err(|_|Failure::Protocol)?.get(&channel).map(Vec::as_slice))
+                                let eligible=recipient_action(channel,request,recipient,own_id(&identity.borrow()),voice_request,dm_channels.lock().map_err(|_|Failure::Protocol)?.get(&channel).map(Vec::as_slice))
                                     && recipient_call.lock().map_err(|_|Failure::Protocol)?.as_ref().is_some_and(|call|call.allows(channel,request,recipient,stop));
                                 let message=if !*voice_availability.borrow() {Some("Recipient ringing unavailable while disconnected")}
                                     else if !eligible {Some("Recipient ringing expired; no request was sent")}
@@ -742,7 +757,7 @@ impl Connection {
                                 }
                                 if matches!(control,V::Join{..}) {drop(ringing.take());drop(recipient_ringing.take());}
                                 if let V::Leave{channel,request}=control && voice_request.is_some_and(|(id,r,_)|id==channel && r==request) {drop(ringing.take());drop(recipient_ringing.take());recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;}
-                                let ring=match ring_action(control,user.id,&mut voice_request,dm_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(&channel)) {
+                                let ring=match ring_action(control,own_id(&identity.borrow()),&mut voice_request,dm_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(&channel)) {
                                     Ok(action)=>action,
                                     Err(())=>{emit(Event::Voice(E::Failed{channel,request,message:"Call action expired; no ringing request was sent"}))?;continue;}
                                 };
@@ -916,6 +931,14 @@ impl Connection {
 	}
 }
 
+/// The account READY named; `None` when the connection ended first.
+async fn identified(mut identity: watch::Receiver<Option<model::User>>) -> Option<model::User> {
+	identity.wait_for(Option::is_some).await.ok()?.clone()
+}
+/// This account's id. Before READY it is 0, which is no account: calls and DMs need READY.
+fn own_id(identity: &Option<model::User>) -> model::Id {
+	identity.as_ref().map_or(model::Id(0), |user| user.id)
+}
 async fn resolve_account_presence(
 	api: &DiscordApi,
 	presence: &watch::Sender<model::OwnPresence>,

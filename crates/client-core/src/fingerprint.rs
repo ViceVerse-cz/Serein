@@ -1,10 +1,11 @@
 //! Client identity presented to Discord over REST and the Gateway.
 //!
-//! Discord's anti-spam classifies normal-user sessions by their client fingerprint. A custom
-//! user agent with no super-properties header reads as an automated tool, which quarantines
-//! the account (spam restriction, attachment upload limits). Presenting one consistent,
-//! browser-shaped identity on every transport keeps the session classified as an ordinary
-//! web client. Nothing here carries account data; it is the same for every user.
+//! Observed (unofficial): Discord's web client sends a super-properties payload, a browser
+//! user agent, locale and timezone on REST and the Gateway. How the service weighs any of
+//! them is unverified; an earlier Serein identity without them coincided with account
+//! restrictions (spam flag, attachment limits), which is not proof of cause. Every transport
+//! presents the same values. Nothing here carries account data; locale and timezone are read
+//! from the operating system, never chosen to resemble another client.
 
 /// Chrome version advertised on Windows, where verification runs in Chromium WebView2.
 const CHROME_MAJOR: &str = "149";
@@ -15,7 +16,8 @@ const CHROME_SEC_CH_UA: &str =
 	r#""Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24""#;
 /// Build number of the official web client this fingerprint mirrors.
 pub const CLIENT_BUILD_NUMBER: u64 = 634_304;
-pub const LOCALE: &str = "en-US";
+mod locale;
+pub use locale::{accept_language, discord_locale, system_locale, timezone};
 /// The embedded hCaptcha widget runs in WKWebView or WebKitGTK everywhere except Windows.
 /// hCaptcha reads the real engine from script, so the advertised browser must follow it: a
 /// passcode solved in WebKit but submitted with a Chrome fingerprint reads as a relayed
@@ -105,7 +107,7 @@ pub fn accept_encoding() -> &'static str {
 /// Gateway `identify.d.properties` and the decoded `X-Super-Properties` payload.
 pub fn properties() -> String {
 	// Hand-built JSON keeps this crate free of a serde dependency; every value is a fixed
-	// literal or a controlled ASCII string, so no escaping is required.
+	// literal or a validated ASCII string (see `locale`), so no escaping is required.
 	format!(
 		concat!(
 			"{{\"os\":\"{os}\",\"browser\":\"{browser}\",\"device\":\"\",\"system_locale\":\"{locale}\",",
@@ -114,7 +116,7 @@ pub fn properties() -> String {
 			"\"release_channel\":\"stable\",\"client_build_number\":{build},\"client_event_source\":null}}"
 		),
 		os = os_name(),
-		locale = LOCALE,
+		locale = system_locale(),
 		browser = browser(),
 		ua = user_agent(),
 		version = browser_version(),
@@ -125,6 +127,23 @@ pub fn properties() -> String {
 /// `X-Super-Properties` header value: standard base64 of [`properties`].
 pub fn super_properties() -> String {
 	base64(properties().as_bytes())
+}
+
+/// Where in the interface a message create started. Unofficial: the web client's request
+/// helper sends its `context` option as `X-Context-Properties`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessageContext {
+	ChatInput,
+	Forwarding,
+}
+
+/// `X-Context-Properties` header value: standard base64 of `{"location":"…"}`.
+pub fn context_properties(context: MessageContext) -> String {
+	let location = match context {
+		MessageContext::ChatInput => "chat_input",
+		MessageContext::Forwarding => "forwarding",
+	};
+	base64(format!("{{\"location\":\"{location}\"}}").as_bytes())
 }
 
 fn base64(input: &[u8]) -> String {

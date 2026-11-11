@@ -1,4 +1,4 @@
-use std::{fmt, future::Future};
+use std::fmt;
 use zeroize::Zeroizing;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,9 +99,6 @@ impl fmt::Debug for SessionSecret {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.write_str("SessionSecret([REDACTED])")
 	}
-}
-pub trait AuthProvider {
-	fn authenticate(&mut self) -> impl Future<Output = Result<model::User, Failure>> + Send;
 }
 #[cfg(test)]
 mod tests {

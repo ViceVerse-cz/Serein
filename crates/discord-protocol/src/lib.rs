@@ -1228,10 +1228,6 @@ pub struct GatewayPacket {
 pub struct Hello {
 	pub heartbeat_interval: u64,
 }
-#[derive(Deserialize)]
-pub struct GatewayLocation {
-	pub url: String,
-}
 #[derive(Deserialize, Default)]
 pub struct ErrorBody {
 	#[serde(default)]

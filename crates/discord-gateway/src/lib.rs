@@ -65,6 +65,9 @@ pub fn close_action(code: u16) -> Reconnect {
 		_ => Reconnect::Resume,
 	}
 }
+/// The Gateway address the web client's page config names (unofficial; observed as
+/// `GATEWAY_ENDPOINT`). Serein does not ask REST for it. It still passes [`validated_url`].
+pub const GATEWAY_URL: &str = "wss://gateway.discord.gg";
 pub fn validated_url(value: &str) -> Result<String, Failure> {
 	let mut url = url::Url::parse(value).map_err(|_| Failure::Protocol)?;
 	let host = url.host_str().ok_or(Failure::Protocol)?;
@@ -1364,8 +1367,8 @@ async fn run_recoverable(
 		let handshake = if let (Some(session), Some(sequence)) = (&state.session, state.sequence) {
 			serde_json::json!({"op":6,"d":{"token":secret.expose(),"session_id":session.as_str(),"seq":sequence}})
 		} else {
-			// Normal-user Identify with the same browser fingerprint as REST; a mismatched or
-			// custom identity is what gets the account quarantined as spam.
+			// Normal-user Identify with the same client properties as REST (unofficial). How
+			// the service weighs a mismatch between the two is unverified.
 			let properties: serde_json::Value =
 				serde_json::from_str(&client_core::fingerprint::properties()).unwrap_or_default();
 			serde_json::json!({"op":2,"d":{"token":secret.expose(),"compress":false,"properties":properties,"presence":outgoing_activity.identify_presence()}})

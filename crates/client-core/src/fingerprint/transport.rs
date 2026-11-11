@@ -99,7 +99,7 @@ pub async fn websocket(
 		.websocket(url)
 		.header(wreq::header::USER_AGENT, super::user_agent())
 		.header(wreq::header::ORIGIN, "https://discord.com")
-		.header(wreq::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+		.header(wreq::header::ACCEPT_LANGUAGE, super::accept_language())
 		.header(wreq::header::CACHE_CONTROL, "no-cache")
 		.header(wreq::header::PRAGMA, "no-cache")
 		.orig_headers(casing)
