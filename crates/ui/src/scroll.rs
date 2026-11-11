@@ -32,8 +32,11 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 	let latch_key = egui::Id::unique(WHEEL_LATCH_KEY);
 	let before: WheelLatch = ctx.data(|d| d.get_temp(latch_key)).unwrap_or_default();
 	let mut latch = before;
-	let incoming = ctx.input(|input| {
-		instant_wheel_delta(&input.raw.events, options, page_height, time, &mut latch)
+	let (incoming, zooming) = ctx.input(|input| {
+		let incoming =
+			instant_wheel_delta(&input.raw.events, options, page_height, time, &mut latch);
+		let zooming = zoom_gesture(&latch, options, &input.raw.events);
+		(incoming, zooming)
 	});
 	if latch != before {
 		ctx.data_mut(|d| d.insert_temp(latch_key, latch));
@@ -75,6 +78,10 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 	}
 
 	let is_scrolling = ctx.input(|i| i.is_scrolling());
+	// A zoom that starts while a swipe is still queued must not keep scrolling.
+	if zooming {
+		state.accumulator = egui::Vec2::ZERO;
+	}
 	let touchpad_active = state.last_active.is_some_and(|last| time - last < 0.35)
 		|| state.accumulator.length() > 0.5;
 	let queue_draining = state
@@ -92,7 +99,9 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 	}
 
 	let speed = f32::from(preferences.scroll_speed_percent) / 100.0;
-	let delta = if touchpad_active {
+	let delta = if zooming {
+		egui::Vec2::ZERO
+	} else if touchpad_active {
 		if incoming.y != 0.0
 			&& state.accumulator.y != 0.0
 			&& incoming.y.signum() != state.accumulator.y.signum()
@@ -106,9 +115,13 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 			state.accumulator.x = 0.0;
 		}
 		state.accumulator += incoming;
-		let max_backlog = (page_height * 2.0).clamp(1200.0, 2400.0);
-		if state.accumulator.length() > max_backlog {
-			state.accumulator = state.accumulator.normalized() * max_backlog;
+		// Smoothing spreads one gesture across frames, so the queue is bounded.
+		// With smoothing off the whole event is delivered below and must not be clipped.
+		if preferences.smooth_scrolling {
+			let max_backlog = (page_height * 2.0).clamp(1200.0, 2400.0);
+			if state.accumulator.length() > max_backlog {
+				state.accumulator = state.accumulator.normalized() * max_backlog;
+			}
 		}
 
 		let dt_clamped = dt.clamp(1.0 / 240.0, 0.05);
@@ -238,6 +251,17 @@ fn instant_wheel_delta(
 			Some(delta)
 		})
 		.fold(egui::Vec2::ZERO, |total, delta| total + delta)
+}
+
+fn zoom_gesture(latch: &WheelLatch, options: egui::InputOptions, events: &[egui::Event]) -> bool {
+	let zoom = options.zoom_modifier;
+	if latch.touch.is_some() && latch.modifiers.matches_any(zoom) {
+		return true;
+	}
+	events.iter().any(|event| match event {
+		egui::Event::MouseWheel { modifiers, .. } => modifiers.matches_any(zoom),
+		_ => false,
+	})
 }
 /// Chromium / Discord default: 3 wheel lines times 40 px. winit reports one notch as `LineDelta` 1.0.
 pub const DISCORD_LINE_SCROLL_SPEED: f32 = 120.0;
@@ -827,5 +851,101 @@ mod tests {
 				delta.y
 			);
 		}
+	}
+
+	#[test]
+	fn disabled_smoothing_keeps_a_large_wheel_event() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let raw = egui::RawInput {
+			time: Some(0.1),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				delta: egui::vec2(0.0, 10.25),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}],
+			..Default::default()
+		};
+		let mut delta = egui::Vec2::ZERO;
+		ctx.run_ui(raw, |ui| {
+			apply_preferences(
+				ui.ctx(),
+				model::ReadingPreferences {
+					smooth_scrolling: false,
+					..Default::default()
+				},
+			);
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		assert_eq!(delta.y, 10.25 * 120.0);
+	}
+
+	#[test]
+	fn queued_touchpad_swipe_does_not_scroll_during_zoom() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let frame = |time: f64, events: Vec<egui::Event>| {
+			let raw = egui::RawInput {
+				time: Some(time),
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(900.0, 600.0),
+				)),
+				events,
+				..Default::default()
+			};
+			let mut delta = egui::Vec2::ZERO;
+			ctx.run_ui(raw, |ui| {
+				apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+				delta = ui.input(|i| i.smooth_scroll_delta());
+			})
+			.drop_without_applying_deltas();
+			delta
+		};
+		let swipe = frame(
+			0.1,
+			vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				delta: egui::vec2(0.0, 10.25),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}],
+		);
+		assert!(
+			swipe.y > 0.0 && swipe.y < 1_230.0,
+			"the swipe must leave a queue, moved {}",
+			swipe.y
+		);
+		let zoom = egui::InputOptions::default().zoom_modifier;
+		let zoomed = frame(
+			0.12,
+			vec![
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Point,
+					delta: egui::vec2(0.0, 40.0),
+					modifiers: zoom,
+					phase: egui::TouchPhase::Start,
+					source: egui::MouseWheelSource::Trackpad,
+				},
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Point,
+					delta: egui::vec2(0.0, 40.0),
+					modifiers: zoom,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Trackpad,
+				},
+			],
+		);
+		assert_eq!(zoomed, egui::Vec2::ZERO);
+		let idle = frame(0.14, vec![]);
+		assert_eq!(idle, egui::Vec2::ZERO);
 	}
 }
