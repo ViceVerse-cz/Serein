@@ -25,6 +25,8 @@ pub(super) struct CallSwitch {
 	generation: u64,
 	confirmed_at: Option<std::time::Instant>,
 	audio: Option<(bool, bool)>,
+	/// Server whose voice channel opens once the switch starts the join (a profile's Join).
+	open: Option<Id>,
 }
 
 impl MessagingUi {
@@ -2066,6 +2068,7 @@ impl MessagingUi {
 				generation: state.generation,
 				confirmed_at: None,
 				audio,
+				open: None,
 			});
 		} else {
 			let (muted, deafened) = audio.unwrap_or((self.voice_muted, self.voice_deafened));
@@ -2079,6 +2082,57 @@ impl MessagingUi {
 			commands.push(command);
 		}
 		Ok(())
+	}
+
+	/// A profile's Join: a non-ringing join that opens the channel once it starts. When another
+	/// call must be left first, the channel opens only after that switch is confirmed, so
+	/// "Stay in call" leaves the user where they were. A refused join says why and goes nowhere.
+	pub(crate) fn join_from_profile(
+		&mut self,
+		state: &mut State,
+		guild: Id,
+		channel: Id,
+		commands: &mut Vec<Command>,
+	) -> Result<(), String> {
+		let status = state.status;
+		if let Err(reason) = self.request_call_audio(state, channel, false, None, commands) {
+			// The reducer explains its own refusals, such as a full room, in the status line.
+			return Err(if state.status != status {
+				state.status.to_owned()
+			} else {
+				reason
+			});
+		}
+		if let Some(switch) = self
+			.voice_switch
+			.as_mut()
+			.filter(|switch| switch.channel == channel && switch.confirmed_at.is_none())
+		{
+			switch.open = Some(guild);
+		} else if state
+			.voice
+			.active
+			.as_ref()
+			.is_some_and(|call| call.channel == channel)
+		{
+			self.open_voice_channel(state, guild, channel, commands);
+		}
+		Ok(())
+	}
+
+	fn open_voice_channel(
+		&mut self,
+		state: &mut State,
+		guild: Id,
+		channel: Id,
+		commands: &mut Vec<Command>,
+	) {
+		if self.server_settings.navigate_away(state) {
+			self.guild = Some(guild);
+			if let Some(command) = state.select(channel) {
+				commands.push(command);
+			}
+		}
 	}
 
 	pub(super) fn show_call_switch(
@@ -2113,6 +2167,9 @@ impl MessagingUi {
 						self.voice_deafened = deafened;
 					}
 					commands.push(command);
+					if let Some(guild) = switch.open {
+						self.open_voice_channel(state, guild, switch.channel, commands);
+					}
 				}
 			} else if started.elapsed() >= std::time::Duration::from_secs(12) {
 				self.voice_switch = None;
@@ -4880,6 +4937,49 @@ fn device_combo(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn profile_join_opens_its_channel_only_once_a_switch_starts_the_join() {
+		let mut state = test_support::call_demo_state();
+		state.demo = false;
+		state.gateway_connected = true;
+		let before = state.selected;
+		assert_ne!(before, Some(Id(25)));
+		let mut view = MessagingUi {
+			voice_available: true,
+			voice_switch_ready: true,
+			..Default::default()
+		};
+		let mut commands = Vec::new();
+		view.join_from_profile(&mut state, Id(10), Id(25), &mut commands)
+			.unwrap();
+		assert!(commands.is_empty(), "the live call asks first");
+		assert_eq!(state.selected, before, "nothing opens before the switch");
+		// "Stay in call" drops the switch, and with it the channel it would have opened.
+		let pending = view.voice_switch.take();
+		view.show_call_switch(&egui::Context::default(), &mut state, &mut commands);
+		assert!(commands.is_empty());
+		assert_eq!(state.selected, before);
+		// Confirming leaves the old call, joins without ringing, then opens the channel.
+		view.voice_switch = pending;
+		let origin = view.voice_switch.as_ref().unwrap().from;
+		assert!(state.leave_call().is_some());
+		view.voice_switch.as_mut().unwrap().confirmed_at = Some(std::time::Instant::now());
+		state.apply_voice(client_core::voice::Event::Departed {
+			channel: origin.0,
+			request: origin.1,
+		});
+		view.show_call_switch(&egui::Context::default(), &mut state, &mut commands);
+		assert!(matches!(
+			commands.first(),
+			Some(Command::Voice(client_core::voice::Command::Join {
+				channel: Id(25),
+				ring: false,
+				..
+			}))
+		));
+		assert_eq!((view.guild, state.selected), (Some(Id(10)), Some(Id(25))));
+	}
 
 	#[test]
 	fn explicit_join_audio_waits_for_call_switch_and_survives_teardown() {

@@ -4735,6 +4735,7 @@ profiles-activity-empty = No activity shared.
 profiles-in-voice-server = in { $server }
 profiles-in-voice-join = Join
 profiles-in-voice-joined = You’re in this voice channel.
+profiles-in-voice-failed = Dismiss the failed call first, then join again.
 profiles-in-voice-unavailable = You can’t join this voice channel right now.
 profiles-mutuals-empty = Nothing to show here.
 

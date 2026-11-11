@@ -4713,6 +4713,7 @@ profiles-activity-empty = 暂无共享活动。
 profiles-in-voice-server = 位于 { $server }
 profiles-in-voice-join = 加入
 profiles-in-voice-joined = 你已在此语音频道中。
+profiles-in-voice-failed = 请先关闭失败的通话，然后再重新加入。
 profiles-in-voice-unavailable = 你现在无法加入此语音频道。
 profiles-mutuals-empty = 这里没有可显示的内容。
 

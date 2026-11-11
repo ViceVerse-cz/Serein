@@ -4622,6 +4622,7 @@ profiles-activity-empty = Keine geteilte Aktivität.
 profiles-in-voice-server = in { $server }
 profiles-in-voice-join = Beitreten
 profiles-in-voice-joined = Sie sind bereits in diesem Sprachkanal.
+profiles-in-voice-failed = Schließen Sie zuerst den fehlgeschlagenen Anruf und treten Sie dann erneut bei.
 profiles-in-voice-unavailable = Sie können diesem Sprachkanal gerade nicht beitreten.
 profiles-mutuals-empty = Nothing to show here.
 

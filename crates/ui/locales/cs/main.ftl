@@ -4722,6 +4722,7 @@ profiles-activity-empty = Žádná sdílená aktivita.
 profiles-in-voice-server = na serveru { $server }
 profiles-in-voice-join = Připojit se
 profiles-in-voice-joined = V tomto hlasovém kanálu už jste.
+profiles-in-voice-failed = Nejprve zavřete neúspěšný hovor a pak se připojte znovu.
 profiles-in-voice-unavailable = K tomuto hlasovému kanálu se teď nemůžete připojit.
 profiles-mutuals-empty = Nothing to show here.
 

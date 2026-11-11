@@ -4620,6 +4620,7 @@ profiles-activity-empty = Нет опубликованной активност
 profiles-in-voice-server = на сервере { $server }
 profiles-in-voice-join = Присоединиться
 profiles-in-voice-joined = Вы уже в этом голосовом канале.
+profiles-in-voice-failed = Сначала закройте неудавшийся звонок, затем присоединитесь снова.
 profiles-in-voice-unavailable = Сейчас нельзя присоединиться к этому голосовому каналу.
 profiles-mutuals-empty = Nothing to show here.
 

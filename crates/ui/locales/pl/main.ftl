@@ -4619,6 +4619,7 @@ profiles-activity-empty = Brak udostępnionej aktywności.
 profiles-in-voice-server = na serwerze { $server }
 profiles-in-voice-join = Dołącz
 profiles-in-voice-joined = Jesteś już na tym kanale głosowym.
+profiles-in-voice-failed = Najpierw zamknij nieudane połączenie, a potem dołącz ponownie.
 profiles-in-voice-unavailable = Nie możesz teraz dołączyć do tego kanału głosowego.
 profiles-mutuals-empty = Nothing to show here.
 

@@ -4614,6 +4614,7 @@ profiles-activity-empty = Aucune activité partagée.
 profiles-in-voice-server = dans { $server }
 profiles-in-voice-join = Rejoindre
 profiles-in-voice-joined = Vous êtes déjà dans ce salon vocal.
+profiles-in-voice-failed = Fermez d'abord l'appel qui a échoué, puis rejoignez de nouveau le salon.
 profiles-in-voice-unavailable = Vous ne pouvez pas rejoindre ce salon vocal pour le moment.
 profiles-mutuals-empty = Nothing to show here.
 

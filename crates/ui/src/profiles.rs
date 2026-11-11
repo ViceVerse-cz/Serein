@@ -545,20 +545,13 @@ fn voice_card(
 					)
 					.on_hover_text(&server);
 					ui.add_space(6.0);
-					// A failed call is replaceable, so only a live one counts as already joined.
-					let joined = state.voice.active.as_ref().is_some_and(|call| {
-						call.channel == spot.channel.id
-							&& call.phase != client_core::voice::Phase::Failed
-					});
-					let enabled = !joined && state.can_call(spot.channel.id);
-					let join = ui
-						.add_enabled_ui(enabled, |ui| join_button(ui, theme, fill))
-						.inner
-						.on_disabled_hover_text(crate::i18n::translate(if joined {
-							"profiles-in-voice-joined"
-						} else {
-							"profiles-in-voice-unavailable"
-						}));
+					let blocked = join_blocked(state, spot.channel.id);
+					let mut join = ui
+						.add_enabled_ui(blocked.is_none(), |ui| join_button(ui, theme, fill))
+						.inner;
+					if let Some(reason) = blocked {
+						join = join.on_disabled_hover_text(crate::i18n::translate(reason));
+					}
 					if join.clicked() {
 						action = Some(Action::JoinVoice {
 							guild: spot.guild.id,
@@ -569,6 +562,24 @@ fn voice_card(
 			});
 		});
 	action
+}
+
+/// Why the card's Join is disabled, as a translation key. It refuses whatever the join path
+/// refuses: any call this device holds in that channel, failed ones included (those are
+/// dismissed from the call card first), and channels it cannot call.
+pub(crate) fn join_blocked(state: &State, channel: Id) -> Option<&'static str> {
+	match state
+		.voice
+		.active
+		.as_ref()
+		.filter(|call| call.channel == channel)
+	{
+		Some(call) if call.phase == client_core::voice::Phase::Failed => {
+			Some("profiles-in-voice-failed")
+		}
+		Some(_) => Some("profiles-in-voice-joined"),
+		None => (!state.can_call(channel)).then_some("profiles-in-voice-unavailable"),
+	}
 }
 
 /// Up to three of the channel's people on a rounded tile, the profile's owner first. A larger

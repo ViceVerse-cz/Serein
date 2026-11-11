@@ -4600,6 +4600,7 @@ profiles-activity-empty = 共有されているアクティビティはありま
 profiles-in-voice-server = { $server } 内
 profiles-in-voice-join = 参加
 profiles-in-voice-joined = このボイスチャンネルに参加しています。
+profiles-in-voice-failed = 失敗した通話を閉じてから、もう一度参加してください。
 profiles-in-voice-unavailable = 現在このボイスチャンネルには参加できません。
 profiles-mutuals-empty = Nothing to show here.
 
