@@ -176,7 +176,8 @@ fn worker(
 			match request {
 				Request::Settings(settings) => {
 					// Each snapshot clears what it unchecked, so uncheck-then-recheck within
-					// one batch still retries a failed language.
+					// one batch still reloads a dictionary the first snapshot dropped.
+					loaded.retain(|code| settings.languages.contains(code));
 					failed.retain(|code| settings.languages.contains(code));
 					automatic.retain(|code, _| !settings.excluded.contains(code));
 					next = Some(settings);
@@ -219,7 +220,6 @@ fn worker(
 		if let Some(root) = &root {
 			write(root, &next);
 		}
-		loaded.retain(|code| next.languages.contains(code));
 		failed.retain(|code| next.languages.contains(code));
 		automatic.retain(|code, _| !next.excluded.contains(code));
 		current = next;
