@@ -152,23 +152,38 @@ impl State {
 		}
 		// A ninth distinct user is ignored until a slot expires; existing users can refresh.
 	}
-	pub fn typing_users(&self, now: Instant) -> impl Iterator<Item = Id> + '_ {
-		let visible = self.typing.channel.is_some() && self.typing.channel == self.typing_scope();
-		self.typing.users.iter().filter_map(move |entry| {
-			entry
-				.filter(|(_, deadline)| visible && *deadline > now)
-				.map(|(user, _)| user)
-		})
-	}
-	pub fn typing_deadline(&self, now: Instant) -> Option<Instant> {
-		if self.typing.channel.is_none() || self.typing.channel != self.typing_scope() {
-			return None;
-		}
-		self.typing
+	/// The selected conversation's typists. A DM also keeps the conversation list's
+	/// indicators, so someone already typing shows as soon as the DM opens.
+	fn typing_entries(&self) -> impl Iterator<Item = (Id, Instant)> + '_ {
+		let scope = self.typing_scope();
+		let selected = self
+			.typing
 			.users
 			.iter()
 			.flatten()
-			.map(|(_, deadline)| *deadline)
+			.filter(move |_| scope.is_some() && self.typing.channel == scope)
+			.copied();
+		let seen = selected.clone();
+		let direct = self
+			.typing
+			.direct
+			.iter()
+			.flatten()
+			.filter(move |(at, user, _)| {
+				scope == Some(*at) && !seen.clone().any(|(id, _)| id == *user)
+			})
+			.map(|(_, user, deadline)| (*user, *deadline));
+		selected.chain(direct)
+	}
+	pub fn typing_users(&self, now: Instant) -> impl Iterator<Item = Id> + '_ {
+		self.typing_entries()
+			.filter(move |(_, deadline)| *deadline > now)
+			.map(|(user, _)| user)
+			.take(self.typing.users.len())
+	}
+	pub fn typing_deadline(&self, now: Instant) -> Option<Instant> {
+		self.typing_entries()
+			.map(|(_, deadline)| deadline)
 			.filter(|deadline| *deadline > now)
 			.min()
 	}
@@ -359,6 +374,13 @@ mod tests {
 		);
 		assert!(state.direct_typing_deadline(now).is_some());
 		assert!(!state.direct_typing(Id(11), now + Duration::from_secs(11)));
+		// Opening the DM shows the typist who started before it was selected.
+		state.selected = Some(Id(11));
+		assert_eq!(state.typing_users(now).collect::<Vec<_>>(), [Id(2)]);
+		state.observe_typing_at(at(11, 2), wall, now);
+		assert_eq!(state.typing_users(now).count(), 1, "one typist, two stores");
+		assert!(state.typing_deadline(now).is_some());
+		state.selected = Some(Id(10));
 		// Navigation keeps conversation-list typing; the typist's message ends it.
 		state.typing.clear();
 		assert!(state.direct_typing(Id(11), now));

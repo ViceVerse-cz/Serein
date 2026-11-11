@@ -107,6 +107,8 @@ fi
 DISTRO_ID="$ID"
 case " ${ID_LIKE:-} " in
     *" arch "*) DISTRO_ID="arch" ;;
+    # Fedora remixes (Nobara, Ultramarine) share Fedora's VERSION_ID and libraries.
+    *" fedora "*) DISTRO_ID="fedora" ;;
 esac
 
 ARCH=$(uname -m)

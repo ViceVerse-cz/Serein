@@ -43,6 +43,7 @@ mod extension_admin_actions;
 mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
+mod interface_tweaks;
 mod new_message;
 pub mod proxy_auth;
 mod rich_presence;
@@ -257,6 +258,8 @@ pub const DEFAULT_IDLE_TIMEOUT_SECS: u32 = 10 * 60;
 
 #[derive(Default)]
 pub struct MessagingUi {
+	/// Interface tweaks switched on by enabled plugins.
+	interface_tweaks: std::sync::Arc<std::collections::BTreeSet<extensions::InterfaceTweak>>,
 	poll_creator: polls::Creator,
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
@@ -468,6 +471,7 @@ pub struct MessagingUi {
 	pub voice_camera_status: &'static str,
 	pub voice_cameras: Vec<(String, String)>,
 	pub voice_camera_device: Option<String>,
+	pub voice_camera_rate: model::voice_settings::CameraFrameRate,
 	pub voice_refresh_cameras: bool,
 	pub voice_camera_device_status: &'static str,
 	pub voice_camera_devices_loading: bool,
@@ -2244,6 +2248,11 @@ impl MessagingUi {
 					self.voice_card_section(ui, state, commands);
 					divider(ui);
 				}
+				// Reserved before the avatar so the identity hover fill stays behind it.
+				let highlight = ui.painter().add(egui::Shape::Noop);
+				let mut identity_hover = None;
+				let mut avatar_rect = None;
+				let mut avatar_focused = false;
 				egui::Frame::new()
 					.inner_margin(egui::Margin::symmetric(8, 6))
 					.show(ui, |ui| {
@@ -2252,6 +2261,8 @@ impl MessagingUi {
 							ui.spacing_mut().item_spacing.x = 8.0;
 							if let Some(user) = &state.user {
 								let avatar = self.avatars.show(ui, user, 32.0, state.demo);
+								avatar_rect = Some(avatar.rect);
+								avatar_focused = avatar.has_focus();
 								avatar.widget_info(|| {
 									egui::WidgetInfo::labeled(
 										egui::Role::Button,
@@ -2304,6 +2315,7 @@ impl MessagingUi {
 									ui.with_layout(
 										egui::Layout::left_to_right(egui::Align::Center),
 										|ui| {
+											let identity_right = ui.max_rect().right();
 											let identity = ui
 												.vertical(|ui| {
 													ui.spacing_mut().item_spacing.y = 0.0;
@@ -2376,6 +2388,47 @@ impl MessagingUi {
 													language.text("profile-and-status"),
 												)
 											});
+											let union = avatar_rect.map_or(identity.rect, |rect| {
+												rect.union(identity.rect)
+											});
+											let left = avatar_rect
+												.map_or(identity.rect.left(), |rect| rect.left());
+											let height = union.height().max(32.0) + 8.0;
+											let full_left = left - 4.0;
+											// Leave a gap before the voice controls, but never stop under long text.
+											let hover_right = (full_left
+												+ (identity_right - full_left) * 0.9)
+												.max(identity.rect.right() + 4.0)
+												.min(identity_right);
+											let hover_rect = egui::Rect::from_min_max(
+												egui::pos2(
+													full_left,
+													union.center().y - height * 0.5,
+												),
+												egui::pos2(
+													hover_right,
+													union.center().y + height * 0.5,
+												),
+											);
+											let focused = identity.has_focus() || avatar_focused;
+											// The empty tail of the hover rectangle joins the identity's click
+											// target without covering the avatar's own context menu. It spans
+											// the unpadded row so the menu anchor does not move up.
+											let space =
+												(identity.rect.right() < hover_right).then(|| {
+													ui.interact(
+														egui::Rect::from_min_max(
+															egui::pos2(
+																identity.rect.right(),
+																union.top(),
+															),
+															egui::pos2(hover_right, union.bottom()),
+														),
+														ui.scope_id()
+															.with("account-identity-space"),
+														egui::Sense::CLICK,
+													)
+												});
 											if let Some(avatar) = anchor.take() {
 												if identity.has_focus() {
 													ui.painter().rect_stroke(
@@ -2385,14 +2438,32 @@ impl MessagingUi {
 														egui::StrokeKind::Inside,
 													);
 												}
-												anchor = Some(avatar.union(identity));
+												let click = if let Some(space) = space {
+													identity.union(space)
+												} else {
+													identity
+												};
+												anchor = Some(avatar.union(click));
 											}
+											identity_hover = Some((hover_rect, focused));
 										},
 									);
 								},
 							);
 						});
 					});
+				if let Some((rect, focused)) = identity_hover
+					&& (focused || ui.rect_contains_pointer(rect))
+				{
+					ui.painter().set(
+						highlight,
+						egui::Shape::rect_filled(
+							rect,
+							6,
+							design::row_highlight(ui, colors.hover, 1.0),
+						),
+					);
+				}
 			});
 		// Painted over the frame rather than as its stroke, so the card keeps the composer's height.
 		ui.painter()
@@ -4541,9 +4612,23 @@ impl MessagingUi {
 		}
 	}
 
+	/// Whether an enabled plugin switched `tweak` on.
+	pub fn interface_tweak_on(&self, tweak: extensions::InterfaceTweak) -> bool {
+		self.interface_tweaks.contains(&tweak)
+	}
+	/// Replaces the interface tweaks that enabled plugins switched on.
+	pub fn set_interface_tweaks(
+		&mut self,
+		tweaks: std::collections::BTreeSet<extensions::InterfaceTweak>,
+	) {
+		if *self.interface_tweaks != tweaks {
+			self.interface_tweaks = std::sync::Arc::new(tweaks);
+		}
+	}
 	/// Draws one frame of the signed-in client and returns the commands it produced for the
 	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		interface_tweaks::publish(ui.ctx(), &self.interface_tweaks);
 		rtl::scope(
 			ui.ctx(),
 			state.generation,

@@ -3919,6 +3919,8 @@ timeline-show-with-scroll-loading-messages = Mesajlar yükleniyor…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Mesaj silindi
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Engellenen mesaj
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Mesaj geçmişi mevcut izin bilgileriyle kullanılamaz.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Henüz mesaj yok. Aşağıdaki konuşmayı başlatın.

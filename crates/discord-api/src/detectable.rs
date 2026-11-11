@@ -2,10 +2,10 @@
 //! names local process detection compares against. No account data is sent or received.
 use crate::rpc::download;
 use model::Id;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::time::Instant;
+use wreq::Client;
 
 /// The published list is a few megabytes of JSON; refuse anything beyond a generous cap.
 const MAX_LIST: usize = 24 * 1024 * 1024;

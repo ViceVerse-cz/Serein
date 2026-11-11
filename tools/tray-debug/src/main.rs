@@ -240,11 +240,21 @@ fn check_window() {
 			"a confirmed hide must not also close"
 		);
 	}
-	// Nobody can close the hidden window, so this close is the session ending: exit, unconfirmed.
-	let output = ctx.run_logic(&close, |ctx| state.logic(ctx, true, true, Some(false)));
-	let cmds = &output.viewport_commands[&ViewportId::ROOT];
-	assert!(cmds.contains(&Cmd::CancelClose) && cmds.contains(&Cmd::Visible(true)));
-	assert!(state.system_close() && !state.hidden);
+	// Nobody can close the hidden window, so this close is the session ending: exit, unconfirmed,
+	// within the logic pass, since a hidden window gets no ui pass to send a later close.
+	let output = ctx.run_logic(&close, |ctx| {
+		state.logic(ctx, true, true, Some(false));
+		assert!(ctx.input(|i| i.viewport().close_requested()));
+	});
+	assert!(
+		output
+			.viewport_commands
+			.get(&ViewportId::ROOT)
+			.is_none_or(|cmds| !cmds.contains(&Cmd::CancelClose)),
+		"the session close must not wait for the window to be shown"
+	);
+	assert!(state.system_close());
+	state.show(&ctx);
 	state.cancel_quit();
 	assert!(!state.system_close());
 	let _ = ctx.run_logic(&close, |ctx| state.logic(ctx, true, true, Some(true)));

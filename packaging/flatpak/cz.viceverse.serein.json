@@ -3,6 +3,7 @@
   "runtime": "org.gnome.Platform",
   "runtime-version": "51",
   "sdk": "org.gnome.Sdk",
+  "sdk-extensions": ["org.freedesktop.Sdk.Extension.llvm22"],
   "command": "serein",
   "rename-icon": "serein",
   "finish-args": [
@@ -26,7 +27,13 @@
       "buildsystem": "simple",
       "build-options": {
         "append-path": "/run/build/serein/flatpak-rust/bin",
-        "env": {"CARGO_NET_OFFLINE": "true", "CARGO_HOME": "/run/build/serein/flatpak-cargo-home"}
+        "prepend-ld-library-path": "/usr/lib/sdk/llvm22/lib",
+        "env": {
+          "CARGO_NET_OFFLINE": "true",
+          "CARGO_HOME": "/run/build/serein/flatpak-cargo-home",
+          "LIBCLANG_PATH": "/usr/lib/sdk/llvm22/lib",
+          "CLANG_PATH": "/usr/lib/sdk/llvm22/bin/clang"
+        }
       },
       "build-commands": [
         "test \"$(rustc --version | cut -d ' ' -f 2)\" = 1.99.1",

@@ -10,7 +10,7 @@ use egui::RichText;
 use model::{
 	Id,
 	server_admin::VoiceChange,
-	voice_settings::{InputProfile, NoiseSuppression},
+	voice_settings::{CameraFrameRate, InputProfile, NoiseSuppression},
 };
 
 /// Local mutes share the 64 per-user volume slots sent to the mixer.
@@ -613,9 +613,12 @@ impl MessagingUi {
 				} else {
 					colors.muted
 				};
+				// Keep the avatar and LIVE pill clear of the row's rounded hover edge while
+				// the row itself still spans the full width for hit testing.
+				let content = rect.shrink2(egui::vec2(8.0, 0.0));
 				let mut inner = ui.new_child(
 					egui::UiBuilder::new()
-						.max_rect(rect)
+						.max_rect(content)
 						.layout(egui::Layout::left_to_right(egui::Align::Center)),
 				);
 				inner.spacing_mut().item_spacing.x = 6.0;
@@ -695,6 +698,8 @@ impl MessagingUi {
 		);
 	}
 
+	/// Shows the hover preview of a participant's live stream with a Watch button, requesting the
+	/// preview image when the popup opens and sizing it for the large-preview tweak.
 	fn stream_preview_popup(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -703,9 +708,26 @@ impl MessagingUi {
 		entry: &RosterEntry,
 	) {
 		let target = (entry.guild, entry.channel, entry.participant.user);
+		// A large-preview tweak doubles the image; the popup grows around it.
+		let scale: f32 = if crate::interface_tweaks::on(
+			ui.ctx(),
+			extensions::InterfaceTweak::LargeStreamPreview,
+		) {
+			2.0
+		} else {
+			1.0
+		};
+		// The popup opens beside the row. With the tweak on, the image fits the window's
+		// remaining width and keeps room below for the title and the Watch button, shrinking
+		// below its usual size on a small or zoomed window; without it the size is unchanged.
+		let viewport = ui.ctx().content_rect();
+		let fit = ((viewport.right() - row.rect.right() - 8.0 - 24.0) / 300.0)
+			.min((viewport.height() - 24.0 - 110.0) / 169.0)
+			.max(0.4);
+		let image = egui::vec2(300.0, 169.0) * if scale > 1.0 { scale.min(fit) } else { 1.0 };
 		let mut tooltip = egui::Tooltip::for_enabled(row)
 			.gap(8.0)
-			.width(324.0)
+			.width(image.x + 24.0)
 			.accessible_name("Stream preview");
 		tooltip.popup = tooltip.popup.align(egui::RectAlign::RIGHT_START).frame(
 			egui::Frame::popup(&row.ctx.style_of(row.ctx.theme()))
@@ -727,7 +749,7 @@ impl MessagingUi {
 		}
 		let colors = design::palette(ui);
 		tooltip.show(|ui| {
-			ui.set_width(300.0);
+			ui.set_width(image.x);
 			ui.spacing_mut().item_spacing.y = 10.0;
 			ui.horizontal(|ui| {
 				ui.label(design::semibold(ui, "Streaming Now", 15.0).color(colors.text_strong));
@@ -756,13 +778,12 @@ impl MessagingUi {
 						height: 288,
 						..Default::default()
 					},
-					egui::vec2(300.0, 169.0),
+					image,
 					state.demo,
 					crate::avatars::Surface::Banner,
 				);
 			} else {
-				let (rect, _) =
-					ui.allocate_exact_size(egui::vec2(300.0, 169.0), egui::Sense::hover());
+				let (rect, _) = ui.allocate_exact_size(image, egui::Sense::hover());
 				ui.painter().rect_filled(rect, 8, colors.canvas);
 				let preview = state
 					.voice
@@ -2598,6 +2619,20 @@ impl MessagingUi {
 			&mut self.voice_camera_device,
 		)
 		.labelled_by(label.id);
+		ui.add_space(8.0);
+		ui.label(design::medium(
+			ui,
+			crate::i18n::translate("screen-body-frame-rate"),
+			15.0,
+		));
+		let selected = usize::from(self.voice_camera_rate == CameraFrameRate::Fps30);
+		if let Some(selected) = design::segmented(ui, &["15 fps", "30 fps"], selected) {
+			self.voice_camera_rate = if selected == 0 {
+				CameraFrameRate::Fps15
+			} else {
+				CameraFrameRate::Fps30
+			};
+		}
 		ui.horizontal(|ui| {
 			ui.spacing_mut().item_spacing.x = 4.0;
 			ui.add_enabled_ui(!demo && !self.voice_camera_devices_loading, |ui| {
@@ -5491,6 +5526,25 @@ mod tests {
 				.any(|(text, _)| text == "Camera device"),
 			"Selecting a device keeps the parent camera popup open"
 		);
+		let text = frame(&mut messaging, vec![]);
+		let fifteen = text
+			.iter()
+			.find(|(text, _)| text == "15 fps")
+			.expect("Missing 15 fps option")
+			.1
+			.center();
+		click(&mut messaging, fifteen);
+		assert_eq!(messaging.voice_camera_rate, CameraFrameRate::Fps15);
+		assert!(messaging.voice_camera_preview.is_none());
+		let text = frame(&mut messaging, vec![]);
+		let thirty = text
+			.iter()
+			.find(|(text, _)| text == "30 fps")
+			.expect("Missing 30 fps option")
+			.1
+			.center();
+		click(&mut messaging, thirty);
+		assert_eq!(messaging.voice_camera_rate, CameraFrameRate::Fps30);
 	}
 
 	#[test]
@@ -5801,6 +5855,91 @@ mod tests {
 				.call_unavailable(&state, Id(25))
 				.unwrap()
 				.contains("Voice is unavailable")
+		);
+	}
+
+	/// Checks that the large-stream-preview tweak doubles the hover preview image.
+	#[test]
+	fn large_stream_preview_tweak_doubles_the_preview() {
+		let mut state = test_support::demo_state();
+		state.voice.roster = vec![RosterEntry {
+			guild: Id(10),
+			channel: Id(25),
+			participant: client_core::voice::Participant {
+				user: Id(2),
+				muted: false,
+				deafened: false,
+				server_muted: false,
+				server_deafened: false,
+				video: false,
+				streaming: true,
+			},
+			member: None,
+		}];
+		// The image area: a tile of the preview's exact size.
+		let preview = |large: bool| {
+			let mut messaging = MessagingUi::default();
+			if large {
+				messaging
+					.set_interface_tweaks([extensions::InterfaceTweak::LargeStreamPreview].into());
+			}
+			let ctx = egui::Context::default();
+			ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
+			let mut sizes = Vec::new();
+			for _ in 0..2 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(1400.0, 900.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						crate::interface_tweaks::publish(ui.ctx(), &messaging.interface_tweaks);
+						ui.set_width(190.0);
+						messaging.voice_participant(ui, &state, &state.voice.roster[0]);
+					},
+				);
+				sizes.clear();
+				let mut stack: Vec<_> =
+					output.shapes.iter().map(|clipped| &clipped.shape).collect();
+				while let Some(shape) = stack.pop() {
+					match shape {
+						egui::Shape::Vec(shapes) => stack.extend(shapes),
+						egui::Shape::Rect(rect) => sizes.push(rect.rect.size()),
+						_ => {}
+					}
+				}
+				output.drop_without_applying_deltas();
+			}
+			sizes
+		};
+		// The popup frame is the largest rectangle; media never upscales past its 512 px source.
+		let frame = |sizes: &[egui::Vec2]| {
+			sizes
+				.iter()
+				.copied()
+				.max_by(|a, b| (a.x * a.y).total_cmp(&(b.x * b.y)))
+				.unwrap()
+		};
+		let normal = preview(false);
+		assert!(
+			normal
+				.iter()
+				.any(|size| (*size - egui::vec2(300.0, 169.0)).length() < 2.0),
+			"{normal:?}"
+		);
+		let large = preview(true);
+		assert!(
+			frame(&large).x > frame(&normal).x * 1.8,
+			"{normal:?} -> {large:?}"
+		);
+		assert!(
+			large
+				.iter()
+				.any(|size| size.x >= 511.0 && size.y >= 287.0 && size.y < 400.0),
+			"preview image at full source size: {large:?}"
 		);
 	}
 

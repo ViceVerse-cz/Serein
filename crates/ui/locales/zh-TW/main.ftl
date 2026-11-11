@@ -3957,6 +3957,8 @@ timeline-show-with-scroll-loading-messages = 正在載入訊息…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = 訊息已刪除
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = 已封鎖的訊息
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 依目前權限資訊，無法檢視訊息歷史。
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = 還沒有訊息。從下方開始對話。

@@ -95,10 +95,10 @@ fn image_share_source(
 }
 
 async fn download_image_share(url: &str, cancelled: &AtomicBool) -> Result<Vec<u8>, &'static str> {
-	let client = reqwest::Client::builder()
+	let client = wreq::Client::builder()
 		.https_only(true)
 		.no_proxy()
-		.redirect(reqwest::redirect::Policy::none())
+		.redirect(wreq::redirect::Policy::none())
 		.timeout(std::time::Duration::from_secs(15))
 		.connect_timeout(std::time::Duration::from_secs(5))
 		.build()
@@ -106,7 +106,7 @@ async fn download_image_share(url: &str, cancelled: &AtomicBool) -> Result<Vec<u
 	if cancelled.load(Ordering::Acquire) {
 		return Err("Image selection cancelled");
 	}
-	let mut response = client
+	let response = client
 		.get(url)
 		.send()
 		.await
@@ -124,9 +124,10 @@ async fn download_image_share(url: &str, cancelled: &AtomicBool) -> Result<Vec<u
 			.unwrap_or(4096)
 			.min(SHARE_BYTES as u64) as usize,
 	);
-	while let Some(chunk) = response
-		.chunk()
+	let mut response_body = std::pin::pin!(response.bytes_stream());
+	while let Some(chunk) = futures_util::StreamExt::next(&mut response_body)
 		.await
+		.transpose()
 		.map_err(|_| "Image download interrupted")?
 	{
 		if cancelled.load(Ordering::Acquire) {

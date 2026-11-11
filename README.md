@@ -308,7 +308,7 @@ Download `serein-<version>-macOS-ARM64.zip` from [Releases](https://github.com/V
 ## Quick Start
 
 ### Prerequisites
-Rust **1.99.1** is pinned. Ensure you have the standard C/C++ toolchain and CMake installed for your platform:
+Rust **1.99.1** is pinned. Ensure you have the standard C/C++ toolchain, CMake, Git and libclang installed for your platform (the bundled BoringSSL TLS library is built from source):
 - **macOS:** Xcode command-line tools (`xcode-select --install`)
 - **Linux:** GCC/Clang, ALSA development headers, `pkg-config`, GTK 4, WebKitGTK 6.0, fontconfig, and Vulkan drivers (see [Platform Support](docs/platform-support.md))
 - **Windows:** Visual Studio C++ build tools and WebView2 Runtime
@@ -410,7 +410,7 @@ serein/
 - **Local Cache Bounds:** SQLite databases store recent channel history, drafts, settings, diagnostics, and image preview metadata within bounded byte and count limits. The local SQLite store is **not** encrypted by the application.
 - **Sanitary Logout:** Executing an explicit logout destroys active network sessions, purges active secrets from memory, deletes the token from the OS credential store, and erases that account's local cache and drafts.
 - **Zero Telemetry:** Serein contains no analytics, telemetry, background crash collectors, or tracking beacons.
-- **Platform Integrity:** No fingerprint spoofing, CAPTCHA/MFA bypasses, bot substitutions, token scrapers, or third-party relays.
+- **Platform Integrity:** No CAPTCHA/MFA bypasses, bot substitutions, token scrapers, or third-party relays. Every Discord connection presents one consistent browser identity matching the platform webview (unofficial; see [authentication](docs/authentication.md)); it is not randomized or rotated to evade detection.
 
 For full details, review the [Storage Policy](docs/storage-policy.md) and [Threat Model](docs/threat-model.md).
 

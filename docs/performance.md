@@ -1376,6 +1376,43 @@ allocation limit) instead of up to the 500 MB upload limit plus a second copy.
 Standard no-default-features macOS packages built from both revisions: executable 68,509,584 B in
 both, installed app 74,547,919 B in both, `ditto` ZIP 48,179,547 vs 48,179,867 B (+320 B).
 
+## Native camera 15/30 fps selection (2026-11-08)
+
+Compared the upstream `21f8870` camera implementation (fixed 15 fps) with this PR's
+selectable-rate implementation using the same Logitech C270 at 640×480 on Nobara Linux 44
+x86-64. The host used Rust 1.98.1, GNOME SDK 51 and an AMD Radeon RX 9070 XT. Each camera
+run lasted eight seconds with a one-second warmup. The local probe counted frames and encoded
+outputs only; it did not save video or connect to a call.
+
+| Camera probe | Baseline | PR head | Change |
+| --- | ---: | ---: | ---: |
+| Selected 15 fps | 10.00 fps (68/69 encoded) | 14.86 fps (103/104 encoded) | +4.86 fps |
+| Selected 30 fps | Not available | 29.66 fps (208/208 encoded) | New mode |
+
+These are single local measurements, not sustained multi-run statistics or a guarantee of
+network delivery. The optional physical probe is `crates/discord-voice/examples/camera_fps_probe.rs`.
+Build it with:
+
+```sh
+cargo build --locked -p discord-voice -p platform --features winit/wayland --example camera_fps_probe
+```
+
+Then explicitly run `target/debug/examples/camera_fps_probe 15` and
+`target/debug/examples/camera_fps_probe 30` on a machine where `/dev/video0` is the camera to
+test. It starts local capture only, counts frames and encoded outputs, and saves or sends nothing.
+It needs direct access to the camera device; Flatpak's default sandbox does not provide it.
+
+Matching standard directory-format release packages were built separately from upstream `21f8870`
+and the PR with `cargo xtask package --format dir`, Rust 1.98.1, GNOME SDK 51 and x86-64:
+
+| Metric | Baseline | PR head | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 95,345,224 B | 95,346,760 B | +1,536 B |
+| Installed directory payload | 100,044,456 B | 100,045,992 B | +1,536 B |
+
+Compressed distribution size and camera CPU/RSS were not measured. The physical capture probe
+does not test Discord call signaling or remote presentation; those remain owner-controlled live checks.
+
 ## Camera continuity during Gateway resume (2026-10-29)
 
 Compared clean baseline `d93a8415406f7f36de5dc8b14e12ad0fc7134bb4` with runtime
@@ -1856,3 +1893,26 @@ Native computer use exposed no applications in this session. Native before/after
 screenshots, UI workload warmup/sampling, CPU/RSS, display scale/renderer observation,
 frame latency and live Discord verification remain unavailable. No UI speed or
 memory improvement is established by these package sizes.
+
+## Browser transport identity (PR #904) — November 10, 2026
+
+Baseline `6e6f18b0` (main, reqwest 0.13.5 over rustls/AWS-LC) and source `1ab16ae0`
+(wreq 6.0.0-rc.31 over BoringSSL), each built once with `cargo xtask package` in its own
+worktree and a new target directory. macOS 27.2 arm64, Apple M5 Pro / 24 GiB, Homebrew Rust
+1.99.1, pinned lockfile, standard release profile including voice.
+
+Executable and archive sizes use `stat`; the bundle size is `du -sk dist/Serein.app`; the
+archive is `ditto -c -k --keepParent dist/Serein.app`. No client was launched and nothing
+contacted Discord.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable (bytes) | 76,200,032 | 75,296,368 | −903,664 (−1.19%) |
+| `Serein.app` on disk (KiB) | 81,072 | 80,200 | −872 (−1.08%) |
+| Zipped bundle (bytes) | 52,158,053 | 51,734,674 | −423,379 (−0.81%) |
+| Clean `cargo xtask package` (s, one sample) | 282 | 275 | −7 |
+
+The build times are single samples and other work ran on the machine during the baseline,
+so they show only that the BoringSSL build does not lengthen a clean macOS package build
+noticeably. Linux, Windows and Windows ARM64 (BoringSSL without assembly) sizes were not
+measured. Connection setup time, TLS throughput and memory were not measured.

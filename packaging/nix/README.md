@@ -19,6 +19,9 @@ The package version is the Cargo workspace version, as with `cargo build`. Nix
 installations are updated through Nix; the in-app updater does not replace store
 paths. The macOS bundle is not Developer ID signed or notarized.
 
+The build needs `git` and `rustPlatform.bindgenHook`: the bundled BoringSSL is patched with
+`git apply` and its bindings are generated through libclang.
+
 CI builds both systems and compares installed notices and source with the checkout.
 A successful build does not establish live Discord, keyring, screen capture or
 physical audio compatibility. Linux still needs a graphical session, GPU driver,

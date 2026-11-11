@@ -2,8 +2,8 @@
 use crate::{DiscordApi, Failure};
 use discord_protocol::collectibles;
 use model::{Id, ProfileEffect, ProfileFrame};
-use reqwest::Method;
 use std::sync::Arc;
+use wreq::Method;
 
 /// Catalog products remembered for this session, oldest evicted first.
 const CATALOG_ENTRIES: usize = 64;
