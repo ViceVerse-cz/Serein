@@ -654,6 +654,7 @@ fn install_cjk(ctx: &Context, shared: &Mutex<FontDefinitions>) {
 
 fn cjk_index(language: crate::i18n::Language) -> u32 {
 	match language.resolved() {
+		crate::i18n::Language::Korean => 1,
 		crate::i18n::Language::ChineseSimplified => 2,
 		crate::i18n::Language::ChineseTraditional => 3,
 		_ => 0,
@@ -922,6 +923,17 @@ mod tests {
 			assert_eq!(cjk_index(language), index);
 			let face = skrifa::FontRef::from_index(&collection, index).unwrap();
 			assert_eq!(face.charmap().map('骨'), Some(skrifa::GlyphId::new(glyph)));
+		}
+		let korean_index = cjk_index(crate::i18n::Language::Korean);
+		assert_eq!(korean_index, 1);
+		let korean_face = skrifa::FontRef::from_index(&collection, korean_index).unwrap();
+		for character in "한국어".chars() {
+			assert!(
+				korean_face
+					.charmap()
+					.map(character)
+					.is_some_and(|id| id != skrifa::GlyphId::NOTDEF)
+			);
 		}
 		let definitions = definitions(true);
 		for family in [FontFamily::Proportional, FontFamily::Monospace] {
