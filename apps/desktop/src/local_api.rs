@@ -803,13 +803,14 @@ impl<S: KeyStore> Keys<S> {
 		}
 	}
 
-	/// What to report while the listener is off. A pending revocation is still reported, so
-	/// the owner's saved record of it does not depend on the API staying on.
+	/// What to report while the listener is off: the key's real state once one has been in
+	/// force. The owner's saved record of a revocation follows the latest report, so it must
+	/// be set, and cleared again, whether or not the API stays on.
 	fn resting(&self) -> LocalApiKey {
-		if self.revoked {
-			LocalApiKey::Revoked
-		} else {
+		if self.key.is_none() && !self.revoked {
 			LocalApiKey::Pending
+		} else {
+			self.status()
 		}
 	}
 
@@ -1747,6 +1748,28 @@ mod tests {
 		// The old key is still in the store, so the record has to outlive the listener.
 		assert_eq!(api.status().key, LocalApiKey::Revoked);
 		assert_eq!(vault.entry.lock().unwrap().as_deref(), Some(KEY));
+
+		// The store recovers and the next switch-on replaces the entry. Switching off again
+		// still reports the key as saved, so a record that is no longer true is cleared too.
+		vault.stall.store(false, Ordering::SeqCst);
+		api.publish(true, true, room);
+		timeout(
+			WAIT,
+			status.wait_for(|status| status.key == LocalApiKey::Saved),
+		)
+		.await
+		.expect("the replacement is saved")
+		.unwrap();
+		api.publish(false, true, room);
+		timeout(
+			WAIT,
+			status.wait_for(|status| status.state == LocalApiState::Off),
+		)
+		.await
+		.expect("the listener stops")
+		.unwrap();
+		assert_eq!(api.status().key, LocalApiKey::Saved);
+		assert_ne!(vault.entry.lock().unwrap().as_deref(), Some(KEY));
 	}
 
 	#[test]
@@ -1860,11 +1883,12 @@ mod tests {
 		closed(&mut client).await;
 		timeout(
 			WAIT,
-			status.wait_for(|status| *status == LocalApiStatus::default()),
+			status.wait_for(|status| status.state == LocalApiState::Off),
 		)
 		.await
 		.expect("the listener stops")
 		.unwrap();
+		assert!(api.status().clients.is_empty() && api.status().endpoint.is_empty());
 		assert!(api.key().is_none());
 		timeout(WAIT, async {
 			// The OS releases the name once the cancelled accept completes.
