@@ -34,11 +34,14 @@ fn route(method: &Method, path: &str) -> Route {
 	let mut major = std::collections::hash_map::DefaultHasher::new();
 	let path = path.split('?').next().unwrap_or(path);
 	let mut previous = "";
-	for part in path.split('/').filter(|part| !part.is_empty()) {
-		if matches!(previous, "channels" | "guilds" | "webhooks") {
+	for (index, part) in path.split('/').filter(|part| !part.is_empty()).enumerate() {
+		let numeric = part.bytes().all(|byte| byte.is_ascii_digit());
+		// Only a top-level snowflake names a major resource. In particular,
+		// /guilds/templates/... must not invent a resource named "templates".
+		if index == 1 && numeric && matches!(previous, "channels" | "guilds" | "webhooks") {
 			(previous, part).hash(&mut major);
 		}
-		if part.bytes().all(|byte| byte.is_ascii_digit()) {
+		if numeric {
 			"{id}".hash(&mut name);
 		} else {
 			part.hash(&mut name);
@@ -220,21 +223,16 @@ impl Ticket<'_> {
 				state.collect();
 			}
 		}
-		if headers
-			.get("x-ratelimit-remaining")
-			.is_some_and(|value| value == "0")
-			&& let Some(delay) = headers
-				.get("x-ratelimit-reset-after")
-				.and_then(|value| value.to_str().ok())
-				.and_then(|value| value.parse::<f64>().ok())
-				.filter(|value| value.is_finite() && (0.0..=86400.0).contains(value))
+		self.admission.changed.notify_waiters();
+	}
+
+	/// The caller validates service delays with the adapter's shared delay parser.
+	pub(crate) fn hold(&self, delay: Duration) {
+		if let Ok(mut state) = self.admission.state.lock()
 			&& let Some(slot) = state.slots.iter_mut().find(|slot| slot.key == self.key)
 		{
-			slot.until = slot
-				.until
-				.max(Instant::now() + Duration::from_secs_f64(delay.max(0.05)));
+			slot.until = slot.until.max(Instant::now() + delay);
 		}
-		self.admission.changed.notify_waiters();
 	}
 }
 
@@ -257,12 +255,89 @@ mod tests {
 	use std::{
 		future::{Future, poll_fn},
 		pin::Pin,
-		sync::Arc,
+		sync::{
+			Arc,
+			atomic::{AtomicBool, Ordering},
+		},
 		task::Poll,
 	};
 
 	async fn pending(mut future: Pin<&mut impl Future>) -> bool {
 		poll_fn(|cx| Poll::Ready(future.as_mut().poll(cx).is_pending())).await
+	}
+
+	#[tokio::test]
+	async fn verification_expiring_during_admission_is_not_sent() {
+		let api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
+		))
+		.unwrap();
+		let held = api
+			.admission
+			.acquire(&Method::POST, "/channels/1/messages", false)
+			.await
+			.unwrap();
+		let expired = AtomicBool::new(false);
+		let request = api.admit_request(&Method::POST, "/channels/1/messages", false, || {
+			expired.load(Ordering::Relaxed)
+		});
+		tokio::pin!(request);
+		assert!(pending(request.as_mut()).await);
+		expired.store(true, Ordering::Relaxed);
+		drop(held);
+		assert!(matches!(request.await, Err(Failure::ProtocolAt(_))));
+		assert!(
+			api.admission
+				.acquire(&Method::POST, "/channels/1/messages", true)
+				.await
+				.is_ok()
+		);
+	}
+
+	#[tokio::test]
+	async fn exhausted_success_holds_its_route_without_stalling_another_channel() {
+		use tokio::{
+			io::{AsyncReadExt, AsyncWriteExt},
+			net::TcpListener,
+		};
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let server = tokio::spawn(async move {
+			for channel in [1, 2] {
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut head = Vec::new();
+				let mut buffer = [0; 2048];
+				while !head.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+					let length = socket.read(&mut buffer).await.unwrap();
+					assert!(length != 0 && head.len() + length <= 8192);
+					head.extend_from_slice(&buffer[..length]);
+				}
+				assert!(
+					String::from_utf8_lossy(&head)
+						.starts_with(&format!("GET /channels/{channel}/messages "))
+				);
+				let remaining = if channel == 1 { 0 } else { 1 };
+				socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-RateLimit-Bucket: shared\r\nX-RateLimit-Remaining: {remaining}\r\nX-RateLimit-Reset-After: 3600\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}").as_bytes()).await.unwrap();
+			}
+		});
+		api.request(Method::GET, "/channels/1/messages", None)
+			.await
+			.unwrap();
+		assert_eq!(
+			crate::SPECULATIVE
+				.scope((), api.request(Method::GET, "/channels/1/messages", None))
+				.await,
+			Err(Failure::Capacity)
+		);
+		crate::SPECULATIVE
+			.scope((), api.request(Method::GET, "/channels/2/messages", None))
+			.await
+			.unwrap();
+		server.await.unwrap();
 	}
 
 	#[tokio::test]
@@ -333,6 +408,24 @@ mod tests {
 				.await
 				.is_ok()
 		);
+		let mut template = admission
+			.acquire(&Method::GET, "/guilds/templates/example", false)
+			.await
+			.unwrap();
+		template.feedback(&headers);
+		// Both endpoints lack a top-level major ID. A static route word must
+		// not split a shared service bucket into a fictitious per-resource one.
+		let mut global = admission
+			.acquire(&Method::GET, "/users/@me/guilds", false)
+			.await
+			.unwrap();
+		global.feedback(&headers);
+		assert!(
+			admission
+				.acquire(&Method::GET, "/guilds/templates/example", true)
+				.await
+				.is_err()
+		);
 	}
 
 	#[tokio::test]
@@ -342,38 +435,18 @@ mod tests {
 			.acquire(&Method::GET, "/channels/1/messages", false)
 			.await
 			.unwrap();
-		// Oversized bucket ids and non-finite waits cannot create a new bucket or
-		// pin this route forever. A subsequent valid response must still apply.
-		first.feedback(&HeaderMap::from_iter([
-			(
-				"x-ratelimit-bucket".parse().unwrap(),
-				"x".repeat(MAX_BUCKET_BYTES + 1).parse().unwrap(),
-			),
-			(
-				"x-ratelimit-remaining".parse().unwrap(),
-				"0".parse().unwrap(),
-			),
-			(
-				"x-ratelimit-reset-after".parse().unwrap(),
-				"NaN".parse().unwrap(),
-			),
-		]));
+		// An oversized bucket id must keep the bounded route gate rather than
+		// creating a new service bucket. A subsequent hold must still apply.
+		first.feedback(&HeaderMap::from_iter([(
+			"x-ratelimit-bucket".parse().unwrap(),
+			"x".repeat(MAX_BUCKET_BYTES + 1).parse().unwrap(),
+		)]));
 		drop(first);
-		let mut first = admission
+		let first = admission
 			.acquire(&Method::GET, "/channels/1/messages", true)
 			.await
 			.unwrap();
-		let headers = HeaderMap::from_iter([
-			(
-				"x-ratelimit-remaining".parse().unwrap(),
-				"0".parse().unwrap(),
-			),
-			(
-				"x-ratelimit-reset-after".parse().unwrap(),
-				"60".parse().unwrap(),
-			),
-		]);
-		first.feedback(&headers);
+		first.hold(Duration::from_secs(60));
 		drop(first);
 		for channel in 2..=300 {
 			drop(

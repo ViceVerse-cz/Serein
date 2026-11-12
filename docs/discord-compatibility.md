@@ -3293,13 +3293,15 @@ signed-in client, challenge or private conversation was exercised.
 
 REST admission now serializes each normalized method/route until its response is
 processed. Routes that advertise the same `X-RateLimit-Bucket` share admission
-within their channel/guild/webhook major resource. Queries do not split routes;
-non-major numeric IDs are normalized. Unknown cross-route aliases may still have
+within their top-level channel/guild/webhook snowflake resource. Static route
+words such as `templates` do not invent a major resource. Queries do not split
+routes; non-major numeric IDs are normalized. Unknown cross-route aliases may still have
 one request each in flight before their shared bucket is learned. Missing or
-malformed headers, or a full bucket table, keep route serialization. The existing
-shared cooldown remains conservative across all routes; no bot/user quota is
-hardcoded. This trades some
-same-bucket concurrency for predictable admission without out-of-order quota
+malformed headers, or a full bucket table, keep route serialization. Successful
+exhaustion holds only its route/bucket, including the existing one-second fallback
+when reset headers are missing; invalid delays still fail validation. The existing
+shared cooldown remains conservative across routes for 429 responses. No bot/user
+quota is hardcoded. This trades some same-bucket concurrency for predictable admission without out-of-order quota
 updates. Four total permits still bound requests. Typed request paths, not content
 or arbitrary URLs, select routes; only hashes are retained.
 
@@ -3308,4 +3310,5 @@ be evicted; in-flight buckets and active cooldowns cannot. If no safe space exis
 new work fails locally with capacity instead of discarding an active hold.
 Speculative reads do not wait for occupied admission. Cancellation releases a
 reservation, and security stops wake admission/cooldown waiters before dispatch.
+A solved verification is rechecked for expiry after both waits, before submission.
 There are no new writes, retries, persistence, telemetry or proxy-routing changes.

@@ -348,6 +348,25 @@ impl DiscordApi {
 			}
 		}
 	}
+	async fn admit_request(
+		&self,
+		method: &Method,
+		path: &str,
+		speculative: bool,
+		verification_expired: impl Fn() -> bool,
+	) -> Result<admission::Ticket<'_>, Failure> {
+		let ticket = tokio::select! {
+			result = self.admission.acquire(method, path, speculative) => result?,
+			failure = self.terminal_failure() => return Err(failure),
+		};
+		self.wait_cooldown(speculative).await?;
+		if verification_expired() {
+			return Err(Failure::ProtocolAt(
+				"Verification expired; start the check again",
+			));
+		}
+		Ok(ticket)
+	}
 	pub fn stop(&self) {
 		self.stop_with(Failure::Expired);
 	}
@@ -578,12 +597,12 @@ impl DiscordApi {
 						.body(body),
 				};
 			}
-			let mut admission = tokio::select! {
-				result = self.admission.acquire(&method, path, speculative) => result?,
-				failure = self.terminal_failure() => return Err(failure),
-			};
 			// Another response can extend the shared cooldown during route/proxy waits.
-			self.wait_cooldown(speculative).await?;
+			let mut admission = self
+				.admit_request(&method, path, speculative, || {
+					retry.is_some_and(|retry| retry.expired())
+				})
+				.await?;
 			// Proxy configuration and route admission may have awaited. Recheck immediately
 			// before dispatch so a queued request cannot bypass a new security stop.
 			self.restrictions
@@ -637,8 +656,7 @@ impl DiscordApi {
 				return Err(self.block_response(retry_header.or(reset)).await);
 			}
 			if exhausted && status != StatusCode::TOO_MANY_REQUESTS {
-				let mut next = self.cooldown.lock().await;
-				*next = (*next).max(Instant::now() + safe_delay(reset)?);
+				admission.hold(safe_delay(reset)?);
 			}
 			if response
 				.content_length()
