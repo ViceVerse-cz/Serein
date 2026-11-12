@@ -3515,6 +3515,9 @@ settings-appearance-settings-choose-primary-color = 기본 색상 선택
 # Context: appearance_settings
 # Context: appearance_settings
 settings-appearance-settings-primary-color = 기본 색상
+settings-appearance-calls = 통화
+settings-appearance-call-background = 통화 배경
+settings-appearance-call-background-description = 통화 화면의 배경색을 선택하세요. 초기화하면 현재 테마의 색상을 사용합니다.
 # Context: appearance_settings
 settings-appearance-settings-reset = 초기화
 # Context: appearance_settings
