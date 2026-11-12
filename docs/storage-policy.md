@@ -1,5 +1,11 @@
 # Local storage policy and audit
 
+## Call stage background
+
+The device preferences store an optional three-byte RGB value for the call stage. Older
+preferences and a reset follow the active theme. The setting is independent of the account
+and uses the existing bounded preferences row.
+
 ## Logical RTL message layout (November 9, 2026)
 
 Arabic, Hebrew and mixed-direction message layout admits at most 8 KiB of visible

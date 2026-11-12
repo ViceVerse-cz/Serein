@@ -1919,7 +1919,7 @@ pub(crate) fn luminance(c: Color32) -> f32 {
 	};
 	0.2126 * channel(c.r()) + 0.7152 * channel(c.g()) + 0.0722 * channel(c.b())
 }
-fn contrast(a: Color32, b: Color32) -> f32 {
+pub(crate) fn contrast(a: Color32, b: Color32) -> f32 {
 	let (l1, l2) = (luminance(a) + 0.05, luminance(b) + 0.05);
 	l1.max(l2) / l1.min(l2)
 }

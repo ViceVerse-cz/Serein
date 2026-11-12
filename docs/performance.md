@@ -1,5 +1,24 @@
 # Performance findings
 
+## Call stage background
+
+Compared `8f6645d2` and the call background change using locked Rust 1.99.1 debug
+builds with `--features demo`. Windows x64 build 26300.9711, Ryzen 7 7800X3D, about
+32 GiB RAM, DX12 and a 1120 × 760 window. Each run used `--demo --demo-voice` in
+the default dark theme with settings closed, a six-second warmup and ten seconds
+of sampling at roughly 100 ms intervals. Two runs per revision in
+baseline/change/change/baseline order. CPU is the percentage of one logical core.
+Settled working set is the mean of the final five samples.
+
+| Metric, range across runs | Baseline | Call stage background |
+| --- | ---: | ---: |
+| Idle process CPU | 1.239–2.633% | 1.244–3.572% |
+| Peak working set | 182.79–184.58 MiB | 182.88–184.44 MiB |
+| Settled working set | 168.22–184.58 MiB | 168.52–184.44 MiB |
+
+Concurrent package builds and the short sample make the CPU result inconclusive.
+The memory ranges overlap. The samples cover synthetic stage idle on Windows.
+
 ## Voice connection ping
 
 Compared `5a11f95b` with the voice ping change using locked Rust 1.99.1 release builds

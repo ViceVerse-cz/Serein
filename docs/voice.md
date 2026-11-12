@@ -12,6 +12,10 @@ Voice is included in every build without a feature flag. Source builds require C
 
 ## Implemented behavior and limits
 
+The call stage uses the active theme's conversation color. Settings → Appearance → Calls
+allows a device-local RGB override for server voice, DM calls and fullscreen shares.
+Reset removes the override, so future theme changes apply automatically.
+
 Hover over the connection icon in the account card to see the latest voice ping.
 Click the icon for the latest and average RTT and a chart of up to 24 recent samples.
 RTT measures the existing voice WebSocket heartbeat and matching ACK. Audio packet
