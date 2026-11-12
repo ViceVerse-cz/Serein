@@ -17,7 +17,7 @@ The main-document response and candidate origin checks still restrict login to
 https://discord.com. Website-data access requests are allowed only for hcaptcha.com
 or its subdomains embedded in discord.com, while the main page is still Discord.
 The invite-verification view applies the same permission rule while its exact local
-verification page is open, with WebKit's `verification.invalid` registrable domain.
+verification page (`https://discord.com/channels/@me`, never fetched) is open.
 This uses the existing ephemeral sessions and does not enable persistent storage.
 It removes a possible challenge-state blocker; live acceptance and the reported Linux
 QR/CAPTCHA loop remain unverified. Popups, downloads, file choosers, other permission

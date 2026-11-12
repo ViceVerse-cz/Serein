@@ -6457,6 +6457,7 @@ impl eframe::App for Desktop {
 				&self.window,
 				&ctx,
 				!self.fixture_only && !self.confirming_close && !self.confirming_logout,
+				self.api_proxy.borrow().as_ref(),
 			) {
 				commands.push(command);
 			}

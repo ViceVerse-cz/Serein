@@ -286,10 +286,10 @@ physical capture or delivery to an official Discord client; these remain unverif
 Invite verification uses a temporary WebView2 child on Windows, WKWebView child on
 macOS, and a separate GTK4/WebKit6 window on Linux. It
 loads a local verification page and hCaptcha's official widget after the user
-chooses Verify. The local custom-protocol origin is
-`https://serein-captcha.verification.invalid/` on Windows/Linux and
-`serein-captcha://verification.invalid/` on macOS; it is not a Discord page, public
-server or account-login surface. No account token enters it. Domain restrictions,
+chooses Verify. The page is addressed as `https://discord.com/channels/@me` but is never
+fetched: macOS and Linux load it as a string with that base URL, and Windows serves it
+through an in-view `discord` custom protocol that WebView2 maps to that address. It is not
+Discord's page, a public server or an account-login surface. No account token enters it. Domain restrictions,
 provider rejection and missing native webview runtimes fail visibly. macOS/Linux
 live CAPTCHA acceptance remains unverified. Widget
 loading and synthetic checks do not establish live Discord challenge acceptance.

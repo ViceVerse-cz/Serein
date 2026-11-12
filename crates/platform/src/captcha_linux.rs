@@ -1,5 +1,5 @@
 //! A temporary ephemeral GTK4/WebKit6 window for human-operated verification.
-use super::{Challenge, Solution, page, parse_result, verification_storage_domains};
+use super::{Challenge, PAGE, Proxy, Solution, page, parse_result, verification_storage_domains};
 use std::{
 	cell::{Cell, RefCell},
 	rc::Rc,
@@ -10,7 +10,6 @@ use webkit6::{gio, glib, prelude::*};
 
 const LIFETIME: Duration = Duration::from_secs(300);
 const QUERY_INTERVAL: Duration = Duration::from_millis(100);
-const PAGE: &str = "https://serein-captcha.verification.invalid/";
 
 struct Handoff {
 	opened: Instant,
@@ -61,6 +60,7 @@ impl CaptchaView {
 		parent: Arc<winit::window::Window>,
 		challenge: &Challenge,
 		dark: bool,
+		proxy: Option<&Proxy>,
 		wake: impl Fn() + Send + Sync + 'static,
 	) -> Result<Self, &'static str> {
 		gtk4::init().map_err(|_| "Linux verification window unavailable.")?;
@@ -91,9 +91,14 @@ impl CaptchaView {
 		session.set_persistent_credential_storage_enabled(false);
 		session.set_tls_errors_policy(webkit6::TLSErrorsPolicy::Fail);
 		session.connect_download_started(|_, download| download.cancel());
+		if let Some(proxy) = proxy {
+			let uri = format!("http://{}:{}", proxy.host, proxy.port);
+			session.set_proxy_settings(
+				webkit6::NetworkProxyMode::Custom,
+				Some(&webkit6::NetworkProxySettings::new(Some(&uri), &[])),
+			);
+		}
 		let settings = webkit6::Settings::new();
-		// Preserve WebKit identity independently of the desktop REST metadata.
-		settings.set_user_agent(Some(&client_core::fingerprint::verification_user_agent()));
 		settings.set_enable_developer_extras(false);
 		settings.set_enable_write_console_messages_to_stdout(false);
 		settings.set_allow_file_access_from_file_urls(false);
@@ -113,7 +118,7 @@ impl CaptchaView {
 			&script,
 			webkit6::UserContentInjectedFrames::TopFrame,
 			webkit6::UserScriptInjectionTime::Start,
-			&["https://serein-captcha.verification.invalid/*"],
+			&[PAGE],
 			&[],
 		));
 		let view = webkit6::WebView::builder()
@@ -156,7 +161,7 @@ impl CaptchaView {
 					.is_some_and(|request| {
 						verification_storage_domains(
 							// WebKit reports registrable domains, not the full page hostname.
-							"verification.invalid",
+							"discord.com",
 							request.current_domain().as_deref(),
 							request.requesting_domain().as_deref(),
 						)
