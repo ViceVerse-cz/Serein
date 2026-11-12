@@ -25,6 +25,8 @@ pub(super) struct CallSwitch {
 	generation: u64,
 	confirmed_at: Option<std::time::Instant>,
 	audio: Option<(bool, bool)>,
+	/// Server whose voice channel opens once the switch starts the join (a profile's Join).
+	open: Option<Id>,
 }
 
 impl MessagingUi {
@@ -1886,6 +1888,28 @@ impl MessagingUi {
 	}
 
 	pub(crate) fn call_unavailable(&self, state: &State, channel: Id) -> Option<&'static str> {
+		self.calls_unavailable(state).or_else(|| {
+			if state
+				.voice
+				.active
+				.as_ref()
+				.is_some_and(|call| call.channel == channel)
+			{
+				Some("You are already in this call.")
+			} else if !state.can_call(channel) {
+				Some("Joining this channel is unavailable with current permission information.")
+			} else if state.call_full(channel) {
+				// Refused here, before any switch leaves the current call for a full room.
+				Some(client_core::voice::CALL_FULL)
+			} else {
+				None
+			}
+		})
+	}
+
+	/// Why no call can start right now, whichever channel: the part of [`Self::call_unavailable`]
+	/// that profile cards receive each frame, as they cannot see this view.
+	pub(crate) fn calls_unavailable(&self, state: &State) -> Option<&'static str> {
 		if state.demo {
 			Some("Calls are unavailable in the offline preview. No microphone is accessed.")
 		} else if !self.voice_available {
@@ -1898,15 +1922,6 @@ impl MessagingUi {
 			.is_some_and(|switch| switch.confirmed_at.is_some())
 		{
 			Some("Waiting for the previous call to disconnect.")
-		} else if state
-			.voice
-			.active
-			.as_ref()
-			.is_some_and(|call| call.channel == channel)
-		{
-			Some("You are already in this call.")
-		} else if !state.can_call(channel) {
-			Some("Joining this channel is unavailable with current permission information.")
 		} else {
 			None
 		}
@@ -2066,12 +2081,11 @@ impl MessagingUi {
 				generation: state.generation,
 				confirmed_at: None,
 				audio,
+				open: None,
 			});
 		} else {
 			let (muted, deafened) = audio.unwrap_or((self.voice_muted, self.voice_deafened));
-			let command = state
-				.start_call_with_mute(channel, ring, muted, deafened)
-				.ok_or("Joining this call is no longer available")?;
+			let command = state.try_start_call(channel, ring, muted, deafened)?;
 			if audio.is_some() {
 				self.voice_muted = muted;
 				self.voice_deafened = deafened;
@@ -2079,6 +2093,49 @@ impl MessagingUi {
 			commands.push(command);
 		}
 		Ok(())
+	}
+
+	/// A profile's Join: a non-ringing join that opens the channel once it starts. When another
+	/// call must be left first, the channel opens only after that switch is confirmed, so
+	/// "Stay in call" leaves the user where they were. A refused join says why and goes nowhere.
+	pub(crate) fn join_from_profile(
+		&mut self,
+		state: &mut State,
+		guild: Id,
+		channel: Id,
+		commands: &mut Vec<Command>,
+	) -> Result<(), String> {
+		self.request_call_audio(state, channel, false, None, commands)?;
+		if let Some(switch) = self
+			.voice_switch
+			.as_mut()
+			.filter(|switch| switch.channel == channel && switch.confirmed_at.is_none())
+		{
+			switch.open = Some(guild);
+		} else if state
+			.voice
+			.active
+			.as_ref()
+			.is_some_and(|call| call.channel == channel)
+		{
+			self.open_voice_channel(state, guild, channel, commands);
+		}
+		Ok(())
+	}
+
+	fn open_voice_channel(
+		&mut self,
+		state: &mut State,
+		guild: Id,
+		channel: Id,
+		commands: &mut Vec<Command>,
+	) {
+		if self.server_settings.navigate_away(state) {
+			self.guild = Some(guild);
+			if let Some(command) = state.select(channel) {
+				commands.push(command);
+			}
+		}
 	}
 
 	pub(super) fn show_call_switch(
@@ -2105,14 +2162,19 @@ impl MessagingUi {
 				let (muted, deafened) = switch
 					.audio
 					.unwrap_or((self.voice_muted, self.voice_deafened));
-				if let Some(command) =
-					state.start_call_with_mute(switch.channel, switch.ring, muted, deafened)
-				{
-					if switch.audio.is_some() {
-						self.voice_muted = muted;
-						self.voice_deafened = deafened;
+				match state.try_start_call(switch.channel, switch.ring, muted, deafened) {
+					Ok(command) => {
+						if switch.audio.is_some() {
+							self.voice_muted = muted;
+							self.voice_deafened = deafened;
+						}
+						commands.push(command);
+						if let Some(guild) = switch.open {
+							self.open_voice_channel(state, guild, switch.channel, commands);
+						}
 					}
-					commands.push(command);
+					// The room filled while the old call ended: say why nothing joined.
+					Err(reason) => self.toasts.push(crate::design::Level::Error, reason),
 				}
 			} else if started.elapsed() >= std::time::Duration::from_secs(12) {
 				self.voice_switch = None;
@@ -4699,7 +4761,7 @@ fn inactive_recipient(state: &State, channel: Id, user: Id) -> bool {
 	})
 }
 
-fn resolve_member<'a>(
+pub(crate) fn resolve_member<'a>(
 	state: &'a State,
 	entry: &'a RosterEntry,
 ) -> (Option<&'a model::User>, &'a str) {
@@ -4889,6 +4951,80 @@ fn device_combo(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn profile_join_opens_its_channel_only_once_a_switch_starts_the_join() {
+		let mut state = test_support::call_demo_state();
+		state.demo = false;
+		state.gateway_connected = true;
+		let before = state.selected;
+		assert_ne!(before, Some(Id(25)));
+		let mut view = MessagingUi {
+			voice_available: true,
+			voice_switch_ready: true,
+			..Default::default()
+		};
+		let mut commands = Vec::new();
+		// A full room is refused before the live call is left for it.
+		let base = state.voice.roster.len();
+		state
+			.voice
+			.roster
+			.extend((1000..1064).map(|user| client_core::voice::RosterEntry {
+				guild: Id(10),
+				channel: Id(25),
+				participant: client_core::voice::Participant {
+					user: Id(user),
+					muted: false,
+					deafened: false,
+					server_muted: false,
+					server_deafened: false,
+					video: false,
+					streaming: false,
+				},
+				member: None,
+			}));
+		assert_eq!(
+			view.join_from_profile(&mut state, Id(10), Id(25), &mut commands),
+			Err(client_core::voice::CALL_FULL.to_owned())
+		);
+		assert!(view.voice_switch.is_none() && commands.is_empty());
+		assert!(state.voice.active.is_some(), "the live call is kept");
+		state.voice.roster.truncate(base);
+		view.join_from_profile(&mut state, Id(10), Id(25), &mut commands)
+			.unwrap();
+		assert!(commands.is_empty(), "the live call asks first");
+		assert_eq!(state.selected, before, "nothing opens before the switch");
+		// "Stay in call" drops the switch, and with it the channel it would have opened.
+		let pending = view.voice_switch.take();
+		view.show_call_switch(&egui::Context::default(), &mut state, &mut commands);
+		assert!(commands.is_empty());
+		assert_eq!(state.selected, before);
+		// Confirming leaves the old call, joins without ringing, then opens the channel.
+		view.voice_switch = pending;
+		let origin = view.voice_switch.as_ref().unwrap().from;
+		assert!(state.leave_call().is_some());
+		view.voice_switch.as_mut().unwrap().confirmed_at = Some(std::time::Instant::now());
+		// While the old call finishes leaving, a card's Join says so instead of being offered.
+		assert!(
+			crate::profiles::join_blocked(&state, Id(25), view.calls_unavailable(&state)).is_some()
+				&& view.call_unavailable(&state, Id(25)).is_some()
+		);
+		state.apply_voice(client_core::voice::Event::Departed {
+			channel: origin.0,
+			request: origin.1,
+		});
+		view.show_call_switch(&egui::Context::default(), &mut state, &mut commands);
+		assert!(matches!(
+			commands.first(),
+			Some(Command::Voice(client_core::voice::Command::Join {
+				channel: Id(25),
+				ring: false,
+				..
+			}))
+		));
+		assert_eq!((view.guild, state.selected), (Some(Id(10)), Some(Id(25))));
+	}
 
 	#[test]
 	fn explicit_join_audio_waits_for_call_switch_and_survives_teardown() {
