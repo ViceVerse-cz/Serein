@@ -92,8 +92,8 @@ impl CaptchaView {
 		session.set_tls_errors_policy(webkit6::TLSErrorsPolicy::Fail);
 		session.connect_download_started(|_, download| download.cancel());
 		let settings = webkit6::Settings::new();
-		// Same identity as the REST client that submits the passcode; see client_core::fingerprint.
-		settings.set_user_agent(Some(&client_core::fingerprint::user_agent()));
+		// Preserve WebKit identity independently of the desktop REST metadata.
+		settings.set_user_agent(Some(&client_core::fingerprint::verification_user_agent()));
 		settings.set_enable_developer_extras(false);
 		settings.set_enable_write_console_messages_to_stdout(false);
 		settings.set_allow_file_access_from_file_urls(false);

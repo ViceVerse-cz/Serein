@@ -3134,3 +3134,33 @@ In particular, the current settings model does not represent `MENTION_ON_ALL_MES
 not assumed disabled. Contributions depending on that switch remain unknown until authoritative
 count reconciliation. This is conservative local behavior, not a verified service-equivalence claim.
 No new service setting, protocol request or Identify capability is introduced.
+
+### Desktop metadata reference — November 12
+
+**Unofficial; static source comparison only, live interoperability unverified.**
+SakuraCord commit
+[`aa8a3da8d6805441a92dbf331eb0733f104d36e9`](https://github.com/SakuraCordApp/SakuraCord/tree/aa8a3da8d6805441a92dbf331eb0733f104d36e9)
+uses a native SwiftUI interface but advertises `browser: "Discord Client"`,
+an Electron user agent and desktop version fields in
+`DiscordClientMetadata.swift`. Its `DiscordProductionBaseline.swift` pins
+desktop 0.0.408, Electron 42.7.1 and Chromium 148.0.7778.280. These are its
+reference constants, not independently verified current Discord versions or
+proof that this identity prevents account restrictions.
+
+Serein now uses those desktop version values for its REST and Gateway user
+agent, `browser`, `browser_version` and `client_version`, with Chromium 148
+transport emulation and client hints. The existing web build number is retained.
+The host OS and locale remain platform-derived. Embedded login and verification
+webviews keep their separate WebKit/WebView2 identity; changing a user agent
+does not turn them into Chromium or change Serein into an Electron application.
+Serein still uses its existing JSON Gateway encoding.
+
+SakuraCord additionally generates launch identifiers and a patterned launch
+signature, persists a server-issued installation ID, and sends analytics
+heartbeat metadata including Gateway opcode 41. Serein does not adopt those
+analytics or persistence mechanisms, native build claims or `has_client_mods:false`.
+Its CAPTCHA handler carries the challenge fields and permits one user-solved
+replay, consistent with the bounded replay already implemented here. No account
+importer or other application's credential storage was used in this comparison.
+The earlier claim that a WebKit/Chrome mismatch necessarily causes restrictions
+is unverified; this source comparison does not establish Discord's classification.

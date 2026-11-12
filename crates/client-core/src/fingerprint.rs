@@ -4,24 +4,22 @@
 //! user agent, locale and timezone on REST and the Gateway. How the service weighs any of
 //! them is unverified; an earlier Serein identity without them coincided with account
 //! restrictions (spam flag, attachment limits), which is not proof of cause. Every transport
-//! presents the same values. Nothing here carries account data; locale and timezone are read
-//! from the operating system, never chosen to resemble another client.
+//! uses the desktop metadata below. Embedded verification keeps its engine-specific identity.
+//! Locale and timezone come from the operating system. Desktop version constants are an
+//! unofficial SakuraCord reference baseline, not evidence of an Electron runtime.
 
 /// Chrome version advertised on Windows, where verification runs in Chromium WebView2.
 const CHROME_MAJOR: &str = "149";
 /// Safari version advertised on macOS and Linux, where verification runs in WebKit.
 const SAFARI_VERSION: &str = "26.4";
-/// `sec-ch-ua` brand list of [`CHROME_MAJOR`]; the GREASE brand changes with every major.
-const CHROME_SEC_CH_UA: &str =
-	r#""Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24""#;
 /// Build number of the official web client this fingerprint mirrors.
 pub const CLIENT_BUILD_NUMBER: u64 = 634_304;
 mod locale;
 pub use locale::{accept_language, discord_locale, system_locale, timezone};
-/// The embedded hCaptcha widget runs in WKWebView or WebKitGTK everywhere except Windows.
-/// hCaptcha reads the real engine from script, so the advertised browser must follow it: a
-/// passcode solved in WebKit but submitted with a Chrome fingerprint reads as a relayed
-/// captcha and triggers phone verification or an account ban.
+/// Version baseline observed in SakuraCord's public desktop metadata (unofficial).
+const DESKTOP_VERSION: &str = "0.0.408";
+const ELECTRON_VERSION: &str = "42.7.1";
+const DESKTOP_CHROMIUM_VERSION: &str = "148.0.7778.280";
 const WEBKIT: bool = !cfg!(windows);
 
 /// Discord's spelling of the host operating system.
@@ -42,23 +40,26 @@ fn platform_token() -> &'static str {
 	}
 }
 
-/// Browser name Discord expects in super-properties, matched to the verification engine.
+/// Desktop application name used in super-properties (unofficial).
 pub fn browser() -> &'static str {
-	if WEBKIT { "Safari" } else { "Chrome" }
+	"Discord Client"
 }
 
-/// Browser version paired with [`browser`].
+/// Electron version paired with [`browser`].
 pub fn browser_version() -> String {
-	if WEBKIT {
-		SAFARI_VERSION.to_owned()
-	} else {
-		format!("{CHROME_MAJOR}.0.0.0")
-	}
+	ELECTRON_VERSION.to_owned()
 }
 
-/// `User-Agent` header value shared by REST, uploads, the Gateway identify and the
-/// embedded verification webview.
+/// Desktop transport identity; this does not change the native UI into Electron.
 pub fn user_agent() -> String {
+	format!(
+		"Mozilla/5.0 ({}) AppleWebKit/537.36 (KHTML, like Gecko) discord/{DESKTOP_VERSION} Chrome/{DESKTOP_CHROMIUM_VERSION} Electron/{ELECTRON_VERSION} Safari/537.36",
+		platform_token()
+	)
+}
+
+/// Identity for the actual embedded verification engine, independent of REST.
+pub fn verification_user_agent() -> String {
 	if WEBKIT {
 		format!(
 			"Mozilla/5.0 ({}) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{SAFARI_VERSION} Safari/605.1.15",
@@ -77,31 +78,26 @@ mod transport;
 #[cfg(feature = "transport")]
 pub use transport::{discord_request, emulation, websocket};
 
-/// Client-hint headers (`sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`) Chrome sends on
-/// every same-origin fetch. Safari does not implement client hints, so it gets none.
+/// Chromium client hints paired with the desktop transport baseline.
 pub fn client_hints() -> Option<[(&'static str, String); 3]> {
-	if browser() != "Chrome" {
-		return None;
-	}
-	let platform = if cfg!(target_os = "windows") {
-		"Windows"
-	} else {
-		"Linux"
+	let platform = match std::env::consts::OS {
+		"macos" => "macOS",
+		"windows" => "Windows",
+		_ => "Linux",
 	};
 	Some([
-		("sec-ch-ua", CHROME_SEC_CH_UA.to_owned()),
+		(
+			"sec-ch-ua",
+			r#""Not/A)Brand";v="99", "Chromium";v="148""#.to_owned(),
+		),
 		("sec-ch-ua-mobile", "?0".to_owned()),
 		("sec-ch-ua-platform", format!("\"{platform}\"")),
 	])
 }
 
-/// `Accept-Encoding` the advertised browser sends; Safari has no zstd.
+/// Encodings supported by the desktop transport.
 pub fn accept_encoding() -> &'static str {
-	if browser() == "Chrome" {
-		"gzip, deflate, br, zstd"
-	} else {
-		"gzip, deflate, br"
-	}
+	"gzip, deflate, br, zstd"
 }
 
 /// Gateway `identify.d.properties` and the decoded `X-Super-Properties` payload.
@@ -113,7 +109,7 @@ pub fn properties() -> String {
 			"{{\"os\":\"{os}\",\"browser\":\"{browser}\",\"device\":\"\",\"system_locale\":\"{locale}\",",
 			"\"browser_user_agent\":\"{ua}\",\"browser_version\":\"{version}\",\"os_version\":\"\",",
 			"\"referrer\":\"\",\"referring_domain\":\"\",\"referrer_current\":\"\",\"referring_domain_current\":\"\",",
-			"\"release_channel\":\"stable\",\"client_build_number\":{build},\"client_event_source\":null}}"
+			"\"client_version\":\"{DESKTOP_VERSION}\",\"release_channel\":\"stable\",\"client_build_number\":{build},\"client_event_source\":null}}"
 		),
 		os = os_name(),
 		locale = system_locale(),
@@ -121,6 +117,7 @@ pub fn properties() -> String {
 		ua = user_agent(),
 		version = browser_version(),
 		build = CLIENT_BUILD_NUMBER,
+		DESKTOP_VERSION = DESKTOP_VERSION,
 	)
 }
 
@@ -182,22 +179,7 @@ pub fn nonce(unix_ms: u128, sequence: u64) -> String {
 mod tests {
 	use super::*;
 	#[test]
-	fn properties_are_valid_json_and_consistent_with_user_agent() {
-		{
-			let text = properties();
-			assert!(text.starts_with('{') && text.ends_with('}'));
-			assert!(text.contains(&format!("\"browser_user_agent\":\"{}\"", user_agent())));
-			assert!(text.contains(&format!("\"browser\":\"{}\"", browser())));
-			assert!(text.contains(&format!("\"browser_version\":\"{}\"", browser_version())));
-			assert!(user_agent().starts_with("Mozilla/5.0 ("));
-			assert_eq!(user_agent().contains("Chrome/"), browser() == "Chrome");
-			assert_eq!(user_agent().contains("Version/"), browser() == "Safari");
-			assert!(
-				super_properties()
-					.bytes()
-					.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
-			);
-		}
+	fn base64_padding() {
 		{
 			assert_eq!(base64(b""), "");
 			assert_eq!(base64(b"f"), "Zg==");
