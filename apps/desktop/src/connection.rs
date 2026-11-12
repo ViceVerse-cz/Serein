@@ -424,7 +424,7 @@ impl Connection {
                         if let Event::Voice(client_core::voice::Event::TakenOver{channel,request})=&event {let _=gateway_takeover.send_replace(Some((*channel,*request)));}
                         gateway_emit(event)
                     }).await.err().unwrap_or(Failure::Network).protocol_at("Gateway connection: unsupported handshake or event");
-                    gateway_api.stop_with(error);let _=terminal_send.send(Some(error));gateway_wake.request_repaint();
+                    gateway_api.stop_with(error);publish_terminal(&terminal_send, gateway_api.stop_reason().unwrap_or(error));gateway_wake.request_repaint();
                 }));
                 // Keep hangup/mute controls responsive while an HTTP message write is awaiting Discord.
                 let (write_send,mut write_receive)=mpsc::channel::<(Command,Option<(u64,Instant)>)>(COMMAND_SLOTS);
@@ -437,7 +437,7 @@ impl Connection {
                         let event=write_api.execute_write(command,|nonce|{let _=write_emit(Event::SendThrottled{nonce:nonce.to_owned()});write_wake.request_repaint();}).await;
                         let failure=match &event {Event::TypingSent(Err(f)) if f.ends_session() && *f!=Failure::Capacity=>Some(*f),Event::Interaction(client_core::interactions::Event::Submitted{result:Err(f),..})=>Some(*f),Event::MessagingPermissions{result:Err(f),..}=>Some(*f),Event::ChannelAction(client_core::channel_actions::Event::Finished{result:Err(f),..})=>Some(*f),Event::ServerAdmin(client_core::server_admin::Event{result:Err(f),..})=>Some(*f),Event::ServerSettings(client_core::server_settings::Event{result:Err(f),..})=>Some(*f),Event::Onboarding(client_core::onboarding::Event::Loaded{result:Err(f),..}|client_core::onboarding::Event::Submitted{result:Err(f),..})=>Some(*f),Event::Failure(f)=>Some(*f),Event::ProfileEdited{result:Err(f),..} if *f != Failure::Capacity =>Some(*f),Event::Edited{result:Err(f),..}|Event::Pinned{result:Err(f),..}=>Some(*f),Event::GuildFolders(Err(f))=>Some(*f),Event::JoinInvite{result:Err(f),..}|Event::GuildCreated{result:Err(f),..}=>Some(*f),Event::SendResult{result:Err(f),..}=>Some(*f),Event::UserAction(client_core::user_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::UserAction(client_core::user_actions::Event::DmOpened{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::InviteSent{result:Err(f),..})=>Some(*f),Event::GroupAction(client_core::group_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::Reactions(client_core::reactions::Event::Written{result:Err(f),..})=>Some(*f),Event::ReadState(client_core::read_state::Event::Result{result:Err(f),..})=>Some(*f),_=>None};
                         let error=write_emit(event).err().or(failure.filter(|f|f.ends_session()));
-                        if let Some(error)=error {write_api.stop_with(error);let _=write_finished.send(Some(error));write_wake.request_repaint();break;}
+                        if let Some(error)=error {write_api.stop_with(error);publish_terminal(&write_finished, write_api.stop_reason().unwrap_or(error));write_wake.request_repaint();break;}
                     }
                 }));
                 let mut history:Option<AbortTask>=None;
@@ -530,7 +530,7 @@ impl Connection {
                                 };
                                 let failure=match &event {Event::Interaction(client_core::interactions::Event::Submitted{result:Err(f),..}) | Event::SendResult{result:Err(f),..} if f.ends_session()=>Some(*f),_=>None};
                                 let error=emit(event).err().or(failure);
-                                if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
+                                if let Some(error)=error {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
                                 wake.request_repaint();
                             })));
                         }
@@ -562,7 +562,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::GifFavorites{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -575,7 +575,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::EmojiFrecency{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -587,7 +587,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::ApplicationCommands{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -600,7 +600,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::StickerPacks(Err(f))|Event::Sticker{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -612,7 +612,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::Gifs{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -624,7 +624,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::Search{result:Err(f),..}|Event::Archives{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -636,7 +636,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::Reactions(client_core::reactions::Event::Read{result:Err(f),..}) if f.ends_session()=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -648,7 +648,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::ThreadPreview{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -723,7 +723,7 @@ impl Connection {
                                     };
                                     if let Err(failure)=result {
                                         let _=emit(Event::Voice(E::RingFailed{channel,request,message:failure.label()}));
-                                        if failure.ends_session(){api.stop_with(failure);let _=finished.send(Some(failure));}
+                                        if failure.ends_session(){api.stop_with(failure);publish_terminal(&finished, api.stop_reason().unwrap_or(failure));}
                                     }
                                     ring_wake.request_repaint();
                                 }))));
@@ -786,7 +786,7 @@ impl Connection {
                                         if let Err(failure)=result {
                                             if !stop {let _=voice_send.try_send(V::Leave{channel,request});}
                                             let _=emit(Event::Voice(E::Failed{channel,request,message:failure.label()}));
-                                            if failure.ends_session(){api.stop_with(failure);let _=finished.send(Some(failure));ring_wake.request_repaint();}
+                                            if failure.ends_session(){api.stop_with(failure);publish_terminal(&finished, api.stop_reason().unwrap_or(failure));ring_wake.request_repaint();}
                                         }
                                     })));
                                 }
@@ -798,7 +798,7 @@ impl Connection {
                                 invite=Some(AbortTask(tokio::spawn(async move {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::Invite{result:Err(f),..} if f.ends_session()=>Some(*f),_=>None};
-                                    if let Some(error)=emit(event).err().or(failure) {api.stop_with(error);let _=finished.send(Some(error));}
+                                    if let Some(error)=emit(event).err().or(failure) {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -811,7 +811,7 @@ impl Connection {
 									let event=api.execute(command).await;
 									let failure=stream_preview_session_failure(&event);
 									let error=emit(event).err().or(failure);
-									if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
+									if let Some(error)=error {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
 									wake.request_repaint();
 								})));
 								continue;
@@ -826,7 +826,7 @@ impl Connection {
                                         Event::UserAction(client_core::user_actions::Event::NoteLoaded{result:Err(f),..}) if f.ends_session()=>Some(*f),
                                         _=>None,
                                     };
-                                    if let Some(error)=emit(event).err().or(failure) {api.stop_with(error);let _=finished.send(Some(error));}
+                                    if let Some(error)=emit(event).err().or(failure) {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -838,7 +838,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::Profile{result:Err(failure),..} if failure.ends_session() && *failure!=Failure::Capacity=>Some(*failure),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -869,7 +869,7 @@ impl Connection {
                                     let event=api.execute(*preload).await;
                                     let event=match history {Some((channel,request))=>scope_history_failure(event,channel,request),None=>event};
                                     let failure=match &event {Event::Failure(f)|Event::Profile{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
-                                    if let Some(error)=emit(event).err().or(failure) {api.stop_with(error);let _=finished.send(Some(error));}
+                                    if let Some(error)=emit(event).err().or(failure) {api.stop_with(error);publish_terminal(&finished, api.stop_reason().unwrap_or(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -882,8 +882,8 @@ impl Connection {
                                 let api=api.clone();let emit=emit.clone();let finished=finished.clone();let history_wake=wake.clone();
                                 history=Some(AbortTask(tokio::spawn(async move {
                                     let event=scope_history_failure(api.execute(command).await,channel,request);
-                                    if let Event::Failure(f)=&event&& f.ends_session(){api.stop_with(*f);let _=finished.send(Some(*f));}
-                                    if let Err(f)=emit(event){api.stop_with(f);let _=finished.send(Some(f));}
+                                    if let Event::Failure(f)=&event&& f.ends_session(){api.stop_with(*f);publish_terminal(&finished, api.stop_reason().unwrap_or(*f));}
+                                    if let Err(f)=emit(event){api.stop_with(f);publish_terminal(&finished, api.stop_reason().unwrap_or(f));}
                                     history_wake.request_repaint();
                                 })));
                             } else {
@@ -895,7 +895,7 @@ impl Connection {
                 }
                 Ok::<(),Failure>(())
             }.await;
-            if let Err(f)=result {let _=finished.send(Some(f));wake.request_repaint();}
+            if let Err(f)=result {publish_terminal(&finished, f);wake.request_repaint();}
         });
 		Self {
 			commands,
@@ -930,6 +930,19 @@ impl Connection {
 			task,
 		}
 	}
+}
+
+/// Reporting is first-wins too: a completing task must not replace a security stop
+/// with a later failure and accidentally trigger saved-credential removal.
+fn publish_terminal(terminal: &watch::Sender<Option<Failure>>, failure: Failure) {
+	terminal.send_if_modified(|current| {
+		if current.is_some() {
+			false
+		} else {
+			*current = Some(failure);
+			true
+		}
+	});
 }
 
 /// The account READY named; `None` when the connection ended first.
@@ -1021,7 +1034,7 @@ async fn run_presence_sync(sync: PresenceSync) {
 	let mut pending: Option<model::OwnPresence> = None;
 	let stop = |failure: Failure| {
 		api.stop_with(failure);
-		let _ = finished.send(Some(failure));
+		publish_terminal(&finished, api.stop_reason().unwrap_or(failure));
 		wake.request_repaint();
 	};
 	loop {
@@ -1140,7 +1153,7 @@ async fn run_activity_sharing(
 				&& failure.ends_session()
 			{
 				api.stop_with(failure);
-				let _ = finished.send(Some(failure));
+				publish_terminal(&finished, api.stop_reason().unwrap_or(failure));
 				wake.request_repaint();
 				return;
 			}
@@ -1958,6 +1971,16 @@ fn scope_history_failure(event: Event, channel: model::Id, request: u64) -> Even
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn late_terminal_report_cannot_replace_account_attention_with_credential_expiry() {
+		let (finished, seen) = tokio::sync::watch::channel(None);
+		super::publish_terminal(&finished, client_core::auth::Failure::AccountRestricted);
+		super::publish_terminal(&finished, client_core::auth::Failure::Expired);
+		assert_eq!(
+			*seen.borrow(),
+			Some(client_core::auth::Failure::AccountRestricted)
+		);
+	}
 	#[tokio::test]
 	async fn auto_idle_discards_inflight_samples_after_a_setting_change() {
 		let (enabled, settings) = watch::channel(Some(Duration::from_secs(60)));

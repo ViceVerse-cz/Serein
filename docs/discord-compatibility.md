@@ -1313,8 +1313,8 @@ account, and no claim is made about how Discord classifies clients.**
 
 - **No host change on a block (unverified cause).** Serein used to move every request to
   `ptb.discord.com` after an HTML or plain-text 429 and retry there. It now stays on
-  `discord.com`, sends nothing further until the cooldown has passed and reports the request as
-  rate limited.
+  `discord.com`, stops the connection with a non-expiry block reason and sends nothing
+  further until the owner explicitly reconnects.
 - **No REST requests to learn the account or the Gateway address.** The web client reads the
   Gateway address from its page config (`GATEWAY_ENDPOINT`) and the account from READY. Serein
   no longer sends `GET /users/@me` and `GET /gateway` before connecting. A saved login is
@@ -3236,3 +3236,8 @@ current Electron build.
 The review identified these gaps by static analysis. Follow-up regression fixtures
 cover terminal wakeup/reason preservation, linked-service revocation, 403 blocks,
 and both kicked and rate-limited voice teardown; they remain unexecuted under !fast.
+
+The final review follow-up preserves the shared cooldown even when a 429 carries
+a scoped DM/conversation error. Desktop terminal publication now prefers the
+API's first latched reason and is itself first-wins, preventing an in-flight
+failure from replacing an earlier account-attention stop.

@@ -687,6 +687,12 @@ impl DiscordApi {
 					.map_err(|_| Failure::Protocol)?
 					.rejected(&method, path, error.code, error.retry_after, Instant::now());
 				if let Some(failure) = restricted {
+					if status == StatusCode::TOO_MANY_REQUESTS {
+						let delay = safe_delay(error.retry_after.or(retry_header).or(reset))
+							.unwrap_or(Duration::from_secs(60));
+						let mut next = self.cooldown.lock().await;
+						*next = (*next).max(Instant::now() + delay);
+					}
 					return Err(failure);
 				}
 				if error.code == Some(40333)

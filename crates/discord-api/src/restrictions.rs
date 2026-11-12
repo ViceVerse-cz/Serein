@@ -153,6 +153,12 @@ mod tests {
 
 	/// Answers each request with the next body as HTTP 403 and reports how many arrived.
 	async fn serve(bodies: &'static [&'static str]) -> (DiscordApi, Arc<AtomicUsize>) {
+		serve_status(bodies, "403 Forbidden").await
+	}
+	async fn serve_status(
+		bodies: &'static [&'static str],
+		status: &'static str,
+	) -> (DiscordApi, Arc<AtomicUsize>) {
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let mut api = DiscordApi::new(Arc::new(
 			SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
@@ -170,7 +176,7 @@ mod tests {
 				socket
 					.write_all(
 						format!(
-							"HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+							"HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
 							body.len()
 						)
 						.as_bytes(),
@@ -275,6 +281,23 @@ mod tests {
 		assert!(!api.stopped());
 		assert_eq!(send(&api, 6).await, Some(Failure::Forbidden));
 		assert_eq!(served.load(Ordering::SeqCst), 2);
+	}
+
+	#[tokio::test]
+	async fn scoped_429_retains_its_reason_and_advances_shared_admission() {
+		let (api, served) = serve_status(
+			&[r#"{"code":40003,"retry_after":120}"#],
+			"429 Too Many Requests",
+		)
+		.await;
+		let before = *api.cooldown.lock().await;
+		assert_eq!(
+			api.open_dm(model::Id(7), None, None).await.err(),
+			Some(Failure::ProtocolAt(OPENING_TOO_FAST))
+		);
+		assert!(*api.cooldown.lock().await > before);
+		assert!(!api.stopped());
+		assert_eq!(served.load(Ordering::SeqCst), 1);
 	}
 
 	#[test]
