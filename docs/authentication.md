@@ -41,10 +41,12 @@ were unverified.
 **Transport identity (unofficial, live-unverified).** Native REST, uploads,
 Gateway and voice WebSockets, and Discord CDN downloads use a shared desktop-style
 profile from `client_core::fingerprint`: `Discord Client`, Electron 42.7.1 and
-Chromium 148, with the Chromium 148 wreq/BoringSSL transport profile. The versions
-come from SakuraCord's checked-in macOS reference baseline and are reused on
-Windows and Linux; they are not verified current platform-specific Discord builds.
-Super-properties retain some web fields and a separately observed web build.
+Chromium 148, with the Chromium 148 wreq/BoringSSL transport profile. The paired
+engine/profile versions remain SakuraCord reference constants. Host
+versions are platform-specific manifest observations (Linux 1.0.169, Windows
+1.0.9268, macOS 0.0.422), and web build 670026 comes from the public `/app` bundle
+on November 12. These do not establish a complete current Electron identity.
+Super-properties retain some web fields.
 See [compatibility notes](discord-compatibility.md#desktop-metadata-reference--november-12)
 for the partial profile and omissions.
 
