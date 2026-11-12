@@ -3570,9 +3570,6 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein does not collect telemetry or upload diagnostics. Discord retains service-side data according to its own policies.
 # Context: storage_page
 settings-storage-page-your-privacy = Your privacy
-settings-storage-page-saved-login = Saved login
-settings-storage-page-plaintext-login = Save login in plaintext without a keyring
-settings-storage-page-plaintext-login-description = Used only when no OS keyring (GNOME Keyring, KWallet, Keychain or Credential Manager) works. The token is stored unencrypted in a private file in Serein's data folder, where anyone with access to your user account can read it. Turning this off deletes those files.
 # Context: cosmetic_settings
 settings-cosmetics = Profile cosmetics
 # Context: cosmetic_settings

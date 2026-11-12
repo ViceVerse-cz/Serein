@@ -350,8 +350,6 @@ pub struct MessagingUi {
 	pub image_cache: model::CachePreferences,
 	/// Clock style for message times.
 	pub time_format: model::TimeFormat,
-	/// Saved logins may fall back to plain files when no OS keyring works.
-	pub plaintext_login: bool,
 	/// First-run setup still to show; the desktop restores and persists it.
 	pub setup_pending: bool,
 	setup_step: usize,

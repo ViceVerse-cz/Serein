@@ -3534,9 +3534,6 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein erfasst keine Telemetriedaten und lädt keine Diagnosedaten hoch. Discord speichert dienstseitige Daten gemäß seinen eigenen Richtlinien.
 # Context: storage_page
 settings-storage-page-your-privacy = Ihre Privatsphäre
-settings-storage-page-saved-login = Gespeicherte Anmeldung
-settings-storage-page-plaintext-login = Anmeldung im Klartext ohne Schlüsselbund speichern
-settings-storage-page-plaintext-login-description = Wird nur verwendet, wenn kein Schlüsselbund des Betriebssystems (GNOME Keyring, KWallet, Keychain oder Credential Manager) funktioniert. Das Token wird unverschlüsselt in einer privaten Datei im Serein-Datenordner gespeichert, wo jeder mit Zugriff auf Ihr Benutzerkonto es lesen kann. Durch Deaktivieren werden diese Dateien gelöscht.
 # Context: cosmetic_settings
 settings-cosmetics = Profil-Kosmetik
 # Context: cosmetic_settings

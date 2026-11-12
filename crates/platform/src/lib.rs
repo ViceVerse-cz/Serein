@@ -289,7 +289,7 @@ mod flatpak_locale_tests {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Saved {
 	CredentialStore,
-	/// The owner opted into the plaintext fallback and no credential store accepted it.
+	/// No OS credential store exists, so the login went to a private file instead.
 	Plaintext,
 }
 /// The entry restored on launch. Switching accounts rewrites it from the per-account entry.
@@ -321,9 +321,8 @@ pub fn forget_account_session(account: model::Id) -> Result<(), CredentialError>
 /// A fallback file is authoritative until a confirmed OS save removes it. A marker
 /// remains after deletion to prevent an older (or late) keyring write restoring it.
 fn load_login(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
-	let (directory, enabled) = plaintext_login::configuration();
-	if let Some(directory) = directory {
-		if enabled && let Some(secret) = plaintext_login::load(&directory, name)? {
+	if let Some(directory) = plaintext_login::configuration() {
+		if let Some(secret) = plaintext_login::load(&directory, name)? {
 			return Ok(Some(secret));
 		}
 		if plaintext_login::keyring_stale(&directory, name)? {
@@ -332,35 +331,43 @@ fn load_login(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
 	}
 	login_keyring::load(name)
 }
+/// Plain files are only a fallback for systems with no OS keyring at all. A keyring that
+/// exists but is locked or refuses the write keeps the login out of plain files.
 fn save_login(name: &str, secret: &SessionSecret) -> Result<Saved, CredentialError> {
-	let (directory, enabled) = plaintext_login::configuration();
+	save_login_with(plaintext_login::configuration(), name, secret, || {
+		login_keyring::save(name, secret)
+	})
+}
+fn save_login_with(
+	directory: Option<std::path::PathBuf>,
+	name: &str,
+	secret: &SessionSecret,
+	keyring: impl FnOnce() -> Result<(), CredentialError>,
+) -> Result<Saved, CredentialError> {
 	// Refresh any existing fallback before native IO: a cleanup error must never leave
 	// an older plaintext token authoritative after a successful keyring write.
-	if enabled
-		&& let Some(directory) = directory.as_ref()
-		&& plaintext_login::keyring_stale(directory, name)?
+	if let Some(directory) = directory.as_ref()
+		&& plaintext_login::exists(directory, name)?
 	{
 		plaintext_login::save(directory, name, secret)?;
 	}
-	match login_keyring::save(name, secret) {
+	match keyring() {
 		Ok(()) => {
 			if let Some(directory) = directory {
 				plaintext_login::keyring_current(&directory, name)?;
 			}
 			Ok(Saved::CredentialStore)
 		}
-		Err(error) => {
-			if enabled && let Some(directory) = directory {
-				plaintext_login::save(&directory, name, secret)?;
-				Ok(Saved::Plaintext)
-			} else {
-				Err(error)
-			}
+		Err(CredentialError::NoStore) => {
+			let directory = directory.ok_or(CredentialError::NoStore)?;
+			plaintext_login::save(&directory, name, secret)?;
+			Ok(Saved::Plaintext)
 		}
+		Err(error) => Err(error),
 	}
 }
 fn forget_login(name: &str) -> Result<(), CredentialError> {
-	let (directory, _) = plaintext_login::configuration();
+	let directory = plaintext_login::configuration();
 	// Fence even a late default-backend save before attempting native deletion. An
 	// unavailable/full native queue must never resurrect a logged-out launch entry.
 	let local = directory.as_ref().map_or(Ok(()), |directory| {
@@ -577,6 +584,30 @@ mod tests {
 		#[cfg(not(feature = "development-data"))]
 		assert_eq!(ACCOUNT, "discord-session");
 		assert_eq!(account_entry(model::Id(7)), format!("{ACCOUNT}.7"));
+	}
+	#[test]
+	fn plain_file_fallback_is_only_for_systems_without_a_keyring() {
+		let root = tempfile::tempdir().unwrap();
+		let directory = root.path().join("login");
+		let secret = SessionSecret::from_owner_input("SYNTHETIC_SAVED_LOGIN".into()).unwrap();
+		let save = |keyring: Result<(), CredentialError>| {
+			save_login_with(Some(directory.clone()), ACCOUNT, &secret, || keyring)
+		};
+		// A keyring that exists but is locked or refuses the write never gets a plain file.
+		for error in [CredentialError::Unavailable, CredentialError::TimedOut] {
+			assert_eq!(save(Err(error)), Err(error));
+			assert!(!plaintext_login::exists(&directory, ACCOUNT).unwrap());
+		}
+		assert_eq!(save(Err(CredentialError::NoStore)), Ok(Saved::Plaintext));
+		assert!(
+			plaintext_login::load(&directory, ACCOUNT)
+				.unwrap()
+				.is_some()
+		);
+		// A keyring that appears later takes the login over and removes the plain copy.
+		assert_eq!(save(Ok(())), Ok(Saved::CredentialStore));
+		assert!(!plaintext_login::exists(&directory, ACCOUNT).unwrap());
+		assert!(!plaintext_login::keyring_stale(&directory, ACCOUNT).unwrap());
 	}
 	#[test]
 	fn handoff_accepts_only_our_discord_origin() {

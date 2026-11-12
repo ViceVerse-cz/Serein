@@ -134,7 +134,7 @@ ELF inspection cannot discover. A working graphical session, graphics driver,
 portal backend are still necessary for the corresponding features. Keyrings and
 desktop-specific portal backends are only suggested, so installing the package
 never pulls in a desktop environment; the desktop already provides them. Without
-an unlocked Secret Service provider, saved logins fall back to a private file. The GStreamer
+any Secret Service provider, saved logins fall back to a private file. The GStreamer
 good plugin set is required; base and libav remain recommended for inline attachment
 video loaded at run time through `decodebin`; without the needed codecs the player
 reports an unsupported format. GTK/WebKit
