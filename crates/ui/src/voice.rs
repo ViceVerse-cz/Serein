@@ -1828,11 +1828,13 @@ impl MessagingUi {
 		// Name label with the mute glyph: a bottom-left badge on plates, centred under the
 		// avatar once the plates are gone.
 		if frameless {
+			let background = self.voice_stage_background(colors.chat);
+			let (name_color, _) = stage_foreground(colors, background);
 			// One truncated line: tight avatar spacing must not wrap long names into the bar.
 			let mut job = egui::text::LayoutJob::simple_singleline(
 				name.to_owned(),
 				egui::FontId::new(13.0, design::medium_family(ui.ctx())),
-				STAGE_TEXT,
+				name_color,
 			);
 			job.wrap = egui::text::TextWrapping::truncate_at_width((size.x - 8.0).max(20.0));
 			let galley = ui.painter().layout_job(job);
@@ -1842,7 +1844,7 @@ impl MessagingUi {
 					avatar_rect.bottom() + 24.0 - galley.size().y * 0.5,
 				),
 				galley,
-				STAGE_TEXT,
+				name_color,
 			);
 		} else {
 			name_badge(
