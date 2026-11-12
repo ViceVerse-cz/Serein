@@ -2027,7 +2027,7 @@ mod tests {
 			wake: egui::Context::default(),
 		});
 		tokio::pin!(sync);
-		assert!(futures_util::poll!(&mut sync).is_pending());
+		assert!(futures_util::FutureExt::now_or_never(&mut sync).is_none());
 		assert_eq!(
 			*reason.borrow(),
 			None,
