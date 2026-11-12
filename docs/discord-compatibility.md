@@ -1218,7 +1218,7 @@ Server identity tags (September 19): Discord's documented [User object](https://
 | User profile cards | Normal session `/users/{id}/profile`; documented [User object](https://docs.discord.com/developers/resources/user#user-object); [public implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) | Base server identity shape documented; extended route and normal-session delivery unofficial/live-unverified | Anchored popout with banner/avatar/bio/pronouns/badge artwork/server tag/theme colors/connections/mutual servers and retained presence/custom status, cancellable requests and visible failures. Bounded base-user identity supplies compact badge/tag chips in profile, member and direct-message rows while the extended profile is unavailable; badge CDN paths are observed, not documented; evidence |
 | History, send, edit, delete, replies | Normal session; [message resource](https://docs.discord.com/developers/resources/message) and Abaddon | Documented bot-facing resource; user compatibility unofficial | Experimental text adapter; owner permissions remain server-authoritative |
 | Realtime, resume | Normal session; [Gateway](https://docs.discord.com/developers/events/gateway), Abaddon Identify/READY | Documented lifecycle; normal-user Identify and dispatch differences unofficial | Bounded JSON transport; incompatible snapshots fail. The Gateway address is the fixed `wss://gateway.discord.gg` (unofficial: the web client's page config), not a `GET /gateway` answer, and READY supplies the account identity instead of `GET /users/@me` |
-| Rate limits | Credential-specific response headers/body; [rate limits](https://docs.discord.com/developers/topics/rate-limits) | Documented; do not assume bot quotas | Conservative shared cooldown; a message send rejected with a JSON 429 and a finite positive retry_after stays pending and is resent with its nonce after the service's wait, at most 30 times, with the official client's "sending too quickly" notice. No other write is retried. Idempotent reads wait out up to two short JSON 429 responses. An HTML or plain-text 429 (a Cloudflare block page, unofficial) never changes host and is never automatically retried, including by the outer message queue: it starts the shared cooldown from `Retry-After`, the reset header or a 60-second default and fails with a non-retryable block reason. Missing or invalid JSON retry_after also prevents automatic resend. Account codes 40002 and 40004 stop authenticated traffic; 40003 and 50007 hold back the relevant writes; see "Flagging-risk corrections" below |
+| Rate limits | Credential-specific response headers/body; [rate limits](https://docs.discord.com/developers/topics/rate-limits) | Documented; do not assume bot quotas | Conservative shared cooldown; a message send rejected with a JSON 429 and a finite positive retry_after stays pending and is resent with its nonce after the service's wait, at most 30 times, with the official client's "sending too quickly" notice. No other write is retried. Idempotent reads wait out up to two short JSON 429 responses. An HTML or plain-text 429 (a Cloudflare block page, unofficial) never changes host and is never automatically retried, including by the outer message queue: it starts the shared cooldown from `Retry-After`, the reset header or a 60-second default and stops the connection with a non-retryable block reason. Missing or invalid JSON retry_after also prevents automatic resend. Account codes 40002 and 40004 stop authenticated traffic; 40003 and 50007 hold back the relevant writes; see "Flagging-risk corrections" below |
 | Nonce correlation | Message nonce; message resource | Documented finite deduplication; user applicability unverified | Correlate confirmations only; no automatic ambiguous resend or indefinite idempotency claim |
 | Native message formatting | Existing message content; [pulldown-cmark source](https://github.com/pulldown-cmark/pulldown-cmark) and [egui LayoutJob](https://docs.rs/egui/0.37.0/egui/text/struct.LayoutJob.html) | Local rendering; no additional service capability | Bounded emphasis/code/quotes/lists/strike, inert HTML, explicit HTTP(S) link confirmation, up to 32 inline text spoilers with separate media reveal; CommonMark differs from Discord Markdown; no automatic previews |
 | Read markers | Normal session; [discord.py-self HTTP](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) and [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py) | Unofficial and unstable | Explicit per-message acknowledgement, optional manual mark-unread (`ack_message(manual=True)` plus the previous snowflake), guild `POST /guilds/{id}/ack`, bounded READY read state, MESSAGE_ACK and PASSIVE_UPDATE_V2; synthetic checks only, actual cross-device behavior unverified |
@@ -1337,7 +1337,7 @@ account, and no claim is made about how Discord classifies clients.**
   now stop authenticated traffic until explicit reconnection and direct the owner to the official
   client. This replaces the initial five-minute route-only hold. 50007 (cannot message this user) refuses further messages to that conversation until
   the next connection. These periods are Serein's choices, not Discord's. The account-wide codes end the
-  session; none is retried automatically, and at most 16 held routes and 64 conversations are
+  session; none is retried automatically, and one held DM-opening route and at most 64 conversations are
   remembered in RAM.
 - **Forwards are ordinary message creates.** A forward's body now has the same fixed fields
   as a typed message (`mobile_network_type`, empty `content`, `tts:false`, `flags:0`, `nonce`)
@@ -3180,7 +3180,7 @@ does not establish the current Electron application's complete behavior.
 - 40002 and 40004 latch an account-wide stop on reads or writes, reported as
   account attention required. Pending requests recheck the latch after admission,
   cooldown and proxy configuration waits. Already dispatched requests may finish.
-  40001 and 40012 stop the session as expired; a guild ban (40007) remains local.
+  40001 stops the session as expired; 40012 remains a linked-resource refusal; a guild ban (40007) remains local.
 - Gateway 4001–4005 and 4008 stop recovery. Discord permits reconnection for
   several of these; Serein deliberately requires explicit reconnection so a bad
   producer cannot repeatedly send invalid or rate-limited payloads. Normal
@@ -3199,3 +3199,40 @@ mechanisms remain absent. No claim is made that these differences cause account
 restrictions, or that this audit proves Electron parity or prevents suspensions.
 Validation for this follow-up uses formatting and workspace Clippy under !fast;
 regression fixtures were updated but not executed, and no live account was used.
+
+### Fable review corrections — November 12
+
+Terminal failures are now latched with their original reason and exposed through
+a watch channel. The desktop connection selects on this channel independently of
+request event forwarding: Spotify and other background tasks cannot silently stop
+only REST while leaving Gateway/presence traffic running. Startup and upload stop
+checks retain the original reason, so an account-attention or block stop does not
+become Expired and invoke saved-credential removal. Generic teardown preserves the
+first terminal cause. Requests already in flight cannot be recalled.
+
+Error 40012 is a local resource-connection refusal, not proof that the Discord
+credential expired; in particular a revoked Spotify connection must not delete
+the saved Discord login. Account codes 40002/40004 retain the conservative global
+stop policy, without claiming that every such response means an account suspension.
+
+Block handling now includes HTML/plain-text 403 and documented code 40333 as well
+as HTML/unstructured 429. These stop the connection rather than releasing queued
+requests after a cooldown. The in-memory block cooldown has a minimum of 60 seconds;
+explicit reconnection or restarting creates a new connection and does not retain
+this cooldown. Presence-setting writes do not auto-retry on any failure; another
+explicit edit is needed. Origin is attached to REST writes, not GET requests.
+
+The desktop identity remains a partial compatibility profile. It retains web
+device/referrer fields and an empty os_version, omits the reference's architecture,
+native-build, OS-SDK, launch-ID and client-mod fields, combines observed web build
+634304 with desktop host 0.0.408 (the reference pairs 607562), and reuses the
+reference's macOS desktop/Electron versions on Linux and Windows. It is not a
+verified platform-specific Electron identity. Verification still runs in
+WebKit/WebView2 while native submission advertises the desktop profile; the effect
+of that difference on login, CAPTCHA acceptance or restrictions is unknown.
+No consistency test here establishes that a synthesized profile matches a real
+current Electron build.
+
+The review identified these gaps by static analysis. Follow-up regression fixtures
+cover terminal wakeup/reason preservation, linked-service revocation, 403 blocks,
+and both kicked and rate-limited voice teardown; they remain unexecuted under !fast.

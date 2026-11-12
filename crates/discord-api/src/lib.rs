@@ -38,13 +38,7 @@ use client_core::{
 };
 use discord_protocol::*;
 use model::Id;
-use std::{
-	sync::{
-		Arc,
-		atomic::{AtomicBool, Ordering},
-	},
-	time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 use tokio::{
 	sync::{Mutex, Semaphore},
 	time::{Instant, sleep_until},
@@ -63,8 +57,6 @@ const FOREGROUND_PERMITS: usize = 2;
 const READ_RATE_LIMIT_RETRIES: u8 = 2;
 /// Longer JSON limits fail the read at once, so sign-in never stalls silently.
 const MAX_READ_RATE_LIMIT_WAIT: Duration = Duration::from_secs(10);
-const SERVICE_BLOCKED: &str =
-	"Discord blocked this request · wait before retrying; no automatic resend";
 const API_ORIGIN: &str = "https://discord.com/api/v10";
 /// One thread channel, or one message, stays far below this documented read budget.
 const THREAD_PREVIEW_BYTES: usize = 64 * 1024;
@@ -86,7 +78,7 @@ pub struct DiscordApi {
 	cooldown: Mutex<Instant>,
 	restrictions: std::sync::Mutex<restrictions::Restrictions>,
 	requests: Semaphore,
-	stopped: AtomicBool,
+	terminal: tokio::sync::watch::Sender<Option<Failure>>,
 	catalog: std::sync::Mutex<collectibles::Catalog>,
 	#[cfg(test)]
 	base: String,
@@ -209,10 +201,6 @@ fn fingerprint_headers() -> Result<wreq::header::HeaderMap, Failure> {
 			.map_err(|_| Failure::Network)?,
 	);
 	headers.insert(
-		wreq::header::ORIGIN,
-		HeaderValue::from_static("https://discord.com"),
-	);
-	headers.insert(
 		wreq::header::REFERER,
 		HeaderValue::from_static("https://discord.com/channels/@me"),
 	);
@@ -291,7 +279,7 @@ impl DiscordApi {
 			cooldown: Mutex::new(Instant::now()),
 			restrictions: std::sync::Mutex::default(),
 			requests: Semaphore::new(4),
-			stopped: AtomicBool::new(false),
+			terminal: tokio::sync::watch::channel(None).0,
 			catalog: std::sync::Mutex::default(),
 			#[cfg(test)]
 			base: API_ORIGIN.into(),
@@ -330,10 +318,29 @@ impl DiscordApi {
 		Ok(client)
 	}
 	pub fn stop(&self) {
-		self.stopped.store(true, Ordering::Release);
+		self.stop_with(Failure::Expired);
+	}
+	pub fn stop_with(&self, failure: Failure) {
+		self.terminal.send_if_modified(|current| {
+			if current.is_some() {
+				false
+			} else {
+				*current = Some(failure);
+				true
+			}
+		});
+	}
+	pub fn stop_reason(&self) -> Option<Failure> {
+		*self.terminal.borrow()
 	}
 	pub fn stopped(&self) -> bool {
-		self.stopped.load(Ordering::Acquire)
+		self.stop_reason().is_some()
+	}
+	/// Independent of event forwarding: even background reads must stop the whole connection.
+	pub async fn terminal_failure(&self) -> Failure {
+		let mut terminal = self.terminal.subscribe();
+		let _ = terminal.wait_for(Option::is_some).await;
+		(*terminal.borrow()).unwrap_or(Failure::Expired)
 	}
 	async fn request(
 		&self,
@@ -475,8 +482,8 @@ impl DiscordApi {
 				.lock()
 				.map_err(|_| Failure::Protocol)?
 				.check(&method, path, Instant::now())?;
-			if self.stopped() {
-				return Err(Failure::Expired);
+			if let Some(failure) = self.stop_reason() {
+				return Err(failure);
 			}
 			loop {
 				let next = *self.cooldown.lock().await;
@@ -492,8 +499,8 @@ impl DiscordApi {
 				.lock()
 				.map_err(|_| Failure::Protocol)?
 				.check(&method, path, Instant::now())?;
-			if self.stopped() {
-				return Err(Failure::Expired);
+			if let Some(failure) = self.stop_reason() {
+				return Err(failure);
 			}
 			let mut authorization = HeaderValue::from_str(self.secret.expose())
 				.map_err(|_| Failure::InvalidCredential)?;
@@ -509,6 +516,9 @@ impl DiscordApi {
 				.await?
 				.request(method.clone(), format!("{base}{path}"))
 				.header(AUTHORIZATION, authorization);
+			if write {
+				request = request.header(wreq::header::ORIGIN, "https://discord.com");
+			}
 			if let Some(context) = context {
 				request = request.header(
 					"x-context-properties",
@@ -552,8 +562,8 @@ impl DiscordApi {
 				.lock()
 				.map_err(|_| Failure::Protocol)?
 				.check(&method, path, Instant::now())?;
-			if self.stopped() {
-				return Err(Failure::Expired);
+			if let Some(failure) = self.stop_reason() {
+				return Err(failure);
 			}
 			let response = request.send().await.map_err(|_| {
 				if write {
@@ -620,9 +630,15 @@ impl DiscordApi {
 			}
 			if !status.is_success() {
 				let error = decode::<ErrorBody>(&bytes).unwrap_or_default();
-				if matches!(error.code, Some(40001 | 40012)) {
+				if matches!(error.code, Some(40001)) {
 					self.stop();
 					return Err(Failure::Expired);
+				}
+
+				if error.code == Some(40012) {
+					return Err(Failure::ProtocolAt(
+						"Discord revoked this connection; reconnect the linked service in the official client",
+					));
 				}
 
 				if matches!(error.code, Some(40002 | 40004)) {
@@ -632,7 +648,7 @@ impl DiscordApi {
 						.map_err(|_| Failure::Protocol)?
 						.rejected(&method, path, error.code, error.retry_after, Instant::now())
 						.unwrap_or(Failure::AccountRestricted);
-					self.stop();
+					self.stop_with(failure);
 					return Err(failure);
 				}
 
@@ -660,7 +676,7 @@ impl DiscordApi {
 						));
 					}
 
-					self.stop();
+					self.stop_with(Failure::Challenged);
 					return Err(Failure::Challenged);
 				}
 				// Scoped restriction codes hold back the relevant writes and never reach
@@ -670,19 +686,26 @@ impl DiscordApi {
 					.lock()
 					.map_err(|_| Failure::Protocol)?
 					.rejected(&method, path, error.code, error.retry_after, Instant::now());
-				if status == StatusCode::TOO_MANY_REQUESTS
-					&& (cloudflare_block
-						|| !error
-							.retry_after
-							.is_some_and(|s| s.is_finite() && s > 0.0 && s <= 86400.0))
+				if let Some(failure) = restricted {
+					return Err(failure);
+				}
+				if error.code == Some(40333)
+					|| (cloudflare_block && status == StatusCode::FORBIDDEN)
+					|| (status == StatusCode::TOO_MANY_REQUESTS
+						&& (cloudflare_block
+							|| !error
+								.retry_after
+								.is_some_and(|s| s.is_finite() && s > 0.0 && s <= 86400.0)))
 				{
 					// A block page or unstructured 429 is not a retryable API rate limit.
 					// Wait it out on the same host; never retry at once or try another host.
 					let delay = safe_delay(retry_header.or(reset).or(Some(60.0)))
-						.unwrap_or(Duration::from_secs(60));
+						.unwrap_or(Duration::from_secs(60))
+						.max(Duration::from_secs(60));
 					let mut next = self.cooldown.lock().await;
 					*next = (*next).max(Instant::now() + delay);
-					return Err(Failure::ProtocolAt(SERVICE_BLOCKED));
+					self.stop_with(Failure::ServiceBlocked);
+					return Err(Failure::ServiceBlocked);
 				}
 				if status == StatusCode::TOO_MANY_REQUESTS {
 					// The body is the penalty Discord documents. A missing or shorter reset
@@ -692,9 +715,6 @@ impl DiscordApi {
 						let mut next = self.cooldown.lock().await;
 						*next = (*next).max(Instant::now() + delay);
 					}
-					if let Some(restricted) = restricted {
-						return Err(restricted);
-					}
 					if idempotent
 						&& delay <= MAX_READ_RATE_LIMIT_WAIT
 						&& rate_limits < READ_RATE_LIMIT_RETRIES
@@ -703,9 +723,6 @@ impl DiscordApi {
 						continue;
 					}
 					return Err(Failure::RateLimited);
-				}
-				if let Some(restricted) = restricted {
-					return Err(restricted);
 				}
 				// A missing private note is empty, not a missing user profile. No other 404 is converted.
 				if !write
@@ -3847,9 +3864,11 @@ mod tests {
 			assert_eq!(read(&api).await.unwrap(), br#"{"id":"42"}"#);
 			task.await.unwrap();
 		}
-		for (content_type, block_body) in [
-			("text/html", "<html>blocked</html>"),
-			("application/json", "{}"),
+		for (status, content_type, block_body) in [
+			("429 Too Many Requests", "text/html", "<html>blocked</html>"),
+			("429 Too Many Requests", "application/json", "{}"),
+			("403 Forbidden", "text/html", "<html>blocked</html>"),
+			("403 Forbidden", "application/json", r#"{"code":40333}"#),
 		] {
 			// A Cloudflare block page (an HTML 429) is waited out on the same host: one request,
 			// no immediate retry, and the next call sends nothing while the cooldown runs.
@@ -3866,7 +3885,7 @@ mod tests {
 					socket
 						.write_all(
 							format!(
-								"HTTP/1.1 429 Too Many Requests\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+								"HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
 								body.len()
 							)
 							.as_bytes(),
@@ -3898,18 +3917,15 @@ mod tests {
 			assert!(matches!(
 				event,
 				Event::SendResult {
-					result: Err(Failure::ProtocolAt(SERVICE_BLOCKED)),
+					result: Err(Failure::ServiceBlocked),
 					..
 				}
 			));
 			assert!(*api.cooldown.lock().await > Instant::now() + Duration::from_secs(30));
-			assert!(!api.stopped());
-			// The second read waits on the cooldown instead of reaching any host.
-			assert!(
-				tokio::time::timeout(Duration::from_millis(300), read(&api))
-					.await
-					.is_err()
-			);
+			assert!(api.stopped());
+			assert_eq!(api.stop_reason(), Some(Failure::ServiceBlocked));
+			// The second read fails locally, without releasing queued traffic.
+			assert_eq!(read(&api).await, Err(Failure::ServiceBlocked));
 			server.abort();
 			assert!(requests.recv().await.is_some());
 			assert!(requests.recv().await.is_none(), "a block page was retried");

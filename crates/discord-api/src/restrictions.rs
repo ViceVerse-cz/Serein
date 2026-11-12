@@ -233,6 +233,10 @@ mod tests {
 		}
 		assert_eq!(served.load(Ordering::SeqCst), 3);
 		assert!(api.stopped());
+		assert_eq!(api.stop_reason(), Some(Failure::AccountRestricted));
+		assert_eq!(api.terminal_failure().await, Failure::AccountRestricted);
+		api.stop(); // Later generic teardown must not turn this into credential expiry.
+		assert_eq!(api.stop_reason(), Some(Failure::AccountRestricted));
 		assert_eq!(
 			api.request(Method::GET, "/users/@me", None).await,
 			Err(Failure::AccountRestricted)
@@ -247,11 +251,29 @@ mod tests {
 			serve(&[r#"{"code":40007}"#, r#"{"code":40004}"#, r#"{"code":0}"#]).await;
 		assert_eq!(send(&api, 5).await, Some(Failure::Forbidden));
 		assert!(!api.stopped());
-		assert_eq!(
-			api.request(Method::GET, "/users/@me", None).await,
-			Err(Failure::AccountRestricted)
+		let (terminal, read) = tokio::join!(
+			api.terminal_failure(),
+			api.request(Method::GET, "/users/@me", None)
 		);
+		assert_eq!(terminal, Failure::AccountRestricted);
+		assert_eq!(read, Err(Failure::AccountRestricted));
 		assert_eq!(send(&api, 6).await, Some(Failure::AccountRestricted));
+		assert_eq!(served.load(Ordering::SeqCst), 2);
+	}
+
+	#[tokio::test]
+	async fn revoked_link_does_not_expire_the_discord_session() {
+		let (api, served) = serve(&[r#"{"code":40012}"#, r#"{"code":0}"#]).await;
+		let result = api
+			.request(
+				Method::GET,
+				"/users/@me/connections/spotify/7/access-token",
+				None,
+			)
+			.await;
+		assert!(matches!(result, Err(Failure::ProtocolAt(_))));
+		assert!(!api.stopped());
+		assert_eq!(send(&api, 6).await, Some(Failure::Forbidden));
 		assert_eq!(served.load(Ordering::SeqCst), 2);
 	}
 

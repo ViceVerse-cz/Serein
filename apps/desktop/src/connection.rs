@@ -353,7 +353,7 @@ impl Connection {
 					let _ = account_presence_send.send_replace(chosen);
 				}
 				// The status read above already learned that the token was rejected.
-				if api.stopped() {return Err(Failure::Expired);}
+				if let Some(failure)=api.stop_reason() {return Err(failure);}
                 let emit=Arc::new(emit);
                 let (member_send,member_receive)=watch::channel(None);
                 let (voice_send,voice_receive)=mpsc::channel(8);
@@ -424,7 +424,7 @@ impl Connection {
                         if let Event::Voice(client_core::voice::Event::TakenOver{channel,request})=&event {let _=gateway_takeover.send_replace(Some((*channel,*request)));}
                         gateway_emit(event)
                     }).await.err().unwrap_or(Failure::Network).protocol_at("Gateway connection: unsupported handshake or event");
-                    gateway_api.stop();let _=terminal_send.send(Some(error));gateway_wake.request_repaint();
+                    gateway_api.stop_with(error);let _=terminal_send.send(Some(error));gateway_wake.request_repaint();
                 }));
                 // Keep hangup/mute controls responsive while an HTTP message write is awaiting Discord.
                 let (write_send,mut write_receive)=mpsc::channel::<(Command,Option<(u64,Instant)>)>(COMMAND_SLOTS);
@@ -437,7 +437,7 @@ impl Connection {
                         let event=write_api.execute_write(command,|nonce|{let _=write_emit(Event::SendThrottled{nonce:nonce.to_owned()});write_wake.request_repaint();}).await;
                         let failure=match &event {Event::TypingSent(Err(f)) if f.ends_session() && *f!=Failure::Capacity=>Some(*f),Event::Interaction(client_core::interactions::Event::Submitted{result:Err(f),..})=>Some(*f),Event::MessagingPermissions{result:Err(f),..}=>Some(*f),Event::ChannelAction(client_core::channel_actions::Event::Finished{result:Err(f),..})=>Some(*f),Event::ServerAdmin(client_core::server_admin::Event{result:Err(f),..})=>Some(*f),Event::ServerSettings(client_core::server_settings::Event{result:Err(f),..})=>Some(*f),Event::Onboarding(client_core::onboarding::Event::Loaded{result:Err(f),..}|client_core::onboarding::Event::Submitted{result:Err(f),..})=>Some(*f),Event::Failure(f)=>Some(*f),Event::ProfileEdited{result:Err(f),..} if *f != Failure::Capacity =>Some(*f),Event::Edited{result:Err(f),..}|Event::Pinned{result:Err(f),..}=>Some(*f),Event::GuildFolders(Err(f))=>Some(*f),Event::JoinInvite{result:Err(f),..}|Event::GuildCreated{result:Err(f),..}=>Some(*f),Event::SendResult{result:Err(f),..}=>Some(*f),Event::UserAction(client_core::user_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::UserAction(client_core::user_actions::Event::DmOpened{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::InviteSent{result:Err(f),..})=>Some(*f),Event::GroupAction(client_core::group_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::Reactions(client_core::reactions::Event::Written{result:Err(f),..})=>Some(*f),Event::ReadState(client_core::read_state::Event::Result{result:Err(f),..})=>Some(*f),_=>None};
                         let error=write_emit(event).err().or(failure.filter(|f|f.ends_session()));
-                        if let Some(error)=error {write_api.stop();let _=write_finished.send(Some(error));write_wake.request_repaint();break;}
+                        if let Some(error)=error {write_api.stop_with(error);let _=write_finished.send(Some(error));write_wake.request_repaint();break;}
                     }
                 }));
                 let mut history:Option<AbortTask>=None;
@@ -467,6 +467,7 @@ impl Connection {
                 let mut pending_abandonment=None;
                 loop {
                     tokio::select! {
+                        failure=api.terminal_failure()=>{return Err(failure);}
                         _=&mut gateway_task.0=>{break;}
                         _=&mut writes.0=>{break;}
                         changed=recipient_scope_changed.changed()=> {
@@ -529,7 +530,7 @@ impl Connection {
                                 };
                                 let failure=match &event {Event::Interaction(client_core::interactions::Event::Submitted{result:Err(f),..}) | Event::SendResult{result:Err(f),..} if f.ends_session()=>Some(*f),_=>None};
                                 let error=emit(event).err().or(failure);
-                                if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
                                 wake.request_repaint();
                             })));
                         }
@@ -561,7 +562,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::GifFavorites{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -574,7 +575,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::EmojiFrecency{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -586,7 +587,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::ApplicationCommands{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -599,7 +600,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::StickerPacks(Err(f))|Event::Sticker{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -611,7 +612,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::Gifs{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -623,7 +624,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::Search{result:Err(f),..}|Event::Archives{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -635,7 +636,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::Reactions(client_core::reactions::Event::Read{result:Err(f),..}) if f.ends_session()=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -647,7 +648,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::ThreadPreview{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -722,7 +723,7 @@ impl Connection {
                                     };
                                     if let Err(failure)=result {
                                         let _=emit(Event::Voice(E::RingFailed{channel,request,message:failure.label()}));
-                                        if failure.ends_session(){api.stop();let _=finished.send(Some(failure));}
+                                        if failure.ends_session(){api.stop_with(failure);let _=finished.send(Some(failure));}
                                     }
                                     ring_wake.request_repaint();
                                 }))));
@@ -785,7 +786,7 @@ impl Connection {
                                         if let Err(failure)=result {
                                             if !stop {let _=voice_send.try_send(V::Leave{channel,request});}
                                             let _=emit(Event::Voice(E::Failed{channel,request,message:failure.label()}));
-                                            if failure.ends_session(){api.stop();let _=finished.send(Some(failure));ring_wake.request_repaint();}
+                                            if failure.ends_session(){api.stop_with(failure);let _=finished.send(Some(failure));ring_wake.request_repaint();}
                                         }
                                     })));
                                 }
@@ -797,7 +798,7 @@ impl Connection {
                                 invite=Some(AbortTask(tokio::spawn(async move {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::Invite{result:Err(f),..} if f.ends_session()=>Some(*f),_=>None};
-                                    if let Some(error)=emit(event).err().or(failure) {api.stop();let _=finished.send(Some(error));}
+                                    if let Some(error)=emit(event).err().or(failure) {api.stop_with(error);let _=finished.send(Some(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -810,7 +811,7 @@ impl Connection {
 									let event=api.execute(command).await;
 									let failure=stream_preview_session_failure(&event);
 									let error=emit(event).err().or(failure);
-									if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+									if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
 									wake.request_repaint();
 								})));
 								continue;
@@ -825,7 +826,7 @@ impl Connection {
                                         Event::UserAction(client_core::user_actions::Event::NoteLoaded{result:Err(f),..}) if f.ends_session()=>Some(*f),
                                         _=>None,
                                     };
-                                    if let Some(error)=emit(event).err().or(failure) {api.stop();let _=finished.send(Some(error));}
+                                    if let Some(error)=emit(event).err().or(failure) {api.stop_with(error);let _=finished.send(Some(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -837,7 +838,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::Profile{result:Err(failure),..} if failure.ends_session() && *failure!=Failure::Capacity=>Some(*failure),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);let _=finished.send(Some(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -868,7 +869,7 @@ impl Connection {
                                     let event=api.execute(*preload).await;
                                     let event=match history {Some((channel,request))=>scope_history_failure(event,channel,request),None=>event};
                                     let failure=match &event {Event::Failure(f)|Event::Profile{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
-                                    if let Some(error)=emit(event).err().or(failure) {api.stop();let _=finished.send(Some(error));}
+                                    if let Some(error)=emit(event).err().or(failure) {api.stop_with(error);let _=finished.send(Some(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;
@@ -881,8 +882,8 @@ impl Connection {
                                 let api=api.clone();let emit=emit.clone();let finished=finished.clone();let history_wake=wake.clone();
                                 history=Some(AbortTask(tokio::spawn(async move {
                                     let event=scope_history_failure(api.execute(command).await,channel,request);
-                                    if let Event::Failure(f)=&event&& f.ends_session(){api.stop();let _=finished.send(Some(*f));}
-                                    if let Err(f)=emit(event){api.stop();let _=finished.send(Some(f));}
+                                    if let Event::Failure(f)=&event&& f.ends_session(){api.stop_with(*f);let _=finished.send(Some(*f));}
+                                    if let Err(f)=emit(event){api.stop_with(f);let _=finished.send(Some(f));}
                                     history_wake.request_repaint();
                                 })));
                             } else {
@@ -1005,9 +1006,8 @@ struct PresenceSync {
 }
 
 /// Saves local status edits and adopts status changed on other devices, one request at a
-/// time so a remote echo never races a newer local edit. Unsaved edits retry with backoff.
+/// time so a remote echo never races a newer local edit. Failed writes wait for a new edit.
 async fn run_presence_sync(sync: PresenceSync) {
-	const RETRY: [u64; 5] = [2, 5, 15, 30, 60];
 	let PresenceSync {
 		api,
 		mut edits,
@@ -1019,16 +1019,12 @@ async fn run_presence_sync(sync: PresenceSync) {
 		wake,
 	} = sync;
 	let mut pending: Option<model::OwnPresence> = None;
-	let mut failures = 0;
 	let stop = |failure: Failure| {
-		api.stop();
+		api.stop_with(failure);
 		let _ = finished.send(Some(failure));
 		wake.request_repaint();
 	};
 	loop {
-		let retry = pending
-			.as_ref()
-			.map(|_| Duration::from_secs(RETRY[failures.min(RETRY.len() - 1)]));
 		let mut refresh = false;
 		tokio::select! {
 			changed = edits.changed() => {
@@ -1039,30 +1035,23 @@ async fn run_presence_sync(sync: PresenceSync) {
 					// Always write: the account API compares against a fresh read, while a
 					// remembered "last saved" value goes stale once another device edits.
 					pending = Some(next);
-					failures = 0;
 				}
 			}
 			() = remote_changed.notified() => refresh = pending.is_none(),
-			() = tokio::time::sleep(retry.unwrap_or_default()), if retry.is_some() => {}
 		}
 		if let Some(next) = pending.clone() {
 			match api.set_account_presence(&next).await {
 				Ok(()) => {
 					pending = None;
-					failures = 0;
 					if note.send_replace(None).is_some() {
 						wake.request_repaint();
 					}
 				}
 				Err(failure) if failure.ends_session() => return stop(failure),
 				Err(_) => {
-					failures += 1;
-					if failures >= RETRY.len() {
-						// Give up until the next edit or a settings change from Discord.
-						pending = None;
-					}
+					pending = None;
 					let _ = note.send_replace(Some(
-						"Could not save status to Discord. Retrying; it stays on this device until Discord accepts it.",
+						"Could not save status to Discord. It stays on this device; change it again to retry.",
 					));
 					wake.request_repaint();
 				}
@@ -1150,7 +1139,7 @@ async fn run_activity_sharing(
 			if let Err(failure) = result
 				&& failure.ends_session()
 			{
-				api.stop();
+				api.stop_with(failure);
 				let _ = finished.send(Some(failure));
 				wake.request_repaint();
 				return;

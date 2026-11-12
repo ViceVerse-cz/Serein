@@ -20,6 +20,8 @@ pub enum Failure {
 		"Discord restricted this account; authenticated traffic stopped; check the official client"
 	)]
 	AccountRestricted,
+	#[error("Discord blocked this client request; connection stopped; check the official client")]
+	ServiceBlocked,
 	#[error("Permission denied")]
 	Forbidden,
 	#[error("Rate limited; wait for the service cooldown before retrying")]
@@ -57,6 +59,9 @@ impl Failure {
 			Self::AccountRestricted => {
 				"Discord requires account attention · connection stopped; check the official client"
 			}
+			Self::ServiceBlocked => {
+				"Discord blocked this request · connection stopped; check the official client"
+			}
 			Self::RateLimited => "Rate limited · wait before retrying",
 			Self::Network => "Connection failed",
 			Self::Ambiguous => "Outcome unknown · check the official client before retrying",
@@ -71,6 +76,7 @@ impl Failure {
 			self,
 			Self::Expired
 				| Self::AccountRestricted
+				| Self::ServiceBlocked
 				| Self::Challenged
 				| Self::Capacity
 				| Self::CapacityAt(_)

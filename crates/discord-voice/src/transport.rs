@@ -2864,13 +2864,15 @@ mod tests {
 	}
 	#[tokio::test]
 	async fn local_voice_websocket_udp_dave_and_opus_exchange() {
-		local_voice_exchange(false).await;
+		local_voice_exchange(false, 4014).await;
 	}
 	#[tokio::test]
 	async fn local_guild_voice_waiting_mixed_audio_and_resume() {
-		local_voice_exchange(true).await;
+		for code in [4014, 4021] {
+			local_voice_exchange(true, code).await;
+		}
 	}
-	async fn local_voice_exchange(guild: bool) {
+	async fn local_voice_exchange(guild: bool, terminal_code: u16) {
 		use client_core::voice::Secret;
 		use model::Id;
 		use tokio::net::TcpListener;
@@ -3167,7 +3169,7 @@ mod tests {
 			if guild {
 				ws.send(Message::Close(Some(
 					tokio_tungstenite::tungstenite::protocol::CloseFrame {
-						code: 4021.into(),
+						code: terminal_code.into(),
 						reason: "synthetic terminal disconnect".into(),
 					},
 				)))

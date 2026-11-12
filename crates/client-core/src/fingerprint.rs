@@ -12,7 +12,7 @@
 const CHROME_MAJOR: &str = "149";
 /// Safari version advertised on macOS and Linux, where verification runs in WebKit.
 const SAFARI_VERSION: &str = "26.4";
-/// Build number of the official web client this fingerprint mirrors.
+/// Separately observed public web build; not verified as paired with the desktop baseline.
 pub const CLIENT_BUILD_NUMBER: u64 = 634_304;
 mod locale;
 pub use locale::{accept_language, discord_locale, system_locale, timezone};

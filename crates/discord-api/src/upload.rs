@@ -642,8 +642,8 @@ impl DiscordApi {
 			));
 		}
 		let url = self.upload_url(&target.upload_url)?;
-		if self.stopped() {
-			return Err(Failure::Expired);
+		if let Some(failure) = self.stop_reason() {
+			return Err(failure);
 		}
 		let client = self
 			.upload_client
@@ -736,8 +736,8 @@ impl DiscordApi {
 			) {
 			return Err(Failure::ProtocolAt(CHANGED));
 		}
-		if self.stopped() {
-			return Err(Failure::Expired);
+		if let Some(failure) = self.stop_reason() {
+			return Err(failure);
 		}
 		Ok(
 			serde_json::json!({"id":id.to_string(),"filename":source.filename(),"uploaded_filename":target.upload_filename}),
