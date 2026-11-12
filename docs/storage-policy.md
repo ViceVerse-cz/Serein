@@ -861,8 +861,9 @@ The app writes no background log, analytics, crash upload, saved password or MFA
 
 When no OS credential store exists at all (for example Linux without any Secret
 Service provider), saved logins fall back to `<data dir>/plaintext-login/<entry>`
-automatically; there is no setting. A keyring that exists but is locked, refuses
-the write or times out never causes a plaintext save. The token is unencrypted and can
+automatically; there is no setting. On Linux that means no session bus, or one where
+`org.freedesktop.secrets` is neither owned nor activatable. A keyring that exists but
+is locked, refuses its session or the write, or times out never causes a plaintext save. The token is unencrypted and can
 be read by software running as the same user, administrators and backups. Unix
 storage requires a nonsymlink 0700 directory and 0600 regular files; Windows uses
 the user data directory's inherited ACL. Files are published through exclusively
@@ -871,8 +872,9 @@ created temporary files and atomic replacement. There are at most ten secret fil
 2,048 token bytes each, plus at most 64 empty authority markers. Directory scans admit
 at most 75 files, including interrupted temporary writes;
 new saves fail visibly at the limit. Startup and Forget remove interrupted writes.
-A plaintext file is authoritative over an older OS entry. A successful subsequent
-OS save removes the plaintext copy. Empty `.stale-<entry>` markers contain no token
+A plaintext file is authoritative over an older OS entry. A new save first removes an
+existing plaintext copy, keeping its marker, and writes the new token to a file only
+once no OS store is confirmed; a successful OS save then clears the marker. Empty `.stale-<entry>` markers contain no token
 and prevent stale or late OS writes from restoring an account after plaintext
 removal; markers clear after confirmed OS replacement/deletion. A coalesced committed-roster
 snapshot removes orphaned per-account secrets and markers, retaining at most eight
