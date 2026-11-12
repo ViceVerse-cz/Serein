@@ -3142,6 +3142,8 @@ version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
 dependencies = [
+ "allocator-api2",
+ "equivalent",
  "foldhash 0.1.5",
 ]
 
@@ -6305,6 +6307,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "symphonia",
+ "sys-locale",
  "test-support",
  "time",
  "tokio",
@@ -6662,6 +6665,16 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps 7.0.8",
+]
+
+[[package]]
+name = "spellbook"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a"
+dependencies = [
+ "foldhash 0.2.0",
+ "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -7564,12 +7577,14 @@ dependencies = [
  "pulldown-cmark",
  "ruzstd",
  "skrifa",
+ "spellbook",
  "sys-locale",
  "test-support",
  "time",
  "unicode-bidi",
  "unicode-segmentation",
  "url",
+ "whatlang",
  "zeroize",
 ]
 
@@ -8404,6 +8419,15 @@ dependencies = [
  "raw-window-handle",
  "static_assertions",
  "web-sys",
+]
+
+[[package]]
+name = "whatlang"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5e8f38b596e2a359b755342473520a99421e43658548c79489ee221b728c107"
+dependencies = [
+ "hashbrown 0.15.5",
 ]
 
 [[package]]

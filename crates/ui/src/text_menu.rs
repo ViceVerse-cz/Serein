@@ -1,4 +1,4 @@
-//! Right-click menu for editable text: cut, copy, paste and select all, like Discord's.
+//! Right-click menu for editable text: spelling, cut, copy, paste and select all, like Discord's.
 use crate::icons::{self, Icon};
 use egui::text::{CCursor, CCursorRange};
 
@@ -25,15 +25,16 @@ pub(crate) fn selection_for_menu(ctx: &egui::Context, id: egui::Id) -> Option<CC
 	.filter(|range| !range.is_empty())
 }
 
-/// Shows the menu for the text edit `id` holding `text`. Cut marks the response changed;
-/// Paste returns true so the caller can read the system clipboard, which also carries files and
-/// images copied in other apps.
+/// Shows the menu for the text edit `id` holding `text`. Cut and corrections mark the response
+/// changed; Paste returns true so the caller can read the system clipboard, which also carries
+/// files and images copied in other apps. Spell-checked edits pass `spelling`, whose rows come first.
 pub(crate) fn show(
 	response: &mut egui::Response,
 	id: egui::Id,
 	text: &mut String,
 	paste_enabled: bool,
 	selection: Option<CCursorRange>,
+	mut spelling: Option<&mut crate::spelling::Spelling>,
 ) -> bool {
 	// TextEdit clears selections on secondary presses and when focus moves to the menu.
 	if (response.contains_pointer() || response.context_menu_opened())
@@ -71,6 +72,19 @@ pub(crate) fn show(
 			ctx.data_mut(|data| data.insert_temp(refocus_id(id), true));
 			ui.close();
 		};
+		if let Some(spelling) = spelling.as_mut()
+			&& let Some((range, correction)) = spelling.menu(ui, id, text)
+		{
+			let caret = text[..range.start].chars().count() + correction.chars().count();
+			text.replace_range(range, &correction);
+			changed = true;
+			state
+				.cursor
+				.set_char_range(Some(CCursorRange::one(CCursor::new(caret))));
+			state.clone().store(&ctx, id);
+			refocus(ui);
+			return;
+		}
 		if item(ui, Icon::Cut, "text-menu-cut", selected.is_some())
 			&& let Some(range) = selected.clone()
 		{

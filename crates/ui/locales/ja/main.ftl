@@ -4780,6 +4780,14 @@ text-menu-cut = 切り取り
 text-menu-copy = コピー
 text-menu-paste = 貼り付け
 text-menu-select-all = すべて選択
+# Context: text_menu
+spelling-no-suggestions = 候補なし
+# Context: text_menu
+spelling-add-to-dictionary = 辞書に追加
+# Context: text_menu
+spelling-check-spelling = スペルチェック
+# Context: text_menu
+spelling-languages = 言語
 # Context: media_box
 forum-composer-attached-files = 添付ファイル { $count } 件
 forum-composer-remove-file = { $file } を削除

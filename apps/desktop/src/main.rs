@@ -56,6 +56,7 @@ mod server_settings_demo;
 mod sign_in;
 #[cfg(feature = "demo")]
 mod slash_demo;
+mod spelling;
 mod spotify;
 mod startup;
 mod sticker_upload;
@@ -1083,6 +1084,7 @@ struct Desktop {
 	game_activity: toggle_setting::Settings,
 	game_mentions: game_mentions::Loader,
 	registered_games: registered_games::Registered,
+	spelling: spelling::Spelling,
 	tray_setting: toggle_setting::Settings,
 	startup: startup::Startup,
 	tray: Option<platform::tray::Tray>,
@@ -1533,6 +1535,8 @@ fn align_undecorated_surface(window: &winit::window::Window) {
 }
 
 impl Desktop {
+	/// Installs fonts, emoji, icons, and the design theme, then starts the runtime and background stores.
+	/// In demo mode it loads fixture state instead; fails if emoji assets or the runtime cannot load.
 	fn new(
 		cc: &eframe::CreationContext<'_>,
 		demo: bool,
@@ -2447,6 +2451,11 @@ impl Desktop {
 			} else {
 				registered_games::Registered::load()
 			},
+			spelling: if demo {
+				spelling::Spelling::default()
+			} else {
+				spelling::Spelling::start(&cc.egui_ctx)
+			},
 			tray_setting,
 			startup,
 			tray: None,
@@ -3199,6 +3208,8 @@ impl Desktop {
 			.toasts
 			.push(ui::design::Level::Info, "Custom status cleared");
 	}
+	/// Refreshes the local game activity and sharing state, queuing a cache save when the preference
+	/// changes. Demo mode substitutes a fixed preview activity; repaints only when visible state changes.
 	fn sync_game_activity(&mut self, ctx: &egui::Context) {
 		let previous_sharing = (
 			self.messaging.discord_activity_sharing,
@@ -3255,6 +3266,7 @@ impl Desktop {
 			return;
 		}
 		self.registered_games.sync(&mut self.messaging, ctx);
+		self.spelling.sync(&mut self.messaging);
 		self.messaging.running_game = None;
 		self.game_activity
 			.observe(self.messaging.share_game_activity);

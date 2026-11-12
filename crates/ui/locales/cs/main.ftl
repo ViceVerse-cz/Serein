@@ -4902,6 +4902,14 @@ text-menu-cut = Vyjmout
 text-menu-copy = Kopírovat
 text-menu-paste = Vložit
 text-menu-select-all = Vybrat vše
+# Context: text_menu
+spelling-no-suggestions = Žádné návrhy
+# Context: text_menu
+spelling-add-to-dictionary = Přidat do slovníku
+# Context: text_menu
+spelling-check-spelling = Kontrola pravopisu
+# Context: text_menu
+spelling-languages = Jazyky
 # Context: media_box
 forum-composer-attached-files = Přiložené soubory: { $count }
 forum-composer-remove-file = Odebrat { $file }

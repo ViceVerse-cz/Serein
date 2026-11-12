@@ -33,6 +33,7 @@ zeroize.workspace = true
 platform.workspace = true
 local-store.workspace = true
 winit.workspace = true
+sys-locale = "=0.3.2"
 wreq.workspace = true
 rasterlottie.workspace = true
 getrandom.workspace = true

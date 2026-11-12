@@ -4915,6 +4915,14 @@ text-menu-cut = Cut
 text-menu-copy = Copy
 text-menu-paste = Paste
 text-menu-select-all = Select All
+# Context: text_menu
+spelling-no-suggestions = No Spelling Suggestions
+# Context: text_menu
+spelling-add-to-dictionary = Add to Dictionary
+# Context: text_menu
+spelling-check-spelling = Spellcheck
+# Context: text_menu
+spelling-languages = Languages
 # Context: media_box
 forum-composer-attached-files = { $count ->
     [one] { $count } attached file

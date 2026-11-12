@@ -123,6 +123,7 @@ mod server_stickers;
 mod settings;
 mod setup;
 mod shortcuts;
+pub mod spelling;
 mod switcher;
 mod text_menu;
 mod thumbhash;
@@ -401,6 +402,8 @@ pub struct MessagingUi {
 	/// Set by "Add it!"; the desktop app answers in `running_processes`.
 	pub running_processes_request: bool,
 	pub running_processes: Option<Vec<String>>,
+	/// Spell checking of the composer; the desktop app loads dictionaries and saves settings.
+	pub spelling: spelling::Spelling,
 	reading_sidebar_applied: Option<u16>,
 	reading_sidebar_constrained: bool,
 	reading_zoom_pending: bool,
@@ -1267,6 +1270,9 @@ impl MessagingUi {
 			startup_graphics_api: self.startup_graphics_api,
 			available_graphics_apis: std::mem::take(&mut self.available_graphics_apis),
 			graphics_api_env_override: self.graphics_api_env_override,
+			// Spelling settings and loaded dictionaries belong to the device; the worker
+			// loads them once and would not send them again.
+			spelling: std::mem::take(&mut self.spelling),
 			..Self::default()
 		};
 		self.timeline.video.fullscreen_request = video_fullscreen_request;
@@ -3068,6 +3074,8 @@ impl MessagingUi {
 			});
 		ui.add_space(8.0);
 	}
+	/// Renders the message composer for a channel, or the inline editor when a message is being edited.
+	/// Starts editing the last editable message on the keybind when the draft is empty and input free.
 	fn composer(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -4038,6 +4046,10 @@ impl MessagingUi {
                                 rich_layout.paint(ui, &output, &mut self.avatars);
                                 if bidi_draft {
                                     rich_layout.paint_bidi(ui, &output, selection_slot);
+                                } else {
+                                    // Visual-order drafts move glyphs away from their chars.
+                                    self.spelling.paint(ui, &output, draft);
+                                    self.spelling.track_pointer(ctx, composer_id, &output, draft);
                                 }
                                 output
                             }).inner;
@@ -4090,7 +4102,7 @@ impl MessagingUi {
                                 tab: true, horizontal_arrows: true, vertical_arrows: true, escape: editing_here,
                             }));
                         }
-                        if text_menu::show(&mut output.response, composer_id, draft, paste_allowed, selection) {
+                        if text_menu::show(&mut output.response, composer_id, draft, paste_allowed, selection, Some(&mut self.spelling)) {
                             self.menu_paste = Some(composer_id);
                         }
                         let edit = output.response;
@@ -6854,6 +6866,44 @@ mod composer_tests {
 			assert_eq!(view.editing.as_ref().unwrap().2, kept);
 			assert!(view.edit_sent.is_none());
 		}
+	}
+
+	/// A composer frame paints exactly one squiggle, under the one misspelled word.
+	#[test]
+	fn misspelled_composer_words_are_underlined() {
+		let ctx = egui::Context::default();
+		let mut state = edit_state();
+		state.drafts.insert(Id(10), "helo world ".into());
+		let mut view = MessagingUi::default();
+		view.spelling.load(spelling::Settings {
+			enabled: true,
+			languages: vec!["en".into()],
+			words: Default::default(),
+			excluded: Default::default(),
+		});
+		view.spelling.install(
+			"en".into(),
+			std::sync::Arc::new(
+				spelling::Dictionary::new("SET UTF-8\n", "2\nhello\nworld\n").unwrap(),
+			),
+		);
+		let mut red = 0;
+		for _ in 0..3 {
+			let mut output = ctx.run_ui(Default::default(), |ui| {
+				view.composer(ui, &mut state, Id(10), &ctx, &mut vec![]);
+			});
+			output.textures_delta.clear();
+			red = output
+				.shapes
+				.iter()
+				.filter(|clipped| matches!(&clipped.shape,
+					egui::Shape::Path(path) if path.stroke.color == egui::epaint::ColorMode::Solid(egui::Color32::from_rgb(0xf2, 0x3f, 0x43))))
+				.count();
+		}
+		assert_eq!(red, 1, "one squiggle under \"helo\"");
+		// Logging out keeps the device's spelling settings and dictionaries.
+		view.clear();
+		assert_eq!(view.spelling.misspelled("helo world ", None).len(), 1);
 	}
 
 	fn edit_state() -> State {

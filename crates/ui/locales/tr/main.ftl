@@ -4783,6 +4783,14 @@ text-menu-cut = Kes
 text-menu-copy = Kopyala
 text-menu-paste = Yapıştır
 text-menu-select-all = Tümünü seç
+# Context: text_menu
+spelling-no-suggestions = Öneri yok
+# Context: text_menu
+spelling-add-to-dictionary = Sözlüğe ekle
+# Context: text_menu
+spelling-check-spelling = Yazım denetimi
+# Context: text_menu
+spelling-languages = Diller
 # Context: media_box
 forum-composer-attached-files = { $count } ekli dosya
 forum-composer-remove-file = { $file } dosyasını kaldır

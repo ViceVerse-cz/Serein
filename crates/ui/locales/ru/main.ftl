@@ -4800,6 +4800,14 @@ text-menu-cut = Вырезать
 text-menu-copy = Копировать
 text-menu-paste = Вставить
 text-menu-select-all = Выделить всё
+# Context: text_menu
+spelling-no-suggestions = Нет вариантов
+# Context: text_menu
+spelling-add-to-dictionary = Добавить в словарь
+# Context: text_menu
+spelling-check-spelling = Проверка орфографии
+# Context: text_menu
+spelling-languages = Языки
 # Context: media_box
 forum-composer-attached-files = Прикреплённые файлы: { $count }
 forum-composer-remove-file = Удалить { $file }

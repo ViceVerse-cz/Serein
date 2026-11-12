@@ -653,6 +653,7 @@ impl ForumUi {
 									&mut draft.title,
 									true,
 									title_selection,
+									None,
 								) {
 									*paste = Some(title_id());
 								}
@@ -688,6 +689,7 @@ impl ForumUi {
 									&mut draft.body,
 									true,
 									body_selection,
+									None,
 								) {
 									*paste = Some(body_id());
 								}

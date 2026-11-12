@@ -1,5 +1,15 @@
 # Discord compatibility — checked 2026-09-10
 
+## Composer spell checking (November 10, 2026)
+
+Discord's desktop client inherits Chromium's spell checker. It underlines misspelled words,
+and the text menu offers corrections, "Add to Dictionary", a switch and the checked
+languages. Serein reproduces this locally in the composer with Hunspell dictionaries
+(`spellbook`). The system language and English are checked by default. The language being
+written is detected from the draft (`whatlang`), and its dictionary is loaded as well, so
+bilingual drafts are checked in both languages. Nothing is sent to Discord; the personal
+dictionary is not synchronized with the official client's.
+
 ## Game mentions (October 14, 2026)
 
 The native composer offers `@game`, a searchable game catalog and application references
