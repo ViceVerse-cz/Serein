@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="#fff">
+  <title>Stop screen share</title>
+  <desc>Phosphor monitor-fill (MIT) with a round-capped X knocked out of the screen, in place of monitor-arrow-up's arrow.</desc>
+  <defs>
+    <mask id="monitor-x-knockout" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <rect width="256" height="256" fill="#fff"/>
+      <path d="M106 98 L150 142 M150 98 L106 142" stroke="#000" stroke-width="16" stroke-linecap="round"/>
+    </mask>
+  </defs>
+  <path mask="url(#monitor-x-knockout)" d="M232,64V176a24,24,0,0,1-24,24H48a24,24,0,0,1-24-24V64A24,24,0,0,1,48,40H208A24,24,0,0,1,232,64Z"/>
+  <path d="M160,216H96a8,8,0,0,0,0,16h64a8,8,0,0,0,0-16Z"/>
+</svg>

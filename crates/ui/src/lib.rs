@@ -510,6 +510,7 @@ pub struct MessagingUi {
 	ring_request: Option<(Id, u64, Id, bool)>,
 	voice_moderation: Option<(Id, Id, Id, model::server_admin::VoiceChange)>,
 	stream_preview_open: Option<((Id, Id, Id), u64)>,
+	stream_preview_hover: Option<((Id, Id, Id), egui::Rect)>,
 	stream_preview_request: Option<(Id, Id, Id)>,
 	stream_preview_watch: Option<(Id, Id)>,
 	/// Guild voice channel double-clicked in the channel list, joined after selection applies.
@@ -2248,6 +2249,9 @@ impl MessagingUi {
 					divider(ui);
 				}
 				if in_call {
+					if self.voice_stream_section(ui, state) {
+						divider(ui);
+					}
 					self.voice_card_section(ui, state, commands);
 					divider(ui);
 				}

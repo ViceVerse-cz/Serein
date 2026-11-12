@@ -719,25 +719,38 @@ impl MessagingUi {
 		} else {
 			1.0
 		};
-		// The popup opens beside the row. With the tweak on, the image fits the window's
-		// remaining width and keeps room below for the title and the Watch button, shrinking
-		// below its usual size on a small or zoomed window; without it the size is unchanged.
+		// The popup opens beside the row and keeps that anchor. Fit the image to the space
+		// below the row instead of letting a too-tall card flip above it after the first
+		// measurement; the tweak still doubles the image when the window has room.
 		let viewport = ui.ctx().content_rect();
 		let fit = ((viewport.right() - row.rect.right() - 8.0 - 24.0) / 300.0)
-			.min((viewport.height() - 24.0 - 110.0) / 169.0)
+			.min((viewport.bottom() - row.rect.top() - 8.0 - 110.0) / 169.0)
 			.max(0.4);
-		let image = egui::vec2(300.0, 169.0) * if scale > 1.0 { scale.min(fit) } else { 1.0 };
-		let mut tooltip = egui::Tooltip::for_enabled(row)
-			.gap(8.0)
-			.width(image.x + 24.0)
-			.accessible_name("Stream preview");
-		tooltip.popup = tooltip.popup.align(egui::RectAlign::RIGHT_START).frame(
-			egui::Frame::popup(&row.ctx.style_of(row.ctx.theme()))
-				.fill(design::palette(ui).raised)
-				.inner_margin(12)
-				.corner_radius(10),
+		let image = egui::vec2(300.0, 169.0)
+			* if scale > 1.0 {
+				scale.min(fit)
+			} else {
+				fit.min(1.0)
+			};
+		// Keep the card at a position computed from its known height. A popup area would
+		// otherwise re-clamp after measuring the content, visibly shifting the card after it
+		// first appears. The top is clamped once so the whole card stays on screen.
+		let height = image.y + 110.0;
+		let top = row.rect.top().clamp(
+			viewport.top() + 8.0,
+			(viewport.bottom() - height - 8.0).max(viewport.top() + 8.0),
 		);
-		let open = tooltip.popup.is_open();
+		// Stream previews are a direct roster interaction, so don't wait for the general tooltip
+		// delay. Keep the popup open while the pointer crosses the gap from the row into its
+		// contents.
+		let pointer = ui.ctx().pointer_hover_pos();
+		let over_popup = pointer.is_some_and(|pointer| {
+			self.stream_preview_hover.is_some_and(|(previous, rect)| {
+				previous == target && rect.expand(8.0).contains(pointer)
+			})
+		});
+		let everything_visible = ui.ctx().memory(|memory| memory.everything_is_visible());
+		let open = everything_visible || row.contains_pointer() || over_popup;
 		if open {
 			let frame = ui.ctx().cumulative_frame_nr();
 			if !self
@@ -750,97 +763,196 @@ impl MessagingUi {
 			self.stream_preview_open = Some((target, frame));
 		}
 		let colors = design::palette(ui);
-		tooltip.show(|ui| {
-			ui.set_width(image.x);
-			ui.spacing_mut().item_spacing.y = 10.0;
-			ui.horizontal(|ui| {
-				ui.label(design::semibold(ui, "Streaming Now", 15.0).color(colors.text_strong));
-				live_badge(ui);
-			});
-			let url = state
-				.voice
-				.preview
-				.as_ref()
-				.filter(|preview| (preview.guild, preview.channel, preview.user) == target)
-				.and_then(|preview| preview.url.clone())
-				.or_else(|| {
-					state.demo.then(|| {
-						format!(
-							"https://cdn.discordapp.com/streams/guild:{}:{}:{}/0123456789abcdef.png",
-							entry.guild, entry.channel, entry.participant.user
-						)
-					})
-				});
-			if let Some(url) = url {
-				self.avatars.show_media(
-					ui,
-					&model::EmbedMedia {
-						url: Some(url),
-						width: 512,
-						height: 288,
-						..Default::default()
-					},
-					image,
-					state.demo,
-					crate::avatars::Surface::Banner,
-				);
-			} else {
-				let (rect, _) = ui.allocate_exact_size(image, egui::Sense::hover());
-				ui.painter().rect_filled(rect, 8, colors.canvas);
-				let preview = state
-					.voice
-					.preview
-					.as_ref()
-					.filter(|preview| (preview.guild, preview.channel, preview.user) == target);
-				if preview.is_some_and(|preview| preview.loading) {
-					ui.put(
-						egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(24.0)),
-						egui::Spinner::new().color(colors.muted),
-					);
-				} else {
-					ui.painter().text(
-						rect.center(),
-						egui::Align2::CENTER_CENTER,
-						preview
-							.and_then(|preview| preview.error)
-							.unwrap_or("Preview hidden or unavailable"),
-						egui::FontId::proportional(13.0),
-						colors.muted,
-					);
-				}
-			}
-			let watching = state.voice.active.as_ref().is_some_and(|call| {
-				call.channel == entry.channel && call.watching == Some(entry.participant.user)
-			});
-			let connected = state.voice.active.as_ref().is_some_and(|call| {
-				call.channel == entry.channel
-					&& matches!(call.phase, Phase::Connected | Phase::Waiting)
-			});
-			let can_watch = !watching
-				&& (connected || (state.voice.active.is_none() && state.can_call(entry.channel)))
-				&& state
-					.user
-					.as_ref()
-					.is_none_or(|user| user.id != entry.participant.user);
-			let button = ui
-				.add_enabled_ui(can_watch, |ui| {
-					design::positive_icon_button(
-						ui,
-						crate::icons::Icon::ScreenShare,
-						if watching { "Watching" } else { "Watch Stream" },
-					)
+		let mut watch_clicked = false;
+		let shown = open.then(|| {
+			egui::Area::new(egui::Id::unique(("stream-preview", target)))
+				.order(egui::Order::Tooltip)
+				.fixed_pos(egui::pos2(row.rect.right() + 8.0, top))
+				// The position is already clamped above; disabling the area's own constraint
+				// keeps the card from moving once its measured size is known.
+				.constrain(false)
+				.interactable(true)
+				.sense(egui::Sense::click())
+				.accessibility_parent(row.id)
+				.accessible_name("Stream preview")
+				.show(ui.ctx(), |ui| {
+					egui::Frame::popup(&row.ctx.style_of(row.ctx.theme()))
+						.fill(colors.raised)
+						.inner_margin(12)
+						.corner_radius(10)
+						.show(ui, |ui| {
+							ui.set_width(image.x);
+							ui.spacing_mut().item_spacing.y = 10.0;
+							ui.horizontal(|ui| {
+								ui.label(
+									design::semibold(ui, "Streaming Now", 15.0)
+										.color(colors.text_strong),
+								);
+								live_badge(ui);
+							});
+							let watching = state.voice.active.as_ref().is_some_and(|call| {
+								call.channel == entry.channel
+									&& call.watching == Some(entry.participant.user)
+							});
+							let connected = state.voice.active.as_ref().is_some_and(|call| {
+								call.channel == entry.channel
+									&& matches!(call.phase, Phase::Connected | Phase::Waiting)
+							});
+							let is_own = state
+								.user
+								.as_ref()
+								.is_some_and(|user| user.id == entry.participant.user);
+							let can_watch = !is_own
+								&& !watching && (connected
+								|| (state.voice.active.is_none() && state.can_call(entry.channel)));
+							let url = state
+								.voice
+								.preview
+								.as_ref()
+								.filter(|preview| {
+									(preview.guild, preview.channel, preview.user) == target
+								})
+								.and_then(|preview| preview.url.clone())
+								.or_else(|| {
+									state.demo.then(|| {
+										format!(
+											"https://cdn.discordapp.com/streams/guild:{}:{}:{}/0123456789abcdef.png",
+											entry.guild, entry.channel, entry.participant.user
+										)
+									})
+								});
+							let image_rect = if let Some(url) = url {
+								self.avatars
+									.show_media(
+										ui,
+										&model::EmbedMedia {
+											url: Some(url),
+											width: 512,
+											height: 288,
+											..Default::default()
+										},
+										image,
+										state.demo,
+										crate::avatars::Surface::Banner,
+									)
+									.response
+									.rect
+							} else {
+								let (rect, _) = ui.allocate_exact_size(image, egui::Sense::hover());
+								ui.painter().rect_filled(rect, 8, colors.canvas);
+								let preview = state.voice.preview.as_ref().filter(|preview| {
+									(preview.guild, preview.channel, preview.user) == target
+								});
+								if preview.is_some_and(|preview| preview.loading) {
+									ui.put(
+										egui::Rect::from_center_size(
+											rect.center(),
+											egui::Vec2::splat(24.0),
+										),
+										egui::Spinner::new().color(colors.muted),
+									);
+								} else {
+									ui.painter().text(
+										rect.center(),
+										egui::Align2::CENTER_CENTER,
+										preview
+											.and_then(|preview| preview.error)
+											.unwrap_or("Preview hidden or unavailable"),
+										egui::FontId::proportional(13.0),
+										colors.muted,
+									);
+								}
+								rect
+							};
+							// The preview frame itself is a second watch target. Its hover overlay makes the
+							// action explicit without relying on the button below it.
+							let preview_response = ui.interact(
+								image_rect,
+								ui.scope_id().with("stream-preview-click"),
+								if can_watch {
+									egui::Sense::click()
+								} else {
+									egui::Sense::hover()
+								},
+							);
+							let overlay = if is_own {
+								Some("You're streaming")
+							} else if watching {
+								Some("Watching")
+							} else if can_watch {
+								Some("Watch Stream")
+							} else {
+								None
+							};
+							if let Some(label) = overlay
+								&& preview_response.hovered()
+							{
+								ui.painter().rect_filled(
+									image_rect,
+									8,
+									egui::Color32::from_black_alpha(150),
+								);
+								ui.painter().text(
+									image_rect.center(),
+									egui::Align2::CENTER_CENTER,
+									label,
+									egui::FontId::new(16.0, design::medium_family(ui.ctx())),
+									egui::Color32::WHITE,
+								);
+								if can_watch {
+									ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+								}
+							}
+							if can_watch && preview_response.clicked() {
+								self.stream_preview_watch =
+									Some((entry.channel, entry.participant.user));
+								watch_clicked = true;
+							}
+							let button_label = if is_own {
+								"You're streaming"
+							} else if watching {
+								"Watching"
+							} else {
+								"Watch Stream"
+							};
+							let button = ui
+								.add_enabled_ui(can_watch, |ui| {
+									design::positive_icon_button(
+										ui,
+										crate::icons::Icon::ScreenShare,
+										button_label,
+									)
+								})
+								.inner
+								.on_disabled_hover_text(if is_own {
+									"You are already streaming in this channel"
+								} else if watching {
+									"Already watching this stream"
+								} else {
+									"Join this voice channel before watching"
+								});
+							if button.clicked() {
+								self.stream_preview_watch =
+									Some((entry.channel, entry.participant.user));
+								watch_clicked = true;
+							}
+						})
+						.inner
 				})
-				.inner
-				.on_disabled_hover_text(if watching {
-					"Already watching this stream"
-				} else {
-					"Join this voice channel before watching"
-				});
-			if button.clicked() {
-				self.stream_preview_watch = Some((entry.channel, entry.participant.user));
-				ui.close();
-			}
 		});
+		if watch_clicked {
+			// The watch action closes the preview instead of reopening it under the pointer.
+			self.stream_preview_hover = None;
+			self.stream_preview_open = None;
+		} else if open {
+			self.stream_preview_hover = shown.as_ref().map(|shown| (target, shown.response.rect));
+		} else if self
+			.stream_preview_hover
+			.is_some_and(|(previous, _)| previous == target)
+		{
+			// A later streaming row must not clear the card owned by the row under the pointer.
+			self.stream_preview_hover = None;
+		}
 		if !open
 			&& self
 				.stream_preview_open
@@ -877,6 +989,7 @@ impl MessagingUi {
 			state.status = "This stream is no longer live";
 			return;
 		}
+		let mut open_stage = false;
 		match state
 			.voice
 			.active
@@ -890,6 +1003,8 @@ impl MessagingUi {
 				{
 					self.stream_preview_watch = None;
 					state.status = "Could not join this stream's voice channel";
+				} else {
+					open_stage = true;
 				}
 			}
 			Some((active, _)) if active != channel => {
@@ -902,6 +1017,7 @@ impl MessagingUi {
 					|| state.watch_stream(user).is_some()
 				{
 					self.voice_focus = Some(StageFocus::Stream(user));
+					open_stage = true;
 				} else {
 					state.status = "This stream is not available in the connected voice channel";
 				}
@@ -910,6 +1026,11 @@ impl MessagingUi {
 				self.stream_preview_watch = None;
 			}
 			Some((_, _)) => {}
+		}
+		// Watching from the sidebar preview must bring its stage into view instead of leaving
+		// the user reading another conversation while the share starts behind it.
+		if open_stage && let Some(command) = state.select(channel) {
+			commands.push(command);
 		}
 	}
 
@@ -3568,7 +3689,11 @@ impl MessagingUi {
 		let plate = ui.painter().add(egui::Shape::Noop);
 		let response = control(
 			ui,
-			crate::icons::Icon::ScreenShare,
+			if self.screen.busy {
+				crate::icons::Icon::StopScreenShare
+			} else {
+				crate::icons::Icon::ScreenShare
+			},
 			48.0,
 			enabled,
 			color,
@@ -3877,6 +4002,81 @@ impl MessagingUi {
 		}
 	}
 
+	/// Discord's live strip above "Voice Connected" while this device's own share is
+	/// capturing: source, chosen quality and a stop control. Returns whether it drew.
+	pub(super) fn voice_stream_section(&mut self, ui: &mut egui::Ui, state: &State) -> bool {
+		let Some(call) = state
+			.voice
+			.active
+			.as_ref()
+			.filter(|call| call.phase != Phase::Failed)
+		else {
+			return false;
+		};
+		if !self.screen.sharing
+			|| !self.screen.busy
+			|| self.screen.context != Some((state.generation, call.channel, call.request))
+		{
+			return false;
+		}
+		let Some(share) = self.screen.started.clone() else {
+			return false;
+		};
+		let colors = design::palette(ui);
+		let title = share.title.as_deref().unwrap_or("Your screen");
+		let quality = format!("{}p {}FPS", share.height, share.fps);
+		let mut stop = false;
+		egui::Frame::new()
+			.inner_margin(egui::Margin::same(8))
+			.show(ui, |ui| {
+				ui.set_width(ui.available_width());
+				ui.horizontal(|ui| {
+					ui.spacing_mut().item_spacing.x = 10.0;
+					let (tile, _) =
+						ui.allocate_exact_size(egui::Vec2::splat(40.0), egui::Sense::hover());
+					ui.painter().rect_filled(tile, 8, colors.base);
+					crate::icons::paint(
+						ui.painter(),
+						crate::icons::Icon::ScreenShare,
+						tile.shrink(10.0),
+						colors.text_strong,
+					);
+					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+						stop = crate::icons::button(
+							ui,
+							crate::icons::Icon::StopScreenShare,
+							32.0,
+							"Stop streaming",
+						)
+						.clicked();
+						ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+							ui.vertical(|ui| {
+								ui.spacing_mut().item_spacing.y = 0.0;
+								ui.add(
+									egui::Label::new(
+										design::semibold(ui, title, 15.0).color(colors.text_strong),
+									)
+									.truncate()
+									.selectable(false),
+								);
+								ui.add(
+									egui::Label::new(
+										RichText::new(quality).size(12.0).color(colors.accent),
+									)
+									.truncate()
+									.selectable(false),
+								);
+							});
+						});
+					});
+				});
+			});
+		if stop {
+			self.screen.launch(state);
+		}
+		true
+	}
+
 	/// Call details drawn inside the account card while connected: Discord's "Voice
 	/// Connected" header, then a row of quick actions above the identity row.
 	pub(super) fn voice_card_section(
@@ -4091,7 +4291,11 @@ impl MessagingUi {
 					share_clicked = card_action(
 						ui,
 						width,
-						crate::icons::Icon::ScreenShare,
+						if self.screen.busy {
+							crate::icons::Icon::StopScreenShare
+						} else {
+							crate::icons::Icon::ScreenShare
+						},
 						can_share,
 						self.screen.busy,
 						if self.screen.busy {
@@ -6089,7 +6293,7 @@ mod tests {
 	}
 
 	#[test]
-	fn streaming_roster_hover_has_preview_and_watch_action() {
+	fn streaming_roster_hover_requests_preview_without_delay() {
 		let mut state = test_support::demo_state();
 		state.voice.roster = vec![RosterEntry {
 			guild: Id(10),
@@ -6107,80 +6311,234 @@ mod tests {
 		}];
 		let mut messaging = MessagingUi::default();
 		let ctx = egui::Context::default();
-		ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
-		let first = ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(640.0, 420.0),
-				)),
-				..Default::default()
-			},
-			|ui| {
-				ui.set_width(190.0);
-				messaging.voice_participant(ui, &state, &state.voice.roster[0]);
-			},
-		);
-		first.drop_without_applying_deltas();
-		let mut output = ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(640.0, 420.0),
-				)),
-				..Default::default()
-			},
-			|ui| {
-				ui.set_width(190.0);
-				messaging.voice_participant(ui, &state, &state.voice.roster[0]);
-			},
-		);
-		fn labels(shape: &egui::Shape, text: &mut String) {
-			match shape {
-				egui::Shape::Text(label) => text.push_str(&label.galley.job.text),
-				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| labels(shape, text)),
-				_ => {}
-			}
+		fn render(
+			ctx: &egui::Context,
+			messaging: &mut MessagingUi,
+			state: &State,
+			pointer: egui::Pos2,
+			time: f64,
+		) {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(640.0, 420.0),
+					)),
+					events: vec![egui::Event::PointerMoved(pointer)],
+					time: Some(time),
+					..Default::default()
+				},
+				|ui| {
+					ui.set_width(190.0);
+					messaging.voice_participant(ui, state, &state.voice.roster[0]);
+				},
+			)
+			.drop_without_applying_deltas();
 		}
-		let mut text = String::new();
-		output
-			.shapes
-			.iter()
-			.for_each(|shape| labels(&shape.shape, &mut text));
-		output.textures_delta.clear();
+		// The first pass only establishes the pointer position.
+		render(&ctx, &mut messaging, &state, egui::pos2(20.0, 17.0), 0.0);
+		render(&ctx, &mut messaging, &state, egui::pos2(20.0, 17.0), 0.01);
 		assert!(
-			text.contains("Streaming Now") && text.contains("Watch Stream"),
-			"{text}"
+			messaging.stream_preview_open.is_some(),
+			"hovering the row opens the preview without waiting for a tooltip delay"
 		);
 		assert_eq!(
 			messaging.stream_preview_request,
 			Some((Id(10), Id(25), Id(2)))
 		);
-		messaging.stream_preview_request = None;
-		for render_row in [true, false, true] {
-			ctx.run_ui(Default::default(), |ui| {
-				if render_row {
-					messaging.voice_participant(ui, &state, &state.voice.roster[0]);
-				}
-			})
-			.drop_without_applying_deltas();
-			if !render_row {
-				assert!(messaging.stream_preview_request.is_none());
-			}
-		}
+		render(&ctx, &mut messaging, &state, egui::pos2(20.0, 17.0), 0.02);
 		assert_eq!(
 			messaging.stream_preview_request.take(),
 			Some((Id(10), Id(25), Id(2))),
-			"Reopening after the row disappears must refresh the still"
-		);
-		ctx.run_ui(Default::default(), |ui| {
-			messaging.voice_participant(ui, &state, &state.voice.roster[0]);
-		})
-		.drop_without_applying_deltas();
-		assert!(
-			messaging.stream_preview_request.is_none(),
 			"An uninterrupted hover requests only once"
 		);
+		render(&ctx, &mut messaging, &state, egui::pos2(620.0, 400.0), 0.03);
+		assert!(
+			messaging.stream_preview_open.is_none(),
+			"the preview must close once the pointer leaves the row"
+		);
+		assert!(
+			messaging.stream_preview_hover.is_none(),
+			"a closed preview must not claim the pointer is still over it"
+		);
+	}
+
+	#[test]
+	fn stream_preview_keeps_its_anchor_near_the_window_bottom() {
+		let mut state = test_support::demo_state();
+		state.voice.roster = vec![RosterEntry {
+			guild: Id(10),
+			channel: Id(25),
+			participant: client_core::voice::Participant {
+				user: Id(2),
+				muted: false,
+				deafened: false,
+				server_muted: false,
+				server_deafened: false,
+				video: false,
+				streaming: true,
+			},
+			member: None,
+		}];
+		let mut messaging = MessagingUi::default();
+		let ctx = egui::Context::default();
+		fn render(
+			ctx: &egui::Context,
+			messaging: &mut MessagingUi,
+			state: &State,
+			pointer: egui::Pos2,
+			time: f64,
+		) {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(640.0, 400.0),
+					)),
+					events: vec![egui::Event::PointerMoved(pointer)],
+					time: Some(time),
+					..Default::default()
+				},
+				|ui| {
+					ui.set_width(190.0);
+					ui.add_space(300.0);
+					messaging.voice_participant(ui, state, &state.voice.roster[0]);
+				},
+			)
+			.drop_without_applying_deltas();
+		}
+		let pointer = egui::pos2(20.0, 317.0);
+		let mut tops = Vec::new();
+		for frame in 0..5 {
+			render(
+				&ctx,
+				&mut messaging,
+				&state,
+				pointer,
+				f64::from(frame) * 0.01,
+			);
+			tops.push(messaging.stream_preview_hover.map(|(_, rect)| rect.top()));
+		}
+		assert!(tops[1].is_some(), "hovering near the bottom opens the card");
+		assert!(
+			tops[1..].iter().all(|top| *top == tops[1]),
+			"the card must not move after its first visible frame: {tops:?}"
+		);
+	}
+
+	#[test]
+	fn stream_preview_cards_stay_open_with_two_streamers_in_one_channel() {
+		let participant = |user| RosterEntry {
+			guild: Id(10),
+			channel: Id(25),
+			participant: client_core::voice::Participant {
+				user,
+				muted: false,
+				deafened: false,
+				server_muted: false,
+				server_deafened: false,
+				video: false,
+				streaming: true,
+			},
+			member: None,
+		};
+		let mut state = test_support::demo_state();
+		state.voice.roster = vec![participant(Id(2)), participant(Id(3))];
+		let mut messaging = MessagingUi::default();
+		let ctx = egui::Context::default();
+		fn render(
+			ctx: &egui::Context,
+			messaging: &mut MessagingUi,
+			state: &State,
+			pointer: egui::Pos2,
+			time: f64,
+		) {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(640.0, 800.0),
+					)),
+					events: vec![egui::Event::PointerMoved(pointer)],
+					time: Some(time),
+					..Default::default()
+				},
+				|ui| {
+					ui.set_width(190.0);
+					ui.add_space(300.0);
+					for entry in &state.voice.roster {
+						messaging.voice_participant(ui, state, entry);
+					}
+				},
+			)
+			.drop_without_applying_deltas();
+		}
+		let first = (Id(10), Id(25), Id(2));
+		let second = (Id(10), Id(25), Id(3));
+		render(&ctx, &mut messaging, &state, egui::pos2(20.0, 317.0), 0.0);
+		render(&ctx, &mut messaging, &state, egui::pos2(20.0, 317.0), 0.01);
+		assert_eq!(
+			messaging.stream_preview_hover.map(|(target, _)| target),
+			Some(first),
+			"the first card owns the hover after its row"
+		);
+		// Move into the first card without crossing the second row.
+		render(&ctx, &mut messaging, &state, egui::pos2(210.0, 310.0), 0.02);
+		assert_eq!(
+			messaging.stream_preview_hover.map(|(target, _)| target),
+			Some(first),
+			"the second streaming row must not clear the open card's hover"
+		);
+		// Switching to the second row and then into its card still works.
+		render(&ctx, &mut messaging, &state, egui::pos2(20.0, 351.0), 0.03);
+		assert_eq!(
+			messaging.stream_preview_hover.map(|(target, _)| target),
+			Some(second)
+		);
+		render(&ctx, &mut messaging, &state, egui::pos2(210.0, 344.0), 0.04);
+		assert_eq!(
+			messaging.stream_preview_hover.map(|(target, _)| target),
+			Some(second),
+			"the second card stays open once the pointer enters it"
+		);
+	}
+
+	#[test]
+	fn live_stream_section_shows_only_this_devices_capturing_share_in_the_active_call() {
+		let mut state = test_support::voice_demo_state();
+		state.demo = false;
+		let call = state.voice.active.as_ref().unwrap();
+		let context = (state.generation, call.channel, call.request);
+		let mut messaging = MessagingUi::default();
+		messaging.screen.context = Some(context);
+		messaging.screen.busy = true;
+		messaging.screen.sharing = true;
+		messaging.screen.started = Some(crate::screen::LiveShare {
+			title: None,
+			height: 720,
+			fps: 60,
+		});
+		let ctx = egui::Context::default();
+		let drawn = |messaging: &mut MessagingUi| {
+			let mut shown = false;
+			ctx.run_ui(egui::RawInput::default(), |ui| {
+				shown = messaging.voice_stream_section(ui, &state);
+			})
+			.textures_delta
+			.clear();
+			shown
+		};
+		assert!(drawn(&mut messaging));
+		// Capture has not produced a frame yet, e.g. the system picker is still open.
+		messaging.screen.sharing = false;
+		assert!(!drawn(&mut messaging));
+		messaging.screen.sharing = true;
+		// A share left over from an earlier call never labels this one.
+		messaging.screen.context = Some((context.0, context.1, context.2 + 1));
+		assert!(!drawn(&mut messaging));
+		messaging.screen.context = Some(context);
+		messaging.screen.busy = false;
+		assert!(!drawn(&mut messaging));
 	}
 
 	#[test]
@@ -6188,6 +6546,8 @@ mod tests {
 		for phase in [Phase::Connected, Phase::Waiting] {
 			for present in [false, true] {
 				let mut state = test_support::voice_demo_state();
+				// Watching from the sidebar while another conversation is open.
+				state.selected = Some(Id(20));
 				let call = state.voice.active.as_mut().unwrap();
 				call.phase = phase;
 				if !present {
@@ -6205,18 +6565,31 @@ mod tests {
 					state.voice.active.as_ref().unwrap().watching,
 					present.then_some(Id(3))
 				);
-				assert!(commands.is_empty());
+				assert_eq!(
+					state.selected,
+					Some(if present { Id(25) } else { Id(20) }),
+					"a successful watch opens its stage; a rejected one leaves navigation alone"
+				);
+				assert_eq!(
+					messaging.voice_focus,
+					present.then_some(StageFocus::Stream(Id(3)))
+				);
 				if !present {
+					assert!(commands.is_empty());
 					assert_eq!(
 						state.status,
 						"This stream is not available in the connected voice channel"
 					);
 				} else {
 					state.status = "";
+					state.selected = Some(Id(20));
+					messaging.voice_focus = None;
 					messaging.stream_preview_watch = Some((Id(25), Id(3)));
 					messaging.apply_stream_preview_watch(&mut state, &mut commands);
 					assert!(messaging.stream_preview_watch.is_none());
 					assert!(state.status.is_empty());
+					assert_eq!(state.selected, Some(Id(25)));
+					assert_eq!(messaging.voice_focus, Some(StageFocus::Stream(Id(3))));
 				}
 			}
 		}

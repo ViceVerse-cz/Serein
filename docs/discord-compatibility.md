@@ -990,8 +990,11 @@ September 27 preview update: hovering a currently streaming guild participant re
 Discord's still preview and shows it in a compact 16:9 popover with a Watch Stream action.
 The response is accepted only when it names the requested stream under Discord's CDN/media
 host and passes the existing bounded image decoder. One newer request cancels the previous
-one; hidden previews show an unavailable state. Watching while idle first joins the voice
-channel and then reuses the existing receive-only stream negotiation. The request route and
+one; hidden previews show an unavailable state. The popover keeps its anchor while the preview
+loads, treats the preview frame itself as a watch target with a hover label, and labels your own
+share as streaming with its action disabled. Watching while idle first joins the voice
+channel and then reuses the existing receive-only stream negotiation; watching from the preview
+also opens that channel's stage with the share enlarged. The request route and
 normal-account response remain unofficial and live-unverified.
 
 A device-free localhost test runs the actual sender and viewer through an MLS exchange,
