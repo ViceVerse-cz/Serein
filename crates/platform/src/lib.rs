@@ -344,11 +344,10 @@ fn save_login_with(
 	secret: &SessionSecret,
 	keyring: impl FnOnce() -> Result<(), CredentialError>,
 ) -> Result<Saved, CredentialError> {
-	// Retire an existing fallback before native IO, keeping its marker so an older keyring
-	// entry cannot return. The new token reaches a plain file only once no store is confirmed.
-	if let Some(directory) = directory.as_ref()
-		&& plaintext_login::exists(directory, name)?
-	{
+	// Fence the entry and retire any fallback before native IO: until the keyring confirms the
+	// new token, neither an older keyring entry nor an older plain file may restore. The new
+	// token reaches a plain file only once no store is confirmed.
+	if let Some(directory) = directory.as_ref() {
 		plaintext_login::mark_stale(directory, name)?;
 		plaintext_login::forget(directory, name)?;
 	}
@@ -402,7 +401,8 @@ fn credential_store() -> Result<(), CredentialError> {
 	keyring::Entry::store_status()
 		.as_ref()
 		.copied()
-		.map_err(|_| CredentialError::NoStore)
+		// macOS and Windows always have a credential store, so a failure is never its absence.
+		.map_err(|_| CredentialError::Unavailable)
 }
 /// Unlike keyring's one-shot default, a missing Secret Service is retried, so a provider that
 /// starts after Serein (or KWallet, which may need activating) is still found.
@@ -417,13 +417,17 @@ fn credential_store() -> Result<(), CredentialError> {
 	if keyring_core::get_default_store().is_some() {
 		return Ok(());
 	}
+	// Absence is rechecked even while cached: a provider that appears meanwhile must not see
+	// a save fall back to a plain file. Other failures wait out the retry interval.
 	if let Some((at, error)) = *last_failure
 		&& at.elapsed() < RETRY
+		&& (error != CredentialError::NoStore || secret_service_absence() == error)
 	{
 		return Err(error);
 	}
+	let mut kwallet = false;
 	let store = zbus_secret_service_keyring_store::Store::new().or_else(|_| {
-		activate_kwallet();
+		kwallet = activate_kwallet();
 		zbus_secret_service_keyring_store::Store::new()
 	});
 	match store {
@@ -433,7 +437,12 @@ fn credential_store() -> Result<(), CredentialError> {
 			Ok(())
 		}
 		Err(_) => {
-			let error = secret_service_absence();
+			// A wallet daemon that runs without its Secret Service interface is still a store.
+			let error = if kwallet {
+				CredentialError::Unavailable
+			} else {
+				secret_service_absence()
+			};
 			*last_failure = Some((std::time::Instant::now(), error));
 			Err(error)
 		}
@@ -445,9 +454,17 @@ fn credential_store() -> Result<(), CredentialError> {
 fn secret_service_absence() -> CredentialError {
 	use zbus::names::WellKnownName;
 	const SECRETS: &str = "org.freedesktop.secrets";
-	// Without a session bus no Secret Service provider can be reached at all.
-	let Ok(connection) = zbus::blocking::Connection::session() else {
+	// Only a session that has no bus at all is known to lack a provider; a bus that exists
+	// but refuses or fails the connection may still have one.
+	let runtime_bus = std::env::var_os("XDG_RUNTIME_DIR")
+		.is_some_and(|directory| std::path::Path::new(&directory).join("bus").exists());
+	if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none_or(|address| address.is_empty())
+		&& !runtime_bus
+	{
 		return CredentialError::NoStore;
+	}
+	let Ok(connection) = zbus::blocking::Connection::session() else {
+		return CredentialError::Unavailable;
 	};
 	let Ok(bus) = zbus::blocking::fdo::DBusProxy::new(&connection) else {
 		return CredentialError::Unavailable;
@@ -463,14 +480,15 @@ fn secret_service_absence() -> CredentialError {
 /// KWallet serves the Secret Service API but, unlike GNOME Keyring, often is not D-Bus
 /// activatable under that name, so outside a Plasma session nothing starts it. Start the
 /// wallet daemon itself, then wait briefly for it to claim the Secret Service name.
+/// Returns whether a wallet daemon is installed and running.
 #[cfg(target_os = "linux")]
-fn activate_kwallet() {
+fn activate_kwallet() -> bool {
 	use zbus::names::WellKnownName;
 	let Ok(connection) = zbus::blocking::Connection::session() else {
-		return;
+		return false;
 	};
 	let Ok(bus) = zbus::blocking::fdo::DBusProxy::new(&connection) else {
-		return;
+		return false;
 	};
 	let started = ["org.kde.kwalletd6", "org.kde.kwalletd5"]
 		.into_iter()
@@ -479,15 +497,16 @@ fn activate_kwallet() {
 				.is_ok()
 		});
 	if !started {
-		return;
+		return false;
 	}
 	let secrets = WellKnownName::from_static_str_unchecked("org.freedesktop.secrets");
 	for _ in 0..20 {
 		if bus.name_has_owner(secrets.clone().into()).unwrap_or(false) {
-			return;
+			break;
 		}
 		std::thread::sleep(std::time::Duration::from_millis(100));
 	}
+	true
 }
 fn load_entry(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
 	match entry(name)?.get_password() {
@@ -619,10 +638,16 @@ mod tests {
 		let save = |keyring: Result<(), CredentialError>| {
 			save_login_with(Some(directory.clone()), ACCOUNT, &secret, || keyring)
 		};
-		// A keyring that exists but is locked or refuses the write never gets a plain file.
+		// A keyring that exists but is locked or refuses the write never gets a plain file,
+		// and its older entry must not restore once it recovers.
 		for error in [CredentialError::Unavailable, CredentialError::TimedOut] {
 			assert_eq!(save(Err(error)), Err(error));
-			assert!(!plaintext_login::exists(&directory, ACCOUNT).unwrap());
+			assert!(
+				plaintext_login::load(&directory, ACCOUNT)
+					.unwrap()
+					.is_none()
+			);
+			assert!(plaintext_login::keyring_stale(&directory, ACCOUNT).unwrap());
 		}
 		assert_eq!(save(Err(CredentialError::NoStore)), Ok(Saved::Plaintext));
 		assert!(
@@ -634,13 +659,21 @@ mod tests {
 		// nor let the older fallback or keyring entry restore on launch.
 		for error in [CredentialError::Unavailable, CredentialError::TimedOut] {
 			assert_eq!(save(Err(error)), Err(error));
-			assert!(!plaintext_login::exists(&directory, ACCOUNT).unwrap());
+			assert!(
+				plaintext_login::load(&directory, ACCOUNT)
+					.unwrap()
+					.is_none()
+			);
 			assert!(plaintext_login::keyring_stale(&directory, ACCOUNT).unwrap());
 		}
 		assert_eq!(save(Err(CredentialError::NoStore)), Ok(Saved::Plaintext));
 		// A keyring that appears later takes the login over and removes the plain copy.
 		assert_eq!(save(Ok(())), Ok(Saved::CredentialStore));
-		assert!(!plaintext_login::exists(&directory, ACCOUNT).unwrap());
+		assert!(
+			plaintext_login::load(&directory, ACCOUNT)
+				.unwrap()
+				.is_none()
+		);
 		assert!(!plaintext_login::keyring_stale(&directory, ACCOUNT).unwrap());
 	}
 	#[test]

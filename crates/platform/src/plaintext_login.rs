@@ -89,16 +89,6 @@ pub(crate) fn keyring_stale(directory: &Path, name: &str) -> Result<bool, Creden
 		Err(_) => Err(CredentialError::Unavailable),
 	}
 }
-pub(crate) fn exists(directory: &Path, name: &str) -> Result<bool, CredentialError> {
-	if !private_directory(directory, false)? {
-		return Ok(false);
-	}
-	match std::fs::symlink_metadata(directory.join(name)) {
-		Ok(_) => Ok(true),
-		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-		Err(_) => Err(CredentialError::Unavailable),
-	}
-}
 pub(crate) fn mark_stale(directory: &Path, name: &str) -> Result<(), CredentialError> {
 	private_directory(directory, true)?;
 	let mut names = std::collections::BTreeSet::new();
