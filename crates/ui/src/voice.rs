@@ -1143,7 +1143,8 @@ impl MessagingUi {
 		));
 		if connected {
 			bar_ui.set_opacity(reveal);
-			self.call_controls(&mut bar_ui, state, channel, commands);
+			let view_foreground = if full { STAGE_TEXT } else { text };
+			self.call_controls(&mut bar_ui, state, channel, commands, view_foreground);
 		} else {
 			bar_ui.horizontal_centered(|ui| {
 				ui.add_space((ui.available_width() - 160.0).max(0.0) * 0.5);
@@ -3375,6 +3376,7 @@ impl MessagingUi {
 		state: &mut State,
 		channel: Id,
 		commands: &mut Vec<Command>,
+		view_foreground: egui::Color32,
 	) {
 		let colors = design::palette(ui);
 		let Some(call) = state.voice.active.as_ref() else {
@@ -3612,7 +3614,7 @@ impl MessagingUi {
 		);
 		view.spacing_mut().item_spacing.x = 4.0;
 		if screen_focused && side_shown {
-			let fullscreen = fullscreen_control(&mut view, STAGE_TEXT);
+			let fullscreen = fullscreen_control(&mut view, view_foreground);
 			if fullscreen.clicked() {
 				let previous = view.input(|input| input.viewport().fullscreen.unwrap_or(false));
 				self.voice_fullscreen = self
@@ -3628,7 +3630,11 @@ impl MessagingUi {
 				crate::icons::Icon::People,
 				40.0,
 				true,
-				if shown { colors.accent } else { STAGE_TEXT },
+				if shown {
+					colors.accent
+				} else {
+					view_foreground
+				},
 				if shown {
 					"Hide participants"
 				} else {
@@ -3654,7 +3660,7 @@ impl MessagingUi {
 				if self.voice_stream_volume() == 0 {
 					colors.danger
 				} else {
-					STAGE_TEXT
+					view_foreground
 				},
 				"Stream volume",
 				"Stream audio",
@@ -3900,7 +3906,7 @@ impl MessagingUi {
 							.layout(egui::Layout::left_to_right(egui::Align::Center)),
 					);
 					bar_ui.set_opacity(reveal);
-					self.call_controls(&mut bar_ui, state, channel, commands);
+					self.call_controls(&mut bar_ui, state, channel, commands, STAGE_TEXT);
 				});
 			self.apply_watch_request(state);
 		}
