@@ -3608,11 +3608,7 @@ settings-image-cache-retention = 사용하지 않는 이미지 제거 기간
 # Context: image_cache_settings
 settings-image-cache-retention-description = 이 기간 동안 다시 표시되지 않은 캐시 이미지를 디스크에서 삭제합니다.
 # Context: image_cache_settings
-settings-image-cache-days =
-    { $count ->
-        [one] { $count } day
-       *[other] { $count } days
-    }
+settings-image-cache-days = { $count }일
 
 ## crates/ui/src/slash_commands.rs
 # Context: argument
@@ -3931,11 +3927,7 @@ timeline-present-control-jump-to-present = 최신 메시지로 이동
 # Context: present_control
 timeline-present-control-new-messages-below-jump-to-present = 아래에 새 메시지가 있어요 · 최신 메시지로 이동
 # Context: present_control
-timeline-present-control-new-messages =
-    { $count ->
-        [one] { $count } new message
-       *[other] { $count } new messages
-    }
+timeline-present-control-new-messages = 새 메시지 { $count }개
 # Context: show_system
 timeline-show-system-open-this-channels-threads = 이 채널의 스레드 열기
 # Context: show_system
@@ -4159,8 +4151,8 @@ video-show-player-seek-video = 동영상 재생 위치
 video-show-player-video = 동영상
 # Context: show_player
 video-show-player-video-volume = 동영상 음량
-video-show-player-mute = 알림 끄기
-video-show-player-unmute = 알림 켜기
+video-show-player-mute = 음소거
+video-show-player-unmute = 음소거 해제
 
 ## crates/ui/src/voice.rs
 # Context: call_bar
@@ -4220,13 +4212,13 @@ voice-mute-toggle-controls-are-unavailable-in-this-build-or-preview = 이 빌드
 # Context: mute_toggle
 voice-mute-toggle-deafen = 듣기 차단
 # Context: mute_toggle
-voice-mute-toggle-mute = 알림 끄기
+voice-mute-toggle-mute = 음소거
 # Context: mute_toggle
 voice-mute-toggle-speaking-is-unavailable-in-this-channel = 이 채널에서는 말할 수 없습니다.
 # Context: mute_toggle
 voice-mute-toggle-undeafen = 듣기 차단 해제
 # Context: mute_toggle
-voice-mute-toggle-unmute = 알림 켜기
+voice-mute-toggle-unmute = 음소거 해제
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-input-settings = 입력 설정
 # Context: mute_toggle_with_settings
@@ -4278,7 +4270,7 @@ voice-voice-participant-deafened = 듣기 차단됨
 # Context: voice_participant
 voice-voice-participant-deafened-by-server = 서버에서 듣기 차단됨
 # Context: voice_participant_menu
-voice-voice-participant-menu-mute = 알림 끄기
+voice-voice-participant-menu-mute = 음소거
 # Context: voice_participant_menu
 voice-voice-participant-menu-reset-volume = 음량 초기화
 voice-server-mute = 서버에서 음소거
@@ -4288,7 +4280,7 @@ voice-disconnect-member = 연결 해제
 # Context: voice_participant_menu
 voice-voice-participant-menu-silence-this-person-on-this-device-only-nobody-else-is = 이 기기에서만 이 사람의 소리를 끕니다. 다른 사람에게는 영향을 주지 않습니다.
 # Context: voice_participant_menu
-voice-voice-participant-menu-unmute = 알림 켜기
+voice-voice-participant-menu-unmute = 음소거 해제
 # Context: voice_participant_menu
 voice-voice-participant-menu-user-volume = 사용자 음량
 # Context: voice_participant
@@ -4500,16 +4492,8 @@ search-page-previous-short = 이전
 search-page-next-short = 다음
 search-result-today-at = 오늘 { $time }
 search-result-yesterday-at = 어제 { $time }
-timeline-unread-banner-new-since =
-    { $count ->
-        [one] { $count } new message since { $time }
-       *[other] { $count } new messages since { $time }
-    }
-timeline-unread-banner-new-since-more =
-    { $count ->
-        [one] { $count }+ new message since { $time }
-       *[other] { $count }+ new messages since { $time }
-    }
+timeline-unread-banner-new-since = { $time } 이후 새 메시지 { $count }개
+timeline-unread-banner-new-since-more = { $time } 이후 새 메시지 { $count }개 이상
 
 ## crates/ui/src/onboarding.rs
 # Context: show
@@ -4717,11 +4701,7 @@ settings-preload-on-hover-description = 포인터가 머물면 대화, 프로필
 settings-auto-idle = 자리를 비우면 자리 비움으로 표시
 settings-auto-idle-description = 아래 시간 동안 키보드나 마우스 입력이 없거나 컴퓨터를 잠그면 자리 비움으로 표시합니다. 음성 통화 중에는 적용하지 않습니다.
 settings-idle-after = 자리 비움 전환 시간
-settings-idle-after-minutes =
-    { $count ->
-        [one] { $count } minute
-       *[other] { $count } minutes
-    }
+settings-idle-after-minutes = { $count }분
 
 profiles-board = 보드
 profiles-board-unavailable = 이 프로필의 보드를 사용할 수 없습니다.

@@ -562,13 +562,28 @@ mod tests {
 			args.set("count", count);
 			for key in english.lines().filter_map(|line| {
 				(!line.starts_with(['#', ' ', '\t']))
-					.then(|| line.split_once(" = ").map(|(key, _)| key))
+					.then(|| line.split_once('=').map(|(key, _)| key.trim_end()))
 					.flatten()
 			}) {
 				assert!(
 					Language::lookup_in_bundle(&korean.bundle, key, Some(&args))
 						.is_some_and(|text| !text.trim().is_empty()),
 					"Korean catalog cannot format {key} with count {count}"
+				);
+			}
+			// Count-driven UI must use the Korean catalog, not valid-but-untranslated
+			// English select expressions. Check behavior rather than pinning copy.
+			for key in [
+				"settings-image-cache-days",
+				"timeline-present-control-new-messages",
+				"timeline-unread-banner-new-since",
+				"timeline-unread-banner-new-since-more",
+				"settings-idle-after-minutes",
+			] {
+				assert_ne!(
+					Language::lookup_in_bundle(&korean.bundle, key, Some(&args)),
+					Language::English.lookup(key, Some(&args)),
+					"Korean count message remains English: {key}"
 				);
 			}
 		}
