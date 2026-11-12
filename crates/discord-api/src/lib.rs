@@ -1,5 +1,6 @@
 // Origin-fixed REST adapter. No cookies, redirects, logging, persistence or bot SDK.
 mod activity_sharing;
+mod admission;
 mod archives;
 mod badges;
 mod channel_actions;
@@ -34,7 +35,7 @@ pub mod upload;
 mod user_actions;
 use client_core::{
 	Command, Event, Reply,
-	auth::{Failure, SessionSecret},
+	auth::{Expiry, ExpirySlot, Failure, SessionSecret},
 };
 use discord_protocol::*;
 use model::Id;
@@ -61,6 +62,42 @@ const API_ORIGIN: &str = "https://discord.com/api/v10";
 /// One thread channel, or one message, stays far below this documented read budget.
 const THREAD_PREVIEW_BYTES: usize = 64 * 1024;
 
+/// `GET /channels/{id}/messages` for a report: digits become `{id}`, and any segment that is not
+/// a lowercase path word becomes `{}`. Codes, emoji and webhook tokens are `{}` even when they
+/// happen to be lowercase words. Bounded by segment count.
+fn route_label(method: &Method, path: &str) -> Box<str> {
+	const MAX_SEGMENTS: usize = 8;
+	const MAX_WORD: usize = 32;
+	let path = path.split('?').next().unwrap_or(path);
+	let mut label = format!("{method} ");
+	let (mut previous, mut before) = ("", "");
+	for (index, part) in path.split('/').filter(|part| !part.is_empty()).enumerate() {
+		if index == MAX_SEGMENTS {
+			label.push_str("/…");
+			break;
+		}
+		label.push('/');
+		let free_form = matches!(
+			previous,
+			"invites" | "templates" | "gift-codes" | "reactions"
+		) || before == "webhooks";
+		(before, previous) = (previous, part);
+		if part.bytes().all(|byte| byte.is_ascii_digit()) {
+			label.push_str("{id}");
+		} else if !free_form
+			&& part.len() <= MAX_WORD
+			&& part
+				.bytes()
+				.all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'-' | b'_' | b'@'))
+		{
+			label.push_str(part);
+		} else {
+			label.push_str("{}");
+		}
+	}
+	label.into()
+}
+
 /// The one REST origin. A block or rate limit never moves requests to another host.
 pub fn api_v10_base() -> &'static str {
 	API_ORIGIN
@@ -76,9 +113,11 @@ pub struct DiscordApi {
 	upload_verification: std::sync::Mutex<Option<upload::Waiting>>,
 	secret: Arc<SessionSecret>,
 	cooldown: Mutex<Instant>,
+	admission: admission::Admission,
 	restrictions: std::sync::Mutex<restrictions::Restrictions>,
 	requests: Semaphore,
 	terminal: tokio::sync::watch::Sender<Option<Failure>>,
+	expiry: ExpirySlot,
 	catalog: std::sync::Mutex<collectibles::Catalog>,
 	#[cfg(test)]
 	base: String,
@@ -251,7 +290,8 @@ fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 }
 /// How long a profile card waits for its optional board-game names and collectible artwork;
 /// a card without them is still complete, so it opens rather than waiting on a slow read.
-const PROFILE_EXTRAS: Duration = Duration::from_millis(600);
+/// Matches the badge catalog wait it runs beside, so it adds no latency of its own.
+const PROFILE_EXTRAS: Duration = Duration::from_secs(2);
 impl DiscordApi {
 	pub fn new(secret: Arc<SessionSecret>) -> Result<Self, Failure> {
 		Self::with_proxy(
@@ -277,9 +317,11 @@ impl DiscordApi {
 			}),
 			secret,
 			cooldown: Mutex::new(Instant::now()),
+			admission: admission::Admission::default(),
 			restrictions: std::sync::Mutex::default(),
 			requests: Semaphore::new(4),
 			terminal: tokio::sync::watch::channel(None).0,
+			expiry: ExpirySlot::default(),
 			catalog: std::sync::Mutex::default(),
 			#[cfg(test)]
 			base: API_ORIGIN.into(),
@@ -326,8 +368,60 @@ impl DiscordApi {
 		self.stop_with(Failure::ServiceBlocked);
 		Failure::ServiceBlocked
 	}
+	async fn wait_cooldown(&self, speculative: bool) -> Result<(), Failure> {
+		let mut terminal = self.terminal.subscribe();
+		loop {
+			if let Some(failure) = self.stop_reason() {
+				return Err(failure);
+			}
+			let next = *self.cooldown.lock().await;
+			if Instant::now() >= next {
+				return Ok(());
+			}
+			if speculative {
+				return Err(Failure::Capacity);
+			}
+			tokio::select! {
+				() = sleep_until(next) => {},
+				_ = terminal.changed() => {},
+			}
+		}
+	}
+	async fn admit_request(
+		&self,
+		method: &Method,
+		path: &str,
+		speculative: bool,
+		verification_expired: impl Fn() -> bool,
+	) -> Result<admission::Ticket<'_>, Failure> {
+		let ticket = tokio::select! {
+			result = self.admission.acquire(method, path, speculative) => result?,
+			failure = self.terminal_failure() => return Err(failure),
+		};
+		self.wait_cooldown(speculative).await?;
+		if verification_expired() {
+			return Err(Failure::ProtocolAt(
+				"Verification expired; start the check again",
+			));
+		}
+		Ok(ticket)
+	}
 	pub fn stop(&self) {
 		self.stop_with(Failure::Expired);
+	}
+	/// Records why the session expired into a slot the app also reads.
+	pub fn reporting_expiry(mut self, slot: ExpirySlot) -> Self {
+		self.expiry = slot;
+		self
+	}
+	/// Keeps the first cause only, so later teardown cannot mask the response that ended it.
+	pub fn note_expiry(&self, source: &'static str, route: Option<Box<str>>) {
+		let _ = self.expiry.set(Expiry { source, route });
+	}
+	fn expire(&self, source: &'static str, method: &Method, path: &str) -> Failure {
+		self.note_expiry(source, Some(route_label(method, path)));
+		self.stop();
+		Failure::Expired
 	}
 	pub fn stop_with(&self, failure: Failure) {
 		self.terminal.send_if_modified(|current| {
@@ -494,16 +588,7 @@ impl DiscordApi {
 			if let Some(failure) = self.stop_reason() {
 				return Err(failure);
 			}
-			loop {
-				let next = *self.cooldown.lock().await;
-				if speculative && Instant::now() < next {
-					return Err(Failure::Capacity);
-				}
-				sleep_until(next).await;
-				if Instant::now() >= *self.cooldown.lock().await {
-					break;
-				}
-			}
+			self.wait_cooldown(speculative).await?;
 			self.restrictions
 				.lock()
 				.map_err(|_| Failure::Protocol)?
@@ -565,7 +650,13 @@ impl DiscordApi {
 						.body(body),
 				};
 			}
-			// Proxy configuration may have awaited after admission. Recheck immediately
+			// Another response can extend the shared cooldown during route/proxy waits.
+			let mut admission = self
+				.admit_request(&method, path, speculative, || {
+					retry.is_some_and(|retry| retry.expired())
+				})
+				.await?;
+			// Proxy configuration and route admission may have awaited. Recheck immediately
 			// before dispatch so a queued request cannot bypass a new security stop.
 			self.restrictions
 				.lock()
@@ -581,6 +672,7 @@ impl DiscordApi {
 					Failure::Network
 				}
 			})?;
+			admission.feedback(response.headers());
 			let status = response.status();
 			let exhausted = response
 				.headers()
@@ -599,8 +691,7 @@ impl DiscordApi {
 				.and_then(|s| s.parse::<f64>().ok());
 
 			if status == StatusCode::UNAUTHORIZED {
-				self.stop();
-				return Err(Failure::Expired);
+				return Err(self.expire("REST HTTP 401", &method, path));
 			}
 			let cloudflare_block = response
 				.headers()
@@ -617,8 +708,7 @@ impl DiscordApi {
 				return Err(self.block_response(retry_header.or(reset)).await);
 			}
 			if exhausted && status != StatusCode::TOO_MANY_REQUESTS {
-				let mut next = self.cooldown.lock().await;
-				*next = (*next).max(Instant::now() + safe_delay(reset)?);
+				admission.hold(safe_delay(reset)?);
 			}
 			if response
 				.content_length()
@@ -654,8 +744,7 @@ impl DiscordApi {
 			if !status.is_success() {
 				let error = decode::<ErrorBody>(&bytes).unwrap_or_default();
 				if matches!(error.code, Some(40001)) {
-					self.stop();
-					return Err(Failure::Expired);
+					return Err(self.expire("REST code 40001", &method, path));
 				}
 
 				if error.code == Some(40012) {

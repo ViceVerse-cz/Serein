@@ -1985,3 +1985,26 @@ The build times are single samples and other work ran on the machine during the 
 so they show only that the BoringSSL build does not lengthen a clean macOS package build
 noticeably. Linux, Windows and Windows ARM64 (BoringSSL without assembly) sizes were not
 measured. Connection setup time, TLS throughput and memory were not measured.
+
+## REST admission verification — November 12, 2026
+
+Baseline `acccd59e`, Fedora Asahi Remix 44 aarch64, pinned Rust 1.99.1,
+standard voice-inclusive package with no default features. The normal fat-LTO
+release link exceeded the local agent group's 11.45-GiB memory cap, including
+with one Cargo job; kernel logs recorded OOM kills. No repository release-profile
+setting was changed.
+
+One baseline-only `CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_LTO=false cargo xtask
+package --format dir` completed: executable 89,101,464 bytes, apparent installation
+tree 93,814,166 bytes (`du -sb`), deterministic gzip-6 tar 57,148,868 bytes
+(sorted members, zero timestamps/ownership). These are not standard fat-LTO
+release measurements. The owner stopped further builds before an after package
+was produced, so no package-size, latency, CPU or RSS comparison is available
+and no performance improvement is claimed.
+
+The admission tracker has a compile-time 16-KiB ceiling for its two vector backing
+allocations and at most 128 entries per vector; these are bounds, not process-RSS
+measurements. Same-bucket requests are serialized; exhausted successful responses
+hold only their route/bucket, while 429 responses retain the existing conservative
+shared cooldown. Synthetic regressions cover independent-channel progress,
+queued verification expiry, aliases, major resources, eviction and terminal wakeup.

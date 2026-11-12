@@ -104,8 +104,6 @@ pub struct AppPreferences {
 	pub image_cache: model::CachePreferences,
 	/// Clock style for message times; older preferences follow the language.
 	pub time_format: model::TimeFormat,
-	/// Owner opt-in: keep saved logins in private plain files when no OS keyring works.
-	pub plaintext_login: bool,
 	/// Owner opt-in diagnostic log; older preferences deserialize with logging off.
 	pub diagnostics_log: diagnostics::Level,
 	/// First-run setup finished or skipped; absent in older preferences, so existing installs
@@ -155,7 +153,6 @@ impl Default for AppPreferences {
 			cosmetics: Default::default(),
 			image_cache: Default::default(),
 			time_format: Default::default(),
-			plaintext_login: false,
 			diagnostics_log: diagnostics::Level::Off,
 			setup_done: false,
 		}

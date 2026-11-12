@@ -264,6 +264,7 @@ impl Screen {
 			ui.screen.refresh_requested = false;
 			ui.screen.request = None;
 			ui.screen.busy = false;
+			ui.screen.sharing = false;
 			ui.screen.supported = false;
 			ui.screen.preview = None;
 			ui.screen.preview_paused = false;
@@ -477,6 +478,10 @@ impl Screen {
 		if let Some(error) = failure {
 			self.fail(error);
 		}
+		ui.screen.sharing = self
+			.live
+			.as_ref()
+			.is_some_and(|live| live.worker.captured());
 		// The worker is live while the Linux system picker is still open.
 		if self
 			.live

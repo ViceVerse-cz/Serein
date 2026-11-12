@@ -131,9 +131,10 @@ installed shared-library symbols metadata. Missing libraries or dependency
 metadata fail packaging. Explicit dependencies additionally cover dynamically
 loaded Vulkan/EGL, X11/Wayland libraries and the D-Bus/desktop-portal services that
 ELF inspection cannot discover. A working graphical session, graphics driver,
-portal backend and unlocked Secret Service provider are still necessary for the
-corresponding features. The package recommends a GTK or KDE portal backend and
-GNOME Keyring; an existing compatible provider can be used instead. The GStreamer
+portal backend are still necessary for the corresponding features. Keyrings and
+desktop-specific portal backends are only suggested, so installing the package
+never pulls in a desktop environment; the desktop already provides them. Without
+any Secret Service provider, saved logins fall back to a private file. The GStreamer
 good plugin set is required; base and libav remain recommended for inline attachment
 video loaded at run time through `decodebin`; without the needed codecs the player
 reports an unsupported format. GTK/WebKit

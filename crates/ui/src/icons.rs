@@ -39,6 +39,7 @@ pub enum Icon {
 	Video,
 	VideoSlash,
 	ScreenShare,
+	StopScreenShare,
 	Activities,
 	Soundboard,
 	Reply,
@@ -135,7 +136,7 @@ pub enum Icon {
 
 impl Icon {
 	/// Canonical atlas cells; Forward reuses the mirrored Reply cell.
-	pub const ALL: [Icon; 110] = [
+	pub const ALL: [Icon; 111] = [
 		Icon::ChevronDown,
 		Icon::ChevronRight,
 		Icon::Gear,
@@ -157,6 +158,7 @@ impl Icon {
 		Icon::Video,
 		Icon::VideoSlash,
 		Icon::ScreenShare,
+		Icon::StopScreenShare,
 		Icon::Activities,
 		Icon::Soundboard,
 		Icon::Reply,
@@ -273,6 +275,7 @@ impl Icon {
 			Icon::Video => "video-camera",
 			Icon::VideoSlash => "video-camera-slash",
 			Icon::ScreenShare => "monitor-arrow-up",
+			Icon::StopScreenShare => "monitor-x",
 			Icon::Activities => "rocket-launch",
 			Icon::Soundboard => "waveform",
 			Icon::Reply | Icon::Forward => "arrow-bend-up-left",

@@ -594,8 +594,8 @@ mod tests {
 		set_current(Language::German);
 		assert_eq!(translate("settings-chat-box"), "Chatfenster");
 		assert_eq!(
-			translate("settings-storage-page-saved-login"),
-			"Gespeicherte Anmeldung"
+			translate("settings-storage-page-your-privacy"),
+			"Ihre Privatsphäre"
 		);
 		assert_eq!(translate("embeds-poll-result-no-votes"), "No one voted");
 	}

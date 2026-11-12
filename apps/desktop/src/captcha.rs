@@ -20,6 +20,7 @@ impl Captcha {
 		window: &Arc<winit::window::Window>,
 		ctx: &egui::Context,
 		allowed: bool,
+		route: Option<&discord_api::proxy::ApiProxy>,
 	) -> Option<Command> {
 		let allowed = allowed && !state.demo;
 		let panel = &mut messaging.verification;
@@ -53,6 +54,7 @@ impl Captcha {
 				window.clone(),
 				challenge,
 				ctx.theme() == egui::Theme::Dark,
+				webview_proxy(route).as_ref(),
 				move || wake.request_repaint(),
 			) {
 				Ok(view) => self.view = Some((state.generation, flow, view)),
@@ -102,4 +104,18 @@ impl Captcha {
 		}
 		None
 	}
+}
+
+/// The webview follows only a plain HTTP CONNECT proxy; anything else stays on the OS route.
+fn webview_proxy(route: Option<&discord_api::proxy::ApiProxy>) -> Option<platform::captcha::Proxy> {
+	let Some(discord_api::proxy::ApiProxy::Url { url }) = route else {
+		return None;
+	};
+	let url = url::Url::parse(url)
+		.ok()
+		.filter(|url| url.scheme() == "http")?;
+	Some(platform::captcha::Proxy {
+		host: url.host_str()?.to_owned(),
+		port: url.port_or_known_default()?,
+	})
 }

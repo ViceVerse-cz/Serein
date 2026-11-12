@@ -1,5 +1,5 @@
-//! Explicit opt-in saved-login fallback. Secret files are private and bounded; empty
-//! authority markers prevent older keyring entries reappearing after fallback deletion.
+//! Saved-login fallback for systems without any OS keyring. Secret files are private and
+//! bounded; empty authority markers prevent older keyring entries reappearing after deletion.
 use crate::CredentialError;
 use client_core::auth::SessionSecret;
 use std::io::{Read, Write};
@@ -11,13 +11,12 @@ const MAX_BYTES: u64 = 2048;
 const MAX_ENTRIES: usize = 10; // Launch, eight remembered accounts and one incoming account.
 const MAX_MARKERS: usize = 64; // Bounded tombstones for native stores awaiting deletion.
 const MAX_FILES: usize = MAX_ENTRIES + MAX_MARKERS + 1;
-static CONFIG: Mutex<(Option<PathBuf>, bool)> = Mutex::new((None, false));
+static CONFIG: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-/// Keep the directory while disabled so Forget and startup cleanup can still remove secrets.
-pub fn configure(directory: Option<PathBuf>, enabled: bool) {
-	*CONFIG.lock().unwrap_or_else(PoisonError::into_inner) = (directory, enabled);
+pub fn configure(directory: Option<PathBuf>) {
+	*CONFIG.lock().unwrap_or_else(PoisonError::into_inner) = directory;
 }
-pub fn configuration() -> (Option<PathBuf>, bool) {
+pub fn configuration() -> Option<PathBuf> {
 	CONFIG
 		.lock()
 		.unwrap_or_else(PoisonError::into_inner)
@@ -46,17 +45,6 @@ fn entries(directory: &Path) -> Result<Vec<std::fs::DirEntry>, CredentialError> 
 		files.push(file.map_err(|_| CredentialError::Unavailable)?);
 	}
 	Ok(files)
-}
-/// Removes secret files and interrupted writes, retaining only credential-free authority markers.
-pub fn forget_all(directory: &Path) -> Result<(), CredentialError> {
-	for file in entries(directory)? {
-		let name = file.file_name();
-		let name = name.to_str().ok_or(CredentialError::Unavailable)?;
-		if valid_name(name) || name.starts_with(".pending-") || name.ends_with(".tmp") {
-			std::fs::remove_file(file.path()).map_err(|_| CredentialError::Unavailable)?;
-		}
-	}
-	sync_directory(directory)
 }
 /// Interrupted temporary files never participate in restore and are removed before new IO.
 pub fn cleanup_temporary(directory: &Path) -> Result<(), CredentialError> {
@@ -302,12 +290,6 @@ mod tests {
 		assert!(!keyring_stale(&directory, &format!("{}.2", crate::ACCOUNT)).unwrap());
 		// Orphan cleanup makes room for the incoming account before its roster is committed.
 		save(&directory, &format!("{}.99", crate::ACCOUNT), &secret).unwrap();
-		forget_all(&directory).unwrap();
-		assert!(
-			load(&directory, &format!("{}.1", crate::ACCOUNT))
-				.unwrap()
-				.is_none()
-		);
 		keyring_current(&directory, crate::ACCOUNT).unwrap();
 		assert!(!keyring_stale(&directory, crate::ACCOUNT).unwrap());
 	}
