@@ -2,7 +2,7 @@ name: Nix test build
 on:
   push:
     branches: [main]
-    paths: &paths
+    paths:
       - "flake.*"
       - "packaging/nix/**"
       - ".github/workflows/nix.yml"
@@ -16,9 +16,6 @@ on:
       - "LICENSE*"
       - "THIRD_PARTY_NOTICES.md"
       - "README.md"
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths: *paths
   workflow_dispatch:
 
 concurrency:

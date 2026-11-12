@@ -1,8 +1,259 @@
 # Performance findings
 
+## Voice connection ping
+
+Compared `5a11f95b` with the voice ping change using locked Rust 1.99.1 release builds
+with `--features demo`. Windows x64 build 26300.9711, Ryzen 7 7800X3D, about 32 GiB RAM,
+DX12 and the same 1120 × 760 demo window. Launch `serein.exe --demo --demo-voice`,
+leave the connection popup closed with the pointer off the controls, warm up for eight
+seconds and sample `WorkingSet64` about every 100 ms for twelve seconds. CPU is process
+CPU time divided by elapsed time, as a percentage of one logical core. Settled working
+set averages the final five samples. Private bytes are read at the end of the run.
+Two runs per revision, in baseline/change/change/baseline order. No child processes
+were present at the end of the runs.
+
+| Metric | Baseline | Voice ping |
+| --- | ---: | ---: |
+| Demo executable | 100,484,608 B | 100,369,920 B |
+| Idle CPU, range | 0.384–0.388% | 0.258–0.647% |
+| Peak working set, range | 145.81–158.10 MiB | 142.33–142.36 MiB |
+| Settled working set, range | 145.81–158.09 MiB | 142.33–142.36 MiB |
+| Settled private bytes, range | 178.90–194.93 MiB | 178.56–180.00 MiB |
+
+The preliminary run, before controlling pointer position, showed the working set moving
+in the opposite direction. The short samples do not establish a memory or CPU improvement.
+The fixture renders synthetic RTT. Actual call CPU, GPU allocations and frame timing were
+not measured. The transport samples existing ACKs without scheduling an extra probe. The
+desktop keeps up to 24 millisecond values per connection.
+
 Recent synthetic/offline measurements are workload-specific. They do not establish live Discord
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
+
+## G-SYNC steady refresh offer — November 10, 2026
+
+Baseline `09bee5a` and this branch were built with the pinned Rust 1.99.1 toolchain and locked
+dependencies on Windows 11 x64 (build 26200). Standard release packages use `cargo xtask package`
+(voice included, demo and development data disabled), each revision from its own worktree.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 98,454,528 B | 98,438,144 B | -16,384 B (-0.017%) |
+| `dist/` regular-file payload (233 files) | 102,828,189 B | 102,811,805 B | -16,384 B (-0.017%) |
+| ZIP of `dist/` (`7z a -tzip -mx=9`) | 53,784,480 B | 53,791,915 B | +7,435 B (+0.014%) |
+
+The executable is the only `dist/` file that differs. The smaller executable and larger archive
+are one build each and are not an improvement or a regression.
+
+The G-SYNC check ran on an RTX PRO 6000 (driver 32.0.16.2114) driving one 3440×1440 240 Hz
+display with G-SYNC on. Three concurrent checks in a debug build each reported within 27–28 ms
+of being started, including the worker thread, loading `nvapi64.dll` and unloading it again.
+In a debug `--features demo` build temporarily changed to run the check, the dialog appeared and
+`nvapi64.dll` was no longer among the process modules 8 s after launch. The check runs once per
+launch until the offer is answered or the setting is on, and never afterwards. Demo fixtures skip
+it, so their idle CPU and memory were not sampled; release-build timing, a display with G-SYNC
+off and a computer without an NVIDIA driver were not measured.
+
+## Discord message toolbar and safe extension ports — November 8, 2026
+
+Baseline `21f8870b` and this branch were built with pinned Rust 1.98.1 and locked dependencies on
+Linux x86-64 (kernel 7.3.1-1-cachyos), Ryzen 9 9900X with 30 GiB RAM and an NVIDIA RTX 4070 using
+Vulkan. The host display was X11 at 3840×2160 with Xft.dpi 192. Package measurements use the standard
+voice-enabled `cargo xtask package --format dir` method on separate worktrees. The host has no `dpkg`,
+so the default `.deb` command failed for that external reason; the supported directory package was
+used for both revisions. Compression uses the same Python `tarfile` gzip method and sorted source order.
+
+| Metric / method | Baseline `21f8870b` | After this branch | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 95,117,576 B | 95,126,280 B | +8,704 B (+0.009%) |
+| Regular-file payload, 477 files each | 199,279,452 B | 199,298,284 B | +18,832 B (+0.009%) |
+| Compressed package (`tar.gz`) | 113,557,397 B | 113,566,452 B | +9,055 B (+0.008%) |
+
+The native `profile_preview` interactive fixture was built in release `--features demo` mode. The
+identical example source was copied into the baseline worktree solely to produce the same close-
+settings capture path; no baseline production code was edited. Baseline runs have no hover. Current
+runs add `--toolbar-hover=normal`, which injects pointer movement and `ModifiersChanged` through
+`RawInput` every frame. Both use `--demo --page=chat --interactive --close-settings` at 1120×760
+logical pixels and `chat_demo_state()` with no account, network, voice call or helper process.
+
+Three runs per revision alternated baseline/current order. Each run had a 15-second warmup followed
+by 20 one-second samples of `/proc/<pid>/stat` and `/proc/<pid>/status`. Reported CPU sums user and
+system ticks converted to a percentage of one logical core for the actual sample interval. Memory is
+resident-set size (VmRSS in KiB), with main and helper processes summed separately when present.
+No helpers existed, so combined equals main-process RSS. Peak uses each run's maximum; settled is
+its final sample. No cargo build or source edit ran during sampling.
+
+| Runtime metric, three runs | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Idle CPU, median | 9.396% of one core | 9.696% of one core | +0.300 percentage points (+3.19% relative) |
+| Peak combined RSS, maximum | 235,040 KiB | 234,244 KiB | −796 KiB (−0.34%) |
+| Settled combined RSS, median | 234,416 KiB | 233,768 KiB | −648 KiB (−0.28%) |
+
+Per-run values and package figures are retained in
+[the measurement record](pr-evidence/discord-message-toolbar/measurements.json), and both hover
+images and their reproduction commands are in
+[the capture guide](pr-evidence/discord-message-toolbar/README.md). The fixture intentionally
+represents missing-hover versus active-hover, so the CPU delta is not an isolated implementation
+regression estimate. Small memory differences are treated as noise, not an improvement. Frame time,
+startup latency and live Discord performance were not measured.
+
+## High-resolution attachment sources — November 6, 2026
+
+Offline comparison against `77bdddae` on Ubuntu 24.04.5 x86-64, an Intel i5-1235U,
+Rust 1.98.1 and locked dependencies. A standalone development wrapper compiled the production
+`platform::video` module and opened the same original one-frame 7680×4320 H.264 MOV on both
+revisions. The wrapper only checked decoder startup, output dimensions and frame validity;
+it did not run the desktop renderer or contact Discord.
+
+| Synthetic workload / output | Baseline | After |
+| --- | --- | --- |
+| Open the 8K source | Rejected with `TOO_LARGE` | Decodes at 3840×2160 |
+| Copied NV12 picture | No picture produced | 12,441,600 B |
+
+Generate that source with development-only FFmpeg 6.1.1:
+
+```sh
+ffmpeg -f lavfi -i color=c=blue:s=7680x4320:r=1 -frames:v 1 -c:v libx264 -threads 2 -preset ultrafast -crf 30 -pix_fmt yuv420p -movflags +faststart video-8k.mov
+```
+
+The Linux regression also decodes the committed 4096×64 fixture to 3840×60 and scales an
+oversized rotated raw source to 1920×3840. The optional FFmpeg filter was exercised separately:
+4096×64 becomes 3840×60, and 4096×4096 becomes 2880×2880. Each is one functional run,
+not a throughput measurement. Copied frames retain their existing pixel/byte ceilings;
+OS codec allocations, including full-resolution input surfaces, are additional. No whole-app
+RSS, CPU, GPU time, playback latency, sustained frame rate or native Windows/macOS runtime
+measurement was collected. Cross-compilation is not evidence of native playback.
+
+## Window placement save after a move — November 5, 2026
+
+Baseline `2b593b1` (`main` after #893) and this branch were built with the pinned Rust 1.98.1
+toolchain and locked dependencies on Windows 11 x64 (build 26200). Standard release packages use
+`cargo xtask package` (voice included, demo and development data disabled), each from its own
+worktree.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,905,472 B | 92,905,472 B | 0 B |
+| `dist/` regular-file payload (233 files) | 97,265,351 B | 97,265,351 B | 0 B |
+| ZIP of `dist/` (`7z a -tzip -mx=9`) | 52,172,759 B | 52,172,071 B | −688 B (−0.001%) |
+
+Only `serein.exe` differs, at the same size; the ZIP difference is compression noise.
+
+Debug builds with default features and an empty `SEREIN_DATA_DIR` show the sign-in screen, which
+renders nothing while idle. After the window had been idle for 8 s, a script moved it with
+`SetWindowPos` (no input, activation or z-order change) while PresentMon 2.6.0 recorded the next
+4 s. The baseline presented no frame and kept the startup placement in `app_preferences`; this
+branch presented three frames about 1.0 s after the move and saved the new position. An idle window
+gains no frames, and while a placement is unsaved the wake adds at most one frame per 500 ms.
+Interactive drags were not re-measured.
+
+## Window drags on Windows — November 5, 2026
+
+Review follow-up: the measurements below describe the original `1f664628` implementation.
+The revised adapter schedules a delayed 500 ms repaint on Windows moves to ensure a final
+placement/monitor sample, and placement saving now checks elapsed monotonic time. This can
+produce occasional frames during a long drag; the original present counts do not measure
+this revision. Fresh Windows drag/idle and package-size comparisons are unavailable on the
+Ubuntu review host: no native Windows session or C linker (`cc`) is available, and both
+`cargo xtask check` and `cargo xtask package` stop while building xtask dependencies.
+No updated performance claim is made.
+
+Baseline `d57433c` and this branch were built with the pinned Rust 1.98.1 toolchain and locked
+dependencies on Windows 11 x64 (build 26200). Standard release packages use `cargo xtask package`
+(voice included, demo and development data disabled), each built the same day from its own worktree.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,904,448 B | 92,904,960 B | +512 B (+0.0006%) |
+| `dist/` regular-file payload (233 files) | 97,263,837 B | 97,264,814 B | +977 B (+0.001%) |
+| ZIP of `dist/` (`7z a -tzip -mx=9`) | 52,175,667 B | 52,172,078 B | −3,589 B (−0.007%) |
+
+Only `serein.exe` and the copied `THIRD_PARTY_NOTICES.md` (+465 B) differ; the smaller ZIP is
+compression noise.
+
+Drags used release `--features demo` builds of both revisions on a Ryzen 5 7600X with 32 GB of
+RAM, an RTX 5060 Ti (DX12, driver 32.0.16.1742) and a 3840×2160 120 Hz display at 100% scale. A
+script placed the 1120×760 window at (400, 300), focused it, waited 12 s, pressed the primary
+button 14 px into the title strip and sent absolute `SendInput` moves to the right: 300 steps of
+3 px every 4 ms (750 px/s) or 200 steps of 8 px every 2 ms (4,000 px/s). After each step it read
+`GetWindowRect`. Lag is how far the window trailed the cursor at that sample; position updates
+count samples at which the window had moved. PresentMon 2.6.0 counted presents between the first
+and last move. Character Map, a native Win32 window, is the reference. Runs alternated between
+revisions. Two disturbed runs were repeated: one window lost focus before the press, and one was
+sampled before it had come to rest.
+
+| Drag workload | Lag mean / p95 / max | Position updates | Longest gap | Presents during move |
+| --- | ---: | ---: | ---: | ---: |
+| Character Map, 750 px/s (1 run) | 0.1 / 0 / 3 px | 297 / 300 | 10.3 ms | — |
+| Baseline `--demo`, 750 px/s (3 runs) | 2.0–2.4 / 6 / 6–18 px | 140–144 / 300 | 12–28 ms | 139–145 |
+| After `--demo`, 750 px/s (3 runs) | 0 / 0 / 0 px | 300 / 300 | 4.1–4.2 ms | 2–3 |
+| Character Map, 4,000 px/s (1 run) | 0 / 0 / 0 px | 200 / 200 | 2.1 ms | — |
+| Baseline `--demo`, 4,000 px/s (3 runs) | 14.0–15.1 / 32 / 32–40 px | 49 / 200 | 10–12 ms | 48 |
+| After `--demo`, 4,000 px/s (3 runs) | 0.6–2.0 / 8 / 8–16 px | 178–192 / 200 | 4.0–6.0 ms | 1 |
+| Baseline sign-in screen, 750 px/s (2 runs) | 1.9–2.2 / 6 / 6–24 px | 141–144 / 300 | 12.1–34.7 ms | 140–144 |
+| After sign-in screen, 750 px/s (2 runs) | 0 / 0 / 0 px | 300 / 300 | 4.1 ms | 0 |
+
+The baseline presented about 120 frames/s for the whole drag, and the window moved at most once
+per frame, so it trailed the cursor by up to 40 px. After the change the window moves with each
+input sample, as Character Map does; the remaining presents are the composer's 500 ms caret blink.
+At 4,000 px/s it still trails some samples by one 8 px step. The sign-in runs use the same binaries
+without `--demo` and with an empty `SEREIN_DATA_DIR`, so they also save placements: every run stored
+the final position (1300, 300) before the script ended the process about 2.5 s after the drag.
+
+Process CPU during the 750 px/s drag fell from 0.42–0.50 s to 0.28–0.36 s, and it stayed at
+0.13–0.17 s at 4,000 px/s. Working set after each drag was 175.9–177.2 MiB for both revisions.
+Idle `--demo` runs, maximized and focused, waited 12 s and sampled 20 s (first 2 s discarded): both
+revisions presented 2.00 frames/s at 500 ms intervals, with 0.08–0.15% of one core and a
+207.9–208.1 MiB working set for the baseline (2 runs) and 0.08–0.39% and 208.2 MiB after (3 runs).
+Four baseline idle samples that recorded user input were discarded.
+
+Synthetic input arrives at an exact rate and the script reads window positions from another
+process, so these numbers are not end-to-end display latency. Physical mice on other hardware,
+other refresh rates and drags while the UI renders continuously (an animation or playing video)
+were not measured; continuous rendering still paces a drag to the refresh rate. macOS and Linux
+keep upstream egui-winit behavior and gain only the rested placement save and the cached minimum
+size, which were not measured there.
+
+## Steady refresh rate for VRR displays — November 5, 2026
+
+Baseline `d57433c` and this branch were built with the pinned Rust 1.98.1 toolchain and locked
+dependencies on Windows 11 x64 (build 26200). Standard release packages use `cargo xtask package`
+(voice included, demo and development data disabled). Each revision was built from its own
+worktree, and each executable was checked for the new localization key before measuring.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 92,904,448 B | 92,909,056 B | +4,608 B (+0.005%) |
+| `dist/` regular-file payload (233 files) | 97,263,837 B | 97,268,445 B | +4,608 B (+0.005%) |
+| ZIP of `dist/` (`7z a -tzip -mx=9`) | 52,175,667 B | 52,177,524 B | +1,857 B (+0.004%) |
+
+All other `dist/` files are byte-identical.
+
+Frame presentation used release `--features demo` builds of both revisions, sampled with
+PresentMon 2.6.0 (`--v1_metrics`) on a Ryzen 5 7600X with 32 GB of RAM, an RTX 5060 Ti (DX12,
+driver 32.0.16.1742) and a 3840×2160 120 Hz display at 100% scale. The default `--demo` fixture ran
+maximized and focused, with the pointer parked on another display. Each run waited 12 s and then
+sampled 20 s; the first 2 s of each capture are discarded. CPU is process CPU time as a percentage
+of one logical core, and memory is the working set at the end of the sample. The steady-on runs
+add `--demo-steady-refresh`, which starts the fixture with the setting on.
+
+| Workload (3 runs each) | Presents/s | Interval p50 / p95 | CPU, one core | Working set |
+| --- | ---: | ---: | ---: | ---: |
+| Baseline | 2.00 | 500.0 / 500.5–501.1 ms | 0–0.08% | 212.3–212.8 MiB |
+| Steady refresh off | 2.00 | 500.0 / 500.7–500.8 ms | 0–0.15% | 212.5–213.2 MiB |
+| Steady refresh on | 119.7 | 8.33 / 8.48–8.53 ms | 25.5–29.9% | 212.8–213.1 MiB |
+
+Idle presents arrive every 500 ms, consistent with egui's text-cursor blink in the focused
+composer, and DWM composes those frames. With the setting on, 99.7–99.9% of intervals fall within
+±25% of the 8.33 ms refresh period, with two or three longer gaps per run (37–50 ms at most), and
+PresentMon reports every frame as hardware independent flip. Each refresh runs a full UI pass, so
+the cost grows with refresh rate and window size. A separate run that moved focus to the desktop
+after 10 s stopped presenting within that second.
+
+Every run above kept focus for the whole sample. Runs that lost focus or received input were
+discarded and repeated; input detection was added for the final batch, and two of the
+setting-off runs come from an earlier batch without it. PresentMon records presents and flips,
+not the panel's refresh, so display-side VRR behavior is not measured here.
 
 ## Push-to-talk notification cues — October 29, 2026
 
@@ -1175,6 +1426,43 @@ allocation limit) instead of up to the 500 MB upload limit plus a second copy.
 Standard no-default-features macOS packages built from both revisions: executable 68,509,584 B in
 both, installed app 74,547,919 B in both, `ditto` ZIP 48,179,547 vs 48,179,867 B (+320 B).
 
+## Native camera 15/30 fps selection (2026-11-08)
+
+Compared the upstream `21f8870` camera implementation (fixed 15 fps) with this PR's
+selectable-rate implementation using the same Logitech C270 at 640×480 on Nobara Linux 44
+x86-64. The host used Rust 1.98.1, GNOME SDK 51 and an AMD Radeon RX 9070 XT. Each camera
+run lasted eight seconds with a one-second warmup. The local probe counted frames and encoded
+outputs only; it did not save video or connect to a call.
+
+| Camera probe | Baseline | PR head | Change |
+| --- | ---: | ---: | ---: |
+| Selected 15 fps | 10.00 fps (68/69 encoded) | 14.86 fps (103/104 encoded) | +4.86 fps |
+| Selected 30 fps | Not available | 29.66 fps (208/208 encoded) | New mode |
+
+These are single local measurements, not sustained multi-run statistics or a guarantee of
+network delivery. The optional physical probe is `crates/discord-voice/examples/camera_fps_probe.rs`.
+Build it with:
+
+```sh
+cargo build --locked -p discord-voice -p platform --features winit/wayland --example camera_fps_probe
+```
+
+Then explicitly run `target/debug/examples/camera_fps_probe 15` and
+`target/debug/examples/camera_fps_probe 30` on a machine where `/dev/video0` is the camera to
+test. It starts local capture only, counts frames and encoded outputs, and saves or sends nothing.
+It needs direct access to the camera device; Flatpak's default sandbox does not provide it.
+
+Matching standard directory-format release packages were built separately from upstream `21f8870`
+and the PR with `cargo xtask package --format dir`, Rust 1.98.1, GNOME SDK 51 and x86-64:
+
+| Metric | Baseline | PR head | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 95,345,224 B | 95,346,760 B | +1,536 B |
+| Installed directory payload | 100,044,456 B | 100,045,992 B | +1,536 B |
+
+Compressed distribution size and camera CPU/RSS were not measured. The physical capture probe
+does not test Discord call signaling or remote presentation; those remain owner-controlled live checks.
+
 ## Camera continuity during Gateway resume (2026-10-29)
 
 Compared clean baseline `d93a8415406f7f36de5dc8b14e12ad0fc7134bb4` with runtime
@@ -1545,3 +1833,159 @@ then alternated after builds finished: one warmup and five samples per binary. T
 It is a general reducer check, not an avatar-burst, input-latency or camera benchmark.
 Background OS load is not controlled; no speed improvement is claimed. Process RSS,
 UI frame latency, physical audio/camera behavior and live Discord remain unmeasured.
+
+### UHD inline playback — November 6, 2026
+
+Inline attachment playback now shares the live bound: 3840×2160 worth of pixels within a
+3840-pixel square, so portrait and ultrawide videos fit as well. Compressed and YUV samples
+keep their 16 MiB cap; Windows' RGB frames get a separate 40 MiB cap covering a 4K frame
+with aligned surface padding. The player still queues two decoded frames, at most about
+25 MiB as 4K NV12 or 64 MiB as RGBA; 1080p and smaller videos allocate as before. Frames
+larger than the renderer's maximum texture side are refused by the CPU fallback. The
+FFmpeg transcode fallback still produces at most 1080p. No 4K playback CPU or memory
+measurement has been recorded yet.
+
+## Graphics API picker — November 6, 2026
+
+Baseline `354d033b31e89079e50c16684852fd2b039c225a` versus the picker implementation in
+this PR. Ubuntu 24.04 x86_64 in Docker, pinned Rust 1.98.1 and lockfile, unchanged
+standard voice-enabled fat-LTO release profile. Both `cargo xtask package` runs
+passed the DEB smoke checks: executable, metadata, ownership, contents and host
+shared-library closure. Workspace artifacts were cleared for the relevant build
+profile before switching source worktrees; third-party artifacts were reused.
+
+| Metric / method | Baseline | Picker | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 93,979,096 B | 94,000,216 B | +21,120 B (+0.022%) |
+| Installed regular files (245 files) | 98,678,328 B | 98,699,448 B | +21,120 B (+0.021%) |
+| Compressed DEB | 47,292,820 B | 47,296,900 B | +4,080 B (+0.009%) |
+
+Installed bytes sum regular files extracted from the unsigned DEB; they are not
+filesystem allocation or RAM. One release package was built per revision. These
+small byte changes establish no runtime performance improvement.
+
+Supplementary native X11/Xvfb samples use **debug demo builds**, not the standard
+release binaries. Intel Core i5-1235U, 30 GiB visible RAM, llvmpipe (LLVM 20.1.2)
+through Vulkan, scale 1.0, 1280 × 950 window, General scrolled to its bottom with
+Automatic selected and the picker closed. One 10-second warmup and one 20-sample
+run per revision, one-second sampling.
+
+| Native debug demo metric | Baseline | Picker | Delta |
+| --- | ---: | ---: | ---: |
+| Idle CPU (100% = one core) | 0.10% | 0.10% | Below 0.01 percentage-point reporting precision |
+| Peak / settled sampled process RSS | 349,192,192 B | 349,691,904 B | +499,712 B (+0.143%) |
+
+CPU uses process user/system tick deltas over elapsed time; RSS uses `/proc`'s
+`VmRSS`. Both runs lasted about 20.007 seconds. Concurrent compilation is
+uncontrolled noise; display-server/compiler CPU and memory were not sampled.
+No release CPU/RSS, p95 frame/startup latency, physical GPU speed or affected
+Windows hardware behavior was measured. No Discord session or live media was used.
+See [the native evidence and reproduction procedure](pr-evidence/render-api-picker/README.md).
+
+## Read ACK reconciliation — November 6, 2026
+
+Baseline PR #908 head `449211db` versus the final Rust sources in the follow-up containing
+creation-time service-contribution evidence, profile-independent ignored status, and the
+`--ack-reconciliation` replay mode.
+Ubuntu 24.04.5 x86-64, Intel i5-1235U, Rust 1.98.1, unchanged dependency versions, identical
+release settings and benchmark harness. The baseline's isolated workspace prunes unrelated
+lockfile entries; its dependency name/version/source triples were checked against the repository
+lockfile. Neither repository lockfile nor dependency versions change in this PR.
+
+Run `cargo replay --ack-reconciliation`. Each process constructs eight independent full ledgers
+for partial reads and eight for bulk reads, each with 4,096 observed messages across 1,024
+private channels. Timing includes only HTTP-result reduction, excluding fixture construction and
+request preparation. Each bulk result confirms all 1,024 channels. Warm each binary once, then
+run five counterbalanced pairs (AB, BA, AB, BA, AB) with no concurrent container builds or
+packaging. Pilot runs showed substantial host timing noise; this final series uses the
+counterbalanced order rather than interpreting an A-first ordering bias as an improvement.
+
+| Timed work per process | Baseline median (range) | After median (range) | Median delta |
+| --- | ---: | ---: | ---: |
+| Eight partial confirmations | 0.115081 ms (0.111414–0.143944) | 0.117672 ms (0.111691–0.176175) | +0.002591 ms (+2.3%) |
+| Eight 1,024-channel bulk confirmations | 43.083 ms (40.419–64.171) | 42.706 ms (40.043–74.701) | −0.377 ms (−0.9%) |
+
+Ranges overlap substantially; neither a speedup nor an absence of regression is established.
+The values are not universal latency results. These workloads exercise the added ledger scans and
+bulk reconciliation, unlike the earlier message-only replay. No speedup, RSS, UI timing, live
+Discord compatibility, or message-creation classification throughput is established by them.
+The ledger keeps its 4,096-row / 128-KiB bound. The PR records the measured runtime commit;
+subsequent documentation-only changes do not affect these Rust sources.
+
+## Mention shortcuts — November 6, 2026
+
+Baseline `62df2c92f839c4329cc9e7d05052afa599a61bb5` and runtime source
+`363b7e6bf27ccb1b82a966aa81fe2f35e746cf05`, rebuilt in separate worktrees and output
+directories. Ubuntu 26.04.1 x86-64, Rust 1.98.1, pinned lockfile, release optimization,
+voice included, `--no-default-features`, `CARGO_BUILD_JOBS=1`, and
+`CARGO_PROFILE_RELEASE_LTO=false` on both revisions. Each build ran alone in a cgroup
+with `MemoryMax=8 GiB` and `MemorySwapMax=0`, respecting the owner's 16 GB system budget.
+
+One package per revision. Executable/archive sizes use `stat`; installed payload sums
+regular-file sizes from `dpkg-deb --fsys-tarfile`, and Installed-Size comes from Debian
+control metadata. Both packages passed the existing 245-file payload, metadata,
+ownership, desktop-entry and host shared-library closure checks. No packages were
+installed and no authenticated client was launched for these measurements.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable (bytes) | 96,549,240 | 96,608,376 | +59,136 (+0.061%) |
+| Installed payload (regular-file bytes) | 101,248,472 | 101,307,608 | +59,136 (+0.058%) |
+| Debian Installed-Size (KiB) | 99,077 | 99,135 | +58 (+0.059%) |
+| Compressed .deb (bytes) | 47,427,752 | 47,451,612 | +23,860 (+0.050%) |
+
+The standard fat-LTO attempt reached the enforced 8-GiB build cap and was stopped
+by the kernel. The successful local packages use the explicit LTO override above;
+these size results apply to that build setting. The source profile and dependency
+versions are unchanged. Later commits add tests/documentation only.
+
+Native computer use exposed no applications in this session. Native before/after
+screenshots, UI workload warmup/sampling, CPU/RSS, display scale/renderer observation,
+frame latency and live Discord verification remain unavailable. No UI speed or
+memory improvement is established by these package sizes.
+
+## Browser transport identity (PR #904) — November 10, 2026
+
+Baseline `6e6f18b0` (main, reqwest 0.13.5 over rustls/AWS-LC) and source `1ab16ae0`
+(wreq 6.0.0-rc.31 over BoringSSL), each built once with `cargo xtask package` in its own
+worktree and a new target directory. macOS 27.2 arm64, Apple M5 Pro / 24 GiB, Homebrew Rust
+1.99.1, pinned lockfile, standard release profile including voice.
+
+Executable and archive sizes use `stat`; the bundle size is `du -sk dist/Serein.app`; the
+archive is `ditto -c -k --keepParent dist/Serein.app`. No client was launched and nothing
+contacted Discord.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable (bytes) | 76,200,032 | 75,296,368 | −903,664 (−1.19%) |
+| `Serein.app` on disk (KiB) | 81,072 | 80,200 | −872 (−1.08%) |
+| Zipped bundle (bytes) | 52,158,053 | 51,734,674 | −423,379 (−0.81%) |
+| Clean `cargo xtask package` (s, one sample) | 282 | 275 | −7 |
+
+The build times are single samples and other work ran on the machine during the baseline,
+so they show only that the BoringSSL build does not lengthen a clean macOS package build
+noticeably. Linux, Windows and Windows ARM64 (BoringSSL without assembly) sizes were not
+measured. Connection setup time, TLS throughput and memory were not measured.
+
+## REST admission verification — November 12, 2026
+
+Baseline `acccd59e`, Fedora Asahi Remix 44 aarch64, pinned Rust 1.99.1,
+standard voice-inclusive package with no default features. The normal fat-LTO
+release link exceeded the local agent group's 11.45-GiB memory cap, including
+with one Cargo job; kernel logs recorded OOM kills. No repository release-profile
+setting was changed.
+
+One baseline-only `CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_LTO=false cargo xtask
+package --format dir` completed: executable 89,101,464 bytes, apparent installation
+tree 93,814,166 bytes (`du -sb`), deterministic gzip-6 tar 57,148,868 bytes
+(sorted members, zero timestamps/ownership). These are not standard fat-LTO
+release measurements. The owner stopped further builds before an after package
+was produced, so no package-size, latency, CPU or RSS comparison is available
+and no performance improvement is claimed.
+
+The admission tracker has a compile-time 16-KiB ceiling for its two vector backing
+allocations and at most 128 entries per vector; these are bounds, not process-RSS
+measurements. Same-bucket requests are serialized; exhausted successful responses
+hold only their route/bucket, while 429 responses retain the existing conservative
+shared cooldown. Synthetic regressions cover independent-channel progress,
+queued verification expiry, aliases, major resources, eviction and terminal wakeup.

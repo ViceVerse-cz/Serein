@@ -561,7 +561,7 @@ fn user_picker(
 	avatars: &mut Avatars,
 	demo: bool,
 ) {
-	egui::ComboBox::from_id_salt(key)
+	crate::design::Select::from_id_salt(key)
 		.width(ui.available_width())
 		.selected_text(caption(
 			query,
@@ -607,7 +607,7 @@ fn channel_picker(
 	needle: &mut String,
 	channels: &[&Channel],
 ) {
-	egui::ComboBox::from_id_salt("in")
+	crate::design::Select::from_id_salt("in")
 		.width(ui.available_width())
 		.selected_text(caption(
 			query,
@@ -660,7 +660,7 @@ fn choices(
 	values: &[(&str, &str)],
 	multi: bool,
 ) {
-	egui::ComboBox::from_id_salt(key)
+	crate::design::Select::from_id_salt(key)
 		.width(ui.available_width())
 		.selected_text(caption(
 			query,

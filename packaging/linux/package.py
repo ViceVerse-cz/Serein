@@ -155,8 +155,11 @@ def package(root, application_version):
             "Maintainer: Serein contributors <noreply@github.com>\n"
             "Homepage: https://github.com/ViceVerse-cz/Serein\n"
             f"Installed-Size: {installed_kib}\nDepends: {depends}\n"
-            "Recommends: gnome-keyring, xdg-desktop-portal-gnome | xdg-desktop-portal-kde | xdg-desktop-portal-wlr, "
-            "gstreamer1.0-plugins-bad, gstreamer1.0-gl, gstreamer1.0-libav\n"
+            # apt installs Recommends by default; a keyring or desktop-specific portal would
+            # pull a whole desktop. The desktop provides both, and logins fall back to a file.
+            "Recommends: gstreamer1.0-plugins-bad, gstreamer1.0-gl, gstreamer1.0-libav\n"
+            "Suggests: gnome-keyring | kwalletmanager | keepassxc, "
+            "xdg-desktop-portal-gtk | xdg-desktop-portal-kde | xdg-desktop-portal-wlr\n"
             "Description: Unofficial native Discord client\n"
             " Native Rust desktop client for existing Discord accounts.\n"
             " Unofficial, experimental, and not endorsed by Discord.\n",
@@ -171,8 +174,8 @@ def package(root, application_version):
         shutil.copyfile(candidate, artifact)
         print(f"Unsigned Debian package: {artifact} ({artifact.stat().st_size} bytes; "
               f"Installed-Size {installed_kib} KiB).")
-        print(f"Runtime dependencies: {depends}; recommends a Secret Service provider "
-              "(gnome-keyring) and GStreamer plugins for inline attachment video.")
+        print(f"Runtime dependencies: {depends}; recommends GStreamer plugins for inline "
+              "attachment video and suggests a Secret Service provider.")
 
 
 def native_elf(root):
@@ -257,7 +260,7 @@ def rpm_package(temporary, stage, application_version, distro):
         "Summary: Unofficial native Discord client\nLicense: MIT OR Apache-2.0\n"
         "URL: https://github.com/ViceVerse-cz/Serein\n"
         + "\n".join(f"Requires: {item}" for item in requires)
-        + f"\nRecommends: gnome-keyring, {plugins}\n"
+        + f"\nRecommends: {plugins}\nSuggests: gnome-keyring\n"
         "\n%description\nNative Rust client for existing Discord accounts, including voice.\n"
         "Unofficial, experimental, and not endorsed by Discord.\n"
         "\n%install\nmkdir -p %{buildroot}\ncp -a %{_serein_payload}/. %{buildroot}/\n"
@@ -321,7 +324,7 @@ def arch_package(temporary, stage, application_version, libraries):
         f"arch=('{platform.machine()}')\nurl='https://github.com/ViceVerse-cz/Serein'\n"
         "license=('MIT' 'Apache-2.0')\noptions=('!strip' '!debug' '!lto')\n"
         + "depends=(" + " ".join(f"'{item}'" for item in sorted(depends)) + ")\n"
-        "optdepends=('gnome-keyring: Secret Service credential provider' "
+        "optdepends=('gnome-keyring: OS keyring for saved logins (any Secret Service provider works)' "
         "'gst-plugins-bad: hardware screen encoding' 'gst-libav: inline video')\n"
         "package() { cp -a \"$startdir/payload/.\" \"$pkgdir/\"; }\n", encoding="utf-8")
     checked("makepkg", "--nodeps", "--noconfirm", cwd=temporary)

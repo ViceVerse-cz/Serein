@@ -388,7 +388,7 @@ fn custom_row(
 			egui::vec2((ui.available_width() - 210.0).max(0.0), 46.0),
 			egui::Layout::left_to_right(egui::Align::Center),
 			|ui| {
-				egui::ComboBox::from_id_salt(("keybind-custom-action", index))
+				crate::design::Select::from_id_salt(("keybind-custom-action", index))
 					.width((ui.available_width() - 12.0).clamp(80.0, 210.0))
 					.selected_text(action.label())
 					.show_ui(ui, |ui| {

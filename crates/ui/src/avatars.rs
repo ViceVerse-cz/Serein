@@ -2,10 +2,12 @@
 mod cosmetics;
 pub(crate) mod media;
 
+use egui::emath::GuiRounding;
 use egui::{ColorImage, TextureHandle};
 use model::User;
 use std::{
 	collections::{HashMap, HashSet},
+	sync::Arc,
 	time::{Duration, Instant},
 };
 
@@ -37,6 +39,10 @@ const EMOJI_TEXTURE_BYTES: usize = 16 * 1024 * 1024;
 const TEXTURES: usize = 512;
 const TEXTURE_BYTES: usize = 64 * 1024 * 1024;
 const IDLE_TEXTURES: Duration = Duration::from_secs(60);
+const SOURCE_EDGE: usize = 128;
+const SOURCE_BYTES: usize = 48 * 1024 * 1024;
+const FIT_BYTES: usize = 16 * 1024 * 1024;
+const FITS_PER_IMAGE: usize = 4;
 /// Longest edge for string-keyed artwork: stickers, picker previews, banners and activity art.
 pub const EMBED_EDGE: u32 = 512;
 /// Longest edge for profile frame layers, which span a whole card.
@@ -45,6 +51,12 @@ pub const FRAME_EDGE: u32 = 1024;
 pub const EFFECT_EDGE: u32 = 1024;
 const REQUESTS: usize = 128;
 const RETRY: Duration = Duration::from_secs(5);
+
+struct Fit {
+	edge: u32,
+	frame: Option<usize>,
+	texture: TextureHandle,
+}
 
 struct AvatarKey {
 	avatar: Option<String>,
@@ -76,6 +88,10 @@ pub(crate) struct Avatars {
 	effect_reloaded: HashSet<String>,
 	textures: HashMap<String, (Instant, TextureHandle)>,
 	emoji_textures: HashMap<String, (Instant, TextureHandle)>,
+	sources: HashMap<String, Arc<ColorImage>>,
+	source_bytes: usize,
+	fits: HashMap<String, Vec<Fit>>,
+	fit_bytes: usize,
 	emoji_bytes: usize,
 	avatar_keys: HashMap<model::Id, AvatarKey>,
 	clock: u64,
@@ -142,7 +158,8 @@ fn paint_texture(
 	cover: bool,
 	tint: egui::Color32,
 ) -> egui::Rect {
-	let source = texture.size_vec2();
+	let rect = rect.round_to_pixels(ui.pixels_per_point());
+	let source = texture.resolution_vec2();
 	let image = egui::Image::new(texture).tint(tint);
 	if cover {
 		let scale = (rect.width() / source.x).max(rect.height() / source.y);
@@ -281,7 +298,7 @@ impl Avatars {
 			return;
 		}
 		// Reserve the playback texture too; the shared still stays unchanged for other widgets.
-		let frame_bytes = || frames.iter().map(|(_, image)| image.pixels.len() * 4);
+		let frame_bytes = || frames.iter().map(|(_, image)| image.pixels().len() * 4);
 		let bytes = frame_bytes().sum::<usize>() + frame_bytes().max().unwrap_or(0);
 		let edge = if key.starts_with("effect-") {
 			EFFECT_EDGE as usize
@@ -290,7 +307,9 @@ impl Avatars {
 		};
 		if bytes > ANIMATION_BYTES
 			|| frames.iter().any(|(delay, image)| {
-				*delay < Duration::from_millis(20) || image.size[0] > edge || image.size[1] > edge
+				*delay < Duration::from_millis(20)
+					|| image.resolution()[0] > edge
+					|| image.resolution()[1] > edge
 			}) {
 			return;
 		}
@@ -361,6 +380,14 @@ impl Avatars {
 				self.animations.remove(key);
 				self.released.remove(key);
 				self.wanted.remove(key);
+				if let Some(image) = self.sources.remove(key) {
+					self.source_bytes = self.source_bytes.saturating_sub(image.pixels().len() * 4);
+				}
+				if let Some(fits) = self.fits.remove(key) {
+					for fit in fits {
+						self.fit_bytes = self.fit_bytes.saturating_sub(fit.texture.byte_size());
+					}
+				}
 				false
 			});
 		}
@@ -395,6 +422,130 @@ impl Avatars {
 			self.attempts.insert(key.clone(), (now, false));
 			self.requests.push(key);
 		}
+	}
+	fn forget_raster(&mut self, key: &str) {
+		if let Some(image) = self.sources.remove(key) {
+			self.source_bytes = self.source_bytes.saturating_sub(image.pixels().len() * 4);
+		}
+		if let Some(fits) = self.fits.remove(key) {
+			for fit in fits {
+				self.fit_bytes = self.fit_bytes.saturating_sub(fit.texture.byte_size());
+			}
+		}
+	}
+	fn remember_source(&mut self, key: &str, image: &ColorImage) {
+		let edge = image.resolution()[0].max(image.resolution()[1]);
+		if key.starts_with("emoji-") || edge == 0 || edge > SOURCE_EDGE {
+			return;
+		}
+		let bytes = image.pixels().len() * 4;
+		if let Some(old) = self.sources.insert(key.to_owned(), Arc::new(image.clone())) {
+			self.source_bytes = self.source_bytes.saturating_sub(old.pixels().len() * 4);
+		}
+		self.source_bytes += bytes;
+		while self.source_bytes > SOURCE_BYTES {
+			let Some(drop_key) = self
+				.sources
+				.keys()
+				.find(|stored| stored.as_str() != key)
+				.cloned()
+			else {
+				break;
+			};
+			if let Some(old) = self.sources.remove(&drop_key) {
+				self.source_bytes = self.source_bytes.saturating_sub(old.pixels().len() * 4);
+			}
+		}
+	}
+	fn raster_pixels(&self, key: &str, animated: bool) -> Option<Arc<ColorImage>> {
+		if animated {
+			let animation = self.animations.get(key)?;
+			return animation
+				.frames
+				.get(animation.frame)
+				.map(|(_, image)| Arc::clone(image));
+		}
+		self.sources.get(key).map(Arc::clone)
+	}
+	fn coverage(
+		&mut self,
+		ctx: &egui::Context,
+		key: &str,
+		full: &TextureHandle,
+		animated: bool,
+		rect: egui::Rect,
+	) -> TextureHandle {
+		let physical = rect.width().max(rect.height()) * ctx.pixels_per_point();
+		let source = full.resolution()[0].max(full.resolution()[1]) as u32;
+		let Some(edge) = crate::resample::fitted_edge(source, physical) else {
+			return full.clone();
+		};
+		let frame = animated
+			.then(|| self.animations.get(key).map(|animation| animation.frame))
+			.flatten();
+		if let Some(texture) = self.fits.get(key).and_then(|fits| {
+			fits.iter()
+				.find(|fit| fit.edge == edge && fit.frame == frame)
+				.map(|fit| fit.texture.clone())
+		}) {
+			return texture;
+		}
+		let Some(pixels) = self.raster_pixels(key, animated) else {
+			return full.clone();
+		};
+		let image = crate::resample::downscale(&pixels, edge);
+		self.store_fit(ctx, key, edge, frame, image)
+	}
+	fn store_fit(
+		&mut self,
+		ctx: &egui::Context,
+		key: &str,
+		edge: u32,
+		frame: Option<usize>,
+		image: ColorImage,
+	) -> TextureHandle {
+		if self.fit_bytes > FIT_BYTES {
+			self.fits.clear();
+			self.fit_bytes = 0;
+		}
+		let has_slot = self.fits.get(key).is_some_and(|fits| {
+			fits.iter()
+				.any(|fit| fit.edge == edge && fit.frame.is_some() == frame.is_some())
+		});
+		if has_slot {
+			let (texture, before, after) = {
+				let fits = self.fits.get_mut(key).expect("fit slot");
+				let slot = fits
+					.iter_mut()
+					.find(|fit| fit.edge == edge && fit.frame.is_some() == frame.is_some())
+					.expect("fit slot");
+				let before = slot.texture.byte_size();
+				slot.texture.set(image, egui::TextureOptions::LINEAR);
+				slot.frame = frame;
+				(slot.texture.clone(), before, slot.texture.byte_size())
+			};
+			self.fit_bytes = self.fit_bytes.saturating_sub(before) + after;
+			return texture;
+		}
+		let dropped = {
+			let fits = self.fits.entry(key.to_owned()).or_default();
+			if fits.len() >= FITS_PER_IMAGE {
+				Some(fits.remove(0).texture.byte_size())
+			} else {
+				None
+			}
+		};
+		if let Some(dropped) = dropped {
+			self.fit_bytes = self.fit_bytes.saturating_sub(dropped);
+		}
+		let texture = ctx.load_texture("fitted-image", image, egui::TextureOptions::LINEAR);
+		self.fit_bytes += texture.byte_size();
+		self.fits.entry(key.to_owned()).or_default().push(Fit {
+			edge,
+			frame,
+			texture: texture.clone(),
+		});
+		texture
 	}
 	pub fn accept(&mut self, ctx: &egui::Context, key: String, image: Option<ColorImage>) {
 		if key.starts_with("media:") {
@@ -431,11 +582,11 @@ impl Avatars {
 			128
 		};
 		let Some(image) = image.filter(|image| {
-			image.size[0] > 0
-				&& image.size[1] > 0
-				&& image.size[0] <= limit
-				&& image.size[1] <= limit
-				&& image.pixels.len() == image.size[0] * image.size[1]
+			image.resolution()[0] > 0
+				&& image.resolution()[1] > 0
+				&& image.resolution()[0] <= limit
+				&& image.resolution()[1] <= limit
+				&& image.pixels().len() == image.resolution()[0] * image.resolution()[1]
 		}) else {
 			// A failed or rejected load ends any decode an effect layer was waiting for.
 			self.effect_decoding.remove(&key);
@@ -449,6 +600,8 @@ impl Avatars {
 			return;
 		};
 		self.attempts.remove(&key);
+		self.forget_raster(&key);
+		self.remember_source(&key, &image);
 		let (textures, bytes, limit, byte_limit) = if key.starts_with("emoji-") {
 			(
 				&mut self.emoji_textures,
@@ -462,13 +615,21 @@ impl Avatars {
 		if let Some((_, old)) = textures.remove(&key) {
 			*bytes -= old.byte_size();
 		}
-		while textures.len() >= limit || *bytes + image.pixels.len() * 4 > byte_limit {
+		while textures.len() >= limit || *bytes + image.pixels().len() * 4 > byte_limit {
 			let oldest = textures
 				.iter()
 				.min_by_key(|(_, (age, _))| *age)
 				.map(|(key, _)| key.clone())
 				.expect("texture cache over budget");
 			self.animations.remove(&oldest);
+			if let Some(image) = self.sources.remove(&oldest) {
+				self.source_bytes = self.source_bytes.saturating_sub(image.pixels().len() * 4);
+			}
+			if let Some(fits) = self.fits.remove(&oldest) {
+				for fit in fits {
+					self.fit_bytes = self.fit_bytes.saturating_sub(fit.texture.byte_size());
+				}
+			}
 			*bytes -= textures
 				.remove(&oldest)
 				.expect("oldest texture")
@@ -479,6 +640,10 @@ impl Avatars {
 		*bytes += texture.byte_size();
 		self.revision += 1;
 		textures.insert(key, (Instant::now(), texture));
+	}
+	/// Read-only admission hint; this never queues an image request or changes recency.
+	pub(crate) fn custom_image_cached(&self, id: model::Id) -> bool {
+		self.emoji_textures.contains_key(&format!("emoji-{id}"))
 	}
 	pub(crate) fn unicode_image(
 		&mut self,
@@ -520,7 +685,7 @@ impl Avatars {
 			for y in 3..29 {
 				for x in 3..29 {
 					if (x + y + id.0 as usize) % 10 < 7 {
-						image.pixels[y * 32 + x] = if id.0 == 9001 {
+						image.pixels_mut()[y * 32 + x] = if id.0 == 9001 {
 							egui::Color32::from_rgb(55, 180, 165)
 						} else {
 							egui::Color32::from_rgb(240, 150, 70)
@@ -615,7 +780,7 @@ impl Avatars {
 						let eye = (x - 47).pow(2) + (y - 59).pow(2) < 5 * 5
 							|| (x - 81).pow(2) + (y - 59).pow(2) < 5 * 5;
 						let smile = (52..=76).contains(&x) && (80..=84).contains(&y);
-						image.pixels[(y * 128 + x) as usize] = if eye || smile {
+						image.pixels_mut()[(y * 128 + x) as usize] = if eye || smile {
 							egui::Color32::from_rgb(35, 39, 48)
 						} else {
 							tint
@@ -829,7 +994,7 @@ impl Avatars {
 		if let Some(entry) = self.textures.get_mut(&key) {
 			entry.0 = Instant::now();
 			let texture = animated_texture.as_ref().unwrap_or(&entry.1);
-			let texture = (texture.id(), texture.size());
+			let texture = (texture.id(), texture.resolution());
 			Some(texture)
 		} else {
 			if !demo {
@@ -848,8 +1013,7 @@ impl Avatars {
 		demo: bool,
 	) {
 		// A profile theme decides the banner, as on Discord; the legacy accent is a fallback.
-		let color = profile
-			.theme_colors
+		let color = crate::profiles::shown_theme_colors(ui.ctx(), profile)
 			.map(crate::profiles::Theme::banner)
 			.or(profile
 				.accent_color
@@ -877,7 +1041,7 @@ impl Avatars {
 				for y in 0..48 {
 					for x in 0..128 {
 						if (x + y) % 48 < 12 {
-							image.pixels[y * 128 + x] = stripe;
+							image.pixels_mut()[y * 128 + x] = stripe;
 						}
 					}
 				}
@@ -887,7 +1051,7 @@ impl Avatars {
 			if let Some(entry) = self.textures.get_mut(&key) {
 				entry.0 = Instant::now();
 				let texture = animated_texture.as_ref().unwrap_or(&entry.1);
-				let source = texture.size_vec2();
+				let source = texture.resolution_vec2();
 				let scale = (rect.width() / source.x).max(rect.height() / source.y);
 				let uv_size = rect.size() / (source * scale);
 				let uv = egui::Rect::from_center_size(egui::pos2(0.5, 0.5), uv_size);
@@ -930,7 +1094,7 @@ impl Avatars {
 						for x in 0..32_i32 {
 							let d = (x - 16).pow(2) + (y - 16).pow(2);
 							if d < 196 {
-								image.pixels[(y * 32 + x) as usize] =
+								image.pixels_mut()[(y * 32 + x) as usize] =
 									if d < 36 { egui::Color32::WHITE } else { tint };
 							}
 						}
@@ -989,7 +1153,7 @@ impl Avatars {
 				for y in 0..32 {
 					let shade = top.lerp_to_gamma(egui::Color32::BLACK, y as f32 / 48.0);
 					for x in 0..24 {
-						image.pixels[y * 24 + x] = shade;
+						image.pixels_mut()[y * 24 + x] = shade;
 					}
 				}
 				self.attempts.insert(key.clone(), (Instant::now(), false));
@@ -1138,14 +1302,18 @@ impl Avatars {
 			animated_texture =
 				self.advance_animation(ui.ctx(), key, ui.rect_contains_pointer(rect));
 		}
-		let Some(entry) = self.textures.get_mut(key) else {
-			return false;
+		let animated = animated_texture.is_some();
+		let full = {
+			let Some(entry) = self.textures.get_mut(key) else {
+				return false;
+			};
+			if ui.is_rect_visible(rect) {
+				entry.0 = Instant::now();
+			}
+			animated_texture.unwrap_or_else(|| entry.1.clone())
 		};
-		if ui.is_rect_visible(rect) {
-			entry.0 = Instant::now();
-		}
-		let texture = animated_texture.as_ref().unwrap_or(&entry.1);
-		paint_texture(ui, texture, rect, radius, cover, egui::Color32::WHITE);
+		let texture = self.coverage(ui.ctx(), key, &full, animated, rect);
+		paint_texture(ui, &texture, rect, radius, cover, egui::Color32::WHITE);
 		true
 	}
 	pub fn show_group(
@@ -1359,7 +1527,7 @@ impl Avatars {
 				for row in [8, 14, 20] {
 					for y in row..row + 3 {
 						for x in 7..25 {
-							image.pixels[y * 32 + x] = egui::Color32::WHITE;
+							image.pixels_mut()[y * 32 + x] = egui::Color32::WHITE;
 						}
 					}
 				}
@@ -1535,7 +1703,7 @@ impl Avatars {
 						if (x - 16).pow(2) + (y - 11).pow(2) < 36
 							|| (x - 16).pow(2) + (y - 31).pow(2) < 121
 						{
-							image.pixels[(y * 32 + x) as usize] = foreground;
+							image.pixels_mut()[(y * 32 + x) as usize] = foreground;
 						}
 					}
 				}
@@ -1658,7 +1826,7 @@ fn synthetic_gif(gif: &model::Gif) -> ColorImage {
 			let d = ((u - cx).powi(2) + ((v - cy) * height as f32 / width as f32).powi(2)).sqrt();
 			let glow = (1.0 - d / 0.5).clamp(0.0, 1.0).powi(2) * 0.3;
 			let band = (((u * 3.0 - v * 2.0) * std::f32::consts::PI).sin() * 0.5 + 0.5) * 0.06;
-			image.pixels[y * width + x] = egui::Color32::from_rgb(
+			image.pixels_mut()[y * width + x] = egui::Color32::from_rgb(
 				((rgb[0] + glow + band) * 255.0).min(255.0) as u8,
 				((rgb[1] + glow + band) * 255.0).min(255.0) as u8,
 				((rgb[2] + glow + band) * 255.0).min(255.0) as u8,
@@ -2133,7 +2301,7 @@ mod tests {
 		output.textures_delta.clear();
 		let key = "thumb:d507121d0467878f77578748878797875878909508";
 		assert!(images.texture_id(key).is_some());
-		assert_eq!(images.textures[key].1.size(), [23, 32]);
+		assert_eq!(images.textures[key].1.resolution(), [23, 32]);
 		// The real rendition is still requested; the placeholder only fills the wait.
 		let requests = images.take_requests();
 		assert!(
@@ -2974,7 +3142,7 @@ mod tests {
 		assert!(preview.take_requests().is_empty());
 		assert_eq!(preview.textures.len(), 1);
 		assert_eq!(
-			preview.textures[&guild.icon_key().unwrap()].1.size(),
+			preview.textures[&guild.icon_key().unwrap()].1.resolution(),
 			[32, 32]
 		);
 		avatars.request("x".repeat(2055));

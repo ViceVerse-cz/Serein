@@ -173,8 +173,16 @@ impl MessagingUi {
 		}
 		let colors = design::palette_for(&anchor.ctx);
 		let mut open = self.account_menu.open;
+		let id = anchor.id.with("account-menu");
+		let popup_anchor = egui::PopupAnchor::from(anchor);
+		const GAP: f32 = 6.0;
+		let available_height = popup_anchor.rect(id, &anchor.ctx).map_or(620.0, |rect| {
+			(rect.top() - anchor.ctx.content_rect().top() - GAP - 8.0).max(180.0)
+		});
 		egui::Popup::from_response(anchor)
-			.id(anchor.id.with("account-menu"))
+			.id(id)
+			.anchor(popup_anchor)
+			.gap(GAP)
 			.open_bool(&mut open)
 			.align(egui::RectAlign::TOP_START)
 			.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
@@ -187,7 +195,7 @@ impl MessagingUi {
 			)
 			.show(|ui| {
 				ui.set_width(340.0);
-				let height = (ui.ctx().content_rect().height() - 90.0).clamp(180.0, 620.0);
+				let height = available_height;
 				egui::ScrollArea::vertical()
 					.min_scrolled_height(height)
 					.max_height(height)

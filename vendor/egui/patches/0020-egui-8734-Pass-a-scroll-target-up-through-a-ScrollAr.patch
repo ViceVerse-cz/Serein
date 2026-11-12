@@ -1,0 +1,221 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Mon, 9 Nov 2026 13:03:24 +0100
+Subject: [PATCH] egui#8734: Pass a scroll target up through a `ScrollArea`
+ that cannot scroll on that axis
+
+Squashed from https://github.com/emilk/egui/pull/8734 at 44d734308880.
+---
+ crates/egui/src/containers/scroll_area.rs |  21 +++-
+ crates/egui_kittest/tests/accesskit.rs    | 146 ++++++++++++++++++++++
+ 2 files changed, 161 insertions(+), 6 deletions(-)
+
+diff --git a/crates/egui/src/containers/scroll_area.rs b/crates/egui/src/containers/scroll_area.rs
+index a7f5f7fba..c09432364 100644
+--- a/crates/egui/src/containers/scroll_area.rs
++++ b/crates/egui/src/containers/scroll_area.rs
+@@ -1,7 +1,5 @@
+ //! See [`ScrollArea`] for docs.
+ 
+-#![expect(clippy::needless_range_loop)]
+-
+ use core::ops::{Add, AddAssign, BitOr, BitOrAssign};
+ 
+ use emath::GuiRounding as _;
+@@ -1190,9 +1188,14 @@ impl Prepared {
+ 
+         let mut had_explicit_scroll_adjustment = Vec2b::FALSE;
+ 
++        // Scroll targets for an axis this area cannot scroll, handed back up the stack below.
++        let mut passed_up_scroll_target = [None, None];
++
+         for d in 0..2 {
+             // We always take both scroll targets regardless of which scroll axes are enabled. This
+-            // is to avoid them leaking to other scroll areas.
++            // is to avoid them leaking to other scroll areas. A target for an axis this area
++            // cannot scroll is handed back up the stack for an enclosing `ScrollArea`, and a later
++            // sibling `ScrollArea` saves and restores it rather than taking it.
+             let scroll_target = content_ui
+                 .ctx()
+                 .pass_state_mut(|state| state.scroll_target[d].take());
+@@ -1271,14 +1274,20 @@ impl Prepared {
+                 if delta != 0.0 {
+                     had_explicit_scroll_adjustment[d] = true;
+                 }
++            } else {
++                passed_up_scroll_target[d] = scroll_target;
+             }
+         }
+ 
+-        // Restore scroll target meant for ScrollAreas up the stack (if any)
++        // Restore scroll target meant for ScrollAreas up the stack (if any).
++        // A target passed up from inside this area was set after any saved one, so it wins.
+         ui.ctx().pass_state_mut(|state| {
+             for d in 0..2 {
+-                if saved_scroll_target[d].is_some() {
+-                    state.scroll_target[d] = saved_scroll_target[d].clone();
++                if let Some(scroll_target) = passed_up_scroll_target[d]
++                    .take()
++                    .or_else(|| saved_scroll_target[d].clone())
++                {
++                    state.scroll_target[d] = Some(scroll_target);
+                 }
+             }
+         });
+diff --git a/crates/egui_kittest/tests/accesskit.rs b/crates/egui_kittest/tests/accesskit.rs
+index 59ca1d6b5..0ca620888 100644
+--- a/crates/egui_kittest/tests/accesskit.rs
++++ b/crates/egui_kittest/tests/accesskit.rs
+@@ -773,6 +773,152 @@ fn sensed_ui_can_be_scrolled_into_view() {
+     );
+ }
+ 
++/// A scroll target inside a `ScrollArea` that cannot scroll in that direction belongs to the
++/// nearest enclosing `ScrollArea` that can.
++///
++/// `egui_extras::Table` with `vscroll(false)` builds exactly such an area around its body.
++#[test]
++fn scroll_into_view_passes_through_a_scroll_area_that_cannot_scroll() {
++    let mut harness = Harness::builder()
++        .with_size(egui::vec2(400.0, 300.0))
++        .build_ui_state(
++            |ui, rect: &mut egui::Rect| {
++                egui::ScrollArea::vertical().show(ui, |ui| {
++                    ui.allocate_space(egui::vec2(ui.available_width(), 1500.0));
++                    egui::ScrollArea::new([false, false]).show(ui, |ui| {
++                        *rect = ui.button("Target").rect;
++                    });
++                });
++            },
++            egui::Rect::NOTHING,
++        );
++    harness.run();
++
++    harness.get_by_label("Target").scroll_to_me();
++    harness.run();
++
++    let rect = *harness.state();
++    assert!(
++        0.0 <= rect.min.y && rect.max.y <= 300.0,
++        "not scrolled into view: {rect:?}"
++    );
++}
++
++/// The vertical half of a scroll target inside a horizontal `ScrollArea` belongs to the
++/// vertical `ScrollArea` around it.
++#[test]
++fn scroll_into_view_passes_through_a_horizontal_scroll_area() {
++    let mut harness = Harness::builder()
++        .with_size(egui::vec2(400.0, 300.0))
++        .build_ui_state(
++            |ui, rect: &mut egui::Rect| {
++                egui::ScrollArea::vertical().show(ui, |ui| {
++                    ui.allocate_space(egui::vec2(ui.available_width(), 1500.0));
++                    egui::ScrollArea::horizontal().show(ui, |ui| {
++                        *rect = ui.button("Target").rect;
++                    });
++                });
++            },
++            egui::Rect::NOTHING,
++        );
++    harness.run();
++
++    harness.get_by_label("Target").scroll_to_me();
++    harness.run();
++
++    let rect = *harness.state();
++    assert!(
++        0.0 <= rect.min.y && rect.max.y <= 300.0,
++        "not scrolled into view: {rect:?}"
++    );
++}
++
++/// A scroll target passed up by a `ScrollArea` is not taken by a sibling `ScrollArea` shown
++/// after it.
++#[test]
++fn a_passed_up_scroll_target_is_not_taken_by_a_sibling() {
++    let mut harness = Harness::builder()
++        .with_size(egui::vec2(400.0, 300.0))
++        .build_ui_state(
++            |ui, rects: &mut [egui::Rect; 2]| {
++                egui::ScrollArea::vertical()
++                    .id_salt("outer")
++                    .show(ui, |ui| {
++                        ui.allocate_space(egui::vec2(ui.available_width(), 1500.0));
++                        egui::ScrollArea::new([false, false])
++                            .id_salt("fixed")
++                            .show(ui, |ui| {
++                                rects[0] = ui.button("Target").rect;
++                            });
++                        egui::ScrollArea::vertical()
++                            .id_salt("sibling")
++                            .max_height(50.0)
++                            .show(ui, |ui| {
++                                ui.allocate_space(egui::vec2(ui.available_width(), 500.0));
++                                rects[1] = ui.label("Sibling top").rect;
++                            });
++                    });
++            },
++            [egui::Rect::NOTHING; 2],
++        );
++    harness.run();
++    let sibling_top = harness.state()[1].min.y;
++    let target_top = harness.state()[0].min.y;
++
++    harness.get_by_label("Target").scroll_to_me();
++    harness.run();
++
++    let [target, sibling] = *harness.state();
++    assert!(
++        0.0 <= target.min.y && target.max.y <= 300.0,
++        "not scrolled into view: {target:?}"
++    );
++    assert_eq!(
++        sibling.min.y - sibling_top,
++        target.min.y - target_top,
++        "the sibling scrolled by itself rather than with the outer area"
++    );
++}
++
++/// A scroll target passed up with no enclosing `ScrollArea` to take it does not scroll a
++/// sibling `ScrollArea` instead (the layout from <https://github.com/emilk/egui/issues/985>).
++#[test]
++fn a_passed_up_scroll_target_with_no_enclosing_scroll_area_scrolls_no_sibling() {
++    let mut harness = Harness::builder()
++        .with_size(egui::vec2(400.0, 300.0))
++        .build_ui_state(
++            |ui, rects: &mut [egui::Rect; 2]| {
++                egui::ScrollArea::horizontal()
++                    .id_salt("strip")
++                    .show(ui, |ui| {
++                        ui.horizontal(|ui| {
++                            ui.allocate_space(egui::vec2(1500.0, 20.0));
++                            rects[0] = ui.button("Target").rect;
++                        });
++                    });
++                egui::ScrollArea::vertical()
++                    .id_salt("sibling")
++                    .show(ui, |ui| {
++                        rects[1] = ui.label("Sibling top").rect;
++                        ui.allocate_space(egui::vec2(ui.available_width(), 1500.0));
++                    });
++            },
++            [egui::Rect::NOTHING; 2],
++        );
++    harness.run();
++    let sibling_before = harness.state()[1];
++
++    harness.get_by_label("Target").scroll_to_me();
++    harness.run();
++
++    let [target, sibling] = *harness.state();
++    assert!(
++        0.0 <= target.min.x && target.max.x <= 400.0,
++        "not scrolled into view: {target:?}"
++    );
++    assert_eq!(sibling, sibling_before, "the sibling scrolled");
++}
++
+ /// <https://github.com/emilk/egui/issues/8699>
+ #[test]
+ fn text_edit_value_can_be_set_via_accesskit_without_focus() {

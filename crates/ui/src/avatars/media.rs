@@ -45,13 +45,13 @@ pub(crate) fn blur_radius(strength: u8) -> u32 {
 /// Separable box blur, once per axis. Two axes are enough for a smooth mask and
 /// keep the one-off cost bounded when a still arrives on the UI thread.
 pub(crate) fn blur_box(image: &ColorImage, radius: u32) -> ColorImage {
-	let (width, height) = (image.size[0], image.size[1]);
+	let (width, height) = (image.resolution()[0], image.resolution()[1]);
 	if radius == 0 || width == 0 || height == 0 {
 		return image.clone();
 	}
 	let radius = radius as isize;
 	let horizontal = {
-		let mut pixels = Vec::with_capacity(image.pixels.len());
+		let mut pixels = Vec::with_capacity(image.pixels().len());
 		for y in 0..height {
 			for x in 0..width {
 				let (start, end) = (
@@ -60,7 +60,7 @@ pub(crate) fn blur_box(image: &ColorImage, radius: u32) -> ColorImage {
 				);
 				let mut sum = [0_u32; 4];
 				for sx in start..=end {
-					let [r, g, b, a] = image.pixels[y * width + sx].to_array();
+					let [r, g, b, a] = image.pixels()[y * width + sx].to_array();
 					for (total, channel) in sum.iter_mut().zip([r, g, b, a]) {
 						*total += u32::from(channel);
 					}
@@ -70,7 +70,7 @@ pub(crate) fn blur_box(image: &ColorImage, radius: u32) -> ColorImage {
 		}
 		pixels
 	};
-	let mut pixels = Vec::with_capacity(image.pixels.len());
+	let mut pixels = Vec::with_capacity(image.pixels().len());
 	for y in 0..height {
 		let (start, end) = (
 			(y as isize - radius).max(0) as usize,
@@ -87,11 +87,7 @@ pub(crate) fn blur_box(image: &ColorImage, radius: u32) -> ColorImage {
 			pixels.push(average(sum, end - start + 1));
 		}
 	}
-	ColorImage {
-		size: [width, height],
-		pixels,
-		..Default::default()
-	}
+	ColorImage::new([width, height], pixels)
 }
 
 fn average(sum: [u32; 4], count: usize) -> Color32 {
@@ -107,7 +103,7 @@ fn average(sum: [u32; 4], count: usize) -> Color32 {
 
 /// Box-filter downscale; cheap at mask resolution and stable for animated source stills.
 pub(crate) fn resize_box(image: &ColorImage, edge: u32) -> ColorImage {
-	let (width, height) = (image.size[0] as u32, image.size[1] as u32);
+	let (width, height) = (image.resolution()[0] as u32, image.resolution()[1] as u32);
 	let (target_width, target_height) = fit_edge(width, height, edge.max(1));
 	if (target_width, target_height) == (width, height) {
 		return image.clone();
@@ -127,7 +123,7 @@ pub(crate) fn resize_box(image: &ColorImage, edge: u32) -> ColorImage {
 			let mut count = 0;
 			for sy in (y0..y1).step_by(step_y as usize) {
 				for sx in (x0..x1).step_by(step_x as usize) {
-					let [r, g, b, a] = image.pixels[(sy * width + sx) as usize].to_array();
+					let [r, g, b, a] = image.pixels()[(sy * width + sx) as usize].to_array();
 					for (total, channel) in sum.iter_mut().zip([r, g, b, a]) {
 						*total += u32::from(channel);
 					}
@@ -142,11 +138,7 @@ pub(crate) fn resize_box(image: &ColorImage, edge: u32) -> ColorImage {
 			));
 		}
 	}
-	ColorImage {
-		size: [target_width as usize, target_height as usize],
-		pixels,
-		..Default::default()
-	}
+	ColorImage::new([target_width as usize, target_height as usize], pixels)
 }
 
 /// Scale `width`×`height` so the longer side is at most `edge`, never upscaling.
@@ -449,7 +441,7 @@ impl Held {
 		let source = self
 			.mask_source
 			.as_ref()
-			.map_or(0, |source| source.pixels.len() * 4);
+			.map_or(0, |source| source.pixels().len() * 4);
 		pixels + source + self.mask.as_ref().map_or(0, |(_, mask)| mask.byte_size())
 	}
 	fn mask_texture(&mut self, ctx: &egui::Context, strength: u8) -> Option<TextureHandle> {
@@ -753,11 +745,11 @@ impl MediaLibrary {
 		}
 		let limit = size.longest() as usize;
 		let Some(image) = image.filter(|image| {
-			image.size[0] > 0
-				&& image.size[1] > 0
-				&& image.size[0] <= limit
-				&& image.size[1] <= limit
-				&& image.pixels.len() == image.size[0] * image.size[1]
+			image.resolution()[0] > 0
+				&& image.resolution()[1] > 0
+				&& image.resolution()[0] <= limit
+				&& image.resolution()[1] <= limit
+				&& image.pixels().len() == image.resolution()[0] * image.resolution()[1]
 		}) else {
 			if motion == Motion::Animated && is_motion_video(source.as_str()) {
 				// Retrying cannot help a clip this decoder rejects, and it is not cached on disk.
@@ -858,14 +850,16 @@ impl MediaLibrary {
 		}
 		let now = Instant::now();
 		let total: Duration = frames.iter().map(|(delay, _)| *delay).sum();
-		let frame_bytes = || frames.iter().map(|(_, image)| image.pixels.len() * 4);
+		let frame_bytes = || frames.iter().map(|(_, image)| image.pixels().len() * 4);
 		let bytes = frame_bytes().sum::<usize>() + frame_bytes().max().unwrap_or(0);
 		let limit = size.longest() as usize;
 		if total.is_zero()
 			|| frames.len() > MAX_FRAMES
 			|| bytes > lane.frame_bytes()
 			|| frames.iter().any(|(delay, image)| {
-				*delay < Duration::from_millis(20) || image.size[0] > limit || image.size[1] > limit
+				*delay < Duration::from_millis(20)
+					|| image.resolution()[0] > limit
+					|| image.resolution()[1] > limit
 			}) {
 			// The decoder applies the same budget, so a retry would be rejected again.
 			slot.held.remove(index);
@@ -1008,7 +1002,7 @@ impl MediaLibrary {
 		for y in 0..height {
 			for x in 0..width {
 				let (u, v) = (x * 320 / width, y * 180 / height);
-				image.pixels[y * width + x] = if u < 8 || v < 8 || u >= 312 || v >= 172 {
+				image.pixels_mut()[y * width + x] = if u < 8 || v < 8 || u >= 312 || v >= 172 {
 					Color32::WHITE
 				} else if u % 40 < 4 || v % 40 < 4 {
 					Color32::from_rgb(80, 180, 160)
@@ -1058,18 +1052,18 @@ fn mask_rasters_shrink_with_strength_and_blur_spreads_edges() {
 	assert_eq!(blur_radius(0), 1);
 	let image = ColorImage::filled([64, 32], Color32::WHITE);
 	let sharp = resize_box(&image, 128);
-	assert_eq!(sharp.size, [64, 32]);
+	assert_eq!(sharp.resolution(), [64, 32]);
 	let soft = resize_box(&image, 16);
-	assert_eq!(soft.size, [16, 8]);
-	assert!(soft.pixels.iter().all(|pixel| *pixel == Color32::WHITE));
+	assert_eq!(soft.resolution(), [16, 8]);
+	assert!(soft.pixels().iter().all(|pixel| *pixel == Color32::WHITE));
 
 	let mut edge = ColorImage::filled([16, 1], Color32::BLACK);
-	for pixel in &mut edge.pixels[8..] {
+	for pixel in &mut edge.pixels_mut()[8..] {
 		*pixel = Color32::WHITE;
 	}
 	let blurred = blur_box(&edge, 2);
 	assert!(
-		blurred.pixels[7].r() > 0 && blurred.pixels[7].r() < 255,
+		blurred.pixels()[7].r() > 0 && blurred.pixels()[7].r() < 255,
 		"edge must be softened"
 	);
 }
@@ -1386,7 +1380,7 @@ impl Avatars {
 				let texture = match &held.pixels {
 					Pixels::Still(still) | Pixels::Playing { still, .. } => still,
 				};
-				let [width, height] = texture.size();
+				let [width, height] = texture.resolution();
 				[width as u32, height as u32]
 			})
 			.max_by_key(|[width, height]| u64::from(*width) * u64::from(*height))

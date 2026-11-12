@@ -21,6 +21,8 @@ instance. Local variables do not survive the call. Use the separately granted
 | `AppInvocation` | Those actions plus app snapshots and app change events | `input.invocation.action` |
 | `ExtendedAppInvocation` | `AppInvocation` plus queries, account settings, folders and tracked action results | `input.invocation.invocation.action` |
 | `TickInvocation` | Preview `tick` actions, or a mixed tick/panel handler | `input.invocation.action` |
+| `MenuInvocation` | `AppInvocation` plus the user, channel or server a context-menu action was chosen on | `input.invocation.invocation.action` |
+| `MessageActionInvocation` | `AppInvocation` plus the IDs of the message a `message` action was chosen on | `input.invocation.invocation.action` |
 
 The wrappers keep the original `Invocation` fields unchanged. Their `invocation`
 field is a Rust convenience: JSON stays flat. There is no JSON object named
@@ -35,7 +37,7 @@ The examples in this table use `i: &Invocation`. For a wrapper, set
 | Wire field | SDK Rust / JSON type | Meaning and when supplied | Reading it |
 | --- | --- | --- | --- |
 | `action` | `String` / string | Required manifest action ID, such as `show` or `format-draft`. It is not the action's display label. | `i.action == "show"` |
-| `selected_message` | `Option<String>` / string or null | Text of the message chosen by the user. Requires `selected_message` and a `message` action. It contains no message ID or author object. | `i.selected_message.as_deref()` |
+| `selected_message` | `Option<String>` / string or null | Text of the message chosen by the user. Requires `selected_message` and a `message` action. Its IDs arrive separately in `selected_message_ref`. | `i.selected_message.as_deref()` |
 | `composer` | `Option<String>` / string or null | The current draft for a `composer` action with the `composer` grant. An empty draft is `Some("")`, not `None`. | `i.composer.as_deref()` |
 | `storage` | `Option<String>` / string or null | The plugin's last saved opaque UTF-8 value for this account (device-wide for the narrow `api_proxy` plugin). Requires `storage`; absent when nothing has been saved. The worker reloads it before execution. | `i.storage_json::<u64>()` if your plugin stores a JSON number |
 | `values` | `BTreeMap<String, String>` / object of string values | Current form values when a panel button invokes an action. Keys are input element IDs. Initial tool/panel opens normally have an empty map; reactive events always do. | `i.value("name")` or `i.parse_value::<bool>("enabled")` |
@@ -93,6 +95,8 @@ common optional fields above may instead be serialized as `null`.
 | `messaging_settings` | `Option<MessagingSettingsSnapshot>` / object or absent | Loaded account messaging privacy preferences; requires `messaging_settings`. | `input.messaging_settings.as_ref()` |
 | `guild_folders` | `Option<GuildFoldersSnapshot>` / object or absent | Loaded versioned server-folder layout; requires `guild_folders`. | `input.guild_folders.as_ref()` |
 | `action_result` | `Option<ActionResult>` / object or absent | Apply admission result for `tracked_app_action`; requires `action_feedback`. | `input.action_result.as_ref()` |
+| `selected_message_ref` | `Option<SelectedMessageRef>` / object or absent | `channel_id`, `message_id`, `author_id` and, in servers, `guild_id` of the message a `message` action was chosen on. Sent with `selected_message` under the same grant; absent on older hosts and on panel callbacks. Available through `MessageActionInvocation`. Use it to propose actions on that exact message, such as `send_reply`, `set_message_pinned` or `delete_message`. | `input.selected_message_ref.as_ref().map(\|m\| &m.message_id)` |
+| `menu_target` | `Option<MenuTarget>` / object tagged by `kind` or absent | For `user`, `channel`, `server` and `role` actions only, and always present for them: `{"kind":"user","user_id","guild_id"?,"channel_id"?}`, `{"kind":"channel","channel_id","guild_id"?}`, `{"kind":"server","guild_id"}` or `{"kind":"role","guild_id","role_id","user_id"?,"name","color"}`. Role actions appear when a role in a member's profile is right-clicked; `user_id` is that member, and `name` and `color` (`0xRRGGBB`, `0` for none) are what its chip shows. Requires `context_menus`. Other targets carry IDs only; read details through your other grants. Available through `MenuInvocation`. | `match &input.menu_target { Some(MenuTarget::User { user_id, .. }) => …, _ => … }` |
 | `tick_ms` | `Option<u64>` / integer or absent | Elapsed milliseconds since this plugin was enabled for the session. Present only on preview `tick` calls through `TickInvocation`. | `input.tick_ms` |
 
 A tick is completion-paced with a 250 ms minimum delay and runs only when the shared
@@ -112,8 +116,9 @@ can be inspected without decoding a newer capability/event enum.
 | --- | --- | --- | --- |
 | `api_version` | `u32` / integer | Current buffer/JSON ABI version, `1`. | `host.api_version` |
 | `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
-| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (54 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
+| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (57 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
 | `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
+| `interface_tweaks` | `Vec<String>` / array of strings, empty on older hosts | Interface tweak names this host honors: `static_typing_indicator`, `plain_profiles`, `expanded_roles`, `hidden_request_counts`, `one_ping_per_direct_message`, `hidden_blocked_messages`, `hidden_profile_notes`, `large_stream_preview`, `double_click_reply_edit`. | `host.supports_tweak("expanded_roles")` |
 
 A supported capability still needs to be declared and explicitly granted. Older
 hosts reject unknown required manifest capabilities **before** a handler can run;
@@ -131,6 +136,7 @@ account snapshot or grant-dependent data:
     "api_version": 1,
     "sdk_revision": 1,
     "capabilities": [
+      "api_proxy",
       "rich_presence",
       "relationship_control",
       "account_control",
@@ -182,7 +188,9 @@ account snapshot or grant-dependent data:
       "channel_details",
       "data_events",
       "message_details",
-      "relationships"
+      "relationships",
+      "external_navigation",
+      "context_menus"
     ],
     "app_events": [
       "ready",

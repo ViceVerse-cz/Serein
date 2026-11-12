@@ -32,6 +32,30 @@ links; explicit Send uses Markdown with text, or attachments for artwork alone.
 Declarative themes are under `../themes/`.
 The author packages compiled bytes; Serein never runs a repository's build scripts.
 
+## Equicord-derived safe tools
+
+These independent Rust adaptations use the same real Wasm sandbox and versioned SDK as the
+original plugins; they do not evaluate Equicord JavaScript or add automatic send hooks.
+
+| Package / upstream workflows | Grants | Behavior |
+| --- | --- | --- |
+| **Offline Composer Tools** — ClearURLs, Unindent, UnitConverter, MoreCommands, CharacterCounter | `composer` | Five invoked draft/count tools. URL cleanup uses a fixed offline tracker list; units and text transformations are deterministic; nothing is fetched or sent. |
+| **Text Commands** — TextReplace, CustomCommands | `composer`, `storage` | Up to eight literal replacement rules and eight local message tags. Configuration stays bounded and corrupt storage is preserved. Composer edits require Apply. |
+| **ViewRaw — safe message view** — ViewRaw | `selected_message` | Displays the selected raw text and public message IDs only; never exposes raw private host objects. |
+| **External Search Tools** — Translate, ReplaceGoogleSearch | `selected_message`, `external_navigation`, `storage` | Configures a browser translation/search provider and target language; proposes a complete public HTTPS URL for Apply. No inline network translation, arbitrary request API, or silent navigation. |
+
+Original Vencord notices and GPL-3.0-or-later terms are retained in the sources and
+`../licenses/Equicord-GPL-3.0.txt`. See each plugin README for exact behavior and source commit.
+Packaging is the same as above, plus `--license` so each package carries the GPL text that
+`test_catalog.py` requires:
+
+```sh
+python pack.py plugins/offline-composer-tools/manifest.json target/wasm32-unknown-unknown/release/offline_composer_tools.wasm plugins/packages/offline-composer-tools.serein-extension --license licenses/Equicord-GPL-3.0.txt
+python pack.py plugins/text-commands/manifest.json target/wasm32-unknown-unknown/release/text_commands.wasm plugins/packages/text-commands.serein-extension --license licenses/Equicord-GPL-3.0.txt
+python pack.py plugins/view-raw-message/manifest.json target/wasm32-unknown-unknown/release/view_raw_message.wasm plugins/packages/view-raw-message.serein-extension --license licenses/Equicord-GPL-3.0.txt
+python pack.py plugins/external-search-tools/manifest.json target/wasm32-unknown-unknown/release/external_search_tools.wasm plugins/packages/external-search-tools.serein-extension --license licenses/Equicord-GPL-3.0.txt
+```
+
 ## ABI and limits
 
 See [ABI version 1](../../examples/extensions/README.md#abi-version-1) in the SDK guide

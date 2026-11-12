@@ -26,10 +26,14 @@ legal disclaimer applies. The license file is staged in both packages as
 One repository-drawn glyph, `thread.svg` (four slanted round-capped bars on the same 256-unit
 grid), marks threads; it is rasterized with the Phosphor set and carries no upstream license.
 
-- `atlas.png`: 512×896 RGBA, 26,267 bytes after lossless `oxipng -o max --strip all`.
-  SHA-256 `eb0553105dd745e67b1c1e2249cdf0f037c56ea2f1d7b5af45ebbf38f240a8f2`.
+`monitor-x.svg` marks stopping this device's screen share. It is Phosphor `monitor-fill.svg`
+(MIT, same pinned 2.1.1 package, fetched November 10, 2026) with a 16-unit round-capped X masked
+out of the screen where `monitor-arrow-up` draws its arrow, so it pairs with the share glyph.
+
+- `atlas.png`: 512×896 RGBA, 27,326 bytes after lossless `oxipng -o max --strip all`.
+  SHA-256 `4640a87f8aedbe48af687404ac8f51c63cd7f1d1a782e46bdcf5bd98a07fa929`.
 - `index.tsv`: icon name, tab, zero-based cell; SHA-256
-  `cc8a5f5cebe0bcb916e6a12c4dae58c6feabee0487b2ca3e8bb1a3f1c6f378de`.
+  `06cabde3334f728e164e18f0057b47a0e6c1db1657ff677fa6bca157f3fb824a`.
 
 Every upstream SVG's SHA-256 is pinned in `tools/generate-icons.py`, which refuses to build
 from mismatching files. Regenerate from the repository root:
@@ -51,6 +55,9 @@ The media-viewer caret and download glyphs are unmodified Phosphor `caret-left-b
 
 The screen-share fullscreen glyph is unmodified Phosphor `corners-out-bold.svg`, fetched from the
 same pinned 2.1.1 package on September 27, 2026.
+
+The text context-menu glyphs are unmodified Phosphor `scissors-bold.svg`, `clipboard-text-bold.svg`
+and `selection-all-bold.svg`, fetched from the same pinned 2.1.1 package on November 6, 2026.
 
 The `serein-mark` cell is our own artwork, not an upstream icon: it is the solid silhouette of
 the Serein chat-wave from `assets/brand/serein-mark.svg`, trimmed to its bounding box so it

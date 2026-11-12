@@ -31,13 +31,13 @@ fn clipped(texture: &TextureHandle, rect: Rect, clip: Rect, tint: Color32) -> Op
 	Some(Shape::image(texture.id(), visible, uv, tint))
 }
 
-/// Rounded rectangle filled with a left-to-right gradient.
-fn horizontal_gradient(rect: Rect, radius: f32, left: Color32, right: Color32) -> Shape {
+/// Clockwise outline of `rect` with corners rounded by `radius`, starting at the top right.
+fn rounded_outline(rect: Rect, radius: f32) -> Vec<Pos2> {
 	let radius = radius
 		.min(rect.width() * 0.5)
 		.min(rect.height() * 0.5)
 		.max(0.0);
-	let mut outline: Vec<Pos2> = Vec::with_capacity(40);
+	let mut outline: Vec<Pos2> = Vec::with_capacity(36);
 	let corners = [
 		(pos2(rect.right() - radius, rect.top() + radius), -90.0_f32),
 		(pos2(rect.right() - radius, rect.bottom() - radius), 0.0),
@@ -50,6 +50,70 @@ fn horizontal_gradient(rect: Rect, radius: f32, left: Color32, right: Color32) -
 			outline.push(center + vec2(angle.cos(), angle.sin()) * radius);
 		}
 	}
+	outline
+}
+
+/// Image mesh showing only the part of `rect` inside `clip` and the rounded `card`, so effect
+/// artwork follows the card's corners. egui clips by rectangle alone.
+fn clipped_rounded(
+	texture: &TextureHandle,
+	rect: Rect,
+	clip: Rect,
+	(card, radius): (Rect, f32),
+	tint: Color32,
+) -> Option<Shape> {
+	let visible = rect.intersect(clip);
+	if !visible.is_positive() || !rect.is_positive() {
+		return None;
+	}
+	// Sutherland–Hodgman against the convex outline, which runs clockwise on screen.
+	let mut polygon = vec![
+		visible.left_top(),
+		visible.right_top(),
+		visible.right_bottom(),
+		visible.left_bottom(),
+	];
+	let outline = rounded_outline(card, radius);
+	for (index, &a) in outline.iter().enumerate() {
+		let b = outline[(index + 1) % outline.len()];
+		let edge = b - a;
+		let side = |p: Pos2| edge.x * (p.y - a.y) - edge.y * (p.x - a.x);
+		let input = std::mem::take(&mut polygon);
+		for (at, &p) in input.iter().enumerate() {
+			let q = input[(at + 1) % input.len()];
+			let (sp, sq) = (side(p), side(q));
+			if sp >= 0.0 {
+				polygon.push(p);
+			}
+			if (sp >= 0.0) != (sq >= 0.0) {
+				polygon.push(p + (q - p) * (sp / (sp - sq)));
+			}
+		}
+		if polygon.len() < 3 {
+			return None;
+		}
+	}
+	let mut mesh = egui::Mesh::with_texture(texture.id());
+	for point in &polygon {
+		let uv = pos2(
+			(point.x - rect.min.x) / rect.width(),
+			(point.y - rect.min.y) / rect.height(),
+		);
+		mesh.vertices.push(egui::epaint::Vertex {
+			pos: *point,
+			uv,
+			color: tint,
+		});
+	}
+	for index in 1..polygon.len() as u32 - 1 {
+		mesh.add_triangle(0, index, index + 1);
+	}
+	Some(Shape::mesh(mesh))
+}
+
+/// Rounded rectangle filled with a left-to-right gradient.
+fn horizontal_gradient(rect: Rect, radius: f32, left: Color32, right: Color32) -> Shape {
+	let outline = rounded_outline(rect, radius);
 	let color = |x: f32| {
 		let t = ((x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
 		left.lerp_to_gamma(right, t)
@@ -248,12 +312,15 @@ impl Avatars {
 	/// Effect layers over a card. `elapsed` counts from when the layers were ready; nothing shows
 	/// before then, so the still (the effect's end state) never flashes ahead of the animation.
 	/// Only disabled motion or a layerless effect shows the still. One-shot files hold their
-	/// last frame; `opacity` fades the effect while the card is hovered.
+	/// last frame; `opacity` fades the effect while the card is hovered. Layers stay inside the
+	/// card's `radius` corners.
+	#[allow(clippy::too_many_arguments)]
 	pub(crate) fn paint_effect(
 		&mut self,
 		ui: &egui::Ui,
 		effect: &ProfileEffect,
 		card: Rect,
+		radius: f32,
 		elapsed: Option<Duration>,
 		opacity: f32,
 		demo: bool,
@@ -274,9 +341,13 @@ impl Avatars {
 		if !self.animate_gifs || effect.layers.is_empty() {
 			if let Some(still) = &effect.still
 				&& let Some(texture) = self.cosmetic(ui.ctx(), &still.still_key(), demo)
-				&& let Some(shape) =
-					clipped(&texture, place([0, 0], model::EFFECT_CANVAS), clip, tint)
-			{
+				&& let Some(shape) = clipped_rounded(
+					&texture,
+					place([0, 0], model::EFFECT_CANVAS),
+					clip,
+					(card, radius),
+					tint,
+				) {
 				painter.add(shape);
 			}
 			return;
@@ -326,7 +397,8 @@ impl Avatars {
 				}
 			}
 			.unwrap_or(still);
-			if let Some(shape) = clipped(&texture, place(layer.position, layer.size), clip, tint) {
+			let rect = place(layer.position, layer.size);
+			if let Some(shape) = clipped_rounded(&texture, rect, clip, (card, radius), tint) {
 				painter.add(shape);
 			}
 		}
@@ -368,7 +440,7 @@ impl Avatars {
 			let Some(texture) = self.cosmetic(ctx, &layer.key(frame.sku), demo) else {
 				continue;
 			};
-			let [w, h] = texture.size();
+			let [w, h] = texture.resolution();
 			if w == 0 || h == 0 {
 				continue;
 			}
@@ -449,12 +521,12 @@ fn synthetic_frame(key: &str, step: usize) -> ColorImage {
 		Color32::from(egui::ecolor::Hsva::new(h.rem_euclid(1.0), s, v, a))
 	};
 	let star = |image: &mut ColorImage, cx: f32, cy: f32, r: f32, color: Color32| {
-		let [w, h] = image.size;
+		let [w, h] = image.resolution();
 		for y in (cy - r).max(0.0) as usize..((cy + r) as usize).min(h) {
 			for x in (cx - r).max(0.0) as usize..((cx + r) as usize).min(w) {
 				let (dx, dy) = ((x as f32 - cx).abs(), (y as f32 - cy).abs());
 				if dx * dy * 4.0 < r * 0.6 && dx + dy < r {
-					image.pixels[y * w + x] = color;
+					image.pixels_mut()[y * w + x] = color;
 				}
 			}
 		}
@@ -471,7 +543,7 @@ fn synthetic_frame(key: &str, step: usize) -> ColorImage {
 				let angle = dy.atan2(dx);
 				let petal = (angle * 8.0).cos() * 3.0;
 				if (d - 42.0 - petal).abs() < 3.5 {
-					image.pixels[y * size + x] =
+					image.pixels_mut()[y * size + x] =
 						tint(hue + angle / std::f32::consts::TAU * 0.2, 0.55, 0.95, 1.0);
 				}
 			}
@@ -495,7 +567,8 @@ fn synthetic_frame(key: &str, step: usize) -> ColorImage {
 			for x in 0..w {
 				let u = x as f32 / w as f32;
 				let wave = ((u * 9.0 + y as f32 / h as f32 * 2.0).sin() * 0.5 + 0.5) * u;
-				image.pixels[y * w + x] = tint(hue + u * 0.15, 0.6, 0.55 + wave * 0.35, u * 0.85);
+				image.pixels_mut()[y * w + x] =
+					tint(hue + u * 0.15, 0.6, 0.55 + wave * 0.35, u * 0.85);
 			}
 		}
 		for index in 0..6 {
@@ -524,7 +597,7 @@ fn synthetic_frame(key: &str, step: usize) -> ColorImage {
 				} else {
 					y.min(h - 1)
 				};
-				image.pixels[y * w + x] = tint(hue + u * 0.1, 0.5, 0.8, 1.0);
+				image.pixels_mut()[y * w + x] = tint(hue + u * 0.1, 0.5, 0.8, 1.0);
 			}
 		}
 		for index in 0..7 {

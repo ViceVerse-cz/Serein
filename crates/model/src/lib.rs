@@ -19,7 +19,7 @@ pub mod forum;
 pub mod gifs;
 mod graphics;
 pub mod threads;
-pub use graphics::GpuPreference;
+pub use graphics::{GpuPreference, GraphicsApi};
 mod time_format;
 pub use time_format::TimeFormat;
 pub mod guild_folders;
@@ -300,10 +300,21 @@ pub struct InvitePreview {
 	pub guild: Option<Id>,
 	pub channel: Option<Id>,
 	pub embed: Embed,
+	/// The server's own description, at most [`MAX_INVITE_ABOUT`] bytes.
+	pub about: Option<String>,
+	/// The server's validated icon hash, so cards can paint it like a server icon.
+	pub guild_icon: Option<String>,
+	/// Name of the invited voice or stage channel; such invites render as a voice card.
+	pub voice_channel: Option<String>,
 }
+pub const MAX_INVITE_ABOUT: usize = 1024;
 impl InvitePreview {
 	pub fn bytes(&self) -> usize {
-		size_of::<Self>() - size_of::<Embed>() + self.embed.bytes()
+		size_of::<Self>() - size_of::<Embed>()
+			+ self.embed.bytes()
+			+ self.about.as_ref().map_or(0, String::capacity)
+			+ self.guild_icon.as_ref().map_or(0, String::capacity)
+			+ self.voice_channel.as_ref().map_or(0, String::capacity)
 	}
 }
 #[derive(Clone, PartialEq, Eq)]

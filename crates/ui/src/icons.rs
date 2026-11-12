@@ -5,13 +5,15 @@
 //! `index.tsv` maps upstream icon names to cells. See `assets/icons/README.md` for provenance.
 use crate::design;
 use egui::emath::GuiRounding;
-use egui::{Color32, Rect, Response, Sense, TextureHandle, Vec2};
+use egui::{Color32, ColorImage, Rect, Response, Sense, TextureHandle, Vec2};
 use std::sync::OnceLock;
 
 const ATLAS: &[u8] = include_bytes!("../../../assets/icons/atlas.png");
 const INDEX: &str = include_str!("../../../assets/icons/index.tsv");
 const COLUMNS: usize = 8;
 const CELL: f32 = 64.0;
+const GLYPH: f32 = 56.0;
+const LAYER_CELLS: [u32; 4] = [16, 24, 32, 64];
 const TEXTURE_KEY: &str = "phosphor-icons";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -37,6 +39,7 @@ pub enum Icon {
 	Video,
 	VideoSlash,
 	ScreenShare,
+	StopScreenShare,
 	Activities,
 	Soundboard,
 	Reply,
@@ -124,13 +127,16 @@ pub enum Icon {
 	/// Stacked servers, for mutual-server counts.
 	Servers,
 	Fullscreen,
+	Cut,
+	Paste,
+	SelectAll,
 	/// Horizontally mirrored reply glyph from the shared atlas.
 	Forward,
 }
 
 impl Icon {
 	/// Canonical atlas cells; Forward reuses the mirrored Reply cell.
-	pub const ALL: [Icon; 107] = [
+	pub const ALL: [Icon; 111] = [
 		Icon::ChevronDown,
 		Icon::ChevronRight,
 		Icon::Gear,
@@ -152,6 +158,7 @@ impl Icon {
 		Icon::Video,
 		Icon::VideoSlash,
 		Icon::ScreenShare,
+		Icon::StopScreenShare,
 		Icon::Activities,
 		Icon::Soundboard,
 		Icon::Reply,
@@ -238,6 +245,9 @@ impl Icon {
 		Icon::DeviceMobile,
 		Icon::Servers,
 		Icon::Fullscreen,
+		Icon::Cut,
+		Icon::Paste,
+		Icon::SelectAll,
 	];
 	/// Upstream icon name recorded in `index.tsv`.
 	fn asset(self) -> &'static str {
@@ -265,6 +275,7 @@ impl Icon {
 			Icon::Video => "video-camera",
 			Icon::VideoSlash => "video-camera-slash",
 			Icon::ScreenShare => "monitor-arrow-up",
+			Icon::StopScreenShare => "monitor-x",
 			Icon::Activities => "rocket-launch",
 			Icon::Soundboard => "waveform",
 			Icon::Reply | Icon::Forward => "arrow-bend-up-left",
@@ -349,6 +360,9 @@ impl Icon {
 			Icon::DeviceMobile => "device-mobile",
 			Icon::Servers => "hard-drives",
 			Icon::Fullscreen => "corners-out",
+			Icon::Cut => "scissors",
+			Icon::Paste => "clipboard-text",
+			Icon::SelectAll => "selection-all",
 		}
 	}
 	fn cell(self) -> usize {
@@ -386,46 +400,66 @@ fn decoded() -> egui::ColorImage {
 
 /// Upload the atlas for `ctx` during application creation, outside the render callback.
 pub fn install(ctx: &egui::Context) {
-	let _ = texture(ctx);
+	let _ = layer(ctx, 64);
+	let _ = layer(ctx, 32);
 }
 
-fn texture(ctx: &egui::Context) -> TextureHandle {
+#[derive(Clone, Default)]
+struct AtlasLayers {
+	cells: Vec<(u32, TextureHandle)>,
+}
+
+fn source_image() -> &'static ColorImage {
+	static SOURCE: OnceLock<ColorImage> = OnceLock::new();
+	SOURCE.get_or_init(decoded)
+}
+
+fn layer(ctx: &egui::Context, cell: u32) -> TextureHandle {
 	let id = egui::Id::unique(TEXTURE_KEY);
-	if let Some(texture) = ctx.data(|data| data.get_temp::<TextureHandle>(id)) {
-		return texture;
+	if let Some(layers) = ctx.data(|data| data.get_temp::<AtlasLayers>(id))
+		&& let Some((_, texture)) = layers.cells.iter().find(|(stored, _)| *stored == cell)
+	{
+		return texture.clone();
 	}
-	let texture = ctx.load_texture(
-		"Phosphor Icons 2.1.1",
-		decoded(),
-		egui::TextureOptions {
-			mipmap_mode: Some(egui::TextureFilter::Linear),
-			..egui::TextureOptions::LINEAR
-		},
+	let source = source_image();
+	let longest = source.resolution()[0].max(source.resolution()[1]) as u32;
+	let edge = (longest / CELL as u32) * cell;
+	let image = crate::resample::downscale_filter(
+		source,
+		edge.max(1),
+		image::imageops::FilterType::Triangle,
 	);
-	ctx.data_mut(|data| data.insert_temp(id, texture.clone()));
+	let texture = ctx.load_texture("Phosphor Icons 2.1.1", image, egui::TextureOptions::LINEAR);
+	ctx.data_mut(|data| {
+		let mut layers = data.get_temp::<AtlasLayers>(id).unwrap_or_default();
+		if !layers.cells.iter().any(|(stored, _)| *stored == cell) {
+			layers.cells.push((cell, texture.clone()));
+		}
+		data.insert_temp(id, layers);
+	});
 	texture
 }
 
 /// Paint `icon` centred in `rect` with `color`.
 pub fn paint(painter: &egui::Painter, icon: Icon, rect: Rect, color: Color32) {
 	let size = rect.width().min(rect.height());
-	let rect = Rect::from_center_size(rect.center(), Vec2::splat(size))
-		.round_to_pixels(painter.pixels_per_point());
-	let texture = texture(painter.ctx());
-	let [width, height] = texture.size();
-	let cell = icon.cell();
-	let x = (cell % COLUMNS) as f32 * CELL;
-	let y = (cell / COLUMNS) as f32 * CELL;
+	let ppp = painter.pixels_per_point();
+	let drawn = size * (CELL / GLYPH);
+	let rect = Rect::from_center_size(rect.center(), Vec2::splat(drawn)).round_to_pixels(ppp);
+	let cell = crate::resample::covering_edge(drawn * ppp, &LAYER_CELLS);
+	let texture = layer(painter.ctx(), cell);
+	let index = icon.cell();
+	let col = (index % COLUMNS) as f32;
+	let row = (index / COLUMNS) as f32;
+	let rows = source_image().resolution()[1] as f32 / CELL;
 	let mut uv = Rect::from_min_max(
-		egui::pos2(x / width as f32, y / height as f32),
-		egui::pos2((x + CELL) / width as f32, (y + CELL) / height as f32),
+		egui::pos2(col / COLUMNS as f32, row / rows),
+		egui::pos2((col + 1.0) / COLUMNS as f32, (row + 1.0) / rows),
 	);
 	if icon == Icon::Forward {
 		std::mem::swap(&mut uv.min.x, &mut uv.max.x);
 	}
-	// Glyphs occupy 56 of every 64 cell pixels; draw the cell slightly larger so the visible
-	// glyph fills `rect` like the previous painted icons did.
-	painter.image(texture.id(), rect.expand(size * 4.0 / 56.0), uv, color);
+	painter.image(texture.id(), rect, uv, color);
 }
 
 /// `icon` as an atom, so widgets built from atoms (buttons, combo boxes) can show it beside text.
@@ -446,6 +480,11 @@ pub fn channel(kind: u8) -> Icon {
 		15 | 16 => Icon::Forum,
 		_ => Icon::Hash,
 	}
+}
+
+/// Glyph size for one square standard button. The validated theme scale never changes its hitbox.
+pub(crate) fn button_glyph_size(size: f32) -> f32 {
+	(size * 0.70 * design::icon_scale()).min(size)
 }
 
 /// Square icon button that highlights on hover and exposes `label` to accessibility.
@@ -485,12 +524,25 @@ fn button_with_tooltip(
 	}
 	let color = if !ui.is_enabled() {
 		colors.muted.gamma_multiply(0.5)
+	} else if icon == Icon::Trash {
+		colors
+			.danger
+			.gamma_multiply(if response.hovered() || response.has_focus() {
+				1.0
+			} else {
+				0.8
+			})
 	} else if response.hovered() || response.has_focus() {
 		colors.text_strong
 	} else {
 		colors.muted
 	};
-	paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
+	paint(
+		ui.painter(),
+		icon,
+		Rect::from_center_size(rect.center(), Vec2::splat(button_glyph_size(size))),
+		color,
+	);
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
 	if immediate {
 		immediate_tooltip(response, &label)
@@ -512,7 +564,12 @@ pub fn toggle(ui: &mut egui::Ui, icon: Icon, size: f32, active: bool, label: &st
 	} else {
 		colors.muted
 	};
-	paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
+	paint(
+		ui.painter(),
+		icon,
+		Rect::from_center_size(rect.center(), Vec2::splat(button_glyph_size(size))),
+		color,
+	);
 	response.widget_info(|| {
 		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), active, &label)
 	});

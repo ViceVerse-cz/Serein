@@ -64,6 +64,7 @@ may not be available in a released build.
 | [Message Delete Protector](../../extensions/plugins/message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
 | [RGB Cycle](rgb-cycle/src/lib.rs) | Host-scheduled, smoothly eased appearance updates with saved settings |
 | [Custom Rich Presence](../../extensions/plugins/custom-rpc) | Native activity editor/preview, saved Apply/Stop controls and activation restore through the bounded `rich_presence` capability |
+| [Equicord-derived safe tools](../../extensions/plugins/README.md#equicord-derived-safe-tools) | Least-privilege offline transformations, stored tags/rules, selected-message display, and Apply-reviewed browser navigation |
 
 For this tutorial, use `app-toolbox/` in a development copy. Keep its `Cargo.toml`,
 and replace `manifest.json` and `src/lib.rs` with the examples below. The Cargo
@@ -112,7 +113,7 @@ Replace the example author and source URL before publishing.
 | `license` | string | License label; include the actual license in your source too. |
 | `source` | string | Public HTTPS source link, at most 2,048 UTF-8 bytes, without embedded credentials. It is metadata, not code to execute. |
 | `kind` | string | `plugin` for Wasm; declarative themes use `theme`. |
-| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 64 declarations, with 52 supported today; see the [capability reference](../../docs/extensions.md#capability-reference) for their scopes. |
+| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 64 declarations, with 54 supported today; see the [capability reference](../../docs/extensions.md#capability-reference) for their scopes. |
 | `actions` | object array | Entry points invoked by users or the host. Plugins need 1–16 actions with unique IDs. |
 
 Plugins that use `data_queries` or `action_feedback` also declare `app_events` and

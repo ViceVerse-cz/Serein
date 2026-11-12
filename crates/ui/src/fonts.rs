@@ -115,6 +115,12 @@ pub struct Settings {
 	focus: bool,
 }
 
+#[cfg(test)]
+thread_local! {
+	/// Visible and content height of the font list on the last pass, for tests.
+	static LIST: std::cell::Cell<Option<(f32, f32)>> = const { std::cell::Cell::new(None) };
+}
+
 impl Settings {
 	pub(super) fn show(&mut self, ui: &mut egui::Ui) {
 		use crate::design;
@@ -261,6 +267,10 @@ impl Settings {
 				let mut area = egui::ScrollArea::vertical()
 					.id_salt("installed-fonts")
 					.max_height(ROW * 8.0)
+					// The popup keeps last frame's size, so after a search with no match it is only as
+					// tall as the hint. Without this minimum the list would stay at egui's default
+					// 64 px (two rows) once results return.
+					.min_scrolled_height((matches.len() as f32 * ROW).min(ROW * 8.0))
 					.auto_shrink([false, true]);
 				if std::mem::take(&mut self.focus) {
 					search.request_focus();
@@ -270,8 +280,10 @@ impl Settings {
 						.unwrap_or(0);
 					area = area.vertical_scroll_offset((index as f32 - 3.0).max(0.0) * ROW);
 				}
-				area.show_rows(ui, ROW, matches.len(), |ui, rows| {
-					ui.spacing_mut().item_spacing.y = 0.0;
+				// `show_rows` counts the spacing in the content height before the closure runs, so
+				// clear it first; otherwise a short list overflows its minimum height and scrolls.
+				ui.spacing_mut().item_spacing.y = 0.0;
+				let list = area.show_rows(ui, ROW, matches.len(), |ui, rows| {
 					for name in &matches[rows] {
 						let selected = name.map(String::as_str) == self.name.as_deref();
 						let (rect, response) = ui.allocate_exact_size(
@@ -320,6 +332,10 @@ impl Settings {
 						}
 					}
 				});
+				#[cfg(test)]
+				LIST.set(Some((list.inner_rect.height(), list.content_size.y)));
+				#[cfg(not(test))]
+				let _ = list;
 			});
 		match picked {
 			Some(Some(name)) => self.request = Some(Action::Select(name)),
@@ -638,6 +654,7 @@ fn install_cjk(ctx: &Context, shared: &Mutex<FontDefinitions>) {
 
 fn cjk_index(language: crate::i18n::Language) -> u32 {
 	match language.resolved() {
+		crate::i18n::Language::Korean => 1,
 		crate::i18n::Language::ChineseSimplified => 2,
 		crate::i18n::Language::ChineseTraditional => 3,
 		_ => 0,
@@ -907,6 +924,17 @@ mod tests {
 			let face = skrifa::FontRef::from_index(&collection, index).unwrap();
 			assert_eq!(face.charmap().map('骨'), Some(skrifa::GlyphId::new(glyph)));
 		}
+		let korean_index = cjk_index(crate::i18n::Language::Korean);
+		assert_eq!(korean_index, 1);
+		let korean_face = skrifa::FontRef::from_index(&collection, korean_index).unwrap();
+		for character in "한국어".chars() {
+			assert!(
+				korean_face
+					.charmap()
+					.map(character)
+					.is_some_and(|id| id != skrifa::GlyphId::NOTDEF)
+			);
+		}
 		let definitions = definitions(true);
 		for family in [FontFamily::Proportional, FontFamily::Monospace] {
 			let faces: Vec<_> = definitions.families[&family]
@@ -947,5 +975,69 @@ mod tests {
 			});
 		});
 		output.drop_without_applying_deltas();
+	}
+	#[test]
+	fn font_list_regrows_after_a_search_without_matches() {
+		let ctx = Context::default();
+		// 13 families; "Family 1" matches only Family 10, 11 and 12.
+		let mut settings = Settings {
+			families: Some((0..13).map(|i| format!("Family {i:02}")).collect()),
+			..Default::default()
+		};
+		// The picker button spans the top of the screen, below a 4 px gap.
+		let button = egui::pos2(200.0, 24.0);
+		// Returns the list's visible and content height.
+		let pass = |settings: &mut Settings, events: Vec<egui::Event>| {
+			let raw = egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(800.0, 900.0),
+				)),
+				events,
+				..Default::default()
+			};
+			let mut output = ctx.run_ui(raw, |ui| settings.family_list(ui));
+			output.textures_delta.clear();
+			LIST.take()
+		};
+		pass(&mut settings, vec![]);
+		let click = |pressed| egui::Event::PointerButton {
+			pos: button,
+			button: egui::PointerButton::Primary,
+			pressed,
+			modifiers: Default::default(),
+		};
+		pass(
+			&mut settings,
+			vec![egui::Event::PointerMoved(button), click(true)],
+		);
+		pass(&mut settings, vec![click(false)]);
+		let (open, open_content) = pass(&mut settings, vec![]).expect("list shown");
+		assert!(
+			open_content > open,
+			"all 13 families should not fit: the list scrolls"
+		);
+
+		let mut search_after_no_match = |query: &str| {
+			settings.query = "no such font".into();
+			pass(&mut settings, vec![]);
+			assert_eq!(pass(&mut settings, vec![]), None, "no list without matches");
+			settings.query = query.into();
+			pass(&mut settings, vec![]).expect("list shown")
+		};
+		assert_eq!(
+			search_after_no_match("Family").0,
+			open,
+			"picker should regrow to its opened height after a no-match search"
+		);
+		let (visible, content) = search_after_no_match("Family 1");
+		assert!(
+			visible < open,
+			"three matches should need less room than the full list"
+		);
+		assert!(
+			content <= visible,
+			"three matches should fit without scrolling"
+		);
 	}
 }

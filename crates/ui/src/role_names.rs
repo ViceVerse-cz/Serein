@@ -1,7 +1,17 @@
 //! Static role gradients painted on shaped glyphs, without animation or extra textures.
 use egui::{Color32, FontId, Galley, Ui, text::LayoutJob};
 use model::server_roles::Colors;
-use std::sync::Arc;
+use std::sync::{
+	Arc,
+	atomic::{AtomicBool, Ordering},
+};
+
+/// Set from Settings › Appearance › Profile cosmetics each frame.
+static GRADIENTS: AtomicBool = AtomicBool::new(true);
+
+pub(crate) fn set_gradients(enabled: bool) {
+	GRADIENTS.store(enabled, Ordering::Relaxed);
+}
 
 pub(crate) fn galley(
 	ui: &Ui,
@@ -45,7 +55,8 @@ pub(crate) fn gradient(
 	let mut job = LayoutJob::simple(text.to_owned(), font, primary, width.max(0.0));
 	job.wrap = egui::text::TextWrapping::truncate_at_width(width.max(0.0));
 	let mut galley = ui.painter().layout_job(job);
-	let Some(stops) = stops.filter(|stops| stops.len() >= 2) else {
+	let Some(stops) = stops.filter(|stops| stops.len() >= 2 && GRADIENTS.load(Ordering::Relaxed))
+	else {
 		return galley;
 	};
 	// Leave the font cache untouched; shaping, elision and accessibility retain the original text.

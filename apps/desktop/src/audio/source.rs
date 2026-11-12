@@ -71,9 +71,9 @@ pub(super) fn source(
 		}
 		Raw {
 			input: Input::Http {
-				client: reqwest::Client::builder()
+				client: wreq::Client::builder()
 					.no_proxy()
-					.redirect(reqwest::redirect::Policy::none())
+					.redirect(wreq::redirect::Policy::none())
 					.timeout(Duration::from_secs(15))
 					.build()
 					.map_err(|_| "Audio download unavailable")?,
@@ -119,7 +119,7 @@ enum Input {
 	#[cfg(any(test, feature = "demo"))]
 	Memory(Vec<u8>),
 	Http {
-		client: reqwest::Client,
+		client: wreq::Client,
 		url: url::Url,
 		gate: Arc<Gate>,
 		wake: Arc<Notify>,
@@ -148,7 +148,7 @@ impl Drop for Raw {
 /// One validated range request, cancelled when playback moves to another clip or seeks.
 #[allow(clippy::too_many_arguments)] // The captured fields of one HTTP input.
 async fn fetch(
-	client: reqwest::Client,
+	client: wreq::Client,
 	url: url::Url,
 	gate: Arc<Gate>,
 	wake: Arc<Notify>,
@@ -170,24 +170,24 @@ async fn fetch(
 		while gate.paused.load(Ordering::Acquire) {
 			wake.notified().await;
 		}
-		let mut response = client
-			.get(url)
-			.header(reqwest::header::ACCEPT_ENCODING, "identity")
-			.header(reqwest::header::RANGE, format!("bytes={start}-{end}"))
-			.send()
-			.await
-			.map_err(|_| invalid())?;
-		if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+		let response =
+			client_core::fingerprint::discord_request(client.get(url.as_str()), url.as_str())
+				.header(wreq::header::ACCEPT_ENCODING, "identity")
+				.header(wreq::header::RANGE, format!("bytes={start}-{end}"))
+				.send()
+				.await
+				.map_err(|_| invalid())?;
+		if response.status() == wreq::StatusCode::PARTIAL_CONTENT {
 			let range = format!("bytes {start}-{end}/{total}");
 			if response
 				.headers()
-				.get(reqwest::header::CONTENT_RANGE)
+				.get(wreq::header::CONTENT_RANGE)
 				.and_then(|v| v.to_str().ok())
 				!= Some(range.as_str())
 			{
 				return Err(invalid());
 			}
-		} else if !(response.status() == reqwest::StatusCode::OK && start == 0 && count == total) {
+		} else if !(response.status() == wreq::StatusCode::OK && start == 0 && count == total) {
 			return Err(io::Error::new(
 				io::ErrorKind::Unsupported,
 				RANGE_UNSUPPORTED,
@@ -195,7 +195,7 @@ async fn fetch(
 		}
 		if response
 			.headers()
-			.get(reqwest::header::CONTENT_ENCODING)
+			.get(wreq::header::CONTENT_ENCODING)
 			.is_some_and(|v| v != "identity")
 			|| response
 				.content_length()
@@ -204,7 +204,12 @@ async fn fetch(
 			return Err(invalid());
 		}
 		let mut bytes = Vec::with_capacity(count);
-		while let Some(chunk) = response.chunk().await.map_err(|_| invalid())? {
+		let mut response_body = std::pin::pin!(response.bytes_stream());
+		while let Some(chunk) = futures_util::StreamExt::next(&mut response_body)
+			.await
+			.transpose()
+			.map_err(|_| invalid())?
+		{
 			if chunk.len() > count - bytes.len() {
 				return Err(invalid());
 			}

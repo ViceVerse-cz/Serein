@@ -3,13 +3,17 @@
 pub mod external;
 
 use crate::{DiscordApi, Failure};
-use client_core::{Command, Event};
-use reqwest::{Method, Url};
+use client_core::{
+	Command, Event,
+	captcha::{self, Challenge, Retry},
+};
 use std::{
 	path::PathBuf,
 	time::{Duration, SystemTime},
 };
 use tokio::{fs::File, io::AsyncReadExt, sync::watch};
+use url::Url;
+use wreq::Method;
 
 pub const MAX_BYTES: u64 = 500_000_000;
 pub const MAX_FILES: usize = 10;
@@ -18,6 +22,80 @@ const CHUNK_BYTES: usize = 64 * 1024;
 const MAX_RESPONSE: usize = 64 * 1024;
 const CANCELLED: &str = "Upload cancelled; no message was sent";
 const CHANGED: &str = "Selected file changed or disappeared; select it again";
+const UNVERIFIED: &str = "Verification expired; retry the message";
+
+/// The attachment send waiting on the user's solution, and where that solution goes.
+pub(crate) type Waiting = (captcha::Target, tokio::sync::oneshot::Sender<Box<Retry>>);
+/// How a challenged attachment send reaches the session.
+#[derive(Clone, Copy)]
+pub struct Challenged<'a> {
+	/// Shows the challenge to the user; false when nobody can show it.
+	pub show: &'a (dyn Fn(Event) -> bool + Sync),
+	/// Awaited after the user's answer and before the replay. The session lets other writes
+	/// through while the user decides and takes its turn back here.
+	pub resume: &'a (dyn Fn() -> std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'a>> + Sync),
+}
+
+/// Shows one challenged request of an attachment send to the user and waits for the answer.
+/// Staged files stay where they are meanwhile, so a solved message never transfers twice.
+struct Verifier<'a, 'c> {
+	api: &'a DiscordApi,
+	channel: model::Id,
+	nonce: &'a str,
+	reply: Option<client_core::Reply>,
+	challenged: Challenged<'c>,
+	progress: &'a watch::Sender<Status>,
+}
+impl Verifier<'_, '_> {
+	async fn solve(&self, challenge: Challenge) -> Result<Box<Retry>, Failure> {
+		/// Frees the slot only while it still belongs to this send.
+		struct Release<'a>(&'a DiscordApi, &'a captcha::Target);
+		impl Drop for Release<'_> {
+			fn drop(&mut self) {
+				if let Ok(mut waiting) = self.0.upload_verification.lock() {
+					waiting.take_if(|(target, _)| target == self.1);
+				}
+			}
+		}
+		let target = captcha::Target::Message {
+			channel: self.channel,
+			nonce: self.nonce.to_owned(),
+		};
+		let (send, solved) = tokio::sync::oneshot::channel();
+		{
+			let mut waiting = self
+				.api
+				.upload_verification
+				.lock()
+				.map_err(|_| Failure::Protocol)?;
+			// One send waits at a time; a second one must not take over the first's answer.
+			if waiting.is_some() {
+				return Err(Failure::ProtocolAt(
+					"Verification unavailable; no message was sent",
+				));
+			}
+			*waiting = Some((target.clone(), send));
+		}
+		let _release = Release(self.api, &target);
+		self.progress.send_replace(Status::Verifying);
+		if !(self.challenged.show)(Event::SendChallenge {
+			nonce: self.nonce.to_owned(),
+			reply: self.reply,
+			challenge: Box::new(challenge),
+		}) {
+			return Err(Failure::ProtocolAt(
+				"Verification unavailable; no message was sent",
+			));
+		}
+		match tokio::time::timeout(captcha::LIFETIME, solved).await {
+			Ok(Ok(retry)) if retry.matches_target(&target) => {
+				(self.challenged.resume)().await;
+				Ok(retry)
+			}
+			_ => Err(Failure::ProtocolAt(UNVERIFIED)),
+		}
+	}
+}
 
 // Deliberately neither Debug nor Serialize: local paths must not enter logs or session caches.
 #[derive(Clone)]
@@ -163,7 +241,12 @@ impl Source {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Status {
 	Preparing,
-	Uploading { sent: u64, total: u64 },
+	Uploading {
+		sent: u64,
+		total: u64,
+	},
+	/// Discord challenged this send; nothing moves until the user solves or dismisses it.
+	Verifying,
 	Sending,
 	Finished,
 	Cancelled,
@@ -234,8 +317,34 @@ impl DiscordApi {
 		progress: watch::Sender<Status>,
 		cancel: watch::Receiver<bool>,
 	) -> Event {
-		self.upload_messages(command, vec![source], progress, cancel)
+		self.upload_messages(command, vec![source], progress, cancel, None)
 			.await
+	}
+
+	/// Hands the user's solution to the attachment send waiting on it. Returns the failure to
+	/// report when that send is gone: a text resend would silently drop its files.
+	pub fn resume_upload(
+		&self,
+		channel: model::Id,
+		nonce: String,
+		captcha: Box<Retry>,
+	) -> Option<Event> {
+		let target = captcha::Target::Message { channel, nonce };
+		let waiting = self
+			.upload_verification
+			.lock()
+			.ok()
+			.and_then(|mut waiting| waiting.take_if(|(waiting, _)| *waiting == target));
+		if waiting.is_some_and(|(_, solved)| solved.send(captcha).is_ok()) {
+			return None;
+		}
+		let captcha::Target::Message { nonce, .. } = target else {
+			unreachable!()
+		};
+		Some(Event::SendResult {
+			nonce,
+			result: Err(Failure::ProtocolAt(UNVERIFIED)),
+		})
 	}
 
 	pub async fn upload_messages(
@@ -244,6 +353,7 @@ impl DiscordApi {
 		sources: Vec<Source>,
 		progress: watch::Sender<Status>,
 		mut cancel: watch::Receiver<bool>,
+		challenged: Option<Challenged<'_>>,
 	) -> Event {
 		let (channel, content, target) = match command {
 			Command::Interaction(request) => {
@@ -314,6 +424,20 @@ impl DiscordApi {
 			return target.failed(channel, failure);
 		}
 		let total = sources.iter().map(Source::size).sum::<u64>();
+		// Only a message has a pending row the user can verify; a modal or forum post that
+		// Discord challenges still fails with the existing "use the official client" reason.
+		let verifier = match (&target, challenged) {
+			(Destination::Send { nonce, reply }, Some(challenged)) => Some(Verifier {
+				api: self,
+				channel,
+				nonce,
+				reply: *reply,
+				challenged,
+				progress: &progress,
+			}),
+			_ => None,
+		};
+		let verifier = verifier.as_ref();
 		progress.send_replace(Status::Preparing);
 		let prepare = async {
 			for source in &sources {
@@ -323,7 +447,7 @@ impl DiscordApi {
 			let mut completed = 0;
 			for (id, source) in sources.iter().enumerate() {
 				attachments.push(
-					self.upload_file(channel, source, id, &progress, completed, total)
+					self.upload_file(channel, source, id, &progress, (completed, total), verifier)
 						.await?,
 				);
 				completed += source.size();
@@ -351,6 +475,40 @@ impl DiscordApi {
 			return target.failed(channel, failure);
 		};
 		progress.send_replace(Status::Sending);
+		if let (Destination::Send { nonce, reply }, Some(verifier)) = (&target, verifier) {
+			let mut challenge = None;
+			let mut result = tokio::select! {
+				biased;
+				_ = cancelled(&mut cancel) => Err(Failure::Ambiguous),
+				result = self.send_message_with_captcha(channel, &content, nonce, (*reply, Some(attachment.clone()), None), None, Some(&mut challenge)) => result,
+			};
+			if let Some(challenge) = challenge {
+				// Discord refused the challenged POST, so no message exists while the user
+				// decides: cancelling here is still a clean "nothing was sent".
+				let solved = tokio::select! {
+					biased;
+					_ = cancelled(&mut cancel) => Err(Failure::ProtocolAt(CANCELLED)),
+					solved = verifier.solve(challenge) => solved,
+				};
+				result = match solved {
+					Ok(retry) => {
+						progress.send_replace(Status::Sending);
+						// The one replay reuses the staged names; a second challenge is final.
+						tokio::select! {
+							biased;
+							_ = cancelled(&mut cancel) => Err(Failure::Ambiguous),
+							result = self.send_message_with_captcha(channel, &content, nonce, (*reply, Some(attachment), None), Some(&retry), None) => result,
+						}
+					}
+					Err(failure) => Err(failure),
+				};
+			}
+			progress.send_replace(status(&result));
+			let Destination::Send { nonce, .. } = target else {
+				unreachable!()
+			};
+			return Event::SendResult { nonce, result };
+		}
 		match target {
 			Destination::Interaction(request) => {
 				let result = tokio::select! {
@@ -400,8 +558,8 @@ impl DiscordApi {
 		source: &Source,
 		id: usize,
 		progress: &watch::Sender<Status>,
-		completed: u64,
-		batch_total: u64,
+		(completed, batch_total): (u64, u64),
+		verifier: Option<&Verifier<'_, '_>>,
 	) -> Result<serde_json::Value, Failure> {
 		source.validate().await?;
 		let (file, original): (Box<dyn tokio::io::AsyncRead + Send + Unpin>, Option<File>) =
@@ -425,22 +583,44 @@ impl DiscordApi {
 					.map_err(|_| Failure::ProtocolAt(CHANGED))?;
 				(Box::new(file), Some(original))
 			};
-		let body = serde_json::json!({"files":[{"id":id.to_string(),"filename":source.filename(),"file_size":source.size(),"is_clip":false}]});
-		let response = self
-			.request_limited(
+		let mut body = serde_json::json!({"files":[{"id":id.to_string(),"filename":source.filename(),"file_size":source.size(),"is_clip":false}]});
+		if let Some(mime) = mime_type(source.filename()) {
+			body["files"][0]["original_content_type"] = mime.into();
+		}
+		let path = format!("/channels/{channel}/attachments");
+		let mut challenge = None;
+		let mut response = self
+			.request_with_captcha(
 				Method::POST,
-				&format!("/channels/{channel}/attachments"),
-				Some(body),
+				&path,
+				Some(body.clone()),
 				MAX_RESPONSE,
+				None,
+				verifier.map(|_| &mut challenge),
 			)
-			.await
-			.map_err(|f| {
-				if f == Failure::Ambiguous {
-					Failure::ProtocolAt("Upload preparation failed; no message was sent")
-				} else {
-					f
-				}
-			})?;
+			.await;
+		if let (Some(challenge), Some(verifier)) = (challenge, verifier) {
+			let retry = verifier.solve(challenge).await?;
+			progress.send_replace(Status::Preparing);
+			// One replay of this file's staging request; a second challenge is final.
+			response = self
+				.request_with_captcha(
+					Method::POST,
+					&path,
+					Some(body),
+					MAX_RESPONSE,
+					Some(&retry),
+					None,
+				)
+				.await;
+		}
+		let response = response.map_err(|f| {
+			if f == Failure::Ambiguous {
+				Failure::ProtocolAt("Upload preparation failed; no message was sent")
+			} else {
+				f
+			}
+		})?;
 		let mut response: UploadResponse = serde_json::from_slice(&response)
 			.map_err(|_| Failure::ProtocolAt("Upload preparation response unsupported"))?;
 		if response.attachments.len() != 1 {
@@ -462,22 +642,21 @@ impl DiscordApi {
 			));
 		}
 		let url = self.upload_url(&target.upload_url)?;
-		if self.stopped() {
-			return Err(Failure::Expired);
+		if let Some(failure) = self.stop_reason() {
+			return Err(failure);
 		}
 		let client = self
 			.upload_client
 			.get_or_try_init(|| async {
-				reqwest::Client::builder()
-					.redirect(reqwest::redirect::Policy::none())
-					.retry(reqwest::retry::never())
+				crate::browser_transport(wreq::Client::builder())
+					.redirect(wreq::redirect::Policy::none())
+					.retry(wreq::retry::Policy::never())
 					.no_proxy()
 					.connect_timeout(Duration::from_secs(10))
 					.read_timeout(Duration::from_secs(30))
 					.timeout(Duration::from_secs(300))
 					.pool_max_idle_per_host(1)
 					.pool_idle_timeout(Duration::from_secs(30))
-					.user_agent(client_core::fingerprint::user_agent())
 					.build()
 					.map_err(|_| Failure::Network)
 			})
@@ -506,14 +685,12 @@ impl DiscordApi {
 				Ok(Some((bytes, (file, sent))))
 			}
 		});
-		let mut response = client
-			.put(url)
-			.header(
-				reqwest::header::CONTENT_TYPE,
-				content_type(source.filename()),
-			)
-			.header(reqwest::header::CONTENT_LENGTH, total)
-			.body(reqwest::Body::wrap_stream(stream))
+		let response = client
+			.put(url.as_str())
+			// Unofficial: the web client labels every stored file as opaque bytes.
+			.header(wreq::header::CONTENT_TYPE, "application/octet-stream")
+			.header(wreq::header::CONTENT_LENGTH, total)
+			.body(wreq::Body::wrap_stream(stream))
 			.send()
 			.await
 			.map_err(|_| Failure::ProtocolAt("File upload failed; no message was sent"))?;
@@ -538,7 +715,12 @@ impl DiscordApi {
 			return Err(Failure::ProtocolAt("Upload response exceeded its limit"));
 		}
 		let mut received = 0;
-		while let Some(chunk) = response.chunk().await.map_err(|_| Failure::Network)? {
+		let mut body = std::pin::pin!(response.bytes_stream());
+		while let Some(chunk) = futures_util::StreamExt::next(&mut body)
+			.await
+			.transpose()
+			.map_err(|_| Failure::Network)?
+		{
 			received += chunk.len();
 			if received > MAX_RESPONSE {
 				return Err(Failure::ProtocolAt("Upload response exceeded its limit"));
@@ -554,8 +736,8 @@ impl DiscordApi {
 			) {
 			return Err(Failure::ProtocolAt(CHANGED));
 		}
-		if self.stopped() {
-			return Err(Failure::Expired);
+		if let Some(failure) = self.stop_reason() {
+			return Err(failure);
 		}
 		Ok(
 			serde_json::json!({"id":id.to_string(),"filename":source.filename(),"uploaded_filename":target.upload_filename}),
@@ -586,13 +768,15 @@ impl DiscordApi {
 	}
 }
 
-/// MIME type the official client declares on the storage PUT, from the filename extension.
-fn content_type(filename: &str) -> &'static str {
+/// MIME type declared as `original_content_type` when staging, from the filename extension.
+/// The web client sends the browser's `File.type` and omits the field when that is empty,
+/// so an extension without a well-known type is left out rather than guessed.
+fn mime_type(filename: &str) -> Option<&'static str> {
 	let extension = filename
 		.rsplit_once('.')
 		.map(|(_, e)| e.to_ascii_lowercase())
 		.unwrap_or_default();
-	match extension.as_str() {
+	Some(match extension.as_str() {
 		"png" => "image/png",
 		"jpg" | "jpeg" => "image/jpeg",
 		"gif" => "image/gif",
@@ -609,9 +793,11 @@ fn content_type(filename: &str) -> &'static str {
 		"pdf" => "application/pdf",
 		"zip" => "application/zip",
 		"json" => "application/json",
-		"txt" | "md" | "log" | "rs" | "toml" | "csv" => "text/plain",
-		_ => "application/octet-stream",
-	}
+		"txt" => "text/plain",
+		"md" => "text/markdown",
+		"csv" => "text/csv",
+		_ => return None,
+	})
 }
 
 async fn cancelled(cancel: &mut watch::Receiver<bool>) {
@@ -772,7 +958,7 @@ mod tests {
 	                assert!(head.contains("SYNTHETIC_UPLOAD_TOKEN"));
 	                assert!(head.to_ascii_lowercase().contains("x-super-properties: "));
 	                assert!(head.contains(&format!("user-agent: {}", client_core::fingerprint::user_agent())));
-	                assert_eq!(serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(), serde_json::json!({"files":[{"id":id.to_string(),"filename":filename,"file_size":CHUNK_BYTES*2+9,"is_clip":false}]}));
+	                assert_eq!(serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(), serde_json::json!({"files":[{"id":id.to_string(),"filename":filename,"file_size":CHUNK_BYTES*2+9,"is_clip":false,"original_content_type":"text/plain"}]}));
 	                respond(&mut socket, "200 OK", &serde_json::json!({"attachments":[{"id":id,"upload_url":upload_url,"upload_filename":format!("synthetic-upload/{id}/file.txt")}]}).to_string()).await;
 	                let (mut socket, _) = storage.accept().await.unwrap();
 	                let (head, bytes) = request(&mut socket).await;
@@ -781,7 +967,8 @@ mod tests {
 	                assert!(!head.to_ascii_lowercase().contains("cookie"));
 	                assert!(!head.contains("SYNTHETIC_UPLOAD_TOKEN"));
 	                assert!(!head.to_ascii_lowercase().contains("x-super-properties"));
-	                assert!(head.to_ascii_lowercase().contains("content-type: text/plain"));
+	                assert!(head.to_ascii_lowercase().contains("content-type: application/octet-stream"));
+	                assert!(!head.to_ascii_lowercase().contains("content-md5"));
 	                assert_eq!(bytes, vec![b'x'; CHUNK_BYTES*2+9]);
 	                respond(&mut socket, "200 OK", "").await;
 	                }
@@ -790,16 +977,17 @@ mod tests {
 	                assert!(head.starts_with("POST /channels/1/messages HTTP/1.1"));
 	                assert!(head.contains("SYNTHETIC_UPLOAD_TOKEN"));
 	                let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-	                assert_eq!(body["content"], "");
-	                assert_eq!(body["nonce"], "synthetic-upload");
-	                assert_eq!(body["attachments"], serde_json::json!([{"id":"0","filename":filename,"uploaded_filename":"synthetic-upload/0/file.txt"},{"id":"1","filename":filename,"uploaded_filename":"synthetic-upload/1/file.txt"}]));
-	                assert_eq!(body["allowed_mentions"], serde_json::json!({"parse":[],"users":[],"roles":[],"replied_user":true}));
-	                assert_eq!(body["message_reference"], serde_json::json!({"message_id":"2","channel_id":"1"}));
+	                assert_eq!(body, serde_json::json!({
+	                    "mobile_network_type":"unknown","content":"","nonce":"synthetic-upload","tts":false,"flags":0,
+	                    "allowed_mentions":{"parse":[],"users":[],"roles":[],"replied_user":true},
+	                    "message_reference":{"message_id":"2","channel_id":"1"},
+	                    "attachments":[{"id":"0","filename":filename,"uploaded_filename":"synthetic-upload/0/file.txt"},{"id":"1","filename":filename,"uploaded_filename":"synthetic-upload/1/file.txt"}],
+	                }));
 	                respond(&mut socket, "200 OK", r#"{"id":"3","channel_id":"1","author":{"id":"4","username":"Synthetic"},"nonce":"synthetic-upload"}"#).await;
 	            });
 	            let (progress, status) = watch::channel(Status::Preparing);
 	            let (_cancel, cancelled) = watch::channel(false);
-	            assert!(matches!(api.upload_messages(command(), vec![source.clone(), source], progress, cancelled).await, Event::SendResult { result: Ok(message), .. } if message.id == model::Id(3)));
+	            assert!(matches!(api.upload_messages(command(), vec![source.clone(), source], progress, cancelled, None).await, Event::SendResult { result: Ok(message), .. } if message.id == model::Id(3)));
 	            assert_eq!(*status.borrow(), Status::Finished);
 	            server.await.unwrap();
 	        }).await.unwrap();
@@ -841,6 +1029,201 @@ mod tests {
 				assert!(api.upload_url(&url).is_err());
 			}
 		}
+	}
+
+	/// Serves one API request and returns its socket and body. With `challenge`, the first
+	/// attempt is answered with a captcha and the attempt returned is its solved replay.
+	async fn exchange(
+		listener: &TcpListener,
+		start: &str,
+		challenge: bool,
+	) -> (TcpStream, serde_json::Value) {
+		let mut first = None;
+		loop {
+			let (mut socket, _) = listener.accept().await.unwrap();
+			let (head, bytes) = request(&mut socket).await;
+			assert!(head.starts_with(start), "{head}");
+			let head = head.to_ascii_lowercase();
+			let solved = first.is_some();
+			assert_eq!(head.contains("x-captcha-key: synthetic-solution"), solved);
+			assert_eq!(
+				head.contains("x-captcha-rqtoken: synthetic-rqtoken"),
+				solved
+			);
+			assert_eq!(
+				head.contains("x-captcha-session-id: synthetic-session"),
+				solved
+			);
+			let body = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();
+			if challenge && !solved {
+				respond(&mut socket, "400 Bad Request", r#"{"captcha_key":["required"],"captcha_service":"hcaptcha","captcha_sitekey":"synthetic-sitekey","captcha_rqdata":"synthetic-rqdata","captcha_rqtoken":"synthetic-rqtoken","captcha_session_id":"synthetic-session"}"#).await;
+				first = Some(body);
+				continue;
+			}
+			// The replay is the same request.
+			assert!(first.is_none_or(|first| first == body));
+			return (socket, body);
+		}
+	}
+
+	/// A challenge on staging replays only that staging request, and one on message create
+	/// replays only that POST: the file is transferred once either way.
+	#[tokio::test]
+	async fn challenged_attachment_requests_replay_once_without_transferring_again() {
+		for staging in [false, true] {
+			tokio::time::timeout(Duration::from_secs(10), async {
+				let fixture = Fixture::new(b"synthetic").await;
+				let source = Source::inspect(fixture.0.clone()).await.unwrap();
+				let api_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+				let storage = TcpListener::bind("127.0.0.1:0").await.unwrap();
+				let mut api = api();
+				api.base = format!("http://{}", api_listener.local_addr().unwrap());
+				api.upload_origin = Some(storage.local_addr().unwrap());
+				let target = format!("http://{}/signed", storage.local_addr().unwrap());
+				let server = tokio::spawn(async move {
+					let (mut socket, _) =
+						exchange(&api_listener, "POST /channels/1/attachments HTTP/1.1", staging).await;
+					respond(&mut socket, "200 OK", &serde_json::json!({"attachments":[{"upload_url":target,"upload_filename":"synthetic/file"}]}).to_string()).await;
+					let (mut socket, _) = storage.accept().await.unwrap();
+					request(&mut socket).await;
+					respond(&mut socket, "200 OK", "").await;
+					let (mut socket, body) =
+						exchange(&api_listener, "POST /channels/1/messages HTTP/1.1", !staging).await;
+					assert_eq!(body["attachments"][0]["uploaded_filename"], "synthetic/file");
+					respond(&mut socket, "200 OK", r#"{"id":"3","channel_id":"1","author":{"id":"4","username":"Synthetic"}}"#).await;
+					assert!(tokio::time::timeout(Duration::from_millis(50), api_listener.accept()).await.is_err());
+					assert!(tokio::time::timeout(Duration::from_millis(50), storage.accept()).await.is_err());
+				});
+				let mut state = client_core::State {
+					channels: vec![model::Channel {
+						id: model::Id(1),
+						guild: None,
+						parent_id: None,
+						kind: 1,
+						name: "Synthetic DM".into(),
+						position: 0,
+						recipients: vec![],
+						last_message: None,
+						icon: None,
+						member_list_id: None,
+						tags: None,
+						message_count: None,
+					}],
+					selected: Some(model::Id(1)),
+					auth: client_core::auth::AuthState::Authenticated,
+					freshness: model::Freshness::Fresh,
+					gateway_connected: true,
+					..Default::default()
+				};
+				let command = state
+					.prepare_send_with_attachment(Some(source.filename()))
+					.unwrap();
+				let (events, mut challenges) = tokio::sync::mpsc::unbounded_channel();
+				let show = move |event| events.send(event).is_ok();
+				let resumed = std::sync::atomic::AtomicBool::new(false);
+				let resume = || -> std::pin::Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+					Box::pin(async { resumed.store(true, std::sync::atomic::Ordering::SeqCst) })
+				};
+				let (progress, status) = watch::channel(Status::Preparing);
+				let (_cancel, cancelled) = watch::channel(false);
+				let upload = api.upload_messages(
+					command,
+					vec![source],
+					progress,
+					cancelled,
+					Some(Challenged {
+						show: &show,
+						resume: &resume,
+					}),
+				);
+				let solve = async {
+					let event = challenges.recv().await.unwrap();
+					assert!(matches!(event, Event::SendChallenge { .. }));
+					assert_eq!(*status.borrow(), Status::Verifying);
+					assert!(!api.stopped());
+					state.apply(client_core::Envelope {
+						generation: state.generation,
+						event,
+					});
+					let (verification, _) = state.verification().unwrap();
+					// The solved row resumes the waiting upload; a text resend would drop its file.
+					let Some(Command::VerifiedUpload {
+						channel,
+						nonce,
+						captcha,
+					}) = state.resume_verification(
+						verification,
+						captcha::Solution::new("synthetic-solution".into()).unwrap(),
+					)
+					else {
+						panic!("expected the upload to be resumed");
+					};
+					assert!(api.resume_upload(channel, nonce, captcha).is_none());
+				};
+				let (event, ()) = tokio::join!(upload, solve);
+				assert!(
+					matches!(event, Event::SendResult { result: Ok(message), .. } if message.id == model::Id(3))
+				);
+				assert_eq!(*status.borrow(), Status::Finished);
+				// The session's turn is taken back before the replay goes out.
+				assert!(resumed.load(std::sync::atomic::Ordering::SeqCst));
+				server.await.unwrap();
+			})
+			.await
+			.unwrap();
+		}
+	}
+
+	#[tokio::test]
+	async fn cancelling_staging_verification_never_puts_or_posts_a_message() {
+		use futures_util::FutureExt;
+		let fixture = Fixture::new(b"synthetic").await;
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let storage = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = api();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		api.upload_origin = Some(storage.local_addr().unwrap());
+		let server = tokio::spawn(async move {
+			let (mut socket, _) = listener.accept().await.unwrap();
+			let (head, _) = request(&mut socket).await;
+			assert!(head.starts_with("POST /channels/1/attachments HTTP/1.1"));
+			respond(&mut socket, "400 Bad Request", r#"{"captcha_key":["required"],"captcha_service":"hcaptcha","captcha_sitekey":"synthetic-sitekey"}"#).await;
+			listener
+		});
+		let (cancel, cancelled) = watch::channel(false);
+		let show = |event| {
+			assert!(matches!(event, Event::SendChallenge { .. }));
+			cancel.send_replace(true);
+			true
+		};
+		let resume = || -> std::pin::Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+			Box::pin(async { panic!("cancelled staging must not resume") })
+		};
+		let (progress, status) = watch::channel(Status::Preparing);
+		let event = api
+			.upload_messages(
+				command(),
+				vec![Source::inspect(fixture.0.clone()).await.unwrap()],
+				progress,
+				cancelled,
+				Some(Challenged {
+					show: &show,
+					resume: &resume,
+				}),
+			)
+			.await;
+		assert_eq!(failed(event), Failure::ProtocolAt(CANCELLED));
+		assert_eq!(*status.borrow(), Status::Cancelled);
+		assert!(api.upload_verification.lock().unwrap().is_none());
+		let listener = server.await.unwrap();
+		assert!(
+			listener.accept().now_or_never().is_none(),
+			"staging replay or message create was dispatched"
+		);
+		assert!(
+			storage.accept().now_or_never().is_none(),
+			"storage PUT was dispatched"
+		);
 	}
 
 	#[tokio::test]

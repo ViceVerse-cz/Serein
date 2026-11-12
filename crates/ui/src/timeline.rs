@@ -40,7 +40,11 @@ pub struct TimelineView {
 	/// A private command response the reader dismissed this frame.
 	pub(super) dismiss_ephemeral: Option<Id>,
 	pub(super) extension_actions: std::sync::Arc<Vec<crate::extensions_ui::MenuAction>>,
-	pub(super) extension_request: Option<(crate::extensions_ui::MenuAction, String)>,
+	pub(super) extension_request: Option<(
+		crate::extensions_ui::MenuAction,
+		String,
+		crate::extensions_ui::MessageTarget,
+	)>,
 	pub(super) user_action: Option<crate::user_menu::Action>,
 	pub(super) restore_pending: Option<String>,
 	/// A failed own row the reader dismissed this frame.
@@ -103,6 +107,8 @@ pub struct TimelineView {
 	pub(super) pin_request: Option<(Id, Id, bool)>,
 	/// Requested new thread: parent channel and the message that starts it.
 	pub(super) thread_request: Option<(Id, Id)>,
+	/// Starter message of the first visible thread card whose latest message is unknown.
+	pub(super) thread_preview_request: Option<Id>,
 	/// Channel whose Threads dialog a system row asked to open.
 	pub(super) threads_request: Option<Id>,
 	/// The starter message shown as a pseudo-row at the top of an exhausted thread.
@@ -127,6 +133,10 @@ pub struct TimelineView {
 	rows: Vec<(Id, f32)>,
 	revision: u64,
 	layout_fingerprint: u64,
+	/// Whether the last layout left out blocked users' messages.
+	hidden_blocked: bool,
+	/// Relationship view the last layout filtered with; pending blocks change it too.
+	relationship_view: u64,
 	channel: Option<Id>,
 	anchor: Option<(Id, f32)>,
 	scroll_offset: f32,
@@ -145,6 +155,12 @@ pub struct TimelineView {
 	pub(super) video: crate::video::VideoUi,
 	pub(super) opening: Option<String>,
 	pub(super) browser_opening: Option<String>,
+	/// The translation link whose message text was cut to fit. It applies only while it is
+	/// still the pending `browser_opening`, so any other link that replaces it drops the notice.
+	pub(super) truncated_translation: Option<String>,
+	/// Row whose menu Shift+F10 opened; it stays anchored to the row until it closes, even
+	/// after Shift is released and the More button returns.
+	keyboard_menu_row: Option<Id>,
 	text_size: f32,
 	font_revision: (usize, usize, u32),
 	scale: f32,
@@ -334,6 +350,7 @@ fn layout_key(message: &Message) -> u64 {
 	message.author.kind.hash(&mut key);
 	message.author.webhook.hash(&mut key);
 	message.edited.hash(&mut key);
+	(message.flags & (1 << 12) != 0).hash(&mut key);
 	message.reply_to.hash(&mut key);
 	if let Some(interaction) = &message.interaction {
 		interaction.user.id.hash(&mut key);
@@ -409,7 +426,7 @@ const GROUPED_ROW_SAVINGS: f32 = 52.0;
 
 /// Space above a new message group: cozy by default, tighter when compact spacing is on.
 pub(crate) fn group_gap(compact_messages: bool) -> i8 {
-	if compact_messages { 4 } else { 10 }
+	if compact_messages { 4 } else { 16 }
 }
 
 fn reserved_chrome(ui: &egui::Ui, message: &Message, width: f32) -> f32 {
@@ -494,86 +511,323 @@ pub(crate) fn thread_activity(thread: &model::Channel) -> String {
 		],
 	)
 }
-/// Discord-style card under a message that started a thread: name, activity, open affordance.
-/// A thread this session has not loaded yet has no activity line until the read admits it.
+/// A thread card's identity and the message it previews.
+struct ThreadCard<'a> {
+	/// The thread's name, once this session knows its channel.
+	name: Option<&'a str>,
+	/// The service's message count for the thread.
+	count: Option<u32>,
+	/// The thread's latest message, once its bounded read landed.
+	last: Option<&'a Message>,
+	/// One safe line of that message, with mentions named and spoilers hidden.
+	text: Option<&'a str>,
+	/// The latest message this session knows of, so the card shows its time before the body.
+	latest: Option<Id>,
+}
+/// "3 messages" for a thread card, phrased like the archive cards.
+fn thread_count(count: u32) -> String {
+	match count {
+		0 => crate::i18n::translate("timeline-thread-activity-no-replies"),
+		1 => crate::i18n::translate("timeline-thread-activity-one-message"),
+		count => crate::i18n::translate_args(
+			"timeline-thread-activity-many-messages",
+			&[("count", &count.to_string())],
+		),
+	}
+}
+/// One safe line of a thread's latest message: mentions by name, hidden spoilers, and what a
+/// message without text carries. `channel` is the channel the card sits in, which resolves the
+/// guild's nicks and roles even when the thread itself is not loaded.
+fn thread_preview_text(
+	ui: &egui::Ui,
+	state: &State,
+	formatted: &mut FormatCache,
+	channel: Id,
+	message: &Message,
+) -> String {
+	if crate::embeds::has_spoilers(message) {
+		return "Spoiler".to_owned();
+	}
+	let text = if message.is_system() {
+		// A service row carries its meaning in the summary, not in the raw content.
+		crate::i18n::message_text(message).into_owned()
+	} else {
+		let mut job = egui::text::LayoutJob::default();
+		let source = crate::mentions::MentionSource { state, channel };
+		let emojis = formatted
+			.get(message.id, &message.content)
+			.append_inline_preview(
+				&mut job,
+				ui,
+				&message.mentions,
+				Some(&source),
+				crate::mentions::known_roles(state, channel),
+				&state.channels,
+			);
+		Formatted::inline_preview_text(&job, &emojis)
+	};
+	let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+	if !text.is_empty() {
+		return text;
+	}
+	if let Some(attachment) = message.attachments.first() {
+		return attachment.filename.clone();
+	}
+	if let Some(embed) = message.embeds.first() {
+		let one_line = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+		if let Some(title) = embed.title.as_deref() {
+			let title = one_line(title);
+			if !title.is_empty() {
+				return title;
+			}
+		}
+		if let Some(description) = embed.description.as_deref() {
+			let description = one_line(description);
+			if !description.is_empty() {
+				return description;
+			}
+		}
+		if let Some(url) = embed.url.as_deref() {
+			return url.to_owned();
+		}
+	}
+	if let Some(sticker) = message.sticker_items.first() {
+		return sticker.name.clone();
+	}
+	if let Some(poll) = message.poll.as_deref() {
+		return poll
+			.question
+			.split_whitespace()
+			.collect::<Vec<_>>()
+			.join(" ");
+	}
+	String::new()
+}
+/// The rule that ties a starter's avatar to the thread card under its message, as Discord draws
+/// it: down the gutter, around a rounded corner, into the card's left edge.
+fn thread_connector(
+	ui: &egui::Ui,
+	avatar: egui::Rect,
+	card: egui::Rect,
+	colors: &crate::design::Palette,
+) {
+	let x = avatar.center().x;
+	let top = avatar.bottom() + 4.0;
+	let y = card.center().y;
+	if y <= top + 6.0 || card.left() <= x + 6.0 {
+		return;
+	}
+	let stroke = egui::Stroke::new(2.0, colors.muted.gamma_multiply(0.5));
+	ui.painter()
+		.line_segment([egui::pos2(x, top), egui::pos2(x, y - 6.0)], stroke);
+	ui.painter()
+		.add(egui::epaint::QuadraticBezierShape::from_points_stroke(
+			[
+				egui::pos2(x, y - 6.0),
+				egui::pos2(x, y),
+				egui::pos2(x + 6.0, y),
+			],
+			false,
+			egui::Color32::TRANSPARENT,
+			stroke,
+		));
+	ui.painter().line_segment(
+		[egui::pos2(x + 6.0, y), egui::pos2(card.left() - 1.0, y)],
+		stroke,
+	);
+}
+/// Discord-style card under a message that started a thread: the thread's name and message
+/// count, then who spoke last and what they said. The whole card opens the thread; its height
+/// is fixed, so a read that lands later only fills the card instead of moving the rows below it.
 fn thread_card(
 	ui: &mut egui::Ui,
-	name: &str,
-	activity: Option<&str>,
+	state: &State,
+	avatars: &mut crate::avatars::Avatars,
+	card: ThreadCard<'_>,
 	colors: &crate::design::Palette,
-) -> egui::Response {
-	let width = ui.available_width().min(520.0);
-	let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 56.0), egui::Sense::click());
+) -> (egui::Response, bool) {
+	let width = ui.available_width();
+	let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 64.0), egui::Sense::click());
 	let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
-	if ui.is_rect_visible(rect) {
-		let hovered = response.hovered() || response.has_focus();
-		let painter = ui.painter();
-		painter.rect(
-			rect,
-			8.0,
-			if hovered { colors.hover } else { colors.raised },
-			egui::Stroke::new(1.0, colors.border),
-			egui::StrokeKind::Inside,
-		);
+	let visible = ui.is_rect_visible(rect);
+	if visible {
+		let frame = crate::design::interactive_card_frame(ui, &response);
+		ui.painter().add(frame.paint(rect));
+		let left = rect.left() + 48.0;
+		let right = rect.right() - 16.0;
+		let inner = (right - left).max(1.0);
 		let icon = egui::Rect::from_center_size(
 			egui::pos2(rect.left() + 26.0, rect.center().y),
 			egui::Vec2::splat(20.0),
 		);
-		crate::icons::paint(painter, crate::icons::Icon::Thread, icon, colors.muted);
-		let text_left = rect.left() + 48.0;
-		let text_right = rect.right() - 16.0;
-		let open_width = painter
-			.layout_no_wrap(
-				"View thread ›".to_owned(),
-				egui::FontId::proportional(13.0),
-				colors.link,
+		crate::icons::paint(ui.painter(), crate::icons::Icon::Thread, icon, colors.muted);
+		let count = card.count.map(|count| {
+			// An empty thread has no count yet; a chevron would promise a list it cannot open.
+			let (label, color) = if count == 0 {
+				(thread_count(0), colors.muted)
+			} else {
+				(format!("{} ›", thread_count(count)), colors.link)
+			};
+			egui::WidgetText::from(RichText::new(label).size(12.5).color(color)).into_galley(
+				ui,
+				Some(egui::TextWrapMode::Truncate),
+				inner,
+				egui::FontSelection::Default,
 			)
-			.size()
-			.x;
-		painter.text(
-			egui::pos2(text_right, rect.center().y),
-			egui::Align2::RIGHT_CENTER,
-			"View thread ›",
-			egui::FontId::proportional(13.0),
-			colors.link,
-		);
-		let name_width = (text_right - open_width - 12.0 - text_left).max(40.0);
-		let title = egui::WidgetText::from(
-			crate::design::semibold(ui, name, 14.5).color(colors.text_strong),
-		)
-		.into_galley(
-			ui,
-			Some(egui::TextWrapMode::Truncate),
-			name_width,
-			egui::FontSelection::Default,
-		);
-		// Without a loaded thread there is no activity line, so the name sits centered.
-		let title_y = if activity.is_some() {
-			rect.top() + 9.0
-		} else {
-			rect.center().y - title.size().y / 2.0
+		});
+		let title = card.name.map(|name| {
+			let reserved = count.as_ref().map_or(0.0, |count| count.size().x + 8.0);
+			egui::WidgetText::from(
+				crate::design::semibold(ui, name, 14.5).color(colors.text_strong),
+			)
+			.into_galley(
+				ui,
+				Some(egui::TextWrapMode::Truncate),
+				(inner - reserved).max(40.0),
+				egui::FontSelection::Default,
+			)
+		});
+		let time = card.latest.filter(|id| id.0 != 0).map(|id| {
+			egui::WidgetText::from(
+				RichText::new(crate::local_time::ago(timestamp(id)))
+					.size(12.0)
+					.color(colors.muted),
+			)
+			.into_galley(
+				ui,
+				Some(egui::TextWrapMode::Truncate),
+				inner,
+				egui::FontSelection::Default,
+			)
+		});
+		// The preview line: the author's avatar and name, then the message's first line.
+		let last = card.last.map(|message| {
+			let color = state
+				.message_author_colors(message)
+				.map_or(colors.text_strong, |role| {
+					crate::design::role_name_color(role.primary, colors.chat, colors.text_strong)
+				});
+			let author = egui::WidgetText::from(
+				crate::design::medium(ui, state.message_author_name(message), 12.5).color(color),
+			)
+			.into_galley(
+				ui,
+				Some(egui::TextWrapMode::Truncate),
+				(inner * 0.45).max(40.0),
+				egui::FontSelection::Default,
+			);
+			let text_left = 28.0 + author.size().x + 8.0;
+			let text_width =
+				(inner - text_left - time.as_ref().map_or(0.0, |time| time.size().x) - 12.0)
+					.max(24.0);
+			let text = egui::WidgetText::from(
+				RichText::new(card.text.unwrap_or_default())
+					.size(12.5)
+					.color(colors.muted),
+			)
+			.into_galley(
+				ui,
+				Some(egui::TextWrapMode::Truncate),
+				text_width,
+				egui::FontSelection::Default,
+			);
+			(author, color, text, text_left)
+		});
+		let title_height = title.as_ref().map_or(0.0, |title| title.size().y);
+		let title_y = match (title.as_ref(), last.as_ref()) {
+			(Some(_), Some(_)) => rect.top() + 9.0,
+			(Some(_), None) => rect.center().y - title_height / 2.0,
+			_ => 0.0,
 		};
-		painter.galley(egui::pos2(text_left, title_y), title, colors.text_strong);
-		if let Some(activity) = activity {
-			let activity =
-				egui::WidgetText::from(RichText::new(activity).size(12.5).color(colors.muted))
-					.into_galley(
-						ui,
-						Some(egui::TextWrapMode::Truncate),
-						name_width,
-						egui::FontSelection::Default,
-					);
-			painter.galley(
-				egui::pos2(text_left, rect.top() + 30.0),
-				activity,
+		let preview_y = match (title.as_ref(), last.as_ref()) {
+			(Some(_), Some(_)) => rect.top() + 33.0,
+			(None, Some(_)) => rect.center().y - 10.0,
+			_ => 0.0,
+		};
+		if let Some(title) = title {
+			ui.painter()
+				.galley(egui::pos2(left, title_y), title.clone(), colors.text_strong);
+			if let Some(count) = count {
+				ui.painter().galley(
+					egui::pos2(
+						left + title.size().x + 8.0,
+						title_y + (title.size().y - count.size().y) / 2.0,
+					),
+					count.clone(),
+					colors.link,
+				);
+			}
+			// A card whose preview has not landed yet still shows when the thread was last used.
+			if last.is_none()
+				&& let Some(time) = &time
+			{
+				ui.painter().galley(
+					egui::pos2(
+						right - time.size().x,
+						title_y + (title.size().y - time.size().y) / 2.0,
+					),
+					time.clone(),
+					colors.muted,
+				);
+			}
+		}
+		if let (Some(message), Some((author, color, text, text_left))) = (card.last, last) {
+			avatars.paint_user(
+				ui,
+				&message.author,
+				20.0,
+				egui::Rect::from_min_size(egui::pos2(left, preview_y), egui::Vec2::splat(20.0)),
+				state.demo,
+			);
+			let baseline = preview_y + (20.0 - author.size().y) / 2.0;
+			ui.painter()
+				.galley(egui::pos2(left + 28.0, baseline), author.clone(), color);
+			ui.painter().galley(
+				egui::pos2(left + text_left, baseline),
+				text.clone(),
 				colors.muted,
 			);
+			if let Some(time) = time {
+				ui.painter().galley(
+					egui::pos2(
+						right - time.size().x,
+						preview_y + (20.0 - time.size().y) / 2.0,
+					),
+					time.clone(),
+					colors.muted,
+				);
+			}
 		}
 	}
-	response.on_hover_text(crate::i18n::translate_args(
-		"timeline-open-thread",
-		&[("thread", name)],
-	))
+	let label = card.name.map_or_else(
+		|| crate::i18n::translate("timeline-thread-activity-thread"),
+		str::to_owned,
+	);
+	// The card is painted, so its parts exist only as shapes; name them for screen readers.
+	let mut named = Vec::new();
+	if let Some(name) = card.name {
+		named.push(name.to_owned());
+	}
+	if let Some(count) = card.count {
+		named.push(thread_count(count));
+	}
+	if let (Some(last), Some(text)) = (card.last, card.text) {
+		named.push(format!("{}: {text}", state.message_author_name(last)));
+	}
+	if let Some(latest) = card.latest {
+		named.push(crate::local_time::ago(timestamp(latest)));
+	}
+	let named = named.join(" · ");
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), named.clone())
+	});
+	(
+		response.on_hover_text(crate::i18n::translate_args(
+			"timeline-open-thread",
+			&[("thread", &label)],
+		)),
+		visible,
+	)
 }
 /// The message a thread hangs off, shown above its replies like Discord's thread view.
 fn starter_row(
@@ -1008,8 +1262,12 @@ fn dm_intro(
 	action
 }
 
-/// Loaded and private (ephemeral) messages of the selected conversation in id order.
-fn display_rows<'a>(state: &'a State) -> impl Iterator<Item = &'a Message> + 'a {
+/// Loaded and private (ephemeral) messages of the selected conversation in id order, without
+/// blocked users' messages when `hide_blocked`.
+fn display_rows<'a>(
+	state: &'a State,
+	hide_blocked: bool,
+) -> impl Iterator<Item = &'a Message> + 'a {
 	let mut private: Vec<&Message> = state
 		.interactions
 		.ephemeral
@@ -1026,6 +1284,7 @@ fn display_rows<'a>(state: &'a State) -> impl Iterator<Item = &'a Message> + 'a 
 		(Some(_), _) => shared.next(),
 		(None, _) => private.next(),
 	})
+	.filter(move |message| !hide_blocked || state.user_blocked(message.author.id) != Some(true))
 }
 /// A row payload, including retained deleted bodies and private command responses.
 fn display_message(state: &State, id: Id) -> Option<&Message> {
@@ -1046,6 +1305,21 @@ fn queue_missing_channel_reference(
 	if queued.is_none() {
 		*queued = formatted.missing_channel_reference(state, revealed);
 	}
+}
+/// An 18 px reply or command line led by the spine; `horizontal` would take the
+/// theme's taller control height and push the author line down.
+fn reference_row(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
+	let colors = crate::design::palette(ui);
+	ui.allocate_ui_with_layout(
+		egui::vec2(ui.available_width(), 18.0),
+		egui::Layout::left_to_right(egui::Align::Center),
+		|ui| {
+			ui.spacing_mut().interact_size.y = 18.0;
+			ui.spacing_mut().item_spacing.x = 6.0;
+			reference_spine(ui, &colors);
+			add_contents(ui);
+		},
+	);
 }
 /// The curved gutter connector shared by reply and command-invocation headers.
 fn reference_spine(ui: &mut egui::Ui, colors: &crate::design::Palette) {
@@ -1142,45 +1416,51 @@ fn divider(ui: &mut egui::Ui, label: String, unread: bool, compact: bool) {
 	let colors = crate::design::palette(ui);
 	let color = if unread { colors.danger } else { colors.muted };
 	ui.add_space(if compact { 8.0 } else { 16.0 });
-	ui.horizontal(|ui| {
-		ui.add_space(16.0);
-		let font = egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx()));
-		let text = ui.painter().layout_no_wrap(label.clone(), font, color);
-		let (rect, response) = ui.allocate_exact_size(
-			egui::vec2((ui.available_width() - 16.0).max(0.0), 20.0),
-			crate::select::band_sense(),
-		);
-		response
-			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &label));
-		let pos = egui::pos2(
-			rect.center().x - text.size().x / 2.0,
-			rect.center().y - text.size().y / 2.0,
-		);
-		let gap = (rect.width() - text.size().x - 24.0).max(0.0) / 2.0;
-		for (a, b) in [
-			(rect.left(), rect.left() + gap),
-			(rect.right() - gap, rect.right()),
-		] {
-			ui.painter().line_segment(
-				[
-					egui::pos2(a, rect.center().y),
-					egui::pos2(b, rect.center().y),
-				],
-				egui::Stroke::new(1.0, if unread { color } else { colors.border }),
+	// `horizontal` would take the theme's taller control height.
+	ui.allocate_ui_with_layout(
+		egui::vec2(ui.available_width(), 20.0),
+		egui::Layout::left_to_right(egui::Align::Center),
+		|ui| {
+			ui.add_space(16.0);
+			let font = egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx()));
+			let text = ui.painter().layout_no_wrap(label.clone(), font, color);
+			let (rect, response) = ui.allocate_exact_size(
+				egui::vec2((ui.available_width() - 16.0).max(0.0), 20.0),
+				crate::select::band_sense(),
 			);
-		}
-		egui::text_selection::LabelSelectionState::label_text_selection(
-			ui,
-			&response,
-			pos,
-			text,
-			color,
-			egui::Stroke::NONE,
-		);
-		if response.hovered() {
-			ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
-		}
-	});
+			response.widget_info(|| {
+				egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &label)
+			});
+			let pos = egui::pos2(
+				rect.center().x - text.size().x / 2.0,
+				rect.center().y - text.size().y / 2.0,
+			);
+			let gap = (rect.width() - text.size().x - 24.0).max(0.0) / 2.0;
+			for (a, b) in [
+				(rect.left(), rect.left() + gap),
+				(rect.right() - gap, rect.right()),
+			] {
+				ui.painter().line_segment(
+					[
+						egui::pos2(a, rect.center().y),
+						egui::pos2(b, rect.center().y),
+					],
+					egui::Stroke::new(1.0, if unread { color } else { colors.border }),
+				);
+			}
+			egui::text_selection::LabelSelectionState::label_text_selection(
+				ui,
+				&response,
+				pos,
+				text,
+				color,
+				egui::Stroke::NONE,
+			);
+			if response.hovered() {
+				ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
+			}
+		},
+	);
 	ui.add_space(if compact { 2.0 } else { 4.0 });
 }
 /// A hover-bar reaction: its emoji, whether the reader already reacted, and whether it toggles now.
@@ -1204,6 +1484,61 @@ fn quick_reaction(
 }
 fn action_button(ui: &mut egui::Ui, icon: crate::icons::Icon, label: &str) -> egui::Response {
 	crate::icons::button_immediate(ui, icon, 28.0, label)
+}
+
+/// Whether Translate has text to send. The URL itself is built only when Translate is
+/// clicked, so hovering a message never serializes its text.
+fn translatable(message: &Message) -> bool {
+	!crate::i18n::message_text(message).trim().is_empty()
+}
+
+/// Uses the existing reviewed external-link flow; no message text leaves Serein silently.
+/// Very large messages are bounded before constructing a browser URL; the flag is true when
+/// only the start of the text fits, so the confirmation can say so.
+fn translation_url(message: &Message) -> Option<(String, bool)> {
+	fn candidate(text: &str) -> Option<String> {
+		let mut url = url::Url::parse("https://translate.google.com/").ok()?;
+		url.query_pairs_mut()
+			.append_pair("sl", "auto")
+			.append_pair("tl", "en")
+			.append_pair("op", "translate")
+			.append_pair("text", text);
+		Some(url.into())
+	}
+	let text = crate::i18n::message_text(message);
+	let text = text.trim();
+	if text.is_empty() {
+		return None;
+	}
+	let mut high = text.len().min(2048);
+	while !text.is_char_boundary(high) {
+		high -= 1;
+	}
+	let mut boundaries: Vec<usize> = text
+		.char_indices()
+		.map(|(index, _)| index)
+		.filter(|index| *index <= high)
+		.chain(std::iter::once(high))
+		.collect();
+	boundaries.dedup();
+	high = boundaries.len() - 1;
+	let mut low = 0;
+	while low < high {
+		let middle = (low + high).div_ceil(2);
+		let end = boundaries[middle];
+		if candidate(&text[..end])?.len() <= 2048 {
+			low = middle;
+		} else {
+			high = middle - 1;
+		}
+	}
+	(low > 0).then(|| {
+		let end = boundaries[low];
+		(
+			candidate(&text[..end]).expect("validated translation URL"),
+			end < text.len(),
+		)
+	})
 }
 
 /// One transient confirmation for all direct copy actions; never retains copied text.
@@ -1263,7 +1598,10 @@ fn copy_action_button(
 	crate::icons::paint(
 		ui.painter(),
 		icon,
-		egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(16.8 * scale)),
+		egui::Rect::from_center_size(
+			rect.center(),
+			egui::Vec2::splat(crate::icons::button_glyph_size(28.0) * scale),
+		),
 		color,
 	);
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
@@ -1383,6 +1721,17 @@ fn deleted_message_actions(popup: egui::Popup<'_>, action: &mut Option<DeletedLo
 		}
 	});
 }
+/// Whether the first paragraph's first strong character reads right to left (bidi P2).
+fn starts_rtl(text: &str) -> bool {
+	use unicode_bidi::BidiClass::{AL, B, L, R};
+	text.chars()
+		.map(unicode_bidi::bidi_class)
+		.find(|class| matches!(class, L | R | AL | B))
+		.is_some_and(|class| matches!(class, R | AL))
+}
+
+/// Fills a message's action menu, including plugin message actions, and records the chosen
+/// plugin action with the message it applies to.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn message_actions(
 	popup: egui::Popup<'_>,
@@ -1390,7 +1739,11 @@ fn message_actions(
 		&Message,
 		Option<&str>,
 		&[crate::extensions_ui::MenuAction],
-		&mut Option<(crate::extensions_ui::MenuAction, String)>,
+		&mut Option<(
+			crate::extensions_ui::MenuAction,
+			String,
+			crate::extensions_ui::MessageTarget,
+		)>,
 	),
 	actions: (bool, bool, bool, bool),
 	selection: (
@@ -1421,8 +1774,15 @@ fn message_actions(
 				|ui| {
 					for action in extension_actions {
 						if ui.button(&action.label).clicked() {
-							*extension_request =
-								Some((action.clone(), message.display_text().into_owned()));
+							*extension_request = Some((
+								action.clone(),
+								message.display_text().into_owned(),
+								crate::extensions_ui::MessageTarget {
+									channel: message.channel,
+									message: message.id,
+									author: message.author.id,
+								},
+							));
 							ui.close();
 						}
 					}
@@ -1861,7 +2221,14 @@ fn show_system(
 					.add(egui::Label::new(text).sense(egui::Sense::click()))
 					.on_hover_cursor(egui::CursorIcon::PointingHand);
 				surface.keep(&response);
-				crate::user_menu::show(&response, state, user, profile, user_action);
+				crate::user_menu::show(
+					&response,
+					state,
+					user,
+					crate::user_menu::Place::Open,
+					profile,
+					user_action,
+				);
 				profile.person_click(ui, &response, None, user);
 			}
 			if let Some((_, parent)) = thread {
@@ -1916,6 +2283,9 @@ fn show_system(
 impl TimelineView {
 	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
 		if self.video.is_fullscreen() {
+			// Runs before the timeline lays out, so the tweak is read directly.
+			let hide_blocked =
+				crate::interface_tweaks::on(ctx, extensions::InterfaceTweak::HiddenBlockedMessages);
 			let current = self
 				.video
 				.active
@@ -1933,6 +2303,8 @@ impl TimelineView {
 						})
 						.filter(|message| {
 							state.selected == Some(*channel)
+								&& !(hide_blocked
+									&& state.user_blocked(message.author.id) == Some(true))
 								&& message.channel == *channel
 								&& message.attachments.contains(attachment)
 								&& (self.component_viewing
@@ -1943,7 +2315,7 @@ impl TimelineView {
 											&message.attachments,
 										))
 										.value(),
-									)) || !crate::embeds::has_media_spoilers(message)
+									)) || !crate::embeds::attachment_spoiler(attachment)
 									|| self.revealed.get(id).is_some_and(|reveal| {
 										reveal.media && reveal.matches(message)
 									}))
@@ -2145,6 +2517,7 @@ impl TimelineView {
 				},
 				opening: self.opening.take(),
 				browser_opening: self.browser_opening.take(),
+				truncated_translation: self.truncated_translation.take(),
 				pending_viewer: self.pending_viewer.take(),
 				jump: following,
 				leave_read: self.channel.zip(self.seen_latest),
@@ -2237,8 +2610,16 @@ impl TimelineView {
 		let dimensions_changed = width_changed || content_dimensions_changed;
 		self.applied_hide_media_links = self.hide_media_links;
 		self.applied_compact_messages = self.compact_messages;
-		// A thread's starter joins the rows only once the whole thread history is loaded.
-		let starter = state.thread_starter().filter(|_| history_complete(state));
+		let hide_blocked = crate::interface_tweaks::on(
+			ui.ctx(),
+			extensions::InterfaceTweak::HiddenBlockedMessages,
+		);
+		// A thread's starter joins the rows only once the whole thread history is loaded, and
+		// like other rows is left out when its author is blocked and the tweak hides them.
+		let starter = state
+			.thread_starter()
+			.filter(|_| history_complete(state))
+			.filter(|m| !hide_blocked || state.user_blocked(m.author.id) != Some(true));
 		let starter_id = starter.map(|m| m.id);
 		let intro_empty = state.timeline.display_iter().next().is_none()
 			&& !state
@@ -2253,7 +2634,7 @@ impl TimelineView {
 			// anchor or reintroduce estimates for already settled message geometry.
 			let mut fingerprint = DefaultHasher::new();
 			let mut previous = None;
-			for message in starter.into_iter().chain(display_rows(state)) {
+			for message in starter.into_iter().chain(display_rows(state, hide_blocked)) {
 				let deleted = state.timeline.is_deleted(message.id);
 				message.id.hash(&mut fingerprint);
 				row_key(message, previous, self.unread_boundary, state).hash(&mut fingerprint);
@@ -2266,6 +2647,8 @@ impl TimelineView {
 		}
 		let changed = self.revision == u64::MAX
 			|| layout_changed
+			|| self.hidden_blocked != hide_blocked
+			|| hide_blocked && self.relationship_view != state.relationship_view()
 			|| dimensions_changed
 			|| self.starter_row != starter_id
 			|| self.intro_row != intro.is_some()
@@ -2273,6 +2656,8 @@ impl TimelineView {
 				.is_some_and(|key| self.heights.get(&INTRO).is_some_and(|(old, _)| *old != key));
 		self.starter_row = starter_id;
 		self.intro_row = intro.is_some();
+		self.hidden_blocked = hide_blocked;
+		self.relationship_view = state.relationship_view();
 		if changed || self.revision != state.revision || self.width != width {
 			self.measured_rows.clear();
 		}
@@ -2294,7 +2679,7 @@ impl TimelineView {
 				.map(|_| INTRO)
 				.into_iter()
 				.chain(starter_id)
-				.chain(display_rows(state).map(|message| message.id))
+				.chain(display_rows(state, hide_blocked).map(|message| message.id))
 				.collect();
 			self.heights
 				.retain(|id, _| row_ids.binary_search(id).is_ok());
@@ -2313,7 +2698,7 @@ impl TimelineView {
 			let mut stale_heights = Vec::new();
 			self.rows = starter
 				.into_iter()
-				.chain(display_rows(state))
+				.chain(display_rows(state, hide_blocked))
 				.map(|m| {
 					let prior = previous;
 					let deleted = state.timeline.is_deleted(m.id);
@@ -2701,6 +3086,12 @@ impl TimelineView {
 						.as_ref()
 						.is_some_and(|r| rect.contains_rect(r.rect))
 			});
+			// A row (or one of its controls) holding keyboard focus owns Shift+F10, so a row
+			// that is merely hovered never opens its menu in place of the focused one.
+			// `contains_rect` keeps a focused composer touching the timeline's edge out.
+			let timeline_keyboard_focus = keyboard_focus
+				.as_ref()
+				.is_some_and(|r| clip.contains_rect(r.rect));
 			let reuse_leading = keyboard_focus.is_none()
 				&& retained_toolbar.is_none()
 				&& !egui::Popup::is_any_open(ui.ctx())
@@ -2825,9 +3216,18 @@ impl TimelineView {
 							self.compact_messages,
 						);
 					}
-					if self.unread_boundary == Some(id) {
+					let unread_boundary = self.unread_boundary == Some(id);
+					if unread_boundary {
 						divider(ui, "New messages".into(), true, self.compact_messages);
 					}
+					// Like Discord, the gap above a group sits outside the row highlight;
+					// a divider already separates the group.
+					let group_lift = if compact || new_day || unread_boundary {
+						0
+					} else {
+						group_gap(false) - 2
+					};
+					ui.add_space(f32::from(group_lift));
 					let colors = crate::design::palette(ui);
 					let background = ui.painter().add(egui::Shape::Noop);
 					let mut time_rect = None;
@@ -2844,7 +3244,7 @@ impl TimelineView {
 							} else if compact {
 								1
 							} else {
-								group_gap(self.compact_messages)
+								2
 							},
 							bottom: 1,
 						})
@@ -2857,10 +3257,7 @@ impl TimelineView {
 								.as_deref()
 								.filter(|_| message.reply_to.is_none())
 							{
-								ui.horizontal(|ui| {
-									ui.spacing_mut().interact_size.y = 18.0;
-									ui.spacing_mut().item_spacing.x = 6.0;
-									reference_spine(ui, &colors);
+								reference_row(ui, |ui| {
 									let avatar =
 										avatars.show(ui, &interaction.user, 16.0, state.demo);
 									surface.keep(&avatar);
@@ -2913,12 +3310,28 @@ impl TimelineView {
 							}
 							// A poll result's reference opens through its result card instead.
 							if let Some(reply) = message.reply_to.filter(|_| message.kind != 46) {
-								ui.horizontal(|ui| {
-									ui.spacing_mut().interact_size.y = 18.0;
-									ui.spacing_mut().item_spacing.x = 6.0;
-									reference_spine(ui, &colors);
+								reference_row(ui, |ui| {
 									// Reuse only loaded content; never fetch a thread while painting.
-									if message.reply_deleted || state.timeline.is_deleted(reply) {
+									let blocked = self.hidden_blocked
+										&& state.timeline.get(reply).is_some_and(|original| {
+											state.user_blocked(original.author.id) == Some(true)
+										});
+									if blocked {
+										let label = ui.add(
+											egui::Label::new(
+												RichText::new(crate::i18n::translate(
+													"timeline-show-with-scroll-message-blocked",
+												))
+												.size(13.0)
+												.italics()
+												.color(colors.muted),
+											)
+											.truncate(),
+										);
+										surface.keep(&label);
+									} else if message.reply_deleted
+										|| state.timeline.is_deleted(reply)
+									{
 										let deleted = ui.add(
 											egui::Label::new(
 												RichText::new(crate::i18n::translate(
@@ -3145,6 +3558,9 @@ impl TimelineView {
 							let mut body_bottom = f32::NAN;
 							// Hovering the avatar underlines the author, like hovering the name.
 							let mut avatar_hot = false;
+							// The starter's avatar and its thread card, joined by a gutter rule.
+							let mut thread_gutter = None;
+							let mut thread_card_rect = None;
 							ui.horizontal_top(|ui| {
 								if system.is_some() {
 									let (gutter, _) = ui.allocate_exact_size(
@@ -3167,11 +3583,28 @@ impl TimelineView {
 									let body_spacing = ui.spacing().item_spacing.x;
 									ui.spacing_mut().item_spacing.x = 8.0;
 									let time = timestamp(id);
+									// The time column is as wide as the widest clock, so authors
+									// line up whatever the minutes are.
+									let column = crate::local_time::widest_clocks()
+										.into_iter()
+										.map(|clock| {
+											ui.painter()
+												.layout_no_wrap(
+													clock.to_owned(),
+													egui::FontId::proportional(12.0),
+													colors.muted,
+												)
+												.size()
+												.x
+										})
+										.fold(0.0, f32::max)
+										.ceil();
 									compact_header(
 										ui,
 										ui.available_width(),
 										egui::FontId::proportional(12.0),
 										|ui| {
+											ui.set_min_width(column);
 											let time = ui
 												.label(
 													RichText::new(crate::local_time::clock(time))
@@ -3224,6 +3657,7 @@ impl TimelineView {
 												&author,
 												state,
 												&message.author,
+												crate::user_menu::Place::Open,
 												profile,
 												&mut self.user_action,
 											);
@@ -3250,10 +3684,12 @@ impl TimelineView {
 										.show(ui, &message.author, 40.0, state.demo)
 										.on_hover_cursor(egui::CursorIcon::PointingHand);
 									avatar_hot = avatar.hovered();
+									thread_gutter = Some(avatar.rect);
 									crate::user_menu::show(
 										&avatar,
 										state,
 										&message.author,
+										crate::user_menu::Place::Open,
 										profile,
 										&mut self.user_action,
 									);
@@ -3300,6 +3736,7 @@ impl TimelineView {
 													&author,
 													state,
 													&message.author,
+													crate::user_menu::Place::Open,
 													profile,
 													&mut self.user_action,
 												);
@@ -3349,6 +3786,10 @@ impl TimelineView {
 												&mut self.threads_request,
 											),
 										);
+									}
+									// Retained wire flags also cover cached history; notification targeting stays session-only.
+									if message.flags & (1 << 12) != 0 {
+										crate::timestamp_picker::silent_indicator(ui);
 									}
 									let body = egui::Frame::NONE
 										.inner_margin(egui::Margin {
@@ -3461,21 +3902,24 @@ impl TimelineView {
 													.color(colors.muted),
 												);
 											}
-											if crate::embeds::has_media_spoilers(message) && !media
-											{
-												let reveal = ui.button(crate::i18n::translate(
-													"timeline-show-with-scroll-reveal-spoiler-media",
-												));
-												surface.keep(&reveal);
-												if reveal.clicked() {
-													media = true;
-												}
-											} else {
-												if !message.extra_content.components_v2 {
-													let previous_view = self.viewing;
-													crate::attachments::show(
+											let concealed =
+												crate::embeds::has_media_spoilers(message)
+													&& !media;
+											if !message.extra_content.components_v2 {
+												let previous_view = self.viewing;
+												// Unmarked attachments stay visible; only spoilered ones wait for the reveal.
+												for run in message
+													.attachments
+													.split(|a| {
+														concealed
+															&& crate::embeds::attachment_spoiler(a)
+													})
+													.filter(|run| !run.is_empty())
+												{
+													crate::attachments::show_subset(
 														ui,
 														message,
+														run,
 														avatars,
 														&mut self.viewing,
 														&mut self.opening,
@@ -3486,11 +3930,24 @@ impl TimelineView {
 														&mut surface,
 														crate::design::MessageCardSurface::Conversation,
 													);
-													if self.viewing != previous_view {
-														self.component_viewing = None;
-														self.embed_viewing = None;
-													}
 												}
+												if self.viewing != previous_view {
+													self.component_viewing = None;
+													self.embed_viewing = None;
+												}
+											}
+											if concealed {
+												let reveal = ui.button(crate::i18n::translate(
+													"timeline-show-with-scroll-reveal-spoiler-media",
+												));
+												surface.keep(&reveal);
+												if reveal.clicked() {
+													media = true;
+												}
+											}
+											if !concealed
+												|| !crate::embeds::has_embed_spoilers(message)
+											{
 												let invite_top = ui.cursor().top();
 												crate::invites::show(
 													ui,
@@ -3748,32 +4205,88 @@ impl TimelineView {
 										ui.painter().rect_filled(rail, 2.0, colors.selected);
 									}
 									// A "started a thread" row already links the thread inline.
-									if system.is_none() {
-										if let Some(thread) = state.thread_of(message) {
-											let activity = thread_activity(thread);
-											let card = thread_card(
+									if system.is_none()
+										&& let Some(thread) = state
+											.thread_of(message)
+											.map(|thread| thread.id)
+											.or_else(|| state.unloaded_thread(message))
+									{
+										// The name and count come from the thread's channel; its
+										// latest message only exists once the bounded read lands.
+										let channel = state.channel(thread);
+										let preview = state.thread_preview(thread);
+										let name = channel
+											.map(|channel| channel.name.as_str())
+											.or_else(|| {
+												preview.as_ref().and_then(|preview| {
+													preview
+														.channel
+														.map(|channel| channel.name.as_str())
+												})
+											});
+										let count = channel
+											.and_then(|channel| channel.message_count)
+											.or_else(|| {
+												preview.as_ref().and_then(|preview| {
+													preview
+														.channel
+														.and_then(|channel| channel.message_count)
+												})
+											});
+										// A blocked author's latest reply stays out of the card
+										// while the tweak hides their messages.
+										let loaded =
+											preview.as_ref().and_then(|preview| preview.last);
+										let last = loaded.filter(|reply| {
+											!self.hidden_blocked
+												|| state.user_blocked(reply.author.id) != Some(true)
+										});
+										// The hidden reply's own ID is no fallback for the
+										// card's activity time either.
+										let hidden =
+											loaded.filter(|_| last.is_none()).map(|reply| reply.id);
+										let text = last.map(|reply| {
+											thread_preview_text(
 												ui,
-												&thread.name,
-												Some(&activity),
-												&colors,
-											);
-											surface.keep(&card);
-											if card.clicked() {
-												self.channel_reference = Some(thread.id);
-											}
-										} else if let Some(thread) = state.unloaded_thread(message)
-										{
-											// The service flagged a thread this session has not
-											// loaded: offer it, and let the click's one bounded
-											// channel read prove its name, activity and access.
-											let label = crate::i18n::translate(
-												"timeline-thread-activity-thread",
-											);
-											let card = thread_card(ui, &label, None, &colors);
-											surface.keep(&card);
-											if card.clicked() {
-												self.channel_reference = Some(thread);
-											}
+												state,
+												&mut self.formatted,
+												message.channel,
+												reply,
+											)
+										});
+										let latest = last
+											.map(|message| message.id)
+											.or_else(|| {
+												channel.and_then(|channel| channel.last_message)
+											})
+											.or_else(|| {
+												preview.as_ref().and_then(|preview| {
+													preview
+														.channel
+														.and_then(|channel| channel.last_message)
+												})
+											})
+											.filter(|id| Some(*id) != hidden);
+										let (card, visible) = thread_card(
+											ui,
+											state,
+											avatars,
+											ThreadCard {
+												name,
+												count,
+												last,
+												text: text.as_deref(),
+												latest,
+											},
+											&colors,
+										);
+										surface.keep(&card);
+										if card.clicked() {
+											self.channel_reference = Some(thread);
+										}
+										thread_card_rect = Some(card.rect);
+										if visible && state.thread_preview_needs_read(thread) {
+											self.thread_preview_request.get_or_insert(message.id);
 										}
 									}
 									let reactions_top = ui.cursor().top();
@@ -3817,6 +4330,10 @@ impl TimelineView {
 									fill_header_line(ui, compact, text_line);
 								});
 							});
+							// Discord ties the starter's avatar to the thread card under it.
+							if let (Some(avatar), Some(card)) = (thread_gutter, thread_card_rect) {
+								thread_connector(ui, avatar, card, &colors);
+							}
 							let mut cover = ui.min_rect();
 							if body_bottom.is_finite() {
 								cover.max.y = body_bottom;
@@ -3834,14 +4351,47 @@ impl TimelineView {
 							surface.finish(ui);
 						});
 					let rect = row.response.rect;
-					if let Some(pos) = double_click
+					// A group start's toolbar rises into the gap above it but stops short of the
+					// previous message, as in Discord.
+					let toolbar_top = rect.top() - if compact { 10.0 } else { 12.0 };
+					// Right-aligned RTL text starts under the toolbar on a headerless row,
+					// so the toolbar sits fully above it there.
+					let toolbar_top = if compact && starts_rtl(&message.content) {
+						(rect.top() - 27.0)
+							.max(ui.clip_rect().top())
+							.min(toolbar_top)
+					} else {
+						toolbar_top
+					};
+					let double_click = double_click.filter(|pos| {
+						!deleted
+							&& rect.contains(*pos)
+							&& self
+								.toolbar
+								.is_none_or(|(_, toolbar)| !toolbar.contains(*pos))
+							&& ui.ctx().layer_id_at(*pos) == Some(ui.layer_id())
+							&& !egui::Popup::is_any_open(ui.ctx())
+							&& ui.is_enabled()
+					});
+					if double_click.is_some()
+						&& crate::interface_tweaks::on(
+							ui.ctx(),
+							extensions::InterfaceTweak::DoubleClickReplyEdit,
+						) {
+						let own = state
+							.user
+							.as_ref()
+							.is_some_and(|u| u.id == message.author.id);
+						if own && !message.unsupported && state.can_edit(message.channel, id) {
+							crate::select::clear(ui.ctx());
+							*editing = Some((message.channel, id, message.content.clone()));
+							self.edit_started = true;
+						} else if !own && state.can_send(message.channel) && !message.ephemeral {
+							crate::select::clear(ui.ctx());
+							selected_reply = Some(id);
+						}
+					} else if double_click.is_some()
 						&& let Some(text) = self.double_click_reaction
-						&& !deleted && rect.contains(pos)
-						&& self
-							.toolbar
-							.is_none_or(|(_, toolbar)| !toolbar.contains(pos))
-						&& ui.ctx().layer_id_at(pos) == Some(ui.layer_id())
-						&& !egui::Popup::is_any_open(ui.ctx())
 					{
 						let (emoji, reacted, enabled) = quick_reaction(state, message, text);
 						if enabled {
@@ -3916,11 +4466,27 @@ impl TimelineView {
 					if hovered {
 						self.name_hover = Some(id);
 					}
-					let context_menu = (ui.rect_contains_pointer(rect) || toolbar_hover)
+					let pointer_menu = (ui.rect_contains_pointer(rect) || toolbar_hover)
 						&& !other_toolbar_hover
 						&& !reaction_menu && !egui::Popup::is_any_open(ui.ctx())
 						&& (ui.input(|i| i.pointer.secondary_clicked())
 							|| crate::select::open_menu(ui.ctx()));
+					// Focus on a control inside the row (a link, or this row's own toolbar) counts
+					// as the row's focus; a toolbar overlapping the row above stays with its row.
+					let focus_within = if retained_toolbar.is_some() {
+						retained && keyboard_focus.is_some()
+					} else {
+						keyboard_focus
+							.as_ref()
+							.is_some_and(|r| rect.contains(r.rect.center()))
+					};
+					let keyboard_menu = (focus.has_focus()
+						|| focus_within || (hovered && !timeline_keyboard_focus))
+						&& !reaction_menu && !egui::Popup::is_any_open(ui.ctx())
+						&& ui.input_mut(|input| {
+							input.consume_key(egui::Modifiers::SHIFT, egui::Key::F10)
+						});
+					let context_menu = pointer_menu || keyboard_menu;
 					if context_menu
 						|| hovered || focus.has_focus()
 						|| keyboard_focus.as_ref().is_some_and(|r| r.id == focus.id)
@@ -3960,7 +4526,7 @@ impl TimelineView {
 							.is_some_and(|u| u.id == message.author.id);
 						if deleted {
 							let toolbar_rect = egui::Rect::from_min_size(
-								egui::pos2(rect.right() - 46.0, rect.top() - 10.0),
+								egui::pos2(rect.right() - 46.0, toolbar_top),
 								egui::vec2(36.0, 28.0),
 							);
 							let mut toolbar = ui.new_child(
@@ -4000,10 +4566,13 @@ impl TimelineView {
 							if context_menu {
 								popup = popup.open_memory(Some(egui::SetOpenCommand::Bool(true)));
 							}
-							if context_menu
-								|| (!menu.clicked()
-									&& egui::Popup::position_of_id(toolbar.ctx(), popup.get_id())
-										.is_some())
+							if pointer_menu
+								|| (!keyboard_menu
+									&& !menu.clicked() && egui::Popup::position_of_id(
+									toolbar.ctx(),
+									popup.get_id(),
+								)
+								.is_some())
 							{
 								popup = popup.at_pointer_fixed();
 							}
@@ -4028,26 +4597,29 @@ impl TimelineView {
 										.iter()
 										.any(|r| state.can_react(id, Some(&r.emoji), true))
 								});
-							// Holding Shift exposes direct actions alongside the menu.
+							// Holding Shift exposes direct utility actions and quick delete; More stays on normal hover.
 							let shift = ui.input(|input| input.modifiers.shift);
 							let can_pin = state.can_pin(message.channel, id);
 							let can_delete = state.can_delete(message.channel, id);
 							let link = state
 								.channel(message.channel)
 								.and_then(|channel| discord_url(channel, Some(id)));
-							let buttons = if react && !shift { 4 } else { 1 }
-								+ 3 + usize::from(own) + if shift {
-								2 + usize::from(link.is_some())
-									+ usize::from(can_delete) + usize::from(can_mark_unread)
-									+ usize::from(can_pin)
+							let translate = translatable(message);
+							let buttons = if shift {
+								4 + usize::from(link.is_some())
+									+ usize::from(can_mark_unread)
+									+ usize::from(can_pin) + usize::from(translate)
+									+ usize::from(own) + usize::from(can_delete)
 							} else {
-								0
+								(if react { 4 } else { 1 })
+									+ 2 + usize::from(translate)
+									+ usize::from(own)
 							};
 							let width = buttons as f32 * 30.0;
 							let toolbar_rect = egui::Rect::from_min_size(
 								egui::pos2(
 									(rect.right() - 16.0 - width).max(rect.left()),
-									rect.top() - 10.0,
+									toolbar_top,
 								),
 								egui::vec2(width, 28.0),
 							);
@@ -4070,6 +4642,79 @@ impl TimelineView {
 								egui::Stroke::new(1.0, colors.border),
 								egui::StrokeKind::Inside,
 							);
+							if shift {
+								copy_action_button(
+									&mut toolbar,
+									crate::icons::Icon::Hash,
+									"timeline-message-actions-copy-message-id",
+									egui::Id::unique(("copy-id", state.generation, id)),
+									&mut self.copy_feedback,
+									|| id.to_string(),
+								);
+								if let Some(link) = &link {
+									copy_action_button(
+										&mut toolbar,
+										crate::icons::Icon::Link,
+										"timeline-message-actions-copy-message-link",
+										egui::Id::unique(("copy-link", state.generation, id)),
+										&mut self.copy_feedback,
+										|| link.clone(),
+									);
+								}
+								if can_mark_unread
+									&& action_button(
+										&mut toolbar,
+										crate::icons::Icon::Inbox,
+										"timeline-message-actions-mark-unread",
+									)
+									.clicked()
+								{
+									self.mark_unread = Some(id);
+								}
+								let pinned = state.is_pinned(message.channel, id);
+								if can_pin
+									&& action_button(
+										&mut toolbar,
+										crate::icons::Icon::Pin,
+										if pinned {
+											"timeline-message-actions-unpin-message"
+										} else {
+											"timeline-message-actions-pin-message"
+										},
+									)
+									.clicked()
+								{
+									self.pin_request = Some((message.channel, id, !pinned));
+								}
+								if toolbar
+									.add_enabled_ui(
+										state.can_send(message.channel) && !message.ephemeral,
+										|ui| {
+											action_button(
+												ui,
+												crate::icons::Icon::Reply,
+												"timeline-message-actions-reply",
+											)
+										},
+									)
+									.inner
+									.clicked()
+								{
+									selected_reply = Some(id);
+								}
+								if translate
+									&& action_button(
+										&mut toolbar,
+										crate::icons::Icon::Globe,
+										"timeline-message-actions-translate",
+									)
+									.clicked() && let Some((url, truncated)) =
+									translation_url(message)
+								{
+									self.truncated_translation = truncated.then(|| url.clone());
+									self.browser_opening = Some(url);
+								}
+							}
 							if react && !shift {
 								let quick = self
 									.quick_reactions
@@ -4101,6 +4746,17 @@ impl TimelineView {
 									egui::Stroke::new(1.0, colors.border),
 								);
 							}
+							if !shift
+								&& translate && action_button(
+								&mut toolbar,
+								crate::icons::Icon::Globe,
+								"timeline-message-actions-translate",
+							)
+							.clicked() && let Some((url, truncated)) = translation_url(message)
+							{
+								self.truncated_translation = truncated.then(|| url.clone());
+								self.browser_opening = Some(url);
+							}
 							if let Some((anchor, trigger)) = crate::reactions::add_button(
 								&mut toolbar,
 								react,
@@ -4111,32 +4767,6 @@ impl TimelineView {
 							let can_reply = state.can_send(message.channel) && !message.ephemeral;
 							let can_edit =
 								!message.unsupported && state.can_edit(message.channel, id);
-							if toolbar
-								.add_enabled_ui(can_reply, |ui| {
-									action_button(
-										ui,
-										crate::icons::Icon::Reply,
-										"timeline-message-actions-reply",
-									)
-								})
-								.inner
-								.clicked()
-							{
-								selected_reply = Some(id);
-							}
-							if toolbar
-								.add_enabled_ui(state.can_forward(id), |ui| {
-									action_button(
-										ui,
-										crate::icons::Icon::Forward,
-										"timeline-message-actions-forward",
-									)
-								})
-								.inner
-								.clicked()
-							{
-								self.forward_request = Some(id);
-							}
 							if own
 								&& toolbar
 									.add_enabled_ui(can_edit, |ui| {
@@ -4152,58 +4782,33 @@ impl TimelineView {
 								*editing = Some((message.channel, id, message.content.clone()));
 								self.edit_started = true;
 							}
-							if shift {
-								let pinned = state.is_pinned(message.channel, id);
-								if can_pin
-									&& action_button(
-										&mut toolbar,
-										crate::icons::Icon::Pin,
-										if pinned {
-											"timeline-message-actions-unpin-message"
-										} else {
-											"timeline-message-actions-pin-message"
-										},
-									)
+							if shift
+								&& toolbar
+									.add_enabled_ui(state.can_forward(id), |ui| {
+										action_button(
+											ui,
+											crate::icons::Icon::Forward,
+											"timeline-message-actions-forward",
+										)
+									})
+									.inner
 									.clicked()
-								{
-									self.pin_request = Some((message.channel, id, !pinned));
-								}
-								if can_mark_unread
-									&& action_button(
-										&mut toolbar,
-										crate::icons::Icon::Inbox,
-										"timeline-message-actions-mark-unread",
-									)
+							{
+								self.forward_request = Some(id);
+							}
+							if !shift
+								&& toolbar
+									.add_enabled_ui(can_reply, |ui| {
+										action_button(
+											ui,
+											crate::icons::Icon::Reply,
+											"timeline-message-actions-reply",
+										)
+									})
+									.inner
 									.clicked()
-								{
-									self.mark_unread = Some(id);
-								}
-								if let Some(link) = &link {
-									copy_action_button(
-										&mut toolbar,
-										crate::icons::Icon::Link,
-										"timeline-message-actions-copy-message-link",
-										egui::Id::unique(("copy-link", state.generation, id)),
-										&mut self.copy_feedback,
-										|| link.clone(),
-									);
-								}
-								copy_action_button(
-									&mut toolbar,
-									crate::icons::Icon::Copy,
-									"message-menu-copy",
-									egui::Id::unique(("copy-message", state.generation, id)),
-									&mut self.copy_feedback,
-									|| crate::i18n::message_text(message).into_owned(),
-								);
-								copy_action_button(
-									&mut toolbar,
-									crate::icons::Icon::Hash,
-									"timeline-message-actions-copy-message-id",
-									egui::Id::unique(("copy-id", state.generation, id)),
-									&mut self.copy_feedback,
-									|| id.to_string(),
-								);
+							{
+								selected_reply = Some(id);
 							}
 							if can_delete
 								&& shift && toolbar
@@ -4219,33 +4824,49 @@ impl TimelineView {
 							{
 								self.quick_delete = Some((message.channel, id));
 							}
-							let menu = action_button(
-								&mut toolbar,
-								crate::icons::Icon::More,
-								"profiles-show-more",
-							);
-							menu.widget_info(|| {
-								egui::WidgetInfo::labeled(
-									egui::Role::Button,
-									toolbar.is_enabled(),
-									crate::i18n::translate_args(
-										"timeline-message-actions-for",
-										&[("user", &message.author.name)],
-									),
+							let popup_id = egui::Id::unique(("message-menu", state.generation, id));
+							if keyboard_menu {
+								self.keyboard_menu_row = Some(id);
+							} else if self.keyboard_menu_row == Some(id)
+								&& !egui::Popup::is_id_open(toolbar.ctx(), popup_id)
+							{
+								self.keyboard_menu_row = None;
+							}
+							// Shift hides the More icon; right-click and Shift+F10 still use the row anchor.
+							let more = (!shift).then(|| {
+								action_button(
+									&mut toolbar,
+									crate::icons::Icon::More,
+									"profiles-show-more",
 								)
 							});
-							let mut popup = egui::Popup::menu(&menu).id(egui::Id::unique((
-								"message-menu",
-								state.generation,
-								id,
-							)));
+							let menu = match &more {
+								Some(more) if self.keyboard_menu_row != Some(id) => more.clone(),
+								_ => focus.clone(),
+							};
+							if let Some(more) = &more {
+								more.widget_info(|| {
+									egui::WidgetInfo::labeled(
+										egui::Role::Button,
+										toolbar.is_enabled(),
+										crate::i18n::translate_args(
+											"timeline-message-actions-for",
+											&[("user", &message.author.name)],
+										),
+									)
+								});
+							}
+							let mut popup = egui::Popup::menu(&menu).id(popup_id);
 							if context_menu {
 								popup = popup.open_memory(Some(egui::SetOpenCommand::Bool(true)));
 							}
-							if context_menu
-								|| (!menu.clicked()
-									&& egui::Popup::position_of_id(toolbar.ctx(), popup.get_id())
-										.is_some())
+							if pointer_menu
+								|| (!keyboard_menu
+									&& !menu.clicked() && egui::Popup::position_of_id(
+									toolbar.ctx(),
+									popup.get_id(),
+								)
+								.is_some())
 							{
 								popup = popup.at_pointer_fixed();
 							}
@@ -4747,8 +5368,10 @@ impl TimelineView {
 			let allowed = !state.timeline.is_deleted(*message)
 				&& display_message(state, *message).is_some_and(|source| {
 					!source.embeds_suppressed
+						&& !(self.hidden_blocked
+							&& state.user_blocked(source.author.id) == Some(true))
 						&& Revealed::fingerprint(source) == *fingerprint
-						&& (!crate::embeds::has_media_spoilers(source)
+						&& (!crate::embeds::has_embed_spoilers(source)
 							|| self
 								.revealed
 								.get(message)
@@ -4771,6 +5394,11 @@ impl TimelineView {
 			}
 		}
 		if let Some((message_id, attachment_id)) = self.viewing {
+			let revealed = |m: &Message| {
+				self.revealed
+					.get(&m.id)
+					.is_some_and(|reveal| reveal.media && reveal.matches(m))
+			};
 			let message = state
 				.timeline
 				.get(message_id)
@@ -4781,6 +5409,8 @@ impl TimelineView {
 						.iter()
 						.find(|message| message.id == message_id)
 				})
+				// A viewer closes with its row when the tweak hides a blocked author.
+				.filter(|m| !(self.hidden_blocked && state.user_blocked(m.author.id) == Some(true)))
 				.filter(|m| {
 					if let Some(identity) = self.component_viewing {
 						identity
@@ -4789,14 +5419,22 @@ impl TimelineView {
 								egui::Id::unique((&m.components, &m.attachments)).value(),
 							)
 					} else {
-						!crate::embeds::has_media_spoilers(m)
-							|| self
-								.revealed
-								.get(&m.id)
-								.is_some_and(|reveal| reveal.media && reveal.matches(m))
+						revealed(m)
+							|| m.attachments.iter().any(|a| {
+								a.id == attachment_id && !crate::embeds::attachment_spoiler(a)
+							})
 					}
 				});
 			self.viewing = message.and_then(|m| {
+				// Paging an unrevealed message never steps onto a spoilered attachment.
+				let gallery = if revealed(m) {
+					&m.attachments[..]
+				} else {
+					m.attachments
+						.split(crate::embeds::attachment_spoiler)
+						.find(|run| run.iter().any(|a| a.id == attachment_id))
+						.unwrap_or(&[])
+				};
 				crate::attachments::viewer(
 					ui,
 					if self.component_viewing.is_some() {
@@ -4806,7 +5444,7 @@ impl TimelineView {
 							.map(std::slice::from_ref)
 							.unwrap_or(&[])
 					} else {
-						&m.attachments
+						gallery
 					},
 					attachment_id,
 					crate::attachments::Floor::Fit,
@@ -6118,6 +6756,26 @@ mod tests {
 			assert!(visible.contains("secret one") && !visible.contains("secret two"));
 			assert_eq!(view.revealed[&message.id].text, 1);
 			assert!(!view.revealed[&message.id].media);
+			// Notification metadata changes must not conceal already revealed content.
+			message.flags |= 1 << 12;
+			message.suppress_notifications = true;
+			state.timeline.insert(message.clone(), true, false).unwrap();
+			state.revision += 1;
+			let labels = render(&mut view, &mut state, vec![]);
+			assert!(labels.iter().any(|(text, _)| text.contains("secret one")));
+			assert_eq!(view.revealed[&message.id].text, 1);
+			// Cached history keeps the wire flag but omits session notification targeting.
+			message.suppress_notifications = false;
+			state.timeline.insert(message.clone(), true, false).unwrap();
+			state.revision += 1;
+			let labels = render(&mut view, &mut state, vec![]);
+			assert!(
+				labels
+					.iter()
+					.any(|(text, _)| text == &crate::i18n::translate("message-silent-indicator"))
+			);
+			assert!(labels.iter().any(|(text, _)| text.contains("secret one")));
+			assert_eq!(view.revealed[&message.id].text, 1);
 			// Like Discord, there is no re-hide control; start the next case concealed.
 			view.revealed.clear();
 			render(&mut view, &mut state, vec![]);
@@ -6357,10 +7015,116 @@ mod tests {
 			);
 		}
 	}
+	/// Checks that the hidden-blocked-messages tweak leaves a blocked author's thread starter out
+	/// of the rows, as it does their ordinary messages, and that it returns without the tweak.
+	#[test]
+	fn hidden_blocked_messages_tweak_leaves_out_a_blocked_thread_starter() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = test_support::chat_demo_state();
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		let (thread, parent) = state
+			.channels
+			.iter()
+			.find(|c| {
+				matches!(c.kind, 10..=12)
+					&& c.parent_id
+						.and_then(|id| state.channel(id))
+						.is_some_and(|p| matches!(p.kind, 0 | 5))
+			})
+			.map(|c| (c.id, c.parent_id.unwrap()))
+			.expect("fixture thread under a text channel");
+		state.select(thread);
+		state
+			.timeline
+			.insert(test_support::message(thread.0 + 10, thread), false, false)
+			.unwrap();
+		state.history_pending = false;
+		state.freshness = model::Freshness::Fresh;
+		state.older_exhausted = true;
+		let Some(client_core::Command::ThreadStarter { request, .. }) =
+			state.request_thread_starter()
+		else {
+			panic!("thread requests its starter");
+		};
+		let mut starter = test_support::message(thread.0, parent);
+		starter.author.id = Id(777);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::ThreadStarter {
+				thread,
+				request,
+				result: Ok(starter),
+			},
+		});
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::Relationship {
+				user: Id(777),
+				blocked: true,
+			}),
+		});
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut rows = |view: &mut TimelineView, state: &mut State, hide: bool| {
+			for _ in 0..4 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(900.0, 1400.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						crate::interface_tweaks::publish(
+							ui.ctx(),
+							&std::sync::Arc::new(
+								hide.then_some(extensions::InterfaceTweak::HiddenBlockedMessages)
+									.into_iter()
+									.collect(),
+							),
+						);
+						view.show(
+							ui,
+							state,
+							&mut None,
+							&mut None,
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
+							None,
+						);
+					},
+				);
+				output.drop_without_applying_deltas();
+			}
+			view.rows.iter().map(|(id, _)| *id).collect::<Vec<_>>()
+		};
+		assert!(rows(&mut view, &mut state, false).contains(&thread));
+		assert_eq!(view.starter_row, Some(thread));
+		let hidden = rows(&mut view, &mut state, true);
+		assert!(
+			!hidden.contains(&thread),
+			"blocked starter left out: {hidden:?}"
+		);
+		assert_eq!(view.starter_row, None);
+		assert!(hidden.contains(&Id(thread.0 + 10)), "other rows stay");
+		// Turning the tweak off on the same view brings the starter back.
+		let shown = rows(&mut view, &mut state, false);
+		assert!(shown.contains(&thread), "starter restored: {shown:?}");
+		assert_eq!(view.starter_row, Some(thread));
+		assert!(shown.contains(&Id(thread.0 + 10)));
+	}
 	#[test]
 	fn an_unloaded_thread_starter_offers_its_thread_card() {
 		let ctx = egui::Context::default();
 		crate::design::apply(&ctx);
+		ctx.enable_accesskit();
 		let mut state = test_support::chat_demo_state();
 		state
 			.permissions
@@ -6381,6 +7145,7 @@ mod tests {
 		let mut starter = test_support::message(thread.0, parent);
 		starter.flags = model::HAS_THREAD;
 		starter.content = "The private thread starter".into();
+		let starter_id = starter.id;
 		let ordinary = test_support::message(thread.0 + 1, parent);
 		for message in [starter, ordinary] {
 			state.timeline.insert(message, false, false).unwrap();
@@ -6420,20 +7185,201 @@ mod tests {
 			}
 			output.drop_without_applying_deltas();
 		}
-		assert_eq!(
-			painted
-				.iter()
-				.filter(|text| *text == "View thread ›")
-				.count(),
-			1,
-			"only the flagged starter offers its thread: {painted:?}"
-		);
-		// The thread's name and activity stay unknown until the click's bounded read lands,
-		// so the card carries the generic label instead of an invented one.
+		// Only the flagged starter offers its thread, and the card is its own click target: the
+		// "View thread" button and the generic "Thread" label are both gone.
+		assert_eq!(view.thread_preview_request, Some(starter_id));
 		assert!(
-			painted.iter().any(|text| text == "Thread"),
-			"the unloaded thread card uses the generic label: {painted:?}"
+			!painted.iter().any(|text| text == "View thread ›"),
+			"the card itself opens the thread: {painted:?}"
 		);
+		assert!(
+			!painted.iter().any(|text| text == "Thread"),
+			"an unknown thread name is left out instead of invented: {painted:?}"
+		);
+
+		// The bounded read fills the card: the thread's name and count, then its last author,
+		// reply and relative time.
+		let mut reply = test_support::message(thread.0 + 2, thread);
+		reply.content = "The latest reply in this thread".into();
+		let client_core::Command::ThreadPreview {
+			thread: requested,
+			request,
+			..
+		} = state
+			.request_thread_preview(starter_id)
+			.expect("the visible card admits one preview read")
+		else {
+			panic!("ThreadPreview")
+		};
+		assert_eq!(requested, thread);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::ThreadPreview {
+				thread,
+				request,
+				result: Ok(client_core::thread_previews::Loaded {
+					channel: Some(model::Channel {
+						id: thread,
+						guild: Some(Id(10)),
+						parent_id: Some(parent),
+						kind: 12,
+						position: 0,
+						name: "Synthetic private thread".into(),
+						recipients: vec![],
+						last_message: Some(reply.id),
+						member_list_id: None,
+						tags: None,
+						message_count: Some(3),
+						icon: None,
+					}),
+					last: Some(reply),
+				}),
+			},
+		});
+		view.thread_preview_request = None;
+		painted.clear();
+		let mut accessible = Vec::new();
+		for _ in 0..2 {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 1400.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					);
+				},
+			);
+			for shape in &output.shapes {
+				painted_labels(&shape.shape, &mut painted);
+			}
+			if let Some(update) = output.platform_output.accesskit_update.as_ref() {
+				accessible.extend(
+					update
+						.nodes
+						.iter()
+						.filter_map(|(_, node)| node.label().map(str::to_owned)),
+				);
+			}
+			output.drop_without_applying_deltas();
+		}
+		let count = format!("{} ›", thread_count(3));
+		for label in [
+			"Synthetic private thread",
+			count.as_str(),
+			"You (synthetic)",
+			"The latest reply in this thread",
+		] {
+			assert!(
+				painted.iter().any(|text| text == label),
+				"missing {label}: {painted:?}"
+			);
+		}
+		// Painted text has no accessible node of its own, so the card names every part.
+		assert!(
+			accessible.iter().any(|label| {
+				label.contains("Synthetic private thread")
+					&& label.contains(&thread_count(3))
+					&& label.contains("You (synthetic): The latest reply in this thread")
+			}),
+			"the card names its name, count, author and preview: {accessible:?}"
+		);
+		assert!(
+			view.thread_preview_request.is_none(),
+			"a trusted preview is not read again: {painted:?}"
+		);
+	}
+	#[test]
+	fn a_thread_preview_names_mentions_hides_spoilers_and_falls_back_to_what_a_message_carries() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let state = test_support::demo_state();
+		let mut formatted = FormatCache::default();
+		let mut message = text_message(7);
+		message.content = "  first line\nsecond line  ".into();
+		let text = |message: &Message, formatted: &mut FormatCache| {
+			let mut text = None;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(800.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					text = Some(thread_preview_text(ui, &state, formatted, Id(20), message));
+				},
+			);
+			output.drop_without_applying_deltas();
+			text.unwrap()
+		};
+		assert_eq!(text(&message, &mut formatted), "first line second line");
+
+		// A service row uses its summary, so its card is not blank.
+		message.kind = 18;
+		message.content = "Synthetic thread".into();
+		let preview = text(&message, &mut formatted);
+		assert!(preview.contains("started a thread"), "{preview}");
+		message.kind = 0;
+
+		// A mention names its author instead of the raw token.
+		message.content = "Hi <@9>".into();
+		message.mentions = vec![model::User {
+			id: Id(9),
+			name: "Synthetic".into(),
+			avatar: None,
+			webhook: false,
+			kind: Default::default(),
+			discriminator: 0,
+			primary_guild: None,
+			cosmetics: None,
+		}];
+		let preview = text(&message, &mut formatted);
+		assert!(
+			preview.contains("Synthetic") && !preview.contains('<'),
+			"{preview}"
+		);
+
+		// A card cannot reveal a spoiler, so it only says there is one.
+		message.content = "A ||private ending|| Z".into();
+		message.mentions.clear();
+		assert_eq!(text(&message, &mut formatted), "Spoiler");
+
+		// The concealment can live in an embed instead of the message text.
+		message.content.clear();
+		message.embeds = vec![model::Embed {
+			title: Some("||the ending||".into()),
+			..Default::default()
+		}];
+		assert_eq!(text(&message, &mut formatted), "Spoiler");
+		message.embeds.clear();
+
+		message.content.clear();
+		message.attachments = vec![model::Attachment {
+			id: Id(8),
+			filename: "synthetic.png".into(),
+			description: None,
+			content_type: None,
+			size: 1,
+			media: Default::default(),
+			spoiler: false,
+			duration_ms: None,
+			waveform: vec![],
+		}];
+		assert_eq!(text(&message, &mut formatted), "synthetic.png");
 	}
 	#[test]
 	fn grouping_respects_dates_replies_unread_and_five_minute_gaps() {
@@ -6777,6 +7723,7 @@ mod tests {
 			events.insert(0, egui::Event::ModifiersChanged(modifiers));
 			let output = ctx.run_ui(
 				egui::RawInput {
+					focused: true,
 					screen_rect: Some(egui::Rect::from_min_size(
 						egui::Pos2::ZERO,
 						egui::vec2(900.0, 600.0),
@@ -6853,7 +7800,20 @@ mod tests {
 		assert_eq!(view.reaction.take(), Some((id, Some(rocket.clone()))));
 		assert_eq!(view.quick_reaction_used.take(), Some("🚀"));
 
-		// Shift hides quick reactions, adds direct actions and swaps the menu for quick delete.
+		// Translate follows the three quick reactions and precedes Add Reaction.
+		for events in click(toolbar.left_center() + egui::vec2(104.0, 0.0), none) {
+			render(&mut view, &mut state, events, none);
+		}
+		let translate = view.browser_opening.take().expect("translation proposal");
+		let translate = url::Url::parse(&translate).unwrap();
+		assert_eq!(translate.host_str(), Some("translate.google.com"));
+		assert!(
+			translate
+				.query_pairs()
+				.any(|(key, value)| key == "text" && value == "Short")
+		);
+
+		// Shift hides quick reactions and More, adds direct utilities, and keeps Delete last.
 		let shift = egui::Modifiers::SHIFT;
 		render(
 			&mut view,
@@ -6862,17 +7822,24 @@ mod tests {
 			shift,
 		);
 		let toolbar = view.toolbar.unwrap().1;
-		assert!(toolbar.width() >= 150.0 + 2.0 * 30.0, "{toolbar:?}");
+		// This fixture grants link/edit/forward/delete, but not optional pin/mark-unread actions.
+		assert_eq!(toolbar.width(), 240.0);
 		let mut copied = vec![];
-		for events in click(toolbar.right_center() - egui::vec2(74.0, 0.0), shift) {
+		for events in click(toolbar.left_center() + egui::vec2(14.0, 0.0), shift) {
 			copied.extend(render(&mut view, &mut state, events, shift).1);
 		}
 		assert_eq!(copied, [id.to_string()]);
-		for events in click(toolbar.right_center() - egui::vec2(104.0, 0.0), shift) {
+		for events in click(toolbar.left_center() + egui::vec2(44.0, 0.0), shift) {
 			copied.extend(render(&mut view, &mut state, events, shift).1);
 		}
-		assert_eq!(copied, [id.to_string(), "Short".into()]);
-		for events in click(toolbar.right_center() - egui::vec2(44.0, 0.0), shift) {
+		assert_eq!(
+			copied,
+			[
+				id.to_string(),
+				discord_url(state.channel(Id(20)).unwrap(), Some(id)).unwrap()
+			]
+		);
+		for events in click(toolbar.right_center() - egui::vec2(14.0, 0.0), shift) {
 			render(&mut view, &mut state, events, shift);
 		}
 		assert_eq!(view.quick_delete.take(), Some((Id(20), id)));
@@ -6903,7 +7870,69 @@ mod tests {
 			);
 			render(&mut view, &mut state, vec![egui::Event::PointerGone], none);
 		}
+
+		// Shift hides More, but the focused row still opens its full menu from the keyboard.
+		view = TimelineView::default();
+		for _ in 0..5 {
+			render(&mut view, &mut state, vec![], none);
+		}
+		egui::Popup::close_all(&ctx);
+		let menu_id = egui::Id::unique(("message-menu", state.generation, id));
+		render(
+			&mut view,
+			&mut state,
+			vec![egui::Event::PointerMoved(text.center())],
+			none,
+		);
+		for pressed in [true, false] {
+			render(
+				&mut view,
+				&mut state,
+				vec![egui::Event::Key {
+					key: egui::Key::F10,
+					physical_key: None,
+					pressed,
+					repeat: false,
+					modifiers: shift,
+				}],
+				shift,
+			);
+		}
+		assert!(egui::Popup::is_id_open(&ctx, menu_id));
+		let (menu_items, _) = render(&mut view, &mut state, vec![], shift);
+		assert!(
+			menu_items
+				.iter()
+				.any(|(text, _)| text == &crate::i18n::translate("message-menu-copy")),
+			"the focused row anchor must actually paint menu content: {menu_items:?}"
+		);
+		// Releasing Shift brings More back, but the open menu stays on the row.
+		let anchored = ctx.memory(|memory| memory.area_rect(menu_id));
+		render(&mut view, &mut state, vec![], none);
+		render(&mut view, &mut state, vec![], none);
+		assert!(egui::Popup::is_id_open(&ctx, menu_id));
+		assert_eq!(ctx.memory(|memory| memory.area_rect(menu_id)), anchored);
 	}
+	#[test]
+	fn translation_urls_include_encoded_text_and_fit_native_external_link_limits() {
+		let mut short = text_message(42);
+		short.content = "hola".into();
+		assert!(!translation_url(&short).expect("short text fits").1);
+		for content in ["x".repeat(4000), "🦀".repeat(1000)] {
+			let mut message = text_message(42);
+			message.content = content;
+			let (target, truncated) = translation_url(&message).expect("some text should fit");
+			assert!(truncated, "a shortened translation must be disclosed");
+			assert!(target.len() <= 2048, "{} bytes", target.len());
+			let target = url::Url::parse(&target).unwrap();
+			assert!(
+				target
+					.query_pairs()
+					.any(|(key, value)| { key == "text" && value.chars().next().is_some() })
+			);
+		}
+	}
+
 	#[test]
 	fn reply_target_browsing_waits_for_success_and_explicit_latest_before_acknowledging() {
 		fn collect(shape: &egui::Shape, labels: &mut Vec<(String, egui::Rect)>) {
@@ -8607,6 +9636,234 @@ mod tests {
 		assert_eq!(anchor_offset(&[], Id(2), 25.0), 0.0);
 	}
 
+	/// Checks that the hidden-blocked-messages tweak leaves out a blocked user's messages,
+	/// keeps everyone else's, and restores them when the tweak is switched off.
+	#[test]
+	fn hidden_blocked_messages_tweak_leaves_out_blocked_authors() {
+		/// Collects the text of every painted shape, recursing into shape groups.
+		fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
+			match shape {
+				egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						texts(shape, out);
+					}
+				}
+				_ => {}
+			}
+		}
+		let mut state = test_support::demo_state();
+		state.read_state.reset();
+		state.timeline.clear();
+		let channel = state.selected.unwrap();
+		for (id, author, body) in [
+			(41, 701, "Visible synthetic body"),
+			(42, 777, "Blocked synthetic body"),
+			(43, 701, "Later synthetic body"),
+		] {
+			let mut message = text_message(id);
+			message.channel = channel;
+			message.author.id = Id(author);
+			message.author.name = format!("Synthetic author {author}");
+			message.content = body.into();
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::Relationship {
+				user: Id(777),
+				blocked: true,
+			}),
+		});
+		assert_eq!(state.user_blocked(Id(777)), Some(true));
+		let ctx = egui::Context::default();
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut render = |view: &mut TimelineView, state: &mut State, hide: bool| {
+			let mut labels = Vec::new();
+			for _ in 0..3 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(600.0, 600.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						crate::interface_tweaks::publish(
+							ui.ctx(),
+							&std::sync::Arc::new(
+								hide.then_some(extensions::InterfaceTweak::HiddenBlockedMessages)
+									.into_iter()
+									.collect(),
+							),
+						);
+						view.show(
+							ui,
+							state,
+							&mut None,
+							&mut None,
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
+							None,
+						);
+					},
+				);
+				labels.clear();
+				for shape in &output.shapes {
+					texts(&shape.shape, &mut labels);
+				}
+				output.drop_without_applying_deltas();
+			}
+			labels
+		};
+		let shown = |labels: &[String], body: &str| labels.iter().any(|text| text.contains(body));
+		let all = render(&mut view, &mut state, false);
+		assert!(
+			shown(&all, "Blocked synthetic body"),
+			"shown without the tweak"
+		);
+		let hidden = render(&mut view, &mut state, true);
+		assert!(
+			!shown(&hidden, "Blocked synthetic body"),
+			"hidden with the tweak"
+		);
+		assert!(shown(&hidden, "Visible synthetic body") && shown(&hidden, "Later synthetic body"));
+		let restored = render(&mut view, &mut state, false);
+		assert!(
+			shown(&restored, "Blocked synthetic body"),
+			"switching off restores it"
+		);
+	}
+
+	/// Checks that with the double-click tweak, double-clicking beside your own message starts
+	/// editing it and beside someone else's starts a reply, while the reaction preset stays idle.
+	#[test]
+	fn double_click_tweak_edits_own_message_and_replies_to_others() {
+		let mut state = test_support::demo_state();
+		state.read_state.reset();
+		state.timeline.clear();
+		let channel = state.selected.unwrap();
+		let me = state.user.as_ref().unwrap().clone();
+		for (id, author, body) in [
+			(51, Id(701), "Their synthetic body"),
+			(52, me.id, "Own synthetic body"),
+		] {
+			let mut message = text_message(id);
+			message.channel = channel;
+			message.author.id = author;
+			message.content = body.into();
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let ctx = egui::Context::default();
+		let mut view = TimelineView {
+			double_click_reaction: Some("🎉"),
+			..Default::default()
+		};
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut editing = None;
+		let mut time = 0.0;
+		let mut render = |view: &mut TimelineView,
+		                  state: &mut State,
+		                  editing: &mut Option<(Id, Id, String)>,
+		                  events: Vec<egui::Event>| {
+			time += 1.0 / 60.0;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(700.0, 600.0),
+					)),
+					time: Some(time),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					crate::interface_tweaks::publish(
+						ui.ctx(),
+						&std::sync::Arc::new(
+							[extensions::InterfaceTweak::DoubleClickReplyEdit].into(),
+						),
+					);
+					view.show(
+						ui,
+						state,
+						editing,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					);
+				},
+			);
+			let mut rows = Vec::new();
+			let mut stack: Vec<&egui::Shape> = output.shapes.iter().map(|s| &s.shape).collect();
+			while let Some(shape) = stack.pop() {
+				match shape {
+					egui::Shape::Text(text) => rows.push((
+						text.galley.job.text.clone(),
+						text.pos.y + text.galley.size().y * 0.5,
+					)),
+					egui::Shape::Vec(shapes) => stack.extend(shapes),
+					_ => {}
+				}
+			}
+			output.drop_without_applying_deltas();
+			rows
+		};
+		let mut double_click = |view: &mut TimelineView,
+		                        state: &mut State,
+		                        editing: &mut Option<(Id, Id, String)>,
+		                        body: &str| {
+			let mut rows = Vec::new();
+			for _ in 0..30 {
+				rows = render(view, state, editing, vec![]);
+			}
+			let y = rows
+				.iter()
+				.find_map(|(text, y)| (text == body).then_some(*y))
+				.expect("message laid out");
+			let pos = egui::pos2(650.0, y);
+			for _ in 0..2 {
+				for pressed in [true, false] {
+					render(
+						view,
+						state,
+						editing,
+						vec![
+							egui::Event::PointerMoved(pos),
+							egui::Event::PointerButton {
+								pos,
+								button: egui::PointerButton::Primary,
+								pressed,
+								modifiers: egui::Modifiers::NONE,
+							},
+						],
+					);
+				}
+			}
+		};
+		double_click(&mut view, &mut state, &mut editing, "Their synthetic body");
+		assert_eq!(state.reply_target(), Some(Id(51)));
+		assert!(editing.is_none(), "someone else's message is not edited");
+		state.reply = None;
+		double_click(&mut view, &mut state, &mut editing, "Own synthetic body");
+		assert_eq!(
+			editing.as_ref().map(|(_, id, text)| (*id, text.as_str())),
+			Some((Id(52), "Own synthetic body"))
+		);
+		assert!(
+			state.reply.is_none(),
+			"your own message is edited, not replied to"
+		);
+		assert!(view.reaction.is_none(), "the reaction preset stays idle");
+	}
+
 	#[test]
 	fn deleted_only_timeline_keeps_content_without_service_actions() {
 		fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
@@ -9205,9 +10462,8 @@ mod tests {
 			.insert(message.id, Revealed::new(&message, u32::MAX, true));
 		view.viewing = Some((message.id, Id(7)));
 		render(&mut view, &mut state, &mut images); // Modal sizing pass precedes visible paint.
-		let shown = render(&mut view, &mut state, &mut images);
-		assert!(shown.contains("SPOILER_hidden.png"));
-		assert!(shown.contains("Open in browser"));
+		render(&mut view, &mut state, &mut images);
+		assert!(view.viewing.is_some());
 		let requests = images.take_requests();
 		assert!(!requests.is_empty() && requests.iter().all(|key| key.starts_with("media:")));
 		assert!(requests.iter().any(|key| key.contains(":320x120:")));
@@ -9220,6 +10476,46 @@ mod tests {
 		assert!(view.viewing.is_none() && view.revealed.is_empty());
 		assert!(!hidden_again.contains("SPOILER_hidden.png"));
 		assert!(images.take_requests().is_empty());
+		// One spoiler conceals only itself: its unmarked neighbours show and open.
+		let mut message = state.timeline.get(Id(1)).unwrap().clone();
+		let spoiler = message.attachments[0].clone();
+		let plain = |id: u64| model::Attachment {
+			id: Id(id),
+			filename: format!("plain-{id}.png"),
+			description: None,
+			spoiler: false,
+			media: model::EmbedMedia {
+				url: Some(format!(
+					"https://cdn.discordapp.com/attachments/2/{id}/plain.png"
+				)),
+				..spoiler.media.clone()
+			},
+			..spoiler.clone()
+		};
+		message.attachments = vec![plain(6), spoiler.clone(), plain(8)];
+		state.timeline.insert(message.clone(), true, false).unwrap();
+		state.revision += 1;
+		render(&mut view, &mut state, &mut images);
+		let requests = images.take_requests();
+		assert!(requests.iter().any(|key| key.contains("/2/6/")));
+		assert!(requests.iter().any(|key| key.contains("/2/8/")));
+		assert!(requests.iter().all(|key| !key.contains("/2/7/")));
+		view.viewing = Some((message.id, Id(7)));
+		render(&mut view, &mut state, &mut images);
+		assert!(
+			view.viewing.is_none(),
+			"the spoiler cannot open before its reveal"
+		);
+		view.viewing = Some((message.id, Id(6)));
+		render(&mut view, &mut state, &mut images);
+		render(&mut view, &mut state, &mut images);
+		assert_eq!(view.viewing, Some((message.id, Id(6))));
+		assert!(
+			images
+				.take_requests()
+				.iter()
+				.all(|key| !key.contains("/2/7/"))
+		);
 	}
 
 	fn label_ys(output: &egui::FullOutput) -> BTreeMap<String, f32> {
@@ -9473,12 +10769,12 @@ mod tests {
 		let mut avatars = crate::avatars::Avatars::default();
 		let output = ctx.run_ui(
 			egui::RawInput {
+				focused: true,
 				screen_rect: Some(egui::Rect::from_min_size(
 					egui::Pos2::ZERO,
 					egui::vec2(900.0, 600.0),
 				)),
 				time: Some(f64::from(frame) / 60.0),
-				focused: true,
 				..Default::default()
 			},
 			|ui| {
@@ -9768,9 +11064,9 @@ impl crate::MessagingUi {
 				})
 			))
 		);
-		modifiers.set(egui::Modifiers::SHIFT);
+		modifiers.set(egui::Modifiers::NONE);
 		render(&mut view, vec![egui::Event::PointerMoved(pos)]);
-		let more = view.toolbar.expect("Shift toolbar").1.right_center() - egui::vec2(14.0, 0.0);
+		let more = view.toolbar.expect("normal toolbar").1.right_center() - egui::vec2(14.0, 0.0);
 		render(&mut view, vec![egui::Event::PointerMoved(more)]);
 		render(&mut view, vec![]);
 		assert!(
@@ -9789,26 +11085,26 @@ impl crate::MessagingUi {
 					pos: more,
 					button: egui::PointerButton::Primary,
 					pressed,
-					modifiers: egui::Modifiers::SHIFT,
+					modifiers: egui::Modifiers::NONE,
 				}],
 			);
 		}
 		assert!(
 			egui::Popup::is_id_open(&ctx, menu_id),
-			"Shift-click opens More"
+			"Click opens More without Shift"
 		);
 		render(&mut view, vec![]);
 		assert!(
 			egui::Popup::is_id_open(&ctx, menu_id),
-			"More stays open with Shift held"
+			"More stays open without Shift"
 		);
-		modifiers.set(egui::Modifiers::NONE);
+		modifiers.set(egui::Modifiers::SHIFT);
 		render(&mut view, vec![]);
 		assert!(
 			egui::Popup::is_id_open(&ctx, menu_id),
-			"More stays open after releasing Shift"
+			"More stays open after pressing Shift and hiding its toolbar icon"
 		);
-		println!("Immediate message labels and Shift menu checks passed.");
+		println!("Immediate message labels and normal/Shift menu checks passed.");
 		println!("Double-click uses the saved reaction independently of recommendations");
 	}
 }

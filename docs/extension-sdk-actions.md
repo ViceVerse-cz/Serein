@@ -74,6 +74,7 @@ The Rust paths below are relative to `AppOutput`. When using the original
 | `storage` / `output.storage` | Optional opaque UTF-8 string; `storage`. | A valid foreground or event result replaces the plugin's saved value before result approval. Activation can read storage but this build does not persist its returned storage. |
 | `media_privacy` / `output.media_privacy` | Optional `MediaPrivacy` object; `media_privacy` and a `panel` action. | Immediately updates host chat-media masking: enabled, hover reveal, blur or a solid colour, strength and opacity. The host persists it device-wide. |
 | `appearance` / `output.appearance` | Optional `Theme` object; `appearance`. | An accepted result updates the plugin's appearance overlay immediately, including activation and event results. Preview `tick` results are eased from the currently displayed colors. No Apply button is involved. |
+| `interface_tweaks` / `InterfaceTweaksOutput.interface_tweaks` | Optional array of `InterfaceTweak` names, each at most once; `interface_tweaks` grant. | An `activation` or `panel` result replaces the plugin's tweaks; omission leaves them unchanged and an empty array turns them off. The host applies a tweak while any enabled plugin requests it. `static_typing_indicator` stills typing dots, `plain_profiles` ignores members' profile theme colors `expanded_roles` lists every role in profiles `hidden_request_counts` keeps pending friend and message request counts off the Home button, the Pending tab and the message-request group, `one_ping_per_direct_message` alerts once per direct or group conversation until you read through that message, `hidden_blocked_messages` leaves blocked users' messages out of conversations, `hidden_profile_notes` leaves your private note out of profiles (the user menu still edits it) and `large_stream_preview` doubles the stream preview shown on hovering a live participant, and `double_click_reply_edit` makes double-clicking a message's blank space edit your own message or reply to someone else's, in place of the double-click reaction. Save the user's choice in `storage` and return it again from activation, which runs each time the plugin loads. |
 | `preserve_deleted_messages` / `output.preserve_deleted_messages` | Boolean, default `false`; `deleted_messages` is required for `true`. | Only an `activation` action may enable host retention of already-loaded deleted messages. |
 | `image_sharing` / `output.image_sharing` | Boolean, default `false`; `image_sharing` is required for `true`. | Legacy compatibility field, validated only for an `activation` action with the grant. It no longer changes host behavior: emoji/sticker image fallback is built in. |
 | `effects` / `effects` | Array containing at most one `HostEffect`; its capability is checked separately. | The native result describes the action. It runs only after its **Apply** button is clicked and current access is rechecked. |
@@ -146,6 +147,7 @@ Follow an operation for its fields, example and additional checks.
 | `open_profile` | `navigation` | [Open a known user's profile](extension-sdk-actions.md#open-conversations-profiles-and-search) |
 | `jump_to_message` | `navigation` | [Jump to a message](extension-sdk-actions.md#open-conversations-profiles-and-search) |
 | `search` | `navigation` | [Search the current conversation](extension-sdk-actions.md#open-conversations-profiles-and-search) |
+| `open_external_link` (nested in `app_action`) | `external_navigation` | [Open a reviewed external HTTPS URL](extension-sdk-actions.md#open-an-external-https-url-preview) |
 | `notice` | `local_notices` | [Show a local notice](extension-sdk-actions.md#show-a-local-notice-or-copy-text) |
 | `copy_text` | `clipboard_write` | [Copy text to the clipboard](extension-sdk-actions.md#show-a-local-notice-or-copy-text) |
 | `set_voice` | `voice_control` | [Set mute and deafen](extension-sdk-actions.md#control-the-current-call) |
@@ -612,6 +614,33 @@ Search the active conversation:
 Navigation, profile and search views may load ordinary service data after Apply.
 They do not give Wasm a network API or a search-results callback. Channel/Home
 navigation also respects the native guard for unfinished server-settings edits.
+
+### Open an external HTTPS URL (Preview)
+
+A plugin with the separate `external_navigation` grant can return
+`AppAction::OpenExternalLink { url: String }` nested in `app_action`. The
+complete JSON for a translation workflow could be:
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"open_external_link","url":"https://translate.google.com/?sl=auto&tl=en&op=translate&text=Synthetic%20text"}}]}
+```
+
+The URL is an absolute HTTPS URL, at most 2,048 UTF-8 bytes, with a host, no
+credentials, no backslashes or control characters, and no non-default port. An
+explicit `:443` is normalized away. Serein validates the URL before displaying
+the proposal and again at Apply. The complete URL
+is shown to the user. Apply hands it to the normal native external-link flow,
+including the user's confirmation setting; it never performs an HTTP request in
+Wasm or in the extension worker. The operating system and browser establish the
+connection, so this action does **not** provide Serein's catalog download
+public-IP/DNS pinning. Sensitive text included in the URL is shared with that site
+after the user approves navigation.
+
+Returning this action from an activation, message-event or app-event result is
+rejected. Use a foreground `message`, `composer` or `panel` action; read grants
+such as `selected_message` remain separate. A result may contain only this one
+proposal and cannot also replace the draft. **Preview SDK — PR #937, not yet
+released; older hosts reject the capability and nested action.**
 
 ### All 18 AppView values
 

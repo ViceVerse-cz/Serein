@@ -219,7 +219,7 @@ fn rolling(bytes: &[u8]) -> (u16, u16) {
 }
 
 pub(super) async fn download(
-	client: &reqwest::Client,
+	client: &wreq::Client,
 	archive: &Asset,
 	control: &Asset,
 	checksums: &[u8],
@@ -267,19 +267,19 @@ pub(super) async fn download(
 			if cancel.load(Ordering::Relaxed) {
 				return Err("Update cancelled.");
 			}
-			let mut response = client
+			let response = client
 				.get(&archive.browser_download_url)
-				.header(reqwest::header::RANGE, format!("bytes={start}-{}", end - 1))
-				.header(reqwest::header::ACCEPT_ENCODING, "identity")
+				.header(wreq::header::RANGE, format!("bytes={start}-{}", end - 1))
+				.header(wreq::header::ACCEPT_ENCODING, "identity")
 				.timeout(Duration::from_secs(30))
 				.send()
 				.await
 				.map_err(|_| INVALID)?;
 			let content_range = format!("bytes {start}-{}/{}", end - 1, archive.size);
-			if response.status() != reqwest::StatusCode::PARTIAL_CONTENT
+			if response.status() != wreq::StatusCode::PARTIAL_CONTENT
 				|| response
 					.headers()
-					.get(reqwest::header::CONTENT_RANGE)
+					.get(wreq::header::CONTENT_RANGE)
 					.and_then(|v| v.to_str().ok())
 					!= Some(content_range.as_str())
 				|| response
@@ -293,7 +293,12 @@ pub(super) async fn download(
 				.await
 				.map_err(|_| INVALID)?;
 			let mut received = 0;
-			while let Some(chunk) = response.chunk().await.map_err(|_| INVALID)? {
+			let mut response_body = std::pin::pin!(response.bytes_stream());
+			while let Some(chunk) = futures_util::StreamExt::next(&mut response_body)
+				.await
+				.transpose()
+				.map_err(|_| INVALID)?
+			{
 				if cancel.load(Ordering::Relaxed) || chunk.len() as u64 > end - start - received {
 					return Err(INVALID);
 				}

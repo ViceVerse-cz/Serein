@@ -51,8 +51,10 @@ general-start-minimized = Démarrer réduit
 general-start-minimized-description = Commencez en arrière-plan, hors de votre chemin.
 general-startup-unavailable = Le démarrage automatique est disponible sur Windows et macOS.
 general-window = Fenêtre
-general-hide-decorations = Masquer les décorations de fenêtres
-general-hide-decorations-description = Supprimez la barre de titre et les bordures du système. Utilisez votre gestionnaire de fenêtres pour déplacer, redimensionner ou fermer Serein.
+general-hide-decorations = Pas de barre de titre
+general-hide-decorations-description = Pour les gestionnaires de fenêtres en mosaïque : supprime toutes les barres de titre et bordures, y compris celle de Serein. Déplacez, redimensionnez ou fermez Serein avec votre gestionnaire de fenêtres.
+general-custom-title-bar = Barre de titre personnalisée
+general-custom-title-bar-description = Remplace la barre de titre du système par la barre d'en-tête propre à Serein, dans le style de GTK 4.
 general-hide-title-bar = Masquer la barre de titre Serein
 general-hide-title-bar-description = Utilisez plutôt la barre de titre du système et les boutons de la fenêtre.
 general-keep-menu-bar = Gardez Serein dans la barre de menu
@@ -65,6 +67,13 @@ general-graphics = Graphique
 general-render-with = Rendu avec
 general-gpu-restart = Prend effet au prochain démarrage de Serein.
 general-gpu-current-prefix = Je dessine actuellement avec
+general-steady-refresh-rate = Fréquence de rafraîchissement fixe
+general-steady-refresh-rate-description = Tant que Serein est la fenêtre active, le dessin se fait à la fréquence de rafraîchissement de l'écran, afin que les écrans à fréquence de rafraîchissement variable (VRR, G-SYNC, FreeSync) puissent garder une seule fréquence au lieu de scintiller. Consomme plus d'énergie.
+steady-refresh-prompt-title = Écran G-SYNC détecté
+steady-refresh-prompt-body = Serein ne redessine que lorsque quelque chose change, ce qui peut faire scintiller un écran G-SYNC tant que Serein est la fenêtre active. La fréquence de rafraîchissement fixe l'évite en dessinant à la fréquence de rafraîchissement de l'écran, mais consomme plus d'énergie. L'activer ?
+steady-refresh-prompt-turn-on = Activer
+steady-refresh-prompt-keep-off = Non merci
+steady-refresh-prompt-settings = Vous pourrez modifier ce choix plus tard dans les paramètres, sous { $page } > { $group }.
 gpu-automatic = Automatique
 gpu-high-performance = Hautes performances
 gpu-power-saving = Économie d'énergie
@@ -1638,8 +1647,6 @@ main-restoring-screen-welcome-back = Content de te revoir
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Comptes enregistrés
 # Context: sign_in_consent
-main-sign-in-consent-i-own-this-account-and-authorize-this-session = Je suis propriétaire de ce compte et j'autorise cette session.
-# Context: sign_in_consent
 main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Les mots de passe et 2FA restent sur la propre page de connexion de Discord ; seul le jeton de session est conservé dans le magasin d'informations d'identification de votre système d'exploitation.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = À propos de Serein
@@ -1686,6 +1693,8 @@ markdown-confirm-external-link-cancel = Annuler
 markdown-confirm-external-link-open-external-link = Ouvrir le lien externe ?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Ouvrir dans le navigateur
+# Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Seul le début de ce message tient dans le lien ; le reste n’est pas envoyé. Cette destination s’ouvre dans votre navigateur par défaut.
 # Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Cette destination s'ouvre dans votre navigateur par défaut.
 # Context: show_emoji
@@ -2254,6 +2263,12 @@ screen-body-include-the-pointer-in-the-shared-video = Incluez le pointeur dans l
 # Context: body
 screen-body-quality = Qualité
 # Context: body
+screen-body-source = Source
+# Context: body
+screen-preview-paused-title = Votre stream est toujours en cours !
+# Context: body
+screen-preview-paused-body = Nous avons mis cet aperçu en pause pour économiser vos ressources.
+# Context: body
 screen-body-quality-selection-does-not-require-nitro = La sélection de qualité ne nécessite pas de Nitro.
 # Context: body
 screen-body-refresh = Rafraîchir
@@ -2265,6 +2280,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Envoyez ce q
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Partagez le son d'autres applications, même lorsque vous partagez une seule fenêtre. Le propre audio de Serein est laissé de côté.
 # Context: body
 screen-body-share-system-audio = Partager l'audio du système
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Partagez le son de l'application partagée, ou celui de toutes les autres applications lors du partage d'un écran. Le son de Serein est exclu.
 # Context: body
 screen-body-show-cursor = Afficher le curseur
 # Context: body
@@ -3859,6 +3876,10 @@ timeline-message-actions-delete-message = Supprimer le message…
 timeline-message-actions-edit-message = Modifier le message
 # Context: message_actions
 timeline-message-actions-extensions = Rallonges
+# Context: menu
+extensions-ui-menu-group-user = Utilisateur
+# Context: menu
+extensions-ui-menu-group-conversation = Conversation
 # Context: message_actions
 timeline-message-actions-forward = Transférer
 # Context: message_actions
@@ -3908,6 +3929,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = Chargement des messages…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Message supprimé
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Message bloqué
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = L'historique des messages n'est pas disponible avec les informations d'autorisation actuelles.
 # Context: show_with_scroll
@@ -4136,8 +4159,6 @@ voice-device-combo-device-unavailable = Appareil indisponible
 voice-device-default = Valeur par défaut du système
 # Context: frame
 voice-frame-open-voice = Voix ouverte
-# Context: gain_controls
-voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100 % est le niveau d'origine. Des niveaux plus élevés peuvent entraîner une distorsion.
 # Context: labels
 voice-labels-choose-camera = Choisir l'appareil photo
 # Context: live_badge
@@ -4238,12 +4259,6 @@ voice-voice-participant-microphone-muted = Microphone coupé
 voice-voice-participant-muted-by-server = Muet par le serveur
 # Context: voice_participant
 voice-voice-participant-muted-for-you-on-this-device = Muet pour vous sur cet appareil
-# Context: voice_popup_content
-voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Choisissez un algorithme dans tous les paramètres vocaux.
-# Context: voice_popup_content
-voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen désactive le son entrant et coupe votre microphone avec.
-# Context: voice_popup_content
-voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Maintenez votre raccourci configuré lorsque vous souhaitez parler.
 # Context: voice_popup_content
 voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Installez une version à commande vocale pour utiliser ces commandes.
 # Context: voice_popup_content
@@ -4505,6 +4520,8 @@ voice-recipient-ringing = Sonnerie…
 voice-recipient-not-in-call = Absent de l’appel
 reconnect-now = Se reconnecter
 
+message-preview-limit = Ce message dépasse la limite de mise en page du texte natif.
+
 voice-call-moved-to-another-client = La session d’appel de cet appareil a été remplacée
 
 server-settings-page-safety = Configuration de la sécurité
@@ -4599,6 +4616,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = Aucune activité partagée.
+profiles-in-voice-server = dans { $server }
+profiles-in-voice-join = Rejoindre
+profiles-in-voice-joined = Vous êtes déjà dans ce salon vocal.
+profiles-in-voice-failed = Fermez d'abord l'appel qui a échoué, puis rejoignez de nouveau le salon.
+profiles-in-voice-unavailable = Vous ne pouvez pas rejoindre ce salon vocal pour le moment.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction

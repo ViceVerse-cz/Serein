@@ -4,8 +4,8 @@ use model::{
 	Id,
 	server_roles::{Action, Catalog, Result as Outcome},
 };
-use reqwest::Method;
 use serde_json::json;
+use wreq::Method;
 impl DiscordApi {
 	async fn load_role_catalog(&self, guild: Id) -> Result<Catalog, Failure> {
 		let bytes = self

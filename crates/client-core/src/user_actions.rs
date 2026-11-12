@@ -10,6 +10,8 @@ pub const MAX_RELATIONSHIPS: usize = 4000;
 pub const MAX_RELATIONSHIP_BYTES: usize = 128 * 1024;
 pub const MAX_FRIEND_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_RESTRICTED_BYTES: usize = 2 * 1024 * 1024;
+const MAX_IGNORED_BYTES: usize = 512 * 1024;
+const IGNORED_ENTRY_BYTES: usize = size_of::<(Id, bool)>() + 64;
 /// Group DMs hold ten people: the signed-in account and nine others it invites.
 pub const MAX_GROUP_RECIPIENTS: usize = 9;
 
@@ -245,6 +247,8 @@ pub struct Actions {
 	friends_known: bool,
 	restricted: BTreeMap<Id, (model::User, String, bool)>,
 	restricted_known: bool,
+	/// Committed status survives missing display profiles; bounded independently.
+	ignored: BTreeMap<Id, bool>,
 	relationships: BTreeMap<Id, bool>,
 	message_requests: BTreeSet<Id>,
 	spam_directs: BTreeSet<Id>,
@@ -729,6 +733,31 @@ impl State {
 			.get(&user)
 			.map(|(_, name)| name.as_str())
 	}
+	/// Committed relationship snapshots only; optimistic toggles cannot prove server eligibility.
+	pub(crate) fn service_author_excluded(&self, user: Id) -> Option<bool> {
+		let blocked = self
+			.user_actions
+			.relationships
+			.get(&user)
+			.copied()
+			.or_else(|| (self.demo || self.user_actions.known).then_some(false));
+		let ignored = self
+			.user_actions
+			.ignored
+			.get(&user)
+			.copied()
+			.or_else(|| self.user_actions.restricted.get(&user).map(|entry| entry.2))
+			.or_else(|| (self.demo || self.user_actions.restricted_known).then_some(false));
+		match (blocked, ignored) {
+			(Some(true), _) | (_, Some(true)) => Some(true),
+			(Some(false), Some(false)) => {
+				let changing = matches!(&self.user_actions.pending,
+					Some((Action::Block {user: target, ..} | Action::Ignore {user: target, ..}, _, _)) if *target == user);
+				(!changing).then_some(false)
+			}
+			_ => None,
+		}
+	}
 	pub fn user_blocked(&self, user: Id) -> Option<bool> {
 		if let Some((
 			Action::Block {
@@ -762,10 +791,31 @@ impl State {
 		{
 			return Some(*ignored);
 		}
+		if let Some(ignored) = self.user_actions.ignored.get(&user) {
+			return Some(*ignored);
+		}
 		if let Some((_, _, ignored)) = self.user_actions.restricted.get(&user) {
 			return Some(*ignored);
 		}
 		(self.demo || self.user_actions.restricted_known).then_some(false)
+	}
+	/// Record a committed ignore/unignore without requiring a display profile.
+	fn store_ignored(&mut self, user: Id, ignored: bool) -> Result<(), &'static str> {
+		if user.0 == 0 {
+			return Err("Invalid restricted user update");
+		}
+		let actions = &mut self.user_actions;
+		if !actions.ignored.contains_key(&user) {
+			while actions.ignored.len() >= MAX_RELATIONSHIPS
+				|| (actions.ignored.len() + 1) * IGNORED_ENTRY_BYTES > MAX_IGNORED_BYTES
+			{
+				actions.ignored.pop_first();
+				// An evicted profile-less status must become unknown, never implicitly unignored.
+				actions.restricted_known = false;
+			}
+		}
+		actions.ignored.insert(user, ignored);
+		Ok(())
 	}
 	pub(crate) fn pending_dm_muted(&self, channel: Id) -> Option<bool> {
 		match &self.user_actions.pending {
@@ -1459,6 +1509,7 @@ impl State {
 			}
 			Event::Restrictions(entries) => {
 				self.user_actions.restricted.clear();
+				self.user_actions.ignored.clear();
 				self.user_actions.restricted_known = false;
 				if let Some(entries) = entries {
 					if entries.len() > MAX_RELATIONSHIPS
@@ -1479,9 +1530,16 @@ impl State {
 								.is_some()
 						{
 							self.user_actions.restricted.clear();
+							self.user_actions.ignored.clear();
 							return Err("Restricted users contain invalid or duplicate profiles");
 						}
 					}
+					self.user_actions.ignored = self
+						.user_actions
+						.restricted
+						.iter()
+						.map(|(id, entry)| (*id, entry.2))
+						.collect();
 					self.user_actions.restricted_known = true;
 				}
 			}
@@ -1497,6 +1555,7 @@ impl State {
 					*observed = true;
 				}
 				let Some(ignored) = ignored else {
+					self.store_ignored(user, false)?;
 					self.user_actions.restricted.remove(&user);
 					return Ok(());
 				};
@@ -1530,6 +1589,7 @@ impl State {
 				} else if let Some(entry) = self.user_actions.restricted.get_mut(&user) {
 					entry.2 = ignored;
 				}
+				self.store_ignored(user, ignored)?;
 			}
 			Event::Relationships(entries) => {
 				if let Some((Action::Block { .. }, _, observed)) = &mut self.user_actions.pending {
@@ -2762,6 +2822,33 @@ mod tests {
 			state.gateway_connected = false;
 			assert!(state.add_profile_friend(Id(3)).is_none());
 		}
+	}
+	/// Fills the committed status index to exercise conservative eviction, then verifies logout removes retained exclusions.
+	#[test]
+	fn committed_ignore_capacity_eviction_becomes_unknown_and_logout_forgets_it() {
+		let mut state = state();
+		state
+			.apply_user_action(Event::Relationships(Some(vec![])))
+			.unwrap();
+		state
+			.apply_user_action(Event::Restrictions(Some(vec![])))
+			.unwrap();
+		for id in 100..=100 + MAX_RELATIONSHIPS as u64 {
+			state
+				.apply_user_action(Event::Restriction {
+					user: Id(id),
+					ignored: Some(true),
+					profile: None,
+				})
+				.unwrap();
+		}
+		let newest = Id(100 + MAX_RELATIONSHIPS as u64);
+		assert_eq!(state.user_ignored(newest), Some(true));
+		assert_eq!(state.service_author_excluded(Id(100)), None);
+		assert!(state.user_actions.ignored.len() <= MAX_RELATIONSHIPS);
+		assert!(state.user_actions.ignored.len() * IGNORED_ENTRY_BYTES <= MAX_IGNORED_BYTES);
+		state.logout();
+		assert_eq!(state.user_ignored(newest), None);
 	}
 	/// Synthetic authenticated state for user-action tests.
 	fn state() -> State {

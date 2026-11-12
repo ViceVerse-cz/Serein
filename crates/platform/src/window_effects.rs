@@ -11,6 +11,13 @@ mod wayland;
 #[cfg(target_os = "linux")]
 mod x11;
 
+/// Whether Windows visual styles are on. With them off (the classic look) native windows are
+/// square, so Serein's window should not ask DWM for rounded corners either.
+#[cfg(target_os = "windows")]
+pub fn visual_styles() -> bool {
+	dwm::visual_styles()
+}
+
 pub struct Blur {
 	#[cfg(target_os = "linux")]
 	wayland: Option<wayland::Blur>,
@@ -36,6 +43,17 @@ impl Blur {
 			decorated: window.is_decorated(),
 			window,
 		}
+	}
+
+	/// Linux Wayland: keep the blur inside a rounded window of `[width, height, radius]`
+	/// surface-local pixels, or `None` for the whole surface. Applied by the next `set_enabled`.
+	pub fn set_rounded_shape(&mut self, shape: Option<[i32; 3]>) {
+		#[cfg(target_os = "linux")]
+		if let Some(wayland) = &mut self.wayland {
+			wayland.set_shape(shape);
+		}
+		#[cfg(not(target_os = "linux"))]
+		let _ = shape;
 	}
 
 	pub fn set_enabled(&mut self, enabled: bool) {

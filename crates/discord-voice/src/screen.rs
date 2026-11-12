@@ -30,6 +30,7 @@ use openh264::{
 	},
 	formats::{BgraSliceU8, YUVBuffer, YUVSource},
 };
+use std::borrow::Cow;
 use std::sync::{
 	Arc, Mutex,
 	atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -96,11 +97,17 @@ pub fn sources() -> Result<Vec<Source>, &'static str> {
 		let mut sources = vec![Source {
 			id: SourceId::Portal,
 			name: "Choose in the system picker".into(),
+			width: 0,
+			height: 0,
+			refresh_hz: 0,
 		}];
 		if linux::x11_session() {
 			sources.push(Source {
 				id: SourceId::X11Desktop,
 				name: "Entire X11 desktop · all monitors · no portal".into(),
+				width: 0,
+				height: 0,
+				refresh_hz: 0,
 			});
 		}
 		Ok(sources)
@@ -113,11 +120,11 @@ pub struct Worker {
 	stop: Arc<AtomicBool>,
 	ready: Arc<AtomicBool>,
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
-	done: Option<mpsc::Receiver<Result<(), &'static str>>>,
+	done: Option<mpsc::Receiver<Result<(), Cow<'static, str>>>>,
 	#[cfg(target_os = "linux")]
 	status: Arc<Mutex<&'static str>>,
-	#[cfg(target_os = "linux")]
 	preview_visible: Arc<AtomicBool>,
+	captured: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -141,10 +148,10 @@ impl Worker {
 		let status = Arc::new(Mutex::new("Choose a screen or window in the system picker"));
 		#[cfg(target_os = "linux")]
 		let worker_status = status.clone();
-		#[cfg(target_os = "linux")]
 		let preview_visible = Arc::new(AtomicBool::new(true));
-		#[cfg(target_os = "linux")]
 		let worker_preview_visible = preview_visible.clone();
+		let captured = Arc::new(AtomicBool::new(false));
+		let worker_captured = captured.clone();
 		// A few frames of slack absorbs send jitter without forcing keyframes on every hiccup.
 		let (send, frames) = tokio::sync::mpsc::channel(3);
 		let (complete, done) = mpsc::sync_channel(1);
@@ -178,8 +185,10 @@ impl Worker {
 					worker_preview,
 					worker_status,
 					worker_preview_visible,
+					worker_captured,
 					&wake,
-				);
+				)
+				.map_err(Cow::Borrowed);
 				#[cfg(not(target_os = "linux"))]
 				let result = encode_loop(
 					settings,
@@ -191,6 +200,8 @@ impl Worker {
 					audio_send,
 					worker_audio_epoch,
 					worker_preview,
+					worker_preview_visible,
+					worker_captured,
 					&wake,
 				);
 				finished_ready.store(false, Ordering::Release);
@@ -214,8 +225,8 @@ impl Worker {
 				done: Some(done),
 				#[cfg(target_os = "linux")]
 				status,
-				#[cfg(target_os = "linux")]
 				preview_visible,
+				captured,
 			},
 			Video {
 				settings,
@@ -229,9 +240,13 @@ impl Worker {
 		))
 	}
 
-	pub fn set_preview_visible(&self, _visible: bool) {
-		#[cfg(target_os = "linux")]
-		self.preview_visible.store(_visible, Ordering::Release);
+	pub fn set_preview_visible(&self, visible: bool) {
+		self.preview_visible.store(visible, Ordering::Release);
+	}
+
+	/// True after capture has produced one frame. Linux can be waiting on the system picker before that.
+	pub fn captured(&self) -> bool {
+		self.captured.load(Ordering::Acquire)
 	}
 
 	pub fn capture_status(&self) -> Option<&'static str> {
@@ -241,16 +256,19 @@ impl Worker {
 		None
 	}
 
-	pub fn result(&self) -> Option<Result<(), &'static str>> {
+	/// How the share ended, once it has. The reason is owned because it can carry a Windows
+	/// error code that is only known at run time.
+	pub fn result(&self) -> Option<Result<(), Cow<'static, str>>> {
 		self.done.as_ref()?.try_recv().ok()
 	}
 
-	/// One local RGBA image, bounded to 640 by 360 pixels and replaced at most ten times a second.
+	/// One local RGBA image at the captured size, replaced at the chosen frame rate while visible.
 	pub fn take_preview(&self) -> Option<image::RgbaImage> {
 		self.preview.try_lock().ok()?.take()
 	}
 
-	pub fn shutdown(mut self) -> mpsc::Receiver<Result<(), &'static str>> {
+	/// Stops the worker and hands over the channel that reports how it ended.
+	pub fn shutdown(mut self) -> mpsc::Receiver<Result<(), Cow<'static, str>>> {
 		self.done.take().expect("screen worker completion")
 	}
 }
@@ -262,6 +280,8 @@ impl Drop for Worker {
 	}
 }
 
+/// Captures, encodes and sends frames until the share stops or capture fails. A failure's
+/// reason is owned so it can carry the Windows error code of a failed audio capture.
 #[cfg(not(target_os = "linux"))]
 #[allow(clippy::too_many_arguments)] // Media outputs of one explicitly started capture.
 fn encode_loop(
@@ -274,8 +294,10 @@ fn encode_loop(
 	audio: Option<tokio::sync::mpsc::Sender<AudioChunk>>,
 	audio_epoch: Arc<AtomicU64>,
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
+	preview_visible: Arc<AtomicBool>,
+	captured: Arc<AtomicBool>,
 	wake: &impl Fn(),
-) -> Result<(), &'static str> {
+) -> Result<(), Cow<'static, str>> {
 	if stop.load(Ordering::Acquire) || send.is_closed() {
 		return Ok(());
 	}
@@ -293,6 +315,7 @@ fn encode_loop(
 		ready.clone(),
 		audio_epoch,
 		raw_pending.clone(),
+		stop.clone(),
 	)?;
 	// The worker's stop also reaches a pending macOS picker, so call teardown closes it now.
 	#[cfg(not(target_os = "windows"))]
@@ -308,18 +331,16 @@ fn encode_loop(
 	let mut encoding = None;
 	let mut first_frame_deadline = Some(Instant::now() + Duration::from_secs(15));
 	let mut next_frame = Instant::now();
-	let mut next_preview = Instant::now();
 	let mut latest_frame = None;
+	let mut preview_shown = preview_visible.load(Ordering::Acquire);
 
 	while !stop.load(Ordering::Acquire) && !send.is_closed() {
 		#[cfg(target_os = "windows")]
 		if _native.failed() {
-			return Err(
-				"System audio capture stopped; check your output device or share without audio",
-			);
+			return Err(_native.failure());
 		}
 		if capture_stop.load(Ordering::Acquire) {
-			return Err("The selected screen or window stopped sharing");
+			return Err("The selected screen or window stopped sharing".into());
 		}
 		let frame = match raw.recv_timeout(Duration::from_millis(100)) {
 			Ok(frame) => {
@@ -335,7 +356,8 @@ fn encode_loop(
 			}
 			Err(_) => {
 				return Err(
-					"No screen frames received; check screen recording permission and the selected source",
+					"No screen frames received; check screen recording permission and the selected source"
+						.into(),
 				);
 			}
 		};
@@ -343,16 +365,32 @@ fn encode_loop(
 			break;
 		}
 		let now = Instant::now();
+		let visible = preview_visible.load(Ordering::Acquire);
+		let resumed = visible && !preview_shown;
+		preview_shown = visible;
 		if let Some(frame) = &frame {
-			first_frame_deadline = None;
-			if now >= next_preview {
+			if first_frame_deadline.take().is_some() {
+				captured.store(true, Ordering::Release);
+			}
+			if !visible {
+				if let Ok(mut slot) = preview.try_lock() {
+					slot.take();
+				}
+			} else {
 				let image = preview_frame(frame)?;
 				if let Ok(mut slot) = preview.try_lock() {
 					*slot = Some(image);
 				}
-				next_preview = now + Duration::from_millis(100);
 				wake();
 			}
+		} else if resumed && let Some(frame) = &latest_frame {
+			// A change-driven capture does not emit again while the picture is still.
+			// The encode path already kept that frame.
+			let image = preview_frame(frame)?;
+			if let Ok(mut slot) = preview.try_lock() {
+				*slot = Some(image);
+			}
+			wake();
 		}
 		let encode = retain_screen_frame(
 			&mut latest_frame,
@@ -698,24 +736,17 @@ fn validate_frame(frame: &RawFrame) -> Result<(usize, usize), &'static str> {
 }
 
 pub(super) fn preview_frame(frame: &RawFrame) -> Result<image::RgbaImage, &'static str> {
-	validate_frame(frame)?;
-	let scale = (640.0 / f64::from(frame.width))
-		.min(360.0 / f64::from(frame.height))
-		.min(1.0);
-	let width = (f64::from(frame.width) * scale).round().max(1.0) as u32;
-	let height = (f64::from(frame.height) * scale).round().max(1.0) as u32;
-	// ponytail: nearest sampling keeps the ten-fps preview cheap; use filtered scaling if needed.
-	Ok(image::RgbaImage::from_fn(width, height, |x, y| {
-		let source_x = (x * frame.width / width) as usize;
-		let source_y = (y * frame.height / height) as usize;
-		let offset = source_y * frame.stride + source_x * 4;
-		image::Rgba([
-			frame.data[offset + 2],
-			frame.data[offset + 1],
-			frame.data[offset],
-			255,
-		])
-	}))
+	let (row_bytes, _) = validate_frame(frame)?;
+	let mut image = image::RgbaImage::new(frame.width, frame.height);
+	for (y, row) in image.chunks_mut(frame.width as usize * 4).enumerate() {
+		let start = y * frame.stride;
+		let (dst_pixels, _) = row.as_chunks_mut::<4>();
+		let (src_pixels, _) = frame.data[start..start + row_bytes].as_chunks::<4>();
+		for (dst, src) in dst_pixels.iter_mut().zip(src_pixels) {
+			*dst = [src[2], src[1], src[0], 255];
+		}
+	}
+	Ok(image)
 }
 
 #[cfg(any(test, target_os = "macos"))]
@@ -805,8 +836,8 @@ mod tests {
 			done: None,
 			#[cfg(target_os = "linux")]
 			status: Arc::new(Mutex::new("")),
-			#[cfg(target_os = "linux")]
 			preview_visible: Arc::new(AtomicBool::new(true)),
+			captured: Arc::new(AtomicBool::new(false)),
 		};
 		assert!(worker.take_preview().is_some());
 		assert!(worker.take_preview().is_none());
@@ -819,9 +850,8 @@ mod tests {
 				data: vec![0; width as usize * height as usize * 4],
 			};
 			let preview = preview_frame(&frame).unwrap();
-			assert!(preview.width() > 0 && preview.width() <= 640);
-			assert!(preview.height() > 0 && preview.height() <= 360);
-			assert!(preview.as_raw().len() <= 640 * 360 * 4);
+			assert_eq!((preview.width(), preview.height()), (width, height));
+			assert_eq!(preview.as_raw().len(), width as usize * height as usize * 4);
 		}
 		assert!(
 			preview_frame(&RawFrame {

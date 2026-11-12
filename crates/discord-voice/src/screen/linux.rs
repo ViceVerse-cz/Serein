@@ -89,6 +89,7 @@ pub(super) fn run(
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
 	status: Arc<Mutex<&'static str>>,
 	preview_visible: Arc<AtomicBool>,
+	captured: Arc<AtomicBool>,
 	wake: &impl Fn(),
 ) -> Result<(), &'static str> {
 	let direct = settings.source == SourceId::X11Desktop && x11_session();
@@ -107,6 +108,16 @@ pub(super) fn run(
 		} else {
 			Some(Portal::open(settings.cursor, &stop).await?)
 		};
+		// The quality row chose a bound before the pick; size the picture to the picked
+		// stream, never upscaling it. The portal's optional `size` is in compositor
+		// (logical) coordinates and xdg-desktop-portal-hyprland omits it, so it is only a
+		// first guess: the source's negotiated caps, in pixels, decide below.
+		let bound = settings;
+		let mut source_size = portal.as_ref().and_then(|portal| portal.size);
+		let mut settings =
+			source_size.map_or(bound, |(width, height)| bound.fitted_to(width, height));
+		// Whether `source_size` came from the caps, so later changes are window resizes.
+		let mut measured = false;
 		let origin = Instant::now();
 		let mut metrics = crate::diagnostics::Metrics::new(crate::diagnostics::Scope::ScreenVideo);
 		let mut audio = None;
@@ -122,6 +133,7 @@ pub(super) fn run(
 				})
 				.transpose()?;
 			let mut mode_index = 0;
+			let mut noted_capture = false;
 			while let Some(&mode) = Mode::ALL.get(mode_index) {
 				mode_index += 1;
 				if stop.load(Ordering::Acquire) || send.is_closed() {
@@ -162,6 +174,7 @@ pub(super) fn run(
 				} else {
 					x11_source(settings.cursor)?
 				};
+				let probe = source.clone();
 				let capacity = send.clone();
 				keyframe.store(true, Ordering::Release);
 				let mut active_bitrate = bitrate
@@ -193,6 +206,7 @@ pub(super) fn run(
 				let mut first_frame = None;
 				let mut visible = true;
 				let mut first_preview = Some(Instant::now());
+				let mut resized: Option<((u32, u32), Instant)> = None;
 				loop {
 					if stop.load(Ordering::Acquire) || send.is_closed() {
 						return Ok(());
@@ -208,6 +222,39 @@ pub(super) fn run(
 					{
 						audio = None;
 						audio_stopped = true;
+					}
+					// Checked before failure: an encoder that rejected the provisional bound
+					// (e.g. 2160p over a 2048-pixel hardware limit) is retried at the picked
+					// stream's size instead of being skipped for the next mode.
+					let negotiated = if direct {
+						None
+					} else {
+						negotiated_size(&probe)
+					};
+					if negotiated.is_some() && negotiated == source_size {
+						measured = true;
+					}
+					if let Some(size) = negotiated.filter(|&size| Some(size) != source_size) {
+						if resized.is_none_or(|(pending, _)| pending != size) {
+							resized = Some((size, Instant::now()));
+						}
+						// The first measurement applies at once; a resized window must settle
+						// so a drag does not restart the encoder on every step.
+						if !measured || resized.is_some_and(|(_, at)| at.elapsed() >= RESIZE_SETTLE)
+						{
+							measured = true;
+							source_size = Some(size);
+							let fitted = bound.fitted_to(size.0, size.1);
+							if (fitted.width, fitted.height) != (settings.width, settings.height) {
+								// Reopen the same mode at the stream's size, with a fresh
+								// PipeWire remote and the approved portal.
+								settings = fitted;
+								mode_index -= 1;
+								break;
+							}
+						}
+					} else {
+						resized = None;
 					}
 					if pipeline.failed() {
 						break;
@@ -248,6 +295,10 @@ pub(super) fn run(
 					}
 					if let Some(sample) = pipeline.preview.try_pull_sample(gst::ClockTime::ZERO) {
 						let image = preview_frame(&capture::raw(&sample)?)?;
+						if !noted_capture {
+							noted_capture = true;
+							captured.store(true, Ordering::Release);
+						}
 						if let Ok(mut slot) = preview.try_lock() {
 							*slot = Some(image);
 						}
@@ -287,6 +338,10 @@ pub(super) fn run(
 								pipeline.frames.try_pull_sample(gst::ClockTime::ZERO)
 						{
 							pulled = true;
+							if !noted_capture {
+								noted_capture = true;
+								captured.store(true, Ordering::Release);
+							}
 							let pull = metrics.start();
 							metrics.finish(crate::diagnostics::Stage::Receive, pull);
 							let (data, is_keyframe) = if mode == Mode::Software {
@@ -419,4 +474,42 @@ pub(super) fn run(
 		drop(audio);
 		result
 	})
+}
+
+/// How long a portal stream's new size must hold before the capture is re-fitted to it.
+const RESIZE_SETTLE: Duration = Duration::from_millis(500);
+
+/// The pixel size a capture source negotiated, once its caps are set.
+fn negotiated_size(source: &gst::Element) -> Option<(u32, u32)> {
+	let caps = source.static_pad("src")?.current_caps()?;
+	let structure = caps.structure(0)?;
+	let width = u32::try_from(structure.get::<i32>("width").ok()?).ok()?;
+	let height = u32::try_from(structure.get::<i32>("height").ok()?).ok()?;
+	(width > 0 && height > 0).then_some((width, height))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn negotiated_size_reads_the_source_caps() {
+		gst::init().unwrap();
+		let pipeline = gst::parse::launch(
+			"videotestsrc name=source num-buffers=2 ! video/x-raw,width=1366,height=768 ! fakesink",
+		)
+		.unwrap()
+		.downcast::<gst::Pipeline>()
+		.unwrap();
+		let source = pipeline.by_name("source").unwrap();
+		assert_eq!(negotiated_size(&source), None);
+		pipeline.set_state(gst::State::Playing).unwrap();
+		let bus = pipeline.bus().unwrap();
+		let _ = bus.timed_pop_filtered(
+			gst::ClockTime::from_seconds(5),
+			&[gst::MessageType::Eos, gst::MessageType::Error],
+		);
+		assert_eq!(negotiated_size(&source), Some((1366, 768)));
+		pipeline.set_state(gst::State::Null).unwrap();
+	}
 }

@@ -8,6 +8,7 @@ pub mod badges;
 pub mod collectibles;
 mod diagnostics;
 mod embeds;
+pub mod emoji_frecency;
 mod extra_content;
 pub mod forum;
 pub mod gif_favorites;
@@ -1226,10 +1227,6 @@ pub struct GatewayPacket {
 #[derive(Deserialize)]
 pub struct Hello {
 	pub heartbeat_interval: u64,
-}
-#[derive(Deserialize)]
-pub struct GatewayLocation {
-	pub url: String,
 }
 #[derive(Deserialize, Default)]
 pub struct ErrorBody {

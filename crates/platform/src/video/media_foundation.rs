@@ -36,7 +36,7 @@ const ALL: u32 = MF_SOURCE_READER_ALL_STREAMS.0 as u32;
 const UNSUPPORTED: &str = "This video format or codec is not supported by Windows.";
 const INVALID: &str = "The video could not be decoded safely.";
 
-use super::{Color, Info, Layout, Picture, ReadSeek, Sample};
+use super::{Color, Info, Layout, MAX_FRAME_BYTES, Picture, ReadSeek, Sample};
 
 // Keep the reader and byte stream ahead of Runtime: COM objects must be released
 // before MFShutdown/CoUninitialize. Rc also makes this actor thread-affine.
@@ -221,7 +221,7 @@ impl Decoder {
 					.map_err(|_| UNSUPPORTED)?;
 			} else {
 				attributes
-					.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1)
+					.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1)
 					.map_err(|_| UNSUPPORTED)?;
 			}
 			let reader = MFCreateSourceReaderFromByteStream(&stream, &attributes)
@@ -230,7 +230,9 @@ impl Decoder {
 			let native = reader
 				.GetNativeMediaType(VIDEO, 0)
 				.map_err(|_| UNSUPPORTED)?;
-			let (width, height) = dimensions(&native)?;
+			let source_size = native.GetUINT64(&MF_MT_FRAME_SIZE).map_err(|_| INVALID)?;
+			let (width, height) =
+				super::playback_dimensions((source_size >> 32) as u32, source_size as u32)?;
 			let rotation = native.GetUINT32(&MF_MT_VIDEO_ROTATION).unwrap_or(0);
 			if !matches!(rotation, 0 | 90 | 180 | 270) {
 				return Err(UNSUPPORTED);
@@ -270,7 +272,7 @@ impl Decoder {
 			reader
 				.SetCurrentMediaType(VIDEO, None, &video)
 				.map_err(|_| UNSUPPORTED)?;
-			if manager.is_some() && rotation != 0 {
+			if rotation != 0 {
 				// Apply track rotation once in rgba_frame, without the GPU processor also
 				// correcting it. If its control is unavailable, use the software reader.
 				let extended = reader
@@ -531,7 +533,7 @@ impl Decoder {
 				}));
 			}
 			if Some(index) == self.audio_index {
-				let bytes = sample_bytes(&sample)?;
+				let bytes = sample_bytes(&sample, MAX_BYTES)?;
 				let frame_bytes = usize::from(self.info.channels) * 4;
 				if frame_bytes == 0
 					|| bytes.len() % frame_bytes != 0
@@ -580,7 +582,7 @@ impl Decoder {
 		// SAFETY: Lock2DSize supplies the accessible allocation; validate every offset and
 		// length before borrowing it, then release the read-only lock after conversion.
 		unsafe {
-			if sample.GetTotalLength().map_err(|_| INVALID)? as usize > MAX_BYTES {
+			if sample.GetTotalLength().map_err(|_| INVALID)? as usize > MAX_FRAME_BYTES {
 				return Err(INVALID);
 			}
 			let buffer = sample.ConvertToContiguousBuffer().map_err(|_| INVALID)?;
@@ -599,7 +601,7 @@ impl Decoder {
 					)
 					.map_err(|_| INVALID)?;
 				let result = (|| {
-					if start.is_null() || top.is_null() || length as usize > MAX_BYTES {
+					if start.is_null() || top.is_null() || length as usize > MAX_FRAME_BYTES {
 						return Err(INVALID);
 					}
 					let pitch =
@@ -624,7 +626,7 @@ impl Decoder {
 				return result;
 			}
 		}
-		convert(&sample_bytes(sample)?, self.stride)
+		convert(&sample_bytes(sample, MAX_FRAME_BYTES)?, self.stride)
 	}
 }
 
@@ -632,20 +634,13 @@ fn dimensions(media: &IMFMediaType) -> Result<(u32, u32), &'static str> {
 	// SAFETY: Reading an integer attribute from a live media type.
 	let size = unsafe { media.GetUINT64(&MF_MT_FRAME_SIZE) }.map_err(|_| INVALID)?;
 	let (width, height) = ((size >> 32) as u32, size as u32);
-	if width == 0
-		|| height == 0
-		|| width > 1920
-		|| height > 1920
-		|| u64::from(width) * u64::from(height) > 1920 * 1080
-	{
-		return Err("Inline playback supports videos up to 1080p.");
-	}
+	super::check_dimensions(width, height)?;
 	Ok((width, height))
 }
 
 fn validate_stride(width: u32, height: u32, stride: i32) -> Result<usize, &'static str> {
 	let pitch = stride.unsigned_abs() as usize;
-	if pitch < width as usize * 4 || pitch > MAX_BYTES / height as usize {
+	if pitch < width as usize * 4 || pitch > MAX_FRAME_BYTES / height as usize {
 		return Err(INVALID);
 	}
 	Ok(pitch)
@@ -742,11 +737,11 @@ fn rgba_frame(
 	Ok(rgba)
 }
 
-fn sample_bytes(sample: &IMFSample) -> Result<Vec<u8>, &'static str> {
+fn sample_bytes(sample: &IMFSample, max: usize) -> Result<Vec<u8>, &'static str> {
 	// SAFETY: Native length is checked before allocating/combining. Lock's pointer is
 	// borrowed only until Unlock, and the copy length is validated against capacity.
 	unsafe {
-		if sample.GetTotalLength().map_err(|_| INVALID)? as usize > MAX_BYTES {
+		if sample.GetTotalLength().map_err(|_| INVALID)? as usize > max {
 			return Err(INVALID);
 		}
 		let buffer = sample.ConvertToContiguousBuffer().map_err(|_| INVALID)?;
@@ -756,16 +751,14 @@ fn sample_bytes(sample: &IMFSample) -> Result<Vec<u8>, &'static str> {
 		buffer
 			.Lock(&mut data, Some(&mut capacity), Some(&mut length))
 			.map_err(|_| INVALID)?;
-		let result = if length > capacity
-			|| length as usize > MAX_BYTES
-			|| (length != 0 && data.is_null())
-		{
-			Err(INVALID)
-		} else if length == 0 {
-			Ok(Vec::new())
-		} else {
-			Ok(std::slice::from_raw_parts(data, length as usize).to_vec())
-		};
+		let result =
+			if length > capacity || length as usize > max || (length != 0 && data.is_null()) {
+				Err(INVALID)
+			} else if length == 0 {
+				Ok(Vec::new())
+			} else {
+				Ok(std::slice::from_raw_parts(data, length as usize).to_vec())
+			};
 		buffer.Unlock().map_err(|_| INVALID)?;
 		result
 	}

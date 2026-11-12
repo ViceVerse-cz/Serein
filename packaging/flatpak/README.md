@@ -1,13 +1,14 @@
 # Flatpak
 
 Build on native Linux with Python 3.11+, Git, rustup and the repository's pinned
-Rust 1.98.1 toolchain installed. GNOME SDK/Platform 51 supplies GTK4/WebKit6 and
-native media/build libraries. The toolchain is copied into build-only sources;
+Rust 1.99.1 toolchain installed. GNOME SDK/Platform 51 supplies GTK4/WebKit6 and
+native media/build libraries; the freedesktop LLVM 22 SDK extension supplies the libclang
+that the BoringSSL bindings are generated with (build time only). The toolchain is copied into build-only sources;
 no moving Rust SDK extension or compiler is shipped in the application.
 
 ```sh
 flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak install --user --noninteractive --no-related flathub org.gnome.Sdk//51 org.gnome.Platform//51
+flatpak install --user --noninteractive --no-related flathub org.gnome.Sdk//51 org.gnome.Platform//51 org.freedesktop.Sdk.Extension.llvm22//26.08
 python3 packaging/flatpak/build.py target/flatpak-build
 ```
 

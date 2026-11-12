@@ -49,16 +49,21 @@ unsafe_code = "deny"
 [target.'cfg(target_os = "windows")'.dependencies]
 tauri-winrt-notification = "=0.7.3"
 windows-core = "=0.61.2"
-windows = { version = "=0.61.3", features = ["UI_Notifications", "Win32_Security_Authorization", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_Graphics_Imaging", "Win32_Graphics_Dwm", "Win32_UI_Controls", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant"] }
+windows = { version = "=0.61.3", features = ["UI_Notifications", "Win32_Security_Authorization", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_Graphics_Imaging", "Win32_Graphics_Dwm", "Win32_UI_Controls", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 dirs.workspace = true
-objc2 = "=0.6.4"
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSObject", "NSString", "NSData", "NSGeometry", "objc2-core-foundation"] }
+objc2 = "=0.6.5"
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSObject", "NSString", "NSData", "NSError", "NSGeometry", "NSURL", "objc2-core-foundation"] }
+# Verification pages load with a base URL; the features unify with wry's own.
+objc2-web-kit = { version = "=0.3.2", default-features = false, features = ["std", "objc2-app-kit", "WKWebView", "WKNavigation"] }
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSWindow", "NSApplication", "NSDockTile", "NSResponder", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSMenu", "NSMenuItem", "NSImage", "NSVisualEffectView", "NSGraphics", "NSEvent"] }
 futures-lite = "=2.6.1"
 mac-usernotifications = "=0.3.1"
-objc2-video-toolbox = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "objc2-core-media", "objc2-core-video", "VTBase", "VTErrors", "VTSession", "VTDecompressionSession", "VTDecompressionProperties"] }
+# Requests badge permission, which mac-usernotifications 0.3.1 omits.
+objc2-user-notifications = { version = "=0.3.2", default-features = false, features = ["std", "block2", "UNUserNotificationCenter"] }
+block2 = "=0.6.2"
+objc2-video-toolbox = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "objc2-core-media", "objc2-core-video", "VTBase", "VTErrors", "VTSession", "VTDecompressionSession", "VTDecompressionProperties", "VTPixelTransferSession"] }
 objc2-core-media = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "objc2-core-video", "CMBase", "CMTime", "CMAttachment", "CMBlockBuffer", "CMFormatDescription", "CMSampleBuffer"] }
 objc2-core-video = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
 objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "CFBase", "CFArray", "CFDictionary", "CFNumber", "CFString"] }
