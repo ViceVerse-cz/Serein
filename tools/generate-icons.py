@@ -127,6 +127,7 @@ ICONS = [
     ("scissors", "bold/scissors-bold.svg", "10d7c433d8284923caa353edbfa984be5c9b12aab331c36d3f250f3bd7656a1d"),
     ("clipboard-text", "bold/clipboard-text-bold.svg", "3d1f047a9ea53283cada888642cc9427e3ec7ac766beeefee19581454b4b26b4"),
     ("selection-all", "bold/selection-all-bold.svg", "a5db79d398382ba9c9bf0abe75290e46cf11c41464be439b66c8e3ee30a716a3"),
+    ("music-notes", "fill/music-notes-fill.svg", "ddfa03bf39856870a4898b830525136583179dc019aa0ab8689eb5b7a65bc50d"),
 ]
 LICENSE_SHA256 = "ddbe6082ec3cf979db47e5af549d2849c5d6182b3e005ef91ce1dbb9eb122f11"
 

@@ -438,6 +438,10 @@ impl Connection {
                 let mut invite:Option<AbortTask>=None;
                 let mut search:Option<AbortTask>=None;
                 let mut gifs:Option<AbortTask>=None;
+                // One default-catalog read; sends run side by side (core bounds how many) so a
+                // new sound never aborts an earlier one whose reply is still due.
+                let mut soundboard_defaults:Option<AbortTask>=None;
+                let mut soundboard_sends:Vec<AbortTask>=Vec::new();
                 let mut gif_favorites:Option<AbortTask>=None;
                 let mut emoji_frecency:Option<AbortTask>=None;
                 let mut application_commands:Option<AbortTask>=None;
@@ -576,6 +580,27 @@ impl Connection {
                                 })));
                                 continue;
                             }
+                            // Core admits one catalog read at a time, so a replaced read has already reported.
+                            if let Command::Soundboard(action)=&command {
+                                let play=matches!(action,client_core::soundboard::Command::Play{..});
+                                if play {soundboard_sends.retain(|task|!task.0.is_finished());} else {drop(soundboard_defaults.take());}
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                let task=AbortTask(tokio::spawn(async move {
+                                    let event=api.execute(command).await;
+                                    let failure=match &event {Event::Soundboard(client_core::soundboard::Event::Defaults(Err(f))|client_core::soundboard::Event::Played{result:Err(f),..}) if f.ends_session()=>Some(*f),_=>None};
+                                    let error=emit(event).err().or(failure);
+                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                }));
+                                if play {soundboard_sends.push(task);} else {soundboard_defaults=Some(task);}
+                                continue;
+                            }
+                            if let Command::Voice(client_core::voice::Command::RequestSoundboard{guild})=command {
+                                // Never wait for queue space here; a refused request goes back to core, which retries it shortly.
+                                let queued=*voice_availability.borrow() && voice_send.try_send(client_core::voice::Command::RequestSoundboard{guild}).is_ok();
+                                if !queued {emit(Event::Soundboard(client_core::soundboard::Event::CatalogUnsent(guild)))?;}
+                                continue;
+                            }
                             if matches!(command,Command::Gifs{..}) {
                                 drop(gifs.take());
                                 let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
@@ -702,7 +727,7 @@ impl Connection {
                             }
 							if let Command::Voice(control)=command {
                                 use client_core::voice::{Command as V,Event as E};
-                                let (channel,request)=match control {V::AbandonSession{channel,request}|V::ConfirmSession{channel,request,..}|V::Join{channel,request,..}|V::Ring{channel,request}|V::Leave{channel,request}|V::SetMute{channel,request,..}|V::SetCamera{channel,request,..}=>(channel,request),V::Decline{channel}=>(channel,0),V::RingRecipient{..}|V::Sync{..}|V::StartStream{..}|V::StopStream{..}|V::WatchStream{..}|V::StopWatching{..}=>unreachable!("sync and stream actions routed above")};
+                                let (channel,request)=match control {V::AbandonSession{channel,request}|V::ConfirmSession{channel,request,..}|V::Join{channel,request,..}|V::Ring{channel,request}|V::Leave{channel,request}|V::SetMute{channel,request,..}|V::SetCamera{channel,request,..}=>(channel,request),V::Decline{channel}=>(channel,0),V::RingRecipient{..}|V::Sync{..}|V::StartStream{..}|V::StopStream{..}|V::WatchStream{..}|V::StopWatching{..}|V::RequestSoundboard{..}=>unreachable!("sync, soundboard and stream actions routed above")};
                                 if let V::AbandonSession{channel,request}=control {
                                     let owner=voice_request.map(|(channel,request,_)|(channel,request));
                                     if voice_request.is_some_and(|(id,r,_)|id==channel && r==request) {
@@ -1867,7 +1892,8 @@ fn ring_action(
 			| V::StartStream { .. }
 			| V::StopStream { .. }
 			| V::WatchStream { .. }
-			| V::StopWatching { .. } => Ok(None),
+			| V::StopWatching { .. }
+			| V::RequestSoundboard { .. } => Ok(None),
 		};
 	}
 	match control {
@@ -1901,7 +1927,8 @@ fn ring_action(
 		| V::StartStream { .. }
 		| V::StopStream { .. }
 		| V::WatchStream { .. }
-		| V::StopWatching { .. } => Ok(None),
+		| V::StopWatching { .. }
+		| V::RequestSoundboard { .. } => Ok(None),
 	}
 }
 

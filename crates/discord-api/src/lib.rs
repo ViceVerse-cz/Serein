@@ -28,6 +28,7 @@ mod server_integrations;
 mod server_invites;
 mod server_roles;
 mod server_settings;
+mod soundboard;
 pub mod spotify;
 pub mod upload;
 mod user_actions;
@@ -1569,6 +1570,20 @@ impl DiscordApi {
 			Command::Prefetch(command) => {
 				Box::pin(SPECULATIVE.scope((), self.execute(*command))).await
 			}
+			Command::Soundboard(client_core::soundboard::Command::Defaults) => Event::Soundboard(
+				client_core::soundboard::Event::Defaults(self.default_soundboard_sounds().await),
+			),
+			Command::Soundboard(client_core::soundboard::Command::Play {
+				request,
+				channel,
+				sound,
+				source_guild,
+			}) => Event::Soundboard(client_core::soundboard::Event::Played {
+				request,
+				result: self
+					.send_soundboard_sound(channel, sound, source_guild)
+					.await,
+			}),
 			Command::StickerPacks => Event::StickerPacks(
 				self.request_limited(
 					Method::GET,

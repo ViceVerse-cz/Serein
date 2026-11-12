@@ -276,6 +276,11 @@ pub enum Command {
 	Decline {
 		channel: Id,
 	},
+	/// Opcode 31 for one server, or with `None` for every server this connection knows;
+	/// replies arrive as `SOUNDBOARD_SOUNDS`.
+	RequestSoundboard {
+		guild: Option<Id>,
+	},
 }
 pub enum Event {
 	/// Gateway accepted the current local transport candidate, scoped to its attempt.
@@ -1322,11 +1327,12 @@ impl ClientState {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
 	use super::*;
 	use crate::{Envelope, Event as CoreEvent};
 	use model::{Channel, User};
-	fn stream_preview_state() -> ClientState {
+	/// An authenticated account in server 10 that can see voice channel 20.
+	pub(crate) fn stream_preview_state() -> ClientState {
 		let mut state = ClientState {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
@@ -1985,7 +1991,8 @@ mod tests {
 		}
 	}
 
-	fn dm_state() -> ClientState {
+	/// An authenticated account with one private channel, for private-call tests.
+	pub(crate) fn dm_state() -> ClientState {
 		ClientState {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,

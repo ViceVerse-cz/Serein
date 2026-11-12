@@ -356,6 +356,7 @@ pub async fn run(
 		camera,
 		remote_video,
 		stream_audio,
+		None,
 		emit,
 		Identity::generate(),
 	)
@@ -371,6 +372,7 @@ pub async fn run_with_identity(
 	camera: Option<Receiver<crate::camera_video::Frame>>,
 	remote_video: Option<VideoSink>,
 	stream_audio: Option<Receiver<crate::PlaybackFrame>>,
+	soundboard: Option<Receiver<crate::soundboard::Clip>>,
 	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 	identity: Arc<Identity>,
 ) -> Result<(), &'static str> {
@@ -384,6 +386,7 @@ pub async fn run_with_identity(
 			camera,
 			remote_video,
 			stream_audio,
+			soundboard,
 			emit,
 			identity,
 			url,
@@ -401,6 +404,7 @@ async fn run_inner(
 	camera: Option<Receiver<crate::camera_video::Frame>>,
 	remote_video: Option<VideoSink>,
 	stream_audio: Option<Receiver<crate::PlaybackFrame>>,
+	soundboard: Option<Receiver<crate::soundboard::Clip>>,
 	emit: impl Fn(Status) -> Result<(), ()>,
 	identity: Arc<Identity>,
 	url: String,
@@ -461,6 +465,7 @@ async fn run_inner(
 	video_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 	let mut mixer = crate::mixer::Mixer::default();
 	let mut stream_playout = crate::stream_playout::Playout::default();
+	let mut sounds = crate::soundboard::Mixer::default();
 	let mut seq_ack: i64 = -1;
 	let mut heartbeat_ms: Option<u64> = None;
 	let mut heartbeat_at = Instant::now();
@@ -737,16 +742,23 @@ async fn run_inner(
 					   }
 					   timestamp=timestamp.wrapping_add(960);
 					   let mut drops = 0;
-					   if enabled && !control.deafened {
+					   // A sole member waiting for a DAVE peer still has a playing speaker: the
+					   // soundboard needs no remote participant, so it mixes in both states.
+					   if (enabled || waiting) && !control.deafened {
 						   if stalled {mixer.clear();}
 						   let start = metrics.start();
 						   let (frame,remote_audio)=mixer.pop_with_volumes(&control.user_volumes);
+						   // Soundboard clips join after per-user volume and before the speaker gain.
+						   if let Some(source)=&soundboard {sounds.admit(source);}
+						   let frame=sounds.mix(frame);
 		let extra=stream_audio.as_ref().and_then(|aux|stream_playout.next(aux,control.stream_volume,true,stalled));
 		let frame=crate::PlaybackFrame::mix(frame,extra);
 						   metrics.finish(crate::diagnostics::Stage::Mix, start);
-						   if let Some(frame)=frame {drops = u64::from(playback.try_send(frame).is_err());}
+						   let accepted=frame.is_none_or(|frame|playback.try_send(frame).is_ok());
+						   drops = u64::from(!accepted);
+						   sounds.delivered(accepted);
 						   if !heard && remote_audio {heard=true;emit(Status::RemoteAudio).map_err(|_|"Call interface closed")?;}
-					   } else {mixer.clear();if let Some(aux)=&stream_audio {let _=stream_playout.next(aux,0,false,false);}}
+					   } else {mixer.clear();sounds.clear(soundboard.as_ref());if let Some(aux)=&stream_audio {let _=stream_playout.next(aux,0,false,false);}}
 					   let [bridge_drops,bridge_underruns]=stream_playout.take_stats();
 					   metrics.stream_audio([0,0,0,0,0,0,0,0,bridge_drops,bridge_underruns]);
 					   metrics.poll(false, drops, stalled, 0);
@@ -3205,6 +3217,7 @@ mod tests {
 			Some(camera_rx),
 			None,
 			None,
+			None,
 			move |status| status_tx.try_send(status).map_err(|_| ()),
 			Identity::generate(),
 			format!("ws://{address}"),
@@ -3460,6 +3473,7 @@ mod tests {
 			playback,
 			control_rx,
 			Some(camera_rx),
+			None,
 			None,
 			None,
 			move |status| status_tx.try_send(status).map_err(|_| ()),

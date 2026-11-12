@@ -415,6 +415,7 @@ impl Calls {
 			| Command::WatchStream { .. }
 			| Command::StopWatching { .. }
 			| Command::Decline { .. }
+			| Command::RequestSoundboard { .. }
 			| Command::Ring { .. }
 			| Command::RingRecipient { .. } => return Ok(None),
 		};

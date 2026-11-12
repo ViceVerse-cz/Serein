@@ -43,6 +43,7 @@ pub mod server_audit_log;
 pub mod server_integrations;
 pub mod server_roles;
 pub mod server_settings;
+pub mod soundboard;
 pub mod thread_previews;
 mod thread_starter;
 mod threads;
@@ -270,6 +271,7 @@ pub enum Command {
 		changes: Option<model::ProfileEdit>,
 	},
 	Voice(voice::Command),
+	Soundboard(soundboard::Command),
 	Members {
 		thread: bool,
 		guild: Option<Id>,
@@ -602,6 +604,7 @@ pub enum Event {
 		result: Result<Box<UserProfile>, auth::Failure>,
 	},
 	Voice(voice::Event),
+	Soundboard(soundboard::Event),
 	ChannelCreated(Channel),
 	ChannelRestored(Channel),
 	ChannelChanged(ChannelPatch),
@@ -822,6 +825,7 @@ pub struct State {
 	pub invite_join: invites::Join,
 	pub guild_creation: guild_creation::Creation,
 	pub voice: voice::State,
+	pub soundboard: soundboard::Soundboard,
 	pub generation: u64,
 	pub auth: auth::AuthState,
 	pub user: Option<User>,
@@ -1005,6 +1009,7 @@ impl Default for State {
 	fn default() -> Self {
 		Self {
 			premium_type: 0,
+			soundboard: Default::default(),
 			stickers: Default::default(),
 			interactions: Default::default(),
 			application_commands: Default::default(),
@@ -2133,6 +2138,10 @@ impl State {
 				);
 				return;
 			}
+			Command::Soundboard(command) => {
+				self.soundboard_rejected(*command);
+				return;
+			}
 			Command::StickerPacks => {
 				self.stickers.loading = false;
 				self.stickers.error = Some("Sticker packs were not queued; try again");
@@ -2698,6 +2707,8 @@ impl State {
 			}
 			self.interrupt_preloads();
 			self.interrupt_stickers();
+			self.soundboard
+				.interrupt(!matches!(envelope.event, Event::Disconnected));
 			self.posts.clear_summaries();
 			self.interactions.reset();
 			self.application_commands.clear();
@@ -3389,6 +3400,10 @@ impl State {
 			}
 			Event::Voice(event) => {
 				self.apply_voice(event);
+				Ok(())
+			}
+			Event::Soundboard(event) => {
+				self.apply_soundboard(event);
 				Ok(())
 			}
 			Event::RecipientAdded { channel, user } => {
@@ -4625,6 +4640,7 @@ impl Event {
 					.as_ref()
 					.map_or(0, |s| (s.order.capacity() + s.hidden.capacity()) * 4),
 				Self::Voice(event) => event.bytes(),
+				Self::Soundboard(event) => event.bytes(),
 				Self::Permissions(event) => event.bytes(),
 				Self::GuildEmojis { emojis, .. } => custom_emoji_bytes(emojis),
 				Self::GuildStickers { stickers, .. } => sticker_bytes(stickers),

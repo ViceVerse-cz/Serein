@@ -4,6 +4,36 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Soundboard — November 9, 2026
+
+Baseline `a7d57c68` (`origin/main` when work began) and this branch were built with pinned Rust
+1.99.1 and locked dependencies on Linux x86-64 (kernel 7.2.14-arch1-1), Intel Core i9-14900K with
+62 GiB RAM and an NVIDIA RTX 3080 Ti using Vulkan, in separate worktrees. `cargo xtask package`
+staged the standard voice-enabled `dist/` on both; the host has no `dpkg`, so no `.deb` was built
+and installed-package size is unmeasured. The compressed size is `tar -czf` of the staged directory.
+
+| Metric | Baseline | Soundboard | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Release executable | 95,617,512 B | 95,757,416 B | +139,904 B (+0.15%) | `dist/serein` |
+| Staged distribution | 99,963,493 B | 100,103,397 B | +139,904 B (+0.14%) | `du -sb dist` |
+| Compressed distribution | 57,172,660 B | 57,281,986 B | +109,326 B (+0.19%) | `tar -czf` of `dist` |
+| Idle CPU (100% = one core) | 1.40% | 1.25% | Within run-to-run noise | Debug demo, one run |
+| Peak / settled RSS | 495,685,632 / 495,271,936 B | 500,686,848 / 500,256,768 B | +5.0 MB (+1.0%), one sample | Debug demo, `VmRSS` |
+
+CPU and RSS come from one 20-sample run (one-second interval, 10-second warmup) of each debug demo
+build (`--features demo`, `--demo --demo-voice`, panel closed) on a dedicated 1360×1040 Xvfb display.
+CPU and RSS were sampled before local preview and private-call support were added; those only
+change the open panel. Concurrent compilation was uncontrolled; one run per revision does not separate a real difference
+from noise. Nothing plays until a sound arrives: the worker thread starts lazily, and the
+transport mixer does no work with no clip queued. Received-sound memory is bounded at 16 MiB of
+decoded PCM and eight queued clips. No live call, download or playback was measured.
+
+Mixing while this account is alone (DAVE waiting for a peer) runs the same 20 ms mix pass a
+connected call already runs; with no participant audio and no clip queued it produces no frame. Format
+sniffing scans at most 64 KiB once per downloaded sound, and the lenient decoder does the same
+work per packet as the attachment decoder. Soundboard trace lines exist only with
+`SEREIN_VOICE_DIAGNOSTICS=1` and are bounded at 2,048 lines of 240 bytes.
+
 ## Discord message toolbar and safe extension ports — November 8, 2026
 
 Baseline `21f8870b` and this branch were built with pinned Rust 1.98.1 and locked dependencies on

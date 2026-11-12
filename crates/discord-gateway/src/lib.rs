@@ -414,6 +414,21 @@ fn subscription_packet(
 	Frame::Text(serde_json::json!({"op":37,"d":{"subscriptions":{guild.to_string():{"typing":typing,"threads":false,"activities":true,"member_updates":false,"members":[],"channels":channels,"thread_member_lists":threads}}}}).to_string().into())
 }
 
+/// Documented opcode 31 (Request Soundboard Sounds), in bounded batches of server IDs.
+fn soundboard_requests(guilds: &std::collections::BTreeSet<Id>) -> Vec<Frame> {
+	let guilds: Vec<String> = guilds.iter().map(Id::to_string).collect();
+	guilds
+		.chunks(100)
+		.map(|chunk| {
+			Frame::Text(
+				serde_json::json!({"op":31,"d":{"guild_ids":chunk}})
+					.to_string()
+					.into(),
+			)
+		})
+		.collect()
+}
+
 #[derive(Clone)]
 struct ActiveMembers {
 	subscription: MemberSubscription,
@@ -1361,6 +1376,10 @@ async fn run_recoverable(
 		}
 		outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
 		outgoing_activity.update_afk(*afk.borrow_and_update());
+		// Between a resume handshake and RESUMED, Discord replays the dispatches this client
+		// missed. Soundboard effects among them already played for everyone else, possibly
+		// seconds ago, so they are dropped rather than played late.
+		let mut replaying = state.session.is_some() && state.sequence.is_some();
 		let handshake = if let (Some(session), Some(sequence)) = (&state.session, state.sequence) {
 			serde_json::json!({"op":6,"d":{"token":secret.expose(),"session_id":session.as_str(),"seq":sequence}})
 		} else {
@@ -1574,6 +1593,15 @@ async fn run_recoverable(
 					let Some(command)=command else {voice_open=false;continue;};
 					if let client_core::voice::Command::ConfirmSession {channel,request,revision}=command {
 						if let Some(event)=calls.confirm_session(channel,request,revision) {emit(event)?;}
+						continue;
+					}
+					if let client_core::voice::Command::RequestSoundboard{guild}=command {
+						let mut sent=true;
+						let guilds=match guild {Some(guild)=>std::collections::BTreeSet::from([guild]),None=>known_guilds.clone()};
+						for packet in soundboard_requests(&guilds) {
+							if !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {sent=false;break;}
+						}
+						if !sent {break;}
 						continue;
 					}
 					let connect=if let client_core::voice::Command::Join{channel,..}=command {Some(channel)}else{None};
@@ -1872,7 +1900,7 @@ async fn run_recoverable(
 										if !participants.is_empty() { emit(Event::Voice(client_core::voice::Event::Snapshot { partial: true, guild: None, participants }))?; }
 										calls.users.clear();
 									}
-									"RESUMED" => { emit(Event::Interaction(client_core::interactions::Event::Session(state.session.clone().ok_or(Failure::Protocol)?)))?; emit(Event::Resumed)?; state.failures = 0; ready_at = Some(Instant::now()); },
+									"RESUMED" => { replaying = false; emit(Event::Interaction(client_core::interactions::Event::Session(state.session.clone().ok_or(Failure::Protocol)?)))?; emit(Event::Resumed)?; state.failures = 0; ready_at = Some(Instant::now()); },
 									"CALL_CREATE" | "CALL_UPDATE" | "CALL_DELETE" | "CHANNEL_INFO" | "VOICE_CHANNEL_START_TIME_UPDATE" | "VOICE_STATE_UPDATE" | "VOICE_SERVER_UPDATE" | "STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_UPDATE" | "STREAM_DELETE" => calls.dispatch(packet.t.as_deref().unwrap_or(""),packet.d.get().as_bytes(),owner_id,&emit)?,
 									"THREAD_MEMBER_LIST_UPDATE" => {
 										if let Some(active) = &mut active_members {
@@ -2016,6 +2044,11 @@ async fn run_recoverable(
 									"MESSAGE_DELETE_BULK" => { let d: BulkDeleted = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?; if d.ids.len() > 100 { return Err(Failure::Capacity); } emit(Event::DeleteBulk { channel:d.channel_id, ids: d.ids })?; }
 									// Only the auth-session hash changed; revocation arrives as HTTP 401 or close 4004.
 									"AUTH_SESSION_CHANGE" => {}
+									// Optional soundboard metadata never ends the session when it is malformed.
+									"VOICE_CHANNEL_EFFECT_SEND" => if !replaying && let Ok(Some(effect))=discord_protocol::soundboard::effect(packet.d.get().as_bytes()) {emit(Event::Soundboard(client_core::soundboard::Event::Effect(effect)))?;},
+									"SOUNDBOARD_SOUNDS" | "GUILD_SOUNDBOARD_SOUNDS_UPDATE" => if let Ok((guild,sounds))=discord_protocol::soundboard::guild_sounds(packet.d.get().as_bytes()) {emit(Event::Soundboard(client_core::soundboard::Event::Guild{guild,sounds}))?;},
+									"GUILD_SOUNDBOARD_SOUND_CREATE" | "GUILD_SOUNDBOARD_SOUND_UPDATE" => if let Ok(sound)=discord_protocol::soundboard::guild_sound(packet.d.get().as_bytes()) {emit(Event::Soundboard(client_core::soundboard::Event::Upsert(sound)))?;},
+									"GUILD_SOUNDBOARD_SOUND_DELETE" => if let Ok((guild,sound))=discord_protocol::soundboard::deleted_sound(packet.d.get().as_bytes()) {emit(Event::Soundboard(client_core::soundboard::Event::Removed{guild,sound}))?;},
 									"CHANNEL_DELETE" => { let c: ChannelDto = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?; inbox.forget(c.id); calls.invalidate(c.id); emit(Event::Unavailable(c.id))?; }
 									"CHANNEL_CREATE" => {
 										let permissions=owner_id.map(|owner|channel_events::permission_metadata(packet.d.get().as_bytes(),owner)).transpose()?.flatten();
@@ -2311,6 +2344,12 @@ mod tests {
 			let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
 			let reconnect = Notify::new();
 			let events = std::sync::Mutex::new(Vec::new());
+			let sounds = std::sync::Mutex::new(Vec::new());
+			let effect = |sequence: u64, sound: u64| {
+				json!({"op":0,"t":"VOICE_CHANNEL_EFFECT_SEND","s":sequence,"d":{
+					"channel_id":"7","guild_id":"5","user_id":"2","sound_id":sound.to_string()
+				}})
+			};
 			let (client_finished, terminal_observed) = tokio::sync::oneshot::channel();
 			let server = async {
 				let (stream, _) = listener.accept().await.unwrap();
@@ -2331,6 +2370,9 @@ mod tests {
 						.is_err()
 				);
 				acknowledge(&mut socket, 41).await;
+				// An uninterrupted session plays soundboard effects as they arrive.
+				send(&mut socket, effect(42, 1)).await;
+				acknowledge(&mut socket, 42).await;
 				send(&mut socket, json!({"op":7,"d":null})).await;
 				// Disconnected queues another recovery request. It must still skip the >=2s backoff.
 				let (stream, _) = timeout(Duration::from_millis(1500), listener.accept())
@@ -2347,16 +2389,19 @@ mod tests {
 				let handshake = packet(&mut socket).await;
 				assert_eq!(handshake["op"], 6);
 				assert_eq!(handshake["d"]["session_id"], "synthetic-recovery-session");
-				assert_eq!(handshake["d"]["seq"], 41);
-				send(&mut socket, json!({"op":0,"t":"RESUMED","s":42,"d":{}})).await;
-				acknowledge(&mut socket, 42).await;
+				assert_eq!(handshake["d"]["seq"], 42);
+				// Replayed before RESUMED: the effect is stale and must not play.
+				send(&mut socket, effect(43, 2)).await;
+				send(&mut socket, json!({"op":0,"t":"RESUMED","s":44,"d":{}})).await;
+				send(&mut socket, effect(45, 3)).await;
+				acknowledge(&mut socket, 45).await;
 				// A late send/Refresh pulse after RESUMED must also preserve the healthy socket.
 				assert!(
 					timeout(Duration::from_millis(100), listener.accept())
 						.await
 						.is_err()
 				);
-				acknowledge(&mut socket, 42).await;
+				acknowledge(&mut socket, 45).await;
 				socket
 					.send(Frame::Close(Some(CloseFrame {
 						code: CloseCode::from(4004),
@@ -2382,6 +2427,10 @@ mod tests {
 							Event::Startup(_) => "ready",
 							Event::Disconnected => "disconnected",
 							Event::Resumed => "resumed",
+							Event::Soundboard(client_core::soundboard::Event::Effect(effect)) => {
+								sounds.lock().unwrap().push(effect.sound.0);
+								return Ok(());
+							}
 							_ => return Ok(()),
 						};
 						let mut events = events.lock().unwrap();
@@ -2402,6 +2451,7 @@ mod tests {
 				events.into_inner().unwrap(),
 				vec!["ready", "disconnected", "resumed"]
 			);
+			assert_eq!(sounds.into_inner().unwrap(), vec![1, 3]);
 		})
 		.await
 		.unwrap();
@@ -4059,6 +4109,93 @@ mod member_tests {
 		assert!(matches!(socket.next().await, Some(Ok(Frame::Text(_)))));
 		socket.send(Frame::Text(json!({"op":0,"t":"READY","s":1,"d":{"user":{"id":"1","username":"Owner"},"session_id":"synthetic-members","resume_gateway_url":"wss://gateway.discord.gg/","guilds":[],"private_channels":[]}}).to_string().into())).await.unwrap();
 		socket
+	}
+
+	/// Opcode 31 names every known server; replies and channel effects become soundboard events,
+	/// while emoji-only and malformed effects are skipped without ending the session.
+	#[tokio::test]
+	async fn soundboard_requests_catalogs_and_relays_only_sound_effects() {
+		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
+		let server = tokio::spawn(async move {
+			let (stream, _) = listener.accept().await.unwrap();
+			let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+			socket
+				.send(Frame::Text(
+					json!({"op":10,"d":{"heartbeat_interval":120000}})
+						.to_string()
+						.into(),
+				))
+				.await
+				.unwrap();
+			assert!(matches!(socket.next().await, Some(Ok(Frame::Text(_)))));
+			socket.send(Frame::Text(json!({"op":0,"t":"READY","s":1,"d":{"user":{"id":"1","username":"Owner"},"session_id":"synthetic-soundboard","resume_gateway_url":"wss://gateway.discord.gg/","guilds":[{"id":"5","channels":[]}],"private_channels":[]}}).to_string().into())).await.unwrap();
+			while let Some(Ok(Frame::Text(text))) = socket.next().await {
+				let packet: serde_json::Value = serde_json::from_str(&text).unwrap();
+				if packet["op"] != 31 {
+					continue;
+				}
+				assert_eq!(packet["d"], json!({"guild_ids":["5"]}));
+				for (sequence, (kind, data)) in [
+					("SOUNDBOARD_SOUNDS", json!({"guild_id":"5","soundboard_sounds":[{"name":"horn","sound_id":"9","volume":0.5,"guild_id":"5","available":true}]})),
+					("VOICE_CHANNEL_EFFECT_SEND", json!({"channel_id":"7","guild_id":"5","user_id":"2","sound_id":"not-an-id"})),
+					("VOICE_CHANNEL_EFFECT_SEND", json!({"channel_id":"7","guild_id":"5","user_id":"2","emoji":{"name":"x"},"animation_type":1,"animation_id":3})),
+					("VOICE_CHANNEL_EFFECT_SEND", json!({"channel_id":"7","guild_id":"5","user_id":"2","sound_id":2,"sound_volume":0.75})),
+				]
+				.into_iter()
+				.enumerate()
+				{
+					socket.send(Frame::Text(json!({"op":0,"t":kind,"s":sequence + 2,"d":data}).to_string().into())).await.unwrap();
+				}
+				// Keep the socket open until the client has read every dispatch.
+				while socket.next().await.is_some() {}
+			}
+		});
+		let (controls, receive) = mpsc::channel(1);
+		controls
+			.send(client_core::voice::Command::RequestSoundboard { guild: None })
+			.await
+			.unwrap();
+		let received = std::cell::RefCell::new(Vec::new());
+		let (done, finished) = tokio::sync::oneshot::channel();
+		let done = std::cell::Cell::new(Some(done));
+		let client = run_inner(
+			Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
+			"wss://gateway.discord.gg/".into(),
+			watch::channel(None).1,
+			receive,
+			None,
+			|event| {
+				if let Event::Soundboard(event) = event {
+					let effect = matches!(event, client_core::soundboard::Event::Effect(_));
+					received.borrow_mut().push(event);
+					if effect && let Some(done) = done.take() {
+						let _ = done.send(());
+					}
+				}
+				Ok(())
+			},
+			Some(&endpoint),
+		);
+		tokio::select! {
+			result = client => panic!("gateway stopped: {result:?}"),
+			finished = timeout(Duration::from_secs(5), finished) => finished.unwrap().unwrap(),
+		}
+		let received = received.into_inner();
+		assert_eq!(received.len(), 2);
+		assert!(
+			matches!(&received[0], client_core::soundboard::Event::Guild { guild: Id(5), sounds } if sounds.len() == 1)
+		);
+		assert!(matches!(
+			received[1],
+			client_core::soundboard::Event::Effect(model::soundboard::SoundEffect {
+				channel: Id(7),
+				sound: Id(2),
+				volume: 0.75,
+				..
+			})
+		));
+		server.abort();
 	}
 
 	/// Owner report: a large server's list loaded once, but after visiting another server it
