@@ -25,7 +25,7 @@ fn main() {
 	hotkeys.sync(&view.keybinds, &runtime);
 	assert_eq!(hotkeys.global_toggle_mask(), 0);
 	assert_eq!(hotkeys.take_toggle_pending(), 0);
-	assert!(!hotkeys.push_to_talk_down());
+	assert!(!hotkeys.push_to_talk_down(false));
 	assert!(hotkeys.status().contains("off"));
 
 	for focused in [true, false] {

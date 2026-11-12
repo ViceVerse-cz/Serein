@@ -59,6 +59,11 @@ The bundled Noto Sans CJK collection is embedded as a zstd archive and inflated 
 copied unmodified from the registry release to `assets/licenses/files/ruzstd-0.9.1-LICENSE`;
 `Cargo.lock` records the archive checksum.
 
+Windows controller voice bindings use **hidapi 2.6.7** (MIT) with default features off and only
+its `windows-native` backend, which is pure Rust and compiles none of the crate's bundled C
+backends. The unmodified MIT license is at
+`assets/licenses/files/hidapi-2.6.7-LICENSE-MIT`; `Cargo.lock` records the archive checksum.
+
 External browser opening enables eframe's `links` feature and adds **webbrowser 1.2.4**
 (MIT OR Apache-2.0). Its MIT license is copied unmodified from the registry release
 to `assets/licenses/files/webbrowser-1.2.4-LICENSE-MIT`; `Cargo.lock` records the archive checksum.
