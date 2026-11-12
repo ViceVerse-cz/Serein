@@ -5341,6 +5341,7 @@ dependencies = [
  "keyring",
  "keyring-core",
  "ksni",
+ "libc",
  "mac-usernotifications",
  "model",
  "notify-rust",
