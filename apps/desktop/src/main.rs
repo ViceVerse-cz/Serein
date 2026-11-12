@@ -2360,7 +2360,11 @@ impl Desktop {
 		#[cfg(target_os = "windows")]
 		{
 			use winit::platform::windows::{CornerPreference, WindowExtWindows as _};
-			window.set_corner_preference(CornerPreference::Round);
+			window.set_corner_preference(if platform::window_effects::visual_styles() {
+				CornerPreference::Round
+			} else {
+				CornerPreference::DoNotRound
+			});
 			align_undecorated_surface(&window);
 		}
 		// The GPU surface and X11 visual are selected at startup. Opaque launches
