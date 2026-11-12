@@ -4262,6 +4262,13 @@ voice-voice-card-section-dismiss-call = Dismiss call
 voice-voice-card-section-reconnect-attempt = { $reason } · attempt { $attempt } of { $total }
 # Context: voice_card_section
 voice-voice-card-section-reconnecting = Reconnecting…
+
+voice-connection-title = Connection
+voice-connection-ping-value = { $millis } ms
+voice-connection-ping-pending = Waiting for the first ping…
+voice-connection-average-ping = Average ping: { $value }
+voice-connection-last-ping = Last ping: { $value }
+voice-connection-ping-description = Round-trip time to the voice signaling server.
 # Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Microphone unavailable · still connected. Choose another input in Audio settings.
 # Context: voice_channel_button

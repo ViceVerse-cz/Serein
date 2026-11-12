@@ -143,6 +143,8 @@ use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
 pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING};
+mod voice_latency;
+pub use voice_latency::VoiceLatency;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {
@@ -536,6 +538,7 @@ pub struct MessagingUi {
 	pub voice_ptt_active: bool,
 	pub voice_ptm_active: bool,
 	pub voice_privacy_code: Option<String>,
+	pub voice_latency: VoiceLatency,
 	/// Latest media activity, capped at 64 IDs (512 bytes) by the voice host.
 	pub voice_speaking: Vec<Id>,
 	pub notifications_enabled: bool,
