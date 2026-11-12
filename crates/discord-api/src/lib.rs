@@ -63,6 +63,8 @@ const FOREGROUND_PERMITS: usize = 2;
 const READ_RATE_LIMIT_RETRIES: u8 = 2;
 /// Longer JSON limits fail the read at once, so sign-in never stalls silently.
 const MAX_READ_RATE_LIMIT_WAIT: Duration = Duration::from_secs(10);
+const SERVICE_BLOCKED: &str =
+	"Discord blocked this request · wait before retrying; no automatic resend";
 const API_ORIGIN: &str = "https://discord.com/api/v10";
 /// One thread channel, or one message, stays far below this documented read budget.
 const THREAD_PREVIEW_BYTES: usize = 64 * 1024;
@@ -469,6 +471,13 @@ impl DiscordApi {
 		let mut body = body;
 		let mut rate_limits = 0u8;
 		loop {
+			self.restrictions
+				.lock()
+				.map_err(|_| Failure::Protocol)?
+				.check(&method, path, Instant::now())?;
+			if self.stopped() {
+				return Err(Failure::Expired);
+			}
 			loop {
 				let next = *self.cooldown.lock().await;
 				if speculative && Instant::now() < next {
@@ -479,6 +488,10 @@ impl DiscordApi {
 					break;
 				}
 			}
+			self.restrictions
+				.lock()
+				.map_err(|_| Failure::Protocol)?
+				.check(&method, path, Instant::now())?;
 			if self.stopped() {
 				return Err(Failure::Expired);
 			}
@@ -532,6 +545,15 @@ impl DiscordApi {
 						)
 						.body(body),
 				};
+			}
+			// Proxy configuration may have awaited after admission. Recheck immediately
+			// before dispatch so a queued request cannot bypass a new security stop.
+			self.restrictions
+				.lock()
+				.map_err(|_| Failure::Protocol)?
+				.check(&method, path, Instant::now())?;
+			if self.stopped() {
+				return Err(Failure::Expired);
 			}
 			let response = request.send().await.map_err(|_| {
 				if write {
@@ -598,6 +620,22 @@ impl DiscordApi {
 			}
 			if !status.is_success() {
 				let error = decode::<ErrorBody>(&bytes).unwrap_or_default();
+				if matches!(error.code, Some(40001 | 40012)) {
+					self.stop();
+					return Err(Failure::Expired);
+				}
+
+				if matches!(error.code, Some(40002 | 40004)) {
+					let failure = self
+						.restrictions
+						.lock()
+						.map_err(|_| Failure::Protocol)?
+						.rejected(&method, path, error.code, error.retry_after, Instant::now())
+						.unwrap_or(Failure::AccountRestricted);
+					self.stop();
+					return Err(failure);
+				}
+
 				if error.captcha_key.is_some() || matches!(error.code, Some(60003 | 50014)) {
 					let auth_challenge = matches!(error.code, Some(60003 | 50014));
 					if !auth_challenge
@@ -625,20 +663,26 @@ impl DiscordApi {
 					self.stop();
 					return Err(Failure::Challenged);
 				}
-				// Documented restriction codes hold back this kind of write; they never end the
-				// session and never reach the automatic resend of a rate-limited message.
+				// Scoped restriction codes hold back the relevant writes and never reach
+				// the automatic resend of a rate-limited message.
 				let restricted = self
 					.restrictions
 					.lock()
 					.map_err(|_| Failure::Protocol)?
 					.rejected(&method, path, error.code, error.retry_after, Instant::now());
-				if status == StatusCode::TOO_MANY_REQUESTS && cloudflare_block {
-					// A block page (unofficial: an HTML or plain-text 429) has no JSON penalty.
+				if status == StatusCode::TOO_MANY_REQUESTS
+					&& (cloudflare_block
+						|| !error
+							.retry_after
+							.is_some_and(|s| s.is_finite() && s > 0.0 && s <= 86400.0))
+				{
+					// A block page or unstructured 429 is not a retryable API rate limit.
 					// Wait it out on the same host; never retry at once or try another host.
-					let delay = safe_delay(retry_header.or(reset).or(Some(60.0)))?;
+					let delay = safe_delay(retry_header.or(reset).or(Some(60.0)))
+						.unwrap_or(Duration::from_secs(60));
 					let mut next = self.cooldown.lock().await;
 					*next = (*next).max(Instant::now() + delay);
-					return Err(Failure::RateLimited);
+					return Err(Failure::ProtocolAt(SERVICE_BLOCKED));
 				}
 				if status == StatusCode::TOO_MANY_REQUESTS {
 					// The body is the penalty Discord documents. A missing or shorter reset
@@ -3803,7 +3847,10 @@ mod tests {
 			assert_eq!(read(&api).await.unwrap(), br#"{"id":"42"}"#);
 			task.await.unwrap();
 		}
-		{
+		for (content_type, block_body) in [
+			("text/html", "<html>blocked</html>"),
+			("application/json", "{}"),
+		] {
 			// A Cloudflare block page (an HTML 429) is waited out on the same host: one request,
 			// no immediate retry, and the next call sends nothing while the cooldown runs.
 			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -3815,11 +3862,11 @@ mod tests {
 					let mut buffer = [0; 4096];
 					let _ = socket.read(&mut buffer).await.unwrap();
 					seen.send(()).unwrap();
-					let body = "<html>blocked</html>";
+					let body = block_body;
 					socket
 						.write_all(
 							format!(
-								"HTTP/1.1 429 Too Many Requests\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+								"HTTP/1.1 429 Too Many Requests\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
 								body.len()
 							)
 							.as_bytes(),
@@ -3833,7 +3880,28 @@ mod tests {
 			))
 			.unwrap();
 			api.base = format!("http://{address}");
-			assert_eq!(read(&api).await.unwrap_err(), Failure::RateLimited);
+			let event = tokio::time::timeout(
+				Duration::from_secs(2),
+				api.execute_write(
+					Command::Send {
+						sticker: None,
+						channel: model::Id(2),
+						content: "synthetic".into(),
+						nonce: "blocked".into(),
+						reply: None,
+					},
+					|_| panic!("block page reached automatic resend"),
+				),
+			)
+			.await
+			.unwrap();
+			assert!(matches!(
+				event,
+				Event::SendResult {
+					result: Err(Failure::ProtocolAt(SERVICE_BLOCKED)),
+					..
+				}
+			));
 			assert!(*api.cooldown.lock().await > Instant::now() + Duration::from_secs(30));
 			assert!(!api.stopped());
 			// The second read waits on the cooldown instead of reaching any host.

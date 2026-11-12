@@ -58,9 +58,11 @@ pub enum Reconnect {
 	Identify,
 	Stop,
 }
+/// Serein conservatively stops on malformed traffic and rate-limit closes even where
+/// Discord permits reconnecting; replaying the same producer could repeat the violation.
 pub fn close_action(code: u16) -> Reconnect {
 	match code {
-		4004 | 4010..=4014 | 1008 | 1009 => Reconnect::Stop,
+		4001..=4005 | 4008 | 4010..=4014 | 1008 | 1009 => Reconnect::Stop,
 		4007 | 4009 => Reconnect::Identify,
 		_ => Reconnect::Resume,
 	}
@@ -158,7 +160,9 @@ impl ResumeState {
 				return Err(if code == 4004 {
 					Failure::Expired
 				} else {
-					Failure::Protocol
+					Failure::ProtocolAt(
+						"Gateway rejected the session or its traffic; reconnect explicitly",
+					)
 				});
 			}
 			Reconnect::Identify => *self = Self::default(),
@@ -3099,6 +3103,13 @@ mod tests {
 			assert_eq!(next_attempt(5, None), 6);
 			assert_eq!(next_attempt(6, None), 6);
 			assert_eq!(next_attempt(u32::MAX, None), 6);
+			for code in [4002, 4008] {
+				let mut resume = ResumeState::default();
+				assert!(
+					resume.close(code).is_err(),
+					"rejected traffic must terminate recovery"
+				);
+			}
 			assert_eq!(close_action(4004), Reconnect::Stop);
 			assert_eq!(close_action(4007), Reconnect::Identify);
 			assert_eq!(close_action(1006), Reconnect::Resume);

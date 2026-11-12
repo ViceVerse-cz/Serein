@@ -16,6 +16,10 @@ pub enum Failure {
 	Expired,
 	#[error("Verification challenge unsupported; complete it in an official flow")]
 	Challenged,
+	#[error(
+		"Discord restricted this account; authenticated traffic stopped; check the official client"
+	)]
+	AccountRestricted,
 	#[error("Permission denied")]
 	Forbidden,
 	#[error("Rate limited; wait for the service cooldown before retrying")]
@@ -50,6 +54,9 @@ impl Failure {
 			Self::Expired => "Session expired · reconnect explicitly; drafts remain in RAM",
 			Self::Challenged => "Security challenge · unsupported here; connection stopped",
 			Self::Forbidden => "Permission denied",
+			Self::AccountRestricted => {
+				"Discord requires account attention · connection stopped; check the official client"
+			}
 			Self::RateLimited => "Rate limited · wait before retrying",
 			Self::Network => "Connection failed",
 			Self::Ambiguous => "Outcome unknown · check the official client before retrying",
@@ -63,6 +70,7 @@ impl Failure {
 		matches!(
 			self,
 			Self::Expired
+				| Self::AccountRestricted
 				| Self::Challenged
 				| Self::Capacity
 				| Self::CapacityAt(_)

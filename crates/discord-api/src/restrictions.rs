@@ -1,7 +1,7 @@
 //! Bounded reactions to documented account-restriction error codes
 //! (<https://docs.discord.com/developers/topics/opcodes-and-status-codes#json>). They hold
-//! back one class of write for a while, or one conversation for this session; the session
-//! itself continues and nothing is retried automatically.
+//! back DM creation or one conversation. Account-wide security refusals stop authenticated
+//! traffic until explicit reconnection; nothing here retries a request.
 use client_core::auth::Failure;
 use std::{
 	collections::VecDeque,
@@ -13,8 +13,6 @@ use wreq::Method;
 
 pub(crate) const OPENING_TOO_FAST: &str =
 	"Discord says you are opening DMs too fast; wait a while before opening another";
-pub(crate) const VERIFY_ACCOUNT: &str =
-	"Discord requires you to verify your account; do that in the official client, then retry later";
 pub(crate) const NOT_MESSAGEABLE: &str =
 	"This person is not accepting messages from you; nothing was sent";
 
@@ -22,14 +20,13 @@ pub(crate) const NOT_MESSAGEABLE: &str =
 const OPENING_HOLD: Duration = Duration::from_secs(10 * 60);
 /// The longest hold a service-supplied `retry_after` may start.
 const MAX_OPENING_HOLD: Duration = Duration::from_secs(60 * 60);
-/// 40002: how long the same kind of write is refused locally. A local choice.
-const VERIFY_HOLD: Duration = Duration::from_secs(5 * 60);
 const MAX_HELD_ROUTES: usize = 16;
 const MAX_UNREACHABLE: usize = 64;
 const OPEN_DM: &str = "/users/@me/channels";
 
 #[derive(Default)]
 pub(crate) struct Restrictions {
+	account: Option<Failure>,
 	/// Route class, the instant it frees, and the reason shown meanwhile.
 	held: Vec<(u64, Instant, &'static str)>,
 	/// Conversations that answered 50007, oldest first.
@@ -70,6 +67,9 @@ impl Restrictions {
 		path: &str,
 		now: Instant,
 	) -> Result<(), Failure> {
+		if let Some(failure) = self.account {
+			return Err(failure);
+		}
 		if method == Method::GET {
 			return Ok(());
 		}
@@ -102,6 +102,11 @@ impl Restrictions {
 		retry_after: Option<f64>,
 		now: Instant,
 	) -> Option<Failure> {
+		// Account-wide security refusals apply to reads and writes, without a timed resume.
+		if matches!(code, Some(40002 | 40004)) {
+			self.account = Some(Failure::AccountRestricted);
+			return self.account;
+		}
 		if method == Method::GET {
 			return None;
 		}
@@ -114,10 +119,6 @@ impl Restrictions {
 					});
 				self.hold(route(&Method::POST, OPEN_DM), now + wait, OPENING_TOO_FAST);
 				OPENING_TOO_FAST
-			}
-			40002 => {
-				self.hold(route(method, path), now + VERIFY_HOLD, VERIFY_ACCOUNT);
-				VERIFY_ACCOUNT
 			}
 			50007 => {
 				if let Some(channel) = message_channel(method, path)
@@ -187,7 +188,7 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn restriction_codes_hold_back_repeats_without_ending_the_session() {
+	async fn scoped_refusals_stay_local_and_account_verification_stops_all_routes() {
 		// 40003: the second DM open is refused locally; only one request reaches the service.
 		let (api, served) = serve(&[
 			r#"{"message":"synthetic","code":40003,"retry_after":120.0}"#,
@@ -214,7 +215,7 @@ mod tests {
 		assert_eq!(send(&api, 6).await, Some(Failure::Forbidden));
 		assert_eq!(served.load(Ordering::SeqCst), 2);
 
-		// A malformed or unrelated body is an ordinary refusal and holds nothing back.
+		// A malformed body is local; a real verification refusal latches the whole account.
 		let (api, served) = serve(&[
 			r#"{"code":"40002","retry_after":[]}"#,
 			"not json",
@@ -225,12 +226,33 @@ mod tests {
 		for expected in [
 			Failure::Forbidden,
 			Failure::Forbidden,
-			Failure::ProtocolAt(VERIFY_ACCOUNT),
-			Failure::ProtocolAt(VERIFY_ACCOUNT),
+			Failure::AccountRestricted,
+			Failure::AccountRestricted,
 		] {
 			assert_eq!(send(&api, 5).await, Some(expected));
 		}
 		assert_eq!(served.load(Ordering::SeqCst), 3);
+		assert!(api.stopped());
+		assert_eq!(
+			api.request(Method::GET, "/users/@me", None).await,
+			Err(Failure::AccountRestricted)
+		);
+		assert_eq!(send(&api, 99).await, Some(Failure::AccountRestricted));
+		assert_eq!(served.load(Ordering::SeqCst), 3);
+	}
+
+	#[tokio::test]
+	async fn account_refusal_on_read_stops_writes_but_guild_ban_is_local() {
+		let (api, served) =
+			serve(&[r#"{"code":40007}"#, r#"{"code":40004}"#, r#"{"code":0}"#]).await;
+		assert_eq!(send(&api, 5).await, Some(Failure::Forbidden));
+		assert!(!api.stopped());
+		assert_eq!(
+			api.request(Method::GET, "/users/@me", None).await,
+			Err(Failure::AccountRestricted)
+		);
+		assert_eq!(send(&api, 6).await, Some(Failure::AccountRestricted));
+		assert_eq!(served.load(Ordering::SeqCst), 2);
 	}
 
 	#[test]
@@ -243,13 +265,13 @@ mod tests {
 			restrictions.rejected(
 				&Method::PUT,
 				&format!("/synthetic{channel}/1"),
-				Some(40002),
+				Some(40003),
 				None,
 				now,
 			);
 		}
 		assert_eq!(restrictions.unreachable.len(), MAX_UNREACHABLE);
-		assert_eq!(restrictions.held.len(), MAX_HELD_ROUTES);
+		assert_eq!(restrictions.held.len(), 1);
 		// A hostile wait is capped, and a hold frees its route once it has passed.
 		restrictions.rejected(&Method::POST, OPEN_DM, Some(40003), Some(f64::MAX), now);
 		assert!(

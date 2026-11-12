@@ -992,8 +992,8 @@ async fn run_inner(
 							   }
 						   },
 						   Message::Ping(data)=>send(&mut ws,Message::Pong(data)).await?,
-						   // 4014: kicked, moved or the channel was deleted; Discord says not to reconnect.
-						   Message::Close(Some(frame)) if u16::from(frame.code)==4014=>return Err(DISCONNECTED_BY_DISCORD),
+						   // Kicked, rate limited, or call terminated: Discord says not to reconnect.
+						   Message::Close(Some(frame)) if matches!(u16::from(frame.code),4014|4021|4022)=>return Err(DISCONNECTED_BY_DISCORD),
 						   Message::Close(_)=>return Err("Discord voice connection closed; rejoin the call"),
 						   Message::Pong(_)=>{},
 						   _=>return Err("Unsupported voice websocket frame"),
@@ -3167,7 +3167,7 @@ mod tests {
 			if guild {
 				ws.send(Message::Close(Some(
 					tokio_tungstenite::tungstenite::protocol::CloseFrame {
-						code: 4014.into(),
+						code: 4021.into(),
 						reason: "synthetic terminal disconnect".into(),
 					},
 				)))
