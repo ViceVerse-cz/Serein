@@ -72,6 +72,7 @@ pub mod icons;
 mod invites;
 pub mod local_time;
 mod markdown;
+mod member_platforms;
 mod member_search;
 mod mentions;
 mod messaging_permissions;
@@ -1783,30 +1784,35 @@ impl MessagingUi {
 							let voice_label = in_voice.then(|| language.text("member-in-voice"));
 							let online =
 								status.is_some_and(|s| matches!(s, "online" | "idle" | "dnd"));
+							let platforms = member_platforms::active(
+								clients,
+								online
+									&& member.user.kind == model::AccountKind::Human
+									&& (state.demo || state.gateway_connected),
+							);
 							let (rect, response) = ui.allocate_exact_size(
 								egui::vec2(ui.available_width(), 42.0),
 								egui::Sense::click(),
 							);
 							response.widget_info(|| {
-								egui::WidgetInfo::labeled(
-									egui::Role::Button,
-									true,
-									format!(
-										"{name}, {}{}{}",
-										status.map_or_else(
-											|| crate::i18n::translate(
-												"friends-presence-unavailable"
-											),
-											profiles::presence_label,
-										),
-										subtitle
-											.as_ref()
-											.map_or_else(String::new, |text| format!(", {text}")),
-										voice_label
-											.as_ref()
-											.map_or_else(String::new, |text| format!(", {text}"))
+								let mut label = format!(
+									"{name}, {}{}{}",
+									status.map_or_else(
+										|| crate::i18n::translate("friends-presence-unavailable"),
+										profiles::presence_label,
 									),
-								)
+									subtitle
+										.as_ref()
+										.map_or_else(String::new, |text| format!(", {text}")),
+									voice_label
+										.as_ref()
+										.map_or_else(String::new, |text| format!(", {text}"))
+								);
+								for platform in platforms.clone() {
+									label.push_str(", ");
+									label.push_str(&language.text(platform.label()));
+								}
+								egui::WidgetInfo::labeled(egui::Role::Button, true, label)
 							});
 							let row = rect.shrink2(egui::vec2(0.0, 1.0));
 							// The avatar is its own widget on top; hovering it still highlights the row.
@@ -1860,7 +1866,7 @@ impl MessagingUi {
 										ui,
 										avatar.rect,
 										status,
-										clients,
+										model::ClientPlatforms::default(),
 										colors.sidebar,
 									);
 								}
@@ -1888,7 +1894,10 @@ impl MessagingUi {
 												.filter(|_| !self.cosmetics.hide_clan_tags);
 											let trailing =
 												profiles::server_tag_width(ui, server_tag)
-													+ if server_tag.is_some() { 5.0 } else { 0.0 };
+													+ if server_tag.is_some() { 5.0 } else { 0.0 }
+													+ platforms.clone().count() as f32
+														* (member_platforms::SIZE
+															+ ui.spacing().item_spacing.x);
 											crate::name_styles::in_row(
 												response.contains_pointer() || response.has_focus(),
 												|| {
@@ -1920,6 +1929,14 @@ impl MessagingUi {
 													&mut self.avatars,
 													state.demo,
 												);
+											}
+											let platform_color = match status {
+												Some("idle") => colors.warning,
+												Some("dnd") => colors.danger,
+												_ => colors.positive,
+											};
+											for platform in platforms.clone() {
+												platform.show(ui, language, platform_color);
 											}
 										},
 									);

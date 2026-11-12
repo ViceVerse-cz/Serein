@@ -4622,6 +4622,10 @@ screen-macos-system-picker = Выбрать через системное окн
 screen-macos-system-picker-kind = Системный выбор содержимого
 
 member-in-voice = В голосовом чате
+member-platform-desktop = Компьютер
+member-platform-mobile = Телефон
+member-platform-web = Браузер
+member-platform-vr = VR-гарнитура
 
 profiles-board = Board
 profiles-board-unavailable = This profile’s board is unavailable.

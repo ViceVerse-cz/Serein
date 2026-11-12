@@ -4693,6 +4693,10 @@ screen-macos-system-picker = macOS 시스템 선택기로 선택
 screen-macos-system-picker-kind = 시스템 콘텐츠 선택기
 
 member-in-voice = 음성 채널 참여 중
+member-platform-desktop = 데스크톱
+member-platform-mobile = 모바일
+member-platform-web = 웹 브라우저
+member-platform-vr = VR 헤드셋
 settings-chat-box = 채팅 입력창
 settings-convert-emoticons = 메시지의 이모티콘을 이모지로 자동 변환
 settings-convert-emoticons-description = 메시지를 보내거나 편집할 때 :) 같은 단독 이모티콘을 🙂로 변환합니다. 코드와 링크는 변경하지 않습니다.

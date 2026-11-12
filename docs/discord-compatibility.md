@@ -1574,9 +1574,10 @@ emoji and no controls. Omitted activities preserve known custom text; null, empt
 activity clears it. These absent/null choices are defensive client policy, not a documented
 normal-user delivery guarantee. The documented `client_status` desktop, mobile, web and VR
 keys are retained as four fixed booleans; absent updates preserve them and offline/invalid
-statuses clear them. Mobile presence replaces the avatar dot with a green phone glyph matching
-Discord's member UI; desktop, web and VR sessions keep the ordinary presence dot and are not
-listed separately. Unknown keys and values are discarded.
+statuses clear them. The People pane shows an icon beside the member name for each known active
+platform. Icons share the member's overall presence color and have localized tooltips. The pane
+reuses the loaded presence and retains the ordinary avatar status dot. While the Gateway is
+disconnected the pane hides the platform icons. Unknown keys and values are discarded.
 Other activities and partial profiles remain discarded; the guild subscription sends
 activities=true to receive member presence and rich text. Bursts coalesce within a fixed 100-ms window; stale request/session/access
 updates cannot modify the pane. Self-session DND notification suppression keeps its separate
