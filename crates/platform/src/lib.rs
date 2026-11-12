@@ -425,9 +425,8 @@ fn credential_store() -> Result<(), CredentialError> {
 	{
 		return Err(error);
 	}
-	let mut kwallet = false;
 	let store = zbus_secret_service_keyring_store::Store::new().or_else(|_| {
-		kwallet = activate_kwallet();
+		activate_kwallet();
 		zbus_secret_service_keyring_store::Store::new()
 	});
 	match store {
@@ -437,31 +436,34 @@ fn credential_store() -> Result<(), CredentialError> {
 			Ok(())
 		}
 		Err(_) => {
-			// A wallet daemon that runs without its Secret Service interface is still a store.
-			let error = if kwallet {
-				CredentialError::Unavailable
-			} else {
-				secret_service_absence()
-			};
+			let error = secret_service_absence();
 			*last_failure = Some((std::time::Instant::now(), error));
 			Err(error)
 		}
 	}
 }
-/// Saved logins fall back to plain files only for `NoStore`, so a provider that exists but
-/// refused the session, or a bus that could not be asked, counts as unavailable instead.
+/// Saved logins fall back to plain files only for `NoStore`: confirmed absence of any Secret
+/// Service provider or KWallet daemon. A bus or store that exists but refuses, fails or cannot
+/// be asked counts as unavailable instead.
 #[cfg(target_os = "linux")]
 fn secret_service_absence() -> CredentialError {
 	use zbus::names::WellKnownName;
-	const SECRETS: &str = "org.freedesktop.secrets";
-	// Only a session that has no bus at all is known to lack a provider; a bus that exists
-	// but refuses or fails the connection may still have one.
-	let runtime_bus = std::env::var_os("XDG_RUNTIME_DIR")
-		.is_some_and(|directory| std::path::Path::new(&directory).join("bus").exists());
-	if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none_or(|address| address.is_empty())
-		&& !runtime_bus
-	{
-		return CredentialError::NoStore;
+	const STORES: [&str; 3] = [
+		"org.freedesktop.secrets",
+		"org.kde.kwalletd6",
+		"org.kde.kwalletd5",
+	];
+	// Resolve the session bus as zbus does; only a missing socket proves there is none.
+	if std::env::var("DBUS_SESSION_BUS_ADDRESS").is_err() {
+		let runtime = std::env::var("XDG_RUNTIME_DIR")
+			.unwrap_or_else(|_| format!("/run/user/{}", effective_uid()));
+		match std::fs::symlink_metadata(std::path::Path::new(&runtime).join("bus")) {
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return CredentialError::NoStore;
+			}
+			Err(_) => return CredentialError::Unavailable,
+			Ok(_) => {}
+		}
 	}
 	let Ok(connection) = zbus::blocking::Connection::session() else {
 		return CredentialError::Unavailable;
@@ -469,26 +471,41 @@ fn secret_service_absence() -> CredentialError {
 	let Ok(bus) = zbus::blocking::fdo::DBusProxy::new(&connection) else {
 		return CredentialError::Unavailable;
 	};
-	let owned = bus.name_has_owner(WellKnownName::from_static_str_unchecked(SECRETS).into());
-	match (owned, bus.list_activatable_names()) {
-		(Ok(false), Ok(names)) if !names.iter().any(|name| name.as_str() == SECRETS) => {
-			CredentialError::NoStore
-		}
-		_ => CredentialError::Unavailable,
+	let Ok(activatable) = bus.list_activatable_names() else {
+		return CredentialError::Unavailable;
+	};
+	let present = STORES.into_iter().any(|store| {
+		activatable.iter().any(|name| name.as_str() == store)
+			|| bus
+				.name_has_owner(WellKnownName::from_static_str_unchecked(store).into())
+				.unwrap_or(true)
+	});
+	if present {
+		CredentialError::Unavailable
+	} else {
+		CredentialError::NoStore
 	}
+}
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+fn effective_uid() -> u32 {
+	unsafe extern "C" {
+		fn geteuid() -> u32;
+	}
+	// SAFETY: POSIX geteuid takes no arguments and always returns the effective user ID.
+	unsafe { geteuid() }
 }
 /// KWallet serves the Secret Service API but, unlike GNOME Keyring, often is not D-Bus
 /// activatable under that name, so outside a Plasma session nothing starts it. Start the
 /// wallet daemon itself, then wait briefly for it to claim the Secret Service name.
-/// Returns whether a wallet daemon is installed and running.
 #[cfg(target_os = "linux")]
-fn activate_kwallet() -> bool {
+fn activate_kwallet() {
 	use zbus::names::WellKnownName;
 	let Ok(connection) = zbus::blocking::Connection::session() else {
-		return false;
+		return;
 	};
 	let Ok(bus) = zbus::blocking::fdo::DBusProxy::new(&connection) else {
-		return false;
+		return;
 	};
 	let started = ["org.kde.kwalletd6", "org.kde.kwalletd5"]
 		.into_iter()
@@ -497,16 +514,15 @@ fn activate_kwallet() -> bool {
 				.is_ok()
 		});
 	if !started {
-		return false;
+		return;
 	}
 	let secrets = WellKnownName::from_static_str_unchecked("org.freedesktop.secrets");
 	for _ in 0..20 {
 		if bus.name_has_owner(secrets.clone().into()).unwrap_or(false) {
-			break;
+			return;
 		}
 		std::thread::sleep(std::time::Duration::from_millis(100));
 	}
-	true
 }
 fn load_entry(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
 	match entry(name)?.get_password() {

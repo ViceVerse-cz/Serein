@@ -862,8 +862,8 @@ The app writes no background log, analytics, crash upload, saved password or MFA
 When no OS credential store exists at all (for example Linux without any Secret
 Service provider), saved logins fall back to `<data dir>/plaintext-login/<entry>`
 automatically; there is no setting. That only happens on Linux, when the session has no
-D-Bus session bus configured, or the bus answers that `org.freedesktop.secrets` is neither
-owned nor activatable and no KWallet daemon could be started. A keyring that exists but is
+D-Bus session bus (no address and no socket where zbus looks for one), or the bus answers
+that neither `org.freedesktop.secrets` nor a KWallet daemon is owned or activatable. A keyring that exists but is
 locked, refuses its session or the write, times out, or a bus that cannot be asked, never
 causes a plaintext save. Absence is rechecked before every save, even within the 15-second
 retry interval. The token is unencrypted and can
