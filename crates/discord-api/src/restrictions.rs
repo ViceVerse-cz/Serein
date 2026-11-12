@@ -300,6 +300,20 @@ mod tests {
 		assert_eq!(served.load(Ordering::SeqCst), 1);
 	}
 
+	#[tokio::test]
+	async fn malformed_scoped_429_stops_unrelated_reads_too() {
+		let (api, served) = serve_status(&[r#"{"code":40003}"#], "429 Too Many Requests").await;
+		assert_eq!(
+			api.open_dm(model::Id(7), None, None).await.err(),
+			Some(Failure::ServiceBlocked)
+		);
+		assert_eq!(
+			api.request(Method::GET, "/users/@me", None).await,
+			Err(Failure::ServiceBlocked)
+		);
+		assert_eq!(served.load(Ordering::SeqCst), 1);
+	}
+
 	#[test]
 	fn holds_are_bounded_and_expire() {
 		let mut restrictions = Restrictions::default();

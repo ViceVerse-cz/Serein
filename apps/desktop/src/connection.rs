@@ -303,7 +303,8 @@ impl Connection {
 				// Only a saved login knows its account before READY.
 				let cached = expected_user.and_then(|id| cached_presence.get(&id)).cloned().filter(|presence| presence.valid());
 				let account_presence_send = Arc::new(account_presence_send);
-				let _presence_edits = AbortTask(tokio::spawn(run_presence_sync(PresenceSync {
+				let presence_sync = PresenceSync {
+                    identity: identity.clone(),
 					api: api.clone(),
 					edits: presence_edit_events,
 					remote_changed: status_refresh,
@@ -312,7 +313,8 @@ impl Connection {
 					note: presence_error_send,
 					finished: finished.clone(),
 					wake: wake.clone(),
-				})));
+                };
+                let _presence_edits = AbortTask(tokio::spawn(run_presence_sync(presence_sync)));
 				// With a remembered status the gateway identifies with it right away and Discord's
 				// answer corrects it afterwards. Without one, identify waits so an account set to
 				// invisible is never announced as online.
@@ -342,12 +344,11 @@ impl Connection {
 				} else {
 					resolve_account_presence(&api, &presence_send, cached, &idle_timeout_send).await
 				};
-				let _idle_timeout_task = AbortTask(tokio::spawn(run_idle_timeout_sync(
-					api.clone(),
-					idle_timeout_edit_events,
-					idle_timeout_error_send,
-					wake.clone(),
-				)));
+                let (idle_api, idle_identity, idle_wake) = (api.clone(), identity.clone(), wake.clone());
+                let _idle_timeout_task = AbortTask(tokio::spawn(async move {
+                    if identified(idle_identity).await.is_none() { return; }
+                    run_idle_timeout_sync(idle_api, idle_timeout_edit_events, idle_timeout_error_send, idle_wake).await;
+                }));
 				if chosen.is_some() {
 					wake.request_repaint();
 					let _ = account_presence_send.send_replace(chosen);
@@ -359,7 +360,11 @@ impl Connection {
                 let (voice_send,voice_receive)=mpsc::channel(8);
 				let (activity_send,activity_receive)=watch::channel(None);
 				let (member_query_send, member_query_receive) = watch::channel([None, None]);
-				let _sharing_task=AbortTask(tokio::spawn(run_activity_sharing(api.clone(),share_receive.clone(),sharing_requests,sharing_report,finished.clone(),wake.clone())));
+				let (sharing_api, sharing_identity, sharing_enabled, sharing_finished, sharing_wake) = (api.clone(), identity.clone(), share_receive.clone(), finished.clone(), wake.clone());
+                let _sharing_task=AbortTask(tokio::spawn(async move {
+                    if identified(sharing_identity).await.is_none() { return; }
+                    run_activity_sharing(sharing_api, sharing_enabled, sharing_requests, sharing_report, sharing_finished, sharing_wake).await;
+                }));
 				let _activity_task=AbortTask(tokio::spawn({let (identity,wake,api)=(identity.clone(),wake.clone(),api.clone());async move {
 					let Some(user)=identified(identity).await else {return;};
 					crate::game_activity::run((share_receive,custom_receive,crate::game_activity::Registered{games:registered_receive,current:running_send}),activity_send,game_report,invite_send,wake,user,api).await
@@ -1008,6 +1013,7 @@ async fn run_idle_timeout_sync(
 }
 
 struct PresenceSync {
+	identity: watch::Receiver<Option<model::User>>,
 	api: Arc<DiscordApi>,
 	edits: watch::Receiver<Option<model::OwnPresence>>,
 	remote_changed: Arc<tokio::sync::Notify>,
@@ -1022,6 +1028,7 @@ struct PresenceSync {
 /// time so a remote echo never races a newer local edit. Failed writes wait for a new edit.
 async fn run_presence_sync(sync: PresenceSync) {
 	let PresenceSync {
+		identity,
 		api,
 		mut edits,
 		remote_changed,
@@ -1031,7 +1038,12 @@ async fn run_presence_sync(sync: PresenceSync) {
 		finished,
 		wake,
 	} = sync;
+	// READY validates expected_user before publishing this identity.
+	if identified(identity).await.is_none() {
+		return;
+	}
 	let mut pending: Option<model::OwnPresence> = None;
+	let mut unsaved = false;
 	let stop = |failure: Failure| {
 		api.stop_with(failure);
 		publish_terminal(&finished, api.stop_reason().unwrap_or(failure));
@@ -1050,11 +1062,12 @@ async fn run_presence_sync(sync: PresenceSync) {
 					pending = Some(next);
 				}
 			}
-			() = remote_changed.notified() => refresh = pending.is_none(),
+			() = remote_changed.notified() => refresh = pending.is_none() && !unsaved,
 		}
 		if let Some(next) = pending.clone() {
 			match api.set_account_presence(&next).await {
 				Ok(()) => {
+					unsaved = false;
 					pending = None;
 					if note.send_replace(None).is_some() {
 						wake.request_repaint();
@@ -1062,6 +1075,7 @@ async fn run_presence_sync(sync: PresenceSync) {
 				}
 				Err(failure) if failure.ends_session() => return stop(failure),
 				Err(_) => {
+					unsaved = true;
 					pending = None;
 					let _ = note.send_replace(Some(
 						"Could not save status to Discord. It stays on this device; change it again to retry.",
@@ -1099,7 +1113,7 @@ async fn run_presence_sync(sync: PresenceSync) {
 			}
 			modified
 		});
-		// Discord's value replaces any edit that was given up on.
+		// Only adopt remote status while there is no unsaved local edit.
 		let cleared = note.send_replace(None).is_some();
 		if modified || adopted || cleared {
 			wake.request_repaint();
@@ -1981,6 +1995,50 @@ mod tests {
 			Some(client_core::auth::Failure::AccountRestricted)
 		);
 	}
+	#[tokio::test]
+	async fn queued_status_edit_cannot_run_before_accepted_ready() {
+		let api = Arc::new(
+			DiscordApi::new(Arc::new(
+				client_core::auth::SessionSecret::from_owner_input(
+					"SYNTHETIC_SECRET_MARKER".into(),
+				)
+				.unwrap(),
+			))
+			.unwrap(),
+		);
+		// Fail locally if the guard regresses; this fixture must never contact Discord.
+		api.stop_with(Failure::AccountRestricted);
+		let (identity_send, identity) = watch::channel(None);
+		let (edits, changes) = watch::channel(None);
+		let (presence, _) = watch::channel(model::OwnPresence::default());
+		let (account, _) = watch::channel(None);
+		let (note, _) = watch::channel(None);
+		let (finished, reason) = watch::channel(None);
+		edits.send_replace(Some(model::OwnPresence::default()));
+		let sync = run_presence_sync(PresenceSync {
+			identity,
+			api,
+			edits: changes,
+			remote_changed: Arc::new(tokio::sync::Notify::new()),
+			presence,
+			account: Arc::new(account),
+			note,
+			finished,
+			wake: egui::Context::default(),
+		});
+		tokio::pin!(sync);
+		assert!(futures_util::poll!(&mut sync).is_pending());
+		assert_eq!(
+			*reason.borrow(),
+			None,
+			"queued edit reached the settings writer before READY"
+		);
+		// Rejected/missing READY closes the identity channel without authorizing a write.
+		drop(identity_send);
+		sync.await;
+		assert_eq!(*reason.borrow(), None);
+	}
+
 	#[tokio::test]
 	async fn auto_idle_discards_inflight_samples_after_a_setting_change() {
 		let (enabled, settings) = watch::channel(Some(Duration::from_secs(60)));

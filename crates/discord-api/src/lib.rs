@@ -317,6 +317,15 @@ impl DiscordApi {
 		state.cached = Some((route, client.clone()));
 		Ok(client)
 	}
+	async fn block_response(&self, retry_after: Option<f64>) -> Failure {
+		let delay = safe_delay(retry_after)
+			.unwrap_or(Duration::from_secs(60))
+			.max(Duration::from_secs(60));
+		let mut next = self.cooldown.lock().await;
+		*next = (*next).max(Instant::now() + delay);
+		self.stop_with(Failure::ServiceBlocked);
+		Failure::ServiceBlocked
+	}
 	pub fn stop(&self) {
 		self.stop_with(Failure::Expired);
 	}
@@ -588,10 +597,7 @@ impl DiscordApi {
 				.get("retry-after")
 				.and_then(|v| v.to_str().ok())
 				.and_then(|s| s.parse::<f64>().ok());
-			if exhausted && status != StatusCode::TOO_MANY_REQUESTS {
-				let mut next = self.cooldown.lock().await;
-				*next = (*next).max(Instant::now() + safe_delay(reset)?);
-			}
+
 			if status == StatusCode::UNAUTHORIZED {
 				self.stop();
 				return Err(Failure::Expired);
@@ -603,10 +609,24 @@ impl DiscordApi {
 				.is_some_and(|value| {
 					value.starts_with("text/html") || value.starts_with("text/plain")
 				});
+			if cloudflare_block
+				&& matches!(
+					status,
+					StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS
+				) {
+				return Err(self.block_response(retry_header.or(reset)).await);
+			}
+			if exhausted && status != StatusCode::TOO_MANY_REQUESTS {
+				let mut next = self.cooldown.lock().await;
+				*next = (*next).max(Instant::now() + safe_delay(reset)?);
+			}
 			if response
 				.content_length()
 				.is_some_and(|n| n > max_bytes as u64)
 			{
+				if status == StatusCode::TOO_MANY_REQUESTS {
+					return Err(self.block_response(retry_header.or(reset)).await);
+				}
 				return Err(Failure::Capacity);
 			}
 			let mut bytes = zeroize::Zeroizing::new(Vec::with_capacity(
@@ -624,6 +644,9 @@ impl DiscordApi {
 					}
 				})? {
 				if bytes.len() + chunk.len() > max_bytes {
+					if status == StatusCode::TOO_MANY_REQUESTS {
+						return Err(self.block_response(retry_header.or(reset)).await);
+					}
 					return Err(Failure::Capacity);
 				}
 				bytes.extend_from_slice(&chunk);
@@ -679,6 +702,14 @@ impl DiscordApi {
 					self.stop_with(Failure::Challenged);
 					return Err(Failure::Challenged);
 				}
+				if error.code == Some(40333)
+					|| (status == StatusCode::TOO_MANY_REQUESTS
+						&& !error
+							.retry_after
+							.is_some_and(|s| s.is_finite() && s > 0.0 && s <= 86400.0))
+				{
+					return Err(self.block_response(retry_header.or(reset)).await);
+				}
 				// Scoped restriction codes hold back the relevant writes and never reach
 				// the automatic resend of a rate-limited message.
 				let restricted = self
@@ -695,24 +726,7 @@ impl DiscordApi {
 					}
 					return Err(failure);
 				}
-				if error.code == Some(40333)
-					|| (cloudflare_block && status == StatusCode::FORBIDDEN)
-					|| (status == StatusCode::TOO_MANY_REQUESTS
-						&& (cloudflare_block
-							|| !error
-								.retry_after
-								.is_some_and(|s| s.is_finite() && s > 0.0 && s <= 86400.0)))
-				{
-					// A block page or unstructured 429 is not a retryable API rate limit.
-					// Wait it out on the same host; never retry at once or try another host.
-					let delay = safe_delay(retry_header.or(reset).or(Some(60.0)))
-						.unwrap_or(Duration::from_secs(60))
-						.max(Duration::from_secs(60));
-					let mut next = self.cooldown.lock().await;
-					*next = (*next).max(Instant::now() + delay);
-					self.stop_with(Failure::ServiceBlocked);
-					return Err(Failure::ServiceBlocked);
-				}
+
 				if status == StatusCode::TOO_MANY_REQUESTS {
 					// The body is the penalty Discord documents. A missing or shorter reset
 					// header must not send the retry early.
@@ -3772,6 +3786,54 @@ mod tests {
 		assert_eq!(throttled, ["spam"]);
 		assert_eq!(server.await.unwrap(), [true, true]);
 	}
+	#[tokio::test]
+	async fn oversized_blocks_stop_before_capacity_can_hide_them() {
+		for (status, kind, chunked) in [
+			("403 Forbidden", "text/html", false),
+			("429 Too Many Requests", "application/json", false),
+			("429 Too Many Requests", "application/json", true),
+		] {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let server = tokio::spawn(async move {
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut request = [0; 4096];
+				assert!(socket.read(&mut request).await.unwrap() > 0);
+				let framing = if chunked {
+					"Transfer-Encoding: chunked".to_owned()
+				} else {
+					"Content-Length: 256".to_owned()
+				};
+				let body = if chunked {
+					format!("100\r\n{}\r\n0\r\n\r\n", "x".repeat(256))
+				} else {
+					"x".repeat(256)
+				};
+				let response = format!(
+					"HTTP/1.1 {status}\r\nContent-Type: {kind}\r\n{framing}\r\nConnection: close\r\n\r\n{body}"
+				);
+				let _ = socket.write_all(response.as_bytes()).await;
+			});
+			assert_eq!(
+				api.request_with_content(
+					Method::POST,
+					"/channels/1/typing",
+					None,
+					8,
+					Extras::default()
+				)
+				.await,
+				Err(Failure::ServiceBlocked)
+			);
+			assert_eq!(api.stop_reason(), Some(Failure::ServiceBlocked));
+			server.await.unwrap();
+		}
+	}
+
 	#[tokio::test]
 	async fn local_http_checks_redirect_expiry_rate_limits_and_response_cap() {
 		async fn read(api: &DiscordApi) -> Result<Vec<u8>, Failure> {

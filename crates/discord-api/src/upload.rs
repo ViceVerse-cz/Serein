@@ -1175,6 +1175,58 @@ mod tests {
 	}
 
 	#[tokio::test]
+	async fn cancelling_staging_verification_never_puts_or_posts_a_message() {
+		use futures_util::FutureExt;
+		let fixture = Fixture::new(b"synthetic").await;
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let storage = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = api();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		api.upload_origin = Some(storage.local_addr().unwrap());
+		let server = tokio::spawn(async move {
+			let (mut socket, _) = listener.accept().await.unwrap();
+			let (head, _) = request(&mut socket).await;
+			assert!(head.starts_with("POST /channels/1/attachments HTTP/1.1"));
+			respond(&mut socket, "400 Bad Request", r#"{"captcha_key":["required"],"captcha_service":"hcaptcha","captcha_sitekey":"synthetic-sitekey"}"#).await;
+			listener
+		});
+		let (cancel, cancelled) = watch::channel(false);
+		let show = |event| {
+			assert!(matches!(event, Event::SendChallenge { .. }));
+			cancel.send_replace(true);
+			true
+		};
+		let resume = || -> std::pin::Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+			Box::pin(async { panic!("cancelled staging must not resume") })
+		};
+		let (progress, status) = watch::channel(Status::Preparing);
+		let event = api
+			.upload_messages(
+				command(),
+				vec![Source::inspect(fixture.0.clone()).await.unwrap()],
+				progress,
+				cancelled,
+				Some(Challenged {
+					show: &show,
+					resume: &resume,
+				}),
+			)
+			.await;
+		assert_eq!(failed(event), Failure::ProtocolAt(CANCELLED));
+		assert_eq!(*status.borrow(), Status::Cancelled);
+		assert!(api.upload_verification.lock().unwrap().is_none());
+		let listener = server.await.unwrap();
+		assert!(
+			listener.accept().now_or_never().is_none(),
+			"staging replay or message create was dispatched"
+		);
+		assert!(
+			storage.accept().now_or_never().is_none(),
+			"storage PUT was dispatched"
+		);
+	}
+
+	#[tokio::test]
 	async fn upload_cancel_before_write_and_redirect_never_send_message() {
 		{
 			tokio::time::timeout(Duration::from_secs(10), async {

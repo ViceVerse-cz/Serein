@@ -1313,8 +1313,8 @@ account, and no claim is made about how Discord classifies clients.**
 
 - **No host change on a block (unverified cause).** Serein used to move every request to
   `ptb.discord.com` after an HTML or plain-text 429 and retry there. It now stays on
-  `discord.com`, stops the connection with a non-expiry block reason and sends nothing
-  further until the owner explicitly reconnects.
+  `discord.com`, stops the connection with a non-expiry block reason and prevents
+  new dispatches until the owner explicitly reconnects. Requests already in flight may finish.
 - **No REST requests to learn the account or the Gateway address.** The web client reads the
   Gateway address from its page config (`GATEWAY_ENDPOINT`) and the account from READY. Serein
   no longer sends `GET /users/@me` and `GET /gateway` before connecting. A saved login is
@@ -3241,3 +3241,25 @@ The final review follow-up preserves the shared cooldown even when a 429 carries
 a scoped DM/conversation error. Desktop terminal publication now prefers the
 API's first latched reason and is itself first-wins, preventing an in-flight
 failure from replacing an earlier account-attention stop.
+
+### Reviewer follow-up — November 12
+
+Presence, idle-timeout and activity-sharing settings tasks now wait for the
+accepted READY identity before their settings operations can run. Status edits
+made while connecting remain queued; a saved-token account mismatch cannot
+write settings for the unexpected account. Failed status writes retain a separate
+unsaved-local flag, so later status notifications do not replace the local edit
+or clear its error; a successful subsequent explicit edit clears the flag.
+
+Header-identifiable HTML/plain-text 403/429 blocks stop before response-size
+checks or body reads. Oversized JSON 429 responses stop conservatively both when
+Content-Length announces the excess and when streaming crosses the byte limit.
+Malformed scoped 429s are classified before their local route failure can return.
+Other oversized replies retain the existing bounded-capacity failure.
+
+The existing staging replay fixture checks identical replay bodies and CAPTCHA
+headers with one storage PUT. A new cancellation-during-staging-verification
+fixture checks no replay, PUT or message create and release of the verification
+slot. These and the oversized/scoped block fixtures were compiled, not executed,
+under !fast. The earlier CAPTCHA write-lock and verification-slot findings were
+already fixed in the PR; no reviewer thread was resolved on their behalf.
