@@ -2058,3 +2058,15 @@ the native projection retains its existing URL and allocated-byte limits.
 Schema 28 adds the device-wide double-click reaction preset to the reading settings singleton. The bounded index selects one of six Unicode emoji, defaults to ❤️, and persists independently of session emoji recommendations.
 
 Schema 29 adds a bounded boolean opt-in for double-click reactions, disabled for new and migrated settings. The selected Unicode preset is retained while disabled; Reset chat restores the disabled default.
+
+## REST admission (November 12, 2026)
+
+Each authenticated REST adapter retains at most 128 route mappings and 128 admission
+slots in RAM. Entries contain fixed-size hashes, counters and deadlines; no route
+strings, bucket headers, IDs, tokens or payloads are retained by this tracker. The
+combined vector backing allocation is capped at 16 KiB. Busy slots and unexpired
+cooldowns are never evicted to admit another route. Idle expired mappings are
+reused; a full active tracker returns a local capacity failure. Session teardown
+drops the tracker. The existing semaphore allows at most four admitted REST
+requests; caller queues retain their own bounds. There is no new disk storage
+or logging.

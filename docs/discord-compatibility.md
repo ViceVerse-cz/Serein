@@ -3150,9 +3150,11 @@ desktop 0.0.408, Electron 42.7.1 and Chromium 148.0.7778.280. These are its
 reference constants, not independently verified current Discord versions or
 proof that this identity prevents account restrictions.
 
-Serein now uses those desktop version values for its REST and Gateway user
-agent, `browser`, `browser_version` and `client_version`, with Chromium 148
-transport emulation and client hints. The existing web build number is retained.
+Serein retains that paired Electron/Chromium 148 transport baseline and client
+hints, but refreshes `client_version` and the user agent host version per platform
+from the official stable update manifests: Linux 1.0.169, Windows 1.0.9268 and
+macOS 0.0.422. The public web build is now 670026. Provenance and limitations
+are recorded below.
 The host OS and locale remain platform-derived. Embedded login and verification
 webviews keep their separate WebKit/WebView2 identity; changing a user agent
 does not turn them into Chromium or change Serein into an Electron application.
@@ -3228,9 +3230,9 @@ explicit edit is needed. Origin is attached to REST writes, not GET requests.
 The desktop identity remains a partial compatibility profile. It retains web
 device/referrer fields and an empty os_version, omits the reference's architecture,
 native-build, OS-SDK, launch-ID and client-mod fields, combines observed web build
-634304 with desktop host 0.0.408 (the reference pairs 607562), and reuses the
-reference's macOS desktop/Electron versions on Linux and Windows. It is not a
-verified platform-specific Electron identity. Verification still runs in
+670026 with platform-specific host versions, and retains the older paired
+Electron/Chromium transport baseline. It is not a verified complete
+platform-specific Electron identity. Verification still runs in
 WebKit/WebView2 while native submission advertises the desktop profile; the effect
 of that difference on login, CAPTCHA acceptance or restrictions is unknown.
 No consistency test here establishes that a synthesized profile matches a real
@@ -3266,3 +3268,47 @@ fixture checks no replay, PUT or message create and release of the verification
 slot. These and the oversized/scoped block fixtures were compiled, not executed,
 under !fast. The earlier CAPTCHA write-lock and verification-slot findings were
 already fixed in the PR; no reviewer thread was resolved on their behalf.
+
+### Identity provenance and REST admission — November 12
+
+The owner's supplied Linux RPM (SHA-256
+`ade5550aa86cb4562116d5f5731d5af6110c7865d0712da5b25cdaf9d4137b61`)
+contains an updater bootstrap, not the complete client. Its stable repository's
+[Linux manifest](https://updates.discord.com/distributions/app/manifests/latest?channel=stable&platform=linux&arch=x64)
+provided host 1.0.169; the [Windows manifest](https://updates.discord.com/distributions/app/manifests/latest?channel=stable&platform=win&arch=x64)
+provided 1.0.9268 and the [macOS manifest](https://updates.discord.com/distributions/app/manifests/latest?channel=stable&platform=osx&arch=x64)
+provided 0.0.422. The fetched host and desktop-core packages matched the manifest's
+SHA-256 values. Core package metadata declares Electron 44.9.3; the
+[Electron release index](https://releases.electronjs.org/releases.json) pairs it
+with Chromium 152.0.7977.167. Those engine values are not adopted: pinned
+wreq-util has no Chromium 152 profile, and changing only the user agent would
+break the existing engine/profile pairing. A future paired upgrade needs separate
+wire validation; package metadata is not a runtime measurement.
+
+The fetched public `/app` HTML and its web/fast-connect scripts embed build 670026.
+The renderer is loaded remotely by the desktop core, so host and web versions are
+separate observations. Source inspection and manifest hashes establish provenance,
+not acceptance of synthesized metadata or prevention of spam-rule warnings. No
+signed-in client, challenge or private conversation was exercised.
+
+REST admission now serializes each normalized method/route until its response is
+processed. Routes that advertise the same `X-RateLimit-Bucket` share admission
+within their top-level channel/guild/webhook snowflake resource. Static route
+words such as `templates` do not invent a major resource. Queries do not split
+routes; non-major numeric IDs are normalized. Unknown cross-route aliases may still have
+one request each in flight before their shared bucket is learned. Missing or
+malformed headers, or a full bucket table, keep route serialization. Successful
+exhaustion holds only its route/bucket, including the existing one-second fallback
+when reset headers are missing; invalid delays still fail validation. The existing
+shared cooldown remains conservative across routes for 429 responses. No bot/user
+quota is hardcoded. This trades some same-bucket concurrency for predictable admission without out-of-order quota
+updates. Four total permits still bound requests. Typed request paths, not content
+or arbitrary URLs, select routes; only hashes are retained.
+
+Both mapping and bucket tables have at most 128 entries. Idle expired mappings can
+be evicted; in-flight buckets and active cooldowns cannot. If no safe space exists,
+new work fails locally with capacity instead of discarding an active hold.
+Speculative reads do not wait for occupied admission. Cancellation releases a
+reservation, and security stops wake admission/cooldown waiters before dispatch.
+A solved verification is rechecked for expiry after both waits, before submission.
+There are no new writes, retries, persistence, telemetry or proxy-routing changes.
