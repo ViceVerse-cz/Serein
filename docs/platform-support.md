@@ -208,6 +208,16 @@ quarter of one core at 3840×2160 and 120 Hz in the November 5, 2026 entry of
 [performance findings](performance.md). Unfocused, minimized and hidden windows redraw only on
 change again. The setting applies immediately and is saved with the other device preferences.
 
+On Windows x64, Serein asks the NVIDIA driver at startup whether an attached display has G-SYNC
+switched on, and if so offers the setting once after first-run setup. Either answer is saved and
+ends the check; turning the setting on by hand does too. The check loads `nvapi64.dll` from the
+system directory only, on a worker thread, reads each display's variable refresh rate state
+through NVIDIA's published NVAPI interface, changes no driver setting and unloads the library
+again. It reported a display with G-SYNC on in about 27 ms on Windows 11 with an RTX PRO 6000
+(driver 32.0.16.2114). A display with G-SYNC switched off, a computer without an NVIDIA
+driver, and FreeSync or other variable refresh rate on AMD and Intel GPUs were not tested; the
+latter are not detected, so there the setting stays a manual choice.
+
 Excluding `serein.exe` from VRR in the graphics driver, such as NVIDIA's per-program Monitor
 Technology setting, avoids the swings without the extra frames. Present cadence was verified
 with PresentMon on Windows 11 with an RTX 5060 Ti; the panel's own refresh readout and macOS and

@@ -375,6 +375,10 @@ pub struct MessagingUi {
 	/// Device preference: repaint every display refresh while focused, so variable refresh rate
 	/// displays hold one rate instead of flickering.
 	pub steady_refresh_rate: bool,
+	/// The desktop found a display with G-SYNC on, which follows this window's uneven redraws.
+	pub gsync_detected: bool,
+	/// The one-time offer to turn `steady_refresh_rate` on was answered; the desktop persists it.
+	pub steady_refresh_prompted: bool,
 	/// Adapter currently in use, shown next to the preference for bug reports.
 	pub gpu_adapter: String,
 	pub reading_status: &'static str,
@@ -1270,6 +1274,8 @@ impl MessagingUi {
 			startup_graphics_api: self.startup_graphics_api,
 			available_graphics_apis: std::mem::take(&mut self.available_graphics_apis),
 			graphics_api_env_override: self.graphics_api_env_override,
+			// G-SYNC belongs to the device, and the desktop hands its finding over only once.
+			gsync_detected: self.gsync_detected,
 			..Self::default()
 		};
 		self.timeline.video.fullscreen_request = video_fullscreen_request;
@@ -6102,6 +6108,8 @@ impl MessagingUi {
 		self.onboarding.show(&ctx, state, &mut commands);
 		if self.setup_pending {
 			self.show_setup(&ctx);
+		} else {
+			self.show_steady_refresh_prompt(&ctx);
 		}
 		self.scroll.clear_if_unbound(&ctx);
 		self.scroll.paint(&ctx);

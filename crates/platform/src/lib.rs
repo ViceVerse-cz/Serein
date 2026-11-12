@@ -6,6 +6,7 @@ pub mod badge;
 pub mod captcha;
 pub mod compositor;
 pub mod game_activity;
+pub mod gsync;
 pub mod heic;
 pub mod hotkeys;
 pub mod idle;
