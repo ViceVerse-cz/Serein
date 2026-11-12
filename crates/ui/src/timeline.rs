@@ -52,8 +52,10 @@ pub struct TimelineView {
 	pub(super) cancel_upload: bool,
 	pending_heights: BTreeMap<String, f32>,
 	pub(super) hide_media_links: bool,
+	pub(super) hide_link_previews: bool,
 	pub(super) instant_scrolling: bool,
 	applied_hide_media_links: bool,
+	applied_hide_link_previews: bool,
 	pub(super) compact_messages: bool,
 	applied_compact_messages: bool,
 	pub(super) gif_favorite: Option<model::Gif>,
@@ -2499,6 +2501,7 @@ impl TimelineView {
 				double_click_reaction: self.double_click_reaction,
 				compact_messages: self.compact_messages,
 				hide_media_links: self.hide_media_links,
+				hide_link_previews: self.hide_link_previews,
 				instant_scrolling: self.instant_scrolling,
 				suppressed_deleted_highlight: std::mem::take(
 					&mut self.suppressed_deleted_highlight,
@@ -2606,9 +2609,11 @@ impl TimelineView {
 			|| self.font_revision != font_revision
 			|| self.scale != scale
 			|| self.hide_media_links != self.applied_hide_media_links
+			|| self.hide_link_previews != self.applied_hide_link_previews
 			|| self.compact_messages != self.applied_compact_messages;
 		let dimensions_changed = width_changed || content_dimensions_changed;
 		self.applied_hide_media_links = self.hide_media_links;
+		self.applied_hide_link_previews = self.hide_link_previews;
 		self.applied_compact_messages = self.compact_messages;
 		let hide_blocked = crate::interface_tweaks::on(
 			ui.ctx(),
@@ -3988,6 +3993,7 @@ impl TimelineView {
 													state,
 													crate::design::MessageCardSurface::Conversation,
 													self.hide_media_links,
+													self.hide_link_previews,
 												) {
 													self.gif_favorite = Some(gif);
 												}
@@ -10339,6 +10345,7 @@ mod tests {
 						..Default::default()
 					},
 					crate::design::MessageCardSurface::Conversation,
+					false,
 					false,
 				);
 				assert!(

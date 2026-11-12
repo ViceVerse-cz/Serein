@@ -559,6 +559,7 @@ pub fn show(
 	state: &client_core::State,
 	card_surface: crate::design::MessageCardSurface,
 	hide_media_links: bool,
+	hide_link_previews: bool,
 ) -> Option<Gif> {
 	if message.embeds_suppressed {
 		return None;
@@ -574,8 +575,9 @@ pub fn show(
 		let count = gallery_len(&message.embeds[index..]);
 		let group = &message.embeds[index..index + count];
 		let embed = &group[0];
-		// Poll results render as a dedicated card next to their system row.
-		if embed.kind == "poll_result" {
+		// Poll results render as a dedicated card next to their system row. Without link
+		// previews only linked images and GIFs remain, like Discord's embed setting.
+		if embed.kind == "poll_result" || (hide_link_previews && inline_image(embed).is_none()) {
 			index += count;
 			continue;
 		}
@@ -1052,6 +1054,7 @@ mod tests {
 					&client_core::State::default(),
 					crate::design::MessageCardSurface::Conversation,
 					false,
+					false,
 				);
 			})
 			.drop_without_applying_deltas();
@@ -1202,6 +1205,7 @@ mod tests {
 								&client_core::State::default(),
 								crate::design::MessageCardSurface::Conversation,
 								false,
+								false,
 							);
 						},
 					)
@@ -1293,6 +1297,7 @@ mod tests {
 									&client_core::State::default(),
 									crate::design::MessageCardSurface::Conversation,
 									hide_media_links,
+									false,
 								)
 								.is_none()
 							);

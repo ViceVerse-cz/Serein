@@ -48,6 +48,12 @@ pub struct AppPreferences {
 	pub hide_nitro_emojis: bool,
 	/// Device-local opt-in; older saved preferences deserialize with conversion off.
 	pub convert_emoticons: bool,
+	/// Send no typing indicator while writing; others' indicators still show.
+	pub hide_own_typing: bool,
+	/// Start new replies with the author ping off; the reply bar still toggles it.
+	pub reply_without_mention: bool,
+	/// Draw only image and GIF embeds under messages, not link, video or bot cards.
+	pub hide_link_previews: bool,
 	/// Request a conversation's page while the pointer rests on it; older preferences enable it.
 	pub preload_on_hover: bool,
 	/// Show as Idle after 10 minutes of system inactivity; older preferences enable it.
@@ -117,6 +123,9 @@ impl Default for AppPreferences {
 			show_hidden_channels: false,
 			hide_nitro_emojis: false,
 			convert_emoticons: false,
+			hide_own_typing: false,
+			reply_without_mention: false,
+			hide_link_previews: false,
 			preload_on_hover: true,
 			auto_idle: true,
 			hide_title_bar: false,

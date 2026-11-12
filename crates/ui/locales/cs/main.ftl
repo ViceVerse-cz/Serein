@@ -4707,6 +4707,13 @@ screen-macos-system-picker = Vybrat systémovým dialogem macOS
 screen-macos-system-picker-kind = Systémový výběr obsahu
 
 member-in-voice = V hlasovém chatu
+settings-chat-messaging = Zprávy
+settings-share-typing = Ukazovat ostatním, že píšete
+settings-share-typing-description = Discord při psaní zobrazuje „píše…“. Když píší ostatní, uvidíte to tu dál.
+settings-mention-replies = Zmiňovat lidi, kterým odpovídáte
+settings-mention-replies-description = Dostanou oznámení o vaší odpovědi. Pro jednu odpověď to přepnete tlačítkem @ ON na liště odpovědi.
+settings-link-previews = Zobrazovat náhledy odkazů
+settings-link-previews-description = Karty odkazů, videí a botů pod zprávami. Obrázky a GIFy z odkazů se zobrazí dál.
 settings-chat-box = Psaní zpráv
 settings-convert-emoticons = Automaticky převádět emotikony ve zprávách na emoji
 settings-convert-emoticons-description = Při odesílání nebo úpravě zpráv převést samostatné emotikony jako :) na 🙂. Kód a odkazy zůstanou beze změny.
