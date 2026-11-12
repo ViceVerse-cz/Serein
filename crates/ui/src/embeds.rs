@@ -948,7 +948,7 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 		let count = gallery_len(&embeds[index..]);
 		let e = &embeds[index];
 		let image_height = if count > 1 {
-			gallery_rect(count, count - 1, 456.0).bottom()
+			gallery_rect(count, count - 1, crate::avatars::media::MEDIA_MAX_WIDTH).bottom()
 		} else if e.image.is_some() || large_thumbnail(e).is_some() || clip_media(e).is_some() {
 			200.0
 		} else {

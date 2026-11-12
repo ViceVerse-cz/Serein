@@ -426,7 +426,7 @@ const GROUPED_ROW_SAVINGS: f32 = 52.0;
 
 /// Space above a new message group: cozy by default, tighter when compact spacing is on.
 pub(crate) fn group_gap(compact_messages: bool) -> i8 {
-	if compact_messages { 4 } else { 16 }
+	if compact_messages { 4 } else { 14 }
 }
 
 fn reserved_chrome(ui: &egui::Ui, message: &Message, width: f32) -> f32 {
@@ -1415,7 +1415,7 @@ fn row_height_key(
 fn divider(ui: &mut egui::Ui, label: String, unread: bool, compact: bool) {
 	let colors = crate::design::palette(ui);
 	let color = if unread { colors.danger } else { colors.muted };
-	ui.add_space(if compact { 8.0 } else { 16.0 });
+	ui.add_space(if compact { 8.0 } else { 12.0 });
 	// `horizontal` would take the theme's taller control height.
 	ui.allocate_ui_with_layout(
 		egui::vec2(ui.available_width(), 20.0),
@@ -3251,7 +3251,7 @@ impl TimelineView {
 						.show(ui, |ui| {
 							let mut surface = crate::select::Surface::new(ui, "row");
 							ui.spacing_mut().item_spacing =
-								egui::vec2(16.0, if self.compact_messages { 2.0 } else { 4.0 });
+								egui::vec2(16.0, if self.compact_messages { 2.0 } else { 6.0 });
 							if let Some(interaction) = message
 								.interaction
 								.as_deref()
