@@ -5040,6 +5040,7 @@ impl Desktop {
 		}
 		let mut events = Vec::new();
 		let mut terminal = None;
+		let mut expiry = None;
 		if let Some(connection) = &mut self.connection {
 			for _ in 0..client_core::EVENT_SLOTS {
 				match connection.events.try_recv() {
@@ -5067,6 +5068,10 @@ impl Desktop {
 				events.push(failure);
 			}
 			terminal = *connection.terminal.borrow();
+			if terminal == Some(Failure::Expired) {
+				let ready = connection.ready.load(std::sync::atomic::Ordering::Relaxed);
+				expiry = Some((connection.expiry.get().cloned(), ready));
+			}
 		}
 		let mut persist_timeline = false;
 		let mut full_window = false;
@@ -5336,7 +5341,17 @@ impl Desktop {
 				diagnostics::Category::Session,
 				diagnostics::Level::Error,
 				"session stopped",
-				&[("reason", failure.label().into())],
+				&[
+					("reason", failure.label().into()),
+					(
+						"source",
+						expiry
+							.as_ref()
+							.and_then(|(cause, _)| cause.as_ref())
+							.map_or("unrecorded", |cause| cause.source)
+							.into(),
+					),
+				],
 			);
 			for (setting, scope) in [
 				("SEREIN_MEMBER_DIAGNOSTICS", "members"),
@@ -5364,6 +5379,18 @@ impl Desktop {
 				generation: self.state.generation,
 				event: Event::Failure(failure),
 			});
+			if let Some((cause, ready)) = &expiry {
+				let cause = cause.as_ref().map_or_else(
+					|| "No expiry cause recorded".to_owned(),
+					ToString::to_string,
+				);
+				let stage = if *ready {
+					"after READY"
+				} else {
+					"before READY"
+				};
+				self.state.failure_detail = Some(format!("{cause} · {stage}").into());
+			}
 			if failure == Failure::RateLimited && self.state.failure_detail.is_none() {
 				self.state.failure_detail =
 					Some(ui::i18n::translate("main-sign-in-rate-limited-detail").into());

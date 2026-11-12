@@ -35,7 +35,7 @@ pub mod upload;
 mod user_actions;
 use client_core::{
 	Command, Event, Reply,
-	auth::{Failure, SessionSecret},
+	auth::{Expiry, ExpirySlot, Failure, SessionSecret},
 };
 use discord_protocol::*;
 use model::Id;
@@ -62,6 +62,34 @@ const API_ORIGIN: &str = "https://discord.com/api/v10";
 /// One thread channel, or one message, stays far below this documented read budget.
 const THREAD_PREVIEW_BYTES: usize = 64 * 1024;
 
+/// `GET /channels/{id}/messages` for a report: digits become `{id}`, and any segment that is not
+/// a lowercase path word (invite codes, emoji, names) becomes `{}`. Bounded by segment count.
+fn route_label(method: &Method, path: &str) -> Box<str> {
+	const MAX_SEGMENTS: usize = 8;
+	const MAX_WORD: usize = 32;
+	let path = path.split('?').next().unwrap_or(path);
+	let mut label = format!("{method} ");
+	for (index, part) in path.split('/').filter(|part| !part.is_empty()).enumerate() {
+		if index == MAX_SEGMENTS {
+			label.push_str("/…");
+			break;
+		}
+		label.push('/');
+		if part.bytes().all(|byte| byte.is_ascii_digit()) {
+			label.push_str("{id}");
+		} else if part.len() <= MAX_WORD
+			&& part
+				.bytes()
+				.all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'-' | b'_' | b'@'))
+		{
+			label.push_str(part);
+		} else {
+			label.push_str("{}");
+		}
+	}
+	label.into()
+}
+
 /// The one REST origin. A block or rate limit never moves requests to another host.
 pub fn api_v10_base() -> &'static str {
 	API_ORIGIN
@@ -81,6 +109,7 @@ pub struct DiscordApi {
 	restrictions: std::sync::Mutex<restrictions::Restrictions>,
 	requests: Semaphore,
 	terminal: tokio::sync::watch::Sender<Option<Failure>>,
+	expiry: ExpirySlot,
 	catalog: std::sync::Mutex<collectibles::Catalog>,
 	#[cfg(test)]
 	base: String,
@@ -284,6 +313,7 @@ impl DiscordApi {
 			restrictions: std::sync::Mutex::default(),
 			requests: Semaphore::new(4),
 			terminal: tokio::sync::watch::channel(None).0,
+			expiry: ExpirySlot::default(),
 			catalog: std::sync::Mutex::default(),
 			#[cfg(test)]
 			base: API_ORIGIN.into(),
@@ -370,6 +400,20 @@ impl DiscordApi {
 	}
 	pub fn stop(&self) {
 		self.stop_with(Failure::Expired);
+	}
+	/// Records why the session expired into a slot the app also reads.
+	pub fn reporting_expiry(mut self, slot: ExpirySlot) -> Self {
+		self.expiry = slot;
+		self
+	}
+	/// Keeps the first cause only, so later teardown cannot mask the response that ended it.
+	pub fn note_expiry(&self, source: &'static str, route: Option<Box<str>>) {
+		let _ = self.expiry.set(Expiry { source, route });
+	}
+	fn expire(&self, source: &'static str, method: &Method, path: &str) -> Failure {
+		self.note_expiry(source, Some(route_label(method, path)));
+		self.stop();
+		Failure::Expired
 	}
 	pub fn stop_with(&self, failure: Failure) {
 		self.terminal.send_if_modified(|current| {
@@ -639,8 +683,7 @@ impl DiscordApi {
 				.and_then(|s| s.parse::<f64>().ok());
 
 			if status == StatusCode::UNAUTHORIZED {
-				self.stop();
-				return Err(Failure::Expired);
+				return Err(self.expire("REST HTTP 401", &method, path));
 			}
 			let cloudflare_block = response
 				.headers()
@@ -693,8 +736,7 @@ impl DiscordApi {
 			if !status.is_success() {
 				let error = decode::<ErrorBody>(&bytes).unwrap_or_default();
 				if matches!(error.code, Some(40001)) {
-					self.stop();
-					return Err(Failure::Expired);
+					return Err(self.expire("REST code 40001", &method, path));
 				}
 
 				if error.code == Some(40012) {

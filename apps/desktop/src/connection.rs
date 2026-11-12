@@ -1,6 +1,6 @@
 use client_core::{
 	COMMAND_SLOTS, Command, EVENT_SLOTS, Envelope, Event, MAX_EVENT_BYTES,
-	auth::{Failure, SessionSecret},
+	auth::{ExpirySlot, Failure, SessionSecret},
 };
 use discord_api::DiscordApi;
 use eframe::egui;
@@ -8,7 +8,7 @@ use std::{
 	collections::BTreeMap,
 	sync::{
 		Arc, Mutex,
-		atomic::{AtomicU64, Ordering},
+		atomic::{AtomicBool, AtomicU64, Ordering},
 	},
 	time::{Duration, Instant},
 };
@@ -24,6 +24,10 @@ pub struct Connection {
 	pub events: ReliableEvents,
 	pub typing: mpsc::Receiver<Envelope>,
 	pub terminal: watch::Receiver<Option<Failure>>,
+	/// Why the session expired, recorded before `terminal` is published.
+	pub expiry: ExpirySlot,
+	/// Whether this connection reached READY, so a report can tell startup from mid-session.
+	pub ready: Arc<AtomicBool>,
 	/// One fixed-size candidate failure, independent of the account event queue.
 	pub confirmation_failure: watch::Receiver<Option<ConfirmationFailure>>,
 	pub share_activity: watch::Sender<bool>,
@@ -249,6 +253,9 @@ impl Connection {
 		let (send, events) = reliable_events(ctx.clone());
 		let (typing_send, typing) = mpsc::channel(8);
 		let (finished, terminal) = watch::channel(None);
+		let expiry = ExpirySlot::default();
+		let ready = Arc::new(AtomicBool::new(false));
+		let (api_expiry, gateway_ready) = (expiry.clone(), ready.clone());
 		let (confirmation_report, confirmation_failure) = watch::channel(None);
 		let (share_activity, share_receive) = watch::channel(false);
 		let (custom_rich_presence, custom_receive) = watch::channel(None);
@@ -294,7 +301,7 @@ impl Connection {
                 emit_event(&send, &typing_send, Envelope {generation,event}, &ctx)
             };
             let result=async {
-                let api=DiscordApi::with_proxy(secret.clone(), api_proxy)?;
+                let api=DiscordApi::with_proxy(secret.clone(), api_proxy)?.reporting_expiry(api_expiry);
                 // Like the web client (unofficial), nothing asks REST who this is or where the
                 // Gateway lives: the address is fixed and READY names the account. A rejected
                 // token ends the session through Gateway close 4004, a bot through READY.
@@ -397,6 +404,7 @@ impl Connection {
                             let known=identity_send.borrow().as_ref().map(|user|user.id).or(expected_user);
                             if known.is_some_and(|id|id!=ready_user.id) {return Err(Failure::InvalidCredential);}
                             identity_send.send_if_modified(|slot|slot.is_none() && {*slot=Some(ready_user.clone());true});
+                            gateway_ready.store(true,Ordering::Relaxed);
                             *gateway_channels.lock().map_err(|_|Failure::Protocol)?=channels.iter().filter(|c|private_call(c)).take(client_core::MAX_NAV).map(|c|(c.id,recipient_ids(c))).collect();
                         }
                         if let Event::ChannelCreated(channel)=&event {
@@ -429,6 +437,8 @@ impl Connection {
                         if let Event::Voice(client_core::voice::Event::TakenOver{channel,request})=&event {let _=gateway_takeover.send_replace(Some((*channel,*request)));}
                         gateway_emit(event)
                     }).await.err().unwrap_or(Failure::Network).protocol_at("Gateway connection: unsupported handshake or event");
+                    // Gateway Expired is only close 4004; an earlier REST cause is kept.
+                    if error==Failure::Expired {gateway_api.note_expiry("Gateway close 4004",None);}
                     gateway_api.stop_with(error);publish_terminal(&terminal_send, gateway_api.stop_reason().unwrap_or(error));gateway_wake.request_repaint();
                 }));
                 // Keep hangup/mute controls responsive while an HTTP message write is awaiting Discord.
@@ -908,6 +918,8 @@ impl Connection {
 			events,
 			typing,
 			terminal,
+			expiry,
+			ready,
 			confirmation_failure,
 			share_activity,
 			own_presence,
