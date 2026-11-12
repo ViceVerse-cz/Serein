@@ -1804,6 +1804,12 @@ impl Desktop {
 			.last()
 			.map_or(10_000, |m| m.id.0.max(10_000));
 		let mut messaging = ui::MessagingUi::default();
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-voice") {
+			for millis in [28, 31, 27, 104, 46, 33, 25, 29, 30, 28, 26, 29] {
+				messaging.voice_latency.push(Duration::from_millis(millis));
+			}
+		}
 		// Fixture video textures the view borrows by id; the desktop keeps them alive.
 		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
 		let mut demo_textures: Vec<egui::TextureHandle> = Vec::new();

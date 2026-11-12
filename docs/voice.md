@@ -12,6 +12,13 @@ Voice is included in every build without a feature flag. Source builds require C
 
 ## Implemented behavior and limits
 
+Hover over the connection icon in the account card to see the latest voice ping.
+Click the icon for the latest and average RTT and a chart of up to 24 recent samples.
+RTT measures the existing voice WebSocket heartbeat and matching ACK. Audio packet
+loss and end-to-end audio delay are separate measurements. Samples stay in memory
+and reset on reconnect or when leaving the call. The synthetic preview is
+`cargo run --locked --features demo -- --demo --demo-voice`.
+
 Resizing the DM or group call stage keeps a conversation following the newest message
 anchored above its composer on every frame. Reading older messages retains the existing
 scroll position instead of forcing the conversation back to the newest message.

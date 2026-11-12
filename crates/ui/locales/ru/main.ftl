@@ -4224,6 +4224,13 @@ voice-voice-card-section-dismiss-call = Отклонить вызов
 voice-voice-card-section-reconnect-attempt = { $reason } · попытка { $attempt } из { $total }
 # Context: voice_card_section
 voice-voice-card-section-reconnecting = Переподключение…
+
+voice-connection-title = Соединение
+voice-connection-ping-value = { $millis } мс
+voice-connection-ping-pending = Ожидание первого замера…
+voice-connection-average-ping = Средний пинг: { $value }
+voice-connection-last-ping = Последний пинг: { $value }
+voice-connection-ping-description = Время ответа сервера управления голосовым соединением.
 # Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Микрофон недоступен · все еще подключен. Выберите другой вход в настройках звука.
 # Context: voice_channel_button

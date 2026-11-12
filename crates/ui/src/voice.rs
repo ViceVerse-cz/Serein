@@ -3888,15 +3888,24 @@ impl MessagingUi {
 				ui.horizontal(|ui| {
 					ui.spacing_mut().item_spacing.x = 10.0;
 					// Square status tile like Discord's, tinted with the connection colour.
-					let (tile, _) =
-						ui.allocate_exact_size(egui::Vec2::splat(40.0), egui::Sense::hover());
-					ui.painter().rect_filled(tile, 8, colors.base);
+					let sense = if connected { egui::Sense::click() } else { egui::Sense::hover() };
+					let (tile, connection) = ui.allocate_exact_size(egui::Vec2::splat(40.0), sense);
+					let highlighted = connected && (connection.hovered() || connection.has_focus());
+					ui.painter().rect_filled(tile, 8, if highlighted { colors.hover } else { colors.base });
 					crate::icons::paint(
 						ui.painter(),
 						crate::icons::Icon::InCall,
 						tile.shrink(10.0),
 						color,
 					);
+					if connected {
+						connection.widget_info(|| egui::WidgetInfo::labeled(
+							egui::Role::Button,
+							true,
+							crate::i18n::translate("voice-connection-title"),
+						));
+						self.voice_latency.popup(connection.on_hover_cursor(egui::CursorIcon::PointingHand));
+					}
 					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 						ui.spacing_mut().item_spacing.x = 2.0;
 						let leave = ui

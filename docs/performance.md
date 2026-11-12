@@ -1,5 +1,31 @@
 # Performance findings
 
+## Voice connection ping
+
+Compared `5a11f95b` with the voice ping change using locked Rust 1.99.1 release builds
+with `--features demo`. Windows x64 build 26300.9711, Ryzen 7 7800X3D, about 32 GiB RAM,
+DX12 and the same 1120 × 760 demo window. Launch `serein.exe --demo --demo-voice`,
+leave the connection popup closed with the pointer off the controls, warm up for eight
+seconds and sample `WorkingSet64` about every 100 ms for twelve seconds. CPU is process
+CPU time divided by elapsed time, as a percentage of one logical core. Settled working
+set averages the final five samples. Private bytes are read at the end of the run.
+Two runs per revision, in baseline/change/change/baseline order. No child processes
+were present at the end of the runs.
+
+| Metric | Baseline | Voice ping |
+| --- | ---: | ---: |
+| Demo executable | 100,484,608 B | 100,369,920 B |
+| Idle CPU, range | 0.384–0.388% | 0.258–0.647% |
+| Peak working set, range | 145.81–158.10 MiB | 142.33–142.36 MiB |
+| Settled working set, range | 145.81–158.09 MiB | 142.33–142.36 MiB |
+| Settled private bytes, range | 178.90–194.93 MiB | 178.56–180.00 MiB |
+
+The preliminary run, before controlling pointer position, showed the working set moving
+in the opposite direction. The short samples do not establish a memory or CPU improvement.
+The fixture renders synthetic RTT. Actual call CPU, GPU allocations and frame timing were
+not measured. The transport samples existing ACKs without scheduling an extra probe. The
+desktop keeps up to 24 millisecond values per connection.
+
 Recent synthetic/offline measurements are workload-specific. They do not establish live Discord
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
