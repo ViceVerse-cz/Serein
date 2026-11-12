@@ -1352,7 +1352,9 @@ an Ogg header prefix of at most 256 KiB and packets of at most 1 MiB. The existi
 8–96 kHz; these do not allocate a whole decoded clip. MP3 ID3 tags are skipped
 without decoding; WAV metadata is removed before demuxing. No media files or playback preferences
 are persisted. Playback stops when its card leaves view, the attachment changes,
-the conversation changes, the window is minimized/occluded, or the session ends.
+the conversation changes, the window hides to the tray, closes, or the session
+ends. Minimizing keeps attachment audio playing, like a call, while video stops
+with the window out of sight.
 An atomic generation gate mutes obsolete output; the single worker releases its
 stream/buffers on cancellation. Pausing retains only bounded buffered audio;
 seeking replays decoding from the start instead of retaining the file.

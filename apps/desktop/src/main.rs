@@ -1021,6 +1021,10 @@ struct Desktop {
 	pointer: pointer::Pointer,
 	downloads: downloads::Downloads,
 	audio: audio::Audio,
+	/// Whether the last ui pass found the playing audio's card in the timeline. Only
+	/// that audio is revalidated against the timeline; search and pin cards play
+	/// messages the timeline never loaded.
+	audio_in_timeline: bool,
 	video: video::Video,
 	/// Synthetic stream/camera textures the demo view borrows by id.
 	_demo_textures: Vec<egui::TextureHandle>,
@@ -2372,6 +2376,7 @@ impl Desktop {
 			pointer: pointer::Pointer::default(),
 			downloads: downloads::Downloads::default(),
 			audio: audio::Audio::default(),
+			audio_in_timeline: false,
 			video: video::Video::default(),
 			_demo_textures: demo_textures,
 			demo_video_autoplay: if std::env::args().any(|arg| arg == "--demo-video-paused") {
@@ -5547,6 +5552,40 @@ impl Desktop {
 			.then(|| Duration::from_secs_f64(1000.0 / f64::from(millihertz)))
 	}
 }
+/// Which players a logic pass stops. Signing out, hiding to the tray and closing
+/// end every player; minimizing ends only video, whose frames nobody sees, while
+/// attachment audio keeps playing like a call does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MediaStop {
+	Everything,
+	VideoOnly,
+	Nothing,
+}
+
+fn media_stop(active: bool, hidden_or_closing: bool, minimized: bool) -> MediaStop {
+	if !active || hidden_or_closing {
+		MediaStop::Everything
+	} else if minimized {
+		MediaStop::VideoOnly
+	} else {
+		MediaStop::Nothing
+	}
+}
+
+/// Whether the audio player's message still renders its attachment card the way
+/// the timeline would: a retained deleted message keeps its card and playback,
+/// while a removed row or an edited-away attachment does not.
+fn audio_attachment_rendered(
+	state: &State,
+	channel: model::Id,
+	id: model::Id,
+	attachment: &model::Attachment,
+) -> bool {
+	state.timeline.get_display(id).is_some_and(|message| {
+		message.channel == channel && message.attachments.iter().any(|a| a == attachment)
+	})
+}
+
 /// Whether the user's transparency settings, not just the rounded-corner mask, show through.
 fn effects_transparent() -> bool {
 	let (enabled, transparency, _) = ui::design::window_effects();
@@ -5900,18 +5939,47 @@ impl eframe::App for Desktop {
 		// The hide command lands after this frame, so the flag leads reported visibility.
 		// Occlusion can occur during macOS fullscreen transitions; it is not a request
 		// to stop playback (which would also restore the window out of fullscreen).
-		let hidden_or_closing = self.tray_window.hidden
-			|| ctx.input(|input| {
-				input.viewport().minimized == Some(true) || input.viewport().close_requested()
-			});
-		if self.state.user.is_none()
-			|| (!self.state.demo && self.state.auth != AuthState::Authenticated)
-			|| hidden_or_closing
-		{
+		// The tray's Minimize action parks the window where minimization does not
+		// exist (Hyprland); it counts as minimized, not as hiding to the tray.
+		let hidden_or_closing = (self.tray_window.hidden && !self.tray_window.tray_minimized)
+			|| ctx.input(|input| input.viewport().close_requested());
+		let minimized = self.tray_window.tray_minimized
+			|| ctx.input(|input| input.viewport().minimized == Some(true));
+		let active = self.state.user.is_some()
+			&& (self.state.demo || self.state.auth == AuthState::Authenticated);
+		match media_stop(active, hidden_or_closing, minimized) {
+			MediaStop::Everything => {
+				self.audio.stop();
+				self.messaging.audio().stop();
+				self.video.stop();
+				self.messaging.video().stop();
+			}
+			// Minimizing keeps attachment audio playing, like a call does: the output
+			// stream and its decode worker run without a visible window, and restoring
+			// shows the indicator where the output clock reached. Video stops: its
+			// frames are only useful on screen.
+			MediaStop::VideoOnly => {
+				self.video.stop();
+				self.messaging.video().stop();
+			}
+			MediaStop::Nothing => {}
+		}
+		// A deletion or eviction applied in this logic pass must stop the audio the
+		// same way a rendered card leaving view does; a minimized window runs no ui
+		// pass to notice it. A retained deleted message keeps its card and playback.
+		// Audio started from a search or pin card was never in the timeline, so its
+		// absence there says nothing; the ui pass's visibility check covers it.
+		if self.audio_in_timeline
+			&& self
+				.messaging
+				.audio()
+				.active
+				.as_ref()
+				.is_some_and(|(channel, id, attachment)| {
+					!audio_attachment_rendered(&self.state, *channel, *id, attachment)
+				}) {
 			self.audio.stop();
 			self.messaging.audio().stop();
-			self.video.stop();
-			self.messaging.video().stop();
 		}
 		self.video.poll(self.messaging.video(), ctx);
 		let audio = self.audio.poll();
@@ -6423,6 +6491,14 @@ impl eframe::App for Desktop {
 					ui::AudioCommand::Stop => self.audio.stop(),
 				}
 			}
+			self.audio_in_timeline =
+				self.messaging
+					.audio()
+					.active
+					.as_ref()
+					.is_some_and(|(channel, id, attachment)| {
+						audio_attachment_rendered(&self.state, *channel, *id, attachment)
+					});
 			let player = self.messaging.video();
 			if self.state.demo
 				&& let Some(pause) = self.demo_video_autoplay
@@ -7084,6 +7160,62 @@ fn plaintext_login_dir() -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn minimizing_keeps_attachment_audio_playing() {
+		use MediaStop::{Everything, Nothing, VideoOnly};
+		// A signed-in session keeps audio through minimize; video has no audience.
+		assert_eq!(media_stop(true, false, true), VideoOnly);
+		assert_eq!(media_stop(true, false, false), Nothing);
+		// Hiding to the tray, closing and sign-out still end every player.
+		assert_eq!(media_stop(true, true, false), Everything);
+		assert_eq!(media_stop(false, false, true), Everything);
+	}
+	#[test]
+	fn deleted_audio_keeps_playing_only_while_its_card_is_retained() {
+		let mut state = test_support::audio_demo_state();
+		let channel = state.selected.unwrap();
+		let cards: Vec<_> = state
+			.timeline
+			.iter()
+			.filter(|message| !message.attachments.is_empty())
+			.cloned()
+			.collect();
+		let message = cards[0].id;
+		let attachment = cards[0].attachments[0].clone();
+		let other = cards[1].attachments[0].clone();
+		assert!(audio_attachment_rendered(
+			&state,
+			channel,
+			message,
+			&attachment
+		));
+		// Another message's attachment never keeps the player alive.
+		assert!(!audio_attachment_rendered(&state, channel, message, &other));
+		// A retained deleted message keeps its card, so playback continues.
+		state.set_preserve_deleted_messages(true);
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Delete {
+				channel,
+				id: message,
+			},
+		});
+		assert!(state.timeline.is_deleted(message));
+		assert!(audio_attachment_rendered(
+			&state,
+			channel,
+			message,
+			&attachment
+		));
+		// Dropping the retained payload removes the card with it.
+		state.set_preserve_deleted_messages(false);
+		assert!(!audio_attachment_rendered(
+			&state,
+			channel,
+			message,
+			&attachment
+		));
+	}
 	#[cfg(feature = "demo")]
 	#[test]
 	fn group_demo_loads_history_before_observing_typing() {
