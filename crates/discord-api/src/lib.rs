@@ -63,21 +63,29 @@ const API_ORIGIN: &str = "https://discord.com/api/v10";
 const THREAD_PREVIEW_BYTES: usize = 64 * 1024;
 
 /// `GET /channels/{id}/messages` for a report: digits become `{id}`, and any segment that is not
-/// a lowercase path word (invite codes, emoji, names) becomes `{}`. Bounded by segment count.
+/// a lowercase path word becomes `{}`. Codes, emoji and webhook tokens are `{}` even when they
+/// happen to be lowercase words. Bounded by segment count.
 fn route_label(method: &Method, path: &str) -> Box<str> {
 	const MAX_SEGMENTS: usize = 8;
 	const MAX_WORD: usize = 32;
 	let path = path.split('?').next().unwrap_or(path);
 	let mut label = format!("{method} ");
+	let (mut previous, mut before) = ("", "");
 	for (index, part) in path.split('/').filter(|part| !part.is_empty()).enumerate() {
 		if index == MAX_SEGMENTS {
 			label.push_str("/…");
 			break;
 		}
 		label.push('/');
+		let free_form = matches!(
+			previous,
+			"invites" | "templates" | "gift-codes" | "reactions"
+		) || before == "webhooks";
+		(before, previous) = (previous, part);
 		if part.bytes().all(|byte| byte.is_ascii_digit()) {
 			label.push_str("{id}");
-		} else if part.len() <= MAX_WORD
+		} else if !free_form
+			&& part.len() <= MAX_WORD
 			&& part
 				.bytes()
 				.all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'-' | b'_' | b'@'))
