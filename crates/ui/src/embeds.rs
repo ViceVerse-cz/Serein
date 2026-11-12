@@ -616,8 +616,11 @@ pub fn show(
 					),
 					demo,
 				);
-				let response =
-					ui.interact(painted.rect, painted.id.with("media"), egui::Sense::click());
+				let response = ui.interact(
+					painted.response.rect,
+					painted.response.id.with("media"),
+					egui::Sense::click(),
+				);
 				response.widget_info(|| {
 					egui::WidgetInfo::labeled(
 						egui::Role::Button,
@@ -644,7 +647,12 @@ pub fn show(
 				{
 					download.view_embed(message.id, image);
 				}
-				if let Some(url) = &source_url {
+				if let Some(url) = &source_url
+					&& (matches!(
+						painted.quality,
+						crate::avatars::media::Quality::Placeholder { .. }
+					) || image.url.as_deref() != Some(url.as_str()))
+				{
 					link(
 						ui,
 						&crate::i18n::translate("embeds-link-open-link"),

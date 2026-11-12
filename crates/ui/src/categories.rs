@@ -725,7 +725,7 @@ impl MessagingUi {
 		}
 		let dm_list = self.guild.is_none();
 		let row_height = if dm_list {
-			44.0
+			40.0
 		} else {
 			channel_marks::ROW_HEIGHT
 		};
@@ -1037,6 +1037,7 @@ impl MessagingUi {
 									colors.text_strong,
 								);
 							}
+							let emphasized = active || unread && !access.muted();
 							let name_color = channel_marks::tint(
 								&colors,
 								access,
@@ -1241,7 +1242,14 @@ impl MessagingUi {
 													ui,
 													user,
 													&label,
-													15.0,
+													if emphasized {
+														egui::FontId::new(
+															15.0,
+															design::medium_family(ui.ctx()),
+														)
+													} else {
+														egui::FontId::proportional(15.0)
+													},
 													(name_color, None, colors.sidebar),
 													egui::Sense::hover(),
 													trailing,
@@ -1256,9 +1264,7 @@ impl MessagingUi {
 												);
 											}
 										} else {
-											let name = if channel.guild.is_none()
-												|| active || unread && !access.muted()
-											{
+											let name = if emphasized {
 												design::medium(ui, &label, 15.0)
 											} else {
 												RichText::new(&label).size(15.0)

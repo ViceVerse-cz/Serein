@@ -88,11 +88,13 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
 - The lists and conversation share one rounded surface beside the rail. Channel sidebar
   (280px default, resizable): 48px header with the server name, category eyebrows with chevrons,
   30px rows with `#`/speaker/forum/thread glyphs, `selected`/`hover` fills, unread edge pill,
-  mention badge; DM rows are 44px with 32px avatars. Forum rows open their post archive.
+  mention badge; DM rows are 40px with 32px avatars. Forum rows open their post archive.
   Account card at the bottom (`raised`, avatar with presence dot, name, status, settings gear).
 - Conversation header (48px): channel glyph or DM avatar, semibold name, then icon buttons
   (reload, threads/archive, pins, member list toggle), a 144px search field and DM call/voice
   controls. A thin notice strip appears only for loading/stale/archive/history states.
+- One-to-one DMs use a 320px docked profile when it leaves at least 400px for the chat.
+  On narrower layouts the profile button opens the full profile.
 - Timeline: 16px gutters, 40px avatars, content at 72px, medium-weight author names, 12px muted
   timestamps, standalone media previews up to 440px wide, `hover` row highlight, date dividers with a
   centred label, red "New messages" divider, floating hover toolbar overlapping the row above.

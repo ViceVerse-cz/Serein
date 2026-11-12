@@ -3,16 +3,37 @@ use crate::{design, icons};
 use egui::{Color32, Response, Sense, Ui, vec2};
 use model::User;
 
+pub(super) enum NameFont {
+	Medium(f32),
+	Explicit(egui::FontId),
+}
+
+impl From<f32> for NameFont {
+	fn from(size: f32) -> Self {
+		Self::Medium(size)
+	}
+}
+
+impl From<egui::FontId> for NameFont {
+	fn from(font: egui::FontId) -> Self {
+		Self::Explicit(font)
+	}
+}
+
 pub(super) fn name(
 	ui: &mut Ui,
 	user: &User,
 	name: &str,
-	size: f32,
+	font: impl Into<NameFont>,
 	color: (Color32, Option<model::server_roles::Colors>, Color32),
 	sense: Sense,
 	trailing: f32,
 ) -> Response {
 	let colors = design::palette(ui);
+	let font = match font.into() {
+		NameFont::Medium(size) => egui::FontId::new(size, design::medium_family(ui.ctx())),
+		NameFont::Explicit(font) => font,
+	};
 	let account_label = user.account_label();
 	let verified = user.kind == model::AccountKind::VerifiedBot;
 	let badge = account_label.map(|text| {
@@ -39,7 +60,7 @@ pub(super) fn name(
 				ui,
 				crate::name_styles::style(user),
 				name,
-				egui::FontId::new(size, design::medium_family(ui.ctx())),
+				font,
 				color.1,
 				color.2,
 				color.0,

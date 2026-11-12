@@ -1596,12 +1596,20 @@ enum Mutuals {
 const MUTUALS_WIDTH: f32 = 300.0;
 
 /// Inline "3 Mutual Servers" link under the name; opens the matching side panel.
-fn mutual_link(ui: &mut egui::Ui, theme: &Theme, icon: Icon, text: String) -> egui::Response {
-	let galley = ui
-		.painter()
-		.layout_no_wrap(text, egui::FontId::proportional(14.0), theme.muted);
+fn mutual_link(
+	ui: &mut egui::Ui,
+	theme: &Theme,
+	icon: Option<Icon>,
+	text: String,
+) -> egui::Response {
+	let icon_width = if icon.is_some() { 22.0 } else { 0.0 };
+	let galley = ui.painter().layout_no_wrap(
+		text,
+		egui::FontId::proportional(if icon.is_some() { 14.0 } else { 12.0 }),
+		theme.muted,
+	);
 	let (rect, response) = ui.allocate_exact_size(
-		vec2(22.0 + galley.size().x, galley.size().y.max(20.0)),
+		vec2(icon_width + galley.size().x, galley.size().y.max(20.0)),
 		egui::Sense::click(),
 	);
 	let color = if response.hovered() {
@@ -1609,13 +1617,18 @@ fn mutual_link(ui: &mut egui::Ui, theme: &Theme, icon: Icon, text: String) -> eg
 	} else {
 		theme.muted
 	};
-	icons::paint(
-		ui.painter(),
-		icon,
-		Rect::from_center_size(pos2(rect.left() + 8.0, rect.center().y), Vec2::splat(16.0)),
-		color,
+	if let Some(icon) = icon {
+		icons::paint(
+			ui.painter(),
+			icon,
+			Rect::from_center_size(pos2(rect.left() + 8.0, rect.center().y), Vec2::splat(16.0)),
+			color,
+		);
+	}
+	let text = pos2(
+		rect.left() + icon_width,
+		rect.center().y - galley.size().y * 0.5,
 	);
-	let text = pos2(rect.left() + 22.0, rect.center().y - galley.size().y * 0.5);
 	let width = galley.size().x;
 	let label = galley.text().to_owned();
 	ui.painter()
@@ -2012,7 +2025,7 @@ fn creation_date(id: Id) -> Option<String> {
 fn local_date(seconds: i64) -> Option<String> {
 	time::OffsetDateTime::from_unix_timestamp(seconds)
 		.ok()
-		.map(|date| crate::local_time::local(date).date().to_string())
+		.map(crate::local_time::date)
 }
 
 /// The role name a plugin receives, held to the host's role-target rules: control
@@ -3598,7 +3611,7 @@ fn card_view(
 			&& catalog.is_some_and(|c| c.owned().next().is_some());
 		// The full profile lists badges inline after the username instead.
 		// With a status bubble in its place, the popout lists badges under the name instead.
-		if (!icon_badges.is_empty() || manage_badges) && !full && thought.is_none() {
+		if (!icon_badges.is_empty() || manage_badges) && !full && !docked && thought.is_none() {
 			const BADGE: f32 = 22.0;
 			let right = banner.right() - PAD;
 			let count = icon_badges.len().max(1) as f32;
@@ -3708,7 +3721,7 @@ fn card_view(
 							.map(|data| data.clan.as_ref())
 							.unwrap_or(user.primary_guild.as_deref())
 							.filter(|_| !avatars.cosmetics.hide_clan_tags);
-						let tag_width = clan.filter(|_| !full).map_or(0.0, |clan| {
+						let tag_width = clan.filter(|_| !full && !docked).map_or(0.0, |clan| {
 							ui.painter()
 								.layout_no_wrap(
 									clan.tag.clone(),
@@ -3761,7 +3774,7 @@ fn card_view(
 									}
 								},
 							);
-							if let Some(clan) = clan.filter(|_| !full) {
+							if let Some(clan) = clan.filter(|_| !full && !docked) {
 								clan_chip(ui, &theme, avatars, clan, state.demo);
 							}
 						});
@@ -3824,9 +3837,15 @@ fn card_view(
 								)
 								.truncate(),
 							);
-							if thought.is_some() && (!icon_badges.is_empty() || manage_badges) {
+							if (docked || thought.is_some())
+								&& (!icon_badges.is_empty()
+									|| manage_badges || docked && clan.is_some())
+							{
 								ui.horizontal_wrapped(|ui| {
 									ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+									if let Some(clan) = clan.filter(|_| docked) {
+										clan_chip(ui, &theme, avatars, clan, state.demo);
+									}
 									for badge in &icon_badges {
 										let response = crate::badges::badge_icon(
 											ui, avatars, badge, catalog, 20.0, state.demo,
@@ -3912,7 +3931,8 @@ fn card_view(
 							ui.add_space(4.0);
 							// Wrap: translated labels (e.g. Czech) can outgrow the fixed card width.
 							ui.horizontal_wrapped(|ui| {
-								ui.spacing_mut().item_spacing = vec2(16.0, 4.0);
+								ui.spacing_mut().item_spacing =
+									vec2(if docked { 8.0 } else { 16.0 }, 4.0);
 								for (kind, count, icon, one, many) in [
 									(
 										Mutuals::Servers,
@@ -3936,7 +3956,7 @@ fn card_view(
 									let link = mutual_link(
 										ui,
 										&theme,
-										icon,
+										(!docked).then_some(icon),
 										format!("{count} {}", crate::i18n::translate(key)),
 									);
 									if link.clicked() {
